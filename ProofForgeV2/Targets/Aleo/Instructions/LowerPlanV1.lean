@@ -44,7 +44,10 @@
     * pureFn/localCall: callFn inlines pureHelper body into caller Final
       (arg operands as params; nested callFn fuel-bounded; pureHelpers
       omitted from top-level function/finalize emission — free helpers)
-    bn254/Goldilocks Field, nested Map, const stay plan-FC.
+    bn254/Goldilocks Field, nested Map stay plan-FC.
+    * ALEO-CONST: literal-backed `Op.Constant` is inlined at Semantic→Plan
+      (`lowerLiteral`); Instructions sees ordinary literal operands (no
+      separate const opcode). String/Principal/aggregate/non-envelope FC.
 
   Profile note (default vs compile) — **ALEO-IR-6 + G5-HARD product primary**:
     * Plan body is profile-insensitive (shared by

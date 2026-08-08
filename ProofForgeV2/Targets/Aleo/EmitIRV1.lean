@@ -1031,8 +1031,8 @@ private def wantLeoDualWriteV1 (ir : IR) (emitLeoDebug : Bool) : Bool :=
 
     **Empty after G5-HARD:** every Plan-admitted shape that reaches materialize
     must Instructions-lower or hard-fail with `ALEO-IR-G5-HARD`. No residual
-    Leo-only primary path remains (Int64/Field/pureFn are lowered; bn254 Field /
-    nested Map / const stay Plan-FC before Instructions). Function kept for
+    Leo-only primary path remains (Int64/Field/pureFn/const are lowered; bn254
+    Field / nested Map stay Plan-FC before Instructions). Function kept for
     API/test classifier stability; always `false`. -/
 def isAleoInstructionsG5HardResidualAllowlistV1 (_message : String) : Bool :=
   false

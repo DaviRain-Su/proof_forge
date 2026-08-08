@@ -31,7 +31,7 @@ compile profile 双写供 locked-leo compare extras）；**IR-7/G6 runtime hones
 **ALEO-COMPILE-COMPARE** Accumulator admit pin（`accumulator-admit.compiled.aleo`；
 Plan→IR ≡ locked Leo；非 multi-program 字节矩阵）；deferred full multi-program leo 矩阵 /
 record custody / prove/deploy / full opcode。不得把 Leo 源写成长期 sole 权威。
-Lane **idle**（下一 **ALEO-CONST**）。**诚实 residual**：full opcode / record / prove deferred（见规划 §10）。
+**ALEO-CONST done（2026-08-08）**：literal-backed `Op.Constant` → Plan `lowerLiteral` 内联 → Instructions 字面量操作数；`testConstProductLower`。Lane **idle**。**诚实 residual**：full opcode / record / prove deferred（见规划 §10）。
 
 ## 当前工程迁移状态（非 formal 完成）
 

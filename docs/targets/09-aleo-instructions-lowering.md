@@ -168,7 +168,7 @@ Pin：Leo **4.0.2** exact；grammar/opcode 文档 rev 写入 supply-chain annota
 | Array/Bytes/Struct flatten | Y | **Y** | **done** | `testProductArrayMultiLeaf` / multi-leaf hand-built |
 | if / match / bounded for | Y（Leo 源） | **Y** | **done** | IR-3 structural + product Branch；for ceiling FC；**ALEO-MULTI-GOLDEN** `testMultiGoldenLoopSumProduct`（full Examples/LoopSum） |
 | pureFn / localCall | Y | **Y** | **done** | G5-HARD callFn inline pureHelper；`testG5HardResidualTrueLower` |
-| const / Op.Constant | F（Constant load FC） | **F** | **plan-FC** | Semantic→Plan Constant FC；`testG5MatrixConstPlanFailClosed` |
+| const / Op.Constant | Y（literal fold） | **Y** | **done** | ALEO-CONST：`Op.Constant` → `lowerLiteral` Plan inline → Instructions `Nu64`/`true`/…；`testConstProductLower` |
 | bare assert / bare revert | Y | **Y** | **done** | `testG5MatrixBoolAssertStructural` + `testG5MatrixProductAssertLower`；bare revert→`assert.eq true false` |
 | emit / call / schedule | F | **F**（IR-5） | **done**（IR FC） / **plan-FC**（product） | Plan `ALEO-IR-5:`；product resolve/lower FC suite |
 | ContextRead / Commit | F / 身份透传 | **F** / 身份透传（IR-5） | **plan-FC** | product context FC；Commit 无 crypto opcode |
@@ -183,9 +183,9 @@ Pin：Leo **4.0.2** exact；grammar/opcode 文档 rev 写入 supply-chain annota
 
 | 桶 | 行数 / 内容 | 说明 |
 |---|---|---|
-| **done** | UInt*/Int64/Field/Bool/assert/revert/mapping/Option/Array/if·match·for/pureFn + IR-5 F rows | 有 Instructions lower 或稳定 `ALEO-IR-5:` 钉测 |
+| **done** | UInt*/Int64/Field/Bool/assert/revert/mapping/Option/Array/if·match·for/pureFn/const + IR-5 F rows | 有 Instructions lower 或稳定 `ALEO-IR-5:` 钉测 |
 | **residual** | **0**（G5-HARD closed） | 原 Int64/Field/pureFn 已 true lower |
-| **plan-FC** | const、bn254/Goldilocks Field、nested Map、Context/assets/record/Principal/String/invariant | 达不到 Instructions；不发明 IR |
+| **plan-FC** | bn254/Goldilocks Field、nested Map、Context/assets/record/Principal/String/invariant、非 envelope Constant | 达不到 Instructions；不发明 IR |
 | **partial** | **0** | 无 PARTIAL 假 Y |
 | **open residual work** | multi-program leo **字节**矩阵 / prove / record / full opcode | **RES-CLEAN done**；**ALEO-MULTI-GOLDEN done**（结构/产品钉）；**ALEO-COMPILE-COMPARE done**（单 admit pin，非矩阵）；IR-7 **PARTIAL/MISSING**；全量字节矩阵 / record / prove / full opcode **deferred**（见 §10）；`deployable=false` |
 
@@ -414,7 +414,7 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 |---|---|---|
 | 1 | **ALEO-MULTI-GOLDEN** | **done（2026-08-08，engineering）**：多 fixture **结构/产品** Plan→Instructions 钉测（见下分类）；**不**要求全量 multi-program leo 字节金样 |
 | 2 | **ALEO-COMPILE-COMPARE** | **done（2026-08-08，engineering）**：Accumulator admit-surface locked-leo `compiled.aleo` 对照金样 + Plan→IR 字节相等；live recheck tool-optional；缺工具 honest skip（见下） |
-| 3 | **ALEO-CONST** | 若 Plan 侧能诚实 admit `Op.Constant`：Instructions Constant lower；否则保持 plan-FC 钉测 |
+| 3 | **ALEO-CONST** | **done（2026-08-08，engineering）**：literal-backed `Op.Constant` 在 Semantic→Plan 经 `lowerLiteral` 内联为 Plan literal；Instructions 见普通字面量操作数（无独立 const opcode）；UInt64/Bool/UInt32 product pins；非 envelope（String/Principal/aggregate/bn254…）仍 `lowerLiteral` FC；Counter golden 不变 |
 
 ##### ALEO-MULTI-GOLDEN / COMPILE-COMPARE 分类（结构 vs 字节金样）
 
@@ -444,4 +444,4 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 7. **可选未来**：若上游提供 package-only execute 且进入 Tool Lock，扩展 `aleo_runtime_test.sh` 为 Counter host-heavy 差分（仍非 ordinary ci）。
 
 规划 owner：engineering。
-产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-0..IR-7 + G5-MATRIX + G5-HARD + RES-CLEAN + **ALEO-MULTI-GOLDEN** + **ALEO-COMPILE-COMPARE** 已工程 closeout（产品 primary = Instructions；Leo debug-only；residual allowlist 空；runtime execute MISSING/PARTIAL；结构多 fixture + 单 admit locked-leo 对照 pin；下一 **ALEO-CONST**）。
+产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-0..IR-7 + G5-MATRIX + G5-HARD + RES-CLEAN + **ALEO-MULTI-GOLDEN** + **ALEO-COMPILE-COMPARE** + **ALEO-CONST** 已工程 closeout（产品 primary = Instructions；Leo debug-only；residual allowlist 空；runtime execute MISSING/PARTIAL；结构多 fixture + 单 admit locked-leo 对照 pin；literal-backed const 内联为 Instructions 字面量；Lane idle）。

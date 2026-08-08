@@ -32,6 +32,11 @@ capacity 2; `ValidatePlanV1` enforces the set budget fail-closed), and
 **fixed Bytes N** (N×`u8 => u8` mappings; u8 params/results; native u8
 checked arithmetic, same trap semantics).
 
+LOWERED (ALEO-CONST): `Op.Constant` for the same scalar envelope as
+    `Op.Literal` (UInt{8,16,32,64}/Int64/Bool/BLS12-377 Field init-0) inlines
+    via `lowerLiteral` on the constant's canonical `valueBytes` — no separate
+    Plan/Instructions const declaration; exact named-const → literal fold.
+
 FAIL-CLOSED (explicit pins, not catch-all GAP):
   * **Field (bn254 Fr)** — research pin: Aleo native `field` is the BLS12-377
     scalar field (Edwards BLS Fr = BLS12-377 Fr), **not** catalog bn254 Fr.
@@ -43,6 +48,9 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
     multi-leaf view-over-state stay fail-closed). Option of non-UInt64,
     nested Option, and Option params stay fail-closed. String/Principal state,
     UInt128/256 and Int{8,16,32}/Int128/256 stay fail-closed.
+  * **Constant outside literal envelope** (String/Principal/aggregates/bn254/
+    Goldilocks Field, non-zero high BLS12-377 Field bytes) stay fail-closed at
+    the shared `lowerLiteral` boundary.
   * **Computed state-reading views** — only bare public-state reads map to
     the off-chain `leo query` model; `balanceOf`-style match-on-state views
     fail closed. Multi-leaf aggregate `view` returns over state also
@@ -1922,8 +1930,36 @@ private partial def lowerRegion
                 | none => leaves.map (fun _ => false)
               env := envInsertVal env valueDef.valueId
                 (mkAggregateValFlags outLeaves intFlags uintWidths)
-    | .constant .. =>
-        planError "unsupported Aleo semantic shape: Constant load is outside the public UInt64 envelope"
+    | .constant constantId => do
+        -- ALEO-CONST: constants are literal-backed (N-CONST valueBytes).
+        -- Reuse the same type-directed decoder as Op.Literal — no separate
+        -- Plan/Instructions const declaration; inlining is exact.
+        let constant ← match data.constants[constantId.toNat]? with
+          | some c => pure c
+          | none =>
+              planError "unsupported Aleo semantic shape: Constant references an unknown constant id"
+        unless constant.id == constantId do
+          planError "unsupported Aleo semantic shape: Constant id does not match declaration order"
+        let valueDef ← match instr.result with
+          | some vd => pure vd
+          | none =>
+              planError "unsupported Aleo semantic shape: Constant instruction must produce a value"
+        unless valueDef.typeId == constant.typeId do
+          planError "unsupported Aleo semantic shape: Constant result typeId must match the declaration"
+        let e ← lowerLiteral data layout.types constant.typeId constant.valueBytes
+        if isInt64Type data constant.typeId then
+          env := envInsertInt env valueDef.valueId e
+        else if isBls12377FieldType layout.types constant.typeId then
+          env := envInsertVal env valueDef.valueId (mkScalarFieldVal e)
+        else
+          match uintWidthOfType data constant.typeId with
+          | some w =>
+              if isNarrowUintWidth w then
+                env := envInsertUint env valueDef.valueId w e
+              else
+                env := envInsert env valueDef.valueId e
+          | none =>
+              env := envInsert env valueDef.valueId e
     | .checkedCast .. =>
         planError "unsupported Aleo semantic shape: CheckedCast is outside the public UInt64 envelope"
   -- Terminator

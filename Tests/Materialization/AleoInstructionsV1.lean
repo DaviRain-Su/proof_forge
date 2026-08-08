@@ -22,7 +22,8 @@
   * ALEO-IR-6: product primary Instructions ≡ golden; Leo debug dual-write
   * G5-HARD: Int64 / Field BLS12-377 / pureFn callFn inline true lower;
     empty residual allowlist; no silent Leo-only primary
-  * const / nested Map stay plan-FC
+  * ALEO-CONST: literal-backed Op.Constant product lower (inline Plan
+    literal → Instructions `Nu64`); nested Map stays plan-FC
   * ALEO-IR-7 / G6: runtime honesty pin — package-only snarkVM execute is
     **MISSING** (PARTIAL); `scripts/aleo_runtime_test.sh` + `just aleo-runtime`
     fail closed `PF-TOOLCHAIN-MISSING` (never PATH; never invent CLI);
@@ -1258,10 +1259,10 @@ unsafe def testEffectsHonestyProductFailClosed : IO Unit := do
 /-!
   ## ALEO-G5-MATRIX admit pins
 
-  Honesty: residual Int64 / Field BLS12-377 / pureFn stay **residual** (stable
-  `ALEO-IR-4` FC) even when Leo path admits them; nested Map + const never
-  reach Instructions (plan/Semantic FC). Bool/compare/logic + bare assert/revert
-  are **done** with structural IR pins (no false Y).
+  Honesty: G5-HARD closed Int64 / Field BLS12-377 / pureFn as **done**.
+  Nested Map stays plan-FC. ALEO-CONST: literal-backed `Op.Constant` product
+  lower inlines as Instructions literal operands (same envelope as
+  `Op.Literal`). Bool/compare/logic + bare assert/revert are **done**.
 -/
 
 /-- G5-MATRIX: Bool / compare / logical + bare assert + bare revert → Instructions. -/
@@ -1373,8 +1374,38 @@ unsafe def testG5MatrixProductAssertLower : IO Unit := do
   expect (countAssertEqInFinalize prog "take" ≥ 1)
     "product take finalize carries assert.eq"
 
-/-- G5-MATRIX: const declaration stays plan-FC (Constant load not on Aleo Plan). -/
-unsafe def testG5MatrixConstPlanFailClosed : IO Unit := do
+/-- Operand walk: true when any instruction uses a literal with this spelling. -/
+private def hasLiteralSpelling (p : ProgramV1) (spelling : String) : Bool :=
+  Id.run do
+    let hit (op : OperandV1) : Bool :=
+      match op with
+      | .literal s => s == spelling
+      | _ => false
+    for item in p.items do
+      let body :=
+        match item with
+        | .finalize f => f.body
+        | .function f => f.body
+        | .constructor c => c.body
+        | .mapping _ => #[]
+      for i in body do
+        let found :=
+          match i with
+          | .unary _ src _ => hit src
+          | .binary _ l r _ => hit l || hit r
+          | .ternary c t e _ => hit c || hit t || hit e
+          | .typeCast src _ _ => hit src
+          | .assertEq l r => hit l || hit r
+          | .getOrUse _ k d _ => hit k || hit d
+          | .set v _ k => hit v || hit k
+          | .branchEq l r _ => hit l || hit r
+          | .input .. | .output .. | .asyncCall .. | .position _ => false
+        if found then return true
+    pure false
+
+/-- ALEO-CONST: product const bare place → Op.Constant → Plan literal →
+    Instructions `7u64` operand (inline; no separate const opcode). -/
+unsafe def testConstProductLower : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
@@ -1388,30 +1419,50 @@ unsafe def testG5MatrixConstPlanFailClosed : IO Unit := do
     "    count := count + K\n" ++
     "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<aleo-g5-const>" "Tests.AleoG5Const" none)
-  match Compiler.compileValidatedSourceV1 parsed with
-  | .error e =>
-      expect (e.render.length > 0)
-        "const must fail closed with a diagnostic"
-  | .ok compiled =>
-      let selection ← liftResult <|
-        BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
-      match resolveEngineeringRequirementsV1 selection compiled with
-      | .error e =>
-          expect (e.render.length > 0) "const resolve FC"
-      | .ok cap =>
-          match programFromCapabilityV1 cap with
-          | .ok _ =>
-              throw <| IO.userError
-                "const must fail closed before/at Instructions lower (plan-FC)"
-          | .error e =>
-              expect (
-                  e.render.contains "Constant" ||
-                  e.render.contains "const" ||
-                  e.render.contains "ALEO" ||
-                  e.render.contains "unsupported" ||
-                  e.render.length > 0)
-                s!"const plan-FC diagnostic, got: {e.render}"
+    source "<aleo-const>" "Tests.AleoConst" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let prog ← liftResult <| programFromCapabilityV1 cap
+  expect (prog.name == "constbox.aleo") "const program name"
+  expect (hasLiteralSpelling prog "7u64")
+    "const K:=7 must lower to Instructions literal 7u64"
+  expect (hasBinaryOp prog "add")
+    "count + K must lower to add"
+  let encoded := encodeProgram prog
+  expect (encoded.length > 0) "const product encode nonempty"
+  match decodeProgram? encoded with
+  | none => throw <| IO.userError "const product encode→decode failed"
+  | some p2 => expect (p2 == prog) "const product structural round-trip"
+  -- Bool + narrow UInt const share the same lowerLiteral path.
+  let source2 :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ConstNarrow where\n" ++
+    "  const FLAG : Bool := true\n" ++
+    "  const W : UInt32 := 3\n" ++
+    "  state count : UInt32\n" ++
+    "  init(initial : UInt32) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump() : UInt32 do\n" ++
+    "    if FLAG then\n" ++
+    "      count := count + W\n" ++
+    "    else\n" ++
+    "      count := count\n" ++
+    "    return count\n"
+  let parsed2 ← liftResult (← session.selectProgramV1
+    source2 "<aleo-const-narrow>" "Tests.AleoConstNarrow" none)
+  let compiled2 ← liftResult <| Compiler.compileValidatedSourceV1 parsed2
+  let cap2 ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled2
+  let prog2 ← liftResult <| programFromCapabilityV1 cap2
+  expect (hasLiteralSpelling prog2 "true")
+    "Bool const true must lower to literal true"
+  expect (hasLiteralSpelling prog2 "3u32")
+    "UInt32 const 3 must lower to literal 3u32"
+  expect (hasBinaryOp prog2 "add") "narrow const add"
 
 /-- G5-HARD: former residual bucket true lower (Int64 / Field / pureFn). -/
 private def testG5HardResidualTrueLower : IO Unit := do
@@ -2050,7 +2101,7 @@ unsafe def run : IO Unit := do
   testEffectsHonestyProductFailClosed
   testG5MatrixBoolAssertStructural
   testG5MatrixProductAssertLower
-  testG5MatrixConstPlanFailClosed
+  testConstProductLower
   testG5HardResidualTrueLower
   testG5HardResidualAllowlistClassifier
   testG5MatrixNestedMapPlanFailClosed
