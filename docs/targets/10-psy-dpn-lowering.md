@@ -9,7 +9,7 @@ normative: false
 
 # Psy DPN 层落地规划
 
-状态：`draft`（规划输入；DPN-1..7 engineering 已落地；**G5-WIDE** mul/div/shift + **G5-AGG** Array/Principal/Bytes/Struct multi-leaf + **G5-MATRIX** §3.2 admit 扫描/FC pins + **G5-HARD** residual allowlist / non-residual materialize hard-fail 已闭合；**R-NARROW** UInt8/16/32 守卫算术 DPN lower 已闭合；**R-INT** Int64 signedCompare/checkedNeg + Int{8,16,32} two's-complement signed 算术/比较 DPN lower 已闭合；**R-SHIFT-BIT** UInt64 shl/shr + checkedBitNot DPN lower 已闭合；**R-PURE** pureFn/localCall callFn inline DPN lower 已闭合；**R-HARD** narrow bitwise/shift + Goldilocks Field DPN lower + residual allowlist 已清空（full hard-require）；**G6-DEBUG** 产品默认仅 `{name}.dpn.json`，`.psy` 为 opt-in debug（`PROOF_FORGE_PSY_EMIT_PSY=1` / `emitPsyDebug`）；**G6-RUNTIME** DPN-first plant + PARTIAL `.psy` execute（locked dargo 0.1.0 无 package-only 标志）；仍 open：optional dargo package 字节金样）
+状态：`draft`（规划输入；DPN-1..7 engineering 已落地；**G5-WIDE** mul/div/shift + **G5-AGG** Array/Principal/Bytes/Struct multi-leaf + **G5-MATRIX** §3.2 admit 扫描/FC pins + **G5-HARD** residual allowlist / non-residual materialize hard-fail 已闭合；**R-NARROW** UInt8/16/32 守卫算术 DPN lower 已闭合；**R-INT** Int64 signedCompare/checkedNeg + Int{8,16,32} two's-complement signed 算术/比较 DPN lower 已闭合；**R-SHIFT-BIT** UInt64 shl/shr + checkedBitNot DPN lower 已闭合；**R-PURE** pureFn/localCall callFn inline DPN lower 已闭合；**R-HARD** narrow bitwise/shift + Goldilocks Field DPN lower + residual allowlist 已清空（full hard-require）；**G6-DEBUG** 产品默认仅 `{name}.dpn.json`，`.psy` 为 opt-in debug（`PROOF_FORGE_PSY_EMIT_PSY=1` / `emitPsyDebug`）；**G6-RUNTIME** DPN-first plant + PARTIAL `.psy` execute（locked dargo 0.1.0 无 package-only 标志）；**G6-PIN** WideCounter256 VM product Plan→DPN 结构 pin 已闭合；全量 dargo package 字节金样 **有意 deferred**（见 §10））
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Psy target 的权威物化从 **文本 `.psy`** 切到 **官方 DPN 方法级定义**，并评估 **ProgramV1 语法/语义能覆盖到 DPN target 的范围**。
 
 权威上游（pin）：
@@ -175,7 +175,7 @@ Pin rev 与 dargo 0.1.0 不一致时 **fail closed**（文档 + Tool Lock 同步
 | **done / partial** | 全部 Y + 两 P | 有 DPN lower 或诚实 PARTIAL + `PsyDpnV1` 钉测 |
 | **residual** | **0** | R-HARD 后 `isPsyDpnG5HardResidualAllowlistV1` 恒 false；无 `.psy`-only residual 路径 |
 | **plan-FC** | bn254 Field、nested Map、result-bearing call、Context/Commit、invariant、assets… | 产品 Plan 前拒绝；不发明 DPN |
-| **open residual work** | dargo 字节金样 / method_id 官方 hash | **R-NARROW** + **R-INT** + **R-SHIFT-BIT** + **R-PURE** + **R-HARD** + **G6-DEBUG** + **G6-RUNTIME** done（2026-08-08） |
+| **open residual work** | 全量 dargo package 字节金样 / method_id 官方 hash | **R-*** + **G6-DEBUG** + **G6-RUNTIME** + **G6-PIN** done（2026-08-08）；WideCounter256 结构 pin 已合；全量 dargo 字节金样 **deferred**（见 §10） |
 
 **结论（规划层 + G5-MATRIX + R-HARD + G6-DEBUG 事实）：**
 在 **Psy 已开放且 Plan admit 的子集** 上，物化 **必须** 产出 `.dpn.json` primary，或 `PSY-DPN-G5-HARD` fail；`.psy` 仅 opt-in debug（env / `emitPsyDebug`）；**plan-FC** 族不经 DPN 旁路。
@@ -210,12 +210,12 @@ ProofForgeV2/Targets/Psy/
 | G0 | Schema + 金样 decode | **done（DPN-1）** | Counter dargo JSON round-trip / 字段钉死 |
 | G1 | Lower Counter | **done（DPN-2）** | 我们生成的 DPN JSON 与 dargo 金样 **结构相等** |
 | G2 | Accumulator / OptionState / LoopSum | **partial（DPN-3/4）** | Plan→DPN 结构门（LoopSum/OptionState）；**非** runtime 差分同 oracle |
-| G3 | WideCounter VM | **done（DPN-4 + G5-WIDE）** | multi-leaf + UInt128 add + schoolbook mul + restoring div/mod + limb shift DPN |
+| G3 | WideCounter VM | **done（DPN-4 + G5-WIDE + G6-PIN）** | multi-leaf + UInt128 add + schoolbook mul + restoring div/mod + limb shift DPN；**G6-PIN** WideCounter256 8-limb product 结构 pin |
 | G4 | Map / 聚合 | **done（DPN-5）** | MapMini+Token Plan→DPN；.psy 破点绕过 |
-| G5 | 全 admit 面扫描 | **done（G5-WIDE + G5-AGG + G5-MATRIX + G5-HARD + R-HARD）** | §3.2 每行 DPN 钉测或 plan-FC；residual 桶 **0**；allowlist 空 + materialize hard-require；dargo 字节金样仍 open |
-| G6 | Execute 消费 DPN | **partial（G6-DEBUG + G6-RUNTIME done）** | 产品默认 DPN-only；runtime DPN-first plant `target/<pkg>.json`；locked dargo 0.1.0 execute 仍强制 `.psy`（PARTIAL；无 package-only 标志） |
+| G5 | 全 admit 面扫描 | **done（G5-WIDE + G5-AGG + G5-MATRIX + G5-HARD + R-HARD）** | §3.2 每行 DPN 钉测或 plan-FC；residual 桶 **0**；allowlist 空 + materialize hard-require；全量 dargo 字节金样 **deferred**（§10） |
+| G6 | Execute 消费 DPN | **partial（G6-DEBUG + G6-RUNTIME + G6-PIN done）** | 产品默认 DPN-only；runtime DPN-first plant `target/<pkg>.json`；locked dargo 0.1.0 execute 仍强制 `.psy`（PARTIAL；无 package-only 标志）；WideCounter256 结构 pin |
 
-G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛；**G6-DEBUG** 已使 `.psy` 非 default；**G6-RUNTIME** 已将 `just psy-runtime` 切 DPN-first plant + PARTIAL `.psy` execute。
+G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛；**G6-DEBUG** 已使 `.psy` 非 default；**G6-RUNTIME** 已将 `just psy-runtime` 切 DPN-first plant + PARTIAL `.psy` execute；**G6-PIN** 已钉 WideCounter256 结构 package。
 ---
 
 ## 5. 分阶段实现（建议顺序）
@@ -251,7 +251,8 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 - [x] multi-leaf `storeAggregate` / `returnAggregate` → multi `Get/Set … SlotSingle`（engineering sub_slot = fieldIndex+4，对齐 WideCounter dargo 证据；单叶 Counter 模板保持金样）
 - [x] OptionState 产品 Plan→DPN（双叶 tag+payload）；手建 4-limb UInt128 init/get/add（limbAdd/Select/overflow assert + u32 param range）
 - [x] UInt128 **仅** `psy-dargo-0.1.0-vm-v1`（默认 profile 在 Plan 层 FC）
-- [x] **G5-WIDE（2026-08-08）**：`bindWideUintMul` schoolbook 8×UInt16（U32And/U32ShiftRight + Target Mul/Add + `u128 mul overflow`）；`bindWideUintDivMod` 四段×32 步 restoring 全展开（limb range + zero-div + internal asserts；无 Felt `/`/`%`）；`bindWideUintShift` 固定 128-step bit walk（U32Shift*/U32Or + Select；`invalidShift`/`u128 shl overflow`）；per-limb `bitAnd`/`bitOr`/`bitXor` 经 U32+CastFelt；WideCounter VM product Plan→DPN；UInt256 同算法路径（limbCount=8）已接通、产品金样可选
+- [x] **G5-WIDE（2026-08-08）**：`bindWideUintMul` schoolbook 8×UInt16（U32And/U32ShiftRight + Target Mul/Add + `u128 mul overflow`）；`bindWideUintDivMod` 四段×32 步 restoring 全展开（limb range + zero-div + internal asserts；无 Felt `/`/`%`）；`bindWideUintShift` 固定 128-step bit walk（U32Shift*/U32Or + Select；`invalidShift`/`u128 shl overflow`）；per-limb `bitAnd`/`bitOr`/`bitXor` 经 U32+CastFelt；WideCounter VM product Plan→DPN；UInt256 同算法路径（limbCount=8）已接通
+- [x] **G6-PIN（2026-08-08）**：`Examples/WideCounter256` 显式 VM profile product Plan→DPN **结构** pin（8 Sets sub_slot 4..11；`u256 mul overflow` / `u256 div by zero` / `u256 mod by zero` / `invalidShift: count >= 256` / `u256 shl overflow` / U32Shift*；default profile FC）；**非** locked-dargo 全量 package 字节相等
 - [x] **G5-AGG（2026-08-08）**：Array UInt64 N / Principal wire-identity（len+8×UInt32）/ Bytes 1..8 / named Struct flatten → multi `SlotSingle` via existing `storeAggregate`/`returnAggregate`（sub_slot=`fieldIndex+4`）；`PsyDpnV1` 手建 + product Plan→DPN；Nested Map / Map return / Principal return 保持 Plan FC
 - [ ] Array/Struct/Principal/Bytes 与 locked-dargo 全量 package 字节相等（可选；结构已由 multi-leaf Single 路径 + G5-AGG 产品门覆盖）
 
@@ -284,6 +285,7 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 - [x] **R-HARD（2026-08-08）**：narrow bitwise/shift/bitNot + Goldilocks Field expr → DPN（mirror EmitIR）；`isPsyDpnG5HardResidualAllowlistV1` **恒 false**（full hard-require）
 - [x] **G6-DEBUG（2026-08-08）**：产品默认 **仅** `{name}.dpn.json`；过渡 `{name}.psy` 仅 opt-in（`emitPsyDebug := true` 或 env `PROOF_FORGE_PSY_EMIT_PSY=1`）；EmitIR `.psy` lower 保留 gated；`deployable=false`
 - [x] **G6-RUNTIME（2026-08-08）**：`just psy-runtime` / `PsyAcceptance` / `psy_acceptance.sh` DPN-first — 默认产品 build 要求 sole `{name}.dpn.json`、package-shape 校验、plant 为 `target/<package>.json`；method names ⊆ post-compile package；**PARTIAL**：locked dargo 0.1.0 无 package-only execute/compile 标志（`execute` 只 *写* package JSON，始终重编译 `.psy`），local-VM 差分仍 `PROOF_FORGE_PSY_EMIT_PSY=1`；不经 product Finalize；`deployable=false`
+- [x] **G6-PIN（2026-08-08）**：WideCounter256 VM product Plan→DPN **结构** pin（`PsyDpnV1`）；全量 dargo package 字节金样 **deferred**（包体膨胀 + 无 package-only dargo 路径；Counter 仍为 sole 全量字节金样；见 §10）
 
 ---
 
@@ -348,10 +350,17 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 
 ---
 
-## 10. 下一步（DPN-1..7 + G5 + R-HARD + G6-DEBUG + G6-RUNTIME 已闭合后）
+## 10. 下一步（DPN-1..7 + G5 + R-HARD + G6-DEBUG + G6-RUNTIME + G6-PIN 已闭合后）
 
 1. **G6-RUNTIME（2026-08-08 done，PARTIAL）**：`scripts/psy_runtime_test.sh` 先跑默认 DPN-only product build + plant `target/<pkg>.json`；execute 差分仍 opt-in `.psy`（locked dargo 无 package-only 标志；不发明 CLI flag）。`PsyAcceptance`/`psy_acceptance.sh` 同步 plant + method ⊆ 检查。
-2. **可选硬化**：WideCounter256 product package pin；dargo 全量 package 字节相等金样；method_id 官方 hash 复刻；Tool Lock 镜像 `psy-node` rev；若上游 dargo 增加 package-only execute，再去掉 `.psy` PARTIAL。
+2. **G6-PIN（2026-08-08 done）**：`PsyDpnV1` 钉 `Examples/WideCounter256` VM product Plan→DPN 结构（8-limb init Sets、u256 mul/div/mod/shift asserts、get 8 outputs、encode 为合法 JSON 数组；default profile FC）。**不是** full package 字节金样。
+3. **全量 dargo package 字节金样 — deferred（诚实理由，非漏做）**：
+   - **sole 全量字节金样**仍为 `testdata/golden/psy-dpn-v1/counter-package.v1.json`（locked-dargo Counter，三方法、小包、结构+字节双钉）。
+   - WideCounter / WideCounter256 的 DPN 为 **全展开** schoolbook mul + restoring div + `bitWidth`-step shift；UInt256 包体相对 Counter 极大，把 exact UTF-8 字节当 CI 金样会膨胀仓库与 diff 噪声，且与 “结构 pin 已覆盖 admit 面” 的价值不成比例。
+   - locked dargo 0.1.0 **无 package-only** compile/execute：`execute` 只 *写* package 并始终重编译 `.psy`，因此无法在不经文本路径的前提下从官方工具链稳定抓取 “sole DPN 权威” 的 multi-method 宽整数金样；MapMini 等路径 dargo 仍破 return-in-if，更无法生成官方 Map package 金样。
+   - method_id：**Counter 三方法**已 pin 官方 id；其余方法用 engineering FNV-1a（`engineeringMethodIdV1`），**非** `gen_dapen_contract_function_method_id` 跨语言复刻——后者属可选硬化，需 psy_crypto/官方 pin，不阻塞 DPN-primary product。
+   - 何时可 revisit：上游 dargo 增加 package-only 消费、或 Tool Lock 增加可复现的 multi-host dargo package 抓取流水线；届时优先仍应先 pin **小包**（Counter 已有）再考虑宽整数子集。
+4. **仍 optional**：method_id 官方 hash 复刻；Tool Lock 镜像 `psy-node` rev；若上游 dargo 增加 package-only execute，再去掉 `.psy` PARTIAL。
 
 规划 owner：engineering。
 产品决策 implicit：用户已确认 “对准 DPN 层” 与 “ProgramV1 admit 面尽量全覆盖到 DPN target”。

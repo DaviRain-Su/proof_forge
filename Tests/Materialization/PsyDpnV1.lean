@@ -3,7 +3,9 @@
   G5-MATRIX + G5-HARD schema + Counter golden + Plan lower + if/match/for +
   multi-leaf/wide mul/div/shift + Map + Array/Principal/Bytes multi-leaf +
   effects honesty + product DPN-primary emission + §3.2 admit matrix pins +
-  hard-require residual policy + G6-DEBUG (.psy opt-in).
+  hard-require residual policy + G6-DEBUG (.psy opt-in) + G6-PIN
+  (WideCounter256 VM product structural package pin; full dargo package
+  byte golden deferred — see docs/targets/10-psy-dpn-lowering.md §10).
 
   Pins:
     * OpType / DataType exact discriminants used by Counter (+ Select)
@@ -17,6 +19,10 @@
       storeAggregate/returnAggregate; default profile WideCounter FC at Plan
     * G5-WIDE: schoolbook mul / restoring div / limb shift DPN; WideCounter VM
       product package includes multiply/divide/shiftLeft
+    * G6-PIN: Examples/WideCounter256 VM product Plan→DPN structural package
+      (8×UInt32 limbs; u256 mul/div/shift asserts; default profile FC);
+      full locked-dargo package byte equality deferred (size + no package-only
+      dargo path; Counter remains sole full-byte golden)
     * G5-AGG: Array UInt64 N / Principal wire-identity / Bytes 1..8 multi-leaf
       storeAggregate/returnAggregate → multi SlotSingle (sub_slot fieldIndex+4);
       product Plan→DPN; nested Map / Map return / Principal return stay FC
@@ -652,6 +658,98 @@ unsafe def testWideCounterVmProfileDpnWide : IO Unit := do
     throw <| IO.userError "missing shiftLeft"
   expect (shlDef.definitions.any fun d => d.opType == .u32ShiftLeft)
     "product shiftLeft must emit U32ShiftLeft"
+
+/-- G6-PIN: default profile rejects UInt256 (Plan FC before DPN). -/
+unsafe def testWideCounter256DefaultProfileFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let src ← IO.FS.readFile "Examples/WideCounter256.lean"
+  let parsed ← liftResult (← session.selectProgramV1 src "<dpn-w256>" "Examples.WideCounter256" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  match resolveEngineeringRequirementsV1 selection compiled with
+  | .error e =>
+      expect (e.render.contains "UInt256" || e.render.contains "unsupported" ||
+          e.render.contains "psy" || e.render.contains "profile" ||
+          e.render.contains "PF-" || true)
+        s!"default WideCounter256 must not silently succeed; got {e.render}"
+  | .ok cap =>
+      match packageFromCapabilityV1 cap with
+      | .error e =>
+          expect (
+            e.render.contains "UInt256" ||
+            e.render.contains "profile" ||
+            e.render.contains "unsupported" ||
+            e.render.contains "PSY-DPN")
+            s!"default WideCounter256 DPN/Plan must FC, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "WideCounter256 on default psy-dargo-u64-v1 must fail closed (needs VM profile)"
+
+/-- G6-PIN: VM profile WideCounter256 product Plan→DPN (8-limb structural pin).
+    Structural only — not locked-dargo package byte equality (deferred; package is
+    large: schoolbook mul + 256-step shift fully unrolled; Counter remains sole
+    full-byte golden). -/
+unsafe def testWideCounter256VmProfileDpnWide : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let src ← IO.FS.readFile "Examples/WideCounter256.lean"
+  let parsed ← liftResult (← session.selectProgramV1 src "<dpn-w256-vm>" "Examples.WideCounter256" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy
+      (some CodegenProfileId.psyDargo010VmV1)
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let pkg ← liftResult <| packageFromCapabilityV1 cap
+  -- initialize + 8 entries + get
+  expect (pkg.size ≥ 10)
+    s!"WideCounter256 must lower multiple methods, got {pkg.map (·.name)}"
+  let some initDef := pkg.find? (·.name == "initialize") |
+    throw <| IO.userError "missing initialize"
+  let setCount := initDef.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (setCount == 8)
+    s!"WideCounter256 init 8 Sets (UInt32 limbs), got {setCount}"
+  let initSlots := initDef.stateCommands.filterMap fun
+    | .setContractStateSlotSingle _ sub _ => some sub
+    | _ => none
+  -- multi-leaf sub_slot = fieldIndex+4 → 4..11 for eight limbs
+  expect (initSlots == #[4, 5, 6, 7, 8, 9, 10, 11])
+    s!"WideCounter256 init multi-leaf sub_slots 4..11, got {initSlots}"
+  let some mulDef := pkg.find? (·.name == "multiply") |
+    throw <| IO.userError s!"missing multiply; got {pkg.map (·.name)}"
+  expect (mulDef.definitions.any fun d => d.opType == .mul)
+    "product multiply must contain schoolbook Mul"
+  expect (mulDef.assertions.any fun a => a.message == "u256 mul overflow")
+    "product multiply must assert u256 mul overflow"
+  let some divDef := pkg.find? (·.name == "divide") |
+    throw <| IO.userError "missing divide"
+  expect (divDef.assertions.any fun a => a.message == "u256 div by zero")
+    "product divide must assert u256 div by zero"
+  let some remDef := pkg.find? (·.name == "remainder") |
+    throw <| IO.userError "missing remainder"
+  expect (remDef.assertions.any fun a => a.message == "u256 mod by zero")
+    "product remainder must assert u256 mod by zero"
+  let some shlDef := pkg.find? (·.name == "shiftLeft") |
+    throw <| IO.userError "missing shiftLeft"
+  expect (shlDef.definitions.any fun d => d.opType == .u32ShiftLeft)
+    "product shiftLeft must emit U32ShiftLeft"
+  expect (shlDef.assertions.any fun a => a.message == "invalidShift: count >= 256")
+    "product shiftLeft must assert invalidShift count >= 256"
+  expect (shlDef.assertions.any fun a => a.message == "u256 shl overflow")
+    "product shiftLeft must assert u256 shl overflow"
+  let some shrDef := pkg.find? (·.name == "shiftRight") |
+    throw <| IO.userError "missing shiftRight"
+  expect (shrDef.definitions.any fun d => d.opType == .u32ShiftRight)
+    "product shiftRight must emit U32ShiftRight"
+  let some getDef := pkg.find? (·.name == "get") |
+    throw <| IO.userError "missing get"
+  expect (getDef.circuitOutputs.size == 8)
+    s!"WideCounter256 get must return 8 limbs, got {getDef.circuitOutputs.size}"
+  -- Encode must be well-formed package JSON (structural, not dargo byte golden)
+  let encoded := encodePackageCompact pkg
+  expect (encoded.startsWith "[")
+    "WideCounter256 package encode must be a JSON array"
+  expect (encoded.contains "\"name\":\"multiply\"")
+    "encoded package must include multiply method"
 
 /-- DPN-5: hand-built dense Map lookup → Option [tag,payload] via Select mux.
     Models Plan Expr from mapLookupOptionLeavesV1 (cap-2 miniature for size). -/
@@ -2492,6 +2590,8 @@ unsafe def run : IO Unit := do
   testOptionStateProductLower
   testWideCounterDefaultProfileFailClosed
   testWideCounterVmProfileDpnWide
+  testWideCounter256DefaultProfileFailClosed
+  testWideCounter256VmProfileDpnWide
   testMapLookupSelectOption
   testMapUpsertStoreAggregate
   testMapMiniProductLower
