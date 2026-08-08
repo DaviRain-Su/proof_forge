@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 5371,
+      "bytes": 5420,
       "path": "ProofForgeV2.lean",
-      "sha256": "0dca9b09671667e9ebb96f97db9cb037f41aab69fe1cf97a588b8e23bcd23b5a"
+      "sha256": "45a36cd7c0bd3da46cbc3b6c2556a85dba1186dd6586552045209ba1aca7b54b"
     },
     {
       "bytes": 80509,
@@ -269,6 +269,11 @@
       "bytes": 28192,
       "path": "ProofForgeV2/ProofInstances/EvenCounterV1.lean",
       "sha256": "c9d9e5371891fee19987289e8c90331ae4708bf30707c057885513abb298eaee"
+    },
+    {
+      "bytes": 25772,
+      "path": "ProofForgeV2/ProofInstances/ZeroCounterV1.lean",
+      "sha256": "37a0e51a2aed15291e08b081765590ae535f140d66a1db720a7f8a8b6fd21c2f"
     },
     {
       "bytes": 8688,

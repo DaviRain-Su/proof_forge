@@ -78,6 +78,7 @@ import ProofForgeV2.Semantic.PreservationPackagingV1
 import ProofForgeV2.ProofInstances.EvenCounterV1
 import ProofForgeV2.ProofInstances.EvenCounterDecodeV1
 import ProofForgeV2.ProofInstances.EvenCounterPreservationV1
+import ProofForgeV2.ProofInstances.ZeroCounterV1
 import ProofForgeV2.Semantic.ProofBundleV1
 import ProofForgeV2.Semantic.InlineProofPolicyV1
 import ProofForgeV2.Semantic.ProofSubjectV1

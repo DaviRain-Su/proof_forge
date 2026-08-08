@@ -12,22 +12,30 @@
 - `done` — committed green
 - `blocked` — needs human (record reason; skip to later only if independent)
 
-## Queue (strict order)
+## Wave 1 (packaging / pin / docs) — drained
 
 | id | status | objective |
 |---|---|---|
-| bf-pack-1 | done | Extract **program-agnostic** preservation packaging lemmas from `EvenCounterPreservationV1` into a new shared module under `ProofForgeV2/Semantic/` (suggested name `PreservationPackagingV1.lean`). Candidates: gate-ready packaging from returned outcomes, post=pre returned arm, uint64 size-from-validate, failure-arm / Outcome unchanged helpers that do not mention EvenCounter constants. Import from ProofInstances; keep EvenCounter product GREEN. **GREEN 2026-08-09** committed: `PreservationPackagingV1` + EvenCounter thin wrappers + SBOM pin + focused lake builds exit 0. |
-| bf-pack-2 | done | Refactor `EvenCounterPreservationV1` to **consume** shared packaging lemmas; delete duplicate instance-local copies when defeq-safe; `lake build` instance + `Tests.Compiler.InlineProofCertifierV1` still GREEN. **GREEN 2026-08-09** uncommitted per runner: deleted thin aliases (`preservation_step_failure_arms` / `step_returned_implies_gate_ready` / `preservation_step_returned_post_eq_pre`); step/get-returned call packaging directly; focused lake builds exit 0. |
-| bf-unpin-1 | done | Harden **non-pin** author path: document + test that unpinned programs prove via packaging / eq-bytes without pin table growth. Pin remains golden accelerator only. **GREEN 2026-08-09**: ClosedSubjectPin/PreservationPackaging author recipe docs; `Tests.Semantic.ClosedSubjectPinV1` pin miss + eq-bytes transport. |
-| bf-docs-1 | done | Sync INV-2 / Agents Active·Next / ADR-0034 status after packaging + unpin; `just docs-check`; no formal overclaim. **GREEN 2026-08-09** docs + Goal/workflow autonomous drain entry. |
+| bf-pack-1 | done | PreservationPackagingV1 extract |
+| bf-pack-2 | done | EvenCounter consumes packaging |
+| bf-unpin-1 | done | non-pin author path + suite |
+| bf-docs-1 | done | docs/Goal/workflow sync |
 
-## Done criteria (program complete)
+## Wave 2 — second non-AMM instance (ZeroCounter, P: count==0)
 
-All four rows `done`, worktree clean, EvenCounter preserving product still certified, ADR-0027 still not superseded.
+| id | status | objective |
+|---|---|---|
+| bf2-data | done | Closed `ZeroCounterV1` data + 1499-byte spine + `structure_ok` + `encode_ok` + admission decide; different P from EvenCounter; suite `Tests.Semantic.ZeroCounterV1` |
+| bf2-preserve | pending | `ZeroCounterPreservationV1`: base + full `PreservationStepV1` + `preservation_theorem` reusing packaging; no second step machine |
+| bf2-product | pending | Product source alignment + optional pin + InlineProofCertifier product-positive for ZeroCounter |
+| bf2-docs | pending | INV-2 / Agents / ADR-0034 / research-023 second-instance status; docs-check |
+
+## Done criteria (wave 2)
+
+All bf2-* `done`, EvenCounter still GREEN, ZeroCounter preserving product certified (or explicit partial bar documented), ADR-0027 not superseded.
 
 ## Runner notes
 
-1. One slice per fire when possible; never expand into MiniAmm or second AMM instance.
-2. Second non-AMM instance remains **deferred** (not in this queue).
-3. After each green slice: local commit only (no push); update this table status.
-4. If blocked, write reason under the row and stop that slice; next fire re-reads this file.
+1. One slice per fire when possible; never MiniAmm in this wave.
+2. After each green slice: local commit only (no push); update this table.
+3. Prefer Goal `/goal @.grok/goals/prompt-business-formalization.md` or `/workflow business-formalization-drain` (update prompts to read wave 2 rows).

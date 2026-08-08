@@ -110,6 +110,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Semantic.InvariantABI,
     `Tests.Semantic.PreservationABI,
     `Tests.Semantic.ClosedSubjectPinV1,
+    `Tests.Semantic.ZeroCounterV1,
     `Tests.Semantic.InvariantTheoremV1,
     `Tests.Semantic.ProofBridgeV1,
     `Tests.Semantic.ProofedCertV1,
