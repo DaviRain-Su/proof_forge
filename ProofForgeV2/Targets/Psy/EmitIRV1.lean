@@ -1604,8 +1604,11 @@ private partial def emitStatements
         out := out ++ stmts ++ #[.eventEmit evName args']
         ctx := ctx'
     | .revertError errorIndex args => do
+        -- PSY-TYPED-ERROR: Plan lower already rejects nonempty args; Emit
+        -- depth-defends and tags zero-payload reverts as `revert:Name`.
         unless args.isEmpty do
-          planError "unsupported Psy semantic shape: revert with error arguments cannot be expressed on the Psy surface"
+          planError
+            "unsupported Psy semantic shape: revert with error payload arguments is not admitted on Psy (PSY-TYPED-ERROR FC)"
         let errName := ctx.errorNames[errorIndex]?.getD "revert"
         out := out.push (.abort s!"revert:{errName}")
     | .bareRevert =>

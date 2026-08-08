@@ -12,6 +12,15 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy zero-payload typed errors（PSY-TYPED-ERROR engineering）
+
+- Zero-arg `revert Name` remains `assert(false, "revert:Name")`.
+- Zero-arg `assert c else Name` now tags `assert:Name` (was silently bare assert).
+- Parameterized error payloads (nonempty fields / revert args) stay fail closed:
+  no structured dargo error-payload ABI.
+- Bare assert path unchanged. PsySource pins zero-arg open + payload FC.
+- Non-claims: not a multi-field error ABI, not formal rollback/VM product.
+
 ## 2026-08-08 — Psy nonempty invariants evidence fail closed（PSY-INVARIANT）
 
 - Nonempty `InvariantDecl` / `.invariant` callables fail closed with diagnostics

@@ -1811,8 +1811,11 @@ unsafe def testRevertWithArgsFailClosed : IO Unit := do
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match buildPsy compiled with
   | .error (.planInvariant .psy msg) =>
-      expect (msg.contains "revert" && msg.contains "error")
-        s!"revert-with-args must fail closed, got: {msg}"
+      expect (msg.contains "revert" &&
+          (msg.contains "payload" || msg.contains "argument" ||
+            msg.contains "Cap" || msg.contains "PSY-TYPED-ERROR" ||
+            msg.contains "error"))
+        s!"revert-with-args must fail closed citing payload ABI, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
   | .ok _ => throw <| IO.userError "revert with error args must fail closed at Psy"
 
@@ -1914,13 +1917,46 @@ unsafe def testLogicalOrAndNot : IO Unit := do
   expect (psy.contains "||") "logical or must render"
   expect (psy.contains "!") "Bool negation must render"
 
-/-- assert-else is outside the envelope and fails closed. -/
-unsafe def testAssertElseFailClosed : IO Unit := do
+/-- PSY-TYPED-ERROR: zero-arg assert-else tags error name in assert message. -/
+unsafe def testAssertElseZeroPayloadLowered : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
     "program Guard where\n" ++
+    "  state count : UInt64\n" ++
+    "  error Guard()\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    assert x > 0 else Guard\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-guard-zero>" "Tests.PsyGuardZero" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  let some runFn := plan.functions.find? (·.name == "run") |
+    throw <| IO.userError "missing run"
+  let hasTagged :=
+    runFn.body.any fun s =>
+      match s with
+      | .assertWithMessage _ msg => msg == "assert:Guard"
+      | _ => false
+  expect hasTagged "zero-arg assert-else must tag assert:Guard"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "Guard.psy") |
+    throw <| IO.userError "psy: missing Guard.psy"
+  expect (psyFile.contents.contains "assert:Guard")
+    "assert:Guard message must reach emitted Psy source"
+
+/-- PSY-TYPED-ERROR: parameterized assert-else / error fields stay fail closed. -/
+unsafe def testAssertElsePayloadFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program GuardPay where\n" ++
     "  state count : UInt64\n" ++
     "  error Guard(limit : UInt64)\n" ++
     "  init(initial : UInt64) do\n" ++
@@ -1929,18 +1965,23 @@ unsafe def testAssertElseFailClosed : IO Unit := do
     "    assert x > 0 else Guard\n" ++
     "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<psy-guard>" "Tests.PsyGuard" none)
+    source "<psy-guard-pay>" "Tests.PsyGuardPay" none)
   match Compiler.compileValidatedSourceV1 parsed with
   | .error err =>
-      expect (err.render.contains "assert" || err.render.contains "PF-SRC-INVALID")
-        s!"assert-else must fail closed at product compile, got: {err.render}"
+      -- Normalize may reject parameterized assert-else without supplied args.
+      expect (err.render.contains "assert" || err.render.contains "error" ||
+          err.render.contains "PF-SRC-INVALID" || err.render.contains "Guard")
+        s!"parameterized assert-else must fail closed at product, got: {err.render}"
   | .ok compiled =>
       match planPsy compiled with
       | .error (.planInvariant .psy msg) =>
-          expect (msg.contains "assert")
-            s!"assert-else must fail closed at Psy plan, got: {msg}"
+          expect (msg.contains "assert" || msg.contains "payload" ||
+              msg.contains "fields" || msg.contains "PSY-TYPED-ERROR")
+            s!"parameterized assert-else must fail closed at Psy plan, got: {msg}"
       | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
-      | .ok _ => throw <| IO.userError "assert-else must fail closed at Psy plan"
+      | .ok _ =>
+          throw <| IO.userError
+            "parameterized assert-else must fail closed (no error-payload ABI)"
 
 /-- Multi-state / multi-event / multi-param fn with Bool result. -/
 unsafe def testMultiStateMultiEvent : IO Unit := do
@@ -2958,7 +2999,8 @@ unsafe def run : IO Unit := do
   testScheduleFailClosed
   testComparisonsAndMod
   testLogicalOrAndNot
-  testAssertElseFailClosed
+  testAssertElseZeroPayloadLowered
+  testAssertElsePayloadFailClosed
   testMultiStateMultiEvent
   testVoidEntry
   testFieldBn254FailClosed

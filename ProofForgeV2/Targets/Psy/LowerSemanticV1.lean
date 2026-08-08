@@ -101,6 +101,15 @@ closure DAG and carried `invariantSteps` fuel as Semantic/Wire. Emitting
 unused asserts or dummy `val`/`fn` would overclaim target refinement.
 Inline product `check` certification (ADR-0027) is orthogonal and is **not**
 target Plan lowering of invariants. Empty invariants remain admitted.
+
+## PSY-TYPED-ERROR (2026-08-08)
+
+Zero-payload declared errors are honest on dargo as string-tagged aborts:
+`revert Name` → `assert(false, "revert:Name")`; zero-arg `assert c else Name`
+→ `assert(c, "assert:Name")`. Parameterized error **payloads** (nonempty
+fields / revert args) stay fail closed — no structured error selector/payload
+ABI or VM-observable field encoding exists on the Psy surface. Bare assert
+and zero-arg paths remain stable.
 -/
 
 namespace ProofForgeV2.Targets.Psy
@@ -2143,13 +2152,30 @@ private partial def lowerRegion
           ls := { ls with stmts := ls.stmts.push (.store fi e) }
         else
           ls := { ls with stmts := ls.stmts.push (.storeAggregate leafIdxs leaves) }
-    | .assert_ condition _ args => do
+    | .assert_ condition errorId args => do
+        -- PSY-TYPED-ERROR: zero-payload assert-else tags the declared error name
+        -- in the dargo assert message (`assert:Name`). Parameterized error
+        -- payloads have no honest structured ABI on Psy/dargo → fail closed.
         unless args.isEmpty do
-          planError "unsupported Psy semantic shape: assert-else is outside the envelope"
+          planError
+            "unsupported Psy semantic shape: assert-else with error payload arguments is not admitted (no dargo structured error-payload ABI; PSY-TYPED-ERROR FC for nonempty fields)"
         let c ← match envLookupExpr env condition with
           | some e => pure e
           | none => planError "unsupported Psy semantic shape: assert references an undefined condition"
-        ls := { ls with stmts := ls.stmts.push (.assert c) }
+        match errorId with
+        | none =>
+            ls := { ls with stmts := ls.stmts.push (.assert c) }
+        | some eid =>
+            let errDecl ← match data.errors[eid.toNat]? with
+              | some e => pure e
+              | none =>
+                  planError "unsupported Psy semantic shape: assert-else references an unknown error id"
+            unless errDecl.fields.isEmpty do
+              planError
+                s!"unsupported Psy semantic shape: assert-else error '{errDecl.name}' has fields but no payload args (parameterized error ABI not admitted on Psy; PSY-TYPED-ERROR FC)"
+            let guard : Statement :=
+              .assertWithMessage c s!"assert:{errDecl.name}"
+            ls := { ls with stmts := ls.stmts.push guard }
     | .emit _effectId eventId args => do
         let argExprs ← lookupArgs env args "emit"
         ls := { ls with stmts := ls.stmts.push (.emitEvent eventId.toNat argExprs) }
@@ -2797,8 +2823,16 @@ private partial def lowerRegion
             | none => planError "unsupported Psy semantic shape: return references an undefined value"
       pure { stmts, join? := none }
   | .revert errorId args => do
+      -- PSY-TYPED-ERROR: zero-payload named revert → abort message `revert:Name`
+      -- (stable EmitIR path). Nonempty field payloads have no structured dargo
+      -- ABI → fail closed (not string-encoded fake fields).
       unless args.isEmpty do
-        planError "unsupported Psy semantic shape: revert with error arguments cannot be expressed on the Psy surface"
+        let errName :=
+          match data.errors[errorId.toNat]? with
+          | some e => e.name
+          | none => "error"
+        planError
+          s!"unsupported Psy semantic shape: revert '{errName}' with error payload arguments is not admitted (no dargo structured error-payload ABI; zero-payload named revert remains open; PSY-TYPED-ERROR FC)"
       let stmts := ls.stmts.push (.revertError errorId.toNat #[])
       pure { stmts, join? := none }
   | .trap _ => do
