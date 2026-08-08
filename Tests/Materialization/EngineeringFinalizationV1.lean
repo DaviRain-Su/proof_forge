@@ -84,7 +84,7 @@ private def solanaProductNotePrefix : String :=
   "solana-sbpf-cpi-elf-v1 sbpf "
 
 private def noirNote : String :=
-  "no approved and digest-pinned Noir compiler/proving backend is configured; relation source/schema were emitted without ACIR, witness execution, proof, or verification"
+  "NOIR-IR-6: default noir-source-u64-relations-v1 finalization is zero-tool; relation source/schema (.nr transitional/debug base) were emitted without invoking nargo; ACIR product dual-write is opt-in profile noir-nargo-1.0.0-beta.26-acir-v1 (nargo-assisted path-normalized ProgramArtifact finalized-extra); no witness execution, proof, or verification (deployable=false); pure-Lean ACIR opcode encoder is not implemented"
 
 private def aleoNote : String :=
   "product finalization does not invoke the locked Leo compiler or a proving backend; ALEO-IR-6 + G5-HARD primary is Aleo Instructions text ({id}.aleo when Plan→Instructions succeeds) plus network-state query descriptor; transitional Leo 4 source is debug-only (PROOF_FORGE_ALEO_EMIT_LEO=1 or emitLeoDebug build flag, or compile-profile dual-write for compare); residual allowlist empty — Plan admitted but Instructions lower fails with ALEO-IR-G5-HARD (no silent Leo-only primary); no leo build, execution, proof, or deployment evidence (deployable=false)"
@@ -560,3 +560,4 @@ unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.EngineeringFinalizationV1: ok"
 
 end Tests.Materialization.EngineeringFinalizationV1
+

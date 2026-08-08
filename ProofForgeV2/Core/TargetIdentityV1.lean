@@ -198,7 +198,14 @@ def solanaSbpfCpiElfV1 : CodegenProfileId := ⟨"solana-sbpf-cpi-elf-v1"⟩
     member; kept only so historical strings/tests can name the removed id. -/
 def solanaSbpfElfV1 : CodegenProfileId := ⟨"solana-sbpf-elf-v1"⟩
 def nearWasmRawU64V1 : CodegenProfileId := ⟨"near-wasm-raw-u64-v1"⟩
+/-- Default Noir source-relations profile (zero-tool product finalize; transitional
+    `.nr` packages). Plan surface is shared with the explicit nargo ACIR profile. -/
 def noirSourceU64RelationsV1 : CodegenProfileId := ⟨"noir-source-u64-relations-v1"⟩
+/-- Explicit Noir nargo-assisted ACIR dual-write profile (NOIR-IR-6). Same Plan /
+    `.nr` base emission as `noirSourceU64RelationsV1`; Finalize invokes locked
+    nargo 1.0.0-beta.26 to emit path-normalized ProgramArtifact extras.
+    Remains `deployable=false` and claims no prove/verify/VK/witness product. -/
+def noirNargoAcirV1 : CodegenProfileId := ⟨"noir-nargo-1.0.0-beta.26-acir-v1"⟩
 /-- Default Aleo Leo 4.0.2 source-only profile (zero-tool product finalize). -/
 def aleoLeoU64V1 : CodegenProfileId := ⟨"aleo-leo-4.0.2-u64-v1"⟩
 /-- Explicit Aleo Leo 4.0.2 compile-only product profile (same Plan surface as

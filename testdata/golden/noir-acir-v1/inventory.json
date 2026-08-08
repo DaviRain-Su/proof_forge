@@ -20,7 +20,7 @@
     "IR-2 Plan→ACIR MVP path decision = nargo-assisted capture (CaptureV1); not pure-Lean ACIR encoder",
     "IR-2 Counter product Plan source packages must ≡ product/* pins; live nargo capture must ≡ nargo-compile/* circuit core",
     "deployable=false; no prove/verify product claim",
-    "product Finalize remains non-deployable source emission (no ACIR OutputFile until IR-6)"
+    "product default Finalize remains zero-tool non-deployable; IR-6 opt-in noir-nargo-1.0.0-beta.26-acir-v1 dual-writes path-normalized ProgramArtifact finalized-extra"
   ],
   "circuitHashes": {
     "r0-init": "17547139497077004670",

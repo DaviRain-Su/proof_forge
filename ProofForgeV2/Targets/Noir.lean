@@ -19,10 +19,12 @@ Plan canonicity lives in `ValidatePlanV1`. IR emission and
 `irFromCapability`/`buildFromCapability` live in `EmitIRV1`.
 `FinalizeV1` remains a separate submodule.
 
-ACIR authority (NOIR-IR-1/IR-2):
+ACIR authority (NOIR-IR-1..IR-6):
 * `Acir/InventoryV1` — frozen multi-file ProgramArtifact golden pins
-* `Acir/CaptureV1` — nargo-assisted Plan→ACIR MVP + G3 admit-surface pins (not pure-Lean
-  opcode encoder; `.nr` remains transitional product emission until IR-6)
+* `Acir/CaptureV1` — nargo-assisted Plan→ACIR capture + G3 pins + honesty matrix
+  (not pure-Lean opcode encoder; `.nr` transitional/debug base)
+* `FinalizeV1` — default zero-tool; opt-in `noir-nargo-1.0.0-beta.26-acir-v1`
+  dual-writes path-normalized ProgramArtifact finalized-extra (IR-6)
 -/
 
 namespace ProofForgeV2.Targets.Noir

@@ -1,5 +1,5 @@
 /-
-  Noir Plan → ACIR capture (NOIR-IR-2 + NOIR-IR-3 / G3 + NOIR-IR-5 honesty).
+  Noir Plan → ACIR capture (NOIR-IR-2 + NOIR-IR-3 / G3 + NOIR-IR-5 + NOIR-IR-6).
 
   ## Path decision (IR-2, frozen)
 
@@ -8,19 +8,20 @@
 
   ```
   ProgramV1 → Semantic → NoirPlan → relation IR → product .nr packages
-       (EmitIRV1 transitional source emission; remains product OutputFile)
+       (EmitIRV1 transitional / debug base emission)
                               │
                               ▼
                locked nargo 1.0.0-beta.26 `nargo compile`
                               │
                               ▼
-               ProgramArtifact JSON circuit core
-                 (noir_version, hash, bytecode=base64(gzip ACIR))
+               path-normalized ProgramArtifact JSON
+                 (noir_version, hash, bytecode=base64(gzip ACIR), …)
                               │
                               ▼
                ≡ testdata/golden/noir-acir-v1/ (IR-1 inventory, Counter)
                  + G3 admit-surface circuit-hash pins (IR-3)
                  + IR-5 honesty matrix (no false Y)
+                 + IR-6 optional profile dual-write extras
   ```
 
   Transitivity pin (always available without nargo):
@@ -62,12 +63,24 @@
   No false Y: every Y row has IR-1/IR-2/IR-3 capture evidence; F/P rows have
   plan-FC or honesty notes (not silent pass).
 
+  ## IR-6 / G4 product dual-write
+
+  Host-dependent ACIR cannot be ordinary zero-tool Finalize. Product path:
+
+  * default `noir-source-u64-relations-v1` — zero-tool; transitional `.nr` base;
+    evidence notes ACIR authority is nargo-assisted + optional profile
+  * explicit `noir-nargo-1.0.0-beta.26-acir-v1` — Finalize dual-writes
+    path-normalized ProgramArtifact JSON as `finalized-extra` under
+    `nargo-compile/{stem}/{pf_relation_N}.json`; missing nargo fail-closed
+    (`PF-TOOLCHAIN-MISSING`); still `deployable=false`; no prove/VK
+
   Honesty:
   * `deployable=false`; no prove/verify/VK/witness product claim.
-  * Product Finalize remains source-only (no ACIR OutputFile — IR-6).
-  * Capture is host-heavy / non-hermetic when nargo is invoked.
+  * Default Finalize remains zero-tool (no host ACIR).
+  * Capture / ACIR profile Finalize is host-heavy / non-hermetic when nargo runs.
   * Does **not** decode ACIR opcodes (bytecode stays opaque base64 gzip).
-  * Does **not** invent a backend when nargo is absent.
+  * Does **not** invent a backend when nargo is absent on live-skip paths;
+    ACIR profile requires nargo.
 
   Schema id: `proof-forge.noir-acir-capture.v1`
 -/
@@ -88,10 +101,12 @@ def pathDecisionV1 : String := "nargo-assisted"
 
 /-- Human-readable authority note (docs/tests join). -/
 def authorityNoteV1 : String :=
-  "Plan→ACIR MVP authority is nargo-assisted capture of ProgramArtifact " ++
+  "Plan→ACIR authority is nargo-assisted capture of ProgramArtifact " ++
   "circuit core (noir_version+hash+bytecode) from product Plan .nr packages " ++
   "via locked nargo 1.0.0-beta.26; pure-Lean ACIR opcode encoder is not " ++
-  "implemented; .nr remains transitional product emission until IR-6; " ++
+  "implemented; .nr remains transitional/debug base emission; " ++
+  "IR-6 product dual-write is opt-in profile noir-nargo-1.0.0-beta.26-acir-v1 " ++
+  "(path-normalized ProgramArtifact finalized-extra; default Finalize zero-tool); " ++
   "G3 admit-surface CF/aggregate circuit-hash pins share this path; " ++
   "IR-5 honesty matrix pins call/schedule P (witness-binding only), " ++
   "String/Option non-UInt64 F (plan-FC), prove/VK F (no product prove); " ++
@@ -194,13 +209,45 @@ def resolveNargoPathV1 : IO (Option String) := do
       return some path
   return none
 
-/-- Run `nargo compile --silence-warnings` in `packageDir` and capture the
-    ProgramArtifact circuit core for `artifactName` under `target/`.
+/-- Rewrite every JSON `"path":"..."` field to the frozen package-relative
+    `src/main.nr` pin and ensure a trailing newline. Host absolute paths in
+    raw nargo `file_map` are not product identity. -/
+def pathNormalizeProgramArtifactTextV1 (raw : String) : String :=
+  let needle := "\"path\":\""
+  match raw.splitOn needle with
+  | [] => if raw.endsWith "\n" then raw else raw ++ "\n"
+  | head :: rest =>
+      let out :=
+        rest.foldl (init := head) fun acc (segment : String) =>
+          match segment.splitOn "\"" with
+          | _old :: after =>
+              acc ++ needle ++ normalizedSourcePathV1 ++ "\"" ++
+                String.intercalate "\"" after
+          | [] => acc ++ needle
+      if out.endsWith "\n" then out else out ++ "\n"
+
+/-- Extract `[package] name = "…"` from product `Nargo.toml` text. -/
+def extractNargoPackageNameV1 (toml : String) : Option String :=
+  let needle := "name = \""
+  match toml.splitOn needle with
+  | [_, rest] =>
+      match rest.splitOn "\"" with
+      | name :: _ => if name.isEmpty then none else some name
+      | [] => none
+  | _ => none
+
+/-- Extra path layout for IR-6 dual-write: `nargo-compile/{stem}/{artifact}.json`. -/
+def acirExtraRelPathV1 (relationStem artifactFileName : String) : String :=
+  s!"nargo-compile/{relationStem}/{artifactFileName}"
+
+/-- Run `nargo compile --silence-warnings` in `packageDir` and return the
+    path-normalized ProgramArtifact UTF-8 text for `artifactName` under
+    `target/` plus its circuit core.
 
     Host-heavy / non-hermetic. Caller must have already resolved a real nargo. -/
-def compilePackageCaptureCircuitCoreV1
+def compilePackageCaptureProgramArtifactV1
     (nargo : String) (packageDir : FilePath) (artifactName : String) :
-    IO CircuitCoreV1 := do
+    IO (String × CircuitCoreV1) := do
   let process ← IO.Process.output {
     cmd := nargo
     args := #["compile", "--silence-warnings"]
@@ -215,11 +262,23 @@ def compilePackageCaptureCircuitCoreV1
     throw <| IO.userError
       s!"nargo-assisted capture: missing ProgramArtifact {livePath}"
   let raw ← IO.FS.readFile livePath
-  match extractCircuitCoreV1 raw with
-  | some core => pure core
+  let normalized := pathNormalizeProgramArtifactTextV1 raw
+  match extractCircuitCoreV1 normalized with
+  | some core => pure (normalized, core)
   | none =>
       throw <| IO.userError
         s!"nargo-assisted capture: cannot extract circuit core from {livePath}"
+
+/-- Run `nargo compile --silence-warnings` in `packageDir` and capture the
+    ProgramArtifact circuit core for `artifactName` under `target/`.
+
+    Host-heavy / non-hermetic. Caller must have already resolved a real nargo. -/
+def compilePackageCaptureCircuitCoreV1
+    (nargo : String) (packageDir : FilePath) (artifactName : String) :
+    IO CircuitCoreV1 := do
+  let (_text, core) ←
+    compilePackageCaptureProgramArtifactV1 nargo packageDir artifactName
+  pure core
 
 /-- Load frozen golden ProgramArtifact circuit core for a Counter relation pin. -/
 def loadGoldenCircuitCoreV1 (pin : RelationCapturePinV1) : IO CircuitCoreV1 := do
@@ -678,11 +737,28 @@ def honestyProveNoteV1 : String :=
   "no product prove/verify/VK path; Finalize deployable=false; evidence notes " ++
   "deny ACIR/witness/proof/verification; prove/VK matrix row remains F until G6"
 
-/-- Exact Finalize evidence note text (join with FinalizeV1). -/
+/-- Exact default-profile Finalize evidence note text (join with FinalizeV1).
+    Zero-tool; ACIR product dual-write is opt-in profile only (NOIR-IR-6). -/
 def finalizeEvidenceNoteV1 : String :=
-  "no approved and digest-pinned Noir compiler/proving backend is configured; " ++
-  "relation source/schema were emitted without ACIR, witness execution, proof, " ++
-  "or verification"
+  "NOIR-IR-6: default noir-source-u64-relations-v1 finalization is zero-tool; " ++
+  "relation source/schema (.nr transitional/debug base) were emitted without " ++
+  "invoking nargo; ACIR product dual-write is opt-in profile " ++
+  "noir-nargo-1.0.0-beta.26-acir-v1 (nargo-assisted path-normalized " ++
+  "ProgramArtifact finalized-extra); no witness execution, proof, or " ++
+  "verification (deployable=false); pure-Lean ACIR opcode encoder is not " ++
+  "implemented"
+
+/-- Exact ACIR-profile Finalize evidence note prefix (nargo path/version filled
+    by FinalizeV1; suite joins on stable substrings). -/
+def finalizeAcirEvidenceNotePrefixV1 : String :=
+  "NOIR-IR-6: noir-nargo-1.0.0-beta.26-acir-v1 nargo-assisted dual-write of " ++
+  "path-normalized ProgramArtifact JSON as finalized-extra under " ++
+  "nargo-compile/{relation}/{pf_relation_N}.json; " ++
+  ".nr bases remain transitional/debug nargo input; no prove/verify/VK/" ++
+  "witness product claim (deployable=false)"
+
+/-- Product ACIR profile id wire string (join with TargetIdentity). -/
+def productAcirProfileV1 : String := "noir-nargo-1.0.0-beta.26-acir-v1"
 
 /-- True when a status is a true Y admit (used to guard false-Y). -/
 def isHonestyYV1 (s : HonestyStatusV1) : Bool :=

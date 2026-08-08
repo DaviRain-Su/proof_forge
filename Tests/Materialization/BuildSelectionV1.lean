@@ -205,7 +205,9 @@ private def testGrammar : IO Unit := do
   expect (CodegenProfileId.nearWasmRawU64V1 == (← parseProfile "near-wasm-raw-u64-v1"))
     "well-known near profile constant"
   expect (CodegenProfileId.noirSourceU64RelationsV1 == (← parseProfile "noir-source-u64-relations-v1"))
-    "well-known noir profile constant"
+    "well-known noir source profile constant"
+  expect (CodegenProfileId.noirNargoAcirV1 == (← parseProfile "noir-nargo-1.0.0-beta.26-acir-v1"))
+    "well-known noir ACIR profile constant"
   expect (CodegenProfileId.psyDargo010VmV1 == (← parseProfile "psy-dargo-0.1.0-vm-v1"))
     "well-known Psy dargo VM profile constant"
   expect (CodegenProfileId.psyDargoU64V1 == (← parseProfile "psy-dargo-u64-v1"))
@@ -307,6 +309,16 @@ private def testRegistrySeedMembership : IO Unit := do
   | none => throw <| IO.userError "ghost Aleo profile must be grammar-valid"
   expectDefault TargetId.near "near-wasm-raw-u64-v1"
   expectDefault TargetId.noir "noir-source-u64-relations-v1"
+  match ← liftResult (registration? TargetId.noir) with
+  | some reg =>
+      expect (reg.profiles ==
+          #[CodegenProfileId.noirNargoAcirV1, CodegenProfileId.noirSourceU64RelationsV1])
+        s!"Noir profiles must be ASCII ascending acir then source, got {reg.profiles.map (·.toString)}"
+  | none => throw <| IO.userError "missing Noir registration"
+  let noirAcir ← liftResult <|
+    resolveBuildSelectionV1 TargetId.noir (some CodegenProfileId.noirNargoAcirV1)
+  expect (noirAcir.codegenProfile == CodegenProfileId.noirNargoAcirV1)
+    "Noir resolve explicit ACIR profile"
   expectDefault TargetId.psy "psy-dargo-u64-v1"
   match ← liftResult (registration? TargetId.psy) with
   | some reg =>
@@ -860,3 +872,4 @@ Hint: Additional diagnostic information may be available using the `set_option d
 -/
 #guard_msgs in
 #synth Inhabited NetworkProfileId
+

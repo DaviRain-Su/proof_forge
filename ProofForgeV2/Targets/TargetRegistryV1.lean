@@ -542,8 +542,12 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
     row .near (semanticsAxesOfKindV1 .near)
       #[CodegenProfileId.nearWasmRawU64V1]
       (some CodegenProfileId.nearWasmRawU64V1),
+    -- Noir dual profiles (ASCII ascending: nargo-acir < source-relations);
+    -- default remains zero-tool source. Same Plan / `.nr` base surface; the
+    -- explicit nargo ACIR profile dual-writes path-normalized ProgramArtifact
+    -- extras during Finalize (NOIR-IR-6; deployable=false; no prove/VK).
     row .noir (semanticsAxesOfKindV1 .noir)
-      #[CodegenProfileId.noirSourceU64RelationsV1]
+      #[CodegenProfileId.noirNargoAcirV1, CodegenProfileId.noirSourceU64RelationsV1]
       (some CodegenProfileId.noirSourceU64RelationsV1),
     row .cosmwasm (semanticsAxesOfKindV1 .cosmwasm)
       #[CodegenProfileId.cosmwasmWasmU64V1]

@@ -32,8 +32,18 @@ open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
 
 def codegenProfileString : String := "noir-source-u64-relations-v1"
+/-- Residual default Noir codegen profile (source-relations, zero-tool finalize).
+    The nargo ACIR profile (`noirNargoAcirV1`) is a second selection identity
+    with the same Plan surface; any change to the supported surface or the nargo
+    toolchain requires a new profile. -/
 def codegenProfile : CodegenProfileId := CodegenProfileId.noirSourceU64RelationsV1
 def sourceDialect : String := "noir-native-u64-relations-v1"
+
+/-- Defensive allowlist for Noir capability profiles. Both registered profiles
+    share the same retained-Semantic Plan lowering; unknown profiles fail closed. -/
+private def isAdmittedNoirCodegenProfile (profile : CodegenProfileId) : Bool :=
+  profile == CodegenProfileId.noirSourceU64RelationsV1 ||
+    profile == CodegenProfileId.noirNargoAcirV1
 
 /-- Shared descriptor data (single source: DescriptorDataV1). -/
 def descriptor : TargetDescriptor := DescriptorDataV1.noir
@@ -3458,10 +3468,17 @@ private def makePlanFromSemanticV1
         throw <| .invalidProgram "Noir received an invalid SemanticProgramV1 carrier"
   makePlanFromSemanticDataV1 artifactProgramName sourceHash semanticHash data
 
-/-- Internal Noir family phase entry: capability → Plan (pre-canonicity). -/
+/-- Internal Noir family phase entry: capability → Plan (pre-canonicity).
+    Both admitted Noir profiles share the same retained-Semantic Plan body
+    (Plan/planDigest are profile-insensitive; Plan.codegenProfile remains the
+    source-relations wire string); unknown profiles fail closed. -/
 def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
   unless ResolvedEngineeringBuildV1.kindOf capability == .noir do
     throw <| .planInvariant .noir "engineering capability kind is not Noir"
+  let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
+  unless isAdmittedNoirCodegenProfile profile do
+    throw <| .planInvariant .noir
+      s!"Noir materialize rejects unknown codegen profile '{profile}'"
   let compiled := ResolvedEngineeringBuildV1.compiledOf capability
   let source := CompiledSemanticV1.semanticV1Of compiled
   let sourceHash ← CompiledSemanticV1.artifactSourceHashHexOf compiled

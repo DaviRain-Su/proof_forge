@@ -474,6 +474,10 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmRequests,
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 evmRequests,
     mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 nearRequests,
+    -- Noir dual profiles share the exact S2 catalog set; ACIR dual-write is a
+    -- Finalize/profile selection (NOIR-IR-6), not a new requirement id.
+    -- ASCII ascending: nargo-acir < source-relations.
+    mkImplementedRow .noir CodegenProfileId.noirNargoAcirV1 catalogRequests,
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
     -- Psy VM profile initially shares the exact S2 requirement set with the
     -- historical source profile. Capability differences remain target-owned

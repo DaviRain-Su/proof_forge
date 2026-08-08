@@ -1,8 +1,9 @@
 /-
-  NOIR-IR-1 + NOIR-IR-2 + NOIR-IR-3 (G3) + NOIR-IR-5 (honesty matrix):
+  NOIR-IR-1 + NOIR-IR-2 + NOIR-IR-3 (G3) + NOIR-IR-5 (honesty) + NOIR-IR-6 (product):
   Counter nargo ProgramArtifact golden inventory pin, Plan→ACIR MVP via
   nargo-assisted capture, admit-surface control-flow / aggregate circuit-hash
-  pins, and §3.2 honesty matrix FC boundaries.
+  pins, §3.2 honesty matrix FC boundaries, and IR-6 optional ACIR dual-write
+  profile (default Finalize remains zero-tool).
 
   IR-1 freezes:
   * product Noir relation packages for Examples/Counter
@@ -26,22 +27,29 @@
   * prove/VK = F (Finalize deployable=false; no product prove)
   * No false Y
 
+  IR-6 / G4 product dual-write:
+  * default `noir-source-u64-relations-v1` Finalize zero-tool + IR-6 evidence note
+  * opt-in `noir-nargo-1.0.0-beta.26-acir-v1` dual-writes path-normalized
+    ProgramArtifact finalized-extra; nargo missing → PF-TOOLCHAIN-MISSING
+  * Counter extras ≡ golden circuit core (live when nargo present)
+
   Optional live recheck when `nargo` is present. Missing nargo → honest skip of
   live capture only (inventory pin + source-join + package-stem + honesty matrix
-  still run).
+  + default-profile IR-6 pins still run).
 
-  **Not** ACIR opcode decode, product ACIR OutputFile (IR-6), prove/verify,
-  deployable, or formal.
+  **Not** ACIR opcode decode, prove/verify, deployable, or formal.
 -/
 import ProofForgeV2.Targets.Noir.Acir.InventoryV1
 import ProofForgeV2.Targets.Noir.Acir.CaptureV1
 import ProofForgeV2.Targets.Noir.FinalizeV1
 import ProofForgeV2.Core.Crypto
+import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.CLI.Emit
 import Tests.Language.ParserSession
 
 namespace Tests.Materialization.NoirAcirV1
@@ -53,12 +61,14 @@ open ProofForgeV2.Targets.Noir.Acir.InventoryV1
 open ProofForgeV2.Targets.Noir.Acir.CaptureV1
   (pathDecisionV1 authorityNoteV1 counterRelationPinsV1
    circuitCoresEqualV1 circuitCoreMatchesPinsV1 resolveNargoPathV1
-   compilePackageCaptureCircuitCoreV1 loadGoldenCircuitCoreV1
-   productPackageSourceJoinV1 admitSurfaceFixturesV1
+   compilePackageCaptureCircuitCoreV1 compilePackageCaptureProgramArtifactV1
+   loadGoldenCircuitCoreV1 pathNormalizeProgramArtifactTextV1
+   extractCircuitCoreV1 productPackageSourceJoinV1 admitSurfaceFixturesV1
    admitSurfaceCapturePinCountV1 nargoCompileExitCodeV1
    AdmitSurfaceFamilyV1
    honestyMatrixRowsV1 honestyCallScheduleNoteV1 honestyOptionStringNoteV1
-   honestyProveNoteV1 finalizeEvidenceNoteV1
+   honestyProveNoteV1 finalizeEvidenceNoteV1 finalizeAcirEvidenceNotePrefixV1
+   productAcirProfileV1 acirExtraRelPathV1
    callSchedulePackageStemsV1 callScheduleHonestySourceTextV1
    stringStateFcSourceTextV1 optionStringStateFcSourceTextV1
    optionBoolStateFcSourceTextV1
@@ -181,6 +191,12 @@ def testIrHonestyNotes : IO Unit := do
     "authority note must deny pure-Lean encoder claim"
   expect (authorityNoteV1.contains "transitional")
     ".nr transitional note required"
+  expect (authorityNoteV1.contains "IR-6")
+    "authority note must mention IR-6 product dual-write"
+  expect (authorityNoteV1.contains productAcirProfileV1)
+    "authority note must name ACIR product profile"
+  expect (authorityNoteV1.contains "zero-tool")
+    "authority note must keep default Finalize zero-tool honesty"
   expect (authorityNoteV1.contains "honest skip")
     "authority note must document nargo missing honest skip"
   expect (authorityNoteV1.contains "G3")
@@ -526,10 +542,12 @@ def testHonestyMatrixStatusColumn : IO Unit := do
     "prove honesty note deployable=false"
   expect (honestyProveNoteV1.contains "prove")
     "prove honesty note mentions prove"
-  expect (finalizeEvidenceNoteV1.contains "proving backend")
-    "Finalize evidence note pin"
-  expect (finalizeEvidenceNoteV1.contains "without ACIR")
-    "Finalize note denies ACIR product claim at zero-tool finalize"
+  expect (finalizeEvidenceNoteV1.contains "NOIR-IR-6")
+    "Finalize evidence note pin (IR-6)"
+  expect (finalizeEvidenceNoteV1.contains "zero-tool")
+    "Finalize note remains zero-tool on default profile"
+  expect (finalizeEvidenceNoteV1.contains productAcirProfileV1)
+    "Finalize note points at opt-in ACIR dual-write profile"
   IO.println "  IR-5 honesty matrix status column: ok"
 
 /-- Product path must fail closed for String / Option non-UInt64 shapes. -/
@@ -621,14 +639,23 @@ unsafe def testHonestyCallSchedulePartialNotY : IO Unit := do
 
 /-- IR-5: prove/VK product path remains F — Finalize non-deployable + evidence. -/
 unsafe def testHonestyProveFailClosedNotes : IO Unit := do
-  expect (finalizeEvidenceNoteV1 ==
-      "no approved and digest-pinned Noir compiler/proving backend is configured; " ++
-      "relation source/schema were emitted without ACIR, witness execution, proof, " ++
-      "or verification")
-    "Finalize evidence note must match FinalizeV1 exact text"
+  expect (finalizeEvidenceNoteV1.contains "NOIR-IR-6")
+    "default Finalize evidence must declare IR-6"
+  expect (finalizeEvidenceNoteV1.contains "zero-tool")
+    "default Finalize evidence must remain zero-tool"
+  expect (finalizeEvidenceNoteV1.contains productAcirProfileV1)
+    "default Finalize evidence must point at opt-in ACIR profile"
+  expect (finalizeEvidenceNoteV1.contains "deployable=false")
+    "default Finalize evidence must keep deployable=false"
+  expect (finalizeAcirEvidenceNotePrefixV1.contains "NOIR-IR-6")
+    "ACIR profile evidence prefix"
+  expect (finalizeAcirEvidenceNotePrefixV1.contains "nargo-compile/")
+    "ACIR profile evidence must name dual-write layout"
+  expect (finalizeAcirEvidenceNotePrefixV1.contains "deployable=false")
+    "ACIR profile remains non-deployable"
   -- Zero-tool finalize draft shape: deployable=false, empty extras, exact note.
   -- We pin the note constant and matrix F status; product finalize is exercised
-  -- by EngineeringFinalizationV1 (noir emit non-deployable).
+  -- by EngineeringFinalizationV1 (noir emit non-deployable) + IR-6 suite.
   expect (honestyProveNoteV1.contains "deployable=false")
     "prove honesty note"
   expect (honestyProveNoteV1.contains "G6")
@@ -649,9 +676,129 @@ unsafe def testHonestyProveFailClosedNotes : IO Unit := do
     "capture schema must not claim prove"
   expect (!(inventorySchemaId.contains "prove"))
     "inventory schema must not claim prove"
-  -- Soft join: FinalizeV1 module remains the zero-tool non-deployable authority.
+  -- Soft join: FinalizeV1 module remains the product finalize authority.
   let _ := ProofForgeV2.Targets.Noir.FinalizeV1.finalize
   IO.println "  IR-5 prove/VK F + Finalize evidence: ok"
+
+/-- IR-6: default profile Finalize stays zero-tool; note + empty extras. -/
+unsafe def testIr6DefaultFinalizeZeroTool : IO Unit := do
+  expect (productAcirProfileV1 == CodegenProfileId.noirNargoAcirV1.toString)
+    "product ACIR profile wire join"
+  expect (productProfileV1 == CodegenProfileId.noirSourceU64RelationsV1.toString)
+    "default product profile remains source-relations"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult "load Counter" (← session.selectProgramV1
+    Examples.counterSourceText "<noir-acir-ir6-default>"
+    Examples.counterModuleNameV1 none)
+  let compiled ← liftResult "compile Counter" <|
+    Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult "select noir default" <|
+    resolveBuildSelectionV1 TargetId.noir none
+  expect (selection.codegenProfile == CodegenProfileId.noirSourceU64RelationsV1)
+    "default selection profile"
+  let capability ← liftResult "resolve noir default" <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let outDir := FilePath.mk "build/v2/noir-acir-ir6-default"
+  if ← outDir.pathExists then IO.FS.removeDirAll outDir
+  let receipt ← ProofForgeV2.CLI.emitProgram capability outDir
+  expect (!receipt.deployable) "default IR-6 still non-deployable"
+  expect (receipt.codegenProfile == CodegenProfileId.noirSourceU64RelationsV1)
+    "default receipt profile"
+  let evidence ← IO.FS.readFile (outDir / "evidence.json")
+  expect ((evidence.splitOn finalizeEvidenceNoteV1).length > 1)
+    "default evidence embeds exact IR-6 zero-tool note"
+  for pin in counterRelationPinsV1 do
+    let extra := acirExtraRelPathV1 pin.relation
+      (match pin.relation with
+        | "r0-init" => "pf_relation_0.json"
+        | "r1-increment" => "pf_relation_1.json"
+        | _ => "pf_relation_2.json")
+    expect (!(← (outDir / extra).pathExists))
+      s!"default profile must not dual-write {extra}"
+  IO.println "  IR-6 default Finalize zero-tool: ok"
+
+/-- IR-6: path-normalize helper turns absolute file_map path into pin. -/
+def testIr6PathNormalizeHelper : IO Unit := do
+  let sample :=
+    "{\"noir_version\":\"x\",\"hash\":\"1\",\"abi\":{},\"bytecode\":\"YQ==\"," ++
+    "\"debug_symbols\":\"YQ==\",\"file_map\":{\"0\":{\"source\":\"fn main(){}\"," ++
+    "\"path\":\"/tmp/host/src/main.nr\"}}}"
+  let norm := pathNormalizeProgramArtifactTextV1 sample
+  expect (norm.contains s!"\"path\":\"{normalizedSourcePathV1}\"")
+    "path-normalize rewrites file_map path"
+  expect (!norm.contains "/tmp/host")
+    "path-normalize strips host absolute path"
+  expect (norm.endsWith "\n") "path-normalize trailing newline"
+  IO.println "  IR-6 path-normalize helper: ok"
+
+/-- IR-6: opt-in ACIR profile dual-writes path-normalized ProgramArtifact extras
+    for Counter ≡ golden circuit core when nargo is present; missing nargo is
+    honest skip of this live product path only. -/
+unsafe def testIr6AcirProfileDualWriteOptional : IO Unit := do
+  match ← resolveNargoPathV1 with
+  | none =>
+      IO.println
+        "  IR-6 ACIR profile dual-write: skip (nargo not available; honest)"
+  | some _nargo =>
+      let session ← Tests.Language.ParserSession.shared
+      let source ← liftResult "load Counter" (← session.selectProgramV1
+        Examples.counterSourceText "<noir-acir-ir6-acir>"
+        Examples.counterModuleNameV1 none)
+      let compiled ← liftResult "compile Counter" <|
+        Compiler.compileValidatedSourceV1 source
+      let selection ← liftResult "select noir acir" <|
+        resolveBuildSelectionV1 TargetId.noir (some CodegenProfileId.noirNargoAcirV1)
+      expect (selection.codegenProfile == CodegenProfileId.noirNargoAcirV1)
+        "ACIR selection profile"
+      let capability ← liftResult "resolve noir acir" <|
+        Targets.resolveEngineeringRequirementsV1 selection compiled
+      let outDir := FilePath.mk "build/v2/noir-acir-ir6-acir"
+      if ← outDir.pathExists then IO.FS.removeDirAll outDir
+      let receipt ← ProofForgeV2.CLI.emitProgram capability outDir
+      expect (!receipt.deployable) "ACIR profile remains non-deployable"
+      expect (receipt.codegenProfile == CodegenProfileId.noirNargoAcirV1)
+        "ACIR receipt profile"
+      let evidence ← IO.FS.readFile (outDir / "evidence.json")
+      expect ((evidence.splitOn finalizeAcirEvidenceNotePrefixV1).length > 1)
+        "ACIR evidence embeds dual-write prefix"
+      expect ((evidence.splitOn "deployable=false").length > 1)
+        "ACIR evidence keeps deployable=false"
+      for pin in counterRelationPinsV1 do
+        let artifactName :=
+          match pin.relation with
+          | "r0-init" => "pf_relation_0.json"
+          | "r1-increment" => "pf_relation_1.json"
+          | _ => "pf_relation_2.json"
+        let extra := acirExtraRelPathV1 pin.relation artifactName
+        let path := outDir / extra
+        expect (← path.pathExists) s!"missing ACIR extra {extra}"
+        let text ← IO.FS.readFile path
+        expect (envelopeKeysPresentV1 text)
+          s!"{pin.relation}: dual-write envelope"
+        expect (normalizedPathPresentV1 text)
+          s!"{pin.relation}: dual-write path-normalized"
+        expect (noirVersionPresentV1 text)
+          s!"{pin.relation}: dual-write noir_version pin"
+        match extractCircuitCoreV1 text with
+        | none =>
+            throw <| IO.userError s!"{pin.relation}: dual-write core extract failed"
+        | some core =>
+            expect (circuitCoreMatchesPinsV1 core pin.expectedCircuitHash)
+              s!"{pin.relation}: dual-write circuit hash pin"
+            let golden ← loadGoldenCircuitCoreV1 pin
+            expect (circuitCoresEqualV1 core golden)
+              s!"{pin.relation}: dual-write core ≡ golden"
+        -- Exact path-normalized bytes ≡ frozen golden ProgramArtifact.
+        let goldBytes ← IO.FS.readBinFile (goldenPathV1 pin.goldenArtifactRelPath)
+        let liveBytes ← IO.FS.readBinFile path
+        expect (liveBytes == goldBytes)
+          (s!"{pin.relation}: dual-write bytes ≡ golden " ++
+            s!"(live sha={hashFileBytesV1 liveBytes})")
+      -- Transitional .nr bases still present.
+      for pin in counterRelationPinsV1 do
+        expect (← (outDir / "relations" / pin.relation / "src" / "main.nr").pathExists)
+          s!"ACIR profile retains transitional .nr for {pin.relation}"
+      IO.println "  IR-6 ACIR profile dual-write Counter≡golden: ok"
 
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.NoirAcirV1: start"
@@ -679,6 +826,10 @@ unsafe def run : IO Unit := do
   testHonestyOptionStringProductFailClosed
   testHonestyCallSchedulePartialNotY
   testHonestyProveFailClosedNotes
+  -- IR-6 / G4 product dual-write
+  testIr6PathNormalizeHelper
+  testIr6DefaultFinalizeZeroTool
+  testIr6AcirProfileDualWriteOptional
   IO.println "Tests.Materialization.NoirAcirV1: ok"
 
 end Tests.Materialization.NoirAcirV1
@@ -686,3 +837,4 @@ end Tests.Materialization.NoirAcirV1
 /-- Focused entry for `lake env lean --run` (root `main`; suite body stays namespaced). -/
 unsafe def main : IO Unit :=
   Tests.Materialization.NoirAcirV1.run
+

@@ -342,8 +342,8 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
 private def testSupportTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
-  expect (rows.size == 12)
-    "exactly twelve support rows (Aleo dual + Psy dual + Solana sole rail)"
+  expect (rows.size == 13)
+    "exactly thirteen support rows (Aleo dual + Noir dual + Psy dual + Solana sole rail)"
   let expectedSolanaExtension ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError error
@@ -362,6 +362,8 @@ private def testSupportTable : IO Unit := do
     -- Phase C2: NEAR = 7 S2 keys (incl sync-call for pf.assets catalog scope)
     -- + exact extension.pf-assets; sync transfer stays permanently FC at Plan.
     ("near", "near-wasm-raw-u64-v1", 8, false, true),
+    -- Noir dual profiles share exact 7-key S2 (ASCII ascending: nargo-acir < source)
+    ("noir", "noir-nargo-1.0.0-beta.26-acir-v1", 7, false, false),
     ("noir", "noir-source-u64-relations-v1", 7, false, false),
     -- Both Psy profiles advertise the same exact S2 set. The UInt128 envelope
     -- remains a profile-owned Plan/IR distinction, not a new requirement id.
@@ -438,10 +440,10 @@ private def testSupportTable : IO Unit := do
     | _, _ => throw <| IO.userError s!"row {i} missing"
     i := i + 1
 
-/-- Canonical 12-row (target,profile) skeleton matching the shipped index shape
-    (Aleo dual + Psy dual + ADR-0032 U1 sole Solana cpi-elf). `evmSupported`
-    replaces both EVM rows; extension-owning rows intentionally omit their
-    extension seeds so presence-gate negatives can reuse this fixture. -/
+/-- Canonical 13-row (target,profile) skeleton matching the shipped index shape
+    (Aleo dual + Noir dual + Psy dual + ADR-0032 U1 sole Solana cpi-elf).
+    `evmSupported` replaces both EVM rows; extension-owning rows intentionally
+    omit their extension seeds so presence-gate negatives can reuse this fixture. -/
 private def supportRowsWithoutExtensions
     (base : Array RequirementRequestV1)
     (evmSupported : Array RequirementRequestV1) :
@@ -453,6 +455,7 @@ private def supportRowsWithoutExtensions
     mkRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmSupported,
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 evmSupported,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 base,
+    mkRow .noir CodegenProfileId.noirNargoAcirV1 base,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 base,
     mkRow .psy CodegenProfileId.psyDargo010VmV1 base,
     mkRow .psy CodegenProfileId.psyDargoU64V1 base,
@@ -480,7 +483,7 @@ private def nineRowSkeleton
     Array StaticRequirementSupportRowV1 :=
   supportRowsWithoutExtensions base evmSupported
 
-/-- Same 12-row skeleton, but every closed-extension owner carries its exact
+/-- Same 13-row skeleton, but every closed-extension owner carries its exact
     seed (Quint/NEAR/CosmWasm/EVM: pf.assets; Solana CPI: both), so content
     negatives reach their intended validation phase. -/
 private def supportRowsWithExtensions
@@ -497,6 +500,7 @@ private def supportRowsWithExtensions
     mkRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmSupported,
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 evmSupported,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 withPf,
+    mkRow .noir CodegenProfileId.noirNargoAcirV1 base,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 base,
     mkRow .psy CodegenProfileId.psyDargo010VmV1 base,
     mkRow .psy CodegenProfileId.psyDargoU64V1 base,
@@ -551,7 +555,7 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
     mkRow .openvm CodegenProfileId.evmYulSolc0834V1 trio
   ]
-  -- Size-extra first (12 rows vs expected 11):
+  -- Size-extra first (13 rows vs expected product shape):
   let extra :=
     (supportRowsWithExtensions trio trio pfAssetsRow solanaExtensionRow).push
       (mkRow .aleo CodegenProfileId.evmYulSolc0834V1 trio)
@@ -786,8 +790,10 @@ private def testRequestInspectionErrors : IO Unit := do
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"zero reqs should succeed: {e.render}"
   -- Full S2 catalog succeeds against all-capable Noir and EVM (AddressBearing).
-  -- Row order: aleo=0, cosmwasm=1, evm-cancun=2, evm-legacy=3, near=4, noir=5, …
-  let noirSupported ← match rows[5]? with
+  -- Row order: aleo×2, cosmwasm, evm×2, near, noir×2, …
+  let noirSupported ← match rows.find? fun row =>
+      row.targetId == TargetId.noir &&
+        row.codegenProfile == CodegenProfileId.noirSourceU64RelationsV1 with
     | some row => pure row.supported
     | none => throw <| IO.userError "missing noir support row"
   match inspectResolveRequestsV1 noirSupported { items := trio } with
@@ -2704,3 +2710,4 @@ run_cmd do
   | .error message => throwError message
 
 end Tests.Materialization.RequirementResolverV1
+

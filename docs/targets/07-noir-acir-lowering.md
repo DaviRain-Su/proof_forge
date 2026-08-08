@@ -9,7 +9,7 @@ normative: false
 
 # Noir ACIR 层落地规划
 
-状态：`draft`（规划 + **NOIR-IR-1 金样已冻结** + **NOIR-IR-2 Plan→ACIR MVP 已接线** + **NOIR-IR-3 G3 admit-surface circuit-hash pins 已接线** + **NOIR-IR-5 诚实矩阵（G5 轻量）已接线**；产品 primary ACIR 仍属 IR-6）
+状态：`draft`（规划 + **NOIR-IR-1 金样已冻结** + **NOIR-IR-2 Plan→ACIR MVP 已接线** + **NOIR-IR-3 G3 admit-surface circuit-hash pins 已接线** + **NOIR-IR-5 诚实矩阵（G5 轻量）已接线** + **NOIR-IR-6 产品 ACIR dual-write 可选 profile 已接线**）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Noir target 的权威物化从 **Noir 源包（`.nr` relations）** 切向官方 **电路中间表示（ACIR 及相关编译产物）**，并评估 admit 面覆盖。
 
 与 Psy / Aleo 对照：
@@ -27,7 +27,7 @@ normative: false
 |---|---|
 | 工具 | locked **nargo 1.0.0-beta.26** |
 | 官方语言 | Noir → **ACIR**（Abstract Circuit IR）→ backend prove |
-| 工程现状 | 产品 emit `relations/*/src/main.nr`（过渡）；`NoirCompileAcceptance` / host-optional `nargo compile`；**IR-1** 金样 `testdata/golden/noir-acir-v1/` + inventory pin；**IR-2** nargo-assisted Plan→ACIR capture（Counter ≡ 金样 circuit core）；**IR-3** G3 CF/aggregate circuit-hash pins（BranchCounter/LoopSum/OptionState/ArrayRet + MapMini partial）；**IR-5** §3.2 诚实矩阵（call/schedule P、String/Option F、prove F；无假 Y）；**无** ACIR 产品 OutputFile（IR-6） |
+| 工程现状 | 产品 emit `relations/*/src/main.nr`（过渡/debug base）；`NoirCompileAcceptance` / host-optional `nargo compile`；**IR-1** 金样 `testdata/golden/noir-acir-v1/` + inventory pin；**IR-2** nargo-assisted Plan→ACIR capture（Counter ≡ 金样 circuit core）；**IR-3** G3 CF/aggregate circuit-hash pins；**IR-5** §3.2 诚实矩阵；**IR-6** 默认 `noir-source-u64-relations-v1` zero-tool；显式 `noir-nargo-1.0.0-beta.26-acir-v1` Finalize dual-write path-normalized ProgramArtifact `finalized-extra`（`nargo-compile/{stem}/*.json`；缺 nargo fail-closed；`deployable=false`） |
 | 非本阶段 | Barretenberg prove/verify、CRS、VK 产品绑定、formal |
 
 **非目标：**
@@ -94,7 +94,7 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 | G1 | Schema/codec 或 inventory hash | **done（IR-1）** exact multi-file SHA-256 + envelope keys（非 ACIR opcode codec） |
 | G2 | Plan→ACIR MVP | **done（IR-2）** Counter product Plan → nargo-assisted capture ≡ 金样 circuit core；路径决策 = nargo-assisted |
 | G3 | 控制流 / 聚合 admit 面 | **done（IR-3）** BranchCounter/LoopSum/OptionState/ArrayRet circuit-hash pins；MapMini init pin + put/get nargo-fail honesty |
-| G4 | 产品 primary ACIR | `.nr` debug-only（IR-6） |
+| G4 | 产品 primary ACIR | **done（IR-6）** opt-in nargo ACIR profile dual-write；default zero-tool；`.nr` transitional/debug |
 | G5 | admit 矩阵 | **done（IR-5 轻量）** §3.2 状态列 + call/schedule P + String/Option F + prove F；无假 Y |
 | G6 | prove lane | 独立 host-heavy；非 ordinary ci |
 
@@ -198,9 +198,11 @@ Lean 权威表：`CaptureV1.honestyMatrixRowsV1`（与上表同序）；suite `T
 
 ### NOIR-IR-6 — 产品 primary ACIR；`.nr` debug
 
-- [ ] materialize 主产物含 ACIR/compile inventory（或 nargo-assisted Finalize extra）
-- [ ] `.nr` debug-only / 过渡；`deployable=false`
-- [ ] 禁止 silent 仅 `.nr` 当 Plan 已 admit（若可行）
+- [x] **诚实路径 = optional profile dual-write**（host-dependent nargo 不能破坏 default zero-tool Finalize）
+- [x] default `noir-source-u64-relations-v1`：zero-tool；`.nr` transitional/debug base；evidence 指向 ACIR profile
+- [x] explicit `noir-nargo-1.0.0-beta.26-acir-v1`：Finalize nargo-assisted path-normalized ProgramArtifact extras under `nargo-compile/{stem}/{pf_relation_N}.json`；缺 nargo → `PF-TOOLCHAIN-MISSING`；`deployable=false`；无 prove/VK
+- [x] Counter dual-write ≡ 金样 circuit core / path-normalized bytes（nargo 在场时 live；`NoirAcirV1` IR-6 段）
+- [x] Plan surface 双 profile 共享；registry/resolver 13 support rows；Capture authority 仍 pin
 
 ### NOIR-IR-7 — prove honesty（工具存在时）
 
@@ -213,10 +215,10 @@ Lean 权威表：`CaptureV1.honestyMatrixRowsV1`（与上表同序）；suite `T
 
 | 现状 | 保留 |
 |---|---|
-| relation Plan + `.nr` emit | 过渡（IR-2 nargo 输入；IR-6 前仍 product OutputFile） |
-| locked nargo compile-only | 金样 + 对照 + IR-2 capture |
-| Finalize zero-tool / non-deployable | 直至产品决策 |
-| NoirCompileAcceptance | 不删除；IR-2 另由 `NoirAcirV1` 钉 Counter≡金样 |
+| relation Plan + `.nr` emit | 过渡/debug base（IR-2/IR-6 nargo 输入；仍 materialized-base） |
+| locked nargo compile-only | 金样 + 对照 + IR-2 capture + IR-6 ACIR profile dual-write |
+| Finalize zero-tool default / non-deployable | default 保持；ACIR profile 仍 `deployable=false` |
+| NoirCompileAcceptance | 不删除；IR-2/IR-6 另由 `NoirAcirV1` 钉 Counter≡金样 |
 
 ---
 
@@ -241,7 +243,7 @@ Lean 权威表：`CaptureV1.honestyMatrixRowsV1`（与上表同序）；suite `T
 
 ### 非完成
 
-- prove/verify 产品门、CRS、formal、全 Noir 表面、产品 primary ACIR OutputFile（IR-6）。
+- prove/verify 产品门、CRS、formal、全 Noir 表面、default-profile 自动 ACIR（有意保持 zero-tool）。
 
 ---
 
@@ -252,7 +254,8 @@ Lean 权威表：`CaptureV1.honestyMatrixRowsV1`（与上表同序）；suite `T
 3. **NOIR-IR-2** 已完成：nargo-assisted Plan→ACIR MVP（Counter ≡ 金样）。
 4. **NOIR-IR-3** 已完成：G3 CF/aggregate circuit-hash pins。
 5. **NOIR-IR-5** 已完成：§3.2 诚实矩阵 + call/schedule/Option-String/prove FC 边界。
-6. **下一步：NOIR-IR-6** 产品 primary ACIR（`.nr` debug）；IR-4 multi-fixture inventory 可选。
+6. **NOIR-IR-6** 已完成：opt-in nargo ACIR dual-write profile；default zero-tool；`.nr` transitional/debug。
+7. **下一步：NOIR-IR-7 / G6** prove honesty（工具存在时；独立 host-heavy）；IR-4 multi-fixture inventory 可选。
 
 规划 owner：engineering。
 IR-1/IR-2 冻结细节见 `testdata/golden/noir-acir-v1/README.md`。

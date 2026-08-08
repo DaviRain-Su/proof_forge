@@ -1,4 +1,4 @@
-# noir-acir-v1 golden (NOIR-IR-1 + IR-2 + IR-3/G3 + IR-5 honesty)
+# noir-acir-v1 golden (NOIR-IR-1 + IR-2 + IR-3/G3 + IR-5 honesty + IR-6 dual-write)
 
 Frozen **Examples/Counter** product Noir relation packages plus locked
 **nargo 1.0.0-beta.26** `nargo compile` ProgramArtifact JSON.
@@ -24,8 +24,14 @@ Frozen **Examples/Counter** product Noir relation packages plus locked
   call/schedule **P** (witness-binding only, never ACIR Y),
   String state / Option non-UInt64 **F** (plan-FC),
   prove/VK **F** (Finalize `deployable=false`; no product prove). No false Y.
-- **Not claimed:** ACIR opcode decode, product ACIR OutputFile (IR-6),
-  prove/verify, deployable, formal.
+- **IR-6 / G4 product dual-write:** default profile
+  `noir-source-u64-relations-v1` remains **zero-tool** Finalize (`.nr`
+  transitional/debug base). Explicit profile
+  `noir-nargo-1.0.0-beta.26-acir-v1` dual-writes path-normalized ProgramArtifact
+  JSON as `finalized-extra` under `nargo-compile/{stem}/*.json` (Counter extras
+  ≡ this golden when nargo is present). Missing nargo on ACIR profile →
+  `PF-TOOLCHAIN-MISSING`. Still `deployable=false`; no prove/VK.
+- **Not claimed:** ACIR opcode decode, prove/verify, deployable, formal.
 
 ## Tool pin
 
@@ -35,7 +41,8 @@ Frozen **Examples/Counter** product Noir relation packages plus locked
 | Version | `1.0.0-beta.26` |
 | Exact `noir_version` in artifacts | `1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905` |
 | Git hash | `40d6574f851d926f93e0c3a271bac3e6e82ac905` |
-| Profile | `noir-source-u64-relations-v1` |
+| Default profile | `noir-source-u64-relations-v1` (zero-tool) |
+| ACIR dual-write profile | `noir-nargo-1.0.0-beta.26-acir-v1` (IR-6) |
 
 ## Layout
 
@@ -92,9 +99,9 @@ Plan emit).
 
 ## Non-goals
 
-- Product Finalize does **not** ship these as OutputFile yet (IR-6).
+- Default-profile Finalize does **not** invoke nargo (zero-tool honesty).
 - No prove/verify/VK/witness product leaves.
-- `deployable=false`.
+- `deployable=false` on both Noir profiles.
 - No pure-Lean ACIR opcode encoder (IR-2 decision: nargo-assisted only).
 - G3 does **not** expand this directory with multi-fixture ProgramArtifact
   inventory (optional IR-4); pins live in `CaptureV1.admitSurfaceFixturesV1`.

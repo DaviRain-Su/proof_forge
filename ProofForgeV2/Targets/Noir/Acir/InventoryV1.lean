@@ -12,8 +12,9 @@
   Honesty (IR-1):
   * Multi-file exact SHA-256 inventory + ProgramArtifact envelope field pins.
   * Does **not** decode ACIR opcodes (bytecode remains base64(gzip(ACIR))).
-  * Does **not** claim Plan→ACIR, prove/verify, deployable, or formal.
-  * Product Finalize remains source-only / non-deployable until a later slice.
+  * Does **not** claim prove/verify, deployable, or formal.
+  * IR-6: default Finalize zero-tool; opt-in nargo ACIR profile dual-writes
+    path-normalized ProgramArtifact as finalized-extra (still non-deployable).
 
   Schema id: `proof-forge.noir-acir-inventory.v1`
 -/
