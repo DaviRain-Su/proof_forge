@@ -9,7 +9,7 @@ normative: false
 
 # Aleo Instructions IR 落地规划
 
-状态：`draft`（规划 + **ALEO-IR-1/IR-2/IR-3/IR-4 已落地**：Schema/TextCodec + Counter 金样 + `LowerPlanV1` Plan→Instructions Counter MVP ≡ 金样 + if/match/bounded-for 控制流 + multi-leaf Map/Option/Array flatten-to-mapping + narrow UInt{8,16,32}；产品 primary 仍 Leo 源至 IR-6）
+状态：`draft`（规划 + **ALEO-IR-1/IR-2/IR-3/IR-4/IR-5 已落地**：Schema/TextCodec + Counter 金样 + `LowerPlanV1` Plan→Instructions Counter MVP ≡ 金样 + if/match/bounded-for 控制流 + multi-leaf Map/Option/Array flatten-to-mapping + narrow UInt{8,16,32} + 效果诚实矩阵（emit/callFn/payload-revert Plan FC；call/schedule/assets/context 产品面 FC）；产品 primary 仍 Leo 源至 IR-6）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Aleo target 的权威物化从 **Leo 4 源文本** 切到官方 **Aleo Instructions**（中间 IR / 寄存器指令集），并评估 **ProgramV1 在 Aleo 上 admit 的构造** 能覆盖到该 IR 的范围。
 
 与 Psy 对照（已闭合 lane）：
@@ -167,12 +167,13 @@ Pin：Leo **4.0.2** exact；grammar/opcode 文档 rev 写入 supply-chain annota
 | if / match / bounded for | Y（Leo 源） | **Y** | IR 上为展开/寄存器 SSA |
 | pureFn / localCall | Y | **Y** | inline 或 call 指令诚实 |
 | bare assert / bare revert | Y | **Y** | payload revert 仍 F |
-| emit / call / schedule | F | **F** | 无事件模型；call 未开 |
-| ContextRead / Commit | F / 身份透传 | **F** / 身份 | 不对假 public-input |
+| emit / call / schedule | F | **F**（IR-5） | 无事件模型；sync/async 双键 resolve 拒；Plan `emitEvent`/`callFn` 钉 `ALEO-IR-5:` |
+| ContextRead / Commit | F / 身份透传 | **F** / 身份透传（IR-5） | ContextRead/EnvRead Semantic→Plan FC；Commit 无 crypto opcode |
 | nonempty invariant | F | **F** | |
-| pf.assets | F（零绑定） | **F** | record 模型差异 |
-| record custody | F | **F** | 需产品决策 |
+| pf.assets | F（零绑定） | **F**（IR-5） | ADR-0029 Phase D；record ≠ vault |
+| record custody | F | **F**（IR-5） | 需产品决策；无 mint/consume IR |
 | Principal / String | F | **F** | 直至 ABI 决策 |
+| payload revert | F | **F**（IR-5） | bare revert → `assert.eq true false` 已开 |
 
 ---
 
@@ -254,8 +255,11 @@ G0–G1 = **MVP**；G5 = admit 覆盖声明门槛；G6 = 去 Leo 源依赖（可
 
 ### Phase ALEO-IR-5 — 效果与诚实矩阵
 
-- [ ] emit/call/schedule/assets/context：FC 或 PARTIAL 仅在有证据时
-- [ ] record：保持 FC 直至产品决策
+- [x] emit/call/schedule/assets/context：**全部 F**（无 PARTIAL 声称）
+  - Plan-reachable：`checkEffectsHonestyMatrixV1` 先于 `validatePlan`；`emitEvent` / `callFn` / payload `revertError` 稳定 `ALEO-IR-5:` 诊断（`LowerPlanV1`）
+  - 产品面：sync call / schedule 在 resolve 拒 S2 双键；`effect.event` resolve 拒；`pf.assets` Phase D 零绑定；ContextRead/EnvRead Semantic→Plan pilot FC
+  - 测试：`Tests.Materialization.AleoInstructionsV1` 手建 Plan + product 路径钉 FC
+- [x] record：保持 FC 直至产品决策（honesty note + assets 零绑定证据；无 record mint/consume IR）
 
 ### Phase ALEO-IR-6 — 产品切换
 
@@ -332,9 +336,9 @@ G0–G1 = **MVP**；G5 = admit 覆盖声明门槛；G6 = 去 Leo 源依赖（可
 
 ## 10. 下一步（实现顺序）
 
-1. ~~ALEO-IR-0~~ / ~~IR-1~~ / ~~IR-2~~ / ~~IR-3~~ / ~~IR-4~~ done。
-2. **ALEO-IR-5**：效果与诚实矩阵（emit/call/schedule/assets/context）。
-3. 按 Phase 扫矩阵至 G5；IR-6 产品 primary；G6 仅在工具诚实可用时开。
+1. ~~ALEO-IR-0~~ / ~~IR-1~~ / ~~IR-2~~ / ~~IR-3~~ / ~~IR-4~~ / ~~IR-5~~ done。
+2. **ALEO-IR-6**：产品 primary = Instructions 文本（Leo 源 debug-only）。
+3. 按 Phase 扫矩阵至 G5 residual；G6 仅在工具诚实可用时开。
 
 规划 owner：engineering。
-产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-2 Counter + IR-3 控制流 + IR-4 multi-leaf/Map/Option/narrow lower 已工程闭合（产品 primary 仍 Leo 源）。
+产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-2 Counter + IR-3 控制流 + IR-4 multi-leaf/Map/Option/narrow + IR-5 效果诚实矩阵已工程闭合（产品 primary 仍 Leo 源至 IR-6）。

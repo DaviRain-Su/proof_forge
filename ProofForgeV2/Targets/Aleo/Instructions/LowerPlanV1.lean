@@ -1,5 +1,5 @@
 /-
-  ALEO-IR-2/3/4: AleoPlan → Aleo Instructions program.
+  ALEO-IR-2/3/4/5: AleoPlan → Aleo Instructions program.
 
   IR-2 (Counter MVP, golden-locked):
     * initialize: store param → Final with one-shot `initialized` guard
@@ -28,6 +28,20 @@
     * Aggregate Final returns: eval leaves and drop (same Leo Final model)
     * Fail closed: Int64/Field leaves·params, pure helpers, emit, nested
       Map residual (Semantic/Plan already FC), bn254/Goldilocks Field
+
+  IR-5 (effects honesty matrix — all F / no PARTIAL without evidence):
+    Plan-reachable surfaces (checked here, stable `ALEO-IR-5:` diagnostics):
+    * emitEvent → FC (no on-chain event log / Instructions event model)
+    * callFn (pureCall residual on Instructions) → FC
+    * revertError with payload args → FC (bare revert → assert.eq true false)
+    Product surfaces that never reach this lower (still FC; evidence documented):
+    * external call / schedule → resolver declines both S2 effect keys
+    * pf.assets / record custody → zero-binding (ADR-0029 Phase D);
+      no account-balance vault; record mint/consume not admitted
+    * ContextRead → Semantic→Plan pilot FC (no host clock ABI)
+    * Commit → Semantic identity passthrough only (no crypto commitment opcode)
+    * EnvRead (balanceOfSelf) → Semantic→Plan FC
+    No PARTIAL row is claimed on this path.
 
   Profile note (default vs compile):
     * Plan body is profile-insensitive (shared by
@@ -147,6 +161,122 @@ private def uintLiteral (bitWidth : Nat) (v : UInt64) : OperandV1 :=
 
 private def zeroLiteral (bitWidth : Nat) : OperandV1 :=
   uintLiteral bitWidth 0
+
+/-!
+  ## ALEO-IR-5 effects honesty matrix (stable diagnostics)
+
+  Rows are **F** (fail closed). PARTIAL is forbidden without documented evidence.
+  Plan-reachable rows are enforced by `checkEffectsHonestyMatrixV1` before
+  shared `validatePlan` so Instructions tests pin `ALEO-IR-5:` fragments.
+-/
+
+/-- Stable diagnostic: `emit` / on-chain event log. -/
+def diagEmitNotAdmittedV1 : String :=
+  "ALEO-IR-5: emit is not admitted (no on-chain event log in Aleo Instructions; \
+effect.event declined)"
+
+/-- Stable diagnostic: pureCall / local `callFn` residual on Final path. -/
+def diagCallFnNotAdmittedV1 : String :=
+  "ALEO-IR-5: pureCall/callFn is not admitted on Instructions path \
+(pure helpers residual FC; no local-call opcode lowering)"
+
+/-- Stable diagnostic: payload `revert` (bare assert-false remains admitted). -/
+def diagPayloadRevertNotAdmittedV1 : String :=
+  "ALEO-IR-5: revert payloads are not admitted \
+(Instructions bare revert only via assert.eq true false)"
+
+/-- Documentation pin: external sync call fails earlier (resolver). -/
+def diagExternalCallHonestyNoteV1 : String :=
+  "ALEO-IR-5: effect.synchronous-call is declined at resolve on Aleo \
+(no program-call Instructions surface; B-CALL-SEM open)"
+
+/-- Documentation pin: schedule fails earlier (resolver). -/
+def diagScheduleHonestyNoteV1 : String :=
+  "ALEO-IR-5: effect.asynchronous-workflow is declined at resolve on Aleo \
+(no Future/async Instructions surface)"
+
+/-- Documentation pin: pf.assets / record custody zero-binding. -/
+def diagAssetsRecordHonestyNoteV1 : String :=
+  "ALEO-IR-5: pf.assets and record custody stay FC \
+(ADR-0029 Phase D zero-binding; record mint/consume not admitted)"
+
+/-- Documentation pin: ContextRead / EnvRead pilot FC. -/
+def diagContextHonestyNoteV1 : String :=
+  "ALEO-IR-5: ContextRead/EnvRead not admitted on Aleo pilot \
+(no host clock / balance ABI in Final Instructions path)"
+
+/-- Walk expressions for Plan-reachable effect residual (`callFn`). -/
+private partial def checkExprEffectsHonestyV1 (e : Expr) : CompileResult Unit := do
+  match e with
+  | .callFn _ args => do
+      for arg in args do
+        checkExprEffectsHonestyV1 arg
+      planError diagCallFnNotAdmittedV1
+  | .literal _ | .i64Literal _ | .uintLiteral .. | .boolLiteral _
+  | .param _ | .loopVar _ | .stateLoad _ | .fieldLiteral _ => pure ()
+  | .checkedAdd l r | .checkedSub l r | .checkedMul l r
+  | .checkedDiv l r | .checkedMod l r
+  | .bitAnd l r | .bitOr l r | .bitXor l r
+  | .shl l r | .shr l r
+  | .logicalAnd l r | .logicalOr l r
+  | .compare _ l r
+  | .signedCheckedAdd l r | .signedCheckedSub l r | .signedCheckedMul l r
+  | .signedCheckedDiv l r | .signedCheckedMod l r
+  | .signedBitAnd l r | .signedBitOr l r | .signedBitXor l r
+  | .signedShl l r | .signedShr l r
+  | .signedCompare _ l r
+  | .narrowCheckedAdd _ l r | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r
+  | .narrowCheckedDiv _ l r | .narrowCheckedMod _ l r
+  | .narrowBitAnd _ l r | .narrowBitOr _ l r | .narrowBitXor _ l r
+  | .narrowShl _ l r | .narrowShr _ l r
+  | .fieldBinary _ l r | .fieldCompare _ l r => do
+      checkExprEffectsHonestyV1 l
+      checkExprEffectsHonestyV1 r
+  | .bitNot o | .boolNot o | .checkedNeg o | .signedBitNot o
+  | .narrowBitNot _ o | .fieldNeg o =>
+      checkExprEffectsHonestyV1 o
+  | .ternary c t e' => do
+      checkExprEffectsHonestyV1 c
+      checkExprEffectsHonestyV1 t
+      checkExprEffectsHonestyV1 e'
+
+/-- Walk statements for emit / payload-revert / nested effect residual. -/
+private partial def checkStmtEffectsHonestyV1
+    (stmts : Array Statement) : CompileResult Unit := do
+  for stmt in stmts do
+    match stmt with
+    | .emitEvent .. => planError diagEmitNotAdmittedV1
+    | .revertError _ args =>
+        unless args.isEmpty do
+          planError diagPayloadRevertNotAdmittedV1
+    | .store _ value => checkExprEffectsHonestyV1 value
+    | .storeAggregate leaves =>
+        for leaf in leaves do
+          checkExprEffectsHonestyV1 leaf.value
+    | .assert condition => checkExprEffectsHonestyV1 condition
+    | .returnValue value => checkExprEffectsHonestyV1 value
+    | .returnAggregate leaves _ =>
+        for leaf in leaves do
+          checkExprEffectsHonestyV1 leaf
+    | .returnNone => pure ()
+    | .ifThenElse condition thenBody elseBody => do
+        checkExprEffectsHonestyV1 condition
+        checkStmtEffectsHonestyV1 thenBody
+        checkStmtEffectsHonestyV1 elseBody
+    | .switchOn scrutinee cases defaultBody => do
+        checkExprEffectsHonestyV1 scrutinee
+        for (_, body) in cases do
+          checkStmtEffectsHonestyV1 body
+        checkStmtEffectsHonestyV1 defaultBody
+    | .forLoop start endExclusive _ body => do
+        checkExprEffectsHonestyV1 start
+        checkExprEffectsHonestyV1 endExclusive
+        checkStmtEffectsHonestyV1 body
+
+/-- ALEO-IR-5 sole Plan-reachable effects honesty gate (runs before validatePlan). -/
+def checkEffectsHonestyMatrixV1 (plan : Plan) : CompileResult Unit := do
+  for fn in plan.functions do
+    checkStmtEffectsHonestyV1 fn.body
 
 private def boolLiteral (b : Bool) : OperandV1 :=
   .literal (if b then "true" else "false")
@@ -365,14 +495,16 @@ partial def lowerExprV1 (ctx0 : LowerCtx) (expr : Expr) :
       unless isNarrowUintWidth w do
         planError s!"ALEO-IR-4: narrowShr width {w} not admitted"
       lowerShift ctx0 "shr" w lhs rhs lowerExprV1
+  | .callFn .. =>
+      planError diagCallFnNotAdmittedV1
   | .i64Literal _ | .signedCheckedAdd .. | .signedCheckedSub ..
   | .signedCheckedMul .. | .signedCheckedDiv .. | .signedCheckedMod ..
   | .signedCompare .. | .signedBitAnd .. | .signedBitOr .. | .signedBitXor ..
   | .signedShl .. | .signedShr .. | .signedBitNot .. | .checkedNeg _
-  | .fieldLiteral _ | .fieldBinary .. | .fieldCompare .. | .fieldNeg _
-  | .callFn .. =>
+  | .fieldLiteral _ | .fieldBinary .. | .fieldCompare .. | .fieldNeg _ =>
       planError
-        "ALEO-IR-4: expression shape not admitted on Instructions path (Int64/Field/pureCall residual FC; width matrix matches Leo admit minus signed/field leaf)"
+        "ALEO-IR-4: expression shape not admitted on Instructions path \
+(Int64/Field residual FC; width matrix matches Leo admit minus signed/field leaf)"
 
 mutual
   /-- Lower switch cases as a right-nested is.eq + branch chain (EmitIR shape). -/
@@ -538,11 +670,11 @@ mutual
             ctxL := ctxPop
           ctx := ctxL
       | .emitEvent .. =>
-          planError
-            "ALEO-IR-4: emit is not admitted (no on-chain event log in Aleo Instructions)"
+          -- Defense-in-depth: IR-5 matrix gate should have rejected first.
+          planError diagEmitNotAdmittedV1
       | .revertError _ args => do
           unless args.isEmpty do
-            planError "ALEO-IR-4: revert payloads are not admitted"
+            planError diagPayloadRevertNotAdmittedV1
           -- bare revert → assert false
           acc := acc.push
             (.assertEq (.literal "true") (.literal "false"))
@@ -611,8 +743,11 @@ def lowerFunctionV1
   pure (transition, { name := fn.name, body := finBody })
 
 /-- Lower an entire Plan to Instructions (multi-leaf UInt* + Final functions
-    with IR-3 control flow + IR-4 narrow/multi-leaf). -/
+    with IR-3 control flow + IR-4 narrow/multi-leaf + IR-5 effects honesty). -/
 def lowerPlanToInstructionsV1 (plan : Plan) : CompileResult ProgramV1 := do
+  -- IR-5 first: Plan-reachable effect residual with stable ALEO-IR-5 diagnostics
+  -- (wins over shared ValidatePlan Leo-path wording for Instructions tests).
+  checkEffectsHonestyMatrixV1 plan
   validatePlan plan
   unless plan.stateFieldNames.size ≥ 1 do
     planError

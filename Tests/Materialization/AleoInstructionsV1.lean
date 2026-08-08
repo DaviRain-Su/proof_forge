@@ -1,7 +1,7 @@
 /-
-  ALEO-IR-1..4: Aleo Instructions Schema/TextCodec + Counter golden +
+  ALEO-IR-1..5: Aleo Instructions Schema/TextCodec + Counter golden +
   Plan→Instructions Counter MVP + if/match/bounded-for + multi-leaf Map/
-  Option/Array + narrow UInt widths.
+  Option/Array + narrow UInt widths + effects honesty matrix.
 
   Covers:
   * schema id / Leo golden version pins
@@ -19,10 +19,12 @@
   * ALEO-IR-4: multi-leaf storeAggregate + typed mappings structural
   * ALEO-IR-4: product OptionState / MapMini / Array / NarrowBox
   * empty Plan / Int64 leaf / pure helper fail closed
+  * ALEO-IR-5: Plan emit / callFn / payload-revert FC with `ALEO-IR-5:` diags
+  * ALEO-IR-5: product emit/call/schedule/context/assets FC (matrix honesty)
   * profile note: default vs compile share Plan; lower is profile-insensitive
 
   **Not** product primary materialize cutover (IR-6), snarkVM execute,
-  prove/deploy, formal.
+  prove/deploy, formal. No PARTIAL effects row without evidence.
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Aleo
@@ -951,6 +953,190 @@ unsafe def testNestedMapFailClosedAtPlan : IO Unit := do
       -- Compile-time type/normalize FC is also acceptable.
       expect (e.render.length > 0) "nested Map compile diagnostic"
 
+/-- ALEO-IR-5: Plan-reachable effects honesty (emit / callFn / payload revert). -/
+private def testEffectsHonestyPlanFailClosed : IO Unit := do
+  -- emitEvent → stable ALEO-IR-5 diagnostic at Instructions lower.
+  let emitPlan : Plan := {
+    handBuiltCounterPlan with
+    functions := #[
+      handBuiltCounterPlan.functions[0]!,
+      { handBuiltCounterPlan.functions[1]! with
+        body := #[
+          .emitEvent 0 #[.param 0],
+          .store 0 (.param 0),
+          .returnNone
+        ] }
+    ]
+  }
+  match lowerPlanForTestV1 emitPlan with
+  | .ok _ => throw <| IO.userError "emit Plan must fail closed at IR-5"
+  | .error e =>
+      expect (e.render.contains "ALEO-IR-5")
+        s!"emit must cite ALEO-IR-5, got: {e.render}"
+      expect (e.render.contains "emit" || e.render.contains "event")
+        s!"emit diagnostic must mention emit/event, got: {e.render}"
+      expect (e.render.contains diagEmitNotAdmittedV1 ||
+          e.render.contains "no on-chain event log")
+        s!"emit diagnostic must match honesty matrix, got: {e.render}"
+  -- callFn residual → ALEO-IR-5 pureCall/callFn FC.
+  let callFnPlan : Plan := {
+    handBuiltCounterPlan with
+    functions := #[
+      handBuiltCounterPlan.functions[0]!,
+      { handBuiltCounterPlan.functions[1]! with
+        body := #[
+          .store 0 (.callFn "helper" #[.param 0]),
+          .returnNone
+        ] }
+    ]
+  }
+  match lowerPlanForTestV1 callFnPlan with
+  | .ok _ => throw <| IO.userError "callFn Plan must fail closed at IR-5"
+  | .error e =>
+      expect (e.render.contains "ALEO-IR-5")
+        s!"callFn must cite ALEO-IR-5, got: {e.render}"
+      expect (e.render.contains "callFn" || e.render.contains "pureCall")
+        s!"callFn diagnostic must mention callFn/pureCall, got: {e.render}"
+  -- payload revert → ALEO-IR-5.
+  let payloadPlan : Plan := {
+    handBuiltCounterPlan with
+    functions := #[
+      handBuiltCounterPlan.functions[0]!,
+      { handBuiltCounterPlan.functions[1]! with
+        body := #[
+          .revertError 0 #[.param 0],
+          .returnNone
+        ] }
+    ]
+  }
+  match lowerPlanForTestV1 payloadPlan with
+  | .ok _ => throw <| IO.userError "payload revert Plan must fail closed at IR-5"
+  | .error e =>
+      expect (e.render.contains "ALEO-IR-5")
+        s!"payload revert must cite ALEO-IR-5, got: {e.render}"
+      expect (e.render.contains "payload" || e.render.contains "revert")
+        s!"payload revert diagnostic must mention payload/revert, got: {e.render}"
+  -- bare revert remains admitted (assert.eq true false in Final).
+  let bareRevertPlan : Plan := {
+    handBuiltCounterPlan with
+    functions := #[
+      handBuiltCounterPlan.functions[0]!,
+      { handBuiltCounterPlan.functions[1]! with
+        body := #[.revertError 0 #[], .returnNone] }
+    ]
+  }
+  let bareProg ← liftResult <| lowerPlanForTestV1 bareRevertPlan
+  expect (bareProg.name == "counter.aleo") "bare revert still lowers"
+  -- Documentation pins (non-empty honesty notes for product surfaces).
+  expect (diagExternalCallHonestyNoteV1.contains "synchronous-call")
+    "external call honesty note"
+  expect (diagScheduleHonestyNoteV1.contains "asynchronous-workflow")
+    "schedule honesty note"
+  expect (diagAssetsRecordHonestyNoteV1.contains "pf.assets")
+    "assets/record honesty note"
+  expect (diagContextHonestyNoteV1.contains "ContextRead")
+    "context honesty note"
+
+/-- ALEO-IR-5: product path emit / call / schedule / context / assets FC. -/
+unsafe def testEffectsHonestyProductFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let expectProductFc (label : String) (source : String)
+      (moduleName : String) (needle : String) : IO Unit := do
+    let parsed ← liftResult (← session.selectProgramV1
+      source s!"<aleo-ir5-{label}>" moduleName none)
+    match Compiler.compileValidatedSourceV1 parsed with
+    | .error e =>
+        expect (e.render.length > 0)
+          s!"{label}: compile FC diagnostic"
+    | .ok compiled =>
+        match resolveEngineeringRequirementsV1 selection compiled with
+        | .error e =>
+            expect (e.render.contains needle ||
+                e.render.contains "PF-REQ" ||
+                e.render.contains "unsupported" ||
+                e.render.contains "Unsupported" ||
+                e.render.length > 0)
+              s!"{label}: resolve FC, got: {e.render}"
+        | .ok cap =>
+            match programFromCapabilityV1 cap with
+            | .ok _ =>
+                throw <| IO.userError
+                  s!"{label}: must fail closed before/at Instructions lower"
+            | .error e =>
+                expect (e.render.contains needle ||
+                    e.render.contains "ALEO-IR-5" ||
+                    e.render.contains "Aleo" ||
+                    e.render.length > 0)
+                  s!"{label}: lower FC, got: {e.render}"
+  -- emit: resolver declines effect.event or Plan/IR FC.
+  expectProductFc "emit"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program Ir5Emitter where\n" ++
+     "  event Ticked(value : UInt64)\n" ++
+     "  state count : UInt64\n" ++
+     "  init() do\n" ++
+     "    count := 0\n" ++
+     "  entry tick(x : UInt64) : UInt64 do\n" ++
+     "    emit Ticked(x)\n" ++
+     "    count := x\n" ++
+     "    return x\n")
+    "Tests.AleoIr5Emitter" "emit"
+  -- sync call: effect.synchronous-call declined at resolve.
+  expectProductFc "call"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program Ir5Caller where\n" ++
+     "  state count : UInt64\n" ++
+     "  init() do\n" ++
+     "    count := 0\n" ++
+     "  entry go(x : UInt64) : UInt64 do\n" ++
+     "    call Peer.go(x)\n" ++
+     "    count := x\n" ++
+     "    return x\n")
+    "Tests.AleoIr5Caller" "call"
+  -- schedule: effect.asynchronous-workflow declined at resolve.
+  expectProductFc "schedule"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program Ir5Scheduler where\n" ++
+     "  state count : UInt64\n" ++
+     "  init() do\n" ++
+     "    count := 0\n" ++
+     "  entry go(x : UInt64) : UInt64 do\n" ++
+     "    schedule ledger.daily(x)\n" ++
+     "    count := x\n" ++
+     "    return x\n")
+    "Tests.AleoIr5Scheduler" "schedule"
+  -- ContextRead (unixTimeSeconds) pilot FC.
+  expectProductFc "context"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program Ir5Clock where\n" ++
+     "  state public pad : UInt64\n" ++
+     "  init() do\n" ++
+     "    pad := 0\n" ++
+     "  entry now() : UInt64 do\n" ++
+     "    return context.unixTimeSeconds\n")
+    "Tests.AleoIr5Clock" "context"
+  -- pf.assets extension + catalog call: resolve FC (zero-binding).
+  expectProductFc "assets"
+    ("import ProofForgeV2\n" ++
+     "open ProofForgeV2.Language\n" ++
+     "program Ir5Assets where\n" ++
+     "  requires extension pf.assets version \"1.1.0\"\n" ++
+     "    digest \"sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9\"\n" ++
+     "  state count : UInt64\n" ++
+     "  init() do\n" ++
+     "    count := 0\n" ++
+     "  entry pay(dst : Principal, amount : UInt64) : UInt64 do\n" ++
+     "    call pf.assets.native.transfer(dst, amount)\n" ++
+     "    count := amount\n" ++
+     "    return amount\n")
+    "Tests.AleoIr5Assets" "assets"
+
 unsafe def run : IO Unit := do
   testPins
   testEncodeEqualsGolden
@@ -973,6 +1159,8 @@ unsafe def run : IO Unit := do
   testProductArrayMultiLeaf
   testProductNarrowUintWidths
   testNestedMapFailClosedAtPlan
+  testEffectsHonestyPlanFailClosed
+  testEffectsHonestyProductFailClosed
   IO.println "Tests.Materialization.AleoInstructionsV1: ok"
 
 

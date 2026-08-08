@@ -681,9 +681,9 @@
       "sha256": "6202d5da04be10196455e3f366d067d18fcf9e3083e8a0c30d8cfac3db4f8603"
     },
     {
-      "bytes": 30068,
+      "bytes": 36246,
       "path": "ProofForgeV2/Targets/Aleo/Instructions/LowerPlanV1.lean",
-      "sha256": "65a658f1666e47c29c3142996afc16f5341bec9191248e36668209e5b17c015b"
+      "sha256": "7ee8095e3a4b2fc9cbd07f3b0934975eec187c2f1ac0f6c38504254ec09fdab9"
     },
     {
       "bytes": 8686,
