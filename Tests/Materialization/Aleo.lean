@@ -43,11 +43,28 @@ private def irAleo
 
 private def materializeAleo
     (compiled : CompiledSemanticV1)
-    (profile? : Option CodegenProfileId := none) :
+    (profile? : Option CodegenProfileId := none)
+    (emitLeoDebug : Bool := false) :
     CompileResult MaterializedArtifactsV1 := do
   let selection ← resolveBuildSelectionV1 TargetId.aleo profile?
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
-  Targets.materializeResult capability
+  Targets.materializeResult capability (emitLeoDebug := emitLeoDebug)
+
+/-- ALEO-IR-6: Leo 4 surface pins read dual-written `{id}.leo` under
+    `emitLeoDebug := true` (product primary `{id}.aleo` is Instructions when
+    lower succeeds; residual shapes keep Leo as `.aleo` but still dual-write
+    `.leo` when debug is on). -/
+private def materializeLeoSource
+    (compiled : CompiledSemanticV1)
+    (programId : String)
+    (profile? : Option CodegenProfileId := none) : IO String := do
+  let output ← liftResult <| materializeAleo compiled profile? (emitLeoDebug := true)
+  let files := MaterializedArtifactsV1.filesOf output
+  match files.find? (·.path == s!"{programId}.leo") with
+  | some f => pure f.contents
+  | none =>
+      throw <| IO.userError
+        s!"aleo: missing {programId}.leo under emitLeoDebug; got {files.map (·.path)}"
 
 /-- Counter: init guard + state-touching entry (dropped return) + bare view. -/
 unsafe def testCounterPlanAndLeo : IO Unit := do
@@ -87,39 +104,58 @@ unsafe def testCounterPlanAndLeo : IO Unit := do
   let files := MaterializedArtifactsV1.filesOf output
   expect (files.map (·.path) ==
       #["counter.aleo", "counter.aleo-query-contract.json"])
-    s!"Counter materialize must emit Leo + query-contract base files in order, got {files.map (·.path)}"
+    s!"Counter materialize must emit Instructions + query-contract base files in order, got {files.map (·.path)}"
   expect (files[0]!.mediaType == "text/plain" &&
       files[1]!.mediaType == "application/json")
     "Counter base mediaTypes must be text/plain then application/json"
-  let some leoFile := files.find? (·.path == "counter.aleo") |
+  let some instFile := files.find? (·.path == "counter.aleo") |
     throw <| IO.userError "aleo: missing counter.aleo"
+  let inst := instFile.contents
+  -- ALEO-IR-6: product primary is Aleo Instructions (not Leo 4 brace source).
+  expect (inst.contains "program counter.aleo;")
+    "Instructions primary must declare the program with semicolon header"
+  expect (!inst.contains "program counter.aleo {")
+    "Instructions primary must not be Leo brace source"
+  expect (inst.contains "mapping pf_state_0:")
+    "Instructions must declare the state mapping"
+  expect (inst.contains "mapping initialized:")
+    "Instructions must declare the one-shot init guard mapping"
+  expect (inst.contains "function initialize:")
+    "init must materialize as an Instructions function"
+  expect (inst.contains "finalize initialize:")
+    "init must carry a finalize block"
+  expect (inst.contains "get.or_use initialized[0u8] false into")
+    "init guard must read the initialized mapping"
+  expect (inst.contains "assert.eq")
+    "init guard must assert via assert.eq"
+  expect (inst.contains "function increment:")
+    "increment must materialize as an Instructions function"
+  expect (inst.contains "finalize increment:")
+    "increment must carry a finalize block"
+  expect (inst.contains "get.or_use pf_state_0[0u8]")
+    "increment must read the state mapping in finalize"
+  expect (inst.contains "set ")
+    "increment must write mappings via set"
+  expect (inst.contains "constructor:")
+    "Instructions requires a constructor item"
+  -- Debug dual-write: Leo 4 source on explicit flag only.
+  let filesDbg ← liftResult <| materializeAleo compiled none (emitLeoDebug := true)
+  let dbgPaths := (MaterializedArtifactsV1.filesOf filesDbg).map (·.path)
+  expect (dbgPaths ==
+      #["counter.aleo", "counter.aleo-query-contract.json", "counter.leo"])
+    s!"debug dual-write must add counter.leo last, got {dbgPaths}"
+  let some leoFile := (MaterializedArtifactsV1.filesOf filesDbg).find?
+      (·.path == "counter.leo") |
+    throw <| IO.userError "aleo: missing counter.leo under emitLeoDebug"
   let leo := leoFile.contents
   expect (leo.contains "program counter.aleo {")
-    "Leo source must declare the program"
+    "debug Leo source must declare the program"
   expect (leo.contains "mapping pf_state_0: u8 => u64;")
-    "Leo source must declare the state mapping"
-  expect (leo.contains "mapping initialized: u8 => bool;")
-    "Leo source must declare the one-shot init guard mapping"
+    "debug Leo source must declare the state mapping"
   expect (leo.contains "fn initialize(public p0: u64) -> Final {")
-    "init must materialize as a Final function"
-  expect (leo.contains "constructor() {}")
-    "Leo 4 requires a closed empty constructor before mappings"
+    "debug Leo init must materialize as a Final function"
   expect (leo.contains "return final {")
-    "Final functions must use return final { ... }; form"
-  expect (leo.contains "    };\n")
-    "return final block must end with a trailing semicolon"
-  expect (leo.contains "initialized.get_or_use(0u8, false)")
-    "init guard must read the initialized mapping"
-  expect (leo.contains "assert((!pf_seen));")
-    "init guard must reject double initialization"
-  expect (leo.contains "fn increment(public p0: u64) -> Final {")
-    "increment must materialize as a Final function"
-  expect (leo.contains "pf_state_0.get_or_use(0u8, 0u64)")
-    "increment must read the state mapping in final context"
-  expect (leo.contains "pf_state_0.set(0u8,")
-    "increment must write the state mapping"
-  expect (leo.contains "let pf_return: u64 =")
-    "dropped return must still be evaluated in the final block"
+    "debug Leo Final functions must use return final { ... }; form"
   expect (!leo.contains "boolean")
     "Leo 4 keyword is bool, not boolean"
   expect (!leo.contains "return ();")
@@ -155,11 +191,7 @@ unsafe def testPureOpsAndShifts : IO Unit := do
   let leoFns := ir.program.functions
   expect (leoFns.all fun fn => !fn.isFinal)
     "BitLogic must materialize entirely as plain (non-Final) functions"
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "bitlogic.aleo") |
-    throw <| IO.userError "aleo: missing bitlogic.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "bitlogic"
   expect (leo.contains "fn mask(public p0: u64) -> u64 {")
     "mask must be a plain u64-returning function"
   expect (leo.contains " << ")
@@ -204,11 +236,7 @@ unsafe def testBoundedForLeo : IO Unit := do
   expect (plan.functions.map (·.name) == #["initialize", "sumUp"])
     "LoopSum must carry initialize + sumUp in source order"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "loopsum.aleo") |
-    throw <| IO.userError "aleo: missing loopsum.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "loopsum"
   expect (leo.contains "for pf_c0 in 0u64..8u64 {")
     "bounded for must render as a constant-bound Leo for"
   expect (leo.contains "if (pf_c0 < (pf_end0 - pf_start0)) {")
@@ -351,11 +379,7 @@ unsafe def testIfElseLeo : IO Unit := do
   expect (plan.functions.map (·.name) == #["initialize", "pick"])
     "Branch Aleo plan must carry initialize + pick"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "branch.aleo") |
-    throw <| IO.userError "aleo: missing branch.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "branch"
   expect (leo.contains "fn pick() -> Final {")
     "pick must materialize as a Final function"
   expect (leo.contains "if ")
@@ -392,11 +416,7 @@ unsafe def testMatchLeo : IO Unit := do
   expect (plan.functions.map (·.name) == #["initialize", "apply"])
     "Pick Aleo plan must carry initialize + apply"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "pick.aleo") |
-    throw <| IO.userError "aleo: missing pick.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "pick"
   -- switchOn emission folds cases into a right-nested if/else chain whose
   -- conditions are `(scrutinee == <literal>)`.
   expect (leo.contains " == 0u64)")
@@ -430,11 +450,7 @@ unsafe def testMulDivModLeo : IO Unit := do
   expect (plan.functions.map (·.name) == #["product", "quotient", "remainder"])
     "Arith Aleo plan must carry three pure entries"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "arith.aleo") |
-    throw <| IO.userError "aleo: missing arith.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "arith"
   expect (leo.contains "fn product(public p0: u64, public p1: u64) -> u64 {")
     "product must be a plain u64-returning function"
   expect (leo.contains " * ")
@@ -467,11 +483,7 @@ unsafe def testCheckedSubLeo : IO Unit := do
   expect (plan.functions.map (·.name) == #["subtract"])
     "Diff Aleo plan must carry the pure subtract entry"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "diff.aleo") |
-    throw <| IO.userError "aleo: missing diff.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "diff"
   expect (leo.contains "fn subtract(public p0: u64, public p1: u64) -> u64 {")
     "subtract must be a plain u64-returning function"
   -- EmitIRV1 binds checkedSub as `let pf_eN: u64 = (lhs - rhs);` with no
@@ -499,11 +511,7 @@ unsafe def testComparisonsLeo : IO Unit := do
   expect (plan.functions[0]!.resultIsBool)
     "cmp must be marked Bool-returning"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "cmp.aleo") |
-    throw <| IO.userError "aleo: missing cmp.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "cmp"
   expect (leo.contains "fn cmp(public p0: u64, public p1: u64) -> bool {")
     "Bool-returning entry must render a bool result"
   for op in #["==", "!=", "<", "<=", ">", ">="] do
@@ -526,11 +534,7 @@ unsafe def testLogicalLeo : IO Unit := do
   expect (plan.functions.map (·.name) == #["both"])
     "Log Aleo plan must carry the pure both entry"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "log.aleo") |
-    throw <| IO.userError "aleo: missing log.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "log"
   expect (leo.contains "fn both(public p0: u64, public p1: u64) -> bool {")
     "both must be a plain bool-returning function"
   expect (leo.contains " || ")
@@ -562,11 +566,7 @@ unsafe def testAssertLeo : IO Unit := do
   expect (plan.functions.map (·.name) == #["initialize", "take"])
     "Guard Aleo plan must carry initialize + take"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "guard.aleo") |
-    throw <| IO.userError "aleo: missing guard.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "guard"
   expect (leo.contains "fn take(public p0: u64) -> Final {")
     "take must materialize as a Final function"
   -- Compare is bound, then asserted: `assert(pf_eN);`
@@ -629,11 +629,7 @@ unsafe def testBareRevertLeo : IO Unit := do
   expect (plan.functions.map (·.name) == #["initialize", "run"])
     "Stop Aleo plan must carry initialize + run"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "stop.aleo") |
-    throw <| IO.userError "aleo: missing stop.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "stop"
   expect (leo.contains "assert(false);")
     "bare zero-arg revert must lower to assert(false)"
 
@@ -668,11 +664,7 @@ unsafe def testMultiStateLeo : IO Unit := do
   expect (plan.views[0]!.stateFieldIndex == 0 && plan.views[1]!.stateFieldIndex == 1)
     "views must bind the matching state field indices"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "dual.aleo") |
-    throw <| IO.userError "aleo: missing dual.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "dual"
   expect (leo.contains "mapping pf_state_0: u8 => u64;")
     "first state field must render as pf_state_0"
   expect (leo.contains "mapping pf_state_1: u8 => u64;")
@@ -733,11 +725,7 @@ unsafe def testMultiParamFnLeo : IO Unit := do
   expect (plan.functions[1]!.resultIsBool && plan.functions[2]!.resultIsBool)
     "above and go must be Bool-returning"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "helpers.aleo") |
-    throw <| IO.userError "aleo: missing helpers.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "helpers"
   expect (leo.contains "fn plus(p0: u64, p1: u64) -> u64 {")
     "UInt64 pureFn must render as a file-level helper without public"
   expect (leo.contains "fn above(p0: u64, p1: u64) -> bool {")
@@ -861,11 +849,7 @@ unsafe def testBls12377FieldStateArith : IO Unit := do
   expect (bump.resultIsField)
     "BLS12-377 bump entry result must be flagged as field"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "blsfieldbox.aleo") |
-    throw <| IO.userError "aleo: missing blsfieldbox.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "blsfieldbox"
   expect (leo.contains "mapping pf_state_0: u8 => field;")
     s!"Aleo BLS12-377 source must declare the acc field mapping, got:\n{leo}"
   expect (leo.contains "public p0: field")
@@ -922,11 +906,7 @@ unsafe def testNamedAggregateLowered : IO Unit := do
   expect (plan.views[0]!.stateFieldIndex == 0)
     "Aleo getX bare view must bind p_x (leaf 0)"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "pointbox.aleo") |
-    throw <| IO.userError "aleo: missing pointbox.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "pointbox"
   expect (leo.contains "mapping pf_state_0: u8 => u64;")
     "Aleo Point must emit pf_state_0 for p_x"
   expect (leo.contains "mapping pf_state_1: u8 => u64;")
@@ -969,11 +949,7 @@ unsafe def testArrayStateLowered : IO Unit := do
   expect (plan.functions.any (·.name == "set0"))
     "Aleo Array plan must carry set0"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "arrbox.aleo") |
-    throw <| IO.userError "aleo: missing arrbox.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "arrbox"
   expect (leo.contains "mapping pf_state_0: u8 => u64;")
     "Aleo Array must emit pf_state_0 for slots_0"
   expect (leo.contains "mapping pf_state_1: u8 => u64;")
@@ -999,11 +975,7 @@ unsafe def testCommitIdentityLeo : IO Unit := do
   expect (plan.functions.map (·.name) == #["initialize", "run"])
     "CommitSeal must carry initialize + run"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "commitseal.aleo") |
-    throw <| IO.userError "aleo: missing commitseal.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "commitseal"
   expect (leo.contains "fn run(public p0: u64) -> Final {")
     "commit identity entry must materialize as Final"
   expect (leo.contains "pf_state_0.set(0u8,")
@@ -1083,11 +1055,7 @@ unsafe def testInt64StateArithLeo : IO Unit := do
         "pure Int64 entry must keep an i64 result"
   | none => throw <| IO.userError "missing scale"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "temp.aleo") |
-    throw <| IO.userError "aleo: missing temp.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "temp"
   expect (leo.contains "mapping pf_state_0: u8 => i64;")
     "Int64 state must render an i64 mapping"
   expect (leo.contains "fn initialize(public p0: i64) -> Final {")
@@ -1133,11 +1101,7 @@ unsafe def testInt64ComparisonsLeo : IO Unit := do
         "Int64 comparison entry must be Bool-returning with signed params"
   | none => throw <| IO.userError "missing cmp"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "cmpi.aleo") |
-    throw <| IO.userError "aleo: missing cmpi.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "cmpi"
   expect (leo.contains "fn cmp(public p0: i64, public p1: i64) -> bool {")
     "Int64 comparison entry must render i64 params and bool result"
   for op in #["==", "!=", "<", "<=", ">", ">="] do
@@ -1165,11 +1129,7 @@ unsafe def testInt64NegBitwiseShiftsLeo : IO Unit := do
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   let plan ← liftResult <| planAleo compiled
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "biti.aleo") |
-    throw <| IO.userError "aleo: missing biti.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "biti"
   expect (leo.contains "fn negate(public p0: i64) -> i64 {")
     "neg entry must render i64"
   expect (leo.contains "(-p0)")
@@ -1212,11 +1172,7 @@ unsafe def testInt64PureHelperLeo : IO Unit := do
   expect (twice.resultIsInt && twice.isPureHelper)
     "twice must be an Int64-returning pure helper"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "helperi.aleo") |
-    throw <| IO.userError "aleo: missing helperi.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "helperi"
   expect (leo.contains "fn twice(p0: i64) -> i64 {")
     "Int64 pureFn must render as a file-level i64 helper"
   expect (leo.contains "fn pos(p0: i64) -> bool {")
@@ -1269,11 +1225,7 @@ unsafe def testInt64Negatives : IO Unit := do
   expect (plan.functions.all (·.resultIsInt))
     "negative literal entries must be Int64-returning"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "neglit.aleo") |
-    throw <| IO.userError "aleo: missing neglit.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "neglit"
   expect (leo.contains "-9223372036854775808i64")
     "intMin must render as a negative i64 literal"
   expect (leo.contains "-1i64")
@@ -1395,11 +1347,7 @@ unsafe def testMapStateLeo : IO Unit := do
   expect (sequentialMapStoreCount == 0)
     s!"Token mint must not sequential-store Map leaves (snapshot hazard), got {sequentialMapStoreCount}"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "token.aleo") |
-    throw <| IO.userError "aleo: missing token.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "token"
   expect (leo.contains "mapping pf_state_0: u8 => u64;")
     "Map must render occ/key/val u64 mappings"
   expect (leo.contains " ? ")
@@ -1446,11 +1394,7 @@ unsafe def testMapStoreAggregateSnapshot : IO Unit := do
   expect (!hasSeqStore)
     "MapMini put must not emit sequential per-leaf .store for the Map upsert"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "mapmini.aleo") |
-    throw <| IO.userError "aleo: missing mapmini.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "mapmini"
   -- Extract put's final block (between `return final {` after put header
   -- and the matching `};` close).
   let putMarker := "fn put(public p0: u64, public p1: u64) -> Final {"
@@ -1645,11 +1589,7 @@ unsafe def testBytesStateLeo : IO Unit := do
         "Bytes entry must take and return UInt8"
   | none => throw <| IO.userError "missing set0"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "bytesbox.aleo") |
-    throw <| IO.userError "aleo: missing bytesbox.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "bytesbox"
   expect (leo.contains "mapping pf_state_0: u8 => u8;")
     "Bytes leaves must render u8 => u8 mappings"
   expect (leo.contains "fn set0(public p0: u8) -> Final {")
@@ -1718,11 +1658,7 @@ unsafe def testNarrowUintStateLeo : IO Unit := do
         "bump32 must take/return UInt32"
   | none => throw <| IO.userError "missing bump32"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "narrowbox.aleo") |
-    throw <| IO.userError "aleo: missing narrowbox.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "narrowbox"
   expect (leo.contains "mapping pf_state_0: u8 => u8;")
     "UInt8 state must render u8 => u8 mapping"
   expect (leo.contains "mapping pf_state_1: u8 => u16;")
@@ -1849,11 +1785,7 @@ unsafe def testNamedStructReturn : IO Unit := do
       expect (leaves.size == 2) "PairRet Leo IR must carry 2 aggregate leaves"
   | none =>
       throw <| IO.userError "PairRet Leo IR must set resultAggregateLeaves"
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "pairret.aleo") |
-    throw <| IO.userError "aleo: missing pairret.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "pairret"
   expect (leo.contains "fn makePair(public p0: u64, public p1: u64) -> (u64, u64) {")
     s!"PairRet must emit Leo tuple return type, got:\n{leo}"
   expect (leo.contains "return (")
@@ -1905,11 +1837,7 @@ unsafe def testNamedEnumReturn : IO Unit := do
   | none =>
       throw <| IO.userError "MaybeRet clear must set resultAggregateLeaves"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "mayberet.aleo") |
-    throw <| IO.userError "aleo: missing mayberet.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "mayberet"
   expect (leo.contains "fn put(public p0: u64) -> (u64, u64) {")
     s!"MaybeRet put must emit Leo tuple return, got:\n{leo}"
   expect (leo.contains "fn clear() -> (u64, u64) {")
@@ -1952,11 +1880,7 @@ unsafe def testNamedStructReturnFinalDropped : IO Unit := do
   | _ =>
       throw <| IO.userError "PairStore setPair must end in returnAggregate"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "pairstore.aleo") |
-    throw <| IO.userError "aleo: missing pairstore.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "pairstore"
   expect (leo.contains "fn setPair(public p0: u64, public p1: u64) -> Final {")
     s!"PairStore setPair must be Final, got:\n{leo}"
   expect (leo.contains "let pf_return_0: u64 =")
@@ -2020,11 +1944,7 @@ unsafe def testAnonymousArrayReturn : IO Unit := do
     throw <| IO.userError "ArrayRet IR missing setArr"
   expect (leoFn.resultAggregateForm == .array)
     "ArrayRet Leo IR form must be .array"
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "arrayret.aleo") |
-    throw <| IO.userError "aleo: missing arrayret.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "arrayret"
   expect (leo.contains "fn setArr(public p0: u64, public p1: u64) -> Final {")
     s!"ArrayRet setArr must be Final, got:\n{leo}"
   expect (leo.contains "let pf_return_0: u64 =")
@@ -2087,11 +2007,7 @@ unsafe def testAnonymousOptionReturn : IO Unit := do
   | _ =>
       throw <| IO.userError "OptionRet clear body must be .returnAggregate"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "optionret.aleo") |
-    throw <| IO.userError "aleo: missing optionret.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "optionret"
   expect (leo.contains "fn put(public p0: u64) -> (bool, u64) {")
     s!"OptionRet put must emit Leo (bool, u64) return, got:\n{leo}"
   expect (leo.contains "fn clear() -> (bool, u64) {")
@@ -2450,11 +2366,7 @@ unsafe def testOptionState : IO Unit := do
   expect (peekRepr.contains "ifThenElse" || peekRepr.contains "switchOn")
     s!"peek match must lower to ifThenElse/switchOn, body={peekRepr}"
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "optionstate.aleo") |
-    throw <| IO.userError "aleo: missing optionstate.aleo"
-  let leo := leoFile.contents
+  let leo ← materializeLeoSource compiled "optionstate"
   expect (leo.contains "mapping pf_state_0: u8 => u64;")
     "OptionState must emit pf_state_0 for tag"
   expect (leo.contains "mapping pf_state_1: u8 => u64;")
@@ -2577,7 +2489,7 @@ unsafe def testQueryContractCounter : IO Unit := do
   expect (c.contains "\"program\": \"Counter\"")
     "query-contract program must bind artifact name"
   expect (c.contains "\"programFile\": \"counter.aleo\"")
-    "query-contract programFile must bind Leo base path"
+    "query-contract programFile must bind primary .aleo base path"
   expect (c.contains "\"codegenProfile\": \"aleo-leo-4.0.2-u64-v1\"")
     "query-contract must bind current Aleo profile"
   expect (c.contains "\"leo\": \"4.0.2\"")
@@ -2632,11 +2544,14 @@ unsafe def testQueryContractCounter : IO Unit := do
   expect (c.contains
       "{\"index\":0,\"name\":\"get\",\"mapping\":\"pf_state_0\",\"key\":\"0u8\",\"type\":\"u64\",\"default\":\"0u64\"}")
     "query-contract views must bind get → pf_state_0"
-  -- Leo source must still omit the bare view (descriptor only).
-  let some leoFile := files.find? (·.path == "counter.aleo") |
+  -- Primary Instructions (and residual Leo) must omit the bare view
+  -- (descriptor / query-contract only).
+  let some primaryFile := files.find? (·.path == "counter.aleo") |
     throw <| IO.userError "missing counter.aleo"
-  expect (!leoFile.contents.contains "fn get(")
-    "bare view must never emit into Leo source"
+  expect (!primaryFile.contents.contains "fn get(")
+    "bare view must never emit into primary .aleo"
+  expect (!primaryFile.contents.contains "function get:")
+    "bare view must never emit into Instructions function table"
   -- resultDropped: only flag=true (increment); honest observation label.
   expect (c.contains
       "{\"name\":\"increment\",\"observation\":\"post-transaction-mapping-query\"}")
@@ -2694,12 +2609,16 @@ unsafe def testQueryContractDualViews : IO Unit := do
   expect (c.contains
       "{\"name\":\"go\",\"observation\":\"post-transaction-mapping-query\"}")
     "go is resultDropped"
-  let some leoFile := files.find? (·.path == "dual.aleo") |
+  let some primaryFile := files.find? (·.path == "dual.aleo") |
     throw <| IO.userError "missing dual.aleo"
-  expect (!leoFile.contents.contains "fn getCount(")
-    "getCount must not appear in Leo source"
-  expect (!leoFile.contents.contains "fn getBalance(")
-    "getBalance must not appear in Leo source"
+  expect (!primaryFile.contents.contains "fn getCount(")
+    "getCount must not appear in primary .aleo"
+  expect (!primaryFile.contents.contains "fn getBalance(")
+    "getBalance must not appear in primary .aleo"
+  expect (!primaryFile.contents.contains "function getCount:")
+    "getCount must not appear in Instructions function table"
+  expect (!primaryFile.contents.contains "function getBalance:")
+    "getBalance must not appear in Instructions function table"
 
 /-- ALEO-I2: no-state pure program → empty mappings/views/resultDropped arrays. -/
 unsafe def testQueryContractNoStateEmpty : IO Unit := do
@@ -2814,12 +2733,24 @@ unsafe def testDualProfilePlanAndQueryContract : IO Unit := do
     "compile materialize binds compile profile"
   let filesSrc := MaterializedArtifactsV1.filesOf outSrc
   let filesCmp := MaterializedArtifactsV1.filesOf outCmp
-  let some leoSrc := filesSrc.find? (·.path == "counter.aleo") |
+  expect (filesSrc.map (·.path) ==
+      #["counter.aleo", "counter.aleo-query-contract.json"])
+    s!"source profile base paths (Instructions+query), got {filesSrc.map (·.path)}"
+  expect (filesCmp.map (·.path) ==
+      #["counter.aleo", "counter.aleo-query-contract.json", "counter.leo"])
+    s!"compile profile dual-writes Leo for compare, got {filesCmp.map (·.path)}"
+  let some primarySrc := filesSrc.find? (·.path == "counter.aleo") |
     throw <| IO.userError "dual: missing source counter.aleo"
-  let some leoCmp := filesCmp.find? (·.path == "counter.aleo") |
+  let some primaryCmp := filesCmp.find? (·.path == "counter.aleo") |
     throw <| IO.userError "dual: missing compile counter.aleo"
-  expect (leoSrc.contents == leoCmp.contents)
-    "dual profiles must emit exact-byte-equal Leo source"
+  expect (primarySrc.contents == primaryCmp.contents)
+    "dual profiles must emit exact-byte-equal Instructions primary"
+  expect (primarySrc.contents.contains "program counter.aleo;")
+    "dual profile primary must be Instructions text"
+  let some leoCmp := filesCmp.find? (·.path == "counter.leo") |
+    throw <| IO.userError "dual: missing compile counter.leo"
+  expect (leoCmp.contents.contains "program counter.aleo {")
+    "compile dual-write must be Leo 4 brace source"
   let some qcSrc := filesSrc.find? (·.path == "counter.aleo-query-contract.json") |
     throw <| IO.userError "dual: missing source query-contract"
   let some qcCmp := filesCmp.find? (·.path == "counter.aleo-query-contract.json") |

@@ -2,9 +2,11 @@
   Aleo leo-build acceptance suite (engineering only; ALEO-I3 locked-Leo path).
 
   Builds representative ProgramV1 sources through the product capability path
-  (select → compileValidatedSourceV1 → resolve → materializeResult), wraps the
-  emitted `{id}.aleo` Leo source into a temporary Leo 4 package
-  (`program.json` + `src/main.leo`), and invokes:
+  (select → compileValidatedSourceV1 → resolve → materializeResult with
+  `emitLeoDebug := true`), wraps the dual-written transitional `{id}.leo`
+  Leo 4 source (ALEO-IR-6: product primary `{id}.aleo` is Instructions when
+  lower succeeds) into a temporary Leo 4 package (`program.json` +
+  `src/main.leo`), and invokes:
 
       leo build --offline --disable-update-check
 
@@ -181,7 +183,9 @@ private def testLockedResolverPolicy : IO Unit := do
         "leo requiredBundlePaths must be the single executable"
   IO.println "  locked-resolver policy ok (no PATH fallback; soft-skip-only-when-absent; env allowlist)"
 
-/-- Product materialize for the default Aleo profile; returns Leo source + path. -/
+/-- Product materialize with ALEO-IR-6 Leo debug dual-write; returns Leo 4
+    source for locked `leo build` acceptance (not the Instructions primary).
+    `expectedAleoPath` is the primary `{id}.aleo` path used to derive program id. -/
 private unsafe def materializeAleo
     (label : String) (sourceText : String) (moduleName : String)
     (expectedAleoPath : String) : IO (String × String) := do
@@ -195,24 +199,35 @@ private unsafe def materializeAleo
   let capability ← liftResult s!"resolve {label}" <|
     Targets.resolveEngineeringRequirementsV1 selection compiled
   let output ← liftResult s!"materialize {label}" <|
-    Targets.materializeResult capability
+    Targets.materializeResult capability (emitLeoDebug := true)
   let files := MaterializedArtifactsV1.filesOf output
-  let some aleoFile := files.find? (·.path == expectedAleoPath) |
-    throw <| IO.userError s!"{label}: missing {expectedAleoPath}; got {files.map (·.path)}"
-  expect (!aleoFile.contents.isEmpty) s!"{label}: empty Leo source"
-  expect (aleoFile.contents.contains "program ")
-    s!"{label}: Leo source must declare a program"
-  expect (!aleoFile.contents.contains "boolean")
+  let some primaryFile := files.find? (·.path == expectedAleoPath) |
+    throw <| IO.userError s!"{label}: missing primary {expectedAleoPath}; got {files.map (·.path)}"
+  expect (!primaryFile.contents.isEmpty) s!"{label}: empty primary .aleo"
+  expect (primaryFile.contents.contains "program ")
+    s!"{label}: primary must declare a program"
+  let programId :=
+    if expectedAleoPath.endsWith ".aleo" then (expectedAleoPath.dropEnd 5).copy
+    else expectedAleoPath
+  let leoPath := s!"{programId}.leo"
+  let some leoFile := files.find? (·.path == leoPath) |
+    throw <| IO.userError s!"{label}: missing dual-write {leoPath}; got {files.map (·.path)}"
+  expect (!leoFile.contents.isEmpty) s!"{label}: empty Leo debug source"
+  expect (leoFile.contents.contains "program ")
+    s!"{label}: Leo debug source must declare a program"
+  expect (leoFile.contents.contains ".aleo {")
+    s!"{label}: Leo debug source must be brace-form Leo 4"
+  expect (!leoFile.contents.contains "boolean")
     s!"{label}: Leo 4 uses bool, not boolean"
-  expect (!aleoFile.contents.contains "return ();")
+  expect (!leoFile.contents.contains "return ();")
     s!"{label}: Leo 4 rejects return ()"
-  pure (aleoFile.contents, expectedAleoPath)
+  pure (leoFile.contents, expectedAleoPath)
 
 /-- Stem of `{id}.aleo` → `{id}` for package layout. -/
 private def programStem (aleoPath : String) : String :=
   if aleoPath.endsWith ".aleo" then (aleoPath.dropEnd 5).copy else aleoPath
 
-/-- Write a Leo 4 package around product-emitted `.aleo` base and run locked
+/-- Write a Leo 4 package around dual-written `.leo` source and run locked
     `leo build --offline --disable-update-check` under isolated env. -/
 private def runLeoBuild (leo : String) (leoHome pkgRoot : FilePath)
     (programId : String) (leoSource : String) (label : String) : IO Unit := do
@@ -229,7 +244,7 @@ private def runLeoBuild (leo : String) (leoHome pkgRoot : FilePath)
     "  \"dev_dependencies\": null\n" ++
     "}\n"
   IO.FS.writeFile (pkgRoot / "program.json") programJson
-  -- Only the product `.aleo` base leaf is consumed as package source.
+  -- ALEO-IR-6: feed dual-written Leo 4 source, not Instructions primary.
   IO.FS.writeFile (pkgRoot / "src" / "main.leo") leoSource
   -- True empty-env isolation via `/usr/bin/env -i` (matches LockedToolchainV1
   -- runIsolated discipline). Suite HOME only — no ambient secrets/network keys.

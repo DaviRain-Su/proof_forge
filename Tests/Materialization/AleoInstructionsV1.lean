@@ -1,7 +1,8 @@
 /-
-  ALEO-IR-1..5: Aleo Instructions Schema/TextCodec + Counter golden +
+  ALEO-IR-1..6: Aleo Instructions Schema/TextCodec + Counter golden +
   Plan→Instructions Counter MVP + if/match/bounded-for + multi-leaf Map/
-  Option/Array + narrow UInt widths + effects honesty matrix.
+  Option/Array + narrow UInt widths + effects honesty matrix + product
+  primary materialize cutover.
 
   Covers:
   * schema id / Leo golden version pins
@@ -21,10 +22,12 @@
   * empty Plan / Int64 leaf / pure helper fail closed
   * ALEO-IR-5: Plan emit / callFn / payload-revert FC with `ALEO-IR-5:` diags
   * ALEO-IR-5: product emit/call/schedule/context/assets FC (matrix honesty)
+  * ALEO-IR-6: product materialize primary = Instructions text ≡ golden;
+    default no `.leo`; `emitLeoDebug` / compile profile dual-write `.leo`
   * profile note: default vs compile share Plan; lower is profile-insensitive
 
-  **Not** product primary materialize cutover (IR-6), snarkVM execute,
-  prove/deploy, formal. No PARTIAL effects row without evidence.
+  **Not** snarkVM execute, prove/deploy, formal. No PARTIAL effects row
+  without evidence.
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Aleo
@@ -1137,6 +1140,70 @@ unsafe def testEffectsHonestyProductFailClosed : IO Unit := do
      "    return amount\n")
     "Tests.AleoIr5Assets" "assets"
 
+/-- ALEO-IR-6: product materialize primary is Instructions text ≡ golden;
+    default omits `.leo`; debug flag and compile profile dual-write Leo. -/
+unsafe def testProductPrimaryInstructionsMaterialize : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Counter where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-ir6-primary>" "Tests.AleoIr6Primary" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  -- Default product: Instructions primary + query only.
+  let files ← liftResult <| Targets.Aleo.buildFromCapability cap
+  expect (files.map (·.path) ==
+      #["counter.aleo", "counter.aleo-query-contract.json"])
+    s!"IR-6 default paths, got {files.map (·.path)}"
+  let golden ← IO.FS.readFile goldenPath
+  expect (files[0]!.contents == golden)
+    "IR-6 product primary counter.aleo must equal locked-leo golden bytes"
+  expect (files[0]!.contents.contains "program counter.aleo;")
+    "primary header is Instructions semicolon form"
+  expect (!files[0]!.contents.contains "program counter.aleo {")
+    "primary must not be Leo brace source"
+  -- Debug dual-write.
+  let filesDbg ← liftResult <|
+    Targets.Aleo.buildFromCapability cap (emitLeoDebug := true)
+  expect (filesDbg.map (·.path) ==
+      #["counter.aleo", "counter.aleo-query-contract.json", "counter.leo"])
+    s!"IR-6 debug dual-write paths, got {filesDbg.map (·.path)}"
+  expect (filesDbg[0]!.contents == golden)
+    "debug dual-write keeps Instructions primary"
+  expect (filesDbg[2]!.contents.contains "program counter.aleo {")
+    "debug .leo is Leo 4 brace source"
+  -- Compile profile always dual-writes Leo for compare finalize.
+  let selCmp ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo
+      (some CodegenProfileId.aleoLeoU64CompileV1)
+  let capCmp ← liftResult <|
+    resolveEngineeringRequirementsV1 selCmp compiled
+  let filesCmp ← liftResult <| Targets.Aleo.buildFromCapability capCmp
+  expect (filesCmp.map (·.path) ==
+      #["counter.aleo", "counter.aleo-query-contract.json", "counter.leo"])
+    s!"IR-6 compile dual-write paths, got {filesCmp.map (·.path)}"
+  expect (filesCmp[0]!.contents == golden)
+    "compile profile primary still Instructions ≡ golden"
+  expect (filesCmp[2]!.contents.contains "program counter.aleo {")
+    "compile dual-write .leo is Leo 4 source"
+  -- Registry pure materializeResult default is Instructions-only.
+  let arts ← liftResult <| Targets.materializeResult cap
+  let artPaths := (MaterializedArtifactsV1.filesOf arts).map (·.path)
+  expect (artPaths == #["counter.aleo", "counter.aleo-query-contract.json"])
+    s!"Registry materializeResult default must omit .leo, got {artPaths}"
+
 unsafe def run : IO Unit := do
   testPins
   testEncodeEqualsGolden
@@ -1161,6 +1228,7 @@ unsafe def run : IO Unit := do
   testNestedMapFailClosedAtPlan
   testEffectsHonestyPlanFailClosed
   testEffectsHonestyProductFailClosed
+  testProductPrimaryInstructionsMaterialize
   IO.println "Tests.Materialization.AleoInstructionsV1: ok"
 
 

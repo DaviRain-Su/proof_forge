@@ -43,19 +43,21 @@
     * EnvRead (balanceOfSelf) → Semantic→Plan FC
     No PARTIAL row is claimed on this path.
 
-  Profile note (default vs compile):
+  Profile note (default vs compile) — **ALEO-IR-6 product primary**:
     * Plan body is profile-insensitive (shared by
       `aleo-leo-4.0.2-u64-v1` and `aleo-leo-4.0.2-u64-compile-v1`).
-    * Default source profile: product still emits Leo 4 source + query-contract
-      (zero-tool); this lower is the engineering Instructions path for tests
-      and the IR authority candidate — **not** product primary yet (IR-6).
-    * Compile profile: product Leo source → locked `leo build` produces
-      `*.compiled.aleo` extras; Counter Instructions from this lower must be
-      structurally ≡ that golden (G1). Multi-leaf/control-flow programs are
+    * Default source profile: product primary = Instructions text `{id}.aleo`
+      when this lower succeeds + query-contract (zero-tool Finalize);
+      transitional Leo 4 source is debug-only (`PROOF_FORGE_ALEO_EMIT_LEO=1`).
+    * Compile profile: same Instructions primary; always dual-writes `{id}.leo`
+      so Finalize locked `leo build` can produce compare extras
+      (`*.compiled.aleo` / abi / program JSON). Counter encode must remain
+      structurally ≡ golden (G1). Multi-leaf/control-flow programs are
       tested structurally (G2/G3/IR-4), not as byte-identical Leo compile goldens.
+    * Residual: Plan-admitted shapes this lower rejects keep Leo as `.aleo`
+      primary until G5 hard-require (dual-write transition).
 
-  Unsupported Plan shapes fail closed. Leo `EmitIRV1` path remains the
-  transitional product printer.
+  Unsupported Plan shapes fail closed here; product residual may still emit Leo.
 -/
 import ProofForgeV2.Targets.Aleo.LowerSemanticV1
 import ProofForgeV2.Targets.Aleo.ValidatePlanV1

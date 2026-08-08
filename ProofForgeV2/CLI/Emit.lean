@@ -354,7 +354,8 @@ def emitProgram (capability : Targets.ResolvedEngineeringBuildV1)
   -- boundary and retains its stable diagnostic independently of target.
   unless validArtifactName programName do
     throw <| IO.userError s!"PF-OUTPUT-PATH: unsafe program artifact name '{programName}'"
-  -- IO materialize: Psy reads PROOF_FORGE_PSY_EMIT_PSY=1 for debug .psy (G6).
+  -- IO materialize: Psy reads PROOF_FORGE_PSY_EMIT_PSY=1 for debug .psy (G6);
+  -- Aleo reads PROOF_FORGE_ALEO_EMIT_LEO=1 for transitional .leo (ALEO-IR-6).
   let artifacts ← Targets.materialize capability
   validateMaterializedCarrier compiled artifacts
   let name ← match outputDir.fileName with

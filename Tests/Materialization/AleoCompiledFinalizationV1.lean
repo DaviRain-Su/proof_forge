@@ -97,14 +97,19 @@ private def expectRole
   expect (descriptor.role == role) s!"manifest role mismatch for {path}"
   expect (descriptor.size > 0) s!"manifest size must be nonzero for {path}"
 
+/-- Default source profile bases (ALEO-IR-6: Instructions + query; no Leo). -/
 private def sourceBasePaths : Array String :=
   #["counter.aleo", "counter.aleo-query-contract.json"]
+
+/-- Compile profile dual-writes Leo for locked-leo compare finalize. -/
+private def compileBasePaths : Array String :=
+  #["counter.aleo", "counter.aleo-query-contract.json", "counter.leo"]
 
 private def compiledExtraPaths : Array String :=
   #["counter.compiled.aleo", "counter.abi.json", "counter.leo-program.json"]
 
 private def publishedPaths : Array String :=
-  sourceBasePaths ++ compiledExtraPaths ++ #["evidence.json", "manifest.json"]
+  compileBasePaths ++ compiledExtraPaths ++ #["evidence.json", "manifest.json"]
 
 /-- Default profile is unchanged: no locked tool and no compiled extras. -/
 private unsafe def testDefaultSourceProfile : IO Unit := do
@@ -126,6 +131,14 @@ private unsafe def testDefaultSourceProfile : IO Unit := do
   expect (manifest.files.size == 2) "default profile has exactly two base artifacts"
   for path in sourceBasePaths do
     expectRole manifest path .materializedBase
+  -- ALEO-IR-6: primary .aleo is Instructions text, not Leo brace source.
+  let primary ← IO.FS.readFile (outDir / "counter.aleo")
+  expect (primary.contains "program counter.aleo;")
+    "default primary must be Aleo Instructions"
+  expect (!primary.contains "program counter.aleo {")
+    "default primary must not be Leo brace source"
+  expect (!(← (outDir / "counter.leo").pathExists))
+    "default profile must not dual-write counter.leo without debug env"
   for path in compiledExtraPaths do
     expect (!(← (outDir / path).pathExists)) s!"default profile must not emit {path}"
 
@@ -155,16 +168,24 @@ private unsafe def testCompiledProfile (leo : VerifiedTool) : IO Unit := do
     expect (manifest.codegenProfile == CodegenProfileId.aleoLeoU64CompileV1.toString)
       "compiled inspected profile"
     expect (!manifest.deployable) "compiled inspected deployable=false"
-    expect (manifest.files.size == 5)
-      s!"compiled profile must have exactly five artifacts, got {manifest.files.size}"
-    for path in sourceBasePaths do
+    expect (manifest.files.size == 6)
+      s!"compiled profile must have exactly six artifacts (3 base + 3 extra), got {manifest.files.size}"
+    for path in compileBasePaths do
       expectRole manifest path .materializedBase
     for path in compiledExtraPaths do
       expectRole manifest path .finalizedExtra
 
-  for path in sourceBasePaths ++ compiledExtraPaths do
+  for path in compileBasePaths ++ compiledExtraPaths do
     expectRegularNonempty first path
     expectRegularNonempty second path
+  let primary ← IO.FS.readFile (first / "counter.aleo")
+  expect (primary.contains "program counter.aleo;")
+    "compile primary must be Aleo Instructions"
+  expect (!primary.contains "program counter.aleo {")
+    "compile primary must not be Leo brace source"
+  let leoSrc ← IO.FS.readFile (first / "counter.leo")
+  expect (leoSrc.contains "program counter.aleo {")
+    "compile dual-write must be Leo 4 source for leo-build compare"
   let evidence ← IO.FS.readFile (first / "evidence.json")
   expect (evidence.contains CodegenProfileId.aleoLeoU64CompileV1.toString)
     "compiled evidence profile"
@@ -174,6 +195,8 @@ private unsafe def testCompiledProfile (leo : VerifiedTool) : IO Unit := do
     "compiled evidence locked Leo executable hash"
   expect (evidence.contains "offline compile-only finalization")
     "compiled evidence compile-only wording"
+  expect (evidence.contains "compare path" || evidence.contains "dual-written")
+    "compiled evidence must note leo-build is compare / dual-write path"
   expect (evidence.contains "no execution, proof, deployment, or network query")
     "compiled evidence denies stronger runtime/proof claims"
 
@@ -184,7 +207,7 @@ private unsafe def testCompiledProfile (leo : VerifiedTool) : IO Unit := do
     expect (left == right) s!"compiled repeat differs at {path}"
   expect (firstManifest.outputSetDigest == secondManifest.outputSetDigest)
     "compiled repeat outputSetDigest"
-  IO.println s!"  locked Leo compile profile ok ({leo.version}; 5 artifacts; repeat exact)"
+  IO.println s!"  locked Leo compile profile ok ({leo.version}; 6 artifacts; repeat exact)"
 
 private def runProductCliWithToolRoot
     (toolRoot : String) (outDir : FilePath) : IO IO.Process.Output :=

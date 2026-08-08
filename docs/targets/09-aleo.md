@@ -17,14 +17,15 @@ Phase 1：实现（工程切片已接线；成熟度 source-only / compile-only�
 
 **下一主线：Aleo Instructions IR**（官方中间 IR，对标 Psy DPN），**不是**长期 sole Leo 源语法。
 规划 sole 输入：[`09-aleo-instructions-lowering.md`](09-aleo-instructions-lowering.md)。
-**ALEO-IR-1/IR-2/IR-3/IR-4/IR-5 done**：`Targets/Aleo/Instructions/{SchemaV1,TextCodecV1,LowerPlanV1}` +
+**ALEO-IR-1..IR-6 done**：`Targets/Aleo/Instructions/{SchemaV1,TextCodecV1,LowerPlanV1}` +
 Counter 金样 `testdata/golden/aleo-instructions-v1/counter.compiled.aleo`（locked Leo 4.0.2）；
 `programFromCapabilityV1` Counter Plan→Instructions ≡ 金样；if/match/bounded-for →
 `branch.eq`/`position`/静态 for-unroll；multi-leaf Map/Option/Array + narrow UInt；
-IR-5 效果诚实矩阵（emit/callFn/payload-revert Plan FC；call/schedule/assets/context 产品 FC，无 PARTIAL）。
-Next = IR-6 产品 primary。当前产品仍 emit Leo 4 源（`{id}.aleo`）+ 可选 locked `leo build` →
-`compiled.aleo`；Instructions lower 为工程权威候选，**产品 primary 仍 Leo 源**（IR-6 再切）；
-不得把 Leo 源写成最终权威。
+IR-5 效果诚实矩阵（emit/callFn/payload-revert Plan FC；call/schedule/assets/context 产品 FC，无 PARTIAL）；
+**IR-6 产品 primary** = Instructions 文本 `{id}.aleo`（Counter ≡ golden）；query-contract 不变；
+Leo 4 源 debug-only（`PROOF_FORGE_ALEO_EMIT_LEO=1` / `emitLeoDebug` → `{id}.leo`；
+compile profile 双写供 locked-leo compare extras）。不得把 Leo 源写成长期 sole 权威。
+Next = G5 residual 扫描。
 
 ## 当前工程迁移状态（非 formal 完成）
 
@@ -66,7 +67,8 @@ AleoPlan {
 
 ## 5. Target IR 与制品
 
-**现状（Leo 过渡路径）**：`Aleo Plan → Leo4AST → .aleo`（**Leo 4 源**，非官方 Instructions 文本权威），并由
+**现状（ALEO-IR-6）**：`Aleo Plan → Instructions` 为产品 primary `{id}.aleo`（官方中间 IR）；
+transitional Leo 4 源为 `{id}.leo`（debug/compare）。历史 Leo 过渡路径仍用于 residual 形状，并由
 `pf.aleo-plan.engineering.v1` content digest 绑定 Plan identity。产品 materialize 的有序 base
 artifacts 为：
 

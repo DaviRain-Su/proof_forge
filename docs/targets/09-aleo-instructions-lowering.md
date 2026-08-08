@@ -9,7 +9,7 @@ normative: false
 
 # Aleo Instructions IR 落地规划
 
-状态：`draft`（规划 + **ALEO-IR-1/IR-2/IR-3/IR-4/IR-5 已落地**：Schema/TextCodec + Counter 金样 + `LowerPlanV1` Plan→Instructions Counter MVP ≡ 金样 + if/match/bounded-for 控制流 + multi-leaf Map/Option/Array flatten-to-mapping + narrow UInt{8,16,32} + 效果诚实矩阵（emit/callFn/payload-revert Plan FC；call/schedule/assets/context 产品面 FC）；产品 primary 仍 Leo 源至 IR-6）
+状态：`draft`（规划 + **ALEO-IR-1..IR-6 已落地**：Schema/TextCodec + Counter 金样 + `LowerPlanV1` Plan→Instructions Counter MVP ≡ 金样 + if/match/bounded-for 控制流 + multi-leaf Map/Option/Array flatten-to-mapping + narrow UInt{8,16,32} + 效果诚实矩阵（emit/callFn/payload-revert Plan FC；call/schedule/assets/context 产品面 FC）+ **产品 primary = Instructions 文本**（Leo 源 debug-only：`PROOF_FORGE_ALEO_EMIT_LEO=1` / `emitLeoDebug`；compile profile 双写 `.leo` 供 locked-leo compare））
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Aleo target 的权威物化从 **Leo 4 源文本** 切到官方 **Aleo Instructions**（中间 IR / 寄存器指令集），并评估 **ProgramV1 在 Aleo 上 admit 的构造** 能覆盖到该 IR 的范围。
 
 与 Psy 对照（已闭合 lane）：
@@ -37,9 +37,10 @@ normative: false
 
 | 制品 | 当前工程含义 | 本规划目标含义 |
 |---|---|---|
-| 产品 base `{id}.aleo` | **Leo 4 源**（`EmitIRV1` Leo AST printer） | 过渡 / debug；**非**长期权威 |
-| Finalize extra `{id}.compiled.aleo` | locked Leo 编译输出（**Instructions** 面） | **金样权威候选**（IR-1） |
-| 产品目标权威 | （尚未） | **Plan → Instructions** 直出（可选仍经 Leo 对照） |
+| 产品 base `{id}.aleo` | **Aleo Instructions** 文本（Plan→`LowerPlanV1`；IR-6） | **产品权威**（residual Plan 形状在 G5 hard-require 前可 Leo 回退） |
+| 调试/对照 `{id}.leo` | Leo 4 源（`EmitIRV1` printer；env/`emitLeoDebug`/compile 双写） | debug / leo-build compare；**非**长期 sole 权威 |
+| Finalize extra `{id}.compiled.aleo` | locked Leo 编译输出（**Instructions** 面） | **金样/对照**（IR-1/IR-6 compare path） |
+| 产品目标权威 | **Plan → Instructions** 直出（IR-6） | 可选 Leo 对照；AVM 消费待 G6 |
 
 **非目标（本规划明确排除）：**
 
@@ -195,15 +196,15 @@ ProofForgeV2/Targets/Aleo/
 ### 4.2 与 AleoPlan 关系
 
 - **保留** `AleoPlan` 为 target-owned 中间层（validate、digest、测试）。
-- **新增** `LowerPlanV1` / `programFromCapabilityV1`：`plan → Instructions`（IR-2 Counter MVP 已测；**产品 materialize primary 仍 Leo 源**，IR-6 再切）。
-- **Leo 源** 仍为产品过渡 printer（`EmitIRV1`）；IR 稳定后降为 debug / 对照旁路，对标 Psy `PROOF_FORGE_PSY_EMIT_PSY`。
+- **新增** `LowerPlanV1` / `programFromCapabilityV1`：`plan → Instructions`（IR-2..IR-5；**IR-6 产品 materialize primary**）。
+- **Leo 源** 为 debug / compile-compare 旁路（`EmitIRV1` + `PROOF_FORGE_ALEO_EMIT_LEO`），对标 Psy `PROOF_FORGE_PSY_EMIT_PSY`。
 
 **默认 profile vs compile profile（IR-2 钉死）：**
 
 | Profile | id | Plan body | Instructions lower | 产品物化 |
 |---|---|---|---|---|
-| default source | `aleo-leo-4.0.2-u64-v1` | 共享 | 同 Plan → 同 Instructions | Leo 源 + query-contract；zero-tool Finalize |
-| compile | `aleo-leo-4.0.2-u64-compile-v1` | 共享（同 planDigest） | 同 Plan → 同 Instructions | 同上 + locked Leo → `*.compiled.aleo` extras |
+| default source | `aleo-leo-4.0.2-u64-v1` | 共享 | 同 Plan → 同 Instructions | **Instructions** `{id}.aleo` + query-contract；Leo 仅 debug env；zero-tool Finalize |
+| compile | `aleo-leo-4.0.2-u64-compile-v1` | 共享（同 planDigest） | 同 Plan → 同 Instructions | 同上 + 双写 `{id}.leo` → locked Leo compare extras |
 
 `LowerPlanV1` 不读 profile：两 profile 对 Counter 产出结构相等 Instructions；compile profile 的 `compiled.aleo` 仍是金样权威来源，lower 输出必须 ≡ 该金样。
 
@@ -215,7 +216,7 @@ ProofForgeV2/Targets/Aleo/
 | G1 | Lower Counter | **done**：`LowerPlanV1` Instructions ≡ locked-leo 金样（结构+字节；IR-2） |
 | G2 | OptionState / MapMini 子集 | **done（IR-4）**：multi-leaf flatten-to-mapping + Option/Map/Array/narrow 结构测试 |
 | G3 | 控制流 / for 展开 | **done（IR-3）**：if/switch → `branch.eq`/`position`；bounded for 静态 unroll + boundExceeded 门；结构测试 + Counter 金样回归 |
-| G4 | 产品 dual-write / primary IR | 默认权威 Instructions；Leo debug-only |
+| G4 | 产品 dual-write / primary IR | **done（IR-6）**：默认权威 Instructions；Leo debug-only / compile dual-write |
 | G5 | admit 面扫描 | 每 Y/P 有 IR 或显式 FC |
 | G6 | Runtime 消费 IR | 不经 Leo 源：snarkVM 或官方路径（**有工具再开**） |
 
@@ -263,9 +264,10 @@ G0–G1 = **MVP**；G5 = admit 覆盖声明门槛；G6 = 去 Leo 源依赖（可
 
 ### Phase ALEO-IR-6 — 产品切换
 
-- [ ] materialize primary = Instructions 文本（或 package）
-- [ ] Leo 源 debug flag；deletion-gate 可选
-- [ ] Finalize：source profile 带 IR；compile profile 可仍跑 leo 作 **对照** 而非唯一路径
+- [x] materialize primary = Instructions 文本（`{id}.aleo` when lower succeeds；≡ Counter golden）
+- [x] Leo 源 debug flag：`PROOF_FORGE_ALEO_EMIT_LEO=1` / `emitLeoDebug` → `{id}.leo`；compile profile 始终双写供对照
+- [x] Finalize：source profile zero-tool + IR primary note；compile profile 消费 `.leo`（或 residual Leo-primary `.aleo`）跑 locked leo 作 **对照** 而非 sole 权威；`deployable=false`
+- [x] dual-write transition residual：Instructions lower 失败时 Plan-admitted 形状仍可 Leo 为 `.aleo` primary（至 G5 hard-require）
 
 ### Phase ALEO-IR-7 — Runtime（可选、独立 host-heavy）
 
@@ -321,7 +323,7 @@ G0–G1 = **MVP**；G5 = admit 覆盖声明门槛；G6 = 去 Leo 源依赖（可
 
 - Counter 产品 Plan 经 `programFromCapabilityV1` 产出 Instructions，与 locked-leo 金样结构相等且 encode 字节相等。
 - 测试：`Tests.Materialization.AleoInstructionsV1`（Fast + targets shard + ordinary Tests）。
-- 文档声明：产品 primary 仍 Leo 源；Instructions lower 为工程权威候选；Leo 源过渡至 IR-6。
+- 文档声明（历史 IR-2）：当时产品 primary 仍 Leo 源；**IR-6 后**产品 primary = Instructions。
 
 ### 9.2 Admit 面（G5）
 
@@ -336,9 +338,9 @@ G0–G1 = **MVP**；G5 = admit 覆盖声明门槛；G6 = 去 Leo 源依赖（可
 
 ## 10. 下一步（实现顺序）
 
-1. ~~ALEO-IR-0~~ / ~~IR-1~~ / ~~IR-2~~ / ~~IR-3~~ / ~~IR-4~~ / ~~IR-5~~ done。
-2. **ALEO-IR-6**：产品 primary = Instructions 文本（Leo 源 debug-only）。
-3. 按 Phase 扫矩阵至 G5 residual；G6 仅在工具诚实可用时开。
+1. ~~ALEO-IR-0~~ / ~~IR-1~~ / ~~IR-2~~ / ~~IR-3~~ / ~~IR-4~~ / ~~IR-5~~ / ~~IR-6~~ done。
+2. **G5 residual 扫描**：§3.2 每 Y/P 有 IR 或显式 FC；residual Leo-primary 形状 hard-require 决策。
+3. G6 仅在工具诚实可用时开（snarkVM / 官方 execute）。
 
 规划 owner：engineering。
-产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-2 Counter + IR-3 控制流 + IR-4 multi-leaf/Map/Option/narrow + IR-5 效果诚实矩阵已工程闭合（产品 primary 仍 Leo 源至 IR-6）。
+产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-2..IR-6 已工程闭合（产品 primary = Instructions；Leo debug-only）。

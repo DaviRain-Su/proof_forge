@@ -87,7 +87,7 @@ private def noirNote : String :=
   "no approved and digest-pinned Noir compiler/proving backend is configured; relation source/schema were emitted without ACIR, witness execution, proof, or verification"
 
 private def aleoNote : String :=
-  "product finalization does not invoke the locked Leo compiler or a proving backend; emitted Leo source carries no leo build, execution, proof, or deployment evidence"
+  "product finalization does not invoke the locked Leo compiler or a proving backend; ALEO-IR-6 primary is Aleo Instructions text ({id}.aleo when Plan→Instructions succeeds) plus network-state query descriptor; transitional Leo 4 source is debug-only (PROOF_FORGE_ALEO_EMIT_LEO=1 or emitLeoDebug build flag, or compile-profile dual-write for compare); residual Plan shapes not yet on Instructions keep Leo as .aleo primary until G5 hard-require; no leo build, execution, proof, or deployment evidence (deployable=false)"
 
 /-- Expect an IO error whose message contains `needle`. -/
 private def expectIoErrorContains (label needle : String) (act : IO Unit) : IO Unit := do
@@ -325,8 +325,9 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     let evidence ← IO.FS.readFile (outDir / "evidence.json")
     expect ((evidence.splitOn noirNote).length > 1) "noir exact note on disk"
   -- Aleo: product finalization remains zero-tool even though compile-only
-  -- acceptance can resolve locked Leo 4.0.2 independently. ALEO-I2 base set is
-  -- Leo source + query-contract JSON; extras stay empty / deployable false.
+  -- acceptance can resolve locked Leo 4.0.2 independently. ALEO-IR-6 base set
+  -- is Instructions primary + query-contract JSON; extras stay empty /
+  -- deployable false.
   do
     let selection ← liftResult "select aleo" (resolveBuildSelectionV1 TargetId.aleo none)
     let capability ← liftResult "resolve aleo"
@@ -359,7 +360,12 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     let manifest ← IO.FS.readFile (outDir / "manifest.json")
     expect ((manifest.splitOn "\"deployable\": false").length > 1)
       "aleo manifest non-deployable"
-    expect ((manifest.splitOn "counter.aleo").length > 1) "aleo base Leo in manifest"
+    expect ((manifest.splitOn "counter.aleo").length > 1) "aleo primary Instructions base in manifest"
+    let primaryDisk ← IO.FS.readFile (outDir / "counter.aleo")
+    expect (primaryDisk.contains "program counter.aleo;")
+      "aleo zero-tool primary is Instructions text"
+    expect (!primaryDisk.contains "program counter.aleo {")
+      "aleo zero-tool primary is not Leo brace source"
     expect ((manifest.splitOn "counter.aleo-query-contract.json").length > 1)
       "aleo query-contract base in manifest"
   -- EVM: real solc .bin extra + base preservation.

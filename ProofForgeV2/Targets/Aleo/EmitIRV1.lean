@@ -1,9 +1,28 @@
 import ProofForgeV2.Targets.Aleo.ValidatePlanV1
+import ProofForgeV2.Targets.Aleo.Instructions.LowerPlanV1
+import ProofForgeV2.Targets.Aleo.Instructions.TextCodecV1
+import ProofForgeV2.Core.TargetIdentityV1
 
 /-!
-# Aleo EmitIRV1 — Plan → Leo IR emission
+# Aleo EmitIRV1 — Plan → product artifacts (Instructions primary + optional Leo)
 
-Target-owned Leo 4.0.2 AST/renderer and capability-internal `lower`/`emitFromIR`.
+ALEO-IR-6 product cutover:
+  * **Primary** `{id}.aleo` = Aleo Instructions text when Plan→Instructions
+    lower succeeds (official register IR; ≡ locked-leo `compiled.aleo` shape).
+  * **Sidecar** `{id}.aleo-query-contract.json` = network-state descriptor
+    (unchanged; never Leo package input).
+  * **Debug / compile-compare** `{id}.leo` = transitional Leo 4 source:
+    - product env `PROOF_FORGE_ALEO_EMIT_LEO=1` (exact `1` only), or
+    - explicit `emitLeoDebug := true` on build APIs, or
+    - compile profile `aleo-leo-4.0.2-u64-compile-v1` (always dual-write so
+      Finalize can locked-leo-build for compare extras).
+  * **Dual-write transition residual**: when Instructions lower fails for a
+    Plan-admitted shape (pure helpers, Int64/Field, …), product still emits
+    Leo as `{id}.aleo` primary so residual surface stays reachable until G5
+    hard-require. Default success path never prefers Leo over Instructions.
+
+Leo AST/renderer remains for residual + debug dual-write; not long-term
+sole product authority. deployable=false; no prove/deploy.
 -/
 
 namespace ProofForgeV2.Targets.Aleo
@@ -12,6 +31,8 @@ open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
+open ProofForgeV2.Targets.Aleo.Instructions.LowerPlanV1
+open ProofForgeV2.Targets.Aleo.Instructions.TextCodecV1
 
 /-- Leo 4.0.2 expressions (pure value syntax; mapping access is final-context
     only and appears as method calls on the mapping name). -/
@@ -991,24 +1012,68 @@ private def renderQueryContract (ir : IR) : String :=
     s!"  \"resultDropped\": [{droppedBody}]\n" ++
     "}\n"
 
-private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
+/-- ALEO-IR-6 debug opt-in: product env `PROOF_FORGE_ALEO_EMIT_LEO=1` dual-writes
+    transitional Leo 4 source `{id}.leo` when Instructions primary succeeds.
+    Any other value (or unset) keeps Instructions + query default. Exact `1`
+    only — no truthy aliases. -/
+def readEmitLeoDebugEnvV1 : IO Bool := do
+  match ← IO.getEnv "PROOF_FORGE_ALEO_EMIT_LEO" with
+  | some "1" => pure true
+  | _ => pure false
+
+/-- Whether to dual-write transitional `{id}.leo` (debug flag or compile profile
+    compare path). Primary Instructions (or residual Leo `.aleo`) is independent. -/
+private def wantLeoDualWriteV1 (ir : IR) (emitLeoDebug : Bool) : Bool :=
+  emitLeoDebug || ir.codegenProfile == CodegenProfileId.aleoLeoU64CompileV1
+
+/-- ALEO-IR-6 gated emission from retained Plan + Leo IR:
+    * Primary: `{id}.aleo` = Instructions when lower succeeds; else residual Leo
+    * Always: `{id}.aleo-query-contract.json`
+    * Optional: `{id}.leo` Leo 4 source (debug env/flag or compile profile) -/
+private def emitFromIR (ir : IR) (emitLeoDebug : Bool := false) :
+    CompileResult (Array OutputFile) := do
   validateIR ir
   crossCheckPlanProgramMappings ir.sourcePlan ir.program
   let programId := ir.program.programId
-  let source := renderProgram programId ir.program
+  let leoSource := renderProgram programId ir.program
   let contract := renderQueryContract ir
-  pure #[
-    {
-      path := s!"{programId}.aleo"
-      mediaType := "text/plain"
-      contents := source
-    },
-    {
-      path := s!"{programId}.aleo-query-contract.json"
-      mediaType := "application/json"
-      contents := contract
-    }
-  ]
+  let queryFile : OutputFile := {
+    path := s!"{programId}.aleo-query-contract.json"
+    mediaType := "application/json"
+    contents := contract
+  }
+  let leoDebugFile : OutputFile := {
+    path := s!"{programId}.leo"
+    mediaType := "text/plain"
+    contents := leoSource
+  }
+  let wantLeo := wantLeoDualWriteV1 ir emitLeoDebug
+  match lowerPlanToInstructionsV1 ir.sourcePlan with
+  | .ok instProg =>
+      let instFile : OutputFile := {
+        path := s!"{programId}.aleo"
+        mediaType := "text/plain"
+        contents := encodeProgram instProg
+      }
+      if wantLeo then
+        -- Instructions primary, query sidecar, Leo debug/compare last.
+        pure #[instFile, queryFile, leoDebugFile]
+      else
+        pure #[instFile, queryFile]
+  | .error _ =>
+      -- Dual-write transition residual (pre-G5 hard-require): Plan admitted
+      -- and Leo IR lowered, but Instructions lower is not yet open for this
+      -- shape (pure helpers, Int64/Field, …). Keep Leo as `{id}.aleo` so the
+      -- residual surface remains product-reachable; never invent Instructions.
+      let residualPrimary : OutputFile := {
+        path := s!"{programId}.aleo"
+        mediaType := "text/plain"
+        contents := leoSource
+      }
+      if wantLeo then
+        pure #[residualPrimary, queryFile, leoDebugFile]
+      else
+        pure #[residualPrimary, queryFile]
 
 /-- Capability-gated public IR entry. Plan body is profile-insensitive; the
     selected codegen profile is bound onto IR for query-contract honesty. -/
@@ -1017,11 +1082,15 @@ def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult I
   validatePlan plan
   lower plan (ResolvedEngineeringBuildV1.codegenProfileOf capability)
 
-/-- Capability-gated public materialize entry. Sole path from the retained
-    SemanticProgramV1-native Aleo Plan body to emitted files for this target. -/
-def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
-    CompileResult (Array OutputFile) := do
+/-- Capability-gated public materialize entry (ALEO-IR-6).
+
+    `emitLeoDebug` (default `false`): when true, dual-write transitional
+    `{id}.leo` after primary `{id}.aleo` + query-contract. Product CLI/Registry
+    IO sets this from env `PROOF_FORGE_ALEO_EMIT_LEO=1`. Compile profile always
+    dual-writes Leo for locked-leo compare finalize regardless of this flag. -/
+def buildFromCapability (capability : ResolvedEngineeringBuildV1)
+    (emitLeoDebug : Bool := false) : CompileResult (Array OutputFile) := do
   let ir ← irFromCapability capability
-  emitFromIR ir
+  emitFromIR ir emitLeoDebug
 
 end ProofForgeV2.Targets.Aleo

@@ -1,15 +1,20 @@
 /-
-  Aleo engineering finalization adapter (D3/S7b / ALEO-I4).
+  Aleo engineering finalization adapter (D3/S7b / ALEO-I4 / ALEO-IR-6).
 
   Profile branches (exhaustive):
-  * `aleo-leo-4.0.2-u64-v1` (default): zero tools; emitted Leo source and
-    network-state query descriptor remain non-deployable.
-  * `aleo-leo-4.0.2-u64-compile-v1`: resolve locked Leo 4.0.2, compile only
-    the staged `{programId}.aleo` inside a temporary package and isolated HOME,
-    then stage exactly three finalized extras: compiled Aleo instructions,
-    ABI JSON, and Leo program JSON. The query-contract JSON never enters the
-    Leo package. Compile success does not imply execute/proof/deploy/query, so
-    `deployable=false` remains exact.
+  * `aleo-leo-4.0.2-u64-v1` (default): zero tools; primary is Aleo Instructions
+    text (`{id}.aleo` when Plan→Instructions succeeds) plus network-state
+    query descriptor. Transitional Leo 4 source is debug-only
+    (`PROOF_FORGE_ALEO_EMIT_LEO=1` / `emitLeoDebug`) and not required here.
+  * `aleo-leo-4.0.2-u64-compile-v1`: resolve locked Leo 4.0.2, compile the
+    dual-written transitional `{id}.leo` (preferred) or residual Leo-primary
+    `{id}.aleo` inside a temporary package and isolated HOME, then stage
+    exactly three finalized extras: compiled Aleo instructions, ABI JSON, and
+    Leo program JSON. Primary product Instructions base is **not** fed to
+    `leo` (it is already Instructions). Query-contract never enters the Leo
+    package. Compile success is a **compare** path, not sole authority, and
+    does not imply execute/proof/deploy/query, so `deployable=false` remains
+    exact.
   * unknown profile: fail closed.
 
   Separate from pure `Targets.Aleo` Plan/IR core.
@@ -28,7 +33,7 @@ open ProofForgeV2.Materialization.LockedToolchainV1
 open System
 
 private def sourceProfileNote : String :=
-  "product finalization does not invoke the locked Leo compiler or a proving backend; emitted Leo source carries no leo build, execution, proof, or deployment evidence"
+  "product finalization does not invoke the locked Leo compiler or a proving backend; ALEO-IR-6 primary is Aleo Instructions text ({id}.aleo when Plan→Instructions succeeds) plus network-state query descriptor; transitional Leo 4 source is debug-only (PROOF_FORGE_ALEO_EMIT_LEO=1 or emitLeoDebug build flag, or compile-profile dual-write for compare); residual Plan shapes not yet on Instructions keep Leo as .aleo primary until G5 hard-require; no leo build, execution, proof, or deployment evidence (deployable=false)"
 
 private def finalizeSourceProfile : IO EngineeringFinalizationDraftV1 :=
   pure {
@@ -71,6 +76,37 @@ private def leoPackageJson (programName : String) : String :=
   "  \"dev_dependencies\": null\n" ++
   "}\n"
 
+/-- Leo source uses `program id.aleo {`; Instructions uses `program id.aleo;`. -/
+private def looksLikeLeoSourceV1 (contents : String) : Bool :=
+  contents.contains ".aleo {"
+
+/-- Resolve Leo 4 source bytes for locked compile compare:
+    1. Prefer dual-written `{id}.leo` (Instructions-primary path).
+    2. Else residual Leo-primary `{id}.aleo` when contents are Leo source.
+    Never feed Instructions text to `leo`. -/
+private def resolveLeoSourceForCompileV1
+    (programId : String) (files : Array OutputFile) : IO OutputFile := do
+  let leoPath := s!"{programId}.leo"
+  let aleoPath := s!"{programId}.aleo"
+  match files.find? (·.path == leoPath) with
+  | some leoFile =>
+      unless looksLikeLeoSourceV1 leoFile.contents do
+        throw <| IO.userError
+          s!"PF-ARTIFACT-NONDEPLOYABLE: dual-written '{leoPath}' is not Leo 4 source"
+      pure leoFile
+  | none =>
+      match files.find? (·.path == aleoPath) with
+      | none =>
+          throw <| IO.userError
+            s!"PF-ARTIFACT-NONDEPLOYABLE: missing primary '{aleoPath}' for compile compare"
+      | some aleoFile =>
+          unless looksLikeLeoSourceV1 aleoFile.contents do
+            throw <| IO.userError
+              ("PF-ARTIFACT-NONDEPLOYABLE: compile profile requires dual-written " ++
+                s!"'{leoPath}' (or residual Leo-primary '{aleoPath}'); primary " ++
+                "Instructions text cannot be fed to leo")
+          pure aleoFile
+
 private def finalizeCompileProfile
     (capability : ResolvedEngineeringBuildV1)
     (artifacts : MaterializedArtifactsV1)
@@ -92,19 +128,33 @@ private def finalizeCompileProfile
       "PF-ARTIFACT-NONDEPLOYABLE: Aleo compiled finalize artifact target mismatch"
 
   let files := MaterializedArtifactsV1.filesOf artifacts
-  unless files.size == 2 && files[0]!.path.endsWith ".aleo" do
+  -- ALEO-IR-6 bases: primary `.aleo` + query (+ optional dual-write `.leo`).
+  unless files.size == 2 || files.size == 3 do
     throw <| IO.userError
-      "PF-ARTIFACT-NONDEPLOYABLE: Aleo compiled finalize requires source then query base files"
-  let sourceFile := files[0]!
-  let programId := (sourceFile.path.dropEnd 5).copy
+      s!"PF-ARTIFACT-NONDEPLOYABLE: Aleo compiled finalize expects 2 or 3 base files, got {files.size}"
+  unless files[0]!.path.endsWith ".aleo" do
+    throw <| IO.userError
+      "PF-ARTIFACT-NONDEPLOYABLE: Aleo compiled finalize requires primary .aleo first"
+  let primaryFile := files[0]!
+  let programId := (primaryFile.path.dropEnd 5).copy
   let sourceName := s!"{programId}.aleo"
   let queryName := s!"{programId}.aleo-query-contract.json"
-  unless !programId.isEmpty && files.map (·.path) == #[sourceName, queryName] do
+  let leoName := s!"{programId}.leo"
+  unless !programId.isEmpty && primaryFile.path == sourceName do
     throw <| IO.userError
-      "PF-ARTIFACT-NONDEPLOYABLE: Aleo compiled finalize requires the exact source/query base set"
-  let queryFile := files[1]!
-  requireExactStagingBase stagingDir sourceFile
-  requireExactStagingBase stagingDir queryFile
+      "PF-ARTIFACT-NONDEPLOYABLE: Aleo compiled finalize primary path must be {id}.aleo"
+  unless (files.find? (·.path == queryName)).isSome do
+    throw <| IO.userError
+      s!"PF-ARTIFACT-NONDEPLOYABLE: missing query-contract base '{queryName}'"
+  for f in files do
+    requireExactStagingBase stagingDir f
+
+  let leoSourceFile ← resolveLeoSourceForCompileV1 programId files
+  -- Optional consistency: if dual-write present, path must match program id.
+  if let some leoFile := files.find? (·.path == leoName) then
+    unless leoFile.path == leoSourceFile.path do
+      throw <| IO.userError
+        "PF-ARTIFACT-NONDEPLOYABLE: dual-written Leo path mismatch"
 
   let leo ← resolve "leo"
   IO.FS.withTempDir fun tempRoot => do
@@ -113,9 +163,9 @@ private def finalizeCompileProfile
     IO.FS.createDirAll (home / ".aleo")
     IO.FS.createDirAll (projectRoot / "src")
     IO.FS.writeFile (projectRoot / "program.json") (leoPackageJson programId)
-    -- Deliberately consume only the product Leo source. The query descriptor
-    -- describes later network-state reads and is not compiler input.
-    IO.FS.writeFile (projectRoot / "src" / "main.leo") sourceFile.contents
+    -- Consume dual-written / residual Leo 4 source only. Primary Instructions
+    -- `{id}.aleo` and query descriptor are not compiler input.
+    IO.FS.writeFile (projectRoot / "src" / "main.leo") leoSourceFile.contents
 
     -- Keep the actual compile on the LockedToolchainV1 authority path so the
     -- executable, launcher, bundle closure, and process environment are
@@ -151,7 +201,11 @@ private def finalizeCompileProfile
       extraFiles := #[compiledName, abiName, programJsonName]
       evidenceNote :=
         s!"{profile} locked Leo {leo.version} sha256={leo.executableSha256} " ++
-        "completed offline compile-only finalization; exact outputs are compiled Aleo instructions, ABI JSON, and Leo program JSON; no execution, proof, deployment, or network query was performed (deployable=false)"
+        "completed offline compile-only finalization from dual-written/residual Leo 4 source " ++
+        "(ALEO-IR-6: primary product authority is Plan→Instructions when lower succeeds; " ++
+        "leo-build extras are compare path, not sole Instructions authority); " ++
+        "exact outputs are compiled Aleo instructions, ABI JSON, and Leo program JSON; " ++
+        "no execution, proof, deployment, or network query was performed (deployable=false)"
     }
 
 private def finalizeUnknownProfile
