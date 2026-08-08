@@ -1313,13 +1313,13 @@ psy-runtime:
 aleo-runtime:
     bash scripts/aleo_runtime_test.sh
 
-# Aleo local sandbox demo (host-heavy; NOT ordinary ci).
-# Product Counter → Instructions golden pin → debug Leo package → locked
-# leo 4.0.2 offline build + leo run initialize/increment (local interpret).
-# Authority: docs/targets/09b-aleo-local-sandbox-demo.md
+# Aleo local sandbox (host-heavy; NOT ordinary ci).
+# Product Counter --target aleo → Instructions golden pin → debug Leo package →
+# locked leo 4.0.2 offline build + leo run initialize/increment (local interpret).
+# Authority: docs/targets/09b-aleo-local-sandbox.md
 # Requires: lake-built proof-forge-next + locked leo. Not deploy/prove/snarkVM.
-aleo-sandbox-demo:
-    bash scripts/aleo_local_sandbox_demo.sh
+aleo-sandbox:
+    bash scripts/aleo_local_sandbox.sh
 
 # Noir ACIR IR-7 / G6 prove honesty probe (host-heavy; NOT ordinary ci).
 # Probes locked $PROOF_FORGE_TOOL_ROOT/bb|barretenberg only (never PATH).

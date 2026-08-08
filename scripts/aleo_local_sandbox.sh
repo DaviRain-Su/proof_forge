@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Aleo local sandbox demo (engineering / hackathon path; NOT ordinary ci).
+# Aleo local sandbox: product build → Instructions pin → offline package run.
 #
-# Authority: docs/targets/09b-aleo-local-sandbox-demo.md
+# Authority: docs/targets/09b-aleo-local-sandbox.md
 # Parent IR authority: docs/targets/09-aleo-instructions-lowering.md
 #
-# Pipeline:
+# Product path when --target aleo is selected:
 #   1) proof-forge-next build Counter --target aleo (+ PROOF_FORGE_ALEO_EMIT_LEO=1)
 #   2) pin product counter.aleo ≡ golden Instructions
 #   3) stage Leo 4.0.2 package from product counter.leo (debug package path)
@@ -25,8 +25,8 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
-PREFIX="aleo-sandbox-demo"
-PROFILE_LABEL="aleo-local-sandbox-demo-v1"
+PREFIX="aleo-local-sandbox"
+PROFILE_LABEL="aleo-local-sandbox-v1"
 GOLDEN="testdata/golden/aleo-instructions-v1/counter.compiled.aleo"
 # Official Leo local-dev default; NEVER use in production. Isolated HOME only.
 readonly LEO_LOCAL_DEV_PRIVATE_KEY="APrivateKey1zkp8CZNn3yeCseEtxuVPbDCwSyhGW6yZKUYKfgXmcpoGPWH"
@@ -39,9 +39,9 @@ while [[ $# -gt 0 ]]; do
     --skip-run) SKIP_RUN=1; shift ;;
     -h|--help)
       cat <<'EOF'
-usage: aleo_local_sandbox_demo.sh [--keep] [--skip-run]
+usage: aleo_local_sandbox.sh [--keep] [--skip-run]
 
-  Local sandbox demo: product Counter → Instructions pin → Leo package →
+  Product Aleo local sandbox: Counter → Instructions pin → Leo package →
   offline leo build + leo run (initialize / increment).
 
   Requires locked Leo 4.0.2 at:
@@ -111,7 +111,7 @@ if [[ ! -f "$GOLDEN" ]]; then
   die "missing golden ${GOLDEN}"
 fi
 
-WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/aleo-sandbox-demo.XXXXXX")"
+WORKDIR="$(mktemp -d "${TMPDIR:-/tmp}/aleo-local-sandbox.XXXXXX")"
 cleanup() {
   if [[ "$KEEP" -eq 1 ]]; then
     echo "${PREFIX}: --keep workdir=${WORKDIR}"
@@ -124,12 +124,12 @@ trap cleanup EXIT
 # Product CLI uses real HOME (elan/lake). Leo steps use isolated HOME only.
 OUT="${WORKDIR}/product-out"
 PKG="${WORKDIR}/counter"
-DEMO_HOME="${WORKDIR}/leo-home"
+LEO_HOME="${WORKDIR}/leo-home"
 REAL_HOME="${HOME}"
-mkdir -p "$PKG/src" "$DEMO_HOME/.aleo"
+mkdir -p "$PKG/src" "$LEO_HOME/.aleo"
 
 isolate_leo_env() {
-  export HOME="$DEMO_HOME"
+  export HOME="$LEO_HOME"
   unset PRIVATE_KEY VIEW_KEY ADDRESS NETWORK ENDPOINT DEVNET \
         CONSENSUS_VERSION CONSENSUS_VERSION_HEIGHTS CONSENSUS_HEIGHTS \
         NETWORK_RETRIES PRIORITY_FEE FEE_RECORD \
@@ -173,7 +173,7 @@ cat >"$PKG/program.json" <<'EOF'
 {
   "program": "counter.aleo",
   "version": "0.1.0",
-  "description": "proof-forge-next aleo local sandbox demo",
+  "description": "proof-forge-next aleo local sandbox",
   "license": "MIT",
   "leo": "4.0.2",
   "dependencies": null,
@@ -206,7 +206,7 @@ echo "${PREFIX}: pin ok: leo build/main.aleo ≡ product Instructions"
 
 if [[ "$SKIP_RUN" -eq 1 ]]; then
   echo "${PREFIX}: --skip-run: skipping leo run"
-  echo "${PREFIX}: SANDBOX-DEMO-PASS (build pins only)"
+  echo "${PREFIX}: LOCAL-SANDBOX-OK (build pins only)"
   exit 0
 fi
 
@@ -266,6 +266,6 @@ ${PREFIX}: INSTRUCTIONS-PRIMARY: product counter.aleo ≡ golden ≡ leo build/m
 ${PREFIX}: LEO-OFFLINE-RUN: initialize(1u64) + increment(2u64) local interpret only
 ${PREFIX}: NOT chain deploy / NOT leo execute broadcast / NOT snarkVM package-only
 ${PREFIX}: deployable=false; for package-only probe use: just aleo-runtime
-${PREFIX}: SANDBOX-DEMO-PASS
+${PREFIX}: LOCAL-SANDBOX-OK
 EOF
 exit 0
