@@ -1819,7 +1819,7 @@ unsafe def testRevertWithArgsFailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
   | .ok _ => throw <| IO.userError "revert with error args must fail closed at Psy"
 
-/-- Sync external call renders as __invoke_sync#<Felt> with hashed components. -/
+/-- PSY-CALL-EVENT PARTIAL: void sync call → source-only __invoke_sync. -/
 unsafe def testExternalCall : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1840,12 +1840,43 @@ unsafe def testExternalCall : IO Unit := do
     throw <| IO.userError "psy: missing Ext.psy"
   let psy := psyFile.contents
   expect (psy.contains "__invoke_sync#<Felt>")
-    "call must lower to __invoke_sync#<Felt>"
+    "void call must lower to __invoke_sync#<Felt> (source intrinsic PARTIAL)"
   expect (psy.contains "// call `Peer.go`")
     "the callee note must name the verbatim qualified callee"
 
-/-- Schedule fails closed twice: the resolver declines effect.asynchronous-workflow
-    (PF-REQ-UNSUPPORTED) and the emitter rejects the plan's schedule stmt. -/
+/-- PSY-CALL-EVENT: result-bearing sync call has no response-binding ABI. -/
+unsafe def testResultBearingCallFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program RetCall where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    let y : UInt64 := call Peer.go(x)\n" ++
+    "    return y\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-ret-call>" "Tests.PsyRetCall" none)
+  match Compiler.compileValidatedSourceV1 parsed with
+  | .error err =>
+      -- Shared path may reject before Plan; either is honest FC.
+      expect (err.render.contains "call" || err.render.contains "PF-SRC-INVALID" ||
+          err.render.contains "return" || err.render.contains "result")
+        s!"result-bearing call product fail closed, got: {err.render}"
+  | .ok compiled =>
+      match planPsy compiled with
+      | .error (.planInvariant .psy msg) =>
+          expect (msg.contains "result-bearing" || msg.contains "response" ||
+              msg.contains "return-value" || msg.contains "PSY-CALL-EVENT")
+            s!"result-bearing call must FC at Plan citing response ABI, got: {msg}"
+      | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "result-bearing external call must fail closed on Psy"
+
+/-- Schedule fails closed: resolver declines async, Plan/emitter also FC. -/
 unsafe def testScheduleFailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1867,14 +1898,20 @@ unsafe def testScheduleFailClosed : IO Unit := do
       expect (e.code == "PF-REQ-UNSUPPORTED")
         s!"schedule must be declined at the capability, got {e.code}"
   | .ok _ =>
-      -- Non-product path: plan accepts, emitter fails closed.
-      let _ ← liftResult <| planPsy compiled
-      match buildPsy compiled with
+      -- If resolver were ever opened, Plan must still FC (never alias sync).
+      match planPsy compiled with
       | .error (.planInvariant .psy msg) =>
-          expect (msg.contains "deferred crosscall")
-            s!"schedule must fail closed at the emitter, got: {msg}"
+          expect (msg.contains "schedule" || msg.contains "deferred" ||
+              msg.contains "asynchronous" || msg.contains "PSY-CALL-EVENT")
+            s!"schedule must fail closed at Plan, got: {msg}"
       | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
-      | .ok _ => throw <| IO.userError "schedule must fail closed at Psy"
+      | .ok _ =>
+          match buildPsy compiled with
+          | .error (.planInvariant .psy msg) =>
+              expect (msg.contains "schedule" || msg.contains "deferred")
+                s!"schedule must fail closed at emitter, got: {msg}"
+          | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
+          | .ok _ => throw <| IO.userError "schedule must fail closed at Psy"
 
 /-- Full comparison family and mod render with their Psy operators. -/
 unsafe def testComparisonsAndMod : IO Unit := do
@@ -2996,6 +3033,7 @@ unsafe def run : IO Unit := do
   testBareRevert
   testRevertWithArgsFailClosed
   testExternalCall
+  testResultBearingCallFailClosed
   testScheduleFailClosed
   testComparisonsAndMod
   testLogicalOrAndNot

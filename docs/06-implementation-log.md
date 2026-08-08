@@ -12,6 +12,16 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy call/event honesty（PSY-CALL-EVENT engineering）
+
+- Void sync `call` remains source-only `__invoke_sync#<Felt>` (static QN hash).
+- `emit` remains source-only `__emit` (no product ordered-event gate).
+- Result-bearing external call fail closed (no response-binding ABI).
+- Schedule fail closed at Plan (and resolver async decline); never alias sync.
+- PsySource pins void call, result-bearing FC, schedule FC.
+- Non-claims: not deployment-address binding, not callee-failure refinement,
+  not formal UPS/runtime event product, not B-CALL-SEM closed.
+
 ## 2026-08-08 — Psy zero-payload typed errors（PSY-TYPED-ERROR engineering）
 
 - Zero-arg `revert Name` remains `assert(false, "revert:Name")`.

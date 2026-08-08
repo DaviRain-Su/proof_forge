@@ -110,6 +110,15 @@ Zero-payload declared errors are honest on dargo as string-tagged aborts:
 fields / revert args) stay fail closed — no structured error selector/payload
 ABI or VM-observable field encoding exists on the Psy surface. Bare assert
 and zero-arg paths remain stable.
+
+## PSY-CALL-EVENT (2026-08-08, PARTIAL + evidence FC)
+
+Void sync `call` → source-only `__invoke_sync#<Felt>(hash,hash,[args])` with
+static QN hashing (no deployment-address binding, no callee-failure
+refinement, no product runtime/response gate). `emit` → source-only `__emit`
+(no ordered-event log gate in product Finalize). **Result-bearing** call and
+`schedule` stay fail closed (no response-binding ABI; no deferred crosscall
+form — never alias sync). `pf.assets` catalog QNs remain unbound (ADR-0029).
 -/
 
 namespace ProofForgeV2.Targets.Psy
@@ -2177,9 +2186,20 @@ private partial def lowerRegion
               .assertWithMessage c s!"assert:{errDecl.name}"
             ls := { ls with stmts := ls.stmts.push guard }
     | .emit _effectId eventId args => do
+        -- PSY-CALL-EVENT PARTIAL: `__emit` is a source intrinsic only — product
+        -- Finalize has no ordered-event runtime observable / log gate.
         let argExprs ← lookupArgs env args "emit"
         ls := { ls with stmts := ls.stmts.push (.emitEvent eventId.toNat argExprs) }
     | .externalCall _effectId callee args => do
+        -- PSY-CALL-EVENT: void sync call → source-only `__invoke_sync#<Felt>`
+        -- (hashed static QN; no deployment-address binding, no callee failure
+        -- refinement, no product runtime gate). Result-bearing call has no
+        -- response-binding surface on that intrinsic → fail closed.
+        match instr.result with
+        | some _ =>
+            planError
+              "unsupported Psy semantic shape: result-bearing external call is not admitted on Psy (no response-binding / return-value ABI for __invoke_sync source intrinsic; PSY-CALL-EVENT FC)"
+        | none => pure ()
         let comps := callee.components.toArray
         unless comps.size ≥ 2 do
           planError "unsupported Psy semantic shape: external callee must have at least two components"
@@ -2191,14 +2211,12 @@ private partial def lowerRegion
         let argExprs ← lookupArgs env args "externalCall"
         ls := { ls with stmts := ls.stmts.push (.externalCall comps argExprs) }
     | .schedule _effectId callee args => do
-        let comps := callee.components.toArray
-        unless comps.size ≥ 2 do
-          planError "unsupported Psy semantic shape: schedule callee must have at least two components"
-        let qn := String.intercalate "." comps.toList
-        if isPfAssetsCatalogQnV1 qn then
-          planError s!"unsupported Psy semantic shape: {unboundCatalogDiagV1 qn}"
-        let argExprs ← lookupArgs env args "schedule"
-        ls := { ls with stmts := ls.stmts.push (.schedule comps argExprs) }
+        -- PSY-CALL-EVENT / async: no deferred crosscall form on dargo surface;
+        -- never alias __invoke_sync (would change fire-and-forget semantics).
+        let _ := callee
+        let _ := args
+        planError
+          "unsupported Psy semantic shape: schedule is not admitted on Psy (no deferred crosscall form; effect.asynchronous-workflow declined; PSY-CALL-EVENT FC)"
     | .construct typeId ctorIdx argIds => do
         match instr.result with
         | none => planError "unsupported Psy semantic shape: construct instruction must produce a value"

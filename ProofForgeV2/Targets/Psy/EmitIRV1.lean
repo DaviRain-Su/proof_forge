@@ -20,10 +20,12 @@ checked semantics. Entry params with `uintWidth ∈ {8,16,32}` get a range
 assert at method start. Results are `-> Felt` (single Felt, documented width).
 
 Bitwise/shift use native Psy Felt operators; UInt64 shifts use `count < 64`.
-Revert → `assert(false, ...)`. Emit → `__emit([...])`. Call/schedule →
+Revert → `assert(false, ...)`. Emit → `__emit([...])` (**source intrinsic
+only** — product Finalize has no ordered-event runtime gate). Void call →
 `__invoke_sync#<Felt>(targetHash, methodHash, [args])` with deterministic
-component hashes reduced mod p (V2 qualified callees have no runtime Felt
-contract/method ids).
+component hashes reduced mod p (**source-only** static-QN hash; no deployment
+address / response binding / product runtime gate). Schedule stays fail
+closed (no deferred form). Result-bearing call is Plan-FC before emit.
 -/
 
 namespace ProofForgeV2.Targets.Psy
@@ -1626,14 +1628,9 @@ private partial def emitStatements
         out := out ++ stmts ++ #[.crosscall target method args' false note]
         ctx := ctx'
     | .schedule _callee _args =>
-        -- No deferred crosscall intrinsic exists in the Psy toolchain surface
-        -- (the old port only ever had __invoke_sync#<Felt>; the upstream VM's
-        -- InvokeExternalContractFunctionDeferred has no emitted form). Alias
-        -- sync would change fire-and-forget semantics, so schedule fails
-        -- closed here AND the capability matrix declines
-        -- effect.asynchronous-workflow (resolver PF-REQ-UNSUPPORTED first).
+        -- Depth defense: Plan lower already FC; never emit deferred-as-sync.
         throw <| .planInvariant .psy
-          "unsupported Psy semantic shape: schedule has no deferred crosscall form"
+          "unsupported Psy semantic shape: schedule is not admitted on Psy (no deferred crosscall form; PSY-CALL-EVENT FC)"
   pure (out, ctx)
 
 private def asciiTitle (value : String) : String :=
