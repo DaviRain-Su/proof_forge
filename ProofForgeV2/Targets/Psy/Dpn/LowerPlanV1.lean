@@ -69,10 +69,13 @@
       two's-complement narrow signed add/sub/mul/div/mod/neg/compare → DPN
       (mirror EmitIRV1; Felt-carried 0..2^w-1 / bias-2^(w-1) compare; overflow
       asserts). Int64 arith reuses UInt64 checkedAdd/Sub/Mul/Div/Mod path.
-    * residual Plan-admit shapes (narrow bitwise/shift, callFn pureFn,
-      UInt64 shl/shr, checkedBitNot) → stable PSY-DPN-G5-MATRIX FC;
-      EmitIRV1 G5-HARD residual allowlist may emit transitional `.psy` only
-      (no false DPN package); non-residual DPN failures hard-fail materialize
+    * R-SHIFT-BIT (G5 residual): UInt64 shl/shr + checkedBitNot → DPN
+      (mirror EmitIR invalidShift / representability asserts; dargo U32Shift*
+      + CastFelt for Felt `<<`/`>>`; checkedBitNot = Gte + Sub mask)
+    * residual Plan-admit shapes (narrow bitwise/shift, callFn pureFn)
+      → stable PSY-DPN-G5-MATRIX FC; EmitIRV1 G5-HARD residual allowlist may
+      emit transitional `.psy` only (no false DPN package); non-residual DPN
+      failures hard-fail materialize
     * Bool/compare/logic/bare assert covered by general builder + suite pins
 
   Method ids: Counter pins match dargo golden; other names use a stable
@@ -737,6 +740,75 @@ private def emitNarrowCheckedMod (b : BuilderV1) (bitWidth : Nat) (l r : WireV1)
   let (b3, m) := pushTarget b2 .mod_ #[UInt64.ofNat li, UInt64.ofNat ri]
   pure (b3, m)
 
+/-! ## R-SHIFT-BIT: UInt64 shl/shr + checkedBitNot (mirror EmitIRV1 + dargo) -/
+
+/-- UInt64 checkedBitNot: assert `x ≥ 2^32−1` then wrapping Felt sub
+    `(2^32−2) − x` (exact UInt64 bitNot when representable; trap otherwise).
+    Matches EmitIRV1 and locked-dargo `~` lowering. -/
+private def emitCheckedBitNot (b : BuilderV1) (o : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let oi ← asTargetIndex o
+  let (b1, threshold) := emitLiteralU64 b 4294967295  -- 2^32 − 1
+  let ti ← asTargetIndex threshold
+  let (b2, ok) :=
+    pushBool b1 .gte #[UInt64.ofNat oi, UInt64.ofNat ti]
+  let b3 := {
+    b2 with
+      asserts := b2.asserts.push {
+        left := ok.encoded
+        right := encodeIndexedId .bool b2.trueBool
+        message := "u64 bitNot result not representable in Felt"
+      }
+  }
+  let (b4, mask) := emitLiteralU64 b3 4294967294  -- 2^32 − 2 ≡ (2^64−1) (mod p)
+  let mi ← asTargetIndex mask
+  let (b5, res) :=
+    pushTarget b4 .sub #[UInt64.ofNat mi, UInt64.ofNat oi]
+  pure (b5, res)
+
+/-- UInt64 shl: assert `count < 64` then U32ShiftLeft + CastFelt.
+    Matches EmitIR invalidShift guard and locked-dargo Felt `<<` → U32ShiftLeft
+    (no Target-level shift op in DPN whitelist; high bits beyond U32 truncate as
+    dargo does). -/
+private def emitUInt64Shl (b : BuilderV1) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let _ ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, bound) := emitLiteralU64 b 64
+  let bi ← asTargetIndex bound
+  let (b2, ok) :=
+    pushBool b1 .lt #[UInt64.ofNat ri, UInt64.ofNat bi]
+  let b3 := {
+    b2 with
+      asserts := b2.asserts.push {
+        left := ok.encoded
+        right := encodeIndexedId .bool b2.trueBool
+        message := "invalidShift: count >= 64"
+      }
+  }
+  let (b4, u) := pushU32 b3 .u32ShiftLeft #[l.operand, r.operand]
+  emitCastFelt b4 u
+
+/-- UInt64 shr: assert `count < 64` then U32ShiftRight + CastFelt (dargo Felt `>>`). -/
+private def emitUInt64Shr (b : BuilderV1) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let _ ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, bound) := emitLiteralU64 b 64
+  let bi ← asTargetIndex bound
+  let (b2, ok) :=
+    pushBool b1 .lt #[UInt64.ofNat ri, UInt64.ofNat bi]
+  let b3 := {
+    b2 with
+      asserts := b2.asserts.push {
+        left := ok.encoded
+        right := encodeIndexedId .bool b2.trueBool
+        message := "invalidShift: count >= 64"
+      }
+  }
+  let (b4, u) := pushU32 b3 .u32ShiftRight #[l.operand, r.operand]
+  emitCastFelt b4 u
+
 /-! ## R-INT: Int64 + narrow Int{8,16,32} two's-complement (mirror EmitIRV1) -/
 
 /-- Assert bool wire equals ConstantTrue (shared residual-lower style). -/
@@ -1310,12 +1382,17 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
       let (b1, lw) ← lowerExprV1 b params viewPath l
       let (b2, rw) ← lowerExprV1 b1 params viewPath r
       emitSignedCompareInt64 b2 op lw rw
-  | .checkedBitNot _ =>
-      planError "PSY-DPN-G5-MATRIX: UInt64 checkedBitNot residual \
-(.psy dual-write only)"
-  | .shl _ _ | .shr _ _ =>
-      planError "PSY-DPN-G5-MATRIX: UInt64 shl/shr residual \
-(.psy dual-write only; no Target-level shift op in admitted DPN whitelist)"
+  | .checkedBitNot o => do
+      let (b1, ow) ← lowerExprV1 b params viewPath o
+      emitCheckedBitNot b1 ow
+  | .shl l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitUInt64Shl b2 lw rw
+  | .shr l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitUInt64Shr b2 lw rw
   | .fieldLiteral _ | .fieldBinary _ _ _ | .fieldCompare _ _ _ | .fieldNeg _ =>
       planError "PSY-DPN-G5-MATRIX: Goldilocks Field expr residual at DPN \
 (bn254 Field is Plan FC; native Felt field path not yet DPN-lowered)"

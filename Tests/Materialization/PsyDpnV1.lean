@@ -27,12 +27,14 @@
     * DPN-7: product `buildFromCapability` dual-writes Counter.dpn.json
       (package ≡ golden) + transitional Counter.psy; deployable=false note
     * G5-MATRIX: Bool/compare/logic; bare assert/revert; UInt64 sub/mul/div/mod;
-      bitAnd; const→literal product; residual FC for callFn/shl/narrow bitwise;
+      bitAnd; const→literal product; residual FC for callFn/narrow bitwise;
       payload revertError FC
     * R-NARROW: UInt8/16/32 checked arith + param range → DPN; UInt8 product
       dual-writes `.dpn.json` + `.psy` (no longer residual-only)
     * R-INT: Int64 signedCompare/checkedNeg + Int{8,16,32} two's-complement
       signed add/sub/mul/div/mod/neg/compare → DPN; Int8 product dual-write
+    * R-SHIFT-BIT: UInt64 shl/shr + checkedBitNot → DPN (invalidShift /
+      representability asserts; U32Shift* + CastFelt / Sub mask); product dual-write
     * G5-HARD: residual allowlist for remaining residual families; non-allowlisted
       DPN lower (e.g. zero state fields) fails materialize with PSY-DPN-G5-HARD
 -/
@@ -1823,28 +1825,61 @@ def testSignedIntLower : IO Unit := do
   expect (dNNeg.definitions.any fun defn => defn.opType == .select)
     "narrowCheckedNeg Select for zero"
 
-/-- Residual UInt64 shl → G5-MATRIX FC. -/
-def testShlFailClosedAtDpn : IO Unit := do
-  let fn : PlanFunction := {
+/-- R-SHIFT-BIT: UInt64 shl/shr + checkedBitNot → DPN (mirror EmitIR + dargo). -/
+def testUInt64ShiftBitNotLower : IO Unit := do
+  let mkSh (name : String) (body : Array Statement) : PlanFunction := {
     index := 0
-    name := "shl"
+    name
     kind := .mutate
     params := #[
       { sourceIndex := 0, name := "x", isBool := false },
       { sourceIndex := 1, name := "c", isBool := false }
     ]
-    body := #[.returnValue (.shl (.param 0) (.param 1))]
+    body
     resultIsBool := false
     resultIsUnit := false
   }
-  match lowerFunctionForTestV1 fn false with
-  | .error e =>
-      let msg := e.render
-      expect (msg.contains "PSY-DPN-G5-MATRIX" &&
-          (msg.contains "shl" || msg.contains "shift"))
-        s!"shl residual must cite G5-MATRIX, got: {msg}"
-  | .ok _ =>
-      throw <| IO.userError "UInt64 shl must FC at DPN (residual)"
+  let dShl ← liftResult (lowerFunctionForTestV1
+    (mkSh "shl" #[.returnValue (.shl (.param 0) (.param 1))]) false)
+  expect (dShl.assertions.any fun a => a.message == "invalidShift: count >= 64")
+    "shl must assert invalidShift count >= 64"
+  expect (dShl.definitions.any fun defn => defn.opType == .u32ShiftLeft)
+    "shl → U32ShiftLeft (dargo Felt <<)"
+  expect (dShl.definitions.any fun defn => defn.opType == .castFelt)
+    "shl result CastFelt to Target"
+  expect (dShl.definitions.any fun defn =>
+      defn.opType == .constant && defn.inputs == #[64])
+    "shl bound Constant 64"
+  let dShr ← liftResult (lowerFunctionForTestV1
+    (mkSh "shr" #[.returnValue (.shr (.param 0) (.param 1))]) false)
+  expect (dShr.assertions.any fun a => a.message == "invalidShift: count >= 64")
+    "shr must assert invalidShift count >= 64"
+  expect (dShr.definitions.any fun defn => defn.opType == .u32ShiftRight)
+    "shr → U32ShiftRight (dargo Felt >>)"
+  expect (dShr.definitions.any fun defn => defn.opType == .castFelt)
+    "shr result CastFelt to Target"
+  let dNot ← liftResult (lowerFunctionForTestV1 {
+    index := 0
+    name := "flip"
+    kind := .mutate
+    params := #[{ sourceIndex := 0, name := "x", isBool := false }]
+    body := #[.returnValue (.checkedBitNot (.param 0))]
+    resultIsBool := false
+    resultIsUnit := false
+  } false)
+  expect (dNot.assertions.any fun a =>
+      a.message == "u64 bitNot result not representable in Felt")
+    "checkedBitNot representability assert"
+  expect (dNot.definitions.any fun defn =>
+      defn.opType == .constant && defn.inputs == #[4294967295])
+    "checkedBitNot threshold 2^32-1"
+  expect (dNot.definitions.any fun defn =>
+      defn.opType == .constant && defn.inputs == #[4294967294])
+    "checkedBitNot reduced mask 2^32-2"
+  expect (dNot.definitions.any fun defn => defn.opType == .sub)
+    "checkedBitNot Sub"
+  expect (dNot.definitions.any fun defn => defn.opType == .gte)
+    "checkedBitNot Gte guard"
 
 /-- Payload error (nonempty revertError args) → G5-MATRIX FC. -/
 def testPayloadRevertErrorFailClosedAtDpn : IO Unit := do
@@ -1868,19 +1903,17 @@ def testPayloadRevertErrorFailClosedAtDpn : IO Unit := do
 
 /-- G5-HARD residual allowlist unit pins (classifier only). -/
 def testG5HardResidualAllowlistClassifier : IO Unit := do
-  -- Remaining residual families (R-NARROW + R-INT admitted; bitwise/shift still residual).
+  -- Remaining residual families (R-NARROW + R-INT + R-SHIFT-BIT admitted;
+  -- narrow bitwise/shift + pureFn still residual).
   expect (isPsyDpnG5HardResidualAllowlistV1
       "PSY-DPN-G5-MATRIX: UInt8 narrow bitwise/shift residual (.psy dual-write only)")
     "narrow bitwise residual must be allowlisted"
   expect (isPsyDpnG5HardResidualAllowlistV1
       "PSY-DPN-G5-MATRIX: pureFn/localCall callFn 'f' is residual (.psy dual-write only)")
     "callFn residual must be allowlisted"
-  expect (isPsyDpnG5HardResidualAllowlistV1
-      "PSY-DPN-G5-MATRIX: UInt64 shl/shr residual (.psy dual-write only)")
-    "shl residual must be allowlisted"
-  -- Int residual wording must NOT remain on allowlist path once R-INT is green
-  -- (classifier is wording-based; leftover historical Int residual strings would
-  -- still match if reintroduced — product lower must not emit them).
+  -- Historical UInt64 shl/checkedBitNot residual wording must no longer be
+  -- product-emitted; classifier is wording-based so the string still matches
+  -- if reintroduced — product lower must not emit them.
   expect (!isPsyDpnG5HardResidualAllowlistV1
       "PSY-DPN: expected at least one state field")
     "non-MATRIX DPN error must not be residual allowlisted"
@@ -1980,6 +2013,67 @@ unsafe def testInt8ProductDualWriteDpn : IO Unit := do
         "product Int8 increment must emit Add"
       expect (inc.definitions.any fun defn => defn.opType == .select)
         "product Int8 signed add must Select-wrap mod 2^8"
+
+/-- R-SHIFT-BIT product: UInt64 shl/shr/bitNot entry dual-writes DPN + .psy. -/
+unsafe def testUInt64ShiftBitNotProductDualWriteDpn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ShiftBitDpn where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(seed : UInt64) do\n" ++
+    "    count := seed\n" ++
+    "  entry shiftLeft(x : UInt64, c : UInt32) : UInt64 do\n" ++
+    "    return x << c\n" ++
+    "  entry shiftRight(x : UInt64, c : UInt32) : UInt64 do\n" ++
+    "    return x >> c\n" ++
+    "  entry flip(x : UInt64) : UInt64 do\n" ++
+    "    return ~x\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-shift-bit>" "Tests.ShiftBitDpn" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let files ← liftResult <| Targets.Psy.buildFromCapability cap
+  expect (files.size == 2)
+    s!"R-SHIFT-BIT must dual-write DPN+.psy, got {files.map (·.path)}"
+  let some dpn := files.find? (·.path.endsWith ".dpn.json") |
+    throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
+  let some psy := files.find? (·.path.endsWith ".psy") |
+    throw <| IO.userError s!"missing .psy; got {files.map (·.path)}"
+  expect (files[0]!.path.endsWith ".dpn.json")
+    "DPN package must be primary artifact"
+  expect (!psy.contents.isEmpty) "transitional .psy non-empty"
+  expect (psy.contents.contains "invalidShift: count >= 64")
+    "product .psy must emit invalidShift guard"
+  expect (psy.contents.contains "u64 bitNot result not representable in Felt")
+    "product .psy must emit bitNot representability guard"
+  match parsePackage? dpn.contents with
+  | none => throw <| IO.userError "ShiftBitDpn.dpn.json failed to parse"
+  | some pkg =>
+      expect (pkg.size == 5)
+        s!"ShiftBitDpn package must have 5 methods, got {pkg.size}"
+      let some shlFn := pkg.find? (·.name == "shiftLeft") |
+        throw <| IO.userError s!"missing shiftLeft; names {pkg.map (·.name)}"
+      expect (shlFn.assertions.any fun a => a.message == "invalidShift: count >= 64")
+        "product shiftLeft must assert invalidShift"
+      expect (shlFn.definitions.any fun defn => defn.opType == .u32ShiftLeft)
+        "product shiftLeft must emit U32ShiftLeft"
+      let some shrFn := pkg.find? (·.name == "shiftRight") |
+        throw <| IO.userError s!"missing shiftRight; names {pkg.map (·.name)}"
+      expect (shrFn.definitions.any fun defn => defn.opType == .u32ShiftRight)
+        "product shiftRight must emit U32ShiftRight"
+      let some flipFn := pkg.find? (·.name == "flip") |
+        throw <| IO.userError s!"missing flip; names {pkg.map (·.name)}"
+      expect (flipFn.assertions.any fun a =>
+          a.message == "u64 bitNot result not representable in Felt")
+        "product flip must assert bitNot representability"
+      expect (flipFn.definitions.any fun defn => defn.opType == .sub)
+        "product flip must emit Sub for reduced mask"
 
 /-- G5-HARD: non-allowlisted DPN lower failure fails materialize (no silent
     `.psy`-only). Hand Plan with zero state fields validates/emit-lowers to
@@ -2099,11 +2193,12 @@ unsafe def run : IO Unit := do
   testCallFnFailClosedAtDpn
   testNarrowCheckedArithLower
   testSignedIntLower
-  testShlFailClosedAtDpn
+  testUInt64ShiftBitNotLower
   testPayloadRevertErrorFailClosedAtDpn
   testG5HardResidualAllowlistClassifier
   testUInt8ProductDualWriteDpn
   testInt8ProductDualWriteDpn
+  testUInt64ShiftBitNotProductDualWriteDpn
   testG5HardNonResidualDpnFailClosed
   testCounterProductDualWriteArtifacts
   IO.println "Tests.Materialization.PsyDpnV1: ok"

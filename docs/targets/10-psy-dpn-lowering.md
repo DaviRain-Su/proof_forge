@@ -9,7 +9,7 @@ normative: false
 
 # Psy DPN 层落地规划
 
-状态：`draft`（规划输入；DPN-1..7 engineering 已落地 dual-write；**G5-WIDE** mul/div/shift + **G5-AGG** Array/Principal/Bytes/Struct multi-leaf + **G5-MATRIX** §3.2 admit 扫描/FC pins + **G5-HARD** residual allowlist / non-residual materialize hard-fail 已闭合；**R-NARROW** UInt8/16/32 守卫算术 DPN lower 已闭合；**R-INT** Int64 signedCompare/checkedNeg + Int{8,16,32} two's-complement signed 算术/比较 DPN lower 已闭合；G5 residual 仍含 narrow bitwise/shift、pureFn、UInt64 shl/shr、checkedBitNot true DPN lower、full hard-require（零 allowlist）、`.psy` deletion-gate、optional dargo package 字节金样）
+状态：`draft`（规划输入；DPN-1..7 engineering 已落地 dual-write；**G5-WIDE** mul/div/shift + **G5-AGG** Array/Principal/Bytes/Struct multi-leaf + **G5-MATRIX** §3.2 admit 扫描/FC pins + **G5-HARD** residual allowlist / non-residual materialize hard-fail 已闭合；**R-NARROW** UInt8/16/32 守卫算术 DPN lower 已闭合；**R-INT** Int64 signedCompare/checkedNeg + Int{8,16,32} two's-complement signed 算术/比较 DPN lower 已闭合；**R-SHIFT-BIT** UInt64 shl/shr + checkedBitNot DPN lower 已闭合；G5 residual 仍含 narrow bitwise/shift、pureFn、full hard-require（零 allowlist）、`.psy` deletion-gate、optional dargo package 字节金样）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Psy target 的权威物化从 **文本 `.psy`** 切到 **官方 DPN 方法级定义**，并评估 **ProgramV1 语法/语义能覆盖到 DPN target 的范围**。
 
 权威上游（pin）：
@@ -171,9 +171,9 @@ Pin rev 与 dargo 0.1.0 不一致时 **fail closed**（文档 + Tool Lock 同步
 | 桶 | 行数 | 说明 |
 |---|---|---|
 | **done / partial** | 多数 Y + 两 P | 有 DPN lower 或诚实 PARTIAL + `PsyDpnV1` 钉测 |
-| **residual** | narrow bitwise/shift、pureFn、UInt64 shl/shr、checkedBitNot | Plan admit + DPN `PSY-DPN-G5-MATRIX` 稳定 FC + **G5-HARD allowlist** 仅 `.psy` |
+| **residual** | narrow bitwise/shift、pureFn | Plan admit + DPN `PSY-DPN-G5-MATRIX` 稳定 FC + **G5-HARD allowlist** 仅 `.psy` |
 | **plan-FC** | bn254 Field、nested Map、result-bearing call、Context/Commit、invariant、assets… | 产品 Plan 前拒绝；不发明 DPN |
-| **open residual work** | 剩余 residual 族真正 DPN lower、full hard-require（删 allowlist）、`.psy` deletion-gate、dargo 字节金样 | **R-NARROW** + **R-INT** done（2026-08-08）；G5-HARD gated policy 已闭合；full hard-require 待其余 residual lower |
+| **open residual work** | 剩余 residual 族真正 DPN lower、full hard-require（删 allowlist）、`.psy` deletion-gate、dargo 字节金样 | **R-NARROW** + **R-INT** + **R-SHIFT-BIT** done（2026-08-08）；G5-HARD gated policy 已闭合；full hard-require 待其余 residual lower |
 
 **结论（规划层 + G5-MATRIX 事实）：**
 在 **Psy 已开放且 DPN 已 lower 的子集** 上，物化可走 `.dpn.json`；**residual** 族保持证据化 FC（禁止假 Y）；**plan-FC** 族不经 DPN 旁路。
@@ -277,6 +277,7 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 - [x] **G5-HARD（2026-08-08）**：gated residual policy — `isPsyDpnG5HardResidualAllowlistV1` 仅放行 `PSY-DPN-G5-MATRIX` residual 诊断 → `.psy` only；**非** allowlist 的 DPN lower 失败以稳定 `PSY-DPN-G5-HARD` fail materialize（禁止 silent incomplete product）；`buildFromPlanV1` + `PsyDpnV1` 钉测；**非** full hard-require（零 allowlist）、非 G6 删 `.psy`
 - [x] **R-NARROW（2026-08-08）**：UInt8/16/32 Felt-carried checked add/sub/mul/div/mod + entry param range + unsigned compare → DPN（mirror EmitIR；`result < 2^w`；产品 dual-write `.dpn.json`+`.psy`）；narrow bitwise/shift 仍 residual
 - [x] **R-INT（2026-08-08）**：Int64 `signedCompare`/`checkedNeg` + Int{8,16,32} two's-complement narrow signed add/sub/mul/div/mod/neg/compare → DPN（mirror EmitIR；bias-2^(w-1) compare；overflow asserts；产品 Int8 dual-write）；Int64 arith 复用既有 UInt64 checked path
+- [x] **R-SHIFT-BIT（2026-08-08）**：UInt64 `shl`/`shr` + `checkedBitNot` → DPN（mirror EmitIR `invalidShift: count >= 64` / bitNot representability；dargo Felt `<<`/`>>` → U32ShiftLeft/Right + CastFelt；checkedBitNot = Gte `2^32−1` + Sub mask `2^32−2`；产品 ShiftBit dual-write）；narrow bitwise/shift 仍 residual
 - [ ] 剩余 residual 族 true DPN lower 后 full hard-require（删除 allowlist）
 - [ ] 删除 `.psy` 权威路径（deletion-gate；现为 debug/transition）
 - [ ] `just psy-runtime` 优先 DPN 路径（仍经 `.psy`→dargo；不经 product Finalize）
@@ -344,7 +345,7 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 
 ## 10. 下一步（DPN-1..7 + G5-WIDE + G5-AGG + G5-MATRIX + G5-HARD 已闭合后）
 
-1. **G5 residual implementation（可选 capability）**：**R-NARROW done**（UInt8/16/32 checked add/sub/mul/div/mod + param range + unsigned compare → DPN；product dual-write）；剩余 residual：narrow bitwise/shift、Int64/窄 Int、pureFn inline/子图、UInt64 shl/shr、checkedBitNot；随后 **full hard-require**（删除 residual allowlist）；WideCounter256 product package pin；dargo 全量 package 字节相等金样。
+1. **G5 residual implementation（可选 capability）**：**R-NARROW + R-INT + R-SHIFT-BIT done**（UInt8/16/32 checked arith；Int64/narrow signed；UInt64 shl/shr/checkedBitNot → DPN；product dual-write）；剩余 residual：narrow bitwise/shift、pureFn inline/子图；随后 **full hard-require**（删除 residual allowlist）；WideCounter256 product package pin；dargo 全量 package 字节相等金样。
 2. **G6 / deletion-gate（可选）**：`.psy` 删除或 debug-only；`just psy-runtime` DPN-first（不经 product Finalize 改 claim）。
 3. **可选硬化**：method_id 官方 hash 复刻；Tool Lock 镜像 `psy-node` rev。
 
