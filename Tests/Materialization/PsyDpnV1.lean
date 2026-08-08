@@ -2739,8 +2739,7 @@ unsafe def run : IO Unit := do
   testCounterProductDualWriteArtifacts
   IO.println "Tests.Materialization.PsyDpnV1: ok"
 
-end Tests.Materialization.PsyDpnV1
+/-- Focused lake_exe / `lean --run` entry (namespaced so Shards.Targets can import). -/
+unsafe def main : IO Unit := run
 
-/-- Allow `lake env lean --run Tests/Materialization/PsyDpnV1.lean`. -/
-unsafe def main : IO Unit :=
-  Tests.Materialization.PsyDpnV1.run
+end Tests.Materialization.PsyDpnV1

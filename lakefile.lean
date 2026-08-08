@@ -249,6 +249,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.NearHostModel,
     `Tests.Materialization.NoirRelationModel,
     `Tests.Materialization.NoirCompileAcceptance,
+    `Tests.Materialization.NoirAcirV1,
     `Tests.Materialization.SolanaPlanV1,
     `Tests.Materialization.SolanaCpiPlanV1,
     `Tests.Materialization.SolanaCpiDeriveV1,

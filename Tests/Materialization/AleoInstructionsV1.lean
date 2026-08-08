@@ -2432,9 +2432,7 @@ unsafe def run : IO Unit := do
   testResidualHonestyNotes
   IO.println "Tests.Materialization.AleoInstructionsV1: ok"
 
+/-- Focused lake_exe / `lean --run` entry (namespaced so Shards.Targets can import). -/
+unsafe def main : IO Unit := run
 
 end Tests.Materialization.AleoInstructionsV1
-
-/-- Allow `lake env lean --run Tests/Materialization/AleoInstructionsV1.lean`. -/
-unsafe def main : IO Unit :=
-  Tests.Materialization.AleoInstructionsV1.run

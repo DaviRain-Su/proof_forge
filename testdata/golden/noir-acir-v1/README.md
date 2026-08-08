@@ -1,0 +1,78 @@
+# noir-acir-v1 golden (NOIR-IR-1)
+
+Frozen **Examples/Counter** product Noir relation packages plus locked
+**nargo 1.0.0-beta.26** `nargo compile` ProgramArtifact JSON.
+
+## Authority
+
+- **Target authority direction:** ACIR / nargo circuit artifacts (not sole `.nr`).
+- **IR-1 freeze:** multi-file exact SHA-256 inventory of path-normalized nargo
+  ProgramArtifact JSON + product package sources.
+- **Not claimed:** ACIR opcode decode, Plan→ACIR, prove/verify, deployable, formal.
+
+## Tool pin
+
+| Field | Value |
+|---|---|
+| Tool Lock id | `nargo` |
+| Version | `1.0.0-beta.26` |
+| Exact `noir_version` in artifacts | `1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905` |
+| Git hash | `40d6574f851d926f93e0c3a271bac3e6e82ac905` |
+| Profile | `noir-source-u64-relations-v1` |
+
+## Layout
+
+```
+inventory.json                 multi-file inventory (documentation + pins)
+product/
+  Counter.noir-relations.json  product relation IR summary
+  relations/r0-init/…          Nargo.toml + src/main.nr (init)
+  relations/r1-increment/…     increment entry
+  relations/r2-get/…           get view
+nargo-compile/
+  r0-init/pf_relation_0.json   path-normalized ProgramArtifact
+  r1-increment/pf_relation_1.json
+  r2-get/pf_relation_2.json
+```
+
+## Normalization
+
+Raw `nargo compile` writes absolute `file_map.*.path` (host-local). Golden files
+rewrite that field to package-relative `src/main.nr`. All other fields
+(`noir_version`, `hash`, `abi`, `bytecode`, `debug_symbols`, `file_map` source
+text) are otherwise byte-stable for the pinned nargo on the same sources.
+
+JSON encoding: compact `json.dumps(..., separators=(',', ':'))` + trailing
+newline.
+
+## ProgramArtifact envelope (observed nargo 1.0.0-beta.26)
+
+Top-level keys (exact set):
+
+- `noir_version` (string)
+- `hash` (decimal string circuit identity)
+- `abi` (parameters / return_type / error_types)
+- `bytecode` (base64 of gzip-compressed ACIR)
+- `debug_symbols` (base64)
+- `file_map` (source debug map; path normalized in golden)
+
+Full ACIR opcode schema is **not** frozen here — only inventory + envelope.
+
+## Capture recipe (engineering)
+
+```bash
+# product package
+lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean \
+  --module Examples.Counter --target noir -o build/v2/noir-acir-capture
+# compile each relations/* package with locked nargo
+# normalize file_map.path → src/main.nr; write under nargo-compile/
+```
+
+Live recheck is optional when nargo is present; missing nargo → suite skip
+honesty (inventory pin still runs from frozen files).
+
+## Non-goals
+
+- Product Finalize does **not** ship these as OutputFile yet (IR-2+).
+- No prove/verify/VK/witness product leaves.
+- `deployable=false`.

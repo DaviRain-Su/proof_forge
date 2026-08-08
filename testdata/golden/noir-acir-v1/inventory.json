@@ -1,0 +1,105 @@
+{
+  "schema": "proof-forge.noir-acir-golden.v1",
+  "purpose": "NOIR-IR-1 Counter locked-nargo compile golden inventory (path-normalized ProgramArtifact JSON + product relation packages)",
+  "nargoVersion": "1.0.0-beta.26",
+  "noirVersionExact": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+  "nargoGitHash": "40d6574f851d926f93e0c3a271bac3e6e82ac905",
+  "toolLockId": "nargo",
+  "profile": "noir-source-u64-relations-v1",
+  "program": "Examples.Counter",
+  "sourceModule": "Examples.Counter",
+  "authority": "ACIR/nargo ProgramArtifact circuit core (bytecode+abi+hash+noir_version); .nr transitional debug",
+  "normalization": {
+    "file_map.path": "rewritten to package-relative src/main.nr (absolute host path is host-local and excluded from golden identity)",
+    "json": "compact JSON dumps with separators (, :), trailing newline",
+    "notNormalized": "bytecode/abi/hash/debug_symbols/noir_version are raw nargo outputs (path-independent on same nargo pin)"
+  },
+  "honesty": [
+    "IR-1 freezes multi-file exact pin + ProgramArtifact envelope fields; does not decode ACIR opcodes",
+    "bytecode is base64(gzip(ACIR bytes)); full ACIR opcode schema deferred to IR-2+",
+    "deployable=false; no prove/verify product claim",
+    "product Finalize remains non-deployable source emission"
+  ],
+  "circuitHashes": {
+    "r0-init": "17547139497077004670",
+    "r1-increment": "13787203750271229385",
+    "r2-get": "15142158172902813876"
+  },
+  "files": [
+    {
+      "path": "nargo-compile/r0-init/pf_relation_0.json",
+      "size": 1343,
+      "sha256": "90113b872a13f2cdcc8db7acd9d5b4e10829015f726fdd9e39ade75e6f429dfd",
+      "role": "nargo-program-artifact",
+      "relation": "r0-init",
+      "packageName": "pf_relation_0",
+      "circuitHash": "17547139497077004670",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "095ba97459c4aac0dcf5724a054177ba3f55313ae61585a1c37d71df73ff49bd"
+    },
+    {
+      "path": "nargo-compile/r1-increment/pf_relation_1.json",
+      "size": 1816,
+      "sha256": "140c8fbd22f87826759a7e7fe8df165efb5a664d54c8563aed60f4644d2125f6",
+      "role": "nargo-program-artifact",
+      "relation": "r1-increment",
+      "packageName": "pf_relation_1",
+      "circuitHash": "13787203750271229385",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "ff70883a7b826e662010c835a95d43dd708af7280ec5c7cd369b3ce304e958ce"
+    },
+    {
+      "path": "nargo-compile/r2-get/pf_relation_2.json",
+      "size": 1510,
+      "sha256": "2509aabd7b3e4a90afc59c73e3b2b0868f7a46aaf2a206475d01ce4547309976",
+      "role": "nargo-program-artifact",
+      "relation": "r2-get",
+      "packageName": "pf_relation_2",
+      "circuitHash": "15142158172902813876",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "bd3e226a9de0ba6f9c339eaa0cb8269b8c554d8c28ba04780f2271e778da5839"
+    },
+    {
+      "path": "product/Counter.noir-relations.json",
+      "size": 2694,
+      "sha256": "405842221219e2d910c8d6fcb16cadb9c8ea0e148d020d652eefc9d12deb3ed7",
+      "role": "product-source"
+    },
+    {
+      "path": "product/relations/r0-init/Nargo.toml",
+      "size": 74,
+      "sha256": "22be6c4c3537c091cc0cdd053ce799f02aa2a9ac0923cecc68ffe1ec6ff64eb3",
+      "role": "product-source"
+    },
+    {
+      "path": "product/relations/r0-init/src/main.nr",
+      "size": 209,
+      "sha256": "0cbe64f5935b2444b275c2d4e050f3cac68cf0bff81ff521701e8f846864505f",
+      "role": "product-source"
+    },
+    {
+      "path": "product/relations/r1-increment/Nargo.toml",
+      "size": 74,
+      "sha256": "8e363e3997222567815d17af032e382b4ca4d9d102cf4ca747783069e358c81f",
+      "role": "product-source"
+    },
+    {
+      "path": "product/relations/r1-increment/src/main.nr",
+      "size": 299,
+      "sha256": "0456dfe54e6bf6bf51c886fa162d10f5b91102d3bb67d4368c20738643118059",
+      "role": "product-source"
+    },
+    {
+      "path": "product/relations/r2-get/Nargo.toml",
+      "size": 74,
+      "sha256": "03f5a6e2391ed4e67d7e093716df7555d180cf134ab30eab0f9a9fa6d570d3cc",
+      "role": "product-source"
+    },
+    {
+      "path": "product/relations/r2-get/src/main.nr",
+      "size": 255,
+      "sha256": "e081745332ca9e36b691e435f68357d0d168f2400ed44f801f5727b58e12c382",
+      "role": "product-source"
+    }
+  ]
+}

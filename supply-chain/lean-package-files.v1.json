@@ -866,9 +866,14 @@
       "sha256": "98f1f6dec48f6acbae67c4d6c38eb349c3f7cb9f2c946e38406cb227535b44a4"
     },
     {
-      "bytes": 1423,
+      "bytes": 1473,
       "path": "ProofForgeV2/Targets/Noir.lean",
-      "sha256": "f45e503080eb2f965dbd21ca540fc572cd75b8cd4d63a32ee2ca98ccb40ec5a4"
+      "sha256": "e0f6e54844c6b0241e4b4391c00a7fa87192bbffe078b1d7a97247dcfcdc5b59"
+    },
+    {
+      "bytes": 6575,
+      "path": "ProofForgeV2/Targets/Noir/Acir/InventoryV1.lean",
+      "sha256": "e5003e2050869a9941d5d200d8f8460fefb854836b71e11f8c5a947baf8beec2"
     },
     {
       "bytes": 95866,

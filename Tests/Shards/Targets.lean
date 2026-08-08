@@ -27,6 +27,7 @@ import Tests.Materialization.AleoCompiledFinalizationV1
 import Tests.Materialization.NearHostModel
 import Tests.Materialization.NoirRelationModel
 import Tests.Materialization.NoirCompileAcceptance
+import Tests.Materialization.NoirAcirV1
 import Tests.Materialization.SolanaPlanV1
 import Tests.Materialization.SolanaCpiPlanV1
 import Tests.Materialization.SolanaCpiDeriveV1
@@ -106,6 +107,8 @@ unsafe def main : IO Unit := do
   Tests.Materialization.AleoCompiledFinalizationV1.run
   IO.eprintln "CP run"
   Tests.Materialization.NoirCompileAcceptance.run
+  IO.eprintln "CP run"
+  Tests.Materialization.NoirAcirV1.run
   IO.eprintln "CP run"
   Tests.Materialization.NearHostModel.run
   IO.eprintln "CP run"

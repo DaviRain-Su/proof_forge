@@ -15,9 +15,12 @@ Phase 1：实现
 
 ## 权威物化方向（2026-08-08 产品决策）
 
-**下一主线：Noir ACIR / 电路中间 IR**（对标 Psy DPN、Aleo Instructions），**不是**长期 sole `.nr` 源包。  
-规划 sole 输入：[`07-noir-acir-lowering.md`](07-noir-acir-lowering.md)。  
-当前产品仍 emit relation **Noir source packages** + 可选 locked nargo compile-only；实现 ACIR 前不得把 `.nr` 写成最终权威。
+**下一主线：Noir ACIR / 电路中间 IR**（对标 Psy DPN、Aleo Instructions），**不是**长期 sole `.nr` 源包。
+规划 sole 输入：[`07-noir-acir-lowering.md`](07-noir-acir-lowering.md)。
+**NOIR-IR-1**：Counter locked-nargo ProgramArtifact 金样已冻结于
+`testdata/golden/noir-acir-v1/`（path-normalized multi-file inventory；非 opcode decode）。
+当前产品仍 emit relation **Noir source packages** + 可选 locked nargo compile-only；实现
+Plan→ACIR 产品 primary 前不得把 `.nr` 写成最终权威。
 
 ## 当前工程迁移状态（非 formal 完成）
 
@@ -36,8 +39,9 @@ Digest 在 Plan 边界派生（engineering identity，非 formal BuildIdentity�
 - 产物：typed relation IR + Noir source packages；locked nargo 1.0.0-beta.26 对产品 Counter
   relation packages 执行 compile-only 工程验收。
 
-**明确未闭合**：**无** ACIR/witness/proof/VK/prove/verify 验收门或产品制品；无锁定
-proving backend、CRS/security profile；formal Noir milestone；完整 Semantic 面。不得把
+**明确未闭合**：IR-1 仅金样 inventory pin，**无** 产品 ACIR OutputFile / Plan→ACIR；
+**无** witness/proof/VK/prove/verify 验收门；无锁定 proving backend、CRS/security profile；
+formal Noir milestone；完整 Semantic 面。不得把
 compile-only 写成 circuit proof 完成。
 
 ### C-4 研究与 G123 follow-up（2026-08-02—2026-08-03）

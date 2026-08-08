@@ -1,0 +1,18 @@
+{
+  "schema": "proof-forge-noir-relations/v1alpha1",
+  "program": "Counter",
+  "codegenProfile": "noir-source-u64-relations-v1",
+  "sourceDialect": "noir-native-u64-relations-v1",
+  "sourceHash": "276462ae16de0dd9d70e0e007a06669be9f2c996aa745e8b541b8a57f78208ae",
+  "semanticHash": "111d486138fb36a21d6c8996b8fd100f5d4a5bb5a16e1f82009af97ce4985d6d",
+  "planHash": "e72ee73c06b4759373e5cadf7d9d31d27e03303abac360c7fad690aff774ca5e",
+  "artifactKind": "source-only",
+  "stateContinuity": "external-public-pre-post",
+  "arithmetic": "native-checked-u64",
+  "proofStatus": "not-produced",
+  "relations": [
+    {"index":0,"name":"init","mode":"initialize","package":"relations/r0-init","operationCount":3,"inputs":[{"name":"pre_initialized","sourceName":"initialized","sourceId":null,"role":"pre-initialized","visibility":"public","type":"bool"},{"name":"arg_p0","sourceName":"initial","sourceId":0,"role":"parameter","visibility":"public","type":"u64"},{"name":"post_s0","sourceName":"count","sourceId":0,"role":"post-state","visibility":"public","type":"u64"},{"name":"post_initialized","sourceName":"initialized","sourceId":null,"role":"post-initialized","visibility":"public","type":"bool"}]},
+    {"index":1,"name":"increment","mode":"mutate","package":"relations/r1-increment","operationCount":5,"inputs":[{"name":"pre_initialized","sourceName":"initialized","sourceId":null,"role":"pre-initialized","visibility":"public","type":"bool"},{"name":"pre_s0","sourceName":"count","sourceId":0,"role":"pre-state","visibility":"public","type":"u64"},{"name":"arg_p0","sourceName":"delta","sourceId":0,"role":"parameter","visibility":"public","type":"u64"},{"name":"post_s0","sourceName":"count","sourceId":0,"role":"post-state","visibility":"public","type":"u64"},{"name":"post_initialized","sourceName":"initialized","sourceId":null,"role":"post-initialized","visibility":"public","type":"bool"},{"name":"result","sourceName":"result","sourceId":null,"role":"result","visibility":"public","type":"u64"}]},
+    {"index":2,"name":"get","mode":"view","package":"relations/r2-get","operationCount":4,"inputs":[{"name":"pre_initialized","sourceName":"initialized","sourceId":null,"role":"pre-initialized","visibility":"public","type":"bool"},{"name":"pre_s0","sourceName":"count","sourceId":0,"role":"pre-state","visibility":"public","type":"u64"},{"name":"post_s0","sourceName":"count","sourceId":0,"role":"post-state","visibility":"public","type":"u64"},{"name":"post_initialized","sourceName":"initialized","sourceId":null,"role":"post-initialized","visibility":"public","type":"bool"},{"name":"result","sourceName":"result","sourceId":null,"role":"result","visibility":"public","type":"u64"}]}
+  ]
+}

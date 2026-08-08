@@ -9,7 +9,7 @@ normative: false
 
 # Noir ACIR 层落地规划
 
-状态：`draft`（规划输入；**实现未开始**）  
+状态：`draft`（规划 + **NOIR-IR-1 金样已冻结**；Plan→ACIR 未开始）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Noir target 的权威物化从 **Noir 源包（`.nr` relations）** 切向官方 **电路中间表示（ACIR 及相关编译产物）**，并评估 admit 面覆盖。
 
 与 Psy / Aleo 对照：
@@ -27,7 +27,7 @@ normative: false
 |---|---|
 | 工具 | locked **nargo 1.0.0-beta.26** |
 | 官方语言 | Noir → **ACIR**（Abstract Circuit IR）→ backend prove |
-| 工程现状 | 产品 emit `relations/*/src/main.nr`；`NoirCompileAcceptance` / host-optional `nargo compile`；**无** ACIR 产品制品 |
+| 工程现状 | 产品 emit `relations/*/src/main.nr`；`NoirCompileAcceptance` / host-optional `nargo compile`；**IR-1** 金样 `testdata/golden/noir-acir-v1/` + inventory pin；**无** ACIR 产品 OutputFile |
 | 非本阶段 | Barretenberg prove/verify、CRS、VK 产品绑定、formal |
 
 **非目标：**
@@ -50,9 +50,9 @@ ProgramV1 → Semantic → NoirPlan → relation IR → Noir source package (.nr
 
 问题（与 Psy `.psy` / Aleo Leo 同构）：
 
-1. **脆性**：与 Noir 源语法 / nargo 版本耦合。  
-2. **双重真相**：可证明的电路形状在 ACIR/backend；`.nr` 是第三方言。  
-3. **覆盖 KPI 失真**：易写成 “能吐 Noir 源”。正确 KPI = **admit 面在 ACIR 上诚实编码**。  
+1. **脆性**：与 Noir 源语法 / nargo 版本耦合。
+2. **双重真相**：可证明的电路形状在 ACIR/backend；`.nr` 是第三方言。
+3. **覆盖 KPI 失真**：易写成 “能吐 Noir 源”。正确 KPI = **admit 面在 ACIR 上诚实编码**。
 4. **已有 compile 门**：locked nargo 可作金样抓取，却未成为产品权威。
 
 目标路径：
@@ -74,24 +74,24 @@ ProgramV1 → Semantic → NoirPlan → NoirAcirIR / ACIR bytes|JSON
 
 IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 
-- `nargo compile` 输出目录中的 **ACIR / circuit artifact** 文件名、编码（JSON vs binary）、是否含 Brillig。  
+- `nargo compile` 输出目录中的 **ACIR / circuit artifact** 文件名、编码（JSON vs binary）、是否含 Brillig。
 - 选定 **sole 金样形态**（优先：可稳定 round-trip 的 ACIR 序列化；若 nargo 只产 opaque 目录，则 pin **规范化文件集 + 内容 hash** 并文档化）。
 
 **禁止** 在未打开真实 artifact 前假设 schema。
 
 ### 2.2 与 NoirPlan 关系
 
-- 保留 `NoirPlan` / relation IR 为 target-owned 中间层。  
-- 新增 `Plan → ACIR`（或 `Plan → nargo-input + 我们自己的 ACIR encoder` 若与 nargo 对齐）。  
-- 短期诚实路径：**产品 dual-write** — primary ACIR（或 compile extras）+ debug `.nr`。  
+- 保留 `NoirPlan` / relation IR 为 target-owned 中间层。
+- 新增 `Plan → ACIR`（或 `Plan → nargo-input + 我们自己的 ACIR encoder` 若与 nargo 对齐）。
+- 短期诚实路径：**产品 dual-write** — primary ACIR（或 compile extras）+ debug `.nr`。
 - 若无法在无 nargo 的情况下 pure-Lean 编码 ACIR：IR-2 可为 **capability 内调用 locked nargo 仅抓 ACIR**（host-heavy / Finalize 可选），Lean 侧做 validate/hash/pin——须在 IR-1 决策并写清 **非 hermetic**。
 
 ### 2.3 验证阶梯
 
 | 阶 | 门 | 完成标准 |
 |---|---|---|
-| G0 | 金样捕获 + pin | Counter nargo compile artifact 入库 + 文档 |
-| G1 | Schema/codec 或 inventory hash | round-trip 或 exact multi-file pin |
+| G0 | 金样捕获 + pin | **done（IR-1）** Counter nargo compile artifact 入库 + 文档 |
+| G1 | Schema/codec 或 inventory hash | **done（IR-1）** exact multi-file SHA-256 + envelope keys（非 ACIR opcode codec） |
 | G2 | Plan→ACIR MVP | Counter ≡ 金样（结构或字节） |
 | G3 | 控制流 / 聚合 admit 面 | 与现 Noir Plan 一致 |
 | G4 | 产品 primary ACIR | `.nr` debug-only |
@@ -125,25 +125,26 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 
 ### NOIR-IR-0 — 规划（本文档）
 
-- [x] 选定 ACIR/compile 产物为权威方向  
-- [x] Tool Lock 注释：nargo pin 与 ACIR 权威关系（`docs/specs/toolchains.md` nargo 行）  
+- [x] 选定 ACIR/compile 产物为权威方向
+- [x] Tool Lock 注释：nargo pin 与 ACIR 权威关系（`docs/specs/toolchains.md` nargo 行）
 
 ### NOIR-IR-1 — 金样 + schema 探路
 
-- [ ] locked nargo 对 Counter 抓 compile 产物  
-- [ ] 冻结 golden 路径 `testdata/golden/noir-acir-v1/`  
-- [ ] Lean：最小 Schema/inventory codec **或** multi-file exact pin + 测试  
+- [x] locked nargo 1.0.0-beta.26 对 Counter 抓 `nargo compile` ProgramArtifact JSON
+- [x] 冻结 golden 路径 `testdata/golden/noir-acir-v1/`（product packages + path-normalized compile JSON + `inventory.json`/`README.md`）
+- [x] Lean：`ProofForgeV2/Targets/Noir/Acir/InventoryV1.lean` multi-file exact SHA-256 pin + ProgramArtifact envelope keys；`Tests/Materialization/NoirAcirV1.lean`（nargo 缺席时 live recheck honest skip）
+- **诚实结论（IR-1）**：sole 可稳定 pin 的形态 = **path-normalized multi-file inventory**（`file_map.path` → `src/main.nr`）；`bytecode` 为 base64(gzip(ACIR))，**未**解码 ACIR opcode；非 pure-Lean ACIR encoder
 
 ### NOIR-IR-2 — Plan→ACIR MVP
 
-- [ ] Counter Plan 路径 ≡ 金样  
-- [ ] 文档：nargo-assisted vs pure-Lean  
+- [ ] Counter Plan 路径 ≡ 金样
+- [ ] 文档：nargo-assisted vs pure-Lean
 
-### NOIR-IR-3..5 — 控制流 / 聚合 / 诚实矩阵  
+### NOIR-IR-3..5 — 控制流 / 聚合 / 诚实矩阵
 
-### NOIR-IR-6 — 产品 primary ACIR；`.nr` debug  
+### NOIR-IR-6 — 产品 primary ACIR；`.nr` debug
 
-### NOIR-IR-7 — prove honesty（工具存在时）  
+### NOIR-IR-7 — prove honesty（工具存在时）
 
 ---
 
@@ -173,8 +174,8 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 
 ### MVP（IR-2）
 
-- Counter ACIR（或冻结 artifact 集）与 locked-nargo 金样结构/字节相等。  
-- 测试进 targets shard。  
+- Counter ACIR（或冻结 artifact 集）与 locked-nargo 金样结构/字节相等。
+- 测试进 targets shard。
 - `.nr` 声明为过渡。
 
 ### 非完成
@@ -185,9 +186,9 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 
 ## 8. 下一步
 
-1. **NOIR-IR-0 收尾**（本文 + AGENTS Active）。  
-2. **NOIR-IR-1**：nargo 抓 Counter 金样 + pin 策略。  
-3. **NOIR-IR-2**：Plan→ACIR 或 nargo-assisted 权威路径。
+1. **NOIR-IR-0** 已完成。
+2. **NOIR-IR-1** 已完成：Counter 金样 + multi-file inventory pin。
+3. **NOIR-IR-2**：Plan→ACIR 或 nargo-assisted 权威路径（Counter ≡ 金样）。
 
-规划 owner：engineering。  
-产品决策：Aleo 可工程队列空后 **切换 Noir 中间 IR（ACIR）**；先规划后实现。
+规划 owner：engineering。
+IR-1 冻结细节见 `testdata/golden/noir-acir-v1/README.md`。
