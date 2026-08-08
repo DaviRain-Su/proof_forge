@@ -1,7 +1,8 @@
 /-
-  NOIR-IR-1 + NOIR-IR-2 + NOIR-IR-3 (G3): Counter nargo ProgramArtifact golden
-  inventory pin, Plan→ACIR MVP via nargo-assisted capture, and admit-surface
-  control-flow / aggregate circuit-hash pins.
+  NOIR-IR-1 + NOIR-IR-2 + NOIR-IR-3 (G3) + NOIR-IR-5 (honesty matrix):
+  Counter nargo ProgramArtifact golden inventory pin, Plan→ACIR MVP via
+  nargo-assisted capture, admit-surface control-flow / aggregate circuit-hash
+  pins, and §3.2 honesty matrix FC boundaries.
 
   IR-1 freezes:
   * product Noir relation packages for Examples/Counter
@@ -18,14 +19,23 @@
   * MapMini Plan materialize + init capture; put/get nargo-fail honesty residual
   * product package-stem pins always run; live capture honest-skips without nargo
 
+  IR-5 / G5 honesty matrix:
+  * §3.2 status column (Y/P/F) pinned in CaptureV1.honestyMatrixRowsV1
+  * call/schedule = P (witness-binding only; never ACIR Y)
+  * String state / Option non-UInt64 = F (product plan-FC)
+  * prove/VK = F (Finalize deployable=false; no product prove)
+  * No false Y
+
   Optional live recheck when `nargo` is present. Missing nargo → honest skip of
-  live capture only (inventory pin + source-join + package-stem pins still run).
+  live capture only (inventory pin + source-join + package-stem + honesty matrix
+  still run).
 
   **Not** ACIR opcode decode, product ACIR OutputFile (IR-6), prove/verify,
   deployable, or formal.
 -/
 import ProofForgeV2.Targets.Noir.Acir.InventoryV1
 import ProofForgeV2.Targets.Noir.Acir.CaptureV1
+import ProofForgeV2.Targets.Noir.FinalizeV1
 import ProofForgeV2.Core.Crypto
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Examples.Counter
@@ -46,8 +56,16 @@ open ProofForgeV2.Targets.Noir.Acir.CaptureV1
    compilePackageCaptureCircuitCoreV1 loadGoldenCircuitCoreV1
    productPackageSourceJoinV1 admitSurfaceFixturesV1
    admitSurfaceCapturePinCountV1 nargoCompileExitCodeV1
-   AdmitSurfaceFamilyV1)
+   AdmitSurfaceFamilyV1
+   honestyMatrixRowsV1 honestyCallScheduleNoteV1 honestyOptionStringNoteV1
+   honestyProveNoteV1 finalizeEvidenceNoteV1
+   callSchedulePackageStemsV1 callScheduleHonestySourceTextV1
+   stringStateFcSourceTextV1 optionStringStateFcSourceTextV1
+   optionBoolStateFcSourceTextV1
+   honestyAcirYFamiliesV1 honestyAcirFFamiliesV1 honestyAcirPFamiliesV1
+   isHonestyYV1 HonestyStatusV1)
 open ProofForgeV2.Targets.Noir.Acir.CaptureV1.AdmitSurfaceFamilyV1
+open ProofForgeV2.Targets.Noir.Acir.CaptureV1.HonestyStatusV1
 open System
 
 -- Disambiguate inventory vs capture schema ids (both export `schemaIdV1`).
@@ -167,6 +185,10 @@ def testIrHonestyNotes : IO Unit := do
     "authority note must document nargo missing honest skip"
   expect (authorityNoteV1.contains "G3")
     "authority note must mention G3 admit-surface pins"
+  expect (authorityNoteV1.contains "IR-5")
+    "authority note must mention IR-5 honesty matrix"
+  expect (authorityNoteV1.contains "witness-binding")
+    "authority note must document call/schedule witness-binding honesty"
   let main0 ← IO.FS.readFile
     (goldenPathV1 "product/relations/r0-init/src/main.nr")
   expect (main0.contains "fn main(") "product main.nr present"
@@ -439,6 +461,198 @@ unsafe def testAdmitSurfaceLiveCaptureOptional : IO Unit := do
                 s!"  G3 honesty nargo-fail: {fix.fixtureId}/{failStem} exit={code}"
       IO.println "  G3 admit-surface live capture: ok"
 
+/-! ### NOIR-IR-5 — honesty matrix + FC boundaries -/
+
+/-- IR-5: §3.2 status column pins; no false Y for call/schedule/prove/String. -/
+def testHonestyMatrixStatusColumn : IO Unit := do
+  expect (honestyMatrixRowsV1.size == 9)
+    s!"IR-5 matrix must pin 9 rows, got {honestyMatrixRowsV1.size}"
+  let families := honestyMatrixRowsV1.map (·.family)
+  expect (families.contains "call/schedule slots") "matrix call/schedule row"
+  expect (families.contains "String state / Option non-UInt64") "matrix String/Option row"
+  expect (families.contains "prove/VK") "matrix prove/VK row"
+  expect (families.contains "Option UInt64 state") "matrix Option UInt64 Y row"
+  -- No false Y: call/schedule, String/Option non-UInt64, prove/VK must not be Y.
+  for row in honestyMatrixRowsV1 do
+    if row.family == "call/schedule slots" then
+      expect (row.acirStatus == .P)
+        s!"call/schedule ACIR must be P not {row.acirStatus.toString}"
+      expect (row.noirPathStatus == .P)
+        "call/schedule Noir path must be P (witness slots)"
+      expect (row.evidence.contains "witness-binding")
+        "call/schedule evidence must cite witness-binding"
+      expect (!isHonestyYV1 row.acirStatus)
+        "call/schedule must never be ACIR Y"
+    if row.family == "String state / Option non-UInt64" then
+      expect (row.acirStatus == .F)
+        s!"String/Option non-UInt64 ACIR must be F, got {row.acirStatus.toString}"
+      expect (row.noirPathStatus == .F) "String/Option non-UInt64 Noir path F"
+      expect (row.evidence.contains "plan-FC")
+        "String/Option non-UInt64 evidence must cite plan-FC"
+    if row.family == "prove/VK" then
+      expect (row.acirStatus == .F)
+        s!"prove/VK ACIR must be F, got {row.acirStatus.toString}"
+      expect (row.evidence.contains "deployable=false" ||
+          row.evidence.contains "G6")
+        "prove/VK evidence must deny product prove"
+    if row.family == "Option UInt64 state" then
+      expect (row.acirStatus == .Y) "Option UInt64 must remain ACIR Y (G3)"
+    if row.family == "Array/Map/Bytes flatten" then
+      expect (row.acirStatus == .P)
+        "Array/Map/Bytes ACIR stays P (Map residual / Bytes Plan-only)"
+  -- Bucket shape pins (docs join).
+  expect (honestyAcirYFamiliesV1.size == 5)
+    s!"ACIR Y families count, got {honestyAcirYFamiliesV1.size}"
+  expect (honestyAcirPFamiliesV1.size == 2)
+    s!"ACIR P families (Array/Map/Bytes + call/schedule), got {honestyAcirPFamiliesV1.size}"
+  expect (honestyAcirFFamiliesV1.size == 2)
+    s!"ACIR F families (String/Option + prove), got {honestyAcirFFamiliesV1.size}"
+  expect (!honestyAcirYFamiliesV1.contains "call/schedule slots")
+    "false Y guard: call/schedule not in Y bucket"
+  expect (!honestyAcirYFamiliesV1.contains "prove/VK")
+    "false Y guard: prove/VK not in Y bucket"
+  expect (!honestyAcirYFamiliesV1.contains "String state / Option non-UInt64")
+    "false Y guard: String/Option non-UInt64 not in Y bucket"
+  -- Honesty notes non-empty and content-bound.
+  expect (honestyCallScheduleNoteV1.contains "witness-binding")
+    "call/schedule honesty note"
+  expect (honestyCallScheduleNoteV1.contains "P not Y")
+    "call/schedule note denies ACIR Y"
+  expect (honestyOptionStringNoteV1.contains "plan-FC")
+    "Option/String honesty note"
+  expect (honestyOptionStringNoteV1.contains "Option String")
+    "Option String named in honesty note"
+  expect (honestyProveNoteV1.contains "deployable=false")
+    "prove honesty note deployable=false"
+  expect (honestyProveNoteV1.contains "prove")
+    "prove honesty note mentions prove"
+  expect (finalizeEvidenceNoteV1.contains "proving backend")
+    "Finalize evidence note pin"
+  expect (finalizeEvidenceNoteV1.contains "without ACIR")
+    "Finalize note denies ACIR product claim at zero-tool finalize"
+  IO.println "  IR-5 honesty matrix status column: ok"
+
+/-- Product path must fail closed for String / Option non-UInt64 shapes. -/
+private unsafe def expectProductPlanFailClosed
+    (label : String) (sourceText : String) (moduleName : String)
+    (messageNeedles : Array String) : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  match ← session.selectProgramV1 sourceText s!"<noir-acir-ir5-{label}>" moduleName none with
+  | .error e =>
+      expect (e.render.length > 0) s!"{label}: empty select diagnostic"
+  | .ok source =>
+    match Compiler.compileValidatedSourceV1 source with
+    | .error e =>
+        expect (e.render.length > 0) s!"{label}: empty compile diagnostic"
+    | .ok compiled =>
+      match resolveBuildSelectionV1 TargetId.noir none with
+      | .error e =>
+          expect (e.render.length > 0) s!"{label}: empty select diagnostic"
+      | .ok selection =>
+        match Targets.resolveEngineeringRequirementsV1 selection compiled with
+        | .error e =>
+            expect (e.render.length > 0) s!"{label}: empty resolve diagnostic"
+        | .ok cap =>
+          match Targets.materializeResult cap with
+          | .error e =>
+              let msg := e.render
+              let hit := messageNeedles.any (fun n => msg.contains n)
+              expect hit
+                s!"{label}: FC message must cite one of {messageNeedles}, got {msg}"
+          | .ok _ =>
+              throw <| IO.userError
+                s!"{label}: Noir ACIR honesty requires plan-FC (must not materialize)"
+
+/-- IR-5: String state + Option String + Option Bool product plan-FC pins. -/
+unsafe def testHonestyOptionStringProductFailClosed : IO Unit := do
+  expectProductPlanFailClosed "string-state"
+    stringStateFcSourceTextV1 "Examples.StringStateFc"
+    #["String", "unsupported", "state", "UInt", "scalar", "aggregate"]
+  expectProductPlanFailClosed "option-string-state"
+    optionStringStateFcSourceTextV1 "Examples.OptionStringStateFc"
+    #["Option", "UInt64", "payload", "unsupported", "state", "String"]
+  expectProductPlanFailClosed "option-bool-state"
+    optionBoolStateFcSourceTextV1 "Examples.OptionBoolStateFc"
+    #["Option", "UInt64", "payload", "unsupported", "state"]
+  IO.println "  IR-5 String/Option non-UInt64 plan-FC: ok"
+
+/-- IR-5: call/schedule materialize is admitted as witness-binding (P), not Y.
+    Pins package stems + honesty notes; does **not** claim platform call ACIR Y. -/
+unsafe def testHonestyCallSchedulePartialNotY : IO Unit := do
+  expect (callSchedulePackageStemsV1 == #["r0-init", "r1-bump", "r2-later", "r3-get"])
+    s!"ExtFlow honesty package stems, got {callSchedulePackageStemsV1}"
+  expect (honestyCallScheduleNoteV1.contains "witness-binding")
+    "call/schedule note must say witness-binding"
+  expect (honestyCallScheduleNoteV1.contains "does not attest" ||
+      honestyCallScheduleNoteV1.contains "does not attest that")
+    "call/schedule note must deny on-chain attestation"
+  let tmp := FilePath.mk "build/v2/noir-acir-ir5-call-schedule"
+  if ← tmp.pathExists then IO.FS.removeDirAll tmp
+  IO.FS.createDirAll tmp
+  let packages ← materializeProgramPackages
+    "ExtFlowHonesty" callScheduleHonestySourceTextV1
+    "Examples.ExtFlowHonesty" tmp
+  let stems := packages.map (·.1)
+  expect (stems == callSchedulePackageStemsV1)
+    s!"call/schedule honesty stems got {stems} want {callSchedulePackageStemsV1}"
+  -- Packages emit transitional source (P path admitted) but matrix stays P.
+  for p in packages do
+    expect (← (p.2 / "Nargo.toml").pathExists)
+      s!"call/schedule {p.1}: missing Nargo.toml"
+    expect (← (p.2 / "src" / "main.nr").pathExists)
+      s!"call/schedule {p.1}: missing main.nr"
+  -- Source must still mention call/schedule at Plan emit (slots exist).
+  let bumpNr ← IO.FS.readFile (packages[1]!.2 / "src" / "main.nr")
+  -- Relation model binds call status/args as public inputs; exact spelling
+  -- may be call_* slots rather than Noir `call` keyword in emitted .nr.
+  expect (bumpNr.contains "call" || bumpNr.contains "fn main")
+    "bump relation package must emit main (call slots path admitted as P)"
+  let laterNr ← IO.FS.readFile (packages[2]!.2 / "src" / "main.nr")
+  expect (laterNr.contains "fn main")
+    "later relation package must emit main (schedule slots path admitted as P)"
+  -- Re-assert matrix: this success is P, not Y.
+  let callRow := honestyMatrixRowsV1.find? (·.family == "call/schedule slots")
+  match callRow with
+  | none => throw <| IO.userError "missing call/schedule matrix row"
+  | some row =>
+      expect (row.acirStatus == .P)
+        "materialize success must not upgrade call/schedule to ACIR Y"
+  IO.println "  IR-5 call/schedule P (witness-binding, not Y): ok"
+
+/-- IR-5: prove/VK product path remains F — Finalize non-deployable + evidence. -/
+unsafe def testHonestyProveFailClosedNotes : IO Unit := do
+  expect (finalizeEvidenceNoteV1 ==
+      "no approved and digest-pinned Noir compiler/proving backend is configured; " ++
+      "relation source/schema were emitted without ACIR, witness execution, proof, " ++
+      "or verification")
+    "Finalize evidence note must match FinalizeV1 exact text"
+  -- Zero-tool finalize draft shape: deployable=false, empty extras, exact note.
+  -- We pin the note constant and matrix F status; product finalize is exercised
+  -- by EngineeringFinalizationV1 (noir emit non-deployable).
+  expect (honestyProveNoteV1.contains "deployable=false")
+    "prove honesty note"
+  expect (honestyProveNoteV1.contains "G6")
+    "prove honesty defers to G6"
+  let proveRow := honestyMatrixRowsV1.find? (·.family == "prove/VK")
+  match proveRow with
+  | none => throw <| IO.userError "missing prove/VK matrix row"
+  | some row =>
+      expect (row.acirStatus == .F) "prove/VK ACIR F"
+      expect (row.noirPathStatus == .F) "prove/VK Noir path F"
+  -- Authority note must not claim prove.
+  expect (!authorityNoteV1.contains "prove/verify complete")
+    "authority must not claim prove complete"
+  expect (!authorityNoteV1.contains "Barretenberg")
+    "authority must not invent Barretenberg backend"
+  -- Schema ids do not advertise prove surface.
+  expect (!(captureSchemaId.contains "prove"))
+    "capture schema must not claim prove"
+  expect (!(inventorySchemaId.contains "prove"))
+    "inventory schema must not claim prove"
+  -- Soft join: FinalizeV1 module remains the zero-tool non-deployable authority.
+  let _ := ProofForgeV2.Targets.Noir.FinalizeV1.finalize
+  IO.println "  IR-5 prove/VK F + Finalize evidence: ok"
+
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.NoirAcirV1: start"
   testInventoryExactPins
@@ -460,6 +674,11 @@ unsafe def run : IO Unit := do
   -- IR-3 / G3
   testAdmitSurfacePackageStems
   testAdmitSurfaceLiveCaptureOptional
+  -- IR-5 / G5 honesty matrix
+  testHonestyMatrixStatusColumn
+  testHonestyOptionStringProductFailClosed
+  testHonestyCallSchedulePartialNotY
+  testHonestyProveFailClosedNotes
   IO.println "Tests.Materialization.NoirAcirV1: ok"
 
 end Tests.Materialization.NoirAcirV1

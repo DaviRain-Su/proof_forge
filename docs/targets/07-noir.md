@@ -25,6 +25,9 @@ source-join ≡ golden product packages，且 nargo 在场时 circuit core ≡ g
 **NOIR-IR-3 / G3**：admit-surface circuit-hash pins（BranchCounter if、LoopSum for、
 OptionState、ArrayRet 全捕获；MapMini init pin + put/get nargo-fail honesty；
 nargo 缺席 live capture honest skip）。
+**NOIR-IR-5 / G5 轻量**：§3.2 诚实矩阵状态列（Y/P/F）+ call/schedule **P**
+（witness-binding only，禁止 ACIR Y）+ String/Option non-UInt64 **F**（plan-FC）
++ prove/VK **F**（Finalize `deployable=false`）；无假 Y。
 当前产品仍 emit relation **Noir source packages**（过渡）+ 可选 locked nargo
 compile-only；**无** ACIR 产品 OutputFile（IR-6）；不得把 `.nr` 写成最终权威。
 

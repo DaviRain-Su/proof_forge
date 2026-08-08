@@ -871,9 +871,9 @@
       "sha256": "a1d01a607b5517eed118610cb88810a653a6ddabffe0cc9d1b99f7bfe4d543ff"
     },
     {
-      "bytes": 20220,
+      "bytes": 28447,
       "path": "ProofForgeV2/Targets/Noir/Acir/CaptureV1.lean",
-      "sha256": "93483ee0370be9ac05cc71bcf72169b6c2647faa30581ac0dea94b36198251d9"
+      "sha256": "4d282d31722c6e220e330a9cc408fadee8f72cff31ad19537d885a0a5ccf45e9"
     },
     {
       "bytes": 6575,

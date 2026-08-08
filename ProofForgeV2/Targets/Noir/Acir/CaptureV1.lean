@@ -1,5 +1,5 @@
 /-
-  Noir Plan → ACIR capture (NOIR-IR-2 + NOIR-IR-3 / G3).
+  Noir Plan → ACIR capture (NOIR-IR-2 + NOIR-IR-3 / G3 + NOIR-IR-5 honesty).
 
   ## Path decision (IR-2, frozen)
 
@@ -20,6 +20,7 @@
                               ▼
                ≡ testdata/golden/noir-acir-v1/ (IR-1 inventory, Counter)
                  + G3 admit-surface circuit-hash pins (IR-3)
+                 + IR-5 honesty matrix (no false Y)
   ```
 
   Transitivity pin (always available without nargo):
@@ -48,6 +49,18 @@
   (Counter inventory/source-join and fixture materialize package-stem pins
   still run). Does **not** expand full multi-file golden inventory for every
   fixture (that is IR-4); G3 pins are circuit-hash (+ package stem) only.
+
+  ## IR-5 / G5 honesty matrix
+
+  §3.2 status column (Y / P / F) is pinned here + product FC boundaries:
+
+  * call/schedule slots = **P** (witness-binding relation only; circuit does
+    **not** execute external call; proof does **not** attest on-chain call)
+  * String state / Option non-UInt64 = **F** (plan-FC)
+  * prove/VK = **F** until G6 (Finalize `deployable=false`; no product prove)
+
+  No false Y: every Y row has IR-1/IR-2/IR-3 capture evidence; F/P rows have
+  plan-FC or honesty notes (not silent pass).
 
   Honesty:
   * `deployable=false`; no prove/verify/VK/witness product claim.
@@ -80,6 +93,8 @@ def authorityNoteV1 : String :=
   "via locked nargo 1.0.0-beta.26; pure-Lean ACIR opcode encoder is not " ++
   "implemented; .nr remains transitional product emission until IR-6; " ++
   "G3 admit-surface CF/aggregate circuit-hash pins share this path; " ++
+  "IR-5 honesty matrix pins call/schedule P (witness-binding only), " ++
+  "String/Option non-UInt64 F (plan-FC), prove/VK F (no product prove); " ++
   "missing nargo → honest skip of live capture only"
 
 /-- Path-independent circuit core of a nargo ProgramArtifact.
@@ -496,5 +511,200 @@ def nargoCompileExitCodeV1 (nargo : String) (packageDir : FilePath) : IO UInt32 
     cwd := some packageDir
   }
   pure process.exitCode
+
+/-! ### NOIR-IR-5 / G5 honesty matrix
+
+  Pins docs/targets/07-noir-acir-lowering.md §3.2 status column. Legend:
+
+  * `Y` — true admit: ACIR capture or equivalent IR-1/IR-2/IR-3 pin
+  * `P` — PARTIAL: Plan/slot admit without full platform/proof claim
+  * `F` — fail closed or not claimed (plan-FC / no product path)
+
+  **No false Y:** every Y row cites capture evidence; F/P rows cite plan-FC
+  or honesty notes. call/schedule must never be written as ACIR Y.
+-/
+
+/-- Honesty matrix cell status (plan §3.2). -/
+inductive HonestyStatusV1 where
+  | Y
+  | P
+  | F
+  deriving Repr, BEq, Inhabited
+
+def HonestyStatusV1.toString : HonestyStatusV1 → String
+  | .Y => "Y"
+  | .P => "P"
+  | .F => "F"
+
+/-- One §3.2 matrix row: existing Noir Plan path vs ACIR claim + evidence. -/
+structure HonestyMatrixRowV1 where
+  family : String
+  /-- Existing Noir Plan / `.nr` path status. -/
+  noirPathStatus : HonestyStatusV1
+  /-- ACIR / nargo-assisted capture claim (must not overclaim vs Plan). -/
+  acirStatus : HonestyStatusV1
+  /-- Evidence label (test / pin / plan-FC / honesty note). -/
+  evidence : String
+  deriving Repr, BEq, Inhabited
+
+/-- Frozen §3.2 honesty matrix (IR-5). Order matches plan table. -/
+def honestyMatrixRowsV1 : Array HonestyMatrixRowV1 :=
+  #[
+    { family := "UInt*/Field bn254 arithmetic"
+      noirPathStatus := .Y
+      acirStatus := .Y
+      evidence := "Counter IR-1 inventory + IR-2 Plan→ACIR capture" },
+    { family := "Bool / compare / logical"
+      noirPathStatus := .Y
+      acirStatus := .Y
+      evidence := "Counter / BranchCounter compare path; G3 if capture" },
+    { family := "Array/Map/Bytes flatten"
+      noirPathStatus := .P
+      acirStatus := .P
+      evidence :=
+        "ArrayRet Y capture; MapMini init Y + put/get nargo-fail residual; " ++
+        "Bytes remains Plan surface only" },
+    { family := "if/match/for"
+      noirPathStatus := .Y
+      acirStatus := .Y
+      evidence :=
+        "BranchCounter if; LoopSum for; OptionState match G3 pins" },
+    { family := "pureFn"
+      noirPathStatus := .Y
+      acirStatus := .Y
+      evidence := "Counter relation pure path / product regression (no extra G3 fixture)" },
+    { family := "call/schedule slots"
+      noirPathStatus := .P
+      acirStatus := .P
+      evidence :=
+        "witness-binding status/arg slots only (B-CALL-SEM); circuit does not " ++
+        "execute external call; proof does not attest on-chain call; " ++
+        "result-bearing call remains FC" },
+    { family := "Option UInt64 state"
+      noirPathStatus := .Y
+      acirStatus := .Y
+      evidence := "OptionState G3 full capture pins" },
+    { family := "String state / Option non-UInt64"
+      noirPathStatus := .F
+      acirStatus := .F
+      evidence := "plan-FC (String state / Option String / Option Bool / nested Option)" },
+    { family := "prove/VK"
+      noirPathStatus := .F
+      acirStatus := .F
+      evidence :=
+        "until G6; Finalize deployable=false; no product prove/verify/VK path" }
+  ]
+
+/-- ExtFlow product package stems (call + schedule witness-binding; status P). -/
+def callSchedulePackageStemsV1 : Array String :=
+  #["r0-init", "r1-bump", "r2-later", "r3-get"]
+
+/-- ExtFlow source: emit + call + schedule (Plan admits slots; ACIR claim stays P). -/
+def callScheduleHonestySourceTextV1 : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program ExtFlowHonesty where\n" ++
+  "  state count : UInt64\n\n" ++
+  "  event Ping(x : UInt64)\n\n" ++
+  "  init(initial : UInt64) do\n" ++
+  "    count := initial\n\n" ++
+  "  entry bump(delta : UInt64) : UInt64 do\n" ++
+  "    emit Ping(count)\n" ++
+  "    call Oracle.feed(count)\n" ++
+  "    count := count + delta\n" ++
+  "    return count\n\n" ++
+  "  entry later(delta : UInt64) : UInt64 do\n" ++
+  "    schedule ledger.daily(count)\n" ++
+  "    schedule ledger.weekly(delta)\n" ++
+  "    return count\n\n" ++
+  "  view get() : UInt64 do\n" ++
+  "    return count\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+/-- Product-path plan-FC: String state. -/
+def stringStateFcSourceTextV1 : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program StringStateFc where\n" ++
+  "  state label : String\n\n" ++
+  "  init() do\n" ++
+  "    label := \"x\"\n\n" ++
+  "  view peek() : UInt64 do\n" ++
+  "    return 0\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+/-- Product-path plan-FC: Option String state (non-UInt64 Option payload). -/
+def optionStringStateFcSourceTextV1 : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program OptionStringStateFc where\n" ++
+  "  state maybe : Option String\n\n" ++
+  "  init() do\n" ++
+  "    maybe := Option.none()\n\n" ++
+  "  view peek() : UInt64 do\n" ++
+  "    return 0\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+/-- Product-path plan-FC: Option Bool state (non-UInt64 Option payload). -/
+def optionBoolStateFcSourceTextV1 : String :=
+  "import ProofForgeV2\n\n" ++
+  "namespace ProofForgeV2.Examples\n\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program OptionBoolStateFc where\n" ++
+  "  state flag : Option Bool\n\n" ++
+  "  init() do\n" ++
+  "    flag := Option.none()\n\n" ++
+  "  view peek() : UInt64 do\n" ++
+  "    return 0\n\n" ++
+  "end ProofForgeV2.Examples\n"
+
+/-- call/schedule honesty note (docs/tests join; must not claim platform call Y). -/
+def honestyCallScheduleNoteV1 : String :=
+  "Noir call/schedule is witness-binding only (status/arg public-input slots); " ++
+  "the circuit executes no external call and the proof does not attest that any " ++
+  "on-chain call happened; ACIR status is P not Y (B-CALL-SEM); " ++
+  "result-bearing call stays fail closed pending response-witness contract"
+
+/-- String / Option non-UInt64 honesty note (plan-FC). -/
+def honestyOptionStringNoteV1 : String :=
+  "String state and Option non-UInt64 (including Option String) stay plan-FC on " ++
+  "Noir; ACIR status F; only Option UInt64 state is G3-capture Y"
+
+/-- prove/VK honesty note (no product prove until G6). -/
+def honestyProveNoteV1 : String :=
+  "no product prove/verify/VK path; Finalize deployable=false; evidence notes " ++
+  "deny ACIR/witness/proof/verification; prove/VK matrix row remains F until G6"
+
+/-- Exact Finalize evidence note text (join with FinalizeV1). -/
+def finalizeEvidenceNoteV1 : String :=
+  "no approved and digest-pinned Noir compiler/proving backend is configured; " ++
+  "relation source/schema were emitted without ACIR, witness execution, proof, " ++
+  "or verification"
+
+/-- True when a status is a true Y admit (used to guard false-Y). -/
+def isHonestyYV1 (s : HonestyStatusV1) : Bool :=
+  match s with | .Y => true | _ => false
+
+/-- Families whose ACIR status is Y (must have capture evidence). -/
+def honestyAcirYFamiliesV1 : Array String :=
+  honestyMatrixRowsV1.filterMap fun row =>
+    if isHonestyYV1 row.acirStatus then some row.family else none
+
+/-- Families whose ACIR status is F (must have plan-FC / no-product evidence). -/
+def honestyAcirFFamiliesV1 : Array String :=
+  honestyMatrixRowsV1.filterMap fun row =>
+    match row.acirStatus with
+    | .F => some row.family
+    | _ => none
+
+/-- Families whose ACIR status is P (partial honesty). -/
+def honestyAcirPFamiliesV1 : Array String :=
+  honestyMatrixRowsV1.filterMap fun row =>
+    match row.acirStatus with
+    | .P => some row.family
+    | _ => none
 
 end ProofForgeV2.Targets.Noir.Acir.CaptureV1

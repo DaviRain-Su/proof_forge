@@ -1,4 +1,4 @@
-# noir-acir-v1 golden (NOIR-IR-1 + IR-2 + IR-3/G3)
+# noir-acir-v1 golden (NOIR-IR-1 + IR-2 + IR-3/G3 + IR-5 honesty)
 
 Frozen **Examples/Counter** product Noir relation packages plus locked
 **nargo 1.0.0-beta.26** `nargo compile` ProgramArtifact JSON.
@@ -19,6 +19,11 @@ Frozen **Examples/Counter** product Noir relation packages plus locked
   MapMini init capture + put/get **nargo type residual** (Plan emits packages;
   locked nargo compile fails — honesty pin, not silent pass). Live capture
   honest-skips when nargo is missing; package-stem pins always run.
+- **IR-5 / G5 honesty matrix:** §3.2 status column in
+  `CaptureV1.honestyMatrixRowsV1` + `NoirAcirV1` FC pins —
+  call/schedule **P** (witness-binding only, never ACIR Y),
+  String state / Option non-UInt64 **F** (plan-FC),
+  prove/VK **F** (Finalize `deployable=false`; no product prove). No false Y.
 - **Not claimed:** ACIR opcode decode, product ACIR OutputFile (IR-6),
   prove/verify, deployable, formal.
 
