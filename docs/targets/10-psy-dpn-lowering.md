@@ -9,7 +9,7 @@ normative: false
 
 # Psy DPN 层落地规划
 
-状态：`draft`（规划输入；DPN-1..7 engineering 已落地 dual-write；**G5-WIDE** mul/div/shift + **G5-AGG** Array/Principal/Bytes/Struct multi-leaf DPN 已闭合；G5 residual 仍含 hard-require DPN、`.psy` deletion-gate、optional dargo package 字节金样）
+状态：`draft`（规划输入；DPN-1..7 engineering 已落地 dual-write；**G5-WIDE** mul/div/shift + **G5-AGG** Array/Principal/Bytes/Struct multi-leaf + **G5-MATRIX** §3.2 admit 扫描/FC pins 已闭合；G5 residual 仍含 hard-require DPN、`.psy` deletion-gate、optional dargo package 字节金样与 residual Plan 族 DPN lower（narrow/Int/pureFn/shl））
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Psy target 的权威物化从 **文本 `.psy`** 切到 **官方 DPN 方法级定义**，并评估 **ProgramV1 语法/语义能覆盖到 DPN target 的范围**。
 
 权威上游（pin）：
@@ -134,39 +134,49 @@ Pin rev 与 dargo 0.1.0 不一致时 **fail closed**（文档 + Tool Lock 同步
 ### 3.2 覆盖矩阵（ProgramV1 族 → DPN）
 
 图例：`Y` = 目标必须 Y；`P` = PARTIAL / 有界；`F` = 证据化 FC；`N` = 非 Psy 产品面。
+**DPN 现状**（G5-MATRIX 2026-08-08 扫描）：`done` = 有 DPN lower + 自动化钉测；`residual` = Plan 仍 admit、DPN 稳定 FC、产品 dual-write 仅 `.psy`；`plan-FC` = Plan/resolver 已 FC（达不到 DPN）；`partial` = PARTIAL 诚实编码。
 
-| ProgramV1 / Semantic 族 | 现 .psy 路径 | DPN 目标 | 备注 |
-|---|---|---|---|
-| UInt64 算术 + overflow assert | Y | **Y** | Counter 金样 |
-| Bool / 比较 / 逻辑 | Y | **Y** | |
-| UInt8/16/32 守卫算术 | Y | **Y** | Felt + range assert 或 U32 子图 |
-| Int64 / 窄 Int | Y/P | **Y/P** | 与现 emitter 一致 |
-| UInt128/256（显式 VM profile） | Y | **Y** | 多 leaf + schoolbook/restoring 展开为 defs |
-| Field bn254 | F | **F** | Psy Felt≠bn254 |
-| Principal / String / Bytes 叶 | Y/P | **Y/P** | wire identity 多 leaf |
-| named Struct/Enum flatten | Y | **Y** | leaf 序固定 |
-| Array UInt64 / Option UInt64 | Y | **Y** | |
-| Map UInt64 UInt64 cap-8 | Plan Y；dargo 破 | **Y**（DPN-5） | Select/upsert storeAggregate；绕过 return-in-if |
-| 嵌套 Map / Map return | F | **F** | |
-| let / assign / return | Y | **Y** | SSA defs |
-| if / match | Y | **Y** | Select / 分支状态 cmd condition |
-| bounded for UInt64 | 静态 unroll Y | **Y** | 展开或固定步；**无** while |
-| while / 无限循环 | N | **F** | ProgramV1 无 while |
-| pureFn / localCall | Y | **Y** | 内联或 pure 子图 |
-| const / Op.Constant | Y | **Y** | Constant op |
-| bare assert / zero-arg revert | Y | **Y** | assertions[] |
-| payload error | F | **F** | |
-| emit | PARTIAL | **P** | events[] 若可证；否则保持 PARTIAL 文档 |
-| void call | PARTIAL | **P** | InvokeSync 仅证据充分后 |
-| result-bearing call | F | **F** | |
-| schedule | F | **F** | |
-| ContextRead / Commit | F | **F** | 无官方 public-input 锚点前 |
-| nonempty invariant Plan | F | **F** | |
-| pf.assets | F | **F** | 零绑定 |
-| 元组 / 闭包 / trait / mod | N | **N/F** | 非 ProgramV1 作者面 |
+| ProgramV1 / Semantic 族 | 现 .psy 路径 | DPN 目标 | DPN 现状 | 证据（测试 / 路径） |
+|---|---|---|---|---|
+| UInt64 算术 + overflow assert | Y | **Y** | **done** | Counter 金样 add；`testCheckedSubMulDivModLower` sub/mul/div/mod |
+| Bool / 比较 / 逻辑 | Y | **Y** | **done** | `testBoolCompareLogicalLower`；Map/if 路径复用 |
+| UInt8/16/32 守卫算术 | Y | **Y** | **residual** | `testNarrowCheckedAddFailClosedAtDpn` + `testUInt8ProductResidualPsyOnly`（仅 `.psy`） |
+| Int64 / 窄 Int | Y/P | **Y/P** | **residual** | `testSignedCompareFailClosedAtDpn`；窄 Int Plan 见 PsySource |
+| UInt128/256（显式 VM profile） | Y | **Y** | **done** | G5-WIDE + WideCounter VM product；default profile Plan FC |
+| Field bn254 | F | **F** | **plan-FC** | `PsySourceV1.testFieldBn254FailClosed` |
+| Principal / String / Bytes 叶 | Y/P | **Y/P** | **done**（state 叶）/ **plan-FC**（return） | G5-AGG Principal/Bytes product；String 同 wire 9 叶；return 9>cap FC |
+| named Struct/Enum flatten | Y | **Y** | **done** | `testStructPairProductLower` / dual-leaf hand-built |
+| Array UInt64 / Option UInt64 | Y | **Y** | **done** | G5-AGG Array + DPN-4 OptionState product |
+| Map UInt64 UInt64 cap-8 | Plan Y；dargo 破 | **Y** | **done** | DPN-5 MapMini/Token product |
+| 嵌套 Map / Map return | F | **F** | **plan-FC** | `testNestedMapStateFailClosed`；PsySource nested/return |
+| let / assign / return | Y | **Y** | **done** | Counter / 通用 store+returnValue |
+| if / match | Y | **Y** | **done** | DPN-3 if/switch + LoopSum |
+| bounded for UInt64 | 静态 unroll Y | **Y** | **done** | DPN-3 unroll + over-budget FC |
+| while / 无限循环 | N | **F** | **plan-FC** / budget FC | ProgramV1 无 while；`testBoundedForOverBudgetFailClosed` |
+| pureFn / localCall | Y | **Y** | **residual** | `testCallFnFailClosedAtDpn`（`.psy` 仍 emit pureHelper） |
+| const / Op.Constant | Y | **Y** | **done** | `testConstProductLower` → DPN Constant |
+| bare assert / zero-arg revert | Y | **Y** | **done** | `testBareAssertAndRevertLower`（含 zero-arg revertError） |
+| payload error | F | **F** | **done**（DPN FC） | `testPayloadRevertErrorFailClosedAtDpn`；Plan PSY-TYPED-ERROR |
+| emit | PARTIAL | **P** | **partial** | DPN-6 events[] product |
+| void call | PARTIAL | **P** | **partial** | DPN-6 InvokeExternal product |
+| result-bearing call | F | **F** | **plan-FC** | `PsySourceV1.testResultBearingCallFailClosed` |
+| schedule | F | **F** | **done**（DPN FC） | `testScheduleFailClosedAtDpn` |
+| ContextRead / Commit | F | **F** | **plan-FC** | PsySource context/commit FC |
+| nonempty invariant Plan | F | **F** | **plan-FC** | PsySource nonempty invariant FC |
+| pf.assets | F | **F** | **plan-FC** | `PsyPfAssetsV1` 零绑定 |
+| 元组 / 闭包 / trait / mod | N | **N/F** | **N** | 非 ProgramV1 作者面 |
 
-**结论（规划层）：**
-在 **Psy 已开放的 ProgramV1 子集** 上，DPN **可以目标 “全覆盖”**（上表 `Y`/`P` 列）。
+#### 3.2.1 G5-MATRIX 覆盖表（扫描结论）
+
+| 桶 | 行数 | 说明 |
+|---|---|---|
+| **done / partial** | 多数 Y + 两 P | 有 DPN lower 或诚实 PARTIAL + `PsyDpnV1` 钉测 |
+| **residual** | narrow UInt、Int signed、pureFn、UInt64 shl/shr、checkedBitNot | Plan admit + DPN `PSY-DPN-G5-MATRIX` 稳定 FC + dual-write 仅 `.psy` |
+| **plan-FC** | bn254 Field、nested Map、result-bearing call、Context/Commit、invariant、assets… | 产品 Plan 前拒绝；不发明 DPN |
+| **open residual work** | hard-require DPN、`.psy` deletion-gate、residual 族真正 DPN lower、dargo 字节金样 | 不阻塞 G5-MATRIX 扫描闭合 |
+
+**结论（规划层 + G5-MATRIX 事实）：**
+在 **Psy 已开放且 DPN 已 lower 的子集** 上，物化可走 `.dpn.json`；**residual** 族保持证据化 FC（禁止假 Y）；**plan-FC** 族不经 DPN 旁路。
 扩展到 **全部 DPN op** 或 **全部 PSL 语法** **不是** 本规划完成条件。
 
 ---
@@ -200,7 +210,7 @@ ProofForgeV2/Targets/Psy/
 | G2 | Accumulator / OptionState / LoopSum | **partial（DPN-3/4）** | Plan→DPN 结构门（LoopSum/OptionState）；**非** runtime 差分同 oracle |
 | G3 | WideCounter VM | **done（DPN-4 + G5-WIDE）** | multi-leaf + UInt128 add + schoolbook mul + restoring div/mod + limb shift DPN |
 | G4 | Map / 聚合 | **done（DPN-5）** | MapMini+Token Plan→DPN；.psy 破点绕过 |
-| G5 | 全 admit 面扫描 | **partial（G5-WIDE + G5-AGG done）** | mul/div/shift + Array/Principal/Bytes/Struct multi-leaf 已 DPN 结构/产品门；hard-require DPN / deletion-gate / dargo 全量 package 字节相等仍 open |
+| G5 | 全 admit 面扫描 | **done scan（G5-WIDE + G5-AGG + G5-MATRIX）** | §3.2 每行有 DPN 钉测或 residual/Plan FC 钉测；residual 族（narrow/Int/pureFn/shl）诚实未 Y；hard-require DPN / deletion-gate / dargo 字节金样仍 open |
 | G6 | Execute 消费 DPN | **open** | 不经 `.psy` 文本：`psy_vm` 或 dargo 可接受路径 |
 
 G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛；G6 为 **去文本依赖**。
@@ -315,9 +325,10 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 
 ### 9.2 Admit 面全覆盖（DPN-5 + 矩阵 G5）
 
-- §3.2 中所有 **Y** 行有 DPN lowering + 测试。
-- 所有 **P/F** 行有稳定诊断或 PARTIAL 文档。
+- §3.2 中所有 **目标 Y** 行：要么 DPN lowering + 测试（**done**），要么 **residual** 稳定 `PSY-DPN-G5-MATRIX` FC + dual-write 仅 `.psy`（禁止假 Y）。
+- 所有 **P/F** 行有稳定诊断或 PARTIAL 文档（`PsyDpnV1` 与/或 `PsySourceV1`）。
 - Map 等不再依赖破损 `.psy` 路径。
+- **G5-MATRIX（2026-08-08）** 已闭合扫描：覆盖表见 §3.2 / §3.2.1。
 
 ### 9.3 非完成条件
 
@@ -327,9 +338,9 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 
 ---
 
-## 10. 下一步（DPN-1..7 + G5-WIDE + G5-AGG 已闭合后）
+## 10. 下一步（DPN-1..7 + G5-WIDE + G5-AGG + G5-MATRIX 已闭合后）
 
-1. **G5 residual**：§3.2 每条 Y/P 有 DPN 或显式 FC 扫尾；optional hard-require DPN for all Psy Plan admits；WideCounter256 product package pin（可选）；dargo 全量 package 字节相等金样（可选）。
+1. **G5 residual implementation（可选 capability）**：把 residual 族真正 DPN lower（UInt8/16/32 守卫、Int64/窄 Int、pureFn inline/子图、UInt64 shl/shr、checkedBitNot）；optional hard-require DPN for all Psy Plan admits；WideCounter256 product package pin；dargo 全量 package 字节相等金样。
 2. **G6 / deletion-gate（可选）**：`.psy` 删除或 debug-only；`just psy-runtime` DPN-first（不经 product Finalize 改 claim）。
 3. **可选硬化**：method_id 官方 hash 复刻；Tool Lock 镜像 `psy-node` rev。
 

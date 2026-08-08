@@ -1,7 +1,8 @@
 /-
-  Tests.Materialization.PsyDpnV1 — PSY-DPN-1..7 + G5-WIDE + G5-AGG schema +
-  Counter golden + Plan lower + if/match/for + multi-leaf/wide mul/div/shift +
-  Map + Array/Principal/Bytes multi-leaf + effects honesty + product dual-write.
+  Tests.Materialization.PsyDpnV1 — PSY-DPN-1..7 + G5-WIDE + G5-AGG +
+  G5-MATRIX schema + Counter golden + Plan lower + if/match/for +
+  multi-leaf/wide mul/div/shift + Map + Array/Principal/Bytes multi-leaf +
+  effects honesty + product dual-write + §3.2 admit matrix pins.
 
   Pins:
     * OpType / DataType exact discriminants used by Counter (+ Select)
@@ -24,6 +25,9 @@
       schedule FC; ContextRead residual FC message
     * DPN-7: product `buildFromCapability` dual-writes Counter.dpn.json
       (package ≡ golden) + transitional Counter.psy; deployable=false note
+    * G5-MATRIX: Bool/compare/logic; bare assert/revert; UInt64 sub/mul/div/mod;
+      bitAnd; const→literal product; residual FC for callFn/narrow/Int/shl;
+      payload revertError FC; UInt8 product dual-write `.psy`-only residual
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Psy
@@ -1437,6 +1441,308 @@ unsafe def testVoidCallProductPartial : IO Unit := do
   expect hasInvoke
     "product void call must lower to InvokeExternalContractFunctionSync"
 
+/-! ## G5-MATRIX: §3.2 admit-row DPN pins and residual/F FC diagnostics -/
+
+/-- Bool compare + logicalAnd/Or/Not lower to DPN Bool ops. -/
+def testBoolCompareLogicalLower : IO Unit := do
+  let fn : PlanFunction := {
+    index := 0
+    name := "pred"
+    kind := .mutate
+    params := #[
+      { sourceIndex := 0, name := "a", isBool := false },
+      { sourceIndex := 1, name := "b", isBool := false }
+    ]
+    body := #[
+      .returnValue
+        (.logicalOr
+          (.logicalAnd
+            (.compare .lt (.param 0) (.param 1))
+            (.boolNot (.compare .eq (.param 0) (.literal 0))))
+          (.boolLiteral false))
+    ]
+    resultIsBool := true
+    resultIsUnit := false
+  }
+  let d ← liftResult (lowerFunctionForTestV1 fn false)
+  expect (d.definitions.any fun defn => defn.opType == .lt) "compare lt"
+  expect (d.definitions.any fun defn => defn.opType == .eq) "compare eq"
+  expect (d.definitions.any fun defn => defn.opType == .boolAnd) "logicalAnd"
+  expect (d.definitions.any fun defn => defn.opType == .boolOr) "logicalOr"
+  expect (d.definitions.any fun defn => defn.opType == .boolNot) "boolNot"
+  expect (d.circuitOutputs.size == 1) "bool result one output"
+
+/-- Bare assert + bareRevert → assertions[] messages. -/
+def testBareAssertAndRevertLower : IO Unit := do
+  -- Condition must be a Bool wire (compare); bool-typed params are still
+  -- InputTarget on the circuit surface, so assert gates via Select(bool,bool).
+  let assertFn : PlanFunction := {
+    index := 0
+    name := "check"
+    kind := .mutate
+    params := #[{ sourceIndex := 0, name := "x", isBool := false }]
+    body := #[
+      .assert (.compare .gt (.param 0) (.literal 0)),
+      .returnNone
+    ]
+    resultIsBool := false
+    resultIsUnit := true
+  }
+  let dA ← liftResult (lowerFunctionForTestV1 assertFn false)
+  expect (dA.assertions.any fun a => a.message == "assert")
+    "bare assert message"
+  let revFn : PlanFunction := {
+    index := 0
+    name := "abort"
+    kind := .mutate
+    params := #[]
+    body := #[.bareRevert, .returnNone]
+    resultIsBool := false
+    resultIsUnit := true
+  }
+  let dR ← liftResult (lowerFunctionForTestV1 revFn false)
+  expect (dR.assertions.any fun a => a.message == "revert")
+    "bareRevert message"
+  let namedFn : PlanFunction := {
+    index := 0
+    name := "named"
+    kind := .mutate
+    params := #[]
+    body := #[.revertError 0 #[], .returnNone]
+    resultIsBool := false
+    resultIsUnit := true
+  }
+  let dN ← liftResult (lowerFunctionForTestV1 namedFn false)
+  expect (dN.assertions.any fun a => a.message == "revert")
+    "zero-arg revertError → revert assertion"
+
+/-- UInt64 checkedSub/Mul/Div/Mod DPN (add covered by Counter golden). -/
+def testCheckedSubMulDivModLower : IO Unit := do
+  let mk (name : String) (body : Array Statement) : PlanFunction := {
+    index := 0
+    name
+    kind := .mutate
+    params := #[
+      { sourceIndex := 0, name := "a", isBool := false },
+      { sourceIndex := 1, name := "b", isBool := false }
+    ]
+    body
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  let dSub ← liftResult (lowerFunctionForTestV1
+    (mk "sub" #[.returnValue (.checkedSub (.param 0) (.param 1))]) false)
+  expect (dSub.assertions.any fun a => a.message == "u64 sub underflow")
+    "checkedSub underflow assert"
+  expect (dSub.definitions.any fun defn => defn.opType == .sub) "Sub op"
+  let dMul ← liftResult (lowerFunctionForTestV1
+    (mk "mul" #[.returnValue (.checkedMul (.param 0) (.param 1))]) false)
+  expect (dMul.assertions.any fun a => a.message == "u64 mul overflow")
+    "checkedMul overflow assert"
+  expect (dMul.definitions.any fun defn => defn.opType == .mul) "Mul op"
+  expect (dMul.definitions.any fun defn => defn.opType == .div)
+    "mul wrap check uses Div"
+  let dDiv ← liftResult (lowerFunctionForTestV1
+    (mk "div" #[.returnValue (.checkedDiv (.param 0) (.param 1))]) false)
+  expect (dDiv.assertions.any fun a => a.message == "u64 div by zero")
+    "checkedDiv zero assert"
+  expect (dDiv.definitions.any fun defn => defn.opType == .div) "Div op"
+  let dMod ← liftResult (lowerFunctionForTestV1
+    (mk "mod" #[.returnValue (.checkedMod (.param 0) (.param 1))]) false)
+  expect (dMod.assertions.any fun a => a.message == "u64 mod by zero")
+    "checkedMod zero assert"
+  expect (dMod.definitions.any fun defn => defn.opType == .mod_) "Mod op"
+
+/-- Limb bitAnd/Or/Xor → U32 op + CastFelt (G5-WIDE path reused for Plan bit*). -/
+def testBitAndOrXorLower : IO Unit := do
+  let fn : PlanFunction := {
+    index := 0
+    name := "bits"
+    kind := .mutate
+    params := #[
+      { sourceIndex := 0, name := "x", isBool := false, uintWidth := 32 },
+      { sourceIndex := 1, name := "y", isBool := false, uintWidth := 32 }
+    ]
+    body := #[
+      .returnValue
+        (.bitXor (.bitOr (.bitAnd (.param 0) (.param 1)) (.param 0)) (.param 1))
+    ]
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  let d ← liftResult (lowerFunctionForTestV1 fn false)
+  expect (d.definitions.any fun defn => defn.opType == .u32And) "bitAnd→U32And"
+  expect (d.definitions.any fun defn => defn.opType == .u32Or) "bitOr→U32Or"
+  expect (d.definitions.any fun defn => defn.opType == .u32Xor) "bitXor→U32Xor"
+  expect (d.definitions.any fun defn => defn.opType == .castFelt) "CastFelt"
+
+/-- Product const bare place → Op.Constant / Plan literal → DPN Constant. -/
+unsafe def testConstProductLower : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ConstDpn where\n" ++
+    "  const K : UInt64 := 7\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry getK() : UInt64 do\n" ++
+    "    return K\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-const>" "Tests.ConstDpn" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let pkg ← liftResult <| packageFromCapabilityV1 cap
+  let some getK := pkg.find? (·.name == "getK") |
+    throw <| IO.userError s!"missing getK in {pkg.map (·.name)}"
+  expect (getK.definitions.any fun defn =>
+      defn.opType == .constant && defn.inputs == #[7])
+    "const 7 must lower to DPN Constant(7)"
+
+/-- Residual pureFn/localCall callFn → stable G5-MATRIX FC. -/
+def testCallFnFailClosedAtDpn : IO Unit := do
+  let fn : PlanFunction := {
+    index := 0
+    name := "use"
+    kind := .mutate
+    params := #[{ sourceIndex := 0, name := "x", isBool := false }]
+    body := #[.returnValue (.callFn "double" #[.param 0])]
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  match lowerFunctionForTestV1 fn false with
+  | .error e =>
+      let msg := e.render
+      expect (msg.contains "PSY-DPN-G5-MATRIX" && msg.contains "callFn")
+        s!"callFn residual must cite G5-MATRIX, got: {msg}"
+  | .ok _ =>
+      throw <| IO.userError "callFn pureFn must fail closed at DPN (residual)"
+
+/-- Residual UInt8 narrow checked arith → G5-MATRIX FC. -/
+def testNarrowCheckedAddFailClosedAtDpn : IO Unit := do
+  let fn : PlanFunction := {
+    index := 0
+    name := "nadd"
+    kind := .mutate
+    params := #[
+      { sourceIndex := 0, name := "a", isBool := false, uintWidth := 8 },
+      { sourceIndex := 1, name := "b", isBool := false, uintWidth := 8 }
+    ]
+    body := #[.returnValue (.narrowCheckedAdd 8 (.param 0) (.param 1))]
+    resultIsBool := false
+    resultUintWidth := 8
+    resultIsUnit := false
+  }
+  match lowerFunctionForTestV1 fn false with
+  | .error e =>
+      let msg := e.render
+      expect (msg.contains "PSY-DPN-G5-MATRIX" &&
+          (msg.contains "narrow" || msg.contains "UInt8"))
+        s!"narrow residual must cite G5-MATRIX, got: {msg}"
+  | .ok _ =>
+      throw <| IO.userError "narrowCheckedAdd must FC at DPN until admitted"
+
+/-- Residual Int64 signed compare → G5-MATRIX FC. -/
+def testSignedCompareFailClosedAtDpn : IO Unit := do
+  let fn : PlanFunction := {
+    index := 0
+    name := "scmp"
+    kind := .mutate
+    params := #[
+      { sourceIndex := 0, name := "a", isBool := false },
+      { sourceIndex := 1, name := "b", isBool := false }
+    ]
+    body := #[.returnValue (.signedCompare .lt (.param 0) (.param 1))]
+    resultIsBool := true
+    resultIsUnit := false
+  }
+  match lowerFunctionForTestV1 fn false with
+  | .error e =>
+      let msg := e.render
+      expect (msg.contains "PSY-DPN-G5-MATRIX" &&
+          (msg.contains "Int64" || msg.contains "signed"))
+        s!"signed residual must cite G5-MATRIX, got: {msg}"
+  | .ok _ =>
+      throw <| IO.userError "signedCompare must FC at DPN (Int residual)"
+
+/-- Residual UInt64 shl → G5-MATRIX FC. -/
+def testShlFailClosedAtDpn : IO Unit := do
+  let fn : PlanFunction := {
+    index := 0
+    name := "shl"
+    kind := .mutate
+    params := #[
+      { sourceIndex := 0, name := "x", isBool := false },
+      { sourceIndex := 1, name := "c", isBool := false }
+    ]
+    body := #[.returnValue (.shl (.param 0) (.param 1))]
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  match lowerFunctionForTestV1 fn false with
+  | .error e =>
+      let msg := e.render
+      expect (msg.contains "PSY-DPN-G5-MATRIX" &&
+          (msg.contains "shl" || msg.contains "shift"))
+        s!"shl residual must cite G5-MATRIX, got: {msg}"
+  | .ok _ =>
+      throw <| IO.userError "UInt64 shl must FC at DPN (residual)"
+
+/-- Payload error (nonempty revertError args) → G5-MATRIX FC. -/
+def testPayloadRevertErrorFailClosedAtDpn : IO Unit := do
+  let fn : PlanFunction := {
+    index := 0
+    name := "bad"
+    kind := .mutate
+    params := #[{ sourceIndex := 0, name := "x", isBool := false }]
+    body := #[.revertError 0 #[.param 0], .returnNone]
+    resultIsBool := false
+    resultIsUnit := true
+  }
+  match lowerFunctionForTestV1 fn false with
+  | .error e =>
+      let msg := e.render
+      expect (msg.contains "PSY-DPN-G5-MATRIX" &&
+          (msg.contains "payload" || msg.contains "revertError"))
+        s!"payload error must cite G5-MATRIX, got: {msg}"
+  | .ok _ =>
+      throw <| IO.userError "payload revertError must fail closed at DPN"
+
+/-- Product UInt8 narrow residual: dual-write emits transitional `.psy` only
+    (no false DPN package claim while narrow lower is residual). -/
+unsafe def testUInt8ProductResidualPsyOnly : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program U8DpnRes where\n" ++
+    "  state count : UInt8\n" ++
+    "  init(seed : UInt8) do\n" ++
+    "    count := seed\n" ++
+    "  entry increment(delta : UInt8) : UInt8 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt8 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-u8res>" "Tests.U8DpnRes" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let files ← liftResult <| Targets.Psy.buildFromCapability cap
+  expect (files.size == 1)
+    s!"UInt8 residual must emit .psy only (no DPN claim), got {files.map (·.path)}"
+  expect (files[0]!.path.endsWith ".psy")
+    s!"sole residual artifact must be .psy, got {files[0]!.path}"
+  expect (!files.any (·.path.endsWith ".dpn.json"))
+    "must not publish .dpn.json for residual narrow Plan"
+
 /-- PSY-DPN-7: product materialize dual-writes DPN package JSON + transitional .psy.
     Counter package content must equal locked-dargo golden; .psy remains non-empty. -/
 unsafe def testCounterProductDualWriteArtifacts : IO Unit := do
@@ -1514,6 +1820,17 @@ unsafe def run : IO Unit := do
   testScheduleFailClosedAtDpn
   testEmitProductPartial
   testVoidCallProductPartial
+  testBoolCompareLogicalLower
+  testBareAssertAndRevertLower
+  testCheckedSubMulDivModLower
+  testBitAndOrXorLower
+  testConstProductLower
+  testCallFnFailClosedAtDpn
+  testNarrowCheckedAddFailClosedAtDpn
+  testSignedCompareFailClosedAtDpn
+  testShlFailClosedAtDpn
+  testPayloadRevertErrorFailClosedAtDpn
+  testUInt8ProductResidualPsyOnly
   testCounterProductDualWriteArtifacts
   IO.println "Tests.Materialization.PsyDpnV1: ok"
 

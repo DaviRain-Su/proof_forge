@@ -58,6 +58,14 @@
       (Plan already FC; DPN depth-defends schedule with stable diagnostic)
     * Not a runtime/Finalize/ordered-event/response gate; deployable=false
 
+  G5-MATRIX: §3.2 admit-row scan pins (honest DPN vs residual vs Plan FC)
+    * UInt64 checkedMul/Div/Mod + add/sub → DPN (mul inverse wrap check)
+    * zero-arg revertError → assertions[] "revert"; payload args FC
+    * residual Plan-admit shapes (narrow UInt, Int signed, callFn pureFn,
+      UInt64 shl/shr, checkedBitNot) → stable PSY-DPN-G5-MATRIX FC so
+      product dual-write keeps transitional `.psy` only (no silent DPN claim)
+    * Bool/compare/logic/bare assert covered by general builder + suite pins
+
   Method ids: Counter pins match dargo golden; other names use a stable
   engineering hash until an official golden is captured.
 -/
@@ -548,6 +556,69 @@ private def emitCheckedSub (b : BuilderV1) (l r : WireV1) :
   let (b3, diff) := pushTarget b2 .sub #[UInt64.ofNat li, UInt64.ofNat ri]
   pure (b3, diff)
 
+/-- UInt64 checked mul: `prod = l*r`; assert `l==0 || prod/l == r` (field-wrap
+    inverse check matching EmitIRV1; safe divisor when l==0). -/
+private def emitCheckedMul (b : BuilderV1) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let li ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, prod) := pushTarget b .mul #[UInt64.ofNat li, UInt64.ofNat ri]
+  let (b2, lIs0) :=
+    pushBool b1 .eq #[UInt64.ofNat li, UInt64.ofNat b1.zeroTarget]
+  let (b3, oneW) := emitLiteralU64 b2 1
+  let oi ← asTargetIndex oneW
+  -- safeL = select(l==0, 1, l) so div is never by zero
+  let (b4, safeL) ← emitSelect b3 lIs0 (.target oi) l
+  let si ← asTargetIndex safeL
+  let (b5, quot) :=
+    pushTarget b4 .div #[UInt64.ofNat prod.rawIndex, UInt64.ofNat si]
+  let (b6, check) :=
+    pushBool b5 .eq #[UInt64.ofNat quot.rawIndex, UInt64.ofNat ri]
+  let (b7, ok) ← emitBoolOr b6 lIs0 check
+  let b8 := {
+    b7 with
+      asserts := b7.asserts.push {
+        left := ok.encoded
+        right := encodeIndexedId .bool b7.trueBool
+        message := "u64 mul overflow"
+      }
+  }
+  pure (b8, prod)
+
+private def emitCheckedDiv (b : BuilderV1) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let li ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, nonzero) :=
+    pushBool b .gt #[UInt64.ofNat ri, UInt64.ofNat b.zeroTarget]
+  let b2 := {
+    b1 with
+      asserts := b1.asserts.push {
+        left := nonzero.encoded
+        right := encodeIndexedId .bool b1.trueBool
+        message := "u64 div by zero"
+      }
+  }
+  let (b3, q) := pushTarget b2 .div #[UInt64.ofNat li, UInt64.ofNat ri]
+  pure (b3, q)
+
+private def emitCheckedMod (b : BuilderV1) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let li ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, nonzero) :=
+    pushBool b .gt #[UInt64.ofNat ri, UInt64.ofNat b.zeroTarget]
+  let b2 := {
+    b1 with
+      asserts := b1.asserts.push {
+        left := nonzero.encoded
+        right := encodeIndexedId .bool b1.trueBool
+        message := "u64 mod by zero"
+      }
+  }
+  let (b3, m) := pushTarget b2 .mod_ #[UInt64.ofNat li, UInt64.ofNat ri]
+  pure (b3, m)
+
 /-- Target binary op accepting Target/U32 operands (encoded ids). -/
 private def emitTargetBin (b : BuilderV1) (op : OpTypeV1) (l r : WireV1) :
     BuilderV1 × WireV1 :=
@@ -664,6 +735,18 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
       let (b1, lw) ← lowerExprV1 b params viewPath l
       let (b2, rw) ← lowerExprV1 b1 params viewPath r
       emitCheckedSub b2 lw rw
+  | .checkedMul l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitCheckedMul b2 lw rw
+  | .checkedDiv l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitCheckedDiv b2 lw rw
+  | .checkedMod l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitCheckedMod b2 lw rw
   | .limbAdd l r => do
       let (b1, lw) ← lowerExprV1 b params viewPath l
       let (b2, rw) ← lowerExprV1 b1 params viewPath r
@@ -714,9 +797,35 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
   | .wideUintShiftLimb kind _bitWidth operationId limbIndex => do
       let w ← lookupWideShift b kind operationId limbIndex
       pure (b, w)
-  | other =>
-      planError s!"PSY-DPN-6: unsupported Expr shape {repr other} \
-(ContextRead/Commit/callFn stay fail closed until exact DPN evidence)"
+  | .callFn name _args =>
+      planError s!"PSY-DPN-G5-MATRIX: pureFn/localCall callFn '{name}' is residual \
+(.psy dual-write only until pure subgraph/inline DPN admit)"
+  | .narrowCheckedAdd w _ _ | .narrowCheckedSub w _ _ | .narrowCheckedMul w _ _
+  | .narrowCheckedDiv w _ _ | .narrowCheckedMod w _ _ =>
+      planError s!"PSY-DPN-G5-MATRIX: UInt{w} narrow checked arith residual \
+(.psy dual-write only; Felt+range assert not yet in DPN lower)"
+  | .narrowBitAnd w _ _ | .narrowBitOr w _ _ | .narrowBitXor w _ _
+  | .narrowShl w _ _ | .narrowShr w _ _ | .narrowBitNot w _ =>
+      planError s!"PSY-DPN-G5-MATRIX: UInt{w} narrow bitwise/shift residual \
+(.psy dual-write only)"
+  | .narrowSignedCheckedAdd w _ _ | .narrowSignedCheckedSub w _ _
+  | .narrowSignedCheckedMul w _ _ | .narrowSignedCheckedDiv w _ _
+  | .narrowSignedCheckedMod w _ _ | .narrowSignedCompare w _ _ _
+  | .narrowCheckedNeg w _ =>
+      planError s!"PSY-DPN-G5-MATRIX: Int{w} narrow signed residual \
+(.psy dual-write only; two's-complement DPN not yet admitted)"
+  | .checkedNeg _ | .signedCompare _ _ _ =>
+      planError "PSY-DPN-G5-MATRIX: Int64 signed residual \
+(.psy dual-write only; signed compare/neg DPN not yet admitted)"
+  | .checkedBitNot _ =>
+      planError "PSY-DPN-G5-MATRIX: UInt64 checkedBitNot residual \
+(.psy dual-write only)"
+  | .shl _ _ | .shr _ _ =>
+      planError "PSY-DPN-G5-MATRIX: UInt64 shl/shr residual \
+(.psy dual-write only; no Target-level shift op in admitted DPN whitelist)"
+  | .fieldLiteral _ | .fieldBinary _ _ _ | .fieldCompare _ _ _ | .fieldNeg _ =>
+      planError "PSY-DPN-G5-MATRIX: Goldilocks Field expr residual at DPN \
+(bn254 Field is Plan FC; native Felt field path not yet DPN-lowered)"
 
 /-! ## G5-WIDE: schoolbook mul / restoring div / limb shift (EmitIRV1 port) -/
 
@@ -1351,6 +1460,23 @@ unroll budget {maxUnrollBudgetV1} (no while/unbounded; PSY-LOOP)"
               }
           }
           lowerStmtsV1 b2 params writeCond viewPath rest
+      | .revertError _errorIndex args => do
+          -- PSY-TYPED-ERROR: zero-arg named revert → assert(false,"revert");
+          -- nonempty payload stays evidence-backed FC (no structured ABI).
+          unless args.isEmpty do
+            planError
+              "PSY-DPN-G5-MATRIX: payload error (nonempty revertError args) \
+is fail closed (PSY-TYPED-ERROR; no structured error payload ABI)"
+          let (b1, fW) := ensureFalse b
+          let b2 := {
+            b1 with
+              asserts := b1.asserts.push {
+                left := fW.encoded
+                right := encodeIndexedId .bool b1.trueBool
+                message := "revert"
+              }
+          }
+          lowerStmtsV1 b2 params writeCond viewPath rest
       | .emitEvent _eventIndex args => do
           -- DPN-6 PARTIAL: product admits source `__emit` → DPN events[].
           -- Event name is not in DPNEventRecord (official record has no name).
@@ -1390,8 +1516,6 @@ declined; PSY-CALL-EVENT FC)"
           let b1 ← emitBindWideUintShiftV1 b params viewPath writeCond
             kind bitWidth operationId value count
           lowerStmtsV1 b1 params writeCond viewPath rest
-      | other =>
-          planError s!"PSY-DPN-6: unsupported Statement shape {repr other}"
 
 /-- Encode return wires as circuit_outputs (target raw index; bool/u32 encoded). -/
 private def encodeOutputs (wires : Array WireV1) : Array UInt64 :=
