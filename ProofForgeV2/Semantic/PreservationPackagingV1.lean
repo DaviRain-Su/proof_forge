@@ -7,7 +7,8 @@ import ProofForgeV2.Semantic.ReferenceV1
 
   Extracted from the EvenCounter first instance so later programs can reuse
   failure-arm, returned-gate, post=pre, and UInt64 size packaging without
-  mentioning EvenCounter constants.
+  mentioning EvenCounter constants. Instance modules (e.g. EvenCounter) must
+  call these lemmas directly — no defeq-safe local aliases.
 
   Engineering only (track 1 business formalization packaging). Does not add a
   second State/Effect/step machine. Sole L1 step authority remains

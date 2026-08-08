@@ -167,23 +167,8 @@ theorem preservation_base_no_init (admitted : AdmittedReferenceSliceV1) :
 
 /-! ### Step packing (failure arms closed; returned deferred to micro-paths) -/
 
-/-- Revert/trap outcomes of the sole production step always reattach the exact
-    pre-state. The returned branch is left as `True` here so failure arms can
-    be shared by the full step theorem.
-    Thin instance wrapper over program-agnostic packaging. -/
-theorem preservation_step_failure_arms
-    (admitted : AdmittedReferenceSliceV1)
-    (pre : LogicalStateV1)
-    (invocation : InvocationV1)
-    (responses : ExternalResponsesV1)
-    (vault : ReferenceVaultSeedV1) :
-    match stepReferenceSliceV1 admitted pre invocation responses vault with
-    | .returned _ _ _ => True
-    | .reverted reason unchangedState =>
-        OutcomeRevertedUnchangedV1 pre reason unchangedState
-    | .trapped fault unchangedState =>
-        OutcomeTrappedUnchangedV1 pre fault unchangedState :=
-  preservationStepFailureArmsV1 admitted pre invocation responses vault
+-- Failure-arm packaging is sole-owned by
+-- `PreservationPackagingV1.preservationStepFailureArmsV1` (no instance alias).
 
 /-- Ordinal 0 is in range for the closed EvenCounter invariant table. -/
 theorem ordinal_in_range : (0 : InvariantOrdinalV1).toNat < program.invariants.size := by
@@ -371,7 +356,7 @@ theorem get_encode_post_eq_pre
     (by simp [data, countState]) hinit hdecode hcan hencode
 
 /-- Get-returned: if pre is even and finalize re-encodes the same overlay,
-    post remains even by `post = pre`. -/
+    post remains even by carrier-identity packaging (`post = pre`). -/
 theorem eval_even_after_get_returned
     (pre post : LogicalStateV1)
     (countBytes : ByteArray)
@@ -381,11 +366,10 @@ theorem eval_even_after_get_returned
     (heven : leBytesToNatV1 countBytes % 2 = 0)
     (hencode :
       encodeLogicalStateValuesV1 data true #[countBytes] = .ok post) :
-    evalInvariantV1 program 0 post = .returnedTrue := by
-  have hpost : post = pre :=
-    get_encode_post_eq_pre pre post countBytes hinit hdecode hcan hencode
-  rw [hpost]
-  exact eval_even_of_count_even pre countBytes hinit hdecode hcan heven
+    evalInvariantV1 program 0 post = .returnedTrue :=
+  preservationStepReturnedPostEqPreV1 program 0 pre post
+    (eval_even_of_count_even pre countBytes hinit hdecode hcan heven)
+    (get_encode_post_eq_pre pre post countBytes hinit hdecode hcan hencode)
 
 /-! ### Increment packaging (encode form; runMachine path still open)
 
@@ -496,36 +480,9 @@ theorem eval_even_after_increment_finalize
 theorem get_params_empty : getCallable.params = #[] := rfl
 theorem increment_params_empty : incrementCallable.params = #[] := rfl
 
-/-- Lifecycle / invalid gates never produce a successful return; a returned
-    outcome forces the ready arm of `gateInvocation`.
-    Thin instance wrapper over program-agnostic packaging. -/
-theorem step_returned_implies_gate_ready
-    (admitted : AdmittedReferenceSliceV1)
-    (pre : LogicalStateV1)
-    (invocation : InvocationV1)
-    (responses : ExternalResponsesV1)
-    (vault : ReferenceVaultSeedV1)
-    (post : LogicalStateV1)
-    (value : Option ReferenceValueV1)
-    (effects : Array OrderedEffectV1)
-    (hstep :
-      stepReferenceSliceV1 admitted pre invocation responses vault =
-        .returned post value effects) :
-    match gateInvocation admitted pre invocation with
-    | .ready _ _ _ _ => True
-    | .invalidInvocation => False
-    | .lifecycle _ => False :=
-  stepReturnedImpliesGateReadyV1 admitted pre invocation responses vault
-    post value effects hstep
-
-/-- Returned arm when finalize is carrier identity (`post = pre`).
-    Thin instance wrapper over program-agnostic packaging. -/
-theorem preservation_step_returned_post_eq_pre
-    (pre post : LogicalStateV1)
-    (heval : evalInvariantV1 program 0 pre = .returnedTrue)
-    (hpost : post = pre) :
-    evalInvariantV1 program 0 post = .returnedTrue :=
-  preservationStepReturnedPostEqPreV1 program 0 pre post heval hpost
+-- Returned-gate and post=pre packaging are sole-owned by
+-- `PreservationPackagingV1.stepReturnedImpliesGateReadyV1` and
+-- `preservationStepReturnedPostEqPreV1` (no instance aliases).
 
 /-- Returned arm when post is the non-overflowing +2 encode of an even pre overlay. -/
 theorem preservation_step_returned_increment_form
@@ -642,7 +599,7 @@ theorem preservation_step
     count_even_of_eval_true pre countBytes hinit hdecode' hcan heval
   have hsize := countBytes_size_of_can countBytes hcan
   have hfail :=
-    preservation_step_failure_arms admitted pre invocation responses vault
+    preservationStepFailureArmsV1 admitted pre invocation responses vault
   have hadmitted_data : admitted.data = data := hdata
   have htypeU := types_uint64
   have hstate := state_count
@@ -653,20 +610,17 @@ theorem preservation_step
     stepReferenceSliceV1 admitted pre invocation responses vault = outcome
   cases outcome with
   | returned post value effects =>
+      -- Gate packaging: returned forces ready (invalid/lifecycle are False).
+      have hready :=
+        stepReturnedImpliesGateReadyV1 admitted pre invocation responses vault
+          post value effects hstep
       cases hgate : gateInvocation admitted pre invocation with
       | invalidInvocation =>
-          have h :=
-            stepReferenceSliceV1_invalidInvocation_eq admitted pre invocation
-              responses vault hgate
-          rw [h] at hstep; cases hstep
-      | lifecycle cand =>
-          have h :=
-            stepReferenceSliceV1_lifecycle_eq admitted pre invocation responses
-              vault cand hgate
-          rw [h] at hstep
-          exact absurd hstep
-            (finalizeLifecycle_ne_returned_publicV1 pre responses cand post value
-              effects)
+          rw [hgate] at hready
+          exact False.elim hready
+      | lifecycle _cand =>
+          rw [hgate] at hready
+          exact False.elim hready
       | ready callable overlay context isInitializer =>
           have hlookup_full :=
             gateInvocation_ready_callable_lookup admitted pre invocation
@@ -852,7 +806,7 @@ theorem preservation_step
               have hpost_pre :=
                 get_encode_post_eq_pre pre post countBytes hinit hdecode' hcan
                   henc_post
-              exact preservation_step_returned_post_eq_pre pre post heval
+              exact preservationStepReturnedPostEqPreV1 program 0 pre post heval
                 hpost_pre
             · have htrap :=
                 stepReferenceSliceV1_ready_get_nonempty_responses_traps admitted
