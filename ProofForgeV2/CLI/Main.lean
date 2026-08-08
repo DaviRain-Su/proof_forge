@@ -31,6 +31,8 @@ private def usage : String :=
   "  proof-forge-next doctor [--json] [--target <id>]... [--with-runtime] [--all]\n" ++
   "  proof-forge-next install --targets <id,id> --yes [--with-runtime] [--dry-run] [--json]\n" ++
   "  proof-forge-next install --all-core --yes [--with-runtime] [--dry-run] [--json]\n" ++
+  "  proof-forge-next local --target <id> [--mode <name>] [--json] [--] [script-args...]\n" ++
+  "  proof-forge-next network --target <id> --broadcast [--json] [--] [script-args...]\n" ++
   "  proof-forge-next inspect <target> [--json]\n" ++
   "  proof-forge-next inspect <output-dir> [--json]\n" ++
   "  proof-forge-next inspect --output-dir <dir> [--json]\n" ++
@@ -39,14 +41,19 @@ private def usage : String :=
   "\n" ++
   "Notes:\n" ++
   "  --profile selects a registered codegen profile for the target (default profile when omitted).\n" ++
-  "  --network is not supported (no network registry); it is a usage error.\n" ++
+  "  build --network is not supported (no network registry); use the network subcommand for host-heavy paths.\n" ++
   "  --resource-limit is lower-only; check rejects external-tool/artifact-output; wall-ms and build artifact-output.published-bytes are enforced in-process (RES-1 / output-only RES-1B).\n" ++
   "  --minimum-evidence is build-only (specified|artifact_validated|local_runtime|network_or_proof_validated).\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build;\n" ++
   "    doctor --json emits proof-forge.doctor.v1 (Tool Lock presence under PROOF_FORGE_TOOL_ROOT);\n" ++
-  "    install --json emits proof-forge.install.v1 (Tool Lock materialize under PROOF_FORGE_TOOL_ROOT).\n" ++
-  "  doctor/install require scripts under the process working directory (repo root).\n" ++
+  "    install --json emits proof-forge.install.v1 (Tool Lock materialize under PROOF_FORGE_TOOL_ROOT);\n" ++
+  "    local --json emits proof-forge.local.v1; network --json emits proof-forge.network.v1.\n" ++
+  "  doctor/install/local/network require scripts under the process working directory (repo root).\n" ++
   "  install is non-interactive: requires --yes (or --dry-run); no PATH fallback; design-only targets rejected.\n" ++
+  "  local/network wrap package scripts with inherited PROOF_FORGE_TOOL_ROOT (no PATH fallback tools);\n" ++
+  "    host-heavy; not ordinary ci; not formal. network always requires explicit --broadcast.\n" ++
+  "  local modes: aleo sandbox|devnet (default sandbox); solana/evm runtime (scripts/solana_runtime_test.sh,\n" ++
+  "    scripts/evm_anvil_differential.sh; also just solana-runtime / Anvil engineering lanes).\n" ++
   "  inspect <arg> prefers a registered target id when ambiguous; use --output-dir to force a path.\n" ++
   "  inspect output-dir validates proof-forge.output.v1 artifact-content + exact disk closure.\n" ++
   "  check validates without writing artifacts; build materializes under -o (default build/v2).\n"
@@ -461,6 +468,163 @@ private def runInstall (options : InstallOptions) : IO Unit := do
     let exitByte : UInt8 := if codeNat ≥ 256 then 70 else UInt8.ofNat codeNat
     IO.Process.exit exitByte
 
+private def hasSubstrV1 (haystack needle : String) : Bool :=
+  (haystack.splitOn needle).length > 1
+
+/-- Map script exit + stderr to a stable product status token. -/
+private def hostHeavyStatusV1 (exitCode : UInt32) (stderr : String) : String :=
+  if exitCode == 0 then
+    "ok"
+  else if exitCode == 2 then
+    if hasSubstrV1 stderr "PF-TOOLCHAIN-MISSING" then
+      "toolchain-missing"
+    else if hasSubstrV1 stderr "PF-NETWORK-MISSING" then
+      "network-missing"
+    else
+      "usage"
+  else
+    "failed"
+
+private def exitWithProcessCode (exitCode : UInt32) : IO Unit := do
+  if exitCode == 0 then
+    pure ()
+  else
+    let codeNat := exitCode.toNat
+    let exitByte : UInt8 := if codeNat ≥ 256 then 70 else UInt8.ofNat codeNat
+    IO.Process.exit exitByte
+
+/-- Resolve package-relative script path for `local` (fail closed if unknown). -/
+private def resolveLocalScriptV1 (target mode : String) :
+    Except String (String × String × String) := do
+  -- Returns (resolvedMode, relativeScript, notes).
+  match target with
+  | "aleo" =>
+      let m := if mode.isEmpty then "sandbox" else mode
+      match m with
+      | "sandbox" =>
+          pure (m, "scripts/aleo_local_sandbox.sh",
+            "host-heavy offline leo run; deployable=false; not ordinary ci; not formal")
+      | "devnet" =>
+          pure (m, "scripts/aleo_devnet.sh",
+            "host-heavy snarkos test_network DevNet lifecycle; not ordinary ci; not formal")
+      | _ =>
+          throw s!"unsupported local mode '{m}' for target aleo (want sandbox|devnet)"
+  | "solana" =>
+      let m := if mode.isEmpty then "runtime" else mode
+      match m with
+      | "runtime" =>
+          pure (m, "scripts/solana_runtime_test.sh",
+            "host-heavy Mollusk lane (just solana-runtime); not ordinary ci; not formal")
+      | _ =>
+          throw s!"unsupported local mode '{m}' for target solana (want runtime)"
+  | "evm" =>
+      let m := if mode.isEmpty then "runtime" else mode
+      match m with
+      | "runtime" =>
+          pure (m, "scripts/evm_anvil_differential.sh",
+            "host-heavy Anvil differential engineering lane; not ordinary ci; not formal")
+      | _ =>
+          throw s!"unsupported local mode '{m}' for target evm (want runtime)"
+  | "soroban" | "icp" | "openvm" =>
+      throw s!"target '{target}' is design-only (unsupported; not installable/local)"
+  | other =>
+      throw s!"local has no package-script path for target '{other}' (aleo sandbox|devnet, solana/evm runtime)"
+
+/-- Resolve package-relative script path for `network` (fail closed if unknown). -/
+private def resolveNetworkScriptV1 (target : String) :
+    Except String (String × String) := do
+  match target with
+  | "aleo" =>
+      pure ("scripts/aleo_network.sh",
+        "host-heavy N1/N2 deploy/execute; requires --broadcast; deployable=false until N3; not ordinary ci; not formal")
+  | "soroban" | "icp" | "openvm" =>
+      throw s!"target '{target}' is design-only (unsupported; not installable/network)"
+  | other =>
+      throw s!"network has no package-script path for target '{other}' (only aleo today)"
+
+private def renderHostHeavyJsonV1
+    (schema target mode script : String) (args : Array String)
+    (exitCode : UInt32) (status notes stdout stderr : String) : Except String String :=
+  let argJson := args.map PfJson.string
+  renderPfJcs <|
+    PfJson.object #[
+      ("schema", .string schema),
+      ("target", .string target),
+      ("mode", .string mode),
+      ("script", .string script),
+      ("args", .array argJson),
+      ("exitCode", .int (Int.ofNat exitCode.toNat)),
+      ("status", .string status),
+      ("notes", .string notes),
+      ("scriptStdout", .string stdout),
+      ("scriptStderr", .string stderr)
+    ]
+
+/-- Product local: thin spawn of package scripts (aleo sandbox/devnet,
+    solana/evm runtime). Inherits process env including PROOF_FORGE_TOOL_ROOT.
+    Never invents PATH tools. Host-heavy; exit codes forwarded from script. -/
+private def runLocal (options : LocalOptions) : IO Unit := do
+  let (mode, relScript, notes) ← match resolveLocalScriptV1 options.target options.mode with
+    | .ok v => pure v
+    | .error msg => failUsage msg
+  let cwd ← IO.currentDir
+  let script := cwd / relScript
+  unless ← script.pathExists do
+    failUsage s!"local requires {relScript} under the current working directory (run from repo root)"
+  let output ← IO.Process.output {
+    cmd := "bash"
+    args := #[script.toString] ++ options.scriptArgs
+  }
+  let status := hostHeavyStatusV1 output.exitCode output.stderr
+  if options.json then
+    match renderHostHeavyJsonV1
+        "proof-forge.local.v1" options.target mode relScript options.scriptArgs
+        output.exitCode status notes output.stdout output.stderr with
+    | .ok text => IO.println text
+    | .error err => failUsage s!"local json render failed: {err}"
+  else
+    unless output.stdout.isEmpty do
+      (← IO.getStdout).putStr output.stdout
+    unless output.stderr.isEmpty do
+      (← IO.getStderr).putStr output.stderr
+  exitWithProcessCode output.exitCode
+
+/-- Ensure script argv includes explicit `--broadcast` (product flag may be sole source). -/
+private def ensureBroadcastArg (args : Array String) : Array String :=
+  if args.any (· == "--broadcast") then args else #["--broadcast"] ++ args
+
+/-- Product network: thin spawn of package scripts (aleo only today).
+    Parse already requires `--broadcast`; forwarded to script. Host-heavy. -/
+private def runNetwork (options : NetworkOptions) : IO Unit := do
+  unless options.broadcast do
+    failUsage
+      "network requires explicit --broadcast (never implicit; local only: local --target …)"
+  let (relScript, notes) ← match resolveNetworkScriptV1 options.target with
+    | .ok v => pure v
+    | .error msg => failUsage msg
+  let cwd ← IO.currentDir
+  let script := cwd / relScript
+  unless ← script.pathExists do
+    failUsage s!"network requires {relScript} under the current working directory (run from repo root)"
+  let scriptArgs := ensureBroadcastArg options.scriptArgs
+  let output ← IO.Process.output {
+    cmd := "bash"
+    args := #[script.toString] ++ scriptArgs
+  }
+  let status := hostHeavyStatusV1 output.exitCode output.stderr
+  if options.json then
+    match renderHostHeavyJsonV1
+        "proof-forge.network.v1" options.target "network" relScript scriptArgs
+        output.exitCode status notes output.stdout output.stderr with
+    | .ok text => IO.println text
+    | .error err => failUsage s!"network json render failed: {err}"
+  else
+    unless output.stdout.isEmpty do
+      (← IO.getStdout).putStr output.stdout
+    unless output.stderr.isEmpty do
+      (← IO.getStderr).putStr output.stderr
+  exitWithProcessCode output.exitCode
+
 private def inspectTarget (value : String) (json : Bool) : IO Unit := do
   IO.println (← liftCompileResult (inspectTargetText value json))
 
@@ -522,6 +686,8 @@ unsafe def run (args : List String) : IO Unit := do
       | .listTargets options => listTargets options
       | .doctor options => runDoctor options
       | .install options => runInstall options
+      | .local options => runLocal options
+      | .network options => runNetwork options
       | .inspect arg json =>
           if isRegisteredInspectTargetV1 arg then
             inspectTarget arg json

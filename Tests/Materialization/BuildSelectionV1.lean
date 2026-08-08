@@ -633,6 +633,27 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   | .error msg =>
       expect (hasSubstr msg "unknown install argument") "bad install args"
   | .ok _ => throw <| IO.userError "install --bogus must fail"
+  match ProofForgeV2.CLI.parseCliCommandV1
+      ["local", "--target", "aleo", "--mode", "sandbox", "--json", "--", "--skip-run"] with
+  | .ok (.local opts) =>
+      expect (opts.target == "aleo" && opts.mode == "sandbox" && opts.json &&
+        opts.scriptArgs == #["--skip-run"]) "parse local aleo sandbox"
+  | other => throw <| IO.userError s!"parse local: {repr other}"
+  match ProofForgeV2.CLI.parseCliCommandV1 ["local", "--mode", "sandbox"] with
+  | .error msg =>
+      expect (hasSubstr msg "requires --target") "local without target"
+  | .ok _ => throw <| IO.userError "local without --target must fail"
+  match ProofForgeV2.CLI.parseCliCommandV1
+      ["network", "--target", "aleo", "--broadcast", "--json",
+        "--", "--network", "testnet"] with
+  | .ok (.network opts) =>
+      expect (opts.target == "aleo" && opts.broadcast && opts.json &&
+        opts.scriptArgs == #["--network", "testnet"]) "parse network aleo"
+  | other => throw <| IO.userError s!"parse network: {repr other}"
+  match ProofForgeV2.CLI.parseCliCommandV1 ["network", "--target", "aleo"] with
+  | .error msg =>
+      expect (hasSubstr msg "requires explicit --broadcast") "network without broadcast"
+  | .ok _ => throw <| IO.userError "network without --broadcast must fail"
   match ProofForgeV2.CLI.parseCliCommandV1 ["inspect", "evm"] with
   | .ok (.inspect "evm" false) => pure ()
   | other => throw <| IO.userError s!"parse inspect: {repr other}"

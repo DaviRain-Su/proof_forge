@@ -6,6 +6,8 @@
     doctor [--json] [--target <id>]... [--with-runtime] [--all]
     install --targets <id,id> --yes | install --all-core --yes
       [--with-runtime] [--dry-run] [--json]
+    local --target <id> [--mode <name>] [--json] [--] [script-args...]
+    network --target <id> --broadcast [--json] [--] [script-args...]
     inspect <target> [--json]
     inspect <output-dir> [--json]
     inspect --output-dir <dir> [--json]
@@ -30,6 +32,8 @@
     proof-forge.cli.build.v1
   Doctor JSON is product `proof-forge.doctor.v1` (engine: scripts/proof_forge_doctor.py).
   Install JSON is product `proof-forge.install.v1` (engine: scripts/proof_forge_install.py).
+  Local JSON is product `proof-forge.local.v1` (thin spawn of package scripts).
+  Network JSON is product `proof-forge.network.v1` (thin spawn; requires --broadcast).
 
   Output-dir validation scope (engineering, not formal OutputSetV1):
     * Stable-read `manifest.json` + `evidence.json` via ArtifactContentV1 helper
@@ -50,7 +54,8 @@
 
   Deleted product commands: `build-counter`, `describe-target` (use
   `build Examples/Counter.lean --module Examples.Counter` and `inspect`).
-  `--network` remains a usage error (no network registry).
+  Build flag `--network` remains a usage error (no network registry); the
+  top-level `network` subcommand is the host-heavy product network wrapper.
   Engineering only — not formal CLI / OutputSetV1 / SupportClaim completion.
 -/
 import ProofForgeV2.Targets.Registry
@@ -494,17 +499,40 @@ structure InstallOptions where
   targets : Array String := #[]
   deriving BEq, Repr
 
+/-- Parsed `local` trailing flags (host-heavy package-script wrapper).
+    `mode` empty means target default (`sandbox` for aleo, `runtime` for solana/evm).
+    Remaining args after product flags (and optional `--`) are forwarded to the script. -/
+structure LocalOptions where
+  target : String := ""
+  mode : String := ""
+  json : Bool := false
+  scriptArgs : Array String := #[]
+  deriving BEq, Repr
+
+/-- Parsed `network` trailing flags (host-heavy package-script wrapper).
+    Product surface requires explicit `--broadcast`; remaining args forward to script. -/
+structure NetworkOptions where
+  target : String := ""
+  broadcast : Bool := false
+  json : Bool := false
+  scriptArgs : Array String := #[]
+  deriving BEq, Repr
+
 /-- Typed product CLI command surface. `CLI.run` matches only this enum.
 Deleted: `build-counter`, `describe-target` (use build + inspect).
 `inspect` keeps the historical `(String, Bool)` shape so pure parse tests stay
 stable; product `CLI.run` disambiguates registered target vs output-dir path.
 `inspectOutput` is the explicit `--output-dir` form (always output-dir mode).
 `doctor` is the product Tool Lock presence surface (`proof-forge.doctor.v1`).
-`install` is the product Tool Lock materialize surface (`proof-forge.install.v1`). -/
+`install` is the product Tool Lock materialize surface (`proof-forge.install.v1`).
+`local` / `network` are host-heavy script wrappers (`proof-forge.local.v1` /
+`proof-forge.network.v1`); not ordinary ci; not formal. -/
 inductive CliCommandV1 where
   | listTargets (options : ListTargetsOptions)
   | doctor (options : DoctorOptions)
   | install (options : InstallOptions)
+  | local (options : LocalOptions)
+  | network (options : NetworkOptions)
   | inspect (target : String) (json : Bool)
   | inspectOutput (dir : String) (json : Bool)
   | check (options : BuildOptions)
@@ -832,6 +860,119 @@ partial def parseInstallArgsExcept
 
 def parseInstallArgs (args : List String) : IO InstallOptions :=
   match parseInstallArgsExcept args with
+  | .ok b => pure b
+  | .error msg => throw <| IO.userError msg
+
+/-- Append remaining tokens to `scriptArgs`, dropping a single leading `--` separator. -/
+private def appendLocalScriptArgs
+    (options : LocalOptions) (rest : List String) : LocalOptions :=
+  match rest with
+  | [] => options
+  | "--" :: tail =>
+      { options with scriptArgs := options.scriptArgs ++ tail.toArray }
+  | _ =>
+      { options with scriptArgs := options.scriptArgs ++ rest.toArray }
+
+/-- Parse `local` trailing args (pure).
+Product flags: `--target <id>` (required), `--mode <name>`, `--json`.
+Any other token (including after optional `--`) is forwarded to the package script. -/
+partial def parseLocalArgsExcept
+    (args : List String) (options : LocalOptions := {}) :
+    Except String LocalOptions := do
+  match args with
+  | [] =>
+      if options.target.isEmpty then
+        throw "local requires --target <id>"
+      pure options
+  | "--json" :: rest =>
+      if options.json then throw "duplicate --json"
+      parseLocalArgsExcept rest { options with json := true }
+  | "--target" :: value :: rest =>
+      if value.isEmpty then throw "--target requires a nonempty target id"
+      if value.startsWith "-" then throw s!"invalid --target id '{value}'"
+      if !options.target.isEmpty then throw "duplicate --target"
+      parseLocalArgsExcept rest { options with target := value }
+  | "--target" :: [] =>
+      throw "--target requires a nonempty target id"
+  | "--mode" :: value :: rest =>
+      if value.isEmpty then throw "--mode requires a nonempty mode name"
+      if value.startsWith "-" then throw s!"invalid --mode '{value}'"
+      if !options.mode.isEmpty then throw "duplicate --mode"
+      parseLocalArgsExcept rest { options with mode := value }
+  | "--mode" :: [] =>
+      throw "--mode requires a nonempty mode name"
+  | "--" :: tail =>
+      if options.target.isEmpty then
+        throw "local requires --target <id>"
+      pure (appendLocalScriptArgs options ("--" :: tail))
+  | other =>
+      -- Forward unknown tokens (including script flags like --skip-run) after
+      -- requiring --target so product selection stays explicit.
+      if options.target.isEmpty then
+        .error s!"unknown local argument '{String.intercalate " " other}' (need --target first, or use -- before script args)"
+      else
+        pure (appendLocalScriptArgs options other)
+
+def parseLocalArgs (args : List String) : IO LocalOptions :=
+  match parseLocalArgsExcept args with
+  | .ok b => pure b
+  | .error msg => throw <| IO.userError msg
+
+/-- Append remaining tokens to network `scriptArgs`, dropping a single leading `--`. -/
+private def appendNetworkScriptArgs
+    (options : NetworkOptions) (rest : List String) : NetworkOptions :=
+  match rest with
+  | [] => options
+  | "--" :: tail =>
+      { options with scriptArgs := options.scriptArgs ++ tail.toArray }
+  | _ =>
+      { options with scriptArgs := options.scriptArgs ++ rest.toArray }
+
+/-- Parse `network` trailing args (pure).
+Product flags: `--target <id>` (required), `--broadcast` (required), `--json`.
+Other tokens forward to the package script; CLI injects `--broadcast` into
+script args when product flag is set. -/
+partial def parseNetworkArgsExcept
+    (args : List String) (options : NetworkOptions := {}) :
+    Except String NetworkOptions := do
+  match args with
+  | [] =>
+      if options.target.isEmpty then
+        throw "network requires --target <id>"
+      if !options.broadcast then
+        throw "network requires explicit --broadcast (never implicit; local only: local --target …)"
+      pure options
+  | "--json" :: rest =>
+      if options.json then throw "duplicate --json"
+      parseNetworkArgsExcept rest { options with json := true }
+  | "--broadcast" :: rest =>
+      if options.broadcast then throw "duplicate --broadcast"
+      parseNetworkArgsExcept rest { options with broadcast := true }
+  | "--target" :: value :: rest =>
+      if value.isEmpty then throw "--target requires a nonempty target id"
+      if value.startsWith "-" then throw s!"invalid --target id '{value}'"
+      if !options.target.isEmpty then throw "duplicate --target"
+      parseNetworkArgsExcept rest { options with target := value }
+  | "--target" :: [] =>
+      throw "--target requires a nonempty target id"
+  | "--" :: tail =>
+      if options.target.isEmpty then
+        throw "network requires --target <id>"
+      if !options.broadcast then
+        throw "network requires explicit --broadcast (never implicit; local only: local --target …)"
+      pure (appendNetworkScriptArgs options ("--" :: tail))
+  | other =>
+      if options.target.isEmpty then
+        .error s!"unknown network argument '{String.intercalate " " other}' (need --target first, or use -- before script args)"
+      else if !options.broadcast then
+        -- Still require product --broadcast before forwarding script args so
+        -- accidental bare `network --target aleo --network testnet` fails closed.
+        throw "network requires explicit --broadcast (never implicit; local only: local --target …)"
+      else
+        pure (appendNetworkScriptArgs options other)
+
+def parseNetworkArgs (args : List String) : IO NetworkOptions :=
+  match parseNetworkArgsExcept args with
   | .ok b => pure b
   | .error msg => throw <| IO.userError msg
 
@@ -1834,6 +1975,12 @@ def parseCliCommandV1 (args : List String) : Except String CliCommandV1 := do
   | "install" :: rest =>
       let options ← parseInstallArgsExcept rest
       pure (.install options)
+  | "local" :: rest =>
+      let options ← parseLocalArgsExcept rest
+      pure (.local options)
+  | "network" :: rest =>
+      let options ← parseNetworkArgsExcept rest
+      pure (.network options)
   | "inspect" :: rest =>
       -- Explicit output-dir form (any order of --output-dir / --json).
       if rest.any (· == "--output-dir") then
