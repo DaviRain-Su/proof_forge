@@ -309,6 +309,46 @@ theorem decodeLogicalStateValuesV1_of_single_uint64_encode
       simp
   simpa [hpush] using rfl
 
+/-- Full extract identity: `b = b.extract 0 n ++ b.extract n b.size` when `n ≤ size`. -/
+theorem ByteArray_eq_extract_append_extract
+    (b : ByteArray) (n : Nat) (hn : n ≤ b.size) :
+    b = b.extract 0 n ++ b.extract n b.size := by
+  have hfull : b.extract 0 b.size = b := by
+    ext1
+    simp
+  have hsplit :=
+    ByteArray.extract_eq_extract_append_extract (a := b) (i := 0) (k := b.size) n
+      (Nat.zero_le _) hn
+  simpa [hfull] using hsplit.symm
+
+/-- Successful `readU32leAtV1` always advances the cursor by exactly 4. -/
+theorem readU32leAtV1_ok_offset
+    (b : ByteArray) (off : Nat) (v : UInt32) (after : Nat)
+    (h : readU32leAtV1 b off = .ok (v, after)) :
+    after = off + 4 := by
+  unfold readU32leAtV1 at h
+  cases hb0 : readByteAtV1 b off with
+  | error e => simp [hb0, Bind.bind, Except.bind] at h
+  | ok b0 =>
+    cases hb1 : readByteAtV1 b (off + 1) with
+    | error e =>
+        simp [hb0, hb1, Bind.bind, Pure.pure, Except.bind, Except.pure] at h
+    | ok b1 =>
+      cases hb2 : readByteAtV1 b (off + 2) with
+      | error e =>
+          simp [hb0, hb1, hb2, Bind.bind, Pure.pure, Except.bind, Except.pure]
+            at h
+      | ok b2 =>
+        cases hb3 : readByteAtV1 b (off + 3) with
+        | error e =>
+            simp [hb0, hb1, hb2, hb3, Bind.bind, Pure.pure, Except.bind,
+              Except.pure] at h
+        | ok b3 =>
+            simp [hb0, hb1, hb2, hb3, Bind.bind, Pure.pure, Except.bind,
+              Except.pure] at h
+            -- Residual is the pure pair equality after four successful reads.
+            exact h.2.symm
+
 /-- Successful decode of a singleton logicalState table recovers a singleton
     overlay whose sole element is structure-gated for that slot. -/
 theorem decodeLogicalStateValuesV1_singleton_eq
