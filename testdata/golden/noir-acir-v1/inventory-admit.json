@@ -1,0 +1,253 @@
+{
+  "schema": "proof-forge.noir-acir-admit-inventory.v1",
+  "purpose": "NOIR-IR-4 multi-fixture path-normalized ProgramArtifact inventory (G3 admit surfaces nargo-ok; MapMini init only)",
+  "nargoVersion": "1.0.0-beta.26",
+  "noirVersionExact": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+  "nargoGitHash": "40d6574f851d926f93e0c3a271bac3e6e82ac905",
+  "toolLockId": "nargo",
+  "profile": "noir-source-u64-relations-v1",
+  "parentGolden": "testdata/golden/noir-acir-v1 (Counter IR-1)",
+  "authority": "ACIR/nargo ProgramArtifact circuit core; multi-fixture inventory expansion (IR-4); not opcode decode; not prove",
+  "normalization": {
+    "file_map.path": "rewritten to package-relative src/main.nr",
+    "json": "raw nargo ProgramArtifact with path rewrite + trailing newline"
+  },
+  "honesty": [
+    "IR-4 freezes path-normalized compile inventory for BranchCounter/LoopSum/OptionState/ArrayRet full capture + MapMini init",
+    "MapMini put/get remain nargo type residual (Plan admits; compile fails) \u2014 no inventory leaves",
+    "not full product-source byte matrix; product sources regenerated via CaptureV1 materialize",
+    "deployable=false; no prove/VK; no barretenberg",
+    "missing nargo: inventory pin always runs; live recheck honest skip"
+  ],
+  "fixtures": {
+    "BranchCounter": {
+      "family": "control-flow-if",
+      "relations": [
+        "r0-init",
+        "r1-bump",
+        "r2-get"
+      ]
+    },
+    "LoopSum": {
+      "family": "control-flow-for",
+      "relations": [
+        "r0-init",
+        "r1-run",
+        "r2-get"
+      ]
+    },
+    "OptionState": {
+      "family": "aggregate-option",
+      "relations": [
+        "r0-init",
+        "r1-setSome",
+        "r2-clear",
+        "r3-peek"
+      ]
+    },
+    "ArrayRet": {
+      "family": "aggregate-array",
+      "relations": [
+        "r0-init",
+        "r1-setArr",
+        "r2-getArr"
+      ]
+    },
+    "MapMini": {
+      "family": "aggregate-map-partial",
+      "relations": [
+        "r0-init"
+      ],
+      "nargoFailStems": [
+        "r1-put",
+        "r2-get"
+      ]
+    }
+  },
+  "circuitHashes": {
+    "BranchCounter/r0-init": "17547139497077004670",
+    "BranchCounter/r1-bump": "5326684273681879262",
+    "BranchCounter/r2-get": "15142158172902813876",
+    "LoopSum/r0-init": "17547139497077004670",
+    "LoopSum/r1-run": "1663100142809567421",
+    "LoopSum/r2-get": "15142158172902813876",
+    "OptionState/r0-init": "15390717378386485224",
+    "OptionState/r1-setSome": "12137904358083423139",
+    "OptionState/r2-clear": "12246679460574536583",
+    "OptionState/r3-peek": "4152353602006729362",
+    "ArrayRet/r0-init": "10250360699151576765",
+    "ArrayRet/r1-setArr": "5874709250556069158",
+    "ArrayRet/r2-getArr": "292703840847091457",
+    "MapMini/r0-init": "996379632831450032"
+  },
+  "files": [
+    {
+      "path": "fixtures/ArrayRet/nargo-compile/r0-init/pf_relation_0.json",
+      "size": 1638,
+      "sha256": "3126733018a681a509bd73676334b48cb944c083192ed58b7fe16853fe7fbe28",
+      "role": "nargo-program-artifact",
+      "fixture": "ArrayRet",
+      "relation": "r0-init",
+      "packageName": "pf_relation_0",
+      "circuitHash": "10250360699151576765",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "f6ac58cad98a664a58cab65dd8b815fbb401ee86e6378478ebe66b14212eed62"
+    },
+    {
+      "path": "fixtures/ArrayRet/nargo-compile/r1-setArr/pf_relation_1.json",
+      "size": 2218,
+      "sha256": "8cbcf7d16db1116d4d8821ac65f7c867a8a242d3d106ba60db6cea8e5fe5ec9c",
+      "role": "nargo-program-artifact",
+      "fixture": "ArrayRet",
+      "relation": "r1-setArr",
+      "packageName": "pf_relation_1",
+      "circuitHash": "5874709250556069158",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "6f57a2f7b02d4663848d60ecb56c24c23b4986e73733d6c7f55d681c915fc4fd"
+    },
+    {
+      "path": "fixtures/ArrayRet/nargo-compile/r2-getArr/pf_relation_2.json",
+      "size": 1985,
+      "sha256": "cbd953acf863f318b9b79adc9e6096028f8f63d1a1368a0462c55cf9e1cdd645",
+      "role": "nargo-program-artifact",
+      "fixture": "ArrayRet",
+      "relation": "r2-getArr",
+      "packageName": "pf_relation_2",
+      "circuitHash": "292703840847091457",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "d0272bb853751c178325b767e4f401aaf068c85696a828609156c8b4d6f6d0a0"
+    },
+    {
+      "path": "fixtures/BranchCounter/nargo-compile/r0-init/pf_relation_0.json",
+      "size": 1343,
+      "sha256": "90113b872a13f2cdcc8db7acd9d5b4e10829015f726fdd9e39ade75e6f429dfd",
+      "role": "nargo-program-artifact",
+      "fixture": "BranchCounter",
+      "relation": "r0-init",
+      "packageName": "pf_relation_0",
+      "circuitHash": "17547139497077004670",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "cb92d9a49db4fcdc69c780b375965eda885c61006487011ef8b2f8330a6d93b9"
+    },
+    {
+      "path": "fixtures/BranchCounter/nargo-compile/r1-bump/pf_relation_1.json",
+      "size": 2749,
+      "sha256": "4a8e32173ed7386e4e8fa6ed89862d2ce797a13b6566bd46a044689086bd49ae",
+      "role": "nargo-program-artifact",
+      "fixture": "BranchCounter",
+      "relation": "r1-bump",
+      "packageName": "pf_relation_1",
+      "circuitHash": "5326684273681879262",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "54908d30c7110527fe0ab67640655c278565f7abbdaa6d4216fc7bd000d71e4d"
+    },
+    {
+      "path": "fixtures/BranchCounter/nargo-compile/r2-get/pf_relation_2.json",
+      "size": 1510,
+      "sha256": "2509aabd7b3e4a90afc59c73e3b2b0868f7a46aaf2a206475d01ce4547309976",
+      "role": "nargo-program-artifact",
+      "fixture": "BranchCounter",
+      "relation": "r2-get",
+      "packageName": "pf_relation_2",
+      "circuitHash": "15142158172902813876",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "4552382c4973af38fb2d46a9ec61213cc163eb39c7a09d512fcd35464b4cd33d"
+    },
+    {
+      "path": "fixtures/LoopSum/nargo-compile/r0-init/pf_relation_0.json",
+      "size": 1343,
+      "sha256": "90113b872a13f2cdcc8db7acd9d5b4e10829015f726fdd9e39ade75e6f429dfd",
+      "role": "nargo-program-artifact",
+      "fixture": "LoopSum",
+      "relation": "r0-init",
+      "packageName": "pf_relation_0",
+      "circuitHash": "17547139497077004670",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "cb92d9a49db4fcdc69c780b375965eda885c61006487011ef8b2f8330a6d93b9"
+    },
+    {
+      "path": "fixtures/LoopSum/nargo-compile/r1-run/pf_relation_1.json",
+      "size": 7571,
+      "sha256": "fe78b804230e9e892e687d4028f69fef64acf59ffa1af6516eee0759842d233f",
+      "role": "nargo-program-artifact",
+      "fixture": "LoopSum",
+      "relation": "r1-run",
+      "packageName": "pf_relation_1",
+      "circuitHash": "1663100142809567421",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "a9ea8e0f712c5832f358a1063b87891d88f0c4fa962557219f19ef1e0934fcc9"
+    },
+    {
+      "path": "fixtures/LoopSum/nargo-compile/r2-get/pf_relation_2.json",
+      "size": 1510,
+      "sha256": "2509aabd7b3e4a90afc59c73e3b2b0868f7a46aaf2a206475d01ce4547309976",
+      "role": "nargo-program-artifact",
+      "fixture": "LoopSum",
+      "relation": "r2-get",
+      "packageName": "pf_relation_2",
+      "circuitHash": "15142158172902813876",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "4552382c4973af38fb2d46a9ec61213cc163eb39c7a09d512fcd35464b4cd33d"
+    },
+    {
+      "path": "fixtures/MapMini/nargo-compile/r0-init/pf_relation_0.json",
+      "size": 4898,
+      "sha256": "07eef853ba06667b1e074528df7cd620e56a8bee16597876effbdcde3a6cbcd6",
+      "role": "nargo-program-artifact",
+      "fixture": "MapMini",
+      "relation": "r0-init",
+      "packageName": "pf_relation_0",
+      "circuitHash": "996379632831450032",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "2ee1aeb6151187a5dae762e5df210a59bb1557d9810e550021e213f48eab032b"
+    },
+    {
+      "path": "fixtures/OptionState/nargo-compile/r0-init/pf_relation_0.json",
+      "size": 1315,
+      "sha256": "8b5db577300045f5e01cb931af3f45c8c489b4a75d843bb5492232f74a950e8a",
+      "role": "nargo-program-artifact",
+      "fixture": "OptionState",
+      "relation": "r0-init",
+      "packageName": "pf_relation_0",
+      "circuitHash": "15390717378386485224",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "734cab1b5526ed4878068c1eac12a410a73bb9a7613e7d290e7208c171e736b1"
+    },
+    {
+      "path": "fixtures/OptionState/nargo-compile/r1-setSome/pf_relation_1.json",
+      "size": 1911,
+      "sha256": "7f0f16eae85432e46725677d6c992f8cf0933b371a562d2a9b998fde42c8257b",
+      "role": "nargo-program-artifact",
+      "fixture": "OptionState",
+      "relation": "r1-setSome",
+      "packageName": "pf_relation_1",
+      "circuitHash": "12137904358083423139",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "3fe7dc2419c4a807b7a9804fe9333bb46458b7bf5a533676a9c96d36e603788f"
+    },
+    {
+      "path": "fixtures/OptionState/nargo-compile/r2-clear/pf_relation_2.json",
+      "size": 1761,
+      "sha256": "52738ce970dc93b6fb7eb6a15421a50ea9b116f55061ff0cfad5f55c19727bf3",
+      "role": "nargo-program-artifact",
+      "fixture": "OptionState",
+      "relation": "r2-clear",
+      "packageName": "pf_relation_2",
+      "circuitHash": "12246679460574536583",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "45dfb1a0fd214a53af8f16e1a0c27b6909c5e9b192b11bd32c42600cd16ae942"
+    },
+    {
+      "path": "fixtures/OptionState/nargo-compile/r3-peek/pf_relation_3.json",
+      "size": 2463,
+      "sha256": "a1badd71d7e2dd1b0b0068a200ba4f448a4eb2a8f478c5056b723c9edac9b428",
+      "role": "nargo-program-artifact",
+      "fixture": "OptionState",
+      "relation": "r3-peek",
+      "packageName": "pf_relation_3",
+      "circuitHash": "4152353602006729362",
+      "noirVersion": "1.0.0-beta.26+40d6574f851d926f93e0c3a271bac3e6e82ac905",
+      "bytecodeSha256": "594c1bf8438fd71ff1bb90aaa71d80102902f261a5bbd8a90ab671f901095133"
+    }
+  ]
+}

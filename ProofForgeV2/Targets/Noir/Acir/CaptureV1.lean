@@ -1,6 +1,6 @@
 /-
-  Noir Plan → ACIR capture (NOIR-IR-2 + NOIR-IR-3 / G3 + NOIR-IR-5 + NOIR-IR-6
-  + NOIR-IR-7 / G6 prove honesty PARTIAL+MISSING).
+  Noir Plan → ACIR capture (NOIR-IR-2 + NOIR-IR-3 / G3 + NOIR-IR-4 multi-fixture
+  inventory + NOIR-IR-5 + NOIR-IR-6 + NOIR-IR-7 / G6 prove honesty PARTIAL+MISSING).
 
   ## Path decision (IR-2, frozen)
 
@@ -21,6 +21,8 @@
                               ▼
                ≡ testdata/golden/noir-acir-v1/ (IR-1 inventory, Counter)
                  + G3 admit-surface circuit-hash pins (IR-3)
+                 + IR-4 multi-fixture path-normalized inventory
+                   (fixtures/{Fixture}/nargo-compile/*)
                  + IR-5 honesty matrix (no false Y)
                  + IR-6 optional profile dual-write extras
   ```
@@ -49,8 +51,18 @@
 
   Live capture is optional: missing nargo → honest skip of live paths only
   (Counter inventory/source-join and fixture materialize package-stem pins
-  still run). Does **not** expand full multi-file golden inventory for every
-  fixture (that is IR-4); G3 pins are circuit-hash (+ package stem) only.
+  still run). G3 pins are circuit-hash (+ package stem); IR-4 freezes the
+  path-normalized multi-file inventory for nargo-ok relations.
+
+  ## IR-4 multi-fixture inventory
+
+  Frozen under `testdata/golden/noir-acir-v1/fixtures/{FixtureId}/nargo-compile/`
+  + `inventory-admit.json` + Lean `admitInventoryEntriesV1` (14 leaves):
+
+  * BranchCounter / LoopSum / OptionState / ArrayRet — full success capture
+  * MapMini — **init only**; put/get remain nargo-fail honesty (no leaves)
+  * **Not** full product-source byte matrix (product `.nr` regenerated via Plan)
+  * Inventory pin always runs; live recheck honest-skips without nargo
 
   ## IR-5 / G5 honesty matrix
 
@@ -120,6 +132,8 @@ def authorityNoteV1 : String :=
   "IR-6 product dual-write is opt-in profile noir-nargo-1.0.0-beta.26-acir-v1 " ++
   "(path-normalized ProgramArtifact finalized-extra; default Finalize zero-tool); " ++
   "G3 admit-surface CF/aggregate circuit-hash pins share this path; " ++
+  "IR-4 multi-fixture path-normalized inventory under fixtures/* + " ++
+  "inventory-admit.json (14 nargo-ok leaves; MapMini put/get residual no leaf); " ++
   "IR-5 honesty matrix pins call/schedule P (witness-binding only), " ++
   "String/Option non-UInt64 F (plan-FC), prove/VK F (no product prove); " ++
   "IR-7/G6 prove honesty PARTIAL+MISSING (Tool Lock barretenberg=null; " ++
@@ -310,6 +324,29 @@ def loadGoldenCircuitCoreV1 (pin : RelationCapturePinV1) : IO CircuitCoreV1 := d
       throw <| IO.userError
         s!"golden {pin.relation}: cannot extract circuit core"
 
+/-- Load frozen IR-4 admit inventory ProgramArtifact circuit core. -/
+def loadAdmitGoldenCircuitCoreV1 (pin : AdmitInventoryPinV1) : IO CircuitCoreV1 := do
+  let path := goldenPathV1 pin.artifactRelPath
+  unless ← path.pathExists do
+    throw <| IO.userError s!"missing admit golden artifact {path}"
+  let text ← IO.FS.readFile path
+  match extractCircuitCoreV1 text with
+  | some core =>
+      unless circuitCoreMatchesPinsV1 core pin.circuitHash do
+        throw <| IO.userError
+          (s!"admit golden {pin.fixtureId}/{pin.relation}: " ++
+            "circuit pin mismatch (version/hash)")
+      pure core
+  | none =>
+      throw <| IO.userError
+        s!"admit golden {pin.fixtureId}/{pin.relation}: cannot extract circuit core"
+
+/-- IR-4 golden artifact relative path for a G3 capture pin
+    (`fixtures/{fixtureId}/nargo-compile/{relation}/{artifact}`). -/
+def admitGoldenArtifactRelPathV1
+    (fixtureId relation packageArtifactName : String) : String :=
+  s!"fixtures/{fixtureId}/nargo-compile/{relation}/{packageArtifactName}"
+
 /-- Product source leaves under a relation package (transitional .nr path). -/
 def productSourceLeafNamesV1 : Array String :=
   #["Nargo.toml", "src/main.nr"]
@@ -338,8 +375,9 @@ def productPackageSourceJoinV1
 
   Product Plan materialize → nargo-assisted capture for control-flow and
   aggregate fixtures already admitted by Noir Plan. Pins are path-independent
-  circuit hashes under locked nargo 1.0.0-beta.26 (not full multi-file inventory;
-  IR-4 may expand goldens later).
+  circuit hashes under locked nargo 1.0.0-beta.26. IR-4 freezes path-normalized
+  multi-file inventory for these nargo-ok relations (see InventoryV1
+  `admitInventoryEntriesV1`); product-source matrix is not expanded.
 -/
 
 /-- Admit-surface family label (honesty matrix join). -/

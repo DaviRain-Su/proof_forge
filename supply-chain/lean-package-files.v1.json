@@ -871,14 +871,14 @@
       "sha256": "5892eb6dc9697269bbede021221ff6aca7a8c6371c71a1b0e16ff785eef6f100"
     },
     {
-      "bytes": 33373,
+      "bytes": 35318,
       "path": "ProofForgeV2/Targets/Noir/Acir/CaptureV1.lean",
-      "sha256": "ce0f04b25808a0b9738f45c036a143ffa275e61b10fda066310f6e41cbc86cac"
+      "sha256": "9558dbf05682e3fe9f3d8560e94862769796272688cfd66ac779f41c0abda544"
     },
     {
-      "bytes": 6638,
+      "bytes": 14886,
       "path": "ProofForgeV2/Targets/Noir/Acir/InventoryV1.lean",
-      "sha256": "6df2c893accdebbe49826d826ee059dc4367cef673c37b7274fdd7c073543e8b"
+      "sha256": "0f1ae10b9833783ad6139f11e4d3c489619d7bd9fcfbecaf77d7ccd9e94630c0"
     },
     {
       "bytes": 95866,

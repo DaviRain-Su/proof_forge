@@ -1,11 +1,13 @@
 /-
-  NOIR-IR-1 + NOIR-IR-2 + NOIR-IR-3 (G3) + NOIR-IR-5 (honesty) + NOIR-IR-6
-  (product dual-write) + NOIR-IR-7 (G6 prove honesty PARTIAL+MISSING):
+  NOIR-IR-1 + NOIR-IR-2 + NOIR-IR-3 (G3) + NOIR-IR-4 (multi-fixture inventory) +
+  NOIR-IR-5 (honesty) + NOIR-IR-6 (product dual-write) + NOIR-IR-7 (G6 prove
+  honesty PARTIAL+MISSING):
   Counter nargo ProgramArtifact golden inventory pin, Plan→ACIR MVP via
   nargo-assisted capture, admit-surface control-flow / aggregate circuit-hash
-  pins, §3.2 honesty matrix FC boundaries, IR-6 optional ACIR dual-write
-  profile (default Finalize remains zero-tool), and IR-7 host-heavy prove
-  probe (barretenberg null → PF-TOOLCHAIN-MISSING).
+  pins, IR-4 path-normalized multi-fixture compile inventory, §3.2 honesty
+  matrix FC boundaries, IR-6 optional ACIR dual-write profile (default Finalize
+  remains zero-tool), and IR-7 host-heavy prove probe
+  (barretenberg null → PF-TOOLCHAIN-MISSING).
 
   IR-1 freezes:
   * product Noir relation packages for Examples/Counter
@@ -17,10 +19,16 @@
   * nargo-assisted capture from **product** Plan packages → circuit core ≡ golden
   * path decision documented as **nargo-assisted** (not pure-Lean ACIR encoder)
 
-  IR-3 / G3 adds (admit surface, circuit-hash pins — not full inventory):
+  IR-3 / G3 adds (admit surface, circuit-hash pins):
   * BranchCounter (if), LoopSum (for), OptionState, ArrayRet full nargo capture
   * MapMini Plan materialize + init capture; put/get nargo-fail honesty residual
   * product package-stem pins always run; live capture honest-skips without nargo
+
+  IR-4 multi-fixture inventory:
+  * path-normalized ProgramArtifact under fixtures/{Fixture}/nargo-compile/*
+  * Lean `admitInventoryEntriesV1` 14 leaves ≡ on-disk + inventory-admit.json
+  * Branch/LoopSum/Option/Array full + MapMini init only (put/get no leaf)
+  * not full product-source byte matrix; inventory always runs; live skip ok
 
   IR-5 / G5 honesty matrix:
   * §3.2 status column (Y/P/F) pinned in CaptureV1.honestyMatrixRowsV1
@@ -70,9 +78,10 @@ open ProofForgeV2.Targets.Noir.Acir.CaptureV1
   (pathDecisionV1 authorityNoteV1 counterRelationPinsV1
    circuitCoresEqualV1 circuitCoreMatchesPinsV1 resolveNargoPathV1
    compilePackageCaptureCircuitCoreV1 compilePackageCaptureProgramArtifactV1
-   loadGoldenCircuitCoreV1 pathNormalizeProgramArtifactTextV1
+   loadGoldenCircuitCoreV1 loadAdmitGoldenCircuitCoreV1
+   pathNormalizeProgramArtifactTextV1 admitGoldenArtifactRelPathV1
    extractCircuitCoreV1 productPackageSourceJoinV1 admitSurfaceFixturesV1
-   admitSurfaceCapturePinCountV1 nargoCompileExitCodeV1
+   admitSurfaceCapturePinCountV1 nargoCompileExitCodeV1 hashUtf8V1
    AdmitSurfaceFamilyV1
    honestyMatrixRowsV1 honestyCallScheduleNoteV1 honestyOptionStringNoteV1
    honestyProveNoteV1 finalizeEvidenceNoteV1 finalizeAcirEvidenceNotePrefixV1
@@ -155,12 +164,16 @@ def testGoldenDirLayout : IO Unit := do
   let root := FilePath.mk goldenRootV1
   expect (← root.pathExists) s!"missing golden root {root}"
   expect (← (root / "inventory.json").pathExists) "inventory.json required"
+  expect (← (root / "inventory-admit.json").pathExists)
+    "inventory-admit.json required (IR-4)"
   expect (← (root / "README.md").pathExists) "README.md required"
+  expect (← (root / "fixtures").pathExists) "fixtures/ required (IR-4)"
   let top ← listDirNames root
   for name in top do
     expect
       (name == "README.md" || name == "inventory.json" ||
-        name == "product" || name == "nargo-compile")
+        name == "inventory-admit.json" || name == "product" ||
+        name == "nargo-compile" || name == "fixtures")
       s!"unexpected top-level golden entry: {name}"
   let nargoRels ← listDirNames (root / "nargo-compile")
   expect (nargoRels == #["r0-init", "r1-increment", "r2-get"])
@@ -168,6 +181,9 @@ def testGoldenDirLayout : IO Unit := do
   let productRels ← listDirNames (root / "product" / "relations")
   expect (productRels == #["r0-init", "r1-increment", "r2-get"])
     s!"product relations, got {productRels}"
+  let fixNames ← listDirNames (root / "fixtures")
+  expect (fixNames == admitInventoryFixtureIdsV1)
+    s!"IR-4 fixture dirs, got {fixNames}"
 
 /-- inventory.json documents the same sha256 pins as Lean (documentation join). -/
 def testInventoryJsonJoin : IO Unit := do
@@ -209,6 +225,10 @@ def testIrHonestyNotes : IO Unit := do
     "authority note must document nargo missing honest skip"
   expect (authorityNoteV1.contains "G3")
     "authority note must mention G3 admit-surface pins"
+  expect (authorityNoteV1.contains "IR-4")
+    "authority note must mention IR-4 multi-fixture inventory"
+  expect (authorityNoteV1.contains "inventory-admit")
+    "authority note must name inventory-admit.json"
   expect (authorityNoteV1.contains "IR-5")
     "authority note must mention IR-5 honesty matrix"
   expect (authorityNoteV1.contains "witness-binding")
@@ -491,8 +511,172 @@ unsafe def testAdmitSurfaceLiveCaptureOptional : IO Unit := do
                 s!"  G3 honesty nargo-fail: {fix.fixtureId}/{failStem} exit={code}"
       IO.println "  G3 admit-surface live capture: ok"
 
-/-! ### NOIR-IR-5 — honesty matrix + FC boundaries -/
+/-! ### NOIR-IR-4 — multi-fixture path-normalized inventory -/
 
+/-- IR-4: exact multi-file SHA-256 + size pin for admit inventory leaves. -/
+def testAdmitInventoryExactPins : IO Unit := do
+  expect (admitInventoryEntriesV1.size == admitInventoryEntryCountV1)
+    s!"IR-4 inventory must pin {admitInventoryEntryCountV1} files, got {admitInventoryEntriesV1.size}"
+  expect (admitInventoryPinsV1.size == admitInventoryEntryCountV1)
+    s!"IR-4 pin table size, got {admitInventoryPinsV1.size}"
+  expect (admitInventoryEntryCountV1 == admitSurfaceCapturePinCountV1)
+    "IR-4 inventory leaf count must equal G3 success capture pin count"
+  let mut seen : Array String := #[]
+  for e in admitInventoryEntriesV1 do
+    expect (!seen.contains e.relPath)
+      s!"duplicate admit inventory path: {e.relPath}"
+    seen := seen.push e.relPath
+    let path := goldenPathV1 e.relPath
+    expect (← path.pathExists)
+      s!"missing admit golden file: {path}"
+    let bytes ← IO.FS.readBinFile path
+    expect (bytes.size == e.size)
+      s!"size mismatch {e.relPath}: got {bytes.size} want {e.size}"
+    let digest := hashFileBytesV1 bytes
+    expect (digest == e.sha256Hex)
+      s!"sha256 mismatch {e.relPath}:\n  got  {digest}\n  want {e.sha256Hex}"
+  let sorted := admitInventoryEntriesV1.map (·.relPath) |>.qsort (· < ·)
+  expect (admitInventoryEntriesV1.map (·.relPath) == sorted)
+    "admitInventoryEntriesV1 must be path-sorted"
+  -- MapMini honesty residual: put/get must not appear as inventory leaves.
+  for e in admitInventoryEntriesV1 do
+    expect (!e.relPath.contains "MapMini/nargo-compile/r1-put")
+      "MapMini put must not be inventory leaf"
+    expect (!e.relPath.contains "MapMini/nargo-compile/r2-get")
+      "MapMini get must not be inventory leaf"
+  let mapLeaves :=
+    admitInventoryEntriesV1.filter (·.relPath.startsWith "fixtures/MapMini/")
+  expect (mapLeaves.size == 1)
+    s!"MapMini must pin exactly init leaf, got {mapLeaves.size}"
+
+/-- IR-4: envelope + circuit hash on each admit inventory ProgramArtifact. -/
+def testAdmitInventoryEnvelope : IO Unit := do
+  expect (admitInventorySchemaIdV1 == "proof-forge.noir-acir-admit-inventory.v1")
+    "admit inventory schema id"
+  for pin in admitInventoryPinsV1 do
+    let path := goldenPathV1 pin.artifactRelPath
+    let text ← IO.FS.readFile path
+    expect (envelopeKeysPresentV1 text)
+      s!"{pin.fixtureId}/{pin.relation}: missing required ProgramArtifact keys"
+    expect (noirVersionPresentV1 text)
+      s!"{pin.fixtureId}/{pin.relation}: missing exact noir_version pin"
+    expect (normalizedPathPresentV1 text)
+      s!"{pin.fixtureId}/{pin.relation}: missing normalized file_map path"
+    expect (circuitHashPresentV1 text pin.circuitHash)
+      s!"{pin.fixtureId}/{pin.relation}: missing circuit hash {pin.circuitHash}"
+    expect (!text.contains "/home/")
+      s!"{pin.fixtureId}/{pin.relation}: golden must not contain absolute /home/ path"
+    expect (!text.contains "/tmp/")
+      s!"{pin.fixtureId}/{pin.relation}: golden must not contain /tmp/ path"
+    let core ← loadAdmitGoldenCircuitCoreV1 pin
+    expect (circuitCoreMatchesPinsV1 core pin.circuitHash)
+      s!"{pin.fixtureId}/{pin.relation}: golden core pin mismatch"
+    -- Golden path helper must match pin table.
+    expect
+      (admitGoldenArtifactRelPathV1
+        pin.fixtureId pin.relation pin.packageArtifactName == pin.artifactRelPath)
+      s!"{pin.fixtureId}/{pin.relation}: golden path helper drift"
+  -- G3 capture pins join IR-4 inventory paths (fixture-order).
+  let mut joined : Array String := #[]
+  for fix in admitSurfaceFixturesV1 do
+    for pin in fix.capturePins do
+      joined := joined.push
+        (admitGoldenArtifactRelPathV1
+          fix.fixtureId pin.relation pin.packageArtifactName)
+  expect (joined.size == admitInventoryPinsV1.size)
+    "G3 capture pin count must join IR-4 pin count"
+  for pair in joined.zip (admitInventoryPinsV1.map (·.artifactRelPath)) do
+    expect (pair.1 == pair.2)
+      s!"G3→IR-4 path join drift: {pair.1} vs {pair.2}"
+
+/-- IR-4: inventory-admit.json documents the same sha256 pins as Lean. -/
+def testAdmitInventoryJsonJoin : IO Unit := do
+  let text ← IO.FS.readFile (FilePath.mk goldenRootV1 / admitInventoryRelPathV1)
+  expect (text.contains s!"\"schema\": \"{admitInventorySchemaIdV1}\"")
+    "inventory-admit.json schema"
+  expect (text.contains nargoVersionV1) "inventory-admit.json nargo version"
+  expect (text.contains noirVersionExactV1)
+    "inventory-admit.json exact noir version"
+  expect (text.contains "MapMini") "inventory-admit.json MapMini fixture"
+  expect (text.contains "nargoFailStems")
+    "inventory-admit.json documents MapMini put/get residual"
+  for e in admitInventoryEntriesV1 do
+    expect (text.contains e.sha256Hex)
+      s!"inventory-admit.json missing pin for {e.relPath}"
+    expect (text.contains e.relPath)
+      s!"inventory-admit.json missing path {e.relPath}"
+  for pin in admitInventoryPinsV1 do
+    expect (text.contains pin.circuitHash)
+      s!"inventory-admit.json missing circuit hash {pin.fixtureId}/{pin.relation}"
+
+/-- IR-4: product Plan packages → nargo-assisted capture ≡ frozen admit inventory.
+    Missing nargo → honest skip (inventory exact pins above still ran). -/
+unsafe def testAdmitInventoryLiveCaptureOptional : IO Unit := do
+  match ← resolveNargoPathV1 with
+  | none =>
+      IO.println "  IR-4 admit inventory live capture: skipped (nargo unavailable)"
+  | some nargo => do
+      let ver ← IO.Process.output { cmd := nargo, args := #["--version"] }
+      IO.println s!"  IR-4 admit inventory live capture: {nargo}"
+      IO.println s!"  {ver.stdout.trimAscii.copy}"
+      let tmp := FilePath.mk "build/v2/noir-acir-ir4-live-capture"
+      if ← tmp.pathExists then IO.FS.removeDirAll tmp
+      IO.FS.createDirAll tmp
+      for fix in admitSurfaceFixturesV1 do
+        let packages ← materializeProgramPackages
+          fix.fixtureId fix.sourceText fix.moduleName (tmp / fix.fixtureId)
+        for pin in fix.capturePins do
+          let mut found : Option FilePath := none
+          for p in packages do
+            if p.1 == pin.relation then found := some p.2
+          match found with
+          | none =>
+              throw <| IO.userError
+                s!"IR-4 {fix.fixtureId}: missing package {pin.relation}"
+          | some pkgDir => do
+              let (liveText, liveCore) ← compilePackageCaptureProgramArtifactV1
+                nargo pkgDir pin.packageArtifactName
+              expect (circuitCoreMatchesPinsV1 liveCore pin.expectedCircuitHash)
+                (s!"IR-4 {fix.fixtureId}/{pin.relation}: circuit pin mismatch\n" ++
+                  s!"  live hash={liveCore.circuitHash} want {pin.expectedCircuitHash}")
+              let goldPath :=
+                goldenPathV1
+                  (admitGoldenArtifactRelPathV1
+                    fix.fixtureId pin.relation pin.packageArtifactName)
+              let goldText ← IO.FS.readFile goldPath
+              let goldCore ←
+                match extractCircuitCoreV1 goldText with
+                | some c => pure c
+                | none =>
+                    throw <| IO.userError
+                      s!"IR-4 {fix.fixtureId}/{pin.relation}: gold core extract"
+              expect (circuitCoresEqualV1 liveCore goldCore)
+                (s!"IR-4 {fix.fixtureId}/{pin.relation}: live core ≠ inventory gold\n" ++
+                  s!"  live hash={liveCore.circuitHash} gold={goldCore.circuitHash}")
+              -- Exact path-normalized ProgramArtifact bytes ≡ frozen inventory.
+              expect (liveText.toUTF8 == goldText.toUTF8)
+                (s!"IR-4 {fix.fixtureId}/{pin.relation}: live bytes ≠ inventory gold " ++
+                  s!"(live sha={hashUtf8V1 liveText})")
+              IO.println
+                s!"  IR-4 inventory ≡ live: {fix.fixtureId}/{pin.relation}"
+        -- MapMini put/get honesty residual (no inventory leaf).
+        for failStem in fix.nargoFailStems do
+          let mut found : Option FilePath := none
+          for p in packages do
+            if p.1 == failStem then found := some p.2
+          match found with
+          | none =>
+              throw <| IO.userError
+                s!"IR-4 {fix.fixtureId}: missing honesty-fail package {failStem}"
+          | some pkgDir => do
+              let code ← nargoCompileExitCodeV1 nargo pkgDir
+              expect (code != 0)
+                s!"IR-4 {fix.fixtureId}/{failStem}: expected nargo fail, got 0"
+              IO.println
+                s!"  IR-4 honesty nargo-fail: {fix.fixtureId}/{failStem} exit={code}"
+      IO.println "  IR-4 admit inventory live capture: ok"
+
+/-! ### NOIR-IR-5 — honesty matrix + FC boundaries -/
 /-- IR-5: §3.2 status column pins; no false Y for call/schedule/prove/String. -/
 def testHonestyMatrixStatusColumn : IO Unit := do
   expect (honestyMatrixRowsV1.size == 9)
@@ -876,6 +1060,14 @@ unsafe def run : IO Unit := do
   -- IR-3 / G3
   testAdmitSurfacePackageStems
   testAdmitSurfaceLiveCaptureOptional
+  -- IR-4 multi-fixture inventory
+  testAdmitInventoryExactPins
+  IO.println "  IR-4 admit inventory exact pins: ok"
+  testAdmitInventoryEnvelope
+  IO.println "  IR-4 admit inventory envelope: ok"
+  testAdmitInventoryJsonJoin
+  IO.println "  IR-4 admit inventory.json join: ok"
+  testAdmitInventoryLiveCaptureOptional
   -- IR-5 / G5 honesty matrix
   testHonestyMatrixStatusColumn
   testHonestyOptionStringProductFailClosed

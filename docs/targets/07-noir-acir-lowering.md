@@ -9,7 +9,7 @@ normative: false
 
 # Noir ACIR 层落地规划
 
-状态：`draft`（规划 + **NOIR-IR-1 金样已冻结** + **NOIR-IR-2 Plan→ACIR MVP 已接线** + **NOIR-IR-3 G3 admit-surface circuit-hash pins 已接线** + **NOIR-IR-5 诚实矩阵（G5 轻量）已接线** + **NOIR-IR-6 产品 ACIR dual-write 可选 profile 已接线** + **NOIR-IR-7 / G6 prove honesty PARTIAL+MISSING 已接线**）
+状态：`draft`（规划 + **NOIR-IR-1 金样已冻结** + **NOIR-IR-2 Plan→ACIR MVP 已接线** + **NOIR-IR-3 G3 admit-surface circuit-hash pins 已接线** + **NOIR-IR-4 multi-fixture inventory 已接线** + **NOIR-IR-5 诚实矩阵（G5 轻量）已接线** + **NOIR-IR-6 产品 ACIR dual-write 可选 profile 已接线** + **NOIR-IR-7 / G6 prove honesty PARTIAL+MISSING 已接线**）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Noir target 的权威物化从 **Noir 源包（`.nr` relations）** 切向官方 **电路中间表示（ACIR 及相关编译产物）**，并评估 admit 面覆盖。
 
 与 Psy / Aleo 对照：
@@ -27,7 +27,7 @@ normative: false
 |---|---|
 | 工具 | locked **nargo 1.0.0-beta.26** |
 | 官方语言 | Noir → **ACIR**（Abstract Circuit IR）→ backend prove |
-| 工程现状 | 产品 emit `relations/*/src/main.nr`（过渡/debug base）；`NoirCompileAcceptance` / host-optional `nargo compile`；**IR-1** 金样 `testdata/golden/noir-acir-v1/` + inventory pin；**IR-2** nargo-assisted Plan→ACIR capture（Counter ≡ 金样 circuit core）；**IR-3** G3 CF/aggregate circuit-hash pins；**IR-5** §3.2 诚实矩阵；**IR-6** 默认 `noir-source-u64-relations-v1` zero-tool；显式 `noir-nargo-1.0.0-beta.26-acir-v1` Finalize dual-write path-normalized ProgramArtifact `finalized-extra`（`nargo-compile/{stem}/*.json`；缺 nargo fail-closed；`deployable=false`）；**IR-7/G6** prove honesty **PARTIAL+MISSING**（Tool Lock `barretenberg=null`；`scripts/noir_runtime_test.sh` + `just noir-runtime` → `PF-TOOLCHAIN-MISSING`；不发明 bb/CRS） |
+| 工程现状 | 产品 emit `relations/*/src/main.nr`（过渡/debug base）；`NoirCompileAcceptance` / host-optional `nargo compile`；**IR-1** 金样 `testdata/golden/noir-acir-v1/` + inventory pin；**IR-2** nargo-assisted Plan→ACIR capture（Counter ≡ 金样 circuit core）；**IR-3** G3 CF/aggregate circuit-hash pins；**IR-4** multi-fixture path-normalized inventory（`fixtures/*` + `inventory-admit.json`，14 nargo-ok leaves；MapMini put/get residual 无 leaf）；**IR-5** §3.2 诚实矩阵；**IR-6** 默认 `noir-source-u64-relations-v1` zero-tool；显式 `noir-nargo-1.0.0-beta.26-acir-v1` Finalize dual-write path-normalized ProgramArtifact `finalized-extra`（`nargo-compile/{stem}/*.json`；缺 nargo fail-closed；`deployable=false`）；**IR-7/G6** prove honesty **PARTIAL+MISSING**（Tool Lock `barretenberg=null`；`scripts/noir_runtime_test.sh` + `just noir-runtime` → `PF-TOOLCHAIN-MISSING`；不发明 bb/CRS） |
 | 非本阶段 | 产品 prove/verify、CRS、VK 产品绑定、formal（G6 lane 仅 honesty pin，非 product prove） |
 
 **非目标：**
@@ -184,8 +184,10 @@ Lean 权威表：`CaptureV1.honestyMatrixRowsV1`（与上表同序）；suite `T
 
 ### NOIR-IR-4 — 多 fixture 金样扩张
 
-- [ ] 可选：额外 fixture 的 path-normalized compile inventory（非全量字节矩阵）
-- [ ] 缺 nargo honest skip（G3 live 路径已具备；IR-4 仅 inventory 扩展）
+- [x] 额外 fixture 的 path-normalized compile inventory（非全量 product-source 字节矩阵）：`fixtures/{BranchCounter,LoopSum,OptionState,ArrayRet,MapMini}/nargo-compile/*`（14 nargo-ok leaves = G3 success pins）+ `inventory-admit.json` + Lean `admitInventoryEntriesV1` / `admitInventoryPinsV1`
+- [x] MapMini put/get **无** inventory leaf（nargo type residual honesty 保持）
+- [x] 缺 nargo honest skip（inventory exact pin 恒跑；live recheck 可选）
+- [x] `NoirAcirV1`：`testAdmitInventoryExactPins` / envelope / json join / live capture optional
 
 ### NOIR-IR-5 — 诚实矩阵（G5 轻量）
 
@@ -260,7 +262,8 @@ Lean 权威表：`CaptureV1.honestyMatrixRowsV1`（与上表同序）；suite `T
 5. **NOIR-IR-5** 已完成：§3.2 诚实矩阵 + call/schedule/Option-String/prove FC 边界。
 6. **NOIR-IR-6** 已完成：opt-in nargo ACIR dual-write profile；default zero-tool；`.nr` transitional/debug。
 7. **NOIR-IR-7 / G6** 已完成（PARTIAL+MISSING）：`just noir-runtime` → `PF-TOOLCHAIN-MISSING`；不发明 bb/CRS。
-8. **Lane idle**（optional residual）：IR-4 multi-fixture inventory；未来真实 Barretenberg/backend Tool Lock pin 后的 Counter prove 扩展（仍非 ordinary ci / 非 product prove）。
+8. **NOIR-IR-4** 已完成：multi-fixture path-normalized inventory（14 leaves + MapMini residual honesty）。
+9. **Lane idle**（optional residual only）：未来真实 Barretenberg/backend Tool Lock pin 后的 Counter prove 扩展（仍非 ordinary ci / 非 product prove）。
 
 规划 owner：engineering。
-IR-1/IR-2 冻结细节见 `testdata/golden/noir-acir-v1/README.md`。
+IR-1/IR-2/IR-4 冻结细节见 `testdata/golden/noir-acir-v1/README.md`。

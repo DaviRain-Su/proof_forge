@@ -1,7 +1,8 @@
-# noir-acir-v1 golden (NOIR-IR-1 + IR-2 + IR-3/G3 + IR-5 honesty + IR-6 dual-write)
+# noir-acir-v1 golden (NOIR-IR-1 + IR-2 + IR-3/G3 + IR-4 multi-fixture + IR-5 honesty + IR-6 dual-write)
 
 Frozen **Examples/Counter** product Noir relation packages plus locked
-**nargo 1.0.0-beta.26** `nargo compile` ProgramArtifact JSON.
+**nargo 1.0.0-beta.26** `nargo compile` ProgramArtifact JSON, plus IR-4
+path-normalized multi-fixture admit inventory under `fixtures/`.
 
 ## Authority
 
@@ -13,12 +14,18 @@ Frozen **Examples/Counter** product Noir relation packages plus locked
   must byte-match `product/relations/*`; when nargo is present, compile of those
   packages must match circuit core (`noir_version`+`hash`+`bytecode`) of
   `nargo-compile/*`. See `ProofForgeV2/Targets/Noir/Acir/CaptureV1.lean`.
-- **IR-3 / G3 admit surface:** circuit-hash pins (not multi-file inventory here)
-  for control-flow / aggregate product fixtures already admitted by Noir Plan —
-  BranchCounter (if), LoopSum (for), OptionState, ArrayRet full capture;
-  MapMini init capture + put/get **nargo type residual** (Plan emits packages;
-  locked nargo compile fails — honesty pin, not silent pass). Live capture
-  honest-skips when nargo is missing; package-stem pins always run.
+- **IR-3 / G3 admit surface:** circuit-hash pins for control-flow / aggregate
+  product fixtures already admitted by Noir Plan — BranchCounter (if), LoopSum
+  (for), OptionState, ArrayRet full capture; MapMini init capture + put/get
+  **nargo type residual** (Plan emits packages; locked nargo compile fails —
+  honesty pin, not silent pass). Live capture honest-skips when nargo is
+  missing; package-stem pins always run.
+- **IR-4 multi-fixture inventory:** path-normalized ProgramArtifact leaves under
+  `fixtures/{FixtureId}/nargo-compile/{stem}/*.json` (14 nargo-ok relations =
+  G3 success pins) + `inventory-admit.json` + Lean `admitInventoryEntriesV1`.
+  **Not** a full product-source byte matrix. MapMini put/get have **no** inventory
+  leaves (honesty residual). Inventory pin always runs; live recheck skips
+  without nargo.
 - **IR-5 / G5 honesty matrix:** §3.2 status column in
   `CaptureV1.honestyMatrixRowsV1` + `NoirAcirV1` FC pins —
   call/schedule **P** (witness-binding only, never ACIR Y),
@@ -47,16 +54,23 @@ Frozen **Examples/Counter** product Noir relation packages plus locked
 ## Layout
 
 ```
-inventory.json                 multi-file inventory (documentation + pins)
+inventory.json                 Counter multi-file inventory (IR-1)
+inventory-admit.json           multi-fixture admit inventory (IR-4)
 product/
   Counter.noir-relations.json  product relation IR summary
   relations/r0-init/…          Nargo.toml + src/main.nr (init)
   relations/r1-increment/…     increment entry
   relations/r2-get/…           get view
 nargo-compile/
-  r0-init/pf_relation_0.json   path-normalized ProgramArtifact
+  r0-init/pf_relation_0.json   path-normalized ProgramArtifact (Counter)
   r1-increment/pf_relation_1.json
   r2-get/pf_relation_2.json
+fixtures/
+  BranchCounter/nargo-compile/…  IR-4 path-normalized ProgramArtifact
+  LoopSum/nargo-compile/…
+  OptionState/nargo-compile/…
+  ArrayRet/nargo-compile/…
+  MapMini/nargo-compile/r0-init/…  (init only; put/get residual absent)
 ```
 
 ## Normalization
@@ -93,9 +107,9 @@ lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean \
 ```
 
 Live recheck is optional when nargo is present; missing nargo → suite skip
-honesty for **live capture paths only** (Counter inventory pin, Counter product
-source-join, and G3 package-stem pins still run from frozen files / product
-Plan emit).
+honesty for **live capture paths only** (Counter inventory pin, IR-4 admit
+inventory pin, Counter product source-join, and G3 package-stem pins still run
+from frozen files / product Plan emit).
 
 ## Non-goals
 
@@ -103,5 +117,5 @@ Plan emit).
 - No prove/verify/VK/witness product leaves.
 - `deployable=false` on both Noir profiles.
 - No pure-Lean ACIR opcode encoder (IR-2 decision: nargo-assisted only).
-- G3 does **not** expand this directory with multi-fixture ProgramArtifact
-  inventory (optional IR-4); pins live in `CaptureV1.admitSurfaceFixturesV1`.
+- IR-4 does **not** freeze product-source leaves for fixtures (compile inventory
+  only); MapMini put/get remain honesty residuals without inventory leaves.
