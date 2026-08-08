@@ -255,6 +255,51 @@ theorem eval_even_of_count_even
         .returnedTrue
       simpa [evenInvariant] using hrun)
 
+/-- Converse packaging: ordinal-0 true on a decoded UInt64 overlay implies even
+    payload. Uses the closed odd micro-path for contradiction. -/
+theorem count_even_of_eval_true
+    (state : LogicalStateV1)
+    (countBytes : ByteArray)
+    (hinit : state.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok #[countBytes])
+    (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ())
+    (heval : evalInvariantV1 program 0 state = .returnedTrue) :
+    leBytesToNatV1 countBytes % 2 = 0 := by
+  by_cases he : leBytesToNatV1 countBytes % 2 = 0
+  · exact he
+  · have hodd : leBytesToNatV1 countBytes % 2 = 1 := by omega
+    have hcanTwo :
+        validateValueBytesV1 data.types 0 two8BytesV1 = .ok () := by
+      simpa [data, types, twoBytes_eq_two8] using two_canonical
+    have hcanZero :
+        validateValueBytesV1 data.types 0 zero8BytesV1 = .ok () := by
+      simpa [data, types, zeroBytes_eq_zero8] using zero_canonical
+    have hcanFalse :
+        validateValueBytesV1 data.types 1 (encodeU8 0) = .ok () := by
+      simpa [data, types] using false_canonical
+    have hrun :
+        runInvariantCallableV1 data 2 state = .returnedFalse :=
+      runInvariantCallableV1_eq_returnedFalse_of_uint64_parity_odd
+        data state countBytes 2 0 1 0 (some "even") .public_ "count"
+        hinit hdecode
+        (by simp [data, types, uint64Type])
+        (by simp [data, types, boolType])
+        rfl
+        (by simp [data, countState])
+        even_callable_parity_shape
+        hcan hcanTwo hcanZero hcanFalse hodd
+    have heval' :
+        evalInvariantV1 program 0 state = .returnedFalse :=
+      evalInvariantV1_eq_of_validated_selection
+        program data 0 evenInvariant state #[countBytes] .returnedFalse
+        validate_ok hinit hdecode (by rfl)
+        (by
+          change runInvariantCallableV1 data evenInvariant.callableId state =
+            .returnedFalse
+          simpa [evenInvariant] using hrun)
+    rw [heval] at heval'
+    cases heval'
+
 /-! ### Get-returned packaging (no heavy evenness extract)
 
     Callers that already hold `leBytesToNatV1 countBytes % 2 = 0` (e.g. from a
