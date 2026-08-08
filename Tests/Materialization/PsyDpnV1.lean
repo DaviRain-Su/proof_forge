@@ -27,7 +27,7 @@
     * DPN-7: product `buildFromCapability` dual-writes Counter.dpn.json
       (package ≡ golden) + transitional Counter.psy; deployable=false note
     * G5-MATRIX: Bool/compare/logic; bare assert/revert; UInt64 sub/mul/div/mod;
-      bitAnd; const→literal product; residual FC for callFn/narrow bitwise;
+      bitAnd; const→literal product; residual FC for narrow bitwise;
       payload revertError FC
     * R-NARROW: UInt8/16/32 checked arith + param range → DPN; UInt8 product
       dual-writes `.dpn.json` + `.psy` (no longer residual-only)
@@ -35,6 +35,8 @@
       signed add/sub/mul/div/mod/neg/compare → DPN; Int8 product dual-write
     * R-SHIFT-BIT: UInt64 shl/shr + checkedBitNot → DPN (invalidShift /
       representability asserts; U32Shift* + CastFelt / Sub mask); product dual-write
+    * R-PURE: pureFn/localCall callFn → DPN inline into caller; nested call;
+      recursive/effectful FC; pureHelper omitted from package; product dual-write
     * G5-HARD: residual allowlist for remaining residual families; non-allowlisted
       DPN lower (e.g. zero state fields) fails materialize with PSY-DPN-G5-HARD
 -/
@@ -1613,10 +1615,19 @@ unsafe def testConstProductLower : IO Unit := do
       defn.opType == .constant && defn.inputs == #[7])
     "const 7 must lower to DPN Constant(7)"
 
-/-- Residual pureFn/localCall callFn → stable G5-MATRIX FC. -/
-def testCallFnFailClosedAtDpn : IO Unit := do
-  let fn : PlanFunction := {
+/-- R-PURE: pureFn/localCall callFn inlines pureHelper body into caller. -/
+def testCallFnPureInlineLower : IO Unit := do
+  let double : PlanFunction := {
     index := 0
+    name := "double"
+    kind := .pureHelper
+    params := #[{ sourceIndex := 0, name := "a", isBool := false }]
+    body := #[.returnValue (.checkedAdd (.param 0) (.param 0))]
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  let use : PlanFunction := {
+    index := 1
     name := "use"
     kind := .mutate
     params := #[{ sourceIndex := 0, name := "x", isBool := false }]
@@ -1624,13 +1635,135 @@ def testCallFnFailClosedAtDpn : IO Unit := do
     resultIsBool := false
     resultIsUnit := false
   }
-  match lowerFunctionForTestV1 fn false with
+  let d ← liftResult (lowerFunctionWithHelpersForTestV1 use false #[double])
+  expect (d.definitions.any fun defn => defn.opType == .add)
+    "callFn double must inline checkedAdd → Add"
+  expect (d.assertions.any fun a => a.message == "u64 add overflow")
+    "inlined checkedAdd must keep overflow assert"
+  expect (d.circuitOutputs.size == 1) "use returns one value"
+  -- Nested pure call: quadruple(x) = double(double(x))
+  let quadruple : PlanFunction := {
+    index := 0
+    name := "quadruple"
+    kind := .pureHelper
+    params := #[{ sourceIndex := 0, name := "a", isBool := false }]
+    body := #[.returnValue (.callFn "double" #[.callFn "double" #[.param 0]])]
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  let useQ : PlanFunction := {
+    index := 1
+    name := "useQ"
+    kind := .mutate
+    params := #[{ sourceIndex := 0, name := "x", isBool := false }]
+    body := #[.returnValue (.callFn "quadruple" #[.param 0])]
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  let dQ ← liftResult
+    (lowerFunctionWithHelpersForTestV1 useQ false #[double, quadruple])
+  let addCount := dQ.definitions.foldl (fun n defn =>
+    if defn.opType == .add then n + 1 else n) 0
+  expect (addCount == 2)
+    s!"nested double(double(x)) must inline two Add ops, got {addCount}"
+  -- Unknown pureFn → FC
+  match lowerFunctionForTestV1 use false with
   | .error e =>
       let msg := e.render
-      expect (msg.contains "PSY-DPN-G5-MATRIX" && msg.contains "callFn")
-        s!"callFn residual must cite G5-MATRIX, got: {msg}"
+      expect (msg.contains "callFn" && msg.contains "double")
+        s!"unknown callFn must name callee, got: {msg}"
   | .ok _ =>
-      throw <| IO.userError "callFn pureFn must fail closed at DPN (residual)"
+      throw <| IO.userError "unknown callFn must fail closed"
+  -- Effectful pure body (store) → FC
+  let evil : PlanFunction := {
+    index := 0
+    name := "evil"
+    kind := .pureHelper
+    params := #[{ sourceIndex := 0, name := "a", isBool := false }]
+    body := #[.store 0 (.param 0), .returnValue (.param 0)]
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  let useEvil : PlanFunction := {
+    index := 1
+    name := "useEvil"
+    kind := .mutate
+    params := #[{ sourceIndex := 0, name := "x", isBool := false }]
+    body := #[.returnValue (.callFn "evil" #[.param 0])]
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  match lowerFunctionWithHelpersForTestV1 useEvil false #[evil] with
+  | .error e =>
+      let msg := e.render
+      expect (msg.contains "effectful" || msg.contains "pureFn")
+        s!"effectful pureFn must FC, got: {msg}"
+  | .ok _ =>
+      throw <| IO.userError "effectful pureFn must fail closed at DPN"
+  -- Self-recursive pureFn → depth FC
+  let recFn : PlanFunction := {
+    index := 0
+    name := "rec"
+    kind := .pureHelper
+    params := #[{ sourceIndex := 0, name := "a", isBool := false }]
+    body := #[.returnValue (.callFn "rec" #[.param 0])]
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  let useRec : PlanFunction := {
+    index := 1
+    name := "useRec"
+    kind := .mutate
+    params := #[{ sourceIndex := 0, name := "x", isBool := false }]
+    body := #[.returnValue (.callFn "rec" #[.param 0])]
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  match lowerFunctionWithHelpersForTestV1 useRec false #[recFn] with
+  | .error e =>
+      let msg := e.render
+      expect (msg.contains "recursive" || msg.contains "cyclic" || msg.contains "depth")
+        s!"recursive pureFn must FC on depth, got: {msg}"
+  | .ok _ =>
+      throw <| IO.userError "recursive pureFn must fail closed at DPN"
+  -- Package omits pureHelper top-level methods (inline-only)
+  let plan : Plan := {
+    programName := "PureInline"
+    stateFieldNames := #["count"]
+    functions := #[
+      double,
+      {
+        index := 1
+        name := "use"
+        kind := .mutate
+        params := #[{ sourceIndex := 0, name := "x", isBool := false }]
+        body := #[.returnValue (.callFn "double" #[.param 0])]
+        resultIsBool := false
+        resultIsUnit := false
+      },
+      {
+        index := 2
+        name := "get"
+        kind := .mutate
+        params := #[]
+        body := #[.returnValue (.stateLoad 0)]
+        resultIsBool := false
+        resultIsUnit := false
+      }
+    ]
+    events := #[]
+    errors := #[]
+    sourceHash := "pure-inline-source"
+    semanticHash := "pure-inline-semantic"
+  }
+  let pkg ← liftResult (lowerPlanToPackageV1 plan)
+  expect (!pkg.any (·.name == "double"))
+    s!"package must omit pureHelper double; got {pkg.map (·.name)}"
+  expect (pkg.any (·.name == "use")) "package must include caller use"
+  let some useFn := pkg.find? (·.name == "use") |
+    throw <| IO.userError "missing use in package"
+  expect (useFn.definitions.any fun defn => defn.opType == .add)
+    "package use must contain inlined Add"
 
 /-- R-NARROW: UInt8/16/32 checked add/sub/mul/div/mod + param range asserts. -/
 def testNarrowCheckedArithLower : IO Unit := do
@@ -1903,17 +2036,16 @@ def testPayloadRevertErrorFailClosedAtDpn : IO Unit := do
 
 /-- G5-HARD residual allowlist unit pins (classifier only). -/
 def testG5HardResidualAllowlistClassifier : IO Unit := do
-  -- Remaining residual families (R-NARROW + R-INT + R-SHIFT-BIT admitted;
-  -- narrow bitwise/shift + pureFn still residual).
+  -- Remaining residual families (R-NARROW + R-INT + R-SHIFT-BIT + R-PURE
+  -- admitted; narrow bitwise/shift still residual).
   expect (isPsyDpnG5HardResidualAllowlistV1
       "PSY-DPN-G5-MATRIX: UInt8 narrow bitwise/shift residual (.psy dual-write only)")
     "narrow bitwise residual must be allowlisted"
+  -- Historical pureFn residual wording must no longer be product-emitted;
+  -- classifier is wording-based so the string still matches if reintroduced.
   expect (isPsyDpnG5HardResidualAllowlistV1
       "PSY-DPN-G5-MATRIX: pureFn/localCall callFn 'f' is residual (.psy dual-write only)")
-    "callFn residual must be allowlisted"
-  -- Historical UInt64 shl/checkedBitNot residual wording must no longer be
-  -- product-emitted; classifier is wording-based so the string still matches
-  -- if reintroduced — product lower must not emit them.
+    "historical pureFn residual wording still classifies (product must not emit)"
   expect (!isPsyDpnG5HardResidualAllowlistV1
       "PSY-DPN: expected at least one state field")
     "non-MATRIX DPN error must not be residual allowlisted"
@@ -2075,6 +2207,68 @@ unsafe def testUInt64ShiftBitNotProductDualWriteDpn : IO Unit := do
       expect (flipFn.definitions.any fun defn => defn.opType == .sub)
         "product flip must emit Sub for reduced mask"
 
+/-- R-PURE product: pureFn + localCall dual-writes DPN package + .psy;
+    pure helper inlined into entry (not a top-level package method). -/
+unsafe def testPureFnProductDualWriteDpn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PureDpn where\n" ++
+    "  state count : UInt64\n" ++
+    "  fn double(a : UInt64) : UInt64 do\n" ++
+    "    return a + a\n" ++
+    "  fn quadruple(a : UInt64) : UInt64 do\n" ++
+    "    return double(double(a))\n" ++
+    "  init(seed : UInt64) do\n" ++
+    "    count := seed\n" ++
+    "  entry bump(x : UInt64) : UInt64 do\n" ++
+    "    count := count + double(x)\n" ++
+    "    return count\n" ++
+    "  entry multi(x : UInt64) : UInt64 do\n" ++
+    "    return quadruple(x)\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-pure>" "Tests.PureDpn" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let files ← liftResult <| Targets.Psy.buildFromCapability cap
+  expect (files.size == 2)
+    s!"R-PURE must dual-write DPN+.psy, got {files.map (·.path)}"
+  let some dpn := files.find? (·.path.endsWith ".dpn.json") |
+    throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
+  let some psy := files.find? (·.path.endsWith ".psy") |
+    throw <| IO.userError s!"missing .psy; got {files.map (·.path)}"
+  expect (files[0]!.path.endsWith ".dpn.json")
+    "DPN package must be primary artifact"
+  expect (!psy.contents.isEmpty) "transitional .psy non-empty"
+  expect (psy.contents.contains "fn double(p0: Felt) -> Felt")
+    "product .psy must still emit free pure helper (EmitIR honesty)"
+  expect (psy.contents.contains "double(")
+    "product .psy must call pure helper"
+  match parsePackage? dpn.contents with
+  | none => throw <| IO.userError "PureDpn.dpn.json failed to parse"
+  | some pkg =>
+      expect (!pkg.any (·.name == "double"))
+        s!"DPN package must omit pureFn double; names {pkg.map (·.name)}"
+      expect (!pkg.any (·.name == "quadruple"))
+        s!"DPN package must omit pureFn quadruple; names {pkg.map (·.name)}"
+      let some bump := pkg.find? (·.name == "bump") |
+        throw <| IO.userError s!"missing bump; names {pkg.map (·.name)}"
+      expect (bump.definitions.any fun defn => defn.opType == .add)
+        "product bump must inline double → Add"
+      expect (bump.assertions.any fun a => a.message == "u64 add overflow")
+        "product bump must keep u64 add overflow asserts"
+      let some multi := pkg.find? (·.name == "multi") |
+        throw <| IO.userError s!"missing multi; names {pkg.map (·.name)}"
+      let addCount := multi.definitions.foldl (fun n defn =>
+        if defn.opType == .add then n + 1 else n) 0
+      expect (addCount == 2)
+        s!"product multi(quadruple) must inline two Add, got {addCount}"
+
 /-- G5-HARD: non-allowlisted DPN lower failure fails materialize (no silent
     `.psy`-only). Hand Plan with zero state fields validates/emit-lowers to
     `.psy` shape but DPN package requires ≥1 state field. -/
@@ -2190,7 +2384,7 @@ unsafe def run : IO Unit := do
   testCheckedSubMulDivModLower
   testBitAndOrXorLower
   testConstProductLower
-  testCallFnFailClosedAtDpn
+  testCallFnPureInlineLower
   testNarrowCheckedArithLower
   testSignedIntLower
   testUInt64ShiftBitNotLower
@@ -2199,6 +2393,7 @@ unsafe def run : IO Unit := do
   testUInt8ProductDualWriteDpn
   testInt8ProductDualWriteDpn
   testUInt64ShiftBitNotProductDualWriteDpn
+  testPureFnProductDualWriteDpn
   testG5HardNonResidualDpnFailClosed
   testCounterProductDualWriteArtifacts
   IO.println "Tests.Materialization.PsyDpnV1: ok"

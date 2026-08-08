@@ -14,10 +14,10 @@ when Plan→DPN lower succeeds; `{contract}.psy` remains a transitional/debug
 text emission for dargo compile lanes. **G5-HARD**: non-residual DPN lower
 failures fail materialize with stable `PSY-DPN-G5-HARD` (no silent incomplete
 product). Explicit residual allowlist (`PSY-DPN-G5-MATRIX` residual families —
-narrow bitwise/shift, pureFn/callFn, Field residual; **R-NARROW UInt8/16/32 +
-R-INT Int64/narrow signed + R-SHIFT-BIT UInt64 shl/shr/checkedBitNot admitted
-to DPN**) may still emit transitional `.psy` only until remaining families
-gain true DPN lower; full hard-require (zero allowlist) is deferred.
+narrow bitwise/shift, Field residual; **R-NARROW / R-INT / R-SHIFT-BIT /
+R-PURE pureFn callFn-inline admitted to DPN**) may still emit transitional
+`.psy` only until remaining families gain true DPN lower; full hard-require
+(zero allowlist) is deferred.
 `deployable=false` unchanged.
 
 Checked u64 arithmetic is realized with explicit assert guards. Psy `Felt`
@@ -1766,11 +1766,11 @@ private def lower (plan : Plan) : CompileResult IR := do
 
     True only for stable `PSY-DPN-G5-MATRIX` residual diagnostics that document
     Plan-admit shapes not yet DPN-lowered (product may emit transitional
-    `.psy` only). R-NARROW UInt8/16/32, R-INT Int64/narrow signed, and
-    R-SHIFT-BIT UInt64 shl/shr/checkedBitNot are **not** residual
-    (DPN-lowered). Remaining residual: narrow bitwise/shift, pureFn/callFn,
-    Field. All other DPN lower failures must fail materialize — never silent
-    incomplete product. -/
+    `.psy` only). R-NARROW UInt8/16/32, R-INT Int64/narrow signed,
+    R-SHIFT-BIT UInt64 shl/shr/checkedBitNot, and R-PURE pureFn/localCall
+    callFn inline are **not** residual (DPN-lowered). Remaining residual:
+    narrow bitwise/shift, Field. All other DPN lower failures must fail
+    materialize — never silent incomplete product. -/
 def isPsyDpnG5HardResidualAllowlistV1 (message : String) : Bool :=
   -- Residual matrix families pin the `.psy dual-write only` / residual wording.
   message.contains "PSY-DPN-G5-MATRIX" &&

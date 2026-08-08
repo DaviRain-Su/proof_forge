@@ -9,7 +9,7 @@ normative: false
 
 # Psy DPN 层落地规划
 
-状态：`draft`（规划输入；DPN-1..7 engineering 已落地 dual-write；**G5-WIDE** mul/div/shift + **G5-AGG** Array/Principal/Bytes/Struct multi-leaf + **G5-MATRIX** §3.2 admit 扫描/FC pins + **G5-HARD** residual allowlist / non-residual materialize hard-fail 已闭合；**R-NARROW** UInt8/16/32 守卫算术 DPN lower 已闭合；**R-INT** Int64 signedCompare/checkedNeg + Int{8,16,32} two's-complement signed 算术/比较 DPN lower 已闭合；**R-SHIFT-BIT** UInt64 shl/shr + checkedBitNot DPN lower 已闭合；G5 residual 仍含 narrow bitwise/shift、pureFn、full hard-require（零 allowlist）、`.psy` deletion-gate、optional dargo package 字节金样）
+状态：`draft`（规划输入；DPN-1..7 engineering 已落地 dual-write；**G5-WIDE** mul/div/shift + **G5-AGG** Array/Principal/Bytes/Struct multi-leaf + **G5-MATRIX** §3.2 admit 扫描/FC pins + **G5-HARD** residual allowlist / non-residual materialize hard-fail 已闭合；**R-NARROW** UInt8/16/32 守卫算术 DPN lower 已闭合；**R-INT** Int64 signedCompare/checkedNeg + Int{8,16,32} two's-complement signed 算术/比较 DPN lower 已闭合；**R-SHIFT-BIT** UInt64 shl/shr + checkedBitNot DPN lower 已闭合；**R-PURE** pureFn/localCall callFn inline DPN lower 已闭合；G5 residual 仍含 narrow bitwise/shift、full hard-require（零 allowlist）、`.psy` deletion-gate、optional dargo package 字节金样）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Psy target 的权威物化从 **文本 `.psy`** 切到 **官方 DPN 方法级定义**，并评估 **ProgramV1 语法/语义能覆盖到 DPN target 的范围**。
 
 权威上游（pin）：
@@ -153,7 +153,7 @@ Pin rev 与 dargo 0.1.0 不一致时 **fail closed**（文档 + Tool Lock 同步
 | if / match | Y | **Y** | **done** | DPN-3 if/switch + LoopSum |
 | bounded for UInt64 | 静态 unroll Y | **Y** | **done** | DPN-3 unroll + over-budget FC |
 | while / 无限循环 | N | **F** | **plan-FC** / budget FC | ProgramV1 无 while；`testBoundedForOverBudgetFailClosed` |
-| pureFn / localCall | Y | **Y** | **residual** | `testCallFnFailClosedAtDpn`（`.psy` 仍 emit pureHelper） |
+| pureFn / localCall | Y | **Y** | **done** | R-PURE：`testCallFnPureInlineLower` + `testPureFnProductDualWriteDpn`（callFn inline 进 caller；pureHelper 不进 package；`.psy` 仍 emit free helper） |
 | const / Op.Constant | Y | **Y** | **done** | `testConstProductLower` → DPN Constant |
 | bare assert / zero-arg revert | Y | **Y** | **done** | `testBareAssertAndRevertLower`（含 zero-arg revertError） |
 | payload error | F | **F** | **done**（DPN FC） | `testPayloadRevertErrorFailClosedAtDpn`；Plan PSY-TYPED-ERROR |
@@ -171,9 +171,9 @@ Pin rev 与 dargo 0.1.0 不一致时 **fail closed**（文档 + Tool Lock 同步
 | 桶 | 行数 | 说明 |
 |---|---|---|
 | **done / partial** | 多数 Y + 两 P | 有 DPN lower 或诚实 PARTIAL + `PsyDpnV1` 钉测 |
-| **residual** | narrow bitwise/shift、pureFn | Plan admit + DPN `PSY-DPN-G5-MATRIX` 稳定 FC + **G5-HARD allowlist** 仅 `.psy` |
+| **residual** | narrow bitwise/shift | Plan admit + DPN `PSY-DPN-G5-MATRIX` 稳定 FC + **G5-HARD allowlist** 仅 `.psy` |
 | **plan-FC** | bn254 Field、nested Map、result-bearing call、Context/Commit、invariant、assets… | 产品 Plan 前拒绝；不发明 DPN |
-| **open residual work** | 剩余 residual 族真正 DPN lower、full hard-require（删 allowlist）、`.psy` deletion-gate、dargo 字节金样 | **R-NARROW** + **R-INT** + **R-SHIFT-BIT** done（2026-08-08）；G5-HARD gated policy 已闭合；full hard-require 待其余 residual lower |
+| **open residual work** | 剩余 residual 族真正 DPN lower、full hard-require（删 allowlist）、`.psy` deletion-gate、dargo 字节金样 | **R-NARROW** + **R-INT** + **R-SHIFT-BIT** + **R-PURE** done（2026-08-08）；G5-HARD gated policy 已闭合；full hard-require 待其余 residual lower |
 
 **结论（规划层 + G5-MATRIX 事实）：**
 在 **Psy 已开放且 DPN 已 lower 的子集** 上，物化可走 `.dpn.json`；**residual** 族保持证据化 FC（禁止假 Y）；**plan-FC** 族不经 DPN 旁路。

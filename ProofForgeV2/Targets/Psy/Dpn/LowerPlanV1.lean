@@ -72,7 +72,12 @@
     * R-SHIFT-BIT (G5 residual): UInt64 shl/shr + checkedBitNot → DPN
       (mirror EmitIR invalidShift / representability asserts; dargo U32Shift*
       + CastFelt for Felt `<<`/`>>`; checkedBitNot = Gte + Sub mask)
-    * residual Plan-admit shapes (narrow bitwise/shift, callFn pureFn)
+    * R-PURE (G5 residual): pureFn/localCall callFn → DPN by inlining the
+      pureHelper body into the caller circuit (arg wires as params; nested
+      callFn fuel-bounded). Package omits pureHelper top-level methods
+      (free helpers match EmitIR; not contract methods). Recursive/effectful
+      pure body (store/emit/externalCall/schedule/stateLoad) fail closed.
+    * residual Plan-admit shapes (narrow bitwise/shift only)
       → stable PSY-DPN-G5-MATRIX FC; EmitIRV1 G5-HARD residual allowlist may
       emit transitional `.psy` only (no false DPN package); non-residual DPN
       failures hard-fail materialize
@@ -276,6 +281,10 @@ structure BuilderV1 where
   wideDivBinds : Array WideDivBindV1 := #[]
   /-- G5-WIDE: bindWideUintShift results. -/
   wideShiftBinds : Array WideShiftBindV1 := #[]
+  /-- R-PURE: pureHelper table for callFn inline (name → body). -/
+  helpers : Array PlanFunction := #[]
+  /-- R-PURE: nested callFn inline depth (0 = top-level method body). -/
+  inlineDepth : Nat := 0
   deriving Inhabited
 
 private def pushTarget (b : BuilderV1) (op : OpTypeV1) (inputs : Array UInt64) :
@@ -1250,7 +1259,12 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
       match b.loopVars[depth]? with
       | some w => pure (b, w)
       | none => planError s!"PSY-DPN: loopVar depth {depth} not bound"
-  | .stateLoad f => pure (emitStateLoad b f viewPath)
+  | .stateLoad f => do
+      -- PureFn bodies are state-free (EffectCheck); defend inlining honesty.
+      if b.inlineDepth > 0 then
+        planError
+          "PSY-DPN: pureFn/localCall inline cannot load state (effectful pureFn fail closed)"
+      pure (emitStateLoad b f viewPath)
   | .checkedAdd l r => do
       let (b1, lw) ← lowerExprV1 b params viewPath l
       let (b2, rw) ← lowerExprV1 b1 params viewPath r
@@ -1321,9 +1335,117 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
   | .wideUintShiftLimb kind _bitWidth operationId limbIndex => do
       let w ← lookupWideShift b kind operationId limbIndex
       pure (b, w)
-  | .callFn name _args =>
-      planError s!"PSY-DPN-G5-MATRIX: pureFn/localCall callFn '{name}' is residual \
-(.psy dual-write only until pure subgraph/inline DPN admit)"
+  | .callFn name args => do
+      -- R-PURE: inline pureHelper body into caller definitions (preferred over
+      -- separate DPN method). Expression-level pure-body walker (no mutual
+      -- lowerStmts) covers return/assert/if/switch/revert; effectful stmts FC.
+      let some fn := b.helpers.find? (fun h => h.name == name) |
+        planError s!"PSY-DPN: pureFn/localCall callFn '{name}' is not a declared pureHelper"
+      unless fn.kind == .pureHelper do
+        planError s!"PSY-DPN: callFn '{name}' target is not a pureHelper"
+      unless args.size == fn.params.size do
+        planError s!"PSY-DPN: callFn '{name}' arity {args.size} != params {fn.params.size}"
+      -- Fuel: acyclic pureFn tables have depth ≤ helpers.size; exceed ⇒ cycle.
+      if b.inlineDepth > b.helpers.size then
+        planError s!"PSY-DPN: pureFn/localCall callFn '{name}' recursive/cyclic \
+inline depth exceeded (fail closed)"
+      let mut bCur := b
+      let mut argWires : Array WireV1 := #[]
+      for a in args do
+        let (b1, w) ← lowerExprV1 bCur params viewPath a
+        bCur := b1
+        argWires := argWires.push w
+      let bInline := { bCur with inlineDepth := bCur.inlineDepth + 1 }
+      -- Local pure-body walker: only lowerExpr recursion (same partial).
+      let rec inlinePure (b : BuilderV1) (pparams : Array WireV1) :
+          List Statement → CompileResult (BuilderV1 × WireV1)
+        | [] =>
+            planError s!"PSY-DPN: pureFn '{name}' body has no return value"
+        | .returnValue e :: rest => do
+            unless rest.isEmpty do
+              planError s!"PSY-DPN: pureFn '{name}' has statements after return"
+            lowerExprV1 b pparams false e
+        | .assert c :: rest => do
+            let (b1, cw) ← lowerExprV1 b pparams false c
+            let b2 := {
+              b1 with
+                asserts := b1.asserts.push {
+                  left := cw.encoded
+                  right := encodeIndexedId .bool b1.trueBool
+                  message := "assert"
+                }
+            }
+            inlinePure b2 pparams rest
+        | .assertWithMessage c msg :: rest => do
+            let (b1, cw) ← lowerExprV1 b pparams false c
+            let b2 := {
+              b1 with
+                asserts := b1.asserts.push {
+                  left := cw.encoded
+                  right := encodeIndexedId .bool b1.trueBool
+                  message := msg
+                }
+            }
+            inlinePure b2 pparams rest
+        | .bareRevert :: rest => do
+            unless rest.isEmpty do
+              planError s!"PSY-DPN: pureFn '{name}' has statements after revert"
+            let (b1, fW) := ensureFalse b
+            let b2 := {
+              b1 with
+                asserts := b1.asserts.push {
+                  left := fW.encoded
+                  right := encodeIndexedId .bool b1.trueBool
+                  message := "revert"
+                }
+            }
+            -- Revert path still needs a wire for the expression context.
+            pure (b2, zeroWire b2)
+        | .revertError _ args' :: rest => do
+            unless rest.isEmpty do
+              planError s!"PSY-DPN: pureFn '{name}' has statements after revert"
+            unless args'.isEmpty do
+              planError
+                "PSY-DPN-G5-MATRIX: payload error (nonempty revertError args) \
+is fail closed (PSY-TYPED-ERROR; no structured error payload ABI)"
+            let (b1, fW) := ensureFalse b
+            let b2 := {
+              b1 with
+                asserts := b1.asserts.push {
+                  left := fW.encoded
+                  right := encodeIndexedId .bool b1.trueBool
+                  message := "revert"
+                }
+            }
+            pure (b2, zeroWire b2)
+        | .ifThenElse cond thenBody elseBody :: rest => do
+            unless rest.isEmpty do
+              planError s!"PSY-DPN: pureFn '{name}' has continuation after if"
+            let (b1, cw) ← lowerExprV1 b pparams false cond
+            let (bThen, tw) ← inlinePure b1 pparams thenBody.toList
+            let (bElse, ew) ← inlinePure bThen pparams elseBody.toList
+            emitSelect bElse cw tw ew
+        | .switchOn scrut cases defaultBody :: rest => do
+            unless rest.isEmpty do
+              planError s!"PSY-DPN: pureFn '{name}' has continuation after match"
+            let mut nested : Array Statement := defaultBody
+            for (v, body) in cases.reverse do
+              let c : Expr := .compare .eq scrut (.literal v)
+              nested := #[.ifThenElse c body nested]
+            inlinePure b pparams nested.toList
+        | .returnNone :: _ =>
+            planError s!"PSY-DPN: pureFn '{name}' must return a value (not unit)"
+        | .returnAggregate _ _ :: _ =>
+            planError s!"PSY-DPN: pureFn '{name}' aggregate return is fail closed"
+        | .store _ _ :: _ | .storeAggregate _ _ :: _ | .emitEvent _ _ :: _
+        | .externalCall _ _ :: _ | .schedule _ _ :: _
+        | .bindWideUintMul _ _ _ _ :: _ | .bindWideUintDivMod _ _ _ _ _ :: _
+        | .bindWideUintShift _ _ _ _ _ :: _ | .forLoop _ _ _ _ :: _ =>
+            planError
+              "PSY-DPN: pureFn/localCall inline body is effectful \
+(store/emit/call/schedule/wide-bind/for fail closed)"
+      let (bRes, w) ← inlinePure bInline argWires fn.body.toList
+      pure ({ bRes with inlineDepth := b.inlineDepth }, w)
   | .narrowCheckedAdd w l r => do
       let (b1, lw) ← lowerExprV1 b params viewPath l
       let (b2, rw) ← lowerExprV1 b1 params viewPath r
@@ -1871,12 +1993,22 @@ private def mergeReturns (b : BuilderV1) (cond : WireV1)
     pure (bCur, out)
 
 /-- Lower statements under an active write condition `writeCond` (bool wire).
-    `viewPath` only for pure view helpers (sub_slot 0 on single-field). -/
+    `viewPath` only for pure view helpers (sub_slot 0 on single-field).
+    When `inlineDepth > 0` (R-PURE callFn body), state/effect statements fail closed. -/
 partial def lowerStmtsV1 (b : BuilderV1) (params : Array WireV1)
     (writeCond : WireV1) (viewPath : Bool) :
     List Statement → CompileResult StmtResultV1
   | [] => pure { builder := b, returnWires := #[] }
   | s :: rest => do
+      -- R-PURE: pureFn bodies are effect-free; defend inlining honesty.
+      if b.inlineDepth > 0 then
+        match s with
+        | .store _ _ | .storeAggregate _ _ | .emitEvent _ _ | .externalCall _ _
+        | .schedule _ _ | .bindWideUintMul _ _ _ _ | .bindWideUintDivMod _ _ _ _ _
+        | .bindWideUintShift _ _ _ _ _ =>
+            planError
+              "PSY-DPN: pureFn/localCall inline body is effectful (store/emit/call/schedule/wide-bind fail closed)"
+        | _ => pure ()
       match s with
       | .store f value => do
           let (b1, vw) ← lowerExprV1 b params viewPath value
@@ -2094,13 +2226,15 @@ private def encodeOutputs (wires : Array WireV1) : Array UInt64 :=
     | .bool i => encodeIndexedId .bool i
     | .u32 i => encodeIndexedId .u32Target i
 
-/-- General function lower (DPN-3/4/5). Multi-leaf UInt64/Option/Map + limb wide. -/
-def lowerFunctionGeneralV1 (fn : PlanFunction) (multiLeaf : Bool) :
+/-- General function lower (DPN-3/4/5). Multi-leaf UInt64/Option/Map + limb wide.
+    `helpers` is the plan pureHelper table for R-PURE callFn inlining. -/
+def lowerFunctionGeneralV1 (fn : PlanFunction) (multiLeaf : Bool)
+    (helpers : Array PlanFunction) :
     CompileResult FunctionCircuitDefV1 := do
   let methodId ← requireMethodIdV1 fn.name
   let nParams := fn.params.size
   let (b0, paramWires) := emitParams nParams
-  let b0 := { b0 with multiLeaf }
+  let b0 := { b0 with multiLeaf, helpers }
   let b1 := ensurePrelude b0
   let b2 ← emitNarrowParamRangeAsserts b1 paramWires fn.params
   let viewPath :=
@@ -2131,7 +2265,8 @@ def lowerFunctionGeneralV1 (fn : PlanFunction) (multiLeaf : Bool) :
   }
 
 /-- Classify a single PlanFunction into a DPN template or general lower. -/
-def lowerFunctionV1 (fn : PlanFunction) (multiLeaf : Bool) :
+def lowerFunctionV1 (fn : PlanFunction) (multiLeaf : Bool)
+    (helpers : Array PlanFunction) :
     CompileResult FunctionCircuitDefV1 := do
   -- Counter templates first (exact dargo golden) — single-leaf only.
   if !multiLeaf then
@@ -2147,9 +2282,11 @@ def lowerFunctionV1 (fn : PlanFunction) (multiLeaf : Bool) :
         return (← lowerCheckedAddStoreReturnV1 fn.name f)
     | _ => pure ()
   -- DPN-3/4/5 general path (if/match/for + multi-leaf Option/Map + wide limbs).
-  lowerFunctionGeneralV1 fn multiLeaf
+  lowerFunctionGeneralV1 fn multiLeaf helpers
 
-/-- Lower an entire Plan to a DPN package. Functions sorted by name (dargo order). -/
+/-- Lower an entire Plan to a DPN package. Functions sorted by name (dargo order).
+    R-PURE: pureHelper functions are validated as lowerable but omitted from the
+    package (inlined at call sites; free helpers match EmitIR, not contract methods). -/
 def lowerPlanToPackageV1 (plan : Plan) : CompileResult PackageV1 := do
   let nFields := plan.stateFieldNames.size
   unless nFields ≥ 1 do
@@ -2157,10 +2294,15 @@ def lowerPlanToPackageV1 (plan : Plan) : CompileResult PackageV1 := do
   unless nFields ≤ maxStateLeavesV1 do
     planError s!"PSY-DPN-5: state leaf count {nFields} exceeds max {maxStateLeavesV1}"
   let multiLeaf := nFields > 1
+  let helpers := plan.functions.filter (·.kind == .pureHelper)
   let mut out : Array FunctionCircuitDefV1 := #[]
   for fn in plan.functions do
-    let d ← lowerFunctionV1 fn multiLeaf
-    out := out.push d
+    if fn.kind == .pureHelper then
+      -- Validate pure helper is DPN-lowerable (no residual body); do not emit.
+      let _ ← lowerFunctionV1 fn multiLeaf helpers
+    else
+      let d ← lowerFunctionV1 fn multiLeaf helpers
+      out := out.push d
   let sorted := out.qsort (fun a b => a.name < b.name)
   pure sorted
 
@@ -2175,6 +2317,13 @@ def packageFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) :
     Pass `multiLeaf := true` for Option/UInt128 multi-slot shapes. -/
 def lowerFunctionForTestV1 (fn : PlanFunction) (multiLeaf : Bool) :
     CompileResult FunctionCircuitDefV1 :=
-  lowerFunctionV1 fn multiLeaf
+  lowerFunctionV1 fn multiLeaf #[]
+
+/-- Like `lowerFunctionForTestV1` but with an explicit pureHelper table for
+    R-PURE callFn inlining structural probes. -/
+def lowerFunctionWithHelpersForTestV1 (fn : PlanFunction) (multiLeaf : Bool)
+    (helpers : Array PlanFunction) :
+    CompileResult FunctionCircuitDefV1 :=
+  lowerFunctionV1 fn multiLeaf helpers
 
 end ProofForgeV2.Targets.Psy.Dpn.LowerPlanV1
