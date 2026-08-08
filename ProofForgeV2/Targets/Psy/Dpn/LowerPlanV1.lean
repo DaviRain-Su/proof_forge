@@ -83,13 +83,15 @@
       (`PSY-DPN-G5-HARD`); no residual `.psy`-only dual-write path.
     * Bool/compare/logic/bare assert covered by general builder + suite pins
 
-  Method ids: Counter pins match dargo golden; other names use a stable
-  engineering hash until an official golden is captured.
+  Method ids: official `gen_dapen_contract_function_method_id` via
+  SHA-256 (RES-METHOD-ID). Counter three-method pins remain as regression
+  goldens; product path always uses the algorithm (p0.. naming matches EmitIR).
 -/
 import ProofForgeV2.Targets.Psy.LowerSemanticV1
 import ProofForgeV2.Targets.Psy.ValidatePlanV1
 import ProofForgeV2.Targets.Psy.Dpn.SchemaV1
 import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Core.Crypto
 
 namespace ProofForgeV2.Targets.Psy.Dpn.LowerPlanV1
 
@@ -100,7 +102,8 @@ open ProofForgeV2.Targets.Psy.Dpn.SchemaV1
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .psy message
 
-/-- Pinned method ids from locked-dargo Counter package (psy-node-aligned). -/
+/-- Pinned method ids from locked-dargo Counter package (psy-node-aligned).
+    Regression pins only — product path uses `genDapenContractFunctionMethodIdV1`. -/
 def pinnedMethodIdV1 (name : String) : Option UInt32 :=
   match name with
   | "initialize" => some 202172507
@@ -108,23 +111,44 @@ def pinnedMethodIdV1 (name : String) : Option UInt32 :=
   | "get" => some 1459926901
   | _ => none
 
-/-- Stable engineering method_id when no dargo pin exists (FNV-1a 32-bit).
-    Not an official `gen_dapen_contract_function_method_id` reimplementation. -/
-def engineeringMethodIdV1 (name : String) : UInt32 := Id.run do
-  let mut h : UInt32 := 2166136261
-  for c in name.toUTF8 do
-    h := (h ^^^ c.toUInt32) * 16777619
-  -- Avoid colliding with the three Counter pins when names differ.
-  if h == 202172507 || h == 1990357658 || h == 1459926901 then
-    pure (h ^^^ 0x9e3779b9)
-  else
-    pure h
+/-- Official `psy_crypto::hash::utils::gen_dapen_contract_function_method_id`.
 
-def requireMethodIdV1 (name : String) : CompileResult UInt32 :=
-  pure <|
-    match pinnedMethodIdV1 name with
-    | some id => id
-    | none => engineeringMethodIdV1 name
+    preimage = `method_name` + `(` + join(`arg_name` + `[` + `size` + `]`, `,`) + `)`
+    method_id = first 4 LE bytes of SHA-256(UTF-8 preimage) as `u32`.
+
+    Felt / Bool / U32 each contribute size `1`. Multi-limb UInt128 is expanded
+    at Plan time into one PlanParam per Felt leaf; EmitIR renames those to
+    `p0,p1,p2,p3` each size 1 (not a single `p0[4]`). Verified against
+    EmitIRV1 `p{sourceIndex}` emission and Counter dargo golden. -/
+def genDapenContractFunctionMethodIdV1
+    (methodName : String) (args : Array (String × Nat)) : UInt32 :=
+  let argPortion :=
+    String.intercalate ","
+      (args.map (fun (n, sz) => s!"{n}[{sz}]")).toList
+  let preimage := s!"{methodName}({argPortion})"
+  let dig := ProofForgeV2.Crypto.sha256 preimage.toUTF8
+  let b0 := dig[0]!.toUInt32
+  let b1 := dig[1]!.toUInt32
+  let b2 := dig[2]!.toUInt32
+  let b3 := dig[3]!.toUInt32
+  b0 ||| UInt32.shiftLeft b1 8 ||| UInt32.shiftLeft b2 16 |||
+    UInt32.shiftLeft b3 24
+
+/-- EmitIR renames each physical PlanParam to `p{sourceIndex}` with Felt size 1
+    (Bool / UInt / Field leaves are each one circuit input). -/
+def methodIdArgsFromPlanParamsV1 (params : Array PlanParam) : Array (String × Nat) :=
+  params.map fun p => (s!"p{p.sourceIndex}", 1)
+
+/-- Product method_id from method name + EmitIR-shaped `(name, size)` args. -/
+def requireMethodIdV1 (name : String) (args : Array (String × Nat)) :
+    CompileResult UInt32 :=
+  pure (genDapenContractFunctionMethodIdV1 name args)
+
+/-- Product method_id from a PlanFunction (caller package method name + p0.. args).
+    pureHelper bodies are inlined and omitted from the package; only contract
+    methods reach package emission, so method_id always uses the caller name. -/
+def requireMethodIdFromPlanFnV1 (fn : PlanFunction) : CompileResult UInt32 :=
+  requireMethodIdV1 fn.name (methodIdArgsFromPlanParamsV1 fn.params)
 
 private def bTrue : UInt64 := encodeIndexedId .bool 0
 
@@ -142,7 +166,7 @@ def lowerViewLoadReturnV1 (name : String) (fieldIndex : Nat) :
     CompileResult FunctionCircuitDefV1 := do
   unless fieldIndex == 0 do
     planError "PSY-DPN: only state field 0 supported in Counter/view template"
-  let methodId ← requireMethodIdV1 name
+  let methodId ← requireMethodIdV1 name #[]
   pure {
     name, methodId
     circuitInputs := #[]
@@ -162,7 +186,7 @@ def lowerInitializeStoreParamV1 (name : String) (fieldIndex : Nat) :
     CompileResult FunctionCircuitDefV1 := do
   unless fieldIndex == 0 do
     planError "PSY-DPN: only state field 0 supported in Counter/init template"
-  let methodId ← requireMethodIdV1 name
+  let methodId ← requireMethodIdV1 name #[("p0", 1)]
   pure {
     name, methodId
     circuitInputs := #[0]
@@ -186,7 +210,7 @@ def lowerCheckedAddStoreReturnV1 (name : String) (fieldIndex : Nat) :
     CompileResult FunctionCircuitDefV1 := do
   unless fieldIndex == 0 do
     planError "PSY-DPN: only state field 0 supported in Counter/mutate template"
-  let methodId ← requireMethodIdV1 name
+  let methodId ← requireMethodIdV1 name #[("p0", 1)]
   pure {
     name, methodId
     circuitInputs := #[0]
@@ -2358,7 +2382,7 @@ private def encodeOutputs (wires : Array WireV1) : Array UInt64 :=
 def lowerFunctionGeneralV1 (fn : PlanFunction) (multiLeaf : Bool)
     (helpers : Array PlanFunction) :
     CompileResult FunctionCircuitDefV1 := do
-  let methodId ← requireMethodIdV1 fn.name
+  let methodId ← requireMethodIdFromPlanFnV1 fn
   let nParams := fn.params.size
   let (b0, paramWires) := emitParams nParams
   let b0 := { b0 with multiLeaf, helpers }

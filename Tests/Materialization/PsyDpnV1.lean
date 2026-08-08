@@ -45,6 +45,8 @@
       recursive/effectful FC; pureHelper omitted from package; product DPN
     * R-HARD: narrow bitwise/shift + Goldilocks Field → DPN; residual allowlist
       empty (full hard-require); non-DPN lower fails materialize with PSY-DPN-G5-HARD
+    * RES-METHOD-ID: official gen_dapen SHA-256 method_id (Counter get/increment/
+      initialize exact ids; Plan params → p0.. size-1 args matching EmitIR)
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Psy
@@ -94,6 +96,47 @@ def testEncodeIndexedId : IO Unit := do
   match decodeIndexedId 4294967296 with
   | some (.bool, 0) => pure ()
   | other => throw <| IO.userError s!"decode bool#0 failed: {repr other}"
+
+/-- RES-METHOD-ID: official gen_dapen_contract_function_method_id (SHA-256 LE u32).
+    Counter preimages: get() / increment(p0[1]) / initialize(p0[1]).
+    Multi-limb Plan expands to p0..pN each size 1 (EmitIR), not p0[limbCount]. -/
+def testOfficialMethodIdAlgorithm : IO Unit := do
+  expect (genDapenContractFunctionMethodIdV1 "get" #[] == 1459926901)
+    "get() → 1459926901"
+  expect (genDapenContractFunctionMethodIdV1 "increment" #[("p0", 1)] == 1990357658)
+    "increment(p0[1]) → 1990357658"
+  expect (genDapenContractFunctionMethodIdV1 "initialize" #[("p0", 1)] == 202172507)
+    "initialize(p0[1]) → 202172507"
+  -- Regression pins still document the three Counter goldens.
+  expect (pinnedMethodIdV1 "get" == some 1459926901) "pin get"
+  expect (pinnedMethodIdV1 "increment" == some 1990357658) "pin increment"
+  expect (pinnedMethodIdV1 "initialize" == some 202172507) "pin initialize"
+  expect (pinnedMethodIdV1 "other" |>.isNone) "pin only Counter three"
+  -- Algorithm must match pins for Counter (product path uses algorithm).
+  for (name, args, pin) in
+      [("get", (#[] : Array (String × Nat)), (1459926901 : UInt32)),
+       ("increment", #[("p0", 1)], 1990357658),
+       ("initialize", #[("p0", 1)], 202172507)] do
+    let mid := genDapenContractFunctionMethodIdV1 name args
+    expect (mid == pin) s!"algorithm vs pin for {name}: got {mid.toNat}"
+    expect (pinnedMethodIdV1 name == some pin)
+      s!"pin table must hold {name}"
+  -- EmitIR multi-Felt args: each leaf size 1 (UInt128 → p0[1],p1[1],p2[1],p3[1]).
+  let fourLimbs := genDapenContractFunctionMethodIdV1 "foo"
+    #[("p0", 1), ("p1", 1), ("p2", 1), ("p3", 1)]
+  expect (fourLimbs == 1540978385)
+    s!"foo(p0[1],p1[1],p2[1],p3[1]) must be 1540978385, got {fourLimbs.toNat}"
+  -- PlanParam → p{sourceIndex} size 1 wiring.
+  let planArgs := methodIdArgsFromPlanParamsV1
+    #[{ sourceIndex := 0, name := "amount", isBool := false },
+      { sourceIndex := 1, name := "amount_limb1", isBool := false }]
+  expect (planArgs == #[("p0", 1), ("p1", 1)])
+    s!"Plan params must rename to p0/p1 size 1, got {repr planArgs}"
+  let midFromPlan ← liftResult <|
+    requireMethodIdV1 "increment" (methodIdArgsFromPlanParamsV1
+      #[{ sourceIndex := 0, name := "delta", isBool := false }])
+  expect (midFromPlan == 1990357658)
+    "requireMethodIdV1 from Plan-shaped p0[1] must match increment golden"
 
 /-- Official dargo package JSON (field order may differ from Lean mkObj). -/
 def testCounterGoldenDecode : IO Unit := do
@@ -2574,6 +2617,7 @@ unsafe def testCounterProductDualWriteArtifacts : IO Unit := do
 unsafe def run : IO Unit := do
   testOpTypeDiscriminants
   testEncodeIndexedId
+  testOfficialMethodIdAlgorithm
   testCounterGoldenDecode
   testCounterEncodeRoundTrip
   testCounterPlanLowerEqualsGolden
