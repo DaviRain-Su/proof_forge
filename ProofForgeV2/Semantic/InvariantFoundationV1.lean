@@ -132,27 +132,41 @@ private def defaultValueAtV1 (types : Array TypeDeclV1) (typeId : TypeIdV1) :
                 out := out.append chunk
               pure out
 
+/-- List-shaped production decoder used by `decodeLogicalStateValuesV1`.
+    Explicit recursion keeps singleton/slot-size proofs off the `forIn`
+    monadic surface while preserving the same slot protocol. -/
+private def decodeLogicalStateSlotsV1
+    (types : Array TypeDeclV1)
+    (decls : List StateDeclV1)
+    (canonicalValues : ByteArray)
+    (offset : Nat)
+    (acc : Array ByteArray) :
+    Except SemanticWireErrorV1 (Array ByteArray) :=
+  match decls with
+  | [] =>
+      if offset == canonicalValues.size then
+        .ok acc
+      else
+        err .trailingBytes
+  | decl :: rest => do
+      let (lenU, afterLen) ← readU32leAtV1 canonicalValues offset
+      let len := lenU.toNat
+      unless afterLen + len ≤ canonicalValues.size do
+        return ← err .truncated
+      let slice := canonicalValues.extract afterLen (afterLen + len)
+      validateValueBytesV1 types decl.typeId slice
+      decodeLogicalStateSlotsV1 types rest canonicalValues (afterLen + len)
+        (acc.push slice)
+
 /-- Parse `canonicalValues` into per-slot valueBytes arrays.
 
     Each slot is `u32le len || valueBytes` in `logicalState` order; every
     valueBytes is checked by the unique public `validateValueBytesV1`. Missing
     bytes, trailing bytes, or non-canonical values fail closed. -/
 def decodeLogicalStateValuesV1 (data : SemanticProgramDataV1) (state : LogicalStateV1) :
-    Except SemanticWireErrorV1 (Array ByteArray) := do
-  let mut offset : Nat := 0
-  let mut out : Array ByteArray := Array.emptyWithCapacity data.logicalState.size
-  for decl in data.logicalState do
-    let (lenU, afterLen) ← readU32leAtV1 state.canonicalValues offset
-    let len := lenU.toNat
-    unless afterLen + len ≤ state.canonicalValues.size do
-      return ← err .truncated
-    let slice := state.canonicalValues.extract afterLen (afterLen + len)
-    offset := afterLen + len
-    validateValueBytesV1 data.types decl.typeId slice
-    out := out.push slice
-  unless offset == state.canonicalValues.size do
-    return ← err .trailingBytes
-  pure out
+    Except SemanticWireErrorV1 (Array ByteArray) :=
+  decodeLogicalStateSlotsV1 data.types data.logicalState.toList state.canonicalValues 0
+    (Array.emptyWithCapacity data.logicalState.size)
 
 /-- Build a `LogicalStateV1` from per-slot valueBytes.
 
@@ -220,6 +234,56 @@ theorem encodeLogicalStateValuesV1_single_uint64_eq_ok
   simp only [hstate]
   -- Singleton tables: arity gate + one forIn step (same reduction as zero-slot).
   simp [hcanonical, hslot, hsize, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+/-- Successful decode of a singleton logicalState table recovers a singleton
+    overlay whose sole element is structure-gated for that slot. -/
+theorem decodeLogicalStateValuesV1_singleton_eq
+    (data : SemanticProgramDataV1)
+    (stateDecl : StateDeclV1)
+    (state : LogicalStateV1)
+    (values : Array ByteArray)
+    (hstate : data.logicalState = #[stateDecl])
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok values) :
+    ∃ valueBytes : ByteArray,
+      values = #[valueBytes] ∧
+      validateValueBytesV1 data.types stateDecl.typeId valueBytes = .ok () := by
+  unfold decodeLogicalStateValuesV1 at hdecode
+  have hlist : data.logicalState.toList = [stateDecl] := by
+    simp [hstate]
+  -- One-cons recursive step under the singleton table.
+  simp only [hlist, decodeLogicalStateSlotsV1, Pure.pure, Except.pure,
+    Bind.bind, Except.bind, err] at hdecode
+  cases hread : readU32leAtV1 state.canonicalValues 0 with
+  | error e =>
+      -- error = ok is absurd under simp
+      simp [hread] at hdecode
+  | ok pair =>
+      rcases pair with ⟨lenU, afterLen⟩
+      simp [hread] at hdecode
+      by_cases hfit : afterLen + lenU.toNat ≤ state.canonicalValues.size
+      · simp only [if_pos hfit] at hdecode
+        cases hval :
+            validateValueBytesV1 data.types stateDecl.typeId
+              (state.canonicalValues.extract afterLen
+                (afterLen + lenU.toNat)) with
+        | error e =>
+            simp [hval] at hdecode
+        | ok _u =>
+            simp [hval] at hdecode
+            by_cases htrail :
+                afterLen + lenU.toNat = state.canonicalValues.size
+            · simp only [if_pos htrail] at hdecode
+              -- Success: Except.ok #[slice] = Except.ok values
+              have hvals :
+                  values =
+                    #[state.canonicalValues.extract afterLen
+                        (afterLen + lenU.toNat)] :=
+                (Except.ok.inj hdecode).symm
+              exact ⟨_, hvals, hval⟩
+            · simp only [if_neg htrail] at hdecode
+              cases hdecode
+      · simp only [if_neg hfit] at hdecode
+        cases hdecode
 
 /-- A validated program with one UInt64 state slot and no initializer starts
     initialized with the exact length-prefixed eight-byte zero value. This is a
