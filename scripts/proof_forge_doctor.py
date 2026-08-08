@@ -10,7 +10,8 @@ Authority:
   - scripts/toolchain_assets.py (platform + lock load only)
 
 Does not search PATH. Does not invent tools outside the lock (except the
-documented non-lock Aleo snarkos honesty note). Does not set deployable.
+documented non-lock Aleo snarkos honesty probe via PROOF_FORGE_ALEO_SNARKOS /
+documented cargo-install path + features=test_network). Does not set deployable.
 """
 
 from __future__ import annotations
@@ -27,6 +28,16 @@ from typing import Any
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCTOR_SCHEMA = "proof-forge.doctor.v1"
+
+# Shared I3 Aleo snarkos helper (same process tree as doctor).
+_ALEO_SNARKOS_PATH = ROOT / "scripts" / "proof_forge_aleo_snarkos.py"
+_spec_snarkos = importlib.util.spec_from_file_location(
+    "proof_forge_aleo_snarkos", _ALEO_SNARKOS_PATH
+)
+if _spec_snarkos is None or _spec_snarkos.loader is None:
+    raise RuntimeError(f"cannot load aleo snarkos helper from {_ALEO_SNARKOS_PATH}")
+_aleo_snarkos = importlib.util.module_from_spec(_spec_snarkos)
+_spec_snarkos.loader.exec_module(_aleo_snarkos)
 
 # Implemented targets (TargetRegistryV1 materializers) → core Tool Lock ids.
 # Planning table from docs/product/01-toolchain-install-surface.md §4.4.
@@ -222,37 +233,13 @@ def stat_is_reg(st: os.stat_result) -> bool:
     return stat_mod.S_ISREG(st.st_mode)
 
 
-def inspect_snarkos(tool_root: Path) -> dict[str, Any]:
-    """Aleo runtime honesty note: snarkos is not a Tool Lock member (I3)."""
-    path = tool_root / "snarkos"
-    record: dict[str, Any] = {
-        "name": "snarkos",
-        "path": str(path),
-        "tier": "runtime",
-        "hint": (
-            "features=test_network required; not in Tool Lock; "
-            "see docs/product/01-toolchain-install-surface.md section 10"
-        ),
-    }
-    try:
-        st = path.lstat()
-    except FileNotFoundError:
-        record["status"] = "missing"
-        return record
-    except OSError:
-        record["status"] = "missing"
-        return record
-    if not stat_is_reg(st):
-        # Present but not a usable binary — never mark ok without feature proof.
-        record["status"] = "partial"
-        return record
-    # Binary present: still cannot attest features=test_network from doctor alone.
-    record["status"] = "partial"
-    record["hint"] = (
-        "present under tool root but features=test_network not verified; "
-        "not in Tool Lock (I3)"
-    )
-    return record
+def inspect_snarkos(_tool_root: Path) -> dict[str, Any]:
+    """Aleo runtime honesty: PROOF_FORGE_ALEO_SNARKOS / cargo-install path + test_network.
+
+    snarkos is intentionally **not** under Tool Root. Prebuilt GitHub zips without
+    features=test_network are mismatch (never ok).
+    """
+    return _aleo_snarkos.inspect_snarkos()
 
 
 def aggregate_target_status(tool_records: list[dict[str, Any]]) -> str:
@@ -349,6 +336,12 @@ def render_human(report: dict[str, Any]) -> str:
                 parts.append(f"version={tool['version']}")
             if tool.get("expectedSha") and status == "mismatch":
                 parts.append(f"expected={tool['expectedSha'][:16]}…")
+            if tool.get("installCommand") and status in (
+                "missing",
+                "mismatch",
+                "partial",
+            ):
+                parts.append(f"installCommand={tool['installCommand']}")
             if tool.get("hint"):
                 parts.append(f"({tool['hint']})")
             lines.append(" ".join(parts))
@@ -373,6 +366,13 @@ def compact_json_tool(tool: dict[str, Any]) -> dict[str, Any]:
         out["tier"] = tool["tier"]
     if tool.get("expectedSha"):
         out["expectedSha"] = tool["expectedSha"]
+    # I3 Aleo snarkos honesty fields (absent for Tool Lock members).
+    if tool.get("envVar"):
+        out["envVar"] = tool["envVar"]
+    if tool.get("defaultPath"):
+        out["defaultPath"] = tool["defaultPath"]
+    if tool.get("installCommand"):
+        out["installCommand"] = tool["installCommand"]
     return out
 
 

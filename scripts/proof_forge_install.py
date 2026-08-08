@@ -11,7 +11,8 @@ Authority:
 
 Does not search PATH. Does not invent tools outside the lock. Does not set
 deployable. Optional --with-runtime may install lock-listed runtime tools and
-only documents non-lock Aleo snarkos honesty.
+documents (does not cargo-build) non-lock Aleo snarkos with exact
+features=test_network install command (I3).
 """
 
 from __future__ import annotations
@@ -33,6 +34,16 @@ from typing import Any, Iterator
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALL_SCHEMA = "proof-forge.install.v1"
+
+# Shared I3 Aleo snarkos helper.
+_ALEO_SNARKOS_PATH = ROOT / "scripts" / "proof_forge_aleo_snarkos.py"
+_spec_snarkos = importlib.util.spec_from_file_location(
+    "proof_forge_aleo_snarkos", _ALEO_SNARKOS_PATH
+)
+if _spec_snarkos is None or _spec_snarkos.loader is None:
+    raise RuntimeError(f"cannot load aleo snarkos helper from {_ALEO_SNARKOS_PATH}")
+_aleo_snarkos = importlib.util.module_from_spec(_spec_snarkos)
+_spec_snarkos.loader.exec_module(_aleo_snarkos)
 
 # Implemented targets → core Tool Lock ids (same table as doctor).
 CORE_TOOLS_BY_TARGET: dict[str, list[str]] = {
@@ -63,7 +74,8 @@ TOOL_ACTION = (
     "would-skip",
     "failed",
     "missing-lock",
-    "documented",
+    "documented",  # non-lock Aleo snarkos recipe only (I3)
+    "present",  # non-lock snarkos already verified at documented path
 )
 
 
@@ -409,11 +421,16 @@ def collect_tool_ids(
                     seen.add(tool_id)
                     tools.append(tool_id)
             if tid == "aleo":
+                cmd = _aleo_snarkos.cargo_install_command()
                 notes.append(
                     "aleo runtime snarkos is not in Tool Lock; "
-                    "features=test_network required "
-                    "(see docs/product/01-toolchain-install-surface.md §10); "
-                    "I3 installs/documents separately — not installed by this command"
+                    "features=test_network required; "
+                    "product install does not cargo-build (host-heavy); "
+                    f"exact recipe: {cmd}; "
+                    f"wire {_aleo_snarkos.ENV_SNARKOS} or default "
+                    f"{_aleo_snarkos.default_snarkos_path_display()}; "
+                    "prebuilt GitHub snarkos usually lacks test_network "
+                    "(see docs/product/01-toolchain-install-surface.md §10)"
                 )
     return tools, notes
 
@@ -529,8 +546,14 @@ def render_human(report: dict[str, Any]) -> str:
             "installed",
             "skipped",
             "would-skip",
+            "present",
         ):
             parts.append(f"version={tool['version']}")
+        if tool.get("installCommand") and tool["status"] in (
+            "documented",
+            "present",
+        ):
+            parts.append(f"installCommand={tool['installCommand']}")
         if tool.get("hint"):
             parts.append(f"({tool['hint']})")
         lines.append(" ".join(parts))
@@ -554,7 +577,7 @@ def render_json(report: dict[str, Any]) -> str:
 
 
 def exit_code_for(report: dict[str, Any]) -> int:
-    """0 when every tool is skipped/installed/would-*; 3 on any failed/missing-lock."""
+    """0 when every tool is skipped/installed/would-*/documented/present; 3 on fail."""
     bad = {"failed", "missing-lock"}
     for tool in report["tools"]:
         if tool["status"] in bad:
@@ -601,7 +624,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--with-runtime",
         action="store_true",
         help="also install runtime-tier lock tools (anvil/cast, near-sandbox); "
-        "Aleo snarkos is documented only",
+        "Aleo snarkos is not in Tool Lock — prints exact cargo install "
+        "(features=test_network) instead of building",
     )
     parser.add_argument(
         "--dry-run",
@@ -700,17 +724,9 @@ def main(argv: list[str] | None = None) -> int:
             processed_assets[tool["assetId"]] = rec["status"]
 
     if args.with_runtime and any(t == "aleo" for t in target_ids):
-        # Explicit documented non-install for snarkos (not a lock member).
+        # I3: never cargo-build in product install (host-heavy); document recipe.
         tool_records.append(
-            {
-                "name": "snarkos",
-                "status": "documented",
-                "tier": "runtime",
-                "hint": (
-                    "not in Tool Lock; features=test_network required; "
-                    "see docs/product/01-toolchain-install-surface.md section 10"
-                ),
-            }
+            _aleo_snarkos.snarkos_install_record(dry_run=bool(args.dry_run))
         )
 
     report = {

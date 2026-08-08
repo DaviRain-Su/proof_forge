@@ -9,7 +9,7 @@ normative: false
 
 # 产品面阶梯：安装选链 → 本机验证 → SDK / MCP
 
-状态：`draft`（2026-08-09；I0–I2 done）
+状态：`draft`（2026-08-09；I0–I3 done）
 执行入口：workflow `product-surface-ladder`（`.grok/workflows/product-surface-ladder.rhai`）
 Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forge.toolchains.v4`）
 
@@ -22,11 +22,11 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 | **I1 install** | **done**（`scripts/proof_forge_install.py` + `proof-forge-next install`；schema `proof-forge.install.v1`；`--targets`/`--all-core` + `--yes`；delegate `toolchain_assets` provision/materialize；digest 幂等 skip；无 PATH fallback；`--dry-run` 计划-only） |
 | I1b CLI wire residual | **done with I1**（CLI 薄包装 + parse 覆盖 + `scripts/install_smoke.sh`；若后续扩 usage 文案仍可叠） |
 | I2 local/network 统一包装 | **done**（`proof-forge-next local` / `network` 薄包装；`scripts/local_network_smoke.sh`） |
-| I3 Aleo snarkos runtime 诚实路径 | **not started**（snarkos **不在** Tool Lock；见 §10） |
+| **I3 Aleo snarkos runtime 诚实路径** | **done**（`scripts/proof_forge_aleo_snarkos.py`；doctor 经 `PROOF_FORGE_ALEO_SNARKOS` / 约定 cargo-install 路径探测 `features=test_network`；`install --targets aleo --with-runtime` **只**打印 exact cargo 配方、不 cargo-build、不进 Tool Root；prebuilt GitHub zip 无 feature → `mismatch` 永不 `ok`；见 §10） |
 | MCP-V0 / SDK-V0 | **not started** |
 | Close | 待后续相位 |
 
-本文是 **产品契约与实现顺序** 的权威草稿，不是已交付的 CLI/MCP 行为声明。
+本文是 **产品契约与实现顺序** 的权威草稿；I0–I3 引擎/CLI 包装已接线，MCP/SDK 仍未交付。
 
 ## 1. 产品目标
 
@@ -55,7 +55,7 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 | I1 | `I1-INSTALL` | 非交互 `install --targets a,b --yes` | **done**：`scripts/proof_forge_install.py`；复用 `toolchain_assets` provision/materialize；只装 lock 内 asset；digest 校验；幂等 skip；`--dry-run`/`--json`；`scripts/install_smoke.sh` |
 | I1b | `I1b-CLI-WIRE` | CLI 子命令接到 Exe；`--json`；usage | **done with I1**：`proof-forge-next install` 薄包装 + parse 覆盖 |
 | I2 | `I2-LOCAL-CMDS` | 统一本机/网络入口包装 | **done**：`local --target …` / `network --target … --broadcast` 调现有 package 脚本；`--json`=`proof-forge.local.v1`/`proof-forge.network.v1`；`scripts/local_network_smoke.sh` |
-| I3 | `I3-ALEO-RUNTIME` | Aleo runtime 安装诚实路径 | snarkos `features=test_network`：document 或 semi-auto cargo install 到约定路径；`doctor --target aleo` 识别；**不得**把缺 test_network 的 prebuilt 标 ok |
+| I3 | `I3-ALEO-RUNTIME` | Aleo runtime 安装诚实路径 | **done**：snarkos `features=test_network` 文档 + doctor 探测 + install 打印 exact cargo 配方（不 cargo-build）；约定路径 `~/.cache/proof-forge-v2/aleo-devnet/cargo-install/bin/snarkos` / `PROOF_FORGE_ALEO_SNARKOS`；缺 feature 的 prebuilt → `mismatch` 永不 `ok` |
 | MCP | `MCP-V0` | 最小 MCP server | tools 仅调 CLI/JSON；不重实现编译器 |
 | SDK | `SDK-V0` | 可选薄 SDK（TS 或 Python 选一） | spawn CLI + parse manifest；非第二编译器 |
 | Close | `Close` | AGENTS/backlog 指针 | 成熟度诚实；不声称 formal / hermetic / mainnet |
@@ -99,7 +99,7 @@ PROOF_FORGE_TOOL_ROOT/   # default: ~/.cache/proof-forge-v2/tool-root/<platform>
 | 档 | 默认 `install` | 例 |
 |---|---|---|
 | **core / compile** | 是（`--targets` / `--all-core`） | `solc`、`sbpf`、`leo`、`nargo`、`dargo`、`wat2wasm`、`tolk`、`cosmwasm-check`、`jv` |
-| **runtime** | 否；需 `--with-runtime` 或 `--profile runtime` | `anvil`/`cast`、`near-sandbox`；Aleo **snarkos** 见 §10（非 lock asset） |
+| **runtime** | 否；需 `--with-runtime` 或 `--profile runtime` | lock：`anvil`/`cast`、`near-sandbox`；Aleo **snarkos** 见 §10（**非** lock asset：install 只打印 cargo 配方） |
 
 host-heavy 门（`just solana-runtime` / `just psy-runtime` / Anvil / snarkOS）**不**并入 ordinary `just ci`。
 
@@ -111,7 +111,7 @@ host-heavy 门（`just solana-runtime` / `just psy-runtime` / Anvil / snarkOS）
 | `solana` | `sbpf` | Mollusk 等工程 harness（非本 lock 的 install 默认面；runtime 文档另述） |
 | `near` | `wat2wasm` | `near-sandbox`（runtime） |
 | `noir` | `nargo` | prove/VK / barretenberg：**unresolved / FC**（见 lock `unresolved.barretenberg`） |
-| `aleo` | `leo` | snarkos：**不在 lock**；I3 诚实路径（`test_network`） |
+| `aleo` | `leo` | snarkos：**不在 lock**；I3 已接线（`PROOF_FORGE_ALEO_SNARKOS` / cargo-install 路径 + `test_network` probe） |
 | `psy` | `dargo` | local-VM / base-proof 为 host-heavy `just psy-runtime`，非 ordinary install 默认 |
 | `quint` | `jv`（模型侧辅助；Quint 产品 finalize 仍 zero-tool source） | 无 snarkOS 类 runtime |
 | `cosmwasm` | `wat2wasm`、`cosmwasm-check` | wasmd Docker rung 等工程门，非 CLI 默认 install |
@@ -128,7 +128,7 @@ platform=linux-x86_64
 tool_root=...
 target=aleo status=partial
   leo: ok sha=… version=4.0.2
-  snarkos: missing (need features=test_network; see docs/product/01-toolchain-install-surface.md §10)
+  snarkos: missing installCommand=cargo install snarkos --version 4.9.0 --features test_network --locked --root ~/.cache/proof-forge-v2/aleo-devnet/cargo-install (…; set PROOF_FORGE_ALEO_SNARKOS …)
 ```
 
 JSON（MCP/Agent）：
@@ -144,7 +144,15 @@ JSON（MCP/Agent）：
       "status": "partial",
       "tools": [
         {"name": "leo", "status": "ok"},
-        {"name": "snarkos", "status": "missing", "hint": "features=test_network; not in Tool Lock"}
+        {
+          "name": "snarkos",
+          "status": "missing",
+          "tier": "runtime",
+          "envVar": "PROOF_FORGE_ALEO_SNARKOS",
+          "defaultPath": "~/.cache/proof-forge-v2/aleo-devnet/cargo-install/bin/snarkos",
+          "installCommand": "cargo install snarkos --version 4.9.0 --features test_network --locked --root ~/.cache/proof-forge-v2/aleo-devnet/cargo-install",
+          "hint": "features=test_network required; not in Tool Lock; prebuilt GitHub snarkos usually lacks test_network"
+        }
       ]
     }
   ]
@@ -171,9 +179,9 @@ proof-forge-next install --all-core --yes   # 所有 implemented 的 compile/cor
 - 禁止 PATH fallback 安装进 Tool Root。
 - 已存在且 digest 匹配 → skip（幂等）。
 - 只物化 **当前平台 lock** 中的 asset；跨平台/缺锁 fail closed。
-- `--with-runtime` 仅装 lock 内 runtime 工具（`anvil`/`cast`、`near-sandbox`）；Aleo `snarkos` 仅 documented（I3）。
+- `--with-runtime` 装 lock 内 runtime 工具（`anvil`/`cast`、`near-sandbox`）；Aleo `snarkos` **不在 lock**：install **不** cargo-build，只在 report 中给出 exact `installCommand` + `PROOF_FORGE_ALEO_SNARKOS` 约定（I3；host-heavy，非 ordinary ci）。
 - 引擎：`/usr/bin/python3 -I -S scripts/proof_forge_install.py`；产品 CLI：`proof-forge-next install`（CWD=repo root）。
-- 聚焦 smoke：`scripts/install_smoke.sh`（含 temp root 上 `quint`/`jv` 物化 + 幂等 skip）。
+- 聚焦 smoke：`scripts/install_smoke.sh`（含 temp root 上 `quint`/`jv` 物化 + 幂等 skip + aleo `--with-runtime` snarkos documented）。
 - 成功后同一进程或紧随 `doctor` 可验证 present。
 
 ## 7. 本机 / 网络包装（I2）
@@ -229,14 +237,53 @@ MCP **只** spawn 产品 CLI 并解析 JSON/manifest，不内嵌 solc/leo/nargo�
 - 职责：spawn `proof-forge-next`、解析 `proof-forge.output.v1` / doctor JSON。
 - **非**第二编译器、非第二 Tool Root 写入器。
 
-## 10. Aleo snarkos 诚实性（I3）
+## 10. Aleo snarkos 诚实性（I3）— **done**
 
-- Tool Lock **当前不含** `snarkos` / `snarkvm` asset。
-- 本地 DevNet / network 路径需要 snarkos 时，须 **`features=test_network`**（crate 特性）；GitHub 常见 prebuilt zip **通常缺少**该 feature，不得标为 `ok`。
-- I3 交付二选一或组合：
-  1. 文档化 `cargo install snarkos --features test_network …` 到约定目录（例如 Tool Root 旁或 documented cache）；
-  2. 半自动 install 脚本写入同一约定路径并由 `doctor --target aleo` 探测。
+- Tool Lock **当前不含** `snarkos` / `snarkvm` asset；**禁止**把 snarkos 物化进 `PROOF_FORGE_TOOL_ROOT`。
+- 本地 DevNet（`proof-forge-next local --target aleo --mode devnet` / `scripts/aleo_devnet.sh` / `leo devnet`）需要 snarkos 时，须 **`features=test_network`**（crate 特性）。
+- **GitHub 常见 prebuilt snarkos zip 通常缺少 `test_network`**，**不得**标为 doctor `ok`，也**不得**声称可用于 leo devnet。
+
+### 10.1 约定路径与环境变量
+
+| 项 | 值 |
+|---|---|
+| Env | `PROOF_FORGE_ALEO_SNARKOS`（优先；绝对路径推荐） |
+| 默认 binary | `~/.cache/proof-forge-v2/aleo-devnet/cargo-install/bin/snarkos` |
+| 默认 cargo `--root` | `~/.cache/proof-forge-v2/aleo-devnet/cargo-install` |
+| 共享 helper | `scripts/proof_forge_aleo_snarkos.py` |
+
+### 10.2 安装配方（product install 只打印、不执行）
+
+host-heavy（需 Rust/clang 等；**不**并入 ordinary `just ci`；产品 `install` **不**自动 cargo-build）：
+
+```bash
+cargo install snarkos --version 4.9.0 --features test_network --locked \
+  --root ~/.cache/proof-forge-v2/aleo-devnet/cargo-install
+# optional: export PROOF_FORGE_ALEO_SNARKOS=~/.cache/proof-forge-v2/aleo-devnet/cargo-install/bin/snarkos
+```
+
+```bash
+proof-forge-next install --targets aleo --with-runtime --dry-run --json
+# → tools[] 含 snarkos status=documented|present + installCommand + envVar
+```
+
+若本机已有经 `--version` 验证含 `test_network` 的 binary，install 报告 `status=present`（观察-only，仍非 Tool Lock member）。
+
+### 10.3 doctor 探测
+
+- `doctor --target aleo` **始终**报告 snarkos（runtime 诚实面；路径 **不是** `$TOOL_ROOT/snarkos`）。
+- 探测：对解析路径执行 `snarkos --version`，解析 `features=[…,test_network,…]`。
+- 状态：
+  - `missing` — 路径不存在；hint + `installCommand`
+  - `mismatch` — 文件在但 version **无** `test_network`（典型 prebuilt）
+  - `partial` — 文件在但 version probe 失败（不可 attest）
+  - `ok` — version 列表含 `test_network`
+- 聚焦 smoke：`scripts/doctor_smoke.sh`（fake missing / prebuilt mismatch / good ok）。
+
+### 10.4 成熟度边界
+
 - 在 N3 产品决策前，**不得**因 snarkos 存在而把 Aleo `deployable` 改为 `true`。
+- doctor/install 成功 **不是** formal / hermetic / mainnet / package-only snarkVM execute 证据。
 
 ## 11. 与现有脚本 / CLI 关系
 
@@ -247,6 +294,7 @@ MCP **只** spawn 产品 CLI 并解析 JSON/manifest，不内嵌 solc/leo/nargo�
 | `just toolchains-*` | 工程/CI 旁路；产品 CLI 成后文档主推 CLI |
 | `proof-forge-next` 现有 | `build` / `check` / `inspect` / `list-targets` / **`doctor`** / **`install`** / **`local`** / **`network`** |
 | `scripts/aleo_local_sandbox.sh` / `aleo_devnet.sh` / `aleo_network.sh` | I2 已包装（`local`/`network --target aleo`） |
+| `scripts/proof_forge_aleo_snarkos.py` | I3 snarkos 路径/env/`test_network` probe + cargo 配方 sole helper |
 | `scripts/solana_runtime_test.sh` / `scripts/evm_anvil_differential.sh` | I2 `local --target solana|evm`；`just solana-runtime` / Anvil 工程 lane 仍可用 |
 | `just psy-runtime` 等 | 尚未统一进 `local`；保持 host-heavy 工程入口 |
 
