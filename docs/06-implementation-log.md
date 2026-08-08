@@ -13,6 +13,19 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+## 2026-08-08 — ALEO-RES-CLEAN：residual honesty closeout（lane idle）
+
+- Docs only + residual honesty suite pin（无 capability 扩张）：
+  - `09-aleo-instructions-lowering.md`：G5/IR-7 诚实收口；RES-CLEAN checkboxes；
+    §10 改写为 **lane idle** + deferred blockers（multi-program leo 字节金样、
+    record custody、full opcode、prove/deploy；IR-7 package-only execute MISSING）。
+  - `09-aleo.md` / backlog `ALEO-IR` + `ALEO-RES-CLEAN` / `docs/index.md` /
+    `AGENTS` Active/Next：Lane **idle**；Solana #111–#125 digests 保留。
+- Suite：`Tests.Materialization.AleoInstructionsV1.testResidualHonestyNotes` 钉
+  sole Counter golden inventory（870 B / SHA pin）+ deferred 非声称。
+- `deployable=false`；**不**发明 snarkVM CLI；**非** prove/deploy/formal。
+- G5-MATRIX / G5-HARD / IR-7 工程事实不变；本条仅 residual honesty closeout。
+
 ## 2026-08-08 — ALEO-IR-7 / G6：runtime honesty PARTIAL + MISSING
 
 - Probe：Tool Lock / materialize root 无 snarkVM/snarkOS；仅 Leo 4.0.2。

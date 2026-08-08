@@ -1,8 +1,9 @@
 /-
-  ALEO-IR-1..7 + G5-MATRIX + G5-HARD: Aleo Instructions Schema/TextCodec +
-  Counter golden + Plan→Instructions + if/match/bounded-for + multi-leaf +
-  narrow UInt + effects honesty + product primary + residual true lower +
-  hard-require (empty allowlist) + IR-7 runtime honesty PARTIAL/MISSING.
+  ALEO-IR-1..7 + G5-MATRIX + G5-HARD + RES-CLEAN: Aleo Instructions
+  Schema/TextCodec + Counter golden + Plan→Instructions + if/match/bounded-for
+  + multi-leaf + narrow UInt + effects honesty + product primary + residual
+  true lower + hard-require (empty allowlist) + IR-7 runtime honesty
+  PARTIAL/MISSING + residual honesty closeout.
 
   Covers:
   * schema id / Leo golden version pins
@@ -24,9 +25,11 @@
     **MISSING** (PARTIAL); `scripts/aleo_runtime_test.sh` + `just aleo-runtime`
     fail closed `PF-TOOLCHAIN-MISSING` (never PATH; never invent CLI);
     leo run ≠ Instructions package-only execute
+  * RES-CLEAN: sole Counter full-byte golden inventory; multi-program leo
+    goldens / record / prove / full opcode deferred (non-claims only)
 
   **Not** snarkVM execute, prove/deploy, formal. PARTIAL only with evidence
-  (IR-7 MISSING pin). deployable=false.
+  (IR-7 MISSING pin). deployable=false. Lane idle after RES-CLEAN.
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Aleo
@@ -1571,6 +1574,34 @@ def testIr7RuntimeHonestyNotes : IO Unit := do
   -- * product primary remains Instructions text; deployable=false
   pure ()
 
+/-- RES-CLEAN residual honesty (docs/targets/09-aleo-instructions-lowering.md §10):
+    * sole full-byte Instructions golden = `counter.compiled.aleo` (Counter)
+    * multi-program / multi-fixture full-byte goldens remain **deferred**
+      (OptionState/MapMini/Array/Branch covered by structural product pins)
+    * record custody / full opcode / prove/deploy remain **deferred**
+    * package-only snarkVM execute remains **MISSING** (IR-7 PARTIAL)
+    * this suite does **not** invent a snarkVM CLI or claim prove/deploy -/
+def testResidualHonestyNotes : IO Unit := do
+  let goldenPath : System.FilePath :=
+    "testdata/golden/aleo-instructions-v1/counter.compiled.aleo"
+  expect (← goldenPath.pathExists)
+    "sole Counter full-byte Instructions golden must exist (RES-CLEAN)"
+  let golden ← IO.FS.readFile goldenPath
+  expect (golden.toUTF8.size == 870)
+    s!"sole Counter golden must stay 870 B (locked Leo 4.0.2), got {golden.toUTF8.size}"
+  expect (golden.startsWith "program counter.aleo;")
+    "sole full-byte golden is Counter Instructions program only"
+  -- Inventory: only counter.compiled.aleo under the golden dir (no multi-program set).
+  let entries ← goldenPath.parent.get!.readDir
+  let names := (entries.map (·.fileName)).qsort (· < ·)
+  expect (names == #["counter.compiled.aleo"])
+    s!"RES-CLEAN sole golden inventory, got {names}"
+  -- Non-claims (documented residual only; no invented multi-golden / prove assertion):
+  -- * multi-program leo / multi-fixture Instructions byte goldens deferred
+  -- * record custody / full opcode / prove/deploy out-of-slice
+  -- * package-only snarkVM execute still MISSING (PARTIAL; PF-TOOLCHAIN-MISSING)
+  pure ()
+
 unsafe def run : IO Unit := do
   testPins
   testEncodeEqualsGolden
@@ -1603,6 +1634,7 @@ unsafe def run : IO Unit := do
   testG5MatrixNestedMapPlanFailClosed
   testProductPrimaryInstructionsMaterialize
   testIr7RuntimeHonestyNotes
+  testResidualHonestyNotes
   IO.println "Tests.Materialization.AleoInstructionsV1: ok"
 
 

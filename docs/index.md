@@ -32,7 +32,7 @@ wasmd Docker rung-1；TON：Tolk/BoC + sandbox 10/10（schedule `createMessage` 
 宽度/ABI 专项：[`roadmap-t8.md`](roadmap-t8.md)。
 Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md)。
 Psy DPN 物化规划：[`targets/10-psy-dpn-lowering.md`](targets/10-psy-dpn-lowering.md)（lane idle）。
-Aleo Instructions IR 物化规划：[`targets/09-aleo-instructions-lowering.md`](targets/09-aleo-instructions-lowering.md)（**Active**；IR-0..IR-6 / G0–G4 closeout done；Next = G5 residual）。
+Aleo Instructions IR 物化规划：[`targets/09-aleo-instructions-lowering.md`](targets/09-aleo-instructions-lowering.md)（**idle**；IR-0..IR-7 + G5-MATRIX + G5-HARD + RES-CLEAN closeout done；deferred = multi-program leo 金样 / record / prove / full opcode）。
 
 既有 formal task 与 TaskQualification 资料继续如实保留，但不冒充工程实现完成度，也不阻塞日常开发。
 

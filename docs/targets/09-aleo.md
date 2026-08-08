@@ -17,7 +17,7 @@ Phase 1：实现（工程切片已接线；成熟度 source-only / compile-only�
 
 **主线：Aleo Instructions IR**（官方中间 IR，对标 Psy DPN），**不是**长期 sole Leo 源语法。
 规划 sole 输入：[`09-aleo-instructions-lowering.md`](09-aleo-instructions-lowering.md)。
-**IR-0..IR-7 / G0–G6 + G5-MATRIX + G5-HARD engineering closeout（2026-08-08）**：`Targets/Aleo/Instructions/{SchemaV1,TextCodecV1,LowerPlanV1}` +
+**IR-0..IR-7 / G0–G6 + G5-MATRIX + G5-HARD + RES-CLEAN engineering closeout（2026-08-08）**：`Targets/Aleo/Instructions/{SchemaV1,TextCodecV1,LowerPlanV1}` +
 Counter 金样 `testdata/golden/aleo-instructions-v1/counter.compiled.aleo`（locked Leo 4.0.2）；
 `programFromCapabilityV1` Counter Plan→Instructions ≡ 金样；if/match/bounded-for →
 `branch.eq`/`position`/静态 for-unroll；multi-leaf Map/Option/Array + narrow UInt；
@@ -27,8 +27,9 @@ IR-5 效果诚实矩阵（emit/payload-revert Plan FC；call/schedule/assets/con
 Leo 4 源 debug-only（`PROOF_FORGE_ALEO_EMIT_LEO=1` / `emitLeoDebug` → `{id}.leo`；
 compile profile 双写供 locked-leo compare extras）；**IR-7/G6 runtime honesty PARTIAL+MISSING**
 （无 locked snarkVM package-only；`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`；不发明 CLI）。
-不得把 Leo 源写成长期 sole 权威。
-**Next = RES-CLEAN**；remaining = RES-CLEAN / full opcode / record / prove。
+**RES-CLEAN** residual honesty closeout：sole Counter full-byte golden；deferred multi-program
+leo 金样 / record custody / prove/deploy / full opcode。不得把 Leo 源写成长期 sole 权威。
+Lane **idle**。**诚实 residual**：full opcode / record / prove deferred（见规划 §10）。
 
 ## 当前工程迁移状态（非 formal 完成）
 
@@ -89,10 +90,10 @@ closure 约束；它不是 Leo `build/abi.json`、不是 executable query，也�
 `{programId}.compiled.aleo`（Instructions 面，IR 金样/对照）、`{programId}.abi.json`、
 `{programId}.leo-program.json`。两 profile 均 `deployable=false`。不得发出 Leo 3.x 兼容语法。
 
-**规划后续**：IR-7/G6 runtime honesty **done PARTIAL/MISSING（2026-08-08）**
-（`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`；无 locked package-only execute）→
-**Next = RES-CLEAN**。见
-[`09-aleo-instructions-lowering.md`](09-aleo-instructions-lowering.md)。
+**规划收口**：IR-7/G6 runtime honesty **done PARTIAL/MISSING（2026-08-08）**
+（`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`；无 locked package-only execute）；
+**RES-CLEAN done**；Lane **idle**。见
+[`09-aleo-instructions-lowering.md`](09-aleo-instructions-lowering.md) §10。
 
 ## 6. 工具链
 

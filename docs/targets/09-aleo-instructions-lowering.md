@@ -9,7 +9,7 @@ normative: false
 
 # Aleo Instructions IR 落地规划
 
-状态：`draft`（**IR-0..IR-7 engineering closeout 2026-08-08** + **G5-MATRIX 2026-08-08** + **G5-HARD 2026-08-08**：G0–G6 闭合；G6/IR-7 = runtime honesty **PARTIAL + MISSING**（无 locked snarkVM/package-only execute；`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`；不发明 CLI）。residual 桶 Int64/Field/pureFn true lower；空 allowlist + `ALEO-IR-G5-HARD` 禁 silent Leo-only primary。Schema/TextCodec + Counter 金样 + `LowerPlanV1` + if/match/bounded-for + multi-leaf + narrow + 效果诚实矩阵 + **产品 primary = Instructions**。**Next = RES-CLEAN**；full opcode / record / prove 仍 open。`deployable=false`）
+状态：`draft`（**IR-0..IR-7 + G0–G6 + G5-MATRIX + G5-HARD + RES-CLEAN engineering closeout 2026-08-08**：G0–G6 闭合；G6/IR-7 = runtime honesty **PARTIAL + MISSING**（无 locked snarkVM/package-only execute；`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`；不发明 CLI）。residual 桶 Int64/Field/pureFn true lower；空 allowlist + `ALEO-IR-G5-HARD` 禁 silent Leo-only primary。Schema/TextCodec + Counter 金样 + `LowerPlanV1` + if/match/bounded-for + multi-leaf + narrow + 效果诚实矩阵 + **产品 primary = Instructions**。**RES-CLEAN done**；Lane **idle**。**诚实 residual（非未做 G5）**：full multi-program leo 字节金样 deferred；record custody / prove/deploy / full opcode out-of-slice。`deployable=false`）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Aleo target 的权威物化从 **Leo 4 源文本** 切到官方 **Aleo Instructions**（中间 IR / 寄存器指令集），并评估 **ProgramV1 在 Aleo 上 admit 的构造** 能覆盖到该 IR 的范围。
 
 与 Psy 对照（已闭合 lane）：
@@ -187,7 +187,7 @@ Pin：Leo **4.0.2** exact；grammar/opcode 文档 rev 写入 supply-chain annota
 | **residual** | **0**（G5-HARD closed） | 原 Int64/Field/pureFn 已 true lower |
 | **plan-FC** | const、bn254/Goldilocks Field、nested Map、Context/assets/record/Principal/String/invariant | 达不到 Instructions；不发明 IR |
 | **partial** | **0** | 无 PARTIAL 假 Y |
-| **open residual work** | multi-program leo 金样 / prove / record（IR-7 runtime honesty **done PARTIAL/MISSING**） | 见 §10；`deployable=false` |
+| **open residual work** | multi-program leo 金样 / prove / record / full opcode | **RES-CLEAN done（2026-08-08）**；IR-7 runtime honesty **done PARTIAL/MISSING**；字节金样 / record / prove / full opcode **deferred**（见 §10）；`deployable=false` |
 
 **结论（G5-MATRIX + G5-HARD）：** 每 **Y** 行均有 IR 钉测；每 **F** 行有 plan-FC 或 IR FC 钉测；residual allowlist 空；silent Leo-only primary 已禁。
 
@@ -316,8 +316,10 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 
 ### Phase ALEO-RES-CLEAN — residual honesty closeout
 
-- [ ] 删除/避免假 dual-authority；docs/backlog/AGENTS Next
-- [ ] 全量 multi-program leo 字节金样 **deferred** 声明（Counter sole 全量金样）
+- [x] 删除/避免假 dual-authority：产品 primary = Instructions；Leo debug-only / compile dual-write compare only；空 allowlist 禁 silent Leo-only（G5-HARD 已钉）
+- [x] 全量 multi-program leo / multi-fixture Instructions 字节金样 **deferred** 声明（sole 全量金样 = Counter `counter.compiled.aleo`）
+- [x] docs/backlog/AGENTS：G5/IR-7 诚实收口；Lane **idle**；deferred 仅 blockers
+- [x] suite：`Tests.Materialization.AleoInstructionsV1.testResidualHonestyNotes` 钉 sole golden inventory + deferred 非声称
 
 ---
 
@@ -382,20 +384,12 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 
 ---
 
-## 10. IR-6 后执行队列（已规划；lane 仍 active）
+## 10. G5 / IR-7 closeout 后 residual（Aleo Instructions lane idle）
 
-**IR-0..IR-7 / G0–G6 + G5-MATRIX + G5-HARD engineering closeout（2026-08-08）已闭合**。产品权威 = Plan→Instructions；Leo 源 debug/compare only；Counter ≡ golden；residual 桶 0；空 allowlist；效果矩阵无 PARTIAL 假 Y；IR-7 runtime = **PARTIAL + MISSING**（package-only snarkVM execute 无 Tool Lock pin）。
-
-**后续队列：**
-
-| 序 | 切片 | 目标 | 完成条件（摘要） |
-|---|---|---|---|
-| 1 | **G5-MATRIX** | §3.2 全行扫描 | **done（2026-08-08）** |
-| 2 | **G5-HARD** | hard-require | **done（2026-08-08）**：true lower + 空 allowlist + `ALEO-IR-G5-HARD` |
-| 3 | **IR-7 / G6** | runtime honesty | **done PARTIAL/MISSING（2026-08-08）**：`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`；suite 钉测；不发明 CLI |
-| 4 | **RES-CLEAN** | 文档收口 | deferred 金样 / prove / record 诚实列表（**Next**） |
+**IR-0..IR-7 / G0–G6 + G5-MATRIX + G5-HARD + RES-CLEAN engineering closeout（2026-08-08）已闭合**。产品权威 = Plan→Instructions；Leo 源 debug/compare only；Counter ≡ golden；residual 桶 0；空 allowlist；效果矩阵无 PARTIAL 假 Y；IR-7 runtime = **PARTIAL + MISSING**（package-only snarkVM execute 无 Tool Lock pin）。Lane **idle**；`deployable=false` 不变；无 prove/deploy/formal 本切片。
 
 ### 已交付（不重开为 Next）
+
 | 切片 | 交付 |
 |---|---|
 | IR-0 | 规划 + pin 策略 + Active 切 Aleo IR |
@@ -408,12 +402,20 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 | G5-MATRIX | §3.2 Instructions 现状列 + §3.2.1；Bool/assert/const/Int64/Field/pureFn/nested Map pins |
 | G5-HARD | Int64/Field/pureFn true lower；`isAleoInstructionsG5HardResidualAllowlistV1` 恒 false；`ALEO-IR-G5-HARD` |
 | IR-7 / G6 | runtime honesty PARTIAL/MISSING：`scripts/aleo_runtime_test.sh` + `just aleo-runtime` 钉 `PF-TOOLCHAIN-MISSING`；suite `testIr7RuntimeHonestyNotes`；不发明 snarkVM CLI |
+| RES-CLEAN | residual honesty closeout：sole Counter full-byte golden 保留；docs/tests 重申 multi-program leo 金样 / record / prove / full opcode deferred；Lane idle；**不**发明 snarkVM CLI |
 
-### Remaining（blockers / next work）
+### 诚实 residual（blockers only；非漏做 G5 / IR-7）
 
-1. **RES-CLEAN（Next）**：deferred multi-program leo 金样 / prove / record 诚实列表。
-2. **full opcode / record / prove**：out-of-slice 直至产品决策；record custody / pf.assets 零绑定保持；`deployable=false`。
-3. **可选未来**：若上游提供 package-only execute 且进入 Tool Lock，扩展 `aleo_runtime_test.sh` 为 Counter host-heavy 差分（仍非 ordinary ci）。
+1. **package-only snarkVM / Instructions execute 缺失（PARTIAL）**：Tool Lock 仅 Leo 4.0.2；无 snarkVM/snarkOS asset。`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`。**不**把 `leo run` 升格为 package-only Instructions execute。**不发明 CLI**。**RES-CLEAN / IR-7 已在 docs/tests 重申**。
+2. **全量 multi-program / multi-fixture Instructions 字节金样 — deferred**：
+   - **sole 全量字节金样**仍为 `testdata/golden/aleo-instructions-v1/counter.compiled.aleo`（locked Leo 4.0.2 Counter；870 B；SHA-256 `efc9e7a60ec3e046b1eb36e7b397abb753e06e7f0086b1e41a50966e1a7c2d52`）。
+   - OptionState / MapMini / Array / narrow / Branch 等以 **结构钉测** 覆盖 admit 面；exact multi-fixture UTF-8 CI 金样价值不成比例且无 package-only execute 抓取路径。
+   - compile-profile `*.compiled.aleo` extras 为对照，**不**另开 multi-program golden 仓库。
+3. **record custody / pf.assets — deferred**：零绑定保持；无 mint/consume Instructions IR 直至 custody v2 产品决策。
+4. **full opcode surface — deferred**：Schema/TextCodec 仅 admit 子集；禁止 best-effort 全 opcode 声称。
+5. **prove / deploy / network / formal — out-of-slice**：`deployable=false`；compile-only ≠ proof/deploy evidence。
+6. **RES-CLEAN — done（2026-08-08）**：docs/backlog/AGENTS closeout + residual honesty suite；不改变 deferred/PARTIAL 边界。
+7. **可选未来**：若上游提供 package-only execute 且进入 Tool Lock，扩展 `aleo_runtime_test.sh` 为 Counter host-heavy 差分（仍非 ordinary ci）。
 
 规划 owner：engineering。
-产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-0..IR-7 + G5-MATRIX + G5-HARD 已工程 closeout（产品 primary = Instructions；Leo debug-only；residual allowlist 空；runtime execute MISSING/PARTIAL）。
+产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-0..IR-7 + G5-MATRIX + G5-HARD + RES-CLEAN 已工程 closeout（产品 primary = Instructions；Leo debug-only；residual allowlist 空；runtime execute MISSING/PARTIAL；Lane idle）。
