@@ -896,9 +896,9 @@
       "sha256": "7b68293b20aef9bdbb81ac5bbb74c9d9548509a116efbd8a64244497373beef1"
     },
     {
-      "bytes": 170590,
+      "bytes": 170938,
       "path": "ProofForgeV2/Targets/Psy/LowerSemanticV1.lean",
-      "sha256": "79f20c1c188ce88f04013851201601242b80ddc96aad045e18c120c461d4d370"
+      "sha256": "b1daba9fbcbc9b01b690270c93c3b50616d89b8f3f44590cc5c9815279e0ce65"
     },
     {
       "bytes": 2400,

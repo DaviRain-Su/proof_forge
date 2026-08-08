@@ -1911,7 +1911,8 @@ unsafe def testResultBearingCallFailClosed : IO Unit := do
           throw <| IO.userError
             "result-bearing external call must fail closed on Psy"
 
-/-- Schedule fails closed: resolver declines async, Plan/emitter also FC. -/
+/-- PSY-ASYNC-ASSETS / PSY-CALL-EVENT: schedule fails closed.
+    Resolver declines async; Plan/emitter also FC (never alias `__invoke_sync`). -/
 unsafe def testScheduleFailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=

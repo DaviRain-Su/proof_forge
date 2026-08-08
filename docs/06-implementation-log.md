@@ -12,6 +12,18 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy async/assets evidence fail closed（PSY-ASYNC-ASSETS）
+
+- `schedule` remains declined at resolver (`effect.asynchronous-workflow`) and
+  Plan/emitter (no deferred crosscall form; never alias `__invoke_sync`).
+- ADR-0029 Phase D zero-binding retained: empty Psy admit set for all five
+  `pf.assets` catalog QNs; resolve-with-extension → `PF-REQ-UNSUPPORTED`;
+  no-extension catalog calls → Plan explicit unbound (deposit, transfer,
+  transferAsync, token.transferAsync pins in `PsyPfAssetsV1`).
+- Non-catalog L0 sync call still lowers to hashed `__invoke_sync`.
+- Non-claims: not a capability open; not native vault/deposit binding; not
+  formal UPS/assets registry; reopen only with official contract/runtime evidence.
+
 ## 2026-08-08 — Psy bounded for static unroll（PSY-LOOP engineering）
 
 - dargo v0.1.0 rejects KeywordFor; UInt64 `for … bounded N` now emits static

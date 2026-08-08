@@ -120,6 +120,13 @@ refinement, no product runtime/response gate). `emit` → source-only `__emit`
 `schedule` stay fail closed (no response-binding ABI; no deferred crosscall
 form — never alias sync). `pf.assets` catalog QNs remain unbound (ADR-0029).
 
+## PSY-ASYNC-ASSETS (2026-08-08, evidence FC — no capability open)
+
+`schedule` stays declined (resolver + Plan; no deferred form). Every
+`pf.assets` catalog QN stays unbound (ADR-0029 Phase D zero-binding).
+Must not rename `__invoke_sync` as async or vault transfer. Official
+native vault/deposit binding would be required before any admit set.
+
 ## PSY-LOOP (2026-08-08)
 
 dargo v0.1.0 **rejects** the `for` keyword. UInt64 bounded `for` lowers to

@@ -1,18 +1,20 @@
 /-
-  Tests.Materialization.PsyPfAssetsV1 — ADR-0029 Phase D Psy zero-binding.
+  Tests.Materialization.PsyPfAssetsV1 — ADR-0029 Phase D + PSY-ASYNC-ASSETS.
 
-  Pins:
+  Evidence fail-closed closure (no capability open):
     * resolver does **not** advertise `extension.pf-assets`
     * each of the five catalog QNs with extension declaration fails at
       **resolve** (`PF-REQ-UNSUPPORTED`)
-    * `pf.assets.native.deposit` without extension reaches Plan and fails with
-      explicit **unbound** diagnostic (must not alias `__invoke_sync` as vault)
+    * without extension, catalog QNs reach Plan and fail with explicit
+      **unbound** diagnostic — deposit, sync transfer, and transferAsync
+      (must not alias `__invoke_sync` as vault/async value move)
     * non-catalog L0 sync call still lowers (Phase D must not broaden FC)
 
   Note: transfer* QNs need Principal args. PSY-SCALAR-ABI opens Principal
-  wire-identity leaves, so without extension those programs may reach Plan and
+  wire-identity leaves, so without extension those programs reach Plan and
   hit unbound catalog disposition (not Principal type-closure). Resolve-with-
-  extension remains the product pin for all five.
+  extension remains the product pin for all five. Schedule/async is pinned
+  separately in PsySourceV1 (`testScheduleFailClosed`); never rename sync.
 -/
 import ProofForgeV2
 import ProofForgeV2.Core.RequirementIdsV1
@@ -108,35 +110,62 @@ unsafe def testFiveCatalogQnsFailAtResolve : IO Unit := do
     "call pf.assets.token.transferAsync(mint, dst, amount)"
     "mint : Principal, dst : Principal, amount : UInt64"
 
-/-- Deposit without extension: resolve OK (sync-call only), Plan unbound FC.
-    This is the Plan-level pin that `__invoke_sync` must not fake vault deposit. -/
-unsafe def testDepositUnboundAtPlan : IO Unit := do
+/-- Shared Plan unbound pin: resolve OK (sync-call advertised; no extension),
+    Plan fails with explicit unbound + QN (must not lower to `__invoke_sync`). -/
+unsafe def expectCatalogUnboundAtPlan (label qn callLine extraParams : String) : IO Unit := do
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program DepNoExt where\n" ++
+    s!"program {label} where\n" ++
     "  state tips : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    tips := initial\n" ++
-    "  entry tip(amount : UInt64) : UInt64 do\n" ++
-    "    call pf.assets.native.deposit(amount)\n" ++
+    s!"  entry tip({extraParams}) : UInt64 do\n" ++
+    s!"    {callLine}\n" ++
     "    return amount\n" ++
     "  view get() : UInt64 do\n" ++
     "    return tips\n"
-  let compiled ← compileSource "<psy-pf-assets-dep-noext>" "Tests.PsyDepNoExt" source
+  let compiled ← compileSource s!"<psy-pf-assets-{label}-noext>" s!"Tests.Psy{label}NoExt" source
   -- Resolve must succeed (Psy advertises sync-call; no extension row required).
   let _capability ← liftResult <| resolvePsy compiled
   match planPsyOf compiled with
   | .error (.planInvariant .psy msg) =>
-      expect (msg.contains "unbound" && msg.contains "pf.assets.native.deposit")
-        s!"deposit Plan must cite unbound+QN, got: {msg}"
+      expect (msg.contains "unbound" && msg.contains qn)
+        s!"{qn}: Plan must cite unbound+QN, got: {msg}"
       expect (!msg.contains "must have at least two components")
-        "unbound path must be distinct from callee arity gate"
+        s!"{qn}: unbound path must be distinct from callee arity gate"
+      -- Honesty: diagnostic must not claim a deferred/async alias path.
+      expect (!msg.contains "deferred form")
+        s!"{qn}: unbound is not a schedule-deferred diagnostic"
   | .error e =>
-      throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
+      throw <| IO.userError s!"{qn}: expected planInvariant .psy, got {e.render}"
   | .ok _ =>
       throw <| IO.userError
-        "deposit catalog QN must fail closed at Psy Plan (unbound; no fake vault)"
+        s!"{qn}: catalog QN must fail closed at Psy Plan (unbound; no fake vault)"
+
+/-- Deposit without extension: Plan unbound FC (no fake vault deposit). -/
+unsafe def testDepositUnboundAtPlan : IO Unit :=
+  expectCatalogUnboundAtPlan "Dep" "pf.assets.native.deposit"
+    "call pf.assets.native.deposit(amount)" "amount : UInt64"
+
+/-- Sync transfer without extension: Plan unbound (no honest vault debit/credit). -/
+unsafe def testTransferUnboundAtPlan : IO Unit :=
+  expectCatalogUnboundAtPlan "Xfer" "pf.assets.native.transfer"
+    "call pf.assets.native.transfer(dst, amount)"
+    "dst : Principal, amount : UInt64"
+
+/-- transferAsync without extension: Plan unbound — must not become schedule or
+    sync alias; async asset QNs share the same zero-binding disposition. -/
+unsafe def testTransferAsyncUnboundAtPlan : IO Unit :=
+  expectCatalogUnboundAtPlan "XferAsync" "pf.assets.native.transferAsync"
+    "call pf.assets.native.transferAsync(dst, amount)"
+    "dst : Principal, amount : UInt64"
+
+/-- Token transferAsync without extension: same unbound (no CW20/NEP-141 surface). -/
+unsafe def testTokenTransferAsyncUnboundAtPlan : IO Unit :=
+  expectCatalogUnboundAtPlan "TokAsync" "pf.assets.token.transferAsync"
+    "call pf.assets.token.transferAsync(mint, dst, amount)"
+    "mint : Principal, dst : Principal, amount : UInt64"
 
 /-- Non-catalog L0 call still materializes (Phase D must not broaden FC). -/
 unsafe def testNonCatalogCallStillLowers : IO Unit := do
@@ -158,6 +187,9 @@ unsafe def run : IO Unit := do
   testDispositionHelpers
   testFiveCatalogQnsFailAtResolve
   testDepositUnboundAtPlan
+  testTransferUnboundAtPlan
+  testTransferAsyncUnboundAtPlan
+  testTokenTransferAsyncUnboundAtPlan
   testNonCatalogCallStillLowers
   IO.println "Tests.Materialization.PsyPfAssetsV1: ok"
 
