@@ -891,9 +891,9 @@
       "sha256": "06c83f05cb79cfeff4b4fa1ce99eaa8a541571c370880db75b6f1c5cd14991f3"
     },
     {
-      "bytes": 6673,
+      "bytes": 24931,
       "path": "ProofForgeV2/Targets/Psy/Dpn/LowerPlanV1.lean",
-      "sha256": "9582299a1d55a71c7686be8c5f6e7a03f70b2dd5c874900582d296d14df1ce64"
+      "sha256": "e3b0c47cebc522e28e55023075753523d309b8c3866f448c1cba56e409f900d0"
     },
     {
       "bytes": 11874,

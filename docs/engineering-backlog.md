@@ -325,7 +325,7 @@ D1–D4 = 0/27 done。
 | **PSY-DPN** | ProgramV1 → DPN 权威物化（去文本 `.psy` 依赖） | **planned（2026-08-08）**：规划见 [`targets/10-psy-dpn-lowering.md`](targets/10-psy-dpn-lowering.md)。权威 `psy-node`/`psy_vm` rev `79e0b82…` 的 `DPNFunctionCircuitDefinition`；完成条件 = Psy **admit 面**在 DPN 上全编码（非全 PSL 语法、非全 DPN op）。切片：`PSY-DPN-1` schema+Counter 金样 → `DPN-2` Counter lower → `DPN-3` 控制流/for → `DPN-4` 多叶/wide → `DPN-5` Map → `DPN-6` 效果诚实矩阵 → `DPN-7` 产品切换 |
 | **PSY-DPN-1** | DPN Schema + Counter 金样 | **done（2026-08-08）**：`Targets/Psy/Dpn/SchemaV1`+`JsonCodecV1`；OpType exact u16（含空洞）；`encodeIndexedId`；手建 Counter package 与 `testdata/golden/psy-dpn-v1/counter-package.v1.json`（locked-dargo 产物）decode 结构相等 + encode round-trip；`Tests.Materialization.PsyDpnV1`；**非** Plan→DPN lower（DPN-2） |
 | **PSY-DPN-2** | Counter Plan→DPN lower | **done（2026-08-08）**：`LowerPlanV1` 识别 UInt64 Counter 形（init store param / mutate checkedAdd store+return / view load）；method_id pin；name-sort package；`packageFromCapabilityV1` ≡ 全量 dargo Counter 金样（get+increment+initialize）；**扩展路径**仍按 admit 面逐模板加（见规划 §3「全覆盖 DSL 特性」） |
-| **PSY-DPN-3** | if/match/bounded for → DPN | **pending** |
+| **PSY-DPN-3** | if/match/bounded for → DPN | **done（2026-08-08）**：`LowerPlanV1` general builder——ifThenElse 双臂 conditional Set + BoolAnd 写条件；switchOn→nested if+eq+Select return merge；forLoop 静态 unroll（boundExceeded + maxIter≤64 步门控 body，与 EmitIR PSY-LOOP 一致）；超预算/return-in-for/unsupported Expr FC；Counter 三模板保持 dargo 金样；`PsyDpnV1` + LoopSum product 结构门；**非** dargo LoopSum 金样/method_id 官方 hash/execute 差分 |
 | **PSY-DPN-4** | 多叶/宽整数 → DPN | **pending** |
 | **PSY-DPN-5** | Map 等 .psy 破点 → DPN | **pending** |
 | **PSY-DPN-6** | call/emit/context 诚实矩阵 | **pending**（多数维持 FC/PARTIAL） |

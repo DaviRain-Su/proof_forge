@@ -230,8 +230,9 @@ G0–G2 为 **MVP**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛
 
 ### Phase DPN-3 — 控制流与有界循环
 
-- if/match → Select + conditional store  
-- bounded for → 展开 defs（与现静态 unroll 语义一致）
+- [x] if/match → Select + conditional `SetContractStateSlotSingle`（`LowerPlanV1` general builder；switch→nested if+eq+Select return merge）  
+- [x] bounded for → 静态 unroll（与 EmitIRV1 PSY-LOOP 一致：`boundExceeded` + N 步 `i=start+k`/`i<end` 门控 body；maxIter≤64；超预算 FC）  
+- [x] 结构测试：`PsyDpnV1` if/switch/for + `Examples/LoopSum` product Plan→package；Counter 金样仍绿
 
 ### Phase DPN-4 — 多叶与宽整数
 
