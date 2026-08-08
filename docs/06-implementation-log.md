@@ -13,6 +13,18 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+## 2026-08-08 — ALEO-IR-2：Plan→Instructions Counter MVP
+
+- 新增 `ProofForgeV2/Targets/Aleo/Instructions/LowerPlanV1.lean`：
+  Counter 形 Plan → Instructions（init store(param)+`initialized` guard Final、
+  checkedAdd store+return re-get、transition async wrapper、constructor edition）。
+- `programFromCapabilityV1` / `lowerPlanToInstructionsV1`：手建与产品
+  `Examples/Counter` 均 ≡ `counterProgramV1` ≡ golden 字节；default 与
+  compile profile 同 Plan → 同 Instructions。
+- 测试扩展 `Tests.Materialization.AleoInstructionsV1`（unsupported FC）。
+- 产品 materialize 仍 Leo 源 + 可选 compile extras；**非** IR-6 primary 切over。
+- 非 prove/deploy/snarkVM/formal。
+
 ## 2026-08-08 — ALEO-IR-1：Instructions Schema + Counter golden
 
 - 新增 `ProofForgeV2/Targets/Aleo/Instructions/{SchemaV1,TextCodecV1}.lean`：

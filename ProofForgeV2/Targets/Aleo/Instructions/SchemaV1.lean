@@ -11,7 +11,8 @@
 
   This module is **not** a full opcode surface, **not** snarkVM Program
   objects, and **not** formal semantics. Unknown opcodes/shapes fail closed
-  at TextCodec decode (IR-1). Plan→Instructions lower is ALEO-IR-2.
+  at TextCodec decode (IR-1). Plan→Instructions Counter lower is ALEO-IR-2
+  (`LowerPlanV1`).
 -/
 namespace ProofForgeV2.Targets.Aleo.Instructions.SchemaV1
 

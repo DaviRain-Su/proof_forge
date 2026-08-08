@@ -8,6 +8,7 @@ import ProofForgeV2.Targets.Aleo.PlanSchemaV1
 import ProofForgeV2.Targets.Aleo.EmitIRV1
 import ProofForgeV2.Targets.Aleo.Instructions.SchemaV1
 import ProofForgeV2.Targets.Aleo.Instructions.TextCodecV1
+import ProofForgeV2.Targets.Aleo.Instructions.LowerPlanV1
 
 /-!
 # ProofForgeV2.Targets.Aleo — public façade

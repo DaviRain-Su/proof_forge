@@ -1,5 +1,6 @@
 /-
-  ALEO-IR-1: Aleo Instructions SchemaV1 + TextCodecV1 + Counter golden.
+  ALEO-IR-1 + ALEO-IR-2: Aleo Instructions Schema/TextCodec + Counter golden
+  + Plan→Instructions Counter MVP lower.
 
   Covers:
   * schema id / Leo golden version pins
@@ -7,19 +8,40 @@
   * golden decode ≡ hand-built structure
   * encode → decode structural round-trip
   * decode fail-closed on truncated / unknown opcode
+  * ALEO-IR-2: hand-built Counter Plan → Instructions ≡ counterProgramV1
+  * ALEO-IR-2: Examples/Counter product Plan → Instructions ≡ golden
+  * ALEO-IR-2: encode(product lower) ≡ golden bytes
+  * ALEO-IR-2: unsupported Plan shape fail closed
+  * profile note: default vs compile share Plan; lower is profile-insensitive
 
-  **Not** Plan→Instructions lower (ALEO-IR-2), snarkVM execute, prove/deploy.
+  **Not** product primary materialize cutover (IR-6), snarkVM execute,
+  prove/deploy, formal.
 -/
+import ProofForgeV2
+import ProofForgeV2.Targets.Aleo
 import ProofForgeV2.Targets.Aleo.Instructions.SchemaV1
 import ProofForgeV2.Targets.Aleo.Instructions.TextCodecV1
+import ProofForgeV2.Targets.Aleo.Instructions.LowerPlanV1
+import ProofForgeV2.Core.TargetIdentityV1
+import Tests.Language.ParserSession
+import Tests.Compiler.ValidatedSourceV1Pipeline
 
 namespace Tests.Materialization.AleoInstructionsV1
 
+open ProofForgeV2
+open ProofForgeV2.Compiler
+open ProofForgeV2.Targets
+open ProofForgeV2.Targets.Aleo
 open ProofForgeV2.Targets.Aleo.Instructions.SchemaV1
 open ProofForgeV2.Targets.Aleo.Instructions.TextCodecV1
+open ProofForgeV2.Targets.Aleo.Instructions.LowerPlanV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
+
+private def liftResult {α : Type} : CompileResult α → IO α
+  | .ok value => pure value
+  | .error e => throw <| IO.userError e.render
 
 private def goldenPath : System.FilePath :=
   "testdata/golden/aleo-instructions-v1/counter.compiled.aleo"
@@ -30,6 +52,8 @@ private def testPins : IO Unit := do
   expect (counterProgramV1.name == "counter.aleo") "counter program name"
   expect (counterProgramV1.items.size == 7)
     "2 mappings + initialize fn/final + increment fn/final + constructor"
+  expect (guardMappingNameV1 == "initialized") "init guard name"
+  expect (mappingNameV1 0 == "pf_state_0") "state mapping name"
 
 private def testEncodeEqualsGolden : IO Unit := do
   expect (← goldenPath.pathExists) "Counter compiled.aleo golden must exist"
@@ -102,17 +126,142 @@ private def testCounterShape : IO Unit := do
       expect (f.body.size == 6) "initialize finalize body size"
   | _ => throw <| IO.userError "items[3] must be finalize initialize"
 
-def run : IO Unit := do
+/-- Hand-built Counter Plan matching product shape (init store / checkedAdd). -/
+private def handBuiltCounterPlan : Plan := {
+  programName := "Counter"
+  stateFieldNames := #["count"]
+  stateFieldIsInt := #[false]
+  stateFieldUintWidth := #[0]
+  stateFieldIsField := #[false]
+  functions := #[
+    {
+      index := 0
+      name := "initialize"
+      kind := .initialize
+      params := #[{ sourceIndex := 0, name := "initial", isBool := false }]
+      body := #[.store 0 (.param 0), .returnNone]
+      touchesState := true
+      resultIsBool := false
+      resultDropped := false
+    },
+    {
+      index := 1
+      name := "increment"
+      kind := .mutate
+      params := #[{ sourceIndex := 0, name := "delta", isBool := false }]
+      body := #[
+        .store 0 (.checkedAdd (.stateLoad 0) (.param 0)),
+        .returnValue (.stateLoad 0)
+      ]
+      touchesState := true
+      resultIsBool := false
+      resultDropped := true
+    }
+  ]
+  views := #[{ name := "get", stateFieldIndex := 0 }]
+  sourceHash := "00"
+  semanticHash := "00"
+}
+
+/-- ALEO-IR-2: hand-built Plan lower ≡ hand-built Instructions / golden. -/
+private def testHandBuiltPlanLowerEqualsCounterProgram : IO Unit := do
+  let prog ← liftResult <| lowerPlanForTestV1 handBuiltCounterPlan
+  expect (prog == counterProgramV1)
+    "hand-built Counter Plan→Instructions must equal counterProgramV1"
+  let golden ← IO.FS.readFile goldenPath
+  expect (encodeProgram prog == golden)
+    "hand-built Plan lower encode must equal golden bytes"
+
+/-- ALEO-IR-2: product Examples/Counter via capability → Instructions ≡ golden. -/
+unsafe def testProductCounterPlanLowerEqualsGolden : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let src ← IO.FS.readFile "Examples/Counter.lean"
+  let parsed ← liftResult (← session.selectProgramV1
+    src "<aleo-ir2>" "Examples.Counter" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  -- Default source profile (Plan shared with compile profile).
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let prog ← liftResult <| programFromCapabilityV1 cap
+  expect (prog == counterProgramV1)
+    s!"product Plan→Instructions must equal counterProgramV1 (got {prog.name})"
+  let golden ← IO.FS.readFile goldenPath
+  expect (encodeProgram prog == golden)
+    "product lower encode must equal locked-leo Counter golden bytes"
+  -- Compile profile resolves a distinct selection identity but same Plan body.
+  let selectionCompile ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo
+      (some CodegenProfileId.aleoLeoU64CompileV1)
+  let capCompile ← liftResult <|
+    resolveEngineeringRequirementsV1 selectionCompile compiled
+  let progCompile ← liftResult <| programFromCapabilityV1 capCompile
+  expect (progCompile == prog)
+    "default and compile profiles must lower to identical Instructions (shared Plan)"
+
+/-- ALEO-IR-2: non-Counter Plan fail closed. -/
+private def testUnsupportedPlanFailClosed : IO Unit := do
+  -- Zero-state: not Counter.
+  let emptyPlan : Plan := {
+    programName := "Empty"
+    stateFieldNames := #[]
+    stateFieldIsInt := #[]
+    stateFieldUintWidth := #[]
+    stateFieldIsField := #[]
+    functions := #[]
+    views := #[]
+    sourceHash := "00"
+    semanticHash := "00"
+  }
+  match lowerPlanForTestV1 emptyPlan with
+  | .ok _ => throw <| IO.userError "empty plan must fail closed"
+  | .error e =>
+      expect (e.render.contains "ALEO-IR-2")
+        s!"expected ALEO-IR-2 diagnostic, got: {e.render}"
+  -- Two state leaves: not Counter MVP.
+  let multi : Plan := {
+    handBuiltCounterPlan with
+    stateFieldNames := #["a", "b"]
+    stateFieldIsInt := #[false, false]
+    stateFieldUintWidth := #[0, 0]
+    stateFieldIsField := #[false, false]
+  }
+  match lowerPlanForTestV1 multi with
+  | .ok _ => throw <| IO.userError "multi-leaf plan must fail closed"
+  | .error e =>
+      expect (e.render.contains "ALEO-IR-2")
+        s!"expected ALEO-IR-2 multi-leaf diagnostic, got: {e.render}"
+  -- Unsupported body template.
+  let badBody : Plan := {
+    handBuiltCounterPlan with
+    functions := #[
+      handBuiltCounterPlan.functions[0]!,
+      { handBuiltCounterPlan.functions[1]! with
+        body := #[.store 0 (.param 0), .returnNone]
+        resultDropped := false }
+    ]
+  }
+  match lowerPlanForTestV1 badBody with
+  | .ok _ => throw <| IO.userError "non-checkedAdd mutate must fail closed"
+  | .error e =>
+      expect (e.render.contains "ALEO-IR-2")
+        s!"expected ALEO-IR-2 body diagnostic, got: {e.render}"
+
+unsafe def run : IO Unit := do
   testPins
   testEncodeEqualsGolden
   testGoldenDecodeEqualsHandBuilt
   testEncodeDecodeRoundTrip
   testDecodeFailClosed
   testCounterShape
+  testHandBuiltPlanLowerEqualsCounterProgram
+  testProductCounterPlanLowerEqualsGolden
+  testUnsupportedPlanFailClosed
   IO.println "Tests.Materialization.AleoInstructionsV1: ok"
 
 end Tests.Materialization.AleoInstructionsV1
 
 /-- Allow `lake env lean --run Tests/Materialization/AleoInstructionsV1.lean`. -/
-def main : IO Unit :=
+unsafe def main : IO Unit :=
   Tests.Materialization.AleoInstructionsV1.run

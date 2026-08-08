@@ -9,7 +9,7 @@ normative: false
 
 # Aleo Instructions IR 落地规划
 
-状态：`draft`（规划 + **ALEO-IR-1 已落地**：Schema/TextCodec + Counter `compiled.aleo` 金样；**尚无** Plan→Instructions lower）  
+状态：`draft`（规划 + **ALEO-IR-1/IR-2 已落地**：Schema/TextCodec + Counter 金样 + `LowerPlanV1` Plan→Instructions Counter MVP ≡ 金样；产品 primary 仍 Leo 源至 IR-6）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Aleo target 的权威物化从 **Leo 4 源文本** 切到官方 **Aleo Instructions**（中间 IR / 寄存器指令集），并评估 **ProgramV1 在 Aleo 上 admit 的构造** 能覆盖到该 IR 的范围。
 
 与 Psy 对照（已闭合 lane）：
@@ -144,14 +144,14 @@ Pin：Leo **4.0.2** exact；grammar/opcode 文档 rev 写入 supply-chain annota
 
 ### 3.1 定义
 
-> **DSL 自有特性**（ProgramV1）在 **Aleo 已 admit** 的构造，最终都要有 **确定性 Aleo Instructions 编码**；  
+> **DSL 自有特性**（ProgramV1）在 **Aleo 已 admit** 的构造，最终都要有 **确定性 Aleo Instructions 编码**；
 > **不 admit** 的，在 Normalize / Plan / IR 边界 **稳定诊断（证据化 FC）**，且 **不** 经 Leo 旁路偷偷实现。
 
 **不是：** 全 Leo 语法、全 Instructions opcode、全 AVM、prove/deploy 完成。
 
 ### 3.2 覆盖矩阵（初稿；IR-1 后据代码/金样修订）
 
-图例：`Y` = 目标 Y；`P` = PARTIAL；`F` = 证据化 FC；`N` = 非作者面。  
+图例：`Y` = 目标 Y；`P` = PARTIAL；`F` = 证据化 FC；`N` = 非作者面。
 **现状**列指 **当前 Leo 路径**；**IR 目标** 为本规划。
 
 | ProgramV1 / Semantic 族 | 现 Leo 路径 | IR 目标 | 备注 |
@@ -182,11 +182,11 @@ Pin：Leo **4.0.2** exact；grammar/opcode 文档 rev 写入 supply-chain annota
 
 ```text
 ProofForgeV2/Targets/Aleo/
-  Instructions/           # 新建
-    SchemaV1.lean         # program/function/instr/register/type/visibility
-    TextCodecV1.lean       # sole 文本序列化（≡ compiled.aleo 风格）
-    LowerPlanV1.lean      # AleoPlan → Instructions program
-    ValidateV1.lean       # 寄存器 SSA、可见性、final 边界
+  Instructions/
+    SchemaV1.lean         # program/function/instr/register/type/visibility (IR-1)
+    TextCodecV1.lean       # sole 文本序列化（≡ compiled.aleo 风格）(IR-1)
+    LowerPlanV1.lean      # AleoPlan → Instructions program (IR-2 Counter MVP)
+    ValidateV1.lean       # 寄存器 SSA、可见性、final 边界（后续）
   EmitIRV1.lean           # 过渡：Leo 源；IR 稳定后 debug-only
   FinalizeV1.lean         # 主产物切 Instructions；compile profile 可对照
 ```
@@ -194,15 +194,24 @@ ProofForgeV2/Targets/Aleo/
 ### 4.2 与 AleoPlan 关系
 
 - **保留** `AleoPlan` 为 target-owned 中间层（validate、digest、测试）。
-- **新增** `plan → Instructions` 为产品权威物化。
-- **Leo 源** 降为 debug / 对照旁路（env 或 profile flag），对标 Psy `PROOF_FORGE_PSY_EMIT_PSY`。
+- **新增** `LowerPlanV1` / `programFromCapabilityV1`：`plan → Instructions`（IR-2 Counter MVP 已测；**产品 materialize primary 仍 Leo 源**，IR-6 再切）。
+- **Leo 源** 仍为产品过渡 printer（`EmitIRV1`）；IR 稳定后降为 debug / 对照旁路，对标 Psy `PROOF_FORGE_PSY_EMIT_PSY`。
+
+**默认 profile vs compile profile（IR-2 钉死）：**
+
+| Profile | id | Plan body | Instructions lower | 产品物化 |
+|---|---|---|---|---|
+| default source | `aleo-leo-4.0.2-u64-v1` | 共享 | 同 Plan → 同 Instructions | Leo 源 + query-contract；zero-tool Finalize |
+| compile | `aleo-leo-4.0.2-u64-compile-v1` | 共享（同 planDigest） | 同 Plan → 同 Instructions | 同上 + locked Leo → `*.compiled.aleo` extras |
+
+`LowerPlanV1` 不读 profile：两 profile 对 Counter 产出结构相等 Instructions；compile profile 的 `compiled.aleo` 仍是金样权威来源，lower 输出必须 ≡ 该金样。
 
 ### 4.3 验证阶梯
 
 | 阶 | 门 | 完成标准 |
 |---|---|---|
-| G0 | Schema + 金样 decode | Counter `compiled.aleo` round-trip / 字段钉死 |
-| G1 | Lower Counter | 我们生成的 Instructions ≡ locked-leo 金样（结构） |
+| G0 | Schema + 金样 decode | **done**：Counter `compiled.aleo` round-trip / 字段钉死（IR-1） |
+| G1 | Lower Counter | **done**：`LowerPlanV1` Instructions ≡ locked-leo 金样（结构+字节；IR-2） |
 | G2 | OptionState / MapMini 子集 | 与现 Leo admit 面一致 |
 | G3 | 控制流 / for 展开 | 与现 Plan 语义一致 |
 | G4 | 产品 dual-write / primary IR | 默认权威 Instructions；Leo debug-only |
@@ -217,47 +226,47 @@ G0–G1 = **MVP**；G5 = admit 覆盖声明门槛；G6 = 去 Leo 源依赖（可
 
 ### Phase ALEO-IR-0 — 规划与 pin（本文档）
 
-- [x] 选定 **Aleo Instructions** 为权威物化层（对标 Psy DPN）  
-- [x] Tool Lock / supply-chain 注释：Leo 4.0.2 + Instructions grammar 权威指针（SchemaV1 头注释 + golden pin）  
-- [x] 金样入库策略：`testdata/golden/aleo-instructions-v1/counter.compiled.aleo`  
+- [x] 选定 **Aleo Instructions** 为权威物化层（对标 Psy DPN）
+- [x] Tool Lock / supply-chain 注释：Leo 4.0.2 + Instructions grammar 权威指针（SchemaV1 头注释 + golden pin）
+- [x] 金样入库策略：`testdata/golden/aleo-instructions-v1/counter.compiled.aleo`
 
 ### Phase ALEO-IR-1 — Schema + Counter 金样
 
-- [x] Lean：`ProofForgeV2/Targets/Aleo/Instructions/{SchemaV1,TextCodecV1}.lean`（program/function/finalize/constructor/mapping + input/output/async/get.or_use/set/add/not/assert.eq 子集）  
-- [x] 金样：locked Leo 4.0.2 product Counter `aleo-leo-4.0.2-u64-compile-v1` → `counter.compiled.aleo`（870 B，SHA-256 `efc9e7a60ec3e046b1eb36e7b397abb753e06e7f0086b1e41a50966e1a7c2d52`）  
-- [x] 测试：`Tests/Materialization/AleoInstructionsV1` — 手建 ≡ golden decode、encode 字节相等、round-trip、fail-closed  
+- [x] Lean：`ProofForgeV2/Targets/Aleo/Instructions/{SchemaV1,TextCodecV1}.lean`（program/function/finalize/constructor/mapping + input/output/async/get.or_use/set/add/not/assert.eq 子集）
+- [x] 金样：locked Leo 4.0.2 product Counter `aleo-leo-4.0.2-u64-compile-v1` → `counter.compiled.aleo`（870 B，SHA-256 `efc9e7a60ec3e046b1eb36e7b397abb753e06e7f0086b1e41a50966e1a7c2d52`）
+- [x] 测试：`Tests/Materialization/AleoInstructionsV1` — 手建 ≡ golden decode、encode 字节相等、round-trip、fail-closed
 
 ### Phase ALEO-IR-2 — Plan → Instructions MVP
 
-- [ ] `LowerPlanV1`：init/entry/view 的 public UInt64 mapping 读写 + checked add  
-- [ ] 与金样结构相等  
-- [ ] 默认 profile / compile profile 关系文档化  
+- [x] `LowerPlanV1`：Counter 形 init store(param) + mutate checkedAdd store+return（Final mapping get/set/add；init one-shot `initialized` guard）；bare view 不进 Instructions（off-chain query，对齐金样）
+- [x] 与金样结构相等（`programFromCapabilityV1` / 手建 Plan → encode ≡ `counter.compiled.aleo`）
+- [x] 默认 profile / compile profile 关系文档化（见 §4.2 与 module 头；Plan  profile-insensitive，两 profile 同 Instructions）
 
 ### Phase ALEO-IR-3 — 控制流与有界循环
 
-- [ ] if/match → 指令序列（或证明等价展开）  
-- [ ] bounded for 静态展开（与现 Plan 一致）  
+- [ ] if/match → 指令序列（或证明等价展开）
+- [ ] bounded for 静态展开（与现 Plan 一致）
 
 ### Phase ALEO-IR-4 — 多叶 / Map / Option / 窄宽
 
-- [ ] 复用现 flatten-to-mapping 布局，输出 Instructions  
-- [ ] 宽度/Field 与现 FC 矩阵一致  
+- [ ] 复用现 flatten-to-mapping 布局，输出 Instructions
+- [ ] 宽度/Field 与现 FC 矩阵一致
 
 ### Phase ALEO-IR-5 — 效果与诚实矩阵
 
-- [ ] emit/call/schedule/assets/context：FC 或 PARTIAL 仅在有证据时  
-- [ ] record：保持 FC 直至产品决策  
+- [ ] emit/call/schedule/assets/context：FC 或 PARTIAL 仅在有证据时
+- [ ] record：保持 FC 直至产品决策
 
 ### Phase ALEO-IR-6 — 产品切换
 
-- [ ] materialize primary = Instructions 文本（或 package）  
-- [ ] Leo 源 debug flag；deletion-gate 可选  
-- [ ] Finalize：source profile 带 IR；compile profile 可仍跑 leo 作 **对照** 而非唯一路径  
+- [ ] materialize primary = Instructions 文本（或 package）
+- [ ] Leo 源 debug flag；deletion-gate 可选
+- [ ] Finalize：source profile 带 IR；compile profile 可仍跑 leo 作 **对照** 而非唯一路径
 
 ### Phase ALEO-IR-7 — Runtime（可选、独立 host-heavy）
 
-- [ ] pin snarkVM / 官方 execute 路径（若存在 package-only）  
-- [ ] **非** ordinary ci；`deployable=false` 直至产品决策  
+- [ ] pin snarkVM / 官方 execute 路径（若存在 package-only）
+- [ ] **非** ordinary ci；`deployable=false` 直至产品决策
 
 ---
 
@@ -285,7 +294,7 @@ G0–G1 = **MVP**；G5 = admit 覆盖声明门槛；G6 = 去 Leo 源依赖（可
 | 范围膨胀到全 opcode / record | DoD 锁在 §3.1 |
 | 与 Psy lane 并行抢主线 | **本规划起 Active = Aleo IR**；Psy DPN 保持 idle residual |
 
-**成熟度：** IR 落地后 registry 仍可 **source-only / compile-only / non-deployable**，直到 prove/deploy 决策。  
+**成熟度：** IR 落地后 registry 仍可 **source-only / compile-only / non-deployable**，直到 prove/deploy 决策。
 **不得** 把 “Instructions 文本生成成功” 写成 formal / hermetic / 主网。
 
 ---
@@ -304,15 +313,15 @@ G0–G1 = **MVP**；G5 = admit 覆盖声明门槛；G6 = 去 Leo 源依赖（可
 
 ## 9. 完成条件（Definition of Done）
 
-### 9.1 MVP（ALEO-IR-2）
+### 9.1 MVP（ALEO-IR-2）— **done（engineering）**
 
-- Counter（或最小 mapping）产品路径产出 Instructions，与 locked-leo 金样结构相等。  
-- 测试进 ordinary 或 targets shard（不强制 snarkVM execute）。  
-- 文档声明 Leo 源为过渡旁路。
+- Counter 产品 Plan 经 `programFromCapabilityV1` 产出 Instructions，与 locked-leo 金样结构相等且 encode 字节相等。
+- 测试：`Tests.Materialization.AleoInstructionsV1`（Fast + targets shard + ordinary Tests）。
+- 文档声明：产品 primary 仍 Leo 源；Instructions lower 为工程权威候选；Leo 源过渡至 IR-6。
 
 ### 9.2 Admit 面（G5）
 
-- §3.2 中目标 **Y** 有 IR + 测试，或 **residual** 稳定 FC（禁止假 Y）。  
+- §3.2 中目标 **Y** 有 IR + 测试，或 **residual** 稳定 FC（禁止假 Y）。
 - **P/F** 有诊断或 PARTIAL 文档。
 
 ### 9.3 非完成条件
@@ -323,10 +332,10 @@ G0–G1 = **MVP**；G5 = admit 覆盖声明门槛；G6 = 去 Leo 源依赖（可
 
 ## 10. 下一步（实现顺序）
 
-1. **ALEO-IR-0 收尾**：金样目录约定 + Tool Lock 注释指针。  
-2. **ALEO-IR-1**：Schema + 从真实 `leo build` 冻 Counter `compiled.aleo` 金样。  
-3. **ALEO-IR-2**：`LowerPlanV1` Counter 纵切。  
-4. 按 Phase 扫矩阵至 G5；G6 仅在工具诚实可用时开。
+1. ~~ALEO-IR-0~~ / ~~IR-1~~ / ~~IR-2~~ done。
+2. **ALEO-IR-3**：if/match/bounded for → 指令序列。
+3. **ALEO-IR-4**：多叶 / Map / Option / 窄宽。
+4. 按 Phase 扫矩阵至 G5；IR-6 产品 primary；G6 仅在工具诚实可用时开。
 
-规划 owner：engineering。  
-产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**，先规划后实现（本文）。
+规划 owner：engineering。
+产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-2 Counter lower 已工程闭合。
