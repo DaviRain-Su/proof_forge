@@ -1509,6 +1509,69 @@ unsafe def testNestedMapFailClosed : IO Unit := do
           throw <| IO.userError
             "Psy nested Map state must fail closed (CONTAINER-ABI admits only Map UInt64 UInt64)"
 
+/-- PSY-CONTEXT-COMMIT: circuit-domain evidence FC for ContextRead keys. -/
+unsafe def testContextReadFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let cases : Array (String × String × String) := #[
+    ("CtxTime",
+      "  entry now() : UInt64 do\n    return context.unixTimeSeconds\n",
+      "unixTimeSeconds"),
+    ("CtxCaller",
+      "  entry who(a : Principal) : Bool do\n    return context.caller == a\n",
+      "caller"),
+    ("CtxHeight",
+      "  entry h() : UInt64 do\n    return context.blockHeight\n",
+      "blockHeight")
+  ]
+  for (name, body, keyHint) in cases do
+    let source :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {name} where\n" ++
+      "  state public pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      body
+    let parsed ← liftResult (← session.selectProgramV1
+      source s!"<psy-{name}>" s!"Tests.{name}" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+    match planPsy compiled with
+    | .error (.planInvariant .psy msg) =>
+        expect (msg.contains "ContextRead" &&
+            (msg.contains keyHint || msg.contains "circuit-domain" ||
+              msg.contains "public-input" || msg.contains "witness"))
+          s!"{name} must fail closed citing ContextRead/{keyHint}, got: {msg}"
+    | .error e =>
+        throw <| IO.userError s!"{name}: expected planInvariant .psy, got {e.render}"
+    | .ok _ =>
+        throw <| IO.userError s!"{name}: ContextRead must fail closed on Psy"
+
+/-- PSY-CONTEXT-COMMIT: Commit must not open as Felt identity passthrough. -/
+unsafe def testCommitFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CommitSeal where\n" ++
+    "  state commitment sealed : UInt64\n" ++
+    "  init() do\n" ++
+    "    sealed := 0\n" ++
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    sealed := commit(x)\n" ++
+    "    return x\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-commit>" "Tests.CommitSeal" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planPsy compiled with
+  | .error (.planInvariant .psy msg) =>
+      expect (msg.contains "Commit" &&
+          (msg.contains "commitment" || msg.contains "public-input" ||
+            msg.contains "proof" || msg.contains "B-COMMIT" ||
+            msg.contains "overclaim" || msg.contains "passthrough"))
+        s!"Commit must fail closed citing binding/overclaim, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
+  | .ok _ => throw <| IO.userError "Commit must fail closed on Psy (no Felt identity open)"
+
 /-- PSY-INDEX-CAST: runtime Array index with exact indexOutOfBounds guard. -/
 unsafe def testDynamicArrayIndexLowered : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -2828,6 +2891,8 @@ unsafe def run : IO Unit := do
   testMapStateLowered
   testNamedStructParamLowered
   testNestedMapFailClosed
+  testContextReadFailClosed
+  testCommitFailClosed
   testDynamicArrayIndexLowered
   testIfElseControlFlow
   testMatchStatement

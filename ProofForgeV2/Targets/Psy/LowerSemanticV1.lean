@@ -83,6 +83,15 @@ zeroes payload). Default zero-init matches none. Reads go through the existing
 VariantTag/VariantPayload path (Option payload fallback when the base is not a
 named Enum). Non-UInt64 payload, nested Option, and Option params stay fail
 closed (mirrors Enum param policy).
+
+## PSY-CONTEXT-COMMIT (evidence fail closed, 2026-08-08)
+
+ContextRead (`unixTimeSeconds` / `caller` / `blockHeight` / unknown) and
+Commit stay **fail closed** with key-specific diagnostics. Psy is circuit-
+domain: no official dargo public-input/witness wall-clock, caller, or height
+anchor; unanchored injection is not chain reality. Commit cannot open as Felt
+identity passthrough without a frozen proof/public-input/commitment binding
+(B-COMMIT-ZK). EnvRead remains ADR-0029 zero-binding FC.
 -/
 
 namespace ProofForgeV2.Targets.Psy
@@ -2643,15 +2652,33 @@ private partial def lowerRegion
               let guard : Statement := .assertWithMessage inRange "castOutOfRange"
               ls := { ls with stmts := ls.stmts.push guard }
               env := envInsertNarrow env valueDef.valueId dstW srcE
-    -- N5: Psy declines both ContextRead and Commit (policy none).
-    | .contextRead .. =>
-        planError "unsupported Psy semantic shape: ContextRead is not admitted by pilot context policy"
+    -- PSY-CONTEXT-COMMIT (evidence FC): circuit-domain Psy has no official
+    -- dargo public-input / witness anchor for wall-clock, caller, or height.
+    -- Unanchored injection would only prove "the program used T", never that
+    -- T is chain/time reality (B-CTX-OPEN 2026-08-04 circuit-domain decision).
+    -- Commit must not open as Felt identity passthrough (B-COMMIT-ZK: requires
+    -- frozen proof/public-input/commitment binding before any identity admit).
+    | .contextRead key =>
+        if key == unixTimeSecondsContextKeyV1 then
+          planError
+            "unsupported Psy semantic shape: ContextRead context.unixTimeSeconds is not admitted (no official dargo public-input/witness wall-clock anchor; circuit-domain FC)"
+        else if key == callerContextKeyV1 then
+          planError
+            "unsupported Psy semantic shape: ContextRead context.caller is not admitted (no official dargo public-input/witness caller anchor; Principal is not a Psy address; circuit-domain FC)"
+        else if key == blockHeightContextKeyV1 then
+          planError
+            "unsupported Psy semantic shape: ContextRead context.blockHeight is not admitted (no official dargo public-input/witness block-height anchor; circuit-domain FC)"
+        else
+          planError
+            s!"unsupported Psy semantic shape: unknown ContextRead key '{key.value}' is not admitted by pilot context policy"
     | .commit .. =>
-        planError "unsupported Psy semantic shape: Commit is not admitted by pilot context policy"
+        planError
+          "unsupported Psy semantic shape: Commit is not admitted (proof/public-input/commitment binding not frozen on Psy; Felt identity passthrough would overclaim cryptographic commitment; B-COMMIT-ZK FC)"
     -- ADR-0030 E2: env-read (pf.assets balanceOfSelf) is fail closed on Psy
     -- (Psy/Aleo zero-binding disposition).
     | .envRead .. =>
-        planError "unsupported Psy semantic shape: EnvRead is not admitted by pilot context policy"
+        planError
+          "unsupported Psy semantic shape: EnvRead is not admitted (no native Psy balance/vault host read; ADR-0029 zero-binding FC)"
   match block.terminator with
   | .jump target =>
       if isActiveHeader loops target.blockId then

@@ -12,6 +12,17 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy ContextRead/Commit evidence fail closed（PSY-CONTEXT-COMMIT）
+
+- Key-specific Plan diagnostics for `context.unixTimeSeconds` / `caller` /
+  `blockHeight` / unknown ContextRead and for Commit / EnvRead.
+- Circuit-domain honesty: no official dargo public-input/witness wall-clock,
+  caller, or height anchor (B-CTX-OPEN 2026-08-04 decision).
+- Commit must not open as Felt identity passthrough without frozen
+  proof/public-input/commitment binding (B-COMMIT-ZK).
+- PsySource pins three ContextRead keys + Commit product fail closed.
+- Non-claims: not a capability open; not formal UPS/commit crypto.
+
 ## 2026-08-08 — Psy dynamic Array index + CheckedCast（PSY-INDEX-CAST engineering）
 
 - Array/Bytes IndexGet/IndexSet: compile-time literal path unchanged; runtime
