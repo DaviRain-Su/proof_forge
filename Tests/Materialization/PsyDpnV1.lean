@@ -1,7 +1,7 @@
 /-
-  Tests.Materialization.PsyDpnV1 — PSY-DPN-1..7 schema + Counter golden +
-  Plan lower + if/match/for + multi-leaf/wide + Map + effects honesty +
-  product dual-write.
+  Tests.Materialization.PsyDpnV1 — PSY-DPN-1..7 + G5-WIDE schema + Counter
+  golden + Plan lower + if/match/for + multi-leaf/wide mul/div/shift + Map +
+  effects honesty + product dual-write.
 
   Pins:
     * OpType / DataType exact discriminants used by Counter (+ Select)
@@ -13,6 +13,8 @@
       bounded for → static unroll; while-shaped FC via maxIter budget
     * DPN-4: OptionState product multi-leaf; hand-built UInt128 4-limb
       storeAggregate/returnAggregate; default profile WideCounter FC at Plan
+    * G5-WIDE: schoolbook mul / restoring div / limb shift DPN; WideCounter VM
+      product package includes multiply/divide/shiftLeft
     * DPN-5: Map UInt64 UInt64 cap-8 (24 occ/key/val leaves) product Plan→DPN
       without .psy return-in-if; hand-built lookup Select + upsert storeAggregate
     * DPN-6: emit → events[] PARTIAL; void call → InvokeExternal PARTIAL;
@@ -431,26 +433,119 @@ def testWideUInt128FourLimbInitGet : IO Unit := do
     "wide add must assert no final carry"
   expect (dAdd.circuitOutputs.size == 4) "add returns 4 limbs"
 
-/-- DPN-4: bindWideUintMul remains fail closed (schoolbook not in this slice). -/
-def testWideMulBindFailClosed : IO Unit := do
+private def u32Param (i : Nat) (n : String) : PlanParam :=
+  { sourceIndex := i, name := n, isBool := false, uintWidth := 32 }
+
+private def fourLeafResult : ResultKind :=
+  .aggregate #[
+    { isInt := false, byteWidth := 8 },
+    { isInt := false, byteWidth := 8 },
+    { isInt := false, byteWidth := 8 },
+    { isInt := false, byteWidth := 8 }
+  ]
+
+/-- G5-WIDE: hand-built bindWideUintMul lowers to schoolbook U32 defs + overflow assert. -/
+def testWideMulBindSchoolbook : IO Unit := do
   let fn : PlanFunction := {
     index := 0
     name := "mul"
     kind := .mutate
-    params := #[]
+    params := #[
+      u32Param 0 "a0", u32Param 1 "a1", u32Param 2 "a2", u32Param 3 "a3",
+      u32Param 4 "b0", u32Param 5 "b1", u32Param 6 "b2", u32Param 7 "b3"
+    ]
     body := #[
-      .bindWideUintMul 128 0 #[.literal 1] #[.literal 2],
-      .returnNone
+      .bindWideUintMul 128 0
+        #[.param 0, .param 1, .param 2, .param 3]
+        #[.param 4, .param 5, .param 6, .param 7],
+      .returnAggregate
+        #[.wideUintMulLimb 128 0 0, .wideUintMulLimb 128 0 1,
+          .wideUintMulLimb 128 0 2, .wideUintMulLimb 128 0 3]
+        #[false, false, false, false]
     ]
     resultIsBool := false
-    resultIsUnit := true
+    resultIsUnit := false
+    resultKind := fourLeafResult
   }
-  match (lowerFunctionForTestV1 fn true) with
-  | .error e =>
-      expect (e.render.contains "bindWideUintMul" || e.render.contains "PSY-DPN-4")
-        s!"mul bind must FC with DPN-4 message, got: {e.render}"
-  | .ok _ =>
-      throw <| IO.userError "bindWideUintMul must fail closed in DPN-4"
+  let d ← liftResult (lowerFunctionForTestV1 fn true)
+  expect (d.circuitOutputs.size == 4) "mul returns 4 limbs"
+  expect (d.definitions.any fun defn => defn.opType == .mul)
+    "schoolbook mul must emit Target Mul"
+  expect (d.definitions.any fun defn => defn.opType == .u32And)
+    "schoolbook mul must emit U32And digit masks"
+  expect (d.definitions.any fun defn => defn.opType == .u32ShiftRight)
+    "schoolbook mul must emit U32ShiftRight"
+  expect (d.assertions.any fun a => a.message == "u128 mul overflow")
+    "checked mul must assert u128 mul overflow"
+
+/-- G5-WIDE: hand-built bindWideUintDivMod lowers restoring divider + zero-div assert. -/
+def testWideDivBindRestoring : IO Unit := do
+  let fn : PlanFunction := {
+    index := 0
+    name := "div"
+    kind := .mutate
+    params := #[
+      u32Param 0 "a0", u32Param 1 "a1", u32Param 2 "a2", u32Param 3 "a3",
+      u32Param 4 "b0", u32Param 5 "b1", u32Param 6 "b2", u32Param 7 "b3"
+    ]
+    body := #[
+      .bindWideUintDivMod .quotient 128 0
+        #[.param 0, .param 1, .param 2, .param 3]
+        #[.param 4, .param 5, .param 6, .param 7],
+      .returnAggregate
+        #[.wideUintDivModLimb .quotient 128 0 0,
+          .wideUintDivModLimb .quotient 128 0 1,
+          .wideUintDivModLimb .quotient 128 0 2,
+          .wideUintDivModLimb .quotient 128 0 3]
+        #[false, false, false, false]
+    ]
+    resultIsBool := false
+    resultIsUnit := false
+    resultKind := fourLeafResult
+  }
+  let d ← liftResult (lowerFunctionForTestV1 fn true)
+  expect (d.circuitOutputs.size == 4) "div returns 4 quotient limbs"
+  expect (d.definitions.any fun defn => defn.opType == .u32ShiftLeft)
+    "restoring div must emit U32ShiftLeft"
+  expect (d.definitions.any fun defn => defn.opType == .u32Or)
+    "restoring div must emit U32Or for bit inject"
+  expect (d.definitions.any fun defn => defn.opType == .select)
+    "restoring div must Select rem/quot updates"
+  expect (d.assertions.any fun a => a.message == "u128 div by zero")
+    "div must assert zero divisor"
+  expect (d.assertions.any fun a => a.message == "u128 div operand limb out of range")
+    "div must range-check limbs"
+
+/-- G5-WIDE: hand-built bindWideUintShift lowers unrolled bit walk + count assert. -/
+def testWideShiftBindBitWalk : IO Unit := do
+  let fn : PlanFunction := {
+    index := 0
+    name := "shl"
+    kind := .mutate
+    params := #[
+      u32Param 0 "v0", u32Param 1 "v1", u32Param 2 "v2", u32Param 3 "v3",
+      u32Param 4 "count"
+    ]
+    body := #[
+      .bindWideUintShift .shl 128 0
+        #[.param 0, .param 1, .param 2, .param 3] (.param 4),
+      .returnAggregate
+        #[.wideUintShiftLimb .shl 128 0 0, .wideUintShiftLimb .shl 128 0 1,
+          .wideUintShiftLimb .shl 128 0 2, .wideUintShiftLimb .shl 128 0 3]
+        #[false, false, false, false]
+    ]
+    resultIsBool := false
+    resultIsUnit := false
+    resultKind := fourLeafResult
+  }
+  let d ← liftResult (lowerFunctionForTestV1 fn true)
+  expect (d.circuitOutputs.size == 4) "shl returns 4 limbs"
+  expect (d.definitions.any fun defn => defn.opType == .u32ShiftLeft)
+    "shift must emit U32ShiftLeft"
+  expect (d.assertions.any fun a => a.message.startsWith "invalidShift")
+    "shift must assert count < 128"
+  expect (d.assertions.any fun a => a.message == "u128 shl overflow")
+    "shl must assert high-bit overflow"
 
 /-- DPN-4: Examples/OptionState product Plan → multi-leaf DPN package. -/
 unsafe def testOptionStateProductLower : IO Unit := do
@@ -506,9 +601,8 @@ unsafe def testWideCounterDefaultProfileFailClosed : IO Unit := do
           throw <| IO.userError
             "WideCounter on default psy-dargo-u64-v1 must fail closed (needs VM profile)"
 
-/-- DPN-4: VM profile materializes WideCounter Plan; DPN lowers init/get-shaped
-    methods and fail-closes mul/div/shift binds (honest partial). -/
-unsafe def testWideCounterVmProfileDpnPartial : IO Unit := do
+/-- G5-WIDE: VM profile WideCounter product Plan→DPN includes mul/div/shift methods. -/
+unsafe def testWideCounterVmProfileDpnWide : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let src ← IO.FS.readFile "Examples/WideCounter.lean"
   let parsed ← liftResult (← session.selectProgramV1 src "<dpn-wide-vm>" "Examples.WideCounter" none)
@@ -517,23 +611,29 @@ unsafe def testWideCounterVmProfileDpnPartial : IO Unit := do
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy
       (some CodegenProfileId.psyDargo010VmV1)
   let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
-  -- Full package includes mul/div/shift → expect FC at package lower
-  match packageFromCapabilityV1 cap with
-  | .error e =>
-      expect (
-        e.render.contains "bindWideUint" ||
-        e.render.contains "PSY-DPN-4" ||
-        e.render.contains "wideUint")
-        s!"full WideCounter DPN must FC on mul/div/shift binds, got: {e.render}"
-  | .ok pkg =>
-      -- If product somehow avoids binds (unexpected), require multi-leaf slots
-      expect (pkg.size ≥ 1) "unexpected full lower"
-      let some initDef := pkg.find? (·.name == "initialize") |
-        throw <| IO.userError "missing initialize on unexpected full lower"
-      let setCount := initDef.stateCommands.foldl (fun n c =>
-        match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
-      expect (setCount == 4)
-        s!"WideCounter init 4 Sets if fully lowered, got {setCount}"
+  let pkg ← liftResult <| packageFromCapabilityV1 cap
+  expect (pkg.size ≥ 8)
+    s!"WideCounter must lower multiple methods, got {pkg.map (·.name)}"
+  let some initDef := pkg.find? (·.name == "initialize") |
+    throw <| IO.userError "missing initialize"
+  let setCount := initDef.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (setCount == 4)
+    s!"WideCounter init 4 Sets, got {setCount}"
+  let some mulDef := pkg.find? (·.name == "multiply") |
+    throw <| IO.userError s!"missing multiply; got {pkg.map (·.name)}"
+  expect (mulDef.definitions.any fun d => d.opType == .mul)
+    "product multiply must contain schoolbook Mul"
+  expect (mulDef.assertions.any fun a => a.message == "u128 mul overflow")
+    "product multiply must assert mul overflow"
+  let some divDef := pkg.find? (·.name == "divide") |
+    throw <| IO.userError "missing divide"
+  expect (divDef.assertions.any fun a => a.message == "u128 div by zero")
+    "product divide must assert div by zero"
+  let some shlDef := pkg.find? (·.name == "shiftLeft") |
+    throw <| IO.userError "missing shiftLeft"
+  expect (shlDef.definitions.any fun d => d.opType == .u32ShiftLeft)
+    "product shiftLeft must emit U32ShiftLeft"
 
 /-- DPN-5: hand-built dense Map lookup → Option [tag,payload] via Select mux.
     Models Plan Expr from mapLookupOptionLeavesV1 (cap-2 miniature for size). -/
@@ -950,10 +1050,12 @@ unsafe def run : IO Unit := do
   testLoopSumProductLower
   testOptionDualLeafStoreAggregate
   testWideUInt128FourLimbInitGet
-  testWideMulBindFailClosed
+  testWideMulBindSchoolbook
+  testWideDivBindRestoring
+  testWideShiftBindBitWalk
   testOptionStateProductLower
   testWideCounterDefaultProfileFailClosed
-  testWideCounterVmProfileDpnPartial
+  testWideCounterVmProfileDpnWide
   testMapLookupSelectOption
   testMapUpsertStoreAggregate
   testMapMiniProductLower

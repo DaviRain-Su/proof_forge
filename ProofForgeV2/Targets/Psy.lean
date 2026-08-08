@@ -27,8 +27,8 @@ product artifacts (PSY-DPN-7):
   * UInt64/UInt32 → Felt, Bool → bool
   * checked u64 arith via explicit assert guards (Felt is a field element)
   * bitwise `&`/`|`/`^` and shifts as native Felt ops on the `.psy` path
-    (golden BitwiseProbe); DPN bitAnd/Or/Xor still evidence FC until U32
-    subgraph; unary `~` (bitNot) lowers for **UInt32** to `x ^ 4294967295u32`
+    (golden BitwiseProbe); DPN per-limb bitAnd/Or/Xor via U32+CastFelt
+    (G5-WIDE); unary `~` (bitNot) lowers for **UInt32** to `x ^ 4294967295u32`
     (XOR mask; verified faithful on the real dargo VM) and stays fail-closed
     on UInt64/Int64 (no u64 type, no bitwise-not unary, 2^64−1 not
     representable as a Felt). UInt32 arithmetic/bitwise/shifts on u32

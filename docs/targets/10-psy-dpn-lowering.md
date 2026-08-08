@@ -9,7 +9,7 @@ normative: false
 
 # Psy DPN 层落地规划
 
-状态：`draft`（规划输入；DPN-1..7 engineering 已落地 dual-write；admit 面未全覆盖 / G5 residual）
+状态：`draft`（规划输入；DPN-1..7 engineering 已落地 dual-write；**G5-WIDE** mul/div/shift DPN 已闭合；G5 residual 仍含 Array/Principal/Bytes 产品金样与 hard-require）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Psy target 的权威物化从 **文本 `.psy`** 切到 **官方 DPN 方法级定义**，并评估 **ProgramV1 语法/语义能覆盖到 DPN target 的范围**。
 
 权威上游（pin）：
@@ -198,9 +198,9 @@ ProofForgeV2/Targets/Psy/
 | G0 | Schema + 金样 decode | **done（DPN-1）** | Counter dargo JSON round-trip / 字段钉死 |
 | G1 | Lower Counter | **done（DPN-2）** | 我们生成的 DPN JSON 与 dargo 金样 **结构相等** |
 | G2 | Accumulator / OptionState / LoopSum | **partial（DPN-3/4）** | Plan→DPN 结构门（LoopSum/OptionState）；**非** runtime 差分同 oracle |
-| G3 | WideCounter VM | **partial（DPN-4）** | multi-leaf + 手建 UInt128 add；mul/div/shift bind **FC** |
+| G3 | WideCounter VM | **done（DPN-4 + G5-WIDE）** | multi-leaf + UInt128 add + schoolbook mul + restoring div/mod + limb shift DPN |
 | G4 | Map / 聚合 | **done（DPN-5）** | MapMini+Token Plan→DPN；.psy 破点绕过 |
-| G5 | 全 admit 面扫描 | **open** | Psy admit 正向矩阵每条有 DPN 或显式 FC；hard-require DPN |
+| G5 | 全 admit 面扫描 | **partial（G5-WIDE done）** | mul/div/shift 已 DPN；Array/Principal/Bytes 产品金样 + hard-require 仍 open |
 | G6 | Execute 消费 DPN | **open** | 不经 `.psy` 文本：`psy_vm` 或 dargo 可接受路径 |
 
 G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛；G6 为 **去文本依赖**。
@@ -238,9 +238,9 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 
 - [x] multi-leaf `storeAggregate` / `returnAggregate` → multi `Get/Set … SlotSingle`（engineering sub_slot = fieldIndex+4，对齐 WideCounter dargo 证据；单叶 Counter 模板保持金样）
 - [x] OptionState 产品 Plan→DPN（双叶 tag+payload）；手建 4-limb UInt128 init/get/add（limbAdd/Select/overflow assert + u32 param range）
-- [x] UInt128 **仅** `psy-dargo-0.1.0-vm-v1`（默认 profile 在 Plan 层 FC）；`bindWideUintMul/DivMod/Shift` 与 Felt bitAnd/Or/Xor 本片 **FC**（证据化；非假 lower）
+- [x] UInt128 **仅** `psy-dargo-0.1.0-vm-v1`（默认 profile 在 Plan 层 FC）
+- [x] **G5-WIDE（2026-08-08）**：`bindWideUintMul` schoolbook 8×UInt16（U32And/U32ShiftRight + Target Mul/Add + `u128 mul overflow`）；`bindWideUintDivMod` 四段×32 步 restoring 全展开（limb range + zero-div + internal asserts；无 Felt `/`/`%`）；`bindWideUintShift` 固定 128-step bit walk（U32Shift*/U32Or + Select；`invalidShift`/`u128 shl overflow`）；per-limb `bitAnd`/`bitOr`/`bitXor` 经 U32+CastFelt；WideCounter VM product Plan→DPN；UInt256 同算法路径（limbCount=8）已接通、产品金样可选
 - [ ] Array/Struct/Principal/Bytes 产品金样与 dargo 全量 package 相等（结构已由 multi-leaf Single 路径覆盖）
-- [ ] UInt256 / 完整 WideCounter 产品 package（mul/div/shift 展开）
 
 ### Phase DPN-5 — Map 与现 .psy 破点
 
@@ -326,9 +326,9 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 
 ---
 
-## 10. 下一步（DPN-1..7 engineering 已闭合后）
+## 10. 下一步（DPN-1..7 + G5-WIDE 已闭合后）
 
-1. **G5 admit 面全覆盖**：WideCounter mul/div/shift DPN 展开；Array/Principal/Bytes 产品金样；§3.2 每条 Y/P 有 DPN 或显式 FC；optional hard-require DPN for all Psy Plan admits。
+1. **G5 residual**：Array/Principal/Bytes 产品金样；§3.2 每条 Y/P 有 DPN 或显式 FC；optional hard-require DPN for all Psy Plan admits；WideCounter256 product package pin（可选）。
 2. **G6 / deletion-gate（可选）**：`.psy` 删除或 debug-only；`just psy-runtime` DPN-first（不经 product Finalize 改 claim）。
 3. **可选硬化**：method_id 官方 hash 复刻；Tool Lock 镜像 `psy-node` rev。
 

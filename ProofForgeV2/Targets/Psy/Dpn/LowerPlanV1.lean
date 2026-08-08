@@ -16,9 +16,20 @@
     * limbAdd/limbSub + select/compare + per-limb bitwise
     * multi-field sub_slot engineering map (single-field Counter templates
       keep dargo golden; multi-leaf uses fieldIndex+4 per WideCounter dargo)
-    * UInt32 param range asserts; bindWideUintMul/DivMod/Shift still FC
+    * UInt32 param range asserts
     * default profile may lower Option/Array multi-leaf; UInt128 Plan is
       already FC before DPN when profile ≠ psy-dargo-0.1.0-vm-v1
+
+  G5-WIDE: bindWideUintMul / DivMod / Shift → DPN defs (UInt128 4×UInt32;
+    UInt256 same algorithm when limbCount=8)
+    * schoolbook 8×UInt16 mul (U32And/U32ShiftRight + Target Mul/Add;
+      high-digit overflow assert) matching EmitIRV1
+    * restoring binary div/mod fully unrolled (4×32-step regions; limb
+      range + zero-div asserts; no Felt `/`/`%` for integer result)
+    * limb shift: fixed bitWidth-step one-bit walk (U32Shift*/U32Or +
+      Select; shl high-bit overflow); count < bitWidth assert
+    * wideUint*Limb Expr refs resolve from bind tables; residual U256
+      product package may still FC on non-wide residual Plan shapes
 
   DPN-5: dense Map UInt64 UInt64 cap-8 (24 occ/key/val Felt leaves)
     * Plan already expands IndexGet→Option Select tree + IndexSet upsert
@@ -168,23 +179,49 @@ def lowerCheckedAddStoreReturnV1 (name : String) (fieldIndex : Nat) :
 
 /-! ## DPN-3/4 general builder (if / match / for / multi-leaf / wide limbs) -/
 
-/-- Circuit wire: target (Felt/UInt64) or bool, identified by per-type index. -/
+/-- Circuit wire: target (Felt/UInt64), bool, or u32Target, per-type index. -/
 inductive WireV1 where
   | target (index : Nat)
   | bool (index : Nat)
+  | u32 (index : Nat)
   deriving BEq, Inhabited, Repr
 
 def WireV1.encoded : WireV1 → UInt64
   | .target i => encodeIndexedId .target i
   | .bool i => encodeIndexedId .bool i
+  | .u32 i => encodeIndexedId .u32Target i
 
 def WireV1.rawIndex : WireV1 → Nat
   | .target i => i
   | .bool i => i
+  | .u32 i => i
+
+/-- Operand id for DPN ops (matches dargo): Target→raw index, Bool/U32→encoded. -/
+def WireV1.operand : WireV1 → UInt64
+  | w => w.encoded
+
+/-- G5-WIDE bind table entry: operationId → little-endian Target result limbs. -/
+structure WideMulBindV1 where
+  operationId : Nat
+  limbs : Array WireV1
+  deriving Inhabited
+
+structure WideDivBindV1 where
+  operationId : Nat
+  quotient : Array WireV1
+  remainder : Array WireV1
+  deriving Inhabited
+
+structure WideShiftBindV1 where
+  operationId : Nat
+  kind : WideUInt128ShiftKindV1
+  limbs : Array WireV1
+  deriving Inhabited
 
 structure BuilderV1 where
   nextTarget : Nat := 0
   nextBool : Nat := 0
+  nextU32 : Nat := 0
   defs : Array IndexedVarDefV1 := #[]
   cmds : Array StateCmdV1 := #[]
   res : Array Nat := #[]
@@ -201,6 +238,12 @@ structure BuilderV1 where
   loopVars : Array WireV1 := #[]
   /-- True when Plan has >1 physical state leaf (DPN-4 multi-leaf map). -/
   multiLeaf : Bool := false
+  /-- G5-WIDE: bindWideUintMul results (Target limbs). -/
+  wideMulBinds : Array WideMulBindV1 := #[]
+  /-- G5-WIDE: bindWideUintDivMod quotient+remainder limbs. -/
+  wideDivBinds : Array WideDivBindV1 := #[]
+  /-- G5-WIDE: bindWideUintShift results. -/
+  wideShiftBinds : Array WideShiftBindV1 := #[]
   deriving Inhabited
 
 private def pushTarget (b : BuilderV1) (op : OpTypeV1) (inputs : Array UInt64) :
@@ -222,6 +265,16 @@ private def pushBool (b : BuilderV1) (op : OpTypeV1) (inputs : Array UInt64) :
   ({ b with
       nextBool := idx + 1
       defs := b.defs.push defn }, .bool idx)
+
+private def pushU32 (b : BuilderV1) (op : OpTypeV1) (inputs : Array UInt64) :
+    BuilderV1 × WireV1 :=
+  let idx := b.nextU32
+  let defn : IndexedVarDefV1 := {
+    dataType := .u32Target, index := idx, opType := op, inputs
+  }
+  ({ b with
+      nextU32 := idx + 1
+      defs := b.defs.push defn }, .u32 idx)
 
 /-- Allocate InputTarget wires for each param (index 0..n-1). -/
 private def emitParams (n : Nat) : BuilderV1 × Array WireV1 := Id.run do
@@ -278,11 +331,26 @@ private def asTargetIndex (w : WireV1) : CompileResult Nat :=
   match w with
   | .target i => pure i
   | .bool _ => planError "PSY-DPN: expected target wire, got bool"
+  | .u32 _ => planError "PSY-DPN: expected target wire, got u32 (castFelt first)"
 
 private def asBoolIndex (w : WireV1) : CompileResult Nat :=
   match w with
   | .bool i => pure i
   | .target _ => planError "PSY-DPN: expected bool wire, got target"
+  | .u32 _ => planError "PSY-DPN: expected bool wire, got u32"
+
+/-- Cast U32Target → Target (official CastFelt; value-preserving). -/
+private def emitCastFelt (b : BuilderV1) (w : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  match w with
+  | .target _ => pure (b, w)
+  | .u32 _ => pure (pushTarget b .castFelt #[w.operand])
+  | .bool _ => planError "PSY-DPN: castFelt expects target/u32, got bool"
+
+/-- Ensure wire is Target (CastFelt when U32). -/
+private def ensureTarget (b : BuilderV1) (w : WireV1) :
+    CompileResult (BuilderV1 × WireV1) :=
+  emitCastFelt b w
 
 private def compareOpType : ComparisonOp → OpTypeV1
   | .eq => .eq | .ne => .eq  -- ne lowered as not(eq)
@@ -328,19 +396,22 @@ private def emitBoolNot (b : BuilderV1) (a : WireV1) : CompileResult (BuilderV1 
   let ai ← asBoolIndex a
   pure (pushBool b .boolNot #[UInt64.ofNat ai])
 
-/-- Select mux: result type matches then/else (target or bool). -/
+/-- Select mux. Official Select always yields Target (or Bool for bool arms).
+    U32 arms pass encoded U32 ids into Target Select (dargo div/shift style).
+    Condition uses full encoded bool id. -/
 private def emitSelect (b : BuilderV1) (cond thenW elseW : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
-  let ci ← asBoolIndex cond
+  let _ ← asBoolIndex cond
   match thenW, elseW with
-  | .target t, .target e =>
-      pure (pushTarget b .select
-        #[UInt64.ofNat ci, UInt64.ofNat t, UInt64.ofNat e])
-  | .bool t, .bool e =>
+  | .bool _, .bool _ =>
       pure (pushBool b .select
-        #[UInt64.ofNat ci, UInt64.ofNat t, UInt64.ofNat e])
+        #[cond.operand, thenW.operand, elseW.operand])
+  | .bool _, _ | _, .bool _ =>
+      planError "PSY-DPN: Select bool arms must both be bool"
   | _, _ =>
-      planError "PSY-DPN: Select arms must share data type (target/target or bool/bool)"
+      -- Target/U32/mixed → Target Select with encoded operands
+      pure (pushTarget b .select
+        #[cond.operand, thenW.operand, elseW.operand])
 
 private def emitConstTarget (b : BuilderV1) (value : UInt64) : BuilderV1 × WireV1 :=
   if value == 0 then (b, zeroWire b)
@@ -465,30 +536,73 @@ private def emitCheckedSub (b : BuilderV1) (l r : WireV1) :
   let (b3, diff) := pushTarget b2 .sub #[UInt64.ofNat li, UInt64.ofNat ri]
   pure (b3, diff)
 
-/-- Limb add/sub: range-bounded UInt32 Felt ops (no checked wrap assert;
-    wide add/sub inserts carry/borrow selects + overflow assert separately). -/
+/-- Target binary op accepting Target/U32 operands (encoded ids). -/
+private def emitTargetBin (b : BuilderV1) (op : OpTypeV1) (l r : WireV1) :
+    BuilderV1 × WireV1 :=
+  pushTarget b op #[l.operand, r.operand]
+
+/-- U32 binary op (U32And/Or/Xor/Shift*). -/
+private def emitU32Bin (b : BuilderV1) (op : OpTypeV1) (l r : WireV1) :
+    BuilderV1 × WireV1 :=
+  pushU32 b op #[l.operand, r.operand]
+
 private def emitLimbAdd (b : BuilderV1) (l r : WireV1) :
-    CompileResult (BuilderV1 × WireV1) := do
-  let li ← asTargetIndex l
-  let ri ← asTargetIndex r
-  pure (pushTarget b .add #[UInt64.ofNat li, UInt64.ofNat ri])
+    CompileResult (BuilderV1 × WireV1) :=
+  pure (emitTargetBin b .add l r)
 
 private def emitLimbSub (b : BuilderV1) (l r : WireV1) :
-    CompileResult (BuilderV1 × WireV1) := do
-  let li ← asTargetIndex l
-  let ri ← asTargetIndex r
-  pure (pushTarget b .sub #[UInt64.ofNat li, UInt64.ofNat ri])
+    CompileResult (BuilderV1 × WireV1) :=
+  pure (emitTargetBin b .sub l r)
 
 private def emitCompare (b : BuilderV1) (op : ComparisonOp) (l r : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
-  let li ← asTargetIndex l
-  let ri ← asTargetIndex r
+  -- dargo compares accept Target and encoded U32 operands.
   match op with
   | .ne =>
-      let (b1, eqW) := pushBool b .eq #[UInt64.ofNat li, UInt64.ofNat ri]
+      let (b1, eqW) := pushBool b .eq #[l.operand, r.operand]
       emitBoolNot b1 eqW
   | other =>
-      pure (pushBool b (compareOpType other) #[UInt64.ofNat li, UInt64.ofNat ri])
+      pure (pushBool b (compareOpType other) #[l.operand, r.operand])
+
+/-- Limb bitwise as Target: U32 op then CastFelt (Plan `.bitAnd`/`.bitOr`/`.bitXor`). -/
+private def emitLimbBitwise (b : BuilderV1) (op : OpTypeV1) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let (b1, u) := emitU32Bin b op l r
+  emitCastFelt b1 u
+
+private def lookupWideMul (b : BuilderV1) (operationId limbIndex : Nat) :
+    CompileResult WireV1 := do
+  let some entry := b.wideMulBinds.find? (·.operationId == operationId) |
+    planError s!"PSY-DPN-G5: wideUintMulLimb unknown operationId={operationId}"
+  match entry.limbs[limbIndex]? with
+  | some w => pure w
+  | none =>
+      planError s!"PSY-DPN-G5: wideUintMulLimb limbIndex={limbIndex} OOR \
+(size={entry.limbs.size})"
+
+private def lookupWideDiv (b : BuilderV1)
+    (resultKind : WideUInt128DivModResultV1) (operationId limbIndex : Nat) :
+    CompileResult WireV1 := do
+  let some entry := b.wideDivBinds.find? (·.operationId == operationId) |
+    planError s!"PSY-DPN-G5: wideUintDivModLimb unknown operationId={operationId}"
+  let limbs := match resultKind with
+    | .quotient => entry.quotient
+    | .remainder => entry.remainder
+  match limbs[limbIndex]? with
+  | some w => pure w
+  | none =>
+      planError s!"PSY-DPN-G5: wideUintDivModLimb limbIndex={limbIndex} OOR"
+
+private def lookupWideShift (b : BuilderV1)
+    (kind : WideUInt128ShiftKindV1) (operationId limbIndex : Nat) :
+    CompileResult WireV1 := do
+  let some entry :=
+      b.wideShiftBinds.find? (fun e => e.operationId == operationId && e.kind == kind) |
+    planError s!"PSY-DPN-G5: wideUintShiftLimb unknown operationId={operationId}"
+  match entry.limbs[limbIndex]? with
+  | some w => pure w
+  | none =>
+      planError s!"PSY-DPN-G5: wideUintShiftLimb limbIndex={limbIndex} OOR"
 
 /-- UInt32 param range: assert `param < 2^32` (WideCounter dargo). -/
 private def emitU32ParamRangeAsserts (b : BuilderV1) (params : Array WireV1)
@@ -546,11 +660,18 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
       let (b1, lw) ← lowerExprV1 b params viewPath l
       let (b2, rw) ← lowerExprV1 b1 params viewPath r
       emitLimbSub b2 lw rw
-  | .bitAnd .. | .bitOr .. | .bitXor .. =>
-      -- Felt-level bitwise needs U32Target data-type wires (castU32/u32And/castFelt);
-      -- not modeled in the target/bool builder yet — evidence FC over fake ops.
-      planError
-        "PSY-DPN-4: bitAnd/bitOr/bitXor require U32Target subgraph — not admitted in this slice (fail closed)"
+  | .bitAnd l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitLimbBitwise b2 .u32And lw rw
+  | .bitOr l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitLimbBitwise b2 .u32Or lw rw
+  | .bitXor l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitLimbBitwise b2 .u32Xor lw rw
   | .compare op l r => do
       let (b1, lw) ← lowerExprV1 b params viewPath l
       let (b2, rw) ← lowerExprV1 b1 params viewPath r
@@ -572,18 +693,467 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
       let (b2, rw) ← lowerExprV1 b1 params viewPath r
       emitBoolOr b2 lw rw
   | .u32Literal v => pure (emitLiteralU64 b v)
-  | .wideUintMulLimb .. =>
-      planError
-        "PSY-DPN-4: wideUintMulLimb requires bindWideUintMul (schoolbook) — not admitted in this slice (fail closed)"
-  | .wideUintDivModLimb .. =>
-      planError
-        "PSY-DPN-4: wideUintDivModLimb requires bindWideUintDivMod — not admitted in this slice (fail closed)"
-  | .wideUintShiftLimb .. =>
-      planError
-        "PSY-DPN-4: wideUintShiftLimb requires bindWideUintShift — not admitted in this slice (fail closed)"
+  | .wideUintMulLimb _bitWidth operationId limbIndex => do
+      let w ← lookupWideMul b operationId limbIndex
+      pure (b, w)
+  | .wideUintDivModLimb resultKind _bitWidth operationId limbIndex => do
+      let w ← lookupWideDiv b resultKind operationId limbIndex
+      pure (b, w)
+  | .wideUintShiftLimb kind _bitWidth operationId limbIndex => do
+      let w ← lookupWideShift b kind operationId limbIndex
+      pure (b, w)
   | other =>
       planError s!"PSY-DPN-6: unsupported Expr shape {repr other} \
 (ContextRead/Commit/callFn stay fail closed until exact DPN evidence)"
+
+/-! ## G5-WIDE: schoolbook mul / restoring div / limb shift (EmitIRV1 port) -/
+
+private def assertBoolEqTrue (b : BuilderV1) (cond : WireV1) (msg : String) :
+    CompileResult BuilderV1 := do
+  let _ ← asBoolIndex cond
+  pure {
+    b with
+      asserts := b.asserts.push {
+        left := cond.encoded
+        right := encodeIndexedId .bool b.trueBool
+        message := msg
+      }
+  }
+
+/-- Gate assert under writeCond: select(writeCond, cond, true). -/
+private def assertGated (b : BuilderV1) (writeCond cond : WireV1) (msg : String) :
+    CompileResult BuilderV1 := do
+  let (b1, gated) ← emitSelect b writeCond cond (trueWire b)
+  assertBoolEqTrue b1 gated msg
+
+/-- Snapshot operands + optional UInt32 range assert (`limb < 2^32`). -/
+private def lowerWideOperandLimbs (b : BuilderV1) (params : Array WireV1)
+    (viewPath : Bool) (writeCond : WireV1) (limbs : Array Expr)
+    (rangeMsg : String) (checkRange : Bool) :
+    CompileResult (BuilderV1 × Array WireV1) := do
+  let mut bCur := b
+  let mut out : Array WireV1 := #[]
+  let (bLim, limW) := emitLiteralU64 bCur 4294967296
+  bCur := bLim
+  for e in limbs do
+    let (b1, w0) ← lowerExprV1 bCur params viewPath e
+    bCur := b1
+    if checkRange then
+      let (b2, ok) ← emitCompare bCur .lt w0 limW
+      bCur ← assertGated b2 writeCond ok rangeMsg
+      -- safe := select(ok, w0, 0) so out-of-range traps don't poison later ops
+      let (b3, safe) ← emitSelect bCur ok w0 (zeroWire bCur)
+      bCur := b3
+      out := out.push safe
+    else
+      out := out.push w0
+  pure (bCur, out)
+
+/-- Schoolbook wide mul: UInt{N} limbs → 2N UInt16 digits → double-width product
+    with per-product U32 normalize; high half must be zero (checked overflow).
+    Ports EmitIRV1.emitWideUintMul; result limbs bound under operationId. -/
+private def emitBindWideUintMulV1 (b : BuilderV1) (params : Array WireV1)
+    (viewPath : Bool) (writeCond : WireV1)
+    (bitWidth operationId : Nat) (lhs rhs : Array Expr) :
+    CompileResult BuilderV1 := do
+  unless bitWidth == 128 || bitWidth == 256 do
+    planError "PSY-DPN-G5: bindWideUintMul bitWidth must be 128 or 256"
+  let limbCount := bitWidth / 32
+  let digitCount := limbCount * 2
+  let productDigits := digitCount * 2
+  unless lhs.size == limbCount && rhs.size == limbCount do
+    planError s!"PSY-DPN-G5: bindWideUintMul requires two {limbCount}-limb operands"
+  let (b0, left) ← lowerWideOperandLimbs b params viewPath writeCond lhs
+    "u32 limb out of range" false
+  let (b1, right) ← lowerWideOperandLimbs b0 params viewPath writeCond rhs
+    "u32 limb out of range" false
+  let (b2, mask) := emitLiteralU64 b1 65535
+  let (b3, shift) := emitLiteralU64 b2 16
+  let (b4, base) := emitLiteralU64 b3 65536
+  let mut bCur := b4
+  -- UInt32 limbs → LE UInt16 digits (U32And / U32ShiftRight), kept as U32 wires.
+  let mut lhsDigits : Array WireV1 := #[]
+  let mut rhsDigits : Array WireV1 := #[]
+  for limb in left do
+    let (bLo, lo) := emitU32Bin bCur .u32And limb mask
+    let (bHi, hi) := emitU32Bin bLo .u32ShiftRight limb shift
+    bCur := bHi
+    lhsDigits := lhsDigits.push lo |>.push hi
+  for limb in right do
+    let (bLo, lo) := emitU32Bin bCur .u32And limb mask
+    let (bHi, hi) := emitU32Bin bLo .u32ShiftRight limb shift
+    bCur := bHi
+    rhsDigits := rhsDigits.push lo |>.push hi
+  -- Full double-width product, base 2^16.
+  let mut digits : Array WireV1 := #[]
+  let mut carry : WireV1 := zeroWire bCur
+  for k in [0:productDigits] do
+    let (bL, low0) := emitU32Bin bCur .u32And carry mask
+    let (bH, carry0) := emitU32Bin bL .u32ShiftRight carry shift
+    bCur := bH
+    let mut low : WireV1 := low0
+    let mut nextCarry : WireV1 := carry0
+    for i in [0:digitCount] do
+      if i ≤ k then
+        let j := k - i
+        if j < digitCount then
+          let some a := lhsDigits[i]? |
+            planError "PSY-DPN-G5: wide mul lhs digit missing"
+          let some bb := rhsDigits[j]? |
+            planError "PSY-DPN-G5: wide mul rhs digit missing"
+          let (bP, product) := emitTargetBin bCur .mul a bb
+          let (bPl, productLow) := emitU32Bin bP .u32And product mask
+          let (bPh, productHigh) := emitU32Bin bPl .u32ShiftRight product shift
+          let (bS, sum) := emitTargetBin bPh .add low productLow
+          let (bCb, carryBit) := emitU32Bin bS .u32ShiftRight sum shift
+          let (bNl, normalizedLow) := emitU32Bin bCb .u32And sum mask
+          let (bC1, c1) := emitTargetBin bNl .add nextCarry productHigh
+          let (bC2, normalizedCarry) := emitTargetBin bC1 .add c1 carryBit
+          bCur := bC2
+          low := normalizedLow
+          nextCarry := normalizedCarry
+    digits := digits.push low
+    carry := nextCarry
+  -- Checked overflow: upper digits + final carry == 0
+  let overflowMsg := if bitWidth == 256 then "u256 mul overflow" else "u128 mul overflow"
+  let (bZ, zEq) ← emitCompare bCur .eq carry (zeroWire bCur)
+  bCur := bZ
+  let mut noOverflow : WireV1 := zEq
+  for i in [digitCount:productDigits] do
+    let some digit := digits[i]? |
+      planError "PSY-DPN-G5: wide product digit missing"
+    let (bE, dEq) ← emitCompare bCur .eq digit (zeroWire bCur)
+    let (bA, andW) ← emitBoolAnd bE noOverflow dEq
+    bCur := bA
+    noOverflow := andW
+  bCur ← assertGated bCur writeCond noOverflow overflowMsg
+  -- Repack low UInt16 digits into UInt32 Target limbs.
+  let mut resultLimbs : Array WireV1 := #[]
+  for limbIndex in [0:limbCount] do
+    let loIndex := limbIndex * 2
+    let hiIndex := loIndex + 1
+    let some lo := digits[loIndex]? |
+      planError "PSY-DPN-G5: wide mul low result digit missing"
+    let some hi := digits[hiIndex]? |
+      planError "PSY-DPN-G5: wide mul high result digit missing"
+    let (bSc, scaledHigh) := emitTargetBin bCur .mul hi base
+    let (bSm, limb) := emitTargetBin bSc .add lo scaledHigh
+    bCur := bSm
+    resultLimbs := resultLimbs.push limb
+  pure {
+    bCur with
+      wideMulBinds := bCur.wideMulBinds.push {
+        operationId, limbs := resultLimbs
+      }
+  }
+
+/-- Lexicographic remainder ≥ divisor (remainder is one limb wider). -/
+private def emitWideDivLexGe (b : BuilderV1)
+    (remainder divisor : Array WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let limbCount := divisor.size
+  unless remainder.size == limbCount + 1 do
+    planError "PSY-DPN-G5: wide div lexGe remainder width mismatch"
+  let mut bCur := b
+  let some r0 := remainder[0]? | planError "PSY-DPN-G5: rem0"
+  let some d0 := divisor[0]? | planError "PSY-DPN-G5: div0"
+  let (b0, acc0) ← emitCompare bCur .ge r0 d0
+  bCur := b0
+  let mut acc := acc0
+  for i in [1:limbCount] do
+    let some ri := remainder[i]? | planError "PSY-DPN-G5: rem i"
+    let some di := divisor[i]? | planError "PSY-DPN-G5: div i"
+    let (bGt, limbGt) ← emitCompare bCur .gt ri di
+    let (bEq, limbEq) ← emitCompare bGt .eq ri di
+    let (bAnd, eqAnd) ← emitBoolAnd bEq limbEq acc
+    let (bOr, next) ← emitBoolOr bAnd limbGt eqAnd
+    bCur := bOr
+    acc := next
+  let some rHi := remainder[limbCount]? | planError "PSY-DPN-G5: rem hi"
+  let (bNe, hiNe) ← emitCompare bCur .ne rHi (zeroWire bCur)
+  let (bOr2, final) ← emitBoolOr bNe hiNe acc
+  pure (bOr2, final)
+
+/-- One restoring step (single bit) of the wide divider (SSA form). -/
+private def emitWideDivOneStep (b : BuilderV1)
+    (limbCount : Nat) (sourceBit : WireV1)
+    (remainder quotient divisor : Array WireV1)
+    (divisorZero : WireV1) (writeCond : WireV1) :
+    CompileResult (BuilderV1 × Array WireV1 × Array WireV1) := do
+  unless remainder.size == limbCount + 1 && quotient.size == limbCount
+      && divisor.size == limbCount do
+    planError "PSY-DPN-G5: wide div step shape mismatch"
+  let (bS1, shiftTop) := emitLiteralU64 b 31
+  let (bS2, shiftOne) := emitLiteralU64 bS1 1
+  let (bS3, base) := emitLiteralU64 bS2 4294967296
+  let (bS4, one) := emitLiteralU64 bS3 1
+  let mut bCur := bS4
+  -- Shift remainder left by 1, inject source bit into limb 0.
+  let mut carries : Array WireV1 := #[]
+  for i in [0:limbCount] do
+    let some ri := remainder[i]? | planError "PSY-DPN-G5: rem carry"
+    let (bC, c) := emitU32Bin bCur .u32ShiftRight ri shiftTop
+    bCur := bC
+    carries := carries.push c
+  let some r0 := remainder[0]? | planError "PSY-DPN-G5: r0"
+  let (bL0, r0s) := emitU32Bin bCur .u32ShiftLeft r0 shiftOne
+  let (bR0, r0n) := emitU32Bin bL0 .u32Or r0s sourceBit
+  bCur := bR0
+  let mut newRem : Array WireV1 := #[r0n]
+  for i in [1:limbCount] do
+    let some ri := remainder[i]? | planError "PSY-DPN-G5: rem shift"
+    let some cPrev := carries[i - 1]? | planError "PSY-DPN-G5: carry prev"
+    let (bLs, ris) := emitU32Bin bCur .u32ShiftLeft ri shiftOne
+    let (bOr, rin) := emitU32Bin bLs .u32Or ris cPrev
+    bCur := bOr
+    newRem := newRem.push rin
+  let some cLast := carries[limbCount - 1]? | planError "PSY-DPN-G5: carry last"
+  newRem := newRem.push cLast
+  -- take := rem >= divisor
+  let (bTk, take) ← emitWideDivLexGe bCur newRem divisor
+  bCur := bTk
+  -- subtract with borrow when take
+  let mut borrow : WireV1 := zeroWire bCur
+  let mut diffs : Array WireV1 := #[]
+  for i in [0:limbCount] do
+    let some ri := newRem[i]? | planError "PSY-DPN-G5: sub rem"
+    let some di := divisor[i]? | planError "PSY-DPN-G5: sub div"
+    let (bSub, sub) := emitTargetBin bCur .add di borrow
+    let (bUn, under) ← emitCompare bSub .lt ri sub
+    let (bDir, direct) := emitTargetBin bUn .sub ri sub
+    let (bW0, wrapped0) := emitTargetBin bDir .add ri base
+    let (bW1, wrapped) := emitTargetBin bW0 .sub wrapped0 sub
+    let (bDf, diff) ← emitSelect bW1 under wrapped direct
+    let (bBr, br) ← emitSelect bDf under one (zeroWire bDf)
+    bCur := bBr
+    diffs := diffs.push diff
+    borrow := br
+  let some rHi := newRem[limbCount]? | planError "PSY-DPN-G5: rHi"
+  -- high_ok := !take \/ rHi == borrow
+  let (bNt, notTake) ← emitBoolNot bCur take
+  let (bEq, hiEq) ← emitCompare bNt .eq rHi borrow
+  let (bOk, highOk) ← emitBoolOr bEq notTake hiEq
+  let (bDz, skipOrOk) ← emitBoolOr bOk divisorZero highOk
+  bCur ← assertGated bDz writeCond skipOrOk "u128 div internal high borrow"
+  let (bHd, highDiff) := emitTargetBin bCur .sub rHi borrow
+  bCur := bHd
+  let mut remOut : Array WireV1 := #[]
+  for i in [0:limbCount] do
+    let some ri := newRem[i]? | planError "PSY-DPN-G5: rem out"
+    let some di := diffs[i]? | planError "PSY-DPN-G5: diff out"
+    let (bSel, r) ← emitSelect bCur take di ri
+    bCur := bSel
+    remOut := remOut.push r
+  let (bRh, rH) ← emitSelect bCur take highDiff rHi
+  bCur := bRh
+  remOut := remOut.push rH
+  let (bRz, remHiOk) ← emitCompare bCur .eq rH (zeroWire bCur)
+  let (bRz2, remHiGate) ← emitBoolOr bRz divisorZero remHiOk
+  bCur ← assertGated bRz2 writeCond remHiGate "u128 div internal remainder high"
+  -- quotient <<= 1 | take
+  let (bQb, qbit) ← emitSelect bCur take one (zeroWire bCur)
+  bCur := bQb
+  let mut qCarries : Array WireV1 := #[]
+  for i in [0:limbCount] do
+    let some qi := quotient[i]? | planError "PSY-DPN-G5: q carry"
+    let (bC, c) := emitU32Bin bCur .u32ShiftRight qi shiftTop
+    bCur := bC
+    qCarries := qCarries.push c
+  let some q0 := quotient[0]? | planError "PSY-DPN-G5: q0"
+  let (bQl, q0s) := emitU32Bin bCur .u32ShiftLeft q0 shiftOne
+  let (bQo, q0n) := emitU32Bin bQl .u32Or q0s qbit
+  bCur := bQo
+  let mut quotOut : Array WireV1 := #[q0n]
+  for i in [1:limbCount] do
+    let some qi := quotient[i]? | planError "PSY-DPN-G5: q shift"
+    let some cPrev := qCarries[i - 1]? | planError "PSY-DPN-G5: qc"
+    let (bLs, qis) := emitU32Bin bCur .u32ShiftLeft qi shiftOne
+    let (bOr, qin) := emitU32Bin bLs .u32Or qis cPrev
+    bCur := bOr
+    quotOut := quotOut.push qin
+  let some qcLast := qCarries[limbCount - 1]? | planError "PSY-DPN-G5: qc last"
+  let (bQe, qov) ← emitCompare bCur .eq qcLast (zeroWire bCur)
+  let (bQe2, qovGate) ← emitBoolOr bQe divisorZero qov
+  bCur ← assertGated bQe2 writeCond qovGate "u128 div internal quotient overflow"
+  -- Cast U32 remainder/quotient limbs used as Target to Target for next step.
+  -- Steps feed mixed wires; keep as-is (operand encoding handles both).
+  pure (bCur, remOut, quotOut)
+
+/-- Extract bit `31 - step` of a limb as U32 0/1 (MSB-first within limb). -/
+private def emitLimbBitMSB (b : BuilderV1) (limb : WireV1) (stepInLimb : Nat) :
+    CompileResult (BuilderV1 × WireV1) := do
+  unless stepInLimb < 32 do
+    planError "PSY-DPN-G5: limb bit step must be < 32"
+  let dist := 31 - stepInLimb
+  let (b1, distW) := emitLiteralU64 b (UInt64.ofNat dist)
+  let (b2, shifted) := emitU32Bin b1 .u32ShiftRight limb distW
+  let (b3, one) := emitLiteralU64 b2 1
+  pure (emitU32Bin b3 .u32And shifted one)
+
+/-- Restoring wide div/mod binding (EmitIRV1 port, fully unrolled). -/
+private def emitBindWideUintDivModV1 (b : BuilderV1) (params : Array WireV1)
+    (viewPath : Bool) (writeCond : WireV1)
+    (resultKind : WideUInt128DivModResultV1)
+    (bitWidth operationId : Nat) (lhs rhs : Array Expr) :
+    CompileResult BuilderV1 := do
+  unless bitWidth == 128 || bitWidth == 256 do
+    planError "PSY-DPN-G5: bindWideUintDivMod bitWidth must be 128 or 256"
+  let limbCount := bitWidth / 32
+  unless lhs.size == limbCount && rhs.size == limbCount do
+    planError s!"PSY-DPN-G5: bindWideUintDivMod requires two {limbCount}-limb operands"
+  let rangeMsg := if bitWidth == 256 then "u256 div operand limb out of range"
+    else "u128 div operand limb out of range"
+  let zeroMessage := match resultKind, bitWidth with
+    | .quotient, 256 => "u256 div by zero"
+    | .remainder, 256 => "u256 mod by zero"
+    | .quotient, _ => "u128 div by zero"
+    | .remainder, _ => "u128 mod by zero"
+  let (b0, left) ← lowerWideOperandLimbs b params viewPath writeCond lhs rangeMsg true
+  let (b1, right) ← lowerWideOperandLimbs b0 params viewPath writeCond rhs rangeMsg true
+  let mut bCur := b1
+  -- divisorZero := all limbs == 0
+  let some r0 := right[0]? | planError "PSY-DPN-G5: rhs0"
+  let (bZ0, dz0) ← emitCompare bCur .eq r0 (zeroWire bCur)
+  bCur := bZ0
+  let mut divisorZero := dz0
+  for i in [1:limbCount] do
+    let some ri := right[i]? | planError "PSY-DPN-G5: rhs i"
+    let (bE, eqW) ← emitCompare bCur .eq ri (zeroWire bCur)
+    let (bA, andW) ← emitBoolAnd bE divisorZero eqW
+    bCur := bA
+    divisorZero := andW
+  let (bNz, notZero) ← emitBoolNot bCur divisorZero
+  bCur ← assertGated bNz writeCond notZero zeroMessage
+  -- rem = [0..] (limbCount+1), quot = [0..] (limbCount)
+  let mut rem : Array WireV1 := #[]
+  for _ in [0:limbCount + 1] do
+    rem := rem.push (zeroWire bCur)
+  let mut quot : Array WireV1 := #[]
+  for _ in [0:limbCount] do
+    quot := quot.push (zeroWire bCur)
+  -- MSB-first limbs: sourceIndex from limbCount-1 down to 0; 32 bits each
+  for sourceIndex in List.range limbCount |>.reverse do
+    let some source := left[sourceIndex]? |
+      planError "PSY-DPN-G5: dividend limb missing"
+    for step in [0:32] do
+      let (bBit, bit) ← emitLimbBitMSB bCur source step
+      let (bSt, rem', quot') ←
+        emitWideDivOneStep bBit limbCount bit rem quot right divisorZero writeCond
+      bCur := bSt
+      rem := rem'
+      quot := quot'
+  -- Ensure Target limbs for binding (CastFelt any residual U32)
+  let mut qOut : Array WireV1 := #[]
+  for w in quot do
+    let (bT, t) ← ensureTarget bCur w
+    bCur := bT
+    qOut := qOut.push t
+  let mut rOut : Array WireV1 := #[]
+  for i in [0:limbCount] do
+    let some w := rem[i]? | planError "PSY-DPN-G5: rem bind"
+    let (bT, t) ← ensureTarget bCur w
+    bCur := bT
+    rOut := rOut.push t
+  pure {
+    bCur with
+      wideDivBinds := bCur.wideDivBinds.push {
+        operationId, quotient := qOut, remainder := rOut
+      }
+  }
+
+/-- Exact wide logical shift: fixed bitWidth one-bit walk (EmitIRV1 port). -/
+private def emitBindWideUintShiftV1 (b : BuilderV1) (params : Array WireV1)
+    (viewPath : Bool) (writeCond : WireV1)
+    (kind : WideUInt128ShiftKindV1) (bitWidth operationId : Nat)
+    (value : Array Expr) (count : Expr) :
+    CompileResult BuilderV1 := do
+  unless bitWidth == 128 || bitWidth == 256 do
+    planError "PSY-DPN-G5: bindWideUintShift bitWidth must be 128 or 256"
+  let limbCount := bitWidth / 32
+  unless value.size == limbCount do
+    planError s!"PSY-DPN-G5: bindWideUintShift requires {limbCount} value limbs"
+  let rangeMsg := if bitWidth == 256 then "u256 shift operand limb out of range"
+    else "u128 shift operand limb out of range"
+  let overflowMsg := if bitWidth == 256 then "u256 shl overflow" else "u128 shl overflow"
+  let (b0, limbs0) ← lowerWideOperandLimbs b params viewPath writeCond value rangeMsg true
+  let (b1, countW) ← lowerExprV1 b0 params viewPath count
+  let (b2, bwLit) := emitLiteralU64 b1 (UInt64.ofNat bitWidth)
+  let (b3, countOk) ← emitCompare b2 .lt countW bwLit
+  let mut bCur ← assertGated b3 writeCond countOk
+    s!"invalidShift: count >= {bitWidth}"
+  let (bOne, one) := emitLiteralU64 bCur 1
+  let (bTop, shiftTop) := emitLiteralU64 bOne 31
+  let (bSo, shiftOne) := emitLiteralU64 bTop 1
+  bCur := bSo
+  let mut limbs := limbs0
+  -- Unroll bitWidth steps; take := step < count
+  for step in [0:bitWidth] do
+    let (bSt, stepLit) := emitLiteralU64 bCur (UInt64.ofNat step)
+    let (bTk, take) ← emitCompare bSt .lt stepLit countW
+    bCur := bTk
+    match kind with
+    | .shl => do
+        let mut carries : Array WireV1 := #[]
+        for i in [0:limbCount] do
+          let some li := limbs[i]? | planError "PSY-DPN-G5: shl carry"
+          let (bC, c) := emitU32Bin bCur .u32ShiftRight li shiftTop
+          bCur := bC
+          carries := carries.push c
+        let some cLast := carries[limbCount - 1]? | planError "PSY-DPN-G5: shl ov"
+        let (bNt, notTake) ← emitBoolNot bCur take
+        let (bEq, cZero) ← emitCompare bNt .eq cLast (zeroWire bNt)
+        let (bOk, ok) ← emitBoolOr bEq notTake cZero
+        bCur ← assertGated bOk writeCond ok overflowMsg
+        let some l0 := limbs[0]? | planError "PSY-DPN-G5: shl l0"
+        let (bL, l0s) := emitU32Bin bCur .u32ShiftLeft l0 shiftOne
+        let (bS0, l0n) ← emitSelect bL take l0s l0
+        bCur := bS0
+        let mut next : Array WireV1 := #[l0n]
+        for i in [1:limbCount] do
+          let some li := limbs[i]? | planError "PSY-DPN-G5: shl li"
+          let some cPrev := carries[i - 1]? | planError "PSY-DPN-G5: shl cp"
+          let (bLs, lis) := emitU32Bin bCur .u32ShiftLeft li shiftOne
+          let (bOr, lior) := emitU32Bin bLs .u32Or lis cPrev
+          let (bSel, lin) ← emitSelect bOr take lior li
+          bCur := bSel
+          next := next.push lin
+        limbs := next
+    | .shr => do
+        let mut lowBits : Array WireV1 := #[]
+        for i in [0:limbCount] do
+          let some li := limbs[i]? | planError "PSY-DPN-G5: shr low"
+          let (bL, lb) := emitU32Bin bCur .u32And li one
+          bCur := bL
+          lowBits := lowBits.push lb
+        -- Build next limbs low→high: for idx in 0..limbCount-2 inject low bit
+        -- of higher limb; last limb is plain >> 1.
+        let mut next : Array WireV1 := #[]
+        for idx in [0:limbCount - 1] do
+          let some li := limbs[idx]? | planError "PSY-DPN-G5: shr idx"
+          let some lbNext := lowBits[idx + 1]? | planError "PSY-DPN-G5: shr lb"
+          let (bRs2, lis) := emitU32Bin bCur .u32ShiftRight li shiftOne
+          let (bSh, moved) := emitU32Bin bRs2 .u32ShiftLeft lbNext shiftTop
+          let (bOr, lior) := emitU32Bin bSh .u32Or lis moved
+          let (bSel, lin) ← emitSelect bOr take lior li
+          bCur := bSel
+          next := next.push lin
+        let some lLast := limbs[limbCount - 1]? | planError "PSY-DPN-G5: shr last"
+        let (bRs, lastS) := emitU32Bin bCur .u32ShiftRight lLast shiftOne
+        let (bSl, lastN) ← emitSelect bRs take lastS lLast
+        bCur := bSl
+        next := next.push lastN
+        limbs := next
+  let mut outLimbs : Array WireV1 := #[]
+  for w in limbs do
+    let (bT, t) ← ensureTarget bCur w
+    bCur := bT
+    outLimbs := outLimbs.push t
+  pure {
+    bCur with
+      wideShiftBinds := bCur.wideShiftBinds.push {
+        operationId, kind, limbs := outLimbs
+      }
+  }
 
 /-- Result of lowering a statement sequence: return wires (empty = unit). -/
 structure StmtResultV1 where
@@ -796,23 +1366,27 @@ unroll budget {maxUnrollBudgetV1} (no while/unbounded; PSY-LOOP)"
             "PSY-DPN-6: schedule is not admitted on Psy DPN (no deferred \
 InvokeExternalContractFunctionDeferred product path; effect.asynchronous-workflow \
 declined; PSY-CALL-EVENT FC)"
-      | .bindWideUintMul .. =>
-          planError
-            "PSY-DPN-4: bindWideUintMul (schoolbook UInt128/256 mul) not admitted in this slice — fail closed"
-      | .bindWideUintDivMod .. =>
-          planError
-            "PSY-DPN-4: bindWideUintDivMod not admitted in this slice — fail closed"
-      | .bindWideUintShift .. =>
-          planError
-            "PSY-DPN-4: bindWideUintShift not admitted in this slice — fail closed"
+      | .bindWideUintMul bitWidth operationId lhs rhs => do
+          let b1 ← emitBindWideUintMulV1 b params viewPath writeCond
+            bitWidth operationId lhs rhs
+          lowerStmtsV1 b1 params writeCond viewPath rest
+      | .bindWideUintDivMod resultKind bitWidth operationId lhs rhs => do
+          let b1 ← emitBindWideUintDivModV1 b params viewPath writeCond
+            resultKind bitWidth operationId lhs rhs
+          lowerStmtsV1 b1 params writeCond viewPath rest
+      | .bindWideUintShift kind bitWidth operationId value count => do
+          let b1 ← emitBindWideUintShiftV1 b params viewPath writeCond
+            kind bitWidth operationId value count
+          lowerStmtsV1 b1 params writeCond viewPath rest
       | other =>
           planError s!"PSY-DPN-6: unsupported Statement shape {repr other}"
 
-/-- Encode return wires as circuit_outputs (target raw index; bool uses encoded id). -/
+/-- Encode return wires as circuit_outputs (target raw index; bool/u32 encoded). -/
 private def encodeOutputs (wires : Array WireV1) : Array UInt64 :=
   wires.map fun
     | .target i => UInt64.ofNat i
     | .bool i => encodeIndexedId .bool i
+    | .u32 i => encodeIndexedId .u32Target i
 
 /-- General function lower (DPN-3/4/5). Multi-leaf UInt64/Option/Map + limb wide. -/
 def lowerFunctionGeneralV1 (fn : PlanFunction) (multiLeaf : Bool) :
