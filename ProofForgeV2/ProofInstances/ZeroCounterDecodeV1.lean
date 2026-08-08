@@ -2135,7 +2135,7 @@ private theorem decodeInvariants_canonicalBytes :
     ⟨canonicalBytes, 1149, 1⟩ 1153 zeroInvariant ⟨canonicalBytes, 1188, 1⟩
     readInvariantsCount_canonicalBytes decodeZeroInvDecl
 
-/-! ### requirements -/
+/-! ### requirements (product-aligned: sole state.persistent) -/
 
 private theorem expectProgramRequirements :
     expectTag "ProgramRequirements" 1 ⟨canonicalBytes, 1188, 2⟩ =
@@ -2147,7 +2147,7 @@ private theorem expectProgramRequirements :
   rw [canonicalSpine_length]
   rfl
 
-private theorem expectRollbackReq :
+private theorem expectPersistentReq :
     expectTag "RequirementRequest" 4 ⟨canonicalBytes, 1217, 3⟩ =
       .ok ((), ⟨canonicalBytes, 1241, 3⟩) := by
   apply expectTag_of_spine "RequirementRequest" 4 1217 1241 3
@@ -2157,101 +2157,15 @@ private theorem expectRollbackReq :
   rw [canonicalSpine_length]
   rfl
 
-private theorem decodeRollbackReqId :
+private theorem decodePersistentReqId :
     decodeString ⟨canonicalBytes, 1241, 3⟩ =
-      .ok ("failure.atomic-rollback", ⟨canonicalBytes, 1268, 3⟩) := by
+      .ok ("state.persistent", ⟨canonicalBytes, 1261, 3⟩) := by
   apply decodeString_eq_of_valueV1
   · change readSizedBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 1241 maxStringBytes =
-      .ok (ByteArray.mk [102, 97, 105, 108, 117, 114, 101, 46, 97, 116, 111, 109, 105, 99, 45, 114, 111, 108, 108, 98, 97, 99, 107].toArray, 1268)
-    apply readSizedBytesAtV1_eq_of_spine
-    apply readSizedSpineBytesV1_eq_of_parts canonicalSpine [102, 97, 105, 108, 117, 114, 101, 46, 97, 116, 111, 109, 105, 99, 45, 114, 111, 108, 108, 98, 97, 99, 107]
-        1241 maxStringBytes 23 1245
-    · rfl
-    · decide
-    · decide
-    · unfold takeSpineBytesV1 spineRemainingV1
-      rw [canonicalSpine_length]; rfl
-  · rfl
-  · exact requireNfc_eq_ok_of_isAscii "failure.atomic-rollback" (by decide)
-
-private theorem decodeRollbackReqVer :
-    decodeString ⟨canonicalBytes, 1268, 3⟩ =
-      .ok ("1.0.0", ⟨canonicalBytes, 1277, 3⟩) := by
-  apply decodeString_eq_of_valueV1
-  · change readSizedBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 1268 maxStringBytes =
-      .ok (ByteArray.mk [49, 46, 48, 46, 48].toArray, 1277)
-    apply readSizedBytesAtV1_eq_of_spine
-    apply readSizedSpineBytesV1_eq_of_parts canonicalSpine [49, 46, 48, 46, 48]
-        1268 maxStringBytes 5 1272
-    · rfl
-    · decide
-    · decide
-    · unfold takeSpineBytesV1 spineRemainingV1
-      rw [canonicalSpine_length]; rfl
-  · rfl
-  · exact requireNfc_eq_ok_of_isAscii "1.0.0" (by decide)
-
-private theorem decodeRollbackReqSemVer :
-    decodeSemVer ⟨canonicalBytes, 1268, 3⟩ =
-      .ok (s2RequirementVersionV1, ⟨canonicalBytes, 1277, 3⟩) := by
-  apply decodeSemVer_eq_of_stringV1
-  · exact decodeRollbackReqVer
-  · -- s2RequirementVersionV1 = s2CatalogSemVerCoreV1 definitionally
-    simpa [s2RequirementVersionV1, s2CatalogSemVerCoreV1] using parseSemVer_1_0_0
-
-private theorem decodeRollbackReqDigest :
-    decodeDigest ⟨canonicalBytes, 1277, 3⟩ =
-      .ok ({ algorithm := .sha256, bytes := s2FailureAtomicRollbackDigestBytesV1 },
-        ⟨canonicalBytes, 1309, 3⟩) := by
-  apply decodeDigest_eq_of_takeV1
-  · have h : takeBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 1277 32 =
-        .ok (ByteArray.mk ([254, 98, 216, 232, 64, 20, 227, 236, 31, 23, 247, 108, 127, 85, 250, 195, 25, 2, 68, 236, 163, 173, 18, 77, 208, 78, 23, 195, 201, 209, 17, 101]).toArray) := by
-      apply takeBytesAtV1_eq_of_spine canonicalSpine ([254, 98, 216, 232, 64, 20, 227, 236, 31, 23, 247, 108, 127, 85, 250, 195, 25, 2, 68, 236, 163, 173, 18, 77, 208, 78, 23, 195, 201, 209, 17, 101]) 1277
-      unfold takeSpineBytesV1 spineRemainingV1
-      rw [canonicalSpine_length]
-      rfl
-    simpa [canonicalBytes, s2FailureAtomicRollbackDigestBytesV1] using h
-  · simp [s2FailureAtomicRollbackDigestBytesV1, validateDigest]
-    rfl
-
-private theorem decodeRollbackReq :
-    decodeRequirementRequestV1 ⟨canonicalBytes, 1217, 2⟩ =
-      .ok (requirement "failure.atomic-rollback" s2FailureAtomicRollbackDigestBytesV1,
-        ⟨canonicalBytes, 1313, 2⟩) := by
-  apply decodeRequirementRequestV1_eq_of_fields ⟨canonicalBytes, 1217, 2⟩
-    ⟨canonicalBytes, 1241, 3⟩ ⟨canonicalBytes, 1268, 3⟩
-    ⟨canonicalBytes, 1277, 3⟩ ⟨canonicalBytes, 1309, 3⟩
-    ⟨canonicalBytes, 1313, 3⟩
-    "failure.atomic-rollback" s2RequirementVersionV1
-    { algorithm := .sha256, bytes := s2FailureAtomicRollbackDigestBytesV1 } #[] (by decide)
-  · exact expectRollbackReq
-  · exact decodeRollbackReqId
-  · exact decodeRollbackReqSemVer
-  · exact decodeRollbackReqDigest
-  · apply decodeArray_zeroV1
-    change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 1309
-      maxArrayElements = .ok (0, 1313)
-    rw [readArrayCountAtV1_refinesSpine]; rfl
-
-private theorem expectPersistentReq :
-    expectTag "RequirementRequest" 4 ⟨canonicalBytes, 1313, 3⟩ =
-      .ok ((), ⟨canonicalBytes, 1337, 3⟩) := by
-  apply expectTag_of_spine "RequirementRequest" 4 1313 1337 3
-    [82, 101, 113, 117, 105, 114, 101, 109, 101, 110, 116, 82, 101, 113, 117, 101, 115, 116] (by rfl)
-  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
-    spineRemainingV1 readSpineU16leV1
-  rw [canonicalSpine_length]
-  rfl
-
-private theorem decodePersistentReqId :
-    decodeString ⟨canonicalBytes, 1337, 3⟩ =
-      .ok ("state.persistent", ⟨canonicalBytes, 1357, 3⟩) := by
-  apply decodeString_eq_of_valueV1
-  · change readSizedBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 1337 maxStringBytes =
-      .ok (ByteArray.mk [115, 116, 97, 116, 101, 46, 112, 101, 114, 115, 105, 115, 116, 101, 110, 116].toArray, 1357)
+      .ok (ByteArray.mk [115, 116, 97, 116, 101, 46, 112, 101, 114, 115, 105, 115, 116, 101, 110, 116].toArray, 1261)
     apply readSizedBytesAtV1_eq_of_spine
     apply readSizedSpineBytesV1_eq_of_parts canonicalSpine [115, 116, 97, 116, 101, 46, 112, 101, 114, 115, 105, 115, 116, 101, 110, 116]
-        1337 maxStringBytes 16 1341
+        1241 maxStringBytes 16 1245
     · rfl
     · decide
     · decide
@@ -2261,14 +2175,14 @@ private theorem decodePersistentReqId :
   · exact requireNfc_eq_ok_of_isAscii "state.persistent" (by decide)
 
 private theorem decodePersistentReqVer :
-    decodeString ⟨canonicalBytes, 1357, 3⟩ =
-      .ok ("1.0.0", ⟨canonicalBytes, 1366, 3⟩) := by
+    decodeString ⟨canonicalBytes, 1261, 3⟩ =
+      .ok ("1.0.0", ⟨canonicalBytes, 1270, 3⟩) := by
   apply decodeString_eq_of_valueV1
-  · change readSizedBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 1357 maxStringBytes =
-      .ok (ByteArray.mk [49, 46, 48, 46, 48].toArray, 1366)
+  · change readSizedBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 1261 maxStringBytes =
+      .ok (ByteArray.mk [49, 46, 48, 46, 48].toArray, 1270)
     apply readSizedBytesAtV1_eq_of_spine
     apply readSizedSpineBytesV1_eq_of_parts canonicalSpine [49, 46, 48, 46, 48]
-        1357 maxStringBytes 5 1361
+        1261 maxStringBytes 5 1265
     · rfl
     · decide
     · decide
@@ -2278,21 +2192,20 @@ private theorem decodePersistentReqVer :
   · exact requireNfc_eq_ok_of_isAscii "1.0.0" (by decide)
 
 private theorem decodePersistentReqSemVer :
-    decodeSemVer ⟨canonicalBytes, 1357, 3⟩ =
-      .ok (s2RequirementVersionV1, ⟨canonicalBytes, 1366, 3⟩) := by
+    decodeSemVer ⟨canonicalBytes, 1261, 3⟩ =
+      .ok (s2RequirementVersionV1, ⟨canonicalBytes, 1270, 3⟩) := by
   apply decodeSemVer_eq_of_stringV1
   · exact decodePersistentReqVer
-  · -- s2RequirementVersionV1 = s2CatalogSemVerCoreV1 definitionally
-    simpa [s2RequirementVersionV1, s2CatalogSemVerCoreV1] using parseSemVer_1_0_0
+  · simpa [s2RequirementVersionV1, s2CatalogSemVerCoreV1] using parseSemVer_1_0_0
 
 private theorem decodePersistentReqDigest :
-    decodeDigest ⟨canonicalBytes, 1366, 3⟩ =
+    decodeDigest ⟨canonicalBytes, 1270, 3⟩ =
       .ok ({ algorithm := .sha256, bytes := s2StatePersistentDigestBytesV1 },
-        ⟨canonicalBytes, 1398, 3⟩) := by
+        ⟨canonicalBytes, 1302, 3⟩) := by
   apply decodeDigest_eq_of_takeV1
-  · have h : takeBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 1366 32 =
+  · have h : takeBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 1270 32 =
         .ok (ByteArray.mk ([2, 63, 255, 245, 41, 95, 167, 238, 77, 158, 78, 73, 144, 154, 62, 183, 241, 252, 12, 86, 31, 142, 126, 160, 111, 18, 66, 52, 12, 20, 110, 229]).toArray) := by
-      apply takeBytesAtV1_eq_of_spine canonicalSpine ([2, 63, 255, 245, 41, 95, 167, 238, 77, 158, 78, 73, 144, 154, 62, 183, 241, 252, 12, 86, 31, 142, 126, 160, 111, 18, 66, 52, 12, 20, 110, 229]) 1366
+      apply takeBytesAtV1_eq_of_spine canonicalSpine ([2, 63, 255, 245, 41, 95, 167, 238, 77, 158, 78, 73, 144, 154, 62, 183, 241, 252, 12, 86, 31, 142, 126, 160, 111, 18, 66, 52, 12, 20, 110, 229]) 1270
       unfold takeSpineBytesV1 spineRemainingV1
       rw [canonicalSpine_length]
       rfl
@@ -2301,13 +2214,13 @@ private theorem decodePersistentReqDigest :
     rfl
 
 private theorem decodePersistentReq :
-    decodeRequirementRequestV1 ⟨canonicalBytes, 1313, 2⟩ =
+    decodeRequirementRequestV1 ⟨canonicalBytes, 1217, 2⟩ =
       .ok (requirement "state.persistent" s2StatePersistentDigestBytesV1,
-        ⟨canonicalBytes, 1402, 2⟩) := by
-  apply decodeRequirementRequestV1_eq_of_fields ⟨canonicalBytes, 1313, 2⟩
-    ⟨canonicalBytes, 1337, 3⟩ ⟨canonicalBytes, 1357, 3⟩
-    ⟨canonicalBytes, 1366, 3⟩ ⟨canonicalBytes, 1398, 3⟩
-    ⟨canonicalBytes, 1402, 3⟩
+        ⟨canonicalBytes, 1306, 2⟩) := by
+  apply decodeRequirementRequestV1_eq_of_fields ⟨canonicalBytes, 1217, 2⟩
+    ⟨canonicalBytes, 1241, 3⟩ ⟨canonicalBytes, 1261, 3⟩
+    ⟨canonicalBytes, 1270, 3⟩ ⟨canonicalBytes, 1302, 3⟩
+    ⟨canonicalBytes, 1306, 3⟩
     "state.persistent" s2RequirementVersionV1
     { algorithm := .sha256, bytes := s2StatePersistentDigestBytesV1 } #[] (by decide)
   · exact expectPersistentReq
@@ -2315,134 +2228,42 @@ private theorem decodePersistentReq :
   · exact decodePersistentReqSemVer
   · exact decodePersistentReqDigest
   · apply decodeArray_zeroV1
-    change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 1398
-      maxArrayElements = .ok (0, 1402)
-    rw [readArrayCountAtV1_refinesSpine]; rfl
-
-private theorem expectCheckedReq :
-    expectTag "RequirementRequest" 4 ⟨canonicalBytes, 1402, 3⟩ =
-      .ok ((), ⟨canonicalBytes, 1426, 3⟩) := by
-  apply expectTag_of_spine "RequirementRequest" 4 1402 1426 3
-    [82, 101, 113, 117, 105, 114, 101, 109, 101, 110, 116, 82, 101, 113, 117, 101, 115, 116] (by rfl)
-  unfold expectTaggedHeaderSpineV1 readTagSpineBytesV1 takeSpineBytesV1
-    spineRemainingV1 readSpineU16leV1
-  rw [canonicalSpine_length]
-  rfl
-
-private theorem decodeCheckedReqId :
-    decodeString ⟨canonicalBytes, 1426, 3⟩ =
-      .ok ("value.checked-arithmetic", ⟨canonicalBytes, 1454, 3⟩) := by
-  apply decodeString_eq_of_valueV1
-  · change readSizedBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 1426 maxStringBytes =
-      .ok (ByteArray.mk [118, 97, 108, 117, 101, 46, 99, 104, 101, 99, 107, 101, 100, 45, 97, 114, 105, 116, 104, 109, 101, 116, 105, 99].toArray, 1454)
-    apply readSizedBytesAtV1_eq_of_spine
-    apply readSizedSpineBytesV1_eq_of_parts canonicalSpine [118, 97, 108, 117, 101, 46, 99, 104, 101, 99, 107, 101, 100, 45, 97, 114, 105, 116, 104, 109, 101, 116, 105, 99]
-        1426 maxStringBytes 24 1430
-    · rfl
-    · decide
-    · decide
-    · unfold takeSpineBytesV1 spineRemainingV1
-      rw [canonicalSpine_length]; rfl
-  · rfl
-  · exact requireNfc_eq_ok_of_isAscii "value.checked-arithmetic" (by decide)
-
-private theorem decodeCheckedReqVer :
-    decodeString ⟨canonicalBytes, 1454, 3⟩ =
-      .ok ("1.0.0", ⟨canonicalBytes, 1463, 3⟩) := by
-  apply decodeString_eq_of_valueV1
-  · change readSizedBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 1454 maxStringBytes =
-      .ok (ByteArray.mk [49, 46, 48, 46, 48].toArray, 1463)
-    apply readSizedBytesAtV1_eq_of_spine
-    apply readSizedSpineBytesV1_eq_of_parts canonicalSpine [49, 46, 48, 46, 48]
-        1454 maxStringBytes 5 1458
-    · rfl
-    · decide
-    · decide
-    · unfold takeSpineBytesV1 spineRemainingV1
-      rw [canonicalSpine_length]; rfl
-  · rfl
-  · exact requireNfc_eq_ok_of_isAscii "1.0.0" (by decide)
-
-private theorem decodeCheckedReqSemVer :
-    decodeSemVer ⟨canonicalBytes, 1454, 3⟩ =
-      .ok (s2RequirementVersionV1, ⟨canonicalBytes, 1463, 3⟩) := by
-  apply decodeSemVer_eq_of_stringV1
-  · exact decodeCheckedReqVer
-  · -- s2RequirementVersionV1 = s2CatalogSemVerCoreV1 definitionally
-    simpa [s2RequirementVersionV1, s2CatalogSemVerCoreV1] using parseSemVer_1_0_0
-
-private theorem decodeCheckedReqDigest :
-    decodeDigest ⟨canonicalBytes, 1463, 3⟩ =
-      .ok ({ algorithm := .sha256, bytes := s2ValueCheckedArithmeticDigestBytesV1 },
-        ⟨canonicalBytes, 1495, 3⟩) := by
-  apply decodeDigest_eq_of_takeV1
-  · have h : takeBytesAtV1 (ByteArray.mk canonicalSpine.toArray) 1463 32 =
-        .ok (ByteArray.mk ([226, 24, 107, 1, 207, 88, 19, 81, 17, 247, 78, 197, 106, 83, 227, 51, 135, 188, 48, 22, 72, 104, 7, 27, 31, 82, 74, 242, 34, 184, 191, 205]).toArray) := by
-      apply takeBytesAtV1_eq_of_spine canonicalSpine ([226, 24, 107, 1, 207, 88, 19, 81, 17, 247, 78, 197, 106, 83, 227, 51, 135, 188, 48, 22, 72, 104, 7, 27, 31, 82, 74, 242, 34, 184, 191, 205]) 1463
-      unfold takeSpineBytesV1 spineRemainingV1
-      rw [canonicalSpine_length]
-      rfl
-    simpa [canonicalBytes, s2ValueCheckedArithmeticDigestBytesV1] using h
-  · simp [s2ValueCheckedArithmeticDigestBytesV1, validateDigest]
-    rfl
-
-private theorem decodeCheckedReq :
-    decodeRequirementRequestV1 ⟨canonicalBytes, 1402, 2⟩ =
-      .ok (requirement "value.checked-arithmetic" s2ValueCheckedArithmeticDigestBytesV1,
-        ⟨canonicalBytes, 1499, 2⟩) := by
-  apply decodeRequirementRequestV1_eq_of_fields ⟨canonicalBytes, 1402, 2⟩
-    ⟨canonicalBytes, 1426, 3⟩ ⟨canonicalBytes, 1454, 3⟩
-    ⟨canonicalBytes, 1463, 3⟩ ⟨canonicalBytes, 1495, 3⟩
-    ⟨canonicalBytes, 1499, 3⟩
-    "value.checked-arithmetic" s2RequirementVersionV1
-    { algorithm := .sha256, bytes := s2ValueCheckedArithmeticDigestBytesV1 } #[] (by decide)
-  · exact expectCheckedReq
-  · exact decodeCheckedReqId
-  · exact decodeCheckedReqSemVer
-  · exact decodeCheckedReqDigest
-  · apply decodeArray_zeroV1
-    change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 1495
-      maxArrayElements = .ok (0, 1499)
+    change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 1302
+      maxArrayElements = .ok (0, 1306)
     rw [readArrayCountAtV1_refinesSpine]; rfl
 
 private theorem decodeRequirements_canonicalBytes :
     decodeProgramRequirementsV1 ⟨canonicalBytes, 1188, 1⟩ =
-      .ok ({ items := #[rollbackRequirement, persistentStateRequirement,
-          checkedArithmeticRequirement] }, ⟨canonicalBytes, 1499, 1⟩) := by
+      .ok ({ items := #[persistentStateRequirement] }, ⟨canonicalBytes, 1306, 1⟩) := by
   refine decodeProgramRequirementsV1_eq_of_bodyV1 ⟨canonicalBytes, 1188, 1⟩
-    { items := #[rollbackRequirement, persistentStateRequirement,
-        checkedArithmeticRequirement] }
-    ⟨canonicalBytes, 1499, 2⟩ (by decide) ?_
+    { items := #[persistentStateRequirement] }
+    ⟨canonicalBytes, 1306, 2⟩ (by decide) ?_
   apply decodeProgramRequirementsBodyV1_eq_of_fields
   · exact expectProgramRequirements
-  · exact decodeArray_threeV1 maxArrayElements decodeRequirementRequestV1
+  · exact decodeArray_oneV1 maxArrayElements decodeRequirementRequestV1
       ⟨canonicalBytes, 1213, 2⟩ 1217
-      rollbackRequirement persistentStateRequirement checkedArithmeticRequirement
-      ⟨canonicalBytes, 1313, 2⟩ ⟨canonicalBytes, 1402, 2⟩ ⟨canonicalBytes, 1499, 2⟩
+      persistentStateRequirement
+      ⟨canonicalBytes, 1306, 2⟩
       (by
         change readArrayCountAtV1 (ByteArray.mk canonicalSpine.toArray) 1213
-          maxArrayElements = .ok (3, 1217)
+          maxArrayElements = .ok (1, 1217)
         rw [readArrayCountAtV1_refinesSpine]; rfl)
-      (by simpa [rollbackRequirement, requirement] using decodeRollbackReq)
       (by simpa [persistentStateRequirement, requirement] using decodePersistentReq)
-      (by simpa [checkedArithmeticRequirement, requirement] using decodeCheckedReq)
-
 
 /-! ### Root tagged composition + public decode_ok -/
 
 private theorem decodeTaggedData_canonicalBytes :
     decodeSemanticProgramDataTaggedV1 ⟨canonicalBytes, 15, 0⟩ =
-      .ok (data, ⟨canonicalBytes, 1499, 0⟩) := by
+      .ok (data, ⟨canonicalBytes, 1306, 0⟩) := by
   have h := decodeSemanticProgramDataTaggedV1_eq_of_fields
     ⟨canonicalBytes, 15, 0⟩ ⟨canonicalBytes, 41, 1⟩
     ⟨canonicalBytes, 68, 1⟩ ⟨canonicalBytes, 142, 1⟩
     ⟨canonicalBytes, 146, 1⟩ ⟨canonicalBytes, 205, 1⟩
     ⟨canonicalBytes, 209, 1⟩ ⟨canonicalBytes, 213, 1⟩
     ⟨canonicalBytes, 1149, 1⟩ ⟨canonicalBytes, 1188, 1⟩
-    ⟨canonicalBytes, 1499, 1⟩ qualifiedName types #[] #[countState] #[] #[]
+    ⟨canonicalBytes, 1306, 1⟩ qualifiedName types #[] #[countState] #[] #[]
     #[clearCallable, getCallable, zeroCallable] #[zeroInvariant]
-    { items := #[rollbackRequirement, persistentStateRequirement,
-        checkedArithmeticRequirement] } (by decide)
+    { items := #[persistentStateRequirement] } (by decide)
     expectRootTag_canonicalBytes decodeQualifiedName_canonicalBytes
     decodeTypes_canonicalBytes decodeConstants_canonicalBytes
     decodeLogicalState_canonicalBytes decodeEvents_canonicalBytes
@@ -2455,14 +2276,14 @@ theorem decode_ok :
     decodeSemanticProgramDataV1 ZeroCounterV1.canonicalBytes =
       .ok ZeroCounterV1.data := by
   apply decodeSemanticProgramDataV1_eq_of_framing canonicalBytes
-    ⟨canonicalBytes, 15, 0⟩ ⟨canonicalBytes, 1499, 0⟩ data
+    ⟨canonicalBytes, 15, 0⟩ ⟨canonicalBytes, 1306, 0⟩ data
   · change canonicalSpine.length ≤ maxCanonicalProgramBytes
     rw [canonicalSpine_length]
     decide
   · exact consumeMagic_canonicalBytes
   · exact decodeTaggedData_canonicalBytes
   · apply finish_eq_ok_of_offset_sizeV1
-    change 1499 = canonicalSpine.length
+    change 1306 = canonicalSpine.length
     exact canonicalSpine_length.symm
 
 end ProofForgeV2.ProofInstances.ZeroCounterDecodeV1

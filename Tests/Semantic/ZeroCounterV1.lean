@@ -3,7 +3,8 @@
 
   Different predicate from EvenCounter (`count == 0`). Checks structure/encode/
   admission of package-owned data. Full `ZeroCounterPreservationV1.preservation_theorem`
-  closed (bf2-preserve); product pin remains bf2-product.
+  closed (bf2-preserve); product-aligned spine (1306B, sole state.persistent)
+  for bf2-product pin/certifier.
 -/
 import ProofForgeV2.ProofInstances.ZeroCounterV1
 import ProofForgeV2.Semantic.ReferenceV1
@@ -20,8 +21,8 @@ private def expect (cond : Bool) (msg : String) : IO Unit := do
     throw <| IO.userError msg
 
 def test_spine_and_encode : IO Unit := do
-  expect (canonicalSpine.length == 1499) "canonical spine length 1499"
-  expect (canonicalBytes.size == 1499) "canonical bytes size 1499"
+  expect (canonicalSpine.length == 1306) "canonical spine length 1306"
+  expect (canonicalBytes.size == 1306) "canonical bytes size 1306"
   match encodeSemanticProgramDataV1 data with
   | .error e => throw <| IO.userError s!"encode: {repr e}"
   | .ok bytes =>

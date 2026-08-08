@@ -8,6 +8,8 @@
 import ProofForgeV2.Semantic.ClosedSubjectPinV1
 import ProofForgeV2.ProofInstances.EvenCounterV1
 import ProofForgeV2.ProofInstances.EvenCounterPreservationV1
+import ProofForgeV2.ProofInstances.ZeroCounterV1
+import ProofForgeV2.ProofInstances.ZeroCounterPreservationV1
 
 namespace Tests.Semantic.ClosedSubjectPinV1
 
@@ -18,7 +20,7 @@ private def expect (cond : Bool) (msg : String) : IO Unit := do
   unless cond do
     throw <| IO.userError msg
 
-/-- Pin resolves only for exact EvenCounter closed bytes. -/
+/-- Pin resolves for exact EvenCounter closed bytes. -/
 def test_pin_exact_match : IO Unit := do
   match resolveClosedSubjectBytesPinNameV1 EvenCounterV1.canonicalBytes with
   | some n =>
@@ -30,6 +32,21 @@ def test_pin_exact_match : IO Unit := do
             "pin bytes must equal closed EvenCounter bytes"
       | none => throw <| IO.userError "pin bytes missing for registered name"
   | none => throw <| IO.userError "EvenCounter closed bytes must pin"
+
+/-- Pin resolves for exact ZeroCounter product-aligned closed bytes. -/
+def test_pin_zero_counter : IO Unit := do
+  match resolveClosedSubjectBytesPinNameV1 ZeroCounterV1.canonicalBytes with
+  | some n =>
+      expect (n == ``ProofForgeV2.ProofInstances.ZeroCounterV1.canonicalBytes)
+        "pin name must be ZeroCounterV1.canonicalBytes"
+      match closedSubjectBytePinBytesV1 n with
+      | some b =>
+          expect (b == ZeroCounterV1.canonicalBytes)
+            "pin bytes must equal closed ZeroCounter bytes"
+      | none => throw <| IO.userError "ZeroCounter pin bytes missing"
+  | none => throw <| IO.userError "ZeroCounter closed bytes must pin"
+  expect (EvenCounterV1.canonicalBytes != ZeroCounterV1.canonicalBytes)
+    "EvenCounter and ZeroCounter pins must be distinct"
 
 /-- Arbitrary / empty bytes are unpinned (non-pin author path). -/
 def test_non_pin_bytes_miss : IO Unit := do
@@ -51,10 +68,15 @@ def test_eq_bytes_transport_without_pin_api : IO Unit := do
   let h : p.canonicalBytes = EvenCounterV1.canonicalBytes := rfl
   let _thm :=
     EvenCounterPreservationV1.preservation_theorem_of_eq_bytes p h
+  let p0 := ZeroCounterV1.program
+  let h0 : p0.canonicalBytes = ZeroCounterV1.canonicalBytes := rfl
+  let _thm0 :=
+    ZeroCounterPreservationV1.preservation_theorem_of_eq_bytes p0 h0
   expect true "preservation_theorem_of_eq_bytes typechecks without pin lookup"
 
 def run : IO Unit := do
   test_pin_exact_match
+  test_pin_zero_counter
   test_non_pin_bytes_miss
   test_eq_bytes_transport_without_pin_api
   IO.println "Tests.Semantic.ClosedSubjectPinV1: ok"

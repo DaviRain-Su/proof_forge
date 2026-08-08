@@ -286,6 +286,24 @@ theorem validateProgramRequirementsStructure_failure_state_checked_eq_ok
   simp [validateProgramRequirementsStructure, hFailure, hState, hValue, hPred,
     hFailureState, hStateValue, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
+/-- A singleton row with closed id `state.persistent` and empty predicates
+    passes the production requirements structure gate (domain + empty predicate
+    order; no peer-order comparison). Digest/version are ignored when alone. -/
+theorem validateProgramRequirementsStructure_singleton_state_persistent_eq_ok
+    (version : SemVer) (digest : Digest) :
+    validateProgramRequirementsStructure {
+      items := #[{
+        id := "state.persistent"
+        version := version
+        digest := digest
+        predicates := #[]
+      }]
+    } = .ok () := by
+  simp only [validateProgramRequirementsStructure]
+  have hDom := validateRequirementIdDomain_state_persistent
+  have hPred := validatePredicatesSorted_empty
+  simp [hDom, hPred, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 /-- Apply `f` to every instruction in callables → blocks → instructions
     source order. Full scan; no early exit. -/
 private def forEachInstruction {m : Type → Type} [Monad m]

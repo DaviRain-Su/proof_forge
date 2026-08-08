@@ -122,14 +122,10 @@ def requirement
   predicates := #[]
 }
 
-def rollbackRequirement : RequirementRequestV1 :=
-  requirement "failure.atomic-rollback" s2FailureAtomicRollbackDigestBytesV1
 
 def persistentStateRequirement : RequirementRequestV1 :=
   requirement "state.persistent" s2StatePersistentDigestBytesV1
 
-def checkedArithmeticRequirement : RequirementRequestV1 :=
-  requirement "value.checked-arithmetic" s2ValueCheckedArithmeticDigestBytesV1
 
 def data : SemanticProgramDataV1 := {
   qualifiedName
@@ -141,12 +137,11 @@ def data : SemanticProgramDataV1 := {
   callables := #[clearCallable, getCallable, zeroCallable]
   invariants := #[zeroInvariant]
   requirements := {
-    items := #[rollbackRequirement, persistentStateRequirement,
-      checkedArithmeticRequirement]
+    items := #[persistentStateRequirement]
   }
 }
 
-/-- Exact encoder bytes for closed ZeroCounter data (1,499 bytes). -/
+/-- Exact encoder bytes for product-aligned closed ZeroCounter data (1,306 bytes). -/
 def canonicalSpine : List UInt8 := [
   112, 102, 46, 115, 101, 109, 97, 110, 116, 105, 99, 46, 118, 49, 0, 20,
   0, 0, 0, 83, 101, 109, 97, 110, 116, 105, 99, 80, 114, 111, 103, 114,
@@ -223,25 +218,13 @@ def canonicalSpine : List UInt8 := [
   0, 13, 0, 0, 0, 73, 110, 118, 97, 114, 105, 97, 110, 116, 68, 101,
   99, 108, 3, 0, 0, 0, 0, 0, 4, 0, 0, 0, 122, 101, 114, 111,
   2, 0, 0, 0, 19, 0, 0, 0, 80, 114, 111, 103, 114, 97, 109, 82,
-  101, 113, 117, 105, 114, 101, 109, 101, 110, 116, 115, 1, 0, 3, 0, 0,
-  0, 18, 0, 0, 0, 82, 101, 113, 117, 105, 114, 101, 109, 101, 110, 116,
-  82, 101, 113, 117, 101, 115, 116, 4, 0, 23, 0, 0, 0, 102, 97, 105,
-  108, 117, 114, 101, 46, 97, 116, 111, 109, 105, 99, 45, 114, 111, 108, 108,
-  98, 97, 99, 107, 5, 0, 0, 0, 49, 46, 48, 46, 48, 254, 98, 216,
-  232, 64, 20, 227, 236, 31, 23, 247, 108, 127, 85, 250, 195, 25, 2, 68,
-  236, 163, 173, 18, 77, 208, 78, 23, 195, 201, 209, 17, 101, 0, 0, 0,
+  101, 113, 117, 105, 114, 101, 109, 101, 110, 116, 115, 1, 0, 1, 0, 0,
   0, 18, 0, 0, 0, 82, 101, 113, 117, 105, 114, 101, 109, 101, 110, 116,
   82, 101, 113, 117, 101, 115, 116, 4, 0, 16, 0, 0, 0, 115, 116, 97,
   116, 101, 46, 112, 101, 114, 115, 105, 115, 116, 101, 110, 116, 5, 0, 0,
   0, 49, 46, 48, 46, 48, 2, 63, 255, 245, 41, 95, 167, 238, 77, 158,
   78, 73, 144, 154, 62, 183, 241, 252, 12, 86, 31, 142, 126, 160, 111, 18,
-  66, 52, 12, 20, 110, 229, 0, 0, 0, 0, 18, 0, 0, 0, 82, 101,
-  113, 117, 105, 114, 101, 109, 101, 110, 116, 82, 101, 113, 117, 101, 115, 116,
-  4, 0, 24, 0, 0, 0, 118, 97, 108, 117, 101, 46, 99, 104, 101, 99,
-  107, 101, 100, 45, 97, 114, 105, 116, 104, 109, 101, 116, 105, 99, 5, 0,
-  0, 0, 49, 46, 48, 46, 48, 226, 24, 107, 1, 207, 88, 19, 81, 17,
-  247, 78, 197, 106, 83, 227, 51, 135, 188, 48, 22, 72, 104, 7, 27, 31,
-  82, 74, 242, 34, 184, 191, 205, 0, 0, 0, 0
+  66, 52, 12, 20, 110, 229, 0, 0, 0, 0
 ]
 
 def canonicalBytes : ByteArray := ByteArray.mk (List.toArray canonicalSpine)
@@ -249,7 +232,7 @@ def canonicalBytes : ByteArray := ByteArray.mk (List.toArray canonicalSpine)
 def program : SemanticProgramV1 := { canonicalBytes }
 
 set_option maxRecDepth 10000 in
-theorem canonicalSpine_length : canonicalSpine.length = 1499 := by
+theorem canonicalSpine_length : canonicalSpine.length = 1306 := by
   rfl
 
 /-! ### Production structure certificate (adapted from EvenCounter) -/
@@ -325,7 +308,7 @@ private theorem structurePrelude :
   simp [data, types, uint64Type, boolType, countState,
     clearCallable, getCallable, zeroCallable, clearBlock, getBlock,
     zeroBlock, zeroInvariant, valueInstruction, valueDef, voidInstruction,
-    rollbackRequirement, persistentStateRequirement, checkedArithmeticRequirement,
+    persistentStateRequirement,
     requirement,
     validateSemanticProgramStructurePreludeV1, checkTableIdsV1,
     validateProgramQualifiedNameShapeV1, checkTypeShapeRefs, checkTypeIdInRange,
@@ -444,13 +427,10 @@ private theorem declarationIdentifierNames :
 
 private theorem programRequirementsStructure :
     validateProgramRequirementsStructure data.requirements = .ok () := by
-  simpa [data, rollbackRequirement, persistentStateRequirement,
-    checkedArithmeticRequirement, requirement] using
-    (validateProgramRequirementsStructure_failure_state_checked_eq_ok
-      s2RequirementVersionV1 s2RequirementVersionV1 s2RequirementVersionV1
-      { algorithm := .sha256, bytes := s2FailureAtomicRollbackDigestBytesV1 }
-      { algorithm := .sha256, bytes := s2StatePersistentDigestBytesV1 }
-      { algorithm := .sha256, bytes := s2ValueCheckedArithmeticDigestBytesV1 })
+  simpa [data, persistentStateRequirement, requirement] using
+    (validateProgramRequirementsStructure_singleton_state_persistent_eq_ok
+      s2RequirementVersionV1
+      { algorithm := .sha256, bytes := s2StatePersistentDigestBytesV1 })
 
 private theorem contextReadRequirements :
     validateContextReadRequirementsV1 data = .ok () := by

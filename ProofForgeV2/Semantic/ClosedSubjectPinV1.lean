@@ -1,6 +1,8 @@
 import Lean
 import ProofForgeV2.ProofInstances.EvenCounterPreservationV1
 import ProofForgeV2.ProofInstances.EvenCounterV1
+import ProofForgeV2.ProofInstances.ZeroCounterPreservationV1
+import ProofForgeV2.ProofInstances.ZeroCounterV1
 
 /-!
   Closed semantic-byte pins for product proof subjects.
@@ -29,10 +31,10 @@ import ProofForgeV2.ProofInstances.EvenCounterV1
 
   **Product env coupling:** the product session imports only
   `ProgramElaborationV1` (and its transitive graph). Closed-instance *proof*
-  modules (e.g. `EvenCounterPreservationV1`) must therefore be imported from
-  this pin module (or another ProgramElaboration dependency) so author
-  theorems can name them. New closed instances: add pin row + import proof
-  module **only when** golden exact-defeq is wanted.
+  modules (e.g. `EvenCounterPreservationV1`, `ZeroCounterPreservationV1`) must
+  therefore be imported from this pin module (or another ProgramElaboration
+  dependency) so author theorems can name them. New closed instances: add pin
+  row + import proof module **only when** golden exact-defeq is wanted.
 
   Engineering table only — not formal completeness of all contracts.
 -/
@@ -44,13 +46,16 @@ open ProofForgeV2.ProofInstances
 /-- Fully-qualified `ByteArray` constants that product `subjectBytesV1` may
     alias. Certifier may follow exactly one hop into these names. -/
 def closedSubjectBytePinNamesV1 : Array Lean.Name := #[
-  ``ProofForgeV2.ProofInstances.EvenCounterV1.canonicalBytes
+  ``ProofForgeV2.ProofInstances.EvenCounterV1.canonicalBytes,
+  ``ProofForgeV2.ProofInstances.ZeroCounterV1.canonicalBytes
 ]
 
 /-- Runtime pin lookup by exact carrier bytes (elaborator meta path). -/
 def resolveClosedSubjectBytesPinNameV1 (bytes : ByteArray) : Option Lean.Name :=
   if bytes == EvenCounterV1.canonicalBytes then
     some ``ProofForgeV2.ProofInstances.EvenCounterV1.canonicalBytes
+  else if bytes == ZeroCounterV1.canonicalBytes then
+    some ``ProofForgeV2.ProofInstances.ZeroCounterV1.canonicalBytes
   else
     none
 
@@ -62,6 +67,8 @@ def isClosedSubjectBytePinNameV1 (name : Lean.Name) : Bool :=
 def closedSubjectBytePinBytesV1 (name : Lean.Name) : Option ByteArray :=
   if name == ``ProofForgeV2.ProofInstances.EvenCounterV1.canonicalBytes then
     some EvenCounterV1.canonicalBytes
+  else if name == ``ProofForgeV2.ProofInstances.ZeroCounterV1.canonicalBytes then
+    some ZeroCounterV1.canonicalBytes
   else
     none
 

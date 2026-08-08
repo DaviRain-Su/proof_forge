@@ -25,9 +25,9 @@
 
 | id | status | objective |
 |---|---|---|
-| bf2-data | done | Closed `ZeroCounterV1` data + 1499-byte spine + `structure_ok` + `encode_ok` + admission decide; different P from EvenCounter; suite `Tests.Semantic.ZeroCounterV1` |
+| bf2-data | done | Closed `ZeroCounterV1` data + product-aligned spine (1306B sole `state.persistent`) + `structure_ok` + `encode_ok` + admission decide; different P from EvenCounter; suite `Tests.Semantic.ZeroCounterV1` |
 | bf2-preserve | done | `ZeroCounterPreservationV1`: base + full `PreservationStepV1` + `preservation_theorem` reusing packaging; no second step machine |
-| bf2-product | pending | Product source alignment + optional pin + InlineProofCertifier product-positive for ZeroCounter |
+| bf2-product | done | Product source alignment (1306B) + ZeroCounter ClosedSubjectPin + InlineProofCertifier product-positive (`exact` preservation_theorem); EvenCounter remains GREEN |
 | bf2-docs | pending | INV-2 / Agents / ADR-0034 / research-023 second-instance status; docs-check |
 
 ## Done criteria (wave 2)
