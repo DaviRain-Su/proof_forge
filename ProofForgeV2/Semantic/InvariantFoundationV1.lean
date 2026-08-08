@@ -235,6 +235,80 @@ theorem encodeLogicalStateValuesV1_single_uint64_eq_ok
   -- Singleton tables: arity gate + one forIn step (same reduction as zero-slot).
   simp [hcanonical, hslot, hsize, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
+/-- Decode recovers the payload from the exact single-slot UInt64 encode layout
+    produced by `encodeLogicalStateValuesV1_single_uint64_eq_ok`. -/
+theorem decodeLogicalStateValuesV1_of_single_uint64_encode
+    (data : SemanticProgramDataV1)
+    (stateDecl : StateDeclV1)
+    (valueBytes : ByteArray)
+    (initialized : Bool)
+    (hstate : data.logicalState = #[stateDecl])
+    (hcanonical :
+      validateValueBytesV1 data.types stateDecl.typeId valueBytes = .ok ())
+    (hsize : valueBytes.size = 8) :
+    decodeLogicalStateValuesV1 data {
+      initialized
+      canonicalValues := (encodeU32le 8).append valueBytes
+    } = .ok #[valueBytes] := by
+  let hdr := encodeU32le (8 : UInt32)
+  let canon := hdr.append valueBytes
+  let state : LogicalStateV1 := {
+    initialized
+    canonicalValues := canon
+  }
+  -- Align the statement with local `state`/`canon`.
+  change decodeLogicalStateValuesV1 data state = .ok #[valueBytes]
+  have hhdr : hdr.size = 4 := encodeU32le_sizeV1 8
+  have hread : readU32leAtV1 state.canonicalValues 0 = .ok ((8 : UInt32), 4) := by
+    have h := readU32le_encode_midV1 ByteArray.empty valueBytes (8 : UInt32)
+    simpa [state, canon, hdr, ByteArray.empty_append, ByteArray.size_empty] using h
+  have hextract :
+      state.canonicalValues.extract 4 (4 + (8 : UInt32).toNat) = valueBytes := by
+    have h8 : (8 : UInt32).toNat = 8 := by decide
+    have h := extract_mid_payloadV1 hdr valueBytes ByteArray.empty
+    simp only [ByteArray.append_empty, hhdr, hsize] at h
+    -- h : (hdr ++ valueBytes).extract 4 (4+8) = valueBytes
+    simpa [state, canon, h8] using h
+  have hsz : state.canonicalValues.size = 12 := by
+    simp [state, canon, ByteArray.size_append, hhdr, hsize]
+  have h8 : (8 : UInt32).toNat = 8 := by decide
+  have hfit : 4 + (8 : UInt32).toNat ≤ state.canonicalValues.size := by
+    simp [hsz, h8]
+  have htrail : 4 + (8 : UInt32).toNat = state.canonicalValues.size := by
+    simp [hsz, h8]
+  -- Mirror the successful singleton-eq case split style.
+  unfold decodeLogicalStateValuesV1
+  have hlist : data.logicalState.toList = [stateDecl] := by
+    simp [hstate]
+  simp only [hlist, decodeLogicalStateSlotsV1, Pure.pure, Except.pure,
+    Bind.bind, Except.bind, err]
+  rw [hread]
+  simp only [if_pos hfit, hextract, hcanonical, Pure.pure, Except.pure,
+    Bind.bind, Except.bind]
+  -- Empty tail: after htrail, the offset equals size (BEq true), then push.
+  have hslots : data.logicalState.size = 1 := by
+    simp [hstate]
+  have hbeq :
+      (state.canonicalValues.size == state.canonicalValues.size) = true := by
+    simp [BEq.beq]
+  -- Residual after the singleton recursive step ends in the empty-list branch:
+  -- `if (offset == size) then ok (acc.push …)` with offset rewritten to size.
+  simp only [decodeLogicalStateSlotsV1, htrail, hbeq, ↓reduceIte, Pure.pure,
+    Except.pure, hslots]
+  -- emptyWithCapacity 1 |>.push valueBytes = #[valueBytes]
+  have hpush :
+      ((Array.emptyWithCapacity 1).push valueBytes) = #[valueBytes] := by
+    apply Array.ext
+    · simp [Array.size_push, Array.emptyWithCapacity_eq]
+    · intro i hi
+      have : i = 0 := by
+        have : i < 1 := by
+          simpa [Array.size_push, Array.emptyWithCapacity_eq] using hi
+        omega
+      subst this
+      simp
+  simpa [hpush] using rfl
+
 /-- Successful decode of a singleton logicalState table recovers a singleton
     overlay whose sole element is structure-gated for that slot. -/
 theorem decodeLogicalStateValuesV1_singleton_eq
