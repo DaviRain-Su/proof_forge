@@ -28,6 +28,7 @@ private def usage : String :=
   "ProofForge V2 alpha\n\n" ++
   "Usage:\n" ++
   "  proof-forge-next list-targets [--all] [--json]\n" ++
+  "  proof-forge-next doctor [--json] [--target <id>]... [--with-runtime] [--all]\n" ++
   "  proof-forge-next inspect <target> [--json]\n" ++
   "  proof-forge-next inspect <output-dir> [--json]\n" ++
   "  proof-forge-next inspect --output-dir <dir> [--json]\n" ++
@@ -39,7 +40,9 @@ private def usage : String :=
   "  --network is not supported (no network registry); it is a usage error.\n" ++
   "  --resource-limit is lower-only; check rejects external-tool/artifact-output; wall-ms and build artifact-output.published-bytes are enforced in-process (RES-1 / output-only RES-1B).\n" ++
   "  --minimum-evidence is build-only (specified|artifact_validated|local_runtime|network_or_proof_validated).\n" ++
-  "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build.\n" ++
+  "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build;\n" ++
+  "    doctor --json emits proof-forge.doctor.v1 (Tool Lock presence under PROOF_FORGE_TOOL_ROOT).\n" ++
+  "  doctor requires scripts/proof_forge_doctor.py under the process working directory (repo root).\n" ++
   "  inspect <arg> prefers a registered target id when ambiguous; use --output-dir to force a path.\n" ++
   "  inspect output-dir validates proof-forge.output.v1 artifact-content + exact disk closure.\n" ++
   "  check validates without writing artifacts; build materializes under -o (default build/v2).\n"
@@ -376,6 +379,42 @@ private def listTargets (options : ListTargetsOptions) : IO Unit := do
     for line in lines do
       IO.println line
 
+/-- Product doctor: thin CLI wrapper over package-owned
+    `scripts/proof_forge_doctor.py` (Tool Lock presence; no PATH fallback).
+    Requires the process CWD to be the repo root so the script is discoverable.
+    Exit codes are forwarded from the engine (0 all-ok, 3 missing/partial/mismatch,
+    2 usage, 1 internal). -/
+private def runDoctor (options : DoctorOptions) : IO Unit := do
+  let cwd ← IO.currentDir
+  let script := cwd / "scripts" / "proof_forge_doctor.py"
+  unless ← script.pathExists do
+    failUsage
+      "doctor requires scripts/proof_forge_doctor.py under the current working directory (run from repo root)"
+  let mut args : Array String := #["-I", "-S", script.toString]
+  if options.json then
+    args := args.push "--json"
+  if options.withRuntime then
+    args := args.push "--with-runtime"
+  if options.includeDesignOnly then
+    args := args.push "--all"
+  for target in options.targets do
+    args := args.push "--target"
+    args := args.push target
+  let output ← IO.Process.output {
+    cmd := "/usr/bin/python3"
+    args
+  }
+  unless output.stdout.isEmpty do
+    (← IO.getStdout).putStr output.stdout
+  unless output.stderr.isEmpty do
+    (← IO.getStderr).putStr output.stderr
+  if output.exitCode == 0 then
+    pure ()
+  else
+    let codeNat := output.exitCode.toNat
+    let exitByte : UInt8 := if codeNat ≥ 256 then 70 else UInt8.ofNat codeNat
+    IO.Process.exit exitByte
+
 private def inspectTarget (value : String) (json : Bool) : IO Unit := do
   IO.println (← liftCompileResult (inspectTargetText value json))
 
@@ -435,6 +474,7 @@ unsafe def run (args : List String) : IO Unit := do
   | .ok command =>
       match command with
       | .listTargets options => listTargets options
+      | .doctor options => runDoctor options
       | .inspect arg json =>
           if isRegisteredInspectTargetV1 arg then
             inspectTarget arg json

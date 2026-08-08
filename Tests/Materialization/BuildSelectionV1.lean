@@ -592,6 +592,21 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   | .error msg =>
       expect (hasSubstr msg "unknown list-targets argument") "bad list-targets args"
   | .ok _ => throw <| IO.userError "list-targets --bogus must fail"
+  match ProofForgeV2.CLI.parseCliCommandV1 ["doctor"] with
+  | .ok (.doctor opts) =>
+      expect (!opts.json && !opts.withRuntime && !opts.includeDesignOnly &&
+        opts.targets.isEmpty) "parse doctor default"
+  | other => throw <| IO.userError s!"parse doctor default: {repr other}"
+  match ProofForgeV2.CLI.parseCliCommandV1
+      ["doctor", "--json", "--target", "aleo", "--with-runtime", "--all"] with
+  | .ok (.doctor opts) =>
+      expect (opts.json && opts.withRuntime && opts.includeDesignOnly &&
+        opts.targets == #["aleo"]) "parse doctor flags"
+  | other => throw <| IO.userError s!"parse doctor flags: {repr other}"
+  match ProofForgeV2.CLI.parseCliCommandV1 ["doctor", "--bogus"] with
+  | .error msg =>
+      expect (hasSubstr msg "unknown doctor argument") "bad doctor args"
+  | .ok _ => throw <| IO.userError "doctor --bogus must fail"
   match ProofForgeV2.CLI.parseCliCommandV1 ["inspect", "evm"] with
   | .ok (.inspect "evm" false) => pure ()
   | other => throw <| IO.userError s!"parse inspect: {repr other}"

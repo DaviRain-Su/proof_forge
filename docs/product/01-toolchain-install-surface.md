@@ -18,7 +18,8 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 | 相位 | 状态 |
 |---|---|
 | **DOC**（本文 + index 指针） | **done**（本文件） |
-| I0 doctor / I1 install / I1b CLI wire | **not started**（产品 CLI 尚无 `doctor`/`install` 子命令） |
+| **I0 doctor** | **done**（`scripts/proof_forge_doctor.py` + `proof-forge-next doctor`；schema `proof-forge.doctor.v1`；缺 Tool Root → `PF-TOOLCHAIN-MISSING`） |
+| I1 install / I1b CLI wire | **not started**（产品 CLI 尚无 `install` 子命令） |
 | I2 local/network 统一包装 | **not started**（现有 `scripts/aleo_*.sh` 等为工程脚本，非产品 CLI） |
 | I3 Aleo snarkos runtime 诚实路径 | **not started**（snarkos **不在** Tool Lock；见 §10） |
 | MCP-V0 / SDK-V0 | **not started** |
@@ -49,7 +50,7 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 | 相位 | ID | 交付 | 完成标准 |
 |---|---|---|---|
 | DOC | `DOC` | 本文 + `docs/index.md` 指针 | `just docs-check` 过 |
-| I0 | `I0-DOCTOR` | `proof-forge-next doctor` | 每 implemented target 报告 present/missing/mismatch/partial；`--json`；无 Tool Root 时 fail closed 有稳定码 |
+| I0 | `I0-DOCTOR` | `proof-forge-next doctor` | **done**：每 implemented target 报告 ok/missing/mismatch/partial；`--json`=`proof-forge.doctor.v1`；无 Tool Root → `PF-TOOLCHAIN-MISSING`；引擎 `scripts/proof_forge_doctor.py`；CLI 薄包装 |
 | I1 | `I1-INSTALL` | 非交互 `install --targets a,b --yes` | 复用 `scripts/toolchain_assets.py` provision/materialize；只装 lock 内 asset；digest 校验；幂等 skip |
 | I1b | `I1b-CLI-WIRE` | CLI 子命令接到 Exe；`--json`；usage | 聚焦 CLI 测或 smoke + `just docs-check` |
 | I2 | `I2-LOCAL-CMDS` | 统一本机/网络入口包装 | `local --target …` / `network …` 调现有 sandbox/devnet/network 脚本；broadcast 显式 |
@@ -151,8 +152,11 @@ JSON（MCP/Agent）：
 
 状态枚举：`ok` | `partial` | `missing` | `mismatch` | `unsupported`。
 
-- 无 `PROOF_FORGE_TOOL_ROOT` 且默认 cache 不存在 → fail closed（稳定诊断码，I0 实现时钉死）。
+- 无 `PROOF_FORGE_TOOL_ROOT` 且默认 cache 不存在 → fail closed：stderr `PF-TOOLCHAIN-MISSING: tool root does not exist: …`，exit 3。
+- `PROOF_FORGE_TOOL_ROOT` 非绝对路径 → `PF-TOOLCHAIN-MISMATCH`，exit 3。
 - design-only id → `unsupported`，不假装可装。
+- 引擎：`/usr/bin/python3 -I -S scripts/proof_forge_doctor.py`；产品 CLI：`proof-forge-next doctor`（CWD=repo root 以发现脚本）。
+- 聚焦 smoke：`scripts/doctor_smoke.sh`。
 
 ## 6. install 契约（I1）
 
@@ -216,7 +220,7 @@ MCP **只** spawn 产品 CLI 并解析 JSON/manifest，不内嵌 solc/leo/nargo�
 | `scripts/toolchain_assets.py` | install 引擎（I1 复用） |
 | `toolchains*.lock.json` | 唯一可装 tool 菜单 |
 | `just toolchains-*` | 工程/CI 旁路；产品 CLI 成后文档主推 CLI |
-| `proof-forge-next` 现有 | `build` / `check` / `inspect` / `list-targets` 等；**尚无** doctor/install/local/network |
+| `proof-forge-next` 现有 | `build` / `check` / `inspect` / `list-targets` / **`doctor`**；**尚无** install/local/network |
 | `scripts/aleo_local_sandbox.sh` / `aleo_devnet.sh` / `aleo_network.sh` | I2 包装对象 |
 | `just solana-runtime` / `just psy-runtime` / Anvil smokes | 同左，逐步 `local --target`；保持 host-heavy |
 

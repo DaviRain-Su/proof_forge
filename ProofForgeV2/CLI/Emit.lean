@@ -3,6 +3,7 @@
 
   Product commands (C1 + inspect-output):
     list-targets [--all] [--json]
+    doctor [--json] [--target <id>]... [--with-runtime] [--all]
     inspect <target> [--json]
     inspect <output-dir> [--json]
     inspect --output-dir <dir> [--json]
@@ -25,6 +26,7 @@
     proof-forge.cli.inspect-output.v1
     proof-forge.cli.check.v1
     proof-forge.cli.build.v1
+  Doctor JSON is product `proof-forge.doctor.v1` (engine: scripts/proof_forge_doctor.py).
 
   Output-dir validation scope (engineering, not formal OutputSetV1):
     * Stable-read `manifest.json` + `evidence.json` via ArtifactContentV1 helper
@@ -469,13 +471,24 @@ structure ListTargetsOptions where
   json : Bool := false
   deriving BEq, Repr
 
+/-- Parsed `doctor` trailing flags (product tool-root / Tool Lock presence). -/
+structure DoctorOptions where
+  json : Bool := false
+  withRuntime : Bool := false
+  includeDesignOnly : Bool := false
+  /-- Empty = all implemented targets; otherwise explicit `--target` list. -/
+  targets : Array String := #[]
+  deriving BEq, Repr
+
 /-- Typed product CLI command surface. `CLI.run` matches only this enum.
 Deleted: `build-counter`, `describe-target` (use build + inspect).
 `inspect` keeps the historical `(String, Bool)` shape so pure parse tests stay
 stable; product `CLI.run` disambiguates registered target vs output-dir path.
-`inspectOutput` is the explicit `--output-dir` form (always output-dir mode). -/
+`inspectOutput` is the explicit `--output-dir` form (always output-dir mode).
+`doctor` is the product Tool Lock presence surface (`proof-forge.doctor.v1`). -/
 inductive CliCommandV1 where
   | listTargets (options : ListTargetsOptions)
+  | doctor (options : DoctorOptions)
   | inspect (target : String) (json : Bool)
   | inspectOutput (dir : String) (json : Bool)
   | check (options : BuildOptions)
@@ -704,6 +717,37 @@ partial def parseListTargetsArgsExcept
 
 def parseListTargetsArgs (args : List String) : IO ListTargetsOptions :=
   match parseListTargetsArgsExcept args with
+  | .ok b => pure b
+  | .error msg => throw <| IO.userError msg
+
+/-- Parse `doctor` trailing args (pure).
+Accepts `--json` / `--with-runtime` / `--all` / `--target <id>` in any order. -/
+partial def parseDoctorArgsExcept
+    (args : List String) (options : DoctorOptions := {}) :
+    Except String DoctorOptions := do
+  match args with
+  | [] => pure options
+  | "--json" :: rest =>
+      if options.json then throw "duplicate --json"
+      parseDoctorArgsExcept rest { options with json := true }
+  | "--with-runtime" :: rest =>
+      if options.withRuntime then throw "duplicate --with-runtime"
+      parseDoctorArgsExcept rest { options with withRuntime := true }
+  | "--all" :: rest =>
+      if options.includeDesignOnly then throw "duplicate --all"
+      parseDoctorArgsExcept rest { options with includeDesignOnly := true }
+  | "--target" :: value :: rest =>
+      if value.isEmpty then throw "--target requires a nonempty target id"
+      if value.startsWith "-" then throw s!"invalid --target id '{value}'"
+      if options.targets.contains value then throw s!"duplicate --target '{value}'"
+      parseDoctorArgsExcept rest { options with targets := options.targets.push value }
+  | "--target" :: [] =>
+      throw "--target requires a nonempty target id"
+  | other =>
+      .error s!"unknown doctor argument '{String.intercalate " " other}'"
+
+def parseDoctorArgs (args : List String) : IO DoctorOptions :=
+  match parseDoctorArgsExcept args with
   | .ok b => pure b
   | .error msg => throw <| IO.userError msg
 
@@ -1700,6 +1744,9 @@ def parseCliCommandV1 (args : List String) : Except String CliCommandV1 := do
   | "list-targets" :: rest =>
       let options ← parseListTargetsArgsExcept rest
       pure (.listTargets options)
+  | "doctor" :: rest =>
+      let options ← parseDoctorArgsExcept rest
+      pure (.doctor options)
   | "inspect" :: rest =>
       -- Explicit output-dir form (any order of --output-dir / --json).
       if rest.any (· == "--output-dir") then
