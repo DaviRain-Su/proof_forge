@@ -1,6 +1,6 @@
 /-
   ALEO-IR-1..7 + G5-MATRIX + G5-HARD + RES-CLEAN + ALEO-MULTI-GOLDEN +
-  ALEO-COMPILE-COMPARE + ALEO-ADMIT-FIXTURES:
+  ALEO-COMPILE-COMPARE + ALEO-ADMIT-FIXTURES + ALEO-OPTION-COMPARE:
   Aleo Instructions Schema/TextCodec + Counter golden + Plan→Instructions
   + if/match/bounded-for + multi-leaf + narrow UInt + effects honesty +
   product primary + residual true lower + hard-require (empty allowlist) +
@@ -38,6 +38,10 @@
     `accumulator-admit.compiled.aleo` compare pin (Plan→IR byte ≡ golden;
     live compile-profile recheck when locked Leo present; honest skip note
     when tool missing). **Not** full multi-program leo byte matrix.
+  * ALEO-OPTION-COMPARE: OptionState admit-surface locked-leo
+    `optionstate-admit.compiled.aleo` compare pin (Plan→IR byte ≡ golden;
+    live recheck tool-optional; MapMini stays structural-only — Leo Map
+    upsert rewrite ⇒ Plan→IR ≠ Leo compiled). **Not** multi-program matrix.
   * ALEO-ADMIT-FIXTURES: durable `Tests.Fixtures.AleoAdmitSurfacesV1` sources
     for Accumulator-credit / OptionState entry-only / MapMini put-only;
     product select→compile→capability→programFromCapabilityV1 succeeds;
@@ -88,6 +92,12 @@ private def goldenPath : FilePath :=
     Not IR-1 Counter authority; not multi-program matrix. -/
 private def accumulatorAdmitGoldenPath : FilePath :=
   "testdata/golden/aleo-instructions-v1/accumulator-admit.compiled.aleo"
+
+/-- ALEO-OPTION-COMPARE: OptionState admit-surface locked-leo compare pin
+    (entry-only setSome/clear; full Examples/OptionState Plan-FC on computed
+    `peek`). Not IR-1 Counter authority; not multi-program matrix. -/
+private def optionStateAdmitGoldenPath : FilePath :=
+  "testdata/golden/aleo-instructions-v1/optionstate-admit.compiled.aleo"
 
 /-- Locked Leo candidate (same resolution as AleoCompiledFinalizationV1). -/
 private def lockedLeoCandidate : IO FilePath := do
@@ -1889,9 +1899,12 @@ unsafe def testMultiGoldenMapMiniAdmitSurface : IO Unit := do
     * IR-1 full-surface authority golden = Counter (`counter.compiled.aleo`, 870 B)
     * COMPILE-COMPARE optional pin = Accumulator admit-surface
       (`accumulator-admit.compiled.aleo`, 870 B; not multi-program matrix)
-    * structural-only product pins = LoopSum (full Example), OptionState /
-      MapMini admit-surface (full Examples Plan-FC as pinned); Accumulator
-      also has structural MULTI-GOLDEN coverage
+    * OPTION-COMPARE optional pin = OptionState admit-surface
+      (`optionstate-admit.compiled.aleo`, 1019 B; not multi-program matrix)
+    * structural-only product pins = LoopSum (full Example), MapMini
+      admit-surface (Leo Map upsert rewrite prevents Plan→IR ≡ locked-leo;
+      full Examples Plan-FC as pinned); Accumulator/OptionState also have
+      structural MULTI-GOLDEN coverage
     * full multi-program leo **byte** matrix remains deferred
     * G5-HARD allowlist empty; Counter golden identity preserved -/
 def testMultiGoldenClassificationInventory : IO Unit := do
@@ -1909,11 +1922,19 @@ def testMultiGoldenClassificationInventory : IO Unit := do
     s!"COMPILE-COMPARE admit golden size pin, got {accGolden.toUTF8.size}"
   expect (accGolden.startsWith "program accumulator.aleo;")
     "COMPILE-COMPARE admit golden is Accumulator Instructions only"
+  expect (← optionStateAdmitGoldenPath.pathExists)
+    "MULTI-GOLDEN/OPTION-COMPARE: optionstate-admit golden must exist"
+  let optGolden ← IO.FS.readFile optionStateAdmitGoldenPath
+  expect (optGolden.toUTF8.size == 1019)
+    s!"OPTION-COMPARE admit golden size pin, got {optGolden.toUTF8.size}"
+  expect (optGolden.startsWith "program optionstate.aleo;")
+    "OPTION-COMPARE admit golden is OptionState Instructions only"
   let entries ← goldenPath.parent.get!.readDir
   let names := (entries.map (·.fileName)).qsort (· < ·)
   expect (names ==
-      #["accumulator-admit.compiled.aleo", "counter.compiled.aleo"])
-    s!"golden dir inventory (Counter IR-1 + COMPILE-COMPARE pin only), got {names}"
+      #["accumulator-admit.compiled.aleo", "counter.compiled.aleo",
+        "optionstate-admit.compiled.aleo"])
+    s!"golden dir inventory (Counter IR-1 + admit compare pins), got {names}"
   expect (!Targets.Aleo.isAleoInstructionsG5HardResidualAllowlistV1 "")
     "MULTI-GOLDEN: G5-HARD residual allowlist stays empty"
   pure ()
@@ -1996,6 +2017,158 @@ unsafe def testCompileCompareAccumulatorAdmitLockedLeoOptional : IO Unit := do
         "COMPILE-COMPARE live primary Instructions must equal pin"
       IO.println
         s!"  COMPILE-COMPARE: live locked Leo {leo.version} recheck ok (accumulator-admit ≡ pin)"
+
+/-- ALEO-OPTION-COMPARE offline pin: product Plan→Instructions encode for
+    OptionState admit-surface ≡ committed locked-leo `optionstate-admit.compiled.aleo`
+    bytes (captured via product `aleo-leo-4.0.2-u64-compile-v1`). Always runs
+    (no tool). Counter IR-1 golden unchanged. Not multi-program matrix.
+    MapMini stays structural-only (Leo Map upsert rewrite ⇒ Plan→IR ≠ Leo
+    compiled; optional MapMini byte pin declined with evidence). -/
+unsafe def testOptionCompareOptionStateAdmitPlanEqualsGolden : IO Unit := do
+  expect (← optionStateAdmitGoldenPath.pathExists)
+    "OPTION-COMPARE: optionstate-admit.compiled.aleo golden must exist"
+  let golden ← IO.FS.readFile optionStateAdmitGoldenPath
+  expect (golden.toUTF8.size == 1019)
+    s!"OPTION-COMPARE golden must stay 1019 B, got {golden.toUTF8.size}"
+  expect (golden.startsWith "program optionstate.aleo;")
+    "OPTION-COMPARE golden program header"
+  expect (golden.contains "function setSome:")
+    "OPTION-COMPARE admit entry setSome"
+  expect (golden.contains "function clear:")
+    "OPTION-COMPARE admit entry clear"
+  expect (golden.contains "mapping pf_state_0:" &&
+      golden.contains "mapping pf_state_1:")
+    "OPTION-COMPARE tag+payload dual-leaf mappings"
+  expect (!golden.contains "function increment:")
+    "OPTION-COMPARE golden must not be Counter"
+  expect (!golden.contains "function credit:")
+    "OPTION-COMPARE golden must not be Accumulator admit"
+  -- Plan→IR product lower must byte-equal locked-leo capture
+  -- (durable fixture source authority).
+  let prog ← productProgramFromSource "optionstate-oc" optionStateAdmitSourceV1
+    optionStateAdmitModuleName
+  let encoded := encodeProgram prog
+  expect (encoded == golden)
+    s!"OPTION-COMPARE Plan→IR encode must equal locked-leo admit golden\n--- encoded ---\n{encoded}\n--- golden ---\n{golden}"
+  -- Structural decode of golden ≡ product lower.
+  match decodeProgram? golden with
+  | none => throw <| IO.userError "OPTION-COMPARE: admit golden decode failed"
+  | some decoded =>
+      expect (decoded == prog)
+        "OPTION-COMPARE: decoded golden must equal product Plan→IR structure"
+  -- Dual-leaf structural shape preserved under byte pin.
+  expect (mappingNames prog |>.contains "pf_state_0")
+    "OPTION-COMPARE structure tag leaf"
+  expect (mappingNames prog |>.contains "pf_state_1")
+    "OPTION-COMPARE structure payload leaf"
+  expect (hasFunctionNamed prog "setSome" && hasFunctionNamed prog "clear")
+    "OPTION-COMPARE structure entries"
+  -- Counter + Accumulator golden identity preserved under same suite.
+  let counterGolden ← IO.FS.readFile goldenPath
+  expect (counterGolden.toUTF8.size == 870)
+    "OPTION-COMPARE must not alter Counter golden size"
+  expect (counterGolden.startsWith "program counter.aleo;")
+    "OPTION-COMPARE must not alter Counter golden header"
+  expect (counterGolden != golden)
+    "OPTION-COMPARE admit golden must differ from Counter golden"
+  let accGolden ← IO.FS.readFile accumulatorAdmitGoldenPath
+  expect (accGolden.toUTF8.size == 870)
+    "OPTION-COMPARE must not alter Accumulator admit golden size"
+  expect (accGolden != golden)
+    "OPTION-COMPARE admit golden must differ from Accumulator admit golden"
+
+/-- ALEO-OPTION-COMPARE live locked-leo path: when Tool Lock Leo 4.0.2 is
+    present, product compile-profile finalize re-emits `optionstate.compiled.aleo`
+    byte-equal to the committed compare pin. When tool missing: honest skip
+    (committed golden + Plan→IR pin still hold offline). deployable=false. -/
+unsafe def testOptionCompareOptionStateAdmitLockedLeoOptional : IO Unit := do
+  match ← resolveLockedLeo? with
+  | none =>
+      IO.println
+        "  OPTION-COMPARE: skipped live locked-leo recheck (Leo unavailable; committed golden + Plan→IR pin still enforced offline)"
+  | some leo =>
+      let session ← Tests.Language.ParserSession.shared
+      let parsed ← liftResult (← session.selectProgramV1
+        optionStateAdmitSourceV1 "<aleo-oc-opt-live>"
+        optionStateAdmitModuleName none)
+      let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+      let selection ← liftResult <|
+        BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo
+          (some CodegenProfileId.aleoLeoU64CompileV1)
+      let capability ← liftResult <|
+        resolveEngineeringRequirementsV1 selection compiled
+      let outDir := FilePath.mk "build/v2/aleo-option-compare-opt-suite"
+      if ← outDir.pathExists then IO.FS.removeDirAll outDir
+      let receipt ← ProofForgeV2.CLI.emitProgram capability outDir
+      expect (!receipt.deployable)
+        "OPTION-COMPARE live finalize remains deployable=false"
+      expect (receipt.codegenProfile == CodegenProfileId.aleoLeoU64CompileV1)
+        "OPTION-COMPARE live profile"
+      let compiledPath := outDir / "optionstate.compiled.aleo"
+      expect (← compiledPath.pathExists)
+        "OPTION-COMPARE live must publish optionstate.compiled.aleo"
+      let live ← IO.FS.readFile compiledPath
+      let golden ← IO.FS.readFile optionStateAdmitGoldenPath
+      expect (live == golden)
+        s!"OPTION-COMPARE live locked-leo output must equal committed pin\n--- live ---\n{live}\n--- golden ---\n{golden}"
+      -- Primary Instructions base also ≡ pin (Plan→IR authority path).
+      let primary ← IO.FS.readFile (outDir / "optionstate.aleo")
+      expect (primary == golden)
+        "OPTION-COMPARE live primary Instructions must equal pin"
+      IO.println
+        s!"  OPTION-COMPARE: live locked Leo {leo.version} recheck ok (optionstate-admit ≡ pin)"
+
+/-- ALEO-OPTION-COMPARE MapMini honesty: optional MapMini locked-leo full-byte
+    pin is **declined** because Leo optimizes/rewrites Map upsert Instructions
+    (Plan→IR encode ≠ `mapmini.compiled.aleo` under compile profile). MapMini
+    remains MULTI-GOLDEN structural-only. Not a missing implementation. -/
+unsafe def testOptionCompareMapMiniLeoRewriteHonesty : IO Unit := do
+  let prog ← productProgramFromSource "mapmini-oc" mapMiniAdmitSourceV1
+    mapMiniAdmitModuleName
+  let encoded := encodeProgram prog
+  expect (encoded.startsWith "program mapmini.aleo;")
+    "OPTION-COMPARE MapMini Plan→IR header"
+  expect (encoded.length > 0) "OPTION-COMPARE MapMini encode nonempty"
+  -- No committed mapmini-admit.compiled.aleo (Leo rewrite evidence).
+  let mapGolden : FilePath :=
+    "testdata/golden/aleo-instructions-v1/mapmini-admit.compiled.aleo"
+  expect (!(← mapGolden.pathExists))
+    "OPTION-COMPARE: no mapmini-admit.compiled.aleo pin (Leo Map upsert rewrite)"
+  match decodeProgram? encoded with
+  | none => throw <| IO.userError "OPTION-COMPARE MapMini encode→decode failed"
+  | some p2 => expect (p2 == prog) "OPTION-COMPARE MapMini structural round-trip"
+  -- Live Leo (when present): prove Plan→IR ≠ Leo compiled for MapMini.
+  match ← resolveLockedLeo? with
+  | none =>
+      IO.println
+        "  OPTION-COMPARE MapMini: skipped live Leo rewrite evidence (tool missing; structural-only pin + no mapmini golden still hold)"
+  | some leo =>
+      let session ← Tests.Language.ParserSession.shared
+      let parsed ← liftResult (← session.selectProgramV1
+        mapMiniAdmitSourceV1 "<aleo-oc-map-live>"
+        mapMiniAdmitModuleName none)
+      let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+      let selection ← liftResult <|
+        BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo
+          (some CodegenProfileId.aleoLeoU64CompileV1)
+      let capability ← liftResult <|
+        resolveEngineeringRequirementsV1 selection compiled
+      let outDir := FilePath.mk "build/v2/aleo-option-compare-map-suite"
+      if ← outDir.pathExists then IO.FS.removeDirAll outDir
+      let receipt ← ProofForgeV2.CLI.emitProgram capability outDir
+      expect (!receipt.deployable)
+        "OPTION-COMPARE MapMini live remains deployable=false"
+      let livePath := outDir / "mapmini.compiled.aleo"
+      expect (← livePath.pathExists)
+        "OPTION-COMPARE MapMini live must publish mapmini.compiled.aleo"
+      let live ← IO.FS.readFile livePath
+      let primary ← IO.FS.readFile (outDir / "mapmini.aleo")
+      expect (primary == encoded)
+        "OPTION-COMPARE MapMini primary must equal Plan→IR encode"
+      expect (live != primary)
+        "OPTION-COMPARE MapMini honesty: Leo rewrite changes Map upsert IR (no full-byte pin)"
+      IO.println
+        s!"  OPTION-COMPARE MapMini: live Leo {leo.version} rewrite evidence ok (Plan→IR ≠ compiled; structural-only)"
 
 /-- ALEO-ADMIT-FIXTURES: durable fixture inventory + full-Example Plan-FC reasons.
     Sources live in `Tests.Fixtures.AleoAdmitSurfacesV1` (not ad-hoc suite
@@ -2176,8 +2349,11 @@ def testIr7RuntimeHonestyNotes : IO Unit := do
     * IR-1 full-surface authority golden = `counter.compiled.aleo` (Counter)
     * COMPILE-COMPARE optional pin = `accumulator-admit.compiled.aleo` (not
       multi-program matrix; Plan→IR byte ≡ locked-leo capture)
+    * OPTION-COMPARE optional pin = `optionstate-admit.compiled.aleo` (not
+      multi-program matrix; Plan→IR byte ≡ locked-leo capture)
+    * MapMini stays structural-only (Leo Map upsert rewrite; no mapmini pin)
     * full multi-program / multi-fixture leo **byte** matrix remains **deferred**
-      (OptionState/MapMini/Array/Branch/LoopSum structural MULTI-GOLDEN only)
+      (MapMini/Array/Branch/LoopSum structural MULTI-GOLDEN only)
     * record custody / full opcode / prove/deploy remain **deferred**
     * package-only snarkVM execute remains **MISSING** (IR-7 PARTIAL)
     * this suite does **not** invent a snarkVM CLI or claim prove/deploy -/
@@ -2191,14 +2367,18 @@ def testResidualHonestyNotes : IO Unit := do
     "IR-1 full-surface golden is Counter Instructions program only"
   expect (← accumulatorAdmitGoldenPath.pathExists)
     "COMPILE-COMPARE admit pin must exist under golden dir"
+  expect (← optionStateAdmitGoldenPath.pathExists)
+    "OPTION-COMPARE admit pin must exist under golden dir"
   let entries ← goldenPath.parent.get!.readDir
   let names := (entries.map (·.fileName)).qsort (· < ·)
   expect (names ==
-      #["accumulator-admit.compiled.aleo", "counter.compiled.aleo"])
-    s!"RES-CLEAN golden inventory (Counter + COMPILE-COMPARE only), got {names}"
+      #["accumulator-admit.compiled.aleo", "counter.compiled.aleo",
+        "optionstate-admit.compiled.aleo"])
+    s!"RES-CLEAN golden inventory (Counter + admit compare pins), got {names}"
   -- Non-claims (documented residual only; no invented multi-golden / prove assertion):
   -- * full multi-program leo / multi-fixture Instructions byte matrix deferred
-  -- * COMPILE-COMPARE is one optional admit pin, not matrix completion
+  -- * COMPILE-COMPARE / OPTION-COMPARE are optional admit pins, not matrix completion
+  -- * MapMini Leo rewrite prevents optional mapmini-admit full-byte pin
   -- * MULTI-GOLDEN structural product pins do **not** claim full matrix equality
   -- * record custody / full opcode / prove/deploy out-of-slice
   -- * package-only snarkVM execute still MISSING (PARTIAL; PF-TOOLCHAIN-MISSING)
@@ -2242,6 +2422,9 @@ unsafe def run : IO Unit := do
   testMultiGoldenClassificationInventory
   testCompileCompareAccumulatorAdmitPlanEqualsGolden
   testCompileCompareAccumulatorAdmitLockedLeoOptional
+  testOptionCompareOptionStateAdmitPlanEqualsGolden
+  testOptionCompareOptionStateAdmitLockedLeoOptional
+  testOptionCompareMapMiniLeoRewriteHonesty
   testAdmitFixturesDurableSourceAuthority
   testAdmitFixturesProductLowerAll
   testAdmitFixturesFullExamplesPlanFcHonesty

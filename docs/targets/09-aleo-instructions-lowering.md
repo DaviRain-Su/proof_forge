@@ -164,7 +164,7 @@ Pin：Leo **4.0.2** exact；grammar/opcode 文档 rev 写入 supply-chain annota
 | Field BLS12-377 | Y（T14） | **Y** | **done** | G5-HARD field mapping + fieldBinary；`testG5HardResidualTrueLower` |
 | Field bn254 / Goldilocks | F | **F** | **plan-FC** | type-closure；`Aleo.testFieldBn254FailClosed` |
 | mapping state / dense Map cap-2 | Y | **Y** | **done** | Counter mapping；`testProductMapMiniMultiLeaf`；**ALEO-MULTI-GOLDEN** MapMini admit-surface |
-| Option UInt64 state | Y | **Y** | **done** | `testProductOptionStateMultiLeaf`；**ALEO-MULTI-GOLDEN** OptionState admit-surface |
+| Option UInt64 state | Y | **Y** | **done** | `testProductOptionStateMultiLeaf`；**ALEO-MULTI-GOLDEN** + **ALEO-OPTION-COMPARE** OptionState admit-surface（`optionstate-admit.compiled.aleo`） |
 | Array/Bytes/Struct flatten | Y | **Y** | **done** | `testProductArrayMultiLeaf` / multi-leaf hand-built |
 | if / match / bounded for | Y（Leo 源） | **Y** | **done** | IR-3 structural + product Branch；for ceiling FC；**ALEO-MULTI-GOLDEN** `testMultiGoldenLoopSumProduct`（full Examples/LoopSum） |
 | pureFn / localCall | Y | **Y** | **done** | G5-HARD callFn inline pureHelper；`testG5HardResidualTrueLower` |
@@ -416,29 +416,30 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 | 2 | **ALEO-COMPILE-COMPARE** | **done（2026-08-08，engineering）**：Accumulator admit-surface locked-leo `compiled.aleo` 对照金样 + Plan→IR 字节相等；live recheck tool-optional；缺工具 honest skip（见下） |
 | 3 | **ALEO-CONST** | **done（2026-08-08，engineering）**：literal-backed `Op.Constant` 在 Semantic→Plan 经 `lowerLiteral` 内联为 Plan literal；Instructions 见普通字面量操作数（无独立 const opcode）；UInt64/Bool/UInt32 product pins；非 envelope（String/Principal/aggregate/bn254…）仍 `lowerLiteral` FC；Counter golden 不变 |
 | 4 | **ALEO-ADMIT-FIXTURES** | **done（2026-08-08，engineering）**：耐久 `Tests/Fixtures/AleoAdmitSurfacesV1.lean`（Accumulator-credit / OptionState entry-only / MapMini put-only）；产品 select→compile→capability→`programFromCapabilityV1` + 结构 IR + G5-HARD；full Examples Plan-FC 原因钉（reserved `add`；computed views）；**不**改 shared Examples |
-| 5 | **ALEO-OPTION-COMPARE** | **Next**：OptionState（及可选 MapMini）admit-surface locked-leo `compiled.aleo` 字节/结构对照（tool optional；缺工具 honest skip） |
+| 5 | **ALEO-OPTION-COMPARE** | **done（2026-08-08，engineering）**：OptionState admit-surface locked-leo `optionstate-admit.compiled.aleo` 字节对照（Plan→IR ≡ 金样；live recheck tool-optional；缺工具 honest skip）；MapMini 因 Leo Map upsert rewrite 保持 structural-only（无 mapmini-admit 金样，有 live rewrite 证据钉） |
 
-##### ALEO-MULTI-GOLDEN / COMPILE-COMPARE 分类（结构 vs 字节金样）
+##### ALEO-MULTI-GOLDEN / COMPILE-COMPARE / OPTION-COMPARE 分类（结构 vs 字节金样）
 
 | Fixture | 产品路径 | 钉测类型 | 备注 |
 |---|---|---|---|
 | **Counter** | full `Examples/Counter.lean` | **IR-1 full-surface full-byte golden** | `testdata/golden/aleo-instructions-v1/counter.compiled.aleo` 870 B；IR-1..IR-6 权威 |
 | **Accumulator admit** | durable fixture `Tests.Fixtures.AleoAdmitSurfacesV1`（entry `credit`；非 reserved `add`） | **COMPILE-COMPARE full-byte pin** | `accumulator-admit.compiled.aleo` 870 B SHA-256 `1db88f65cd384447e3970027234ea2912655259ed011e569fb96484536c44e3a`；product Plan→IR ≡ locked Leo 4.0.2 compile-profile capture；live recheck optional；**非** multi-program matrix、**非** IR-1 替代；full `Examples/Accumulator` **Plan-FC**（reserved `add`） |
+| **OptionState admit** | durable fixture entry-only（无 computed `peek`） | **OPTION-COMPARE full-byte pin** | `optionstate-admit.compiled.aleo` 1019 B SHA-256 `ac23dacd6402afa8967551631e6c2f5bd72fb40b3b1275b893355c01e3a2601f`；Plan→IR ≡ locked Leo 4.0.2 capture；live recheck optional；tag+payload 双叶 + setSome/clear；full Example **Plan-FC**（computed view） |
 | **LoopSum** | full `Examples/LoopSum.lean` | **structural-only** | for unroll + bare view；method/mapping/control-op counts；encode nonempty；非字节金样 |
-| **OptionState** | durable fixture entry-only（无 computed `peek`） | **structural-only** | full Example **Plan-FC**（computed view）；tag+payload 双叶 + setSome/clear |
-| **MapMini** | durable fixture entry `put` only（无 computed `get`） | **structural-only** | full Example **Plan-FC**（computed view）；cap-2 六叶 + ternary upsert |
+| **MapMini** | durable fixture entry `put` only（无 computed `get`） | **structural-only** | full Example **Plan-FC**（computed view）；cap-2 六叶 + ternary upsert；**OPTION-COMPARE 拒绝 Map 字节 pin**：Leo Map upsert rewrite ⇒ Plan→IR ≠ `mapmini.compiled.aleo`（suite live 证据钉） |
 
-证据：`Tests/Fixtures/AleoAdmitSurfacesV1` + `Tests/Materialization/AleoInstructionsV1` — `testAdmitFixtures*` + `testMultiGolden*` + `testCompileCompare*` + 既有 IR-4 Option/Map 产品钉；G5-HARD allowlist 仍空；Counter IR-1 字节金样不变。
+证据：`Tests/Fixtures/AleoAdmitSurfacesV1` + `Tests/Materialization/AleoInstructionsV1` — `testAdmitFixtures*` + `testMultiGolden*` + `testCompileCompare*` + `testOptionCompare*` + 既有 IR-4 Option/Map 产品钉；G5-HARD allowlist 仍空；Counter IR-1 字节金样不变。
 
 #### 等上游 / 产品决策（不发明）
 
 
 1. **package-only snarkVM / Instructions execute 缺失（PARTIAL）**：Tool Lock 仅 Leo 4.0.2；无 snarkVM/snarkOS asset。`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`。**不**把 `leo run` 升格为 package-only Instructions execute。**不发明 CLI**。**RES-CLEAN / IR-7 已在 docs/tests 重申**。
-2. **全量 multi-program / multi-fixture leo **字节**矩阵 — deferred**（**ALEO-MULTI-GOLDEN** 结构钉 + **ALEO-COMPILE-COMPARE** 单 admit pin **不**冒充全量字节矩阵）：
+2. **全量 multi-program / multi-fixture leo **字节**矩阵 — deferred**（**ALEO-MULTI-GOLDEN** 结构钉 + **ALEO-COMPILE-COMPARE** / **ALEO-OPTION-COMPARE** admit pin **不**冒充全量字节矩阵）：
    - **IR-1 full-surface 权威金样**仍为 `testdata/golden/aleo-instructions-v1/counter.compiled.aleo`（locked Leo 4.0.2 Counter；870 B；SHA-256 `efc9e7a60ec3e046b1eb36e7b397abb753e06e7f0086b1e41a50966e1a7c2d52`）。
    - **COMPILE-COMPARE 可选 pin**（非 matrix）：`accumulator-admit.compiled.aleo`（Accumulator admit-surface；870 B；SHA-256 `1db88f65cd384447e3970027234ea2912655259ed011e569fb96484536c44e3a`）；Plan→IR ≡ locked-leo capture；live compile-profile recheck tool-optional。
-   - LoopSum（full Example）+ OptionState/MapMini（admit-surface）+ Array/narrow/Branch 以 **结构钉测** 覆盖；exact multi-fixture UTF-8 matrix 价值不成比例且无 package-only execute 抓取路径。
-   - compile-profile `*.compiled.aleo` extras 为对照，**不**把 COMPILE-COMPARE 升格为 multi-program golden 仓库。
+   - **OPTION-COMPARE 可选 pin**（非 matrix）：`optionstate-admit.compiled.aleo`（OptionState admit-surface；1019 B；SHA-256 `ac23dacd6402afa8967551631e6c2f5bd72fb40b3b1275b893355c01e3a2601f`）；Plan→IR ≡ locked-leo capture；live recheck tool-optional。
+   - LoopSum（full Example）+ MapMini（admit-surface；Leo rewrite 无字节 pin）+ Array/narrow/Branch 以 **结构钉测** 覆盖；exact multi-fixture UTF-8 matrix 价值不成比例且无 package-only execute 抓取路径。
+   - compile-profile `*.compiled.aleo` extras 为对照，**不**把 COMPILE-COMPARE/OPTION-COMPARE 升格为 multi-program golden 仓库。
 3. **record custody / pf.assets — deferred**：零绑定保持；无 mint/consume Instructions IR 直至 custody v2 产品决策。
 4. **full opcode surface — deferred**：Schema/TextCodec 仅 admit 子集；禁止 best-effort 全 opcode 声称。
 5. **prove / deploy / network / formal — out-of-slice**：`deployable=false`；compile-only ≠ proof/deploy evidence。
@@ -446,4 +447,4 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 7. **可选未来**：若上游提供 package-only execute 且进入 Tool Lock，扩展 `aleo_runtime_test.sh` 为 Counter host-heavy 差分（仍非 ordinary ci）。
 
 规划 owner：engineering。
-产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-0..IR-7 + G5-MATRIX + G5-HARD + RES-CLEAN + **ALEO-MULTI-GOLDEN** + **ALEO-COMPILE-COMPARE** + **ALEO-CONST** + **ALEO-ADMIT-FIXTURES** 已工程 closeout（产品 primary = Instructions；Leo debug-only；residual allowlist 空；runtime execute MISSING/PARTIAL；结构多 fixture + 单 admit locked-leo 对照 pin；literal-backed const 内联为 Instructions 字面量；durable admit-surface fixtures；Next = **ALEO-OPTION-COMPARE**）。
+产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-0..IR-7 + G5-MATRIX + G5-HARD + RES-CLEAN + **ALEO-MULTI-GOLDEN** + **ALEO-COMPILE-COMPARE** + **ALEO-CONST** + **ALEO-ADMIT-FIXTURES** + **ALEO-OPTION-COMPARE** 已工程 closeout（产品 primary = Instructions；Leo debug-only；residual allowlist 空；runtime execute MISSING/PARTIAL；结构多 fixture + Accumulator/OptionState admit locked-leo 对照 pin；literal-backed const 内联为 Instructions 字面量；durable admit-surface fixtures；MapMini 因 Leo rewrite 保持 structural-only）。

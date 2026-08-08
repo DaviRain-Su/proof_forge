@@ -13,6 +13,24 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+## 2026-08-08 — ALEO-OPTION-COMPARE：OptionState admit locked-leo pin
+
+- Product capture：OptionState admit-surface（entry-only setSome/clear；无 computed
+  `peek`）via `aleo-leo-4.0.2-u64-compile-v1` + locked Leo 4.0.2 →
+  `testdata/golden/aleo-instructions-v1/optionstate-admit.compiled.aleo`
+  （1019 B，SHA-256 `ac23dacd6402afa8967551631e6c2f5bd72fb40b3b1275b893355c01e3a2601f`）。
+- Suite：`Tests.Materialization.AleoInstructionsV1`
+  `testOptionCompareOptionStateAdmitPlanEqualsGolden`（Plan→IR encode ≡ pin 字节 +
+  structure decode）+ `testOptionCompareOptionStateAdmitLockedLeoOptional`（live
+  recheck when tool present；missing → honest skip）+
+  `testOptionCompareMapMiniLeoRewriteHonesty`（MapMini 无金样；live Leo 时 Plan→IR ≠
+  `mapmini.compiled.aleo` 证据钉，保持 structural-only）。
+- Inventory：Counter IR-1 + Accumulator admit + OptionState admit 三文件；
+  Counter 870 B / `efc9e7a6…` **不变**；Accumulator admit pin 不变。
+- Docs：`09-aleo-instructions-lowering.md` §10 / backlog / `09-aleo.md` /
+  `docs/index.md` / `AGENTS` Active/Next。
+- **非** multi-program leo 字节矩阵 / snarkVM / prove/deploy/formal；`deployable=false`。
+
 ## 2026-08-08 — ALEO-ADMIT-FIXTURES：durable admit-surface suite fixtures
 
 - 新增 `Tests/Fixtures/AleoAdmitSurfacesV1.lean`：Accumulator-credit /

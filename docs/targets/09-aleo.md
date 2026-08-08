@@ -29,10 +29,13 @@ compile profile 双写供 locked-leo compare extras）；**IR-7/G6 runtime hones
 （无 locked snarkVM package-only；`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`；不发明 CLI）。
 **RES-CLEAN** residual honesty closeout：Counter IR-1 full-surface golden +
 **ALEO-COMPILE-COMPARE** Accumulator admit pin（`accumulator-admit.compiled.aleo`；
-Plan→IR ≡ locked Leo；非 multi-program 字节矩阵）；deferred full multi-program leo 矩阵 /
+Plan→IR ≡ locked Leo；非 multi-program 字节矩阵）+ **ALEO-OPTION-COMPARE** OptionState
+admit pin（`optionstate-admit.compiled.aleo` 1019 B；Plan→IR ≡ locked Leo；MapMini 因 Leo
+Map upsert rewrite 保持 structural-only）；deferred full multi-program leo 矩阵 /
 record custody / prove/deploy / full opcode。不得把 Leo 源写成长期 sole 权威。
 **ALEO-CONST done（2026-08-08）**：literal-backed `Op.Constant` → Plan `lowerLiteral` 内联 → Instructions 字面量操作数；`testConstProductLower`。
-**ALEO-ADMIT-FIXTURES done（2026-08-08）**：耐久 `Tests/Fixtures/AleoAdmitSurfacesV1`（Accumulator-credit / OptionState entry-only / MapMini put-only）；full Examples Plan-FC（reserved `add`；computed views）诚实钉；**不**改 shared Examples。Next = **ALEO-OPTION-COMPARE**。**诚实 residual**：full opcode / record / prove / multi-program leo 字节矩阵 deferred（见规划 §10）。
+**ALEO-ADMIT-FIXTURES done（2026-08-08）**：耐久 `Tests/Fixtures/AleoAdmitSurfacesV1`（Accumulator-credit / OptionState entry-only / MapMini put-only）；full Examples Plan-FC（reserved `add`；computed views）诚实钉；**不**改 shared Examples。
+**ALEO-OPTION-COMPARE done（2026-08-08）**：OptionState admit locked-leo 字节对照 + MapMini Leo rewrite 诚实钉。**诚实 residual**：full opcode / record / prove / multi-program leo 字节矩阵 deferred（见规划 §10）。
 
 ## 当前工程迁移状态（非 formal 完成）
 

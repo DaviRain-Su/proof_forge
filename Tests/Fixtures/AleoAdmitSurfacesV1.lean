@@ -1,10 +1,12 @@
 /-
   ALEO-ADMIT-FIXTURES: durable suite-owned admit-surface ProgramV1 sources.
 
-  Authority: docs/targets/09-aleo-instructions-lowering.md §10 ALEO-ADMIT-FIXTURES.
+  Authority: docs/targets/09-aleo-instructions-lowering.md §10 ALEO-ADMIT-FIXTURES
+  / ALEO-OPTION-COMPARE.
 
   These strings are the sole product-path sources for Aleo Instructions
-  structural / COMPILE-COMPARE pins that cannot use full shared Examples:
+  structural / COMPILE-COMPARE / OPTION-COMPARE pins that cannot use full
+  shared Examples:
 
   * Accumulator credit  — entry renamed off Leo reserved `add`
   * OptionState entries — entry-only (no computed `peek` view)
@@ -15,8 +17,9 @@
   Examples/Accumulator.add / computed views for Aleo alone.
 
   Consumers: Tests.Materialization.AleoInstructionsV1 (MULTI-GOLDEN /
-  COMPILE-COMPARE / ADMIT-FIXTURES). Not product Examples. deployable=false.
-  Counter IR-1 golden remains independent authority.
+  COMPILE-COMPARE / OPTION-COMPARE / ADMIT-FIXTURES). Not product Examples.
+  deployable=false. Counter IR-1 golden remains independent authority.
+  MapMini is structural-only under OPTION-COMPARE (Leo Map upsert rewrite).
 -/
 namespace Tests.Fixtures.AleoAdmitSurfacesV1
 
@@ -70,7 +73,8 @@ def accumulatorAdmitSourceV1 : String :=
   "    return total\n"
 
 /-- OptionState admit-surface: entry-only (setSome/clear); no computed peek.
-    Full Examples/OptionState computed view stays Plan-FC on Aleo. -/
+    Full Examples/OptionState computed view stays Plan-FC on Aleo.
+    OPTION-COMPARE full-byte pin: `optionstate-admit.compiled.aleo` (1019 B). -/
 def optionStateAdmitSourceV1 : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
