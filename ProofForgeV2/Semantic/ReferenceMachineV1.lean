@@ -4849,7 +4849,7 @@ private theorem finalize_returned_of_encode
 /-- Get-shaped ready machine (empty env, empty responses) that returns keeps the
     overlay bytes in the encoded post-state. Requires a successful encode of the
     ready overlay (caller discharges from prior decode + value canonicity). -/
-private theorem runMachine_get_finalize_returned
+theorem runMachine_get_finalize_returned
     (data : SemanticProgramDataV1)
     (pre : LogicalStateV1)
     (countBytes : ByteArray)

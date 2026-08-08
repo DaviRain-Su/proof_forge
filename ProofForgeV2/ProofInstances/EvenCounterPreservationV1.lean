@@ -60,6 +60,13 @@ theorem true_canonical :
     Pure.pure, Except.pure, Bind.bind, Except.bind]
   rfl
 
+theorem false_canonical :
+    validateValueBytesV1 types 1 (encodeU8 0) = .ok () := by
+  have henc : encodeU8 0 = ByteArray.mk #[0] := rfl
+  simp [types, boolType, encodeU8, validateValueBytesV1, henc,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+  rfl
+
 theorem initial_state_ok : initialLogicalStateV1 program = .ok initialState := by
   simpa [initialState, zeroBytes] using
     initialLogicalStateV1_single_uint64_no_initializer_eq_ok
