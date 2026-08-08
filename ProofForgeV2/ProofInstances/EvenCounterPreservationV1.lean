@@ -189,15 +189,14 @@ theorem preservation_step_failure_arms
   | returned post value effects =>
       trivial
   | reverted reason unchanged =>
-      have hfail' : OutcomeFailureStateUnchangedV1 pre
-          (OutcomeV1.reverted reason unchanged) := by
-        simpa [hstep] using hfail
-      exact hfail'
+      -- Failure packaging is `unchanged = pre` (defeq to OutcomeRevertedUnchangedV1).
+      rw [hstep] at hfail
+      simpa [OutcomeFailureStateUnchangedV1, OutcomeRevertedUnchangedV1] using
+        hfail
   | trapped fault unchanged =>
-      have hfail' : OutcomeFailureStateUnchangedV1 pre
-          (OutcomeV1.trapped fault unchanged) := by
-        simpa [hstep] using hfail
-      exact hfail'
+      rw [hstep] at hfail
+      simpa [OutcomeFailureStateUnchangedV1, OutcomeTrappedUnchangedV1] using
+        hfail
 
 /-- Ordinal 0 is in range for the closed EvenCounter invariant table. -/
 theorem ordinal_in_range : (0 : InvariantOrdinalV1).toNat < program.invariants.size := by
@@ -574,5 +573,362 @@ theorem preservation_step_returned_increment_form
     evalInvariantV1 program 0 post = .returnedTrue := by
   rw [hpost]
   exact eval_even_after_increment_encode countBytes hcan hsize heven hnoOverflow
+
+/-- Payload size 8 for validated UInt64 countBytes on EvenCounter. -/
+theorem countBytes_size_of_can
+    (countBytes : ByteArray)
+    (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ()) :
+    countBytes.size = 8 := by
+  have hlookup : data.types[0]? = some uint64Type := by
+    simp [data, types, uint64Type]
+  exact validateValueBytesV1_uint64_size data.types 0 uint64Type countBytes
+    hlookup rfl hcan
+
+/-- Closed get-callable shape used by the ready-get step packaging. -/
+theorem get_callable_ready_shape :
+    getCallable = {
+      id := 1
+      kind := .view
+      name := some "get"
+      params := #[]
+      result := { typeId := 0, visibility := .public_ }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[{
+          result := some { valueId := 0, typeId := 0 }
+          op := .stateLoad 0
+        }]
+        terminator := .return_ (some 0)
+      }]
+      loopBounds := #[]
+      invariantSteps := none
+    } := by
+  simp [getCallable, getBlock, valueInstruction, valueDef]
+
+/-- Closed increment-callable shape used by the ready-increment packaging. -/
+theorem increment_callable_ready_shape :
+    incrementCallable = {
+      id := 0
+      kind := .entry
+      name := some "increment"
+      params := #[]
+      result := { typeId := 0, visibility := .public_ }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[
+          { result := some { valueId := 0, typeId := 0 },
+            op := .stateLoad 0 },
+          { result := some { valueId := 1, typeId := 0 },
+            op := .literal 0 two8BytesV1 },
+          { result := some { valueId := 2, typeId := 0 },
+            op := .binary .add 0 1 },
+          { result := none, op := .stateStore 0 2 },
+          { result := some { valueId := 3, typeId := 0 },
+            op := .stateLoad 0 }
+        ]
+        terminator := .return_ (some 3)
+      }]
+      loopBounds := #[]
+      invariantSteps := none
+    } := by
+  simp [incrementCallable, incrementBlock, valueInstruction, valueDef,
+    voidInstruction, twoBytes_eq_two8]
+
+/-- Type / state table facts for EvenCounter packaging. -/
+theorem types_uint64 : data.types[0]? = some {
+    id := 0, name := none, shape := .uint 64 } := by
+  simp [data, types, uint64Type]
+
+theorem state_count : data.logicalState[0]? = some {
+    id := 0, name := "count", typeId := 0, visibility := .public_ } := by
+  simp [data, countState]
+
+theorem can_two :
+    validateValueBytesV1 data.types 0 two8BytesV1 = .ok () := by
+  simpa [data, types, twoBytes_eq_two8] using two_canonical
+
+/-- Universal one-step preservation for ordinal 0 on closed EvenCounter. -/
+theorem preservation_step
+    (admitted : AdmittedReferenceSliceV1)
+    (hadmit : admitReferenceProgramSliceV1 program = .ok admitted) :
+    PreservationStepV1 program 0 admitted := by
+  intro pre invocation responses vault hconf heval
+  have ⟨_hprog, hdata⟩ := admit_ok_of_exists admitted hadmit
+  have ⟨hinit, ⟨values, hdecode⟩⟩ :=
+    stateConformsV1_elim_of_validate_eq_ok program data pre validate_ok hconf
+  have ⟨countBytes, hvals, hcan⟩ :=
+    decodeLogicalStateValuesV1_singleton_eq data countState pre values
+      (by simp [data, countState]) hdecode
+  have hdecode' : decodeLogicalStateValuesV1 data pre = .ok #[countBytes] := by
+    simpa [hvals] using hdecode
+  have heven :=
+    count_even_of_eval_true pre countBytes hinit hdecode' hcan heval
+  have hsize := countBytes_size_of_can countBytes hcan
+  have hfail :=
+    preservation_step_failure_arms admitted pre invocation responses vault
+  have hadmitted_data : admitted.data = data := hdata
+  have htypeU := types_uint64
+  have hstate := state_count
+  have hcanTwo := can_two
+  have htable :
+      data.callables = #[incrementCallable, getCallable, evenCallable] := rfl
+  generalize hstep :
+    stepReferenceSliceV1 admitted pre invocation responses vault = outcome
+  cases outcome with
+  | returned post value effects =>
+      cases hgate : gateInvocation admitted pre invocation with
+      | invalidInvocation =>
+          have h :=
+            stepReferenceSliceV1_invalidInvocation_eq admitted pre invocation
+              responses vault hgate
+          rw [h] at hstep; cases hstep
+      | lifecycle cand =>
+          have h :=
+            stepReferenceSliceV1_lifecycle_eq admitted pre invocation responses
+              vault cand hgate
+          rw [h] at hstep
+          exact absurd hstep
+            (finalizeLifecycle_ne_returned_publicV1 pre responses cand post value
+              effects)
+      | ready callable overlay context isInitializer =>
+          have hlookup_full :=
+            gateInvocation_ready_callable_lookup admitted pre invocation
+              callable overlay context isInitializer hgate
+          have hlookup : admitted.data.callables[invocation.callableId.toNat]? =
+              some callable := hlookup_full.1
+          have hisInitEq : isInitializer =
+              (callable.kind == CallableKindV1.initializer) := hlookup_full.2
+          have hlookup' :
+              data.callables[invocation.callableId.toNat]? = some callable := by
+            simpa [hdata] using hlookup
+          -- Membership in the closed three-row table.
+          have hsz : data.callables.size = 3 := by simp [htable]
+          have hidx_lt : invocation.callableId.toNat < 3 := by
+            have : invocation.callableId.toNat < data.callables.size := by
+              -- `some` lookup implies in-range index.
+              by_cases hlt : invocation.callableId.toNat < data.callables.size
+              · exact hlt
+              · have hnone :
+                    data.callables[invocation.callableId.toNat]? = none :=
+                  Array.getElem?_eq_none (Nat.not_lt.mp hlt)
+                rw [hnone] at hlookup'
+                cases hlookup'
+            omega
+          match hidx : invocation.callableId.toNat with
+          | 0 =>
+            have hcall : callable = incrementCallable := by
+              have : data.callables[0]? = some callable := by
+                simpa [hidx] using hlookup'
+              have : some incrementCallable = some callable := by
+                simpa [htable] using this
+              exact (Option.some.inj this).symm
+            have hisInit : isInitializer = false := by
+              have h := hisInitEq
+              rw [hcall] at h
+              -- entry kind ⇒ not initializer flag
+              change isInitializer = (incrementCallable.kind == .initializer) at h
+              simp only [incrementCallable, BEq.beq, decide_false, Bool.false_eq]
+                at h
+              exact h
+            have hgate' :
+                gateInvocation admitted pre invocation =
+                  .ready incrementCallable overlay context false := by
+              simpa [hcall, hisInit] using hgate
+            have hgate_dec :=
+              gateInvocation_ready_noninit_decode admitted pre invocation
+                incrementCallable overlay context hgate'
+            have hoverlay : overlay = #[countBytes] := by
+              have hdec_data :
+                  decodeLogicalStateValuesV1 data pre = .ok overlay := by
+                simpa [hdata] using hgate_dec.1
+              have h1 := hdecode'; have h2 := hdec_data
+              rw [h2] at h1
+              exact Except.ok.inj h1
+            have hgate_inc :
+                gateInvocation admitted pre invocation =
+                  .ready {
+                    id := 0, kind := .entry, name := some "increment",
+                    params := #[],
+                    result := { typeId := 0, visibility := .public_ },
+                    entryBlock := 0,
+                    blocks := #[{
+                      id := 0, params := #[],
+                      instructions := #[
+                        { result := some { valueId := 0, typeId := 0 },
+                          op := .stateLoad 0 },
+                        { result := some { valueId := 1, typeId := 0 },
+                          op := .literal 0 two8BytesV1 },
+                        { result := some { valueId := 2, typeId := 0 },
+                          op := .binary .add 0 1 },
+                        { result := none, op := .stateStore 0 2 },
+                        { result := some { valueId := 3, typeId := 0 },
+                          op := .stateLoad 0 }],
+                      terminator := .return_ (some 3) }],
+                    loopBounds := #[], invariantSteps := none
+                  } #[countBytes] context false := by
+              have hshape := increment_callable_ready_shape
+              simpa [hgate', hoverlay, hshape, hcall]
+            by_cases hov : leBytesToNatV1 countBytes + 2 < 2 ^ 64
+            · by_cases hresp : responses.size = 0
+              · let sumBytes :=
+                  natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8
+                have henc' :=
+                  encode_increment_sum_eq_ok countBytes hsize heven hov
+                have hstep_inc :=
+                  stepReferenceSliceV1_ready_increment_returned admitted pre
+                    invocation data countBytes 0 0 "count" 0 (some "increment")
+                    {
+                      initialized := true
+                      canonicalValues := (encodeU32le 8).append sumBytes
+                    } responses vault context hadmitted_data htypeU hstate
+                    rfl hcan hcanTwo hov hinit henc' hresp hgate_inc
+                have hpost :
+                    post = {
+                      initialized := true
+                      canonicalValues := (encodeU32le 8).append sumBytes
+                    } := by
+                  have h1 := hstep; have h2 := hstep_inc
+                  rw [h2] at h1
+                  injection h1 with hpost' _ _
+                  exact hpost'.symm
+                exact preservation_step_returned_increment_form countBytes post
+                  hcan hsize heven hov hpost
+              · have htrap :=
+                  stepReferenceSliceV1_ready_increment_nonempty_responses_traps
+                    admitted pre invocation data countBytes 0 0 "count" 0
+                    (some "increment") responses vault context hadmitted_data
+                    htypeU hstate rfl hcan hcanTwo hov (by exact hresp)
+                    hgate_inc
+                rw [htrap] at hstep; cases hstep
+            · have hne :=
+                stepReferenceSliceV1_ready_increment_overflow_not_returned
+                  admitted pre invocation data countBytes 0 0 "count" 0
+                  (some "increment") responses vault context post value effects
+                  hadmitted_data htypeU hstate rfl hcan hcanTwo hov hgate_inc
+              exact absurd hstep hne
+          | 1 =>
+            have hcall : callable = getCallable := by
+              have : data.callables[1]? = some callable := by
+                simpa [hidx] using hlookup'
+              have : some getCallable = some callable := by
+                simpa [htable] using this
+              exact (Option.some.inj this).symm
+            have hisInit : isInitializer = false := by
+              have h := hisInitEq
+              rw [hcall] at h
+              change isInitializer = (getCallable.kind == .initializer) at h
+              simp only [getCallable, BEq.beq, decide_false, Bool.false_eq] at h
+              exact h
+            have hgate' :
+                gateInvocation admitted pre invocation =
+                  .ready getCallable overlay context false := by
+              simpa [hcall, hisInit] using hgate
+            have hgate_dec :=
+              gateInvocation_ready_noninit_decode admitted pre invocation
+                getCallable overlay context hgate'
+            have hoverlay : overlay = #[countBytes] := by
+              have hdec_data :
+                  decodeLogicalStateValuesV1 data pre = .ok overlay := by
+                simpa [hdata] using hgate_dec.1
+              have h1 := hdecode'; have h2 := hdec_data
+              rw [h2] at h1
+              exact Except.ok.inj h1
+            have hgate_get :
+                gateInvocation admitted pre invocation =
+                  .ready {
+                    id := 1, kind := .view, name := some "get", params := #[],
+                    result := { typeId := 0, visibility := .public_ },
+                    entryBlock := 0,
+                    blocks := #[{
+                      id := 0, params := #[],
+                      instructions := #[{
+                        result := some { valueId := 0, typeId := 0 },
+                        op := .stateLoad 0 }],
+                      terminator := .return_ (some 0) }],
+                    loopBounds := #[], invariantSteps := none
+                  } #[countBytes] context false := by
+              have hshape := get_callable_ready_shape
+              simpa [hgate', hoverlay, hshape, hcall]
+            by_cases hresp : responses.size = 0
+            · have henc' := encode_even_overlay_eq_ok countBytes hcan hsize
+              have hstep_get :=
+                stepReferenceSliceV1_ready_get_returned admitted pre invocation
+                  data countBytes 0 0 "count" 1 (some "get")
+                  {
+                    initialized := true
+                    canonicalValues := (encodeU32le 8).append countBytes
+                  } responses vault context hadmitted_data htypeU hstate rfl
+                  hcan hinit henc' hresp hgate_get
+              have hpost :
+                  post = {
+                    initialized := true
+                    canonicalValues := (encodeU32le 8).append countBytes
+                  } := by
+                have h1 := hstep; have h2 := hstep_get
+                rw [h2] at h1
+                injection h1 with hpost' _ _
+                exact hpost'.symm
+              have henc_post :
+                  encodeLogicalStateValuesV1 data true #[countBytes] =
+                    .ok post := by
+                rw [hpost]; exact henc'
+              have hpost_pre :=
+                get_encode_post_eq_pre pre post countBytes hinit hdecode' hcan
+                  henc_post
+              exact preservation_step_returned_post_eq_pre pre post heval
+                hpost_pre
+            · have htrap :=
+                stepReferenceSliceV1_ready_get_nonempty_responses_traps admitted
+                  pre invocation data countBytes 0 0 "count" 1 (some "get")
+                  responses vault context hadmitted_data htypeU hstate rfl hcan
+                  (by exact hresp) hgate_get
+              rw [htrap] at hstep; cases hstep
+          | 2 =>
+            have hcall : callable = evenCallable := by
+              have : data.callables[2]? = some callable := by
+                simpa [hidx] using hlookup'
+              have : some evenCallable = some callable := by
+                simpa [htable] using this
+              exact (Option.some.inj this).symm
+            have hkind : callable.kind = .invariant := by
+              simp [hcall, evenCallable]
+            have hkindOk :
+                (callable.kind == .initializer ||
+                  callable.kind == .entry ||
+                  callable.kind == .view) = false := by
+              rw [hkind]
+              decide
+            -- Ready requires kind initializer|entry|view; invariant fails.
+            -- With invariant kind, the gate kind filter yields invalidInvocation.
+            have : gateInvocation admitted pre invocation =
+                .invalidInvocation := by
+              unfold gateInvocation
+              simp only [hlookup, hkindOk, Bool.not_false, ↓reduceIte]
+            rw [this] at hgate
+            cases hgate
+          | n + 3 =>
+            have : n + 3 < 3 := by simpa [hidx] using hidx_lt
+            omega
+  | reverted reason unchanged =>
+      rw [hstep] at hfail
+      simpa [OutcomeFailureStateUnchangedV1, OutcomeRevertedUnchangedV1] using
+        hfail
+  | trapped fault unchanged =>
+      rw [hstep] at hfail
+      simpa [OutcomeFailureStateUnchangedV1, OutcomeTrappedUnchangedV1] using
+        hfail
+
+/-- Full L1 preservation theorem for EvenCounter ordinal 0. -/
+theorem preservation_theorem :
+    PreservationTheoremV1 program 0 := by
+  refine ⟨ordinal_in_range, ?_⟩
+  rcases admit_exists with ⟨admitted, hadmit⟩
+  exact ⟨admitted, hadmit, preservation_base_no_init admitted,
+    preservation_step admitted hadmit⟩
+
 
 end ProofForgeV2.ProofInstances.EvenCounterPreservationV1
