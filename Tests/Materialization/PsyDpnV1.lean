@@ -27,10 +27,12 @@
     * DPN-7: product `buildFromCapability` dual-writes Counter.dpn.json
       (package ≡ golden) + transitional Counter.psy; deployable=false note
     * G5-MATRIX: Bool/compare/logic; bare assert/revert; UInt64 sub/mul/div/mod;
-      bitAnd; const→literal product; residual FC for callFn/Int/shl/narrow
-      bitwise; payload revertError FC
+      bitAnd; const→literal product; residual FC for callFn/shl/narrow bitwise;
+      payload revertError FC
     * R-NARROW: UInt8/16/32 checked arith + param range → DPN; UInt8 product
       dual-writes `.dpn.json` + `.psy` (no longer residual-only)
+    * R-INT: Int64 signedCompare/checkedNeg + Int{8,16,32} two's-complement
+      signed add/sub/mul/div/mod/neg/compare → DPN; Int8 product dual-write
     * G5-HARD: residual allowlist for remaining residual families; non-allowlisted
       DPN lower (e.g. zero state fields) fails materialize with PSY-DPN-G5-HARD
 -/
@@ -1705,9 +1707,10 @@ def testNarrowCheckedArithLower : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "narrowBitAnd must stay residual at DPN"
 
-/-- Residual Int64 signed compare → G5-MATRIX FC. -/
-def testSignedCompareFailClosedAtDpn : IO Unit := do
-  let fn : PlanFunction := {
+/-- R-INT: Int64 signedCompare/checkedNeg + narrow Int signed arith DPN lower. -/
+def testSignedIntLower : IO Unit := do
+  -- Int64 signedCompare: bias add + unsigned lt
+  let dCmp ← liftResult (lowerFunctionForTestV1 {
     index := 0
     name := "scmp"
     kind := .mutate
@@ -1718,15 +1721,107 @@ def testSignedCompareFailClosedAtDpn : IO Unit := do
     body := #[.returnValue (.signedCompare .lt (.param 0) (.param 1))]
     resultIsBool := true
     resultIsUnit := false
+  } false)
+  expect (dCmp.definitions.any fun defn => defn.opType == .add)
+    "signedCompare must bias with Add"
+  expect (dCmp.definitions.any fun defn => defn.opType == .lt)
+    "signedCompare must emit Lt after bias"
+  expect (dCmp.definitions.any fun defn =>
+      defn.opType == .constant &&
+        defn.inputs == #[UInt64.ofNat 9223372036854775808])
+    "signedCompare bias must be 2^63 Constant"
+  -- Int64 checkedNeg: intMin assert + field Sub
+  let dNeg ← liftResult (lowerFunctionForTestV1 {
+    index := 0
+    name := "sneg"
+    kind := .mutate
+    params := #[{ sourceIndex := 0, name := "x", isBool := false }]
+    body := #[.returnValue (.checkedNeg (.param 0))]
+    resultIsBool := false
+    resultIsUnit := false
+  } false)
+  expect (dNeg.assertions.any fun a => a.message == "i64 neg overflow (intMin)")
+    "checkedNeg intMin assert"
+  expect (dNeg.definitions.any fun defn => defn.opType == .sub)
+    "checkedNeg field Sub"
+  -- Narrow Int8 signed add
+  let mk (w : Nat) (name : String) (body : Array Statement) (retBool : Bool) :
+      PlanFunction := {
+    index := 0
+    name
+    kind := .mutate
+    params := #[
+      { sourceIndex := 0, name := "a", isBool := false, uintWidth := w },
+      { sourceIndex := 1, name := "b", isBool := false, uintWidth := w }
+    ]
+    body
+    resultIsBool := retBool
+    resultUintWidth := if retBool then 0 else w
+    resultIsUnit := false
   }
-  match lowerFunctionForTestV1 fn false with
-  | .error e =>
-      let msg := e.render
-      expect (msg.contains "PSY-DPN-G5-MATRIX" &&
-          (msg.contains "Int64" || msg.contains "signed"))
-        s!"signed residual must cite G5-MATRIX, got: {msg}"
-  | .ok _ =>
-      throw <| IO.userError "signedCompare must FC at DPN (Int residual)"
+  let dAdd ← liftResult (lowerFunctionForTestV1
+    (mk 8 "iadd" #[.returnValue (.narrowSignedCheckedAdd 8 (.param 0) (.param 1))] false)
+    false)
+  expect (dAdd.assertions.any fun a => a.message == "u8 param out of range")
+    "Int8 params still width-range checked (two's-complement carrier)"
+  expect (dAdd.assertions.any fun a => a.message == "i8 add overflow")
+    "narrowSignedCheckedAdd overflow assert"
+  expect (dAdd.definitions.any fun defn => defn.opType == .add) "signed Add"
+  expect (dAdd.definitions.any fun defn => defn.opType == .select)
+    "signed add modular wrap uses Select"
+  -- Int16 sub
+  let dSub ← liftResult (lowerFunctionForTestV1
+    (mk 16 "isub" #[.returnValue (.narrowSignedCheckedSub 16 (.param 0) (.param 1))] false)
+    false)
+  expect (dSub.assertions.any fun a => a.message == "i16 sub overflow")
+    "narrowSignedCheckedSub overflow"
+  expect (dSub.definitions.any fun defn => defn.opType == .sub) "signed Sub"
+  -- Int32 mul
+  let dMul ← liftResult (lowerFunctionForTestV1
+    (mk 32 "imul" #[.returnValue (.narrowSignedCheckedMul 32 (.param 0) (.param 1))] false)
+    false)
+  expect (dMul.assertions.any fun a => a.message == "i32 mul overflow")
+    "narrowSignedCheckedMul magnitude overflow"
+  expect (dMul.definitions.any fun defn => defn.opType == .mul) "signed Mul"
+  -- Int8 div/mod
+  let dDiv ← liftResult (lowerFunctionForTestV1
+    (mk 8 "idiv" #[.returnValue (.narrowSignedCheckedDiv 8 (.param 0) (.param 1))] false)
+    false)
+  expect (dDiv.assertions.any fun a => a.message == "i8 div by zero")
+    "narrowSignedCheckedDiv zero"
+  expect (dDiv.assertions.any fun a =>
+      a.message == "i8 div overflow (intMin / -1)")
+    "narrowSignedCheckedDiv intMin/-1"
+  expect (dDiv.definitions.any fun defn => defn.opType == .div) "signed Div"
+  let dMod ← liftResult (lowerFunctionForTestV1
+    (mk 8 "imod" #[.returnValue (.narrowSignedCheckedMod 8 (.param 0) (.param 1))] false)
+    false)
+  expect (dMod.assertions.any fun a => a.message == "i8 mod by zero")
+    "narrowSignedCheckedMod zero"
+  expect (dMod.definitions.any fun defn => defn.opType == .mod_) "signed Mod"
+  -- Narrow signed compare + neg
+  let dNCmp ← liftResult (lowerFunctionForTestV1
+    (mk 8 "icmp" #[.returnValue (.narrowSignedCompare 8 .lt (.param 0) (.param 1))] true)
+    false)
+  expect (dNCmp.definitions.any fun defn => defn.opType == .lt)
+    "narrowSignedCompare Lt"
+  expect (dNCmp.definitions.any fun defn =>
+      defn.opType == .constant && defn.inputs == #[128])
+    "Int8 signed compare bias 2^7"
+  let dNNeg ← liftResult (lowerFunctionForTestV1 {
+    index := 0
+    name := "ineg"
+    kind := .mutate
+    params := #[{ sourceIndex := 0, name := "x", isBool := false, uintWidth := 8 }]
+    body := #[.returnValue (.narrowCheckedNeg 8 (.param 0))]
+    resultIsBool := false
+    resultUintWidth := 8
+    resultIsUnit := false
+  } false)
+  expect (dNNeg.assertions.any fun a => a.message == "i8 neg overflow (intMin)")
+    "narrowCheckedNeg intMin"
+  expect (dNNeg.definitions.any fun defn => defn.opType == .select)
+    "narrowCheckedNeg Select for zero"
 
 /-- Residual UInt64 shl → G5-MATRIX FC. -/
 def testShlFailClosedAtDpn : IO Unit := do
@@ -1773,7 +1868,7 @@ def testPayloadRevertErrorFailClosedAtDpn : IO Unit := do
 
 /-- G5-HARD residual allowlist unit pins (classifier only). -/
 def testG5HardResidualAllowlistClassifier : IO Unit := do
-  -- Remaining residual families (R-NARROW arith admitted; bitwise still residual).
+  -- Remaining residual families (R-NARROW + R-INT admitted; bitwise/shift still residual).
   expect (isPsyDpnG5HardResidualAllowlistV1
       "PSY-DPN-G5-MATRIX: UInt8 narrow bitwise/shift residual (.psy dual-write only)")
     "narrow bitwise residual must be allowlisted"
@@ -1783,6 +1878,9 @@ def testG5HardResidualAllowlistClassifier : IO Unit := do
   expect (isPsyDpnG5HardResidualAllowlistV1
       "PSY-DPN-G5-MATRIX: UInt64 shl/shr residual (.psy dual-write only)")
     "shl residual must be allowlisted"
+  -- Int residual wording must NOT remain on allowlist path once R-INT is green
+  -- (classifier is wording-based; leftover historical Int residual strings would
+  -- still match if reintroduced — product lower must not emit them).
   expect (!isPsyDpnG5HardResidualAllowlistV1
       "PSY-DPN: expected at least one state field")
     "non-MATRIX DPN error must not be residual allowlisted"
@@ -1836,6 +1934,52 @@ unsafe def testUInt8ProductDualWriteDpn : IO Unit := do
         "product increment must assert u8 add overflow"
       expect (inc.definitions.any fun defn => defn.opType == .add)
         "product increment must emit Add"
+
+/-- R-INT product: Int8 Counter-shaped program dual-writes DPN package + .psy. -/
+unsafe def testInt8ProductDualWriteDpn : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program I8Dpn where\n" ++
+    "  state count : Int8\n" ++
+    "  init(seed : Int8) do\n" ++
+    "    count := seed\n" ++
+    "  entry increment(delta : Int8) : Int8 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : Int8 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-i8>" "Tests.I8Dpn" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let files ← liftResult <| Targets.Psy.buildFromCapability cap
+  expect (files.size == 2)
+    s!"Int8 R-INT must dual-write DPN+.psy, got {files.map (·.path)}"
+  let some dpn := files.find? (·.path.endsWith ".dpn.json") |
+    throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
+  let some psy := files.find? (·.path.endsWith ".psy") |
+    throw <| IO.userError s!"missing .psy; got {files.map (·.path)}"
+  expect (files[0]!.path.endsWith ".dpn.json")
+    "DPN package must be primary artifact"
+  expect (!psy.contents.isEmpty) "transitional .psy non-empty"
+  match parsePackage? dpn.contents with
+  | none => throw <| IO.userError "I8Dpn.dpn.json failed to parse as package"
+  | some pkg =>
+      expect (pkg.size == 3) s!"I8Dpn package must have 3 methods, got {pkg.size}"
+      let some inc := pkg.find? (·.name == "increment") |
+        throw <| IO.userError s!"missing increment; names {pkg.map (·.name)}"
+      expect (inc.assertions.any fun a => a.message == "u8 param out of range")
+        "product increment must range-check Int8 carrier param"
+      expect (inc.assertions.any fun a => a.message == "i8 add overflow")
+        "product increment must assert i8 add overflow"
+      expect (inc.definitions.any fun defn => defn.opType == .add)
+        "product Int8 increment must emit Add"
+      expect (inc.definitions.any fun defn => defn.opType == .select)
+        "product Int8 signed add must Select-wrap mod 2^8"
 
 /-- G5-HARD: non-allowlisted DPN lower failure fails materialize (no silent
     `.psy`-only). Hand Plan with zero state fields validates/emit-lowers to
@@ -1954,11 +2098,12 @@ unsafe def run : IO Unit := do
   testConstProductLower
   testCallFnFailClosedAtDpn
   testNarrowCheckedArithLower
-  testSignedCompareFailClosedAtDpn
+  testSignedIntLower
   testShlFailClosedAtDpn
   testPayloadRevertErrorFailClosedAtDpn
   testG5HardResidualAllowlistClassifier
   testUInt8ProductDualWriteDpn
+  testInt8ProductDualWriteDpn
   testG5HardNonResidualDpnFailClosed
   testCounterProductDualWriteArtifacts
   IO.println "Tests.Materialization.PsyDpnV1: ok"

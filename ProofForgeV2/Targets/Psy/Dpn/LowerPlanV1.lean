@@ -65,8 +65,12 @@
       div/mod + param range asserts + unsigned compare (mirror EmitIRV1;
       result < 2^w for add/mul; not field-wrap inverse). Narrow bitwise/
       shift remain residual.
-    * residual Plan-admit shapes (narrow bitwise/shift, Int signed, callFn
-      pureFn, UInt64 shl/shr, checkedBitNot) → stable PSY-DPN-G5-MATRIX FC;
+    * R-INT (G5 residual): Int64 signedCompare/checkedNeg + Int{8,16,32}
+      two's-complement narrow signed add/sub/mul/div/mod/neg/compare → DPN
+      (mirror EmitIRV1; Felt-carried 0..2^w-1 / bias-2^(w-1) compare; overflow
+      asserts). Int64 arith reuses UInt64 checkedAdd/Sub/Mul/Div/Mod path.
+    * residual Plan-admit shapes (narrow bitwise/shift, callFn pureFn,
+      UInt64 shl/shr, checkedBitNot) → stable PSY-DPN-G5-MATRIX FC;
       EmitIRV1 G5-HARD residual allowlist may emit transitional `.psy` only
       (no false DPN package); non-residual DPN failures hard-fail materialize
     * Bool/compare/logic/bare assert covered by general builder + suite pins
@@ -733,6 +737,337 @@ private def emitNarrowCheckedMod (b : BuilderV1) (bitWidth : Nat) (l r : WireV1)
   let (b3, m) := pushTarget b2 .mod_ #[UInt64.ofNat li, UInt64.ofNat ri]
   pure (b3, m)
 
+/-! ## R-INT: Int64 + narrow Int{8,16,32} two's-complement (mirror EmitIRV1) -/
+
+/-- Assert bool wire equals ConstantTrue (shared residual-lower style). -/
+private def pushAssertTrue (b : BuilderV1) (cond : WireV1) (msg : String) :
+    CompileResult BuilderV1 := do
+  let _ ← asBoolIndex cond
+  pure {
+    b with
+      asserts := b.asserts.push {
+        left := cond.encoded
+        right := encodeIndexedId .bool b.trueBool
+        message := msg
+      }
+  }
+
+/-- Target `!=` as `!(l == r)`. -/
+private def emitTargetNe (b : BuilderV1) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let (b1, eqW) := pushBool b .eq #[l.operand, r.operand]
+  emitBoolNot b1 eqW
+
+/-- Bool `!=` as `!(l == r)`. -/
+private def emitBoolNe (b : BuilderV1) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let li ← asBoolIndex l
+  let ri ← asBoolIndex r
+  let (b1, eqW) := pushBool b .eq #[UInt64.ofNat li, UInt64.ofNat ri]
+  emitBoolNot b1 eqW
+
+/-- Int64 checkedNeg: assert `x != 2^63` then field `0 - x` (EmitIR). -/
+private def emitCheckedNegInt64 (b : BuilderV1) (o : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let oi ← asTargetIndex o
+  let (b1, intMinW) := emitLiteralU64 b (UInt64.ofNat 9223372036854775808)
+  let (b2, ok) ← emitTargetNe b1 o intMinW
+  let b3 ← pushAssertTrue b2 ok "i64 neg overflow (intMin)"
+  -- Field negation: 0 - x (zeroTarget is Constant 0).
+  let (b4, neg) :=
+    pushTarget b3 .sub #[UInt64.ofNat b3.zeroTarget, UInt64.ofNat oi]
+  pure (b4, neg)
+
+/-- Signed compare via bias then unsigned cmp (no `.ne` OpType — use not(eq)).
+    Int64 bias 2^63; narrow bias 2^(w-1). Placed before emitCompare: inlines
+    the same Target-compare rules. -/
+private def emitSignedCompareBiased (b : BuilderV1) (bias : Nat)
+    (op : ComparisonOp) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let li ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, biasW) := emitLiteralU64 b (UInt64.ofNat bias)
+  let bi ← asTargetIndex biasW
+  let (b2, nl) := pushTarget b1 .add #[UInt64.ofNat li, UInt64.ofNat bi]
+  let (b3, nr) := pushTarget b2 .add #[UInt64.ofNat ri, UInt64.ofNat bi]
+  match op with
+  | .ne =>
+      let (b4, eqW) :=
+        pushBool b3 .eq #[nl.operand, nr.operand]
+      emitBoolNot b4 eqW
+  | other =>
+      pure (pushBool b3 (compareOpType other) #[nl.operand, nr.operand])
+
+/-- Narrow signed compare: two's-complement patterns in 0..2^w-1, bias 2^(w-1). -/
+private def emitNarrowSignedCompare (b : BuilderV1) (bitWidth : Nat)
+    (op : ComparisonOp) (l r : WireV1) : CompileResult (BuilderV1 × WireV1) := do
+  let _ ← narrowBoundV1 bitWidth
+  emitSignedCompareBiased b (Nat.pow 2 (bitWidth - 1)) op l r
+
+/-- Int64 signed compare (bias 2^63). -/
+private def emitSignedCompareInt64 (b : BuilderV1) (op : ComparisonOp)
+    (l r : WireV1) : CompileResult (BuilderV1 × WireV1) :=
+  emitSignedCompareBiased b 9223372036854775808 op l r
+
+/-- Narrow checkedNeg: intMin traps; else select(x==0, 0, 2^w - x). -/
+private def emitNarrowCheckedNeg (b : BuilderV1) (bitWidth : Nat) (o : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let bound ← narrowBoundV1 bitWidth
+  let half := Nat.pow 2 (bitWidth - 1)
+  let oi ← asTargetIndex o
+  let (b1, halfW) := emitLiteralU64 b (UInt64.ofNat half)
+  let (b2, ok) ← emitTargetNe b1 o halfW
+  let b3 ← pushAssertTrue b2 ok s!"i{bitWidth} neg overflow (intMin)"
+  let (b4, is0) :=
+    pushBool b3 .eq #[UInt64.ofNat oi, UInt64.ofNat b3.zeroTarget]
+  let (b5, boundW) := emitLiteralU64 b4 (UInt64.ofNat bound)
+  let bndi ← asTargetIndex boundW
+  let (b6, subW) :=
+    pushTarget b5 .sub #[UInt64.ofNat bndi, UInt64.ofNat oi]
+  emitSelect b6 is0 (zeroWire b6) subW
+
+/-- Same-sign overflow flag: `(sa&&sb || !sa&&!sb) && (sa != sr)`. -/
+private def emitSameSignOverflow (b : BuilderV1) (sa sb sr : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let (b1, bothNeg) ← emitBoolAnd b sa sb
+  let (b2, notSa) ← emitBoolNot b1 sa
+  let (b3, notSb) ← emitBoolNot b2 sb
+  let (b4, bothPos) ← emitBoolAnd b3 notSa notSb
+  let (b5, sameSign) ← emitBoolOr b4 bothNeg bothPos
+  let (b6, ne) ← emitBoolNe b5 sa sr
+  emitBoolAnd b6 sameSign ne
+
+/-- Opposite-sign (sub) overflow flag: `(sa&&!sb || !sa&&sb) && (sa != sr)`. -/
+private def emitDiffSignOverflow (b : BuilderV1) (sa sb sr : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let (b1, notSb) ← emitBoolNot b sb
+  let (b2, aNegBPos) ← emitBoolAnd b1 sa notSb
+  let (b3, notSa) ← emitBoolNot b2 sa
+  let (b4, aPosBNeg) ← emitBoolAnd b3 notSa sb
+  let (b5, diffSign) ← emitBoolOr b4 aNegBPos aPosBNeg
+  let (b6, ne) ← emitBoolNe b5 sa sr
+  emitBoolAnd b6 diffSign ne
+
+/-- Narrow signed checked add: modular wrap + same-sign overflow trap. -/
+private def emitNarrowSignedCheckedAdd (b : BuilderV1) (bitWidth : Nat)
+    (l r : WireV1) : CompileResult (BuilderV1 × WireV1) := do
+  let bound ← narrowBoundV1 bitWidth
+  let half := Nat.pow 2 (bitWidth - 1)
+  let li ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, sum) := pushTarget b .add #[UInt64.ofNat li, UInt64.ofNat ri]
+  let (b2, boundW) := emitLiteralU64 b1 (UInt64.ofNat bound)
+  let bndi ← asTargetIndex boundW
+  let (b3, geBound) :=
+    pushBool b2 .gte #[UInt64.ofNat sum.rawIndex, UInt64.ofNat bndi]
+  let (b4, wrapped) :=
+    pushTarget b3 .sub #[UInt64.ofNat sum.rawIndex, UInt64.ofNat bndi]
+  let (b5, wrap) ← emitSelect b4 geBound wrapped sum
+  let (b6, halfW) := emitLiteralU64 b5 (UInt64.ofNat half)
+  let hi ← asTargetIndex halfW
+  let (b7, sa) := pushBool b6 .gte #[UInt64.ofNat li, UInt64.ofNat hi]
+  let (b8, sb) := pushBool b7 .gte #[UInt64.ofNat ri, UInt64.ofNat hi]
+  let wi ← asTargetIndex wrap
+  let (b9, sr) := pushBool b8 .gte #[UInt64.ofNat wi, UInt64.ofNat hi]
+  let (b10, ovf) ← emitSameSignOverflow b9 sa sb sr
+  let (b11, ok) ← emitBoolNot b10 ovf
+  let b12 ← pushAssertTrue b11 ok s!"i{bitWidth} add overflow"
+  pure (b12, wrap)
+
+/-- Narrow signed checked sub: modular borrow + opposite-sign overflow trap. -/
+private def emitNarrowSignedCheckedSub (b : BuilderV1) (bitWidth : Nat)
+    (l r : WireV1) : CompileResult (BuilderV1 × WireV1) := do
+  let bound ← narrowBoundV1 bitWidth
+  let half := Nat.pow 2 (bitWidth - 1)
+  let li ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, ge) := pushBool b .gte #[UInt64.ofNat li, UInt64.ofNat ri]
+  let (b2, direct) := pushTarget b1 .sub #[UInt64.ofNat li, UInt64.ofNat ri]
+  let (b3, boundW) := emitLiteralU64 b2 (UInt64.ofNat bound)
+  let bndi ← asTargetIndex boundW
+  let (b4, lPlus) := pushTarget b3 .add #[UInt64.ofNat li, UInt64.ofNat bndi]
+  let (b5, borrowed) :=
+    pushTarget b4 .sub #[UInt64.ofNat lPlus.rawIndex, UInt64.ofNat ri]
+  let (b6, diff) ← emitSelect b5 ge direct borrowed
+  let (b7, halfW) := emitLiteralU64 b6 (UInt64.ofNat half)
+  let hi ← asTargetIndex halfW
+  let (b8, sa) := pushBool b7 .gte #[UInt64.ofNat li, UInt64.ofNat hi]
+  let (b9, sb) := pushBool b8 .gte #[UInt64.ofNat ri, UInt64.ofNat hi]
+  let di ← asTargetIndex diff
+  let (b10, sr) := pushBool b9 .gte #[UInt64.ofNat di, UInt64.ofNat hi]
+  let (b11, ovf) ← emitDiffSignOverflow b10 sa sb sr
+  let (b12, ok) ← emitBoolNot b11 ovf
+  let b13 ← pushAssertTrue b12 ok s!"i{bitWidth} sub overflow"
+  pure (b13, diff)
+
+/-- Narrow signed checked mul (magnitude product + re-sign; EmitIR port). -/
+private def emitNarrowSignedCheckedMul (b : BuilderV1) (bitWidth : Nat)
+    (l r : WireV1) : CompileResult (BuilderV1 × WireV1) := do
+  let bound ← narrowBoundV1 bitWidth
+  let half := Nat.pow 2 (bitWidth - 1)
+  let negOne := bound - 1
+  let li ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, halfW) := emitLiteralU64 b (UInt64.ofNat half)
+  let hi ← asTargetIndex halfW
+  let zeroW := zeroWire b1
+  let (b3, oneW) := emitLiteralU64 b1 1
+  let oi ← asTargetIndex oneW
+  let (b4, negOneW) := emitLiteralU64 b3 (UInt64.ofNat negOne)
+  let ni ← asTargetIndex negOneW
+  let (b5, sa) := pushBool b4 .gte #[UInt64.ofNat li, UInt64.ofNat hi]
+  let (b6, sb) := pushBool b5 .gte #[UInt64.ofNat ri, UInt64.ofNat hi]
+  -- Reject intMin unless other ∈ {0,1,-1}.
+  let (b7, lIsMin) :=
+    pushBool b6 .eq #[UInt64.ofNat li, UInt64.ofNat hi]
+  let (b8, rIs0) :=
+    pushBool b7 .eq #[UInt64.ofNat ri, UInt64.ofNat b7.zeroTarget]
+  let (b9, rIs1) :=
+    pushBool b8 .eq #[UInt64.ofNat ri, UInt64.ofNat oi]
+  let (b10, rIsNeg1) :=
+    pushBool b9 .eq #[UInt64.ofNat ri, UInt64.ofNat ni]
+  let (b11, rOk) ← emitBoolOr b10 rIs0 rIs1
+  let (b12, rOk2) ← emitBoolOr b11 rOk rIsNeg1
+  let (b13, rBad) ← emitBoolNot b12 rOk2
+  let (b14, lMinBad) ← emitBoolAnd b13 lIsMin rBad
+  let (b15, lOk) ← emitBoolNot b14 lMinBad
+  let b16 ← pushAssertTrue b15 lOk s!"i{bitWidth} mul overflow (intMin)"
+  let (b17, rIsMin) :=
+    pushBool b16 .eq #[UInt64.ofNat ri, UInt64.ofNat hi]
+  let (b18, lIs0) :=
+    pushBool b17 .eq #[UInt64.ofNat li, UInt64.ofNat b17.zeroTarget]
+  let (b19, lIs1) :=
+    pushBool b18 .eq #[UInt64.ofNat li, UInt64.ofNat oi]
+  let (b20, lIsNeg1) :=
+    pushBool b19 .eq #[UInt64.ofNat li, UInt64.ofNat ni]
+  let (b21, lOkF) ← emitBoolOr b20 lIs0 lIs1
+  let (b22, lOkF2) ← emitBoolOr b21 lOkF lIsNeg1
+  let (b23, lBad) ← emitBoolNot b22 lOkF2
+  let (b24, rMinBad) ← emitBoolAnd b23 rIsMin lBad
+  let (b25, rOkA) ← emitBoolNot b24 rMinBad
+  let b26 ← pushAssertTrue b25 rOkA s!"i{bitWidth} mul overflow (intMin)"
+  -- absA = sa ? (l==half ? half : bound-l) : l
+  let (b27, boundW) := emitLiteralU64 b26 (UInt64.ofNat bound)
+  let bndi ← asTargetIndex boundW
+  let (b28, negL) :=
+    pushTarget b27 .sub #[UInt64.ofNat bndi, UInt64.ofNat li]
+  let (b29, lIsMin2) :=
+    pushBool b28 .eq #[UInt64.ofNat li, UInt64.ofNat hi]
+  let (b30, absANeg) ← emitSelect b29 lIsMin2 halfW negL
+  let (b31, absA) ← emitSelect b30 sa absANeg l
+  let (b32, negR) :=
+    pushTarget b31 .sub #[UInt64.ofNat bndi, UInt64.ofNat ri]
+  let (b33, rIsMin2) :=
+    pushBool b32 .eq #[UInt64.ofNat ri, UInt64.ofNat hi]
+  let (b34, absBNeg) ← emitSelect b33 rIsMin2 halfW negR
+  let (b35, absB) ← emitSelect b34 sb absBNeg r
+  let ai ← asTargetIndex absA
+  let bi ← asTargetIndex absB
+  let (b36, prodAbs) :=
+    pushTarget b35 .mul #[UInt64.ofNat ai, UInt64.ofNat bi]
+  -- prodAbs < half || (prodAbs == half && opposite signs)
+  let (b37, prodLt) :=
+    pushBool b36 .lt #[UInt64.ofNat prodAbs.rawIndex, UInt64.ofNat hi]
+  let (b38, prodEqHalf) :=
+    pushBool b37 .eq #[UInt64.ofNat prodAbs.rawIndex, UInt64.ofNat hi]
+  let (b39, notSb) ← emitBoolNot b38 sb
+  let (b40, aNegBPos) ← emitBoolAnd b39 sa notSb
+  let (b41, notSa) ← emitBoolNot b40 sa
+  let (b42, aPosBNeg) ← emitBoolAnd b41 notSa sb
+  let (b43, opp) ← emitBoolOr b42 aNegBPos aPosBNeg
+  let (b44, halfOk) ← emitBoolAnd b43 prodEqHalf opp
+  let (b45, magOk) ← emitBoolOr b44 prodLt halfOk
+  let b46 ← pushAssertTrue b45 magOk s!"i{bitWidth} mul overflow"
+  -- result: 0 if prodAbs==0; else if opp: (prodAbs==half ? half : bound-prodAbs) else prodAbs
+  let (b47, prodIs0) :=
+    pushBool b46 .eq #[UInt64.ofNat prodAbs.rawIndex, UInt64.ofNat b46.zeroTarget]
+  let (b48, negProd) :=
+    pushTarget b47 .sub #[UInt64.ofNat bndi, UInt64.ofNat prodAbs.rawIndex]
+  let (b49, signedNeg) ← emitSelect b48 prodEqHalf halfW negProd
+  let (b50, signed) ← emitSelect b49 opp signedNeg prodAbs
+  emitSelect b50 prodIs0 zeroW signed
+
+/-- Narrow signed checked div (trunc toward zero via abs; EmitIR port). -/
+private def emitNarrowSignedCheckedDiv (b : BuilderV1) (bitWidth : Nat)
+    (l r : WireV1) : CompileResult (BuilderV1 × WireV1) := do
+  let bound ← narrowBoundV1 bitWidth
+  let half := Nat.pow 2 (bitWidth - 1)
+  let li ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, nz) ← emitTargetNe b r (zeroWire b)
+  let b2 ← pushAssertTrue b1 nz s!"i{bitWidth} div by zero"
+  let (b3, halfW) := emitLiteralU64 b2 (UInt64.ofNat half)
+  let hi ← asTargetIndex halfW
+  let (b4, boundW) := emitLiteralU64 b3 (UInt64.ofNat bound)
+  let bndi ← asTargetIndex boundW
+  let (b5, oneW) := emitLiteralU64 b4 1
+  let oi ← asTargetIndex oneW
+  let (b6, negOneW) :=
+    pushTarget b5 .sub #[UInt64.ofNat bndi, UInt64.ofNat oi]
+  -- intMin / -1 overflows
+  let (b7, lIsMin) :=
+    pushBool b6 .eq #[UInt64.ofNat li, UInt64.ofNat hi]
+  let (b8, rIsNeg1) :=
+    pushBool b7 .eq #[UInt64.ofNat ri, UInt64.ofNat negOneW.rawIndex]
+  let (b9, badDiv) ← emitBoolAnd b8 lIsMin rIsNeg1
+  let (b10, okDiv) ← emitBoolNot b9 badDiv
+  let b11 ← pushAssertTrue b10 okDiv s!"i{bitWidth} div overflow (intMin / -1)"
+  let (b12, sa) := pushBool b11 .gte #[UInt64.ofNat li, UInt64.ofNat hi]
+  let (b13, sb) := pushBool b12 .gte #[UInt64.ofNat ri, UInt64.ofNat hi]
+  let (b14, negL) :=
+    pushTarget b13 .sub #[UInt64.ofNat bndi, UInt64.ofNat li]
+  let (b15, absA) ← emitSelect b14 sa negL l
+  let (b16, negR) :=
+    pushTarget b15 .sub #[UInt64.ofNat bndi, UInt64.ofNat ri]
+  let (b17, absB) ← emitSelect b16 sb negR r
+  let ai ← asTargetIndex absA
+  let bi ← asTargetIndex absB
+  let (b18, qAbs) :=
+    pushTarget b17 .div #[UInt64.ofNat ai, UInt64.ofNat bi]
+  let (b19, notSb) ← emitBoolNot b18 sb
+  let (b20, aNegBPos) ← emitBoolAnd b19 sa notSb
+  let (b21, notSa) ← emitBoolNot b20 sa
+  let (b22, aPosBNeg) ← emitBoolAnd b21 notSa sb
+  let (b23, opp) ← emitBoolOr b22 aNegBPos aPosBNeg
+  let (b24, qIs0) :=
+    pushBool b23 .eq #[UInt64.ofNat qAbs.rawIndex, UInt64.ofNat b23.zeroTarget]
+  let (b25, negQ) :=
+    pushTarget b24 .sub #[UInt64.ofNat bndi, UInt64.ofNat qAbs.rawIndex]
+  let (b26, signedNeg) ← emitSelect b25 qIs0 (zeroWire b25) negQ
+  emitSelect b26 opp signedNeg qAbs
+
+/-- Narrow signed checked mod: remainder has sign of dividend (EmitIR). -/
+private def emitNarrowSignedCheckedMod (b : BuilderV1) (bitWidth : Nat)
+    (l r : WireV1) : CompileResult (BuilderV1 × WireV1) := do
+  let bound ← narrowBoundV1 bitWidth
+  let half := Nat.pow 2 (bitWidth - 1)
+  let li ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, nz) ← emitTargetNe b r (zeroWire b)
+  let b2 ← pushAssertTrue b1 nz s!"i{bitWidth} mod by zero"
+  let (b3, halfW) := emitLiteralU64 b2 (UInt64.ofNat half)
+  let hi ← asTargetIndex halfW
+  let (b4, boundW) := emitLiteralU64 b3 (UInt64.ofNat bound)
+  let bndi ← asTargetIndex boundW
+  let (b5, sa) := pushBool b4 .gte #[UInt64.ofNat li, UInt64.ofNat hi]
+  let (b6, rb) := pushBool b5 .gte #[UInt64.ofNat ri, UInt64.ofNat hi]
+  let (b7, negL) :=
+    pushTarget b6 .sub #[UInt64.ofNat bndi, UInt64.ofNat li]
+  let (b8, absA) ← emitSelect b7 sa negL l
+  let (b9, negR) :=
+    pushTarget b8 .sub #[UInt64.ofNat bndi, UInt64.ofNat ri]
+  let (b10, absB) ← emitSelect b9 rb negR r
+  let ai ← asTargetIndex absA
+  let bi ← asTargetIndex absB
+  let (b11, rAbs) :=
+    pushTarget b10 .mod_ #[UInt64.ofNat ai, UInt64.ofNat bi]
+  let (b12, rIs0) :=
+    pushBool b11 .eq #[UInt64.ofNat rAbs.rawIndex, UInt64.ofNat b11.zeroTarget]
+  let (b13, negRem) :=
+    pushTarget b12 .sub #[UInt64.ofNat bndi, UInt64.ofNat rAbs.rawIndex]
+  let (b14, signedNeg) ← emitSelect b13 rIs0 (zeroWire b13) negRem
+  emitSelect b14 sa signedNeg rAbs
+
 /-- Target binary op accepting Target/U32 operands (encoded ids). -/
 private def emitTargetBin (b : BuilderV1) (op : OpTypeV1) (l r : WireV1) :
     BuilderV1 × WireV1 :=
@@ -941,15 +1276,40 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
   | .narrowShl w _ _ | .narrowShr w _ _ | .narrowBitNot w _ =>
       planError s!"PSY-DPN-G5-MATRIX: UInt{w} narrow bitwise/shift residual \
 (.psy dual-write only)"
-  | .narrowSignedCheckedAdd w _ _ | .narrowSignedCheckedSub w _ _
-  | .narrowSignedCheckedMul w _ _ | .narrowSignedCheckedDiv w _ _
-  | .narrowSignedCheckedMod w _ _ | .narrowSignedCompare w _ _ _
-  | .narrowCheckedNeg w _ =>
-      planError s!"PSY-DPN-G5-MATRIX: Int{w} narrow signed residual \
-(.psy dual-write only; two's-complement DPN not yet admitted)"
-  | .checkedNeg _ | .signedCompare _ _ _ =>
-      planError "PSY-DPN-G5-MATRIX: Int64 signed residual \
-(.psy dual-write only; signed compare/neg DPN not yet admitted)"
+  | .narrowSignedCheckedAdd w l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowSignedCheckedAdd b2 w lw rw
+  | .narrowSignedCheckedSub w l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowSignedCheckedSub b2 w lw rw
+  | .narrowSignedCheckedMul w l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowSignedCheckedMul b2 w lw rw
+  | .narrowSignedCheckedDiv w l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowSignedCheckedDiv b2 w lw rw
+  | .narrowSignedCheckedMod w l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowSignedCheckedMod b2 w lw rw
+  | .narrowSignedCompare w op l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowSignedCompare b2 w op lw rw
+  | .narrowCheckedNeg w o => do
+      let (b1, ow) ← lowerExprV1 b params viewPath o
+      emitNarrowCheckedNeg b1 w ow
+  | .checkedNeg o => do
+      let (b1, ow) ← lowerExprV1 b params viewPath o
+      emitCheckedNegInt64 b1 ow
+  | .signedCompare op l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitSignedCompareInt64 b2 op lw rw
   | .checkedBitNot _ =>
       planError "PSY-DPN-G5-MATRIX: UInt64 checkedBitNot residual \
 (.psy dual-write only)"

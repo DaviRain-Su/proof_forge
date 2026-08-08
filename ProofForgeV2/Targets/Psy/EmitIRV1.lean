@@ -14,10 +14,11 @@ when Plan→DPN lower succeeds; `{contract}.psy` remains a transitional/debug
 text emission for dargo compile lanes. **G5-HARD**: non-residual DPN lower
 failures fail materialize with stable `PSY-DPN-G5-HARD` (no silent incomplete
 product). Explicit residual allowlist (`PSY-DPN-G5-MATRIX` residual families —
-narrow bitwise/shift, Int signed, pureFn/callFn, UInt64 shl/shr, checkedBitNot,
-Field residual; **R-NARROW UInt8/16/32 arith admitted to DPN**) may still emit
-transitional `.psy` only until remaining families gain true DPN lower; full
-hard-require (zero allowlist) is deferred. `deployable=false` unchanged.
+narrow bitwise/shift, pureFn/callFn, UInt64 shl/shr, checkedBitNot, Field
+residual; **R-NARROW UInt8/16/32 + R-INT Int64/narrow signed admitted to DPN**)
+may still emit transitional `.psy` only until remaining families gain true DPN
+lower; full hard-require (zero allowlist) is deferred. `deployable=false`
+unchanged.
 
 Checked u64 arithmetic is realized with explicit assert guards. Psy `Felt`
 is Goldilocks (p = 2^64−2^32+1): every decimal literal is reduced into
@@ -1765,8 +1766,8 @@ private def lower (plan : Plan) : CompileResult IR := do
 
     True only for stable `PSY-DPN-G5-MATRIX` residual diagnostics that document
     Plan-admit shapes not yet DPN-lowered (product may emit transitional
-    `.psy` only). R-NARROW UInt8/16/32 checked arith is **not** residual
-    (DPN-lowered). Remaining residual: narrow bitwise/shift, Int signed,
+    `.psy` only). R-NARROW UInt8/16/32 and R-INT Int64/narrow signed are
+    **not** residual (DPN-lowered). Remaining residual: narrow bitwise/shift,
     pureFn/callFn, UInt64 shl/shr, checkedBitNot, Field. All other DPN lower
     failures must fail materialize — never silent incomplete product. -/
 def isPsyDpnG5HardResidualAllowlistV1 (message : String) : Bool :=
