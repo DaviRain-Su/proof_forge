@@ -1,4 +1,4 @@
-# noir-acir-v1 golden (NOIR-IR-1 + IR-2)
+# noir-acir-v1 golden (NOIR-IR-1 + IR-2 + IR-3/G3)
 
 Frozen **Examples/Counter** product Noir relation packages plus locked
 **nargo 1.0.0-beta.26** `nargo compile` ProgramArtifact JSON.
@@ -13,6 +13,12 @@ Frozen **Examples/Counter** product Noir relation packages plus locked
   must byte-match `product/relations/*`; when nargo is present, compile of those
   packages must match circuit core (`noir_version`+`hash`+`bytecode`) of
   `nargo-compile/*`. See `ProofForgeV2/Targets/Noir/Acir/CaptureV1.lean`.
+- **IR-3 / G3 admit surface:** circuit-hash pins (not multi-file inventory here)
+  for control-flow / aggregate product fixtures already admitted by Noir Plan —
+  BranchCounter (if), LoopSum (for), OptionState, ArrayRet full capture;
+  MapMini init capture + put/get **nargo type residual** (Plan emits packages;
+  locked nargo compile fails — honesty pin, not silent pass). Live capture
+  honest-skips when nargo is missing; package-stem pins always run.
 - **Not claimed:** ACIR opcode decode, product ACIR OutputFile (IR-6),
   prove/verify, deployable, formal.
 
@@ -75,7 +81,9 @@ lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean \
 ```
 
 Live recheck is optional when nargo is present; missing nargo → suite skip
-honesty (inventory pin still runs from frozen files).
+honesty for **live capture paths only** (Counter inventory pin, Counter product
+source-join, and G3 package-stem pins still run from frozen files / product
+Plan emit).
 
 ## Non-goals
 
@@ -83,3 +91,5 @@ honesty (inventory pin still runs from frozen files).
 - No prove/verify/VK/witness product leaves.
 - `deployable=false`.
 - No pure-Lean ACIR opcode encoder (IR-2 decision: nargo-assisted only).
+- G3 does **not** expand this directory with multi-fixture ProgramArtifact
+  inventory (optional IR-4); pins live in `CaptureV1.admitSurfaceFixturesV1`.

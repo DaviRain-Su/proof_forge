@@ -9,7 +9,7 @@ normative: false
 
 # Noir ACIR 层落地规划
 
-状态：`draft`（规划 + **NOIR-IR-1 金样已冻结** + **NOIR-IR-2 Plan→ACIR MVP 已接线**；产品 primary ACIR 仍属 IR-6）
+状态：`draft`（规划 + **NOIR-IR-1 金样已冻结** + **NOIR-IR-2 Plan→ACIR MVP 已接线** + **NOIR-IR-3 G3 admit-surface circuit-hash pins 已接线**；产品 primary ACIR 仍属 IR-6）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Noir target 的权威物化从 **Noir 源包（`.nr` relations）** 切向官方 **电路中间表示（ACIR 及相关编译产物）**，并评估 admit 面覆盖。
 
 与 Psy / Aleo 对照：
@@ -27,7 +27,7 @@ normative: false
 |---|---|
 | 工具 | locked **nargo 1.0.0-beta.26** |
 | 官方语言 | Noir → **ACIR**（Abstract Circuit IR）→ backend prove |
-| 工程现状 | 产品 emit `relations/*/src/main.nr`（过渡）；`NoirCompileAcceptance` / host-optional `nargo compile`；**IR-1** 金样 `testdata/golden/noir-acir-v1/` + inventory pin；**IR-2** nargo-assisted Plan→ACIR capture（Counter ≡ 金样 circuit core）；**无** ACIR 产品 OutputFile（IR-6） |
+| 工程现状 | 产品 emit `relations/*/src/main.nr`（过渡）；`NoirCompileAcceptance` / host-optional `nargo compile`；**IR-1** 金样 `testdata/golden/noir-acir-v1/` + inventory pin；**IR-2** nargo-assisted Plan→ACIR capture（Counter ≡ 金样 circuit core）；**IR-3** G3 CF/aggregate circuit-hash pins（BranchCounter/LoopSum/OptionState/ArrayRet + MapMini partial）；**无** ACIR 产品 OutputFile（IR-6） |
 | 非本阶段 | Barretenberg prove/verify、CRS、VK 产品绑定、formal |
 
 **非目标：**
@@ -93,7 +93,7 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 | G0 | 金样捕获 + pin | **done（IR-1）** Counter nargo compile artifact 入库 + 文档 |
 | G1 | Schema/codec 或 inventory hash | **done（IR-1）** exact multi-file SHA-256 + envelope keys（非 ACIR opcode codec） |
 | G2 | Plan→ACIR MVP | **done（IR-2）** Counter product Plan → nargo-assisted capture ≡ 金样 circuit core；路径决策 = nargo-assisted |
-| G3 | 控制流 / 聚合 admit 面 | 与现 Noir Plan 一致 |
+| G3 | 控制流 / 聚合 admit 面 | **done（IR-3）** BranchCounter/LoopSum/OptionState/ArrayRet circuit-hash pins；MapMini init pin + put/get nargo-fail honesty |
 | G4 | 产品 primary ACIR | `.nr` debug-only |
 | G5 | admit 矩阵 | Y/P 有 ACIR 或 FC |
 | G6 | prove lane | 独立 host-heavy；非 ordinary ci |
@@ -112,11 +112,12 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 |---|---|---|
 | UInt*/Field bn254 算术 | Y | **Y** |
 | Bool / 比较 / 逻辑 | Y | **Y** |
-| Array/Map/Bytes flatten | Y/P | **Y/P** |
-| if/match/for | Y | **Y** |
-| pureFn | Y | **Y** |
+| Array/Map/Bytes flatten | Y/P | **Y/P**（ArrayRet Y；MapMini init Y、put/get nargo type residual P；Bytes 仍 Plan 面） |
+| if/match/for | Y | **Y**（BranchCounter if；LoopSum for；OptionState match） |
+| pureFn | Y | **Y**（未另钉 G3 fixture；Counter 回归覆盖） |
 | call/schedule slots | P | **P/F**（诚实） |
-| Option/String state | F | **F** |
+| Option UInt64 state | Y | **Y**（OptionState G3 pin） |
+| String state / Option non-UInt64 | F | **F** |
 | prove/VK | F | **F** 直至 G6 |
 
 ---
@@ -154,11 +155,39 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 * 产品 Finalize **仍** source-only / non-deployable；**无** ACIR `OutputFile`（留给 IR-6）
 * `.nr` 继续作为过渡产品发射与 nargo 输入
 
-### NOIR-IR-3..5 — 控制流 / 聚合 / 诚实矩阵
+### NOIR-IR-3 — 控制流 / 聚合 admit 面（G3）
+
+- [x] 对已 admit 的 if/for / Array/Option 产品 fixture：nargo-assisted capture 成功 + **circuit-core hash pin**（非全量 multi-file inventory；inventory 扩张属 IR-4）
+- [x] BranchCounter / LoopSum / OptionState / ArrayRet 进入 `NoirAcirV1` 钉测；MapMini Plan 包 + init capture pin，**put/get nargo type residual** 诚实失败钉（不 silent pass）
+- [x] Counter 金样回归（IR-1 inventory + IR-2 source-join/capture 不变）
+- [x] 缺 nargo：live capture honest skip；package-stem 与 Counter inventory 仍恒跑
+
+实现：
+
+* `CaptureV1.admitSurfaceFixturesV1` — 五 fixture 源文本 + package stems + 14 circuit-hash pins + MapMini `nargoFailStems`
+* `Tests/Materialization/NoirAcirV1.lean` — `testAdmitSurfacePackageStems`（恒跑）+ `testAdmitSurfaceLiveCaptureOptional`（nargo 缺席 skip；在场时 hash pin + 二次编译稳定性 + Map fail）
+* 产品 Finalize 仍 source-only / `deployable=false`；**无** ACIR OutputFile（IR-6）
+
+### NOIR-IR-4 — 多 fixture 金样扩张
+
+- [ ] 可选：额外 fixture 的 path-normalized compile inventory（非全量字节矩阵）
+- [ ] 缺 nargo honest skip（G3 live 路径已具备；IR-4 仅 inventory 扩展）
+
+### NOIR-IR-5 — 诚实矩阵（G5 轻量）
+
+- [ ] §3.2 行：ACIR capture 有钉测或 plan-FC / IR FC
+- [ ] call/schedule / Option-String 等诚实边界
 
 ### NOIR-IR-6 — 产品 primary ACIR；`.nr` debug
 
+- [ ] materialize 主产物含 ACIR/compile inventory（或 nargo-assisted Finalize extra）
+- [ ] `.nr` debug-only / 过渡；`deployable=false`
+- [ ] 禁止 silent 仅 `.nr` 当 Plan 已 admit（若可行）
+
 ### NOIR-IR-7 — prove honesty（工具存在时）
+
+- [ ] 无 backend pin → `PF-TOOLCHAIN-MISSING` / PARTIAL 文档
+- [ ] 有 pin → 独立 host-heavy；非 ordinary ci
 
 ---
 

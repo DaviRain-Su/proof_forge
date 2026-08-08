@@ -21,7 +21,7 @@ Plan canonicity lives in `ValidatePlanV1`. IR emission and
 
 ACIR authority (NOIR-IR-1/IR-2):
 * `Acir/InventoryV1` — frozen multi-file ProgramArtifact golden pins
-* `Acir/CaptureV1` — nargo-assisted Plan→ACIR MVP capture (not pure-Lean
+* `Acir/CaptureV1` — nargo-assisted Plan→ACIR MVP + G3 admit-surface pins (not pure-Lean
   opcode encoder; `.nr` remains transitional product emission until IR-6)
 -/
 

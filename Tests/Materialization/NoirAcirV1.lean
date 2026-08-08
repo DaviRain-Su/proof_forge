@@ -1,6 +1,7 @@
 /-
-  NOIR-IR-1 + NOIR-IR-2: Counter nargo ProgramArtifact golden inventory pin
-  and Plan→ACIR MVP via nargo-assisted capture.
+  NOIR-IR-1 + NOIR-IR-2 + NOIR-IR-3 (G3): Counter nargo ProgramArtifact golden
+  inventory pin, Plan→ACIR MVP via nargo-assisted capture, and admit-surface
+  control-flow / aggregate circuit-hash pins.
 
   IR-1 freezes:
   * product Noir relation packages for Examples/Counter
@@ -12,8 +13,13 @@
   * nargo-assisted capture from **product** Plan packages → circuit core ≡ golden
   * path decision documented as **nargo-assisted** (not pure-Lean ACIR encoder)
 
+  IR-3 / G3 adds (admit surface, circuit-hash pins — not full inventory):
+  * BranchCounter (if), LoopSum (for), OptionState, ArrayRet full nargo capture
+  * MapMini Plan materialize + init capture; put/get nargo-fail honesty residual
+  * product package-stem pins always run; live capture honest-skips without nargo
+
   Optional live recheck when `nargo` is present. Missing nargo → honest skip of
-  live capture only (inventory pin + source-join still run).
+  live capture only (inventory pin + source-join + package-stem pins still run).
 
   **Not** ACIR opcode decode, product ACIR OutputFile (IR-6), prove/verify,
   deployable, or formal.
@@ -38,7 +44,10 @@ open ProofForgeV2.Targets.Noir.Acir.CaptureV1
   (pathDecisionV1 authorityNoteV1 counterRelationPinsV1
    circuitCoresEqualV1 circuitCoreMatchesPinsV1 resolveNargoPathV1
    compilePackageCaptureCircuitCoreV1 loadGoldenCircuitCoreV1
-   productPackageSourceJoinV1)
+   productPackageSourceJoinV1 admitSurfaceFixturesV1
+   admitSurfaceCapturePinCountV1 nargoCompileExitCodeV1
+   AdmitSurfaceFamilyV1)
+open ProofForgeV2.Targets.Noir.Acir.CaptureV1.AdmitSurfaceFamilyV1
 open System
 
 -- Disambiguate inventory vs capture schema ids (both export `schemaIdV1`).
@@ -140,7 +149,7 @@ def testInventoryJsonJoin : IO Unit := do
     expect (text.contains pin.circuitHash)
       s!"inventory.json missing circuit hash {pin.relation}"
 
-/-- IR-1 inventory honesty + IR-2 capture authority notes. -/
+/-- IR-1 inventory honesty + IR-2 capture authority notes + IR-3 G3 fixture table. -/
 def testIrHonestyNotes : IO Unit := do
   expect (circuitHashPinsV1.size == 3) "three Counter relations"
   expect (counterRelationPinsV1.size == 3) "three capture pins"
@@ -154,6 +163,10 @@ def testIrHonestyNotes : IO Unit := do
     "authority note must deny pure-Lean encoder claim"
   expect (authorityNoteV1.contains "transitional")
     ".nr transitional note required"
+  expect (authorityNoteV1.contains "honest skip")
+    "authority note must document nargo missing honest skip"
+  expect (authorityNoteV1.contains "G3")
+    "authority note must mention G3 admit-surface pins"
   let main0 ← IO.FS.readFile
     (goldenPathV1 "product/relations/r0-init/src/main.nr")
   expect (main0.contains "fn main(") "product main.nr present"
@@ -162,6 +175,25 @@ def testIrHonestyNotes : IO Unit := do
     "schema must not claim opcode surface"
   expect (!(captureSchemaId.contains "opcode"))
     "capture schema must not claim opcode surface"
+  -- G3 fixture table shape (no nargo required).
+  expect (admitSurfaceFixturesV1.size == 5)
+    s!"G3 must pin 5 admit fixtures, got {admitSurfaceFixturesV1.size}"
+  expect (admitSurfaceCapturePinCountV1 == 14)
+    s!"G3 capture pin count (13 full + MapMini init), got {admitSurfaceCapturePinCountV1}"
+  let ids := admitSurfaceFixturesV1.map (·.fixtureId)
+  expect (ids == #["BranchCounter", "LoopSum", "OptionState", "ArrayRet", "MapMini"])
+    s!"G3 fixture id order, got {ids}"
+  let families := admitSurfaceFixturesV1.map (·.family)
+  expect (families.contains .controlFlowIf) "G3 if family"
+  expect (families.contains .controlFlowFor) "G3 for family"
+  expect (families.contains .aggregateOption) "G3 Option family"
+  expect (families.contains .aggregateArray) "G3 Array family"
+  expect (families.contains .aggregateMapPartial) "G3 Map partial family"
+  let mapMini := admitSurfaceFixturesV1[4]!
+  expect (mapMini.nargoFailStems == #["r1-put", "r2-get"])
+    "MapMini put/get must be honesty nargo-fail residual"
+  expect (mapMini.capturePins.size == 1)
+    "MapMini only pins init capture success"
 
 /-- Load golden circuit cores and verify extract + pin join. -/
 def testGoldenCircuitCoreExtract : IO Unit := do
@@ -290,6 +322,123 @@ unsafe def testProductPlanAcirCaptureCounter : IO Unit := do
         IO.println s!"  product Plan→ACIR ≡ golden: {stem}"
       IO.println "  product Plan→ACIR capture: ok"
 
+/-- Materialize any ProgramV1 source under tmp; return sorted stem → package root. -/
+private unsafe def materializeProgramPackages
+    (label : String) (sourceText : String) (moduleName : String)
+    (tmp : FilePath) : IO (Array (String × FilePath)) := do
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult s!"load {label}" (← session.selectProgramV1
+    sourceText s!"<noir-acir-g3-{label}>" moduleName none)
+  let compiled ← liftResult s!"compile {label}" <|
+    Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult s!"select {label}" <|
+    resolveBuildSelectionV1 TargetId.noir none
+  let capability ← liftResult s!"resolve {label}" <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let output ← liftResult s!"materialize {label}" <|
+    Targets.materializeResult capability
+  let files := MaterializedArtifactsV1.filesOf output
+  expect (!files.isEmpty) s!"{label}: no materialize files"
+  let mut packages : Array (String × FilePath) := #[]
+  for f in files do
+    let path := tmp / f.path
+    if let some parent := path.parent then
+      IO.FS.createDirAll parent
+    IO.FS.writeFile path f.contents
+    if f.path.endsWith "Nargo.toml" then
+      if let some parent := path.parent then
+        let stem := parent.fileName.getD ""
+        packages := packages.push (stem, parent)
+  pure (packages.qsort (fun a b => a.1 < b.1))
+
+/-- IR-3: product materialize package-stem pins for every G3 admit fixture (no nargo). -/
+unsafe def testAdmitSurfacePackageStems : IO Unit := do
+  let tmp := FilePath.mk "build/v2/noir-acir-g3-package-stems"
+  if ← tmp.pathExists then IO.FS.removeDirAll tmp
+  IO.FS.createDirAll tmp
+  for fix in admitSurfaceFixturesV1 do
+    let packages ← materializeProgramPackages
+      fix.fixtureId fix.sourceText fix.moduleName (tmp / fix.fixtureId)
+    let stems := packages.map (·.1)
+    expect (stems == fix.packageStems)
+      s!"{fix.fixtureId}: package stems got {stems} want {fix.packageStems}"
+    for pin in fix.capturePins do
+      expect (stems.contains pin.relation)
+        s!"{fix.fixtureId}: capture pin relation missing: {pin.relation}"
+    for failStem in fix.nargoFailStems do
+      expect (stems.contains failStem)
+        s!"{fix.fixtureId}: honesty-fail stem missing: {failStem}"
+    -- Every package must emit transitional source leaves.
+    for p in packages do
+      expect (← (p.2 / "Nargo.toml").pathExists)
+        s!"{fix.fixtureId}/{p.1}: missing Nargo.toml"
+      expect (← (p.2 / "src" / "main.nr").pathExists)
+        s!"{fix.fixtureId}/{p.1}: missing src/main.nr"
+    IO.println
+      s!"  G3 package stems: {fix.fixtureId} ({fix.family.toString}) → {stems}"
+  IO.println "  G3 package stems: ok"
+
+/-- IR-3: live nargo-assisted circuit-core pins + MapMini put/get fail honesty.
+    Missing nargo → honest skip (package-stem test above still ran). -/
+unsafe def testAdmitSurfaceLiveCaptureOptional : IO Unit := do
+  match ← resolveNargoPathV1 with
+  | none =>
+      IO.println "  G3 admit-surface live capture: skipped (nargo unavailable)"
+  | some nargo => do
+      let ver ← IO.Process.output { cmd := nargo, args := #["--version"] }
+      IO.println s!"  G3 admit-surface live capture: {nargo}"
+      IO.println s!"  {ver.stdout.trimAscii.copy}"
+      let tmp := FilePath.mk "build/v2/noir-acir-g3-live-capture"
+      if ← tmp.pathExists then IO.FS.removeDirAll tmp
+      IO.FS.createDirAll tmp
+      for fix in admitSurfaceFixturesV1 do
+        let packages ← materializeProgramPackages
+          fix.fixtureId fix.sourceText fix.moduleName (tmp / fix.fixtureId)
+        expect (packages.map (·.1) == fix.packageStems)
+          s!"{fix.fixtureId}: live stems drift"
+        -- Success capture pins: circuit hash + exact noir_version.
+        for pin in fix.capturePins do
+          let mut found : Option FilePath := none
+          for p in packages do
+            if p.1 == pin.relation then found := some p.2
+          match found with
+          | none =>
+              throw <| IO.userError
+                s!"{fix.fixtureId}: missing package for capture pin {pin.relation}"
+          | some pkgDir => do
+              let live ← compilePackageCaptureCircuitCoreV1
+                nargo pkgDir pin.packageArtifactName
+              expect (circuitCoreMatchesPinsV1 live pin.expectedCircuitHash)
+                (s!"{fix.fixtureId}/{pin.relation}: circuit pin mismatch\n" ++
+                  s!"  live hash={live.circuitHash} want {pin.expectedCircuitHash}")
+              expect (live.noirVersion == noirVersionExactV1)
+                s!"{fix.fixtureId}/{pin.relation}: noir_version"
+              expect (!live.bytecodeB64.isEmpty)
+                s!"{fix.fixtureId}/{pin.relation}: empty bytecode"
+              -- Stability: second capture must equal first (same package).
+              let live2 ← compilePackageCaptureCircuitCoreV1
+                nargo pkgDir pin.packageArtifactName
+              expect (circuitCoresEqualV1 live live2)
+                s!"{fix.fixtureId}/{pin.relation}: capture not stable across recompile"
+              IO.println
+                s!"  G3 capture ≡ pin: {fix.fixtureId}/{pin.relation} hash={live.circuitHash}"
+        -- Honesty residual: Plan-emitted packages that must fail nargo.
+        for failStem in fix.nargoFailStems do
+          let mut found : Option FilePath := none
+          for p in packages do
+            if p.1 == failStem then found := some p.2
+          match found with
+          | none =>
+              throw <| IO.userError
+                s!"{fix.fixtureId}: missing honesty-fail package {failStem}"
+          | some pkgDir => do
+              let code ← nargoCompileExitCodeV1 nargo pkgDir
+              expect (code != 0)
+                s!"{fix.fixtureId}/{failStem}: expected nargo compile fail, got exit 0"
+              IO.println
+                s!"  G3 honesty nargo-fail: {fix.fixtureId}/{failStem} exit={code}"
+      IO.println "  G3 admit-surface live capture: ok"
+
 unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.NoirAcirV1: start"
   testInventoryExactPins
@@ -308,9 +457,13 @@ unsafe def run : IO Unit := do
   IO.println "  product Plan source join Counter: ok"
   testLiveNargoRecheckOptional
   testProductPlanAcirCaptureCounter
+  -- IR-3 / G3
+  testAdmitSurfacePackageStems
+  testAdmitSurfaceLiveCaptureOptional
   IO.println "Tests.Materialization.NoirAcirV1: ok"
 
-/-- Focused entry for `lake env lean --run` / optional lake_exe (namespaced). -/
-unsafe def main : IO Unit := run
-
 end Tests.Materialization.NoirAcirV1
+
+/-- Focused entry for `lake env lean --run` (root `main`; suite body stays namespaced). -/
+unsafe def main : IO Unit :=
+  Tests.Materialization.NoirAcirV1.run

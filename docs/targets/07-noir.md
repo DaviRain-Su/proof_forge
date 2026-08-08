@@ -22,6 +22,9 @@ Phase 1：实现
 **NOIR-IR-2**：Plan→ACIR MVP 已接线——路径决策 = **nargo-assisted capture**
 （`Acir/CaptureV1`；非 pure-Lean opcode encoder）；Counter product Plan →
 source-join ≡ golden product packages，且 nargo 在场时 circuit core ≡ golden。
+**NOIR-IR-3 / G3**：admit-surface circuit-hash pins（BranchCounter if、LoopSum for、
+OptionState、ArrayRet 全捕获；MapMini init pin + put/get nargo-fail honesty；
+nargo 缺席 live capture honest skip）。
 当前产品仍 emit relation **Noir source packages**（过渡）+ 可选 locked nargo
 compile-only；**无** ACIR 产品 OutputFile（IR-6）；不得把 `.nr` 写成最终权威。
 
