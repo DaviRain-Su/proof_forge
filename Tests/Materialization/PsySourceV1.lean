@@ -1411,6 +1411,104 @@ unsafe def testPrincipalReturnFailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
   | .ok _ => throw <| IO.userError "Principal return must fail closed at Psy plan"
 
+/-- PSY-CONTAINER-ABI: dense Map UInt64 UInt64 cap-8 (24 occ/key/val leaves). -/
+unsafe def testMapStateLowered : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapMini where\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n" ++
+    "  view get(k : UInt64) : UInt64 do\n" ++
+    "    match m[k] with\n" ++
+    "    | Option.some(v) => do\n" ++
+    "      return v\n" ++
+    "    | _ => do\n" ++
+    "      return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-map>" "Tests.PsyMap" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  expect (plan.stateFieldNames.size == 24)
+    s!"Map UInt64 pilot must flatten to 24 leaves, got {plan.stateFieldNames.size}"
+  expect (plan.stateFieldNames[0]! == "m_occ0" && plan.stateFieldNames[2]! == "m_val0")
+    s!"Map leaf names must be m_occ0/m_key0/m_val0…, got {plan.stateFieldNames[0]!}/{plan.stateFieldNames[1]!}/{plan.stateFieldNames[2]!}"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "MapMini.psy") |
+    throw <| IO.userError "psy: missing MapMini.psy"
+  expect (psyFile.contents.contains "m_occ0" && psyFile.contents.contains "m_val7")
+    "Map pilot leaves must appear in emitted Psy source"
+  expect (psyFile.contents.contains "map full")
+    "Map upsert full-guard message must reach emitted Psy source"
+
+/-- PSY-CONTAINER-ABI: named Struct param expands to preorder multi-leaf formals. -/
+unsafe def testNamedStructParamLowered : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PointIn where\n" ++
+    "  struct Point where\n" ++
+    "    x : UInt64\n" ++
+    "    y : UInt64\n" ++
+    "  state seed : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    seed := initial\n" ++
+    "  entry sum(p : Point) : UInt64 do\n" ++
+    "    return p.x + p.y\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-struct-param>" "Tests.PsyStructParam" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planPsy compiled
+  let some sumFn := plan.functions.find? (·.name == "sum") |
+    throw <| IO.userError "missing entry sum"
+  expect (sumFn.params.size == 2)
+    s!"Point param must expand to 2 leaves, got {sumFn.params.size}"
+  expect (sumFn.params[0]!.name == "p_x" && sumFn.params[1]!.name == "p_y")
+    s!"Point param leaves must be p_x/p_y, got {sumFn.params[0]!.name}/{sumFn.params[1]!.name}"
+  liftResult <| Targets.Psy.validatePlan plan
+  let files ← liftResult <| buildPsy compiled
+  let some psyFile := files.find? (·.path == "PointIn.psy") |
+    throw <| IO.userError "psy: missing PointIn.psy"
+  expect (psyFile.contents.contains "p0: Felt" && psyFile.contents.contains "p1: Felt")
+    "Struct param leaves must emit as Felt formals"
+
+/-- Nested Map / Map-of-Map state stays fail closed. -/
+unsafe def testNestedMapFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program NestedMap where\n" ++
+    "  state m : Map UInt64 (Map UInt64 UInt64)\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : UInt64) : UInt64 do\n" ++
+    "    return k\n"
+  match ← (do
+      try
+        let parsed ← liftResult (← session.selectProgramV1
+          source "<psy-nested-map>" "Tests.NestedMap" none)
+        let c ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+        pure (some c)
+      catch _ => pure none) with
+  | none => pure ()
+  | some c =>
+      match planPsy c with
+      | .error e =>
+          expect (e.render.contains "Map" || e.render.contains "UInt64" ||
+              e.render.contains "nested" || e.render.contains "unsupported")
+            s!"NestedMap must fail closed citing Map/shape, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "Psy nested Map state must fail closed (CONTAINER-ABI admits only Map UInt64 UInt64)"
+
 /-- if/else multi-block control flow renders as a Psy if-else. -/
 unsafe def testIfElseControlFlow : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -2681,6 +2779,9 @@ unsafe def run : IO Unit := do
   testBytesStateLowered
   testPrincipalStateLowered
   testPrincipalReturnFailClosed
+  testMapStateLowered
+  testNamedStructParamLowered
+  testNestedMapFailClosed
   testIfElseControlFlow
   testMatchStatement
   testBoundedFor

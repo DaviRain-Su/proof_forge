@@ -12,6 +12,17 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy Map + named aggregate params（PSY-CONTAINER-ABI engineering）
+
+- Dense `Map UInt64 UInt64` pilot (cap-8 × occ/key/val = 24 Felt leaves): empty
+  construct, IndexGet→Option UInt64, IndexSet upsert with full-guard assert,
+  atomic `storeAggregate` (store-then-read safe).
+- Named Struct/Enum parameters expand to preorder multi-leaf Felt formals (≤8).
+- Nested Map, Map return, non-UInt64 Map K/V, and >8 aggregate return stay FC
+  (no dargo pin to raise B-RET cap).
+- `PsySourceV1` pins MapMini + Point param + nested Map FC; Map return FC retained.
+- Non-claims: not native Psy Map type, not formal/UPS/deploy.
+
 ## 2026-08-08 — Psy Principal/String/Bytes scalar ABI（PSY-SCALAR-ABI engineering）
 
 - Psy type-closure admits Principal/String (`pilotPrincipal*Admit`) and fixed

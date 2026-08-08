@@ -44,10 +44,15 @@ Named Struct/Enum and fixed-length `Array UInt64 N` are **LOWERED** by
 flattening to consecutive Felt storage leaves (`name_field` / `name_i`).
 Plan Expr remains scalar-only: construct/fieldGet/fieldSet/variantTag/
 variantPayload/indexGet/indexSet operate in the lowering value env only.
-Map state stays fail-closed. PSY-SCALAR-ABI admits fixed Bytes 1..8 as
-N×UInt8 Felt leaves and Principal/String wire identity as len+8×UInt32
-(max 32B payload; returns FC at 9 > B-RET cap 8). Array/Bytes IndexGet/IndexSet
-require a compile-time UInt literal index (no dynamic select surface on Psy).
+PSY-SCALAR-ABI admits fixed Bytes 1..8 as N×UInt8 Felt leaves and
+Principal/String wire identity as len+8×UInt32 (max 32B payload; returns FC
+at 9 > B-RET cap 8). Array/Bytes IndexGet/IndexSet require a compile-time
+UInt literal index. **PSY-CONTAINER-ABI** admits dense `Map UInt64 UInt64`
+state (cap-8 × occ/key/val = 24 Felt leaves; empty + IndexGet→Option +
+IndexSet upsert + atomic storeAggregate) and named Struct/Enum **params** as
+preorder multi-leaf Felt formals. Nested Map, Map return, Map non-UInt64
+K/V, and >8 aggregate return stay fail closed (no dargo resource pin for
+raising B-RET cap).
 
 ## B-RET-ABI named Struct/Enum entry/view returns (2026-08-03)
 
@@ -55,18 +60,19 @@ Named Struct/Enum **entry/view** results flatten to 1..8 preorder UInt64/Int64
 leaves (`ResultKind.aggregate` + `Statement.returnAggregate`, appended at the
 end of the Statement ctor space). Emission packs leaves as one honest Psy
 `[Felt; N]` return (`-> [Felt; N]` + `return [e0, …];`), verified against
-real dargo/psyup. Named aggregate params, pureFn aggregate returns, and >8
-leaves stay fail closed.
+real dargo/psyup. pureFn aggregate returns and >8 leaves stay fail closed;
+named aggregate **params** are open under PSY-CONTAINER-ABI (scalar leaf
+fields only).
 
 ## N-ANON-RESULT anonymous Array/Option entry/view returns (BL-25)
 
 Anonymous `Array UInt64 N` (1..8), `Option UInt64`, and fixed `Bytes N`
 (1..8) entry/view results reuse the same preorder-leaf + `[Felt; N]` path:
 Array → N Felt leaves; Option → `[Felt; 2]` tag+payload (`none=[0,0]`,
-`some=[1,v]`); Bytes → N×UInt8 Felt leaves. Map/nested/non-UInt64-element
-anonymous returns stay fail closed. Option is admitted as a body intermediate
-via container policy `ArrayMapBytes` (Map **state** remains fail-closed at
-layout).
+`some=[1,v]`); Bytes → N×UInt8 Felt leaves. Map return and nested/
+non-UInt64-element anonymous returns stay fail closed. Option is admitted as
+a body intermediate via container policy `ArrayMapBytes`. Map **state** is
+the dense UInt64 pilot (PSY-CONTAINER-ABI), not a Map return.
 
 ## B-OPT-STATE Option UInt64 state (BL-36)
 
@@ -442,6 +448,13 @@ private def maxStateLeafFields : Nat := 256
 private def psyWireIdentityBodyLimbCountV1 : Nat := 8
 private def psyWireIdentityMaxPayloadBytesV1 : Nat := 32
 private def psyBytesMaxLenV1 : Nat := 8
+/-- PSY-CONTAINER-ABI dense Map UInt64 UInt64 pilot (NS-1 pattern): cap-8 ×
+    (occ, key, val) = 24 Felt leaves. Matches EVM/Solana/NEAR/Noir capacity;
+    not a native Psy `Map` type. -/
+private def psyMapPilotCapacityV1 : Nat := 8
+private def psyMapSlotsPerEntryV1 : Nat := 3
+private def psyMapPilotLeafCountV1 : Nat :=
+  psyMapPilotCapacityV1 * psyMapSlotsPerEntryV1
 
 private def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
@@ -462,6 +475,8 @@ private structure LoweredVal where
   /-- T14 catalog v2 (Goldilocks): scalar Felt field value. Selects native
       field arithmetic (no checked-overflow guard) and Felt-typed emission. -/
   isField : Bool := false
+  /-- Dense Map UInt64 UInt64 pilot aggregate (24 occ/key/val leaves). -/
+  isMapPilot : Bool := false
   deriving Inhabited
 
 private def LoweredVal.isAggregate (v : LoweredVal) : Bool :=
@@ -511,17 +526,22 @@ private def mkFieldVal (e : Expr) : LoweredVal :=
 private def mkAggregateVal (leaves : Array Expr) : LoweredVal :=
   let head := match leaves[0]? with | some e => e | none => .literal 0
   { expr := head, leaves? := some leaves, uintWidth := 0,
-    wideUintWidth := 0, isField := false }
+    wideUintWidth := 0, isField := false, isMapPilot := false }
+
+private def mkMapPilotVal (leaves : Array Expr) : LoweredVal :=
+  let head := match leaves[0]? with | some e => e | none => .literal 0
+  { expr := head, leaves? := some leaves, uintWidth := 0,
+    wideUintWidth := 0, isField := false, isMapPilot := true }
 
 private def mkWideUInt128Val (leaves : Array Expr) : LoweredVal :=
   let head := match leaves[0]? with | some e => e | none => .literal 0
   { expr := head, leaves? := some leaves, uintWidth := 0,
-    wideUintWidth := 128, isField := false }
+    wideUintWidth := 128, isField := false, isMapPilot := false }
 
 private def mkWideUInt256Val (leaves : Array Expr) : LoweredVal :=
   let head := match leaves[0]? with | some e => e | none => .literal 0
   { expr := head, leaves? := some leaves, uintWidth := 0,
-    wideUintWidth := 256, isField := false }
+    wideUintWidth := 256, isField := false, isMapPilot := false }
 
 private def LoweredVal.isWideUInt128 (v : LoweredVal) : Bool :=
   v.wideUintWidth == 128 && v.leafExprs.size == 4
@@ -636,8 +656,8 @@ private def isGoldilocksFieldType
   types.fieldTypeId == some typeId
 
 /-- Named Struct/Enum flatten to UInt{8,16,32,64}/Int64 leaves (preorder).
-    Array UInt64 N flattens to N UInt64 leaves. Nested containers / Map / Bytes
-    fail closed. -/
+    Array UInt64 N → N leaves; Map UInt64 UInt64 → dense cap-8 pilot;
+    Bytes 1..8 → N UInt8 leaves. Nested Map stays fail closed. -/
 private partial def flattenTypeLeafSpecsV1
     (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
     (typeId : TypeIdV1) (namePrefix : String) :
@@ -711,8 +731,19 @@ private partial def flattenTypeLeafSpecsV1
             planError s!"state name '{leafName}' is not a safe identifier"
           out := out.push leafName
         pure out
-    | some { shape := .map .., .. } =>
-        planError "unsupported Psy semantic shape: Map state is outside the Psy Array-only container pilot"
+    | some { shape := .map keyTid valTid, .. } =>
+        unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+          planError "unsupported Psy semantic shape: Map state pilot requires UInt64 keys and values"
+        let mut out : Array String := #[]
+        for e in [0:psyMapPilotCapacityV1] do
+          for tag in #["occ", "key", "val"] do
+            let leafName :=
+              if namePrefix.isEmpty then tag ++ toString e
+              else namePrefix ++ "_" ++ tag ++ toString e
+            unless isIdentifier leafName do
+              planError s!"state name '{leafName}' is not a safe identifier"
+            out := out.push leafName
+        pure out
     | some { shape := .bytes n, .. } =>
         let len := n.toNat
         unless len ≥ 1 && len ≤ psyBytesMaxLenV1 do
@@ -740,7 +771,7 @@ private partial def flattenTypeLeafSpecsV1
       out := out.push leafName
     pure out
   else
-    planError "unsupported Psy semantic shape: aggregate leaf must be UInt{8,16,32,64}, Int64, named Struct/Enum, Array UInt64, Bytes 1..8, Principal, or String"
+    planError "unsupported Psy semantic shape: aggregate leaf must be UInt{8,16,32,64}, Int64, named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes 1..8, Principal, or String"
 
 private def leafCountOfTypeV1
     (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
@@ -917,7 +948,8 @@ private def arrayUInt64LeafCountV1
         planError "unsupported Psy semantic shape: Array state length must be ≥ 1"
       pure (some n)
   | some { shape := .map .., .. } =>
-      planError "unsupported Psy semantic shape: Map state is outside the Psy Array-only container pilot"
+      -- Map is handled by `mapUInt64LeafCountV1` (dense pilot), not Array layout.
+      pure none
   | some { shape := .bytes n, .. } =>
       let len := n.toNat
       unless len ≥ 1 && len ≤ psyBytesMaxLenV1 do
@@ -925,6 +957,19 @@ private def arrayUInt64LeafCountV1
       pure (some len)
   | _ =>
       planError "unsupported Psy semantic shape: container TypeId is not Array/Map/Bytes"
+
+/-- Dense Map UInt64 UInt64 pilot leaf count when `typeId` is that shape. -/
+private def mapUInt64LeafCountV1
+    (typeDecls : Array TypeDeclV1) (types : PsyTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option Nat) := do
+  unless types.isContainer typeId do
+    return none
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .map keyTid valTid, .. } =>
+      unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+        planError "unsupported Psy semantic shape: Map pilot requires UInt64 keys and values"
+      pure (some psyMapPilotLeafCountV1)
+  | _ => pure none
 
 /-- Return leaf count for fixed Bytes N (UInt8 elements) when admitted. -/
 private def bytesLeafCountV1
@@ -939,6 +984,77 @@ private def bytesLeafCountV1
         planError s!"unsupported Psy semantic shape: Bytes length must be in 1..{psyBytesMaxLenV1}"
       pure (some len)
   | _ => pure none
+
+/-- Dense Map IndexGet → Option UInt64 as `[tag, payload]` (unrolled select). -/
+private def mapLookupOptionLeavesV1
+    (mapLeaves : Array Expr) (key : Expr) : CompileResult (Array Expr) := do
+  unless mapLeaves.size == psyMapPilotLeafCountV1 do
+    planError "unsupported Psy semantic shape: Map leaf count must match pilot capacity"
+  let mut found : Expr := .boolLiteral false
+  let mut payload : Expr := .literal 0
+  for e in [0:psyMapPilotCapacityV1] do
+    let base := e * psyMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      planError "Map lookup occ leaf missing"
+    let some k := mapLeaves[base + 1]? |
+      planError "Map lookup key leaf missing"
+    let some v := mapLeaves[base + 2]? |
+      planError "Map lookup val leaf missing"
+    let hit :=
+      .logicalAnd (.compare .ne occ (.literal 0)) (.compare .eq k key)
+    found := .logicalOr found hit
+    payload := .select hit v payload
+  pure #[.select found (.literal 1) (.literal 0), payload]
+
+/-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert) where okInsert is
+    Felt 0/1 — caller asserts it (map full when key absent). -/
+private def mapUpsertLeavesV1
+    (mapLeaves : Array Expr) (key value : Expr) :
+    CompileResult (Array Expr × Expr) := do
+  unless mapLeaves.size == psyMapPilotLeafCountV1 do
+    planError "unsupported Psy semantic shape: Map leaf count must match pilot capacity"
+  let mut anyMatch : Expr := .boolLiteral false
+  for e in [0:psyMapPilotCapacityV1] do
+    let base := e * psyMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      planError "Map upsert occ leaf missing"
+    let some k := mapLeaves[base + 1]? |
+      planError "Map upsert key leaf missing"
+    let hit :=
+      .logicalAnd (.compare .ne occ (.literal 0)) (.compare .eq k key)
+    anyMatch := .logicalOr anyMatch hit
+  let mut seenEmpty : Expr := .boolLiteral false
+  let mut isFirstEmpty : Array Expr := #[]
+  for e in [0:psyMapPilotCapacityV1] do
+    let base := e * psyMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      planError "Map upsert empty-scan occ missing"
+    let empty := .compare .eq occ (.literal 0)
+    let first := .logicalAnd empty (.boolNot seenEmpty)
+    isFirstEmpty := isFirstEmpty.push first
+    seenEmpty := .logicalOr seenEmpty empty
+  let okInsert := .select (.logicalOr anyMatch seenEmpty) (.literal 1) (.literal 0)
+  let mut out : Array Expr := #[]
+  for e in [0:psyMapPilotCapacityV1] do
+    let base := e * psyMapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      planError "Map upsert rebuild occ missing"
+    let some k := mapLeaves[base + 1]? |
+      planError "Map upsert rebuild key missing"
+    let some v := mapLeaves[base + 2]? |
+      planError "Map upsert rebuild val missing"
+    let matchHit :=
+      .logicalAnd (.compare .ne occ (.literal 0)) (.compare .eq k key)
+    let some firstE := isFirstEmpty[e]? |
+      planError "Map upsert firstEmpty missing"
+    let insertHere := .logicalAnd firstE (.boolNot anyMatch)
+    let write := .logicalOr matchHit insertHere
+    let occ' := .select (.logicalOr (.compare .ne occ (.literal 0)) write)
+      (.literal 1) (.literal 0)
+    let k' := .select write key k
+    let v' := .select write value v
+    out := out.push occ' |>.push k' |>.push v'
+  pure (out, okInsert)
 
 /-- True when `typeId` is an anonymous Option TypeDecl (not named; not in
     `containerTypeIds`). Admitted surfaces: N-ANON-RESULT / B-RET-ABI return
@@ -1037,7 +1153,7 @@ private def makeStateLayoutV1
       fieldNames := fieldNames.push state.name
       stateLeaves := stateLeaves.push #[leafIdx]
     else
-      planError "unsupported Psy semantic shape: state must be UInt{8,16,32,64}, Int{8,16,32,64}, Goldilocks Field, named Struct/Enum, Array UInt64, Bytes 1..8, Principal, String, or Option UInt64 (Map declined; wide UInt needs VM profile)"
+      planError "unsupported Psy semantic shape: state must be UInt{8,16,32,64}, Int{8,16,32,64}, Goldilocks Field, named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes 1..8, Principal, String, or Option UInt64 (wide UInt needs VM profile)"
   pure { profileMode, fieldNames, stateLeaves, typeDecls, types }
 
 private def literalIndexNatV1 (v : LoweredVal) : CompileResult Nat := do
@@ -1651,7 +1767,11 @@ private partial def lowerRegion
               let mut leaves : Array Expr := #[]
               for fi in leafIdxs do
                 leaves := leaves.push (.stateLoad fi)
-              env := envInsertVal env valueDef.valueId (mkAggregateVal leaves)
+              let mapN? ← mapUInt64LeafCountV1 layout.typeDecls layout.types stateTypeId
+              if mapN?.isSome then
+                env := envInsertVal env valueDef.valueId (mkMapPilotVal leaves)
+              else
+                env := envInsertVal env valueDef.valueId (mkAggregateVal leaves)
     | .binary op lhs rhs => do
         let lv ← match envLookup env lhs with
           | some v => pure v
@@ -1973,32 +2093,44 @@ private partial def lowerRegion
             unless valueDef.typeId == typeId do
               planError "unsupported Psy semantic shape: construct result typeId must match op typeId"
             if layout.types.isContainer typeId then
-              let bytesN? ← bytesLeafCountV1 layout.typeDecls layout.types typeId
-              let arrayN? ← arrayUInt64LeafCountV1 layout.typeDecls layout.types typeId
-              let (n, isBytes) ← match bytesN?, arrayN? with
-                | some n, _ => pure (n, true)
-                | none, some n => pure (n, false)
-                | none, none =>
-                    planError "unsupported Psy semantic shape: construct admits only fixed Array UInt64 or Bytes 1..8 on Psy"
-              unless ctorIdx == 0 do
-                planError "unsupported Psy semantic shape: Array/Bytes construct ctorIdx must be 0"
-              unless argIds.size == n do
-                planError "unsupported Psy semantic shape: Array/Bytes construct arity mismatch"
-              let mut leafExprs : Array Expr := #[]
-              for argId in argIds do
-                let arg ← match envLookup env argId with
-                  | some v => pure v
-                  | none => planError "unsupported Psy semantic shape: construct references undefined arg"
-                unless !arg.isAggregate do
-                  planError "unsupported Psy semantic shape: Array/Bytes construct args must be scalar"
-                if isBytes then
-                  unless arg.isNarrow && arg.uintWidth == 8 do
-                    planError "unsupported Psy semantic shape: Bytes construct args must be UInt8"
-                else
-                  unless !arg.isNarrow || arg.uintWidth == 0 || arg.uintWidth == 64 do
-                    planError "unsupported Psy semantic shape: Array construct args must be scalar UInt64"
-                leafExprs := leafExprs.push arg.expr
-              env := envInsertVal env valueDef.valueId (mkAggregateVal leafExprs)
+              let mapN? ← mapUInt64LeafCountV1 layout.typeDecls layout.types typeId
+              if let some n := mapN? then
+                -- Map.empty() → all-zero dense pilot leaves (NS-1).
+                unless ctorIdx == 0 do
+                  planError "unsupported Psy semantic shape: Map construct ctorIdx must be 0 (Map.empty)"
+                unless argIds.isEmpty do
+                  planError "unsupported Psy semantic shape: Map.empty construct takes no args (nonempty Map construct stays fail closed)"
+                let mut leafExprs : Array Expr := #[]
+                for _ in [0:n] do
+                  leafExprs := leafExprs.push (.literal 0)
+                env := envInsertVal env valueDef.valueId (mkMapPilotVal leafExprs)
+              else
+                let bytesN? ← bytesLeafCountV1 layout.typeDecls layout.types typeId
+                let arrayN? ← arrayUInt64LeafCountV1 layout.typeDecls layout.types typeId
+                let (n, isBytes) ← match bytesN?, arrayN? with
+                  | some n, _ => pure (n, true)
+                  | none, some n => pure (n, false)
+                  | none, none =>
+                      planError "unsupported Psy semantic shape: construct admits only Map.empty, fixed Array UInt64, or Bytes 1..8 on Psy"
+                unless ctorIdx == 0 do
+                  planError "unsupported Psy semantic shape: Array/Bytes construct ctorIdx must be 0"
+                unless argIds.size == n do
+                  planError "unsupported Psy semantic shape: Array/Bytes construct arity mismatch"
+                let mut leafExprs : Array Expr := #[]
+                for argId in argIds do
+                  let arg ← match envLookup env argId with
+                    | some v => pure v
+                    | none => planError "unsupported Psy semantic shape: construct references undefined arg"
+                  unless !arg.isAggregate do
+                    planError "unsupported Psy semantic shape: Array/Bytes construct args must be scalar"
+                  if isBytes then
+                    unless arg.isNarrow && arg.uintWidth == 8 do
+                      planError "unsupported Psy semantic shape: Bytes construct args must be UInt8"
+                  else
+                    unless !arg.isNarrow || arg.uintWidth == 0 || arg.uintWidth == 64 do
+                      planError "unsupported Psy semantic shape: Array construct args must be scalar UInt64"
+                  leafExprs := leafExprs.push arg.expr
+                env := envInsertVal env valueDef.valueId (mkAggregateVal leafExprs)
             else if layout.types.isPrincipal typeId || layout.types.isString typeId then
               -- Wire identity construct: single Bytes-like payload not used;
               -- callers materialize via constant/literal path or leaf store.
@@ -2252,19 +2384,26 @@ private partial def lowerRegion
               | some v => pure v
               | none => planError "indexGet index undefined"
             unless base.isAggregate do
-              planError "unsupported Psy semantic shape: IndexGet base must be an Array UInt64 or Bytes aggregate"
-            let i ← literalIndexNatV1 idx
-            let leaves := base.leafExprs
-            unless i < leaves.size do
-              planError "unsupported Psy semantic shape: IndexGet index out of range"
-            let some leaf := leaves[i]? |
-              planError "IndexGet leaf missing"
-            -- Bytes elements are UInt8; Array UInt64 elements stay scalar Felt.
-            match uintWidthOfType data valueDef.typeId with
-            | some 8 =>
-                env := envInsertNarrow env valueDef.valueId 8 leaf
-            | _ =>
-                env := envInsert env valueDef.valueId leaf
+              planError "unsupported Psy semantic shape: IndexGet base must be an Array UInt64, Bytes, or dense Map aggregate"
+            if base.isMapPilot then
+              -- Dense Map IndexGet → Option UInt64 (dynamic UInt64 key).
+              unless !idx.isAggregate do
+                planError "unsupported Psy semantic shape: Map IndexGet key must be scalar UInt64"
+              let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
+              env := envInsertVal env valueDef.valueId (mkAggregateVal optLeaves)
+            else
+              let i ← literalIndexNatV1 idx
+              let leaves := base.leafExprs
+              unless i < leaves.size do
+                planError "unsupported Psy semantic shape: IndexGet index out of range"
+              let some leaf := leaves[i]? |
+                planError "IndexGet leaf missing"
+              -- Bytes elements are UInt8; Array UInt64 elements stay scalar Felt.
+              match uintWidthOfType data valueDef.typeId with
+              | some 8 =>
+                  env := envInsertNarrow env valueDef.valueId 8 leaf
+              | _ =>
+                  env := envInsert env valueDef.valueId leaf
     | .indexSet baseId idxId valueId => do
         match instr.result with
         | none => planError "indexSet must produce a value"
@@ -2279,22 +2418,35 @@ private partial def lowerRegion
               | some v => pure v
               | none => planError "indexSet value undefined"
             unless base.isAggregate do
-              planError "unsupported Psy semantic shape: IndexSet base must be an Array UInt64 or Bytes aggregate"
+              planError "unsupported Psy semantic shape: IndexSet base must be an Array UInt64, Bytes, or dense Map aggregate"
             unless !val.isAggregate do
               planError "unsupported Psy semantic shape: IndexSet value must be scalar"
-            let i ← literalIndexNatV1 idx
-            let leaves := base.leafExprs
-            unless i < leaves.size do
-              planError "unsupported Psy semantic shape: IndexSet index out of range"
-            let mut outLeaves : Array Expr := #[]
-            for j in [0:leaves.size] do
-              if j == i then
-                outLeaves := outLeaves.push val.expr
-              else
-                let some e := leaves[j]? |
-                  planError "IndexSet leaf missing"
-                outLeaves := outLeaves.push e
-            env := envInsertVal env valueDef.valueId (mkAggregateVal outLeaves)
+            if base.isMapPilot then
+              unless !idx.isAggregate do
+                planError "unsupported Psy semantic shape: Map IndexSet key must be scalar UInt64"
+              let (outLeaves, okInsert) ←
+                mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
+              -- Map full (key absent and no empty slot) → assert fail.
+              let fullGuard : Statement :=
+                .assertWithMessage
+                  (.compare .eq okInsert (.literal 1))
+                  "map full: no empty slot for new key"
+              ls := { ls with stmts := ls.stmts.push fullGuard }
+              env := envInsertVal env valueDef.valueId (mkMapPilotVal outLeaves)
+            else
+              let i ← literalIndexNatV1 idx
+              let leaves := base.leafExprs
+              unless i < leaves.size do
+                planError "unsupported Psy semantic shape: IndexSet index out of range"
+              let mut outLeaves : Array Expr := #[]
+              for j in [0:leaves.size] do
+                if j == i then
+                  outLeaves := outLeaves.push val.expr
+                else
+                  let some e := leaves[j]? |
+                    planError "IndexSet leaf missing"
+                  outLeaves := outLeaves.push e
+              env := envInsertVal env valueDef.valueId (mkAggregateVal outLeaves)
     | .constant constantId => do
         let constant ← match data.constants[constantId.toNat]? with
           | some c => pure c
@@ -2643,28 +2795,54 @@ private def lowerCallable
                     | none => false then pure false
                 else if isGoldilocksFieldType types p.typeId then pure false
                 else if types.isNamedAggregate p.typeId then
-                  planError s!"unsupported Psy semantic shape: named Struct/Enum parameter '{p.name}' in {owner} is outside the Psy pilot (named aggregates are state-only; B-RET-ABI scalar)"
+                  -- PSY-CONTAINER-ABI: expand named Struct/Enum params to
+                  -- preorder scalar Felt leaves (same flatten as state).
+                  let leafSpecs ←
+                    flattenTypeLeafSpecsV1 layout.typeDecls types p.typeId p.name
+                  unless leafSpecs.size ≥ 1 do
+                    planError s!"unsupported Psy semantic shape: named aggregate parameter '{p.name}' flattened to zero leaves"
+                  unless leafSpecs.size ≤ 8 do
+                    planError s!"unsupported Psy semantic shape: named aggregate parameter '{p.name}' has {leafSpecs.size} leaves, exceeding the B-RET-ABI cap of 8"
+                  for leafName in leafSpecs do
+                    params := params.push
+                      { sourceIndex := physicalParamIndex,
+                        name := leafName, isBool := false,
+                        uintWidth := 0, isField := false }
+                    physicalParamIndex := physicalParamIndex + 1
+                  pure false  -- unused; we already pushed leaves
                 else if isAnonymousOptionTypeIdV1 layout.typeDecls p.typeId then
                   planError s!"unsupported Psy semantic shape: Option parameter '{p.name}' in {owner} is outside the Psy pilot (Option is state-only; B-RET-ABI scalar)"
-                else planError "unsupported Psy semantic shape: callable parameter is outside the UInt/Int/Bool/Field/Bytes/Principal/String envelope"
-              let uintWidth :=
-                match width? with
-                | some w => w
-                | none =>
-                    match intW? with
-                    | some w => if isNarrowIntWidth w then w else 0
-                    | none => 0
-              params := params.push
-                { sourceIndex := physicalParamIndex, name := p.name, isBool,
-                  uintWidth,
-                  isField := isGoldilocksFieldType types p.typeId }
-              physicalParamIndex := physicalParamIndex + 1
+                else planError "unsupported Psy semantic shape: callable parameter is outside the UInt/Int/Bool/Field/Bytes/Principal/String/named-aggregate envelope"
+              -- Named-aggregate branch already pushed leaves and set isBool false
+              -- via a dummy path; only push a scalar param for non-aggregate.
+              if types.isNamedAggregate p.typeId then
+                pure ()
+              else
+                let uintWidth :=
+                  match width? with
+                  | some w => w
+                  | none =>
+                      match intW? with
+                      | some w => if isNarrowIntWidth w then w else 0
+                      | none => 0
+                params := params.push
+                  { sourceIndex := physicalParamIndex, name := p.name, isBool,
+                    uintWidth,
+                    isField := isGoldilocksFieldType types p.typeId }
+                physicalParamIndex := physicalParamIndex + 1
   let mut env0 : ValueEnv := default
   let mut physicalParamOrdinal : Nat := 0
   for p in callable.params do
     if types.isPrincipal p.typeId || types.isString p.typeId then
       let mut limbs : Array Expr := #[]
       for _ in [0:1 + psyWireIdentityBodyLimbCountV1] do
+        limbs := limbs.push (.param physicalParamOrdinal)
+        physicalParamOrdinal := physicalParamOrdinal + 1
+      env0 := envInsertVal env0 p.valueId (mkAggregateVal limbs)
+    else if types.isNamedAggregate p.typeId then
+      let leafSpecs ← flattenTypeLeafSpecsV1 layout.typeDecls types p.typeId p.name
+      let mut limbs : Array Expr := #[]
+      for _ in leafSpecs do
         limbs := limbs.push (.param physicalParamOrdinal)
         physicalParamOrdinal := physicalParamOrdinal + 1
       env0 := envInsertVal env0 p.valueId (mkAggregateVal limbs)
