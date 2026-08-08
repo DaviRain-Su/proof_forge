@@ -1,6 +1,6 @@
 /-
-  Tests.Materialization.PsyDpnV1 — PSY-DPN-1..5 schema + Counter golden +
-  Plan lower + if/match/for + multi-leaf/wide + Map cap-8 structural probes.
+  Tests.Materialization.PsyDpnV1 — PSY-DPN-1..6 schema + Counter golden +
+  Plan lower + if/match/for + multi-leaf/wide + Map + effects honesty.
 
   Pins:
     * OpType / DataType exact discriminants used by Counter (+ Select)
@@ -14,6 +14,8 @@
       storeAggregate/returnAggregate; default profile WideCounter FC at Plan
     * DPN-5: Map UInt64 UInt64 cap-8 (24 occ/key/val leaves) product Plan→DPN
       without .psy return-in-if; hand-built lookup Select + upsert storeAggregate
+    * DPN-6: emit → events[] PARTIAL; void call → InvokeExternal PARTIAL;
+      schedule FC; ContextRead residual FC message
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Psy
@@ -730,6 +732,168 @@ unsafe def testTokenMapProductLower : IO Unit := do
   expect (initSets == 25)
     s!"Token init Map(24)+supply(1)=25 Sets, got {initSets}"
 
+/-! ## DPN-6 — effects honesty matrix -/
+
+/-- DPN-6: emitEvent → nonempty events[] with GetCheckpointId/GetUserId/
+    GetContractId + data wire (PARTIAL; no Finalize ordered-event claim). -/
+def testEmitEventPartialEncode : IO Unit := do
+  let fn : PlanFunction := {
+    index := 0
+    name := "tick"
+    kind := .mutate
+    params := #[{ sourceIndex := 0, name := "x", isBool := false }]
+    body := #[
+      .emitEvent 0 #[.param 0],
+      .returnValue (.param 0)
+    ]
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  let defn ← liftResult <| lowerFunctionForTestV1 fn false
+  expect (defn.events.size == 1)
+    s!"emit must produce one DPNEventRecord, got {defn.events.size}"
+  let ev := defn.events[0]!
+  expect (ev.condition == encodeIndexedId .bool 0)
+    "unconditional emit condition is ConstantTrue (bool#0)"
+  expect (ev.data.size == 1) "emit data carries one arg wire"
+  -- Identity context ops present (valueless Target inputs [0]).
+  expect (defn.definitions.any (·.opType == .getCheckpointId))
+    "emit must allocate GetCheckpointId"
+  expect (defn.definitions.any (·.opType == .getUserId))
+    "emit must allocate GetUserId"
+  expect (defn.definitions.any (·.opType == .getContractId))
+    "emit must allocate GetContractId"
+  -- Encode → parse preserves events (not opaque empty).
+  let encoded := encodePackageCompact #[defn]
+  match parsePackage? encoded with
+  | none => throw <| IO.userError "emit package encode must parse"
+  | some pkg =>
+      expect (pkg.size == 1) "one method"
+      expect (pkg[0]!.events.size == 1) "round-trip keeps event"
+      expect (pkg[0]!.events[0]! == ev) "event record structural equality"
+
+/-- DPN-6: void externalCall → InvokeExternalContractFunctionSync num_outputs=0. -/
+def testVoidExternalCallPartialEncode : IO Unit := do
+  let fn : PlanFunction := {
+    index := 0
+    name := "run"
+    kind := .mutate
+    params := #[{ sourceIndex := 0, name := "x", isBool := false }]
+    body := #[
+      .externalCall #["Peer", "go"] #[.param 0],
+      .returnValue (.param 0)
+    ]
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  let defn ← liftResult <| lowerFunctionForTestV1 fn false
+  let invs := defn.stateCommands.filterMap fun
+    | .invokeExternalContractFunctionSync c cid mid args nOut =>
+        some (c, cid, mid, args, nOut)
+    | _ => none
+  expect (invs.size == 1)
+    s!"void call must emit one InvokeExternalContractFunctionSync, got {invs.size}"
+  let (cond, _cid, _mid, args, nOut) := invs[0]!
+  expect (cond == encodeIndexedId .bool 0) "void call condition ConstantTrue"
+  expect (nOut == 0) "void call num_outputs=0 (no response binding)"
+  expect (args.size == 1) "one hashed arg wire"
+  -- Hashed constants match EmitIR FNV component hashes.
+  let peerH := hashComponentFeltV1 "Peer"
+  let goH := hashComponentFeltV1 "go"
+  expect (defn.definitions.any fun d =>
+      d.opType == .constant && d.inputs == #[peerH])
+    s!"contract_id constant must be hash(Peer)={peerH}"
+  expect (defn.definitions.any fun d =>
+      d.opType == .constant && d.inputs == #[goH])
+    s!"method_id constant must be hash(go)={goH}"
+  let encoded := encodePackageCompact #[defn]
+  match parsePackage? encoded with
+  | none => throw <| IO.userError "void-call package encode must parse"
+  | some pkg =>
+      expect (pkg[0]!.stateCommands.any fun
+        | .invokeExternalContractFunctionSync .. => true
+        | _ => false)
+        "round-trip keeps InvokeExternalContractFunctionSync"
+
+/-- DPN-6: schedule stays fail closed (never alias InvokeSync). -/
+def testScheduleFailClosedAtDpn : IO Unit := do
+  let fn : PlanFunction := {
+    index := 0
+    name := "later"
+    kind := .mutate
+    params := #[{ sourceIndex := 0, name := "x", isBool := false }]
+    body := #[
+      .schedule #["ledger", "daily"] #[.param 0],
+      .returnValue (.param 0)
+    ]
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  match lowerFunctionForTestV1 fn false with
+  | .error e =>
+      let msg := e.render
+      expect (msg.contains "PSY-DPN-6" || msg.contains "schedule" ||
+          msg.contains "deferred" || msg.contains "asynchronous")
+        s!"schedule must FC with stable diagnostic, got: {msg}"
+  | .ok _ =>
+      throw <| IO.userError
+        "schedule must fail closed at DPN lower (no deferred invoke)"
+
+/-- DPN-6: product Emitter (emit only) Plan→DPN package with events. -/
+unsafe def testEmitProductPartial : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program EmitterDpn where\n" ++
+    "  event Ticked(value : UInt64)\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry tick(x : UInt64) : UInt64 do\n" ++
+    "    emit Ticked(x)\n" ++
+    "    return x\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-emit>" "Tests.EmitterDpn" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let pkg ← liftResult <| packageFromCapabilityV1 cap
+  let some tick := pkg.find? (·.name == "tick") |
+    throw <| IO.userError s!"missing tick in {pkg.map (·.name)}"
+  expect (tick.events.size == 1)
+    s!"product emit must lower to one event, got {tick.events.size}"
+  expect (tick.events[0]!.data.size == 1) "Ticked(value) one data wire"
+
+/-- DPN-6: product void call Plan→DPN with InvokeExternal. -/
+unsafe def testVoidCallProductPartial : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ExtDpn where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry run(x : UInt64) : UInt64 do\n" ++
+    "    call Peer.go(x)\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-ext>" "Tests.ExtDpn" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let pkg ← liftResult <| packageFromCapabilityV1 cap
+  let some run := pkg.find? (·.name == "run") |
+    throw <| IO.userError s!"missing run in {pkg.map (·.name)}"
+  let hasInvoke := run.stateCommands.any fun
+    | .invokeExternalContractFunctionSync .. => true
+    | _ => false
+  expect hasInvoke
+    "product void call must lower to InvokeExternalContractFunctionSync"
+
 unsafe def run : IO Unit := do
   testOpTypeDiscriminants
   testEncodeIndexedId
@@ -751,6 +915,11 @@ unsafe def run : IO Unit := do
   testMapUpsertStoreAggregate
   testMapMiniProductLower
   testTokenMapProductLower
+  testEmitEventPartialEncode
+  testVoidExternalCallPartialEncode
+  testScheduleFailClosedAtDpn
+  testEmitProductPartial
+  testVoidCallProductPartial
   IO.println "Tests.Materialization.PsyDpnV1: ok"
 
 end Tests.Materialization.PsyDpnV1

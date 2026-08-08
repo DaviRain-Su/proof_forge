@@ -1,5 +1,5 @@
 /-
-  PSY-DPN-2/3/4/5: PsyPlan → DPN package.
+  PSY-DPN-2/3/4/5/6: PsyPlan → DPN package.
 
   DPN-2: UInt64 Counter-shaped templates (init store / checkedAdd store+return /
   view load) pinned to locked-dargo Counter method ids and package shape.
@@ -26,6 +26,15 @@
     * General builder admits Select/Bool/compare/storeAggregate path — no
       text `.psy` return-in-if (dargo syntax break on Map get match)
     * Nested Map / Map return stay FC at Plan (not DPN-invented)
+
+  DPN-6: effects honesty matrix (PARTIAL only with product evidence)
+    * emitEvent → DPNEventRecord (condition + GetCheckpointId/GetUserId/
+      GetContractId + data wires); matches official emit_event compile shape
+    * void externalCall → InvokeExternalContractFunctionSync (num_outputs=0)
+      with FNV component hashes (same as EmitIR `__invoke_sync` PARTIAL)
+    * schedule / assets / ContextRead / Commit / nonempty invariant stay FC
+      (Plan already FC; DPN depth-defends schedule with stable diagnostic)
+    * Not a runtime/Finalize/ordered-event/response gate; deployable=false
 
   Method ids: Counter pins match dargo golden; other names use a stable
   engineering hash until an official golden is captured.
@@ -180,6 +189,8 @@ structure BuilderV1 where
   cmds : Array StateCmdV1 := #[]
   res : Array Nat := #[]
   asserts : Array AssertEqV1 := #[]
+  /-- DPN-6: ordered `DPNEventRecord` list (product emit PARTIAL). -/
+  events : Array EventRecordV1 := #[]
   /-- Shared Constant 0 target index (always allocated at start of general lower). -/
   zeroTarget : Nat := 0
   /-- Shared ConstantTrue bool index. -/
@@ -338,6 +349,90 @@ private def emitConstTarget (b : BuilderV1) (value : UInt64) : BuilderV1 × Wire
 private def emitLiteralU64 (b : BuilderV1) (value : UInt64) : BuilderV1 × WireV1 :=
   emitConstTarget b value
 
+/-- Goldilocks prime (Psy Felt domain); same as EmitIRV1. -/
+private def goldilocksPrimeV1 : Nat := 0xFFFFFFFF00000001
+
+/-- Deterministic FNV-1a-ish 64-bit hash → Goldilocks Felt (matches EmitIR
+    `hashComponent` for void sync call PARTIAL). -/
+def hashComponentFeltV1 (s : String) : UInt64 := Id.run do
+  let prime : UInt64 := 1099511628211
+  let mut h : UInt64 := 14695981039346656037
+  for c in s.toList do
+    h := (h ^^^ c.toNat.toUInt64) * prime
+  pure (UInt64.ofNat (h.toNat % goldilocksPrimeV1))
+
+/-- Valueless context ops (GetUserId/GetContractId/GetCheckpointId): official
+    dargo encodes `inputs: [0]` with Target data_type (token.json evidence). -/
+private def pushValuelessTarget (b : BuilderV1) (op : OpTypeV1) :
+    BuilderV1 × WireV1 :=
+  pushTarget b op #[0]
+
+/-- Gate a target wire under writeCond: select(writeCond, w, 0). When writeCond
+    is the shared ConstantTrue, returns `w` unchanged (official unconditional). -/
+private def gateTargetUnderCond (b : BuilderV1) (writeCond : WireV1) (w : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  if writeCond == .bool b.trueBool then
+    pure (b, w)
+  else
+    emitSelect b writeCond w (zeroWire b)
+
+/-- DPN-6 PARTIAL: emitEvent → `DPNEventRecord` matching official `emit_event`.
+    Event name is source metadata only (not in DPNEventRecord). -/
+private def emitEventRecordV1 (b : BuilderV1) (writeCond : WireV1)
+    (argWires : Array WireV1) : CompileResult BuilderV1 := do
+  -- Allocate identity context ops (one per emit; dargo does the same).
+  let (b1, cpW) := pushValuelessTarget b .getCheckpointId
+  let (b2, userW) := pushValuelessTarget b1 .getUserId
+  let (b3, cidW) := pushValuelessTarget b2 .getContractId
+  let (b4, cpG) ← gateTargetUnderCond b3 writeCond cpW
+  let (b5, userG) ← gateTargetUnderCond b4 writeCond userW
+  let (b6, cidG) ← gateTargetUnderCond b5 writeCond cidW
+  let mut bCur := b6
+  let mut data : Array UInt64 := #[]
+  for aw in argWires do
+    let (bG, gw) ← gateTargetUnderCond bCur writeCond aw
+    bCur := bG
+    let ti ← asTargetIndex gw
+    data := data.push (UInt64.ofNat ti)
+  let cpIdx ← asTargetIndex cpG
+  let userIdx ← asTargetIndex userG
+  let cidIdx ← asTargetIndex cidG
+  let eventRec : EventRecordV1 := {
+    condition := writeCond.encoded
+    checkpointId := UInt64.ofNat cpIdx
+    userId := UInt64.ofNat userIdx
+    contractId := UInt64.ofNat cidIdx
+    data
+  }
+  pure { bCur with events := bCur.events.push eventRec }
+
+/-- DPN-6 PARTIAL: void externalCall → InvokeExternalContractFunctionSync.
+    Hashed static QN components; num_outputs=0 (no response-binding). -/
+private def emitVoidExternalCallV1 (b : BuilderV1) (writeCond : WireV1)
+    (callee : Array String) (argWires : Array WireV1) :
+    CompileResult BuilderV1 := do
+  unless callee.size ≥ 2 do
+    planError
+      "PSY-DPN-6: external callee must have ≥2 QualifiedName components (PSY-CALL-EVENT)"
+  let targetHash := hashComponentFeltV1 callee[0]!
+  let methodHash := hashComponentFeltV1 callee[1]!
+  let (b1, tidW) := emitConstTarget b targetHash
+  let (b2, midW) := emitConstTarget b1 methodHash
+  let ti ← asTargetIndex tidW
+  let mi ← asTargetIndex midW
+  let mut args : Array UInt64 := #[]
+  for aw in argWires do
+    let ai ← asTargetIndex aw
+    args := args.push (UInt64.ofNat ai)
+  pure {
+    b2 with
+      cmds := b2.cmds.push
+        (.invokeExternalContractFunctionSync
+          writeCond.encoded (UInt64.ofNat ti) (UInt64.ofNat mi) args 0)
+      -- Void invoke: no consumed GetState result (official unused-result path).
+      res := b2.res.push b2.nextTarget
+  }
+
 private def emitCheckedAdd (b : BuilderV1) (l r : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   let li ← asTargetIndex l
@@ -487,7 +582,8 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
       planError
         "PSY-DPN-4: wideUintShiftLimb requires bindWideUintShift — not admitted in this slice (fail closed)"
   | other =>
-      planError s!"PSY-DPN-5: unsupported Expr shape {repr other}"
+      planError s!"PSY-DPN-6: unsupported Expr shape {repr other} \
+(ContextRead/Commit/callFn stay fail closed until exact DPN evidence)"
 
 /-- Result of lowering a statement sequence: return wires (empty = unit). -/
 structure StmtResultV1 where
@@ -673,6 +769,33 @@ unroll budget {maxUnrollBudgetV1} (no while/unbounded; PSY-LOOP)"
               }
           }
           lowerStmtsV1 b2 params writeCond viewPath rest
+      | .emitEvent _eventIndex args => do
+          -- DPN-6 PARTIAL: product admits source `__emit` → DPN events[].
+          -- Event name is not in DPNEventRecord (official record has no name).
+          let mut bCur := b
+          let mut argWires : Array WireV1 := #[]
+          for a in args do
+            let (b1, w) ← lowerExprV1 bCur params viewPath a
+            bCur := b1
+            argWires := argWires.push w
+          let b2 ← emitEventRecordV1 bCur writeCond argWires
+          lowerStmtsV1 b2 params writeCond viewPath rest
+      | .externalCall callee args => do
+          -- DPN-6 PARTIAL: void sync call only (result-bearing FC at Plan).
+          let mut bCur := b
+          let mut argWires : Array WireV1 := #[]
+          for a in args do
+            let (b1, w) ← lowerExprV1 bCur params viewPath a
+            bCur := b1
+            argWires := argWires.push w
+          let b2 ← emitVoidExternalCallV1 bCur writeCond callee argWires
+          lowerStmtsV1 b2 params writeCond viewPath rest
+      | .schedule _callee _args =>
+          -- DPN-6 FC: no deferred crosscall form; never alias InvokeSync.
+          planError
+            "PSY-DPN-6: schedule is not admitted on Psy DPN (no deferred \
+InvokeExternalContractFunctionDeferred product path; effect.asynchronous-workflow \
+declined; PSY-CALL-EVENT FC)"
       | .bindWideUintMul .. =>
           planError
             "PSY-DPN-4: bindWideUintMul (schoolbook UInt128/256 mul) not admitted in this slice — fail closed"
@@ -683,7 +806,7 @@ unroll budget {maxUnrollBudgetV1} (no while/unbounded; PSY-LOOP)"
           planError
             "PSY-DPN-4: bindWideUintShift not admitted in this slice — fail closed"
       | other =>
-          planError s!"PSY-DPN-5: unsupported Statement shape {repr other}"
+          planError s!"PSY-DPN-6: unsupported Statement shape {repr other}"
 
 /-- Encode return wires as circuit_outputs (target raw index; bool uses encoded id). -/
 private def encodeOutputs (wires : Array WireV1) : Array UInt64 :=
@@ -724,7 +847,7 @@ def lowerFunctionGeneralV1 (fn : PlanFunction) (multiLeaf : Bool) :
     stateCommandResolutionIndices := res.builder.res
     assertions := res.builder.asserts
     definitions := res.builder.defs
-    events := #[]
+    events := res.builder.events
   }
 
 /-- Classify a single PlanFunction into a DPN template or general lower. -/

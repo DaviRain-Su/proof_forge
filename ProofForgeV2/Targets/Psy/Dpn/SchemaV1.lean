@@ -185,13 +185,32 @@ structure AssertEqV1 where
   message : String
   deriving DecidableEq, Repr, Inhabited
 
-/-- State commands used by product Counter (and common leaves). Others remain
-    unmodeled until admit; unknown JSON tags fail closed at decode. -/
+/-- Official `DPNEventRecord` (psy_vm op_types). `condition` is a full
+    `(dataType<<32)|index` bool id; `checkpoint_id` / `user_id` /
+    `contract_id` / `data` are Target-typed wire ids (raw index when type=0).
+    Product emit is PARTIAL (source `__emit` + DPN events[]; no Finalize
+    ordered-event runtime gate). -/
+structure EventRecordV1 where
+  condition : UInt64
+  checkpointId : UInt64
+  userId : UInt64
+  contractId : UInt64
+  data : Array UInt64
+  deriving DecidableEq, Repr, Inhabited
+
+/-- State commands used by product Counter (and DPN-6 effect leaves).
+    Others remain unmodeled until admit; unknown JSON tags fail closed at decode. -/
 inductive StateCmdV1 where
   | getSelfUserCurrentContractStateSlotSingle (subSlotIndex : UInt64)
   | setContractStateSlotSingle (condition subSlotIndex value : UInt64)
   | getSelfUserCurrentContractStateSlotHash (slotIndex : UInt64)
   | setContractStateSlotHash (condition slotIndex : UInt64) (value : Array UInt64)
+  /-- Void sync `call` → `InvokeExternalContractFunctionSync` (DPN-6 PARTIAL).
+      Product admits source-only `__invoke_sync#<Felt>` with hashed QN; no
+      deployment-address / response / runtime gate. `numOutputs=0` for void. -/
+  | invokeExternalContractFunctionSync
+      (condition contractId methodId : UInt64)
+      (inputArgs : Array UInt64) (numOutputs : UInt32)
   deriving DecidableEq, Repr
 
 structure FunctionCircuitDefV1 where
@@ -203,7 +222,7 @@ structure FunctionCircuitDefV1 where
   stateCommandResolutionIndices : Array Nat
   assertions : Array AssertEqV1
   definitions : Array IndexedVarDefV1
-  events : Array Unit := #[]  -- opaque empty for now; Counter has []
+  events : Array EventRecordV1 := #[]
   deriving DecidableEq, Repr, Inhabited
 
 /-- Package artifact = ordered array of per-method DPN defs (dargo `*.json`). -/

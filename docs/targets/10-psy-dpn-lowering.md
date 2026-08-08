@@ -9,7 +9,7 @@ normative: false
 
 # Psy DPN 层落地规划
 
-状态：`draft`（规划输入；DPN-1..5 engineering 已落地，admit 面未全覆盖）
+状态：`draft`（规划输入；DPN-1..6 engineering 已落地，admit 面未全覆盖 / G5 residual）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Psy target 的权威物化从 **文本 `.psy`** 切到 **官方 DPN 方法级定义**，并评估 **ProgramV1 语法/语义能覆盖到 DPN target 的范围**。
 
 权威上游（pin）：
@@ -251,8 +251,12 @@ G0–G2 为 **MVP**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛
 
 ### Phase DPN-6 — 效果族诚实矩阵
 
-- emit / call：仅 PARTIAL 有证据时写 DPN；否则 FC
-- schedule / assets / context / invariant：保持 FC
+- [x] emit / call：仅 PARTIAL 有证据时写 DPN；否则 FC
+  - `emitEvent` → `DPNEventRecord`（condition + GetCheckpointId/GetUserId/GetContractId + data；官方 `emit_event` 形状；无 Finalize ordered-event 门）
+  - void `externalCall` → `InvokeExternalContractFunctionSync`（`num_outputs=0`；FNV 组件 hash 对齐 EmitIR `__invoke_sync` PARTIAL；无部署地址/response/runtime 门）
+- [x] schedule / assets / context / invariant：保持 FC
+  - `schedule` DPN 深度防御稳定诊断（不 alias InvokeSync）；assets/ContextRead/Commit/nonempty invariant 仍 Plan FC
+  - `PsyDpnV1` 钉手建 + product emit/call PARTIAL 与 schedule FC
 
 ### Phase DPN-7 — 产品切换
 

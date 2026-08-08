@@ -84,6 +84,24 @@ def encodeStateCmd : StateCmdV1 → Json
         ("slot_index", u64ToJson slot),
         ("value", Json.arr (value.map u64ToJson))
       ]
+  | .invokeExternalContractFunctionSync cond cid mid args nOut =>
+      Json.mkObj [
+        ("type", Json.str "InvokeExternalContractFunctionSync"),
+        ("condition", u64ToJson cond),
+        ("contract_id", u64ToJson cid),
+        ("method_id", u64ToJson mid),
+        ("input_args", Json.arr (args.map u64ToJson)),
+        ("num_outputs", natToJson nOut.toNat)
+      ]
+
+def encodeEvent (e : EventRecordV1) : Json :=
+  Json.mkObj [
+    ("condition", u64ToJson e.condition),
+    ("checkpoint_id", u64ToJson e.checkpointId),
+    ("user_id", u64ToJson e.userId),
+    ("contract_id", u64ToJson e.contractId),
+    ("data", Json.arr (e.data.map u64ToJson))
+  ]
 
 def encodeFunction (f : FunctionCircuitDefV1) : Json :=
   Json.mkObj [
@@ -96,7 +114,7 @@ def encodeFunction (f : FunctionCircuitDefV1) : Json :=
       Json.arr (f.stateCommandResolutionIndices.map natToJson)),
     ("assertions", Json.arr (f.assertions.map encodeAssert)),
     ("definitions", Json.arr (f.definitions.map encodeVarDef)),
-    ("events", Json.arr #[])
+    ("events", Json.arr (f.events.map encodeEvent))
   ]
 
 def encodePackage (pkg : PackageV1) : Json :=
@@ -138,7 +156,23 @@ private def decodeStateCmd? (j : Json) : Option StateCmdV1 := do
         (← jsonAsUInt64? (← field? j "condition"))
         (← jsonAsUInt64? (← field? j "slot_index"))
         (← valueJ.mapM jsonAsUInt64?))
+  | "InvokeExternalContractFunctionSync" =>
+      let argsJ ← arr? (← field? j "input_args")
+      pure (.invokeExternalContractFunctionSync
+        (← jsonAsUInt64? (← field? j "condition"))
+        (← jsonAsUInt64? (← field? j "contract_id"))
+        (← jsonAsUInt64? (← field? j "method_id"))
+        (← argsJ.mapM jsonAsUInt64?)
+        (← jsonAsUInt32? (← field? j "num_outputs")))
   | _ => none
+
+private def decodeEvent? (j : Json) : Option EventRecordV1 := do
+  let condition ← jsonAsUInt64? (← field? j "condition")
+  let checkpointId ← jsonAsUInt64? (← field? j "checkpoint_id")
+  let userId ← jsonAsUInt64? (← field? j "user_id")
+  let contractId ← jsonAsUInt64? (← field? j "contract_id")
+  let data ← (← arr? (← field? j "data")).mapM jsonAsUInt64?
+  pure { condition, checkpointId, userId, contractId, data }
 
 private def decodeFunction? (j : Json) : Option FunctionCircuitDefV1 := do
   let name ← jsonAsString? (← field? j "name")
@@ -149,12 +183,11 @@ private def decodeFunction? (j : Json) : Option FunctionCircuitDefV1 := do
   let resIdx ← (← arr? (← field? j "state_command_resolution_indices")).mapM jsonAsNat?
   let assertions ← (← arr? (← field? j "assertions")).mapM decodeAssert?
   let definitions ← (← arr? (← field? j "definitions")).mapM decodeVarDef?
-  let _ ← arr? (← field? j "events")
+  let events ← (← arr? (← field? j "events")).mapM decodeEvent?
   pure {
     name, methodId, circuitInputs, circuitOutputs, stateCommands
     stateCommandResolutionIndices := resIdx
-    assertions, definitions
-    events := #[]
+    assertions, definitions, events
   }
 
 def decodePackage? (j : Json) : Option PackageV1 := do
