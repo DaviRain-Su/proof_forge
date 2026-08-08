@@ -1323,10 +1323,17 @@ aleo-sandbox:
 
 # Aleo network deploy/execute (host-heavy; NOT ordinary ci).
 # Requires explicit --broadcast + network/endpoint/private-key (or PROOF_FORGE_ALEO_*).
+# Prefers snarkos developer when available (fee-match); leo deploy is fallback.
 # Authority: docs/targets/09c-aleo-network.md
 # Without network opt-in: PF-NETWORK-MISSING exit 2. Not default deployable=true.
 aleo-network *ARGS:
     bash scripts/aleo_network.sh {{ARGS}}
+
+# Aleo local DevNet lifecycle (host-heavy; NOT ordinary ci).
+# start|stop|status|wait — needs snarkos built with --features test_network.
+# Authority: docs/targets/09c-aleo-network.md
+aleo-devnet *ARGS:
+    bash scripts/aleo_devnet.sh {{ARGS}}
 
 # Noir ACIR IR-7 / G6 prove honesty probe (host-heavy; NOT ordinary ci).
 # Probes locked $PROOF_FORGE_TOOL_ROOT/bb|barretenberg only (never PATH).

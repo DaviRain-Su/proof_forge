@@ -38,6 +38,8 @@ SOURCE="Examples/Counter.lean"
 MODULE="Examples.Counter"
 PIN_GOLDEN=1
 DEVNET=0
+# Priority fee in microcredits (leo may under-estimate base fee on some nodes).
+PRIORITY_FEES="${PROOF_FORGE_ALEO_PRIORITY_FEES:-}"
 
 usage() {
   cat <<'EOF'
@@ -83,6 +85,7 @@ while [[ $# -gt 0 ]]; do
     --consensus-version) CONSENSUS_VERSION="${2:-}"; shift 2 ;;
     --skip-deploy-certificate) SKIP_DEPLOY_CERT=1; shift ;;
     --devnet) DEVNET=1; shift ;;
+    --priority-fees) PRIORITY_FEES="${2:-}"; shift 2 ;;
     --program-source) SOURCE="${2:-}"; shift 2 ;;
     --module) MODULE="${2:-}"; shift 2 ;;
     --no-golden-pin) PIN_GOLDEN=0; shift ;;
@@ -193,13 +196,30 @@ TX_DIR="${WORKDIR}/tx"
 REAL_HOME="${HOME}"
 mkdir -p "$PKG/src" "$LEO_HOME/.aleo" "$TX_DIR"
 
+# Isolate Leo subprocess from ambient wallet/registry without clobbering
+# script-local NETWORK/ENDPOINT/PRIVATE_KEY (needed after leo build for deploy).
 isolate_leo_env() {
+  local net="$NETWORK" ep="$ENDPOINT" pk="$PRIVATE_KEY" dn="$DEVNET" cv="${CONSENSUS_VERSION:-}"
   export HOME="$LEO_HOME"
-  # Do not inherit ambient wallet/network; only explicit script params apply.
-  unset PRIVATE_KEY VIEW_KEY ADDRESS NETWORK ENDPOINT DEVNET \
-        CONSENSUS_VERSION CONSENSUS_VERSION_HEIGHTS CONSENSUS_HEIGHTS \
+  # Clear ambient Leo secrets only. Do not leave script vars unbound under `set -u`.
+  unset VIEW_KEY ADDRESS \
+        CONSENSUS_VERSION_HEIGHTS CONSENSUS_HEIGHTS \
         NETWORK_RETRIES PRIORITY_FEE FEE_RECORD \
         || true
+  NETWORK="$net"
+  ENDPOINT="$ep"
+  PRIVATE_KEY="$pk"
+  # Keep DEVNET as 0/1 (not the string "true") so later [[ $DEVNET -eq 1 ]]
+  # works under `set -u` (bash arithmetic would treat bare `true` as a name).
+  DEVNET="$dn"
+  CONSENSUS_VERSION="$cv"
+  export NETWORK ENDPOINT PRIVATE_KEY DEVNET
+  if [[ -n "$cv" ]]; then
+    export CONSENSUS_VERSION
+  else
+    unset CONSENSUS_VERSION || true
+    CONSENSUS_VERSION=""
+  fi
 }
 
 restore_home() {
@@ -289,87 +309,191 @@ if ! cmp -s "$PRIMARY_ALEO" "$PKG/build/main.aleo"; then
 fi
 echo "${PREFIX}: pin ok: leo build/main.aleo ≡ product Instructions"
 
-deploy_args=(
-  deploy
-  --network "$NETWORK"
-  --endpoint "$ENDPOINT"
-  --private-key "$PRIVATE_KEY"
-  --broadcast
-  --yes
-  --disable-update-check
-  --path "$PKG"
-  --save "$TX_DIR"
-  --json-output="${TX_DIR}/deploy.json"
-)
-if [[ "$DEVNET" -eq 1 ]]; then
-  deploy_args+=(--devnet)
-fi
-if [[ -n "$CONSENSUS_VERSION" ]]; then
-  deploy_args+=(--consensus-version "$CONSENSUS_VERSION")
-fi
-if [[ "$SKIP_DEPLOY_CERT" -eq 1 ]]; then
-  deploy_args+=(--skip-deploy-certificate)
+# Resolve snarkOS for N1/N2. Leo 4.0.2 deploy can under-estimate base fee vs
+# snarkOS 4.9.x nodes; product path prefers snarkos developer when present.
+resolve_snarkos() {
+  local cand
+  if [[ -n "${PROOF_FORGE_ALEO_SNARKOS:-}" && -x "${PROOF_FORGE_ALEO_SNARKOS}" ]]; then
+    echo "${PROOF_FORGE_ALEO_SNARKOS}"
+    return 0
+  fi
+  for cand in \
+    "${TOOL_ROOT}/snarkos" \
+    "${HOME}/.cache/proof-forge-v2/aleo-devnet/cargo-install/bin/snarkos" \
+    "${REAL_HOME}/.cache/proof-forge-v2/aleo-devnet/cargo-install/bin/snarkos"; do
+    if [[ -x "$cand" ]]; then
+      echo "$cand"
+      return 0
+    fi
+  done
+  return 1
+}
+
+network_id() {
+  case "$NETWORK" in
+    mainnet) echo 0 ;;
+    testnet) echo 1 ;;
+    canary) echo 2 ;;
+    *) die "internal: bad network for snarkos id: ${NETWORK}" ;;
+  esac
+}
+
+SNARKOS=""
+if SNARKOS="$(resolve_snarkos)"; then
+  echo "${PREFIX}: snarkos=${SNARKOS} (N1/N2 authority)"
+else
+  echo "${PREFIX}: snarkos absent — falling back to leo deploy/execute (may fail fee-match on newer nodes)"
 fi
 
-echo "${PREFIX}: --- leo deploy --broadcast (NETWORK-DEPLOY) ---"
-isolate_leo_env
-set +e
-dout="$("$LEO" "${deploy_args[@]}" 2>&1)"
-drc=$?
-set -e
-restore_home
-echo "$dout" | tail -40
-if [[ "$drc" -ne 0 ]]; then
-  die "leo deploy failed (exit ${drc}); check endpoint reachability, credits, program name collision"
-fi
-# Leo may print errors with exit 0 in some misconfig cases — require positive markers.
-if grep -qiE 'Error \[ECLI|Failed to fetch|Failed to get consensus' <<<"$dout"; then
-  die "leo deploy reported error in output"
-fi
-echo "${PREFIX}: ok: NETWORK-DEPLOY network=${NETWORK} program=${STEM}.aleo"
+PRIORITY_FEE_U="${PRIORITY_FEES:-1000000}"
 
-if [[ "$DO_EXECUTE" -eq 1 ]]; then
-  run_execute() {
-    local name="$1"
-    shift
-    local ex_args=(
-      execute
-      --network "$NETWORK"
-      --endpoint "$ENDPOINT"
-      --private-key "$PRIVATE_KEY"
-      --broadcast
-      --yes
-      --disable-update-check
-      --path "$PKG"
-      --json-output="${TX_DIR}/execute-${name}.json"
-      "$name"
-    )
-    if [[ "$DEVNET" -eq 1 ]]; then
-      ex_args+=(--devnet)
-    fi
-    if [[ -n "$CONSENSUS_VERSION" ]]; then
-      ex_args+=(--consensus-version "$CONSENSUS_VERSION")
-    fi
-    ex_args+=("$@")
-    echo "${PREFIX}: --- leo execute --broadcast ${name} $* (NETWORK-EXECUTE) ---"
-    isolate_leo_env
-    set +e
-    eout="$("$LEO" "${ex_args[@]}" 2>&1)"
-    erc=$?
-    set -e
-    restore_home
-    echo "$eout" | tail -30
-    if [[ "$erc" -ne 0 ]]; then
-      die "leo execute ${name} failed (exit ${erc})"
-    fi
-    if grep -qiE 'Error \[ECLI|Failed to fetch' <<<"$eout"; then
-      die "leo execute ${name} reported error in output"
-    fi
-    echo "${PREFIX}: ok: NETWORK-EXECUTE ${name}"
-  }
-  # Counter-shaped defaults; other programs must pass args via future extension.
-  run_execute initialize 1u64
-  run_execute increment 2u64
+if [[ -n "$SNARKOS" ]]; then
+  # snarkos developer expects main.aleo at package root (not build/).
+  SNARK_PKG="${WORKDIR}/snarkos-pkg"
+  mkdir -p "$SNARK_PKG"
+  cp "$PRIMARY_ALEO" "$SNARK_PKG/main.aleo"
+  NET_ID="$(network_id)"
+
+  echo "${PREFIX}: --- snarkos developer deploy --broadcast (NETWORK-DEPLOY) ---"
+  isolate_leo_env
+  set +e
+  dout="$("$SNARKOS" developer deploy "${STEM}.aleo" \
+    --path "$SNARK_PKG" \
+    --private-key "$PRIVATE_KEY" \
+    --endpoint "$ENDPOINT" \
+    --network "$NET_ID" \
+    --broadcast \
+    --priority-fee "$PRIORITY_FEE_U" \
+    --verbosity 1 2>&1)"
+  drc=$?
+  set -e
+  restore_home
+  echo "$dout" | tail -50
+  printf '%s\n' "$dout" >"${TX_DIR}/deploy.log"
+  if [[ "$drc" -ne 0 ]]; then
+    die "snarkos deploy failed (exit ${drc}); check endpoint, credits, program name collision"
+  fi
+  if ! grep -qE 'has been broadcast|Created deployment' <<<"$dout"; then
+    die "snarkos deploy missing broadcast success marker"
+  fi
+  echo "${PREFIX}: ok: NETWORK-DEPLOY via snarkos network=${NETWORK} program=${STEM}.aleo"
+
+  if [[ "$DO_EXECUTE" -eq 1 ]]; then
+    run_execute_snarkos() {
+      local name="$1"
+      shift
+      echo "${PREFIX}: --- snarkos developer execute --broadcast ${name} $* (NETWORK-EXECUTE) ---"
+      isolate_leo_env
+      set +e
+      eout="$("$SNARKOS" developer execute "${STEM}.aleo" "$name" "$@" \
+        --private-key "$PRIVATE_KEY" \
+        --endpoint "$ENDPOINT" \
+        --network "$NET_ID" \
+        --broadcast \
+        --priority-fee "$PRIORITY_FEE_U" \
+        --verbosity 1 2>&1)"
+      erc=$?
+      set -e
+      restore_home
+      echo "$eout" | tail -30
+      printf '%s\n' "$eout" >"${TX_DIR}/execute-${name}.log"
+      if [[ "$erc" -ne 0 ]]; then
+        die "snarkos execute ${name} failed (exit ${erc})"
+      fi
+      if ! grep -qE 'has been broadcast|Created execution' <<<"$eout"; then
+        die "snarkos execute ${name} missing broadcast success marker"
+      fi
+      echo "${PREFIX}: ok: NETWORK-EXECUTE ${name}"
+    }
+    run_execute_snarkos initialize 1u64
+    # wait briefly for finalize before increment (mapping state)
+    sleep 2
+    run_execute_snarkos increment 2u64
+  fi
+else
+  deploy_args=(
+    deploy
+    --network "$NETWORK"
+    --endpoint "$ENDPOINT"
+    --private-key "$PRIVATE_KEY"
+    --broadcast
+    --yes
+    --disable-update-check
+    --path "$PKG"
+    --save "$TX_DIR"
+    --json-output="${TX_DIR}/deploy.json"
+  )
+  if [[ "$DEVNET" -eq 1 ]]; then
+    deploy_args+=(--devnet)
+  fi
+  if [[ -n "$CONSENSUS_VERSION" ]]; then
+    deploy_args+=(--consensus-version "$CONSENSUS_VERSION")
+  fi
+  if [[ "$SKIP_DEPLOY_CERT" -eq 1 ]]; then
+    deploy_args+=(--skip-deploy-certificate)
+  fi
+  if [[ -n "${PRIORITY_FEES}" ]]; then
+    deploy_args+=(--priority-fees "$PRIORITY_FEES")
+  fi
+
+  echo "${PREFIX}: --- leo deploy --broadcast (NETWORK-DEPLOY fallback) ---"
+  isolate_leo_env
+  set +e
+  dout="$("$LEO" "${deploy_args[@]}" 2>&1)"
+  drc=$?
+  set -e
+  restore_home
+  echo "$dout" | tail -40
+  if [[ "$drc" -ne 0 ]]; then
+    die "leo deploy failed (exit ${drc}); install snarkos with test_network or check fees/endpoint"
+  fi
+  if grep -qiE 'Error \[ECLI|Failed to fetch|Failed to get consensus|insufficient base fee' <<<"$dout"; then
+    die "leo deploy reported error in output"
+  fi
+  echo "${PREFIX}: ok: NETWORK-DEPLOY network=${NETWORK} program=${STEM}.aleo"
+
+  if [[ "$DO_EXECUTE" -eq 1 ]]; then
+    run_execute() {
+      local name="$1"
+      shift
+      local ex_args=(
+        execute
+        --network "$NETWORK"
+        --endpoint "$ENDPOINT"
+        --private-key "$PRIVATE_KEY"
+        --broadcast
+        --yes
+        --disable-update-check
+        --path "$PKG"
+        --json-output="${TX_DIR}/execute-${name}.json"
+        "$name"
+      )
+      if [[ "$DEVNET" -eq 1 ]]; then
+        ex_args+=(--devnet)
+      fi
+      if [[ -n "$CONSENSUS_VERSION" ]]; then
+        ex_args+=(--consensus-version "$CONSENSUS_VERSION")
+      fi
+      ex_args+=("$@")
+      echo "${PREFIX}: --- leo execute --broadcast ${name} $* (NETWORK-EXECUTE) ---"
+      isolate_leo_env
+      set +e
+      eout="$("$LEO" "${ex_args[@]}" 2>&1)"
+      erc=$?
+      set -e
+      restore_home
+      echo "$eout" | tail -30
+      if [[ "$erc" -ne 0 ]]; then
+        die "leo execute ${name} failed (exit ${erc})"
+      fi
+      if grep -qiE 'Error \[ECLI|Failed to fetch' <<<"$eout"; then
+        die "leo execute ${name} reported error in output"
+      fi
+      echo "${PREFIX}: ok: NETWORK-EXECUTE ${name}"
+    }
+    run_execute initialize 1u64
+    run_execute increment 2u64
+  fi
 fi
 
 echo "${PREFIX}: --- query-contract sidecar (descriptor; live query is separate) ---"

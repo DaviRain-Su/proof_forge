@@ -112,10 +112,29 @@ ProgramV1（admit 面内任意合法程序）
 | `aleo_runtime_test.sh` | IR-7 snarkVM package-only honesty |
 | `aleo_acceptance.sh` | compile-only |
 
-## 7. 后续（N3+）
+## 7. 本地 DevNet 实证（2026-08-08）
 
-1. Tool Lock 可选 pin snarkOS → 可复现 local devnet（`http://127.0.0.1:3030`）。
+| 项 | 值 |
+|---|---|
+| 启动 | `just aleo-devnet start` → `scripts/aleo_devnet.sh`（4 validators，`snarkos` **必须** `features=test_network`） |
+| Endpoint | `http://127.0.0.1:3030` |
+| 密钥 | 官方 local-dev funded：`APrivateKey1zkp8CZNn3yeCseEtxuVPbDCwSyhGW6yZKUYKfgXmcpoGPWH`（**仅** local） |
+| 产品 build | `Examples/Counter.lean --target aleo` → Instructions ≡ golden |
+| N1 | `snarkos developer deploy counter.aleo` broadcast 成功（Leo 4.0.2 `leo deploy` 对 snarkOS 4.9 有 base-fee 低估，**不以 Leo 为 N1 权威**） |
+| N2 | `initialize 1u64` + `increment 2u64` broadcast 成功 |
+| 状态 | mapping `pf_state_0[0u8]=3u64`，`initialized[0u8]=true` |
+
+预编译 GitHub snarkOS **无** `test_network`，`leo devnet --dev` 会失败。需：
+
+```bash
+cargo install snarkos --version 4.9.0 --features test_network --locked \
+  --root ~/.cache/proof-forge-v2/aleo-devnet/cargo-install
+```
+
+## 8. 后续（N3+）
+
+1. Tool Lock pin snarkOS（test_network 构建）→ 可复现 local devnet。
 2. 产品 profile `aleo-*-network-v1`：Finalize 附 deploy receipt / tx id（仍 fail closed 缺网）。
-3. query-contract 驱动 `leo query` 读 mapping。
+3. query-contract 驱动 live mapping 读。
 4. CLI 子命令：`proof-forge-next network aleo …` 包装本脚本。
 5. 扩 admit 面 = 更「复杂合约」的真实路径。
