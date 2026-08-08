@@ -61,8 +61,12 @@
   G5-MATRIX: §3.2 admit-row scan pins (honest DPN vs residual vs Plan FC)
     * UInt64 checkedMul/Div/Mod + add/sub → DPN (mul inverse wrap check)
     * zero-arg revertError → assertions[] "revert"; payload args FC
-    * residual Plan-admit shapes (narrow UInt, Int signed, callFn pureFn,
-      UInt64 shl/shr, checkedBitNot) → stable PSY-DPN-G5-MATRIX FC;
+    * R-NARROW (G5 residual): UInt8/16/32 Felt-carried checked add/sub/mul/
+      div/mod + param range asserts + unsigned compare (mirror EmitIRV1;
+      result < 2^w for add/mul; not field-wrap inverse). Narrow bitwise/
+      shift remain residual.
+    * residual Plan-admit shapes (narrow bitwise/shift, Int signed, callFn
+      pureFn, UInt64 shl/shr, checkedBitNot) → stable PSY-DPN-G5-MATRIX FC;
       EmitIRV1 G5-HARD residual allowlist may emit transitional `.psy` only
       (no false DPN package); non-residual DPN failures hard-fail materialize
     * Bool/compare/logic/bare assert covered by general builder + suite pins
@@ -620,6 +624,115 @@ private def emitCheckedMod (b : BuilderV1) (l r : WireV1) :
   let (b3, m) := pushTarget b2 .mod_ #[UInt64.ofNat li, UInt64.ofNat ri]
   pure (b3, m)
 
+/-! ## R-NARROW: Felt-carried UInt{8,16,32} (mirror EmitIRV1) -/
+
+/-- 2^bitWidth as Felt-legal Nat (only for w ∈ {8,16,32}). -/
+private def narrowBoundV1 (bitWidth : Nat) : CompileResult Nat :=
+  if bitWidth == 8 then pure 256
+  else if bitWidth == 16 then pure 65536
+  else if bitWidth == 32 then pure 4294967296
+  else planError s!"PSY-DPN-G5: narrow bitWidth {bitWidth} not admitted (need 8/16/32)"
+
+/-- Narrow checked add: `sum = l+r`; assert `sum < 2^w` (EmitIR width guard;
+    field wrap cannot occur for in-range UInt32 operands under Goldilocks). -/
+private def emitNarrowCheckedAdd (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let bound ← narrowBoundV1 bitWidth
+  let li ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, sum) := pushTarget b .add #[UInt64.ofNat li, UInt64.ofNat ri]
+  let (b2, limW) := emitLiteralU64 b1 (UInt64.ofNat bound)
+  let limIdx ← asTargetIndex limW
+  let (b3, ok) :=
+    pushBool b2 .lt #[UInt64.ofNat sum.rawIndex, UInt64.ofNat limIdx]
+  let b4 := {
+    b3 with
+      asserts := b3.asserts.push {
+        left := ok.encoded
+        right := encodeIndexedId .bool b3.trueBool
+        message := s!"u{bitWidth} add overflow"
+      }
+  }
+  pure (b4, sum)
+
+/-- Narrow checked sub: assert `l >= r` then `diff = l-r` (EmitIR). -/
+private def emitNarrowCheckedSub (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let _ ← narrowBoundV1 bitWidth
+  let li ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, ok) := pushBool b .gte #[UInt64.ofNat li, UInt64.ofNat ri]
+  let b2 := {
+    b1 with
+      asserts := b1.asserts.push {
+        left := ok.encoded
+        right := encodeIndexedId .bool b1.trueBool
+        message := s!"u{bitWidth} sub underflow"
+      }
+  }
+  let (b3, diff) := pushTarget b2 .sub #[UInt64.ofNat li, UInt64.ofNat ri]
+  pure (b3, diff)
+
+/-- Narrow checked mul: `prod = l*r`; assert `prod < 2^w` (EmitIR; not UInt64
+    field-wrap inverse — max UInt32 product is still < Goldilocks p). -/
+private def emitNarrowCheckedMul (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let bound ← narrowBoundV1 bitWidth
+  let li ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, prod) := pushTarget b .mul #[UInt64.ofNat li, UInt64.ofNat ri]
+  let (b2, limW) := emitLiteralU64 b1 (UInt64.ofNat bound)
+  let limIdx ← asTargetIndex limW
+  let (b3, ok) :=
+    pushBool b2 .lt #[UInt64.ofNat prod.rawIndex, UInt64.ofNat limIdx]
+  let b4 := {
+    b3 with
+      asserts := b3.asserts.push {
+        left := ok.encoded
+        right := encodeIndexedId .bool b3.trueBool
+        message := s!"u{bitWidth} mul overflow"
+      }
+  }
+  pure (b4, prod)
+
+/-- Narrow checked div: assert `r > 0` then `l / r` (EmitIR `u{w} div by zero`). -/
+private def emitNarrowCheckedDiv (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let _ ← narrowBoundV1 bitWidth
+  let li ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, nonzero) :=
+    pushBool b .gt #[UInt64.ofNat ri, UInt64.ofNat b.zeroTarget]
+  let b2 := {
+    b1 with
+      asserts := b1.asserts.push {
+        left := nonzero.encoded
+        right := encodeIndexedId .bool b1.trueBool
+        message := s!"u{bitWidth} div by zero"
+      }
+  }
+  let (b3, q) := pushTarget b2 .div #[UInt64.ofNat li, UInt64.ofNat ri]
+  pure (b3, q)
+
+/-- Narrow checked mod: assert `r > 0` then `l % r` (EmitIR `u{w} mod by zero`). -/
+private def emitNarrowCheckedMod (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let _ ← narrowBoundV1 bitWidth
+  let li ← asTargetIndex l
+  let ri ← asTargetIndex r
+  let (b1, nonzero) :=
+    pushBool b .gt #[UInt64.ofNat ri, UInt64.ofNat b.zeroTarget]
+  let b2 := {
+    b1 with
+      asserts := b1.asserts.push {
+        left := nonzero.encoded
+        right := encodeIndexedId .bool b1.trueBool
+        message := s!"u{bitWidth} mod by zero"
+      }
+  }
+  let (b3, m) := pushTarget b2 .mod_ #[UInt64.ofNat li, UInt64.ofNat ri]
+  pure (b3, m)
+
 /-- Target binary op accepting Target/U32 operands (encoded ids). -/
 private def emitTargetBin (b : BuilderV1) (op : OpTypeV1) (l r : WireV1) :
     BuilderV1 × WireV1 :=
@@ -688,27 +801,30 @@ private def lookupWideShift (b : BuilderV1)
   | none =>
       planError s!"PSY-DPN-G5: wideUintShiftLimb limbIndex={limbIndex} OOR"
 
-/-- UInt32 param range: assert `param < 2^32` (WideCounter dargo). -/
-private def emitU32ParamRangeAsserts (b : BuilderV1) (params : Array WireV1)
+/-- Felt-carried narrow UInt{8,16,32} param range: assert `param < 2^w`
+    (mirror EmitIRV1 entry guards; UInt32 also covers WideCounter dargo). -/
+private def emitNarrowParamRangeAsserts (b : BuilderV1) (params : Array WireV1)
     (paramMeta : Array PlanParam) : CompileResult BuilderV1 := do
   let mut bCur := b
-  let (bLit, limW) := emitLiteralU64 bCur 4294967296
-  bCur := bLit
-  let limIdx ← asTargetIndex limW
   for i in [0:params.size] do
     if let some p := paramMeta[i]? then
-      if p.uintWidth == 32 then
+      if isNarrowUintWidth p.uintWidth then
+        let bound ← narrowBoundV1 p.uintWidth
+        let (bLit, limW) := emitLiteralU64 bCur (UInt64.ofNat bound)
+        bCur := bLit
+        let limIdx ← asTargetIndex limW
         match params[i]? with
-        | none => planError "PSY-DPN-4: u32 param wire missing"
+        | none => planError "PSY-DPN: narrow param wire missing"
         | some w => do
             let pi ← asTargetIndex w
-            let (b1, ok) := pushBool bCur .lt #[UInt64.ofNat pi, UInt64.ofNat limIdx]
+            let (b1, ok) :=
+              pushBool bCur .lt #[UInt64.ofNat pi, UInt64.ofNat limIdx]
             bCur := {
               b1 with
                 asserts := b1.asserts.push {
                   left := ok.encoded
                   right := encodeIndexedId .bool b1.trueBool
-                  message := "u32 param out of range"
+                  message := s!"u{p.uintWidth} param out of range"
                 }
             }
   pure bCur
@@ -801,10 +917,26 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
   | .callFn name _args =>
       planError s!"PSY-DPN-G5-MATRIX: pureFn/localCall callFn '{name}' is residual \
 (.psy dual-write only until pure subgraph/inline DPN admit)"
-  | .narrowCheckedAdd w _ _ | .narrowCheckedSub w _ _ | .narrowCheckedMul w _ _
-  | .narrowCheckedDiv w _ _ | .narrowCheckedMod w _ _ =>
-      planError s!"PSY-DPN-G5-MATRIX: UInt{w} narrow checked arith residual \
-(.psy dual-write only; Felt+range assert not yet in DPN lower)"
+  | .narrowCheckedAdd w l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowCheckedAdd b2 w lw rw
+  | .narrowCheckedSub w l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowCheckedSub b2 w lw rw
+  | .narrowCheckedMul w l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowCheckedMul b2 w lw rw
+  | .narrowCheckedDiv w l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowCheckedDiv b2 w lw rw
+  | .narrowCheckedMod w l r => do
+      let (b1, lw) ← lowerExprV1 b params viewPath l
+      let (b2, rw) ← lowerExprV1 b1 params viewPath r
+      emitNarrowCheckedMod b2 w lw rw
   | .narrowBitAnd w _ _ | .narrowBitOr w _ _ | .narrowBitXor w _ _
   | .narrowShl w _ _ | .narrowShr w _ _ | .narrowBitNot w _ =>
       planError s!"PSY-DPN-G5-MATRIX: UInt{w} narrow bitwise/shift residual \
@@ -1533,7 +1665,7 @@ def lowerFunctionGeneralV1 (fn : PlanFunction) (multiLeaf : Bool) :
   let (b0, paramWires) := emitParams nParams
   let b0 := { b0 with multiLeaf }
   let b1 := ensurePrelude b0
-  let b2 ← emitU32ParamRangeAsserts b1 paramWires fn.params
+  let b2 ← emitNarrowParamRangeAsserts b1 paramWires fn.params
   let viewPath :=
     fn.kind == .pureHelper &&
       fn.body.toList.all fun s =>

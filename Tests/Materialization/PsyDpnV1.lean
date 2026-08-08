@@ -27,10 +27,12 @@
     * DPN-7: product `buildFromCapability` dual-writes Counter.dpn.json
       (package ≡ golden) + transitional Counter.psy; deployable=false note
     * G5-MATRIX: Bool/compare/logic; bare assert/revert; UInt64 sub/mul/div/mod;
-      bitAnd; const→literal product; residual FC for callFn/narrow/Int/shl;
-      payload revertError FC; UInt8 product dual-write `.psy`-only residual
-    * G5-HARD: residual allowlist keeps UInt8 `.psy`-only; non-allowlisted DPN
-      lower (e.g. zero state fields) fails materialize with PSY-DPN-G5-HARD
+      bitAnd; const→literal product; residual FC for callFn/Int/shl/narrow
+      bitwise; payload revertError FC
+    * R-NARROW: UInt8/16/32 checked arith + param range → DPN; UInt8 product
+      dual-writes `.dpn.json` + `.psy` (no longer residual-only)
+    * G5-HARD: residual allowlist for remaining residual families; non-allowlisted
+      DPN lower (e.g. zero state fields) fails materialize with PSY-DPN-G5-HARD
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Psy
@@ -1626,29 +1628,82 @@ def testCallFnFailClosedAtDpn : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "callFn pureFn must fail closed at DPN (residual)"
 
-/-- Residual UInt8 narrow checked arith → G5-MATRIX FC. -/
-def testNarrowCheckedAddFailClosedAtDpn : IO Unit := do
-  let fn : PlanFunction := {
+/-- R-NARROW: UInt8/16/32 checked add/sub/mul/div/mod + param range asserts. -/
+def testNarrowCheckedArithLower : IO Unit := do
+  let mk (w : Nat) (name : String) (body : Array Statement) : PlanFunction := {
     index := 0
-    name := "nadd"
+    name
+    kind := .mutate
+    params := #[
+      { sourceIndex := 0, name := "a", isBool := false, uintWidth := w },
+      { sourceIndex := 1, name := "b", isBool := false, uintWidth := w }
+    ]
+    body
+    resultIsBool := false
+    resultUintWidth := w
+    resultIsUnit := false
+  }
+  -- UInt8 add: param range + overflow assert + Add op
+  let dAdd ← liftResult (lowerFunctionForTestV1
+    (mk 8 "nadd" #[.returnValue (.narrowCheckedAdd 8 (.param 0) (.param 1))]) false)
+  expect (dAdd.assertions.any fun a => a.message == "u8 param out of range")
+    "UInt8 param range assert"
+  expect (dAdd.assertions.any fun a => a.message == "u8 add overflow")
+    "narrowCheckedAdd overflow assert"
+  expect (dAdd.definitions.any fun defn => defn.opType == .add) "narrow Add op"
+  -- UInt16 sub
+  let dSub ← liftResult (lowerFunctionForTestV1
+    (mk 16 "nsub" #[.returnValue (.narrowCheckedSub 16 (.param 0) (.param 1))]) false)
+  expect (dSub.assertions.any fun a => a.message == "u16 param out of range")
+    "UInt16 param range"
+  expect (dSub.assertions.any fun a => a.message == "u16 sub underflow")
+    "narrowCheckedSub underflow"
+  expect (dSub.definitions.any fun defn => defn.opType == .sub) "narrow Sub"
+  -- UInt32 mul (result < 2^32, not UInt64 field-wrap inverse)
+  let dMul ← liftResult (lowerFunctionForTestV1
+    (mk 32 "nmul" #[.returnValue (.narrowCheckedMul 32 (.param 0) (.param 1))]) false)
+  expect (dMul.assertions.any fun a => a.message == "u32 param out of range")
+    "UInt32 param range"
+  expect (dMul.assertions.any fun a => a.message == "u32 mul overflow")
+    "narrowCheckedMul overflow"
+  expect (dMul.definitions.any fun defn => defn.opType == .mul) "narrow Mul"
+  expect (!dMul.definitions.any fun defn => defn.opType == .div)
+    "narrow mul must not use field-wrap Div inverse"
+  -- UInt8 div/mod
+  let dDiv ← liftResult (lowerFunctionForTestV1
+    (mk 8 "ndiv" #[.returnValue (.narrowCheckedDiv 8 (.param 0) (.param 1))]) false)
+  expect (dDiv.assertions.any fun a => a.message == "u8 div by zero")
+    "narrowCheckedDiv zero"
+  expect (dDiv.definitions.any fun defn => defn.opType == .div) "narrow Div"
+  let dMod ← liftResult (lowerFunctionForTestV1
+    (mk 8 "nmod" #[.returnValue (.narrowCheckedMod 8 (.param 0) (.param 1))]) false)
+  expect (dMod.assertions.any fun a => a.message == "u8 mod by zero")
+    "narrowCheckedMod zero"
+  expect (dMod.definitions.any fun defn => defn.opType == .mod_) "narrow Mod"
+  -- Compare on narrow params reuses unsigned Target compare
+  let dCmp ← liftResult (lowerFunctionForTestV1 {
+    index := 0
+    name := "ncmp"
     kind := .mutate
     params := #[
       { sourceIndex := 0, name := "a", isBool := false, uintWidth := 8 },
       { sourceIndex := 1, name := "b", isBool := false, uintWidth := 8 }
     ]
-    body := #[.returnValue (.narrowCheckedAdd 8 (.param 0) (.param 1))]
-    resultIsBool := false
-    resultUintWidth := 8
+    body := #[.returnValue (.compare .lt (.param 0) (.param 1))]
+    resultIsBool := true
     resultIsUnit := false
-  }
-  match lowerFunctionForTestV1 fn false with
+  } false)
+  expect (dCmp.definitions.any fun defn => defn.opType == .lt) "narrow compare lt"
+  -- Narrow bitwise remains residual
+  match lowerFunctionForTestV1
+      (mk 8 "nband" #[.returnValue (.narrowBitAnd 8 (.param 0) (.param 1))]) false with
   | .error e =>
       let msg := e.render
       expect (msg.contains "PSY-DPN-G5-MATRIX" &&
-          (msg.contains "narrow" || msg.contains "UInt8"))
-        s!"narrow residual must cite G5-MATRIX, got: {msg}"
+          (msg.contains "bitwise" || msg.contains "narrow"))
+        s!"narrow bitwise residual must cite G5-MATRIX, got: {msg}"
   | .ok _ =>
-      throw <| IO.userError "narrowCheckedAdd must FC at DPN until admitted"
+      throw <| IO.userError "narrowBitAnd must stay residual at DPN"
 
 /-- Residual Int64 signed compare → G5-MATRIX FC. -/
 def testSignedCompareFailClosedAtDpn : IO Unit := do
@@ -1718,9 +1773,10 @@ def testPayloadRevertErrorFailClosedAtDpn : IO Unit := do
 
 /-- G5-HARD residual allowlist unit pins (classifier only). -/
 def testG5HardResidualAllowlistClassifier : IO Unit := do
+  -- Remaining residual families (R-NARROW arith admitted; bitwise still residual).
   expect (isPsyDpnG5HardResidualAllowlistV1
-      "PSY-DPN-G5-MATRIX: UInt8 narrow checked arith residual (.psy dual-write only)")
-    "narrow residual must be allowlisted"
+      "PSY-DPN-G5-MATRIX: UInt8 narrow bitwise/shift residual (.psy dual-write only)")
+    "narrow bitwise residual must be allowlisted"
   expect (isPsyDpnG5HardResidualAllowlistV1
       "PSY-DPN-G5-MATRIX: pureFn/localCall callFn 'f' is residual (.psy dual-write only)")
     "callFn residual must be allowlisted"
@@ -1737,15 +1793,13 @@ def testG5HardResidualAllowlistClassifier : IO Unit := do
       "PSY-DPN-G5-MATRIX: payload error (nonempty revertError args) is fail closed")
     "payload FC is not residual dual-write allowlist wording"
 
-/-- Product UInt8 narrow residual (G5-HARD allowlist): dual-write emits
-    transitional `.psy` only (no false DPN package claim while narrow lower
-    is residual). -/
-unsafe def testUInt8ProductResidualPsyOnly : IO Unit := do
+/-- R-NARROW product: UInt8 Counter-shaped program dual-writes DPN package + .psy. -/
+unsafe def testUInt8ProductDualWriteDpn : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program U8DpnRes where\n" ++
+    "program U8Dpn where\n" ++
     "  state count : UInt8\n" ++
     "  init(seed : UInt8) do\n" ++
     "    count := seed\n" ++
@@ -1755,18 +1809,33 @@ unsafe def testUInt8ProductResidualPsyOnly : IO Unit := do
     "  view get() : UInt8 do\n" ++
     "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<dpn-u8res>" "Tests.U8DpnRes" none)
+    source "<dpn-u8>" "Tests.U8Dpn" none)
   let compiled ← liftResult <| compileValidatedSourceV1 parsed
   let selection ← liftResult <|
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
   let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
   let files ← liftResult <| Targets.Psy.buildFromCapability cap
-  expect (files.size == 1)
-    s!"UInt8 residual must emit .psy only (no DPN claim), got {files.map (·.path)}"
-  expect (files[0]!.path.endsWith ".psy")
-    s!"sole residual artifact must be .psy, got {files[0]!.path}"
-  expect (!files.any (·.path.endsWith ".dpn.json"))
-    "must not publish .dpn.json for residual narrow Plan"
+  expect (files.size == 2)
+    s!"UInt8 R-NARROW must dual-write DPN+.psy, got {files.map (·.path)}"
+  let some dpn := files.find? (·.path.endsWith ".dpn.json") |
+    throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
+  let some psy := files.find? (·.path.endsWith ".psy") |
+    throw <| IO.userError s!"missing .psy; got {files.map (·.path)}"
+  expect (files[0]!.path.endsWith ".dpn.json")
+    "DPN package must be primary artifact"
+  expect (!psy.contents.isEmpty) "transitional .psy non-empty"
+  match parsePackage? dpn.contents with
+  | none => throw <| IO.userError "U8Dpn.dpn.json failed to parse as package"
+  | some pkg =>
+      expect (pkg.size == 3) s!"U8Dpn package must have 3 methods, got {pkg.size}"
+      let some inc := pkg.find? (·.name == "increment") |
+        throw <| IO.userError s!"missing increment; names {pkg.map (·.name)}"
+      expect (inc.assertions.any fun a => a.message == "u8 param out of range")
+        "product increment must range-check UInt8 param"
+      expect (inc.assertions.any fun a => a.message == "u8 add overflow")
+        "product increment must assert u8 add overflow"
+      expect (inc.definitions.any fun defn => defn.opType == .add)
+        "product increment must emit Add"
 
 /-- G5-HARD: non-allowlisted DPN lower failure fails materialize (no silent
     `.psy`-only). Hand Plan with zero state fields validates/emit-lowers to
@@ -1884,12 +1953,12 @@ unsafe def run : IO Unit := do
   testBitAndOrXorLower
   testConstProductLower
   testCallFnFailClosedAtDpn
-  testNarrowCheckedAddFailClosedAtDpn
+  testNarrowCheckedArithLower
   testSignedCompareFailClosedAtDpn
   testShlFailClosedAtDpn
   testPayloadRevertErrorFailClosedAtDpn
   testG5HardResidualAllowlistClassifier
-  testUInt8ProductResidualPsyOnly
+  testUInt8ProductDualWriteDpn
   testG5HardNonResidualDpnFailClosed
   testCounterProductDualWriteArtifacts
   IO.println "Tests.Materialization.PsyDpnV1: ok"
