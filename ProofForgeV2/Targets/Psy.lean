@@ -6,6 +6,7 @@ import ProofForgeV2.Targets.Psy.ValidatePlanV1
 import ProofForgeV2.Targets.Psy.EmitIRV1
 import ProofForgeV2.Targets.Psy.Dpn.SchemaV1
 import ProofForgeV2.Targets.Psy.Dpn.JsonCodecV1
+import ProofForgeV2.Targets.Psy.Dpn.LowerPlanV1
 
 /-!
 # ProofForgeV2.Targets.Psy — public façade

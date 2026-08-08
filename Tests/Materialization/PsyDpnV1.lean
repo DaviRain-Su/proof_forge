@@ -1,22 +1,36 @@
 /-
-  Tests.Materialization.PsyDpnV1 — PSY-DPN-1 schema + Counter golden.
+  Tests.Materialization.PsyDpnV1 — PSY-DPN-1/2 schema + Counter golden + Plan lower.
 
   Pins:
     * OpType / DataType exact discriminants used by Counter
     * encodeIndexedId (dataType<<32)|index
-    * hand-built Counter package compact JSON equals committed golden
     * golden parse → package structural equality with hand-built
+    * encode round-trip
+    * Examples/Counter product Plan → DPN package ≡ golden (DPN-2)
 -/
+import ProofForgeV2
+import ProofForgeV2.Targets.Psy
 import ProofForgeV2.Targets.Psy.Dpn.SchemaV1
 import ProofForgeV2.Targets.Psy.Dpn.JsonCodecV1
+import ProofForgeV2.Targets.Psy.Dpn.LowerPlanV1
+import Tests.Language.ParserSession
+import Tests.Compiler.ValidatedSourceV1Pipeline
 
 namespace Tests.Materialization.PsyDpnV1
 
+open ProofForgeV2
+open ProofForgeV2.Compiler
+open ProofForgeV2.Targets
 open ProofForgeV2.Targets.Psy.Dpn.SchemaV1
 open ProofForgeV2.Targets.Psy.Dpn.JsonCodecV1
+open ProofForgeV2.Targets.Psy.Dpn.LowerPlanV1
 
 private def expect (cond : Bool) (message : String) : IO Unit :=
   unless cond do throw <| IO.userError message
+
+private def liftResult {α : Type} : CompileResult α → IO α
+  | .ok value => pure value
+  | .error e => throw <| IO.userError e.render
 
 def testOpTypeDiscriminants : IO Unit := do
   expect (OpTypeV1.inputTarget.toUInt16 == 0) "InputTarget=0"
@@ -49,9 +63,10 @@ def testCounterGoldenDecode : IO Unit := do
   | some pkg =>
       expect (pkg == counterPackageGoldenV1)
         "decoded dargo golden must equal hand-built counterPackageGoldenV1"
-      expect (pkg.size == 2) "initialize + increment"
-      expect (pkg[0]!.name == "initialize") "first method"
+      expect (pkg.size == 3) "get + increment + initialize"
+      expect (pkg[0]!.name == "get") "first method name-sorted"
       expect (pkg[1]!.name == "increment") "second method"
+      expect (pkg[2]!.name == "initialize") "third method"
       expect (pkg[1]!.assertions.size == 1) "overflow assert present"
       expect (pkg[1]!.assertions[0]!.message == "u64 add overflow") "assert message"
 
@@ -64,11 +79,24 @@ def testCounterEncodeRoundTrip : IO Unit := do
       expect (pkg == counterPackageGoldenV1)
         "encodePackageCompact round-trip must preserve Counter package"
 
-def run : IO Unit := do
+/-- PSY-DPN-2: product Plan for Examples/Counter lowers to golden package. -/
+unsafe def testCounterPlanLowerEqualsGolden : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let src ← IO.FS.readFile "Examples/Counter.lean"
+  let parsed ← liftResult (← session.selectProgramV1 src "<dpn-c>" "Examples.Counter" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let pkg ← liftResult <| packageFromCapabilityV1 cap
+  expect (pkg == counterPackageGoldenV1)
+    s!"Plan→DPN package must equal Counter golden (got {pkg.map (·.name)})"
+
+unsafe def run : IO Unit := do
   testOpTypeDiscriminants
   testEncodeIndexedId
   testCounterGoldenDecode
   testCounterEncodeRoundTrip
+  testCounterPlanLowerEqualsGolden
   IO.println "Tests.Materialization.PsyDpnV1: ok"
 
 end Tests.Materialization.PsyDpnV1

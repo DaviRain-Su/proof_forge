@@ -12,6 +12,17 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy Plan→DPN Counter lower（PSY-DPN-2）
+
+- `LowerPlanV1`: pattern lower for single-field UInt64 Counter-shaped Plan
+  (initialize store param, increment checkedAdd+overflow assert, view load).
+- Pinned method_ids; dargo-observed sub_slot 0/1 layout; name-sorted package.
+- `packageFromCapabilityV1` matches full Counter golden (get/increment/initialize).
+- End-state product goal restated: cover **all admitted ProgramV1/DSL features**
+  on Psy DPN (arbitrary contracts in that subset), not PSL handbook / every opcode.
+- Next: DPN-3 control-flow templates → expand matrix toward G5.
+- Non-claims: not general SSA for all Plan stmts yet; not product path cutover.
+
 ## 2026-08-08 — Psy DPN schema + Counter golden（PSY-DPN-1）
 
 - Lean `ProofForgeV2/Targets/Psy/Dpn/SchemaV1.lean`: DataType/OpType exact

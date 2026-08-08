@@ -119,11 +119,12 @@ Pin rev 与 dargo 0.1.0 不一致时 **fail closed**（文档 + Tool Lock 同步
 
 ### 3.1 定义（本规划采用）
 
-**“ProgramV1 → Psy DPN 全覆盖”** 指：
+**“ProgramV1 → Psy DPN 全覆盖”** 指（产品最终目标，与用户确认一致）：
 
-> 凡 **Psy target 在 capability 矩阵上 admit** 的 ProgramV1 构造，均有 **确定性 DPN 编码**；  
+> **DSL 自有特性**（统一 `program … where` / ProgramV1）在 Psy 上 **admit 的全部构造**，最终都要有 **确定性 DPN 编码**，使任意该子集上的合约可物化；  
 > 凡 **不 admit** 的，在 **Normalize / Plan / DPN 边界** 有稳定诊断（证据化 FC），且 **不** 经 `.psy` 旁路偷偷实现。
 
+即：终点不是“只做一个 Counter 模板”，而是 **任意使用已开放 DSL 特性的合约** 都能降到 DPN；分阶段用模板/SSA 扩展矩阵 §3.2，直到 G5。
 **不**指：
 
 - 官方 PSL 语言手册全部语法；
@@ -222,10 +223,10 @@ G0–G2 为 **MVP**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛
 
 ### Phase DPN-2 — Lowering MVP（UInt64 Counter 形）
 
-- state 单 leaf UInt64  
-- init / entry add / view get  
-- overflow assert → `assertions`  
-- method_id 算法：与官方 `gen_dapen_contract_function_method_id` **对齐或文档化差异 + 金样锁定**
+- [x] `LowerPlanV1`：init store(param) / checkedAdd store+return / view load  
+- [x] method_id **金样 pin**（initialize/increment/get）  
+- [x] product Plan → package ≡ full Counter dargo golden  
+- [ ] method_id 官方 hash 复刻（可选硬化）
 
 ### Phase DPN-3 — 控制流与有界循环
 

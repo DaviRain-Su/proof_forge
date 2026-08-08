@@ -209,33 +209,31 @@ structure FunctionCircuitDefV1 where
 /-- Package artifact = ordered array of per-method DPN defs (dargo `*.json`). -/
 abbrev PackageV1 := Array FunctionCircuitDefV1
 
-/-- Hand-built Counter package matching locked-dargo `counter.json` (initialize +
-    increment only; view `get` may be absent from package when not compiled).
+/-- Hand-built Counter package matching locked-dargo full `counter.json`
+    (get, increment, initialize — name-sorted).
 
     Operand wiring note (from official package JSON):
     * `definitions[].inputs` often carry **raw same-type indices** (small u64).
     * `assertions` left/right use **full** `(dataType<<32)|index` encoding.
     * `SetContractStateSlotSingle.condition` uses full bool encoding; `value`
       and bare `sub_slot_index` use raw indices / literals as emitted by dargo.
+    * View `get` uses sub_slot 0; init/increment writes use sub_slot 1 (dargo
+      layout quirk observed on Counter).
 -/
 def counterPackageGoldenV1 : PackageV1 :=
   let b0 := encodeIndexedId .bool 0
   let b1 := encodeIndexedId .bool 1
   #[
-    { name := "initialize"
-      methodId := 202172507
-      circuitInputs := #[0]
-      circuitOutputs := #[]
-      stateCommands := #[
-        .getSelfUserCurrentContractStateSlotSingle 1,
-        .setContractStateSlotSingle b0 1 0
-      ]
-      stateCommandResolutionIndices := #[2, 3]
+    { name := "get"
+      methodId := 1459926901
+      circuitInputs := #[]
+      circuitOutputs := #[1]
+      stateCommands := #[.getSelfUserCurrentContractStateSlotSingle 0]
+      stateCommandResolutionIndices := #[1]
       assertions := #[]
       definitions := #[
-        { dataType := .target, index := 0, opType := .inputTarget, inputs := #[0] },
-        { dataType := .target, index := 1, opType := .constant, inputs := #[0] },
-        { dataType := .bool, index := 0, opType := .constantTrue, inputs := #[1] }
+        { dataType := .target, index := 0, opType := .constant, inputs := #[0] },
+        { dataType := .target, index := 1, opType := .getStateCommandResultSingle, inputs := #[0] }
       ]
       events := #[] },
     { name := "increment"
@@ -257,6 +255,22 @@ def counterPackageGoldenV1 : PackageV1 :=
         { dataType := .target, index := 3, opType := .add, inputs := #[2, 0] },
         { dataType := .bool, index := 1, opType := .gte, inputs := #[3, 2] },
         { dataType := .target, index := 4, opType := .getStateCommandResultSingle, inputs := #[2] }
+      ]
+      events := #[] },
+    { name := "initialize"
+      methodId := 202172507
+      circuitInputs := #[0]
+      circuitOutputs := #[]
+      stateCommands := #[
+        .getSelfUserCurrentContractStateSlotSingle 1,
+        .setContractStateSlotSingle b0 1 0
+      ]
+      stateCommandResolutionIndices := #[2, 3]
+      assertions := #[]
+      definitions := #[
+        { dataType := .target, index := 0, opType := .inputTarget, inputs := #[0] },
+        { dataType := .target, index := 1, opType := .constant, inputs := #[0] },
+        { dataType := .bool, index := 0, opType := .constantTrue, inputs := #[1] }
       ]
       events := #[] }
   ]

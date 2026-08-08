@@ -881,9 +881,9 @@
       "sha256": "012476822fa2b2c6f861e05a73a514e1c9ca47770c4f96c08ace593a09af29da"
     },
     {
-      "bytes": 2511,
+      "bytes": 2559,
       "path": "ProofForgeV2/Targets/Psy.lean",
-      "sha256": "28177ed440907731f9676d8d8808fb9b1a5d175390b4bca037ea3c2199db7c95"
+      "sha256": "b8edd74abfbe24ff4fdc38926fa6c56299a07ad9b463ecdfafc8ab6a202630b1"
     },
     {
       "bytes": 6357,
@@ -891,9 +891,14 @@
       "sha256": "06c83f05cb79cfeff4b4fa1ce99eaa8a541571c370880db75b6f1c5cd14991f3"
     },
     {
-      "bytes": 11311,
+      "bytes": 6673,
+      "path": "ProofForgeV2/Targets/Psy/Dpn/LowerPlanV1.lean",
+      "sha256": "9582299a1d55a71c7686be8c5f6e7a03f70b2dd5c874900582d296d14df1ce64"
+    },
+    {
+      "bytes": 11874,
       "path": "ProofForgeV2/Targets/Psy/Dpn/SchemaV1.lean",
-      "sha256": "61ef27c636df75767d09557804f1342f2aeee485f6e2e6b80017c9f5cf7154fd"
+      "sha256": "51d812a3ae0ce6526723dd0914c237571ead2ba865e77fbb32fd126d3f2e1c81"
     },
     {
       "bytes": 77912,
