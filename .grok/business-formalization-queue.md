@@ -1,45 +1,42 @@
 # Business formalization queue (track 1)
 
-**Authority:** ADR-0034 D10 · INV-2 · Agents Next task  
+**Authority:** ADR-0034 D10 · INV-2 · Agents Next task · RESEARCH-023  
 **Mode:** autonomous runner — do **not** wait for the user to say continue  
 **Sole step:** `SemanticProgramV1 → admitReferenceProgramSliceV1 → stepReferenceSliceV1`  
-**Forbidden:** second State/Effect/step · MiniAmm special-case · supersede ADR-0027 · formal TASK/TST claims · push unless user later asks
+**Forbidden:** second State/Effect/step · MiniAmm platform special-case · supersede ADR-0027 · formal TASK/TST claims · push unless user later asks
 
 ## Status legend
 
-- `pending` — next work
-- `in_progress` — runner claimed
-- `done` — committed green
-- `blocked` — needs human (record reason; skip to later only if independent)
+- `pending` / `in_progress` / `done` / `blocked`
 
-## Wave 1 (packaging / pin / docs) — drained
+## Wave 1–2 — drained (EvenCounter + ZeroCounter)
 
-| id | status | objective |
-|---|---|---|
-| bf-pack-1 | done | PreservationPackagingV1 extract |
-| bf-pack-2 | done | EvenCounter consumes packaging |
-| bf-unpin-1 | done | non-pin author path + suite |
-| bf-docs-1 | done | docs/Goal/workflow sync |
+| id | status |
+|---|---|
+| bf-pack-1/2, bf-unpin-1, bf-docs-1 | done |
+| bf2-data/preserve/product/docs (ZeroCounter) | done |
 
-## Wave 2 — second non-AMM instance (ZeroCounter, P: count==0)
+## Wave 3 — MiniAmm L1 P1 (empty pool)
+
+P1 (RESEARCH-023): `totalSupply == 0 → reserve0 == 0 ∧ reserve1 == 0`  
+Surface: `Examples/MiniAmmL1.lean` (full vault-internal MiniAmm + executable `emptyPool`; deployable no-inv `Examples/MiniAmm.lean` unchanged).
 
 | id | status | objective |
 |---|---|---|
-| bf2-data | done | Closed `ZeroCounterV1` data + product-aligned spine (1306B sole `state.persistent`) + `structure_ok` + `encode_ok` + admission decide; different P from EvenCounter; suite `Tests.Semantic.ZeroCounterV1` |
-| bf2-preserve | done | `ZeroCounterPreservationV1`: base + full `PreservationStepV1` + `preservation_theorem` reusing packaging; no second step machine |
-| bf2-product | done | Product source alignment (1306B) + ZeroCounter ClosedSubjectPin + InlineProofCertifier product-positive (`exact` preservation_theorem); EvenCounter remains GREEN |
-| bf2-docs | done | INV-2 / Agents / ADR-0034 / research-023 second-instance status; docs-check |
+| bf3-surface | done | Ship `Examples/MiniAmmL1.lean` with executable `emptyPool`; product `check` ok |
+| bf3-admit-docs | done | Reference admit suite + focused `Tests.Semantic.MiniAmmL1Admit` (18470B carrier); INV-2/Agents/queue wave-3 open |
+| bf3-preserve | pending | Closed data / packaging / `PreservationTheoremV1` for ordinal emptyPool on product Reference (no second step) |
+| bf3-product | pending | same-file `proof emptyPool preserving` + product certifier positive (pin optional golden) |
+| bf3-docs | pending | ADR/research/Agents closeout; **not** ADR-0027 supersession; not formal |
 
-## Done criteria (wave 2)
+## Done criteria (wave 3)
 
-All bf2-* `done`, EvenCounter still GREEN, ZeroCounter preserving product certified (or explicit partial bar documented), ADR-0027 not superseded.
-
-## Post wave-2
-
-Wave1+wave2 drained. Next business-track work is **MiniAmm P1** (ordinary instance on same ABI; no platform special-case; do not supersede ADR-0027). No new queue rows until human/Goal opens wave-3.
+All bf3-* done; EvenCounter + ZeroCounter still GREEN; MiniAmmL1 P1 product preserving certified (or honest partial bar); no MiniAmm-only step; ADR-0027 not superseded.
 
 ## Runner notes
 
-1. One slice per fire when possible; never MiniAmm in this wave.
-2. After each green slice: local commit only (no push); update this table.
-3. Prefer Goal `/goal @.grok/goals/prompt-business-formalization.md` or `/workflow business-formalization-drain` (update prompts to read wave 2 rows).
+1. Prefer product path + Reference; reuse PreservationPackagingV1.
+2. Do not put nonempty inv on deployable `Examples/MiniAmm.lean` unless product decision says so — L1 proof surface is MiniAmmL1.
+3. Local commit only; update this table.
+4. Goal: `/goal @.grok/goals/prompt-business-formalization.md`  
+   Workflow: `/workflow business-formalization-drain`

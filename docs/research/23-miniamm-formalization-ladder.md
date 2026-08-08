@@ -135,7 +135,7 @@ PreservationTheoremV1 program ordinal :=
 | ID | 谓词 P（直觉） | 依赖 | 难度 | 状态 |
 |---|---|---|---|---|
 | P0 | `true`（L0 表面） | simple-closure | — | **done**（`MiniAmmProofSurface`） |
-| P1 | empty pool：`totalSupply=0 → reserves=0` | product Reference step | 中 | pending（admission + generic ABI foundation **done**；缺 product kind/certifier、MiniAmm executable invariant 与真实 step proof/traces） |
+| P1 | empty pool：`totalSupply=0 → reserves=0` | product Reference step | 中 | **in progress（wave-3）**：`Examples/MiniAmmL1.lean` + `emptyPool` inv + product check/admit GREEN；缺 full `PreservationTheoremV1` + product preserving cert |
 | P2 | LP 份额和 = totalSupply（cap-4） | Map 模型 + Reference | 中高 | 草图（Map Principal admission 已通） |
 | P3 | remove/swap 成功后的 reserve 更新 | checked 算术 | 高 | 草图 |
 | P4 | swap 后乘积弱形式（宽积） | Nat/UInt128 模型 | 高 | 草图 |

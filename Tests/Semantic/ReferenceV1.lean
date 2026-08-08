@@ -6040,6 +6040,47 @@ private unsafe def testMiniAmmMapPrincipalAdmit
     "miniamm-map-principal: semantic must include Map Principal UInt64"
   let _ ← admitOk "miniamm-map-principal" carrier
 
+/-- Wave-3 MiniAmm L1 P1 surface: shipped `Examples/MiniAmmL1.lean` with
+    executable empty-pool invariant must Normalize + admit on product
+    Reference (same sole path as MiniAmm; no second step). -/
+private unsafe def testMiniAmmL1EmptyPoolAdmit
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let pathStr := "Examples/MiniAmmL1.lean"
+  let path := System.FilePath.mk pathStr
+  unless ← path.pathExists do
+    throw <| IO.userError
+      "miniamm-l1-empty-pool: shipped Examples/MiniAmmL1.lean is required"
+  let source ← IO.FS.readFile path
+  expect (source.length > 0)
+    "miniamm-l1-empty-pool: Examples/MiniAmmL1.lean must be non-empty"
+  expect (source.contains "emptyPool")
+    "miniamm-l1-empty-pool: source must declare emptyPool invariant"
+  expect (source.contains "totalSupply == 0")
+    "miniamm-l1-empty-pool: source must encode empty-pool implication"
+  let validated ←
+    match ← session.selectProgramV1 source pathStr "Examples.MiniAmmL1" none with
+    | .ok v => pure v
+    | .error error =>
+        throw <| IO.userError
+          s!"miniamm-l1-empty-pool: load failed: {error.render}"
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok c => pure c
+    | .error e =>
+        throw <| IO.userError s!"miniamm-l1-empty-pool: normalize: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e =>
+        throw <| IO.userError s!"miniamm-l1-empty-pool: validate: {repr e}"
+  expect (data.invariants.size == 1)
+    "miniamm-l1-empty-pool: expected exactly one invariant"
+  match data.invariants[0]? with
+  | none =>
+      throw <| IO.userError "miniamm-l1-empty-pool: missing invariant row"
+  | some inv =>
+      expect (inv.name == "emptyPool")
+        "miniamm-l1-empty-pool: invariant name must be emptyPool"
+  let _ ← admitOk "miniamm-l1-empty-pool" carrier
+
 /-- Suite entry (engineering only — not formal TST-SEM). -/
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -6089,6 +6130,8 @@ unsafe def run : IO Unit := do
   testMapOfConstructNormalizeReference session
   -- Wire-envelope Map admission: Map Principal UInt64 + shipped MiniAmm compile→admit
   testMiniAmmMapPrincipalAdmit session
+  -- Wave-3 MiniAmm L1 P1: empty-pool inv + admit
+  testMiniAmmL1EmptyPoolAdmit session
   testCallReturnNormalizeReference session
   -- R-1: Option state product admit + step
   testOptionStateNormalizeReference session
