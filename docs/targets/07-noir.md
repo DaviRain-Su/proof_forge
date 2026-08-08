@@ -19,8 +19,11 @@ Phase 1：实现
 规划 sole 输入：[`07-noir-acir-lowering.md`](07-noir-acir-lowering.md)。
 **NOIR-IR-1**：Counter locked-nargo ProgramArtifact 金样已冻结于
 `testdata/golden/noir-acir-v1/`（path-normalized multi-file inventory；非 opcode decode）。
-当前产品仍 emit relation **Noir source packages** + 可选 locked nargo compile-only；实现
-Plan→ACIR 产品 primary 前不得把 `.nr` 写成最终权威。
+**NOIR-IR-2**：Plan→ACIR MVP 已接线——路径决策 = **nargo-assisted capture**
+（`Acir/CaptureV1`；非 pure-Lean opcode encoder）；Counter product Plan →
+source-join ≡ golden product packages，且 nargo 在场时 circuit core ≡ golden。
+当前产品仍 emit relation **Noir source packages**（过渡）+ 可选 locked nargo
+compile-only；**无** ACIR 产品 OutputFile（IR-6）；不得把 `.nr` 写成最终权威。
 
 ## 当前工程迁移状态（非 formal 完成）
 
@@ -39,10 +42,10 @@ Digest 在 Plan 边界派生（engineering identity，非 formal BuildIdentity�
 - 产物：typed relation IR + Noir source packages；locked nargo 1.0.0-beta.26 对产品 Counter
   relation packages 执行 compile-only 工程验收。
 
-**明确未闭合**：IR-1 仅金样 inventory pin，**无** 产品 ACIR OutputFile / Plan→ACIR；
-**无** witness/proof/VK/prove/verify 验收门；无锁定 proving backend、CRS/security profile；
-formal Noir milestone；完整 Semantic 面。不得把
-compile-only 写成 circuit proof 完成。
+**明确未闭合**：IR-2 已钉 Counter Plan→ACIR capture≡金样，但仍 **无** 产品 ACIR
+OutputFile（IR-6）、**无** witness/proof/VK/prove/verify 验收门；无锁定 proving
+backend、CRS/security profile；formal Noir milestone；完整 Semantic 面。不得把
+compile-only / ACIR capture 写成 circuit proof 完成。
 
 ### C-4 研究与 G123 follow-up（2026-08-02—2026-08-03）
 

@@ -9,7 +9,7 @@ normative: false
 
 # Noir ACIR 层落地规划
 
-状态：`draft`（规划 + **NOIR-IR-1 金样已冻结**；Plan→ACIR 未开始）
+状态：`draft`（规划 + **NOIR-IR-1 金样已冻结** + **NOIR-IR-2 Plan→ACIR MVP 已接线**；产品 primary ACIR 仍属 IR-6）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Noir target 的权威物化从 **Noir 源包（`.nr` relations）** 切向官方 **电路中间表示（ACIR 及相关编译产物）**，并评估 admit 面覆盖。
 
 与 Psy / Aleo 对照：
@@ -27,7 +27,7 @@ normative: false
 |---|---|
 | 工具 | locked **nargo 1.0.0-beta.26** |
 | 官方语言 | Noir → **ACIR**（Abstract Circuit IR）→ backend prove |
-| 工程现状 | 产品 emit `relations/*/src/main.nr`；`NoirCompileAcceptance` / host-optional `nargo compile`；**IR-1** 金样 `testdata/golden/noir-acir-v1/` + inventory pin；**无** ACIR 产品 OutputFile |
+| 工程现状 | 产品 emit `relations/*/src/main.nr`（过渡）；`NoirCompileAcceptance` / host-optional `nargo compile`；**IR-1** 金样 `testdata/golden/noir-acir-v1/` + inventory pin；**IR-2** nargo-assisted Plan→ACIR capture（Counter ≡ 金样 circuit core）；**无** ACIR 产品 OutputFile（IR-6） |
 | 非本阶段 | Barretenberg prove/verify、CRS、VK 产品绑定、formal |
 
 **非目标：**
@@ -92,7 +92,7 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 |---|---|---|
 | G0 | 金样捕获 + pin | **done（IR-1）** Counter nargo compile artifact 入库 + 文档 |
 | G1 | Schema/codec 或 inventory hash | **done（IR-1）** exact multi-file SHA-256 + envelope keys（非 ACIR opcode codec） |
-| G2 | Plan→ACIR MVP | Counter ≡ 金样（结构或字节） |
+| G2 | Plan→ACIR MVP | **done（IR-2）** Counter product Plan → nargo-assisted capture ≡ 金样 circuit core；路径决策 = nargo-assisted |
 | G3 | 控制流 / 聚合 admit 面 | 与现 Noir Plan 一致 |
 | G4 | 产品 primary ACIR | `.nr` debug-only |
 | G5 | admit 矩阵 | Y/P 有 ACIR 或 FC |
@@ -137,8 +137,22 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 
 ### NOIR-IR-2 — Plan→ACIR MVP
 
-- [ ] Counter Plan 路径 ≡ 金样
-- [ ] 文档：nargo-assisted vs pure-Lean
+- [x] Counter Plan 路径 ≡ 金样（product Plan emit source-join + nargo-assisted circuit core）
+- [x] 文档：路径决策 = **nargo-assisted**（非 pure-Lean ACIR opcode encoder）
+
+**IR-2 路径决策（冻结）**：
+
+| 选项 | 结论 |
+|---|---|
+| pure-Lean ACIR opcode encoder | **不做**（IR-1 诚实结论：bytecode=base64(gzip ACIR)，未解码 opcode；不发明后端） |
+| nargo-assisted capture | **sole authority** |
+
+实现：
+
+* `ProofForgeV2/Targets/Noir/Acir/CaptureV1.lean` — circuit core 抽取/比较、nargo resolve、`compilePackageCaptureCircuitCoreV1`、product package source-join
+* `Tests/Materialization/NoirAcirV1.lean` — product Plan Counter materialize → source ≡ golden product packages（恒跑）；product packages → nargo compile → circuit core ≡ golden（nargo 缺席 honest skip）
+* 产品 Finalize **仍** source-only / non-deployable；**无** ACIR `OutputFile`（留给 IR-6）
+* `.nr` 继续作为过渡产品发射与 nargo 输入
 
 ### NOIR-IR-3..5 — 控制流 / 聚合 / 诚实矩阵
 
@@ -152,10 +166,10 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 
 | 现状 | 保留 |
 |---|---|
-| relation Plan + `.nr` emit | 过渡 |
-| locked nargo compile-only | 金样 + 对照 |
+| relation Plan + `.nr` emit | 过渡（IR-2 nargo 输入；IR-6 前仍 product OutputFile） |
+| locked nargo compile-only | 金样 + 对照 + IR-2 capture |
 | Finalize zero-tool / non-deployable | 直至产品决策 |
-| NoirCompileAcceptance | 不删除；可扩 ACIR pin |
+| NoirCompileAcceptance | 不删除；IR-2 另由 `NoirAcirV1` 钉 Counter≡金样 |
 
 ---
 
@@ -174,13 +188,13 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 
 ### MVP（IR-2）
 
-- Counter ACIR（或冻结 artifact 集）与 locked-nargo 金样结构/字节相等。
-- 测试进 targets shard。
-- `.nr` 声明为过渡。
+- [x] Counter ACIR（ProgramArtifact circuit core）与 locked-nargo 金样结构/字节相等（nargo 在场时 live；源码 join 恒跑）。
+- [x] 测试进 targets shard（`Tests.Materialization.NoirAcirV1`）。
+- [x] `.nr` 声明为过渡；路径决策文档化为 nargo-assisted。
 
 ### 非完成
 
-- prove/verify 产品门、CRS、formal、全 Noir 表面。
+- prove/verify 产品门、CRS、formal、全 Noir 表面、产品 primary ACIR OutputFile（IR-6）。
 
 ---
 
@@ -188,7 +202,8 @@ IR-1 **必须** 用 locked nargo 对产品 Counter package 实测：
 
 1. **NOIR-IR-0** 已完成。
 2. **NOIR-IR-1** 已完成：Counter 金样 + multi-file inventory pin。
-3. **NOIR-IR-2**：Plan→ACIR 或 nargo-assisted 权威路径（Counter ≡ 金样）。
+3. **NOIR-IR-2** 已完成：nargo-assisted Plan→ACIR MVP（Counter ≡ 金样）。
+4. **NOIR-IR-3..**：控制流/聚合 admit 面与诚实矩阵；其后 IR-6 产品 primary ACIR。
 
 规划 owner：engineering。
-IR-1 冻结细节见 `testdata/golden/noir-acir-v1/README.md`。
+IR-1/IR-2 冻结细节见 `testdata/golden/noir-acir-v1/README.md`。

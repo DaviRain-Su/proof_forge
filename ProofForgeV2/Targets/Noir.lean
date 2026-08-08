@@ -7,6 +7,7 @@ import ProofForgeV2.Targets.Noir.ValidatePlanV1
 import ProofForgeV2.Targets.Noir.PlanSchemaV1
 import ProofForgeV2.Targets.Noir.EmitIRV1
 import ProofForgeV2.Targets.Noir.Acir.InventoryV1
+import ProofForgeV2.Targets.Noir.Acir.CaptureV1
 
 /-!
 # ProofForgeV2.Targets.Noir — public façade
@@ -17,6 +18,11 @@ Plan types and Semantic→Plan lowering live in `LowerSemanticV1`
 Plan canonicity lives in `ValidatePlanV1`. IR emission and
 `irFromCapability`/`buildFromCapability` live in `EmitIRV1`.
 `FinalizeV1` remains a separate submodule.
+
+ACIR authority (NOIR-IR-1/IR-2):
+* `Acir/InventoryV1` — frozen multi-file ProgramArtifact golden pins
+* `Acir/CaptureV1` — nargo-assisted Plan→ACIR MVP capture (not pure-Lean
+  opcode encoder; `.nr` remains transitional product emission until IR-6)
 -/
 
 namespace ProofForgeV2.Targets.Noir

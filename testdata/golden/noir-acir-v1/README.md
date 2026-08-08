@@ -1,4 +1,4 @@
-# noir-acir-v1 golden (NOIR-IR-1)
+# noir-acir-v1 golden (NOIR-IR-1 + IR-2)
 
 Frozen **Examples/Counter** product Noir relation packages plus locked
 **nargo 1.0.0-beta.26** `nargo compile` ProgramArtifact JSON.
@@ -8,7 +8,13 @@ Frozen **Examples/Counter** product Noir relation packages plus locked
 - **Target authority direction:** ACIR / nargo circuit artifacts (not sole `.nr`).
 - **IR-1 freeze:** multi-file exact SHA-256 inventory of path-normalized nargo
   ProgramArtifact JSON + product package sources.
-- **Not claimed:** ACIR opcode decode, Plan→ACIR, prove/verify, deployable, formal.
+- **IR-2 Plan→ACIR MVP:** sole path = **nargo-assisted capture** from product
+  Plan emit (not pure-Lean ACIR opcode encoder). Counter product `.nr` packages
+  must byte-match `product/relations/*`; when nargo is present, compile of those
+  packages must match circuit core (`noir_version`+`hash`+`bytecode`) of
+  `nargo-compile/*`. See `ProofForgeV2/Targets/Noir/Acir/CaptureV1.lean`.
+- **Not claimed:** ACIR opcode decode, product ACIR OutputFile (IR-6),
+  prove/verify, deployable, formal.
 
 ## Tool pin
 
@@ -73,6 +79,7 @@ honesty (inventory pin still runs from frozen files).
 
 ## Non-goals
 
-- Product Finalize does **not** ship these as OutputFile yet (IR-2+).
+- Product Finalize does **not** ship these as OutputFile yet (IR-6).
 - No prove/verify/VK/witness product leaves.
 - `deployable=false`.
+- No pure-Lean ACIR opcode encoder (IR-2 decision: nargo-assisted only).
