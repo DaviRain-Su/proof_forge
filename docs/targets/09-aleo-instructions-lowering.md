@@ -415,18 +415,20 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 | 1 | **ALEO-MULTI-GOLDEN** | **done（2026-08-08，engineering）**：多 fixture **结构/产品** Plan→Instructions 钉测（见下分类）；**不**要求全量 multi-program leo 字节金样 |
 | 2 | **ALEO-COMPILE-COMPARE** | **done（2026-08-08，engineering）**：Accumulator admit-surface locked-leo `compiled.aleo` 对照金样 + Plan→IR 字节相等；live recheck tool-optional；缺工具 honest skip（见下） |
 | 3 | **ALEO-CONST** | **done（2026-08-08，engineering）**：literal-backed `Op.Constant` 在 Semantic→Plan 经 `lowerLiteral` 内联为 Plan literal；Instructions 见普通字面量操作数（无独立 const opcode）；UInt64/Bool/UInt32 product pins；非 envelope（String/Principal/aggregate/bn254…）仍 `lowerLiteral` FC；Counter golden 不变 |
+| 4 | **ALEO-ADMIT-FIXTURES** | **done（2026-08-08，engineering）**：耐久 `Tests/Fixtures/AleoAdmitSurfacesV1.lean`（Accumulator-credit / OptionState entry-only / MapMini put-only）；产品 select→compile→capability→`programFromCapabilityV1` + 结构 IR + G5-HARD；full Examples Plan-FC 原因钉（reserved `add`；computed views）；**不**改 shared Examples |
+| 5 | **ALEO-OPTION-COMPARE** | **Next**：OptionState（及可选 MapMini）admit-surface locked-leo `compiled.aleo` 字节/结构对照（tool optional；缺工具 honest skip） |
 
 ##### ALEO-MULTI-GOLDEN / COMPILE-COMPARE 分类（结构 vs 字节金样）
 
 | Fixture | 产品路径 | 钉测类型 | 备注 |
 |---|---|---|---|
 | **Counter** | full `Examples/Counter.lean` | **IR-1 full-surface full-byte golden** | `testdata/golden/aleo-instructions-v1/counter.compiled.aleo` 870 B；IR-1..IR-6 权威 |
-| **Accumulator admit** | admit-surface（entry `credit`；非 reserved `add`） | **COMPILE-COMPARE full-byte pin** | `accumulator-admit.compiled.aleo` 870 B SHA-256 `1db88f65cd384447e3970027234ea2912655259ed011e569fb96484536c44e3a`；product Plan→IR ≡ locked Leo 4.0.2 compile-profile capture；live recheck optional；**非** multi-program matrix、**非** IR-1 替代 |
+| **Accumulator admit** | durable fixture `Tests.Fixtures.AleoAdmitSurfacesV1`（entry `credit`；非 reserved `add`） | **COMPILE-COMPARE full-byte pin** | `accumulator-admit.compiled.aleo` 870 B SHA-256 `1db88f65cd384447e3970027234ea2912655259ed011e569fb96484536c44e3a`；product Plan→IR ≡ locked Leo 4.0.2 compile-profile capture；live recheck optional；**非** multi-program matrix、**非** IR-1 替代；full `Examples/Accumulator` **Plan-FC**（reserved `add`） |
 | **LoopSum** | full `Examples/LoopSum.lean` | **structural-only** | for unroll + bare view；method/mapping/control-op counts；encode nonempty；非字节金样 |
-| **OptionState** | admit-surface entry-only（无 computed `peek`） | **structural-only** | full Example **Plan-FC**（computed view）；tag+payload 双叶 + setSome/clear |
-| **MapMini** | admit-surface entry `put` only（无 computed `get`） | **structural-only** | full Example **Plan-FC**（computed view）；cap-2 六叶 + ternary upsert |
+| **OptionState** | durable fixture entry-only（无 computed `peek`） | **structural-only** | full Example **Plan-FC**（computed view）；tag+payload 双叶 + setSome/clear |
+| **MapMini** | durable fixture entry `put` only（无 computed `get`） | **structural-only** | full Example **Plan-FC**（computed view）；cap-2 六叶 + ternary upsert |
 
-证据：`Tests/Materialization/AleoInstructionsV1` — `testMultiGolden*` + `testCompileCompare*` + 既有 IR-4 Option/Map 产品钉；G5-HARD allowlist 仍空；Counter IR-1 字节金样不变。
+证据：`Tests/Fixtures/AleoAdmitSurfacesV1` + `Tests/Materialization/AleoInstructionsV1` — `testAdmitFixtures*` + `testMultiGolden*` + `testCompileCompare*` + 既有 IR-4 Option/Map 产品钉；G5-HARD allowlist 仍空；Counter IR-1 字节金样不变。
 
 #### 等上游 / 产品决策（不发明）
 
@@ -444,4 +446,4 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 7. **可选未来**：若上游提供 package-only execute 且进入 Tool Lock，扩展 `aleo_runtime_test.sh` 为 Counter host-heavy 差分（仍非 ordinary ci）。
 
 规划 owner：engineering。
-产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-0..IR-7 + G5-MATRIX + G5-HARD + RES-CLEAN + **ALEO-MULTI-GOLDEN** + **ALEO-COMPILE-COMPARE** + **ALEO-CONST** 已工程 closeout（产品 primary = Instructions；Leo debug-only；residual allowlist 空；runtime execute MISSING/PARTIAL；结构多 fixture + 单 admit locked-leo 对照 pin；literal-backed const 内联为 Instructions 字面量；Lane idle）。
+产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-0..IR-7 + G5-MATRIX + G5-HARD + RES-CLEAN + **ALEO-MULTI-GOLDEN** + **ALEO-COMPILE-COMPARE** + **ALEO-CONST** + **ALEO-ADMIT-FIXTURES** 已工程 closeout（产品 primary = Instructions；Leo debug-only；residual allowlist 空；runtime execute MISSING/PARTIAL；结构多 fixture + 单 admit locked-leo 对照 pin；literal-backed const 内联为 Instructions 字面量；durable admit-surface fixtures；Next = **ALEO-OPTION-COMPARE**）。

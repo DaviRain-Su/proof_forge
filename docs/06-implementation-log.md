@@ -13,6 +13,20 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+## 2026-08-08 — ALEO-ADMIT-FIXTURES：durable admit-surface suite fixtures
+
+- 新增 `Tests/Fixtures/AleoAdmitSurfacesV1.lean`：Accumulator-credit /
+  OptionState entry-only / MapMini put-only 的 suite-owned ProgramV1 源码字符串 +
+  full Examples Plan-FC 原因（reserved `add`；computed `peek`/`get`）。
+- `AleoInstructionsV1`：`testAdmitFixturesDurableSourceAuthority` /
+  `testAdmitFixturesProductLowerAll` / `testAdmitFixturesFullExamplesPlanFcHonesty`；
+  MULTI-GOLDEN / COMPILE-COMPARE 同源 durable fixture（不再 suite-local 内联）。
+- 产品路径 select→compile→capability→`programFromCapabilityV1` 成功；结构 IR +
+  G5-HARD 空；Counter IR-1 870 B 不变；**不**改 shared `Examples/*`。
+- Docs：`09-aleo-instructions-lowering.md` §10 / backlog / `09-aleo.md` /
+  `docs/index.md` / `AGENTS` Next=OPTION-COMPARE。
+- **非** multi-program leo 字节矩阵 / snarkVM / prove/deploy/formal；`deployable=false`。
+
 ## 2026-08-08 — ALEO-COMPILE-COMPARE：Accumulator admit locked-leo pin
 
 - Product capture：Accumulator admit-surface（entry `credit`；非 reserved `add`）via

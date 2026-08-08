@@ -1,11 +1,13 @@
 /-
   ALEO-IR-1..7 + G5-MATRIX + G5-HARD + RES-CLEAN + ALEO-MULTI-GOLDEN +
-  ALEO-COMPILE-COMPARE:
+  ALEO-COMPILE-COMPARE + ALEO-ADMIT-FIXTURES:
   Aleo Instructions Schema/TextCodec + Counter golden + Plan→Instructions
   + if/match/bounded-for + multi-leaf + narrow UInt + effects honesty +
   product primary + residual true lower + hard-require (empty allowlist) +
   IR-7 runtime honesty PARTIAL/MISSING + residual honesty closeout +
-  multi-fixture structural product pins + optional locked-leo compile compare.
+  multi-fixture structural product pins + optional locked-leo compile compare
+  + durable suite-owned admit-surface fixtures
+  (`Tests.Fixtures.AleoAdmitSurfacesV1`).
 
   Covers:
   * schema id / Leo golden version pins
@@ -36,6 +38,11 @@
     `accumulator-admit.compiled.aleo` compare pin (Plan→IR byte ≡ golden;
     live compile-profile recheck when locked Leo present; honest skip note
     when tool missing). **Not** full multi-program leo byte matrix.
+  * ALEO-ADMIT-FIXTURES: durable `Tests.Fixtures.AleoAdmitSurfacesV1` sources
+    for Accumulator-credit / OptionState entry-only / MapMini put-only;
+    product select→compile→capability→programFromCapabilityV1 succeeds;
+    structural IR + G5-HARD empty; full Examples Plan-FC honesty pins
+    (reserved `add`; computed views). Shared Examples not renamed.
 
   **Not** snarkVM execute, prove/deploy, formal, full multi-program leo
   byte-equality matrix. PARTIAL only with evidence (IR-7 MISSING pin).
@@ -51,6 +58,7 @@ import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Materialization.LockedToolchainV1
 import Tests.Language.ParserSession
 import Tests.Compiler.ValidatedSourceV1Pipeline
+import Tests.Fixtures.AleoAdmitSurfacesV1
 
 namespace Tests.Materialization.AleoInstructionsV1
 
@@ -62,6 +70,7 @@ open ProofForgeV2.Targets.Aleo
 open ProofForgeV2.Targets.Aleo.Instructions.SchemaV1
 open ProofForgeV2.Targets.Aleo.Instructions.TextCodecV1
 open ProofForgeV2.Targets.Aleo.Instructions.LowerPlanV1
+open Tests.Fixtures.AleoAdmitSurfacesV1
 open System
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
@@ -79,20 +88,6 @@ private def goldenPath : FilePath :=
     Not IR-1 Counter authority; not multi-program matrix. -/
 private def accumulatorAdmitGoldenPath : FilePath :=
   "testdata/golden/aleo-instructions-v1/accumulator-admit.compiled.aleo"
-
-/-- Same admit-surface source as MULTI-GOLDEN Accumulator pin. -/
-private def accumulatorAdmitSourceV1 : String :=
-  "import ProofForgeV2\n" ++
-  "open ProofForgeV2.Language\n" ++
-  "program Accumulator where\n" ++
-  "  state total : UInt64\n" ++
-  "  init(seed : UInt64) do\n" ++
-  "    total := seed\n" ++
-  "  entry credit(amount : UInt64) : UInt64 do\n" ++
-  "    total := total + amount\n" ++
-  "    return total\n" ++
-  "  view current() : UInt64 do\n" ++
-  "    return total\n"
 
 /-- Locked Leo candidate (same resolution as AleoCompiledFinalizationV1). -/
 private def lockedLeoCandidate : IO FilePath := do
@@ -1741,8 +1736,9 @@ unsafe def testMultiGoldenLoopSumProduct : IO Unit := do
 
 /-- ALEO-MULTI-GOLDEN: Accumulator admit-surface product pin.
     Full `Examples/Accumulator.lean` is Plan-FC (Leo reserved entry name `add`);
-    admit-surface renames entry to `credit` (same state/view shape). Structural
-    only here — byte pin is ALEO-COMPILE-COMPARE. -/
+    durable fixture renames entry to `credit` (same state/view shape). Structural
+    only here — byte pin is ALEO-COMPILE-COMPARE. Source authority =
+    `Tests.Fixtures.AleoAdmitSurfacesV1.accumulatorAdmitSourceV1`. -/
 unsafe def testMultiGoldenAccumulatorAdmitSurface : IO Unit := do
   -- Honesty: full Examples/Accumulator.lean must Plan-FC on reserved `add`.
   let fullSrc ← IO.FS.readFile "Examples/Accumulator.lean"
@@ -1764,9 +1760,9 @@ unsafe def testMultiGoldenAccumulatorAdmitSurface : IO Unit := do
       | .error e =>
           expect (e.render.contains "reserved" || e.render.contains "add")
             s!"full Accumulator must cite reserved/add, got: {e.render}"
-  -- Admit-surface: same shape, non-reserved entry name.
-  let prog ← productProgramFromSource "accumulator" accumulatorAdmitSourceV1
-    "Tests.AleoMultiAccumulator"
+  -- Admit-surface durable fixture: same shape, non-reserved entry name.
+  let prog ← productProgramFromSource accumulatorAdmitProgramId
+    accumulatorAdmitSourceV1 accumulatorAdmitModuleName
   expect (prog.name == "accumulator.aleo") "Accumulator program name"
   let (maps, funs, fins, ctors) := countItemKinds prog
   expect (maps == 2)
@@ -1794,7 +1790,8 @@ unsafe def testMultiGoldenAccumulatorAdmitSurface : IO Unit := do
   | some p2 => expect (p2 == prog) "Accumulator structural round-trip"
 
 /-- ALEO-MULTI-GOLDEN: OptionState admit-surface product pin (entry-only;
-    full Examples/OptionState computed `peek` view is Plan-FC). Structural only. -/
+    full Examples/OptionState computed `peek` view is Plan-FC). Structural only.
+    Source authority = `Tests.Fixtures.AleoAdmitSurfacesV1.optionStateAdmitSourceV1`. -/
 unsafe def testMultiGoldenOptionStateAdmitSurface : IO Unit := do
   -- Honesty: full Examples computed view Plan-FC.
   let fullSrc ← IO.FS.readFile "Examples/OptionState.lean"
@@ -1816,21 +1813,8 @@ unsafe def testMultiGoldenOptionStateAdmitSurface : IO Unit := do
           expect (e.render.contains "view" || e.render.contains "computed" ||
               e.render.contains "leo query")
             s!"full OptionState must cite computed view, got: {e.render}"
-  let admitSrc :=
-    "import ProofForgeV2\n" ++
-    "open ProofForgeV2.Language\n" ++
-    "program OptionState where\n" ++
-    "  state slot : Option UInt64\n" ++
-    "  init() do\n" ++
-    "    slot := Option.none()\n" ++
-    "  entry setSome(v : UInt64) : UInt64 do\n" ++
-    "    slot := Option.some(v)\n" ++
-    "    return v\n" ++
-    "  entry clear() : UInt64 do\n" ++
-    "    slot := Option.none()\n" ++
-    "    return 0\n"
-  let prog ← productProgramFromSource "optionstate" admitSrc
-    "Tests.AleoMultiOptionState"
+  let prog ← productProgramFromSource optionStateAdmitProgramId
+    optionStateAdmitSourceV1 optionStateAdmitModuleName
   expect (prog.name == "optionstate.aleo") "OptionState program name"
   let (maps, funs, fins, ctors) := countItemKinds prog
   expect (maps == 3)
@@ -1855,7 +1839,8 @@ unsafe def testMultiGoldenOptionStateAdmitSurface : IO Unit := do
   | some p2 => expect (p2 == prog) "OptionState multi structural round-trip"
 
 /-- ALEO-MULTI-GOLDEN: MapMini admit-surface product pin (entry put only;
-    full Examples/MapMini computed `get` view is Plan-FC). Structural only. -/
+    full Examples/MapMini computed `get` view is Plan-FC). Structural only.
+    Source authority = `Tests.Fixtures.AleoAdmitSurfacesV1.mapMiniAdmitSourceV1`. -/
 unsafe def testMultiGoldenMapMiniAdmitSurface : IO Unit := do
   let fullSrc ← IO.FS.readFile "Examples/MapMini.lean"
   let session ← Tests.Language.ParserSession.shared
@@ -1876,18 +1861,8 @@ unsafe def testMultiGoldenMapMiniAdmitSurface : IO Unit := do
           expect (e.render.contains "view" || e.render.contains "computed" ||
               e.render.contains "leo query")
             s!"full MapMini must cite computed view, got: {e.render}"
-  let admitSrc :=
-    "import ProofForgeV2\n" ++
-    "open ProofForgeV2.Language\n" ++
-    "program MapMini where\n" ++
-    "  state m : Map UInt64 UInt64\n" ++
-    "  init() do\n" ++
-    "    m := Map.empty()\n" ++
-    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
-    "    m[k] := v\n" ++
-    "    return v\n"
-  let prog ← productProgramFromSource "mapmini" admitSrc
-    "Tests.AleoMultiMapMini"
+  let prog ← productProgramFromSource mapMiniAdmitProgramId
+    mapMiniAdmitSourceV1 mapMiniAdmitModuleName
   expect (prog.name == "mapmini.aleo") "MapMini program name"
   let (maps, funs, fins, ctors) := countItemKinds prog
   expect (maps == 7)
@@ -1959,9 +1934,10 @@ unsafe def testCompileCompareAccumulatorAdmitPlanEqualsGolden : IO Unit := do
     "COMPILE-COMPARE admit entry is credit (not reserved add)"
   expect (!golden.contains "function increment:")
     "COMPILE-COMPARE golden must not be Counter"
-  -- Plan→IR product lower must byte-equal locked-leo capture.
+  -- Plan→IR product lower must byte-equal locked-leo capture
+  -- (durable fixture source authority).
   let prog ← productProgramFromSource "accumulator-cc" accumulatorAdmitSourceV1
-    "Tests.AleoCompileCompareAccumulator"
+    accumulatorAdmitModuleName
   let encoded := encodeProgram prog
   expect (encoded == golden)
     s!"COMPILE-COMPARE Plan→IR encode must equal locked-leo admit golden\n--- encoded ---\n{encoded}\n--- golden ---\n{golden}"
@@ -1993,7 +1969,7 @@ unsafe def testCompileCompareAccumulatorAdmitLockedLeoOptional : IO Unit := do
       let session ← Tests.Language.ParserSession.shared
       let parsed ← liftResult (← session.selectProgramV1
         accumulatorAdmitSourceV1 "<aleo-cc-acc-live>"
-        "Tests.AleoCompileCompareAccumulatorLive" none)
+        accumulatorAdmitModuleName none)
       let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
       let selection ← liftResult <|
         BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo
@@ -2020,6 +1996,159 @@ unsafe def testCompileCompareAccumulatorAdmitLockedLeoOptional : IO Unit := do
         "COMPILE-COMPARE live primary Instructions must equal pin"
       IO.println
         s!"  COMPILE-COMPARE: live locked Leo {leo.version} recheck ok (accumulator-admit ≡ pin)"
+
+/-- ALEO-ADMIT-FIXTURES: durable fixture inventory + full-Example Plan-FC reasons.
+    Sources live in `Tests.Fixtures.AleoAdmitSurfacesV1` (not ad-hoc suite
+    locals). Shared Examples are not renamed. -/
+def testAdmitFixturesDurableSourceAuthority : IO Unit := do
+  expect (accumulatorAdmitSourceV1.contains "entry credit(")
+    "ADMIT-FIXTURES Accumulator durable source uses entry credit"
+  expect (!accumulatorAdmitSourceV1.contains "entry add(")
+    "ADMIT-FIXTURES Accumulator must not use reserved entry add"
+  expect (optionStateAdmitSourceV1.contains "entry setSome(")
+    "ADMIT-FIXTURES OptionState has setSome entry"
+  expect (optionStateAdmitSourceV1.contains "entry clear(")
+    "ADMIT-FIXTURES OptionState has clear entry"
+  expect (!optionStateAdmitSourceV1.contains "view peek")
+    "ADMIT-FIXTURES OptionState has no computed peek view"
+  expect (mapMiniAdmitSourceV1.contains "entry put(")
+    "ADMIT-FIXTURES MapMini has put entry"
+  expect (!mapMiniAdmitSourceV1.contains "view get")
+    "ADMIT-FIXTURES MapMini has no computed get view"
+  expect (fullExamplePlanFcReasonAccumulator.contains "reserved")
+    "ADMIT-FIXTURES documents Accumulator reserved-add Plan-FC"
+  expect (fullExamplePlanFcReasonOptionState.contains "computed view")
+    "ADMIT-FIXTURES documents OptionState computed-view Plan-FC"
+  expect (fullExamplePlanFcReasonMapMini.contains "computed view")
+    "ADMIT-FIXTURES documents MapMini computed-view Plan-FC"
+  expect (!Targets.Aleo.isAleoInstructionsG5HardResidualAllowlistV1 "")
+    "ADMIT-FIXTURES: G5-HARD residual allowlist stays empty"
+  pure ()
+
+/-- ALEO-ADMIT-FIXTURES product path: select→compile→capability→
+    programFromCapabilityV1 for each durable admit-surface fixture.
+    Structural IR asserts + G5-HARD empty. Does not rename shared Examples. -/
+unsafe def testAdmitFixturesProductLowerAll : IO Unit := do
+  -- Accumulator-credit
+  let acc ← productProgramFromSource accumulatorAdmitProgramId
+    accumulatorAdmitSourceV1 accumulatorAdmitModuleName
+  expect (acc.name == s!"{accumulatorAdmitProgramId}.aleo")
+    "ADMIT-FIXTURES Accumulator program id"
+  expect (hasFunctionNamed acc "credit") "ADMIT-FIXTURES Accumulator credit"
+  expect (hasBinaryOp acc "add") "ADMIT-FIXTURES Accumulator checkedAdd"
+  let (accMaps, accFuns, accFins, accCtors) := countItemKinds acc
+  expect (accMaps == 2 && accFuns == 2 && accFins == 2 && accCtors == 1)
+    s!"ADMIT-FIXTURES Accumulator shape maps={accMaps} fns={accFuns}"
+  let accEnc := encodeProgram acc
+  expect (accEnc.startsWith "program accumulator.aleo;")
+    "ADMIT-FIXTURES Accumulator header"
+  match decodeProgram? accEnc with
+  | none => throw <| IO.userError "ADMIT-FIXTURES Accumulator encode→decode"
+  | some p => expect (p == acc) "ADMIT-FIXTURES Accumulator round-trip"
+
+  -- OptionState entry-only
+  let opt ← productProgramFromSource optionStateAdmitProgramId
+    optionStateAdmitSourceV1 optionStateAdmitModuleName
+  expect (opt.name == s!"{optionStateAdmitProgramId}.aleo")
+    "ADMIT-FIXTURES OptionState program id"
+  expect (hasFunctionNamed opt "setSome" && hasFunctionNamed opt "clear")
+    "ADMIT-FIXTURES OptionState entries"
+  let (optMaps, optFuns, optFins, optCtors) := countItemKinds opt
+  expect (optMaps == 3 && optFuns == 3 && optFins == 3 && optCtors == 1)
+    s!"ADMIT-FIXTURES OptionState shape maps={optMaps} fns={optFuns}"
+  expect (countSetsInFinalize opt "setSome" ≥ 2)
+    "ADMIT-FIXTURES setSome dual-leaf store"
+  let optEnc := encodeProgram opt
+  expect (optEnc.length > 0) "ADMIT-FIXTURES OptionState encode nonempty"
+  match decodeProgram? optEnc with
+  | none => throw <| IO.userError "ADMIT-FIXTURES OptionState encode→decode"
+  | some p => expect (p == opt) "ADMIT-FIXTURES OptionState round-trip"
+
+  -- MapMini put-only
+  let mp ← productProgramFromSource mapMiniAdmitProgramId
+    mapMiniAdmitSourceV1 mapMiniAdmitModuleName
+  expect (mp.name == s!"{mapMiniAdmitProgramId}.aleo")
+    "ADMIT-FIXTURES MapMini program id"
+  expect (hasFunctionNamed mp "put") "ADMIT-FIXTURES MapMini put"
+  let (mpMaps, mpFuns, mpFins, mpCtors) := countItemKinds mp
+  expect (mpMaps == 7 && mpFuns == 2 && mpFins == 2 && mpCtors == 1)
+    s!"ADMIT-FIXTURES MapMini shape maps={mpMaps} fns={mpFuns}"
+  expect (countSetsInFinalize mp "put" == 6)
+    "ADMIT-FIXTURES MapMini put six-leaf store"
+  expect (hasTernary mp) "ADMIT-FIXTURES MapMini ternary upsert"
+  let mpEnc := encodeProgram mp
+  expect (mpEnc.length > 0) "ADMIT-FIXTURES MapMini encode nonempty"
+  match decodeProgram? mpEnc with
+  | none => throw <| IO.userError "ADMIT-FIXTURES MapMini encode→decode"
+  | some p => expect (p == mp) "ADMIT-FIXTURES MapMini round-trip"
+
+  -- G5-HARD empty under admit fixture product lower.
+  expect (!Targets.Aleo.isAleoInstructionsG5HardResidualAllowlistV1 "")
+    "ADMIT-FIXTURES product lower: G5-HARD allowlist empty"
+  -- Counter IR-1 authority unchanged.
+  let counterGolden ← IO.FS.readFile goldenPath
+  expect (counterGolden.toUTF8.size == 870)
+    "ADMIT-FIXTURES must not alter Counter golden size"
+  pure ()
+
+/-- ALEO-ADMIT-FIXTURES full Examples honesty: each shared Example remains
+    Plan-FC for documented reasons (reserved add / computed views). Admit
+    fixtures succeed independently. -/
+unsafe def testAdmitFixturesFullExamplesPlanFcHonesty : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  -- Accumulator full → FC (reserved add)
+  let accFull ← IO.FS.readFile "Examples/Accumulator.lean"
+  let accParsed ← liftResult (← session.selectProgramV1
+    accFull "<aleo-admit-full-acc>" "Examples.Accumulator" none)
+  let accCompiled ← liftResult <| Compiler.compileValidatedSourceV1 accParsed
+  match resolveEngineeringRequirementsV1 selection accCompiled with
+  | .error e =>
+      expect (e.render.length > 0) "full Accumulator FC diagnostic nonempty"
+  | .ok cap =>
+      match planFromCapability cap with
+      | .ok _ =>
+          throw <| IO.userError
+            s!"full Accumulator must Plan-FC: {fullExamplePlanFcReasonAccumulator}"
+      | .error e =>
+          expect (e.render.contains "reserved" || e.render.contains "add")
+            s!"full Accumulator FC must cite reserved/add (reason: {fullExamplePlanFcReasonAccumulator}); got: {e.render}"
+  -- OptionState full → FC (computed peek)
+  let optFull ← IO.FS.readFile "Examples/OptionState.lean"
+  let optParsed ← liftResult (← session.selectProgramV1
+    optFull "<aleo-admit-full-opt>" "Examples.OptionState" none)
+  let optCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optParsed
+  match resolveEngineeringRequirementsV1 selection optCompiled with
+  | .error e =>
+      expect (e.render.length > 0) "full OptionState FC diagnostic nonempty"
+  | .ok cap =>
+      match planFromCapability cap with
+      | .ok _ =>
+          throw <| IO.userError
+            s!"full OptionState must Plan-FC: {fullExamplePlanFcReasonOptionState}"
+      | .error e =>
+          expect (e.render.contains "view" || e.render.contains "computed" ||
+              e.render.contains "leo query")
+            s!"full OptionState FC must cite computed view (reason: {fullExamplePlanFcReasonOptionState}); got: {e.render}"
+  -- MapMini full → FC (computed get)
+  let mapFull ← IO.FS.readFile "Examples/MapMini.lean"
+  let mapParsed ← liftResult (← session.selectProgramV1
+    mapFull "<aleo-admit-full-map>" "Examples.MapMini" none)
+  let mapCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapParsed
+  match resolveEngineeringRequirementsV1 selection mapCompiled with
+  | .error e =>
+      expect (e.render.length > 0) "full MapMini FC diagnostic nonempty"
+  | .ok cap =>
+      match planFromCapability cap with
+      | .ok _ =>
+          throw <| IO.userError
+            s!"full MapMini must Plan-FC: {fullExamplePlanFcReasonMapMini}"
+      | .error e =>
+          expect (e.render.contains "view" || e.render.contains "computed" ||
+              e.render.contains "leo query")
+            s!"full MapMini FC must cite computed view (reason: {fullExamplePlanFcReasonMapMini}); got: {e.render}"
+  pure ()
 
 /-- ALEO-IR-7 / G6 runtime honesty (docs/targets/09-aleo-instructions-lowering.md §5/§10):
     * package-only snarkVM/snarkOS execute of product Instructions is **MISSING**
@@ -2113,6 +2242,9 @@ unsafe def run : IO Unit := do
   testMultiGoldenClassificationInventory
   testCompileCompareAccumulatorAdmitPlanEqualsGolden
   testCompileCompareAccumulatorAdmitLockedLeoOptional
+  testAdmitFixturesDurableSourceAuthority
+  testAdmitFixturesProductLowerAll
+  testAdmitFixturesFullExamplesPlanFcHonesty
   testIr7RuntimeHonestyNotes
   testResidualHonestyNotes
   IO.println "Tests.Materialization.AleoInstructionsV1: ok"

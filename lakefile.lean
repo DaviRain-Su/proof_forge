@@ -224,6 +224,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.EvmPlanSchemaV1,
     `Tests.Materialization.AleoPlanSchemaV1,
     `Tests.Materialization.AleoInstructionsV1,
+    `Tests.Fixtures.AleoAdmitSurfacesV1,
     `Tests.Materialization.OutputSetV1,
     `Tests.Materialization.OutputEnvelopeV1,
     `Tests.Materialization.EngineeringFinalizationV1,
@@ -336,6 +337,14 @@ lean_exe proof_forge_next_tests where
 lean_exe proof_forge_next_fast_tests where
   exeName := "proof-forge-next-fast-tests"
   root := `Tests.Fast
+  supportInterpreter := true
+
+-- Focused Aleo Instructions suite (ALEO-IR / MULTI-GOLDEN / ADMIT-FIXTURES).
+-- Same root as `lean --run Tests/Materialization/AleoInstructionsV1.lean` but
+-- as a native exe so ordinary CI shards stay memory-bounded.
+lean_exe aleo_instructions_v1_focus where
+  exeName := "aleo-instructions-v1-focus"
+  root := `Tests.Materialization.AleoInstructionsV1
   supportInterpreter := true
 
 -- Memory-bounded shards: the single-process aggregate keeps a high-water RSS
