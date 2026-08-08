@@ -6,6 +6,7 @@ import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.ProgramExport
 import ProofForgeV2.Language.TheoremInventoryV1
+import ProofForgeV2.Semantic.ClosedSubjectPinV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.PreservationABI
 import ProofForgeV2.Semantic.ProofSubjectV1
@@ -349,10 +350,33 @@ private def expectedTheoremsForAuditV1
         helpers := helpers.push { name := helperName, expectedType }
   pure { authors, generatedHelpers := helpers }
 
+/-- Structural decode of a `ByteArray` def value, or one fail-closed hop into a
+    registered closed subject pin (shared with product elaborator). Pin bytes
+    come from the pin table (exact identity), not Expr evaluation of large
+    spines. -/
+private def decodeSubjectByteValueExprV1
+    (_env : Environment) (valueExpr : Expr) :
+    Except InlineProofCertifierDetailV1 ByteArray := do
+  match decodeBoundedByteArrayExprV1 valueExpr.consumeMData with
+  | .ok bytes => pure bytes
+  | .error _ =>
+      match valueExpr.consumeMData with
+      | .const pinName levels =>
+          unless levels.isEmpty do
+            return ← .error .subjectBytes
+          unless ProofForgeV2.Semantic.ClosedSubjectPinV1.isClosedSubjectBytePinNameV1
+              pinName do
+            return ← .error .subjectBytes
+          match ProofForgeV2.Semantic.ClosedSubjectPinV1.closedSubjectBytePinBytesV1
+              pinName with
+          | some bytes => pure bytes
+          | none => .error .subjectBytes
+      | _ => .error .subjectBytes
+
 /-- Decode either an inline structural ByteArray expression or the exact
-    compiler-generated sibling `subjectBytesV1` transparent definition. This
-    follows at most that one statically named constant and never evaluates an
-    arbitrary term. -/
+    compiler-generated sibling `subjectBytesV1` transparent definition. Follows
+    at most: product `subjectBytesV1` → optional closed pin constant → structural
+    spine. Never evaluates arbitrary terms. -/
 private def decodeGeneratedSubjectByteExprV1
     (env : Environment) (subjectDecl : Name) (bytesExpr : Expr) :
     Except InlineProofCertifierDetailV1 ByteArray := do
@@ -381,9 +405,7 @@ private def decodeGeneratedSubjectByteExprV1
               match checkExportRawNodeBoundV1 info.value with
               | .error _ => return ← .error .subjectBytes
               | .ok () => pure ()
-              match decodeBoundedByteArrayExprV1 info.value.consumeMData with
-              | .ok bytes => pure bytes
-              | .error _ => .error .subjectBytes
+              decodeSubjectByteValueExprV1 env info.value
           | _ => .error .subjectBytes
       | _ => .error .subjectBytes
 

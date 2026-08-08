@@ -1,4 +1,5 @@
 import ProofForgeV2.Language.Syntax
+import ProofForgeV2.Semantic.ClosedSubjectPinV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Semantic.PreservationABI
@@ -292,7 +293,18 @@ private def elaborateProofObligations
   -- Proof subjects use a transparent spine so certificate modules can link
   -- by definitional equality without hex reduction OOM. Both proof kinds share
   -- this sole subject under `<Program>.Proof.subjectProgramV1`.
-  let bytesExpr ← Lean.Elab.liftMacroM <| quoteByteArraySpine carrier.canonicalBytes
+  --
+  -- When carrier bytes match a registered closed instance pin, alias that
+  -- shared constant so instance-level preservation/invariant theorems are
+  -- definitionally about the same subject (no 1795-byte spine reduction).
+  -- Unpinned programs keep the quoted spine; authors prove on subjectProgramV1.
+  let bytesExpr : TSyntax `term ←
+    match ProofForgeV2.Semantic.ClosedSubjectPinV1.resolveClosedSubjectBytesPinNameV1
+        carrier.canonicalBytes with
+    | some pinName =>
+        pure ⟨(Lean.mkCIdent pinName).raw⟩
+    | none =>
+        Lean.Elab.liftMacroM <| quoteByteArraySpine carrier.canonicalBytes
   let proofNamespace := mkIdent `Proof
   let preservingNamespace := mkIdent `ProofPreserving
   let subjectName := mkIdent `subjectProgramV1
