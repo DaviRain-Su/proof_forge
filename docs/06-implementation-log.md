@@ -13,6 +13,18 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+## 2026-08-08 — ALEO-IR IR-0..IR-6 / G0–G4 engineering closeout
+
+- **Closeout（docs only）**：ALEO-IR-0..IR-6 工程切片与 G-ladder G0–G4 声明闭合；
+  产品权威 = Plan→Instructions；Leo 源 debug/compare only；Counter ≡ golden。
+- 文档：`09-aleo-instructions-lowering.md` 状态/§4.3 G-ladder/§10 remaining；
+  `09-aleo.md` 制品表修正（primary = Instructions 文本，非 Leo 源 printer）；
+  backlog `ALEO-IR` umbrella；`AGENTS` Active/Next；`docs/index.md`。
+- **Next** = G5 residual 扫描（§3.2 每 Y/P 有 IR 或显式 FC + residual Leo-primary
+  hard-require）。**remaining**：IR-7 runtime、full opcode、record、prove。
+- Lane 仍 **active**（非 idle）；`deployable=false`；非 snarkVM/prove/deploy/formal。
+- 实现 commits：`10d6a69a`..`f92f5270`（IR-1..IR-6）；本条仅文档 closeout。
+
 ## 2026-08-08 — ALEO-IR-2：Plan→Instructions Counter MVP
 
 - 新增 `ProofForgeV2/Targets/Aleo/Instructions/LowerPlanV1.lean`：

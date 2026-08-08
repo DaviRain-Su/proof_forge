@@ -9,7 +9,7 @@ normative: false
 
 # Aleo Instructions IR 落地规划
 
-状态：`draft`（规划 + **ALEO-IR-1..IR-6 已落地**：Schema/TextCodec + Counter 金样 + `LowerPlanV1` Plan→Instructions Counter MVP ≡ 金样 + if/match/bounded-for 控制流 + multi-leaf Map/Option/Array flatten-to-mapping + narrow UInt{8,16,32} + 效果诚实矩阵（emit/callFn/payload-revert Plan FC；call/schedule/assets/context 产品面 FC）+ **产品 primary = Instructions 文本**（Leo 源 debug-only：`PROOF_FORGE_ALEO_EMIT_LEO=1` / `emitLeoDebug`；compile profile 双写 `.leo` 供 locked-leo compare））
+状态：`draft`（**IR-0..IR-6 engineering closeout 2026-08-08**：G0–G4 闭合。Schema/TextCodec + Counter 金样 + `LowerPlanV1` Plan→Instructions Counter ≡ 金样 + if/match/bounded-for + multi-leaf Map/Option/Array + narrow UInt{8,16,32} + 效果诚实矩阵（emit/callFn/payload-revert Plan FC；call/schedule/assets/context 产品面 FC，无 PARTIAL）+ **产品 primary = Instructions**（Leo 源 debug-only / compile dual-write）。**Next = G5 residual 扫描**；IR-7/runtime / full opcode / record / prove 仍 open。`deployable=false`）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Aleo target 的权威物化从 **Leo 4 源文本** 切到官方 **Aleo Instructions**（中间 IR / 寄存器指令集），并评估 **ProgramV1 在 Aleo 上 admit 的构造** 能覆盖到该 IR 的范围。
 
 与 Psy 对照（已闭合 lane）：
@@ -212,15 +212,15 @@ ProofForgeV2/Targets/Aleo/
 
 | 阶 | 门 | 完成标准 |
 |---|---|---|
-| G0 | Schema + 金样 decode | **done**：Counter `compiled.aleo` round-trip / 字段钉死（IR-1） |
-| G1 | Lower Counter | **done**：`LowerPlanV1` Instructions ≡ locked-leo 金样（结构+字节；IR-2） |
+| G0 | Schema + 金样 decode | **done（IR-1）**：Counter `compiled.aleo` round-trip / 字段钉死 |
+| G1 | Lower Counter | **done（IR-2）**：`LowerPlanV1` Instructions ≡ locked-leo 金样（结构+字节） |
 | G2 | OptionState / MapMini 子集 | **done（IR-4）**：multi-leaf flatten-to-mapping + Option/Map/Array/narrow 结构测试 |
 | G3 | 控制流 / for 展开 | **done（IR-3）**：if/switch → `branch.eq`/`position`；bounded for 静态 unroll + boundExceeded 门；结构测试 + Counter 金样回归 |
-| G4 | 产品 dual-write / primary IR | **done（IR-6）**：默认权威 Instructions；Leo debug-only / compile dual-write |
-| G5 | admit 面扫描 | 每 Y/P 有 IR 或显式 FC |
-| G6 | Runtime 消费 IR | 不经 Leo 源：snarkVM 或官方路径（**有工具再开**） |
+| G4 | 产品 primary IR | **done（IR-6 closeout）**：默认权威 Instructions；Leo debug-only / compile dual-write；residual Leo-primary 至 G5 hard-require |
+| G5 | admit 面扫描 | **Next**：每 Y/P 有 IR 或显式 FC；residual Leo-primary hard-require 决策 |
+| G6 | Runtime 消费 IR | 不经 Leo 源：snarkVM 或官方路径（**有工具再开**；≈ IR-7） |
 
-G0–G1 = **MVP**；G5 = admit 覆盖声明门槛；G6 = 去 Leo 源依赖（可能长期 PARTIAL）。
+G0–G4 = **IR-0..IR-6 engineering closeout done（2026-08-08）**；G5 = admit 覆盖声明门槛（lane 仍 active）；G6/IR-7 = runtime（可能长期 PARTIAL）。
 
 ---
 
@@ -336,11 +336,27 @@ G0–G1 = **MVP**；G5 = admit 覆盖声明门槛；G6 = 去 Leo 源依赖（可
 
 ---
 
-## 10. 下一步（实现顺序）
+## 10. IR-6 closeout 后 Next（lane 仍 active）
 
-1. ~~ALEO-IR-0~~ / ~~IR-1~~ / ~~IR-2~~ / ~~IR-3~~ / ~~IR-4~~ / ~~IR-5~~ / ~~IR-6~~ done。
-2. **G5 residual 扫描**：§3.2 每 Y/P 有 IR 或显式 FC；residual Leo-primary 形状 hard-require 决策。
-3. G6 仅在工具诚实可用时开（snarkVM / 官方 execute）。
+**IR-0..IR-6 / G0–G4 engineering closeout（2026-08-08）已闭合**：产品权威 = Plan→Instructions；Leo 源 debug/compare only；Counter ≡ golden；效果矩阵无 PARTIAL 假 Y。Lane **不** idle——G5 仍是 Active Next。
+
+### 已交付（不重开为 Next）
+
+| 切片 | 交付 |
+|---|---|
+| IR-0 | 规划 + pin 策略 + Active 切 Aleo IR |
+| IR-1 | SchemaV1 + TextCodecV1 + Counter `compiled.aleo` golden |
+| IR-2 | LowerPlanV1 Counter MVP ≡ golden 字节 |
+| IR-3 | if/match/bounded-for → branch.eq/position/static unroll |
+| IR-4 | multi-leaf Map/Option/Array + narrow UInt{8,16,32} |
+| IR-5 | effects honesty matrix（emit/callFn/payload-revert Plan FC；product call/schedule/assets/context FC） |
+| IR-6 / G4 | product primary `{id}.aleo` = Instructions；Leo debug-only / compile dual-write |
+
+### Remaining（blockers / next work）
+
+1. **G5 residual 扫描（Next）**：§3.2 每 Y/P 有 IR 或显式 FC；residual Plan 形状仍可 Leo 为 `.aleo` primary——hard-require 决策（对齐 Psy R-HARD）。
+2. **IR-7 / G6 runtime**：pin snarkVM / 官方 package-only execute（若存在）；**非** ordinary ci；不发明工具。
+3. **full opcode / record / prove**：out-of-slice 直至产品决策；record custody / pf.assets 零绑定保持；`deployable=false`。
 
 规划 owner：engineering。
-产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-2..IR-6 已工程闭合（产品 primary = Instructions；Leo debug-only）。
+产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-0..IR-6 已工程 closeout（产品 primary = Instructions；Leo debug-only）。
