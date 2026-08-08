@@ -49,6 +49,10 @@
       initialize exact ids; Plan params → p0.. size-1 args matching EmitIR)
     * RES-TOOL-LOCK: psy-node rev pin for DPN schema/method_id authority
       (psyNodeDpnAuthorityRevV1; not Tool Lock executable; dargo 0.1.0 runtime)
+    * RES-CLEAN: residual honesty — sole full-byte golden is
+      counter-package.v1.json; no counter-package-full duplicate; full multi-
+      method dargo package byte golden deferred; package-only dargo execute
+      still MISSING on locked dargo 0.1.0 (PARTIAL; no invented CLI)
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Psy
@@ -151,6 +155,50 @@ def testOfficialMethodIdAlgorithm : IO Unit := do
       #[{ sourceIndex := 0, name := "delta", isBool := false }])
   expect (midFromPlan == 1990357658)
     "requireMethodIdV1 from Plan-shaped p0[1] must match increment golden"
+
+/-- RES-CLEAN residual honesty (docs/targets/10-psy-dpn-lowering.md §10):
+    * sole full-byte locked-dargo golden = `counter-package.v1.json` (Counter)
+    * `counter-package-full.v1.json` must stay deleted (was identical duplicate)
+    * multi-method full-package byte goldens remain **deferred** (WideCounter256
+      is structural pin only — see G6-PIN)
+    * package-only dargo execute remains **MISSING** on locked dargo 0.1.0 —
+      PARTIAL honesty only; this suite does **not** claim package-only execute
+      and does not invent a dargo CLI flag -/
+def testResidualHonestyNotes : IO Unit := do
+  let goldenPath : System.FilePath :=
+    "testdata/golden/psy-dpn-v1/counter-package.v1.json"
+  expect (← goldenPath.pathExists)
+    "sole Counter full-byte golden must exist"
+  let goldenRaw ← IO.FS.readFile goldenPath
+  let golden := "".intercalate (goldenRaw.splitOn "\n")
+  match parsePackage? golden with
+  | none => throw <| IO.userError "Counter golden parse failed (RES-CLEAN)"
+  | some pkg =>
+      expect (pkg.size == 3)
+        "sole full-byte golden is Counter three-method package only"
+      expect (pkg == counterPackageGoldenV1)
+        "Counter golden must stay structural ≡ hand-built package"
+      -- Golden method_ids must match official gen_dapen algorithm (not free pins).
+      for fn in pkg do
+        let expected : UInt32 :=
+          match fn.name with
+          | "get" => genDapenContractFunctionMethodIdV1 "get" #[]
+          | "increment" =>
+            genDapenContractFunctionMethodIdV1 "increment" #[("p0", 1)]
+          | "initialize" =>
+            genDapenContractFunctionMethodIdV1 "initialize" #[("p0", 1)]
+          | other =>
+            panic! s!"unexpected Counter method in sole golden: {other}"
+        expect (fn.methodId == expected)
+          s!"golden method_id for {fn.name} must match gen_dapen algorithm"
+  let fullPath : System.FilePath :=
+    "testdata/golden/psy-dpn-v1/counter-package-full.v1.json"
+  expect (!(← fullPath.pathExists))
+    "counter-package-full.v1.json must not exist (RES-CLEAN: identical duplicate)"
+  -- Non-claims (documented residual only; no runtime assertion invented here):
+  -- * package-only dargo execute still MISSING on locked dargo 0.1.0
+  -- * full multi-method dargo package byte golden remains deferred
+  pure ()
 
 /-- Official dargo package JSON (field order may differ from Lean mkObj). -/
 def testCounterGoldenDecode : IO Unit := do
@@ -2633,6 +2681,7 @@ unsafe def run : IO Unit := do
   testEncodeIndexedId
   testPsyNodeDpnAuthorityRevPin
   testOfficialMethodIdAlgorithm
+  testResidualHonestyNotes
   testCounterGoldenDecode
   testCounterEncodeRoundTrip
   testCounterPlanLowerEqualsGolden

@@ -12,6 +12,19 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy DPN RES-CLEAN（residual honesty cleanup）
+
+- Sole full-byte locked-dargo golden remains
+  `testdata/golden/psy-dpn-v1/counter-package.v1.json` (Counter three methods).
+- Confirmed no `counter-package-full.v1.json` duplicate (identical content
+  previously untracked; RES-CLEAN deletion gate + suite forbids reintroduction).
+- `PsyDpnV1.testResidualHonestyNotes`: golden inventory, structural ≡ hand-built
+  package, golden method_ids ≡ `genDapenContractFunctionMethodIdV1`.
+- Docs/tests comments reaffirm: package-only dargo execute still MISSING on
+  locked dargo 0.1.0 (PARTIAL; no invented CLI); full multi-method package byte
+  golden remains deferred (WideCounter256 structural pin only).
+- Non-claims: not package-only execute, not multi-method byte golden, not UPS/formal.
+
 ## 2026-08-08 — Psy DPN RES-TOOL-LOCK（psy-node rev authority pin）
 
 - Pinned PsyProtocol/psy-node `79e0b82422ebdd1173a7b4b3751eb3186aad83e5` as

@@ -84,8 +84,14 @@
     * Bool/compare/logic/bare assert covered by general builder + suite pins
 
   Method ids: official `gen_dapen_contract_function_method_id` via
-  SHA-256 (RES-METHOD-ID). Counter three-method pins remain as regression
-  goldens; product path always uses the algorithm (p0.. naming matches EmitIR).
+  SHA-256 (RES-METHOD-ID). Product path always uses the algorithm
+  (`p{sourceIndex}` size-1 args match EmitIR). Counter three-method numeric
+  pins remain as regression goldens only (`pinnedMethodIdV1`).
+
+  Residual honesty (RES-CLEAN / planning §10): sole full-byte dargo golden is
+  Counter (`counter-package.v1.json`); full multi-method package byte goldens
+  deferred; package-only dargo execute still MISSING on locked dargo 0.1.0
+  (PARTIAL; do not invent CLI).
 -/
 import ProofForgeV2.Targets.Psy.LowerSemanticV1
 import ProofForgeV2.Targets.Psy.ValidatePlanV1
