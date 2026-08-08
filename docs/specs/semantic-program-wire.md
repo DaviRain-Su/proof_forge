@@ -971,7 +971,8 @@ def InvariantTheoremV1
 fallback。holds **不是** reachability，preserving 也 **不是** target refinement 或 formal
 `TST-SEM-002`/`TST-SEM-003`/`TST-PROOF-001` 闭合声明。subject identity 仍由 checked-in /
 compiled `.pfsem` 的 closed `SemanticProgramV1` value 承担；proof kind/theorem body 与 certification
-digest 不得改变 `semanticHash`。当前 preserving certified positive 仍 pending EvenCounter。
+digest 不得改变 `semanticHash`。**EvenCounter preserving product certified positive 已闭合**
+（2026-08-08）；第二非 AMM 实例仍 pending。
 
 ## 9. Checked-in canonical proof subject 与 definitional equality
 

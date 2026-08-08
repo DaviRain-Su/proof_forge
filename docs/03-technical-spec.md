@@ -42,8 +42,9 @@ SourceFile (single in-memory snapshot)
 > materialization 与 staging/publish。ProgramV1 / `semanticHash` **不含** adjacent
 > theorem body。bare `proof … using …` 为 holds (`InvariantTheoremV1`)；显式
 > `proof … preserving using …` 为 Reference-based `PreservationTheoremV1`。kind-aware
-> source/wire/inventory/certifier plumbing 已接线，但 preserving 的首个 certified 正例
->（EvenCounter）仍 pending；当前成功回归仍仅 holds simple-closure。两类命题均不声称 target
+> source/wire/inventory/certifier plumbing 已接线；**EvenCounter preserving product certified
+> 正例已闭合**（2026-08-08）；holds simple-closure 与 preserving 两类成功回归均存在。
+> 第二非 AMM 实例仍 pending。两类命题均不声称 target
 > refinement / formal TST 闭合。产品 sole path 为 inline certifier；`ProofBundleV1` 仅为
 > library/historical/formal-oriented，**不是** CLI alternate surface。
 

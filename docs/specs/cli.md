@@ -144,8 +144,9 @@ single IO.FS.readFile (project-root-relative source)
 7. Quint Q0 的 read-only Bool invariant 支持是独立 target 能力；其余 nonempty invariant 的
    **target materializer** 仍可 fail closed（与 proof gate 正交）；
 8. **Engineering 分层**：kind-aware plumbing 已验证；simple-closure/ordinal-0 holds kernel cert 与
-   narrow product `check` certified 正例已闭合。preserving 的首个 certified program positive
-   （EvenCounter）仍 pending，不得把 alias/negative 回归写成 L1 实例已完成。
+   narrow product `check` certified 正例已闭合。**EvenCounter preserving product certified
+   positive 已于 2026-08-08 闭合**；第二非 AMM 实例仍 pending。不得把 alias/negative 回归
+   写成第二实例或 formal 已完成。
 
 ### check / build 输出差异
 

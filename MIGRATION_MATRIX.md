@@ -55,8 +55,8 @@ D1–D4 共 27 个 formal task，当前仍为：
 > 不含 theorem body；in-process elab **不是** sandbox；固定 axiom
 > `Classical.choice`/`Quot.sound`/`propext`；不信任用户 `.olean`。2026-08-07 kind plumbing
 > 已原子切为 bare holds=`InvariantTheoremV1` 与 explicit preserving=`PreservationTheoremV1`，
-> inventory key=`(inv,kind)`，kind 进入 source/cert digest、不进 semantic；当前 certified positive
-> 仍仅 holds simple-closure，EvenCounter pending。**Kernel closed（engineering）**：
+> inventory key=`(inv,kind)`，kind 进入 source/cert digest、不进 semantic；holds simple-closure 与
+> **EvenCounter preserving product positive** 均已闭合（2026-08-08）。**Kernel closed（engineering）**：
 > structure→encode→decode→`ProofedProof.safe`；legal-only production simple-closure
 > encode/decode（`SimpleClosureCertV1` / `LiteralTrueInvariantWitnessV1`）；exact ordinal-0
 > `InvariantTheoremV1` on nullary literal-true micro-shape。**Narrow product positive 已完成

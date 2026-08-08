@@ -275,8 +275,8 @@ Reference admission 或 initial-state construction 失败均使命题为假，�
 
 该 ABI 仍是 engineering/proposed。`ProofKindV1`、三字段 source wire、
 `proof … preserving`、`(invariant,kind)` inventory、双 alias、kind-bound protocol/certifier plumbing
-已接线；bare syntax 永远是 holds，simple-closure generated helper 仍只服务 holds。当前尚无
-preserving 的 product-certified 正例；EvenCounter 与第二个通用实例仍 pending。ADR-0027 继续约束
+已接线；bare syntax 永远是 holds，simple-closure generated helper 仍只服务 holds。**EvenCounter
+preserving product-certified 正例已闭合**（2026-08-08）；第二个通用实例仍 pending。ADR-0027 继续约束
 single-snapshot/audit/holds 基线，ADR-0034 是未 supersede 的 proposed extension；formal TASK-D2-07 /
 TST-SEM-002/003 / TST-PROOF-001 状态不变。
 

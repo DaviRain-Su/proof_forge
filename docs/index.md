@@ -42,7 +42,7 @@ legal-only simple-closure encode/decode + ordinal-0 `InvariantTheoremV1` + liter
 public-Bool-view same-file ordinary theorem 的真实 product `check` certified 正例；theorem
 body 不改 source/semantic identity但改变 certification digest。formal TST、reachability、
 target refinement、sandbox/hermetic/release 仍 open。见
-[`adr/0027-inline-same-file-theorem-certification.md`](adr/0027-inline-same-file-theorem-certification.md)（当前 inline base authority）、[`adr/0028-solana-explicit-accounts-pda-cpi.md`](adr/0028-solana-explicit-accounts-pda-cpi.md)、[`adr/0030-pf-assets-vocabulary-wave.md`](adr/0030-pf-assets-vocabulary-wave.md)、[`adr/0033-miniamm-asset-transaction-model.md`](adr/0033-miniamm-asset-transaction-model.md)、[`adr/0034-preservation-abi.md`](adr/0034-preservation-abi.md)（`proposed`；通用 ABI foundation + ProofKind/三字段 wire/`(inv,kind)` inventory/双 alias/kind-bound protocol+certifier plumbing 已实现；当前 certified positive 仍仅 holds，EvenCounter preserving/第二实例/supersession pending；**不** supersede 0027）。
+[`adr/0027-inline-same-file-theorem-certification.md`](adr/0027-inline-same-file-theorem-certification.md)（当前 inline base authority）、[`adr/0028-solana-explicit-accounts-pda-cpi.md`](adr/0028-solana-explicit-accounts-pda-cpi.md)、[`adr/0030-pf-assets-vocabulary-wave.md`](adr/0030-pf-assets-vocabulary-wave.md)、[`adr/0033-miniamm-asset-transaction-model.md`](adr/0033-miniamm-asset-transaction-model.md)、[`adr/0034-preservation-abi.md`](adr/0034-preservation-abi.md)（`proposed`；通用 ABI foundation + ProofKind plumbing + **EvenCounter preserving product positive GREEN**；业务主路径 D10；第二实例/supersession pending；**不** supersede 0027）。
 
 ## 生命周期
 

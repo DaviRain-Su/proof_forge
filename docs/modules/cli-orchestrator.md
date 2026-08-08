@@ -17,7 +17,8 @@ normative: true
 > 输出 `proofStatus` / theorem count / certification digest；build 只门禁、不输出 proof 字段。
 > proof inventory/certifier 已按 `(invariant,kind)` 接线：bare proof=holds，explicit preserving
 > 选择 `PreservationTheoremV1`，kind 进入 certification identity、不进入 semantic identity。
-> 当前 certified positive 仍仅 holds，EvenCounter preserving pending。JSON 不含 public
+> holds simple-closure 与 EvenCounter preserving product certified positive 均已闭合
+>（2026-08-08）；第二非 AMM 实例仍 pending。JSON 不含 public
 > `receipts`，也不声明 contained assurance。simple-closure/ordinal-0
 > kernel cert 与 literal-true/public-Bool-view same-file ordinary theorem 的 product `check`
 > certified 正例均已完成 engineering 验证；formal/reachability/target refinement 不随之关闭。

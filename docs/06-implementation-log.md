@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-07
+updated: 2026-08-08
 normative: false
 ---
 
@@ -11,6 +11,23 @@ normative: false
 
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
+
+## 2026-08-08 — EvenCounter L1 preserving product positive + 业务形式化主路径文档（engineering）
+
+- **代码（已合入，此前 commits）**：
+  - `EvenCounterPreservationV1`：`preservation_step` + `preservation_theorem` +
+    `preservation_theorem_of_eq_bytes`（sole product Reference step；无第二 State/Effect）。
+  - 产品 author body：`exact …EvenCounterPreservationV1.preservation_theorem`。
+  - `ClosedSubjectPinV1`：normalize 字节 exact match 时 `subjectBytesV1` 别名共享
+    `EvenCounterV1.canonicalBytes`；certifier 一次 pin hop；product env 经 pin 模块 import
+    proof 模块。
+  - `Tests.Compiler.InlineProofCertifierV1`：EvenCounter preserving product → `.certified`。
+- **文档 cutover（本条）**：ADR-0034 增 **D10 业务逻辑形式化主路径（track 1）vs 工具内部
+  formal（track 2）**；D9 EvenCounter 标 product GREEN；实现切片顺序更新；同步
+  ADR-0027 横幅、document-status、INV-2、RECOVERY、Agents Active/Next、research-023、
+  05-test-spec 分层表、02/03/specs/index/adr README 等过时 “EvenCounter pending” 叙述。
+- **边界**：第二非 AMM 实例 deferred；**不** supersede ADR-0027；**不** 关闭 formal
+  TASK/TST；pin 非任意合约唯一通道；下一步 = packaging lemmas / 非 pin author 路径硬化。
 
 ## 2026-08-07 — ProofKindV1 / preserving inline plumbing cutover（engineering）
 
@@ -40,7 +57,7 @@ normative: false
   未发现 P0/P1/P2，报告的两项 P3（language spec 残留 single-key 叙述、Python validator
   缺失 kind 时 soft-default holds）均已修正，follow-up review 无剩余 actionable finding。该结果仅为
   engineering gate，不构成 formal/hermetic/release evidence。
-- 边界：当前真实 certified positive 仍仅 holds simple-closure；EvenCounter preserving、第二个非 AMM
+- 边界（历史；2026-08-08 后见上条）：当时真实 certified positive 仍仅 holds simple-closure；EvenCounter preserving、第二个非 AMM
   实例与 MiniAmm P1 尚未实现。ADR-0027 未 supersede；不声称 formal TASK/TST、reachability、
   target refinement、sandbox/hermetic/release。
 

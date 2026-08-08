@@ -113,8 +113,8 @@ exact 绑定 qualifiedName、sourceHash、semanticHash 与 entity origin map；
    `proof … preserving using …` 选择 Reference admission/base/step 的
    `PreservationTheoremV1`。两者共享 exact subject 与 invariant ordinal。
 
-kind-aware plumbing 已接线；当前 product-certified engineering 正例仍仅 holds simple-closure，
-EvenCounter preserving 正例 pending。该 gate 不证明 target refinement，也 **不** 关闭 formal
+kind-aware plumbing 已接线；holds simple-closure 与 **EvenCounter preserving product certified
+正例均已闭合**（2026-08-08）。该 gate 不证明 target refinement，也 **不** 关闭 formal
 `TST-PROOF-001` / hermetic / release。失败零制品；空 proof 表面显式 skip。
 
 `SPEC-SEM-001`/public façade `ProofForgeV2.Semantic.ReferenceV1` 唯一定义

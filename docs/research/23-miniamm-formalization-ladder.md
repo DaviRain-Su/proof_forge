@@ -3,7 +3,7 @@ id: RESEARCH-023
 title: 通用程序形式化栈（L0–L2）与 MiniAmm 后续实例
 status: draft
 owner: engineering
-updated: 2026-08-07
+updated: 2026-08-08
 normative: false
 ---
 
@@ -16,16 +16,20 @@ normative: false
 >
 > **产品立场**：统一源语言与共享证明 **形状 / 门禁**；每个 `program` **实例化**
 > 自己的状态、谓词 P 与保持义务。L1 首个通用端到端实例按 ADR-0034 选
-> **EvenCounter**；MiniAmm 在同一 ABI 上作为后续业务实例，不获得平台特例。
+> **EvenCounter**（**2026-08-08 product GREEN**）；MiniAmm 在同一 ABI 上作为后续业务
+> 实例，不获得平台特例。
 >
-> **L1 路线（2026-08-07 Slice 0 收口）**：**Reference-first**。HEAD 上的手写 L1-A
-> Semantic sketch（`ProofForgeV2/Semantic/MiniAmmSafetySketchV1` + umbrella）**已删除**。
-> 禁止第二套 step；业务保持挂在 admitted `Reference` / 产品 Semantic 上，不挂旁路模型。
+> **两条形式化账本**（见 ADR-0034 D10）：
+> (1) **业务逻辑** — program invariant/preservation（本文件主线；EvenCounter L1 positive 已 GREEN）；
+> (2) **工具内部** — compiler/Reference/wire formal TASK/TST（独立 ledger，不因 EvenCounter 关闭）。
 >
-> 对齐：ADR-0027（当前 inline base authority）、ADR-0034（`proposed`；通用
-> Preservation ABI foundation + kind/inventory/alias/protocol/certifier plumbing 已实现，
-> EvenCounter preserving positive/第二实例/supersession pending；**不** supersede 0027）、
-> [`22-portable-surface-vs-chain-reality.md`](22-portable-surface-vs-chain-reality.md)、
+> **L1 路线（Reference-first）**：HEAD 上手写 L1-A Semantic sketch 已删除。禁止第二套 step；
+> 业务保持挂在 admitted `Reference` / 产品 Semantic 上。ClosedSubjectPin 仅为 closed golden
+> 加速，**不是**任意合约唯一通道。
+>
+> 对齐：ADR-0027（当前 inline base authority）、ADR-0034（`proposed`；ABI + kind plumbing +
+> EvenCounter preserving product positive GREEN；第二实例/supersession pending；**不** supersede
+> 0027）、[`22-portable-surface-vs-chain-reality.md`](22-portable-surface-vs-chain-reality.md)、
 > Examples `MiniAmm` / `MiniAmmProofSurface`；共享数学向量 `Tests/Semantic/MiniAmmVectorsV1`。
 
 **非 formal**：本文件不关闭 TASK-D2-07 / TST-SEM-002/003 / TST-PROOF-001。
@@ -58,8 +62,9 @@ normative: false
 | L1 **step 权威** | **是（产品）** | sole admitted `Reference` / Semantic；**禁止** 第二套手写 step |
 | L2 / 项目 formal | **是（平台轨道）** | 延后；不绑死某个 Example |
 
-**验收通用性**：先用 **EvenCounter** 跑通首个端到端 preserving kind/certifier；
-随后再用第二个非 AMM program 复用同一挂载方式。MiniAmm 位于这两个通用性门之后。
+**验收通用性**：**EvenCounter** 首个端到端 preserving product positive **已闭合**；
+随后再用第二个非 AMM program 复用同一挂载方式（仍 pending）。MiniAmm 位于通用性门之后。
+当前业务轨道优先：generic packaging lemmas / 非 pin author 路径硬化，不抢第二实例。
 
 ---
 
@@ -68,8 +73,8 @@ normative: false
 | 层 | 名称 | 命题直觉 | 当前工程状态 |
 |---|---|---|---|
 | **L0** | 证明表面 / simple-closure | 可认证的 `invariant : true` + 同文件 theorem | **已接线**；样例：`MiniAmmProofSurface`（任意程序可仿）；**当前产品 authority 仍为 ADR-0027** |
-| **L1** | 业务保持 | 对 **该程序** 的 P：positive initial/admission + **product Reference step** 后保持 | **通用 ABI foundation 已实现**（`PreservationABI.lean`；无第二 step）；MiniAmm whole-program admission done；下一步 = ProofKind/inventory/certifier + EvenCounter 首个端到端实例；MiniAmm P1 后置 |
-| **L2** | 项目 formal | formal step corpus、target refine、hermetic/release | **最后**；与单合约 L1 分账 |
+| **L1** | 业务保持 | 对 **该程序** 的 P：positive initial/admission + **product Reference step** 后保持 | **ABI + kind plumbing + EvenCounter product positive GREEN**（`PreservationABI` / `EvenCounterPreservationV1`；无第二 step）；下一步 = packaging lemmas / 非 pin 路径 + 第二非 AMM 实例；MiniAmm P1 后置 |
+| **L2** | 项目 formal | formal step corpus、target refine、hermetic/release | **最后**（工具 track 2）；与单合约 L1 分账 |
 
 ### 1.1 共享 L0 ABI（通用，不是 MiniAmm 专有）
 
@@ -145,7 +150,7 @@ alias/negative/identity 回归不等于该实例已完成。
 | `certifyInlineProofV1` + simple-closure 族 | L0 通用门 |
 | `InvariantABI` | 共享定理命题 / logical state |
 | `ReferenceMachineV1` / `ReferenceV1` | **sole L1 step 权威**（admitted engineering machine；非 formal `step`） |
-| `ProofForgeV2/Semantic/PreservationABI.lean` + ADR-0034（`proposed`） | 通用 `PreservationTheoremV1` / base / step / unchanged helpers + ProofKind/三字段 wire/`(inv,kind)` inventory/双 alias/kind-bound protocol+certifier plumbing 已实现；EvenCounter preserving positive/第二实例/supersession pending；ADR-0027 仍约束 inline base |
+| `ProofForgeV2/Semantic/PreservationABI.lean` + ADR-0034（`proposed`） | 通用 `PreservationTheoremV1` / base / step / unchanged helpers + ProofKind plumbing + **EvenCounter product positive GREEN**；ClosedSubjectPin 仅 golden 加速；第二实例/supersession pending；ADR-0027 仍约束 inline base |
 
 ### 3.2 实例：MiniAmm 试点
 
@@ -177,12 +182,12 @@ alias/negative/identity 回归不等于该实例已完成。
 | `ProofForgeV2.lean` umbrella 导入合约实例 | 不得把合约 step 当平台依赖 |
 | 随包 `Examples/` 装业务 step 库 | Examples 是可 deploy / L0 样例表面，不是证明库 |
 
-### 3.3 通用性实例门（计划）
+### 3.3 通用性实例门
 
-1. **首个实例：EvenCounter**。在 product Reference admission/step 上证明偶数 invariant
-   的完整 `PreservationTheoremV1`，并走 `proof even preserving using …`。
-2. **第二实例：另一非 AMM 极简 program**。不复制 EvenCounter 谓词，只复用同一 ABI/
-   inventory/certifier 挂载。
+1. **首个实例：EvenCounter — done（2026-08-08 product GREEN）**。完整
+   `PreservationTheoremV1` + inline `proof even preserving using …` + product certified。
+2. **第二实例：另一非 AMM 极简 program — pending**。不复制 EvenCounter 谓词，只复用同一
+   ABI/inventory/certifier 挂载（通用性回归；不阻塞 packaging lemma 硬化）。
 3. 两个门都通过后，MiniAmm 才作为普通后续业务实例进入 P1。
 
 ---
@@ -191,18 +196,18 @@ alias/negative/identity 回归不等于该实例已完成。
 
 | 命令 | 无 nonempty inv 的业务 program | 带 nonempty inv 的 proof 表面 |
 |---|---|---|
-| `check` | ok（`noProof` 或无 proof 字段） | ok 时可 `proofStatus=certified`（L0 族） |
+| `check` | ok（`noProof` 或无 proof 字段） | ok 时可 `proofStatus=certified`（L0 holds 族或 L1 preserving） |
 | `build` 多数 materializer | deploy 路径 | **FC**（nonempty inv；工程已知） |
 
-不得把 L0 certified 写成「可部署且业务已证安全」。
+不得把 L0/L1 certified 写成「可部署且业务已证安全」或 formal 完成。
 
 ---
 
 ## 5. 执行路线图
 
-**优先级**：platform Preservation ABI foundation 与 MiniAmm Reference admission 已完成；
-当前先做 **ProofKind/inventory/certifier + EvenCounter**，再做第二非 AMM 实例，之后才进入
-MiniAmm P1。**D/L2 项目 formal 最后**。
+**优先级**：platform Preservation ABI + kind plumbing + EvenCounter product positive 已完成；
+当前业务轨道做 **generic packaging lemmas / 非 pin author 路径**，再做第二非 AMM 实例，
+之后才进入 MiniAmm P1。**D/L2 项目 formal（工具 track 2）最后**。
 
 ### 5.0 已完成 / superseded
 
@@ -224,8 +229,11 @@ MiniAmm P1。**D/L2 项目 formal 最后**。
 | 禁止再引入第二套 step | **policy** — 见 §0 / §3.2 |
 | MiniAmm 经 Normalize → `admitReferenceProgramSliceV1` | **done**（Map Wire-envelope admission；见 §5.1.1） |
 | ADR-0034 Preservation ABI design freeze | **done** — `proposed`；**不** supersede ADR-0027 |
-| Generic Preservation ABI foundation | **done** — positive initial/admission + base/step/full Outcome；无 product cutover |
-| ProofKind/inventory/certifier + EvenCounter | **next** — 见 §5.2 |
+| Generic Preservation ABI foundation | **done** — positive initial/admission + base/step/full Outcome |
+| ProofKind/inventory/certifier plumbing | **done** — bare holds；preserving kind；无 2-field fallback |
+| EvenCounter preserving product positive | **done（2026-08-08）** — `EvenCounterPreservationV1` + ClosedSubjectPin + InlineProofCertifier |
+| Packaging lemmas / 非 pin author 路径 | **next** — 见 §5.2 |
+| 第二非 AMM 实例 | **deferred** — 通用性回归，不抢 generic 硬化 |
 
 #### 5.1.1 MiniAmm Reference admission（Map budget 已切 Wire-envelope）
 
@@ -259,9 +267,10 @@ MiniAmm P1。**D/L2 项目 formal 最后**。
 
 | 项 | 说明 |
 |---|---|
-| **ProofKind/inventory/certifier cutover** | 新增 `holds | preserving`、`(inv,kind)` exact inventory、kind-aware expected Prop/cert digest；保持 bare holds canonical 与 ADR-0027 当前 authority，完整 cutover 前不得 supersede 0027 |
-| **EvenCounter 首个端到端实例** | 复用已实现的 `PreservationTheoremV1`，在 product Reference 上闭合 positive admission + base + full-input step，并走 inline preserving proof |
-| **第二非 AMM 实例** | 用不同 P 复挂同一 ABI/certifier，证明非单例硬编码 |
+| **ProofKind/inventory/certifier cutover** | **done** — `holds \| preserving`、`(inv,kind)` exact inventory、kind-aware expected Prop/cert digest；ADR-0027 仍 base authority |
+| **EvenCounter 首个端到端实例** | **done（2026-08-08）** — 完整 `PreservationTheoremV1` + product certified；见 ADR-0034 D9/D10 |
+| **Packaging lemmas / 非 pin 路径** | 从 EvenCounter 抽出可复用 Reference packaging lemmas；任意合约对 `subjectProgramV1` 证明，不强制 pin |
+| **第二非 AMM 实例** | 用不同 P 复挂同一 ABI/certifier，证明非单例硬编码（deferred 通用性回归） |
 | **然后 MiniAmm P1** | 在已 admitted MiniAmm 上加入 executable invariant 与真实 Reference proof/traces；无特例；**仍非** formal TASK |
 
 ### 5.3 L1-B — MiniAmm P1 完整保持（依赖 kind/certifier + 两个通用实例门）
@@ -310,12 +319,14 @@ Slice 0: 删除 HEAD Semantic 手写 L1-A sketch（done）
   → Map Wire-envelope Reference admission + MiniAmm admit（done）
   → ADR-0034 Preservation ABI design freeze（done）
   → generic Preservation ABI foundation（done）
-  → ProofKind / (inv,kind) inventory / certifier + EvenCounter（current）
+  → ProofKind / (inv,kind) inventory / certifier（done）
+  → EvenCounter product preserving positive（done 2026-08-08）
+  → packaging lemmas / 非 pin author 路径（current）
   → 第二非 AMM program 复用同一 preserving 挂载
   → MiniAmm P1 on product Reference step
   → L1-C / L1-D 加深 MiniAmm 业务
   → (可选) L1-F Assets
-  → …最后… D/L2
+  → …最后… D/L2 formal（工具 track 2）
 ```
 
 ### 5.11 不在当前范围

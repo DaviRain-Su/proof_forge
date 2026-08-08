@@ -3,22 +3,24 @@ id: ADR-0027
 title: Inline same-file theorem certification（engineering product path）
 status: proposed
 owner: architecture
-updated: 2026-08-07
+updated: 2026-08-08
 normative: true
 ---
 
 # ADR-0027：Inline same-file theorem certification（engineering product path）
 
 - 状态：`proposed`
-- 日期：2026-08-04（2026-08-07 kind-extension 注记）
+- 日期：2026-08-04（2026-08-07 kind-extension；2026-08-08 EvenCounter preserving positive 注记）
 
-> **ADR-0034 amendment status（2026-08-07）**：本 ADR 仍是 inline gate 的
+> **ADR-0034 amendment status（2026-08-08）**：本 ADR 仍是 inline gate 的
 > single-snapshot / audit / axiom / proof-before-materialize base authority，且未被 supersede。
 > `ProofKindV1`、三字段 `ProofDecl` wire、`(invariant,kind)` inventory、
 > `Proof`/`ProofPreserving` aliases 与 kind-bound protocol/certifier plumbing 已按 ADR-0034
 > engineering 接线；因此下文 D3.2/D3.4 的“唯一 holds shape / 每 invariant 最多一个 theorem”
-> 仅描述原始 holds 基线，当前实现须与 ADR-0034 D6–D8 联读。preserving 的首个
-> product-certified positive（EvenCounter）仍 pending；不得把 plumbing 写成完整 L1 acceptance。
+> 仅描述原始 holds 基线，当前实现须与 ADR-0034 D6–D10 联读。**EvenCounter 首个
+> preserving product `check` certified positive 已闭合**（业务逻辑形式化 track 1 主路径验收）；
+> 第二非 AMM 实例与完整 acceptance/supersession 仍 pending。不得把首个正例写成任意合约
+> 自动可证或 formal TASK 关闭。
 
 本文是 **decision-complete proposed** 工程契约：冻结 inline same-file invariant
 theorem certification 的产品边界与 fail-closed 纪律，供 language / semantic / CLI /

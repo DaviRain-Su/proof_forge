@@ -2109,9 +2109,9 @@ theorem statement，也不得只把 `semanticHash` 当成 proposition。
    `.olean` 不能单独满足 `N`。
 7. **命题范围**：holds 仍是全体 `StateConformsV1` 状态上的 evaluator 命题；preserving 是
    Reference admission 正义务 + lifecycle base + 全输入 `stepReferenceSliceV1` 三 Outcome 保持命题。
-   kind-aware plumbing 已接线，但当前 engineering certified 正例仍只有 holds simple-closure；首个
-   preserving 正例（EvenCounter）尚未闭合。两者均**不**声称 target refinement、formal
-   `TST-PROOF-001` 或 release。
+   kind-aware plumbing 已接线；holds simple-closure 与 **EvenCounter preserving product certified
+   正例均已闭合**（2026-08-08）。第二非 AMM 实例仍 pending。两者均**不**声称 target refinement、
+   formal `TST-PROOF-001`、任意合约自动可证或 release。
 8. **Gate 顺序**：proof certification 成功（或显式空表面 `noProof`）之后，才允许
    requirement resolve / target Plan；失败零制品。
 
