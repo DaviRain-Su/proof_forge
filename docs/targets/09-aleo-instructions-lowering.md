@@ -9,7 +9,7 @@ normative: false
 
 # Aleo Instructions IR 落地规划
 
-状态：`draft`（**IR-0..IR-6 engineering closeout 2026-08-08** + **G5-MATRIX 2026-08-08** + **G5-HARD 2026-08-08**：G0–G5 闭合；residual 桶 Int64/Field/pureFn true lower；空 allowlist + `ALEO-IR-G5-HARD` 禁 silent Leo-only primary。Schema/TextCodec + Counter 金样 + `LowerPlanV1` + if/match/bounded-for + multi-leaf + narrow + 效果诚实矩阵 + **产品 primary = Instructions**。**Next = IR-7 / G6 runtime**；full opcode / record / prove 仍 open。`deployable=false`）
+状态：`draft`（**IR-0..IR-7 engineering closeout 2026-08-08** + **G5-MATRIX 2026-08-08** + **G5-HARD 2026-08-08**：G0–G6 闭合；G6/IR-7 = runtime honesty **PARTIAL + MISSING**（无 locked snarkVM/package-only execute；`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`；不发明 CLI）。residual 桶 Int64/Field/pureFn true lower；空 allowlist + `ALEO-IR-G5-HARD` 禁 silent Leo-only primary。Schema/TextCodec + Counter 金样 + `LowerPlanV1` + if/match/bounded-for + multi-leaf + narrow + 效果诚实矩阵 + **产品 primary = Instructions**。**Next = RES-CLEAN**；full opcode / record / prove 仍 open。`deployable=false`）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Aleo target 的权威物化从 **Leo 4 源文本** 切到官方 **Aleo Instructions**（中间 IR / 寄存器指令集），并评估 **ProgramV1 在 Aleo 上 admit 的构造** 能覆盖到该 IR 的范围。
 
 与 Psy 对照（已闭合 lane）：
@@ -187,7 +187,7 @@ Pin：Leo **4.0.2** exact；grammar/opcode 文档 rev 写入 supply-chain annota
 | **residual** | **0**（G5-HARD closed） | 原 Int64/Field/pureFn 已 true lower |
 | **plan-FC** | const、bn254/Goldilocks Field、nested Map、Context/assets/record/Principal/String/invariant | 达不到 Instructions；不发明 IR |
 | **partial** | **0** | 无 PARTIAL 假 Y |
-| **open residual work** | IR-7 runtime / multi-program leo 金样 / prove | 见 §10；`deployable=false` |
+| **open residual work** | multi-program leo 金样 / prove / record（IR-7 runtime honesty **done PARTIAL/MISSING**） | 见 §10；`deployable=false` |
 
 **结论（G5-MATRIX + G5-HARD）：** 每 **Y** 行均有 IR 钉测；每 **F** 行有 plan-FC 或 IR FC 钉测；residual allowlist 空；silent Leo-only primary 已禁。
 
@@ -233,9 +233,9 @@ ProofForgeV2/Targets/Aleo/
 | G3 | 控制流 / for 展开 | **done（IR-3）**：if/switch → `branch.eq`/`position`；bounded for 静态 unroll + boundExceeded 门；结构测试 + Counter 金样回归 |
 | G4 | 产品 primary IR | **done（IR-6 closeout）**：默认权威 Instructions；Leo debug-only / compile dual-write |
 | G5 | admit 面 + hard-require | **done（G5-MATRIX + G5-HARD 2026-08-08）**：admit 扫描 + Int64/Field/pureFn true lower + 空 allowlist `ALEO-IR-G5-HARD` |
-| G6 | Runtime 消费 IR | 不经 Leo 源：snarkVM 或官方路径（**有工具再开**；≈ IR-7） |
+| G6 | Runtime 消费 IR | **done PARTIAL/MISSING（IR-7 2026-08-08）**：无 locked snarkVM/package-only；`scripts/aleo_runtime_test.sh` + `just aleo-runtime` 钉 `PF-TOOLCHAIN-MISSING`；不发明 CLI；leo run ≠ package-only |
 
-G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08-08）**；G6/IR-7 = runtime（可能长期 PARTIAL）。
+G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08-08）**；G6/IR-7 = runtime honesty **done as PARTIAL/MISSING（2026-08-08）**（execute pin 待 Tool Lock 真实工具）。
 
 ---
 
@@ -286,8 +286,10 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 
 ### Phase ALEO-IR-7 — Runtime（可选、独立 host-heavy）
 
-- [ ] pin snarkVM / 官方 execute 路径（若存在 package-only）
-- [ ] **非** ordinary ci；`deployable=false` 直至产品决策
+- [x] pin snarkVM / 官方 execute 路径（若存在 package-only）— **probe：MISSING**（Tool Lock 仅 Leo 4.0.2；无 snarkVM/snarkOS asset；RPT-024）
+- [x] **非** ordinary ci；`deployable=false` 直至产品决策
+- [x] host-heavy `scripts/aleo_runtime_test.sh` + `just aleo-runtime`：缺工具 → `PF-TOOLCHAIN-MISSING`（exit 2）；**不**发明 snarkVM CLI；**不**把 `leo run`/`leo execute` 升格为 package-only Instructions execute
+- [x] suite 钉测：`Tests.Materialization.AleoInstructionsV1.testIr7RuntimeHonestyNotes`
 
 ### Phase ALEO-G5-MATRIX — admit 面扫描 + FC pins
 
@@ -307,10 +309,10 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 
 ### Phase ALEO-IR-7 / G6 — Runtime honesty（独立）
 
-- [ ] 探路：Tool Lock / 本机是否有 snarkVM、`leo run` 边界、package-only 路径
-- [ ] **若无诚实工具**：文档 + suite 钉 **PARTIAL / MISSING**（不发明 CLI）；`just aleo-runtime` 可选 recipe 仅在 tool root 可用时跑
-- [ ] **若有**：host-heavy 差分（Counter 最小）+ 非 ordinary ci
-- [ ] 永不默认 deployable
+- [x] 探路：Tool Lock / 本机是否有 snarkVM、`leo run` 边界、package-only 路径（**无** snarkVM；`leo run` = 源解释；`leo execute` 需网络 state）
+- [x] **若无诚实工具**：文档 + suite 钉 **PARTIAL / MISSING**（不发明 CLI）；`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`
+- [x] **若有**：host-heavy 差分（Counter 最小）— **N/A**（工具 MISSING；未发明 CLI）
+- [x] 永不默认 deployable
 
 ### Phase ALEO-RES-CLEAN — residual honesty closeout
 
@@ -382,7 +384,7 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 
 ## 10. IR-6 后执行队列（已规划；lane 仍 active）
 
-**IR-0..IR-6 / G0–G4 + G5-MATRIX + G5-HARD engineering closeout（2026-08-08）已闭合**。产品权威 = Plan→Instructions；Leo 源 debug/compare only；Counter ≡ golden；residual 桶 0；空 allowlist；效果矩阵无 PARTIAL 假 Y。
+**IR-0..IR-7 / G0–G6 + G5-MATRIX + G5-HARD engineering closeout（2026-08-08）已闭合**。产品权威 = Plan→Instructions；Leo 源 debug/compare only；Counter ≡ golden；residual 桶 0；空 allowlist；效果矩阵无 PARTIAL 假 Y；IR-7 runtime = **PARTIAL + MISSING**（package-only snarkVM execute 无 Tool Lock pin）。
 
 **后续队列：**
 
@@ -390,8 +392,8 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 |---|---|---|---|
 | 1 | **G5-MATRIX** | §3.2 全行扫描 | **done（2026-08-08）** |
 | 2 | **G5-HARD** | hard-require | **done（2026-08-08）**：true lower + 空 allowlist + `ALEO-IR-G5-HARD` |
-| 3 | **IR-7 / G6** | runtime honesty | 有工具则 host-heavy 差分；否则 evidence MISSING |
-| 4 | **RES-CLEAN** | 文档收口 | deferred 金样 / prove / record 诚实列表 |
+| 3 | **IR-7 / G6** | runtime honesty | **done PARTIAL/MISSING（2026-08-08）**：`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`；suite 钉测；不发明 CLI |
+| 4 | **RES-CLEAN** | 文档收口 | deferred 金样 / prove / record 诚实列表（**Next**） |
 
 ### 已交付（不重开为 Next）
 | 切片 | 交付 |
@@ -405,12 +407,13 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 | IR-6 / G4 | product primary `{id}.aleo` = Instructions；Leo debug-only / compile dual-write |
 | G5-MATRIX | §3.2 Instructions 现状列 + §3.2.1；Bool/assert/const/Int64/Field/pureFn/nested Map pins |
 | G5-HARD | Int64/Field/pureFn true lower；`isAleoInstructionsG5HardResidualAllowlistV1` 恒 false；`ALEO-IR-G5-HARD` |
+| IR-7 / G6 | runtime honesty PARTIAL/MISSING：`scripts/aleo_runtime_test.sh` + `just aleo-runtime` 钉 `PF-TOOLCHAIN-MISSING`；suite `testIr7RuntimeHonestyNotes`；不发明 snarkVM CLI |
 
 ### Remaining（blockers / next work）
 
-1. **IR-7 / G6 runtime（Next）**：pin snarkVM / 官方 package-only execute（若存在）；**非** ordinary ci；不发明工具。
-2. **RES-CLEAN**：deferred multi-program leo 金样 / prove / record 诚实列表。
-3. **full opcode / record / prove**：out-of-slice 直至产品决策；record custody / pf.assets 零绑定保持；`deployable=false`。
+1. **RES-CLEAN（Next）**：deferred multi-program leo 金样 / prove / record 诚实列表。
+2. **full opcode / record / prove**：out-of-slice 直至产品决策；record custody / pf.assets 零绑定保持；`deployable=false`。
+3. **可选未来**：若上游提供 package-only execute 且进入 Tool Lock，扩展 `aleo_runtime_test.sh` 为 Counter host-heavy 差分（仍非 ordinary ci）。
 
 规划 owner：engineering。
-产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-0..IR-6 + G5-MATRIX + G5-HARD 已工程 closeout（产品 primary = Instructions；Leo debug-only；residual allowlist 空）。
+产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-0..IR-7 + G5-MATRIX + G5-HARD 已工程 closeout（产品 primary = Instructions；Leo debug-only；residual allowlist 空；runtime execute MISSING/PARTIAL）。

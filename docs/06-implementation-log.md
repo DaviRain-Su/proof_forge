@@ -13,6 +13,21 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+## 2026-08-08 — ALEO-IR-7 / G6：runtime honesty PARTIAL + MISSING
+
+- Probe：Tool Lock / materialize root 无 snarkVM/snarkOS；仅 Leo 4.0.2。
+  RPT-024：`leo run` = 源解释；`leo execute`/`deploy` 需 REST state；无 package-only
+  Instructions execute 路径可 pin。
+- 新增 `scripts/aleo_runtime_test.sh` + `just aleo-runtime`（host-heavy；**非** ordinary
+  ci）：仅探测 `$PROOF_FORGE_TOOL_ROOT/{snarkvm,snarkos}`（never PATH）；缺席 →
+  `PF-TOOLCHAIN-MISSING` exit 2 + PARTIAL 文案；不发明 snarkVM CLI；明确 leo 非 IR-7
+  执行权威。
+- Suite：`Tests.Materialization.AleoInstructionsV1.testIr7RuntimeHonestyNotes` 钉 golden
+  + probe script 存在与 residual 非声称。
+- Docs：`09-aleo-instructions-lowering.md` G6/IR-7 checkboxes、§10 Next=RES-CLEAN；
+  backlog `ALEO-IR-7`；`09-aleo.md`；`AGENTS` Active/Next。
+- `deployable=false`；**非** prove/deploy/formal/hermetic；不升格 runtime maturity。
+
 ## 2026-08-08 — ALEO-IR IR-0..IR-6 / G0–G4 engineering closeout
 
 - **Closeout（docs only）**：ALEO-IR-0..IR-6 工程切片与 G-ladder G0–G4 声明闭合；

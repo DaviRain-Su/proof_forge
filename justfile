@@ -1304,6 +1304,15 @@ solana-runtime:
 psy-runtime:
     bash scripts/psy_runtime_test.sh
 
+# Aleo Instructions IR-7 / G6 runtime honesty probe (host-heavy; NOT ordinary ci).
+# Probes locked $PROOF_FORGE_TOOL_ROOT/snarkvm|snarkos only (never PATH).
+# Default today: PF-TOOLCHAIN-MISSING + PARTIAL (no package-only execute pin;
+# Leo is compile/interpret-only, not IR-7 execute authority). Do not invent CLI.
+# Exit 2 expected until a Tool Lock snarkVM package-only pin lands.
+# Not product finalize / prove / deploy / formal / hermetic.
+aleo-runtime:
+    bash scripts/aleo_runtime_test.sh
+
 # #125 Solana CPI CLI/product acceptance only (proof-forge.output.v1 EscrowCpi
 # under solana-sbpf-cpi-elf-v1). Not ordinary ci; host/tool heavy like solana-runtime.
 # Does not consume #118–#124 preactivation runtime manifests. Requires #125 product

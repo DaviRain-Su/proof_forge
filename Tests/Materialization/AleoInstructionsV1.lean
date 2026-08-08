@@ -1,8 +1,8 @@
 /-
-  ALEO-IR-1..6 + G5-MATRIX + G5-HARD: Aleo Instructions Schema/TextCodec +
+  ALEO-IR-1..7 + G5-MATRIX + G5-HARD: Aleo Instructions Schema/TextCodec +
   Counter golden + Plan→Instructions + if/match/bounded-for + multi-leaf +
   narrow UInt + effects honesty + product primary + residual true lower +
-  hard-require (empty allowlist).
+  hard-require (empty allowlist) + IR-7 runtime honesty PARTIAL/MISSING.
 
   Covers:
   * schema id / Leo golden version pins
@@ -20,9 +20,13 @@
   * G5-HARD: Int64 / Field BLS12-377 / pureFn callFn inline true lower;
     empty residual allowlist; no silent Leo-only primary
   * const / nested Map stay plan-FC
+  * ALEO-IR-7 / G6: runtime honesty pin — package-only snarkVM execute is
+    **MISSING** (PARTIAL); `scripts/aleo_runtime_test.sh` + `just aleo-runtime`
+    fail closed `PF-TOOLCHAIN-MISSING` (never PATH; never invent CLI);
+    leo run ≠ Instructions package-only execute
 
-  **Not** snarkVM execute, prove/deploy, formal. No PARTIAL without evidence.
-  deployable=false.
+  **Not** snarkVM execute, prove/deploy, formal. PARTIAL only with evidence
+  (IR-7 MISSING pin). deployable=false.
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Aleo
@@ -1543,6 +1547,30 @@ unsafe def testProductPrimaryInstructionsMaterialize : IO Unit := do
   expect (artPaths == #["counter.aleo", "counter.aleo-query-contract.json"])
     s!"Registry materializeResult default must omit .leo, got {artPaths}"
 
+/-- ALEO-IR-7 / G6 runtime honesty (docs/targets/09-aleo-instructions-lowering.md §5/§10):
+    * package-only snarkVM/snarkOS execute of product Instructions is **MISSING**
+      on Tool Lock (Leo 4.0.2 only; RPT-024)
+    * host-heavy probe `scripts/aleo_runtime_test.sh` + `just aleo-runtime`
+      must exist and is **not** ordinary ci
+    * default probe outcome: `PF-TOOLCHAIN-MISSING` (exit 2) — PARTIAL evidence
+    * leo run is Leo source interpret only, **not** package-only Instructions
+      execute; this suite does **not** invent a snarkVM CLI or claim execute
+    * Counter sole full-byte Instructions golden remains IR-1 authority
+    * `deployable=false`; not prove/deploy/formal -/
+def testIr7RuntimeHonestyNotes : IO Unit := do
+  let goldenPath : System.FilePath :=
+    "testdata/golden/aleo-instructions-v1/counter.compiled.aleo"
+  expect (← goldenPath.pathExists)
+    "Counter Instructions golden must exist (IR-1..IR-6 authority)"
+  let scriptPath : System.FilePath := "scripts/aleo_runtime_test.sh"
+  expect (← scriptPath.pathExists)
+    "ALEO-IR-7 host-heavy probe scripts/aleo_runtime_test.sh must exist"
+  -- Non-claims (documented residual only; no invented execute assertion):
+  -- * package-only snarkVM execute still MISSING (PARTIAL; PF-TOOLCHAIN-MISSING)
+  -- * no Tool Lock snarkVM/snarkOS asset; never PATH fallback
+  -- * product primary remains Instructions text; deployable=false
+  pure ()
+
 unsafe def run : IO Unit := do
   testPins
   testEncodeEqualsGolden
@@ -1574,6 +1602,7 @@ unsafe def run : IO Unit := do
   testG5HardResidualAllowlistClassifier
   testG5MatrixNestedMapPlanFailClosed
   testProductPrimaryInstructionsMaterialize
+  testIr7RuntimeHonestyNotes
   IO.println "Tests.Materialization.AleoInstructionsV1: ok"
 
 

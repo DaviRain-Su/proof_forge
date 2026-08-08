@@ -17,16 +17,18 @@ Phase 1：实现（工程切片已接线；成熟度 source-only / compile-only�
 
 **主线：Aleo Instructions IR**（官方中间 IR，对标 Psy DPN），**不是**长期 sole Leo 源语法。
 规划 sole 输入：[`09-aleo-instructions-lowering.md`](09-aleo-instructions-lowering.md)。
-**IR-0..IR-6 / G0–G5 + G5-MATRIX + G5-HARD engineering closeout（2026-08-08）**：`Targets/Aleo/Instructions/{SchemaV1,TextCodecV1,LowerPlanV1}` +
+**IR-0..IR-7 / G0–G6 + G5-MATRIX + G5-HARD engineering closeout（2026-08-08）**：`Targets/Aleo/Instructions/{SchemaV1,TextCodecV1,LowerPlanV1}` +
 Counter 金样 `testdata/golden/aleo-instructions-v1/counter.compiled.aleo`（locked Leo 4.0.2）；
 `programFromCapabilityV1` Counter Plan→Instructions ≡ 金样；if/match/bounded-for →
 `branch.eq`/`position`/静态 for-unroll；multi-leaf Map/Option/Array + narrow UInt；
-IR-5 效果诚实矩阵（emit/payload-revert Plan FC；call/schedule/assets/context 产品 FC，无 PARTIAL）；
+IR-5 效果诚实矩阵（emit/payload-revert Plan FC；call/schedule/assets/context 产品 FC，无 PARTIAL 假 Y）；
 **G5-HARD** Int64/Field BLS12-377/pureFn inline true lower + 空 allowlist `ALEO-IR-G5-HARD`；
 **产品 primary** = Instructions 文本 `{id}.aleo`（Counter ≡ golden）；query-contract 不变；
 Leo 4 源 debug-only（`PROOF_FORGE_ALEO_EMIT_LEO=1` / `emitLeoDebug` → `{id}.leo`；
-compile profile 双写供 locked-leo compare extras）。不得把 Leo 源写成长期 sole 权威。
-**Next = IR-7 / G6 runtime**；remaining = IR-7 runtime / full opcode / record / prove。
+compile profile 双写供 locked-leo compare extras）；**IR-7/G6 runtime honesty PARTIAL+MISSING**
+（无 locked snarkVM package-only；`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`；不发明 CLI）。
+不得把 Leo 源写成长期 sole 权威。
+**Next = RES-CLEAN**；remaining = RES-CLEAN / full opcode / record / prove。
 
 ## 当前工程迁移状态（非 formal 完成）
 
@@ -87,7 +89,9 @@ closure 约束；它不是 Leo `build/abi.json`、不是 executable query，也�
 `{programId}.compiled.aleo`（Instructions 面，IR 金样/对照）、`{programId}.abi.json`、
 `{programId}.leo-program.json`。两 profile 均 `deployable=false`。不得发出 Leo 3.x 兼容语法。
 
-**规划后续**：IR-7/G6 runtime（有工具再开）→ RES-CLEAN。见
+**规划后续**：IR-7/G6 runtime honesty **done PARTIAL/MISSING（2026-08-08）**
+（`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`；无 locked package-only execute）→
+**Next = RES-CLEAN**。见
 [`09-aleo-instructions-lowering.md`](09-aleo-instructions-lowering.md)。
 
 ## 6. 工具链
@@ -124,6 +128,10 @@ Leo 4.0.2 执行 offline compile-only Finalize，发布三个 content-bound comp
 产品双次构建、缺失/坏工具零发布负例和 `inspect` exact disk closure 覆盖。
 `AleoAcceptance` 仍提供更宽 source corpus 的 host-optional compile gate。RPT-024 确认
 `leo run` 仅为解释器、execute/deploy/query 依赖网络、synthesize 需要未锁定 CRS，且仓库无
-pinned snarkOS/snarkVM。该产品 finalization 仍 `deployable=false`，不验证 VM、proof、deploy
-或 public finalization，也不是 formal/hermetic Stage-0 证据。成熟度声明为
-**source emission + engineering locked compile finalization**。
+pinned snarkOS/snarkVM。**ALEO-IR-7（2026-08-08）** 将 runtime honesty 钉为
+**PARTIAL + MISSING**：`scripts/aleo_runtime_test.sh` / `just aleo-runtime`（非 ordinary
+ci）在 tool root 无 snarkVM/snarkOS 时以 `PF-TOOLCHAIN-MISSING` fail closed，不发明
+package-only CLI，也不把 `leo run` 升格为 Instructions 运行时。该产品 finalization 仍
+`deployable=false`，不验证 VM、proof、deploy 或 public finalization，也不是
+formal/hermetic Stage-0 证据。成熟度声明为
+**source emission + engineering locked compile finalization**（runtime execute MISSING）。
