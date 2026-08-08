@@ -62,8 +62,9 @@
     * UInt64 checkedMul/Div/Mod + add/sub → DPN (mul inverse wrap check)
     * zero-arg revertError → assertions[] "revert"; payload args FC
     * residual Plan-admit shapes (narrow UInt, Int signed, callFn pureFn,
-      UInt64 shl/shr, checkedBitNot) → stable PSY-DPN-G5-MATRIX FC so
-      product dual-write keeps transitional `.psy` only (no silent DPN claim)
+      UInt64 shl/shr, checkedBitNot) → stable PSY-DPN-G5-MATRIX FC;
+      EmitIRV1 G5-HARD residual allowlist may emit transitional `.psy` only
+      (no false DPN package); non-residual DPN failures hard-fail materialize
     * Bool/compare/logic/bare assert covered by general builder + suite pins
 
   Method ids: Counter pins match dargo golden; other names use a stable

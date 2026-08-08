@@ -9,7 +9,7 @@ normative: false
 
 # Psy DPN 层落地规划
 
-状态：`draft`（规划输入；DPN-1..7 engineering 已落地 dual-write；**G5-WIDE** mul/div/shift + **G5-AGG** Array/Principal/Bytes/Struct multi-leaf + **G5-MATRIX** §3.2 admit 扫描/FC pins 已闭合；G5 residual 仍含 hard-require DPN、`.psy` deletion-gate、optional dargo package 字节金样与 residual Plan 族 DPN lower（narrow/Int/pureFn/shl））
+状态：`draft`（规划输入；DPN-1..7 engineering 已落地 dual-write；**G5-WIDE** mul/div/shift + **G5-AGG** Array/Principal/Bytes/Struct multi-leaf + **G5-MATRIX** §3.2 admit 扫描/FC pins + **G5-HARD** residual allowlist / non-residual materialize hard-fail 已闭合；G5 residual 仍含 residual 族 true DPN lower、full hard-require（零 allowlist）、`.psy` deletion-gate、optional dargo package 字节金样）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Psy target 的权威物化从 **文本 `.psy`** 切到 **官方 DPN 方法级定义**，并评估 **ProgramV1 语法/语义能覆盖到 DPN target 的范围**。
 
 权威上游（pin）：
@@ -134,7 +134,7 @@ Pin rev 与 dargo 0.1.0 不一致时 **fail closed**（文档 + Tool Lock 同步
 ### 3.2 覆盖矩阵（ProgramV1 族 → DPN）
 
 图例：`Y` = 目标必须 Y；`P` = PARTIAL / 有界；`F` = 证据化 FC；`N` = 非 Psy 产品面。
-**DPN 现状**（G5-MATRIX 2026-08-08 扫描）：`done` = 有 DPN lower + 自动化钉测；`residual` = Plan 仍 admit、DPN 稳定 FC、产品 dual-write 仅 `.psy`；`plan-FC` = Plan/resolver 已 FC（达不到 DPN）；`partial` = PARTIAL 诚实编码。
+**DPN 现状**（G5-MATRIX + G5-HARD 2026-08-08）：`done` = 有 DPN lower + 自动化钉测；`residual` = Plan 仍 admit、DPN 稳定 `PSY-DPN-G5-MATRIX` FC、产品 **G5-HARD residual allowlist** 仅 `.psy`（非 silent 任意 DPN 失败）；`plan-FC` = Plan/resolver 已 FC（达不到 DPN）；`partial` = PARTIAL 诚实编码。
 
 | ProgramV1 / Semantic 族 | 现 .psy 路径 | DPN 目标 | DPN 现状 | 证据（测试 / 路径） |
 |---|---|---|---|---|
@@ -171,9 +171,9 @@ Pin rev 与 dargo 0.1.0 不一致时 **fail closed**（文档 + Tool Lock 同步
 | 桶 | 行数 | 说明 |
 |---|---|---|
 | **done / partial** | 多数 Y + 两 P | 有 DPN lower 或诚实 PARTIAL + `PsyDpnV1` 钉测 |
-| **residual** | narrow UInt、Int signed、pureFn、UInt64 shl/shr、checkedBitNot | Plan admit + DPN `PSY-DPN-G5-MATRIX` 稳定 FC + dual-write 仅 `.psy` |
+| **residual** | narrow UInt、Int signed、pureFn、UInt64 shl/shr、checkedBitNot | Plan admit + DPN `PSY-DPN-G5-MATRIX` 稳定 FC + **G5-HARD allowlist** 仅 `.psy` |
 | **plan-FC** | bn254 Field、nested Map、result-bearing call、Context/Commit、invariant、assets… | 产品 Plan 前拒绝；不发明 DPN |
-| **open residual work** | hard-require DPN、`.psy` deletion-gate、residual 族真正 DPN lower、dargo 字节金样 | 不阻塞 G5-MATRIX 扫描闭合 |
+| **open residual work** | residual 族真正 DPN lower、full hard-require（删 allowlist）、`.psy` deletion-gate、dargo 字节金样 | G5-HARD gated policy 已闭合；full hard-require 待 residual lower |
 
 **结论（规划层 + G5-MATRIX 事实）：**
 在 **Psy 已开放且 DPN 已 lower 的子集** 上，物化可走 `.dpn.json`；**residual** 族保持证据化 FC（禁止假 Y）；**plan-FC** 族不经 DPN 旁路。
@@ -210,7 +210,7 @@ ProofForgeV2/Targets/Psy/
 | G2 | Accumulator / OptionState / LoopSum | **partial（DPN-3/4）** | Plan→DPN 结构门（LoopSum/OptionState）；**非** runtime 差分同 oracle |
 | G3 | WideCounter VM | **done（DPN-4 + G5-WIDE）** | multi-leaf + UInt128 add + schoolbook mul + restoring div/mod + limb shift DPN |
 | G4 | Map / 聚合 | **done（DPN-5）** | MapMini+Token Plan→DPN；.psy 破点绕过 |
-| G5 | 全 admit 面扫描 | **done scan（G5-WIDE + G5-AGG + G5-MATRIX）** | §3.2 每行有 DPN 钉测或 residual/Plan FC 钉测；residual 族（narrow/Int/pureFn/shl）诚实未 Y；hard-require DPN / deletion-gate / dargo 字节金样仍 open |
+| G5 | 全 admit 面扫描 | **done scan（G5-WIDE + G5-AGG + G5-MATRIX + G5-HARD）** | §3.2 每行有 DPN 钉测或 residual/Plan FC 钉测；residual 族诚实未 Y；G5-HARD residual allowlist + non-residual materialize FC；full hard-require / deletion-gate / dargo 字节金样仍 open |
 | G6 | Execute 消费 DPN | **open** | 不经 `.psy` 文本：`psy_vm` 或 dargo 可接受路径 |
 
 G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛；G6 为 **去文本依赖**。
@@ -274,7 +274,8 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 - [x] `emitFromIR` / `buildFromCapability` dual-write：`{name}.dpn.json`（package JSON，Plan→DPN 成功时 **primary**）+ 过渡 `{name}.psy`（always / residual-only when DPN lower 未 admit）
 - [x] Finalize 证据注记：DPN JSON + transitional `.psy`；zero-tool；`deployable=false`
 - [x] `PsyDpnV1` pin：Counter product dual-write package ≡ golden + `.psy` 非空
-- [ ] residual Plan 形状 hard-require DPN（G5；当前 dual-write 过渡对未 lower 形状仅 `.psy`）
+- [x] **G5-HARD（2026-08-08）**：gated residual policy — `isPsyDpnG5HardResidualAllowlistV1` 仅放行 `PSY-DPN-G5-MATRIX` residual 诊断 → `.psy` only；**非** allowlist 的 DPN lower 失败以稳定 `PSY-DPN-G5-HARD` fail materialize（禁止 silent incomplete product）；`buildFromPlanV1` + `PsyDpnV1` 钉测；**非** full hard-require（零 allowlist）、非 G6 删 `.psy`
+- [ ] residual 族 true DPN lower 后 full hard-require（删除 allowlist）
 - [ ] 删除 `.psy` 权威路径（deletion-gate；现为 debug/transition）
 - [ ] `just psy-runtime` 优先 DPN 路径（仍经 `.psy`→dargo；不经 product Finalize）
 
@@ -325,10 +326,11 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 
 ### 9.2 Admit 面全覆盖（DPN-5 + 矩阵 G5）
 
-- §3.2 中所有 **目标 Y** 行：要么 DPN lowering + 测试（**done**），要么 **residual** 稳定 `PSY-DPN-G5-MATRIX` FC + dual-write 仅 `.psy`（禁止假 Y）。
+- §3.2 中所有 **目标 Y** 行：要么 DPN lowering + 测试（**done**），要么 **residual** 稳定 `PSY-DPN-G5-MATRIX` FC + G5-HARD allowlist 仅 `.psy`（禁止假 Y）。
 - 所有 **P/F** 行有稳定诊断或 PARTIAL 文档（`PsyDpnV1` 与/或 `PsySourceV1`）。
 - Map 等不再依赖破损 `.psy` 路径。
 - **G5-MATRIX（2026-08-08）** 已闭合扫描：覆盖表见 §3.2 / §3.2.1。
+- **G5-HARD（2026-08-08）** 已闭合 gated residual policy：非 residual DPN 失败不得 silent `.psy`-only。
 
 ### 9.3 非完成条件
 
@@ -338,9 +340,9 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 
 ---
 
-## 10. 下一步（DPN-1..7 + G5-WIDE + G5-AGG + G5-MATRIX 已闭合后）
+## 10. 下一步（DPN-1..7 + G5-WIDE + G5-AGG + G5-MATRIX + G5-HARD 已闭合后）
 
-1. **G5 residual implementation（可选 capability）**：把 residual 族真正 DPN lower（UInt8/16/32 守卫、Int64/窄 Int、pureFn inline/子图、UInt64 shl/shr、checkedBitNot）；optional hard-require DPN for all Psy Plan admits；WideCounter256 product package pin；dargo 全量 package 字节相等金样。
+1. **G5 residual implementation（可选 capability）**：把 residual 族真正 DPN lower（UInt8/16/32 守卫、Int64/窄 Int、pureFn inline/子图、UInt64 shl/shr、checkedBitNot）；随后 **full hard-require**（删除 residual allowlist）；WideCounter256 product package pin；dargo 全量 package 字节相等金样。
 2. **G6 / deletion-gate（可选）**：`.psy` 删除或 debug-only；`just psy-runtime` DPN-first（不经 product Finalize 改 claim）。
 3. **可选硬化**：method_id 官方 hash 复刻；Tool Lock 镜像 `psy-node` rev。
 

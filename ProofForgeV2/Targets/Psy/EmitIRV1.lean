@@ -8,12 +8,16 @@ import ProofForgeV2.Targets.Psy.Dpn.JsonCodecV1
 Target-owned Psy AST/renderer (ported from the old Compiler/Psy surface for
 the V2 envelope) and capability-internal `lower`/`emitFromIR`.
 
-**PSY-DPN-7 product dual-write**: primary artifact is
+**PSY-DPN-7 product dual-write + PSY-DPN-G5-HARD honesty**: primary artifact is
 `{contract}.dpn.json` (dargo-shaped package of `DPNFunctionCircuitDefinition`)
 when Plan→DPN lower succeeds; `{contract}.psy` remains a transitional/debug
-text emission for dargo compile lanes. Residual Plan shapes not yet admitted
-by `LowerPlanV1` still emit `.psy` only during the dual-write transition
-(G5 full admit coverage is separate). `deployable=false` unchanged.
+text emission for dargo compile lanes. **G5-HARD**: non-residual DPN lower
+failures fail materialize with stable `PSY-DPN-G5-HARD` (no silent incomplete
+product). Explicit residual allowlist (`PSY-DPN-G5-MATRIX` residual families —
+narrow UInt/Int, pureFn/callFn, UInt64 shl/shr, checkedBitNot, Field residual)
+may still emit transitional `.psy` only until those families gain true DPN
+lower; full hard-require (zero allowlist) is deferred to residual-implementation
+work. `deployable=false` unchanged.
 
 Checked u64 arithmetic is realized with explicit assert guards. Psy `Felt`
 is Goldilocks (p = 2^64−2^32+1): every decimal literal is reduced into
@@ -1757,13 +1761,24 @@ private def lower (plan : Plan) : CompileResult IR := do
   }
   pure { sourcePlan := plan, module_ }
 
-/-- PSY-DPN-7 dual-write product files from retained Plan + PsyModule.
+/-- PSY-DPN-G5-HARD residual allowlist (explicit gated policy).
+
+    True only for stable `PSY-DPN-G5-MATRIX` residual diagnostics that document
+    Plan-admit shapes not yet DPN-lowered (product may emit transitional
+    `.psy` only). All other DPN lower failures must fail materialize — never
+    silent incomplete product. Full hard-require (this returns false always)
+    is deferred until residual families have true DPN lower. -/
+def isPsyDpnG5HardResidualAllowlistV1 (message : String) : Bool :=
+  -- Residual matrix families pin the `.psy dual-write only` / residual wording.
+  message.contains "PSY-DPN-G5-MATRIX" &&
+    (message.contains "residual" || message.contains ".psy dual-write only")
+
+/-- PSY-DPN-7 dual-write + G5-HARD honesty from retained Plan + PsyModule.
     * Primary: `{name}.dpn.json` when `lowerPlanToPackageV1` succeeds
-    * Transitional/debug: `{name}.psy` always
-    Residual Plan shapes still admitted on the `.psy` path but not yet in
-    `LowerPlanV1` (bitAnd/shl/narrow/callFn/…) keep `.psy` only during the
-    dual-write transition — prefer evidence FC inside LowerPlan over inventing
-    DPN ops; G5 hard-requires DPN for every Psy Plan admit. -/
+    * Transitional/debug: `{name}.psy` always on DPN success
+    * Residual allowlist (G5-MATRIX residual): `.psy` only (no false DPN claim)
+    * Non-allowlisted DPN failure: stable `PSY-DPN-G5-HARD` materialize FC
+    Prefer evidence FC inside LowerPlan over inventing DPN ops. -/
 private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
   let source := renderModule ir.module_
   let pathName := ir.module_.contractName
@@ -1781,9 +1796,17 @@ private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
       }
       -- DPN package first (product authority), .psy second (transition/debug).
       pure #[dpnFile, psyFile]
-  | .error _ =>
-      -- Transition residual: incomplete DPN lower for this Plan shape.
-      pure #[psyFile]
+  | .error (.planInvariant .psy msg) =>
+      if isPsyDpnG5HardResidualAllowlistV1 msg then
+        -- Explicit residual: transitional .psy only (documented allowlist).
+        pure #[psyFile]
+      else
+        -- G5-HARD: Plan admitted but DPN lower failed for a non-residual reason.
+        planError s!"PSY-DPN-G5-HARD: Plan admitted but DPN lower failed \
+(no silent .psy-only): {msg}"
+  | .error e =>
+      -- Non-planInvariant DPN path should not occur; fail closed as-is.
+      .error e
 
 def validateIR (ir : IR) : CompileResult Unit := do
   validatePlan ir.sourcePlan
@@ -1801,6 +1824,13 @@ def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult I
 def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
     CompileResult (Array OutputFile) := do
   let ir ← irFromCapability capability
+  emitFromIR ir
+
+/-- Engineering/test materialize from a retained `Plan` under G5-HARD policy
+    (validate → IR lower → dual-write / residual allowlist / hard-fail). -/
+def buildFromPlanV1 (plan : Plan) : CompileResult (Array OutputFile) := do
+  validatePlan plan
+  let ir ← lower plan
   emitFromIR ir
 
 /-- Pre-P-B / unit-test IR entry over retained SemanticProgramV1. -/

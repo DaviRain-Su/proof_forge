@@ -18,12 +18,13 @@ spine: consumes retained `SemanticProgramV1` via
 `ResolvedEngineeringBuildV1` exactly like EVM/Solana/NEAR/Noir/Aleo.
 
 Psy maps the V2 public-UInt64 envelope to target-owned Plan then dual-writes
-product artifacts (PSY-DPN-7):
+product artifacts (PSY-DPN-7 + G5-HARD):
   * **Primary**: `{name}.dpn.json` — dargo-shaped package of
     `DPNFunctionCircuitDefinition` when Plan→DPN lower succeeds
   * **Transitional/debug**: `{name}.psy` text (dargo compile lanes; not DPN
-    authority). Residual Plan shapes without DPN lower still emit `.psy` only
-    until G5 full admit coverage.
+    authority). G5-HARD residual allowlist may emit `.psy` only for
+    `PSY-DPN-G5-MATRIX` residual families; non-residual DPN failure hard-fails
+    materialize (`PSY-DPN-G5-HARD`).
   * UInt64/UInt32 → Felt, Bool → bool
   * checked u64 arith via explicit assert guards (Felt is a field element)
   * bitwise `&`/`|`/`^` and shifts as native Felt ops on the `.psy` path

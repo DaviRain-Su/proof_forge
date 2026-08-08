@@ -12,13 +12,24 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy DPN G5-HARD residual policy（PSY-DPN-G5-HARD）
+
+- `EmitIRV1`: non-residual DPN lower failures fail materialize with stable
+  `PSY-DPN-G5-HARD` (no silent incomplete `.psy`-only product). Explicit
+  residual allowlist (`isPsyDpnG5HardResidualAllowlistV1`) keeps
+  `PSY-DPN-G5-MATRIX` residual families as transitional `.psy` only.
+- `buildFromPlanV1` + `PsyDpnV1` pins: classifier, zero-state hard-fail,
+  UInt8 residual `.psy`-only, Counter dual-write still green.
+- Non-claims: not full hard-require (zero allowlist), not G6 `.psy` deletion,
+  not residual true DPN lower, not formal.
+
 ## 2026-08-08 — Psy DPN product dual-write（PSY-DPN-7）
 
 - `EmitIRV1.emitFromIR` / `buildFromCapability`: dual-write `{name}.dpn.json`
   (primary package JSON when Plan→DPN succeeds) + transitional `{name}.psy`.
-- Residual Plan shapes without DPN lower still emit `.psy` only (G5 residual;
-  no invented DPN ops). Finalize evidence note mentions DPN+`.psy`, zero-tool,
-  `deployable=false`.
+- Residual Plan shapes without DPN lower still emit `.psy` only under G5-HARD
+  residual allowlist (no invented DPN ops). Finalize evidence note mentions
+  DPN+`.psy`, zero-tool, `deployable=false`.
 - `PsyDpnV1`: Counter product dual-write package ≡ locked-dargo golden.
 - Non-claims: not `.psy` deletion, not psy-runtime DPN-first, not UPS/formal.
 

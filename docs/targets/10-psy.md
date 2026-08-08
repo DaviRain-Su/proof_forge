@@ -57,7 +57,7 @@ PsyPlan {
 
 当前工程路径为 `PsyPlan → PsyIR → Dargo `.psy` source package`，并已进入 registry/capability materialization；该 source schema仍是 engineering profile，不承诺主网 bytecode、UPS 或部署包的稳定格式。**产品 Finalize 仍为零工具、`deployable=false`**，不得把 source package 写成可部署 artifact。可选的 locked dargo local-VM execute 只存在于外部工程菜谱，不进入 finalize 证据。
 
-**DPN 层规划（2026-08-08，draft；DPN-7 dual-write + G5-WIDE 已落地）**：产品 materialize 在 Plan→DPN 成功时 dual-write **`{name}.dpn.json`**（dargo 形 package，primary）+ 过渡 **`{name}.psy`**（debug / residual-only）。权威目标仍为官方 `DPNFunctionCircuitDefinition`（`psy-node`/`psy_vm` @ dargo-aligned rev），覆盖 **ProgramV1 在 Psy 上 admit 的构造**，而非完整 PSL 语法面。规划与分阶段完成条件见 **[`10-psy-dpn-lowering.md`](10-psy-dpn-lowering.md)**。G5-WIDE：UInt128 mul/div/shift 已 DPN 展开（schoolbook/restoring/bit-walk）；`.psy` 非 DPN 权威；删除 emitter 需 deletion-gate；G5 residual（Array/Principal/Bytes 金样、hard-require）前部分 residual 形状可仅有 `.psy`。
+**DPN 层规划（2026-08-08，draft；DPN-7 dual-write + G5-WIDE/AGG/MATRIX/HARD 已落地）**：产品 materialize 在 Plan→DPN 成功时 dual-write **`{name}.dpn.json`**（dargo 形 package，primary）+ 过渡 **`{name}.psy`**；**G5-HARD** residual allowlist 可仅 `.psy`，非 residual DPN 失败 hard-fail materialize（`PSY-DPN-G5-HARD`）。权威目标仍为官方 `DPNFunctionCircuitDefinition`（`psy-node`/`psy_vm` @ dargo-aligned rev），覆盖 **ProgramV1 在 Psy 上 admit 的构造**，而非完整 PSL 语法面。规划见 **[`10-psy-dpn-lowering.md`](10-psy-dpn-lowering.md)**。G5 residual true lower / full hard-require / `.psy` deletion-gate 仍 open。
 
 ## 6. 工具链
 

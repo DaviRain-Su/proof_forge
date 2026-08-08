@@ -1,8 +1,9 @@
 /-
   Tests.Materialization.PsyDpnV1 — PSY-DPN-1..7 + G5-WIDE + G5-AGG +
-  G5-MATRIX schema + Counter golden + Plan lower + if/match/for +
+  G5-MATRIX + G5-HARD schema + Counter golden + Plan lower + if/match/for +
   multi-leaf/wide mul/div/shift + Map + Array/Principal/Bytes multi-leaf +
-  effects honesty + product dual-write + §3.2 admit matrix pins.
+  effects honesty + product dual-write + §3.2 admit matrix pins + hard-require
+  residual policy.
 
   Pins:
     * OpType / DataType exact discriminants used by Counter (+ Select)
@@ -28,6 +29,8 @@
     * G5-MATRIX: Bool/compare/logic; bare assert/revert; UInt64 sub/mul/div/mod;
       bitAnd; const→literal product; residual FC for callFn/narrow/Int/shl;
       payload revertError FC; UInt8 product dual-write `.psy`-only residual
+    * G5-HARD: residual allowlist keeps UInt8 `.psy`-only; non-allowlisted DPN
+      lower (e.g. zero state fields) fails materialize with PSY-DPN-G5-HARD
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Psy
@@ -1713,8 +1716,30 @@ def testPayloadRevertErrorFailClosedAtDpn : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "payload revertError must fail closed at DPN"
 
-/-- Product UInt8 narrow residual: dual-write emits transitional `.psy` only
-    (no false DPN package claim while narrow lower is residual). -/
+/-- G5-HARD residual allowlist unit pins (classifier only). -/
+def testG5HardResidualAllowlistClassifier : IO Unit := do
+  expect (isPsyDpnG5HardResidualAllowlistV1
+      "PSY-DPN-G5-MATRIX: UInt8 narrow checked arith residual (.psy dual-write only)")
+    "narrow residual must be allowlisted"
+  expect (isPsyDpnG5HardResidualAllowlistV1
+      "PSY-DPN-G5-MATRIX: pureFn/localCall callFn 'f' is residual (.psy dual-write only)")
+    "callFn residual must be allowlisted"
+  expect (isPsyDpnG5HardResidualAllowlistV1
+      "PSY-DPN-G5-MATRIX: UInt64 shl/shr residual (.psy dual-write only)")
+    "shl residual must be allowlisted"
+  expect (!isPsyDpnG5HardResidualAllowlistV1
+      "PSY-DPN: expected at least one state field")
+    "non-MATRIX DPN error must not be residual allowlisted"
+  expect (!isPsyDpnG5HardResidualAllowlistV1
+      "PSY-DPN-5: state leaf count 99 exceeds max 64")
+    "DPN-5 leaf cap must not be residual allowlisted"
+  expect (!isPsyDpnG5HardResidualAllowlistV1
+      "PSY-DPN-G5-MATRIX: payload error (nonempty revertError args) is fail closed")
+    "payload FC is not residual dual-write allowlist wording"
+
+/-- Product UInt8 narrow residual (G5-HARD allowlist): dual-write emits
+    transitional `.psy` only (no false DPN package claim while narrow lower
+    is residual). -/
 unsafe def testUInt8ProductResidualPsyOnly : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1742,6 +1767,39 @@ unsafe def testUInt8ProductResidualPsyOnly : IO Unit := do
     s!"sole residual artifact must be .psy, got {files[0]!.path}"
   expect (!files.any (·.path.endsWith ".dpn.json"))
     "must not publish .dpn.json for residual narrow Plan"
+
+/-- G5-HARD: non-allowlisted DPN lower failure fails materialize (no silent
+    `.psy`-only). Hand Plan with zero state fields validates/emit-lowers to
+    `.psy` shape but DPN package requires ≥1 state field. -/
+def testG5HardNonResidualDpnFailClosed : IO Unit := do
+  let plan : Plan := {
+    programName := "NoState"
+    stateFieldNames := #[]
+    functions := #[{
+      index := 0
+      name := "get"
+      kind := .mutate
+      params := #[]
+      body := #[.returnValue (.literal 1)]
+      resultIsBool := false
+      resultIsUnit := false
+    }]
+    events := #[]
+    errors := #[]
+    sourceHash := "g5hard-no-state-source"
+    semanticHash := "g5hard-no-state-semantic"
+  }
+  match buildFromPlanV1 plan with
+  | .error e =>
+      let msg := e.render
+      expect (msg.contains "PSY-DPN-G5-HARD")
+        s!"non-residual DPN fail must cite G5-HARD, got: {msg}"
+      expect (msg.contains "expected at least one state field" ||
+          msg.contains "no silent .psy-only")
+        s!"G5-HARD must preserve DPN detail, got: {msg}"
+  | .ok files =>
+      throw <| IO.userError
+        s!"zero-state Plan must hard-fail materialize, got files {files.map (·.path)}"
 
 /-- PSY-DPN-7: product materialize dual-writes DPN package JSON + transitional .psy.
     Counter package content must equal locked-dargo golden; .psy remains non-empty. -/
@@ -1830,7 +1888,9 @@ unsafe def run : IO Unit := do
   testSignedCompareFailClosedAtDpn
   testShlFailClosedAtDpn
   testPayloadRevertErrorFailClosedAtDpn
+  testG5HardResidualAllowlistClassifier
   testUInt8ProductResidualPsyOnly
+  testG5HardNonResidualDpnFailClosed
   testCounterProductDualWriteArtifacts
   IO.println "Tests.Materialization.PsyDpnV1: ok"
 
