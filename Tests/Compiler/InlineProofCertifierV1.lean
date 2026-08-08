@@ -254,6 +254,13 @@ private unsafe def testPreservingFalseTheoremElab
         phase == .certification && detail == .elaborate
     | _ => false
 
+/-- Author body for the closed EvenCounter L1 instance: exact the package-owned
+    `preservation_theorem` for ordinal 0 (no generated holds helper). -/
+private def evenCounterPreservingTheoremBody
+    (theoremName typeName : String) : String :=
+  "theorem " ++ theoremName ++ " : " ++ typeName ++ " := by\n" ++
+  "  exact ProofForgeV2.ProofInstances.EvenCounterPreservationV1.preservation_theorem\n"
+
 /-- Strict RED→GREEN product-positive for the first real preserving instance.
     The author theorem must close the exact generic `PreservationTheoremV1` for
     the normalized EvenCounter subject; no generated holds helper, hand-minted
@@ -263,7 +270,7 @@ private unsafe def testEvenCounterPreservingProductPositive
   let programName := "EvenCounter"
   let authorTheorem := "EvenCounterProof.even"
   let src := evenCounterPreservingProgram programName authorTheorem
-    (falseTheoremBody authorTheorem
+    (evenCounterPreservingTheoremBody authorTheorem
       "EvenCounter.ProofPreserving.even")
   let path ← parsePath "tests/inline-proof/even-counter-preserving.pf"
   let (source, origin, inventory) ← loadProduct session src

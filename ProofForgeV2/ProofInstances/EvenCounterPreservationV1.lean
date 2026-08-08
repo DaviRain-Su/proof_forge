@@ -930,5 +930,22 @@ theorem preservation_theorem :
   exact ⟨admitted, hadmit, preservation_base_no_init admitted,
     preservation_step admitted hadmit⟩
 
+/-- Product-facing transport: any `SemanticProgramV1` whose exact canonical
+    bytes match the closed EvenCounter instance inherits ordinal-0 preservation.
+    Product author theorems use this with `EvenCounter.Proof.subjectProgramV1`
+    once subject bytes are definitionally the closed instance. -/
+theorem preservation_theorem_of_eq_bytes
+    (p : SemanticProgramV1)
+    (h : p.canonicalBytes = canonicalBytes) :
+    PreservationTheoremV1 p 0 := by
+  have hp : p = program := by
+    cases p with
+    | mk b =>
+        change ({ canonicalBytes := b } : SemanticProgramV1) = program
+        have hb : b = canonicalBytes := h
+        subst hb
+        rfl
+  simpa [hp] using preservation_theorem
+
 
 end ProofForgeV2.ProofInstances.EvenCounterPreservationV1
