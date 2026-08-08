@@ -2,13 +2,18 @@
 # Psy dargo v0.1.0 local VM / base-proof engineering runtime lane.
 #
 # Independent host-heavy recipe (NOT ordinary ci):
-#   product CLI build default-profile fixtures + explicit-profile WideCounter →
-#   inspect closure → wrap each `.psy` as a Dargo project → compile / generate-abi →
-#   dargo execute differentials:
 #
-# G6-DEBUG honesty: product default emits only `{name}.dpn.json`. This lane sets
-#   PROOF_FORGE_PSY_EMIT_PSY=1 so product CLI also emits transitional `.psy` for
-#   locked-dargo source compile (dargo still requires `.psy` input today).
+# G6-RUNTIME DPN-first (primary):
+#   product CLI build default profile (NO PROOF_FORGE_PSY_EMIT_PSY) →
+#   require `{name}.dpn.json` sole program artifact → inspect closure →
+#   stage product DPN as dargo package JSON at `target/<package>.json`
+#   (same shape as locked-dargo compile output: array of DPNFunctionCircuitDefinition).
+#
+# G6-RUNTIME PARTIAL execute (opt-in .psy):
+#   locked dargo 0.1.0 has NO package-only execute/compile flag: `execute` always
+#   re-parses `src/main.psy` and *writes* (never reads) `target/<package>.json`.
+#   Local-VM execute differentials therefore still set PROOF_FORGE_PSY_EMIT_PSY=1
+#   for transitional `.psy` wrap → compile / generate-abi → dargo execute:
 #     Counter (happy + overflow)
 #     Accumulator (multi-add state)
 #     OptionState (Option UInt64 set/clear/peek)
@@ -16,6 +21,8 @@
 #     (MapMini: product Plan ok; dargo rejects nested return-in-if on Map get —
 #      left out of execute lane until emitter expression-if rewrite)
 #     WideCounter VM profile (UInt128 arith/bitwise/shift + checked negatives)
+#   Do not invent unsupported dargo flags. Product Finalize remains DPN-primary
+#   zero-tool deployable=false; this lane is external to product finalize.
 #
 # Honesty: local CFC execute + base-proof observables only.
 # Not localhost chain / Anvil / UPS submit / network finalization / formal.
@@ -159,9 +166,6 @@ echo "${PREFIX}: building proof-forge-next (lake build proof_forge_next)"
 lake build proof_forge_next || die "lake build proof_forge_next failed"
 [[ -x "$cli" ]] || die "CLI missing after build: $cli"
 
-# G6-DEBUG: product default is DPN-only; opt in to transitional .psy for dargo wrap.
-export PROOF_FORGE_PSY_EMIT_PSY=1
-
 # CLI rejects pre-existing -o paths (PF-OUTPUT-COLLISION); the unique staging
 # root exists, but its product children do not.
 mkdir -p "$log_dir" \
@@ -169,9 +173,115 @@ mkdir -p "$log_dir" \
   "$acc_dargo_project/src" \
   "$opt_dargo_project/src" \
   "$loop_dargo_project/src" \
-  "$wide_dargo_project/src"
+  "$wide_dargo_project/src" \
+  "${out_dir}/dpn-stage/src" \
+  "${out_dir}/dpn-stage/target"
 
-echo "${PREFIX}: product build Examples/Counter.lean --target psy"
+# ---------------------------------------------------------------------------
+# G6-RUNTIME DPN-first: default product path (no .psy) + package JSON plant.
+# ---------------------------------------------------------------------------
+# Ensure ambient opt-in does not leak into the DPN-first gate.
+unset PROOF_FORGE_PSY_EMIT_PSY || true
+
+# Validate product `{name}.dpn.json` is a non-empty array of DPN method objects
+# with the fields locked-dargo package JSON uses (name/method_id/definitions).
+validate_dpn_package_json() {
+  local path="$1"
+  local label="$2"
+  /usr/bin/python3 -I -S - "$path" "$label" <<'PY' || return 1
+import json, sys
+path, label = sys.argv[1], sys.argv[2]
+try:
+    with open(path, "rb") as f:
+        raw = f.read()
+    data = json.loads(raw.decode("utf-8"))
+except Exception as e:
+    print(f"{label}: DPN package JSON parse failed: {e}", file=sys.stderr)
+    sys.exit(1)
+if not isinstance(data, list) or len(data) == 0:
+    print(f"{label}: DPN package must be a non-empty JSON array", file=sys.stderr)
+    sys.exit(1)
+required = ("name", "method_id", "circuit_inputs", "circuit_outputs",
+            "state_commands", "definitions")
+names = []
+for i, item in enumerate(data):
+    if not isinstance(item, dict):
+        print(f"{label}: method[{i}] is not an object", file=sys.stderr)
+        sys.exit(1)
+    for k in required:
+        if k not in item:
+            print(f"{label}: method[{i}] missing field {k!r}", file=sys.stderr)
+            sys.exit(1)
+    if not isinstance(item["name"], str) or not item["name"]:
+        print(f"{label}: method[{i}] name must be non-empty string", file=sys.stderr)
+        sys.exit(1)
+    names.append(item["name"])
+print(f"{label}: dpn-package methods={','.join(names)} bytes={len(raw)}")
+sys.exit(0)
+PY
+}
+
+# Plant product DPN as dargo package path `target/<package>.json` (identity only;
+# locked dargo execute will rewrite this file after recompiling from .psy).
+plant_dpn_as_package() {
+  local dpn_path="$1"
+  local project_dir="$2"
+  local package_name="$3"
+  mkdir -p "$project_dir/target" "$project_dir/src"
+  cp -f "$dpn_path" "$project_dir/target/${package_name}.json"
+  [[ -s "$project_dir/target/${package_name}.json" ]] || \
+    die "failed to plant DPN package at $project_dir/target/${package_name}.json"
+}
+
+echo "${PREFIX}: G6-RUNTIME DPN-first product build Examples/Counter.lean --target psy (default; no .psy)"
+if ! "$cli" build Examples/Counter.lean \
+    --module Examples.Counter \
+    --target psy \
+    -o "$out_dir/dpn-product" \
+    >"$log_dir/dpn-product-build.log" 2>&1; then
+  cat "$log_dir/dpn-product-build.log" >&2 || true
+  die "DPN-first proof-forge-next build --target psy failed"
+fi
+[[ -f "$out_dir/dpn-product/Counter.dpn.json" ]] || \
+  die "DPN-first missing product Counter.dpn.json (primary)"
+if [[ -f "$out_dir/dpn-product/Counter.psy" ]]; then
+  die "DPN-first default product must not emit Counter.psy (unset PROOF_FORGE_PSY_EMIT_PSY)"
+fi
+[[ -f "$out_dir/dpn-product/manifest.json" ]] || die "DPN-first missing manifest.json"
+[[ -f "$out_dir/dpn-product/evidence.json" ]] || die "DPN-first missing evidence.json"
+validate_dpn_package_json "$out_dir/dpn-product/Counter.dpn.json" "Counter.dpn.json" \
+  || die "DPN-first Counter.dpn.json failed package-shape validation"
+if ! "$cli" inspect "$out_dir/dpn-product" >"$log_dir/dpn-inspect.log" 2>&1; then
+  cat "$log_dir/dpn-inspect.log" >&2 || true
+  die "DPN-first proof-forge-next inspect failed"
+fi
+if ! grep -q 'exact-disk-closure' "$log_dir/dpn-inspect.log"; then
+  cat "$log_dir/dpn-inspect.log" >&2 || true
+  die "DPN-first inspect log missing exact-disk-closure marker"
+fi
+cat >"${out_dir}/dpn-stage/Dargo.toml" <<'EOF'
+[package]
+name = "counter"
+type = "bin"
+authors = ["proof-forge-next"]
+
+[dependencies]
+EOF
+plant_dpn_as_package \
+  "$out_dir/dpn-product/Counter.dpn.json" \
+  "${out_dir}/dpn-stage" \
+  "counter"
+# Keep a stable copy for later method-name cross-check after dargo compile.
+cp -f "$out_dir/dpn-product/Counter.dpn.json" "$log_dir/Counter.product.dpn.json"
+echo "${PREFIX}: G6-RUNTIME DPN-first ok (Counter.dpn.json planted at dpn-stage/target/counter.json)"
+
+# ---------------------------------------------------------------------------
+# PARTIAL: locked dargo still requires .psy for compile/execute (no package flag).
+# ---------------------------------------------------------------------------
+export PROOF_FORGE_PSY_EMIT_PSY=1
+echo "${PREFIX}: PARTIAL .psy path (PROOF_FORGE_PSY_EMIT_PSY=1) for locked-dargo execute"
+
+echo "${PREFIX}: product build Examples/Counter.lean --target psy (debug .psy)"
 if ! "$cli" build Examples/Counter.lean \
     --module Examples.Counter \
     --target psy \
@@ -185,6 +295,9 @@ fi
 [[ -f "$out_dir/product/Counter.psy" ]] || die "missing product Counter.psy (need PROOF_FORGE_PSY_EMIT_PSY=1)"
 [[ -f "$out_dir/product/manifest.json" ]] || die "missing product manifest.json"
 [[ -f "$out_dir/product/evidence.json" ]] || die "missing product evidence.json"
+# Product DPN must stay package-shaped under dual-write.
+validate_dpn_package_json "$out_dir/product/Counter.dpn.json" "Counter.dpn.json(dual)" \
+  || die "dual-write Counter.dpn.json failed package-shape validation"
 
 echo "${PREFIX}: inspect exact output closure"
 if ! "$cli" inspect "$out_dir/product" >"$log_dir/inspect.log" 2>&1; then
@@ -196,7 +309,9 @@ if ! grep -q 'exact-disk-closure' "$log_dir/inspect.log"; then
   die "inspect log missing exact-disk-closure marker"
 fi
 
-# Wrap product source as a minimal Dargo project (product emits sole Counter.psy).
+# Wrap product source as a minimal Dargo project; also pre-plant product DPN as
+# package path so the staged project carries DPN-first identity before compile
+# rewrites target/counter.json from .psy.
 cat >"$dargo_project/Dargo.toml" <<'EOF'
 [package]
 name = "counter"
@@ -206,6 +321,10 @@ authors = ["proof-forge-next"]
 [dependencies]
 EOF
 cp -f "$out_dir/product/Counter.psy" "$dargo_project/src/main.psy"
+plant_dpn_as_package \
+  "$out_dir/product/Counter.dpn.json" \
+  "$dargo_project" \
+  "counter"
 
 export DARGO_STD_PATH="$STD"
 # Product CLI may spawn the package Lean toolchain; preserve its original PATH
@@ -297,7 +416,8 @@ expect_events_and_public_inputs() {
   fi
 }
 
-# Product build (default profile) → inspect → wrap Dargo.toml + src/main.psy.
+# Product build (debug .psy path; PROOF_FORGE_PSY_EMIT_PSY must already be set) →
+# inspect → wrap Dargo.toml + src/main.psy + plant product DPN as package path.
 product_build_wrap() {
   local src="$1"
   local module="$2"
@@ -307,7 +427,7 @@ product_build_wrap() {
   local package_name="$6"
   local label="$7"
 
-  echo "${PREFIX}: product build ${src} --target psy (${label})"
+  echo "${PREFIX}: product build ${src} --target psy (${label}; dual-write .psy)"
   if ! PATH="$BUILD_PATH" "$cli" build "$src" \
       --module "$module" \
       --target psy \
@@ -318,6 +438,8 @@ product_build_wrap() {
   fi
   [[ -f "$product_dir/${program}.dpn.json" ]] || die "missing product ${program}.dpn.json (primary)"
   [[ -f "$product_dir/${program}.psy" ]] || die "missing product ${program}.psy (need PROOF_FORGE_PSY_EMIT_PSY=1)"
+  validate_dpn_package_json "$product_dir/${program}.dpn.json" "${program}.dpn.json" \
+    || die "${label}: product DPN package-shape validation failed"
   [[ -f "$product_dir/manifest.json" ]] || die "missing ${label} manifest.json"
   [[ -f "$product_dir/evidence.json" ]] || die "missing ${label} evidence.json"
   if ! PATH="$BUILD_PATH" "$cli" inspect "$product_dir" \
@@ -338,6 +460,38 @@ authors = ["proof-forge-next"]
 [dependencies]
 EOF
   cp -f "$product_dir/${program}.psy" "$project_dir/src/main.psy"
+  plant_dpn_as_package \
+    "$product_dir/${program}.dpn.json" \
+    "$project_dir" \
+    "$package_name"
+}
+
+# After dargo compile rewrites package JSON from .psy, require product DPN method
+# names to be a subset of the dargo package (product is authoritative surface).
+assert_product_dpn_methods_in_package() {
+  local product_dpn="$1"
+  local package_json="$2"
+  local label="$3"
+  /usr/bin/python3 -I -S - "$product_dpn" "$package_json" "$label" <<'PY' || return 1
+import json, sys
+prod_path, pkg_path, label = sys.argv[1], sys.argv[2], sys.argv[3]
+with open(prod_path, encoding="utf-8") as f:
+    prod = json.load(f)
+with open(pkg_path, encoding="utf-8") as f:
+    pkg = json.load(f)
+if not isinstance(prod, list) or not isinstance(pkg, list):
+    print(f"{label}: expected JSON arrays for product DPN and dargo package", file=sys.stderr)
+    sys.exit(1)
+prod_names = {m.get("name") for m in prod if isinstance(m, dict)}
+pkg_names = {m.get("name") for m in pkg if isinstance(m, dict)}
+missing = sorted(n for n in prod_names if n not in pkg_names)
+if missing:
+    print(f"{label}: product DPN methods missing from dargo package: {missing}; "
+          f"product={sorted(prod_names)} package={sorted(pkg_names)}", file=sys.stderr)
+    sys.exit(1)
+print(f"{label}: product DPN methods ⊆ dargo package ({len(prod_names)} methods)")
+sys.exit(0)
+PY
 }
 
 echo "${PREFIX}: dargo compile --contract-name Counter"
@@ -353,6 +507,12 @@ pkg_json="$dargo_project/target/counter.json"
 [[ -f "$abi_json" && -s "$abi_json" ]] || die "missing/empty $abi_json"
 [[ -f "$pkg_json" && -s "$pkg_json" ]] || die "missing/empty package json $pkg_json"
 echo "${PREFIX}: abi=$(wc -c <"$abi_json" | tr -d ' ')B package_json=$(wc -c <"$pkg_json" | tr -d ' ')B"
+# Cross-check DPN-first product package against post-compile dargo package methods.
+assert_product_dpn_methods_in_package \
+  "$log_dir/Counter.product.dpn.json" \
+  "$pkg_json" \
+  "Counter" \
+  || die "Counter product DPN methods not present in dargo-compiled package"
 
 echo "${PREFIX}: happy execute initialize(5)/increment(3)/get → 8"
 happy_ec=0
@@ -573,6 +733,8 @@ fi
 
 [[ -f "$wide_product/WideCounter.dpn.json" ]] || die "missing product WideCounter.dpn.json (primary)"
 [[ -f "$wide_product/WideCounter.psy" ]] || die "missing product WideCounter.psy (need PROOF_FORGE_PSY_EMIT_PSY=1)"
+validate_dpn_package_json "$wide_product/WideCounter.dpn.json" "WideCounter.dpn.json" \
+  || die "WideCounter.dpn.json failed package-shape validation"
 [[ -f "$wide_product/manifest.json" ]] || die "missing WideCounter manifest.json"
 [[ -f "$wide_product/evidence.json" ]] || die "missing WideCounter evidence.json"
 if ! grep -q '"codegenProfile": "psy-dargo-0.1.0-vm-v1"' \
@@ -598,6 +760,10 @@ authors = ["proof-forge-next"]
 [dependencies]
 EOF
 cp -f "$wide_product/WideCounter.psy" "$wide_dargo_project/src/main.psy"
+plant_dpn_as_package \
+  "$wide_product/WideCounter.dpn.json" \
+  "$wide_dargo_project" \
+  "wide_counter"
 
 echo "${PREFIX}: dargo compile/generate-abi WideCounter"
 run_wide_dargo wide-compile compile --contract-name WideCounter \
@@ -608,6 +774,11 @@ run_wide_dargo wide-generate-abi generate-abi --contract-name WideCounter \
   die "missing/empty WideCounter ABI"
 [[ -s "$wide_dargo_project/target/wide_counter.json" ]] || \
   die "missing/empty WideCounter package json"
+assert_product_dpn_methods_in_package \
+  "$wide_product/WideCounter.dpn.json" \
+  "$wide_dargo_project/target/wide_counter.json" \
+  "WideCounter" \
+  || die "WideCounter product DPN methods not present in dargo-compiled package"
 
 # Carry across the low limb: (2^32−1) + 1 = [0,1,0,0]. Dargo groups one
 # method's parameters as one comma-separated --parameters value.
@@ -959,5 +1130,5 @@ if [[ "$wide_range_ec" -eq 0 ]] || \
 fi
 
 echo "${PREFIX}: UInt128 VM observables ok (arith/bitwise/shift/compare + checked negatives)"
-echo "${PREFIX}: ok (${PROFILE_LABEL}; Counter+Accumulator+OptionState+LoopSum+WideCounter; engineering only; not formal/hermetic/UPS/deploy/chain)"
+echo "${PREFIX}: ok (${PROFILE_LABEL}; G6-RUNTIME DPN-first + PARTIAL .psy execute; Counter+Accumulator+OptionState+LoopSum+WideCounter; engineering only; not formal/hermetic/UPS/deploy/chain)"
 exit 0

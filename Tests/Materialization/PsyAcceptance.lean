@@ -2,10 +2,19 @@
   Psy dargo compile-only acceptance suite (engineering only; J3 PsyEmissionFix).
 
   Builds representative ProgramV1 sources through the product capability path
-  (select → compileValidatedSourceV1 → resolve → materializeResult), writes the
-  emitted `.psy` into a minimal Dargo project (`Dargo.toml` + `src/main.psy`),
-  and invokes locked/host `dargo` directly:
+  (select → compileValidatedSourceV1 → resolve → materializeResult).
 
+  G6-RUNTIME DPN-first:
+    * Prefer primary `{Name}.dpn.json` when Plan→DPN succeeds (package shape).
+    * Transitional `.psy` via `emitPsyDebug := true` because locked dargo 0.1.0 has
+      no package-only compile/execute flag (PARTIAL honesty).
+    * When DPN is present it is planted as `target/<package>.json` before
+      `dargo compile` (identity path); dargo rewrites that file from `.psy`.
+    * After compile, product DPN method names must be ⊆ package method names.
+    * Debug-only `.psy` (DPN lower failed under emitPsyDebug) remains accepted as
+      PARTIAL for host-heavy compile gates that still exercise EmitIR surface.
+
+  Flow:
       dargo compile --contract-name <Name>
       dargo generate-abi --contract-name <Name>
 
@@ -126,11 +135,13 @@ private def resolvePsyToolchain : IO (Option PsyToolchain) := do
   let some std := stdPath | return none
   pure (some { dargo, stdPath := std })
 
-/-- Product materialize for the default Psy profile; returns `.psy` contents + path. -/
-private unsafe def materializePsy
+/-- G6-RUNTIME materialize: always require debug `.psy` for locked dargo; prefer
+    primary `.dpn.json` when Plan→DPN succeeds. When emitPsyDebug alone emits
+    `.psy` (DPN lower failed under debug opt-in), return none for DPN (PARTIAL). -/
+private unsafe def materializePsyAndOptionalDpn
     (label : String) (sourceText : String) (moduleName : String)
-    (expectedPsyPath : String)
-    (profile? : Option CodegenProfileId := none) : IO (String × String) := do
+    (expectedPsyPath : String) (expectedDpnPath : String)
+    (profile? : Option CodegenProfileId := none) : IO (String × Option String) := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult s!"load {label}" (← session.selectProgramV1
     sourceText s!"<psy-accept-{label}>" moduleName none)
@@ -140,7 +151,7 @@ private unsafe def materializePsy
     resolveBuildSelectionV1 TargetId.psy profile?
   let capability ← liftResult s!"resolve {label}" <|
     Targets.resolveEngineeringRequirementsV1 selection compiled
-  -- G6: host-heavy dargo acceptance needs debug `.psy` (not default DPN-only).
+  -- PARTIAL: locked dargo needs debug `.psy`; DPN is preferred package path.
   let output ← liftResult s!"materialize {label}" <|
     Targets.materializeResult capability (emitPsyDebug := true)
   let files := MaterializedArtifactsV1.filesOf output
@@ -152,14 +163,25 @@ private unsafe def materializePsy
   -- Goldilocks pin: the illegal 2^64 bound must never reappear.
   expect (!psyFile.contents.contains "18446744073709551616")
     s!"{label}: emitted .psy must not contain illegal 2^64 Felt literal"
-  pure (psyFile.contents, expectedPsyPath)
+  match files.find? (·.path == expectedDpnPath) with
+  | some dpnFile =>
+      expect (!dpnFile.contents.isEmpty) s!"{label}: empty .dpn.json"
+      expect (dpnFile.contents.startsWith "[")
+        s!"{label}: .dpn.json must be a JSON array (dargo package shape)"
+      pure (psyFile.contents, some dpnFile.contents)
+  | none =>
+      -- Debug-only `.psy` path when DPN lower failed under emitPsyDebug (PARTIAL).
+      IO.println s!"  G6-RUNTIME PARTIAL: {label} has debug .psy without .dpn.json"
+      pure (psyFile.contents, none)
 
-/-- Write a minimal Dargo project and run `dargo compile` + `dargo generate-abi`. -/
+/-- Write a minimal Dargo project; plant product DPN when present; run dargo. -/
 private def runDargoCompile (tc : PsyToolchain) (projectDir : FilePath)
-    (packageName : String) (contractName : String) (psySource : String)
+    (packageName : String) (contractName : String)
+    (psySource : String) (dpnPackage? : Option String)
     (label : String) : IO Unit := do
   if ← projectDir.pathExists then IO.FS.removeDirAll projectDir
   IO.FS.createDirAll (projectDir / "src")
+  IO.FS.createDirAll (projectDir / "target")
   let dargoToml :=
     "[package]\n" ++
     s!"name = \"{packageName}\"\n" ++
@@ -168,6 +190,12 @@ private def runDargoCompile (tc : PsyToolchain) (projectDir : FilePath)
     "\n[dependencies]\n"
   IO.FS.writeFile (projectDir / "Dargo.toml") dargoToml
   IO.FS.writeFile (projectDir / "src" / "main.psy") psySource
+  -- G6-RUNTIME: plant product DPN as dargo package path before compile when present.
+  if let some dpnPackage := dpnPackage? then
+    let plantedPkg := projectDir / "target" / s!"{packageName}.json"
+    IO.FS.writeFile plantedPkg dpnPackage
+    -- Sidecar for scripts/psy_acceptance.sh optional plant path.
+    IO.FS.writeFile (projectDir / s!"{contractName}.dpn.json") dpnPackage
 
   -- Absolute dargo + pinned std; do not rely on psyup or ambient PATH for the tool.
   let script :=
@@ -197,22 +225,43 @@ private def runDargoCompile (tc : PsyToolchain) (projectDir : FilePath)
   if hasPkg then
     let pkgBytes ← IO.FS.readFile pkgJson
     expect (!pkgBytes.isEmpty) s!"{label}: empty package json {packageName}.json"
+    -- Method-name subset when product DPN was planted (DPN-first surface).
+    if dpnPackage?.isSome then
+      let productDpnPath := projectDir / s!"{contractName}.dpn.json"
+      let checkScript :=
+        "import json, sys\n" ++
+        "prod = json.load(open(sys.argv[1], encoding='utf-8'))\n" ++
+        "pkg = json.load(open(sys.argv[2], encoding='utf-8'))\n" ++
+        "assert isinstance(prod, list) and isinstance(pkg, list)\n" ++
+        "pn = {m.get('name') for m in prod if isinstance(m, dict)}\n" ++
+        "kn = {m.get('name') for m in pkg if isinstance(m, dict)}\n" ++
+        "missing = sorted(n for n in pn if n not in kn)\n" ++
+        "sys.exit(1 if missing else 0)\n"
+      let check ← IO.Process.output {
+        cmd := "/usr/bin/python3"
+        args := #["-I", "-S", "-c", checkScript, productDpnPath.toString, pkgJson.toString]
+      }
+      expect (check.exitCode == 0)
+        s!"{label}: product DPN methods missing from dargo package (exit {check.exitCode})"
   -- Reject the Goldilocks failure mode even if dargo exit code were misreported.
   expect (!process.stdout.contains "number too large" &&
       !process.stderr.contains "number too large")
     s!"{label}: dargo still rejected a Felt literal as too large"
-  IO.println s!"  dargo compile ok: {label} (contract={contractName})"
+  let plantNote := if dpnPackage?.isSome then "DPN-first plant" else "PARTIAL .psy-only"
+  IO.println s!"  dargo compile ok: {label} (contract={contractName}; {plantNote})"
 
 private unsafe def acceptProgram
     (tc : PsyToolchain) (staging : FilePath)
     (label : String) (sourceText : String) (moduleName : String)
     (psyFileName : String) (packageName : String)
     (profile? : Option CodegenProfileId := none) : IO Unit := do
-  let (psy, _path) ←
-    materializePsy label sourceText moduleName psyFileName profile?
+  -- Product emitter names DPN after the program/contract identity (same stem as .psy).
+  let dpnFileName := label ++ ".dpn.json"
+  let (psy, dpn?) ←
+    materializePsyAndOptionalDpn label sourceText moduleName psyFileName dpnFileName profile?
   let projectDir := staging / packageName
   -- Product emitter names the #[contract] struct after the program identity (label).
-  runDargoCompile tc projectDir packageName label psy label
+  runDargoCompile tc projectDir packageName label psy dpn? label
 
 private def pointBoxSourceText : String :=
   "import ProofForgeV2\n" ++

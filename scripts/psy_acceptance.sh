@@ -5,6 +5,14 @@
 #   dargo compile --contract-name <Name>
 #   dargo generate-abi --contract-name <Name>
 #
+# G6-RUNTIME DPN-first honesty:
+#   When optional product package JSON is present at
+#     <project>/product.dpn.json  OR  <project>/<contract>.dpn.json
+#   it is planted as target/<package>.json *before* compile (dargo package path).
+#   Locked dargo 0.1.0 still requires src/main.psy for compile (no package-only
+#   flag); plant is identity/pre-stage only — dargo rewrites the package file.
+#   Local-VM execute is scripts/psy_runtime_test.sh (`just psy-runtime`).
+#
 # Tool resolution order (no psyup authority):
 #   1. $PROOF_FORGE_TOOL_ROOT/dargo + lib/psy-std/std.psy
 #   2. default cache tool-root/{linux-x86_64,darwin-arm64}
@@ -158,6 +166,25 @@ fi
 echo "$dargo_first_line"
 
 cd "$target"
+
+# G6-RUNTIME: plant product DPN as dargo package path when present (PARTIAL —
+# locked dargo still recompiles from src/main.psy and rewrites target/*.json).
+product_dpn=""
+for cand in \
+  "product.dpn.json" \
+  "${contract_name}.dpn.json" \
+  "src/${contract_name}.dpn.json"; do
+  if [[ -s "$cand" ]]; then
+    product_dpn="$cand"
+    break
+  fi
+done
+if [[ -n "$product_dpn" ]]; then
+  mkdir -p target
+  cp -f "$product_dpn" "target/${package_name}.json"
+  echo "psy-acceptance: G6-RUNTIME planted $product_dpn → target/${package_name}.json"
+fi
+
 if ! "$dargo" compile --contract-name "$contract_name"; then
   echo "psy-acceptance: dargo compile FAILED in $target" >&2
   exit 1
@@ -177,6 +204,29 @@ if [[ ! -s "$pkg_json" ]]; then
   # Some layouts only emit the contract ABI; accept non-empty ABI as minimum.
   if [[ ! -s "$abi_json" && ! -s "target/${package_name}.abi.json" ]]; then
     echo "psy-acceptance: missing package/ABI json under target/" >&2
+    exit 1
+  fi
+fi
+
+# When a product DPN was staged, require its method names ⊆ post-compile package.
+if [[ -n "$product_dpn" && -s "$pkg_json" ]]; then
+  if ! /usr/bin/python3 -I -S - "$product_dpn" "$pkg_json" <<'PY'; then
+import json, sys
+prod = json.load(open(sys.argv[1], encoding="utf-8"))
+pkg = json.load(open(sys.argv[2], encoding="utf-8"))
+if not isinstance(prod, list) or not isinstance(pkg, list):
+    print("psy-acceptance: product DPN / package must be JSON arrays", file=sys.stderr)
+    sys.exit(1)
+prod_names = {m.get("name") for m in prod if isinstance(m, dict)}
+pkg_names = {m.get("name") for m in pkg if isinstance(m, dict)}
+missing = sorted(n for n in prod_names if n not in pkg_names)
+if missing:
+    print(f"psy-acceptance: product DPN methods missing from package: {missing}", file=sys.stderr)
+    sys.exit(1)
+print(f"psy-acceptance: product DPN methods ⊆ package ({len(prod_names)} methods)")
+sys.exit(0)
+PY
+    echo "psy-acceptance: product DPN vs package method check FAILED" >&2
     exit 1
   fi
 fi

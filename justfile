@@ -1300,6 +1300,7 @@ solana-runtime:
 # (linux-x86_64 | darwin-arm64 only; hard-fail PF-TOOLCHAIN-MISSING; never PATH).
 # NOT ordinary ci; not product finalize; not formal/hermetic/deploy/network UPS.
 # Profile label (log only): psy-dargo-0.1.0-local-proof-v1.
+# G6-RUNTIME: DPN-first product plant + PARTIAL .psy execute (locked dargo needs .psy).
 psy-runtime:
     bash scripts/psy_runtime_test.sh
 
