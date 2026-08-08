@@ -87,7 +87,7 @@ private def noirNote : String :=
   "no approved and digest-pinned Noir compiler/proving backend is configured; relation source/schema were emitted without ACIR, witness execution, proof, or verification"
 
 private def aleoNote : String :=
-  "product finalization does not invoke the locked Leo compiler or a proving backend; ALEO-IR-6 primary is Aleo Instructions text ({id}.aleo when Plan→Instructions succeeds) plus network-state query descriptor; transitional Leo 4 source is debug-only (PROOF_FORGE_ALEO_EMIT_LEO=1 or emitLeoDebug build flag, or compile-profile dual-write for compare); residual Plan shapes not yet on Instructions keep Leo as .aleo primary until G5 hard-require; no leo build, execution, proof, or deployment evidence (deployable=false)"
+  "product finalization does not invoke the locked Leo compiler or a proving backend; ALEO-IR-6 + G5-HARD primary is Aleo Instructions text ({id}.aleo when Plan→Instructions succeeds) plus network-state query descriptor; transitional Leo 4 source is debug-only (PROOF_FORGE_ALEO_EMIT_LEO=1 or emitLeoDebug build flag, or compile-profile dual-write for compare); residual allowlist empty — Plan admitted but Instructions lower fails with ALEO-IR-G5-HARD (no silent Leo-only primary); no leo build, execution, proof, or deployment evidence (deployable=false)"
 
 /-- Expect an IO error whose message contains `needle`. -/
 private def expectIoErrorContains (label needle : String) (act : IO Unit) : IO Unit := do

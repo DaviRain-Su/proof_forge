@@ -57,9 +57,9 @@ Honest fail-closed decisions (documented, SPEC-TARGET-ALEO-001 + AleoCoverage):
     label-only identity passthrough (same N5 policy as EVM/Solana/NEAR).
   * views: bare public-state reads materialize as off-chain query
     descriptors; computed state-reading views fail closed.
-  * Dual-write transition residual: Plan shapes not yet on Instructions
-    (pure helpers, Int64/Field, …) keep Leo as `{id}.aleo` primary until
-    G5 hard-require.
+  * G5-HARD: Int64 / Field BLS12-377 / pureFn inline lower to Instructions;
+    residual allowlist empty — Instructions lower failure is
+    `ALEO-IR-G5-HARD` (no silent Leo-only primary).
 
 Plan types and Semantic→Plan lowering live in `LowerSemanticV1`
 (`materializePlanFromCapabilityV1` → private `makePlanFromSemanticV1`).

@@ -1,8 +1,8 @@
 /-
-  ALEO-IR-1..6 + ALEO-G5-MATRIX: Aleo Instructions Schema/TextCodec +
-  Counter golden + Plan→Instructions Counter MVP + if/match/bounded-for +
-  multi-leaf Map/Option/Array + narrow UInt widths + effects honesty matrix +
-  product primary materialize cutover + admit-matrix FC/IR pins.
+  ALEO-IR-1..6 + G5-MATRIX + G5-HARD: Aleo Instructions Schema/TextCodec +
+  Counter golden + Plan→Instructions + if/match/bounded-for + multi-leaf +
+  narrow UInt + effects honesty + product primary + residual true lower +
+  hard-require (empty allowlist).
 
   Covers:
   * schema id / Leo golden version pins
@@ -12,25 +12,17 @@
   * decode fail-closed on truncated / unknown opcode
   * ALEO-IR-2: hand-built Counter Plan → Instructions ≡ counterProgramV1
   * ALEO-IR-2: Examples/Counter product Plan → Instructions ≡ golden
-  * ALEO-IR-2: encode(product lower) ≡ golden bytes
-  * ALEO-IR-3: ifThenElse → branch.eq/position structural
-  * ALEO-IR-3: switchOn (match) → is.eq + nested branch structural
-  * ALEO-IR-3: bounded for → static unroll + runtime gate structural
-  * ALEO-IR-3: unbounded for (maxIterations > 4096) fail closed
-  * ALEO-IR-4: multi-leaf storeAggregate + typed mappings structural
-  * ALEO-IR-4: product OptionState / MapMini / Array / NarrowBox
-  * empty Plan / Int64 leaf / pure helper fail closed
-  * ALEO-IR-5: Plan emit / callFn / payload-revert FC with `ALEO-IR-5:` diags
-  * ALEO-IR-5: product emit/call/schedule/context/assets FC (matrix honesty)
-  * ALEO-IR-6: product materialize primary = Instructions text ≡ golden;
-    default no `.leo`; `emitLeoDebug` / compile profile dual-write `.leo`
-  * ALEO-G5-MATRIX: Bool/compare/logic/assert/bare-revert structural IR pins;
-    const plan-FC; Int64/Field/pureFn residual ALEO-IR-4 pins; nested Map plan-FC
-  * profile note: default vs compile share Plan; lower is profile-insensitive
+  * ALEO-IR-3: ifThenElse / switchOn / bounded for structural + ceiling FC
+  * ALEO-IR-4: multi-leaf storeAggregate + Option/Map/Array/Narrow product
+  * empty Plan fail closed
+  * ALEO-IR-5: Plan emit / payload-revert FC; product emit/call/schedule/… FC
+  * ALEO-IR-6: product primary Instructions ≡ golden; Leo debug dual-write
+  * G5-HARD: Int64 / Field BLS12-377 / pureFn callFn inline true lower;
+    empty residual allowlist; no silent Leo-only primary
+  * const / nested Map stay plan-FC
 
-  **Not** snarkVM execute, prove/deploy, formal. No PARTIAL effects row
-  without evidence. No false Y for residual Int64/Field/pureFn (IR target Y,
-  Instructions status residual until G5-HARD true lower).
+  **Not** snarkVM execute, prove/deploy, formal. No PARTIAL without evidence.
+  deployable=false.
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Aleo
@@ -215,7 +207,7 @@ unsafe def testProductCounterPlanLowerEqualsGolden : IO Unit := do
   expect (progCompile == prog)
     "default and compile profiles must lower to identical Instructions (shared Plan)"
 
-/-- Empty plan / pure helper / Int64 leaf fail closed (IR-4 multi-leaf admits). -/
+/-- Empty plan fail closed; G5-HARD pure-helper-only skip + Int64 leaf lower. -/
 private def testUnsupportedPlanFailClosed : IO Unit := do
   let emptyPlan : Plan := {
     programName := "Empty"
@@ -233,37 +225,41 @@ private def testUnsupportedPlanFailClosed : IO Unit := do
   | .error e =>
       expect (e.render.contains "ALEO-IR")
         s!"expected ALEO-IR diagnostic, got: {e.render}"
-  -- pure helper fail closed on Instructions path
+  -- G5-HARD: pure helper omitted from top-level (initialize-only program ok)
   let purePlan : Plan := {
     handBuiltCounterPlan with
     functions := #[
       handBuiltCounterPlan.functions[0]!,
       { handBuiltCounterPlan.functions[1]! with
+        name := "helper"
         isPureHelper := true
         touchesState := false
         body := #[.returnValue (.param 0)]
         resultDropped := false }
     ]
   }
-  match lowerPlanForTestV1 purePlan with
-  | .ok _ => throw <| IO.userError "pure helper must fail closed"
-  | .error e =>
-      expect (e.render.contains "ALEO-IR")
-        s!"expected ALEO-IR pure-helper diagnostic, got: {e.render}"
-      expect (e.render.contains "pure helper" || e.render.contains "pure")
-        s!"pure helper residual must cite pure helper, got: {e.render}"
-  -- Int64 leaf residual FC on Instructions path (Leo path still admits Int64)
+  let pureProg ← liftResult <| lowerPlanForTestV1 purePlan
+  expect (pureProg.name == "counter.aleo")
+    "pure helper skip still emits program"
+  -- pure helper must not appear as top-level function/finalize
+  let mut sawHelper := false
+  for item in pureProg.items do
+    match item with
+    | .function f => if f.name == "helper" then sawHelper := true
+    | .finalize f => if f.name == "helper" then sawHelper := true
+    | _ => pure ()
+  expect (!sawHelper) "pure helper must not be top-level emitted"
+  -- G5-HARD: Int64 leaf true lower (i64 mapping)
   let intPlan : Plan := {
     handBuiltCounterPlan with
     stateFieldIsInt := #[true]
   }
-  match lowerPlanForTestV1 intPlan with
-  | .ok _ => throw <| IO.userError "Int64 leaf must fail closed on IR-4"
-  | .error e =>
-      expect (e.render.contains "ALEO-IR")
-        s!"expected ALEO-IR Int64 diagnostic, got: {e.render}"
-      expect (e.render.contains "Int64" || e.render.contains "residual")
-        s!"Int64 residual must cite Int64/residual, got: {e.render}"
+  let intProg ← liftResult <| lowerPlanForTestV1 intPlan
+  expect (intProg.items.any fun item =>
+      match item with
+      | .mapping m => m.name == "pf_state_0" && m.valueType == .base .i64 .public_
+      | _ => false)
+    "Int64 leaf must emit i64.public mapping"
 
 private def countOpsInBody (body : Array InstructionV1) : Nat × Nat :=
   Id.run do
@@ -1032,8 +1028,8 @@ private def testEffectsHonestyPlanFailClosed : IO Unit := do
       expect (e.render.contains diagEmitNotAdmittedV1 ||
           e.render.contains "no on-chain event log")
         s!"emit diagnostic must match honesty matrix, got: {e.render}"
-  -- callFn residual → ALEO-IR-5 pureCall/callFn FC.
-  let callFnPlan : Plan := {
+  -- G5-HARD: missing pureHelper for callFn still FC (not silent).
+  let callFnMissing : Plan := {
     handBuiltCounterPlan with
     functions := #[
       handBuiltCounterPlan.functions[0]!,
@@ -1044,13 +1040,12 @@ private def testEffectsHonestyPlanFailClosed : IO Unit := do
         ] }
     ]
   }
-  match lowerPlanForTestV1 callFnPlan with
-  | .ok _ => throw <| IO.userError "callFn Plan must fail closed at IR-5"
+  match lowerPlanForTestV1 callFnMissing with
+  | .ok _ => throw <| IO.userError "callFn without pureHelper must fail closed"
   | .error e =>
-      expect (e.render.contains "ALEO-IR-5")
-        s!"callFn must cite ALEO-IR-5, got: {e.render}"
-      expect (e.render.contains "callFn" || e.render.contains "pureCall")
-        s!"callFn diagnostic must mention callFn/pureCall, got: {e.render}"
+      expect (e.render.contains "ALEO-IR-G5" || e.render.contains "pureHelper" ||
+          e.render.contains "callFn" || e.render.contains "pure")
+        s!"missing pureHelper callFn diagnostic, got: {e.render}"
   -- payload revert → ALEO-IR-5.
   let payloadPlan : Plan := {
     handBuiltCounterPlan with
@@ -1349,111 +1344,135 @@ unsafe def testG5MatrixConstPlanFailClosed : IO Unit := do
                   e.render.length > 0)
                 s!"const plan-FC diagnostic, got: {e.render}"
 
-/-- G5-MATRIX residual bucket: Int64 leaf/expr, Field leaf/expr, pureFn.
-    Status is **residual** (Leo may admit; Instructions ALEO-IR-4 FC). No false Y. -/
-private def testG5MatrixResidualFcPins : IO Unit := do
-  -- Int64 leaf residual
+/-- G5-HARD: former residual bucket true lower (Int64 / Field / pureFn). -/
+private def testG5HardResidualTrueLower : IO Unit := do
+  let intParam0 : PlanParam :=
+    { sourceIndex := 0, name := "initial", isBool := false, isInt := true }
+  let intParam1 : PlanParam :=
+    { sourceIndex := 0, name := "delta", isBool := false, isInt := true }
   let intLeaf : Plan := {
     handBuiltCounterPlan with
     stateFieldIsInt := #[true]
+    functions := #[
+      { index := 0, name := "initialize", kind := .initialize,
+        params := #[intParam0],
+        body := #[.store 0 (.param 0), .returnNone],
+        touchesState := true, resultIsBool := false, resultIsInt := true,
+        resultDropped := false },
+      { index := 1, name := "increment", kind := .mutate,
+        params := #[intParam1],
+        body := #[
+          .store 0 (.signedCheckedAdd (.stateLoad 0) (.param 0)),
+          .returnValue (.stateLoad 0)],
+        touchesState := true, resultIsBool := false, resultIsInt := true,
+        resultDropped := true }
+    ]
   }
-  match lowerPlanForTestV1 intLeaf with
-  | .ok _ => throw <| IO.userError "Int64 leaf residual must FC"
-  | .error e =>
-      expect (e.render.contains "ALEO-IR-4" || e.render.contains "ALEO-IR")
-        s!"Int64 leaf residual ALEO-IR, got: {e.render}"
-      expect (e.render.contains "Int64" || e.render.contains "residual")
-        s!"Int64 residual wording, got: {e.render}"
-  -- Int64 expression residual (i64Literal in body; leaf stays UInt)
+  let intProg ← liftResult <| lowerPlanForTestV1 intLeaf
+  expect (intProg.items.any fun item =>
+      match item with
+      | .mapping m => m.valueType == .base .i64 .public_
+      | _ => false)
+    "G5-HARD Int64 leaf mapping is i64.public"
+  expect (hasBinaryOp intProg "add")
+    "G5-HARD Int64 signedCheckedAdd → add"
   let intExpr : Plan := {
     handBuiltCounterPlan with
     functions := #[
       handBuiltCounterPlan.functions[0]!,
-      { handBuiltCounterPlan.functions[1]! with
-        body := #[
-          .store 0 (.i64Literal 1),
-          .returnValue (.stateLoad 0)
-        ] }
+      { index := 1, name := "setNeg", kind := .mutate, params := #[],
+        body := #[.store 0 (.checkedNeg (.i64Literal 1)), .returnNone],
+        touchesState := true, resultIsBool := false, resultDropped := false }
     ]
   }
-  match lowerPlanForTestV1 intExpr with
-  | .ok _ => throw <| IO.userError "Int64 expr residual must FC"
-  | .error e =>
-      expect (e.render.contains "ALEO-IR-4" || e.render.contains "ALEO-IR")
-        s!"Int64 expr residual ALEO-IR, got: {e.render}"
-      expect (e.render.contains "Int64" || e.render.contains "expression" ||
-          e.render.contains "residual")
-        s!"Int64 expr residual wording, got: {e.render}"
-  -- Field BLS12-377 leaf residual (Leo admits; Instructions residual)
+  let intExprProg ← liftResult <| lowerPlanForTestV1 intExpr
+  expect (hasBinaryOp intExprProg "sub")
+    "G5-HARD checkedNeg → sub 0i64"
+  let fieldParam0 : PlanParam :=
+    { sourceIndex := 0, name := "initial", isBool := false, isField := true }
+  let fieldParam1 : PlanParam :=
+    { sourceIndex := 0, name := "delta", isBool := false, isField := true }
   let fieldLeaf : Plan := {
     handBuiltCounterPlan with
     stateFieldIsField := #[true]
+    functions := #[
+      { index := 0, name := "initialize", kind := .initialize,
+        params := #[fieldParam0],
+        body := #[.store 0 (.param 0), .returnNone],
+        touchesState := true, resultIsBool := false, resultIsField := true,
+        resultDropped := false },
+      { index := 1, name := "bump", kind := .mutate,
+        params := #[fieldParam1],
+        body := #[
+          .store 0 (.fieldBinary .add (.stateLoad 0) (.param 0)),
+          .returnValue (.stateLoad 0)],
+        touchesState := true, resultIsBool := false, resultIsField := true,
+        resultDropped := true }
+    ]
   }
-  match lowerPlanForTestV1 fieldLeaf with
-  | .ok _ => throw <| IO.userError "Field leaf residual must FC"
-  | .error e =>
-      expect (e.render.contains "ALEO-IR-4" || e.render.contains "ALEO-IR")
-        s!"Field leaf residual ALEO-IR, got: {e.render}"
-      expect (e.render.contains "Field" || e.render.contains "residual" ||
-          e.render.contains "Int64")
-        s!"Field residual wording, got: {e.render}"
-  -- Field expression residual
+  let fieldProg ← liftResult <| lowerPlanForTestV1 fieldLeaf
+  expect (fieldProg.items.any fun item =>
+      match item with
+      | .mapping m => m.valueType == .base .field .public_
+      | _ => false)
+    "G5-HARD Field leaf mapping is field.public"
+  expect (hasBinaryOp fieldProg "add")
+    "G5-HARD fieldBinary add"
   let fieldExpr : Plan := {
     handBuiltCounterPlan with
+    stateFieldIsField := #[true]
     functions := #[
-      handBuiltCounterPlan.functions[0]!,
-      { handBuiltCounterPlan.functions[1]! with
-        body := #[
-          .store 0 (.fieldLiteral 1),
-          .returnValue (.stateLoad 0)
-        ] }
+      { index := 0, name := "initialize", kind := .initialize, params := #[],
+        body := #[.store 0 (.fieldLiteral 7), .returnNone],
+        touchesState := true, resultIsBool := false, resultDropped := false }
     ]
   }
-  match lowerPlanForTestV1 fieldExpr with
-  | .ok _ => throw <| IO.userError "Field expr residual must FC"
-  | .error e =>
-      expect (e.render.contains "ALEO-IR-4" || e.render.contains "ALEO-IR")
-        s!"Field expr residual ALEO-IR, got: {e.render}"
-      expect (e.render.contains "Field" || e.render.contains "expression" ||
-          e.render.contains "residual")
-        s!"Field expr residual wording, got: {e.render}"
-  -- pureFn / pure helper residual (Plan-admitted Leo helper; IR residual)
-  let purePlan : Plan := {
+  let fieldExprProg ← liftResult <| lowerPlanForTestV1 fieldExpr
+  expect (fieldExprProg.name == "counter.aleo") "field literal lowers"
+  let pureCallPlan : Plan := {
     handBuiltCounterPlan with
     functions := #[
       handBuiltCounterPlan.functions[0]!,
-      { handBuiltCounterPlan.functions[1]! with
-        name := "helper"
-        isPureHelper := true
-        touchesState := false
-        body := #[.returnValue (.param 0)]
-        resultDropped := false }
-    ]
-  }
-  match lowerPlanForTestV1 purePlan with
-  | .ok _ => throw <| IO.userError "pureFn residual must FC"
-  | .error e =>
-      expect (e.render.contains "ALEO-IR-4" || e.render.contains "ALEO-IR")
-        s!"pureFn residual ALEO-IR, got: {e.render}"
-      expect (e.render.contains "pure helper" || e.render.contains "pure")
-        s!"pureFn residual wording, got: {e.render}"
-  -- pureCall/callFn already IR-5; pin again as residual localCall surface
-  let callPlan : Plan := {
-    handBuiltCounterPlan with
-    functions := #[
-      handBuiltCounterPlan.functions[0]!,
-      { handBuiltCounterPlan.functions[1]! with
+      { index := 1, name := "helper", kind := .mutate,
+        params := #[{ sourceIndex := 0, name := "x", isBool := false }],
+        body := #[.returnValue (.checkedAdd (.param 0) (.literal 1))],
+        touchesState := false, resultIsBool := false, isPureHelper := true,
+        resultDropped := false },
+      { index := 2, name := "increment", kind := .mutate,
+        params := #[{ sourceIndex := 0, name := "delta", isBool := false }],
         body := #[
           .store 0 (.callFn "helper" #[.param 0]),
-          .returnValue (.stateLoad 0)
-        ] }
+          .returnValue (.stateLoad 0)],
+        touchesState := true, resultIsBool := false, resultDropped := true }
     ]
   }
-  match lowerPlanForTestV1 callPlan with
-  | .ok _ => throw <| IO.userError "callFn residual must FC"
-  | .error e =>
-      expect (e.render.contains "ALEO-IR-5")
-        s!"callFn residual must cite ALEO-IR-5, got: {e.render}"
+  let pureProg ← liftResult <| lowerPlanForTestV1 pureCallPlan
+  expect (hasBinaryOp pureProg "add")
+    "G5-HARD callFn inline must emit helper add"
+  let mut sawHelperFn := false
+  for item in pureProg.items do
+    match item with
+    | .function f => if f.name == "helper" then sawHelperFn := true
+    | .finalize f => if f.name == "helper" then sawHelperFn := true
+    | _ => pure ()
+  expect (!sawHelperFn) "pureHelper must not be top-level after inline"
+
+/-- G5-HARD: residual allowlist empty; hard-require classifier. -/
+private def testG5HardResidualAllowlistClassifier : IO Unit := do
+  expect (!Targets.Aleo.isAleoInstructionsG5HardResidualAllowlistV1
+      "ALEO-IR-4: pure helper 'h' is not admitted on Instructions path")
+    "G5-HARD: former pure helper residual must NOT be allowlisted"
+  expect (!Targets.Aleo.isAleoInstructionsG5HardResidualAllowlistV1
+      "ALEO-IR-4: expression shape not admitted (Int64/Field residual FC)")
+    "G5-HARD: former Int64/Field residual must NOT be allowlisted"
+  expect (!Targets.Aleo.isAleoInstructionsG5HardResidualAllowlistV1
+      "ALEO-IR-5: pureCall/callFn is not admitted")
+    "G5-HARD: former callFn residual must NOT be allowlisted"
+  expect (!Targets.Aleo.isAleoInstructionsG5HardResidualAllowlistV1
+      "ALEO-IR-4: expected at least one state leaf, got 0")
+    "empty plan error must not be residual allowlisted"
+  expect (!Targets.Aleo.isAleoInstructionsG5HardResidualAllowlistV1 "")
+    "empty message must not be allowlisted"
 
 /-- G5-MATRIX plan-FC: nested Map never reaches honest Instructions Y. -/
 unsafe def testG5MatrixNestedMapPlanFailClosed : IO Unit := do
@@ -1551,7 +1570,8 @@ unsafe def run : IO Unit := do
   testG5MatrixBoolAssertStructural
   testG5MatrixProductAssertLower
   testG5MatrixConstPlanFailClosed
-  testG5MatrixResidualFcPins
+  testG5HardResidualTrueLower
+  testG5HardResidualAllowlistClassifier
   testG5MatrixNestedMapPlanFailClosed
   testProductPrimaryInstructionsMaterialize
   IO.println "Tests.Materialization.AleoInstructionsV1: ok"

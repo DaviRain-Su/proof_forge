@@ -7,14 +7,13 @@
     query descriptor. Transitional Leo 4 source is debug-only
     (`PROOF_FORGE_ALEO_EMIT_LEO=1` / `emitLeoDebug`) and not required here.
   * `aleo-leo-4.0.2-u64-compile-v1`: resolve locked Leo 4.0.2, compile the
-    dual-written transitional `{id}.leo` (preferred) or residual Leo-primary
-    `{id}.aleo` inside a temporary package and isolated HOME, then stage
-    exactly three finalized extras: compiled Aleo instructions, ABI JSON, and
-    Leo program JSON. Primary product Instructions base is **not** fed to
-    `leo` (it is already Instructions). Query-contract never enters the Leo
-    package. Compile success is a **compare** path, not sole authority, and
-    does not imply execute/proof/deploy/query, so `deployable=false` remains
-    exact.
+    dual-written transitional `{id}.leo` inside a temporary package and
+    isolated HOME, then stage exactly three finalized extras: compiled Aleo
+    instructions, ABI JSON, and Leo program JSON. Primary product Instructions
+    base is **not** fed to `leo` (it is already Instructions). Query-contract
+    never enters the Leo package. Compile success is a **compare** path, not
+    sole authority, and does not imply execute/proof/deploy/query, so
+    `deployable=false` remains exact. G5-HARD: no residual Leo-primary `.aleo`.
   * unknown profile: fail closed.
 
   Separate from pure `Targets.Aleo` Plan/IR core.
@@ -33,7 +32,7 @@ open ProofForgeV2.Materialization.LockedToolchainV1
 open System
 
 private def sourceProfileNote : String :=
-  "product finalization does not invoke the locked Leo compiler or a proving backend; ALEO-IR-6 primary is Aleo Instructions text ({id}.aleo when Plan→Instructions succeeds) plus network-state query descriptor; transitional Leo 4 source is debug-only (PROOF_FORGE_ALEO_EMIT_LEO=1 or emitLeoDebug build flag, or compile-profile dual-write for compare); residual Plan shapes not yet on Instructions keep Leo as .aleo primary until G5 hard-require; no leo build, execution, proof, or deployment evidence (deployable=false)"
+  "product finalization does not invoke the locked Leo compiler or a proving backend; ALEO-IR-6 + G5-HARD primary is Aleo Instructions text ({id}.aleo when Plan→Instructions succeeds) plus network-state query descriptor; transitional Leo 4 source is debug-only (PROOF_FORGE_ALEO_EMIT_LEO=1 or emitLeoDebug build flag, or compile-profile dual-write for compare); residual allowlist empty — Plan admitted but Instructions lower fails with ALEO-IR-G5-HARD (no silent Leo-only primary); no leo build, execution, proof, or deployment evidence (deployable=false)"
 
 private def finalizeSourceProfile : IO EngineeringFinalizationDraftV1 :=
   pure {
@@ -81,13 +80,11 @@ private def looksLikeLeoSourceV1 (contents : String) : Bool :=
   contents.contains ".aleo {"
 
 /-- Resolve Leo 4 source bytes for locked compile compare:
-    1. Prefer dual-written `{id}.leo` (Instructions-primary path).
-    2. Else residual Leo-primary `{id}.aleo` when contents are Leo source.
-    Never feed Instructions text to `leo`. -/
+    Prefer dual-written `{id}.leo` (Instructions-primary + compile dual-write).
+    G5-HARD: no residual Leo-primary `{id}.aleo`. Never feed Instructions to `leo`. -/
 private def resolveLeoSourceForCompileV1
     (programId : String) (files : Array OutputFile) : IO OutputFile := do
   let leoPath := s!"{programId}.leo"
-  let aleoPath := s!"{programId}.aleo"
   match files.find? (·.path == leoPath) with
   | some leoFile =>
       unless looksLikeLeoSourceV1 leoFile.contents do
@@ -95,17 +92,10 @@ private def resolveLeoSourceForCompileV1
           s!"PF-ARTIFACT-NONDEPLOYABLE: dual-written '{leoPath}' is not Leo 4 source"
       pure leoFile
   | none =>
-      match files.find? (·.path == aleoPath) with
-      | none =>
-          throw <| IO.userError
-            s!"PF-ARTIFACT-NONDEPLOYABLE: missing primary '{aleoPath}' for compile compare"
-      | some aleoFile =>
-          unless looksLikeLeoSourceV1 aleoFile.contents do
-            throw <| IO.userError
-              ("PF-ARTIFACT-NONDEPLOYABLE: compile profile requires dual-written " ++
-                s!"'{leoPath}' (or residual Leo-primary '{aleoPath}'); primary " ++
-                "Instructions text cannot be fed to leo")
-          pure aleoFile
+      throw <| IO.userError
+        ("PF-ARTIFACT-NONDEPLOYABLE: compile profile requires dual-written " ++
+          s!"'{leoPath}' (G5-HARD: no residual Leo-primary .aleo; " ++
+          "primary Instructions text cannot be fed to leo)")
 
 private def finalizeCompileProfile
     (capability : ResolvedEngineeringBuildV1)
@@ -163,8 +153,8 @@ private def finalizeCompileProfile
     IO.FS.createDirAll (home / ".aleo")
     IO.FS.createDirAll (projectRoot / "src")
     IO.FS.writeFile (projectRoot / "program.json") (leoPackageJson programId)
-    -- Consume dual-written / residual Leo 4 source only. Primary Instructions
-    -- `{id}.aleo` and query descriptor are not compiler input.
+    -- Consume dual-written Leo 4 source only. Primary Instructions `{id}.aleo`
+    -- and query descriptor are not compiler input (G5-HARD).
     IO.FS.writeFile (projectRoot / "src" / "main.leo") leoSourceFile.contents
 
     -- Keep the actual compile on the LockedToolchainV1 authority path so the

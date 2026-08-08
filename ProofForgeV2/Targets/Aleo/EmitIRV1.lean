@@ -16,13 +16,14 @@ ALEO-IR-6 product cutover:
     - explicit `emitLeoDebug := true` on build APIs, or
     - compile profile `aleo-leo-4.0.2-u64-compile-v1` (always dual-write so
       Finalize can locked-leo-build for compare extras).
-  * **Dual-write transition residual**: when Instructions lower fails for a
-    Plan-admitted shape (pure helpers, Int64/Field, …), product still emits
-    Leo as `{id}.aleo` primary so residual surface stays reachable until G5
-    hard-require. Default success path never prefers Leo over Instructions.
+  * **G5-HARD**: residual allowlist empty. Plan admitted but Instructions
+    lower fails → stable `ALEO-IR-G5-HARD` materialize FC (no silent Leo-only
+    primary). Int64 / Field BLS12-377 / pureFn inline are Instructions-lowered.
+    Debug opt-in may still emit transitional `{id}.leo` alone when lower fails
+    and `emitLeoDebug` is set (mirrors Psy G6-DEBUG); default product never does.
 
-Leo AST/renderer remains for residual + debug dual-write; not long-term
-sole product authority. deployable=false; no prove/deploy.
+Leo AST/renderer remains for debug dual-write / compile compare; not product
+sole authority. deployable=false; no prove/deploy.
 -/
 
 namespace ProofForgeV2.Targets.Aleo
@@ -1022,14 +1023,26 @@ def readEmitLeoDebugEnvV1 : IO Bool := do
   | _ => pure false
 
 /-- Whether to dual-write transitional `{id}.leo` (debug flag or compile profile
-    compare path). Primary Instructions (or residual Leo `.aleo`) is independent. -/
+    compare path). Primary Instructions is independent of dual-write. -/
 private def wantLeoDualWriteV1 (ir : IR) (emitLeoDebug : Bool) : Bool :=
   emitLeoDebug || ir.codegenProfile == CodegenProfileId.aleoLeoU64CompileV1
 
-/-- ALEO-IR-6 gated emission from retained Plan + Leo IR:
-    * Primary: `{id}.aleo` = Instructions when lower succeeds; else residual Leo
-    * Always: `{id}.aleo-query-contract.json`
-    * Optional: `{id}.leo` Leo 4 source (debug env/flag or compile profile) -/
+/-- ALEO-IR-G5-HARD residual allowlist (full hard-require).
+
+    **Empty after G5-HARD:** every Plan-admitted shape that reaches materialize
+    must Instructions-lower or hard-fail with `ALEO-IR-G5-HARD`. No residual
+    Leo-only primary path remains (Int64/Field/pureFn are lowered; bn254 Field /
+    nested Map / const stay Plan-FC before Instructions). Function kept for
+    API/test classifier stability; always `false`. -/
+def isAleoInstructionsG5HardResidualAllowlistV1 (_message : String) : Bool :=
+  false
+
+/-- ALEO-IR-6 + G5-HARD gated emission from retained Plan + Leo IR:
+    * Primary: `{id}.aleo` = Instructions when lower succeeds
+    * Always on success: `{id}.aleo-query-contract.json`
+    * Optional: `{id}.leo` Leo 4 source (debug env/flag or compile profile)
+    * G5-HARD: Instructions lower failure → `ALEO-IR-G5-HARD` (empty allowlist);
+      debug opt-in may emit transitional `.leo` alone (no silent Leo as `.aleo`) -/
 private def emitFromIR (ir : IR) (emitLeoDebug : Bool := false) :
     CompileResult (Array OutputFile) := do
   validateIR ir
@@ -1060,20 +1073,24 @@ private def emitFromIR (ir : IR) (emitLeoDebug : Bool := false) :
         pure #[instFile, queryFile, leoDebugFile]
       else
         pure #[instFile, queryFile]
-  | .error _ =>
-      -- Dual-write transition residual (pre-G5 hard-require): Plan admitted
-      -- and Leo IR lowered, but Instructions lower is not yet open for this
-      -- shape (pure helpers, Int64/Field, …). Keep Leo as `{id}.aleo` so the
-      -- residual surface remains product-reachable; never invent Instructions.
-      let residualPrimary : OutputFile := {
-        path := s!"{programId}.aleo"
-        mediaType := "text/plain"
-        contents := leoSource
-      }
-      if wantLeo then
-        pure #[residualPrimary, queryFile, leoDebugFile]
+  | .error (.planInvariant .aleo msg) =>
+      if emitLeoDebug then
+        -- Debug opt-in: emit transitional Leo alone for surface pins when
+        -- Instructions lower fails. Default product never takes this path.
+        pure #[{
+          path := s!"{programId}.leo"
+          mediaType := "text/plain"
+          contents := leoSource
+        }]
+      else if isAleoInstructionsG5HardResidualAllowlistV1 msg then
+        -- Residual allowlist is empty after G5-HARD; branch retained for API.
+        planError s!"ALEO-IR-G5-HARD: Plan admitted but Instructions lower failed \
+(no silent Leo-only): {msg}"
       else
-        pure #[residualPrimary, queryFile]
+        planError s!"ALEO-IR-G5-HARD: Plan admitted but Instructions lower failed \
+(no silent Leo-only): {msg}"
+  | .error e =>
+      .error e
 
 /-- Capability-gated public IR entry. Plan body is profile-insensitive; the
     selected codegen profile is bound onto IR for query-contract honesty. -/

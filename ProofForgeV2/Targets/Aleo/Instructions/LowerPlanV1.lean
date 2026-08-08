@@ -1,5 +1,5 @@
 /-
-  ALEO-IR-2/3/4/5: AleoPlan → Aleo Instructions program.
+  ALEO-IR-2/3/4/5 + G5-HARD: AleoPlan → Aleo Instructions program.
 
   IR-2 (Counter MVP, golden-locked):
     * initialize: store param → Final with one-shot `initialized` guard
@@ -14,7 +14,6 @@
     * bounded for → static unroll of `0 .. maxIterations` with runtime
       `c < (end-start)` gate + boundExceeded assert when start < end
     * expression lower: public UInt64/Bool arithmetic/compare/logic/ternary
-    * fail closed: pure helpers, emit, payload revert, unbounded for
 
   IR-4 (multi-leaf / Map / Option / narrow widths):
     * Reuse Leo flatten-to-mapping layout: each Plan state leaf →
@@ -26,38 +25,36 @@
     * Narrow UInt{8,16,32} state/param/literal + checked arith/bit/shift
       (shift count: bound guard + cast to u8, EmitIR-portable)
     * Aggregate Final returns: eval leaves and drop (same Leo Final model)
-    * Fail closed: Int64/Field leaves·params, pure helpers, emit, nested
-      Map residual (Semantic/Plan already FC), bn254/Goldilocks Field
 
-  IR-5 (effects honesty matrix — all F / no PARTIAL without evidence):
+  IR-5 (effects honesty matrix — F rows / no PARTIAL without evidence):
     Plan-reachable surfaces (checked here, stable `ALEO-IR-5:` diagnostics):
     * emitEvent → FC (no on-chain event log / Instructions event model)
-    * callFn (pureCall residual on Instructions) → FC
     * revertError with payload args → FC (bare revert → assert.eq true false)
     Product surfaces that never reach this lower (still FC; evidence documented):
     * external call / schedule → resolver declines both S2 effect keys
-    * pf.assets / record custody → zero-binding (ADR-0029 Phase D);
-      no account-balance vault; record mint/consume not admitted
-    * ContextRead → Semantic→Plan pilot FC (no host clock ABI)
-    * Commit → Semantic identity passthrough only (no crypto commitment opcode)
-    * EnvRead (balanceOfSelf) → Semantic→Plan FC
+    * pf.assets / record custody → zero-binding (ADR-0029 Phase D)
+    * ContextRead / Commit / EnvRead → pilot FC / identity passthrough
     No PARTIAL row is claimed on this path.
 
-  Profile note (default vs compile) — **ALEO-IR-6 product primary**:
+  G5-HARD residual true lower (former residual bucket → done):
+    * Int64: i64 mapping/param/literal + signed arith/compare/bit/shift/neg
+      (mirror EmitIR native i64; two's-complement literal spelling)
+    * Field BLS12-377: field mapping/param/literal + field add/sub/mul/div/
+      eq/ne/neg (mirror EmitIR; native Aleo field = BLS12-377 Fr)
+    * pureFn/localCall: callFn inlines pureHelper body into caller Final
+      (arg operands as params; nested callFn fuel-bounded; pureHelpers
+      omitted from top-level function/finalize emission — free helpers)
+    bn254/Goldilocks Field, nested Map, const stay plan-FC.
+
+  Profile note (default vs compile) — **ALEO-IR-6 + G5-HARD product primary**:
     * Plan body is profile-insensitive (shared by
       `aleo-leo-4.0.2-u64-v1` and `aleo-leo-4.0.2-u64-compile-v1`).
-    * Default source profile: product primary = Instructions text `{id}.aleo`
-      when this lower succeeds + query-contract (zero-tool Finalize);
-      transitional Leo 4 source is debug-only (`PROOF_FORGE_ALEO_EMIT_LEO=1`).
-    * Compile profile: same Instructions primary; always dual-writes `{id}.leo`
-      so Finalize locked `leo build` can produce compare extras
-      (`*.compiled.aleo` / abi / program JSON). Counter encode must remain
-      structurally ≡ golden (G1). Multi-leaf/control-flow programs are
-      tested structurally (G2/G3/IR-4), not as byte-identical Leo compile goldens.
-    * Residual: Plan-admitted shapes this lower rejects keep Leo as `.aleo`
-      primary until G5 hard-require (dual-write transition).
+    * Product primary = Instructions text `{id}.aleo` when this lower succeeds
+      + query-contract; Leo is debug/compare only.
+    * G5-HARD: Plan admitted but this lower fails → stable `ALEO-IR-G5-HARD`
+      materialize FC (empty residual allowlist; no silent Leo-only primary).
 
-  Unsupported Plan shapes fail closed here; product residual may still emit Leo.
+  Unsupported Plan shapes fail closed here (no silent Leo-only product path).
 -/
 import ProofForgeV2.Targets.Aleo.LowerSemanticV1
 import ProofForgeV2.Targets.Aleo.ValidatePlanV1
@@ -111,15 +108,23 @@ private def uintWidthToBase (w : Nat) : BaseTypeV1 :=
   | 32 => .u32
   | _ => .u64
 
-private def isAdmittedUintParam (p : PlanParam) : Bool :=
-  !p.isBool && !p.isInt && !p.isField && isAdmittedUintWidth p.uintWidth
+/-- G5-HARD: UInt*/Int64/Field params (not bare Bool — Bool stays expr-only). -/
+private def isAdmittedParam (p : PlanParam) : Bool :=
+  if p.isBool then false
+  else if p.isInt then !p.isField && !isNarrowUintWidth p.uintWidth
+  else if p.isField then !p.isInt && !isNarrowUintWidth p.uintWidth
+  else isAdmittedUintWidth p.uintWidth
 
-private def isAdmittedUintLeaf
-    (plan : Plan) (fieldIndex : Nat) : Bool :=
-  fieldIndex < plan.stateFieldNames.size &&
-    !plan.stateFieldIsInt.getD fieldIndex false &&
-    !plan.stateFieldIsField.getD fieldIndex false &&
-    isAdmittedUintWidth (plan.stateFieldUintWidth.getD fieldIndex 0)
+/-- G5-HARD: public UInt*/Int64/Field state leaves. -/
+private def isAdmittedLeaf (plan : Plan) (fieldIndex : Nat) : Bool :=
+  if fieldIndex >= plan.stateFieldNames.size then false
+  else
+    let isInt := plan.stateFieldIsInt.getD fieldIndex false
+    let isField := plan.stateFieldIsField.getD fieldIndex false
+    let w := plan.stateFieldUintWidth.getD fieldIndex 0
+    if isInt then !isField && !isNarrowUintWidth w
+    else if isField then !isInt && !isNarrowUintWidth w
+    else isAdmittedUintWidth w
 
 private def leafUintWidth (plan : Plan) (fieldIndex : Nat) : Nat :=
   plan.stateFieldUintWidth.getD fieldIndex 0
@@ -131,35 +136,65 @@ private def defaultLiteralForWidth (w : Nat) : OperandV1 :=
   | 32 => .literal "0u32"
   | _ => .literal "0u64"
 
+/-- Int64 zero literal (Leo/Instructions `0i64`). -/
+private def i64ZeroLiteral : OperandV1 := .literal "0i64"
+
+/-- Field zero literal (Leo/Instructions `0field`). -/
+private def fieldZeroLiteral : OperandV1 := .literal "0field"
+
 private def defaultLiteralForLeaf
     (plan : Plan) (fieldIndex : Nat) : CompileResult OperandV1 := do
-  unless isAdmittedUintLeaf plan fieldIndex do
+  unless isAdmittedLeaf plan fieldIndex do
     planError
-      s!"ALEO-IR-4: state leaf {fieldIndex} is not public UInt8/16/32/64 (Int64/Field residual FC on Instructions path)"
-  pure (defaultLiteralForWidth (leafUintWidth plan fieldIndex))
+      s!"ALEO-IR-4: state leaf {fieldIndex} is not public UInt*/Int64/Field"
+  if plan.stateFieldIsField.getD fieldIndex false then
+    pure fieldZeroLiteral
+  else if plan.stateFieldIsInt.getD fieldIndex false then
+    pure i64ZeroLiteral
+  else
+    pure (defaultLiteralForWidth (leafUintWidth plan fieldIndex))
 
 private def mappingValueTypeForLeaf
     (plan : Plan) (fieldIndex : Nat) : CompileResult TypeAnnV1 := do
-  unless isAdmittedUintLeaf plan fieldIndex do
+  unless isAdmittedLeaf plan fieldIndex do
     planError
-      s!"ALEO-IR-4: state leaf {fieldIndex} is not public UInt8/16/32/64"
-  pure (.base (uintWidthToBase (leafUintWidth plan fieldIndex)) .public_)
+      s!"ALEO-IR-4: state leaf {fieldIndex} is not public UInt*/Int64/Field"
+  if plan.stateFieldIsField.getD fieldIndex false then
+    pure (.base .field .public_)
+  else if plan.stateFieldIsInt.getD fieldIndex false then
+    pure (.base .i64 .public_)
+  else
+    pure (.base (uintWidthToBase (leafUintWidth plan fieldIndex)) .public_)
 
 private def paramInputType (p : PlanParam) : CompileResult TypeAnnV1 := do
-  unless isAdmittedUintParam p do
+  unless isAdmittedParam p do
     planError
-      s!"ALEO-IR-4: param '{p.name}' must be public UInt8/16/32/64 (Bool/Int/Field residual FC)"
-  pure (.base (uintWidthToBase p.uintWidth) .public_)
+      s!"ALEO-IR-4: param '{p.name}' must be public UInt*/Int64/Field (Bool residual FC)"
+  if p.isField then pure (.base .field .public_)
+  else if p.isInt then pure (.base .i64 .public_)
+  else pure (.base (uintWidthToBase p.uintWidth) .public_)
 
 private def u64Literal (v : UInt64) : OperandV1 :=
-  .literal s!"{v}u64"
+  .literal s!"{v.toNat}u64"
+
+/-- Int64 literal from two's-complement bit pattern (mirror EmitIR renderIntLit). -/
+private def i64Literal (v : UInt64) : OperandV1 :=
+  if v >= UInt64.ofNat 9223372036854775808 then
+    let magnitude : UInt64 := UInt64.ofNat (18446744073709551616 - v.toNat)
+    .literal s!"-{magnitude.toNat}i64"
+  else
+    .literal s!"{v.toNat}i64"
+
+/-- Field literal (UInt64 always < BLS12-377 Fr; mirror EmitIR). -/
+private def fieldLiteral (v : UInt64) : OperandV1 :=
+  .literal s!"{v.toNat}field"
 
 private def uintLiteral (bitWidth : Nat) (v : UInt64) : OperandV1 :=
   match bitWidth with
-  | 8 => .literal s!"{v}u8"
-  | 16 => .literal s!"{v}u16"
-  | 32 => .literal s!"{v}u32"
-  | _ => .literal s!"{v}u64"
+  | 8 => .literal s!"{v.toNat}u8"
+  | 16 => .literal s!"{v.toNat}u16"
+  | 32 => .literal s!"{v.toNat}u32"
+  | _ => .literal s!"{v.toNat}u64"
 
 private def zeroLiteral (bitWidth : Nat) : OperandV1 :=
   uintLiteral bitWidth 0
@@ -177,10 +212,10 @@ def diagEmitNotAdmittedV1 : String :=
   "ALEO-IR-5: emit is not admitted (no on-chain event log in Aleo Instructions; \
 effect.event declined)"
 
-/-- Stable diagnostic: pureCall / local `callFn` residual on Final path. -/
+/-- Historical IR-5 pureCall note (G5-HARD: callFn is inlined; pin retained). -/
 def diagCallFnNotAdmittedV1 : String :=
-  "ALEO-IR-5: pureCall/callFn is not admitted on Instructions path \
-(pure helpers residual FC; no local-call opcode lowering)"
+  "ALEO-IR-G5: pureFn/localCall callFn is inlined into caller Final \
+(pureHelpers omitted from top-level emission; missing/cyclic helper FC)"
 
 /-- Stable diagnostic: payload `revert` (bare assert-false remains admitted). -/
 def diagPayloadRevertNotAdmittedV1 : String :=
@@ -207,15 +242,14 @@ def diagContextHonestyNoteV1 : String :=
   "ALEO-IR-5: ContextRead/EnvRead not admitted on Aleo pilot \
 (no host clock / balance ABI in Final Instructions path)"
 
-/-- Walk expressions for Plan-reachable effect residual (`callFn`). -/
+/-- Walk expressions for nested effect residual (G5-HARD: callFn inlined later). -/
 private partial def checkExprEffectsHonestyV1 (e : Expr) : CompileResult Unit := do
   match e with
+  | .literal _ | .i64Literal _ | .uintLiteral .. | .boolLiteral _
+  | .param _ | .loopVar _ | .stateLoad _ | .fieldLiteral _ => pure ()
   | .callFn _ args => do
       for arg in args do
         checkExprEffectsHonestyV1 arg
-      planError diagCallFnNotAdmittedV1
-  | .literal _ | .i64Literal _ | .uintLiteral .. | .boolLiteral _
-  | .param _ | .loopVar _ | .stateLoad _ | .fieldLiteral _ => pure ()
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r
   | .checkedDiv l r | .checkedMod l r
   | .bitAnd l r | .bitOr l r | .bitXor l r
@@ -331,8 +365,10 @@ structure LowerCtx where
   labelCounter : Nat
   /-- Loop induction values, index = loopDepth. -/
   loopVars : Array OperandV1
-  /-- Final-block param registers: sourceIndex → register. -/
-  paramRegs : Array RegisterV1
+  /-- Finalize / pure-inline param operands (registers or inlined args). -/
+  paramOps : Array OperandV1
+  /-- G5-HARD: nested pureFn callFn inline depth (0 = top-level Final body). -/
+  inlineDepth : Nat := 0
   deriving Inhabited
 
 private def LowerCtx.fresh (ctx : LowerCtx) : RegisterV1 × LowerCtx :=
@@ -396,20 +432,123 @@ private def lowerShift
     .register dest,
     ctx6)
 
-/-- Lower a Plan Expr to Instructions + result operand (UInt*/Bool). -/
+/-- Div/mod with explicit nonzero guard against a typed zero operand. -/
+private def lowerDivModZero
+    (ctx0 : LowerCtx) (op : String) (zero : OperandV1) (lhs rhs : Expr)
+    (lowerExpr : LowerCtx → Expr →
+      CompileResult (Array InstructionV1 × OperandV1 × LowerCtx)) :
+    CompileResult (Array InstructionV1 × OperandV1 × LowerCtx) := do
+  let (il, lo, ctx1) ← lowerExpr ctx0 lhs
+  let (ir, ro, ctx2) ← lowerExpr ctx1 rhs
+  let (nz, ctx3) := ctx2.fresh
+  let (dest, ctx4) := ctx3.fresh
+  pure (
+    il ++ ir ++ #[
+      .binary "is.neq" ro zero nz,
+      .assertEq (.register nz) (.literal "true"),
+      .binary op lo ro dest
+    ],
+    .register dest,
+    ctx4)
+
+/-- Field binary opcode spelling. -/
+private def fieldBinaryOpcode (op : FieldArithOp) : String :=
+  match op with
+  | .add => "add" | .sub => "sub" | .mul => "mul" | .div => "div"
+
+mutual
+/-- G5-HARD: pureHelper body walker (assert / return / if / switch only).
+    Both if arms are fully lowered then selected by `ternary` (pure helpers are
+    effect-free aside from assert; matches circuit dual-eval discipline). -/
+partial def lowerPureHelperBodyV1
+    (ctx0 : LowerCtx) (helperName : String) (stmts : List Statement) :
+    CompileResult (Array InstructionV1 × OperandV1 × LowerCtx) := do
+  match stmts with
+  | [] =>
+      planError
+        s!"ALEO-IR-G5: pureFn '{helperName}' body has no return value"
+  | .assert condition :: rest => do
+      let (ic, co, ctx1) ← lowerExprV1 ctx0 condition
+      let (restI, restO, ctx2) ← lowerPureHelperBodyV1 ctx1 helperName rest
+      pure (
+        ic ++ #[.assertEq co (.literal "true")] ++ restI,
+        restO,
+        ctx2)
+  | .returnValue value :: rest => do
+      unless rest.isEmpty do
+        planError
+          s!"ALEO-IR-G5: pureFn '{helperName}' has statements after return"
+      lowerExprV1 ctx0 value
+  | .returnNone :: _ =>
+      planError
+        s!"ALEO-IR-G5: pureFn '{helperName}' Unit return is not admitted on \
+expression callFn path"
+  | .ifThenElse condition thenBody elseBody :: rest => do
+      unless rest.isEmpty do
+        planError
+          s!"ALEO-IR-G5: pureFn '{helperName}' if must be terminal (return merge)"
+      let (ic, co, ctx1) ← lowerExprV1 ctx0 condition
+      let (it, to, ctx2) ←
+        lowerPureHelperBodyV1 ctx1 helperName thenBody.toList
+      let (ie, eo, ctx3) ←
+        lowerPureHelperBodyV1 ctx2 helperName elseBody.toList
+      let (dest, ctx4) := ctx3.fresh
+      pure (
+        ic ++ it ++ ie ++ #[.ternary co to eo dest],
+        .register dest,
+        ctx4)
+  | .switchOn scrutinee cases defaultBody :: rest => do
+      unless rest.isEmpty do
+        planError
+          s!"ALEO-IR-G5: pureFn '{helperName}' switch must be terminal"
+      -- Right-fold into nested if-equivalent ternaries: first match wins.
+      let (is, so, ctx1) ← lowerExprV1 ctx0 scrutinee
+      let (defI, defO, ctx2) ←
+        lowerPureHelperBodyV1 ctx1 helperName defaultBody.toList
+      let mut accI := is ++ defI
+      let mut accO := defO
+      let mut ctx := ctx2
+      -- Fold left-to-right over cases would reverse priority; foldr via list reverse.
+      for (value, caseBody) in cases.reverse do
+        let (eqReg, ctxA) := ctx.fresh
+        accI := accI ++ #[.binary "is.eq" so (u64Literal value) eqReg]
+        let (caseI, caseO, ctxB) ←
+          lowerPureHelperBodyV1 ctxA helperName caseBody.toList
+        accI := accI ++ caseI
+        let (dest, ctxC) := ctxB.fresh
+        accI := accI ++ #[.ternary (.register eqReg) caseO accO dest]
+        accO := .register dest
+        ctx := ctxC
+      pure (accI, accO, ctx)
+  | .revertError _ args :: _ => do
+      unless args.isEmpty do
+        planError diagPayloadRevertNotAdmittedV1
+      -- bare revert inside pure helper → assert false; no value
+      planError
+        s!"ALEO-IR-G5: pureFn '{helperName}' bare revert is not expression-valued"
+  | .store .. :: _ | .storeAggregate .. :: _ | .emitEvent .. :: _
+  | .forLoop .. :: _ | .returnAggregate .. :: _ =>
+      planError
+        s!"ALEO-IR-G5: pureFn '{helperName}' body has non-pure statement \
+(store/emit/for/aggregate not admitted in callFn inline)"
+
+/-- Lower a Plan Expr to Instructions + result operand
+    (UInt*/Int64/Field/Bool + pureFn inline). -/
 partial def lowerExprV1 (ctx0 : LowerCtx) (expr : Expr) :
     CompileResult (Array InstructionV1 × OperandV1 × LowerCtx) := do
   match expr with
   | .literal v => pure (#[], u64Literal v, ctx0)
+  | .i64Literal v => pure (#[], i64Literal v, ctx0)
+  | .fieldLiteral v => pure (#[], fieldLiteral v, ctx0)
   | .uintLiteral bitWidth v => do
       unless isAdmittedUintWidth bitWidth do
         planError s!"ALEO-IR-4: unsupported uintLiteral width {bitWidth}"
       pure (#[], uintLiteral bitWidth v, ctx0)
   | .boolLiteral b => pure (#[], boolLiteral b, ctx0)
   | .param idx => do
-      let some reg := ctx0.paramRegs[idx]? |
+      let some op := ctx0.paramOps[idx]? |
         planError s!"ALEO-IR-4: param {idx} out of range for finalize inputs"
-      pure (#[], .register reg, ctx0)
+      pure (#[], op, ctx0)
   | .loopVar depth => do
       let some op := ctx0.loopVars[depth]? |
         planError s!"ALEO-IR-4: loopVar depth {depth} is out of range"
@@ -425,6 +564,47 @@ partial def lowerExprV1 (ctx0 : LowerCtx) (expr : Expr) :
   | .checkedMul lhs rhs => lowerBinaryOp ctx0 "mul" lhs rhs lowerExprV1
   | .checkedDiv lhs rhs => lowerDivMod ctx0 "div" 64 lhs rhs lowerExprV1
   | .checkedMod lhs rhs => lowerDivMod ctx0 "rem" 64 lhs rhs lowerExprV1
+  | .signedCheckedAdd lhs rhs => lowerBinaryOp ctx0 "add" lhs rhs lowerExprV1
+  | .signedCheckedSub lhs rhs => lowerBinaryOp ctx0 "sub" lhs rhs lowerExprV1
+  | .signedCheckedMul lhs rhs => lowerBinaryOp ctx0 "mul" lhs rhs lowerExprV1
+  | .signedCheckedDiv lhs rhs =>
+      lowerDivModZero ctx0 "div" i64ZeroLiteral lhs rhs lowerExprV1
+  | .signedCheckedMod lhs rhs =>
+      lowerDivModZero ctx0 "rem" i64ZeroLiteral lhs rhs lowerExprV1
+  | .signedCompare op lhs rhs =>
+      lowerBinaryOp ctx0 (compareOpcode op) lhs rhs lowerExprV1
+  | .signedBitAnd lhs rhs => lowerBinaryOp ctx0 "and" lhs rhs lowerExprV1
+  | .signedBitOr lhs rhs => lowerBinaryOp ctx0 "or" lhs rhs lowerExprV1
+  | .signedBitXor lhs rhs => lowerBinaryOp ctx0 "xor" lhs rhs lowerExprV1
+  | .signedBitNot operand => do
+      let (io, oo, ctx1) ← lowerExprV1 ctx0 operand
+      let (dest, ctx2) := ctx1.fresh
+      pure (io ++ #[.unary "not" oo dest], .register dest, ctx2)
+  | .signedShl lhs rhs => lowerShift ctx0 "shl" 64 lhs rhs lowerExprV1
+  | .signedShr lhs rhs => lowerShift ctx0 "shr" 64 lhs rhs lowerExprV1
+  | .checkedNeg operand => do
+      -- Mirror EmitIR: 0i64 - x (native checked neg).
+      let (io, oo, ctx1) ← lowerExprV1 ctx0 operand
+      let (dest, ctx2) := ctx1.fresh
+      pure (
+        io ++ #[.binary "sub" i64ZeroLiteral oo dest],
+        .register dest,
+        ctx2)
+  | .fieldBinary op lhs rhs => do
+      match op with
+      | .div =>
+          lowerDivModZero ctx0 "div" fieldZeroLiteral lhs rhs lowerExprV1
+      | _ =>
+          lowerBinaryOp ctx0 (fieldBinaryOpcode op) lhs rhs lowerExprV1
+  | .fieldCompare op lhs rhs =>
+      lowerBinaryOp ctx0 (compareOpcode op) lhs rhs lowerExprV1
+  | .fieldNeg operand => do
+      let (io, oo, ctx1) ← lowerExprV1 ctx0 operand
+      let (dest, ctx2) := ctx1.fresh
+      pure (
+        io ++ #[.binary "sub" fieldZeroLiteral oo dest],
+        .register dest,
+        ctx2)
   | .narrowCheckedAdd w lhs rhs => do
       unless isNarrowUintWidth w do
         planError s!"ALEO-IR-4: narrowCheckedAdd width {w} not admitted"
@@ -497,16 +677,46 @@ partial def lowerExprV1 (ctx0 : LowerCtx) (expr : Expr) :
       unless isNarrowUintWidth w do
         planError s!"ALEO-IR-4: narrowShr width {w} not admitted"
       lowerShift ctx0 "shr" w lhs rhs lowerExprV1
-  | .callFn .. =>
-      planError diagCallFnNotAdmittedV1
-  | .i64Literal _ | .signedCheckedAdd .. | .signedCheckedSub ..
-  | .signedCheckedMul .. | .signedCheckedDiv .. | .signedCheckedMod ..
-  | .signedCompare .. | .signedBitAnd .. | .signedBitOr .. | .signedBitXor ..
-  | .signedShl .. | .signedShr .. | .signedBitNot .. | .checkedNeg _
-  | .fieldLiteral _ | .fieldBinary .. | .fieldCompare .. | .fieldNeg _ =>
-      planError
-        "ALEO-IR-4: expression shape not admitted on Instructions path \
-(Int64/Field residual FC; width matrix matches Leo admit minus signed/field leaf)"
+  | .callFn name args => do
+      -- G5-HARD: inline pureHelper body (omit top-level helper emission).
+      let some fn :=
+          ctx0.plan.functions.find? (fun h => h.isPureHelper && h.name == name) |
+        planError
+          s!"ALEO-IR-G5: pureFn/localCall callFn '{name}' is not a declared pureHelper"
+      unless args.size == fn.params.size do
+        planError
+          s!"ALEO-IR-G5: pureFn '{name}' arity {args.size} != params {fn.params.size}"
+      -- Fuel: acyclic pureFn tables have depth ≤ helpers; exceed ⇒ cycle.
+      let helperCount :=
+        (ctx0.plan.functions.filter (·.isPureHelper)).size
+      if ctx0.inlineDepth > helperCount then
+        planError
+          s!"ALEO-IR-G5: pureFn/localCall callFn '{name}' recursive/cyclic \
+inline depth exceeded (fail closed)"
+      let mut instrs : Array InstructionV1 := #[]
+      let mut ctx := ctx0
+      let mut argOps : Array OperandV1 := #[]
+      for arg in args do
+        let (ia, oa, ctx1) ← lowerExprV1 ctx arg
+        instrs := instrs ++ ia
+        argOps := argOps.push oa
+        ctx := ctx1
+      let savedParams := ctx.paramOps
+      let savedDepth := ctx.inlineDepth
+      let ctxInline := {
+        ctx with
+        paramOps := argOps
+        inlineDepth := ctx.inlineDepth + 1
+      }
+      let (bodyI, bodyO, ctxEnd) ←
+        lowerPureHelperBodyV1 ctxInline name fn.body.toList
+      let ctxRestore := {
+        ctxEnd with
+        paramOps := savedParams
+        inlineDepth := savedDepth
+      }
+      pure (instrs ++ bodyI, bodyO, ctxRestore)
+end
 
 mutual
   /-- Lower switch cases as a right-nested is.eq + branch chain (EmitIR shape). -/
@@ -546,9 +756,9 @@ mutual
     for stmt in stmts do
       match stmt with
       | .store fieldIndex value => do
-          unless isAdmittedUintLeaf ctx.plan fieldIndex do
+          unless isAdmittedLeaf ctx.plan fieldIndex do
             planError
-              s!"ALEO-IR-4: store leaf {fieldIndex} is not public UInt8/16/32/64"
+              s!"ALEO-IR-4: store leaf {fieldIndex} is not public UInt*/Int64/Field"
           let (iv, vo, ctx1) ← lowerExprV1 ctx value
           acc := acc ++ iv
           acc := acc.push
@@ -562,9 +772,9 @@ mutual
           let mut prepared : Array (Nat × OperandV1) := #[]
           let mut ctxPrep := ctx
           for leaf in leaves do
-            unless isAdmittedUintLeaf ctxPrep.plan leaf.fieldIndex do
+            unless isAdmittedLeaf ctxPrep.plan leaf.fieldIndex do
               planError
-                s!"ALEO-IR-4: storeAggregate leaf {leaf.fieldIndex} is not public UInt8/16/32/64"
+                s!"ALEO-IR-4: storeAggregate leaf {leaf.fieldIndex} is not public UInt*/Int64/Field"
             let (iv, vo, ctx1) ← lowerExprV1 ctxPrep leaf.value
             acc := acc ++ iv
             prepared := prepared.push (leaf.fieldIndex, vo)
@@ -683,17 +893,18 @@ mutual
     pure (acc, ctx)
 end
 
-/-- Build finalize input registers for public UInt* params only. -/
-private def buildParamRegs (fn : PlanFunction) :
-    CompileResult (Array RegisterV1) := do
+/-- Build finalize input operands for admitted params (registers r0..). -/
+private def buildParamOps (fn : PlanFunction) :
+    CompileResult (Array OperandV1) := do
   for p in fn.params do
-    unless isAdmittedUintParam p do
+    unless isAdmittedParam p do
       planError
-        s!"ALEO-IR-4: function '{fn.name}' param '{p.name}' must be public UInt8/16/32/64"
+        s!"ALEO-IR-4: function '{fn.name}' param '{p.name}' must be public UInt*/Int64/Field"
   -- Dense 0..params.size-1 mapping used by Plan bodies.
-  pure <| (List.range fn.params.size).toArray.map (fun i => ⟨i⟩)
+  pure <| (List.range fn.params.size).toArray.map (fun i => .register ⟨i⟩)
 
-/-- Finalize body for one PlanFunction (initialize gets guard + mark). -/
+/-- Finalize body for one PlanFunction (initialize gets guard + mark).
+    pureHelpers are not finalized here (inlined at call sites). -/
 def lowerFinalizeBodyV1 (plan : Plan) (fn : PlanFunction) :
     CompileResult (Array InstructionV1) := do
   unless fn.touchesState do
@@ -701,17 +912,18 @@ def lowerFinalizeBodyV1 (plan : Plan) (fn : PlanFunction) :
       s!"ALEO-IR-4: function '{fn.name}' does not touch state (Final-only Instructions path)"
   unless !fn.isPureHelper do
     planError
-      s!"ALEO-IR-4: pure helper '{fn.name}' is not admitted on Instructions path"
+      s!"ALEO-IR-G5: pure helper '{fn.name}' is inlined at call sites \
+(not emitted as Final)"
   for p in fn.params do
-    unless isAdmittedUintParam p do
+    unless isAdmittedParam p do
       planError
-        s!"ALEO-IR-4: function '{fn.name}' params must be public UInt8/16/32/64"
+        s!"ALEO-IR-4: function '{fn.name}' params must be public UInt*/Int64/Field"
   let arity := fn.params.size
   let mut body : Array InstructionV1 := #[]
   for i in [0:arity] do
     let ty ← paramInputType fn.params[i]!
     body := body.push (.input ⟨i⟩ ty)
-  let paramRegs ← buildParamRegs fn
+  let paramOps ← buildParamOps fn
   let mut nextReg := arity
   -- initialize one-shot guard before body stores.
   if fn.kind == .initialize then
@@ -723,7 +935,8 @@ def lowerFinalizeBodyV1 (plan : Plan) (fn : PlanFunction) :
     nextReg
     labelCounter := 0
     loopVars := #[]
-    paramRegs
+    paramOps
+    inlineDepth := 0
   }
   let (stmtInstrs, ctx1) ← lowerStatementsV1 ctx0 fn.body
   body := body ++ stmtInstrs
@@ -744,8 +957,9 @@ def lowerFunctionV1
   let finBody ← lowerFinalizeBodyV1 plan fn
   pure (transition, { name := fn.name, body := finBody })
 
-/-- Lower an entire Plan to Instructions (multi-leaf UInt* + Final functions
-    with IR-3 control flow + IR-4 narrow/multi-leaf + IR-5 effects honesty). -/
+/-- Lower an entire Plan to Instructions (multi-leaf UInt*/Int64/Field + Final
+    functions with IR-3 control flow + IR-4 narrow/multi-leaf + IR-5 honesty +
+    G5-HARD pureFn inline). pureHelpers are omitted from top-level emission. -/
 def lowerPlanToInstructionsV1 (plan : Plan) : CompileResult ProgramV1 := do
   -- IR-5 first: Plan-reachable effect residual with stable ALEO-IR-5 diagnostics
   -- (wins over shared ValidatePlan Leo-path wording for Instructions tests).
@@ -755,14 +969,25 @@ def lowerPlanToInstructionsV1 (plan : Plan) : CompileResult ProgramV1 := do
     planError
       s!"ALEO-IR-4: expected at least one state leaf, got {plan.stateFieldNames.size}"
   for i in [0:plan.stateFieldNames.size] do
-    unless isAdmittedUintLeaf plan i do
+    unless isAdmittedLeaf plan i do
       planError
-        s!"ALEO-IR-4: state leaf {i} ('{plan.stateFieldNames[i]!}') is not public UInt8/16/32/64 (Int64/Field residual FC)"
+        s!"ALEO-IR-4: state leaf {i} ('{plan.stateFieldNames[i]!}') is not public UInt*/Int64/Field"
   for view in plan.views do
     unless view.stateFieldIndex < plan.stateFieldNames.size do
       planError s!"ALEO-IR-4: view '{view.name}' references missing state"
   unless plan.functions.size ≥ 1 do
     planError "ALEO-IR-4: expected at least one function (initialize)"
+  -- G5-HARD: pureHelpers may only be pure (no state); validated before skip.
+  for fn in plan.functions do
+    if fn.isPureHelper then
+      if fn.touchesState then
+        planError
+          s!"ALEO-IR-G5: pure helper '{fn.name}' cannot touch state"
+      for p in fn.params do
+        unless isAdmittedParam p do
+          planError
+            s!"ALEO-IR-G5: pure helper '{fn.name}' param '{p.name}' must be \
+public UInt*/Int64/Field"
   let programName ← programNameFromPlanV1 plan
   let mut items : Array ItemV1 := #[]
   for i in [0:plan.stateFieldNames.size] do
@@ -779,15 +1004,16 @@ def lowerPlanToInstructionsV1 (plan : Plan) : CompileResult ProgramV1 := do
   })
   let mut sawInitialize := false
   for fn in plan.functions do
+    -- G5-HARD: free pureHelpers are inlined; omit top-level function/finalize.
     if fn.isPureHelper then
-      planError
-        s!"ALEO-IR-4: pure helper '{fn.name}' is not admitted on Instructions path"
-    let (fDecl, finDecl) ← lowerFunctionV1 programName plan fn
-    match fn.kind with
-    | .initialize => sawInitialize := true
-    | .mutate => pure ()
-    items := items.push (.function fDecl)
-    items := items.push (.finalize finDecl)
+      pure ()
+    else
+      let (fDecl, finDecl) ← lowerFunctionV1 programName plan fn
+      match fn.kind with
+      | .initialize => sawInitialize := true
+      | .mutate => pure ()
+      items := items.push (.function fDecl)
+      items := items.push (.finalize finDecl)
   unless sawInitialize do
     planError "ALEO-IR-4: requires an initialize function"
   items := items.push (.constructor constructorEditionV1)

@@ -9,7 +9,7 @@ normative: false
 
 # Aleo Instructions IR 落地规划
 
-状态：`draft`（**IR-0..IR-6 engineering closeout 2026-08-08** + **G5-MATRIX 2026-08-08**：G0–G4 闭合；§3.2 admit 扫描 + FC/IR pins + §3.2.1 覆盖表已落。Schema/TextCodec + Counter 金样 + `LowerPlanV1` + if/match/bounded-for + multi-leaf + narrow + 效果诚实矩阵 + **产品 primary = Instructions**。**Next = G5-HARD**（residual true lower / hard-require）；IR-7/runtime / full opcode / record / prove 仍 open。`deployable=false`）
+状态：`draft`（**IR-0..IR-6 engineering closeout 2026-08-08** + **G5-MATRIX 2026-08-08** + **G5-HARD 2026-08-08**：G0–G5 闭合；residual 桶 Int64/Field/pureFn true lower；空 allowlist + `ALEO-IR-G5-HARD` 禁 silent Leo-only primary。Schema/TextCodec + Counter 金样 + `LowerPlanV1` + if/match/bounded-for + multi-leaf + narrow + 效果诚实矩阵 + **产品 primary = Instructions**。**Next = IR-7 / G6 runtime**；full opcode / record / prove 仍 open。`deployable=false`）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Aleo target 的权威物化从 **Leo 4 源文本** 切到官方 **Aleo Instructions**（中间 IR / 寄存器指令集），并评估 **ProgramV1 在 Aleo 上 admit 的构造** 能覆盖到该 IR 的范围。
 
 与 Psy 对照（已闭合 lane）：
@@ -37,7 +37,7 @@ normative: false
 
 | 制品 | 当前工程含义 | 本规划目标含义 |
 |---|---|---|
-| 产品 base `{id}.aleo` | **Aleo Instructions** 文本（Plan→`LowerPlanV1`；IR-6） | **产品权威**（residual Plan 形状在 G5 hard-require 前可 Leo 回退） |
+| 产品 base `{id}.aleo` | **Aleo Instructions** 文本（Plan→`LowerPlanV1`；IR-6 + G5-HARD） | **产品权威**（Plan admitted 且 IR fail → `ALEO-IR-G5-HARD`；无 silent Leo-only） |
 | 调试/对照 `{id}.leo` | Leo 4 源（`EmitIRV1` printer；env/`emitLeoDebug`/compile 双写） | debug / leo-build compare；**非**长期 sole 权威 |
 | Finalize extra `{id}.compiled.aleo` | locked Leo 编译输出（**Instructions** 面） | **金样/对照**（IR-1/IR-6 compare path） |
 | 产品目标权威 | **Plan → Instructions** 直出（IR-6） | 可选 Leo 对照；AVM 消费待 G6 |
@@ -160,14 +160,14 @@ Pin：Leo **4.0.2** exact；grammar/opcode 文档 rev 写入 supply-chain annota
 |---|---|---|---|---|
 | UInt64/32/8 算术 + checked | Y（原生 uN trap） | **Y** | **done** | Counter golden add；`testProductNarrowUintWidths` / `testHandBuiltNarrowShiftCast` |
 | Bool / 比较 / 逻辑 | Y | **Y** | **done** | `testG5MatrixBoolAssertStructural`（gt/and/not/ternary）；Branch product gt |
-| Int64 | Y | **Y** | **residual** | leaf/expr `ALEO-IR-4`；`testG5MatrixResidualFcPins` + `testUnsupportedPlanFailClosed`（Leo 仍 admit） |
-| Field BLS12-377 | Y（T14） | **Y** | **residual** | leaf/expr `ALEO-IR-4`；`testG5MatrixResidualFcPins`（Leo 仍 admit） |
+| Int64 | Y | **Y** | **done** | G5-HARD i64 mapping + signed ops；`testG5HardResidualTrueLower` |
+| Field BLS12-377 | Y（T14） | **Y** | **done** | G5-HARD field mapping + fieldBinary；`testG5HardResidualTrueLower` |
 | Field bn254 / Goldilocks | F | **F** | **plan-FC** | type-closure；`Aleo.testFieldBn254FailClosed` |
 | mapping state / dense Map cap-2 | Y | **Y** | **done** | Counter mapping；`testProductMapMiniMultiLeaf` |
 | Option UInt64 state | Y | **Y** | **done** | `testProductOptionStateMultiLeaf` |
 | Array/Bytes/Struct flatten | Y | **Y** | **done** | `testProductArrayMultiLeaf` / multi-leaf hand-built |
 | if / match / bounded for | Y（Leo 源） | **Y** | **done** | IR-3 structural + product Branch；for ceiling FC |
-| pureFn / localCall | Y | **Y** | **residual** | pure helper `ALEO-IR-4`；callFn `ALEO-IR-5`；`testG5MatrixResidualFcPins` |
+| pureFn / localCall | Y | **Y** | **done** | G5-HARD callFn inline pureHelper；`testG5HardResidualTrueLower` |
 | const / Op.Constant | F（Constant load FC） | **F** | **plan-FC** | Semantic→Plan Constant FC；`testG5MatrixConstPlanFailClosed` |
 | bare assert / bare revert | Y | **Y** | **done** | `testG5MatrixBoolAssertStructural` + `testG5MatrixProductAssertLower`；bare revert→`assert.eq true false` |
 | emit / call / schedule | F | **F**（IR-5） | **done**（IR FC） / **plan-FC**（product） | Plan `ALEO-IR-5:`；product resolve/lower FC suite |
@@ -183,13 +183,13 @@ Pin：Leo **4.0.2** exact；grammar/opcode 文档 rev 写入 supply-chain annota
 
 | 桶 | 行数 / 内容 | 说明 |
 |---|---|---|
-| **done** | UInt*/Bool/assert/revert/mapping/Option/Array/if·match·for + IR-5 F rows with IR diags | 有 Instructions lower 或稳定 `ALEO-IR-5:` 钉测 |
-| **residual** | **Int64、Field BLS12-377、pureFn/localCall** | Plan/Leo admit；Instructions `ALEO-IR-4`/`ALEO-IR-5` FC；**G5-HARD** 优先 true lower 再 hard-require |
+| **done** | UInt*/Int64/Field/Bool/assert/revert/mapping/Option/Array/if·match·for/pureFn + IR-5 F rows | 有 Instructions lower 或稳定 `ALEO-IR-5:` 钉测 |
+| **residual** | **0**（G5-HARD closed） | 原 Int64/Field/pureFn 已 true lower |
 | **plan-FC** | const、bn254/Goldilocks Field、nested Map、Context/assets/record/Principal/String/invariant | 达不到 Instructions；不发明 IR |
 | **partial** | **0** | 无 PARTIAL 假 Y |
-| **open residual work** | G5-HARD / IR-7 runtime / multi-program leo 金样 / prove | 见 §10；`deployable=false` |
+| **open residual work** | IR-7 runtime / multi-program leo 金样 / prove | 见 §10；`deployable=false` |
 
-**结论（G5-MATRIX）：** 每 **Y** 行均有 IR 钉测 **或** 诚实 **residual** FC（禁止假 Y）；每 **F** 行有 plan-FC 或 IR FC 钉测。residual 三族仍允许 silent Leo-primary 直至 **G5-HARD**。
+**结论（G5-MATRIX + G5-HARD）：** 每 **Y** 行均有 IR 钉测；每 **F** 行有 plan-FC 或 IR FC 钉测；residual allowlist 空；silent Leo-only primary 已禁。
 
 ---
 
@@ -231,11 +231,11 @@ ProofForgeV2/Targets/Aleo/
 | G1 | Lower Counter | **done（IR-2）**：`LowerPlanV1` Instructions ≡ locked-leo 金样（结构+字节） |
 | G2 | OptionState / MapMini 子集 | **done（IR-4）**：multi-leaf flatten-to-mapping + Option/Map/Array/narrow 结构测试 |
 | G3 | 控制流 / for 展开 | **done（IR-3）**：if/switch → `branch.eq`/`position`；bounded for 静态 unroll + boundExceeded 门；结构测试 + Counter 金样回归 |
-| G4 | 产品 primary IR | **done（IR-6 closeout）**：默认权威 Instructions；Leo debug-only / compile dual-write；residual Leo-primary 至 G5 hard-require |
-| G5 | admit 面扫描 | **in-progress**：G5-MATRIX **done（2026-08-08）**；**Next = G5-HARD** residual true lower + hard-require |
+| G4 | 产品 primary IR | **done（IR-6 closeout）**：默认权威 Instructions；Leo debug-only / compile dual-write |
+| G5 | admit 面 + hard-require | **done（G5-MATRIX + G5-HARD 2026-08-08）**：admit 扫描 + Int64/Field/pureFn true lower + 空 allowlist `ALEO-IR-G5-HARD` |
 | G6 | Runtime 消费 IR | 不经 Leo 源：snarkVM 或官方路径（**有工具再开**；≈ IR-7） |
 
-G0–G4 = **IR-0..IR-6 engineering closeout done（2026-08-08）**；G5-MATRIX = admit 扫描 + FC pins **done**；G5 整阶至 G5-HARD 闭合前为 **in-progress**；G6/IR-7 = runtime（可能长期 PARTIAL）。
+G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08-08）**；G6/IR-7 = runtime（可能长期 PARTIAL）。
 
 ---
 
@@ -267,7 +267,7 @@ G0–G4 = **IR-0..IR-6 engineering closeout done（2026-08-08）**；G5-MATRIX =
 ### Phase ALEO-IR-4 — 多叶 / Map / Option / 窄宽
 
 - [x] 复用现 flatten-to-mapping 布局，输出 Instructions（每 Plan leaf → `pf_state_{i}`；`storeAggregate` 先全求值再 set）
-- [x] 宽度/Field 与现 FC 矩阵一致（UInt8/16/32/64 已开；Int64/Field 仍 IR residual FC；nested Map 仍 Semantic/Plan FC）
+- [x] 宽度/Field 与现 FC 矩阵一致（UInt8/16/32/64 + G5-HARD Int64/Field BLS12-377 已开；nested Map 仍 Semantic/Plan FC）
 
 ### Phase ALEO-IR-5 — 效果与诚实矩阵
 
@@ -281,8 +281,8 @@ G0–G4 = **IR-0..IR-6 engineering closeout done（2026-08-08）**；G5-MATRIX =
 
 - [x] materialize primary = Instructions 文本（`{id}.aleo` when lower succeeds；≡ Counter golden）
 - [x] Leo 源 debug flag：`PROOF_FORGE_ALEO_EMIT_LEO=1` / `emitLeoDebug` → `{id}.leo`；compile profile 始终双写供对照
-- [x] Finalize：source profile zero-tool + IR primary note；compile profile 消费 `.leo`（或 residual Leo-primary `.aleo`）跑 locked leo 作 **对照** 而非 sole 权威；`deployable=false`
-- [x] dual-write transition residual：Instructions lower 失败时 Plan-admitted 形状仍可 Leo 为 `.aleo` primary（至 G5 hard-require）
+- [x] Finalize：source profile zero-tool + IR primary note；compile profile 消费 dual-written `.leo` 跑 locked leo 作 **对照** 而非 sole 权威；`deployable=false`
+- [x] dual-write transition residual：**superseded by G5-HARD**（空 allowlist；禁 silent Leo-only primary）
 
 ### Phase ALEO-IR-7 — Runtime（可选、独立 host-heavy）
 
@@ -299,11 +299,11 @@ G0–G4 = **IR-0..IR-6 engineering closeout done（2026-08-08）**；G5-MATRIX =
 
 ### Phase ALEO-G5-HARD — residual hard-require（对齐 Psy R-HARD）
 
-- [ ] 列出 residual Plan 形状（Instructions lower 失败但仍 Leo-primary 的路径）：**Int64 / Field BLS12-377 / pureFn**（G5-MATRIX residual 桶）
-- [ ] 优先 **true lower** residual 族（Int64、Field BLS12-377、pureFn/localCall 等已 admit 者）
-- [ ] 之后：**空 allowlist** 或极小 evidence allowlist；Plan-admitted 且 IR fail → 稳定 `ALEO-IR-G5-HARD` materialize FC（禁止 silent Leo-only primary）
-- [ ] 测试：Counter 仍 Instructions primary；former residual 双路径 pin
-- [ ] `deployable=false`；不声称 prove/deploy
+- [x] 列出 residual Plan 形状：**Int64 / Field BLS12-377 / pureFn**（G5-MATRIX residual 桶 → 已闭合）
+- [x] **true lower** residual 族（Int64 signed ops、Field BLS12-377、pureFn/localCall inline）
+- [x] **空 allowlist** `isAleoInstructionsG5HardResidualAllowlistV1`；Plan-admitted 且 IR fail → 稳定 `ALEO-IR-G5-HARD` materialize FC
+- [x] 测试：Counter 仍 Instructions primary；`testG5HardResidualTrueLower` + allowlist classifier
+- [x] `deployable=false`；不声称 prove/deploy
 
 ### Phase ALEO-IR-7 / G6 — Runtime honesty（独立）
 
@@ -370,9 +370,9 @@ G0–G4 = **IR-0..IR-6 engineering closeout done（2026-08-08）**；G5-MATRIX =
 
 ### 9.2 Admit 面（G5）
 
-- §3.2 中目标 **Y** 有 IR + 测试，或 **residual** 稳定 FC（禁止假 Y）— **G5-MATRIX done**。
+- §3.2 中目标 **Y** 有 IR + 测试，或 **residual** 稳定 FC（禁止假 Y）— **G5-MATRIX + G5-HARD done**。
 - **P/F** 有诊断或 PARTIAL 文档 — **G5-MATRIX done**。
-- **G5 整阶完成** 另需 G5-HARD（residual true lower 或 hard-require 禁 silent Leo-only）。
+- **G5 整阶完成** — **G5-HARD done（2026-08-08）**。
 
 ### 9.3 非完成条件
 
@@ -382,14 +382,14 @@ G0–G4 = **IR-0..IR-6 engineering closeout done（2026-08-08）**；G5-MATRIX =
 
 ## 10. IR-6 后执行队列（已规划；lane 仍 active）
 
-**IR-0..IR-6 / G0–G4 engineering closeout（2026-08-08）已闭合**；**G5-MATRIX（2026-08-08）已闭合**：§3.2 / §3.2.1 扫描 + residual/plan-FC pins。产品权威 = Plan→Instructions；Leo 源 debug/compare only；Counter ≡ golden；效果矩阵无 PARTIAL 假 Y。
+**IR-0..IR-6 / G0–G4 + G5-MATRIX + G5-HARD engineering closeout（2026-08-08）已闭合**。产品权威 = Plan→Instructions；Leo 源 debug/compare only；Counter ≡ golden；residual 桶 0；空 allowlist；效果矩阵无 PARTIAL 假 Y。
 
 **后续队列：**
 
 | 序 | 切片 | 目标 | 完成条件（摘要） |
 |---|---|---|---|
 | 1 | **G5-MATRIX** | §3.2 全行扫描 | **done（2026-08-08）** |
-| 2 | **G5-HARD** | hard-require | residual true lower 后，禁止 silent Leo-only primary |
+| 2 | **G5-HARD** | hard-require | **done（2026-08-08）**：true lower + 空 allowlist + `ALEO-IR-G5-HARD` |
 | 3 | **IR-7 / G6** | runtime honesty | 有工具则 host-heavy 差分；否则 evidence MISSING |
 | 4 | **RES-CLEAN** | 文档收口 | deferred 金样 / prove / record 诚实列表 |
 
@@ -404,12 +404,13 @@ G0–G4 = **IR-0..IR-6 engineering closeout done（2026-08-08）**；G5-MATRIX =
 | IR-5 | effects honesty matrix（emit/callFn/payload-revert Plan FC；product call/schedule/assets/context FC） |
 | IR-6 / G4 | product primary `{id}.aleo` = Instructions；Leo debug-only / compile dual-write |
 | G5-MATRIX | §3.2 Instructions 现状列 + §3.2.1；Bool/assert/const/Int64/Field/pureFn/nested Map pins |
+| G5-HARD | Int64/Field/pureFn true lower；`isAleoInstructionsG5HardResidualAllowlistV1` 恒 false；`ALEO-IR-G5-HARD` |
 
 ### Remaining（blockers / next work）
 
-1. **G5-HARD（Next）**：residual 桶 Int64 / Field BLS12-377 / pureFn — 优先 true lower，再空 allowlist + `ALEO-IR-G5-HARD` 禁 silent Leo-only primary（对齐 Psy R-HARD）。
-2. **IR-7 / G6 runtime**：pin snarkVM / 官方 package-only execute（若存在）；**非** ordinary ci；不发明工具。
+1. **IR-7 / G6 runtime（Next）**：pin snarkVM / 官方 package-only execute（若存在）；**非** ordinary ci；不发明工具。
+2. **RES-CLEAN**：deferred multi-program leo 金样 / prove / record 诚实列表。
 3. **full opcode / record / prove**：out-of-slice 直至产品决策；record custody / pf.assets 零绑定保持；`deployable=false`。
 
 规划 owner：engineering。
-产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-0..IR-6 已工程 closeout（产品 primary = Instructions；Leo debug-only）；G5-MATRIX 已扫描 residual 桶。
+产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-0..IR-6 + G5-MATRIX + G5-HARD 已工程 closeout（产品 primary = Instructions；Leo debug-only；residual allowlist 空）。
