@@ -27,9 +27,11 @@ IR-5 效果诚实矩阵（emit/payload-revert Plan FC；call/schedule/assets/con
 Leo 4 源 debug-only（`PROOF_FORGE_ALEO_EMIT_LEO=1` / `emitLeoDebug` → `{id}.leo`；
 compile profile 双写供 locked-leo compare extras）；**IR-7/G6 runtime honesty PARTIAL+MISSING**
 （无 locked snarkVM package-only；`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`；不发明 CLI）。
-**RES-CLEAN** residual honesty closeout：sole Counter full-byte golden；deferred multi-program
-leo 金样 / record custody / prove/deploy / full opcode。不得把 Leo 源写成长期 sole 权威。
-Lane **idle**。**诚实 residual**：full opcode / record / prove deferred（见规划 §10）。
+**RES-CLEAN** residual honesty closeout：Counter IR-1 full-surface golden +
+**ALEO-COMPILE-COMPARE** Accumulator admit pin（`accumulator-admit.compiled.aleo`；
+Plan→IR ≡ locked Leo；非 multi-program 字节矩阵）；deferred full multi-program leo 矩阵 /
+record custody / prove/deploy / full opcode。不得把 Leo 源写成长期 sole 权威。
+Lane **idle**（下一 **ALEO-CONST**）。**诚实 residual**：full opcode / record / prove deferred（见规划 §10）。
 
 ## 当前工程迁移状态（非 formal 完成）
 

@@ -13,7 +13,22 @@ normative: false
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
 
+## 2026-08-08 — ALEO-COMPILE-COMPARE：Accumulator admit locked-leo pin
+
+- Product capture：Accumulator admit-surface（entry `credit`；非 reserved `add`）via
+  `aleo-leo-4.0.2-u64-compile-v1` + locked Leo 4.0.2 →
+  `testdata/golden/aleo-instructions-v1/accumulator-admit.compiled.aleo`
+  （870 B，SHA-256 `1db88f65cd384447e3970027234ea2912655259ed011e569fb96484536c44e3a`）。
+- Suite：`Tests.Materialization.AleoInstructionsV1`
+  `testCompileCompareAccumulatorAdmitPlanEqualsGolden`（Plan→IR encode ≡ pin 字节）+
+  `testCompileCompareAccumulatorAdmitLockedLeoOptional`（live recheck when tool present；
+  missing → honest skip）。Inventory 允许 Counter IR-1 + COMPILE-COMPARE 双文件。
+- Counter `counter.compiled.aleo` IR-1 权威金样 **不变**（870 B / `efc9e7a6…`）。
+- Docs：`09-aleo-instructions-lowering.md` §10 / backlog / `09-aleo.md` / `AGENTS` Next=CONST。
+- **非** multi-program leo 字节矩阵 / snarkVM / prove/deploy/formal；`deployable=false`。
+
 ## 2026-08-08 — ALEO-RES-CLEAN：residual honesty closeout（lane idle）
+
 
 - Docs only + residual honesty suite pin（无 capability 扩张）：
   - `09-aleo-instructions-lowering.md`：G5/IR-7 诚实收口；RES-CLEAN checkboxes；

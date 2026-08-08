@@ -187,7 +187,7 @@ Pin：Leo **4.0.2** exact；grammar/opcode 文档 rev 写入 supply-chain annota
 | **residual** | **0**（G5-HARD closed） | 原 Int64/Field/pureFn 已 true lower |
 | **plan-FC** | const、bn254/Goldilocks Field、nested Map、Context/assets/record/Principal/String/invariant | 达不到 Instructions；不发明 IR |
 | **partial** | **0** | 无 PARTIAL 假 Y |
-| **open residual work** | multi-program leo **字节**金样 / prove / record / full opcode | **RES-CLEAN done**；**ALEO-MULTI-GOLDEN done**（结构/产品钉，非字节矩阵）；IR-7 **PARTIAL/MISSING**；字节金样 / record / prove / full opcode **deferred**（见 §10）；`deployable=false` |
+| **open residual work** | multi-program leo **字节**矩阵 / prove / record / full opcode | **RES-CLEAN done**；**ALEO-MULTI-GOLDEN done**（结构/产品钉）；**ALEO-COMPILE-COMPARE done**（单 admit pin，非矩阵）；IR-7 **PARTIAL/MISSING**；全量字节矩阵 / record / prove / full opcode **deferred**（见 §10）；`deployable=false` |
 
 **结论（G5-MATRIX + G5-HARD）：** 每 **Y** 行均有 IR 钉测；每 **F** 行有 plan-FC 或 IR FC 钉测；residual allowlist 空；silent Leo-only primary 已禁。
 
@@ -413,29 +413,30 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 | 序 | 切片 | 目标 |
 |---|---|---|
 | 1 | **ALEO-MULTI-GOLDEN** | **done（2026-08-08，engineering）**：多 fixture **结构/产品** Plan→Instructions 钉测（见下分类）；**不**要求全量 multi-program leo 字节金样 |
-| 2 | **ALEO-COMPILE-COMPARE** | 对 1–2 个小 fixture 可选 locked-leo `compiled.aleo` 结构或字节对照（tool root 可用时）；缺工具 skip/PF-TOOLCHAIN 诚实 |
+| 2 | **ALEO-COMPILE-COMPARE** | **done（2026-08-08，engineering）**：Accumulator admit-surface locked-leo `compiled.aleo` 对照金样 + Plan→IR 字节相等；live recheck tool-optional；缺工具 honest skip（见下） |
 | 3 | **ALEO-CONST** | 若 Plan 侧能诚实 admit `Op.Constant`：Instructions Constant lower；否则保持 plan-FC 钉测 |
 
-##### ALEO-MULTI-GOLDEN 分类（结构 vs 字节金样）
+##### ALEO-MULTI-GOLDEN / COMPILE-COMPARE 分类（结构 vs 字节金样）
 
 | Fixture | 产品路径 | 钉测类型 | 备注 |
 |---|---|---|---|
-| **Counter** | full `Examples/Counter.lean` | **sole full-byte golden** | `testdata/golden/aleo-instructions-v1/counter.compiled.aleo` 870 B；IR-1..IR-6 权威 |
+| **Counter** | full `Examples/Counter.lean` | **IR-1 full-surface full-byte golden** | `testdata/golden/aleo-instructions-v1/counter.compiled.aleo` 870 B；IR-1..IR-6 权威 |
+| **Accumulator admit** | admit-surface（entry `credit`；非 reserved `add`） | **COMPILE-COMPARE full-byte pin** | `accumulator-admit.compiled.aleo` 870 B SHA-256 `1db88f65cd384447e3970027234ea2912655259ed011e569fb96484536c44e3a`；product Plan→IR ≡ locked Leo 4.0.2 compile-profile capture；live recheck optional；**非** multi-program matrix、**非** IR-1 替代 |
 | **LoopSum** | full `Examples/LoopSum.lean` | **structural-only** | for unroll + bare view；method/mapping/control-op counts；encode nonempty；非字节金样 |
-| **Accumulator** | admit-surface（entry `credit`；非 reserved `add`） | **structural-only** | full `Examples/Accumulator.lean` **Plan-FC**（Leo reserved entry `add`）；admit-surface 与 Example 同 state/view 形 |
 | **OptionState** | admit-surface entry-only（无 computed `peek`） | **structural-only** | full Example **Plan-FC**（computed view）；tag+payload 双叶 + setSome/clear |
 | **MapMini** | admit-surface entry `put` only（无 computed `get`） | **structural-only** | full Example **Plan-FC**（computed view）；cap-2 六叶 + ternary upsert |
 
-证据：`Tests/Materialization/AleoInstructionsV1` — `testMultiGolden*` + 既有 IR-4 Option/Map 产品钉；G5-HARD allowlist 仍空；Counter 字节金样不变。
+证据：`Tests/Materialization/AleoInstructionsV1` — `testMultiGolden*` + `testCompileCompare*` + 既有 IR-4 Option/Map 产品钉；G5-HARD allowlist 仍空；Counter IR-1 字节金样不变。
 
 #### 等上游 / 产品决策（不发明）
 
 
 1. **package-only snarkVM / Instructions execute 缺失（PARTIAL）**：Tool Lock 仅 Leo 4.0.2；无 snarkVM/snarkOS asset。`just aleo-runtime` → `PF-TOOLCHAIN-MISSING`。**不**把 `leo run` 升格为 package-only Instructions execute。**不发明 CLI**。**RES-CLEAN / IR-7 已在 docs/tests 重申**。
-2. **全量 multi-program / multi-fixture leo **字节**金样 — deferred**（**ALEO-MULTI-GOLDEN done** 已用结构/产品钉测覆盖 admit 面，**不**冒充全量字节相等）：
-   - **sole 全量字节金样**仍为 `testdata/golden/aleo-instructions-v1/counter.compiled.aleo`（locked Leo 4.0.2 Counter；870 B；SHA-256 `efc9e7a60ec3e046b1eb36e7b397abb753e06e7f0086b1e41a50966e1a7c2d52`）。
-   - LoopSum（full Example）+ Accumulator/OptionState/MapMini（admit-surface）+ Array/narrow/Branch 以 **结构钉测** 覆盖；exact multi-fixture UTF-8 CI 金样价值不成比例且无 package-only execute 抓取路径。
-   - compile-profile `*.compiled.aleo` extras 为对照，**不**另开 multi-program golden 仓库。
+2. **全量 multi-program / multi-fixture leo **字节**矩阵 — deferred**（**ALEO-MULTI-GOLDEN** 结构钉 + **ALEO-COMPILE-COMPARE** 单 admit pin **不**冒充全量字节矩阵）：
+   - **IR-1 full-surface 权威金样**仍为 `testdata/golden/aleo-instructions-v1/counter.compiled.aleo`（locked Leo 4.0.2 Counter；870 B；SHA-256 `efc9e7a60ec3e046b1eb36e7b397abb753e06e7f0086b1e41a50966e1a7c2d52`）。
+   - **COMPILE-COMPARE 可选 pin**（非 matrix）：`accumulator-admit.compiled.aleo`（Accumulator admit-surface；870 B；SHA-256 `1db88f65cd384447e3970027234ea2912655259ed011e569fb96484536c44e3a`）；Plan→IR ≡ locked-leo capture；live compile-profile recheck tool-optional。
+   - LoopSum（full Example）+ OptionState/MapMini（admit-surface）+ Array/narrow/Branch 以 **结构钉测** 覆盖；exact multi-fixture UTF-8 matrix 价值不成比例且无 package-only execute 抓取路径。
+   - compile-profile `*.compiled.aleo` extras 为对照，**不**把 COMPILE-COMPARE 升格为 multi-program golden 仓库。
 3. **record custody / pf.assets — deferred**：零绑定保持；无 mint/consume Instructions IR 直至 custody v2 产品决策。
 4. **full opcode surface — deferred**：Schema/TextCodec 仅 admit 子集；禁止 best-effort 全 opcode 声称。
 5. **prove / deploy / network / formal — out-of-slice**：`deployable=false`；compile-only ≠ proof/deploy evidence。
@@ -443,4 +444,4 @@ G0–G5 = **IR-0..IR-6 + G5-MATRIX + G5-HARD engineering closeout done（2026-08
 7. **可选未来**：若上游提供 package-only execute 且进入 Tool Lock，扩展 `aleo_runtime_test.sh` 为 Counter host-heavy 差分（仍非 ordinary ci）。
 
 规划 owner：engineering。
-产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-0..IR-7 + G5-MATRIX + G5-HARD + RES-CLEAN + **ALEO-MULTI-GOLDEN** 已工程 closeout（产品 primary = Instructions；Leo debug-only；residual allowlist 空；runtime execute MISSING/PARTIAL；结构多 fixture 钉测已开；下一 COMPILE-COMPARE/CONST）。
+产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-0..IR-7 + G5-MATRIX + G5-HARD + RES-CLEAN + **ALEO-MULTI-GOLDEN** + **ALEO-COMPILE-COMPARE** 已工程 closeout（产品 primary = Instructions；Leo debug-only；residual allowlist 空；runtime execute MISSING/PARTIAL；结构多 fixture + 单 admit locked-leo 对照 pin；下一 **ALEO-CONST**）。
