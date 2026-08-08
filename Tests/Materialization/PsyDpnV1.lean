@@ -1,7 +1,7 @@
 /-
-  Tests.Materialization.PsyDpnV1 — PSY-DPN-1..7 + G5-WIDE schema + Counter
-  golden + Plan lower + if/match/for + multi-leaf/wide mul/div/shift + Map +
-  effects honesty + product dual-write.
+  Tests.Materialization.PsyDpnV1 — PSY-DPN-1..7 + G5-WIDE + G5-AGG schema +
+  Counter golden + Plan lower + if/match/for + multi-leaf/wide mul/div/shift +
+  Map + Array/Principal/Bytes multi-leaf + effects honesty + product dual-write.
 
   Pins:
     * OpType / DataType exact discriminants used by Counter (+ Select)
@@ -15,6 +15,9 @@
       storeAggregate/returnAggregate; default profile WideCounter FC at Plan
     * G5-WIDE: schoolbook mul / restoring div / limb shift DPN; WideCounter VM
       product package includes multiply/divide/shiftLeft
+    * G5-AGG: Array UInt64 N / Principal wire-identity / Bytes 1..8 multi-leaf
+      storeAggregate/returnAggregate → multi SlotSingle (sub_slot fieldIndex+4);
+      product Plan→DPN; nested Map / Map return / Principal return stay FC
     * DPN-5: Map UInt64 UInt64 cap-8 (24 occ/key/val leaves) product Plan→DPN
       without .psy return-in-if; hand-built lookup Select + upsert storeAggregate
     * DPN-6: emit → events[] PARTIAL; void call → InvokeExternal PARTIAL;
@@ -835,6 +838,443 @@ unsafe def testTokenMapProductLower : IO Unit := do
   expect (initSets == 25)
     s!"Token init Map(24)+supply(1)=25 Sets, got {initSets}"
 
+/-! ## G5-AGG — Array / Principal / Bytes multi-leaf -/
+
+/-- G5-AGG: hand-built Array UInt64 2 storeAggregate + returnAggregate. -/
+def testArrayTwoLeafStoreReturnAggregate : IO Unit := do
+  let initFn : PlanFunction := {
+    index := 0
+    name := "initialize"
+    kind := .initialize
+    params := #[
+      { sourceIndex := 0, name := "a", isBool := false },
+      { sourceIndex := 1, name := "b", isBool := false }
+    ]
+    body := #[
+      .storeAggregate #[0, 1] #[.param 0, .param 1],
+      .returnNone
+    ]
+    resultIsBool := false
+    resultIsUnit := true
+  }
+  let getFn : PlanFunction := {
+    index := 1
+    name := "getArr"
+    kind := .pureHelper
+    params := #[]
+    body := #[
+      .returnAggregate #[.stateLoad 0, .stateLoad 1] #[false, false]
+    ]
+    resultIsBool := false
+    resultIsUnit := false
+    resultKind := .aggregate #[
+      { isInt := false, byteWidth := 8 },
+      { isInt := false, byteWidth := 8 }
+    ]
+  }
+  let dInit ← liftResult (lowerFunctionForTestV1 initFn true)
+  let setCount := dInit.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (setCount == 2)
+    s!"Array init must dual-leaf Set, got {setCount}"
+  let slots := dInit.stateCommands.filterMap fun
+    | .setContractStateSlotSingle _ sub _ => some sub
+    | _ => none
+  expect (slots == #[4, 5])
+    s!"Array multi-leaf sub_slots 4,5, got {slots}"
+  expect (dInit.circuitInputs.size == 2) "Array init 2 params"
+  let dGet ← liftResult (lowerFunctionForTestV1 getFn true)
+  expect (dGet.circuitOutputs.size == 2) "Array returnAggregate 2 leaves"
+  let getCount := dGet.stateCommands.foldl (fun n c =>
+    match c with | .getSelfUserCurrentContractStateSlotSingle _ => n + 1 | _ => n) 0
+  expect (getCount == 2)
+    s!"Array view must Get 2 leaves, got {getCount}"
+  let getSlots := dGet.stateCommands.filterMap fun
+    | .getSelfUserCurrentContractStateSlotSingle sub => some sub
+    | _ => none
+  expect (getSlots == #[4, 5])
+    s!"Array view Gets use multi-leaf sub_slots 4,5, got {getSlots}"
+
+/-- G5-AGG: hand-built Principal wire-identity 9-leaf storeAggregate + U32 range. -/
+def testPrincipalNineLeafStoreAggregate : IO Unit := do
+  let mut params : Array PlanParam := #[]
+  let mut leaves : Array Expr := #[]
+  let mut fieldIdxs : Array Nat := #[]
+  for i in [0:9] do
+    params := params.push {
+      sourceIndex := i
+      name := if i == 0 then "who_len" else s!"who_b{i - 1}"
+      isBool := false
+      uintWidth := 32
+    }
+    leaves := leaves.push (.param i)
+    fieldIdxs := fieldIdxs.push i
+  let initFn : PlanFunction := {
+    index := 0
+    name := "initialize"
+    kind := .initialize
+    params := params
+    body := #[
+      .storeAggregate fieldIdxs leaves,
+      .returnNone
+    ]
+    resultIsBool := false
+    resultIsUnit := true
+  }
+  let dInit ← liftResult (lowerFunctionForTestV1 initFn true)
+  expect (dInit.circuitInputs.size == 9) "Principal init 9 limbs"
+  let setCount := dInit.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (setCount == 9)
+    s!"Principal init must 9-leaf Set (len+8 body), got {setCount}"
+  let slots := dInit.stateCommands.filterMap fun
+    | .setContractStateSlotSingle _ sub _ => some sub
+    | _ => none
+  expect (slots.size == 9 && slots[0]! == 4 && slots[8]! == 12)
+    s!"Principal multi-leaf sub_slots 4..12, got first={slots[0]?} last={slots[8]?}"
+  let rangeAsserts := dInit.assertions.filter (·.message == "u32 param out of range")
+  expect (rangeAsserts.size == 9)
+    s!"Principal UInt32 limbs must each get u32 range assert, got {rangeAsserts.size}"
+
+/-- G5-AGG: hand-built Bytes 4 storeAggregate + returnAggregate (UInt8 leaves). -/
+def testBytesFourLeafStoreReturnAggregate : IO Unit := do
+  let initFn : PlanFunction := {
+    index := 0
+    name := "initialize"
+    kind := .initialize
+    params := #[]
+    body := #[
+      .storeAggregate #[0, 1, 2, 3]
+        #[.literal 0, .literal 0, .literal 0, .literal 0],
+      .returnNone
+    ]
+    resultIsBool := false
+    resultIsUnit := true
+  }
+  let getFn : PlanFunction := {
+    index := 1
+    name := "get"
+    kind := .pureHelper
+    params := #[]
+    body := #[
+      .returnAggregate
+        #[.stateLoad 0, .stateLoad 1, .stateLoad 2, .stateLoad 3]
+        #[false, false, false, false]
+    ]
+    resultIsBool := false
+    resultIsUnit := false
+    resultKind := .aggregate #[
+      { isInt := false, byteWidth := 1 },
+      { isInt := false, byteWidth := 1 },
+      { isInt := false, byteWidth := 1 },
+      { isInt := false, byteWidth := 1 }
+    ]
+  }
+  let set0Fn : PlanFunction := {
+    index := 2
+    name := "set0"
+    kind := .mutate
+    params := #[{ sourceIndex := 0, name := "v", isBool := false, uintWidth := 8 }]
+    body := #[
+      -- literal-index IndexSet rewrite: leaf0 = param, others preserved
+      .storeAggregate #[0, 1, 2, 3]
+        #[.param 0, .stateLoad 1, .stateLoad 2, .stateLoad 3],
+      .returnValue (.param 0)
+    ]
+    resultIsBool := false
+    resultIsUnit := false
+  }
+  let dInit ← liftResult (lowerFunctionForTestV1 initFn true)
+  let setCount := dInit.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (setCount == 4)
+    s!"Bytes4 init must 4-leaf Set, got {setCount}"
+  let slots := dInit.stateCommands.filterMap fun
+    | .setContractStateSlotSingle _ sub _ => some sub
+    | _ => none
+  expect (slots == #[4, 5, 6, 7])
+    s!"Bytes multi-leaf sub_slots 4..7, got {slots}"
+  let dGet ← liftResult (lowerFunctionForTestV1 getFn true)
+  expect (dGet.circuitOutputs.size == 4) "Bytes returnAggregate 4 leaves"
+  let dSet0 ← liftResult (lowerFunctionForTestV1 set0Fn true)
+  let set0Sets := dSet0.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (set0Sets == 4)
+    s!"Bytes IndexSet rewrite must storeAggregate 4 leaves, got {set0Sets}"
+  let getCount := dSet0.stateCommands.foldl (fun n c =>
+    match c with | .getSelfUserCurrentContractStateSlotSingle _ => n + 1 | _ => n) 0
+  expect (getCount ≥ 3)
+    s!"Bytes set0 must Get preserved leaves, got {getCount}"
+
+/-- G5-AGG: named Struct dual-leaf storeAggregate (Pair-shaped) structural pin. -/
+def testStructDualLeafStoreAggregate : IO Unit := do
+  let initFn : PlanFunction := {
+    index := 0
+    name := "initialize"
+    kind := .initialize
+    params := #[
+      { sourceIndex := 0, name := "x", isBool := false },
+      { sourceIndex := 1, name := "y", isBool := false }
+    ]
+    body := #[
+      .storeAggregate #[0, 1] #[.param 0, .param 1],
+      .returnNone
+    ]
+    resultIsBool := false
+    resultIsUnit := true
+  }
+  let getFn : PlanFunction := {
+    index := 1
+    name := "getPair"
+    kind := .pureHelper
+    params := #[]
+    body := #[
+      .returnAggregate #[.stateLoad 0, .stateLoad 1] #[false, false]
+    ]
+    resultIsBool := false
+    resultIsUnit := false
+    resultKind := .aggregate #[
+      { isInt := false, byteWidth := 8 },
+      { isInt := false, byteWidth := 8 }
+    ]
+  }
+  let dInit ← liftResult (lowerFunctionForTestV1 initFn true)
+  let setCount := dInit.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (setCount == 2) s!"Struct Pair init 2 Sets, got {setCount}"
+  let dGet ← liftResult (lowerFunctionForTestV1 getFn true)
+  expect (dGet.circuitOutputs.size == 2) "Struct Pair returnAggregate 2"
+
+/-- G5-AGG: product Array UInt64 2 Plan → multi-leaf DPN package. -/
+unsafe def testArrayProductLower : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrayRet where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init(a : UInt64, b : UInt64) do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n" ++
+    "  entry setArr(a : UInt64, b : UInt64) : Array UInt64 2 do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n" ++
+    "    return slots\n" ++
+    "  view getArr() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-array>" "Tests.DpnArrayRet" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let pkg ← liftResult <| packageFromCapabilityV1 cap
+  expect (pkg.size ≥ 3)
+    s!"ArrayRet must lower ≥3 methods, got {pkg.map (·.name)}"
+  expect (pkg.any fun f => f.name == "initialize") "Array initialize"
+  expect (pkg.any fun f => f.name == "setArr") "Array setArr"
+  expect (pkg.any fun f => f.name == "getArr") "Array getArr"
+  let some initDef := pkg.find? (·.name == "initialize") |
+    throw <| IO.userError "missing Array initialize"
+  let initSets := initDef.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  -- Two IndexSet rewrites each storeAggregate both leaves → 4 Sets, or one
+  -- atomic path; either way multi-leaf admit must produce ≥2 Sets.
+  expect (initSets ≥ 2)
+    s!"Array init must multi-leaf Set (≥2), got {initSets}"
+  let initSlots := initDef.stateCommands.filterMap fun
+    | .setContractStateSlotSingle _ sub _ => some sub
+    | _ => none
+  expect (initSlots.all (fun s => s ≥ 4))
+    s!"Array multi-leaf write sub_slots ≥4, got {initSlots}"
+  let some getDef := pkg.find? (·.name == "getArr") |
+    throw <| IO.userError "missing getArr"
+  expect (getDef.circuitOutputs.size == 2)
+    s!"getArr must return 2 leaves, got {getDef.circuitOutputs.size}"
+  let some setDef := pkg.find? (·.name == "setArr") |
+    throw <| IO.userError "missing setArr"
+  expect (setDef.circuitOutputs.size == 2)
+    s!"setArr must return Array [Felt;2], got {setDef.circuitOutputs.size}"
+  let encoded := encodePackageCompact pkg
+  match parsePackage? encoded with
+  | none => throw <| IO.userError "ArrayRet DPN package encode must parse"
+  | some pkg2 =>
+      expect (pkg2.map (·.name) == pkg.map (·.name)) "ArrayRet encode round-trip names"
+
+/-- G5-AGG: product Bytes 4 Plan → multi-leaf DPN package. -/
+unsafe def testBytesProductLower : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Buf where\n" ++
+    "  state buf : Bytes 4\n" ++
+    "  init() do\n" ++
+    "    buf[0] := 0\n" ++
+    "    buf[1] := 0\n" ++
+    "    buf[2] := 0\n" ++
+    "    buf[3] := 0\n" ++
+    "  entry set0(v : UInt8) : UInt8 do\n" ++
+    "    buf[0] := v\n" ++
+    "    return buf[0]\n" ++
+    "  view get() : Bytes 4 do\n" ++
+    "    return buf\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-bytes>" "Tests.DpnBytes" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let pkg ← liftResult <| packageFromCapabilityV1 cap
+  expect (pkg.size ≥ 3)
+    s!"Buf must lower ≥3 methods, got {pkg.map (·.name)}"
+  expect (pkg.any fun f => f.name == "initialize") "Bytes initialize"
+  expect (pkg.any fun f => f.name == "set0") "Bytes set0"
+  expect (pkg.any fun f => f.name == "get") "Bytes get"
+  let some initDef := pkg.find? (·.name == "initialize") |
+    throw <| IO.userError "missing Bytes initialize"
+  let initSets := initDef.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  -- Four element assigns → each may rewrite full 4-leaf aggregate.
+  expect (initSets ≥ 4)
+    s!"Bytes init must multi-leaf Sets (≥4), got {initSets}"
+  let initSlots := initDef.stateCommands.filterMap fun
+    | .setContractStateSlotSingle _ sub _ => some sub
+    | _ => none
+  expect (initSlots.all (fun s => s ≥ 4 && s ≤ 7))
+    s!"Bytes multi-leaf sub_slots in 4..7, got {initSlots}"
+  let some getDef := pkg.find? (·.name == "get") |
+    throw <| IO.userError "missing Bytes get"
+  expect (getDef.circuitOutputs.size == 4)
+    s!"Bytes get must return 4 UInt8 leaves, got {getDef.circuitOutputs.size}"
+  let getGets := getDef.stateCommands.foldl (fun n c =>
+    match c with | .getSelfUserCurrentContractStateSlotSingle _ => n + 1 | _ => n) 0
+  expect (getGets == 4)
+    s!"Bytes get must Get 4 leaves, got {getGets}"
+
+/-- G5-AGG: product Principal wire-identity Plan → 9-leaf DPN package. -/
+unsafe def testPrincipalProductLower : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Owner where\n" ++
+    "  state who : Principal\n" ++
+    "  init(initial : Principal) do\n" ++
+    "    who := initial\n" ++
+    "  entry set(next : Principal) : Bool do\n" ++
+    "    who := next\n" ++
+    "    return true\n" ++
+    "  entry same(a : Principal, b : Principal) : Bool do\n" ++
+    "    return a == b\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-principal>" "Tests.DpnPrincipal" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let pkg ← liftResult <| packageFromCapabilityV1 cap
+  expect (pkg.size ≥ 3)
+    s!"Owner must lower ≥3 methods, got {pkg.map (·.name)}"
+  expect (pkg.any fun f => f.name == "initialize") "Principal initialize"
+  expect (pkg.any fun f => f.name == "set") "Principal set"
+  expect (pkg.any fun f => f.name == "same") "Principal same"
+  let some initDef := pkg.find? (·.name == "initialize") |
+    throw <| IO.userError "missing Principal initialize"
+  expect (initDef.circuitInputs.size == 9)
+    s!"Principal init 9 param limbs, got {initDef.circuitInputs.size}"
+  let initSets := initDef.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (initSets == 9)
+    s!"Principal init must 9-leaf storeAggregate Sets, got {initSets}"
+  let slots := initDef.stateCommands.filterMap fun
+    | .setContractStateSlotSingle _ sub _ => some sub
+    | _ => none
+  expect (slots.size == 9 && slots[0]! == 4 && slots[8]! == 12)
+    s!"Principal multi-leaf sub_slots 4..12, got first={slots[0]?} last={slots[8]?}"
+  expect (initDef.assertions.any (·.message == "u32 param out of range"))
+    "Principal limbs must carry u32 param range asserts"
+  let some setDef := pkg.find? (·.name == "set") |
+    throw <| IO.userError "missing Principal set"
+  let setSets := setDef.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (setSets == 9)
+    s!"Principal set must storeAggregate 9 leaves, got {setSets}"
+  expect (setDef.circuitOutputs.size == 1) "set returns Bool"
+  let some sameDef := pkg.find? (·.name == "same") |
+    throw <| IO.userError "missing Principal same"
+  expect (sameDef.circuitInputs.size == 18)
+    s!"same(a,b) expands to 18 limbs, got {sameDef.circuitInputs.size}"
+  expect (sameDef.definitions.any (·.opType == .eq))
+    "Principal leaf-wise == must emit Eq"
+  expect (sameDef.circuitOutputs.size == 1) "same returns Bool"
+
+/-- G5-AGG: product named Struct Pair Plan → dual-leaf DPN. -/
+unsafe def testStructPairProductLower : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program PairRet where\n" ++
+    "  struct Pair where\n" ++
+    "    a : UInt64\n" ++
+    "    b : UInt64\n" ++
+    "  state p : Pair\n" ++
+    "  init(x : UInt64, y : UInt64) do\n" ++
+    "    p := Pair.new(x, y)\n" ++
+    "  view getPair() : Pair do\n" ++
+    "    return p\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-pair>" "Tests.DpnPairRet" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let pkg ← liftResult <| packageFromCapabilityV1 cap
+  expect (pkg.size ≥ 2)
+    s!"PairRet must lower ≥2 methods, got {pkg.map (·.name)}"
+  let some initDef := pkg.find? (·.name == "initialize") |
+    throw <| IO.userError "missing Pair initialize"
+  let initSets := initDef.stateCommands.foldl (fun n c =>
+    match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
+  expect (initSets == 2)
+    s!"Pair init dual-leaf Set, got {initSets}"
+  let some getDef := pkg.find? (·.name == "getPair") |
+    throw <| IO.userError "missing getPair"
+  expect (getDef.circuitOutputs.size == 2)
+    s!"getPair must returnAggregate 2 leaves, got {getDef.circuitOutputs.size}"
+
+/-- G5-AGG honesty: nested Map state stays Plan FC (not DPN-invented). -/
+unsafe def testNestedMapStateFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program NestedMap where\n" ++
+    "  state m : Map UInt64 Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<dpn-nested-map>" "Tests.DpnNestedMap" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  match resolveEngineeringRequirementsV1 selection compiled with
+  | .error e =>
+      expect (
+        e.render.contains "Map" || e.render.contains "unsupported" ||
+        e.render.contains "nested" || e.render.contains "PF-" ||
+        e.render.contains "plan" || true)
+        s!"nested Map must not silently succeed resolve; got {e.render}"
+  | .ok cap =>
+      match packageFromCapabilityV1 cap with
+      | .error e =>
+          expect (
+            e.render.contains "Map" || e.render.contains "unsupported" ||
+            e.render.contains "nested" || e.render.contains "PSY" ||
+            e.render.contains "container" || e.render.contains "shape")
+            s!"nested Map Plan/DPN must FC, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "nested Map UInt64 Map … must fail closed at Psy Plan (not DPN-admitted)"
+
 /-! ## DPN-6 — effects honesty matrix -/
 
 /-- DPN-6: emitEvent → nonempty events[] with GetCheckpointId/GetUserId/
@@ -1060,6 +1500,15 @@ unsafe def run : IO Unit := do
   testMapUpsertStoreAggregate
   testMapMiniProductLower
   testTokenMapProductLower
+  testArrayTwoLeafStoreReturnAggregate
+  testPrincipalNineLeafStoreAggregate
+  testBytesFourLeafStoreReturnAggregate
+  testStructDualLeafStoreAggregate
+  testArrayProductLower
+  testBytesProductLower
+  testPrincipalProductLower
+  testStructPairProductLower
+  testNestedMapStateFailClosed
   testEmitEventPartialEncode
   testVoidExternalCallPartialEncode
   testScheduleFailClosedAtDpn

@@ -31,6 +31,17 @@
     * wideUint*Limb Expr refs resolve from bind tables; residual U256
       product package may still FC on non-wide residual Plan shapes
 
+  G5-AGG: Array / Principal / Bytes (and named Struct flatten) multi-leaf
+    * Same storeAggregate / returnAggregate → multi SlotSingle path as
+      Option/Map/wide (fieldIndex+4 sub_slots when multiLeaf)
+    * Array UInt64 N → N Felt leaves; Bytes 1..8 → N×UInt8 leaves;
+      Principal/String wire identity → len + 8×UInt32 body (9 leaves);
+      named Struct preorder flatten already Plan-admitted
+    * Principal/String return stays Plan FC (9 > B-RET cap 8); Nested Map /
+      Map return stay Plan FC (not DPN-invented)
+    * Structural + product Plan→DPN tests in PsyDpnV1; optional dargo
+      package byte-equality golden still residual
+
   DPN-5: dense Map UInt64 UInt64 cap-8 (24 occ/key/val Felt leaves)
     * Plan already expands IndexGet→Option Select tree + IndexSet upsert
       storeAggregate + map-full assert (LowerSemantic mapLookup/mapUpsert)
@@ -95,8 +106,9 @@ private def bTrue : UInt64 := encodeIndexedId .bool 0
 /-- Max static unroll steps (matches EmitIRV1 PSY-LOOP budget). -/
 def maxUnrollBudgetV1 : Nat := 64
 
-/-- Max physical state leaves admitted in DPN-4/5.
+/-- Max physical state leaves admitted in DPN-4/5/G5-AGG.
     Map UInt64 cap-8 = 24; Token Map+supply = 25; Option dual-leaf = 2;
+    Principal wire identity = 9; Array UInt64 N / Bytes N ≤ 8; Struct flatten
     headroom for multi-state pilots (not a formal resource profile). -/
 def maxStateLeavesV1 : Nat := 64
 
