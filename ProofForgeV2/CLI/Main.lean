@@ -29,6 +29,8 @@ private def usage : String :=
   "Usage:\n" ++
   "  proof-forge-next list-targets [--all] [--json]\n" ++
   "  proof-forge-next doctor [--json] [--target <id>]... [--with-runtime] [--all]\n" ++
+  "  proof-forge-next install --targets <id,id> --yes [--with-runtime] [--dry-run] [--json]\n" ++
+  "  proof-forge-next install --all-core --yes [--with-runtime] [--dry-run] [--json]\n" ++
   "  proof-forge-next inspect <target> [--json]\n" ++
   "  proof-forge-next inspect <output-dir> [--json]\n" ++
   "  proof-forge-next inspect --output-dir <dir> [--json]\n" ++
@@ -41,8 +43,10 @@ private def usage : String :=
   "  --resource-limit is lower-only; check rejects external-tool/artifact-output; wall-ms and build artifact-output.published-bytes are enforced in-process (RES-1 / output-only RES-1B).\n" ++
   "  --minimum-evidence is build-only (specified|artifact_validated|local_runtime|network_or_proof_validated).\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build;\n" ++
-  "    doctor --json emits proof-forge.doctor.v1 (Tool Lock presence under PROOF_FORGE_TOOL_ROOT).\n" ++
-  "  doctor requires scripts/proof_forge_doctor.py under the process working directory (repo root).\n" ++
+  "    doctor --json emits proof-forge.doctor.v1 (Tool Lock presence under PROOF_FORGE_TOOL_ROOT);\n" ++
+  "    install --json emits proof-forge.install.v1 (Tool Lock materialize under PROOF_FORGE_TOOL_ROOT).\n" ++
+  "  doctor/install require scripts under the process working directory (repo root).\n" ++
+  "  install is non-interactive: requires --yes (or --dry-run); no PATH fallback; design-only targets rejected.\n" ++
   "  inspect <arg> prefers a registered target id when ambiguous; use --output-dir to force a path.\n" ++
   "  inspect output-dir validates proof-forge.output.v1 artifact-content + exact disk closure.\n" ++
   "  check validates without writing artifacts; build materializes under -o (default build/v2).\n"
@@ -415,6 +419,48 @@ private def runDoctor (options : DoctorOptions) : IO Unit := do
     let exitByte : UInt8 := if codeNat ≥ 256 then 70 else UInt8.ofNat codeNat
     IO.Process.exit exitByte
 
+/-- Product install: thin CLI wrapper over package-owned
+    `scripts/proof_forge_install.py` (Tool Lock provision/materialize; no PATH).
+    Requires the process CWD to be the repo root so the script is discoverable.
+    Exit codes are forwarded from the engine (0 ok, 3 failed/missing-lock,
+    2 usage, 1 internal). -/
+private def runInstall (options : InstallOptions) : IO Unit := do
+  let cwd ← IO.currentDir
+  let script := cwd / "scripts" / "proof_forge_install.py"
+  unless ← script.pathExists do
+    failUsage
+      "install requires scripts/proof_forge_install.py under the current working directory (run from repo root)"
+  let mut args : Array String := #["-I", "-S", script.toString]
+  if options.json then
+    args := args.push "--json"
+  if options.withRuntime then
+    args := args.push "--with-runtime"
+  if options.dryRun then
+    args := args.push "--dry-run"
+  if options.yes then
+    args := args.push "--yes"
+  if options.allCore then
+    args := args.push "--all-core"
+  if !options.targets.isEmpty then
+    -- Engine accepts one or more --targets CSV; join for a single flag.
+    let csv := String.intercalate "," options.targets.toList
+    args := args.push "--targets"
+    args := args.push csv
+  let output ← IO.Process.output {
+    cmd := "/usr/bin/python3"
+    args
+  }
+  unless output.stdout.isEmpty do
+    (← IO.getStdout).putStr output.stdout
+  unless output.stderr.isEmpty do
+    (← IO.getStderr).putStr output.stderr
+  if output.exitCode == 0 then
+    pure ()
+  else
+    let codeNat := output.exitCode.toNat
+    let exitByte : UInt8 := if codeNat ≥ 256 then 70 else UInt8.ofNat codeNat
+    IO.Process.exit exitByte
+
 private def inspectTarget (value : String) (json : Bool) : IO Unit := do
   IO.println (← liftCompileResult (inspectTargetText value json))
 
@@ -475,6 +521,7 @@ unsafe def run (args : List String) : IO Unit := do
       match command with
       | .listTargets options => listTargets options
       | .doctor options => runDoctor options
+      | .install options => runInstall options
       | .inspect arg json =>
           if isRegisteredInspectTargetV1 arg then
             inspectTarget arg json

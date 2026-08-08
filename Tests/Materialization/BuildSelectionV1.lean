@@ -607,6 +607,32 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   | .error msg =>
       expect (hasSubstr msg "unknown doctor argument") "bad doctor args"
   | .ok _ => throw <| IO.userError "doctor --bogus must fail"
+  match ProofForgeV2.CLI.parseCliCommandV1
+      ["install", "--targets", "quint,aleo", "--yes"] with
+  | .ok (.install opts) =>
+      expect (opts.yes && !opts.dryRun && !opts.allCore && !opts.json &&
+        opts.targets == #["quint", "aleo"]) "parse install targets+yes"
+  | other => throw <| IO.userError s!"parse install targets: {repr other}"
+  match ProofForgeV2.CLI.parseCliCommandV1
+      ["install", "--all-core", "--yes", "--with-runtime", "--json"] with
+  | .ok (.install opts) =>
+      expect (opts.allCore && opts.yes && opts.withRuntime && opts.json &&
+        opts.targets.isEmpty) "parse install all-core"
+  | other => throw <| IO.userError s!"parse install all-core: {repr other}"
+  match ProofForgeV2.CLI.parseCliCommandV1
+      ["install", "--targets", "quint", "--dry-run"] with
+  | .ok (.install opts) =>
+      expect (opts.dryRun && !opts.yes && opts.targets == #["quint"])
+        "parse install dry-run"
+  | other => throw <| IO.userError s!"parse install dry-run: {repr other}"
+  match ProofForgeV2.CLI.parseCliCommandV1 ["install", "--targets", "quint"] with
+  | .error msg =>
+      expect (hasSubstr msg "requires --yes") "install without yes"
+  | .ok _ => throw <| IO.userError "install without --yes must fail"
+  match ProofForgeV2.CLI.parseCliCommandV1 ["install", "--bogus"] with
+  | .error msg =>
+      expect (hasSubstr msg "unknown install argument") "bad install args"
+  | .ok _ => throw <| IO.userError "install --bogus must fail"
   match ProofForgeV2.CLI.parseCliCommandV1 ["inspect", "evm"] with
   | .ok (.inspect "evm" false) => pure ()
   | other => throw <| IO.userError s!"parse inspect: {repr other}"

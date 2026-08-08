@@ -4,6 +4,8 @@
   Product commands (C1 + inspect-output):
     list-targets [--all] [--json]
     doctor [--json] [--target <id>]... [--with-runtime] [--all]
+    install --targets <id,id> --yes | install --all-core --yes
+      [--with-runtime] [--dry-run] [--json]
     inspect <target> [--json]
     inspect <output-dir> [--json]
     inspect --output-dir <dir> [--json]
@@ -27,6 +29,7 @@
     proof-forge.cli.check.v1
     proof-forge.cli.build.v1
   Doctor JSON is product `proof-forge.doctor.v1` (engine: scripts/proof_forge_doctor.py).
+  Install JSON is product `proof-forge.install.v1` (engine: scripts/proof_forge_install.py).
 
   Output-dir validation scope (engineering, not formal OutputSetV1):
     * Stable-read `manifest.json` + `evidence.json` via ArtifactContentV1 helper
@@ -480,15 +483,28 @@ structure DoctorOptions where
   targets : Array String := #[]
   deriving BEq, Repr
 
+/-- Parsed `install` trailing flags (product Tool Lock materialize; non-interactive). -/
+structure InstallOptions where
+  json : Bool := false
+  withRuntime : Bool := false
+  dryRun : Bool := false
+  yes : Bool := false
+  allCore : Bool := false
+  /-- Comma-split target ids from one or more `--targets` flags (order preserved). -/
+  targets : Array String := #[]
+  deriving BEq, Repr
+
 /-- Typed product CLI command surface. `CLI.run` matches only this enum.
 Deleted: `build-counter`, `describe-target` (use build + inspect).
 `inspect` keeps the historical `(String, Bool)` shape so pure parse tests stay
 stable; product `CLI.run` disambiguates registered target vs output-dir path.
 `inspectOutput` is the explicit `--output-dir` form (always output-dir mode).
-`doctor` is the product Tool Lock presence surface (`proof-forge.doctor.v1`). -/
+`doctor` is the product Tool Lock presence surface (`proof-forge.doctor.v1`).
+`install` is the product Tool Lock materialize surface (`proof-forge.install.v1`). -/
 inductive CliCommandV1 where
   | listTargets (options : ListTargetsOptions)
   | doctor (options : DoctorOptions)
+  | install (options : InstallOptions)
   | inspect (target : String) (json : Bool)
   | inspectOutput (dir : String) (json : Bool)
   | check (options : BuildOptions)
@@ -748,6 +764,74 @@ partial def parseDoctorArgsExcept
 
 def parseDoctorArgs (args : List String) : IO DoctorOptions :=
   match parseDoctorArgsExcept args with
+  | .ok b => pure b
+  | .error msg => throw <| IO.userError msg
+
+/-- Split a `--targets` CSV value into nonempty ids (no empty segments). -/
+private def splitTargetsCsvV1 (raw : String) : Except String (Array String) := do
+  if raw.isEmpty then
+    throw "--targets requires a nonempty target list"
+  let parts := raw.splitOn ","
+  let mut out : Array String := #[]
+  for part in parts do
+    let id := part.trimAscii.copy
+    if id.isEmpty then
+      throw "--targets entries must be nonempty"
+    if id.startsWith "-" then
+      throw s!"invalid --targets id '{id}'"
+    if out.contains id then
+      throw s!"duplicate target '{id}'"
+    out := out.push id
+  if out.isEmpty then
+    throw "--targets requires at least one target id"
+  pure out
+
+/-- Parse `install` trailing args (pure).
+Accepts `--targets <csv>` / `--all-core` / `--yes` / `--with-runtime` /
+`--dry-run` / `--json` in any order. Final mutual exclusivity of
+`--all-core` vs `--targets` and `--yes` vs non-dry-run is enforced here. -/
+partial def parseInstallArgsExcept
+    (args : List String) (options : InstallOptions := {}) :
+    Except String InstallOptions := do
+  match args with
+  | [] =>
+      if options.allCore && !options.targets.isEmpty then
+        throw "--all-core and --targets are mutually exclusive"
+      if !options.allCore && options.targets.isEmpty then
+        throw "install requires --targets <id,id> or --all-core"
+      if !options.dryRun && !options.yes then
+        throw "install requires --yes (non-interactive); use --dry-run to plan only"
+      pure options
+  | "--json" :: rest =>
+      if options.json then throw "duplicate --json"
+      parseInstallArgsExcept rest { options with json := true }
+  | "--with-runtime" :: rest =>
+      if options.withRuntime then throw "duplicate --with-runtime"
+      parseInstallArgsExcept rest { options with withRuntime := true }
+  | "--dry-run" :: rest =>
+      if options.dryRun then throw "duplicate --dry-run"
+      parseInstallArgsExcept rest { options with dryRun := true }
+  | "--yes" :: rest =>
+      if options.yes then throw "duplicate --yes"
+      parseInstallArgsExcept rest { options with yes := true }
+  | "--all-core" :: rest =>
+      if options.allCore then throw "duplicate --all-core"
+      parseInstallArgsExcept rest { options with allCore := true }
+  | "--targets" :: value :: rest =>
+      let ids ← splitTargetsCsvV1 value
+      let mut merged := options.targets
+      for id in ids do
+        if merged.contains id then
+          throw s!"duplicate target '{id}'"
+        merged := merged.push id
+      parseInstallArgsExcept rest { options with targets := merged }
+  | "--targets" :: [] =>
+      throw "--targets requires a nonempty target list"
+  | other =>
+      .error s!"unknown install argument '{String.intercalate " " other}'"
+
+def parseInstallArgs (args : List String) : IO InstallOptions :=
+  match parseInstallArgsExcept args with
   | .ok b => pure b
   | .error msg => throw <| IO.userError msg
 
@@ -1747,6 +1831,9 @@ def parseCliCommandV1 (args : List String) : Except String CliCommandV1 := do
   | "doctor" :: rest =>
       let options ← parseDoctorArgsExcept rest
       pure (.doctor options)
+  | "install" :: rest =>
+      let options ← parseInstallArgsExcept rest
+      pure (.install options)
   | "inspect" :: rest =>
       -- Explicit output-dir form (any order of --output-dir / --json).
       if rest.any (· == "--output-dir") then

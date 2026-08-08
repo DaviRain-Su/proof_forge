@@ -3,7 +3,7 @@ id: PRODUCT-TOOLCHAIN-INSTALL-SURFACE
 title: Product surface ladder — install / doctor / CLI / MCP
 status: draft
 owner: product+engineering
-updated: 2026-08-08
+updated: 2026-08-09
 normative: false
 ---
 
@@ -19,7 +19,8 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 |---|---|
 | **DOC**（本文 + index 指针） | **done**（本文件） |
 | **I0 doctor** | **done**（`scripts/proof_forge_doctor.py` + `proof-forge-next doctor`；schema `proof-forge.doctor.v1`；缺 Tool Root → `PF-TOOLCHAIN-MISSING`） |
-| I1 install / I1b CLI wire | **not started**（产品 CLI 尚无 `install` 子命令） |
+| **I1 install** | **done**（`scripts/proof_forge_install.py` + `proof-forge-next install`；schema `proof-forge.install.v1`；`--targets`/`--all-core` + `--yes`；delegate `toolchain_assets` provision/materialize；digest 幂等 skip；无 PATH fallback；`--dry-run` 计划-only） |
+| I1b CLI wire residual | **done with I1**（CLI 薄包装 + parse 覆盖 + `scripts/install_smoke.sh`；若后续扩 usage 文案仍可叠） |
 | I2 local/network 统一包装 | **not started**（现有 `scripts/aleo_*.sh` 等为工程脚本，非产品 CLI） |
 | I3 Aleo snarkos runtime 诚实路径 | **not started**（snarkos **不在** Tool Lock；见 §10） |
 | MCP-V0 / SDK-V0 | **not started** |
@@ -51,8 +52,8 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 |---|---|---|---|
 | DOC | `DOC` | 本文 + `docs/index.md` 指针 | `just docs-check` 过 |
 | I0 | `I0-DOCTOR` | `proof-forge-next doctor` | **done**：每 implemented target 报告 ok/missing/mismatch/partial；`--json`=`proof-forge.doctor.v1`；无 Tool Root → `PF-TOOLCHAIN-MISSING`；引擎 `scripts/proof_forge_doctor.py`；CLI 薄包装 |
-| I1 | `I1-INSTALL` | 非交互 `install --targets a,b --yes` | 复用 `scripts/toolchain_assets.py` provision/materialize；只装 lock 内 asset；digest 校验；幂等 skip |
-| I1b | `I1b-CLI-WIRE` | CLI 子命令接到 Exe；`--json`；usage | 聚焦 CLI 测或 smoke + `just docs-check` |
+| I1 | `I1-INSTALL` | 非交互 `install --targets a,b --yes` | **done**：`scripts/proof_forge_install.py`；复用 `toolchain_assets` provision/materialize；只装 lock 内 asset；digest 校验；幂等 skip；`--dry-run`/`--json`；`scripts/install_smoke.sh` |
+| I1b | `I1b-CLI-WIRE` | CLI 子命令接到 Exe；`--json`；usage | **done with I1**：`proof-forge-next install` 薄包装 + parse 覆盖 |
 | I2 | `I2-LOCAL-CMDS` | 统一本机/网络入口包装 | `local --target …` / `network …` 调现有 sandbox/devnet/network 脚本；broadcast 显式 |
 | I3 | `I3-ALEO-RUNTIME` | Aleo runtime 安装诚实路径 | snarkos `features=test_network`：document 或 semi-auto cargo install 到约定路径；`doctor --target aleo` 识别；**不得**把缺 test_network 的 prebuilt 标 ok |
 | MCP | `MCP-V0` | 最小 MCP server | tools 仅调 CLI/JSON；不重实现编译器 |
@@ -166,10 +167,13 @@ proof-forge-next install --targets aleo --with-runtime --yes
 proof-forge-next install --all-core --yes   # 所有 implemented 的 compile/core 档
 ```
 
-- 无 `--yes` 且非 TTY → usage / fail closed。
+- 无 `--yes` 且非 `--dry-run` → usage / fail closed（非交互；不提供 TTY 确认）。
 - 禁止 PATH fallback 安装进 Tool Root。
 - 已存在且 digest 匹配 → skip（幂等）。
 - 只物化 **当前平台 lock** 中的 asset；跨平台/缺锁 fail closed。
+- `--with-runtime` 仅装 lock 内 runtime 工具（`anvil`/`cast`、`near-sandbox`）；Aleo `snarkos` 仅 documented（I3）。
+- 引擎：`/usr/bin/python3 -I -S scripts/proof_forge_install.py`；产品 CLI：`proof-forge-next install`（CWD=repo root）。
+- 聚焦 smoke：`scripts/install_smoke.sh`（含 temp root 上 `quint`/`jv` 物化 + 幂等 skip）。
 - 成功后同一进程或紧随 `doctor` 可验证 present。
 
 ## 7. 本机 / 网络包装（I2）
@@ -220,7 +224,7 @@ MCP **只** spawn 产品 CLI 并解析 JSON/manifest，不内嵌 solc/leo/nargo�
 | `scripts/toolchain_assets.py` | install 引擎（I1 复用） |
 | `toolchains*.lock.json` | 唯一可装 tool 菜单 |
 | `just toolchains-*` | 工程/CI 旁路；产品 CLI 成后文档主推 CLI |
-| `proof-forge-next` 现有 | `build` / `check` / `inspect` / `list-targets` / **`doctor`**；**尚无** install/local/network |
+| `proof-forge-next` 现有 | `build` / `check` / `inspect` / `list-targets` / **`doctor`** / **`install`**；**尚无** local/network |
 | `scripts/aleo_local_sandbox.sh` / `aleo_devnet.sh` / `aleo_network.sh` | I2 包装对象 |
 | `just solana-runtime` / `just psy-runtime` / Anvil smokes | 同左，逐步 `local --target`；保持 host-heavy |
 
