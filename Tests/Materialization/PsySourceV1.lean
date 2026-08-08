@@ -104,10 +104,11 @@ private def planPsy (compiled : CompiledSemanticV1) : CompileResult Targets.Psy.
   let capability ← resolvePsyCapability compiled
   Targets.Psy.planFromCapability capability
 
+/-- G6: EmitIR surface tests opt into debug `.psy` (default product is DPN-only). -/
 private def buildPsy (compiled : CompiledSemanticV1) :
     CompileResult (Array OutputFile) := do
   let capability ← resolvePsyCapability compiled
-  Targets.Psy.buildFromCapability capability
+  Targets.Psy.buildFromCapability capability (emitPsyDebug := true)
 
 private def planPsyVm (compiled : CompiledSemanticV1) : CompileResult Targets.Psy.Plan := do
   let capability ← resolvePsyVmCapability compiled
@@ -116,7 +117,7 @@ private def planPsyVm (compiled : CompiledSemanticV1) : CompileResult Targets.Ps
 private def buildPsyVm (compiled : CompiledSemanticV1) :
     CompileResult (Array OutputFile) := do
   let capability ← resolvePsyVmCapability compiled
-  Targets.Psy.buildFromCapability capability
+  Targets.Psy.buildFromCapability capability (emitPsyDebug := true)
 
 /-- Counter: contract struct + storage field + initialize/increment/get methods
     and checked-arithmetic guard lines for `+`. -/

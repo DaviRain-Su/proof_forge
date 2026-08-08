@@ -17,17 +17,18 @@ Port of the old `ProofForge.Backend.Psy` surface onto the current product
 spine: consumes retained `SemanticProgramV1` via
 `ResolvedEngineeringBuildV1` exactly like EVM/Solana/NEAR/Noir/Aleo.
 
-Psy maps the V2 public-UInt64 envelope to target-owned Plan then dual-writes
-product artifacts (PSY-DPN-7 + G5-HARD):
-  * **Primary**: `{name}.dpn.json` — dargo-shaped package of
+Psy maps the V2 public-UInt64 envelope to target-owned Plan then emits
+product artifacts (PSY-DPN-7 + G5-HARD + G6-DEBUG):
+  * **Primary (default sole)**: `{name}.dpn.json` — dargo-shaped package of
     `DPNFunctionCircuitDefinition` when Plan→DPN lower succeeds
-  * **Transitional/debug**: `{name}.psy` text (dargo compile lanes; not DPN
-    authority). G5-HARD residual allowlist may emit `.psy` only for
-    `PSY-DPN-G5-MATRIX` residual families; non-residual DPN failure hard-fails
-    materialize (`PSY-DPN-G5-HARD`).
+  * **Debug-only `.psy`**: transitional text for dargo compile lanes; **not**
+    DPN authority. Emitted only with `emitPsyDebug := true` or product env
+    `PROOF_FORGE_PSY_EMIT_PSY=1`. Default product is DPN-only.
+  * R-HARD residual allowlist empty; any DPN failure hard-fails materialize
+    (`PSY-DPN-G5-HARD`); no residual `.psy`-only product path.
   * UInt64/UInt32 → Felt, Bool → bool
   * checked u64 arith via explicit assert guards (Felt is a field element)
-  * bitwise `&`/`|`/`^` and shifts as native Felt ops on the `.psy` path
+  * bitwise `&`/`|`/`^` and shifts as native Felt ops on the debug `.psy` path
     (golden BitwiseProbe); DPN per-limb bitAnd/Or/Xor via U32+CastFelt
     (G5-WIDE); unary `~` (bitNot) lowers for **UInt32** to `x ^ 4294967295u32`
     (XOR mask; verified faithful on the real dargo VM) and stays fail-closed
@@ -36,7 +37,7 @@ product artifacts (PSY-DPN-7 + G5-HARD):
     operands stay fail-closed (VM u32 ops are not faithful to Reference:
     overflow/underflow are internal panics, shifts wrap); u32 comparisons
     are admitted (native unsigned == Reference unsigned)
-  * emit → DPN events[] PARTIAL / `.psy` `__emit([...])`; void call →
+  * emit → DPN events[] PARTIAL / debug `.psy` `__emit([...])`; void call →
     InvokeExternal PARTIAL / `__invoke_sync#<Felt>(...)`; schedule FC
   * revert → assert false / DPN assertions
   * `deployable=false`; product Finalize is zero-tool (no dargo/psy_vm)

@@ -5,6 +5,10 @@
 #   product CLI build default-profile fixtures + explicit-profile WideCounter →
 #   inspect closure → wrap each `.psy` as a Dargo project → compile / generate-abi →
 #   dargo execute differentials:
+#
+# G6-DEBUG honesty: product default emits only `{name}.dpn.json`. This lane sets
+#   PROOF_FORGE_PSY_EMIT_PSY=1 so product CLI also emits transitional `.psy` for
+#   locked-dargo source compile (dargo still requires `.psy` input today).
 #     Counter (happy + overflow)
 #     Accumulator (multi-add state)
 #     OptionState (Option UInt64 set/clear/peek)
@@ -155,6 +159,9 @@ echo "${PREFIX}: building proof-forge-next (lake build proof_forge_next)"
 lake build proof_forge_next || die "lake build proof_forge_next failed"
 [[ -x "$cli" ]] || die "CLI missing after build: $cli"
 
+# G6-DEBUG: product default is DPN-only; opt in to transitional .psy for dargo wrap.
+export PROOF_FORGE_PSY_EMIT_PSY=1
+
 # CLI rejects pre-existing -o paths (PF-OUTPUT-COLLISION); the unique staging
 # root exists, but its product children do not.
 mkdir -p "$log_dir" \
@@ -174,7 +181,8 @@ if ! "$cli" build Examples/Counter.lean \
   die "proof-forge-next build --target psy failed"
 fi
 
-[[ -f "$out_dir/product/Counter.psy" ]] || die "missing product Counter.psy"
+[[ -f "$out_dir/product/Counter.dpn.json" ]] || die "missing product Counter.dpn.json (primary)"
+[[ -f "$out_dir/product/Counter.psy" ]] || die "missing product Counter.psy (need PROOF_FORGE_PSY_EMIT_PSY=1)"
 [[ -f "$out_dir/product/manifest.json" ]] || die "missing product manifest.json"
 [[ -f "$out_dir/product/evidence.json" ]] || die "missing product evidence.json"
 
@@ -308,7 +316,8 @@ product_build_wrap() {
     cat "$log_dir/${label}-product-build.log" >&2 || true
     die "proof-forge-next build ${src} failed"
   fi
-  [[ -f "$product_dir/${program}.psy" ]] || die "missing product ${program}.psy"
+  [[ -f "$product_dir/${program}.dpn.json" ]] || die "missing product ${program}.dpn.json (primary)"
+  [[ -f "$product_dir/${program}.psy" ]] || die "missing product ${program}.psy (need PROOF_FORGE_PSY_EMIT_PSY=1)"
   [[ -f "$product_dir/manifest.json" ]] || die "missing ${label} manifest.json"
   [[ -f "$product_dir/evidence.json" ]] || die "missing ${label} evidence.json"
   if ! PATH="$BUILD_PATH" "$cli" inspect "$product_dir" \
@@ -562,7 +571,8 @@ if ! PATH="$BUILD_PATH" "$cli" build Examples/WideCounter.lean \
   die "proof-forge-next WideCounter VM-profile build failed"
 fi
 
-[[ -f "$wide_product/WideCounter.psy" ]] || die "missing product WideCounter.psy"
+[[ -f "$wide_product/WideCounter.dpn.json" ]] || die "missing product WideCounter.dpn.json (primary)"
+[[ -f "$wide_product/WideCounter.psy" ]] || die "missing product WideCounter.psy (need PROOF_FORGE_PSY_EMIT_PSY=1)"
 [[ -f "$wide_product/manifest.json" ]] || die "missing WideCounter manifest.json"
 [[ -f "$wide_product/evidence.json" ]] || die "missing WideCounter evidence.json"
 if ! grep -q '"codegenProfile": "psy-dargo-0.1.0-vm-v1"' \

@@ -9,7 +9,7 @@ normative: false
 
 # Psy DPN 层落地规划
 
-状态：`draft`（规划输入；DPN-1..7 engineering 已落地 dual-write；**G5-WIDE** mul/div/shift + **G5-AGG** Array/Principal/Bytes/Struct multi-leaf + **G5-MATRIX** §3.2 admit 扫描/FC pins + **G5-HARD** residual allowlist / non-residual materialize hard-fail 已闭合；**R-NARROW** UInt8/16/32 守卫算术 DPN lower 已闭合；**R-INT** Int64 signedCompare/checkedNeg + Int{8,16,32} two's-complement signed 算术/比较 DPN lower 已闭合；**R-SHIFT-BIT** UInt64 shl/shr + checkedBitNot DPN lower 已闭合；**R-PURE** pureFn/localCall callFn inline DPN lower 已闭合；**R-HARD** narrow bitwise/shift + Goldilocks Field DPN lower + residual allowlist 已清空（full hard-require）；仍 open：`.psy` deletion-gate（G6）、optional dargo package 字节金样）
+状态：`draft`（规划输入；DPN-1..7 engineering 已落地；**G5-WIDE** mul/div/shift + **G5-AGG** Array/Principal/Bytes/Struct multi-leaf + **G5-MATRIX** §3.2 admit 扫描/FC pins + **G5-HARD** residual allowlist / non-residual materialize hard-fail 已闭合；**R-NARROW** UInt8/16/32 守卫算术 DPN lower 已闭合；**R-INT** Int64 signedCompare/checkedNeg + Int{8,16,32} two's-complement signed 算术/比较 DPN lower 已闭合；**R-SHIFT-BIT** UInt64 shl/shr + checkedBitNot DPN lower 已闭合；**R-PURE** pureFn/localCall callFn inline DPN lower 已闭合；**R-HARD** narrow bitwise/shift + Goldilocks Field DPN lower + residual allowlist 已清空（full hard-require）；**G6-DEBUG** 产品默认仅 `{name}.dpn.json`，`.psy` 为 opt-in debug（`PROOF_FORGE_PSY_EMIT_PSY=1` / `emitPsyDebug`）；仍 open：G6-RUNTIME DPN-first、optional dargo package 字节金样）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Psy target 的权威物化从 **文本 `.psy`** 切到 **官方 DPN 方法级定义**，并评估 **ProgramV1 语法/语义能覆盖到 DPN target 的范围**。
 
 权威上游（pin）：
@@ -175,10 +175,10 @@ Pin rev 与 dargo 0.1.0 不一致时 **fail closed**（文档 + Tool Lock 同步
 | **done / partial** | 全部 Y + 两 P | 有 DPN lower 或诚实 PARTIAL + `PsyDpnV1` 钉测 |
 | **residual** | **0** | R-HARD 后 `isPsyDpnG5HardResidualAllowlistV1` 恒 false；无 `.psy`-only residual 路径 |
 | **plan-FC** | bn254 Field、nested Map、result-bearing call、Context/Commit、invariant、assets… | 产品 Plan 前拒绝；不发明 DPN |
-| **open residual work** | `.psy` deletion-gate（G6）、dargo 字节金样 | **R-NARROW** + **R-INT** + **R-SHIFT-BIT** + **R-PURE** + **R-HARD** done（2026-08-08） |
+| **open residual work** | G6-RUNTIME DPN-first、dargo 字节金样 | **R-NARROW** + **R-INT** + **R-SHIFT-BIT** + **R-PURE** + **R-HARD** + **G6-DEBUG** done（2026-08-08） |
 
-**结论（规划层 + G5-MATRIX + R-HARD 事实）：**
-在 **Psy 已开放且 Plan admit 的子集** 上，物化 **必须** dual-write `.dpn.json`+`.psy`，或 `PSY-DPN-G5-HARD` fail；**plan-FC** 族不经 DPN 旁路。
+**结论（规划层 + G5-MATRIX + R-HARD + G6-DEBUG 事实）：**
+在 **Psy 已开放且 Plan admit 的子集** 上，物化 **必须** 产出 `.dpn.json` primary，或 `PSY-DPN-G5-HARD` fail；`.psy` 仅 opt-in debug（env / `emitPsyDebug`）；**plan-FC** 族不经 DPN 旁路。
 扩展到 **全部 DPN op** 或 **全部 PSL 语法** **不是** 本规划完成条件。
 
 ---
@@ -212,10 +212,10 @@ ProofForgeV2/Targets/Psy/
 | G2 | Accumulator / OptionState / LoopSum | **partial（DPN-3/4）** | Plan→DPN 结构门（LoopSum/OptionState）；**非** runtime 差分同 oracle |
 | G3 | WideCounter VM | **done（DPN-4 + G5-WIDE）** | multi-leaf + UInt128 add + schoolbook mul + restoring div/mod + limb shift DPN |
 | G4 | Map / 聚合 | **done（DPN-5）** | MapMini+Token Plan→DPN；.psy 破点绕过 |
-| G5 | 全 admit 面扫描 | **done（G5-WIDE + G5-AGG + G5-MATRIX + G5-HARD + R-HARD）** | §3.2 每行 DPN 钉测或 plan-FC；residual 桶 **0**；allowlist 空 + materialize hard-require；deletion-gate / dargo 字节金样仍 open |
-| G6 | Execute 消费 DPN | **open** | 不经 `.psy` 文本：`psy_vm` 或 dargo 可接受路径 |
+| G5 | 全 admit 面扫描 | **done（G5-WIDE + G5-AGG + G5-MATRIX + G5-HARD + R-HARD）** | §3.2 每行 DPN 钉测或 plan-FC；residual 桶 **0**；allowlist 空 + materialize hard-require；dargo 字节金样仍 open |
+| G6 | Execute 消费 DPN | **partial（G6-DEBUG done）** | 产品默认 DPN-only；`.psy` debug-only opt-in；runtime DPN-first 仍 open |
 
-G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛；G6 为 **去文本依赖**。
+G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛；**G6-DEBUG** 已使 `.psy` 非 default；G6-RUNTIME 为 **去 dargo 文本依赖**。
 ---
 
 ## 5. 分阶段实现（建议顺序）
@@ -273,17 +273,17 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 
 ### Phase DPN-7 — 产品切换
 
-- [x] `emitFromIR` / `buildFromCapability` dual-write：`{name}.dpn.json`（package JSON，Plan→DPN 成功时 **primary**）+ 过渡 `{name}.psy`（DPN 成功时 always；R-HARD 后无 residual-only 路径）
-- [x] Finalize 证据注记：DPN JSON + transitional `.psy`；zero-tool；`deployable=false`
-- [x] `PsyDpnV1` pin：Counter product dual-write package ≡ golden + `.psy` 非空
+- [x] `emitFromIR` / `buildFromCapability`：`{name}.dpn.json`（package JSON，Plan→DPN 成功时 **primary / default sole**）
+- [x] Finalize 证据注记：DPN JSON primary；`.psy` debug-only；zero-tool；`deployable=false`
+- [x] `PsyDpnV1` pin：Counter product default package ≡ golden、无 `.psy`；`emitPsyDebug` dual-write
 - [x] **G5-HARD（2026-08-08）**：gated residual policy 地基 — 非 residual DPN lower 失败以稳定 `PSY-DPN-G5-HARD` fail materialize（禁止 silent incomplete product）；`buildFromPlanV1` + `PsyDpnV1` 钉测
-- [x] **R-NARROW（2026-08-08）**：UInt8/16/32 Felt-carried checked add/sub/mul/div/mod + entry param range + unsigned compare → DPN（mirror EmitIR；`result < 2^w`；产品 dual-write `.dpn.json`+`.psy`）
-- [x] **R-INT（2026-08-08）**：Int64 `signedCompare`/`checkedNeg` + Int{8,16,32} two's-complement narrow signed add/sub/mul/div/mod/neg/compare → DPN（mirror EmitIR；bias-2^(w-1) compare；overflow asserts；产品 Int8 dual-write）；Int64 arith 复用既有 UInt64 checked path
-- [x] **R-SHIFT-BIT（2026-08-08）**：UInt64 `shl`/`shr` + `checkedBitNot` → DPN（mirror EmitIR `invalidShift: count >= 64` / bitNot representability；dargo Felt `<<`/`>>` → U32ShiftLeft/Right + CastFelt；checkedBitNot = Gte `2^32−1` + Sub mask `2^32−2`；产品 ShiftBit dual-write）
-- [x] **R-PURE（2026-08-08）**：pureFn/localCall callFn → DPN inline 进 caller；pureHelper 不进 package；product dual-write
-- [x] **R-HARD（2026-08-08）**：narrow bitwise/shift/bitNot + Goldilocks Field expr → DPN（mirror EmitIR）；`isPsyDpnG5HardResidualAllowlistV1` **恒 false**（full hard-require）；former residual 产品 dual-write `.dpn.json`+`.psy`；非 G6 删 `.psy`
-- [ ] 删除 `.psy` 权威路径（deletion-gate；现为 debug/transition；**G6**）
-- [ ] `just psy-runtime` 优先 DPN 路径（仍经 `.psy`→dargo；不经 product Finalize）
+- [x] **R-NARROW（2026-08-08）**：UInt8/16/32 Felt-carried checked add/sub/mul/div/mod + entry param range + unsigned compare → DPN（mirror EmitIR；`result < 2^w`；产品 DPN-only default）
+- [x] **R-INT（2026-08-08）**：Int64 `signedCompare`/`checkedNeg` + Int{8,16,32} two's-complement narrow signed add/sub/mul/div/mod/neg/compare → DPN（mirror EmitIR；bias-2^(w-1) compare；overflow asserts；产品 Int8 DPN）；Int64 arith 复用既有 UInt64 checked path
+- [x] **R-SHIFT-BIT（2026-08-08）**：UInt64 `shl`/`shr` + `checkedBitNot` → DPN（mirror EmitIR `invalidShift: count >= 64` / bitNot representability；dargo Felt `<<`/`>>` → U32ShiftLeft/Right + CastFelt；checkedBitNot = Gte `2^32−1` + Sub mask `2^32−2`；产品 ShiftBit DPN）
+- [x] **R-PURE（2026-08-08）**：pureFn/localCall callFn → DPN inline 进 caller；pureHelper 不进 package；product DPN
+- [x] **R-HARD（2026-08-08）**：narrow bitwise/shift/bitNot + Goldilocks Field expr → DPN（mirror EmitIR）；`isPsyDpnG5HardResidualAllowlistV1` **恒 false**（full hard-require）
+- [x] **G6-DEBUG（2026-08-08）**：产品默认 **仅** `{name}.dpn.json`；过渡 `{name}.psy` 仅 opt-in（`emitPsyDebug := true` 或 env `PROOF_FORGE_PSY_EMIT_PSY=1`）；EmitIR `.psy` lower 保留 gated；`psy-runtime` 设 env 以继续 dargo wrap；`deployable=false`
+- [ ] `just psy-runtime` 优先 DPN 路径（G6-RUNTIME；现仍经 opt-in `.psy`→dargo；不经 product Finalize）
 
 ---
 
@@ -344,13 +344,13 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 - 官方 PSL 全语法。
 - UPS/节点/RPC。
 - formal TASK / Stage-0。
-- G6 `.psy` deletion-gate / DPN-first runtime（仍 open）。
+- G6-RUNTIME DPN-first（仍 open；G6-DEBUG 已闭合）。
 
 ---
 
-## 10. 下一步（DPN-1..7 + G5 + R-HARD 已闭合后）
+## 10. 下一步（DPN-1..7 + G5 + R-HARD + G6-DEBUG 已闭合后）
 
-1. **G6 / deletion-gate（可选）**：`.psy` 删除或 debug-only；`just psy-runtime` DPN-first（不经 product Finalize 改 claim）。
+1. **G6-RUNTIME（可选）**：`just psy-runtime` / acceptance DPN-first（prebuilt package JSON；不经 product Finalize 改 claim）；若 dargo 仍强制 `.psy` 源，保持 PARTIAL + env opt-in honesty。
 2. **可选硬化**：WideCounter256 product package pin；dargo 全量 package 字节相等金样；method_id 官方 hash 复刻；Tool Lock 镜像 `psy-node` rev。
 
 规划 owner：engineering。

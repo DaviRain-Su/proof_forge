@@ -140,8 +140,9 @@ private unsafe def materializePsy
     resolveBuildSelectionV1 TargetId.psy profile?
   let capability ← liftResult s!"resolve {label}" <|
     Targets.resolveEngineeringRequirementsV1 selection compiled
+  -- G6: host-heavy dargo acceptance needs debug `.psy` (not default DPN-only).
   let output ← liftResult s!"materialize {label}" <|
-    Targets.materializeResult capability
+    Targets.materializeResult capability (emitPsyDebug := true)
   let files := MaterializedArtifactsV1.filesOf output
   let some psyFile := files.find? (·.path == expectedPsyPath) |
     throw <| IO.userError s!"{label}: missing {expectedPsyPath}; got {files.map (·.path)}"

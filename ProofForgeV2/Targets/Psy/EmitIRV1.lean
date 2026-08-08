@@ -3,20 +3,21 @@ import ProofForgeV2.Targets.Psy.Dpn.LowerPlanV1
 import ProofForgeV2.Targets.Psy.Dpn.JsonCodecV1
 
 /-!
-# Psy EmitIRV1 — Plan → product artifacts (DPN JSON + transitional `.psy`)
+# Psy EmitIRV1 — Plan → product artifacts (DPN JSON + optional debug `.psy`)
 
 Target-owned Psy AST/renderer (ported from the old Compiler/Psy surface for
 the V2 envelope) and capability-internal `lower`/`emitFromIR`.
 
-**PSY-DPN-7 product dual-write + PSY-DPN-G5-HARD honesty**: primary artifact is
+**PSY-DPN-7 + G6-DEBUG (2026-08-08)**: primary product artifact is always
 `{contract}.dpn.json` (dargo-shaped package of `DPNFunctionCircuitDefinition`)
-when Plan→DPN lower succeeds; `{contract}.psy` remains a transitional/debug
-text emission for dargo compile lanes. **R-HARD full hard-require (2026-08-08)**:
-`isPsyDpnG5HardResidualAllowlistV1` is empty — any Plan-admitted DPN lower
-failure fails materialize with stable `PSY-DPN-G5-HARD` (no silent incomplete
-product / no residual `.psy`-only path). Narrow bitwise/shift + Goldilocks
-Field expr are DPN-lowered; plan-FC shapes never reach dual-write.
-`deployable=false` unchanged.
+when Plan→DPN lower succeeds. Transitional `{contract}.psy` text is **debug-only**:
+emitted only when explicit opt-in (`emitPsyDebug := true` on build APIs, or
+product env `PROOF_FORGE_PSY_EMIT_PSY=1` via Registry/CLI IO materialize).
+Default product materialize emits **DPN-only** (no `.psy`) and **hard-fails**
+on DPN lower failure (`PSY-DPN-G5-HARD`). Debug opt-in may emit `.psy` alone
+when DPN lower fails (EmitIR/dargo surface pins, e.g. no-state pure entry).
+EmitIR still lowers the full `.psy` AST for gated debug emission; G6 does not
+delete the renderer. **R-HARD**: residual allowlist empty. `deployable=false`.
 
 Checked u64 arithmetic is realized with explicit assert guards. Psy `Felt`
 is Goldilocks (p = 2^64−2^32+1): every decimal literal is reduced into
@@ -1770,20 +1771,23 @@ private def lower (plan : Plan) : CompileResult IR := do
 def isPsyDpnG5HardResidualAllowlistV1 (_message : String) : Bool :=
   false
 
-/-- PSY-DPN-7 dual-write + G5-HARD honesty from retained Plan + PsyModule.
-    * Primary: `{name}.dpn.json` when `lowerPlanToPackageV1` succeeds
-    * Transitional/debug: `{name}.psy` always on DPN success
+/-- G6-DEBUG opt-in: product env `PROOF_FORGE_PSY_EMIT_PSY=1` enables
+    transitional `{name}.psy` alongside primary `.dpn.json`. Any other value
+    (or unset) keeps DPN-only default. Exact `1` only — no truthy aliases. -/
+def readEmitPsyDebugEnvV1 : IO Bool := do
+  match ← IO.getEnv "PROOF_FORGE_PSY_EMIT_PSY" with
+  | some "1" => pure true
+  | _ => pure false
+
+/-- PSY-DPN-7 + G6-DEBUG gated emission + G5-HARD honesty from retained Plan + PsyModule.
+    * Primary: `{name}.dpn.json` when `lowerPlanToPackageV1` succeeds (always)
+    * Debug: `{name}.psy` only when `emitPsyDebug = true` (build flag or env)
     * R-HARD: residual allowlist empty — any DPN lower failure →
       stable `PSY-DPN-G5-HARD` materialize FC (no silent `.psy`-only)
     Prefer evidence FC inside LowerPlan over inventing DPN ops. -/
-private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
-  let source := renderModule ir.module_
+private def emitFromIR (ir : IR) (emitPsyDebug : Bool := false) :
+    CompileResult (Array OutputFile) := do
   let pathName := ir.module_.contractName
-  let psyFile : OutputFile := {
-    path := s!"{pathName}.psy"
-    mediaType := "text/plain"
-    contents := source
-  }
   match lowerPlanToPackageV1 ir.sourcePlan with
   | .ok pkg =>
       let dpnFile : OutputFile := {
@@ -1791,12 +1795,31 @@ private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
         mediaType := "application/json"
         contents := encodePackageCompact pkg
       }
-      -- DPN package first (product authority), .psy second (transition/debug).
-      pure #[dpnFile, psyFile]
+      if emitPsyDebug then
+        let psyFile : OutputFile := {
+          path := s!"{pathName}.psy"
+          mediaType := "text/plain"
+          contents := renderModule ir.module_
+        }
+        -- DPN package first (product authority), .psy second (debug-only).
+        pure #[dpnFile, psyFile]
+      else
+        pure #[dpnFile]
   | .error (.planInvariant .psy msg) =>
-      if isPsyDpnG5HardResidualAllowlistV1 msg then
-        -- Explicit residual: transitional .psy only (documented allowlist).
-        pure #[psyFile]
+      if emitPsyDebug then
+        -- G6-DEBUG opt-in: emit transitional `.psy` alone for EmitIR/dargo surface
+        -- pins even when DPN lower fails (e.g. no-state pure entry probes).
+        -- Default product (`emitPsyDebug=false`) never takes this path — it
+        -- hard-fails below. Residual allowlist remains empty (R-HARD).
+        pure #[{
+          path := s!"{pathName}.psy"
+          mediaType := "text/plain"
+          contents := renderModule ir.module_
+        }]
+      else if isPsyDpnG5HardResidualAllowlistV1 msg then
+        -- Residual allowlist is empty after R-HARD; branch retained for API stability.
+        planError s!"PSY-DPN-G5-HARD: Plan admitted but DPN lower failed \
+(no silent .psy-only): {msg}"
       else
         -- G5-HARD: Plan admitted but DPN lower failed for a non-residual reason.
         planError s!"PSY-DPN-G5-HARD: Plan admitted but DPN lower failed \
@@ -1817,18 +1840,23 @@ def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult I
   validatePlan plan
   lower plan
 
-/-- Capability-gated public materialize entry. -/
-def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
-    CompileResult (Array OutputFile) := do
+/-- Capability-gated public materialize entry.
+
+    `emitPsyDebug` (default `false`): when true, dual-write transitional
+    `{name}.psy` after primary `.dpn.json` (G6-DEBUG). Product CLI/Registry IO
+    sets this from env `PROOF_FORGE_PSY_EMIT_PSY=1`. -/
+def buildFromCapability (capability : ResolvedEngineeringBuildV1)
+    (emitPsyDebug : Bool := false) : CompileResult (Array OutputFile) := do
   let ir ← irFromCapability capability
-  emitFromIR ir
+  emitFromIR ir emitPsyDebug
 
 /-- Engineering/test materialize from a retained `Plan` under G5-HARD policy
-    (validate → IR lower → dual-write / residual allowlist / hard-fail). -/
-def buildFromPlanV1 (plan : Plan) : CompileResult (Array OutputFile) := do
+    (validate → IR lower → DPN primary / optional debug `.psy` / hard-fail). -/
+def buildFromPlanV1 (plan : Plan) (emitPsyDebug : Bool := false) :
+    CompileResult (Array OutputFile) := do
   validatePlan plan
   let ir ← lower plan
-  emitFromIR ir
+  emitFromIR ir emitPsyDebug
 
 /-- Pre-P-B / unit-test IR entry over retained SemanticProgramV1. -/
 def irFromCompiledSemanticV1 (compiled : CompiledSemanticV1) : CompileResult IR := do
@@ -1837,9 +1865,9 @@ def irFromCompiledSemanticV1 (compiled : CompiledSemanticV1) : CompileResult IR 
   lower plan
 
 /-- Pre-P-B / unit-test materialize entry. -/
-def buildFromCompiledSemanticV1 (compiled : CompiledSemanticV1) :
-    CompileResult (Array OutputFile) := do
+def buildFromCompiledSemanticV1 (compiled : CompiledSemanticV1)
+    (emitPsyDebug : Bool := false) : CompileResult (Array OutputFile) := do
   let ir ← irFromCompiledSemanticV1 compiled
-  emitFromIR ir
+  emitFromIR ir emitPsyDebug
 
 end ProofForgeV2.Targets.Psy

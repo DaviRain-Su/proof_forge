@@ -2,8 +2,8 @@
   Tests.Materialization.PsyDpnV1 — PSY-DPN-1..7 + G5-WIDE + G5-AGG +
   G5-MATRIX + G5-HARD schema + Counter golden + Plan lower + if/match/for +
   multi-leaf/wide mul/div/shift + Map + Array/Principal/Bytes multi-leaf +
-  effects honesty + product dual-write + §3.2 admit matrix pins + hard-require
-  residual policy.
+  effects honesty + product DPN-primary emission + §3.2 admit matrix pins +
+  hard-require residual policy + G6-DEBUG (.psy opt-in).
 
   Pins:
     * OpType / DataType exact discriminants used by Counter (+ Select)
@@ -24,18 +24,19 @@
       without .psy return-in-if; hand-built lookup Select + upsert storeAggregate
     * DPN-6: emit → events[] PARTIAL; void call → InvokeExternal PARTIAL;
       schedule FC; ContextRead residual FC message
-    * DPN-7: product `buildFromCapability` dual-writes Counter.dpn.json
-      (package ≡ golden) + transitional Counter.psy; deployable=false note
+    * DPN-7 / G6-DEBUG: product default emits only Counter.dpn.json (package ≡
+      golden); `emitPsyDebug := true` dual-writes transitional Counter.psy;
+      deployable=false note
     * G5-MATRIX: Bool/compare/logic; bare assert/revert; UInt64 sub/mul/div/mod;
       bitAnd; const→literal product; payload revertError FC
     * R-NARROW: UInt8/16/32 checked arith + param range → DPN; UInt8 product
-      dual-writes `.dpn.json` + `.psy`
+      default DPN-only; debug flag dual-writes `.psy`
     * R-INT: Int64 signedCompare/checkedNeg + Int{8,16,32} two's-complement
-      signed add/sub/mul/div/mod/neg/compare → DPN; Int8 product dual-write
+      signed add/sub/mul/div/mod/neg/compare → DPN; Int8 product DPN-only default
     * R-SHIFT-BIT: UInt64 shl/shr + checkedBitNot → DPN (invalidShift /
-      representability asserts; U32Shift* + CastFelt / Sub mask); product dual-write
+      representability asserts; U32Shift* + CastFelt / Sub mask); product DPN
     * R-PURE: pureFn/localCall callFn → DPN inline into caller; nested call;
-      recursive/effectful FC; pureHelper omitted from package; product dual-write
+      recursive/effectful FC; pureHelper omitted from package; product DPN
     * R-HARD: narrow bitwise/shift + Goldilocks Field → DPN; residual allowlist
       empty (full hard-require); non-DPN lower fails materialize with PSY-DPN-G5-HARD
 -/
@@ -2083,7 +2084,7 @@ def testG5HardResidualAllowlistClassifier : IO Unit := do
   expect (!isPsyDpnG5HardResidualAllowlistV1 "")
     "empty message must not be allowlisted"
 
-/-- R-NARROW product: UInt8 Counter-shaped program dual-writes DPN package + .psy. -/
+/-- R-NARROW product: UInt8 Counter-shaped program emits DPN package (G6 default). -/
 unsafe def testUInt8ProductDualWriteDpn : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -2105,15 +2106,12 @@ unsafe def testUInt8ProductDualWriteDpn : IO Unit := do
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
   let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
   let files ← liftResult <| Targets.Psy.buildFromCapability cap
-  expect (files.size == 2)
-    s!"UInt8 R-NARROW must dual-write DPN+.psy, got {files.map (·.path)}"
+  expect (files.size == 1)
+    s!"UInt8 R-NARROW default must be DPN-only, got {files.map (·.path)}"
   let some dpn := files.find? (·.path.endsWith ".dpn.json") |
     throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
-  let some psy := files.find? (·.path.endsWith ".psy") |
-    throw <| IO.userError s!"missing .psy; got {files.map (·.path)}"
-  expect (files[0]!.path.endsWith ".dpn.json")
-    "DPN package must be primary artifact"
-  expect (!psy.contents.isEmpty) "transitional .psy non-empty"
+  expect (files.any (·.path.endsWith ".psy") == false)
+    "UInt8 default must not emit .psy"
   match parsePackage? dpn.contents with
   | none => throw <| IO.userError "U8Dpn.dpn.json failed to parse as package"
   | some pkg =>
@@ -2127,7 +2125,7 @@ unsafe def testUInt8ProductDualWriteDpn : IO Unit := do
       expect (inc.definitions.any fun defn => defn.opType == .add)
         "product increment must emit Add"
 
-/-- R-INT product: Int8 Counter-shaped program dual-writes DPN package + .psy. -/
+/-- R-INT product: Int8 Counter-shaped program emits DPN package (G6 default). -/
 unsafe def testInt8ProductDualWriteDpn : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -2149,15 +2147,10 @@ unsafe def testInt8ProductDualWriteDpn : IO Unit := do
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
   let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
   let files ← liftResult <| Targets.Psy.buildFromCapability cap
-  expect (files.size == 2)
-    s!"Int8 R-INT must dual-write DPN+.psy, got {files.map (·.path)}"
+  expect (files.size == 1)
+    s!"Int8 R-INT default must be DPN-only, got {files.map (·.path)}"
   let some dpn := files.find? (·.path.endsWith ".dpn.json") |
     throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
-  let some psy := files.find? (·.path.endsWith ".psy") |
-    throw <| IO.userError s!"missing .psy; got {files.map (·.path)}"
-  expect (files[0]!.path.endsWith ".dpn.json")
-    "DPN package must be primary artifact"
-  expect (!psy.contents.isEmpty) "transitional .psy non-empty"
   match parsePackage? dpn.contents with
   | none => throw <| IO.userError "I8Dpn.dpn.json failed to parse as package"
   | some pkg =>
@@ -2173,7 +2166,7 @@ unsafe def testInt8ProductDualWriteDpn : IO Unit := do
       expect (inc.definitions.any fun defn => defn.opType == .select)
         "product Int8 signed add must Select-wrap mod 2^8"
 
-/-- R-SHIFT-BIT product: UInt64 shl/shr/bitNot entry dual-writes DPN + .psy. -/
+/-- R-SHIFT-BIT product: UInt64 shl/shr/bitNot entry → DPN; debug flag checks .psy. -/
 unsafe def testUInt64ShiftBitNotProductDualWriteDpn : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -2197,20 +2190,20 @@ unsafe def testUInt64ShiftBitNotProductDualWriteDpn : IO Unit := do
   let selection ← liftResult <|
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
   let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
-  let files ← liftResult <| Targets.Psy.buildFromCapability cap
+  let files ← liftResult <| Targets.Psy.buildFromCapability cap (emitPsyDebug := true)
   expect (files.size == 2)
-    s!"R-SHIFT-BIT must dual-write DPN+.psy, got {files.map (·.path)}"
+    s!"R-SHIFT-BIT debug must dual-write DPN+.psy, got {files.map (·.path)}"
   let some dpn := files.find? (·.path.endsWith ".dpn.json") |
     throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
   let some psy := files.find? (·.path.endsWith ".psy") |
     throw <| IO.userError s!"missing .psy; got {files.map (·.path)}"
   expect (files[0]!.path.endsWith ".dpn.json")
     "DPN package must be primary artifact"
-  expect (!psy.contents.isEmpty) "transitional .psy non-empty"
+  expect (!psy.contents.isEmpty) "debug .psy non-empty"
   expect (psy.contents.contains "invalidShift: count >= 64")
-    "product .psy must emit invalidShift guard"
+    "debug .psy must emit invalidShift guard"
   expect (psy.contents.contains "u64 bitNot result not representable in Felt")
-    "product .psy must emit bitNot representability guard"
+    "debug .psy must emit bitNot representability guard"
   match parsePackage? dpn.contents with
   | none => throw <| IO.userError "ShiftBitDpn.dpn.json failed to parse"
   | some pkg =>
@@ -2234,8 +2227,7 @@ unsafe def testUInt64ShiftBitNotProductDualWriteDpn : IO Unit := do
       expect (flipFn.definitions.any fun defn => defn.opType == .sub)
         "product flip must emit Sub for reduced mask"
 
-/-- R-PURE product: pureFn + localCall dual-writes DPN package + .psy;
-    pure helper inlined into entry (not a top-level package method). -/
+/-- R-PURE product: pureFn + localCall → DPN; debug flag checks .psy helpers. -/
 unsafe def testPureFnProductDualWriteDpn : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -2262,20 +2254,20 @@ unsafe def testPureFnProductDualWriteDpn : IO Unit := do
   let selection ← liftResult <|
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
   let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
-  let files ← liftResult <| Targets.Psy.buildFromCapability cap
+  let files ← liftResult <| Targets.Psy.buildFromCapability cap (emitPsyDebug := true)
   expect (files.size == 2)
-    s!"R-PURE must dual-write DPN+.psy, got {files.map (·.path)}"
+    s!"R-PURE debug must dual-write DPN+.psy, got {files.map (·.path)}"
   let some dpn := files.find? (·.path.endsWith ".dpn.json") |
     throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
   let some psy := files.find? (·.path.endsWith ".psy") |
     throw <| IO.userError s!"missing .psy; got {files.map (·.path)}"
   expect (files[0]!.path.endsWith ".dpn.json")
     "DPN package must be primary artifact"
-  expect (!psy.contents.isEmpty) "transitional .psy non-empty"
+  expect (!psy.contents.isEmpty) "debug .psy non-empty"
   expect (psy.contents.contains "fn double(p0: Felt) -> Felt")
-    "product .psy must still emit free pure helper (EmitIR honesty)"
+    "debug .psy must still emit free pure helper (EmitIR honesty)"
   expect (psy.contents.contains "double(")
-    "product .psy must call pure helper"
+    "debug .psy must call pure helper"
   match parsePackage? dpn.contents with
   | none => throw <| IO.userError "PureDpn.dpn.json failed to parse"
   | some pkg =>
@@ -2296,7 +2288,7 @@ unsafe def testPureFnProductDualWriteDpn : IO Unit := do
       expect (addCount == 2)
         s!"product multi(quadruple) must inline two Add, got {addCount}"
 
-/-- R-HARD product: UInt8 narrow bitwise/shift dual-writes DPN + .psy. -/
+/-- R-HARD product: UInt8 narrow bitwise/shift → DPN (G6 default DPN-only). -/
 unsafe def testUInt8NarrowBitwiseProductDualWriteDpn : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -2321,15 +2313,10 @@ unsafe def testUInt8NarrowBitwiseProductDualWriteDpn : IO Unit := do
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
   let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
   let files ← liftResult <| Targets.Psy.buildFromCapability cap
-  expect (files.size == 2)
-    s!"R-HARD narrow bitwise must dual-write DPN+.psy, got {files.map (·.path)}"
+  expect (files.size == 1)
+    s!"R-HARD narrow bitwise default must be DPN-only, got {files.map (·.path)}"
   let some dpn := files.find? (·.path.endsWith ".dpn.json") |
     throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
-  let some psy := files.find? (·.path.endsWith ".psy") |
-    throw <| IO.userError s!"missing .psy; got {files.map (·.path)}"
-  expect (files[0]!.path.endsWith ".dpn.json")
-    "DPN package must be primary artifact"
-  expect (!psy.contents.isEmpty) "transitional .psy non-empty"
   match parsePackage? dpn.contents with
   | none => throw <| IO.userError "U8BitDpn.dpn.json failed to parse"
   | some pkg =>
@@ -2348,7 +2335,7 @@ unsafe def testUInt8NarrowBitwiseProductDualWriteDpn : IO Unit := do
       expect (notFn.definitions.any fun defn => defn.opType == .u32Xor)
         "product bnot must emit U32Xor mask"
 
-/-- R-HARD product: Goldilocks Field state/arith dual-writes DPN + .psy. -/
+/-- R-HARD product: Goldilocks Field state/arith → DPN; debug flag checks .psy. -/
 unsafe def testGoldilocksFieldProductDualWriteDpn : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -2369,9 +2356,9 @@ unsafe def testGoldilocksFieldProductDualWriteDpn : IO Unit := do
   let selection ← liftResult <|
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
   let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
-  let files ← liftResult <| Targets.Psy.buildFromCapability cap
+  let files ← liftResult <| Targets.Psy.buildFromCapability cap (emitPsyDebug := true)
   expect (files.size == 2)
-    s!"R-HARD Field must dual-write DPN+.psy, got {files.map (·.path)}"
+    s!"R-HARD Field debug must dual-write DPN+.psy, got {files.map (·.path)}"
   let some dpn := files.find? (·.path.endsWith ".dpn.json") |
     throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
   let some psy := files.find? (·.path.endsWith ".psy") |
@@ -2379,7 +2366,7 @@ unsafe def testGoldilocksFieldProductDualWriteDpn : IO Unit := do
   expect (files[0]!.path.endsWith ".dpn.json")
     "DPN package must be primary artifact"
   expect (psy.contents.contains "pub acc: Felt")
-    "transitional .psy still declares Felt storage"
+    "debug .psy still declares Felt storage"
   match parsePackage? dpn.contents with
   | none => throw <| IO.userError "GoldFieldDpn.dpn.json failed to parse"
   | some pkg =>
@@ -2426,8 +2413,9 @@ def testG5HardNonResidualDpnFailClosed : IO Unit := do
       throw <| IO.userError
         s!"zero-state Plan must hard-fail materialize, got files {files.map (·.path)}"
 
-/-- PSY-DPN-7: product materialize dual-writes DPN package JSON + transitional .psy.
-    Counter package content must equal locked-dargo golden; .psy remains non-empty. -/
+/-- PSY-DPN-7 + G6-DEBUG: product default emits only DPN package JSON (package ≡
+    locked-dargo golden); no `.psy`. With `emitPsyDebug := true`, dual-write
+    transitional Counter.psy after primary Counter.dpn.json. -/
 unsafe def testCounterProductDualWriteArtifacts : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let src ← IO.FS.readFile "Examples/Counter.lean"
@@ -2437,34 +2425,53 @@ unsafe def testCounterProductDualWriteArtifacts : IO Unit := do
   let selection ← liftResult <|
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
   let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  -- G6 default: DPN-only
   let files ← liftResult <| Targets.Psy.buildFromCapability cap
-  expect (files.size == 2)
-    s!"DPN-7 Counter must dual-write 2 files, got {files.map (·.path)}"
+  expect (files.size == 1)
+    s!"G6 Counter default must emit only .dpn.json, got {files.map (·.path)}"
   let some dpn := files.find? (·.path == "Counter.dpn.json") |
     throw <| IO.userError s!"missing Counter.dpn.json; got {files.map (·.path)}"
-  let some psy := files.find? (·.path == "Counter.psy") |
-    throw <| IO.userError s!"missing Counter.psy; got {files.map (·.path)}"
+  expect (files.any (·.path == "Counter.psy") == false)
+    "G6 Counter default must not emit Counter.psy"
   expect (files[0]!.path == "Counter.dpn.json")
-    "DPN package must be primary (first) artifact"
+    "DPN package must be primary (sole) artifact"
   expect (dpn.mediaType == "application/json") "dpn mediaType"
-  expect (psy.mediaType == "text/plain") "psy mediaType"
-  expect (!psy.contents.isEmpty) "transitional .psy non-empty"
-  expect (psy.contents.contains '#' && psy.contents.contains 'c')
-    "transitional .psy should look like Psy source"
   match parsePackage? dpn.contents with
   | none => throw <| IO.userError "Counter.dpn.json failed to parse as package"
   | some pkg =>
       expect (pkg == counterPackageGoldenV1)
-        "product dual-write DPN package must equal Counter golden"
-  -- buildFromCompiledSemanticV1 shares emitFromIR
+        "product DPN package must equal Counter golden"
+  -- buildFromCompiledSemanticV1 shares emitFromIR default
   let files2 ← liftResult <| Targets.Psy.buildFromCompiledSemanticV1 compiled
   expect (files2.map (·.path) == files.map (·.path))
-    "compiled-semantic materialize must dual-write same paths"
+    "compiled-semantic materialize must match DPN-only paths"
   match parsePackage? files2[0]!.contents with
   | none => throw <| IO.userError "compiled-semantic dpn parse failed"
   | some pkg2 =>
       expect (pkg2 == counterPackageGoldenV1)
-        "compiled-semantic dual-write package must equal golden"
+        "compiled-semantic DPN package must equal golden"
+  -- G6 debug opt-in: dual-write .psy
+  let filesDbg ← liftResult <|
+    Targets.Psy.buildFromCapability cap (emitPsyDebug := true)
+  expect (filesDbg.size == 2)
+    s!"G6 debug must dual-write 2 files, got {filesDbg.map (·.path)}"
+  let some psy := filesDbg.find? (·.path == "Counter.psy") |
+    throw <| IO.userError s!"missing Counter.psy; got {filesDbg.map (·.path)}"
+  expect (filesDbg[0]!.path == "Counter.dpn.json")
+    "debug dual-write still puts DPN first"
+  expect (psy.mediaType == "text/plain") "psy mediaType"
+  expect (!psy.contents.isEmpty) "debug .psy non-empty"
+  expect (psy.contents.contains '#' && psy.contents.contains 'c')
+    "debug .psy should look like Psy source"
+  let filesDbg2 ← liftResult <|
+    Targets.Psy.buildFromCompiledSemanticV1 compiled (emitPsyDebug := true)
+  expect (filesDbg2.map (·.path) == filesDbg.map (·.path))
+    "compiled-semantic debug dual-write same paths"
+  -- Registry pure materializeResult default is DPN-only
+  let arts ← liftResult <| Targets.materializeResult cap
+  let artPaths := (MaterializedArtifactsV1.filesOf arts).map (·.path)
+  expect (artPaths == #["Counter.dpn.json"])
+    s!"Registry materializeResult default must be DPN-only, got {artPaths}"
 
 unsafe def run : IO Unit := do
   testOpTypeDiscriminants
