@@ -38,6 +38,8 @@ def renderInstruction (i : InstructionV1) : String :=
       s!"{op} {left.render} {right.render} into {dest.render}"
   | .ternary cond thenV elseV dest =>
       s!"ternary {cond.render} {thenV.render} {elseV.render} into {dest.render}"
+  | .typeCast src dest ty =>
+      s!"cast {src.render} into {dest.render} as {ty.render}"
   | .assertEq left right => s!"assert.eq {left.render} {right.render}"
   | .getOrUse mapping key default dest =>
       s!"get.or_use {mapping}[{key.render}] {default.render} into {dest.render}"
@@ -247,6 +249,15 @@ private def parseInstruction? (raw : String) : Option InstructionV1 := do
       let elseV ← parseOperandToken? toks[3]!
       let dest ← parseRegister? toks[5]!
       pure (.ternary cond thenV elseV dest)
+  | "cast" =>
+      -- `cast src into dest as <typeAnn>;`
+      guard (toks.size == 6)
+      guard (toks[2]! == "into")
+      guard (toks[4]! == "as")
+      let src ← parseOperandToken? toks[1]!
+      let dest ← parseRegister? toks[3]!
+      let ty ← parseTypeAnn? toks[5]!
+      pure (.typeCast src dest ty)
   | op =>
       match toks.findIdx? (· == "into") with
       | none => none

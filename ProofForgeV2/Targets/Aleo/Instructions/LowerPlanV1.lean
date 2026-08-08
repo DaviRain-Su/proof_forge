@@ -1,5 +1,5 @@
 /-
-  ALEO-IR-2/3: AleoPlan → Aleo Instructions program.
+  ALEO-IR-2/3/4: AleoPlan → Aleo Instructions program.
 
   IR-2 (Counter MVP, golden-locked):
     * initialize: store param → Final with one-shot `initialized` guard
@@ -14,8 +14,20 @@
     * bounded for → static unroll of `0 .. maxIterations` with runtime
       `c < (end-start)` gate + boundExceeded assert when start < end
     * expression lower: public UInt64/Bool arithmetic/compare/logic/ternary
-    * fail closed: pure helpers, multi-leaf/aggregate, emit, payload revert,
-      unbounded (maxIterations > 4096), unsupported expr shapes
+    * fail closed: pure helpers, emit, payload revert, unbounded for
+
+  IR-4 (multi-leaf / Map / Option / narrow widths):
+    * Reuse Leo flatten-to-mapping layout: each Plan state leaf →
+      `pf_state_{i}` mapping (key u8.public, value typed by leaf width)
+    * Multi-leaf `storeAggregate`: evaluate all leaves on pre-store snapshot,
+      then sequential `set` (matches EmitIR atomic batch)
+    * Option UInt64 / Array UInt64 N / dense Map UInt64 cap-2 arrive as
+      already-flattened leaves from LowerSemantic (no nested Map construct)
+    * Narrow UInt{8,16,32} state/param/literal + checked arith/bit/shift
+      (shift count: bound guard + cast to u8, EmitIR-portable)
+    * Aggregate Final returns: eval leaves and drop (same Leo Final model)
+    * Fail closed: Int64/Field leaves·params, pure helpers, emit, nested
+      Map residual (Semantic/Plan already FC), bn254/Goldilocks Field
 
   Profile note (default vs compile):
     * Plan body is profile-insensitive (shared by
@@ -25,8 +37,8 @@
       and the IR authority candidate — **not** product primary yet (IR-6).
     * Compile profile: product Leo source → locked `leo build` produces
       `*.compiled.aleo` extras; Counter Instructions from this lower must be
-      structurally ≡ that golden (G1). Control-flow programs are tested
-      structurally (G3), not as byte-identical Leo compile goldens yet.
+      structurally ≡ that golden (G1). Multi-leaf/control-flow programs are
+      tested structurally (G2/G3/IR-4), not as byte-identical Leo compile goldens.
 
   Unsupported Plan shapes fail closed. Leo `EmitIRV1` path remains the
   transitional product printer.
@@ -72,27 +84,69 @@ def programNameFromPlanV1 (plan : Plan) : CompileResult String := do
     planError "ALEO-IR: program name is empty after lowercasing"
   pure s!"{id}.aleo"
 
-private def isPublicUInt64Param (p : PlanParam) : Bool :=
-  !p.isBool && !p.isInt && !p.isField &&
-    (p.uintWidth == 0 || p.uintWidth == 64)
+/-- Admitted unsigned widths on the Instructions Final path (T8 + UInt64). -/
+private def isAdmittedUintWidth (w : Nat) : Bool :=
+  w == 0 || w == 8 || w == 16 || w == 32 || w == 64
 
-private def isPublicUInt64Leaf
+private def uintWidthToBase (w : Nat) : BaseTypeV1 :=
+  match w with
+  | 8 => .u8
+  | 16 => .u16
+  | 32 => .u32
+  | _ => .u64
+
+private def isAdmittedUintParam (p : PlanParam) : Bool :=
+  !p.isBool && !p.isInt && !p.isField && isAdmittedUintWidth p.uintWidth
+
+private def isAdmittedUintLeaf
     (plan : Plan) (fieldIndex : Nat) : Bool :=
   fieldIndex < plan.stateFieldNames.size &&
     !plan.stateFieldIsInt.getD fieldIndex false &&
     !plan.stateFieldIsField.getD fieldIndex false &&
-    let w := plan.stateFieldUintWidth.getD fieldIndex 0
-    w == 0 || w == 64
+    isAdmittedUintWidth (plan.stateFieldUintWidth.getD fieldIndex 0)
+
+private def leafUintWidth (plan : Plan) (fieldIndex : Nat) : Nat :=
+  plan.stateFieldUintWidth.getD fieldIndex 0
+
+private def defaultLiteralForWidth (w : Nat) : OperandV1 :=
+  match w with
+  | 8 => .literal "0u8"
+  | 16 => .literal "0u16"
+  | 32 => .literal "0u32"
+  | _ => .literal "0u64"
 
 private def defaultLiteralForLeaf
     (plan : Plan) (fieldIndex : Nat) : CompileResult OperandV1 := do
-  unless isPublicUInt64Leaf plan fieldIndex do
+  unless isAdmittedUintLeaf plan fieldIndex do
     planError
-      s!"ALEO-IR-3: state leaf {fieldIndex} is not public UInt64 (multi-leaf/narrow/int/field deferred to IR-4)"
-  pure (.literal "0u64")
+      s!"ALEO-IR-4: state leaf {fieldIndex} is not public UInt8/16/32/64 (Int64/Field residual FC on Instructions path)"
+  pure (defaultLiteralForWidth (leafUintWidth plan fieldIndex))
+
+private def mappingValueTypeForLeaf
+    (plan : Plan) (fieldIndex : Nat) : CompileResult TypeAnnV1 := do
+  unless isAdmittedUintLeaf plan fieldIndex do
+    planError
+      s!"ALEO-IR-4: state leaf {fieldIndex} is not public UInt8/16/32/64"
+  pure (.base (uintWidthToBase (leafUintWidth plan fieldIndex)) .public_)
+
+private def paramInputType (p : PlanParam) : CompileResult TypeAnnV1 := do
+  unless isAdmittedUintParam p do
+    planError
+      s!"ALEO-IR-4: param '{p.name}' must be public UInt8/16/32/64 (Bool/Int/Field residual FC)"
+  pure (.base (uintWidthToBase p.uintWidth) .public_)
 
 private def u64Literal (v : UInt64) : OperandV1 :=
   .literal s!"{v}u64"
+
+private def uintLiteral (bitWidth : Nat) (v : UInt64) : OperandV1 :=
+  match bitWidth with
+  | 8 => .literal s!"{v}u8"
+  | 16 => .literal s!"{v}u16"
+  | 32 => .literal s!"{v}u32"
+  | _ => .literal s!"{v}u64"
+
+private def zeroLiteral (bitWidth : Nat) : OperandV1 :=
+  uintLiteral bitWidth 0
 
 private def boolLiteral (b : Bool) : OperandV1 :=
   .literal (if b then "true" else "false")
@@ -109,14 +163,15 @@ private def compareOpcode (op : ComparisonOp) : String :=
 /-- Transition wrapper: `input*` → `async name args into r` → `output future`.
     Matches Leo 4.0.2 compile of state-touching Final functions. -/
 def lowerTransitionFunctionV1
-    (programName : String) (fnName : String) (arity : Nat) :
+    (programName : String) (fnName : String) (params : Array PlanParam) :
     CompileResult FunctionDeclV1 := do
   let mut body : Array InstructionV1 := #[]
-  for i in [0:arity] do
-    body := body.push (.input ⟨i⟩ (.base .u64 .public_))
+  for i in [0:params.size] do
+    let ty ← paramInputType params[i]!
+    body := body.push (.input ⟨i⟩ ty)
   let args : Array RegisterV1 :=
-    (List.range arity).toArray.map (fun i => ⟨i⟩)
-  let dest : RegisterV1 := ⟨arity⟩
+    (List.range params.size).toArray.map (fun i => ⟨i⟩)
+  let dest : RegisterV1 := ⟨params.size⟩
   body := body.push (.asyncCall fnName args dest)
   body := body.push (.output dest (.future programName fnName))
   pure { name := fnName, body }
@@ -156,93 +211,116 @@ private def LowerCtx.freshLabel (ctx : LowerCtx) (labelPrefix : String) :
   let name := s!"{labelPrefix}_{ctx.labelCounter}"
   (name, { ctx with labelCounter := ctx.labelCounter + 1 })
 
-/-- Lower a Plan Expr to Instructions + result operand (public UInt64/Bool). -/
+/-- Emit narrow/u64 binary op with result register. -/
+private def lowerBinaryOp
+    (ctx0 : LowerCtx) (op : String) (lhs rhs : Expr)
+    (lowerExpr : LowerCtx → Expr →
+      CompileResult (Array InstructionV1 × OperandV1 × LowerCtx)) :
+    CompileResult (Array InstructionV1 × OperandV1 × LowerCtx) := do
+  let (il, lo, ctx1) ← lowerExpr ctx0 lhs
+  let (ir, ro, ctx2) ← lowerExpr ctx1 rhs
+  let (dest, ctx3) := ctx2.fresh
+  pure (il ++ ir ++ #[.binary op lo ro dest], .register dest, ctx3)
+
+/-- Div/mod with explicit nonzero guard (typed zero literal). -/
+private def lowerDivMod
+    (ctx0 : LowerCtx) (op : String) (bitWidth : Nat) (lhs rhs : Expr)
+    (lowerExpr : LowerCtx → Expr →
+      CompileResult (Array InstructionV1 × OperandV1 × LowerCtx)) :
+    CompileResult (Array InstructionV1 × OperandV1 × LowerCtx) := do
+  let (il, lo, ctx1) ← lowerExpr ctx0 lhs
+  let (ir, ro, ctx2) ← lowerExpr ctx1 rhs
+  let (nz, ctx3) := ctx2.fresh
+  let (dest, ctx4) := ctx3.fresh
+  pure (
+    il ++ ir ++ #[
+      .binary "is.neq" ro (zeroLiteral bitWidth) nz,
+      .assertEq (.register nz) (.literal "true"),
+      .binary op lo ro dest
+    ],
+    .register dest,
+    ctx4)
+
+/-- Shift with `count < bitWidth` on u64 lane + cast count to u8 (EmitIR shape). -/
+private def lowerShift
+    (ctx0 : LowerCtx) (op : String) (bitWidth : Nat) (lhs rhs : Expr)
+    (lowerExpr : LowerCtx → Expr →
+      CompileResult (Array InstructionV1 × OperandV1 × LowerCtx)) :
+    CompileResult (Array InstructionV1 × OperandV1 × LowerCtx) := do
+  let (il, lo, ctx1) ← lowerExpr ctx0 lhs
+  let (ir, ro, ctx2) ← lowerExpr ctx1 rhs
+  let (countU64, ctx3) := ctx2.fresh
+  let (ok, ctx4) := ctx3.fresh
+  let (countU8, ctx5) := ctx4.fresh
+  let (dest, ctx6) := ctx5.fresh
+  pure (
+    il ++ ir ++ #[
+      .typeCast ro countU64 (.base .u64 .public_),
+      .binary "lt" (.register countU64) (u64Literal bitWidth.toUInt64) ok,
+      .assertEq (.register ok) (.literal "true"),
+      .typeCast (.register countU64) countU8 (.base .u8 .public_),
+      .binary op lo (.register countU8) dest
+    ],
+    .register dest,
+    ctx6)
+
+/-- Lower a Plan Expr to Instructions + result operand (UInt*/Bool). -/
 partial def lowerExprV1 (ctx0 : LowerCtx) (expr : Expr) :
     CompileResult (Array InstructionV1 × OperandV1 × LowerCtx) := do
   match expr with
   | .literal v => pure (#[], u64Literal v, ctx0)
+  | .uintLiteral bitWidth v => do
+      unless isAdmittedUintWidth bitWidth do
+        planError s!"ALEO-IR-4: unsupported uintLiteral width {bitWidth}"
+      pure (#[], uintLiteral bitWidth v, ctx0)
   | .boolLiteral b => pure (#[], boolLiteral b, ctx0)
   | .param idx => do
       let some reg := ctx0.paramRegs[idx]? |
-        planError s!"ALEO-IR-3: param {idx} out of range for finalize inputs"
+        planError s!"ALEO-IR-4: param {idx} out of range for finalize inputs"
       pure (#[], .register reg, ctx0)
   | .loopVar depth => do
       let some op := ctx0.loopVars[depth]? |
-        planError s!"ALEO-IR-3: loopVar depth {depth} is out of range"
+        planError s!"ALEO-IR-4: loopVar depth {depth} is out of range"
       pure (#[], op, ctx0)
   | .stateLoad fieldIndex => do
-      unless isPublicUInt64Leaf ctx0.plan fieldIndex do
-        planError
-          s!"ALEO-IR-3: stateLoad leaf {fieldIndex} is not public UInt64"
       let default ← defaultLiteralForLeaf ctx0.plan fieldIndex
       let (dest, ctx1) := ctx0.fresh
       let instr : InstructionV1 :=
         .getOrUse (mappingNameV1 fieldIndex) mappingKeyLiteralV1 default dest
       pure (#[instr], .register dest, ctx1)
-  | .checkedAdd lhs rhs => do
-      let (il, lo, ctx1) ← lowerExprV1 ctx0 lhs
-      let (ir, ro, ctx2) ← lowerExprV1 ctx1 rhs
-      let (dest, ctx3) := ctx2.fresh
-      pure (il ++ ir ++ #[.binary "add" lo ro dest], .register dest, ctx3)
-  | .checkedSub lhs rhs => do
-      let (il, lo, ctx1) ← lowerExprV1 ctx0 lhs
-      let (ir, ro, ctx2) ← lowerExprV1 ctx1 rhs
-      let (dest, ctx3) := ctx2.fresh
-      pure (il ++ ir ++ #[.binary "sub" lo ro dest], .register dest, ctx3)
-  | .checkedMul lhs rhs => do
-      let (il, lo, ctx1) ← lowerExprV1 ctx0 lhs
-      let (ir, ro, ctx2) ← lowerExprV1 ctx1 rhs
-      let (dest, ctx3) := ctx2.fresh
-      pure (il ++ ir ++ #[.binary "mul" lo ro dest], .register dest, ctx3)
-  | .checkedDiv lhs rhs => do
-      let (il, lo, ctx1) ← lowerExprV1 ctx0 lhs
-      let (ir, ro, ctx2) ← lowerExprV1 ctx1 rhs
-      -- Explicit nonzero guard (matches EmitIR portable shape).
-      let (nz, ctx3) := ctx2.fresh
-      let (dest, ctx4) := ctx3.fresh
-      pure (
-        il ++ ir ++ #[
-          .binary "is.neq" ro (.literal "0u64") nz,
-          .assertEq (.register nz) (.literal "true"),
-          .binary "div" lo ro dest
-        ],
-        .register dest,
-        ctx4)
-  | .checkedMod lhs rhs => do
-      let (il, lo, ctx1) ← lowerExprV1 ctx0 lhs
-      let (ir, ro, ctx2) ← lowerExprV1 ctx1 rhs
-      let (nz, ctx3) := ctx2.fresh
-      let (dest, ctx4) := ctx3.fresh
-      pure (
-        il ++ ir ++ #[
-          .binary "is.neq" ro (.literal "0u64") nz,
-          .assertEq (.register nz) (.literal "true"),
-          .binary "rem" lo ro dest
-        ],
-        .register dest,
-        ctx4)
-  | .compare op lhs rhs => do
-      let (il, lo, ctx1) ← lowerExprV1 ctx0 lhs
-      let (ir, ro, ctx2) ← lowerExprV1 ctx1 rhs
-      let (dest, ctx3) := ctx2.fresh
-      pure (
-        il ++ ir ++ #[.binary (compareOpcode op) lo ro dest],
-        .register dest,
-        ctx3)
+  | .checkedAdd lhs rhs => lowerBinaryOp ctx0 "add" lhs rhs lowerExprV1
+  | .checkedSub lhs rhs => lowerBinaryOp ctx0 "sub" lhs rhs lowerExprV1
+  | .checkedMul lhs rhs => lowerBinaryOp ctx0 "mul" lhs rhs lowerExprV1
+  | .checkedDiv lhs rhs => lowerDivMod ctx0 "div" 64 lhs rhs lowerExprV1
+  | .checkedMod lhs rhs => lowerDivMod ctx0 "rem" 64 lhs rhs lowerExprV1
+  | .narrowCheckedAdd w lhs rhs => do
+      unless isNarrowUintWidth w do
+        planError s!"ALEO-IR-4: narrowCheckedAdd width {w} not admitted"
+      lowerBinaryOp ctx0 "add" lhs rhs lowerExprV1
+  | .narrowCheckedSub w lhs rhs => do
+      unless isNarrowUintWidth w do
+        planError s!"ALEO-IR-4: narrowCheckedSub width {w} not admitted"
+      lowerBinaryOp ctx0 "sub" lhs rhs lowerExprV1
+  | .narrowCheckedMul w lhs rhs => do
+      unless isNarrowUintWidth w do
+        planError s!"ALEO-IR-4: narrowCheckedMul width {w} not admitted"
+      lowerBinaryOp ctx0 "mul" lhs rhs lowerExprV1
+  | .narrowCheckedDiv w lhs rhs => do
+      unless isNarrowUintWidth w do
+        planError s!"ALEO-IR-4: narrowCheckedDiv width {w} not admitted"
+      lowerDivMod ctx0 "div" w lhs rhs lowerExprV1
+  | .narrowCheckedMod w lhs rhs => do
+      unless isNarrowUintWidth w do
+        planError s!"ALEO-IR-4: narrowCheckedMod width {w} not admitted"
+      lowerDivMod ctx0 "rem" w lhs rhs lowerExprV1
+  | .compare op lhs rhs =>
+      lowerBinaryOp ctx0 (compareOpcode op) lhs rhs lowerExprV1
   | .boolNot operand => do
       let (io, oo, ctx1) ← lowerExprV1 ctx0 operand
       let (dest, ctx2) := ctx1.fresh
       pure (io ++ #[.unary "not" oo dest], .register dest, ctx2)
-  | .logicalAnd lhs rhs => do
-      let (il, lo, ctx1) ← lowerExprV1 ctx0 lhs
-      let (ir, ro, ctx2) ← lowerExprV1 ctx1 rhs
-      let (dest, ctx3) := ctx2.fresh
-      pure (il ++ ir ++ #[.binary "and" lo ro dest], .register dest, ctx3)
-  | .logicalOr lhs rhs => do
-      let (il, lo, ctx1) ← lowerExprV1 ctx0 lhs
-      let (ir, ro, ctx2) ← lowerExprV1 ctx1 rhs
-      let (dest, ctx3) := ctx2.fresh
-      pure (il ++ ir ++ #[.binary "or" lo ro dest], .register dest, ctx3)
+  | .logicalAnd lhs rhs => lowerBinaryOp ctx0 "and" lhs rhs lowerExprV1
+  | .logicalOr lhs rhs => lowerBinaryOp ctx0 "or" lhs rhs lowerExprV1
   | .ternary condition thenValue elseValue => do
       let (ic, co, ctx1) ← lowerExprV1 ctx0 condition
       let (it, to, ctx2) ← lowerExprV1 ctx1 thenValue
@@ -252,63 +330,49 @@ partial def lowerExprV1 (ctx0 : LowerCtx) (expr : Expr) :
         ic ++ it ++ ie ++ #[.ternary co to eo dest],
         .register dest,
         ctx4)
-  | .bitAnd lhs rhs => do
-      let (il, lo, ctx1) ← lowerExprV1 ctx0 lhs
-      let (ir, ro, ctx2) ← lowerExprV1 ctx1 rhs
-      let (dest, ctx3) := ctx2.fresh
-      pure (il ++ ir ++ #[.binary "and" lo ro dest], .register dest, ctx3)
-  | .bitOr lhs rhs => do
-      let (il, lo, ctx1) ← lowerExprV1 ctx0 lhs
-      let (ir, ro, ctx2) ← lowerExprV1 ctx1 rhs
-      let (dest, ctx3) := ctx2.fresh
-      pure (il ++ ir ++ #[.binary "or" lo ro dest], .register dest, ctx3)
-  | .bitXor lhs rhs => do
-      let (il, lo, ctx1) ← lowerExprV1 ctx0 lhs
-      let (ir, ro, ctx2) ← lowerExprV1 ctx1 rhs
-      let (dest, ctx3) := ctx2.fresh
-      pure (il ++ ir ++ #[.binary "xor" lo ro dest], .register dest, ctx3)
+  | .bitAnd lhs rhs => lowerBinaryOp ctx0 "and" lhs rhs lowerExprV1
+  | .bitOr lhs rhs => lowerBinaryOp ctx0 "or" lhs rhs lowerExprV1
+  | .bitXor lhs rhs => lowerBinaryOp ctx0 "xor" lhs rhs lowerExprV1
   | .bitNot operand => do
       let (io, oo, ctx1) ← lowerExprV1 ctx0 operand
       let (dest, ctx2) := ctx1.fresh
       pure (io ++ #[.unary "not" oo dest], .register dest, ctx2)
-  | .shl lhs rhs => do
-      let (il, lo, ctx1) ← lowerExprV1 ctx0 lhs
-      let (ir, ro, ctx2) ← lowerExprV1 ctx1 rhs
-      -- count < 64 guard (EmitIR portable).
-      let (ok, ctx3) := ctx2.fresh
-      let (dest, ctx4) := ctx3.fresh
-      pure (
-        il ++ ir ++ #[
-          .binary "lt" ro (.literal "64u64") ok,
-          .assertEq (.register ok) (.literal "true"),
-          .binary "shl" lo ro dest
-        ],
-        .register dest,
-        ctx4)
-  | .shr lhs rhs => do
-      let (il, lo, ctx1) ← lowerExprV1 ctx0 lhs
-      let (ir, ro, ctx2) ← lowerExprV1 ctx1 rhs
-      let (ok, ctx3) := ctx2.fresh
-      let (dest, ctx4) := ctx3.fresh
-      pure (
-        il ++ ir ++ #[
-          .binary "lt" ro (.literal "64u64") ok,
-          .assertEq (.register ok) (.literal "true"),
-          .binary "shr" lo ro dest
-        ],
-        .register dest,
-        ctx4)
-  | .i64Literal _ | .uintLiteral .. | .narrowCheckedAdd ..
-  | .narrowCheckedSub .. | .narrowCheckedMul .. | .narrowCheckedDiv ..
-  | .narrowCheckedMod .. | .signedCheckedAdd .. | .signedCheckedSub ..
+  | .narrowBitAnd w lhs rhs => do
+      unless isNarrowUintWidth w do
+        planError s!"ALEO-IR-4: narrowBitAnd width {w} not admitted"
+      lowerBinaryOp ctx0 "and" lhs rhs lowerExprV1
+  | .narrowBitOr w lhs rhs => do
+      unless isNarrowUintWidth w do
+        planError s!"ALEO-IR-4: narrowBitOr width {w} not admitted"
+      lowerBinaryOp ctx0 "or" lhs rhs lowerExprV1
+  | .narrowBitXor w lhs rhs => do
+      unless isNarrowUintWidth w do
+        planError s!"ALEO-IR-4: narrowBitXor width {w} not admitted"
+      lowerBinaryOp ctx0 "xor" lhs rhs lowerExprV1
+  | .narrowBitNot w operand => do
+      unless isNarrowUintWidth w do
+        planError s!"ALEO-IR-4: narrowBitNot width {w} not admitted"
+      let (io, oo, ctx1) ← lowerExprV1 ctx0 operand
+      let (dest, ctx2) := ctx1.fresh
+      pure (io ++ #[.unary "not" oo dest], .register dest, ctx2)
+  | .shl lhs rhs => lowerShift ctx0 "shl" 64 lhs rhs lowerExprV1
+  | .shr lhs rhs => lowerShift ctx0 "shr" 64 lhs rhs lowerExprV1
+  | .narrowShl w lhs rhs => do
+      unless isNarrowUintWidth w do
+        planError s!"ALEO-IR-4: narrowShl width {w} not admitted"
+      lowerShift ctx0 "shl" w lhs rhs lowerExprV1
+  | .narrowShr w lhs rhs => do
+      unless isNarrowUintWidth w do
+        planError s!"ALEO-IR-4: narrowShr width {w} not admitted"
+      lowerShift ctx0 "shr" w lhs rhs lowerExprV1
+  | .i64Literal _ | .signedCheckedAdd .. | .signedCheckedSub ..
   | .signedCheckedMul .. | .signedCheckedDiv .. | .signedCheckedMod ..
-  | .signedCompare .. | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
-  | .signedBitAnd .. | .signedBitOr .. | .signedBitXor .. | .narrowShl ..
-  | .narrowShr .. | .signedShl .. | .signedShr .. | .signedBitNot ..
-  | .narrowBitNot .. | .checkedNeg _ | .fieldLiteral _ | .fieldBinary ..
-  | .fieldCompare .. | .fieldNeg _ | .callFn .. =>
+  | .signedCompare .. | .signedBitAnd .. | .signedBitOr .. | .signedBitXor ..
+  | .signedShl .. | .signedShr .. | .signedBitNot .. | .checkedNeg _
+  | .fieldLiteral _ | .fieldBinary .. | .fieldCompare .. | .fieldNeg _
+  | .callFn .. =>
       planError
-        "ALEO-IR-3: expression shape not admitted on public-UInt64 Final Instructions path (narrow/signed/field/pureCall deferred)"
+        "ALEO-IR-4: expression shape not admitted on Instructions path (Int64/Field/pureCall residual FC; width matrix matches Leo admit minus signed/field leaf)"
 
 mutual
   /-- Lower switch cases as a right-nested is.eq + branch chain (EmitIR shape). -/
@@ -348,28 +412,34 @@ mutual
     for stmt in stmts do
       match stmt with
       | .store fieldIndex value => do
-          unless isPublicUInt64Leaf ctx.plan fieldIndex do
+          unless isAdmittedUintLeaf ctx.plan fieldIndex do
             planError
-              s!"ALEO-IR-3: store leaf {fieldIndex} is not public UInt64"
+              s!"ALEO-IR-4: store leaf {fieldIndex} is not public UInt8/16/32/64"
           let (iv, vo, ctx1) ← lowerExprV1 ctx value
           acc := acc ++ iv
           acc := acc.push
             (.set vo (mappingNameV1 fieldIndex) mappingKeyLiteralV1)
           ctx := ctx1
       | .storeAggregate leaves => do
-          -- IR-3 admits only single public-UInt64 aggregate leaf (scalar store).
-          unless leaves.size == 1 do
-            planError
-              "ALEO-IR-3: multi-leaf storeAggregate deferred to IR-4"
-          let leaf := leaves[0]!
-          let (iv, vo, ctx1) ← lowerExprV1 ctx leaf.value
-          unless isPublicUInt64Leaf ctx.plan leaf.fieldIndex do
-            planError
-              s!"ALEO-IR-3: storeAggregate leaf {leaf.fieldIndex} is not public UInt64"
-          acc := acc ++ iv
-          acc := acc.push
-            (.set vo (mappingNameV1 leaf.fieldIndex) mappingKeyLiteralV1)
-          ctx := ctx1
+          -- IR-4: multi-leaf atomic batch — evaluate all on pre-store snapshot,
+          -- then set (matches EmitIR storeAggregate / Map empty-upsert hazard fix).
+          unless leaves.size ≥ 1 do
+            planError "ALEO-IR-4: storeAggregate has no leaves"
+          let mut prepared : Array (Nat × OperandV1) := #[]
+          let mut ctxPrep := ctx
+          for leaf in leaves do
+            unless isAdmittedUintLeaf ctxPrep.plan leaf.fieldIndex do
+              planError
+                s!"ALEO-IR-4: storeAggregate leaf {leaf.fieldIndex} is not public UInt8/16/32/64"
+            let (iv, vo, ctx1) ← lowerExprV1 ctxPrep leaf.value
+            acc := acc ++ iv
+            prepared := prepared.push (leaf.fieldIndex, vo)
+            ctxPrep := ctx1
+          for item in prepared do
+            let (fieldIndex, vo) := item
+            acc := acc.push
+              (.set vo (mappingNameV1 fieldIndex) mappingKeyLiteralV1)
+          ctx := ctxPrep
       | .assert condition => do
           let (ic, co, ctx1) ← lowerExprV1 ctx condition
           acc := acc ++ ic
@@ -382,7 +452,7 @@ mutual
           ctx := ctx1
       | .returnAggregate leaves _ => do
           unless leaves.size ≤ 8 do
-            planError "ALEO-IR-3: returnAggregate too large"
+            planError "ALEO-IR-4: returnAggregate too large"
           for leaf in leaves do
             let (iv, _, ctx1) ← lowerExprV1 ctx leaf
             acc := acc ++ iv
@@ -414,7 +484,7 @@ mutual
       | .forLoop start endExclusive maxIter body => do
           unless maxIter ≤ maxForUnrollIterationsV1 do
             planError
-              s!"ALEO-IR-3: bounded for maxIterations {maxIter} exceeds {maxForUnrollIterationsV1} (fail closed)"
+              s!"ALEO-IR-4: bounded for maxIterations {maxIter} exceeds {maxForUnrollIterationsV1} (fail closed)"
           let (is, startOp, ctx1) ← lowerExprV1 ctx start
           let (ie, endOp, ctx2) ← lowerExprV1 ctx1 endExclusive
           acc := acc ++ is ++ ie
@@ -469,23 +539,23 @@ mutual
           ctx := ctxL
       | .emitEvent .. =>
           planError
-            "ALEO-IR-3: emit is not admitted (no on-chain event log in Aleo Instructions)"
+            "ALEO-IR-4: emit is not admitted (no on-chain event log in Aleo Instructions)"
       | .revertError _ args => do
           unless args.isEmpty do
-            planError "ALEO-IR-3: revert payloads are not admitted"
+            planError "ALEO-IR-4: revert payloads are not admitted"
           -- bare revert → assert false
           acc := acc.push
             (.assertEq (.literal "true") (.literal "false"))
     pure (acc, ctx)
 end
 
-/-- Build finalize input registers for public UInt64 params only. -/
+/-- Build finalize input registers for public UInt* params only. -/
 private def buildParamRegs (fn : PlanFunction) :
     CompileResult (Array RegisterV1) := do
   for p in fn.params do
-    unless isPublicUInt64Param p do
+    unless isAdmittedUintParam p do
       planError
-        s!"ALEO-IR-3: function '{fn.name}' param '{p.name}' must be public UInt64"
+        s!"ALEO-IR-4: function '{fn.name}' param '{p.name}' must be public UInt8/16/32/64"
   -- Dense 0..params.size-1 mapping used by Plan bodies.
   pure <| (List.range fn.params.size).toArray.map (fun i => ⟨i⟩)
 
@@ -494,21 +564,19 @@ def lowerFinalizeBodyV1 (plan : Plan) (fn : PlanFunction) :
     CompileResult (Array InstructionV1) := do
   unless fn.touchesState do
     planError
-      s!"ALEO-IR-3: function '{fn.name}' does not touch state (Final-only Instructions path)"
+      s!"ALEO-IR-4: function '{fn.name}' does not touch state (Final-only Instructions path)"
   unless !fn.isPureHelper do
     planError
-      s!"ALEO-IR-3: pure helper '{fn.name}' is not admitted on Instructions path"
-  unless fn.resultAggregateLeaves.isNone do
-    planError
-      s!"ALEO-IR-3: function '{fn.name}' aggregate results deferred (IR-4)"
+      s!"ALEO-IR-4: pure helper '{fn.name}' is not admitted on Instructions path"
   for p in fn.params do
-    unless isPublicUInt64Param p do
+    unless isAdmittedUintParam p do
       planError
-        s!"ALEO-IR-3: function '{fn.name}' params must be public UInt64"
+        s!"ALEO-IR-4: function '{fn.name}' params must be public UInt8/16/32/64"
   let arity := fn.params.size
   let mut body : Array InstructionV1 := #[]
   for i in [0:arity] do
-    body := body.push (.input ⟨i⟩ (.base .u64 .public_))
+    let ty ← paramInputType fn.params[i]!
+    body := body.push (.input ⟨i⟩ ty)
   let paramRegs ← buildParamRegs fn
   let mut nextReg := arity
   -- initialize one-shot guard before body stores.
@@ -538,32 +606,34 @@ def lowerFunctionV1
     (programName : String) (plan : Plan) (fn : PlanFunction) :
     CompileResult (FunctionDeclV1 × FinalizeDeclV1) := do
   let transition ←
-    lowerTransitionFunctionV1 programName fn.name fn.params.size
+    lowerTransitionFunctionV1 programName fn.name fn.params
   let finBody ← lowerFinalizeBodyV1 plan fn
   pure (transition, { name := fn.name, body := finBody })
 
-/-- Lower an entire Plan to Instructions (single public UInt64 leaf + Final
-    functions with IR-3 control flow). -/
+/-- Lower an entire Plan to Instructions (multi-leaf UInt* + Final functions
+    with IR-3 control flow + IR-4 narrow/multi-leaf). -/
 def lowerPlanToInstructionsV1 (plan : Plan) : CompileResult ProgramV1 := do
   validatePlan plan
-  -- Single public UInt64 state leaf (IR-4 multi-leaf).
-  unless plan.stateFieldNames.size == 1 do
+  unless plan.stateFieldNames.size ≥ 1 do
     planError
-      s!"ALEO-IR-3: expected exactly one state leaf, got {plan.stateFieldNames.size} (multi-leaf deferred to IR-4)"
-  unless isPublicUInt64Leaf plan 0 do
-    planError "ALEO-IR-3: sole state leaf must be public UInt64"
+      s!"ALEO-IR-4: expected at least one state leaf, got {plan.stateFieldNames.size}"
+  for i in [0:plan.stateFieldNames.size] do
+    unless isAdmittedUintLeaf plan i do
+      planError
+        s!"ALEO-IR-4: state leaf {i} ('{plan.stateFieldNames[i]!}') is not public UInt8/16/32/64 (Int64/Field residual FC)"
   for view in plan.views do
     unless view.stateFieldIndex < plan.stateFieldNames.size do
-      planError s!"ALEO-IR-3: view '{view.name}' references missing state"
+      planError s!"ALEO-IR-4: view '{view.name}' references missing state"
   unless plan.functions.size ≥ 1 do
-    planError "ALEO-IR-3: expected at least one function (initialize)"
+    planError "ALEO-IR-4: expected at least one function (initialize)"
   let programName ← programNameFromPlanV1 plan
   let mut items : Array ItemV1 := #[]
   for i in [0:plan.stateFieldNames.size] do
+    let valueType ← mappingValueTypeForLeaf plan i
     items := items.push (.mapping {
       name := mappingNameV1 i
       keyType := .base .u8 .public_
-      valueType := .base .u64 .public_
+      valueType
     })
   items := items.push (.mapping {
     name := guardMappingNameV1
@@ -574,7 +644,7 @@ def lowerPlanToInstructionsV1 (plan : Plan) : CompileResult ProgramV1 := do
   for fn in plan.functions do
     if fn.isPureHelper then
       planError
-        s!"ALEO-IR-3: pure helper '{fn.name}' is not admitted on Instructions path"
+        s!"ALEO-IR-4: pure helper '{fn.name}' is not admitted on Instructions path"
     let (fDecl, finDecl) ← lowerFunctionV1 programName plan fn
     match fn.kind with
     | .initialize => sawInitialize := true
@@ -582,7 +652,7 @@ def lowerPlanToInstructionsV1 (plan : Plan) : CompileResult ProgramV1 := do
     items := items.push (.function fDecl)
     items := items.push (.finalize finDecl)
   unless sawInitialize do
-    planError "ALEO-IR-3: requires an initialize function"
+    planError "ALEO-IR-4: requires an initialize function"
   items := items.push (.constructor constructorEditionV1)
   pure { name := programName, items }
 

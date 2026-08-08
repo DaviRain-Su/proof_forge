@@ -12,7 +12,8 @@
   This module is **not** a full opcode surface, **not** snarkVM Program
   objects, and **not** formal semantics. Unknown opcodes/shapes fail closed
   at TextCodec decode. Plan→Instructions: Counter MVP = ALEO-IR-2;
-  if/match/bounded-for control flow = ALEO-IR-3 (`LowerPlanV1`).
+  if/match/bounded-for control flow = ALEO-IR-3; multi-leaf Map/Option/Array
+  + narrow UInt widths = ALEO-IR-4 (`LowerPlanV1`).
 -/
 namespace ProofForgeV2.Targets.Aleo.Instructions.SchemaV1
 
@@ -97,8 +98,9 @@ def OperandV1.render : OperandV1 → String
   | .identifier n => n
 
 /-- Instruction subset: Counter golden (IR-1/2) + control-flow ops from
-    locked Leo 4.0.2 compile of if/match/bounded-for (IR-3). Additional
-    opcodes still require golden/test evidence. -/
+    locked Leo 4.0.2 compile of if/match/bounded-for (IR-3) + scalar cast
+    for narrow shift counts (IR-4). Additional opcodes still require
+    golden/test evidence. -/
 inductive InstructionV1 where
   /-- `input rN as <typeAnn>;` -/
   | input (reg : RegisterV1) (ty : TypeAnnV1)
@@ -112,6 +114,9 @@ inductive InstructionV1 where
   | binary (op : String) (left : OperandV1) (right : OperandV1) (dest : RegisterV1)
   /-- Ternary select: `ternary cond thenV elseV into dest;` (IR-3) -/
   | ternary (cond thenV elseV : OperandV1) (dest : RegisterV1)
+  /-- Scalar cast: `cast src into dest as <typeAnn>;` (IR-4 shift count).
+      Constructor named `typeCast` to avoid clashing with Lean core `cast`. -/
+  | typeCast (src : OperandV1) (dest : RegisterV1) (ty : TypeAnnV1)
   /-- `assert.eq left right;` -/
   | assertEq (left : OperandV1) (right : OperandV1)
   /-- `get.or_use mapping[key] default into dest;` -/

@@ -9,7 +9,7 @@ normative: false
 
 # Aleo Instructions IR 落地规划
 
-状态：`draft`（规划 + **ALEO-IR-1/IR-2/IR-3 已落地**：Schema/TextCodec + Counter 金样 + `LowerPlanV1` Plan→Instructions Counter MVP ≡ 金样 + if/match/bounded-for 控制流指令序列；产品 primary 仍 Leo 源至 IR-6）
+状态：`draft`（规划 + **ALEO-IR-1/IR-2/IR-3/IR-4 已落地**：Schema/TextCodec + Counter 金样 + `LowerPlanV1` Plan→Instructions Counter MVP ≡ 金样 + if/match/bounded-for 控制流 + multi-leaf Map/Option/Array flatten-to-mapping + narrow UInt{8,16,32}；产品 primary 仍 Leo 源至 IR-6）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Aleo target 的权威物化从 **Leo 4 源文本** 切到官方 **Aleo Instructions**（中间 IR / 寄存器指令集），并评估 **ProgramV1 在 Aleo 上 admit 的构造** 能覆盖到该 IR 的范围。
 
 与 Psy 对照（已闭合 lane）：
@@ -212,7 +212,7 @@ ProofForgeV2/Targets/Aleo/
 |---|---|---|
 | G0 | Schema + 金样 decode | **done**：Counter `compiled.aleo` round-trip / 字段钉死（IR-1） |
 | G1 | Lower Counter | **done**：`LowerPlanV1` Instructions ≡ locked-leo 金样（结构+字节；IR-2） |
-| G2 | OptionState / MapMini 子集 | 与现 Leo admit 面一致 |
+| G2 | OptionState / MapMini 子集 | **done（IR-4）**：multi-leaf flatten-to-mapping + Option/Map/Array/narrow 结构测试 |
 | G3 | 控制流 / for 展开 | **done（IR-3）**：if/switch → `branch.eq`/`position`；bounded for 静态 unroll + boundExceeded 门；结构测试 + Counter 金样回归 |
 | G4 | 产品 dual-write / primary IR | 默认权威 Instructions；Leo debug-only |
 | G5 | admit 面扫描 | 每 Y/P 有 IR 或显式 FC |
@@ -249,8 +249,8 @@ G0–G1 = **MVP**；G5 = admit 覆盖声明门槛；G6 = 去 Leo 源依赖（可
 
 ### Phase ALEO-IR-4 — 多叶 / Map / Option / 窄宽
 
-- [ ] 复用现 flatten-to-mapping 布局，输出 Instructions
-- [ ] 宽度/Field 与现 FC 矩阵一致
+- [x] 复用现 flatten-to-mapping 布局，输出 Instructions（每 Plan leaf → `pf_state_{i}`；`storeAggregate` 先全求值再 set）
+- [x] 宽度/Field 与现 FC 矩阵一致（UInt8/16/32/64 已开；Int64/Field 仍 IR residual FC；nested Map 仍 Semantic/Plan FC）
 
 ### Phase ALEO-IR-5 — 效果与诚实矩阵
 
@@ -332,9 +332,9 @@ G0–G1 = **MVP**；G5 = admit 覆盖声明门槛；G6 = 去 Leo 源依赖（可
 
 ## 10. 下一步（实现顺序）
 
-1. ~~ALEO-IR-0~~ / ~~IR-1~~ / ~~IR-2~~ / ~~IR-3~~ done。
-2. **ALEO-IR-4**：多叶 / Map / Option / 窄宽。
+1. ~~ALEO-IR-0~~ / ~~IR-1~~ / ~~IR-2~~ / ~~IR-3~~ / ~~IR-4~~ done。
+2. **ALEO-IR-5**：效果与诚实矩阵（emit/call/schedule/assets/context）。
 3. 按 Phase 扫矩阵至 G5；IR-6 产品 primary；G6 仅在工具诚实可用时开。
 
 规划 owner：engineering。
-产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-2 Counter + IR-3 控制流 lower 已工程闭合（产品 primary 仍 Leo 源）。
+产品决策：用户已确认 **切换到 Aleo**，权威层 = **Aleo Instructions（中间 IR）**；IR-2 Counter + IR-3 控制流 + IR-4 multi-leaf/Map/Option/narrow lower 已工程闭合（产品 primary 仍 Leo 源）。
