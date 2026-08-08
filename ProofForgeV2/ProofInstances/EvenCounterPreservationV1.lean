@@ -1,9 +1,11 @@
 import ProofForgeV2.ProofInstances.EvenCounterDecodeV1
+import ProofForgeV2.Semantic.PreservationPackagingV1
 
 namespace ProofForgeV2.ProofInstances.EvenCounterPreservationV1
 
 open ProofForgeV2.Semantic.InvariantABI
 open ProofForgeV2.Semantic.PreservationABI
+open ProofForgeV2.Semantic.PreservationPackagingV1
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.ProofInstances.EvenCounterV1
@@ -167,7 +169,8 @@ theorem preservation_base_no_init (admitted : AdmittedReferenceSliceV1) :
 
 /-- Revert/trap outcomes of the sole production step always reattach the exact
     pre-state. The returned branch is left as `True` here so failure arms can
-    be shared by the full step theorem. -/
+    be shared by the full step theorem.
+    Thin instance wrapper over program-agnostic packaging. -/
 theorem preservation_step_failure_arms
     (admitted : AdmittedReferenceSliceV1)
     (pre : LogicalStateV1)
@@ -179,24 +182,8 @@ theorem preservation_step_failure_arms
     | .reverted reason unchangedState =>
         OutcomeRevertedUnchangedV1 pre reason unchangedState
     | .trapped fault unchangedState =>
-        OutcomeTrappedUnchangedV1 pre fault unchangedState := by
-  have hfail :=
-    stepReferenceSliceV1_failureStateUnchangedV1 admitted pre invocation
-      responses vault
-  generalize hstep :
-    stepReferenceSliceV1 admitted pre invocation responses vault = outcome
-  cases outcome with
-  | returned post value effects =>
-      trivial
-  | reverted reason unchanged =>
-      -- Failure packaging is `unchanged = pre` (defeq to OutcomeRevertedUnchangedV1).
-      rw [hstep] at hfail
-      simpa [OutcomeFailureStateUnchangedV1, OutcomeRevertedUnchangedV1] using
-        hfail
-  | trapped fault unchanged =>
-      rw [hstep] at hfail
-      simpa [OutcomeFailureStateUnchangedV1, OutcomeTrappedUnchangedV1] using
-        hfail
+        OutcomeTrappedUnchangedV1 pre fault unchangedState :=
+  preservationStepFailureArmsV1 admitted pre invocation responses vault
 
 /-- Ordinal 0 is in range for the closed EvenCounter invariant table. -/
 theorem ordinal_in_range : (0 : InvariantOrdinalV1).toNat < program.invariants.size := by
@@ -510,7 +497,8 @@ theorem get_params_empty : getCallable.params = #[] := rfl
 theorem increment_params_empty : incrementCallable.params = #[] := rfl
 
 /-- Lifecycle / invalid gates never produce a successful return; a returned
-    outcome forces the ready arm of `gateInvocation`. -/
+    outcome forces the ready arm of `gateInvocation`.
+    Thin instance wrapper over program-agnostic packaging. -/
 theorem step_returned_implies_gate_ready
     (admitted : AdmittedReferenceSliceV1)
     (pre : LogicalStateV1)
@@ -526,34 +514,18 @@ theorem step_returned_implies_gate_ready
     match gateInvocation admitted pre invocation with
     | .ready _ _ _ _ => True
     | .invalidInvocation => False
-    | .lifecycle _ => False := by
-  cases hgate : gateInvocation admitted pre invocation with
-  | invalidInvocation =>
-      have h :=
-        stepReferenceSliceV1_invalidInvocation_eq admitted pre invocation
-          responses vault hgate
-      rw [h] at hstep
-      cases hstep
-  | lifecycle cand =>
-      have h :=
-        stepReferenceSliceV1_lifecycle_eq admitted pre invocation responses
-          vault cand hgate
-      rw [h] at hstep
-      exact
-        absurd hstep
-          (finalizeLifecycle_ne_returned_publicV1 pre responses cand post value
-            effects)
-  | ready c o ctx ini =>
-      simp [hgate]
+    | .lifecycle _ => False :=
+  stepReturnedImpliesGateReadyV1 admitted pre invocation responses vault
+    post value effects hstep
 
-/-- Returned arm when finalize is carrier identity (`post = pre`). -/
+/-- Returned arm when finalize is carrier identity (`post = pre`).
+    Thin instance wrapper over program-agnostic packaging. -/
 theorem preservation_step_returned_post_eq_pre
     (pre post : LogicalStateV1)
     (heval : evalInvariantV1 program 0 pre = .returnedTrue)
     (hpost : post = pre) :
-    evalInvariantV1 program 0 post = .returnedTrue := by
-  rw [hpost]
-  exact heval
+    evalInvariantV1 program 0 post = .returnedTrue :=
+  preservationStepReturnedPostEqPreV1 program 0 pre post heval hpost
 
 /-- Returned arm when post is the non-overflowing +2 encode of an even pre overlay. -/
 theorem preservation_step_returned_increment_form
@@ -574,14 +546,15 @@ theorem preservation_step_returned_increment_form
   rw [hpost]
   exact eval_even_after_increment_encode countBytes hcan hsize heven hnoOverflow
 
-/-- Payload size 8 for validated UInt64 countBytes on EvenCounter. -/
+/-- Payload size 8 for validated UInt64 countBytes on EvenCounter.
+    Uses program-agnostic UInt64 size packaging. -/
 theorem countBytes_size_of_can
     (countBytes : ByteArray)
     (hcan : validateValueBytesV1 data.types 0 countBytes = .ok ()) :
     countBytes.size = 8 := by
   have hlookup : data.types[0]? = some uint64Type := by
     simp [data, types, uint64Type]
-  exact validateValueBytesV1_uint64_size data.types 0 uint64Type countBytes
+  exact uint64BytesSizeOfValidateV1 data.types 0 uint64Type countBytes
     hlookup rfl hcan
 
 /-- Closed get-callable shape used by the ready-get step packaging. -/
