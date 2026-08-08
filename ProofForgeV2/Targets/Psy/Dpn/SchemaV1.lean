@@ -1,16 +1,34 @@
 /-
   Psy DPN Schema V1 — engineering model of official `psy_vm` DPN shapes.
 
-  Authority: PsyProtocol/psy-node @ rev aligned with dargo 0.1.0
-  (`79e0b82422ebdd1173a7b4b3751eb3186aad83e5`), crate `psy_vm`:
+  Authority (RES-TOOL-LOCK): PsyProtocol/psy-node @
+  `psyNodeDpnAuthorityRevV1` (aligned with locked dargo 0.1.0 workspace),
+  crate `psy_vm`:
     * `DPNFunctionCircuitDefinition` — dpn/vm/def.rs
     * `DPNOpType` / `DPNIndexedVarDef` — dpn/ops/op_types.rs
     * `DPNStateCmd` — dpn/ops/state_cmd/data.rs
+    * method_id: `psy_crypto::hash::utils::gen_dapen_contract_function_method_id`
+
+  This is a **schema / method_id algorithm** authority pin, not a Tool Lock
+  executable provision. Runtime remains locked `dargo` 0.1.0 in toolchains v4.
+  Supply-chain annotation: `supply-chain/psy-node-dpn-authority.v1.json`.
 
   This module is **not** a full PSL frontend and **not** formal semantics.
   Exact `u16` / `u8` discriminants follow the upstream enums (including holes).
 -/
 namespace ProofForgeV2.Targets.Psy.Dpn.SchemaV1
+
+/-- Exact 40-hex git rev of PsyProtocol/psy-node used as DPN schema +
+    `gen_dapen` method_id algorithm authority (aligned with locked dargo
+    0.1.0). Documentation/engineering pin only — **not** a Tool Lock
+    executable asset. Changing this without revalidating Schema discriminants
+    and Counter method_id goldens is fail-closed by suite. -/
+def psyNodeDpnAuthorityRevV1 : String :=
+  "79e0b82422ebdd1173a7b4b3751eb3186aad83e5"
+
+/-- Canonical repository URL for `psyNodeDpnAuthorityRevV1`. -/
+def psyNodeDpnAuthorityRepoV1 : String :=
+  "https://github.com/PsyProtocol/psy-node"
 
 /-- Official `DPNBuiltInDataType` (`repr(u8)`-style ordinals). -/
 inductive DataTypeV1 where

@@ -9,7 +9,7 @@ normative: false
 
 # Psy DPN 层落地规划
 
-状态：`draft`（规划输入；**G6 engineering closeout 2026-08-08**：DPN-1..7 + G5 + R-HARD + **G6-DEBUG** + **G6-RUNTIME** + **G6-PIN** 全部 engineering 闭合；**RES-METHOD-ID** 官方 method_id SHA-256 已闭合。产品默认 sole `{name}.dpn.json`；`.psy` 仅 opt-in debug；runtime DPN-first plant；WideCounter256 结构 pin。**诚实 residual（非未做 G6）**：locked dargo 0.1.0 无 package-only execute → local-VM 仍需 opt-in `.psy`；全量 dargo package 字节金样 deferred。`deployable=false`。见 §4.3 / §10）
+状态：`draft`（规划输入；**G6 engineering closeout 2026-08-08**：DPN-1..7 + G5 + R-HARD + **G6-DEBUG** + **G6-RUNTIME** + **G6-PIN** 全部 engineering 闭合；**RES-METHOD-ID** 官方 method_id SHA-256 已闭合；**RES-TOOL-LOCK** psy-node rev 权威 pin（Tool Lock 文档 + supply-chain annotation；runtime 仍 dargo 0.1.0）已闭合。产品默认 sole `{name}.dpn.json`；`.psy` 仅 opt-in debug；runtime DPN-first plant；WideCounter256 结构 pin。**诚实 residual（非未做 G6）**：locked dargo 0.1.0 无 package-only execute → local-VM 仍需 opt-in `.psy`；全量 dargo package 字节金样 deferred。`deployable=false`。见 §4.3 / §10）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Psy target 的权威物化从 **文本 `.psy`** 切到 **官方 DPN 方法级定义**，并评估 **ProgramV1 语法/语义能覆盖到 DPN target 的范围**。
 
 权威上游（pin）：
@@ -175,7 +175,7 @@ Pin rev 与 dargo 0.1.0 不一致时 **fail closed**（文档 + Tool Lock 同步
 | **done / partial** | 全部 Y + 两 P | 有 DPN lower 或诚实 PARTIAL + `PsyDpnV1` 钉测 |
 | **residual** | **0** | R-HARD 后 `isPsyDpnG5HardResidualAllowlistV1` 恒 false；无 `.psy`-only residual 路径 |
 | **plan-FC** | bn254 Field、nested Map、result-bearing call、Context/Commit、invariant、assets… | 产品 Plan 前拒绝；不发明 DPN |
-| **open residual work** | 全量 dargo 字节金样 / package-only execute | **G6 closeout done**（2026-08-08）；**RES-METHOD-ID done**；WideCounter256 结构 pin 已合；字节金样与 package-only dargo **deferred**（见 §10）；UPS/formal out-of-slice |
+| **open residual work** | 全量 dargo 字节金样 / package-only execute | **G6 closeout done**（2026-08-08）；**RES-METHOD-ID done**；**RES-TOOL-LOCK done**；WideCounter256 结构 pin 已合；字节金样与 package-only dargo **deferred**（见 §10）；UPS/formal out-of-slice |
 
 **结论（规划层 + G5-MATRIX + R-HARD + G6 closeout 事实）：**
 在 **Psy 已开放且 Plan admit 的子集** 上，物化 **必须** 产出 `.dpn.json` primary，或 `PSY-DPN-G5-HARD` fail；`.psy` 仅 opt-in debug（env / `emitPsyDebug`）；**plan-FC** 族不经 DPN 旁路。
@@ -215,7 +215,7 @@ ProofForgeV2/Targets/Psy/
 | G5 | 全 admit 面扫描 | **done（G5-WIDE + G5-AGG + G5-MATRIX + G5-HARD + R-HARD）** | §3.2 每行 DPN 钉测或 plan-FC；residual 桶 **0**；allowlist 空 + materialize hard-require；全量 dargo 字节金样 **deferred**（§10） |
 | G6 | DPN-primary product + runtime plant | **done PARTIAL（G6 closeout 2026-08-08）** | **G6-DEBUG**：产品默认 sole `{name}.dpn.json`；`.psy` opt-in debug。**G6-RUNTIME**：DPN-first plant `target/<pkg>.json` + method⊆；execute 仍 opt-in `.psy`（dargo 0.1.0 无 package-only）。**G6-PIN**：WideCounter256 结构 pin；全量 dargo 字节金样 **deferred**（§10） |
 
-G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛；**G6 engineering closeout** 已闭合 DPN-primary product、runtime plant 与 WideCounter256 结构 pin。`.psy` **保留**为 opt-in debug / PARTIAL execute 证据（删除会破 `psy-runtime` local-VM），**非** DPN 权威。后续仅 optional residual（package-only dargo / 全量字节金样 deferred / UPS），见 §10；method_id 已闭合。
+G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛；**G6 engineering closeout** 已闭合 DPN-primary product、runtime plant 与 WideCounter256 结构 pin。`.psy` **保留**为 opt-in debug / PARTIAL execute 证据（删除会破 `psy-runtime` local-VM），**非** DPN 权威。后续仅 optional residual（package-only dargo / 全量字节金样 deferred / UPS），见 §10；method_id 与 Tool Lock psy-node rev pin 已闭合。
 ---
 
 ## 5. 分阶段实现（建议顺序）
@@ -225,7 +225,7 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 - [x] 选定 DPN 为权威物化层
 - [x] 文档钉死 `psy-node` rev `79e0b824…` 与 dargo 0.1.0 对齐关系（本规划 § 权威上游 pin）
 - [x] 金样文件入库策略：`testdata/golden/psy-dpn-v1/counter-package.v1.json` + `PsyDpnV1` pin
-- [ ] Tool Lock 独立条目镜像同一 rev（可选硬化；runtime 仍走 dargo 0.1.0 pin）
+- [x] Tool Lock / supply-chain 镜像同一 rev（**RES-TOOL-LOCK，2026-08-08**）：`ToolLockV4` 模块注释 + `SchemaV1.psyNodeDpnAuthorityRevV1` + `supply-chain/psy-node-dpn-authority.v1.json` + `psy_runtime_test.sh`/`psy_acceptance.sh` 注释；**非** tools[] 可执行条目（toolchain_assets 拒未知字段；runtime 仍 dargo 0.1.0 pin）
 
 ### Phase DPN-1 — Schema + Counter 金样
 
@@ -369,6 +369,7 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
 | G6-RUNTIME | `psy-runtime` / acceptance DPN-first plant `target/<pkg>.json` + package-shape + method⊆；**PARTIAL** execute 仍 opt-in `.psy` |
 | G6-PIN | `PsyDpnV1` WideCounter256 VM product Plan→DPN **结构** pin（非 full-byte golden） |
 | RES-METHOD-ID | 官方 `gen_dapen` method_id SHA-256（`genDapenContractFunctionMethodIdV1`；Counter ≡ pin；EmitIR `p0..` size=1） |
+| RES-TOOL-LOCK | `psy-node` rev `79e0b824…` schema/method_id 权威 pin：`SchemaV1.psyNodeDpnAuthorityRevV1` + `ToolLockV4` 文档 + `supply-chain/psy-node-dpn-authority.v1.json`；runtime 仍 dargo 0.1.0（无假 tools[] 行） |
 
 ### 诚实 residual（blockers only；非漏做 G6）
 
@@ -378,7 +379,8 @@ G0–G1 + dual-write（DPN-7）为 **engineering MVP 已闭合**；G5 为 **“P
    - WideCounter / WideCounter256 全展开包体过大；结构 pin 已覆盖 admit 面，exact UTF-8 CI 金样价值不成比例。
    - 无 package-only dargo 路径时无法稳定抓取 multi-method 宽整数官方 package；MapMini 等 dargo 仍破 return-in-if。
 3. **method_id 官方 hash 复刻 — done（RES-METHOD-ID，2026-08-08）**：`genDapenContractFunctionMethodIdV1` 跨语言复刻；产品路径始终算法；Counter pin 仅回归。见 §6。
-4. **仍 optional / out-of-slice**：Tool Lock 镜像 `psy-node` rev；UPS / network / deploy / formal；若上游 dargo 增加 package-only execute，再评估去掉 `.psy` PARTIAL。
+4. **Tool Lock 镜像 `psy-node` rev — done（RES-TOOL-LOCK，2026-08-08）**：文档 + supply-chain annotation + Lean pin；**非** dargo 可执行替换；不改 toolchains.v4 digests。
+5. **仍 optional / out-of-slice**：UPS / network / deploy / formal；若上游 dargo 增加 package-only execute，再评估去掉 `.psy` PARTIAL。
 
 规划 owner：engineering。
 产品决策 implicit：用户已确认 “对准 DPN 层” 与 “ProgramV1 admit 面尽量全覆盖到 DPN target”。

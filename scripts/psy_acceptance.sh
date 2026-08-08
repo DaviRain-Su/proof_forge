@@ -18,6 +18,11 @@
 #   2. default cache tool-root/{linux-x86_64,darwin-arm64}
 #   3. host ~/.psy/bin/dargo + ~/.psy/toolchains/.../std.psy (compile-only fallback)
 #
+# RES-TOOL-LOCK: DPN package shape / method_id algorithm authority is
+# PsyProtocol/psy-node @ 79e0b82422ebdd1173a7b4b3751eb3186aad83e5 (supply-chain
+# psy-node-dpn-authority.v1.json; SchemaV1.psyNodeDpnAuthorityRevV1). Runtime
+# remains dargo 0.1.0; this helper never provisions psy-node.
+#
 # When no dargo/std is available the helper skip-cleans (exit 0). When tools are
 # present it is fail-closed on non-zero compile/generate-abi.
 #

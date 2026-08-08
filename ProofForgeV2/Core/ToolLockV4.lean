@@ -2,7 +2,33 @@ import ProofForgeV2.Core.Canonical
 import ProofForgeV2.Core.Common
 import Lean.Data.Json.Parser
 
-/-! Compile-time authority for the two supported platform Tool Lock v4 files. -/
+/-!
+Compile-time authority for the two supported platform Tool Lock v4 files.
+
+## Psy DPN residual (RES-TOOL-LOCK) — schema/method_id authority pin
+
+DPN schema + `gen_dapen` method_id algorithm authority is **not** a Tool Lock
+executable entry. Runtime stays the locked `dargo` **0.1.0** tool (psy-compiler
+release assets in both platform locks). Schema/method_id authority is the
+documented git rev:
+
+* repo: `https://github.com/PsyProtocol/psy-node`
+* rev: `79e0b82422ebdd1173a7b4b3751eb3186aad83e5`
+* crate: `psy_vm` (`DPNFunctionCircuitDefinition` + ops)
+* Lean pin: `ProofForgeV2.Targets.Psy.Dpn.SchemaV1.psyNodeDpnAuthorityRevV1`
+* supply-chain annotation: `supply-chain/psy-node-dpn-authority.v1.json`
+* planning: `docs/targets/10-psy-dpn-lowering.md` § authority pin / Phase DPN-0
+
+**Fail closed / honesty bounds:**
+
+* Do **not** invent a cargo-git `psy-node` tools[] row without a provisionable
+  asset + member pins (toolchain_assets rejects unknown fields and broken
+  asset/tool graphs).
+* Do **not** rewrite dargo 0.1.0 `executableSha256` / asset hashes to “bind”
+  this rev — that would be a false runtime pin.
+* If upstream dargo / psy-compiler and psy-node rev diverge, re-pin both docs
+  and this comment together; do not silently keep one side.
+-/
 
 namespace ProofForgeV2.Core.ToolLockV4
 

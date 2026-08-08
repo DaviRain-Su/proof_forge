@@ -1,0 +1,36 @@
+{
+  "schema": "proof-forge.psy-node-dpn-authority.v1",
+  "schemaVersion": 1,
+  "role": "dpn-schema-method-id-authority",
+  "repository": "https://github.com/PsyProtocol/psy-node",
+  "rev": "79e0b82422ebdd1173a7b4b3751eb3186aad83e5",
+  "crate": "psy_vm",
+  "paths": [
+    "client_prover/psy_vm/src/dpn/vm/def.rs",
+    "client_prover/psy_vm/src/dpn/ops/"
+  ],
+  "covers": [
+    "DPNFunctionCircuitDefinition schema",
+    "DPNOpType / DPNStateCmd / DPNIndexedVarDef discriminants",
+    "gen_dapen_contract_function_method_id (psy_crypto hash utils)"
+  ],
+  "alignedRuntimeTool": {
+    "toolLockSchema": "proof-forge.toolchains.v4",
+    "id": "dargo",
+    "version": "0.1.0",
+    "note": "Tool Lock executable pin for local-VM/compile lanes; not replaced by this annotation"
+  },
+  "leanPin": "ProofForgeV2.Targets.Psy.Dpn.SchemaV1.psyNodeDpnAuthorityRevV1",
+  "planning": "docs/targets/10-psy-dpn-lowering.md",
+  "notCovered": [
+    "Tool Lock executable provision of psy-node",
+    "package-only dargo execute",
+    "UPS / network / deploy / formal",
+    "full multi-method dargo package byte goldens beyond Counter"
+  ],
+  "notes": [
+    "Engineering annotation only (RES-TOOL-LOCK). Does not alter toolchains.v4 digests, dargo asset hashes, or executableSha256.",
+    "Fail closed: do not invent a cargo-git psy-node tools[] row without a provisionable asset; toolchain_assets rejects unknown lock fields.",
+    "If dargo 0.1.0 and this psy-node rev diverge, re-pin docs + this file + SchemaV1 together."
+  ]
+}

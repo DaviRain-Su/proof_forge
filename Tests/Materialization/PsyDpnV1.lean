@@ -47,6 +47,8 @@
       empty (full hard-require); non-DPN lower fails materialize with PSY-DPN-G5-HARD
     * RES-METHOD-ID: official gen_dapen SHA-256 method_id (Counter get/increment/
       initialize exact ids; Plan params → p0.. size-1 args matching EmitIR)
+    * RES-TOOL-LOCK: psy-node rev pin for DPN schema/method_id authority
+      (psyNodeDpnAuthorityRevV1; not Tool Lock executable; dargo 0.1.0 runtime)
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Psy
@@ -96,6 +98,18 @@ def testEncodeIndexedId : IO Unit := do
   match decodeIndexedId 4294967296 with
   | some (.bool, 0) => pure ()
   | other => throw <| IO.userError s!"decode bool#0 failed: {repr other}"
+
+/-- RES-TOOL-LOCK: DPN schema/method_id authority is psy-node rev pin
+    (not a Tool Lock executable; runtime stays dargo 0.1.0). -/
+def testPsyNodeDpnAuthorityRevPin : IO Unit := do
+  expect (psyNodeDpnAuthorityRevV1 ==
+      "79e0b82422ebdd1173a7b4b3751eb3186aad83e5")
+    "psyNodeDpnAuthorityRevV1 must be exact 40-hex pin"
+  expect (psyNodeDpnAuthorityRevV1.length == 40)
+    "psy-node authority rev must be full SHA-1 length"
+  expect (psyNodeDpnAuthorityRepoV1 ==
+      "https://github.com/PsyProtocol/psy-node")
+    "psyNodeDpnAuthorityRepoV1 canonical URL"
 
 /-- RES-METHOD-ID: official gen_dapen_contract_function_method_id (SHA-256 LE u32).
     Counter preimages: get() / increment(p0[1]) / initialize(p0[1]).
@@ -2617,6 +2631,7 @@ unsafe def testCounterProductDualWriteArtifacts : IO Unit := do
 unsafe def run : IO Unit := do
   testOpTypeDiscriminants
   testEncodeIndexedId
+  testPsyNodeDpnAuthorityRevPin
   testOfficialMethodIdAlgorithm
   testCounterGoldenDecode
   testCounterEncodeRoundTrip

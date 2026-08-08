@@ -12,6 +12,21 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy DPN RES-TOOL-LOCK（psy-node rev authority pin）
+
+- Pinned PsyProtocol/psy-node `79e0b82422ebdd1173a7b4b3751eb3186aad83e5` as
+  DPN schema + `gen_dapen` method_id algorithm authority via:
+  `SchemaV1.psyNodeDpnAuthorityRevV1` / repo URL constants,
+  `ToolLockV4` module documentation, supply-chain annotation
+  `supply-chain/psy-node-dpn-authority.v1.json`, and comments in
+  `psy_runtime_test.sh` / `psy_acceptance.sh`.
+- Runtime Tool Lock executable remains locked dargo 0.1.0 only — no fake
+  tools[] psy-node row, no dargo digest rewrite (toolchain_assets rejects
+  unknown lock fields).
+- `PsyDpnV1` pins the authority rev; planning § Phase DPN-0 checkbox closed.
+- Non-claims: not package-only dargo execute, not UPS/formal, not Tool Lock
+  executable provision of psy-node.
+
 ## 2026-08-08 — Psy DPN G5-HARD residual policy（PSY-DPN-G5-HARD）
 
 - `EmitIRV1`: non-residual DPN lower failures fail materialize with stable

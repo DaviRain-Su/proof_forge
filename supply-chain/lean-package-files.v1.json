@@ -146,9 +146,9 @@
       "sha256": "e6fff1706a9810e756668445c8ba55dcf3b0513a37d205f60306178f9dfa36f7"
     },
     {
-      "bytes": 5654,
+      "bytes": 6848,
       "path": "ProofForgeV2/Core/ToolLockV4.lean",
-      "sha256": "e89bdda655c00606031ab524e0be5d267c61baab670da12da0b2dd692a8938ea"
+      "sha256": "04f1efb213a47566c02febf19e164e8992bf2d04fda03dfb504fd0318f9b2623"
     },
     {
       "bytes": 8444,
@@ -896,9 +896,9 @@
       "sha256": "ff0c08e0e138be1ace5f56bb80d34c3726d018f7276d2f407e2ba5d0823dbab6"
     },
     {
-      "bytes": 12727,
+      "bytes": 13646,
       "path": "ProofForgeV2/Targets/Psy/Dpn/SchemaV1.lean",
-      "sha256": "a4cbeee9aa02e86d73c110cd9caaf62de92a95e05229c2d8d11ff9b3a841940f"
+      "sha256": "edadd6073856d2eed3dfe3c89d9937e6491dd9b2dc53a10f1d427de9b2780a8b"
     },
     {
       "bytes": 82451,

@@ -37,6 +37,13 @@
 # Product default remains psy-dargo-u64-v1; UInt128 uses the explicit
 # psy-dargo-0.1.0-vm-v1 profile and does not change default semantics.
 #
+# RES-TOOL-LOCK (DPN schema / method_id authority — not a runtime binary):
+#   Product DPN JSON is shaped for psy_vm DPNFunctionCircuitDefinition at
+#   PsyProtocol/psy-node rev 79e0b82422ebdd1173a7b4b3751eb3186aad83e5
+#   (see supply-chain/psy-node-dpn-authority.v1.json and SchemaV1
+#   psyNodeDpnAuthorityRevV1). This lane still executes via locked dargo 0.1.0
+#   only; do not invent a psy-node CLI or rewrite dargo pin hashes for this rev.
+#
 # Hard-fails with PF-TOOLCHAIN-MISSING when locked dargo/std are absent.
 # Proprietary Psy toolchain is dev/test-only; no redistribution, no network/UPS,
 # no formal/hermetic/deploy claim. Product Finalize remains zero-tool
