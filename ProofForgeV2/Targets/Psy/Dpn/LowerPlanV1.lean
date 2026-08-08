@@ -1,5 +1,5 @@
 /-
-  PSY-DPN-2/3/4/5/6: PsyPlan → DPN package.
+  PSY-DPN-2/3/4/5/6/7: PsyPlan → DPN package (product dual-write via EmitIRV1).
 
   DPN-2: UInt64 Counter-shaped templates (init store / checkedAdd store+return /
   view load) pinned to locked-dargo Counter method ids and package shape.

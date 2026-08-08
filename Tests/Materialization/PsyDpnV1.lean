@@ -1,6 +1,7 @@
 /-
-  Tests.Materialization.PsyDpnV1 — PSY-DPN-1..6 schema + Counter golden +
-  Plan lower + if/match/for + multi-leaf/wide + Map + effects honesty.
+  Tests.Materialization.PsyDpnV1 — PSY-DPN-1..7 schema + Counter golden +
+  Plan lower + if/match/for + multi-leaf/wide + Map + effects honesty +
+  product dual-write.
 
   Pins:
     * OpType / DataType exact discriminants used by Counter (+ Select)
@@ -16,6 +17,8 @@
       without .psy return-in-if; hand-built lookup Select + upsert storeAggregate
     * DPN-6: emit → events[] PARTIAL; void call → InvokeExternal PARTIAL;
       schedule FC; ContextRead residual FC message
+    * DPN-7: product `buildFromCapability` dual-writes Counter.dpn.json
+      (package ≡ golden) + transitional Counter.psy; deployable=false note
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Psy
@@ -894,6 +897,46 @@ unsafe def testVoidCallProductPartial : IO Unit := do
   expect hasInvoke
     "product void call must lower to InvokeExternalContractFunctionSync"
 
+/-- PSY-DPN-7: product materialize dual-writes DPN package JSON + transitional .psy.
+    Counter package content must equal locked-dargo golden; .psy remains non-empty. -/
+unsafe def testCounterProductDualWriteArtifacts : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let src ← IO.FS.readFile "Examples/Counter.lean"
+  let parsed ← liftResult (← session.selectProgramV1
+    src "<dpn-7>" "Examples.Counter" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  let files ← liftResult <| Targets.Psy.buildFromCapability cap
+  expect (files.size == 2)
+    s!"DPN-7 Counter must dual-write 2 files, got {files.map (·.path)}"
+  let some dpn := files.find? (·.path == "Counter.dpn.json") |
+    throw <| IO.userError s!"missing Counter.dpn.json; got {files.map (·.path)}"
+  let some psy := files.find? (·.path == "Counter.psy") |
+    throw <| IO.userError s!"missing Counter.psy; got {files.map (·.path)}"
+  expect (files[0]!.path == "Counter.dpn.json")
+    "DPN package must be primary (first) artifact"
+  expect (dpn.mediaType == "application/json") "dpn mediaType"
+  expect (psy.mediaType == "text/plain") "psy mediaType"
+  expect (!psy.contents.isEmpty) "transitional .psy non-empty"
+  expect (psy.contents.contains '#' && psy.contents.contains 'c')
+    "transitional .psy should look like Psy source"
+  match parsePackage? dpn.contents with
+  | none => throw <| IO.userError "Counter.dpn.json failed to parse as package"
+  | some pkg =>
+      expect (pkg == counterPackageGoldenV1)
+        "product dual-write DPN package must equal Counter golden"
+  -- buildFromCompiledSemanticV1 shares emitFromIR
+  let files2 ← liftResult <| Targets.Psy.buildFromCompiledSemanticV1 compiled
+  expect (files2.map (·.path) == files.map (·.path))
+    "compiled-semantic materialize must dual-write same paths"
+  match parsePackage? files2[0]!.contents with
+  | none => throw <| IO.userError "compiled-semantic dpn parse failed"
+  | some pkg2 =>
+      expect (pkg2 == counterPackageGoldenV1)
+        "compiled-semantic dual-write package must equal golden"
+
 unsafe def run : IO Unit := do
   testOpTypeDiscriminants
   testEncodeIndexedId
@@ -920,6 +963,7 @@ unsafe def run : IO Unit := do
   testScheduleFailClosedAtDpn
   testEmitProductPartial
   testVoidCallProductPartial
+  testCounterProductDualWriteArtifacts
   IO.println "Tests.Materialization.PsyDpnV1: ok"
 
 end Tests.Materialization.PsyDpnV1

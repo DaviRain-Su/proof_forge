@@ -3,7 +3,8 @@ import ProofForgeV2.Targets.Psy.LowerSemanticV1
 /-!
 # Psy ValidatePlanV1 — plan canonicity
 
-Validates the public `Psy.Plan` value before any `.psy` source is produced.
+Validates the public `Psy.Plan` value before DPN package / transitional `.psy`
+artifacts are produced (PSY-DPN-7 dual-write).
 -/
 
 namespace ProofForgeV2.Targets.Psy

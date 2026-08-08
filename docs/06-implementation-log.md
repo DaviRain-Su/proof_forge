@@ -12,6 +12,16 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy DPN product dual-write（PSY-DPN-7）
+
+- `EmitIRV1.emitFromIR` / `buildFromCapability`: dual-write `{name}.dpn.json`
+  (primary package JSON when Plan→DPN succeeds) + transitional `{name}.psy`.
+- Residual Plan shapes without DPN lower still emit `.psy` only (G5 residual;
+  no invented DPN ops). Finalize evidence note mentions DPN+`.psy`, zero-tool,
+  `deployable=false`.
+- `PsyDpnV1`: Counter product dual-write package ≡ locked-dargo golden.
+- Non-claims: not `.psy` deletion, not psy-runtime DPN-first, not UPS/formal.
+
 ## 2026-08-08 — Psy Plan→DPN Counter lower（PSY-DPN-2）
 
 - `LowerPlanV1`: pattern lower for single-field UInt64 Counter-shaped Plan

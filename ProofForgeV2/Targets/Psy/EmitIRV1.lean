@@ -1,10 +1,19 @@
 import ProofForgeV2.Targets.Psy.ValidatePlanV1
+import ProofForgeV2.Targets.Psy.Dpn.LowerPlanV1
+import ProofForgeV2.Targets.Psy.Dpn.JsonCodecV1
 
 /-!
-# Psy EmitIRV1 — Plan → `.psy` source emission
+# Psy EmitIRV1 — Plan → product artifacts (DPN JSON + transitional `.psy`)
 
 Target-owned Psy AST/renderer (ported from the old Compiler/Psy surface for
 the V2 envelope) and capability-internal `lower`/`emitFromIR`.
+
+**PSY-DPN-7 product dual-write**: primary artifact is
+`{contract}.dpn.json` (dargo-shaped package of `DPNFunctionCircuitDefinition`)
+when Plan→DPN lower succeeds; `{contract}.psy` remains a transitional/debug
+text emission for dargo compile lanes. Residual Plan shapes not yet admitted
+by `LowerPlanV1` still emit `.psy` only during the dual-write transition
+(G5 full admit coverage is separate). `deployable=false` unchanged.
 
 Checked u64 arithmetic is realized with explicit assert guards. Psy `Felt`
 is Goldilocks (p = 2^64−2^32+1): every decimal literal is reduced into
@@ -32,6 +41,8 @@ namespace ProofForgeV2.Targets.Psy
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Targets.Psy.Dpn.LowerPlanV1
+open ProofForgeV2.Targets.Psy.Dpn.JsonCodecV1
 
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .psy message
@@ -1746,14 +1757,33 @@ private def lower (plan : Plan) : CompileResult IR := do
   }
   pure { sourcePlan := plan, module_ }
 
+/-- PSY-DPN-7 dual-write product files from retained Plan + PsyModule.
+    * Primary: `{name}.dpn.json` when `lowerPlanToPackageV1` succeeds
+    * Transitional/debug: `{name}.psy` always
+    Residual Plan shapes still admitted on the `.psy` path but not yet in
+    `LowerPlanV1` (bitAnd/shl/narrow/callFn/…) keep `.psy` only during the
+    dual-write transition — prefer evidence FC inside LowerPlan over inventing
+    DPN ops; G5 hard-requires DPN for every Psy Plan admit. -/
 private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
   let source := renderModule ir.module_
   let pathName := ir.module_.contractName
-  pure #[{
+  let psyFile : OutputFile := {
     path := s!"{pathName}.psy"
     mediaType := "text/plain"
     contents := source
-  }]
+  }
+  match lowerPlanToPackageV1 ir.sourcePlan with
+  | .ok pkg =>
+      let dpnFile : OutputFile := {
+        path := s!"{pathName}.dpn.json"
+        mediaType := "application/json"
+        contents := encodePackageCompact pkg
+      }
+      -- DPN package first (product authority), .psy second (transition/debug).
+      pure #[dpnFile, psyFile]
+  | .error _ =>
+      -- Transition residual: incomplete DPN lower for this Plan shape.
+      pure #[psyFile]
 
 def validateIR (ir : IR) : CompileResult Unit := do
   validatePlan ir.sourcePlan

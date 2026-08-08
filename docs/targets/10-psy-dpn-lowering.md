@@ -9,7 +9,7 @@ normative: false
 
 # Psy DPN 层落地规划
 
-状态：`draft`（规划输入；DPN-1..6 engineering 已落地，admit 面未全覆盖 / G5 residual）
+状态：`draft`（规划输入；DPN-1..7 engineering 已落地 dual-write；admit 面未全覆盖 / G5 residual）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Psy target 的权威物化从 **文本 `.psy`** 切到 **官方 DPN 方法级定义**，并评估 **ProgramV1 语法/语义能覆盖到 DPN target 的范围**。
 
 权威上游（pin）：
@@ -260,9 +260,12 @@ G0–G2 为 **MVP**；G5 为 **“ProgramV1 admit 面全覆盖”** 声明门槛
 
 ### Phase DPN-7 — 产品切换
 
-- `filesFromIR` / Finalize 主产物改为 DPN JSON（或 dual-write 过渡）
-- `.psy` debug flag 或删除路径（删除前 deletion-gate）
-- `just psy-runtime` 优先 DPN 路径
+- [x] `emitFromIR` / `buildFromCapability` dual-write：`{name}.dpn.json`（package JSON，Plan→DPN 成功时 **primary**）+ 过渡 `{name}.psy`（always / residual-only when DPN lower 未 admit）
+- [x] Finalize 证据注记：DPN JSON + transitional `.psy`；zero-tool；`deployable=false`
+- [x] `PsyDpnV1` pin：Counter product dual-write package ≡ golden + `.psy` 非空
+- [ ] residual Plan 形状 hard-require DPN（G5；当前 dual-write 过渡对未 lower 形状仅 `.psy`）
+- [ ] 删除 `.psy` 权威路径（deletion-gate；现为 debug/transition）
+- [ ] `just psy-runtime` 优先 DPN 路径（仍经 `.psy`→dargo；不经 product Finalize）
 
 ---
 

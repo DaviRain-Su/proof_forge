@@ -2,8 +2,9 @@
   Psy engineering finalization adapter (D3/S7b).
 
   Zero tools; exact non-deployable note. Product finalize does **not** invoke
-  dargo: Psy/Dargo source is emitted without a digest-pinned compiler on the
-  product path, so no build/execute/proof/deploy evidence is claimed here.
+  dargo / psy_vm: materialize may dual-write `{name}.dpn.json` (DPN package
+  authority, PSY-DPN-7) plus transitional `{name}.psy`; neither is compiled,
+  executed, or proven on the product path.
 
   Separate host-heavy engineering lane (external to this finalize adapter):
   `scripts/psy_runtime_test.sh` / `just psy-runtime` may exercise locked
@@ -33,7 +34,7 @@ def finalize
     deployable := false
     extraFiles := #[]
     evidenceNote :=
-      "no approved and digest-pinned Dargo/Psy compiler is configured on the product finalize path; Psy source was emitted without dargo build, execution, proof, or deployment evidence (optional host-heavy locked dargo local-VM lane is external: scripts/psy_runtime_test.sh)"
+      "no approved and digest-pinned Dargo/psy_vm toolchain is configured on the product finalize path; PSY-DPN-7 dual-write may emit DPN package JSON (primary) and transitional .psy without dargo/psy_vm build, execution, proof, UPS, or deployment evidence (optional host-heavy locked dargo local-VM lane is external: scripts/psy_runtime_test.sh)"
   }
 
 end ProofForgeV2.Targets.Psy.FinalizeV1
