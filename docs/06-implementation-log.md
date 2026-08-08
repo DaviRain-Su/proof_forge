@@ -12,6 +12,21 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy dargo execute differential expansion（PSY-RUNTIME-2）
+
+- Expanded `scripts/psy_runtime_test.sh` / `just psy-runtime` beyond Counter +
+  WideCounter: Accumulator multi-add, OptionState set/clear/peek, LoopSum
+  static-unroll for; pin `result_vm` sequences and structure-only
+  events/public_inputs counts.
+- New product examples `Examples/OptionState.lean`, `Examples/LoopSum.lean`
+  (line comments only before `program`).
+- Fix wide UInt128/256 shift emit: loop index is `u32` from `for … u32..`;
+  bind shift count as `u32` via `as u32` after range assert (Felt vs u32
+  TypeMismatch on dargo).
+- MapMini left out of execute lane (dargo InvalidReturn on nested return-in-if).
+- Non-claims: not Anvil/local chain, not UPS submit, not network/formal;
+  still host-heavy non-ordinary-ci; Darwin runtime unrun.
+
 ## 2026-08-08 — Psy async/assets evidence fail closed（PSY-ASYNC-ASSETS）
 
 - `schedule` remains declined at resolver (`effect.asynchronous-workflow`) and

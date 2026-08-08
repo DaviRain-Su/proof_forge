@@ -1391,12 +1391,14 @@ private def emitWideUintShift
 
   let (countStmts, countExpr, ctx2) ← lowerExprStmt ctx' count
   let countRaw := s!"{nameRoot}_count_raw"
+  -- `for i in 0u32..N` binds `i : u32`. Compare against a u32 count
+  -- (count already asserted < bitWidth ≤ 256) — Felt vs u32 is a dargo TypeMismatch.
   let countName := s!"{nameRoot}_count"
   out := out ++ countStmts ++
     #[.letBind countRaw "Felt" countExpr,
       .assert (.binary (.local countRaw) .lt (feltLit bitWidth))
         s!"invalidShift: count >= {bitWidth}",
-      .letBind countName "Felt" (.local countRaw)]
+      .letBind countName "u32" (.cast (.local countRaw) "u32")]
   ctx' := ctx2
   let countLocal := PsyExpr.local countName
 

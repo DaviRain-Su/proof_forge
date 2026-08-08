@@ -61,7 +61,7 @@ PsyPlan {
 
 - **产品路径**：`FinalizeV1` zero-tool；即使 Tool Lock 已 pin dargo，产品 finalize 也不调用它。
 - **Compile-only 工程验收**：`dargo` v0.1.0 + bundled `std.psy`（优先 Tool Root / default cache；host `~/.psy` 可 fallback 且缺席 skip）。
-- **Local VM / base-proof 工程 lane（独立）**：`just psy-runtime` 在 locked root 上对默认-profile Counter 与显式 `psy-dargo-0.1.0-vm-v1` WideCounter 跑产品 build/inspect、`compile`/`generate-abi`/`execute`。Counter 固定 happy `5+3→8` 与 `p-1+1` overflow；WideCounter 固定四 limb carry/borrow/compare、`(2^32−1)^2` checked mul、mixed multi-limb div/mod、UInt128 add/sub/mul overflow/underflow、div/mod zero-divisor 与 limb range guard。仅 `linux-x86_64`/`darwin-arm64`；**不** pin 随机 `public_inputs` 或时间戳；**不**声称 network UPS / formal。2026-08-07 Linux exact-member root 已实跑通过；Darwin runtime 未实跑；缺 root 时 `PF-TOOLCHAIN-MISSING`。
+- **Local VM / base-proof 工程 lane（独立）**：`just psy-runtime` 在 locked root 上对默认-profile 与显式 `psy-dargo-0.1.0-vm-v1` 跑产品 build/inspect、`compile`/`generate-abi`/`execute`。**PSY-RUNTIME-2（2026-08-08）** 默认 profile：Counter happy `5+3→8` + overflow；**Accumulator** `10+5+7→22`；**OptionState** setSome/peek/clear；**LoopSum** static-unroll for→4。显式 VM：WideCounter 四 limb carry/borrow/compare、mul/div/mod、bitwise/shift + checked negatives。仅 `linux-x86_64`/`darwin-arm64`；**不** pin 随机 `public_inputs` 数值；**不**声称 network UPS / localhost 链 / formal。MapMini dargo compile 仍因 return-in-if 未进 execute lane。Linux 已实跑；Darwin runtime 未实跑；缺 root 时 `PF-TOOLCHAIN-MISSING`。
 - proprietary 工具仅 dev/test，禁止 redistribution。
 
 ## 7. 部署/证明流程

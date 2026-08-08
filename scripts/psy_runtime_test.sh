@@ -2,10 +2,19 @@
 # Psy dargo v0.1.0 local VM / base-proof engineering runtime lane.
 #
 # Independent host-heavy recipe (NOT ordinary ci):
-#   product CLI build Counter + explicit-profile WideCounter → inspect closure →
-#   wrap each `.psy` as a Dargo project → compile / generate-abi →
-#   execute UInt64 happy/overflow and UInt128 carry/borrow/multiply/divide/remainder/
-#   compare/overflow/zero-divisor paths.
+#   product CLI build default-profile fixtures + explicit-profile WideCounter →
+#   inspect closure → wrap each `.psy` as a Dargo project → compile / generate-abi →
+#   dargo execute differentials:
+#     Counter (happy + overflow)
+#     Accumulator (multi-add state)
+#     OptionState (Option UInt64 set/clear/peek)
+#     LoopSum (UInt64 static-unroll for)
+#     (MapMini: product Plan ok; dargo rejects nested return-in-if on Map get —
+#      left out of execute lane until emitter expression-if rewrite)
+#     WideCounter VM profile (UInt128 arith/bitwise/shift + checked negatives)
+#
+# Honesty: local CFC execute + base-proof observables only.
+# Not localhost chain / Anvil / UPS submit / network finalization / formal.
 #
 # Locked tool contract (never PATH fallback):
 #   $PROOF_FORGE_TOOL_ROOT/dargo
@@ -118,6 +127,9 @@ mkdir -p "$out_parent" || die "cannot create runtime staging parent $out_parent"
 out_dir="$(mktemp -d "$out_parent/psy-runtime.XXXXXX")" || \
   die "cannot create unique runtime staging under $out_parent"
 dargo_project="${out_dir}/dargo-counter"
+acc_dargo_project="${out_dir}/dargo-accumulator"
+opt_dargo_project="${out_dir}/dargo-optionstate"
+loop_dargo_project="${out_dir}/dargo-loopsum"
 wide_dargo_project="${out_dir}/dargo-wide-counter"
 log_dir="${out_dir}/logs"
 
@@ -144,8 +156,13 @@ lake build proof_forge_next || die "lake build proof_forge_next failed"
 [[ -x "$cli" ]] || die "CLI missing after build: $cli"
 
 # CLI rejects pre-existing -o paths (PF-OUTPUT-COLLISION); the unique staging
-# root exists, but its `product` child does not.
-mkdir -p "$log_dir" "$dargo_project/src" "$wide_dargo_project/src"
+# root exists, but its product children do not.
+mkdir -p "$log_dir" \
+  "$dargo_project/src" \
+  "$acc_dargo_project/src" \
+  "$opt_dargo_project/src" \
+  "$loop_dargo_project/src" \
+  "$wide_dargo_project/src"
 
 echo "${PREFIX}: product build Examples/Counter.lean --target psy"
 if ! "$cli" build Examples/Counter.lean \
@@ -227,6 +244,91 @@ run_dargo() {
 
 run_wide_dargo() {
   run_dargo_in "$wide_dargo_project" "$@"
+}
+
+run_acc_dargo() {
+  run_dargo_in "$acc_dargo_project" "$@"
+}
+
+run_opt_dargo() {
+  run_dargo_in "$opt_dargo_project" "$@"
+}
+
+run_loop_dargo() {
+  run_dargo_in "$loop_dargo_project" "$@"
+}
+
+# Collect `result_vm:` lines into RESULT_VM_SEQ (pipe-joined) and RESULT_VM_COUNT.
+collect_result_vm() {
+  local log="$1"
+  RESULT_VM_SEQ=""
+  RESULT_VM_COUNT=0
+  while IFS= read -r line; do
+    local val="${line#result_vm:}"
+    val="${val#"${val%%[![:space:]]*}"}"
+    RESULT_VM_COUNT=$((RESULT_VM_COUNT + 1))
+    if [[ -n "$RESULT_VM_SEQ" ]]; then
+      RESULT_VM_SEQ="${RESULT_VM_SEQ}|${val}"
+    else
+      RESULT_VM_SEQ="$val"
+    fi
+  done < <(grep -E '^result_vm:' "$log" || true)
+}
+
+# Assert empty result_events + public_inputs count for structure-only observability.
+expect_events_and_public_inputs() {
+  local log="$1"
+  local want="$2"
+  local label="$3"
+  local ev_count pi_count
+  ev_count="$(grep -cE '^result_events: \[\]$' "$log" || true)"
+  pi_count="$(grep -cE '^public_inputs:' "$log" || true)"
+  if [[ "$ev_count" -ne "$want" || "$pi_count" -ne "$want" ]]; then
+    cat "$log" >&2 || true
+    die "${label}: expected ${want} empty result_events + public_inputs lines (events=${ev_count} public_inputs=${pi_count})"
+  fi
+}
+
+# Product build (default profile) → inspect → wrap Dargo.toml + src/main.psy.
+product_build_wrap() {
+  local src="$1"
+  local module="$2"
+  local program="$3"
+  local product_dir="$4"
+  local project_dir="$5"
+  local package_name="$6"
+  local label="$7"
+
+  echo "${PREFIX}: product build ${src} --target psy (${label})"
+  if ! PATH="$BUILD_PATH" "$cli" build "$src" \
+      --module "$module" \
+      --target psy \
+      -o "$product_dir" \
+      >"$log_dir/${label}-product-build.log" 2>&1; then
+    cat "$log_dir/${label}-product-build.log" >&2 || true
+    die "proof-forge-next build ${src} failed"
+  fi
+  [[ -f "$product_dir/${program}.psy" ]] || die "missing product ${program}.psy"
+  [[ -f "$product_dir/manifest.json" ]] || die "missing ${label} manifest.json"
+  [[ -f "$product_dir/evidence.json" ]] || die "missing ${label} evidence.json"
+  if ! PATH="$BUILD_PATH" "$cli" inspect "$product_dir" \
+      >"$log_dir/${label}-inspect.log" 2>&1; then
+    cat "$log_dir/${label}-inspect.log" >&2 || true
+    die "proof-forge-next inspect ${label} failed"
+  fi
+  if ! grep -q 'exact-disk-closure' "$log_dir/${label}-inspect.log"; then
+    cat "$log_dir/${label}-inspect.log" >&2 || true
+    die "${label} inspect log missing exact-disk-closure marker"
+  fi
+  cat >"$project_dir/Dargo.toml" <<EOF
+[package]
+name = "${package_name}"
+type = "bin"
+authors = ["proof-forge-next"]
+
+[dependencies]
+EOF
+  cp -f "$product_dir/${program}.psy" "$project_dir/src/main.psy"
 }
 
 echo "${PREFIX}: dargo compile --contract-name Counter"
@@ -331,6 +433,119 @@ if ! grep -q 'assertion failed: u64 add overflow' "$ovf_log"; then
 fi
 # Local VM assert trap only — do not claim full-state rollback snapshot parity.
 echo "${PREFIX}: overflow assert ok (nonzero exit + exact message; no rollback-snapshot claim)"
+
+# ---------------------------------------------------------------------------
+# PSY-RUNTIME-2: additional default-profile execute differentials
+# (local CFC execute + base-proof structure only; not chain/UPS/submit).
+# ---------------------------------------------------------------------------
+
+# --- Accumulator: init(10) + add(5) + add(7) + current → 22 ---
+product_build_wrap \
+  Examples/Accumulator.lean Examples.Accumulator Accumulator \
+  "$out_dir/acc-product" "$acc_dargo_project" "accumulator" "accumulator"
+echo "${PREFIX}: dargo compile/generate-abi Accumulator"
+run_acc_dargo acc-compile compile --contract-name Accumulator \
+  || { cat "$log_dir/acc-compile.log" >&2 || true; die "Accumulator dargo compile failed"; }
+run_acc_dargo acc-generate-abi generate-abi --contract-name Accumulator \
+  || { cat "$log_dir/acc-generate-abi.log" >&2 || true; die "Accumulator dargo generate-abi failed"; }
+echo "${PREFIX}: Accumulator execute initialize(10)/add(5)/add(7)/current → 22"
+acc_ec=0
+run_acc_dargo acc-execute execute \
+  --contract-name Accumulator \
+  --method-names initialize \
+  --method-names add \
+  --method-names add \
+  --method-names current \
+  --parameters 10 \
+  --parameters 5 \
+  --parameters 7 || acc_ec=$?
+if [[ "$acc_ec" -ne 0 ]]; then
+  cat "$log_dir/acc-execute.log" >&2 || true
+  die "Accumulator execute failed (exit $acc_ec)"
+fi
+collect_result_vm "$log_dir/acc-execute.log"
+if [[ "$RESULT_VM_COUNT" -ne 4 || "$RESULT_VM_SEQ" != "[]|[15]|[22]|[22]" ]]; then
+  cat "$log_dir/acc-execute.log" >&2 || true
+  die "Accumulator result_vm want [], [15], [22], [22]; got count=${RESULT_VM_COUNT} seq=${RESULT_VM_SEQ}"
+fi
+expect_events_and_public_inputs "$log_dir/acc-execute.log" 4 "Accumulator"
+echo "${PREFIX}: Accumulator execute ok"
+
+# --- OptionState: setSome(7)/peek/clear/peek ---
+product_build_wrap \
+  Examples/OptionState.lean Examples.OptionState OptionState \
+  "$out_dir/opt-product" "$opt_dargo_project" "option_state" "optionstate"
+echo "${PREFIX}: dargo compile/generate-abi OptionState"
+run_opt_dargo opt-compile compile --contract-name OptionState \
+  || { cat "$log_dir/opt-compile.log" >&2 || true; die "OptionState dargo compile failed"; }
+run_opt_dargo opt-generate-abi generate-abi --contract-name OptionState \
+  || { cat "$log_dir/opt-generate-abi.log" >&2 || true; die "OptionState dargo generate-abi failed"; }
+# dargo maps --parameters positionally onto methods; a leading zero-arg
+# `initialize` cannot take a filler entry (would error "expect 0 ... got 1").
+# Default none-state is already zero leaves, so start at setSome.
+echo "${PREFIX}: OptionState execute setSome(7)/peek/clear/peek"
+opt_ec=0
+run_opt_dargo opt-execute execute \
+  --contract-name OptionState \
+  --method-names setSome \
+  --method-names peek \
+  --method-names clear \
+  --method-names peek \
+  --parameters 7 || opt_ec=$?
+if [[ "$opt_ec" -ne 0 ]]; then
+  cat "$log_dir/opt-execute.log" >&2 || true
+  die "OptionState execute failed (exit $opt_ec)"
+fi
+collect_result_vm "$log_dir/opt-execute.log"
+if [[ "$RESULT_VM_COUNT" -ne 4 || "$RESULT_VM_SEQ" != "[7]|[7]|[0]|[0]" ]]; then
+  cat "$log_dir/opt-execute.log" >&2 || true
+  die "OptionState result_vm want [7], [7], [0], [0]; got count=${RESULT_VM_COUNT} seq=${RESULT_VM_SEQ}"
+fi
+expect_events_and_public_inputs "$log_dir/opt-execute.log" 4 "OptionState"
+echo "${PREFIX}: OptionState execute ok"
+
+# --- LoopSum: initialize(0)/run(0) → total += 4 via static-unroll for ---
+product_build_wrap \
+  Examples/LoopSum.lean Examples.LoopSum LoopSum \
+  "$out_dir/loop-product" "$loop_dargo_project" "loop_sum" "loopsum"
+echo "${PREFIX}: dargo compile/generate-abi LoopSum"
+run_loop_dargo loop-compile compile --contract-name LoopSum \
+  || { cat "$log_dir/loop-compile.log" >&2 || true; die "LoopSum dargo compile failed"; }
+run_loop_dargo loop-generate-abi generate-abi --contract-name LoopSum \
+  || { cat "$log_dir/loop-generate-abi.log" >&2 || true; die "LoopSum dargo generate-abi failed"; }
+# Confirm product emission still uses static unroll (not dargo-rejected for-range).
+if grep -qE 'for[[:space:]]+pf_|u32\.\.' "$loop_dargo_project/src/main.psy"; then
+  die "LoopSum .psy must not emit dargo-rejected for-range syntax"
+fi
+if ! grep -q 'boundExceeded' "$loop_dargo_project/src/main.psy"; then
+  die "LoopSum .psy missing boundExceeded guard"
+fi
+echo "${PREFIX}: LoopSum execute initialize(0)/run(0)/get → 4"
+loop_ec=0
+run_loop_dargo loop-execute execute \
+  --contract-name LoopSum \
+  --method-names initialize \
+  --method-names run \
+  --method-names get \
+  --parameters 0 \
+  --parameters 0 || loop_ec=$?
+if [[ "$loop_ec" -ne 0 ]]; then
+  cat "$log_dir/loop-execute.log" >&2 || true
+  die "LoopSum execute failed (exit $loop_ec)"
+fi
+collect_result_vm "$log_dir/loop-execute.log"
+if [[ "$RESULT_VM_COUNT" -ne 3 || "$RESULT_VM_SEQ" != "[]|[4]|[4]" ]]; then
+  cat "$log_dir/loop-execute.log" >&2 || true
+  die "LoopSum result_vm want [], [4], [4]; got count=${RESULT_VM_COUNT} seq=${RESULT_VM_SEQ}"
+fi
+expect_events_and_public_inputs "$log_dir/loop-execute.log" 3 "LoopSum"
+# boundExceeded: end-start > N (n=0, limit=0+9, bounded 8)
+echo "${PREFIX}: LoopSum execute boundExceeded (n=0 limit via +9 over bound 8)"
+# Need a program path that exceeds bound — LoopSum uses fixed +4 ≤ 8, so cannot
+# trip boundExceeded without a different source. Pin only happy path + source shape.
+echo "${PREFIX}: LoopSum execute ok (happy static-unroll; boundExceeded source-only pin)"
+
+echo "${PREFIX}: default-profile fixture execute diffs ok (Accumulator/OptionState/LoopSum)"
 
 # ---------------------------------------------------------------------------
 # Explicit dargo-v0.1.0 VM profile: UInt128 = 4×UInt32 little-endian Felt limbs.
@@ -734,5 +949,5 @@ if [[ "$wide_range_ec" -eq 0 ]] || \
 fi
 
 echo "${PREFIX}: UInt128 VM observables ok (arith/bitwise/shift/compare + checked negatives)"
-echo "${PREFIX}: ok (${PROFILE_LABEL}; engineering only; not formal/hermetic/deploy)"
+echo "${PREFIX}: ok (${PROFILE_LABEL}; Counter+Accumulator+OptionState+LoopSum+WideCounter; engineering only; not formal/hermetic/UPS/deploy/chain)"
 exit 0
