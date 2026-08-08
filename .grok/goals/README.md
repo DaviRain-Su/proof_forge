@@ -9,6 +9,18 @@ normative: false
 
 # Goal + workflow：整仓工程队列
 
+## 当前优先：业务逻辑形式化（track 1）drain
+
+EvenCounter L1 preserving product 已 GREEN。后续 packaging / 非 pin / 文档：
+
+```text
+/goal @.grok/goals/prompt-business-formalization.md --budget 8000000
+```
+
+队列：`.grok/business-formalization-queue.md`  
+Workflow（可重复 fire）：`business-formalization-runner`  
+**默认 drain**：Goal 内连续消项，不要回聊天说「继续」。
+
 ## 你要的「全部任务」怎么跑
 
 ```text
