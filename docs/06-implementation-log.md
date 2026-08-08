@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-08
+updated: 2026-08-09
 normative: false
 ---
 
@@ -12,6 +12,17 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-09 — ZeroCounter wave-2 bf2-preserve（PreservationTheoremV1）
+
+- `ZeroCounterDecodeV1`：1499-byte spine production decode bridge（`decode_ok`）。
+- ReferenceMachine 增补：`runInvariantCallableV1_eq_returnedTrue_of_uint64_eq_zero` /
+  `…_returnedFalse_of_uint64_ne_zero`；clear micro-path
+  `runMachine_clear_store_zero_return` + `stepReferenceSliceV1_ready_clear_*`。
+- `ZeroCounterPreservationV1`：base + full `PreservationStepV1` +
+  `preservation_theorem` / `of_eq_bytes`（sole Reference step；reuse packaging）。
+- EvenCounter product certifier 仍 build GREEN。队列 `bf2-preserve` done；
+  下一步 bf2-product。**不** MiniAmm；**不** supersede ADR-0027。
+
 ## 2026-08-09 — ZeroCounter wave-2 bf2-data（第二非 AMM 实例起步）
 
 - 新 closed instance `ProofForgeV2/ProofInstances/ZeroCounterV1.lean`：
@@ -19,8 +30,7 @@ normative: false
   entry `clear` store-0、view `get`、invariant `zero`；1499-byte spine；
   `structure_ok` + `encode_ok` + Reference `admission_bool` decide。
 - Suite `Tests.Semantic.ZeroCounterV1`；umbrella import；SBOM 250。
-- 队列 wave2：`bf2-data` done；`bf2-preserve` / `bf2-product` / `bf2-docs` pending。
-- 下一步：decode bridge 或等价 validate 证 → `preservation_theorem` → product pin。
+- 队列 wave2：`bf2-data` done；随后 `bf2-preserve` 已闭合（见上条）。
 - **不** MiniAmm；**不** supersede ADR-0027。
 
 ## 2026-08-09 — packaging/non-pin + autonomous drain Goal/workflow（engineering）

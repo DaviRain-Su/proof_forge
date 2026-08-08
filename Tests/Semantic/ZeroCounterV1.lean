@@ -2,8 +2,8 @@
   ZeroCounter closed-instance engineering tests (second non-AMM L1 wave).
 
   Different predicate from EvenCounter (`count == 0`). Checks structure/encode/
-  admission of package-owned data. Full preservation_theorem + product pin
-  remain subsequent slices.
+  admission of package-owned data. Full `ZeroCounterPreservationV1.preservation_theorem`
+  closed (bf2-preserve); product pin remains bf2-product.
 -/
 import ProofForgeV2.ProofInstances.ZeroCounterV1
 import ProofForgeV2.Semantic.ReferenceV1

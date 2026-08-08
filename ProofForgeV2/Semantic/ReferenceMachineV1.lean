@@ -6604,6 +6604,1006 @@ theorem stepReferenceSliceV1_ready_increment_overflow_not_returned
   rw [hnull', hrun] at hstep
   exact hfin_ne hstep
 
+
+/-! ### ZeroCounter micro-paths (UInt64 eq-zero invariant + clear store-zero entry)
+
+    Second L1 instance packaging. Sole production step/runInvariant machine;
+    not a second evaluator.
+-/
+
+/-- Three value-producing results (0..2) for the zero-eq invariant shape. -/
+private theorem maxValueIdInCallable_eq_two_of_three_results
+    (callable : CallableV1)
+    (typeId0 typeId1 typeId2 : TypeIdV1)
+    (op0 op1 op2 : SemanticOpV1)
+    (terminator : TerminatorV1)
+    (hparams : callable.params = #[])
+    (hblocks : callable.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[
+        { result := some { valueId := 0, typeId := typeId0 }, op := op0 },
+        { result := some { valueId := 1, typeId := typeId1 }, op := op1 },
+        { result := some { valueId := 2, typeId := typeId2 }, op := op2 }
+      ]
+      terminator
+    }]) :
+    maxValueIdInCallable callable = 2 := by
+  simp [maxValueIdInCallable, hparams, hblocks]
+
+/-- Clear-shaped body: literal + void store + reload (max valueId 1). -/
+private theorem maxValueIdInCallable_eq_one_of_clear_shape
+    (callable : CallableV1)
+    (typeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (zeroBytes : ByteArray)
+    (hparams : callable.params = #[])
+    (hblocks : callable.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[
+        { result := some { valueId := 0, typeId },
+          op := .literal typeId zeroBytes },
+        { result := none, op := .stateStore stateId 0 },
+        { result := some { valueId := 1, typeId },
+          op := .stateLoad stateId }
+      ]
+      terminator := .return_ (some 1)
+    }]) :
+    maxValueIdInCallable callable = 1 := by
+  simp [maxValueIdInCallable, hparams, hblocks]
+
+private theorem maxEffectIdInCallable_eq_zero_of_clear_shape
+    (callable : CallableV1)
+    (typeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (zeroBytes : ByteArray)
+    (hparams : callable.params = #[])
+    (hblocks : callable.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[
+        { result := some { valueId := 0, typeId },
+          op := .literal typeId zeroBytes },
+        { result := none, op := .stateStore stateId 0 },
+        { result := some { valueId := 1, typeId },
+          op := .stateLoad stateId }
+      ]
+      terminator := .return_ (some 1)
+    }]) :
+    maxEffectIdInCallable callable = 0 := by
+  simp [maxEffectIdInCallable, hparams, hblocks]
+
+/-- Nullary UInt64 eq-zero invariant on the exact zero overlay
+    (`stateLoad; lit 0; eq; return`, fuel 5). -/
+theorem runInvariantCallableV1_eq_returnedTrue_of_uint64_eq_zero
+    (data : SemanticProgramDataV1)
+    (state : LogicalStateV1)
+    (rootId : CallableIdV1)
+    (uint64TypeId boolTypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (rootName : Option String)
+    (visibility : VisibilityV1)
+    (stateName : String)
+    (hinitialized : state.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok #[zero8BytesV1])
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (htypeB : data.types[boolTypeId.toNat]? = some {
+      id := boolTypeId, name := none, shape := .bool })
+    (hstateId : stateId = 0)
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hroot : data.callables[rootId.toNat]? = some {
+      id := rootId
+      kind := .invariant
+      name := rootName
+      params := #[]
+      result := { typeId := boolTypeId, visibility }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[
+          { result := some { valueId := 0, typeId := uint64TypeId },
+            op := .stateLoad stateId },
+          { result := some { valueId := 1, typeId := uint64TypeId },
+            op := .literal uint64TypeId zero8BytesV1 },
+          { result := some { valueId := 2, typeId := boolTypeId },
+            op := .binary .eq 0 1 }
+        ]
+        terminator := .return_ (some 2)
+      }]
+      loopBounds := #[]
+      invariantSteps := some 5
+    })
+    (hcanZero :
+      validateValueBytesV1 data.types uint64TypeId zero8BytesV1 = .ok ())
+    (hcanTrue :
+      validateValueBytesV1 data.types boolTypeId (encodeU8 1) = .ok ()) :
+    runInvariantCallableV1 data rootId state = .returnedTrue := by
+  let root : CallableV1 := {
+    id := rootId
+    kind := .invariant
+    name := rootName
+    params := #[]
+    result := { typeId := boolTypeId, visibility }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[
+        { result := some { valueId := 0, typeId := uint64TypeId },
+          op := .stateLoad stateId },
+        { result := some { valueId := 1, typeId := uint64TypeId },
+          op := .literal uint64TypeId zero8BytesV1 },
+        { result := some { valueId := 2, typeId := boolTypeId },
+          op := .binary .eq 0 1 }
+      ]
+      terminator := .return_ (some 2)
+    }]
+    loopBounds := #[]
+    invariantSteps := some 5
+  }
+  change data.callables[rootId.toNat]? = some root at hroot
+  have hrootMax : maxValueIdInCallable root = 2 :=
+    maxValueIdInCallable_eq_two_of_three_results root
+      uint64TypeId uint64TypeId boolTypeId
+      (.stateLoad stateId) (.literal uint64TypeId zero8BytesV1)
+      (.binary .eq 0 1) (.return_ (some 2)) (by rfl) (by rfl)
+  have hrootSteps : root.invariantSteps = some 5 := by rfl
+  have hrootKind : root.kind = .invariant := by rfl
+  have hrootParams : root.params = #[] := by rfl
+  have hrootLoops : root.loopBounds = #[] := by rfl
+  have hrootResult : root.result.typeId = boolTypeId := by rfl
+  have hrootEntry : root.entryBlock = 0 := by rfl
+  have hrootBlocks : root.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[
+        { result := some { valueId := 0, typeId := uint64TypeId },
+          op := .stateLoad stateId },
+        { result := some { valueId := 1, typeId := uint64TypeId },
+          op := .literal uint64TypeId zero8BytesV1 },
+        { result := some { valueId := 2, typeId := boolTypeId },
+          op := .binary .eq 0 1 }
+      ]
+      terminator := .return_ (some 2)
+    }] := by rfl
+  have hbool : isBoolType data root.result.typeId = true := by
+    simp [isBoolType, shapeOf, hrootResult, htypeB]
+  have hkindBne : (CallableKindV1.invariant != .invariant) = false := by decide
+  have hfive : 5 % 2 ^ 64 = (5 : Nat) := by decide
+  have htrueBytes : (encodeU8 1 == encodeU8 1) = true := by decide
+  have hvcZero :
+      valueCanonical data { typeId := uint64TypeId, valueBytes := zero8BytesV1 } =
+        true := by
+    simp [valueCanonical, hcanZero]
+  have hvcTrue :
+      valueCanonical data { typeId := boolTypeId, valueBytes := encodeU8 1 } =
+        true := by
+    simp [valueCanonical, hcanTrue]
+  have heq :=
+    evalBinary_eq_uint64_zero_zero data uint64TypeId boolTypeId htypeB
+  let v0 : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := zero8BytesV1 }
+  let v1 : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := zero8BytesV1 }
+  let v2 : ReferenceValueV1 :=
+    { typeId := boolTypeId, valueBytes := encodeU8 1 }
+  have hs0 : (0 : ValueIdV1).toNat < (emptyEnv 3).size := by
+    simp [emptyEnv, UInt32.toNat]
+  let e1 := (emptyEnv 3).set (0 : ValueIdV1).toNat (some v0) hs0
+  have hset0 : envSet (emptyEnv 3) 0 v0 = some e1 := by
+    simpa [e1] using envSet_of_lt (emptyEnv 3) (0 : ValueIdV1) v0 hs0
+  have hs1 : (1 : ValueIdV1).toNat < e1.size := by
+    simp [e1, emptyEnv, Array.size_set, UInt32.toNat]
+  let e2 := e1.set (1 : ValueIdV1).toNat (some v1) hs1
+  have hset1 : envSet e1 1 v1 = some e2 := by
+    simpa [e2] using envSet_of_lt e1 (1 : ValueIdV1) v1 hs1
+  have hs2 : (2 : ValueIdV1).toNat < e2.size := by
+    simp [e2, e1, emptyEnv, Array.size_set, UInt32.toNat]
+  let e3 := e2.set (2 : ValueIdV1).toNat (some v2) hs2
+  have hset2 : envSet e2 2 v2 = some e3 := by
+    simpa [e3] using envSet_of_lt e2 (2 : ValueIdV1) v2 hs2
+  let mk (env : Array (Option ReferenceValueV1)) (idx : Nat) : MachineV1 := {
+    data, pre := state, callable := root, isInitializer := false,
+    context := #[], overlay := #[zero8BytesV1], env,
+    effects := #[],
+    occCounts := Array.replicate (maxEffectIdInCallable root + 1) 0,
+    responseCursor := 0, responses := #[], loopCounts := #[],
+    blockId := 0, instrIdx := idx, frames := #[],
+    vaultNative := 0, vaultToken := #[]
+  }
+  rw [runInvariantCallableV1]
+  simp only [hinitialized, Bool.not_true, Bool.false_eq_true, ↓reduceIte, hroot]
+  simp only [hrootSteps, hrootKind, hrootParams, Array.isEmpty_empty,
+    hrootLoops, hbool, Bool.not_true, Bool.or_false]
+  rw [hdecode]
+  simp only [UInt64.toNat_ofNat, hrootMax, hrootEntry, hkindBne, hfive]
+  simp only [Bool.false_eq_true, ↓reduceIte]
+  change (match (runMachine true 4 (mk (emptyEnv 3) 0)).2.2 with
+    | .reverted _ => InvariantEvalResultV1.reverted
+    | .trapped _ => InvariantEvalResultV1.trapped
+    | .returned (some value) =>
+        if value.typeId != root.result.typeId then .trapped
+        else if value.valueBytes == encodeU8 1 then .returnedTrue
+        else if value.valueBytes == encodeU8 0 then .returnedFalse
+        else .trapped
+    | .returned none => .trapped) = .returnedTrue
+  have hexec0 :
+      execInstruction (mk (emptyEnv 3) 0)
+        { result := some { valueId := 0, typeId := uint64TypeId },
+          op := .stateLoad stateId } =
+        .next (mk e1 0) := by
+    have hoverlay :
+        (#[zero8BytesV1] : Array ByteArray)[stateId.toNat]? =
+          some zero8BytesV1 := by
+      simp [hstateId]
+    have hty : (uint64TypeId != uint64TypeId) = false := by
+      simp [BEq.beq, bne]
+    simp only [mk, execInstruction, hstate, hoverlay, hty, ↓reduceIte]
+    have hstore := storeResult_envSet (mk (emptyEnv 3) 0) 0 v0 e1 hvcZero hset0
+    simpa [mk, e1, v0] using hstore
+  have step0 : runMachine true 4 (mk (emptyEnv 3) 0) =
+      runMachine true 3 (mk e1 1) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hexec0]
+  have hexec1 :
+      execInstruction (mk e1 1)
+        { result := some { valueId := 1, typeId := uint64TypeId },
+          op := .literal uint64TypeId zero8BytesV1 } =
+        .next (mk e2 1) := by
+    have hty : (uint64TypeId != uint64TypeId) = false := by
+      simp [BEq.beq, bne]
+    have hcan' : valueCanonical data
+        { typeId := uint64TypeId, valueBytes := zero8BytesV1 } = true := hvcZero
+    simp only [mk, execInstruction, hty, ↓reduceIte, hcan', Bool.not_true,
+      Bool.false_eq_true]
+    exact storeResult_envSet (mk e1 1) 1 v1 e2
+      (by simpa [mk, v1] using hvcZero) hset1
+  have step1 : runMachine true 3 (mk e1 1) = runMachine true 2 (mk e2 2) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hexec1]
+  have hexec2 :
+      execInstruction (mk e2 2)
+        { result := some { valueId := 2, typeId := boolTypeId },
+          op := .binary .eq 0 1 } =
+        .next (mk e3 2) := by
+    have hg0 : envGet e2 0 = some v0 := by
+      have hne :
+          (e1.set (1 : ValueIdV1).toNat (some v1) hs1)[0]? = e1[0]? :=
+        Array.getElem?_set_ne hs1 (by decide : (1 : Nat) ≠ 0)
+      have h0 : e1[0]? = some (some v0) := Array.getElem?_set_self hs0
+      change envGet (e1.set (1 : ValueIdV1).toNat (some v1) hs1) 0 = some v0
+      simp [envGet, hne, h0]
+    have hg1 : envGet e2 1 = some v1 := by
+      have h1 : e2[(1 : ValueIdV1).toNat]? = some (some v1) :=
+        Array.getElem?_set_self hs1
+      simp [envGet, e2, h1, UInt32.toNat]
+    have hvc0' : valueCanonical data v0 = true := by simpa [v0] using hvcZero
+    have hvc1' : valueCanonical data v1 = true := by simpa [v1] using hvcZero
+    have heq' : evalBinary data .eq v0 v1 boolTypeId = .ok v2 := by
+      simpa [v0, v1, v2] using heq
+    simp only [mk, execInstruction, hg0, hg1, hvc0', hvc1', Bool.not_true,
+      Bool.or_false, Bool.false_eq_true, ↓reduceIte, heq', fromEval]
+    have hstore := storeResult_envSet (mk e2 2) 2 v2 e3
+      (by simpa [v2] using hvcTrue) hset2
+    simpa [mk, e3, v2] using hstore
+  have step2 : runMachine true 2 (mk e2 2) = runMachine true 1 (mk e3 3) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hexec2]
+  have hg2 : envGet e3 2 = some v2 := by
+    have h2 : e3[(2 : ValueIdV1).toNat]? = some (some v2) :=
+      Array.getElem?_set_self hs2
+    simp [envGet, e3, h2, UInt32.toNat]
+  have hret :
+      execTerminator (mk e3 3) (.return_ (some 2)) =
+        .done (mk e3 3) (.returned (some v2)) := by
+    have hunit : isUnitType data root.result.typeId = false := by
+      simp [isUnitType, shapeOf, hrootResult, htypeB]
+    have hbeq : (v2.typeId != root.result.typeId) = false := by
+      simp [v2, hrootResult, BEq.beq, bne]
+    have hcond :
+        (v2.typeId != root.result.typeId || !valueCanonical data v2) = false := by
+      simp [hbeq, hvcTrue, v2]
+    simp only [mk, execTerminator, hg2]
+    simp only [hunit, Bool.false_eq_true, ↓reduceIte, hcond, ↓reduceIte]
+  have stepT : runMachine true 1 (mk e3 3) =
+      (0, mk e3 3, CandidateV1.returned (some v2)) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hret]
+  rw [step0, step1, step2, stepT]
+  have htyEq : (v2.typeId != root.result.typeId) = false := by
+    simp [v2, hrootResult, BEq.beq, bne]
+  simp [htyEq, htrueBytes, v2]
+
+
+/-- Closed nullary clear body: lit 0; store; reload; return. Overlay becomes zero. -/
+private theorem runMachine_clear_store_zero_return
+    (data : SemanticProgramDataV1)
+    (pre : LogicalStateV1)
+    (countBytes : ByteArray)
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (stateName : String)
+    (callableId : CallableIdV1)
+    (entryName : Option String)
+    (fuel : Nat)
+    (responses : ExternalResponsesV1 := #[])
+    (vaultNative : UInt64 := 0)
+    (vaultToken : Array (ByteArray × UInt64) := #[])
+    (context : Array ContextInputV1 := #[])
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hstateId : stateId = 0)
+    (hcanZero :
+      validateValueBytesV1 data.types uint64TypeId zero8BytesV1 = .ok ()) :
+    let clearCallable : CallableV1 := {
+      id := callableId, kind := .entry, name := entryName, params := #[],
+      result := { typeId := uint64TypeId, visibility := .public_ },
+      entryBlock := 0,
+      blocks := #[{
+        id := 0, params := #[],
+        instructions := #[
+          { result := some { valueId := 0, typeId := uint64TypeId },
+            op := .literal uint64TypeId zero8BytesV1 },
+          { result := none, op := .stateStore stateId 0 },
+          { result := some { valueId := 1, typeId := uint64TypeId },
+            op := .stateLoad stateId }],
+        terminator := .return_ (some 1) }],
+      loopBounds := #[], invariantSteps := none }
+    let v0 : ReferenceValueV1 :=
+      { typeId := uint64TypeId, valueBytes := zero8BytesV1 }
+    ∃ eFinal,
+      runMachine false (fuel + 4)
+        { data, pre, callable := clearCallable, isInitializer := false,
+          context, overlay := #[countBytes], env := emptyEnv 2,
+          effects := #[],
+          occCounts := Array.replicate (maxEffectIdInCallable clearCallable + 1) 0,
+          responseCursor := 0, responses, loopCounts := #[],
+          blockId := 0, instrIdx := 0, frames := #[],
+          vaultNative, vaultToken } =
+        (0,
+          { data, pre, callable := clearCallable, isInitializer := false,
+            context, overlay := #[zero8BytesV1], env := eFinal,
+            effects := #[],
+            occCounts := Array.replicate (maxEffectIdInCallable clearCallable + 1) 0,
+            responseCursor := 0, responses, loopCounts := #[],
+            blockId := 0, instrIdx := 3, frames := #[],
+            vaultNative, vaultToken },
+          CandidateV1.returned (some v0)) := by
+  let clearCallable : CallableV1 := {
+    id := callableId, kind := .entry, name := entryName, params := #[],
+    result := { typeId := uint64TypeId, visibility := .public_ },
+    entryBlock := 0,
+    blocks := #[{
+      id := 0, params := #[],
+      instructions := #[
+        { result := some { valueId := 0, typeId := uint64TypeId },
+          op := .literal uint64TypeId zero8BytesV1 },
+        { result := none, op := .stateStore stateId 0 },
+        { result := some { valueId := 1, typeId := uint64TypeId },
+          op := .stateLoad stateId }],
+      terminator := .return_ (some 1) }],
+    loopBounds := #[], invariantSteps := none }
+  let v0 : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := zero8BytesV1 }
+  have hvcZero : valueCanonical data v0 = true := by
+    simp [v0, valueCanonical, hcanZero]
+  have hs0 : (0 : ValueIdV1).toNat < (emptyEnv 2).size := by
+    simp [emptyEnv, UInt32.toNat]
+  let e1 := (emptyEnv 2).set (0 : ValueIdV1).toNat (some v0) hs0
+  have hset0 : envSet (emptyEnv 2) 0 v0 = some e1 := by
+    simpa [e1] using envSet_of_lt (emptyEnv 2) (0 : ValueIdV1) v0 hs0
+  have hs1 : (1 : ValueIdV1).toNat < e1.size := by
+    simp [e1, emptyEnv, Array.size_set, UInt32.toNat]
+  let e2 := e1.set (1 : ValueIdV1).toNat (some v0) hs1
+  have hset1 : envSet e1 1 v0 = some e2 := by
+    simpa [e2] using envSet_of_lt e1 (1 : ValueIdV1) v0 hs1
+  have hov_lt : (0 : Nat) < (#[countBytes] : Array ByteArray).size := by simp
+  let overlay1 : Array ByteArray :=
+    (#[countBytes] : Array ByteArray).set 0 zero8BytesV1 hov_lt
+  have hoverlay1_eq : overlay1 = #[zero8BytesV1] := by
+    apply Array.ext
+    · simp [overlay1, Array.size_set]
+    · intro i hi hi'
+      have hi0 : i = 0 := by
+        have : i < 1 := by simpa [overlay1, Array.size_set] using hi
+        omega
+      subst hi0
+      simp [overlay1, Array.getElem_set_self]
+  let mk (env : Array (Option ReferenceValueV1))
+      (overlay : Array ByteArray) (idx : Nat) : MachineV1 := {
+    data, pre, callable := clearCallable, isInitializer := false,
+    context, overlay, env, effects := #[],
+    occCounts := Array.replicate (maxEffectIdInCallable clearCallable + 1) 0,
+    responseCursor := 0, responses, loopCounts := #[],
+    blockId := 0, instrIdx := idx, frames := #[],
+    vaultNative, vaultToken }
+  have hblocks : clearCallable.blocks = #[{
+      id := 0, params := #[],
+      instructions := #[
+        { result := some { valueId := 0, typeId := uint64TypeId },
+          op := .literal uint64TypeId zero8BytesV1 },
+        { result := none, op := .stateStore stateId 0 },
+        { result := some { valueId := 1, typeId := uint64TypeId },
+          op := .stateLoad stateId }],
+      terminator := .return_ (some 1) }] := by rfl
+  have hresult : clearCallable.result.typeId = uint64TypeId := by rfl
+  have hexec0 :
+      execInstruction (mk (emptyEnv 2) #[countBytes] 0)
+        { result := some { valueId := 0, typeId := uint64TypeId },
+          op := .literal uint64TypeId zero8BytesV1 } =
+        .next (mk e1 #[countBytes] 0) := by
+    have hty : (uint64TypeId != uint64TypeId) = false := by simp [BEq.beq, bne]
+    have hcan' : valueCanonical data
+        { typeId := uint64TypeId, valueBytes := zero8BytesV1 } = true := by
+      simpa [v0] using hvcZero
+    simp only [mk, execInstruction, hty, ↓reduceIte, hcan', Bool.not_true,
+      Bool.false_eq_true]
+    exact storeResult_envSet (mk (emptyEnv 2) #[countBytes] 0) 0 v0 e1
+      (by simpa [mk, v0] using hvcZero) hset0
+  have step0 :
+      runMachine false (fuel + 4) (mk (emptyEnv 2) #[countBytes] 0) =
+        runMachine false (fuel + 3) (mk e1 #[countBytes] 1) := by
+    have hfu : fuel + 4 = (fuel + 3).succ := by omega
+    rw [hfu, runMachine]; simp [mk, hblocks, hexec0]
+  have hexec1 :
+      execInstruction (mk e1 #[countBytes] 1)
+        { result := none, op := .stateStore stateId 0 } =
+        .next (mk e1 overlay1 1) := by
+    have hg0 : envGet e1 0 = some v0 := by
+      have h0 : e1[(0 : ValueIdV1).toNat]? = some (some v0) :=
+        Array.getElem?_set_self hs0
+      simp [envGet, e1, h0, UInt32.toNat]
+    have hty : (v0.typeId != uint64TypeId) = false := by simp [v0, BEq.beq, bne]
+    have hvc0' : valueCanonical data v0 = true := hvcZero
+    simp only [mk, execInstruction, hstate, hg0, hty, hvc0', Bool.not_true,
+      Bool.false_eq_true, ↓reduceIte]
+    have hlt : stateId.toNat < (#[countBytes] : Array ByteArray).size := by
+      simp [hstateId]
+    simp only [hlt, ↓reduceDIte, hstateId]
+    simp [mk, overlay1, v0, hstateId]
+  have step1 :
+      runMachine false (fuel + 3) (mk e1 #[countBytes] 1) =
+        runMachine false (fuel + 2) (mk e1 overlay1 2) := by
+    have hfu : fuel + 3 = (fuel + 2).succ := by omega
+    rw [hfu, runMachine]; simp [mk, hblocks, hexec1]
+  have hexec2 :
+      execInstruction (mk e1 overlay1 2)
+        { result := some { valueId := 1, typeId := uint64TypeId },
+          op := .stateLoad stateId } =
+        .next (mk e2 overlay1 2) := by
+    have hoverlay : overlay1[stateId.toNat]? = some zero8BytesV1 := by
+      simp [overlay1, hstateId, Array.getElem?_set_self]
+    have hty : (uint64TypeId != uint64TypeId) = false := by simp [BEq.beq, bne]
+    simp only [mk, execInstruction, hstate, hoverlay, hty]
+    have hstore := storeResult_envSet (mk e1 overlay1 2) 1 v0 e2 hvcZero hset1
+    simpa [mk, e2, v0] using hstore
+  have step2 :
+      runMachine false (fuel + 2) (mk e1 overlay1 2) =
+        runMachine false (fuel + 1) (mk e2 overlay1 3) := by
+    have hfu : fuel + 2 = (fuel + 1).succ := by omega
+    rw [hfu, runMachine]; simp [mk, hblocks, hexec2]
+  have hg1 : envGet e2 1 = some v0 := by
+    have h1 : e2[(1 : ValueIdV1).toNat]? = some (some v0) :=
+      Array.getElem?_set_self hs1
+    simp [envGet, e2, h1, UInt32.toNat]
+  have hret :
+      execTerminator (mk e2 overlay1 3) (.return_ (some 1)) =
+        .done (mk e2 overlay1 3) (.returned (some v0)) := by
+    have hunit : isUnitType data clearCallable.result.typeId = false := by
+      simp [isUnitType, shapeOf, hresult, htypeU]
+    have hty :
+        (v0.typeId != clearCallable.result.typeId || !valueCanonical data v0) =
+          false := by
+      have hbeq : (v0.typeId != clearCallable.result.typeId) = false := by
+        simp [v0, hresult, BEq.beq, bne]
+      simp [hbeq, hvcZero]
+    simp only [mk, execTerminator, hunit, ↓reduceIte, hg1, hty, ↓reduceIte, v0]
+    simp only [Bool.false_eq_true, ↓reduceIte]
+  have stepT :
+      runMachine false (fuel + 1) (mk e2 overlay1 3) =
+        (0, mk e2 overlay1 3, CandidateV1.returned (some v0)) := by
+    have hfu : fuel + 1 = fuel.succ := by omega
+    rw [hfu, runMachine]; simp [mk, hblocks, hret]
+  refine ⟨e2, ?_⟩
+  have hchain :
+      runMachine false (fuel + 4) (mk (emptyEnv 2) #[countBytes] 0) =
+        (0, mk e2 overlay1 3, CandidateV1.returned (some v0)) := by
+    rw [step0, step1, step2, stepT]
+  simpa [hoverlay1_eq, mk] using hchain
+
+
+theorem stepReferenceSliceV1_ready_clear_returned
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (data : SemanticProgramDataV1)
+    (countBytes : ByteArray)
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (stateName : String)
+    (callableId : CallableIdV1)
+    (entryName : Option String)
+    (post : LogicalStateV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (context : Array ContextInputV1)
+    (hadmitted_data : admitted.data = data)
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hstateId : stateId = 0)
+    (hcanZero :
+      validateValueBytesV1 data.types uint64TypeId zero8BytesV1 = .ok ())
+    (hinit : pre.initialized = true)
+    (hencode :
+      encodeLogicalStateValuesV1 data true #[zero8BytesV1] = .ok post)
+    (hrespEmpty : responses.size = 0)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready {
+          id := callableId
+          kind := .entry
+          name := entryName
+          params := #[]
+          result := { typeId := uint64TypeId, visibility := .public_ }
+          entryBlock := 0
+          blocks := #[{
+            id := 0
+            params := #[]
+            instructions := #[
+              { result := some { valueId := 0, typeId := uint64TypeId },
+                op := .literal uint64TypeId zero8BytesV1 },
+              { result := none, op := .stateStore stateId 0 },
+              { result := some { valueId := 1, typeId := uint64TypeId },
+                op := .stateLoad stateId }
+            ]
+            terminator := .return_ (some 1)
+          }]
+          loopBounds := #[]
+          invariantSteps := none
+        } #[countBytes] context false) :
+    let v0 : ReferenceValueV1 :=
+      { typeId := uint64TypeId, valueBytes := zero8BytesV1 }
+    stepReferenceSliceV1 admitted pre invocation responses vault =
+      .returned post (some v0) #[] := by
+  let clearCallable : CallableV1 := {
+    id := callableId, kind := .entry, name := entryName, params := #[],
+    result := { typeId := uint64TypeId, visibility := .public_ },
+    entryBlock := 0,
+    blocks := #[{
+      id := 0, params := #[],
+      instructions := #[
+        { result := some { valueId := 0, typeId := uint64TypeId },
+          op := .literal uint64TypeId zero8BytesV1 },
+        { result := none, op := .stateStore stateId 0 },
+        { result := some { valueId := 1, typeId := uint64TypeId },
+          op := .stateLoad stateId }],
+      terminator := .return_ (some 1) }],
+    loopBounds := #[], invariantSteps := none }
+  let v0 : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := zero8BytesV1 }
+  have hparams : clearCallable.params = #[] := rfl
+  have hnull :=
+    stepReferenceSliceV1_ready_nullary_eq admitted pre invocation responses vault
+      clearCallable #[countBytes] context false hgate hparams
+  have hfuel : (999996 : Nat) + 4 = 1000000 := by decide
+  have hmax : maxValueIdInCallable clearCallable = 1 :=
+    maxValueIdInCallable_eq_one_of_clear_shape clearCallable uint64TypeId
+      stateId zero8BytesV1 (by rfl) (by rfl)
+  have heff0 : maxEffectIdInCallable clearCallable = 0 :=
+    maxEffectIdInCallable_eq_zero_of_clear_shape clearCallable uint64TypeId
+      stateId zero8BytesV1 (by rfl) (by rfl)
+  have hrun :=
+    runMachine_clear_store_zero_return data pre countBytes uint64TypeId stateId
+      stateName callableId entryName 999996 responses vault.native vault.token
+      context htypeU hstate hstateId hcanZero
+  rcases hrun with ⟨eFinal, hrunEq⟩
+  let mClr : MachineV1 := {
+    data, pre, callable := clearCallable, isInitializer := false,
+    context, overlay := #[countBytes], env := emptyEnv 2, effects := #[],
+    occCounts := Array.replicate (maxEffectIdInCallable clearCallable + 1) 0,
+    responseCursor := 0, responses, loopCounts := #[],
+    blockId := 0, instrIdx := 0, frames := #[],
+    vaultNative := vault.native, vaultToken := vault.token }
+  let mEnd : MachineV1 := {
+    data, pre, callable := clearCallable, isInitializer := false,
+    context, overlay := #[zero8BytesV1], env := eFinal, effects := #[],
+    occCounts := Array.replicate (maxEffectIdInCallable clearCallable + 1) 0,
+    responseCursor := 0, responses, loopCounts := #[],
+    blockId := 0, instrIdx := 3, frames := #[],
+    vaultNative := vault.native, vaultToken := vault.token }
+  have hrun1000000 :
+      runMachine false 1000000 mClr =
+        (0, mEnd, CandidateV1.returned (some v0)) := by
+    simpa [hfuel, mClr, mEnd, clearCallable, v0] using hrunEq
+  have heffects : mEnd.effects = #[] := by simp [mEnd]
+  have hcursor : mEnd.responseCursor = 0 := by simp [mEnd]
+  have hresp : mEnd.responses = responses := by simp [mEnd]
+  have hencode' :
+      encodeLogicalStateValuesV1 mEnd.data
+        (pre.initialized || mEnd.isInitializer) mEnd.overlay = .ok post := by
+    simp [mEnd, hinit, hencode]
+  have hfin :=
+    finalize_returned_of_encode mEnd pre (some v0) post hcursor
+      (by simpa [hresp] using hrespEmpty) hencode'
+  have hnull' :
+      stepReferenceSliceV1 admitted pre invocation responses vault =
+        finalize (runMachine false 1000000 mClr).2.1
+          (runMachine false 1000000 mClr).2.2 pre := by
+    simpa [mClr, hadmitted_data, hmax, heff0, clearCallable] using hnull
+  rw [hnull', hrun1000000]
+  simpa [heffects] using hfin
+
+theorem stepReferenceSliceV1_ready_clear_nonempty_responses_traps
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (data : SemanticProgramDataV1)
+    (countBytes : ByteArray)
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (stateName : String)
+    (callableId : CallableIdV1)
+    (entryName : Option String)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (context : Array ContextInputV1)
+    (hadmitted_data : admitted.data = data)
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hstateId : stateId = 0)
+    (hcanZero :
+      validateValueBytesV1 data.types uint64TypeId zero8BytesV1 = .ok ())
+    (hrespNe : responses.size ≠ 0)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready {
+          id := callableId
+          kind := .entry
+          name := entryName
+          params := #[]
+          result := { typeId := uint64TypeId, visibility := .public_ }
+          entryBlock := 0
+          blocks := #[{
+            id := 0
+            params := #[]
+            instructions := #[
+              { result := some { valueId := 0, typeId := uint64TypeId },
+                op := .literal uint64TypeId zero8BytesV1 },
+              { result := none, op := .stateStore stateId 0 },
+              { result := some { valueId := 1, typeId := uint64TypeId },
+                op := .stateLoad stateId }
+            ]
+            terminator := .return_ (some 1)
+          }]
+          loopBounds := #[]
+          invariantSteps := none
+        } #[countBytes] context false) :
+    stepReferenceSliceV1 admitted pre invocation responses vault =
+      .trapped .invalidExternalResponse pre := by
+  let clearCallable : CallableV1 := {
+    id := callableId, kind := .entry, name := entryName, params := #[],
+    result := { typeId := uint64TypeId, visibility := .public_ },
+    entryBlock := 0,
+    blocks := #[{
+      id := 0, params := #[],
+      instructions := #[
+        { result := some { valueId := 0, typeId := uint64TypeId },
+          op := .literal uint64TypeId zero8BytesV1 },
+        { result := none, op := .stateStore stateId 0 },
+        { result := some { valueId := 1, typeId := uint64TypeId },
+          op := .stateLoad stateId }],
+      terminator := .return_ (some 1) }],
+    loopBounds := #[], invariantSteps := none }
+  let v0 : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := zero8BytesV1 }
+  have hparams : clearCallable.params = #[] := rfl
+  have hnull :=
+    stepReferenceSliceV1_ready_nullary_eq admitted pre invocation responses vault
+      clearCallable #[countBytes] context false hgate hparams
+  have hfuel : (999996 : Nat) + 4 = 1000000 := by decide
+  have hmax : maxValueIdInCallable clearCallable = 1 :=
+    maxValueIdInCallable_eq_one_of_clear_shape clearCallable uint64TypeId
+      stateId zero8BytesV1 (by rfl) (by rfl)
+  have heff0 : maxEffectIdInCallable clearCallable = 0 :=
+    maxEffectIdInCallable_eq_zero_of_clear_shape clearCallable uint64TypeId
+      stateId zero8BytesV1 (by rfl) (by rfl)
+  have hrun :=
+    runMachine_clear_store_zero_return data pre countBytes uint64TypeId stateId
+      stateName callableId entryName 999996 responses vault.native vault.token
+      context htypeU hstate hstateId hcanZero
+  rcases hrun with ⟨eFinal, hrunEq⟩
+  let mClr : MachineV1 := {
+    data, pre, callable := clearCallable, isInitializer := false,
+    context, overlay := #[countBytes], env := emptyEnv 2, effects := #[],
+    occCounts := Array.replicate (maxEffectIdInCallable clearCallable + 1) 0,
+    responseCursor := 0, responses, loopCounts := #[],
+    blockId := 0, instrIdx := 0, frames := #[],
+    vaultNative := vault.native, vaultToken := vault.token }
+  let mEnd : MachineV1 := {
+    data, pre, callable := clearCallable, isInitializer := false,
+    context, overlay := #[zero8BytesV1], env := eFinal, effects := #[],
+    occCounts := Array.replicate (maxEffectIdInCallable clearCallable + 1) 0,
+    responseCursor := 0, responses, loopCounts := #[],
+    blockId := 0, instrIdx := 3, frames := #[],
+    vaultNative := vault.native, vaultToken := vault.token }
+  have hrun1000000 :
+      runMachine false 1000000 mClr =
+        (0, mEnd, CandidateV1.returned (some v0)) := by
+    simpa [hfuel, mClr, mEnd, clearCallable, v0] using hrunEq
+  have hnull' :
+      stepReferenceSliceV1 admitted pre invocation responses vault =
+        finalize (runMachine false 1000000 mClr).2.1
+          (runMachine false 1000000 mClr).2.2 pre := by
+    simpa [mClr, hadmitted_data, hmax, heff0, clearCallable] using hnull
+  have hfin :
+      finalize mEnd (.returned (some v0)) pre =
+        .trapped .invalidExternalResponse pre := by
+    unfold finalize
+    have hne : (mEnd.responseCursor != mEnd.responses.size) = true := by
+      have hcur : mEnd.responseCursor = 0 := by simp [mEnd]
+      have hsz : mEnd.responses.size = responses.size := by simp [mEnd]
+      have hdec : decide (0 = responses.size) = false := by
+        rw [decide_eq_false_iff_not]
+        exact Ne.symm hrespNe
+      simp [hcur, hsz, bne, BEq.beq, hdec]
+    simp only [hne, ↓reduceIte]
+  rw [hnull', hrun1000000]
+  exact hfin
+
+
+private theorem evalBinary_eq_uint64_bytes_ne_zero
+    (data : SemanticProgramDataV1)
+    (uint64TypeId boolTypeId : TypeIdV1)
+    (countBytes : ByteArray)
+    (htypeB : data.types[boolTypeId.toNat]? = some {
+      id := boolTypeId, name := none, shape := .bool })
+    (hne : (countBytes == zero8BytesV1) = false) :
+    evalBinary data .eq
+      { typeId := uint64TypeId, valueBytes := countBytes }
+      { typeId := uint64TypeId, valueBytes := zero8BytesV1 }
+      boolTypeId =
+      .ok { typeId := boolTypeId, valueBytes := encodeU8 0 } := by
+  have htid : (uint64TypeId == uint64TypeId) = true := by simp [BEq.beq]
+  have hbool : isBoolType data boolTypeId = true := by
+    simp [isBoolType, shapeOf, htypeB]
+  simp only [evalBinary, htid, hbool, bytesEqual, hne]
+  rfl
+
+/-- Nullary UInt64 eq-zero invariant returns false when the overlay is not zero. -/
+theorem runInvariantCallableV1_eq_returnedFalse_of_uint64_ne_zero
+    (data : SemanticProgramDataV1)
+    (state : LogicalStateV1)
+    (countBytes : ByteArray)
+    (rootId : CallableIdV1)
+    (uint64TypeId boolTypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (rootName : Option String)
+    (visibility : VisibilityV1)
+    (stateName : String)
+    (hinitialized : state.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok #[countBytes])
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (htypeB : data.types[boolTypeId.toNat]? = some {
+      id := boolTypeId, name := none, shape := .bool })
+    (hstateId : stateId = 0)
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hroot : data.callables[rootId.toNat]? = some {
+      id := rootId
+      kind := .invariant
+      name := rootName
+      params := #[]
+      result := { typeId := boolTypeId, visibility }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[
+          { result := some { valueId := 0, typeId := uint64TypeId },
+            op := .stateLoad stateId },
+          { result := some { valueId := 1, typeId := uint64TypeId },
+            op := .literal uint64TypeId zero8BytesV1 },
+          { result := some { valueId := 2, typeId := boolTypeId },
+            op := .binary .eq 0 1 }
+        ]
+        terminator := .return_ (some 2)
+      }]
+      loopBounds := #[]
+      invariantSteps := some 5
+    })
+    (hcanCount :
+      validateValueBytesV1 data.types uint64TypeId countBytes = .ok ())
+    (hcanZero :
+      validateValueBytesV1 data.types uint64TypeId zero8BytesV1 = .ok ())
+    (hcanFalse :
+      validateValueBytesV1 data.types boolTypeId (encodeU8 0) = .ok ())
+    (hne : (countBytes == zero8BytesV1) = false) :
+    runInvariantCallableV1 data rootId state = .returnedFalse := by
+  let root : CallableV1 := {
+    id := rootId, kind := .invariant, name := rootName, params := #[],
+    result := { typeId := boolTypeId, visibility }, entryBlock := 0,
+    blocks := #[{
+      id := 0, params := #[],
+      instructions := #[
+        { result := some { valueId := 0, typeId := uint64TypeId },
+          op := .stateLoad stateId },
+        { result := some { valueId := 1, typeId := uint64TypeId },
+          op := .literal uint64TypeId zero8BytesV1 },
+        { result := some { valueId := 2, typeId := boolTypeId },
+          op := .binary .eq 0 1 }],
+      terminator := .return_ (some 2) }],
+    loopBounds := #[], invariantSteps := some 5 }
+  change data.callables[rootId.toNat]? = some root at hroot
+  have hrootMax : maxValueIdInCallable root = 2 :=
+    maxValueIdInCallable_eq_two_of_three_results root
+      uint64TypeId uint64TypeId boolTypeId
+      (.stateLoad stateId) (.literal uint64TypeId zero8BytesV1)
+      (.binary .eq 0 1) (.return_ (some 2)) (by rfl) (by rfl)
+  have hrootSteps : root.invariantSteps = some 5 := by rfl
+  have hrootKind : root.kind = .invariant := by rfl
+  have hrootParams : root.params = #[] := by rfl
+  have hrootLoops : root.loopBounds = #[] := by rfl
+  have hrootResult : root.result.typeId = boolTypeId := by rfl
+  have hrootEntry : root.entryBlock = 0 := by rfl
+  have hrootBlocks : root.blocks = #[{
+      id := 0, params := #[],
+      instructions := #[
+        { result := some { valueId := 0, typeId := uint64TypeId },
+          op := .stateLoad stateId },
+        { result := some { valueId := 1, typeId := uint64TypeId },
+          op := .literal uint64TypeId zero8BytesV1 },
+        { result := some { valueId := 2, typeId := boolTypeId },
+          op := .binary .eq 0 1 }],
+      terminator := .return_ (some 2) }] := by rfl
+  have hbool : isBoolType data root.result.typeId = true := by
+    simp [isBoolType, shapeOf, hrootResult, htypeB]
+  have hkindBne : (CallableKindV1.invariant != .invariant) = false := by decide
+  have hfive : 5 % 2 ^ 64 = (5 : Nat) := by decide
+  have hfalseBytes : (encodeU8 0 == encodeU8 0) = true := by decide
+  have hvcCount :
+      valueCanonical data { typeId := uint64TypeId, valueBytes := countBytes } =
+        true := by simp [valueCanonical, hcanCount]
+  have hvcZero :
+      valueCanonical data { typeId := uint64TypeId, valueBytes := zero8BytesV1 } =
+        true := by simp [valueCanonical, hcanZero]
+  have hvcFalse :
+      valueCanonical data { typeId := boolTypeId, valueBytes := encodeU8 0 } =
+        true := by simp [valueCanonical, hcanFalse]
+  have heq :=
+    evalBinary_eq_uint64_bytes_ne_zero data uint64TypeId boolTypeId countBytes
+      htypeB hne
+  let v0 : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := countBytes }
+  let v1 : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := zero8BytesV1 }
+  let v2 : ReferenceValueV1 :=
+    { typeId := boolTypeId, valueBytes := encodeU8 0 }
+  have hs0 : (0 : ValueIdV1).toNat < (emptyEnv 3).size := by
+    simp [emptyEnv, UInt32.toNat]
+  let e1 := (emptyEnv 3).set (0 : ValueIdV1).toNat (some v0) hs0
+  have hset0 : envSet (emptyEnv 3) 0 v0 = some e1 := by
+    simpa [e1] using envSet_of_lt (emptyEnv 3) (0 : ValueIdV1) v0 hs0
+  have hs1 : (1 : ValueIdV1).toNat < e1.size := by
+    simp [e1, emptyEnv, Array.size_set, UInt32.toNat]
+  let e2 := e1.set (1 : ValueIdV1).toNat (some v1) hs1
+  have hset1 : envSet e1 1 v1 = some e2 := by
+    simpa [e2] using envSet_of_lt e1 (1 : ValueIdV1) v1 hs1
+  have hs2 : (2 : ValueIdV1).toNat < e2.size := by
+    simp [e2, e1, emptyEnv, Array.size_set, UInt32.toNat]
+  let e3 := e2.set (2 : ValueIdV1).toNat (some v2) hs2
+  have hset2 : envSet e2 2 v2 = some e3 := by
+    simpa [e3] using envSet_of_lt e2 (2 : ValueIdV1) v2 hs2
+  let mk (env : Array (Option ReferenceValueV1)) (idx : Nat) : MachineV1 := {
+    data, pre := state, callable := root, isInitializer := false,
+    context := #[], overlay := #[countBytes], env,
+    effects := #[],
+    occCounts := Array.replicate (maxEffectIdInCallable root + 1) 0,
+    responseCursor := 0, responses := #[], loopCounts := #[],
+    blockId := 0, instrIdx := idx, frames := #[],
+    vaultNative := 0, vaultToken := #[] }
+  rw [runInvariantCallableV1]
+  simp only [hinitialized, Bool.not_true, Bool.false_eq_true, ↓reduceIte, hroot]
+  simp only [hrootSteps, hrootKind, hrootParams, Array.isEmpty_empty,
+    hrootLoops, hbool, Bool.not_true, Bool.or_false]
+  rw [hdecode]
+  simp only [UInt64.toNat_ofNat, hrootMax, hrootEntry, hkindBne, hfive]
+  simp only [Bool.false_eq_true, ↓reduceIte]
+  have hexec0 :
+      execInstruction (mk (emptyEnv 3) 0)
+        { result := some { valueId := 0, typeId := uint64TypeId },
+          op := .stateLoad stateId } =
+        .next (mk e1 0) := by
+    have hoverlay :
+        (#[countBytes] : Array ByteArray)[stateId.toNat]? = some countBytes := by
+      simp [hstateId]
+    have hty : (uint64TypeId != uint64TypeId) = false := by simp [BEq.beq, bne]
+    simp only [mk, execInstruction, hstate, hoverlay, hty, ↓reduceIte]
+    have hstore := storeResult_envSet (mk (emptyEnv 3) 0) 0 v0 e1
+      (by simpa [v0] using hvcCount) hset0
+    simpa [mk, e1, v0] using hstore
+  have step0 : runMachine true 4 (mk (emptyEnv 3) 0) =
+      runMachine true 3 (mk e1 1) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hexec0]
+  have hexec1 :
+      execInstruction (mk e1 1)
+        { result := some { valueId := 1, typeId := uint64TypeId },
+          op := .literal uint64TypeId zero8BytesV1 } =
+        .next (mk e2 1) := by
+    have hty : (uint64TypeId != uint64TypeId) = false := by simp [BEq.beq, bne]
+    have hcan' : valueCanonical data
+        { typeId := uint64TypeId, valueBytes := zero8BytesV1 } = true := hvcZero
+    simp only [mk, execInstruction, hty, ↓reduceIte, hcan', Bool.not_true,
+      Bool.false_eq_true]
+    exact storeResult_envSet (mk e1 1) 1 v1 e2
+      (by simpa [v1] using hvcZero) hset1
+  have step1 : runMachine true 3 (mk e1 1) = runMachine true 2 (mk e2 2) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hexec1]
+  have hexec2 :
+      execInstruction (mk e2 2)
+        { result := some { valueId := 2, typeId := boolTypeId },
+          op := .binary .eq 0 1 } =
+        .next (mk e3 2) := by
+    have hg0 : envGet e2 0 = some v0 := by
+      have hne' :
+          (e1.set (1 : ValueIdV1).toNat (some v1) hs1)[0]? = e1[0]? :=
+        Array.getElem?_set_ne hs1 (by decide : (1 : Nat) ≠ 0)
+      have h0 : e1[0]? = some (some v0) := Array.getElem?_set_self hs0
+      change envGet (e1.set (1 : ValueIdV1).toNat (some v1) hs1) 0 = some v0
+      simp [envGet, hne', h0]
+    have hg1 : envGet e2 1 = some v1 := by
+      have h1 : e2[(1 : ValueIdV1).toNat]? = some (some v1) :=
+        Array.getElem?_set_self hs1
+      simp [envGet, e2, h1, UInt32.toNat]
+    have hvc0' : valueCanonical data v0 = true := by simpa [v0] using hvcCount
+    have hvc1' : valueCanonical data v1 = true := by simpa [v1] using hvcZero
+    have heq' : evalBinary data .eq v0 v1 boolTypeId = .ok v2 := by
+      simpa [v0, v1, v2] using heq
+    simp only [mk, execInstruction, hg0, hg1, hvc0', hvc1', Bool.not_true,
+      Bool.or_false, Bool.false_eq_true, ↓reduceIte, heq', fromEval]
+    have hstore := storeResult_envSet (mk e2 2) 2 v2 e3
+      (by simpa [v2] using hvcFalse) hset2
+    simpa [mk, e3, v2] using hstore
+  have step2 : runMachine true 2 (mk e2 2) = runMachine true 1 (mk e3 3) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hexec2]
+  have hg2 : envGet e3 2 = some v2 := by
+    have h2 : e3[(2 : ValueIdV1).toNat]? = some (some v2) :=
+      Array.getElem?_set_self hs2
+    simp [envGet, e3, h2, UInt32.toNat]
+  have hret :
+      execTerminator (mk e3 3) (.return_ (some 2)) =
+        .done (mk e3 3) (.returned (some v2)) := by
+    have hunit : isUnitType data root.result.typeId = false := by
+      simp [isUnitType, shapeOf, hrootResult, htypeB]
+    have hty :
+        (v2.typeId != root.result.typeId || !valueCanonical data v2) = false := by
+      have hbeq : (v2.typeId != root.result.typeId) = false := by
+        simp [v2, hrootResult, BEq.beq, bne]
+      have hcan : valueCanonical data v2 = true := by simpa [v2] using hvcFalse
+      simp [hbeq, hcan]
+    simp only [mk, execTerminator, hunit, ↓reduceIte, hg2, hty, ↓reduceIte, v2]
+    simp only [Bool.false_eq_true, ↓reduceIte]
+  have stepT : runMachine true 1 (mk e3 3) =
+      (0, mk e3 3, CandidateV1.returned (some v2)) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hret]
+  rw [step0, step1, step2, stepT]
+  have htyEq : (v2.typeId != root.result.typeId) = false := by
+    simp [v2, hrootResult, BEq.beq, bne]
+  -- returned false: first if type ok, second if == encodeU8 1 is false, third == encodeU8 0
+  have hneTrue : (encodeU8 0 == encodeU8 1) = false := by decide
+  simp [htyEq, hneTrue, hfalseBytes, v2]
+
 /-- Evaluate one admitted invariant using its structure-validated exact fuel.
     This deliberately bypasses `InvocationV1`: normal root invocation of an
     invariant remains invalid, and invariant execution never publishes an
