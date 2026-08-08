@@ -65,6 +65,12 @@
 
 ## 队列（顺序固定）
 
+先读 `.grok/business-formalization-queue.md` **全部 wave**。Wave1 应已 done。
+**当前 wave2**：`bf2-data` → `bf2-preserve` → `bf2-product` → `bf2-docs`
+（ZeroCounter，P=`count==0`，非 EvenCounter 偶数）。
+
+## 队列（历史 wave1 顺序）
+
 | id | 意图 |
 |---|---|
 | bf-pack-1 | 抽出 program-agnostic packaging → `PreservationPackagingV1`（可能已 done） |
