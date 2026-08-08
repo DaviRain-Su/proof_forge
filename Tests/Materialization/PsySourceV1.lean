@@ -1731,7 +1731,7 @@ unsafe def testMatchStatement : IO Unit := do
   expect (plan.functions.map (·.name) == #["initialize", "apply"])
     "Pick Psy plan must carry initialize + apply"
 
-/-- Bounded for lowers to a Psy range loop with the boundExceeded guard. -/
+/-- PSY-LOOP: UInt64 bounded for → static unroll (dargo rejects `for`). -/
 unsafe def testBoundedFor : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   -- For endpoints must be typed expressions (bare integer literals have no
@@ -1755,12 +1755,47 @@ unsafe def testBoundedFor : IO Unit := do
   let some psyFile := files.find? (·.path == "Loop.psy") |
     throw <| IO.userError "psy: missing Loop.psy"
   let psy := psyFile.contents
-  expect (psy.contains "for pf_c0 in " || psy.contains "for ")
-    "bounded for must render a Psy range loop"
+  expect (!psy.contains "for pf_" && !psy.contains "u32..")
+    "UInt64 bounded for must not emit dargo-rejected for-range syntax"
   expect (psy.contains "boundExceeded")
     "the end-start <= N guard must be emitted"
-  expect (psy.contains "pf_i0")
-    "the induction variable must materialize"
+  expect (psy.contains "pf_i0_0" && psy.contains "pf_i0_7")
+    "static unroll must materialize per-step induction temps"
+  expect (psy.contains "pf_start0" && psy.contains "pf_end0")
+    "loop start/end temps must materialize"
+  expect (psy.contains "} else {" && psy.contains "};")
+    "dargo requires if/else with trailing semicolon after statement if"
+
+/-- PSY-LOOP: Int induction stays fail closed (no signed range-loop ABI). -/
+unsafe def testIntLoopFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program IntLoop where\n" ++
+    "  state total : Int32\n" ++
+    "  init(initial : Int32) do\n" ++
+    "    total := initial\n" ++
+    "  entry run(n : Int32) : Int32 do\n" ++
+    "    let limit : Int32 := n + 4\n" ++
+    "    for i in n ..< limit bounded 4 do\n" ++
+    "      total := total + 1\n" ++
+    "    return total\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-int-loop>" "Tests.PsyIntLoop" none)
+  match Compiler.compileValidatedSourceV1 parsed with
+  | .error err =>
+      expect (err.render.contains "for" || err.render.contains "Int" ||
+          err.render.contains "PF-SRC-INVALID" || err.render.contains "loop")
+        s!"Int for must fail closed product-side, got: {err.render}"
+  | .ok compiled =>
+      match planPsy compiled with
+      | .error (.planInvariant .psy msg) =>
+          expect (msg.contains "non-UInt64" || msg.contains "Int" ||
+              msg.contains "loop" || msg.contains "PSY-LOOP")
+            s!"Int for must FC at Plan, got: {msg}"
+      | .error e => throw <| IO.userError s!"expected planInvariant .psy, got {e.render}"
+      | .ok _ => throw <| IO.userError "Int bounded for must fail closed on Psy"
 
 /-- Zero-arg error revert lowers to assert(false) (halt = atomic revert).
     ProgramV1 has no bare `revert` without an error name; zero-arg `error Halt()`
@@ -3030,6 +3065,7 @@ unsafe def run : IO Unit := do
   testIfElseControlFlow
   testMatchStatement
   testBoundedFor
+  testIntLoopFailClosed
   testBareRevert
   testRevertWithArgsFailClosed
   testExternalCall

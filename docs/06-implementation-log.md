@@ -12,6 +12,16 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-08 — Psy bounded for static unroll（PSY-LOOP engineering）
+
+- dargo v0.1.0 rejects KeywordFor; UInt64 `for … bounded N` now emits static
+  unroll of N≤64 steps after `boundExceeded` (end-start ≤ N).
+- Statement `if` always emits `else {…};` (dargo requires else + trailing `;`).
+- Per-step unique induction temps (`pf_i0_k`) + body alias (no re-let).
+- Non-UInt64/Int loop endpoints remain fail closed; N>64 FC at emit.
+- Locked dargo compile of LoopProbe verified. PsySource pins.
+- Non-claims: not Int induction, not formal loop refinement, not network UPS.
+
 ## 2026-08-08 — Psy call/event honesty（PSY-CALL-EVENT engineering）
 
 - Void sync `call` remains source-only `__invoke_sync#<Felt>` (static QN hash).

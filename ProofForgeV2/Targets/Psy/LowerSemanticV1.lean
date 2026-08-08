@@ -119,6 +119,14 @@ refinement, no product runtime/response gate). `emit` → source-only `__emit`
 (no ordered-event log gate in product Finalize). **Result-bearing** call and
 `schedule` stay fail closed (no response-binding ABI; no deferred crosscall
 form — never alias sync). `pf.assets` catalog QNs remain unbound (ADR-0029).
+
+## PSY-LOOP (2026-08-08)
+
+dargo v0.1.0 **rejects** the `for` keyword. UInt64 bounded `for` lowers to
+**static unroll** of `maxIterations` (≤64) guarded steps after
+`boundExceeded` (`end - start ≤ N`), preserving exact iteration semantics
+without `for` syntax. Non-UInt64 (narrow UInt/Int) induction stays fail
+closed. Larger `maxIterations` FC at emit (unroll budget).
 -/
 
 namespace ProofForgeV2.Targets.Psy
@@ -2887,8 +2895,12 @@ private partial def lowerLoop
   let startVal ← match envLookup env startVid with
     | some v => pure v
     | none => planError "unsupported Psy semantic shape: loop start value is not defined"
-  unless !startVal.isNarrow do
-    planError "unsupported Psy semantic shape: narrow UInt loop endpoints are outside the Psy Felt range-loop pilot (induction is UInt64)"
+  -- PSY-LOOP: only public UInt64 induction is admitted (Felt range-loop pilot
+  -- + dargo static unroll). Narrow UInt and Int endpoints stay fail closed
+  -- (N-FOR-INT / no signed range-loop ABI on Psy).
+  if startVal.isNarrow || startVal.isNarrowInt || startVal.intWidth == 64 then
+    planError
+      "unsupported Psy semantic shape: non-UInt64 loop endpoints are not admitted on Psy (narrow UInt/Int induction FC; PSY-LOOP admits UInt64 only with dargo static unroll)"
   let startExpr := startVal.expr
   let mut condVid? : Option ValueIdV1 := none
   let mut endExpr? : Option Expr := none
@@ -2900,8 +2912,9 @@ private partial def lowerLoop
         let rVal ← match envLookup env rhs with
           | some v => pure v
           | none => planError "unsupported Psy semantic shape: loop end value is not defined"
-        unless !rVal.isNarrow do
-          planError "unsupported Psy semantic shape: narrow UInt loop endpoints are outside the Psy Felt range-loop pilot (induction is UInt64)"
+        if rVal.isNarrow || rVal.isNarrowInt || rVal.intWidth == 64 then
+          planError
+            "unsupported Psy semantic shape: non-UInt64 loop endpoints are not admitted on Psy (narrow UInt/Int induction FC; PSY-LOOP admits UInt64 only with dargo static unroll)"
         match instr.result with
         | some valueDef => condVid? := some valueDef.valueId
         | none => planError "unsupported Psy semantic shape: loop condition must produce a value"

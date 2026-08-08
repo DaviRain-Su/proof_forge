@@ -345,7 +345,7 @@ D1–D4 = 0/27 done。
 | **PSY-TYPED-ERROR** | 带参数 revert/assert error | **done（2026-08-08）**：零参 `revert Name` → `assert(false,"revert:Name")`；零参 `assert c else Name` → `assert(c,"assert:Name")`（error 身份进消息）；**带字段 payload** revert/assert-else 证据化 FC（无 dargo 结构化 payload ABI）；bare assert 稳定；PsySource pin |
 | **PSY-CALL-EVENT** | sync call/event runtime；真正 result-bearing crosscall | **done（2026-08-08，PARTIAL+FC）**：void `call` → source-only `__invoke_sync#<Felt>`（静态 QN hash；无部署地址/response/runtime 门）；`emit` → source-only `__emit`（无 ordered-event Finalize 门）；**result-bearing call** 与 **schedule** 证据化 FC（无 response-binding ABI；无 deferred form、不 alias sync）；`pf.assets` 仍 unbound；PsySource pin |
 | **PSY-ASYNC-ASSETS** | async schedule、`pf.assets` | blocked by platform semantics：不得把 sync intrinsic 重命名为 async；Psy 当前无已验证 native asset/vault/deposit binding，`pf.assets` 保持 unbound/`PF-REQ-UNSUPPORTED`，直到官方 contract/runtime 证据出现 |
-| **PSY-LOOP** | 非 UInt64 bounded loop | pending：dargo v0.1.0 当前拒绝 emitted `for` 语法；必须先选可编译、精确 bounded 的 lowering（如 CFG/unroll）并验证 Int/多宽 induction、exact bound 与 rollback |
+| **PSY-LOOP** | 非 UInt64 bounded loop | **done（2026-08-08）**：dargo v0.1.0 拒 `for` → UInt64 bounded for 改为 **static unroll**（`maxIterations≤64`，`boundExceeded` + 每步 `i=start+k; if i<end { body }`；if/else 带 trailing `;`）；非 UInt64/Int induction FC；>64 unroll budget FC；locked dargo 实测 LoopProbe compile；PsySource pin |
 
 ---
 

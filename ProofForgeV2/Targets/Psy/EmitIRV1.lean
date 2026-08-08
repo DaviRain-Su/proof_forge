@@ -252,15 +252,16 @@ mutual
                   " { " ++ exprStr te ++ " } else { " ++ exprStr ee ++ " };"),
               indent level ("return " ++ tmp ++ ";")]
         | _, _ =>
+            -- dargo v0.1.0: statement-form `if` requires both `else` and a
+            -- trailing `;` when more statements follow (otherwise KeywordLet
+            -- is a parse error after `}`). Always emit `else { … };`.
             let thenLines := thenBody.flatMap (stmtLines (level + 1))
             let elseLines := elseBody.flatMap (stmtLines (level + 1))
-            let hasElse := !elseBody.isEmpty
             #[indent level (s!"if {exprStr condition} " ++ "{")]
               ++ thenLines
-              ++ (if hasElse then
-                    #[indent level "} else {"] ++ elseLines
-                  else #[])
-              ++ #[indent level "}"]
+              ++ #[indent level "} else {"]
+              ++ elseLines
+              ++ #[indent level "};"]
     | .boundedFor indexName start stopExclusive body =>
         let bodyLines := body.flatMap (stmtLines (level + 1))
         #[indent level (s!"for {indexName} in {start}u32..{stopExclusive}u32 " ++ "{")]
@@ -1560,36 +1561,51 @@ private partial def emitStatements
           (fun (cond, caseStmts) acc => #[.ifElse cond caseStmts acc]) defaultStmts
         out := out ++ combined
     | .forLoop start endExclusive maxIter body => do
+        -- PSY-LOOP: dargo v0.1.0 rejects the `for` keyword (UnrecognizedToken
+        -- KeywordFor). Exact bounded semantics are preserved by *static
+        -- unrolling* of `maxIterations` guarded steps:
+        --   if start < end { assert(end - start <= N) }
+        --   for k in 0..N-1:  i = start + k; if i < end { body }
+        -- Cap unroll so emitted source stays finite; larger bounds FC.
+        let maxUnroll : Nat := 64
+        unless maxIter ≤ maxUnroll do
+          planError
+            s!"unsupported Psy semantic shape: bounded for maxIterations={maxIter} exceeds dargo unroll budget {maxUnroll} (dargo rejects for-syntax; PSY-LOOP)"
         let (startStmts, sLeo, ctx1) ← lowerExprStmt ctx start
         let (endStmts, eLeo, ctx2) ← lowerExprStmt ctx1 endExclusive
         let startName := s!"pf_start{loopDepth}"
         let endName := s!"pf_end{loopDepth}"
-        let indexName := s!"pf_c{loopDepth}"
         let iName := s!"pf_i{loopDepth}"
         let (bodyStmts, ctx3) ← emitStatements ctx2 body (loopDepth + 1)
-        -- Bound guard: if start < end { assert(end - start <= N) }
         let guardCond : PsyExpr :=
           .binary (.local startName) .lt (.local endName)
         let span : PsyExpr :=
           .binary (.local endName) .sub (.local startName)
         let fits : PsyExpr :=
           .binary span .le (feltLit maxIter)
-        let counterAsFelt : PsyExpr :=
-          .cast (.local indexName) "Felt"
-        let induction : PsyExpr :=
-          .binary (.local startName) .add counterAsFelt
-        let innerGuard : PsyExpr :=
-          .binary (.local iName) .lt (.local endName)
-        let bodyInner :=
-          #[.letBind iName "Felt" induction] ++
-          #[.ifElse innerGuard bodyStmts #[]]
-        let loopStmt : PsyStmt :=
-          .boundedFor indexName 0 maxIter bodyInner
+        -- Body was emitted with loopVar → `pf_i{depth}`. Rebind that name
+        -- only once by rewriting each unrolled step to a unique induction
+        -- temp and substituting into a cloned body (dargo rejects re-let).
+        let mut unrolled : Array PsyStmt := #[]
+        for k in [0:maxIter] do
+          let stepI := s!"{iName}_{k}"
+          let induction : PsyExpr :=
+            .binary (.local startName) .add (feltLit k)
+          let stepGuard : PsyExpr :=
+            .binary (.local stepI) .lt (.local endName)
+          -- Substitute pf_i{depth} → pf_i{depth}_{k} in body statements by
+          -- emitting body with a one-step rename via let alias inside the arm:
+          --   let pf_i0: Felt = pf_i0_k; body...
+          let bodyWithAlias :=
+            #[.letBind iName "Felt" (.local stepI)] ++ bodyStmts
+          unrolled := unrolled ++
+            #[.letBind stepI "Felt" induction,
+              .ifElse stepGuard bodyWithAlias #[]]
         out := out ++ startStmts ++ endStmts ++
           #[.letBind startName "Felt" sLeo,
             .letBind endName "Felt" eLeo,
-            .ifElse guardCond #[.assert fits "boundExceeded"] #[],
-            loopStmt]
+            .ifElse guardCond #[.assert fits "boundExceeded"] #[]] ++
+          unrolled
         ctx := ctx3
     | .emitEvent eventIndex args => do
         let evName ← match ctx.eventNames[eventIndex]? with
