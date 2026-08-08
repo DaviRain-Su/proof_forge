@@ -666,9 +666,9 @@
       "sha256": "c0f4990d56ea7f72d34d64bd568dd7f255fd8ff11fb7828a9a144b650ba9c794"
     },
     {
-      "bytes": 4644,
+      "bytes": 4757,
       "path": "ProofForgeV2/Targets/Aleo.lean",
-      "sha256": "f5cf074ca9a16e45e1a61feb1327a7d4aa7bd639c3a145dd40bbf61c35bf40c0"
+      "sha256": "dfd0dcb091c4c369ab7f52e157549c3f67beea7be1c6258268e9596ffa65a901"
     },
     {
       "bytes": 46961,
@@ -679,6 +679,16 @@
       "bytes": 8014,
       "path": "ProofForgeV2/Targets/Aleo/FinalizeV1.lean",
       "sha256": "6202d5da04be10196455e3f366d067d18fcf9e3083e8a0c30d8cfac3db4f8603"
+    },
+    {
+      "bytes": 7879,
+      "path": "ProofForgeV2/Targets/Aleo/Instructions/SchemaV1.lean",
+      "sha256": "9fc91f16041e5b333ab700e4cebf66917675f110c5fe6fdeb1c34f77cc58354d"
+    },
+    {
+      "bytes": 11549,
+      "path": "ProofForgeV2/Targets/Aleo/Instructions/TextCodecV1.lean",
+      "sha256": "624e23e0772aee6a1d61dad92c9fa4abb7933be9bbe52885fd0fa37f33585f3b"
     },
     {
       "bytes": 126020,

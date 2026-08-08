@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-07
+updated: 2026-08-08
 normative: false
 ---
 
@@ -11,6 +11,27 @@ normative: false
 
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
+
+
+## 2026-08-08 — ALEO-IR-1：Instructions Schema + Counter golden
+
+- 新增 `ProofForgeV2/Targets/Aleo/Instructions/{SchemaV1,TextCodecV1}.lean`：
+  program/function/finalize/constructor/mapping + IR-1 opcode 子集
+  （input/output/async/get.or_use/set/add/not/assert.eq）。
+- 金样：`testdata/golden/aleo-instructions-v1/counter.compiled.aleo`，由产品
+  Counter + profile `aleo-leo-4.0.2-u64-compile-v1` + locked Leo 4.0.2 捕获
+  （870 B，SHA-256 `efc9e7a60ec3e046b1eb36e7b397abb753e06e7f0086b1e41a50966e1a7c2d52`）。
+- 测试：`Tests.Materialization.AleoInstructionsV1` — 手建 encode ≡ golden 字节、
+  golden decode ≡ `counterProgramV1`、encode/decode round-trip、decode fail-closed。
+- 产品物化仍为 Leo 源 + 可选 compile extras；**无** Plan→Instructions lower（IR-2）。
+- 非 prove/deploy/snarkVM/formal。
+
+## 2026-08-08 — ALEO-IR-0：Aleo Instructions 权威物化规划
+
+- 产品决策：Aleo 主线从 sole Leo 源切向官方 **Aleo Instructions** 中间 IR（对标 Psy DPN）。
+- 新增 draft 规划 [`docs/targets/09-aleo-instructions-lowering.md`](targets/09-aleo-instructions-lowering.md)：动机、模型、admit 矩阵、G0–G6、ALEO-IR-0..7 切片、DoD。
+- `09-aleo.md` / `docs/index.md` / `AGENTS.md` Active·Next / backlog `ALEO-IR*` 指针已更新。
+- **未**实现 Schema/lower；Psy DPN lane 保持 idle residual。
 
 ## 2026-08-08 — Psy DPN RES-CLEAN（residual honesty cleanup）
 

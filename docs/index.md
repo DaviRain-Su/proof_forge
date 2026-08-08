@@ -27,11 +27,12 @@ wasmd Docker rung-1；TON：Tolk/BoC + sandbox 10/10（schedule `createMessage` 
 为 engineering leaves，范围 reconciliation 待 **`DOC-ADR-SCOPE`**。Normalize 为扩展中的
 子集（超出最初 Counter-only S1，仍非完整语言面）。前端监督层已于 2026-08-01 移除。
 
-**日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)。  
-**Goal 全队列执行**：[`.grok/goals/prompt-master-queue.md`](../.grok/goals/prompt-master-queue.md)（[`QUEUE.md`](../.grok/goals/QUEUE.md) + [`slices/`](../.grok/goals/slices/)）。  
-宽度/ABI 专项：[`roadmap-t8.md`](roadmap-t8.md)。  
-Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md)。  
-Psy DPN 物化规划：[`targets/10-psy-dpn-lowering.md`](targets/10-psy-dpn-lowering.md)。
+**日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)。
+**Goal 全队列执行**：[`.grok/goals/prompt-master-queue.md`](../.grok/goals/prompt-master-queue.md)（[`QUEUE.md`](../.grok/goals/QUEUE.md) + [`slices/`](../.grok/goals/slices/)）。
+宽度/ABI 专项：[`roadmap-t8.md`](roadmap-t8.md)。
+Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md)。
+Psy DPN 物化规划：[`targets/10-psy-dpn-lowering.md`](targets/10-psy-dpn-lowering.md)（lane idle）。
+Aleo Instructions IR 物化规划：[`targets/09-aleo-instructions-lowering.md`](targets/09-aleo-instructions-lowering.md)（**Active**）。
 
 既有 formal task 与 TaskQualification 资料继续如实保留，但不冒充工程实现完成度，也不阻塞日常开发。
 

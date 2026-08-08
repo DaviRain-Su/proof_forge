@@ -128,6 +128,7 @@ import Tests.Materialization.RequirementResolverV1
 import Tests.Materialization.IdentityChainV1
 import Tests.Materialization.EvmPlanSchemaV1
 import Tests.Materialization.AleoPlanSchemaV1
+import Tests.Materialization.AleoInstructionsV1
 import Tests.Materialization.OutputSetV1
 import Tests.Materialization.OutputEnvelopeV1
 import Tests.Materialization.TargetIrFixtures
@@ -213,6 +214,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Materialization.IdentityChainV1.run
   Tests.Materialization.EvmPlanSchemaV1.run
   Tests.Materialization.AleoPlanSchemaV1.run
+  Tests.Materialization.AleoInstructionsV1.run
   Tests.Materialization.OutputSetV1.run
   Tests.Materialization.OutputEnvelopeV1.run
   Tests.Materialization.EngineeringFinalizationV1.run

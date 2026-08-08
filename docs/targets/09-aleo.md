@@ -3,7 +3,7 @@ id: TARGET-ALEO
 title: Aleo and Leo 4 target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-07
+updated: 2026-08-08
 normative: true
 ---
 
@@ -11,7 +11,16 @@ normative: true
 
 状态：`proposed`
 Target ID：`aleo`
-Phase 1：实现（工程切片已接线；成熟度 source-only）
+Phase 1：实现（工程切片已接线；成熟度 source-only / compile-only）
+
+## 权威物化方向（2026-08-08 产品决策）
+
+**下一主线：Aleo Instructions IR**（官方中间 IR，对标 Psy DPN），**不是**长期 sole Leo 源语法。
+规划 sole 输入：[`09-aleo-instructions-lowering.md`](09-aleo-instructions-lowering.md)。
+**ALEO-IR-1 done**：`Targets/Aleo/Instructions/{SchemaV1,TextCodecV1}` + Counter
+`testdata/golden/aleo-instructions-v1/counter.compiled.aleo`（locked Leo 4.0.2）。
+当前产品仍 emit Leo 4 源（`{id}.aleo`）+ 可选 locked `leo build` → `compiled.aleo`；
+**尚未** Plan→Instructions 产品权威（IR-2）；不得把 Leo 源写成最终权威。
 
 ## 当前工程迁移状态（非 formal 完成）
 
@@ -53,11 +62,11 @@ AleoPlan {
 
 ## 5. Target IR 与制品
 
-当前工程路径为 `Aleo Plan → Leo4AST → .aleo source`，并由
+**现状（Leo 过渡路径）**：`Aleo Plan → Leo4AST → .aleo`（**Leo 4 源**，非官方 Instructions 文本权威），并由
 `pf.aleo-plan.engineering.v1` content digest 绑定 Plan identity。产品 materialize 的有序 base
 artifacts 为：
 
-1. `{programId}.aleo`（Leo 4.0.2 source）
+1. `{programId}.aleo`（Leo 4.0.2 **源** printer 输出）
 2. `{programId}.aleo-query-contract.json`（schema
    `proof-forge-aleo-query-contract/v1`）
 
@@ -66,9 +75,12 @@ network-state descriptor，受 exact artifact content hash/manifest closure 约�
 `build/abi.json`、不是 executable query，也不作为 compiler input。默认 source profile 的
 Finalize 仍 zero-tool。显式 `aleo-leo-4.0.2-u64-compile-v1` Finalize 在临时 package/隔离
 HOME 中运行 locked offline build，并只复制三个 `finalized-extra`：
-`{programId}.compiled.aleo`、`{programId}.abi.json`、
+`{programId}.compiled.aleo`（**Aleo Instructions** 面，IR 金样候选）、`{programId}.abi.json`、
 `{programId}.leo-program.json`。两 profile 均 `deployable=false`。printer 不得发出
 Leo 3.x 兼容语法。
+
+**目标（ALEO-IR 规划）**：`Aleo Plan → Aleo Instructions` 为权威物化；Leo 源降为 debug/对照。见
+[`09-aleo-instructions-lowering.md`](09-aleo-instructions-lowering.md)。
 
 ## 6. 工具链
 

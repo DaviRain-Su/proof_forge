@@ -5,6 +5,7 @@ import Tests.Materialization.RequirementResolverV1
 import Tests.Materialization.IdentityChainV1
 import Tests.Materialization.EvmPlanSchemaV1
 import Tests.Materialization.AleoPlanSchemaV1
+import Tests.Materialization.AleoInstructionsV1
 import Tests.Materialization.EvmSmoke
 import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.NearWasmAcceptance
@@ -67,6 +68,7 @@ unsafe def main : IO Unit := do
   Tests.Materialization.EvmPlanSchemaV1.run
   IO.eprintln "CP run"
   Tests.Materialization.AleoPlanSchemaV1.run
+  Tests.Materialization.AleoInstructionsV1.run
   IO.eprintln "CP run"
   Tests.Materialization.EvmSmoke.run
   IO.eprintln "CP run"
