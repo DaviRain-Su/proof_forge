@@ -111,8 +111,9 @@ jobs:
             "$PROOF_FORGE_CLI" version --json
             ```
 
-            Tool Lock chain tools are **not** bundled; use `install` from a full checkout when needed.
-            `doctor`/`install`/`local` still expect package `scripts/` under CWD (known residual).
+            Tool Lock *tool binaries* are **not** bundled; use `install --targets …` after extract.
+            Dist includes package `scripts/` + Tool Lock pin JSON; doctor/install/local are **CWD-free**
+            via `PROOF_FORGE_ROOT` or `<extract>/bin/proof-forge-next` layout.
 
             ### Author SDK
             Extract and `require «proof-forge-author» from` the extracted path (or vendor the tree).

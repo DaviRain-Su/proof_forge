@@ -227,9 +227,15 @@ if ! grep -q '4\.0\.2' <<<"$ver_line"; then
   die "expected Leo 4.0.2, got: ${ver_line}"
 fi
 
-PF_BIN="${root}/.lake/build/bin/proof-forge-next"
-if [[ ! -x "$PF_BIN" ]]; then
-  die "missing product CLI ${PF_BIN}; run: lake build proof_forge_next"
+# Prefer installed/dist CLI, then monorepo lake build.
+if [[ -n "${PROOF_FORGE_CLI:-}" && -x "${PROOF_FORGE_CLI}" ]]; then
+  PF_BIN="${PROOF_FORGE_CLI}"
+elif [[ -x "${root}/bin/proof-forge-next" ]]; then
+  PF_BIN="${root}/bin/proof-forge-next"
+elif [[ -x "${root}/.lake/build/bin/proof-forge-next" ]]; then
+  PF_BIN="${root}/.lake/build/bin/proof-forge-next"
+else
+  die "missing product CLI (set PROOF_FORGE_CLI, or install as <root>/bin/proof-forge-next, or lake build proof_forge_next)"
 fi
 
 if [[ -n "$GOLDEN" && ! -f "$GOLDEN" ]]; then
@@ -292,7 +298,7 @@ build_out="$(
   # Always invoke the product CLI from the proof-forge package (lake env / binary);
   # --root selects the author's project tree for source resolution.
   PROOF_FORGE_ALEO_EMIT_LEO=1 \
-    lake env "$PF_BIN" "${build_argv[@]}" 2>&1
+    "$PF_BIN" "${build_argv[@]}" 2>&1
 )"
 build_rc=$?
 set -e

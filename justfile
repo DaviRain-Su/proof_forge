@@ -1336,6 +1336,10 @@ package-cli *ARGS:
 package-cli-smoke:
     bash scripts/package_cli_dist_smoke.sh
 
+# CWD-free doctor from packaged dist (foreign working directory).
+package-cli-cwd-free-smoke:
+    bash scripts/package_cli_cwd_free_smoke.sh
+
 # Minimal Lean Author SDK (Syntax import closure). Engineering-dist only.
 # Authority: docs/product/05-distribution-and-packages.md REL-AUTHOR-0
 package-author-sdk *ARGS:

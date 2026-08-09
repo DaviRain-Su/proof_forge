@@ -9,7 +9,7 @@ normative: false
 
 # 产品面阶梯：安装选链 → 本机验证 → SDK / MCP
 
-状态：`draft`（2026-08-09；I0–I3 + MCP-V0 + SDK-V0 done；Close residual backlog）
+状态：`draft`（2026-08-09；I0–I3 + MCP-V0 + SDK-V0 + distribution REL-CLI/Author/CI engineering done；Close residual backlog）
 执行入口：workflow `product-surface-ladder`（`.grok/workflows/product-surface-ladder.rhai`）
 Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forge.toolchains.v4`）
 
@@ -29,9 +29,9 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 | **External ProgramV1** | **done engineering**（[`02-external-program-v1.md`](02-external-program-v1.md) + `templates/external-aleo-hello/` + sandbox/SDK/MCP `--root` + `just external-hello-smoke`；非 Lake SDK / formal） |
 | **Hello agent playbook** | **done engineering**（[`03-hello-dapp-agent-playbook.md`](03-hello-dapp-agent-playbook.md)；MCP 顺序 doctor→install→build/local→artifacts） |
 | **Chain client catalog** | **done engineering**（[`04-chain-client-catalog.md`](04-chain-client-catalog.md) + `chain-client-catalog.v1.json` + `pf_chain_catalog` / SDK `chain_catalog`；元数据 only） |
-| **Distribution / packages** | **REL-CLI + Author SDK + CI engineering done**（[`05-distribution-and-packages.md`](05-distribution-and-packages.md)：`package-cli` / `package-author-sdk`；tag `v*` → `release-engineering-dist.yml`；Host pip / formal Stage-0 仍 pending） |
+| **Distribution / packages** | **REL-CLI + Author SDK + CI + CWD-free engineering done**（[`05-distribution-and-packages.md`](05-distribution-and-packages.md)：`package-cli` 含 scripts/locks；doctor/install/local 解析 package root；Host pip / formal Stage-0 仍 pending） |
 
-本文是 **产品契约与实现顺序** 的权威草稿；I0–I3、MCP-V0、SDK-V0 已接线。不声称 formal / hermetic / mainnet / Stage-0。
+本文是 **产品契约与实现顺序** 的权威草稿；I0–I3、MCP-V0、SDK-V0 与 distribution REL-CLI/Author/CI engineering dist 已接线。不声称 formal / hermetic / mainnet / Stage-0。
 
 ## 1. 产品目标
 

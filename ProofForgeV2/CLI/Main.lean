@@ -1,4 +1,5 @@
 import ProofForgeV2.CLI.Emit
+import ProofForgeV2.CLI.PackageRootV1
 import ProofForgeV2.CLI.ProductVersionV1
 import ProofForgeV2.Compiler.InlineProofCertifierV1
 import ProofForgeV2.Compiler.Pipeline
@@ -12,6 +13,7 @@ import ProofForgeV2.Targets.BuildSelectionV1
 namespace ProofForgeV2.CLI
 
 open ProofForgeV2 System
+open ProofForgeV2.CLI.PackageRootV1
 open ProofForgeV2.CLI.ProductVersionV1
 open ProofForgeV2.Compiler.InlineProofCertifierV1
 open ProofForgeV2.Compiler.InlineProofProtocolV1
@@ -54,7 +56,9 @@ private def usage : String :=
   "    doctor --json emits proof-forge.doctor.v1 (Tool Lock presence under PROOF_FORGE_TOOL_ROOT);\n" ++
   "    install --json emits proof-forge.install.v1 (Tool Lock materialize under PROOF_FORGE_TOOL_ROOT);\n" ++
   "    local --json emits proof-forge.local.v1; network --json emits proof-forge.network.v1.\n" ++
-  "  doctor/install/local/network require scripts under the process working directory (repo root).\n" ++
+  "  doctor/install/local/network resolve package root (CWD-free):\n" ++
+  "    PROOF_FORGE_ROOT (absolute) → parent of CLI bin/ (install layout) → process CWD.\n" ++
+  "    Marker: scripts/proof_forge_doctor.py under the package root.\n" ++
   "  install is non-interactive: requires --yes (or --dry-run); no PATH fallback; design-only targets rejected.\n" ++
   "  local/network wrap package scripts with inherited PROOF_FORGE_TOOL_ROOT (no PATH fallback tools);\n" ++
   "    host-heavy; not ordinary ci; not formal. network always requires explicit --broadcast.\n" ++
@@ -402,15 +406,17 @@ private def listTargets (options : ListTargetsOptions) : IO Unit := do
 
 /-- Product doctor: thin CLI wrapper over package-owned
     `scripts/proof_forge_doctor.py` (Tool Lock presence; no PATH fallback).
-    Requires the process CWD to be the repo root so the script is discoverable.
+    Package root is CWD-free (`PROOF_FORGE_ROOT` / install `bin/` parent / CWD).
     Exit codes are forwarded from the engine (0 all-ok, 3 missing/partial/mismatch,
     2 usage, 1 internal). -/
 private def runDoctor (options : DoctorOptions) : IO Unit := do
-  let cwd ← IO.currentDir
-  let script := cwd / "scripts" / "proof_forge_doctor.py"
+  let packageRoot ← match ← resolvePackageRootV1 with
+    | .ok r => pure r
+    | .error msg => failUsage msg
+  let script := packageRoot / "scripts" / "proof_forge_doctor.py"
   unless ← script.pathExists do
     failUsage
-      "doctor requires scripts/proof_forge_doctor.py under the current working directory (run from repo root)"
+      s!"doctor requires scripts/proof_forge_doctor.py under package root ({packageRoot})"
   let mut args : Array String := #["-I", "-S", script.toString]
   if options.json then
     args := args.push "--json"
@@ -424,6 +430,7 @@ private def runDoctor (options : DoctorOptions) : IO Unit := do
   let output ← IO.Process.output {
     cmd := "/usr/bin/python3"
     args
+    cwd := some packageRoot
   }
   unless output.stdout.isEmpty do
     (← IO.getStdout).putStr output.stdout
@@ -438,15 +445,17 @@ private def runDoctor (options : DoctorOptions) : IO Unit := do
 
 /-- Product install: thin CLI wrapper over package-owned
     `scripts/proof_forge_install.py` (Tool Lock provision/materialize; no PATH).
-    Requires the process CWD to be the repo root so the script is discoverable.
+    Package root is CWD-free (`PROOF_FORGE_ROOT` / install `bin/` parent / CWD).
     Exit codes are forwarded from the engine (0 ok, 3 failed/missing-lock,
     2 usage, 1 internal). -/
 private def runInstall (options : InstallOptions) : IO Unit := do
-  let cwd ← IO.currentDir
-  let script := cwd / "scripts" / "proof_forge_install.py"
+  let packageRoot ← match ← resolvePackageRootV1 with
+    | .ok r => pure r
+    | .error msg => failUsage msg
+  let script := packageRoot / "scripts" / "proof_forge_install.py"
   unless ← script.pathExists do
     failUsage
-      "install requires scripts/proof_forge_install.py under the current working directory (run from repo root)"
+      s!"install requires scripts/proof_forge_install.py under package root ({packageRoot})"
   let mut args : Array String := #["-I", "-S", script.toString]
   if options.json then
     args := args.push "--json"
@@ -466,6 +475,7 @@ private def runInstall (options : InstallOptions) : IO Unit := do
   let output ← IO.Process.output {
     cmd := "/usr/bin/python3"
     args
+    cwd := some packageRoot
   }
   unless output.stdout.isEmpty do
     (← IO.getStdout).putStr output.stdout
@@ -585,13 +595,25 @@ private def runLocal (options : LocalOptions) : IO Unit := do
   for name in #["PROOF_FORGE_ALEO_PRIVATE_KEY", "ALEO_PRIVATE_KEY", "PRIVATE_KEY"] do
     if (← IO.getEnv name).isSome then
       failUsage s!"local CLI wrapper refuses inherited signer environment '{name}'"
-  let cwd ← IO.currentDir
-  let script := cwd / relScript
+  let packageRoot ← match ← resolvePackageRootV1 with
+    | .ok r => pure r
+    | .error msg => failUsage msg
+  let script := packageRoot / relScript
   unless ← script.pathExists do
-    failUsage s!"local requires {relScript} under the current working directory (run from repo root)"
+    failUsage s!"local requires {relScript} under package root ({packageRoot})"
+  let mut envPairs : Array (String × Option String) := #[]
+  if (← IO.getEnv "PROOF_FORGE_CLI").isNone then
+    try
+      let self ← IO.appPath
+      envPairs := envPairs.push ("PROOF_FORGE_CLI", some self.toString)
+    catch _ => pure ()
+  if (← IO.getEnv "PROOF_FORGE_ROOT").isNone then
+    envPairs := envPairs.push ("PROOF_FORGE_ROOT", some packageRoot.toString)
   let output ← IO.Process.output {
     cmd := "/bin/bash"
     args := #["-p", script.toString] ++ options.scriptArgs
+    cwd := some packageRoot
+    env := envPairs
   }
   let status := hostHeavyStatusV1 output.exitCode output.stderr
   if options.json then
@@ -675,14 +697,21 @@ private def runNetwork (options : NetworkOptions) : IO Unit := do
   let (relScript, notes) ← match resolveNetworkScriptV1 options.target with
     | .ok v => pure v
     | .error msg => failUsage msg
-  let cwd ← IO.currentDir
-  let script := cwd / relScript
+  let packageRoot ← match ← resolvePackageRootV1 with
+    | .ok r => pure r
+    | .error msg => failUsage msg
+  let script := packageRoot / relScript
   unless ← script.pathExists do
-    failUsage s!"network requires {relScript} under the current working directory (run from repo root)"
+    failUsage s!"network requires {relScript} under package root ({packageRoot})"
   let scriptArgs := ensureBroadcastArg options.scriptArgs
+  let mut envPairs : Array (String × Option String) := #[]
+  if (← IO.getEnv "PROOF_FORGE_ROOT").isNone then
+    envPairs := envPairs.push ("PROOF_FORGE_ROOT", some packageRoot.toString)
   let output ← IO.Process.output {
     cmd := "/bin/bash"
     args := #["-p", script.toString] ++ scriptArgs
+    cwd := some packageRoot
+    env := envPairs
   }
   let status := hostHeavyStatusV1 output.exitCode output.stderr
   if options.json then

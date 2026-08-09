@@ -120,6 +120,38 @@ chmod 755 "$STAGE/bin/proof-forge-next"
 cp -a "$root/VERSION" "$STAGE/VERSION"
 cp -a "$root/lean-toolchain" "$STAGE/lean-toolchain"
 
+# CWD-free doctor/install/local engines + Tool Lock pins (REL-CWD-0).
+mkdir -p "$STAGE/scripts"
+for f in \
+  proof_forge_doctor.py \
+  proof_forge_install.py \
+  proof_forge_aleo_snarkos.py \
+  toolchain_assets.py \
+  aleo_local_sandbox.sh \
+  aleo_devnet.sh \
+  aleo_network.sh \
+  aleo_network_receipt.py \
+  aleo_devnet.py \
+  solana_runtime_test.sh \
+  evm_anvil_differential.sh
+do
+  if [[ -f "$root/scripts/$f" ]]; then
+    cp -a "$root/scripts/$f" "$STAGE/scripts/$f"
+  fi
+done
+chmod a+x "$STAGE/scripts"/*.sh 2>/dev/null || true
+
+for f in \
+  host-profiles.lock.json \
+  toolchains.lock.json \
+  toolchains-linux-x86_64.lock.json \
+  toolchains-linux-aarch64.lock.json
+do
+  if [[ -f "$root/$f" ]]; then
+    cp -a "$root/$f" "$STAGE/$f"
+  fi
+done
+
 # Optional commit stamp (observation only; not formal BuildIdentity).
 if command -v git >/dev/null 2>&1 && git -C "$root" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   git -C "$root" rev-parse HEAD >"$STAGE/COMMIT" 2>/dev/null || true
@@ -136,8 +168,10 @@ cat >"$STAGE/README.md" <<EOF
 This is an **engineering** CLI distribution for ProofForge V2.
 
 - **Not** formal Stage-0 / hermetic / mainnet release evidence
-- **Not** a Tool Lock bundle (leo/solc/… still via \`proof-forge-next install\`)
+- **Not** a Tool Lock *tool binary* bundle (leo/solc still via \`install\`)
 - Channel: \`engineering-dist\`
+- **CWD-free**: doctor/install/local resolve package root via
+  \`PROOF_FORGE_ROOT\` → parent of \`bin/\` → CWD
 
 ## Install
 
@@ -147,33 +181,33 @@ This is an **engineering** CLI distribution for ProofForge V2.
    sha256sum -c proof-forge-next-${VERSION}-${plat}.tar.gz.sha256
    \`\`\`
 
-2. Extract and put \`bin/proof-forge-next\` on \`PATH\`, or set:
+2. Extract anywhere and set:
 
    \`\`\`bash
-   export PROOF_FORGE_CLI=/absolute/path/to/bin/proof-forge-next
+   export PROOF_FORGE_CLI=/absolute/path/to/proof-forge-next-${VERSION}-${plat}/bin/proof-forge-next
+   # optional explicit root (auto-detected from bin/ parent when omitted):
+   # export PROOF_FORGE_ROOT=/absolute/path/to/proof-forge-next-${VERSION}-${plat}
    \`\`\`
 
-3. Check identity:
+3. Identity + doctor from **any** working directory:
 
    \`\`\`bash
-   proof-forge-next version --json
-   # expect version=${VERSION}, channel=engineering-dist
+   "\$PROOF_FORGE_CLI" version --json
+   "\$PROOF_FORGE_CLI" doctor --target aleo --json
    \`\`\`
 
-4. Install chain tools (from a checkout that still has package scripts, or future install surface):
+4. Materialize Tool Lock tools (writes to \`PROOF_FORGE_TOOL_ROOT\` / default cache):
 
    \`\`\`bash
-   proof-forge-next install --targets aleo --yes
+   "\$PROOF_FORGE_CLI" install --targets aleo --yes
    \`\`\`
-
-   Note: \`doctor\`/\`install\`/\`local\` currently expect package \`scripts/\` under the process CWD
-   (repo root). Pure \`build\`/\`check\`/\`version\` work with only the binary.
 
 ## Contents
 
 - \`bin/proof-forge-next\` — product CLI
-- \`VERSION\` — SemVer (must match \`version --json\`)
-- \`lean-toolchain\` — Lean pin used to build this binary
+- \`scripts/\` — doctor/install/local/network engines (Python + shell)
+- Tool Lock pin JSON (\`toolchains*.lock.json\`, \`host-profiles.lock.json\`)
+- \`VERSION\` / \`lean-toolchain\`
 - \`COMMIT\` / \`TREE_STATE\` — optional git observation at pack time
 EOF
 
