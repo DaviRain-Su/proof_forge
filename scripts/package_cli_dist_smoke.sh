@@ -47,8 +47,23 @@ fi
 extract="$tmp/extract"
 mkdir -p "$extract"
 tar -xzf "$archive" -C "$extract"
-packed_bin="$(find "$extract" -type f -name proof-forge-next | head -1)"
+stage="$(find "$extract" -maxdepth 1 -type d -name 'proof-forge-next-*' | head -1)"
+[[ -d "$stage" ]] || die "missing extracted stage"
+packed_bin="$stage/bin/proof-forge-next"
 [[ -x "$packed_bin" ]] || die "packed binary not executable"
+for f in \
+  scripts/proof_forge_doctor.py \
+  scripts/proof_forge_install.py \
+  scripts/toolchain_assets.py \
+  scripts/aleo_local_sandbox.sh \
+  scripts/aleo_devnet.sh \
+  scripts/aleo_network.sh \
+  host-profiles.lock.json \
+  toolchains.lock.json \
+  toolchains-linux-x86_64.lock.json
+do
+  [[ -f "$stage/$f" ]] || die "dist missing required file: $f"
+done
 packed_json="$("$packed_bin" version --json)"
 echo "$packed_json" | grep -q "\"version\":\"${ver_file}\"" || die "packed version"
 echo "${PREFIX}: PACK-SMOKE-OK"

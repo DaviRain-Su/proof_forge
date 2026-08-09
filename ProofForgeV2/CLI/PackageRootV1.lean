@@ -7,7 +7,7 @@
 
   Search order:
   1. `PROOF_FORGE_ROOT` (must be absolute) when it contains the doctor engine
-  2. Parent of `IO.appDir` when the CLI is installed as `<root>/bin/proof-forge-next`
+  2. Parent of `IO.appDir` when that parent contains `scripts/proof_forge_doctor.py`
   3. Process CWD (monorepo developer workflow)
 
   Not formal Stage-0. Does not invent tools outside Tool Lock.
@@ -45,7 +45,7 @@ def resolvePackageRootV1 : IO (Except String FilePath) := do
             s!"PROOF_FORGE_ROOT={trimmed} is missing scripts/proof_forge_doctor.py"
   | none => pure ()
 
-  -- 2) Install layout: <packageRoot>/bin/proof-forge-next → parent of appDir.
+  -- 2) Parent of IO.appDir, accepted only when scripts/proof_forge_doctor.py is present.
   try
     let appDir ← IO.appDir
     let parent := appDir.parent.getD appDir

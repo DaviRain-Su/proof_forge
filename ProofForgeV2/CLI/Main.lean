@@ -57,8 +57,8 @@ private def usage : String :=
   "    install --json emits proof-forge.install.v1 (Tool Lock materialize under PROOF_FORGE_TOOL_ROOT);\n" ++
   "    local --json emits proof-forge.local.v1; network --json emits proof-forge.network.v1.\n" ++
   "  doctor/install/local/network resolve package root (CWD-free):\n" ++
-  "    PROOF_FORGE_ROOT (absolute) → parent of CLI bin/ (install layout) → process CWD.\n" ++
-  "    Marker: scripts/proof_forge_doctor.py under the package root.\n" ++
+  "    PROOF_FORGE_ROOT (absolute) → parent of IO.appDir when scripts/ is present → process CWD.\n" ++
+  "    Marker: scripts/proof_forge_doctor.py under the package root; scripts spawn with cwd=packageRoot.\n" ++
   "  install is non-interactive: requires --yes (or --dry-run); no PATH fallback; design-only targets rejected.\n" ++
   "  local/network wrap package scripts with inherited PROOF_FORGE_TOOL_ROOT (no PATH fallback tools);\n" ++
   "    host-heavy; not ordinary ci; not formal. network always requires explicit --broadcast.\n" ++
@@ -406,7 +406,7 @@ private def listTargets (options : ListTargetsOptions) : IO Unit := do
 
 /-- Product doctor: thin CLI wrapper over package-owned
     `scripts/proof_forge_doctor.py` (Tool Lock presence; no PATH fallback).
-    Package root is CWD-free (`PROOF_FORGE_ROOT` / install `bin/` parent / CWD).
+    Package root is CWD-free (`PROOF_FORGE_ROOT` absolute / `IO.appDir` parent with scripts/ / CWD).
     Exit codes are forwarded from the engine (0 all-ok, 3 missing/partial/mismatch,
     2 usage, 1 internal). -/
 private def runDoctor (options : DoctorOptions) : IO Unit := do
@@ -445,7 +445,7 @@ private def runDoctor (options : DoctorOptions) : IO Unit := do
 
 /-- Product install: thin CLI wrapper over package-owned
     `scripts/proof_forge_install.py` (Tool Lock provision/materialize; no PATH).
-    Package root is CWD-free (`PROOF_FORGE_ROOT` / install `bin/` parent / CWD).
+    Package root is CWD-free (`PROOF_FORGE_ROOT` absolute / `IO.appDir` parent with scripts/ / CWD).
     Exit codes are forwarded from the engine (0 ok, 3 failed/missing-lock,
     2 usage, 1 internal). -/
 private def runInstall (options : InstallOptions) : IO Unit := do
@@ -602,13 +602,11 @@ private def runLocal (options : LocalOptions) : IO Unit := do
   unless ← script.pathExists do
     failUsage s!"local requires {relScript} under package root ({packageRoot})"
   let mut envPairs : Array (String × Option String) := #[]
-  if (← IO.getEnv "PROOF_FORGE_CLI").isNone then
-    try
-      let self ← IO.appPath
-      envPairs := envPairs.push ("PROOF_FORGE_CLI", some self.toString)
-    catch _ => pure ()
-  if (← IO.getEnv "PROOF_FORGE_ROOT").isNone then
-    envPairs := envPairs.push ("PROOF_FORGE_ROOT", some packageRoot.toString)
+  try
+    let self ← IO.appPath
+    envPairs := envPairs.push ("PROOF_FORGE_CLI", some self.toString)
+  catch _ => pure ()
+  envPairs := envPairs.push ("PROOF_FORGE_ROOT", some packageRoot.toString)
   let output ← IO.Process.output {
     cmd := "/bin/bash"
     args := #["-p", script.toString] ++ options.scriptArgs

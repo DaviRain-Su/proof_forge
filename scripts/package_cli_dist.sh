@@ -120,36 +120,45 @@ chmod 755 "$STAGE/bin/proof-forge-next"
 cp -a "$root/VERSION" "$STAGE/VERSION"
 cp -a "$root/lean-toolchain" "$STAGE/lean-toolchain"
 
-# CWD-free doctor/install/local engines + Tool Lock pins (REL-CWD-0).
+# CWD-free doctor/install/local/network engines + Tool Lock pins (REL-CWD-0).
+# These files are part of the CLI product surface for the engineering dist;
+# fail closed if a required engine or root lock is absent instead of silently
+# producing an unusable package.
 mkdir -p "$STAGE/scripts"
-for f in \
-  proof_forge_doctor.py \
-  proof_forge_install.py \
-  proof_forge_aleo_snarkos.py \
-  toolchain_assets.py \
-  aleo_local_sandbox.sh \
-  aleo_devnet.sh \
-  aleo_network.sh \
-  aleo_network_receipt.py \
-  aleo_devnet.py \
-  solana_runtime_test.sh \
+required_scripts=(
+  proof_forge_doctor.py
+  proof_forge_install.py
+  proof_forge_aleo_snarkos.py
+  toolchain_assets.py
+  aleo_local_sandbox.sh
+  aleo_devnet.sh
+  aleo_devnet.py
+  aleo_network.sh
+  aleo_network_receipt.py
+)
+optional_scripts=(
+  solana_runtime_test.sh
   evm_anvil_differential.sh
-do
+)
+for f in "${required_scripts[@]}"; do
+  [[ -f "$root/scripts/$f" ]] || bad "missing required package script scripts/$f"
+  cp -a "$root/scripts/$f" "$STAGE/scripts/$f"
+done
+for f in "${optional_scripts[@]}"; do
   if [[ -f "$root/scripts/$f" ]]; then
     cp -a "$root/scripts/$f" "$STAGE/scripts/$f"
   fi
 done
 chmod a+x "$STAGE/scripts"/*.sh 2>/dev/null || true
 
-for f in \
-  host-profiles.lock.json \
-  toolchains.lock.json \
-  toolchains-linux-x86_64.lock.json \
-  toolchains-linux-aarch64.lock.json
-do
-  if [[ -f "$root/$f" ]]; then
-    cp -a "$root/$f" "$STAGE/$f"
-  fi
+[[ -f "$root/host-profiles.lock.json" ]] || bad "missing host-profiles.lock.json"
+cp -a "$root/host-profiles.lock.json" "$STAGE/host-profiles.lock.json"
+shopt -s nullglob
+lock_files=("$root"/toolchains*.lock.json)
+shopt -u nullglob
+((${#lock_files[@]} > 0)) || bad "missing toolchains*.lock.json"
+for f in "${lock_files[@]}"; do
+  cp -a "$f" "$STAGE/$(basename "$f")"
 done
 
 # Optional commit stamp (observation only; not formal BuildIdentity).
@@ -170,8 +179,8 @@ This is an **engineering** CLI distribution for ProofForge V2.
 - **Not** formal Stage-0 / hermetic / mainnet release evidence
 - **Not** a Tool Lock *tool binary* bundle (leo/solc still via \`install\`)
 - Channel: \`engineering-dist\`
-- **CWD-free**: doctor/install/local resolve package root via
-  \`PROOF_FORGE_ROOT\` → parent of \`bin/\` → CWD
+- **CWD-free**: doctor/install/local/network resolve package root via
+  \`PROOF_FORGE_ROOT\` (absolute) → parent of \`IO.appDir\` when \`scripts/\` is present → CWD
 
 ## Install
 
