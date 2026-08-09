@@ -25,9 +25,9 @@ Surface: `Examples/MiniAmmL1.lean` (full vault-internal MiniAmm + executable `em
 |---|---|---|
 | bf3-surface | done | Ship `Examples/MiniAmmL1.lean` with executable `emptyPool`; product `check` ok |
 | bf3-admit-docs | done | Reference admit suite + focused `Tests.Semantic.MiniAmmL1Admit` (18470B carrier); INV-2/Agents/queue wave-3 open |
-| bf3-preserve | in_progress | Closed data (2342B) + production decode bridge GREEN. Foundation packing GREEN: `tripleUint64CanonicalV1` + encode ok + `decodeLogicalStateValuesV1_of_triple_uint64_encode` (decode-of-encode) + `decodeLogicalStateValuesV1_triple_eq` + `initialLogicalStateV1_triple_uint64_no_initializer_eq_ok`. Residual: encode-of-decode identity for triple UInt64 + multi-state clear/get `stepReferenceSliceV1` packing + emptyPool eval + full `PreservationTheoremV1` |
-| bf3-product | pending | same-file `proof emptyPool preserving` + product certifier positive (pin optional golden) |
-| bf3-docs | pending | ADR/research/Agents closeout; **not** ADR-0027 supersession; not formal |
+| bf3-preserve | in_progress | **GREEN** data 2342B + `structure_ok` + `encode_ok` + admission + production decode bridge + triple UInt64 foundation packing（`705e43908`/`310d3196b`）。**Residual（runner 注意：勿重复翻这块）**：multi-state clear/get `stepReferenceSliceV1` ready micro-path（类 ZeroCounter 的 `stepReferenceSliceV1_ready_clear_returned`，但 3-state overlay）+ emptyPool eval returnedTrue + full `PreservationTheoremV1` in `MiniAmmEmptyPoolPreservationV1`（新文件） |
+| bf3-product | pending | same-file `proof emptyPool preserving` + InlineProofCertifier positive（ZeroCounter 已有模板）；ClosedSubjectPin 可选 |
+| bf3-docs | pending | ADR/research/Agents closeout |
 
 ## Done criteria (wave 3)
 
