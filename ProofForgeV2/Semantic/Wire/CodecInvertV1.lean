@@ -19,7 +19,9 @@ import Init.Data.Array.Lemmas
   Field-family invert (mig-a1-fields): see `Wire.CodecInvertFieldsV1` —
   InvariantDecl full MidOffsetInvert, empty root tables, empty Requirements,
   Type.Bool shape, QN single-component + encode success foundation.
-  Callable / full multi-component QN / full TypeShape residual → mig-a1-callable/root.
+  Callable family (mig-a1-callable): see `Wire.CodecInvertCallableV1` —
+  CallableKind/ValueDef/LoopBound, pure-U32 Op + Literal, Term.Return, array lift.
+  Full multi-component QN / full TypeShape / root composition residual → mig-a1-root.
 
   Hard boundaries:
     * no axiom / sorry / native_decide / ofReduceBool

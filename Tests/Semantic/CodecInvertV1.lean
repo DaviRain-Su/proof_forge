@@ -1,12 +1,14 @@
 /-
-  Tests.Semantic.CodecInvertV1 — mig-a1 foundation + fields: MidOffsetInvert,
-  Visibility complete leaf, array zero helper, InvariantDecl invert,
-  empty tables, empty Requirements, Type.Bool, QN singleton.
+  Tests.Semantic.CodecInvertV1 — mig-a1 foundation + fields + callable:
+  MidOffsetInvert, Visibility, InvariantDecl, empty tables/Requirements,
+  Type.Bool, QN singleton, CallableKind, ValueDef, LoopBound, Op.Constant/
+  StateLoad/Commit/Literal, Term.Return, empty callables, array one/two lift.
 
   Does not claim full parametric decode∘encode for arbitrary programs.
 -/
 import ProofForgeV2.Semantic.Wire.CodecInvertV1
 import ProofForgeV2.Semantic.Wire.CodecInvertFieldsV1
+import ProofForgeV2.Semantic.Wire.CodecInvertCallableV1
 import ProofForgeV2.Semantic.WireV1
 
 namespace Tests.Semantic.CodecInvertV1
@@ -70,6 +72,21 @@ theorem array_zero_mid :
 theorem invariantDecl_midOffsetInvert :
     MidOffsetInvertV1 encodeInvariantDeclV1 decodeInvariantDeclV1 :=
   midOffsetInvert_encodeInvariantDecl_decodeInvariantDecl
+
+/-- Positive theorem: CallableKind MidOffsetInvert package. -/
+theorem callableKind_midOffsetInvert :
+    MidOffsetInvertV1 encodeCallableKindV1 decodeCallableKindV1 :=
+  midOffsetInvert_encodeCallableKind_decodeCallableKind
+
+/-- Positive theorem: ValueDef MidOffsetInvert package. -/
+theorem valueDef_midOffsetInvert :
+    MidOffsetInvertV1 encodeValueDefV1 decodeValueDefV1 :=
+  midOffsetInvert_encodeValueDef_decodeValueDef
+
+/-- Positive theorem: LoopBound MidOffsetInvert package. -/
+theorem loopBound_midOffsetInvert :
+    MidOffsetInvertV1 encodeLoopBoundV1 decodeLoopBoundV1 :=
+  midOffsetInvert_encodeLoopBound_decodeLoopBound
 
 /-- Positive theorem: empty constants table mid-offset invert. -/
 theorem empty_constants_table_mid :
@@ -150,6 +167,87 @@ def run : IO Unit := do
           expect (inv'.id == inv.id) "invariant id mismatch"
           expect (inv'.callableId == inv.callableId) "invariant callable mismatch"
           expect (c.offset == b.size) "invariant cursor not at end"
+  -- CallableKind round-trip (all five)
+  let kinds : Array CallableKindV1 :=
+    #[.initializer, .entry, .view, .pureFn, .invariant]
+  for kind in kinds do
+    match encodeCallableKindV1 kind with
+    | .error e => throw <| IO.userError s!"callable kind encode failed: {repr e}"
+    | .ok b =>
+        match decodeCallableKindV1 ⟨b, 0, 0⟩ with
+        | .error e => throw <| IO.userError s!"callable kind decode failed: {repr e}"
+        | .ok (kind', c) =>
+            expect (kind' == kind) "callable kind mismatch"
+            expect (c.offset == b.size) "callable kind cursor not at end"
+  -- ValueDef round-trip
+  let vd : ValueDefV1 := { valueId := 0, typeId := 1 }
+  match encodeValueDefV1 vd with
+  | .error e => throw <| IO.userError s!"valueDef encode failed: {repr e}"
+  | .ok b =>
+      match decodeValueDefV1 ⟨b, 0, 0⟩ with
+      | .error e => throw <| IO.userError s!"valueDef decode failed: {repr e}"
+      | .ok (vd', c) =>
+          expect (vd'.valueId == vd.valueId) "valueDef valueId mismatch"
+          expect (vd'.typeId == vd.typeId) "valueDef typeId mismatch"
+          expect (c.offset == b.size) "valueDef cursor not at end"
+  -- LoopBound round-trip
+  let lb : LoopBoundV1 := { header := 0, backEdgeFrom := 1, maxIterations := 16 }
+  match encodeLoopBoundV1 lb with
+  | .error e => throw <| IO.userError s!"loopBound encode failed: {repr e}"
+  | .ok b =>
+      match decodeLoopBoundV1 ⟨b, 0, 0⟩ with
+      | .error e => throw <| IO.userError s!"loopBound decode failed: {repr e}"
+      | .ok (lb', c) =>
+          expect (lb'.header == lb.header) "loopBound header mismatch"
+          expect (lb'.backEdgeFrom == lb.backEdgeFrom) "loopBound backEdge mismatch"
+          expect (lb'.maxIterations == lb.maxIterations) "loopBound maxIterations mismatch"
+          expect (c.offset == b.size) "loopBound cursor not at end"
+  -- Op.Constant + Op.Literal + Term.Return
+  match encodeSemanticOpV1 (.constant 7) with
+  | .error e => throw <| IO.userError s!"op.constant encode failed: {repr e}"
+  | .ok b =>
+      match decodeSemanticOpV1 ⟨b, 0, 0⟩ with
+      | .error e => throw <| IO.userError s!"op.constant decode failed: {repr e}"
+      | .ok (op, c) =>
+          expect (op == .constant 7) "op.constant mismatch"
+          expect (c.offset == b.size) "op.constant cursor not at end"
+  match encodeSemanticOpV1 (.literal 0 (ByteArray.mk #[1])) with
+  | .error e => throw <| IO.userError s!"op.literal encode failed: {repr e}"
+  | .ok b =>
+      match decodeSemanticOpV1 ⟨b, 0, 0⟩ with
+      | .error e => throw <| IO.userError s!"op.literal decode failed: {repr e}"
+      | .ok (op, c) =>
+          match op with
+          | .literal tid vb =>
+              expect (tid == 0) "op.literal typeId mismatch"
+              expect (vb == ByteArray.mk #[1]) "op.literal bytes mismatch"
+          | _ => throw <| IO.userError "op.literal wrong constructor"
+          expect (c.offset == b.size) "op.literal cursor not at end"
+  match encodeTerminatorV1 (.return_ none) with
+  | .error e => throw <| IO.userError s!"term.return none encode failed: {repr e}"
+  | .ok b =>
+      match decodeTerminatorV1 ⟨b, 0, 0⟩ with
+      | .error e => throw <| IO.userError s!"term.return none decode failed: {repr e}"
+      | .ok (t, c) =>
+          expect (t == .return_ none) "term.return none mismatch"
+          expect (c.offset == b.size) "term.return none cursor not at end"
+  match encodeTerminatorV1 (.return_ (some 3)) with
+  | .error e => throw <| IO.userError s!"term.return some encode failed: {repr e}"
+  | .ok b =>
+      match decodeTerminatorV1 ⟨b, 0, 0⟩ with
+      | .error e => throw <| IO.userError s!"term.return some decode failed: {repr e}"
+      | .ok (t, c) =>
+          expect (t == .return_ (some 3)) "term.return some mismatch"
+          expect (c.offset == b.size) "term.return some cursor not at end"
+  -- empty callables table
+  match encodeArray encodeCallableV1 (#[] : Array CallableV1) with
+  | .error e => throw <| IO.userError s!"empty callables encode failed: {repr e}"
+  | .ok b =>
+      match decodeArray maxTableElements decodeCallableV1 ⟨b, 0, 0⟩ with
+      | .error e => throw <| IO.userError s!"empty callables decode failed: {repr e}"
+      | .ok (arr, c) =>
+          expect (arr.size == 0) "expected empty callables"
+          expect (c.offset == b.size) "callables cursor not at end"
   IO.println "Tests.Semantic.CodecInvertV1: OK"
 
 end Tests.Semantic.CodecInvertV1

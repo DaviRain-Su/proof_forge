@@ -17,15 +17,19 @@ import ProofForgeV2.Semantic.Wire.CodecInvertV1
       `decodeSemanticProgramDataV1 bytes = .ok data`
     * product kernel remains `SemanticProgramV1.canonicalBytes`
 
-  Codec invert path (mig-a1 foundation + fields):
+  Codec invert path (mig-a1 foundation + fields + callable):
     * `MidOffsetInvertV1` — parametric encode→decode at mid-offset
     * `RootFieldInvertV1` — nine root-field invert package
     * `DecodeEncodeRoundtripGoalV1` — residual goal form
     * Visibility leaf fully inverted; array zero/one helpers shipped
     * mig-a1-fields (`Wire.CodecInvertFieldsV1`): InvariantDecl full invert,
       empty root tables, empty Requirements, Type.Bool, QN single-component
-    * Remaining: Callable/Op/Term invert + multi-component QN array lift +
-      full TypeShape + composition discharging `DecodeEncodeRoundtripGoalV1`
+    * mig-a1-callable (`Wire.CodecInvertCallableV1`): CallableKind / ValueDef /
+      LoopBound full invert; pure-U32 Op + Op.Literal; Term.Return none/some;
+      empty callables table; array one/two lift from element MidOffsetInvert
+    * Remaining (mig-a1-root): nested Op/Term residual, Block/Callable full
+      composition, multi-component QN + full TypeShape + composition discharging
+      `DecodeEncodeRoundtripGoalV1`
 -/
 
 namespace ProofForgeV2.Semantic.ProofBridgeV1

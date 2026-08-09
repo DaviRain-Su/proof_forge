@@ -2711,12 +2711,51 @@ def encodeLoopBoundV1 (lb : LoopBoundV1) : Except SemanticWireErrorV1 ByteArray 
   encodeTagged "LoopBound"
     #[encodeU32le lb.header, encodeU32le lb.backEdgeFrom, encodeU32le lb.maxIterations]
 
-def decodeLoopBoundV1 : Decoder LoopBoundV1 := withTaggedNesting fun c => do
+/-- Sole production body for a LoopBound tagged record. -/
+def decodeLoopBoundBodyV1 : Decoder LoopBoundV1 := fun c => do
   let ((), c) ← expectTag "LoopBound" 3 c
   let (header, c) ← decodeU32le c
   let (backEdgeFrom, c) ← decodeU32le c
   let (maxIterations, c) ← decodeU32le c
   pure ({ header, backEdgeFrom, maxIterations }, c)
+
+def decodeLoopBoundV1 : Decoder LoopBoundV1 :=
+  withTaggedNesting decodeLoopBoundBodyV1
+
+theorem decodeLoopBoundBodyV1_eq_of_fields
+    (c afterTag afterHeader afterBack afterMax : Cursor)
+    (header backEdgeFrom maxIterations : UInt32)
+    (htag : expectTag "LoopBound" 3 c = .ok ((), afterTag))
+    (hheader : decodeU32le afterTag = .ok (header, afterHeader))
+    (hback : decodeU32le afterHeader = .ok (backEdgeFrom, afterBack))
+    (hmax : decodeU32le afterBack = .ok (maxIterations, afterMax)) :
+    decodeLoopBoundBodyV1 c =
+      .ok ({ header, backEdgeFrom, maxIterations }, afterMax) := by
+  simp only [decodeLoopBoundBodyV1, htag, hheader, hback, hmax, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+theorem decodeLoopBoundV1_eq_of_bodyV1 (c : Cursor) (lb : LoopBoundV1) (c' : Cursor)
+    (hdepth : c.nesting < maxNesting)
+    (hbody : decodeLoopBoundBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (lb, c')) :
+    decodeLoopBoundV1 c = .ok (lb, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeLoopBoundV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
+
+theorem decodeLoopBoundV1_eq_of_fieldsV1
+    (c afterTag afterHeader afterBack afterMax : Cursor)
+    (header backEdgeFrom maxIterations : UInt32) (hdepth : c.nesting < maxNesting)
+    (htag : expectTag "LoopBound" 3 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok ((), afterTag))
+    (hheader : decodeU32le afterTag = .ok (header, afterHeader))
+    (hback : decodeU32le afterHeader = .ok (backEdgeFrom, afterBack))
+    (hmax : decodeU32le afterBack = .ok (maxIterations, afterMax)) :
+    decodeLoopBoundV1 c =
+      .ok ({ header, backEdgeFrom, maxIterations },
+        ⟨afterMax.input, afterMax.offset, c.nesting⟩) :=
+  decodeLoopBoundV1_eq_of_bodyV1 c { header, backEdgeFrom, maxIterations } afterMax hdepth
+    (decodeLoopBoundBodyV1_eq_of_fields ⟨c.input, c.offset, c.nesting + 1⟩
+      afterTag afterHeader afterBack afterMax header backEdgeFrom maxIterations
+      htag hheader hback hmax)
 
 def encodeCallableV1 (c : CallableV1) : Except SemanticWireErrorV1 ByteArray := do
   let kindB ← encodeCallableKindV1 c.kind
