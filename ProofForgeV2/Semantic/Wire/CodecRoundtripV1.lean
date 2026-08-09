@@ -1192,4 +1192,144 @@ theorem taggedBytesV1_eq_header_payload (tag : String) (fields : Array ByteArray
     header ++ fields.foldl (fun out field => out.append field) ByteArray.empty
   rw [hlist header, hlist ByteArray.empty, hfold header fields.toList]
 
+/-! ### ASCII tag byte certificates (product authority) -/
+
+/-- Byte-list ASCII certificate for production `isAsciiTagBytesV1`. -/
+theorem isAsciiTagBytes_of_list_all (bs : List UInt8)
+    (h : (bs.all fun b => decide (b.toNat ≤ 127)) = true) :
+    isAsciiTagBytesV1 (ByteArray.mk bs.toArray) = true := by
+  simp only [isAsciiTagBytesV1]
+  apply (Array.all_eq_true).mpr
+  intro i hi
+  have hi' : i < bs.length := by simpa using hi
+  have hmem : bs[i] ∈ bs := List.getElem_mem hi'
+  exact List.all_eq_true.1 h bs[i] hmem
+
+/-- Mid-offset decode of `encodeU16le v`. -/
+theorem decodeU16le_encode_midV1 (left right : ByteArray) (v : UInt16)
+    (nesting : Nat) :
+    decodeU16le ⟨left ++ encodeU16le v ++ right, left.size, nesting⟩ =
+      .ok (v, ⟨left ++ encodeU16le v ++ right, left.size + 2, nesting⟩) := by
+  apply decodeU16le_eq_of_readV1
+  exact readU16le_encode_midV1 left right v
+
+/-- Successful `encodeByteArray` yields exact length-prefixed payload.
+    Relies on the public success refinement already in CodecV1. -/
+theorem encodeByteArray_ok_eq_payloadV1 (value b : ByteArray)
+    (h : encodeByteArray value = .ok b) :
+    value.size ≤ maxCanonicalProgramBytes ∧
+      value.size ≤ UInt32.size - 1 ∧
+      b = encodeU32le (UInt32.ofNat value.size) ++ value := by
+  have hsize : value.size ≤ maxCanonicalProgramBytes := by
+    by_cases hs : value.size ≤ maxCanonicalProgramBytes
+    · exact hs
+    · -- When oversized, `encodeByteArray` fails before any payload is emitted.
+      have hfail : encodeByteArray value = .error .limitExceeded := by
+        unfold encodeByteArray
+        simp only [hs, ↓reduceIte, err, Bind.bind, Except.bind]
+      simp only [hfail] at h; cases h
+  have hu32 : value.size ≤ UInt32.size - 1 :=
+    Nat.le_trans hsize (by decide : maxCanonicalProgramBytes ≤ UInt32.size - 1)
+  have hok := encodeByteArray_eq_okV1 value hsize hu32
+  exact And.intro hsize <| And.intro hu32 (Except.ok.inj (h.symm.trans hok))
+
+/-- Production mid-offset `decodeByteArray` of a successful `encodeByteArray`. -/
+theorem decodeByteArray_of_encode_midV1
+    (left right payload b : ByteArray) (nesting : Nat)
+    (henc : encodeByteArray payload = .ok b) :
+    decodeByteArray maxCanonicalProgramBytes
+        ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (payload,
+        ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
+  obtain ⟨hmax, hu32, hb⟩ := encodeByteArray_ok_eq_payloadV1 payload b henc
+  subst b
+  -- Normalize `left ++ (hdr ++ payload) ++ right` to left-associated form used by readers.
+  have hshape :
+      left ++ (encodeU32le (UInt32.ofNat payload.size) ++ payload) ++ right =
+        left ++ encodeU32le (UInt32.ofNat payload.size) ++ payload ++ right := by
+    simp [ByteArray.append_assoc]
+  rw [hshape]
+  have hassoc :
+      left ++ encodeU32le (UInt32.ofNat payload.size) ++ payload ++ right =
+        left ++ encodeU32le (UInt32.ofNat payload.size) ++ (payload ++ right) := by
+    simp [ByteArray.append_assoc]
+  have hread :
+      readSizedBytesAtV1
+          (left ++ encodeU32le (UInt32.ofNat payload.size) ++ payload ++ right)
+          left.size maxCanonicalProgramBytes =
+        .ok (payload, left.size + 4 + payload.size) := by
+    rw [hassoc]
+    have hulen :=
+      readU32le_encode_midV1 left (payload ++ right) (UInt32.ofNat payload.size)
+    unfold readSizedBytesAtV1
+    simp only [hulen]
+    have hto : (UInt32.ofNat payload.size).toNat = payload.size :=
+      Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt hu32 (by decide))
+    simp only [hto]
+    have hlim : ¬(payload.size > maxCanonicalProgramBytes) := Nat.not_lt.mpr hmax
+    simp only [hlim, ↓reduceIte]
+    have hs4 : (encodeU32le (UInt32.ofNat payload.size)).size = 4 :=
+      encodeU32le_sizeV1 _
+    have hA :
+        left ++ encodeU32le (UInt32.ofNat payload.size) ++ (payload ++ right) =
+          (left ++ encodeU32le (UInt32.ofNat payload.size)) ++ payload ++ right := by
+      simp [ByteArray.append_assoc]
+    have hoff :
+        (left ++ encodeU32le (UInt32.ofNat payload.size)).size = left.size + 4 := by
+      rw [ByteArray.size_append, hs4]
+    have htake :
+        takeBytesAtV1
+            (left ++ encodeU32le (UInt32.ofNat payload.size) ++ (payload ++ right))
+            (left.size + 4) payload.size = .ok payload := by
+      rw [hA, ← hoff]
+      exact takeBytes_mid_payloadV1 _ payload right
+    simp only [htake]
+  have hsz :
+      left.size + 4 + payload.size =
+        left.size + (encodeU32le (UInt32.ofNat payload.size) ++ payload).size := by
+    simp [ByteArray.size_append, encodeU32le_sizeV1]; omega
+  have hdec :
+      decodeByteArray maxCanonicalProgramBytes
+          ⟨left ++ encodeU32le (UInt32.ofNat payload.size) ++ payload ++ right,
+            left.size, nesting⟩ =
+        .ok (payload,
+          ⟨left ++ encodeU32le (UInt32.ofNat payload.size) ++ payload ++ right,
+            left.size + 4 + payload.size, nesting⟩) := by
+    simp only [decodeByteArray, hread, Bind.bind, Pure.pure, Except.bind, Except.pure]
+  rw [hdec]
+  -- Align final offset: left.size + 4 + payload.size = left.size + b.size
+  simp only [hsz]
+
+/-- Successful zero-element array encode is exactly `encodeU32le 0`. -/
+theorem encodeArray_ok_zero_eqV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray) (b : ByteArray)
+    (h : encodeArray encode (#[] : Array α) = .ok b) :
+    b = encodeU32le 0 := by
+  have h0 := encodeArray_zeroV1 encode
+  exact Except.ok.inj (h.symm.trans h0)
+
+/-- Successful one-element array encode is count-1 header ++ element bytes. -/
+theorem encodeArray_ok_one_eqV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 : α) (b b0 : ByteArray)
+    (h0 : encode v0 = .ok b0)
+    (h : encodeArray encode #[v0] = .ok b) :
+    b = encodeU32le 1 ++ b0 := by
+  have h1 := encodeArray_oneV1 encode v0 b0 h0
+  exact Except.ok.inj (h.symm.trans h1)
+
+/-- Mid-offset empty-array invert from successful encode. -/
+theorem decodeArray_of_encodeArray_zero_ok_midV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (decode : Decoder α) (maxCount : Nat)
+    (b left right : ByteArray) (nesting : Nat)
+    (henc : encodeArray encode (#[] : Array α) = .ok b) :
+    decodeArray maxCount decode
+        ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (#[], ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
+  have hb := encodeArray_ok_zero_eqV1 encode b henc
+  subst b
+  have h := decodeArray_encode_zero_midV1 maxCount decode left right nesting
+  simpa [encodeU32le_sizeV1] using h
+
 end ProofForgeV2.Semantic.WireV1

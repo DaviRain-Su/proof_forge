@@ -11,10 +11,15 @@ import Init.Data.Array.Lemmas
 
     parametric `decodeSemanticProgramDataV1 (encode data) = .ok data`
 
-  under **mid-offset invertibility** of each production field codec. Field-family
-  invert proofs (TypeDecl / Callable / Op / …) remain subsequent slices; this
-  module makes those proofs **sufficient** for the root theorem and ships one
-  complete leaf family (`VisibilityV1`) as the pattern.
+  under **mid-offset invertibility** of each production field codec.
+
+  Foundation (this module): MidOffsetInvert predicate, Visibility complete leaf,
+  array zero/one helpers, RootFieldInvert package, DecodeEncodeRoundtripGoal.
+
+  Field-family invert (mig-a1-fields): see `Wire.CodecInvertFieldsV1` —
+  InvariantDecl full MidOffsetInvert, empty root tables, empty Requirements,
+  Type.Bool shape, QN single-component + encode success foundation.
+  Callable / full multi-component QN / full TypeShape residual → mig-a1-callable/root.
 
   Hard boundaries:
     * no axiom / sorry / native_decide / ofReduceBool

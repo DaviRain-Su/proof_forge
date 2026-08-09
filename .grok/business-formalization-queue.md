@@ -13,7 +13,7 @@
 | id | status | objective |
 |---|---|---|
 | mig-a1-foundation | done | **Codec invert foundation**：product `MidOffsetInvertV1` + `RootFieldInvertV1` + `DecodeEncodeRoundtripGoalV1`；Visibility 全叶 invert；array zero/one mid helpers；tagged-header mid-offset 下沉 `Wire.CodecRoundtripV1`；`CodecInvertV1` + focused tests；SC modules 去重 product header |
-| mig-a1-fields | pending | Field-family `MidOffsetInvert`：QN / TypeDecl / Constant / State / Event / Error / Invariant / Requirements（Callable 除外） |
+| mig-a1-fields | done | Field-family `MidOffsetInvert`：QN / TypeDecl / Constant / State / Event / Error / Invariant / Requirements（Callable 除外）— `CodecInvertFieldsV1`：InvariantDecl full invert；empty root tables；empty Requirements；Type.Bool leaf；QN singleton+encode foundation；ByteArray mid-offset + array empty helpers in CodecRoundtrip |
 | mig-a1-callable | pending | Callable/Block/Op/Term `MidOffsetInvert` + array lift 完整归纳 |
 | mig-a1-root | pending | 闭合 `decodeSemanticProgramDataV1_of_encode_ok`（= `DecodeEncodeRoundtripGoalV1` 放电）+ ProofBridge `toValidated` 仅需 encode witness；product GREEN |
 | mig-a2-shape | pending | **形状族 preservation 定理**入 `ProofForgeV2/Semantic/`：对 stepReferenceSliceV1 的通用形状推理（store-constant 族等），使任意合约的同文件证明 = apply 通用定理 + decide/rfl 形状事实；复用 triple-UInt64 packaging（`4b7219a2b`） |
