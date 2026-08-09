@@ -5,6 +5,8 @@ open ProofForgeV2.Language
 open ProofForgeV2.Semantic.InvariantABI
 open ProofForgeV2.Semantic.SimpleClosureTraceV1
 open ProofForgeV2.Semantic.WireV1
+open Lean
+open Lean.Elab.Command
 
 namespace Tests.Language.InlineProofAuthoringV1
 
@@ -19,9 +21,21 @@ theorem ProofedProof.safe : Proofed.Proof.safe := by
 
 #check Proofed.Proof.subjectProgramV1
 #check Proofed.Proof.safe
+#check Proofed.Model.State
+#check Proofed.Model.encodeState
+#check Proofed.Model.decodeState
+#check Proofed.Model.decode_encode
+#check Proofed.Model.conforms_of_encode
 
 example : Proofed.Proof.safe =
     InvariantTheoremV1 Proofed.Proof.subjectProgramV1 0 := rfl
+
+example : Proofed.Model.State = Unit := rfl
+
+example : Proofed.Model.encodeState () = .ok {
+    initialized := true
+    canonicalValues := ByteArray.empty
+  } := rfl
 
 #check Proofed.Proof.subjectBytesV1
 -- Structured subject data (mig-a3-elab): preferred author surface; encode of
@@ -82,6 +96,83 @@ example : DualKindSurface.ProofPreserving.safe =
     ProofForgeV2.Semantic.PreservationABI.PreservationTheoremV1
       DualKindSurface.Proof.subjectProgramV1 0 := rfl
 
+program TypedStateSurface where
+  state count : UInt64
+  state total : UInt64
+  view alive() : Bool do
+    return true
+  invariant safe : true
+  proof safe using TypedStateSurfaceProof.safe
+
+#check TypedStateSurface.Model.State
+#check TypedStateSurface.Model.State.count
+#check TypedStateSurface.Model.State.total
+#check TypedStateSurface.Model.encodeState
+#check TypedStateSurface.Model.decodeState
+#check TypedStateSurface.Model.decode_encode
+#check TypedStateSurface.Model.conforms_of_encode
+
+private def typedStateSampleV1 : TypedStateSurface.Model.State := {
+  count := 7
+  total := 11
+}
+
+private def typedStateLogicalV1 : LogicalStateV1 := {
+  initialized := true
+  canonicalValues :=
+    encodeU32le 8 ++ encodeU64le 7 ++ encodeU32le 8 ++ encodeU64le 11
+}
+
+/-- Generated fields preserve StateId/source order in the production wire
+    layout; no contract-specific codec participates in this equality. -/
+example : TypedStateSurface.Model.encodeState typedStateSampleV1 =
+    .ok typedStateLogicalV1 := by
+  rfl
+
+/-- The generated author-facing theorem is the generic production-codec
+    inverse specialized to this exact lowered subject. -/
+example : TypedStateSurface.Model.decodeState typedStateLogicalV1 =
+    .ok typedStateSampleV1 := by
+  apply TypedStateSurface.Model.decode_encode
+  rfl
+
+example
+    (hvalidate :
+      validateSemanticProgramV1 TypedStateSurface.Proof.subjectProgramV1 =
+        .ok TypedStateSurface.Proof.subjectDataV1) :
+    StateConformsV1 TypedStateSurface.Proof.subjectProgramV1 typedStateLogicalV1 := by
+  apply TypedStateSurface.Model.conforms_of_encode typedStateSampleV1
+    typedStateLogicalV1 hvalidate
+  rfl
+
+private def typedStateUninitializedV1 : LogicalStateV1 :=
+  { typedStateLogicalV1 with initialized := false }
+
+example : TypedStateSurface.Model.decodeState typedStateUninitializedV1 =
+    .error .nonCanonical := by
+  rfl
+
+/- `rec` is legal in the DSL but owned by generated Lean structures. The
+    existing program and Proof surfaces must keep elaborating; only the optional
+    typed Model surface is withheld. -/
+program ModelReservedStateName where
+  state «rec» : UInt64
+  view alive() : Bool do
+    return true
+  invariant safe : true
+  proof safe preserving using ModelReservedStateNameProof.safe
+
+#check ModelReservedStateName.Proof.subjectProgramV1
+#check ModelReservedStateName.Proof.subjectDataV1
+#check ModelReservedStateName.ProofPreserving.safe
+
+run_cmd do
+  let env ← getEnv
+  let modelStateName :=
+    `Tests.Language.InlineProofAuthoringV1.ModelReservedStateName.Model.State
+  if env.contains modelStateName then
+    throwError "reserved structure field name must withhold only the Model surface"
+
 /-- Bridge has the exact product Prop-alias conclusion under a wire-trace
     premise (no free hyps beyond `t`). -/
 example :
@@ -114,6 +205,26 @@ def run : IO Unit := do
   expect (generatedSimpleClosureTheoremNameV1 "safe" ==
       Proofed.Proof.generatedSafeV1Name)
     "naming helper matches elaborator Name def"
+  match TypedStateSurface.Model.decodeState typedStateLogicalV1 with
+  | .ok decoded =>
+      expect (decoded == typedStateSampleV1)
+        "typed state decode must preserve all fields in source order"
+  | .error error =>
+      throw <| IO.userError s!"typed state decode failed: {repr error}"
+  let missingSlot : LogicalStateV1 := {
+    initialized := true
+    canonicalValues := encodeU32le 8 ++ encodeU64le 7
+  }
+  match TypedStateSurface.Model.decodeState missingSlot with
+  | .ok _ => throw <| IO.userError "typed state decode must reject a missing slot"
+  | .error _ => pure ()
+  let extraSlot : LogicalStateV1 := {
+    initialized := true
+    canonicalValues := typedStateLogicalV1.canonicalValues ++ encodeU32le 0
+  }
+  match TypedStateSurface.Model.decodeState extraSlot with
+  | .ok _ => throw <| IO.userError "typed state decode must reject trailing slot bytes"
+  | .error _ => pure ()
   match validateSemanticProgramV1 subject with
   | .error error =>
       throw <| IO.userError s!"generated inline proof subject invalid: {repr error}"

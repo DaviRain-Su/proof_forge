@@ -4937,6 +4937,22 @@ private theorem leBytesToNatV1_natToLeBytesV1_uint64
     leBytesToNatV1 (natToLeBytesV1 n 8) = n :=
   leBytesToNat_natToLeBytes_uint64 n hn
 
+/-- The Reference machine's fixed-width UInt64 writer is byte-for-byte the
+    production Wire UInt64 encoder. This exposes codec alignment without
+    adding a model-only scalar format. -/
+theorem natToLeBytesV1_uint64_eq_encodeU64le (value : UInt64) :
+    natToLeBytesV1 value.toNat 8 = encodeU64le value := by
+  apply ByteArray.ext
+  simp [natToLeBytesV1, natToLeBytes, natToLeBytesList, encodeU64le,
+    Nat.div_div_eq_div_mul]
+
+/-- Reading bytes emitted by the production Wire UInt64 encoder through the
+    sole Reference unsigned interpretation recovers the original scalar. -/
+theorem leBytesToNatV1_encodeU64le (value : UInt64) :
+    leBytesToNatV1 (encodeU64le value) = value.toNat := by
+  rw [← natToLeBytesV1_uint64_eq_encodeU64le]
+  exact leBytesToNatV1_natToLeBytesV1_uint64 value.toNat value.toNat_lt
+
 private theorem evalBinary_add_uint64_two
     (data : SemanticProgramDataV1) (uint64TypeId : TypeIdV1)
     (countBytes : ByteArray)

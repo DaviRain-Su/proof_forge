@@ -237,7 +237,9 @@ w2-single-semantic-carrier-deletion-gate:
 # D2 alpha-residual physical-deletion gate (durable just/ci pin).
 # Core/Source, Core/Typed, Core/SemanticIR, Core/Semantics, Core/TypedV1,
 # Compiler/AlphaCompatibility and Tests.Fixtures.SourcePrograms deleted by the
-# AlphaCleanup wave; imports and physical presence must stay absent.
+# AlphaCleanup wave; the parallel MiniAmm semantics and contract-specific proof
+# registry/pin were deleted by the preservation cutover. Imports and physical
+# presence must stay absent.
 alpha-deletion-gate:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -257,6 +259,10 @@ alpha-deletion-gate:
     fail_if_file_exists "$gate" ProofForgeV2/Core/TypedV1.lean
     fail_if_file_exists "$gate" ProofForgeV2/Compiler/AlphaCompatibility.lean
     fail_if_file_exists "$gate" Tests/Fixtures/SourcePrograms.lean
+    fail_if_file_exists "$gate" ProofForgeV2/Semantic/MiniAmmSafetySketchV1.lean
+    fail_if_file_exists "$gate" ProofForgeV2/Semantic/ClosedSubjectPinV1.lean
+    fail_if_file_exists "$gate" ProofForgeV2/ProofInstances/MiniAmmEmptyPoolV1.lean
+    fail_if_file_exists "$gate" ProofForgeV2/ProofInstances/MiniAmmEmptyPoolDecodeV1.lean
     echo "alpha-deletion-gate: ok"
 
 # D3/S5 engineering deletion + sole-mint gate (durable just/ci pin).

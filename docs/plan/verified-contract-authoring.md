@@ -655,8 +655,8 @@ proof-bearing target build 继续 fail closed。
 | 顺序 | 里程碑 | 状态 | 完成信号 |
 |---|---|---|---|
 | 0A | 删除第二套 executable semantics | **已完成** | `MiniAmmSafetySketchV1`、alpha `Core/Semantics`/`SemanticIR` 已不在 HEAD |
-| 0B | 唯一语义防回归门 | 未开始 | architecture/deletion tests 可阻止旁路回流且不误杀 checker state |
-| 1 | Typed State + codec bridge | 未开始 | 未 pin program 可在字段级证明，不碰 bytes |
+| 0B | 唯一语义防回归门 | **已完成** | `alpha-deletion-gate` 固定平行语义、contract-specific registry/pin 的物理删除，不误杀 checker state |
+| 1 | Typed State + codec bridge | **进行中（typed→logical UInt64 首切已完成）** | generated `Model.State` 复用 production codec 且有 generic inverse/conformance soundness；conforming logical→typed 唯一性与 Bool state 仍待补 |
 | 2 | Typed callable transition | 未开始 | 简单 entry theorem 只使用 typed State/args/outcome |
 | 3 | Typed invariant bridge | 未开始 | typed predicate 与 `evalInvariantV1` 双向对齐 |
 | 4 | Generic preservation composition | 未开始 | per-call lemmas 自动包成 exact `PreservationTheoremV1` |

@@ -3,6 +3,7 @@ import ProofForgeV2.Language.SubjectDataQuoteV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Semantic.PreservationABI
+import ProofForgeV2.Semantic.StateModelV1
 import ProofForgeV2.Semantic.UInt64ParityPreservationV1
 import ProofForgeV2.Semantic.UInt64ParitySubjectV1
 import ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1
@@ -167,6 +168,159 @@ private structure ProofSurfaceV1 where
   holdsNames : Array String
   preservingNames : Array String
 
+private inductive ModelStateScalarV1 where
+  | bool
+  | uint64
+
+private structure ModelStateFieldV1 where
+  name : String
+  scalar : ModelStateScalarV1
+
+/-- Phase-1 typed-state support is deliberately narrow and fail closed. The
+    mapping is read from the exact lowered subject data; source AST types are
+    never reinterpreted here. `none` means no `Model` surface is emitted. -/
+private def modelStateFieldsV1
+    (data : SemanticProgramDataV1) : Option (Array ModelStateFieldV1) := do
+  let mut fields := #[]
+  for stateDecl in data.logicalState do
+    -- Avoid names owned by a generated Lean structure in the pinned toolchain.
+    -- This is only a Model-surface limitation: returning `none` must not reject
+    -- or alter the existing DSL program and Proof subject surface.
+    let structureOwnedName := match stateDecl.name with
+      | "mk" | "rec" | "recOn" | "casesOn" | "ctorIdx"
+      | "noConfusion" | "noConfusionType" | "_sizeOf_1" | "_sizeOf_inst" => true
+      | _ => false
+    guard (!structureOwnedName)
+    let typeDecl ← data.types[stateDecl.typeId.toNat]?
+    let scalar ← match typeDecl.shape with
+      | .bool => some .bool
+      | .uint 64 => some .uint64
+      | _ => none
+    fields := fields.push { name := stateDecl.name, scalar }
+  pure fields
+
+private def quoteModelStateTypeV1
+    (scalar : ModelStateScalarV1) : MacroM (TSyntax `term) :=
+  match scalar with
+  | .bool => `(Bool)
+  | .uint64 => `(UInt64)
+
+private def quoteModelStateEncodeV1
+    (stateName : TSyntax `ident)
+    (fieldName : TSyntax `ident)
+    (scalar : ModelStateScalarV1) : MacroM (TSyntax `term) :=
+  match scalar with
+  | .bool =>
+      `(ProofForgeV2.Semantic.WireV1.encodeBool $stateName.$fieldName)
+  | .uint64 =>
+      `(ProofForgeV2.Semantic.WireV1.encodeU64le $stateName.$fieldName)
+
+private def quoteModelStateDecodeV1
+    (valueName : TSyntax `ident)
+    (scalar : ModelStateScalarV1) : MacroM (TSyntax `term) :=
+  match scalar with
+  | .bool =>
+      `(ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1 $valueName)
+  | .uint64 =>
+      `(ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1 $valueName)
+
+/-- Emit the author-facing business-state view. It is only a typed projection
+    over `Proof.subjectDataV1`: encoding and decoding call the production
+    logical-state codec, and this phase intentionally emits no step/evaluator. -/
+private def elaborateStateModelV1
+    (subjectProgramName : TSyntax `ident)
+    (subjectDataName : TSyntax `ident)
+    (fields : Array ModelStateFieldV1) : CommandElabM Unit := do
+  let modelNamespace := mkIdent `Model
+  let stateName := mkIdent `State
+  let typedStateName := mkIdent `typedState
+  let encodeStateName := mkIdent `encodeState
+  let decodeStateName := mkIdent `decodeState
+  let decodeEncodeName := mkIdent `decode_encode
+  let conformsOfEncodeName := mkIdent `conforms_of_encode
+  let logicalStateName := mkIdent `logicalState
+  let fieldNames := fields.map fun field => mkIdent (Name.mkSimple field.name)
+  let fieldTypes ← Lean.Elab.liftMacroM <|
+    fields.mapM fun field => quoteModelStateTypeV1 field.scalar
+  let encodedValues ← Lean.Elab.liftMacroM <|
+    fields.zip fieldNames |>.mapM fun (field, fieldName) =>
+      quoteModelStateEncodeV1 typedStateName fieldName field.scalar
+  let valueNames := fields.zipIdx.map fun (_, index) =>
+    mkIdent (Name.mkSimple s!"stateValue{index}V1")
+  let decodedValues ← Lean.Elab.liftMacroM <|
+    fields.zip valueNames |>.mapM fun (field, valueName) =>
+      quoteModelStateDecodeV1 valueName field.scalar
+  let decodedState ← Lean.Elab.liftMacroM <|
+    if fields.isEmpty then
+      `(())
+    else
+      `({ $[$fieldNames:ident := $decodedValues],* })
+  Lean.Elab.Command.elabCommand (← `(namespace $modelNamespace))
+  if fields.isEmpty then
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Typed initialized business state for an empty logical-state table. -/
+      abbrev $stateName := Unit))
+  else
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Typed initialized business state derived in exact StateId order. -/
+      structure $stateName where
+        $[($fieldNames : $fieldTypes)]*
+        deriving BEq, Repr))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Encode through the sole production logical-state codec. -/
+    def $encodeStateName ($typedStateName : $stateName) :
+        Except ProofForgeV2.Semantic.WireV1.SemanticWireErrorV1
+          ProofForgeV2.Semantic.InvariantABI.LogicalStateV1 :=
+      ProofForgeV2.Semantic.InvariantABI.encodeLogicalStateValuesV1
+        $subjectDataName true #[$encodedValues,*]))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Decode only initialized carriers through the production codec, then
+        project canonical scalar bytes into Lean fields. -/
+    def $decodeStateName ($logicalStateName :
+        ProofForgeV2.Semantic.InvariantABI.LogicalStateV1) :
+        Except ProofForgeV2.Semantic.WireV1.SemanticWireErrorV1 $stateName := do
+      let values ←
+        ProofForgeV2.Semantic.StateModelV1.decodeInitializedStateValuesV1
+          $subjectDataName $logicalStateName
+      match values.toList with
+      | [$valueNames,*] => pure $decodedState
+      | _ => ProofForgeV2.Semantic.WireV1.err .nonCanonical))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Generated typed projection roundtrip. The success premise remains
+        explicit because the production encoder is `Except`-valued. -/
+    theorem $decodeEncodeName
+        ($typedStateName : $stateName)
+        ($logicalStateName : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+        (hencode : $encodeStateName $typedStateName = .ok $logicalStateName) :
+        $decodeStateName $logicalStateName = .ok $typedStateName := by
+      unfold $encodeStateName at hencode
+      have hvalues :=
+        ProofForgeV2.Semantic.StateModelV1.decodeInitializedStateValuesV1_of_encodeLogicalStateValuesV1
+          $subjectDataName #[$encodedValues,*] $logicalStateName hencode
+      unfold $decodeStateName
+      rw [hvalues]
+      cases $typedStateName:ident
+      simp [ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1_encodeBool,
+        ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1_encodeU64le,
+        Pure.pure, Except.pure, Bind.bind, Except.bind]))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Successful typed encoding conforms to the sole production state
+        predicate once this exact generated subject has validated. -/
+    theorem $conformsOfEncodeName
+        ($typedStateName : $stateName)
+        ($logicalStateName : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+        (hvalidate :
+          ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+              $subjectProgramName = .ok $subjectDataName)
+        (hencode : $encodeStateName $typedStateName = .ok $logicalStateName) :
+        ProofForgeV2.Semantic.InvariantABI.StateConformsV1
+          $subjectProgramName $logicalStateName := by
+      exact
+        ProofForgeV2.Semantic.StateModelV1.stateConformsV1_of_encodeLogicalStateValuesV1
+          $subjectProgramName $subjectDataName #[$encodedValues,*]
+          $logicalStateName hvalidate hencode))
+  Lean.Elab.Command.elabCommand (← `(end $modelNamespace))
+
 private def proofSurfaceV1
     (source : ValidatedSourceV1) : Except String ProofSurfaceV1 := do
   let invariants := source.program.items.filterMap fun item =>
@@ -317,6 +471,10 @@ private def elaborateProofObligations
   let sharedSubjectName := mkIdent `Proof.subjectProgramV1
   let subjectBytesName := mkIdent `subjectBytesV1
   let subjectDataName := mkIdent `subjectDataV1
+  let modelSubjectProgramName :=
+    mkIdent (programName.getId ++ `Proof.subjectProgramV1)
+  let modelSubjectDataName :=
+    mkIdent (programName.getId ++ `Proof.subjectDataV1)
   let subjectBodyEncodeOkName := mkIdent `subjectBodyEncodeOkV1
   Lean.Elab.Command.elabCommand (← `(namespace $programName))
   Lean.Elab.Command.elabCommand (← `(namespace $proofNamespace))
@@ -363,6 +521,10 @@ private def elaborateProofObligations
         elaborateSimpleClosureGeneratedTheoremsV1
           paramsName subjectBytesName params surface.invariantNames surface.holdsNames
   Lean.Elab.Command.elabCommand (← `(end $proofNamespace))
+  match modelStateFieldsV1 data with
+  | none => pure ()
+  | some fields =>
+      elaborateStateModelV1 modelSubjectProgramName modelSubjectDataName fields
   unless surface.preservingNames.isEmpty do
     Lean.Elab.Command.elabCommand (← `(namespace $preservingNamespace))
     for (invariantName, ordinal) in surface.invariantNames.zipIdx do
