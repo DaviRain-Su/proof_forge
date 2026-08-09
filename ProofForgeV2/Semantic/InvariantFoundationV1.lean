@@ -1442,4 +1442,452 @@ theorem decodeLogicalStateValuesV1_triple_eq
     · simp only [if_neg hfit0] at hdecode
       cases hdecode
 
+
+/-- Mid-offset: successful u32le read recovers the 4-byte encode prefix. -/
+theorem readU32leAtV1_ok_extract_eq_encode
+    (b : ByteArray) (off : Nat) (v : UInt32)
+    (h : readU32leAtV1 b off = .ok (v, off + 4))
+    (hle : off + 4 ≤ b.size) :
+    b.extract off (off + 4) = encodeU32le v := by
+  unfold readU32leAtV1 at h
+  cases hb0 : readByteAtV1 b off with
+  | error e => simp [hb0, Bind.bind, Except.bind] at h
+  | ok b0 =>
+    cases hb1 : readByteAtV1 b (off + 1) with
+    | error e => simp [hb0, hb1, Bind.bind, Except.bind] at h
+    | ok b1 =>
+      cases hb2 : readByteAtV1 b (off + 2) with
+      | error e => simp [hb0, hb1, hb2, Bind.bind, Except.bind] at h
+      | ok b2 =>
+        cases hb3 : readByteAtV1 b (off + 3) with
+        | error e =>
+            simp [hb0, hb1, hb2, hb3, Bind.bind, Except.bind] at h
+        | ok b3 =>
+            simp only [hb0, hb1, hb2, hb3, Bind.bind, Except.bind] at h
+            have hpair :
+                (UInt32.ofNat
+                    (b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+                      b3.toNat * 16777216),
+                  off + 4) =
+                  (v, off + 4) := by
+              simpa [Pure.pure, Except.pure] using h
+            have hU :
+                UInt32.ofNat
+                    (b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+                      b3.toNat * 16777216) =
+                  v :=
+              (Prod.ext_iff.mp hpair).1
+            have hb0lt : b0.toNat < 256 := UInt8.toNat_lt_size b0
+            have hb1lt : b1.toNat < 256 := UInt8.toNat_lt_size b1
+            have hb2lt : b2.toNat < 256 := UInt8.toNat_lt_size b2
+            have hb3lt : b3.toNat < 256 := UInt8.toNat_lt_size b3
+            have hsum :
+                b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+                  b3.toNat * 16777216 =
+                  v.toNat := by
+              have := congrArg UInt32.toNat hU
+              have hmod :
+                  (b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+                    b3.toNat * 16777216) % 4294967296 =
+                    v.toNat := by
+                simpa [UInt32.toNat_ofNat] using this
+              have hlt :
+                  b0.toNat + b1.toNat * 256 + b2.toNat * 65536 +
+                    b3.toNat * 16777216 < 4294967296 := by omega
+              rwa [Nat.mod_eq_of_lt hlt] at hmod
+            have hb0n : b0.toNat = v.toNat % 256 := by omega
+            have hb1n : b1.toNat = (v.toNat / 256) % 256 := by omega
+            have hb2n : b2.toNat = (v.toNat / 65536) % 256 := by omega
+            have hb3n : b3.toNat = (v.toNat / 16777216) % 256 := by omega
+            have hb0' : b0 = UInt8.ofNat (v.toNat % 256) := by
+              apply UInt8.toNat_inj.1
+              simpa [UInt8_toNat_ofNat_mod256V1] using hb0n
+            have hb1' : b1 = UInt8.ofNat ((v.toNat / 256) % 256) := by
+              apply UInt8.toNat_inj.1
+              simpa [UInt8_toNat_ofNat_mod256V1] using hb1n
+            have hb2' : b2 = UInt8.ofNat ((v.toNat / 65536) % 256) := by
+              apply UInt8.toNat_inj.1
+              simpa [UInt8_toNat_ofNat_mod256V1] using hb2n
+            have hb3' : b3 = UInt8.ofNat ((v.toNat / 16777216) % 256) := by
+              apply UInt8.toNat_inj.1
+              simpa [UInt8_toNat_ofNat_mod256V1] using hb3n
+            have g0 := readByteAtV1_ok_getElem b off b0 hb0 (by omega)
+            have g1 := readByteAtV1_ok_getElem b (off + 1) b1 hb1 (by omega)
+            have g2 := readByteAtV1_ok_getElem b (off + 2) b2 hb2 (by omega)
+            have g3 := readByteAtV1_ok_getElem b (off + 3) b3 hb3 (by omega)
+            have hex :
+                b.extract off (off + 4) = [b0, b1, b2, b3].toByteArray := by
+              have h4 :=
+                ByteArray.extract_add_four (a := b) (i := off) hle
+              -- Avoid dependent getElem rewrite order issues: rewrite the
+              -- whole list via congruence on each cell equality.
+              rw [h4]
+              have hcells :
+                  [b[off], b[off + 1], b[off + 2], b[off + 3]] =
+                    [b0, b1, b2, b3] := by
+                refine List.cons_eq_cons.mpr ⟨g0, ?_⟩
+                refine List.cons_eq_cons.mpr ⟨g1, ?_⟩
+                refine List.cons_eq_cons.mpr ⟨g2, ?_⟩
+                refine List.cons_eq_cons.mpr ⟨g3, rfl⟩
+              exact congrArg List.toByteArray hcells
+            rw [hex, hb0', hb1', hb2', hb3']
+            have hlist (a b c d : UInt8) :
+                [a, b, c, d].toByteArray =
+                  (((ByteArray.empty.push a).push b).push c).push d := by
+              simp [List.toByteArray, List.toByteArray.loop]
+            simp only [encodeU32le]
+            exact (hlist _ _ _ _).symm
+
+/-- Slice identity: `extract i k = extract i j ++ extract j k` when `i ≤ j ≤ k ≤ size`. -/
+private theorem ByteArray_extract_split
+    (b : ByteArray) (i j k : Nat)
+    (hij : i ≤ j) (hjk : j ≤ k) (_hks : k ≤ b.size) :
+    b.extract i k = b.extract i j ++ b.extract j k := by
+  exact
+    ByteArray.extract_eq_extract_append_extract (a := b) (i := i) (k := k) j
+      hij hjk
+
+/-- Successful triple UInt64-slot decode recovers the closed encode layout. -/
+theorem decodeLogicalStateValuesV1_triple_uint64_layout
+    (data : SemanticProgramDataV1)
+    (s0 s1 s2 : StateDeclV1)
+    (state : LogicalStateV1)
+    (b0 b1 b2 : ByteArray)
+    (hstate : data.logicalState = #[s0, s1, s2])
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok #[b0, b1, b2])
+    (hs0 : b0.size = 8) (hs1 : b1.size = 8) (hs2 : b2.size = 8) :
+    state.canonicalValues = tripleUint64CanonicalV1 b0 b1 b2 := by
+  unfold decodeLogicalStateValuesV1 at hdecode
+  have hlist : data.logicalState.toList = [s0, s1, s2] := by simp [hstate]
+  simp only [hlist, decodeLogicalStateSlotsV1, Pure.pure, Except.pure,
+    Bind.bind, Except.bind, err] at hdecode
+  cases hread0 : readU32leAtV1 state.canonicalValues 0 with
+  | error e => simp [hread0] at hdecode
+  | ok pair0 =>
+    rcases pair0 with ⟨len0, after0⟩
+    simp [hread0] at hdecode
+    by_cases hfit0 : after0 + len0.toNat ≤ state.canonicalValues.size
+    · simp only [if_pos hfit0] at hdecode
+      cases hval0 : validateValueBytesV1 data.types s0.typeId
+          (state.canonicalValues.extract after0 (after0 + len0.toNat)) with
+      | error e => simp [hval0] at hdecode
+      | ok _ =>
+        simp [hval0] at hdecode
+        cases hread1 : readU32leAtV1 state.canonicalValues
+            (after0 + len0.toNat) with
+        | error e => simp [hread1] at hdecode
+        | ok pair1 =>
+          rcases pair1 with ⟨len1, after1⟩
+          simp [hread1] at hdecode
+          by_cases hfit1 : after1 + len1.toNat ≤ state.canonicalValues.size
+          · simp only [if_pos hfit1] at hdecode
+            cases hval1 : validateValueBytesV1 data.types s1.typeId
+                (state.canonicalValues.extract after1
+                  (after1 + len1.toNat)) with
+            | error e => simp [hval1] at hdecode
+            | ok _ =>
+              simp [hval1] at hdecode
+              cases hread2 : readU32leAtV1 state.canonicalValues
+                  (after1 + len1.toNat) with
+              | error e => simp [hread2] at hdecode
+              | ok pair2 =>
+                rcases pair2 with ⟨len2, after2⟩
+                simp [hread2] at hdecode
+                by_cases hfit2 :
+                    after2 + len2.toNat ≤ state.canonicalValues.size
+                · simp only [if_pos hfit2] at hdecode
+                  cases hval2 : validateValueBytesV1 data.types s2.typeId
+                      (state.canonicalValues.extract after2
+                        (after2 + len2.toNat)) with
+                  | error e => simp [hval2] at hdecode
+                  | ok _ =>
+                    simp [hval2] at hdecode
+                    by_cases htrail :
+                        after2 + len2.toNat = state.canonicalValues.size
+                    · simp only [if_pos htrail] at hdecode
+                      have hvals :
+                          ((((Array.emptyWithCapacity 3).push
+                                (state.canonicalValues.extract after0
+                                  (after0 + len0.toNat))).push
+                              (state.canonicalValues.extract after1
+                                (after1 + len1.toNat))).push
+                            (state.canonicalValues.extract after2
+                              (after2 + len2.toNat))) =
+                            #[b0, b1, b2] :=
+                        Except.ok.inj hdecode
+                      have hpush := array_push3_eq
+                        (state.canonicalValues.extract after0
+                          (after0 + len0.toNat))
+                        (state.canonicalValues.extract after1
+                          (after1 + len1.toNat))
+                        (state.canonicalValues.extract after2
+                          (after2 + len2.toNat))
+                      have harr :
+                          #[state.canonicalValues.extract after0
+                              (after0 + len0.toNat),
+                            state.canonicalValues.extract after1
+                              (after1 + len1.toNat),
+                            state.canonicalValues.extract after2
+                              (after2 + len2.toNat)] =
+                            #[b0, b1, b2] := by
+                        simpa [hpush] using hvals
+                      have hs0' :
+                          state.canonicalValues.extract after0
+                              (after0 + len0.toNat) =
+                            b0 := by
+                        have := congrArg (fun a : Array ByteArray => a[0]?) harr
+                        simpa using this
+                      have hs1' :
+                          state.canonicalValues.extract after1
+                              (after1 + len1.toNat) =
+                            b1 := by
+                        have := congrArg (fun a : Array ByteArray => a[1]?) harr
+                        simpa using this
+                      have hs2' :
+                          state.canonicalValues.extract after2
+                              (after2 + len2.toNat) =
+                            b2 := by
+                        have := congrArg (fun a : Array ByteArray => a[2]?) harr
+                        simpa using this
+                      have hafter0 : after0 = 4 :=
+                        readU32leAtV1_ok_offset state.canonicalValues 0 len0
+                          after0 hread0
+                      have hex0_sz :
+                          (state.canonicalValues.extract after0
+                            (after0 + len0.toNat)).size = len0.toNat := by
+                        have hmin :
+                            min (after0 + len0.toNat)
+                              state.canonicalValues.size =
+                              after0 + len0.toNat :=
+                          Nat.min_eq_left hfit0
+                        simp [ByteArray.size_extract, hmin,
+                          Nat.add_sub_cancel_left]
+                      have hlen0 : len0.toNat = 8 := by
+                        have : b0.size = len0.toNat := by
+                          rw [← hs0', hex0_sz]
+                        omega
+                      have hlen0U : len0 = (8 : UInt32) :=
+                        UInt32.toNat_inj.1
+                          (hlen0.trans uint32_toNat_eightV1.symm)
+                      have hafter1 : after1 = after0 + len0.toNat + 4 :=
+                        readU32leAtV1_ok_offset state.canonicalValues
+                          (after0 + len0.toNat) len1 after1 hread1
+                      have hex1_sz :
+                          (state.canonicalValues.extract after1
+                            (after1 + len1.toNat)).size = len1.toNat := by
+                        have hmin :
+                            min (after1 + len1.toNat)
+                              state.canonicalValues.size =
+                              after1 + len1.toNat :=
+                          Nat.min_eq_left hfit1
+                        simp [ByteArray.size_extract, hmin,
+                          Nat.add_sub_cancel_left]
+                      have hlen1 : len1.toNat = 8 := by
+                        have : b1.size = len1.toNat := by
+                          rw [← hs1', hex1_sz]
+                        omega
+                      have hlen1U : len1 = (8 : UInt32) :=
+                        UInt32.toNat_inj.1
+                          (hlen1.trans uint32_toNat_eightV1.symm)
+                      have hafter2 : after2 = after1 + len1.toNat + 4 :=
+                        readU32leAtV1_ok_offset state.canonicalValues
+                          (after1 + len1.toNat) len2 after2 hread2
+                      have hex2_sz :
+                          (state.canonicalValues.extract after2
+                            (after2 + len2.toNat)).size = len2.toNat := by
+                        have hmin :
+                            min (after2 + len2.toNat)
+                              state.canonicalValues.size =
+                              after2 + len2.toNat :=
+                          Nat.min_eq_left hfit2
+                        simp [ByteArray.size_extract, hmin,
+                          Nat.add_sub_cancel_left]
+                      have hlen2 : len2.toNat = 8 := by
+                        have : b2.size = len2.toNat := by
+                          rw [← hs2', hex2_sz]
+                        omega
+                      have hlen2U : len2 = (8 : UInt32) :=
+                        UInt32.toNat_inj.1
+                          (hlen2.trans uint32_toNat_eightV1.symm)
+                      -- Collapse offsets: after0=4, after1=16, after2=28, size=36.
+                      have hA0 : after0 = 4 := hafter0
+                      have hA1 : after1 = 16 := by omega
+                      have hA2 : after2 = 28 := by omega
+                      have hsz : state.canonicalValues.size = 36 := by omega
+                      have hread0_8 :
+                          readU32leAtV1 state.canonicalValues 0 =
+                            .ok ((8 : UInt32), 4) := by
+                        simpa [hlen0U, hA0] using hread0
+                      have hread1_8 :
+                          readU32leAtV1 state.canonicalValues 12 =
+                            .ok ((8 : UInt32), 16) := by
+                        have hoff : after0 + len0.toNat = 12 := by omega
+                        have h1 :
+                            readU32leAtV1 state.canonicalValues 12 =
+                              .ok (len1, after1) := by
+                          simpa [hoff] using hread1
+                        simpa [hlen1U, hA1] using h1
+                      have hread2_8 :
+                          readU32leAtV1 state.canonicalValues 24 =
+                            .ok ((8 : UInt32), 28) := by
+                        have hoff : after1 + len1.toNat = 24 := by omega
+                        have h2 :
+                            readU32leAtV1 state.canonicalValues 24 =
+                              .ok (len2, after2) := by
+                          simpa [hoff] using hread2
+                        simpa [hlen2U, hA2] using h2
+                      have he0 :
+                          state.canonicalValues.extract 0 4 =
+                            encodeU32le (8 : UInt32) :=
+                        readU32leAtV1_ok_extract_eq_encode
+                          state.canonicalValues 0 8 hread0_8 (by omega)
+                      have he1 :
+                          state.canonicalValues.extract 12 16 =
+                            encodeU32le (8 : UInt32) :=
+                        readU32leAtV1_ok_extract_eq_encode
+                          state.canonicalValues 12 8 hread1_8 (by omega)
+                      have he2 :
+                          state.canonicalValues.extract 24 28 =
+                            encodeU32le (8 : UInt32) :=
+                        readU32leAtV1_ok_extract_eq_encode
+                          state.canonicalValues 24 8 hread2_8 (by omega)
+                      have hp0 :
+                          state.canonicalValues.extract 4 12 = b0 := by
+                        have : after0 + len0.toNat = 12 := by omega
+                        simpa [hA0, hlen0, this] using hs0'
+                      have hp1 :
+                          state.canonicalValues.extract 16 24 = b1 := by
+                        have : after1 + len1.toNat = 24 := by omega
+                        simpa [hA1, hlen1, this] using hs1'
+                      have hp2 :
+                          state.canonicalValues.extract 28 36 = b2 := by
+                        have : after2 + len2.toNat = 36 := by omega
+                        simpa [hA2, hlen2, this] using hs2'
+                      -- Rebuild cv by successive splits.
+                      have h0s :
+                          state.canonicalValues.extract 0
+                              state.canonicalValues.size =
+                            state.canonicalValues.extract 0 4 ++
+                              state.canonicalValues.extract 4
+                                state.canonicalValues.size :=
+                        ByteArray_extract_split state.canonicalValues 0 4
+                          state.canonicalValues.size (by omega) (by omega)
+                          (by omega)
+                      have h4s :
+                          state.canonicalValues.extract 4
+                              state.canonicalValues.size =
+                            state.canonicalValues.extract 4 12 ++
+                              state.canonicalValues.extract 12
+                                state.canonicalValues.size :=
+                        ByteArray_extract_split state.canonicalValues 4 12
+                          state.canonicalValues.size (by omega) (by omega)
+                          (by omega)
+                      have h12s :
+                          state.canonicalValues.extract 12
+                              state.canonicalValues.size =
+                            state.canonicalValues.extract 12 16 ++
+                              state.canonicalValues.extract 16
+                                state.canonicalValues.size :=
+                        ByteArray_extract_split state.canonicalValues 12 16
+                          state.canonicalValues.size (by omega) (by omega)
+                          (by omega)
+                      have h16s :
+                          state.canonicalValues.extract 16
+                              state.canonicalValues.size =
+                            state.canonicalValues.extract 16 24 ++
+                              state.canonicalValues.extract 24
+                                state.canonicalValues.size :=
+                        ByteArray_extract_split state.canonicalValues 16 24
+                          state.canonicalValues.size (by omega) (by omega)
+                          (by omega)
+                      have h24s :
+                          state.canonicalValues.extract 24
+                              state.canonicalValues.size =
+                            state.canonicalValues.extract 24 28 ++
+                              state.canonicalValues.extract 28
+                                state.canonicalValues.size :=
+                        ByteArray_extract_split state.canonicalValues 24 28
+                          state.canonicalValues.size (by omega) (by omega)
+                          (by omega)
+                      have h28s :
+                          state.canonicalValues.extract 28
+                              state.canonicalValues.size =
+                            state.canonicalValues.extract 28 36 := by
+                        simp [hsz]
+                      -- Rebuild: successive mid splits → tripleUint64CanonicalV1.
+                      have hfull :
+                          state.canonicalValues.extract 0
+                              state.canonicalValues.size =
+                            state.canonicalValues := by
+                        ext1
+                        simp
+                      have hcv :
+                          state.canonicalValues =
+                            encodeU32le (8 : UInt32) ++ b0 ++
+                              encodeU32le (8 : UInt32) ++ b1 ++
+                              encodeU32le (8 : UInt32) ++ b2 := by
+                        have h :
+                            state.canonicalValues.extract 0
+                                state.canonicalValues.size =
+                              encodeU32le (8 : UInt32) ++ b0 ++
+                                encodeU32le (8 : UInt32) ++ b1 ++
+                                encodeU32le (8 : UInt32) ++ b2 := by
+                          rw [h0s, he0, h4s, hp0, h12s, he1, h16s, hp1, h24s,
+                            he2, h28s, hp2]
+                          simp [ByteArray.append_assoc]
+                        exact hfull.symm.trans h
+                      simpa [tripleUint64CanonicalV1, ByteArray.append_assoc]
+                        using hcv
+                    · simp only [if_neg htrail] at hdecode
+                      cases hdecode
+                · simp only [if_neg hfit2] at hdecode
+                  cases hdecode
+          · simp only [if_neg hfit1] at hdecode
+            cases hdecode
+    · simp only [if_neg hfit0] at hdecode
+      cases hdecode
+
+/-- Encode of a successful triple UInt64 decode recovers the same carrier
+    (initialized stays true). Get-returned post=pre identity for 3-slot state. -/
+theorem encode_of_triple_uint64_decode_eq
+    (data : SemanticProgramDataV1)
+    (s0 s1 s2 : StateDeclV1)
+    (pre post : LogicalStateV1)
+    (b0 b1 b2 : ByteArray)
+    (hstate : data.logicalState = #[s0, s1, s2])
+    (hinit : pre.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data pre = .ok #[b0, b1, b2])
+    (hc0 : validateValueBytesV1 data.types s0.typeId b0 = .ok ())
+    (hc1 : validateValueBytesV1 data.types s1.typeId b1 = .ok ())
+    (hc2 : validateValueBytesV1 data.types s2.typeId b2 = .ok ())
+    (hs0 : b0.size = 8) (hs1 : b1.size = 8) (hs2 : b2.size = 8)
+    (hencode :
+      encodeLogicalStateValuesV1 data true #[b0, b1, b2] = .ok post) :
+    post = pre := by
+  have henc :=
+    encodeLogicalStateValuesV1_triple_uint64_eq_ok data s0 s1 s2 b0 b1 b2 true
+      hstate hc0 hc1 hc2 hs0 hs1 hs2
+  have hpost :
+      post = {
+        initialized := true
+        canonicalValues := tripleUint64CanonicalV1 b0 b1 b2
+      } := by
+    rw [henc] at hencode
+    exact (Except.ok.inj hencode).symm
+  have hlayout :=
+    decodeLogicalStateValuesV1_triple_uint64_layout data s0 s1 s2 pre b0 b1 b2
+      hstate hdecode hs0 hs1 hs2
+  have hpre :
+      pre = {
+        initialized := true
+        canonicalValues := tripleUint64CanonicalV1 b0 b1 b2
+      } := by
+    cases pre with
+    | mk initialized canonicalValues =>
+      simp only at hinit hlayout ⊢
+      subst hinit
+      subst hlayout
+      rfl
+  exact hpost.trans hpre.symm
+
 end ProofForgeV2.Semantic.InvariantABI
