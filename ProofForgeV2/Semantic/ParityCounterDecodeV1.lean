@@ -1,4 +1,4 @@
-import ProofForgeV2.ProofInstances.EvenCounterV1
+import ProofForgeV2.Semantic.ParityCounterShapeV1
 import ProofForgeV2.Semantic.Wire.CodecRoundtripV1
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Core.Unicode
@@ -6,19 +6,19 @@ import ProofForgeV2.Core.Unicode
 /-!
   Production transport decoder certificate for the closed EvenCounter instance.
 
-  Proves `decodeSemanticProgramDataV1 EvenCounterV1.canonicalBytes = .ok EvenCounterV1.data`
+  Proves `decodeSemanticProgramDataV1 ParityCounterShapeV1.canonicalBytes = .ok ParityCounterShapeV1.data`
   solely via production decoder composition/refinement theorems and the exact
   `canonicalSpine`. No second decoder, sorry, axiom, native_decide, ofReduceBool,
   run_tac, unsafe, meta, or IO.
 -/
 
-namespace ProofForgeV2.ProofInstances.EvenCounterDecodeV1
+namespace ProofForgeV2.Semantic.ParityCounterDecodeV1
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.Unicode
 open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Semantic.WireV1
-open ProofForgeV2.ProofInstances.EvenCounterV1
+open ProofForgeV2.Semantic.ParityCounterShapeV1
 
 set_option maxHeartbeats 80000000
 set_option maxRecDepth 400000
@@ -316,7 +316,7 @@ private theorem decodeRootV1_of_read (bytes : ByteArray)
   · rfl
   · exact requireNfc_eq_ok_of_isAscii "Root" (by decide)
 
-private theorem decodeEvenCounterV1_of_read (bytes : ByteArray)
+private theorem decodeParityCounterV1_of_read (bytes : ByteArray)
     (hread : readSizedBytesAtV1 bytes 53 maxStringBytes =
       .ok (ByteArray.mk
         [69, 118, 101, 110, 67, 111, 117, 110, 116, 101, 114].toArray, 68)) :
@@ -332,7 +332,7 @@ private theorem decodeQualifiedName_canonicalBytes :
   · apply decodeArray_twoV1
     · exact readQualifiedNameCount_canonicalBytes
     · exact decodeRootV1_of_read canonicalBytes readRootBytes_canonicalBytes
-    · exact decodeEvenCounterV1_of_read canonicalBytes
+    · exact decodeParityCounterV1_of_read canonicalBytes
         readEvenCounterBytes_canonicalBytes
   · rfl
 
@@ -2887,8 +2887,8 @@ private theorem decodeTaggedData_canonicalBytes :
 
 /-- Production transport decoder certificate for the closed EvenCounter instance. -/
 theorem decode_ok :
-    decodeSemanticProgramDataV1 EvenCounterV1.canonicalBytes =
-      .ok EvenCounterV1.data := by
+    decodeSemanticProgramDataV1 ParityCounterShapeV1.canonicalBytes =
+      .ok ParityCounterShapeV1.data := by
   apply decodeSemanticProgramDataV1_eq_of_framing canonicalBytes
     ⟨canonicalBytes, 15, 0⟩ ⟨canonicalBytes, 1795, 0⟩ data
   · change canonicalSpine.length ≤ maxCanonicalProgramBytes
@@ -2900,4 +2900,4 @@ theorem decode_ok :
     change 1795 = canonicalSpine.length
     exact canonicalSpine_length.symm
 
-end ProofForgeV2.ProofInstances.EvenCounterDecodeV1
+end ProofForgeV2.Semantic.ParityCounterDecodeV1

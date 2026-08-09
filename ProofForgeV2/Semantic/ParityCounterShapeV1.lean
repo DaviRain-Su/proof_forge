@@ -2,17 +2,16 @@ import ProofForgeV2.Semantic.PreservationABI
 import ProofForgeV2.Semantic.RequirementsV1
 
 /-
-  Closed first L1 preservation instance data for the product-normalized
-  `Root.EvenCounter` program.
+  Closed parity-counter shape family (increment +2, parity invariant) for the
+  product-normalized `Root.EvenCounter` program (wave-3′ mig-b1).
 
-  This module is instance-owned, not a second semantic machine: execution and
-  preservation continue to use `admitReferenceProgramSliceV1` and
-  `stepReferenceSliceV1`. The exact wire and theorem certificates are built in
-  later sections of this file; no MiniAmm or target-specific surface belongs
-  here.
+  Shape-family golden under `Semantic/` (not `ProofInstances/`). Execution and
+  preservation continue to use sole product
+  `admitReferenceProgramSliceV1` / `stepReferenceSliceV1`. No MiniAmm or
+  target-specific surface. Pin is optional golden accelerator only.
 -/
 
-namespace ProofForgeV2.ProofInstances.EvenCounterV1
+namespace ProofForgeV2.Semantic.ParityCounterShapeV1
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.InvariantABI
@@ -543,4 +542,4 @@ theorem encode_ok : encodeSemanticProgramDataV1 data = .ok canonicalBytes := by
     rw [structure_ok]
     rfl
 
-end ProofForgeV2.ProofInstances.EvenCounterV1
+end ProofForgeV2.Semantic.ParityCounterShapeV1

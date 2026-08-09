@@ -1,37 +1,39 @@
 /-
-  ClosedSubjectPinV1 engineering tests (bf-unpin-1).
+  ClosedSubjectPinV1 engineering tests (bf-unpin-1 / mig-b1).
 
   Pin table is a golden accelerator only: non-matching bytes resolve to none;
   unknown names are not pin members; packaging/preservation transport does not
-  require pin membership.
+  require pin membership. EvenCounter left ProofInstances (parity-counter shape
+  under Semantic); pin golden remains for product nullary exact.
 -/
 import ProofForgeV2.Semantic.ClosedSubjectPinV1
-import ProofForgeV2.ProofInstances.EvenCounterV1
-import ProofForgeV2.ProofInstances.EvenCounterPreservationV1
+import ProofForgeV2.Semantic.ParityCounterShapeV1
+import ProofForgeV2.Semantic.ParityCounterPreservationV1
 import ProofForgeV2.ProofInstances.ZeroCounterV1
 import ProofForgeV2.ProofInstances.ZeroCounterPreservationV1
 
 namespace Tests.Semantic.ClosedSubjectPinV1
 
 open ProofForgeV2.Semantic.ClosedSubjectPinV1
+open ProofForgeV2.Semantic
 open ProofForgeV2.ProofInstances
 
 private def expect (cond : Bool) (msg : String) : IO Unit := do
   unless cond do
     throw <| IO.userError msg
 
-/-- Pin resolves for exact EvenCounter closed bytes. -/
-def test_pin_exact_match : IO Unit := do
-  match resolveClosedSubjectBytesPinNameV1 EvenCounterV1.canonicalBytes with
+/-- Pin resolves for exact parity-counter (EvenCounter) closed bytes. -/
+def test_pin_parity_counter : IO Unit := do
+  match resolveClosedSubjectBytesPinNameV1 ParityCounterShapeV1.canonicalBytes with
   | some n =>
-      expect (n == ``ProofForgeV2.ProofInstances.EvenCounterV1.canonicalBytes)
-        "pin name must be EvenCounterV1.canonicalBytes"
+      expect (n == ``ProofForgeV2.Semantic.ParityCounterShapeV1.canonicalBytes)
+        "pin name must be ParityCounterShapeV1.canonicalBytes"
       match closedSubjectBytePinBytesV1 n with
       | some b =>
-          expect (b == EvenCounterV1.canonicalBytes)
-            "pin bytes must equal closed EvenCounter bytes"
+          expect (b == ParityCounterShapeV1.canonicalBytes)
+            "pin bytes must equal closed parity-counter bytes"
       | none => throw <| IO.userError "pin bytes missing for registered name"
-  | none => throw <| IO.userError "EvenCounter closed bytes must pin"
+  | none => throw <| IO.userError "parity-counter closed bytes must pin"
 
 /-- Pin resolves for exact ZeroCounter product-aligned closed bytes. -/
 def test_pin_zero_counter : IO Unit := do
@@ -45,8 +47,8 @@ def test_pin_zero_counter : IO Unit := do
             "pin bytes must equal closed ZeroCounter bytes"
       | none => throw <| IO.userError "ZeroCounter pin bytes missing"
   | none => throw <| IO.userError "ZeroCounter closed bytes must pin"
-  expect (EvenCounterV1.canonicalBytes != ZeroCounterV1.canonicalBytes)
-    "EvenCounter and ZeroCounter pins must be distinct"
+  expect (ParityCounterShapeV1.canonicalBytes != ZeroCounterV1.canonicalBytes)
+    "parity-counter and ZeroCounter pins must be distinct"
 
 /-- Arbitrary / empty bytes are unpinned (non-pin author path). -/
 def test_non_pin_bytes_miss : IO Unit := do
@@ -63,11 +65,10 @@ def test_non_pin_bytes_miss : IO Unit := do
 
 /-- Byte-equality transport does not consult the pin table. -/
 def test_eq_bytes_transport_without_pin_api : IO Unit := do
-  -- Construction only: of_eq_bytes is pure Lean; pin APIs are unused.
-  let p := EvenCounterV1.program
-  let h : p.canonicalBytes = EvenCounterV1.canonicalBytes := rfl
+  let p := ParityCounterShapeV1.program
+  let h : p.canonicalBytes = ParityCounterShapeV1.canonicalBytes := rfl
   let _thm :=
-    EvenCounterPreservationV1.preservation_theorem_of_eq_bytes p h
+    ParityCounterPreservationV1.preservation_theorem_of_eq_bytes p h
   let p0 := ZeroCounterV1.program
   let h0 : p0.canonicalBytes = ZeroCounterV1.canonicalBytes := rfl
   let _thm0 :=
@@ -75,7 +76,7 @@ def test_eq_bytes_transport_without_pin_api : IO Unit := do
   expect true "preservation_theorem_of_eq_bytes typechecks without pin lookup"
 
 def run : IO Unit := do
-  test_pin_exact_match
+  test_pin_parity_counter
   test_pin_zero_counter
   test_non_pin_bytes_miss
   test_eq_bytes_transport_without_pin_api

@@ -34,7 +34,7 @@ import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.TheoremInventoryV1
-import ProofForgeV2.ProofInstances.EvenCounterV1
+import ProofForgeV2.Semantic.ParityCounterShapeV1
 import ProofForgeV2.ProofInstances.ZeroCounterV1
 import ProofForgeV2.Source.ValidatedSourceV1
 
@@ -255,12 +255,14 @@ private unsafe def testPreservingFalseTheoremElab
         phase == .certification && detail == .elaborate
     | _ => false
 
-/-- Author body for the closed EvenCounter L1 instance: exact the package-owned
-    `preservation_theorem` for ordinal 0 (no generated holds helper). -/
+/-- Author body for EvenCounter L1 (mig-b1): nullary `exact` of the
+    shape-family `preservation_theorem`. Subject bytes are pin-aliased to
+    `ParityCounterShapeV1.canonicalBytes` (golden accelerator only — not
+    ProofInstances). Inventory admits only the theorem command. -/
 private def evenCounterPreservingTheoremBody
     (theoremName typeName : String) : String :=
   "theorem " ++ theoremName ++ " : " ++ typeName ++ " := by\n" ++
-  "  exact ProofForgeV2.ProofInstances.EvenCounterPreservationV1.preservation_theorem\n"
+  "  exact ProofForgeV2.Semantic.ParityCounterPreservationV1.preservation_theorem\n"
 
 /-- Second non-AMM preserving family: store-zero entry, read view, `count == 0`. -/
 private def zeroCounterPreservingProgram
@@ -308,13 +310,13 @@ private unsafe def testEvenCounterPreservingProductPositive
   let compiled ← compileOf source origin
   let semantic := CompiledSemanticV1.semanticV1Of compiled
   expect (semantic.canonicalBytes ==
-      ProofForgeV2.ProofInstances.EvenCounterV1.canonicalBytes)
+      ProofForgeV2.Semantic.ParityCounterShapeV1.canonicalBytes)
     "EvenCounter product bytes must equal the closed instance bytes"
   let decoded ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1 semantic with
     | .ok value => pure value
     | .error error =>
         throw <| IO.userError s!"EvenCounter semantic validation failed: {repr error}"
-  expect (decoded == ProofForgeV2.ProofInstances.EvenCounterV1.data)
+  expect (decoded == ProofForgeV2.Semantic.ParityCounterShapeV1.data)
     "EvenCounter product data must equal the closed instance data"
   let outcome ← certifyInlineProofV1 session src source origin inventory compiled
     path "Root" none

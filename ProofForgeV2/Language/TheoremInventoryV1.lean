@@ -142,7 +142,11 @@ def termIdentComponentsV1 (stx : Syntax) :
     return ← err (.invalidTheoremShape "theorem type must be a dotted identifier")
   nameComponentsV1 stx.getId
 
-/-- Structural nodes that may appear in the allowlisted tactic tree. -/
+/-- Structural nodes that may appear in the allowlisted tactic tree.
+
+    Wave-3′ mig-b1 / mig-a3: admit term application + nested `by` so same-file
+    authors can write `exact shapeThm subjectProgram (by decide)` without pin
+    defeq. Still a finite kind allowlist (not a string denylist). -/
 private def isStructuralKind (kind : SyntaxNodeKind) : Bool :=
   kind == nullKind ||
   kind == ``Parser.Tactic.tacticSeq ||
@@ -156,6 +160,10 @@ private def isStructuralKind (kind : SyntaxNodeKind) : Bool :=
   kind == ``Parser.Tactic.elimTarget ||
   kind == ``Parser.Tactic.location ||
   kind == ``Parser.Termination.suffix ||
+  kind == ``Parser.Term.app ||
+  kind == ``Parser.Term.paren ||
+  kind == ``Parser.Term.byTactic ||
+  kind == ``Parser.Term.byTactic' ||
   kind == `token.«[» ||
   kind == `token.«]» ||
   kind == `token.«*» ||
@@ -178,8 +186,10 @@ private def isStructuralKind (kind : SyntaxNodeKind) : Bool :=
   kind == `token.only ||
   kind == `token.rw ||
   kind == `token.cases ||
+  kind == `token.decide ||
   kind == `Lean.Parser.Term.hygienicLParen ||
   kind == `Lean.Parser.Term.hygieneInfo ||
+  kind == `hygieneInfo ||
   kind == identKind ||
   kind == strLitKind ||
   kind == numLitKind ||
@@ -187,7 +197,9 @@ private def isStructuralKind (kind : SyntaxNodeKind) : Bool :=
   kind == nameLitKind ||
   kind == scientificLitKind
 
-/-- Finite allowed tactic heads (kind allowlist; not a string denylist). -/
+/-- Finite allowed tactic heads (kind allowlist; not a string denylist).
+    `decide` is admitted for closed decidable equalities (e.g. subject-byte
+    transport); `native_decide` remains excluded (not in this table). -/
 private def isAllowedTacticHead (kind : SyntaxNodeKind) : Bool :=
   kind == ``Parser.Tactic.tacticRfl ||
   kind == ``Parser.Tactic.intro ||
@@ -196,7 +208,8 @@ private def isAllowedTacticHead (kind : SyntaxNodeKind) : Bool :=
   kind == ``Parser.Tactic.apply ||
   kind == ``Parser.Tactic.simp ||
   kind == ``Parser.Tactic.rwSeq ||
-  kind == ``Parser.Tactic.cases
+  kind == ``Parser.Tactic.cases ||
+  kind == ``Parser.Tactic.decide
 
 /-- `simp` is only admitted as `simp only …` (explicit only clause present). -/
 private def simpHasOnlyClause (stx : Syntax) : Bool :=

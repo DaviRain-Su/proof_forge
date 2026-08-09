@@ -1,21 +1,21 @@
-import ProofForgeV2.ProofInstances.EvenCounterDecodeV1
+import ProofForgeV2.Semantic.ParityCounterDecodeV1
 import ProofForgeV2.Semantic.PreservationPackagingV1
 
-namespace ProofForgeV2.ProofInstances.EvenCounterPreservationV1
+namespace ProofForgeV2.Semantic.ParityCounterPreservationV1
 
 open ProofForgeV2.Semantic.InvariantABI
 open ProofForgeV2.Semantic.PreservationABI
 open ProofForgeV2.Semantic.PreservationPackagingV1
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
-open ProofForgeV2.ProofInstances.EvenCounterV1
+open ProofForgeV2.Semantic.ParityCounterShapeV1
 
 set_option maxHeartbeats 80000000
 set_option maxRecDepth 400000
 
 theorem validate_ok : validateSemanticProgramV1 program = .ok data :=
   validateSemanticProgramV1_eq_ok_of_encode_decode_bridge
-    data canonicalBytes encode_ok EvenCounterDecodeV1.decode_ok
+    data canonicalBytes encode_ok ParityCounterDecodeV1.decode_ok
 
 theorem admission_bool_ok :
     referenceProgramDataAdmissionOkV1 data = true := by
@@ -875,4 +875,4 @@ theorem preservation_theorem_of_eq_bytes
   simpa [hp] using preservation_theorem
 
 
-end ProofForgeV2.ProofInstances.EvenCounterPreservationV1
+end ProofForgeV2.Semantic.ParityCounterPreservationV1

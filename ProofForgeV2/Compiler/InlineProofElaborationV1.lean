@@ -112,7 +112,13 @@ unsafe def elaborateInlineProofSourceV1
       (· == `ProofForgeV2.Language.ProgramElaborationV1) do
     return .error (mkFault .headerImport parseMessages)
   let env := baseEnvironment.setMainModule mainModule
-  let commandState := Command.mkState env parseMessages {}
+  -- Elevated heartbeats for same-file L1 proofs that transport closed shape
+  -- theorems via `decide` on subject-byte equality (mig-b1 non-pin path).
+  let elabOpts : Options :=
+    let o := ({} : Options)
+    let o := maxHeartbeats.set o 80000000
+    maxRecDepth.set o 400000
+  let commandState := Command.mkState env parseMessages elabOpts
   let cmdResult ←
     try
       let processed ← IO.processCommands inputCtx parserState commandState
