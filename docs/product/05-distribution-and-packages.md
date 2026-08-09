@@ -177,6 +177,14 @@ program Hello where …
 
 ## 9. 实现状态（engineering）
 
+`implemented=true`（engineering distribution surface）。本标记只覆盖本页 A/B/C 工程分发切片（CLI dist、Author SDK、Host SDK、CI engineering-dist），不代表 formal Stage-0、hermetic release、PyPI/Reservoir 公开发布或 mainnet/network 资格。
+
+本次本机证据（2026-08-09，Linux x86_64）：
+
+- `just package-host-sdk-smoke`：exit 0；生成 `proof_forge_sdk-0.1.0-py3-none-any.whl` 与 `proof_forge_sdk-0.1.0.tar.gz`；import/self_check 通过；输出 `package-host-sdk-smoke: HOST-SDK-SMOKE-OK`。
+- `just package-cli-smoke`：exit 0；version JSON 为 `schema=proof-forge.cli.version.v1`、`version=0.1.0`、`channel=engineering-dist`；临时打包 `proof-forge-next-0.1.0-linux-x86_64.tar.gz`（68,037,691 bytes，SHA-256 `9916b713962dd05c8ac3e62b1c0556b0a395dcfc6cc9fc22447fe92ef4f034bf`）；校验通过；输出 `package-cli-dist-smoke: PACK-SMOKE-OK`。
+- `just docs-check`：本页更新后运行，要求 exit 0 才可声明本段为当前证据。
+
 | 切片 | 状态 | 入口 |
 |---|---|---|
 | **REL-CLI-0** 版本身份 | **done** | 根目录 `VERSION`；`ProofForgeV2/CLI/ProductVersionV1.lean`；`proof-forge-next version [--json]` / `--version`；schema `proof-forge.cli.version.v1`；channel=`engineering-dist` |

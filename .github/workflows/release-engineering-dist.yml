@@ -68,8 +68,8 @@ jobs:
           if [[ "${{ github.ref_type }}" == "tag" ]]; then
             TAG="${{ github.ref_name }}"
             EXPECT="v${V}"
-            if [[ "$TAG" != "$EXPECT" && "$TAG" != "v${V}-"* ]]; then
-              echo "Tag '$TAG' must equal 'v${V}' or start with 'v${V}-' (VERSION file)" >&2
+            if [[ "$TAG" != "$EXPECT" ]]; then
+              echo "Tag '$TAG' must exactly match '${EXPECT}' (VERSION file)" >&2
               exit 1
             fi
           fi
@@ -120,11 +120,22 @@ jobs:
       - name: Install Python build tooling
         run: python -m pip install --upgrade pip build wheel
 
-      - name: Read VERSION
+      - name: Read VERSION + gate tag
         id: ver
+        shell: bash
         run: |
+          set -euo pipefail
           V="$(tr -d '[:space:]' < VERSION)"
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Engineering product version: $V"
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            TAG="${{ github.ref_name }}"
+            EXPECT="v${V}"
+            if [[ "$TAG" != "$EXPECT" ]]; then
+              echo "Tag '$TAG' must exactly match '${EXPECT}' (VERSION file)" >&2
+              exit 1
+            fi
+          fi
 
       - name: Package Author SDK
         run: just package-author-sdk
@@ -159,11 +170,22 @@ jobs:
       - name: Checkout (for VERSION / notes)
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
-      - name: Read VERSION
+      - name: Read VERSION + gate tag
         id: ver
+        shell: bash
         run: |
+          set -euo pipefail
           V="$(tr -d '[:space:]' < VERSION)"
           echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Engineering product version: $V"
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            TAG="${{ github.ref_name }}"
+            EXPECT="v${V}"
+            if [[ "$TAG" != "$EXPECT" ]]; then
+              echo "Tag '$TAG' must exactly match '${EXPECT}' (VERSION file)" >&2
+              exit 1
+            fi
+          fi
 
       - name: Download all dist artifacts
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
@@ -188,7 +210,7 @@ jobs:
       - name: Create GitHub Release (engineering-dist)
         uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090  # v2.4.1
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('engineering-v{0}', steps.ver.outputs.version) }}
+          tag_name: v${{ steps.ver.outputs.version }}
           name: engineering-dist ${{ steps.ver.outputs.version }}
           draft: ${{ github.event_name == 'workflow_dispatch' && github.ref_type != 'tag' }}
           prerelease: true
