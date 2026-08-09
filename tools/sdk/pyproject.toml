@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "proof-forge-sdk"
 # Substituted by scripts/package_host_sdk.sh from repo VERSION when packaging.
-version = "0.1.0"
+version = "0.1.1"
 description = "Thin Host SDK for ProofForge product CLI JSON (engineering-dist)"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -10,7 +10,7 @@ normative: false
 # 分发架构：CLI 发版 · Lean 写合约包 · 宿主 SDK/MCP
 
 状态：`draft`（2026-08-09）
-关联：[`01-toolchain-install-surface.md`](01-toolchain-install-surface.md)、[`02-external-program-v1.md`](02-external-program-v1.md)
+关联：[`01-toolchain-install-surface.md`](01-toolchain-install-surface.md)、[`02-external-program-v1.md`](02-external-program-v1.md)、[`06-pypi-host-sdk.md`](06-pypi-host-sdk.md)
 
 ## 1. 结论（先回答「要不要做」）
 
@@ -193,7 +193,7 @@ program Hello where …
 | **REL-AUTHOR-0** Lean Author SDK | **done engineering** | `scripts/package_author_sdk.py` + `just package-author-sdk`：Syntax 闭包薄 `ProofForgeV2` 根 + tarball；`just package-author-sdk-smoke` |
 | **REL-CI-0** CI 发工程版 | **done engineering** | `.github/workflows/release-engineering-dist.yml`：tag `v*` / workflow_dispatch → build CLI + author tarball → GitHub Release（prerelease，`engineering-dist`） |
 | **REL-HOST-0** pip 打包 | **done engineering** | `tools/sdk/pyproject.toml` + `just package-host-sdk` → wheel/sdist；`package-host-sdk-smoke`；CI 随 engineering Release 上传 |
-| **REL-HOST-1** PyPI 发布 | **done engineering** | tag `v${VERSION}` → job `publish-host-sdk-pypi`（OIDC Trusted Publishing，environment `pypi`）；本地 `just publish-host-sdk-pypi`；见 [`06-pypi-host-sdk.md`](06-pypi-host-sdk.md) |
+| **REL-HOST-1** PyPI 发布 | **done engineering（repo wiring）；owner PyPI setup required** | tag `v${VERSION}` → job `publish-pypi` / display name `publish-host-sdk-pypi`（OIDC Trusted Publishing，environment `pypi`）；本地 `just publish-host-sdk-pypi`；Trusted Publisher 字段表见 [`06-pypi-host-sdk.md`](06-pypi-host-sdk.md) |
 | **REL-CI-1** multi-arch | **done engineering** | `release-engineering-dist.yml`：linux-x86_64 + **darwin-arm64** CLI 矩阵 + portable Author/Host 包 → GitHub Release + PyPI；tag 须匹配 `VERSION` |
 | formal Stage-0 | **out of scope** | 整仓最后 |
 
@@ -293,7 +293,7 @@ just package-host-sdk-smoke
 ### 9.6 剩余
 
 1. Reservoir/git published Author SDK channel（当前只有 tarball/Release asset + path require）
-2. PyPI Trusted Publisher 在 pypi.org 的一次性人工配置（代码已接线；未配置则 publish-pypi job 失败）
+2. PyPI / TestPyPI 项目侧 Trusted Publisher 一次性人工配置（代码已接线；未配置则 `publish-pypi` job 失败；字段表见 [`06-pypi-host-sdk.md`](06-pypi-host-sdk.md)）
 3. formal Stage-0
 
 ## 10. 一句话

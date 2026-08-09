@@ -24,10 +24,6 @@ on:
         description: "Create/update a GitHub Release for the current ref"
         type: boolean
         default: true
-      publish_pypi:
-        description: "Also publish Host SDK to PyPI (Trusted Publishing; needs environment pypi)"
-        type: boolean
-        default: false
 
 concurrency:
   group: release-engineering-dist-${{ github.ref }}
@@ -264,10 +260,8 @@ jobs:
   publish-pypi:
     name: publish-host-sdk-pypi
     needs: [package-portable]
-    # Tag push always; workflow_dispatch only when publish_pypi=true.
-    if: >-
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')) ||
-      (github.event_name == 'workflow_dispatch' && inputs.publish_pypi)
+    # PyPI publishing is limited to version tag pushes.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     environment:
       name: pypi

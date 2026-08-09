@@ -31,7 +31,7 @@ private def proofSubjectNativeCompiler : IO (System.FilePath × Array String) :=
     pure (cc, #[])
 
 package «proof-forge-next» where
-  version := v!"0.1.0"
+  version := v!"0.1.1"
 
 extern_lib proof_forge_proof_subject_files_v1 pkg := do
   let source ← inputFile

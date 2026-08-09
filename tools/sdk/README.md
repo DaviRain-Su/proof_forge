@@ -12,7 +12,7 @@ Authority: [`docs/product/01-toolchain-install-surface.md`](../../docs/product/0
 
 ```bash
 # From PyPI after tag release (Trusted Publishing):
-pip install proof-forge-sdk==0.1.0
+pip install proof-forge-sdk==0.1.1
 
 # Or from GitHub Release asset / local package:
 # pip install ./proof_forge_sdk-0.1.0-py3-none-any.whl
@@ -22,7 +22,7 @@ export PROOF_FORGE_CLI=/path/to/proof-forge-next   # required for most calls
 # export PROOF_FORGE_ROOT=/path/to/proof-forge-next-0.1.0-linux-x86_64
 ```
 
-Publish docs: [`docs/product/06-pypi-host-sdk.md`](../../docs/product/06-pypi-host-sdk.md).
+Publish docs and PyPI Trusted Publisher setup table: [`docs/product/06-pypi-host-sdk.md`](../../docs/product/06-pypi-host-sdk.md).
 
 ### From monorepo (development)
 

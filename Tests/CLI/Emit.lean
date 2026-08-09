@@ -28,8 +28,8 @@ unsafe def run : IO Unit := do
   match ProofForgeV2.CLI.parseProductCliCommandV1 ["--version"] with
   | .ok (.version false) => pure ()
   | other => throw <| IO.userError s!"expected --version, got {repr other}"
-  expect (productVersionV1 == "0.1.0")
-    "productVersionV1 must match repo VERSION (0.1.0)"
+  expect (productVersionV1 == "0.1.1")
+    "productVersionV1 must match repo VERSION (0.1.1)"
   expect (productChannelV1 == "engineering-dist")
     "productChannelV1 must be engineering-dist"
   expect (renderVersionJsonV1.contains "proof-forge.cli.version.v1")
