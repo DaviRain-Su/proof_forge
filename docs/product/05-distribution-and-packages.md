@@ -192,8 +192,9 @@ program Hello where …
 | **REL-CLI-2** 安装文档 | **done（本页 §9.1）** | monorepo `lake build` 仍为开发者路径；dist 为外部作者推荐路径 |
 | **REL-AUTHOR-0** Lean Author SDK | **done engineering** | `scripts/package_author_sdk.py` + `just package-author-sdk`：Syntax 闭包薄 `ProofForgeV2` 根 + tarball；`just package-author-sdk-smoke` |
 | **REL-CI-0** CI 发工程版 | **done engineering** | `.github/workflows/release-engineering-dist.yml`：tag `v*` / workflow_dispatch → build CLI + author tarball → GitHub Release（prerelease，`engineering-dist`） |
-| **REL-HOST-0** pip | **done engineering** | `tools/sdk/pyproject.toml` + `just package-host-sdk` → wheel/sdist；`package-host-sdk-smoke`；CI 随 engineering Release 上传 |
-| **REL-CI-1** multi-arch | **done engineering** | `release-engineering-dist.yml`：linux-x86_64 + **darwin-arm64** CLI 矩阵 + portable Author/Host 包 → 单一 publish job；tag 须匹配 `VERSION` |
+| **REL-HOST-0** pip 打包 | **done engineering** | `tools/sdk/pyproject.toml` + `just package-host-sdk` → wheel/sdist；`package-host-sdk-smoke`；CI 随 engineering Release 上传 |
+| **REL-HOST-1** PyPI 发布 | **done engineering** | tag `v${VERSION}` → job `publish-host-sdk-pypi`（OIDC Trusted Publishing，environment `pypi`）；本地 `just publish-host-sdk-pypi`；见 [`06-pypi-host-sdk.md`](06-pypi-host-sdk.md) |
+| **REL-CI-1** multi-arch | **done engineering** | `release-engineering-dist.yml`：linux-x86_64 + **darwin-arm64** CLI 矩阵 + portable Author/Host 包 → GitHub Release + PyPI；tag 须匹配 `VERSION` |
 | formal Stage-0 | **out of scope** | 整仓最后 |
 
 ### 9.1 安装 CLI dist（推荐外部作者）
@@ -292,7 +293,7 @@ just package-host-sdk-smoke
 ### 9.6 剩余
 
 1. Reservoir/git published Author SDK channel（当前只有 tarball/Release asset + path require）
-2. PyPI 公开索引（当前仅 Release asset / 本地 wheel）
+2. PyPI Trusted Publisher 在 pypi.org 的一次性人工配置（代码已接线；未配置则 publish-pypi job 失败）
 3. formal Stage-0
 
 ## 10. 一句话

@@ -10,15 +10,19 @@ Authority: [`docs/product/01-toolchain-install-surface.md`](../../docs/product/0
 
 ### Engineering-dist (recommended)
 
-From a GitHub **engineering-dist** Release (or `just package-host-sdk`):
-
 ```bash
-pip install ./proof_forge_sdk-<version>-*.whl
-# or: pip install proof-forge-sdk==<version>  # only if published to an index later
+# From PyPI after tag release (Trusted Publishing):
+pip install proof-forge-sdk==0.1.0
+
+# Or from GitHub Release asset / local package:
+# pip install ./proof_forge_sdk-0.1.0-py3-none-any.whl
+
 export PROOF_FORGE_CLI=/path/to/proof-forge-next   # required for most calls
-# optional install/package root for doctor/install engines shipped with CLI dist:
-export PROOF_FORGE_ROOT=/path/to/extracted-cli-dist
+# optional: CLI dist root for doctor/install engines
+# export PROOF_FORGE_ROOT=/path/to/proof-forge-next-0.1.0-linux-x86_64
 ```
+
+Publish docs: [`docs/product/06-pypi-host-sdk.md`](../../docs/product/06-pypi-host-sdk.md).
 
 ### From monorepo (development)
 

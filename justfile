@@ -1355,6 +1355,11 @@ package-host-sdk *ARGS:
 package-host-sdk-smoke:
     bash scripts/package_host_sdk_smoke.sh
 
+# Publish Host SDK to PyPI/TestPyPI (REL-HOST-1). Prefer CI Trusted Publishing.
+# Local: TWINE_USERNAME=__token__ TWINE_PASSWORD=pypi-...
+publish-host-sdk-pypi *ARGS:
+    bash scripts/publish_host_sdk_pypi.sh {{ARGS}}
+
 # Aleo explicit post-build deploy/execute (host-heavy; NOT ordinary ci).
 # Consumes an existing compile-profile OutputSet and publishes a separate
 # deployment receipt. DevNet uses --dev-key; Testnet uses --private-key-file +
