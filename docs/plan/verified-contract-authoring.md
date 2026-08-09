@@ -656,7 +656,7 @@ proof-bearing target build 继续 fail closed。
 |---|---|---|---|
 | 0A | 删除第二套 executable semantics | **已完成** | `MiniAmmSafetySketchV1`、alpha `Core/Semantics`/`SemanticIR` 已不在 HEAD |
 | 0B | 唯一语义防回归门 | **已完成** | `alpha-deletion-gate` 固定平行语义、contract-specific registry/pin 的物理删除，不误杀 checker state |
-| 1 | Typed State + codec bridge | **进行中（UInt64 conforming-state decode totality/uniqueness 首切已完成）** | generated `Model.State` 复用 production codec；typed encode 可 roundtrip/conform，且每个 conforming logical state 已有唯一 typed decode；`encode_decode_of_conforms`/完整 iff、更多 scalar shape 仍待补 |
+| 1 | Typed State + codec bridge | **进行中（0B/UInt64 双向 complete/unique 首切已完成）** | generated `Model.State` 复用 production codec；`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；更多 accepted scalar shape 仍待补 |
 | 2 | Typed callable transition | 未开始 | 简单 entry theorem 只使用 typed State/args/outcome |
 | 3 | Typed invariant bridge | 未开始 | typed predicate 与 `evalInvariantV1` 双向对齐 |
 | 4 | Generic preservation composition | 未开始 | per-call lemmas 自动包成 exact `PreservationTheoremV1` |
@@ -672,12 +672,19 @@ proof-bearing target build 继续 fail closed。
    registry/pin 的物理删除；
 2. 小型未 pin program 已能仅由 `subjectDataV1` 生成 source-order typed `Model.State`；
 3. encode/decode 继续复用 production logical-state codec，并已生成 `decode_encode`、
-   `conforms_of_encode` 与 `decode_existsUnique_of_conforms`；
+   `conforms_of_encode`、`decode_existsUnique_of_conforms` 与
+   `encode_decode_of_conforms`；
 4. production decoder 已有通用 declaration-arity theorem，因此 logical→typed totality不依赖
    contract-specific slot parser；
-5. 当前 Normalize accepted language 尚不包含 logical-state Bool，故不能把 Bool 写成已闭环；
-6. 下一切片继续完成 conforming typed re-encode/完整 iff，再进入 Phase 2，避免一次把 state、
-   step、certifier、target 全部耦合。
+5. production decoder 的成功结果已有通用 exact re-encode theorem；generated UInt64 view 已证明
+   每个 conforming logical state 经 typed decode 后可 byte-for-byte 编回原 carrier，并已导出
+   `StateConformsV1 ↔ ∃ typedState, encodeState typedState = .ok logicalState`；整个链仍只调用
+   production logical-state/value codec；
+6. typed encoder 已有基于 production decode roundtrip 的 success-result injectivity theorem；空 state
+   table 与多 UInt64 state table 都有 generated theorem 回归覆盖；
+7. 当前 Normalize accepted language 尚不包含 logical-state Bool，故不能把 Bool 写成已闭环；
+8. 下一切片先按 accepted language 扩更多 scalar/field projection，再进入 Phase 2，避免一次把
+   state、step、certifier、target 全部耦合。
 
 ---
 

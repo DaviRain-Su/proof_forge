@@ -122,7 +122,8 @@ private def quoteTypeShape (shape : TypeShapeV1) : MacroM (TSyntax `term) := do
       let vs ← quoteArray quoteEnumVariant variants
       `(ProofForgeV2.Semantic.WireV1.TypeShapeV1.enum $vs)
 
-private def quoteTypeDecl (t : TypeDeclV1) : MacroM (TSyntax `term) := do
+/-- Quote one production type declaration for generated proof terms. -/
+def quoteTypeDeclV1 (t : TypeDeclV1) : MacroM (TSyntax `term) := do
   let id ← quoteU32 t.id
   let name ← quoteOption (fun s => pure (quote s)) t.name
   let shape ← quoteTypeShape t.shape
@@ -136,7 +137,8 @@ private def quoteConstant (c : ConstantV1) : MacroM (TSyntax `term) := do
   `({ id := $id, name := $(quote c.name), typeId := $tid, valueBytes := $vb :
       ProofForgeV2.Semantic.WireV1.ConstantV1 })
 
-private def quoteStateDecl (s : StateDeclV1) : MacroM (TSyntax `term) := do
+/-- Quote one production logical-state declaration for generated proof terms. -/
+def quoteStateDeclV1 (s : StateDeclV1) : MacroM (TSyntax `term) := do
   let id ← quoteU32 s.id
   let tid ← quoteU32 s.typeId
   let vis ← quoteVisibility s.visibility
@@ -486,9 +488,9 @@ private def quoteRequirements
 def quoteSemanticProgramDataV1
     (data : SemanticProgramDataV1) : MacroM (TSyntax `term) := do
   let qn ← quoteQualifiedName data.qualifiedName
-  let types ← quoteArray quoteTypeDecl data.types
+  let types ← quoteArray quoteTypeDeclV1 data.types
   let constants ← quoteArray quoteConstant data.constants
-  let state ← quoteArray quoteStateDecl data.logicalState
+  let state ← quoteArray quoteStateDeclV1 data.logicalState
   let events ← quoteArray quoteEventDecl data.events
   let errors ← quoteArray quoteErrorDecl data.errors
   let callables ← quoteArray quoteCallable data.callables

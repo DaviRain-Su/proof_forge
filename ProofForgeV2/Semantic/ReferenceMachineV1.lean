@@ -4884,6 +4884,44 @@ private theorem leBytesToNatList_mul_place
         rw [Nat.mul_assoc]
       rw [hassoc, ← Nat.mul_add]
 
+private theorem leBytesToNatList_lt_pow_length (bytes : List UInt8) :
+    leBytesToNatList bytes < 256 ^ bytes.length := by
+  induction bytes with
+  | nil => simp [leBytesToNatList]
+  | cons byte rest ih =>
+      simp only [leBytesToNatList, List.length_cons]
+      rw [leBytesToNatList_mul_place rest 256, Nat.pow_succ]
+      have hbyte : byte.toNat < 256 := UInt8.toNat_lt_size byte
+      omega
+
+private theorem natToLeBytesList_leBytesToNatList
+    (bytes : List UInt8) :
+    natToLeBytesList (leBytesToNatList bytes) bytes.length = bytes := by
+  induction bytes with
+  | nil => rfl
+  | cons byte rest ih =>
+      have hdecode :
+          leBytesToNatList (byte :: rest) =
+            byte.toNat + 256 * leBytesToNatList rest := by
+        simp only [leBytesToNatList]
+        rw [leBytesToNatList_mul_place]
+        simp
+      have hbyte : byte.toNat < 256 := UInt8.toNat_lt_size byte
+      have hmod :
+          leBytesToNatList (byte :: rest) % 256 = byte.toNat := by
+        rw [hdecode]
+        omega
+      have hdiv :
+          leBytesToNatList (byte :: rest) / 256 = leBytesToNatList rest := by
+        rw [hdecode]
+        omega
+      simp only [List.length_cons, natToLeBytesList]
+      have hhead :
+          UInt8.ofNat (leBytesToNatList (byte :: rest) % 256) = byte := by
+        apply UInt8.toNat_inj.1
+        rw [UInt8_toNat_ofNat_mod256, hmod]
+      rw [hhead, hdiv, ih]
+
 /-- Little-endian place-value roundtrip for any width: if `n < 256^len` then
     decoding the `len`-byte encoding recovers `n`. -/
 private theorem leBytesToNatList_natToLeBytesList
@@ -4952,6 +4990,33 @@ theorem leBytesToNatV1_encodeU64le (value : UInt64) :
     leBytesToNatV1 (encodeU64le value) = value.toNat := by
   rw [← natToLeBytesV1_uint64_eq_encodeU64le]
   exact leBytesToNatV1_natToLeBytesV1_uint64 value.toNat value.toNat_lt
+
+/-- Every exact-width UInt64 payload is recovered byte-for-byte after the
+    Reference machine's unsigned interpretation and the production Wire
+    encoder. This is a codec alignment law, not a second scalar codec. -/
+theorem encodeU64le_uint64OfLeBytesToNatV1_of_size
+    (bytes : ByteArray)
+    (hsize : bytes.size = 8) :
+    encodeU64le (UInt64.ofNat (leBytesToNatV1 bytes)) = bytes := by
+  have hdataSize : bytes.data.size = 8 := by
+    exact hsize
+  have hlength : bytes.data.toList.length = 8 := by
+    simpa only [Array.length_toList] using hdataSize
+  have hbound : leBytesToNatV1 bytes < 2 ^ 64 := by
+    have h := leBytesToNatList_lt_pow_length bytes.data.toList
+    change leBytesToNatList bytes.data.toList < 2 ^ 64
+    rw [← pow_256_eight_eq_pow_two_sixty_four]
+    simpa only [hlength] using h
+  rw [← natToLeBytesV1_uint64_eq_encodeU64le]
+  have htoNat :
+      (UInt64.ofNat (leBytesToNatV1 bytes)).toNat = leBytesToNatV1 bytes := by
+    simpa [UInt64.toNat_ofNat, Nat.mod_eq_of_lt hbound]
+  rw [htoNat]
+  apply ByteArray.ext
+  change
+    (natToLeBytesList (leBytesToNatList bytes.data.toList) 8).toArray =
+      bytes.data
+  rw [← hlength, natToLeBytesList_leBytesToNatList]
 
 private theorem evalBinary_add_uint64_two
     (data : SemanticProgramDataV1) (uint64TypeId : TypeIdV1)

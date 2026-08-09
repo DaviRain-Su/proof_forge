@@ -25,8 +25,11 @@ theorem ProofedProof.safe : Proofed.Proof.safe := by
 #check Proofed.Model.encodeState
 #check Proofed.Model.decodeState
 #check Proofed.Model.decode_encode
+#check Proofed.Model.encode_injective_of_eq_ok
 #check Proofed.Model.decode_existsUnique_of_conforms
+#check Proofed.Model.encode_decode_of_conforms
 #check Proofed.Model.conforms_of_encode
+#check Proofed.Model.conforms_iff_exists_encode
 
 example : Proofed.Proof.safe =
     InvariantTheoremV1 Proofed.Proof.subjectProgramV1 0 := rfl
@@ -37,6 +40,23 @@ example : Proofed.Model.encodeState () = .ok {
     initialized := true
     canonicalValues := ByteArray.empty
   } := rfl
+
+example
+    (hvalidate :
+      validateSemanticProgramV1 Proofed.Proof.subjectProgramV1 =
+        .ok Proofed.Proof.subjectDataV1) :
+    ∃ typedState : Proofed.Model.State,
+      Proofed.Model.decodeState {
+        initialized := true
+        canonicalValues := ByteArray.empty
+      } = .ok typedState ∧
+      Proofed.Model.encodeState typedState = .ok {
+        initialized := true
+        canonicalValues := ByteArray.empty
+      } := by
+  apply Proofed.Model.encode_decode_of_conforms _ hvalidate
+  apply Proofed.Model.conforms_of_encode () _ hvalidate
+  rfl
 
 #check Proofed.Proof.subjectBytesV1
 -- Structured subject data (mig-a3-elab): preferred author surface; encode of
@@ -111,8 +131,11 @@ program TypedStateSurface where
 #check TypedStateSurface.Model.encodeState
 #check TypedStateSurface.Model.decodeState
 #check TypedStateSurface.Model.decode_encode
+#check TypedStateSurface.Model.encode_injective_of_eq_ok
 #check TypedStateSurface.Model.decode_existsUnique_of_conforms
+#check TypedStateSurface.Model.encode_decode_of_conforms
 #check TypedStateSurface.Model.conforms_of_encode
+#check TypedStateSurface.Model.conforms_iff_exists_encode
 
 private def typedStateSampleV1 : TypedStateSurface.Model.State := {
   count := 7
@@ -163,6 +186,33 @@ example
   apply TypedStateSurface.Model.conforms_of_encode typedStateSampleV1
     typedStateLogicalV1 hvalidate
   rfl
+
+/-- Production conformance also selects a typed projection whose generated
+    encoding is byte-for-byte the original production logical state. -/
+example
+    (hvalidate :
+      validateSemanticProgramV1 TypedStateSurface.Proof.subjectProgramV1 =
+        .ok TypedStateSurface.Proof.subjectDataV1) :
+    ∃ typedState : TypedStateSurface.Model.State,
+      TypedStateSurface.Model.decodeState typedStateLogicalV1 = .ok typedState ∧
+        TypedStateSurface.Model.encodeState typedState =
+          .ok typedStateLogicalV1 := by
+  apply TypedStateSurface.Model.encode_decode_of_conforms
+    typedStateLogicalV1 hvalidate
+  apply TypedStateSurface.Model.conforms_of_encode typedStateSampleV1
+    typedStateLogicalV1 hvalidate
+  rfl
+
+example
+    (hvalidate :
+      validateSemanticProgramV1 TypedStateSurface.Proof.subjectProgramV1 =
+        .ok TypedStateSurface.Proof.subjectDataV1) :
+    StateConformsV1 TypedStateSurface.Proof.subjectProgramV1 typedStateLogicalV1 ↔
+      ∃ typedState : TypedStateSurface.Model.State,
+        TypedStateSurface.Model.encodeState typedState =
+          .ok typedStateLogicalV1 :=
+  TypedStateSurface.Model.conforms_iff_exists_encode
+    typedStateLogicalV1 hvalidate
 
 private def typedStateUninitializedV1 : LogicalStateV1 :=
   { typedStateLogicalV1 with initialized := false }

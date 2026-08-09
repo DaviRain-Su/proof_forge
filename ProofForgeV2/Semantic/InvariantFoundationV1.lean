@@ -1864,6 +1864,321 @@ private theorem ByteArray_extract_split
     ByteArray.extract_eq_extract_append_extract (a := b) (i := i) (k := k) j
       hij hjk
 
+/-- Adding the same byte prefix to a successful production encoder accumulator
+    adds that prefix to the result. This is an accumulator law for the existing
+    tail-recursive encoder, not a separate serialization function. -/
+private theorem encodeLogicalStateSlotsV1_append_left
+    (types : Array TypeDeclV1)
+    (decls : List StateDeclV1)
+    (values : List ByteArray)
+    (left encoded leading : ByteArray)
+    (hencode : encodeLogicalStateSlotsV1 types decls values left = .ok encoded) :
+    encodeLogicalStateSlotsV1 types decls values (leading ++ left) =
+      .ok (leading ++ encoded) := by
+  induction decls generalizing values left encoded with
+  | nil =>
+      cases values with
+      | nil =>
+          simp only [encodeLogicalStateSlotsV1, Pure.pure, Except.pure] at hencode ⊢
+          have hencoded : left = encoded := Except.ok.inj hencode
+          rw [← hencoded]
+      | cons value restValues =>
+          simp [encodeLogicalStateSlotsV1, err] at hencode
+  | cons decl restDecls ih =>
+      cases values with
+      | nil =>
+          simp [encodeLogicalStateSlotsV1, err] at hencode
+      | cons valueBytes restValues =>
+          unfold encodeLogicalStateSlotsV1 at hencode ⊢
+          cases hcanonical : validateValueBytesV1 types decl.typeId valueBytes with
+          | error error =>
+              simp [hcanonical, Bind.bind, Except.bind] at hencode
+          | ok unit =>
+              cases unit
+              simp only [hcanonical, Bind.bind, Except.bind] at hencode ⊢
+              cases hslot : encodeStateSlotV1 valueBytes with
+              | error error =>
+                  simp [hslot] at hencode
+              | ok slot =>
+                  simp only [hslot] at hencode ⊢
+                  have hrest :=
+                    ih restValues (left ++ slot) encoded hencode
+                  simpa [ByteArray.append_assoc] using hrest
+
+/-- Every declaration/value pair consumed by a successful production encode
+    has passed the production canonical-value validator. -/
+private theorem validateValueBytesV1_of_encodeLogicalStateSlotsV1
+    (types : Array TypeDeclV1)
+    (decls : List StateDeclV1)
+    (values : List ByteArray)
+    (left : ByteArray)
+    (encoded : ByteArray)
+    (hencode :
+      encodeLogicalStateSlotsV1 types decls values left =
+        .ok encoded)
+    (index : Nat)
+    (decl : StateDeclV1)
+    (valueBytes : ByteArray)
+    (hdecl : decls[index]? = some decl)
+    (hvalue : values[index]? = some valueBytes) :
+    validateValueBytesV1 types decl.typeId valueBytes = .ok () := by
+  induction decls generalizing values left encoded index with
+  | nil => simp at hdecl
+  | cons headDecl restDecls ih =>
+      cases values with
+      | nil => simp at hvalue
+      | cons headValue restValues =>
+          unfold encodeLogicalStateSlotsV1 at hencode
+          cases hcanonical :
+              validateValueBytesV1 types headDecl.typeId headValue with
+          | error error =>
+              simp [hcanonical, Bind.bind, Except.bind] at hencode
+          | ok unit =>
+              cases unit
+              simp only [hcanonical, Bind.bind, Except.bind] at hencode
+              cases hslot : encodeStateSlotV1 headValue with
+              | error error => simp [hslot] at hencode
+              | ok slot =>
+                  simp only [hslot] at hencode
+                  cases index with
+                  | zero =>
+                      simp only [List.getElem?_cons_zero, Option.some.injEq] at hdecl hvalue
+                      subst decl
+                      subst valueBytes
+                      exact hcanonical
+                  | succ index =>
+                      simp only [List.getElem?_cons_succ] at hdecl hvalue
+                      exact ih (values := restValues) (left := left ++ slot)
+                        (encoded := encoded) (index := index) hencode hdecl hvalue
+
+/-- A successful production slot decode can be serialized by the sole
+    production slot encoder to exactly the consumed canonical byte interval.
+    The generalized accumulator/cursor statement is what makes the proof apply
+    to every logical-state arity without a contract-specific parser. -/
+private theorem encodeLogicalStateSlotsV1_of_decodeLogicalStateSlotsV1
+    (types : Array TypeDeclV1)
+    (decls : List StateDeclV1)
+    (canonicalValues : ByteArray)
+    (offset : Nat)
+    (acc values : Array ByteArray)
+    (after : Nat)
+    (hstart : offset ≤ canonicalValues.size)
+    (hdecode :
+      decodeLogicalStateSlotsV1 types decls canonicalValues offset acc =
+        .ok (values, after)) :
+    ∃ parsed : List ByteArray,
+      values.toList = acc.toList ++ parsed ∧
+      parsed.length = decls.length ∧
+      encodeLogicalStateSlotsV1 types decls parsed ByteArray.empty =
+        .ok (canonicalValues.extract offset after) ∧
+      offset ≤ after ∧
+      after ≤ canonicalValues.size := by
+  induction decls generalizing offset acc values after with
+  | nil =>
+      simp only [decodeLogicalStateSlotsV1, Pure.pure, Except.pure] at hdecode
+      have hpair : (acc, offset) = (values, after) := Except.ok.inj hdecode
+      have hvalues : acc = values := congrArg Prod.fst hpair
+      have hafter : offset = after := congrArg Prod.snd hpair
+      subst values
+      subst after
+      refine ⟨[], by simp, by simp, ?_, Nat.le_refl _, hstart⟩
+      have hextract :
+          canonicalValues.extract offset offset = ByteArray.empty := by
+        ext1
+        simp
+      simp [encodeLogicalStateSlotsV1, hextract, Pure.pure, Except.pure]
+  | cons decl restDecls ih =>
+      unfold decodeLogicalStateSlotsV1 at hdecode
+      cases hread : readU32leAtV1 canonicalValues offset with
+      | error error =>
+          simp [hread, Bind.bind, Except.bind] at hdecode
+      | ok pair =>
+          rcases pair with ⟨lenU, afterLen⟩
+          simp only [hread, Bind.bind, Except.bind, Pure.pure, Except.pure] at hdecode
+          by_cases hfit : afterLen + lenU.toNat ≤ canonicalValues.size
+          · simp only [if_pos hfit] at hdecode
+            cases hcanonical :
+                validateValueBytesV1 types decl.typeId
+                  (canonicalValues.extract afterLen (afterLen + lenU.toNat)) with
+            | error error =>
+                simp [hcanonical, Bind.bind, Except.bind] at hdecode
+            | ok unit =>
+                cases unit
+                simp only [hcanonical, Bind.bind, Except.bind] at hdecode
+                let slice :=
+                  canonicalValues.extract afterLen (afterLen + lenU.toNat)
+                have hcanonical' :
+                    validateValueBytesV1 types decl.typeId slice = .ok () := by
+                  simpa [slice] using hcanonical
+                have hdecode' :
+                    decodeLogicalStateSlotsV1 types restDecls canonicalValues
+                        (afterLen + lenU.toNat) (acc.push slice) =
+                      .ok (values, after) := by
+                  simpa [slice] using hdecode
+                obtain ⟨restValues, hvaluesRest, hlengthRest, hencodeRest,
+                    hrestStart, hrestEnd⟩ :=
+                  ih (afterLen + lenU.toNat) (acc.push slice) values after
+                    hfit hdecode'
+                have hafterLen : afterLen = offset + 4 :=
+                  readU32leAtV1_ok_offset canonicalValues offset lenU afterLen hread
+                have hread' :
+                    readU32leAtV1 canonicalValues offset =
+                      .ok (lenU, offset + 4) := by
+                  rw [← hafterLen]
+                  exact hread
+                have hheaderFit : offset + 4 ≤ canonicalValues.size := by
+                  omega
+                have hheader :
+                    canonicalValues.extract offset afterLen = encodeU32le lenU := by
+                  rw [hafterLen]
+                  exact readU32leAtV1_ok_extract_eq_encode canonicalValues offset
+                    lenU hread' hheaderFit
+                have hsliceSize : slice.size = lenU.toNat := by
+                  simp only [slice, ByteArray.size_extract]
+                  rw [Nat.min_eq_left hfit]
+                  omega
+                have hslotFit : slice.size ≤ UInt32.size - 1 :=
+                  validateValueBytesV1_size_le_u32 types decl.typeId slice hcanonical'
+                have hslot :
+                    encodeStateSlotV1 slice =
+                      .ok (encodeU32le lenU ++ slice) := by
+                  unfold encodeStateSlotV1
+                  have hlen : UInt32.ofNat slice.size = lenU := by
+                    rw [hsliceSize, UInt32.ofNat_toNat]
+                  simp only [if_pos hslotFit, Pure.pure, Except.pure, Bind.bind,
+                    Except.bind]
+                  rw [hlen]
+                  rfl
+                have hrestPrefixed :=
+                  encodeLogicalStateSlotsV1_append_left types restDecls restValues
+                    ByteArray.empty (canonicalValues.extract
+                      (afterLen + lenU.toNat) after)
+                    (encodeU32le lenU ++ slice) hencodeRest
+                have hencodeAll :
+                    encodeLogicalStateSlotsV1 types (decl :: restDecls)
+                        (slice :: restValues) ByteArray.empty =
+                      .ok ((encodeU32le lenU ++ slice) ++
+                        canonicalValues.extract (afterLen + lenU.toNat) after) := by
+                  unfold encodeLogicalStateSlotsV1
+                  simp only [hcanonical', Bind.bind, Except.bind, hslot]
+                  simpa using hrestPrefixed
+                have hsplitHeader :
+                    canonicalValues.extract offset after =
+                      canonicalValues.extract offset afterLen ++
+                        canonicalValues.extract afterLen after := by
+                  apply ByteArray_extract_split canonicalValues offset afterLen after
+                  · omega
+                  · omega
+                  · exact hrestEnd
+                have hsplitPayload :
+                    canonicalValues.extract afterLen after =
+                      canonicalValues.extract afterLen (afterLen + lenU.toNat) ++
+                        canonicalValues.extract (afterLen + lenU.toNat) after := by
+                  apply ByteArray_extract_split canonicalValues afterLen
+                    (afterLen + lenU.toNat) after
+                  · omega
+                  · exact hrestStart
+                  · exact hrestEnd
+                have hsegment :
+                    canonicalValues.extract offset after =
+                      (encodeU32le lenU ++ slice) ++
+                        canonicalValues.extract (afterLen + lenU.toNat) after := by
+                  rw [hsplitHeader, hheader, hsplitPayload]
+                  simp [slice, ByteArray.append_assoc]
+                have hvalues :
+                    values.toList = acc.toList ++ (slice :: restValues) := by
+                  rw [hvaluesRest, Array.toList_push]
+                  simp [List.append_assoc]
+                refine ⟨slice :: restValues, hvalues, ?_, ?_, ?_, hrestEnd⟩
+                · simp [hlengthRest]
+                · rw [hsegment]
+                  exact hencodeAll
+                · omega
+          · simp only [if_neg hfit, err] at hdecode
+            cases hdecode
+
+/-- Public reverse codec law for the sole production logical-state codec.
+    Successful canonical decoding is sufficient to re-encode the exact same
+    logical state, including its lifecycle bit. -/
+theorem encodeLogicalStateValuesV1_of_decodeLogicalStateValuesV1
+    (data : SemanticProgramDataV1)
+    (state : LogicalStateV1)
+    (values : Array ByteArray)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok values) :
+    encodeLogicalStateValuesV1 data state.initialized values = .ok state := by
+  unfold decodeLogicalStateValuesV1 at hdecode
+  cases hslots :
+      decodeLogicalStateSlotsV1 data.types data.logicalState.toList
+        state.canonicalValues 0 #[] with
+  | error error =>
+      simp [Array.emptyWithCapacity_eq, hslots, Bind.bind, Except.bind] at hdecode
+  | ok pair =>
+      rcases pair with ⟨decoded, after⟩
+      simp only [Array.emptyWithCapacity_eq, hslots, Bind.bind, Except.bind,
+        Pure.pure, Except.pure] at hdecode
+      by_cases htrail : (after == state.canonicalValues.size) = true
+      · simp only [htrail, ↓reduceIte] at hdecode
+        have hvalues : decoded = values := Except.ok.inj hdecode
+        obtain ⟨parsed, hparsed, hlength, hencode, _hstart, _hend⟩ :=
+          encodeLogicalStateSlotsV1_of_decodeLogicalStateSlotsV1
+            data.types data.logicalState.toList state.canonicalValues 0 #[]
+            decoded after (Nat.zero_le _) hslots
+        rw [hvalues] at hparsed
+        have hparsed' : parsed = values.toList := by
+          simpa using hparsed.symm
+        subst parsed
+        have hsize : values.size = data.logicalState.size := by
+          simpa using hlength
+        have hafter : after = state.canonicalValues.size :=
+          of_decide_eq_true htrail
+        have hfull :
+            state.canonicalValues.extract 0 after = state.canonicalValues := by
+          rw [hafter]
+          ext1
+          simp
+        rw [hfull] at hencode
+        have harity : values.size == data.logicalState.size := by
+          simp [hsize]
+        unfold encodeLogicalStateValuesV1
+        simp only [if_pos harity, Bind.bind, Except.bind]
+        rw [hencode]
+        simp [Pure.pure, Except.pure, Bind.bind, Except.bind]
+      · simp [htrail, err] at hdecode
+
+/-- Every source-order value returned by the production logical-state decoder
+    has passed validation against its corresponding production declaration. -/
+theorem validateValueBytesV1_of_decodeLogicalStateValuesV1_getElem
+    (data : SemanticProgramDataV1)
+    (state : LogicalStateV1)
+    (values : Array ByteArray)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok values)
+    (index : Nat)
+    (decl : StateDeclV1)
+    (valueBytes : ByteArray)
+    (hdecl : data.logicalState[index]? = some decl)
+    (hvalue : values[index]? = some valueBytes) :
+    validateValueBytesV1 data.types decl.typeId valueBytes = .ok () := by
+  have hencode :=
+    encodeLogicalStateValuesV1_of_decodeLogicalStateValuesV1
+      data state values hdecode
+  unfold encodeLogicalStateValuesV1 at hencode
+  by_cases harity : values.size == data.logicalState.size
+  · simp only [if_pos harity, Bind.bind, Except.bind] at hencode
+    cases hslots :
+        encodeLogicalStateSlotsV1 data.types data.logicalState.toList
+          values.toList ByteArray.empty with
+    | error error =>
+        simp [hslots, Pure.pure, Except.pure, Bind.bind, Except.bind] at hencode
+    | ok encoded =>
+        have hcanonical :=
+          validateValueBytesV1_of_encodeLogicalStateSlotsV1
+            data.types data.logicalState.toList values.toList ByteArray.empty
+            encoded hslots index decl valueBytes
+            (by simpa [Array.getElem?_toList] using hdecl)
+            (by simpa [Array.getElem?_toList] using hvalue)
+        exact hcanonical
+  · simp [harity, err] at hencode
+
 /-- Successful triple UInt64-slot decode recovers the closed encode layout. -/
 theorem decodeLogicalStateValuesV1_triple_uint64_layout
     (data : SemanticProgramDataV1)

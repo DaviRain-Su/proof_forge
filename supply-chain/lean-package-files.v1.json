@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 5413,
+      "bytes": 5455,
       "path": "ProofForgeV2.lean",
-      "sha256": "ac7dd15c71a6c16285cb24b975c309d86e361e4cdcc07dd7c4271985e905d7ae"
+      "sha256": "a1b9ff63fa14bfc0fa780033c474c2f90a4fb22033f60996778b62091582dea0"
     },
     {
       "bytes": 93998,
@@ -211,9 +211,9 @@
       "sha256": "3cedc2dc67364b531a5d3f3052015a5d99f41a8f10f3e2bfa60a2c3ae7e41502"
     },
     {
-      "bytes": 21191,
+      "bytes": 38472,
       "path": "ProofForgeV2/Language/ProgramElaborationV1.lean",
-      "sha256": "70546af93e25f1ba07af290bcdbbc1a8c9ef298d1c904dbaa98f2281dd1a42d7"
+      "sha256": "b959d2b54bd943e017db0229e571187002e4cca66e6dbe7e3567a2d59c24398f"
     },
     {
       "bytes": 15977,
@@ -221,9 +221,9 @@
       "sha256": "88afa4cc2a17f814f0e20ba3c339dceb8204fdc9f6eaf60deb50649c9a194f7a"
     },
     {
-      "bytes": 20914,
+      "bytes": 21059,
       "path": "ProofForgeV2/Language/SubjectDataQuoteV1.lean",
-      "sha256": "41f842eee247298b46fe6e5e85bd05a50341cc11190e3a3768436928150356d2"
+      "sha256": "e5c587463d46bdbe6d15f4ce5a6ba8f8852cba6954032d7d7fe22da57ff6918d"
     },
     {
       "bytes": 52617,
@@ -286,9 +286,9 @@
       "sha256": "79481bf9ce6828f86bbef90ba45a7bf836faa00c107fe6eaa13566132d41dd69"
     },
     {
-      "bytes": 85550,
+      "bytes": 115770,
       "path": "ProofForgeV2/Semantic/InvariantFoundationV1.lean",
-      "sha256": "89df18bb8be9910f5a102c6121ca72cef85aec4ed1f03b3af2d80480491e3515"
+      "sha256": "970d2c613b3550d771fe7390a2c0066cf2d1a091124124e43f74d6349378e06e"
     },
     {
       "bytes": 208806,
@@ -336,9 +336,9 @@
       "sha256": "3bcefc7897c24d2a906e317f2b7d75af823dd51d748313692a9317e46430bea1"
     },
     {
-      "bytes": 381326,
+      "bytes": 384736,
       "path": "ProofForgeV2/Semantic/ReferenceMachineV1.lean",
-      "sha256": "c5cb27475b7fc3001e091af9d51340cd54184305bf8df73129018df4c2e9ad73"
+      "sha256": "a9abef52350075247b54cb8b103e5ff77053f270cd81f9c74744eb202da05341"
     },
     {
       "bytes": 1422,
@@ -404,6 +404,11 @@
       "bytes": 16967,
       "path": "ProofForgeV2/Semantic/SimpleClosureTraceV1.lean",
       "sha256": "2956a1998acd855e7812e1bb5c98d5d0755f5c967fd45f24d8dd4452e9598a44"
+    },
+    {
+      "bytes": 7278,
+      "path": "ProofForgeV2/Semantic/StateModelV1.lean",
+      "sha256": "88fcd22405a5cb496dbe85407bf9ebf37fda878b0286226d2dfbd5f35a90af40"
     },
     {
       "bytes": 4099,
