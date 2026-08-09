@@ -317,60 +317,115 @@ private def quoteModelCallableResultEncodeV1
           valueBytes := ProofForgeV2.Semantic.WireV1.encodeU64le value
         } : ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1))
 
-/-- Prove injectivity of the generated callable result projection. These are
-    codec facts only: Bool/UInt64 use the same production Wire encodings as the
-    Reference result, while Unit has exactly one inhabitant. -/
-private def quoteModelCallableResultEncodeInjectiveV1
-    (result : ModelCallableResultV1) : MacroM (TSyntax `term) := do
+/-- Decode the callable's canonical Reference result with the exact lowered
+    TypeId and the production valueBytes validator/projection. -/
+private def quoteModelCallableResultDecodeV1
+    (subjectDataName : TSyntax `ident)
+    (result : ModelCallableResultV1)
+    (typeId : TypeIdV1) : MacroM (TSyntax `term) := do
+  let typeIdTerm : TSyntax `term :=
+    ⟨Syntax.mkNumLit (toString typeId.toNat)⟩
+  match result with
+  | .unit =>
+      `(fun referenceValue : Option
+          ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1 =>
+        match referenceValue with
+        | none => .ok ()
+        | some _ => .error .nonCanonical)
+  | .bool =>
+      `(fun referenceValue : Option
+          ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1 =>
+        match referenceValue with
+        | none => ProofForgeV2.Semantic.WireV1.err .nonCanonical
+        | some value =>
+            if value.typeId == $typeIdTerm then do
+              ProofForgeV2.Semantic.WireV1.validateValueBytesV1
+                ($subjectDataName).types $typeIdTerm value.valueBytes
+              pure
+                (ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1
+                  value.valueBytes)
+            else
+              ProofForgeV2.Semantic.WireV1.err .nonCanonical)
+  | .uint64 =>
+      `(fun referenceValue : Option
+          ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1 =>
+        match referenceValue with
+        | none => ProofForgeV2.Semantic.WireV1.err .nonCanonical
+        | some value =>
+            if value.typeId == $typeIdTerm then do
+              ProofForgeV2.Semantic.WireV1.validateValueBytesV1
+                ($subjectDataName).types $typeIdTerm value.valueBytes
+              pure
+                (ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1
+                  value.valueBytes)
+            else
+              ProofForgeV2.Semantic.WireV1.err .nonCanonical)
+
+/-- Close decode-after-encode for a generated result codec. UInt64 validation
+    uses the production fixed-width theorem for the exact lowered type row. -/
+private def quoteModelCallableResultDecodeEncodeV1
+    (subjectDataName : TSyntax `ident)
+    (encodeResultName decodeResultName : TSyntax `ident)
+    (result : ModelCallableResultV1)
+    (typeId : TypeIdV1)
+    (typeDeclTerm : TSyntax `term) : MacroM (TSyntax `term) := do
+  let typeIdTerm : TSyntax `term :=
+    ⟨Syntax.mkNumLit (toString typeId.toNat)⟩
   match result with
   | .unit =>
       `(by
-        intro left right _h
-        cases left
-        cases right
+        unfold $encodeResultName $decodeResultName
+        cases value
         rfl)
   | .bool =>
       `(by
-        intro left right h
-        have hvalue := Option.some.inj h
-        have hbytes := congrArg
-          ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1.valueBytes hvalue
-        change ProofForgeV2.Semantic.WireV1.encodeBool left =
-          ProofForgeV2.Semantic.WireV1.encodeBool right at hbytes
-        calc
-          left =
-              ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1
-                (ProofForgeV2.Semantic.WireV1.encodeBool left) :=
-            (ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1_encodeBool
-              left).symm
-          _ =
-              ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1
-                (ProofForgeV2.Semantic.WireV1.encodeBool right) :=
-            congrArg _ hbytes
-          _ = right :=
-            ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1_encodeBool
-              right)
+        have hcanonical :
+            ProofForgeV2.Semantic.WireV1.validateValueBytesV1
+                ($subjectDataName).types $typeIdTerm
+                  (ProofForgeV2.Semantic.WireV1.encodeBool value) = .ok () := by
+          apply
+            ProofForgeV2.Semantic.WireV1.validateValueBytesV1_encodeBool
+              ($subjectDataName).types $typeIdTerm $typeDeclTerm value
+          · rfl
+          · rfl
+        unfold $encodeResultName $decodeResultName
+        change
+          (do
+            ProofForgeV2.Semantic.WireV1.validateValueBytesV1
+              ($subjectDataName).types $typeIdTerm
+                (ProofForgeV2.Semantic.WireV1.encodeBool value)
+            pure
+              (ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1
+                (ProofForgeV2.Semantic.WireV1.encodeBool value))) = .ok value
+        rw [hcanonical]
+        exact congrArg Except.ok
+          (ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1_encodeBool
+            value))
   | .uint64 =>
       `(by
-        intro left right h
-        have hvalue := Option.some.inj h
-        have hbytes := congrArg
-          ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1.valueBytes hvalue
-        change ProofForgeV2.Semantic.WireV1.encodeU64le left =
-          ProofForgeV2.Semantic.WireV1.encodeU64le right at hbytes
-        calc
-          left =
-              ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1
-                (ProofForgeV2.Semantic.WireV1.encodeU64le left) :=
-            (ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1_encodeU64le
-              left).symm
-          _ =
-              ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1
-                (ProofForgeV2.Semantic.WireV1.encodeU64le right) :=
-            congrArg _ hbytes
-          _ = right :=
-            ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1_encodeU64le
-              right)
+        have hcanonical :
+            ProofForgeV2.Semantic.WireV1.validateValueBytesV1
+                ($subjectDataName).types $typeIdTerm
+                  (ProofForgeV2.Semantic.WireV1.encodeU64le value) = .ok () := by
+          apply
+            ProofForgeV2.Semantic.WireV1.validateValueBytesV1_uint64_of_size
+              ($subjectDataName).types $typeIdTerm $typeDeclTerm
+          · rfl
+          · rfl
+          · exact ProofForgeV2.Semantic.WireV1.encodeU64le_size value
+        unfold $encodeResultName $decodeResultName
+        change
+          (do
+            ProofForgeV2.Semantic.WireV1.validateValueBytesV1
+              ($subjectDataName).types $typeIdTerm
+                (ProofForgeV2.Semantic.WireV1.encodeU64le value)
+            pure
+              (ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1
+                (ProofForgeV2.Semantic.WireV1.encodeU64le value))) = .ok value
+        rw [hcanonical]
+        exact congrArg Except.ok
+          (ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1_encodeU64le
+            value))
 
 /-- Emit the program-level positive admission carrier and one exact relation
     namespace per supported entry/view. The generated surface constructs only
@@ -379,7 +434,9 @@ private def quoteModelCallableResultEncodeInjectiveV1
     `stepReferenceSliceV1`. -/
 private def elaborateCallableModelsV1
     (subjectProgramName : TSyntax `ident)
+    (subjectDataName : TSyntax `ident)
     (encodeStateName : TSyntax `ident)
+    (data : SemanticProgramDataV1)
     (views : Array ModelCallableViewV1) : CommandElabM Unit := do
   let referenceSubjectName := mkIdent `ReferenceSubject
   let admitReferenceSubjectName := mkIdent `admitReferenceSubject
@@ -409,6 +466,11 @@ private def elaborateCallableModelsV1
   for callableView in views do
     let callableNamespace := mkIdent (Name.mkSimple callableView.name)
     let invocationName := mkIdent `invocation
+    let resultName := mkIdent `Result
+    let encodeResultName := mkIdent `encodeResult
+    let decodeResultName := mkIdent `decodeResult
+    let decodeEncodeResultName := mkIdent `decode_encode_result
+    let encodeResultInjectiveName := mkIdent `encodeResult_injective
     let callableOutcomeName := mkIdent `Outcome
     let transitionName := mkIdent `Transition
     let outcomeUniqueName := mkIdent `outcome_unique
@@ -439,8 +501,19 @@ private def elaborateCallableModelsV1
       quoteModelCallableResultTypeV1 callableView.result
     let resultEncode ← Lean.Elab.liftMacroM <|
       quoteModelCallableResultEncodeV1 callableView.result callableView.resultTypeId
-    let resultEncodeInjective ← Lean.Elab.liftMacroM <|
-      quoteModelCallableResultEncodeInjectiveV1 callableView.result
+    let resultDecode ← Lean.Elab.liftMacroM <|
+      quoteModelCallableResultDecodeV1
+        subjectDataName callableView.result callableView.resultTypeId
+    let resultTypeDecl ← match data.types[callableView.resultTypeId.toNat]? with
+      | some value => pure value
+      | none => throwError
+          "generated callable result is missing its production type declaration"
+    let resultTypeDeclTerm ← Lean.Elab.liftMacroM <|
+      ProofForgeV2.Language.SubjectDataQuoteV1.quoteTypeDeclV1 resultTypeDecl
+    let resultDecodeEncode ← Lean.Elab.liftMacroM <|
+      quoteModelCallableResultDecodeEncodeV1 subjectDataName encodeResultName
+        decodeResultName callableView.result callableView.resultTypeId
+        resultTypeDeclTerm
     let invocationTerm ← Lean.Elab.liftMacroM <| do
       let mut term ← `($invocationName)
       for paramName in paramNames do
@@ -458,6 +531,36 @@ private def elaborateCallableModelsV1
       `($term $contextName $responsesName $vaultName $rightOutcomeName)
     Lean.Elab.Command.elabCommand (← `(namespace $callableNamespace))
     Lean.Elab.Command.elabCommand (← `(
+      /-- Lean result type projected from this exact callable row. -/
+      abbrev $resultName := $resultType))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Encode this callable result into its canonical Reference carrier. -/
+      def $encodeResultName (value : $resultName) : Option
+          ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1 :=
+        $resultEncode value))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Decode only this callable's exact canonical Reference result. -/
+      def $decodeResultName (referenceValue : Option
+          ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1) :
+          Except ProofForgeV2.Semantic.WireV1.SemanticWireErrorV1 $resultName :=
+        $resultDecode referenceValue))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Callable result codec roundtrip through the production scalar
+          validator and projection. -/
+      theorem $decodeEncodeResultName (value : $resultName) :
+          $decodeResultName ($encodeResultName value) = .ok value :=
+        $resultDecodeEncode))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Canonical result encoding is injective because generated decoding is
+          its left inverse. -/
+      theorem $encodeResultInjectiveName :
+          Function.Injective $encodeResultName := by
+        intro left right h
+        have hleft := ($decodeEncodeResultName left).symm
+        have hmiddle := congrArg $decodeResultName h
+        have hright := $decodeEncodeResultName right
+        exact Except.ok.inj (hleft.trans (hmiddle.trans hright))))
+    Lean.Elab.Command.elabCommand (← `(
       /-- Canonical invocation constructor for this exact callable row. Context
           remains explicit and is validated only by the sole Reference gate. -/
       def $invocationName
@@ -473,7 +576,7 @@ private def elaborateCallableModelsV1
       /-- Typed full-outcome view specialized to this callable result type. -/
       abbrev $callableOutcomeName :=
         ProofForgeV2.Semantic.PreservationABI.TypedOutcomeV1
-          $stateName $resultType))
+          $stateName $resultName))
     Lean.Elab.Command.elabCommand (← `(
       /-- Exact typed relation for this callable. This is a theorem view over
           the sole Reference step, not a generated executable evaluator. -/
@@ -489,7 +592,7 @@ private def elaborateCallableModelsV1
             ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
           ($typedOutcomeName : $callableOutcomeName) : Prop :=
         ProofForgeV2.Semantic.PreservationABI.TypedCallableRelationV1
-          $encodeStateName $resultEncode $subjectName $preName
+          $encodeStateName $encodeResultName $subjectName $preName
           $invocationTerm
           $responsesName $vaultName $typedOutcomeName))
     Lean.Elab.Command.elabCommand (← `(
@@ -512,8 +615,8 @@ private def elaborateCallableModelsV1
           $leftOutcomeName = $rightOutcomeName := by
         exact
           ProofForgeV2.Semantic.PreservationABI.typedCallableRelationV1_outcome_unique
-            $encodeStateName $resultEncode $encodeInjectiveName
-            $resultEncodeInjective $subjectName $preName $invocationTerm
+            $encodeStateName $encodeResultName $encodeInjectiveName
+            $encodeResultInjectiveName $subjectName $preName $invocationTerm
             $responsesName $vaultName $leftOutcomeName $rightOutcomeName
             $leftTransitionName $rightTransitionName))
     Lean.Elab.Command.elabCommand (← `(end $callableNamespace))
@@ -796,8 +899,8 @@ private def elaborateStateModelV1
         · rintro ⟨candidate, hencode⟩
           exact $conformsOfEncodeName candidate $logicalStateName
             hvalidate hencode))
-  elaborateCallableModelsV1 subjectProgramName encodeStateName
-    (modelCallableViewsV1 data)
+  elaborateCallableModelsV1 subjectProgramName subjectDataName encodeStateName
+    data (modelCallableViewsV1 data)
   Lean.Elab.Command.elabCommand (← `(end $modelNamespace))
 
 private def proofSurfaceV1

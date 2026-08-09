@@ -237,10 +237,20 @@ program TypedCallableSurface where
 #check TypedCallableSurface.Model.admitReferenceSubject
 #check TypedCallableSurface.Model.Outcome
 #check TypedCallableSurface.Model.add.invocation
+#check TypedCallableSurface.Model.add.Result
+#check TypedCallableSurface.Model.add.encodeResult
+#check TypedCallableSurface.Model.add.decodeResult
+#check TypedCallableSurface.Model.add.decode_encode_result
+#check TypedCallableSurface.Model.add.encodeResult_injective
 #check TypedCallableSurface.Model.add.Outcome
 #check TypedCallableSurface.Model.add.Transition
 #check TypedCallableSurface.Model.add.outcome_unique
 #check TypedCallableSurface.Model.alive.invocation
+#check TypedCallableSurface.Model.alive.Result
+#check TypedCallableSurface.Model.alive.encodeResult
+#check TypedCallableSurface.Model.alive.decodeResult
+#check TypedCallableSurface.Model.alive.decode_encode_result
+#check TypedCallableSurface.Model.alive.encodeResult_injective
 #check TypedCallableSurface.Model.alive.Outcome
 #check TypedCallableSurface.Model.alive.Transition
 #check TypedCallableSurface.Model.alive.outcome_unique
@@ -258,6 +268,35 @@ example : TypedCallableSurface.Model.alive.invocation #[] = ({
     args := #[]
     context := #[]
   } : InvocationV1) := rfl
+
+/-- Generated result decoding checks the exact lowered TypeId and delegates
+    canonical payload validation to the production valueBytes validator. -/
+example : TypedCallableSurface.Model.add.decodeResult
+    (TypedCallableSurface.Model.add.encodeResult 9) = .ok 9 :=
+  TypedCallableSurface.Model.add.decode_encode_result 9
+
+example : TypedCallableSurface.Model.alive.decodeResult
+    (TypedCallableSurface.Model.alive.encodeResult false) = .ok false :=
+  TypedCallableSurface.Model.alive.decode_encode_result false
+
+example : TypedCallableSurface.Model.alive.decodeResult
+    (TypedCallableSurface.Model.alive.encodeResult true) = .ok true :=
+  TypedCallableSurface.Model.alive.decode_encode_result true
+
+/-- A payload with another lowered TypeId is rejected before projection. -/
+example : TypedCallableSurface.Model.alive.decodeResult (some {
+    typeId := 0
+    valueBytes := encodeBool true
+  }) = .error .nonCanonical := by
+  rfl
+
+/-- The exact Bool TypeId is still insufficient when production canonical
+    valueBytes validation rejects the payload. -/
+example : TypedCallableSurface.Model.alive.decodeResult (some {
+    typeId := 1
+    valueBytes := ByteArray.mk #[2]
+  }) = .error .nonCanonical := by
+  rfl
 
 /-- The generated relation is only a typed view over the generic relation. It
     retains context, responses, and vault instead of silently fixing them. -/
@@ -369,12 +408,27 @@ program TypedUnitCallableSurface where
   proof safe using TypedUnitCallableSurfaceProof.safe
 
 #check TypedUnitCallableSurface.Model.clear.invocation
+#check TypedUnitCallableSurface.Model.clear.Result
+#check TypedUnitCallableSurface.Model.clear.encodeResult
+#check TypedUnitCallableSurface.Model.clear.decodeResult
+#check TypedUnitCallableSurface.Model.clear.decode_encode_result
+#check TypedUnitCallableSurface.Model.clear.encodeResult_injective
 #check TypedUnitCallableSurface.Model.clear.Outcome
 #check TypedUnitCallableSurface.Model.clear.Transition
 #check TypedUnitCallableSurface.Model.clear.outcome_unique
 
 example : TypedUnitCallableSurface.Model.clear.Outcome =
     TypedOutcomeV1 TypedUnitCallableSurface.Model.State Unit := rfl
+
+example : TypedUnitCallableSurface.Model.clear.decodeResult
+    (TypedUnitCallableSurface.Model.clear.encodeResult ()) = .ok () :=
+  TypedUnitCallableSurface.Model.clear.decode_encode_result ()
+
+example : TypedUnitCallableSurface.Model.clear.decodeResult (some {
+    typeId := 0
+    valueBytes := ByteArray.empty
+  }) = .error .nonCanonical := by
+  rfl
 
 program UnsupportedCallableModelSurface where
   state count : UInt64

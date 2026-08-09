@@ -683,6 +683,38 @@ theorem validateOpValueBytesV1_literal_bool_eq_ok
   rw [if_pos hremainingBeq, if_pos hbeq]
   congr 1
 
+/-- The same canonical one-byte Bool payload is accepted by the public complete
+    valueBytes validator. -/
+theorem validateValueBytesV1_bool_eq_ok
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (decl : TypeDeclV1)
+    (bit : UInt8)
+    (hlookup : types[typeId.toNat]? = some decl)
+    (hshape : decl.shape = .bool)
+    (hbit : bit = 0 ∨ bit = 1) :
+    validateValueBytesV1 types typeId (ByteArray.mk #[bit]) = .ok () := by
+  have h := validateOpValueBytesV1_literal_bool_eq_ok types typeId decl bit
+    maxCanonicalProgramBytes hlookup hshape hbit (by decide)
+  change validateValueBytesWithFuelV1 types typeId (ByteArray.mk #[bit])
+    maxNesting maxCanonicalProgramBytes =
+      .ok (maxCanonicalProgramBytes - 2) at h
+  unfold validateValueBytesV1
+  rw [h]
+  rfl
+
+/-- Production Bool encoding always yields canonical valueBytes for a Bool
+    declaration at the selected TypeId. -/
+theorem validateValueBytesV1_encodeBool
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (decl : TypeDeclV1)
+    (value : Bool)
+    (hlookup : types[typeId.toNat]? = some decl)
+    (hshape : decl.shape = .bool) :
+    validateValueBytesV1 types typeId (encodeBool value) = .ok () := by
+  cases value
+  · exact validateValueBytesV1_bool_eq_ok types typeId decl 0 hlookup hshape
+      (Or.inl rfl)
+  · exact validateValueBytesV1_bool_eq_ok types typeId decl 1 hlookup hshape
+      (Or.inr rfl)
+
 /-- A canonical eight-byte UInt64 literal consumes one entry-work unit and
     eight output-byte work units through the sole production valueBytes decoder.
     The byte payload remains arbitrary: fixed-width UInt canonicality is exact
