@@ -3,6 +3,8 @@ import ProofForgeV2.Semantic.SimpleClosureTraceV1
 
 open ProofForgeV2.Language
 open ProofForgeV2.Semantic.InvariantABI
+open ProofForgeV2.Semantic.PreservationABI
+open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.SimpleClosureTraceV1
 open ProofForgeV2.Semantic.WireV1
 open Lean
@@ -220,6 +222,144 @@ private def typedStateUninitializedV1 : LogicalStateV1 :=
 example : TypedStateSurface.Model.decodeState typedStateUninitializedV1 =
     .error .nonCanonical := by
   rfl
+
+program TypedCallableSurface where
+  state count : UInt64
+  entry add(delta : UInt64) : UInt64 do
+    count := count + delta
+    return count
+  view alive() : Bool do
+    return true
+  invariant safe : true
+  proof safe using TypedCallableSurfaceProof.safe
+
+#check TypedCallableSurface.Model.ReferenceSubject
+#check TypedCallableSurface.Model.admitReferenceSubject
+#check TypedCallableSurface.Model.Outcome
+#check TypedCallableSurface.Model.add.invocation
+#check TypedCallableSurface.Model.add.Outcome
+#check TypedCallableSurface.Model.add.Transition
+#check TypedCallableSurface.Model.alive.invocation
+#check TypedCallableSurface.Model.alive.Outcome
+#check TypedCallableSurface.Model.alive.Transition
+
+/-- Typed arguments are encoded as canonical Reference values using the exact
+    callable and TypeIds from the generated semantic subject. -/
+example : TypedCallableSurface.Model.add.invocation 3 #[] = ({
+    callableId := 0
+    args := #[{ typeId := 0, valueBytes := encodeU64le 3 }]
+    context := #[]
+  } : InvocationV1) := rfl
+
+example : TypedCallableSurface.Model.alive.invocation #[] = ({
+    callableId := 1
+    args := #[]
+    context := #[]
+  } : InvocationV1) := rfl
+
+/-- The generated relation is only a typed view over the generic relation. It
+    retains context, responses, and vault instead of silently fixing them. -/
+example
+    (subject : TypedCallableSurface.Model.ReferenceSubject)
+    (pre : TypedCallableSurface.Model.State)
+    (delta : UInt64)
+    (context : Array ContextInputV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (outcome : TypedCallableSurface.Model.add.Outcome) :
+    TypedCallableSurface.Model.add.Transition
+        subject pre delta context responses vault outcome =
+      TypedCallableRelationV1
+        TypedCallableSurface.Model.encodeState
+        (fun value : UInt64 => some {
+          typeId := 0
+          valueBytes := encodeU64le value
+        })
+        subject pre
+        (TypedCallableSurface.Model.add.invocation delta context)
+        responses vault outcome := rfl
+
+/-- Bool callable results retain their exact lowered TypeId and use the
+    production Bool value codec; this does not add Bool logical-state support. -/
+example
+    (subject : TypedCallableSurface.Model.ReferenceSubject)
+    (pre : TypedCallableSurface.Model.State)
+    (context : Array ContextInputV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (outcome : TypedCallableSurface.Model.alive.Outcome) :
+    TypedCallableSurface.Model.alive.Transition
+        subject pre context responses vault outcome =
+      TypedCallableRelationV1
+        TypedCallableSurface.Model.encodeState
+        (fun value : Bool => some {
+          typeId := 1
+          valueBytes := encodeBool value
+        })
+        subject pre
+        (TypedCallableSurface.Model.alive.invocation context)
+        responses vault outcome := rfl
+
+/-- Expanding the sole generic relation exposes the exact production step and
+    all three canonical outcomes; there is no generated evaluator. -/
+example
+    {State Result : Type}
+    {semanticProgram : SemanticProgramV1}
+    (encodeState : State → Except SemanticWireErrorV1 LogicalStateV1)
+    (encodeResult : Result → Option ReferenceValueV1)
+    (subject : AdmittedSubjectV1 semanticProgram)
+    (pre : State)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (outcome : TypedOutcomeV1 State Result) :
+    TypedCallableRelationV1 encodeState encodeResult subject pre invocation
+        responses vault outcome ↔
+      ∃ logicalPre,
+        encodeState pre = .ok logicalPre ∧
+          match outcome with
+          | .returned post value effects =>
+              ∃ logicalPost,
+                encodeState post = .ok logicalPost ∧
+                  stepReferenceSliceV1 subject.admitted logicalPre invocation
+                      responses vault =
+                    .returned logicalPost (encodeResult value) effects
+          | .reverted reason =>
+              stepReferenceSliceV1 subject.admitted logicalPre invocation
+                  responses vault =
+                .reverted reason logicalPre
+          | .trapped fault =>
+              stepReferenceSliceV1 subject.admitted logicalPre invocation
+                  responses vault =
+                .trapped fault logicalPre :=
+  by
+    unfold TypedCallableRelationV1
+    rfl
+
+program UnsupportedCallableModelSurface where
+  state count : UInt64
+  entry addWide(delta : UInt128) : UInt64 do
+    return count
+  view alive() : Bool do
+    return true
+  entry Outcome() : UInt64 do
+    return count
+  invariant safe : true
+  proof safe using UnsupportedCallableModelSurfaceProof.safe
+
+#check UnsupportedCallableModelSurface.Model.State
+#check UnsupportedCallableModelSurface.Model.alive.Transition
+
+run_cmd do
+  let env ← getEnv
+  let unsupportedTransition :=
+    `Tests.Language.InlineProofAuthoringV1.UnsupportedCallableModelSurface.Model.addWide.Transition
+  if env.contains unsupportedTransition then
+    throwError "unsupported callable params must not emit a typed transition relation"
+  let reservedTransition :=
+    `Tests.Language.InlineProofAuthoringV1.UnsupportedCallableModelSurface.Model.Outcome.Transition
+  if env.contains reservedTransition then
+    throwError "reserved Model surface names must not emit a callable transition relation"
 
 /- `rec` is legal in the DSL but owned by generated Lean structures. The
     existing program and Proof surfaces must keep elaborating; only the optional

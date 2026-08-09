@@ -176,6 +176,22 @@ private structure ModelStateFieldV1 where
   name : String
   scalar : ModelStateScalarV1
 
+private inductive ModelCallableResultV1 where
+  | unit
+  | bool
+  | uint64
+
+private structure ModelCallableParameterV1 where
+  name : String
+  typeId : TypeIdV1
+
+private structure ModelCallableViewV1 where
+  name : String
+  callableId : CallableIdV1
+  params : Array ModelCallableParameterV1
+  resultTypeId : TypeIdV1
+  result : ModelCallableResultV1
+
 /-- Phase-1 typed-state support is deliberately narrow and fail closed. The
     mapping is read from the exact lowered subject data; source AST types are
     never reinterpreted here. `none` means no `Model` surface is emitted. -/
@@ -198,6 +214,53 @@ private def modelStateFieldsV1
       | _ => none
     fields := fields.push { name := stateDecl.name, scalar }
   pure fields
+
+/-- Generated callable namespaces must not replace the fixed Model state/codec
+    surface. Unsupported collisions with these exact names simply withhold that
+    optional callable view; they never reject or reinterpret the DSL program. -/
+private def isReservedModelCallableNameV1 (name : String) : Bool :=
+  name == "State" || name == "encodeState" || name == "decodeState" ||
+    name == "decode_encode" || name == "encode_injective_of_eq_ok" ||
+    name == "decode_existsUnique_of_conforms" ||
+    name == "encode_decode_of_conforms" || name == "conforms_of_encode" ||
+    name == "conforms_iff_exists_encode" || name == "ReferenceSubject" ||
+    name == "admitReferenceSubject" || name == "Outcome"
+
+/-- Phase-2 first callable subset: initialized entry/view roots whose parameters
+    are all canonical UInt64 and whose result is Unit, Bool, or UInt64. The
+    declaration and TypeIds come only from the exact lowered subject table.
+    Initializers are intentionally deferred until the pre-init lifecycle bridge
+    is emitted; wider/aggregate/context-specialized callables fail closed by
+    receiving no typed relation. -/
+private def modelCallableViewV1?
+    (data : SemanticProgramDataV1) (callable : CallableV1) :
+    Option ModelCallableViewV1 := do
+  guard (callable.kind == .entry || callable.kind == .view)
+  let name ← callable.name
+  guard (!isReservedModelCallableNameV1 name)
+  let params ← callable.params.mapM fun param => do
+    let typeDecl ← data.types[param.typeId.toNat]?
+    match typeDecl.shape with
+    | .uint 64 =>
+        pure { name := param.name, typeId := param.typeId }
+    | _ => none
+  let resultDecl ← data.types[callable.result.typeId.toNat]?
+  let result ← match resultDecl.shape with
+    | .unit => some .unit
+    | .bool => some .bool
+    | .uint 64 => some .uint64
+    | _ => none
+  pure {
+    name
+    callableId := callable.id
+    params
+    resultTypeId := callable.result.typeId
+    result
+  }
+
+private def modelCallableViewsV1
+    (data : SemanticProgramDataV1) : Array ModelCallableViewV1 :=
+  data.callables.filterMap (modelCallableViewV1? data)
 
 private def quoteModelStateTypeV1
     (scalar : ModelStateScalarV1) : MacroM (TSyntax `term) :=
@@ -223,6 +286,140 @@ private def quoteModelStateDecodeV1
       `(ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1 $valueBytes)
   | .uint64 =>
       `(ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1 $valueBytes)
+
+/-- Quote one supported callable result type. -/
+private def quoteModelCallableResultTypeV1
+    (result : ModelCallableResultV1) : MacroM (TSyntax `term) :=
+  match result with
+  | .unit => `(Unit)
+  | .bool => `(Bool)
+  | .uint64 => `(UInt64)
+
+/-- Quote the exact canonical Reference result projection for one callable.
+    Unit is represented by `none`; Bool/UInt64 retain the declaration TypeId and
+    use the production Wire scalar encoding. -/
+private def quoteModelCallableResultEncodeV1
+    (result : ModelCallableResultV1)
+    (typeId : TypeIdV1) : MacroM (TSyntax `term) := do
+  let typeIdTerm : TSyntax `term :=
+    ⟨Syntax.mkNumLit (toString typeId.toNat)⟩
+  match result with
+  | .unit =>
+      `(fun _value : Unit => none)
+  | .bool =>
+      `(fun value : Bool => some ({
+          typeId := $typeIdTerm
+          valueBytes := ProofForgeV2.Semantic.WireV1.encodeBool value
+        } : ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1))
+  | .uint64 =>
+      `(fun value : UInt64 => some ({
+          typeId := $typeIdTerm
+          valueBytes := ProofForgeV2.Semantic.WireV1.encodeU64le value
+        } : ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1))
+
+/-- Emit the program-level positive admission carrier and one exact relation
+    namespace per supported entry/view. The generated surface constructs only
+    canonical invocation values and delegates every outcome to
+    `TypedCallableRelationV1`, whose sole executable authority is
+    `stepReferenceSliceV1`. -/
+private def elaborateCallableModelsV1
+    (subjectProgramName : TSyntax `ident)
+    (encodeStateName : TSyntax `ident)
+    (views : Array ModelCallableViewV1) : CommandElabM Unit := do
+  let referenceSubjectName := mkIdent `ReferenceSubject
+  let admitReferenceSubjectName := mkIdent `admitReferenceSubject
+  let outcomeName := mkIdent `Outcome
+  let stateName := mkIdent `State
+  let resultName := mkIdent `Result
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Positive Reference admission carrier bound to this exact generated
+        semantic subject. One value is shared by all callable relations. -/
+    abbrev $referenceSubjectName :=
+      ProofForgeV2.Semantic.PreservationABI.AdmittedSubjectV1
+        $subjectProgramName))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Invoke the sole production admission function for this exact subject. -/
+    def $admitReferenceSubjectName :
+        Except ProofForgeV2.Semantic.ReferenceV1.ReferenceAdmissionErrorV1
+          $referenceSubjectName :=
+      ProofForgeV2.Semantic.PreservationABI.admitSubjectV1
+        $subjectProgramName))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Typed three-branch outcome view; effects/reasons/faults remain the
+        canonical Reference carriers. -/
+    abbrev $outcomeName ($resultName : Type) :=
+      ProofForgeV2.Semantic.PreservationABI.TypedOutcomeV1
+        $stateName $resultName))
+  for callableView in views do
+    let callableNamespace := mkIdent (Name.mkSimple callableView.name)
+    let invocationName := mkIdent `invocation
+    let callableOutcomeName := mkIdent `Outcome
+    let transitionName := mkIdent `Transition
+    let subjectName := mkIdent `subject
+    let preName := mkIdent `pre
+    let contextName := mkIdent `context
+    let responsesName := mkIdent `responses
+    let vaultName := mkIdent `vault
+    let typedOutcomeName := mkIdent `outcome
+    let callableIdTerm : TSyntax `term :=
+      ⟨Syntax.mkNumLit (toString callableView.callableId.toNat)⟩
+    let paramNames := callableView.params.map fun param =>
+      mkIdent (Name.mkSimple (param.name ++ "Arg"))
+    let paramTypes ← Lean.Elab.liftMacroM <|
+      callableView.params.mapM fun _ => `(UInt64)
+    let referenceArgs ← Lean.Elab.liftMacroM <|
+      callableView.params.zip paramNames |>.mapM fun (param, paramName) => do
+        let typeIdTerm : TSyntax `term :=
+          ⟨Syntax.mkNumLit (toString param.typeId.toNat)⟩
+        `(({ typeId := $typeIdTerm
+             valueBytes := ProofForgeV2.Semantic.WireV1.encodeU64le $paramName
+           } : ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1))
+    let resultType ← Lean.Elab.liftMacroM <|
+      quoteModelCallableResultTypeV1 callableView.result
+    let resultEncode ← Lean.Elab.liftMacroM <|
+      quoteModelCallableResultEncodeV1 callableView.result callableView.resultTypeId
+    let invocationTerm ← Lean.Elab.liftMacroM <| do
+      let mut term ← `($invocationName)
+      for paramName in paramNames do
+        term ← `($term $paramName)
+      `($term $contextName)
+    Lean.Elab.Command.elabCommand (← `(namespace $callableNamespace))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Canonical invocation constructor for this exact callable row. Context
+          remains explicit and is validated only by the sole Reference gate. -/
+      def $invocationName
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1) :
+          ProofForgeV2.Semantic.ReferenceV1.InvocationV1 := {
+        callableId := $callableIdTerm
+        args := #[$referenceArgs,*]
+        context := $contextName
+      }))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Typed full-outcome view specialized to this callable result type. -/
+      abbrev $callableOutcomeName :=
+        ProofForgeV2.Semantic.PreservationABI.TypedOutcomeV1
+          $stateName $resultType))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Exact typed relation for this callable. This is a theorem view over
+          the sole Reference step, not a generated executable evaluator. -/
+      def $transitionName
+          ($subjectName : $referenceSubjectName)
+          ($preName : $stateName)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($typedOutcomeName : $callableOutcomeName) : Prop :=
+        ProofForgeV2.Semantic.PreservationABI.TypedCallableRelationV1
+          $encodeStateName $resultEncode $subjectName $preName
+          $invocationTerm
+          $responsesName $vaultName $typedOutcomeName))
+    Lean.Elab.Command.elabCommand (← `(end $callableNamespace))
 
 /-- Emit the author-facing business-state view. It is only a typed projection
     over `Proof.subjectDataV1`: encoding and decoding call the production
@@ -502,6 +699,8 @@ private def elaborateStateModelV1
         · rintro ⟨candidate, hencode⟩
           exact $conformsOfEncodeName candidate $logicalStateName
             hvalidate hencode))
+  elaborateCallableModelsV1 subjectProgramName encodeStateName
+    (modelCallableViewsV1 data)
   Lean.Elab.Command.elabCommand (← `(end $modelNamespace))
 
 private def proofSurfaceV1

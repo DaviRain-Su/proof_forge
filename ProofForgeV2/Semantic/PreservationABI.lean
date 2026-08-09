@@ -24,6 +24,74 @@ open ProofForgeV2.Semantic.InvariantABI
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
 
+/-- Positive admission carrier for one exact semantic subject. Generated typed
+    callable relations share one value of this type, rather than selecting an
+    existential admitted witness independently per business lemma. -/
+structure AdmittedSubjectV1 (program : SemanticProgramV1) where
+  admitted : AdmittedReferenceSliceV1
+  hadmit : admitReferenceProgramSliceV1 program = .ok admitted
+
+/-- Run the sole production admission function and retain its exact success
+    equality in the positive subject carrier. This is only admission packaging;
+    it does not interpret an invocation. -/
+def admitSubjectV1 (program : SemanticProgramV1) :
+    Except ReferenceAdmissionErrorV1 (AdmittedSubjectV1 program) :=
+  match hadmit : admitReferenceProgramSliceV1 program with
+  | .ok admitted => .ok ⟨admitted, hadmit⟩
+  | .error error => .error error
+
+/-- Typed author view of the three canonical Reference outcomes. Returned
+    states/results are typed projections; revert/trap retain the production
+    reason/fault, while exact unchanged-state behavior is enforced by
+    `TypedCallableRelationV1` below. -/
+inductive TypedOutcomeV1 (State Result : Type) where
+  | returned (postState : State) (value : Result)
+      (effects : Array OrderedEffectV1)
+  | reverted (reason : SemanticRevertV1)
+  | trapped (fault : SemanticFaultV1)
+
+/-- Canonical typed callable relation. This is deliberately a `Prop`, not a
+    second executable step:
+
+    * pre/post state conversion is supplied by the generated wrapper around the
+      sole production logical-state codec;
+    * result conversion only projects the callable's exact canonical type;
+    * invocation/context, responses, vault, effects, and all outcome branches
+      remain explicit;
+    * every branch is an equality headed by `stepReferenceSliceV1`.
+
+    The returned branch carries explicit encode successes because generated
+    state encoders remain `Except`-valued. Revert/trap require the exact encoded
+    pre-state as the canonical unchanged state. -/
+def TypedCallableRelationV1
+    {State Result : Type}
+    {program : SemanticProgramV1}
+    (encodeState : State → Except SemanticWireErrorV1 LogicalStateV1)
+    (encodeResult : Result → Option ReferenceValueV1)
+    (subject : AdmittedSubjectV1 program)
+    (pre : State)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (outcome : TypedOutcomeV1 State Result) : Prop :=
+  ∃ logicalPre,
+    encodeState pre = .ok logicalPre ∧
+      match outcome with
+      | .returned post value effects =>
+          ∃ logicalPost,
+            encodeState post = .ok logicalPost ∧
+              stepReferenceSliceV1 subject.admitted logicalPre invocation
+                  responses vault =
+                .returned logicalPost (encodeResult value) effects
+      | .reverted reason =>
+          stepReferenceSliceV1 subject.admitted logicalPre invocation
+              responses vault =
+            .reverted reason logicalPre
+      | .trapped fault =>
+          stepReferenceSliceV1 subject.admitted logicalPre invocation
+              responses vault =
+            .trapped fault logicalPre
+
 /-- Machine helper: reverted outcomes carry the exact pre-state. -/
 def OutcomeRevertedUnchangedV1
     (pre : LogicalStateV1)

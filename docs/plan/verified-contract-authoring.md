@@ -334,7 +334,7 @@ Reference failure。vault 只有在有真正的 independence theorem 后才能�
 
 ### Phase 0 — 语义权威审计与 duplicate elimination guard
 
-**状态**：重复实现删除已完成；防回归门禁待补。
+**状态**：已完成。重复实现已删除，`alpha-deletion-gate` 已固定物理删除与禁止回流。
 
 交付：
 
@@ -358,6 +358,8 @@ Reference failure。vault 只有在有真正的 independence theorem 后才能�
 - 已删除路径/alpha carrier 无引用、无 fallback、无 feature flag。
 
 ### Phase 1 — 生成 typed State view 与 codec bridge
+
+**状态**：UInt64/空 state table 首切已完成；其余 accepted scalar/aggregate shape 待扩展。
 
 主要落点：program elaborator + 新的 program-agnostic Model bridge（避免每个 contract 一个平台模块）。
 
@@ -394,6 +396,9 @@ Reference failure。vault 只有在有真正的 independence theorem 后才能�
 - `StateConformsV1` 与 typed state 表示在支持子集上双向 complete/unique。
 
 ### Phase 2 — 生成 per-callable typed transition view
+
+**状态**：进行中。entry/view 的 UInt64 参数与 Unit/Bool/UInt64 result relation 首切已完成；
+initializer lifecycle、full-outcome 双向 totality 与 executable 短 notation 尚未完成。
 
 交付：
 
@@ -657,7 +662,7 @@ proof-bearing target build 继续 fail closed。
 | 0A | 删除第二套 executable semantics | **已完成** | `MiniAmmSafetySketchV1`、alpha `Core/Semantics`/`SemanticIR` 已不在 HEAD |
 | 0B | 唯一语义防回归门 | **已完成** | `alpha-deletion-gate` 固定平行语义、contract-specific registry/pin 的物理删除，不误杀 checker state |
 | 1 | Typed State + codec bridge | **进行中（0B/UInt64 双向 complete/unique 首切已完成）** | generated `Model.State` 复用 production codec；`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；更多 accepted scalar shape 仍待补 |
-| 2 | Typed callable transition | 未开始 | 简单 entry theorem 只使用 typed State/args/outcome |
+| 2 | Typed callable transition | **进行中（entry/view relation 首切已完成）** | 简单 entry theorem 只使用 typed State/args/outcome |
 | 3 | Typed invariant bridge | 未开始 | typed predicate 与 `evalInvariantV1` 双向对齐 |
 | 4 | Generic preservation composition | 未开始 | per-call lemmas 自动包成 exact `PreservationTheoremV1` |
 | 5 | Same-file certifier ergonomics | 部分地基已有 | 任意未 pin 合约的真实 proof body可 certified |
@@ -683,8 +688,34 @@ proof-bearing target build 继续 fail closed。
 6. typed encoder 已有基于 production decode roundtrip 的 success-result injectivity theorem；空 state
    table 与多 UInt64 state table 都有 generated theorem 回归覆盖；
 7. 当前 Normalize accepted language 尚不包含 logical-state Bool，故不能把 Bool 写成已闭环；
-8. 下一切片先按 accepted language 扩更多 scalar/field projection，再进入 Phase 2，避免一次把
-   state、step、certifier、target 全部耦合。
+8. Bool callable **result** 的 projection 已可生成，但这不代表 logical-state Bool codec 已闭环；
+   当前 Normalize accepted language 仍维持原边界；
+9. Phase 1 的后续工作继续按 accepted language 扩 scalar/field projection，并与 Phase 2 的
+   relation 工作保持小切片，避免一次把 state、step、certifier、target 全部耦合。
+
+### Phase 2 首切进展
+
+当前已完成以下窄切片，尚不把整个 Phase 2 标为完成：
+
+1. `AdmittedSubjectV1` 将一个 positive `AdmittedReferenceSliceV1` witness 与
+   `admitReferenceProgramSliceV1 exactProgram = .ok admitted` 等式绑定；generated callable
+   relations 共享该 carrier，不各自选择 existential admission；
+2. `TypedOutcomeV1` 保留 returned/reverted/trapped 三个 canonical outcome 分支；returned
+   保留 typed post/result 与 `OrderedEffectV1`，failure 分支保留 production reason/fault；
+3. `TypedCallableRelationV1` 是 `Prop` relation，不是 executable evaluator。其三个分支均
+   直接包含 sole `stepReferenceSliceV1` equality；revert/trap 明确要求 exact encoded pre-state；
+4. elaborator 从 exact lowered `SemanticProgramDataV1.callables` 读取 callable id、parameter
+   TypeId 与 result TypeId，生成 canonical invocation/result projection，不从 source AST 重算 id；
+5. 当前 generated subset 仅覆盖 entry/view、UInt64 parameters、Unit/Bool/UInt64 result；
+   unsupported parameter/result、initializer 与固定 `Model` surface 名冲突均 fail closed，不生成
+   半成品 transition；
+6. `context`、`ExternalResponsesV1`、`ReferenceVaultSeedV1` 均保持显式，未以空值或默认值
+   冒充全输入 theorem；
+7. 当前尚缺 initializer 的 initialized/uninitialized lifecycle bridge、Reference outcome→typed
+   outcome 的双向 total/unique bridge、typed invariant bridge、per-call preservation composition
+   与短 executable notation；这些仍是后续 Phase 2–4 工作；
+8. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
+   完成前不能称 target artifact verified。
 
 ---
 
