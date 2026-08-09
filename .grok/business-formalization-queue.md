@@ -23,15 +23,15 @@
 
 | id | status | objective |
 |---|---|---|
-| mig-b1-evencounter | done | EvenCounter 迁出 ProofInstances→Semantic.ParityCounter* 形状族；`Examples.EvenCounter` 普通合约；product 同文件 nullary exact GREEN（pin 仍 golden 加速，1795B decide 非产品实用）；inventory 扩 Term.app/decide 为后续 non-pin 铺路 |
-| mig-b2-zerocounter | done | ZeroCounter 同上 |
+| mig-b1-evencounter | **redo** | drain-6 仅把 `ProofInstances/EvenCounter*` 改名为 `Semantic/ParityCounter*`——**换名不算迁移**（合约专属内容仍在产品包）。合规做法：parity 业务谓词推理迁出 Semantic，同文件 inline 证明 = `PreservationShapeV1` 通用定理 + `subjectDataV1` 形状事实（decide/rfl）；`Semantic/ParityCounter*` 转入 Tests 验收或删除 |
+| mig-b2-zerocounter | **redo** | 同上（`Semantic/ZeroCounter*` 同样处理） |
 | mig-b3-miniamm | pending | MiniAmm L1 P1（emptyPool）：在迁移后的通用路径上完成 preserve + product；不再新增 ProofInstances golden |
 
 ### C. 删除（仅当 A+B 全 GREEN）
 
 | id | status | objective |
 |---|---|---|
-| mig-c1-delete | pending | 删除 `ProofForgeV2/ProofInstances/`、`ProofForgeV2/Semantic/ClosedSubjectPinV1`；摘除 `InlineProofCertifierV1`/`ProgramElaborationV1` 对合约模块的 import；umbrella/lakefile/SBOM 清理；实例移入 `Tests/`/`Examples/` 普通验收位置；`just ci` GREEN |
+| mig-c1-delete | pending | 删除 `ProofForgeV2/ProofInstances/`、`ProofForgeV2/Semantic/ClosedSubjectPinV1`、**以及 drain-6 引入的 `Semantic/ParityCounter*` / `Semantic/ZeroCounter*` 合约专属模块**；摘除 `InlineProofCertifierV1`/`ProgramElaborationV1` 对合约模块的 import；umbrella/lakefile/SBOM 清理；实例移入 `Tests/`/`Examples/` 普通验收位置；`just ci` GREEN |
 | mig-c2-docs | pending | ADR-0034/0027、INV-2、Agents、research-023、document-status 记录迁移完成与「pin/库已删」事实；不 supersede 0027 |
 
 ## Legacy waves (done)
