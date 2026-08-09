@@ -409,12 +409,148 @@ def tool_pf_artifacts(repo_root: Path, cli: Path, args: Dict[str, Any]) -> Dict[
     return _tool_result_text(result, is_error=not result["ok"])
 
 
+def tool_pf_local(repo_root: Path, cli: Path, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Product local host-heavy scripts (Aleo generic sandbox, etc.).
+
+    Never accepts network broadcast or raw private keys. Aleo sandbox requires
+    source + module (no default program).
+    """
+    target = args.get("target")
+    if not target:
+        return _tool_result_text(
+            {
+                "schema": SCHEMA_WRAP,
+                "ok": False,
+                "exitCode": 2,
+                "command": [],
+                "stdout": "",
+                "stderr": "pf_local requires target",
+                "parsed": None,
+                "error": "usage",
+            },
+            is_error=True,
+        )
+    # Hard reject network / secrets on this surface.
+    for bad in (
+        "broadcast",
+        "network",
+        "privateKey",
+        "private_key",
+        "privateKeyFile",
+        "private_key_file",
+        "feeRecord",
+        "fee_record",
+    ):
+        if args.get(bad):
+            return _tool_result_text(
+                {
+                    "schema": SCHEMA_WRAP,
+                    "ok": False,
+                    "exitCode": 2,
+                    "command": [],
+                    "stdout": "",
+                    "stderr": (
+                        "pf_local does not support network/broadcast or signer secrets; "
+                        "use product CLI network --broadcast outside MCP"
+                    ),
+                    "parsed": None,
+                    "error": "usage",
+                },
+                is_error=True,
+            )
+
+    mode = args.get("mode")
+    source = args.get("source") or args.get("sourcePath") or args.get("source_path")
+    module = args.get("module")
+    if str(target) == "aleo" and (mode is None or str(mode) in ("", "sandbox")):
+        if not source or not module:
+            return _tool_result_text(
+                {
+                    "schema": SCHEMA_WRAP,
+                    "ok": False,
+                    "exitCode": 2,
+                    "command": [],
+                    "stdout": "",
+                    "stderr": (
+                        "pf_local aleo sandbox requires source and module "
+                        "(generic path; no default program)"
+                    ),
+                    "parsed": None,
+                    "error": "usage",
+                },
+                is_error=True,
+            )
+
+    argv: List[str] = ["local", "--target", str(target), "--json"]
+    if mode:
+        argv.extend(["--mode", str(mode)])
+    tail: List[str] = []
+    if source:
+        tail.extend(["--source", str(source)])
+    if module:
+        tail.extend(["--module", str(module)])
+    program = args.get("program")
+    if program:
+        tail.extend(["--program", str(program)])
+    profile = args.get("profile")
+    if profile:
+        tail.extend(["--profile", str(profile)])
+    golden = args.get("golden")
+    if golden:
+        tail.extend(["--golden", str(golden)])
+    out = args.get("outputDir") or args.get("output_dir") or args.get("output")
+    if out:
+        tail.extend(["--output-dir", str(out)])
+    if args.get("skipRun") or args.get("skip_run"):
+        tail.append("--skip-run")
+    runs = args.get("runs") or args.get("run") or []
+    if isinstance(runs, str):
+        runs = [runs]
+    for r in runs:
+        tail.extend(["--run", str(r)])
+    extra = args.get("scriptArgs") or args.get("script_args") or []
+    if isinstance(extra, str):
+        extra = [extra]
+    for a in extra:
+        s = str(a)
+        if s in (
+            "--broadcast",
+            "--private-key",
+            "--priv-key",
+            "--fee-record",
+            "--private-key-file",
+        ) or s.startswith("--private-key=") or s.startswith("--fee-record="):
+            return _tool_result_text(
+                {
+                    "schema": SCHEMA_WRAP,
+                    "ok": False,
+                    "exitCode": 2,
+                    "command": [],
+                    "stdout": "",
+                    "stderr": "pf_local rejects signer/broadcast scriptArgs",
+                    "parsed": None,
+                    "error": "usage",
+                },
+                is_error=True,
+            )
+        tail.append(s)
+    if tail:
+        argv.append("--")
+        argv.extend(tail)
+
+    timeout = args.get("timeoutSeconds") or args.get("timeout_seconds")
+    to = float(timeout) if timeout is not None else None
+    result = run_cli(repo_root, cli, argv, timeout=to)
+    return _tool_result_text(result, is_error=not result["ok"])
+
+
 TOOL_HANDLERS = {
     "pf_list_targets": tool_pf_list_targets,
     "pf_doctor": tool_pf_doctor,
     "pf_install": tool_pf_install,
     "pf_build": tool_pf_build,
     "pf_artifacts": tool_pf_artifacts,
+    "pf_local": tool_pf_local,
 }
 
 
@@ -563,6 +699,69 @@ def tool_definitions() -> List[Dict[str, Any]]:
                     "target": {
                         "type": "string",
                         "description": "Registered target id to inspect (descriptor, not artifacts).",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "pf_local",
+            "description": (
+                "Run product local host-heavy scripts (e.g. Aleo offline sandbox). "
+                "Generic: for Aleo sandbox pass source + module + optional runs "
+                "(no default program). Does NOT broadcast network or accept private keys. "
+                "Maps to: proof-forge-next local --target … [--mode sandbox] -- --source … --module …"
+            ),
+            "inputSchema": {
+                "type": "object",
+                "required": ["target"],
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "Implemented target id (aleo, solana, evm, …).",
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "Local mode (aleo: sandbox|devnet; default sandbox).",
+                    },
+                    "source": {
+                        "type": "string",
+                        "description": "ProgramV1 .lean path (required for aleo sandbox).",
+                    },
+                    "module": {
+                        "type": "string",
+                        "description": "Lean module name (required for aleo sandbox).",
+                    },
+                    "program": {
+                        "type": "string",
+                        "description": "Optional --program selector.",
+                    },
+                    "profile": {
+                        "type": "string",
+                        "description": "Optional codegen profile id.",
+                    },
+                    "golden": {
+                        "type": "string",
+                        "description": "Optional Instructions golden path for byte pin.",
+                    },
+                    "runs": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": (
+                            "Optional leo run lines, e.g. [\"initialize 1u64\", \"increment 2u64\"]."
+                        ),
+                    },
+                    "skipRun": {
+                        "type": "boolean",
+                        "description": "Skip offline run steps (build pins only).",
+                    },
+                    "outputDir": {
+                        "type": "string",
+                        "description": "Optional keep product OutputSet directory.",
+                    },
+                    "timeoutSeconds": {
+                        "type": "number",
+                        "description": "Optional subprocess timeout (host-heavy).",
                     },
                 },
                 "additionalProperties": False,
@@ -723,7 +922,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "  PROOF_FORGE_ROOT   package root (optional if launched from tools/mcp)\n"
             "  PROOF_FORGE_CLI    path to proof-forge-next binary (optional)\n"
             "  PROOF_FORGE_TOOL_ROOT  Tool Lock root (consumed by doctor/install/build)\n"
-            "Tools: pf_list_targets pf_doctor pf_install pf_build pf_artifacts\n"
+            "Tools: pf_list_targets pf_doctor pf_install pf_build pf_artifacts pf_local\n"
         )
         return 0
     if "--self-check" in argv:

@@ -14,6 +14,7 @@ out="$("${sdk[@]}" --self-check)"
 echo "$out" | rg -q '"ok": true'
 echo "$out" | rg -q 'list_targets'
 echo "$out" | rg -q 'load_output_manifest'
+echo "$out" | rg -q '"local"'
 echo "$out" | rg -q 'proof-forge.sdk.self-check.v1'
 
 if [[ ! -x "$cli" ]]; then

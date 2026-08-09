@@ -27,6 +27,78 @@ unsafe def run : IO Unit := do
   expect (ProofForgeV2.CLI.validProgramArtifactNameV1 "Counter")
     "legal Counter artifact name must pass path safety"
 
+  -- Host-heavy JSON must never echo signer material or its filesystem path.
+  let syntheticKey := "synthetic-private-key-value"
+  let syntheticKeyPath := "/tmp/synthetic-account.key"
+  let syntheticRecord := "synthetic-record-value"
+  let syntheticInlineRecord := "synthetic-inline-record-value"
+  let syntheticFeeRecord := "synthetic-fee-record-value"
+  let syntheticInlineFeeRecord := "synthetic-inline-fee-record-value"
+  let rawArgs := #[
+    "--network", "testnet",
+    "--private-key", syntheticKey,
+    s!"--private-key-file={syntheticKeyPath}",
+    "--priv-key", "abbrev-private-key-value",
+    "--record", syntheticRecord,
+    s!"--record={syntheticInlineRecord}",
+    "--fee-record", syntheticFeeRecord,
+    s!"--fee-record={syntheticInlineFeeRecord}",
+    "--signer-fd", "7"
+  ]
+  let publicArgs := ProofForgeV2.CLI.redactHostHeavyArgsV1 rawArgs
+  expect (!publicArgs.contains syntheticKey)
+    "host-heavy JSON argv projection must redact raw private keys"
+  expect (!publicArgs.contains s!"--private-key-file={syntheticKeyPath}")
+    "host-heavy JSON argv projection must redact private-key paths"
+  expect (!publicArgs.contains "abbrev-private-key-value")
+    "host-heavy JSON argv projection must redact private-key-like abbreviated flag values"
+  expect (!publicArgs.contains syntheticRecord)
+    "host-heavy JSON argv projection must redact split record values"
+  expect (!publicArgs.contains s!"--record={syntheticInlineRecord}")
+    "host-heavy JSON argv projection must redact inline record values"
+  expect (!publicArgs.contains syntheticFeeRecord)
+    "host-heavy JSON argv projection must redact split fee-record values"
+  expect (!publicArgs.contains s!"--fee-record={syntheticInlineFeeRecord}")
+    "host-heavy JSON argv projection must redact inline fee-record values"
+  expect (publicArgs.contains "--private-key-file=<redacted>")
+    "host-heavy JSON argv projection must retain a redacted flag shape"
+  expect (publicArgs.contains "--priv-key")
+    "host-heavy JSON argv projection must retain a redacted abbreviated flag shape"
+  expect (publicArgs.contains "--record=<redacted>")
+    "host-heavy JSON argv projection must retain inline record flag shape"
+  expect (publicArgs.contains "--fee-record")
+    "host-heavy JSON argv projection must retain split fee-record flag shape"
+  expect (publicArgs.contains "--fee-record=<redacted>")
+    "host-heavy JSON argv projection must retain inline fee-record flag shape"
+  expect (publicArgs.contains "7")
+    "signer FD numbers are not signer material and remain observable"
+  expect (ProofForgeV2.CLI.containsSensitiveHostHeavyArgsV1 rawArgs)
+    "host-heavy argv classifier must detect signer-bearing values"
+  expect (!ProofForgeV2.CLI.containsSensitiveHostHeavyArgsV1 #["--signer-fd", "7"])
+    "descriptor numbers remain public-safe even when command policy rejects their capability"
+  let rawText := s!"failed key={syntheticKey} path={syntheticKeyPath} abbrev=abbrev-private-key-value record={syntheticRecord} inlineRecord={syntheticInlineRecord} fee={syntheticFeeRecord} inlineFee={syntheticInlineFeeRecord} fd=7"
+  let publicText := ProofForgeV2.CLI.redactHostHeavyTextV1 rawArgs rawText
+  expect (!((publicText.splitOn syntheticKey).length > 1))
+    "host-heavy JSON stream projection must redact raw private keys"
+  expect (!((publicText.splitOn syntheticKeyPath).length > 1))
+    "host-heavy JSON stream projection must redact private-key paths"
+  expect (!((publicText.splitOn "abbrev-private-key-value").length > 1))
+    "host-heavy JSON stream projection must redact abbreviated private-key-like values"
+  expect (!((publicText.splitOn syntheticRecord).length > 1))
+    "host-heavy JSON stream projection must redact split record values"
+  expect (!((publicText.splitOn syntheticInlineRecord).length > 1))
+    "host-heavy JSON stream projection must redact inline record values"
+  expect (!((publicText.splitOn syntheticFeeRecord).length > 1))
+    "host-heavy JSON stream projection must redact split fee-record values"
+  expect (!((publicText.splitOn syntheticInlineFeeRecord).length > 1))
+    "host-heavy JSON stream projection must redact inline fee-record values"
+  expect ((publicText.splitOn "fd=7").length > 1)
+    "host-heavy stream projection must not redact signer FD numbers"
+  let shortSecretText := ProofForgeV2.CLI.redactHostHeavyTextV1
+    #["--private-key", "abc"] "short=abc"
+  expect (!((shortSecretText.splitOn "abc").length > 1))
+    "host-heavy stream projection must redact even short signer values"
+
   let session ← Tests.Language.ParserSession.shared
   let source ← match ← session.selectProgramV1
       Examples.counterSourceText "<cli-emit-counter>" Examples.counterModuleNameV1 none with

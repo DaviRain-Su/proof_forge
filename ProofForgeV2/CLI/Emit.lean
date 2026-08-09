@@ -499,6 +499,102 @@ structure InstallOptions where
   targets : Array String := #[]
   deriving BEq, Repr
 
+private def containsLiteralV1 (haystack needle : String) : Bool :=
+  (haystack.splitOn needle).length > 1
+
+/-- Host-heavy wrapper flags whose following token is secret-bearing or
+    security-sensitive and therefore must never appear in JSON argv/stream
+    projections. `--signer-fd` is intentionally absent: the descriptor number is
+    not signer material. Private-key-like long options are deliberately broad so
+    abbreviated/variant spellings cannot bypass the public projection. -/
+private def sensitiveHostHeavyOptionNameV1 (name : String) : Bool :=
+  if name == "--signer-fd" then
+    false
+  else
+    name == "--record" ||
+      name == "--fee-record" ||
+      name.toLower.startsWith "--private" ||
+      name.toLower.startsWith "--priv" ||
+      (name.startsWith "--" &&
+        containsLiteralV1 name.toLower "key" &&
+        (containsLiteralV1 name.toLower "private" || containsLiteralV1 name.toLower "priv"))
+
+private def sensitiveHostHeavyValueFlagV1 (arg : String) : Bool :=
+  !containsLiteralV1 arg "=" && sensitiveHostHeavyOptionNameV1 arg
+
+private def inlineSensitiveHostHeavyNameValue? (arg : String) : Option (String × String) :=
+  match arg.splitOn "=" with
+  | [] => none
+  | name :: valueParts =>
+      if valueParts.isEmpty then
+        none
+      else if sensitiveHostHeavyOptionNameV1 name then
+        some (name, String.intercalate "=" valueParts)
+      else
+        none
+
+private def redactInlineSensitiveHostHeavyArgV1 (arg : String) : String :=
+  match inlineSensitiveHostHeavyNameValue? arg with
+  | some (name, _) => s!"{name}=<redacted>"
+  | none => arg
+
+private def inlineSensitiveHostHeavyValue? (arg : String) : Option String :=
+  match inlineSensitiveHostHeavyNameValue? arg with
+  | some (_, value) => some value
+  | none => none
+
+/-- Public-safe argv projection for host-heavy local/network JSON. Raw private
+    keys, private-key paths, and fee records are replaced before encoding. -/
+def redactHostHeavyArgsV1 (args : Array String) : Array String := Id.run do
+  let mut out : Array String := #[]
+  let mut i := 0
+  while i < args.size do
+    let arg := args[i]!
+    if sensitiveHostHeavyValueFlagV1 arg then
+      out := out.push arg
+      out := out.push "<redacted>"
+      i := i + 2
+    else
+      out := out.push (redactInlineSensitiveHostHeavyArgV1 arg)
+      i := i + 1
+  return out
+
+private def collectSensitiveHostHeavyValuesV1 (args : Array String) : Array String := Id.run do
+  let mut out : Array String := #[]
+  let mut i := 0
+  while i < args.size do
+    let arg := args[i]!
+    if sensitiveHostHeavyValueFlagV1 arg then
+      if i + 1 < args.size then
+        out := out.push args[i + 1]!
+      i := i + 2
+    else
+      match inlineSensitiveHostHeavyValue? arg with
+      | some value => out := out.push value
+      | none => pure ()
+      i := i + 1
+  return out
+
+private def replaceLiteralAllV1 (text needle replacement : String) : String :=
+  if needle.isEmpty then text else String.intercalate replacement (text.splitOn needle)
+
+/-- Whether argv contains a raw signer/key/record option. Descriptor-only
+    `--signer-fd` remains public-safe for rendering, but command-specific policy
+    may still reject it as a capability. -/
+def containsSensitiveHostHeavyArgsV1 (args : Array String) : Bool :=
+  args.any fun arg =>
+    sensitiveHostHeavyValueFlagV1 arg || (inlineSensitiveHostHeavyValue? arg).isSome
+
+/-- Redact any sensitive argv values repeated by a host-heavy child in stdout or
+    stderr. This is defense-in-depth; package scripts must also avoid echoing
+    signer material. Even short values are redacted rather than guessed safe. -/
+def redactHostHeavyTextV1 (args : Array String) (text : String) : String :=
+  (collectSensitiveHostHeavyValuesV1 args).foldl
+    (fun current value =>
+      if value.isEmpty then current
+      else replaceLiteralAllV1 current value "<redacted>")
+    text
+
 /-- Parsed `local` trailing flags (host-heavy package-script wrapper).
     `mode` empty means target default (`sandbox` for aleo, `runtime` for solana/evm).
     Remaining args after product flags (and optional `--`) are forwarded to the script. -/

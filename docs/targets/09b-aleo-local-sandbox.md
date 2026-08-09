@@ -1,30 +1,35 @@
 ---
 id: TARGET-ALEO-LOCAL-SANDBOX
-title: Aleo local sandbox (build → package → offline run)
+title: Aleo local sandbox (generic build → package → offline run)
 status: draft
 owner: engineering
-updated: 2026-08-08
+updated: 2026-08-09
 normative: false
 ---
 
-# Aleo 本地 sandbox（产品路径：build → package → offline run）
+# Aleo 本地 sandbox（通用：任意 ProgramV1 → package → offline run）
 
-状态：`draft`（2026-08-08）  
+状态：`draft`（2026-08-09）  
 父文档：[`09-aleo-instructions-lowering.md`](09-aleo-instructions-lowering.md)（Instructions 权威；IR-7 package-only 仍 MISSING）  
-入口：`just aleo-sandbox` → `scripts/aleo_local_sandbox.sh`
+入口：`just aleo-sandbox -- …` → `scripts/aleo_local_sandbox.sh`；  
+产品包装：`proof-forge-next local --target aleo --mode sandbox -- --source … --module …`
+
+**不是 Counter 专用。** 任意满足 Aleo materializer 的 ProgramV1 源均可；入口点由调用方用
+`--run` 显式给出。可选 `--golden` 才做字节金样钉（回归用）。
 
 ## 1. 目标
 
-当作者选定 **`--target aleo`** 时，产品链除 Plan→Instructions materialize 外，还提供一条 **可复现、诚实边界** 的本机 sandbox 执行路径（与 Solana Mollusk / NEAR sandbox 同级：**host-heavy 本地门**，非 ordinary ci）：
+当作者选定 **`--target aleo`** 时，提供一条 **可复现、诚实边界** 的本机 sandbox 执行路径
+（与 Solana Mollusk / NEAR sandbox 同级：**host-heavy 本地门**，非 ordinary ci）：
 
 ```text
-ProgramV1 Counter
-  → proof-forge-next build --target aleo
-  → primary counter.aleo  (Aleo Instructions；≡ golden)
-  → debug counter.leo    (PROOF_FORGE_ALEO_EMIT_LEO=1；非产品 sole 权威)
-  → 临时 Leo 4.0.2 package
+任意 ProgramV1 源
+  → proof-forge-next build <source> --module <M> --target aleo
+  → primary {id}.aleo  (Aleo Instructions)
+  → debug {id}.leo     (PROOF_FORGE_ALEO_EMIT_LEO=1；非产品 sole 权威)
+  → 临时 Leo 4.0.2 package（program.json program={id}.aleo）
   → locked leo build --offline
-  → locked leo run --offline  initialize / increment
+  → 可选 locked leo run --offline  <caller-supplied entrypoints>
   → 打印观测 + 明确成熟度边界
 ```
 
@@ -32,10 +37,14 @@ ProgramV1 Counter
 
 | 条件 | 结果 |
 |---|---|
-| locked Leo 4.0.2 在 `PROOF_FORGE_TOOL_ROOT`（或默认 cache）| **exit 0**：build pin + offline run 调用成功 |
+| locked Leo 4.0.2 在 `PROOF_FORGE_TOOL_ROOT`（或默认 cache）| 可进入 build |
+| `--source` + `--module` 缺失 | **exit 2** usage（无默认 program） |
 | Leo 缺失 | **exit 2**：`PF-TOOLCHAIN-MISSING`（不假绿） |
-| 产品 build / golden / leo-build Instructions 不一致 | **exit 1** |
-| 调用失败 | **exit 1** |
+| 产品 build 失败 / 产物不完整 | **exit 1** |
+| 可选 `--golden` 与 product `{id}.aleo` 不一致 | **exit 1** |
+| `leo build/main.aleo` ≢ product Instructions | **exit 1** |
+| 调用方 `--run` 失败 | **exit 1** |
+| 无 `--run` 或 `--skip-run` | **exit 0**：仅 build pins（`LOCAL-SANDBOX-OK`） |
 
 ## 2. 非目标（禁止升级话术）
 
@@ -44,6 +53,7 @@ ProgramV1 Counter
 - 产品 `deployable=true`、formal proof、hermetic Stage-0
 - ordinary `just ci` 并入（host-heavy；与 `aleo-runtime` 同级）
 - 把 `leo run` 说成「已上链部署」或「AVM 生产执行」
+- 脚本内 hardcode 某一示例 program 的 entrypoint / golden（回归 golden 仅经 `--golden`）
 
 ## 3. 成熟度标签（必须原样出现在脚本日志）
 
@@ -51,7 +61,7 @@ ProgramV1 Counter
 |---|---|
 | `aleo-local-sandbox-v1` | 本机 sandbox 工程 profile 名 |
 | `INSTRUCTIONS-PRIMARY` | 产品权威 = Plan→Instructions `{id}.aleo` |
-| `LEO-DEBUG-PACKAGE` | 调用路径消费 **debug Leo 源** 入 package（与 spike/acceptance 同构） |
+| `LEO-DEBUG-PACKAGE` | 调用路径消费 **debug Leo 源** 入 package |
 | `LEO-OFFLINE-RUN` | `leo run --offline` = **本地解释**，非 prove / 非 chain deploy |
 | `NOT-PACKAGE-ONLY-SNARKVM` | 与 IR-7 区分；无 snarkVM pin 则不装成已有 |
 | `deployable=false` | 产品声明不变 |
@@ -60,49 +70,79 @@ ProgramV1 Counter
 
 - **仅** locked path：`$PROOF_FORGE_TOOL_ROOT/leo` 或  
   `$HOME/.cache/proof-forge-v2/tool-root/{linux-x86_64,darwin-arm64}/leo`
-- **禁止** PATH / cargo / brew fallback（与 `aleo_acceptance.sh` / `aleo_runtime_test.sh` 一致）
+- **禁止** PATH / cargo / brew fallback
 - 版本门：`--version` 须含 `4.0.2`
-- 隔离：Leo 步骤 `HOME` = 临时目录 + `mkdir $HOME/.aleo`；清理 `PRIVATE_KEY` / `NETWORK` / `ENDPOINT` 等 ambient 钱包/网络变量（产品 `build` 仍用真实 HOME，避免 elan 重装）
-- 产品 CLI：仓库内 `.lake/build/bin/proof-forge-next`（缺失则先提示 `lake build proof_forge_next`）
+- 隔离：Leo 步骤 `HOME` = 临时目录 + `mkdir $HOME/.aleo`；清理 ambient 钱包/网络变量
+- 产品 CLI：仓库内 `.lake/build/bin/proof-forge-next`
 
-## 5. 脚本步骤（实现权威）
+## 5. CLI 契约（实现权威）
 
 `scripts/aleo_local_sandbox.sh`：
 
-1. 解析 locked `leo`；缺失 → exit 2。
-2. `lake env` 下  
-   `PROOF_FORGE_ALEO_EMIT_LEO=1 proof-forge-next build Examples/Counter.lean --module Examples.Counter --target aleo -o <work>/product-out`
-3. 要求产物：`counter.aleo`、`counter.leo`、`counter.aleo-query-contract.json`、`manifest.json`。
-4. `cmp` 产品 `counter.aleo` ≡ `testdata/golden/aleo-instructions-v1/counter.compiled.aleo`。
-5. 暂存 package：`program.json` + `src/main.leo` ← 产品 `counter.leo`。
-6. `leo build --offline --disable-update-check --path <pkg>`。
-7. `cmp` `build/main.aleo` ≡ 产品 `counter.aleo`（Leo 编译结果与 Plan→Instructions 同字节）。
-8. `leo run --offline … initialize 1u64` 然后 `increment 2u64`（local-dev key 仅本机；不写用户密钥）。
-9. 打印 query-contract 摘要 + 成熟度标签；exit 0 → `LOCAL-SANDBOX-OK`。
+```bash
+# 通用：任意源，仅 build + Instructions↔leo pin
+./scripts/aleo_local_sandbox.sh \
+  --source path/to/Prog.lean \
+  --module My.Module
 
-可选 flag：
+# 带 offline run（入口由调用方决定）
+./scripts/aleo_local_sandbox.sh \
+  --source path/to/Prog.lean \
+  --module My.Module \
+  --run 'initialize 1u64' \
+  --run 'increment 2u64'
 
-- `--keep`：保留 workdir 路径（默认 trap 清理）
-- `--skip-run`：只做到 build pin（对照 spike）
+# 回归：可选字节金样（例如 Instructions golden tree）
+./scripts/aleo_local_sandbox.sh \
+  --source Examples/Counter.lean \
+  --module Examples.Counter \
+  --golden testdata/golden/aleo-instructions-v1/counter.compiled.aleo \
+  --run 'initialize 1u64' \
+  --run 'increment 2u64'
 
-## 6. 与既有脚本分工
+# 产品包装
+proof-forge-next local --target aleo --mode sandbox -- \
+  --source Examples/Counter.lean --module Examples.Counter --skip-run
+```
 
-| 脚本 | 角色 |
+| flag | 含义 |
 |---|---|
-| `aleo_local_sandbox.sh` | **产品本机 sandbox**：build → Instructions pin → Leo package → offline run |
-| `aleo_runtime_test.sh` | IR-7 honesty：package-only snarkVM **MISSING** |
-| `aleo_local_toolchain_spike.sh` | 研究 spike：手写 Leo 包 dual-build |
-| `aleo_acceptance.sh` | 对已有 `.aleo`/目录做 locked leo **compile-only** |
+| `--source` / `--module` | **必填** |
+| `--program` / `--profile` | 透传产品 build |
+| `--golden PATH` | 可选：product `{id}.aleo` exact-byte pin |
+| `--run 'name args…'` | 可重复；无则只做 build pins |
+| `--skip-run` | 跳过全部 run |
+| `--output-dir DIR` | 保留 product OutputSet（不得已存在） |
+| `--keep` | 保留工作目录 |
 
-## 7. 文档 / CI
+步骤：
+
+1. 解析 locked `leo`；缺失 → exit 2。
+2. `PROOF_FORGE_ALEO_EMIT_LEO=1 proof-forge-next build <source> --module … --target aleo -o <out>`。
+3. 在 OutputSet 中发现 **恰好一个** 主 `{id}.aleo`（排除 query-contract），并要求 `{id}.leo` + query-contract。
+4. 若给了 `--golden`：`cmp` product ≡ golden。
+5. 暂存 package：`program.json`（`program={id}.aleo`）+ `src/main.leo` ← product `{id}.leo`。
+6. `leo build --offline`；`cmp` `build/main.aleo` ≡ product Instructions。
+7. 对每个 `--run` 执行 `leo run --offline`（local-dev key 仅隔离 HOME；不写用户密钥）。
+
+## 6. 与其它入口关系
+
+| 入口 | 角色 |
+|---|---|
+| `aleo_local_sandbox.sh` | **通用** 本机 sandbox：build → pins → optional offline run |
+| `just aleo-sandbox -- <args…>` | 同上；**须**传 `--source`/`--module` |
+| `proof-forge-next local --target aleo` | 产品薄包装（默认 mode=sandbox） |
+| `just aleo-runtime` | IR-7 honesty：无 snarkVM → `PF-TOOLCHAIN-MISSING` |
+| `just aleo-network` / network wrapper | 链上 deploy/execute + 独立 receipt（另一维） |
+
+## 7. 注册与 CI
 
 - `just aleo-sandbox` 注册；**不**加入 ordinary `ci` / `dev-check`。
-- `docs/index.md` 链到本文件。
-- `09-aleo-instructions-lowering.md` 指针本路径（不改 IR-7 状态）。
+- ordinary smoke 仅验证：usage fail-closed、缺工具 `PF-TOOLCHAIN-MISSING`、CLI wrapper 拒 signer 参数。
+- 真实 locked-Leo offline run 仍 host-heavy、独立执行。
 
-## 8. 后续
+## 8. SDK / MCP
 
-- **网络 deploy/execute**：见 [`09c-aleo-network.md`](09c-aleo-network.md) / `just aleo-network`（N1/N2；需可达 endpoint）。
-- Tool Lock pin snarkVM 后扩展「Instructions 直喂」路径（仍 fail closed 直至 pin）。
-- Tool Lock 可选 snarkOS → 可复现 local devnet。
-- CLI 子命令 / SDK / MCP 消费本脚本与 network 脚本 exit code / artifact 目录。
+- SDK：`ProofForgeClient.local(target="aleo", mode="sandbox", script_args=[...])` 透传本脚本参数。
+- MCP：`pf_local` 工具映射 `local --target …`；**拒** network/broadcast/private-key；Aleo sandbox 须 `source`+`module`。
+- 均 **不** 改 `deployable`；成功 **不** 等于 formal / 主网。

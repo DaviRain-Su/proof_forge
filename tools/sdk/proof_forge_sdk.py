@@ -556,6 +556,85 @@ class ProofForgeClient:
     def inspect_target(self, target: str) -> CliResult:
         return self.run(["inspect", str(target), "--json"])
 
+    def local(
+        self,
+        *,
+        target: str,
+        mode: Optional[str] = None,
+        script_args: Optional[Sequence[str]] = None,
+        source: Optional[PathLike] = None,
+        module: Optional[str] = None,
+        runs: Optional[Sequence[str]] = None,
+        golden: Optional[PathLike] = None,
+        skip_run: bool = False,
+        profile: Optional[str] = None,
+        program: Optional[str] = None,
+        output_dir: Optional[PathLike] = None,
+        timeout: Optional[float] = None,
+    ) -> CliResult:
+        """Product ``local`` wrapper (host-heavy package scripts).
+
+        For Aleo sandbox, pass ``source`` + ``module`` (generic; no default
+        program). Optional ``runs`` become ``--run`` lines; ``skip_run`` skips
+        leo run. Never accepts network broadcast or raw private keys.
+        """
+        if target in DESIGN_ONLY_TARGETS:
+            return CliResult(
+                ok=False,
+                exit_code=2,
+                command=[],
+                stderr=f"target '{target}' is design-only (unsupported for local)",
+                error="usage",
+            )
+        forbidden = []
+        for a in script_args or []:
+            s = str(a)
+            if s in (
+                "--broadcast",
+                "--private-key",
+                "--priv-key",
+                "--fee-record",
+                "--private-key-file",
+            ) or s.startswith("--private-key=") or s.startswith("--fee-record="):
+                forbidden.append(s)
+        if forbidden:
+            return CliResult(
+                ok=False,
+                exit_code=2,
+                command=[],
+                stderr=(
+                    "local SDK rejects signer/broadcast args; use product CLI "
+                    "network --broadcast explicitly outside the SDK"
+                ),
+                error="usage",
+            )
+        argv: List[str] = ["local", "--target", str(target), "--json"]
+        if mode:
+            argv.extend(["--mode", str(mode)])
+        tail: List[str] = []
+        if script_args:
+            tail.extend(str(x) for x in script_args)
+        if source is not None:
+            tail.extend(["--source", str(source)])
+        if module is not None:
+            tail.extend(["--module", str(module)])
+        if program is not None:
+            tail.extend(["--program", str(program)])
+        if profile is not None:
+            tail.extend(["--profile", str(profile)])
+        if golden is not None:
+            tail.extend(["--golden", str(golden)])
+        if output_dir is not None:
+            tail.extend(["--output-dir", str(output_dir)])
+        if skip_run:
+            tail.append("--skip-run")
+        for r in runs or []:
+            tail.extend(["--run", str(r)])
+        if tail:
+            argv.append("--")
+            argv.extend(tail)
+        return self.run(argv, timeout=timeout)
+
     def load_output_manifest(self, output_dir: PathLike) -> Dict[str, Any]:
         """Parse engineering ``proof-forge.output.v1`` without re-running inspect."""
         return load_output_manifest(output_dir)
@@ -584,12 +663,15 @@ def self_check(*, root: Optional[PathLike] = None) -> Dict[str, Any]:
             "check",
             "inspect_artifacts",
             "inspect_target",
+            "local",
             "load_output_manifest",
         ],
         "notes": [
             "SDK only spawns product CLI / package engines",
             "no PATH fallback into PROOF_FORGE_TOOL_ROOT",
             "not formal/hermetic/mainnet/deployable rewrite",
+            "local is generic (Aleo: --source/--module/--run; no default program)",
+            "no default network broadcast helper",
         ],
     }
     try:
@@ -645,6 +727,21 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
     )
     p_man.add_argument("output_dir")
 
+    p_loc = sub.add_parser(
+        "local",
+        help="product local (Aleo sandbox: --source/--module; no broadcast)",
+    )
+    p_loc.add_argument("--target", required=True)
+    p_loc.add_argument("--mode", default=None)
+    p_loc.add_argument("--source", default=None)
+    p_loc.add_argument("--module", default=None)
+    p_loc.add_argument("--program", default=None)
+    p_loc.add_argument("--profile", default=None)
+    p_loc.add_argument("--golden", default=None)
+    p_loc.add_argument("--run", action="append", default=[], dest="runs")
+    p_loc.add_argument("--skip-run", action="store_true")
+    p_loc.add_argument("--output-dir", default=None)
+
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     if args.self_check or args.cmd is None:
@@ -667,6 +764,19 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
             all_core=bool(args.all_core),
             with_runtime=bool(args.with_runtime),
             dry_run=bool(args.dry_run),
+        )
+    elif args.cmd == "local":
+        r = client.local(
+            target=str(args.target),
+            mode=args.mode,
+            source=args.source,
+            module=args.module,
+            program=args.program,
+            profile=args.profile,
+            golden=args.golden,
+            runs=args.runs or None,
+            skip_run=bool(args.skip_run),
+            output_dir=args.output_dir,
         )
     elif args.cmd == "load-manifest":
         try:

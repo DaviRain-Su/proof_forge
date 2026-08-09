@@ -54,6 +54,10 @@ private def usage : String :=
   "    host-heavy; not ordinary ci; not formal. network always requires explicit --broadcast.\n" ++
   "  local modes: aleo sandbox|devnet (default sandbox); solana/evm runtime (scripts/solana_runtime_test.sh,\n" ++
   "    scripts/evm_anvil_differential.sh; also just solana-runtime / Anvil engineering lanes).\n" ++
+  "  Aleo network consumes an existing compile-profile OutputSet and writes a separate receipt;\n" ++
+  "    CLI wrapper permits no-secret DevNet --dev-key only; Testnet key-file uses explicit scripts/aleo_network.sh.\n" ++
+  "    Raw keys and mainnet/canary are rejected; canonical deploy --signer-fd remains pending.\n" ++
+  "  Host-heavy JSON redacts private-key/key-file/fee-record argv values and child stream echoes.\n" ++
   "  inspect <arg> prefers a registered target id when ambiguous; use --output-dir to force a path.\n" ++
   "  inspect output-dir validates proof-forge.output.v1 artifact-content + exact disk closure.\n" ++
   "  check validates without writing artifacts; build materializes under -o (default build/v2).\n"
@@ -536,7 +540,7 @@ private def resolveNetworkScriptV1 (target : String) :
   match target with
   | "aleo" =>
       pure ("scripts/aleo_network.sh",
-        "host-heavy N1/N2 deploy/execute; requires --broadcast; deployable=false until N3; not ordinary ci; not formal")
+        "host-heavy explicit post-build DevNet/Testnet deploy + separate receipt; mainnet/canary rejected; deployable=false until formal N3; not ordinary ci; not formal")
   | "soroban" | "icp" | "openvm" =>
       throw s!"target '{target}' is design-only (unsupported; not installable/network)"
   | other =>
@@ -545,7 +549,10 @@ private def resolveNetworkScriptV1 (target : String) :
 private def renderHostHeavyJsonV1
     (schema target mode script : String) (args : Array String)
     (exitCode : UInt32) (status notes stdout stderr : String) : Except String String :=
-  let argJson := args.map PfJson.string
+  let publicArgs := redactHostHeavyArgsV1 args
+  let argJson := publicArgs.map PfJson.string
+  let publicStdout := redactHostHeavyTextV1 args stdout
+  let publicStderr := redactHostHeavyTextV1 args stderr
   renderPfJcs <|
     PfJson.object #[
       ("schema", .string schema),
@@ -556,8 +563,8 @@ private def renderHostHeavyJsonV1
       ("exitCode", .int (Int.ofNat exitCode.toNat)),
       ("status", .string status),
       ("notes", .string notes),
-      ("scriptStdout", .string stdout),
-      ("scriptStderr", .string stderr)
+      ("scriptStdout", .string publicStdout),
+      ("scriptStderr", .string publicStderr)
     ]
 
 /-- Product local: thin spawn of package scripts (aleo sandbox/devnet,
@@ -567,13 +574,18 @@ private def runLocal (options : LocalOptions) : IO Unit := do
   let (mode, relScript, notes) ← match resolveLocalScriptV1 options.target options.mode with
     | .ok v => pure v
     | .error msg => failUsage msg
+  if containsSensitiveHostHeavyArgsV1 options.scriptArgs then
+    failUsage "local CLI wrapper rejects signer-bearing arguments"
+  for name in #["PROOF_FORGE_ALEO_PRIVATE_KEY", "ALEO_PRIVATE_KEY", "PRIVATE_KEY"] do
+    if (← IO.getEnv name).isSome then
+      failUsage s!"local CLI wrapper refuses inherited signer environment '{name}'"
   let cwd ← IO.currentDir
   let script := cwd / relScript
   unless ← script.pathExists do
     failUsage s!"local requires {relScript} under the current working directory (run from repo root)"
   let output ← IO.Process.output {
-    cmd := "bash"
-    args := #[script.toString] ++ options.scriptArgs
+    cmd := "/bin/bash"
+    args := #["-p", script.toString] ++ options.scriptArgs
   }
   let status := hostHeavyStatusV1 output.exitCode output.stderr
   if options.json then
@@ -583,22 +595,77 @@ private def runLocal (options : LocalOptions) : IO Unit := do
     | .ok text => IO.println text
     | .error err => failUsage s!"local json render failed: {err}"
   else
-    unless output.stdout.isEmpty do
-      (← IO.getStdout).putStr output.stdout
-    unless output.stderr.isEmpty do
-      (← IO.getStderr).putStr output.stderr
+    let publicStdout := redactHostHeavyTextV1 options.scriptArgs output.stdout
+    let publicStderr := redactHostHeavyTextV1 options.scriptArgs output.stderr
+    unless publicStdout.isEmpty do
+      (← IO.getStdout).putStr publicStdout
+    unless publicStderr.isEmpty do
+      (← IO.getStderr).putStr publicStderr
   exitWithProcessCode output.exitCode
 
 /-- Ensure script argv includes explicit `--broadcast` (product flag may be sole source). -/
 private def ensureBroadcastArg (args : Array String) : Array String :=
   if args.any (· == "--broadcast") then args else #["--broadcast"] ++ args
 
+private def networkOptionNameOfArgV1 (arg : String) : String :=
+  match arg.splitOn "=" with
+  | name :: _ => name
+  | [] => arg
+
+private def isNetworkSignerFdCapabilityArgV1 (arg : String) : Bool :=
+  networkOptionNameOfArgV1 arg == "--signer-fd"
+
+private def isSignerBearingNetworkSecretArgV1 (arg : String) : Bool :=
+  let name := networkOptionNameOfArgV1 arg
+  name == "--record" ||
+    name == "--fee-record" ||
+    name.toLower.startsWith "--private" ||
+    name.toLower.startsWith "--priv" ||
+    (name.startsWith "--" &&
+      hasSubstrV1 name.toLower "key" &&
+      (hasSubstrV1 name.toLower "private" || hasSubstrV1 name.toLower "priv"))
+
+private def networkArgValue? (args : Array String) : Option String := Id.run do
+  let mut i := 0
+  while i < args.size do
+    let arg := args[i]!
+    if arg == "--network" then
+      if i + 1 < args.size then
+        return some args[i + 1]!
+      else
+        return some ""
+    else if arg.startsWith "--network=" then
+      return some (arg.drop "--network=".length).toString
+    else
+      i := i + 1
+  return none
+
 /-- Product network: thin spawn of package scripts (aleo only today).
-    Parse already requires `--broadcast`; forwarded to script. Host-heavy. -/
+    Parse already requires `--broadcast`; forwarded to script. Host-heavy.
+
+    Interim security boundary: this CWD-discovered engineering wrapper accepts
+    only no-secret lanes (for example Aleo DevNet `--dev-key`). Testnet signer
+    material must use the package-owned script by explicit path until the
+    canonical `deploy ... --signer-fd` command lands. -/
 private def runNetwork (options : NetworkOptions) : IO Unit := do
   unless options.broadcast do
     failUsage
       "network requires explicit --broadcast (never implicit; local only: local --target …)"
+  if options.scriptArgs.any isSignerBearingNetworkSecretArgV1 then
+    failUsage
+      "network CLI wrapper rejects signer-bearing secret arguments; run the package-owned scripts/aleo_network.sh by explicit path (canonical --signer-fd deploy is pending)"
+  if options.scriptArgs.any isNetworkSignerFdCapabilityArgV1 then
+    failUsage
+      "network CLI wrapper rejects --signer-fd capability in this CWD wrapper; use the package-owned script by explicit path until canonical deploy lands"
+  for name in #["PROOF_FORGE_ALEO_PRIVATE_KEY", "ALEO_PRIVATE_KEY", "PRIVATE_KEY"] do
+    if (← IO.getEnv name).isSome then
+      failUsage s!"network CLI wrapper refuses inherited signer environment '{name}'"
+  match networkArgValue? options.scriptArgs with
+  | some network =>
+      unless network == "devnet" do
+        failUsage
+          "network CLI wrapper only permits no-secret DevNet; run package-owned scripts/aleo_network.sh directly for Testnet"
+  | none => pure ()
   let (relScript, notes) ← match resolveNetworkScriptV1 options.target with
     | .ok v => pure v
     | .error msg => failUsage msg
@@ -608,8 +675,8 @@ private def runNetwork (options : NetworkOptions) : IO Unit := do
     failUsage s!"network requires {relScript} under the current working directory (run from repo root)"
   let scriptArgs := ensureBroadcastArg options.scriptArgs
   let output ← IO.Process.output {
-    cmd := "bash"
-    args := #[script.toString] ++ scriptArgs
+    cmd := "/bin/bash"
+    args := #["-p", script.toString] ++ scriptArgs
   }
   let status := hostHeavyStatusV1 output.exitCode output.stderr
   if options.json then
@@ -619,10 +686,12 @@ private def runNetwork (options : NetworkOptions) : IO Unit := do
     | .ok text => IO.println text
     | .error err => failUsage s!"network json render failed: {err}"
   else
-    unless output.stdout.isEmpty do
-      (← IO.getStdout).putStr output.stdout
-    unless output.stderr.isEmpty do
-      (← IO.getStderr).putStr output.stderr
+    let publicStdout := redactHostHeavyTextV1 scriptArgs output.stdout
+    let publicStderr := redactHostHeavyTextV1 scriptArgs output.stderr
+    unless publicStdout.isEmpty do
+      (← IO.getStdout).putStr publicStdout
+    unless publicStderr.isEmpty do
+      (← IO.getStderr).putStr publicStderr
   exitWithProcessCode output.exitCode
 
 private def inspectTarget (value : String) (json : Bool) : IO Unit := do

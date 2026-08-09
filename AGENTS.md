@@ -251,8 +251,20 @@
 > Leo 4.0.2 运行 `build --offline --disable-update-check`，并发布 `.compiled.aleo`、`.abi.json`、
 > `.leo-program.json` 三个 `finalized-extra`。missing/bad tool/partial outputs 均零发布；双次同机
 > exact bytes 与 `inspect` disk closure 已钉。两 profile 均 `deployable=false`。RPT-024 已证
-> execute/deploy/query 依赖网络、synthesize 需要 CRS 且无 pinned snarkOS/snarkVM，因此成熟度为
-> **source emission + engineering locked compile finalization**，非 VM/proof/deploy/hermetic/formal。
+> execute/deploy/query 依赖网络、synthesize 需要 CRS 且无 pinned snarkOS/snarkVM，因此**产品 build**
+> 成熟度仍为 **source emission + engineering locked compile finalization**，非 VM/proof/hermetic/formal。
+>
+> **2026-08-09 Aleo explicit network/receipt update（engineering）**：network wrapper 已纠正为
+> `inspected compile-profile OutputSet → explicit DevNet/Testnet deploy/execute → separate receipt`，不再
+> 在脚本内 build/leo-build，也不把 network/signer 放入 `FinalizeV1` 或 OutputSet。DevNet 使用 funded
+> `--dev-key`、fresh ledger、loopback REST 与 exact owned PID cleanup；Testnet 仅接受 owner-only
+> private-key file，经 exact file-identity rejoin + inherited FD 交给显式 SHA-256 pin 的 out-of-Tool-Lock
+> snarkOS private executable snapshot；OutputSet 同样先 private snapshot 再 product inspect。raw key/env key/
+> fee-record、mainnet/canary 均 fail closed；private-key signer 不渲染 raw tool tail；failed/timed-out action
+> 仍绑定 exit/status/output digest/可解析 transaction id。receipt 由 owner-safe retained parent/staging FD
+> 原子 no-replace 独立发布，schema 为 `proof-forge.aleo-deployment-receipt.engineering.v1`，明确 network profile 未注册；两 build profile
+> `deployable=false` 不变。formal N3 NetworkProfile/compatible-build join、locked snarkOS、public funded
+> Testnet run/network UPS 仍 pending；不得把 engineering DevNet observation 写成 formal/mainnet/release。
 >
 > **Capability caveat（2026-08-04 B-CALL-SEM + #111 honesty）**：`call` / `schedule` 的 resolver
 > support 不能等同于完整平台语义。EVM sync 为 static-QN→hashed-address 的真实 `CALL`，
@@ -297,7 +309,7 @@ schoolbook，div/mod=四段 restoring；bitwise/shift=per-limb &\|^/~ + UInt32-c
 （`PsyAcceptance`，无 psyup）与**独立 host-heavy** `just psy-runtime` local-VM/base-proof 菜谱
 （locked dargo v0.1.0 + std；仅 linux-x86_64/darwin-arm64；非 ordinary ci；产品 Finalize 仍 zero-tool；
 两平台 Tool Lock pin 已落地；2026-08-07 Linux exact-member root 的 Counter + WideCounter 门实测通过，
-Darwin 仅完成锁文件/成员 pin 验证）；Aleo/Psy 均无 network UPS/deploy/formal 闭环。CosmWasm 已有
+Darwin 仅完成锁文件/成员 pin 验证）；Aleo 已有独立 host-heavy DevNet/Testnet engineering deploy/receipt wrapper（当前仅本地 DevNet observation；无 formal N3/public-funded Testnet/network UPS），Psy 仍无 network deploy/formal 闭环。CosmWasm 已有
 target-owned Plan/IR/materialize/finalize（`wasm-validated-alpha`：WAT+wat2wasm+cosmwasm-check、
 cosmwasm-vm 28-test mock 与 wasmd v0.70.3 Docker rung-1；sync 拒、async Binary SubMsg 子集；非主网/formal）；
 TON 已有 Plan/IR/materialize/finalize（source-only + locked tolk/fift BoC、schedule createMessage PARTIAL

@@ -21,7 +21,7 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 | **I0 doctor** | **done**（`scripts/proof_forge_doctor.py` + `proof-forge-next doctor`；schema `proof-forge.doctor.v1`；缺 Tool Root → `PF-TOOLCHAIN-MISSING`） |
 | **I1 install** | **done**（`scripts/proof_forge_install.py` + `proof-forge-next install`；schema `proof-forge.install.v1`；`--targets`/`--all-core` + `--yes`；delegate `toolchain_assets` provision/materialize；digest 幂等 skip；无 PATH fallback；`--dry-run` 计划-only） |
 | I1b CLI wire residual | **done with I1**（CLI 薄包装 + parse 覆盖 + `scripts/install_smoke.sh`；若后续扩 usage 文案仍可叠） |
-| I2 local/network 统一包装 | **done**（`proof-forge-next local` / `network` 薄包装；`scripts/local_network_smoke.sh`） |
+| I2 local/network 统一包装 | **done**（`proof-forge-next local` / `network` 薄包装；固定 `/bin/bash -p`；signer argv/env pre-spawn rejection + human/JSON defense-in-depth redaction；Aleo network 只消费 private-inspected OutputSet/tool snapshots并发布独立 receipt；`scripts/local_network_smoke.sh`） |
 | **I3 Aleo snarkos runtime 诚实路径** | **done**（`scripts/proof_forge_aleo_snarkos.py`；doctor 经 `PROOF_FORGE_ALEO_SNARKOS` / 约定 cargo-install 路径探测 `features=test_network`；`install --targets aleo --with-runtime` **只**打印 exact cargo 配方、不 cargo-build、不进 Tool Root；prebuilt GitHub zip 无 feature → `mismatch` 永不 `ok`；见 §10） |
 | **MCP-V0** | **done**（`tools/mcp/proof_forge_mcp_server.py` stdio MCP；tools: `pf_list_targets`/`pf_doctor`/`pf_install`/`pf_build`/`pf_artifacts`；仅 spawn 产品 CLI/引擎 JSON；无 network broadcast 工具；`tools/mcp/README.md` Agent 接线；`scripts/mcp_smoke.sh`） |
 | **SDK-V0** | **done**（Python `tools/sdk/proof_forge_sdk.py`：`ProofForgeClient` spawn `proof-forge-next` + parse doctor/install/list-targets JSON + `load_output_manifest` for engineering `proof-forge.output.v1`；非第二编译器；`tools/sdk/README.md`；`scripts/sdk_smoke.sh`） |
@@ -57,8 +57,8 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 | I1b | `I1b-CLI-WIRE` | CLI 子命令接到 Exe；`--json`；usage | **done with I1**：`proof-forge-next install` 薄包装 + parse 覆盖 |
 | I2 | `I2-LOCAL-CMDS` | 统一本机/网络入口包装 | **done**：`local --target …` / `network --target … --broadcast` 调现有 package 脚本；`--json`=`proof-forge.local.v1`/`proof-forge.network.v1`；`scripts/local_network_smoke.sh` |
 | I3 | `I3-ALEO-RUNTIME` | Aleo runtime 安装诚实路径 | **done**：snarkos `features=test_network` 文档 + doctor 探测 + install 打印 exact cargo 配方（不 cargo-build）；约定路径 `~/.cache/proof-forge-v2/aleo-devnet/cargo-install/bin/snarkos` / `PROOF_FORGE_ALEO_SNARKOS`；缺 feature 的 prebuilt → `mismatch` 永不 `ok` |
-| MCP | `MCP-V0` | 最小 MCP server | **done**：`tools/mcp/proof_forge_mcp_server.py`；tools 仅调 CLI/JSON；不重实现编译器；见 §8 |
-| SDK | `SDK-V0` | 可选薄 SDK（TS 或 Python 选一） | **done**（Python）：`tools/sdk/proof_forge_sdk.py`；spawn CLI + parse doctor/install/output manifest；非第二编译器；见 §9 |
+| MCP | `MCP-V0` | 最小 MCP server | **done**：`tools/mcp/proof_forge_mcp_server.py`；tools 含 `pf_local`（通用 sandbox）+ build/doctor；拒 network broadcast；见 §8 |
+| SDK | `SDK-V0` | 可选薄 SDK（TS 或 Python 选一） | **done**（Python）：`tools/sdk/proof_forge_sdk.py`；spawn CLI + `local` 通用 API + parse manifest；非第二编译器；见 §9 |
 | Close | `Close` | AGENTS/backlog 指针 | **done**：成熟度诚实；不声称 formal / hermetic / mainnet；剩余见 §0 Close 行 |
 
 ## 4. 架构约束
@@ -187,7 +187,8 @@ proof-forge-next install --all-core --yes   # 所有 implemented 的 compile/cor
 
 ## 7. 本机 / 网络包装（I2）
 
-**已实现**（host-heavy；**不**并入 ordinary `just ci`；**不** formal）：
+**已实现**。实际 runtime/network 广播仍 host-heavy、**不**并入 ordinary `just ci`、**不** formal；
+ordinary CI 只运行 no-network parser/security self-test 与 CLI smoke：
 
 ```bash
 proof-forge-next local --target aleo [--mode sandbox|devnet] [--json] [--] [script-args...]
@@ -207,14 +208,19 @@ proof-forge-next network --target aleo --broadcast [--json] [--] [script-args...
 
 | Target | `network` | 包装脚本 | 备注 |
 |---|---|---|---|
-| `aleo` | 已开 | `scripts/aleo_network.sh` | **必须**显式 `--broadcast`；另需 endpoint/network/key（脚本或 `PROOF_FORGE_ALEO_*`） |
+| `aleo` | CLI：no-secret DevNet；explicit engine：DevNet/Testnet | `scripts/aleo_network_receipt.py`（`aleo_network.sh` 仅 privileged-Bash adapter） | 显式 `--broadcast`；OutputSet/tool private snapshot；独立 retained-FD receipt；CLI CWD wrapper spawn 前拒 signer args/env/FD capability；Testnet key-file identity→inherited FD + snarkOS SHA pin；mainnet/canary 拒绝 |
 | 其它 | fail closed | — | 无产品 network 脚本 |
 
-- 进程继承 `PROOF_FORGE_TOOL_ROOT`（及脚本默认 cache root）；**禁止** PATH fallback 工具。
+- local/network CWD wrapper 固定执行 `/bin/bash -p`；Testnet 推荐 `just aleo-network` 直接执行
+  `/usr/bin/python3 -I -S`，显式 shell adapter 也固定 privileged Bash + absolute Python；禁止 PATH/BASH_ENV fallback。
 - `network` 无 `--broadcast` → usage / exit 2（产品 parse 层，永不隐式广播）。
-- 缺 locked tool → 脚本 `PF-TOOLCHAIN-MISSING` / exit 2；CLI `--json` 报告 `status=toolchain-missing`。
-- schema：`proof-forge.local.v1` / `proof-forge.network.v1`（含 `script`/`args`/`exitCode`/`status`/`scriptStdout`/`scriptStderr`）。
-- 聚焦 smoke：`scripts/local_network_smoke.sh`（missing-tool + no-broadcast；不跑 full sandbox 成功路径）。
+- Aleo network 缺参数 → `PF-NETWORK-MISSING`；缺/错 snarkOS → `PF-TOOLCHAIN-MISSING`；CLI JSON 映射稳定 status。
+- schema：`proof-forge.local.v1` / `proof-forge.network.v1`（含 `script`/public-safe `args`/`exitCode`/`status`/redacted `scriptStdout`/`scriptStderr`）。raw key、key-file path 与 fee record 不得出现在 JSON。
+- Aleo network 不重跑 build/Leo：先 stable-read 完整 compile-profile OutputSet 到 owner-private snapshot，
+  产品 `inspect --output-dir` 重验该 snapshot 的 exact closure，再从同一 snapshot staged package；snarkOS
+  也按 validated FD/hash 复制为 private executable snapshot。deployment receipt 父目录须预先存在、
+  owner-safe 且与 OutputSet 不重叠，并由 retained parent/staging FD 发布；build Finalize 不访问 network/signer。
+- 聚焦门：`scripts/local_network_smoke.sh` + `aleo_network_receipt_self_test.py` + `aleo_devnet_self_test.py` 进入 ordinary target CLI smoke；它们不广播。实际 `just aleo-devnet-integration` 仍独立 host-heavy。
 - 不把 host-heavy 结果写成 ordinary ci 通过或 formal 证据。
 - build 的 **flag** `--network` 仍为 usage error（无 network registry）；与 top-level `network` **子命令**不同。
 
@@ -230,8 +236,9 @@ proof-forge-next network --target aleo --broadcast [--json] [--] [script-args...
 | `pf_install` | `install --targets … --yes`（或 `--dry-run`）`--json` → `proof-forge.install.v1` |
 | `pf_build` | `build` source `--module` `--target` `-o` `--json`（**拒** broadcast/network 参数） |
 | `pf_artifacts` | `inspect --output-dir <dir> --json` 或 `inspect <target> --json` |
+| `pf_local` | `local --target … [--mode sandbox]` + 透传 script args；Aleo sandbox **通用** 须 `source`+`module`（可选 `runs`/`golden`/`skipRun`）；**拒** broadcast / private-key |
 
-V0 **未**暴露 `pf_local` / network 工具（local 仍走产品 CLI；network 必须显式 `network --broadcast`，不经 MCP 默认面）。
+V0+ 已暴露 `pf_local`（本机 sandbox 等 host-heavy 包装）；**仍不**暴露 network broadcast 工具（network 必须显式 `network --broadcast`，不经 MCP 默认面）。
 返回包装 schema：`proof-forge.mcp.tool-result.v1`（`ok`/`exitCode`/`command`/`stdout`/`stderr`/`parsed`/`error`）。
 Env：`PROOF_FORGE_ROOT` / `PROOF_FORGE_CLI` / `PROOF_FORGE_TOOL_ROOT`（继承 doctor/install/build 契约）。
 MCP **只** spawn 产品 CLI 并解析 JSON/manifest，不内嵌 solc/leo/nargo；不 PATH fallback 写 Tool Root；不改 `deployable`。
@@ -248,6 +255,7 @@ MCP **只** spawn 产品 CLI 并解析 JSON/manifest，不内嵌 solc/leo/nargo�
 | `ProofForgeClient.install` | `install --yes`/`--dry-run --json` → `proof-forge.install.v1` |
 | `ProofForgeClient.build` / `check` | 产品 `build`/`check --json`；**拒** design-only target；**无** network/broadcast |
 | `ProofForgeClient.inspect_artifacts` / `inspect_target` | `inspect --output-dir` / `inspect <target> --json` |
+| `ProofForgeClient.local` | `local --target …`；Aleo sandbox 透传 `--source`/`--module`/`--run`（通用；拒 broadcast/signer） |
 | `load_output_manifest` / `client.load_output_manifest` | 读 on-disk `manifest.json` 的 engineering `schemaVersion=proof-forge.output.v1`（**不**重走 exact disk closure；closure 用 `inspect_artifacts`） |
 
 - 返回载体 schema：`proof-forge.sdk.result.v1`（`ok`/`exitCode`/`command`/`stdout`/`stderr`/`parsed`/`error`/`productOk`）。
@@ -298,10 +306,13 @@ proof-forge-next install --targets aleo --with-runtime --dry-run --json
   - `ok` — version 列表含 `test_network`
 - 聚焦 smoke：`scripts/doctor_smoke.sh`（fake missing / prebuilt mismatch / good ok）。
 
-### 10.4 成熟度边界
+### 10.4 DevNet/Testnet 使用与成熟度边界
 
-- 在 N3 产品决策前，**不得**因 snarkos 存在而把 Aleo `deployable` 改为 `true`。
-- doctor/install 成功 **不是** formal / hermetic / mainnet / package-only snarkVM execute 证据。
+- DevNet 使用 `features=test_network` 的 local validator + funded `--dev-key`，不向 snarkOS 暴露用户 private-key file；lifecycle fresh-ledger/loopback/exact PID ownership 见 09c。
+- public Testnet 因 snarkOS 尚不在 Tool Lock，network engine 额外要求 operator-provided exact SHA-256 pin、single-link/非 group-write binary；validated source FD 被流式复制到 private executable snapshot 后才执行。signer key-file 只作为 identity-pinned pre-open adapter并通过 inherited FD 交给工具。
+- Testnet deploy 需要 Faucet test credits；无余额不能部署。Mainnet/canary 在 wrapper preflight 明确拒绝。
+- 在 N3 产品决策前，**不得**因 snarkos 存在或 engineering receipt 成功而把 Aleo `deployable` 改为 `true`。
+- doctor/install/DevNet 成功 **不是** formal / hermetic / mainnet / package-only snarkVM execute 证据。
 
 ## 11. 与现有脚本 / CLI 关系
 
@@ -313,8 +324,10 @@ proof-forge-next install --targets aleo --with-runtime --dry-run --json
 | `proof-forge-next` 现有 | `build` / `check` / `inspect` / `list-targets` / **`doctor`** / **`install`** / **`local`** / **`network`** |
 | `tools/mcp/proof_forge_mcp_server.py` | MCP-V0 stdio 薄封装（仅 spawn 上列 CLI JSON） |
 | `tools/sdk/proof_forge_sdk.py` | SDK-V0 Python 薄客户端（spawn CLI + parse JSON/manifest） |
-| `scripts/aleo_local_sandbox.sh` / `aleo_devnet.sh` / `aleo_network.sh` | I2 已包装（`local`/`network --target aleo`） |
-| `scripts/proof_forge_aleo_snarkos.py` | I3 snarkos 路径/env/`test_network` probe + cargo 配方 sole helper |
+| `scripts/aleo_local_sandbox.sh` / `aleo_devnet.sh` / `aleo_network.sh` | I2 已包装；DevNet lifecycle 与 explicit post-build deploy wrapper |
+| `scripts/aleo_devnet.py` | fresh-ledger、loopback REST、exact owned PID lifecycle |
+| `scripts/aleo_network_receipt.py` | OutputSet/snarkOS private snapshot gate、identity-pinned signer FD bridge、bounded/reaped process groups、retained-FD独立 receipt authority（engineering） |
+| `scripts/proof_forge_aleo_snarkos.py` | I3 snarkos 路径/env/`test_network` probe + cargo 配方 sole doctor/install helper |
 | `scripts/solana_runtime_test.sh` / `scripts/evm_anvil_differential.sh` | I2 `local --target solana|evm`；`just solana-runtime` / Anvil 工程 lane 仍可用 |
 | `just psy-runtime` 等 | 尚未统一进 `local`；保持 host-heavy 工程入口 |
 

@@ -1313,27 +1313,44 @@ psy-runtime:
 aleo-runtime:
     bash scripts/aleo_runtime_test.sh
 
-# Aleo local sandbox (host-heavy; NOT ordinary ci).
-# Product Counter --target aleo → Instructions golden pin → debug Leo package →
-# locked leo 4.0.2 offline build + leo run initialize/increment (local interpret).
-# Authority: docs/targets/09b-aleo-local-sandbox.md
+# Aleo local sandbox (host-heavy; NOT ordinary ci). Generic ProgramV1 path:
+#   just aleo-sandbox -- --source PATH --module NAME [--run 'fn args…'] [--golden PATH]
+# No default program; callers supply source/module/runs. Optional --golden for
+# Instructions byte pin (e.g. Counter regression). Authority: docs/targets/09b-aleo-local-sandbox.md
 # Requires: lake-built proof-forge-next + locked leo. Not deploy/prove/snarkVM.
-aleo-sandbox:
-    bash scripts/aleo_local_sandbox.sh
+aleo-sandbox *ARGS:
+    bash scripts/aleo_local_sandbox.sh {{ARGS}}
 
-# Aleo network deploy/execute (host-heavy; NOT ordinary ci).
-# Requires explicit --broadcast + network/endpoint/private-key (or PROOF_FORGE_ALEO_*).
-# Prefers snarkos developer when available (fee-match); leo deploy is fallback.
+# Aleo explicit post-build deploy/execute (host-heavy; NOT ordinary ci).
+# Consumes an existing compile-profile OutputSet and publishes a separate
+# deployment receipt. DevNet uses --dev-key; Testnet uses --private-key-file +
+# explicit out-of-Tool-Lock snarkos SHA-256 pin. Mainnet/canary fail closed.
 # Authority: docs/targets/09c-aleo-network.md
-# Without network opt-in: PF-NETWORK-MISSING exit 2. Not default deployable=true.
 aleo-network *ARGS:
-    bash scripts/aleo_network.sh {{ARGS}}
+    /usr/bin/python3 -I -S scripts/aleo_network_receipt.py {{ARGS}}
+
+# No-network Aleo deploy-input/receipt and DevNet ownership self-tests.
+aleo-network-self-test:
+    /usr/bin/python3 -I -S scripts/aleo_network_receipt_self_test.py
+
+aleo-devnet-self-test:
+    /usr/bin/python3 -I -S scripts/aleo_devnet_self_test.py
+
+# CLI wrapper smoke: no network broadcast; covers missing inputs/tools,
+# mainnet rejection, and signer argv/stream redaction.
+local-network-smoke: build
+    /bin/bash -p scripts/local_network_smoke.sh
 
 # Aleo local DevNet lifecycle (host-heavy; NOT ordinary ci).
-# start|stop|status|wait — needs snarkos built with --features test_network.
+# start|stop|status|wait — fresh ledgers, loopback REST, exact owned PID inventory.
 # Authority: docs/targets/09c-aleo-network.md
 aleo-devnet *ARGS:
-    bash scripts/aleo_devnet.sh {{ARGS}}
+    /bin/bash -p scripts/aleo_devnet.sh {{ARGS}}
+
+# Real local N1/N2 integration. Uses funded --dev-key 0, never a private-key file;
+# always stops only its owned validator PIDs through the EXIT trap.
+aleo-devnet-integration:
+    /bin/bash -p scripts/aleo_devnet_integration.sh
 
 # Noir ACIR IR-7 / G6 prove honesty probe (host-heavy; NOT ordinary ci).
 # Probes locked $PROOF_FORGE_TOOL_ROOT/bb|barretenberg only (never PATH).
@@ -1415,7 +1432,7 @@ ci-lean-gates: docs-check sbom-package-files-check build product-negative source
 
 ci-lean-product: test-nontarget ci-lean-gates
 
-ci-target-cli-smoke: build target-cli-positive target-negative nfr-repeat
+ci-target-cli-smoke: build target-cli-positive target-negative nfr-repeat local-network-smoke aleo-network-self-test aleo-devnet-self-test
 
 ci-target-smoke: test-targets ci-target-cli-smoke
 

@@ -43,6 +43,7 @@ print(client.install(targets=["quint"], dry_run=True).parsed)
 | `check(source, module=…)` | `check … --json` |
 | `inspect_artifacts(output_dir)` | `inspect --output-dir … --json` |
 | `inspect_target(target)` | `inspect <target> --json` |
+| `local(target=…, mode=…, source=…, module=…, runs=…)` | `local --target … -- --source … --module …` (Aleo sandbox generic; no broadcast) |
 | `load_output_manifest(output_dir)` | parse `manifest.json` (`schemaVersion=proof-forge.output.v1`) |
 
 `CliResult` fields: `ok`, `exit_code`, `command`, `stdout`, `stderr`, `parsed`,
