@@ -181,7 +181,8 @@ program Hello where …
 | **REL-CLI-0** 版本身份 | **done** | 根目录 `VERSION`；`ProofForgeV2/CLI/ProductVersionV1.lean`；`proof-forge-next version [--json]` / `--version`；schema `proof-forge.cli.version.v1`；channel=`engineering-dist` |
 | **REL-CLI-1** binary dist | **done** | `scripts/package_cli_dist.sh` + `just package-cli` → `dist/proof-forge-next-<ver>-<platform>.tar.gz` + `.sha256`；`just package-cli-smoke` |
 | **REL-CLI-2** 安装文档 | **done（本页 §9.1）** | monorepo `lake build` 仍为开发者路径；dist 为外部作者推荐路径 |
-| **REL-AUTHOR-0** Lean Author SDK | **pending** | 最小 import 闭包另 lane |
+| **REL-AUTHOR-0** Lean Author SDK | **done engineering** | `scripts/package_author_sdk.py` + `just package-author-sdk`：Syntax 闭包薄 `ProofForgeV2` 根 + tarball；`just package-author-sdk-smoke` |
+| **REL-CI-0** CI 发工程版 | **done engineering** | `.github/workflows/release-engineering-dist.yml`：tag `v*` / workflow_dispatch → build CLI + author tarball → GitHub Release（prerelease，`engineering-dist`） |
 | **REL-HOST-0** pip | **pending** | CLI dist 稳定后 |
 | formal Stage-0 | **out of scope** | 整仓最后 |
 
@@ -206,11 +207,41 @@ export PROOF_FORGE_CLI=/opt/proof-forge-next-0.1.0-linux-x86_64/bin/proof-forge-
 - `build` / `check` / `version` / `list-targets` 仅需二进制即可  
 - **禁止**把本 tarball 说成 formal / Stage-0 / hermetic 证据  
 
-### 9.2 剩余
+### 9.2 CI 发版（工程 channel）
 
-1. Author SDK 最小 import 闭包  
-2. GitHub Release 上传工程资产（可选 CI）  
-3. doctor/install 不依赖 monorepo CWD（产品面硬化）  
+| 触发 | 行为 |
+|---|---|
+| push tag `v*`（如 `v0.1.0`） | Linux 构建 CLI + Author SDK → **GitHub Release**（`prerelease: true`）上传 tarball+sha256 |
+| `workflow_dispatch` | 同样打包；非 tag 时默认 **draft** release，避免误发 |
+
+工作流：`.github/workflows/release-engineering-dist.yml`  
+命名必须带 **engineering-dist**；**禁止**写成 formal Stage-0 / `release-check`。
+
+本机等价：
+
+```bash
+just package-cli
+just package-author-sdk
+# 产物在 dist/
+```
+
+### 9.3 Author SDK 用法（Lake）
+
+```bash
+just package-author-sdk
+tar -xzf dist/proof-forge-author-0.1.0.tar.gz
+# 在用户工程 lakefile:
+#   require «proof-forge-author» from "/path/to/proof-forge-author-0.1.0"
+```
+
+用户源仍写 `import ProofForgeV2`（与产品 CLI 源文本 gate 兼容）。  
+**编译**仍用 CLI dist 的 `proof-forge-next`，不是 `lake build` 用户合约出链上制品。
+
+### 9.4 剩余
+
+1. doctor/install 不依赖 monorepo CWD（产品面硬化）  
+2. darwin-arm64 CI dist 矩阵  
+3. Host SDK pip  
 4. formal Stage-0  
 
 ## 10. 一句话

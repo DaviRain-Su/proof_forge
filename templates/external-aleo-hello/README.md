@@ -20,6 +20,11 @@ external-aleo-hello/
 No Lake package is required for the product `build` / `local` path. The monorepo
 `Examples/*` trees are **not** required after you copy this template.
 
+Optional IDE/Lake surface: extract **Author SDK** (`just package-author-sdk` or CI
+Release asset `proof-forge-author-*.tar.gz`) and `require «proof-forge-author»` so
+`import ProofForgeV2` elaborates `program … where` in the editor. Compile/materialize
+still uses the **CLI** dist (`proof-forge-next`), not `lake` alone.
+
 ## Prerequisites
 
 1. Built product CLI: `proof-forge-next` (from this repo: `lake build proof_forge_next`).

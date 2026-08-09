@@ -1,0 +1,124 @@
+name: Release engineering-dist
+
+# Engineering product distribution only (REL-CLI + REL-AUTHOR).
+# NOT formal Stage-0 / hermetic / governance / mainnet.
+#
+# Triggers:
+#   - push tags matching v* (e.g. v0.1.0, v0.1.0-engineering.1)
+#   - workflow_dispatch with optional tag name for dry packaging artifacts
+#
+# Uploads GitHub Release assets:
+#   proof-forge-next-<ver>-linux-x86_64.tar.gz(+.sha256)
+#   proof-forge-author-<ver>.tar.gz(+.sha256)
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      create_release:
+        description: "Create/update a GitHub Release for the current ref"
+        type: boolean
+        default: true
+
+concurrency:
+  group: release-engineering-dist-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  package-linux:
+    name: package-linux-x86_64
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Install just
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
+        with:
+          tool: just@1.48.0
+
+      - name: Install Lean
+        run: |
+          scripts/ci/install-lean.sh
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Read VERSION
+        id: ver
+        run: |
+          V="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          echo "Engineering product version: $V"
+
+      - name: Build product CLI
+        run: lake build proof_forge_next
+
+      - name: Package CLI engineering dist
+        run: just package-cli
+
+      - name: Package Author SDK
+        run: just package-author-sdk
+
+      - name: Version identity smoke
+        run: |
+          ./.lake/build/bin/proof-forge-next version --json | tee /tmp/ver.json
+          grep -q "\"version\":\"${{ steps.ver.outputs.version }}\"" /tmp/ver.json
+          grep -q '"channel":"engineering-dist"' /tmp/ver.json
+
+      - name: List dist artifacts
+        run: |
+          ls -lah dist/
+          ls -lah dist/*.tar.gz dist/*.sha256
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: engineering-dist-linux-x86_64
+          path: |
+            dist/proof-forge-next-*-linux-x86_64.tar.gz
+            dist/proof-forge-next-*-linux-x86_64.tar.gz.sha256
+            dist/proof-forge-author-*.tar.gz
+            dist/proof-forge-author-*.tar.gz.sha256
+          if-no-files-found: error
+
+      - name: Create GitHub Release (engineering-dist)
+        if: github.event_name == 'push' || inputs.create_release
+        uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090  # v2.4.1
+        with:
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('engineering-{0}', steps.ver.outputs.version) }}
+          name: engineering-dist ${{ steps.ver.outputs.version }}
+          draft: ${{ github.event_name == 'workflow_dispatch' && github.ref_type != 'tag' }}
+          prerelease: true
+          generate_release_notes: true
+          body: |
+            ## ProofForge engineering-dist ${{ steps.ver.outputs.version }}
+
+            **Channel:** `engineering-dist`  
+            **Not** formal Stage-0 / hermetic / mainnet / `just release-check`.
+
+            ### Assets
+            - `proof-forge-next-*-linux-x86_64.tar.gz` — product CLI binary dist
+            - `proof-forge-author-*.tar.gz` — minimal Lean Author SDK (`import ProofForgeV2` / program syntax)
+
+            ### Install CLI
+            ```bash
+            tar -xzf proof-forge-next-${{ steps.ver.outputs.version }}-linux-x86_64.tar.gz
+            export PROOF_FORGE_CLI=$PWD/proof-forge-next-${{ steps.ver.outputs.version }}-linux-x86_64/bin/proof-forge-next
+            "$PROOF_FORGE_CLI" version --json
+            ```
+
+            Tool Lock chain tools are **not** bundled; use `install` from a full checkout when needed.
+            `doctor`/`install`/`local` still expect package `scripts/` under CWD (known residual).
+
+            ### Author SDK
+            Extract and `require «proof-forge-author» from` the extracted path (or vendor the tree).
+            Product compile remains `proof-forge-next build …`.
+          files: |
+            dist/proof-forge-next-*-linux-x86_64.tar.gz
+            dist/proof-forge-next-*-linux-x86_64.tar.gz.sha256
+            dist/proof-forge-author-*.tar.gz
+            dist/proof-forge-author-*.tar.gz.sha256

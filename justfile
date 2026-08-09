@@ -1336,6 +1336,14 @@ package-cli *ARGS:
 package-cli-smoke:
     bash scripts/package_cli_dist_smoke.sh
 
+# Minimal Lean Author SDK (Syntax import closure). Engineering-dist only.
+# Authority: docs/product/05-distribution-and-packages.md REL-AUTHOR-0
+package-author-sdk *ARGS:
+    /usr/bin/python3 -I -S scripts/package_author_sdk.py {{ARGS}}
+
+package-author-sdk-smoke:
+    bash scripts/package_author_sdk_smoke.sh
+
 # Aleo explicit post-build deploy/execute (host-heavy; NOT ordinary ci).
 # Consumes an existing compile-profile OutputSet and publishes a separate
 # deployment receipt. DevNet uses --dev-key; Testnet uses --private-key-file +
