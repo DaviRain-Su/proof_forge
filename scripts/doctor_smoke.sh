@@ -57,6 +57,23 @@ assert target["tools"] == [], target
 '
 done
 
+echo "doctor-smoke: retired tool-root node forces mismatch with repair hint"
+printf 'retired\n' > "$empty/leo"
+set +e
+out="$(PROOF_FORGE_TOOL_ROOT="$empty" "${py[@]}" --json --target solana 2>&1)"
+code=$?
+set -e
+[[ "$code" -eq 3 ]]
+printf '%s' "$out" | /usr/bin/python3 -I -S -c '
+import json, sys
+doc = json.load(sys.stdin)
+target = doc["targets"][0]
+assert target["status"] == "mismatch", target
+assert "unexpected node '\''leo'\''" in target["hint"], target
+assert "install --all-core --yes" in target["hint"], target
+'
+rm "$empty/leo"
+
 if [[ -x "$root/.lake/build/bin/proof-forge-next" ]]; then
   cli="$root/.lake/build/bin/proof-forge-next"
   echo "doctor-smoke: CLI doctor --json --target noir"

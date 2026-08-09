@@ -124,7 +124,7 @@ target-owned Plan/IR/`.qnt` emitter、plan digest 与 zero-tool finalization；�
   `quint-source-u64-model-v1`；六轴新增/复用上述 wire 标签对应的 closed 构造子。
 - 文档：[`docs/targets/12-quint.md`](../targets/12-quint.md) 为 sole dossier；
   TARGET-INDEX 与 ADR 索引登记本决定。
-- **不**修改 accepted PRD Phase 1 文案；**不**闭合 `DOC-ADR-SCOPE`；**不**新增
+- **不**修改 accepted PRD Phase 1 文案；scope 边界随后由 ADR-0036 固定；**不**新增
   formal `TASK-*` / `TST-*`；formal D3/D4 与 release-qualification 轴不因本 ADR 升格。
 - engineering leaf 已在现有 authority 原位接线：registry/descriptor/resolver、
   `Registry.materializeResult`/planDigest/finalize dispatch 与 exact output closure 同源；

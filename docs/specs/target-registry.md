@@ -459,7 +459,7 @@ registry digest。
 > **当前工程偏离（2026-08-10；不构成本规范或 accepted scope 的升格）**：engineering
 > `TargetRegistryV1` seed 为 9 registry-implemented + 3 design-only。Aleo/Psy 分别只有
 > `aleo-instructions-v1` 与 `psy-dpn-v1` direct zero-tool profile；旧 Leo、Psy source/Dargo
-> profile 和 runtime/network lane 已删除。`DOC-ADR-SCOPE` 仍跟踪 accepted Phase-1
+> profile 和 runtime/network lane 已删除。ADR-0036 固定 accepted Phase-1
 > 四-target 范围与 engineering 扩面的正式 reconciliation；不得据 engineering label 推断
 > artifact/runtime maturity。
 

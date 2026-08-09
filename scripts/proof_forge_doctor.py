@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Product doctor surface for ProofForge V2 (proof-forge.doctor.v1).
 
-Inspects PROOF_FORGE_TOOL_ROOT (or the platform default cache path) and reports
-Tool Lock member presence for each TargetRegistry implemented target.
+Inspects PROOF_FORGE_TOOL_ROOT (or the platform default cache path), rejects
+retired/unlocked nodes, and reports Tool Lock member health for each
+TargetRegistry implemented target.
 
 Authority:
   - docs/product/01-toolchain-install-surface.md §4.4 / §5
@@ -21,7 +22,7 @@ import importlib.util
 import json
 import os
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
@@ -109,8 +110,8 @@ def resolve_tool_root(platform: str) -> Path:
     return path
 
 
-def load_host_lock_and_tools(ta: Any) -> tuple[str, dict[str, dict], Path]:
-    """Return (platform, tools_by_id, lock_path)."""
+def load_host_lock_and_tools(ta: Any) -> tuple[str, dict[str, dict], dict, Path]:
+    """Return (platform, tools_by_id, lock, lock_path)."""
     try:
         platform = ta.host_platform_id()
     except ta.AssetError as error:
@@ -155,7 +156,76 @@ def load_host_lock_and_tools(ta: Any) -> tuple[str, dict[str, dict], Path]:
                 exit_code=1,
             )
         tools[tool_id] = tool
-    return platform, tools, lock_path
+    return platform, tools, lock, lock_path
+
+
+def allowed_tool_root_paths(lock: dict) -> tuple[set[str], set[str]]:
+    """Return current-lock file and parent-directory paths.
+
+    A product install may materialize only a target-specific subset, so missing
+    current-lock paths are allowed here. Nodes outside the global current lock
+    are never allowed: they are retired residue or untracked input.
+    """
+    files: set[str] = set()
+    for record in lock.get("bundleFiles", []):
+        relative = record.get("path")
+        if isinstance(relative, str) and relative:
+            files.add(relative)
+    for tool in lock.get("tools", []):
+        if tool.get("sourceBuild") is not None:
+            relative = tool.get("executable")
+            if isinstance(relative, str) and relative:
+                files.add(relative)
+
+    directories: set[str] = set()
+    for relative in files:
+        parent = PurePosixPath(relative).parent
+        while parent != PurePosixPath("."):
+            directories.add(parent.as_posix())
+            parent = parent.parent
+    return files, directories
+
+
+def unexpected_tool_root_nodes(tool_root: Path, lock: dict) -> list[str]:
+    """List unlocked/special/symlink nodes without following symlinks."""
+    allowed_files, allowed_directories = allowed_tool_root_paths(lock)
+    problems: list[str] = []
+
+    def walk(directory: Path, relative_directory: PurePosixPath) -> None:
+        try:
+            entries = sorted(os.scandir(directory), key=lambda entry: entry.name)
+        except OSError as error:
+            problems.append(f"cannot scan '{relative_directory.as_posix()}': {error}")
+            return
+        for entry in entries:
+            relative_path = (
+                relative_directory / entry.name
+                if relative_directory != PurePosixPath(".")
+                else PurePosixPath(entry.name)
+            )
+            relative = relative_path.as_posix()
+            try:
+                metadata = entry.stat(follow_symlinks=False)
+            except OSError as error:
+                problems.append(f"cannot inspect '{relative}': {error}")
+                continue
+            if stat_is_link(metadata):
+                problems.append(f"forbidden symlink '{relative}'")
+                continue
+            if stat_is_dir(metadata):
+                if relative not in allowed_directories:
+                    problems.append(f"unexpected directory '{relative}'")
+                    continue
+                walk(Path(entry.path), relative_path)
+                continue
+            if not stat_is_reg(metadata):
+                problems.append(f"forbidden special node '{relative}'")
+                continue
+            if relative not in allowed_files:
+                problems.append(f"unexpected node '{relative}'")
+
+    walk(tool_root, PurePosixPath("."))
+    return problems
 
 
 def inspect_lock_tool(tool: dict, tool_root: Path) -> dict[str, Any]:
@@ -223,6 +293,18 @@ def stat_is_reg(st: os.stat_result) -> bool:
     return stat_mod.S_ISREG(st.st_mode)
 
 
+def stat_is_dir(st: os.stat_result) -> bool:
+    import stat as stat_mod
+
+    return stat_mod.S_ISDIR(st.st_mode)
+
+
+def stat_is_link(st: os.stat_result) -> bool:
+    import stat as stat_mod
+
+    return stat_mod.S_ISLNK(st.st_mode)
+
+
 
 
 def aggregate_target_status(tool_records: list[dict[str, Any]]) -> str:
@@ -246,6 +328,7 @@ def build_target_report(
     tool_root: Path,
     *,
     with_runtime: bool,
+    closure_problems: list[str],
 ) -> dict[str, Any]:
     if target_id in DESIGN_ONLY_TARGETS:
         return {
@@ -292,11 +375,26 @@ def build_target_report(
             tool_records.append(rec)
 
 
-    return {
+    report = {
         "id": target_id,
         "status": aggregate_target_status(tool_records),
         "tools": tool_records,
     }
+    # Zero-tool targets do not consume the tool root. Every tool-backed target
+    # must reject residue even when all of its requested members are healthy.
+    if tool_records and closure_problems:
+        report["status"] = "mismatch"
+        first = closure_problems[0]
+        suffix = (
+            f" (+{len(closure_problems) - 1} more)"
+            if len(closure_problems) > 1
+            else ""
+        )
+        report["hint"] = (
+            f"{first}{suffix}; run `proof-forge-next install --all-core --yes` "
+            "to remove retired tool-root nodes"
+        )
+    return report
 
 
 def render_human(report: dict[str, Any]) -> str:
@@ -306,6 +404,8 @@ def render_human(report: dict[str, Any]) -> str:
     ]
     for target in report["targets"]:
         lines.append(f"target={target['id']} status={target['status']}")
+        if target.get("hint"):
+            lines.append(f"  hint: {target['hint']}")
         for tool in target.get("tools", []):
             name = tool["name"]
             status = tool["status"]
@@ -359,6 +459,7 @@ def render_json(report: dict[str, Any]) -> str:
                 "id": t["id"],
                 "status": t["status"],
                 "tools": [compact_json_tool(tool) for tool in t.get("tools", [])],
+                **({"hint": t["hint"]} if t.get("hint") else {}),
             }
             for t in report["targets"]
         ],
@@ -408,16 +509,20 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     ta = _load_toolchain_assets()
-    platform, tools_by_id, _lock_path = load_host_lock_and_tools(ta)
+    platform, tools_by_id, lock, _lock_path = load_host_lock_and_tools(ta)
     tool_root = resolve_tool_root(platform)
 
-    if not tool_root.exists():
+    if not tool_root.exists() and not tool_root.is_symlink():
         die(
             "PF-TOOLCHAIN-MISSING",
             f"tool root does not exist: {tool_root}",
             exit_code=3,
         )
-    if not tool_root.is_dir():
+    try:
+        root_metadata = tool_root.lstat()
+    except OSError as error:
+        die("PF-TOOLCHAIN-MISMATCH", f"cannot stat tool root: {error}", exit_code=3)
+    if stat_is_link(root_metadata) or not stat_is_dir(root_metadata):
         die(
             "PF-TOOLCHAIN-MISMATCH",
             f"tool root is not a directory: {tool_root}",
@@ -444,9 +549,14 @@ def main(argv: list[str] | None = None) -> int:
         if args.all:
             target_ids = target_ids + list(DESIGN_ONLY_TARGETS)
 
+    closure_problems = unexpected_tool_root_nodes(tool_root, lock)
     targets = [
         build_target_report(
-            tid, tools_by_id, tool_root, with_runtime=args.with_runtime
+            tid,
+            tools_by_id,
+            tool_root,
+            with_runtime=args.with_runtime,
+            closure_problems=closure_problems,
         )
         for tid in target_ids
     ]

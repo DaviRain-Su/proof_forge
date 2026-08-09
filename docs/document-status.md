@@ -33,7 +33,7 @@ zero-tool finalize 的 source-only `.qnt` executable-model target；CosmWasm
 `@ton/sandbox` 10/10，schedule `createMessage` 为 hash destination/value=0 的 PARTIAL
 语义。以上均为工程观察，**非** formal/hermetic。
 **Accepted PRD Phase 1 范围仍为四目标**（EVM/Solana/NEAR/Noir）；后五个 engineering
-leaves 的产品范围 reconciliation 仍待 **`DOC-ADR-SCOPE`**，不得静默扩 accepted scope。
+leaves 的边界由 **ADR-0036** 固定为非 accepted 扩面，formal lighthouse 为 EVM-first。
 日常缺口队列见 [`engineering-backlog.md`](engineering-backlog.md)。**ADR-0027**
 （`proposed`）仍冻结 inline same-file gate 的 single-snapshot/audit/axiom/proof-first 基线；
 **ADR-0034**（`proposed`）的 Preservation ABI、`ProofKindV1`/三字段 wire、

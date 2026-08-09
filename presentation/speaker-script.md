@@ -127,7 +127,7 @@
 > 路线图分两块：
 > accepted Phase 1 范围仍是 EVM、Solana、NEAR、Noir 四个目标；
 > 工程 registry 则是 12 targets：9 implemented materializers 加 3 design-only。Aleo、Psy、Quint、CosmWasm、TON 是 engineering leaves，不自动扩大 accepted scope；
-> Soroban、ICP、OpenVM 仍 design-only。这个 4→9 偏离由 DOC-ADR-SCOPE 跟踪。
+> Soroban、ICP、OpenVM 仍 design-only。ADR-0036 固定 accepted 4 / engineering 9+3 边界与 EVM-first formal lighthouse。
 > 我们不会让不同平台共用一个虚假的通用 Plan，每个 materializer 都保持自己的 Plan 和 IR。
 
 ---

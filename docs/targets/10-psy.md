@@ -112,5 +112,5 @@ DPN lower 保留函数、参数、static-unroll、aggregate leaf、expression wo
 
 当前成熟度是 **canonical DPN package emission**。没有 DPN execution、local VM、proof、UPS、
 network deploy、hermetic 或 formal refinement 证据；删除旧 source/compiler path 不提高这些
-成熟度。accepted PRD Phase 1 仍为 EVM/Solana/NEAR/Noir，Psy 工程扩面由
-`DOC-ADR-SCOPE` 单独处理。
+成熟度。accepted PRD Phase 1 仍为 EVM/Solana/NEAR/Noir；Psy 属 engineering
+扩面，accepted/engineering scope 边界由 ADR-0036 固定。

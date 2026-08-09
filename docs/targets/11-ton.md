@@ -12,7 +12,7 @@ normative: true
 状态：`draft`
 Target ID：`ton`
 工程 MVP：**已实现**（2026-08-03，见 §0）。**Engineering only**——**非** accepted PRD
-Phase 1 四目标范围；accepted scope reconciliation 见 **`DOC-ADR-SCOPE`**。
+Phase 1 四目标范围；accepted/engineering scope 边界见 **ADR-0036**。
 
 ## 0. 工程状态（2026-08-04）
 

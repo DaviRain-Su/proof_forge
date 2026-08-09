@@ -24,7 +24,7 @@ normative: true
 > 1. **Accepted PRD Phase 1 范围**仍为 **四目标**：`evm` / `solana` / `near` / `noir`。
 > 2. **Engineering implemented leaves** 另有 `aleo` / `psy` / `cosmwasm` / `ton` /
 >    `quint`（工程已可寻址并 materialize，**不**等于 accepted 产品范围已扩）。二者
->    reconciliation 由 **`DOC-ADR-SCOPE`** 跟踪；不得因表格「implement」字样静默扩大
+>    边界由 **ADR-0036** 固定；不得因表格「implement」字样静默扩大
 >    accepted scope。`quint` 为 ADR-0026 冻结并已接线的 source-only model surface。
 
 | Target | 视图 | 本阶段 | Static dossier ceiling | 当前证据与限制（工程观察，非 formal binding） | Dossier |
@@ -46,7 +46,7 @@ normative: true
 > design-only**。九个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` /
 > `psy` / `quint` / `cosmwasm` / `ton`。三个 design-only：`soroban` / `icp` /
 > `openvm`。其中 **accepted PRD Phase 1** 仍仅前四；`aleo`/`psy`/`quint`/`cosmwasm`/
-> `ton` 为 engineering leaves，`DOC-ADR-SCOPE` 未闭合前不得写成 accepted 范围。
+> `ton` 为 engineering leaves；ADR-0036 明确其不自动进入 accepted 范围，formal lighthouse=EVM-first。
 > Registry maturity 标签（如 CosmWasm `wasm-validated-alpha`、TON/Quint
 > `source-only`）不变；compile / mock / sandbox / 模型检查不得写成 formal 或 hermetic 完成。
 

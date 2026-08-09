@@ -18,7 +18,7 @@ normative: false
 > [`21-system-programs-survey.md`](21-system-programs-survey.md)）。  
 > 本文只钉 **「一份代码多链」最容易被误解的那一层**：调用与钱何时算办完。
 
-**工程状态**：draft / non-normative。产品决策债见 `B-CALL-SEM`、`DOC-ADR-SCOPE`；  
+**工程状态**：draft / non-normative。产品决策债见 `B-CALL-SEM`；scope/formal lighthouse 见 ADR-0036；
 资产词汇见 ADR-0029 / ADR-0030。
 
 ---
@@ -66,7 +66,7 @@ normative: false
 
 > accepted PRD Phase 1 文案仍以 **EVM / Solana / NEAR / Noir** 为主；  
 > Aleo / Psy / Quint / CosmWasm / TON 为 engineering implemented；  
-> Soroban / ICP / OpenVM 为 design-only。扩 accepted 范围见 `DOC-ADR-SCOPE`。
+> Soroban / ICP / OpenVM 为 design-only。accepted/engineering 边界见 ADR-0036。
 
 | Target | 执行家族 | 跨合约模型（现实） | sync 外调 `call` | async `schedule` | token.transfer (sync) | token.transferAsync | 资产失败 vs 本地 state | MiniAmmAssets 式写法 |
 |---|---|---|---|---|---|---|---|---|

@@ -27,7 +27,7 @@ import secrets
 import shutil
 import stat as stat_mod
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, Iterator
 
 
@@ -226,6 +226,88 @@ def tools_by_id(lock: dict) -> dict[str, dict]:
             )
         out[tid] = tool
     return out
+
+
+def allowed_tool_root_paths(lock: dict) -> tuple[set[str], set[str]]:
+    """Return every current-lock file and its parent directories."""
+    files = {record["path"] for record in lock.get("bundleFiles", [])}
+    files.update(
+        tool["executable"]
+        for tool in lock.get("tools", [])
+        if tool.get("sourceBuild") is not None
+    )
+    directories: set[str] = set()
+    for relative in files:
+        parent = PurePosixPath(relative).parent
+        while parent != PurePosixPath("."):
+            directories.add(parent.as_posix())
+            parent = parent.parent
+    return files, directories
+
+
+def remove_tree_no_follow(path: Path) -> None:
+    """Remove one unexpected directory tree without following symlinks."""
+    for entry in os.scandir(path):
+        child = Path(entry.path)
+        metadata = entry.stat(follow_symlinks=False)
+        if stat_mod.S_ISDIR(metadata.st_mode) and not stat_mod.S_ISLNK(metadata.st_mode):
+            remove_tree_no_follow(child)
+        else:
+            child.unlink()
+    path.rmdir()
+
+
+def prune_retired_nodes(tool_root: Path, lock: dict, *, dry_run: bool) -> list[str]:
+    """Remove nodes outside the current lock and return deterministic notes.
+
+    Current-lock members not selected by this install are retained. This makes
+    target-specific installs composable while ensuring retired tools cannot
+    survive an upgrade indefinitely.
+    """
+    if not tool_root.exists():
+        return []
+    allowed_files, allowed_directories = allowed_tool_root_paths(lock)
+    retired: list[tuple[Path, str, bool]] = []
+
+    def walk(directory: Path, relative_directory: PurePosixPath) -> None:
+        for entry in sorted(os.scandir(directory), key=lambda item: item.name):
+            relative_path = (
+                relative_directory / entry.name
+                if relative_directory != PurePosixPath(".")
+                else PurePosixPath(entry.name)
+            )
+            relative = relative_path.as_posix()
+            metadata = entry.stat(follow_symlinks=False)
+            is_directory = stat_mod.S_ISDIR(metadata.st_mode) and not stat_mod.S_ISLNK(
+                metadata.st_mode
+            )
+            if is_directory and relative in allowed_directories:
+                walk(Path(entry.path), relative_path)
+            elif (not is_directory and relative in allowed_files and
+                  stat_mod.S_ISREG(metadata.st_mode) and
+                  not stat_mod.S_ISLNK(metadata.st_mode)):
+                continue
+            else:
+                retired.append((Path(entry.path), relative, is_directory))
+
+    try:
+        walk(tool_root, PurePosixPath("."))
+        for path, _relative, is_directory in retired:
+            if dry_run:
+                continue
+            if is_directory:
+                remove_tree_no_follow(path)
+            else:
+                path.unlink()
+    except OSError as error:
+        die(
+            "PF-TOOLCHAIN-MISMATCH",
+            f"cannot prune retired tool-root node: {error}",
+            exit_code=3,
+        )
+
+    verb = "would remove" if dry_run else "removed"
+    return [f"{verb} retired tool-root node: {relative}" for _, relative, _ in retired]
 
 
 def bundle_records_for_asset(lock: dict, asset_id: str) -> list[dict]:
@@ -641,6 +723,8 @@ def main(argv: list[str] | None = None) -> int:
         tool_root = ensure_tool_root(tool_root, dry_run=False)
     elif tool_root.exists():
         tool_root = ensure_tool_root(tool_root, dry_run=True)
+
+    notes.extend(prune_retired_nodes(tool_root, lock, dry_run=args.dry_run))
 
     # Group by asset so multi-tool assets (foundry → anvil+cast) materialize once.
     tool_records: list[dict[str, Any]] = []

@@ -24,7 +24,7 @@ closure（无 `--proof-bundle*`）。
 Quint：source-only `.qnt` + zero-tool finalize；CosmWasm：WAT + locked check + mock 28 tests +
 wasmd Docker rung-1；TON：Tolk/BoC + sandbox 10/10（schedule `createMessage` PARTIAL）。**Accepted PRD Phase 1 仍为四目标**
 （EVM/Solana/NEAR/Noir）；Aleo/Psy/Quint/CosmWasm/TON
-为 engineering leaves，范围 reconciliation 待 **`DOC-ADR-SCOPE`**。Normalize 为扩展中的
+为 engineering leaves；**ADR-0036** 固定该边界并选择 EVM-first formal lighthouse。Normalize 为扩展中的
 子集（超出最初 Counter-only S1，仍非完整语言面）。前端监督层已于 2026-08-01 移除。
 
 **日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)。

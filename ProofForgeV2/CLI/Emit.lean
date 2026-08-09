@@ -476,7 +476,7 @@ structure ListTargetsOptions where
   json : Bool := false
   deriving BEq, Repr
 
-/-- Parsed `doctor` trailing flags (product tool-root / Tool Lock presence). -/
+/-- Parsed `doctor` trailing flags (product tool-root / Tool Lock exact-set health). -/
 structure DoctorOptions where
   json : Bool := false
   withRuntime : Bool := false
@@ -610,8 +610,8 @@ or target-owned external deployment tooling).
 `inspect` keeps the historical `(String, Bool)` shape so pure parse tests stay
 stable; product `CLI.run` disambiguates registered target vs output-dir path.
 `inspectOutput` is the explicit `--output-dir` form (always output-dir mode).
-`doctor` is the product Tool Lock presence surface (`proof-forge.doctor.v1`).
-`install` is the product Tool Lock materialize surface (`proof-forge.install.v1`).
+`doctor` is the product Tool Lock exact-set health surface (`proof-forge.doctor.v1`).
+`install` is the product Tool Lock materialize/retired-node cleanup surface (`proof-forge.install.v1`).
 `local` is a host-heavy script wrapper (`proof-forge.local.v1`); not ordinary
 ci; not formal. -/
 inductive CliCommandV1 where

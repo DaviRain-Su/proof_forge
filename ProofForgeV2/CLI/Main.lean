@@ -52,8 +52,8 @@ private def usage : String :=
   "  --minimum-evidence is build-only (specified|artifact_validated|local_runtime|network_or_proof_validated).\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build;\n" ++
   "    version --json emits proof-forge.cli.version.v1;\n" ++
-  "    doctor --json emits proof-forge.doctor.v1 (Tool Lock presence under PROOF_FORGE_TOOL_ROOT);\n" ++
-  "    install --json emits proof-forge.install.v1 (Tool Lock materialize under PROOF_FORGE_TOOL_ROOT);\n" ++
+  "    doctor --json emits proof-forge.doctor.v1 (Tool Lock health + exact-set closure under PROOF_FORGE_TOOL_ROOT);\n" ++
+  "    install --json emits proof-forge.install.v1 (Tool Lock materialize + retired-node cleanup);\n" ++
   "    local --json emits proof-forge.local.v1.\n" ++
   "  doctor/install/local resolve package root (CWD-free):\n" ++
   "    PROOF_FORGE_ROOT (absolute) → parent of IO.appDir when scripts/ is present → process CWD.\n" ++
@@ -401,7 +401,7 @@ private def listTargets (options : ListTargetsOptions) : IO Unit := do
       IO.println line
 
 /-- Product doctor: thin CLI wrapper over package-owned
-    `scripts/proof_forge_doctor.py` (Tool Lock presence; no PATH fallback).
+    `scripts/proof_forge_doctor.py` (Tool Lock health/exact-set; no PATH fallback).
     Package root is CWD-free (`PROOF_FORGE_ROOT` absolute / `IO.appDir` parent with scripts/ / CWD).
     Exit codes are forwarded from the engine (0 all-ok, 3 missing/partial/mismatch,
     2 usage, 1 internal). -/

@@ -137,7 +137,7 @@ Resolve → Materialize。失败 **fail closed**，禁止降级或 legacy fallba
 同一 `StateCell` 语义；`--target` 只改变物化与制品编码。
 
 - **Accepted PRD Phase 1 范围（四目标）**：EVM / Solana / NEAR / Noir。工程 registry
-  扩大到 Aleo / Psy / Quint / CosmWasm / TON 的 reconciliation 仍由 **`DOC-ADR-SCOPE`** 跟踪，
+  扩大到 Aleo / Psy / Quint / CosmWasm / TON 的范围边界由 **ADR-0036** 固定，
   **不得**把后五者静默读成 accepted Phase 1 范围扩张。
 - **Engineering registry（代码事实）**：**12 = 9 implemented + 3 design-only**。九个
   materializer：EVM、Solana、NEAR、Noir、Aleo、Psy、Quint、CosmWasm、TON；design-only：
@@ -208,8 +208,8 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 ## 目标与成熟度（诚实表）
 
 > **双轨**：表中「本阶段」区分 **accepted PRD Phase 1 四目标**（EVM/Solana/NEAR/Noir）与
-> **engineering implemented leaves**（Aleo/Psy/Quint/CosmWasm/TON；scope ADR 仍 open，见
-> `DOC-ADR-SCOPE`）。后五行 **不是** accepted Phase 1 范围扩张。
+> **engineering implemented leaves**（Aleo/Psy/Quint/CosmWasm/TON；scope 边界见
+> [ADR-0036](docs/adr/0036-engineering-scope-and-evm-formal-lighthouse.md)）。后五行 **不是** accepted Phase 1 范围扩张；formal lighthouse 为 EVM-first。
 
 | Target | 角色 | 本阶段 | 证据状态（不得夸大） |
 |---|---|---|---|

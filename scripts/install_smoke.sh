@@ -55,6 +55,17 @@ echo "install-smoke: dry-run against present root reports would-skip"
 out="$(PROOF_FORGE_TOOL_ROOT="$tmp_root" "${py[@]}" --targets quint --dry-run --json)"
 echo "$out" | rg -q '"status": "would-skip"'
 
+echo "install-smoke: dry-run reports but retains retired tool-root node"
+printf 'retired\n' > "$tmp_root/leo"
+out="$(PROOF_FORGE_TOOL_ROOT="$tmp_root" "${py[@]}" --targets aleo --dry-run --json)"
+echo "$out" | rg -q 'would remove retired tool-root node: leo'
+[[ -f "$tmp_root/leo" ]]
+
+echo "install-smoke: install prunes retired tool-root node without network"
+out="$(PROOF_FORGE_TOOL_ROOT="$tmp_root" "${py[@]}" --targets aleo --yes --json)"
+echo "$out" | rg -q 'removed retired tool-root node: leo'
+[[ ! -e "$tmp_root/leo" ]]
+
 echo "install-smoke: Aleo and Psy remain zero-tool with --with-runtime"
 for target in aleo psy; do
   out="$(

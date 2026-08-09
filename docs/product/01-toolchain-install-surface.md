@@ -95,7 +95,7 @@ PROOF_FORGE_TOOL_ROOT/   # default: ~/.cache/proof-forge-v2/tool-root/<platform>
 
 - **Implemented（可 install 编译档）**：`evm`、`solana`、`near`、`noir`、`aleo`、`psy`、`quint`、`cosmwasm`、`ton`（与 `TargetRegistryV1` 九 materializer 一致）。
 - **Design-only（`unsupported`，不可 install）**：`soroban`、`icp`、`openvm`。
-- Accepted PRD Phase 1 文案仍为四目标；engineering 九 target 扩面不自动改写 accepted 范围（`DOC-ADR-SCOPE`）。
+- Accepted PRD Phase 1 文案仍为四目标；engineering 九 target 扩面不自动改写 accepted 范围（ADR-0036）。
 
 ### 4.3 编译档 vs runtime 档
 
@@ -148,6 +148,7 @@ target=aleo status=ok
 
 - 无 `PROOF_FORGE_TOOL_ROOT` 且默认 cache 不存在 → fail closed：stderr `PF-TOOLCHAIN-MISSING: tool root does not exist: …`，exit 3。
 - `PROOF_FORGE_TOOL_ROOT` 非绝对路径 → `PF-TOOLCHAIN-MISMATCH`，exit 3。
+- 对所有非 zero-tool target，Tool Root 采用 **current-lock exact-set closure**：允许只物化所选 target 的 lock 子集，但任何不属于当前全局 Tool Lock 的文件、目录、symlink 或 special node 都使 target 为 `mismatch`，并给出 `install --all-core --yes` 修复提示。这样已退役工具不会再出现 doctor 绿、构建门禁红。
 - design-only id → `unsupported`，不假装可装。
 - 引擎：`/usr/bin/python3 -I -S scripts/proof_forge_doctor.py`；产品 CLI：`proof-forge-next doctor` 通过 `PackageRootV1` 解析 package root（`PROOF_FORGE_ROOT` 绝对路径 → `IO.appDir` 父目录含 `scripts/` → CWD），并以 `cwd=packageRoot` spawn。
 - 聚焦 smoke：`scripts/doctor_smoke.sh`。
@@ -163,9 +164,10 @@ proof-forge-next install --all-core --yes   # 所有 implemented target 的非�
 - 禁止 PATH fallback 安装进 Tool Root。
 - 已存在且 digest 匹配 → skip（幂等）。
 - 只物化 **当前平台 lock** 中的 asset；跨平台/缺锁 fail closed。
+- 每次 install（包括 zero-tool target）都会扫描 Tool Root：保留当前 lock 中尚未选装的合法成员，清除不再属于当前 lock 的退役节点；`--dry-run` 只在 `notes` 报告 `would remove`，不落盘。
 - `--with-runtime` 仅物化 lock 内 runtime 工具（`anvil`/`cast`、`near-sandbox`）；Aleo/Psy 没有 runtime 配方或外部工具 fallback。
 - 引擎：`/usr/bin/python3 -I -S scripts/proof_forge_install.py`；产品 CLI：`proof-forge-next install` 同样经 `PackageRootV1` 定位 package root并以 `cwd=packageRoot` spawn。
-- 聚焦 smoke：`scripts/install_smoke.sh`（含 temp root 上 `quint`/`jv` 物化 + 幂等 skip + Aleo/Psy zero-tool 断言）。
+- 聚焦 smoke：`scripts/install_smoke.sh`（含 temp root 上 `quint`/`jv` 物化 + 幂等 skip + Aleo/Psy zero-tool + 退役 `leo` dry-run/清理断言）。
 - 成功后同一进程或紧随 `doctor` 可验证 present。
 
 ## 7. 本机包装（I2）

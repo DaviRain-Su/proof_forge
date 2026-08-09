@@ -13,7 +13,7 @@ normative: true
 Target ID：`quint`
 工程 MVP：**Q0 materializer 已接线**（ADR-0026；source-only、zero-tool finalize）。
 **Engineering only**——**非** accepted PRD Phase 1 四目标范围；accepted scope
-reconciliation 见 **`DOC-ADR-SCOPE`**。
+reconciliation 见 **ADR-0036**。
 
 ## 0. 工程状态（2026-08-03 / A6 2026-08-04）
 
