@@ -12,6 +12,7 @@ name: Release engineering-dist
 #   proof-forge-next-<ver>-darwin-arm64.tar.gz(+.sha256)
 #   proof-forge-author-<ver>.tar.gz(+.sha256)
 #   proof_forge_sdk / proof-forge-sdk wheel + sdist (+.sha256)
+#   Host SDK also published to PyPI on tag push (Trusted Publishing / environment pypi)
 
 on:
   push:
@@ -246,7 +247,92 @@ jobs:
             `proof_forge_sdk` / `proof-forge-sdk` wheel + sdist — thin CLI client only.
 
             ```bash
-            pip install ./proof_forge_sdk-${{ steps.ver.outputs.version }}-*.whl
+            pip install proof-forge-sdk==${{ steps.ver.outputs.version }}
+            # or from this Release asset:
+            # pip install ./proof_forge_sdk-${{ steps.ver.outputs.version }}-*.whl
+            export PROOF_FORGE_CLI=/path/to/proof-forge-next
             ```
+
+            PyPI publish is a separate job (`publish-pypi`) on tag push only (Trusted Publishing).
           files: |
             release-assets/*
+
+  publish-pypi:
+    name: publish-host-sdk-pypi
+    needs: [package-portable]
+    # PyPI publishing is limited to version tag pushes.
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/proof-forge-sdk
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Read VERSION + gate tag
+        id: ver
+        shell: bash
+        run: |
+          set -euo pipefail
+          V="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            TAG="${{ github.ref_name }}"
+            EXPECT="v${V}"
+            if [[ "$TAG" != "$EXPECT" ]]; then
+              echo "Tag '$TAG' must exactly match '${EXPECT}'" >&2
+              exit 1
+            fi
+          fi
+
+      - name: Download portable SDK artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          name: portable-sdk
+          path: artifacts
+
+      - name: Stage Host SDK only (exclude Author tarballs)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p pypi-dist
+          V="${{ steps.ver.outputs.version }}"
+          find artifacts -type f -name "proof_forge_sdk-${V}-*.whl" -exec cp -a {} pypi-dist/ \;
+          if find artifacts -type f -name "proof_forge_sdk-${V}.tar.gz" | grep -q .; then
+            find artifacts -type f -name "proof_forge_sdk-${V}.tar.gz" -exec cp -a {} pypi-dist/ \;
+          elif find artifacts -type f -name "proof-forge-sdk-${V}.tar.gz" | grep -q .; then
+            find artifacts -type f -name "proof-forge-sdk-${V}.tar.gz" -exec cp -a {} pypi-dist/ \;
+          else
+            echo "missing Host SDK sdist for ${V}" >&2
+            find artifacts -type f -print
+            exit 1
+          fi
+          ls -lah pypi-dist/
+          test -n "$(ls pypi-dist/*.whl 2>/dev/null)"
+          if ls pypi-dist/proof-forge-next-* pypi-dist/proof-forge-author-* >/dev/null 2>&1; then
+            echo "refusing to publish non-Host-SDK artifacts" >&2
+            exit 1
+          fi
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Twine check
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --upgrade pip twine
+          twine check pypi-dist/*
+
+      - name: Publish to PyPI (Trusted Publishing / OIDC)
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b9a034ebfe128415bbaabdfc  # v1.12.4
+        with:
+          packages-dir: pypi-dist
+          skip-existing: true
+          verify-metadata: true

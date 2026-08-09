@@ -9,7 +9,7 @@
 namespace ProofForgeV2.CLI.ProductVersionV1
 
 /-- Engineering product SemVer; sole Lean-side product version constant. -/
-def productVersionV1 : String := "0.1.0"
+def productVersionV1 : String := "0.1.1"
 
 /-- Machine-readable version schema id. -/
 def productVersionSchemaV1 : String := "proof-forge.cli.version.v1"
