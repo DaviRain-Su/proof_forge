@@ -8,15 +8,27 @@ Authority: [`docs/product/01-toolchain-install-surface.md`](../../docs/product/0
 
 ## Install / import
 
-No pip package. From package root (or set `PYTHONPATH`):
+### Engineering-dist (recommended)
+
+From a GitHub **engineering-dist** Release (or `just package-host-sdk`):
+
+```bash
+pip install ./proof_forge_sdk-<version>-*.whl
+# or: pip install proof-forge-sdk==<version>  # only if published to an index later
+export PROOF_FORGE_CLI=/path/to/proof-forge-next   # required for most calls
+# optional install/package root for doctor/install engines shipped with CLI dist:
+export PROOF_FORGE_ROOT=/path/to/extracted-cli-dist
+```
+
+### From monorepo (development)
 
 ```bash
 export PROOF_FORGE_ROOT=/absolute/path/to/proof_forge
 export PYTHONPATH="$PROOF_FORGE_ROOT/tools/sdk${PYTHONPATH:+:$PYTHONPATH}"
-# optional
 export PROOF_FORGE_CLI="$PROOF_FORGE_ROOT/.lake/build/bin/proof-forge-next"
-export PROOF_FORGE_TOOL_ROOT=/absolute/path/to/tool-root/linux-x86_64
 ```
+
+Build wheel locally: `just package-host-sdk` → `dist/*.whl`.
 
 ```python
 from proof_forge_sdk import ProofForgeClient, load_output_manifest

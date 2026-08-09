@@ -29,7 +29,7 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 | **External ProgramV1** | **done engineering**（[`02-external-program-v1.md`](02-external-program-v1.md) + `templates/external-aleo-hello/` + sandbox/SDK/MCP `--root` + `just external-hello-smoke`；非 Lake SDK / formal） |
 | **Hello agent playbook** | **done engineering**（[`03-hello-dapp-agent-playbook.md`](03-hello-dapp-agent-playbook.md)；MCP 顺序 doctor→install→build/local→artifacts） |
 | **Chain client catalog** | **done engineering**（[`04-chain-client-catalog.md`](04-chain-client-catalog.md) + `chain-client-catalog.v1.json` + `pf_chain_catalog` / SDK `chain_catalog`；元数据 only） |
-| **Distribution / packages** | **REL-CLI + Author SDK + CI + CWD-free engineering done**（[`05-distribution-and-packages.md`](05-distribution-and-packages.md)：`package-cli` 含 scripts/locks；doctor/install/local 解析 package root；Host pip / formal Stage-0 仍 pending） |
+| **Distribution / packages** | **engineering-dist done**（[`05-distribution-and-packages.md`](05-distribution-and-packages.md)：CLI linux+darwin-arm64 CI 矩阵、Author SDK、Host wheel、CWD-free；PyPI/formal Stage-0 仍 pending） |
 
 本文是 **产品契约与实现顺序** 的权威草稿；I0–I3、MCP-V0、SDK-V0 与 distribution REL-CLI/Author/CI engineering dist 已接线。不声称 formal / hermetic / mainnet / Stage-0。
 
@@ -169,7 +169,7 @@ JSON（MCP/Agent）：
 - 无 `PROOF_FORGE_TOOL_ROOT` 且默认 cache 不存在 → fail closed：stderr `PF-TOOLCHAIN-MISSING: tool root does not exist: …`，exit 3。
 - `PROOF_FORGE_TOOL_ROOT` 非绝对路径 → `PF-TOOLCHAIN-MISMATCH`，exit 3。
 - design-only id → `unsupported`，不假装可装。
-- 引擎：`/usr/bin/python3 -I -S scripts/proof_forge_doctor.py`；产品 CLI：`proof-forge-next doctor`（CWD=repo root 以发现脚本）。
+- 引擎：`/usr/bin/python3 -I -S scripts/proof_forge_doctor.py`；产品 CLI：`proof-forge-next doctor` 通过 `PackageRootV1` 解析 package root（`PROOF_FORGE_ROOT` 绝对路径 → `IO.appDir` 父目录含 `scripts/` → CWD），并以 `cwd=packageRoot` spawn。
 - 聚焦 smoke：`scripts/doctor_smoke.sh`。
 
 ## 6. install 契约（I1）
@@ -185,7 +185,7 @@ proof-forge-next install --all-core --yes   # 所有 implemented 的 compile/cor
 - 已存在且 digest 匹配 → skip（幂等）。
 - 只物化 **当前平台 lock** 中的 asset；跨平台/缺锁 fail closed。
 - `--with-runtime` 装 lock 内 runtime 工具（`anvil`/`cast`、`near-sandbox`）；Aleo `snarkos` **不在 lock**：install **不** cargo-build，只在 report 中给出 exact `installCommand` + `PROOF_FORGE_ALEO_SNARKOS` 约定（I3；host-heavy，非 ordinary ci）。
-- 引擎：`/usr/bin/python3 -I -S scripts/proof_forge_install.py`；产品 CLI：`proof-forge-next install`（CWD=repo root）。
+- 引擎：`/usr/bin/python3 -I -S scripts/proof_forge_install.py`；产品 CLI：`proof-forge-next install` 同样经 `PackageRootV1` 定位 package root 并以 `cwd=packageRoot` spawn。
 - 聚焦 smoke：`scripts/install_smoke.sh`（含 temp root 上 `quint`/`jv` 物化 + 幂等 skip + aleo `--with-runtime` snarkos documented）。
 - 成功后同一进程或紧随 `doctor` 可验证 present。
 
@@ -215,7 +215,7 @@ proof-forge-next network --target aleo --broadcast [--json] [--] [script-args...
 | `aleo` | CLI：no-secret DevNet；explicit engine：DevNet/Testnet | `scripts/aleo_network_receipt.py`（`aleo_network.sh` 仅 privileged-Bash adapter） | 显式 `--broadcast`；OutputSet/tool private snapshot；独立 retained-FD receipt；CLI CWD wrapper spawn 前拒 signer args/env/FD capability；Testnet key-file identity→inherited FD + snarkOS SHA pin；mainnet/canary 拒绝 |
 | 其它 | fail closed | — | 无产品 network 脚本 |
 
-- local/network CWD wrapper 固定执行 `/bin/bash -p`；Testnet 推荐 `just aleo-network` 直接执行
+- local/network CWD-free wrapper 先经 `PackageRootV1` 定位 package root，再以 `cwd=packageRoot` 固定执行 `/bin/bash -p`；`local` 会为子进程设置 `PROOF_FORGE_ROOT=packageRoot`，并在可观测时设置 `PROOF_FORGE_CLI` 为当前 CLI 路径；Testnet 推荐 `just aleo-network` 直接执行
   `/usr/bin/python3 -I -S`，显式 shell adapter 也固定 privileged Bash + absolute Python；禁止 PATH/BASH_ENV fallback。
 - `network` 无 `--broadcast` → usage / exit 2（产品 parse 层，永不隐式广播）。
 - Aleo network 缺参数 → `PF-NETWORK-MISSING`；缺/错 snarkOS → `PF-TOOLCHAIN-MISSING`；CLI JSON 映射稳定 status。

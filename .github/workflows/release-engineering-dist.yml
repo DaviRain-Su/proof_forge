@@ -1,15 +1,17 @@
 name: Release engineering-dist
 
-# Engineering product distribution only (REL-CLI + REL-AUTHOR).
+# Engineering product distribution (CLI multi-arch + Author SDK + Host SDK wheel).
 # NOT formal Stage-0 / hermetic / governance / mainnet.
 #
 # Triggers:
-#   - push tags matching v* (e.g. v0.1.0, v0.1.0-engineering.1)
-#   - workflow_dispatch with optional tag name for dry packaging artifacts
+#   - push tags matching v* (e.g. v0.1.0) — tag MUST match VERSION file
+#   - workflow_dispatch (draft release by default unless on a tag)
 #
-# Uploads GitHub Release assets:
+# Assets:
 #   proof-forge-next-<ver>-linux-x86_64.tar.gz(+.sha256)
+#   proof-forge-next-<ver>-darwin-arm64.tar.gz(+.sha256)
 #   proof-forge-author-<ver>.tar.gz(+.sha256)
+#   proof_forge_sdk / proof-forge-sdk wheel + sdist (+.sha256)
 
 on:
   push:
@@ -30,9 +32,17 @@ permissions:
   contents: write
 
 jobs:
-  package-linux:
-    name: package-linux-x86_64
-    runs-on: ubuntu-latest
+  package-cli:
+    name: package-cli (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-latest
+          - platform: darwin-arm64
+            runner: macos-14
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
@@ -47,12 +57,22 @@ jobs:
           scripts/ci/install-lean.sh
           echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
 
-      - name: Read VERSION
+      - name: Read VERSION + gate tag
         id: ver
+        shell: bash
         run: |
+          set -euo pipefail
           V="$(tr -d '[:space:]' < VERSION)"
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "Engineering product version: $V"
+          if [[ "${{ github.ref_type }}" == "tag" ]]; then
+            TAG="${{ github.ref_name }}"
+            EXPECT="v${V}"
+            if [[ "$TAG" != "$EXPECT" && "$TAG" != "v${V}-"* ]]; then
+              echo "Tag '$TAG' must equal 'v${V}' or start with 'v${V}-' (VERSION file)" >&2
+              exit 1
+            fi
+          fi
 
       - name: Build product CLI
         run: lake build proof_forge_next
@@ -60,39 +80,119 @@ jobs:
       - name: Package CLI engineering dist
         run: just package-cli
 
-      - name: Package Author SDK
-        run: just package-author-sdk
-
       - name: Version identity smoke
+        shell: bash
         run: |
+          set -euo pipefail
           ./.lake/build/bin/proof-forge-next version --json | tee /tmp/ver.json
           grep -q "\"version\":\"${{ steps.ver.outputs.version }}\"" /tmp/ver.json
           grep -q '"channel":"engineering-dist"' /tmp/ver.json
+          # Platform id in archive name
+          ls dist/proof-forge-next-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz
+          ls dist/proof-forge-next-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz.sha256
 
-      - name: List dist artifacts
-        run: |
-          ls -lah dist/
-          ls -lah dist/*.tar.gz dist/*.sha256
-
-      - name: Upload workflow artifacts
+      - name: Upload CLI artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
-          name: engineering-dist-linux-x86_64
+          name: cli-${{ matrix.platform }}
           path: |
-            dist/proof-forge-next-*-linux-x86_64.tar.gz
-            dist/proof-forge-next-*-linux-x86_64.tar.gz.sha256
-            dist/proof-forge-author-*.tar.gz
-            dist/proof-forge-author-*.tar.gz.sha256
+            dist/proof-forge-next-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz
+            dist/proof-forge-next-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz.sha256
           if-no-files-found: error
 
+  package-portable:
+    name: package-author-and-host-sdk
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Install just
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
+        with:
+          tool: just@1.48.0
+
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
+        with:
+          python-version: "3.12"
+
+      - name: Install Python build tooling
+        run: python -m pip install --upgrade pip build wheel
+
+      - name: Read VERSION
+        id: ver
+        run: |
+          V="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Package Author SDK
+        run: just package-author-sdk
+
+      - name: Package Host SDK (wheel+sdist)
+        run: just package-host-sdk
+
+      - name: Host SDK install smoke
+        run: just package-host-sdk-smoke
+
+      - name: Upload portable artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+        with:
+          name: portable-sdk
+          path: |
+            dist/proof-forge-author-*.tar.gz
+            dist/proof-forge-author-*.tar.gz.sha256
+            dist/*.whl
+            dist/*.whl.sha256
+            dist/proof_forge_sdk-*.tar.gz
+            dist/proof_forge_sdk-*.tar.gz.sha256
+            dist/proof-forge-sdk-*.tar.gz
+            dist/proof-forge-sdk-*.tar.gz.sha256
+          if-no-files-found: error
+
+  publish:
+    name: publish-github-release
+    needs: [package-cli, package-portable]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' || inputs.create_release
+    steps:
+      - name: Checkout (for VERSION / notes)
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Read VERSION
+        id: ver
+        run: |
+          V="$(tr -d '[:space:]' < VERSION)"
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: Download all dist artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
+        with:
+          path: artifacts
+
+      - name: Stage release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.whl' -o -name '*.sha256' \) -print
+          find artifacts -type f \( -name '*.tar.gz' -o -name '*.whl' -o -name '*.sha256' \) \
+            -exec cp -a {} release-assets/ \;
+          ls -lah release-assets/
+          # Required CLI arches
+          test -f release-assets/proof-forge-next-${{ steps.ver.outputs.version }}-linux-x86_64.tar.gz
+          test -f release-assets/proof-forge-next-${{ steps.ver.outputs.version }}-darwin-arm64.tar.gz
+          test -f release-assets/proof-forge-author-${{ steps.ver.outputs.version }}.tar.gz
+          ls release-assets/*.whl | head -1
+
       - name: Create GitHub Release (engineering-dist)
-        if: github.event_name == 'push' || inputs.create_release
         uses: softprops/action-gh-release@6da8fa9354ddfdc4aeace5fc48d7f679b5214090  # v2.4.1
         with:
-          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('engineering-{0}', steps.ver.outputs.version) }}
+          tag_name: ${{ github.ref_type == 'tag' && github.ref_name || format('engineering-v{0}', steps.ver.outputs.version) }}
           name: engineering-dist ${{ steps.ver.outputs.version }}
           draft: ${{ github.event_name == 'workflow_dispatch' && github.ref_type != 'tag' }}
           prerelease: true
+          fail_on_unmatched_files: true
           generate_release_notes: true
           body: |
             ## ProofForge engineering-dist ${{ steps.ver.outputs.version }}
@@ -100,26 +200,31 @@ jobs:
             **Channel:** `engineering-dist`  
             **Not** formal Stage-0 / hermetic / mainnet / `just release-check`.
 
-            ### Assets
-            - `proof-forge-next-*-linux-x86_64.tar.gz` — product CLI binary dist
-            - `proof-forge-author-*.tar.gz` — minimal Lean Author SDK (`import ProofForgeV2` / program syntax)
+            ### CLI (native)
+            | Platform | Asset |
+            |---|---|
+            | linux-x86_64 | `proof-forge-next-${{ steps.ver.outputs.version }}-linux-x86_64.tar.gz` |
+            | darwin-arm64 | `proof-forge-next-${{ steps.ver.outputs.version }}-darwin-arm64.tar.gz` |
 
-            ### Install CLI
             ```bash
             tar -xzf proof-forge-next-${{ steps.ver.outputs.version }}-linux-x86_64.tar.gz
             export PROOF_FORGE_CLI=$PWD/proof-forge-next-${{ steps.ver.outputs.version }}-linux-x86_64/bin/proof-forge-next
             "$PROOF_FORGE_CLI" version --json
+            "$PROOF_FORGE_CLI" doctor --target aleo --json   # CWD-free
             ```
 
-            Tool Lock *tool binaries* are **not** bundled; use `install --targets …` after extract.
-            Dist includes package `scripts/` + Tool Lock pin JSON; doctor/install/local are **CWD-free**
-            via `PROOF_FORGE_ROOT` or `<extract>/bin/proof-forge-next` layout.
+            Tool Lock *tool binaries* are not bundled; use `install --targets …`.
+            Dist includes `scripts/` + Tool Lock pin JSON.
 
-            ### Author SDK
-            Extract and `require «proof-forge-author» from` the extracted path (or vendor the tree).
-            Product compile remains `proof-forge-next build …`.
+            ### Lean Author SDK
+            `proof-forge-author-${{ steps.ver.outputs.version }}.tar.gz` — path-require for Lake/IDE.
+            Product compile still uses CLI.
+
+            ### Host SDK (Python)
+            `proof_forge_sdk` / `proof-forge-sdk` wheel + sdist — thin CLI client only.
+
+            ```bash
+            pip install ./proof_forge_sdk-${{ steps.ver.outputs.version }}-*.whl
+            ```
           files: |
-            dist/proof-forge-next-*-linux-x86_64.tar.gz
-            dist/proof-forge-next-*-linux-x86_64.tar.gz.sha256
-            dist/proof-forge-author-*.tar.gz
-            dist/proof-forge-author-*.tar.gz.sha256
+            release-assets/*

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "proof-forge-sdk"
+# Substituted by scripts/package_host_sdk.sh from repo VERSION when packaging.
+version = "0.1.0"
+description = "Thin Host SDK for ProofForge product CLI JSON (engineering-dist)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+authors = [{ name = "ProofForge contributors" }]
+keywords = ["proof-forge", "lean", "cli", "sdk"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Topic :: Software Development :: Build Tools",
+]
+# stdlib-only runtime; no hard deps.
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/DaviRain-Su/proof_forge"
+Documentation = "https://github.com/DaviRain-Su/proof_forge/blob/main/tools/sdk/README.md"
+
+[project.scripts]
+proof-forge-sdk = "proof_forge_sdk:_main"
+
+[tool.setuptools]
+py-modules = ["proof_forge_sdk"]

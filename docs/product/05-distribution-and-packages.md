@@ -184,7 +184,8 @@ program Hello where …
 | **REL-CLI-2** 安装文档 | **done（本页 §9.1）** | monorepo `lake build` 仍为开发者路径；dist 为外部作者推荐路径 |
 | **REL-AUTHOR-0** Lean Author SDK | **done engineering** | `scripts/package_author_sdk.py` + `just package-author-sdk`：Syntax 闭包薄 `ProofForgeV2` 根 + tarball；`just package-author-sdk-smoke` |
 | **REL-CI-0** CI 发工程版 | **done engineering** | `.github/workflows/release-engineering-dist.yml`：tag `v*` / workflow_dispatch → build CLI + author tarball → GitHub Release（prerelease，`engineering-dist`） |
-| **REL-HOST-0** pip | **pending** | CLI dist 稳定后 |
+| **REL-HOST-0** pip | **done engineering** | `tools/sdk/pyproject.toml` + `just package-host-sdk` → wheel/sdist；`package-host-sdk-smoke`；CI 随 engineering Release 上传 |
+| **REL-CI-1** multi-arch | **done engineering** | `release-engineering-dist.yml`：linux-x86_64 + **darwin-arm64** CLI 矩阵 + portable Author/Host 包 → 单一 publish job；tag 须匹配 `VERSION` |
 | formal Stage-0 | **out of scope** | 整仓最后 |
 
 ### 9.1 安装 CLI dist（推荐外部作者）
@@ -238,23 +239,53 @@ tar -xzf dist/proof-forge-author-0.1.0.tar.gz
 用户源仍写 `import ProofForgeV2`（与产品 CLI 源文本 gate 兼容）。
 **编译**仍用 CLI dist 的 `proof-forge-next`，不是 `lake build` 用户合约出链上制品。
 
-### 9.4 CWD-free doctor/install/local（REL-CWD-0）— **done engineering**
+### 9.4 CWD-free doctor/install/local/network（REL-CWD-0）— **done engineering**
 
 Package root 解析（`PackageRootV1`）：
 
-1. `PROOF_FORGE_ROOT`（绝对；含 `scripts/proof_forge_doctor.py`）
-2. CLI 安装布局：`IO.appDir` 的父目录（`<root>/bin/proof-forge-next`）
+1. `PROOF_FORGE_ROOT`（必须是绝对路径；含 `scripts/proof_forge_doctor.py`）
+2. `IO.appDir` 的父目录（当该父目录含 `scripts/proof_forge_doctor.py`；典型为 `<root>/bin/proof-forge-next`）
 3. 进程 CWD（monorepo 开发路径）
 
 `just package-cli` 打包 `scripts/` 引擎 + Tool Lock pin JSON。  
 聚焦门：`just package-cli-cwd-free-smoke`（foreign CWD 上 `doctor`）。
 
-### 9.5 剩余
+### 9.5 CI 多架构 + Host SDK（REL-CI-1 / REL-HOST-0）
 
-1. darwin-arm64 CI dist 矩阵
-2. Reservoir/git published Author SDK channel（当前只有 tarball/Release asset + path require）
-3. Host SDK pip
-4. formal Stage-0
+| 平台 | CLI 资产 | runner |
+|---|---|---|
+| linux-x86_64 | `proof-forge-next-<ver>-linux-x86_64.tar.gz` | `ubuntu-latest` |
+| darwin-arm64 | `proof-forge-next-<ver>-darwin-arm64.tar.gz` | `macos-14` |
+
+可移植包（单次构建）：Author SDK tarball、Host SDK wheel/sdist。
+
+**发版门：**
+
+```bash
+# VERSION 文件 = 0.1.0 时：
+git tag v0.1.0
+git push origin v0.1.0
+# → Release engineering-dist workflow
+#    tag 必须是 v${VERSION} 或 v${VERSION}-* 前缀
+```
+
+`workflow_dispatch` 默认 **draft** Release（非 tag）。  
+所有 Release 标记 **prerelease** + `engineering-dist` 文案。
+
+本机：
+
+```bash
+just package-cli              # 当前主机平台
+just package-author-sdk
+just package-host-sdk
+just package-host-sdk-smoke
+```
+
+### 9.6 剩余
+
+1. Reservoir/git published Author SDK channel（当前只有 tarball/Release asset + path require）
+2. PyPI 公开索引（当前仅 Release asset / 本地 wheel）
+3. formal Stage-0
 
 ## 10. 一句话
 

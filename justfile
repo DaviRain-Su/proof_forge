@@ -1348,6 +1348,13 @@ package-author-sdk *ARGS:
 package-author-sdk-smoke:
     bash scripts/package_author_sdk_smoke.sh
 
+# Host SDK Python wheel/sdist (engineering-dist). Not formal Stage-0.
+package-host-sdk *ARGS:
+    bash scripts/package_host_sdk.sh {{ARGS}}
+
+package-host-sdk-smoke:
+    bash scripts/package_host_sdk_smoke.sh
+
 # Aleo explicit post-build deploy/execute (host-heavy; NOT ordinary ci).
 # Consumes an existing compile-profile OutputSet and publishes a separate
 # deployment receipt. DevNet uses --dev-key; Testnet uses --private-key-file +
