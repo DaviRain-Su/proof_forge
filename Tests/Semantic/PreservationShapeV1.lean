@@ -6,14 +6,14 @@
   pin table or replaying per-contract micro-paths.
 -/
 import ProofForgeV2.Semantic.PreservationShapeV1
-import ProofForgeV2.ProofInstances.ZeroCounterV1
-import ProofForgeV2.ProofInstances.ZeroCounterPreservationV1
+import ProofForgeV2.Semantic.ZeroCounterShapeV1
+import ProofForgeV2.Semantic.ZeroCounterPreservationV1
 
 namespace Tests.Semantic.PreservationShapeV1
 
 open ProofForgeV2.Semantic.PreservationShapeV1
 open ProofForgeV2.Semantic.ReferenceV1
-open ProofForgeV2.ProofInstances.ZeroCounterV1
+open ProofForgeV2.Semantic.ZeroCounterShapeV1
 
 private def expect (cond : Bool) (msg : String) : IO Unit := do
   unless cond do
@@ -72,7 +72,7 @@ def test_packaging_types_elaborate : IO Unit := do
     @preservationReturned_of_readyViewLoadTripleSlot2_postEqPreV1
   -- ZeroCounter still exposes a full preservation theorem (product path green).
   let _full :=
-    ProofForgeV2.ProofInstances.ZeroCounterPreservationV1.preservation_theorem
+    ProofForgeV2.Semantic.ZeroCounterPreservationV1.preservation_theorem
   expect true "PreservationShapeV1 packaging theorems elaborate"
 
 def run : IO Unit := do

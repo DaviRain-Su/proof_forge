@@ -1,8 +1,8 @@
 import Lean
 import ProofForgeV2.Semantic.ParityCounterPreservationV1
 import ProofForgeV2.Semantic.ParityCounterShapeV1
-import ProofForgeV2.ProofInstances.ZeroCounterPreservationV1
-import ProofForgeV2.ProofInstances.ZeroCounterV1
+import ProofForgeV2.Semantic.ZeroCounterPreservationV1
+import ProofForgeV2.Semantic.ZeroCounterShapeV1
 
 /-!
   Closed semantic-byte pins for product proof subjects.
@@ -31,13 +31,14 @@ import ProofForgeV2.ProofInstances.ZeroCounterV1
      pin-name hop for identity. Convenience only.
   3. **Never** grow the pin table as the only way to prove a new contract.
 
-  ## Wave-3′ mig-b1-evencounter
+  ## Wave-3′ mig-b1 / mig-b2
 
-  EvenCounter product path left `ProofInstances/` (now
-  `Semantic.ParityCounter*`). Pin remains a golden accelerator for nullary
-  `exact ParityCounterPreservationV1.preservation_theorem` (transparent-spine
-  `decide` on 1795B is not product-practical). Ordinary contract surface:
-  `ProofForgeV2.Examples.EvenCounter`. ZeroCounter pin until mig-b2.
+  EvenCounter and ZeroCounter product paths left `ProofInstances/` (now
+  `Semantic.ParityCounter*` / `Semantic.ZeroCounter*`). Pin remains a golden
+  accelerator for nullary `exact …PreservationV1.preservation_theorem`
+  (transparent-spine `decide` on multi-KiB subjects is not product-practical).
+  Ordinary contract surfaces: `ProofForgeV2.Examples.EvenCounter` /
+  `ProofForgeV2.Examples.ZeroCounter`.
 
   **Product env coupling:** the product session imports only
   `ProgramElaborationV1` (and its transitive graph). Closed-instance *proof*
@@ -50,21 +51,20 @@ import ProofForgeV2.ProofInstances.ZeroCounterV1
 namespace ProofForgeV2.Semantic.ClosedSubjectPinV1
 
 open ProofForgeV2.Semantic
-open ProofForgeV2.ProofInstances
 
 /-- Fully-qualified `ByteArray` constants that product `subjectBytesV1` may
     alias. Certifier may follow exactly one hop into these names. -/
 def closedSubjectBytePinNamesV1 : Array Lean.Name := #[
   ``ProofForgeV2.Semantic.ParityCounterShapeV1.canonicalBytes,
-  ``ProofForgeV2.ProofInstances.ZeroCounterV1.canonicalBytes
+  ``ProofForgeV2.Semantic.ZeroCounterShapeV1.canonicalBytes
 ]
 
 /-- Runtime pin lookup by exact carrier bytes (elaborator meta path). -/
 def resolveClosedSubjectBytesPinNameV1 (bytes : ByteArray) : Option Lean.Name :=
   if bytes == ParityCounterShapeV1.canonicalBytes then
     some ``ProofForgeV2.Semantic.ParityCounterShapeV1.canonicalBytes
-  else if bytes == ZeroCounterV1.canonicalBytes then
-    some ``ProofForgeV2.ProofInstances.ZeroCounterV1.canonicalBytes
+  else if bytes == ZeroCounterShapeV1.canonicalBytes then
+    some ``ProofForgeV2.Semantic.ZeroCounterShapeV1.canonicalBytes
   else
     none
 
@@ -76,8 +76,8 @@ def isClosedSubjectBytePinNameV1 (name : Lean.Name) : Bool :=
 def closedSubjectBytePinBytesV1 (name : Lean.Name) : Option ByteArray :=
   if name == ``ProofForgeV2.Semantic.ParityCounterShapeV1.canonicalBytes then
     some ParityCounterShapeV1.canonicalBytes
-  else if name == ``ProofForgeV2.ProofInstances.ZeroCounterV1.canonicalBytes then
-    some ZeroCounterV1.canonicalBytes
+  else if name == ``ProofForgeV2.Semantic.ZeroCounterShapeV1.canonicalBytes then
+    some ZeroCounterShapeV1.canonicalBytes
   else
     none
 

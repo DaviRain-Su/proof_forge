@@ -35,7 +35,7 @@ import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.TheoremInventoryV1
 import ProofForgeV2.Semantic.ParityCounterShapeV1
-import ProofForgeV2.ProofInstances.ZeroCounterV1
+import ProofForgeV2.Semantic.ZeroCounterShapeV1
 import ProofForgeV2.Source.ValidatedSourceV1
 
 namespace Tests.Compiler.InlineProofCertifierV1
@@ -279,10 +279,14 @@ private def zeroCounterPreservingProgram
   "  proof zero preserving using " ++ authorTheorem ++ "\n" ++
   theoremBody
 
+/-- Author body for ZeroCounter L1 (mig-b2): nullary `exact` of the
+    store-zero shape-family `preservation_theorem`. Subject bytes are
+    pin-aliased to `ZeroCounterShapeV1.canonicalBytes` (golden accelerator
+    only — not ProofInstances). Inventory admits only the theorem command. -/
 private def zeroCounterPreservingTheoremBody
     (theoremName typeName : String) : String :=
   "theorem " ++ theoremName ++ " : " ++ typeName ++ " := by\n" ++
-  "  exact ProofForgeV2.ProofInstances.ZeroCounterPreservationV1.preservation_theorem\n"
+  "  exact ProofForgeV2.Semantic.ZeroCounterPreservationV1.preservation_theorem\n"
 
 /-- Strict RED→GREEN product-positive for the first real preserving instance.
     The author theorem must close the exact generic `PreservationTheoremV1` for
@@ -358,13 +362,13 @@ private unsafe def testZeroCounterPreservingProductPositive
   let compiled ← compileOf source origin
   let semantic := CompiledSemanticV1.semanticV1Of compiled
   expect (semantic.canonicalBytes ==
-      ProofForgeV2.ProofInstances.ZeroCounterV1.canonicalBytes)
+      ProofForgeV2.Semantic.ZeroCounterShapeV1.canonicalBytes)
     "ZeroCounter product bytes must equal the closed instance bytes"
   let decoded ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1 semantic with
     | .ok value => pure value
     | .error error =>
         throw <| IO.userError s!"ZeroCounter semantic validation failed: {repr error}"
-  expect (decoded == ProofForgeV2.ProofInstances.ZeroCounterV1.data)
+  expect (decoded == ProofForgeV2.Semantic.ZeroCounterShapeV1.data)
     "ZeroCounter product data must equal the closed instance data"
   let outcome ← certifyInlineProofV1 session src source origin inventory compiled
     path "Root" none

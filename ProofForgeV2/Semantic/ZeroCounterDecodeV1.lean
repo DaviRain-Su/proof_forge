@@ -1,4 +1,4 @@
-import ProofForgeV2.ProofInstances.ZeroCounterV1
+import ProofForgeV2.Semantic.ZeroCounterShapeV1
 import ProofForgeV2.Semantic.Wire.CodecRoundtripV1
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Core.Unicode
@@ -6,19 +6,19 @@ import ProofForgeV2.Core.Unicode
 /-!
   Production transport decoder certificate for the closed ZeroCounter instance.
 
-  Proves `decodeSemanticProgramDataV1 ZeroCounterV1.canonicalBytes = .ok ZeroCounterV1.data`
+  Proves `decodeSemanticProgramDataV1 ZeroCounterShapeV1.canonicalBytes = .ok ZeroCounterShapeV1.data`
   solely via production decoder composition/refinement theorems and the exact
   `canonicalSpine`. No second decoder, sorry, axiom, native_decide, ofReduceBool,
   run_tac, unsafe, meta, or IO.
 -/
 
-namespace ProofForgeV2.ProofInstances.ZeroCounterDecodeV1
+namespace ProofForgeV2.Semantic.ZeroCounterDecodeV1
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.Unicode
 open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Semantic.WireV1
-open ProofForgeV2.ProofInstances.ZeroCounterV1
+open ProofForgeV2.Semantic.ZeroCounterShapeV1
 
 set_option maxHeartbeats 80000000
 set_option maxRecDepth 400000
@@ -2273,8 +2273,8 @@ private theorem decodeTaggedData_canonicalBytes :
 
 /-- Production transport decoder certificate for the closed ZeroCounter instance. -/
 theorem decode_ok :
-    decodeSemanticProgramDataV1 ZeroCounterV1.canonicalBytes =
-      .ok ZeroCounterV1.data := by
+    decodeSemanticProgramDataV1 ZeroCounterShapeV1.canonicalBytes =
+      .ok ZeroCounterShapeV1.data := by
   apply decodeSemanticProgramDataV1_eq_of_framing canonicalBytes
     ⟨canonicalBytes, 15, 0⟩ ⟨canonicalBytes, 1306, 0⟩ data
   · change canonicalSpine.length ≤ maxCanonicalProgramBytes
@@ -2286,4 +2286,4 @@ theorem decode_ok :
     change 1306 = canonicalSpine.length
     exact canonicalSpine_length.symm
 
-end ProofForgeV2.ProofInstances.ZeroCounterDecodeV1
+end ProofForgeV2.Semantic.ZeroCounterDecodeV1

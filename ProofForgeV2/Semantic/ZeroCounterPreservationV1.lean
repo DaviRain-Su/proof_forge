@@ -1,14 +1,14 @@
-import ProofForgeV2.ProofInstances.ZeroCounterDecodeV1
+import ProofForgeV2.Semantic.ZeroCounterDecodeV1
 import ProofForgeV2.Semantic.PreservationPackagingV1
 
-namespace ProofForgeV2.ProofInstances.ZeroCounterPreservationV1
+namespace ProofForgeV2.Semantic.ZeroCounterPreservationV1
 
 open ProofForgeV2.Semantic.InvariantABI
 open ProofForgeV2.Semantic.PreservationABI
 open ProofForgeV2.Semantic.PreservationPackagingV1
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
-open ProofForgeV2.ProofInstances.ZeroCounterV1
+open ProofForgeV2.Semantic.ZeroCounterShapeV1
 
 set_option maxHeartbeats 80000000
 set_option maxRecDepth 400000
@@ -622,4 +622,4 @@ theorem preservation_theorem_of_eq_bytes
         rfl
   simpa [hp] using preservation_theorem
 
-end ProofForgeV2.ProofInstances.ZeroCounterPreservationV1
+end ProofForgeV2.Semantic.ZeroCounterPreservationV1

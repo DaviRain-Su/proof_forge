@@ -1,22 +1,22 @@
 /-
-  ClosedSubjectPinV1 engineering tests (bf-unpin-1 / mig-b1).
+  ClosedSubjectPinV1 engineering tests (bf-unpin-1 / mig-b1 / mig-b2).
 
   Pin table is a golden accelerator only: non-matching bytes resolve to none;
   unknown names are not pin members; packaging/preservation transport does not
-  require pin membership. EvenCounter left ProofInstances (parity-counter shape
-  under Semantic); pin golden remains for product nullary exact.
+  require pin membership. EvenCounter and ZeroCounter left ProofInstances
+  (parity-counter / store-zero shapes under Semantic); pin golden remains for
+  product nullary exact.
 -/
 import ProofForgeV2.Semantic.ClosedSubjectPinV1
 import ProofForgeV2.Semantic.ParityCounterShapeV1
 import ProofForgeV2.Semantic.ParityCounterPreservationV1
-import ProofForgeV2.ProofInstances.ZeroCounterV1
-import ProofForgeV2.ProofInstances.ZeroCounterPreservationV1
+import ProofForgeV2.Semantic.ZeroCounterShapeV1
+import ProofForgeV2.Semantic.ZeroCounterPreservationV1
 
 namespace Tests.Semantic.ClosedSubjectPinV1
 
 open ProofForgeV2.Semantic.ClosedSubjectPinV1
 open ProofForgeV2.Semantic
-open ProofForgeV2.ProofInstances
 
 private def expect (cond : Bool) (msg : String) : IO Unit := do
   unless cond do
@@ -37,17 +37,17 @@ def test_pin_parity_counter : IO Unit := do
 
 /-- Pin resolves for exact ZeroCounter product-aligned closed bytes. -/
 def test_pin_zero_counter : IO Unit := do
-  match resolveClosedSubjectBytesPinNameV1 ZeroCounterV1.canonicalBytes with
+  match resolveClosedSubjectBytesPinNameV1 ZeroCounterShapeV1.canonicalBytes with
   | some n =>
-      expect (n == ``ProofForgeV2.ProofInstances.ZeroCounterV1.canonicalBytes)
-        "pin name must be ZeroCounterV1.canonicalBytes"
+      expect (n == ``ProofForgeV2.Semantic.ZeroCounterShapeV1.canonicalBytes)
+        "pin name must be ZeroCounterShapeV1.canonicalBytes"
       match closedSubjectBytePinBytesV1 n with
       | some b =>
-          expect (b == ZeroCounterV1.canonicalBytes)
+          expect (b == ZeroCounterShapeV1.canonicalBytes)
             "pin bytes must equal closed ZeroCounter bytes"
       | none => throw <| IO.userError "ZeroCounter pin bytes missing"
   | none => throw <| IO.userError "ZeroCounter closed bytes must pin"
-  expect (ParityCounterShapeV1.canonicalBytes != ZeroCounterV1.canonicalBytes)
+  expect (ParityCounterShapeV1.canonicalBytes != ZeroCounterShapeV1.canonicalBytes)
     "parity-counter and ZeroCounter pins must be distinct"
 
 /-- Arbitrary / empty bytes are unpinned (non-pin author path). -/
@@ -69,8 +69,8 @@ def test_eq_bytes_transport_without_pin_api : IO Unit := do
   let h : p.canonicalBytes = ParityCounterShapeV1.canonicalBytes := rfl
   let _thm :=
     ParityCounterPreservationV1.preservation_theorem_of_eq_bytes p h
-  let p0 := ZeroCounterV1.program
-  let h0 : p0.canonicalBytes = ZeroCounterV1.canonicalBytes := rfl
+  let p0 := ZeroCounterShapeV1.program
+  let h0 : p0.canonicalBytes = ZeroCounterShapeV1.canonicalBytes := rfl
   let _thm0 :=
     ZeroCounterPreservationV1.preservation_theorem_of_eq_bytes p0 h0
   expect true "preservation_theorem_of_eq_bytes typechecks without pin lookup"

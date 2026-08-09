@@ -79,10 +79,10 @@ import ProofForgeV2.Semantic.PreservationPackagingV1
 import ProofForgeV2.Semantic.PreservationShapeV1
 import ProofForgeV2.Semantic.ParityCounterShapeV1
 import ProofForgeV2.Semantic.ParityCounterDecodeV1
-import ProofForgeV2.ProofInstances.ZeroCounterDecodeV1
-import ProofForgeV2.ProofInstances.ZeroCounterPreservationV1
+import ProofForgeV2.Semantic.ZeroCounterShapeV1
+import ProofForgeV2.Semantic.ZeroCounterDecodeV1
+import ProofForgeV2.Semantic.ZeroCounterPreservationV1
 import ProofForgeV2.Semantic.ParityCounterPreservationV1
-import ProofForgeV2.ProofInstances.ZeroCounterV1
 import ProofForgeV2.ProofInstances.MiniAmmEmptyPoolV1
 import ProofForgeV2.ProofInstances.MiniAmmEmptyPoolDecodeV1
 import ProofForgeV2.Semantic.ProofBundleV1
@@ -115,6 +115,7 @@ import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Examples.Accumulator
 import ProofForgeV2.Examples.PrivateSum4
 import ProofForgeV2.Examples.EvenCounter
+import ProofForgeV2.Examples.ZeroCounter
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.TargetRegistryV1
 import ProofForgeV2.Targets.BuildIdentityV1

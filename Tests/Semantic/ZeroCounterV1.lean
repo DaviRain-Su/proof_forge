@@ -1,18 +1,18 @@
 /-
-  ZeroCounter closed-instance engineering tests (second non-AMM L1 wave).
+  ZeroCounter closed-instance engineering tests (second non-AMM L1 wave / mig-b2).
 
   Different predicate from EvenCounter (`count == 0`). Checks structure/encode/
-  admission of package-owned data. Full `ZeroCounterPreservationV1.preservation_theorem`
-  closed (bf2-preserve); product-aligned spine (1306B, sole state.persistent)
-  for bf2-product pin/certifier.
+  admission of package-owned Semantic.ZeroCounterShapeV1 data. Full
+  `ZeroCounterPreservationV1.preservation_theorem` closed; product-aligned
+  spine (1306B, sole state.persistent) for pin/certifier golden.
 -/
-import ProofForgeV2.ProofInstances.ZeroCounterV1
+import ProofForgeV2.Semantic.ZeroCounterShapeV1
 import ProofForgeV2.Semantic.ReferenceV1
 import ProofForgeV2.Semantic.WireV1
 
 namespace Tests.Semantic.ZeroCounterV1
 
-open ProofForgeV2.ProofInstances.ZeroCounterV1
+open ProofForgeV2.Semantic.ZeroCounterShapeV1
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
 

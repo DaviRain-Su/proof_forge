@@ -2,14 +2,16 @@ import ProofForgeV2.Semantic.PreservationABI
 import ProofForgeV2.Semantic.RequirementsV1
 
 /-
-  Closed second L1 preservation instance data for `Root.ZeroCounter`.
+  Closed store-zero shape family (clear-to-zero entry, `count == 0` invariant)
+  for the product-normalized `Root.ZeroCounter` program (wave-3′ mig-b2).
 
-  Different business predicate from EvenCounter (`count == 0`, not parity).
-  Same sole Reference step authority; reuses PreservationPackagingV1.
-  Not MiniAmm. Engineering track-1 genericity regression (bf2).
+  Shape-family golden under `Semantic/` (not `ProofInstances/`). Execution and
+  preservation continue to use sole product
+  `admitReferenceProgramSliceV1` / `stepReferenceSliceV1`. No MiniAmm or
+  target-specific surface. Pin is optional golden accelerator only.
 -/
 
-namespace ProofForgeV2.ProofInstances.ZeroCounterV1
+namespace ProofForgeV2.Semantic.ZeroCounterShapeV1
 
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.InvariantABI
@@ -593,4 +595,4 @@ theorem admission_check_ok :
     validateReferenceProgramDataAdmissionV1 data = .ok () :=
   validateReferenceProgramDataAdmissionV1_eq_ok_of_bool data admission_bool_ok
 
-end ProofForgeV2.ProofInstances.ZeroCounterV1
+end ProofForgeV2.Semantic.ZeroCounterShapeV1

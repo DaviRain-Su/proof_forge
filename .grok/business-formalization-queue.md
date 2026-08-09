@@ -24,7 +24,7 @@
 | id | status | objective |
 |---|---|---|
 | mig-b1-evencounter | done | EvenCounter 迁出 ProofInstances→Semantic.ParityCounter* 形状族；`Examples.EvenCounter` 普通合约；product 同文件 nullary exact GREEN（pin 仍 golden 加速，1795B decide 非产品实用）；inventory 扩 Term.app/decide 为后续 non-pin 铺路 |
-| mig-b2-zerocounter | pending | ZeroCounter 同上 |
+| mig-b2-zerocounter | done | ZeroCounter 同上 |
 | mig-b3-miniamm | pending | MiniAmm L1 P1（emptyPool）：在迁移后的通用路径上完成 preserve + product；不再新增 ProofInstances golden |
 
 ### C. 删除（仅当 A+B 全 GREEN）
