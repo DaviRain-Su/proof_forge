@@ -38,6 +38,7 @@ import Tests.Semantic.ClosedSubjectPinV1
 import Tests.Semantic.ZeroCounterV1
 import Tests.Semantic.InvariantTheoremV1
 import Tests.Semantic.ProofBridgeV1
+import Tests.Semantic.SubjectDataBridgeV1
 import Tests.Semantic.CodecInvertV1
 import Tests.Semantic.ProofedCertV1
 import Tests.Semantic.ProofedEncodeCertV1
@@ -208,6 +209,7 @@ private unsafe def runSemanticTests : IO Unit := do
   Tests.Semantic.ClosedSubjectPinV1.run
   Tests.Semantic.ZeroCounterV1.run
   Tests.Semantic.ProofBridgeV1.run
+  Tests.Semantic.SubjectDataBridgeV1.run
   Tests.Semantic.CodecInvertV1.run
   Tests.Semantic.ReferenceV1.run
   Tests.Semantic.MiniAmmL1Admit.run

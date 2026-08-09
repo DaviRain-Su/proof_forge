@@ -1,4 +1,5 @@
 import ProofForgeV2.Language.Syntax
+import ProofForgeV2.Language.SubjectDataQuoteV1
 import ProofForgeV2.Semantic.ClosedSubjectPinV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.NormalizeV1
@@ -11,6 +12,7 @@ open Lean Parser Command
 open Lean.Elab.Command
 open ProofForgeV2
 open ProofForgeV2.Language.ProgramExport
+open ProofForgeV2.Language.SubjectDataQuoteV1
 open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1
 open ProofForgeV2.Semantic.SimpleClosureStructureCertV1
@@ -67,6 +69,7 @@ def generatedSimpleClosureTheoremNameDefV1 (invName : String) : String :=
 /-- Fixed elaborator surface names authors must not use as invariant ids. -/
 private def isFixedInlineProofSurfaceNameV1 (name : String) : Bool :=
   name == "subjectProgramV1" || name == "subjectBytesV1" ||
+    name == "subjectDataV1" ||
     name == "simpleClosureParamsV1" || name == "simpleClosureDataV1" ||
     name == "simpleClosureQnTailLegalV1" ||
     name == "simpleClosureParamsLegalV1"
@@ -290,14 +293,22 @@ private def elaborateProofObligations
         -- at name elaboration; product check/build will report the located
         -- Normalize diagnostic before certification.
         return
-  -- Proof subjects use a transparent spine so certificate modules can link
-  -- by definitional equality without hex reduction OOM. Both proof kinds share
-  -- this sole subject under `<Program>.Proof.subjectProgramV1`.
-  --
-  -- When carrier bytes match a registered closed instance pin, alias that
-  -- shared constant so instance-level preservation/invariant theorems are
-  -- definitionally about the same subject (no 1795-byte spine reduction).
-  -- Unpinned programs keep the quoted spine; authors prove on subjectProgramV1.
+  -- Proof subjects:
+  --   * `subjectDataV1` — structured SemanticProgramDataV1 spine (mig-a3-elab);
+  --     preferred author surface for shape/preservation facts without large
+  --     byte-spine defeq.
+  --   * `subjectBytesV1` / `subjectProgramV1` — certifier identity. When carrier
+  --     bytes match a registered closed pin, alias that shared constant so
+  --     package-owned theorems stay definitional; unpinned programs keep the
+  --     transparent byte spine. Pin is golden accelerator only.
+  let data ← match lowerProgramDataV1 source with
+    | .ok value => pure value
+    | .error _ =>
+        -- Normalize already encoded successfully; lower must succeed for the
+        -- same ValidatedSource snapshot. Fail closed without partial aliases.
+        return
+  let dataExpr : TSyntax `term ←
+    Lean.Elab.liftMacroM <| quoteSemanticProgramDataV1 data
   let bytesExpr : TSyntax `term ←
     match ProofForgeV2.Semantic.ClosedSubjectPinV1.resolveClosedSubjectBytesPinNameV1
         carrier.canonicalBytes with
@@ -310,8 +321,11 @@ private def elaborateProofObligations
   let subjectName := mkIdent `subjectProgramV1
   let sharedSubjectName := mkIdent `Proof.subjectProgramV1
   let subjectBytesName := mkIdent `subjectBytesV1
+  let subjectDataName := mkIdent `subjectDataV1
   Lean.Elab.Command.elabCommand (← `(namespace $programName))
   Lean.Elab.Command.elabCommand (← `(namespace $proofNamespace))
+  Lean.Elab.Command.elabCommand (← `(def $subjectDataName :
+      ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1 := $dataExpr))
   Lean.Elab.Command.elabCommand (← `(def $subjectBytesName : ByteArray := $bytesExpr))
   Lean.Elab.Command.elabCommand (← `(def $subjectName :
       ProofForgeV2.Semantic.WireV1.SemanticProgramV1 :=

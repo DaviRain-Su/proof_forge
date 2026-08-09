@@ -24,6 +24,9 @@ example : Proofed.Proof.safe =
     InvariantTheoremV1 Proofed.Proof.subjectProgramV1 0 := rfl
 
 #check Proofed.Proof.subjectBytesV1
+-- Structured subject data (mig-a3-elab): preferred author surface; encode of
+-- this spine must recover product subject bytes (runtime check in `run`).
+#check Proofed.Proof.subjectDataV1
 -- Name/module-parameterized certificate AST emitted for the literal-true
 -- simple-closure family (foundation for product-positive cert generation).
 #check Proofed.Proof.simpleClosureParamsV1
@@ -99,6 +102,13 @@ def run : IO Unit := do
     "inline subjectProgramV1 must embed non-empty product bytes (transparent spine)"
   expect (Proofed.Proof.subjectBytesV1.size == subject.canonicalBytes.size)
     "subjectBytesV1 matches subjectProgramV1 carrier"
+  -- mig-a3-elab: structured subjectData encodes to the same product bytes.
+  match encodeSemanticProgramDataV1 Proofed.Proof.subjectDataV1 with
+  | .ok encoded =>
+      expect (encoded == Proofed.Proof.subjectBytesV1)
+        "subjectDataV1 encode must recover subjectBytesV1"
+  | .error error =>
+      throw <| IO.userError s!"subjectDataV1 encode failed: {repr error}"
   expect (Proofed.Proof.generatedSafeV1Name == "generatedSafeV1")
     "generated theorem product name for inv safe"
   expect (generatedSimpleClosureTheoremNameV1 "safe" ==
@@ -108,6 +118,8 @@ def run : IO Unit := do
   | .error error =>
       throw <| IO.userError s!"generated inline proof subject invalid: {repr error}"
   | .ok data =>
+      expect (data == Proofed.Proof.subjectDataV1)
+        "subjectDataV1 must equal structure-gated validated data"
       expect (data.invariants.size == 1) "generated invariant count"
       let invariant ← match data.invariants[0]? with
         | some value => pure value

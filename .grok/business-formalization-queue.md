@@ -17,7 +17,7 @@
 | mig-a1-callable | done | Callable/Block/Op/Term `MidOffsetInvert` + array lift 完整归纳 |
 | mig-a1-root | done | 闭合 `decodeSemanticProgramDataV1_of_encode_ok`（= `DecodeEncodeRoundtripGoalV1` 放电）+ ProofBridge `toValidated` 仅需 encode + `RootFieldInvertV1`（无 free decode）；product GREEN。全 program 的 per-field RootFieldInvert 放电仍属 field residual → mig-a2 形状族 / 后续 |
 | mig-a2-shape | done | **形状族 preservation 定理**入 `ProofForgeV2/Semantic/`：对 stepReferenceSliceV1 的通用形状推理（store-constant 族等），使任意合约的同文件证明 = apply 通用定理 + decide/rfl 形状事实；复用 triple-UInt64 packaging（`4b7219a2b`） |
-| mig-a3-elab | pending | Elaborator 发**结构化** `subjectDataV1`（非字节 spine）+ generic bridge；移除 subjectBytes 大 spine defeq 依赖；certifier 白名单按需放行 bounded `apply`/`decide`（审计面保持 closed） |
+| mig-a3-elab | done | Elaborator 发**结构化** `subjectDataV1`（非字节 spine）+ generic bridge；移除 subjectBytes 大 spine defeq 依赖；certifier 白名单按需放行 bounded `apply`/`decide`（审计面保持 closed） |
 
 ### B. 合约迁移（inline same-file 真正落地）
 

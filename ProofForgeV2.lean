@@ -63,6 +63,7 @@ import ProofForgeV2.Typed.RequirementsInferV1
 import ProofForgeV2.Typed.CheckV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Semantic.ProofBridgeV1
+import ProofForgeV2.Semantic.SubjectDataBridgeV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.SimpleClosureCertV1
 import ProofForgeV2.Semantic.AuthorWireCertV1
