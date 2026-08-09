@@ -108,12 +108,24 @@ proof-forge-next local --target aleo --mode sandbox -- \
 | flag | 含义 |
 |---|---|
 | `--source` / `--module` | **必填** |
+| `--root DIR` | 外部工程根（产品 build `--root`；`--source` 须在其下） |
 | `--program` / `--profile` | 透传产品 build |
 | `--golden PATH` | 可选：product `{id}.aleo` exact-byte pin |
 | `--run 'name args…'` | 可重复；无则只做 build pins |
 | `--skip-run` | 跳过全部 run |
 | `--output-dir DIR` | 保留 product OutputSet（不得已存在） |
 | `--keep` | 保留工作目录 |
+
+外部工程示例（模板 [`templates/external-aleo-hello/`](../../templates/external-aleo-hello/)）：
+
+```bash
+./scripts/aleo_local_sandbox.sh \
+  --root /path/to/external-aleo-hello \
+  --source src/Hello.lean \
+  --module Hello \
+  --run 'initialize 1u64' \
+  --run 'increment 2u64'
+```
 
 步骤：
 

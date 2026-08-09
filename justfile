@@ -1321,6 +1321,12 @@ aleo-runtime:
 aleo-sandbox *ARGS:
     bash scripts/aleo_local_sandbox.sh {{ARGS}}
 
+# External ProgramV1 Hello: copy template → build --root → generic sandbox.
+# Authority: docs/product/02-external-program-v1.md
+# Host-heavy when leo present; --skip-run for build-only.
+external-hello-smoke *ARGS:
+    bash scripts/external_hello_smoke.sh {{ARGS}}
+
 # Aleo explicit post-build deploy/execute (host-heavy; NOT ordinary ci).
 # Consumes an existing compile-profile OutputSet and publishes a separate
 # deployment receipt. DevNet uses --dev-key; Testnet uses --private-key-file +

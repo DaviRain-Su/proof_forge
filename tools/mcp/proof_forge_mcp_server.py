@@ -489,6 +489,9 @@ def tool_pf_local(repo_root: Path, cli: Path, args: Dict[str, Any]) -> Dict[str,
         tail.extend(["--source", str(source)])
     if module:
         tail.extend(["--module", str(module)])
+    root_arg = args.get("root") or args.get("projectRoot") or args.get("project_root")
+    if root_arg:
+        tail.extend(["--root", str(root_arg)])
     program = args.get("program")
     if program:
         tail.extend(["--program", str(program)])
@@ -519,7 +522,13 @@ def tool_pf_local(repo_root: Path, cli: Path, args: Dict[str, Any]) -> Dict[str,
             "--priv-key",
             "--fee-record",
             "--private-key-file",
-        ) or s.startswith("--private-key=") or s.startswith("--fee-record="):
+        ) or s.startswith((
+            "--broadcast=",
+            "--private-key=",
+            "--priv-key=",
+            "--fee-record=",
+            "--private-key-file=",
+        )):
             return _tool_result_text(
                 {
                     "schema": SCHEMA_WRAP,
@@ -731,6 +740,18 @@ def tool_definitions() -> List[Dict[str, Any]]:
                     "module": {
                         "type": "string",
                         "description": "Lean module name (required for aleo sandbox).",
+                    },
+                    "root": {
+                        "type": "string",
+                        "description": "External project root for product --root (source is relative to it).",
+                    },
+                    "projectRoot": {
+                        "type": "string",
+                        "description": "Alias for root; passed through as product --root.",
+                    },
+                    "project_root": {
+                        "type": "string",
+                        "description": "Alias for root; passed through as product --root.",
                     },
                     "program": {
                         "type": "string",

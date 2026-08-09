@@ -34,6 +34,7 @@ Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target
 Psy DPN 物化规划：[`targets/10-psy-dpn-lowering.md`](targets/10-psy-dpn-lowering.md)（lane idle）。
 Aleo Instructions IR 物化规划：[`targets/09-aleo-instructions-lowering.md`](targets/09-aleo-instructions-lowering.md)（idle residual；OPTION-COMPARE done）。
 Aleo 本地 sandbox（**通用** ProgramV1 → package → offline run）：[`targets/09b-aleo-local-sandbox.md`](targets/09b-aleo-local-sandbox.md)（`just aleo-sandbox -- --source … --module …`；非 ordinary ci / 非 snarkVM package-only）。
+外部 ProgramV1 工程（`--root` + 模板 Hello）：[`product/02-external-program-v1.md`](product/02-external-program-v1.md)（`templates/external-aleo-hello/`；`just external-hello-smoke`）。
 Aleo 网络维 deploy/execute：[`targets/09c-aleo-network.md`](targets/09c-aleo-network.md)（`just aleo-network`；需 endpoint+密钥+`--broadcast`；默认 Finalize 仍 `deployable=false`）。
 产品面阶梯（install/doctor → CLI → MCP/SDK）：[`product/01-toolchain-install-surface.md`](product/01-toolchain-install-surface.md)（workflow `product-surface-ladder`；I0–I3 + MCP-V0 + SDK-V0 已接线；非 formal/hermetic；无默认 `deployable=true`）。
 Noir ACIR 物化规划：[`targets/07-noir-acir-lowering.md`](targets/07-noir-acir-lowering.md)（lane **idle** residual；IR-0..IR-7 done；金样 `testdata/golden/noir-acir-v1/` Counter + IR-4 multi-fixture `fixtures/*` inventory + G3 circuit-hash pins + 诚实矩阵 + opt-in dual-write）。

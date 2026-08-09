@@ -40,6 +40,7 @@ SOURCE=""
 MODULE=""
 PROGRAM=""
 PROFILE=""
+ROOT_ARG=""
 GOLDEN=""
 OUT_OVERRIDE=""
 # Each element is one leo run invocation as a single string: "name [args...]"
@@ -53,10 +54,11 @@ usage: aleo_local_sandbox.sh --source PATH --module NAME [options]
     build → Instructions primary → Leo package → offline leo build [+ leo run]
 
 Required:
-  --source PATH          ProgramV1 .lean source file
-  --module NAME          Lean module (e.g. Examples.Counter or MyPkg.MyProg)
+  --source PATH          ProgramV1 .lean source (project-relative under --root)
+  --module NAME          Lean module (e.g. Examples.Counter or Hello)
 
 Options:
+  --root DIR             Product build --root (external project root; default: package)
   --program NAME         Optional --program selector for product build
   --profile ID           Optional Aleo codegen profile id
   --golden PATH          Optional: require product {id}.aleo ≡ this file (bytes)
@@ -98,6 +100,11 @@ while [[ $# -gt 0 ]]; do
       PROGRAM="$2"
       shift 2
       ;;
+    --root)
+      [[ $# -ge 2 ]] || { echo "${PREFIX}: --root needs a value" >&2; exit 2; }
+      ROOT_ARG="$2"
+      shift 2
+      ;;
     --profile)
       [[ $# -ge 2 ]] || { echo "${PREFIX}: --profile needs a value" >&2; exit 2; }
       PROFILE="$2"
@@ -135,15 +142,42 @@ if [[ -z "$SOURCE" || -z "$MODULE" ]]; then
   exit 2
 fi
 
-if [[ ! -f "$SOURCE" ]]; then
-  # Allow repo-relative paths from package root.
-  if [[ -f "${root}/${SOURCE}" ]]; then
-    SOURCE="${root}/${SOURCE}"
+# Product CLI requires a project-relative source under --root (default: this package).
+PROJECT_ROOT="${ROOT_ARG:-$root}"
+if [[ ! -d "$PROJECT_ROOT" ]]; then
+  echo "${PREFIX}: --root is not a directory: ${PROJECT_ROOT}" >&2
+  exit 2
+fi
+PROJECT_ROOT="$(cd "$PROJECT_ROOT" && pwd)"
+
+# Resolve SOURCE to a path that exists, then rewrite as project-relative for the CLI.
+# Relative --source is interpreted under PROJECT_ROOT first; otherwise an
+# external --root paired with a path that also exists in this repo could be
+# accidentally rejected after resolving to the package copy.
+if [[ "$SOURCE" = /* ]]; then
+  if [[ -f "$SOURCE" ]]; then
+    SOURCE_ABS="$(cd "$(dirname "$SOURCE")" && pwd)/$(basename "$SOURCE")"
   else
     echo "${PREFIX}: source not found: ${SOURCE}" >&2
     exit 2
   fi
+elif [[ -f "${PROJECT_ROOT}/${SOURCE}" ]]; then
+  SOURCE_ABS="$(cd "${PROJECT_ROOT}/$(dirname "$SOURCE")" && pwd)/$(basename "$SOURCE")"
+else
+  echo "${PREFIX}: source not found under --root (${PROJECT_ROOT}): ${SOURCE}" >&2
+  exit 2
 fi
+
+case "$SOURCE_ABS" in
+  "${PROJECT_ROOT}"/*)
+    SOURCE_REL="${SOURCE_ABS#${PROJECT_ROOT}/}"
+    ;;
+  *)
+    echo "${PREFIX}: source must live under --root (${PROJECT_ROOT}): ${SOURCE_ABS}" >&2
+    exit 2
+    ;;
+esac
+SOURCE="$SOURCE_REL"
 
 die() {
   echo "${PREFIX}: $*" >&2
@@ -174,6 +208,7 @@ LEO="${TOOL_ROOT}/leo"
 
 echo "${PREFIX}: profile=${PROFILE_LABEL} platform=${plat}"
 echo "${PREFIX}: tool_root=${TOOL_ROOT}"
+echo "${PREFIX}: root=${PROJECT_ROOT}"
 echo "${PREFIX}: source=${SOURCE}"
 echo "${PREFIX}: module=${MODULE}"
 [[ -n "$PROGRAM" ]] && echo "${PREFIX}: program=${PROGRAM}"
@@ -243,7 +278,7 @@ restore_home() {
 
 echo "${PREFIX}: --- product build (Instructions primary + Leo debug) ---"
 # Do not pre-create -o dir: product publisher fails closed on existing path.
-build_argv=(build "$SOURCE" --module "$MODULE" --target aleo -o "$OUT")
+build_argv=(build "$SOURCE" --module "$MODULE" --target aleo --root "$PROJECT_ROOT" -o "$OUT")
 if [[ -n "$PROGRAM" ]]; then
   build_argv+=(--program "$PROGRAM")
 fi
@@ -254,6 +289,8 @@ fi
 set +e
 build_out="$(
   restore_home
+  # Always invoke the product CLI from the proof-forge package (lake env / binary);
+  # --root selects the author's project tree for source resolution.
   PROOF_FORGE_ALEO_EMIT_LEO=1 \
     lake env "$PF_BIN" "${build_argv[@]}" 2>&1
 )"

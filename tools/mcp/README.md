@@ -13,10 +13,10 @@ Authority: [`docs/product/01-toolchain-install-surface.md`](../../docs/product/0
 | `pf_install` | `proof-forge-next install --targets … --yes --json` |
 | `pf_build` | `proof-forge-next build <source> --module … --target … -o … --json` |
 | `pf_artifacts` | `proof-forge-next inspect --output-dir <dir> --json` |
-| `pf_local` | `proof-forge-next local --target … [--mode sandbox] -- --source … --module …` |
+| `pf_local` | `proof-forge-next local --target … [--mode sandbox] -- --source … --module … [--root …]` |
 
 - **No** default network broadcast tool (use product CLI `network --broadcast` explicitly if needed).
-- Aleo `pf_local` is **generic**: requires `source` + `module`; optional `runs` / `golden` / `skipRun` — no default program.
+- Aleo `pf_local` is **generic**: requires `source` + `module`; optional `root` / `runs` / `golden` / `skipRun` — no default program. When `root` is provided it is passed through as product `--root` after `--`, so repo-external source paths resolve against that project root.
 - Tools **only** spawn the product CLI / package engines; they do **not** reimplement solc/leo/nargo.
 - Tool Lock installs never use PATH fallback into `PROOF_FORGE_TOOL_ROOT`.
 - Success is **not** formal / hermetic / mainnet / `deployable=true` evidence.

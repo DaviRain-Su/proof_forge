@@ -29,6 +29,8 @@ print(client.install(targets=["quint"], dry_run=True).parsed)
 # After a product build:
 # r = client.build("Examples/Counter.lean", module="Examples.Counter",
 #                  target="quint", output="/tmp/pf-out")
+# External ProgramV1 tree: pass root=... through build/check/local.
+# r = client.local(target="aleo", source="src/Hello.lean", module="Hello", root="/tmp/external-pf")
 # manifest = client.load_output_manifest("/tmp/pf-out")
 ```
 
@@ -43,7 +45,7 @@ print(client.install(targets=["quint"], dry_run=True).parsed)
 | `check(source, module=…)` | `check … --json` |
 | `inspect_artifacts(output_dir)` | `inspect --output-dir … --json` |
 | `inspect_target(target)` | `inspect <target> --json` |
-| `local(target=…, mode=…, source=…, module=…, runs=…)` | `local --target … -- --source … --module …` (Aleo sandbox generic; no broadcast) |
+| `local(target=…, mode=…, source=…, module=…, root=…, runs=…)` | `local --target … -- --source … --module … [--root …]` (Aleo sandbox generic; passes external project root when provided; no broadcast) |
 | `load_output_manifest(output_dir)` | parse `manifest.json` (`schemaVersion=proof-forge.output.v1`) |
 
 `CliResult` fields: `ok`, `exit_code`, `command`, `stdout`, `stderr`, `parsed`,

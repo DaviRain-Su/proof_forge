@@ -564,6 +564,7 @@ class ProofForgeClient:
         script_args: Optional[Sequence[str]] = None,
         source: Optional[PathLike] = None,
         module: Optional[str] = None,
+        root: Optional[PathLike] = None,
         runs: Optional[Sequence[str]] = None,
         golden: Optional[PathLike] = None,
         skip_run: bool = False,
@@ -595,7 +596,13 @@ class ProofForgeClient:
                 "--priv-key",
                 "--fee-record",
                 "--private-key-file",
-            ) or s.startswith("--private-key=") or s.startswith("--fee-record="):
+            ) or s.startswith((
+                "--broadcast=",
+                "--private-key=",
+                "--priv-key=",
+                "--fee-record=",
+                "--private-key-file=",
+            )):
                 forbidden.append(s)
         if forbidden:
             return CliResult(
@@ -618,6 +625,8 @@ class ProofForgeClient:
             tail.extend(["--source", str(source)])
         if module is not None:
             tail.extend(["--module", str(module)])
+        if root is not None:
+            tail.extend(["--root", str(root)])
         if program is not None:
             tail.extend(["--program", str(program)])
         if profile is not None:
@@ -703,6 +712,7 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
     )
     parser.add_argument(
         "--root",
+        dest="package_root",
         default=None,
         help="package root (default: PROOF_FORGE_ROOT or discovery)",
     )
@@ -735,6 +745,12 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
     p_loc.add_argument("--mode", default=None)
     p_loc.add_argument("--source", default=None)
     p_loc.add_argument("--module", default=None)
+    p_loc.add_argument(
+        "--root",
+        dest="local_root",
+        default=None,
+        help="external project root to pass through to product local --root",
+    )
     p_loc.add_argument("--program", default=None)
     p_loc.add_argument("--profile", default=None)
     p_loc.add_argument("--golden", default=None)
@@ -745,11 +761,11 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     if args.self_check or args.cmd is None:
-        report = self_check(root=args.root)
+        report = self_check(root=args.package_root)
         print(json.dumps(report, indent=2, sort_keys=True, ensure_ascii=False))
         return 0 if report.get("ok") else 1
 
-    client = ProofForgeClient(root=args.root)
+    client = ProofForgeClient(root=args.package_root)
     if args.cmd == "list-targets":
         r = client.list_targets(include_all=bool(args.all))
     elif args.cmd == "doctor":
@@ -771,6 +787,7 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
             mode=args.mode,
             source=args.source,
             module=args.module,
+            root=args.local_root,
             program=args.program,
             profile=args.profile,
             golden=args.golden,
