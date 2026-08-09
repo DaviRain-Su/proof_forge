@@ -554,17 +554,26 @@ theorem AuthorThm : P.ProofPreserving.inv := by
 
 纪律：
 
-1. **Sole L1 执行权威**：`SemanticProgramV1 → admitReferenceProgramSliceV1 →
+1. **Inline same-file 是产品义务表面**（ADR-0027/0034 D6/D8）：author theorem 与
+   `program … where` 在**同一源文件**、同一 in-memory snapshot 上 cert；theorem body
+   不进 `sourceHash`/`semanticHash`，但证明义务在源码文件里。
+2. **`ProofForgeV2/ProofInstances/*` 是 package lemma 库，不是第二合同表面**：
+   它把一次性的 heavy Reference/Structure/Decode 证明（如 `preservation_theorem`）
+   放进 package，让同文件 author body 可以是 allowlisted 的 nullary
+   `exact …preservation_theorem`。禁止把 ProofInstances 写成「业务只在 package、
+   源文件无 proof」的分离模型；正确形状始终是 source 里有
+   `proof inv preserving using AuthorThm` + 同文件 `theorem AuthorThm := by exact …`。
+3. **Sole L1 执行权威**：`SemanticProgramV1 → admitReferenceProgramSliceV1 →
    stepReferenceSliceV1`。禁止第二套 State/Effect/step。
-2. **Closed pin 是加速器，不是主路径**：
+4. **Closed pin 是加速器，不是主路径**：
    `ClosedSubjectPinV1` 仅当 normalize 字节 **exact match** 已注册 golden
    （当前 EvenCounter + ZeroCounter）时，把 `subjectBytesV1` 别名到共享 `canonicalBytes` 常量，
    使 author 可 `exact` 包内定理而无需长 spine 归约；certifier 允许 **一次**
    pin-name hop。**未 pin 的任意合约不需要 pin**：作者对
    `subjectProgramV1` 用 generic / 实例 lemmas 证明即可。
-3. **Inventory 表面**：author theorem 的 tactic 白名单与 nullary `exact const` 等
+5. **Inventory 表面**：author theorem 的 tactic 白名单与 nullary `exact const` 等
    纪律由 certifier 强制；多参 `Term.app` 等表面失败 closed。
-4. **不声称**：reachability 闭包、多步归纳、target refinement、formal TASK 关闭。
+6. **不声称**：reachability 闭包、多步归纳、target refinement、formal TASK 关闭。
 
 **下一步（业务轨道）**：MiniAmm P1 作为普通业务实例（同一 ABI；无平台特例）。
 **已交付 packaging/unpin + 双实例**：`PreservationPackagingV1` + EvenCounter/ZeroCounter
