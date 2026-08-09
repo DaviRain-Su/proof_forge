@@ -46,6 +46,7 @@ print(client.install(targets=["quint"], dry_run=True).parsed)
 | `inspect_artifacts(output_dir)` | `inspect --output-dir … --json` |
 | `inspect_target(target)` | `inspect <target> --json` |
 | `local(target=…, mode=…, source=…, module=…, root=…, runs=…)` | `local --target … -- --source … --module … [--root …]` (Aleo sandbox generic; passes external project root when provided; no broadcast) |
+| `chain_catalog(target=…)` | static chain client/frontend catalog (`proof-forge.chain-client-catalog.v1`) |
 | `load_output_manifest(output_dir)` | parse `manifest.json` (`schemaVersion=proof-forge.output.v1`) |
 
 `CliResult` fields: `ok`, `exit_code`, `command`, `stdout`, `stderr`, `parsed`,
@@ -58,6 +59,7 @@ print(client.install(targets=["quint"], dry_run=True).parsed)
 /usr/bin/python3 -I tools/sdk/proof_forge_sdk.py doctor --target quint
 /usr/bin/python3 -I tools/sdk/proof_forge_sdk.py install --targets quint --dry-run
 /usr/bin/python3 -I tools/sdk/proof_forge_sdk.py load-manifest /path/to/output
+/usr/bin/python3 -I tools/sdk/proof_forge_sdk.py chain-catalog --target aleo
 ```
 
 ## Boundaries

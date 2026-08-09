@@ -1,0 +1,275 @@
+{
+  "schema": "proof-forge.chain-client-catalog.v1",
+  "version": "1",
+  "updated": "2026-08-09",
+  "notes": [
+    "Metadata only for authors and Code Agents. Not a second compiler.",
+    "clientSdk fields name ecosystem packages; ProofForge does not vendor or pin them here.",
+    "pfSurface describes product CLI/MCP/SDK entry points only.",
+    "deployable is always false on product OutputSet until N3 product decision.",
+    "No network broadcast tools on MCP default surface."
+  ],
+  "targets": [
+    {
+      "id": "aleo",
+      "implemented": true,
+      "maturityLabel": "source-only + compile-finalization engineering",
+      "role": "backend-contracts",
+      "pfSurface": {
+        "build": true,
+        "localModes": ["sandbox", "devnet"],
+        "network": "explicit-cli-broadcast-only",
+        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_local", "pf_artifacts", "pf_chain_catalog"],
+        "template": "templates/external-aleo-hello"
+      },
+      "frontendClients": [
+        {
+          "name": "Aleo SDK / Provable SDK (ecosystem)",
+          "kind": "js-ts",
+          "purpose": "wallet, program query, transaction submit outside ProofForge",
+          "shippedByProofForge": false
+        }
+      ],
+      "localDev": {
+        "offlineInterpret": "leo run via aleo_local_sandbox / pf_local",
+        "chainLike": "snarkos DevNet engineering wrapper (host-heavy; not Tool Lock)"
+      },
+      "honesty": [
+        "deployable=false on product build",
+        "LEO-OFFLINE-RUN is local interpret not snarkVM package-only",
+        "mainnet/canary rejected on network wrapper"
+      ]
+    },
+    {
+      "id": "evm",
+      "implemented": true,
+      "maturityLabel": "runtime-validated-alpha",
+      "role": "backend-contracts",
+      "pfSurface": {
+        "build": true,
+        "localModes": ["runtime"],
+        "network": "none-product",
+        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_local", "pf_artifacts", "pf_chain_catalog"]
+      },
+      "frontendClients": [
+        {
+          "name": "ethers / viem / wagmi (ecosystem)",
+          "kind": "js-ts",
+          "purpose": "RPC, wallet, ABI call for dApp UI",
+          "shippedByProofForge": false
+        }
+      ],
+      "localDev": {
+        "offlineInterpret": null,
+        "chainLike": "Anvil engineering differential (host-heavy)"
+      },
+      "honesty": ["product OutputSet deployable depends on profile; do not invent mainnet"]
+    },
+    {
+      "id": "solana",
+      "implemented": true,
+      "maturityLabel": "plan-only / ELF engineering",
+      "role": "backend-contracts",
+      "pfSurface": {
+        "build": true,
+        "localModes": ["runtime"],
+        "network": "none-product",
+        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_local", "pf_artifacts", "pf_chain_catalog"]
+      },
+      "frontendClients": [
+        {
+          "name": "@solana/web3.js / wallet-adapter (ecosystem)",
+          "kind": "js-ts",
+          "purpose": "RPC, wallet, instruction send",
+          "shippedByProofForge": false
+        }
+      ],
+      "localDev": {
+        "offlineInterpret": null,
+        "chainLike": "Mollusk runtime tests (host-heavy; not ordinary ci)"
+      },
+      "honesty": ["Principal is not Solana pubkey globally"]
+    },
+    {
+      "id": "near",
+      "implemented": true,
+      "maturityLabel": "wasm-validated-alpha",
+      "role": "backend-contracts",
+      "pfSurface": {
+        "build": true,
+        "localModes": [],
+        "network": "none-product",
+        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_artifacts", "pf_chain_catalog"]
+      },
+      "frontendClients": [
+        {
+          "name": "near-api-js (ecosystem)",
+          "kind": "js-ts",
+          "purpose": "account, call, view",
+          "shippedByProofForge": false
+        }
+      ],
+      "localDev": {
+        "offlineInterpret": null,
+        "chainLike": "near-sandbox engineering (host-heavy)"
+      },
+      "honesty": []
+    },
+    {
+      "id": "noir",
+      "implemented": true,
+      "maturityLabel": "source-only + ACIR dual-write engineering",
+      "role": "backend-circuits",
+      "pfSurface": {
+        "build": true,
+        "localModes": [],
+        "network": "none-product",
+        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_artifacts", "pf_chain_catalog"]
+      },
+      "frontendClients": [
+        {
+          "name": "bb.js / noir.js (ecosystem; not product prove)",
+          "kind": "js-ts",
+          "purpose": "circuit UX outside product prove path",
+          "shippedByProofForge": false
+        }
+      ],
+      "localDev": {
+        "offlineInterpret": null,
+        "chainLike": "nargo compile-only engineering; prove/VK fail-closed honesty"
+      },
+      "honesty": ["ACIR dual-write is opt-in profile; default is source relations"]
+    },
+    {
+      "id": "psy",
+      "implemented": true,
+      "maturityLabel": "source-only",
+      "role": "backend-zkvm",
+      "pfSurface": {
+        "build": true,
+        "localModes": [],
+        "network": "none-product",
+        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_artifacts", "pf_chain_catalog"]
+      },
+      "frontendClients": [],
+      "localDev": {
+        "offlineInterpret": null,
+        "chainLike": "optional host-heavy psy-runtime (not ordinary ci)"
+      },
+      "honesty": ["product Finalize zero-tool"]
+    },
+    {
+      "id": "quint",
+      "implemented": true,
+      "maturityLabel": "source-only executable model",
+      "role": "backend-model",
+      "pfSurface": {
+        "build": true,
+        "localModes": [],
+        "network": "none-product",
+        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_artifacts", "pf_chain_catalog"]
+      },
+      "frontendClients": [],
+      "localDev": {
+        "offlineInterpret": null,
+        "chainLike": "zero-tool .qnt emission; product does not run Quint/Apalache"
+      },
+      "honesty": ["not a deployable chain target"]
+    },
+    {
+      "id": "cosmwasm",
+      "implemented": true,
+      "maturityLabel": "wasm-validated-alpha",
+      "role": "backend-contracts",
+      "pfSurface": {
+        "build": true,
+        "localModes": [],
+        "network": "none-product",
+        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_artifacts", "pf_chain_catalog"]
+      },
+      "frontendClients": [
+        {
+          "name": "cosmjs (ecosystem)",
+          "kind": "js-ts",
+          "purpose": "Cosmos LCD/RPC, signing",
+          "shippedByProofForge": false
+        }
+      ],
+      "localDev": {
+        "offlineInterpret": null,
+        "chainLike": "cosmwasm-vm mock + wasmd engineering rungs"
+      },
+      "honesty": ["sync call FC; async SubMsg subset"]
+    },
+    {
+      "id": "ton",
+      "implemented": true,
+      "maturityLabel": "source-only + sandbox engineering",
+      "role": "backend-contracts",
+      "pfSurface": {
+        "build": true,
+        "localModes": [],
+        "network": "none-product",
+        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_artifacts", "pf_chain_catalog"]
+      },
+      "frontendClients": [
+        {
+          "name": "TON Connect / @ton/core (ecosystem)",
+          "kind": "js-ts",
+          "purpose": "wallet and message UX",
+          "shippedByProofForge": false
+        }
+      ],
+      "localDev": {
+        "offlineInterpret": null,
+        "chainLike": "TON sandbox engineering (host-heavy)"
+      },
+      "honesty": []
+    },
+    {
+      "id": "soroban",
+      "implemented": false,
+      "maturityLabel": "design-only",
+      "role": "design-only",
+      "pfSurface": {
+        "build": false,
+        "localModes": [],
+        "network": "none",
+        "mcpTools": ["pf_list_targets", "pf_chain_catalog"]
+      },
+      "frontendClients": [],
+      "localDev": { "offlineInterpret": null, "chainLike": null },
+      "honesty": ["unsupported for install/build"]
+    },
+    {
+      "id": "icp",
+      "implemented": false,
+      "maturityLabel": "design-only",
+      "role": "design-only",
+      "pfSurface": {
+        "build": false,
+        "localModes": [],
+        "network": "none",
+        "mcpTools": ["pf_list_targets", "pf_chain_catalog"]
+      },
+      "frontendClients": [],
+      "localDev": { "offlineInterpret": null, "chainLike": null },
+      "honesty": ["unsupported for install/build"]
+    },
+    {
+      "id": "openvm",
+      "implemented": false,
+      "maturityLabel": "design-only",
+      "role": "design-only",
+      "pfSurface": {
+        "build": false,
+        "localModes": [],
+        "network": "none",
+        "mcpTools": ["pf_list_targets", "pf_chain_catalog"]
+      },
+      "frontendClients": [],
+      "localDev": { "offlineInterpret": null, "chainLike": null },
+      "honesty": ["unsupported for install/build"]
+    }
+  ]
+}

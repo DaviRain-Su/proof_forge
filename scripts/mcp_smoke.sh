@@ -18,6 +18,7 @@ echo "$out" | rg -q 'pf_install'
 echo "$out" | rg -q 'pf_build'
 echo "$out" | rg -q 'pf_artifacts'
 echo "$out" | rg -q 'pf_local'
+echo "$out" | rg -q 'pf_chain_catalog'
 
 if [[ ! -x "$cli" ]]; then
   echo "mcp-smoke: FAIL proof-forge-next missing at $cli (lake build first)" >&2

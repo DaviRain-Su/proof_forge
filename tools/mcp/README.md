@@ -14,10 +14,12 @@ Authority: [`docs/product/01-toolchain-install-surface.md`](../../docs/product/0
 | `pf_build` | `proof-forge-next build <source> --module … --target … -o … --json` |
 | `pf_artifacts` | `proof-forge-next inspect --output-dir <dir> --json` |
 | `pf_local` | `proof-forge-next local --target … [--mode sandbox] -- --source … --module … [--root …]` |
+| `pf_chain_catalog` | static `docs/product/chain-client-catalog.v1.json` (client/frontend metadata) |
 
 - **No** default network broadcast tool (use product CLI `network --broadcast` explicitly if needed).
 - Aleo `pf_local` is **generic**: requires `source` + `module`; optional `root` / `runs` / `golden` / `skipRun` — no default program. When `root` is provided it is passed through as product `--root` after `--`, so repo-external source paths resolve against that project root.
-- Tools **only** spawn the product CLI / package engines; they do **not** reimplement solc/leo/nargo.
+- Hello agent playbook: [`docs/product/03-hello-dapp-agent-playbook.md`](../../docs/product/03-hello-dapp-agent-playbook.md).
+- Tools **only** spawn the product CLI / package engines (except `pf_chain_catalog`, which reads package JSON); they do **not** reimplement solc/leo/nargo.
 - Tool Lock installs never use PATH fallback into `PROOF_FORGE_TOOL_ROOT`.
 - Success is **not** formal / hermetic / mainnet / `deployable=true` evidence.
 

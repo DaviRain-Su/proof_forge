@@ -553,6 +553,100 @@ def tool_pf_local(repo_root: Path, cli: Path, args: Dict[str, Any]) -> Dict[str,
     return _tool_result_text(result, is_error=not result["ok"])
 
 
+def tool_pf_chain_catalog(repo_root: Path, cli: Path, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Static chain client/frontend catalog (metadata only; no CLI spawn)."""
+    del cli  # catalog is package JSON, not product CLI
+    path = repo_root / "docs" / "product" / "chain-client-catalog.v1.json"
+    if not path.is_file():
+        return _tool_result_text(
+            {
+                "schema": SCHEMA_WRAP,
+                "ok": False,
+                "exitCode": 2,
+                "command": [],
+                "stdout": "",
+                "stderr": f"missing catalog {path}",
+                "parsed": None,
+                "error": "usage",
+            },
+            is_error=True,
+        )
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return _tool_result_text(
+            {
+                "schema": SCHEMA_WRAP,
+                "ok": False,
+                "exitCode": 1,
+                "command": [str(path)],
+                "stdout": "",
+                "stderr": str(e),
+                "parsed": None,
+                "error": "failed",
+            },
+            is_error=True,
+        )
+    if not isinstance(data, dict) or data.get("schema") != "proof-forge.chain-client-catalog.v1":
+        return _tool_result_text(
+            {
+                "schema": SCHEMA_WRAP,
+                "ok": False,
+                "exitCode": 1,
+                "command": [str(path)],
+                "stdout": "",
+                "stderr": "invalid catalog schema",
+                "parsed": None,
+                "error": "failed",
+            },
+            is_error=True,
+        )
+    target = args.get("target")
+    include_design = bool(args.get("includeDesignOnly") or args.get("include_design_only"))
+    rows = data.get("targets") or []
+    filtered = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        tid = str(row.get("id") or "")
+        implemented = bool(row.get("implemented"))
+        if target is not None and tid != str(target):
+            continue
+        if target is None and not include_design and not implemented:
+            continue
+        filtered.append(row)
+    if target is not None and not filtered:
+        return _tool_result_text(
+            {
+                "schema": SCHEMA_WRAP,
+                "ok": False,
+                "exitCode": 2,
+                "command": [str(path)],
+                "stdout": "",
+                "stderr": f"unknown catalog target id: {target}",
+                "parsed": None,
+                "error": "usage",
+            },
+            is_error=True,
+        )
+    out = dict(data)
+    out["targets"] = filtered
+    out["filter"] = {"target": target, "includeDesignOnly": include_design}
+    return _tool_result_text(
+        {
+            "schema": SCHEMA_WRAP,
+            "ok": True,
+            "exitCode": 0,
+            "command": [str(path)],
+            "stdout": json.dumps(out, ensure_ascii=False, separators=(",", ":")),
+            "stderr": "",
+            "parsed": out,
+            "error": None,
+        },
+        is_error=False,
+    )
+
+
 TOOL_HANDLERS = {
     "pf_list_targets": tool_pf_list_targets,
     "pf_doctor": tool_pf_doctor,
@@ -560,6 +654,7 @@ TOOL_HANDLERS = {
     "pf_build": tool_pf_build,
     "pf_artifacts": tool_pf_artifacts,
     "pf_local": tool_pf_local,
+    "pf_chain_catalog": tool_pf_chain_catalog,
 }
 
 
@@ -788,6 +883,29 @@ def tool_definitions() -> List[Dict[str, Any]]:
                 "additionalProperties": False,
             },
         },
+        {
+            "name": "pf_chain_catalog",
+            "description": (
+                "Static multi-chain client/frontend catalog for authors and Code Agents. "
+                "Metadata only (ecosystem SDKs are not shipped by ProofForge). "
+                "Use before building a dApp UI to learn backend PF surface vs frontend clients. "
+                "Does not broadcast network or install npm packages."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "target": {
+                        "type": "string",
+                        "description": "Optional TargetId filter (e.g. aleo).",
+                    },
+                    "includeDesignOnly": {
+                        "type": "boolean",
+                        "description": "Include design-only targets when target is omitted.",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
     ]
 
 
@@ -943,7 +1061,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "  PROOF_FORGE_ROOT   package root (optional if launched from tools/mcp)\n"
             "  PROOF_FORGE_CLI    path to proof-forge-next binary (optional)\n"
             "  PROOF_FORGE_TOOL_ROOT  Tool Lock root (consumed by doctor/install/build)\n"
-            "Tools: pf_list_targets pf_doctor pf_install pf_build pf_artifacts pf_local\n"
+            "Tools: pf_list_targets pf_doctor pf_install pf_build pf_artifacts pf_local pf_chain_catalog\n"
         )
         return 0
     if "--self-check" in argv:

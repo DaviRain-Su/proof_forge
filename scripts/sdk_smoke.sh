@@ -15,7 +15,13 @@ echo "$out" | rg -q '"ok": true'
 echo "$out" | rg -q 'list_targets'
 echo "$out" | rg -q 'load_output_manifest'
 echo "$out" | rg -q '"local"'
+echo "$out" | rg -q 'chain_catalog'
 echo "$out" | rg -q 'proof-forge.sdk.self-check.v1'
+
+echo "sdk-smoke: chain-catalog --target aleo"
+cat_out="$("${sdk[@]}" chain-catalog --target aleo)"
+echo "$cat_out" | rg -q 'proof-forge.chain-client-catalog.v1'
+echo "$cat_out" | rg -q '"id": "aleo"'
 
 if [[ ! -x "$cli" ]]; then
   echo "sdk-smoke: FAIL proof-forge-next missing at $cli (lake build first)" >&2

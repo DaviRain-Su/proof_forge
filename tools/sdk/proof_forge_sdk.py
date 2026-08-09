@@ -44,6 +44,8 @@ SCHEMA_LIST_TARGETS = "proof-forge.cli.list-targets.v1"
 SCHEMA_DOCTOR = "proof-forge.doctor.v1"
 SCHEMA_INSTALL = "proof-forge.install.v1"
 SCHEMA_OUTPUT = "proof-forge.output.v1"
+SCHEMA_CHAIN_CATALOG = "proof-forge.chain-client-catalog.v1"
+CATALOG_REL = Path("docs/product/chain-client-catalog.v1.json")
 
 IMPLEMENTED_TARGETS = (
     "evm",
@@ -262,6 +264,49 @@ def file_sha256(path: PathLike) -> str:
         for chunk in iter(lambda: f.read(1024 * 1024), b""):
             h.update(chunk)
     return h.hexdigest()
+
+
+def load_chain_client_catalog(
+    repo_root: PathLike,
+    *,
+    target: Optional[str] = None,
+    include_design_only: bool = False,
+) -> Dict[str, Any]:
+    """Load static chain-client catalog JSON (metadata only; not a compiler)."""
+    root = Path(repo_root).expanduser().resolve()
+    path = root / CATALOG_REL
+    if not path.is_file():
+        raise FileNotFoundError(f"missing chain client catalog: {path}")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: root must be object")
+    if data.get("schema") != SCHEMA_CHAIN_CATALOG:
+        raise ValueError(
+            f"{path}: expected schema {SCHEMA_CHAIN_CATALOG!r}, got {data.get('schema')!r}"
+        )
+    targets = data.get("targets")
+    if not isinstance(targets, list):
+        raise ValueError(f"{path}: targets must be an array")
+    filtered: List[Any] = []
+    for row in targets:
+        if not isinstance(row, dict):
+            continue
+        tid = str(row.get("id") or "")
+        implemented = bool(row.get("implemented"))
+        if target is not None and tid != str(target):
+            continue
+        if target is None and not include_design_only and not implemented:
+            continue
+        filtered.append(row)
+    if target is not None and not filtered:
+        raise KeyError(f"unknown catalog target id: {target}")
+    out = dict(data)
+    out["targets"] = filtered
+    out["filter"] = {
+        "target": target,
+        "includeDesignOnly": include_design_only,
+    }
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -648,6 +693,36 @@ class ProofForgeClient:
         """Parse engineering ``proof-forge.output.v1`` without re-running inspect."""
         return load_output_manifest(output_dir)
 
+    def chain_catalog(
+        self,
+        *,
+        target: Optional[str] = None,
+        include_design_only: bool = False,
+    ) -> CliResult:
+        """Static multi-chain client/frontend metadata (not product CLI spawn)."""
+        try:
+            data = load_chain_client_catalog(
+                self.root,
+                target=target,
+                include_design_only=include_design_only,
+            )
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as e:
+            return CliResult(
+                ok=False,
+                exit_code=2,
+                command=["chain-catalog"],
+                stderr=str(e),
+                error="usage",
+            )
+        return CliResult(
+            ok=True,
+            exit_code=0,
+            command=["chain-catalog"],
+            stdout=json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+            parsed=data,
+            product_ok=True,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Self-check / CLI entry
@@ -674,6 +749,7 @@ def self_check(*, root: Optional[PathLike] = None) -> Dict[str, Any]:
             "inspect_target",
             "local",
             "load_output_manifest",
+            "chain_catalog",
         ],
         "notes": [
             "SDK only spawns product CLI / package engines",
@@ -681,6 +757,7 @@ def self_check(*, root: Optional[PathLike] = None) -> Dict[str, Any]:
             "not formal/hermetic/mainnet/deployable rewrite",
             "local is generic (Aleo: --source/--module/--run; no default program)",
             "no default network broadcast helper",
+            "chain_catalog is static metadata (frontend/client names; not shipped SDKs)",
         ],
     }
     try:
@@ -758,6 +835,13 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
     p_loc.add_argument("--skip-run", action="store_true")
     p_loc.add_argument("--output-dir", default=None)
 
+    p_cat = sub.add_parser(
+        "chain-catalog",
+        help="static chain client/frontend catalog JSON (metadata only)",
+    )
+    p_cat.add_argument("--target", default=None)
+    p_cat.add_argument("--all", action="store_true", help="include design-only rows")
+
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     if args.self_check or args.cmd is None:
@@ -794,6 +878,11 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
             runs=args.runs or None,
             skip_run=bool(args.skip_run),
             output_dir=args.output_dir,
+        )
+    elif args.cmd == "chain-catalog":
+        r = client.chain_catalog(
+            target=args.target,
+            include_design_only=bool(args.all),
         )
     elif args.cmd == "load-manifest":
         try:
