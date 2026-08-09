@@ -1037,4 +1037,153 @@ theorem stateConformsV1_elim_of_validate_eq_ok
       cases h : state.initialized <;> simp_all
     simp [hfalse] at hconforms
 
+
+
+
+
+
+/-! ### Triple UInt64 logical-state packing (multi-state L1 preservation) -/
+
+/-- Exact triple length-prefixed UInt64 layout (declaration order).
+    Left-associated to match `encodeLogicalStateValuesV1` forIn accumulation. -/
+def tripleUint64CanonicalV1 (b0 b1 b2 : ByteArray) : ByteArray :=
+  (((encodeU32le 8).append b0).append ((encodeU32le 8).append b1)).append
+    ((encodeU32le 8).append b2)
+
+private theorem array_push3_eq
+    (b0 b1 b2 : ByteArray) :
+    ((((Array.emptyWithCapacity 3).push b0).push b1).push b2) = #[b0, b1, b2] := by
+  apply Array.ext
+  · simp [Array.emptyWithCapacity_eq]
+  · intro i hi hi'
+    match i with
+    | 0 => simp
+    | 1 => simp
+    | 2 => simp
+    | n + 3 =>
+        have : n + 3 < 3 := by
+          simpa [Array.size_push, Array.emptyWithCapacity_eq] using hi
+        omega
+
+/-- Triple public-UInt64 encode under successful valueBytes gates. -/
+theorem encodeLogicalStateValuesV1_triple_uint64_eq_ok
+    (data : SemanticProgramDataV1)
+    (s0 s1 s2 : StateDeclV1)
+    (b0 b1 b2 : ByteArray)
+    (initialized : Bool)
+    (hstate : data.logicalState = #[s0, s1, s2])
+    (hc0 : validateValueBytesV1 data.types s0.typeId b0 = .ok ())
+    (hc1 : validateValueBytesV1 data.types s1.typeId b1 = .ok ())
+    (hc2 : validateValueBytesV1 data.types s2.typeId b2 = .ok ())
+    (hs0 : b0.size = 8) (hs1 : b1.size = 8) (hs2 : b2.size = 8) :
+    encodeLogicalStateValuesV1 data initialized #[b0, b1, b2] = .ok {
+      initialized
+      canonicalValues := tripleUint64CanonicalV1 b0 b1 b2
+    } := by
+  have hslot0 :
+      encodeStateSlotV1 b0 = .ok ((encodeU32le 8).append b0) := by
+    unfold encodeStateSlotV1
+    have hle : b0.size ≤ UInt32.size - 1 := by simp [hs0]
+    have hsz : UInt32.ofNat b0.size = 8 := by simp [hs0]
+    simp only [if_pos hle, hsz, Pure.pure, Except.pure, Bind.bind, Except.bind]
+  have hslot1 :
+      encodeStateSlotV1 b1 = .ok ((encodeU32le 8).append b1) := by
+    unfold encodeStateSlotV1
+    have hle : b1.size ≤ UInt32.size - 1 := by simp [hs1]
+    have hsz : UInt32.ofNat b1.size = 8 := by simp [hs1]
+    simp only [if_pos hle, hsz, Pure.pure, Except.pure, Bind.bind, Except.bind]
+  have hslot2 :
+      encodeStateSlotV1 b2 = .ok ((encodeU32le 8).append b2) := by
+    unfold encodeStateSlotV1
+    have hle : b2.size ≤ UInt32.size - 1 := by simp [hs2]
+    have hsz : UInt32.ofNat b2.size = 8 := by simp [hs2]
+    simp only [if_pos hle, hsz, Pure.pure, Except.pure, Bind.bind, Except.bind]
+  unfold encodeLogicalStateValuesV1 tripleUint64CanonicalV1
+  simp only [hstate]
+  simp [hc0, hc1, hc2, hslot0, hslot1, hslot2,
+    Pure.pure, Except.pure, Bind.bind, Except.bind, ByteArray.empty_append]
+
+/-- Successful triple decode yields three structure-gated slot payloads. -/
+theorem decodeLogicalStateValuesV1_triple_eq
+    (data : SemanticProgramDataV1)
+    (s0 s1 s2 : StateDeclV1)
+    (state : LogicalStateV1)
+    (values : Array ByteArray)
+    (hstate : data.logicalState = #[s0, s1, s2])
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok values) :
+    ∃ b0 b1 b2 : ByteArray,
+      values = #[b0, b1, b2] ∧
+      validateValueBytesV1 data.types s0.typeId b0 = .ok () ∧
+      validateValueBytesV1 data.types s1.typeId b1 = .ok () ∧
+      validateValueBytesV1 data.types s2.typeId b2 = .ok () := by
+  unfold decodeLogicalStateValuesV1 at hdecode
+  have hlist : data.logicalState.toList = [s0, s1, s2] := by simp [hstate]
+  simp only [hlist, decodeLogicalStateSlotsV1, Pure.pure, Except.pure,
+    Bind.bind, Except.bind, err] at hdecode
+  cases hread0 : readU32leAtV1 state.canonicalValues 0 with
+  | error e => simp [hread0] at hdecode
+  | ok pair0 =>
+    rcases pair0 with ⟨len0, after0⟩
+    simp [hread0] at hdecode
+    by_cases hfit0 : after0 + len0.toNat ≤ state.canonicalValues.size
+    · simp only [if_pos hfit0] at hdecode
+      cases hval0 : validateValueBytesV1 data.types s0.typeId
+          (state.canonicalValues.extract after0 (after0 + len0.toNat)) with
+      | error e => simp [hval0] at hdecode
+      | ok _ =>
+        simp [hval0] at hdecode
+        cases hread1 : readU32leAtV1 state.canonicalValues
+            (after0 + len0.toNat) with
+        | error e => simp [hread1] at hdecode
+        | ok pair1 =>
+          rcases pair1 with ⟨len1, after1⟩
+          simp [hread1] at hdecode
+          by_cases hfit1 : after1 + len1.toNat ≤ state.canonicalValues.size
+          · simp only [if_pos hfit1] at hdecode
+            cases hval1 : validateValueBytesV1 data.types s1.typeId
+                (state.canonicalValues.extract after1
+                  (after1 + len1.toNat)) with
+            | error e => simp [hval1] at hdecode
+            | ok _ =>
+              simp [hval1] at hdecode
+              cases hread2 : readU32leAtV1 state.canonicalValues
+                  (after1 + len1.toNat) with
+              | error e => simp [hread2] at hdecode
+              | ok pair2 =>
+                rcases pair2 with ⟨len2, after2⟩
+                simp [hread2] at hdecode
+                by_cases hfit2 :
+                    after2 + len2.toNat ≤ state.canonicalValues.size
+                · simp only [if_pos hfit2] at hdecode
+                  cases hval2 : validateValueBytesV1 data.types s2.typeId
+                      (state.canonicalValues.extract after2
+                        (after2 + len2.toNat)) with
+                  | error e => simp [hval2] at hdecode
+                  | ok _ =>
+                    simp [hval2] at hdecode
+                    by_cases htrail :
+                        after2 + len2.toNat = state.canonicalValues.size
+                    · simp only [if_pos htrail] at hdecode
+                      let b0 := state.canonicalValues.extract after0
+                        (after0 + len0.toNat)
+                      let b1 := state.canonicalValues.extract after1
+                        (after1 + len1.toNat)
+                      let b2 := state.canonicalValues.extract after2
+                        (after2 + len2.toNat)
+                      have hvals :
+                          values =
+                            ((((Array.emptyWithCapacity 3).push b0).push b1).push
+                              b2) :=
+                        (Except.ok.inj hdecode).symm
+                      refine ⟨b0, b1, b2, ?_, hval0, hval1, hval2⟩
+                      simpa [array_push3_eq b0 b1 b2] using hvals
+                    · simp only [if_neg htrail] at hdecode
+                      cases hdecode
+                · simp only [if_neg hfit2] at hdecode
+                  cases hdecode
+          · simp only [if_neg hfit1] at hdecode
+            cases hdecode
+    · simp only [if_neg hfit0] at hdecode
+      cases hdecode
+
 end ProofForgeV2.Semantic.InvariantABI

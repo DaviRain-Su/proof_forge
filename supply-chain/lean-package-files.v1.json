@@ -276,11 +276,6 @@
       "sha256": "fd8ef4cc573a856ee4a049876a9c2f13e20a62ba5dc5895e3576fab8295ee84a"
     },
     {
-      "bytes": 9212,
-      "path": "ProofForgeV2/ProofInstances/MiniAmmEmptyPoolPreservationV1.lean",
-      "sha256": "ce17e984518f2da3bc0d7f88e1a356382b84394a306b32566f1d9ea8d3370c56"
-    },
-    {
       "bytes": 31727,
       "path": "ProofForgeV2/ProofInstances/MiniAmmEmptyPoolV1.lean",
       "sha256": "8e4f9dbf21e7080846776b56e8c51567db28106d463874c4574b456efe410d1b"
@@ -321,9 +316,9 @@
       "sha256": "79481bf9ce6828f86bbef90ba45a7bf836faa00c107fe6eaa13566132d41dd69"
     },
     {
-      "bytes": 45127,
+      "bytes": 51879,
       "path": "ProofForgeV2/Semantic/InvariantFoundationV1.lean",
-      "sha256": "4a38748c4775c9dc2c7e476ede8afc077a66ddf50f593b2550bedec4150eb5d6"
+      "sha256": "01497534fb9c35db925eb14aefb9768b994441881f6902c0171a7aa493fbcf0f"
     },
     {
       "bytes": 208791,
