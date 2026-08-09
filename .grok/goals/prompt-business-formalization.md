@@ -65,10 +65,18 @@
 
 ## 队列（顺序固定）
 
-先读 `.grok/business-formalization-queue.md` **全部 wave**。Wave1+wave2 应已 done
+先读 `.grok/business-formalization-queue.md` **全部 wave**。Wave1+wave2 已 done
 （EvenCounter packaging/unpin/docs + ZeroCounter data/preserve/product/docs）。
-若队列清空：`status=program_complete`；下一业务轨是 MiniAmm P1（**不在** 本 queue 除非
-人类新增 wave-3 行）。**不** supersede ADR-0027。
+
+**当前 wave-3′（用户拍板 2026-08-09）：generic-first 迁移，最终删 ProofInstances + pin**
+
+- **A**：`mig-a1-codec`（generic codec round-trip，`ProofBridgeV1` remaining gap）→
+  `mig-a2-shape`（形状族 preservation 定理入 Semantic）→ `mig-a3-elab`（结构化 `subjectDataV1` 取代字节 spine defeq）
+- **B**：`mig-b1-evencounter` / `mig-b2-zerocounter` / `mig-b3-miniamm`（迁为 inline same-file 普通合约；product positive 保持 GREEN）
+- **C**：`mig-c1-delete`（删 `ProofInstances/` + `ClosedSubjectPinV1` + 产品模块对合约的 import；**前置 = B 全 GREEN**）→ `mig-c2-docs`
+
+**产品决策（强制）**：形式化验证与业务合约同文件（ADR-0027）；产品包零合约专属内容；
+任何删除只能在 C 门槛后。**不** supersede ADR-0027。
 
 ## 队列（历史 wave1 顺序）
 
