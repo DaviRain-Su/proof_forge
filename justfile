@@ -1327,6 +1327,15 @@ aleo-sandbox *ARGS:
 external-hello-smoke *ARGS:
     bash scripts/external_hello_smoke.sh {{ARGS}}
 
+# Engineering CLI dist (REL-CLI-1). Not formal Stage-0.
+# Authority: docs/product/05-distribution-and-packages.md
+# Requires: lake-built proof-forge-next with `version` command; VERSION == Lean constant.
+package-cli *ARGS:
+    bash scripts/package_cli_dist.sh {{ARGS}}
+
+package-cli-smoke:
+    bash scripts/package_cli_dist_smoke.sh
+
 # Aleo explicit post-build deploy/execute (host-heavy; NOT ordinary ci).
 # Consumes an existing compile-profile OutputSet and publishes a separate
 # deployment receipt. DevNet uses --dev-key; Testnet uses --private-key-file +

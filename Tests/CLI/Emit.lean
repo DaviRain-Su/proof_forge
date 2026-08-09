@@ -1,4 +1,5 @@
 import ProofForgeV2.CLI.Emit
+import ProofForgeV2.CLI.ProductVersionV1
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Compiler.Pipeline
@@ -9,6 +10,7 @@ import Tests.Language.ParserSession
 namespace Tests.CLI.Emit
 
 open ProofForgeV2 System
+open ProofForgeV2.CLI.ProductVersionV1
 open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
 
@@ -16,6 +18,23 @@ private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 
 unsafe def run : IO Unit := do
+  -- REL-CLI-0: version / --version parse (engineering-dist; not formal Stage-0).
+  match ProofForgeV2.CLI.parseProductCliCommandV1 ["version"] with
+  | .ok (.version false) => pure ()
+  | other => throw <| IO.userError s!"expected version command, got {repr other}"
+  match ProofForgeV2.CLI.parseProductCliCommandV1 ["version", "--json"] with
+  | .ok (.version true) => pure ()
+  | other => throw <| IO.userError s!"expected version --json, got {repr other}"
+  match ProofForgeV2.CLI.parseProductCliCommandV1 ["--version"] with
+  | .ok (.version false) => pure ()
+  | other => throw <| IO.userError s!"expected --version, got {repr other}"
+  expect (productVersionV1 == "0.1.0")
+    "productVersionV1 must match repo VERSION (0.1.0)"
+  expect (productChannelV1 == "engineering-dist")
+    "productChannelV1 must be engineering-dist"
+  expect (renderVersionJsonV1.contains "proof-forge.cli.version.v1")
+    "version JSON must carry schema id"
+
   -- Path-safety pure seam (package-visible). Forged artifact names cannot mint
   -- private-ctor CompiledSemanticV1, so PF-OUTPUT-PATH on emitProgram is unreachable
   -- without a public carrier factory; emitProgram still validates the compiled

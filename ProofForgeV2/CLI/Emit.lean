@@ -633,6 +633,8 @@ inductive CliCommandV1 where
   | inspectOutput (dir : String) (json : Bool)
   | check (options : BuildOptions)
   | build (options : BuildOptions)
+  /-- Engineering product version (`version` / `--version`). Not formal Stage-0. -/
+  | version (json : Bool)
   | usage
   deriving Repr
 
@@ -2096,6 +2098,12 @@ def parseCliCommandV1 (args : List String) : Except String CliCommandV1 := do
       let options ← parseBuildArgsExcept rest
       let options ← validateBuildOptionsCliV1 .build options
       pure (.build options)
+  | "version" :: rest =>
+      let json ← parseJsonOnlyArgsExcept rest
+      pure (.version json)
+  | "--version" :: rest =>
+      let json ← parseJsonOnlyArgsExcept rest
+      pure (.version json)
   | _ => pure .usage
 
 /-- Product CLI preflight: **seed first**, then parse.

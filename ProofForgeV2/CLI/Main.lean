@@ -1,4 +1,5 @@
 import ProofForgeV2.CLI.Emit
+import ProofForgeV2.CLI.ProductVersionV1
 import ProofForgeV2.Compiler.InlineProofCertifierV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.DiagnosticBundleV1
@@ -11,6 +12,7 @@ import ProofForgeV2.Targets.BuildSelectionV1
 namespace ProofForgeV2.CLI
 
 open ProofForgeV2 System
+open ProofForgeV2.CLI.ProductVersionV1
 open ProofForgeV2.Compiler.InlineProofCertifierV1
 open ProofForgeV2.Compiler.InlineProofProtocolV1
 open ProofForgeV2.Core.Common
@@ -25,8 +27,10 @@ open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Compiler
 
 private def usage : String :=
-  "ProofForge V2 alpha\n\n" ++
+  s!"ProofForge V2 ({productVersionV1}, {productChannelV1})\n\n" ++
   "Usage:\n" ++
+  "  proof-forge-next version [--json]\n" ++
+  "  proof-forge-next --version [--json]\n" ++
   "  proof-forge-next list-targets [--all] [--json]\n" ++
   "  proof-forge-next doctor [--json] [--target <id>]... [--with-runtime] [--all]\n" ++
   "  proof-forge-next install --targets <id,id> --yes [--with-runtime] [--dry-run] [--json]\n" ++
@@ -40,11 +44,13 @@ private def usage : String :=
   "  proof-forge-next build <source.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>] [--minimum-evidence <grade>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
   "\n" ++
   "Notes:\n" ++
+  "  version / --version prints engineering product identity (not formal Stage-0 release).\n" ++
   "  --profile selects a registered codegen profile for the target (default profile when omitted).\n" ++
   "  build --network is not supported (no network registry); use the network subcommand for host-heavy paths.\n" ++
   "  --resource-limit is lower-only; check rejects external-tool/artifact-output; wall-ms and build artifact-output.published-bytes are enforced in-process (RES-1 / output-only RES-1B).\n" ++
   "  --minimum-evidence is build-only (specified|artifact_validated|local_runtime|network_or_proof_validated).\n" ++
   "  --json emits deterministic PF-JCS on stdout for list-targets/inspect/check/build;\n" ++
+  "    version --json emits proof-forge.cli.version.v1;\n" ++
   "    doctor --json emits proof-forge.doctor.v1 (Tool Lock presence under PROOF_FORGE_TOOL_ROOT);\n" ++
   "    install --json emits proof-forge.install.v1 (Tool Lock materialize under PROOF_FORGE_TOOL_ROOT);\n" ++
   "    local --json emits proof-forge.local.v1; network --json emits proof-forge.network.v1.\n" ++
@@ -765,6 +771,11 @@ unsafe def run (args : List String) : IO Unit := do
       | .inspectOutput dir json => inspectOutputDir dir json
       | .check options => checkSource options
       | .build options => buildSource options
+      | .version json =>
+          if json then
+            IO.println renderVersionJsonV1
+          else
+            IO.println renderVersionHumanV1
       | .usage => failUsage usage
 
 end ProofForgeV2.CLI

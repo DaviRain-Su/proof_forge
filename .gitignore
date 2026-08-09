@@ -1,5 +1,7 @@
 /.lake/
 /build/
+# Engineering CLI dist tarballs (just package-cli); do not commit multi-MB binaries
+/dist/
 /active/.lake/
 /active/build/
 /.proof-forge-next/

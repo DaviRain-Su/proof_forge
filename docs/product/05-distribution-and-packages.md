@@ -174,12 +174,44 @@ program Hello where …
 | 把 engineering tag 说成 formal release | 文档与 CI 命名 `engineering-dist` vs `stage0` |
 | 双版本漂移（CLI vs Author） | 同一 PRODUCT_VERSION 族；doctor 报告双方 |
 
-## 9. 下一刀实现入口（工程）
+## 9. 实现状态（engineering）
 
-1. 写 `scripts/package_cli_dist.sh` + `just package-cli`（本机 linux 先）  
-2. CLI `--version` 与 `VERSION` 文件对齐  
-3. 文档「安装 CLI dist」替换「必须 lake build  monorepo」为 **推荐路径**（monorepo 仍为开发者路径）  
-4. 另开 lane 测量 Author SDK 最小 import 闭包（不阻塞 CLI dist）  
+| 切片 | 状态 | 入口 |
+|---|---|---|
+| **REL-CLI-0** 版本身份 | **done** | 根目录 `VERSION`；`ProofForgeV2/CLI/ProductVersionV1.lean`；`proof-forge-next version [--json]` / `--version`；schema `proof-forge.cli.version.v1`；channel=`engineering-dist` |
+| **REL-CLI-1** binary dist | **done** | `scripts/package_cli_dist.sh` + `just package-cli` → `dist/proof-forge-next-<ver>-<platform>.tar.gz` + `.sha256`；`just package-cli-smoke` |
+| **REL-CLI-2** 安装文档 | **done（本页 §9.1）** | monorepo `lake build` 仍为开发者路径；dist 为外部作者推荐路径 |
+| **REL-AUTHOR-0** Lean Author SDK | **pending** | 最小 import 闭包另 lane |
+| **REL-HOST-0** pip | **pending** | CLI dist 稳定后 |
+| formal Stage-0 | **out of scope** | 整仓最后 |
+
+### 9.1 安装 CLI dist（推荐外部作者）
+
+```bash
+# 在已 build 的 monorepo 上打工程包（或从未来 GitHub Release 下载同名资产）
+just package-cli
+# → dist/proof-forge-next-0.1.0-linux-x86_64.tar.gz
+# → dist/proof-forge-next-0.1.0-linux-x86_64.tar.gz.sha256
+
+sha256sum -c dist/proof-forge-next-0.1.0-linux-x86_64.tar.gz.sha256
+tar -xzf dist/proof-forge-next-0.1.0-linux-x86_64.tar.gz -C /opt
+export PROOF_FORGE_CLI=/opt/proof-forge-next-0.1.0-linux-x86_64/bin/proof-forge-next
+"$PROOF_FORGE_CLI" version --json
+# expect: version=0.1.0, channel=engineering-dist
+```
+
+说明：
+
+- 包内 **无** Tool Lock 工具；链工具仍走 `install`（且 doctor/install/local 仍需 package `scripts/` CWD — 后续可把引擎装进 dist）  
+- `build` / `check` / `version` / `list-targets` 仅需二进制即可  
+- **禁止**把本 tarball 说成 formal / Stage-0 / hermetic 证据  
+
+### 9.2 剩余
+
+1. Author SDK 最小 import 闭包  
+2. GitHub Release 上传工程资产（可选 CI）  
+3. doctor/install 不依赖 monorepo CWD（产品面硬化）  
+4. formal Stage-0  
 
 ## 10. 一句话
 
