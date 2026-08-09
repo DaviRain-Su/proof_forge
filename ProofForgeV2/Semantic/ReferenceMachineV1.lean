@@ -3049,6 +3049,108 @@ theorem finalize_returned_stateConformsV1_of_initialized
   · exact decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1
       m.data true m.overlay post hencodeInitialized
 
+private theorem finalizeLifecycle_ne_returnedV1
+    (pre post : LogicalStateV1)
+    (responses : ExternalResponsesV1)
+    (cand : CandidateV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1) :
+    finalizeLifecycle pre responses cand ≠ .returned post value effects := by
+  unfold finalizeLifecycle
+  split
+  · simp
+  · cases cand <;> simp
+
+/-- A returned initialized entry/view step preserves production state
+    conformance for the exact admitted program. The theorem follows the sole
+    executable path (`stepReferenceSliceV1` → `runMachine` → `finalize`) and
+    does not introduce a second transition relation. Initializer post-state
+    conformance remains a separate lifecycle theorem. -/
+theorem stepReferenceSliceV1_returned_stateConformsV1_of_initialized
+    (program : SemanticProgramV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (pre post : LogicalStateV1)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vaultSeed : ReferenceVaultSeedV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hadmit : admitReferenceProgramSliceV1 program = .ok admitted)
+    (hinitialized : pre.initialized = true)
+    (hstep :
+      stepReferenceSliceV1 admitted pre invocation responses vaultSeed =
+        .returned post value effects) :
+    StateConformsV1 program post := by
+  obtain ⟨_hprogram, hvalidate⟩ :=
+    admitReferenceProgramSliceV1_ok_implies_validate program admitted hadmit
+  unfold stepReferenceSliceV1 at hstep
+  cases hgate : gateInvocation admitted pre invocation with
+  | invalidInvocation =>
+      simp only [hgate] at hstep
+      cases hstep
+  | lifecycle cand =>
+      simp only [hgate] at hstep
+      exact False.elim
+        (finalizeLifecycle_ne_returnedV1
+          pre post responses cand value effects hstep)
+  | ready callable overlay context isInitializer =>
+      simp only [hgate] at hstep
+      generalize hbind :
+          (Id.run do
+            let mut env := emptyEnv (maxValueIdInCallable callable + 1)
+            let mut i : Nat := 0
+            for p in callable.params do
+              match invocation.args[i]? with
+              | none => return none
+              | some arg =>
+                  match envSet env p.valueId arg with
+                  | none => return none
+                  | some env' => env := env'
+              i := i + 1
+            pure (some env)) = bindResult at hstep
+      cases bindResult with
+      | none =>
+          simp only at hstep
+          exact False.elim
+            (finalizeLifecycle_ne_returnedV1
+              pre post responses (.trapped .internalInvariant)
+                value effects hstep)
+      | some env =>
+          simp only at hstep
+          let m0 : MachineV1 := {
+            data := admitted.data
+            pre
+            callable
+            isInitializer
+            context
+            overlay
+            env
+            effects := #[]
+            occCounts := Array.replicate
+              (maxEffectIdInCallable callable + 1) (0 : UInt32)
+            responseCursor := 0
+            responses
+            loopCounts := Array.replicate callable.loopBounds.size (0 : UInt32)
+            blockId := callable.entryBlock
+            instrIdx := 0
+            frames := #[]
+            vaultNative := vaultSeed.native
+            vaultToken := vaultSeed.token
+          }
+          change finalize (runMachine false 1000000 m0).2.1
+              (runMachine false 1000000 m0).2.2 pre =
+            .returned post value effects at hstep
+          have hrunData := runMachine_data_eq false 1000000 m0
+          have hvalidateEnd :
+              validateSemanticProgramV1 program =
+                .ok (runMachine false 1000000 m0).2.1.data := by
+            rw [hrunData]
+            exact hvalidate
+          exact finalize_returned_stateConformsV1_of_initialized
+            program (runMachine false 1000000 m0).2.1
+              (runMachine false 1000000 m0).2.2
+              pre post value effects hvalidateEnd hinitialized hstep
+
 /-- Shape-invalid invocations trap with the exact pre-state. -/
 theorem stepReferenceSliceV1_invalidInvocation_eq
     (admitted : AdmittedReferenceSliceV1)
