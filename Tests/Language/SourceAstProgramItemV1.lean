@@ -115,7 +115,7 @@ def run : IO Unit := do
   let fnD : FnDeclV1 := { name := helper2, params := #[pX], result := .unit, body := blkIf }
   let inv : InvariantDeclV1 := { name := bounded, predicate := eLt }
   let ext : ExtensionReqV1 := { id := demoFeature, version := "1.0.0", digest := dig00 }
-  let pr : ProofDeclV1 := { invariant := safe, theorem_ := proofsSafe }
+  let pr : ProofDeclV1 := { invariant := safe, kind := .holds, theorem_ := proofsSafe }
   let iSt := ProgramItemV1.state st; let iSu := ProgramItemV1.struct su
   let iEn := ProgramItemV1.enum en; let iCo := ProgramItemV1.const co
   let iEv := ProgramItemV1.event ev; let iEr := ProgramItemV1.error er
@@ -160,7 +160,7 @@ def run : IO Unit := do
     "0c000000457874656e73696f6e5265710300020000000400000044656d6f070000004665617475726505000000312e302e30470000007368613235363a30303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030"
     (encodeProgramItemV1 iExt) (encodeExtensionReqV1 ext)
   expectItem "item_proof"
-    "0900000050726f6f664465636c02000400000073616665020000000600000050726f6f66730400000073616665"
+    "0900000050726f6f664465636c030004000000736166650f00000050726f6f664b696e642e486f6c64730000020000000600000050726f6f66730400000073616665"
     (encodeProgramItemV1 iPr) (encodeProofDeclV1 pr)
   expect (decide (iSt = iSt)) "eq_state"; expect (decide (iSu = iSu)) "eq_struct"
   expect (decide (iEn = iEn)) "eq_enum"; expect (decide (iCo = iCo)) "eq_const"

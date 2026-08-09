@@ -3,7 +3,7 @@ id: SPEC-SEC-001
 title: 安全与隐私规格
 status: proposed
 owner: security
-updated: 2026-08-04
+updated: 2026-08-07
 normative: true
 ---
 
@@ -37,7 +37,8 @@ runtime、RPC、network profile 和父项目均不可信。编译器默认不执
 并审计 Environment。此扩大 TCB 的范围必须显式承认：
 
 - 输入仅限同一 in-memory raw source；禁止为证明重读或信任用户 `.olean`；
-- root 必须为 theorem；kernel defeq 到 closed `InvariantTheoremV1`；
+- root 必须为 theorem；kernel defeq 到 proof-kind-selected closed
+  `InvariantTheoremV1` 或 `PreservationTheoremV1`；
 - dependency 闭包仅允许 base axiom `Classical.choice` / `Quot.sound` / `propext`，
   并拒绝 `sorryAx`、用户 axiom、unsafe/partial/extern/implemented_by/initializer 等
   （`proof-forge.proof-trust-policy.v1`，全部 capability flags false）；

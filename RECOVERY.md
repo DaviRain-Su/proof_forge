@@ -261,9 +261,16 @@ ToolchainIdentity/race-free formal closure/hermetic publisher/完整 SemanticPro
 `PreservationTheoremV1` 现包含 dense ordinal、positive admitted witness、positive initial-state
 constructor、initializer/no-initializer base 与全 state/invocation(context)/responses/vault 的三分支
 Outcome preservation；initial/admission 失败均使命题为假。focused suite 覆盖 ABI defeq、
-no-vacuity 与 no-init/with-init returned/reverted/trapped lifecycle。**未接线** ProofKind、
-`(inv,kind)` inventory、certifier/alias、EvenCounter 或产品 proof gate；ADR-0027 仍为现行 holds
-authority，formal TASK/TST 状态不变，MiniAmm 无特例。
+no-vacuity 与 no-init/with-init returned/reverted/trapped lifecycle。**后续 engineering cutover 已接线**
+`ProofKindV1`、三字段 `ProofDecl` wire、bare holds / explicit preserving、`(invariant,kind)`
+inventory、`Proof` / `ProofPreserving` 双 alias 与 kind-bound protocol/theorem-set/certifier；kind 改变
+source/request/certification identity，不改变 SemanticProgram identity；无 2-field fallback，simple-closure
+helper 仅服务 holds。**EvenCounter 首个 preserving product `check` certified positive 已于
+2026-08-08 闭合**（package-owned `EvenCounterPreservationV1` + ClosedSubjectPin 加速 +
+same-file `exact`；业务逻辑形式化 track 1 主路径验收）。第二非 AMM 实例与 ADR-0027
+supersession 仍 pending；下一步优先 generic packaging lemmas / 非 pin author 路径，不抢第二实例。
+ADR-0027 继续作为 inline base authority且未 supersede，formal TASK/TST（工具内部 track 2）
+状态不变，MiniAmm 无特例。
 
 远端general CFG walker lineage中的Reference machine继续作为唯一工程执行权威；其PureCall frame、
 if/match、emit/revert、mul/div/mod/unary与let/for能力均保留。本地增量只新增明确非formal的

@@ -571,7 +571,7 @@ def run : IO Unit := do
       "type mismatch: expected Bool, got String"),
     ("ExtensionReq", #[.extensionReq { id := peer, version := "1.0.0", digest := digest0 }],
       "unsupported extension requirement 'Peer.go'"),
-    ("ProofDecl", #[.proof { invariant := x, theorem_ := peer },
+    ("ProofDecl", #[.proof { invariant := x, kind := .holds, theorem_ := peer },
       .invariant { name := x, predicate := hostile }],
       "type mismatch: expected Bool, got String")]
   for (tag, itemPrefix, want) in topCases do

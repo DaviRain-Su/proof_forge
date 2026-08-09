@@ -31,6 +31,10 @@ def encodeVisibilityV1 : VisibilityV1 → Except String ByteArray
   | .private_ => nullary "Visibility.Private"
   | .commitment => nullary "Visibility.Commitment"
 
+def encodeProofKindV1 : ProofKindV1 → Except String ByteArray
+  | .holds => nullary "ProofKind.Holds"
+  | .preserving => nullary "ProofKind.Preserving"
+
 def encodeTypeV1 : TypeV1 → Except String ByteArray
   | .bool => nullary "Type.Bool"
   | .uint width => do

@@ -17,7 +17,7 @@ SCHEMA = "proof-forge.source-program-unknown-tag-golden-prerequisite.v1"
 SCOPE = "pa125-base-first-occurrence-one-byte-unknown-tag"
 BASE_CASE = "full-tag-valid-v1"
 BASE_FILE = "testdata/golden/source-program-v1/full-tag-v1/canonical.bin"
-BASE_SHA256 = "5d38eaca671e503ae50a517cc8ffaddba20b370d11da22f6bcdb807089aa64ce"
+BASE_SHA256 = "a7075ca364c099e18510c1f5a8961449e3859d6a45fec46820d327a7d095a0d8"
 PACKAGE = Path("testdata/golden/source-program-v1/unknown-tag-v1")
 MANIFEST = "manifest.json"
 MUTATED_FIRST_BYTE = ord("X")
@@ -32,6 +32,7 @@ def diagnostic_groups():
     groups = {
         "binary-op": {tag for tag in base.WIRE_TAGS if tag.startswith("BinaryOp.")},
         "visibility": {tag for tag in base.WIRE_TAGS if tag.startswith("Visibility.")},
+        "proof-kind": {tag for tag in base.WIRE_TAGS if tag.startswith("ProofKind.")},
         "unary-op": {tag for tag in base.WIRE_TAGS if tag.startswith("UnaryOp.")},
         "literal": {tag for tag in base.WIRE_TAGS if tag.startswith("Literal.")},
         "type": {tag for tag in base.WIRE_TAGS if tag.startswith("Type.")},
@@ -57,8 +58,8 @@ def diagnostic_groups():
     for family, tags in groups.items():
         require(not observed.intersection(tags), f"overlapping diagnostic family {family}")
         observed.update(tags)
-    require(len(groups) == 18 and observed == base.WIRE_TAGS,
-            "closed 84-tag/18-family diagnostic mapping")
+    require(len(groups) == 19 and observed == base.WIRE_TAGS,
+            "closed 85-tag/19-family diagnostic mapping")
     return groups
 
 
@@ -102,7 +103,7 @@ def expected_descriptor(root):
     first = {}
     for tag, offset in records:
         first.setdefault(tag, offset)
-    require(set(first) == base.WIRE_TAGS and len(first) == 84,
+    require(set(first) == base.WIRE_TAGS and len(first) == 85,
             "closed first-occurrence tag inventory")
 
     mutations = []
@@ -130,8 +131,8 @@ def expected_descriptor(root):
             "originalTag": tag,
             "tagByteOffset": offset,
         })
-    require(len(mutations) == 84 and len({row["tagByteOffset"] for row in mutations}) == 84,
-            "84 unique tag mutations")
+    require(len(mutations) == 85 and len({row["tagByteOffset"] for row in mutations}) == 85,
+            "85 unique tag mutations")
     require(mutations == sorted(mutations, key=lambda row: row["originalTag"]),
             "mutation row order")
 
@@ -141,12 +142,12 @@ def expected_descriptor(root):
         "baseCanonicalFile": BASE_FILE,
         "baseCaseId": BASE_CASE,
         "diagnosticFamilies": families,
-        "diagnosticFamilyCount": 18,
-        "mutationCount": 84,
+        "diagnosticFamilyCount": 19,
+        "mutationCount": 85,
         "mutations": mutations,
         "schema": SCHEMA,
         "scope": SCOPE,
-        "tagCount": 84,
+        "tagCount": 85,
     }
 
 
@@ -178,11 +179,11 @@ def main(argv):
     try:
         if argv == ["--emit"]:
             emit(root)
-            print("reference_source_program_wire_unknown_tag_golden_v1: emitted 84 18")
+            print("reference_source_program_wire_unknown_tag_golden_v1: emitted 85 19")
             return 0
         if argv == ["--self-check"]:
             validate_checked_in(root)
-            print("reference_source_program_wire_unknown_tag_golden_v1: ok 84 18")
+            print("reference_source_program_wire_unknown_tag_golden_v1: ok 85 19")
             return 0
         print("usage: reference_source_program_wire_unknown_tag_golden_v1.py --emit|--self-check",
               file=sys.stderr)

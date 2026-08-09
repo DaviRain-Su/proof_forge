@@ -33,8 +33,13 @@ import Tests.Typed.CheckV1
 import Tests.Semantic.WireV1
 import Tests.Semantic.InvariantABI
 import Tests.Semantic.PreservationABI
+import Tests.Semantic.PreservationShapeV1
+import Tests.Semantic.ClosedSubjectPinV1
+import Tests.Semantic.ZeroCounterV1
 import Tests.Semantic.InvariantTheoremV1
 import Tests.Semantic.ProofBridgeV1
+import Tests.Semantic.SubjectDataBridgeV1
+import Tests.Semantic.CodecInvertV1
 import Tests.Semantic.ProofedCertV1
 import Tests.Semantic.ProofedEncodeCertV1
 import Tests.Semantic.ProofedDecodeCertV1
@@ -42,6 +47,8 @@ import Tests.Semantic.SimpleClosureCertV1
 import Tests.Semantic.AuthorWireCertV1
 import Tests.Semantic.ProofedClosedCertV1
 import Tests.Semantic.ReferenceV1
+import Tests.Semantic.MiniAmmL1Admit
+import Tests.Semantic.MiniAmmEmptyPoolV1
 import Tests.Semantic.MiniAmmVectorsV1
 import Tests.Semantic.ProofBundleV1
 import Tests.Semantic.ProofSubjectV1
@@ -200,8 +207,15 @@ private unsafe def runSemanticTests : IO Unit := do
   Tests.Semantic.WireV1.run
   Tests.Semantic.InvariantABI.run
   Tests.Semantic.PreservationABI.run
+  Tests.Semantic.PreservationShapeV1.run
+  Tests.Semantic.ClosedSubjectPinV1.run
+  Tests.Semantic.ZeroCounterV1.run
   Tests.Semantic.ProofBridgeV1.run
+  Tests.Semantic.SubjectDataBridgeV1.run
+  Tests.Semantic.CodecInvertV1.run
   Tests.Semantic.ReferenceV1.run
+  Tests.Semantic.MiniAmmL1Admit.run
+  Tests.Semantic.MiniAmmEmptyPoolV1.run
   Tests.Semantic.MiniAmmVectorsV1.run
   Tests.Semantic.ProofBundleV1.run
   Tests.Semantic.ProofSubjectV1.run

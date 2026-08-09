@@ -3,19 +3,23 @@ id: MOD-CLI-001
 title: CliOrchestrator 模块规格
 status: proposed
 owner: cli
-updated: 2026-08-04
+updated: 2026-08-07
 normative: true
 ---
 
 # CliOrchestrator
 
-> **当前工程覆盖（2026-08-04）**：B11/B12 supervisor 产品层已删除。`check` / `build`
+> **当前工程覆盖（2026-08-07）**：B11/B12 supervisor 产品层已删除。`check` / `build`
 > 在进程内 **单次** `IO.FS.readFile` 后调用
 > `Loader.selectProgramV1ProductWithTheoremInventory` → compile → **sole**
 > `certifyInlineProofV1`（早于 target resolve/materialize）。`--proof-bundle` /
 > `--proof-bundle-digest` 已删除（unknown option）；`ProofBundleV1` 仅 library。check 成功
 > 输出 `proofStatus` / theorem count / certification digest；build 只门禁、不输出 proof 字段。
-> JSON 不含 public `receipts`，也不声明 contained assurance。simple-closure/ordinal-0
+> proof inventory/certifier 已按 `(invariant,kind)` 接线：bare proof=holds，explicit preserving
+> 选择 `PreservationTheoremV1`，kind 进入 certification identity、不进入 semantic identity。
+> holds simple-closure 与 EvenCounter preserving product certified positive 均已闭合
+>（2026-08-08）；第二非 AMM 实例仍 pending。JSON 不含 public
+> `receipts`，也不声明 contained assurance。simple-closure/ordinal-0
 > kernel cert 与 literal-true/public-Bool-view same-file ordinary theorem 的 product `check`
 > certified 正例均已完成 engineering 验证；formal/reachability/target refinement 不随之关闭。
 > 下文 supervised receipt 条款是尚未实现的 proposed 契约。

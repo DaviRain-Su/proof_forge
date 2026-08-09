@@ -71,7 +71,10 @@ def d_const(n, t, v): return enc_tag("ConstDecl", [enc_str(n), t, v])
 def d_invariant(n, p): return enc_tag("InvariantDecl", [enc_str(n), p])
 def d_init(ps, b): return enc_tag("InitDecl", [enc_arr(ps), b])
 def d_entrylike(tag, n, ps, r, b): return enc_tag(tag, [enc_str(n), enc_arr(ps), r, b])
-def d_proof(inv, th): return enc_tag("ProofDecl", [enc_str(inv), enc_qid(th)])
+def d_kind(k):
+    if k not in ("Holds", "Preserving"): raise ValueError("proof kind must be Holds or Preserving")
+    return null(f"ProofKind.{k}")
+def d_proof(inv, kind, th): return enc_tag("ProofDecl", [enc_str(inv), d_kind(kind), enc_qid(th)])
 def N(s): return (u32le(len(s.encode())) + s.encode()).hex()
 TU64, TU256 = t_uint(64).hex(), t_uint(256).hex()
 TB, TP, TUNIT = null("Type.Bool").hex(), null("Type.Principal").hex(), null("Type.Unit").hex()
@@ -122,8 +125,8 @@ G = {
     lambda: d_invariant("bounded", e_binary("Lt", e_place(p_name("count")), e_lit(lit_int(4096))))),
 "item_extension_req": ("0c000000457874656e73696f6e5265710300020000000400000044656d6f070000004665617475726505000000312e302e30470000007368613235363a" + "30" * 64,
     lambda: d_ext(["Demo", "Feature"], "1.0.0", DIG0)),
-"item_proof": ("0900000050726f6f664465636c02000400000073616665020000000600000050726f6f66730400000073616665",
-    lambda: d_proof("safe", ["Proofs", "safe"])),
+"item_proof": ("0900000050726f6f664465636c030004000000736166650f00000050726f6f664b696e642e486f6c64730000020000000600000050726f6f66730400000073616665",
+    lambda: d_proof("safe", "Holds", ["Proofs", "safe"])),
 }
 def _fail(name, want, fn):
     try: fn(); raise SystemExit(f"{name}: unexpectedly ok")

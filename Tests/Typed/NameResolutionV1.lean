@@ -1,4 +1,6 @@
 import Tests.Language.ParserSession
+import ProofForgeV2.Source.AstDeclV1
+import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.NameComponentV1
 import ProofForgeV2.Source.QualifiedNameV1
 import ProofForgeV2.Source.ValidatedSourceV1
@@ -8,6 +10,8 @@ import ProofForgeV2.Typed.NameResolutionV1
 namespace Tests.Typed.NameResolutionV1
 
 open ProofForgeV2
+open ProofForgeV2.Source.AstDeclV1
+open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.ValidatedSourceV1
@@ -22,6 +26,14 @@ private def findOrdinal? {α} (raw : String)
   let name ← match parseSourceNameComponentV1 raw with | .ok n => some n | .error _ => none
   let (o, _) ← table.find? name
   some o
+
+private def findProofOrdinal? {α} (raw : String) (kind : ProofKindV1)
+    (table : DeclTableV1 ProofDeclKeyV1 α) : Option Nat := do
+  let invariant ← match parseSourceNameComponentV1 raw with
+    | .ok name => some name
+    | .error _ => none
+  let (ordinal, _) ← table.find? { invariant, kind }
+  some ordinal
 
 private def findQnOrdinal? {α} (raws : Array String)
     (table : DeclTableV1 SourceQualifiedNameV1 α) : Option Nat := do
@@ -76,7 +88,8 @@ private def allDeclarationsSource : String :=
   "  invariant initialized : true\n" ++
   "  requires extension proof.forge.feature version \"1.0.0\"\n" ++
   "    digest \"sha256:0000000000000000000000000000000000000000000000000000000000000000\"\n" ++
-  "  proof initialized using Tests.Theorems.initialized\n"
+  "  proof initialized using Tests.Theorems.initialized\n" ++
+  "  proof initialized preserving using Tests.Theorems.initializedPreserving\n"
 
 private unsafe def testAllDeclarationTables
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -107,8 +120,11 @@ private unsafe def testAllDeclarationTables
   expect (tables.extensionReq.size == 1) "extension table size"
   expect ((findQnOrdinal? #["proof", "forge", "feature"] tables.extensionReq).isSome)
     "extension lookup"
-  expect (tables.proof.size == 1) "proof table size"
-  expect ((findOrdinal? "initialized" tables.proof).isSome) "proof lookup"
+  expect (tables.proof.size == 2) "proof table size"
+  expect (findProofOrdinal? "initialized" .holds tables.proof == some 0)
+    "holds proof lookup"
+  expect (findProofOrdinal? "initialized" .preserving tables.proof == some 1)
+    "preserving proof lookup"
 
 private unsafe def testParamShadowsState
     (session : Language.Loader.ParserSession) : IO Unit := do

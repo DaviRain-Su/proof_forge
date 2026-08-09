@@ -27,6 +27,7 @@ import Tests.Semantic.InvariantABI
 import Tests.Semantic.PreservationABI
 import Tests.Semantic.InvariantTheoremV1
 import Tests.Semantic.ProofBridgeV1
+import Tests.Semantic.CodecInvertV1
 import Tests.Semantic.ProofedCertV1
 import Tests.Semantic.SimpleClosureCertV1
 import Tests.Semantic.AuthorWireCertV1
@@ -76,6 +77,7 @@ unsafe def main : IO Unit := do
   Tests.Semantic.InvariantABI.run
   Tests.Semantic.PreservationABI.run
   Tests.Semantic.ProofBridgeV1.run
+  Tests.Semantic.CodecInvertV1.run
   Tests.Semantic.SimpleClosureTraceV1.run
   Tests.Semantic.SimpleClosureStructureCertV1.run
   Tests.Semantic.SimpleClosureEncodeV1.run

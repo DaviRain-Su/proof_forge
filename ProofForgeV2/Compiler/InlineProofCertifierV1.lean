@@ -6,7 +6,11 @@ import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.ProgramExport
 import ProofForgeV2.Language.TheoremInventoryV1
+import ProofForgeV2.Semantic.ClosedSubjectPinV1
+import ProofForgeV2.Semantic.InvariantABI
+import ProofForgeV2.Semantic.PreservationABI
 import ProofForgeV2.Semantic.ProofSubjectV1
+import ProofForgeV2.Source.AstV1
 import ProofForgeV2.Source.OriginJoinV1
 import ProofForgeV2.Source.QualifiedNameV1
 import ProofForgeV2.Source.ValidatedSourceV1
@@ -51,6 +55,7 @@ open ProofForgeV2.Language.ProgramExport
 open ProofForgeV2.Language.TheoremInventoryV1
 open ProofForgeV2.Semantic.ProofSubjectV1
 open ProofForgeV2.Semantic.WireV1
+open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.NameComponentV1
 open ProofForgeV2.Source.OriginJoinV1
 open ProofForgeV2.Source.QualifiedNameV1
@@ -158,9 +163,13 @@ private def requireCurrentMainDeclarationV1
 private def uint32LiteralExprV1 (value : UInt32) : Expr :=
   mkApp (mkConst ``UInt32.ofNat) (mkNatLit value.toNat)
 
-private def exactInvariantAliasBodyV1
-    (subjectName : Name) (ordinal : UInt32) : Expr :=
-  mkApp2 (mkConst ``ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1)
+private def exactProofAliasBodyV1
+    (kind : ProofKindV1) (subjectName : Name) (ordinal : UInt32) : Expr :=
+  let theoremName :=
+    match kind with
+    | .holds => ``ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1
+    | .preserving => ``ProofForgeV2.Semantic.PreservationABI.PreservationTheoremV1
+  mkApp2 (mkConst theoremName)
     (mkConst subjectName) (uint32LiteralExprV1 ordinal)
 
 /-- Recover the only two declaration-name layouts the `program` elaborator can
@@ -219,6 +228,7 @@ private def validateTheoremInventoryBijectionV1
     let got := bindings[i]!
     unless got.theoremComponents == exp.theoremComponents &&
         got.invariantName == exp.invariantName &&
+        got.kind == exp.kind &&
         got.typeComponents == exp.typeComponents do
       return ← .error .obligationMap
   pure expected
@@ -232,7 +242,7 @@ private def obligationsFromInventoryV1
   let invNames := invariantNamesSourceOrderV1 source
   let bindings := theoremInventoryBindingsV1 inventory
   let mut obligations : Array InlineProofObligationV1 := Array.mkEmpty bindings.size
-  let mut seenOrdinals : Array UInt32 := #[]
+  let mut seenKeys : Array (UInt32 × ProofKindV1) := #[]
   for binding in bindings do
     let ordinalNat ← match invNames.idxOf? binding.invariantName with
       | some idx => pure idx
@@ -240,14 +250,15 @@ private def obligationsFromInventoryV1
     unless ordinalNat ≤ UInt32.size - 1 do
       return ← .error .obligationMap
     let ordinal := UInt32.ofNat ordinalNat
-    if seenOrdinals.any (· == ordinal) then
+    let key := (ordinal, binding.kind)
+    if seenKeys.any (· == key) then
       return ← .error .obligationMap
-    seenOrdinals := seenOrdinals.push ordinal
+    seenKeys := seenKeys.push key
     let theoremName ← match parseQualifiedName binding.theoremComponents with
       | .ok qn => pure qn
       | .error _ => return ← .error .obligationMap
     let obligation ← match mkInlineProofObligationV1
-        binding.invariantName ordinal theoremName binding.invariantName with
+        binding.invariantName binding.kind ordinal theoremName binding.invariantName with
       | .ok value => pure value
       | .error _ => return ← .error .obligationMap
     obligations := obligations.push obligation
@@ -255,11 +266,14 @@ private def obligationsFromInventoryV1
 
 /-- Exact generated Prop-alias gate. The declaration must be a safe
     current-main-module definition whose type is `Prop` and whose body is
-    kernel-definitionally equal to
-    `InvariantTheoremV1 <exact subjectProgramV1> <exact ordinal>`.
-    A merely safe alias to `True` is rejected. -/
+    kernel-definitionally equal to the kind-selected
+    `InvariantTheoremV1`/`PreservationTheoremV1` applied to the exact shared
+    subject and source-order ordinal. A merely safe alias to `True` is rejected. -/
 private def requireGeneratedPropAliasV1
-    (env : Environment) (typeName subjectName : Name) (ordinal : UInt32) :
+    (env : Environment)
+    (kind : ProofKindV1)
+    (typeName subjectName : Name)
+    (ordinal : UInt32) :
     Except InlineProofCertifierDetailV1 Unit := do
   match env.find? typeName with
   | none => .error .missingExpectedType
@@ -278,7 +292,7 @@ private def requireGeneratedPropAliasV1
       if info.type.hasSorry || info.value.hasSorry || env.hasUnsafe info.value then
         return ← .error .missingExpectedType
       match Kernel.isDefEq env {} info.value
-          (exactInvariantAliasBodyV1 subjectName ordinal) with
+          (exactProofAliasBodyV1 kind subjectName ordinal) with
       | .ok true => pure ()
       | .ok false | .error _ => .error .missingExpectedType
   | some _ => .error .missingExpectedType
@@ -316,25 +330,53 @@ private def expectedTheoremsForAuditV1
     unless env.contains thmName do
       return ← .error .missingTheorem
     requireCurrentMainDeclarationV1 env thmName .missingTheorem
+    let aliasNamespace := proofAliasNamespaceV1 binding.kind
     let typeName :=
-      componentsToLeanName (programComps ++ #["Proof", binding.invariantName])
-    requireGeneratedPropAliasV1 env typeName subjectName ordinal
+      componentsToLeanName
+        (programComps ++ #[aliasNamespace, binding.invariantName])
+    requireGeneratedPropAliasV1 env binding.kind typeName subjectName ordinal
     let expectedType := mkConst typeName
     authors := authors.push { name := thmName, expectedType }
-    let helperBase :=
-      ProofForgeV2.Language.generatedSimpleClosureTheoremNameV1 binding.invariantName
-    let helperName :=
-      componentsToLeanName (programComps ++ #["Proof", helperBase])
-    unless env.contains helperName do
-      return ← .error .missingTheorem
-    requireCurrentMainDeclarationV1 env helperName .missingTheorem
-    helpers := helpers.push { name := helperName, expectedType }
+    match binding.kind with
+    | .preserving => pure ()
+    | .holds =>
+        let helperBase :=
+          ProofForgeV2.Language.generatedSimpleClosureTheoremNameV1 binding.invariantName
+        let helperName :=
+          componentsToLeanName (programComps ++ #["Proof", helperBase])
+        unless env.contains helperName do
+          return ← .error .missingTheorem
+        requireCurrentMainDeclarationV1 env helperName .missingTheorem
+        helpers := helpers.push { name := helperName, expectedType }
   pure { authors, generatedHelpers := helpers }
 
+/-- Structural decode of a `ByteArray` def value, or one fail-closed hop into a
+    registered closed subject pin (shared with product elaborator). Pin bytes
+    come from the pin table (exact identity), not Expr evaluation of large
+    spines. -/
+private def decodeSubjectByteValueExprV1
+    (_env : Environment) (valueExpr : Expr) :
+    Except InlineProofCertifierDetailV1 ByteArray := do
+  match decodeBoundedByteArrayExprV1 valueExpr.consumeMData with
+  | .ok bytes => pure bytes
+  | .error _ =>
+      match valueExpr.consumeMData with
+      | .const pinName levels =>
+          unless levels.isEmpty do
+            return ← .error .subjectBytes
+          unless ProofForgeV2.Semantic.ClosedSubjectPinV1.isClosedSubjectBytePinNameV1
+              pinName do
+            return ← .error .subjectBytes
+          match ProofForgeV2.Semantic.ClosedSubjectPinV1.closedSubjectBytePinBytesV1
+              pinName with
+          | some bytes => pure bytes
+          | none => .error .subjectBytes
+      | _ => .error .subjectBytes
+
 /-- Decode either an inline structural ByteArray expression or the exact
-    compiler-generated sibling `subjectBytesV1` transparent definition. This
-    follows at most that one statically named constant and never evaluates an
-    arbitrary term. -/
+    compiler-generated sibling `subjectBytesV1` transparent definition. Follows
+    at most: product `subjectBytesV1` → optional closed pin constant → structural
+    spine. Never evaluates arbitrary terms. -/
 private def decodeGeneratedSubjectByteExprV1
     (env : Environment) (subjectDecl : Name) (bytesExpr : Expr) :
     Except InlineProofCertifierDetailV1 ByteArray := do
@@ -363,9 +405,7 @@ private def decodeGeneratedSubjectByteExprV1
               match checkExportRawNodeBoundV1 info.value with
               | .error _ => return ← .error .subjectBytes
               | .ok () => pure ()
-              match decodeBoundedByteArrayExprV1 info.value.consumeMData with
-              | .ok bytes => pure bytes
-              | .error _ => .error .subjectBytes
+              decodeSubjectByteValueExprV1 env info.value
           | _ => .error .subjectBytes
       | _ => .error .subjectBytes
 

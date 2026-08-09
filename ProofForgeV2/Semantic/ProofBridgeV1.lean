@@ -1,4 +1,6 @@
 import ProofForgeV2.Semantic.WireV1
+import ProofForgeV2.Semantic.Wire.CodecInvertV1
+import ProofForgeV2.Semantic.Wire.CodecInvertRootV1
 
 /-
   ProofForgeV2.Semantic.ProofBridgeV1 — exact product-byte proof bridge.
@@ -16,10 +18,22 @@ import ProofForgeV2.Semantic.WireV1
       `decodeSemanticProgramDataV1 bytes = .ok data`
     * product kernel remains `SemanticProgramV1.canonicalBytes`
 
-  Remaining gap (documented, not forged):
-    parametric `decodeSemanticProgramDataV1 (encode data) = .ok data` for
-    arbitrary admitted data. Normalize already produces the encode witness;
-    full codec round-trip refinement is still open beyond fixture-level proofs.
+  Codec invert path (mig-a1 foundation + fields + callable + root):
+    * `MidOffsetInvertV1` — parametric encode→decode at mid-offset
+    * `RootFieldInvertV1` — nine root-field invert package
+    * `DecodeEncodeRoundtripGoalV1` — **composition discharged**
+      (`decodeSemanticProgramDataV1_of_encode_ok_of_rootFieldInvert`)
+    * Visibility leaf fully inverted; array zero/one helpers shipped
+    * mig-a1-fields (`Wire.CodecInvertFieldsV1`): InvariantDecl full invert,
+      empty root tables, empty Requirements, Type.Bool, QN single-component
+    * mig-a1-callable (`Wire.CodecInvertCallableV1`): CallableKind / ValueDef /
+      LoopBound full invert; pure-U32 Op + Op.Literal; Term.Return none/some;
+      empty callables table; array one/two lift from element MidOffsetInvert
+    * mig-a1-root (`Wire.CodecInvertRootV1`): root composition +
+      `NormalizeEncodeWitnessV1.toValidated` needs encode + RootFieldInvert
+      only (no free decode hyp). Full per-field RootFieldInvert discharge for
+      arbitrary programs remains field-family residual (nested Op/Term,
+      Block/Callable, multi-component QN, full TypeShape).
 -/
 
 namespace ProofForgeV2.Semantic.ProofBridgeV1
@@ -102,9 +116,18 @@ def NormalizeEncodeWitnessV1.program (w : NormalizeEncodeWitnessV1) :
     SemanticProgramV1 :=
   ⟨w.bytes⟩
 
-/-- Lift an encode witness to a validated carrier once transport decode is
-    refined. This is the Normalize-preservation half of the bridge. -/
+/-- Lift an encode witness to a validated carrier once the nine root-field
+    mid-offset invert packages are available. Decode is derived by
+    `decodeSemanticProgramDataV1_of_encode_ok` — no free decode hyp. -/
 def NormalizeEncodeWitnessV1.toValidated
+    (w : NormalizeEncodeWitnessV1)
+    (hinvert : RootFieldInvertV1 w.data) :
+    ValidatedSemanticProgramV1 :=
+  ValidatedSemanticProgramV1.ofEncodeDecode w.data w.bytes w.hencode
+    (decodeSemanticProgramDataV1_of_encode_ok w.data w.bytes w.hencode hinvert)
+
+/-- Backward-compatible path: encode + explicit transport decode. -/
+def NormalizeEncodeWitnessV1.toValidatedOfDecode
     (w : NormalizeEncodeWitnessV1)
     (hdecode : decodeSemanticProgramDataV1 w.bytes = .ok w.data) :
     ValidatedSemanticProgramV1 :=
@@ -115,8 +138,16 @@ theorem structure_of_encode_witness (w : NormalizeEncodeWitnessV1) :
     validateSemanticProgramStructureV1 w.data = .ok () :=
   encodeSemanticProgramDataV1_ok_implies_structure w.data w.bytes w.hencode
 
-/-- Validate from encode witness + decode refinement (re-export). -/
+/-- Validate from encode witness + RootFieldInvert (no free decode). -/
 theorem validate_of_encode_witness
+    (w : NormalizeEncodeWitnessV1)
+    (hinvert : RootFieldInvertV1 w.data) :
+    validateSemanticProgramV1 w.program = .ok w.data :=
+  validateSemanticProgramV1_eq_ok_of_encode_decode w.data w.bytes w.hencode
+    (decodeSemanticProgramDataV1_of_encode_ok w.data w.bytes w.hencode hinvert)
+
+/-- Validate from encode witness + explicit decode refinement. -/
+theorem validate_of_encode_decode_witness
     (w : NormalizeEncodeWitnessV1)
     (hdecode : decodeSemanticProgramDataV1 w.bytes = .ok w.data) :
     validateSemanticProgramV1 w.program = .ok w.data :=

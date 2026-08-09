@@ -1,5 +1,5 @@
 {
-  "canonicalBytesSha256": "sha256:5d38eaca671e503ae50a517cc8ffaddba20b370d11da22f6bcdb807089aa64ce",
+  "canonicalBytesSha256": "sha256:a7075ca364c099e18510c1f5a8961449e3859d6a45fec46820d327a7d095a0d8",
   "canonicalFile": "canonical.bin",
   "caseId": "full-tag-valid-v1",
   "edgePairs": [
@@ -444,7 +444,7 @@
     {"constructorTag":"ExtensionReq","nodeId":"nodeid:10fdc236a0a6b483963d178380c74852","path":[{"fieldTag":"items","index":11,"parentTag":"Program"}]},
     {"constructorTag":"ProofDecl","nodeId":"nodeid:00c6655ab0d0fb3023f13cdab9a17cc2","path":[{"fieldTag":"items","index":12,"parentTag":"Program"}]}
   ],
-  "expectedSourceHash": "sha256:0224dc324be7c3564000d1421c2dee8ae0bfb0464a63618974da322d9b0e2dab",
+  "expectedSourceHash": "sha256:4ff227c2591fee21d44ae5836f6a08a99831eb1529526e62681453ec4ad22f3a",
   "moduleName": [
     "Golden"
   ],
@@ -566,6 +566,7 @@
     "Place.Name",
     "Program",
     "ProofDecl",
+    "ProofKind.Holds",
     "StateDecl",
     "Stmt.Assert",
     "Stmt.Assign",

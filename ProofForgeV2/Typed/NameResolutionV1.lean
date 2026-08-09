@@ -82,6 +82,12 @@ structure Scope where
   locals : List SourceNameComponentV1
   params : Array SourceNameComponentV1
 
+private def firstProofOrdinalForInvariant?
+    (table : DeclTableV1 ProofDeclKeyV1 ProofDeclV1)
+    (name : SourceNameComponentV1) : Option Nat :=
+  table.entries.findSome? fun (key, ordinal, _) =>
+    if key.invariant == name then some ordinal else none
+
 /-- Return the declaration kind (and its smallest source-order ordinal) that
     contains `name`, preferring the earliest ordinal across all named tables. -/
 def findFirstMatchingKind (tables : TypedDeclTablesV1) (name : SourceNameComponentV1) :
@@ -97,7 +103,7 @@ def findFirstMatchingKind (tables : TypedDeclTablesV1) (name : SourceNameCompone
     (.view, tables.view.find? name |>.map (·.1)),
     (.fn, tables.fn.find? name |>.map (·.1)),
     (.invariant, tables.invariant.find? name |>.map (·.1)),
-    (.proof, tables.proof.find? name |>.map (·.1))
+    (.proof, firstProofOrdinalForInvariant? tables.proof name)
   ]
   let found := candidates.filterMap fun (kind, opt) => opt.map (fun o => (kind, o))
   found.foldl (init := (none : Option (DeclKindV1 × Nat))) fun best entry =>
@@ -840,9 +846,10 @@ def buildTables (program : ProgramV1) : M TypedDeclTablesV1 := do
               }
             }
         | .proof d =>
-            if tables.proof.find? d.invariant |>.isSome then
+            let key := d.key
+            if tables.proof.find? key |>.isSome then
               let firstRelated :=
-                match tables.proof.find? d.invariant with
+                match tables.proof.find? key with
                 | some (ord, _) => relatedPathForKindOrdinal tables .proof ord
                 | none => #[]
               emitLocated (duplicateDeclarationDiagnosticDraft d.invariant .proof)
@@ -850,7 +857,7 @@ def buildTables (program : ProgramV1) : M TypedDeclTablesV1 := do
             else pure ()
             tables := {
               tables with
-              proof := tables.proof.insert d.invariant tables.proof.size d
+              proof := tables.proof.insert key tables.proof.size d
               itemIndices := {
                 tables.itemIndices with
                 proof := tables.itemIndices.proof.push itemIndex

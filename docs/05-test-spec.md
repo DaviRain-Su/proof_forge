@@ -3,7 +3,7 @@ id: PHASE-5
 title: 测试与验收规格
 status: accepted
 owner: quality
-updated: 2026-08-04
+updated: 2026-08-07
 normative: true
 approvers: davirain
 approvedAt: 2026-07-24
@@ -78,7 +78,7 @@ Counter 相同的 parser/type/semantic/resolver/materializer 通用路径，禁�
 | TST-TYPE-002 | accepted-width duplicate/name index、late lookup 与错误顺序 | 声明序 ID/遮蔽/诊断不变；required hash ops、single state-builder 与已知数组搜索回归受门禁 | unit/structural/complexity |
 | TST-TYPE-003 | 全部 Phase 1 declaration + local fn + proof reference | typed fixture 全覆盖；exact fn lookup/type/effect/acyclicity、Bool invariant 与 proof-reference source binding；不装载 theorem | unit/integration/negative |
 | TST-PROOF-001 | immutable proof bundle + post-canonical theorem signature（formal） | exact current Source.Program + `.pfsem`/`.pfprov`/semanticProvenanceDigest + bundle/olean/toolchain/trust-policy join；wrong program/ordinal/provenance/closure/digest/unsafe declaration fail closed | integration/security |
-| TST-PROOF-INLINE-E1 | inline same-file theorem certification engineering subset（ADR-0027；**非** formal TST-PROOF-001） | single snapshot；sourceHash/semanticHash 不含 theorem body；in-process elab 非 sandbox；kind/defeq/dependency/axiom audit；仅 Classical.choice/Quot.sound/propext；拒用户 olean；gate 早于 materialize；仅 InvariantTheoremV1∀StateConformsV1；不声称 reachability/init-step/target refinement | unit/integration/security |
+| TST-PROOF-INLINE-E1 | inline same-file theorem certification engineering subset（ADR-0027 + ADR-0034；**非** formal TST-PROOF-001） | single snapshot；theorem body 不进 sourceHash/semanticHash；ProofDecl kind 进 source/cert digest、不进 semantic；`(inv,kind)` exact inventory；holds/preserving alias 与 expected Prop 分支；in-process elab 非 sandbox；kind/defeq/dependency/axiom audit；仅 Classical.choice/Quot.sound/propext；拒用户 olean；gate 早于 materialize；holds simple-closure positive + **EvenCounter preserving product positive** 均已闭合；第二实例/formal/target refinement 不代签 | unit/integration/security |
 | TST-EFFECT-001 | view 写状态/发 effect | `PF-EFFECT-001` | negative |
 | TST-BOUND-001 | 无界循环/递归 | `PF-BOUND-001` | negative |
 | TST-VIS-001 | private 流入 public/log | `PF-VIS-001` | security |
@@ -340,22 +340,27 @@ theorem expected-type mismatch 的 stable diagnostic 必须为 `PF-TYPE-001`。�
    不得为 theorem 重读磁盘或接受用户 `.olean` 作为 authority。
 2. **Hash 边界**：仅改写 adjacent theorem body 时 `sourceHash` 与 `semanticHash` 不变；
    `semanticHash` 永不因 proof/cert digest 改变。
-3. **Audit**：Environment 上 root 为 theorem、type kernel-defeq 到
-   `InvariantTheoremV1`/生成 alias、dependency 闭包仅允许
+3. **Audit**：Environment 上 root 为 theorem、type kernel-defeq 到 kind-selected
+   `InvariantTheoremV1`/`PreservationTheoremV1` 生成 alias、dependency 闭包仅允许
    `Classical.choice`/`Quot.sound`/`propext`，并拒绝 sorry/unsafe/partial/extern/用户 axiom。
 4. **Gate 顺序**：proof 失败时零 target Plan / 零 output；成功或显式 `noProof` 才允许
    resolve/materialize。
-5. **命题范围**：仅 `∀ state, StateConformsV1 → evalInvariant = returnedTrue`；负向向量不得
-   被误写成已证明 reachability、init-step safety 或 target refinement。
+5. **命题范围**：holds 为 `∀ state, StateConformsV1 → evalInvariant = returnedTrue`；
+   preserving 为 positive Reference admission + base + full-input three-outcome step preservation。
+   kind plumbing 负例/identity 已覆盖；**EvenCounter preserving product certified positive 已闭合**
+   （2026-08-08；`Tests.Compiler.InlineProofCertifierV1`）。负向向量与第二实例缺失不得被误写成
+   已证明 reachability、任意合约自动可证、init-step safety 或 target refinement。
 6. **非 sandbox**：测试与文档不得把 in-process elaboration 标记为 contained/hermetic。
 
-**Engineering 分层（2026-08-04）**——kernel 闭合 ≠ product feature done：
+**Engineering 分层（2026-08-08）**——kernel/transport 闭合 ≠ 任意合约 L1 done；首个 preserving 正例已 GREEN：
 
 | 子层 | Engineering 状态 | 验收提示 |
 |---|---|---|
 | structure→encode→decode→`ProofedProof.safe` | closed（kernel suite） | 不单独代签 CLI certified |
 | legal-only production simple-closure encode/decode + ordinal-0 `InvariantTheoremV1` | closed（`SimpleClosureCertV1` / related cert suites） | 仅 nullary literal-true micro-shape |
-| same-file ordinary theorem product `check` positive | **closed（engineering）** | literal-true / public-Bool-view narrow family；human/JSON certified + count/digest + body/hash independence |
+| `ProofKindV1` + 3-field wire + `(inv,kind)` inventory + dual alias/protocol/certifier | **closed（engineering plumbing）** | bare=holds；kind changes source/cert digest, not semantic；forged dual-kind inventory FC；无 2-field fallback |
+| same-file ordinary holds theorem product `check` positive | **closed（engineering）** | literal-true / public-Bool-view narrow family；human/JSON certified + count/digest + body/hash independence |
+| preserving theorem product `check` positive | **closed（EvenCounter engineering）** | package-owned `preservation_theorem` + ClosedSubjectPin + nullary `exact`；第二非 AMM 实例仍 pending；不得代签 formal/任意合约 |
 
 **Product `check` positive 回归门槛**（已通过，继续属于 `TST-PROOF-INLINE-E1`
 engineering 正/负例，**非** formal）：
@@ -1983,8 +1988,12 @@ detail 的完整英文句子；相同 mutation 重跑输出必须逐字一致且
   refresh 后最终单次 `just sbom`、`just docs-check`、`git diff --check` 与 independent review；不运行完整
   `just ci`。结果只记录 development evidence，不能关闭完整 TST-SRC-001、pending TASK-D1-01 或下游 task。
 - D1-PA-98 是 `TASK-D1-01`/`TST-SRC-001` 的 ProgramV1 complete spine-independent declaration-record
-  slice。它一次实现 `SPEC-SOURCE-WIRE-001` 中字段依赖已由 PA91–96 闭合的全部七个 item tag；只定义
-  named records，不提前定义只含 7/13 alternatives 的残缺 `ProgramItemV1` sum。该 closed-class rule 精确是
+  slice。**2026-08-07 supersession note**：下述 PA98 `ProofDecl` 二字段定义只记录历史基线；当前
+  `SPEC-SOURCE-WIRE-001` authority 已由 ADR-0034 engineering cutover 原子替换为
+  `ProofDecl`/3 = raw invariant Ident、`ProofKind.Holds|Preserving`、source theorem QualifiedId，且不接受
+  二字段 fallback。其余 PA98 历史范围/预算保留原文。它一次实现 `SPEC-SOURCE-WIRE-001` 中字段依赖已由
+  PA91–96 闭合的全部七个 item tag；只定义 named records，不提前定义只含 7/13 alternatives 的残缺
+  `ProgramItemV1` sum。该 closed-class rule 精确是
   **all ProgramItem records whose ordered field types depend only on already shipped carriers**；不是按当前 parser
   能力或实现方便任意选七个。生产 public API 精确冻结为：
 

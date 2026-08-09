@@ -157,8 +157,12 @@ private def constTargetBoundarySourceTextV1 : String :=
   "open ProofForgeV2.Language\n" ++
   "program ConstTargetBoundary where\n" ++
   "  const ANSWER : UInt64 := 42\n" ++
+  "  state stored : UInt64\n" ++
+  "  init() do\n" ++
+  "    stored := 0\n" ++
   "  entry answer() : UInt64 do\n" ++
-  "    return ANSWER\n"
+  "    stored := stored + ANSWER\n" ++
+  "    return stored\n"
 
 private def invariantTargetBoundarySourceTextV1 : String :=
   "import ProofForgeV2\n" ++
@@ -223,7 +227,7 @@ private def expectMaterializePlanInvariantV1
         s!"{label}/{target}: product materialization must fail closed"
 
 /-- Normalize deliberately retains constants/invariants in the sole semantic
-    carrier. Psy owns the supported scalar Constant lowering; targets without
+    carrier. Aleo and Psy own supported scalar Constant lowering; targets without
     that contract and all non-Quint invariant paths must still fail closed. -/
 private unsafe def testConstInvariantMaterializationBoundary : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -249,13 +253,16 @@ private unsafe def testConstInvariantMaterializationBoundary : IO Unit := do
       (TargetId.evm, TargetKind.evm, "constants/invariants"),
       (TargetId.solana, TargetKind.solana, "constants/invariants"),
       (TargetId.near, TargetKind.near, "constants/invariants"),
-      (TargetId.noir, TargetKind.noir, "constants/invariants"),
-      (TargetId.aleo, TargetKind.aleo, "Constant load")] do
+      (TargetId.noir, TargetKind.noir, "constants/invariants")] do
     expectMaterializePlanInvariantV1 "constant" target kind constCompiled marker
+  let aleoConstants ← liftResult <| materializeSelected TargetId.aleo constCompiled
+  let aleoFiles := MaterializedArtifactsV1.filesOf aleoConstants
+  expect (aleoFiles.any (·.path == "consttargetboundary.aleo"))
+    s!"constant/aleo: supported scalar Op.Constant must materialize to Aleo Instructions; got {aleoFiles.map (·.path)}"
   let psyConstants ← liftResult <| materializeSelected TargetId.psy constCompiled
-  expect ((MaterializedArtifactsV1.filesOf psyConstants).any
-      (·.path == "ConstTargetBoundary.psy"))
-    "constant/psy: supported scalar Op.Constant must materialize to Psy source"
+  let psyFiles := MaterializedArtifactsV1.filesOf psyConstants
+  expect (psyFiles.any (·.path == "ConstTargetBoundary.dpn.json"))
+    s!"constant/psy: supported scalar Op.Constant must materialize to Psy DPN source; got {psyFiles.map (·.path)}"
 
   let invariantSource ← liftResult (← session.selectProgramV1
     invariantTargetBoundarySourceTextV1 "<targets-invariant-boundary>"
@@ -277,7 +284,7 @@ private unsafe def testConstInvariantMaterializationBoundary : IO Unit := do
       (TargetId.near, TargetKind.near, "constants/invariants"),
       (TargetId.noir, TargetKind.noir, "constants/invariants"),
       (TargetId.aleo, TargetKind.aleo, "does not support invariants"),
-      (TargetId.psy, TargetKind.psy, "invariants are outside")] do
+      (TargetId.psy, TargetKind.psy, "PSY-INVARIANT")] do
     expectMaterializePlanInvariantV1 "invariant" target kind invariantCompiled marker
 
 /-- N-STR-EVENT opens only the shared Semantic/Reference contract. Every target
@@ -324,7 +331,7 @@ private unsafe def testStringInterfaceMaterializationFailClosed : IO Unit := do
       (TargetId.solana, TargetKind.solana, "only UInt8"),
       (TargetId.near, TargetKind.near, "only UInt8"),
       (TargetId.noir, TargetKind.noir, "only UInt8"),
-      (TargetId.psy, TargetKind.psy, "only UInt64")] do
+      (TargetId.psy, TargetKind.psy, "emit does not accept aggregate arguments")] do
     match materializeSelected target compiled with
     | .error (.planInvariant actualKind message) =>
         expect (actualKind == kind && message.contains marker)

@@ -1,5 +1,5 @@
 {
-  "canonicalBytesSha256": "sha256:55e9a201edec8f6d4982d2ebe7a77c825c8f7f7276a0d32c62516c707cb5f616",
+  "canonicalBytesSha256": "sha256:3252cf500aff195ebbf0e509643a246001248115b11c36d42daf6994def127c4",
   "canonicalFile": "canonical.bin",
   "caseId": "source-full-tag-v1",
   "edgePairs": [
@@ -406,7 +406,7 @@
     {"constructorTag":"ExtensionReq","nodeId":"nodeid:55fc7b98f26bbc39e34b1858dc130166","path":[{"fieldTag":"items","index":11,"parentTag":"Program"}]},
     {"constructorTag":"ProofDecl","nodeId":"nodeid:9f8bb9370982208c0700a1a8faef9a98","path":[{"fieldTag":"items","index":12,"parentTag":"Program"}]}
   ],
-  "expectedSourceHash": "sha256:a3d22fa77693fc4505275390a35a432e319793baedca5ba9230aa6d0ff113aa2",
+  "expectedSourceHash": "sha256:0aa0b5dbe2d448f733bd32f48c77b1a9c088a2fe4ad54b85c39cccf7cd7585e7",
   "moduleName": [
     "Tests",
     "Language",
@@ -551,6 +551,7 @@
     "Place.Name",
     "Program",
     "ProofDecl",
+    "ProofKind.Holds",
     "StateDecl",
     "Stmt.Assert",
     "Stmt.Assign",

@@ -17,7 +17,7 @@ SCHEMA = "proof-forge.source-program-boundary-golden-prerequisite.v1"
 SCOPE = "pa125-base-scalar-length-truncation-trailing"
 BASE_CASE = "full-tag-valid-v1"
 BASE_FILE = "testdata/golden/source-program-v1/full-tag-v1/canonical.bin"
-BASE_SHA256 = "5d38eaca671e503ae50a517cc8ffaddba20b370d11da22f6bcdb807089aa64ce"
+BASE_SHA256 = "a7075ca364c099e18510c1f5a8961449e3859d6a45fec46820d327a7d095a0d8"
 PACKAGE = Path("testdata/golden/source-program-v1/boundary-v1")
 MANIFEST = "manifest.json"
 
@@ -275,7 +275,8 @@ def expected_descriptor(root):
     add("extension-digest-prefix", "validated-scalar",
         "extension digest must use canonical sha256 spelling",
         digest["offset"] + 4, 1, b"X")
-    add("field-id-invalid", "validated-scalar", "field id must be bn254_fr",
+    add("field-id-invalid", "validated-scalar",
+        "field id must be bn254_fr, bls12_377_fr, or goldilocks",
         field_id["offset"] + 11, 1, b"x")
 
     mutations.sort(key=lambda row: row["caseId"])

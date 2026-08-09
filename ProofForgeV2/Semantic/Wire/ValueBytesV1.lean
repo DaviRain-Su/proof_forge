@@ -683,6 +683,221 @@ theorem validateOpValueBytesV1_literal_bool_eq_ok
   rw [if_pos hremainingBeq, if_pos hbeq]
   congr 1
 
+/-- A canonical eight-byte UInt64 literal consumes one entry-work unit and
+    eight output-byte work units through the sole production valueBytes decoder.
+    The byte payload remains arbitrary: fixed-width UInt canonicality is exact
+    length plus full-consume/re-encode identity. -/
+theorem validateOpValueBytesV1_literal_uint64_eq_ok
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (decl : TypeDeclV1)
+    (b0 b1 b2 b3 b4 b5 b6 b7 : UInt8) (budget : Nat)
+    (hlookup : types[typeId.toNat]? = some decl)
+    (hshape : decl.shape = .uint 64)
+    (hbudget : 9 ≤ budget) :
+    validateOpValueBytesV1 types
+      (.literal typeId (ByteArray.mk #[b0, b1, b2, b3, b4, b5, b6, b7])) budget =
+      .ok (budget - 9) := by
+  let bytes := ByteArray.mk #[b0, b1, b2, b3, b4, b5, b6, b7]
+  have hentry : 1 ≤ budget := by omega
+  have houtput : 8 ≤ budget - 1 := by omega
+  have hsize : bytes.size = 8 := by rfl
+  have hlimit : bytes.size ≤ maxCanonicalValueBytes := by
+    rw [hsize]
+    decide
+  have hspendEntry : spendCanonicalValueWorkV1 budget 1 = .ok (budget - 1) := by
+    simp [spendCanonicalValueWorkV1, hentry, Pure.pure, Except.pure]
+  have htake : takeBytesNC (start bytes) 8 =
+      .ok (bytes, ⟨bytes, 8, 0⟩) := by
+    rfl
+  have hspendOutput : spendCanonicalValueWorkV1 (budget - 1) 8 =
+      .ok (budget - 1 - 8) := by
+    simp [spendCanonicalValueWorkV1, houtput, Pure.pure, Except.pure]
+  have hremaining : remaining ⟨bytes, 8, 0⟩ = 0 := by
+    change bytes.size - 8 = 0
+    omega
+  have hremainingBeq : (remaining ⟨bytes, 8, 0⟩ == 0) = true := by
+    rw [hremaining]
+    decide
+  have hbeq : (bytes == bytes) = true := by
+    change (bytes.data == bytes.data) = true
+    simp
+  unfold validateOpValueBytesV1 validateValueBytesWithFuelV1
+  simp only [Pure.pure, Except.pure, Bind.bind, Except.bind]
+  rw [if_pos hlimit, show maxNesting = 255 + 1 by rfl,
+    decodeAndReencodeValueBytesV1.eq_2, hspendEntry, hlookup]
+  simp only [hshape]
+  rw [show (64 : UInt16).toNat / 8 = 8 by decide, htake]
+  simp only [Bind.bind, Except.bind, Pure.pure, Except.pure]
+  rw [hsize, show max 1 8 = 8 by decide, hspendOutput]
+  simp only
+  rw [if_pos hremainingBeq, if_pos hbeq]
+  congr 1
+
+/-- The same fixed-width UInt64 payload is accepted by the public complete
+    valueBytes validator. -/
+theorem validateValueBytesV1_uint64_eq_ok
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (decl : TypeDeclV1)
+    (b0 b1 b2 b3 b4 b5 b6 b7 : UInt8)
+    (hlookup : types[typeId.toNat]? = some decl)
+    (hshape : decl.shape = .uint 64) :
+    validateValueBytesV1 types typeId
+      (ByteArray.mk #[b0, b1, b2, b3, b4, b5, b6, b7]) = .ok () := by
+  have h := validateOpValueBytesV1_literal_uint64_eq_ok types typeId decl
+    b0 b1 b2 b3 b4 b5 b6 b7 maxCanonicalProgramBytes hlookup hshape
+    (by decide)
+  change validateValueBytesWithFuelV1 types typeId
+    (ByteArray.mk #[b0, b1, b2, b3, b4, b5, b6, b7]) maxNesting
+      maxCanonicalProgramBytes = .ok (maxCanonicalProgramBytes - 9) at h
+  unfold validateValueBytesV1
+  rw [h]
+  rfl
+
+/-- Any exact 8-byte payload is a canonical UInt64 valueBytes (fixed width is
+    length + re-encode identity; content is free). -/
+theorem validateValueBytesV1_uint64_of_size
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (decl : TypeDeclV1)
+    (bytes : ByteArray)
+    (hlookup : types[typeId.toNat]? = some decl)
+    (hshape : decl.shape = .uint 64)
+    (hsize : bytes.size = 8) :
+    validateValueBytesV1 types typeId bytes = .ok () := by
+  have hentry : 1 ≤ maxCanonicalProgramBytes := by decide
+  have houtput : 8 ≤ maxCanonicalProgramBytes - 1 := by decide
+  have hlimit : bytes.size ≤ maxCanonicalValueBytes := by
+    rw [hsize]
+    decide
+  have hspendEntry :
+      spendCanonicalValueWorkV1 maxCanonicalProgramBytes 1 =
+        .ok (maxCanonicalProgramBytes - 1) := by
+    simp [spendCanonicalValueWorkV1, hentry, Pure.pure, Except.pure]
+  have hspendOutput :
+      spendCanonicalValueWorkV1 (maxCanonicalProgramBytes - 1) 8 =
+        .ok (maxCanonicalProgramBytes - 1 - 8) := by
+    simp [spendCanonicalValueWorkV1, houtput, Pure.pure, Except.pure]
+  have hextract : bytes.extract 0 8 = bytes := by
+    have : bytes.extract 0 bytes.size = bytes := ByteArray.extract_zero_size
+    simpa [hsize] using this
+  have htake :
+      takeBytesNC (start bytes) 8 = .ok (bytes, ⟨bytes, 8, 0⟩) := by
+    -- `start` is offset-0; remaining is size when offset=0.
+    have hstart : start bytes = ⟨bytes, 0, 0⟩ := rfl
+    have hge : remaining ⟨bytes, 0, 0⟩ ≥ 8 := by
+      change bytes.size - 0 ≥ 8
+      omega
+    unfold takeBytesNC
+    rw [hstart]
+    -- `unless p` desugars to `if p then pure () else err; ...`
+    simp only [if_pos hge, Pure.pure, Except.pure, Bind.bind, Except.bind]
+    simp [hextract]
+  have hremaining : remaining ⟨bytes, 8, 0⟩ = 0 := by
+    change bytes.size - 8 = 0
+    omega
+  have hremainingBeq : (remaining ⟨bytes, 8, 0⟩ == 0) = true := by
+    rw [hremaining]
+    decide
+  have hbeq : (bytes == bytes) = true := by
+    change (bytes.data == bytes.data) = true
+    simp
+  unfold validateValueBytesV1 validateValueBytesWithFuelV1
+  simp only [Pure.pure, Except.pure, Bind.bind, Except.bind]
+  rw [if_pos hlimit, show maxNesting = 255 + 1 by rfl,
+    decodeAndReencodeValueBytesV1.eq_2, hspendEntry, hlookup]
+  simp only [hshape]
+  rw [show (64 : UInt16).toNat / 8 = 8 by decide, htake]
+  simp only [Bind.bind, Except.bind, Pure.pure, Except.pure]
+  rw [hsize, show max 1 8 = 8 by decide, hspendOutput]
+  simp only
+  rw [if_pos hremainingBeq, if_pos hbeq]
+
+/-- Successful validate implies payload fits a UInt32 length header
+    (`size ≤ maxCanonicalValueBytes ≤ 2^32-1`). -/
+theorem validateValueBytesV1_size_le_u32
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (bytes : ByteArray)
+    (hcan : validateValueBytesV1 types typeId bytes = .ok ()) :
+    bytes.size ≤ UInt32.size - 1 := by
+  unfold validateValueBytesV1 validateValueBytesWithFuelV1 at hcan
+  by_cases hlim : bytes.size ≤ maxCanonicalValueBytes
+  · have hmax : maxCanonicalValueBytes ≤ UInt32.size - 1 := by
+      decide
+    omega
+  · simp only [if_neg hlim, Pure.pure, Except.pure, Bind.bind, Except.bind,
+      err] at hcan
+    cases hcan
+
+/-- Accepted UInt64 valueBytes always have exact width 8. -/
+theorem validateValueBytesV1_uint64_size
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (decl : TypeDeclV1)
+    (bytes : ByteArray)
+    (hlookup : types[typeId.toNat]? = some decl)
+    (hshape : decl.shape = .uint 64)
+    (hcan : validateValueBytesV1 types typeId bytes = .ok ()) :
+    bytes.size = 8 := by
+  by_cases hsize : bytes.size = 8
+  · exact hsize
+  · exfalso
+    unfold validateValueBytesV1 validateValueBytesWithFuelV1 at hcan
+    by_cases hlim : bytes.size ≤ maxCanonicalValueBytes
+    · simp only [if_pos hlim, Pure.pure, Except.pure, Bind.bind, Except.bind]
+        at hcan
+      have hfuel : maxNesting = 255 + 1 := by rfl
+      rw [hfuel, decodeAndReencodeValueBytesV1.eq_2] at hcan
+      have hentry : 1 ≤ maxCanonicalProgramBytes := by decide
+      have hspend1 :
+          spendCanonicalValueWorkV1 maxCanonicalProgramBytes 1 =
+            .ok (maxCanonicalProgramBytes - 1) := by
+        simp [spendCanonicalValueWorkV1, hentry, Pure.pure, Except.pure]
+      have hw : (64 : UInt16).toNat / 8 = 8 := by decide
+      -- Push through spend + type lookup + uint shape to the takeBytes step.
+      simp only [hspend1, hlookup, hshape, hw, Pure.pure, Except.pure,
+        Bind.bind, Except.bind] at hcan
+      have hstart : start bytes = ⟨bytes, 0, 0⟩ := rfl
+      have hrem0 : remaining ⟨bytes, 0, 0⟩ = bytes.size := by
+        simp [remaining, remainingBytesAtV1]
+      by_cases hge : remaining ⟨bytes, 0, 0⟩ ≥ 8
+      · -- take succeeds: extract 8, then remaining must be 0 ⇒ size = 8.
+        have hge_size : bytes.size ≥ 8 := by simpa [hrem0] using hge
+        have htake :
+            takeBytesNC (start bytes) 8 =
+              .ok (bytes.extract 0 8, ⟨bytes, 8, 0⟩) := by
+          unfold takeBytesNC
+          rw [hstart]
+          simp only [if_pos hge, Pure.pure, Except.pure, Bind.bind, Except.bind]
+        have hex_sz : (bytes.extract 0 8).size = 8 := by
+          simp [ByteArray.size_extract, Nat.min_eq_left hge_size]
+        have hcost : max 1 (bytes.extract 0 8).size = 8 := by
+          simp [hex_sz]
+        have hle : 8 ≤ maxCanonicalProgramBytes - 1 := by decide
+        have hspend8 :
+            spendCanonicalValueWorkV1 (maxCanonicalProgramBytes - 1)
+              (max 1 (bytes.extract 0 8).size) =
+              .ok (maxCanonicalProgramBytes - 1 - 8) := by
+          simp only [hcost]
+          simp [spendCanonicalValueWorkV1, hle, Pure.pure, Except.pure]
+        -- After take + spend, remaining check fails when size ≠ 8.
+        have hrem_after : remaining ⟨bytes, 8, 0⟩ = bytes.size - 8 := by
+          simp [remaining, remainingBytesAtV1]
+        have hrem_ne : (remaining ⟨bytes, 8, 0⟩ == 0) = false := by
+          have hpos : bytes.size - 8 ≠ 0 := by omega
+          simp [BEq.beq, hrem_after, hpos]
+        -- Reduce hcan through takeBytes and spend.
+        simp only [htake, hspend8, Pure.pure, Except.pure, Bind.bind,
+          Except.bind] at hcan
+        simp only [hrem_ne, ↓reduceIte] at hcan
+        cases hcan
+      · -- take fails when size < 8.
+        have htake_err :
+            takeBytesNC (start bytes) 8 =
+              Except.error SemanticWireErrorV1.nonCanonical := by
+          unfold takeBytesNC
+          rw [hstart]
+          simp only [if_neg hge, Pure.pure, Except.pure, Bind.bind, Except.bind,
+            err]
+        simp only [htake_err, Pure.pure, Except.pure, Bind.bind, Except.bind]
+          at hcan
+        cases hcan
+    · simp only [if_neg hlim, Pure.pure, Except.pure, Bind.bind, Except.bind,
+        err] at hcan
+      cases hcan
+
 /-- Internal WireV1-family phase entry (not a public contract; see `validateSemanticProgramStructureV1`). -/
 def validateConstantsValueBytesV1 (types : Array TypeDeclV1)
     (constants : Array ConstantV1) (budget : Nat) : Except SemanticWireErrorV1 Nat := do

@@ -129,8 +129,11 @@ def run : IO Unit := do
     (encodeExtensionReqV1 {
       id := demoAdvanced, version := "1.2.3-alpha.1+build.5", digest := digab })
   expectHex "proof_safe"
-    "0900000050726f6f664465636c02000400000073616665020000000600000050726f6f66730400000073616665"
-    (encodeProofDeclV1 { invariant := safe, theorem_ := proofsSafe })
+    "0900000050726f6f664465636c030004000000736166650f00000050726f6f664b696e642e486f6c64730000020000000600000050726f6f66730400000073616665"
+    (encodeProofDeclV1 { invariant := safe, kind := .holds, theorem_ := proofsSafe })
+  expectHex "proof_safe_preserving"
+    "0900000050726f6f664465636c030004000000736166651400000050726f6f664b696e642e50726573657276696e670000020000000600000050726f6f66730400000073616665"
+    (encodeProofDeclV1 { invariant := safe, kind := .preserving, theorem_ := proofsSafe })
   expectErrExact "struct_empty" structEmpty
     (encodeStructDeclV1 { name := store, fields := #[] })
   expectErrExact "enum_empty" enumEmpty
@@ -149,6 +152,6 @@ def run : IO Unit := do
   expectErrExact "ext_bad_digest" digErr
     (encodeExtensionReqV1 { id := demoFeature, version := "1.0.0", digest := "sha256:ZZ" })
   expectErrExact "proof_qid1" qidErr
-    (encodeProofDeclV1 { invariant := safe, theorem_ := only })
+    (encodeProofDeclV1 { invariant := safe, kind := .holds, theorem_ := only })
 
 end Tests.Language.SourceAstDeclV1

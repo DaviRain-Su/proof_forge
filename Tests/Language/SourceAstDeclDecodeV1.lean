@@ -142,8 +142,10 @@ def run : IO Unit := do
     { id := demoFeature, version := "1.0.0", digest := dig00 } 1
   rtExt "0c000000457874656e73696f6e5265710300020000000400000044656d6f08000000416476616e63656415000000312e322e332d616c7068612e312b6275696c642e35470000007368613235363a61626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162616261626162"
     { id := demoAdvanced, version := "1.2.3-alpha.1+build.5", digest := digab } 1
-  rtProof "0900000050726f6f664465636c02000400000073616665020000000600000050726f6f66730400000073616665"
-    { invariant := safe, theorem_ := proofsSafe } 1
+  rtProof "0900000050726f6f664465636c030004000000736166650f00000050726f6f664b696e642e486f6c64730000020000000600000050726f6f66730400000073616665"
+    { invariant := safe, kind := .holds, theorem_ := proofsSafe } 1
+  rtProof "0900000050726f6f664465636c030004000000736166651400000050726f6f664b696e642e50726573657276696e670000020000000600000050726f6f66730400000073616665"
+    { invariant := safe, kind := .preserving, theorem_ := proofsSafe } 1
   -- 14 FC at zero budgets
   let hState := hex "0900000053746174654465636c0300110000005669736962696c6974792e5075626c6963000007000000656e61626c656409000000547970652e426f6f6c0000"
   let hStruct := hex "0a0000005374727563744465636c02000500000053746f726501000000090000004669656c644465636c020005000000636f756e7409000000547970652e55496e7401000001"
@@ -151,15 +153,15 @@ def run : IO Unit := do
   let hEvent := hex "090000004576656e744465636c02000400000050696e6700000000"
   let hError := hex "090000004572726f724465636c020005000000456d70747900000000"
   let hExt := hex "0c000000457874656e73696f6e5265710300020000000400000044656d6f070000004665617475726505000000312e302e30470000007368613235363a30303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030303030"
-  let hProof := hex "0900000050726f6f664465636c02000400000073616665020000000600000050726f6f66730400000073616665"
+  let hProof := hex "0900000050726f6f664465636c030004000000736166650f00000050726f6f664b696e642e486f6c64730000020000000600000050726f6f66730400000073616665"
   for bad in ([2, 4] : List Nat) do
     err "fcS" "tag 'StateDecl' must declare 3 fields" (dState 0 0 (setFc hState bad))
+    err "fcP" "tag 'ProofDecl' must declare 3 fields" (dProof 0 0 (setFc hProof bad))
   for bad in ([1, 3] : List Nat) do
     err "fcU" "tag 'StructDecl' must declare 2 fields" (dStruct 0 0 (setFc hStruct bad))
     err "fcN" "tag 'EnumDecl' must declare 2 fields" (dEnum 0 0 (setFc hEnum bad))
     err "fcV" "tag 'EventDecl' must declare 2 fields" (dEvent 0 0 (setFc hEvent bad))
     err "fcR" "tag 'ErrorDecl' must declare 2 fields" (dError 0 0 (setFc hError bad))
-    err "fcP" "tag 'ProofDecl' must declare 2 fields" (dProof 0 0 (setFc hProof bad))
   for bad in ([2, 4] : List Nat) do
     err "fcX" "tag 'ExtensionReq' must declare 3 fields" (dExt 0 0 (setFc hExt bad))
   -- 42 boundaries (seven distinct declaration sibling tags for wrong-family)
@@ -177,7 +179,7 @@ def run : IO Unit := do
   err "nV" "node budget exhausted" (dEvent 1 0 (tg "EventDecl" #[ByteArray.empty, ByteArray.empty]))
   err "nR" "node budget exhausted" (dError 1 0 (tg "ErrorDecl" #[ByteArray.empty, ByteArray.empty]))
   err "nX" "node budget exhausted" (dExt 1 0 (tg "ExtensionReq" #[ByteArray.empty, ByteArray.empty, ByteArray.empty]))
-  err "nP" "node budget exhausted" (dProof 1 0 (tg "ProofDecl" #[ByteArray.empty, ByteArray.empty]))
+  err "nP" "node budget exhausted" (dProof 1 0 (tg "ProofDecl" #[ByteArray.empty, ByteArray.empty, ByteArray.empty]))
   -- State order + type pass-through (A-before-B dual-fault)
   err "s-vis" "unknown visibility tag 'Type.Bool'"
     (dState 3 8 (tg "StateDecl" #[ty "Bool", u32 0, tg "Bogus" #[]]))
@@ -234,9 +236,17 @@ def run : IO Unit := do
     (dExt 2 4 (tg "ExtensionReq" #[qidBytes #["Demo", "Feature"], sbytes "1.0.0", sbytes "sha256:ZZ"]))
   -- Proof
   err "p-inv" "source name component must contain 1..240 UTF-8 bytes"
-    (dProof 2 4 (tg "ProofDecl" #[u32 0, u32 1 ++ ident "Only"]))
+    (dProof 2 4 (tg "ProofDecl" #[u32 0, tg "ProofKind.Holds" #[], u32 1 ++ ident "Only"]))
   err "p-qid" "source qualified id must contain 2..256 components"
-    (dProof 2 4 (tg "ProofDecl" #[ident "safe", u32 1 ++ ident "Only"]))
+    (dProof 2 4 (tg "ProofDecl" #[ident "safe", tg "ProofKind.Holds" #[], u32 1 ++ ident "Only"]))
+  err "p-kind" "unknown proof-kind tag 'ProofKind.Bogus'"
+    (dProof 2 4 (tg "ProofDecl" #[ident "safe", tg "ProofKind.Bogus" #[],
+      u32 2 ++ ident "Proofs" ++ ident "safe"]))
+  err "p-kind-fc" "tag 'ProofKind.Holds' must declare 0 fields"
+    (dProof 2 4 (tg "ProofDecl" #[ident "safe", tg "ProofKind.Holds" #[ByteArray.mk #[0]],
+      u32 2 ++ ident "Proofs" ++ ident "safe"]))
+  err "p-two-field" "tag 'ProofDecl' must declare 3 fields"
+    (dProof 2 4 (tg "ProofDecl" #[ident "safe", u32 2 ++ ident "Proofs" ++ ident "safe"]))
   err "trail" "trailing bytes" (do
     let ((_g, _), c) ← dState 3 4 (hex ("0900000053746174654465636c0300110000005669736962696c6974792e5075626c6963000007000000656e61626c656409000000547970652e426f6f6c0000" ++ "00"))
     finish c)

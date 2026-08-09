@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-08
+updated: 2026-08-09
 normative: false
 ---
 
@@ -12,6 +12,97 @@ normative: false
 已进入 pre-acceptance alpha 实现阶段。本文件只追加实际完成的工作；这些结果验证架构
 可行性，不会越过仍为 `proposed` 的规范或自动关闭正式 Phase 1 任务。
 
+## 2026-08-09 — ZeroCounter wave-2 bf2-docs（第二实例文档收口）
+
+- 同步 INV-2 / Agents Active·Next / ADR-0034 D9–D10·状态·实现切片 / research-023 §0–§5.7 /
+  document-status / index / adr README：ZeroCounter（P=`count==0`）product GREEN；
+  wave-2 通用性门 drained；下一步 MiniAmm P1。
+- 队列 `bf2-docs` done；wave1+wave2 全 done。**不** supersede ADR-0027；**不** formal 关闭。
+
+## 2026-08-09 — ZeroCounter wave-2 bf2-product（product pin + certifier positive）
+
+- 对齐 closed ZeroCounter semantic 与 product Normalize（1306B，sole `state.persistent`）。
+- ClosedSubjectPin 注册 ZeroCounter golden；`InlineProofCertifierV1` product-positive
+  `exact …ZeroCounterPreservationV1.preservation_theorem`。
+- EvenCounter product path 仍 GREEN；无第二 step 机器。队列 `bf2-product` done。
+
+## 2026-08-09 — ZeroCounter wave-2 bf2-preserve（PreservationTheoremV1）
+
+- `ZeroCounterDecodeV1`：production decode bridge（`decode_ok`；后续 bf2-product 对齐 1306B）。
+- ReferenceMachine 增补：`runInvariantCallableV1_eq_returnedTrue_of_uint64_eq_zero` /
+  `…_returnedFalse_of_uint64_ne_zero`；clear micro-path
+  `runMachine_clear_store_zero_return` + `stepReferenceSliceV1_ready_clear_*`。
+- `ZeroCounterPreservationV1`：base + full `PreservationStepV1` +
+  `preservation_theorem` / `of_eq_bytes`（sole Reference step；reuse packaging）。
+- EvenCounter product certifier 仍 build GREEN。队列 `bf2-preserve` done。
+
+## 2026-08-09 — ZeroCounter wave-2 bf2-data（第二非 AMM 实例起步）
+
+- 新 closed instance `ProofForgeV2/ProofInstances/ZeroCounterV1.lean`：
+  `Root.ZeroCounter`，业务 P = `count == 0`（**非** EvenCounter 偶数）；
+  entry `clear` store-0、view `get`、invariant `zero`；后续 bf2-product 对齐 1306B spine；
+  `structure_ok` + `encode_ok` + Reference `admission_bool` decide。
+- Suite `Tests.Semantic.ZeroCounterV1`；umbrella import；SBOM 刷新。
+- 队列 wave2：`bf2-data` done。**不** MiniAmm；**不** supersede ADR-0027。
+
+## 2026-08-09 — packaging/non-pin + autonomous drain Goal/workflow（engineering）
+
+- **bf-pack-1/2**：`PreservationPackagingV1` 抽出 failure-arm / returned-gate / post=pre /
+  uint64 size packaging；EvenCounter 删除 thin alias，直连共享 lemmas；product certifier 仍 GREEN。
+- **bf-unpin-1**：ClosedSubjectPin / packaging 模块明确非 pin 主路径；
+  `Tests.Semantic.ClosedSubjectPinV1`（exact pin / miss / eq-bytes transport 无 pin API）。
+- **自治入口**：`.grok/goals/prompt-business-formalization.md`（drain Goal）、
+  `business-formalization-drain` workflow、`.grok/business-formalization-queue.md`。
+- **边界（历史本条）**：当时第二非 AMM 仍 deferred；现已由 wave-2 闭合。不 supersede ADR-0027；不 formal 关闭。
+
+## 2026-08-08 — EvenCounter L1 preserving product positive + 业务形式化主路径文档（engineering）
+
+- **代码（已合入，此前 commits）**：
+  - `EvenCounterPreservationV1`：`preservation_step` + `preservation_theorem` +
+    `preservation_theorem_of_eq_bytes`（sole product Reference step；无第二 State/Effect）。
+  - 产品 author body：`exact …EvenCounterPreservationV1.preservation_theorem`。
+  - `ClosedSubjectPinV1`：normalize 字节 exact match 时 `subjectBytesV1` 别名共享
+    `EvenCounterV1.canonicalBytes`；certifier 一次 pin hop；product env 经 pin 模块 import
+    proof 模块。
+  - `Tests.Compiler.InlineProofCertifierV1`：EvenCounter preserving product → `.certified`。
+- **文档 cutover（本条）**：ADR-0034 增 **D10 业务逻辑形式化主路径（track 1）vs 工具内部
+  formal（track 2）**；D9 EvenCounter 标 product GREEN；实现切片顺序更新；同步
+  ADR-0027 横幅、document-status、INV-2、RECOVERY、Agents Active/Next、research-023、
+  05-test-spec 分层表、02/03/specs/index/adr README 等过时 “EvenCounter pending” 叙述。
+- **边界**：第二非 AMM 实例 deferred；**不** supersede ADR-0027；**不** 关闭 formal
+  TASK/TST；pin 非任意合约唯一通道；下一步 = packaging lemmas / 非 pin author 路径硬化。
+
+## 2026-08-07 — ProofKindV1 / preserving inline plumbing cutover（engineering）
+
+- Source 原子切换为 closed `ProofKindV1 { holds, preserving }` 与三字段
+  `ProofDecl(invariant,kind,theorem)`；bare `proof Inv using Thm` 固定解码为 holds，
+  `proof Inv preserving using Thm` 固定为 preserving。production decoder 只接受 field count 3，
+  无二/三字段 dual-read、默认推断或 fallback。
+- source validation、Typed declaration table、theorem inventory 与 certifier obligation 的 sole key
+  改为 `(invariant,kind)`；同一 invariant 可按 source order携带双 kind。两类 obligation 共享
+  `<Program>.Proof.subjectProgramV1`，holds alias 位于 `Proof`，preserving alias 位于
+  `ProofPreserving`；simple-closure generated helper 仅为 holds 发射与审计。
+- inline request、theorem-set 与 certification digest 均编码 kind；certifier 对 holds 精确审计
+  `InvariantTheoremV1`，对 preserving 精确审计 `PreservationTheoremV1`。focused 回归固定 kind
+  改变 canonical ProgramV1/source/certification identity但不改变 SemanticProgram bytes/hash，双 kind
+  inventory 的遗漏、换序、伪造均在 obligation phase fail closed；preserving false theorem 能越过
+  alias/helper audit并在真实 theorem elaboration 失败，未伪装成 positive。
+- historical/library-only `ProofReferenceJoinV1` 同步保留 source kind；既有 `ProofBundleV1` ABI 仍只
+  绑定 `InvariantTheoremV1`，因此 export 显式映射为 holds，preserving source row 对该 bundle
+  fail closed，不再静默丢弃 kind。产品 CLI 仍不接受 `--proof-bundle*`。
+- 独立 Python oracle 与 checked-in goldens 已重冻：constructed `85 wire / 57 node / 63 edge`，
+  canonical SHA-256 `a7075ca364c099e18510c1f5a8961449e3859d6a45fec46820d327a7d095a0d8`；
+  source-driven `86 / 58 / 63`，canonical SHA-256
+  `3252cf500aff195ebbf0e509643a246001248115b11c36d42daf6994def127c4`；unknown-tag
+  `85/19`，field-count `141`。全部相关 Python `--self-check` 在 ordinary 与 `-O` 下通过；
+  `typed`、`source`、`source-b`、`language-b`、`language-heavy` shard 实际执行通过。
+- 收口工程门禁：`just dev-check` 与 ordinary `just ci` 均实际 exit 0；fresh read-only reviewer
+  未发现 P0/P1/P2，报告的两项 P3（language spec 残留 single-key 叙述、Python validator
+  缺失 kind 时 soft-default holds）均已修正，follow-up review 无剩余 actionable finding。该结果仅为
+  engineering gate，不构成 formal/hermetic/release evidence。
+- 边界（历史；2026-08-08 后见上条）：当时真实 certified positive 仍仅 holds simple-closure；EvenCounter preserving、第二个非 AMM
+  实例与 MiniAmm P1 尚未实现。ADR-0027 未 supersede；不声称 formal TASK/TST、reachability、
+  target refinement、sandbox/hermetic/release。
 
 ## 2026-08-08 — ALEO-OPTION-COMPARE：OptionState admit locked-leo pin
 

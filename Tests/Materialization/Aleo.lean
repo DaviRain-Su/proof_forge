@@ -1251,11 +1251,8 @@ unsafe def testInt64AcceptanceLeo : IO Unit := do
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   let plan ← liftResult <| planAleo compiled
   liftResult <| Targets.Aleo.validatePlan plan
-  let output ← liftResult <| materializeAleo compiled
-  let some leoFile := (MaterializedArtifactsV1.filesOf output).find?
-      (·.path == "temp.aleo") |
-    throw <| IO.userError "aleo: missing temp.aleo"
-  expect (leoFile.contents.contains "program temp.aleo {")
+  let leoSource ← materializeLeoSource compiled "temp"
+  expect (leoSource.contains "program temp.aleo {")
     "Int64 Counter must materialize a Leo program"
 
 /-- First index of `needle` in `hay` as char list, or none. -/
@@ -2620,7 +2617,9 @@ unsafe def testQueryContractDualViews : IO Unit := do
   expect (!primaryFile.contents.contains "function getBalance:")
     "getBalance must not appear in Instructions function table"
 
-/-- ALEO-I2: no-state pure program → empty mappings/views/resultDropped arrays. -/
+/-- G5-HARD: Instructions materialization currently requires at least one
+    state leaf; a no-state program must fail closed rather than publish only
+    the network-state query descriptor. -/
 unsafe def testQueryContractNoStateEmpty : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -2634,24 +2633,14 @@ unsafe def testQueryContractNoStateEmpty : IO Unit := do
   let parsed ← liftResult (← session.selectProgramV1
     source "<aleo-qc-empty>" "Tests.AleoQcEmpty" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
-  let output ← liftResult <| materializeAleo compiled
-  let files := MaterializedArtifactsV1.filesOf output
-  expect (files.map (·.path) ==
-      #["bitlogic.aleo", "bitlogic.aleo-query-contract.json"])
-    s!"empty-state query-contract paths, got {files.map (·.path)}"
-  let some cFile := files.find? (·.path == "bitlogic.aleo-query-contract.json") |
-    throw <| IO.userError "missing bitlogic.aleo-query-contract.json"
-  let c := cFile.contents
-  expect (c.contains "\"mappings\": []")
-    "no-state mappings must be empty array"
-  expect (c.contains "\"views\": []")
-    "no-state views must be empty array (legal)"
-  expect (c.contains "\"resultDropped\": []")
-    "pure entries must leave resultDropped empty"
-  expect (c.contains "\"schema\": \"proof-forge-aleo-query-contract/v1\"")
-    "empty-state still binds schema"
-  expect (c.contains "\"executionModel\": \"network-state-descriptor\"")
-    "empty-state still binds executionModel"
+  match materializeAleo compiled with
+  | .error e =>
+      expect (e.render.contains "ALEO-IR-G5-HARD" &&
+          e.render.contains "expected at least one state leaf")
+        s!"no-state Instructions materialization must fail closed, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "no-state Aleo materialization must not publish a query-only output"
 
 /-- ALEO-I2: double materialize is exact-byte deterministic for both base files. -/
 unsafe def testQueryContractDeterminism : IO Unit := do

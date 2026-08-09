@@ -16,6 +16,7 @@ E = {
 "invariant_dup": "program contains duplicate invariant declarations",
 "ext_dup": "program contains duplicate extension requirements",
 "proof_dup": "program contains duplicate proof references",
+"proof_kind_missing": "proof reference is missing proof kind",
 }
 def unknown_inv(x): return f"proof reference names unknown invariant '{x}'"
 def dup_fields(k, x): return f"{k} '{x}' contains duplicate fields"
@@ -49,12 +50,14 @@ def validate(items):
     # 13 extension ID component-array equality
     if dup_any([tuple(it["id"]) for it in items if it["kind"] == "extension"]):
         raise ValueError(E["ext_dup"])
-    # 14 at most one proof reference per invariant (source order)
+    # 14 at most one proof reference per (invariant, proofKind) (source order; dual kinds ok)
     seen = set()
     for it in items:
         if it["kind"] == "proof":
-            if it["invariant"] in seen: raise ValueError(E["proof_dup"])
-            seen.add(it["invariant"])
+            if "proofKind" not in it: raise ValueError(E["proof_kind_missing"])
+            key = (it["invariant"], it["proofKind"])
+            if key in seen: raise ValueError(E["proof_dup"])
+            seen.add(key)
     # 15 proof reference binds a declared invariant
     declared = {it["name"] for it in items if it["kind"] == "invariant"}
     for it in items:
@@ -86,7 +89,7 @@ def base():
         {"kind": "const", "name": "max"}, {"kind": "event", "name": "Ping", "params": []},
         {"kind": "error", "name": "Denied", "params": ["who"]},
         {"kind": "extension", "id": ["Demo", "Feature"], "version": "1.0.0", "digest": "sha256:00"},
-        {"kind": "proof", "name": "safe", "invariant": "safe"}, P("safe"),
+        {"kind": "proof", "name": "safe", "invariant": "safe", "proofKind": "holds"}, P("safe"),
         {"kind": "init", "params": ["start"]},
         {"kind": "entry", "name": "run", "params": ["to"]},
         {"kind": "view", "name": "get", "params": []},
@@ -94,8 +97,12 @@ def base():
     ]
 G = {
 "positive_full": base(),
-"positive_proof_forward": [{"kind": "proof", "name": "bounded", "invariant": "bounded"},
+"positive_proof_forward": [{"kind": "proof", "name": "bounded", "invariant": "bounded", "proofKind": "holds"},
     {"kind": "invariant", "name": "bounded"},
+    {"kind": "entry", "name": "run", "params": []}],
+"positive_proof_dual_kind": [P("safe"),
+    {"kind": "proof", "invariant": "safe", "proofKind": "holds"},
+    {"kind": "proof", "invariant": "safe", "proofKind": "preserving"},
     {"kind": "entry", "name": "run", "params": []}],
 "positive_view_only": [{"kind": "state", "name": "count"}, {"kind": "view", "name": "get", "params": []}],
 }
@@ -115,8 +122,13 @@ NEG = [
 ("ext_dup", [{"kind": "extension", "id": ["Demo", "Feature"], "version": "1.0.0", "digest": "sha256:00"},
     {"kind": "extension", "id": ["Demo", "Feature"], "version": "2.0.0", "digest": "sha256:11"},
     {"kind": "entry", "name": "run", "params": []}], E["ext_dup"]),
-("proof_dup", [P("safe"), {"kind": "proof", "name": "p1", "invariant": "safe"}, {"kind": "proof", "name": "p2", "invariant": "safe"}, {"kind": "entry", "name": "run", "params": []}], E["proof_dup"]),
-("proof_unknown", [{"kind": "proof", "name": "p1", "invariant": "ghost"}, {"kind": "entry", "name": "run", "params": []}], unknown_inv("ghost")),
+("proof_dup", [P("safe"), {"kind": "proof", "name": "p1", "invariant": "safe", "proofKind": "holds"},
+    {"kind": "proof", "name": "p2", "invariant": "safe", "proofKind": "holds"},
+    {"kind": "entry", "name": "run", "params": []}], E["proof_dup"]),
+("proof_kind_missing", [P("safe"), {"kind": "proof", "name": "p1", "invariant": "safe"},
+    {"kind": "entry", "name": "run", "params": []}], E["proof_kind_missing"]),
+("proof_unknown", [{"kind": "proof", "name": "p1", "invariant": "ghost", "proofKind": "holds"},
+    {"kind": "entry", "name": "run", "params": []}], unknown_inv("ghost")),
 ("init_params", [{"kind": "init", "params": ["a", "a"]}, {"kind": "entry", "name": "run", "params": []}], "initializer contains duplicate parameters"),
 ("struct_fields", [{"kind": "struct", "name": "Store", "fields": ["x", "x"]}, {"kind": "entry", "name": "run", "params": []}], dup_fields("struct", "Store")),
 ("enum_variants", [{"kind": "enum", "name": "Choice", "variants": ["A", "A"]}, {"kind": "entry", "name": "run", "params": []}], dup_variants("enum", "Choice")),
@@ -136,9 +148,12 @@ PRIO = [
 ("p5_fn_before_callable", [{"kind": "fn", "name": "run", "params": []}, {"kind": "fn", "name": "run", "params": []},
     {"kind": "entry", "name": "run", "params": []}], E["fn_dup"]),
 ("p6_state_before_unknown_proof", [{"kind": "state", "name": "x"}, {"kind": "state", "name": "x"},
-    {"kind": "proof", "name": "p", "invariant": "ghost"}, {"kind": "entry", "name": "run", "params": []}], E["state_dup"]),
-("p7_profdup_before_unknown", [P("safe"), {"kind": "proof", "name": "p1", "invariant": "safe"},
-    {"kind": "proof", "name": "p2", "invariant": "safe"}, {"kind": "proof", "name": "p3", "invariant": "ghost"},
+    {"kind": "proof", "name": "p", "invariant": "ghost", "proofKind": "holds"},
+    {"kind": "entry", "name": "run", "params": []}], E["state_dup"]),
+("p7_profdup_before_unknown", [P("safe"),
+    {"kind": "proof", "name": "p1", "invariant": "safe", "proofKind": "holds"},
+    {"kind": "proof", "name": "p2", "invariant": "safe", "proofKind": "holds"},
+    {"kind": "proof", "name": "p3", "invariant": "ghost", "proofKind": "holds"},
     {"kind": "entry", "name": "run", "params": []}], E["proof_dup"]),
 ]
 def self_check():

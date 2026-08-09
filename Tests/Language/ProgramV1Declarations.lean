@@ -231,8 +231,9 @@ unsafe def run : IO Unit := do
   match items[12]? with
   | some (ProgramItemV1.proof declaration) =>
       expect (declaration.invariant.raw == "initialized" &&
+          declaration.kind == .holds &&
           rawParts declaration.theorem_ == #["Tests", "Theorems", "initialized"])
-        "proof declaration did not retain exact invariant/theorem identity"
+        "proof declaration did not retain exact invariant/kind/theorem identity"
   | other => throw <| IO.userError s!"item 12 is not ProofDeclV1: {repr other}"
 
   expectReject session "legacy-call-string"

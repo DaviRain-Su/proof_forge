@@ -34,7 +34,7 @@ Stmt.Emit Stmt.For Stmt.If Stmt.Let Stmt.Match Stmt.Return Stmt.Revert
 Stmt.Schedule StmtMatchArm StructDecl Type.Array Type.Bool Type.Bytes Type.Field
 Type.Int Type.Map Type.Named Type.Option Type.Principal Type.UInt Type.Unit
 UnaryOp.BitNot UnaryOp.Neg UnaryOp.Not ViewDecl Visibility.Commitment
-Visibility.Private Visibility.Public
+Visibility.Private Visibility.Public ProofKind.Holds
 """.split())
 
 NODE_TAGS = set("""
@@ -127,6 +127,11 @@ def qualified(parts, minimum=1):
 
 def scalar_tag(tag, *fields):
     return Tagged(tag, tuple(("", value) for value in fields), node=False)
+
+
+def proof_kind(name="Holds"):
+    require(name in ("Holds", "Preserving"), "proof kind must be Holds or Preserving")
+    return scalar_tag(f"ProofKind.{name}")
 
 
 def node(tag, *fields):
@@ -438,6 +443,7 @@ def build_fixture():
              ("version", string("1.0.0")),
              ("digest", string("sha256:" + "0" * 64))),
         node("ProofDecl", ("invariant", ident("safe")),
+             ("kind", proof_kind("Holds")),
              ("theorem", qualified(["Golden", "theorem"], 2))),
     ]
     return node("Program", ("name", ident("FullTag")), ("items", ArrayValue(items)))
@@ -541,7 +547,7 @@ def expected_package():
              for parent, field_name, _index in path}
     paths = [path for _tag, path in visits]
 
-    require(len(WIRE_TAGS) == 84 and observed_tags == WIRE_TAGS,
+    require(len(WIRE_TAGS) == 85 and observed_tags == WIRE_TAGS,
             f"wire tag inventory: {sorted(WIRE_TAGS - observed_tags)} / {sorted(observed_tags - WIRE_TAGS)}")
     require(len(NODE_TAGS) == 57 and node_tags == NODE_TAGS, "node tag inventory")
     require(len(EDGE_PAIRS) == 63 and edges == EDGE_PAIRS, "edge inventory")
@@ -645,11 +651,11 @@ def main(argv):
     try:
         if argv == ["--emit"]:
             emit(root)
-            print("reference_source_program_wire_golden_v1: emitted 1 84 57 63")
+            print("reference_source_program_wire_golden_v1: emitted 1 85 57 63")
             return 0
         if argv == ["--self-check"]:
             validate_checked_in(root)
-            print("reference_source_program_wire_golden_v1: ok 1 84 57 63")
+            print("reference_source_program_wire_golden_v1: ok 1 85 57 63")
             return 0
         print("usage: reference_source_program_wire_golden_v1.py --emit|--self-check",
               file=sys.stderr)

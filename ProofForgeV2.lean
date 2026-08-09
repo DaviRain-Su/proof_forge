@@ -63,6 +63,7 @@ import ProofForgeV2.Typed.RequirementsInferV1
 import ProofForgeV2.Typed.CheckV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Semantic.ProofBridgeV1
+import ProofForgeV2.Semantic.SubjectDataBridgeV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.SimpleClosureCertV1
 import ProofForgeV2.Semantic.AuthorWireCertV1
@@ -74,6 +75,16 @@ import ProofForgeV2.Semantic.SimpleClosureDecodeV1
 import ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1
 import ProofForgeV2.Semantic.ReferenceV1
 import ProofForgeV2.Semantic.PreservationABI
+import ProofForgeV2.Semantic.PreservationPackagingV1
+import ProofForgeV2.Semantic.PreservationShapeV1
+import ProofForgeV2.Semantic.ParityCounterShapeV1
+import ProofForgeV2.Semantic.ParityCounterDecodeV1
+import ProofForgeV2.Semantic.ZeroCounterShapeV1
+import ProofForgeV2.Semantic.ZeroCounterDecodeV1
+import ProofForgeV2.Semantic.ZeroCounterPreservationV1
+import ProofForgeV2.Semantic.ParityCounterPreservationV1
+import ProofForgeV2.ProofInstances.MiniAmmEmptyPoolV1
+import ProofForgeV2.ProofInstances.MiniAmmEmptyPoolDecodeV1
 import ProofForgeV2.Semantic.ProofBundleV1
 import ProofForgeV2.Semantic.InlineProofPolicyV1
 import ProofForgeV2.Semantic.ProofSubjectV1
@@ -103,6 +114,8 @@ import ProofForgeV2.Materialization.OutputSetV1
 import ProofForgeV2.Examples.Counter
 import ProofForgeV2.Examples.Accumulator
 import ProofForgeV2.Examples.PrivateSum4
+import ProofForgeV2.Examples.EvenCounter
+import ProofForgeV2.Examples.ZeroCounter
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.TargetRegistryV1
 import ProofForgeV2.Targets.BuildIdentityV1

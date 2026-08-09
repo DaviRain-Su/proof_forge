@@ -1,6 +1,9 @@
 import ProofForgeV2.Language.Syntax
+import ProofForgeV2.Language.SubjectDataQuoteV1
+import ProofForgeV2.Semantic.ClosedSubjectPinV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.NormalizeV1
+import ProofForgeV2.Semantic.PreservationABI
 import ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1
 import ProofForgeV2.Semantic.SimpleClosureTraceV1
 import ProofForgeV2.Semantic.WireV1
@@ -9,12 +12,14 @@ open Lean Parser Command
 open Lean.Elab.Command
 open ProofForgeV2
 open ProofForgeV2.Language.ProgramExport
+open ProofForgeV2.Language.SubjectDataQuoteV1
 open ProofForgeV2.Semantic.NormalizeV1
 open ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1
 open ProofForgeV2.Semantic.SimpleClosureStructureCertV1
 open ProofForgeV2.Semantic.SimpleClosureTraceV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.AstProgramItemV1
+open ProofForgeV2.Source.AstV1
 open ProofForgeV2.Source.QualifiedNameV1
 open ProofForgeV2.Source.ValidatedSourceV1
 
@@ -64,6 +69,7 @@ def generatedSimpleClosureTheoremNameDefV1 (invName : String) : String :=
 /-- Fixed elaborator surface names authors must not use as invariant ids. -/
 private def isFixedInlineProofSurfaceNameV1 (name : String) : Bool :=
   name == "subjectProgramV1" || name == "subjectBytesV1" ||
+    name == "subjectDataV1" ||
     name == "simpleClosureParamsV1" || name == "simpleClosureDataV1" ||
     name == "simpleClosureQnTailLegalV1" ||
     name == "simpleClosureParamsLegalV1"
@@ -155,29 +161,36 @@ private def extractSimpleClosureParamsFromCarrierV1
       else
         none
 
-private def proofInvariantNames
-    (source : ValidatedSourceV1) : Except String (Array String) := do
+private structure ProofSurfaceV1 where
+  invariantNames : Array String
+  holdsNames : Array String
+  preservingNames : Array String
+
+private def proofSurfaceV1
+    (source : ValidatedSourceV1) : Except String ProofSurfaceV1 := do
   let invariants := source.program.items.filterMap fun item =>
     match item with
     | .invariant declaration => some declaration.name.raw
     | _ => none
   let proofs := source.program.items.filterMap fun item =>
     match item with
-    | .proof declaration => some declaration.invariant.raw
+    | .proof declaration => some (declaration.invariant.raw, declaration.kind)
     | _ => none
   if proofs.isEmpty then
-    return #[]
-  unless proofs.size == invariants.size do
-    throw "inline proof programs require exactly one proof reference per invariant"
+    return { invariantNames := #[], holdsNames := #[], preservingNames := #[] }
   for invariantName in invariants do
-    unless proofs.any (· == invariantName) do
+    unless proofs.any (fun proof => proof.1 == invariantName) do
       throw s!"inline proof program is missing proof reference for invariant '{invariantName}'"
     if isReservedInlineProofSurfaceNameV1 invariantName then
       throw s!"invariant name '{invariantName}' is reserved by the inline proof surface"
-  for proofName in proofs do
-    unless invariants.any (· == proofName) do
-      throw s!"proof reference names unknown invariant '{proofName}'"
-  pure invariants
+  for proof in proofs do
+    unless invariants.any (· == proof.1) do
+      throw s!"proof reference names unknown invariant '{proof.1}'"
+  let holdsNames := invariants.filter fun invariantName =>
+    proofs.any fun proof => proof.1 == invariantName && proof.2 == .holds
+  let preservingNames := invariants.filter fun invariantName =>
+    proofs.any fun proof => proof.1 == invariantName && proof.2 == .preserving
+  pure { invariantNames := invariants, holdsNames, preservingNames }
 
 /-- Emit both the hypothesis-honest trace bridge and the premise-free
     generated theorem for the admitted literal-true simple-closure family.
@@ -186,7 +199,7 @@ private def proofInvariantNames
 private def elaborateSimpleClosureGeneratedTheoremsV1
     (paramsName subjectBytesName : TSyntax `ident)
     (params : SimpleClosureParamsV1)
-    (invariantNames : Array String) : CommandElabM Unit := do
+    (invariantNames holdsNames : Array String) : CommandElabM Unit := do
   unless simpleClosureParamsReadyForGeneratedProofV1 params do
     return
   let tailArray ← Lean.Elab.liftMacroM <| quoteStringArray params.qnTail
@@ -199,6 +212,8 @@ private def elaborateSimpleClosureGeneratedTheoremsV1
   let invProof ← Lean.Elab.liftMacroM <|
     quoteAsciiIdentifierProofV1 params.invName
   for (invariantName, ordinal) in invariantNames.zipIdx do
+    unless holdsNames.contains invariantName do
+      continue
     -- Family soundness is fixed at ordinal 0 / invName = params.invName.
     unless invariantName == params.invName && ordinal == 0 do
       continue
@@ -263,8 +278,8 @@ private def elaborateSimpleClosureGeneratedTheoremsV1
 private def elaborateProofObligations
     (programName : TSyntax `ident)
     (source : ValidatedSourceV1)
-    (invariantNames : Array String) : CommandElabM Unit := do
-  if invariantNames.isEmpty then
+    (surface : ProofSurfaceV1) : CommandElabM Unit := do
+  if surface.invariantNames.isEmpty then
     return
   -- Export/parser fixtures may carry proof items without product Normalize
   -- success. Skip proof aliases on Normalize failure (fail closed later at
@@ -278,44 +293,80 @@ private def elaborateProofObligations
         -- at name elaboration; product check/build will report the located
         -- Normalize diagnostic before certification.
         return
-  -- Proof subjects use a transparent spine so certificate modules can link
-  -- by definitional equality without hex reduction OOM.
-  let bytesExpr ← Lean.Elab.liftMacroM <| quoteByteArraySpine carrier.canonicalBytes
+  -- Proof subjects:
+  --   * `subjectDataV1` — structured SemanticProgramDataV1 spine (mig-a3-elab);
+  --     preferred author surface for shape/preservation facts without large
+  --     byte-spine defeq.
+  --   * `subjectBytesV1` / `subjectProgramV1` — certifier identity. When carrier
+  --     bytes match a registered closed pin, alias that shared constant so
+  --     package-owned theorems stay definitional; unpinned programs keep the
+  --     transparent byte spine. Pin is golden accelerator only.
+  let data ← match lowerProgramDataV1 source with
+    | .ok value => pure value
+    | .error _ =>
+        -- Normalize already encoded successfully; lower must succeed for the
+        -- same ValidatedSource snapshot. Fail closed without partial aliases.
+        return
+  let dataExpr : TSyntax `term ←
+    Lean.Elab.liftMacroM <| quoteSemanticProgramDataV1 data
+  let bytesExpr : TSyntax `term ←
+    match ProofForgeV2.Semantic.ClosedSubjectPinV1.resolveClosedSubjectBytesPinNameV1
+        carrier.canonicalBytes with
+    | some pinName =>
+        pure ⟨(Lean.mkCIdent pinName).raw⟩
+    | none =>
+        Lean.Elab.liftMacroM <| quoteByteArraySpine carrier.canonicalBytes
   let proofNamespace := mkIdent `Proof
+  let preservingNamespace := mkIdent `ProofPreserving
   let subjectName := mkIdent `subjectProgramV1
+  let sharedSubjectName := mkIdent `Proof.subjectProgramV1
   let subjectBytesName := mkIdent `subjectBytesV1
+  let subjectDataName := mkIdent `subjectDataV1
   Lean.Elab.Command.elabCommand (← `(namespace $programName))
   Lean.Elab.Command.elabCommand (← `(namespace $proofNamespace))
+  Lean.Elab.Command.elabCommand (← `(def $subjectDataName :
+      ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1 := $dataExpr))
   Lean.Elab.Command.elabCommand (← `(def $subjectBytesName : ByteArray := $bytesExpr))
   Lean.Elab.Command.elabCommand (← `(def $subjectName :
       ProofForgeV2.Semantic.WireV1.SemanticProgramV1 :=
     { canonicalBytes := $subjectBytesName }))
-  for (invariantName, ordinal) in invariantNames.zipIdx do
-    let invariantIdent := mkIdent (Name.str .anonymous invariantName)
-    let ordinalTerm : TSyntax `term := ⟨Syntax.mkNumLit (toString ordinal)⟩
-    Lean.Elab.Command.elabCommand (← `(abbrev $invariantIdent : Prop :=
-      ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1
-        $subjectName $ordinalTerm))
+  for (invariantName, ordinal) in surface.invariantNames.zipIdx do
+    if surface.holdsNames.contains invariantName then
+      let invariantIdent := mkIdent (Name.str .anonymous invariantName)
+      let ordinalTerm : TSyntax `term := ⟨Syntax.mkNumLit (toString ordinal)⟩
+      Lean.Elab.Command.elabCommand (← `(abbrev $invariantIdent : Prop :=
+        ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1
+          $subjectName $ordinalTerm))
   -- Name/module-parameterized certificate AST for the literal-true simple-
-  -- closure family. When Normalize data and concrete ASCII identifiers match
-  -- the admitted shape, this emits both the explicit trace bridge and the
-  -- premise-free generated theorem used by an adjacent ordinary theorem.
-  match extractSimpleClosureParamsFromCarrierV1 carrier with
-  | none => pure ()
-  | some params => do
-      let paramsName := mkIdent `simpleClosureParamsV1
-      let dataName := mkIdent `simpleClosureDataV1
-      let paramsExpr ← Lean.Elab.liftMacroM <| quoteSimpleClosureParams params
-      Lean.Elab.Command.elabCommand (← `(def $paramsName :
-          ProofForgeV2.Semantic.SimpleClosureTraceV1.SimpleClosureParamsV1 :=
-        $paramsExpr))
-      Lean.Elab.Command.elabCommand (← `(def $dataName :
-          ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1 :=
-        ProofForgeV2.Semantic.SimpleClosureTraceV1.materializeSimpleClosureDataV1
-          $paramsName))
-      elaborateSimpleClosureGeneratedTheoremsV1
-        paramsName subjectBytesName params invariantNames
+  -- closure family remains holds-only. Preserving proofs never receive a
+  -- generated helper that could masquerade as a step-preservation proof.
+  unless surface.holdsNames.isEmpty do
+    match extractSimpleClosureParamsFromCarrierV1 carrier with
+    | none => pure ()
+    | some params => do
+        let paramsName := mkIdent `simpleClosureParamsV1
+        let dataName := mkIdent `simpleClosureDataV1
+        let paramsExpr ← Lean.Elab.liftMacroM <| quoteSimpleClosureParams params
+        Lean.Elab.Command.elabCommand (← `(def $paramsName :
+            ProofForgeV2.Semantic.SimpleClosureTraceV1.SimpleClosureParamsV1 :=
+          $paramsExpr))
+        Lean.Elab.Command.elabCommand (← `(def $dataName :
+            ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1 :=
+          ProofForgeV2.Semantic.SimpleClosureTraceV1.materializeSimpleClosureDataV1
+            $paramsName))
+        elaborateSimpleClosureGeneratedTheoremsV1
+          paramsName subjectBytesName params surface.invariantNames surface.holdsNames
   Lean.Elab.Command.elabCommand (← `(end $proofNamespace))
+  unless surface.preservingNames.isEmpty do
+    Lean.Elab.Command.elabCommand (← `(namespace $preservingNamespace))
+    for (invariantName, ordinal) in surface.invariantNames.zipIdx do
+      if surface.preservingNames.contains invariantName then
+        let invariantIdent := mkIdent (Name.str .anonymous invariantName)
+        let ordinalTerm : TSyntax `term := ⟨Syntax.mkNumLit (toString ordinal)⟩
+        Lean.Elab.Command.elabCommand (← `(abbrev $invariantIdent : Prop :=
+          ProofForgeV2.Semantic.PreservationABI.PreservationTheoremV1
+            $sharedSubjectName $ordinalTerm))
+    Lean.Elab.Command.elabCommand (← `(end $preservingNamespace))
   Lean.Elab.Command.elabCommand (← `(end $programName))
 elab_rules : command
   | `(program $name:ident where $items:pfItem*) => do
@@ -334,7 +385,7 @@ elab_rules : command
       let bytes ← match canonicalValidatedSourceAstBytesV1 source with
         | .error message => throwError message
         | .ok bytes => pure bytes
-      let invariantNames ← match proofInvariantNames source with
+      let proofSurface ← match proofSurfaceV1 source with
         | .ok value => pure value
         | .error message => throwError message
       let bytesExpr ← Lean.Elab.liftMacroM <| quoteByteArray bytes
@@ -344,7 +395,7 @@ elab_rules : command
           bytes := $bytesExpr
         })
       Lean.Elab.Command.elabCommand expanded
-      elaborateProofObligations name source invariantNames
+      elaborateProofObligations name source proofSurface
 
 end ProofForgeV2.Language
 
@@ -352,14 +403,17 @@ end ProofForgeV2.Language
   ## B-SC-ELAB-THM engineering status
 
   Shipped for the narrow literal-true/public-Bool-view family:
-    * exact generated semantic subject and source-order ordinal-0 Prop alias;
-    * concrete ASCII identifier legality certificates;
-    * hypothesis-honest `generated…V1_of_wireTrace` compatibility bridge;
+    * one exact generated semantic subject shared by both proof kinds;
+    * kind-selected source-order aliases under `Proof` / `ProofPreserving`;
+    * concrete ASCII identifier legality certificates for holds;
+    * hypothesis-honest `generated…V1_of_wireTrace` holds bridge;
     * premise-free `generated…V1 : <Program>.Proof.<inv>` derived from
       `invariantTheoremV1_of_simpleClosure_legal`;
-    * same-file ordinary theorem authoring such as
+    * same-file ordinary holds theorem authoring such as
       `exact <Program>.Proof.generatedSafeV1`.
 
+  Preserving aliases deliberately receive no simple-closure helper; program
+  instances must prove the generic Reference-based preservation proposition.
   Unsupported semantic shapes and non-ASCII generated-proof parameters remain
   fail closed. This lane does not claim reachability, target refinement,
   formal TST closure, sandboxing, hermeticity, or release qualification.

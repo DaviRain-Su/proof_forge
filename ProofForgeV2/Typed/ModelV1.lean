@@ -137,7 +137,7 @@ structure TypedDeclTablesV1 where
   fn : DeclTableV1 SourceNameComponentV1 FnDeclV1
   invariant : DeclTableV1 SourceNameComponentV1 InvariantDeclV1
   extensionReq : DeclTableV1 SourceQualifiedNameV1 ExtensionReqV1
-  proof : DeclTableV1 SourceNameComponentV1 ProofDeclV1
+  proof : DeclTableV1 ProofDeclKeyV1 ProofDeclV1
   itemIndices : DeclItemIndicesV1
 deriving Repr
 
@@ -200,7 +200,9 @@ def itemPathForNamed? (tables : TypedDeclTablesV1) (kind : DeclKindV1)
     | .view => tables.view.find? name |>.map (·.1)
     | .fn => tables.fn.find? name |>.map (·.1)
     | .invariant => tables.invariant.find? name |>.map (·.1)
-    | .proof => tables.proof.find? name |>.map (·.1)
+    | .proof =>
+        tables.proof.entries.findSome? fun (key, ordinal, _) =>
+          if key.invariant == name then some ordinal else none
     | .init | .extensionReq => none
   ordinal?.bind (itemPathForOrdinal? tables kind)
 

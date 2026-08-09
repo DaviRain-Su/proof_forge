@@ -183,12 +183,14 @@ private def testLockedResolverPolicy : IO Unit := do
         "leo requiredBundlePaths must be the single executable"
   IO.println "  locked-resolver policy ok (no PATH fallback; soft-skip-only-when-absent; env allowlist)"
 
-/-- Product materialize with ALEO-IR-6 Leo debug dual-write; returns Leo 4
-    source for locked `leo build` acceptance (not the Instructions primary).
-    `expectedAleoPath` is the primary `{id}.aleo` path used to derive program id. -/
+/-- Explicit ALEO-IR-6 debug materialization for locked `leo build`
+    acceptance. Instructions-supported shapes dual-write `{id}.aleo` and
+    `{id}.leo`; G5-HARD residual shapes may emit only `{id}.leo` under this
+    explicit debug flag. Product materialization without the flag remains
+    fail closed. `expectedAleoPath` supplies the expected program id. -/
 private unsafe def materializeAleo
     (label : String) (sourceText : String) (moduleName : String)
-    (expectedAleoPath : String) : IO (String × String) := do
+    (expectedAleoPath : String) : IO (String × String × Bool) := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult s!"load {label}" (← session.selectProgramV1
     sourceText s!"<aleo-accept-{label}>" moduleName none)
@@ -201,17 +203,22 @@ private unsafe def materializeAleo
   let output ← liftResult s!"materialize {label}" <|
     Targets.materializeResult capability (emitLeoDebug := true)
   let files := MaterializedArtifactsV1.filesOf output
-  let some primaryFile := files.find? (·.path == expectedAleoPath) |
-    throw <| IO.userError s!"{label}: missing primary {expectedAleoPath}; got {files.map (·.path)}"
-  expect (!primaryFile.contents.isEmpty) s!"{label}: empty primary .aleo"
-  expect (primaryFile.contents.contains "program ")
-    s!"{label}: primary must declare a program"
   let programId :=
     if expectedAleoPath.endsWith ".aleo" then (expectedAleoPath.dropEnd 5).copy
     else expectedAleoPath
   let leoPath := s!"{programId}.leo"
   let some leoFile := files.find? (·.path == leoPath) |
-    throw <| IO.userError s!"{label}: missing dual-write {leoPath}; got {files.map (·.path)}"
+    throw <| IO.userError s!"{label}: missing debug source {leoPath}; got {files.map (·.path)}"
+  let hasPrimary ← match files.find? (·.path == expectedAleoPath) with
+    | some primaryFile =>
+        expect (!primaryFile.contents.isEmpty) s!"{label}: empty primary .aleo"
+        expect (primaryFile.contents.contains "program ")
+          s!"{label}: primary must declare a program"
+        pure true
+    | none =>
+        expect (files.map (·.path) == #[leoPath])
+          s!"{label}: residual debug materialization must emit only {leoPath}; got {files.map (·.path)}"
+        pure false
   expect (!leoFile.contents.isEmpty) s!"{label}: empty Leo debug source"
   expect (leoFile.contents.contains "program ")
     s!"{label}: Leo debug source must declare a program"
@@ -221,7 +228,7 @@ private unsafe def materializeAleo
     s!"{label}: Leo 4 uses bool, not boolean"
   expect (!leoFile.contents.contains "return ();")
     s!"{label}: Leo 4 rejects return ()"
-  pure (leoFile.contents, expectedAleoPath)
+  pure (leoFile.contents, expectedAleoPath, hasPrimary)
 
 /-- Stem of `{id}.aleo` → `{id}` for package layout. -/
 private def programStem (aleoPath : String) : String :=
@@ -277,12 +284,16 @@ private unsafe def acceptProgram
     (leo : String) (leoHome tmp : FilePath)
     (label : String) (sourceText : String) (moduleName : String)
     (aleoFileName : String) : IO Unit := do
-  let (source, path) ← materializeAleo label sourceText moduleName aleoFileName
-  let programId := programStem path
-  let pkg := tmp / programId
-  if ← pkg.pathExists then IO.FS.removeDirAll pkg
-  IO.FS.createDirAll pkg
-  runLeoBuild leo leoHome pkg programId source label
+  let (source, path, hasPrimary) ←
+    materializeAleo label sourceText moduleName aleoFileName
+  if hasPrimary then
+    let programId := programStem path
+    let pkg := tmp / programId
+    if ← pkg.pathExists then IO.FS.removeDirAll pkg
+    IO.FS.createDirAll pkg
+    runLeoBuild leo leoHome pkg programId source label
+  else
+    IO.println s!"  debug-only residual: {label} ({path}; locked build not a product acceptance)"
 
 /-- Named Struct flatten-to-mapping leaves (H3 Aleo aggregate surface).
     Program id must not contain the substring "aleo" (Leo ENV03711001). -/

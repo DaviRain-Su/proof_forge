@@ -264,7 +264,7 @@ def run : IO Unit := do
         "testdata/golden/source-program-v1/full-tag-v1/canonical.bin")
     "boundary base identity"
   expect (manifest.baseCanonicalBytesSha256 == "sha256:" ++ baseSha &&
-      baseSha == "5d38eaca671e503ae50a517cc8ffaddba20b370d11da22f6bcdb807089aa64ce")
+      baseSha == "a7075ca364c099e18510c1f5a8961449e3859d6a45fec46820d327a7d095a0d8")
     "boundary base digest"
   expect (manifest.categories == expectedCategories && manifest.categoryCount == 13 &&
       manifest.mutationCount == 67 && manifest.mutations.size == 67 &&

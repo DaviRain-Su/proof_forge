@@ -54,22 +54,28 @@ private def readManifest : IO MutationManifest := do
 
 private def wireTags : Array String := #[
   "BinaryOp.Add", "BinaryOp.And", "BinaryOp.BitAnd", "BinaryOp.BitOr",
-  "BinaryOp.BitXor", "BinaryOp.Div", "BinaryOp.Eq", "BinaryOp.Ge", "BinaryOp.Gt",
-  "BinaryOp.Le", "BinaryOp.Lt", "BinaryOp.Mod", "BinaryOp.Mul", "BinaryOp.Ne",
-  "BinaryOp.Or", "BinaryOp.Shl", "BinaryOp.Shr", "BinaryOp.Sub", "Block",
-  "ConstDecl", "EntryDecl", "EnumDecl", "EnumVariant", "ErrorDecl", "EventDecl",
-  "Expr.Binary", "Expr.Constructor", "Expr.Literal", "Expr.LocalCall", "Expr.Match",
-  "Expr.Place", "Expr.Unary", "ExprMatchArm", "ExtensionReq", "ExternalCallExpr",
-  "FieldDecl", "FnDecl", "InitDecl", "InvariantDecl", "Literal.Bool",
+  "BinaryOp.BitXor", "BinaryOp.Div", "BinaryOp.Eq", "BinaryOp.Ge",
+  "BinaryOp.Gt", "BinaryOp.Le", "BinaryOp.Lt", "BinaryOp.Mod",
+  "BinaryOp.Mul", "BinaryOp.Ne", "BinaryOp.Or", "BinaryOp.Shl",
+  "BinaryOp.Shr", "BinaryOp.Sub", "Block", "ConstDecl",
+  "EntryDecl", "EnumDecl", "EnumVariant", "ErrorDecl",
+  "EventDecl", "Expr.Binary", "Expr.Constructor", "Expr.Literal",
+  "Expr.LocalCall", "Expr.Match", "Expr.Place", "Expr.Unary",
+  "ExprMatchArm", "ExtensionReq", "ExternalCallExpr", "FieldDecl",
+  "FnDecl", "InitDecl", "InvariantDecl", "Literal.Bool",
   "Literal.Integer", "Literal.String", "Param", "Pattern.Bind",
   "Pattern.Constructor", "Pattern.Literal", "Pattern.Wildcard", "Place.Field",
-  "Place.Index", "Place.Name", "Program", "ProofDecl", "StateDecl", "Stmt.Assert",
-  "Stmt.Assign", "Stmt.Call", "Stmt.Emit", "Stmt.For", "Stmt.If", "Stmt.Let",
-  "Stmt.Match", "Stmt.Return", "Stmt.Revert", "Stmt.Schedule", "StmtMatchArm",
-  "StructDecl", "Type.Array", "Type.Bool", "Type.Bytes", "Type.Field", "Type.Int",
-  "Type.Map", "Type.Named", "Type.Option", "Type.Principal", "Type.UInt", "Type.Unit",
-  "UnaryOp.BitNot", "UnaryOp.Neg", "UnaryOp.Not", "ViewDecl",
-  "Visibility.Commitment", "Visibility.Private", "Visibility.Public"
+  "Place.Index", "Place.Name", "Program", "ProofDecl",
+  "ProofKind.Holds", "StateDecl", "Stmt.Assert", "Stmt.Assign",
+  "Stmt.Call", "Stmt.Emit", "Stmt.For", "Stmt.If",
+  "Stmt.Let", "Stmt.Match", "Stmt.Return", "Stmt.Revert",
+  "Stmt.Schedule", "StmtMatchArm", "StructDecl", "Type.Array",
+  "Type.Bool", "Type.Bytes", "Type.Field", "Type.Int",
+  "Type.Map", "Type.Named", "Type.Option", "Type.Principal",
+  "Type.UInt", "Type.Unit", "UnaryOp.BitNot", "UnaryOp.Neg",
+  "UnaryOp.Not", "ViewDecl", "Visibility.Commitment", "Visibility.Private",
+  "Visibility.Public"
+
 ]
 
 private def fieldCountAt (bytes : ByteArray) (offset : Nat) : Nat :=
@@ -86,7 +92,7 @@ private def expectDecodeError (row : MutationRow) (bytes : ByteArray) : IO Unit 
         s!"{row.caseId}: expected '{row.expectedError}', got '{detail}'"
   | .ok _ => throw <| IO.userError s!"{row.caseId}: unexpectedly decoded"
 
-/-- D1-PA-126: all 84 constructor field-count negatives over the PA125 base. -/
+/-- D1-PA-126: all 85 constructor field-count negatives over the PA125 base. -/
 def run : IO Unit := do
   let canonical ← IO.FS.readBinFile basePath
   let manifest ← readManifest
@@ -101,11 +107,11 @@ def run : IO Unit := do
         "testdata/golden/source-program-v1/full-tag-v1/canonical.bin")
     "field-count base identity"
   expect (manifest.baseCanonicalBytesSha256 == "sha256:" ++ baseSha &&
-      baseSha == "5d38eaca671e503ae50a517cc8ffaddba20b370d11da22f6bcdb807089aa64ce")
+      baseSha == "a7075ca364c099e18510c1f5a8961449e3859d6a45fec46820d327a7d095a0d8")
     "field-count base digest"
-  expect (manifest.tagCount == 84 && manifest.nullaryTagCount == 28 &&
-      manifest.positiveFieldTagCount == 56 && manifest.mutationCount == 140 &&
-      manifest.mutations.size == 140 && wireTags.size == 84)
+  expect (manifest.tagCount == 85 && manifest.nullaryTagCount == 29 &&
+      manifest.positiveFieldTagCount == 56 && manifest.mutationCount == 141 &&
+      manifest.mutations.size == 141 && wireTags.size == 85)
     "field-count descriptor cardinalities"
 
   let mut seenKeys : Array String := #[]
@@ -156,7 +162,7 @@ def run : IO Unit := do
               rows.any (fun row => row.mutatedCount + 1 == first.expectedCount) &&
               rows.any (fun row => row.mutatedCount == first.expectedCount + 1))
             s!"positive field-count mutation matrix for {tag}"
-  expect (nullaryTags == 28 && positiveTags == 56)
+  expect (nullaryTags == 29 && positiveTags == 56)
     "observed field-count partition"
 
   let decoded ← liftResult "decode unchanged PA125 base"

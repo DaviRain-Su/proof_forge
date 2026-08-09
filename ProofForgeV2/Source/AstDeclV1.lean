@@ -42,9 +42,22 @@ structure ExtensionReqV1 where
   digest : String
   deriving DecidableEq, Repr
 
+structure ProofDeclKeyV1 where
+  invariant : SourceNameComponentV1
+  kind : ProofKindV1
+  deriving BEq, DecidableEq, Repr
+
 structure ProofDeclV1 where
   invariant : SourceNameComponentV1
+  kind : ProofKindV1
   theorem_ : SourceQualifiedNameV1
   deriving DecidableEq, Repr
+
+namespace ProofDeclV1
+
+def key (proof : ProofDeclV1) : ProofDeclKeyV1 :=
+  { invariant := proof.invariant, kind := proof.kind }
+
+end ProofDeclV1
 
 end ProofForgeV2.Source.AstDeclV1

@@ -3,7 +3,7 @@ id: SPEC-SEM-WIRE-001
 title: SemanticProgramV1 Canonical Model、Wire 与 Proof Subject
 status: proposed
 owner: semantics
-updated: 2026-08-04
+updated: 2026-08-07
 normative: true
 ---
 
@@ -964,13 +964,15 @@ def InvariantTheoremV1
 `computedInvariantSteps(root)` 执行；任一步失败或 ordinal 越界均 `.trapped`。它不能调用通用
 `step` 并注入伪 external response，也不能把 revert/trap 当 true。
 
-**Engineering certification scope（ADR-0027）**：inline same-file theorem 与 formal-oriented
-bundle export 当前都只服务上述 `InvariantTheoremV1` 命题——即在 **全部**
-`StateConformsV1 program state` 的 logical state 上 predicate 返回 true。该命题 **不是**
-reachability、init/`step` inductive safety、target refinement 或 formal
+**Engineering certification scope（ADR-0027 + ADR-0034）**：inline same-file gate 已按
+`ProofKindV1` 分支：holds 服务上述 `InvariantTheoremV1`；preserving 服务独立
+`PreservationTheoremV1`，其 Reference admission/base/step 定义由 `SPEC-SEM-001`/ADR-0034
+拥有。historical/formal-oriented `ProofBundleV1` schema 仍只绑定 `InvariantTheoremV1`，不是 inline
+fallback。holds **不是** reachability，preserving 也 **不是** target refinement 或 formal
 `TST-SEM-002`/`TST-SEM-003`/`TST-PROOF-001` 闭合声明。subject identity 仍由 checked-in /
-compiled `.pfsem` 的 closed `SemanticProgramV1` value 承担；theorem body 与 certification
-digest 不得改变 `semanticHash`。
+compiled `.pfsem` 的 closed `SemanticProgramV1` value 承担；proof kind/theorem body 与 certification
+digest 不得改变 `semanticHash`。**EvenCounter preserving product certified positive 已闭合**
+（2026-08-08）；第二非 AMM 实例仍 pending。
 
 ## 9. Checked-in canonical proof subject 与 definitional equality
 

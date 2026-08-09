@@ -83,7 +83,8 @@ private def param (name : SourceNameComponentV1) : ParamV1 :=
   { visibility := .public_, name := name, type_ := .uint 64 }
 
 /-- Minimal Counter-shaped program with Bool invariant + one proof reference. -/
-private def mkProofedCounterSource : IO ValidatedSourceV1 := do
+private def mkProofedCounterSource
+    (kind : ProofKindV1 := .holds) : IO ValidatedSourceV1 := do
   let mod ← q #["Tests", "ProofedCounter"]
   let id ← q #["Tests", "ProofedCounter", "ProofedCounter"]
   let pname ← n "ProofedCounter"
@@ -117,7 +118,7 @@ private def mkProofedCounterSource : IO ValidatedSourceV1 := do
       body := ret (var count)
     },
     .invariant { name := nonneg, predicate := .literal (.bool true) },
-    .proof { invariant := nonneg, theorem_ := thm }
+    .proof { invariant := nonneg, kind, theorem_ := thm }
   ]
   lift "validate" (validateSourceV1 mod id { name := pname, items })
 
@@ -187,6 +188,7 @@ private def testPositiveProductJoin : IO Unit := do
   let bindings := collectSourceProofBindingsV1 source.program
   expect (bindings.size == 1) "one proof binding"
   expect (bindings[0]!.invariantName == "nonneg") "invariant name"
+  expect (bindings[0]!.kind == .holds) "historical bundle source kind"
   expect (bindings[0]!.theoremComponents == #["Bundle", "Thm"]) "theorem QN"
 
   match requireProofBundlePairGateV1 bindings true with
@@ -207,6 +209,26 @@ private def testPositiveProductJoin : IO Unit := do
   | .error e =>
       throw <| IO.userError s!"join failed: {renderProofReferenceJoinErrorV1 e}"
   | .ok () => pure ()
+
+/-- Historical ProofBundleV1 exports bind `InvariantTheoremV1` only. A preserving
+    source row must retain its kind and fail the holds-only export join. -/
+private def testPreservingRejectedByHistoricalBundle : IO Unit := do
+  let source ← mkProofedCounterSource .preserving
+  let bindings := collectSourceProofBindingsV1 source.program
+  expect (bindings.size == 1 && bindings[0]!.kind == .preserving)
+    "preserving source binding retains kind"
+  let compiled ← match compileValidatedSourceV1 source with
+    | .ok c => pure c
+    | .error e => throw <| IO.userError s!"compile preserving: {e.render}"
+  let sourceHash := CompiledSemanticV1.sourceDigestOf compiled
+  let semanticHash := CompiledSemanticV1.semanticDigestOf compiled
+  let (_, _, opened) ← mkMatchingBundle
+    "modules/Bundle/Root.olean" "preserving-olean".toUTF8
+    sourceHash semanticHash "nonneg" #["Bundle", "Thm"]
+  match joinProofReferencesV1 bindings opened opened.bundleDigest sourceHash semanticHash with
+  | .ok () => throw <| IO.userError "preserving proof must not join a holds-only bundle"
+  | .error (.exportMismatch _) => pure ()
+  | .error e => throw <| IO.userError s!"preserving join: {renderProofReferenceJoinErrorV1 e}"
 
 /-- Missing bundle when source has proofs. -/
 private def testMissingBundleGate : IO Unit := do
@@ -311,6 +333,7 @@ private def testJoinEmptyBindings : IO Unit := do
 
 unsafe def run : IO Unit := do
   testPositiveProductJoin
+  testPreservingRejectedByHistoricalBundle
   testMissingBundleGate
   testUnusedBundleGate
   testDigestMismatch

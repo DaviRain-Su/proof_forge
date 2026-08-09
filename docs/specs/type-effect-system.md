@@ -3,7 +3,7 @@ id: SPEC-TYPE-001
 title: 类型、Effect 与信息披露规格
 status: proposed
 owner: semantics
-updated: 2026-07-16
+updated: 2026-08-07
 normative: true
 ---
 
@@ -33,10 +33,11 @@ Struct/enum 递归必须经 `Option` 且 Phase 1 禁止运行时递归值。
 - expression local call 只可命中同一 program 的 `fn`；参数 arity/type exact，表达式类型为 callee
   return type。entry/view/init 和 external call 不进入该 lookup；非 `Unit` fn 每条可达路径必须
   返回 exact type，直接/间接递归拒绝。
-- invariant 必须为 `Bool` 且只可读取 logical state、常量和 pure fn。`proof x using N` 先按 exact
-  invariant name 绑定，再按 SPEC-LANG-001 的 `InvariantTheoremV1` 对 canonical state schema、
-  typed pure-fn closure 和 typed predicate 做 definitional-equality 检查；proof reference 不参与
-  expression 类型推导或业务 IR normalization。
+- invariant 必须为 `Bool` 且只可读取 logical state、常量和 pure fn。proof binding 先按 exact
+  `(invariantName, kind)` 绑定同一 dense ordinal：bare `proof x using N` 检查
+  `InvariantTheoremV1`，显式 `proof x preserving using N` 检查 `PreservationTheoremV1`；两者都对
+  exact canonical program 做 definitional-equality，proof reference/kind 不参与 expression 类型推导
+  或业务 IR normalization。
 - Map iteration 不提供；Array loop 必须有静态 bound。
 - const expression 不读 state/context，不调用函数，必须在 elaboration 时求值。
 

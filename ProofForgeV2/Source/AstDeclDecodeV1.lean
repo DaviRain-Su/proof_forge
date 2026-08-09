@@ -187,17 +187,18 @@ def decodeExtensionReqV1 : (remainingDepth : Nat) → (budget : DecodeBudgetV1) 
       requireCanonicalExtensionDigest digest
       pure (({ id, version, digest }, budget), c)
 
-/-- Decode node-bearing `ProofDecl`: invariant Ident → theorem QID. -/
+/-- Decode node-bearing `ProofDecl`: invariant Ident → kind → theorem QID. -/
 def decodeProofDeclV1 : (remainingDepth : Nat) → (budget : DecodeBudgetV1) →
     DecoderV1 (ProofDeclV1 × DecodeBudgetV1)
   | 0, _budget => fun c => do
-      let ((), _c) ← decodeHead "ProofDecl" 2 "proof-decl" c
+      let ((), _c) ← decodeHead "ProofDecl" 3 "proof-decl" c
       fail "depth budget exhausted"
   | _remainingDepth + 1, budget => fun c => do
-      let ((), c) ← decodeHead "ProofDecl" 2 "proof-decl" c
+      let ((), c) ← decodeHead "ProofDecl" 3 "proof-decl" c
       let budget ← chargeNode budget
       let (invariant, c) ← decodeSourceNameComponentV1 c
+      let (kind, c) ← decodeProofKindV1 c
       let (theorem_, c) ← decodeSourceQualifiedIdV1 c
-      pure (({ invariant, theorem_ }, budget), c)
+      pure (({ invariant, kind, theorem_ }, budget), c)
 
 end ProofForgeV2.Source.AstDeclDecodeV1

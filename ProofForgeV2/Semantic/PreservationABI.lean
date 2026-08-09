@@ -11,10 +11,11 @@ import ProofForgeV2.Semantic.ReferenceV1
     * universal one-step preservation over invocation/context, responses, vault,
       and the full OutcomeV1 returned/reverted/trapped surface
 
-  This module does not change the current ADR-0027 holds inventory/certifier,
-  add ProofKindV1 syntax, or claim formal TASK-D2-07 / TST-SEM closure.
-  Program instances supply proofs of this generic proposition; they do not
-  supply a second State/Effect/step machine.
+  ProofKindV1 syntax/inventory/certifier integration is owned by the Source,
+  Language, and Compiler layers; this module remains the sole generic preserving
+  proposition and does not claim formal TASK-D2-07 / TST-SEM closure. Program
+  instances supply proofs of this proposition; they do not supply a second
+  State/Effect/step machine.
 -/
 
 namespace ProofForgeV2.Semantic.PreservationABI
@@ -177,6 +178,29 @@ theorem hasInitializerV1_implies_exists_invocation
       IsInitializerInvocationV1 program invocation := by
   rcases hinit with ⟨callableId, hcallable⟩
   exact ⟨{ callableId, args := #[], context := #[] }, hcallable⟩
+
+/-- A validated callable table whose exact initializer predicate is false has
+    no initializer witness. This refines the same lookup used by
+    `isInitializerCallableIdV1`; it does not introduce a second classifier. -/
+theorem not_hasInitializerV1_of_validate_and_any_eq_false
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hnone : data.callables.any (fun callable => callable.kind == .initializer) = false) :
+    ¬ HasInitializerV1 program := by
+  intro hinit
+  rcases hinit with ⟨callableId, hcallable⟩
+  unfold IsInitializerCallableIdV1 isInitializerCallableIdV1 at hcallable
+  rw [hvalidate] at hcallable
+  cases hlookup : data.callables[callableId.toNat]? with
+  | none => simp [hlookup] at hcallable
+  | some callable =>
+      have hkind : (callable.kind == .initializer) = true := by
+        simpa [hlookup] using hcallable
+      rcases (Array.getElem?_eq_some_iff).mp hlookup with ⟨hbound, heq⟩
+      have hall := Array.any_eq_false.mp hnone callableId.toNat hbound
+      apply hall
+      simpa only [heq] using hkind
 
 /-- Failure of the product initial-state constructor makes the positive
     no-initializer base false. -/

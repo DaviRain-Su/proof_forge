@@ -90,9 +90,10 @@ def run : IO Unit := do
   let dig11 := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
   let ext1 : ExtensionReqV1 := { id := extId, version := "1.0.0", digest := dig00 }
   let ext2 : ExtensionReqV1 := { id := extId, version := "2.0.0", digest := dig11 }
-  let pr : ProofDeclV1 := { invariant := invN, theorem_ := th }
-  let prA : ProofDeclV1 := { invariant := a, theorem_ := th }
-  -- 3 positives
+  let pr : ProofDeclV1 := { invariant := invN, kind := .holds, theorem_ := th }
+  let prPreserving : ProofDeclV1 := { pr with kind := .preserving }
+  let prA : ProofDeclV1 := { invariant := a, kind := .holds, theorem_ := th }
+  -- positives
   expectOk "pos_all_unique" (validateProgramDeclSetV1 (prog demo #[
     .state (st a), .struct (su s1 #[fd x]), .enum (enu u1 #[vr y]), .const (co c1),
     .event (ev e1), .error (er r1), .init (initD #[p x]), .entry (ent runN),
@@ -100,6 +101,8 @@ def run : IO Unit := do
     .extensionReq ext1, .proof pr]))
   expectOk "pos_proof_fwd" (validateProgramDeclSetV1 (prog demo #[
     .proof pr, .invariant (inv invN), .entry (ent runN)]))
+  expectOk "pos_proof_dual_kind" (validateProgramDeclSetV1 (prog demo #[
+    .invariant (inv invN), .proof pr, .proof prPreserving, .entry (ent runN)]))
   expectOk "pos_view_only" (validateProgramDeclSetV1 (prog demo #[.view (vw get)]))
   -- 23 per-slot negatives
   expectErr "n_multi_init" "program must declare at most one init"

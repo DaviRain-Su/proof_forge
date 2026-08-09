@@ -808,6 +808,63 @@ theorem decodeU8_one_payload_midV1 (left right : ByteArray) (nesting : Nat) :
   exact readByte_mid_payloadV1 left (ByteArray.empty.push 1) right 0 1
     (by simp [hone]) hget
 
+/-- Marker-0 decode at production mid-offset of `encodeU8 0` (= `empty.push 0`). -/
+theorem decodeU8_zero_payload_midV1 (left right : ByteArray) (nesting : Nat) :
+    decodeU8 ⟨left ++ encodeU8 0 ++ right, left.size, nesting⟩ =
+      .ok (0, ⟨left ++ encodeU8 0 ++ right, left.size + 1, nesting⟩) := by
+  have henc : encodeU8 0 = ByteArray.empty.push 0 := rfl
+  rw [henc]
+  have hsz : (ByteArray.empty.push 0).size = 1 := by
+    simp [ByteArray.size_push, ByteArray.size_empty]
+  have hget : (ByteArray.empty.push 0).data[0]? = some 0 := by
+    simp [ByteArray.data_push, ByteArray.data_empty]
+  apply decodeU8_eq_of_readV1
+  exact readByte_mid_payloadV1 left (ByteArray.empty.push 0) right 0 0
+    (by simp [hsz]) hget
+
+/-- Option.none at production mid-offset of `encodeU8 0`. -/
+theorem decodeOption_none_encode_midV1 (decode : Decoder α)
+    (left right : ByteArray) (nesting : Nat) :
+    decodeOption decode ⟨left ++ encodeU8 0 ++ right, left.size, nesting⟩ =
+      .ok (none, ⟨left ++ encodeU8 0 ++ right, left.size + 1, nesting⟩) :=
+  decodeOption_noneV1 decode _ _ (decodeU8_zero_payload_midV1 left right nesting)
+
+/-- Option.some of a successful element mid-decode after marker 1. -/
+theorem decodeOption_some_of_encode_midV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (decode : Decoder α) (v : α) (payload left right : ByteArray) (nesting : Nat)
+    (henc : encode v = .ok payload)
+    (hinv :
+      decode ⟨left ++ encodeU8 1 ++ payload ++ right, left.size + 1, nesting⟩ =
+        .ok (v, ⟨left ++ encodeU8 1 ++ payload ++ right,
+          left.size + 1 + payload.size, nesting⟩)) :
+    decodeOption decode
+        ⟨left ++ encodeU8 1 ++ payload ++ right, left.size, nesting⟩ =
+      .ok (some v,
+        ⟨left ++ encodeU8 1 ++ payload ++ right,
+          left.size + 1 + payload.size, nesting⟩) := by
+  have hencU8 : encodeU8 1 = ByteArray.empty.push 1 := rfl
+  have hin :
+      left ++ encodeU8 1 ++ payload ++ right =
+        left ++ ByteArray.empty.push 1 ++ payload ++ right := by
+    simp [hencU8]
+  -- Marker at left.size.
+  have hmarker :
+      decodeU8 ⟨left ++ encodeU8 1 ++ payload ++ right, left.size, nesting⟩ =
+        .ok (1, ⟨left ++ encodeU8 1 ++ payload ++ right, left.size + 1, nesting⟩) := by
+    have hassoc :
+        left ++ encodeU8 1 ++ payload ++ right =
+          left ++ encodeU8 1 ++ (payload ++ right) := by
+      simp [ByteArray.append_assoc]
+    rw [hassoc, hencU8]
+    simpa [ByteArray.append_assoc] using
+      decodeU8_one_payload_midV1 left (payload ++ right) nesting
+  exact decodeOption_someV1 decode
+    ⟨left ++ encodeU8 1 ++ payload ++ right, left.size, nesting⟩
+    ⟨left ++ encodeU8 1 ++ payload ++ right, left.size + 1, nesting⟩
+    ⟨left ++ encodeU8 1 ++ payload ++ right, left.size + 1 + payload.size, nesting⟩
+    v hmarker hinv
+
 /-- Option.some of an identifier-legal string at production mid-offset.
     Composes `decodeOption_someV1` from production marker + string payload. -/
 theorem decodeOptionString_some_identifier_midV1
@@ -986,5 +1043,471 @@ theorem readU16le_encode_midV1 (left right : ByteArray) (v : UInt16) :
       .ok (UInt8.ofNat (v.toNat % 256)) := by simpa using r0
   unfold readU16leAtV1
   simp only [r0', r1, Bind.bind, Pure.pure, Except.bind, Except.pure, u16le_roundtripV1]
+
+/-! ### Generic tagged-header mid-offset (product foundation for codec invert) -/
+
+/-- Production tagged header = `u32le(|tag|) ++ tag ++ u16le(fieldCount)`. -/
+def taggedHeaderBytesV1 (tag : String) (fieldCount : Nat) : ByteArray :=
+  ((encodeU32le (UInt32.ofNat tag.toUTF8.size)).append tag.toUTF8).append
+    (encodeU16le (UInt16.ofNat fieldCount))
+
+theorem taggedHeaderBytesV1_size (tag : String) (fieldCount : Nat) :
+    (taggedHeaderBytesV1 tag fieldCount).size = 4 + tag.toUTF8.size + 2 := by
+  unfold taggedHeaderBytesV1
+  change ((encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8) ++
+      encodeU16le (UInt16.ofNat fieldCount)).size = 4 + tag.toUTF8.size + 2
+  rw [ByteArray.size_append, ByteArray.size_append, encodeU32le_sizeV1,
+    encodeU16le_sizeV1]
+
+theorem ByteArray_bne_self_eq_falseV1 (a : ByteArray) : (a != a) = false := by
+  simp [bne, ByteArray_beq_reflV1]
+
+/-- Production length-prefixed ASCII tag read at mid-offset of
+    `u32le(|tag|) ++ tagBytes`. -/
+theorem readTagBytes_encode_midV1
+    (left right : ByteArray) (tagBytes : ByteArray)
+    (hnonempty : 1 ≤ tagBytes.size)
+    (hmax : tagBytes.size ≤ maxTagAsciiBytes)
+    (hfit : tagBytes.size ≤ UInt32.size - 1)
+    (hascii : isAsciiTagBytesV1 tagBytes = true) :
+    readTagBytesAtV1
+        (left ++ encodeU32le (UInt32.ofNat tagBytes.size) ++ tagBytes ++ right)
+        left.size =
+      .ok (tagBytes, left.size + 4 + tagBytes.size) := by
+  have hassoc :
+      left ++ encodeU32le (UInt32.ofNat tagBytes.size) ++ tagBytes ++ right =
+        left ++ encodeU32le (UInt32.ofNat tagBytes.size) ++ (tagBytes ++ right) := by
+    simp [ByteArray.append_assoc]
+  rw [hassoc]
+  have hread :=
+    readU32le_encode_midV1 left (tagBytes ++ right) (UInt32.ofNat tagBytes.size)
+  have hto : (UInt32.ofNat tagBytes.size).toNat = tagBytes.size :=
+    Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt hfit (by decide))
+  have htake :
+      takeBytesAtV1
+          (left ++ encodeU32le (UInt32.ofNat tagBytes.size) ++ (tagBytes ++ right))
+          (left.size + 4) tagBytes.size = .ok tagBytes := by
+    have hs4 : (encodeU32le (UInt32.ofNat tagBytes.size)).size = 4 :=
+      encodeU32le_sizeV1 _
+    have hA :
+        left ++ encodeU32le (UInt32.ofNat tagBytes.size) ++ (tagBytes ++ right) =
+          (left ++ encodeU32le (UInt32.ofNat tagBytes.size)) ++ tagBytes ++ right := by
+      simp [ByteArray.append_assoc]
+    have hoff :
+        (left ++ encodeU32le (UInt32.ofNat tagBytes.size)).size = left.size + 4 := by
+      rw [ByteArray.size_append, hs4]
+    rw [hA, ← hoff]
+    exact takeBytes_mid_payloadV1 _ tagBytes right
+  unfold readTagBytesAtV1
+  rw [hread]
+  dsimp only
+  have h1 : decide (1 ≤ tagBytes.size) = true := by simp [hnonempty]
+  have h2 : decide (tagBytes.size ≤ maxTagAsciiBytes) = true := by simp [hmax]
+  simp only [hto, h1, h2, Bool.and_self, Bool.not_true]
+  rw [if_neg (by decide : ¬(false = true))]
+  rw [htake]
+  simp only [hascii, ↓reduceIte]
+
+/-- Production expectTaggedHeader at mid-offset of
+    `taggedHeaderBytesV1 tag fieldCount ++ fieldsPayload`. -/
+theorem expectTaggedHeader_encode_midV1
+    (left right : ByteArray) (tag : String) (fieldCount : Nat)
+    (fieldsPayload : ByteArray)
+    (hnonempty : 1 ≤ tag.toUTF8.size)
+    (hmax : tag.toUTF8.size ≤ maxTagAsciiBytes)
+    (hfit : tag.toUTF8.size ≤ UInt32.size - 1)
+    (hasciiBytes : isAsciiTagBytesV1 tag.toUTF8 = true)
+    (hcountFit : fieldCount ≤ UInt16.size - 1) :
+    expectTaggedHeaderBytesAtV1
+        (left ++ taggedHeaderBytesV1 tag fieldCount ++ fieldsPayload ++ right)
+        left.size tag.toUTF8 fieldCount =
+      .ok (left.size + (taggedHeaderBytesV1 tag fieldCount).size) := by
+  have henc :
+      taggedHeaderBytesV1 tag fieldCount =
+        encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8 ++
+          encodeU16le (UInt16.ofNat fieldCount) := by
+    simp [taggedHeaderBytesV1, ByteArray.append_assoc]
+  have hin :
+      left ++ taggedHeaderBytesV1 tag fieldCount ++ fieldsPayload ++ right =
+        left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8 ++
+          (encodeU16le (UInt16.ofNat fieldCount) ++ fieldsPayload ++ right) := by
+    simp [henc, ByteArray.append_assoc]
+  rw [hin]
+  have htag :=
+    readTagBytes_encode_midV1 left
+      (encodeU16le (UInt16.ofNat fieldCount) ++ fieldsPayload ++ right)
+      tag.toUTF8 hnonempty hmax hfit hasciiBytes
+  unfold expectTaggedHeaderBytesAtV1
+  rw [htag]
+  dsimp only
+  rw [ByteArray_bne_self_eq_falseV1]
+  rw [if_neg (by decide : ¬(false = true))]
+  have hassoc2 :
+      left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8 ++
+          (encodeU16le (UInt16.ofNat fieldCount) ++ fieldsPayload ++ right) =
+        (left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8) ++
+          encodeU16le (UInt16.ofNat fieldCount) ++ (fieldsPayload ++ right) := by
+    simp [ByteArray.append_assoc]
+  have hszL :
+      (left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8).size =
+        left.size + 4 + tag.toUTF8.size := by
+    rw [ByteArray.size_append, ByteArray.size_append, encodeU32le_sizeV1]
+  have hcount :
+      readU16leAtV1
+          (left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8 ++
+            (encodeU16le (UInt16.ofNat fieldCount) ++ fieldsPayload ++ right))
+          (left.size + 4 + tag.toUTF8.size) =
+        .ok (UInt16.ofNat fieldCount,
+          left.size + 4 + tag.toUTF8.size + 2) := by
+    rw [hassoc2, ← hszL]
+    simpa [hszL] using
+      readU16le_encode_midV1
+        (left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8)
+        (fieldsPayload ++ right) (UInt16.ofNat fieldCount)
+  rw [hcount]
+  dsimp only
+  have htoC : (UInt16.ofNat fieldCount).toNat = fieldCount :=
+    Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt hcountFit (by decide))
+  have heq : ((UInt16.ofNat fieldCount).toNat == fieldCount) = true := by
+    simp [htoC]
+  rw [heq, if_pos rfl]
+  have : left.size + 4 + tag.toUTF8.size + 2 =
+      left.size + (taggedHeaderBytesV1 tag fieldCount).size := by
+    rw [taggedHeaderBytesV1_size]; omega
+  exact congrArg Except.ok this
+
+/-- Production `expectTag` at mid-offset of a successful tagged header. -/
+theorem expectTag_encode_midV1
+    (left right : ByteArray) (tag : String) (fieldCount : Nat)
+    (fieldsPayload : ByteArray) (nesting : Nat)
+    (hnonempty : 1 ≤ tag.toUTF8.size)
+    (hmax : tag.toUTF8.size ≤ maxTagAsciiBytes)
+    (hfit : tag.toUTF8.size ≤ UInt32.size - 1)
+    (hasciiBytes : isAsciiTagBytesV1 tag.toUTF8 = true)
+    (hcountFit : fieldCount ≤ UInt16.size - 1) :
+    expectTag tag fieldCount
+        ⟨left ++ taggedHeaderBytesV1 tag fieldCount ++ fieldsPayload ++ right,
+          left.size, nesting⟩ =
+      .ok ((),
+        ⟨left ++ taggedHeaderBytesV1 tag fieldCount ++ fieldsPayload ++ right,
+          left.size + (taggedHeaderBytesV1 tag fieldCount).size, nesting⟩) := by
+  apply expectTag_eq_of_headerV1
+  exact expectTaggedHeader_encode_midV1 left right tag fieldCount fieldsPayload
+    hnonempty hmax hfit hasciiBytes hcountFit
+
+/-- Production `decodeTag` at mid-offset of `u32le(|tag|) ++ tag`. -/
+theorem decodeTag_encode_midV1
+    (left right : ByteArray) (tag : String) (nesting : Nat)
+    (hnonempty : 1 ≤ tag.toUTF8.size)
+    (hmax : tag.toUTF8.size ≤ maxTagAsciiBytes)
+    (hfit : tag.toUTF8.size ≤ UInt32.size - 1)
+    (hasciiBytes : isAsciiTagBytesV1 tag.toUTF8 = true)
+    (hasciiTag : isAsciiTagV1 tag = true) :
+    decodeTag
+        ⟨left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8 ++ right,
+          left.size, nesting⟩ =
+      .ok (tag,
+        ⟨left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8 ++ right,
+          left.size + 4 + tag.toUTF8.size, nesting⟩) := by
+  apply decodeTag_eq_of_valueV1
+  · exact readTagBytes_encode_midV1 left right tag.toUTF8 hnonempty hmax hfit hasciiBytes
+  · exact fromUTF8?_toUTF8V1 tag
+  · exact hasciiTag
+
+/-- `taggedBytesV1` expands to header ++ foldl-append of fields. -/
+theorem taggedBytesV1_eq_header_payload (tag : String) (fields : Array ByteArray) :
+    taggedBytesV1 tag fields =
+      taggedHeaderBytesV1 tag fields.size ++
+        fields.foldl (fun out f => out.append f) ByteArray.empty := by
+  simp only [taggedBytesV1, taggedBytesFromBytesV1, taggedHeaderBytesV1,
+    appendTaggedFieldsV1]
+  have hfold (init : ByteArray) (xs : List ByteArray) :
+      xs.foldl (fun out f => out.append f) init =
+        init ++ xs.foldl (fun out f => out.append f) ByteArray.empty := by
+    induction xs generalizing init with
+    | nil =>
+        simp only [List.foldl_nil, ByteArray.append_empty]
+    | cons x xs ih =>
+        -- foldl_cons reduces both sides to recursive form.
+        simp only [List.foldl_cons]
+        -- LHS: foldl (init.append x) xs
+        -- RHS: init ++ foldl (empty.append x) xs
+        rw [ih (init.append x), ih (ByteArray.empty.append x)]
+        -- Normalize method append to ++
+        change (init ++ x) ++ List.foldl (fun out f => out.append f) ByteArray.empty xs =
+          init ++ ((ByteArray.empty ++ x) ++
+            List.foldl (fun out f => out.append f) ByteArray.empty xs)
+        rw [ByteArray.empty_append, ByteArray.append_assoc]
+  have hlist (init : ByteArray) :
+      fields.foldl (fun out field => out.append field) init =
+        fields.toList.foldl (fun out field => out.append field) init := by
+    simp [Array.foldl_toList]
+  let header :=
+    ((encodeU32le (UInt32.ofNat tag.toUTF8.size)).append tag.toUTF8).append
+      (encodeU16le (UInt16.ofNat fields.size))
+  change fields.foldl (fun out field => out.append field) header =
+    header ++ fields.foldl (fun out field => out.append field) ByteArray.empty
+  rw [hlist header, hlist ByteArray.empty, hfold header fields.toList]
+
+/-! ### ASCII tag byte certificates (product authority) -/
+
+/-- Byte-list ASCII certificate for production `isAsciiTagBytesV1`. -/
+theorem isAsciiTagBytes_of_list_all (bs : List UInt8)
+    (h : (bs.all fun b => decide (b.toNat ≤ 127)) = true) :
+    isAsciiTagBytesV1 (ByteArray.mk bs.toArray) = true := by
+  simp only [isAsciiTagBytesV1]
+  apply (Array.all_eq_true).mpr
+  intro i hi
+  have hi' : i < bs.length := by simpa using hi
+  have hmem : bs[i] ∈ bs := List.getElem_mem hi'
+  exact List.all_eq_true.1 h bs[i] hmem
+
+/-- Mid-offset decode of `encodeU16le v`. -/
+theorem decodeU16le_encode_midV1 (left right : ByteArray) (v : UInt16)
+    (nesting : Nat) :
+    decodeU16le ⟨left ++ encodeU16le v ++ right, left.size, nesting⟩ =
+      .ok (v, ⟨left ++ encodeU16le v ++ right, left.size + 2, nesting⟩) := by
+  apply decodeU16le_eq_of_readV1
+  exact readU16le_encode_midV1 left right v
+
+/-- Successful `encodeByteArray` yields exact length-prefixed payload.
+    Relies on the public success refinement already in CodecV1. -/
+theorem encodeByteArray_ok_eq_payloadV1 (value b : ByteArray)
+    (h : encodeByteArray value = .ok b) :
+    value.size ≤ maxCanonicalProgramBytes ∧
+      value.size ≤ UInt32.size - 1 ∧
+      b = encodeU32le (UInt32.ofNat value.size) ++ value := by
+  have hsize : value.size ≤ maxCanonicalProgramBytes := by
+    by_cases hs : value.size ≤ maxCanonicalProgramBytes
+    · exact hs
+    · -- When oversized, `encodeByteArray` fails before any payload is emitted.
+      have hfail : encodeByteArray value = .error .limitExceeded := by
+        unfold encodeByteArray
+        simp only [hs, ↓reduceIte, err, Bind.bind, Except.bind]
+      simp only [hfail] at h; cases h
+  have hu32 : value.size ≤ UInt32.size - 1 :=
+    Nat.le_trans hsize (by decide : maxCanonicalProgramBytes ≤ UInt32.size - 1)
+  have hok := encodeByteArray_eq_okV1 value hsize hu32
+  exact And.intro hsize <| And.intro hu32 (Except.ok.inj (h.symm.trans hok))
+
+/-- Production mid-offset `decodeByteArray` of a successful `encodeByteArray`. -/
+theorem decodeByteArray_of_encode_midV1
+    (left right payload b : ByteArray) (nesting : Nat)
+    (henc : encodeByteArray payload = .ok b) :
+    decodeByteArray maxCanonicalProgramBytes
+        ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (payload,
+        ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
+  obtain ⟨hmax, hu32, hb⟩ := encodeByteArray_ok_eq_payloadV1 payload b henc
+  subst b
+  -- Normalize `left ++ (hdr ++ payload) ++ right` to left-associated form used by readers.
+  have hshape :
+      left ++ (encodeU32le (UInt32.ofNat payload.size) ++ payload) ++ right =
+        left ++ encodeU32le (UInt32.ofNat payload.size) ++ payload ++ right := by
+    simp [ByteArray.append_assoc]
+  rw [hshape]
+  have hassoc :
+      left ++ encodeU32le (UInt32.ofNat payload.size) ++ payload ++ right =
+        left ++ encodeU32le (UInt32.ofNat payload.size) ++ (payload ++ right) := by
+    simp [ByteArray.append_assoc]
+  have hread :
+      readSizedBytesAtV1
+          (left ++ encodeU32le (UInt32.ofNat payload.size) ++ payload ++ right)
+          left.size maxCanonicalProgramBytes =
+        .ok (payload, left.size + 4 + payload.size) := by
+    rw [hassoc]
+    have hulen :=
+      readU32le_encode_midV1 left (payload ++ right) (UInt32.ofNat payload.size)
+    unfold readSizedBytesAtV1
+    simp only [hulen]
+    have hto : (UInt32.ofNat payload.size).toNat = payload.size :=
+      Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt hu32 (by decide))
+    simp only [hto]
+    have hlim : ¬(payload.size > maxCanonicalProgramBytes) := Nat.not_lt.mpr hmax
+    simp only [hlim, ↓reduceIte]
+    have hs4 : (encodeU32le (UInt32.ofNat payload.size)).size = 4 :=
+      encodeU32le_sizeV1 _
+    have hA :
+        left ++ encodeU32le (UInt32.ofNat payload.size) ++ (payload ++ right) =
+          (left ++ encodeU32le (UInt32.ofNat payload.size)) ++ payload ++ right := by
+      simp [ByteArray.append_assoc]
+    have hoff :
+        (left ++ encodeU32le (UInt32.ofNat payload.size)).size = left.size + 4 := by
+      rw [ByteArray.size_append, hs4]
+    have htake :
+        takeBytesAtV1
+            (left ++ encodeU32le (UInt32.ofNat payload.size) ++ (payload ++ right))
+            (left.size + 4) payload.size = .ok payload := by
+      rw [hA, ← hoff]
+      exact takeBytes_mid_payloadV1 _ payload right
+    simp only [htake]
+  have hsz :
+      left.size + 4 + payload.size =
+        left.size + (encodeU32le (UInt32.ofNat payload.size) ++ payload).size := by
+    simp [ByteArray.size_append, encodeU32le_sizeV1]; omega
+  have hdec :
+      decodeByteArray maxCanonicalProgramBytes
+          ⟨left ++ encodeU32le (UInt32.ofNat payload.size) ++ payload ++ right,
+            left.size, nesting⟩ =
+        .ok (payload,
+          ⟨left ++ encodeU32le (UInt32.ofNat payload.size) ++ payload ++ right,
+            left.size + 4 + payload.size, nesting⟩) := by
+    simp only [decodeByteArray, hread, Bind.bind, Pure.pure, Except.bind, Except.pure]
+  rw [hdec]
+  -- Align final offset: left.size + 4 + payload.size = left.size + b.size
+  simp only [hsz]
+
+/-- Successful zero-element array encode is exactly `encodeU32le 0`. -/
+theorem encodeArray_ok_zero_eqV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray) (b : ByteArray)
+    (h : encodeArray encode (#[] : Array α) = .ok b) :
+    b = encodeU32le 0 := by
+  have h0 := encodeArray_zeroV1 encode
+  exact Except.ok.inj (h.symm.trans h0)
+
+/-- Successful one-element array encode is count-1 header ++ element bytes. -/
+theorem encodeArray_ok_one_eqV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 : α) (b b0 : ByteArray)
+    (h0 : encode v0 = .ok b0)
+    (h : encodeArray encode #[v0] = .ok b) :
+    b = encodeU32le 1 ++ b0 := by
+  have h1 := encodeArray_oneV1 encode v0 b0 h0
+  exact Except.ok.inj (h.symm.trans h1)
+
+/-- Mid-offset empty-array invert from successful encode. -/
+theorem decodeArray_of_encodeArray_zero_ok_midV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (decode : Decoder α) (maxCount : Nat)
+    (b left right : ByteArray) (nesting : Nat)
+    (henc : encodeArray encode (#[] : Array α) = .ok b) :
+    decodeArray maxCount decode
+        ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (#[], ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
+  have hb := encodeArray_ok_zero_eqV1 encode b henc
+  subst b
+  have h := decodeArray_encode_zero_midV1 maxCount decode left right nesting
+  simpa [encodeU32le_sizeV1] using h
+
+/-- Mid-offset one-element array invert from successful encode + element mid-decode. -/
+theorem decodeArray_of_encodeArray_one_ok_midV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (decode : Decoder α) (maxCount : Nat)
+    (v0 : α) (b b0 left right : ByteArray) (nesting : Nat)
+    (hmax : 1 ≤ maxCount)
+    (h0 : encode v0 = .ok b0)
+    (henc : encodeArray encode #[v0] = .ok b)
+    (hinv :
+      decode ⟨left ++ encodeU32le 1 ++ b0 ++ right, left.size + 4, nesting⟩ =
+        .ok (v0, ⟨left ++ encodeU32le 1 ++ b0 ++ right,
+          left.size + 4 + b0.size, nesting⟩)) :
+    decodeArray maxCount decode
+        ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (#[v0], ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
+  have hb := encodeArray_ok_one_eqV1 encode v0 b b0 h0 henc
+  subst b
+  have hcount :
+      readArrayCountAtV1 (left ++ encodeU32le 1 ++ b0 ++ right) left.size maxCount =
+        .ok (1, left.size + 4) := by
+    have hassoc :
+        left ++ encodeU32le 1 ++ b0 ++ right =
+          left ++ encodeU32le 1 ++ (b0 ++ right) := by
+      simp [ByteArray.append_assoc]
+    rw [hassoc]
+    exact readArrayCount_encode_midV1 left (b0 ++ right) 1 maxCount (by decide) hmax
+  have hdec :=
+    decodeArray_oneV1 maxCount decode
+      ⟨left ++ encodeU32le 1 ++ b0 ++ right, left.size, nesting⟩
+      (left.size + 4) v0
+      ⟨left ++ encodeU32le 1 ++ b0 ++ right, left.size + 4 + b0.size, nesting⟩
+      hcount hinv
+  have hsz :
+      left.size + 4 + b0.size =
+        left.size + (encodeU32le 1 ++ b0).size := by
+    simp [ByteArray.size_append, encodeU32le_sizeV1]; omega
+  have hflat :
+      left ++ (encodeU32le 1 ++ b0) ++ right =
+        left ++ encodeU32le 1 ++ b0 ++ right := by
+    simp [ByteArray.append_assoc]
+  -- Align buffer association and final offset.
+  have hgoal :
+      decodeArray maxCount decode
+          ⟨left ++ encodeU32le 1 ++ b0 ++ right, left.size, nesting⟩ =
+        .ok (#[v0],
+          ⟨left ++ encodeU32le 1 ++ b0 ++ right,
+            left.size + (encodeU32le 1 ++ b0).size, nesting⟩) := by
+    rw [hdec, hsz]
+  simpa [hflat.symm] using hgoal
+
+/-- Successful two-element array encode is count-2 header ++ b0 ++ b1. -/
+theorem encodeArray_ok_two_eqV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 : α) (b b0 b1 : ByteArray)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .ok b1)
+    (h : encodeArray encode #[v0, v1] = .ok b) :
+    b = encodeU32le 2 ++ b0 ++ b1 := by
+  have h2 := encodeArray_twoV1 encode v0 v1 b0 b1 h0 h1
+  have hb := Except.ok.inj (h.symm.trans h2)
+  -- encodeArray_twoV1 yields encodeU32le 2 ++ (b0.append b1)
+  have happ : (encodeU32le 2).append (b0.append b1) = encodeU32le 2 ++ b0 ++ b1 := by
+    simp [ByteArray.append_assoc]
+  exact hb.trans happ
+
+/-- Mid-offset two-element array invert from successful encode + element mid-decodes. -/
+theorem decodeArray_of_encodeArray_two_ok_midV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (decode : Decoder α) (maxCount : Nat)
+    (v0 v1 : α) (b b0 b1 left right : ByteArray) (nesting : Nat)
+    (hmax : 2 ≤ maxCount)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .ok b1)
+    (henc : encodeArray encode #[v0, v1] = .ok b)
+    (hinv0 :
+      decode ⟨left ++ encodeU32le 2 ++ b0 ++ b1 ++ right, left.size + 4, nesting⟩ =
+        .ok (v0, ⟨left ++ encodeU32le 2 ++ b0 ++ b1 ++ right,
+          left.size + 4 + b0.size, nesting⟩))
+    (hinv1 :
+      decode ⟨left ++ encodeU32le 2 ++ b0 ++ b1 ++ right,
+          left.size + 4 + b0.size, nesting⟩ =
+        .ok (v1, ⟨left ++ encodeU32le 2 ++ b0 ++ b1 ++ right,
+          left.size + 4 + b0.size + b1.size, nesting⟩)) :
+    decodeArray maxCount decode
+        ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (#[v0, v1], ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
+  have hb := encodeArray_ok_two_eqV1 encode v0 v1 b b0 b1 h0 h1 henc
+  subst b
+  have hcount :
+      readArrayCountAtV1 (left ++ encodeU32le 2 ++ b0 ++ b1 ++ right) left.size maxCount =
+        .ok (2, left.size + 4) := by
+    have hassoc :
+        left ++ encodeU32le 2 ++ b0 ++ b1 ++ right =
+          left ++ encodeU32le 2 ++ (b0 ++ b1 ++ right) := by
+      simp [ByteArray.append_assoc]
+    rw [hassoc]
+    exact readArrayCount_encode_midV1 left (b0 ++ b1 ++ right) 2 maxCount
+      (by decide) hmax
+  have hdec :=
+    decodeArray_twoV1 maxCount decode
+      ⟨left ++ encodeU32le 2 ++ b0 ++ b1 ++ right, left.size, nesting⟩
+      (left.size + 4) v0 v1
+      ⟨left ++ encodeU32le 2 ++ b0 ++ b1 ++ right, left.size + 4 + b0.size, nesting⟩
+      ⟨left ++ encodeU32le 2 ++ b0 ++ b1 ++ right,
+        left.size + 4 + b0.size + b1.size, nesting⟩
+      hcount hinv0 hinv1
+  have hsz :
+      left.size + 4 + b0.size + b1.size =
+        left.size + (encodeU32le 2 ++ b0 ++ b1).size := by
+    simp [ByteArray.size_append, encodeU32le_sizeV1]; omega
+  have hflat :
+      left ++ (encodeU32le 2 ++ b0 ++ b1) ++ right =
+        left ++ encodeU32le 2 ++ b0 ++ b1 ++ right := by
+    simp [ByteArray.append_assoc]
+  have hgoal :
+      decodeArray maxCount decode
+          ⟨left ++ encodeU32le 2 ++ b0 ++ b1 ++ right, left.size, nesting⟩ =
+        .ok (#[v0, v1],
+          ⟨left ++ encodeU32le 2 ++ b0 ++ b1 ++ right,
+            left.size + (encodeU32le 2 ++ b0 ++ b1).size, nesting⟩) := by
+    rw [hdec, hsz]
+  simpa [hflat.symm] using hgoal
 
 end ProofForgeV2.Semantic.WireV1

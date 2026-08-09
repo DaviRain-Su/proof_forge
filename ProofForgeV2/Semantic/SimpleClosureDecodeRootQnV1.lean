@@ -89,29 +89,16 @@ theorem tag_utf8_ascii :
     isAsciiTagBytesV1 semanticProgramDataTagV1.toUTF8 = true := by
   rw [tag_utf8_eq_bytes]; exact tag_bytes_ascii
 
-/-! ### encodeTagged nine-field body layout -/
+/-! ### encodeTagged nine-field body layout
 
-def taggedHeaderBytesV1 (tag : String) (fieldCount : Nat) : ByteArray :=
-  ((encodeU32le (UInt32.ofNat tag.toUTF8.size)).append tag.toUTF8).append
-    (encodeU16le (UInt16.ofNat fieldCount))
+    `taggedHeaderBytesV1` is the product Wire authority
+    (`Wire.CodecRoundtripV1`); this module no longer redefines it.
+-/
 
 theorem header_size :
     (taggedHeaderBytesV1 semanticProgramDataTagV1 9).size =
       semanticProgramDataHeaderSizeV1 := by
-  unfold taggedHeaderBytesV1 semanticProgramDataHeaderSizeV1
-  have h1 : (encodeU32le (UInt32.ofNat semanticProgramDataTagV1.toUTF8.size)).size = 4 :=
-    encodeU32le_sizeV1 _
-  have h2 : (encodeU16le (UInt16.ofNat 9)).size = 2 := encodeU16le_sizeV1 _
-  have h3 : semanticProgramDataTagV1.toUTF8.size = 20 := tag_utf8_size
-  calc
-    (((encodeU32le (UInt32.ofNat semanticProgramDataTagV1.toUTF8.size)).append
-        semanticProgramDataTagV1.toUTF8).append (encodeU16le (UInt16.ofNat 9))).size
-        = (encodeU32le (UInt32.ofNat semanticProgramDataTagV1.toUTF8.size)).size +
-            semanticProgramDataTagV1.toUTF8.size +
-            (encodeU16le (UInt16.ofNat 9)).size := by
-          simp [ByteArray.size_append]
-    _ = 4 + 20 + 2 := by rw [h1, h2, h3]
-    _ = 26 := rfl
+  simp only [taggedHeaderBytesV1_size, tag_utf8_size, semanticProgramDataHeaderSizeV1]
 
 theorem encodeTagged_data_nine
     (f0 f1 f2 f3 f4 f5 f6 f7 f8 : ByteArray) :
