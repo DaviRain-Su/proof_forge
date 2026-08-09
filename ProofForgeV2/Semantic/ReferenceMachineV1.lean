@@ -772,6 +772,29 @@ theorem admitReferenceProgramSliceV1_ok_implies
       cases hadmit
       constructor <;> rfl
 
+/-- Successful admission alone recovers both the exact program projection and
+    the production validation equality for the admitted data projection. This
+    is the proof-facing inversion used when callers retain only the positive
+    admission equality rather than a separate decoded-data witness. -/
+theorem admitReferenceProgramSliceV1_ok_implies_validate
+    (program : SemanticProgramV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (hadmit : admitReferenceProgramSliceV1 program = .ok admitted) :
+    admitted.program = program ∧
+      validateSemanticProgramV1 program = .ok admitted.data := by
+  cases hvalidate : validateSemanticProgramV1 program with
+  | error error =>
+      unfold admitReferenceProgramSliceV1 at hadmit
+      rw [hvalidate] at hadmit
+      simp only [Bind.bind, Pure.pure, Except.bind, Except.pure] at hadmit
+      exact False.elim (nomatch hadmit)
+  | ok data =>
+      have hidentity :=
+        admitReferenceProgramSliceV1_ok_implies
+          program data admitted hvalidate hadmit
+      refine ⟨hidentity.1, ?_⟩
+      rw [hidentity.2]
+
 /-! ### Internal value helpers -/
 
 /-- Little-endian unsigned decode. List recursion is definitionally transparent
