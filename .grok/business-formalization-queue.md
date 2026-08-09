@@ -37,6 +37,9 @@ All bf3-* done; EvenCounter + ZeroCounter still GREEN; MiniAmmL1 P1 product pres
 
 1. Prefer product path + Reference; reuse PreservationPackagingV1.
 2. Do not put nonempty inv on deployable `Examples/MiniAmm.lean` unless product decision says so — L1 proof surface is MiniAmmL1.
-3. Local commit only; update this table.
-4. Goal: `/goal @.grok/goals/prompt-business-formalization.md`  
+3. One slice per fire; **never** restart a `done`/`in_progress` slice from scratch. Read the residual note and continue it.
+4. If a slice keeps cycling (>2 commits on same id), mark it `blocked` with the exact failing theorem and move on; do not loop 4× on one id.
+5. Local commit only; update this table.
+6. Goal: `/goal @.grok/goals/prompt-business-formalization.md`  
    Workflow: `/workflow business-formalization-drain`
+7. Inline same-file (ADR-0027/0034): business theorem must live in same source as `program`; ProofInstances is lemma library only.
