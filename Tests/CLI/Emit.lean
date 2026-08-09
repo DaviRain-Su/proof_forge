@@ -3,7 +3,7 @@ import ProofForgeV2.CLI.ProductVersionV1
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import Tests.Language.ParserSession
 
@@ -43,8 +43,8 @@ unsafe def run : IO Unit := do
     "artifact names must not escape the staging root"
   expect (!ProofForgeV2.CLI.validProgramArtifactNameV1 "")
     "empty artifact names are unsafe"
-  expect (ProofForgeV2.CLI.validProgramArtifactNameV1 "Counter")
-    "legal Counter artifact name must pass path safety"
+  expect (ProofForgeV2.CLI.validProgramArtifactNameV1 "StateCell")
+    "legal StateCell artifact name must pass path safety"
 
   -- Host-heavy JSON must never echo signer material or its filesystem path.
   let syntheticKey := "synthetic-private-key-value"
@@ -120,18 +120,18 @@ unsafe def run : IO Unit := do
 
   let session ← Tests.Language.ParserSession.shared
   let source ← match ← session.selectProgramV1
-      Examples.counterSourceText "<cli-emit-counter>" Examples.counterModuleNameV1 none with
+      Examples.stateCellSourceText "<cli-emit-stateCell>" Examples.stateCellModuleNameV1 none with
     | .ok s => pure s
     | .error e => throw <| IO.userError e.render
   let compiled ← match Compiler.compileValidatedSourceV1 source with
     | .ok c => pure c
     | .error e => throw <| IO.userError e.render
   -- Real product carrier: the semantic-derived artifact name is the identity
-  -- emitProgram gates. Counter must be accepted so later PF-OUTPUT-COLLISION is
+  -- emitProgram gates. StateCell must be accepted so later PF-OUTPUT-COLLISION is
   -- not masked by a path-safety failure.
   let artifactName := CompiledSemanticV1.artifactProgramNameOf compiled
-  expect (artifactName == "Counter")
-    "Counter semantic suffix must be the product artifact identity"
+  expect (artifactName == "StateCell")
+    "StateCell semantic suffix must be the product artifact identity"
   expect (ProofForgeV2.CLI.validProgramArtifactNameV1 artifactName)
     "emitProgram artifact name must pass the same path-safety predicate"
 

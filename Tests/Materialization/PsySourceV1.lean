@@ -119,14 +119,14 @@ private def buildPsyVm (compiled : CompiledSemanticV1) :
   let capability ← resolvePsyVmCapability compiled
   Targets.Psy.buildFromCapability capability (emitPsyDebug := true)
 
-/-- Counter: contract struct + storage field + initialize/increment/get methods
+/-- StateCell: contract struct + storage field + initialize/increment/get methods
     and checked-arithmetic guard lines for `+`. -/
-unsafe def testCounterPsySource : IO Unit := do
+unsafe def testStateCellPsySource : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program Counter where\n" ++
+    "program StateCell where\n" ++
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -136,28 +136,28 @@ unsafe def testCounterPsySource : IO Unit := do
     "  view get() : UInt64 do\n" ++
     "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<psy-counter>" "Tests.PsyCounter" none)
+    source "<psy-state-cell>" "Tests.PsyStateCell" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   let plan ← liftResult <| planPsy compiled
   expect (plan.stateFieldNames == #["count"])
-    "Counter Psy plan must carry the count state field"
+    "StateCell Psy plan must carry the count state field"
   expect (plan.functions.map (·.name) == #["initialize", "increment", "get"])
-    "Counter Psy plan must carry initialize + increment + get in source order"
+    "StateCell Psy plan must carry initialize + increment + get in source order"
   liftResult <| Targets.Psy.validatePlan plan
   let files ← liftResult <| buildPsy compiled
-  let some psyFile := files.find? (fun f => f.path == "Counter.psy") |
-    throw <| IO.userError "psy: missing Counter.psy"
+  let some psyFile := files.find? (fun f => f.path == "StateCell.psy") |
+    throw <| IO.userError "psy: missing StateCell.psy"
   let psy := psyFile.contents
   expect (psy.contains "#[contract]")
     "Psy source must declare a contract"
   expect (psy.contains "#[derive(Storage)]")
     "Psy source must derive Storage"
-  expect (psy.contains "pub struct Counter ")
-    "Psy source must declare the Counter contract struct"
+  expect (psy.contains "pub struct StateCell ")
+    "Psy source must declare the StateCell contract struct"
   expect (psy.contains "pub count: Felt,")
     "Psy source must declare the count storage field as Felt"
-  expect (psy.contains "impl CounterRef ")
-    "Psy source must declare the CounterRef impl block"
+  expect (psy.contains "impl StateCellRef ")
+    "Psy source must declare the StateCellRef impl block"
   expect (psy.contains "pub fn initialize(p0: Felt)")
     "initialize must materialize as a contract method"
   expect (psy.contains "pub fn increment(p0: Felt) -> Felt")
@@ -176,7 +176,7 @@ unsafe def testCounterPsySource : IO Unit := do
     "checked add must emit the overflow assert message"
   expect (psy.contains ">=" || psy.contains "≥")
     "checked add must use a field-wrap (>= lhs) guard"
-  expect (psy.contains "CounterRef::new(ContractMetadata::current())")
+  expect (psy.contains "StateCellRef::new(ContractMetadata::current())")
     "each method must construct the contract ref"
 
 /-- Checked sub/mul/div guards + bare assert. -/
@@ -536,7 +536,7 @@ unsafe def testUInt32ArithWidthGuard : IO Unit := do
     "UInt32 params must be range-checked at entry"
 
 /-- T8 multi-width: UInt8 state/param/body with width guards + bitNot mask. -/
-unsafe def testUInt8CounterMultiWidth : IO Unit := do
+unsafe def testUInt8StateCellMultiWidth : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
@@ -3033,7 +3033,7 @@ unsafe def testNarrowIntVmLowered : IO Unit := do
     "Int32 negation intMin guard must be emitted"
 
 unsafe def run : IO Unit := do
-  testCounterPsySource
+  testStateCellPsySource
   testCheckedArithGuards
   testBitwiseAndShifts
   testEmitAndPureFn
@@ -3043,7 +3043,7 @@ unsafe def run : IO Unit := do
   testFailClosedInt64BitNot
   testUInt32BitNotLowered
   testUInt32ArithWidthGuard
-  testUInt8CounterMultiWidth
+  testUInt8StateCellMultiWidth
   testUInt128FailClosed
   testUInt128VmProfileLowered
   testUInt128VmDivModLowered

@@ -55,7 +55,7 @@ usage: aleo_local_sandbox.sh --source PATH --module NAME [options]
 
 Required:
   --source PATH          ProgramV1 .lean source (project-relative under --root)
-  --module NAME          Lean module (e.g. Examples.Counter or Hello)
+  --module NAME          Lean module (e.g. Examples.StateCell or Hello)
 
 Options:
   --root DIR             Product build --root (external project root; default: package)

@@ -3,7 +3,7 @@
 **Authority:** ADR-0027（inline same-file base）· ADR-0034 D10 · INV-2 · Agents Next task
 **Mode:** autonomous runner — do **not** wait for the user to say continue
 **Sole step:** `SemanticProgramV1 → admitReferenceProgramSliceV1 → stepReferenceSliceV1`
-**Product decision (2026-08-09, user-confirmed):** 形式化验证与业务合约同文件；**ProofInstances 合约专属 lemma 库与 ClosedSubjectPin 是待拆除的捷径**。产品包最终零合约专属内容。
+**Product decision (2026-08-09, user-confirmed):** 形式化验证与业务合约同文件；`ProofInstances/` 与 `ClosedSubjectPinV1` 已删除，重复 `ZeroCounter*` family 已删除；产品包最终零合约专属内容。
 **Forbidden:** second State/Effect/step · contract-specific content in `ProofForgeV2/` product modules · supersede ADR-0027 · formal TASK/TST claims · push unless user later asks · delete anything before its removal gate below
 
 ## Migration plan (wave-3′) — generic-first
@@ -23,16 +23,16 @@
 
 | id | status | objective |
 |---|---|---|
-| mig-b1-evencounter | done | parity 业务 step 迁入 `PreservationShapeV1`（`incrementAddTwoCallableV1` / `uint64ParityInvariantCallableV1` + ready-step / preservationReturned wrappers）；`ParityCounterShape` 证明 constructor 形状等式；`ParityCounterPreservation` 经 shape wrappers 打包 full theorem（pin residual 至 mig-c1）；Tests 钉 EvenCounter 形状；product `InlineProofCertifierV1` 仍 GREEN |
-| mig-b2-zerocounter | **redo** | 同上（`Semantic/ZeroCounter*` 同样处理） |
-| mig-b3-miniamm | pending | MiniAmm L1 P1（emptyPool）：在迁移后的通用路径上完成 preserve + product；不再新增 ProofInstances golden |
+| mig-b1-counter | done | `Examples/Counter.lean` 同文件 program/invariant/proof/theorem；只消费 structured subject + generic Preservation/Reference/codec API；product certified |
+| mig-b2-zerocounter | cancelled | 重复 Counter 实例不再保留；`Semantic/ZeroCounter*`、重复 Example 与专属测试已删除。通用 eq-zero micro-path 可保留为无合约名 API |
+| mig-b3-miniamm | done | `Examples/MiniAmmL1.lean` empty-pool P1 同文件普通合约；generic triple-UInt64 shape；product certified；无平台特例 |
 
 ### C. 删除（仅当 A+B 全 GREEN）
 
 | id | status | objective |
 |---|---|---|
-| mig-c1-delete | pending | 删除 `ProofForgeV2/ProofInstances/`、`ProofForgeV2/Semantic/ClosedSubjectPinV1`、**以及 drain-6 引入的 `Semantic/ParityCounter*` / `Semantic/ZeroCounter*` 合约专属模块**；摘除 `InlineProofCertifierV1`/`ProgramElaborationV1` 对合约模块的 import；umbrella/lakefile/SBOM 清理；实例移入 `Tests/`/`Examples/` 普通验收位置；`just ci` GREEN |
-| mig-c2-docs | pending | ADR-0034/0027、INV-2、Agents、research-023、document-status 记录迁移完成与「pin/库已删」事实；不 supersede 0027 |
+| mig-c1-delete | done | 已删除 `ProofInstances/`、`ClosedSubjectPinV1`、ParityCounter/ZeroCounter 专属模块、重复 Example/test 与产品 pin 分支；umbrella/SBOM 已清理 |
+| mig-c2-docs | done | ADR-0034、INV-2、Agents、research-023、document-status 已记录 generic-first cutover；ADR-0027 未 supersede |
 
 ## Legacy waves (done)
 
@@ -42,12 +42,12 @@
 
 ## Done criteria
 
-C 完成后：`ProofForgeV2/` 内无合约专属 proof/data/pin；三个合约以 inline same-file 普通形态保持 product certified；`just ci` GREEN；ADR-0027 未 supersede。
+C 完成后：`ProofForgeV2/` 产品核心内无合约专属 proof/data/pin；至少一个 `Examples/` 文件完整展示 program + invariant + ordinary same-file theorem；其余业务合约按需在自身文件证明；`just ci` GREEN；ADR-0027 未 supersede。
 
 ## Runner notes
 
 1. 顺序严格 A→B→C；A 未完成不得动 B，C 前置 = B 全 GREEN + 用户已知。
-2. 每个切片 local commit only；focused `lake build` + 触 `ProofForgeV2/**` 则 `just sbom-package-files-refresh`；docs 则 `just docs-check`。
+2. 每个切片运行 focused `lake build`；触 `ProofForgeV2/**` 则 `just sbom-package-files-refresh`，docs 则 `just docs-check`。本工作区不 commit、不 push，除非用户另行要求。
 3. 通用定理属 `ProofForgeV2/Semantic/`；合约专属内容**禁止**新增到产品包。
 4. 若切片卡住 >2 次提交：标 `blocked` 写明失败定理，继续下一独立项。
-5. Goal: `/goal @.grok/goals/prompt-business-formalization.md`；Workflow: `business-formalization-drain`。
+5. Goal: `/goal @.grok/goals/prompt-business-formalization.md`。

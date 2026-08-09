@@ -7,7 +7,7 @@ import ProofForgeV2.Targets.Solana.PlanSchemaV1
 import ProofForgeV2.Targets.Solana.EmitSbpfAsmV1
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import Tests.Language.ParserSession
 
@@ -1191,14 +1191,14 @@ private def testIrAndIdlMutationNegatives : IO Unit := do
     { idlCand with instructions := #[instrAlias] })
     "IDL instruction account alias drift"
 
-/-- Sole-rail Counter product Plan/files (ADR-0032 U1). -/
-private unsafe def testSoleRailCounterProductEmit : IO Unit := do
+/-- Sole-rail StateCell product Plan/files (ADR-0032 U1). -/
+private unsafe def testSoleRailStateCellProductEmit : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← expectPlanOk (← session.selectProgramV1
-    Examples.counterSourceText "<cpi-sole-counter>"
-    Examples.counterModuleNameV1 none) "sole load Counter"
+    Examples.stateCellSourceText "<cpi-sole-stateCell>"
+    Examples.stateCellModuleNameV1 none) "sole load StateCell"
   let compiled ← expectPlanOk (Compiler.compileValidatedSourceV1 source)
-    "sole compile Counter"
+    "sole compile StateCell"
   let selection ← expectPlanOk
     (resolveBuildSelectionV1 TargetId.solana none)
     "sole select default cpi-elf"
@@ -1212,14 +1212,14 @@ private unsafe def testSoleRailCounterProductEmit : IO Unit := do
   match plan with
   | .cpi p =>
       expect ((SolanaCpiProductPlanV1.candidateOf p).cpiSites.isEmpty)
-        "sole Counter has zero cpiSites"
+        "sole StateCell has zero cpiSites"
   | .legacy _ => throw <| IO.userError "sole rail must not return legacy Plan"
   let files ← expectPlanOk
     (Targets.Solana.buildFromCapability capability)
     "sole buildFromCapability"
-  expect (files.any (·.path == "Counter.s")) "sole emit Counter.s"
-  expect (files.any (·.path == "Counter.cpi-plan.json")) "sole emit cpi-plan"
-  expect (files.any (·.path == "Counter.cpi-ir.json")) "sole emit cpi-ir"
+  expect (files.any (·.path == "StateCell.s")) "sole emit StateCell.s"
+  expect (files.any (·.path == "StateCell.cpi-plan.json")) "sole emit cpi-plan"
+  expect (files.any (·.path == "StateCell.cpi-ir.json")) "sole emit cpi-ir"
   -- Retired plan profile is not selectable.
   match resolveBuildSelectionV1 TargetId.solana
       (some CodegenProfileId.solanaSbpfPlanV1) with
@@ -1237,7 +1237,7 @@ unsafe def run : IO Unit := do
   testHandlerLocalRoleSubsets
   testPlanToIrAndIdlProjection
   testIrAndIdlMutationNegatives
-  testSoleRailCounterProductEmit
+  testSoleRailStateCellProductEmit
   IO.println "Tests.Materialization.SolanaCpiPlanV1: ok"
 
 end Tests.Materialization.SolanaCpiPlanV1

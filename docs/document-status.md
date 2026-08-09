@@ -36,15 +36,16 @@ zero-tool finalize 的 source-only `.qnt` executable-model target；CosmWasm
 leaves 的产品范围 reconciliation 仍待 **`DOC-ADR-SCOPE`**，不得静默扩 accepted scope。
 日常缺口队列见 [`engineering-backlog.md`](engineering-backlog.md)。**ADR-0027**
 （`proposed`）仍冻结 inline same-file gate 的 single-snapshot/audit/axiom/proof-first 基线；
-**ADR-0034**（`proposed`）的 generic Preservation ABI 与 `ProofKindV1`/三字段 wire/
-`(inv,kind)` inventory/双 alias/kind-bound protocol+certifier plumbing 已 engineering 接线，
-**EvenCounter 首个 preserving product `check` certified positive 已于 2026-08-08 闭合**，
-**ZeroCounter 第二非 AMM 实例（P=`count==0`）preserving product positive 已于 2026-08-09 闭合**
-（业务逻辑形式化 track 1；sole step = product Reference；ClosedSubjectPin 仅为 closed golden
-加速；wave-2 通用性门 drained），且不 supersede 0027。产品 CLI sole proof path 仍是 inventory +
-`certifyInlineProofV1`（`--proof-bundle*` 删除）。holds simple-closure positive 与
-EvenCounter/ZeroCounter preserving positive 均已闭合；ADR-0027 supersession / MiniAmm P1 /
-formal 仍 pending。全部仍非 formal/hermetic/release，且不声称 target refinement 或任意合约自动可证。
+**ADR-0034**（`proposed`）的 Preservation ABI、`ProofKindV1`/三字段 wire、
+`(inv,kind)` inventory、双 alias 与 kind-bound certifier 已接线。2026-08-09
+wave-3′ generic-first 迁移已完成：generic codec round-trip、shape-family preservation、
+structured `subjectDataV1`，以及 `Examples/Counter.lean` /
+`Examples/MiniAmmL1.lean` ordinary same-file product positives。
+`ProofForgeV2/ProofInstances/`、`ClosedSubjectPinV1`、ParityCounter/ZeroCounter
+专属模块和重复 examples/tests 已物理删除；产品包零合约专属 proof/data/pin。
+产品 CLI sole proof path 仍是 inventory + `certifyInlineProofV1`
+（`--proof-bundle*` 删除）。ADR-0027 未 supersede；formal TASK/TST、target refinement、
+hermetic/release 仍 pending，不声称任意合约自动可证。
 下表中的 task/evidence 文档继续保存历史 release-qualification 权威，但不再作为
 development completion 的前置条件。
 

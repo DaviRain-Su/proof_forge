@@ -143,13 +143,13 @@ private def expectNotOk (res : TypedCheckResultV1) (label : String) : IO Unit :=
   else
     pure ()
 
-/-- Counter-shaped happy path: public UInt64 state, init, entry increment, view get. -/
-private unsafe def testCounterHappyPath
+/-- StateCell-shaped happy path: public UInt64 state, init, entry increment, view get. -/
+private unsafe def testStateCellHappyPath
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n\n" ++
-    "program CounterCheck where\n" ++
+    "program StateCellCheck where\n" ++
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -158,12 +158,12 @@ private unsafe def testCounterHappyPath
     "    return count\n" ++
     "  view get() : UInt64 do\n" ++
     "    return count\n"
-  let res ← checkResult session "counter-ok" source
-  expectOk res "counter-ok"
+  let res ← checkResult session "stateCell-ok" source
+  expectOk res "stateCell-ok"
   -- Diagnostics-only entry matches result diagnostics.
-  let diags ← checkDiags session "counter-ok-diags" source
+  let diags ← checkDiags session "stateCell-ok-diags" source
   unless diags.isEmpty do
-    throw <| IO.userError s!"counter-ok-diags: expected empty, got {messages diags}"
+    throw <| IO.userError s!"stateCell-ok-diags: expected empty, got {messages diags}"
 
 /-- Type error only: return Bool from UInt64 entry. -/
 private unsafe def testTypeErrorOnly
@@ -971,92 +971,92 @@ private unsafe def expectUnsupportedAfterCheckOk
   | .error e =>
       throw <| IO.userError s!"{label}: expected .unsupported, got {repr e}"
 
-/-- Pin Counter lowered instruction sequences (ValueId/StateId exact). -/
-private def expectCounterOps
+/-- Pin StateCell lowered instruction sequences (ValueId/StateId exact). -/
+private def expectStateCellOps
     (initC entryC viewC : CallableV1) (u64Tid : TypeIdV1) : IO Unit := do
   let some initBlk := initC.blocks[0]? |
-    throw <| IO.userError "counter-ops: missing init block[0]"
+    throw <| IO.userError "stateCell-ops: missing init block[0]"
   -- init: stateStore(state0, param0) + return none
   expect (initBlk.instructions.size == 1)
-    s!"counter-ops: init instr count, got {initBlk.instructions.size}"
+    s!"stateCell-ops: init instr count, got {initBlk.instructions.size}"
   let some i0 := initBlk.instructions[0]? |
-    throw <| IO.userError "counter-ops: missing init instr[0]"
-  expect (i0.result.isNone) "counter-ops: init stateStore is void"
+    throw <| IO.userError "stateCell-ops: missing init instr[0]"
+  expect (i0.result.isNone) "stateCell-ops: init stateStore is void"
   match i0.op with
   | .stateStore sid vid =>
-      expect (sid == 0 && vid == 0) s!"counter-ops: init store state0 param0, got {sid}/{vid}"
-  | _ => throw <| IO.userError "counter-ops: init expected stateStore"
+      expect (sid == 0 && vid == 0) s!"stateCell-ops: init store state0 param0, got {sid}/{vid}"
+  | _ => throw <| IO.userError "stateCell-ops: init expected stateStore"
   match initBlk.terminator with
   | .return_ none => pure ()
-  | _ => throw <| IO.userError "counter-ops: init return none"
+  | _ => throw <| IO.userError "stateCell-ops: init return none"
 
   let some entryBlk := entryC.blocks[0]? |
-    throw <| IO.userError "counter-ops: missing entry block[0]"
+    throw <| IO.userError "stateCell-ops: missing entry block[0]"
   -- entry: load count → vid1; add(load,param0) → vid2; store; load → vid3; return some vid3
   expect (entryBlk.instructions.size == 4)
-    s!"counter-ops: entry instr count, got {entryBlk.instructions.size}"
+    s!"stateCell-ops: entry instr count, got {entryBlk.instructions.size}"
   let some e0 := entryBlk.instructions[0]? |
-    throw <| IO.userError "counter-ops: missing entry instr[0]"
+    throw <| IO.userError "stateCell-ops: missing entry instr[0]"
   let some e1 := entryBlk.instructions[1]? |
-    throw <| IO.userError "counter-ops: missing entry instr[1]"
+    throw <| IO.userError "stateCell-ops: missing entry instr[1]"
   let some e2 := entryBlk.instructions[2]? |
-    throw <| IO.userError "counter-ops: missing entry instr[2]"
+    throw <| IO.userError "stateCell-ops: missing entry instr[2]"
   let some e3 := entryBlk.instructions[3]? |
-    throw <| IO.userError "counter-ops: missing entry instr[3]"
+    throw <| IO.userError "stateCell-ops: missing entry instr[3]"
   let some rd0 := e0.result |
-    throw <| IO.userError "counter-ops: entry[0] missing result"
+    throw <| IO.userError "stateCell-ops: entry[0] missing result"
   match e0.op with
   | .stateLoad sid =>
       expect (rd0.valueId == 1 && rd0.typeId == u64Tid && sid == 0)
-        s!"counter-ops: entry load vid1/state0, got {rd0.valueId}/{sid}"
-  | _ => throw <| IO.userError "counter-ops: entry[0] stateLoad"
+        s!"stateCell-ops: entry load vid1/state0, got {rd0.valueId}/{sid}"
+  | _ => throw <| IO.userError "stateCell-ops: entry[0] stateLoad"
   let some rd1 := e1.result |
-    throw <| IO.userError "counter-ops: entry[1] missing result"
+    throw <| IO.userError "stateCell-ops: entry[1] missing result"
   match e1.op with
   | .binary op lhs rhs =>
       expect (op == ProofForgeV2.Semantic.WireV1.BinaryOpV1.add
           && rd1.valueId == 2 && rd1.typeId == u64Tid && lhs == 1 && rhs == 0)
-        s!"counter-ops: entry add vid2=load+param, got {rd1.valueId}/{lhs}/{rhs}"
-  | _ => throw <| IO.userError "counter-ops: entry[1] binary add"
-  expect e2.result.isNone "counter-ops: entry[2] void store"
+        s!"stateCell-ops: entry add vid2=load+param, got {rd1.valueId}/{lhs}/{rhs}"
+  | _ => throw <| IO.userError "stateCell-ops: entry[1] binary add"
+  expect e2.result.isNone "stateCell-ops: entry[2] void store"
   match e2.op with
   | .stateStore sid vid =>
       expect (sid == 0 && vid == 2)
-        s!"counter-ops: entry store state0 vid2, got {sid}/{vid}"
-  | _ => throw <| IO.userError "counter-ops: entry[2] stateStore"
+        s!"stateCell-ops: entry store state0 vid2, got {sid}/{vid}"
+  | _ => throw <| IO.userError "stateCell-ops: entry[2] stateStore"
   let some rd3 := e3.result |
-    throw <| IO.userError "counter-ops: entry[3] missing result"
+    throw <| IO.userError "stateCell-ops: entry[3] missing result"
   match e3.op with
   | .stateLoad sid =>
       expect (rd3.valueId == 3 && rd3.typeId == u64Tid && sid == 0)
-        s!"counter-ops: entry return-load vid3, got {rd3.valueId}/{sid}"
-  | _ => throw <| IO.userError "counter-ops: entry[3] stateLoad"
+        s!"stateCell-ops: entry return-load vid3, got {rd3.valueId}/{sid}"
+  | _ => throw <| IO.userError "stateCell-ops: entry[3] stateLoad"
   match entryBlk.terminator with
   | .return_ (some vid) =>
-      expect (vid == 3) s!"counter-ops: entry return some 3, got {vid}"
-  | _ => throw <| IO.userError "counter-ops: entry return some"
+      expect (vid == 3) s!"stateCell-ops: entry return some 3, got {vid}"
+  | _ => throw <| IO.userError "stateCell-ops: entry return some"
 
   let some viewBlk := viewC.blocks[0]? |
-    throw <| IO.userError "counter-ops: missing view block[0]"
+    throw <| IO.userError "stateCell-ops: missing view block[0]"
   expect (viewBlk.instructions.size == 1)
-    s!"counter-ops: view instr count, got {viewBlk.instructions.size}"
+    s!"stateCell-ops: view instr count, got {viewBlk.instructions.size}"
   let some v0 := viewBlk.instructions[0]? |
-    throw <| IO.userError "counter-ops: missing view instr[0]"
+    throw <| IO.userError "stateCell-ops: missing view instr[0]"
   let some vrd := v0.result |
-    throw <| IO.userError "counter-ops: view[0] missing result"
+    throw <| IO.userError "stateCell-ops: view[0] missing result"
   match v0.op with
   | .stateLoad sid =>
       expect (vrd.valueId == 0 && vrd.typeId == u64Tid && sid == 0)
-        s!"counter-ops: view load vid0/state0, got {vrd.valueId}/{sid}"
-  | _ => throw <| IO.userError "counter-ops: view[0] stateLoad"
+        s!"stateCell-ops: view load vid0/state0, got {vrd.valueId}/{sid}"
+  | _ => throw <| IO.userError "stateCell-ops: view[0] stateLoad"
   match viewBlk.terminator with
   | .return_ (some vid) =>
-      expect (vid == 0) s!"counter-ops: view return some 0, got {vid}"
-  | _ => throw <| IO.userError "counter-ops: view return some"
+      expect (vid == 0) s!"stateCell-ops: view return some 0, got {vid}"
+  | _ => throw <| IO.userError "stateCell-ops: view return some"
 
-private unsafe def testCounterHappyPath
+private unsafe def testStateCellHappyPath
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrap "CounterNorm" <|
+  let source := wrap "StateCellNorm" <|
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -1065,85 +1065,85 @@ private unsafe def testCounterHappyPath
     "    return count\n" ++
     "  view get() : UInt64 do\n" ++
     "    return count\n"
-  let validated ← loadSource session "counter" source
+  let validated ← loadSource session "stateCell" source
   let typed := checkProgramTypedResultV1 validated
-  expect typed.ok "counter: CheckV1.ok"
-  expect typed.analysisComplete "counter: CheckV1.analysisComplete"
+  expect typed.ok "stateCell: CheckV1.ok"
+  expect typed.analysisComplete "stateCell: CheckV1.analysisComplete"
   let carrier ← match normalizeProgramV1 validated with
     | .ok c => pure c
-    | .error e => throw <| IO.userError s!"counter: normalize failed: {repr e}"
+    | .error e => throw <| IO.userError s!"stateCell: normalize failed: {repr e}"
   let data ← match validateSemanticProgramV1 carrier with
     | .ok d => pure d
-    | .error e => throw <| IO.userError s!"counter: validate failed: {repr e}"
+    | .error e => throw <| IO.userError s!"stateCell: validate failed: {repr e}"
   expect (data.qualifiedName.components.toArray.size ≥ 2)
-    "counter: qualifiedName has ≥2 components"
-  expect (data.types.size == 2) s!"counter: expected 2 types, got {data.types.size}"
+    "stateCell: qualifiedName has ≥2 components"
+  expect (data.types.size == 2) s!"stateCell: expected 2 types, got {data.types.size}"
   expect (data.types.any fun t =>
       t.name.isNone && match t.shape with | .uint 64 => true | _ => false)
-    "counter: has anonymous UInt64"
+    "stateCell: has anonymous UInt64"
   expect (data.types.any fun t =>
       t.name.isNone && match t.shape with | .unit => true | _ => false)
-    "counter: has anonymous Unit"
+    "stateCell: has anonymous Unit"
   let u64Tid : TypeIdV1 :=
     match data.types.findIdx? fun t =>
         t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
     | some i => UInt32.ofNat i
     | none => 0
-  expect (data.logicalState.size == 1) s!"counter: state size, got {data.logicalState.size}"
+  expect (data.logicalState.size == 1) s!"stateCell: state size, got {data.logicalState.size}"
   let some st0 := data.logicalState[0]? |
-    throw <| IO.userError "counter: missing state[0]"
-  expect (st0.name == "count") "counter: state name count"
-  expect (st0.visibility == .public_) "counter: state public"
-  expect (st0.id == 0 && st0.typeId == u64Tid) "counter: state0 UInt64"
-  expect (data.callables.size == 3) s!"counter: 3 callables, got {data.callables.size}"
+    throw <| IO.userError "stateCell: missing state[0]"
+  expect (st0.name == "count") "stateCell: state name count"
+  expect (st0.visibility == .public_) "stateCell: state public"
+  expect (st0.id == 0 && st0.typeId == u64Tid) "stateCell: state0 UInt64"
+  expect (data.callables.size == 3) s!"stateCell: 3 callables, got {data.callables.size}"
   let some initC := data.callables[0]? |
-    throw <| IO.userError "counter: missing callables[0]"
+    throw <| IO.userError "stateCell: missing callables[0]"
   let some entryC := data.callables[1]? |
-    throw <| IO.userError "counter: missing callables[1]"
+    throw <| IO.userError "stateCell: missing callables[1]"
   let some viewC := data.callables[2]? |
-    throw <| IO.userError "counter: missing callables[2]"
-  expect (initC.kind == .initializer && initC.name.isNone) "counter: init kind/name"
+    throw <| IO.userError "stateCell: missing callables[2]"
+  expect (initC.kind == .initializer && initC.name.isNone) "stateCell: init kind/name"
   let some initBlk := initC.blocks[0]? |
-    throw <| IO.userError "counter: missing init block[0]"
+    throw <| IO.userError "stateCell: missing init block[0]"
   expect (initC.entryBlock == 0 && initC.blocks.size == 1 && initBlk.id == 0)
-    "counter: init single block 0"
+    "stateCell: init single block 0"
   expect (initC.loopBounds.isEmpty && initC.invariantSteps.isNone)
-    "counter: init empty loopBounds/invariantSteps"
+    "stateCell: init empty loopBounds/invariantSteps"
   expect (entryC.kind == .entry && entryC.name == some "increment")
-    "counter: entry increment"
-  expect (viewC.kind == .view && viewC.name == some "get") "counter: view get"
+    "stateCell: entry increment"
+  expect (viewC.kind == .view && viewC.name == some "get") "stateCell: view get"
   expect (data.constants.isEmpty && data.events.isEmpty && data.errors.isEmpty
       && data.invariants.isEmpty)
-    "counter: empty constants/events/errors/invariants"
+    "stateCell: empty constants/events/errors/invariants"
   -- S2 exact requirements freeze (SPEC wire order, not first-seen).
   expect (data.requirements.items.size == 3)
-    s!"counter: expected 3 requirements, got {data.requirements.items.size}"
+    s!"stateCell: expected 3 requirements, got {data.requirements.items.size}"
   let expectReq (i : Nat) (id : String) : IO Unit := do
     let some item := data.requirements.items[i]? |
-      throw <| IO.userError s!"counter: missing requirement[{i}]"
-    expect (item.id == id) s!"counter: req[{i}] id, got {item.id}"
+      throw <| IO.userError s!"stateCell: missing requirement[{i}]"
+    expect (item.id == id) s!"stateCell: req[{i}] id, got {item.id}"
     expect (item.version.major == 1 && item.version.minor == 0 &&
         item.version.patch == 0 && item.version.prerelease.isEmpty &&
         item.version.build.isEmpty)
-      s!"counter: req[{i}] version 1.0.0"
-    expect item.predicates.isEmpty s!"counter: req[{i}] empty predicates"
+      s!"stateCell: req[{i}] version 1.0.0"
+    expect item.predicates.isEmpty s!"stateCell: req[{i}] empty predicates"
     let dig ← match ProofForgeV2.Semantic.RequirementsV1.engineeringRequirementDigestV1 id with
       | .ok d => pure d
-      | .error e => throw <| IO.userError s!"counter: digest {id}: {e}"
-    expect (item.digest == dig) s!"counter: req[{i}] engineering digest"
+      | .error e => throw <| IO.userError s!"stateCell: digest {id}: {e}"
+    expect (item.digest == dig) s!"stateCell: req[{i}] engineering digest"
   expectReq 0 "failure.atomic-rollback"
   expectReq 1 "state.persistent"
   expectReq 2 "value.checked-arithmetic"
-  expectCounterOps initC entryC viewC u64Tid
+  expectStateCellOps initC entryC viewC u64Tid
   let decoded ← match decodeSemanticProgramV1 carrier.canonicalBytes with
     | .ok c => pure c
-    | .error e => throw <| IO.userError s!"counter: decode carrier failed: {repr e}"
+    | .error e => throw <| IO.userError s!"stateCell: decode carrier failed: {repr e}"
   expect (bytesEqual decoded.canonicalBytes carrier.canonicalBytes)
-    "counter: decodeSemanticProgramV1 byte identity"
+    "stateCell: decodeSemanticProgramV1 byte identity"
   let hash ← match semanticHashV1 carrier with
     | .ok h => pure h
-    | .error e => throw <| IO.userError s!"counter: semanticHash failed: {repr e}"
-  expect (hash.bytes.size == 32) "counter: semanticHash is 32 bytes"
+    | .error e => throw <| IO.userError s!"stateCell: semanticHash failed: {repr e}"
+  expect (hash.bytes.size == 32) "stateCell: semanticHash is 32 bytes"
 
 private unsafe def testStateAfterInit
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -1182,11 +1182,11 @@ private unsafe def testStateAfterInit
         t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
     | some i => UInt32.ofNat i
     | none => 0
-  expectCounterOps initC entryC viewC u64Tid
+  expectStateCellOps initC entryC viewC u64Tid
 
 private unsafe def testDeterminism
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrap "CounterDet" <|
+  let source := wrap "StateCellDet" <|
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -3716,10 +3716,10 @@ private def sortOriginsByWire
     loop 0 == .lt
   pure (sorted.map (·.2))
 
-/-- S2: Counter requirements + exact attribution + complete join / negatives. -/
-private unsafe def testCounterRequirementsAndProvenance
+/-- S2: StateCell requirements + exact attribution + complete join / negatives. -/
+private unsafe def testStateCellRequirementsAndProvenance
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let sourceText := wrap "CounterProv" <|
+  let sourceText := wrap "StateCellProv" <|
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -4001,7 +4001,7 @@ private unsafe def testCounterRequirementsAndProvenance
       | .error (.inventory _) => true | _ => false)
       "prov: Semantic projection missing span path rejected"
   -- Structure-valid same-qualifiedName carrier substitution fails authority.
-  let altText := wrap "CounterProv" <|
+  let altText := wrap "StateCellProv" <|
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -4012,7 +4012,7 @@ private unsafe def testCounterRequirementsAndProvenance
     "  view get() : UInt64 do\n" ++
     "    return count\n"
   let altValidated ← loadSource session "prov-alt-carrier" altText
-  -- Same program identity name CounterProv under same module → same qualifiedName
+  -- Same program identity name StateCellProv under same module → same qualifiedName
   -- once normalized, but different body ⇒ different carrier bytes.
   let altCarrier ← match normalizeProgramV1 altValidated with
     | .ok c => pure c
@@ -4091,26 +4091,30 @@ private unsafe def testCounterRequirementsAndProvenance
   let mutPath ← match parseProjectRelativePath "tests/normalize-prov-coord-mut.pf" with
     | .ok p => pure p
     | .error e => throw <| IO.userError s!"prov: mut path: {e}"
-  let newEnd : UInt64 :=
-    if oHead.endByte > oHead.startByte then oHead.endByte - 1 else oHead.endByte + 1
-  let oMut : SourceOrigin := {
-    sourcePath := mutPath
-    startByte := oHead.startByte
-    endByte := newEnd
-    nodeId := oHead.nodeId
-  }
-  match validateSourceOrigin oMut with
-  | .ok () => pure ()
-  | .error e => throw <| IO.userError s!"prov: mutated origin invalid: {e}"
-  expect (oMut != oHead) "prov: mutated origin differs in path/span fields"
-  expect (oMut.nodeId == oHead.nodeId) "prov: coordinated mutation preserves NodeId"
-  let mut mutatedNodes : Array SourceOrigin := #[oMut]
-  let mut mi : Nat := 1
-  while mi < inventory.nodes.size do
-    match inventory.nodes[mi]? with
-    | some o => mutatedNodes := mutatedNodes.push o
-    | none => pure ()
-    mi := mi + 1
+  -- Mutate every inventory origin's path/span so the low-level provenance
+  -- originMap must differ even if the head NodeId is unused by attribution.
+  -- NodeIds and sourceHash stay fixed so NodeId-set validation still accepts.
+  let mut mutatedNodes : Array SourceOrigin := #[]
+  for o in inventory.nodes do
+    let newEnd : UInt64 :=
+      if o.endByte > o.startByte then o.endByte - 1 else o.endByte + 1
+    let oMut : SourceOrigin := {
+      sourcePath := mutPath
+      startByte := o.startByte
+      endByte := newEnd
+      nodeId := o.nodeId
+    }
+    match validateSourceOrigin oMut with
+    | .ok () => pure ()
+    | .error e => throw <| IO.userError s!"prov: mutated origin invalid: {e}"
+    expect (oMut != o) "prov: mutated origin differs in path/span fields"
+    expect (oMut.nodeId == o.nodeId) "prov: coordinated mutation preserves NodeId"
+    mutatedNodes := mutatedNodes.push oMut
+  expect (mutatedNodes.size == inventory.nodes.size)
+    "prov: mutated inventory size preserved"
+  expect (mutatedNodes[0]? != inventory.nodes[0]?)
+    "prov: head origin path/span mutation observed"
+  let _ := oHead
   let mutatedInv : SourceNodeInventoryV1 := {
     sourceHash := srcHash
     nodes := mutatedNodes
@@ -4733,7 +4737,7 @@ private unsafe def testMultiWidthIntResults
 /-- Wave N2a: Int64 state/params, unary neg (Op.Unary.neg), checked arith. -/
 private unsafe def testInt64StateArithNeg
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrap "IntCounter" <|
+  let source := wrap "IntStateCell" <|
     "  state count : Int64\n" ++
     "  init(initial : Int64) do\n" ++
     "    count := initial\n" ++
@@ -7261,7 +7265,7 @@ private unsafe def testInvariantLiteralTrueShapeAndSteps
     (ProofForgeV2.Semantic.InvariantABI.evalInvariantV1 carrier 0 emptyState ==
       .returnedTrue)
     "inv-true: evalInvariantV1 → returnedTrue"
-  -- no-invariant programs still empty table (Counter regression pin below)
+  -- no-invariant programs still empty table (StateCell regression pin below)
 
 private unsafe def testInvariantStatePredicate
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -7614,9 +7618,9 @@ private unsafe def testInvariantNameCollisionFailClosed
 
 private unsafe def testInvariantDoesNotChangeNoInvPrograms
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Regression: Counter without invariants still has empty invariants table
+  -- Regression: StateCell without invariants still has empty invariants table
   -- and three callables with invariantSteps=none.
-  let source := wrap "CounterNoInv" <|
+  let source := wrap "StateCellNoInv" <|
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -7625,18 +7629,18 @@ private unsafe def testInvariantDoesNotChangeNoInvPrograms
     "    return count\n" ++
     "  view get() : UInt64 do\n" ++
     "    return count\n"
-  let validated ← loadSource session "counter-noinv" source
+  let validated ← loadSource session "stateCell-noinv" source
   let carrier ← match normalizeProgramV1 validated with
     | .ok c => pure c
-    | .error e => throw <| IO.userError s!"counter-noinv: {repr e}"
+    | .error e => throw <| IO.userError s!"stateCell-noinv: {repr e}"
   let data ← match validateSemanticProgramV1 carrier with
     | .ok d => pure d
-    | .error e => throw <| IO.userError s!"counter-noinv val: {repr e}"
-  expect (data.invariants.isEmpty) "counter-noinv: empty invariants"
-  expect (data.callables.size == 3) "counter-noinv: 3 callables"
+    | .error e => throw <| IO.userError s!"stateCell-noinv val: {repr e}"
+  expect (data.invariants.isEmpty) "stateCell-noinv: empty invariants"
+  expect (data.callables.size == 3) "stateCell-noinv: 3 callables"
   for c in data.callables do
     expect (c.invariantSteps.isNone)
-      s!"counter-noinv: callable {repr c.name} steps none"
+      s!"stateCell-noinv: callable {repr c.name} steps none"
 
 /-- ADR-0030 E2: env-read `native.balanceOfSelf()` normalizes to
     `Op.envRead .nativeVaultBalance #[]` with UInt64 result. -/
@@ -7711,7 +7715,7 @@ private unsafe def testEnvReadTokenNormalize
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  testCounterHappyPath session
+  testStateCellHappyPath session
   testStateAfterInit session
   testDeterminism session
   testTypedNotOk session
@@ -7784,7 +7788,7 @@ unsafe def run : IO Unit := do
   testAssertElseParameterizedFailClosed session
   testUnsupportedNestedComparison session
   testUnsupportedParamShadowsStateAssign session
-  testCounterRequirementsAndProvenance session
+  testStateCellRequirementsAndProvenance session
   testMultiSiteProvenanceAttribution session
   testMissingRequirementProducingSite session
   testFreezeRejectsForeignKeys session
@@ -7865,7 +7869,7 @@ end Tests.Semantic.NormalizeV1
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  testCounterHappyPath session
+  testStateCellHappyPath session
   testTypeErrorOnly session
   testEffectError session
   testBoundRecursionPhaseOrder session

@@ -37,7 +37,7 @@ fallback、镜像或运行时回退依赖。
 import ProofForgeV2
 open ProofForgeV2.Language
 
-program Counter where
+program StateCell where
   state count : UInt64
 
   init(initial : UInt64) do
@@ -61,20 +61,20 @@ just ci          # 普通开发机 / GitHub CI 的完整产品门禁
 # just release-check
 
 # 真实 ProgramV1 CLI 路径（--module 是 canonical identity 的显式输入）：
-lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean \
-  --module Examples.Counter --target solana -o build/counter-solana
+lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean \
+  --module Examples.StateCell --target solana -o build/state-cell-solana
 
 # Quint Q0 是 zero-tool、不可部署的 executable-model source target：
-lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean \
-  --module Examples.Counter --target quint -o build/counter-quint
-lake env .lake/build/bin/proof-forge-next inspect build/counter-quint --json
+lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean \
+  --module Examples.StateCell --target quint -o build/state-cell-quint
+lake env .lake/build/bin/proof-forge-next inspect build/state-cell-quint --json
 
 # 可选：显式联网 provision 一次，再离线物化锁定工具并生成 EVM bytecode。
 just toolchains-provision-external
 just toolchains-materialize-external "$PWD/build/dev-tool-root"
 PROOF_FORGE_TOOL_ROOT="$PWD/build/dev-tool-root" \
-  lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean \
-    --module Examples.Counter --target evm -o build/counter-evm
+  lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean \
+    --module Examples.StateCell --target evm -o build/state-cell-evm
 ```
 
 ### 通用 Solana client 与 TransferSol 本地真实调用
@@ -134,7 +134,7 @@ Resolve → Materialize。失败 **fail closed**，禁止降级或 legacy fallba
 
 ### 一源多目标（accepted Phase 1 vs engineering registry）
 
-同一 `Counter` 语义；`--target` 只改变物化与制品编码。
+同一 `StateCell` 语义；`--target` 只改变物化与制品编码。
 
 - **Accepted PRD Phase 1 范围（四目标）**：EVM / Solana / NEAR / Noir。工程 registry
   扩大到 Aleo / Psy / Quint / CosmWasm / TON 的 reconciliation 仍由 **`DOC-ADR-SCOPE`** 跟踪，
@@ -215,7 +215,7 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 |---|---|---|---|
 | `evm` | contract VM | accepted Phase 1 | retained-Semantic Plan/IR → Yul + locked `solc` bytecode；G4 Anvil 工程差分；**非** formal Reference↔Anvil / D4 完成 |
 | `solana` | explicit-account SVM | accepted Phase 1 | target-owned Plan/IR → SBPF asm + locked assembler ELF `.so`；Mollusk 工程差分；**非** formal Stage-0/hermetic |
-| `near` | Wasm host | accepted Phase 1 | WAT/Wasm + locked `wat2wasm` / host-optional runtime load；near-sandbox Counter overflow/state-hold、aggregate return 与 Option state 工程 corpus；**非** formal Reference↔sandbox / D6 完成 |
+| `near` | Wasm host | accepted Phase 1 | WAT/Wasm + locked `wat2wasm` / host-optional runtime load；near-sandbox StateCell overflow/state-hold、aggregate return 与 Option state 工程 corpus；**非** formal Reference↔sandbox / D6 完成 |
 | `noir` | circuit | accepted Phase 1 | target-owned Plan/relation IR → `.nr` packages + locked nargo compile-only；**无** ACIR/witness/proof/VK/verify |
 | `aleo` | ZK application chain | engineering implemented (scope ADR open) | target-owned Plan/IR → Leo source + locked leo compile-only；**无** VM/prove/deploy |
 | `psy` | ZK application chain | engineering implemented (scope ADR open) | target-owned Plan/IR → Dargo/Psy source；历史默认 `psy-dargo-u64-v1` + 显式 `psy-dargo-0.1.0-vm-v1`（4×UInt32 limb UInt128 checked add/sub/mul/div/mod + compare）；optional dargo compile（PsyAcceptance）+ 独立 host-heavy `just psy-runtime` local-VM/base-proof 工程门（locked dargo v0.1.0 + std；非 ordinary ci / product finalize）；**registry 仍 source-only**；bitwise/shift/UInt256 与 network UPS/deploy/formal 仍未开 |
@@ -314,21 +314,18 @@ just toolchains-provision-external
 
 ## 当前状态（product recovery）
 
-Darwin 上 CLI 的 `build` 与 `build-counter` 已使用 pinned safe-open helper → frontend worker →
-`SupervisedFrontendV1.productInput` 的 sole source authority；Main 不再 reopen/reparse source，也没有
-embedded Counter fallback。成功后进入 located `NormalizeV1` structure gate（当前仍是 public UInt64/Unit、
-single-block init/entry/view、literal/load/checked add-sub/store/return 工程子集），再经 private-ctor
-`CompiledSemanticV1` 单 carrier、engineering requirement capability 与 target-owned
-Plan/IR/materialization；compiler/resolver/artifact identity均不再持有 alpha residual。Counter 的 EVM Yul/ABI materialization 由产品测试固定，真实
-Counter/Accumulator source 也已通过锁定 `solc` 生成 EVM bytecode。Linux 产品 CLI 当前按设计
-fail closed；portable CI 不把该行为写成 Linux materialization 成功。这是恢复纵切面，不表示正式
-完整 `SemanticProgramV1`、D3 SupportClaim/`OutputSetV1` 或 D1–D4 task 已完成。迁移顺序、27项要求/
-代码完成度和旧代码删除门槛见 [`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md)；执行边界见
-[`RECOVERY.md`](RECOVERY.md)。
+macOS 与 Linux 的产品 CLI 都经进程内单次 `IO.FS.readFile` →
+`Loader.selectProgramV1ProductWithTheoremInventory` → located `NormalizeV1` structure gate →
+`CompiledSemanticV1` → inline proof certification → requirement capability → target-owned
+Plan/IR/materialization。产品路径没有 embedded example fallback，也不持有 alpha residual。
+`StateCell` 与 `Accumulator` 的 EVM Yul/ABI 物化由产品测试固定，并可通过锁定 `solc`
+生成 bytecode。这是工程恢复纵切面，不表示 formal D1–D4、完整 SupportClaim 或 release
+qualification 已完成。迁移顺序、27 项要求与删除门槛见
+[`MIGRATION_MATRIX.md`](MIGRATION_MATRIX.md)；执行边界见 [`RECOVERY.md`](RECOVERY.md)。
 
 - Lean command/export 已切到 `proof-forge.program-export.v2` + canonical ProgramV1；legacy
   `Source.Program` decoder、v1 payload 与旧 Loader source-reading API 已删除。库内仍保留
-  `parseProgramsV1`/`selectProgramV1` 非产品测试面，产品 CLI 只能消费 supervised carrier。
+  `parseProgramsV1`/`selectProgramV1` 非产品测试面；产品 CLI 只消费同一次 Loader snapshot 产出的 validated source、origin 与 theorem inventory。
 - TaskQualification/custody/formal-evidence 扩张已暂停，不再作为开发完成条件。
 - Clean-room 与 eligible-host 只属于显式 release qualification。
 - 写 maturity 时以真实代码、制品与对应产品测试为准，不能用治理对象数量代替产品进度。

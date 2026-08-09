@@ -1,6 +1,6 @@
 //! CosmWasm mock-runtime differential for product Accumulator WASM.
 //!
-//! Same add/overflow shape as Counter (init seed / entry add / view current).
+//! Same add/overflow shape as StateCell (init seed / entry add / view current).
 //! Engineering only — not wasmd / formal.
 
 mod common;

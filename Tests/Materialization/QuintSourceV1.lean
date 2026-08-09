@@ -29,13 +29,13 @@ private def buildQuint (compiled : CompiledSemanticV1) :
     CompileResult (Array OutputFile) :=
   Targets.Quint.buildFromCompiledSemanticV1 compiled
 
-/-- Counter: plan shape + key Quint source fragments. -/
-unsafe def testCounterQuintSource : IO Unit := do
+/-- StateCell: plan shape + key Quint source fragments. -/
+unsafe def testStateCellQuintSource : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program Counter where\n" ++
+    "program StateCell where\n" ++
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -45,22 +45,22 @@ unsafe def testCounterQuintSource : IO Unit := do
     "  view get() : UInt64 do\n" ++
     "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<quint-counter>" "Tests.QuintCounter" none)
+    source "<quint-state-cell>" "Tests.QuintStateCell" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   let plan ← liftResult <| planQuint compiled
   expect (plan.states.map (·.name) == #["count"])
-    "Counter Quint plan must carry the count state field"
+    "StateCell Quint plan must carry the count state field"
   expect (plan.entries.map (·.name) == #["increment"])
-    "Counter Quint plan must carry the increment entry"
+    "StateCell Quint plan must carry the increment entry"
   expect (plan.views.map (·.name) == #["get"])
-    "Counter Quint plan must carry the get view"
+    "StateCell Quint plan must carry the get view"
   match plan.initializer with
   | some initFn =>
       expect (initFn.params == #["initial"])
-        "Counter init must carry the initial parameter"
+        "StateCell init must carry the initial parameter"
       expect (initFn.stores.size == 1)
-        "Counter init must store count"
-  | none => throw <| IO.userError "Counter must have an initializer"
+        "StateCell init must store count"
+  | none => throw <| IO.userError "StateCell must have an initializer"
   let some inc := plan.entries[0]? |
     throw <| IO.userError "missing increment entry"
   let overflowOk :=
@@ -70,12 +70,12 @@ unsafe def testCounterQuintSource : IO Unit := do
   expect overflowOk "increment must carry a single overflow check"
   liftResult <| Targets.Quint.validatePlan plan
   let files ← liftResult <| buildQuint compiled
-  let some qntFile := files.find? (fun f => f.path == "Counter.qnt") |
-    throw <| IO.userError "quint: missing Counter.qnt"
+  let some qntFile := files.find? (fun f => f.path == "StateCell.qnt") |
+    throw <| IO.userError "quint: missing StateCell.qnt"
   expect (qntFile.mediaType == "text/x-quint")
-    "Counter.qnt media type must be text/x-quint"
+    "StateCell.qnt media type must be text/x-quint"
   let qnt := qntFile.contents
-  expect (qnt.contains "module PFModel_Counter {")
+  expect (qnt.contains "module PFModel_StateCell {")
     "Quint source must declare a target-namespaced module"
   expect (qnt.contains "pure def PF_MAX_U64: int = 18446744073709551615")
     "Quint source must define PF_MAX_U64 exactly"
@@ -110,7 +110,7 @@ unsafe def testRollbackStutter : IO Unit := do
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program Counter where\n" ++
+    "program StateCell where\n" ++
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -121,8 +121,8 @@ unsafe def testRollbackStutter : IO Unit := do
     source "<quint-stutter>" "Tests.QuintStutter" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   let files ← liftResult <| buildQuint compiled
-  let some qntFile := files.find? (·.path == "Counter.qnt") |
-    throw <| IO.userError "quint: missing Counter.qnt"
+  let some qntFile := files.find? (·.path == "StateCell.qnt") |
+    throw <| IO.userError "quint: missing StateCell.qnt"
   let qnt := qntFile.contents
   -- On failure, count' equals pre-state count (stutter), not a blocked action.
   expect (qnt.contains "pf_state_count' = " || qnt.contains "pf_state_count'=")
@@ -322,7 +322,7 @@ unsafe def testMaterializeDeterminism : IO Unit := do
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program Counter where\n" ++
+    "program StateCell where\n" ++
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -355,7 +355,7 @@ unsafe def testCapabilityProductPath : IO Unit := do
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program Counter where\n" ++
+    "program StateCell where\n" ++
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -372,14 +372,14 @@ unsafe def testCapabilityProductPath : IO Unit := do
   let capability ← liftResult <|
     Targets.resolveEngineeringRequirementsV1 selection compiled
   let plan ← liftResult <| Targets.Quint.planFromCapability capability
-  expect (plan.programName == "Counter")
+  expect (plan.programName == "StateCell")
     "capability Plan must retain the compiled artifact name"
   let artifacts ← liftResult <| Targets.materializeResult capability
   expect (MaterializedArtifactsV1.targetIdOf artifacts == TargetId.quint)
     "materialized artifacts must bind TargetId.quint"
   let files := MaterializedArtifactsV1.filesOf artifacts
-  expect (files.size == 1 && files[0]!.path == "Counter.qnt")
-    "registry materialize must emit exactly Counter.qnt"
+  expect (files.size == 1 && files[0]!.path == "StateCell.qnt")
+    "registry materialize must emit exactly StateCell.qnt"
   let finalized ← Targets.finalizeMaterializedArtifactsV1
     capability artifacts (System.FilePath.mk ".")
   expect (!FinalizedArtifactsV1.deployableOf finalized)
@@ -1030,7 +1030,7 @@ unsafe def testEnvReadTokenBalanceFailClosed : IO Unit := do
   | .ok _ => throw <| IO.userError "token.balanceOfSelf must fail closed on Quint"
 
 unsafe def run : IO Unit := do
-  testCounterQuintSource
+  testStateCellQuintSource
   testRollbackStutter
   testInitializerDefaultZero
   testSequentialStateOverlay

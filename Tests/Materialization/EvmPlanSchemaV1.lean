@@ -6,7 +6,7 @@ import ProofForgeV2
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.TargetIdentityV1
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.Evm
 import ProofForgeV2.Targets.Evm.PlanSchemaV1
@@ -61,15 +61,15 @@ private def minimalPlan : Plan := {
   fns := #[]
 }
 
-private unsafe def compileCounter : IO CompiledSemanticV1 := do
+private unsafe def compileStateCell : IO CompiledSemanticV1 := do
   let session ← Tests.Language.ParserSession.shared
-  let source ← liftResult "load Counter" (← session.selectProgramV1
-    Examples.counterSourceText "<evm-plan-schema-counter>"
-    Examples.counterModuleNameV1 none)
-  liftResult "compile Counter" (Compiler.compileValidatedSourceV1 source)
+  let source ← liftResult "load StateCell" (← session.selectProgramV1
+    Examples.stateCellSourceText "<evm-plan-schema-stateCell>"
+    Examples.stateCellModuleNameV1 none)
+  liftResult "compile StateCell" (Compiler.compileValidatedSourceV1 source)
 
-private unsafe def planCounter : IO Plan := do
-  let compiled ← compileCounter
+private unsafe def planStateCell : IO Plan := do
+  let compiled ← compileStateCell
   let selection ← liftResult "select evm" (resolveBuildSelectionV1 TargetId.evm none)
   let capability ← liftResult "resolve"
     (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -126,14 +126,14 @@ private def testTamperMatrix : IO Unit := do
       minimalPlan with events := #[{ name := "Moved", fieldCount := 1 }] }))
 
 private unsafe def testProductPathRecompute : IO Unit := do
-  let plan ← planCounter
-  expect (plan.objectName == "Counter") "Counter name"
+  let plan ← planStateCell
+  expect (plan.objectName == "StateCell") "StateCell name"
   let d1 ← liftExcept "d1" (engineeringEvmPlanDigestV1 plan)
   let bytes ← liftExcept "enc" (encodeEngineeringEvmPlanBytesV1 plan)
   let recomputed ← liftExcept "dom"
     (domainSeparatedSha256 engineeringEvmPlanDomainV1 bytes)
   expect (d1.bytes == recomputed.bytes) "recompute"
-  let plan2 ← planCounter
+  let plan2 ← planStateCell
   let d2 ← liftExcept "d2" (engineeringEvmPlanDigestV1 plan2)
   expect (d1.bytes == d2.bytes) "two mints"
   let b1 ← liftExcept "b1" (encodeEngineeringEvmPlanBytesV1 plan)
@@ -141,7 +141,7 @@ private unsafe def testProductPathRecompute : IO Unit := do
   expect (b1 == b2) "bytes equal"
 
 private unsafe def testIrValidationPositive : IO Unit := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let selection ← liftResult "sel" (resolveBuildSelectionV1 TargetId.evm none)
   let capability ← liftResult "cap"
     (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -152,7 +152,7 @@ private unsafe def testIrValidationPositive : IO Unit := do
   match validateEvmTargetIRV1 ir.objectName ir.yul ir.abi with
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"parts: {e.render}"
-  expect (ir.objectName == "Counter") "name"
+  expect (ir.objectName == "StateCell") "name"
   let files ← liftResult "build" (buildFromCapability capability)
   expect (files.size == 2) "two files"
   expect (files.any (·.path.endsWith ".yul")) "yul"
@@ -281,15 +281,15 @@ private unsafe def testFieldPlanDigestDeterminism : IO Unit := do
   let d2 ← liftExcept "d2" (engineeringEvmPlanDigestV1 fieldPlan)
   expect (d1.bytes == d2.bytes) "Field plan digest determinism"
   -- Historical UInt64-only minimal plan encoding must remain unchanged shape
-  -- (Field uses new Expr tags 42..47; Counter product digest still recomputes).
+  -- (Field uses new Expr tags 42..47; StateCell product digest still recomputes).
   let uintPlan := minimalPlan
   let ub ← liftExcept "u" (encodeEngineeringEvmPlanBytesV1 uintPlan)
   expect (!(ub == b1)) "Field plan bytes must differ from UInt64 minimal plan"
-  -- Counter product path still digests deterministically after Field tags.
-  let counter ← planCounter
-  let cd1 ← liftExcept "cd1" (engineeringEvmPlanDigestV1 counter)
-  let cd2 ← liftExcept "cd2" (engineeringEvmPlanDigestV1 counter)
-  expect (cd1.bytes == cd2.bytes) "Counter digest still deterministic with Field tags present"
+  -- StateCell product path still digests deterministically after Field tags.
+  let stateCell ← planStateCell
+  let cd1 ← liftExcept "cd1" (engineeringEvmPlanDigestV1 stateCell)
+  let cd2 ← liftExcept "cd2" (engineeringEvmPlanDigestV1 stateCell)
+  expect (cd1.bytes == cd2.bytes) "StateCell digest still deterministic with Field tags present"
 
 
 /-- EvmIndex: new Expr tags 48..50 must digest deterministically and leave
@@ -369,10 +369,10 @@ private unsafe def testArrayIndexPlanDigestDeterminism : IO Unit := do
   }
   let fb ← liftExcept "f" (encodeEngineeringEvmPlanBytesV1 fieldOnly)
   expect (!(fb == b1)) "Array-index plan bytes must differ from Field plan"
-  let counter ← planCounter
-  let cd1 ← liftExcept "cd1" (engineeringEvmPlanDigestV1 counter)
-  let cd2 ← liftExcept "cd2" (engineeringEvmPlanDigestV1 counter)
-  expect (cd1.bytes == cd2.bytes) "Counter digest still deterministic with Array tags present"
+  let stateCell ← planStateCell
+  let cd1 ← liftExcept "cd1" (engineeringEvmPlanDigestV1 stateCell)
+  let cd2 ← liftExcept "cd2" (engineeringEvmPlanDigestV1 stateCell)
+  expect (cd1.bytes == cd2.bytes) "StateCell digest still deterministic with Array tags present"
 
 /-- Tag-11 storeAtomic is in the engineering plan wire; distinct from two sequential stores. -/
 private unsafe def testStoreAtomicPlanDigest : IO Unit := do
@@ -424,10 +424,10 @@ private unsafe def testStoreAtomicPlanDigest : IO Unit := do
   let ds ← liftExcept "seq" (engineeringEvmPlanDigestV1 sequentialPlan)
   expect (!(d1.bytes == ds.bytes))
     "storeAtomic plan digest must differ from sequential scalar stores"
-  -- Counter product path still digests without storeAtomic tag pollution.
-  let counter ← planCounter
-  let cd ← liftExcept "cd" (engineeringEvmPlanDigestV1 counter)
-  expect (cd.bytes.size == 32) "Counter digest remains 32-byte sha256"
+  -- StateCell product path still digests without storeAtomic tag pollution.
+  let stateCell ← planStateCell
+  let cd ← liftExcept "cd" (engineeringEvmPlanDigestV1 stateCell)
+  expect (cd.bytes.size == 32) "StateCell digest remains 32-byte sha256"
 
 unsafe def run : IO Unit := do
   testDomain

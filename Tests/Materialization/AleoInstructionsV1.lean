@@ -16,7 +16,8 @@
   * encode → decode structural round-trip
   * decode fail-closed on truncated / unknown opcode
   * ALEO-IR-2: hand-built Counter Plan → Instructions ≡ counterProgramV1
-  * ALEO-IR-2: Examples/Counter product Plan → Instructions ≡ golden
+  * ALEO-IR-2: Examples/StateCell product Plan → Instructions ≡ the frozen
+    Counter instruction shape modulo the program identity
   * ALEO-IR-3: ifThenElse / switchOn / bounded for structural + ceiling FC
   * ALEO-IR-4: multi-leaf storeAggregate + Option/Map/Array/Narrow product
   * empty Plan fail closed
@@ -254,12 +255,29 @@ private def testHandBuiltPlanLowerEqualsCounterProgram : IO Unit := do
   expect (encodeProgram prog == golden)
     "hand-built Plan lower encode must equal golden bytes"
 
-/-- ALEO-IR-2: product Examples/Counter via capability → Instructions ≡ golden. -/
-unsafe def testProductCounterPlanLowerEqualsGolden : IO Unit := do
+/-- The neutral StateCell fixture intentionally reuses the frozen Counter
+    instruction shape; only the program identity differs. -/
+private def stateCellProgramV1 : ProgramV1 :=
+  { counterProgramV1 with
+    name := "statecell.aleo"
+    items := counterProgramV1.items.map fun
+      | .function fn =>
+          .function {
+            fn with
+            body := fn.body.map fun
+              | .output reg (.future _ functionName) =>
+                  .output reg (.future "statecell.aleo" functionName)
+              | instruction => instruction
+          }
+      | item => item }
+
+/-- ALEO-IR-2: product StateCell via capability → expected Instructions shape.
+    The historical Counter locked-Leo golden remains independently pinned. -/
+unsafe def testProductStateCellPlanLowerEqualsExpected : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  let src ← IO.FS.readFile "Examples/Counter.lean"
   let parsed ← liftResult (← session.selectProgramV1
-    src "<aleo-ir2>" "Examples.Counter" none)
+    Examples.stateCellSourceText "<aleo-ir2-stateCell>"
+    Examples.stateCellModuleNameV1 none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   -- Default source profile (Plan shared with compile profile).
   let selection ← liftResult <|
@@ -267,11 +285,10 @@ unsafe def testProductCounterPlanLowerEqualsGolden : IO Unit := do
   let cap ← liftResult <|
     resolveEngineeringRequirementsV1 selection compiled
   let prog ← liftResult <| programFromCapabilityV1 cap
-  expect (prog == counterProgramV1)
-    s!"product Plan→Instructions must equal counterProgramV1 (got {prog.name})"
-  let golden ← IO.FS.readFile goldenPath
-  expect (encodeProgram prog == golden)
-    "product lower encode must equal locked-leo Counter golden bytes"
+  expect (prog == stateCellProgramV1)
+    s!"product StateCell Plan→Instructions shape mismatch (got {prog.name})"
+  expect (encodeProgram prog == encodeProgram stateCellProgramV1)
+    "product StateCell lower must preserve the expected instruction encoding"
   -- Compile profile resolves a distinct selection identity but same Plan body.
   let selectionCompile ← liftResult <|
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo
@@ -2392,7 +2409,7 @@ unsafe def run : IO Unit := do
   testDecodeFailClosed
   testCounterShape
   testHandBuiltPlanLowerEqualsCounterProgram
-  testProductCounterPlanLowerEqualsGolden
+  testProductStateCellPlanLowerEqualsExpected
   testUnsupportedPlanFailClosed
   testIfThenElseStructural
   testSwitchOnStructural

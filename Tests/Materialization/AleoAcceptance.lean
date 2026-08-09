@@ -30,7 +30,7 @@
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.TargetIdentityV1
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Materialization.LockedToolchainV1
 import ProofForgeV2.Targets.Registry
@@ -344,7 +344,7 @@ private def dualFieldSourceText : String :=
   "  view getX() : UInt64 do\n" ++
   "    return x\n"
 
-/-- Int64 Counter: i64 state mapping + signed add/sub/mul/div/mod/comparison
+/-- Int64 StateCell: i64 state mapping + signed add/sub/mul/div/mod/comparison
     + unary neg + shifts, verified end-to-end by `leo build`. -/
 private def int64SourceText : String :=
   "import ProofForgeV2\n" ++
@@ -446,9 +446,9 @@ private def bytesBoxSourceText : String :=
   "    b[0] := b[0] << 1\n" ++
   "    return b[0]\n"
 
-/-- T8 multi-width: scalar UInt8 counter with native Leo u8 state/params/body,
+/-- T8 multi-width: scalar UInt8 stateCell with native Leo u8 state/params/body,
     verified end-to-end by `leo build`. -/
-private def u8CounterSourceText : String :=
+private def u8StateCellSourceText : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
   "program U8Ctr where\n" ++
@@ -606,8 +606,8 @@ unsafe def run : IO Unit := do
       IO.FS.createDirAll (leoHomePath / ".aleo")
       let leoHome ← IO.FS.realPath leoHomePath
       try
-        acceptProgram leo leoHome tmp "Counter"
-          Examples.counterSourceText Examples.counterModuleNameV1 "counter.aleo"
+        acceptProgram leo leoHome tmp "StateCell"
+          Examples.stateCellSourceText Examples.stateCellModuleNameV1 "statecell.aleo"
         acceptProgram leo leoHome tmp "DualField"
           dualFieldSourceText "Tests.AleoAccept.DualField" "dualfield.aleo"
         acceptProgram leo leoHome tmp "Token"
@@ -623,7 +623,7 @@ unsafe def run : IO Unit := do
         acceptProgram leo leoHome tmp "BytesBox"
           bytesBoxSourceText "Tests.AleoAccept.BytesBox" "bytesbox.aleo"
         acceptProgram leo leoHome tmp "U8Ctr"
-          u8CounterSourceText "Tests.AleoAccept.U8Ctr" "u8ctr.aleo"
+          u8StateCellSourceText "Tests.AleoAccept.U8Ctr" "u8ctr.aleo"
         acceptProgram leo leoHome tmp "MultiW"
           multiWidthSourceText "Tests.AleoAccept.MultiW" "multiw.aleo"
         acceptProgram leo leoHome tmp "PairRet"

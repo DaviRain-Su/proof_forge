@@ -1,6 +1,6 @@
 /-
   Tests.Materialization.EvmCorpusPrimitiveV1 — engineering Reference leg for
-  EVMOZ-004 primitive corpus cases (Counter / Accumulator / ArithOps / EventFlow / OwnableLike).
+  EVMOZ-004 primitive corpus cases (StateCell / Accumulator / ArithOps / EventFlow / OwnableLike).
 
   Top-level `main` harness (not a lake import root — avoids global main clash).
   EVMOZ-006 wires ordinary CI via `just evm-corpus-reference` /
@@ -304,19 +304,19 @@ private def stepOnce
   let refArgs := args.map (fun n => refU64 u64 n)
   stepReferenceSliceV1 admitted pre (inv callable refArgs) emptyResponses
 
-private unsafe def runCounter
+private unsafe def runStateCell
     (session : Language.Loader.ParserSession) (repoRoot outDir : System.FilePath) :
     IO Unit := do
-  let caseId := "pf.primitive.counter.overflow-hold.v1"
+  let caseId := "pf.primitive.statecell.overflow-hold.v1"
   let spec : ProgramSpec := {
     caseId
-    sourcePath := "Examples/Counter.lean"
-    moduleName := "Examples.Counter"
+    sourcePath := "Examples/StateCell.lean"
+    moduleName := "Examples.StateCell"
     stateKey := "count"
     expectedSourceHash :=
-      "276462ae16de0dd9d70e0e007a06669be9f2c996aa745e8b541b8a57f78208ae"
+      "46445fcbb84bbcf4789b190236963216b29f46a98ccaca22f1ee977e9230dbaf"
     expectedSemanticHash :=
-      "111d486138fb36a21d6c8996b8fd100f5d4a5bb5a16e1f82009af97ce4985d6d"
+      "a081c8b1da02d07fdc3aff3184ff77a34f72fae06b0d74e65c3394c7834fa22f"
   }
   let (carrier, data, admitted, u64, _, _) ← loadNormalizeAdmit session repoRoot spec
   let initId ← findCallableId data none
@@ -325,46 +325,46 @@ private unsafe def runCounter
   let initial ←
     match initialLogicalStateV1 carrier with
     | .ok s => pure s
-    | .error e => throw <| IO.userError s!"counter initial: {repr e}"
+    | .error e => throw <| IO.userError s!"state cell initial: {repr e}"
   -- step 0: deploy 7
   let o0 := stepOnce admitted initial initId #[7] u64
   let (st0, ret0, post0, eff0, rb0) ← outcomeShared o0 initial
-  expect (st0 == "success") "counter step0 status"
+  expect (st0 == "success") "state cell step0 status"
   let v0 ← decodeSoleU64 post0
-  expect (v0 == 7) "counter step0 state"
+  expect (v0 == 7) "state cell step0 state"
   writeSharedStep outDir caseId 0 st0 ret0 "count" v0 eff0 rb0
   -- step 1: increment 5 → 12
   let o1 := stepOnce admitted post0 incId #[5] u64
   let (st1, ret1, post1, eff1, rb1) ← outcomeShared o1 post0
-  expect (st1 == "success") "counter step1 status"
+  expect (st1 == "success") "state cell step1 status"
   let v1 ← decodeSoleU64 post1
-  expect (v1 == 12) "counter step1 state"
+  expect (v1 == 12) "state cell step1 state"
   writeSharedStep outDir caseId 1 st1 ret1 "count" v1 eff1 rb1
   -- step 2: view get
   let o2 := stepOnce admitted post1 getId #[] u64
   let (st2, ret2, post2, eff2, rb2) ← outcomeShared o2 post1
-  expect (st2 == "success") "counter step2 status"
+  expect (st2 == "success") "state cell step2 status"
   let v2 ← decodeSoleU64 post2
   writeSharedStep outDir caseId 2 st2 ret2 "count" v2 eff2 rb2
   -- step 3: redeploy max (fresh initial)
   let maxN : Nat := (2 ^ 64) - 1
   let o3 := stepOnce admitted initial initId #[maxN] u64
   let (st3, ret3, post3, eff3, rb3) ← outcomeShared o3 initial
-  expect (st3 == "success") "counter step3 status"
+  expect (st3 == "success") "state cell step3 status"
   let v3 ← decodeSoleU64 post3
-  expect (v3 == maxN) "counter step3 state"
+  expect (v3 == maxN) "state cell step3 state"
   writeSharedStep outDir caseId 3 st3 ret3 "count" v3 eff3 rb3
   -- step 4: overflow increment → revert
   let o4 := stepOnce admitted post3 incId #[1] u64
   let (st4, ret4, post4, eff4, rb4) ← outcomeShared o4 post3
-  expect (st4 == "revert") "counter step4 status"
+  expect (st4 == "revert") "state cell step4 status"
   let v4 ← decodeSoleU64 post4
-  expect (v4 == maxN) "counter step4 rollback"
+  expect (v4 == maxN) "state cell step4 rollback"
   writeSharedStep outDir caseId 4 st4 ret4 "count" v4 eff4 rb4
   -- step 5: view get still max
   let o5 := stepOnce admitted post4 getId #[] u64
   let (st5, ret5, post5, eff5, rb5) ← outcomeShared o5 post4
-  expect (st5 == "success") "counter step5 status"
+  expect (st5 == "success") "state cell step5 status"
   let v5 ← decodeSoleU64 post5
   writeSharedStep outDir caseId 5 st5 ret5 "count" v5 eff5 rb5
   IO.println s!"reference-leg ok {caseId}"
@@ -657,7 +657,7 @@ unsafe def runAll (args : List String) : IO UInt32 := do
     | [] => (System.FilePath.mk ".", System.FilePath.mk "build/v2/evm-corpus-obs")
   IO.FS.createDirAll outDir
   let session ← Language.Loader.ParserSession.create
-  runCounter session repoRoot outDir
+  runStateCell session repoRoot outDir
   runAccumulator session repoRoot outDir
   runArithOps session repoRoot outDir
   runEventFlow session repoRoot outDir

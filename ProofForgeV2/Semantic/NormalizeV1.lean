@@ -7,7 +7,7 @@
       fixture/provenance entry retains the exact unlocated erase projection
     * requires ok=true and analysisComplete=true (fail closed otherwise; no
       Semantic carrier on typed failure)
-    * lowers the shipped Counter-like ProgramV1 subset into SemanticProgramDataV1
+    * lowers the shipped public-UInt64 state-cell subset into SemanticProgramDataV1
     * returns SemanticProgramV1 only via WireV1 structure-gated
       encodeSemanticProgramDataV1 (authoritative path; no alpha Semantic.Program
       or Typed.Program bridge)
@@ -116,7 +116,7 @@
       (Principal); bare local-call `commit(x)` (no user `fn commit`) →
       `Op.Commit` label-only identity. Wire-owned requirement rows merged
       after S2 freeze (UTF-8 id order).
-    * S2 exact ProgramRequirementsV1 freeze (Counter catalog, SPEC wire order)
+    * S2 exact ProgramRequirementsV1 freeze (public-UInt64 catalog, SPEC wire order)
       before encode/hash; non-product companion provenance uses
       `normalizeProgramWithProvenanceV1` (source+path+spans), while product
       proof joining uses `buildSemanticProvenanceFromOriginInventoryV1` with
@@ -4261,7 +4261,7 @@ def semanticProvenanceDigestV1
       | .error e => .error (.wire e)
       | .ok _ => pure (sha256Bytes bytes)
 
-/-- Sole authoritative construction path for S2 Counter carrier + provenance.
+/-- Sole authoritative construction path for the public-UInt64 carrier + provenance.
 
     Builds inventory internally from `source + sourcePath + spans`, normalizes,
     builds provenance, and runs public authority validation. Does not accept a

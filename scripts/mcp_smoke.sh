@@ -142,22 +142,22 @@ PY
 # Reject network/broadcast on pf_build
 cat >"$tmp/session2.jsonl" <<'EOF'
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"mcp-smoke","version":"0.0.1"}}}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"pf_build","arguments":{"source":"Examples/Counter.lean","module":"Examples.Counter","target":"quint","broadcast":true}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"pf_build","arguments":{"source":"Examples/StateCell.lean","module":"Examples.StateCell","target":"quint","broadcast":true}}}
 EOF
 echo "mcp-smoke: pf_build rejects broadcast"
 run_session "$tmp/session2.jsonl" >"$tmp/resp2.json"
 rg -q 'does not support network/broadcast|broadcast' "$tmp/resp2.json"
 rg -q '"isError": true|"ok": false|usage' "$tmp/resp2.json"
 
-# Optional: real zero-tool quint build if Counter source present
-if [[ -f "$root/Examples/Counter.lean" ]]; then
+# Optional: real zero-tool quint build if the neutral StateCell source is present
+if [[ -f "$root/Examples/StateCell.lean" ]]; then
   out_dir="$tmp/build-quint"
   cat >"$tmp/session3.jsonl" <<EOF
 {"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"mcp-smoke","version":"0.0.1"}}}
-{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"pf_build","arguments":{"source":"Examples/Counter.lean","module":"Examples.Counter","target":"quint","output":"$out_dir"}}}
+{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"pf_build","arguments":{"source":"Examples/StateCell.lean","module":"Examples.StateCell","target":"quint","output":"$out_dir"}}}
 {"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"pf_artifacts","arguments":{"outputDir":"$out_dir"}}}
 EOF
-  echo "mcp-smoke: pf_build Counter → quint + pf_artifacts"
+  echo "mcp-smoke: pf_build StateCell → quint + pf_artifacts"
   set +e
   run_session "$tmp/session3.jsonl" >"$tmp/resp3.json" 2>"$tmp/resp3.err"
   code=$?

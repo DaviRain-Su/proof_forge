@@ -3,7 +3,7 @@
 #
 # Flow when Foundry tools are present:
 #   1. Resolve locked anvil/cast (tool-root preferred; PATH co-located fallback).
-#   2. Product CLI-build Counter + Accumulator (+ ArithOps + EventFlow emit fixture).
+#   2. Product CLI-build StateCell + Accumulator (+ ArithOps + EventFlow emit fixture).
 #   3. Delegate runtime matrix to scripts/smoke_evm.sh (view+storage, overflow
 #      state hold, emit log topic/data when EventFlow artifact present).
 #   4. Token dense-Map companion via scripts/evm_token_anvil_smoke.sh:
@@ -244,7 +244,7 @@ ensure_build() {
 }
 
 # Required programs for the differential matrix (profile-keyed dirs).
-ensure_build Examples/Counter.lean Examples.Counter evm Counter.bin
+ensure_build Examples/StateCell.lean Examples.StateCell evm-state-cell StateCell.bin
 ensure_build Examples/Accumulator.lean Examples.Accumulator evm-accumulator Accumulator.bin
 
 # OwnableLike corpus case (pf.primitive.ownablelike.caller-admit.v1): committed

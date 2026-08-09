@@ -8,7 +8,7 @@ import ProofForgeV2.Compiler.Pipeline
 # Ton LowerSemanticV1 — Plan types + SemanticProgramV1 → Plan lowering
 
 Owns the TON/TVM Plan surface (c4 cell storage, internal-message op dispatch,
-get-methods) and Semantic→Plan body for the public-UInt64 Counter pilot.
+get-methods) and Semantic→Plan body for the public-UInt64 state-cell pilot.
 -/
 
 namespace ProofForgeV2.Targets.Ton

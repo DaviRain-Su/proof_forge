@@ -17,7 +17,7 @@ use common::*;
 /// `pf_parse_u64_field` must accept UInt64.max exactly.
 #[test]
 fn p02_parse_accepts_u64_max_boundary() {
-    let mut instance = make_instance("Counter");
+    let mut instance = make_instance("StateCell");
     let msg = br#"{"initial":18446744073709551615}"#.to_vec();
     let cr = instantiate_ok(&mut instance, &msg);
     expect_response_ok(cr);
@@ -27,7 +27,7 @@ fn p02_parse_accepts_u64_max_boundary() {
 /// …and must trap (not wrap) on max+1.
 #[test]
 fn p02_parse_traps_above_u64_max() {
-    let mut instance = make_instance("Counter");
+    let mut instance = make_instance("StateCell");
     let msg = br#"{"initial":18446744073709551616}"#.to_vec();
     let _ = instantiate_trap(&mut instance, &msg);
     assert!(
@@ -39,7 +39,7 @@ fn p02_parse_traps_above_u64_max() {
 /// Larger digit strings (e.g. 10^20) must trap as well.
 #[test]
 fn p02_parse_traps_on_long_decimal_overflow() {
-    let mut instance = make_instance("Counter");
+    let mut instance = make_instance("StateCell");
     let msg = br#"{"initial":99999999999999999999}"#.to_vec();
     let _ = instantiate_trap(&mut instance, &msg);
 }

@@ -96,7 +96,7 @@ Aleo build profiles仍 `deployable=false`。
 | `--private-key-file ABS` | 仅 Testnet；regular、single-link、owner、无 group/other 权限、无 symlink path component、1..4096 B |
 | `--snarkos-sha256 HEX` | Testnet 必需，因为 snarkOS 尚不在 Tool Lock；exact-byte pin |
 | `--priority-fee N` | 非负 microcredits；默认 0 |
-| `--execute-counter` | 可选 N2-E：固定 initialize/increment + mapping 观察 |
+| `--execute-state-cell` | 可选 N2-E：对中性 `StateCell` fixture 固定执行 initialize/increment + mapping 观察 |
 
 **禁止** `--private-key <raw>`、`--fee-record <raw>` 与 `PROOF_FORGE_ALEO_PRIVATE_KEY`。Testnet key file 由 wrapper 只做
 metadata/open 检查，不读取内容；初次验证冻结 device/inode/owner/mode/link/size/mtime/ctime identity，
@@ -173,16 +173,16 @@ just aleo-devnet start
 just aleo-devnet wait
 
 PROOF_FORGE_ALEO_EMIT_LEO=1 lake env .lake/build/bin/proof-forge-next build \
-  Examples/Counter.lean --module Examples.Counter --target aleo \
-  --profile aleo-leo-4.0.2-u64-compile-v1 -o build/v2/aleo-counter-deploy
+  Examples/StateCell.lean --module Examples.StateCell --target aleo \
+  --profile aleo-leo-4.0.2-u64-compile-v1 -o build/v2/aleo-state-cell-deploy
 
 mkdir -p build/v2/aleo-network-receipts
 chmod 700 build/v2/aleo-network-receipts
 just aleo-network \
-  --output-dir build/v2/aleo-counter-deploy \
-  --receipt-dir build/v2/aleo-network-receipts/aleo-counter-devnet \
+  --output-dir build/v2/aleo-state-cell-deploy \
+  --receipt-dir build/v2/aleo-network-receipts/aleo-state-cell-devnet \
   --network devnet --endpoint http://127.0.0.1:3030 \
-  --dev-key 0 --broadcast --execute-counter --priority-fee 1000000
+  --dev-key 0 --broadcast --execute-state-cell --priority-fee 1000000
 
 just aleo-devnet stop
 ```

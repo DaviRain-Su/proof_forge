@@ -86,8 +86,8 @@ m = c.load_output_manifest(sample)
 assert m.get("schemaVersion") == mod.SCHEMA_OUTPUT or m.get("schema") == mod.SCHEMA_OUTPUT
 # design-only soft gate on build helper
 r = c.build(
-    "Examples/Counter.lean",
-    module="Examples.Counter",
+    "Examples/StateCell.lean",
+    module="Examples.StateCell",
     target="soroban",
     output="/tmp/x",
 )

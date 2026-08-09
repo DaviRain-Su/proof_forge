@@ -132,6 +132,124 @@ theorem encodeArray_fourV1 (encode : α → Except SemanticWireErrorV1 ByteArray
   simp [encodeArray, encodeArrayChunksV1, h0, h1, h2, h3]
   rfl
 
+theorem encodeArray_fiveV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 v3 v4 : α) (b0 b1 b2 b3 b4 : ByteArray)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .ok b1)
+    (h2 : encode v2 = .ok b2) (h3 : encode v3 = .ok b3)
+    (h4 : encode v4 = .ok b4) :
+    encodeArray encode #[v0, v1, v2, v3, v4] =
+      .ok ((encodeU32le 5).append
+        ((((b0.append b1).append b2).append b3).append b4)) := by
+  simp [encodeArray, encodeArrayChunksV1, h0, h1, h2, h3, h4]
+  rfl
+
+/-- Fixed-size error refinements avoid re-proving private array-header details
+    when a concrete element encoder fails. -/
+theorem encodeArray_one_errorV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 : α) (error : SemanticWireErrorV1)
+    (h0 : encode v0 = .error error) :
+    encodeArray encode #[v0] = .error error := by
+  simp [encodeArray, show 1 ≤ maxArrayElements by decide, encodeNatAsU32le,
+    show 1 ≤ UInt32.size - 1 by decide, encodeArrayChunksV1, h0]
+  rfl
+
+theorem encodeArray_two_error_firstV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 : α) (error : SemanticWireErrorV1)
+    (h0 : encode v0 = .error error) :
+    encodeArray encode #[v0, v1] = .error error := by
+  simp [encodeArray, show 2 ≤ maxArrayElements by decide, encodeNatAsU32le,
+    show 2 ≤ UInt32.size - 1 by decide, encodeArrayChunksV1, h0]
+  rfl
+
+theorem encodeArray_two_error_secondV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 : α) (b0 : ByteArray) (error : SemanticWireErrorV1)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .error error) :
+    encodeArray encode #[v0, v1] = .error error := by
+  simp [encodeArray, show 2 ≤ maxArrayElements by decide, encodeNatAsU32le,
+    show 2 ≤ UInt32.size - 1 by decide, encodeArrayChunksV1, h0, h1]
+  rfl
+
+theorem encodeArray_three_error_firstV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 : α) (error : SemanticWireErrorV1)
+    (h0 : encode v0 = .error error) :
+    encodeArray encode #[v0, v1, v2] = .error error := by
+  simp [encodeArray, show 3 ≤ maxArrayElements by decide, encodeNatAsU32le,
+    show 3 ≤ UInt32.size - 1 by decide, encodeArrayChunksV1, h0]
+  rfl
+
+theorem encodeArray_three_error_secondV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 : α) (b0 : ByteArray) (error : SemanticWireErrorV1)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .error error) :
+    encodeArray encode #[v0, v1, v2] = .error error := by
+  simp [encodeArray, show 3 ≤ maxArrayElements by decide, encodeNatAsU32le,
+    show 3 ≤ UInt32.size - 1 by decide, encodeArrayChunksV1, h0, h1]
+  rfl
+
+theorem encodeArray_three_error_thirdV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 : α) (b0 b1 : ByteArray) (error : SemanticWireErrorV1)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .ok b1)
+    (h2 : encode v2 = .error error) :
+    encodeArray encode #[v0, v1, v2] = .error error := by
+  simp [encodeArray, show 3 ≤ maxArrayElements by decide, encodeNatAsU32le,
+    show 3 ≤ UInt32.size - 1 by decide, encodeArrayChunksV1, h0, h1, h2]
+  rfl
+
+theorem encodeArray_five_error_firstV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 v3 v4 : α) (error : SemanticWireErrorV1)
+    (h0 : encode v0 = .error error) :
+    encodeArray encode #[v0, v1, v2, v3, v4] = .error error := by
+  simp [encodeArray, show 5 ≤ maxArrayElements by decide, encodeNatAsU32le,
+    encodeArrayChunksV1, h0]
+  rfl
+
+theorem encodeArray_five_error_secondV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 v3 v4 : α) (b0 : ByteArray) (error : SemanticWireErrorV1)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .error error) :
+    encodeArray encode #[v0, v1, v2, v3, v4] = .error error := by
+  simp [encodeArray, show 5 ≤ maxArrayElements by decide, encodeNatAsU32le,
+    encodeArrayChunksV1, h0, h1]
+  rfl
+
+theorem encodeArray_five_error_thirdV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 v3 v4 : α) (b0 b1 : ByteArray) (error : SemanticWireErrorV1)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .ok b1)
+    (h2 : encode v2 = .error error) :
+    encodeArray encode #[v0, v1, v2, v3, v4] = .error error := by
+  simp [encodeArray, show 5 ≤ maxArrayElements by decide, encodeNatAsU32le,
+    encodeArrayChunksV1, h0, h1, h2]
+  rfl
+
+theorem encodeArray_five_error_fourthV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 v3 v4 : α) (b0 b1 b2 : ByteArray) (error : SemanticWireErrorV1)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .ok b1)
+    (h2 : encode v2 = .ok b2) (h3 : encode v3 = .error error) :
+    encodeArray encode #[v0, v1, v2, v3, v4] = .error error := by
+  simp [encodeArray, show 5 ≤ maxArrayElements by decide, encodeNatAsU32le,
+    encodeArrayChunksV1, h0, h1, h2, h3]
+  rfl
+
+theorem encodeArray_five_error_fifthV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 v3 v4 : α) (b0 b1 b2 b3 : ByteArray)
+    (error : SemanticWireErrorV1)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .ok b1)
+    (h2 : encode v2 = .ok b2) (h3 : encode v3 = .ok b3)
+    (h4 : encode v4 = .error error) :
+    encodeArray encode #[v0, v1, v2, v3, v4] = .error error := by
+  simp [encodeArray, show 5 ≤ maxArrayElements by decide, encodeNatAsU32le,
+    encodeArrayChunksV1, h0, h1, h2, h3, h4]
+  rfl
+
 /-- Parametric list induction: every element encodes ⇒ chunk concat succeeds. -/
 theorem encodeArrayChunksV1_ok_of_forall
     (encode : α → Except SemanticWireErrorV1 ByteArray)
@@ -2116,7 +2234,7 @@ def encodeBinaryOpV1 : BinaryOpV1 → Except SemanticWireErrorV1 ByteArray
   | .shl => encodeNullary "Binary.Shl"
   | .shr => encodeNullary "Binary.Shr"
 
-def decodeBinaryOpV1 : Decoder BinaryOpV1 := withTaggedNesting fun c => do
+def decodeBinaryOpBodyV1 : Decoder BinaryOpV1 := fun c => do
   let (tag, c) ← decodeTag c
   let ((), c) ← decodeFieldCount 0 c
   match tag with
@@ -2139,6 +2257,17 @@ def decodeBinaryOpV1 : Decoder BinaryOpV1 := withTaggedNesting fun c => do
   | "Binary.Shl" => pure (.shl, c)
   | "Binary.Shr" => pure (.shr, c)
   | _ => err .badTag
+
+def decodeBinaryOpV1 : Decoder BinaryOpV1 :=
+  withTaggedNesting decodeBinaryOpBodyV1
+
+/-- Compose a successful BinaryOp body through tagged nesting. -/
+theorem decodeBinaryOpV1_eq_of_bodyV1 (c : Cursor) (op : BinaryOpV1)
+    (c' : Cursor) (hdepth : c.nesting < maxNesting)
+    (hbody : decodeBinaryOpBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ = .ok (op, c')) :
+    decodeBinaryOpV1 c = .ok (op, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeBinaryOpV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
 def encodeValueIdArray (args : Array ValueIdV1) : Except SemanticWireErrorV1 ByteArray :=
   encodeArray (fun id => pure (encodeU32le id)) args
@@ -2339,6 +2468,30 @@ theorem decodeSemanticOpBodyV1_literal
       .ok (valueBytes, afterBytes)) :
     decodeSemanticOpBodyV1 c = .ok (.literal typeId valueBytes, afterBytes) := by
   simp only [decodeSemanticOpBodyV1, htag, hfields, htype, hbytes, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- StateStore branch through the actual production field decoders. -/
+theorem decodeSemanticOpBodyV1_stateStore
+    (c afterTag afterFields afterState afterValue : Cursor) (stateId value : UInt32)
+    (htag : decodeTag c = .ok ("Op.StateStore", afterTag))
+    (hfields : decodeFieldCount 2 afterTag = .ok ((), afterFields))
+    (hstate : decodeU32le afterFields = .ok (stateId, afterState))
+    (hvalue : decodeU32le afterState = .ok (value, afterValue)) :
+    decodeSemanticOpBodyV1 c = .ok (.stateStore stateId value, afterValue) := by
+  simp only [decodeSemanticOpBodyV1, htag, hfields, hstate, hvalue, Bind.bind, Pure.pure,
+    Except.bind, Except.pure]
+
+/-- Binary branch through the actual production operator and operand decoders. -/
+theorem decodeSemanticOpBodyV1_binary
+    (c afterTag afterFields afterOp afterLhs afterRhs : Cursor) (op : BinaryOpV1)
+    (lhs rhs : UInt32)
+    (htag : decodeTag c = .ok ("Op.Binary", afterTag))
+    (hfields : decodeFieldCount 3 afterTag = .ok ((), afterFields))
+    (hop : decodeBinaryOpV1 afterFields = .ok (op, afterOp))
+    (hlhs : decodeU32le afterOp = .ok (lhs, afterLhs))
+    (hrhs : decodeU32le afterLhs = .ok (rhs, afterRhs)) :
+    decodeSemanticOpBodyV1 c = .ok (.binary op lhs rhs, afterRhs) := by
+  simp only [decodeSemanticOpBodyV1, htag, hfields, hop, hlhs, hrhs, Bind.bind, Pure.pure,
     Except.bind, Except.pure]
 
 /-- PureCall branch through the actual production field and bounded-array decoders. -/

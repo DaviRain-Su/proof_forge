@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # TON engineering @ton/sandbox runtime differential (TON-3):
-#   product CLI build → Counter.compiled.boc + EventFlowTon.compiled.boc
+#   product CLI build → StateCell.compiled.boc + EventFlowTon.compiled.boc
 #   → npm ci → node --test under runtime-tests/ton
 #
-# Covers Counter init/increment/get/overflow + EventFlowTon emit/Cap revert
+# Covers StateCell init/increment/get/overflow + EventFlowTon emit/Cap revert
 # + ScheduleFlow createMessage schedule shape under @ton/sandbox 0.44.0
 # (local TVM emulator).
 #
@@ -115,7 +115,7 @@ crate_dir="$root/runtime-tests/ton"
 
 # Product example + local fixtures (source stem == program name == artifact stem).
 programs=(
-  "Examples/Counter.lean:Examples.Counter:Counter"
+  "Examples/StateCell.lean:Examples.StateCell:StateCell"
   "runtime-tests/ton/fixtures/EventFlowTon.lean:Examples.EventFlowTon:EventFlowTon"
   "runtime-tests/ton/fixtures/ScheduleFlow.lean:Examples.ScheduleFlow:ScheduleFlow"
 )

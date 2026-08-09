@@ -2314,7 +2314,7 @@ private def logicalStateBytesEq (a b : LogicalStateV1) : Bool :=
 /-- Gate after shape check: lifecycle candidates still subject to response
     exhaustion; only invalidInvocation bypasses the cursor.
 
-    Public for L1 preservation step packing (EvenCounter and later instances);
+    Public for contract-agnostic L1 preservation step packaging;
     sole production authority remains `stepReferenceSliceV1`. -/
 inductive InvocationGateV1 where
   | invalidInvocation
@@ -3242,7 +3242,7 @@ theorem leBytesToNatV1_two8BytesV1 :
     leBytesToNatV1 two8BytesV1 = 2 := by
   simpa [two8BytesV1, leBytesToNatV1] using leBytesToNat_two8
 
-/-! ### UInt64 parity invariant micro-path (EvenCounter base) -/
+/-! ### UInt64 parity invariant micro-path -/
 
 private theorem envSet_of_lt
     (env : Array (Option ReferenceValueV1)) (vid : ValueIdV1)
@@ -4836,7 +4836,7 @@ theorem runInvariantCallableV1_eq_returnedTrue_of_single_nullary_pureCall_true
   simp [hrootBlocks, hrootResult, isUnitType, shapeOf, htype, execTerminator,
     envGet, valueCanonical, hcanonical, htrueBytes]
 
-/-! ### EvenCounter step returned-branch: parity preservation -/
+/-! ### Increment-by-two returned branch: parity preservation -/
 
 private theorem finalizeLifecycle_not_returned
     (pre : LogicalStateV1) (responses : ExternalResponsesV1)
@@ -6605,7 +6605,7 @@ theorem stepReferenceSliceV1_ready_increment_overflow_not_returned
   exact hfin_ne hstep
 
 
-/-! ### ZeroCounter micro-paths (UInt64 eq-zero invariant + clear store-zero entry)
+/-! ### UInt64 equality-to-zero and store-zero micro-paths
 
     Second L1 instance packaging. Sole production step/runInvariant machine;
     not a second evaluator.

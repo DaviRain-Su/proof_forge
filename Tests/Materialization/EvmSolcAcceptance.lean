@@ -16,7 +16,7 @@
   Not formal TASK-D4-04 / hermetic tool lock / Anvil differential.
 -/
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
@@ -264,8 +264,8 @@ unsafe def run : IO Unit := do
       if ← tmp.pathExists then IO.FS.removeDirAll tmp
       IO.FS.createDirAll tmp
       try
-        acceptProgram solc tmp "Counter"
-          Examples.counterSourceText Examples.counterModuleNameV1 "Counter.yul"
+        acceptProgram solc tmp "StateCell"
+          Examples.stateCellSourceText Examples.stateCellModuleNameV1 "StateCell.yul"
         acceptProgram solc tmp "PointBox"
           pointBoxSourceText "Tests.EvmSolc.PointBox" "PointBox.yul"
         acceptProgram solc tmp "FieldLane"

@@ -13,7 +13,7 @@
 import ProofForgeV2
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.CLI.Main
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Materialization.EngineeringFinalizationV1
 import ProofForgeV2.Materialization.LockedToolchainV1
@@ -63,12 +63,12 @@ private def accumulatorSourceTextV1 : String :=
 
 private def accumulatorModuleNameV1 : String := "Examples.Accumulator"
 
-private unsafe def compileCounter : IO CompiledSemanticV1 := do
+private unsafe def compileStateCell : IO CompiledSemanticV1 := do
   let session ← Tests.Language.ParserSession.shared
-  let source ← liftResult "load Counter" (← session.selectProgramV1
-    Examples.counterSourceText "<finalization-counter>"
-    Examples.counterModuleNameV1 none)
-  liftResult "compile Counter" (Compiler.compileValidatedSourceV1 source)
+  let source ← liftResult "load StateCell" (← session.selectProgramV1
+    Examples.stateCellSourceText "<finalization-stateCell>"
+    Examples.stateCellModuleNameV1 none)
+  liftResult "compile StateCell" (Compiler.compileValidatedSourceV1 source)
 
 private unsafe def compileAccumulator : IO CompiledSemanticV1 := do
   let session ← Tests.Language.ParserSession.shared
@@ -101,7 +101,7 @@ private def expectIoErrorContains (label needle : String) (act : IO Unit) : IO U
 
 /-- Sole mint + capability/artifact binding positives/negatives. -/
 private unsafe def testSoleMintBinding : IO Unit := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let artifactName := CompiledSemanticV1.artifactProgramNameOf compiled
   let sourceDigest := CompiledSemanticV1.sourceDigestOf compiled
   let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
@@ -133,7 +133,7 @@ private unsafe def testSoleMintBinding : IO Unit := do
   -- Extra path collision with base → reject.
   let collide : EngineeringFinalizationDraftV1 := {
     deployable := false
-    extraFiles := #["Counter.s"]
+    extraFiles := #["StateCell.s"]
     evidenceNote := testDraftNote
   }
   match mintFinalizedArtifactsV1 capability artifacts collide with
@@ -153,7 +153,7 @@ private unsafe def testSoleMintBinding : IO Unit := do
   -- Duplicate extras → reject.
   let dupExtra : EngineeringFinalizationDraftV1 := {
     deployable := true
-    extraFiles := #["Counter.bin", "Counter.bin"]
+    extraFiles := #["StateCell.bin", "StateCell.bin"]
     evidenceNote := "x"
   }
   match mintFinalizedArtifactsV1 capability artifacts dupExtra with
@@ -172,14 +172,14 @@ private unsafe def testSoleMintBinding : IO Unit := do
       MaterializedArtifactsV1.sourceDigestOf artifacts == sourceDigest &&
       MaterializedArtifactsV1.semanticDigestOf artifacts == semanticDigest)
     "materialized carrier must preserve compiled semantic identity"
-  -- Same-target identity gates: Counter artifacts + Accumulator capability.
+  -- Same-target identity gates: StateCell artifacts + Accumulator capability.
   let accCompiled ← compileAccumulator
   expect (CompiledSemanticV1.artifactProgramNameOf accCompiled != artifactName)
-    "Accumulator name diverges from Counter"
+    "Accumulator name diverges from StateCell"
   expect (CompiledSemanticV1.sourceDigestOf accCompiled != sourceDigest)
-    "Accumulator source digest diverges from Counter"
+    "Accumulator source digest diverges from StateCell"
   expect (CompiledSemanticV1.semanticDigestOf accCompiled != semanticDigest)
-    "Accumulator semantic digest diverges from Counter"
+    "Accumulator semantic digest diverges from StateCell"
   let accSel ← liftResult "select solana acc" (resolveBuildSelectionV1 TargetId.solana none)
   let accCap ← liftResult "resolve solana acc"
     (Targets.resolveEngineeringRequirementsV1 accSel accCompiled)
@@ -196,35 +196,35 @@ private unsafe def testSoleMintBinding : IO Unit := do
   -- Publisher dual-defense extras (would catch mint skip of path uniqueness).
   let basePaths := (MaterializedArtifactsV1.filesOf artifacts).map (·.path)
   expectIoErrorContains "publisher collide base" "PF-OUTPUT-PATH" do
-    ProofForgeV2.CLI.validateFinalizedExtraPathsForPublishV1 basePaths #["Counter.s"]
+    ProofForgeV2.CLI.validateFinalizedExtraPathsForPublishV1 basePaths #["StateCell.s"]
   expectIoErrorContains "publisher unsafe" "PF-OUTPUT-PATH" do
     ProofForgeV2.CLI.validateFinalizedExtraPathsForPublishV1 basePaths #["../escape.bin"]
   expectIoErrorContains "publisher dup extra" "PF-OUTPUT-PATH" do
     ProofForgeV2.CLI.validateFinalizedExtraPathsForPublishV1 basePaths #["extra.bin", "extra.bin"]
   -- Happy path dual-defense accepts safe unique extras.
-  ProofForgeV2.CLI.validateFinalizedExtraPathsForPublishV1 basePaths #["Counter.bin"]
+  ProofForgeV2.CLI.validateFinalizedExtraPathsForPublishV1 basePaths #["StateCell.bin"]
 
 /-- Pre-IO bind: mismatched capability/artifacts fail before tool invocation. -/
 private unsafe def testPreIoBindBeforeTools : IO Unit := do
-  let counter ← compileCounter
+  let stateCell ← compileStateCell
   let accumulator ← compileAccumulator
-  let counterSel ← liftResult "select evm counter"
+  let stateCellSel ← liftResult "select evm stateCell"
     (resolveBuildSelectionV1 TargetId.evm none)
-  let counterCap ← liftResult "resolve evm counter"
-    (Targets.resolveEngineeringRequirementsV1 counterSel counter)
-  let counterArtifacts ← materializeOk "mat counter evm" counterCap
+  let stateCellCap ← liftResult "resolve evm stateCell"
+    (Targets.resolveEngineeringRequirementsV1 stateCellSel stateCell)
+  let stateCellArtifacts ← materializeOk "mat stateCell evm" stateCellCap
   let accSel ← liftResult "select evm acc" (resolveBuildSelectionV1 TargetId.evm none)
   let accCap ← liftResult "resolve evm acc"
     (Targets.resolveEngineeringRequirementsV1 accSel accumulator)
   -- Pre-IO compiled identity bind must fail before writing extras.
-  -- (If tools ran first with valid Counter.yul, solc would write Counter.bin.)
+  -- (If tools ran first with valid StateCell.yul, solc would write StateCell.bin.)
   let staging := FilePath.mk "build/v2/finalization-preio-bind"
   if ← staging.pathExists then IO.FS.removeDirAll staging
   IO.FS.createDirAll staging
-  for f in MaterializedArtifactsV1.filesOf counterArtifacts do
+  for f in MaterializedArtifactsV1.filesOf stateCellArtifacts do
     IO.FS.writeFile (staging / f.path) f.contents
   try
-    let _ ← Targets.finalizeMaterializedArtifactsV1 accCap counterArtifacts staging
+    let _ ← Targets.finalizeMaterializedArtifactsV1 accCap stateCellArtifacts staging
     throw <| IO.userError "mismatched program pair must fail finalize pre-IO"
   catch e =>
     let msg := toString e
@@ -237,7 +237,7 @@ private unsafe def testPreIoBindBeforeTools : IO Unit := do
       s!"pre-IO bind must not invoke tools (TOOLCHAIN-MISMATCH):\n{msg}"
     expect ((msg.splitOn "PF-SRC-INVALID").length > 1)
       s!"pre-IO bind must surface compiled identity failure:\n{msg}"
-    expect (!(← (staging / "Counter.bin").pathExists))
+    expect (!(← (staging / "StateCell.bin").pathExists))
       "pre-IO bind failure must not write .bin extra"
 
 /-- Hermetic PF-ARTIFACT-NONDEPLOYABLE gates (empty solc bytecode + bad Wasm). -/
@@ -252,28 +252,28 @@ private unsafe def testNonDeployablePhases : IO Unit := do
   if ← staging.pathExists then IO.FS.removeDirAll staging
   IO.FS.createDirAll staging
   expectIoErrorContains "missing wasm" "PF-ARTIFACT-NONDEPLOYABLE" do
-    Targets.Near.FinalizeV1.requireDeployableWasmArtifact (staging / "Counter.wasm")
+    Targets.Near.FinalizeV1.requireDeployableWasmArtifact (staging / "StateCell.wasm")
   -- Non-file (directory) Wasm path.
-  IO.FS.createDirAll (staging / "Counter.wasm")
+  IO.FS.createDirAll (staging / "StateCell.wasm")
   expectIoErrorContains "wasm dir not file" "PF-ARTIFACT-NONDEPLOYABLE" do
-    Targets.Near.FinalizeV1.requireDeployableWasmArtifact (staging / "Counter.wasm")
-  IO.FS.removeDirAll (staging / "Counter.wasm")
+    Targets.Near.FinalizeV1.requireDeployableWasmArtifact (staging / "StateCell.wasm")
+  IO.FS.removeDirAll (staging / "StateCell.wasm")
   -- Invalid Wasm header (too short / wrong magic).
-  IO.FS.writeBinFile (staging / "Counter.wasm") (ByteArray.mk #[0x00, 0x01, 0x02, 0x03])
+  IO.FS.writeBinFile (staging / "StateCell.wasm") (ByteArray.mk #[0x00, 0x01, 0x02, 0x03])
   expectIoErrorContains "bad wasm header" "PF-ARTIFACT-NONDEPLOYABLE" do
-    Targets.Near.FinalizeV1.requireDeployableWasmArtifact (staging / "Counter.wasm")
+    Targets.Near.FinalizeV1.requireDeployableWasmArtifact (staging / "StateCell.wasm")
   expectIoErrorContains "bad wasm magic bytes" "PF-ARTIFACT-NONDEPLOYABLE" do
     Targets.Near.FinalizeV1.requireValidWasmHeader (ByteArray.mk #[0x00, 0x61, 0x73, 0x6d])
   -- Valid minimal header accepts.
   let validHeader := ByteArray.mk #[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
   Targets.Near.FinalizeV1.requireValidWasmHeader validHeader
-  IO.FS.writeBinFile (staging / "Counter.wasm") validHeader
-  Targets.Near.FinalizeV1.requireDeployableWasmArtifact (staging / "Counter.wasm")
+  IO.FS.writeBinFile (staging / "StateCell.wasm") validHeader
+  Targets.Near.FinalizeV1.requireDeployableWasmArtifact (staging / "StateCell.wasm")
 
 /-- Exact finalization paths/deployable/evidence notes via the product path. -/
 private unsafe def testFourTargetFinalization : IO Unit := do
-  let compiled ← compileCounter
-  let sourceHash ← liftResult "derive Counter source hash"
+  let compiled ← compileStateCell
+  let sourceHash ← liftResult "derive StateCell source hash"
     (CompiledSemanticV1.artifactSourceHashHexOf compiled)
   -- Solana: sole CPI-ELF rail finalizes with locked sbpf and publishes .so.
   do
@@ -290,10 +290,10 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     for f in baseFiles do
       let disk ← IO.FS.readFile (outDir / f.path)
       expect (disk == f.contents) s!"solana base byte preservation {f.path}"
-    let soBytes ← IO.FS.readBinFile (outDir / "Counter.so")
-    expect (!soBytes.isEmpty) "solana locked sbpf must publish nonempty Counter.so"
-    expect (!(← (outDir / "Counter.bin").pathExists)) "solana no EVM .bin"
-    expect (!(← (outDir / "Counter.wasm").pathExists)) "solana no Wasm artifact"
+    let soBytes ← IO.FS.readBinFile (outDir / "StateCell.so")
+    expect (!soBytes.isEmpty) "solana locked sbpf must publish nonempty StateCell.so"
+    expect (!(← (outDir / "StateCell.bin").pathExists)) "solana no EVM .bin"
+    expect (!(← (outDir / "StateCell.wasm").pathExists)) "solana no Wasm artifact"
     let evidence ← IO.FS.readFile (outDir / "evidence.json")
     expect ((evidence.splitOn solanaProductNotePrefix).length > 1 &&
         (evidence.splitOn "profile=solana-sbpf-cpi-elf-v1").length > 1 &&
@@ -303,11 +303,11 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     let manifest ← IO.FS.readFile (outDir / "manifest.json")
     expect ((manifest.splitOn "\"deployable\": true").length > 1)
       "solana manifest deployable"
-    expect ((manifest.splitOn "\"path\": \"Counter.s\"").length > 1)
+    expect ((manifest.splitOn "\"path\": \"StateCell.s\"").length > 1)
       "solana base in manifest"
-    expect ((manifest.splitOn "\"path\": \"Counter.so\"").length > 1 &&
+    expect ((manifest.splitOn "\"path\": \"StateCell.so\"").length > 1 &&
         (manifest.splitOn "\"role\": \"finalized-extra\"").length > 1)
-      "solana manifest binds Counter.so as finalized extra"
+      "solana manifest binds StateCell.so as finalized extra"
   -- Noir: zero-tool product emit.
   do
     let selection ← liftResult "select noir" (resolveBuildSelectionV1 TargetId.noir none)
@@ -335,7 +335,7 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     let artifacts ← materializeOk "mat aleo" capability
     let baseFiles := MaterializedArtifactsV1.filesOf artifacts
     expect (baseFiles.map (·.path) ==
-        #["counter.aleo", "counter.aleo-query-contract.json"])
+        #["statecell.aleo", "statecell.aleo-query-contract.json"])
       s!"aleo base paths, got {baseFiles.map (·.path)}"
     expect (baseFiles[0]!.mediaType == "text/plain" &&
         baseFiles[1]!.mediaType == "application/json")
@@ -348,11 +348,11 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     for f in baseFiles do
       let disk ← IO.FS.readFile (outDir / f.path)
       expect (disk == f.contents) s!"aleo base byte preservation {f.path}"
-    expect (!(← (outDir / "Counter.wasm").pathExists)) "aleo no compiled wasm"
-    expect (!(← (outDir / "counter.wasm").pathExists)) "aleo no lowercase wasm extra"
+    expect (!(← (outDir / "StateCell.wasm").pathExists)) "aleo no compiled wasm"
+    expect (!(← (outDir / "statecell.wasm").pathExists)) "aleo no lowercase wasm extra"
     -- Zero-tool finalize: no finalized-extra siblings beyond the two base files
     -- + transitional sidecars.
-    expect (!(← (outDir / "counter.bin").pathExists)) "aleo no .bin extra"
+    expect (!(← (outDir / "statecell.bin").pathExists)) "aleo no .bin extra"
     let evidence ← IO.FS.readFile (outDir / "evidence.json")
     expect ((evidence.splitOn aleoNote).length > 1) "aleo exact zero-tool note on disk"
     expect ((evidence.splitOn "no approved and digest-pinned Leo compiler").length == 1)
@@ -360,13 +360,14 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     let manifest ← IO.FS.readFile (outDir / "manifest.json")
     expect ((manifest.splitOn "\"deployable\": false").length > 1)
       "aleo manifest non-deployable"
-    expect ((manifest.splitOn "counter.aleo").length > 1) "aleo primary Instructions base in manifest"
-    let primaryDisk ← IO.FS.readFile (outDir / "counter.aleo")
-    expect (primaryDisk.contains "program counter.aleo;")
+    expect ((manifest.splitOn "statecell.aleo").length > 1)
+      "aleo primary Instructions base in manifest"
+    let primaryDisk ← IO.FS.readFile (outDir / "statecell.aleo")
+    expect (primaryDisk.contains "program statecell.aleo;")
       "aleo zero-tool primary is Instructions text"
-    expect (!primaryDisk.contains "program counter.aleo {")
+    expect (!primaryDisk.contains "program statecell.aleo {")
       "aleo zero-tool primary is not Leo brace source"
-    expect ((manifest.splitOn "counter.aleo-query-contract.json").length > 1)
+    expect ((manifest.splitOn "statecell.aleo-query-contract.json").length > 1)
       "aleo query-contract base in manifest"
   -- EVM: real solc .bin extra + base preservation.
   do
@@ -375,7 +376,7 @@ private unsafe def testFourTargetFinalization : IO Unit := do
       (Targets.resolveEngineeringRequirementsV1 selection compiled)
     let artifacts ← materializeOk "mat evm" capability
     let baseFiles := MaterializedArtifactsV1.filesOf artifacts
-    expect (baseFiles.map (·.path) == #["Counter.yul", "Counter.abi.json"])
+    expect (baseFiles.map (·.path) == #["StateCell.yul", "StateCell.abi.json"])
       "evm base paths"
     let outDir := FilePath.mk "build/v2/finalization-evm"
     if ← outDir.pathExists then IO.FS.removeDirAll outDir
@@ -384,8 +385,8 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     for f in baseFiles do
       let disk ← IO.FS.readFile (outDir / f.path)
       expect (disk == f.contents) s!"evm base byte preservation {f.path}"
-    let binPath := outDir / "Counter.bin"
-    expect (← binPath.pathExists) "evm writes Counter.bin"
+    let binPath := outDir / "StateCell.bin"
+    expect (← binPath.pathExists) "evm writes StateCell.bin"
     let bin ← IO.FS.readFile binPath
     expect (!bin.isEmpty && bin.endsWith "\n") "evm .bin nonempty trailing newline"
     let hexBody := if bin.endsWith "\n" then bin.dropEnd 1 |>.copy else bin
@@ -398,7 +399,7 @@ private unsafe def testFourTargetFinalization : IO Unit := do
       "evm evidence success phrase"
     let manifest ← IO.FS.readFile (outDir / "manifest.json")
     expect ((manifest.splitOn "\"deployable\": true").length > 1) "evm manifest deployable"
-    expect ((manifest.splitOn "Counter.bin").length > 1) "evm manifest includes .bin"
+    expect ((manifest.splitOn "StateCell.bin").length > 1) "evm manifest includes .bin"
     expect ((manifest.splitOn sourceHash).length > 1) "evm manifest sourceHash"
   -- NEAR: real wat2wasm .wasm + base wat preservation.
   do
@@ -407,7 +408,7 @@ private unsafe def testFourTargetFinalization : IO Unit := do
       (Targets.resolveEngineeringRequirementsV1 selection compiled)
     let artifacts ← materializeOk "mat near" capability
     let baseFiles := MaterializedArtifactsV1.filesOf artifacts
-    expect (baseFiles.map (·.path) == #["Counter.wat", "Counter.near-abi.json"])
+    expect (baseFiles.map (·.path) == #["StateCell.wat", "StateCell.near-abi.json"])
       "near base paths"
     let outDir := FilePath.mk "build/v2/finalization-near"
     if ← outDir.pathExists then IO.FS.removeDirAll outDir
@@ -416,8 +417,8 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     for f in baseFiles do
       let disk ← IO.FS.readFile (outDir / f.path)
       expect (disk == f.contents) s!"near base byte preservation {f.path}"
-    let wasmPath := outDir / "Counter.wasm"
-    expect (← wasmPath.pathExists) "near writes Counter.wasm"
+    let wasmPath := outDir / "StateCell.wasm"
+    expect (← wasmPath.pathExists) "near writes StateCell.wasm"
     let wasm ← IO.FS.readBinFile wasmPath
     expect (wasm.size >= 8 && wasm[0]! == 0x00 && wasm[1]! == 0x61 &&
         wasm[2]! == 0x73 && wasm[3]! == 0x6d && wasm[4]! == 0x01 &&
@@ -428,7 +429,7 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     expect ((evidence.splitOn "runtime remains separate").length > 1)
       "near evidence runtime phrase"
     let manifest ← IO.FS.readFile (outDir / "manifest.json")
-    expect ((manifest.splitOn "Counter.wasm").length > 1) "near manifest includes .wasm"
+    expect ((manifest.splitOn "StateCell.wasm").length > 1) "near manifest includes .wasm"
 
 /-- Spawn product CLI with an isolated tool-root override (no process-global setEnv). -/
 private def runProductCliWithToolRoot (toolRoot : String) (args : Array String) :
@@ -448,7 +449,7 @@ private unsafe def testToolFailureZeroPublish : IO Unit := do
   let outDir := FilePath.mk "build/v2/finalization-tool-fail"
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
   let result ← runProductCliWithToolRoot "/definitely/missing-s7b-tool-root" #[
-    "build", "Examples/Counter.lean", "--module", "Examples.Counter",
+    "build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
     "--target", "evm", "-o", outDir.toString
   ]
   expect (result.exitCode != 0) "missing solc must fail closed"
@@ -463,7 +464,7 @@ private unsafe def testNearToolFailureZeroPublish : IO Unit := do
   let outDir := FilePath.mk "build/v2/finalization-near-tool-fail"
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
   let result ← runProductCliWithToolRoot "/definitely/missing-s7b-near-tool-root" #[
-    "build", "Examples/Counter.lean", "--module", "Examples.Counter",
+    "build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
     "--target", "near", "-o", outDir.toString
   ]
   expect (result.exitCode != 0) "missing wat2wasm must fail closed"
@@ -473,7 +474,7 @@ private unsafe def testNearToolFailureZeroPublish : IO Unit := do
     s!"missing wat2wasm must surface toolchain diagnostic:\n{combined}"
   expect (!(← outDir.pathExists)) "NEAR tool failure must not publish"
   -- EVM product path still works with normal tool root (no weakening).
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let evmSel ← liftResult "select evm restore" (resolveBuildSelectionV1 TargetId.evm none)
   let evmCap ← liftResult "resolve evm restore"
     (Targets.resolveEngineeringRequirementsV1 evmSel compiled)
@@ -481,7 +482,7 @@ private unsafe def testNearToolFailureZeroPublish : IO Unit := do
   if ← evmOut.pathExists then IO.FS.removeDirAll evmOut
   let receipt ← ProofForgeV2.CLI.emitProgram evmCap evmOut
   expect (receipt.deployable == true) "EVM still deployable after NEAR tool-fail case"
-  expect (← (evmOut / "Counter.bin").pathExists) "EVM still emits .bin"
+  expect (← (evmOut / "StateCell.bin").pathExists) "EVM still emits .bin"
 
 /-- CLI authority deletion pins (source + Environment). -/
 private unsafe def testCliAuthorityDeletion : IO Unit := do

@@ -7,12 +7,12 @@ import ProofForgeV2.Semantic.WireV1
 
   Product elaborator emits:
     * `subjectDataV1 : SemanticProgramDataV1` — structured constructor spine
-    * `subjectBytesV1 : ByteArray` — certifier identity (pin or transparent spine)
+    * `subjectBytesV1 : ByteArray` — exact transparent certifier identity
     * `subjectProgramV1 : SemanticProgramV1` — `{ canonicalBytes := subjectBytesV1 }`
 
   Authors should prove shape / preservation facts on `subjectDataV1` (and
   shape-family theorems in `PreservationShapeV1`), not by reducing large
-  `subjectBytesV1` spines. Pin remains an optional golden accelerator only.
+  `subjectBytesV1` spines or importing contract-specific byte goldens.
 
   Sole encode authority: `encodeSemanticProgramDataV1`. No second State/Effect/
   step. No contract-specific content.

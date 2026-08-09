@@ -7,9 +7,9 @@
     * usage/config: exit 2 (missing --module, unknown command, unknown --target);
       no diagnostic code invention (no PF-CLI-USAGE / PF-TARGET-UNKNOWN as exception)
     * parser/source boundary: exit 3
-    * Counter `build` success: exit 0 + success stdout, no failure artifacts
+    * StateCell `build` success: exit 0 + success stdout, no failure artifacts
     * C1: `check` ok/fail, `inspect` digests, `--json` PF-JCS, `--profile` selection
-    * inspect-output: build Counter → inspect dir (human + --json + --output-dir);
+    * inspect-output: build StateCell → inspect dir (human + --json + --output-dir);
       missing/tampered manifest/evidence fail closed with PF-OUTPUT-MANIFEST exit 6
 -/
 import ProofForgeV2.Core.Common
@@ -116,7 +116,7 @@ private def testMultiErrorProductCli : IO Unit := do
 private def testUsageExit2 : IO Unit := do
   let (ec, stdout, stderr) ← runCli #[
     "build",
-    "Examples/Counter.lean",
+    "Examples/StateCell.lean",
     "--target", "solana",
     "-o", "build/v2/module-required-diag"
   ]
@@ -141,7 +141,7 @@ private def testUnknownCommandExit2 : IO Unit := do
 private def testUnknownTargetExit2 : IO Unit := do
   let (ec, stdout, stderr) ← runCli #[
     "build",
-    "Examples/Counter.lean",
+    "Examples/StateCell.lean",
     "--module", "Root",
     "--target", "not-a-real-target",
     "-o", "build/v2/unknown-target-diag"
@@ -165,8 +165,8 @@ private def testLanguageVersionSelection : IO Unit := do
   if ← explicitOut.pathExists then IO.FS.removeDirAll explicitOut
   if ← unknownOut.pathExists then IO.FS.removeDirAll unknownOut
   let (explicitEc, explicitStdout, explicitStderr) ← runCli #[
-    "build", "Examples/Counter.lean",
-    "--module", "Examples.Counter",
+    "build", "Examples/StateCell.lean",
+    "--module", "Examples.StateCell",
     "--target", "solana",
     "--language-version", "1.0.0",
     "-o", explicitOut.toString
@@ -361,40 +361,40 @@ private def testSolanaCallsFailClosed : IO Unit := do
   if ← schedulePath.pathExists then IO.FS.removeFile schedulePath
   if ← unknownPath.pathExists then IO.FS.removeFile unknownPath
 
-private def testBuildCounterSuccess : IO Unit := do
-  let outDir := FilePath.mk "build/v2/diagnostic-build-counter-ok"
+private def testBuildStateCellSuccess : IO Unit := do
+  let outDir := FilePath.mk "build/v2/diagnostic-build-stateCell-ok"
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
   let (ec, stdout, stderr) ← runCli #[
     "build",
-    "Examples/Counter.lean",
-    "--module", "Examples.Counter",
+    "Examples/StateCell.lean",
+    "--module", "Examples.StateCell",
     "--target", "solana",
-    "-o", "build/v2/diagnostic-build-counter-ok"
+    "-o", "build/v2/diagnostic-build-stateCell-ok"
   ]
   expect (ec == 0)
-    s!"Counter build success must exit 0, got {ec}\nstderr={stderr}\nstdout={stdout}"
+    s!"StateCell build success must exit 0, got {ec}\nstderr={stderr}\nstdout={stdout}"
   expect (containsSubstr stdout "built target=solana profile=")
-    s!"Counter build success stdout missing, stdout={stdout}"
+    s!"StateCell build success stdout missing, stdout={stdout}"
   expect (containsSubstr stdout "deployable=")
-    s!"Counter build must report deployable, stdout={stdout}"
+    s!"StateCell build must report deployable, stdout={stdout}"
   expect (!containsSubstr stderr "PF-")
-    s!"Counter build success must not print product diagnostic codes on stderr, got:\n{stderr}"
+    s!"StateCell build success must not print product diagnostic codes on stderr, got:\n{stderr}"
   expect (!containsSubstr stderr "uncaught exception")
-    "Counter build success must not uncaught-exception"
+    "StateCell build success must not uncaught-exception"
   expect (← outDir.pathExists)
-    "Counter build success must create output directory"
+    "StateCell build success must create output directory"
 
 private def testCheckOkAndFail : IO Unit := do
   let (ec, stdout, stderr) ← runCli #[
     "check",
-    "Examples/Counter.lean",
-    "--module", "Examples.Counter"
+    "Examples/StateCell.lean",
+    "--module", "Examples.StateCell"
   ]
   expect (ec == 0)
-    s!"check Counter must exit 0, got {ec}\nstderr={stderr}\nstdout={stdout}"
+    s!"check StateCell must exit 0, got {ec}\nstderr={stderr}\nstdout={stdout}"
   expect (containsSubstr stdout "ok\n")
     s!"check ok line missing: {stdout}"
-  expect (containsSubstr stdout "program=Counter")
+  expect (containsSubstr stdout "program=StateCell")
     s!"check program missing: {stdout}"
   expect (containsSubstr stdout "semanticDigest=sha256:")
     s!"check semantic digest missing: {stdout}"
@@ -406,8 +406,8 @@ private def testCheckOkAndFail : IO Unit := do
     s!"check ok must be silent on stderr, got {stderr}"
   let (ec2, stdout2, stderr2) ← runCli #[
     "check",
-    "Examples/Counter.lean",
-    "--module", "Examples.Counter",
+    "Examples/StateCell.lean",
+    "--module", "Examples.StateCell",
     "--target", "solana"
   ]
   expect (ec2 == 0)
@@ -430,8 +430,8 @@ private def testCheckOkAndFail : IO Unit := do
     s!"check fail must surface PF-EFFECT-001:\n{stderr3}"
   let (ec4, _stdout4, stderr4) ← runCli #[
     "check",
-    "Examples/Counter.lean",
-    "--module", "Examples.Counter",
+    "Examples/StateCell.lean",
+    "--module", "Examples.StateCell",
     "-o", "build/v2/check-must-reject-output"
   ]
   expect (ec4 == 2)
@@ -484,8 +484,8 @@ private def testJsonSurface : IO Unit := do
   expect (containsSubstr stdout2 "\"registryRootDigest\":\"sha256:")
     s!"inspect json digest: {stdout2}"
   let (ec3, stdout3, stderr3) ← runCli #[
-    "check", "Examples/Counter.lean",
-    "--module", "Examples.Counter", "--json"
+    "check", "Examples/StateCell.lean",
+    "--module", "Examples.StateCell", "--json"
   ]
   expect (ec3 == 0)
     s!"check --json exit, got {ec3}\n{stderr3}"
@@ -497,8 +497,8 @@ private def testJsonSurface : IO Unit := do
   let outDir := FilePath.mk "build/v2/diagnostic-build-json-ok"
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
   let (ec4, stdout4, stderr4) ← runCli #[
-    "build", "Examples/Counter.lean",
-    "--module", "Examples.Counter",
+    "build", "Examples/StateCell.lean",
+    "--module", "Examples.StateCell",
     "--target", "solana",
     "-o", outDir.toString,
     "--json"
@@ -517,8 +517,8 @@ private def testProfileSelection : IO Unit := do
   let outDir := FilePath.mk "build/v2/diagnostic-profile-sbpf-elf"
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
   let (ec, stdout, stderr) ← runCli #[
-    "build", "Examples/Counter.lean",
-    "--module", "Examples.Counter",
+    "build", "Examples/StateCell.lean",
+    "--module", "Examples.StateCell",
     "--target", "solana",
     "--profile", "solana-sbpf-cpi-elf-v1",
     "-o", outDir.toString
@@ -533,32 +533,32 @@ private def testProfileSelection : IO Unit := do
   expect (containsSubstr manifest "solana-sbpf-cpi-elf-v1")
     s!"manifest must bind selected profile: {manifest}"
 
-  -- ADR-0032 U1 P4: Counter body-only admits on sole rail cpi-elf (no
+  -- ADR-0032 U1 P4: StateCell body-only admits on sole rail cpi-elf (no
   -- extension / sync / caller required). Deployable ELF + hybrid IR.
   let cpiOutDir := FilePath.mk "build/v2/diagnostic-profile-sbpf-cpi-body"
   if ← cpiOutDir.pathExists then IO.FS.removeDirAll cpiOutDir
   let (cpiEc, cpiStdout, cpiStderr) ← runCli #[
-    "build", "Examples/Counter.lean",
-    "--module", "Examples.Counter",
+    "build", "Examples/StateCell.lean",
+    "--module", "Examples.StateCell",
     "--target", "solana",
     "--profile", "solana-sbpf-cpi-elf-v1",
     "-o", cpiOutDir.toString
   ]
   expect (cpiEc == 0)
-    s!"Counter on cpi profile must succeed body-only, got {cpiEc}\n{cpiStderr}\n{cpiStdout}"
+    s!"StateCell on cpi profile must succeed body-only, got {cpiEc}\n{cpiStderr}\n{cpiStdout}"
   expect (containsSubstr cpiStdout "profile=solana-sbpf-cpi-elf-v1")
     s!"build must echo cpi profile: {cpiStdout}"
   expect (containsSubstr cpiStdout "deployable=true")
     s!"body-only cpi-elf must be deployable: {cpiStdout}"
-  unless ← (cpiOutDir / "Counter.so").pathExists do
-    throw <| IO.userError "Counter cpi body-only must write Counter.so"
-  let cpiIr ← IO.FS.readFile (cpiOutDir / "Counter.cpi-ir.json")
+  unless ← (cpiOutDir / "StateCell.so").pathExists do
+    throw <| IO.userError "StateCell cpi body-only must write StateCell.so"
+  let cpiIr ← IO.FS.readFile (cpiOutDir / "StateCell.cpi-ir.json")
   expect (containsSubstr cpiIr "p3c-zero-site" || containsSubstr cpiIr "zero-site")
     s!"body-only hybrid ir must mark zero-site, got={cpiIr}"
 
   let (ec2, _stdout2, stderr2) ← runCli #[
-    "check", "Examples/Counter.lean",
-    "--module", "Examples.Counter",
+    "check", "Examples/StateCell.lean",
+    "--module", "Examples.StateCell",
     "--profile", "solana-sbpf-cpi-elf-v1"
   ]
   expect (ec2 == 2)
@@ -566,23 +566,23 @@ private def testProfileSelection : IO Unit := do
   expect (containsSubstr stderr2 "--profile requires --target")
     s!"profile-requires-target message: {stderr2}"
   -- Deleted commands must fall through to usage.
-  let (ec3, _stdout3, stderr3) ← runCli #["build-counter", "--target", "solana"]
+  let (ec3, _stdout3, stderr3) ← runCli #["build-stateCell", "--target", "solana"]
   expect (ec3 == 2)
-    s!"deleted build-counter must exit 2, got {ec3}"
+    s!"deleted build-stateCell must exit 2, got {ec3}"
   expect (containsSubstr stderr3 "Usage:")
-    s!"deleted build-counter must print usage: {stderr3}"
+    s!"deleted build-stateCell must print usage: {stderr3}"
   let (ec4, _stdout4, stderr4) ← runCli #["describe-target", "evm"]
   expect (ec4 == 2)
     s!"deleted describe-target must exit 2, got {ec4}"
   expect (containsSubstr stderr4 "Usage:")
     s!"deleted describe-target must print usage: {stderr4}"
 
-/-- Build solana Counter fixture for inspect-output tests. -/
+/-- Build solana StateCell fixture for inspect-output tests. -/
 private def buildInspectOutputFixture (outDir : FilePath) : IO Unit := do
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
   let (buildEc, buildStdout, buildStderr) ← runCli #[
-    "build", "Examples/Counter.lean",
-    "--module", "Examples.Counter",
+    "build", "Examples/StateCell.lean",
+    "--module", "Examples.StateCell",
     "--target", "solana",
     "--profile", "solana-sbpf-cpi-elf-v1",
     "-o", outDir.toString
@@ -607,7 +607,7 @@ private def testInspectOutputDirPositive : IO Unit := do
     s!"inspect-output target: {stdout}"
   expect (containsSubstr stdout "codegenProfile=solana-sbpf-cpi-elf-v1\n")
     s!"inspect-output profile: {stdout}"
-  expect (containsSubstr stdout "artifactProgramName=Counter\n")
+  expect (containsSubstr stdout "artifactProgramName=StateCell\n")
     s!"inspect-output artifact name: {stdout}"
   expect (containsSubstr stdout "sourceHash=sha256:")
     s!"inspect-output sourceHash: {stdout}"
@@ -650,7 +650,7 @@ private def testInspectOutputDirPositive : IO Unit := do
     s!"inspect-output json target: {stdout4}"
   expect (containsSubstr stdout4 "\"codegenProfile\":\"solana-sbpf-cpi-elf-v1\"")
     s!"inspect-output json profile: {stdout4}"
-  expect (containsSubstr stdout4 "\"artifactProgramName\":\"Counter\"")
+  expect (containsSubstr stdout4 "\"artifactProgramName\":\"StateCell\"")
     s!"inspect-output json artifact: {stdout4}"
   expect (containsSubstr stdout4 "\"sourceHash\":\"sha256:")
     s!"inspect-output json sourceHash: {stdout4}"
@@ -754,8 +754,8 @@ private def testInspectOutputDirNegativesA : IO Unit := do
   expect (stdoutNote == "")
     "note tamper must not print success"
   IO.FS.writeFile (outDir / "evidence.json") originalEvidence
-  let artifactPath := outDir / "Counter.cpi-plan.json"
-  expect (← artifactPath.pathExists) "fixture must have Counter.cpi-plan.json"
+  let artifactPath := outDir / "StateCell.cpi-plan.json"
+  expect (← artifactPath.pathExists) "fixture must have StateCell.cpi-plan.json"
   let originalArtifact ← IO.FS.readFile artifactPath
   IO.FS.writeFile artifactPath (originalArtifact ++ "\n//tamper")
   let (ecArt, stdoutArt, stderrArt) ← runCli #["inspect", outDir.toString]
@@ -795,8 +795,8 @@ private def testInspectOutputDirNegativesB : IO Unit := do
   expect (stdoutNoEv == "")
     "missing evidence must not print success"
   IO.FS.writeFile (outDir / "evidence.json") originalEvidence
-  let idlPath := outDir / "Counter.idl.json"
-  expect (← idlPath.pathExists) "fixture must have Counter.idl.json"
+  let idlPath := outDir / "StateCell.idl.json"
+  expect (← idlPath.pathExists) "fixture must have StateCell.idl.json"
   let idlBytes ← IO.FS.readFile idlPath
   IO.FS.removeFile idlPath
   let (ecMissArt, stdoutMissArt, stderrMissArt) ← runCli #["inspect", outDir.toString]
@@ -804,7 +804,7 @@ private def testInspectOutputDirNegativesB : IO Unit := do
     s!"missing listed artifact must exit 6, got {ecMissArt}\n{stderrMissArt}"
   expect (containsSubstr stderrMissArt "PF-OUTPUT-MANIFEST:")
     s!"missing artifact prefix: {stderrMissArt}"
-  expect (containsSubstr stderrMissArt "Counter.idl.json" ||
+  expect (containsSubstr stderrMissArt "StateCell.idl.json" ||
       containsSubstr stderrMissArt "missing")
     s!"missing artifact message: {stderrMissArt}"
   expect (stdoutMissArt == "")
@@ -862,8 +862,8 @@ private def testInspectOutputDirNegativesB : IO Unit := do
     "size tamper must not print success"
   IO.FS.writeFile (outDir / "manifest.json") originalManifest
   let pathTampered :=
-    String.intercalate "\"path\": \"Counter.rogue\""
-      (originalManifest.splitOn "\"path\": \"Counter.idl.json\"")
+    String.intercalate "\"path\": \"StateCell.rogue\""
+      (originalManifest.splitOn "\"path\": \"StateCell.idl.json\"")
   expect (pathTampered != originalManifest)
     "path tamper must change text"
   IO.FS.writeFile (outDir / "manifest.json") pathTampered
@@ -879,7 +879,7 @@ private def testInspectOutputDirNegativesB : IO Unit := do
     "  \"schemaVersion\": \"proof-forge.output.v1\",\n" ++
     "  \"target\": \"solana\",\n" ++
     "  \"codegenProfile\": \"solana-sbpf-cpi-elf-v1\",\n" ++
-    "  \"artifactProgramName\": \"Counter\",\n" ++
+    "  \"artifactProgramName\": \"StateCell\",\n" ++
     "  \"sourceHash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
     "  \"semanticHash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
     "  \"buildIdentityDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
@@ -889,7 +889,7 @@ private def testInspectOutputDirNegativesB : IO Unit := do
     "  \"outputSetDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
     "  \"evidenceSha256\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
     "  \"deployable\": false,\n" ++
-    "  \"files\": [\"Counter.cpi-plan.json\",\"Counter.idl.json\"]\n" ++
+    "  \"files\": [\"StateCell.cpi-plan.json\",\"StateCell.idl.json\"]\n" ++
     "}\n"
   IO.FS.writeFile (outDir / "manifest.json") legacyManifest
   let (ecLegacy, stdoutLegacy, stderrLegacy) ← runCli #["inspect", outDir.toString]
@@ -920,7 +920,7 @@ unsafe def run : IO Unit := do
   testMultiErrorProductCli
   testParserBoundaryExit3
   testSolanaCallsFailClosed
-  testBuildCounterSuccess
+  testBuildStateCellSuccess
   testCheckOkAndFail
   testInspectDigests
   testJsonSurface

@@ -1,6 +1,6 @@
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.Crypto
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
@@ -1175,8 +1175,8 @@ private unsafe def testEmitRevertSemanticPlans : IO Unit := do
       bumpNr.contents.contains "assert(false)")
     "emit-revert Noir source must declare event slots and the inadmissible revert path"
 
-/-- ProgramV1 guarded-counter source text for the comparison+assert leaf. -/
-private def guardedCounterSourceTextV1 : String :=
+/-- ProgramV1 guarded-stateCell source text for the comparison+assert leaf. -/
+private def guardedStateCellSourceTextV1 : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
   "program Guarded where\n" ++
@@ -1191,12 +1191,12 @@ private def guardedCounterSourceTextV1 : String :=
   "    return count\n"
 
 /-- Four-target retained-V1 comparison+assert Plan/IR/emitter conformance for
-    the guarded counter: assert(ge) → checkedSub → return, with each target's
+    the guarded stateCell: assert(ge) → checkedSub → return, with each target's
     own assert failure rendering. -/
-private unsafe def testGuardedCounterSemanticPlans : IO Unit := do
+private unsafe def testGuardedStateCellSemanticPlans : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1
-    guardedCounterSourceTextV1 "<targets-guarded>" "Tests.Targets.Guarded" none)
+    guardedStateCellSourceTextV1 "<targets-guarded>" "Tests.Targets.Guarded" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
   let evm ← liftResult <| planEvm compiled
   let solana ← liftResult <| planSolana compiled
@@ -1481,7 +1481,7 @@ private unsafe def testForLoopSemanticPlans : IO Unit := do
         (.add (.temp 1) (.literal 1))
         #[.store { slot := 0, value := .checkedAdd (.storageLoad 0) (.temp 1) }],
       .returnValue (.storageLoad 0)])
-    "EVM addUp must lower let+for into forLoop with counter/maxIterations/init/cond/update/body"
+    "EVM addUp must lower let+for into forLoop with stateCell/maxIterations/init/cond/update/body"
   expect (solana.entries[0]!.body == #[
       .forLoop 1
         (.param 8)
@@ -1908,7 +1908,7 @@ unsafe def runSemanticPlanLeafFast : IO Unit := do
   testIntForMaterializationFailClosed
   testAnonymousResultMaterializationFailClosed
   testRichUInt64SemanticPlans
-  testGuardedCounterSemanticPlans
+  testGuardedStateCellSemanticPlans
   testBoolPredicateSemanticPlans
   testBranchingSemanticPlans
   testEmitRevertSemanticPlans
@@ -1984,18 +1984,18 @@ private def accumulatorPlanHashBaseline : String :=
 set_option maxRecDepth 10000 in
 unsafe def run : IO Unit := do
   runSemanticPlanLeafFast
-  -- Product path: real ValidatedSourceV1 Counter through the capability aggregate.
+  -- Product path: real ValidatedSourceV1 StateCell through the capability aggregate.
   -- All six target Plan bodies consume retained SemanticProgramV1; residual-only
   -- alpha fixtures (privateWitness/out-of-S1) cannot enter the shipped Plan surface.
   -- Host-model PrivateSum4 remains isolated test-local characterization, while
   -- capability Accumulator and rich Ledger cover production target consumers.
   let session ← Tests.Language.ParserSession.shared
-  let counterV1 ← liftResult (← session.selectProgramV1
-    Examples.counterSourceText "<targets-product-counter>"
-    Examples.counterModuleNameV1 none)
-  let counterCompiled ← liftResult <| Compiler.compileValidatedSourceV1 counterV1
-  let counterSourceDigest := CompiledSemanticV1.sourceDigestOf counterCompiled
-  let counterSemanticDigest := CompiledSemanticV1.semanticDigestOf counterCompiled
+  let stateCellV1 ← liftResult (← session.selectProgramV1
+    Examples.stateCellSourceText "<targets-product-stateCell>"
+    Examples.stateCellModuleNameV1 none)
+  let stateCellCompiled ← liftResult <| Compiler.compileValidatedSourceV1 stateCellV1
+  let stateCellSourceDigest := CompiledSemanticV1.sourceDigestOf stateCellCompiled
+  let stateCellSemanticDigest := CompiledSemanticV1.semanticDigestOf stateCellCompiled
   expect (Targets.Evm.Keccak.keccak256Hex ByteArray.empty ==
       "c5d2460186f7233c927e7db2dcc703c0e500b653ca82273b7bfad8045d85a470")
     "EVM selector hashing must use Ethereum Keccak-256, not SHA3-256"
@@ -2022,14 +2022,14 @@ unsafe def run : IO Unit := do
     "EVM selector hashing must absorb signatures longer than one Keccak rate block"
   -- Product aggregate: CompiledSemanticV1 only (no bare-alpha materializeResult).
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir] do
-    let output ← liftResult <| materializeSelected target counterCompiled
+    let output ← liftResult <| materializeSelected target stateCellCompiled
     expect (!(MaterializedArtifactsV1.filesOf output).isEmpty)
       s!"{target} must emit at least one artifact"
-    expect (MaterializedArtifactsV1.sourceDigestOf output == counterSourceDigest)
+    expect (MaterializedArtifactsV1.sourceDigestOf output == stateCellSourceDigest)
       "product carrier must bind the canonical ValidatedSourceV1 digest"
-    expect (MaterializedArtifactsV1.semanticDigestOf output == counterSemanticDigest)
+    expect (MaterializedArtifactsV1.semanticDigestOf output == stateCellSemanticDigest)
       "product carrier must bind the retained SemanticProgramV1 digest"
-  -- S6: alpha-direct materialize remains closed; product capability path covers Counter.
+  -- S6: alpha-direct materialize remains closed; product capability path covers StateCell.
   -- Current engineering capability claims / privateWitness inspection (not residual planFromAlpha).
   -- PrivateSum4 host accept/reject: Tests.Materialization.NoirRelationModel fixture.
   let privateWitnessReq : RequirementRequestV1 := {
@@ -2194,7 +2194,7 @@ unsafe def run : IO Unit := do
   expect (accumulatorAbi.contains "\"name\":\"add\"")
     "EVM ABI must be derived from Accumulator entries"
   expect (!accumulatorAbi.contains "increment")
-    "EVM ABI must not retain the Counter template"
+    "EVM ABI must not retain the StateCell template"
 
   -- Capability-gated Solana plan for single-semantic carrier Accumulator.
   let solanaPlan ← liftResult <| planSolana accCompiled
@@ -2417,7 +2417,7 @@ unsafe def run : IO Unit := do
   | .error (.planInvariant .near _) => pure ()
   | _ => throw <| IO.userError "NearPlan must reserve zero for an absent layout marker"
   let forgedNearField := {
-    nearPlan.storage.fields[0]! with key := "fixed-counter-key"
+    nearPlan.storage.fields[0]! with key := "fixed-stateCell-key"
   }
   match Targets.Near.validatePlan {
       nearPlan with storage := {

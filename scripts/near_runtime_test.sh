@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # NEAR near-sandbox engineering runtime differential (BL-13 / BL-20 / BL-30):
-#   product CLI build → Counter/PairRet/ArrayRet/OptionRet/OptionState.wasm
+#   product CLI build → StateCell/PairRet/ArrayRet/OptionRet/OptionState.wasm
 #   (wat2wasm) → near-sandbox init/run → JSON-RPC deploy/call/view assert → kill
 #
 # Covers:
-#   Counter: init(7) / increment(5) / get==12 / overflow state-hold / recovery
+#   StateCell: init(7) / increment(5) / get==12 / overflow state-hold / recovery
 #   PairRet: named Struct aggregate return (init + setPair/getPair N×8 LE)
 #   ArrayRet: anonymous Array UInt64 2 return (init + setArr/getArr N×8 LE)
 #   OptionRet: anonymous Option UInt64 none/some (2×8 LE tag+payload)
@@ -126,7 +126,7 @@ out_dir="${PROOF_FORGE_RUNTIME_OUT:-$root/build/v2/near-runtime}"
 crate_dir="$root/runtime-tests/near"
 
 programs=(
-  "Examples/Counter.lean:Examples.Counter:Counter"
+  "Examples/StateCell.lean:Examples.StateCell:StateCell"
   "runtime-tests/near/fixtures/PairRet.lean:Examples.PairRet:PairRet"
   "runtime-tests/near/fixtures/ArrayRet.lean:Examples.ArrayRet:ArrayRet"
   "runtime-tests/near/fixtures/OptionRet.lean:Examples.OptionRet:OptionRet"
@@ -216,7 +216,7 @@ for entry in "${programs[@]}"; do
   normalize_wasm "$name" "$fixture_out" || die "${name}.wasm not found under $fixture_out (need wat2wasm finalize)"
 done
 
-counter_wasm="$out_dir/Counter/Counter.wasm"
+state_cell_wasm="$out_dir/StateCell/StateCell.wasm"
 pairret_wasm="$out_dir/PairRet/PairRet.wasm"
 arrayret_wasm="$out_dir/ArrayRet/ArrayRet.wasm"
 optionret_wasm="$out_dir/OptionRet/OptionRet.wasm"
@@ -225,7 +225,7 @@ tipjarasync_wasm="$out_dir/TipJarAsync/TipJarAsync.wasm"
 tokenjarasync_wasm="$out_dir/TokenJarAsync/TokenJarAsync.wasm"
 envreadjar_wasm="$out_dir/EnvReadJar/EnvReadJar.wasm"
 callercheck_wasm="$out_dir/CallerCheck/CallerCheck.wasm"
-[[ -f "$counter_wasm" ]] || die "missing $counter_wasm"
+[[ -f "$state_cell_wasm" ]] || die "missing $state_cell_wasm"
 [[ -f "$pairret_wasm" ]] || die "missing $pairret_wasm"
 [[ -f "$arrayret_wasm" ]] || die "missing $arrayret_wasm"
 [[ -f "$optionret_wasm" ]] || die "missing $optionret_wasm"
@@ -339,8 +339,8 @@ PY
   return 0
 }
 
-echo "near-runtime-test: running Counter suite against near-sandbox"
-run_suite counter "$counter_wasm" || die "Counter suite failed"
+echo "near-runtime-test: running StateCell suite against near-sandbox"
+run_suite state_cell "$state_cell_wasm" || die "StateCell suite failed"
 
 echo "near-runtime-test: running PairRet suite against near-sandbox"
 run_suite pairret "$pairret_wasm" || die "PairRet suite failed"
@@ -367,5 +367,5 @@ run_suite envreadjar "$envreadjar_wasm" || die "EnvReadJar suite failed"
 echo "near-runtime-test: running CallerCheck suite against near-sandbox"
 run_suite callercheck "$callercheck_wasm" || die "CallerCheck suite failed"
 
-echo "near-runtime-test: PASS (Counter + PairRet + ArrayRet + OptionRet + OptionState + TipJarAsync + TokenJarAsync + EnvReadJar + CallerCheck engineering sandbox differential)"
+echo "near-runtime-test: PASS (StateCell + PairRet + ArrayRet + OptionRet + OptionState + TipJarAsync + TokenJarAsync + EnvReadJar + CallerCheck engineering sandbox differential)"
 exit 0

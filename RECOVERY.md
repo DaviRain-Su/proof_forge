@@ -12,7 +12,7 @@ ValidatedSourceV1
   → OutputSetV1
 ```
 
-当前可运行的 Counter/Accumulator（及更广 Normalize 子集）路径已由单一 `CompiledSemanticV1` 保留
+当前可运行的 StateCell/Accumulator（及更广 Normalize 子集）路径已由单一 `CompiledSemanticV1` 保留
 structure-valid `SemanticProgramV1`，并直接构造九个 materializer 的 target-owned Plan（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON）。产品编译、resolver 与 artifact identity 已不再持有 alpha carrier。D3 侧已有工程 `TargetRegistryV1` / requirement resolver /
 Materialized/Finalized/content-descriptor/disk-closure 与全工程 planDigest 槽位绑定；D3-E9 后
 `TargetDescriptor` 六轴直接复用 registry V1 authority，并在 capability/artifact/inspect 前 exact join。但 formal `registryDigest` /
@@ -92,10 +92,10 @@ formal `OutputSetV1` 或 `TASK-D3-05` 完成。
    `Loader.selectProgramV1ProductWithTheoremInventory` → located Normalize →
    `compileProgramProductV1` → sole inline `certifyInlineProofV1` → resolve/materialize；
    2026-08-01 起前端监督层 SafeOpen/worker supervisor 已按产品决策移除，不再作为完成条件）。
-   无 dual open、无 embedded Counter fallback、无 legacy Source reader、无产品
+   无 dual open、无 embedded example fallback、无 legacy Source reader、无产品
    `--proof-bundle*` alternate。
 2. shipped ProgramV1 产品表面都经 CheckV1 → NormalizeV1 生成 structure-valid `SemanticProgramV1`，
-   不再仅是 Counter-like S1（**当前**：Normalize 已扩多宽/控制流/fn/for/call 等，完整语言面仍未闭合）。
+   不再仅是 StateCell-like S1（**当前**：Normalize 已扩多宽/控制流/fn/for/call 等，完整语言面仍未闭合）。
 3. `CompiledSemanticV1` 是唯一产品编译成功 carrier；alpha Typed/Semantic lowering与 residual accessors 无产品调用。
 4. `ProgramRequirementsV1` 是唯一产品 requirement authority；target-neutral contribution engine 只向该 authority供给，不存在第二套 AST walker、alpha parity或 caller override。
 5. 九个 materializer（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON）Plan body 均直接消费 retained `SemanticProgramV1`（经 resolved capability）。
@@ -139,7 +139,7 @@ ProgramV1 command/export/v2 仍为 sole 源表面。
 
 **当前 wave = Wave 2 / D2 扩面**：九个 materializer Plan body 已直连 retained `SemanticProgramV1`；
 `CompiledSemanticV1` + `ProgramRequirementsV1` sole freeze + engineering resolver/capability
-已接线；alpha Core 与产品 consumer 已删。sole Normalize 已超出最初 Counter-like S1（多宽 UInt/Int、
+已接线；alpha Core 与产品 consumer 已删。sole Normalize 已超出最初 StateCell-like S1（多宽 UInt/Int、
 比较/assert、if/match、revert/emit、fn、let/for、shift/bitwise、call/schedule、部分聚合/Field 等），
 完整 ProgramV1→Semantic 表面与 Reference 全 op 仍未闭合。**不是** D4–D7 formal 完成。
 
@@ -165,11 +165,11 @@ ProgramV1 command/export/v2 仍为 sole 源表面。
 - ProgramV1 expression 与 pattern integer literal 共用 sole decoder：unsigned decimal 或
   lowercase-prefix `0x` hexadecimal（hex digits 可大小写），拒绝 `0X`/binary/octal/underscore，
   范围 `0..2^256-1`；等值 spelling → 相同 AST/canonical bytes/sourceHash（D1-04 工程切片）。
-- Counter/Accumulator 等真实 source 可经 CLI 产出九个 materializer 的工程制品；EVM 使用 digest-pinned
+- StateCell/Accumulator 等真实 source 可经 CLI 产出九个 materializer 的工程制品；EVM 使用 digest-pinned
   `solc 0.8.34` 生成 bytecode，并有 EvmSolc 与 G4 Anvil 工程差分（**非** formal Reference↔Anvil）。
   Solana 有 SBPF→ELF + Mollusk 运行时差分工程链路；NEAR 有 locked `wat2wasm` 结构编译、
   host-optional runtime load 与 locked
-  near-sandbox 2.13.0 Counter receipt happy path（非 formal differential）；Noir 为 relation source
+  near-sandbox 2.13.0 StateCell receipt happy path（非 formal differential）；Noir 为 relation source
   package + locked nargo compile-only（无 ACIR/witness/prove/verify）；Aleo 为 source-only package +
   locked leo compile-only，Psy 为 source-only + host-optional compile。Quint 为不可部署的 `.qnt`
   source-only model + zero-tool finalize；host-optional exact 0.32 typecheck/run 非 Tool Lock/formal。
@@ -265,12 +265,14 @@ no-vacuity 与 no-init/with-init returned/reverted/trapped lifecycle。**后续 
 `ProofKindV1`、三字段 `ProofDecl` wire、bare holds / explicit preserving、`(invariant,kind)`
 inventory、`Proof` / `ProofPreserving` 双 alias 与 kind-bound protocol/theorem-set/certifier；kind 改变
 source/request/certification identity，不改变 SemanticProgram identity；无 2-field fallback，simple-closure
-helper 仅服务 holds。**EvenCounter 首个 preserving product `check` certified positive 已于
-2026-08-08 闭合**（package-owned `EvenCounterPreservationV1` + ClosedSubjectPin 加速 +
-same-file `exact`；业务逻辑形式化 track 1 主路径验收）。第二非 AMM 实例与 ADR-0027
-supersession 仍 pending；下一步优先 generic packaging lemmas / 非 pin author 路径，不抢第二实例。
-ADR-0027 继续作为 inline base authority且未 supersede，formal TASK/TST（工具内部 track 2）
-状态不变，MiniAmm 无特例。
+helper 仅服务 holds。**同文件 preserving product 主路径已闭合**：sole example
+`Examples/Counter.lean`（program + invariant + proof + ordinary Lean theorem）经真实
+Loader → compile → `certifyInlineProofV1` 得 `proofStatus=certified`；作者 theorem 只
+依赖 contract-agnostic `UInt64Parity*` shape lemmas 与 elaborator 生成的
+`subjectDataV1` / `subjectBytesV1` / `subjectBodyEncodeOkV1`。**已删除** residual
+`ParityCounter*` / `EvenCounter` / `ClosedSubjectPin` / `ProofInstances` 产品依赖；
+Counter 仅为 example，不是产品核心概念。ADR-0027 继续作为 inline base authority 且
+未 supersede；formal TASK/TST（工具内部 track 2）状态不变；MiniAmm 无特例。
 
 远端general CFG walker lineage中的Reference machine继续作为唯一工程执行权威；其PureCall frame、
 if/match、emit/revert、mul/div/mod/unary与let/for能力均保留。本地增量只新增明确非formal的

@@ -2,7 +2,7 @@
 """Engineering same-host repeatability gate for two zero-tool target profiles.
 
 Scope is deliberately narrow: the same built proof-forge-next binary performs
-exactly two consecutive product builds of Examples.Counter for the default
+exactly two consecutive product builds of Examples.StateCell for the default
 Solana plan profile and the default Noir source profile. Each output is checked
 with the independent engineering artifact validator, then manifest.json and
 evidence.json must be byte-identical across the two runs.
@@ -56,7 +56,7 @@ _MANIFEST_FIELDS = (
 )
 
 _TARGETS = (
-    # ADR-0032 U1 P4: sole rail default is cpi-elf (body-only Counter path).
+    # ADR-0032 U1 P4: sole rail default is cpi-elf (body-only StateCell path).
     ("solana", "solana-sbpf-cpi-elf-v1"),
     ("noir", "noir-source-u64-relations-v1"),
 )
@@ -135,7 +135,7 @@ def _observe_output(
             f"target={target} run={run_label}: "
             f"profile={manifest['codegenProfile']!r} expected={expected_profile!r}"
         )
-    if manifest["artifactProgramName"] != "Counter":
+    if manifest["artifactProgramName"] != "StateCell":
         _fail(
             f"target={target} run={run_label}: "
             f"artifactProgramName={manifest['artifactProgramName']!r}"
@@ -231,9 +231,9 @@ def _build_once(*, target: str, output_dir: Path, run_label: str) -> None:
         "env",
         ".lake/build/bin/proof-forge-next",
         "build",
-        "Examples/Counter.lean",
+        "Examples/StateCell.lean",
         "--module",
-        "Examples.Counter",
+        "Examples.StateCell",
         "--target",
         target,
         "-o",

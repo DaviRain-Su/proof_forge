@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Semantic.WireV1
@@ -9,7 +9,7 @@ import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
 import Tests.Language.ParserSession
 
-namespace Tests.Product.CounterV1Evm
+namespace Tests.Product.StateCellV1Evm
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
@@ -35,13 +35,13 @@ private def liftSource (label : String) (result : Except String α) : IO α :=
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftCompile "load ProgramV1" (← session.selectProgramV1
-    Examples.counterSourceText "<counter-v1>" Examples.counterModuleNameV1 none)
+    Examples.stateCellSourceText "<stateCell-v1>" Examples.stateCellModuleNameV1 none)
 
   let identity := NonEmptyArray.toArray source.programIdentity.components |>.map (·.raw)
-  expect (identity == #["Examples", "Counter", "ProofForgeV2", "Examples", "Counter"])
+  expect (identity == #["Examples", "StateCell", "ProofForgeV2", "Examples", "StateCell"])
     "ProgramV1 identity must join explicit module, active namespace, and declaration"
   expect (source.program.items.size == 4)
-    "Counter ProgramV1 must retain state/init/entry/view source order"
+    "StateCell ProgramV1 must retain state/init/entry/view source order"
 
   let multiple :=
     "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
@@ -78,7 +78,7 @@ unsafe def run : IO Unit := do
     "  view get() : UInt64 do\n" ++
     "    return count\n"
   let ifSource ← liftCompile "load IfFlow" (← session.selectProgramV1
-    ifFlowText "<counter-if-flow>" "Product.IfFlow" none)
+    ifFlowText "<stateCell-if-flow>" "Product.IfFlow" none)
   let ifCompiled ← liftCompile "compile IfFlow" <|
     Compiler.compileValidatedSourceV1 ifSource
   let ifSelection ← liftCompile "resolve selection" <|
@@ -112,29 +112,29 @@ unsafe def run : IO Unit := do
   -- S3/S5: product compile retains NormalizeV1 structure-valid SemanticProgramV1.
   let carrier1 ← match normalizeProgramV1 source with
     | .ok c => pure c
-    | .error e => throw <| IO.userError s!"Counter Normalize #1: {repr e}"
+    | .error e => throw <| IO.userError s!"StateCell Normalize #1: {repr e}"
   let carrier2 ← match normalizeProgramV1 source with
     | .ok c => pure c
-    | .error e => throw <| IO.userError s!"Counter Normalize #2: {repr e}"
+    | .error e => throw <| IO.userError s!"StateCell Normalize #2: {repr e}"
   match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1 carrier1 with
   | .ok _ => pure ()
-  | .error e => throw <| IO.userError s!"Counter validate SemanticProgramV1: {repr e}"
+  | .error e => throw <| IO.userError s!"StateCell validate SemanticProgramV1: {repr e}"
   expect (carrier1.canonicalBytes == carrier2.canonicalBytes)
-    "Counter Normalize canonicalBytes must be deterministic"
+    "StateCell Normalize canonicalBytes must be deterministic"
   let h1 ← match ProofForgeV2.Semantic.WireV1.semanticHashV1 carrier1 with
     | .ok h => pure h
-    | .error e => throw <| IO.userError s!"Counter semanticHash #1: {repr e}"
+    | .error e => throw <| IO.userError s!"StateCell semanticHash #1: {repr e}"
   let h2 ← match ProofForgeV2.Semantic.WireV1.semanticHashV1 carrier2 with
     | .ok h => pure h
-    | .error e => throw <| IO.userError s!"Counter semanticHash #2: {repr e}"
-  expect (h1 == h2) "Counter semanticHashV1 must be deterministic"
+    | .error e => throw <| IO.userError s!"StateCell semanticHash #2: {repr e}"
+  expect (h1 == h2) "StateCell semanticHashV1 must be deterministic"
 
   let compiled ← liftCompile "compile ProgramV1" <|
     Compiler.compileValidatedSourceV1 source
   let retained := CompiledSemanticV1.semanticV1Of compiled
   expect (retained.canonicalBytes == carrier1.canonicalBytes)
     "product compile must retain NormalizeV1 SemanticProgramV1 bytes"
-  expect (CompiledSemanticV1.artifactProgramNameOf compiled == "Counter")
+  expect (CompiledSemanticV1.artifactProgramNameOf compiled == "StateCell")
     "artifact identity must come from the semantic qualified-name suffix"
   expect (CompiledSemanticV1.sourceDigestOf compiled == digest &&
       CompiledSemanticV1.semanticDigestOf compiled == h1)
@@ -148,7 +148,7 @@ unsafe def run : IO Unit := do
     | .error error => throw <| IO.userError s!"compiled semantic invalid: {repr error}"
   expect (semanticData.logicalState.map (·.name) == #["count"] &&
       semanticData.callables.filterMap (·.name) == #["increment", "get"])
-    "ProgramV1 normalization must preserve Counter state and callables"
+    "ProgramV1 normalization must preserve StateCell state and callables"
 
   let plan ← liftCompile "plan EVM" <| (do
     let selection ← ProofForgeV2.Targets.BuildSelectionV1.resolveBuildSelectionV1
@@ -157,7 +157,7 @@ unsafe def run : IO Unit := do
     Targets.Evm.planFromCapability capability)
   expect (plan.storageLayout.map (·.name) == #["count"] &&
       plan.entries.map (·.name) == #["increment", "get"])
-    "EVM-owned plan must derive Counter layout and entries"
+    "EVM-owned plan must derive StateCell layout and entries"
 
   -- S6: no public Plan→IR; capability materialize is sole emit path.
   let first ← liftCompile "materialize EVM" <| (do
@@ -173,19 +173,19 @@ unsafe def run : IO Unit := do
   expect (first == second)
     "ProgramV1 EVM materialization must be deterministic"
   let firstFiles := MaterializedArtifactsV1.filesOf first
-  expect (firstFiles.map (·.path) == #["Counter.yul", "Counter.abi.json"])
+  expect (firstFiles.map (·.path) == #["StateCell.yul", "StateCell.abi.json"])
     "ProgramV1 EVM materialization must emit target-owned Yul and ABI artifacts"
-  let yul ← match firstFiles.find? (·.path == "Counter.yul") with
+  let yul ← match firstFiles.find? (·.path == "StateCell.yul") with
     | some f => pure f.contents
-    | none => throw <| IO.userError "missing Counter.yul"
+    | none => throw <| IO.userError "missing StateCell.yul"
   expect (yul.contains "case 0xdd9a82bc" && yul.contains "case 0x6d4ce63c")
-    "EVM Yul must contain canonical Counter selectors"
+    "EVM Yul must contain canonical StateCell selectors"
   expect (MaterializedArtifactsV1.sourceDigestOf first == digest &&
       MaterializedArtifactsV1.semanticDigestOf first == h1)
     "EVM carrier must bind canonical ProgramV1 source and semantic digests"
   let _ := plan
 
-  -- Guarded counter: product capability path for comparison+assert envelope.
+  -- Guarded stateCell: product capability path for comparison+assert envelope.
   let guardedText :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
@@ -200,7 +200,7 @@ unsafe def run : IO Unit := do
     "  view get() : UInt64 do\n" ++
     "    return count\n"
   let guardedSource ← liftCompile "load Guarded" (← session.selectProgramV1
-    guardedText "<counter-v1-guarded>" "Product.Guarded" none)
+    guardedText "<stateCell-v1-guarded>" "Product.Guarded" none)
   let guardedCompiled ← liftCompile "compile Guarded" <|
     Compiler.compileValidatedSourceV1 guardedSource
   let guardedFirst ← liftCompile "build Guarded" <| (do
@@ -249,7 +249,7 @@ unsafe def run : IO Unit := do
     "  entry equalsCount(d : UInt64) : Bool do\n" ++
     "    return count == d\n"
   let boolPredSource ← liftCompile "load BoolPredicate" (← session.selectProgramV1
-    boolPredText "<counter-v1-bool-pred>" "Product.BoolPred" none)
+    boolPredText "<stateCell-v1-bool-pred>" "Product.BoolPred" none)
   let boolPredCompiled ← liftCompile "compile BoolPredicate" <|
     Compiler.compileValidatedSourceV1 boolPredSource
   let boolPredFirst ← liftCompile "build BoolPredicate" <| (do
@@ -284,4 +284,4 @@ unsafe def run : IO Unit := do
       boolPredYul.contains "mstore(0," && boolPredYul.contains "return(0, 32)")
     "BoolPredicate Yul must render comparisons and ABI word returns"
 
-end Tests.Product.CounterV1Evm
+end Tests.Product.StateCellV1Evm

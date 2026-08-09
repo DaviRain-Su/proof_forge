@@ -1,5 +1,5 @@
 /**
- * Counter engineering sandbox differential (TON-3).
+ * StateCell engineering sandbox differential (TON-3).
  *
  * init(7) → increment(delta=5) → get == 12; c4 data matches.
  * overflow → exit 100; state unchanged; bounce phase when bounceable.
@@ -20,10 +20,10 @@ import {
   toNano,
 } from './helpers.js';
 
-describe('Counter @ton/sandbox engineering differential', () => {
+describe('StateCell @ton/sandbox engineering differential', () => {
   it('init(7) + increment(5) → compute exit 0, get==12, c4 count==12', async () => {
     const { blockchain, deployer, contract, address } =
-      await deployFresh('Counter');
+      await deployFresh('StateCell');
 
     const initRes = await contract.sendOp(
       deployer.getSender(),
@@ -75,7 +75,7 @@ describe('Counter @ton/sandbox engineering differential', () => {
 
   it('overflow increment → exit 100, state unchanged, bounce ok when bounceable', async () => {
     const { blockchain, deployer, contract, address } =
-      await deployFresh('Counter');
+      await deployFresh('StateCell');
 
     await contract.sendOp(
       deployer.getSender(),
@@ -124,7 +124,7 @@ describe('Counter @ton/sandbox engineering differential', () => {
 
   it('overflow non-bounceable → exit 100, no bounce phase, state unchanged', async () => {
     const { blockchain, deployer, contract, address } =
-      await deployFresh('Counter');
+      await deployFresh('StateCell');
 
     await contract.sendOp(
       deployer.getSender(),

@@ -8,7 +8,7 @@
   which:
   1. Assembles hand-written minimal ABI WAT fixtures with locked/host wat2wasm
      and runs cosmwasm-check 3.0.9 positive/negative matrix.
-  2. Conditionally builds product Counter `--target cosmwasm` when the CLI and
+  2. Conditionally builds product StateCell `--target cosmwasm` when the CLI and
      A1 emitter are available; otherwise skip-clean (expected pre-A1 merge).
 
   When `wat2wasm` or `cosmwasm-check` is absent the helper (and this suite)

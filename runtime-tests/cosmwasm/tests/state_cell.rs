@@ -1,10 +1,10 @@
-//! CosmWasm mock-runtime differential for product Counter WASM.
+//! CosmWasm mock-runtime differential for product StateCell WASM.
 //!
 //! Reference intent (engineering, not formal TST-SEM-002/003):
 //!   init(7) → increment(5) → query get == 12
 //!   init(u64::MAX - 7) → increment(8) traps; query still MAX-7
 //!
-//! Env: `PROOF_FORGE_FIXTURES_DIR` with `Counter/Counter.wasm`.
+//! Env: `PROOF_FORGE_FIXTURES_DIR` with `StateCell/StateCell.wasm`.
 //!
 //! Honesty: arithmetic overflow uses Wasm `unreachable` → `VmError` trap.
 //! That is **not** `ContractResult::Err` (which is reserved for explicit
@@ -18,15 +18,15 @@ use {
     cosmwasm_std::{ContractResult, Empty, Response},
 };
 
-fn counter_instance() -> common::CwInstance {
-    assert_abi_schema_if_present("Counter");
-    make_instance("Counter")
+fn state_cell_instance() -> common::CwInstance {
+    assert_abi_schema_if_present("StateCell");
+    make_instance("StateCell")
 }
 
 /// Spec (a): instantiate with initial=7 succeeds; layout marker present; get==7.
 #[test]
-fn counter_instantiate_init_7() {
-    let mut instance = counter_instance();
+fn state_cell_instantiate_init_7() {
+    let mut instance = state_cell_instance();
     let cr = instantiate_ok(&mut instance, &instantiate_msg_u64("initial", 7));
     let resp = expect_response_ok(cr);
     // Unit init: no synthetic result attribute required.
@@ -45,8 +45,8 @@ fn counter_instantiate_init_7() {
 
 /// Spec (b)+(c): after init(7), increment(5) → result attr 12, get==12.
 #[test]
-fn counter_increment_and_query() {
-    let mut instance = counter_instance();
+fn state_cell_increment_and_query() {
+    let mut instance = state_cell_instance();
     expect_response_ok(instantiate_ok(
         &mut instance,
         &instantiate_msg_u64("initial", 7),
@@ -66,8 +66,8 @@ fn counter_increment_and_query() {
 /// `ContractResult::Err({"error":...})`. Documented intentional mismatch
 /// vs wasmd soft-error UX; still proves store-before-trap absence.
 #[test]
-fn counter_increment_overflow_traps_state_unchanged() {
-    let mut instance = counter_instance();
+fn state_cell_increment_overflow_traps_state_unchanged() {
+    let mut instance = state_cell_instance();
     let start = u64::MAX - 7;
     expect_response_ok(instantiate_ok(
         &mut instance,
@@ -89,8 +89,8 @@ fn counter_increment_overflow_traps_state_unchanged() {
 
 /// Happy path multi-step holds: init(0) → inc(1) → inc(2) → get 3; result attrs.
 #[test]
-fn counter_multi_increment_result_attributes() {
-    let mut instance = counter_instance();
+fn state_cell_multi_increment_result_attributes() {
+    let mut instance = state_cell_instance();
     expect_response_ok(instantiate_ok(
         &mut instance,
         &instantiate_msg_u64("initial", 0),
@@ -112,8 +112,8 @@ fn counter_multi_increment_result_attributes() {
 
 /// Unknown execute method → ContractResult::Err("") (empty error JSON from emitter).
 #[test]
-fn counter_unknown_execute_is_contract_err() {
-    let mut instance = counter_instance();
+fn state_cell_unknown_execute_is_contract_err() {
+    let mut instance = state_cell_instance();
     expect_response_ok(instantiate_ok(
         &mut instance,
         &instantiate_msg_u64("initial", 1),

@@ -5,7 +5,7 @@
   uncontained; tests never treat ordinary CI as containment evidence.
 -/
 import ProofForgeV2.Frontend.WorkerV1
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Source.WireCodecV1
 import Tests.Language.ParserSession
@@ -40,10 +40,10 @@ private def requestWith
   let path ← lift "path" (parseProjectRelativePath pathValue)
   lift "request" <| mkFrontendRequestV1 version path moduleName programSelector source
 
-private def counterRequest
-    (source : ByteArray := Examples.counterSourceText.toUTF8)
+private def stateCellRequest
+    (source : ByteArray := Examples.stateCellSourceText.toUTF8)
     (version : SemVer := languageVersion100V1) : IO FrontendRequestV1 :=
-  requestWith source Examples.counterModuleNameV1 "Examples/Counter.lean" version
+  requestWith source Examples.stateCellModuleNameV1 "Examples/StateCell.lean" version
 
 private def decodeResponse (bytes : ByteArray) : IO FrontendResponseV1 :=
   lift "decode response" (decodeFrontendResponseV1 bytes)
@@ -69,16 +69,16 @@ private unsafe def workerSuccess
             s!"unexpected diagnostic: {DiagnosticBundleV1.renderHuman (FrontendFailureV1.bundle failure)}"
       | .success success => pure (response, success)
 
-private unsafe def testDirectCounterSuccessAndParity : IO Unit := do
-  let request ← counterRequest
+private unsafe def testDirectStateCellSuccessAndParity : IO Unit := do
+  let request ← stateCellRequest
   let (_response, success) ← workerSuccess request
   let (source, inv) ← lift "reconstruct" (reconstructFrontendSuccessV1 request success)
   let hash ← lift "hash" (sourceHashV1 source)
   expect (hash == originInventorySourceHashV1 inv)
     "worker success inventory binds sourceHash"
   let session ← Tests.Language.ParserSession.shared
-  match ← session.selectProgramV1Product Examples.counterSourceText
-      "Examples/Counter.lean" Examples.counterModuleNameV1 none with
+  match ← session.selectProgramV1Product Examples.stateCellSourceText
+      "Examples/StateCell.lean" Examples.stateCellModuleNameV1 none with
   | .error bundle =>
       throw <| IO.userError s!"product parity load: {DiagnosticBundleV1.renderHuman bundle}"
   | .ok (directSource, directInv) =>
@@ -87,8 +87,8 @@ private unsafe def testDirectCounterSuccessAndParity : IO Unit := do
         "worker/product canonical source parity"
       expect (originInventoryOriginsV1 inv == originInventoryOriginsV1 directInv)
         "worker/product origin inventory parity"
-  match ← session.selectProgramV1FrontendPayload Examples.counterSourceText
-      "Examples/Counter.lean" Examples.counterModuleNameV1 none with
+  match ← session.selectProgramV1FrontendPayload Examples.stateCellSourceText
+      "Examples/StateCell.lean" Examples.stateCellModuleNameV1 none with
   | .error bundle =>
       throw <| IO.userError s!"payload parity load: {DiagnosticBundleV1.renderHuman bundle}"
   | .ok (payloadSource, spans) =>
@@ -107,14 +107,14 @@ private unsafe def testDirectFailureFrames : IO Unit := do
   | .error fault => throw <| IO.userError s!"parser failure became worker fault: {repr fault}"
   | .ok response => expectFailureCode "parser" .sourceInvalid response
 
-  let utf8Req ← counterRequest (ByteArray.mk #[0xff, 0xfe, 0x00])
+  let utf8Req ← stateCellRequest (ByteArray.mk #[0xff, 0xfe, 0x00])
   match ← processFrameV1 (← lift "utf8 request" (encodeFrontendRequestV1 utf8Req)) with
   | .error fault => throw <| IO.userError s!"UTF-8 failure became worker fault: {repr fault}"
   | .ok response => expectFailureCode "utf8" .sourceInvalid response
 
   let unknown : SemVer := { major := 2, minor := 0, patch := 0 }
   -- Invalid source plus unknown version pins version resolution before UTF-8/parser.
-  let versionReq ← counterRequest (ByteArray.mk #[0xff]) unknown
+  let versionReq ← stateCellRequest (ByteArray.mk #[0xff]) unknown
   match ← processFrameV1 (← lift "version request" (encodeFrontendRequestV1 versionReq)) with
   | .error fault => throw <| IO.userError s!"version failure became worker fault: {repr fault}"
   | .ok response => expectFailureCode "version" .languageVersionUnknown response
@@ -194,7 +194,7 @@ private def exit32 (code : UInt8) : UInt32 := UInt32.ofNat code.toNat
 
 private unsafe def testRealSubprocessSuccessFailureAndDeterminism : IO Unit := do
   expect (← workerBin.pathExists) s!"worker binary missing: {workerBin}"
-  let request ← counterRequest
+  let request ← stateCellRequest
   let input ← lift "request bytes" (encodeFrontendRequestV1 request)
   let (ec1, out1, err1) ← runWorkerProcess input
   expect (ec1 == 0) s!"worker success exit={ec1} stderr={err1}"
@@ -202,7 +202,7 @@ private unsafe def testRealSubprocessSuccessFailureAndDeterminism : IO Unit := d
   match ← decodeResponse out1 with
   | .failure f =>
       throw <| IO.userError <|
-        s!"worker subprocess Counter failed: {DiagnosticBundleV1.renderHuman (FrontendFailureV1.bundle f)}"
+        s!"worker subprocess StateCell failed: {DiagnosticBundleV1.renderHuman (FrontendFailureV1.bundle f)}"
   | .success s =>
       let _ ← lift "subprocess reconstruct" (reconstructFrontendSuccessV1 request s)
       pure ()
@@ -228,7 +228,7 @@ private unsafe def testRealSubprocessProtocolAndUsageExits : IO Unit := do
   expect (malErr == protocolStderrTokenV1 ++ "\n")
     s!"malformed stable stderr token: {repr malErr}"
 
-  let request ← counterRequest
+  let request ← stateCellRequest
   let bytes ← lift "request" (encodeFrontendRequestV1 request)
   let truncated := bytes.extract 0 (bytes.size - 1)
   let (trEc, trOut, trErr) ← runWorkerProcess truncated
@@ -256,7 +256,7 @@ private unsafe def testRealSubprocessProtocolAndUsageExits : IO Unit := do
   expect (argErr == usageStderrTokenV1 ++ "\n") "argv stable usage token"
 
 unsafe def run : IO Unit := do
-  testDirectCounterSuccessAndParity
+  testDirectStateCellSuccessAndParity
   testDirectFailureFrames
   testExactProgramSelectionAndDeterminism
   testMalformedDirectFault

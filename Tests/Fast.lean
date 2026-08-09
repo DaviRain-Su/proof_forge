@@ -22,6 +22,7 @@ import Tests.Typed.CheckV1
 import Tests.Semantic.WireV1
 import Tests.Semantic.InvariantABI
 import Tests.Semantic.PreservationABI
+import Tests.Semantic.UInt64ParitySubjectV1
 import Tests.Semantic.ProofBridgeV1
 import Tests.Semantic.CodecInvertV1
 import Tests.Semantic.ProofedCertV1
@@ -69,7 +70,7 @@ import Tests.Core.DiagnosticBundleV1
 import Tests.Frontend.ProtocolV1
 -- WorkerV1 subprocess suite is intentionally NOT on test-fast/dev-check.
 -- Run: `just test-frontend-worker` (builds proof-forge-frontend-worker-v1).
-import Tests.Product.CounterV1Evm
+import Tests.Product.StateCellV1Evm
 import Tests.Product.PrivateSum4PrivacyV1
 import Tests.Product.PerfCheckHarnessV1
 import Tests.Product.TokenV1
@@ -154,6 +155,7 @@ unsafe def main : IO Unit := do
   Tests.Semantic.WireV1.run
   Tests.Semantic.InvariantABI.run
   Tests.Semantic.PreservationABI.run
+  Tests.Semantic.UInt64ParitySubjectV1.run
   Tests.Semantic.ProofBridgeV1.run
   Tests.Semantic.CodecInvertV1.run
   Tests.Semantic.ReferenceV1.run
@@ -193,7 +195,7 @@ unsafe def main : IO Unit := do
   Tests.Core.DiagnosticV1.run
   Tests.Core.DiagnosticBundleV1.run
   Tests.Frontend.ProtocolV1.run
-  Tests.Product.CounterV1Evm.run
+  Tests.Product.StateCellV1Evm.run
   Tests.Product.PrivateSum4PrivacyV1.run
   Tests.Product.PerfCheckHarnessV1.run
   Tests.Product.TokenV1.run

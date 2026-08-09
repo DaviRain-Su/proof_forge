@@ -14,7 +14,7 @@
 import ProofForgeV2
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Core.Common
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Materialization.ArtifactContentV1
 import ProofForgeV2.Materialization.EngineeringDiskClosureV1
@@ -49,12 +49,12 @@ private def liftExcept (label : String) (result : Except String α) : IO α :=
 private def expectDigestDiff (label : String) (base alt : Digest) : IO Unit :=
   expect (!(base.bytes == alt.bytes)) s!"{label}: digest must change"
 
-private unsafe def compileCounter : IO CompiledSemanticV1 := do
+private unsafe def compileStateCell : IO CompiledSemanticV1 := do
   let session ← Tests.Language.ParserSession.shared
-  let source ← liftResult "load Counter" (← session.selectProgramV1
-    Examples.counterSourceText "<output-set-counter>"
-    Examples.counterModuleNameV1 none)
-  liftResult "compile Counter" (Compiler.compileValidatedSourceV1 source)
+  let source ← liftResult "load StateCell" (← session.selectProgramV1
+    Examples.stateCellSourceText "<output-set-stateCell>"
+    Examples.stateCellModuleNameV1 none)
+  liftResult "compile StateCell" (Compiler.compileValidatedSourceV1 source)
 
 private unsafe def materializeTarget
     (compiled : CompiledSemanticV1) (tid : TargetId) :
@@ -128,7 +128,7 @@ private def testEngineeringJsonAndEvidenceBoundaries : IO Unit := do
         s!"deep engineering JSON diagnostic: {e}"
 
 private unsafe def testMintDeterminismFourTargets : IO Unit := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   for tid in #[TargetId.solana, TargetId.noir] do
     let (cap, arts) ← materializeTarget compiled tid
     let scratch := FilePath.mk s!"build/v2/output-set-mint-{tid}"
@@ -137,7 +137,7 @@ private unsafe def testMintDeterminismFourTargets : IO Unit := do
     let b ← mintFromStaging finalized scratch
     expect (EngineeringOutputSetV1.beq a b) s!"{tid} output set mint deterministic"
     expect (EngineeringOutputSetV1.targetIdOf a == tid) s!"{tid} target"
-    expect (EngineeringOutputSetV1.artifactProgramNameOf a == "Counter")
+    expect (EngineeringOutputSetV1.artifactProgramNameOf a == "StateCell")
       s!"{tid} artifact name"
     let expectedDeployable := tid == TargetId.solana
     expect (EngineeringOutputSetV1.deployableOf a == expectedDeployable)
@@ -182,7 +182,7 @@ private unsafe def testMintDeterminismFourTargets : IO Unit := do
     if ← scratch.pathExists then IO.FS.removeDirAll scratch
 
 private unsafe def testDigestTamperMatrix : IO Unit := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let (cap, arts) ← materializeTarget compiled TargetId.solana
   let scratch := FilePath.mk "build/v2/output-set-tamper"
   let finalized ← finalizeScratch cap arts scratch
@@ -306,7 +306,7 @@ private unsafe def testDigestTamperMatrix : IO Unit := do
     (engineeringOutputSetDigestV1
       (EngineeringOutputSetV1.targetIdOf base)
       (EngineeringOutputSetV1.codegenProfileOf base)
-      "NotCounter"
+      "NotStateCell"
       baseFiles
       (EngineeringOutputSetV1.sourceDigestOf base)
       (EngineeringOutputSetV1.semanticDigestOf base)
@@ -320,15 +320,15 @@ private unsafe def testDigestTamperMatrix : IO Unit := do
   if ← scratch.pathExists then IO.FS.removeDirAll scratch
 
 private unsafe def testProductPathDiskRecompute : IO Unit := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let (cap, arts) ← materializeTarget compiled TargetId.solana
   let outDir := FilePath.mk "build/v2/output-set-product-solana"
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
   let receipt ← ProofForgeV2.CLI.emitProgram cap outDir
   expect (receipt.target == TargetId.solana) "receipt target"
   expect (receipt.deployable == true) "sole-rail Solana receipt deployable"
-  expect (← (outDir / "Counter.so").pathExists)
-    "sole-rail Solana finalization must publish Counter.so"
+  expect (← (outDir / "StateCell.so").pathExists)
+    "sole-rail Solana finalization must publish StateCell.so"
   -- Independent recompute via finalize + scan + mint + render.
   let scratch := FilePath.mk "build/v2/output-set-product-scratch"
   let finalized ← finalizeScratch cap arts scratch
@@ -352,8 +352,8 @@ private unsafe def testProductPathDiskRecompute : IO Unit := do
   expect ((diskManifest.splitOn "\"role\": \"materialized-base\"").length > 1)
     "manifest files carry materialized-base role"
   expect ((diskManifest.splitOn "\"role\": \"finalized-extra\"").length > 1 &&
-      (diskManifest.splitOn "\"path\": \"Counter.so\"").length > 1)
-    "manifest must bind the locked-sbpf Counter.so finalized extra"
+      (diskManifest.splitOn "\"path\": \"StateCell.so\"").length > 1)
+    "manifest must bind the locked-sbpf StateCell.so finalized extra"
   expect ((diskManifest.splitOn "\"deployable\": true").length > 1)
     "manifest must mark sole-rail Solana deployable"
   -- Exact disk closure still holds (S7c).
@@ -361,12 +361,12 @@ private unsafe def testProductPathDiskRecompute : IO Unit := do
   -- Files order is canonical role-rank then UTF-8 path (not materializer source order).
   let paths := (EngineeringOutputSetV1.filesOf outputSet).map (·.path)
   expect (paths == #[
-      "Counter.cpi-bindings.json",
-      "Counter.cpi-ir.json",
-      "Counter.cpi-plan.json",
-      "Counter.idl.json",
-      "Counter.s",
-      "Counter.so"])
+      "StateCell.cpi-bindings.json",
+      "StateCell.cpi-ir.json",
+      "StateCell.cpi-plan.json",
+      "StateCell.idl.json",
+      "StateCell.s",
+      "StateCell.so"])
     s!"solana files canonical path order, got {paths}"
   -- Inspect product path accepts the published dir.
   let inspected ← ProofForgeV2.CLI.inspectEngineeringOutputDirV1 outDir
@@ -439,7 +439,7 @@ private unsafe def testLegacyPathOnlyManifestRejected : IO Unit := do
     "  \"schemaVersion\": \"proof-forge.output.v1\",\n" ++
     "  \"target\": \"solana\",\n" ++
     "  \"codegenProfile\": \"solana-sbpf-cpi-elf-v1\",\n" ++
-    "  \"artifactProgramName\": \"Counter\",\n" ++
+    "  \"artifactProgramName\": \"StateCell\",\n" ++
     "  \"sourceHash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
     "  \"semanticHash\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
     "  \"buildIdentityDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
@@ -449,7 +449,7 @@ private unsafe def testLegacyPathOnlyManifestRejected : IO Unit := do
     "  \"outputSetDigest\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
     "  \"evidenceSha256\": \"0000000000000000000000000000000000000000000000000000000000000000\",\n" ++
     "  \"deployable\": false,\n" ++
-    "  \"files\": [\"Counter.s\",\"Counter.idl.json\"]\n" ++
+    "  \"files\": [\"StateCell.s\",\"StateCell.idl.json\"]\n" ++
     "}\n"
   match ProofForgeV2.CLI.validateEngineeringOutputManifestTextV1 legacy with
   | .ok _ => throw <| IO.userError "legacy path-only files must fail"

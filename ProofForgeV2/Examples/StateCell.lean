@@ -4,7 +4,8 @@ namespace ProofForgeV2.Examples
 
 open ProofForgeV2.Language
 
-program Counter where
+-- Neutral single-slot state fixture used by compiler and target tests.
+program StateCell where
   state count : UInt64
 
   init(initial : UInt64) do
@@ -17,13 +18,12 @@ program Counter where
   view get() : UInt64 do
     return count
 
-/-- Canonical source text for non-CLI library tests. The product CLI reads the
-    tracked `Examples/Counter.lean` file only through the supervised frontend. -/
-def counterSourceText : String :=
+/-- Canonical source text for non-CLI library tests. -/
+def stateCellSourceText : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
-  "program Counter where\n" ++
+  "program StateCell where\n" ++
   "  state count : UInt64\n\n" ++
   "  init(initial : UInt64) do\n" ++
   "    count := initial\n\n" ++
@@ -34,6 +34,6 @@ def counterSourceText : String :=
   "    return count\n\n" ++
   "end ProofForgeV2.Examples\n"
 
-def counterModuleNameV1 : String := "Examples.Counter"
+def stateCellModuleNameV1 : String := "Examples.StateCell"
 
 end ProofForgeV2.Examples

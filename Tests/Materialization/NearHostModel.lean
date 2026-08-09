@@ -1107,8 +1107,8 @@ def runCompareAssertFast : IO Unit := do
   testCompareAssertModel
   IO.println "Tests.Materialization.NearHostModel.compareAssert: ok"
 
-/-- Guarded counter: assert count >= delta before checked subtraction. -/
-private def guardedCounterSourceText : String :=
+/-- Guarded state cell: assert count >= delta before checked subtraction. -/
+private def guardedStateCellSourceText : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
@@ -1124,7 +1124,7 @@ private def guardedCounterSourceText : String :=
   "    return count\n\n" ++
   "end ProofForgeV2.Examples\n"
 
-private def guardedCounterModuleNameV1 : String := "Examples.Guarded"
+private def guardedStateCellModuleNameV1 : String := "Examples.Guarded"
 
 private def operationKinds (operations : Array Targets.Near.Operation) :
     Array String :=
@@ -1385,11 +1385,11 @@ private unsafe def testBranchAssertTrap
   expect (ret3 == some 0 && storedUInt64? storage3 field.key == some 0)
     "branch-assert: else branch must not fire the assert"
 
-private unsafe def testGuardedCounterProductPath
+private unsafe def testGuardedStateCellProductPath
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source ← liftResult (← session.selectProgramV1
-    guardedCounterSourceText "<near-host-guarded>"
-    guardedCounterModuleNameV1 none)
+    guardedStateCellSourceText "<near-host-guarded>"
+    guardedStateCellModuleNameV1 none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
   let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
   let capability ← liftResult <|
@@ -3046,7 +3046,7 @@ private unsafe def testNarrowAbiProductPath
   expectContains abiFile.contents "\"type\":\"u8-le\"" "narrow-abi ABI u8-le"
   expectContains abiFile.contents "\"type\":\"u16-le\"" "narrow-abi ABI u16-le"
   expectContains abiFile.contents "\"type\":\"u32-le\"" "narrow-abi ABI u32-le"
-  -- Pure UInt64 Counter-style program must still render only u64-le on fields.
+  -- Pure UInt64 StateCell-style program must still render only u64-le on fields.
   let u64Text :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -5608,7 +5608,7 @@ unsafe def run : IO Unit := do
     execute add maximumState (encodeUInt64LE 1) zeroDeposit
 
   -- Comparison + assert envelope product paths.
-  testGuardedCounterProductPath session
+  testGuardedStateCellProductPath session
   testAllComparisonOpsWat session
   testAssertElseRejected session
   testBoolStateParamRejected session

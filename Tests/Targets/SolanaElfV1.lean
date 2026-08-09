@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Targets.Solana
 import ProofForgeV2.Targets.Solana.CpiContractV1
 import ProofForgeV2.Targets.Solana.FinalizeV1
@@ -21,7 +21,7 @@ Pins:
 * registry sole member + default is cpi-elf; plan/elf shims not members
 * support row only for cpi-elf (sync + extensions; no async)
 * residual descriptor binds cpi-elf only
-* body-only Counter product emit (`.s` / hybrid IR / plan / bindings / ELF finalize path)
+* body-only StateCell product emit (`.s` / hybrid IR / plan / bindings / ELF finalize path)
 * empty-.so gate; active CPI contract digests / package closure pins
 -/
 
@@ -238,10 +238,10 @@ private def testActiveCpiContract : IO Unit := do
       "d3f6df6f95f8b81c482478cc8c44b67ac3de2ca03162eaaf6c587ee8db646519")
     "ata elf sha256"
 
-/-- Sole-rail body-only Counter emit + materialize. -/
+/-- Sole-rail body-only StateCell emit + materialize. -/
 private unsafe def testEmitProfiles
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session counterSourceText counterModuleNameV1
+  let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
     "<solana-elf-emit>"
   let cpiCap ← liftResult <| solanaCapability compiled none
   expect (Targets.ResolvedEngineeringBuildV1.codegenProfileOf cpiCap ==
@@ -257,12 +257,12 @@ private unsafe def testEmitProfiles
       throw <| IO.userError s!"cpi plan: body-only must mint, got {error.render}"
   let cpiFiles ← liftResult <| buildFromCapability cpiCap
   let cpiPaths := cpiFiles.map (·.path)
-  expect (cpiPaths.any (· == "Counter.s")) "emit: .s"
-  expect (cpiPaths.any (· == "Counter.cpi-ir.json")) "emit: hybrid ir"
-  expect (cpiPaths.any (· == "Counter.cpi-plan.json")) "emit: plan"
-  expect (cpiPaths.any (· == "Counter.idl.json")) "emit: idl"
-  expect (cpiPaths.any (· == "Counter.cpi-bindings.json")) "emit: bindings"
-  let asmFromFiles ← match cpiFiles.find? (·.path == "Counter.s") with
+  expect (cpiPaths.any (· == "StateCell.s")) "emit: .s"
+  expect (cpiPaths.any (· == "StateCell.cpi-ir.json")) "emit: hybrid ir"
+  expect (cpiPaths.any (· == "StateCell.cpi-plan.json")) "emit: plan"
+  expect (cpiPaths.any (· == "StateCell.idl.json")) "emit: idl"
+  expect (cpiPaths.any (· == "StateCell.cpi-bindings.json")) "emit: bindings"
+  let asmFromFiles ← match cpiFiles.find? (·.path == "StateCell.s") with
     | some f => pure f.contents
     | none => throw <| IO.userError "emit: missing .s"
   expect (asmFromFiles.contains ".globl entrypoint") "asm: entrypoint export"
@@ -301,16 +301,16 @@ private unsafe def testExtensionProfileResolution
 private unsafe def testFinalize
     (session : Language.Loader.ParserSession) : IO Unit := do
   let root := FilePath.mk "/tmp/pf-solana-elf-project"
-  expect (Targets.Solana.FinalizeV1.projectAsmPathV1 root "Counter" ==
-      root / "src" / "Counter" / "Counter.s")
+  expect (Targets.Solana.FinalizeV1.projectAsmPathV1 root "StateCell" ==
+      root / "src" / "StateCell" / "StateCell.s")
     "finalize helper: project asm path"
-  expect (Targets.Solana.FinalizeV1.deploySoPathV1 root "Counter" ==
-      root / "deploy" / "Counter.so")
+  expect (Targets.Solana.FinalizeV1.deploySoPathV1 root "StateCell" ==
+      root / "deploy" / "StateCell.so")
     "finalize helper: deploy so path"
   expectIoErrorContains "empty so" "PF-ARTIFACT-NONDEPLOYABLE" do
     Targets.Solana.FinalizeV1.requireNonemptySbpfElf (ByteArray.mk #[])
   Targets.Solana.FinalizeV1.requireNonemptySbpfElf (ByteArray.mk #[0x7f, 0x45])
-  let compiled ← compileSource session counterSourceText counterModuleNameV1
+  let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
     "<solana-elf-finalize-cpi>"
   let cpiCap ← liftResult <| solanaCapability compiled none
   let cpiArtifacts ← liftResult <| Targets.materializeResult cpiCap

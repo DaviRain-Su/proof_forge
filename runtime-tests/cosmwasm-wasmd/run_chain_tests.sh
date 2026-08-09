@@ -1,13 +1,13 @@
 #!/bin/sh
 # In-container wasmd chain tests (BL-26 rung 1).
 # Invoked by scripts/cosmwasm_wasmd_test.sh via docker exec after wasms are copied
-# to /artifacts/{Counter,ScheduleFlow}.wasm and the node is running.
+# to /artifacts/{StateCell,ScheduleFlow}.wasm and the node is running.
 #
 # Engineering only: wasmd v0.70.3 tx-level differential.
 # Not mainnet / formal Stage-0 / hermetic release evidence.
 #
 # Assertions (observed on wasmd v0.70.3):
-#   Counter:
+#   StateCell:
 #     - instantiate {initial:7} → state0 == 7
 #     - execute {increment:{delta:5}} → state0 == 12, deliver code 0
 #     - execute overflow delta → CLI/tx FAILS (Wasm unreachable trap), state0 holds 12
@@ -172,47 +172,47 @@ tx_flags() {
     "--gas" "$gas" "--gas-prices" "$GAS_PRICES" "-y" "-o" "json"
 }
 
-# ---------- Counter ----------
-log "=== Counter ==="
-[ -f /artifacts/Counter.wasm ] || die "missing /artifacts/Counter.wasm"
+# ---------- StateCell ----------
+log "=== StateCell ==="
+[ -f /artifacts/StateCell.wasm ] || die "missing /artifacts/StateCell.wasm"
 
-tx_ok "store Counter" wasmd tx wasm store /artifacts/Counter.wasm $(tx_flags "$GAS_STORE") >/dev/null
+tx_ok "store StateCell" wasmd tx wasm store /artifacts/StateCell.wasm $(tx_flags "$GAS_STORE") >/dev/null
 # First code id after store (fresh chain → 1).
-counter_code=$(wasmd query wasm list-code -o json | sed -n 's/.*"code_id":"\([0-9]*\)".*/\1/p' | head -n1)
-[ -n "$counter_code" ] || die "no code id after Counter store"
-log "Counter code_id=$counter_code"
+state_cell_code=$(wasmd query wasm list-code -o json | sed -n 's/.*"code_id":"\([0-9]*\)".*/\1/p' | head -n1)
+[ -n "$state_cell_code" ] || die "no code id after StateCell store"
+log "StateCell code_id=$state_cell_code"
 
-tx_ok "instantiate Counter initial=7" \
-  wasmd tx wasm instantiate "$counter_code" '{"initial":7}' \
-  --label "pf-counter" --no-admin $(tx_flags "$GAS_INST") >/dev/null
+tx_ok "instantiate StateCell initial=7" \
+  wasmd tx wasm instantiate "$state_cell_code" '{"initial":7}' \
+  --label "pf-statecell" --no-admin $(tx_flags "$GAS_INST") >/dev/null
 
-counter_addr=$(wasmd query wasm list-contract-by-code "$counter_code" -o json \
+state_cell_addr=$(wasmd query wasm list-contract-by-code "$state_cell_code" -o json \
   | sed -n 's/.*"contracts":\["\([^"]*\)".*/\1/p' | head -n1)
-[ -n "$counter_addr" ] || die "no Counter contract address"
-log "Counter addr=$counter_addr"
+[ -n "$state_cell_addr" ] || die "no StateCell contract address"
+log "StateCell addr=$state_cell_addr"
 
-s=$(read_state0_u64 "$counter_addr")
-assert_eq "$s" "7" "Counter state after init"
+s=$(read_state0_u64 "$state_cell_addr")
+assert_eq "$s" "7" "StateCell state after init"
 
 tx_ok "increment delta=5" \
-  wasmd tx wasm execute "$counter_addr" '{"increment":{"delta":5}}' \
+  wasmd tx wasm execute "$state_cell_addr" '{"increment":{"delta":5}}' \
   $(tx_flags "$GAS_EXEC") >/dev/null
 
-s=$(read_state0_u64 "$counter_addr")
-assert_eq "$s" "12" "Counter state after increment"
+s=$(read_state0_u64 "$state_cell_addr")
+assert_eq "$s" "12" "StateCell state after increment"
 
 # Overflow: max u64 add under checked arithmetic → Wasm unreachable.
 # Observed: CLI returns error (simulation/CheckTx path) with unreachable; no inclusion needed.
 tx_fail "overflow increment" \
-  wasmd tx wasm execute "$counter_addr" '{"increment":{"delta":18446744073709551615}}' \
+  wasmd tx wasm execute "$state_cell_addr" '{"increment":{"delta":18446744073709551615}}' \
   $(tx_flags "$GAS_EXEC") >/dev/null
 
-s=$(read_state0_u64 "$counter_addr")
-assert_eq "$s" "12" "Counter state holds after overflow tx failure"
+s=$(read_state0_u64 "$state_cell_addr")
+assert_eq "$s" "12" "StateCell state holds after overflow tx failure"
 
 # Document smart-query MVP limitation (non-fatal).
 set +e
-smart=$(wasmd query wasm contract-state smart "$counter_addr" '{"get":{}}' -o json 2>&1)
+smart=$(wasmd query wasm contract-state smart "$state_cell_addr" '{"get":{}}' -o json 2>&1)
 smart_ec=$?
 set -e
 if [ "$smart_ec" -eq 0 ]; then

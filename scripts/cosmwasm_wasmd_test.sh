@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # CosmWasm engineering wasmd tx-level differential (BL-26 rung 1):
-#   product CLI build → Counter.wasm + ScheduleFlow.wasm
+#   product CLI build → StateCell.wasm + ScheduleFlow.wasm
 #   → docker cosmwasm/wasmd:v0.70.3 local chain
 #   → store / instantiate / execute / raw-state assert
 #
 # Covers:
-#   - Counter init(7) → state 7; increment(5) → state 12;
+#   - StateCell init(7) → state 7; increment(5) → state 12;
 #     overflow increment → tx fails, state holds 12
 #   - ScheduleFlow later() → SubMsg to static QN stub "ledger.daily"
 #     fails bech32 validation under ReplyNever; whole tx aborts; state holds
@@ -146,7 +146,7 @@ cli="$root/.lake/build/bin/proof-forge-next"
 out_dir="${PROOF_FORGE_RUNTIME_OUT:-$root/build/v2/cosmwasm-wasmd}"
 
 programs=(
-  "Examples/Counter.lean:Examples.Counter:Counter"
+  "Examples/StateCell.lean:Examples.StateCell:StateCell"
   "runtime-tests/cosmwasm/fixtures/ScheduleFlow.lean:Examples.ScheduleFlow:ScheduleFlow"
 )
 
@@ -217,7 +217,7 @@ if ! docker run -d --name "$CONTAINER_NAME" "$WASMD_IMAGE" sleep infinity >/dev/
 fi
 
 docker exec "$CONTAINER_NAME" mkdir -p /artifacts /opt/pf-tests
-docker cp "$out_dir/Counter/Counter.wasm" "$CONTAINER_NAME:/artifacts/Counter.wasm"
+docker cp "$out_dir/StateCell/StateCell.wasm" "$CONTAINER_NAME:/artifacts/StateCell.wasm"
 docker cp "$out_dir/ScheduleFlow/ScheduleFlow.wasm" "$CONTAINER_NAME:/artifacts/ScheduleFlow.wasm"
 docker cp "$root/$IN_CONTAINER_TEST" "$CONTAINER_NAME:/opt/pf-tests/run_chain_tests.sh"
 docker exec "$CONTAINER_NAME" chmod +x /opt/pf-tests/run_chain_tests.sh

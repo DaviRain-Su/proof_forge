@@ -6,7 +6,6 @@ import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.ProgramExport
 import ProofForgeV2.Language.TheoremInventoryV1
-import ProofForgeV2.Semantic.ClosedSubjectPinV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.PreservationABI
 import ProofForgeV2.Semantic.ProofSubjectV1
@@ -350,33 +349,20 @@ private def expectedTheoremsForAuditV1
         helpers := helpers.push { name := helperName, expectedType }
   pure { authors, generatedHelpers := helpers }
 
-/-- Structural decode of a `ByteArray` def value, or one fail-closed hop into a
-    registered closed subject pin (shared with product elaborator). Pin bytes
-    come from the pin table (exact identity), not Expr evaluation of large
-    spines. -/
+/-- Structural decode of the compiler-generated transparent `ByteArray` value.
+    No contract-specific constant, registry lookup, evaluator fallback, or pin
+    hop is accepted. -/
 private def decodeSubjectByteValueExprV1
     (_env : Environment) (valueExpr : Expr) :
-    Except InlineProofCertifierDetailV1 ByteArray := do
+    Except InlineProofCertifierDetailV1 ByteArray :=
   match decodeBoundedByteArrayExprV1 valueExpr.consumeMData with
-  | .ok bytes => pure bytes
-  | .error _ =>
-      match valueExpr.consumeMData with
-      | .const pinName levels =>
-          unless levels.isEmpty do
-            return ← .error .subjectBytes
-          unless ProofForgeV2.Semantic.ClosedSubjectPinV1.isClosedSubjectBytePinNameV1
-              pinName do
-            return ← .error .subjectBytes
-          match ProofForgeV2.Semantic.ClosedSubjectPinV1.closedSubjectBytePinBytesV1
-              pinName with
-          | some bytes => pure bytes
-          | none => .error .subjectBytes
-      | _ => .error .subjectBytes
+  | .ok bytes => .ok bytes
+  | .error _ => .error .subjectBytes
 
 /-- Decode either an inline structural ByteArray expression or the exact
-    compiler-generated sibling `subjectBytesV1` transparent definition. Follows
-    at most: product `subjectBytesV1` → optional closed pin constant → structural
-    spine. Never evaluates arbitrary terms. -/
+    compiler-generated sibling `subjectBytesV1` transparent definition. The
+    sibling value itself must be the structural spine; arbitrary constants and
+    term evaluation are rejected. -/
 private def decodeGeneratedSubjectByteExprV1
     (env : Environment) (subjectDecl : Name) (bytesExpr : Expr) :
     Except InlineProofCertifierDetailV1 ByteArray := do

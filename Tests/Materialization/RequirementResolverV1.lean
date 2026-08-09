@@ -1023,8 +1023,8 @@ private def resolveEngineeringRequirementsV1TypeAscription :
 private unsafe def testProductFourTargets : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1
-    Examples.counterSourceText "<req-resolver-counter>"
-    Examples.counterModuleNameV1 none)
+    Examples.stateCellSourceText "<req-resolver-state-cell>"
+    Examples.stateCellModuleNameV1 none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
   let sourceDigest := CompiledSemanticV1.sourceDigestOf compiled
   let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
@@ -1032,12 +1032,12 @@ private unsafe def testProductFourTargets : IO Unit := do
   let semanticV1 := CompiledSemanticV1.semanticV1Of compiled
   let frozen ← match validateSemanticProgramV1 semanticV1 with
     | .ok d => pure d.requirements
-    | .error e => throw <| IO.userError s!"Counter SemanticProgramV1 invalid: {repr e}"
-  -- Counter contributes three of the four catalog ids (no Bool carrier).
-  let counterCatalogTrio : Array String :=
+    | .error e => throw <| IO.userError s!"StateCell SemanticProgramV1 invalid: {repr e}"
+  -- StateCell contributes three of the four catalog ids (no Bool carrier).
+  let stateCellCatalogTrio : Array String :=
     #["failure.atomic-rollback", "state.persistent", "value.checked-arithmetic"]
-  expect (frozen.items.map (·.id) == counterCatalogTrio)
-    "Counter retained requirements are its contributed catalog ids"
+  expect (frozen.items.map (·.id) == stateCellCatalogTrio)
+    "StateCell retained requirements are its contributed catalog ids"
   for tid in #[TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir] do
     let selection ← liftResult <| resolveBuildSelectionV1 tid none
     let capability ← liftResult <|
@@ -1052,7 +1052,7 @@ private unsafe def testProductFourTargets : IO Unit := do
     -- Capability stores exact retained frozen requirements (no empty/subset).
     expect (accepted == frozen)
       s!"capability.requirements exact retained freeze for {tid}"
-    expect (accepted.items.map (·.id) == counterCatalogTrio)
+    expect (accepted.items.map (·.id) == stateCellCatalogTrio)
       s!"accepted contributed catalog ids for {tid}"
     let output ← liftResult <| Targets.materializeResult capability
     expect (!(MaterializedArtifactsV1.filesOf output).isEmpty)
@@ -1200,8 +1200,8 @@ private unsafe def testStateOnlySubsetCapability : IO Unit := do
 private unsafe def testCliEmitAndDescribe : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1
-    Examples.counterSourceText "<req-resolver-cli>"
-    Examples.counterModuleNameV1 none)
+    Examples.stateCellSourceText "<req-resolver-cli>"
+    Examples.stateCellModuleNameV1 none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
   let selection ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
   let capability ← liftResult <|
@@ -1355,19 +1355,19 @@ private def testRequestResolveNegativesOnInspection : IO Unit := do
 
 /-- S6: product support authority rejects unsupported request matrices on the
     inspection seam; public residual Common.resolve is gone (deletion contract).
-    The single-semantic Counter carrier mints capability only for the exact retained freeze. -/
+    The single-semantic StateCell carrier mints capability only for the exact retained freeze. -/
 private unsafe def testBackendSupportDefense : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1
-    Examples.counterSourceText "<req-resolver-backend-def>"
-    Examples.counterModuleNameV1 none)
+    Examples.stateCellSourceText "<req-resolver-backend-def>"
+    Examples.stateCellModuleNameV1 none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
   let selection ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
   -- Product path succeeds for exact retained freeze.
   let capability ← liftResult <|
     Targets.resolveEngineeringRequirementsV1 selection compiled
   expect (Targets.ResolvedEngineeringBuildV1.targetIdOf capability == TargetId.evm)
-    "capability mint for Counter on EVM"
+    "capability mint for StateCell on EVM"
   -- Unsupported non-catalog id is rejected on inspection (not residual resolve).
   let unknown : RequirementRequestV1 := {
     id := "effect.synchronous-call"
@@ -1479,8 +1479,8 @@ private unsafe def testCapabilityMintUniqueness : IO Unit := do
   -- Positive product path still mints via the sole API (not a second factory).
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1
-    Examples.counterSourceText "<req-resolver-mint>"
-    Examples.counterModuleNameV1 none)
+    Examples.stateCellSourceText "<req-resolver-mint>"
+    Examples.stateCellModuleNameV1 none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
   let selection ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
   let capability ← liftResult <|

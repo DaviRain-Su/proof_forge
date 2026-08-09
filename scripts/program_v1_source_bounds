@@ -16,21 +16,21 @@ rm -rf "$FIXTURE_DIR"
 mkdir -p "$LOG_DIR"
 
 # Product CLI source reading is in-process (Loader) on all hosts. Portable
-# Linux CI runs a lightweight positive gate (built-in Counter build) and keeps
+# Linux CI runs a lightweight positive gate (built-in StateCell build) and keeps
 # the heavy 300-term/20k-state/16 MiB bound fixtures Darwin-only; the ProgramV1
 # bound unit/codec suites still run on Linux.
 if [[ "$(uname -s)" != "Darwin" ]]; then
   log="$LOG_DIR/linux.cli.log"
   out="$FIXTURE_DIR/linux-out"
   ec=0
-  "${CLI[@]}" build Examples/Counter.lean --module Examples.Counter --target solana -o "$out" >"$log" 2>&1 || ec=$?
+  "${CLI[@]}" build Examples/StateCell.lean --module Examples.StateCell --target solana -o "$out" >"$log" 2>&1 || ec=$?
   if [[ "$ec" -ne 0 ]]; then
-    echo "Linux source gate: product CLI Counter build failed (exit $ec)" >&2
+    echo "Linux source gate: product CLI StateCell build failed (exit $ec)" >&2
     cat "$log" >&2
     exit 1
   fi
   if [[ ! -d "$out" ]] || ! rg -q '^built target=solana profile=' "$log"; then
-    echo "Linux source gate: Counter build did not publish output" >&2
+    echo "Linux source gate: StateCell build did not publish output" >&2
     cat "$log" >&2
     exit 1
   fi

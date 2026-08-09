@@ -191,9 +191,9 @@ describe('ScheduleFlow @ton/sandbox engineering differential', () => {
   });
 });
 
-describe('Counter schedule-absence regression (no createMessage)', () => {
+describe('StateCell schedule-absence regression (no createMessage)', () => {
   it('increment has zero internal out-messages (no schedule emission path)', async () => {
-    const { deployer, contract, address } = await deployFresh('Counter');
+    const { deployer, contract, address } = await deployFresh('StateCell');
 
     await contract.sendOp(
       deployer.getSender(),
@@ -216,7 +216,7 @@ describe('Counter schedule-absence regression (no createMessage)', () => {
     assert.equal(
       internals.length,
       0,
-      `Counter must not emit createMessage/internal outs, got ${internals.length}`,
+      `StateCell must not emit createMessage/internal outs, got ${internals.length}`,
     );
   });
 });

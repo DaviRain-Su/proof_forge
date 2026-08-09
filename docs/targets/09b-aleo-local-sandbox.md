@@ -92,17 +92,16 @@ normative: false
   --run 'initialize 1u64' \
   --run 'increment 2u64'
 
-# 回归：可选字节金样（例如 Instructions golden tree）
+# 中性 runtime 回归；历史 Counter 字节金样由 Instructions suite 独立固定
 ./scripts/aleo_local_sandbox.sh \
-  --source Examples/Counter.lean \
-  --module Examples.Counter \
-  --golden testdata/golden/aleo-instructions-v1/counter.compiled.aleo \
+  --source Examples/StateCell.lean \
+  --module Examples.StateCell \
   --run 'initialize 1u64' \
   --run 'increment 2u64'
 
 # 产品包装
 proof-forge-next local --target aleo --mode sandbox -- \
-  --source Examples/Counter.lean --module Examples.Counter --skip-run
+  --source Examples/StateCell.lean --module Examples.StateCell --skip-run
 ```
 
 | flag | 含义 |

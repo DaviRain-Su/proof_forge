@@ -69,7 +69,7 @@ tmp_root="$(mktemp -d /tmp/pf-local-missing.XXXXXX)"
 rm -rf "$tmp_root"
 set +e
 out="$(PROOF_FORGE_TOOL_ROOT="$tmp_root" "$cli" local --target aleo --mode sandbox --json -- \
-  --source Examples/Counter.lean --module Examples.Counter --skip-run 2>&1)"
+  --source Examples/StateCell.lean --module Examples.StateCell --skip-run 2>&1)"
 code=$?
 set -e
 [[ "$code" -eq 2 ]]

@@ -12,7 +12,7 @@ import ProofForgeV2
 import ProofForgeV2.Targets.EngineeringBuildIdentityV1
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.CLI.Main
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Semantic.WireV1
 import Tests.Language.ParserSession
@@ -50,25 +50,25 @@ private def materializeOk (label : String) (capability : Targets.ResolvedEnginee
     IO MaterializedArtifactsV1 :=
   liftResult label (Targets.materializeResult capability)
 
-private unsafe def compileCounter : IO CompiledSemanticV1 := do
+private unsafe def compileStateCell : IO CompiledSemanticV1 := do
   let session ← Tests.Language.ParserSession.shared
-  let source ← liftResult "load Counter" (← session.selectProgramV1
-    Examples.counterSourceText "<output-envelope-counter>"
-    Examples.counterModuleNameV1 none)
-  liftResult "compile Counter" (Compiler.compileValidatedSourceV1 source)
+  let source ← liftResult "load StateCell" (← session.selectProgramV1
+    Examples.stateCellSourceText "<output-envelope-stateCell>"
+    Examples.stateCellModuleNameV1 none)
+  liftResult "compile StateCell" (Compiler.compileValidatedSourceV1 source)
 
-/-- Canonical Counter ordered artifact paths per TargetId (carrier contract). -/
-private def expectedCounterPaths (tid : TargetId) : Array String :=
+/-- Canonical StateCell ordered artifact paths per TargetId (carrier contract). -/
+private def expectedStateCellPaths (tid : TargetId) : Array String :=
   if tid == TargetId.evm then
-    #["Counter.yul", "Counter.abi.json"]
+    #["StateCell.yul", "StateCell.abi.json"]
   else if tid == TargetId.solana then
-    #["Counter.cpi-plan.json", "Counter.cpi-ir.json", "Counter.idl.json",
-      "Counter.s", "Counter.cpi-bindings.json"]
+    #["StateCell.cpi-plan.json", "StateCell.cpi-ir.json", "StateCell.idl.json",
+      "StateCell.s", "StateCell.cpi-bindings.json"]
   else if tid == TargetId.near then
-    #["Counter.wat", "Counter.near-abi.json"]
+    #["StateCell.wat", "StateCell.near-abi.json"]
   else if tid == TargetId.noir then
     #[
-      "Counter.noir-relations.json",
+      "StateCell.noir-relations.json",
       "relations/r0-init/src/main.nr",
       "relations/r0-init/Nargo.toml",
       "relations/r1-increment/src/main.nr",
@@ -82,7 +82,7 @@ private def expectedCounterPaths (tid : TargetId) : Array String :=
 /-- Four targets: exact capability binding, canonical compiled identity,
     exact ordered artifact path names, deterministic bytes, no partial carrier. -/
 private unsafe def testFourTargetCarrierBinding : IO Unit := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let artifactName := CompiledSemanticV1.artifactProgramNameOf compiled
   let sourceDigest := CompiledSemanticV1.sourceDigestOf compiled
   let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
@@ -125,10 +125,10 @@ private unsafe def testFourTargetCarrierBinding : IO Unit := do
     | .error error => throw <| IO.userError s!"{tid} renderDigest: {error}"
     let files := MaterializedArtifactsV1.filesOf a
     expect (!files.isEmpty) s!"{tid} must emit ≥1 artifact"
-    let expected := expectedCounterPaths tid
-    expect (!expected.isEmpty) s!"{tid} must have expected Counter path pin"
+    let expected := expectedStateCellPaths tid
+    expect (!expected.isEmpty) s!"{tid} must have expected StateCell path pin"
     expect (files.map (·.path) == expected)
-      s!"{tid} exact Counter path order/names:\n  got {files.map (·.path)}\n  want {expected}"
+      s!"{tid} exact StateCell path order/names:\n  got {files.map (·.path)}\n  want {expected}"
     -- Path safety via sole package helper + uniqueness.
     let mut paths : Array String := #[]
     for f in files do
@@ -144,7 +144,7 @@ private unsafe def testFourTargetCarrierBinding : IO Unit := do
 
 /-- Emit path: capability-only, receipt fields, exact on-disk proof-forge.output.v1 + evidence. -/
 private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let sourceHash ← liftResult "derive source hash"
     (CompiledSemanticV1.artifactSourceHashHexOf compiled)
   let semanticHash ← liftResult "derive semantic hash"
@@ -154,8 +154,8 @@ private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
     (Targets.resolveEngineeringRequirementsV1 selection compiled)
   let carrier ← materializeOk "materialize solana" capability
   let carrierPaths := (MaterializedArtifactsV1.filesOf carrier).map (·.path)
-  expect (carrierPaths == #["Counter.cpi-plan.json", "Counter.cpi-ir.json",
-      "Counter.idl.json", "Counter.s", "Counter.cpi-bindings.json"])
+  expect (carrierPaths == #["StateCell.cpi-plan.json", "StateCell.cpi-ir.json",
+      "StateCell.idl.json", "StateCell.s", "StateCell.cpi-bindings.json"])
     s!"solana sole-rail carrier paths for golden manifest, got {carrierPaths}"
   let outDir := FilePath.mk "build/v2/output-envelope-solana"
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
@@ -164,8 +164,8 @@ private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
   expect (receipt.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1)
     "emit receipt profile"
   expect (receipt.deployable == true) "solana sole CPI-ELF rail is deployable"
-  expect (← (outDir / "Counter.so").pathExists)
-    "solana locked-sbpf finalization must publish Counter.so"
+  expect (← (outDir / "StateCell.so").pathExists)
+    "solana locked-sbpf finalization must publish StateCell.so"
   -- Recompute engineering OutputSet from product finalize (base files + .so extra).
   let stagingScratch := FilePath.mk "build/v2/output-envelope-solana-scratch"
   if ← stagingScratch.pathExists then IO.FS.removeDirAll stagingScratch
@@ -186,22 +186,22 @@ private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
     s!"exact proof-forge.output.v1 manifest byte identity:\n---got---\n{json}\n---want---\n{expectedManifest}"
   expect ((json.splitOn "\"schemaVersion\": \"proof-forge.output.v1\"").length > 1)
     "on-disk schemaVersion proof-forge.output.v1"
-  for path in #["Counter.cpi-plan.json", "Counter.cpi-ir.json",
-      "Counter.idl.json", "Counter.s", "Counter.cpi-bindings.json",
-      "Counter.so"] do
+  for path in #["StateCell.cpi-plan.json", "StateCell.cpi-ir.json",
+      "StateCell.idl.json", "StateCell.s", "StateCell.cpi-bindings.json",
+      "StateCell.so"] do
     expect ((json.splitOn s!"\"path\": \"{path}\"").length > 1)
       s!"on-disk files include {path} descriptor"
   expect ((json.splitOn "\"role\": \"materialized-base\"").length > 1)
     "on-disk files carry materialized-base role"
   expect ((json.splitOn "\"role\": \"finalized-extra\"").length > 1)
-    "on-disk Counter.so carries finalized-extra role"
+    "on-disk StateCell.so carries finalized-extra role"
   expect ((json.splitOn "\"contentSha256\":").length > 1)
     "on-disk files carry contentSha256"
   expect ((json.splitOn "\"evidenceSha256\":").length > 1)
     "on-disk evidenceSha256 present"
   expect ((json.splitOn "\"deployable\": true").length > 1)
     "on-disk deployable true"
-  expect ((json.splitOn "\"artifactProgramName\": \"Counter\"").length > 1)
+  expect ((json.splitOn "\"artifactProgramName\": \"StateCell\"").length > 1)
     "on-disk artifactProgramName"
   expect ((json.splitOn "\"buildIdentityDigest\":").length > 1)
     "on-disk buildIdentityDigest present"
@@ -222,7 +222,7 @@ private unsafe def testEmitReceiptAndDiskManifest : IO Unit := do
 /-- Mint helpers that take capability+files reject unsafe/duplicate/empty paths
     without returning a partial carrier (package-visible mint). -/
 private unsafe def testMintPathNegatives : IO Unit := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let selection ← liftResult "select evm" (resolveBuildSelectionV1 TargetId.evm none)
   let capability ← liftResult "resolve evm"
     (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -230,7 +230,7 @@ private unsafe def testMintPathNegatives : IO Unit := do
   let goodFiles := MaterializedArtifactsV1.filesOf ok
   expect (!goodFiles.isEmpty) "baseline files nonempty"
   -- Sole package path helper mirrors mint rejection set (shared with CLI).
-  expect (safeRelativeArtifactPathV1 "Counter.yul") "safe path accepted by helper"
+  expect (safeRelativeArtifactPathV1 "StateCell.yul") "safe path accepted by helper"
   expect (!safeRelativeArtifactPathV1 "") "helper rejects empty"
   expect (!safeRelativeArtifactPathV1 "foo/./bar") "helper rejects '.' component"
   expect (!safeRelativeArtifactPathV1 "a\u0000b") "helper rejects null"

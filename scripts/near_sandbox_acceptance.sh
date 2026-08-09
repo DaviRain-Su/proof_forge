@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # NEAR near-sandbox receipt acceptance helper (engineering only; G123).
 #
-# Starts a local near-sandbox node, deploys product Counter.wasm (or a provided
+# Starts a local near-sandbox node, deploys product StateCell.wasm (or a provided
 # .wasm), calls init/increment/get, and asserts state via view + receipts.
 #
 # Exit codes:
@@ -14,7 +14,7 @@ set -euo pipefail
 
 usage() {
   echo "usage: $0 [wasm-file-or-dir]" >&2
-  echo "  If omitted, builds Examples/Counter --target near when proof-forge-next is available." >&2
+  echo "  If omitted, builds Examples/StateCell --target near when proof-forge-next is available." >&2
   exit 2
 }
 
@@ -111,7 +111,7 @@ if [[ -n "$target_arg" ]]; then
     exit 2
   fi
 else
-  # Prefer a prebuilt Counter.wasm under build/, else product CLI build.
+  # Prefer a prebuilt StateCell.wasm under build/, else product CLI build.
   if wasm="$(find_wasm "$root/build/v2/near-sandbox-acceptance" 2>/dev/null)"; then
     :
   elif [[ -x "$root/.lake/build/bin/proof-forge-next" ]] || command -v lake >/dev/null 2>&1; then
@@ -119,29 +119,29 @@ else
     if [[ ! -x "$cli" ]]; then
       echo "near-sandbox-acceptance: building proof-forge-next..." >&2
       (cd "$root" && lake build proof_forge_next) || {
-        echo "skipped: lake build failed (no Counter.wasm)"
+        echo "skipped: lake build failed (no StateCell.wasm)"
         exit 0
       }
     fi
     out="$root/build/v2/near-sandbox-acceptance"
     rm -rf "$out"
-    echo "near-sandbox-acceptance: build Examples/Counter.lean --target near" >&2
+    echo "near-sandbox-acceptance: build Examples/StateCell.lean --target near" >&2
     (cd "$root" && lake env "$cli" build \
-      Examples/Counter.lean --module Examples.Counter --target near \
+      Examples/StateCell.lean --module Examples.StateCell --target near \
       -o build/v2/near-sandbox-acceptance) || {
-      echo "skipped: Counter NEAR product build failed"
+      echo "skipped: StateCell NEAR product build failed"
       exit 0
     }
     if ! wasm="$(find_wasm "$out")"; then
       # Finalize may leave .wat only if wat2wasm missing from product finalize path.
-      if [[ -f "$out/Counter.wat" ]] && wat2wasm="$(resolve_tool wat2wasm)"; then
-        (cd "$out" && "$wat2wasm" Counter.wat -o Counter.wasm) || {
-          echo "FAIL: wat2wasm Counter.wat" >&2
+      if [[ -f "$out/StateCell.wat" ]] && wat2wasm="$(resolve_tool wat2wasm)"; then
+        (cd "$out" && "$wat2wasm" StateCell.wat -o StateCell.wasm) || {
+          echo "FAIL: wat2wasm StateCell.wat" >&2
           exit 1
         }
-        wasm="$out/Counter.wasm"
+        wasm="$out/StateCell.wasm"
       else
-        echo "skipped: no Counter.wasm after product build (wat2wasm/finalize missing)"
+        echo "skipped: no StateCell.wasm after product build (wat2wasm/finalize missing)"
         exit 0
       fi
     fi

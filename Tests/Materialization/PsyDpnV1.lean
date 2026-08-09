@@ -225,17 +225,19 @@ def testCounterEncodeRoundTrip : IO Unit := do
       expect (pkg == counterPackageGoldenV1)
         "encodePackageCompact round-trip must preserve Counter package"
 
-/-- PSY-DPN-2: product Plan for Examples/Counter lowers to golden package. -/
-unsafe def testCounterPlanLowerEqualsGolden : IO Unit := do
+/-- PSY-DPN-2: the neutral StateCell product Plan lowers to the frozen
+    Counter package shape. The historical golden stays independently pinned. -/
+unsafe def testStateCellPlanLowerEqualsGolden : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  let src ← IO.FS.readFile "Examples/Counter.lean"
-  let parsed ← liftResult (← session.selectProgramV1 src "<dpn-c>" "Examples.Counter" none)
+  let parsed ← liftResult (← session.selectProgramV1
+    ProofForgeV2.Examples.stateCellSourceText "<dpn-state-cell>"
+    ProofForgeV2.Examples.stateCellModuleNameV1 none)
   let compiled ← liftResult <| compileValidatedSourceV1 parsed
   let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
   let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
   let pkg ← liftResult <| packageFromCapabilityV1 cap
   expect (pkg == counterPackageGoldenV1)
-    s!"Plan→DPN package must equal Counter golden (got {pkg.map (·.name)})"
+    s!"StateCell Plan→DPN package must preserve the golden shape (got {pkg.map (·.name)})"
 
 /-- Hand-built PlanFunction: if param>0 then store param else store 0; return load. -/
 def testIfThenElseSelectAndConditionalStore : IO Unit := do
@@ -2616,14 +2618,15 @@ def testG5HardNonResidualDpnFailClosed : IO Unit := do
       throw <| IO.userError
         s!"zero-state Plan must hard-fail materialize, got files {files.map (·.path)}"
 
-/-- PSY-DPN-7 + G6-DEBUG: product default emits only DPN package JSON (package ≡
-    locked-dargo golden); no `.psy`. With `emitPsyDebug := true`, dual-write
-    transitional Counter.psy after primary Counter.dpn.json. -/
-unsafe def testCounterProductDualWriteArtifacts : IO Unit := do
+/-- PSY-DPN-7 + G6-DEBUG: StateCell product default emits only DPN package
+    JSON (package ≡ locked-dargo Counter golden); no `.psy`. With
+    `emitPsyDebug := true`, dual-write transitional StateCell.psy after primary
+    StateCell.dpn.json. -/
+unsafe def testStateCellProductDualWriteArtifacts : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  let src ← IO.FS.readFile "Examples/Counter.lean"
   let parsed ← liftResult (← session.selectProgramV1
-    src "<dpn-7>" "Examples.Counter" none)
+    ProofForgeV2.Examples.stateCellSourceText "<dpn-7-state-cell>"
+    ProofForgeV2.Examples.stateCellModuleNameV1 none)
   let compiled ← liftResult <| compileValidatedSourceV1 parsed
   let selection ← liftResult <|
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
@@ -2631,19 +2634,19 @@ unsafe def testCounterProductDualWriteArtifacts : IO Unit := do
   -- G6 default: DPN-only
   let files ← liftResult <| Targets.Psy.buildFromCapability cap
   expect (files.size == 1)
-    s!"G6 Counter default must emit only .dpn.json, got {files.map (·.path)}"
-  let some dpn := files.find? (·.path == "Counter.dpn.json") |
-    throw <| IO.userError s!"missing Counter.dpn.json; got {files.map (·.path)}"
-  expect (files.any (·.path == "Counter.psy") == false)
-    "G6 Counter default must not emit Counter.psy"
-  expect (files[0]!.path == "Counter.dpn.json")
+    s!"G6 StateCell default must emit only .dpn.json, got {files.map (·.path)}"
+  let some dpn := files.find? (·.path == "StateCell.dpn.json") |
+    throw <| IO.userError s!"missing StateCell.dpn.json; got {files.map (·.path)}"
+  expect (files.any (·.path == "StateCell.psy") == false)
+    "G6 StateCell default must not emit StateCell.psy"
+  expect (files[0]!.path == "StateCell.dpn.json")
     "DPN package must be primary (sole) artifact"
   expect (dpn.mediaType == "application/json") "dpn mediaType"
   match parsePackage? dpn.contents with
-  | none => throw <| IO.userError "Counter.dpn.json failed to parse as package"
+  | none => throw <| IO.userError "StateCell.dpn.json failed to parse as package"
   | some pkg =>
       expect (pkg == counterPackageGoldenV1)
-        "product DPN package must equal Counter golden"
+        "product DPN package must preserve the Counter golden shape"
   -- buildFromCompiledSemanticV1 shares emitFromIR default
   let files2 ← liftResult <| Targets.Psy.buildFromCompiledSemanticV1 compiled
   expect (files2.map (·.path) == files.map (·.path))
@@ -2658,9 +2661,9 @@ unsafe def testCounterProductDualWriteArtifacts : IO Unit := do
     Targets.Psy.buildFromCapability cap (emitPsyDebug := true)
   expect (filesDbg.size == 2)
     s!"G6 debug must dual-write 2 files, got {filesDbg.map (·.path)}"
-  let some psy := filesDbg.find? (·.path == "Counter.psy") |
-    throw <| IO.userError s!"missing Counter.psy; got {filesDbg.map (·.path)}"
-  expect (filesDbg[0]!.path == "Counter.dpn.json")
+  let some psy := filesDbg.find? (·.path == "StateCell.psy") |
+    throw <| IO.userError s!"missing StateCell.psy; got {filesDbg.map (·.path)}"
+  expect (filesDbg[0]!.path == "StateCell.dpn.json")
     "debug dual-write still puts DPN first"
   expect (psy.mediaType == "text/plain") "psy mediaType"
   expect (!psy.contents.isEmpty) "debug .psy non-empty"
@@ -2673,7 +2676,7 @@ unsafe def testCounterProductDualWriteArtifacts : IO Unit := do
   -- Registry pure materializeResult default is DPN-only
   let arts ← liftResult <| Targets.materializeResult cap
   let artPaths := (MaterializedArtifactsV1.filesOf arts).map (·.path)
-  expect (artPaths == #["Counter.dpn.json"])
+  expect (artPaths == #["StateCell.dpn.json"])
     s!"Registry materializeResult default must be DPN-only, got {artPaths}"
 
 unsafe def run : IO Unit := do
@@ -2684,7 +2687,7 @@ unsafe def run : IO Unit := do
   testResidualHonestyNotes
   testCounterGoldenDecode
   testCounterEncodeRoundTrip
-  testCounterPlanLowerEqualsGolden
+  testStateCellPlanLowerEqualsGolden
   testIfThenElseSelectAndConditionalStore
   testSwitchOnDesugarsToEqSelect
   testBoundedForStaticUnroll
@@ -2736,7 +2739,7 @@ unsafe def run : IO Unit := do
   testUInt8NarrowBitwiseProductDualWriteDpn
   testGoldilocksFieldProductDualWriteDpn
   testG5HardNonResidualDpnFailClosed
-  testCounterProductDualWriteArtifacts
+  testStateCellProductDualWriteArtifacts
   IO.println "Tests.Materialization.PsyDpnV1: ok"
 
 end Tests.Materialization.PsyDpnV1

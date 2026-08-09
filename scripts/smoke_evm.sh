@@ -2,7 +2,7 @@
 # Engineering Anvil runtime differential for product EVM bytecode.
 #
 # Coverage (when artifacts under build/v2/* exist):
-#   - Counter: init / view+storage / increment / overflow revert+state hold
+#   - StateCell: init / view+storage / increment / overflow revert+state hold
 #   - Accumulator: init / view+storage / add / overflow revert+state hold
 #   - ArithOps (optional artifact): masked bitNot + checkedMul overflow
 #   - EventFlow (optional artifact): emit Moved log topic+data + Cap revert
@@ -10,7 +10,7 @@
 # Preconditions:
 #   - FOUNDRY_BIN (or PROOF_FORGE_TOOL_ROOT / default tool-root) has locked
 #     anvil + cast (exact sha256 + version pin from toolchains.lock.json).
-#   - Product CLI already wrote Counter.bin / Accumulator.bin (etc.).
+#   - Product CLI already wrote StateCell.bin / Accumulator.bin (etc.).
 #
 # NOT formal TASK-D4-05 / TST-EVM-005 / Reference↔Anvil closure (C-3).
 # This is an engineering local_runtime gate only.
@@ -290,7 +290,7 @@ deploy() {
   local initial="$2"
   local artifact bytecode encoded receipt
   case "$program" in
-    evm) artifact=Counter ;;
+    evm) artifact=StateCell ;;
     evm-accumulator) artifact=Accumulator ;;
     evm-arithops) artifact=ArithOps ;;
     evm-eventflow) artifact=EventFlow ;;
@@ -306,75 +306,75 @@ deploy() {
 }
 
 # ---------------------------------------------------------------------------
-# Counter — view + storage dual-read, increment, overflow state hold
+# StateCell — view + storage dual-read, increment, overflow state hold
 # ---------------------------------------------------------------------------
-[[ -f "$(artifact_dir evm)/Counter.bin" ]] \
-  || die "missing Counter artifact (required by differential matrix) at $(artifact_dir evm)/Counter.bin"
+[[ -f "$(artifact_dir evm)/StateCell.bin" ]] \
+  || die "missing StateCell artifact (required by differential matrix) at $(artifact_dir evm)/StateCell.bin"
 
-counter="$(deploy evm 7)"
-before="$($cast call --rpc-url "$rpc" "$counter" 'get()(uint64)')"
-require_uint_equal "$before" "7" "Counter constructor state mismatch (view)"
-require_storage_uint "$counter" 0 "7" "Counter constructor state mismatch (storage)"
+state_cell="$(deploy evm 7)"
+before="$($cast call --rpc-url "$rpc" "$state_cell" 'get()(uint64)')"
+require_uint_equal "$before" "7" "StateCell constructor state mismatch (view)"
+require_storage_uint "$state_cell" 0 "7" "StateCell constructor state mismatch (storage)"
 slot0_7="$(storage_word32_from_uint 7)"
 # step 0: deploy 7
-emit_corpus_obs "pf.primitive.counter.overflow-hold.v1" 0 "success" \
+emit_corpus_obs "pf.primitive.statecell.overflow-hold.v1" 0 "success" \
   "null" '{"count":"7"}' '[]' "true" \
   "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_7"
 
-counter_simulated="$($cast call --rpc-url "$rpc" "$counter" 'increment(uint64)(uint64)' 5)"
-require_uint_equal "$counter_simulated" "12" "Counter increment return mismatch"
-require_uint_equal "$($cast call --rpc-url "$rpc" "$counter" 'get()(uint64)')" "7" \
-  "Counter eth_call unexpectedly committed state"
+state_cell_simulated="$($cast call --rpc-url "$rpc" "$state_cell" 'increment(uint64)(uint64)' 5)"
+require_uint_equal "$state_cell_simulated" "12" "StateCell increment return mismatch"
+require_uint_equal "$($cast call --rpc-url "$rpc" "$state_cell" 'get()(uint64)')" "7" \
+  "StateCell eth_call unexpectedly committed state"
 if "$cast" send --rpc-url "$rpc" --private-key "$private_key" --value 2 \
-    "$counter" 'increment(uint64)' 5 >/dev/null 2>&1; then
+    "$state_cell" 'increment(uint64)' 5 >/dev/null 2>&1; then
   die "nonpayable increment unexpectedly accepted value"
 fi
-"$cast" send --rpc-url "$rpc" --private-key "$private_key" "$counter" 'increment(uint64)' 5 >/dev/null
-after="$($cast call --rpc-url "$rpc" "$counter" 'get()(uint64)')"
-require_uint_equal "$after" "12" "Counter increment state mismatch (view)"
-require_storage_uint "$counter" 0 "12" "Counter increment state mismatch (storage)"
-balance="$($cast balance --rpc-url "$rpc" "$counter")"
-require_equal "$balance" "0" "Counter accepted native value"
+"$cast" send --rpc-url "$rpc" --private-key "$private_key" "$state_cell" 'increment(uint64)' 5 >/dev/null
+after="$($cast call --rpc-url "$rpc" "$state_cell" 'get()(uint64)')"
+require_uint_equal "$after" "12" "StateCell increment state mismatch (view)"
+require_storage_uint "$state_cell" 0 "12" "StateCell increment state mismatch (storage)"
+balance="$($cast balance --rpc-url "$rpc" "$state_cell")"
+require_equal "$balance" "0" "StateCell accepted native value"
 slot0_12="$(storage_word32_from_uint 12)"
 # step 1: increment 5 → 12
-emit_corpus_obs "pf.primitive.counter.overflow-hold.v1" 1 "success" \
+emit_corpus_obs "pf.primitive.statecell.overflow-hold.v1" 1 "success" \
   '"12"' '{"count":"12"}' '[]' "true" \
   "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_12"
 # step 2: view get
-emit_corpus_obs "pf.primitive.counter.overflow-hold.v1" 2 "success" \
+emit_corpus_obs "pf.primitive.statecell.overflow-hold.v1" 2 "success" \
   '"12"' '{"count":"12"}' '[]' "true" \
   "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_12"
 
-bytecode="$(tr -d '\n\r ' < "$(artifact_dir evm)/Counter.bin")"
+bytecode="$(tr -d '\n\r ' < "$(artifact_dir evm)/StateCell.bin")"
 encoded="$($cast abi-encode 'constructor(uint64)' 7)"
 if "$cast" send --rpc-url "$rpc" --private-key "$private_key" --value 1 --create \
     "0x${bytecode}${encoded#0x}" >/dev/null 2>&1; then
   die "nonpayable constructor unexpectedly accepted value"
 fi
 
-max_counter="$(deploy evm "$UINT64_MAX")"
-require_storage_uint "$max_counter" 0 "$UINT64_MAX" "Counter max constructor storage"
+max_state_cell="$(deploy evm "$UINT64_MAX")"
+require_storage_uint "$max_state_cell" 0 "$UINT64_MAX" "StateCell max constructor storage"
 slot0_max="$(storage_word32_from_uint "$UINT64_MAX")"
 # step 3: deploy max
-emit_corpus_obs "pf.primitive.counter.overflow-hold.v1" 3 "success" \
+emit_corpus_obs "pf.primitive.statecell.overflow-hold.v1" 3 "success" \
   "null" "{\"count\":\"$UINT64_MAX\"}" '[]' "true" \
   "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_max"
-require_revert_preserves_slot0 "$max_counter" "$UINT64_MAX" "Counter overflow" \
+require_revert_preserves_slot0 "$max_state_cell" "$UINT64_MAX" "StateCell overflow" \
   'increment(uint64)' 1
-require_uint_equal "$($cast call --rpc-url "$rpc" "$max_counter" 'get()(uint64)')" \
-  "$UINT64_MAX" "Counter overflow changed view state"
+require_uint_equal "$($cast call --rpc-url "$rpc" "$max_state_cell" 'get()(uint64)')" \
+  "$UINT64_MAX" "StateCell overflow changed view state"
 # step 4: overflow revert
-emit_corpus_obs "pf.primitive.counter.overflow-hold.v1" 4 "revert" \
+emit_corpus_obs "pf.primitive.statecell.overflow-hold.v1" 4 "revert" \
   "null" "{\"count\":\"$UINT64_MAX\"}" '[]' "true" \
   "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_max" \
   "[]" "0x"
 # step 5: view get holds max
-emit_corpus_obs "pf.primitive.counter.overflow-hold.v1" 5 "success" \
+emit_corpus_obs "pf.primitive.statecell.overflow-hold.v1" 5 "success" \
   "\"$UINT64_MAX\"" "{\"count\":\"$UINT64_MAX\"}" '[]' "true" \
   "0x0000000000000000000000000000000000000000000000000000000000000000" "$slot0_max"
 
 # ---------------------------------------------------------------------------
-# Accumulator — same matrix as Counter (add entry)
+# Accumulator — same matrix as StateCell (add entry)
 # ---------------------------------------------------------------------------
 [[ -f "$(artifact_dir evm-accumulator)/Accumulator.bin" ]] \
   || die "missing Accumulator artifact at $(artifact_dir evm-accumulator)/Accumulator.bin"
@@ -606,7 +606,7 @@ else
   echo "evm-smoke: note: OwnableLike artifact missing (skip ownable corpus leg)" >&2
 fi
 
-covered="Counter + Accumulator"
+covered="StateCell + Accumulator"
 [[ -f "$(artifact_dir evm-arithops)/ArithOps.bin" ]] && covered+=" + ArithOps"
 [[ -f "$(artifact_dir evm-eventflow)/EventFlow.bin" ]] && covered+=" + EventFlow"
 [[ -f "$(artifact_dir evm-ownablelike)/OwnableLike.bin" ]] && covered+=" + OwnableLike"

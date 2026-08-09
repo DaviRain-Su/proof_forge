@@ -24,8 +24,10 @@
       Never uses Tests.Semantic.ProofedClosedCertV1 or hand-minted carriers.
 
   Fixture programs:
-    * Counter-shaped UInt64 + Bool invariant for certifier negatives
-    * Literal-true simple-closure (Bool view + `invariant … : true`) for positive
+    * UInt64 + Bool invariant surfaces for certifier negatives
+    * Literal-true simple-closure (Bool view + `invariant … : true`) for holds positive
+    * Real same-file `Examples/Counter.lean` for preserving product-positive
+      (no closed golden / pin / contract-specific module)
 
   No axiom / sorry / native_decide. No CLI. No file re-read by the certifier.
 -/
@@ -34,8 +36,6 @@ import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.TheoremInventoryV1
-import ProofForgeV2.Semantic.ParityCounterShapeV1
-import ProofForgeV2.Semantic.ZeroCounterShapeV1
 import ProofForgeV2.Source.ValidatedSourceV1
 
 namespace Tests.Compiler.InlineProofCertifierV1
@@ -120,25 +120,6 @@ private def preservingSimpleClosureProgram
   "    return true\n" ++
   "  invariant safe : true\n" ++
   "  proof safe preserving using " ++ authorTheorem ++ "\n" ++
-  theoremBody
-
-/-- First nontrivial preserving family: one default-zero public UInt64 state,
-    a nullary entry that adds the even literal 2, a read-only view, and the
-    executable parity invariant `count % 2 == 0`. No initializer keeps the
-    base on the product default-state path; overflow still exercises Reference
-    rollback in the universal step obligation. -/
-private def evenCounterPreservingProgram
-    (programName authorTheorem theoremBody : String) : String :=
-  header ++
-  "program " ++ programName ++ " where\n" ++
-  "  state count : UInt64\n" ++
-  "  entry increment() : UInt64 do\n" ++
-  "    count := count + 2\n" ++
-  "    return count\n" ++
-  "  view get() : UInt64 do\n" ++
-  "    return count\n" ++
-  "  invariant even : count % 2 == 0\n" ++
-  "  proof even preserving using " ++ authorTheorem ++ "\n" ++
   theoremBody
 
 /-- Same family inside an explicit namespace. This covers the elaborator case
@@ -255,137 +236,43 @@ private unsafe def testPreservingFalseTheoremElab
         phase == .certification && detail == .elaborate
     | _ => false
 
-/-- Author body for EvenCounter L1 (mig-b1 redo): nullary `exact` of residual
-    golden `preservation_theorem` (thin consumer of PreservationShapeV1
-    increment-add-two / view-load / UInt64 parity families). Subject bytes are
-    pin-aliased to `ParityCounterShapeV1.canonicalBytes` until mig-c1. -/
-private def evenCounterPreservingTheoremBody
-    (theoremName typeName : String) : String :=
-  "theorem " ++ theoremName ++ " : " ++ typeName ++ " := by\n" ++
-  "  exact ProofForgeV2.Semantic.ParityCounterPreservationV1.preservation_theorem\n"
-
-/-- Second non-AMM preserving family: store-zero entry, read view, `count == 0`. -/
-private def zeroCounterPreservingProgram
-    (programName authorTheorem theoremBody : String) : String :=
-  header ++
-  "program " ++ programName ++ " where\n" ++
-  "  state count : UInt64\n" ++
-  "  entry clear() : UInt64 do\n" ++
-  "    count := 0\n" ++
-  "    return count\n" ++
-  "  view get() : UInt64 do\n" ++
-  "    return count\n" ++
-  "  invariant zero : count == 0\n" ++
-  "  proof zero preserving using " ++ authorTheorem ++ "\n" ++
-  theoremBody
-
-/-- Author body for ZeroCounter L1 (mig-b2): nullary `exact` of the
-    store-zero shape-family `preservation_theorem`. Subject bytes are
-    pin-aliased to `ZeroCounterShapeV1.canonicalBytes` (golden accelerator
-    only — not ProofInstances). Inventory admits only the theorem command. -/
-private def zeroCounterPreservingTheoremBody
-    (theoremName typeName : String) : String :=
-  "theorem " ++ theoremName ++ " : " ++ typeName ++ " := by\n" ++
-  "  exact ProofForgeV2.Semantic.ZeroCounterPreservationV1.preservation_theorem\n"
-
-/-- Strict RED→GREEN product-positive for the first real preserving instance.
-    The author theorem must close the exact generic `PreservationTheoremV1` for
-    the normalized EvenCounter subject; no generated holds helper, hand-minted
-    carrier, or alternate step is accepted. -/
-private unsafe def testEvenCounterPreservingProductPositive
+/-- Strict product-positive for the sole same-file preserving example.
+    Reads the real `Examples/Counter.lean` authority: business program +
+    invariant + proof binding + ordinary Lean theorem in one file. Uses only
+    contract-agnostic generated subject surface and generic shape lemmas; no
+    closed byte golden, pin, or contract-specific preservation module. -/
+private unsafe def testSameFileCounterPreservingProductPositive
     (session : ProductParserSessionV1) : IO Unit := do
-  let programName := "EvenCounter"
-  let authorTheorem := "EvenCounterProof.even"
-  let src := evenCounterPreservingProgram programName authorTheorem
-    (evenCounterPreservingTheoremBody authorTheorem
-      "EvenCounter.ProofPreserving.even")
-  let path ← parsePath "tests/inline-proof/even-counter-preserving.pf"
+  let src ← IO.FS.readFile "Examples/Counter.lean"
+  let path ← parsePath "Examples/Counter.lean"
   let (source, origin, inventory) ← loadProduct session src
-    "tests/inline-proof/even-counter-preserving.pf" "Root"
+    "Examples/Counter.lean" "Examples.Counter"
   let bindings := theoremInventoryBindingsV1 inventory
-  expect (bindings.size == 1) "EvenCounter preserving inventory size"
+  expect (bindings.size == 1) "Counter preserving inventory size"
   let binding := bindings[0]!
   expect (binding.invariantName == "even" && binding.kind == .preserving)
-    "EvenCounter preserving composite key"
-  expect (binding.theoremComponents == #["EvenCounterProof", "even"])
-    s!"EvenCounter author theorem components: {binding.theoremComponents}"
-  expect (binding.typeComponents == #[programName, "ProofPreserving", "even"])
-    s!"EvenCounter preserving alias components: {binding.typeComponents}"
+    "Counter preserving composite key"
+  expect (binding.theoremComponents == #["CounterProof", "even"])
+    s!"Counter author theorem components: {binding.theoremComponents}"
+  expect (binding.typeComponents == #["Counter", "ProofPreserving", "even"])
+    s!"Counter preserving alias components: {binding.typeComponents}"
   let compiled ← compileOf source origin
-  let semantic := CompiledSemanticV1.semanticV1Of compiled
-  expect (semantic.canonicalBytes ==
-      ProofForgeV2.Semantic.ParityCounterShapeV1.canonicalBytes)
-    "EvenCounter product bytes must equal the closed instance bytes"
-  let decoded ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1 semantic with
-    | .ok value => pure value
-    | .error error =>
-        throw <| IO.userError s!"EvenCounter semantic validation failed: {repr error}"
-  expect (decoded == ProofForgeV2.Semantic.ParityCounterShapeV1.data)
-    "EvenCounter product data must equal the closed instance data"
   let outcome ← certifyInlineProofV1 session src source origin inventory compiled
-    path "Root" none
+    path "Examples.Counter" none
   match outcome with
   | .certified carrier =>
       expect (CertifiedInlineProofV1.theoremCount carrier == 1)
-        "EvenCounter preserving theoremCount must be 1"
+        "Counter preserving theoremCount must be 1"
       expect (digestPresent (CertifiedInlineProofV1.proofCertificationDigest carrier))
-        "EvenCounter preserving certification digest must be present"
+        "Counter preserving certification digest must be present"
       expect ((CertifiedInlineProofV1.audited carrier).size == 1)
-        "EvenCounter preserving audited theorem set must contain one theorem"
+        "Counter preserving audited theorem set must contain one theorem"
   | .noProof =>
       throw <| IO.userError
-        "EvenCounter preserving proof surface must not return noProof"
+        "Counter preserving proof surface must not return noProof"
   | .failed phase detail =>
       throw <| IO.userError
-        s!"EvenCounter preserving product-positive requires .certified; got phase={repr phase} detail={repr detail}"
-
-/-- Second non-AMM genericity product-positive: ZeroCounter `count == 0`. -/
-private unsafe def testZeroCounterPreservingProductPositive
-    (session : ProductParserSessionV1) : IO Unit := do
-  let programName := "ZeroCounter"
-  let authorTheorem := "ZeroCounterProof.zero"
-  let src := zeroCounterPreservingProgram programName authorTheorem
-    (zeroCounterPreservingTheoremBody authorTheorem
-      "ZeroCounter.ProofPreserving.zero")
-  let path ← parsePath "tests/inline-proof/zero-counter-preserving.pf"
-  let (source, origin, inventory) ← loadProduct session src
-    "tests/inline-proof/zero-counter-preserving.pf" "Root"
-  let bindings := theoremInventoryBindingsV1 inventory
-  expect (bindings.size == 1) "ZeroCounter preserving inventory size"
-  let binding := bindings[0]!
-  expect (binding.invariantName == "zero" && binding.kind == .preserving)
-    "ZeroCounter preserving composite key"
-  expect (binding.theoremComponents == #["ZeroCounterProof", "zero"])
-    s!"ZeroCounter author theorem components: {binding.theoremComponents}"
-  expect (binding.typeComponents == #[programName, "ProofPreserving", "zero"])
-    s!"ZeroCounter preserving alias components: {binding.typeComponents}"
-  let compiled ← compileOf source origin
-  let semantic := CompiledSemanticV1.semanticV1Of compiled
-  expect (semantic.canonicalBytes ==
-      ProofForgeV2.Semantic.ZeroCounterShapeV1.canonicalBytes)
-    "ZeroCounter product bytes must equal the closed instance bytes"
-  let decoded ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1 semantic with
-    | .ok value => pure value
-    | .error error =>
-        throw <| IO.userError s!"ZeroCounter semantic validation failed: {repr error}"
-  expect (decoded == ProofForgeV2.Semantic.ZeroCounterShapeV1.data)
-    "ZeroCounter product data must equal the closed instance data"
-  let outcome ← certifyInlineProofV1 session src source origin inventory compiled
-    path "Root" none
-  match outcome with
-  | .certified carrier =>
-      expect (CertifiedInlineProofV1.theoremCount carrier == 1)
-        "ZeroCounter preserving theoremCount must be 1"
-      expect (digestPresent (CertifiedInlineProofV1.proofCertificationDigest carrier))
-        "ZeroCounter preserving certification digest must be present"
-      expect ((CertifiedInlineProofV1.audited carrier).size == 1)
-        "ZeroCounter preserving audited theorem set must contain one theorem"
-  | .noProof =>
-      throw <| IO.userError
-        "ZeroCounter preserving proof surface must not return noProof"
-  | .failed phase detail =>
-      throw <| IO.userError
-        s!"ZeroCounter preserving product-positive requires .certified; got phase={repr phase} detail={repr detail}"
+        s!"Counter preserving product-positive requires .certified; got phase={repr phase} detail={repr detail}"
 
 /-- Proof kind is source certification metadata: changing only holds ↔ preserving
     changes canonical ProgramV1/source identity, while Normalize emits the same
@@ -797,8 +684,7 @@ unsafe def run : IO Unit := do
   testNoProofBypass session
   testFalseTheoremElab session
   testPreservingFalseTheoremElab session
-  testEvenCounterPreservingProductPositive session
-  testZeroCounterPreservingProductPositive session
+  testSameFileCounterPreservingProductPositive session
   testProofKindIdentityBoundary session
   testForbiddenMainModule session
   testWrongSubjectBytes session

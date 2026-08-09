@@ -7,13 +7,13 @@
     * selectExitCode 3 for source/type/effect
     * foreign inventory → PF-INTERNAL / exit 70
     * parser/selection bundles
-    * Counter success parity
+    * StateCell success parity
     * no first-error truncation
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Core.DiagnosticV1
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Source.OriginJoinV1
@@ -161,26 +161,26 @@ private unsafe def testParserSelectionBundles
 private unsafe def testSuccessParity
     (session : Language.Loader.ParserSession) : IO Unit := do
   match ← session.selectProgramV1Product
-      Examples.counterSourceText "Examples/Counter.lean"
-      Examples.counterModuleNameV1 none with
+      Examples.stateCellSourceText "Examples/StateCell.lean"
+      Examples.stateCellModuleNameV1 none with
   | .error bundle =>
-      throw <| IO.userError s!"counter product load: {DiagnosticBundleV1.renderHuman bundle}"
+      throw <| IO.userError s!"stateCell product load: {DiagnosticBundleV1.renderHuman bundle}"
   | .ok (source, inv) =>
       match normalizeProgramLocatedV1 source inv with
       | .error bundle =>
-          throw <| IO.userError s!"counter located normalize: {DiagnosticBundleV1.renderHuman bundle}"
+          throw <| IO.userError s!"stateCell located normalize: {DiagnosticBundleV1.renderHuman bundle}"
       | .ok carrier1 =>
           match normalizeProgramV1 source with
-          | .error e => throw <| IO.userError s!"counter unlocated normalize: {repr e}"
+          | .error e => throw <| IO.userError s!"stateCell unlocated normalize: {repr e}"
           | .ok carrier2 =>
               expect (carrier1.canonicalBytes == carrier2.canonicalBytes)
                 "located vs unlocated Normalize carrier bytes must match"
       match Compiler.compileProgramProductV1 source inv with
       | .error bundle =>
-          throw <| IO.userError s!"counter product compile: {DiagnosticBundleV1.renderHuman bundle}"
+          throw <| IO.userError s!"stateCell product compile: {DiagnosticBundleV1.renderHuman bundle}"
       | .ok compiled =>
           match Compiler.compileValidatedSourceV1 source with
-          | .error e => throw <| IO.userError s!"counter non-product compile: {e.render}"
+          | .error e => throw <| IO.userError s!"stateCell non-product compile: {e.render}"
           | .ok compiled2 =>
               expect (Compiler.CompiledSemanticV1.artifactProgramNameOf compiled ==
                   Compiler.CompiledSemanticV1.artifactProgramNameOf compiled2)

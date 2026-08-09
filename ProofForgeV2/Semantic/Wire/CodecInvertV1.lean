@@ -47,6 +47,55 @@ def MidOffsetInvertV1 (encode : α → Except SemanticWireErrorV1 ByteArray)
     decode ⟨left ++ b ++ right, left.size, nesting⟩ =
       .ok (x, ⟨left ++ b ++ right, left.size + b.size, nesting⟩)
 
+/-- Exact-value form used by root-field packages.  It preserves arbitrary
+    framing and nesting while requiring inversion only for one concrete value. -/
+def ExactMidOffsetInvertV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (decode : Decoder α) (value : α) : Prop :=
+  ∀ (b left right : ByteArray) (nesting : Nat),
+    nesting < maxNesting →
+    encode value = .ok b →
+    decode ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (value, ⟨left ++ b ++ right, left.size + b.size, nesting⟩)
+
+/-- Fixed-depth exact-value form used by root-field packages whose nested codecs
+    require a known margin from the root decoder. -/
+def ExactMidOffsetInvertAtV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (decode : Decoder α) (value : α) (nesting : Nat) : Prop :=
+  ∀ (b left right : ByteArray),
+    encode value = .ok b →
+    decode ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (value, ⟨left ++ b ++ right, left.size + b.size, nesting⟩)
+
+/-- Every global mid-offset inversion theorem specializes to an exact value. -/
+theorem ExactMidOffsetInvertV1.ofGlobal
+    {α : Type} {encode : α → Except SemanticWireErrorV1 ByteArray}
+    {decode : Decoder α}
+    (h : MidOffsetInvertV1 encode decode) (value : α) :
+    ExactMidOffsetInvertV1 encode decode value := by
+  intro b left right nesting hdepth hencode
+  exact h value b left right nesting hdepth hencode
+
+/-- A global exact proof specializes to a fixed depth when that depth is legal. -/
+theorem ExactMidOffsetInvertAtV1.ofExact
+    {α : Type} {encode : α → Except SemanticWireErrorV1 ByteArray}
+    {decode : Decoder α} {value : α} {nesting : Nat}
+    (h : ExactMidOffsetInvertV1 encode decode value)
+    (hdepth : nesting < maxNesting) :
+    ExactMidOffsetInvertAtV1 encode decode value nesting := by
+  intro b left right henc
+  exact h b left right nesting hdepth henc
+
+/-- A global mid-offset inversion proof specializes directly to fixed depth. -/
+theorem ExactMidOffsetInvertAtV1.ofGlobal
+    {α : Type} {encode : α → Except SemanticWireErrorV1 ByteArray}
+    {decode : Decoder α} (h : MidOffsetInvertV1 encode decode)
+    (value : α) {nesting : Nat} (hdepth : nesting < maxNesting) :
+    ExactMidOffsetInvertAtV1 encode decode value nesting := by
+  intro b left right henc
+  exact h value b left right nesting hdepth henc
+
 /-- String production codec is mid-offset invertible (re-export). -/
 theorem midOffsetInvert_encodeString_decodeString :
     MidOffsetInvertV1 encodeString decodeString := by
@@ -310,34 +359,40 @@ theorem decodeArray_of_encodeArray_one_midV1
 
 /-! ### Root composition under field mid-decodes -/
 
-/-- Package of nine root-field mid-offset invertibility hypotheses.
-    Once each field codec is invertible, `decode_of_encode_ok` follows. -/
+/-- Package of nine exact root-field mid-offset inversion hypotheses.
+
+    The package is intentionally indexed by `data`: a concrete subject proves
+    only that its own nine field values round-trip through the production
+    codecs.  Arbitrary left/right framing and nesting remain quantified so the
+    generic root composition theorem does not depend on a byte layout or pin. -/
 structure RootFieldInvertV1 (data : SemanticProgramDataV1) : Prop where
   qualifiedName :
-    MidOffsetInvertV1 encodeQualifiedName decodeQualifiedName
+    ExactMidOffsetInvertAtV1 encodeQualifiedName decodeQualifiedName
+      data.qualifiedName 1
   types :
-    MidOffsetInvertV1 (encodeArray encodeTypeDeclV1)
-      (decodeArray maxTableElements decodeTypeDeclV1)
+    ExactMidOffsetInvertAtV1 (encodeArray encodeTypeDeclV1)
+      (decodeArray maxTableElements decodeTypeDeclV1) data.types 1
   constants :
-    MidOffsetInvertV1 (encodeArray encodeConstantV1)
-      (decodeArray maxTableElements decodeConstantV1)
+    ExactMidOffsetInvertAtV1 (encodeArray encodeConstantV1)
+      (decodeArray maxTableElements decodeConstantV1) data.constants 1
   logicalState :
-    MidOffsetInvertV1 (encodeArray encodeStateDeclV1)
-      (decodeArray maxTableElements decodeStateDeclV1)
+    ExactMidOffsetInvertAtV1 (encodeArray encodeStateDeclV1)
+      (decodeArray maxTableElements decodeStateDeclV1) data.logicalState 1
   events :
-    MidOffsetInvertV1 (encodeArray encodeEventDeclV1)
-      (decodeArray maxTableElements decodeEventDeclV1)
+    ExactMidOffsetInvertAtV1 (encodeArray encodeEventDeclV1)
+      (decodeArray maxTableElements decodeEventDeclV1) data.events 1
   errors :
-    MidOffsetInvertV1 (encodeArray encodeErrorDeclV1)
-      (decodeArray maxTableElements decodeErrorDeclV1)
+    ExactMidOffsetInvertAtV1 (encodeArray encodeErrorDeclV1)
+      (decodeArray maxTableElements decodeErrorDeclV1) data.errors 1
   callables :
-    MidOffsetInvertV1 (encodeArray encodeCallableV1)
-      (decodeArray maxTableElements decodeCallableV1)
+    ExactMidOffsetInvertAtV1 (encodeArray encodeCallableV1)
+      (decodeArray maxTableElements decodeCallableV1) data.callables 1
   invariants :
-    MidOffsetInvertV1 (encodeArray encodeInvariantDeclV1)
-      (decodeArray maxTableElements decodeInvariantDeclV1)
+    ExactMidOffsetInvertAtV1 (encodeArray encodeInvariantDeclV1)
+      (decodeArray maxTableElements decodeInvariantDeclV1) data.invariants 1
   requirements :
-    MidOffsetInvertV1 encodeProgramRequirementsV1 decodeProgramRequirementsV1
+    ExactMidOffsetInvertAtV1 encodeProgramRequirementsV1
+      decodeProgramRequirementsV1 data.requirements 1
 
 /-- **mig-a1 composition goal form.**
 

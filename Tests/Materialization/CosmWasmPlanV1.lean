@@ -1,7 +1,7 @@
 /-
   CosmWasm Plan/IR/WAT engineering suite (MVP leaf + CW-4 schedule SubMsg).
 
-  Pins Counter plan shape, CosmWasm ABI exports (instantiate/execute/query/
+  Pins StateCell plan shape, CosmWasm ABI exports (instantiate/execute/query/
   allocate/deallocate/interface_version_8), Region/JSON markers, db_* imports,
   CW-4 schedule → SubMsg reply_on=never with Binary (base64) execute msg
   (Plan/IR/WAT shape), pure Lean base64 encode matrix (empty / 1 / 2 / 3+
@@ -31,11 +31,11 @@ open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Targets.CosmWasm
 
-private def counterSourceText : String :=
+private def stateCellSourceText : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
-  "program Counter where\n" ++
+  "program StateCell where\n" ++
   "  state count : UInt64\n\n" ++
   "  init(initial : UInt64) do\n" ++
   "    count := initial\n\n" ++
@@ -46,7 +46,7 @@ private def counterSourceText : String :=
   "    return count\n\n" ++
   "end ProofForgeV2.Examples\n"
 
-private def counterModuleName : String := "Examples.Counter"
+private def stateCellModuleName : String := "Examples.StateCell"
 
 private def multiFieldSourceText : String :=
   "import ProofForgeV2\n\n" ++
@@ -123,11 +123,11 @@ private def findFile (files : Array OutputFile) (path : String) : IO String :=
   | some file => pure file.contents
   | none => throw <| IO.userError s!"missing output file '{path}'; got {files.map (·.path)}"
 
-private unsafe def testCounterPlan
+private unsafe def testStateCellPlan
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session counterSourceText counterModuleName "<cw-counter>"
+  let compiled ← compileSource session stateCellSourceText stateCellModuleName "<cw-stateCell>"
   let plan ← liftResult <| planCw compiled
-  expect (plan.programName == "Counter") "program name Counter"
+  expect (plan.programName == "StateCell") "program name StateCell"
   expect (plan.hostAbi == hostAbiVersion) "canonical host ABI"
   expect (plan.inputAbi == rawInputAbi) "JSON msg input ABI"
   expect (plan.codegenProfile == "cosmwasm-wasm-u64-v1") "default profile"
@@ -153,18 +153,18 @@ private unsafe def testCounterPlan
     | .ok d => pure d
     | .error e => throw <| IO.userError e
   expect (d1 == d2) "plan digest deterministic"
-  IO.println "  ✓ Counter plan shape"
+  IO.println "  ✓ StateCell plan shape"
 
-private unsafe def testCounterIRAndWat
+private unsafe def testStateCellIRAndWat
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session counterSourceText counterModuleName "<cw-counter-ir>"
+  let compiled ← compileSource session stateCellSourceText stateCellModuleName "<cw-stateCell-ir>"
   let ir ← liftResult <| irCw compiled
-  expect (ir.name == "Counter") "IR name"
+  expect (ir.name == "StateCell") "IR name"
   expect (ir.methods.size == 3) "init + 2 entries"
   expect (ir.imports == canonicalImports) "IR host imports"
   let files ← liftResult <| filesCw compiled
-  let wat ← findFile files "Counter.wat"
-  let abi ← findFile files "Counter.cosmwasm-abi.json"
+  let wat ← findFile files "StateCell.wat"
+  let abi ← findFile files "StateCell.cosmwasm-abi.json"
   -- Module shape
   expect (wat.contains "(module") "WAT module"
   expect (wat.contains "(memory (export \"memory\") 1)") "single memory min=1 no max"
@@ -188,11 +188,11 @@ private unsafe def testCounterIRAndWat
   expect (wat.contains "$m_init") "init body"
   expect (wat.contains "$m_increment") "increment body"
   expect (wat.contains "$m_get") "get body"
-  -- ADR-0031 S1 follow-up: Counter never reads context.caller, so
+  -- ADR-0031 S1 follow-up: StateCell never reads context.caller, so
   -- instantiate/execute must not invoke the sender→Principal packer
   -- (non-caller programs stay free of sender 1..64 / bech32 traps).
   expect (!wat.contains "(call $pf_load_caller_principal)")
-    "Counter must not call pf_load_caller_principal (no context.caller use)"
+    "StateCell must not call pf_load_caller_principal (no context.caller use)"
   -- No NEAR host leakage
   expect (!wat.contains "storage_read") "no NEAR storage_read"
   expect (!wat.contains "value_return") "no NEAR value_return"
@@ -203,7 +203,7 @@ private unsafe def testCounterIRAndWat
   expect (abi.contains "env.db_read") "ABI imports list"
   expect (abi.contains "\"offset:u32\"") "Region layout documented"
   expect (abi.contains "jsonSubset") "JSON subset documented"
-  IO.println "  ✓ Counter IR/WAT/ABI CosmWasm shape"
+  IO.println "  ✓ StateCell IR/WAT/ABI CosmWasm shape"
 
 private unsafe def testMultiField
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -408,7 +408,7 @@ private unsafe def testScheduleSubMsg
       throw <| IO.userError "schedule uppercase: expected planInvariant fail-closed"
   IO.println "  ✓ schedule SubMsg Binary (base64) reply_on=never Plan/IR/WAT"
 
-/-- Collect Plan body evidence for narrow UInt8 Counter (no nested mut walk). -/
+/-- Collect Plan body evidence for narrow UInt8 StateCell (no nested mut walk). -/
 private def collectNarrowUInt8BodyFlags (body : Array Statement) :
     Bool × Bool × Bool × Bool := Id.run do
   let mut sawNarrowAdd := false
@@ -439,12 +439,12 @@ private def collectNarrowUInt8BodyFlags (body : Array Statement) :
     | _ => pure ()
   pure (sawNarrowAdd, sawNarrowLoad, sawFullAdd, storeBw1)
 
-/-- BL-15: UInt8 Counter plan/IR/WAT pins — narrow body high-bit guards,
+/-- BL-15: UInt8 StateCell plan/IR/WAT pins — narrow body high-bit guards,
     JSON param range-check (exact width, no silent truncation), and
     8-byte physical state slots with high-bytes-zero load guard. -/
 private unsafe def testMultiWidthUInt8
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let src := wrapProgram "NarrowCounter" <|
+  let src := wrapProgram "NarrowStateCell" <|
     "  state count : UInt8\n\n" ++
     "  init(initial : UInt8) do\n" ++
     "    count := initial\n\n" ++
@@ -454,16 +454,16 @@ private unsafe def testMultiWidthUInt8
     "  view get() : UInt8 do\n" ++
     "    return count\n"
   let compiled ← compileSource session src
-    "Examples.NarrowCounter" "<cw-u8-narrow>"
+    "Examples.NarrowStateCell" "<cw-u8-narrow>"
   let plan ← liftResult <| planCw compiled
-  expect (plan.storage.fields.size == 1) "NarrowCounter one state field"
+  expect (plan.storage.fields.size == 1) "NarrowStateCell one state field"
   expect (plan.storage.fields[0]!.byteWidth == 1)
-    s!"NarrowCounter state semantic byteWidth=1, got {plan.storage.fields[0]!.byteWidth}"
+    s!"NarrowStateCell state semantic byteWidth=1, got {plan.storage.fields[0]!.byteWidth}"
   expect (plan.initializer.params.size == 1) "init one param"
   expect (plan.initializer.params[0]!.byteWidth == 1)
     "init param semantic byteWidth=1"
   let some inc := plan.entries.find? (·.name == "increment") |
-    throw <| IO.userError "NarrowCounter missing increment"
+    throw <| IO.userError "NarrowStateCell missing increment"
   expect (inc.resultKind == .uint8) "increment returns UInt8"
   expect (inc.params.size == 1 && inc.params[0]!.byteWidth == 1)
     "increment param byteWidth=1"
@@ -474,18 +474,18 @@ private unsafe def testMultiWidthUInt8
   expect sawNarrowLoad "increment body must load count via narrowStateLoad 8"
   expect (!sawFullAdd) "UInt8 add must not use full-width checkedAdd"
   let files ← liftResult <| filesCw compiled
-  let wat ← findFile files "NarrowCounter.wat"
+  let wat ← findFile files "NarrowStateCell.wat"
   -- Body high-bit guard after narrow add: shr_u by 8 then trap if nonzero.
   expect (wat.contains "(i64.const 8)")
-    "NarrowCounter WAT must emit bitWidth=8 high-bit guards"
+    "NarrowStateCell WAT must emit bitWidth=8 high-bit guards"
   expect (wat.contains "i64.shr_u")
-    "NarrowCounter WAT must use shr_u for high-bit / range guards"
+    "NarrowStateCell WAT must use shr_u for high-bit / range guards"
   -- Param range-check after JSON parse (init initial : UInt8).
   expect (wat.contains "pf_parse_u64_field") "JSON parse still used"
   -- Physical store remains 8-byte Region helper (not variable-length KV).
   expect (wat.contains "$pf_db_store_u64") "physical 8-byte Region store"
   expect (wat.contains "$pf_db_load_u64") "physical 8-byte Region load"
-  let abi ← findFile files "NarrowCounter.cosmwasm-abi.json"
+  let abi ← findFile files "NarrowStateCell.cosmwasm-abi.json"
   expect (abi.contains "\"type\":\"u8\"")
     s!"ABI must declare u8 for narrow fields/params, got: {abi}"
   expect (abi.contains "\"returns\":\"u8\"")
@@ -1207,12 +1207,12 @@ private def materializeSelected (target : TargetId) (compiled : CompiledSemantic
 
 private unsafe def testMaterializeAggregate
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session counterSourceText counterModuleName "<cw-agg>"
+  let compiled ← compileSource session stateCellSourceText stateCellModuleName "<cw-agg>"
   let output ← liftResult <| materializeSelected TargetId.cosmwasm compiled
   let files := MaterializedArtifactsV1.filesOf output
-  expect (files.any (·.path == "Counter.wat")) "materialized WAT"
-  expect (files.any (·.path == "Counter.cosmwasm-abi.json")) "materialized ABI"
-  expect (MaterializedArtifactsV1.artifactProgramNameOf output == "Counter")
+  expect (files.any (·.path == "StateCell.wat")) "materialized WAT"
+  expect (files.any (·.path == "StateCell.cosmwasm-abi.json")) "materialized ABI"
+  expect (MaterializedArtifactsV1.artifactProgramNameOf output == "StateCell")
     "artifact program name"
   IO.println "  ✓ Registry materializeResult cosmwasm"
 
@@ -1564,8 +1564,8 @@ private unsafe def testContextReadCaller
 unsafe def run : IO Unit := do
   IO.println "CosmWasmPlanV1"
   let session ← Tests.Language.ParserSession.shared
-  testCounterPlan session
-  testCounterIRAndWat session
+  testStateCellPlan session
+  testStateCellIRAndWat session
   testMultiField session
   testCallStillFailClosed session
   testBase64HelperMatrix

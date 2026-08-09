@@ -46,8 +46,8 @@ bash scripts/aleo_devnet.sh wait --timeout-seconds 180
 echo "integration(aleo-devnet): build compile-profile OutputSet (network-free)"
 PROOF_FORGE_ALEO_EMIT_LEO=1 \
   lake env .lake/build/bin/proof-forge-next build \
-    Examples/Counter.lean \
-    --module Examples.Counter \
+    Examples/StateCell.lean \
+    --module Examples.StateCell \
     --target aleo \
     --profile aleo-leo-4.0.2-u64-compile-v1 \
     -o "$out"
@@ -60,7 +60,7 @@ echo "integration(aleo-devnet): deploy existing OutputSet with funded local dev-
   --endpoint "$endpoint" \
   --dev-key 0 \
   --broadcast \
-  --execute-counter \
+  --execute-state-cell \
   --priority-fee 1000000 \
   --wait-timeout-seconds 600 \
   --visibility-timeout-seconds 600
@@ -77,7 +77,7 @@ assert receipt["network"]["environment"] == "local"
 assert receipt["networkProfile"]["registrationStatus"] == "unregistered-engineering"
 assert receipt["deployment"]["status"] == "confirmed"
 assert receipt["deployment"]["programVisible"] is True
-assert receipt["build"]["programId"] == "counter.aleo"
+assert receipt["build"]["programId"] == "statecell.aleo"
 assert [item["function"] for item in receipt["executions"]] == ["initialize", "increment"]
 observed = {(item["path"], item["value"]) for item in receipt["observations"]}
 assert ("pf_state_0/0u8", "3u64") in observed

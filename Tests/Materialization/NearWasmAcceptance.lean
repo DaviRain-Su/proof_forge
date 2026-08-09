@@ -26,7 +26,7 @@
   that compiles and instantiates under a real engine.
 -/
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
@@ -183,7 +183,7 @@ private unsafe def acceptProgram
   let (wat, path) ← materializeWat label sourceText moduleName watFileName
   let outPath := tmp / path
   IO.FS.writeFile outPath wat
-  -- Artifact stems are ASCII program identifiers (Counter.wat → Counter.wasm).
+  -- Artifact stems are ASCII program identifiers (StateCell.wat → StateCell.wasm).
   let wasmName :=
     if path.endsWith ".wat" then
       (path.dropEnd 4).copy ++ ".wasm"
@@ -305,8 +305,8 @@ unsafe def run : IO Unit := do
       if ← tmp.pathExists then IO.FS.removeDirAll tmp
       IO.FS.createDirAll tmp
       try
-        acceptProgram tc tmp "Counter"
-          Examples.counterSourceText Examples.counterModuleNameV1 "Counter.wat"
+        acceptProgram tc tmp "StateCell"
+          Examples.stateCellSourceText Examples.stateCellModuleNameV1 "StateCell.wat"
         acceptProgram tc tmp "DualField"
           dualFieldSourceText "Tests.NearWasm.DualField" "DualField.wat"
         acceptProgram tc tmp "LoopSum"

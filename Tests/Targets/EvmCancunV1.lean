@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Targets.Evm.FinalizeV1
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
@@ -108,19 +108,19 @@ private def testSupportAndDescriptor : IO Unit := do
 
 /-- Pure Finalize argv + evidence note are profile-gated (no tool invocation). -/
 private def testFinalizeArgsAndNote : IO Unit := do
-  match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834V1 "Counter.yul" with
+  match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834V1 "StateCell.yul" with
   | .ok legacyArgs =>
-      expect (legacyArgs == #["--strict-assembly", "--bin", "Counter.yul"])
+      expect (legacyArgs == #["--strict-assembly", "--bin", "StateCell.yul"])
         "legacy solc args keep historical wire (no ambient --evm-version)"
   | .error e => throw <| IO.userError s!"legacy solcArgs must succeed: {e}"
-  match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834CancunV1 "Counter.yul" with
+  match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834CancunV1 "StateCell.yul" with
   | .ok cancunArgs =>
       expect (cancunArgs ==
-          #["--strict-assembly", "--evm-version", "cancun", "--bin", "Counter.yul"])
+          #["--strict-assembly", "--evm-version", "cancun", "--bin", "StateCell.yul"])
         "cancun solc args pin --evm-version cancun"
   | .error e => throw <| IO.userError s!"cancun solcArgs must succeed: {e}"
   -- Unknown profile fail closed (open-else would silently treat as legacy).
-  match FinalizeV1.solcArgsForProfile CodegenProfileId.solanaSbpfPlanV1 "Counter.yul" with
+  match FinalizeV1.solcArgsForProfile CodegenProfileId.solanaSbpfPlanV1 "StateCell.yul" with
   | .ok _ => throw <| IO.userError "foreign profile solcArgs must fail closed"
   | .error e =>
       expect (e.contains "unsupported EVM finalize profile")
@@ -139,11 +139,11 @@ private def testFinalizeArgsAndNote : IO Unit := do
       expect (e.contains "unsupported EVM finalize profile")
         s!"foreign hardfork note error must name unsupported profile, got: {e}"
 
-/-- Capability mint + materialize succeed for both profiles on Counter. -/
+/-- Capability mint + materialize succeed for both profiles on StateCell. -/
 private unsafe def testCapabilityMint : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  let compiled ← compileSource session counterSourceText counterModuleNameV1
-    "<evm-cancun-counter>"
+  let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
+    "<evm-cancun-stateCell>"
   let legacyCap ← liftResult <| evmCapability compiled none
   expect (Targets.ResolvedEngineeringBuildV1.codegenProfileOf legacyCap ==
       CodegenProfileId.evmYulSolc0834V1)

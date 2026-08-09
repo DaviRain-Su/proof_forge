@@ -5,9 +5,9 @@ import ProofForgeV2.Semantic.ReferenceV1
   ProofForgeV2.Semantic.PreservationShapeV1 — shape-family packaging for L1
   preservation proofs on the sole product Reference step.
 
-  Wave-3′ mig-a2-shape + mig-b1 parity family: program-agnostic constructors +
-  ready-step theorems so same-file author proofs can be `apply` + `decide`/`rfl`
-  shape facts instead of replaying per-contract micro-paths. Families:
+  Program-agnostic constructors + ready-step theorems let same-file author
+  proofs can be `apply` + `decide`/`rfl` shape facts instead of replaying
+  per-contract micro-paths. Families:
 
     * store-constant clear (single public UInt64 slot ← fixed literal zero)
     * view-load identity (single-slot load → re-encode; post = pre)
@@ -16,10 +16,10 @@ import ProofForgeV2.Semantic.ReferenceV1
     * view-load triple slot-2 (load slot 2; re-encode full overlay)
     * increment-add-two (single public UInt64 load/+2/store/reload)
     * UInt64 parity invariant (`(slot % 2) == 0` micro-path)
+    * UInt64 equality-to-zero invariant (`slot == 0` micro-path)
 
-  Engineering only (track 1). No second State/Effect/step. No contract-specific
-  constants. Pin / residual golden modules remain optional accelerators until
-  wave-3′ C deletes them.
+  Engineering only (track 1). No second State/Effect/step and no
+  contract-specific program, byte golden, or proof instance.
 -/
 
 namespace ProofForgeV2.Semantic.PreservationShapeV1
@@ -32,13 +32,13 @@ open ProofForgeV2.Semantic.WireV1
 
 /-! ### Shape constructors (rfl / decide discharge)
 
-    Closed callables that match the production ready micro-path theorems.
-    Instance proofs discharge `callable = storeConstantClearCallableV1 …` by
-    `rfl` after unfolding their local defs.
+    Closed callable constructors matching the production ready micro-paths.
+    Business proofs discharge constructor equalities from their generated
+    `subjectDataV1` shape; no package-owned contract module is involved.
 -/
 
 /-- Nullary entry: `literal constant → stateStore → stateLoad → return`.
-    Store-constant clear family (ZeroCounter `clear`, MiniAmm-style single slot). -/
+    Generic single-slot store-constant family. -/
 def storeConstantClearCallableV1
     (callableId : CallableIdV1)
     (entryName : Option String)
@@ -153,7 +153,7 @@ def viewLoadTripleSlot2CallableV1
 }
 
 /-- Nullary entry: `stateLoad → literal 2 → add → stateStore → stateLoad → return`.
-    Single-slot UInt64 increment-by-two family (EvenCounter `increment`). -/
+    Generic single-slot UInt64 increment-by-two family. -/
 def incrementAddTwoCallableV1
     (callableId : CallableIdV1)
     (entryName : Option String)
@@ -186,7 +186,7 @@ def incrementAddTwoCallableV1
 }
 
 /-- Nullary invariant: `stateLoad → literal 2 → mod → literal 0 → eq → return`.
-    Single-slot UInt64 parity predicate `(count % 2) == 0` (EvenCounter `even`).
+    Generic single-slot UInt64 parity predicate.
     `invariantSteps` is the closed production value for this five-instruction body. -/
 def uint64ParityInvariantCallableV1
     (callableId : CallableIdV1)
@@ -217,6 +217,39 @@ def uint64ParityInvariantCallableV1
         op := .binary .eq 2 3 }
     ]
     terminator := .return_ (some 4)
+  }]
+  loopBounds := #[]
+  invariantSteps
+}
+
+/-- Nullary invariant: `stateLoad → literal 0 → eq → return`.
+    Generic single-slot UInt64 equality-to-zero predicate.
+    Production closed fuel for this three-instruction body is `some 5`. -/
+def uint64EqZeroInvariantCallableV1
+    (callableId : CallableIdV1)
+    (invName : Option String)
+    (uint64TypeId boolTypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (visibility : VisibilityV1)
+    (invariantSteps : Option UInt64) : CallableV1 := {
+  id := callableId
+  kind := .invariant
+  name := invName
+  params := #[]
+  result := { typeId := boolTypeId, visibility }
+  entryBlock := 0
+  blocks := #[{
+    id := 0
+    params := #[]
+    instructions := #[
+      { result := some { valueId := 0, typeId := uint64TypeId },
+        op := .stateLoad stateId },
+      { result := some { valueId := 1, typeId := uint64TypeId },
+        op := .literal uint64TypeId zero8BytesV1 },
+      { result := some { valueId := 2, typeId := boolTypeId },
+        op := .binary .eq 0 1 }
+    ]
+    terminator := .return_ (some 2)
   }]
   loopBounds := #[]
   invariantSteps

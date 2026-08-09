@@ -53,7 +53,7 @@
     * Does NOT forge FinalizedArtifactsV1 or re-run materializers.
 
   Deleted product commands: `build-counter`, `describe-target` (use
-  `build Examples/Counter.lean --module Examples.Counter` and `inspect`).
+  `build Examples/StateCell.lean --module Examples.StateCell` and `inspect`).
   Build flag `--network` remains a usage error (no network registry); the
   top-level `network` subcommand is the host-heavy product network wrapper.
   Engineering only — not formal CLI / OutputSetV1 / SupportClaim completion.

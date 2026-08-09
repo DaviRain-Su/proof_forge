@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.Syntax
 
@@ -31,7 +31,7 @@ private def mkProgramSource (namespaceName : String) : String :=
   "import ProofForgeV2\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
   "namespace " ++ namespaceName ++ "\n\n" ++
-  "program Counter where\n" ++
+  "program StateCell where\n" ++
   "  state count : UInt64\n\n" ++
   "  init(initial : UInt64) do\n" ++
   "    count := initial\n\n" ++
@@ -89,15 +89,15 @@ unsafe def run : IO Unit := do
       "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     "SHA-256 must match the abc reference vector"
 
-  let counter ← match ← Language.Loader.selectProgramV1
-      Examples.counterSourceText "<program-syntax-counter>"
-      Examples.counterModuleNameV1 none with
+  let stateCell ← match ← Language.Loader.selectProgramV1
+      Examples.stateCellSourceText "<program-syntax-stateCell>"
+      Examples.stateCellModuleNameV1 none with
   | .ok value => pure value
-  | .error error => throw <| IO.userError s!"Counter V1 parse failed: {error.render}"
-  let identity := counter.programIdentity.components.toArray.map (·.raw)
-  expect (identity == #["Examples", "Counter", "ProofForgeV2", "Examples", "Counter"])
+  | .error error => throw <| IO.userError s!"StateCell V1 parse failed: {error.render}"
+  let identity := stateCell.programIdentity.components.toArray.map (·.raw)
+  expect (identity == #["Examples", "StateCell", "ProofForgeV2", "Examples", "StateCell"])
     "ProgramV1 identity must join module, namespace, and declaration raw components"
-  let itemKinds := counter.program.items.map fun item =>
+  let itemKinds := stateCell.program.items.map fun item =>
     match item with
     | .state s => ("state", s.name.raw)
     | .init _ => ("init", "")
@@ -105,8 +105,8 @@ unsafe def run : IO Unit := do
     | .view v => ("view", v.name.raw)
     | _ => ("other", "")
   expect (itemKinds == #[("state", "count"), ("init", ""), ("entry", "increment"), ("view", "get")])
-    "Counter ProgramV1 must retain state/init/entry/view source order"
-  let sourceHash ← liftSourceHash "counter sourceHash" (sourceHashV1 counter)
+    "StateCell ProgramV1 must retain state/init/entry/view source order"
+  let sourceHash ← liftSourceHash "stateCell sourceHash" (sourceHashV1 stateCell)
   let renderedHash ← match renderDigest sourceHash with
   | .ok value => pure value
   | .error message => throw <| IO.userError message
@@ -114,37 +114,37 @@ unsafe def run : IO Unit := do
   expect (renderedHash.startsWith "sha256:" && isSha256Hex hexPart)
     "ProgramV1 source hash must be 64-character lower-case SHA-256 hex"
 
-  let compiled ← match Compiler.compileValidatedSourceV1 counter with
+  let compiled ← match Compiler.compileValidatedSourceV1 stateCell with
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
   expect (Compiler.CompiledSemanticV1.sourceDigestOf compiled == sourceHash)
     "compiled carrier must bind the canonical ProgramV1 source digest"
-  expect (Compiler.CompiledSemanticV1.artifactProgramNameOf compiled == "Counter")
+  expect (Compiler.CompiledSemanticV1.artifactProgramNameOf compiled == "StateCell")
     "compiled artifact name must come from the semantic qualified-name suffix"
   let semanticData ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
       (Compiler.CompiledSemanticV1.semanticV1Of compiled) with
   | .ok value => pure value
-  | .error error => throw <| IO.userError s!"Counter semantic carrier invalid: {repr error}"
+  | .error error => throw <| IO.userError s!"StateCell semantic carrier invalid: {repr error}"
   expect (semanticData.requirements.items.map (·.id) ==
       #["failure.atomic-rollback", "state.persistent", "value.checked-arithmetic"])
-    "semantic requirements must be the canonical Counter contributed catalog set"
+    "semantic requirements must be the canonical StateCell contributed catalog set"
 
-  let aCounter ← match ← Language.Loader.selectProgramV1
+  let aStateCell ← match ← Language.Loader.selectProgramV1
       aSource "<program-syntax-a>" "A" none with
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
-  let bCounter ← match ← Language.Loader.selectProgramV1
+  let bStateCell ← match ← Language.Loader.selectProgramV1
       bSource "<program-syntax-b>" "B" none with
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
-  expect (aCounter.program.name.raw == "Counter" && bCounter.program.name.raw == "Counter")
+  expect (aStateCell.program.name.raw == "StateCell" && bStateCell.program.name.raw == "StateCell")
     "artifact names must remain short"
-  expect (aCounter.programIdentity.components.toArray.map (·.raw) == #["A", "Counter"])
+  expect (aStateCell.programIdentity.components.toArray.map (·.raw) == #["A", "StateCell"])
     "namespace must participate in program identity"
-  expect (bCounter.programIdentity.components.toArray.map (·.raw) == #["B", "Counter"])
+  expect (bStateCell.programIdentity.components.toArray.map (·.raw) == #["B", "StateCell"])
     "namespace must participate in program identity"
-  let aHash ← liftSourceHash "aCounter hash" (sourceHashV1 aCounter)
-  let bHash ← liftSourceHash "bCounter hash" (sourceHashV1 bCounter)
+  let aHash ← liftSourceHash "aStateCell hash" (sourceHashV1 aStateCell)
+  let bHash ← liftSourceHash "bStateCell hash" (sourceHashV1 bStateCell)
   expect (aHash != bHash)
     "fully-qualified identity must participate in source hashing"
 

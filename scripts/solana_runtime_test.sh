@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Solana engineering runtime: build Counter ELF + target fixture ELFs
+# Solana engineering runtime: build StateCell ELF + target fixture ELFs
 # (solana-sbpf-cpi-elf-v1 sole rail; control flow, effects, aggregates, narrow/wide ABI)
 # and run Mollusk runtime differential tests.
 #
@@ -139,21 +139,21 @@ fi
 rm -rf "$out_dir"
 mkdir -p "$out_dir"
 
-echo "solana-runtime-test: build Examples/Counter.lean --module Examples.Counter --target solana (sole rail cpi-elf) -o $out_dir/Counter"
-if ! lake env "$cli" build Examples/Counter.lean --module Examples.Counter \
+echo "solana-runtime-test: build Examples/StateCell.lean --module Examples.StateCell --target solana (sole rail cpi-elf) -o $out_dir/StateCell"
+if ! lake env "$cli" build Examples/StateCell.lean --module Examples.StateCell \
   --target solana \
-  -o "$out_dir/Counter"; then
-  die "proof-forge-next build Counter failed"
+  -o "$out_dir/StateCell"; then
+  die "proof-forge-next build StateCell failed"
 fi
 
-counter_out="$out_dir/Counter"
-bind_output "$counter_out" "Counter"
-so_path="$counter_out/Counter.so"
-plan_path="$counter_out/Counter.cpi-plan.json"
-[[ -f "$so_path" ]] || die "manifest-bound Counter.so missing: $so_path"
-[[ -f "$plan_path" ]] || die "manifest-bound Counter.cpi-plan.json missing: $plan_path"
+state_cell_out="$out_dir/StateCell"
+bind_output "$state_cell_out" "StateCell"
+so_path="$state_cell_out/StateCell.so"
+plan_path="$state_cell_out/StateCell.cpi-plan.json"
+[[ -f "$so_path" ]] || die "manifest-bound StateCell.so missing: $so_path"
+[[ -f "$plan_path" ]] || die "manifest-bound StateCell.cpi-plan.json missing: $plan_path"
 
-echo "solana-runtime-test: Counter.so=$so_path ($(wc -c <"$so_path" | tr -d ' ') bytes)"
+echo "solana-runtime-test: StateCell.so=$so_path ($(wc -c <"$so_path" | tr -d ' ') bytes)"
 echo "solana-runtime-test: plan=$plan_path"
 
 # Build each S3b fixture under $out_dir/<Name>/.
@@ -291,7 +291,7 @@ escrow_out="$(cd "$escrow_out" && pwd -P)"
 export PROOF_FORGE_CPI_ESCROW_OUT="$escrow_out"
 
 # ADR-0029 Phase B1 TipJarAssets product ELF (pf.assets + solana-sbpf-cpi-elf-v1).
-# Additive: does not alter the legacy solana-sbpf-elf-v1 Counter/fixture programs.
+# Additive: does not alter the legacy solana-sbpf-elf-v1 StateCell/fixture programs.
 # Mollusk suite: runtime-tests/solana/tests/tipjar_assets.rs (new test binary).
 tipjar_out="${PROOF_FORGE_TIPJAR_ASSETS_OUT:-$root/build/v2/solana-tipjar-assets}"
 export PROOF_FORGE_TIPJAR_ASSETS_OUT="$tipjar_out"
@@ -318,7 +318,7 @@ export PROOF_FORGE_TIPJAR_ASSETS_OUT="$tipjar_out"
 echo "solana-runtime-test: TipJarAssets.so=$(wc -c <"$tipjar_out/TipJarAssets.so" | tr -d ' ') bytes"
 
 # ADR-0030 E1b TokenJarAssets product ELF (pf.assets token.transfer + CPI profile).
-# Additive: does not alter the legacy solana-sbpf-elf-v1 Counter/fixture programs.
+# Additive: does not alter the legacy solana-sbpf-elf-v1 StateCell/fixture programs.
 # Mollusk suite: runtime-tests/solana/tests/tipjar_token.rs (new test binary).
 tipjar_token_out="${PROOF_FORGE_TIPJAR_TOKEN_OUT:-$root/build/v2/solana-tipjar-token}"
 export PROOF_FORGE_TIPJAR_TOKEN_OUT="$tipjar_token_out"
@@ -343,7 +343,7 @@ export PROOF_FORGE_TIPJAR_TOKEN_OUT="$tipjar_token_out"
 echo "solana-runtime-test: TokenJarAssets.so=$(wc -c <"$tipjar_token_out/TokenJarAssets.so" | tr -d ' ') bytes"
 
 # ADR-0031 S1 / ADR-0030 E3 CallerIsMe product ELF (context.caller signer role).
-# Additive: does not alter Counter/fixture or TipJar programs.
+# Additive: does not alter StateCell/fixture or TipJar programs.
 # Mollusk suite: runtime-tests/solana/tests/caller_isme.rs
 caller_isme_out="${PROOF_FORGE_CALLER_ISME_OUT:-$root/build/v2/solana-caller-isme}"
 export PROOF_FORGE_CALLER_ISME_OUT="$caller_isme_out"
@@ -369,7 +369,7 @@ echo "solana-runtime-test: CallerIsMe.so=$(wc -c <"$caller_isme_out/CallerIsMe.s
 
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
-export PROOF_FORGE_COUNTER_OUT="$counter_out"
+export PROOF_FORGE_STATE_CELL_OUT="$state_cell_out"
 export PROOF_FORGE_FIXTURES_DIR="$out_dir"
 
 if ! (

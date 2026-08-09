@@ -488,7 +488,6 @@ theorem decodeSemanticProgramDataTagged_of_rootFieldInvert
     decodeSemanticProgramDataTaggedV1 ⟨b, magicSizeV1, 0⟩ =
       .ok (data, ⟨b, b.size, 0⟩) := by
   have hdepth : (0 : Nat) < maxNesting := by decide
-  have hdepth1 : (1 : Nat) < maxNesting := by decide
   have htag := expectTag_of_rootEncodeFieldsOk data b fok 1
   have hlayout := rootEncodeFieldsOk_flat_layout data b fok
   -- Bind field sizes into local Nats.
@@ -532,7 +531,7 @@ theorem decodeSemanticProgramDataTagged_of_rootFieldInvert
     mid_field b decodeQualifiedName data.qualifiedName qnB Lqn Rqn 1 ot oty
       hinQn hLqn (by simp only [oty, oTypesV1, ot, oTagV1])
       (by
-        have h := hinvert.qualifiedName data.qualifiedName qnB Lqn Rqn 1 hdepth1
+        have h := hinvert.qualifiedName qnB Lqn Rqn
           (by simpa [qnB] using fok.hqn)
         exact h)
   -- types
@@ -550,7 +549,7 @@ theorem decodeSemanticProgramDataTagged_of_rootFieldInvert
     mid_field b (decodeArray maxTableElements decodeTypeDeclV1) data.types typesB
       Ltypes Rtypes 1 oty oc hinTypes hLtypes
       (by simp only [oc, oConstV1, oty, oTypesV1])
-      (hinvert.types data.types typesB Ltypes Rtypes 1 hdepth1
+      (hinvert.types typesB Ltypes Rtypes
         (by simpa [typesB] using fok.htypes))
   -- constants
   let Lconst := Ltypes ++ typesB
@@ -567,7 +566,7 @@ theorem decodeSemanticProgramDataTagged_of_rootFieldInvert
     mid_field b (decodeArray maxTableElements decodeConstantV1) data.constants
       constantsB Lconst Rconst 1 oc os hinConst hLconst
       (by simp only [os, oStateV1, oc, oConstV1])
-      (hinvert.constants data.constants constantsB Lconst Rconst 1 hdepth1
+      (hinvert.constants constantsB Lconst Rconst
         (by simpa [constantsB] using fok.hconstants))
   -- state
   let Lstate := Lconst ++ constantsB
@@ -584,7 +583,7 @@ theorem decodeSemanticProgramDataTagged_of_rootFieldInvert
     mid_field b (decodeArray maxTableElements decodeStateDeclV1) data.logicalState
       stateB Lstate Rstate 1 os oev hinState hLstate
       (by simp only [oev, oEventsV1, os, oStateV1])
-      (hinvert.logicalState data.logicalState stateB Lstate Rstate 1 hdepth1
+      (hinvert.logicalState stateB Lstate Rstate
         (by simpa [stateB] using fok.hstate))
   -- events
   let Levents := Lstate ++ stateB
@@ -601,7 +600,7 @@ theorem decodeSemanticProgramDataTagged_of_rootFieldInvert
     mid_field b (decodeArray maxTableElements decodeEventDeclV1) data.events
       eventsB Levents Revents 1 oev oer hinEvents hLevents
       (by simp only [oer, oErrorsV1, oev, oEventsV1])
-      (hinvert.events data.events eventsB Levents Revents 1 hdepth1
+      (hinvert.events eventsB Levents Revents
         (by simpa [eventsB] using fok.hevents))
   -- errors
   let Lerrors := Levents ++ eventsB
@@ -618,7 +617,7 @@ theorem decodeSemanticProgramDataTagged_of_rootFieldInvert
     mid_field b (decodeArray maxTableElements decodeErrorDeclV1) data.errors
       errorsB Lerrors Rerrors 1 oer oca hinErrors hLerrors
       (by simp only [oca, oCallablesV1, oer, oErrorsV1])
-      (hinvert.errors data.errors errorsB Lerrors Rerrors 1 hdepth1
+      (hinvert.errors errorsB Lerrors Rerrors
         (by simpa [errorsB] using fok.herrors))
   -- callables
   let Lcall := Lerrors ++ errorsB
@@ -636,7 +635,7 @@ theorem decodeSemanticProgramDataTagged_of_rootFieldInvert
     mid_field b (decodeArray maxTableElements decodeCallableV1) data.callables
       callablesB Lcall Rcall 1 oca oin hinCall hLcall
       (by simp only [oin, oInvariantsV1, oca, oCallablesV1])
-      (hinvert.callables data.callables callablesB Lcall Rcall 1 hdepth1
+      (hinvert.callables callablesB Lcall Rcall
         (by simpa [callablesB] using fok.hcallables))
   -- invariants
   let Linv := Lcall ++ callablesB
@@ -654,7 +653,7 @@ theorem decodeSemanticProgramDataTagged_of_rootFieldInvert
     mid_field b (decodeArray maxTableElements decodeInvariantDeclV1)
       data.invariants invariantsB Linv Rinv 1 oin oreq hinInv hLinv
       (by simp only [oreq, oRequirementsV1, oin, oInvariantsV1])
-      (hinvert.invariants data.invariants invariantsB Linv Rinv 1 hdepth1
+      (hinvert.invariants invariantsB Linv Rinv
         (by simpa [invariantsB] using fok.hinvariants))
   -- requirements
   let Lreq := Linv ++ invariantsB
@@ -674,7 +673,7 @@ theorem decodeSemanticProgramDataTagged_of_rootFieldInvert
     mid_field b decodeProgramRequirementsV1 data.requirements requirementsB Lreq
       Rreq 1 oreq oend hinReq hLreq
       (by simp only [oend, oEndV1, oreq, oRequirementsV1])
-      (hinvert.requirements data.requirements requirementsB Lreq Rreq 1 hdepth1
+      (hinvert.requirements requirementsB Lreq Rreq
         (by simpa [requirementsB] using fok.hrequirements))
   have hend :
       oend = b.size := by

@@ -3,7 +3,7 @@
   independent multi-pass CheckV1 inside NormalizeV1, plus non-product
   compileValidatedSourceV1 seam.
 
-  Pins Counter happy path (Normalize structure gate + single semantic carrier),
+  Pins StateCell happy path (Normalize structure gate + single semantic carrier),
   type / effect / bound / disclosure product wires, Normalize-gate unsupported
   control-flow (missing/after-return) and private unused state through the
   sole ProgramV1 product path. Bound-only coverage is a well-typed triple-nested
@@ -126,10 +126,10 @@ private def expectNormalizeOk (label : String) (source : ValidatedSourceV1) : IO
 
 private def moduleName : String := "Tests.CheckV1ProductGate"
 
-private unsafe def counterSource : String :=
+private unsafe def stateCellSource : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n\n" ++
-  "program CounterGate where\n" ++
+  "program StateCellGate where\n" ++
   "  state count : UInt64\n" ++
   "  init(initial : UInt64) do\n" ++
   "    count := initial\n" ++
@@ -167,16 +167,16 @@ def runAst : IO Unit := do
   let runN ← n "run"; let x ← n "x"; let peer ← q #["Peer", "go"]
   let moduleQ ← q #["Tests", "Gate"]; let identity ← q #["Tests", "Gate", "Demo"]
 
-  -- Counter-shaped ValidatedSourceV1 succeeds through Normalize and the shared compiler mint.
-  let counter ← validated moduleQ identity demo #[
+  -- StateCell-shaped ValidatedSourceV1 succeeds through Normalize and the shared compiler mint.
+  let stateCell ← validated moduleQ identity demo #[
     .state (mkState count),
     .init { params := #[param seed], body := block #[.assign (.name count) (var seed)] },
     .entry (mkEntry inc (block #[
       .assign (.name count) (.binary .add (var count) (var delta)),
       .return_ (some (var count))]) #[param delta]),
     .view (mkView getN (ret (var count)))]
-  let _ ← expectOk "counter-ast" (Compiler.compileValidatedSourceV1 counter)
-  expectNormalizeOk "counter-ast-normalize" counter
+  let _ ← expectOk "stateCell-ast" (Compiler.compileValidatedSourceV1 stateCell)
+  expectNormalizeOk "stateCell-ast-normalize" stateCell
 
   -- Accumulator-shaped S1 AST succeeds through Normalize and the shared compiler mint.
   let total ← n "total"; let amount ← n "amount"; let addN ← n "add"; let cur ← n "current"
@@ -344,12 +344,12 @@ def runAst : IO Unit := do
 
 private unsafe def runSource
     (session : Language.Loader.ParserSession) : IO Unit := do
-  match ← session.selectProgramV1 counterSource
-      "<checkv1-product-counter>" moduleName none with
+  match ← session.selectProgramV1 stateCellSource
+      "<checkv1-product-stateCell>" moduleName none with
   | .ok source =>
-      let _ ← expectOk "counter-source" (Compiler.compileValidatedSourceV1 source)
-      expectNormalizeOk "counter-source-normalize" source
-  | .error error => throw <| IO.userError s!"counter-source load: {error.render}"
+      let _ ← expectOk "stateCell-source" (Compiler.compileValidatedSourceV1 source)
+      expectNormalizeOk "stateCell-source-normalize" source
+  | .error error => throw <| IO.userError s!"stateCell-source load: {error.render}"
 
   match ← session.selectProgramV1 accumulatorSource
       "<checkv1-product-accumulator>" moduleName none with

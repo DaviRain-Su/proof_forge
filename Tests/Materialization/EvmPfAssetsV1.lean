@@ -107,7 +107,7 @@ private def tokenAsyncSource : String :=
   "    call pf.assets.token.transferAsync(mint, dst, amount)\n" ++
   "    return amount\n"
 
-private def plainCounterSource : String :=
+private def plainStateCellSource : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
   "program PlainNoDeposit where\n" ++
@@ -410,7 +410,7 @@ private unsafe def testTokenTransferPlanAndYul : IO Unit := do
 private unsafe def testNonDepositCallvalueZero : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load plain" (← session.selectProgramV1
-    plainCounterSource "<evm-plain>" "Tests.EvmPlain" none)
+    plainStateCellSource "<evm-plain>" "Tests.EvmPlain" none)
   let compiled ← liftResult "compile plain" <| compileValidatedSourceV1 source
   let files ← buildEvm compiled
   let some yulFile := files.find? (·.path.endsWith ".yul") |

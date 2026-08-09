@@ -1,9 +1,10 @@
 import ProofForgeV2.Language.Syntax
 import ProofForgeV2.Language.SubjectDataQuoteV1
-import ProofForgeV2.Semantic.ClosedSubjectPinV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Semantic.PreservationABI
+import ProofForgeV2.Semantic.UInt64ParityPreservationV1
+import ProofForgeV2.Semantic.UInt64ParitySubjectV1
 import ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1
 import ProofForgeV2.Semantic.SimpleClosureTraceV1
 import ProofForgeV2.Semantic.WireV1
@@ -69,7 +70,7 @@ def generatedSimpleClosureTheoremNameDefV1 (invName : String) : String :=
 /-- Fixed elaborator surface names authors must not use as invariant ids. -/
 private def isFixedInlineProofSurfaceNameV1 (name : String) : Bool :=
   name == "subjectProgramV1" || name == "subjectBytesV1" ||
-    name == "subjectDataV1" ||
+    name == "subjectDataV1" || name == "subjectBodyEncodeOkV1" ||
     name == "simpleClosureParamsV1" || name == "simpleClosureDataV1" ||
     name == "simpleClosureQnTailLegalV1" ||
     name == "simpleClosureParamsLegalV1"
@@ -297,10 +298,9 @@ private def elaborateProofObligations
   --   * `subjectDataV1` — structured SemanticProgramDataV1 spine (mig-a3-elab);
   --     preferred author surface for shape/preservation facts without large
   --     byte-spine defeq.
-  --   * `subjectBytesV1` / `subjectProgramV1` — certifier identity. When carrier
-  --     bytes match a registered closed pin, alias that shared constant so
-  --     package-owned theorems stay definitional; unpinned programs keep the
-  --     transparent byte spine. Pin is golden accelerator only.
+  --   * `subjectBytesV1` / `subjectProgramV1` — exact certifier identity.
+  --     Every program receives the same transparent byte-spine representation;
+  --     there is no contract registry, pin lookup, or package-owned golden hop.
   let data ← match lowerProgramDataV1 source with
     | .ok value => pure value
     | .error _ =>
@@ -310,18 +310,14 @@ private def elaborateProofObligations
   let dataExpr : TSyntax `term ←
     Lean.Elab.liftMacroM <| quoteSemanticProgramDataV1 data
   let bytesExpr : TSyntax `term ←
-    match ProofForgeV2.Semantic.ClosedSubjectPinV1.resolveClosedSubjectBytesPinNameV1
-        carrier.canonicalBytes with
-    | some pinName =>
-        pure ⟨(Lean.mkCIdent pinName).raw⟩
-    | none =>
-        Lean.Elab.liftMacroM <| quoteByteArraySpine carrier.canonicalBytes
+    Lean.Elab.liftMacroM <| quoteByteArraySpine carrier.canonicalBytes
   let proofNamespace := mkIdent `Proof
   let preservingNamespace := mkIdent `ProofPreserving
   let subjectName := mkIdent `subjectProgramV1
   let sharedSubjectName := mkIdent `Proof.subjectProgramV1
   let subjectBytesName := mkIdent `subjectBytesV1
   let subjectDataName := mkIdent `subjectDataV1
+  let subjectBodyEncodeOkName := mkIdent `subjectBodyEncodeOkV1
   Lean.Elab.Command.elabCommand (← `(namespace $programName))
   Lean.Elab.Command.elabCommand (← `(namespace $proofNamespace))
   Lean.Elab.Command.elabCommand (← `(def $subjectDataName :
@@ -330,6 +326,16 @@ private def elaborateProofObligations
   Lean.Elab.Command.elabCommand (← `(def $subjectName :
       ProofForgeV2.Semantic.WireV1.SemanticProgramV1 :=
     { canonicalBytes := $subjectBytesName }))
+  Lean.Elab.Command.elabCommand (← `(
+    set_option maxHeartbeats 80000000 in
+    set_option maxRecDepth 400000 in
+    /-- Kernel-checked equality between the generated structured subject and
+        its exact product byte spine. This is emitted uniformly for every
+        proof-bearing program; it contains no contract registry or byte pin. -/
+    theorem $subjectBodyEncodeOkName :
+        ProofForgeV2.Semantic.WireV1.encodeSemanticProgramDataBodyV1
+          $subjectDataName = .ok $subjectBytesName := by
+      rfl))
   for (invariantName, ordinal) in surface.invariantNames.zipIdx do
     if surface.holdsNames.contains invariantName then
       let invariantIdent := mkIdent (Name.str .anonymous invariantName)

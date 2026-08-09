@@ -4,7 +4,7 @@
 # What this does (offline-first, locked Leo only):
 #   1) Resolve locked leo (PROOF_FORGE_TOOL_ROOT or default cache path).
 #   2) Isolate HOME + clear ambient Aleo secret/network env.
-#   3) Build a minimal Leo 4 package (product-shaped Counter).
+#   3) Build a minimal Leo 4 package (product-shaped StateCell).
 #   4) Run `leo build --offline --disable-update-check` twice.
 #   5) Require exact three content-bearing outputs; inventory count=3;
 #      compare byte-stable digests; scan those three for absolute-path strings.
@@ -134,11 +134,11 @@ leo_sha="$(shasum -a 256 "$LEO" | awk '{print $1}')"
 echo "aleo-local-spike: leo_sha256=$leo_sha"
 echo "aleo-local-spike: host=$(uname -s)-$(uname -m) (empirically frozen on darwin-arm64)"
 
-PKG="$WORKDIR/counter"
+PKG="$WORKDIR/statecell"
 mkdir -p "$PKG/src"
 cat >"$PKG/program.json" <<'EOF'
 {
-  "program": "counter.aleo",
+  "program": "statecell.aleo",
   "version": "0.1.0",
   "description": "aleo-r0 local toolchain spike",
   "license": "MIT",
@@ -150,8 +150,8 @@ EOF
 
 # Product-emission-shaped Final/fn surface (Leo 4.0.2; no async keyword).
 cat >"$PKG/src/main.leo" <<'EOF'
-// proof-forge-next ALEO-R0 spike: product-shaped Counter for Leo 4.0.2.
-program counter.aleo {
+// proof-forge-next ALEO-R0 spike: product-shaped StateCell for Leo 4.0.2.
+program statecell.aleo {
     @noupgrade
     constructor() {}
 

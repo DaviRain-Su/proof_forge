@@ -1420,7 +1420,7 @@ EXPECTED_RUNNABLE_IDS = (
     "pf.adapter.token.conservation.v1",
     "pf.primitive.accumulator.overflow-hold.v1",
     "pf.primitive.arithops.bitnot-scale.v1",
-    "pf.primitive.counter.overflow-hold.v1",
+    "pf.primitive.statecell.overflow-hold.v1",
     "pf.primitive.eventflow.emit-cap.v1",
     "pf.primitive.ownablelike.caller-admit.v1",
 )
@@ -1634,7 +1634,7 @@ def _git(n: int = 1) -> str:
 def _base_pins(**overrides: object) -> dict[str, object]:
     pins: dict[str, object] = {
         "pfCommit": _git(1),
-        "sourcePath": "Examples/Counter.lean",
+        "sourcePath": "Examples/StateCell.lean",
         "sourceHash": _sha(1),
         "semanticHash": _sha(2),
         "ozCommit": None,
@@ -1695,7 +1695,7 @@ def _skip(
 def make_primitive_case() -> dict[str, object]:
     return {
         "schema": SCHEMA_CASE,
-        "id": "pf.primitive.counter.overflow-hold.v1",
+        "id": "pf.primitive.statecell.overflow-hold.v1",
         "class": "primitive",
         "pins": _base_pins(runner="product-cli"),
         "actors": [{"id": "deployer", "role": "eoa"}],
@@ -1877,7 +1877,7 @@ def make_oos_case() -> dict[str, object]:
 def make_reference_observation() -> dict[str, object]:
     return {
         "schema": SCHEMA_OBS,
-        "caseId": "pf.primitive.counter.overflow-hold.v1",
+        "caseId": "pf.primitive.statecell.overflow-hold.v1",
         "leg": "reference",
         "stepIndex": 0,
         "verdict": "pass",
@@ -1896,7 +1896,7 @@ def make_reference_observation() -> dict[str, object]:
 def make_pf_anvil_observation() -> dict[str, object]:
     return {
         "schema": SCHEMA_OBS,
-        "caseId": "pf.primitive.counter.overflow-hold.v1",
+        "caseId": "pf.primitive.statecell.overflow-hold.v1",
         "leg": "pf-anvil",
         "stepIndex": 0,
         "verdict": "pass",
@@ -3405,7 +3405,7 @@ def _run_manifest_self_tests() -> None:
         # Copy just enough for inventory: corpus tree + external sources + runners.
         for rel in [
             CORPUS_V1_REL,
-            "Examples/Counter.lean",
+            "Examples/StateCell.lean",
             "Examples/Accumulator.lean",
             "Examples/Token.lean",
             "testdata/valid/ArithOps.lean",
@@ -3475,7 +3475,7 @@ def _run_manifest_self_tests() -> None:
         _copy_minimal_repo(repo)
 
         # Missing listed path (delete a source).
-        victim = repo / "Examples/Counter.lean"
+        victim = repo / "Examples/StateCell.lean"
         victim.unlink()
         try:
             validate_manifest_at(repo / MANIFEST_REL_PATH, repo)
@@ -3635,12 +3635,12 @@ def _run_manifest_self_tests() -> None:
         secret.write_text("SUPER_SECRET_TOKEN=case-source\n", encoding="utf-8")
         # Rewrite a business case pins.sourcePath to .env (canonical).
         case_path = (
-            repo / CASES_REL / "pf.primitive.counter.overflow-hold.v1.json"
+            repo / CASES_REL / "pf.primitive.statecell.overflow-hold.v1.json"
         )
         case_obj = json.loads(case_path.read_bytes().decode("utf-8"))
         case_obj["pins"]["sourcePath"] = ".env"
         case_path.write_bytes(canonical_bytes(case_obj))
-        # Manifest still lists Counter source; after case decode, allowlist
+        # Manifest still lists StateCell source; after case decode, allowlist
         # will require .env and reject it as outside closed source roots
         # before any .env read — or reject sourcePath validation.
         opened2: list[str] = []
@@ -3785,8 +3785,8 @@ def _run_manifest_self_tests() -> None:
         shutil.rmtree(repo)
         repo.mkdir()
         _copy_minimal_repo(repo)
-        target = repo / "Examples/Counter.lean"
-        hard = repo / "Examples/Counter.hardlink.lean"
+        target = repo / "Examples/StateCell.lean"
+        hard = repo / "Examples/StateCell.hardlink.lean"
         try:
             os.link(target, hard)
             try:

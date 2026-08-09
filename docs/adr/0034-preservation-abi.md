@@ -9,13 +9,14 @@ normative: true
 
 # ADR-0034：Preservation ABI（L1 step-preservation）
 
-- 状态：`proposed`（通用 ABI foundation + kind/inventory/alias/protocol/certifier plumbing
-  已于 2026-08-07 落地；**EvenCounter 首个 preserving product `check` certified positive 已于
-  2026-08-08 闭合**；**ZeroCounter 第二非 AMM 实例（P=`count==0`）preserving product positive
-  已于 2026-08-09 闭合**；wave-2 通用性门 drained；ADR-0027 supersession 与 formal maturity
-  仍未完成；MiniAmm P1 后置）
-- 日期：2026-08-07（2026-08-08 EvenCounter product-positive；2026-08-09 ZeroCounter
-  second-instance 更新）
+- 状态：`proposed`（通用 ABI / kind / inventory / alias / protocol / certifier 已闭合；
+  **wave-3′ generic-first cutover 已于 2026-08-09 完成**：codec round-trip、
+  contract-agnostic shape-family theorems、结构化 `subjectDataV1`、same-file ordinary
+  contract proofs。`ProofForgeV2/ProofInstances/`、`ClosedSubjectPinV1` 与
+  `ParityCounter*`/`ZeroCounter*` 专属模块已删除；产品包零合约专属 proof/data/pin。
+  `Examples/Counter.lean` 与 `Examples/MiniAmmL1.lean` 直接消费通用 API 并通过产品 certifier；
+  ADR-0027 supersession 与 formal maturity 仍未完成）
+- 日期：2026-08-07（2026-08-09 generic-first migration complete）
 - **Proposed extension / amendment to**：
   [`ADR-0027`](0027-inline-same-file-theorem-certification.md)
   （**当前产品 authority 仍为 ADR-0027**；本 ADR 冻结 L1 Preservation 设计契约与
@@ -26,9 +27,8 @@ normative: true
   `ReferenceVaultSeedV1`、`AdmittedReferenceSliceV1`、`initialLogicalStateV1`、
   `evalInvariantV1` / `StateConformsV1` / `LogicalStateV1`）；research
   [`23-miniamm-formalization-ladder.md`](../research/23-miniamm-formalization-ladder.md)
-  中 Reference-first / L1 `Preserves` 目标叙述；closed pin
-  `ProofForgeV2/Semantic/ClosedSubjectPinV1.lean`（仅 golden 加速，非主路径；
-  EvenCounter + ZeroCounter 两 golden）
+  的 Reference-first / L1 `Preserves` 目标叙述；当前实现不含 closed subject pin，
+  合约 proof/data 只在各自的 `Examples/*.lean` 源文件中。
 
 ## 背景
 
@@ -59,13 +59,12 @@ pre 到 post 的保持**。若把保持塞进 `InvariantTheoremV1`，或为某�
 的拟议扩展（见 D0）。
 
 后续 engineering slices 已实现 D1–D3 通用 ABI foundation、D6–D8 kind plumbing，
-**D9 EvenCounter 首个 product-certified preserving positive**（package-owned
-`EvenCounterPreservationV1.preservation_theorem` + same-file author body `exact` +
-product `certifyInlineProofV1` → `.certified`；见实现日志 2026-08-08），以及
-**D9.3 ZeroCounter 第二非 AMM 通用性实例**（P=`count==0`；`ZeroCounterPreservationV1` +
-ClosedSubjectPin + product `exact` → `.certified`；2026-08-09；wave-2 drained）。没有修改
-Reference 机器语义，也没有加入任何 MiniAmm helper。ADR-0027 supersession 与 MiniAmm P1
-仍 pending。
+以及 D9 的 acceptance 历史实例。2026-08-09 的 wave-3′ 将该历史实例栈替换为
+contract-agnostic codec/shape/elaboration API：作者文件直接用结构化 `subjectDataV1`、
+通用 preservation theorem 与 `decide`/`rfl` 形状事实完成同文件普通定理。
+当前产品正例为 `Examples/Counter.lean` 与 `Examples/MiniAmmL1.lean`；
+`ProofInstances/`、closed pins、ParityCounter/ZeroCounter 专属模块和重复 examples/tests
+均已物理删除。没有修改 Reference 机器语义，也没有加入 MiniAmm 平台特例。
 
 **当前产品路径的 single-snapshot/audit/axiom/proof-before-materialize 基线继续由 ADR-0027
 约束；kind / Preservation 扩展由本 ADR 约束。** 本 ADR **不** 因 EvenCounter/ZeroCounter
@@ -82,18 +81,19 @@ hermetic / Stage-0 / target refinement / release。
    - [`ADR-0027`](0027-inline-same-file-theorem-certification.md) 仍是 product inline gate 的
      base authority（`status=proposed`；**无** `successor`；**无** superseded 横幅），继续约束
      single snapshot、audit、axiom、user-olean rejection 与 proof-before-materialize。
-   - 本 ADR = **proposed extension / amendment**：L1 ABI、kind plumbing、**EvenCounter
-     首个 preserving product positive** 与 **ZeroCounter 第二非 AMM 通用性实例** 已实现；
-     ADR-0027 supersession 与 MiniAmm P1 仍 pending（须 **单独** 文档决策，不得预填）。
-   - **禁止** 因 plumbing 或 EvenCounter/ZeroCounter 正例就把 ADR-0027 标 `superseded`、
-     写 `successor=ADR-0034`，或声称“任意合约已自动可证 / formal 完成”。
+   - 本 ADR = **proposed extension / amendment**：L1 ABI、kind plumbing 与
+     wave-3′ generic-first product path 已实现；当前 same-file 正例为普通
+     `Examples/Counter.lean` 与 `Examples/MiniAmmL1.lean`。
+   - ADR-0027 supersession 仍 pending（须 **单独** 文档决策，不得预填）。
+   - **禁止** 因工程正例就把 ADR-0027 标 `superseded`、写 `successor=ADR-0034`，
+     或声称“任意合约已自动可证 / formal 完成”。
 2. **未来 supersession 门槛**（仅在同时满足后 **单独** 记录，不得预填）：
-   - ABI / kind / inventory / certifier 分支、首个 preserving product positive 与
-     第二非 AMM 通用性实例已闭合（**EvenCounter + ZeroCounter 均已闭合**；文档已诚实覆盖）；
+   - ABI / kind / inventory / certifier、generic codec/shape/elaboration 与至少两个
+     ordinary same-file contract positives 已闭合；
    - 产品路径、测试与文档已诚实覆盖 0034 义务及失败面；
    - 再以独立文档变更把 ADR-0027 标 `superseded` 并登记 `successor=ADR-0034`。
    - 在此之前，0027 与 0034 **并存**：0027 是通用 inline gate 基线；0034 是 L1 preserving
-     扩展（ABI + kind + 双实例正例已交付；supersession 未执行）。
+     扩展；supersession 未执行。
 3. 本 ADR 扩展的**已实现 plumbing**（不改写 holds 形状）：
    - 第二期望 Prop 族 `PreservationTheoremV1`；
    - 源码 proof kind `holds | preserving` 与三字段 `ProofDecl` wire；
@@ -102,8 +102,9 @@ hermetic / Stage-0 / target refinement / release。
 4. 在 ADR-0027 下已 engineering-closed 的 holds 正例（simple-closure /
    ordinal-0 / literal-true / public-Bool-view product `check` certified）
    **继续有效**且其 kind 固定为 `holds`。inline certification 的 snapshot / in-process 非 sandbox /
-   fixed axioms / proof-before-materialize 等纪律仍读 ADR-0027。**preserving certified positive
-   现已有 EvenCounter 与 ZeroCounter 两条**；holds 与 preserving 可并存于同一 program。
+   fixed axioms / proof-before-materialize 等纪律仍读 ADR-0027。当前 preserving product
+   positives 由普通 `Examples/Counter.lean` 与 `Examples/MiniAmmL1.lean` 提供；
+   holds 与 preserving 可并存于同一 program。
 
 ### D1. 独立 closed ABI（禁止塞进 `InvariantTheoremV1`）
 
@@ -483,41 +484,33 @@ def InvariantTheoremV1
      → requirement resolve / capability → materialize …
    ```
 
-   上表的 `(inv,kind)` inventory、alias、protocol 与 certifier 分支现为工程事实；EvenCounter
-   与 ZeroCounter preserving product positive 均已闭合；ADR-0027 supersession 与 formal
-   门槛仍未满足。
+   上表的 `(inv,kind)` inventory、alias、protocol 与 certifier 分支现为工程事实；
+   `Counter` 与 `MiniAmmL1` ordinary same-file preserving product positives 均已闭合；
+   ADR-0027 supersession 与 formal 门槛仍未满足。
 
-### D9. 首个实例 EvenCounter；第二实例 ZeroCounter；禁止 MiniAmm 特例
+### D9. Generic-first 合约路径；禁止 MiniAmm 平台特例
 
-1. **首个纵向切片 = EvenCounter**（**2026-08-08 product GREEN**）：
-   - 状态：单个 public `UInt64` 计数；
-   - invariant：`count` 为偶数（ordinal 0；Reference 可执行）；
-   - entry：`get` 保持、`increment` 偶增量（+2；overflow → revert，pre 不变）；
-   - **已交付**：在 product Reference admission + `stepReferenceSliceV1` 上证明完整
-     `PreservationTheoremV1`（正义务 admission + base + 全输入 step），same-file
-     `proof even preserving using EvenCounterProof.even`，author body
-     `exact …EvenCounterPreservationV1.preservation_theorem`，product
-     `certifyInlineProofV1` → `.certified`（`Tests.Compiler.InlineProofCertifierV1`）。
-   - package-owned 模块：`ProofInstances/EvenCounterV1.lean`（closed bytes/data）、
-     `EvenCounterDecodeV1.lean`、`EvenCounterPreservationV1.lean`（`preservation_step` /
-     `preservation_theorem` / `preservation_theorem_of_eq_bytes`）。
-2. **禁止 MiniAmm 特例**（本 ABI 与实例切片）：
+1. **历史 acceptance**：EvenCounter（偶数）与 ZeroCounter（等零）曾以
+   package-owned bytes/decode/preservation + closed pin 证明 ABI 可工作。它们只作为
+   迁移前 forcing instances；不是最终产品架构。
+2. **2026-08-09 wave-3′ clean cutover**：
+   - `ProofForgeV2.Semantic.Wire.CodecInvert*` 闭合 generic codec round-trip；
+   - `PreservationShapeV1` 提供 contract-agnostic store/view/invariant shape families；
+   - elaborator 生成结构化 `subjectDataV1` / `subjectProgramV1`，author theorem 直接
+     `apply` 通用定理并用 `decide`/`rfl` 放电该合约形状；
+   - `ProofForgeV2/ProofInstances/`、`ClosedSubjectPinV1`、
+     `ParityCounter*`/`ZeroCounter*`、重复 internal examples/tests 均物理删除；
+   - `ProofForgeV2/` 产品包不再 import 或包含合约专属 proof/data/pin。
+3. **普通合约正例**：
+   - `Examples/Counter.lean`：program + invariant + proof binding + ordinary theorem 同文件；
+   - `Examples/MiniAmmL1.lean`：MiniAmm empty-pool P1 同样只在业务文件内，复用
+     generic triple-UInt64 shape theorem；产品 certifier GREEN。
+4. **禁止 MiniAmm 特例**：
    - 不得为 MiniAmm 引入第二套 State/Effect/step；
-   - 不得在 `ProofForgeV2/Semantic/` 挂 MiniAmm-only preservation helper；
-   - 不得把 Map/cap/宽积/资产 credit 写进 **平台 ABI**；
-   - MiniAmm 业务谓词（empty-pool 等）作为 **后续普通实例** 复用同一
-     `PreservationTheoremV1`；其 Reference admission 已有 engineering 正向路径
-     （research-023），但定理仍须保留 exact admission 正义务，**不得** 为赶进度
-     旁路 admission。
-3. **第二非 AMM 通用性实例 = ZeroCounter**（**2026-08-09 product GREEN**；wave-2）：
-   - 业务 P = `count == 0`（**不同**于 EvenCounter 偶数谓词）；
-   - 1306-byte product-aligned spine（sole `state.persistent`）；entry `clear` store-0、
-     view `get`、invariant `zero`；
-   - package-owned：`ZeroCounterV1` / `ZeroCounterDecodeV1` / `ZeroCounterPreservationV1`
-     （reuse `PreservationPackagingV1`；sole product Reference step）；
-   - ClosedSubjectPin golden + same-file `exact …preservation_theorem` → product
-     `.certified`（`Tests.Compiler.InlineProofCertifierV1`；EvenCounter 仍 GREEN）；
-   - 证明同一 ABI/inventory/certifier 非单例硬编码。
+   - 不得在 `ProofForgeV2/Semantic/` 挂 MiniAmm-only helper 或 bytes；
+   - 不得把 Map/cap/宽积/资产 credit 写进平台 ABI；
+   - 所有业务谓词继续在各自源文件复用同一 `PreservationTheoremV1`，且必须保留
+     exact admission 正义务。
 
 ### D10. 业务逻辑形式化主路径（track 1）vs 工具内部形式化（track 2）
 
@@ -525,10 +518,10 @@ ProofForge 上“形式化”分 **两条独立账本**，不得混写完成态�
 
 | 轨道 | 形式化对象 | 当前权威 / 表面 | 状态纪律 |
 |---|---|---|---|
-| **Track 1 — 业务逻辑** | 用户 `program` 的 invariant / preservation（业务 P） | 本 ADR + ADR-0027 product gate；sole step = product Reference | 本文主线；EvenCounter + ZeroCounter L1 positive **已 GREEN** |
+| **Track 1 — 业务逻辑** | 用户 `program` 的 invariant / preservation（业务 P） | 本 ADR + ADR-0027 product gate；sole step = product Reference | generic-first 迁移完成；Counter + MiniAmmL1 ordinary same-file positives **GREEN** |
 | **Track 2 — 工具内部** | compiler / Reference 机器 / wire metatheory 的 formal TASK/TST | `docs/04-task-breakdown.md` formal 任务与 TST ledger | **独立推进**；实例正例不关闭 formal TASK |
 
-**Track 1 主路径**（任意合约目标形态；EvenCounter/ZeroCounter 是 acceptance 实例，不是唯一通道）：
+**Track 1 主路径**（任意合约目标形态；package 无 contract instance）：
 
 ```text
 program P where
@@ -539,7 +532,7 @@ program P where
 theorem AuthorThm : P.ProofPreserving.inv := by
   -- 目标 Prop = PreservationTheoremV1 P.Proof.subjectProgramV1 ordinal
   -- 证明义务：admission 正存在 + base + 全输入 step 三 Outcome
-  exact <package-or-generic-lemmas>
+  apply <generic-shape-theorem> <;> decide / rfl
 ```
 
 产品链：
@@ -547,8 +540,8 @@ theorem AuthorThm : P.ProofPreserving.inv := by
 ```text
 单次 read → selectProgramV1ProductWithTheoremInventory
   → normalize / compileProgramProductV1
-  → subjectBytesV1 / subjectProgramV1（exact SemanticProgramV1）
-  → certifyInlineProofV1（kind → expected Prop；audit；digest）
+  → structured subjectDataV1 / subjectProgramV1（exact SemanticProgramV1）
+  → certifyInlineProofV1（kind → expected Prop；closed tactic audit；digest）
   →（成功后）target resolve / materialize …
 ```
 
@@ -557,34 +550,26 @@ theorem AuthorThm : P.ProofPreserving.inv := by
 1. **Inline same-file 是产品义务表面**（ADR-0027/0034 D6/D8）：author theorem 与
    `program … where` 在**同一源文件**、同一 in-memory snapshot 上 cert；theorem body
    不进 `sourceHash`/`semanticHash`，但证明义务在源码文件里。
-2. **`ProofForgeV2/ProofInstances/*` 是 package lemma 库，不是第二合同表面**：
-   它把一次性的 heavy Reference/Structure/Decode 证明（如 `preservation_theorem`）
-   放进 package，让同文件 author body 可以是 allowlisted 的 nullary
-   `exact …preservation_theorem`。禁止把 ProofInstances 写成「业务只在 package、
-   源文件无 proof」的分离模型；正确形状始终是 source 里有
-   `proof inv preserving using AuthorThm` + 同文件 `theorem AuthorThm := by exact …`。
+2. **产品包零合约专属内容**：`ProofForgeV2/ProofInstances/` 与
+   `ClosedSubjectPinV1` 已删除。通用 heavy proof 仅以 contract-agnostic codec、
+   Reference 与 shape-family 定理存在；业务 shape facts 与 ordinary theorem 留在源文件。
 3. **Sole L1 执行权威**：`SemanticProgramV1 → admitReferenceProgramSliceV1 →
    stepReferenceSliceV1`。禁止第二套 State/Effect/step。
-4. **Closed pin 是加速器，不是主路径**：
-   `ClosedSubjectPinV1` 仅当 normalize 字节 **exact match** 已注册 golden
-   （当前 EvenCounter + ZeroCounter）时，把 `subjectBytesV1` 别名到共享 `canonicalBytes` 常量，
-   使 author 可 `exact` 包内定理而无需长 spine 归约；certifier 允许 **一次**
-   pin-name hop。**未 pin 的任意合约不需要 pin**：作者对
-   `subjectProgramV1` 用 generic / 实例 lemmas 证明即可。
-5. **Inventory 表面**：author theorem 的 tactic 白名单与 nullary `exact const` 等
-   纪律由 certifier 强制；多参 `Term.app` 等表面失败 closed。
+4. **Structured subject**：elaborator 直接生成 `subjectDataV1` 与
+   `subjectProgramV1`；不得恢复 per-contract byte spine、golden pin 或 certifier pin hop。
+5. **Inventory 表面**：certifier 只允许受限 `apply` / `exact` / `decide` / `rfl`
+   组合；禁止任意 tactic 执行和外来 `.olean` 信任。
 6. **不声称**：reachability 闭包、多步归纳、target refinement、formal TASK 关闭。
 
-**下一步（业务轨道）**：MiniAmm P1 作为普通业务实例（同一 ABI；无平台特例）。
-**已交付 packaging/unpin + 双实例**：`PreservationPackagingV1` + EvenCounter/ZeroCounter
-product GREEN + 非 pin author 路径文档/`Tests.Semantic.ClosedSubjectPinV1`。
+**当前业务轨道**：generic-first wave-3′ 已完成；`Counter` 与 `MiniAmmL1` 已按普通
+same-file 合约路径 product GREEN。新增业务合约只能在自身文件复用通用 API。
 
 ## 与 ADR-0027 / research-023 的关系
 
 | 文档 | 关系 |
 |---|---|
-| ADR-0027 | **当前 inline base authority**（`proposed`；无 successor）。holds 形状、snapshot/audit/axiom、proof-before-materialize 纪律仍以 0027 为准。本 ADR 是 **proposed extension/amendment**：D4 原样重申 holds；D6 plumbing + D9 EvenCounter/ZeroCounter positive 已实现。**单独** supersession 决策前不得把 0027 标 `superseded`。 |
-| research-023 | L1 `Preserves P` 目标叙述的设计收口落在本 ADR；EvenCounter + ZeroCounter product positive **均已闭合**；research 现应记 MiniAmm P1 / supersession pending。MiniAmm 仍不得获得平台特例。 |
+| ADR-0027 | **当前 inline base authority**（`proposed`；无 successor）。holds 形状、snapshot/audit/axiom、proof-before-materialize 纪律仍以 0027 为准。本 ADR 是 **proposed extension/amendment**；D6 plumbing 与 D9 generic-first same-file product path 已实现。**单独** supersession 决策前不得把 0027 标 `superseded`。 |
+| research-023 | L1 `Preserves P` 目标叙述的设计收口落在本 ADR；MiniAmm P1 已作为普通同文件合约通过，不获得平台特例；formal 与 supersession 仍 pending。 |
 
 ## 后果
 
@@ -595,36 +580,35 @@ product GREEN + 非 pin author 路径文档/`Tests.Semantic.ClosedSubjectPinV1`�
 - `(invariant, kind)` inventory 允许单 kind 或双 kind，非空表面强制每 inv
   至少一种，避免半覆盖；该纪律已进入 engineering product plumbing。
 - Outcome 三分支与 vault/context/responses 全量化对齐 product Reference。
-- EvenCounter/ZeroCounter 切片强制通用 ABI，阻断 MiniAmm 专用证明栈回流；**双产品
-  certified positive 已证明主路径可复用**。
-- 0027 继续约束 inline base；0034 扩展已进入 plumbing + 双实例正例，但仍不假称
+- Generic codec/shape/elaboration 与 `Counter`/`MiniAmmL1` 两个 ordinary same-file
+  certified positives 证明主路径可复用，同时保持产品包零合约专属内容。
+- 0027 继续约束 inline base；0034 扩展已进入 generic-first 产品路径，但仍不假称
   任意合约自动可证或 formal 完成。
 
 ### 代价 / 风险
 
 - ProgramV1 `ProofDecl` / Loader / inventory / certifier 已完成 kind 扩维；新增 source wire tag 与
   golden/oracle 需要原子 re-pin，不能保留 2/3-field dual reader。
-- 全输入量化证明负担高于“空 responses 特例”；EvenCounter/ZeroCounter 刻意保持状态面窄。
-- Closed pin 表每增一例需 import proof 模块进 product env；误把 pin 写成“唯一可证路径”
-  会伤害任意合约目标。
-- MiniAmm L1 时间表后移至通用性验收之后——接受为正确优先级（通用性门现已闭合）。
+- 全输入量化证明负担高于“空 responses 特例”；shape-family theorem 只覆盖已建模形状，
+  新业务形状仍需新增**通用** lemma 或在业务文件内证明。
+- 结构化 subject 与 closed tactic audit 需要同步维护 elaborator/certifier 契约；
+  不允许通过恢复 byte pin 或 package-owned instance 降低证明成本。
 - 非空表面“每 inv 至少一种 kind”比旧“proof 与 inv 全双射”更严于
   partial-proof 实验流；接受为产品诚实性。
-- 0027/0034 文档并存：读者须区分 **inline base（0027）**、**L1 扩展与双实例正例（0034）**
-  与 **未完成的 supersession / MiniAmm P1 / formal**。
+- 0027/0034 文档并存：读者须区分 **inline base（0027）**、**L1 generic-first 扩展（0034）**
+  与 **未完成的 supersession / formal**。
 
 ## 非目标
 
-- **不** 因 EvenCounter/ZeroCounter 正例立即 supersede ADR-0027；**不** 把实例写成
+- **不** 因工程正例立即 supersede ADR-0027；**不** 把实例写成
   “全部业务合约已 formal”。
-- 当前 **不要求** MiniAmm P1 已交付；alias/negative 测试不得冒充业务 P1 positive。
 - 不关闭 formal TASK/TST；不升格 hermetic/release。
 - 不解锁 nonempty invariant 的八 target materialization。
 - 不定义 reachability 闭包、多步 trace 归纳框架、或跨交易 atomicity。
 - 不把 value/effects 守恒、token 资产不变量并入本 ABI（可后续独立族）。
 - 不为 MiniAmm / MiniAmmAssets 增加平台特例路径。
 - 不要求 base-with-initializer 证明“存在一次成功 init”（仅全称成功⇒holds）。
-- 不把 ClosedSubjectPin 表膨胀为“唯一证明通道”；pin 仅为 closed golden 加速。
+- 不恢复 `ClosedSubjectPinV1`、`ProofInstances/` 或合约专属 byte spine。
 
 ## 实现切片顺序
 
@@ -637,24 +621,23 @@ product GREEN + 非 pin author 路径文档/`Tests.Semantic.ClosedSubjectPinV1`�
    非空表面每 inv ≥1 kind、kind 进入 theorem-set/cert digest；无 2-field fallback。
 3. **已完成 — Alias plumbing**：`Proof.<Inv>` holds 兼容；
    `ProofPreserving.<Inv>` preserving；共享 `Proof.subjectProgramV1`；simple-closure helper holds-only。
-4. **已完成 — EvenCounter product positive（2026-08-08）**：closed bytes +
-   `preservation_theorem` + ClosedSubjectPin + product `exact` body → `.certified`。
-5. **已完成 — packaging + non-pin（2026-08-09）**：`PreservationPackagingV1`；
-   EvenCounter 直连消费；ClosedSubjectPin 非 pin author 路径文档 +
-   `Tests.Semantic.ClosedSubjectPinV1`。
-6. **已完成 — ZeroCounter 第二非 AMM 实例（2026-08-09）**：P=`count==0`；bf2-data/preserve/product；
-   product pin + certifier positive；EvenCounter 仍 GREEN。
-7. 完整 acceptance + 文档：ADR-0027 → `superseded` / `successor=ADR-0034`（**仅单独决策时**）。
-8. （更后）MiniAmm 复用已 admitted product program 与 **同一** ABI。
+4. **已完成 — generic codec round-trip**：`CodecInvert*` 闭合 encode/decode 反演。
+5. **已完成 — shape-family preservation**：`PreservationShapeV1` 仅含
+   contract-agnostic callable/invariant/step families。
+6. **已完成 — structured elaboration**：生成 `subjectDataV1` / `subjectProgramV1`；
+   certifier 受限支持 `apply`/`decide`/`rfl`，无 pin hop。
+7. **已完成 — ordinary same-file contracts**：`Examples/Counter.lean` 与
+   `Examples/MiniAmmL1.lean` product certified。
+8. **已完成 — clean deletion**：删除 `ProofInstances/`、`ClosedSubjectPinV1`、
+   ParityCounter/ZeroCounter 专属模块与重复 examples/tests；刷新 umbrella/SBOM/docs。
+9. ADR-0027 → `superseded` / `successor=ADR-0034` 仅可由后续单独决策执行。
 
 ## 状态
 
-- `proposed` / ABI + kind plumbing + EvenCounter product GREEN + ZeroCounter product GREEN +
-  packaging/non-pin GREEN / wave-2 drained / supersession + MiniAmm P1 pending / 2026-08-09
-- 已交付：本文、`PreservationABI.lean`、`ProofKindV1` plumbing、EvenCounter/ZeroCounter
-  product positive、`PreservationPackagingV1`、ClosedSubjectPin 非 pin 纪律、
-  `Tests.Semantic.ClosedSubjectPinV1`、Goal `prompt-business-formalization` + drain workflow；
+- `proposed` / ABI + kind plumbing + wave-3′ generic-first migration GREEN / 2026-08-09
+- 已交付：通用 codec invert、Preservation packaging/shape families、structured subject
+  elaboration、Counter/MiniAmmL1 ordinary same-file product positives、合约专属产品模块删除；
   **ADR-0027 保持 `proposed`，无 successor/横幅**
-- 未交付：MiniAmm P1、formal/product maturity 与 ADR supersession
-- 禁止：修改 Reference 机器或加入 MiniAmm 特例；禁止预填 0027 supersession；禁止把 pin
-  或实例正例写成任意合约自动可证 / formal 完成
+- 未交付：formal/product maturity 与 ADR supersession
+- 禁止：修改 Reference 机器或加入 MiniAmm 特例；禁止恢复 pin/ProofInstances；
+  禁止把工程实例正例写成任意合约自动可证 / formal 完成

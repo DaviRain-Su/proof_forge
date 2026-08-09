@@ -2,7 +2,7 @@
 # CosmWasm engineering mock-runtime differential:
 #   product CLI build → .wasm (wat2wasm finalize) → cosmwasm-vm 3.0.9 cargo tests.
 #
-# Covers Counter / Accumulator / EventFlow under cosmwasm-vm MockStorage/Api/Querier.
+# Covers StateCell / Accumulator / EventFlow under cosmwasm-vm MockStorage/Api/Querier.
 # Not wasmd, not formal Stage-0 / hermetic release evidence / CI-registered shard
 # (main agent decides just recipe wiring).
 #
@@ -87,7 +87,7 @@ fixtures_src="$root/runtime-tests/cosmwasm/fixtures"
 
 # Product examples + local fixtures (source stem == program name == artifact stem).
 programs=(
-  "Examples/Counter.lean:Examples.Counter:Counter"
+  "Examples/StateCell.lean:Examples.StateCell:StateCell"
   "Examples/Accumulator.lean:Examples.Accumulator:Accumulator"
   "runtime-tests/cosmwasm/fixtures/EventFlow.lean:Examples.EventFlow:EventFlow"
   "runtime-tests/cosmwasm/fixtures/IntMul.lean:Examples.IntMul:IntMul"
@@ -97,7 +97,7 @@ programs=(
   "runtime-tests/cosmwasm/fixtures/ArrayRet.lean:Examples.ArrayRet:ArrayRet"
   "runtime-tests/cosmwasm/fixtures/OptionRet.lean:Examples.OptionRet:OptionRet"
   "runtime-tests/cosmwasm/fixtures/OptionState.lean:Examples.OptionState:OptionState"
-  "runtime-tests/cosmwasm/fixtures/NarrowCounter.lean:Examples.NarrowCounter:NarrowCounter"
+  "runtime-tests/cosmwasm/fixtures/NarrowStateCell.lean:Examples.NarrowStateCell:NarrowStateCell"
   "Examples/TipJar.lean:Examples.TipJar:TipJar"
   "Examples/TokenJar.lean:Examples.TokenJar:TokenJar"
   "runtime-tests/cosmwasm/fixtures/EnvReadJar.lean:Examples.EnvReadJar:EnvReadJar"

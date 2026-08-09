@@ -1,6 +1,6 @@
 import ProofForgeV2
 
-namespace UserStandalone
+namespace Examples
 
 open ProofForgeV2.Language
 
@@ -17,4 +17,4 @@ program StateCell where
   view get() : UInt64 do
     return count
 
-end UserStandalone
+end Examples

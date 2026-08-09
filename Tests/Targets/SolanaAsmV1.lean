@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Targets.Solana
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
@@ -10,7 +10,7 @@ import Tests.Language.ParserSession
 # Tests.Targets.SolanaAsmV1 — S1b typed IR → SBPF assembly (.s)
 
 Pins layout `.equ` offsets (including exactDataLen-derived post-account
-region), Counter entrypoint dispatch (with ix_len≥8 guard), checked_add /
+region), StateCell entrypoint dispatch (with ix_len≥8 guard), checked_add /
 checked_mul / shift / bitwise / bool / region / callFn / emitEvent sequences,
 `sol_set_return_data` / `sol_log_data`, and determinism. Does not invoke the
 external `sbpf` toolchain. Sole rail cpi-elf product emit ships hybrid plan/IR/asm (ADR-0032 U1).
@@ -126,14 +126,14 @@ private def testFrameBudgetConstant : IO Unit := do
   expect (maxSbpfStackBytesV1 == 4096)
     s!"maxSbpfStackBytesV1 must be 4096, got {maxSbpfStackBytesV1}"
 
-/-- Counter assembly: layout equ + entrypoint + three handlers + sequences. -/
-private unsafe def testCounterAsm
+/-- StateCell assembly: layout equ + entrypoint + three handlers + sequences. -/
+private unsafe def testStateCellAsm
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session counterSourceText counterModuleNameV1
-    "<solana-asm-counter>"
+  let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
+    "<solana-asm-stateCell>"
   let ir ← liftResult <| irSolana compiled
   expect (ir.stateAccount.exactDataLen == 16)
-    s!"counter exactDataLen must be 16 (header+one u64), got {ir.stateAccount.exactDataLen}"
+    s!"stateCell exactDataLen must be 16 (header+one u64), got {ir.stateAccount.exactDataLen}"
   let asm ← liftResult <| emitSbpfAsmV1 ir
   -- Layout pins for exactDataLen=16
   expect (asm.contains ".equ ACC0_DATA, 0x60") "asm: ACC0_DATA"
@@ -193,17 +193,17 @@ private unsafe def testCounterAsm
 /-- Sole-rail product emit ships hybrid CPI bases + assembly. -/
 private unsafe def testProductEmitUnchanged
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session counterSourceText counterModuleNameV1
+  let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
     "<solana-asm-product>"
   let files ← liftResult <| filesSolana compiled
   let paths := files.map (·.path)
-  expect (paths.any (· == "Counter.cpi-plan.json")) "product: cpi-plan"
-  expect (paths.any (· == "Counter.idl.json")) "product: idl"
-  expect (paths.any (· == "Counter.s")) "product: assembly"
-  expect (paths.any (· == "Counter.cpi-ir.json")) "product: hybrid ir"
+  expect (paths.any (· == "StateCell.cpi-plan.json")) "product: cpi-plan"
+  expect (paths.any (· == "StateCell.idl.json")) "product: idl"
+  expect (paths.any (· == "StateCell.s")) "product: assembly"
+  expect (paths.any (· == "StateCell.cpi-ir.json")) "product: hybrid ir"
 
-/-- Guarded counter exercises checked_sub + compare/assert sequences. -/
-private unsafe def testGuardedCounterAsm
+/-- Guarded stateCell exercises checked_sub + compare/assert sequences. -/
+private unsafe def testGuardedStateCellAsm
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrapProgram "GuardedAsm" <|
     "  state count : UInt64\n\n" ++
@@ -643,15 +643,15 @@ private unsafe def testAbiMultiWidthStateParam
   let some idl := files.find? (fun f => f.path.endsWith ".idl.json") |
     throw <| IO.userError "abi-mw: missing idl.json"
   expect (!idl.contents.isEmpty) "abi-mw: IDL non-empty"
-  -- Counter discriminator unchanged (historical u64 surface).
-  let counter ← compileSource session counterSourceText counterModuleNameV1
-    "<solana-asm-counter-abi-reg>"
-  let counterIr ← liftResult <| irSolana counter
-  let some inc := counterIr.handlers.find? (·.name == "increment") |
-    throw <| IO.userError "abi-mw: counter missing increment"
+  -- StateCell discriminator unchanged (historical u64 surface).
+  let stateCell ← compileSource session stateCellSourceText stateCellModuleNameV1
+    "<solana-asm-stateCell-abi-reg>"
+  let stateCellIr ← liftResult <| irSolana stateCell
+  let some inc := stateCellIr.handlers.find? (·.name == "increment") |
+    throw <| IO.userError "abi-mw: stateCell missing increment"
   let expectedInc := instructionDiscriminator "increment" inc.params
   expect (inc.discriminator == expectedInc)
-    "abi-mw: Counter increment disc unchanged"
+    "abi-mw: StateCell increment disc unchanged"
   -- Determinism
   let asm2 ← liftResult <| emitSbpfAsmV1 ir
   expect (asm == asm2) "abi-mw: deterministic"
@@ -1039,7 +1039,7 @@ private unsafe def testFrameBudgetFailClosed
     pair before fixed instruction/owner/data loads. -/
 private unsafe def testAccountListShapeChecks
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session counterSourceText counterModuleNameV1
+  let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
     "<solana-asm-account-list-shape>"
   let ir ← liftResult <| irSolana compiled
   let initH ← match ir.handlers.find? (·.name == "initialize") with
@@ -1063,9 +1063,9 @@ private unsafe def testAccountListShapeChecks
     "account-list: get checks[1] must be accountNonDuplicate 0"
   -- Sole-rail assembly carries account-list shape checks (retired .sbpf-plan audit).
   let files ← liftResult <| filesSolana compiled
-  let asmText ← match files.find? (·.path == "Counter.s") with
+  let asmText ← match files.find? (·.path == "StateCell.s") with
     | some f => pure f.contents
-    | none => throw <| IO.userError "account-list: missing Counter.s"
+    | none => throw <| IO.userError "account-list: missing StateCell.s"
   expect (asmText.contains "num_accounts" || asmText.contains "NUM_ACCOUNTS" ||
       asmText.contains "jneq r1, 1")
     "account-list: assembly must enforce exact account count"
@@ -1123,10 +1123,10 @@ unsafe def run : IO Unit := do
   testDiscriminatorLe
   testFrameBudgetConstant
   let session ← Tests.Language.ParserSession.shared
-  testCounterAsm session
+  testStateCellAsm session
   testAccountListShapeChecks session
   testProductEmitUnchanged session
-  testGuardedCounterAsm session
+  testGuardedStateCellAsm session
   testMultiFieldLayout session
   testArithMulDivMod session
   testShiftOps session

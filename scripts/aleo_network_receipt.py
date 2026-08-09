@@ -479,6 +479,14 @@ def _fd_reference_path(fd: int) -> str:
     return f"{root}/{fd}"
 
 
+def _retained_executable_path(fd: int, fallback: Path) -> str:
+    """Execute through the retained descriptor where the host supports it."""
+    proc_fd = Path("/proc/self/fd")
+    if proc_fd.is_dir():
+        return f"{proc_fd}/{fd}"
+    return str(fallback)
+
+
 def open_signer_for_children(signer: SignerInfo) -> tuple[int | None, tuple[str, ...]]:
     """Open the validated key without reading it and expose only an inherited FD.
 
@@ -1390,9 +1398,10 @@ def prepare_snarkos_snapshot(
         if not _same_identity(opened, current):
             raise ToolchainError("snarkos snapshot changed during retained open")
         identity = _file_identity(opened)
+        retained_path = destination.resolve(strict=True)
         tool = SnarkosTool(
-            path=destination.resolve(strict=True),
-            exec_path=_fd_reference_path(retained_fd),
+            path=retained_path,
+            exec_path=_retained_executable_path(retained_fd, retained_path),
             fd=retained_fd,
             identity=identity,
             version_line="",
@@ -1705,7 +1714,7 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--priority-fee", type=int, default=0)
     parser.add_argument("--wait-timeout-seconds", type=int, default=600)
     parser.add_argument("--visibility-timeout-seconds", type=int, default=600)
-    parser.add_argument("--execute-counter", "--execute", dest="execute_counter", action="store_true")
+    parser.add_argument("--execute-state-cell", dest="execute_state_cell", action="store_true")
     parser.add_argument("--keep-workdir", action="store_true")
     args, unknown = parser.parse_known_args(argv)
     if unknown:
@@ -1751,7 +1760,10 @@ def run(argv: Sequence[str]) -> Path:
     workdir : Path | None = None
     snarkos_tool : SnarkosTool | None = None
     try:
-        workdir = Path(tempfile.mkdtemp(prefix="proof-forge-aleo-network."))
+        temp_root = Path(tempfile.gettempdir()).resolve(strict=True)
+        workdir = Path(
+            tempfile.mkdtemp(prefix="proof-forge-aleo-network.", dir=temp_root)
+        )
         workdir.chmod(0o700)
         output_snapshot = snapshot_output_tree(output_dir, workdir / "output-snapshot")
         _inspect_output(root, output_snapshot)
@@ -1847,7 +1859,7 @@ def run(argv: Sequence[str]) -> Path:
             args.visibility_timeout_seconds,
         )
         print("aleo-network: program visible through REST")
-        if args.execute_counter:
+        if args.execute_state_cell:
             for function, inputs in (("initialize", ("1u64",)), ("increment", ("2u64",))):
                 _verify_retained_snarkos(snarkos_tool)
                 try:

@@ -12,11 +12,11 @@ open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
 
-private def counterSourceText : String :=
+private def stateCellSourceText : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
-  "program Counter where\n" ++
+  "program StateCell where\n" ++
   "  state count : UInt64\n\n" ++
   "  init(initial : UInt64) do\n" ++
   "    count := initial\n\n" ++
@@ -722,12 +722,12 @@ private unsafe def checkPrivateSum4ProductClosed : IO Unit := do
               throw <| IO.userError
                 "PrivateSum4 must not mint engineering capability (privateWitness outside S2)"
 
-/-- Guarded counter: assert count >= delta before checked subtraction. -/
-private def guardedCounterSourceText : String :=
+/-- Guarded stateCell: assert count >= delta before checked subtraction. -/
+private def guardedStateCellSourceText : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
-  "program GuardedCounter where\n" ++
+  "program GuardedStateCell where\n" ++
   "  state count : UInt64\n\n" ++
   "  init(i : UInt64) do\n" ++
   "    count := i\n\n" ++
@@ -843,9 +843,9 @@ private def isAssertConstraint : Targets.Noir.Operation → Bool
   | .assertConstraint _ => true
   | _ => false
 
-private unsafe def checkGuardedCounterProduct : IO Unit := do
-  let ir ← compileIrFromProgramV1 guardedCounterSourceText
-    "Examples.GuardedCounter" "<noir-guarded-counter>"
+private unsafe def checkGuardedStateCellProduct : IO Unit := do
+  let ir ← compileIrFromProgramV1 guardedStateCellSourceText
+    "Examples.GuardedStateCell" "<noir-guarded-stateCell>"
   let initializer ← findRelation ir "init"
   let decrement ← findRelation ir "decrement"
   let viewRelation ← findRelation ir "get"
@@ -855,13 +855,13 @@ private unsafe def checkGuardedCounterProduct : IO Unit := do
     | .compare .. => true
     | _ => false)
   expect (compares.size == 1)
-    s!"GuardedCounter decrement must emit exactly one compare, got {compares.size}"
+    s!"GuardedStateCell decrement must emit exactly one compare, got {compares.size}"
   match compares[0]! with
   | .compare .ge _ _ _ => pure ()
-  | other => throw <| IO.userError s!"GuardedCounter expected ge compare, got {repr other}"
+  | other => throw <| IO.userError s!"GuardedStateCell expected ge compare, got {repr other}"
   let asserts := findOps decrement isAssertConstraint
   expect (asserts.size == 1)
-    s!"GuardedCounter decrement must emit exactly one assertConstraint, got {asserts.size}"
+    s!"GuardedStateCell decrement must emit exactly one assertConstraint, got {asserts.size}"
   -- Compare must precede its assertConstraint in the operation stream.
   let mut sawCompare := false
   let mut orderOk := false
@@ -871,31 +871,31 @@ private unsafe def checkGuardedCounterProduct : IO Unit := do
     | .assertConstraint _ =>
         if sawCompare then orderOk := true
     | _ => pure ()
-  expect orderOk "GuardedCounter ge compare must precede assertConstraint"
+  expect orderOk "GuardedStateCell ge compare must precede assertConstraint"
 
   -- Model accept: count=10, delta=3 → post=7, result=7.
-  let ok ← liftModel "GuardedCounter ok inputs" <|
+  let ok ← liftModel "GuardedStateCell ok inputs" <|
     statefulInputs decrement true 10 3 7 true 7
-  expectAccept "GuardedCounter 10-3 under assert" decrement ok
+  expectAccept "GuardedStateCell 10-3 under assert" decrement ok
 
   -- Model reject: count=3, delta=5 fails assert (and would underflow).
-  let failAssert ← liftModel "GuardedCounter assert-fail inputs" <|
+  let failAssert ← liftModel "GuardedStateCell assert-fail inputs" <|
     statefulInputs decrement true 3 5 0 true 0
-  expectReject "GuardedCounter assert fails when count < delta" decrement failAssert
+  expectReject "GuardedStateCell assert fails when count < delta" decrement failAssert
 
   -- Init / view remain comparison-free and still satisfy the lifecycle model.
-  let initOk ← liftModel "GuardedCounter init inputs" <|
+  let initOk ← liftModel "GuardedStateCell init inputs" <|
     statefulInputs initializer false 0 10 10 true 0
-  expectAccept "GuardedCounter init" initializer initOk
-  let viewOk ← liftModel "GuardedCounter view inputs" <|
+  expectAccept "GuardedStateCell init" initializer initOk
+  let viewOk ← liftModel "GuardedStateCell view inputs" <|
     statefulInputs viewRelation true 7 0 7 true 7
-  expectAccept "GuardedCounter view" viewRelation viewOk
+  expectAccept "GuardedStateCell view" viewRelation viewOk
 
   -- `.nr` source must contain the comparison and assert surface.
   let files ← do
     let session ← Tests.Language.ParserSession.shared
-    let source ← liftResult (← session.selectProgramV1 guardedCounterSourceText
-      "<noir-guarded-emit>" "Examples.GuardedCounter" none)
+    let source ← liftResult (← session.selectProgramV1 guardedStateCellSourceText
+      "<noir-guarded-emit>" "Examples.GuardedStateCell" none)
     let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
     let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
     let capability ← liftResult <|
@@ -903,21 +903,21 @@ private unsafe def checkGuardedCounterProduct : IO Unit := do
     liftResult <| Targets.Noir.buildFromCapability capability
   let some mainNr := files.find? (fun file =>
       file.path.endsWith "r1-decrement/src/main.nr") |
-    throw <| IO.userError "GuardedCounter missing decrement main.nr"
+    throw <| IO.userError "GuardedStateCell missing decrement main.nr"
   expect (mainNr.contents.contains ">=")
-    "GuardedCounter .nr must render the >= comparison"
+    "GuardedStateCell .nr must render the >= comparison"
   expect (mainNr.contents.contains "assert(")
-    "GuardedCounter .nr must render assert"
+    "GuardedStateCell .nr must render assert"
   expect (mainNr.contents.contains "bool")
-    "GuardedCounter .nr must render bool-typed comparison temp"
+    "GuardedStateCell .nr must render bool-typed comparison temp"
 
   -- Deterministic rebuild: two capability lowerings produce byte-identical IR ops.
-  let ir2 ← compileIrFromProgramV1 guardedCounterSourceText
-    "Examples.GuardedCounter" "<noir-guarded-counter-2>"
+  let ir2 ← compileIrFromProgramV1 guardedStateCellSourceText
+    "Examples.GuardedStateCell" "<noir-guarded-stateCell-2>"
   expect (ir.relations.map (·.operations) == ir2.relations.map (·.operations))
-    "GuardedCounter IR operations must be byte-deterministic across rebuilds"
+    "GuardedStateCell IR operations must be byte-deterministic across rebuilds"
   expect (ir.sourcePlan.planHash == ir2.sourcePlan.planHash)
-    "GuardedCounter planHash must be deterministic"
+    "GuardedStateCell planHash must be deterministic"
 
 private unsafe def checkAllCompareOpsSource : IO Unit := do
   let ir ← compileIrFromProgramV1 allCompareOpsSourceText
@@ -1158,38 +1158,38 @@ private unsafe def checkCompareAssertNegatives : IO Unit := do
   expectProductClosed "assert-else" assertElseSourceText
     "Examples.AssertElse" "<noir-assert-else>"
 
-/-- Existing Counter planHash golden stays green and comparison-free. -/
-private unsafe def checkCounterPlanHashUnchanged : IO Unit := do
-  let ir ← compileIrFromProgramV1 counterSourceText
-    "Examples.Counter" "<noir-counter-hash>"
+/-- Existing StateCell planHash golden stays green and comparison-free. -/
+private unsafe def checkStateCellPlanHashUnchanged : IO Unit := do
+  let ir ← compileIrFromProgramV1 stateCellSourceText
+    "Examples.StateCell" "<noir-stateCell-hash>"
   -- Comparison-free: no compare / assertConstraint ops on any relation.
   for relation in ir.relations do
     expect (findOps relation (fun op => match op with
         | .compare .. | .assertConstraint _ => true
         | _ => false)).isEmpty
-      s!"Counter relation '{relation.sourceRelation.name}' must remain comparison-free"
-  -- Deterministic rebuild identity (existing Counter surface).
-  let ir2 ← compileIrFromProgramV1 counterSourceText
-    "Examples.Counter" "<noir-counter-hash-2>"
+      s!"StateCell relation '{relation.sourceRelation.name}' must remain comparison-free"
+  -- Deterministic rebuild identity (existing StateCell surface).
+  let ir2 ← compileIrFromProgramV1 stateCellSourceText
+    "Examples.StateCell" "<noir-stateCell-hash-2>"
   expect (ir.sourcePlan.planHash == ir2.sourcePlan.planHash)
-    "Counter planHash must be stable across rebuilds"
+    "StateCell planHash must be stable across rebuilds"
   expect (ir.relations.map (·.operations) == ir2.relations.map (·.operations))
-    "Counter IR ops must be byte-identical across rebuilds"
+    "StateCell IR ops must be byte-identical across rebuilds"
   -- Result public inputs remain UInt64 (no accidental Bool result cutover).
   for relation in ir.relations do
     for binding in relation.sourceRelation.inputs do
       if binding.role == .result then
         expect (binding.type == .u64)
-          s!"Counter relation '{relation.sourceRelation.name}' result must stay u64"
+          s!"StateCell relation '{relation.sourceRelation.name}' result must stay u64"
 
 /-- Wave C branching: if/else diamond, both-return if, early-return with a
     trailing join (previously fail-closed case), match with a bind catch-all,
     and an assert inside a branch arm (constrains only that path). -/
-private def branchCounterSourceText : String :=
+private def branchStateCellSourceText : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
-  "program BranchCounter where\n" ++
+  "program BranchStateCell where\n" ++
   "  state count : UInt64\n\n" ++
   "  init(initial : UInt64) do\n" ++
   "    count := initial\n\n" ++
@@ -1229,8 +1229,8 @@ private def branchCounterSourceText : String :=
   "end ProofForgeV2.Examples\n"
 
 private unsafe def checkBranchingProduct : IO Unit := do
-  let ir ← compileIrFromProgramV1 branchCounterSourceText
-    "Examples.BranchCounter" "<noir-branch-counter>"
+  let ir ← compileIrFromProgramV1 branchStateCellSourceText
+    "Examples.BranchStateCell" "<noir-branch-stateCell>"
   let initializer ← findRelation ir "init"
   let bump ← findRelation ir "bump"
   let clamp ← findRelation ir "clamp"
@@ -1246,7 +1246,7 @@ private unsafe def checkBranchingProduct : IO Unit := do
   expect (regionCount bump == 1 && regionCount clamp == 1 &&
       regionCount cap == 1 && regionCount pick == 1 &&
       regionCount withdraw == 1 && regionCount initializer == 0)
-    "BranchCounter relations must each carry exactly one region op (init: none)"
+    "BranchStateCell relations must each carry exactly one region op (init: none)"
   match pick.operations.find? (fun op => match op with
     | .switchRegion .. => true | _ => false) with
   | some (.switchRegion _ _ cases _) =>
@@ -1260,74 +1260,74 @@ private unsafe def checkBranchingProduct : IO Unit := do
         "bump if-region arms must both be non-empty complete paths"
   | _ => throw <| IO.userError "bump relation must lower the diamond to an ifRegion"
 
-  let initOk ← liftModel "BranchCounter init inputs" <|
+  let initOk ← liftModel "BranchStateCell init inputs" <|
     statefulInputs initializer false 0 10 10 true 0
-  expectAccept "BranchCounter init" initializer initOk
+  expectAccept "BranchStateCell init" initializer initOk
 
   -- bump: both diamond paths, state and result per path.
-  let bumpSub ← liftModel "BranchCounter bump sub inputs" <|
+  let bumpSub ← liftModel "BranchStateCell bump sub inputs" <|
     statefulInputs bump true 10 3 7 true 7
-  expectAccept "BranchCounter bump 10>=3 subtracts" bump bumpSub
-  let bumpAdd ← liftModel "BranchCounter bump add inputs" <|
+  expectAccept "BranchStateCell bump 10>=3 subtracts" bump bumpSub
+  let bumpAdd ← liftModel "BranchStateCell bump add inputs" <|
     statefulInputs bump true 3 5 8 true 8
-  expectAccept "BranchCounter bump 3<5 adds" bump bumpAdd
-  let bumpWrongPost ← liftModel "BranchCounter bump wrong post inputs" <|
+  expectAccept "BranchStateCell bump 3<5 adds" bump bumpAdd
+  let bumpWrongPost ← liftModel "BranchStateCell bump wrong post inputs" <|
     statefulInputs bump true 10 3 8 true 7
-  expectReject "BranchCounter bump post-state from the wrong arm" bump bumpWrongPost
+  expectReject "BranchStateCell bump post-state from the wrong arm" bump bumpWrongPost
 
   -- clamp: both arms return; state untouched on both paths.
-  let clampHigh ← liftModel "BranchCounter clamp high inputs" <|
+  let clampHigh ← liftModel "BranchStateCell clamp high inputs" <|
     statefulInputs clamp true 10 5 10 true 5
-  expectAccept "BranchCounter clamp 10>5 returns limit" clamp clampHigh
-  let clampLow ← liftModel "BranchCounter clamp low inputs" <|
+  expectAccept "BranchStateCell clamp 10>5 returns limit" clamp clampHigh
+  let clampLow ← liftModel "BranchStateCell clamp low inputs" <|
     statefulInputs clamp true 3 7 3 true 3
-  expectAccept "BranchCounter clamp 3<=7 returns count" clamp clampLow
-  let clampWrongResult ← liftModel "BranchCounter clamp wrong result inputs" <|
+  expectAccept "BranchStateCell clamp 3<=7 returns count" clamp clampLow
+  let clampWrongResult ← liftModel "BranchStateCell clamp wrong result inputs" <|
     statefulInputs clamp true 10 5 10 true 10
-  expectReject "BranchCounter clamp wrong result on the taken arm" clamp clampWrongResult
+  expectReject "BranchStateCell clamp wrong result on the taken arm" clamp clampWrongResult
 
   -- cap: early return in the then arm with a trailing join (formerly
   -- fail-closed asymmetric shape); else path stores and falls through.
-  let capEarly ← liftModel "BranchCounter cap early inputs" <|
+  let capEarly ← liftModel "BranchStateCell cap early inputs" <|
     statefulInputs cap true 10 5 10 true 5
-  expectAccept "BranchCounter cap 10>5 early-returns limit" cap capEarly
-  let capThrough ← liftModel "BranchCounter cap through inputs" <|
+  expectAccept "BranchStateCell cap 10>5 early-returns limit" cap capEarly
+  let capThrough ← liftModel "BranchStateCell cap through inputs" <|
     statefulInputs cap true 3 7 4 true 4
-  expectAccept "BranchCounter cap 3<=7 increments through the join" cap capThrough
-  let capWrongEarly ← liftModel "BranchCounter cap wrong early inputs" <|
+  expectAccept "BranchStateCell cap 3<=7 increments through the join" cap capThrough
+  let capWrongEarly ← liftModel "BranchStateCell cap wrong early inputs" <|
     statefulInputs cap true 10 5 11 true 11
-  expectReject "BranchCounter cap early path must not run the join" cap capWrongEarly
+  expectReject "BranchStateCell cap early path must not run the join" cap capWrongEarly
 
   -- pick: literal cases and the bind default arm.
-  let pickZero ← liftModel "BranchCounter pick 0 inputs" <|
+  let pickZero ← liftModel "BranchStateCell pick 0 inputs" <|
     statefulInputs pick true 5 0 15 true 15
-  expectAccept "BranchCounter pick choice=0 adds 10" pick pickZero
-  let pickOne ← liftModel "BranchCounter pick 1 inputs" <|
+  expectAccept "BranchStateCell pick choice=0 adds 10" pick pickZero
+  let pickOne ← liftModel "BranchStateCell pick 1 inputs" <|
     statefulInputs pick true 5 1 25 true 25
-  expectAccept "BranchCounter pick choice=1 adds 20" pick pickOne
-  let pickOther ← liftModel "BranchCounter pick other inputs" <|
+  expectAccept "BranchStateCell pick choice=1 adds 20" pick pickOne
+  let pickOther ← liftModel "BranchStateCell pick other inputs" <|
     statefulInputs pick true 5 7 7 true 7
-  expectAccept "BranchCounter pick choice=7 binds the default arm" pick pickOther
-  let pickWrongArm ← liftModel "BranchCounter pick wrong-arm inputs" <|
+  expectAccept "BranchStateCell pick choice=7 binds the default arm" pick pickOther
+  let pickWrongArm ← liftModel "BranchStateCell pick wrong-arm inputs" <|
     statefulInputs pick true 5 2 25 true 25
-  expectReject "BranchCounter pick default arm must not take a literal case" pick pickWrongArm
+  expectReject "BranchStateCell pick default arm must not take a literal case" pick pickWrongArm
 
   -- withdraw: the assert inside the arm constrains only that path.
-  let withdrawOk ← liftModel "BranchCounter withdraw ok inputs" <|
+  let withdrawOk ← liftModel "BranchStateCell withdraw ok inputs" <|
     statefulInputs withdraw true 10 3 7 true 7
-  expectAccept "BranchCounter withdraw 10-3 under branch assert" withdraw withdrawOk
-  let withdrawSkip ← liftModel "BranchCounter withdraw skip inputs" <|
+  expectAccept "BranchStateCell withdraw 10-3 under branch assert" withdraw withdrawOk
+  let withdrawSkip ← liftModel "BranchStateCell withdraw skip inputs" <|
     statefulInputs withdraw true 10 0 10 true 10
-  expectAccept "BranchCounter withdraw amount=0 skips the assert" withdraw withdrawSkip
-  let withdrawTrap ← liftModel "BranchCounter withdraw trap inputs" <|
+  expectAccept "BranchStateCell withdraw amount=0 skips the assert" withdraw withdrawSkip
+  let withdrawTrap ← liftModel "BranchStateCell withdraw trap inputs" <|
     statefulInputs withdraw true 3 5 0 true 0
-  expectReject "BranchCounter withdraw 3<5 fails the branch assert" withdraw withdrawTrap
+  expectReject "BranchStateCell withdraw 3<5 fails the branch assert" withdraw withdrawTrap
 
   -- `.nr` surface: if/else and else-if chains with per-path asserts.
   let files ← do
     let session ← Tests.Language.ParserSession.shared
-    let source ← liftResult (← session.selectProgramV1 branchCounterSourceText
-      "<noir-branch-emit>" "Examples.BranchCounter" none)
+    let source ← liftResult (← session.selectProgramV1 branchStateCellSourceText
+      "<noir-branch-emit>" "Examples.BranchStateCell" none)
     let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
     let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
     let capability ← liftResult <|
@@ -1335,28 +1335,28 @@ private unsafe def checkBranchingProduct : IO Unit := do
     liftResult <| Targets.Noir.buildFromCapability capability
   let some bumpNr := files.find? (fun file =>
     file.path.endsWith "r1-bump/src/main.nr") |
-    throw <| IO.userError "BranchCounter missing bump main.nr"
+    throw <| IO.userError "BranchStateCell missing bump main.nr"
   expect (bumpNr.contents.contains "if t")
-    "BranchCounter bump .nr must render the branch condition temp"
+    "BranchStateCell bump .nr must render the branch condition temp"
   expect (bumpNr.contents.contains "} else {")
-    "BranchCounter bump .nr must render the else arm"
+    "BranchStateCell bump .nr must render the else arm"
   expect ((bumpNr.contents.splitOn "assert(post_s0 ==").length == 3)
-    "BranchCounter bump .nr must bind post-state inside both path leaves"
+    "BranchStateCell bump .nr must bind post-state inside both path leaves"
   let some pickNr := files.find? (fun file =>
     file.path.endsWith "r4-pick/src/main.nr") |
-    throw <| IO.userError "BranchCounter missing pick main.nr"
+    throw <| IO.userError "BranchStateCell missing pick main.nr"
   expect (pickNr.contents.contains "else if")
-    "BranchCounter pick .nr must render the switch as an else-if chain"
+    "BranchStateCell pick .nr must render the switch as an else-if chain"
   expect ((pickNr.contents.contains "== 0") && (pickNr.contents.contains "== 1"))
-    "BranchCounter pick .nr must render literal case comparisons"
+    "BranchStateCell pick .nr must render literal case comparisons"
 
   -- Deterministic rebuild.
-  let ir2 ← compileIrFromProgramV1 branchCounterSourceText
-    "Examples.BranchCounter" "<noir-branch-counter-2>"
+  let ir2 ← compileIrFromProgramV1 branchStateCellSourceText
+    "Examples.BranchStateCell" "<noir-branch-stateCell-2>"
   expect (ir.sourcePlan.planHash == ir2.sourcePlan.planHash)
-    "BranchCounter planHash must be deterministic"
+    "BranchStateCell planHash must be deterministic"
   expect (ir.relations.map (·.operations) == ir2.relations.map (·.operations))
-    "BranchCounter IR ops must be byte-identical across rebuilds"
+    "BranchStateCell IR ops must be byte-identical across rebuilds"
 
 /-- Declared event/error: emit binds verifier-visible event slots per path
     (zero on non-executing paths); revert marks its path inadmissible. -/
@@ -2554,12 +2554,12 @@ private unsafe def checkNarrowAbiProduct : IO Unit := do
     "narrow-abi: init main.nr must declare u8/u16/u32 public inputs"
   -- Assign-only paths equalize same-width public inputs (post == param), so
   -- no `as u64` is required; body multi-width that feeds temps is T8d.
-  -- Counter UInt64 path still green via compile of historical fixture.
-  let counterIr ← compileIrFromProgramV1 counterSourceText
-    "Examples.Counter" "<noir-narrow-counter-regression>"
-  expect (counterIr.sourcePlan.states.size == 1 &&
-      counterIr.sourcePlan.states[0]!.inputType == .u64)
-    "narrow-abi: Counter state must remain u64"
+  -- StateCell UInt64 path still green via compile of historical fixture.
+  let stateCellIr ← compileIrFromProgramV1 stateCellSourceText
+    "Examples.StateCell" "<noir-narrow-stateCell-regression>"
+  expect (stateCellIr.sourcePlan.states.size == 1 &&
+      stateCellIr.sourcePlan.states[0]!.inputType == .u64)
+    "narrow-abi: StateCell state must remain u64"
 
 
 /-- T9a-Noir: entry results UInt8/16/32 admitted as native InputType. -/
@@ -3884,10 +3884,10 @@ unsafe def run : IO Unit := do
   runCheckedSubFast
   runCompareAssertFast
   checkStatefulLifecycle {
-    label := "Counter"
-    sourceText := counterSourceText
-    moduleName := "Examples.Counter"
-    path := "<noir-rel-counter>"
+    label := "StateCell"
+    sourceText := stateCellSourceText
+    moduleName := "Examples.StateCell"
+    path := "<noir-rel-stateCell>"
     mutateName := "increment"
     viewName := "get"
   }
@@ -3899,12 +3899,12 @@ unsafe def run : IO Unit := do
     mutateName := "add"
     viewName := "current"
   }
-  checkGuardedCounterProduct
+  checkGuardedStateCellProduct
   checkAllCompareOpsSource
   checkBoolResultPositive
   checkBoolPredicateProduct
   checkCompareAssertNegatives
-  checkCounterPlanHashUnchanged
+  checkStateCellPlanHashUnchanged
   checkPrivateSum4ResidualRelationModel
   checkPrivateSum4ProductClosed
   checkPrivateStateProduct

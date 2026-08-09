@@ -866,7 +866,7 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   let attrBase := memory.depositOffset
   let msgBase := msgBufferBase memory
   let valueCell := memory.valueOffset
-  -- Keep helpers compact but complete for Counter MVP + CW-4 SubMsg schedule.
+  -- Keep helpers compact but complete for the public-UInt64 MVP + CW-4 SubMsg schedule.
   -- inner_len: scratch-side builder for Binary execute-msg JSON (pre-base64).
   s!"  (global $heap (mut i32) (i32.const {heapInit}))\n" ++
   s!"  (global $attr_len (mut i32) (i32.const 0))\n" ++

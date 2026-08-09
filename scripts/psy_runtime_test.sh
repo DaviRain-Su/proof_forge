@@ -14,7 +14,7 @@
 #   re-parses `src/main.psy` and *writes* (never reads) `target/<package>.json`.
 #   Local-VM execute differentials therefore still set PROOF_FORGE_PSY_EMIT_PSY=1
 #   for transitional `.psy` wrap → compile / generate-abi → dargo execute:
-#     Counter (happy + overflow)
+#     StateCell (happy + overflow)
 #     Accumulator (multi-add state)
 #     OptionState (Option UInt64 set/clear/peek)
 #     LoopSum (UInt64 static-unroll for)
@@ -144,7 +144,7 @@ out_parent="$root/build/v2"
 mkdir -p "$out_parent" || die "cannot create runtime staging parent $out_parent"
 out_dir="$(mktemp -d "$out_parent/psy-runtime.XXXXXX")" || \
   die "cannot create unique runtime staging under $out_parent"
-dargo_project="${out_dir}/dargo-counter"
+dargo_project="${out_dir}/dargo-state-cell"
 acc_dargo_project="${out_dir}/dargo-accumulator"
 opt_dargo_project="${out_dir}/dargo-optionstate"
 loop_dargo_project="${out_dir}/dargo-loopsum"
@@ -240,24 +240,24 @@ plant_dpn_as_package() {
     die "failed to plant DPN package at $project_dir/target/${package_name}.json"
 }
 
-echo "${PREFIX}: G6-RUNTIME DPN-first product build Examples/Counter.lean --target psy (default; no .psy)"
-if ! "$cli" build Examples/Counter.lean \
-    --module Examples.Counter \
+echo "${PREFIX}: G6-RUNTIME DPN-first product build Examples/StateCell.lean --target psy (default; no .psy)"
+if ! "$cli" build Examples/StateCell.lean \
+    --module Examples.StateCell \
     --target psy \
     -o "$out_dir/dpn-product" \
     >"$log_dir/dpn-product-build.log" 2>&1; then
   cat "$log_dir/dpn-product-build.log" >&2 || true
   die "DPN-first proof-forge-next build --target psy failed"
 fi
-[[ -f "$out_dir/dpn-product/Counter.dpn.json" ]] || \
-  die "DPN-first missing product Counter.dpn.json (primary)"
-if [[ -f "$out_dir/dpn-product/Counter.psy" ]]; then
-  die "DPN-first default product must not emit Counter.psy (unset PROOF_FORGE_PSY_EMIT_PSY)"
+[[ -f "$out_dir/dpn-product/StateCell.dpn.json" ]] || \
+  die "DPN-first missing product StateCell.dpn.json (primary)"
+if [[ -f "$out_dir/dpn-product/StateCell.psy" ]]; then
+  die "DPN-first default product must not emit StateCell.psy (unset PROOF_FORGE_PSY_EMIT_PSY)"
 fi
 [[ -f "$out_dir/dpn-product/manifest.json" ]] || die "DPN-first missing manifest.json"
 [[ -f "$out_dir/dpn-product/evidence.json" ]] || die "DPN-first missing evidence.json"
-validate_dpn_package_json "$out_dir/dpn-product/Counter.dpn.json" "Counter.dpn.json" \
-  || die "DPN-first Counter.dpn.json failed package-shape validation"
+validate_dpn_package_json "$out_dir/dpn-product/StateCell.dpn.json" "StateCell.dpn.json" \
+  || die "DPN-first StateCell.dpn.json failed package-shape validation"
 if ! "$cli" inspect "$out_dir/dpn-product" >"$log_dir/dpn-inspect.log" 2>&1; then
   cat "$log_dir/dpn-inspect.log" >&2 || true
   die "DPN-first proof-forge-next inspect failed"
@@ -268,19 +268,19 @@ if ! grep -q 'exact-disk-closure' "$log_dir/dpn-inspect.log"; then
 fi
 cat >"${out_dir}/dpn-stage/Dargo.toml" <<'EOF'
 [package]
-name = "counter"
+name = "state_cell"
 type = "bin"
 authors = ["proof-forge-next"]
 
 [dependencies]
 EOF
 plant_dpn_as_package \
-  "$out_dir/dpn-product/Counter.dpn.json" \
+  "$out_dir/dpn-product/StateCell.dpn.json" \
   "${out_dir}/dpn-stage" \
-  "counter"
+  "state_cell"
 # Keep a stable copy for later method-name cross-check after dargo compile.
-cp -f "$out_dir/dpn-product/Counter.dpn.json" "$log_dir/Counter.product.dpn.json"
-echo "${PREFIX}: G6-RUNTIME DPN-first ok (Counter.dpn.json planted at dpn-stage/target/counter.json)"
+cp -f "$out_dir/dpn-product/StateCell.dpn.json" "$log_dir/StateCell.product.dpn.json"
+echo "${PREFIX}: G6-RUNTIME DPN-first ok (StateCell.dpn.json planted at dpn-stage/target/state_cell.json)"
 
 # ---------------------------------------------------------------------------
 # PARTIAL: locked dargo still requires .psy for compile/execute (no package flag).
@@ -288,9 +288,9 @@ echo "${PREFIX}: G6-RUNTIME DPN-first ok (Counter.dpn.json planted at dpn-stage/
 export PROOF_FORGE_PSY_EMIT_PSY=1
 echo "${PREFIX}: PARTIAL .psy path (PROOF_FORGE_PSY_EMIT_PSY=1) for locked-dargo execute"
 
-echo "${PREFIX}: product build Examples/Counter.lean --target psy (debug .psy)"
-if ! "$cli" build Examples/Counter.lean \
-    --module Examples.Counter \
+echo "${PREFIX}: product build Examples/StateCell.lean --target psy (debug .psy)"
+if ! "$cli" build Examples/StateCell.lean \
+    --module Examples.StateCell \
     --target psy \
     -o "$out_dir/product" \
     >"$log_dir/product-build.log" 2>&1; then
@@ -298,13 +298,13 @@ if ! "$cli" build Examples/Counter.lean \
   die "proof-forge-next build --target psy failed"
 fi
 
-[[ -f "$out_dir/product/Counter.dpn.json" ]] || die "missing product Counter.dpn.json (primary)"
-[[ -f "$out_dir/product/Counter.psy" ]] || die "missing product Counter.psy (need PROOF_FORGE_PSY_EMIT_PSY=1)"
+[[ -f "$out_dir/product/StateCell.dpn.json" ]] || die "missing product StateCell.dpn.json (primary)"
+[[ -f "$out_dir/product/StateCell.psy" ]] || die "missing product StateCell.psy (need PROOF_FORGE_PSY_EMIT_PSY=1)"
 [[ -f "$out_dir/product/manifest.json" ]] || die "missing product manifest.json"
 [[ -f "$out_dir/product/evidence.json" ]] || die "missing product evidence.json"
 # Product DPN must stay package-shaped under dual-write.
-validate_dpn_package_json "$out_dir/product/Counter.dpn.json" "Counter.dpn.json(dual)" \
-  || die "dual-write Counter.dpn.json failed package-shape validation"
+validate_dpn_package_json "$out_dir/product/StateCell.dpn.json" "StateCell.dpn.json(dual)" \
+  || die "dual-write StateCell.dpn.json failed package-shape validation"
 
 echo "${PREFIX}: inspect exact output closure"
 if ! "$cli" inspect "$out_dir/product" >"$log_dir/inspect.log" 2>&1; then
@@ -318,20 +318,20 @@ fi
 
 # Wrap product source as a minimal Dargo project; also pre-plant product DPN as
 # package path so the staged project carries DPN-first identity before compile
-# rewrites target/counter.json from .psy.
+# rewrites target/state_cell.json from .psy.
 cat >"$dargo_project/Dargo.toml" <<'EOF'
 [package]
-name = "counter"
+name = "state_cell"
 type = "bin"
 authors = ["proof-forge-next"]
 
 [dependencies]
 EOF
-cp -f "$out_dir/product/Counter.psy" "$dargo_project/src/main.psy"
+cp -f "$out_dir/product/StateCell.psy" "$dargo_project/src/main.psy"
 plant_dpn_as_package \
-  "$out_dir/product/Counter.dpn.json" \
+  "$out_dir/product/StateCell.dpn.json" \
   "$dargo_project" \
-  "counter"
+  "state_cell"
 
 export DARGO_STD_PATH="$STD"
 # Product CLI may spawn the package Lean toolchain; preserve its original PATH
@@ -501,30 +501,30 @@ sys.exit(0)
 PY
 }
 
-echo "${PREFIX}: dargo compile --contract-name Counter"
-run_dargo compile compile --contract-name Counter \
+echo "${PREFIX}: dargo compile --contract-name StateCell"
+run_dargo compile compile --contract-name StateCell \
   || { cat "$log_dir/compile.log" >&2 || true; die "dargo compile failed"; }
 
-echo "${PREFIX}: dargo generate-abi --contract-name Counter"
-run_dargo generate-abi generate-abi --contract-name Counter \
+echo "${PREFIX}: dargo generate-abi --contract-name StateCell"
+run_dargo generate-abi generate-abi --contract-name StateCell \
   || { cat "$log_dir/generate-abi.log" >&2 || true; die "dargo generate-abi failed"; }
 
-abi_json="$dargo_project/target/Counter.abi.json"
-pkg_json="$dargo_project/target/counter.json"
+abi_json="$dargo_project/target/StateCell.abi.json"
+pkg_json="$dargo_project/target/state_cell.json"
 [[ -f "$abi_json" && -s "$abi_json" ]] || die "missing/empty $abi_json"
 [[ -f "$pkg_json" && -s "$pkg_json" ]] || die "missing/empty package json $pkg_json"
 echo "${PREFIX}: abi=$(wc -c <"$abi_json" | tr -d ' ')B package_json=$(wc -c <"$pkg_json" | tr -d ' ')B"
 # Cross-check DPN-first product package against post-compile dargo package methods.
 assert_product_dpn_methods_in_package \
-  "$log_dir/Counter.product.dpn.json" \
+  "$log_dir/StateCell.product.dpn.json" \
   "$pkg_json" \
-  "Counter" \
-  || die "Counter product DPN methods not present in dargo-compiled package"
+  "StateCell" \
+  || die "StateCell product DPN methods not present in dargo-compiled package"
 
 echo "${PREFIX}: happy execute initialize(5)/increment(3)/get → 8"
 happy_ec=0
 run_dargo execute-happy execute \
-  --contract-name Counter \
+  --contract-name StateCell \
   --method-names initialize \
   --method-names increment \
   --method-names get \
@@ -593,7 +593,7 @@ echo "${PREFIX}: overflow execute initialize(p-1)/increment(1)"
 # Goldilocks p-1 = 2^64 - 2^32 = 18446744069414584320
 ovf_ec=0
 run_dargo execute-overflow execute \
-  --contract-name Counter \
+  --contract-name StateCell \
   --method-names initialize \
   --method-names increment \
   --parameters 18446744069414584320 \
@@ -1137,5 +1137,5 @@ if [[ "$wide_range_ec" -eq 0 ]] || \
 fi
 
 echo "${PREFIX}: UInt128 VM observables ok (arith/bitwise/shift/compare + checked negatives)"
-echo "${PREFIX}: ok (${PROFILE_LABEL}; G6-RUNTIME DPN-first + PARTIAL .psy execute; Counter+Accumulator+OptionState+LoopSum+WideCounter; engineering only; not formal/hermetic/UPS/deploy/chain)"
+echo "${PREFIX}: ok (${PROFILE_LABEL}; G6-RUNTIME DPN-first + PARTIAL .psy execute; StateCell+Accumulator+OptionState+LoopSum+WideCounter; engineering only; not formal/hermetic/UPS/deploy/chain)"
 exit 0

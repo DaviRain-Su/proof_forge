@@ -667,23 +667,23 @@ pub fn build_ix_limbs(
     )
 }
 
-/// Counter product env (S3a): the complete published output tree.
-pub fn counter_output_dir() -> PathBuf {
+/// StateCell product env (S3a): the complete published output tree.
+pub fn state_cell_output_dir() -> PathBuf {
     PathBuf::from(
-        env::var("PROOF_FORGE_COUNTER_OUT")
-            .expect("PROOF_FORGE_COUNTER_OUT must point at the published Counter output tree"),
+        env::var("PROOF_FORGE_STATE_CELL_OUT")
+            .expect("PROOF_FORGE_STATE_CELL_OUT must point at the published StateCell output tree"),
     )
 }
 
-pub fn counter_plan_bytes() -> Vec<u8> {
-    let output = counter_output_dir();
+pub fn state_cell_plan_bytes() -> Vec<u8> {
+    let output = state_cell_output_dir();
     read_manifest_leaf_bytes(
         &output,
-        "Counter",
-        "Counter.cpi-plan.json",
+        "StateCell",
+        "StateCell.cpi-plan.json",
         MATERIALIZED_BASE,
     )
-    .unwrap_or_else(|error| panic!("Counter plan binding failed: {error}"))
+    .unwrap_or_else(|error| panic!("StateCell plan binding failed: {error}"))
 }
 
 /// Fixture product env (S3b): `PROOF_FORGE_FIXTURES_DIR/<Name>/`.
@@ -721,8 +721,8 @@ pub fn make_mollusk(program_id: &Pubkey, output_dir: &Path, program_stem: &str) 
     mollusk
 }
 
-pub fn make_counter_mollusk(program_id: &Pubkey) -> Mollusk {
-    make_mollusk(program_id, &counter_output_dir(), "Counter")
+pub fn make_state_cell_mollusk(program_id: &Pubkey) -> Mollusk {
+    make_mollusk(program_id, &state_cell_output_dir(), "StateCell")
 }
 
 pub fn make_fixture_mollusk(program_id: &Pubkey, program: &str) -> Mollusk {

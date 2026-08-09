@@ -1,10 +1,10 @@
 /-
   NEAR near-sandbox receipt acceptance suite (engineering only; G123).
 
-  Builds Counter through the product capability path, lowers to `.wat`,
+  Builds StateCell through the product capability path, lowers to `.wat`,
   compiles with host `wat2wasm` when available, then invokes:
 
-      scripts/near_sandbox_acceptance.sh <Counter.wasm>
+      scripts/near_sandbox_acceptance.sh <StateCell.wasm>
 
   which starts near-sandbox, deploys the Wasm, and calls init/increment/get.
 
@@ -16,7 +16,7 @@
   locked tools and host prerequisites have been materialized.
 -/
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
@@ -59,22 +59,22 @@ private def resolveTool (name : String) : IO (Option String) := do
       return some path
   return none
 
-private unsafe def materializeCounterWat : IO String := do
+private unsafe def materializeStateCellWat : IO String := do
   let session ← Tests.Language.ParserSession.shared
-  let source ← liftResult "load Counter" (← session.selectProgramV1
-    Examples.counterSourceText "<near-sandbox-Counter>" Examples.counterModuleNameV1 none)
-  let compiled ← liftResult "compile Counter" <|
+  let source ← liftResult "load StateCell" (← session.selectProgramV1
+    Examples.stateCellSourceText "<near-sandbox-StateCell>" Examples.stateCellModuleNameV1 none)
+  let compiled ← liftResult "compile StateCell" <|
     Compiler.compileValidatedSourceV1 source
-  let selection ← liftResult "select Counter" <|
+  let selection ← liftResult "select StateCell" <|
     resolveBuildSelectionV1 TargetId.near none
-  let capability ← liftResult "resolve Counter" <|
+  let capability ← liftResult "resolve StateCell" <|
     Targets.resolveEngineeringRequirementsV1 selection compiled
-  let output ← liftResult "materialize Counter" <|
+  let output ← liftResult "materialize StateCell" <|
     Targets.materializeResult capability
   let files := MaterializedArtifactsV1.filesOf output
-  let some watFile := files.find? (·.path == "Counter.wat") |
-    throw <| IO.userError s!"Counter: missing Counter.wat; got {files.map (·.path)}"
-  expect (!watFile.contents.isEmpty) "Counter: empty WAT"
+  let some watFile := files.find? (·.path == "StateCell.wat") |
+    throw <| IO.userError s!"StateCell: missing StateCell.wat; got {files.map (·.path)}"
+  expect (!watFile.contents.isEmpty) "StateCell: empty WAT"
   pure watFile.contents
 
 unsafe def run : IO Unit := do
@@ -88,18 +88,18 @@ unsafe def run : IO Unit := do
       IO.println s!"near-sandbox: {sandbox}"
       IO.println s!"{ver.stdout.trimAscii.copy}"
       let some wat2wasm ← resolveTool "wat2wasm" |
-        IO.println "skipped: wat2wasm unavailable (needed to build Counter.wasm)"
+        IO.println "skipped: wat2wasm unavailable (needed to build StateCell.wasm)"
         IO.println "Tests.Materialization.NearSandboxAcceptance: ok (skipped)"
         return
       let tmp := FilePath.mk "build/v2/near-sandbox-acceptance-lean"
       if ← tmp.pathExists then IO.FS.removeDirAll tmp
       IO.FS.createDirAll tmp
       try
-        let wat ← materializeCounterWat
-        IO.FS.writeFile (tmp / "Counter.wat") wat
+        let wat ← materializeStateCellWat
+        IO.FS.writeFile (tmp / "StateCell.wat") wat
         let w2w ← IO.Process.output {
           cmd := wat2wasm
-          args := #["Counter.wat", "-o", "Counter.wasm"]
+          args := #["StateCell.wat", "-o", "StateCell.wasm"]
           cwd := some tmp
         }
         unless w2w.exitCode == 0 do
@@ -109,7 +109,7 @@ unsafe def run : IO Unit := do
         expect (← script.pathExists) "missing scripts/near_sandbox_acceptance.sh"
         -- Prefer absolute paths so the helper does not depend on cwd after Lean spawn.
         let cwd ← IO.currentDir
-        let wasmPath := (cwd / tmp / "Counter.wasm").toString
+        let wasmPath := (cwd / tmp / "StateCell.wasm").toString
         let scriptPath := (cwd / script).toString
         let proc ← IO.Process.output {
           cmd := "bash"

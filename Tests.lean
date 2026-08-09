@@ -34,8 +34,7 @@ import Tests.Semantic.WireV1
 import Tests.Semantic.InvariantABI
 import Tests.Semantic.PreservationABI
 import Tests.Semantic.PreservationShapeV1
-import Tests.Semantic.ClosedSubjectPinV1
-import Tests.Semantic.ZeroCounterV1
+import Tests.Semantic.UInt64ParitySubjectV1
 import Tests.Semantic.InvariantTheoremV1
 import Tests.Semantic.ProofBridgeV1
 import Tests.Semantic.SubjectDataBridgeV1
@@ -48,7 +47,6 @@ import Tests.Semantic.AuthorWireCertV1
 import Tests.Semantic.ProofedClosedCertV1
 import Tests.Semantic.ReferenceV1
 import Tests.Semantic.MiniAmmL1Admit
-import Tests.Semantic.MiniAmmEmptyPoolV1
 import Tests.Semantic.MiniAmmVectorsV1
 import Tests.Semantic.ProofBundleV1
 import Tests.Semantic.ProofSubjectV1
@@ -171,7 +169,7 @@ import Tests.Targets.SolanaProductCpiRecipesV1
 import Tests.Targets.SolanaElfV1
 import Tests.Targets.EvmCancunV1
 import Tests.Materialization.EvmCorpusBlockedV1
-import Tests.Product.CounterV1Evm
+import Tests.Product.StateCellV1Evm
 import Tests.Product.PrivateSum4PrivacyV1
 import Tests.Product.PerfCheckHarnessV1
 import Tests.Product.TokenV1
@@ -208,14 +206,12 @@ private unsafe def runSemanticTests : IO Unit := do
   Tests.Semantic.InvariantABI.run
   Tests.Semantic.PreservationABI.run
   Tests.Semantic.PreservationShapeV1.run
-  Tests.Semantic.ClosedSubjectPinV1.run
-  Tests.Semantic.ZeroCounterV1.run
+  Tests.Semantic.UInt64ParitySubjectV1.run
   Tests.Semantic.ProofBridgeV1.run
   Tests.Semantic.SubjectDataBridgeV1.run
   Tests.Semantic.CodecInvertV1.run
   Tests.Semantic.ReferenceV1.run
   Tests.Semantic.MiniAmmL1Admit.run
-  Tests.Semantic.MiniAmmEmptyPoolV1.run
   Tests.Semantic.MiniAmmVectorsV1.run
   Tests.Semantic.ProofBundleV1.run
   Tests.Semantic.ProofSubjectV1.run
@@ -264,7 +260,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Targets.SolanaElfV1.run
   Tests.Targets.EvmCancunV1.run
   Tests.Materialization.EvmCorpusBlockedV1.run
-  Tests.Product.CounterV1Evm.run
+  Tests.Product.StateCellV1Evm.run
   Tests.Product.PrivateSum4PrivacyV1.run
   Tests.Product.PerfCheckHarnessV1.run
   Tests.Product.TokenV1.run

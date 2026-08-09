@@ -4,7 +4,7 @@
   Pins:
   * bulk claim mint over frozen support index (canonical order, determinism)
   * claimDigest sensitivity to support-row and registry-root mutations
-  * product-path BuildIdentity mint (compile Counter → resolve → materialize)
+  * product-path BuildIdentity mint (compile StateCell → resolve → materialize)
   * identity field binding + digest determinism / profile sensitivity
   * sole-mint / private-ctor surface (no formal BuildIdentity mint; no
     registryDigest identifier)
@@ -16,7 +16,7 @@ import ProofForgeV2
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.TargetIdentityV1
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Semantic.WireV1
@@ -229,12 +229,12 @@ private def testClaimDigestRegistryRootSensitivity : IO Unit := do
     | _, _ => throw <| IO.userError s!"claim index out of range at {i}"
     i := i + 1
 
-private unsafe def compileCounter : IO CompiledSemanticV1 := do
+private unsafe def compileStateCell : IO CompiledSemanticV1 := do
   let session ← Tests.Language.ParserSession.shared
-  let source ← liftResult "load Counter" (← session.selectProgramV1
-    Examples.counterSourceText "<identity-chain-counter>"
-    Examples.counterModuleNameV1 none)
-  liftResult "compile Counter" (Compiler.compileValidatedSourceV1 source)
+  let source ← liftResult "load StateCell" (← session.selectProgramV1
+    Examples.stateCellSourceText "<identity-chain-stateCell>"
+    Examples.stateCellModuleNameV1 none)
+  liftResult "compile StateCell" (Compiler.compileValidatedSourceV1 source)
 
 private unsafe def materializeTarget
     (compiled : CompiledSemanticV1) (tid : TargetId)
@@ -248,7 +248,7 @@ private unsafe def materializeTarget
   pure (capability, artifacts)
 
 private unsafe def testBuildIdentityProductPath : IO Unit := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let artifactName := CompiledSemanticV1.artifactProgramNameOf compiled
   let sourceDigest := CompiledSemanticV1.sourceDigestOf compiled
   let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
@@ -377,7 +377,7 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
 
 private unsafe def testBuildIdentityProfileSensitivity : IO Unit := do
   -- ADR-0032 U1: Solana sole rail only — profile sensitivity vs EVM default.
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let (_, solArts) ← materializeTarget compiled TargetId.solana none
   let (_, evmArts) ← materializeTarget compiled TargetId.evm none
   let solId := MaterializedArtifactsV1.buildIdentityOf solArts
@@ -422,7 +422,7 @@ private unsafe def testBuildIdentityProfileSensitivity : IO Unit := do
       CodegenProfileId.aleoLeoU64CompileV1)
     "aleo compile identity profile"
 
-/-- Minimal S1 Accumulator source text (distinct name/body from Counter). -/
+/-- Minimal S1 Accumulator source text (distinct name/body from StateCell). -/
 private def accumulatorSourceTextV1 : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
@@ -439,7 +439,7 @@ private def accumulatorSourceTextV1 : String :=
   "end ProofForgeV2.Examples\n"
 
 private unsafe def testBuildIdentitySourceSensitivity : IO Unit := do
-  let counter ← compileCounter
+  let stateCell ← compileStateCell
   let session ← Tests.Language.ParserSession.shared
   -- Accumulator is a different ProgramV1 product source with a different name/hash.
   let accSource ← liftResult "load Accumulator" (← session.selectProgramV1
@@ -447,10 +447,10 @@ private unsafe def testBuildIdentitySourceSensitivity : IO Unit := do
     "Examples.Accumulator" none)
   let accumulator ← liftResult "compile Accumulator"
     (Compiler.compileValidatedSourceV1 accSource)
-  expect (!(CompiledSemanticV1.sourceDigestOf counter ==
+  expect (!(CompiledSemanticV1.sourceDigestOf stateCell ==
       CompiledSemanticV1.sourceDigestOf accumulator))
-    "Counter and Accumulator source digests differ"
-  let (_, cArts) ← materializeTarget counter TargetId.evm
+    "StateCell and Accumulator source digests differ"
+  let (_, cArts) ← materializeTarget stateCell TargetId.evm
   let (_, aArts) ← materializeTarget accumulator TargetId.evm
   let cId := MaterializedArtifactsV1.buildIdentityOf cArts
   let aId := MaterializedArtifactsV1.buildIdentityOf aArts
@@ -460,8 +460,8 @@ private unsafe def testBuildIdentitySourceSensitivity : IO Unit := do
   expectDigestDiff "source digest field"
     (EngineeringBuildIdentityV1.sourceDigestOf cId)
     (EngineeringBuildIdentityV1.sourceDigestOf aId)
-  expect (EngineeringBuildIdentityV1.artifactNameOf cId == "Counter")
-    "Counter artifact name"
+  expect (EngineeringBuildIdentityV1.artifactNameOf cId == "StateCell")
+    "StateCell artifact name"
   expect (EngineeringBuildIdentityV1.artifactNameOf aId == "Accumulator")
     "Accumulator artifact name"
 

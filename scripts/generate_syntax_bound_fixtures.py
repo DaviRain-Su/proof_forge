@@ -7,7 +7,7 @@ Root-aware identity (CLI --module Root):
   depth 255 → 257 components (identity over-limit → PF-BOUND-001)
   deeper depths reach Loader namespace overLimit (also PF-BOUND-001)
 
-Bodies use S1-compatible Counter-like shapes so accept vectors can compile.
+Bodies use S1-compatible StateCell-like shapes so accept vectors can compile.
 """
 
 from __future__ import annotations

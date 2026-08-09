@@ -112,8 +112,8 @@ unsafe def elaborateInlineProofSourceV1
       (· == `ProofForgeV2.Language.ProgramElaborationV1) do
     return .error (mkFault .headerImport parseMessages)
   let env := baseEnvironment.setMainModule mainModule
-  -- Elevated heartbeats for same-file L1 proofs that transport closed shape
-  -- theorems via `decide` on subject-byte equality (mig-b1 non-pin path).
+  -- Elevated bounds for same-file L1 proofs over generated structured subjects
+  -- and the contract-agnostic Reference/preservation theorem stack.
   let elabOpts : Options :=
     let o := ({} : Options)
     let o := maxHeartbeats.set o 80000000

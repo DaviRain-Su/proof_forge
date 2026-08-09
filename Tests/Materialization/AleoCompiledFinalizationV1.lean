@@ -13,7 +13,7 @@
 -/
 import ProofForgeV2
 import ProofForgeV2.CLI.Emit
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Materialization.ArtifactContentV1
 import ProofForgeV2.Materialization.LockedToolchainV1
@@ -35,12 +35,12 @@ private def liftResult (label : String) (result : CompileResult α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError s!"{label}: {error.render}"
 
-private unsafe def compileCounter : IO CompiledSemanticV1 := do
+private unsafe def compileStateCell : IO CompiledSemanticV1 := do
   let session ← Tests.Language.ParserSession.shared
-  let source ← liftResult "load Counter" (← session.selectProgramV1
-    Examples.counterSourceText "<aleo-compiled-finalization-counter>"
-    Examples.counterModuleNameV1 none)
-  liftResult "compile Counter" (Compiler.compileValidatedSourceV1 source)
+  let source ← liftResult "load StateCell" (← session.selectProgramV1
+    Examples.stateCellSourceText "<aleo-compiled-finalization-stateCell>"
+    Examples.stateCellModuleNameV1 none)
+  liftResult "compile StateCell" (Compiler.compileValidatedSourceV1 source)
 
 private def capabilityFor
     (compiled : CompiledSemanticV1) (profile? : Option CodegenProfileId) :
@@ -99,21 +99,21 @@ private def expectRole
 
 /-- Default source profile bases (ALEO-IR-6: Instructions + query; no Leo). -/
 private def sourceBasePaths : Array String :=
-  #["counter.aleo", "counter.aleo-query-contract.json"]
+  #["statecell.aleo", "statecell.aleo-query-contract.json"]
 
 /-- Compile profile dual-writes Leo for locked-leo compare finalize. -/
 private def compileBasePaths : Array String :=
-  #["counter.aleo", "counter.aleo-query-contract.json", "counter.leo"]
+  #["statecell.aleo", "statecell.aleo-query-contract.json", "statecell.leo"]
 
 private def compiledExtraPaths : Array String :=
-  #["counter.compiled.aleo", "counter.abi.json", "counter.leo-program.json"]
+  #["statecell.compiled.aleo", "statecell.abi.json", "statecell.leo-program.json"]
 
 private def publishedPaths : Array String :=
   compileBasePaths ++ compiledExtraPaths ++ #["evidence.json", "manifest.json"]
 
 /-- Default profile is unchanged: no locked tool and no compiled extras. -/
 private unsafe def testDefaultSourceProfile : IO Unit := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let capability ← capabilityFor compiled none
   expect (Targets.ResolvedEngineeringBuildV1.codegenProfileOf capability ==
       CodegenProfileId.aleoLeoU64V1)
@@ -132,19 +132,19 @@ private unsafe def testDefaultSourceProfile : IO Unit := do
   for path in sourceBasePaths do
     expectRole manifest path .materializedBase
   -- ALEO-IR-6: primary .aleo is Instructions text, not Leo brace source.
-  let primary ← IO.FS.readFile (outDir / "counter.aleo")
-  expect (primary.contains "program counter.aleo;")
+  let primary ← IO.FS.readFile (outDir / "statecell.aleo")
+  expect (primary.contains "program statecell.aleo;")
     "default primary must be Aleo Instructions"
-  expect (!primary.contains "program counter.aleo {")
+  expect (!primary.contains "program statecell.aleo {")
     "default primary must not be Leo brace source"
-  expect (!(← (outDir / "counter.leo").pathExists))
-    "default profile must not dual-write counter.leo without debug env"
+  expect (!(← (outDir / "statecell.leo").pathExists))
+    "default profile must not dual-write statecell.leo without debug env"
   for path in compiledExtraPaths do
     expect (!(← (outDir / path).pathExists)) s!"default profile must not emit {path}"
 
 /-- Real locked Leo product finalize, exact outputs, inspection, and repeat. -/
 private unsafe def testCompiledProfile (leo : VerifiedTool) : IO Unit := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let capability ← capabilityFor compiled (some CodegenProfileId.aleoLeoU64CompileV1)
   expect (Targets.ResolvedEngineeringBuildV1.codegenProfileOf capability ==
       CodegenProfileId.aleoLeoU64CompileV1)
@@ -178,13 +178,13 @@ private unsafe def testCompiledProfile (leo : VerifiedTool) : IO Unit := do
   for path in compileBasePaths ++ compiledExtraPaths do
     expectRegularNonempty first path
     expectRegularNonempty second path
-  let primary ← IO.FS.readFile (first / "counter.aleo")
-  expect (primary.contains "program counter.aleo;")
+  let primary ← IO.FS.readFile (first / "statecell.aleo")
+  expect (primary.contains "program statecell.aleo;")
     "compile primary must be Aleo Instructions"
-  expect (!primary.contains "program counter.aleo {")
+  expect (!primary.contains "program statecell.aleo {")
     "compile primary must not be Leo brace source"
-  let leoSrc ← IO.FS.readFile (first / "counter.leo")
-  expect (leoSrc.contains "program counter.aleo {")
+  let leoSrc ← IO.FS.readFile (first / "statecell.leo")
+  expect (leoSrc.contains "program statecell.aleo {")
     "compile dual-write must be Leo 4 source for leo-build compare"
   let evidence ← IO.FS.readFile (first / "evidence.json")
   expect (evidence.contains CodegenProfileId.aleoLeoU64CompileV1.toString)
@@ -215,8 +215,8 @@ private def runProductCliWithToolRoot
     cmd := "lake"
     args := #[
       "env", ".lake/build/bin/proof-forge-next",
-      "build", "Examples/Counter.lean",
-      "--module", "Examples.Counter",
+      "build", "Examples/StateCell.lean",
+      "--module", "Examples.StateCell",
       "--target", "aleo",
       "--profile", CodegenProfileId.aleoLeoU64CompileV1.toString,
       "-o", outDir.toString

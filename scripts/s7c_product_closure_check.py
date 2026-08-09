@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""S7c gate helper: exact_physical_closure on Solana/Noir Counter product trees.
+"""S7c gate helper: exact_physical_closure on Solana/Noir StateCell product trees.
 
 Independent test validator (not product authority). Consumes D3-E7 descriptor
 manifest files: `{role,path,size,contentSha256}` + top-level evidenceSha256.

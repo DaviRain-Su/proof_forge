@@ -12,12 +12,12 @@ open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Targets.Solana
 
-/-- Guarded counter: public UInt64 state with assert `count >= delta` before checked-sub. -/
-private def guardedCounterSourceText : String :=
+/-- Guarded state cell: public UInt64 state with assert `count >= delta` before checked-sub. -/
+private def guardedStateCellSourceText : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
-  "program GuardedCounter where\n" ++
+  "program GuardedStateCell where\n" ++
   "  state count : UInt64\n\n" ++
   "  init(i : UInt64) do\n" ++
   "    count := i\n\n" ++
@@ -29,14 +29,14 @@ private def guardedCounterSourceText : String :=
   "    return count\n\n" ++
   "end ProofForgeV2.Examples\n"
 
-private def guardedCounterModuleNameV1 : String := "Examples.GuardedCounter"
+private def guardedStateCellModuleNameV1 : String := "Examples.GuardedStateCell"
 
-/-- Same ABI as GuardedCounter but without the assert (for IDL identity). -/
-private def unguardedCounterSourceText : String :=
+/-- Same ABI as GuardedStateCell but without the assert (for IDL identity). -/
+private def unguardedStateCellSourceText : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
-  "program GuardedCounter where\n" ++
+  "program GuardedStateCell where\n" ++
   "  state count : UInt64\n\n" ++
   "  init(i : UInt64) do\n" ++
   "    count := i\n\n" ++
@@ -156,11 +156,11 @@ private def wrapProgram (name body : String) : String :=
   s!"program {name} where\n" ++ body ++
   "\nend ProofForgeV2.Examples\n"
 
-/-- Pin guarded-counter Plan body: ge compare + assert + checked-sub store + return. -/
-private unsafe def testGuardedCounterPlan
+/-- Pin guarded-state-cell Plan body: ge compare + assert + checked-sub store + return. -/
+private unsafe def testGuardedStateCellPlan
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session guardedCounterSourceText
-    guardedCounterModuleNameV1 "<solana-guarded-counter>"
+  let compiled ← compileSource session guardedStateCellSourceText
+    guardedStateCellModuleNameV1 "<solana-guarded-state-cell>"
   let plan ← liftResult <| planSolana compiled
   expect (plan.assertionFailedError == assertionFailedError)
     "plan must carry the canonical assertion-failed error code"
@@ -189,10 +189,10 @@ private unsafe def testGuardedCounterPlan
     "view Plan body must stay a single state load return"
 
 /-- Pin IR op order/destinations for compare + assert + checked-sub. -/
-private unsafe def testGuardedCounterIR
+private unsafe def testGuardedStateCellIR
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session guardedCounterSourceText
-    guardedCounterModuleNameV1 "<solana-guarded-counter-ir>"
+  let compiled ← compileSource session guardedStateCellSourceText
+    guardedStateCellModuleNameV1 "<solana-guarded-state-cell-ir>"
   let plan ← liftResult <| planSolana compiled
   let ir ← liftResult <| irSolana compiled
   let decrement ← findHandlerIR ir "decrement"
@@ -216,12 +216,12 @@ private unsafe def testGuardedCounterIR
   expect (ir == ir2) "Solana IR rebuild must be byte-identical / structure-identical"
 
 /-- sbpf-plan substrings for compare/assert; IDL ABI-identical to unguarded twin. -/
-private unsafe def testGuardedCounterArtifacts
+private unsafe def testGuardedStateCellArtifacts
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session guardedCounterSourceText
-    guardedCounterModuleNameV1 "<solana-guarded-artifacts>"
+  let compiled ← compileSource session guardedStateCellSourceText
+    guardedStateCellModuleNameV1 "<solana-guarded-artifacts>"
   let files ← liftResult <| filesSolana compiled
-  let planText ← findFile files "GuardedCounter.sbpf-plan"
+  let planText ← findFile files "GuardedStateCell.sbpf-plan"
   expect (planText.contains "cmp_ge_u64")
     "sbpf-plan must render cmp_ge_u64 for the assert condition"
   expect (planText.contains "assert %2 else program_error 0x1002")
@@ -229,22 +229,22 @@ private unsafe def testGuardedCounterArtifacts
   expect (planText.contains "checked_sub_u64")
     "sbpf-plan must retain checked_sub_u64 after the assert"
   expect (!planText.contains "cmp_eq_u64" && !planText.contains "cmp_lt_u64")
-    "guarded counter only uses ge; other cmp renderers must not appear spuriously"
-  let idl ← findFile files "GuardedCounter.idl.json"
+    "guarded state cell only uses ge; other cmp renderers must not appear spuriously"
+  let idl ← findFile files "GuardedStateCell.idl.json"
   expect (idl.contains "\"name\":\"decrement\"" && idl.contains "\"name\":\"delta\"" &&
       idl.contains "\"type\":\"u64\"" && idl.contains "\"returns\":\"u64-le\"")
     "IDL must describe decrement(delta:u64)→u64 without assert surface"
   expect (!idl.contains "assert" && !idl.contains "cmp_")
     "IDL must not surface assert/compare operations"
   -- Same program name/ABI without assert → identical IDL bytes.
-  let unguarded ← compileSource session unguardedCounterSourceText
-    guardedCounterModuleNameV1 "<solana-unguarded-artifacts>"
+  let unguarded ← compileSource session unguardedStateCellSourceText
+    guardedStateCellModuleNameV1 "<solana-unguarded-artifacts>"
   let unguardedFiles ← liftResult <| filesSolana unguarded
-  let unguardedIdl ← findFile unguardedFiles "GuardedCounter.idl.json"
+  let unguardedIdl ← findFile unguardedFiles "GuardedStateCell.idl.json"
   expect (idl == unguardedIdl)
     "assert must not change the Solana IDL relative to the unguarded twin"
   let files2 ← liftResult <| filesSolana compiled
-  let planText2 ← findFile files2 "GuardedCounter.sbpf-plan"
+  let planText2 ← findFile files2 "GuardedStateCell.sbpf-plan"
   expect (planText == planText2) "sbpf-plan rebuild must be byte-identical"
 
 /-- Every comparison op appears in plan/IR/sbpf-plan text. -/
@@ -537,8 +537,8 @@ private unsafe def testAssertElseRejected
 /-- validatePlan rejects dangling assert operands and post-return assert. -/
 private unsafe def testValidatePlanNegatives
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session guardedCounterSourceText
-    guardedCounterModuleNameV1 "<solana-plan-negatives>"
+  let compiled ← compileSource session guardedStateCellSourceText
+    guardedStateCellModuleNameV1 "<solana-plan-negatives>"
   let plan ← liftResult <| planSolana compiled
   let decrement := (← findHandler plan "decrement")
   let danglingAssert := {
@@ -924,8 +924,8 @@ private unsafe def testInitEarlyBareReturnClosed
           throw <| IO.userError "InitEarlyReturn must not compile (bare return)"
   -- Validator level: an in-arm bare-return marker in the initializer body is
   -- rejected even though a final top-level marker is the canonical shape.
-  let compiled ← compileSource session guardedCounterSourceText
-    guardedCounterModuleNameV1 "<solana-early-return-plan>"
+  let compiled ← compileSource session guardedStateCellSourceText
+    guardedStateCellModuleNameV1 "<solana-early-return-plan>"
   let plan ← liftResult <| planSolana compiled
   let initHandler ← findHandler plan "initialize"
   let earlyArm := {
@@ -1583,8 +1583,8 @@ private unsafe def testExternalCallFailClosed
     (Targets.resolveEngineeringRequirementsV1 cpiSchedSel scheduleCompiled)
 
   -- Defense in depth: legacy public Plan nodes cannot pass validation.
-  let baselineCompiled ← compileSource session guardedCounterSourceText
-    guardedCounterModuleNameV1 "<solana-call-defensive-baseline>"
+  let baselineCompiled ← compileSource session guardedStateCellSourceText
+    guardedStateCellModuleNameV1 "<solana-call-defensive-baseline>"
   let baselinePlan ← liftResult <| planSolana baselineCompiled
   let baseEntry := baselinePlan.entries[0]!
   let forgedCallPlan := {
@@ -3421,9 +3421,9 @@ private unsafe def testContextReadBlockHeight
 unsafe def run : IO Unit := do
   testNarrowIntAbi
   let session ← Tests.Language.ParserSession.shared
-  testGuardedCounterPlan session
-  testGuardedCounterIR session
-  testGuardedCounterArtifacts session
+  testGuardedStateCellPlan session
+  testGuardedStateCellIR session
+  testGuardedStateCellArtifacts session
   testAllComparisonOps session
   testAssertInAllModes session
   testBoolEnvelopeRejected session

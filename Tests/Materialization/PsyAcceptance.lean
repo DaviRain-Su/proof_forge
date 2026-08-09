@@ -39,7 +39,7 @@
   Maturity remains source-only registry + optional host/locked compile gate.
 -/
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
@@ -305,9 +305,9 @@ private def u32BitNotSourceText : String :=
   "  entry flip(x : UInt32) : UInt32 do\n" ++
   "    return ~x\n"
 
-/-- T8 multi-width: scalar UInt8 counter with Felt-carried state/params/body
+/-- T8 multi-width: scalar UInt8 StateCell with Felt-carried state/params/body
     and explicit width guards. Real dargo must accept the emitted source. -/
-private def u8CounterSourceText : String :=
+private def u8StateCellSourceText : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
   "program U8Ctr where\n" ++
@@ -442,9 +442,9 @@ unsafe def run : IO Unit := do
       if ← staging.pathExists then IO.FS.removeDirAll staging
       IO.FS.createDirAll staging
       try
-        acceptProgram tc staging "Counter"
-          Examples.counterSourceText Examples.counterModuleNameV1
-          "Counter.psy" "counter"
+        acceptProgram tc staging "StateCell"
+          Examples.stateCellSourceText Examples.stateCellModuleNameV1
+          "StateCell.psy" "stateCell"
         acceptProgram tc staging "PsyPoint"
           pointBoxSourceText "Tests.PsyAccept.PsyPoint"
           "PsyPoint.psy" "psy_point"
@@ -455,7 +455,7 @@ unsafe def run : IO Unit := do
           u32BitNotSourceText "Tests.PsyAccept.PsyFlip32"
           "PsyFlip32.psy" "psy_flip32"
         acceptProgram tc staging "U8Ctr"
-          u8CounterSourceText "Tests.PsyAccept.U8Ctr"
+          u8StateCellSourceText "Tests.PsyAccept.U8Ctr"
           "U8Ctr.psy" "u8ctr"
         acceptProgram tc staging "PairRet"
           pairRetSourceText "Tests.PsyAccept.PairRet"

@@ -306,7 +306,7 @@ private unsafe def testProductCliNoStructuralProofBundleBypass : IO Unit := do
   let cli ← IO.FS.realPath cli
   let rejected ← IO.Process.output {
     cmd := cli.toString
-    args := #["check", "Examples/Counter.lean", "--module", "Examples.Counter",
+    args := #["check", "Examples/StateCell.lean", "--module", "Examples.StateCell",
       "--proof-bundle", "/tmp/must-not-open",
       "--proof-bundle-digest",
       "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"]

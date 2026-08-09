@@ -1,10 +1,10 @@
 /-
-  Ton Plan/IR/Tolk engineering suite (TON-2 Counter leaf + BL-1 schedule +
+  Ton Plan/IR/Tolk engineering suite (TON-2 StateCell leaf + BL-1 schedule +
   BL-10 named aggregate view returns + BL-23 anonymous Array/Option view
   returns + BL-34 / B-OPT-STATE Option UInt64 state + BL-38 / B-CTX-OPEN
   unixTimeSeconds → Tolk blockchain.now()).
 
-  Pins Counter plan shape, Tolk surface (Storage/onInternalMessage/get fun),
+  Pins StateCell plan shape, Tolk surface (Storage/onInternalMessage/get fun),
   op+query_id envelope, UInt64 range-check markers, schedule→createMessage
   out-message emission (dest hash stub / NoBounce / value=0 /
   PAY_FEES_SEPARATELY / op32·query_id·args body), BL-14 multi-width
@@ -35,11 +35,11 @@ open ProofForgeV2.Compiler
 open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Targets.Ton
 
-private def counterSourceText : String :=
+private def stateCellSourceText : String :=
   "import ProofForgeV2\n\n" ++
   "namespace ProofForgeV2.Examples\n\n" ++
   "open ProofForgeV2.Language\n\n" ++
-  "program Counter where\n" ++
+  "program StateCell where\n" ++
   "  state count : UInt64\n\n" ++
   "  init(initial : UInt64) do\n" ++
   "    count := initial\n\n" ++
@@ -50,7 +50,7 @@ private def counterSourceText : String :=
   "    return count\n\n" ++
   "end ProofForgeV2.Examples\n"
 
-private def counterModuleName : String := "Examples.Counter"
+private def stateCellModuleName : String := "Examples.StateCell"
 
 private def multiFieldSourceText : String :=
   "import ProofForgeV2\n\n" ++
@@ -120,11 +120,11 @@ private def findFile (files : Array OutputFile) (path : String) : IO String :=
   | some file => pure file.contents
   | none => throw <| IO.userError s!"missing output file '{path}'; got {files.map (·.path)}"
 
-private unsafe def testCounterPlan
+private unsafe def testStateCellPlan
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session counterSourceText counterModuleName "<ton-counter>"
+  let compiled ← compileSource session stateCellSourceText stateCellModuleName "<ton-stateCell>"
   let plan ← liftResult <| planTon compiled
-  expect (plan.programName == "Counter") "program name Counter"
+  expect (plan.programName == "StateCell") "program name StateCell"
   expect (plan.hostAbi == hostAbiVersion) "canonical host ABI"
   expect (plan.inputAbi == rawInputAbi) "internal-msg input ABI"
   expect (plan.codegenProfile == "ton-tolk-boc-v1") "default profile"
@@ -149,18 +149,18 @@ private unsafe def testCounterPlan
     | .ok d => pure d
     | .error e => throw <| IO.userError e
   expect (d1 == d2) "plan digest deterministic"
-  IO.println "  ✓ Counter plan shape"
+  IO.println "  ✓ StateCell plan shape"
 
-private unsafe def testCounterIRAndTolk
+private unsafe def testStateCellIRAndTolk
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session counterSourceText counterModuleName "<ton-counter-ir>"
+  let compiled ← compileSource session stateCellSourceText stateCellModuleName "<ton-stateCell-ir>"
   let ir ← liftResult <| irTon compiled
-  expect (ir.name == "Counter") "IR name"
+  expect (ir.name == "StateCell") "IR name"
   expect (ir.methods.size == 3) "init + 2 entries"
   expect (ir.imports == canonicalImports) "IR host imports"
   let files ← liftResult <| filesTon compiled
-  let tolk ← findFile files "Counter.tolk"
-  let abi ← findFile files "Counter.ton-abi.json"
+  let tolk ← findFile files "StateCell.tolk"
+  let abi ← findFile files "StateCell.ton-abi.json"
   -- Tolk surface
   expect (tolk.contains "struct Storage") "Storage struct"
   expect (tolk.contains "__layout: uint64") "layout marker field"
@@ -186,7 +186,7 @@ private unsafe def testCounterIRAndTolk
   expect (abi.contains "c4-flat-struct") "storage kind"
   expect (abi.contains "\"opBits\":32") "op envelope"
   expect (abi.contains "\"queryIdBits\":64") "query_id envelope"
-  IO.println "  ✓ Counter IR/Tolk/ABI shape"
+  IO.println "  ✓ StateCell IR/Tolk/ABI shape"
 
 private unsafe def testMultiField
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -280,16 +280,16 @@ private unsafe def testSchedulePlanAndTolk
   expect (tolk.contains "storeUint(") "tolk arg storeUint present"
   -- External log path (emit) must not be confused with schedule path
   expect (!tolk.contains "createExternalLogMessage") "schedule does not emit external log"
-  -- Counter shapes remain intact: no schedule on Counter
-  let counter ← compileSource session counterSourceText counterModuleName
-    "<ton-counter-sched-reg>"
-  let cPlan ← liftResult <| planTon counter
-  expect (!planUsesPromiseV1 cPlan) "Counter plan has no schedule"
-  let cFiles ← liftResult <| filesTon counter
-  let cTolk ← findFile cFiles "Counter.tolk"
-  expect (!cTolk.contains "createMessage({") "Counter.tolk has no createMessage"
-  expect (cTolk.contains "struct Storage") "Counter Storage preserved"
-  expect (cTolk.contains "fun onInternalMessage") "Counter entry preserved"
+  -- StateCell shapes remain intact: no schedule on StateCell
+  let stateCell ← compileSource session stateCellSourceText stateCellModuleName
+    "<ton-stateCell-sched-reg>"
+  let cPlan ← liftResult <| planTon stateCell
+  expect (!planUsesPromiseV1 cPlan) "StateCell plan has no schedule"
+  let cFiles ← liftResult <| filesTon stateCell
+  let cTolk ← findFile cFiles "StateCell.tolk"
+  expect (!cTolk.contains "createMessage({") "StateCell.tolk has no createMessage"
+  expect (cTolk.contains "struct Storage") "StateCell Storage preserved"
+  expect (cTolk.contains "fun onInternalMessage") "StateCell entry preserved"
   IO.println "  ✓ schedule Plan/IR/Tolk createMessage pins"
 
 /-- BL-14: UInt8 state/param/body + narrowCheckedAdd guard sequence. -/
@@ -382,7 +382,7 @@ private unsafe def testNarrowUInt16UInt32
   expect (tolk.contains "body.loadUint(32)") "param loadUint(32)"
   expect (tolk.contains s!"(1 << 16)") "UInt16 range guard"
   expect (tolk.contains s!"(1 << 32)") "UInt32 range guard"
-  -- Historical UInt64 Counter surface still uses (1 << 64); mix must not drop it
+  -- Historical UInt64 StateCell surface still uses (1 << 64); mix must not drop it
   -- when absent — pin only that narrow bounds are present.
   let abi ← findFile files "NarrowMix.ton-abi.json"
   expect (abi.contains "\"type\":\"uint16\"") "ABI uint16"
@@ -465,15 +465,15 @@ private unsafe def testMultiWidthFc
 
 private unsafe def testRegistryDispatch
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session counterSourceText counterModuleName
+  let compiled ← compileSource session stateCellSourceText stateCellModuleName
     "<ton-registry>"
   let capability ← liftResult <| tonCapability compiled
   let artifacts ← liftResult <| Targets.materializeResult capability
-  expect (MaterializedArtifactsV1.artifactProgramNameOf artifacts == "Counter")
+  expect (MaterializedArtifactsV1.artifactProgramNameOf artifacts == "StateCell")
     "registry materialize program name"
   let files := MaterializedArtifactsV1.filesOf artifacts
-  expect (files.any (·.path == "Counter.tolk")) "registry emits .tolk"
-  expect (files.any (·.path == "Counter.ton-abi.json")) "registry emits ton-abi"
+  expect (files.any (·.path == "StateCell.tolk")) "registry emits .tolk"
+  expect (files.any (·.path == "StateCell.ton-abi.json")) "registry emits ton-abi"
   IO.println "  ✓ Registry materialize dispatch"
 
 private def findMethod (plan : Plan) (name : String) : IO Method :=
@@ -1456,8 +1456,8 @@ private unsafe def testContextReadUnixTime
 unsafe def run : IO Unit := do
   IO.println "TonPlanV1"
   let session ← Tests.Language.ParserSession.shared
-  testCounterPlan session
-  testCounterIRAndTolk session
+  testStateCellPlan session
+  testStateCellIRAndTolk session
   testMultiField session
   testCallSyncFc session
   testSchedulePlanAndTolk session

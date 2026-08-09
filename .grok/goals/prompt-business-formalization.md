@@ -26,20 +26,19 @@
 
 你是 **ProofForge track-1 业务逻辑形式化执行器**。
 
-**成功 = 把** [`.grok/business-formalization-queue.md`](../business-formalization-queue.md)
-**里所有 pending/in_progress 切片做成 local commit（不 push）**，并更新队列状态，
-**然后立即做下一项**，直到队列清空、预算硬尽、或硬阻塞。
+**成功 = 读取** [`.grok/business-formalization-queue.md`](../business-formalization-queue.md)
+**并执行所有 pending/in_progress 切片；当前 wave-3′ 已 drained**。无新 pending 时必须
+立即报告 `drain complete`，不得恢复已删除的 instance/pin 路径或发明新切片。
 
-**不是** formal TASK/TST、**不是** 工具内部 metatheory、**不是** MiniAmm 优先、
-**不是** 第二非 AMM 实例（deferred）。
+**不是** formal TASK/TST、**不是** 工具内部 metatheory、**不是** 第二套业务 step。
 
 权威：
 
 1. `.grok/business-formalization-queue.md`（sole slice order）
 2. `docs/adr/0034-preservation-abi.md` D9/D10
 3. `AGENTS.md` Active/Next · INV-2 · RECOVERY L1
-4. 代码：`PreservationPackagingV1` · `EvenCounterPreservationV1` · `ClosedSubjectPinV1` ·
-   `InlineProofCertifierV1` · `ReferenceMachineV1`
+4. 代码：`PreservationShapeV1` · `PreservationPackagingV1` ·
+   `SubjectDataBridgeV1` · `InlineProofCertifierV1` · `ReferenceMachineV1`
 
 **Sole L1 step：** `admitReferenceProgramSliceV1` + `stepReferenceSliceV1`
 **禁止：** 第二 State/Effect/step · MiniAmm 特例 · supersede ADR-0027 · push ·
@@ -65,15 +64,14 @@
 
 ## 队列（顺序固定）
 
-先读 `.grok/business-formalization-queue.md` **全部 wave**。Wave1+wave2 已 done
-（EvenCounter packaging/unpin/docs + ZeroCounter data/preserve/product/docs）。
+先读 `.grok/business-formalization-queue.md` **全部 wave**。Wave1+wave2 与
+wave-3′ generic-first migration 均已 drained（2026-08-09）。
 
-**当前 wave-3′（用户拍板 2026-08-09）：generic-first 迁移，最终删 ProofInstances + pin**
+wave-3′ 已闭合：
 
-- **A**：`mig-a1-codec`（generic codec round-trip，`ProofBridgeV1` remaining gap）→
-  `mig-a2-shape`（形状族 preservation 定理入 Semantic）→ `mig-a3-elab`（结构化 `subjectDataV1` 取代字节 spine defeq）
-- **B**：`mig-b1-evencounter` / `mig-b2-zerocounter` / `mig-b3-miniamm`（迁为 inline same-file 普通合约；product positive 保持 GREEN）
-- **C**：`mig-c1-delete`（删 `ProofInstances/` + `ClosedSubjectPinV1` + 产品模块对合约的 import；**前置 = B 全 GREEN**）→ `mig-c2-docs`
+- **A**：generic codec round-trip、contract-agnostic shape theorem、structured subject data；
+- **B**：ordinary same-file `Counter` / `MiniAmmL1` product positives；
+- **C**：删除 `ProofInstances/`、`ClosedSubjectPinV1` 与历史合约专属产品模块，完成文档 cutover。
 
 **产品决策（强制）**：形式化验证与业务合约同文件（ADR-0027）；产品包零合约专属内容；
 任何删除只能在 C 门槛后。**不** supersede ADR-0027。
@@ -134,10 +132,10 @@
 
 ```text
 BUSINESS_FORMALIZATION: drain complete | BUDGET_STOP | BLOCKED
-DONE: bf-pack-1=… bf-pack-2=… bf-unpin-1=… bf-docs-1=…
+DONE: queue has no pending/in_progress items
 SHAs: …
-NEXT: none | <id>
-EvenCounter product GREEN: yes/no
+NEXT: none
+Generic-first product path GREEN: yes/no
 ADR-0027 superseded: no
 ```
 

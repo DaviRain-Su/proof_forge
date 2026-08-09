@@ -6,7 +6,7 @@
 #     positive: minimal_abi (allocate/deallocate/interface_version_8 + entry/query)
 #     negative: missing interface_version_*, multi-memory, memory maximum set
 #
-# Layer 2 — product Counter (conditional):
+# Layer 2 — product StateCell (conditional):
 #   If `proof-forge-next build --target cosmwasm` produces a .wasm under a
 #   staging dir, run cosmwasm-check on it. When the product CosmWasm emitter is
 #   absent (A1 not merged) or build fails, skip-clean with an explicit message.
@@ -222,10 +222,10 @@ fi
 echo "cosmwasm-check-acceptance: fixture matrix ok"
 
 # ---------------------------------------------------------------------------
-# Layer 2: product Counter (conditional; A1 CosmWasm emitter may be absent)
+# Layer 2: product StateCell (conditional; A1 CosmWasm emitter may be absent)
 # ---------------------------------------------------------------------------
 product_skip() {
-  echo "skipped: product cosmwasm Counter check ($1)"
+  echo "skipped: product cosmwasm StateCell check ($1)"
 }
 
 resolve_cli() {
@@ -260,32 +260,32 @@ PRODUCT_OUT="$STAGING/product-out"
 # pre-creating the directory trips PF-OUTPUT-COLLISION.
 rm -rf "$PRODUCT_OUT"
 
-# Prefer Examples/Counter if present; otherwise skip product without failing.
-COUNTER_SRC=""
+# Prefer Examples/StateCell if present; otherwise skip product without failing.
+STATE_CELL_SRC=""
 for cand in \
-  "$ROOT/Examples/Counter.lean" \
-  "$ROOT/ProofForgeV2/Examples/Counter.lean"; do
+  "$ROOT/Examples/StateCell.lean" \
+  "$ROOT/ProofForgeV2/Examples/StateCell.lean"; do
   if [[ -f "$cand" ]]; then
-    COUNTER_SRC="$cand"
+    STATE_CELL_SRC="$cand"
     break
   fi
 done
 
-if [[ -z "$COUNTER_SRC" ]]; then
-  product_skip "Counter example source missing"
+if [[ -z "$STATE_CELL_SRC" ]]; then
+  product_skip "StateCell example source missing"
   echo "cosmwasm-check-acceptance: ok (fixtures only)"
   exit 0
 fi
 
 # Product CLI: build <source.lean> --module <Name> --target <t> [-o <dir>]
-# Module for Examples/Counter.lean is Examples.Counter (see Emit.lean docs).
+# Module for Examples/StateCell.lean is Examples.StateCell (see Emit.lean docs).
 # The CLI requires a canonical project-relative source path (no leading /),
 # so strip the repo-root prefix before invoking.
-module_name="Examples.Counter"
-case "$COUNTER_SRC" in
-  *ProofForgeV2/Examples/Counter.lean) module_name="ProofForgeV2.Examples.Counter" ;;
+module_name="Examples.StateCell"
+case "$STATE_CELL_SRC" in
+  *ProofForgeV2/Examples/StateCell.lean) module_name="ProofForgeV2.Examples.StateCell" ;;
 esac
-REL_SRC="${COUNTER_SRC#"$ROOT"/}"
+REL_SRC="${STATE_CELL_SRC#"$ROOT"/}"
 
 set +e
 build_out="$(

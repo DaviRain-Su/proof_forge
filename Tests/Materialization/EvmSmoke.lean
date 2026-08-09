@@ -1,5 +1,5 @@
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
@@ -118,8 +118,8 @@ private unsafe def testRichUInt64SemanticPlan : IO Unit := do
       yul.contains "let expr4 := sub(expr2, expr3)")
     "EVM Yul must check UInt64 underflow before subtraction"
 
-/-- Guarded counter: assert count >= delta before checked subtract. -/
-private def guardedCounterSourceText : String :=
+/-- Guarded stateCell: assert count >= delta before checked subtract. -/
+private def guardedStateCellSourceText : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
   "program Guarded where\n" ++
@@ -155,19 +155,19 @@ private partial def fullCompareExpr : Nat → Targets.Evm.Expr
       let child := fullCompareExpr level
       .compare .eq child child
 
-private unsafe def testGuardedCounterSemanticPlan : IO Unit := do
+private unsafe def testGuardedStateCellSemanticPlan : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Guarded" (← session.selectProgramV1
-    guardedCounterSourceText "<evm-guarded>" "Tests.EvmGuarded" none)
+    guardedStateCellSourceText "<evm-guarded>" "Tests.EvmGuarded" none)
   let compiled ← liftResult "compile Guarded" <|
     Compiler.compileValidatedSourceV1 source
   let plan ← liftResult "plan Guarded" <| planEvm compiled
   expect (plan.objectName == "Guarded")
-    "guarded counter object name must be Guarded"
+    "guarded stateCell object name must be Guarded"
   expect (plan.storageLayout.map (·.name) == #["count"])
-    "guarded counter must retain count storage"
+    "guarded stateCell must retain count storage"
   expect (plan.entries.map (·.name) == #["decrement", "get"])
-    "guarded counter must preserve entry order"
+    "guarded stateCell must preserve entry order"
   let decrement := plan.entries[0]!
   expect (decrement.params == #[{ sourceId := 0, name := "delta", wordIndex := 0 }])
     "decrement param must map to ABI word 0"
@@ -1552,7 +1552,7 @@ private unsafe def testForLoop : IO Unit := do
   expect (plan.entries.map (·.name) == #["addUp", "scan", "addUpTight", "get"])
     "LoopSum must lower four entries in source order"
   let addUp := plan.entries[0]!
-  -- Induction temp = block-param ValueId 1; counter temp = maxBp+1+loopIdx = 2.
+  -- Induction temp = block-param ValueId 1; stateCell temp = maxBp+1+loopIdx = 2.
   expect (addUp.body == #[
       .forLoop 1 2 8
         (.param 0)
@@ -1563,7 +1563,7 @@ private unsafe def testForLoop : IO Unit := do
           value := .checkedAdd (.storageLoad 0) (.temp 1)
         }],
       .returnValue (.storageLoad 0)])
-    "addUp must lower let+for into forLoop with counter/maxIterations/init/cond/update/body"
+    "addUp must lower let+for into forLoop with stateCell/maxIterations/init/cond/update/body"
   let scan := plan.entries[1]!
   expect (scan.body == #[
       .forLoop 1 2 2
@@ -1610,7 +1610,7 @@ private unsafe def testForLoop : IO Unit := do
   expect (yul.contains "t1 := add(" || yul.contains "t1 := add")
     "LoopSum Yul must update the induction temporary via add"
   expect (yul.contains "t2 := 0")
-    "LoopSum Yul must init the completed-iteration counter to 0"
+    "LoopSum Yul must init the completed-iteration stateCell to 0"
   expect (yul.contains "if eq(t2, 8)")
     "LoopSum Yul must back-edge check addUp bound 8"
   expect (yul.contains "if eq(t2, 3)")
@@ -1618,8 +1618,8 @@ private unsafe def testForLoop : IO Unit := do
   expect (yul.contains "if eq(t2," && yul.contains "revert(0, 0)")
     "LoopSum Yul must revert(0, 0) when the static bound is exceeded at the back edge"
   expect (yul.contains "t2 := add(t2, 1)")
-    "LoopSum Yul must increment the completed-iteration counter after the bound check"
-  -- No-loop programs remain accepted (regression guard via Counter path in run).
+    "LoopSum Yul must increment the completed-iteration stateCell after the bound check"
+  -- No-loop programs remain accepted (regression guard via StateCell path in run).
   pure ()
 
 /-- T10: Principal state + param leaf storage (N4 String-isomorphic layout).
@@ -4371,7 +4371,7 @@ private unsafe def testMiniAmmAssetsProductPlan : IO Unit := do
 unsafe def run : IO Unit := do
   testSemanticPlanSourceAuthority
   testRichUInt64SemanticPlan
-  testGuardedCounterSemanticPlan
+  testGuardedStateCellSemanticPlan
   testInitWithAssert
   testCompareAssertPlanMutations
   testBoolResultPositive
@@ -4428,42 +4428,42 @@ unsafe def run : IO Unit := do
   testMiniAmmProductPlan
   testMiniAmmAssetsProductPlan
   let session ← Tests.Language.ParserSession.shared
-  let source ← liftResult "load Counter" (← session.selectProgramV1
-    Examples.counterSourceText "<evm-smoke-counter>" Examples.counterModuleNameV1 none)
-  let compiled ← liftResult "compile Counter" <| Compiler.compileValidatedSourceV1 source
+  let source ← liftResult "load StateCell" (← session.selectProgramV1
+    Examples.stateCellSourceText "<evm-smoke-stateCell>" Examples.stateCellModuleNameV1 none)
+  let compiled ← liftResult "compile StateCell" <| Compiler.compileValidatedSourceV1 source
   let sourceDigest := CompiledSemanticV1.sourceDigestOf compiled
   let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
   let plan ← liftResult "plan EVM" <| planEvm compiled
-  expect (plan.objectName == "Counter" && plan.storageLayout.map (·.name) == #["count"])
-    "EVM smoke must preserve the Counter identity and storage layout"
+  expect (plan.objectName == "StateCell" && plan.storageLayout.map (·.name) == #["count"])
+    "EVM smoke must preserve the StateCell identity and storage layout"
   expect (plan.entries.map (·.name) == #["increment", "get"])
-    "EVM smoke must preserve both Counter entries"
+    "EVM smoke must preserve both StateCell entries"
   expect (plan.entries.map (·.resultKind) == #[.uint64, .uint64])
-    "Counter entries remain UInt64 resultKind"
+    "StateCell entries remain UInt64 resultKind"
   -- Store-only constructor remains stores-authoritative (body empty).
   match plan.constructor with
-  | none => throw <| IO.userError "Counter must retain constructor"
+  | none => throw <| IO.userError "StateCell must retain constructor"
   | some ctor =>
       expect (ctor.body.isEmpty && !ctor.stores.isEmpty)
-        "store-only Counter constructor must keep body empty for aggregate compatibility"
+        "store-only StateCell constructor must keep body empty for aggregate compatibility"
 
   -- S6: no public Plan→IR; capability materialize is sole emit path.
   let output ← liftResult "materialize EVM" <| materializeSelected TargetId.evm compiled
   let files := MaterializedArtifactsV1.filesOf output
-  expect (files.map (·.path) == #["Counter.yul", "Counter.abi.json"])
+  expect (files.map (·.path) == #["StateCell.yul", "StateCell.abi.json"])
     "EVM smoke must emit deterministic target-owned source artifacts"
-  let yul ← match files.find? (·.path == "Counter.yul") with
+  let yul ← match files.find? (·.path == "StateCell.yul") with
     | some f => pure f.contents
-    | none => throw <| IO.userError "EVM smoke missing Counter.yul"
-  let abi ← match files.find? (·.path == "Counter.abi.json") with
+    | none => throw <| IO.userError "EVM smoke missing StateCell.yul"
+  let abi ← match files.find? (·.path == "StateCell.abi.json") with
     | some f => pure f.contents
-    | none => throw <| IO.userError "EVM smoke missing Counter.abi.json"
+    | none => throw <| IO.userError "EVM smoke missing StateCell.abi.json"
   expect (yul.contains "case 0xdd9a82bc" && yul.contains "case 0x6d4ce63c")
     "EVM smoke must render canonical increment/get selectors"
   expect (abi.contains "\"name\":\"increment\"" && abi.contains "\"name\":\"get\"")
-    "EVM smoke must render the Counter ABI"
+    "EVM smoke must render the StateCell ABI"
   expect (abi.contains "\"type\":\"uint64\"" && !(abi.contains "\"type\":\"bool\""))
-    "Counter ABI must remain all-uint64 (no bool outputs)"
+    "StateCell ABI must remain all-uint64 (no bool outputs)"
   expect (MaterializedArtifactsV1.sourceDigestOf output == sourceDigest &&
       MaterializedArtifactsV1.semanticDigestOf output == semanticDigest)
     "EVM smoke carrier must bind canonical source and semantic digests"

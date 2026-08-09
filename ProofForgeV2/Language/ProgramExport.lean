@@ -70,7 +70,12 @@ private def unavailable {α : Type} : Except String α :=
   .error (exportError "declaration unavailable or unsafe")
 
 private def maxRawNodes : Nat := 100000
-private def maxLogicalDepth : Nat := 256
+/-- Maximum transparent local-sharing steps admitted while structurally decoding
+    compiler-generated large list quotations. This is not semantic nesting:
+    Lean may insert more than 256 `let` chunks for a legal ~2 KiB byte spine.
+    Every intermediate expression remains independently bounded by
+    `maxRawNodes`, so this only widens the finite sharing-chain allowance. -/
+private def maxTransparentLetSteps : Nat := 4096
 
 private def isPolymorphicWrapper (name : Name) : Bool :=
   name == ``List.toArray || name == ``List.nil || name == ``List.cons ||
@@ -170,7 +175,7 @@ private def decodeArray (decode : Expr → Except String α) (expr : Expr) :
       match rest.consumeMData with
       | .letE _ _ value body _ =>
           letSteps := letSteps + 1
-          if letSteps > maxLogicalDepth then
+          if letSteps > maxTransparentLetSteps then
             return ← unsupported
           rest := body.instantiate1 value
           checkRawNodeBound rest

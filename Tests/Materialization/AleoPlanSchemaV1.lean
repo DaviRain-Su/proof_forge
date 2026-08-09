@@ -4,7 +4,7 @@
   Covers:
   * domain pin `pf.aleo-plan.engineering.v1`
   * deterministic encode/digest on hand-built minimal Plan
-  * Counter product-path identity (digest recompute + two mints)
+  * StateCell product-path identity (digest recompute + two mints)
   * field / expr / stmt / view mutation non-aliasing
   * invalid Plan encode fail closed (validatePlan gate)
 
@@ -14,7 +14,7 @@ import ProofForgeV2
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.TargetIdentityV1
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.Aleo
 import ProofForgeV2.Targets.Aleo.PlanSchemaV1
@@ -70,15 +70,15 @@ private def minimalPlan : Plan := {
   semanticHash := "sha256:1111111111111111111111111111111111111111111111111111111111111111"
 }
 
-private unsafe def compileCounter : IO CompiledSemanticV1 := do
+private unsafe def compileStateCell : IO CompiledSemanticV1 := do
   let session ← Tests.Language.ParserSession.shared
-  let source ← liftResult "load Counter" (← session.selectProgramV1
-    Examples.counterSourceText "<aleo-plan-schema-counter>"
-    Examples.counterModuleNameV1 none)
-  liftResult "compile Counter" (Compiler.compileValidatedSourceV1 source)
+  let source ← liftResult "load StateCell" (← session.selectProgramV1
+    Examples.stateCellSourceText "<aleo-plan-schema-stateCell>"
+    Examples.stateCellModuleNameV1 none)
+  liftResult "compile StateCell" (Compiler.compileValidatedSourceV1 source)
 
-private unsafe def planCounter : IO Plan := do
-  let compiled ← compileCounter
+private unsafe def planStateCell : IO Plan := do
+  let compiled ← compileStateCell
   let selection ← liftResult "select aleo" (resolveBuildSelectionV1 TargetId.aleo none)
   let capability ← liftResult "resolve"
     (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -284,14 +284,14 @@ private def testInvalidPlanEncodeFails : IO Unit := do
   | .ok _ => throw <| IO.userError "encode must reject state table length mismatch"
 
 private unsafe def testProductPathRecompute : IO Unit := do
-  let plan ← planCounter
-  expect (plan.programName == "Counter") "Counter name"
+  let plan ← planStateCell
+  expect (plan.programName == "StateCell") "StateCell name"
   let d1 ← liftExcept "d1" (engineeringAleoPlanDigestV1 plan)
   let bytes ← liftExcept "enc" (encodeEngineeringAleoPlanBytesV1 plan)
   let recomputed ← liftExcept "dom"
     (domainSeparatedSha256 engineeringAleoPlanDomainV1 bytes)
   expect (d1.bytes == recomputed.bytes) "recompute"
-  let plan2 ← planCounter
+  let plan2 ← planStateCell
   let d2 ← liftExcept "d2" (engineeringAleoPlanDigestV1 plan2)
   expect (d1.bytes == d2.bytes) "two mints"
   let b1 ← liftExcept "b1" (encodeEngineeringAleoPlanBytesV1 plan)
@@ -299,7 +299,7 @@ private unsafe def testProductPathRecompute : IO Unit := do
   expect (b1 == b2) "bytes equal"
   -- Distinct from minimal hand-built plan.
   let dMin ← liftExcept "min" (engineeringAleoPlanDigestV1 minimalPlan)
-  expectDigestDiff "Counter≠minimal" d1 dMin
+  expectDigestDiff "StateCell≠minimal" d1 dMin
 
 private def testWirePresence : IO Unit := do
   let schema ← IO.Process.output {

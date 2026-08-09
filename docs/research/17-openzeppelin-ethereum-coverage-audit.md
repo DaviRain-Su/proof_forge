@@ -430,7 +430,7 @@ gas 默认排除，因为优化和 compiler 版本会改变 gas；只有未来�
 
 #### A. 现有 primitive 迁移（EVMOZ-004 已交付 engineering）
 
-`pf.primitive.counter.overflow-hold.v1`（以及 Accumulator / ArithOps / EventFlow /
+`pf.primitive.statecell.overflow-hold.v1`（以及 Accumulator / ArithOps / EventFlow /
 OwnableLike caller 同族）
 
 - class：`primitive`

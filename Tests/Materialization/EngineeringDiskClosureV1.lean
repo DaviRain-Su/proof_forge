@@ -14,7 +14,7 @@
 import ProofForgeV2
 import ProofForgeV2.CLI.Emit
 import ProofForgeV2.CLI.Main
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Materialization.ArtifactContentV1
 import ProofForgeV2.Materialization.EngineeringDiskClosureV1
@@ -45,12 +45,12 @@ private def materializeOk (label : String) (capability : Targets.ResolvedEnginee
     IO MaterializedArtifactsV1 :=
   liftResult label (Targets.materializeResult capability)
 
-private unsafe def compileCounter : IO CompiledSemanticV1 := do
+private unsafe def compileStateCell : IO CompiledSemanticV1 := do
   let session ← Tests.Language.ParserSession.shared
-  let source ← liftResult "load Counter" (← session.selectProgramV1
-    Examples.counterSourceText "<disk-closure-counter>"
-    Examples.counterModuleNameV1 none)
-  liftResult "compile Counter" (Compiler.compileValidatedSourceV1 source)
+  let source ← liftResult "load StateCell" (← session.selectProgramV1
+    Examples.stateCellSourceText "<disk-closure-stateCell>"
+    Examples.stateCellModuleNameV1 none)
+  liftResult "compile StateCell" (Compiler.compileValidatedSourceV1 source)
 
 private def expectIoErrorContains (label needle : String) (act : IO Unit) : IO Unit := do
   try
@@ -78,7 +78,7 @@ private def minimalSidecars : String × String :=
 
 /-- Flat Solana product emit + production closure on published tree. -/
 private unsafe def testFlatSolanaPositive : IO Unit := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let selection ← liftResult "select solana" (resolveBuildSelectionV1 TargetId.solana none)
   let capability ← liftResult "resolve solana"
     (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -89,14 +89,14 @@ private unsafe def testFlatSolanaPositive : IO Unit := do
   if ← outDir.pathExists then IO.FS.removeDirAll outDir
   let receipt ← ProofForgeV2.CLI.emitProgram capability outDir
   expect (receipt.deployable == true) "solana sole CPI-ELF rail deployable"
-  expect (← (outDir / "Counter.so").pathExists) "solana finalized ELF present"
+  expect (← (outDir / "StateCell.so").pathExists) "solana finalized ELF present"
   expect (← (outDir / "evidence.json").pathExists) "solana evidence present"
   expect (← (outDir / "manifest.json").pathExists) "solana manifest present"
   let manifestText ← IO.FS.readFile (outDir / "manifest.json")
   expect ((manifestText.splitOn "\"deployable\": true").length > 1 &&
-      (manifestText.splitOn "\"path\": \"Counter.so\"").length > 1 &&
+      (manifestText.splitOn "\"path\": \"StateCell.so\"").length > 1 &&
       (manifestText.splitOn "\"role\": \"finalized-extra\"").length > 1)
-    "solana manifest must bind deployable Counter.so finalized extra"
+    "solana manifest must bind deployable StateCell.so finalized extra"
   expect ((manifestText.splitOn "evidence.json").length == 1)
     "evidence must not appear in manifest.files"
   for p in basePaths do
@@ -113,7 +113,7 @@ private unsafe def testFlatSolanaPositive : IO Unit := do
 
 /-- Nested Noir relations tree product emit + production closure. -/
 private unsafe def testNestedNoirPositive : IO Unit := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let selection ← liftResult "select noir" (resolveBuildSelectionV1 TargetId.noir none)
   let capability ← liftResult "resolve noir"
     (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -145,7 +145,7 @@ private unsafe def testNestedNoirPositive : IO Unit := do
 
 /-- Manifest-last published closure: evidence + manifest present, evidence not in files. -/
 private unsafe def testManifestLastPublishedClosure : IO Unit := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let selection ← liftResult "select solana" (resolveBuildSelectionV1 TargetId.solana none)
   let capability ← liftResult "resolve solana"
     (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -169,7 +169,7 @@ private unsafe def testManifestLastPublishedClosure : IO Unit := do
 
 /-- Destination symlink reject + no-clobber + tool-fail staging cleanup. -/
 private unsafe def testDestinationSymlinkNoClobberToolFail : IO Unit := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let selection ← liftResult "select solana" (resolveBuildSelectionV1 TargetId.solana none)
   let capability ← liftResult "resolve solana"
     (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -206,7 +206,7 @@ private unsafe def testDestinationSymlinkNoClobberToolFail : IO Unit := do
   let result ← IO.Process.output {
     cmd := "lake"
     args := #["env", ".lake/build/bin/proof-forge-next",
-      "build", "Examples/Counter.lean", "--module", "Examples.Counter",
+      "build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
       "--target", "evm", "-o", toolFailOut.toString]
     env := #[("PROOF_FORGE_TOOL_ROOT", "/definitely/missing-s7c-tool-root")]
     inheritEnv := true
@@ -221,7 +221,7 @@ private unsafe def testDestinationSymlinkNoClobberToolFail : IO Unit := do
 /-- Shared helper: solana capability + finalized + happy staging for mutation tests. -/
 private unsafe def solanaFinalizedStaging (label : String) :
     IO (Targets.ResolvedEngineeringBuildV1 × FinalizedArtifactsV1 × FilePath) := do
-  let compiled ← compileCounter
+  let compiled ← compileStateCell
   let selection ← liftResult s!"select {label}" (resolveBuildSelectionV1 TargetId.solana none)
   let capability ← liftResult s!"resolve {label}"
     (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -291,7 +291,7 @@ private unsafe def testValidatorNegatives : IO Unit := do
       validateEngineeringDiskClosureV1 finalized staging
   -- Sidecar collision with base (logical gate via mint extra named evidence.json).
   do
-    let compiled ← compileCounter
+    let compiled ← compileStateCell
     let selection ← liftResult "select collide" (resolveBuildSelectionV1 TargetId.solana none)
     let capability ← liftResult "resolve collide"
       (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -315,7 +315,7 @@ private unsafe def testValidatorNegatives : IO Unit := do
       validateEngineeringDiskClosureV1 finalized staging
   -- File/directory prefix conflict: leaf that is proper prefix of another leaf.
   do
-    let compiled ← compileCounter
+    let compiled ← compileStateCell
     let selection ← liftResult "select prefix" (resolveBuildSelectionV1 TargetId.solana none)
     let capability ← liftResult "resolve prefix"
       (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -342,7 +342,7 @@ private unsafe def testValidatorNegatives : IO Unit := do
   pure ()
   -- Over file-count limit (logical, no filesystem write of all leaves).
   do
-    let compiled ← compileCounter
+    let compiled ← compileStateCell
     let selection ← liftResult "select limit" (resolveBuildSelectionV1 TargetId.solana none)
     let capability ← liftResult "resolve limit"
       (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -410,7 +410,7 @@ private unsafe def testValidatorNegatives : IO Unit := do
 private unsafe def testValidatorNegativesExtended : IO Unit := do
   -- Total closure size limit: several under-per-file sparse extras sum > 256 MiB.
   do
-    let compiled ← compileCounter
+    let compiled ← compileStateCell
     let selection ← liftResult "select totalsize" (resolveBuildSelectionV1 TargetId.solana none)
     let capability ← liftResult "resolve totalsize"
       (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -453,7 +453,7 @@ private unsafe def testValidatorNegativesExtended : IO Unit := do
       validateEngineeringDiskClosureV1 finalized staging
   -- Nested Noir: expected intermediate directory replaced by a regular file.
   do
-    let compiled ← compileCounter
+    let compiled ← compileStateCell
     let selection ← liftResult "select noir-dirfile" (resolveBuildSelectionV1 TargetId.noir none)
     let capability ← liftResult "resolve noir-dirfile"
       (Targets.resolveEngineeringRequirementsV1 selection compiled)
@@ -474,7 +474,7 @@ private unsafe def testValidatorNegativesExtended : IO Unit := do
       validateEngineeringDiskClosureV1 finalized staging
   -- Publisher dual-defense: extras named as transitional sidecars rejected pre-write.
   do
-    let compiled ← compileCounter
+    let compiled ← compileStateCell
     let selection ← liftResult "select dual-def" (resolveBuildSelectionV1 TargetId.solana none)
     let capability ← liftResult "resolve dual-def"
       (Targets.resolveEngineeringRequirementsV1 selection compiled)

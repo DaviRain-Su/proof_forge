@@ -65,7 +65,7 @@ def exact_physical_closure(
 ) -> None:
     """No-follow exact physical closure of regular files + intermediate dirs.
 
-    Shared helper for every Counter/Accumulator target tree. Rejects symlinks,
+    Shared helper for every StateCell/Accumulator target tree. Rejects symlinks,
     FIFO/socket/device/other nonregular entries, missing/extra files or dirs, and
     type mismatches. Does not inspect file contents. Deterministic scandir order.
     """
@@ -1158,10 +1158,10 @@ def main() -> None:
         raise SystemExit(f"source hash differs across targets: {source_hashes}")
     if len(semantic_hashes) != 1:
         raise SystemExit(f"semantic hash differs across targets: {semantic_hashes}")
-    evm_bin = (root / "evm" / "Counter.bin").read_text(encoding="ascii").strip()
+    evm_bin = (root / "evm" / "StateCell.bin").read_text(encoding="ascii").strip()
     if not manifests["evm"]["deployable"] or not re.fullmatch(r"[0-9a-fA-F]+", evm_bin):
         raise SystemExit("EVM artifact is not validated bytecode")
-    wasm = (root / "near" / "Counter.wasm").read_bytes()
+    wasm = (root / "near" / "StateCell.wasm").read_bytes()
     if not manifests["near"]["deployable"] or not wasm.startswith(b"\x00asm"):
         raise SystemExit("NEAR artifact is not a validated Wasm binary")
     if manifests["solana"]["deployable"]:
@@ -1171,7 +1171,7 @@ def main() -> None:
     validate_noir_bundle(
         root,
         "noir",
-        "Counter",
+        "StateCell",
         "count",
         "initial",
         "increment",

@@ -2,7 +2,7 @@
   Tests.CLI.InlineProofProductV1 — product CLI inline-proof cutover.
 
   Spawns the real `proof-forge-next` binary for:
-    * Counter check: noProof success with proofStatus=not-required, count 0, digest none/null
+    * StateCell check: noProof success with proofStatus=not-required, count 0, digest none/null
     * false-theorem program: check fails PF-SRC-INVALID / exit 3
     * false theorem + invalid/unsupported target on build: proof failure wins,
       zero output directory (certifier before TargetRegistry resolve/materialize)
@@ -167,31 +167,31 @@ private def jsonStringField? (text key : String) : Option String :=
       | [] => none
   | _ => none
 
-/-- Counter check: no proof surface → status not-required. -/
-private def testCounterCheckNoProof : IO Unit := do
+/-- StateCell check: no proof surface → status not-required. -/
+private def testStateCellCheckNoProof : IO Unit := do
   let (ec, stdout, stderr) ← runCli #[
-    "check", "Examples/Counter.lean",
-    "--module", "Examples.Counter"
+    "check", "Examples/StateCell.lean",
+    "--module", "Examples.StateCell"
   ]
   expect (ec == 0)
-    s!"Counter check must exit 0, got {ec}\nstderr={stderr}\nstdout={stdout}"
-  expect (hasSubstr stdout "ok\n") "Counter check ok line"
+    s!"StateCell check must exit 0, got {ec}\nstderr={stderr}\nstdout={stdout}"
+  expect (hasSubstr stdout "ok\n") "StateCell check ok line"
   expect (hasSubstr stdout "proofStatus=not-required")
-    s!"Counter check must report not-required proof status:\n{stdout}"
+    s!"StateCell check must report not-required proof status:\n{stdout}"
   expect (hasSubstr stdout "proofTheoremCount=0")
-    s!"Counter check theorem count must be 0:\n{stdout}"
+    s!"StateCell check theorem count must be 0:\n{stdout}"
   expect (hasSubstr stdout "proofCertificationDigest=none")
-    s!"Counter check digest must be none:\n{stdout}"
+    s!"StateCell check digest must be none:\n{stdout}"
   expect (stderr == "")
-    s!"Counter check ok must be silent on stderr, got {stderr}"
+    s!"StateCell check ok must be silent on stderr, got {stderr}"
 
   let (ecJ, stdoutJ, stderrJ) ← runCli #[
-    "check", "Examples/Counter.lean",
-    "--module", "Examples.Counter", "--json"
+    "check", "Examples/StateCell.lean",
+    "--module", "Examples.StateCell", "--json"
   ]
   expect (ecJ == 0)
-    s!"Counter check --json must exit 0, got {ecJ}\n{stderrJ}"
-  expectCanonicalJson "counter-check" stdoutJ
+    s!"StateCell check --json must exit 0, got {ecJ}\n{stderrJ}"
+  expectCanonicalJson "stateCell-check" stdoutJ
   expect (hasSubstr stdoutJ "\"proofStatus\":\"not-required\"")
     s!"json proofStatus: {stdoutJ}"
   expect (hasSubstr stdoutJ "\"proofTheoremCount\":0")
@@ -277,14 +277,14 @@ private def testFalseTheoremBuildBeforeMaterialize : IO Unit := do
 /-- Legacy structural ambient flags stay unknown options. -/
 private def testLegacyProofBundleFlagsUnknown : IO Unit := do
   match parseProductCliCommandV1
-      ["check", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["check", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--proof-bundle", "/tmp/pb"] with
   | .ok _ => throw <| IO.userError "legacy --proof-bundle must be unknown"
   | .error msg =>
       expect (hasSubstr msg "unknown option")
         s!"legacy --proof-bundle: {msg}"
   match parseProductCliCommandV1
-      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "evm",
         "--proof-bundle-digest",
         "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"] with
@@ -298,13 +298,13 @@ private def testRenderProofStatusFields : IO Unit := do
   let dig : Digest :=
     { algorithm := .sha256
       bytes := ByteArray.mk (Array.replicate 32 0) }
-  match renderCheckOkJsonV1 "Counter" dig dig none none #[] .notRequired with
+  match renderCheckOkJsonV1 "StateCell" dig dig none none #[] .notRequired with
   | .error e => throw <| IO.userError s!"render notRequired: {e.render}"
   | .ok text =>
       expect (hasSubstr text "\"proofStatus\":\"not-required\"") "json not-required"
       expect (hasSubstr text "\"proofTheoremCount\":0") "json count 0"
       expect (hasSubstr text "\"proofCertificationDigest\":null") "json digest null"
-  match renderCheckOkHumanV1 "Counter" dig dig none none .notRequired with
+  match renderCheckOkHumanV1 "StateCell" dig dig none none .notRequired with
   | .error e => throw <| IO.userError s!"human notRequired: {e.render}"
   | .ok text =>
       expect (hasSubstr text "proofStatus=not-required") "human not-required"
@@ -491,7 +491,7 @@ def run : IO Unit := do
   unless ← cliBin.pathExists do
     throw <| IO.userError
       "proof-forge-next missing: product-positive CLI suite requires built binary"
-  testCounterCheckNoProof
+  testStateCellCheckNoProof
   testFalseTheoremCheckFails
   testFalseTheoremBuildBeforeInvalidTarget
   testFalseTheoremBuildBeforeMaterialize

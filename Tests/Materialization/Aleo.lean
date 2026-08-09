@@ -1,6 +1,6 @@
 /-
   Aleo target leaf tests: capability-gated Plan/IR/emitter over the retained
-  SemanticProgramV1 envelope. Covers the Counter shape (init guard + Final
+  SemanticProgramV1 envelope. Covers the StateCell shape (init guard + Final
   mutate + droppedReturn + bare view query), pure fns with shifts/bitwise/
   strict logical, bounded for, and the honest fail-closed decisions (emit,
   revert payloads, computed state-reading views).
@@ -66,13 +66,13 @@ private def materializeLeoSource
       throw <| IO.userError
         s!"aleo: missing {programId}.leo under emitLeoDebug; got {files.map (·.path)}"
 
-/-- Counter: init guard + state-touching entry (dropped return) + bare view. -/
-unsafe def testCounterPlanAndLeo : IO Unit := do
+/-- StateCell: init guard + state-touching entry (dropped return) + bare view. -/
+unsafe def testStateCellPlanAndLeo : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program Counter where\n" ++
+    "program StateCell where\n" ++
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -82,11 +82,11 @@ unsafe def testCounterPlanAndLeo : IO Unit := do
     "  view get() : UInt64 do\n" ++
     "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<aleo-counter>" "Tests.AleoCounter" none)
+    source "<aleo-statecell>" "Tests.AleoStateCell" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   let plan ← liftResult <| planAleo compiled
   expect (plan.functions.map (·.name) == #["initialize", "increment"])
-    "Counter Aleo plan must carry initialize + increment in source order"
+    "StateCell Aleo plan must carry initialize + increment in source order"
   let initFn := plan.functions[0]!
   expect (initFn.kind == .initialize && !initFn.resultDropped)
     "initialize must be the guarded Final function"
@@ -97,24 +97,24 @@ unsafe def testCounterPlanAndLeo : IO Unit := do
     "get must materialize as a bare state-read view query"
   liftResult <| Targets.Aleo.validatePlan plan
   let ir ← liftResult <| irAleo compiled
-  expect (ir.program.programId == "counter")
-    "Counter Leo program id must be the lowercased artifact name"
+  expect (ir.program.programId == "statecell")
+    "StateCell Leo program id must be the lowercased artifact name"
   liftResult <| Targets.Aleo.validateIR ir
   let output ← liftResult <| materializeAleo compiled
   let files := MaterializedArtifactsV1.filesOf output
   expect (files.map (·.path) ==
-      #["counter.aleo", "counter.aleo-query-contract.json"])
-    s!"Counter materialize must emit Instructions + query-contract base files in order, got {files.map (·.path)}"
+      #["statecell.aleo", "statecell.aleo-query-contract.json"])
+    s!"StateCell materialize must emit Instructions + query-contract base files in order, got {files.map (·.path)}"
   expect (files[0]!.mediaType == "text/plain" &&
       files[1]!.mediaType == "application/json")
-    "Counter base mediaTypes must be text/plain then application/json"
-  let some instFile := files.find? (·.path == "counter.aleo") |
-    throw <| IO.userError "aleo: missing counter.aleo"
+    "StateCell base mediaTypes must be text/plain then application/json"
+  let some instFile := files.find? (·.path == "statecell.aleo") |
+    throw <| IO.userError "aleo: missing statecell.aleo"
   let inst := instFile.contents
   -- ALEO-IR-6: product primary is Aleo Instructions (not Leo 4 brace source).
-  expect (inst.contains "program counter.aleo;")
+  expect (inst.contains "program statecell.aleo;")
     "Instructions primary must declare the program with semicolon header"
-  expect (!inst.contains "program counter.aleo {")
+  expect (!inst.contains "program statecell.aleo {")
     "Instructions primary must not be Leo brace source"
   expect (inst.contains "mapping pf_state_0:")
     "Instructions must declare the state mapping"
@@ -142,13 +142,13 @@ unsafe def testCounterPlanAndLeo : IO Unit := do
   let filesDbg ← liftResult <| materializeAleo compiled none (emitLeoDebug := true)
   let dbgPaths := (MaterializedArtifactsV1.filesOf filesDbg).map (·.path)
   expect (dbgPaths ==
-      #["counter.aleo", "counter.aleo-query-contract.json", "counter.leo"])
-    s!"debug dual-write must add counter.leo last, got {dbgPaths}"
+      #["statecell.aleo", "statecell.aleo-query-contract.json", "statecell.leo"])
+    s!"debug dual-write must add statecell.leo last, got {dbgPaths}"
   let some leoFile := (MaterializedArtifactsV1.filesOf filesDbg).find?
-      (·.path == "counter.leo") |
-    throw <| IO.userError "aleo: missing counter.leo under emitLeoDebug"
+      (·.path == "statecell.leo") |
+    throw <| IO.userError "aleo: missing statecell.leo under emitLeoDebug"
   let leo := leoFile.contents
-  expect (leo.contains "program counter.aleo {")
+  expect (leo.contains "program statecell.aleo {")
     "debug Leo source must declare the program"
   expect (leo.contains "mapping pf_state_0: u8 => u64;")
     "debug Leo source must declare the state mapping"
@@ -678,7 +678,7 @@ unsafe def testMultiStateLeo : IO Unit := do
     product path: S1 Normalize requires an explicit return for entry/view and
     rejects bare `return` (return none). Init is the only Unit callable that
     may omit a return (allowImplicitReturnNone). Pin the fail-closed surface;
-    Leo Unit Final rendering is exercised by initialize in Counter. -/
+    Leo Unit Final rendering is exercised by initialize in StateCell. -/
 unsafe def testVoidEntryLeo : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -1231,7 +1231,7 @@ unsafe def testInt64Negatives : IO Unit := do
   expect (leo.contains "-1i64")
     "-1 must render as a negative i64 literal"
 
-/-- End-to-end leo build of an Int64 Counter shape (skipped when leo absent;
+/-- End-to-end leo build of an Int64 StateCell shape (skipped when leo absent;
     this is the resident source-shape test; the leo build itself lives in
     AleoAcceptance when leo is present). -/
 unsafe def testInt64AcceptanceLeo : IO Unit := do
@@ -1253,7 +1253,7 @@ unsafe def testInt64AcceptanceLeo : IO Unit := do
   liftResult <| Targets.Aleo.validatePlan plan
   let leoSource ← materializeLeoSource compiled "temp"
   expect (leoSource.contains "program temp.aleo {")
-    "Int64 Counter must materialize a Leo program"
+    "Int64 StateCell must materialize a Leo program"
 
 /-- First index of `needle` in `hay` as char list, or none. -/
 private partial def indexOfChars (hay needle : List Char) (i : Nat) : Option Nat :=
@@ -2449,14 +2449,14 @@ unsafe def testOptionState : IO Unit := do
         s!"Option param FC must cite parameter/Option boundary, got: {e.render}"
   IO.println "  OptionState fail-closed matrix ok"
 
-/-- ALEO-I2: Counter query-contract sidecar binds schema, mapping, bare view,
+/-- ALEO-I2: StateCell query-contract sidecar binds schema, mapping, bare view,
     and honest resultDropped observation (never Final return). -/
-unsafe def testQueryContractCounter : IO Unit := do
+unsafe def testQueryContractStateCell : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program Counter where\n" ++
+    "program StateCell where\n" ++
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -2466,26 +2466,26 @@ unsafe def testQueryContractCounter : IO Unit := do
     "  view get() : UInt64 do\n" ++
     "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<aleo-qc-counter>" "Tests.AleoQcCounter" none)
+    source "<aleo-qc-statecell>" "Tests.AleoQcStateCell" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   let plan ← liftResult <| planAleo compiled
   let output ← liftResult <| materializeAleo compiled
   let files := MaterializedArtifactsV1.filesOf output
   expect (files.map (·.path) ==
-      #["counter.aleo", "counter.aleo-query-contract.json"])
-    s!"query-contract Counter paths, got {files.map (·.path)}"
+      #["statecell.aleo", "statecell.aleo-query-contract.json"])
+    s!"query-contract StateCell paths, got {files.map (·.path)}"
   let some contractFile := files.find?
-      (·.path == "counter.aleo-query-contract.json") |
-    throw <| IO.userError "missing counter.aleo-query-contract.json"
+      (·.path == "statecell.aleo-query-contract.json") |
+    throw <| IO.userError "missing statecell.aleo-query-contract.json"
   expect (contractFile.mediaType == "application/json")
     "query-contract mediaType must be application/json"
   let c := contractFile.contents
   expect (c.endsWith "\n") "query-contract must end with a trailing newline"
   expect (c.contains "\"schema\": \"proof-forge-aleo-query-contract/v1\"")
     "query-contract schema must be exact proof-forge-aleo-query-contract/v1"
-  expect (c.contains "\"program\": \"Counter\"")
+  expect (c.contains "\"program\": \"StateCell\"")
     "query-contract program must bind artifact name"
-  expect (c.contains "\"programFile\": \"counter.aleo\"")
+  expect (c.contains "\"programFile\": \"statecell.aleo\"")
     "query-contract programFile must bind primary .aleo base path"
   expect (c.contains "\"codegenProfile\": \"aleo-leo-4.0.2-u64-v1\"")
     "query-contract must bind current Aleo profile"
@@ -2541,10 +2541,9 @@ unsafe def testQueryContractCounter : IO Unit := do
   expect (c.contains
       "{\"index\":0,\"name\":\"get\",\"mapping\":\"pf_state_0\",\"key\":\"0u8\",\"type\":\"u64\",\"default\":\"0u64\"}")
     "query-contract views must bind get → pf_state_0"
-  -- Primary Instructions (and residual Leo) must omit the bare view
-  -- (descriptor / query-contract only).
-  let some primaryFile := files.find? (·.path == "counter.aleo") |
-    throw <| IO.userError "missing counter.aleo"
+  -- Primary Instructions must omit the bare view (descriptor / query-contract only).
+  let some primaryFile := files.find? (·.path == "statecell.aleo") |
+    throw <| IO.userError "missing statecell.aleo"
   expect (!primaryFile.contents.contains "fn get(")
     "bare view must never emit into primary .aleo"
   expect (!primaryFile.contents.contains "function get:")
@@ -2648,7 +2647,7 @@ unsafe def testQueryContractDeterminism : IO Unit := do
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program Counter where\n" ++
+    "program StateCell where\n" ++
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -2679,7 +2678,7 @@ unsafe def testDualProfilePlanAndQueryContract : IO Unit := do
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program Counter where\n" ++
+    "program StateCell where\n" ++
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -2723,26 +2722,26 @@ unsafe def testDualProfilePlanAndQueryContract : IO Unit := do
   let filesSrc := MaterializedArtifactsV1.filesOf outSrc
   let filesCmp := MaterializedArtifactsV1.filesOf outCmp
   expect (filesSrc.map (·.path) ==
-      #["counter.aleo", "counter.aleo-query-contract.json"])
+      #["statecell.aleo", "statecell.aleo-query-contract.json"])
     s!"source profile base paths (Instructions+query), got {filesSrc.map (·.path)}"
   expect (filesCmp.map (·.path) ==
-      #["counter.aleo", "counter.aleo-query-contract.json", "counter.leo"])
+      #["statecell.aleo", "statecell.aleo-query-contract.json", "statecell.leo"])
     s!"compile profile dual-writes Leo for compare, got {filesCmp.map (·.path)}"
-  let some primarySrc := filesSrc.find? (·.path == "counter.aleo") |
-    throw <| IO.userError "dual: missing source counter.aleo"
-  let some primaryCmp := filesCmp.find? (·.path == "counter.aleo") |
-    throw <| IO.userError "dual: missing compile counter.aleo"
+  let some primarySrc := filesSrc.find? (·.path == "statecell.aleo") |
+    throw <| IO.userError "dual: missing source statecell.aleo"
+  let some primaryCmp := filesCmp.find? (·.path == "statecell.aleo") |
+    throw <| IO.userError "dual: missing compile statecell.aleo"
   expect (primarySrc.contents == primaryCmp.contents)
     "dual profiles must emit exact-byte-equal Instructions primary"
-  expect (primarySrc.contents.contains "program counter.aleo;")
+  expect (primarySrc.contents.contains "program statecell.aleo;")
     "dual profile primary must be Instructions text"
-  let some leoCmp := filesCmp.find? (·.path == "counter.leo") |
-    throw <| IO.userError "dual: missing compile counter.leo"
-  expect (leoCmp.contents.contains "program counter.aleo {")
+  let some leoCmp := filesCmp.find? (·.path == "statecell.leo") |
+    throw <| IO.userError "dual: missing compile statecell.leo"
+  expect (leoCmp.contents.contains "program statecell.aleo {")
     "compile dual-write must be Leo 4 brace source"
-  let some qcSrc := filesSrc.find? (·.path == "counter.aleo-query-contract.json") |
+  let some qcSrc := filesSrc.find? (·.path == "statecell.aleo-query-contract.json") |
     throw <| IO.userError "dual: missing source query-contract"
-  let some qcCmp := filesCmp.find? (·.path == "counter.aleo-query-contract.json") |
+  let some qcCmp := filesCmp.find? (·.path == "statecell.aleo-query-contract.json") |
     throw <| IO.userError "dual: missing compile query-contract"
   expect (qcSrc.contents.contains "\"codegenProfile\": \"aleo-leo-4.0.2-u64-v1\"")
     "source sidecar must honestly bind source profile"
@@ -2765,7 +2764,7 @@ unsafe def testDualProfilePlanAndQueryContract : IO Unit := do
     "descriptor rejects foreign EVM profile"
 
 unsafe def run : IO Unit := do
-  testCounterPlanAndLeo
+  testStateCellPlanAndLeo
   testPureOpsAndShifts
   testBoundedForLeo
   testFailClosedNegatives
@@ -2811,7 +2810,7 @@ unsafe def run : IO Unit := do
   testMultiLeafViewOverStateFailClosed
   testAggregateReturnFailClosed
   testOptionState
-  testQueryContractCounter
+  testQueryContractStateCell
   testQueryContractDualViews
   testQueryContractNoStateEmpty
   testQueryContractDeterminism

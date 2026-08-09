@@ -70,6 +70,3 @@ def run : IO Unit := do
   IO.println "Tests.Semantic.SubjectDataBridgeV1: ok"
 
 end Tests.Semantic.SubjectDataBridgeV1
-
-def main : IO Unit :=
-  Tests.Semantic.SubjectDataBridgeV1.run

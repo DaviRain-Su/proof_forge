@@ -1,7 +1,7 @@
 /-
   Tests.Typed.DisclosureCheckV1 — D2-04b explicit + PC-label / implicit disclosure suite.
 
-  Covers public Counter-shaped programs, private→private assign OK, private→public
+  Covers public StateCell-shaped programs, private→private assign OK, private→public
   assign/return/emit/revert/call/schedule/index rejection with PF-VIS-001,
   localCall arg→param visibility (public param sink / private→private OK),
   const defining-expression public sink (private-state→const + const-return
@@ -123,20 +123,20 @@ private def expectWireVis001 (diags : Array DiagnosticV1) (label : String) : IO 
 private def flowMsg (src sink : String) : String :=
   s!"disclosure violation: cannot flow '{src}' into '{sink}'"
 
-private unsafe def testPublicCounterOk
+private unsafe def testPublicStateCellOk
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n\n" ++
-    "program PublicCounter where\n" ++
+    "program PublicStateCell where\n" ++
     "  state total : UInt64\n" ++
     "  entry inc(amount : UInt64) : UInt64 do\n" ++
     "    total := total + amount\n" ++
     "    return total\n" ++
     "  view get() : UInt64 do\n" ++
     "    return total\n"
-  let diags ← checkSourceWithParity session "public-counter-ok" source
-  expectOk diags "public-counter-ok"
+  let diags ← checkSourceWithParity session "public-state-cell-ok" source
+  expectOk diags "public-state-cell-ok"
 
 private unsafe def testPrivateLocalAssignOk
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -928,7 +928,7 @@ private unsafe def testForEndpointsPublicSink
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  testPublicCounterOk session
+  testPublicStateCellOk session
   testPrivateLocalAssignOk session
   testPrivateAssignToPublicRejected session
   testPrivateReturnRejected session

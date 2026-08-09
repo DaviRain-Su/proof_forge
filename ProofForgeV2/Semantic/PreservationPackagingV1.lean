@@ -5,28 +5,23 @@ import ProofForgeV2.Semantic.ReferenceV1
   ProofForgeV2.Semantic.PreservationPackagingV1 — program-agnostic packaging
   lemmas for L1 PreservationTheoremV1 proofs.
 
-  Extracted from the EvenCounter first instance so later programs can reuse
-  failure-arm, returned-gate, post=pre, and UInt64 size packaging without
-  mentioning EvenCounter constants. Instance modules (e.g. EvenCounter) must
-  call these lemmas directly — no defeq-safe local aliases.
+  Reusable failure-arm, returned-gate, post=pre, and UInt64 size packaging.
+  Business source files call these lemmas through generated subject declarations;
+  the product package contains no per-contract proof module or byte alias.
 
   ## Author recipe (unpinned / arbitrary contracts)
 
   ```text
   theorem AuthorThm : P.ProofPreserving.inv := by
     -- Goal: PreservationTheoremV1 P.Proof.subjectProgramV1 ordinal
-    -- Use packaging lemmas + program-specific step facts; do NOT require
-    -- ClosedSubjectPinV1 table membership.
+    -- Use packaging lemmas + program-specific step facts; no contract registry
+    -- or package-owned subject golden is involved.
     ...
   ```
 
-  ClosedSubjectPin is optional golden exact-defeq only. Transport between
-  byte-identical subjects (when a package theorem exists) is
-  instance-local (e.g. EvenCounter `preservation_theorem_of_eq_bytes`).
-
   Engineering only (track 1 business formalization packaging). Does not add a
   second State/Effect/step machine. Sole L1 step authority remains
-  admitReferenceProgramSliceV1 + stepReferenceSliceV1. Pin is not required.
+  `admitReferenceProgramSliceV1` + `stepReferenceSliceV1`.
 -/
 
 namespace ProofForgeV2.Semantic.PreservationPackagingV1

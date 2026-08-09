@@ -71,7 +71,7 @@ def run : IO Unit := do
   -- Build args: accept resource-limit + minimum-evidence
   let buildOpts ← expectOk "build parse"
     (parseBuildArgsExcept
-      ["Examples/Counter.lean", "--module", "Examples.Counter", "--target", "evm",
+      ["Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "evm",
         "--resource-limit", "compiler-core.wall-ms=1000",
         "--minimum-evidence", "artifact_validated"])
   expect (buildOpts.resourceLimits.size == 1) "one resource limit"
@@ -84,28 +84,28 @@ def run : IO Unit := do
   -- Product preflight: check rejects external-tool stage
   expectErr "check external-tool"
     (parseProductCliCommandV1
-      ["check", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["check", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--resource-limit", "external-tool.wall-ms=1000"])
     "check rejects"
 
   -- Product preflight: check rejects minimum-evidence
   expectErr "check min-evidence"
     (parseProductCliCommandV1
-      ["check", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["check", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--minimum-evidence", "specified"])
     "not accepted on check"
 
   -- Product preflight: bad evidence grade on build
   expectErr "bad grade"
     (parseProductCliCommandV1
-      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "evm", "--minimum-evidence", "not-a-grade"])
     "unknown --minimum-evidence"
 
   -- Duplicate resource-limit same key
   expectErr "dup limit"
     (parseProductCliCommandV1
-      ["check", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["check", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--resource-limit", "frontend.wall-ms=100",
         "--resource-limit", "frontend.wall-ms=200"])
     "duplicate --resource-limit"
@@ -114,17 +114,17 @@ def run : IO Unit := do
   -- unknown options (no parse pair acceptance / no product bypass).
   expectErr "bundle only"
     (parseProductCliCommandV1
-      ["check", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["check", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--proof-bundle", "/tmp/pb"])
     "unknown option"
   expectErr "digest only"
     (parseProductCliCommandV1
-      ["check", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["check", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--proof-bundle-digest", "sha256:0000000000000000000000000000000000000000000000000000000000000000"])
     "unknown option"
   expectErr "bundle pair"
     (parseProductCliCommandV1
-      ["check", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["check", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--proof-bundle", "bundle-dir",
         "--proof-bundle-digest",
         "sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"])
@@ -133,7 +133,7 @@ def run : IO Unit := do
   -- Unknown option still fail closed
   expectErr "network"
     (parseProductCliCommandV1
-      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "evm", "--network", "local"])
     "unknown option"
 
@@ -141,7 +141,7 @@ def run : IO Unit := do
   let dig : Digest :=
     { algorithm := .sha256
       bytes := ByteArray.mk (Array.replicate 32 0) }
-  match renderCheckOkJsonV1 "Counter" dig dig none none
+  match renderCheckOkJsonV1 "StateCell" dig dig none none
       #[{ stage := "frontend", field := "wall-ms", value := 5000 }] with
   | .error e => throw <| IO.userError s!"render check json: {e.render}"
   | .ok text =>
@@ -179,14 +179,14 @@ def run : IO Unit := do
   expectErr "published over" (enforcePublishedBytesLimitV1 122 publishedTotal)
     "PF-RESOURCE-OUTPUT"
 
-  -- RES-1 product CLI: Counter check with frontend.wall-ms=1 must fail closed.
+  -- RES-1 product CLI: StateCell check with frontend.wall-ms=1 must fail closed.
   let cliBin := FilePath.mk ".lake/build/bin/proof-forge-next"
   if ← cliBin.pathExists then
     let absoluteCli ← IO.FS.realPath cliBin
     let out ← IO.Process.output {
       cmd := absoluteCli.toString
-      args := #["check", "Examples/Counter.lean",
-        "--module", "Examples.Counter",
+      args := #["check", "Examples/StateCell.lean",
+        "--module", "Examples.StateCell",
         "--resource-limit", "frontend.wall-ms=1"]
     }
     expect (out.exitCode != 0)
@@ -201,8 +201,8 @@ def run : IO Unit := do
     if ← publishedOut.pathExists then IO.FS.removeDirAll publishedOut
     let published ← IO.Process.output {
       cmd := absoluteCli.toString
-      args := #["build", "Examples/Counter.lean",
-        "--module", "Examples.Counter", "--target", "solana",
+      args := #["build", "Examples/StateCell.lean",
+        "--module", "Examples.StateCell", "--target", "solana",
         "--output", publishedOut.toString,
         "--resource-limit", "artifact-output.published-bytes=1"]
     }
@@ -228,8 +228,8 @@ def run : IO Unit := do
     if ← wallOut.pathExists then IO.FS.removeDirAll wallOut
     let wall ← IO.Process.output {
       cmd := absoluteCli.toString
-      args := #["build", "Examples/Counter.lean",
-        "--module", "Examples.Counter", "--target", "solana",
+      args := #["build", "Examples/StateCell.lean",
+        "--module", "Examples.StateCell", "--target", "solana",
         "--output", wallOut.toString,
         "--resource-limit", "artifact-output.wall-ms=1"]
     }

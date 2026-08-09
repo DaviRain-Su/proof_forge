@@ -38,7 +38,7 @@ use {
     },
 };
 
-/// CosmWasm gas budget high enough for Counter-style bodies + JSON builders.
+/// CosmWasm gas budget high enough for StateCell-style bodies + JSON builders.
 pub const GAS_LIMIT: u64 = 2_000_000_000;
 
 /// Layout marker key written by CosmWasm LowerSemanticV1 (`layoutMarkerKey`).

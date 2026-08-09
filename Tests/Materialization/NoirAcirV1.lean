@@ -61,7 +61,7 @@ import ProofForgeV2.Targets.Noir.FinalizeV1
 import ProofForgeV2.Core.Crypto
 import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
@@ -289,8 +289,8 @@ private unsafe def materializeCounterPackages
     (tmp : FilePath) : IO (Array (String × FilePath)) := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
-    Examples.counterSourceText "<noir-acir-ir2-counter>"
-    Examples.counterModuleNameV1 none)
+    Examples.stateCellSourceText "<noir-acir-ir2-stateCell>"
+    Examples.stateCellModuleNameV1 none)
   let compiled ← liftResult "compile Counter" <|
     Compiler.compileValidatedSourceV1 source
   let selection ← liftResult "select noir" <|
@@ -927,8 +927,8 @@ unsafe def testIr6DefaultFinalizeZeroTool : IO Unit := do
     "default product profile remains source-relations"
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult "load Counter" (← session.selectProgramV1
-    Examples.counterSourceText "<noir-acir-ir6-default>"
-    Examples.counterModuleNameV1 none)
+    Examples.stateCellSourceText "<noir-acir-ir6-default>"
+    Examples.stateCellModuleNameV1 none)
   let compiled ← liftResult "compile Counter" <|
     Compiler.compileValidatedSourceV1 source
   let selection ← liftResult "select noir default" <|
@@ -981,8 +981,8 @@ unsafe def testIr6AcirProfileDualWriteOptional : IO Unit := do
   | some _nargo =>
       let session ← Tests.Language.ParserSession.shared
       let source ← liftResult "load Counter" (← session.selectProgramV1
-        Examples.counterSourceText "<noir-acir-ir6-acir>"
-        Examples.counterModuleNameV1 none)
+        Examples.stateCellSourceText "<noir-acir-ir6-acir>"
+        Examples.stateCellModuleNameV1 none)
       let compiled ← liftResult "compile Counter" <|
         Compiler.compileValidatedSourceV1 source
       let selection ← liftResult "select noir acir" <|

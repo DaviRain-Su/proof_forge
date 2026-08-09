@@ -22,7 +22,7 @@ _ZERO = "0" * 64
 def _write_fixture(root: Path) -> None:
     root.mkdir(parents=True, exist_ok=True)
     artifact = b"deterministic artifact\n"
-    artifact_path = "Counter.sbpf-plan"
+    artifact_path = "StateCell.sbpf-plan"
     evidence = b'{"note":"deterministic"}\n'
     (root / artifact_path).write_bytes(artifact)
     (root / "evidence.json").write_bytes(evidence)
@@ -30,7 +30,7 @@ def _write_fixture(root: Path) -> None:
         "schemaVersion": "proof-forge.output.v1",
         "target": "solana",
         "codegenProfile": "solana-sbpf-cpi-elf-v1",
-        "artifactProgramName": "Counter",
+        "artifactProgramName": "StateCell",
         "sourceHash": _ZERO,
         "semanticHash": "1" * 64,
         "buildIdentityDigest": "2" * 64,
@@ -81,7 +81,7 @@ def main() -> None:
             run_b=run_b,
         )
 
-        (run_b / "Counter.sbpf-plan").write_bytes(b"tampered\n")
+        (run_b / "StateCell.sbpf-plan").write_bytes(b"tampered\n")
         _expect_failure(
             "artifact tamper",
             "size mismatch",
@@ -94,7 +94,7 @@ def main() -> None:
         )
 
         _write_fixture(run_b)
-        artifact_path = run_b / "Counter.sbpf-plan"
+        artifact_path = run_b / "StateCell.sbpf-plan"
         artifact_path.write_bytes(b"x" * len(artifact_path.read_bytes()))
         _expect_failure(
             "same-size artifact tamper",

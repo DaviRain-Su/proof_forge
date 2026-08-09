@@ -1,7 +1,7 @@
 /-
   Noir nargo compile-only acceptance suite (engineering only; G123 / RPT-017).
 
-  Builds Counter through the product Noir capability path, writes the emitted
+  Builds StateCell through the product Noir capability path, writes the emitted
   relation package(s) (`Nargo.toml` + `src/main.nr`) to staging, and invokes:
 
       nargo compile
@@ -21,7 +21,7 @@
   `Targets/Noir/**` in this worker lane).
 -/
 import ProofForgeV2.Compiler.Pipeline
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
@@ -118,9 +118,9 @@ unsafe def run : IO Unit := do
       if ← tmp.pathExists then IO.FS.removeDirAll tmp
       IO.FS.createDirAll tmp
       try
-        let counterPkgs ← materializeNoirPackages "Counter"
-          Examples.counterSourceText Examples.counterModuleNameV1 tmp
-        for pkg in counterPkgs do
+        let stateCellPkgs ← materializeNoirPackages "StateCell"
+          Examples.stateCellSourceText Examples.stateCellModuleNameV1 tmp
+        for pkg in stateCellPkgs do
           runNargoCompile nargo pkg pkg.toString
         -- N-ANON-RESULT: anonymous Array/Option entry/view returns must emit
         -- nargo-clean packages (same per-leaf public-input surface as named
@@ -194,7 +194,7 @@ unsafe def run : IO Unit := do
           optionStateText "Examples.OptionState" (tmp / "OptionState")
         for pkg in optionStatePkgs do
           runNargoCompile nargo pkg pkg.toString
-        let total := counterPkgs.size + arrayPkgs.size + optionPkgs.size +
+        let total := stateCellPkgs.size + arrayPkgs.size + optionPkgs.size +
           optionStatePkgs.size
         IO.println s!"Tests.Materialization.NoirCompileAcceptance: ok ({total} package(s))"
       finally

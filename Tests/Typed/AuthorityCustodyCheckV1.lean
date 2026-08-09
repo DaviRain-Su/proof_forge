@@ -93,7 +93,7 @@ private unsafe def testPrivateWriteWithoutCaller
     "CheckV1 composition must surface authority diagnostic"
 
 /-- Public-only programs remain ok (no private custody surface). -/
-private unsafe def testPublicCounterOk
+private unsafe def testPublicStateCellOk
     (session : ParserSession) : IO Unit := do
   let src :=
     "import ProofForgeV2\n" ++
@@ -113,7 +113,7 @@ unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testPrivateWriteWithCaller session
   testPrivateWriteWithoutCaller session
-  testPublicCounterOk session
+  testPublicStateCellOk session
   IO.println "Tests.Typed.AuthorityCustodyCheckV1: ok"
 
 end Tests.Typed.AuthorityCustodyCheckV1

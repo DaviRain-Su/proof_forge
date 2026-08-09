@@ -3,7 +3,7 @@
 
   This suite is deliberately outside product finalization: the shipped profile
   remains zero-tool and non-deployable. When the exact host CLI is available,
-  it typechecks Counter, arithmetic, declared-revert, and Bool/pureFn/invariant models, then
+  it typechecks StateCell, arithmetic, declared-revert, and Bool/pureFn/invariant models, then
   performs a tiny TypeScript-evaluator smoke. The emitted nondeterministic
   domain remains full-width UInt64, but this sampled smoke does not exhaust
   that domain and is not a Reference differential. Absence or a different
@@ -77,10 +77,10 @@ private def runQuint
       (label ++ ": Quint 0.32 failed (exit " ++ toString output.exitCode ++
         ")\nstdout:\n" ++ output.stdout ++ "\nstderr:\n" ++ output.stderr)
 
-private def counterSource : String :=
+private def stateCellSource : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
-  "program Counter where\n" ++
+  "program StateCell where\n" ++
   "  state count : UInt64\n" ++
   "  init(initial : UInt64) do\n" ++
   "    count := initial\n" ++
@@ -136,8 +136,8 @@ unsafe def run : IO Unit := do
     IO.println "Tests.Materialization.QuintAcceptance: ok (skipped)"
     return
   let session ← Tests.Language.ParserSession.shared
-  let counter ← materializeQuint session "Counter" counterSource
-    "Tests.QuintAccept.Counter" "Counter.qnt"
+  let stateCell ← materializeQuint session "StateCell" stateCellSource
+    "Tests.QuintAccept.StateCell" "StateCell.qnt"
   let logic ← materializeQuint session "Logic" logicSource
     "Tests.QuintAccept.Logic" "Logic.qnt"
   let arithmetic ← materializeQuint session "Arithmetic" arithmeticSource
@@ -148,15 +148,15 @@ unsafe def run : IO Unit := do
   if ← staging.pathExists then IO.FS.removeDirAll staging
   IO.FS.createDirAll staging
   try
-    let counterPath := staging / counter.path
+    let stateCellPath := staging / stateCell.path
     let logicPath := staging / logic.path
     let arithmeticPath := staging / arithmetic.path
     let stopperPath := staging / stopper.path
-    IO.FS.writeFile counterPath counter.contents
+    IO.FS.writeFile stateCellPath stateCell.contents
     IO.FS.writeFile logicPath logic.contents
     IO.FS.writeFile arithmeticPath arithmetic.contents
     IO.FS.writeFile stopperPath stopper.contents
-    runQuint #["typecheck", counterPath.toString] "Counter typecheck"
+    runQuint #["typecheck", stateCellPath.toString] "StateCell typecheck"
     runQuint #["typecheck", logicPath.toString] "Logic typecheck"
     runQuint #["typecheck", arithmeticPath.toString] "Arithmetic typecheck"
     runQuint #["typecheck", stopperPath.toString] "Stopper typecheck"

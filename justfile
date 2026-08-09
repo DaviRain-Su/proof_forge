@@ -476,7 +476,7 @@ s7b-finalize-authority-deletion-gate:
 
 # D3/S7c engineering exact disk-closure + manifest-last authority gate.
 # Fast path: Python no-tool self-test of shared exact_physical_closure.
-# Darwin product path: Solana + Noir Counter publish + unified validate_artifacts
+# Darwin product path: Solana + Noir StateCell publish + unified validate_artifacts
 # membership (no EVM solc required). Linux retains static/Lean/Python closure
 # checks; both hosts run the in-process Loader product CLI. Retains S5–S7b
 # gates; not formal OutputSetV1 / hermetic publisher.
@@ -554,9 +554,9 @@ s7c-disk-closure-gate:
     lake build proof_forge_next
     rm -rf build/v2/s7c-gate-solana build/v2/s7c-gate-noir
     if [[ "$(uname -s)" == "Darwin" ]]; then
-      lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target solana \
+      lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target solana \
         -o build/v2/s7c-gate-solana
-      lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target noir \
+      lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target noir \
         -o build/v2/s7c-gate-noir
       /usr/bin/python3 -I -S scripts/s7c_product_closure_check.py
     else
@@ -645,7 +645,7 @@ s1-evm-semantic-plan-deletion-gate:
     rg -Uq '(?s)if op == \.add then.*?else if op == \.sub then.*?makeCheckedSubValueV1' "$source"
     rg -Uq '(?s)\.checkedSub lhs rhs =>.*?if lt\(\{lhs\.value\}, \{rhs\.value\}\).*?let \{name\} := sub\(' "$source"
     rg -Uq '(?s)\.stateStore stateId valueId, none =>.*?consumeCurrentSegmentWithArmsV1.*?segmentStart := values\.size' "$source"
-    lake build ProofForgeV2.Targets.Evm Tests.Materialization.EvmSmoke Tests.Product.CounterV1Evm
+    lake build ProofForgeV2.Targets.Evm Tests.Materialization.EvmSmoke Tests.Product.StateCellV1Evm
     echo "s1-evm-semantic-plan-deletion-gate: ok"
 
 # Wave 2 target leaves: Solana/NEAR/Noir Plan bodies consume retained V1 only.
@@ -834,7 +834,7 @@ toolchains-closure-negative: build
     chmod 0444 build/toolchain-closure-negative/lib/libcrypto.3.dylib
     if /usr/bin/python3 -I -S scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-closure-negative" > build/toolchain-closure-negative.log 2>&1; then echo "tampered runtime dependency unexpectedly verified" >&2; exit 1; fi
     rg -q "bundle hash mismatch" build/toolchain-closure-negative.log
-    if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-closure-negative" lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target near -o build/v2/runtime-mismatch > build/runtime-mismatch.log 2>&1; then echo "compiler unexpectedly accepted tampered runtime dependency" >&2; exit 1; fi
+    if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-closure-negative" lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target near -o build/v2/runtime-mismatch > build/runtime-mismatch.log 2>&1; then echo "compiler unexpectedly accepted tampered runtime dependency" >&2; exit 1; fi
     rg -q "PF-TOOLCHAIN-MISMATCH" build/runtime-mismatch.log
     test ! -e build/v2/runtime-mismatch
 
@@ -844,7 +844,7 @@ toolchains-environment-negative: build
     DYLD_IMAGE_SUFFIX=_debug lake env .lake/build/bin/proof-forge-next-tests
     cp -R "{{tool_root}}" build/toolchain-environment-negative
     dd if=/dev/zero of=build/toolchain-environment-negative/lib/libcrypto.3_debug.dylib bs=16 count=1 >/dev/null 2>&1
-    if DYLD_IMAGE_SUFFIX=_debug PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-environment-negative" lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target near -o build/v2/environment-negative > build/toolchain-environment-negative.log 2>&1; then echo "compiler unexpectedly accepted an extra DYLD image-suffix candidate" >&2; exit 1; fi
+    if DYLD_IMAGE_SUFFIX=_debug PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-environment-negative" lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target near -o build/v2/environment-negative > build/toolchain-environment-negative.log 2>&1; then echo "compiler unexpectedly accepted an extra DYLD image-suffix candidate" >&2; exit 1; fi
     rg -q "PF-TOOLCHAIN-MISMATCH.*unexpected node" build/toolchain-environment-negative.log
     test ! -e build/v2/environment-negative
 
@@ -854,7 +854,7 @@ toolchains-root-negative: build
     cp -R "{{tool_root}}" build/toolchain-root-world
     chmod 0777 build/toolchain-root-world
     if /usr/bin/python3 -I -S scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-root-world" > build/toolchain-root-world.log 2>&1; then echo "world-writable tool root unexpectedly verified" >&2; exit 1; fi
-    if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-root-world" lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target near -o build/v2/root-world-negative > build/toolchain-root-world-compiler.log 2>&1; then echo "compiler unexpectedly accepted a world-writable tool root" >&2; exit 1; fi
+    if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-root-world" lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target near -o build/v2/root-world-negative > build/toolchain-root-world-compiler.log 2>&1; then echo "compiler unexpectedly accepted a world-writable tool root" >&2; exit 1; fi
     rg -q "PF-TOOLCHAIN-MISMATCH" build/toolchain-root-world-compiler.log
     cp -R "{{tool_root}}" build/toolchain-root-extra
     ln -s /opt/homebrew build/toolchain-root-extra/unexpected-link
@@ -862,11 +862,11 @@ toolchains-root-negative: build
     cp -R "{{tool_root}}" build/toolchain-root-hardlink
     ln build/toolchain-root-hardlink/lib/libcrypto.3.dylib build/toolchain-root-outside
     if /usr/bin/python3 -I -S scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-root-hardlink" > build/toolchain-root-hardlink.log 2>&1; then echo "tool root containing a multiply-linked file unexpectedly verified" >&2; exit 1; fi
-    if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-root-hardlink" lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target near -o build/v2/root-hardlink-negative > build/toolchain-root-hardlink-compiler.log 2>&1; then echo "compiler unexpectedly accepted a multiply-linked runtime file" >&2; exit 1; fi
+    if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-root-hardlink" lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target near -o build/v2/root-hardlink-negative > build/toolchain-root-hardlink-compiler.log 2>&1; then echo "compiler unexpectedly accepted a multiply-linked runtime file" >&2; exit 1; fi
     rg -q "PF-TOOLCHAIN-MISMATCH" build/toolchain-root-hardlink-compiler.log
     ln -s "{{tool_root}}" build/toolchain-root-symlink
     if /usr/bin/python3 -I -S scripts/toolchain_assets.py verify-external --root "$PWD/build/toolchain-root-symlink" > build/toolchain-root-symlink.log 2>&1; then echo "symlink tool root unexpectedly verified" >&2; exit 1; fi
-    if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-root-symlink" lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target near -o build/v2/root-symlink-negative > build/toolchain-root-symlink-compiler.log 2>&1; then echo "compiler unexpectedly accepted a symlink tool root" >&2; exit 1; fi
+    if PROOF_FORGE_TOOL_ROOT="$PWD/build/toolchain-root-symlink" lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target near -o build/v2/root-symlink-negative > build/toolchain-root-symlink-compiler.log 2>&1; then echo "compiler unexpectedly accepted a symlink tool root" >&2; exit 1; fi
     rg -q "PF-TOOLCHAIN-MISMATCH" build/toolchain-root-symlink-compiler.log
     test ! -e build/v2/root-world-negative
     test ! -e build/v2/root-hardlink-negative
@@ -1081,10 +1081,10 @@ dsl-negative: build
 
 product-negative: build
     rm -rf build/v2/module-required-negative build/v2/module-parse-negative
-    ec=0; lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --target solana -o build/v2/module-required-negative > build/module-required-negative.log 2>&1 || ec=$?; if [ "$ec" -eq 0 ]; then echo "ProgramV1 build unexpectedly accepted a missing --module" >&2; exit 1; fi; if [ "$ec" -ne 2 ]; then echo "missing --module must exit 2, got $ec" >&2; cat build/module-required-negative.log >&2; exit 1; fi
+    ec=0; lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --target solana -o build/v2/module-required-negative > build/module-required-negative.log 2>&1 || ec=$?; if [ "$ec" -eq 0 ]; then echo "ProgramV1 build unexpectedly accepted a missing --module" >&2; exit 1; fi; if [ "$ec" -ne 2 ]; then echo "missing --module must exit 2, got $ec" >&2; cat build/module-required-negative.log >&2; exit 1; fi
     rg -q -- "--module is required for canonical ProgramV1 identity" build/module-required-negative.log
     test ! -e build/v2/module-required-negative
-    ec=0; lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module "Examples.Counter trailing" --target solana -o build/v2/module-parse-negative > build/module-parse-negative.log 2>&1 || ec=$?; if [ "$ec" -eq 0 ]; then echo "ProgramV1 build unexpectedly accepted a non-identifier module" >&2; exit 1; fi; if [ "$ec" -ne 3 ]; then echo "bad --module must exit 3 (product diagnostic), got $ec" >&2; cat build/module-parse-negative.log >&2; exit 1; fi
+    ec=0; lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module "Examples.StateCell trailing" --target solana -o build/v2/module-parse-negative > build/module-parse-negative.log 2>&1 || ec=$?; if [ "$ec" -eq 0 ]; then echo "ProgramV1 build unexpectedly accepted a non-identifier module" >&2; exit 1; fi; if [ "$ec" -ne 3 ]; then echo "bad --module must exit 3 (product diagnostic), got $ec" >&2; cat build/module-parse-negative.log >&2; exit 1; fi
     rg -q -- "--module must be one exact Lean identifier" build/module-parse-negative.log
     test ! -e build/v2/module-parse-negative
 
@@ -1153,50 +1153,50 @@ target-negative: build
       build/v2/tool-negative build/v2/tool-mismatch
     mkdir -p build
     # design-only openvm — exact log
-    if lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target openvm -o build/v2/openvm-negative > build/openvm-negative.log 2>&1; then echo "research-only target unexpectedly built" >&2; exit 1; fi
+    if lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target openvm -o build/v2/openvm-negative > build/openvm-negative.log 2>&1; then echo "research-only target unexpectedly built" >&2; exit 1; fi
     printf '%s\n' "uncaught exception: PF-TARGET-NOT-IMPLEMENTED: target 'openvm' has research metadata but no compiler implementation" > build/openvm-negative.expected
     cmp -s build/openvm-negative.expected build/openvm-negative.log
     test ! -e build/v2/openvm-negative
     # --network usage error — exact log
-    if lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target evm --network local -o build/v2/network-negative > build/network-negative.log 2>&1; then echo "--network unexpectedly accepted" >&2; exit 1; fi
+    if lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target evm --network local -o build/v2/network-negative > build/network-negative.log 2>&1; then echo "--network unexpectedly accepted" >&2; exit 1; fi
     printf '%s\n' "unknown option '--network'" > build/network-negative.expected
     cmp -s build/network-negative.expected build/network-negative.log
     test ! -e build/v2/network-negative
     # cross-target profile — exact log
-    if lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target evm --profile near-wasm-raw-u64-v1 -o build/v2/cross-profile-negative > build/cross-profile-negative.log 2>&1; then echo "cross-target profile unexpectedly accepted" >&2; exit 1; fi
+    if lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target evm --profile near-wasm-raw-u64-v1 -o build/v2/cross-profile-negative > build/cross-profile-negative.log 2>&1; then echo "cross-target profile unexpectedly accepted" >&2; exit 1; fi
     printf '%s\n' "uncaught exception: PF-PROFILE-UNKNOWN: unknown codegen profile 'near-wasm-raw-u64-v1'" > build/cross-profile-negative.expected
     cmp -s build/cross-profile-negative.expected build/cross-profile-negative.log
     test ! -e build/v2/cross-profile-negative
     # uppercase target — exact log
-    if lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target EVM -o build/v2/uppercase-target-negative > build/uppercase-target-negative.log 2>&1; then echo "uppercase target unexpectedly accepted" >&2; exit 1; fi
+    if lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target EVM -o build/v2/uppercase-target-negative > build/uppercase-target-negative.log 2>&1; then echo "uppercase target unexpectedly accepted" >&2; exit 1; fi
     printf '%s\n' "unknown target 'EVM'" > build/uppercase-target-negative.expected
     cmp -s build/uppercase-target-negative.expected build/uppercase-target-negative.log
     test ! -e build/v2/uppercase-target-negative
     # malformed target — exact log
-    if lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target "1evm" -o build/v2/malformed-target-negative > build/malformed-target-negative.log 2>&1; then echo "malformed target unexpectedly accepted" >&2; exit 1; fi
+    if lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target "1evm" -o build/v2/malformed-target-negative > build/malformed-target-negative.log 2>&1; then echo "malformed target unexpectedly accepted" >&2; exit 1; fi
     printf '%s\n' "unknown target '1evm'" > build/malformed-target-negative.expected
     cmp -s build/malformed-target-negative.expected build/malformed-target-negative.log
     test ! -e build/v2/malformed-target-negative
     # duplicate --target — exact log
-    if lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target evm --target near -o build/v2/dup-target-negative > build/dup-target-negative.log 2>&1; then echo "duplicate --target unexpectedly accepted" >&2; exit 1; fi
+    if lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target evm --target near -o build/v2/dup-target-negative > build/dup-target-negative.log 2>&1; then echo "duplicate --target unexpectedly accepted" >&2; exit 1; fi
     printf '%s\n' "duplicate --target" > build/dup-target-negative.expected
     cmp -s build/dup-target-negative.expected build/dup-target-negative.log
     test ! -e build/v2/dup-target-negative
     # duplicate --profile — exact log
-    if lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target evm --profile evm-yul-solc-0.8.34-v1 --profile near-wasm-raw-u64-v1 -o build/v2/dup-profile-negative > build/dup-profile-negative.log 2>&1; then echo "duplicate --profile unexpectedly accepted" >&2; exit 1; fi
+    if lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target evm --profile evm-yul-solc-0.8.34-v1 --profile near-wasm-raw-u64-v1 -o build/v2/dup-profile-negative > build/dup-profile-negative.log 2>&1; then echo "duplicate --profile unexpectedly accepted" >&2; exit 1; fi
     printf '%s\n' "duplicate --profile" > build/dup-profile-negative.expected
     cmp -s build/dup-profile-negative.expected build/dup-profile-negative.log
     test ! -e build/v2/dup-profile-negative
     # Toolchain negatives require a successful source frontend and therefore run
     # only on the current Darwin development product path. Linux CI separately
     # asserts the closed unsupported-platform diagnostic with zero publication.
-    if [ "$(uname -s)" = Darwin ]; then if PROOF_FORGE_TOOL_ROOT=/definitely/missing lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target evm -o build/v2/tool-negative > build/tool-negative.log 2>&1; then echo "missing solc unexpectedly accepted" >&2; exit 1; fi; rg -q "PF-TOOLCHAIN-MISSING" build/tool-negative.log; fi
+    if [ "$(uname -s)" = Darwin ]; then if PROOF_FORGE_TOOL_ROOT=/definitely/missing lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target evm -o build/v2/tool-negative > build/tool-negative.log 2>&1; then echo "missing solc unexpectedly accepted" >&2; exit 1; fi; rg -q "PF-TOOLCHAIN-MISSING" build/tool-negative.log; fi
     rm -rf build/tool-mismatch-root
     mkdir -p build/tool-mismatch-root
     ln -s /usr/bin/false build/tool-mismatch-root/solc
-    if [ "$(uname -s)" = Darwin ]; then if PROOF_FORGE_TOOL_ROOT="$PWD/build/tool-mismatch-root" lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target evm -o build/v2/tool-mismatch > build/tool-mismatch.log 2>&1; then echo "invalid solc unexpectedly accepted" >&2; exit 1; fi; rg -q "PF-TOOLCHAIN-MISMATCH" build/tool-mismatch.log; fi
+    if [ "$(uname -s)" = Darwin ]; then if PROOF_FORGE_TOOL_ROOT="$PWD/build/tool-mismatch-root" lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target evm -o build/v2/tool-mismatch > build/tool-mismatch.log 2>&1; then echo "invalid solc unexpectedly accepted" >&2; exit 1; fi; rg -q "PF-TOOLCHAIN-MISMATCH" build/tool-mismatch.log; fi
 
-# Engineering-only subset of PRD NFR-001: same host/binary, Counter,
+# Engineering-only subset of PRD NFR-001: same host/binary, StateCell,
 # two consecutive product builds for zero-tool Solana-plan and Noir profiles.
 # Not hermetic, clean-room, multi-host, formal TST, or full-target coverage.
 nfr-repeat: build
@@ -1206,33 +1206,33 @@ nfr-repeat: build
 target-smoke: build
     rm -rf build/v2/standalone build/v2/evm build/v2/evm-accumulator build/v2/evm-arithops build/v2/solana build/v2/solana-accumulator build/v2/near build/v2/near-accumulator build/v2/noir build/v2/noir-accumulator
     lake env .lake/build/bin/proof-forge-next build testdata/valid/Standalone.lean --module Standalone --target evm -o build/v2/standalone
-    lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target evm -o build/v2/evm
+    lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target evm -o build/v2/evm
     lake env .lake/build/bin/proof-forge-next build Examples/Accumulator.lean --module Examples.Accumulator --target evm -o build/v2/evm-accumulator
     lake env .lake/build/bin/proof-forge-next build testdata/valid/ArithOps.lean --module ArithOps --target evm -o build/v2/evm-arithops
-    lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target solana -o build/v2/solana
+    lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target solana -o build/v2/solana
     lake env .lake/build/bin/proof-forge-next build Examples/Accumulator.lean --module Examples.Accumulator --target solana -o build/v2/solana-accumulator
-    DYLD_LIBRARY_PATH=/definitely/missing lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target near -o build/v2/near
+    DYLD_LIBRARY_PATH=/definitely/missing lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target near -o build/v2/near
     DYLD_LIBRARY_PATH=/definitely/missing lake env .lake/build/bin/proof-forge-next build Examples/Accumulator.lean --module Examples.Accumulator --target near -o build/v2/near-accumulator
-    lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target noir -o build/v2/noir
+    lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target noir -o build/v2/noir
     lake env .lake/build/bin/proof-forge-next build Examples/Accumulator.lean --module Examples.Accumulator --target noir -o build/v2/noir-accumulator
     /usr/bin/python3 -I -S scripts/validate_artifacts.py build/v2
 
 output-security: build
     rm -rf build/v2/atomic-output build/v2/atomic-before build/v2/atomic-new build/source-overlap
-    lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target evm -o build/v2/atomic-output
+    lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target evm -o build/v2/atomic-output
     cp -R build/v2/atomic-output build/v2/atomic-before
-    if lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target evm -o build/v2/atomic-output > build/atomic-output.log 2>&1; then echo "existing output unexpectedly replaced" >&2; exit 1; fi
+    if lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target evm -o build/v2/atomic-output > build/atomic-output.log 2>&1; then echo "existing output unexpectedly replaced" >&2; exit 1; fi
     rg -q "PF-OUTPUT-COLLISION" build/atomic-output.log
     diff -ru build/v2/atomic-before build/v2/atomic-output
-    if PROOF_FORGE_TOOL_ROOT=/definitely/missing lake env .lake/build/bin/proof-forge-next build Examples/Counter.lean --module Examples.Counter --target evm -o build/v2/atomic-new > build/atomic-new.log 2>&1; then echo "tool failure unexpectedly published a new directory" >&2; exit 1; fi
+    if PROOF_FORGE_TOOL_ROOT=/definitely/missing lake env .lake/build/bin/proof-forge-next build Examples/StateCell.lean --module Examples.StateCell --target evm -o build/v2/atomic-new > build/atomic-new.log 2>&1; then echo "tool failure unexpectedly published a new directory" >&2; exit 1; fi
     test ! -e build/v2/atomic-new
     test -z "$(find build/v2 -maxdepth 1 -name '.atomic-*.staging-*' -print -quit)"
     mkdir -p build/source-overlap/src
-    cp testdata/valid/Standalone.lean build/source-overlap/src/Counter.lean
+    cp testdata/valid/Standalone.lean build/source-overlap/src/Fixture.lean
     printf 'preserve-me\n' > build/source-overlap/src/important.txt
-    if lake env .lake/build/bin/proof-forge-next build src/Counter.lean --root build/source-overlap --module SourceOverlap --target solana -o src > build/source-overlap.log 2>&1; then echo "source directory unexpectedly replaced" >&2; exit 1; fi
+    if lake env .lake/build/bin/proof-forge-next build src/Fixture.lean --root build/source-overlap --module SourceOverlap --target solana -o src > build/source-overlap.log 2>&1; then echo "source directory unexpectedly replaced" >&2; exit 1; fi
     rg -q "PF-OUTPUT-COLLISION" build/source-overlap.log
-    cmp testdata/valid/Standalone.lean build/source-overlap/src/Counter.lean
+    cmp testdata/valid/Standalone.lean build/source-overlap/src/Fixture.lean
     test "$(cat build/source-overlap/src/important.txt)" = preserve-me
 
 evm-runtime: target-smoke
@@ -1290,7 +1290,7 @@ evm-corpus-static: evm-corpus-schema evm-corpus-reference
 evm-corpus-runtime: build
     bash scripts/evm_corpus_runtime.sh
 
-# Solana S3a: Mollusk runtime differential for Counter.so (requires materialised sbpf + Rust).
+# Solana S3a: Mollusk runtime differential for StateCell.so (requires materialised sbpf + Rust).
 # Also runs #125 CPI product acceptance (fail-closed) before product ELF builds.
 solana-runtime:
     bash scripts/solana_runtime_test.sh

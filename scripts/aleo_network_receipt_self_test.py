@@ -112,7 +112,10 @@ def run() -> None:
     expect_raises(m.NetworkConfigError, lambda: m.normalize_endpoint("testnet", "https://user@example.com/v2"), "userinfo rejected")
     expect_raises(m.NetworkConfigError, lambda: m.normalize_endpoint("testnet", "https://example.com/v2?q=1"), "query rejected")
 
-    with tempfile.TemporaryDirectory(prefix="pf-aleo-network-self-test.") as td:
+    with tempfile.TemporaryDirectory(
+        prefix="pf-aleo-network-self-test.",
+        dir=Path(tempfile.gettempdir()).resolve(),
+    ) as td:
         tmp = Path(td)
         key = tmp / "account.key"
         write_regular(key, b"not-a-real-private-key\n", 0o600)
@@ -179,7 +182,10 @@ def run() -> None:
                 b"#!/bin/sh\nprintf '%s\\n' 'snarkos 0.0.0 replacement'\n",
                 0o500,
             )
-            assert tool_snapshot.exec_path != str(tool_snapshot.path)
+            if Path("/proc/self/fd").is_dir():
+                assert tool_snapshot.exec_path != str(tool_snapshot.path)
+            else:
+                assert tool_snapshot.exec_path == str(tool_snapshot.path)
             expect_raises(
                 m.ToolchainError,
                 lambda: m._verify_retained_snarkos(tool_snapshot),

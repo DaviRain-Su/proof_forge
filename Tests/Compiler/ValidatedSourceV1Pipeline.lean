@@ -108,7 +108,7 @@ private def expectNormalizeDeterministic (label : String) (source : ValidatedSou
   expect (h1 == h2) s!"{label}: semanticHashV1 must be deterministic"
 
 /-- Product path: NormalizeV1 structure gate → single CompiledSemanticV1;
-    Counter + Accumulator S1 positives, canonical source/semantic identity,
+    StateCell + Accumulator S1 positives, canonical source/semantic identity,
     CheckV1 wires, and out-of-S1 fail-closed behavior. -/
 def run : IO Unit := do
   let demo ← n "Demo"; let x ← n "x"; let y ← n "y"; let seed ← n "seed"
@@ -118,43 +118,43 @@ def run : IO Unit := do
   let quotedModule ← q #["Root"]
   let quotedIdentity ← q #["Root", "A.B", "C"]  -- Source-legal dotted component; Normalize rejects
 
-  -- Counter-shaped S1: public UInt64 state, init/entry/view, bare place, binary +.
-  let counterItems : Array ProgramItemV1 := #[
+  -- StateCell-shaped S1: public UInt64 state, init/entry/view, bare place, binary +.
+  let stateCellItems : Array ProgramItemV1 := #[
     .state (state x),
     .init { params := #[param seed], body := block #[.assign (.name x) (var seed)] },
     .entry (entry runN (block #[
       .assign (.name x) (.binary .add (var x) (var y)),
       .return_ (some (var x))]) #[param y]),
     .view (view getN (ret (var x)))]
-  let counter ← validated moduleName identity demo counterItems
-  let counterCompiled ← compileOk "counter S1" counter
-  let retained := CompiledSemanticV1.semanticV1Of counterCompiled
-  let counterData ← match validateSemanticProgramV1 retained with
+  let stateCell ← validated moduleName identity demo stateCellItems
+  let stateCellCompiled ← compileOk "stateCell S1" stateCell
+  let retained := CompiledSemanticV1.semanticV1Of stateCellCompiled
+  let stateCellData ← match validateSemanticProgramV1 retained with
     | .ok data => pure data
     | .error error => throw <| IO.userError s!"retained carrier structure invalid: {repr error}"
-  expect (counterData.qualifiedName.components.toArray == #["Tests", "Pipeline", "Demo"] &&
-      CompiledSemanticV1.artifactProgramNameOf counterCompiled == "Demo")
+  expect (stateCellData.qualifiedName.components.toArray == #["Tests", "Pipeline", "Demo"] &&
+      CompiledSemanticV1.artifactProgramNameOf stateCellCompiled == "Demo")
     "compiled program name must be the retained qualified-name final component"
-  expect (counterData.logicalState.map (·.name) == #["x"])
-    "S1 counter state bucket"
-  expect (counterData.callables.filterMap (·.name) == #["run", "get"])
+  expect (stateCellData.logicalState.map (·.name) == #["x"])
+    "S1 stateCell state bucket"
+  expect (stateCellData.callables.filterMap (·.name) == #["run", "get"])
     "entry and view must share relative source order"
-  let digest ← lift "source hash" (sourceHashV1 counter)
-  expect (CompiledSemanticV1.sourceDigestOf counterCompiled == digest)
+  let digest ← lift "source hash" (sourceHashV1 stateCell)
+  expect (CompiledSemanticV1.sourceDigestOf stateCellCompiled == digest)
     "compiled source digest must equal canonical sourceHashV1"
-  let sourceHex ← match CompiledSemanticV1.artifactSourceHashHexOf counterCompiled with
+  let sourceHex ← match CompiledSemanticV1.artifactSourceHashHexOf stateCellCompiled with
     | .ok value => pure value
     | .error error => throw <| IO.userError s!"compiled source hex: {error.render}"
   let rendered ← lift "render digest" (renderDigest digest)
   expect (rendered == "sha256:" ++ sourceHex)
     "derived artifact source hex must be the sourceHashV1 suffix"
-  expectNormalizeDeterministic "counter normalize" counter
+  expectNormalizeDeterministic "stateCell normalize" stateCell
 
   -- Retained SemanticProgramV1 structure and sole ProgramRequirementsV1 freeze.
-  expect (counterData.requirements.items.size == 3)
-    s!"retained carrier must freeze three S2 requirements, got {counterData.requirements.items.size}"
+  expect (stateCellData.requirements.items.size == 3)
+    s!"retained carrier must freeze three S2 requirements, got {stateCellData.requirements.items.size}"
   let expectReq (i : Nat) (id : String) : IO Unit := do
-    let some item := counterData.requirements.items[i]? |
+    let some item := stateCellData.requirements.items[i]? |
       throw <| IO.userError s!"retained missing requirement[{i}]"
     expect (item.id == id) s!"retained req[{i}] id, got {item.id}"
     expect (item.version == s2RequirementVersionV1)
@@ -165,7 +165,7 @@ def run : IO Unit := do
   expectReq 0 "failure.atomic-rollback"
   expectReq 1 "state.persistent"
   expectReq 2 "value.checked-arithmetic"
-  let directNorm ← match normalizeProgramV1 counter with
+  let directNorm ← match normalizeProgramV1 stateCell with
     | .ok c => pure c
     | .error e => throw <| IO.userError s!"direct normalize for retention: {repr e}"
   expect (retained.canonicalBytes == directNorm.canonicalBytes)
@@ -177,16 +177,16 @@ def run : IO Unit := do
     | .ok h => pure h
     | .error e => throw <| IO.userError s!"direct hash: {repr e}"
   expect (retainedHash == directHash &&
-      CompiledSemanticV1.semanticDigestOf counterCompiled == retainedHash)
+      CompiledSemanticV1.semanticDigestOf stateCellCompiled == retainedHash)
     "compiled semantic digest must equal direct Normalize semanticHashV1"
-  let semanticHex ← match CompiledSemanticV1.artifactSemanticHashHexOf counterCompiled with
+  let semanticHex ← match CompiledSemanticV1.artifactSemanticHashHexOf stateCellCompiled with
     | .ok value => pure value
     | .error error => throw <| IO.userError s!"compiled semantic hex: {error.render}"
   let semanticWire ← lift "semantic digest render" (renderDigest retainedHash)
   expect (semanticWire == "sha256:" ++ semanticHex)
     "derived artifact semantic hex must be the semanticHashV1 suffix"
 
-  -- Accumulator-shaped S1 (distinct names from Counter).
+  -- Accumulator-shaped S1 (distinct names from StateCell).
   let accName ← n "Accumulator"
   let accIdentity ← q #["Tests", "Pipeline", "Accumulator"]
   let acc ← validated moduleName accIdentity accName #[

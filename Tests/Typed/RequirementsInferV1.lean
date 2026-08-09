@@ -7,7 +7,7 @@
   request metadata, and canonical wire sorting. No alpha ProgramRequirement or
   Semantic.deriveRequirements parity path exists.
 -/
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Semantic.RequirementsV1
 import ProofForgeV2.Source.ValidatedSourceV1
 import ProofForgeV2.Typed.RequirementsInferV1
@@ -76,9 +76,9 @@ private def expectFreezeReject
   | .error error => expect (error == expected) s!"{label}: got {error}"
   | .ok _ => throw <| IO.userError s!"{label}: foreign contribution unexpectedly froze"
 
-private unsafe def testCounterLike
+private unsafe def testStateCellLike
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let source := wrap "ReqCounter" <|
+  let source := wrap "ReqStateCell" <|
     "  state count : UInt64\n" ++
     "  init(initial : UInt64) do\n" ++
     "    count := initial\n" ++
@@ -87,11 +87,11 @@ private unsafe def testCounterLike
     "    return count\n" ++
     "  view get() : UInt64 do\n" ++
     "    return count\n"
-  let (validated, ids) ← inferSource session "counter" source
+  let (validated, ids) ← inferSource session "stateCell" source
   expect (ids == #["state.persistent", "value.checked-arithmetic",
       "failure.atomic-rollback"])
-    s!"counter contribution order: {ids}"
-  expectFreezeIds "counter" validated
+    s!"stateCell contribution order: {ids}"
+  expectFreezeIds "stateCell" validated
     #["failure.atomic-rollback", "state.persistent", "value.checked-arithmetic"]
 
 private unsafe def testForeignContributions
@@ -207,17 +207,17 @@ private unsafe def testIdempotent
   let (_, second) ← inferSource session "idem-b" source
   expect (first == second) s!"idempotent contribution ids: {first} vs {second}"
 
-private unsafe def testCounterAuthority
+private unsafe def testStateCellAuthority
     (session : Language.Loader.ParserSession) : IO Unit := do
-  match ← session.selectProgramV1 Examples.counterSourceText
-      "<req-infer-counter-authority>" Examples.counterModuleNameV1 none with
+  match ← session.selectProgramV1 Examples.stateCellSourceText
+      "<req-infer-stateCell-authority>" Examples.stateCellModuleNameV1 none with
   | .error error => throw <| IO.userError error.render
   | .ok source =>
       let ids := contributionIds (inferRequirementContributionsFromSourceV1 source)
       expect (ids == #["state.persistent", "value.checked-arithmetic",
           "failure.atomic-rollback"])
-        s!"Counter contribution authority: {ids}"
-      expectFreezeIds "Counter authority" source
+        s!"StateCell contribution authority: {ids}"
+      expectFreezeIds "StateCell authority" source
         #["failure.atomic-rollback", "state.persistent", "value.checked-arithmetic"]
 
 /-- T-3: context.caller / context.unixTimeSeconds / commit contribute wire ids
@@ -326,11 +326,11 @@ private unsafe def testEnvReadContribution (session : Language.Loader.ParserSess
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  testCounterLike session
+  testStateCellLike session
   testForeignContributions session
   testCatalogAndDedup session
   testIdempotent session
-  testCounterAuthority session
+  testStateCellAuthority session
   testContextCommitContributions session
   testS2CatalogDigestParity
   testEnvReadContribution session

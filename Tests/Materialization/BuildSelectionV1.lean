@@ -2,7 +2,7 @@ import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.Diagnostic
 import ProofForgeV2.Core.TargetIdentityV1
-import ProofForgeV2.Examples.Counter
+import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.Registry
@@ -531,22 +531,22 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         expect (msg == (CompileError.registryInvalid "sentinel").render)
           s!"{label}: got {msg}"
     | Except.ok _ => throw <| IO.userError s!"{label}: sentinel seed must fail before parse"
-  expectSeedFirst "build EVM" ["build", "Examples/Counter.lean", "--module", "Examples.Counter", "--target", "EVM"]
+  expectSeedFirst "build EVM" ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "EVM"]
   expectSeedFirst "build bad profile"
-    ["build", "Examples/Counter.lean", "--module", "Examples.Counter", "--target", "evm", "--profile", "!!!bad"]
+    ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "evm", "--profile", "!!!bad"]
   expectSeedFirst "build dup target"
-    ["build", "Examples/Counter.lean", "--module", "Examples.Counter", "--target", "evm", "--target", "near"]
+    ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell", "--target", "evm", "--target", "near"]
   expectSeedFirst "list-targets" ["list-targets"]
   expectSeedFirst "inspect 1evm" ["inspect", "1evm"]
   match ProofForgeV2.CLI.parseProductCliCommandV1
-      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "evm", "--network", "local"] with
   | Except.error msg =>
       expect (hasSubstr msg "unknown option '--network'")
         "success seed preserves --network usage"
   | Except.ok _ => throw <| IO.userError "product preflight must reject --network"
   match ProofForgeV2.CLI.parseProductCliCommandV1
-      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "evm", "--target", "near"] with
   | Except.error msg =>
       expect (msg == "duplicate --target") "success seed duplicate --target"
@@ -661,7 +661,7 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   | .ok (.inspect "evm" true) => pure ()
   | other => throw <| IO.userError s!"parse inspect --json: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "evm"] with
   | .ok (.build opts) =>
       expect (opts.target == some TargetId.evm) "dispatcher build target"
@@ -670,14 +670,14 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (!opts.json) "dispatcher build default json off"
   | other => throw <| IO.userError s!"parse build default: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "evm", "--language-version", "1.0.0"] with
   | .ok (.build opts) =>
       expect (opts.languageVersion == some "1.0.0")
         "dispatcher explicit language version"
   | other => throw <| IO.userError s!"parse explicit language version: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "evm", "--profile", "evm-yul-solc-0.8.34-v1"] with
   | .ok (.build opts) =>
       expect (opts.profile == some CodegenProfileId.evmYulSolc0834V1)
@@ -693,7 +693,7 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
         "dispatcher explicit Psy VM profile"
   | other => throw <| IO.userError s!"parse Psy VM profile: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "evm", "--profile", "near-wasm-raw-u64-v1"] with
   | .ok (.build opts) =>
       match opts.target with
@@ -703,7 +703,7 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       | none => throw <| IO.userError "cross profile missing target"
   | other => throw <| IO.userError s!"parse cross profile: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "openvm"] with
   | .ok (.build opts) =>
       match opts.target with
@@ -713,7 +713,7 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       | none => throw <| IO.userError "design-only missing target"
   | other => throw <| IO.userError s!"parse design-only: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "evm", "--network", "local"] with
   | .error msg =>
       expect (hasSubstr msg "unknown option '--network'") "dispatcher --network usage"
@@ -733,15 +733,15 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (msg == "duplicate --language-version") "duplicate --language-version message"
   | .ok _ => throw <| IO.userError "duplicate --language-version must fail"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["build", "Examples/Counter.lean", "--module", "Examples.Counter",
+      ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "evm", "--target", "near"] with
   | .error msg => expect (msg == "duplicate --target") "dispatcher duplicate --target"
   | .ok _ => throw <| IO.userError "dispatcher must reject duplicate --target"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["check", "Examples/Counter.lean", "--module", "Examples.Counter", "--json"] with
+      ["check", "Examples/StateCell.lean", "--module", "Examples.StateCell", "--json"] with
   | .ok (.check opts) =>
       expect opts.json "dispatcher check --json"
-      expect (opts.source == some "Examples/Counter.lean") "dispatcher check source"
+      expect (opts.source == some "Examples/StateCell.lean") "dispatcher check source"
   | other => throw <| IO.userError s!"parse check: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1 [] with
   | .ok .usage => pure ()
@@ -837,8 +837,8 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
 private unsafe def testMaterializeIdentity : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1
-    Examples.counterSourceText "<build-selection-counter>"
-    Examples.counterModuleNameV1 none)
+    Examples.stateCellSourceText "<build-selection-stateCell>"
+    Examples.stateCellModuleNameV1 none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
   let sourceDigest := CompiledSemanticV1.sourceDigestOf compiled
   let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
