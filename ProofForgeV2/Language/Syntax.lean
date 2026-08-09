@@ -484,8 +484,8 @@ private def decodeTypeV1At :
                 | none => throw "unsupported portable type"
               -- T14 catalog v2: the Field type identifier selects one of the
               -- three closed catalog FieldSpecs. bn254_fr → EVM/Noir,
-              -- bls12_377_fr → Aleo (Leo native field), goldilocks → Psy
-              -- (plonky2 Felt). Any other spelling fails closed at the parser.
+              -- bls12_377_fr → Aleo direct Instructions, goldilocks → Psy DPN.
+              -- Any other spelling fails closed at the parser.
               let fieldId? := rawIdentifierText? fieldSyntax
               unless fieldId? == some "bn254_fr"
                   || fieldId? == some "bls12_377_fr"

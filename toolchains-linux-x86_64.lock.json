@@ -33,13 +33,6 @@
       "format": "zip"
     },
     {
-      "id": "leo-4.0.2-x86_64-unknown-linux-gnu",
-      "url": "https://github.com/ProvableHQ/leo/releases/download/v4.0.2/leo-release_4_0_2-x86_64-unknown-linux-gnu.zip",
-      "size": 32262514,
-      "sha256": "7dc54a9f050083e3b230b5566530bb839186ee8eb5b3d28a2e2abcb975b37be8",
-      "format": "zip"
-    },
-    {
       "id": "nargo-1.0.0-beta.26-x86_64-unknown-linux-gnu",
       "url": "https://github.com/noir-lang/noir/releases/download/v1.0.0-beta.26/nargo-x86_64-unknown-linux-gnu.tar.gz",
       "size": 18773428,
@@ -51,13 +44,6 @@
       "url": "https://s3-us-west-1.amazonaws.com/build.nearprotocol.com/nearcore/Linux-x86_64/2.13.0/near-sandbox.tar.gz",
       "size": 35154831,
       "sha256": "522f9877c1abd42b8e065d9f0248223c8b7327a359996de8150723e8d7b289de",
-      "format": "tar.gz"
-    },
-    {
-      "id": "psy-compiler-0.1.0-x86_64-unknown-linux-gnu",
-      "url": "https://github.com/PsyProtocol/psy-compiler/releases/download/v0.1.0/psy-compiler-v0.1.0-x86_64-unknown-linux-gnu.tar.gz",
-      "size": 5548303,
-      "sha256": "ad41117ea90ed17deaba20cb4ca8d302a6836618c91a97659c46762f071bc9f2",
       "format": "tar.gz"
     },
     {
@@ -146,100 +132,12 @@
       "mode": "0555"
     },
     {
-      "path": "dargo",
-      "assetId": "psy-compiler-0.1.0-x86_64-unknown-linux-gnu",
-      "member": "bin/dargo",
-      "size": 16803864,
-      "sha256": "c6049f6a54fb7710c026d75deeeb0ee2112237ddfa3e4d55071d1e3974afbe91",
-      "mode": "0555"
-    },
-    {
       "path": "jv",
       "assetId": "jv-v6.0.2-linux-amd64",
       "member": "jv",
       "size": 10608100,
       "sha256": "905cbe1e59b36771ea5b4d9479141cb07c4722462cef8f81fda7cd4fbdbc2c9c",
       "mode": "0555"
-    },
-    {
-      "path": "leo",
-      "assetId": "leo-4.0.2-x86_64-unknown-linux-gnu",
-      "member": "leo",
-      "size": 85878936,
-      "sha256": "7d12192925327bc3dd28e29e4475b5a8adfa22ccd1409b49c90cc1d29558b44f",
-      "mode": "0555"
-    },
-    {
-      "path": "lib/psy-std/Dargo.toml",
-      "assetId": "psy-compiler-0.1.0-x86_64-unknown-linux-gnu",
-      "member": "lib/psy-std/Dargo.toml",
-      "size": 139,
-      "sha256": "de9f960ce8f606c0590c1337343cee713521db97db3ad3976b8af0809f5da7b0",
-      "mode": "0444"
-    },
-    {
-      "path": "lib/psy-std/context.psy",
-      "assetId": "psy-compiler-0.1.0-x86_64-unknown-linux-gnu",
-      "member": "lib/psy-std/context.psy",
-      "size": 4555,
-      "sha256": "e7be5b210f12be3c50aa764adeffdd30466623490d3a61accd52ea2c712c6a94",
-      "mode": "0444"
-    },
-    {
-      "path": "lib/psy-std/default.psy",
-      "assetId": "psy-compiler-0.1.0-x86_64-unknown-linux-gnu",
-      "member": "lib/psy-std/default.psy",
-      "size": 304,
-      "sha256": "d71778680b685f1b99aa804e3e70f32c83a31c788b8c6920beed8145931db167",
-      "mode": "0444"
-    },
-    {
-      "path": "lib/psy-std/event.psy",
-      "assetId": "psy-compiler-0.1.0-x86_64-unknown-linux-gnu",
-      "member": "lib/psy-std/event.psy",
-      "size": 77,
-      "sha256": "b7a4e1a6c993381798b9ff1598acf676f08ddfb1bf258f760535f2ab9763d1bc",
-      "mode": "0444"
-    },
-    {
-      "path": "lib/psy-std/mem.psy",
-      "assetId": "psy-compiler-0.1.0-x86_64-unknown-linux-gnu",
-      "member": "lib/psy-std/mem.psy",
-      "size": 122,
-      "sha256": "3532e694a142831162180b6aaad0d8aab4fae55419195eec31d6ea07a947a212",
-      "mode": "0444"
-    },
-    {
-      "path": "lib/psy-std/prelude.psy",
-      "assetId": "psy-compiler-0.1.0-x86_64-unknown-linux-gnu",
-      "member": "lib/psy-std/prelude.psy",
-      "size": 191,
-      "sha256": "68a8bea59b240bc66db309348159f16a2639e3fc84b8a8416968ec1533151c08",
-      "mode": "0444"
-    },
-    {
-      "path": "lib/psy-std/primitive.psy",
-      "assetId": "psy-compiler-0.1.0-x86_64-unknown-linux-gnu",
-      "member": "lib/psy-std/primitive.psy",
-      "size": 30,
-      "sha256": "260eee5896ccc52fc0aecc7433e0d5bbfb1e8599c2b449bc49455585b5b64c96",
-      "mode": "0444"
-    },
-    {
-      "path": "lib/psy-std/std.psy",
-      "assetId": "psy-compiler-0.1.0-x86_64-unknown-linux-gnu",
-      "member": "lib/psy-std/std.psy",
-      "size": 17,
-      "sha256": "b923a2e5015fe2f3b8348493f635e3070329de6366102c829030c56252271312",
-      "mode": "0444"
-    },
-    {
-      "path": "lib/psy-std/storage.psy",
-      "assetId": "psy-compiler-0.1.0-x86_64-unknown-linux-gnu",
-      "member": "lib/psy-std/storage.psy",
-      "size": 20835,
-      "sha256": "8b98bcd928abff8cd6f07da315e4f3dec05f58becfbb5650ba62596697632a80",
-      "mode": "0444"
     },
     {
       "path": "nargo",
@@ -346,28 +244,6 @@
         "runpath": null
       },
       {
-        "path": "dargo",
-        "needed": [
-          {
-            "soname": "ld-linux-x86-64.so.2",
-            "bundlePath": null
-          },
-          {
-            "soname": "libc.so.6",
-            "bundlePath": null
-          },
-          {
-            "soname": "libgcc_s.so.1",
-            "bundlePath": null
-          },
-          {
-            "soname": "libm.so.6",
-            "bundlePath": null
-          }
-        ],
-        "runpath": null
-      },
-      {
         "path": "jv",
         "needed": [
           {
@@ -383,81 +259,6 @@
             "bundlePath": null
           }
         ],
-        "runpath": null
-      },
-      {
-        "path": "leo",
-        "needed": [
-          {
-            "soname": "ld-linux-x86-64.so.2",
-            "bundlePath": null
-          },
-          {
-            "soname": "libc.so.6",
-            "bundlePath": null
-          },
-          {
-            "soname": "libcrypto.so.3",
-            "bundlePath": null
-          },
-          {
-            "soname": "libgcc_s.so.1",
-            "bundlePath": null
-          },
-          {
-            "soname": "libm.so.6",
-            "bundlePath": null
-          },
-          {
-            "soname": "libssl.so.3",
-            "bundlePath": null
-          }
-        ],
-        "runpath": null
-      },
-      {
-        "path": "lib/psy-std/Dargo.toml",
-        "needed": [],
-        "runpath": null
-      },
-      {
-        "path": "lib/psy-std/context.psy",
-        "needed": [],
-        "runpath": null
-      },
-      {
-        "path": "lib/psy-std/default.psy",
-        "needed": [],
-        "runpath": null
-      },
-      {
-        "path": "lib/psy-std/event.psy",
-        "needed": [],
-        "runpath": null
-      },
-      {
-        "path": "lib/psy-std/mem.psy",
-        "needed": [],
-        "runpath": null
-      },
-      {
-        "path": "lib/psy-std/prelude.psy",
-        "needed": [],
-        "runpath": null
-      },
-      {
-        "path": "lib/psy-std/primitive.psy",
-        "needed": [],
-        "runpath": null
-      },
-      {
-        "path": "lib/psy-std/std.psy",
-        "needed": [],
-        "runpath": null
-      },
-      {
-        "path": "lib/psy-std/storage.psy",
-        "needed": [],
         "runpath": null
       },
       {
@@ -615,27 +416,6 @@
       }
     },
     {
-      "id": "dargo",
-      "version": "0.1.0",
-      "sourceUrl": "https://github.com/PsyProtocol/psy-compiler/releases/tag/v0.1.0",
-      "platform": "linux-x86_64",
-      "assetId": "psy-compiler-0.1.0-x86_64-unknown-linux-gnu",
-      "executable": "dargo",
-      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/dargo",
-      "executableSha256": "c6049f6a54fb7710c026d75deeeb0ee2112237ddfa3e4d55071d1e3974afbe91",
-      "runtimeLibrarySubdir": null,
-      "runtimeFiles": [],
-      "versionArgs": [
-        "--version"
-      ],
-      "expectedVersion": "dargo 0.1.0",
-      "licenseSpdx": "LicenseRef-PsyProtocol-Proprietary-DevTestOnly",
-      "requiredByProfiles": [
-        "psy-dargo-0.1.0-local-proof-v1"
-      ],
-      "sourceBuild": null
-    },
-    {
       "id": "jv",
       "version": "6.0.2",
       "sourceUrl": "https://github.com/santhosh-tekuri/jsonschema/releases/tag/v6.0.2",
@@ -653,28 +433,6 @@
       "licenseSpdx": "Apache-2.0",
       "requiredByProfiles": [
         "supply-chain-cyclonedx-1.6-v1"
-      ],
-      "sourceBuild": null
-    },
-    {
-      "id": "leo",
-      "version": "4.0.2",
-      "sourceUrl": "https://github.com/ProvableHQ/leo/releases/tag/v4.0.2",
-      "platform": "linux-x86_64",
-      "assetId": "leo-4.0.2-x86_64-unknown-linux-gnu",
-      "executable": "leo",
-      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/leo",
-      "executableSha256": "7d12192925327bc3dd28e29e4475b5a8adfa22ccd1409b49c90cc1d29558b44f",
-      "runtimeLibrarySubdir": null,
-      "runtimeFiles": [],
-      "versionArgs": [
-        "--version"
-      ],
-      "expectedVersion": "4.0.2",
-      "licenseSpdx": "GPL-3.0-or-later",
-      "requiredByProfiles": [
-        "aleo-leo-4.0.2-u64-compile-v1",
-        "aleo-leo-4.0.2-u64-v1"
       ],
       "sourceBuild": null
     },

@@ -55,33 +55,19 @@ echo "install-smoke: dry-run against present root reports would-skip"
 out="$(PROOF_FORGE_TOOL_ROOT="$tmp_root" "${py[@]}" --targets quint --dry-run --json)"
 echo "$out" | rg -q '"status": "would-skip"'
 
-echo "install-smoke: I3 aleo --with-runtime documents snarkos cargo recipe (no cargo build)"
-out="$(
-  PROOF_FORGE_TOOL_ROOT="$tmp_root" \
-  PROOF_FORGE_ALEO_SNARKOS="/tmp/pf-install-smoke-no-snarkos/snarkos" \
-  "${py[@]}" --targets aleo --with-runtime --dry-run --json 2>&1
-)"
-echo "$out" | head -50
-echo "$out" | rg -q '"schema": "proof-forge.install.v1"'
-echo "$out" | rg -q '"name": "snarkos"'
-echo "$out" | rg -q '"status": "documented"'
-echo "$out" | rg -q 'cargo install snarkos'
-echo "$out" | rg -q 'features test_network'
-echo "$out" | rg -q 'aleo-devnet/cargo-install'
-echo "$out" | rg -q 'PROOF_FORGE_ALEO_SNARKOS|not in Tool Lock'
-# Must not claim install into Tool Root for snarkos
-if echo "$out" | rg -q "\"path\": \"$tmp_root/snarkos\""; then
-  echo "install-smoke: FAIL snarkos must not target TOOL_ROOT" >&2
-  exit 1
-fi
-# Human path also prints installCommand
-human="$(
-  PROOF_FORGE_TOOL_ROOT="$tmp_root" \
-  PROOF_FORGE_ALEO_SNARKOS="/tmp/pf-install-smoke-no-snarkos/snarkos" \
-  "${py[@]}" --targets aleo --with-runtime --dry-run 2>&1
-)"
-echo "$human" | head -20
-echo "$human" | rg -q 'installCommand=cargo install snarkos'
+echo "install-smoke: Aleo and Psy remain zero-tool with --with-runtime"
+for target in aleo psy; do
+  out="$(
+    PROOF_FORGE_TOOL_ROOT="$tmp_root" \
+    "${py[@]}" --targets "$target" --with-runtime --dry-run --json 2>&1
+  )"
+  printf '%s' "$out" | /usr/bin/python3 -I -S -c '
+import json, sys
+doc = json.load(sys.stdin)
+assert doc["tools"] == [], doc
+assert doc["notes"] == [], doc
+'
+done
 
 if [[ -x "$root/.lake/build/bin/proof-forge-next" ]]; then
   cli="$root/.lake/build/bin/proof-forge-next"

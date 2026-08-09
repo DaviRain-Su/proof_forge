@@ -11,24 +11,24 @@ import ProofForgeV2.Targets.Aleo.PfAssetsDispositionV1
 # Aleo LowerSemanticV1 — Plan types + SemanticProgramV1 → Plan lowering
 
 Owns the Aleo-owned Plan surface and the retained-`SemanticProgramV1` Plan body.
-Plan canonicity lives in `ValidatePlanV1`; Leo emission in `EmitIRV1`.
-`FinalizeV1` remains a separate submodule.
+Plan canonicity lives in `ValidatePlanV1`; direct Aleo Instructions lowering
+lives in `Instructions/LowerPlanV1`. `FinalizeV1` remains a separate submodule.
 
 ## Coverage boundary (AleoCoverage + H3 PsyAleoAggregate + NS-1 Map pilot + Bytes N)
 
 LOWERED (product path): scalar stateLoad/stateStore (UInt64/UInt32/UInt16/
 UInt8, Int64), checked arithmetic/compare/bitwise/shift/logical (signed for
-Int64; narrow UInt{8,16,32} map to native Leo `u8`/`u16`/`u32` ops —
-leo 4.0.2 traps on add/sub/mul overflow and on out-of-range casts; spike-
-verified), unary not/bitNot/neg (Int64), pureCall, bare assert, bare
+Int64; narrow UInt{8,16,32} use native Aleo `u8`/`u16`/`u32` Instructions
+with checked overflow and exact range guards), unary not/bitNot/neg (Int64),
+pureCall, bare assert, bare
 revert (`assert(false)`), if/switch/for, Commit identity passthrough
 (label-only; no crypto commitment realization), **named Struct/Enum and
 fixed Array UInt64 N** via flatten-to-mapping leaves (`name_field` /
 `name_i` → consecutive `pf_state_*` mappings), **dense Map UInt64 UInt64**
 (NS-1 occ/key/val pilot, **capacity 2** — see `aleoMapPilotCapacityV1`:
-Leo 4.0.2 caps a final block at 32 mapping sets statically across all
-arms, ECMP0376015, so the shipped Token mint/transfer fits only at
-capacity 2; `ValidatePlanV1` enforces the set budget fail-closed), and
+The admitted Aleo Instructions subset caps a Final block at 32 mapping sets
+across all arms, so the shipped Token mint/transfer fits only at capacity 2;
+`ValidatePlanV1` enforces the set budget fail-closed), and
 **fixed Bytes N** (N×`u8 => u8` mappings; u8 params/results; native u8
 checked arithmetic, same trap semantics).
 
@@ -52,25 +52,24 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
     Goldilocks Field, non-zero high BLS12-377 Field bytes) stay fail-closed at
     the shared `lowerLiteral` boundary.
   * **Computed state-reading views** — only bare public-state reads map to
-    the off-chain `leo query` model; `balanceOf`-style match-on-state views
-    fail closed. Multi-leaf aggregate `view` returns over state also
-    fail closed (not a single leaf mapping query); use non-state entries for
-    real Leo tuple/array returns, or Final entries that drop the aggregate.
+    the emitted network-state query descriptor; `balanceOf`-style
+    match-on-state views fail closed. Multi-leaf aggregate `view` returns over
+    state also fail closed (not a single-leaf mapping query); use non-state
+    entries for tuple/array returns, or Final entries that drop the aggregate.
   * **B-RET-ABI named Struct/Enum entry returns** — admitted: preorder flatten
-    to 1..8 UInt64/Int64 leaves; Leo non-Final surface is a native tuple
-    `(u64|i64, …)`; Final (state-touching) still drops the value after
+    to 1..8 UInt64/Int64 leaves; non-Final Instructions expose the leaves as
+    typed outputs. Final (state-touching) still drops the value after
     evaluating leaf exprs.
   * **N-ANON-RESULT (Aleo ABI)** — anonymous `Array UInt64 N` (1..8) and
     `Option UInt64` entry returns admitted on the same multi-leaf path:
-    Array → N preorder u64 leaves, Leo non-Final surface `[u64; N]`;
-    Option → tag+payload (none=(0,0)/false, some=(1,v)/true), Leo non-Final
-    surface `(bool, u64)`. Final still evaluates leaves and drops. Map/Bytes/
-    nested/non-UInt64-element/narrow-width anonymous returns, >8 leaves,
-    named-aggregate params, and pureFn aggregate returns stay FC.
+    Array → N preorder u64 leaves; Option → tag+payload
+    (none=(0,0)/false, some=(1,v)/true). Final still evaluates leaves and drops.
+    Map/Bytes/nested/non-UInt64-element/narrow-width anonymous returns,
+    >8 leaves, named-aggregate params, and pureFn aggregate returns stay FC.
   * **Map shapes other than Map UInt64 UInt64** — declined at type closure.
-  * **ContextRead** — no host clock ABI in Leo 4.0.2 Final model for this pilot.
-  * **emit / externalCall / schedule / revert-with-args** — no Leo analogue
-    (resolver also declines event/sync/async requirement keys).
+  * **ContextRead** — no target-owned context input binding in this subset.
+  * **emit / externalCall / schedule / revert-with-args** — no admitted
+    Instructions contract (resolver also declines event/sync/async keys).
   * **ADR-0029 Phase D `pf.assets`** — **zero binding**. Record custody ≠
     account-balance vault; `credits.aleo` is not self-vault (see
     `PfAssetsDispositionV1`). Catalog QNs get an explicit unbound Plan
@@ -78,8 +77,8 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
   * Array IndexGet/IndexSet require compile-time UInt literal index.
   * Int64 for-loop endpoints (shared Normalize retains them; this Aleo profile
     has no signed range surface) / Int64 match scrutinees.
-  * Leo final-block mapping-set budget > 32 (ECMP0376015) — plan-time
-    fail-closed, including the dense-Map upsert expansion.
+  * A Final block mapping-set budget above 32 — plan-time fail-closed,
+    including the dense-Map upsert expansion.
 -/
 
 namespace ProofForgeV2.Targets.Aleo
@@ -91,22 +90,11 @@ open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
 open ProofForgeV2.Targets.Aleo.PfAssetsDispositionV1
 
-/-- Residual default Aleo codegen profile (Leo 4.0.2 source-only slice).
-    The compile profile (`aleoLeoU64CompileV1`) is a second selection identity
-    with the same Plan surface; any change to the supported surface or the Leo
-    toolchain requires a new profile. -/
-def codegenProfile : CodegenProfileId := CodegenProfileId.aleoLeoU64V1
+/-- Sole Aleo Instructions profile. -/
+def codegenProfile : CodegenProfileId := CodegenProfileId.aleoInstructionsV1
 
-/-- Defensive allowlist for Aleo capability profiles. Both registered profiles
-    share the same retained-Semantic Plan lowering; unknown profiles fail closed. -/
 private def isAdmittedAleoCodegenProfile (profile : CodegenProfileId) : Bool :=
-  profile == CodegenProfileId.aleoLeoU64V1 ||
-    profile == CodegenProfileId.aleoLeoU64CompileV1
-
-/-- Shared Leo language/toolchain version. The default profile only emits source;
-    the explicit compile profile resolves the digest-pinned Leo binary from
-    Tool Lock v4 during finalization. -/
-def leoToolchain : String := "4.0.2"
+  profile == CodegenProfileId.aleoInstructionsV1
 
 /-- Engineering descriptor (shared DescriptorDataV1). -/
 def descriptor : TargetDescriptor := DescriptorDataV1.aleo
@@ -115,23 +103,22 @@ inductive ComparisonOp where
   | eq | ne | lt | le | gt | ge
   deriving BEq, Inhabited, Repr
 
-/-- T14 catalog v2 (BLS12-377): native Leo `field` arithmetic operator.
-    Leo `field` is a field element, so each op is exact mod BLS12-377 Fr. -/
+/-- T14 catalog v2 (BLS12-377): native Aleo Instructions `field` arithmetic.
+    Each operation is exact modulo BLS12-377 Fr. -/
 inductive FieldArithOp where
   | add | sub | mul | div
   deriving BEq, Inhabited, Repr
 
 /-- Target-owned Aleo Plan expression over the shipped public
     UInt{8,16,32,64}/Int64/Bool semantic envelope. Narrow UInt uses native
-    Leo `u8`/`u16`/`u32` ops (trap-on-overflow, spike-verified with leo
-    4.0.2). UInt64 shifts guard `count < 64` and cast the count to `u8`
-    (Leo only accepts u8/u16/u32 shift counts). Int64 uses dedicated signed
-    constructors; Leo's native `i64` type is type-directed. -/
+    `u8`/`u16`/`u32` operations with exact guards. UInt64 shifts guard
+    `count < 64` and cast the count to `u8`; Int64 uses dedicated signed
+    constructors and type-directed `i64` Instructions. -/
 inductive Expr where
   | literal (value : UInt64)
-  /-- Raw Int64 bit pattern (two's complement); Leo `i64` literal. -/
+  /-- Raw Int64 bit pattern (two's complement); `i64` literal. -/
   | i64Literal (value : UInt64)
-  /-- Narrow unsigned literal (`bitWidth ∈ {8,16,32}`); Leo `uN` literal. -/
+  /-- Narrow unsigned literal (`bitWidth ∈ {8,16,32}`); `uN` literal. -/
   | uintLiteral (bitWidth : Nat) (value : UInt64)
   | boolLiteral (value : Bool)
   | param (inputIndex : Nat)
@@ -144,7 +131,7 @@ inductive Expr where
   | checkedMul (lhs rhs : Expr)
   | checkedDiv (lhs rhs : Expr)
   | checkedMod (lhs rhs : Expr)
-  /-- Narrow UInt{8,16,32} checked arithmetic — native Leo trap-on-overflow. -/
+  /-- Narrow UInt{8,16,32} checked arithmetic. -/
   | narrowCheckedAdd (bitWidth : Nat) (lhs rhs : Expr)
   | narrowCheckedSub (bitWidth : Nat) (lhs rhs : Expr)
   | narrowCheckedMul (bitWidth : Nat) (lhs rhs : Expr)
@@ -156,16 +143,16 @@ inductive Expr where
   | signedCheckedMul (lhs rhs : Expr)
   | signedCheckedDiv (lhs rhs : Expr)
   | signedCheckedMod (lhs rhs : Expr)
-  /-- Signed Int64 comparison (Leo `i64` native signed comparison). -/
+  /-- Signed Int64 comparison. -/
   | signedCompare (op : ComparisonOp) (lhs rhs : Expr)
   | bitAnd (lhs rhs : Expr)
   | bitOr (lhs rhs : Expr)
   | bitXor (lhs rhs : Expr)
-  /-- Narrow UInt{8,16,32} bitwise (native Leo same-width ops). -/
+  /-- Narrow UInt{8,16,32} bitwise operations. -/
   | narrowBitAnd (bitWidth : Nat) (lhs rhs : Expr)
   | narrowBitOr (bitWidth : Nat) (lhs rhs : Expr)
   | narrowBitXor (bitWidth : Nat) (lhs rhs : Expr)
-  /-- Int64 bitwise ops (same Leo operators; bindings render as `i64`). -/
+  /-- Int64 bitwise operations; bindings render as `i64`. -/
   | signedBitAnd (lhs rhs : Expr)
   | signedBitOr (lhs rhs : Expr)
   | signedBitXor (lhs rhs : Expr)
@@ -182,28 +169,24 @@ inductive Expr where
   | signedShl (lhs rhs : Expr)
   | signedShr (lhs rhs : Expr)
   | bitNot (operand : Expr)
-  /-- Int64 bitwise not (Leo `!` on i64; binding renders as `i64`). -/
+  /-- Int64 bitwise not; binding renders as `i64`. -/
   | signedBitNot (operand : Expr)
-  /-- Narrow UInt{8,16,32} bitwise not (Leo `!` on uN). -/
+  /-- Narrow UInt{8,16,32} bitwise not. -/
   | narrowBitNot (bitWidth : Nat) (operand : Expr)
   | boolNot (operand : Expr)
   /-- Checked Int64 negation (intMin reverts at emission). -/
   | checkedNeg (operand : Expr)
-  /-- Type-directed selection `cond ? thenV : elseV` (Map pilot selectors;
-      Leo ternary requires same-typed arms and a Bool condition). -/
+  /-- Type-directed selection `cond ? thenV : elseV`. -/
   | ternary (condition thenValue elseValue : Expr)
-  /-- T14 catalog v2 (BLS12-377): native Leo `field` literal. The value is the
-      raw BLS12-377 Fr element (`< r`); emitted as a Leo `field` literal. -/
+  /-- T14 catalog v2 (BLS12-377): native `field` literal. The value is the
+      raw BLS12-377 Fr element (`< r`). -/
   | fieldLiteral (value : UInt64)
-  /-- T14 catalog v2 (BLS12-377): native Leo `field` arithmetic. Leo `field` is
-      a field element so the op is exact mod BLS12-377 Fr — no checked-overflow
-      guard. -/
+  /-- T14 catalog v2 (BLS12-377): native `field` arithmetic is exact modulo
+      BLS12-377 Fr and has no checked-overflow guard. -/
   | fieldBinary (op : FieldArithOp) (lhs rhs : Expr)
-  /-- T14 catalog v2 (BLS12-377): native Leo `field` equality (eq/ne only;
-      Leo `field` has no ordering). -/
+  /-- T14 catalog v2 (BLS12-377): native `field` equality (eq/ne only). -/
   | fieldCompare (op : ComparisonOp) (lhs rhs : Expr)
-  /-- T14 catalog v2 (BLS12-377): native Leo `field` negation `0 - x`
-      (BLS12-377 Fr inverse; no intMin revert). -/
+  /-- T14 catalog v2 (BLS12-377): native `field` negation `0 - x`. -/
   | fieldNeg (operand : Expr)
   | callFn (fnName : String) (args : Array Expr)
   deriving BEq, Inhabited, Repr
@@ -214,29 +197,17 @@ structure Store where
   value : Expr
   deriving BEq, Inhabited, Repr
 
-/-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
-UInt64/Int64 words (`isInt` selects Leo `i64` vs `u64`); `byteWidth` is 8.
-Option tag is a u64 0/1 in Plan and becomes Leo `bool` only at Emit
-(`AggregateReturnForm.option`). -/
+/-- ABI type of one aggregate return leaf. B-RET-ABI leaves are UInt64/Int64
+words; `isInt` selects `i64` versus `u64`, and `byteWidth` is 8. -/
 structure LeafAbiType where
   isInt : Bool
   byteWidth : Nat
   deriving BEq, Inhabited, Repr
 
-/-- Leo surface form for a multi-leaf aggregate return (non-Final). Final
-    always evaluates leaves and drops the value regardless of form. -/
-inductive AggregateReturnForm where
-  /-- Named Struct/Enum: Leo native tuple `(T0, T1, …)`. -/
-  | named
-  /-- Anonymous `Array UInt64 N`: Leo fixed array `[u64; N]`. -/
-  | array
-  /-- Anonymous `Option UInt64`: Leo `(bool, u64)` (tag, payload). -/
-  | option
-  deriving BEq, Inhabited, Repr
 
-/-- Entry/view/pureFn return ABI kind. Scalar kinds mirror the historic
-    `resultIs*` flags; `.aggregate` is B-RET-ABI named Struct/Enum flatten
-    or N-ANON-RESULT Array/Option (1..8 UInt64/Int64 leaves). -/
+/-- Entry/view/pureFn return ABI kind. Scalar kinds mirror the `resultIs*`
+    flags; `.aggregate` is a flattened named Struct/Enum or N-ANON-RESULT
+    Array/Option with 1..8 UInt64/Int64 leaves. -/
 inductive ResultKind where
   | u64
   | bool
@@ -246,9 +217,8 @@ inductive ResultKind where
   | u32
   | field
   | unit
-  /-- B-RET-ABI / N-ANON-RESULT: multi-leaf return. `leaves` is preorder
-  flatten order (1..8). `form` selects the Leo non-Final surface. -/
-  | aggregate (leaves : Array LeafAbiType) (form : AggregateReturnForm)
+  /-- B-RET-ABI / N-ANON-RESULT: multi-leaf return in preorder. -/
+  | aggregate (leaves : Array LeafAbiType)
   deriving BEq, Inhabited, Repr
 
 inductive Statement where
@@ -266,16 +236,15 @@ inductive Statement where
   | returnValue (value : Expr)
   /-- B-RET-ABI / N-ANON-RESULT: multi-leaf named Struct/Enum or admitted
   anonymous Array/Option return. `leaves` are preorder flatten expressions
-  (UInt64/Int64 only, ≤8); `leafIsInt` is parallel ABI signedness. Non-Final
-  Leo surface is selected by the function's `resultAggregateForm` (tuple /
-  `[u64; N]` / `(bool, u64)`); Final evaluates each leaf for failure
-  semantics and drops the value (`resultDropped`). -/
+  (UInt64/Int64 only, ≤8); `leafIsInt` is the parallel ABI signedness.
+  Final evaluates each leaf for failure semantics and drops the value when
+  `resultDropped` is true. -/
   | returnAggregate (leaves : Array Expr) (leafIsInt : Array Bool)
   | returnNone
   | ifThenElse (condition : Expr) (thenBody elseBody : Array Statement)
   | switchOn (scrutinee : Expr) (cases : Array (UInt64 × Array Statement))
       (defaultBody : Array Statement)
-  /-- Bounded for (see module doc for the exact Leo encoding). -/
+  /-- Statically bounded loop lowered to Instructions control flow. -/
   | forLoop (start endExclusive : Expr) (maxIterations : Nat)
       (body : Array Statement)
   | emitEvent (eventIndex : Nat) (args : Array Expr)
@@ -291,38 +260,27 @@ structure PlanParam where
   sourceIndex : Nat
   name : String
   isBool : Bool
-  /-- Int64 parameter (Leo `i64`); overrides the `isBool`-driven u64 default. -/
+  /-- Int64 parameter; overrides the `isBool`-driven u64 default. -/
   isInt : Bool := false
-  /-- Unsigned width in bits: 0 or 64 → Leo `u64`; 8/16/32 → native narrow. -/
+  /-- Unsigned width in bits: 0 or 64 → `u64`; 8/16/32 → native narrow. -/
   uintWidth : Nat := 0
-  /-- T14 catalog v2 (BLS12-377): native Leo `field` parameter. -/
+  /-- T14 catalog v2 (BLS12-377): native `field` parameter. -/
   isField : Bool := false
   deriving BEq, Inhabited, Repr
 
-/-- Leo type name for an admitted unsigned width (0/64 → u64). -/
-def leoUintTypeName (bitWidth : Nat) : String :=
-  match bitWidth with
-  | 8 => "u8"
-  | 16 => "u16"
-  | 32 => "u32"
-  | _ => "u64"
 
 /-- True when `bitWidth` is a narrow UInt admitted on the Aleo T8 surface. -/
 def isNarrowUintWidth (bitWidth : Nat) : Bool :=
   bitWidth == 8 || bitWidth == 16 || bitWidth == 32
 
 /-- One callable artifact. `resultDropped` records that a non-Unit result
-    cannot be returned by Leo's `Final` model (see module doc): the value is
-    observable post-transaction via `leo query`, and each return expression
-    is still evaluated in the final block for failure semantics.
-    `isPureHelper` is true for Semantic `pureFn` callables: Leo 4.0.2 requires
-    helper `fn`s outside the `program` block (no input modes) so entry points
-    can call them.
+    cannot be returned directly from a state-touching Final body. Each return
+    expression is still evaluated there for failure semantics.
+    `isPureHelper` marks Semantic `pureFn` callables, which the Instructions
+    lowerer inlines at call sites.
     B-RET-ABI / N-ANON-RESULT: when `resultAggregateLeaves` is `some`, the
-    result is a named Struct/Enum or admitted anonymous Array/Option
-    flattened to 1..8 UInt64/Int64 leaves (scalar `resultIs*` flags are
-    false); non-Final emission uses `resultAggregateForm` (tuple / array /
-    option). -/
+    result is a named Struct/Enum or admitted anonymous Array/Option flattened
+    to 1..8 UInt64/Int64 leaves; scalar `resultIs*` flags are false. -/
 structure PlanFunction where
   index : Nat
   name : String
@@ -332,20 +290,17 @@ structure PlanFunction where
   /-- True when the body reads or writes mappings (Final function). -/
   touchesState : Bool
   resultIsBool : Bool
-  /-- Int64 result (Leo `i64`); overrides the `isBool`-driven u64 default. -/
+  /-- Int64 result; overrides the `isBool`-driven u64 default. -/
   resultIsInt : Bool := false
   /-- Unsigned result width: 0/64 → `u64`; 8/16/32 → native narrow. -/
   resultUintWidth : Nat := 0
-  /-- T14 catalog v2 (BLS12-377): native Leo `field` result. -/
+  /-- T14 catalog v2 (BLS12-377): native `field` result. -/
   resultIsField : Bool := false
   /-- B-RET-ABI / N-ANON-RESULT: aggregate return leaves (preorder, 1..8).
       `none` for scalar/Unit results. -/
   resultAggregateLeaves : Option (Array LeafAbiType) := none
-  /-- Leo non-Final surface form; meaningful only when
-      `resultAggregateLeaves` is `some` (defaults to `.named`). -/
-  resultAggregateForm : AggregateReturnForm := .named
   resultDropped : Bool
-  /-- True when source kind was `pureFn` (Leo helper outside program). -/
+  /-- True when the source callable kind was `pureFn`. -/
   isPureHelper : Bool := false
   deriving BEq, Inhabited, Repr
 
@@ -353,7 +308,7 @@ structure PlanFunction where
     B-RET-ABI / N-ANON-RESULT aggregate). -/
 def PlanFunction.resultKind (fn : PlanFunction) : ResultKind :=
   match fn.resultAggregateLeaves with
-  | some leaves => .aggregate leaves fn.resultAggregateForm
+  | some leaves => .aggregate leaves
   | none =>
       if fn.resultIsBool then .bool
       else if fn.resultIsInt then .i64
@@ -382,7 +337,7 @@ structure Plan where
   /-- Unsigned width per state field: 0/64 → `u64`; 8/16/32 → narrow mapping
       value type (scalar UInt + Bytes element leaves). -/
   stateFieldUintWidth : Array Nat
-  /-- T14 catalog v2 (BLS12-377): Leo `field` flag per state field. -/
+  /-- T14 catalog v2 (BLS12-377): `field` flag per state field. -/
   stateFieldIsField : Array Bool
   functions : Array PlanFunction
   views : Array PlanView
@@ -405,8 +360,8 @@ private def aleoTypeClosureWording : PilotTypeClosureWording where
   unsupportedShapeDetail :=
     "only UInt64, UInt32, UInt16, UInt8, Int64, Unit, Bool, Field(bls12-377-fr), named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes N, and Option UInt64 (state/return; not params) are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, exact modulus match; bn254 Fr and Goldilocks fail closed as wrong modulus; Option of non-UInt64/nested/params + Principal/String stay fail-closed; UInt128/256 and narrow Int stay fail-closed)"
 
-/-- Aleo T8 multi-width policy: UInt{8,16,32,64} body + ABI (native Leo
-    `u8`/`u16`/`u32`/`u64`). UInt128/256 stay fail-closed. -/
+/-- Aleo T8 multi-width policy: UInt{8,16,32,64} body + ABI
+    (`u8`/`u16`/`u32`/`u64` Instructions). UInt128/256 stay fail-closed. -/
 private def pilotUintWidthPolicyAleoBody : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 16, 8]
 
@@ -447,8 +402,8 @@ private structure LoweredVal where
   /-- Per-leaf unsigned width (0/64 = u64, 8/16/32 = narrow); index-aligned
       with `leaves?` when set. Scalar narrow UInt + Bytes element leaves. -/
   leafUintWidth? : Option (Array Nat) := none
-  /-- T14 catalog v2 (BLS12-377): scalar Leo `field` value. Selects native
-      field arithmetic (no checked-overflow guard) and `field` emission. -/
+  /-- T14 catalog v2 (BLS12-377): scalar `field` value. Selects native
+      field arithmetic with no checked-overflow guard. -/
   isField : Bool := false
   deriving Inhabited
 
@@ -489,7 +444,7 @@ private def mkScalarUintVal (bitWidth : Nat) (e : Expr) : LoweredVal :=
   { expr := e, leaves? := none, leafIsInt? := none,
     leafUintWidth? := some #[bitWidth], isField := false }
 
-/-- T14 catalog v2 (BLS12-377): scalar Leo `field` carrier. -/
+/-- T14 catalog v2 (BLS12-377): scalar `field` carrier. -/
 private def mkScalarFieldVal (e : Expr) : LoweredVal :=
   { expr := e, leaves? := none, leafIsInt? := none, leafUintWidth? := none, isField := true }
 
@@ -543,7 +498,7 @@ private structure AleoLowerLayoutV1 where
   fieldIsInt : Array Bool
   /-- Unsigned width per state leaf (0/64 = u64; 8/16/32 = narrow). -/
   fieldUintWidth : Array Nat
-  /-- T14 catalog v2 (BLS12-377): Leo `field` flag per state leaf. -/
+  /-- T14 catalog v2 (BLS12-377): `field` flag per state leaf. -/
   fieldIsField : Array Bool
   stateLeaves : Array (Array Nat)
   typeDecls : Array TypeDeclV1
@@ -601,14 +556,11 @@ private def isBls12377FieldType
   types.fieldTypeId == some typeId
 
 /-- Dense Map pilot capacity (NS-1 occ/key/val pattern shared with
-    EVM/Solana/NEAR/Noir), **reduced to 2 for Leo 4.0.2**: Leo limits a
-    `final` block to 32 mapping `set`/`remove` commands **statically across
-    every control-flow arm** (spike-verified ECMP0376015: transfer's two
-    inner upserts count 2×cap×3 even though only one path executes). Every
-    upsert emits capacity×3 sets, so capacity 2 → 6 leaves keeps the full
-    shipped Token (mint 2×(6+1)=14, transfer 2×(6+6)=24) under the budget.
-    `ValidatePlanV1` enforces the sum-over-arms budget so larger programs
-    fail closed instead of emitting invalid Leo. -/
+    EVM/Solana/NEAR/Noir), conservatively fixed at 2. The admitted Instructions
+    subset permits at most 32 mapping `set` operations statically across all
+    control-flow arms. Every upsert emits capacity×3 sets, so capacity 2 → 6
+    leaves keeps the shipped Token mint/transfer programs under that bound.
+    `ValidatePlanV1` enforces the sum-over-arms budget before emission. -/
 private def aleoMapPilotCapacityV1 : Nat := 2
 private def aleoMapSlotsPerEntryV1 : Nat := 3
 private def aleoMapPilotLeafCountV1 : Nat :=
@@ -828,10 +780,9 @@ private def flattenOptionUInt64LeafSpecsV1 (namePrefix : String) :
     planError s!"state name '{pName}' is not a safe identifier"
   pure #[(tagName, false, 0), (pName, false, 0)]
 
-/-- Dense Map IndexGet → Option UInt64 as `[tag, payload]` (unrolled; the
-    EVM/NEAR pattern). Leo is type-strict, so every selector is a typed
-    ternary (`cond ? thenV : elseV` with Bool condition and same-typed u64
-    arms); the tag leaf is a u64 0/1. -/
+/-- Dense Map IndexGet → Option UInt64 as `[tag, payload]` (unrolled).
+    Every selector is a typed ternary with a Bool condition and same-typed
+    u64 arms; the tag leaf is a u64 0/1. -/
 private def mapLookupOptionLeavesV1
     (mapLeaves : Array Expr) (key : Expr) : CompileResult (Array Expr) := do
   unless mapLeaves.size == aleoMapPilotLeafCountV1 do
@@ -854,8 +805,8 @@ private def mapLookupOptionLeavesV1
   pure #[Expr.ternary found (.literal 1) (.literal 0), payload]
 
 /-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert) where okInsert is
-    a u64 0/1 — caller must assert (divide-by) it (map full when key absent).
-    All selectors are typed Leo ternaries. -/
+    a u64 0/1; caller must assert it because a full map rejects a missing key.
+    All selectors are type-consistent ternaries. -/
 private def mapUpsertLeavesV1
     (mapLeaves : Array Expr) (key value : Expr) :
     CompileResult (Array Expr × Expr) := do
@@ -990,7 +941,7 @@ private def makeStateLayoutV1
       fieldIsField := fieldIsField.push false
       stateLeaves := stateLeaves.push #[leafIdx]
     else if isBls12377FieldType types state.typeId then
-      -- T14 catalog v2 (BLS12-377): Field state is one native Leo `field` leaf.
+      -- T14 catalog v2 (BLS12-377): Field state is one native `field` leaf.
       let leafIdx := fieldNames.size
       fieldNames := fieldNames.push state.name
       fieldIsInt := fieldIsInt.push false
@@ -1067,8 +1018,8 @@ private def lowerLiteral
     | .ok value => pure (.literal value)
     | .error _ => planError "Aleo UInt64 literal is not canonical"
   else if isInt64Type data typeId then
-    -- Int64 literals are canonical 8-byte LE two's complement bit patterns;
-    -- the raw bits carry through to the Leo `i64` literal rendering.
+    -- Int64 literals are canonical 8-byte LE two's-complement bit patterns;
+    -- the raw bits carry through to `i64` literal rendering.
     match decodeUInt64LiteralV1 valueBytes with
     | .ok value => pure (.i64Literal value)
     | .error _ => planError "Aleo Int64 literal is not canonical"
@@ -1141,13 +1092,9 @@ private def lowerUnary
       if signed then pure (.checkedNeg operand)
       else planError "Aleo does not support unary neg on unsigned values"
 
-/-- Narrow UInt{8,16,32} binary → native Leo same-width ops.
-
-    leo 4.0.2 spike (tool-root): native `uN` add/sub/mul trap on overflow
-    (const-fold `ESAZ0374007` + runtime eval failure); `as uN` cast traps
-    out-of-range; shift count ≥ width traps (`shl overflow`). Matches the
-    DSL checked-overflow / invalidShift contract without widen/narrow
-    scaffolding. -/
+/-- Narrow UInt{8,16,32} binary operations use same-width Instructions with
+    overflow, cast-range, and shift-count failure semantics matching the DSL
+    checked-overflow / invalidShift contract. -/
 private def lowerNarrowBinary
     (bitWidth : Nat) (op : BinaryOpV1) (lhs rhs : Expr) : CompileResult Expr :=
   match op with
@@ -1273,10 +1220,9 @@ private partial def lowerRegion
           | none => planError "Aleo binary references an undefined operand"
         unless !l.isAggregate && !r.isAggregate do
           planError "Aleo binary operands must be scalar"
-        -- T14 catalog v2 (BLS12-377): native Leo `field` arithmetic. Both
-        -- operands must be scalar Field values; the op is exact mod BLS12-377
-        -- Fr so no checked-overflow guard. Field admits add/sub/mul/div and
-        -- eq/ne (ordering is rejected at Normalize); bitwise/shift fail closed.
+        -- T14 catalog v2 (BLS12-377): native `field` arithmetic. Both operands
+        -- must be scalar Field values; operations are exact mod BLS12-377 Fr
+        -- with no checked-overflow guard. Ordering/bitwise/shift fail closed.
         if l.isField && r.isField then
           let e ←
             match op with
@@ -1363,7 +1309,7 @@ private partial def lowerRegion
           | none => planError "Aleo unary references an undefined operand"
         unless !o.isAggregate do
           planError "Aleo unary operand must be scalar"
-        -- T14 catalog v2 (BLS12-377): native Leo `field` negation.
+        -- T14 catalog v2 (BLS12-377): native `field` negation.
         let e ← if o.isField then
             match op with
             | .neg => pure (.fieldNeg o.expr)
@@ -1470,7 +1416,7 @@ private partial def lowerRegion
           | none => planError "Aleo assert references an undefined condition"
         ls := { ls with stmts := ls.stmts.push (.assert c) }
     | .emit .. =>
-        planError "Aleo does not support emit: Leo 4.0.2 has no on-chain event log"
+        planError "Aleo does not support emit: the Instructions subset has no event-log contract"
     | .externalCall _effectId callee _args => do
         -- ADR-0029 Phase D: distinguish unbound catalog QNs from non-catalog.
         let comps := callee.components.toArray
@@ -1765,8 +1711,8 @@ private partial def lowerRegion
             let some tag := base.leafExprs[0]? |
               planError "variantTag missing tag leaf"
             -- Option intermediate (2 leaves from Map IndexGet): the tag is
-            -- 0/1; Normalize switches on a UInt32 tag so the 0/1 value is
-            -- already UInt-compatible (Leo u64 arithmetic).
+            -- 0/1; Normalize switches on UInt32, so this is already compatible
+            -- with the target's u64 arithmetic lane.
             env := envInsert env valueDef.valueId tag
     | .variantPayload baseId variantIndex payloadIndex => do
         match instr.result with
@@ -2077,7 +2023,7 @@ private partial def lowerRegion
       pure { stmts, join? := none }
   | .revert errorId args => do
       unless args.isEmpty do
-        planError "Aleo does not support revert payloads: Leo 4.0.2 cannot represent error arguments"
+        planError "Aleo does not support revert payloads: the Instructions subset has no error-argument ABI"
       let stmts := ls.stmts.push (.revertError errorId.toNat #[])
       pure { stmts, join? := none }
   | .trap _ => do
@@ -2185,13 +2131,12 @@ private def flattenNamedReturnLeafAbiV1
   pure leaves
 
 /-- N-ANON-RESULT (Aleo ABI): anonymous result leaf layout for admitted
-container returns. `Array UInt64 N` → N×u64 leaves + form `.array`;
-`Option UInt64` → tag+payload (none=(0,0), some v=(1,v)) + form `.option`.
-Map/Bytes throw for precise FC. -/
+container returns. `Array UInt64 N` → N×u64 leaves; `Option UInt64` →
+tag+payload (none=(0,0), some v=(1,v)). Map/Bytes throw for precise FC. -/
 private def anonymousReturnLeafAbiV1
     (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
     (typeId : TypeIdV1) :
-    CompileResult (Option (Array LeafAbiType × AggregateReturnForm)) := do
+    CompileResult (Option (Array LeafAbiType)) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .array elTid len, name := none, .. } =>
       unless elTid == types.uint64TypeId do
@@ -2201,14 +2146,14 @@ private def anonymousReturnLeafAbiV1
       unless n ≥ 1 do
         planError
           "unsupported Aleo semantic shape: anonymous Array return length must be ≥ 1"
-      pure (some (Array.replicate n { isInt := false, byteWidth := 8 }, .array))
+      pure (some (Array.replicate n { isInt := false, byteWidth := 8 }))
   | some { shape := .option elTid, name := none, .. } =>
       unless elTid == types.uint64TypeId do
         planError
           "unsupported Aleo semantic shape: anonymous Option return requires UInt64 payload"
-      pure (some (#[
+      pure (some #[
         { isInt := false, byteWidth := 8 },
-        { isInt := false, byteWidth := 8 }], .option))
+        { isInt := false, byteWidth := 8 }])
   | some { shape := .map .., name := none, .. } =>
       planError
         "unsupported Aleo semantic shape: anonymous Map return is outside the Aleo B-RET ABI"
@@ -2235,19 +2180,18 @@ private def isAggregateResultCandidateV1
     | _ => false
 
 /-- B-RET-ABI / N-ANON-RESULT: resolve a named Struct/Enum or admitted
-anonymous Array/Option result TypeId into leaf ABI types + Leo surface form.
-Enforces 1..8 leaves. Map/Bytes/nested/narrow-element fail closed. -/
+anonymous Array/Option result TypeId into 1..8 flattened ABI leaves.
+Map/Bytes/nested/narrow-element shapes fail closed. -/
 private def aggregateResultOfV1
     (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) :
-    CompileResult (Array LeafAbiType × AggregateReturnForm) := do
-  let (leaves, form) ←
+    CompileResult (Array LeafAbiType) := do
+  let leaves ←
     if types.isNamedAggregate typeId then
-      let ls ← flattenNamedReturnLeafAbiV1 typeDecls types typeId
-      pure (ls, AggregateReturnForm.named)
+      flattenNamedReturnLeafAbiV1 typeDecls types typeId
     else
       match ← anonymousReturnLeafAbiV1 typeDecls types typeId with
-      | some pair => pure pair
+      | some leaves => pure leaves
       | none =>
           planError
             s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option aggregate"
@@ -2257,36 +2201,35 @@ private def aggregateResultOfV1
   unless n ≤ 8 do
     planError
       s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
-  pure (leaves, form)
+  pure leaves
 
-/-- Resolve a callable result to scalar flags + optional aggregate leaves/form.
+/-- Resolve a callable result to scalar flags plus optional aggregate leaves.
     Returns `(isBool, isUnit, isInt64, resultUintWidth, isField,
-    aggregateLeaves?, form)`. `resultUintWidth` is 0 for u64 default;
-    8/16/32 for narrow. -/
+    aggregateLeaves?)`. `resultUintWidth` is 0 for u64 and 8/16/32 for narrow. -/
 private def resultShape (data : SemanticProgramDataV1) (types : AleoTypeClosureV1)
     (typeDecls : Array TypeDeclV1) (callable : CallableV1) (owner : String) :
     CompileResult (Bool × Bool × Bool × Nat × Bool ×
-      Option (Array LeafAbiType) × AggregateReturnForm) := do
+      Option (Array LeafAbiType)) := do
   if isBoolType data callable.result.typeId then
-    pure (true, false, false, 0, false, none, .named)
+    pure (true, false, false, 0, false, none)
   else if isUInt64Type data callable.result.typeId then
-    pure (false, false, false, 0, false, none, .named)
+    pure (false, false, false, 0, false, none)
   else if isInt64Type data callable.result.typeId then
-    pure (false, false, true, 0, false, none, .named)
+    pure (false, false, true, 0, false, none)
   else if isUInt8Type data callable.result.typeId then
-    pure (false, false, false, 8, false, none, .named)
+    pure (false, false, false, 8, false, none)
   else if isUInt16Type data callable.result.typeId then
-    pure (false, false, false, 16, false, none, .named)
+    pure (false, false, false, 16, false, none)
   else if isUInt32Type data callable.result.typeId then
-    pure (false, false, false, 32, false, none, .named)
+    pure (false, false, false, 32, false, none)
   else if isBls12377FieldType types callable.result.typeId then
-    pure (false, false, false, 0, true, none, .named)
+    pure (false, false, false, 0, true, none)
   else if (match data.types[callable.result.typeId.toNat]? with
       | some { shape := .unit, .. } => true | _ => false) then
-    pure (false, true, false, 0, false, none, .named)
+    pure (false, true, false, 0, false, none)
   else if isAggregateResultCandidateV1 typeDecls types callable.result.typeId then
-    let (leaves, form) ← aggregateResultOfV1 typeDecls types owner callable.result.typeId
-    pure (false, false, false, 0, false, some leaves, form)
+    let leaves ← aggregateResultOfV1 typeDecls types owner callable.result.typeId
+    pure (false, false, false, 0, false, some leaves)
   else
     planError
       s!"{owner} result is outside the public UInt8/16/32/64/Int64/Bool/BLS12-377-Field/Unit/named-Struct-Enum/Array-UInt64/Option-UInt64 envelope"
@@ -2416,7 +2359,7 @@ private partial def lowerCallable
         | .invariant => s!"invariant '{n}'"
     | none => "initializer"
   let (resultIsBool, resultIsUnit, resultIsInt, resultUintWidth, resultIsField,
-      resultAggregateLeaves, resultAggregateForm) ←
+      resultAggregateLeaves) ←
     resultShape data layout.types data.types callable owner
   -- B-RET-ABI: pureFn aggregate returns stay fail closed (helpers are scalar).
   if callable.kind == .pureFn && resultAggregateLeaves.isSome then
@@ -2437,11 +2380,11 @@ private partial def lowerCallable
     | .initializer => FunctionKind.initialize
     | _ => FunctionKind.mutate
   let touchesState := touchesStateStmts body
-  -- Computed state-reading views fail closed (only bare reads map to the
-  -- off-chain query model). Multi-leaf aggregate view returns over state
-  -- also land here (not a single mapping query).
+  -- Computed state-reading views fail closed. Only bare reads map to the
+  -- emitted network-state query descriptor; multi-leaf state views also land
+  -- here because they are not single-mapping queries.
   if callable.kind == .view && touchesState then
-    planError "Aleo computed views that read state fail closed: only bare public-state reads map to leo query"
+    planError "Aleo computed state views fail closed: only bare public-state reads map to the query descriptor"
   let resultDropped := !resultIsUnit && touchesState
   let isPureHelper := callable.kind == .pureFn
   let name ← match callable.name with
@@ -2459,7 +2402,6 @@ private partial def lowerCallable
     resultUintWidth
     resultIsField
     resultAggregateLeaves
-    resultAggregateForm
     resultDropped
     isPureHelper
   })

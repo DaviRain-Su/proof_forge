@@ -56,7 +56,7 @@ normative: false
 |---|---|---|---|
 | **A CLI** | `lean_exe proof_forge_next`，包版本 monorepo `0.1.0` | 克隆仓库 `lake build` 或 `package-cli` tarball | 版本化 **binary dist**（平台 tarball + SHA-256）+ 固定 `lean-toolchain` 说明；Linux CI engineering Release 已接线 |
 | **B Lean author SDK** | monorepo 内整库 `lean_lib ProofForgeV2`（含编译器/targets）；另有薄 Author SDK 投影 | path/git 依赖 `proof-forge-author-*` 或整仓 | **最小可发布 lean 包**（Syntax + ProgramElaborationV1 import closure），tarball/GitHub asset；Reservoir/published package 仍 pending |
-| **C Host SDK/MCP** | `tools/sdk` / `tools/mcp` stdlib Python | `PYTHONPATH` / 绝对路径 | 可选 **pip wheel**（薄封装）；永不内嵌 solc/leo |
+| **C Host SDK/MCP** | `tools/sdk` / `tools/mcp` stdlib Python | `PYTHONPATH` / 绝对路径 | 可选 **pip wheel**（薄封装）；永不内嵌 target compilers |
 
 ## 3. 现状诚实清单
 
@@ -78,7 +78,7 @@ normative: false
 
 - 实现语言选 Python stdlib → Agent/脚本易接，无第二语言工具链进 Tool Lock
 - 契约：`proof-forge-next … --json` 是 sole 产品机读面
-- 禁止在 SDK/MCP 内嵌 solc/leo/nargo 或第二 Tool Root 写入器
+- 禁止在 SDK/MCP 内嵌 solc/nargo 或第二 Tool Root 写入器
 
 因此：
 
@@ -109,7 +109,7 @@ normative: false
 - 输入：已 `lake build proof_forge_next`
 - 输出：`dist/proof-forge-next-<ver>-<platform>.tar.gz` + `.sha256`
 - 内容：`bin/proof-forge-next`（考虑 strip 为可选 profile）、`README`、`VERSION`、`lean-toolchain` 副本
-- **不做**：捆绑整个 monorepo、不捆绑 Tool Lock 工具（leo 仍走 `install`/Tool Lock）
+- **不做**：捆绑整个 monorepo、不捆绑 Tool Lock 工具（target 工具仍走 `install`/Tool Lock）
 
 ### 6.3 REL-CLI-2 — 安装面
 

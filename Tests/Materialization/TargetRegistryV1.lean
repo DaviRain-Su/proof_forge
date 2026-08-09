@@ -60,18 +60,13 @@ private def testSoleMembershipSource : IO Unit := do
       "PF-TARGET-NOT-IMPLEMENTED" s!"design-only {reg.targetId}"
   match findRegistrationV1 registry TargetId.psy with
   | some psyReg =>
-      expect (psyReg.profiles ==
-          #[CodegenProfileId.psyDargo010VmV1, CodegenProfileId.psyDargoU64V1])
-        "Psy profiles are exact ASCII-ascending VM + historical source pair"
-      expect (psyReg.defaultProfile == some CodegenProfileId.psyDargoU64V1)
-        "Psy historical source profile remains default"
+      expect (psyReg.profiles == #[CodegenProfileId.psyDpnV1])
+        "Psy has exactly one DPN profile"
+      expect (psyReg.defaultProfile == some CodegenProfileId.psyDpnV1)
+        "Psy DPN profile is the default"
       let psyDefault ← liftResult <| resolveBuildSelectionV1 TargetId.psy none
-      expect (psyDefault.codegenProfile == CodegenProfileId.psyDargoU64V1)
-        "Psy omitted profile preserves historical default"
-      let psyVm ← liftResult <| resolveBuildSelectionV1 TargetId.psy
-        (some CodegenProfileId.psyDargo010VmV1)
-      expect (psyVm.codegenProfile == CodegenProfileId.psyDargo010VmV1)
-        "Psy VM profile requires and accepts explicit selection"
+      expect (psyDefault.codegenProfile == CodegenProfileId.psyDpnV1)
+        "Psy omitted profile resolves to DPN"
   | none => throw <| IO.userError "missing Psy registration"
 
 private def testClosedAxesWires : IO Unit := do
@@ -174,11 +169,10 @@ private def testValidationAndLookup : IO Unit := do
       #[CodegenProfileId.evmYulSolc0834CancunV1, CodegenProfileId.evmYulSolc0834V1])
     "inspect profiles (cancun-v1 < v1 ascending; default remains v1)"
   let aleoInsp ← liftResult (inspectTargetV1 registry TargetId.aleo)
-  expect (aleoInsp.profiles ==
-      #[CodegenProfileId.aleoLeoU64CompileV1, CodegenProfileId.aleoLeoU64V1])
-    "inspect aleo profiles (compile-v1 < u64-v1 ascending; default remains u64-v1)"
-  expect (aleoInsp.defaultProfile == some CodegenProfileId.aleoLeoU64V1)
-    "inspect aleo default remains source u64-v1"
+  expect (aleoInsp.profiles == #[CodegenProfileId.aleoInstructionsV1])
+    "inspect aleo exposes only the direct Instructions profile"
+  expect (aleoInsp.defaultProfile == some CodegenProfileId.aleoInstructionsV1)
+    "inspect aleo defaults to direct Instructions"
   -- Inspection-only engineering digest is deterministic and non-product.
   let dig1 ← match findRegistrationV1 registry TargetId.evm with
     | none => throw <| IO.userError "missing evm for dig"

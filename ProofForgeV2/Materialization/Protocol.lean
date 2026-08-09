@@ -11,8 +11,8 @@ inductive ArtifactEncoding where
   | sbpfAssembly
   | wasmText
   | noirSource
-  | leoSource
-  | psySource
+  | aleoInstructions
+  | psyDpn
   | quintSource
   | tolkSource
   | researchOnly

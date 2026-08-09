@@ -1092,10 +1092,10 @@ product-negative: build
 target-cli-positive: build
 	mkdir -p build
 	lake env .lake/build/bin/proof-forge-next list-targets > build/list-targets.stdout
-	printf '%b' 'aleo\tsource-only\ncosmwasm\twasm-validated-alpha\nevm\truntime-validated-alpha\nnear\twasm-validated-alpha\nnoir\tsource-only\npsy\tsource-only\nquint\tsource-only\nsolana\tplan-only\nton\tsource-only\n' > build/list-targets.expected
+	printf '%b' 'aleo\tinstructions-only\ncosmwasm\twasm-validated-alpha\nevm\truntime-validated-alpha\nnear\twasm-validated-alpha\nnoir\tsource-only\npsy\tdpn-only\nquint\tsource-only\nsolana\tplan-only\nton\tsource-only\n' > build/list-targets.expected
 	cmp -s build/list-targets.expected build/list-targets.stdout
 	lake env .lake/build/bin/proof-forge-next list-targets --all > build/list-targets-all.stdout
-	printf '%b' 'aleo\tsource-only\ncosmwasm\twasm-validated-alpha\nevm\truntime-validated-alpha\nicp\tresearch-only\nnear\twasm-validated-alpha\nnoir\tsource-only\nopenvm\tresearch-only\npsy\tsource-only\nquint\tsource-only\nsolana\tplan-only\nsoroban\tresearch-only\nton\tsource-only\n' > build/list-targets-all.expected
+	printf '%b' 'aleo\tinstructions-only\ncosmwasm\twasm-validated-alpha\nevm\truntime-validated-alpha\nicp\tresearch-only\nnear\twasm-validated-alpha\nnoir\tsource-only\nopenvm\tresearch-only\npsy\tdpn-only\nquint\tsource-only\nsolana\tplan-only\nsoroban\tresearch-only\nton\tsource-only\n' > build/list-targets-all.expected
 	cmp -s build/list-targets-all.expected build/list-targets-all.stdout
 	lake env .lake/build/bin/proof-forge-next inspect evm > build/inspect-evm.stdout
 	rg -q '^target=evm$' build/inspect-evm.stdout
@@ -1108,10 +1108,18 @@ target-cli-positive: build
 	rg -q '^buildIdentityDomain=pf.build-identity.engineering.v1$' build/inspect-evm.stdout
 	lake env .lake/build/bin/proof-forge-next inspect aleo > build/inspect-aleo.stdout
 	rg -q '^target=aleo$' build/inspect-aleo.stdout
-	rg -q '^profile=aleo-leo-4.0.2-u64-v1$' build/inspect-aleo.stdout
+	rg -q '^profile=aleo-instructions-v1$' build/inspect-aleo.stdout
 	rg -q '^requirements=#\[failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-aleo.stdout
+	rg -q '^maturity=instructions-only$' build/inspect-aleo.stdout
 	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-aleo.stdout
 	rg -q '^supportClaimDigest=sha256:[0-9a-f]{64}$' build/inspect-aleo.stdout
+	lake env .lake/build/bin/proof-forge-next inspect psy > build/inspect-psy.stdout
+	rg -q '^target=psy$' build/inspect-psy.stdout
+	rg -q '^profile=psy-dpn-v1$' build/inspect-psy.stdout
+	rg -q '^requirements=#\[effect.event, effect.synchronous-call, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic\]$' build/inspect-psy.stdout
+	rg -q '^maturity=dpn-only$' build/inspect-psy.stdout
+	rg -q '^registryRootDigest=sha256:[0-9a-f]{64}$' build/inspect-psy.stdout
+	rg -q '^supportClaimDigest=sha256:[0-9a-f]{64}$' build/inspect-psy.stdout
 	lake env .lake/build/bin/proof-forge-next inspect cosmwasm > build/inspect-cosmwasm.stdout
 	rg -q '^target=cosmwasm$' build/inspect-cosmwasm.stdout
 	rg -q '^profile=cosmwasm-wasm-u64-v1$' build/inspect-cosmwasm.stdout
@@ -1295,37 +1303,6 @@ evm-corpus-runtime: build
 solana-runtime:
     bash scripts/solana_runtime_test.sh
 
-# Psy dargo v0.1.0 local VM / base-proof engineering lane (host-heavy).
-# Requires locked $PROOF_FORGE_TOOL_ROOT/dargo + lib/psy-std/std.psy
-# (linux-x86_64 | darwin-arm64 only; hard-fail PF-TOOLCHAIN-MISSING; never PATH).
-# NOT ordinary ci; not product finalize; not formal/hermetic/deploy/network UPS.
-# Profile label (log only): psy-dargo-0.1.0-local-proof-v1.
-# G6-RUNTIME: DPN-first product plant + PARTIAL .psy execute (locked dargo needs .psy).
-psy-runtime:
-    bash scripts/psy_runtime_test.sh
-
-# Aleo Instructions IR-7 / G6 runtime honesty probe (host-heavy; NOT ordinary ci).
-# Probes locked $PROOF_FORGE_TOOL_ROOT/snarkvm|snarkos only (never PATH).
-# Default today: PF-TOOLCHAIN-MISSING + PARTIAL (no package-only execute pin;
-# Leo is compile/interpret-only, not IR-7 execute authority). Do not invent CLI.
-# Exit 2 expected until a Tool Lock snarkVM package-only pin lands.
-# Not product finalize / prove / deploy / formal / hermetic.
-aleo-runtime:
-    bash scripts/aleo_runtime_test.sh
-
-# Aleo local sandbox (host-heavy; NOT ordinary ci). Generic ProgramV1 path:
-#   just aleo-sandbox -- --source PATH --module NAME [--run 'fn args…'] [--golden PATH]
-# No default program; callers supply source/module/runs. Optional --golden for
-# Instructions byte pin (e.g. Counter regression). Authority: docs/targets/09b-aleo-local-sandbox.md
-# Requires: lake-built proof-forge-next + locked leo. Not deploy/prove/snarkVM.
-aleo-sandbox *ARGS:
-    bash scripts/aleo_local_sandbox.sh {{ARGS}}
-
-# External ProgramV1 Hello: copy template → build --root → generic sandbox.
-# Authority: docs/product/02-external-program-v1.md
-# Host-heavy when leo present; --skip-run for build-only.
-external-hello-smoke *ARGS:
-    bash scripts/external_hello_smoke.sh {{ARGS}}
 
 # Engineering CLI dist (REL-CLI-1). Not formal Stage-0.
 # Authority: docs/product/05-distribution-and-packages.md
@@ -1360,36 +1337,11 @@ package-host-sdk-smoke:
 publish-host-sdk-pypi *ARGS:
     bash scripts/publish_host_sdk_pypi.sh {{ARGS}}
 
-# Aleo explicit post-build deploy/execute (host-heavy; NOT ordinary ci).
-# Consumes an existing compile-profile OutputSet and publishes a separate
-# deployment receipt. DevNet uses --dev-key; Testnet uses --private-key-file +
-# explicit out-of-Tool-Lock snarkos SHA-256 pin. Mainnet/canary fail closed.
-# Authority: docs/targets/09c-aleo-network.md
-aleo-network *ARGS:
-    /usr/bin/python3 -I -S scripts/aleo_network_receipt.py {{ARGS}}
 
-# No-network Aleo deploy-input/receipt and DevNet ownership self-tests.
-aleo-network-self-test:
-    /usr/bin/python3 -I -S scripts/aleo_network_receipt_self_test.py
-
-aleo-devnet-self-test:
-    /usr/bin/python3 -I -S scripts/aleo_devnet_self_test.py
-
-# CLI wrapper smoke: no network broadcast; covers missing inputs/tools,
-# mainnet rejection, and signer argv/stream redaction.
-local-network-smoke: build
+# CLI local-wrapper smoke: removed Aleo/Psy host lanes reject before spawn.
+local-cli-smoke: build
     /bin/bash -p scripts/local_network_smoke.sh
 
-# Aleo local DevNet lifecycle (host-heavy; NOT ordinary ci).
-# start|stop|status|wait — fresh ledgers, loopback REST, exact owned PID inventory.
-# Authority: docs/targets/09c-aleo-network.md
-aleo-devnet *ARGS:
-    /bin/bash -p scripts/aleo_devnet.sh {{ARGS}}
-
-# Real local N1/N2 integration. Uses funded --dev-key 0, never a private-key file;
-# always stops only its owned validator PIDs through the EXIT trap.
-aleo-devnet-integration:
-    /bin/bash -p scripts/aleo_devnet_integration.sh
 
 # Noir ACIR IR-7 / G6 prove honesty probe (host-heavy; NOT ordinary ci).
 # Probes locked $PROOF_FORGE_TOOL_ROOT/bb|barretenberg only (never PATH).
@@ -1471,7 +1423,7 @@ ci-lean-gates: docs-check sbom-package-files-check build product-negative source
 
 ci-lean-product: test-nontarget ci-lean-gates
 
-ci-target-cli-smoke: build target-cli-positive target-negative nfr-repeat local-network-smoke aleo-network-self-test aleo-devnet-self-test
+ci-target-cli-smoke: build target-cli-positive target-negative nfr-repeat local-cli-smoke
 
 ci-target-smoke: test-targets ci-target-cli-smoke
 

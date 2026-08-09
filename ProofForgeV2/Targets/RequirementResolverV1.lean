@@ -329,13 +329,10 @@ private def mkImplementedRow
     supported
   }
 
-/-- Shipped twelve-row seed body (canonical targetId order: aleo×2, cosmwasm,
-    evm×2, near, noir, psy×2, quint, solana×1, ton). Aleo carries both
-    `aleo-leo-4.0.2-u64-compile-v1` and `aleo-leo-4.0.2-u64-v1` (ASCII ascending;
-    default remains source `u64-v1`; both share the same exact 4-key S2 set).
-    Psy carries both `psy-dargo-0.1.0-vm-v1` and historical default `psy-dargo-u64-v1`
-    (ASCII ascending; same exact S2 set; capability deltas live in target Plan gates).
-    EVM carries both `evm-yul-solc-0.8.34-cancun-v1` and `evm-yul-solc-0.8.34-v1`
+/-- Shipped eleven-row seed body (canonical targetId order: aleo, cosmwasm,
+    evm×2, near, noir×2, psy, quint, solana, ton). Aleo and Psy each expose
+    one direct target IR profile. EVM carries both
+    `evm-yul-solc-0.8.34-cancun-v1` and `evm-yul-solc-0.8.34-v1`
     (ASCII ascending; default remains legacy v1). Solana is sole
     `solana-sbpf-cpi-elf-v1` (ADR-0032 U1). The opt-in CPI profile (#125)
     admits exact `effect.synchronous-call` plus the exact ADR-0028 extension and
@@ -371,12 +368,13 @@ private def mkImplementedRow
     **not** attest that any on-chain call happened; a caller-side executor must
     perform the call and supply the response. Result-bearing calls (N-CALL-RET)
     stay fail closed pending a response-witness contract. Aleo declines both
-    call families (no static-callee Plan open) and `effect.event` (Leo 4.0.2 has
-    no on-chain event log — emit fails closed at the materializer); Psy supports
-    sync calls and events — sync support means **source-surface emission** of
-    the `__invoke_sync#<Felt>` host intrinsic, with no VM/proof acceptance gate
-    behind it yet — but declines `effect.asynchronous-workflow` (no emitted
-    deferred crosscall form — schedule fails closed at the materializer).
+    call families (no static-callee Plan open) and `effect.event` (canonical
+    Aleo Instructions expose no admitted event operation). Psy DPN supports
+    void sync calls and events as PARTIAL operations:
+    `InvokeExternalContractFunctionSync` has static-QN hashes, zero outputs,
+    and no deployment/response/runtime binding; `DPNEventRecord` has no ordered
+    event runtime gate. Psy declines `effect.asynchronous-workflow` because no
+    deferred DPN operation is admitted, so schedule fails closed.
     CosmWasm declined both call families at MVP: its `WasmMsg::Execute` is a
     same-transaction submessage with a savepoint, **not** an EVM-style
     synchronous CALL, and SubMsg fire-and-forget is **not** a cross-transaction
@@ -412,9 +410,10 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
-  -- Psy supports sync crosscalls (__invoke_sync#<Felt>) and events (__emit),
-  -- but has no emitted deferred-crosscall form, so schedule fails closed and
-  -- effect.asynchronous-workflow is declined here (never alias sync semantics).
+  -- Psy DPN supports PARTIAL void sync calls
+  -- (`InvokeExternalContractFunctionSync`) and `DPNEventRecord` events, but
+  -- has no admitted deferred operation. Schedule remains fail closed and
+  -- effect.asynchronous-workflow is declined (never alias sync semantics).
   let psyRequests := catalogRequests.filter fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1
   -- CosmWasm MVP+CW-4+C1:
@@ -463,10 +462,7 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   let nearRequests :=
     (catalogRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
   pure #[
-    -- Aleo dual profiles share the same exact 4-key capability set (no expansion);
-    -- ASCII ascending: compile-v1 before source u64-v1.
-    mkImplementedRow .aleo CodegenProfileId.aleoLeoU64CompileV1 aleoRequests,
-    mkImplementedRow .aleo CodegenProfileId.aleoLeoU64V1 aleoRequests,
+    mkImplementedRow .aleo CodegenProfileId.aleoInstructionsV1 aleoRequests,
     mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,
     -- AddressBearing: full seven keys — static QN call/schedule Plan open.
     -- Both EVM profiles share the same S2+extension capability set; hardfork
@@ -479,11 +475,7 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     -- ASCII ascending: nargo-acir < source-relations.
     mkImplementedRow .noir CodegenProfileId.noirNargoAcirV1 catalogRequests,
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
-    -- Psy VM profile initially shares the exact S2 requirement set with the
-    -- historical source profile. Capability differences remain target-owned
-    -- Plan/IR gates, not invented requirement ids.
-    mkImplementedRow .psy CodegenProfileId.psyDargo010VmV1 psyRequests,
-    mkImplementedRow .psy CodegenProfileId.psyDargoU64V1 psyRequests,
+    mkImplementedRow .psy CodegenProfileId.psyDpnV1 psyRequests,
     mkImplementedRow .quint CodegenProfileId.quintSourceU64ModelV1 quintRequests,
     -- ADR-0032 U1: sole Solana product profile (shims plan/elf removed).
     mkImplementedRow .solana CodegenProfileId.solanaSbpfCpiElfV1 solanaCpiRequests,

@@ -1,29 +1,29 @@
 /-
-  PSY-DPN-2/3/4/5/6/7: PsyPlan → DPN package (product dual-write via EmitIRV1).
+  PSY-DPN-2/3/4/5/6/7: PsyPlan → canonical DPN package.
 
   DPN-2: UInt64 Counter-shaped templates (init store / checkedAdd store+return /
-  view load) pinned to locked-dargo Counter method ids and package shape.
+  view load) pinned to Counter method ids and package shape.
 
   DPN-3: control flow + bounded for
     * ifThenElse / switchOn → Bool ops + Select mux + conditional
       SetContractStateSlotSingle (condition wire)
-    * forLoop → static unroll matching EmitIRV1 PSY-LOOP semantics
+    * forLoop → guarded static unroll with exact PSY-LOOP semantics
       (bound assert + N guarded steps; no while / unbounded)
     * Fail closed on unsupported Expr/Statement shapes
 
-  DPN-4: multi-leaf + wide UInt128 (4×UInt32 limbs on dargo010Vm only)
+  DPN-4: multi-leaf + wide UInt128 (4×UInt32 limbs)
     * storeAggregate / returnAggregate → multi SlotSingle Get/Set
     * limbAdd/limbSub + select/compare + per-limb bitwise
     * multi-field sub_slot engineering map (single-field Counter templates
-      keep dargo golden; multi-leaf uses fieldIndex+4 per WideCounter dargo)
+      keep Counter golden; multi-leaf uses fieldIndex+4)
     * UInt32 param range asserts
-    * default profile may lower Option/Array multi-leaf; UInt128 Plan is
-      already FC before DPN when profile ≠ psy-dargo-0.1.0-vm-v1
+    * sole `psy-dpn-v1` profile lowers Option/Array multi-leaf and admitted
+      wide UInt plans directly to DPN
 
   G5-WIDE: bindWideUintMul / DivMod / Shift → DPN defs (UInt128 4×UInt32;
     UInt256 same algorithm when limbCount=8)
     * schoolbook 8×UInt16 mul (U32And/U32ShiftRight + Target Mul/Add;
-      high-digit overflow assert) matching EmitIRV1
+      high-digit overflow assert)
     * restoring binary div/mod fully unrolled (4×32-step regions; limb
       range + zero-div asserts; no Felt `/`/`%` for integer result)
     * limb shift: fixed bitWidth-step one-bit walk (U32Shift*/U32Or +
@@ -39,21 +39,20 @@
       named Struct preorder flatten already Plan-admitted
     * Principal/String return stays Plan FC (9 > B-RET cap 8); Nested Map /
       Map return stay Plan FC (not DPN-invented)
-    * Structural + product Plan→DPN tests in PsyDpnV1; optional dargo
-      package byte-equality golden still residual
+    * Structural + product Plan→DPN tests in PsyDpnV1
 
   DPN-5: dense Map UInt64 UInt64 cap-8 (24 occ/key/val Felt leaves)
     * Plan already expands IndexGet→Option Select tree + IndexSet upsert
       storeAggregate + map-full assert (LowerSemantic mapLookup/mapUpsert)
     * General builder admits Select/Bool/compare/storeAggregate path — no
-      text `.psy` return-in-if (dargo syntax break on Map get match)
+      legacy text return-in-if restrictions
     * Nested Map / Map return stay FC at Plan (not DPN-invented)
 
   DPN-6: effects honesty matrix (PARTIAL only with product evidence)
     * emitEvent → DPNEventRecord (condition + GetCheckpointId/GetUserId/
       GetContractId + data wires); matches official emit_event compile shape
     * void externalCall → InvokeExternalContractFunctionSync (num_outputs=0)
-      with FNV component hashes (same as EmitIR `__invoke_sync` PARTIAL)
+      with FNV component hashes (PARTIAL)
     * schedule / assets / ContextRead / Commit / nonempty invariant stay FC
       (Plan already FC; DPN depth-defends schedule with stable diagnostic)
     * Not a runtime/Finalize/ordered-event/response gate; deployable=false
@@ -61,37 +60,29 @@
   G5-MATRIX: §3.2 admit-row scan pins (honest DPN vs residual vs Plan FC)
     * UInt64 checkedMul/Div/Mod + add/sub → DPN (mul inverse wrap check)
     * zero-arg revertError → assertions[] "revert"; payload args FC
-    * R-NARROW (G5 residual): UInt8/16/32 Felt-carried checked add/sub/mul/
-      div/mod + param range asserts + unsigned compare (mirror EmitIRV1;
-      result < 2^w for add/mul; not field-wrap inverse). Narrow bitwise/
-      shift remain residual.
-    * R-INT (G5 residual): Int64 signedCompare/checkedNeg + Int{8,16,32}
+    * R-NARROW: UInt8/16/32 Felt-carried checked add/sub/mul/
+      div/mod + param range asserts + unsigned compare; result < 2^w for
+      add/mul. Narrow bitwise/shift remain residual.
+    * R-INT: Int64 signedCompare/checkedNeg + Int{8,16,32}
       two's-complement narrow signed add/sub/mul/div/mod/neg/compare → DPN
-      (mirror EmitIRV1; Felt-carried 0..2^w-1 / bias-2^(w-1) compare; overflow
-      asserts). Int64 arith reuses UInt64 checkedAdd/Sub/Mul/Div/Mod path.
-    * R-SHIFT-BIT (G5 residual): UInt64 shl/shr + checkedBitNot → DPN
-      (mirror EmitIR invalidShift / representability asserts; dargo U32Shift*
-      + CastFelt for Felt `<<`/`>>`; checkedBitNot = Gte + Sub mask)
+      (Felt-carried 0..2^w-1 / bias-2^(w-1) compare; overflow asserts).
+      Int64 arith reuses UInt64 checkedAdd/Sub/Mul/Div/Mod path.
+    * R-SHIFT-BIT: UInt64 shl/shr + checkedBitNot → DPN
+      (invalidShift / representability asserts; U32Shift* + CastFelt;
+      checkedBitNot = Gte + Sub mask).
     * R-PURE (G5 residual): pureFn/localCall callFn → DPN by inlining the
       pureHelper body into the caller circuit (arg wires as params; nested
-      callFn fuel-bounded). Package omits pureHelper top-level methods
-      (free helpers match EmitIR; not contract methods). Recursive/effectful
+      callFn fuel-bounded). Package omits pureHelper top-level methods because
+      free helpers are inlined and are not contract methods. Recursive/effectful
       pure body (store/emit/externalCall/schedule/stateLoad) fail closed.
-    * R-HARD (G5 residual → hard-require): narrow bitwise/shift + Goldilocks
-      Field expr → DPN (mirror EmitIR); `isPsyDpnG5HardResidualAllowlistV1`
-      emptied — any Plan-admitted DPN lower failure hard-fails materialize
-      (`PSY-DPN-G5-HARD`); no residual `.psy`-only dual-write path.
+    * R-HARD: narrow bitwise/shift + Goldilocks Field expr → DPN;
+      `isPsyDpnG5HardResidualAllowlistV1` is empty — any Plan-admitted DPN
+      lower failure hard-fails materialize (`PSY-DPN-G5-HARD`).
     * Bool/compare/logic/bare assert covered by general builder + suite pins
 
-  Method ids: official `gen_dapen_contract_function_method_id` via
-  SHA-256 (RES-METHOD-ID). Product path always uses the algorithm
-  (`p{sourceIndex}` size-1 args match EmitIR). Counter three-method numeric
-  pins remain as regression goldens only (`pinnedMethodIdV1`).
-
-  Residual honesty (RES-CLEAN / planning §10): sole full-byte dargo golden is
-  Counter (`counter-package.v1.json`); full multi-method package byte goldens
-  deferred; package-only dargo execute still MISSING on locked dargo 0.1.0
-  (PARTIAL; do not invent CLI).
+  Method ids: canonical `genDapenContractFunctionMethodIdV1` SHA-256 algorithm
+  (`p{sourceIndex}` size-1 args). Counter three-method numeric pins remain as
+  regression goldens only (`pinnedMethodIdV1`).
 -/
 import ProofForgeV2.Targets.Psy.LowerSemanticV1
 import ProofForgeV2.Targets.Psy.ValidatePlanV1
@@ -108,8 +99,8 @@ open ProofForgeV2.Targets.Psy.Dpn.SchemaV1
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .psy message
 
-/-- Pinned method ids from locked-dargo Counter package (psy-node-aligned).
-    Regression pins only — product path uses `genDapenContractFunctionMethodIdV1`. -/
+/-- Pinned Counter method ids. Regression pins only — product path uses
+    `genDapenContractFunctionMethodIdV1`. -/
 def pinnedMethodIdV1 (name : String) : Option UInt32 :=
   match name with
   | "initialize" => some 202172507
@@ -123,9 +114,8 @@ def pinnedMethodIdV1 (name : String) : Option UInt32 :=
     method_id = first 4 LE bytes of SHA-256(UTF-8 preimage) as `u32`.
 
     Felt / Bool / U32 each contribute size `1`. Multi-limb UInt128 is expanded
-    at Plan time into one PlanParam per Felt leaf; EmitIR renames those to
-    `p0,p1,p2,p3` each size 1 (not a single `p0[4]`). Verified against
-    EmitIRV1 `p{sourceIndex}` emission and Counter dargo golden. -/
+    at Plan time into one PlanParam per Felt leaf; each emitted `p{sourceIndex}`
+    has size 1 rather than sharing one array-parameter identity. -/
 def genDapenContractFunctionMethodIdV1
     (methodName : String) (args : Array (String × Nat)) : UInt32 :=
   let argPortion :=
@@ -140,12 +130,12 @@ def genDapenContractFunctionMethodIdV1
   b0 ||| UInt32.shiftLeft b1 8 ||| UInt32.shiftLeft b2 16 |||
     UInt32.shiftLeft b3 24
 
-/-- EmitIR renames each physical PlanParam to `p{sourceIndex}` with Felt size 1
-    (Bool / UInt / Field leaves are each one circuit input). -/
+/-- Each physical PlanParam becomes `p{sourceIndex}` with Felt size 1.
+    Bool / UInt / Field leaves are each one circuit input. -/
 def methodIdArgsFromPlanParamsV1 (params : Array PlanParam) : Array (String × Nat) :=
   params.map fun p => (s!"p{p.sourceIndex}", 1)
 
-/-- Product method_id from method name + EmitIR-shaped `(name, size)` args. -/
+/-- Product method_id from method name plus canonical `(name, size)` args. -/
 def requireMethodIdV1 (name : String) (args : Array (String × Nat)) :
     CompileResult UInt32 :=
   pure (genDapenContractFunctionMethodIdV1 name args)
@@ -158,7 +148,7 @@ def requireMethodIdFromPlanFnV1 (fn : PlanFunction) : CompileResult UInt32 :=
 
 private def bTrue : UInt64 := encodeIndexedId .bool 0
 
-/-- Max static unroll steps (matches EmitIRV1 PSY-LOOP budget). -/
+/-- Max guarded static-unroll steps for PSY-LOOP. -/
 def maxUnrollBudgetV1 : Nat := 64
 
 /-- Max physical state leaves admitted in DPN-4/5/G5-AGG.
@@ -187,7 +177,7 @@ def lowerViewLoadReturnV1 (name : String) (fieldIndex : Nat) :
     events := #[]
   }
 
-/-- initialize: store param 0 into field 0 (dargo sub_slot 1). -/
+/-- initialize: store param 0 into field 0 (canonical sub-slot 1). -/
 def lowerInitializeStoreParamV1 (name : String) (fieldIndex : Nat) :
     CompileResult FunctionCircuitDefV1 := do
   unless fieldIndex == 0 do
@@ -263,7 +253,7 @@ def WireV1.rawIndex : WireV1 → Nat
   | .bool i => i
   | .u32 i => i
 
-/-- Operand id for DPN ops (matches dargo): Target→raw index, Bool/U32→encoded. -/
+/-- Operand id for DPN ops: Target→raw index, Bool/U32→encoded. -/
 def WireV1.operand : WireV1 → UInt64
   | w => w.encoded
 
@@ -381,9 +371,9 @@ private def trueWire (b : BuilderV1) : WireV1 := .bool b.trueBool
 
 private def zeroWire (b : BuilderV1) : WireV1 := .target b.zeroTarget
 
-/-- Single-field Counter write path uses dargo sub_slot 1 for field 0.
-    Multi-leaf uses fieldIndex+4 for both Get/Set (WideCounter locked-dargo
-    evidence: total_0..3 → sub_slots 4..7). View-only Counter field 0 stays 0. -/
+/-- Single-field Counter writes use canonical sub-slot 1 for field 0.
+    Multi-leaf state uses fieldIndex+4 for both Get/Set. View-only Counter
+    field 0 stays 0. -/
 private def writeSubSlot (b : BuilderV1) (fieldIndex : Nat) : UInt64 :=
   if b.multiLeaf then
     UInt64.ofNat (fieldIndex + 4)
@@ -467,9 +457,9 @@ private def emitBoolNot (b : BuilderV1) (a : WireV1) : CompileResult (BuilderV1 
   let ai ← asBoolIndex a
   pure (pushBool b .boolNot #[UInt64.ofNat ai])
 
-/-- Select mux. Official Select always yields Target (or Bool for bool arms).
-    U32 arms pass encoded U32 ids into Target Select (dargo div/shift style).
-    Condition uses full encoded bool id. -/
+/-- Select mux. Select always yields Target, or Bool for two Bool arms.
+    U32 arms pass encoded U32 ids into Target Select. Condition uses the full
+    encoded Bool id. -/
 private def emitSelect (b : BuilderV1) (cond thenW elseW : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   let _ ← asBoolIndex cond
@@ -491,11 +481,11 @@ private def emitConstTarget (b : BuilderV1) (value : UInt64) : BuilderV1 × Wire
 private def emitLiteralU64 (b : BuilderV1) (value : UInt64) : BuilderV1 × WireV1 :=
   emitConstTarget b value
 
-/-- Goldilocks prime (Psy Felt domain); same as EmitIRV1. -/
+/-- Goldilocks prime (Psy Felt domain). -/
 private def goldilocksPrimeV1 : Nat := 0xFFFFFFFF00000001
 
-/-- Deterministic FNV-1a-ish 64-bit hash → Goldilocks Felt (matches EmitIR
-    `hashComponent` for void sync call PARTIAL). -/
+/-- Deterministic FNV-1a-ish 64-bit hash → Goldilocks Felt, used for the
+    direct DPN void-sync-call operation. -/
 def hashComponentFeltV1 (s : String) : UInt64 := Id.run do
   let prime : UInt64 := 1099511628211
   let mut h : UInt64 := 14695981039346656037
@@ -503,14 +493,14 @@ def hashComponentFeltV1 (s : String) : UInt64 := Id.run do
     h := (h ^^^ c.toNat.toUInt64) * prime
   pure (UInt64.ofNat (h.toNat % goldilocksPrimeV1))
 
-/-- Valueless context ops (GetUserId/GetContractId/GetCheckpointId): official
-    dargo encodes `inputs: [0]` with Target data_type (token.json evidence). -/
+/-- Valueless context ops (GetUserId/GetContractId/GetCheckpointId) take the
+    canonical `inputs: [0]` Target operand. -/
 private def pushValuelessTarget (b : BuilderV1) (op : OpTypeV1) :
     BuilderV1 × WireV1 :=
   pushTarget b op #[0]
 
 /-- Gate a target wire under writeCond: select(writeCond, w, 0). When writeCond
-    is the shared ConstantTrue, returns `w` unchanged (official unconditional). -/
+    is the shared ConstantTrue, return `w` unchanged. -/
 private def gateTargetUnderCond (b : BuilderV1) (writeCond : WireV1) (w : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   if writeCond == .bool b.trueBool then
@@ -518,11 +508,11 @@ private def gateTargetUnderCond (b : BuilderV1) (writeCond : WireV1) (w : WireV1
   else
     emitSelect b writeCond w (zeroWire b)
 
-/-- DPN-6 PARTIAL: emitEvent → `DPNEventRecord` matching official `emit_event`.
-    Event name is source metadata only (not in DPNEventRecord). -/
+/-- DPN-6 PARTIAL: emitEvent → `DPNEventRecord`.
+    Event name is source metadata only and is not encoded in the record. -/
 private def emitEventRecordV1 (b : BuilderV1) (writeCond : WireV1)
     (argWires : Array WireV1) : CompileResult BuilderV1 := do
-  -- Allocate identity context ops (one per emit; dargo does the same).
+  -- Allocate one set of identity-context operations per emitted event.
   let (b1, cpW) := pushValuelessTarget b .getCheckpointId
   let (b2, userW) := pushValuelessTarget b1 .getUserId
   let (b3, cidW) := pushValuelessTarget b2 .getContractId
@@ -607,8 +597,8 @@ private def emitCheckedSub (b : BuilderV1) (l r : WireV1) :
   let (b3, diff) := pushTarget b2 .sub #[UInt64.ofNat li, UInt64.ofNat ri]
   pure (b3, diff)
 
-/-- UInt64 checked mul: `prod = l*r`; assert `l==0 || prod/l == r` (field-wrap
-    inverse check matching EmitIRV1; safe divisor when l==0). -/
+/-- UInt64 checked mul: `prod = l*r`; assert `l==0 || prod/l == r`.
+    The safe divisor avoids division by zero when `l==0`. -/
 private def emitCheckedMul (b : BuilderV1) (l r : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   let li ← asTargetIndex l
@@ -670,7 +660,7 @@ private def emitCheckedMod (b : BuilderV1) (l r : WireV1) :
   let (b3, m) := pushTarget b2 .mod_ #[UInt64.ofNat li, UInt64.ofNat ri]
   pure (b3, m)
 
-/-! ## R-NARROW: Felt-carried UInt{8,16,32} (mirror EmitIRV1) -/
+/-! ## R-NARROW: Felt-carried UInt{8,16,32} -/
 
 /-- 2^bitWidth as Felt-legal Nat (only for w ∈ {8,16,32}). -/
 private def narrowBoundV1 (bitWidth : Nat) : CompileResult Nat :=
@@ -679,8 +669,8 @@ private def narrowBoundV1 (bitWidth : Nat) : CompileResult Nat :=
   else if bitWidth == 32 then pure 4294967296
   else planError s!"PSY-DPN-G5: narrow bitWidth {bitWidth} not admitted (need 8/16/32)"
 
-/-- Narrow checked add: `sum = l+r`; assert `sum < 2^w` (EmitIR width guard;
-    field wrap cannot occur for in-range UInt32 operands under Goldilocks). -/
+/-- Narrow checked add: `sum = l+r`; assert `sum < 2^w`.
+    Field wrap cannot occur for in-range UInt32 operands under Goldilocks. -/
 private def emitNarrowCheckedAdd (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   let bound ← narrowBoundV1 bitWidth
@@ -701,7 +691,7 @@ private def emitNarrowCheckedAdd (b : BuilderV1) (bitWidth : Nat) (l r : WireV1)
   }
   pure (b4, sum)
 
-/-- Narrow checked sub: assert `l >= r` then `diff = l-r` (EmitIR). -/
+/-- Narrow checked sub: assert `l >= r`, then `diff = l-r`. -/
 private def emitNarrowCheckedSub (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   let _ ← narrowBoundV1 bitWidth
@@ -719,8 +709,8 @@ private def emitNarrowCheckedSub (b : BuilderV1) (bitWidth : Nat) (l r : WireV1)
   let (b3, diff) := pushTarget b2 .sub #[UInt64.ofNat li, UInt64.ofNat ri]
   pure (b3, diff)
 
-/-- Narrow checked mul: `prod = l*r`; assert `prod < 2^w` (EmitIR; not UInt64
-    field-wrap inverse — max UInt32 product is still < Goldilocks p). -/
+/-- Narrow checked mul: `prod = l*r`; assert `prod < 2^w`. This does not use
+    the UInt64 field-wrap inverse because max UInt32 product is below Goldilocks. -/
 private def emitNarrowCheckedMul (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   let bound ← narrowBoundV1 bitWidth
@@ -741,7 +731,7 @@ private def emitNarrowCheckedMul (b : BuilderV1) (bitWidth : Nat) (l r : WireV1)
   }
   pure (b4, prod)
 
-/-- Narrow checked div: assert `r > 0` then `l / r` (EmitIR `u{w} div by zero`). -/
+/-- Narrow checked div: assert `r > 0`, then `l / r`. -/
 private def emitNarrowCheckedDiv (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   let _ ← narrowBoundV1 bitWidth
@@ -760,7 +750,7 @@ private def emitNarrowCheckedDiv (b : BuilderV1) (bitWidth : Nat) (l r : WireV1)
   let (b3, q) := pushTarget b2 .div #[UInt64.ofNat li, UInt64.ofNat ri]
   pure (b3, q)
 
-/-- Narrow checked mod: assert `r > 0` then `l % r` (EmitIR `u{w} mod by zero`). -/
+/-- Narrow checked mod: assert `r > 0`, then `l % r`. -/
 private def emitNarrowCheckedMod (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   let _ ← narrowBoundV1 bitWidth
@@ -779,7 +769,7 @@ private def emitNarrowCheckedMod (b : BuilderV1) (bitWidth : Nat) (l r : WireV1)
   let (b3, m) := pushTarget b2 .mod_ #[UInt64.ofNat li, UInt64.ofNat ri]
   pure (b3, m)
 
-/-! ## R-HARD: narrow UInt{8,16,32} bitwise/shift + bitNot (mirror EmitIRV1) -/
+/-! ## R-HARD: narrow UInt{8,16,32} bitwise/shift + bitNot -/
 
 /-- `2^w − 1` mask for narrow bitNot (always a legal Goldilocks Felt). -/
 private def narrowMaskV1 (bitWidth : Nat) : CompileResult Nat :=
@@ -797,7 +787,7 @@ private def emitNarrowBitwise (b : BuilderV1) (bitWidth : Nat) (op : OpTypeV1)
   let (b1, u) := pushU32 b op #[l.operand, r.operand]
   emitCastFelt b1 u
 
-/-- Narrow bitNot: Felt `x ^ (2^w−1)` via U32Xor + CastFelt (EmitIR mask XOR). -/
+/-- Narrow bitNot: Felt `x ^ (2^w−1)` via U32Xor + CastFelt. -/
 private def emitNarrowBitNot (b : BuilderV1) (bitWidth : Nat) (o : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   let mask ← narrowMaskV1 bitWidth
@@ -805,8 +795,8 @@ private def emitNarrowBitNot (b : BuilderV1) (bitWidth : Nat) (o : WireV1) :
   let (b2, u) := pushU32 b1 .u32Xor #[o.operand, maskW.operand]
   emitCastFelt b2 u
 
-/-- Narrow shl: assert `count < w` then U32ShiftLeft + CastFelt + `result < 2^w`
-    (mirror EmitIR invalidShift + post-shl width guard; dargo Felt `<<`). -/
+/-- Narrow shl: assert `count < w`, then U32ShiftLeft + CastFelt and assert
+    `result < 2^w`. -/
 private def emitNarrowShl (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   let bound ← narrowBoundV1 bitWidth
@@ -840,7 +830,7 @@ private def emitNarrowShl (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
   }
   pure (b8, res)
 
-/-- Narrow shr: assert `count < w` then U32ShiftRight + CastFelt (EmitIR). -/
+/-- Narrow shr: assert `count < w`, then U32ShiftRight + CastFelt. -/
 private def emitNarrowShr (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   let _ ← narrowBoundV1 bitWidth
@@ -860,7 +850,7 @@ private def emitNarrowShr (b : BuilderV1) (bitWidth : Nat) (l r : WireV1) :
   let (b4, u) := pushU32 b3 .u32ShiftRight #[l.operand, r.operand]
   emitCastFelt b4 u
 
-/-! ## R-HARD: Goldilocks Field expr (mirror EmitIR; no checked overflow) -/
+/-! ## R-HARD: Goldilocks Field expressions (no checked overflow) -/
 
 /-- Field binary: native Target add/sub/mul/div (exact mod Goldilocks; no
     UInt64 checked-arith guards). -/
@@ -878,11 +868,10 @@ private def emitFieldNeg (b : BuilderV1) (o : WireV1) :
   let oi ← asTargetIndex o
   pure (pushTarget b .sub #[UInt64.ofNat b.zeroTarget, UInt64.ofNat oi])
 
-/-! ## R-SHIFT-BIT: UInt64 shl/shr + checkedBitNot (mirror EmitIRV1 + dargo) -/
+/-! ## R-SHIFT-BIT: UInt64 shl/shr + checkedBitNot -/
 
-/-- UInt64 checkedBitNot: assert `x ≥ 2^32−1` then wrapping Felt sub
-    `(2^32−2) − x` (exact UInt64 bitNot when representable; trap otherwise).
-    Matches EmitIRV1 and locked-dargo `~` lowering. -/
+/-- UInt64 checkedBitNot: assert `x ≥ 2^32−1`, then wrapping Felt subtraction
+    `(2^32−2) − x` (exact UInt64 bitNot when representable; trap otherwise). -/
 private def emitCheckedBitNot (b : BuilderV1) (o : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   let oi ← asTargetIndex o
@@ -904,10 +893,8 @@ private def emitCheckedBitNot (b : BuilderV1) (o : WireV1) :
     pushTarget b4 .sub #[UInt64.ofNat mi, UInt64.ofNat oi]
   pure (b5, res)
 
-/-- UInt64 shl: assert `count < 64` then U32ShiftLeft + CastFelt.
-    Matches EmitIR invalidShift guard and locked-dargo Felt `<<` → U32ShiftLeft
-    (no Target-level shift op in DPN whitelist; high bits beyond U32 truncate as
-    dargo does). -/
+/-- UInt64 shl: assert `count < 64`, then U32ShiftLeft + CastFelt.
+    High bits beyond U32 truncate under the frozen DPN operation contract. -/
 private def emitUInt64Shl (b : BuilderV1) (l r : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   let _ ← asTargetIndex l
@@ -927,7 +914,7 @@ private def emitUInt64Shl (b : BuilderV1) (l r : WireV1) :
   let (b4, u) := pushU32 b3 .u32ShiftLeft #[l.operand, r.operand]
   emitCastFelt b4 u
 
-/-- UInt64 shr: assert `count < 64` then U32ShiftRight + CastFelt (dargo Felt `>>`). -/
+/-- UInt64 shr: assert `count < 64`, then U32ShiftRight + CastFelt. -/
 private def emitUInt64Shr (b : BuilderV1) (l r : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   let _ ← asTargetIndex l
@@ -947,7 +934,7 @@ private def emitUInt64Shr (b : BuilderV1) (l r : WireV1) :
   let (b4, u) := pushU32 b3 .u32ShiftRight #[l.operand, r.operand]
   emitCastFelt b4 u
 
-/-! ## R-INT: Int64 + narrow Int{8,16,32} two's-complement (mirror EmitIRV1) -/
+/-! ## R-INT: Int64 + narrow Int{8,16,32} two's-complement -/
 
 /-- Assert bool wire equals ConstantTrue (shared residual-lower style). -/
 private def pushAssertTrue (b : BuilderV1) (cond : WireV1) (msg : String) :
@@ -976,7 +963,7 @@ private def emitBoolNe (b : BuilderV1) (l r : WireV1) :
   let (b1, eqW) := pushBool b .eq #[UInt64.ofNat li, UInt64.ofNat ri]
   emitBoolNot b1 eqW
 
-/-- Int64 checkedNeg: assert `x != 2^63` then field `0 - x` (EmitIR). -/
+/-- Int64 checkedNeg: assert `x != 2^63`, then field `0 - x`. -/
 private def emitCheckedNegInt64 (b : BuilderV1) (o : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
   let oi ← asTargetIndex o
@@ -1110,7 +1097,7 @@ private def emitNarrowSignedCheckedSub (b : BuilderV1) (bitWidth : Nat)
   let b13 ← pushAssertTrue b12 ok s!"i{bitWidth} sub overflow"
   pure (b13, diff)
 
-/-- Narrow signed checked mul (magnitude product + re-sign; EmitIR port). -/
+/-- Narrow signed checked mul: magnitude product followed by re-signing. -/
 private def emitNarrowSignedCheckedMul (b : BuilderV1) (bitWidth : Nat)
     (l r : WireV1) : CompileResult (BuilderV1 × WireV1) := do
   let bound ← narrowBoundV1 bitWidth
@@ -1197,7 +1184,7 @@ private def emitNarrowSignedCheckedMul (b : BuilderV1) (bitWidth : Nat)
   let (b50, signed) ← emitSelect b49 opp signedNeg prodAbs
   emitSelect b50 prodIs0 zeroW signed
 
-/-- Narrow signed checked div (trunc toward zero via abs; EmitIR port). -/
+/-- Narrow signed checked div, truncating toward zero through absolute values. -/
 private def emitNarrowSignedCheckedDiv (b : BuilderV1) (bitWidth : Nat)
     (l r : WireV1) : CompileResult (BuilderV1 × WireV1) := do
   let bound ← narrowBoundV1 bitWidth
@@ -1246,7 +1233,7 @@ private def emitNarrowSignedCheckedDiv (b : BuilderV1) (bitWidth : Nat)
   let (b26, signedNeg) ← emitSelect b25 qIs0 (zeroWire b25) negQ
   emitSelect b26 opp signedNeg qAbs
 
-/-- Narrow signed checked mod: remainder has sign of dividend (EmitIR). -/
+/-- Narrow signed checked mod: remainder has the dividend's sign. -/
 private def emitNarrowSignedCheckedMod (b : BuilderV1) (bitWidth : Nat)
     (l r : WireV1) : CompileResult (BuilderV1 × WireV1) := do
   let bound ← narrowBoundV1 bitWidth
@@ -1298,7 +1285,7 @@ private def emitLimbSub (b : BuilderV1) (l r : WireV1) :
 
 private def emitCompare (b : BuilderV1) (op : ComparisonOp) (l r : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
-  -- dargo compares accept Target and encoded U32 operands.
+  -- Comparisons accept Target and encoded U32 operands.
   match op with
   | .ne =>
       let (b1, eqW) := pushBool b .eq #[l.operand, r.operand]
@@ -1346,8 +1333,8 @@ private def lookupWideShift (b : BuilderV1)
   | none =>
       planError s!"PSY-DPN-G5: wideUintShiftLimb limbIndex={limbIndex} OOR"
 
-/-- Felt-carried narrow UInt{8,16,32} param range: assert `param < 2^w`
-    (mirror EmitIRV1 entry guards; UInt32 also covers WideCounter dargo). -/
+/-- Felt-carried narrow UInt{8,16,32} parameter range: assert `param < 2^w`.
+    UInt32 also covers wide-integer limbs. -/
 private def emitNarrowParamRangeAsserts (b : BuilderV1) (params : Array WireV1)
     (paramMeta : Array PlanParam) : CompileResult BuilderV1 := do
   let mut bCur := b
@@ -1676,7 +1663,7 @@ is fail closed (PSY-TYPED-ERROR; no structured error payload ABI)"
       let (b1, ow) ← lowerExprV1 b params viewPath o
       emitFieldNeg b1 ow
 
-/-! ## G5-WIDE: schoolbook mul / restoring div / limb shift (EmitIRV1 port) -/
+/-! ## G5-WIDE: schoolbook mul / restoring div / limb shift -/
 
 private def assertBoolEqTrue (b : BuilderV1) (cond : WireV1) (msg : String) :
     CompileResult BuilderV1 := do
@@ -1720,8 +1707,8 @@ private def lowerWideOperandLimbs (b : BuilderV1) (params : Array WireV1)
   pure (bCur, out)
 
 /-- Schoolbook wide mul: UInt{N} limbs → 2N UInt16 digits → double-width product
-    with per-product U32 normalize; high half must be zero (checked overflow).
-    Ports EmitIRV1.emitWideUintMul; result limbs bound under operationId. -/
+    with per-product U32 normalization; high half must be zero (checked
+    overflow). Result limbs are bound under operationId. -/
 private def emitBindWideUintMulV1 (b : BuilderV1) (params : Array WireV1)
     (viewPath : Bool) (writeCond : WireV1)
     (bitWidth operationId : Nat) (lhs rhs : Array Expr) :
@@ -1960,7 +1947,7 @@ private def emitLimbBitMSB (b : BuilderV1) (limb : WireV1) (stepInLimb : Nat) :
   let (b3, one) := emitLiteralU64 b2 1
   pure (emitU32Bin b3 .u32And shifted one)
 
-/-- Restoring wide div/mod binding (EmitIRV1 port, fully unrolled). -/
+/-- Restoring wide div/mod binding, fully unrolled. -/
 private def emitBindWideUintDivModV1 (b : BuilderV1) (params : Array WireV1)
     (viewPath : Bool) (writeCond : WireV1)
     (resultKind : WideUInt128DivModResultV1)
@@ -2031,7 +2018,7 @@ private def emitBindWideUintDivModV1 (b : BuilderV1) (params : Array WireV1)
       }
   }
 
-/-- Exact wide logical shift: fixed bitWidth one-bit walk (EmitIRV1 port). -/
+/-- Exact wide logical shift: fixed bitWidth one-bit walk. -/
 private def emitBindWideUintShiftV1 (b : BuilderV1) (params : Array WireV1)
     (viewPath : Bool) (writeCond : WireV1)
     (kind : WideUInt128ShiftKindV1) (bitWidth operationId : Nat)
@@ -2337,8 +2324,8 @@ is fail closed (PSY-TYPED-ERROR; no structured error payload ABI)"
           }
           lowerStmtsV1 b2 params writeCond viewPath rest
       | .emitEvent _eventIndex args => do
-          -- DPN-6 PARTIAL: product admits source `__emit` → DPN events[].
-          -- Event name is not in DPNEventRecord (official record has no name).
+          -- DPN-6 PARTIAL: emit directly into DPN events[].
+          -- Event name is not represented by DPNEventRecord.
           let mut bCur := b
           let mut argWires : Array WireV1 := #[]
           for a in args do
@@ -2425,7 +2412,7 @@ def lowerFunctionGeneralV1 (fn : PlanFunction) (multiLeaf : Bool)
 def lowerFunctionV1 (fn : PlanFunction) (multiLeaf : Bool)
     (helpers : Array PlanFunction) :
     CompileResult FunctionCircuitDefV1 := do
-  -- Counter templates first (exact dargo golden) — single-leaf only.
+  -- Counter templates first (exact target-owned golden) — single-leaf only.
   if !multiLeaf then
     match fn.body.toList with
     | [.returnValue (.stateLoad f)] =>
@@ -2441,9 +2428,9 @@ def lowerFunctionV1 (fn : PlanFunction) (multiLeaf : Bool)
   -- DPN-3/4/5 general path (if/match/for + multi-leaf Option/Map + wide limbs).
   lowerFunctionGeneralV1 fn multiLeaf helpers
 
-/-- Lower an entire Plan to a DPN package. Functions sorted by name (dargo order).
-    R-PURE: pureHelper functions are validated as lowerable but omitted from the
-    package (inlined at call sites; free helpers match EmitIR, not contract methods). -/
+/-- Lower an entire Plan to a DPN package. Functions are sorted by name.
+    R-PURE: pureHelper functions are validated as lowerable but omitted from
+    the package because they are inlined at call sites. -/
 def lowerPlanToPackageV1 (plan : Plan) : CompileResult PackageV1 := do
   let nFields := plan.stateFieldNames.size
   unless nFields ≥ 1 do

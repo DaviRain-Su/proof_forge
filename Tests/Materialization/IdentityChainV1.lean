@@ -97,10 +97,10 @@ private def testClaimMintCanonicalOrder : IO Unit := do
     StaticRequirementSupportIndexV1.toArray index
   expect (claims.size == rows.size)
     s!"one claim per support row: got {claims.size} want {rows.size}"
-  -- Aleo dual + Noir dual + Psy dual + ADR-0032 U1 sole Solana cpi-elf → 13
-  -- support rows (aleo×2/cosmwasm/evm×2/near/noir×2/psy×2/quint/solana×1/ton).
-  expect (claims.size == 13)
-    s!"implemented profile count is 13 (aleo×2/cosmwasm/evm×2/near/noir×2/psy×2/quint/solana×1/ton), got {claims.size}"
+  -- EVM/Noir dual + sole direct profiles for the other seven implemented
+  -- targets → 11 support rows.
+  expect (claims.size == 11)
+    s!"implemented profile count is 11 (aleo/cosmwasm/evm×2/near/noir×2/psy/quint/solana/ton), got {claims.size}"
   let root ← liftExcept "root" (engineeringRegistryRootDigestV1
     (← liftResult "registry" initialTargetRegistryV1Result))
   let mut i : Nat := 0
@@ -394,33 +394,6 @@ private unsafe def testBuildIdentityProfileSensitivity : IO Unit := do
   expectDigestDiff "cross-target supportClaimDigest"
     (EngineeringBuildIdentityV1.supportClaimDigestOf solId)
     (EngineeringBuildIdentityV1.supportClaimDigestOf evmId)
-  -- Aleo dual profiles: same Plan/planDigest, distinct supportClaim/BuildIdentity.
-  let (srcCap, srcArts) ← materializeTarget compiled TargetId.aleo none
-  let (cmpCap, cmpArts) ← materializeTarget compiled TargetId.aleo
-    (some CodegenProfileId.aleoLeoU64CompileV1)
-  expect (Targets.ResolvedEngineeringBuildV1.codegenProfileOf srcCap ==
-      CodegenProfileId.aleoLeoU64V1)
-    "aleo default capability binds source profile"
-  expect (Targets.ResolvedEngineeringBuildV1.codegenProfileOf cmpCap ==
-      CodegenProfileId.aleoLeoU64CompileV1)
-    "aleo compile capability binds compile profile"
-  let srcId := MaterializedArtifactsV1.buildIdentityOf srcArts
-  let cmpId := MaterializedArtifactsV1.buildIdentityOf cmpArts
-  expect (EngineeringBuildIdentityV1.planDigestOf srcId ==
-      EngineeringBuildIdentityV1.planDigestOf cmpId)
-    "aleo dual profiles share planDigest"
-  expectDigestDiff "aleo dual supportClaimDigest"
-    (EngineeringBuildIdentityV1.supportClaimDigestOf srcId)
-    (EngineeringBuildIdentityV1.supportClaimDigestOf cmpId)
-  expectDigestDiff "aleo dual identityDigest"
-    (EngineeringBuildIdentityV1.identityDigestOf srcId)
-    (EngineeringBuildIdentityV1.identityDigestOf cmpId)
-  expect (EngineeringBuildIdentityV1.codegenProfileOf srcId ==
-      CodegenProfileId.aleoLeoU64V1)
-    "aleo source identity profile"
-  expect (EngineeringBuildIdentityV1.codegenProfileOf cmpId ==
-      CodegenProfileId.aleoLeoU64CompileV1)
-    "aleo compile identity profile"
 
 /-- Minimal S1 Accumulator source text (distinct name/body from StateCell). -/
 private def accumulatorSourceTextV1 : String :=

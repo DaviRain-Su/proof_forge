@@ -3,7 +3,7 @@ id: SPEC-CLI-001
 title: CLI 契约
 status: proposed
 owner: cli
-updated: 2026-08-09
+updated: 2026-08-10
 normative: true
 ---
 
@@ -35,18 +35,9 @@ normative: true
 > fail-closed 与 proof-first/零 staging 门槛已进 ordinary shards（见下文 / ADR-0027 /
 > TST-PROOF-INLINE-E1）。
 >
-> **Aleo network engineering wrapper（2026-08-09）**：当前实现仍不是下文 canonical
-> `deploy <output-dir> --network <NetworkProfileId> --signer-fd`。现有
-> `proof-forge-next network --target aleo --broadcast -- …` 只包装 package-owned host-heavy
-> **无 signer** 路径（当前即 DevNet `--dev-key`）：任何 signer-bearing argv/env（包括 `--fee-record`
-> 与尚未开放的 `--signer-fd` capability）均在 CWD script spawn 前拒绝。network engine 将既有 compile-profile
-> OutputSet stable-read 到 private snapshot，产品 `inspect` 验证该 snapshot 后只部署其中 exact bytes；
-> snarkOS 同样从 validated source FD 复制为 private executable snapshot。receipt 在 OutputSet 外由
-> retained owner-safe parent/staging FD 发布为
-> `proof-forge.aleo-deployment-receipt.engineering.v1`。public Testnet key-file 只允许操作者显式运行
-> `just aleo-network`（直接 isolated Python）或 package-owned `./scripts/aleo_network.sh`（`/bin/bash -p`
-> 薄适配器），直到 canonical `deploy --signer-fd` 落地。Mainnet/canary fail closed；build/Finalize
-> 不访问网络或 signer；formal NetworkProfile/compatible-build join 仍 pending。
+> **Aleo/Psy direct target cutover（2026-08-10）**：Aleo 只有
+> `aleo-instructions-v1`，Psy 只有 `psy-dpn-v1`；两者均 zero-tool、non-deployable。
+> 产品 `local`/`network` 对二者 fail closed；无 compiler、runtime、signer、receipt 或网络 fallback。
 
 可执行文件固定 `proof-forge-next`。所有命令 non-interactive；JSON 输出 stdout，日志和
 human diagnostics 到 stderr。
@@ -252,14 +243,10 @@ descriptor；range、`latest`、malformed 与 unknown exact 在 source read 前�
 private witness 文件必须 mode 0600、regular file、非 symlink；prove 不复制到 artifact tree。
 产品 proof certification 不接受 external bundle path 作为 CLI input；library-only
 `ProofBundleV1` 若用于 formal-oriented 工具，不得混入 private witness、signer material 或
-runtime input。signer 只从已打开 FD 读取，CLI/env/JSON 禁止 key。当前 Aleo engineering wrapper
-允许用户给 `--private-key-file` 作为 pre-open adapter：要求绝对、regular、single-link、owner-only、
-全 path 无 symlink；wrapper 不读取内容，先冻结 file identity，spawn 前重新 open/fstat exact join，
-再把继承 FD 的 `/proc/self/fd/N` 或 `/dev/fd/N` 交给 snarkOS。真实 path/FD/key 均不进入 public
-JSON/receipt；这不替代未来 canonical `--signer-fd` surface。OutputSet 与 snarkOS 均先复制到
-owner-private snapshot，部署不重开原 pathname。receipt 父目录必须预先存在、当前用户拥有且不可被
-其他 principal 写，并与 OutputSet 不重叠。check/build/inspect/list 不访问网络；deploy 先验证 network chain identity、artifact/profile/hash，再请求明确确认策略
-（CI 使用预批准 policy file，不使用 prompt）。
+runtime input。signer 只从已打开 FD 读取，CLI/env/JSON 禁止 key。当前产品没有 Aleo/Psy
+deploy/network wrapper；`local` 只支持 EVM/Solana package-owned runtime script。
+`check`/`build`/`inspect`/`list` 不访问网络；未来 deploy 必须先验证 network chain identity、
+artifact/profile/hash，再使用 canonical signer-FD 与明确确认策略。
 
 ## 边界与验收
 

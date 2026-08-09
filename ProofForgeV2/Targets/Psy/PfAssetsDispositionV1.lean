@@ -4,12 +4,12 @@
   Research (product honesty bar matching Quint A5 async rejection):
 
   (a) Native vault / balance semantics?
-      No. Psy CFC surface has user-partitioned CSTATE / Felt computation, not
-      a contract-held native denomination. Felt = Goldilocks is the arithmetic
-      domain, not an asset unit. There is no Tool Lock / psy-vm / prover gate
-      that could validate a vault debit/credit effect. Emitting
-      `__invoke_sync#<Felt>(hash,hash,args)` for a catalog QN would be pure
-      source sugar with no honest value movement — **fake modeling**.
+      No. Psy has user-partitioned CSTATE / Felt computation, not a
+      contract-held native denomination. Felt = Goldilocks is the arithmetic
+      domain, not an asset unit. There is no frozen runtime/prover gate that
+      could validate a vault debit/credit effect. Mapping a catalog QN to
+      InvokeExternalContractFunctionSync would be pure hashing with no honest
+      value movement — **fake modeling**.
 
   (b) Deposit (caller funds → self vault)?
       No analogue of EVM `msg.value`, Solana outer-signer System CPI, CW
@@ -17,14 +17,15 @@
       not a frozen Psy intrinsic on the current research surface.
 
   (c) Sync `transfer` / async `transferAsync`?
-      Sync: `__invoke_sync` is source-only; no runtime proof of atomic vault
-      debit + dst credit + failure propagation. Async: schedule already
-      declines (no deferred crosscall form); must not alias sync.
+      Sync: the DPN invoke operation has no runtime proof of atomic vault debit
+      + destination credit + failure propagation. Async: schedule already
+      declines because DPN has no deferred crosscall operation; it must not
+      alias sync.
 
   Disposition: **bind zero QNs**. Resolver does not advertise
   `extension.pf-assets`. Plan/lowering rejects every catalog QN with an
   explicit **unbound** diagnostic (distinct from non-catalog L0 call, which
-  still lowers to hashed `__invoke_sync` as today).
+  still lowers to the direct DPN sync-invoke operation).
 
   **Not** a formal catalog / BuildIdentity / NetworkProfile asset registry.
 -/
@@ -46,8 +47,8 @@ def isPsyAdmittedPfAssetsQnV1 (_qn : String) : Bool := false
 
 /-- Stable Plan diagnostic fragment for an unbound catalog QN. -/
 def unboundCatalogDiagV1 (qn : String) : String :=
-  s!"pf.assets catalog QN '{qn}' is unbound on Psy \
+  s!"Psy pf.assets catalog QN '{qn}' is unbound \
 (ADR-0029 Phase D zero-binding: no honest native vault/deposit/balance surface; \
-must not alias __invoke_sync as value transfer)"
+must not alias the DPN sync-invoke operation as value transfer)"
 
 end ProofForgeV2.Targets.Psy.PfAssetsDispositionV1

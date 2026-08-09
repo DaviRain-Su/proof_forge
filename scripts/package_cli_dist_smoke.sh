@@ -55,9 +55,6 @@ for f in \
   scripts/proof_forge_doctor.py \
   scripts/proof_forge_install.py \
   scripts/toolchain_assets.py \
-  scripts/aleo_local_sandbox.sh \
-  scripts/aleo_devnet.sh \
-  scripts/aleo_network.sh \
   host-profiles.lock.json \
   toolchains.lock.json \
   toolchains-linux-x86_64.lock.json

@@ -13,19 +13,19 @@ import ProofForgeV2.Targets.Psy.PfAssetsDispositionV1
 Owns the Psy-owned Plan surface and the retained-`SemanticProgramV1` Plan body
 for the public UInt64 envelope (comparisons, bare assert, Bool results,
 if/match, revert/emit, fn/localCall, let, bounded for, shift/bitwise/logical,
-call/schedule). Plan canonicity lives in `ValidatePlanV1`; `.psy` emission in
-`EmitIRV1`. `FinalizeV1` remains a separate submodule.
+call/schedule). Plan canonicity lives in `ValidatePlanV1`; canonical DPN
+package emission in `Dpn`; `FinalizeV1` remains a separate submodule.
 
 **ADR-0029 Phase D**: every `pf.assets` catalog QN is **unbound** on Psy
 (`PfAssetsDispositionV1`). Catalog calls fail closed at Plan with an explicit
-unbound diagnostic and must not lower to `__invoke_sync` as fake vault
-transfer. Non-catalog L0 sync call keeps hashed `__invoke_sync` emission.
+unbound diagnostic. Non-catalog L0 sync calls lower to the target DPN
+external-call instruction.
 
 Psy maps UInt{8,16,32,64} → `Felt` (narrow widths are **Felt-carried**, not
-native Psy `u32`/`u8` — the real dargo VM u32 arith/shift is unfaithful to
-Reference: overflow is an internal panic, `a - a` panics, shifts wrap). Bool →
-`bool`. Checked u64 arithmetic uses field-wrap detection at emission (Felt is
-Goldilocks). **Narrow UInt{8,16,32}** body ops use the same Felt operators with
+native Psy U32 operations — their arithmetic/shift behavior is not faithful to
+the Reference machine). Bool → `bool`. Checked u64 arithmetic uses the
+Goldilocks field modulus.
+**Narrow UInt{8,16,32}** body ops use the same Felt operators with
 **explicit width guards** (`result < 2^w` after add/mul/shl; underflow/zero/
 `count < w` otherwise). Reasoning: max product of two UInt32 values is
 `(2^32−1)^2 = 2^64−2^33+1 < p = 2^64−2^32+1`, so narrow ops never wrap mod p
@@ -52,16 +52,15 @@ UInt indices with exact `indexOutOfBounds` assert (PSY-INDEX-CAST).
 state (cap-8 × occ/key/val = 24 Felt leaves; empty + IndexGet→Option +
 IndexSet upsert + atomic storeAggregate) and named Struct/Enum **params** as
 preorder multi-leaf Felt formals. Nested Map, Map return, Map non-UInt64
-K/V, and >8 aggregate return stay fail closed (no dargo resource pin for
-raising B-RET cap).
+K/V, and >8 aggregate return stay fail closed because no target-owned
+resource proof permits raising the B-RET cap.
 
 ## B-RET-ABI named Struct/Enum entry/view returns (2026-08-03)
 
 Named Struct/Enum **entry/view** results flatten to 1..8 preorder UInt64/Int64
 leaves (`ResultKind.aggregate` + `Statement.returnAggregate`, appended at the
-end of the Statement ctor space). Emission packs leaves as one honest Psy
-`[Felt; N]` return (`-> [Felt; N]` + `return [e0, …];`), verified against
-real dargo/psyup. pureFn aggregate returns and >8 leaves stay fail closed;
+end of the Statement ctor space). DPN emission returns one honest aggregate
+with 1..8 Felt leaves. PureFn aggregate returns and >8 leaves stay fail closed;
 named aggregate **params** are open under PSY-CONTAINER-ABI (scalar leaf
 fields only).
 
@@ -88,52 +87,51 @@ closed (mirrors Enum param policy).
 
 ContextRead (`unixTimeSeconds` / `caller` / `blockHeight` / unknown) and
 Commit stay **fail closed** with key-specific diagnostics. Psy is circuit-
-domain: no official dargo public-input/witness wall-clock, caller, or height
-anchor; unanchored injection is not chain reality. Commit cannot open as Felt
-identity passthrough without a frozen proof/public-input/commitment binding
-(B-COMMIT-ZK). EnvRead remains ADR-0029 zero-binding FC.
+domain: the DPN contract has no bound public-input/witness source for
+wall-clock, caller, or height. Unanchored injection is not chain reality.
+Commit cannot open as Felt identity passthrough without a frozen
+proof/public-input/commitment binding (B-COMMIT-ZK). EnvRead remains
+ADR-0029 zero-binding FC.
 
 ## PSY-INVARIANT (evidence fail closed, 2026-08-08)
 
 Nonempty Semantic `.invariant` callables / `InvariantDecl` rows stay **fail
-closed**. dargo/Psy has no source surface that binds the same predicate
-closure DAG and carried `invariantSteps` fuel as Semantic/Wire. Emitting
-unused asserts or dummy `val`/`fn` would overclaim target refinement.
+closed**. The DPN schema has no predicate-closure carrier bound to the same
+closure DAG and `invariantSteps` fuel as Semantic/Wire. Emitting unused
+asserts would overclaim target refinement.
 Inline product `check` certification (ADR-0027) is orthogonal and is **not**
 target Plan lowering of invariants. Empty invariants remain admitted.
 
 ## PSY-TYPED-ERROR (2026-08-08)
 
-Zero-payload declared errors are honest on dargo as string-tagged aborts:
-`revert Name` → `assert(false, "revert:Name")`; zero-arg `assert c else Name`
-→ `assert(c, "assert:Name")`. Parameterized error **payloads** (nonempty
-fields / revert args) stay fail closed — no structured error selector/payload
-ABI or VM-observable field encoding exists on the Psy surface. Bare assert
-and zero-arg paths remain stable.
+Zero-payload declared errors are encoded as string-tagged DPN asserts:
+`revert Name` → an always-failing assert tagged `revert:Name`; zero-arg
+`assert c else Name` → an assert tagged `assert:Name`. Parameterized error
+payloads stay fail closed because the DPN contract has no structured selector
+or payload ABI. Bare assert and zero-arg paths remain stable.
 
 ## PSY-CALL-EVENT (2026-08-08, PARTIAL + evidence FC)
 
-Void sync `call` → source-only `__invoke_sync#<Felt>(hash,hash,[args])` with
-static QN hashing (no deployment-address binding, no callee-failure
-refinement, no product runtime/response gate). `emit` → source-only `__emit`
-(no ordered-event log gate in product Finalize). **Result-bearing** call and
-`schedule` stay fail closed (no response-binding ABI; no deferred crosscall
-form — never alias sync). `pf.assets` catalog QNs remain unbound (ADR-0029).
+Void sync `call` → DPN `InvokeExternalContractFunctionSync` with static
+qualified-name hashing and zero outputs. `emit` → DPN `events[]`. These remain
+PARTIAL: no deployment-address binding, callee-failure refinement, ordered-log
+runtime gate, or response ABI. Result-bearing call and `schedule` stay fail
+closed. `pf.assets` catalog QNs remain unbound (ADR-0029).
 
 ## PSY-ASYNC-ASSETS (2026-08-08, evidence FC — no capability open)
 
 `schedule` stays declined (resolver + Plan; no deferred form). Every
 `pf.assets` catalog QN stays unbound (ADR-0029 Phase D zero-binding).
-Must not rename `__invoke_sync` as async or vault transfer. Official
-native vault/deposit binding would be required before any admit set.
+The DPN synchronous invoke operation must not be relabeled as async or as
+native vault transfer; either admit requires a frozen native binding.
 
 ## PSY-LOOP (2026-08-08)
 
-dargo v0.1.0 **rejects** the `for` keyword. UInt64 bounded `for` lowers to
-**static unroll** of `maxIterations` (≤64) guarded steps after
-`boundExceeded` (`end - start ≤ N`), preserving exact iteration semantics
-without `for` syntax. Non-UInt64 (narrow UInt/Int) induction stays fail
-closed. Larger `maxIterations` FC at emit (unroll budget).
+The DPN schema has no `for` operation. UInt64 bounded `for` lowers to a static
+unroll of `maxIterations` (≤64) guarded steps after `boundExceeded`
+(`end - start ≤ N`), preserving exact iteration semantics. Non-UInt64
+(narrow UInt/Int) induction stays fail closed. Larger bounds fail closed at
+the DPN unroll budget.
 -/
 
 namespace ProofForgeV2.Targets.Psy
@@ -145,40 +143,13 @@ open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
 open ProofForgeV2.Targets.Psy.PfAssetsDispositionV1
 
-/-- Historical registered Dargo/Psy source profile. -/
-def psyCodegenProfileIdString : String := "psy-dargo-u64-v1"
+/-- Sole Psy DPN profile. -/
+def psyCodegenProfileIdString : String := "psy-dpn-v1"
 
-/-- Explicit profile for locked dargo v0.1.0 VM-observed extensions. -/
-def psyVmCodegenProfileIdString : String := "psy-dargo-0.1.0-vm-v1"
-
-/-- Target-owned profile mode. The historical mode remains the default for all
-    semantic-only test entry points; only a capability selected with the new
-    codegen profile can enter `dargo010Vm`. -/
-inductive PsyProfileModeV1 where
-  | sourceU64
-  | dargo010Vm
-  deriving BEq, Inhabited, Repr
-
-private def PsyProfileModeV1.allowsWideUInt128 : PsyProfileModeV1 → Bool
-  | .sourceU64 => false
-  | .dargo010Vm => true
-
-private def profileModeOfCodegenProfileV1
-    (profile : CodegenProfileId) : CompileResult PsyProfileModeV1 :=
-  if profile == CodegenProfileId.psyDargoU64V1 then
-    pure .sourceU64
-  else if profile == CodegenProfileId.psyDargo010VmV1 then
-    pure .dargo010Vm
-  else
-    .error <| .planInvariant .psy
-      s!"unsupported Psy codegen profile '{profile}'"
-
-/-- Historical source header label; preserved byte-for-byte on the default
-    `psy-dargo-u64-v1` profile. -/
-def psyToolchain : String := "dargo-mainnet-beta"
-
-/-- Header label for the explicit locked-dargo VM profile. -/
-def psyVmToolchain : String := "dargo-v0.1.0-vm"
+private def validateCodegenProfileV1
+    (profile : CodegenProfileId) : CompileResult Unit :=
+  unless profile == CodegenProfileId.psyDpnV1 do
+    .error <| .planInvariant .psy s!"unsupported Psy codegen profile '{profile}'"
 
 inductive ComparisonOp where
   | eq | ne | lt | le | gt | ge
@@ -256,8 +227,7 @@ inductive Expr where
       (Goldilocks inverse; no intMin revert). -/
   | fieldNeg (operand : Expr)
   /-- Narrow UInt{8,16,32} bitwise-not: Felt `x ^ (2^w−1)` (mask literal).
-      Replaces the old native-u32 `bitNot` path — dargo u32 sub is buggy and
-      native u32 is not used for T8 multi-width. -/
+      The target deliberately avoids a native-u32 lowering lane. -/
   | narrowBitNot (bitWidth : Nat) (operand : Expr)
   /-- Checked UInt64 bitwise-not. Exact `bitNot x = (2^64−1) − x` is a legal
       Felt iff `x ≥ 2^32−1` (result `< p = 2^64−2^32+1`). Emission asserts the
@@ -332,20 +302,20 @@ inductive Statement where
   /-- Atomic multi-leaf state update: the emitter snapshots every value into a
       local before writing any field, preventing store-then-read hazards. -/
   | storeAggregate (fieldIndices : Array Nat) (values : Array Expr)
-  /-- Checked UInt128 multiplication binding for the explicit dargo VM profile.
+  /-- Checked UInt128 multiplication binding for the direct DPN profile.
       The emitter freezes an exact 8×UInt16 schoolbook algorithm: every bit
       operation sees a value below 2^32, all Felt arithmetic intermediates stay
       below Goldilocks, and any nonzero high 128-bit digit traps before stores.
       Four little-endian result limbs become available through
       `Expr.wideUintMulLimb operationId 0..3`. -/
   | bindWideUintMul (bitWidth operationId : Nat) (lhs rhs : Array Expr)
-  /-- Exact UInt128 unsigned division/remainder for the explicit VM profile.
+  /-- Exact UInt128 unsigned division/remainder for the direct DPN profile.
       The emitter owns a fixed 129-bit restoring algorithm implemented as four
       constant 32-step loops over range-bounded Felt limbs; Psy field `/` and
       `%` are never used for the integer result. -/
   | bindWideUintDivMod (resultKind : WideUInt128DivModResultV1)
       (bitWidth operationId : Nat) (lhs rhs : Array Expr)
-  /-- Exact UInt128 logical shift for the explicit VM profile. `value` is four
+  /-- Exact UInt128 logical shift for the direct DPN profile. `value` is four
       little-endian UInt32 Felt limbs; `count` is a UInt32 Felt in `0..127`.
       The emitter owns a fixed 128-step bit walk (no Psy field `/` for whole/rem
       limb split); `shl` traps on any bit shifted past bit 127. -/
@@ -430,9 +400,7 @@ structure PlanErrorDecl where
     artifact program name. -/
 structure Plan where
   programName : String
-  /-- Product profile mode. Defaults preserve historical semantic-only tests and
-      the registry default `psy-dargo-u64-v1`. -/
-  profileMode : PsyProfileModeV1 := .sourceU64
+  /-- DPN is the sole product IR and therefore needs no target-language mode. -/
   stateFieldNames : Array String
   functions : Array PlanFunction
   events : Array PlanEvent
@@ -451,14 +419,10 @@ private abbrev PsyTypeClosureV1 := PilotTypeClosureV1
 private def psyPlanErr (message : String) : CompileError :=
   .planInvariant .psy message
 
-/-- Psy width policy is profile-bound. The historical profile preserves
-    UInt{8,16,32,64}; the explicit dargo-v0.1.0 VM profile additionally admits
-    UInt128 (4×UInt32) and UInt256 (8×UInt32) Felt-limb lowering. -/
-private def pilotUintWidthPolicyPsyBody
-    (profileMode : PsyProfileModeV1) : PilotUintWidthPolicy where
-  admittedWidths :=
-    if profileMode.allowsWideUInt128 then #[256, 128, 64, 32, 16, 8]
-    else #[64, 32, 16, 8]
+/-- Psy DPN admits every implemented unsigned width, including its
+    UInt128/256 little-endian UInt32-limb representation. -/
+private def pilotUintWidthPolicyPsyBody : PilotUintWidthPolicy where
+  admittedWidths := #[256, 128, 64, 32, 16, 8]
 
 /-- True for Felt-carried narrow UInt widths admitted by the Psy T8 pilot. -/
 def isNarrowUintWidth (bitWidth : Nat) : Bool :=
@@ -475,10 +439,9 @@ def isNarrowUintWidth (bitWidth : Nat) : Bool :=
     Narrow Int{8,16,32} admitted as two's-complement bit patterns in Felt
     (full range fits below Goldilocks p). -/
 private def validatePsyTypeClosureV1
-    (profileMode : PsyProfileModeV1)
     (types : Array TypeDeclV1) : CompileResult PsyTypeClosureV1 :=
   validatePilotTypeClosure psyPlanErr psyTypeClosureWording types
-    (pilotUintWidthPolicyPsyBody profileMode)
+    pilotUintWidthPolicyPsyBody
     (intPolicy := pilotIntWidthPolicyNarrow)
     (fieldPolicy := pilotFieldPolicyGoldilocks)
     (principalPolicy := pilotPrincipalPolicyAdmit)
@@ -634,7 +597,6 @@ private def envInsertVal (env : ValueEnv) (id : ValueIdV1) (v : LoweredVal) : Va
 
 /-- Flattening layout: physical Felt leaf names + per-logical-state leaf ranges. -/
 private structure PsyLowerLayoutV1 where
-  profileMode : PsyProfileModeV1
   fieldNames : Array String
   stateLeaves : Array (Array Nat)
   typeDecls : Array TypeDeclV1
@@ -1133,7 +1095,6 @@ private def flattenOptionUInt64LeafSpecsV1 (namePrefix : String) :
   pure #[tagName, pName]
 
 private def makeStateLayoutV1
-    (profileMode : PsyProfileModeV1)
     (types : PsyTypeClosureV1) (typeDecls : Array TypeDeclV1)
     (states : Array StateDeclV1) : CompileResult PsyLowerLayoutV1 := do
   let mut fieldNames : Array String := #[]
@@ -1174,10 +1135,9 @@ private def makeStateLayoutV1
         leaves := leaves.push fieldNames.size
         fieldNames := fieldNames.push name
       stateLeaves := stateLeaves.push leaves
-    else if profileMode.allowsWideUInt128 &&
-        (types.uintWidthOf state.typeId == some 128 ||
-          types.uintWidthOf state.typeId == some 256) then
-      -- Explicit VM profile: UInt128/256 are 4/8 little-endian UInt32 Felt limbs.
+    else if types.uintWidthOf state.typeId == some 128 ||
+        types.uintWidthOf state.typeId == some 256 then
+      -- UInt128/256 use 4/8 little-endian UInt32 Felt limbs in DPN.
       let limbCount :=
         if types.uintWidthOf state.typeId == some 256 then 8 else 4
       let mut leafNames : Array String := #[]
@@ -1205,8 +1165,8 @@ private def makeStateLayoutV1
       fieldNames := fieldNames.push state.name
       stateLeaves := stateLeaves.push #[leafIdx]
     else
-      planError "unsupported Psy semantic shape: state must be UInt{8,16,32,64}, Int{8,16,32,64}, Goldilocks Field, named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes 1..8, Principal, String, or Option UInt64 (wide UInt needs VM profile)"
-  pure { profileMode, fieldNames, stateLeaves, typeDecls, types }
+      planError "unsupported Psy semantic shape: state must be UInt{8,16,32,64,128,256}, Int{8,16,32,64}, Goldilocks Field, named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes 1..8, Principal, String, or Option UInt64"
+  pure { fieldNames, stateLeaves, typeDecls, types }
 
 private def literalIndexNatV1 (v : LoweredVal) : CompileResult Nat := do
   unless !v.isAggregate do
@@ -1463,12 +1423,8 @@ private def lowerLiteralValue
     CompileResult LoweredVal := do
   match uintWidthOfType data typeId with
   | some 128 =>
-      unless layout.profileMode.allowsWideUInt128 do
-        planError "unsupported Psy semantic shape: UInt128 requires profile psy-dargo-0.1.0-vm-v1"
       pure (mkWideUInt128Val (← decodeUInt128LimbsV1 valueBytes))
   | some 256 =>
-      unless layout.profileMode.allowsWideUInt128 do
-        planError "unsupported Psy semantic shape: UInt256 requires profile psy-dargo-0.1.0-vm-v1"
       pure (mkWideUInt256Val (← decodeUInt256LimbsV1 valueBytes))
   | some w =>
       let e ← lowerLiteral data layout.types typeId valueBytes
@@ -1847,12 +1803,10 @@ private partial def lowerRegion
               | some st => pure st.typeId
               | none => planError "unsupported Psy semantic shape: stateLoad declaration is missing"
             let wideStateW? :=
-              if layout.profileMode.allowsWideUInt128 then
-                match uintWidthOfType data stateTypeId with
-                | some 128 => some 128
-                | some 256 => some 256
-                | _ => none
-              else none
+              match uintWidthOfType data stateTypeId with
+              | some 128 => some 128
+              | some 256 => some 256
+              | _ => none
             if let some bitWidth := wideStateW? then
               let need := wideLimbCountOf bitWidth
               unless leafIdxs.size == need do
@@ -1931,8 +1885,6 @@ private partial def lowerRegion
         let usesWideUint :=
           resultWideW?.isSome || operandWideW?.isSome
         if usesWideUint then
-          unless layout.profileMode.allowsWideUInt128 do
-            planError "unsupported Psy semantic shape: UInt128/256 binary requires profile psy-dargo-0.1.0-vm-v1"
           let bitWidth ← match resultWideW?, operandWideW? with
             | some w, _ => pure w
             | none, some w => pure w
@@ -2078,8 +2030,6 @@ private partial def lowerRegion
                     planError "unsupported Psy semantic shape: UInt64 bitNot operand must be a scalar Felt UInt64"
                   env := envInsert env valueDef.valueId (.checkedBitNot o.expr)
                 else if w == 128 || w == 256 then
-                  unless layout.profileMode.allowsWideUInt128 do
-                    planError s!"unsupported Psy semantic shape: UInt{w} bitNot requires profile psy-dargo-0.1.0-vm-v1"
                   let ok :=
                     (w == 128 && o.isWideUInt128) || (w == 256 && o.isWideUInt256)
                   unless ok do
@@ -2151,12 +2101,10 @@ private partial def lowerRegion
           | some st => pure st.typeId
           | none => planError "unsupported Psy semantic shape: stateStore declaration is missing"
         let stateWideW? :=
-          if layout.profileMode.allowsWideUInt128 then
-            match uintWidthOfType data stateTypeId with
-            | some 128 => some 128
-            | some 256 => some 256
-            | _ => none
-          else none
+          match uintWidthOfType data stateTypeId with
+          | some 128 => some 128
+          | some 256 => some 256
+          | _ => none
         if let some bitWidth := stateWideW? then
           let ok :=
             (bitWidth == 128 && v.isWideUInt128) ||
@@ -2177,12 +2125,11 @@ private partial def lowerRegion
         else
           ls := { ls with stmts := ls.stmts.push (.storeAggregate leafIdxs leaves) }
     | .assert_ condition errorId args => do
-        -- PSY-TYPED-ERROR: zero-payload assert-else tags the declared error name
-        -- in the dargo assert message (`assert:Name`). Parameterized error
-        -- payloads have no honest structured ABI on Psy/dargo → fail closed.
+        -- PSY-TYPED-ERROR: zero-payload assert-else tags the declared error
+        -- name in the DPN assert record. Structured payloads fail closed.
         unless args.isEmpty do
           planError
-            "unsupported Psy semantic shape: assert-else with error payload arguments is not admitted (no dargo structured error-payload ABI; PSY-TYPED-ERROR FC for nonempty fields)"
+            "unsupported Psy semantic shape: assert-else error payload arguments require a structured DPN error ABI (PSY-TYPED-ERROR FC)"
         let c ← match envLookupExpr env condition with
           | some e => pure e
           | none => planError "unsupported Psy semantic shape: assert references an undefined condition"
@@ -2201,33 +2148,33 @@ private partial def lowerRegion
               .assertWithMessage c s!"assert:{errDecl.name}"
             ls := { ls with stmts := ls.stmts.push guard }
     | .emit _effectId eventId args => do
-        -- PSY-CALL-EVENT PARTIAL: `__emit` is a source intrinsic only — product
-        -- Finalize has no ordered-event runtime observable / log gate.
+        -- PSY-CALL-EVENT PARTIAL: direct DPN event record, but Finalize has no
+        -- ordered-event runtime observable / log gate.
         let argExprs ← lookupArgs env args "emit"
         ls := { ls with stmts := ls.stmts.push (.emitEvent eventId.toNat argExprs) }
     | .externalCall _effectId callee args => do
-        -- PSY-CALL-EVENT: void sync call → source-only `__invoke_sync#<Felt>`
-        -- (hashed static QN; no deployment-address binding, no callee failure
-        -- refinement, no product runtime gate). Result-bearing call has no
-        -- response-binding surface on that intrinsic → fail closed.
+        -- PSY-CALL-EVENT: void sync call → direct DPN
+        -- InvokeExternalContractFunctionSync (hashed static QN; no deployment
+        -- binding, callee-failure refinement, or product runtime gate).
+        -- Result-bearing calls have no response-binding ABI and fail closed.
         match instr.result with
         | some _ =>
             planError
-              "unsupported Psy semantic shape: result-bearing external call is not admitted on Psy (no response-binding / return-value ABI for __invoke_sync source intrinsic; PSY-CALL-EVENT FC)"
+              "unsupported Psy semantic shape: result-bearing external call is not admitted (no DPN response-binding / return-value ABI; PSY-CALL-EVENT FC)"
         | none => pure ()
         let comps := callee.components.toArray
         unless comps.size ≥ 2 do
           planError "unsupported Psy semantic shape: external callee must have at least two components"
-        -- ADR-0029 Phase D: catalog QNs are unbound — must not lower to
-        -- hashed `__invoke_sync` as if they moved native value.
+        -- ADR-0029 Phase D: catalog QNs are unbound. Hashing them into a DPN
+        -- sync invoke would falsely imply native value movement.
         let qn := String.intercalate "." comps.toList
         if isPfAssetsCatalogQnV1 qn then
           planError s!"unsupported Psy semantic shape: {unboundCatalogDiagV1 qn}"
         let argExprs ← lookupArgs env args "externalCall"
         ls := { ls with stmts := ls.stmts.push (.externalCall comps argExprs) }
     | .schedule _effectId callee args => do
-        -- PSY-CALL-EVENT / async: no deferred crosscall form on dargo surface;
-        -- never alias __invoke_sync (would change fire-and-forget semantics).
+        -- PSY-CALL-EVENT / async: DPN has no admitted deferred crosscall op;
+        -- never alias the synchronous invoke operation.
         let _ := callee
         let _ := args
         planError
@@ -2720,22 +2667,20 @@ private partial def lowerRegion
               let guard : Statement := .assertWithMessage inRange "castOutOfRange"
               ls := { ls with stmts := ls.stmts.push guard }
               env := envInsertNarrow env valueDef.valueId dstW srcE
-    -- PSY-CONTEXT-COMMIT (evidence FC): circuit-domain Psy has no official
-    -- dargo public-input / witness anchor for wall-clock, caller, or height.
-    -- Unanchored injection would only prove "the program used T", never that
-    -- T is chain/time reality (B-CTX-OPEN 2026-08-04 circuit-domain decision).
-    -- Commit must not open as Felt identity passthrough (B-COMMIT-ZK: requires
-    -- frozen proof/public-input/commitment binding before any identity admit).
+    -- PSY-CONTEXT-COMMIT (evidence FC): the direct DPN contract has no bound
+    -- public-input/witness source for wall-clock, caller, or height. Unanchored
+    -- injection proves only that the program used T, not that T is chain
+    -- reality. Commit also needs a frozen proof/public-input/commitment binding.
     | .contextRead key =>
         if key == unixTimeSecondsContextKeyV1 then
           planError
-            "unsupported Psy semantic shape: ContextRead context.unixTimeSeconds is not admitted (no official dargo public-input/witness wall-clock anchor; circuit-domain FC)"
+            "unsupported Psy semantic shape: ContextRead context.unixTimeSeconds has no bound DPN wall-clock input (circuit-domain FC)"
         else if key == callerContextKeyV1 then
           planError
-            "unsupported Psy semantic shape: ContextRead context.caller is not admitted (no official dargo public-input/witness caller anchor; Principal is not a Psy address; circuit-domain FC)"
+            "unsupported Psy semantic shape: ContextRead context.caller has no bound DPN caller input; Principal is not a Psy address (circuit-domain FC)"
         else if key == blockHeightContextKeyV1 then
           planError
-            "unsupported Psy semantic shape: ContextRead context.blockHeight is not admitted (no official dargo public-input/witness block-height anchor; circuit-domain FC)"
+            "unsupported Psy semantic shape: ContextRead context.blockHeight has no bound DPN height input (circuit-domain FC)"
         else
           planError
             s!"unsupported Psy semantic shape: unknown ContextRead key '{key.value}' is not admitted by pilot context policy"
@@ -2856,16 +2801,15 @@ private partial def lowerRegion
             | none => planError "unsupported Psy semantic shape: return references an undefined value"
       pure { stmts, join? := none }
   | .revert errorId args => do
-      -- PSY-TYPED-ERROR: zero-payload named revert → abort message `revert:Name`
-      -- (stable EmitIR path). Nonempty field payloads have no structured dargo
-      -- ABI → fail closed (not string-encoded fake fields).
+      -- PSY-TYPED-ERROR: zero-payload named revert becomes a tagged failing
+      -- DPN assert. Nonempty payloads have no structured DPN ABI.
       unless args.isEmpty do
         let errName :=
           match data.errors[errorId.toNat]? with
           | some e => e.name
           | none => "error"
         planError
-          s!"unsupported Psy semantic shape: revert '{errName}' with error payload arguments is not admitted (no dargo structured error-payload ABI; zero-payload named revert remains open; PSY-TYPED-ERROR FC)"
+          s!"unsupported Psy semantic shape: revert '{errName}' payload requires a structured DPN error ABI (zero-payload named revert remains open; PSY-TYPED-ERROR FC)"
       let stmts := ls.stmts.push (.revertError errorId.toNat #[])
       pure { stmts, join? := none }
   | .trap _ => do
@@ -2902,12 +2846,11 @@ private partial def lowerLoop
   let startVal ← match envLookup env startVid with
     | some v => pure v
     | none => planError "unsupported Psy semantic shape: loop start value is not defined"
-  -- PSY-LOOP: only public UInt64 induction is admitted (Felt range-loop pilot
-  -- + dargo static unroll). Narrow UInt and Int endpoints stay fail closed
-  -- (N-FOR-INT / no signed range-loop ABI on Psy).
+  -- PSY-LOOP: only public UInt64 induction is admitted through a guarded
+  -- static DPN unroll. Narrow UInt and Int endpoints stay fail closed.
   if startVal.isNarrow || startVal.isNarrowInt || startVal.intWidth == 64 then
     planError
-      "unsupported Psy semantic shape: non-UInt64 loop endpoints are not admitted on Psy (narrow UInt/Int induction FC; PSY-LOOP admits UInt64 only with dargo static unroll)"
+      "unsupported Psy semantic shape: non-UInt64 loop endpoints are not admitted (PSY-LOOP supports UInt64 through guarded DPN static unroll only)"
   let startExpr := startVal.expr
   let mut condVid? : Option ValueIdV1 := none
   let mut endExpr? : Option Expr := none
@@ -2921,7 +2864,7 @@ private partial def lowerLoop
           | none => planError "unsupported Psy semantic shape: loop end value is not defined"
         if rVal.isNarrow || rVal.isNarrowInt || rVal.intWidth == 64 then
           planError
-            "unsupported Psy semantic shape: non-UInt64 loop endpoints are not admitted on Psy (narrow UInt/Int induction FC; PSY-LOOP admits UInt64 only with dargo static unroll)"
+            "unsupported Psy semantic shape: non-UInt64 loop endpoints are not admitted (PSY-LOOP supports UInt64 through guarded DPN static unroll only)"
         match instr.result with
         | some valueDef => condVid? := some valueDef.valueId
         | none => planError "unsupported Psy semantic shape: loop condition must produce a value"
@@ -2966,23 +2909,17 @@ end
     aggregate is rejected by the pureFn gate below; Map/nested stay FC.
     Principal/String results FC (9 leaves > cap 8). -/
 private def resultShape (data : SemanticProgramDataV1)
-    (profileMode : PsyProfileModeV1) (types : PsyTypeClosureV1)
+    (types : PsyTypeClosureV1)
     (typeDecls : Array TypeDeclV1) (callable : CallableV1) (owner : String) :
     CompileResult (Bool × Bool × Nat × ResultKind) := do
   if isBoolType data callable.result.typeId then pure (true, false, 0, .bool)
   else if isUInt64Type data callable.result.typeId then pure (false, false, 64, .felt)
   else if uintWidthOfType data callable.result.typeId == some 128 then
-    if profileMode.allowsWideUInt128 then
-      pure (false, false, 128,
-        .aggregate (Array.replicate 4 { isInt := false, byteWidth := 4 }))
-    else
-      planError s!"{owner} UInt128 result requires profile psy-dargo-0.1.0-vm-v1"
+    pure (false, false, 128,
+      .aggregate (Array.replicate 4 { isInt := false, byteWidth := 4 }))
   else if uintWidthOfType data callable.result.typeId == some 256 then
-    if profileMode.allowsWideUInt128 then
-      pure (false, false, 256,
-        .aggregate (Array.replicate 8 { isInt := false, byteWidth := 4 }))
-    else
-      planError s!"{owner} UInt256 result requires profile psy-dargo-0.1.0-vm-v1"
+    pure (false, false, 256,
+      .aggregate (Array.replicate 8 { isInt := false, byteWidth := 4 }))
   else if isInt64Type data callable.result.typeId then pure (false, false, 0, .felt)
   else if let some w := intWidthOfType data callable.result.typeId then
     if isNarrowIntWidth w then pure (false, false, w, .felt)
@@ -3061,8 +2998,6 @@ private def lowerCallable
           match uintWidthOfType data p.typeId with
           | some 128 | some 256 =>
               let bitWidth := (uintWidthOfType data p.typeId).getD 128
-              unless layout.profileMode.allowsWideUInt128 do
-                planError s!"unsupported Psy semantic shape: UInt{bitWidth} parameter '{p.name}' in {owner} requires profile psy-dargo-0.1.0-vm-v1"
               for limbIndex in [0:wideLimbCountOf bitWidth] do
                 params := params.push
                   { sourceIndex := physicalParamIndex,
@@ -3144,8 +3079,6 @@ private def lowerCallable
           match uintWidthOfType data p.typeId with
           | some 128 | some 256 =>
               let bitWidth := (uintWidthOfType data p.typeId).getD 128
-              unless layout.profileMode.allowsWideUInt128 do
-                planError s!"unsupported Psy semantic shape: UInt{bitWidth} parameter '{p.name}' requires profile psy-dargo-0.1.0-vm-v1"
               let mut limbs : Array Expr := #[]
               for _ in [0:wideLimbCountOf bitWidth] do
                 limbs := limbs.push (.param physicalParamOrdinal)
@@ -3175,7 +3108,7 @@ private def lowerCallable
                     env0 := envInsert env0 p.valueId (.param physicalParamOrdinal)
                   physicalParamOrdinal := physicalParamOrdinal + 1
   let (resultIsBool, resultIsUnit, resultUintWidth, resultKind) ←
-    resultShape data layout.profileMode layout.types layout.typeDecls callable owner
+    resultShape data layout.types layout.typeDecls callable owner
   -- pureFn aggregate returns stay fail closed (B-RET-ABI entry/view only).
   match resultKind with
   | .aggregate _ =>
@@ -3212,12 +3145,10 @@ private def lowerCallable
   }
 
 private def makePlanFromSemanticDataV1
-    (profileMode : PsyProfileModeV1)
     (data : SemanticProgramDataV1) (programName : String)
     (sourceHash semanticHash : String) : CompileResult Plan := do
-  -- Type-closure first: Field/Principal fail closed; named + Array admitted (H3).
-  let types ← validatePsyTypeClosureV1 profileMode data.types
-  let layout ← makeStateLayoutV1 profileMode types data.types data.logicalState
+  let types ← validatePsyTypeClosureV1 data.types
+  let layout ← makeStateLayoutV1 types data.types data.logicalState
   let mut events : Array PlanEvent := #[]
   for ev in data.events do
     let fieldNames := ev.fields.map (·.name)
@@ -3230,26 +3161,24 @@ private def makePlanFromSemanticDataV1
     match c.kind with
     | .pureFn => some (c.id, c.name.getD "fn")
     | _ => none
-  -- PSY-INVARIANT evidence FC: nonempty invariant table or invariant
-  -- callables cannot lower without an honest dargo predicate/fuel binding.
+  -- DPN has no target predicate/fuel contract for Semantic invariants.
   if !data.invariants.isEmpty then
     let names := data.invariants.map (·.name)
     let listed := String.intercalate ", " names.toList
     planError
-      s!"unsupported Psy semantic shape: nonempty invariants [{listed}] are not admitted (no dargo surface for Semantic predicate closure + invariantSteps fuel; local inline proof ≠ target invariant Plan; PSY-INVARIANT evidence FC)"
+      s!"unsupported Psy DPN semantic shape: nonempty invariants [{listed}] have no predicate-closure and invariantSteps binding"
   let mut functions : Array PlanFunction := #[]
   for callable in data.callables do
     match callable.kind with
     | .invariant =>
         let invName := callable.name.getD "<unnamed>"
         planError
-          s!"unsupported Psy semantic shape: invariant '{invName}' is not admitted (no dargo surface for Semantic predicate closure + invariantSteps fuel; local inline proof ≠ target invariant Plan; PSY-INVARIANT evidence FC)"
+          s!"unsupported Psy DPN semantic shape: invariant '{invName}' has no predicate-closure and invariantSteps binding"
     | .initializer | .entry | .view | .pureFn =>
         let fn ← lowerCallable data layout callable fnNames
         functions := functions.push { fn with index := functions.size }
   pure {
     programName
-    profileMode
     stateFieldNames := layout.fieldNames
     functions
     events
@@ -3259,14 +3188,13 @@ private def makePlanFromSemanticDataV1
   }
 
 private def makePlanFromSemanticV1
-    (profileMode : PsyProfileModeV1)
     (source : SemanticProgramV1) (artifactProgramName : String)
     (sourceHash semanticHash : String) : CompileResult Plan := do
   let data ← match validateSemanticProgramV1 source with
     | .ok value => pure value
     | .error _ =>
         throw <| .invalidProgram "Psy received an invalid SemanticProgramV1 carrier"
-  makePlanFromSemanticDataV1 profileMode data artifactProgramName sourceHash semanticHash
+  makePlanFromSemanticDataV1 data artifactProgramName sourceHash semanticHash
 
 private def digestHex (label : String)
     (digest : ProofForgeV2.Core.Common.Digest) : CompileResult String := do
@@ -3281,13 +3209,12 @@ def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : 
   unless ResolvedEngineeringBuildV1.kindOf capability == .psy do
     throw <| .planInvariant .psy "engineering capability kind is not Psy"
   let compiled := ResolvedEngineeringBuildV1.compiledOf capability
-  let profileMode ← profileModeOfCodegenProfileV1
-    (ResolvedEngineeringBuildV1.codegenProfileOf capability)
+  validateCodegenProfileV1 (ResolvedEngineeringBuildV1.codegenProfileOf capability)
   let source := CompiledSemanticV1.semanticV1Of compiled
   let name := CompiledSemanticV1.artifactProgramNameOf compiled
   let sourceHash ← digestHex "Psy source" (CompiledSemanticV1.sourceDigestOf compiled)
   let semanticHash ← digestHex "Psy semantic" (CompiledSemanticV1.semanticDigestOf compiled)
-  makePlanFromSemanticV1 profileMode source name sourceHash semanticHash
+  makePlanFromSemanticV1 source name sourceHash semanticHash
 
 /-- Pre-P-B / unit-test Plan entry: retained SemanticProgramV1 only. Same body
     as the capability path after the kind check. Product materialize remains
@@ -3297,6 +3224,6 @@ def planFromCompiledSemanticV1 (compiled : CompiledSemanticV1) : CompileResult P
   let name := CompiledSemanticV1.artifactProgramNameOf compiled
   let sourceHash ← digestHex "Psy source" (CompiledSemanticV1.sourceDigestOf compiled)
   let semanticHash ← digestHex "Psy semantic" (CompiledSemanticV1.semanticDigestOf compiled)
-  makePlanFromSemanticV1 .sourceU64 source name sourceHash semanticHash
+  makePlanFromSemanticV1 source name sourceHash semanticHash
 
 end ProofForgeV2.Targets.Psy

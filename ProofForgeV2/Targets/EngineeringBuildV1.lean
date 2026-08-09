@@ -112,8 +112,8 @@ def resolveEngineeringRequirementsV1
   unless descriptor.targetId == selection.targetId do
     throw <| .registryInvalid
       "descriptor target identity diverges from resolved selection"
-  -- Residual descriptor binds the default profile; multi-profile targets
-  -- (EVM cancun, Aleo compile) accept additional registered profiles via
+  -- The descriptor carries the default profile; the registry profile axis may
+  -- admit additional exact profiles through
   -- DescriptorDataV1.acceptsCodegenProfile.
   unless DescriptorDataV1.acceptsCodegenProfile descriptor selection.codegenProfile do
     throw <| .registryInvalid

@@ -4858,16 +4858,12 @@ def self_test_empty_policy_data_members(lock: dict) -> None:
         # is asserted here (validate may fail on unknown bundle target).
         bad_deps_policy["externalLoads"] = [{
             "installName": "/opt/homebrew/opt/x/lib/libx.dylib",
-            "bundlePath": "dargo" if any(
-                b["path"] == "dargo" for b in bad_deps["bundleFiles"]
-            ) else bad_deps["bundleFiles"][0]["path"],
+            "bundlePath": bad_deps["bundleFiles"][0]["path"],
         }]
     else:
         bad_deps_policy["needed"] = [{
             "soname": "libx.so.1",
-            "bundlePath": "dargo" if any(
-                b["path"] == "dargo" for b in bad_deps["bundleFiles"]
-            ) else bad_deps["bundleFiles"][0]["path"],
+            "bundlePath": bad_deps["bundleFiles"][0]["path"],
         }]
     bad_deps_bundle = next(
         item for item in bad_deps["bundleFiles"] if item["path"] == data_path)

@@ -87,7 +87,7 @@ private def noirNote : String :=
   "NOIR-IR-6: default noir-source-u64-relations-v1 finalization is zero-tool; relation source/schema (.nr transitional/debug base) were emitted without invoking nargo; ACIR product dual-write is opt-in profile noir-nargo-1.0.0-beta.26-acir-v1 (nargo-assisted path-normalized ProgramArtifact finalized-extra); no witness execution, proof, or verification (deployable=false); pure-Lean ACIR opcode encoder is not implemented"
 
 private def aleoNote : String :=
-  "product finalization does not invoke the locked Leo compiler or a proving backend; ALEO-IR-6 + G5-HARD primary is Aleo Instructions text ({id}.aleo when Plan→Instructions succeeds) plus network-state query descriptor; transitional Leo 4 source is debug-only (PROOF_FORGE_ALEO_EMIT_LEO=1 or emitLeoDebug build flag, or compile-profile dual-write for compare); residual allowlist empty — Plan admitted but Instructions lower fails with ALEO-IR-G5-HARD (no silent Leo-only primary); no leo build, execution, proof, or deployment evidence (deployable=false)"
+  "Aleo materialization emits canonical Aleo Instructions plus its network-state query descriptor; product finalization performs no compilation, VM execution, proof, deployment, or network query"
 
 /-- Expect an IO error whose message contains `needle`. -/
 private def expectIoErrorContains (label needle : String) (act : IO Unit) : IO Unit := do
@@ -324,10 +324,7 @@ private unsafe def testFourTargetFinalization : IO Unit := do
       expect (disk == f.contents) s!"noir base byte preservation {f.path}"
     let evidence ← IO.FS.readFile (outDir / "evidence.json")
     expect ((evidence.splitOn noirNote).length > 1) "noir exact note on disk"
-  -- Aleo: product finalization remains zero-tool even though compile-only
-  -- acceptance can resolve locked Leo 4.0.2 independently. ALEO-IR-6 base set
-  -- is Instructions primary + query-contract JSON; extras stay empty /
-  -- deployable false.
+  -- Aleo Instructions finalization is zero-tool and non-deployable.
   do
     let selection ← liftResult "select aleo" (resolveBuildSelectionV1 TargetId.aleo none)
     let capability ← liftResult "resolve aleo"
@@ -355,8 +352,6 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     expect (!(← (outDir / "statecell.bin").pathExists)) "aleo no .bin extra"
     let evidence ← IO.FS.readFile (outDir / "evidence.json")
     expect ((evidence.splitOn aleoNote).length > 1) "aleo exact zero-tool note on disk"
-    expect ((evidence.splitOn "no approved and digest-pinned Leo compiler").length == 1)
-      "aleo evidence must not deny the separate locked Leo acceptance tool"
     let manifest ← IO.FS.readFile (outDir / "manifest.json")
     expect ((manifest.splitOn "\"deployable\": false").length > 1)
       "aleo manifest non-deployable"
@@ -366,7 +361,7 @@ private unsafe def testFourTargetFinalization : IO Unit := do
     expect (primaryDisk.contains "program statecell.aleo;")
       "aleo zero-tool primary is Instructions text"
     expect (!primaryDisk.contains "program statecell.aleo {")
-      "aleo zero-tool primary is not Leo brace source"
+      "aleo zero-tool primary uses the Instructions grammar"
     expect ((manifest.splitOn "statecell.aleo-query-contract.json").length > 1)
       "aleo query-contract base in manifest"
   -- EVM: real solc .bin extra + base preservation.

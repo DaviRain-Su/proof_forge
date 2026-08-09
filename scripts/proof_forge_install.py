@@ -9,10 +9,9 @@ Authority:
   - toolchains*.lock.json (proof-forge.toolchains.v4)
   - scripts/toolchain_assets.py (sole provision / materialize engine)
 
-Does not search PATH. Does not invent tools outside the lock. Does not set
-deployable. Optional --with-runtime may install lock-listed runtime tools and
-documents (does not cargo-build) non-lock Aleo snarkos with exact
-features=test_network install command (I3).
+Does not search PATH or invent tools outside the lock. Does not set deployable.
+Optional --with-runtime installs only lock-listed runtime tools. Aleo/Psy are
+explicit zero-tool targets.
 """
 
 from __future__ import annotations
@@ -35,15 +34,6 @@ from typing import Any, Iterator
 ROOT = Path(__file__).resolve().parents[1]
 INSTALL_SCHEMA = "proof-forge.install.v1"
 
-# Shared I3 Aleo snarkos helper.
-_ALEO_SNARKOS_PATH = ROOT / "scripts" / "proof_forge_aleo_snarkos.py"
-_spec_snarkos = importlib.util.spec_from_file_location(
-    "proof_forge_aleo_snarkos", _ALEO_SNARKOS_PATH
-)
-if _spec_snarkos is None or _spec_snarkos.loader is None:
-    raise RuntimeError(f"cannot load aleo snarkos helper from {_ALEO_SNARKOS_PATH}")
-_aleo_snarkos = importlib.util.module_from_spec(_spec_snarkos)
-_spec_snarkos.loader.exec_module(_aleo_snarkos)
 
 # Implemented targets → core Tool Lock ids (same table as doctor).
 CORE_TOOLS_BY_TARGET: dict[str, list[str]] = {
@@ -51,8 +41,8 @@ CORE_TOOLS_BY_TARGET: dict[str, list[str]] = {
     "solana": ["sbpf"],
     "near": ["wat2wasm"],
     "noir": ["nargo"],
-    "aleo": ["leo"],
-    "psy": ["dargo"],
+    "aleo": [],
+    "psy": [],
     "quint": ["jv"],
     "cosmwasm": ["wat2wasm", "cosmwasm-check"],
     "ton": ["tolk"],
@@ -74,8 +64,6 @@ TOOL_ACTION = (
     "would-skip",
     "failed",
     "missing-lock",
-    "documented",  # non-lock Aleo snarkos recipe only (I3)
-    "present",  # non-lock snarkos already verified at documented path
 )
 
 
@@ -420,18 +408,6 @@ def collect_tool_ids(
                 if tool_id not in seen:
                     seen.add(tool_id)
                     tools.append(tool_id)
-            if tid == "aleo":
-                cmd = _aleo_snarkos.cargo_install_command()
-                notes.append(
-                    "aleo runtime snarkos is not in Tool Lock; "
-                    "features=test_network required; "
-                    "product install does not cargo-build (host-heavy); "
-                    f"exact recipe: {cmd}; "
-                    f"wire {_aleo_snarkos.ENV_SNARKOS} or default "
-                    f"{_aleo_snarkos.default_snarkos_path_display()}; "
-                    "prebuilt GitHub snarkos usually lacks test_network "
-                    "(see docs/product/01-toolchain-install-surface.md §10)"
-                )
     return tools, notes
 
 
@@ -546,14 +522,8 @@ def render_human(report: dict[str, Any]) -> str:
             "installed",
             "skipped",
             "would-skip",
-            "present",
         ):
             parts.append(f"version={tool['version']}")
-        if tool.get("installCommand") and tool["status"] in (
-            "documented",
-            "present",
-        ):
-            parts.append(f"installCommand={tool['installCommand']}")
         if tool.get("hint"):
             parts.append(f"({tool['hint']})")
         lines.append(" ".join(parts))
@@ -623,9 +593,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--with-runtime",
         action="store_true",
-        help="also install runtime-tier lock tools (anvil/cast, near-sandbox); "
-        "Aleo snarkos is not in Tool Lock — prints exact cargo install "
-        "(features=test_network) instead of building",
+        help="also install runtime-tier lock tools (anvil/cast, near-sandbox)",
     )
     parser.add_argument(
         "--dry-run",
@@ -723,11 +691,6 @@ def main(argv: list[str] | None = None) -> int:
         ):
             processed_assets[tool["assetId"]] = rec["status"]
 
-    if args.with_runtime and any(t == "aleo" for t in target_ids):
-        # I3: never cargo-build in product install (host-heavy); document recipe.
-        tool_records.append(
-            _aleo_snarkos.snarkos_install_record(dry_run=bool(args.dry_run))
-        )
 
     report = {
         "platform": platform,

@@ -3,8 +3,8 @@ import ProofForgeV2.Targets.Psy.LowerSemanticV1
 /-!
 # Psy ValidatePlanV1 — plan canonicity
 
-Validates the public `Psy.Plan` value before DPN package (and optional debug
-`.psy`) artifacts are produced (PSY-DPN-7 + G6-DEBUG).
+Validates the public `Psy.Plan` value before the canonical DPN package artifact
+is produced (PSY-DPN-7).
 -/
 
 namespace ProofForgeV2.Targets.Psy
@@ -20,16 +20,6 @@ private def maxParams : Nat := 64
 private def maxBodyStatements : Nat := 4096
 private def maxExprDepth : Nat := 256
 
-/-- Conservative Psy reserved identifiers (dargo is the final authority). -/
-private def reservedPsyWords : Array String :=
-  #[ "struct", "impl", "fn", "let", "mut", "if", "else", "for", "return",
-     "assert", "assert_eq", "abort", "true", "false", "pub", "priv",
-     "Felt", "bool", "u32", "u8", "u128", "Map", "as", "in", "contract",
-     "contract_method", "test", "derive", "Storage", "ContractMetadata",
-     "ref" ]
-
-private def isReserved (name : String) : Bool :=
-  reservedPsyWords.contains name
 
 private def validateExprNodes (expr : Expr) : Option Nat :=
   match expr with
@@ -264,15 +254,12 @@ private partial def collectWideBindingInventory
   pure out
 
 private partial def validateWideBindings
-    (profileMode : PsyProfileModeV1) (loopDepth : Nat)
-    (defined0 : WideBindingEnvV1) (stmts : Array Statement) :
+    (loopDepth : Nat) (defined0 : WideBindingEnvV1) (stmts : Array Statement) :
     CompileResult WideBindingEnvV1 := do
   let mut defined := defined0
   for stmt in stmts do
     match stmt with
     | .bindWideUintMul bitWidth operationId lhs rhs => do
-        unless profileMode == .dargo010Vm do
-          planError "Psy wide multiplication requires profile psy-dargo-0.1.0-vm-v1"
         unless bitWidth == 128 || bitWidth == 256 do
           planError "Psy wide multiplication bitWidth must be 128 or 256"
         let need := bitWidth / 32
@@ -284,8 +271,6 @@ private partial def validateWideBindings
           validateWideExpr defined value
         defined := { defined with mulIds := defined.mulIds.push operationId }
     | .bindWideUintDivMod resultKind bitWidth operationId lhs rhs => do
-        unless profileMode == .dargo010Vm do
-          planError "Psy wide div/mod requires profile psy-dargo-0.1.0-vm-v1"
         unless loopDepth == 0 do
           planError "Psy wide div/mod inside a bounded loop exceeds the frozen resource profile"
         unless bitWidth == 128 || bitWidth == 256 do
@@ -300,8 +285,6 @@ private partial def validateWideBindings
         defined := { defined with
           divModIds := defined.divModIds.push (operationId, resultKind) }
     | .bindWideUintShift kind bitWidth operationId value count => do
-        unless profileMode == .dargo010Vm do
-          planError "Psy wide shift requires profile psy-dargo-0.1.0-vm-v1"
         unless loopDepth == 0 do
           planError "Psy wide shift inside a bounded loop exceeds the frozen resource profile"
         unless bitWidth == 128 || bitWidth == 256 do
@@ -324,17 +307,17 @@ private partial def validateWideBindings
           validateWideExpr defined value
     | .ifThenElse condition thenBody elseBody => do
         validateWideExpr defined condition
-        let _ ← validateWideBindings profileMode loopDepth defined thenBody
-        let _ ← validateWideBindings profileMode loopDepth defined elseBody
+        let _ ← validateWideBindings loopDepth defined thenBody
+        let _ ← validateWideBindings loopDepth defined elseBody
     | .switchOn scrutinee cases defaultBody => do
         validateWideExpr defined scrutinee
         for (_, body) in cases do
-          let _ ← validateWideBindings profileMode loopDepth defined body
-        let _ ← validateWideBindings profileMode loopDepth defined defaultBody
+          let _ ← validateWideBindings loopDepth defined body
+        let _ ← validateWideBindings loopDepth defined defaultBody
     | .forLoop start endExclusive _ body => do
         validateWideExpr defined start
         validateWideExpr defined endExclusive
-        let _ ← validateWideBindings profileMode (loopDepth + 1) defined body
+        let _ ← validateWideBindings (loopDepth + 1) defined body
     | .emitEvent _ args | .revertError _ args | .externalCall _ args
     | .schedule _ args =>
         for arg in args do
@@ -343,7 +326,7 @@ private partial def validateWideBindings
   pure defined
 
 private def validateWideFunction
-    (profileMode : PsyProfileModeV1) (stmts : Array Statement) : CompileResult Unit := do
+    (stmts : Array Statement) : CompileResult Unit := do
   let inventory := collectWideBindingInventory stmts
   unless inventory.mulCount ≤ maxWideUInt128MulBindings do
     planError s!"Psy function exceeds the UInt128 multiplication binding limit ({maxWideUInt128MulBindings})"
@@ -356,7 +339,7 @@ private def validateWideFunction
     if seen.contains operationId then
       planError "Psy wide operation binding id must be unique within a function"
     seen := seen.push operationId
-  let _ ← validateWideBindings profileMode 0 {} stmts
+  let _ ← validateWideBindings 0 {} stmts
   pure ()
 
 /-- B-RET-ABI depth defense: return form must match resultKind; aggregate
@@ -402,8 +385,7 @@ private partial def checkReturnFormsV1
         checkReturnFormsV1 fnName resultKind body
     | _ => pure ()
 
-private def validateResultKind
-    (profileMode : PsyProfileModeV1) (fn : PlanFunction) : CompileResult Unit := do
+private def validateResultKind (fn : PlanFunction) : CompileResult Unit := do
   match fn.resultKind with
   | .felt | .bool | .unit => pure ()
   | .aggregate leaves =>
@@ -416,8 +398,6 @@ private def validateResultKind
         leaves.size ≥ 1 && leaves.size ≤ 8 &&
           leaves.all (fun leaf => !leaf.isInt && leaf.byteWidth == 1)
       if isWideUintAbi then
-        unless profileMode == .dargo010Vm do
-          planError s!"function '{fn.name}' wide UInt aggregate ABI requires profile psy-dargo-0.1.0-vm-v1"
         let expectedWidth := leaves.size * 32
         unless fn.resultUintWidth == expectedWidth do
           planError s!"function '{fn.name}' UInt{expectedWidth} aggregate ABI must carry resultUintWidth={expectedWidth}"
@@ -438,24 +418,13 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     planError "Psy plan exceeds the function limit"
   if plan.stateFieldNames.size > maxParams then
     planError "Psy plan exceeds the state field limit"
-  for name in plan.stateFieldNames do
-    if isReserved name then
-      planError s!"Psy state identifier '{name}' collides with a reserved Psy word"
   for fn in plan.functions do
-    if isReserved fn.name then
-      planError s!"Psy identifier '{fn.name}' collides with a reserved Psy word"
     if fn.params.size > maxParams then
       planError "Psy plan function exceeds the parameter limit"
-    for param in fn.params do
-      if isReserved param.name then
-        planError s!"Psy parameter '{param.name}' collides with a reserved Psy word"
-    validateResultKind plan.profileMode fn
+    validateResultKind fn
     validateStatements fn.body
-    validateWideFunction plan.profileMode fn.body
+    validateWideFunction fn.body
     checkReturnFormsV1 fn.name fn.resultKind fn.body
-  for ev in plan.events do
-    if isReserved ev.name then
-      planError s!"Psy event identifier '{ev.name}' collides with a reserved Psy word"
   pure ()
 
 end ProofForgeV2.Targets.Psy

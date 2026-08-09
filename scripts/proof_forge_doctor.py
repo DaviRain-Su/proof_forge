@@ -9,9 +9,8 @@ Authority:
   - toolchains*.lock.json (proof-forge.toolchains.v4)
   - scripts/toolchain_assets.py (platform + lock load only)
 
-Does not search PATH. Does not invent tools outside the lock (except the
-documented non-lock Aleo snarkos honesty probe via PROOF_FORGE_ALEO_SNARKOS /
-documented cargo-install path + features=test_network). Does not set deployable.
+Does not search PATH or invent tools outside the lock. Aleo/Psy are explicit
+zero-tool targets. Does not set deployable.
 """
 
 from __future__ import annotations
@@ -29,15 +28,6 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 DOCTOR_SCHEMA = "proof-forge.doctor.v1"
 
-# Shared I3 Aleo snarkos helper (same process tree as doctor).
-_ALEO_SNARKOS_PATH = ROOT / "scripts" / "proof_forge_aleo_snarkos.py"
-_spec_snarkos = importlib.util.spec_from_file_location(
-    "proof_forge_aleo_snarkos", _ALEO_SNARKOS_PATH
-)
-if _spec_snarkos is None or _spec_snarkos.loader is None:
-    raise RuntimeError(f"cannot load aleo snarkos helper from {_ALEO_SNARKOS_PATH}")
-_aleo_snarkos = importlib.util.module_from_spec(_spec_snarkos)
-_spec_snarkos.loader.exec_module(_aleo_snarkos)
 
 # Implemented targets (TargetRegistryV1 materializers) → core Tool Lock ids.
 # Planning table from docs/product/01-toolchain-install-surface.md §4.4.
@@ -46,8 +36,8 @@ CORE_TOOLS_BY_TARGET: dict[str, list[str]] = {
     "solana": ["sbpf"],
     "near": ["wat2wasm"],
     "noir": ["nargo"],
-    "aleo": ["leo"],
-    "psy": ["dargo"],
+    "aleo": [],
+    "psy": [],
     "quint": ["jv"],
     "cosmwasm": ["wat2wasm", "cosmwasm-check"],
     "ton": ["tolk"],
@@ -233,18 +223,11 @@ def stat_is_reg(st: os.stat_result) -> bool:
     return stat_mod.S_ISREG(st.st_mode)
 
 
-def inspect_snarkos(_tool_root: Path) -> dict[str, Any]:
-    """Aleo runtime honesty: PROOF_FORGE_ALEO_SNARKOS / cargo-install path + test_network.
-
-    snarkos is intentionally **not** under Tool Root. Prebuilt GitHub zips without
-    features=test_network are mismatch (never ok).
-    """
-    return _aleo_snarkos.inspect_snarkos()
 
 
 def aggregate_target_status(tool_records: list[dict[str, Any]]) -> str:
     if not tool_records:
-        return "missing"
+        return "ok"
     statuses = [r["status"] for r in tool_records]
     if all(s == "ok" for s in statuses):
         return "ok"
@@ -308,9 +291,6 @@ def build_target_report(
             rec["tier"] = "runtime"
             tool_records.append(rec)
 
-    # Aleo: always surface snarkos honesty (core doctor contract example).
-    if target_id == "aleo":
-        tool_records.append(inspect_snarkos(tool_root))
 
     return {
         "id": target_id,
@@ -366,13 +346,6 @@ def compact_json_tool(tool: dict[str, Any]) -> dict[str, Any]:
         out["tier"] = tool["tier"]
     if tool.get("expectedSha"):
         out["expectedSha"] = tool["expectedSha"]
-    # I3 Aleo snarkos honesty fields (absent for Tool Lock members).
-    if tool.get("envVar"):
-        out["envVar"] = tool["envVar"]
-    if tool.get("defaultPath"):
-        out["defaultPath"] = tool["defaultPath"]
-    if tool.get("installCommand"):
-        out["installCommand"] = tool["installCommand"]
     return out
 
 

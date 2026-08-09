@@ -1,28 +1,26 @@
 /-
   Psy DPN Schema V1 — engineering model of official `psy_vm` DPN shapes.
 
-  Authority (RES-TOOL-LOCK): PsyProtocol/psy-node @
-  `psyNodeDpnAuthorityRevV1` (aligned with locked dargo 0.1.0 workspace),
-  crate `psy_vm`:
+  Authority: PsyProtocol/psy-node @ `psyNodeDpnAuthorityRevV1`, crate
+  `psy_vm`:
     * `DPNFunctionCircuitDefinition` — dpn/vm/def.rs
     * `DPNOpType` / `DPNIndexedVarDef` — dpn/ops/op_types.rs
     * `DPNStateCmd` — dpn/ops/state_cmd/data.rs
     * method_id: `psy_crypto::hash::utils::gen_dapen_contract_function_method_id`
 
-  This is a **schema / method_id algorithm** authority pin, not a Tool Lock
-  executable provision. Runtime remains locked `dargo` 0.1.0 in toolchains v4.
-  Supply-chain annotation: `supply-chain/psy-node-dpn-authority.v1.json`.
+  This is the direct target-owned schema / method_id authority pin, not an
+  executable tool provision. Finalization is zero-tool. Supply-chain
+  annotation: `supply-chain/psy-node-dpn-authority.v1.json`.
 
-  This module is **not** a full PSL frontend and **not** formal semantics.
-  Exact `u16` / `u8` discriminants follow the upstream enums (including holes).
+  This module is **not** formal semantics. Exact `u16` / `u8` discriminants
+  follow the upstream enums (including holes).
 -/
 namespace ProofForgeV2.Targets.Psy.Dpn.SchemaV1
 
 /-- Exact 40-hex git rev of PsyProtocol/psy-node used as DPN schema +
-    `gen_dapen` method_id algorithm authority (aligned with locked dargo
-    0.1.0). Documentation/engineering pin only — **not** a Tool Lock
-    executable asset. Changing this without revalidating Schema discriminants
-    and Counter method_id goldens is fail-closed by suite. -/
+    `gen_dapen` method_id algorithm authority. Documentation/engineering pin
+    only — not an executable tool asset. Changing this without revalidating
+    Schema discriminants and Counter method_id goldens is fail closed by suite. -/
 def psyNodeDpnAuthorityRevV1 : String :=
   "79e0b82422ebdd1173a7b4b3751eb3186aad83e5"
 
@@ -206,8 +204,7 @@ structure AssertEqV1 where
 /-- Official `DPNEventRecord` (psy_vm op_types). `condition` is a full
     `(dataType<<32)|index` bool id; `checkpoint_id` / `user_id` /
     `contract_id` / `data` are Target-typed wire ids (raw index when type=0).
-    Product emit is PARTIAL (source `__emit` + DPN events[]; no Finalize
-    ordered-event runtime gate). -/
+    Product emit is PARTIAL: no ordered-event runtime gate. -/
 structure EventRecordV1 where
   condition : UInt64
   checkpointId : UInt64
@@ -224,8 +221,8 @@ inductive StateCmdV1 where
   | getSelfUserCurrentContractStateSlotHash (slotIndex : UInt64)
   | setContractStateSlotHash (condition slotIndex : UInt64) (value : Array UInt64)
   /-- Void sync `call` → `InvokeExternalContractFunctionSync` (DPN-6 PARTIAL).
-      Product admits source-only `__invoke_sync#<Felt>` with hashed QN; no
-      deployment-address / response / runtime gate. `numOutputs=0` for void. -/
+      Direct DPN operation with hashed QN; no deployment-address / response /
+      runtime gate. `numOutputs=0` for void. -/
   | invokeExternalContractFunctionSync
       (condition contractId methodId : UInt64)
       (inputArgs : Array UInt64) (numOutputs : UInt32)
@@ -243,19 +240,18 @@ structure FunctionCircuitDefV1 where
   events : Array EventRecordV1 := #[]
   deriving DecidableEq, Repr, Inhabited
 
-/-- Package artifact = ordered array of per-method DPN defs (dargo `*.json`). -/
+/-- Package artifact = ordered array of per-method DPN definitions. -/
 abbrev PackageV1 := Array FunctionCircuitDefV1
 
-/-- Hand-built Counter package matching locked-dargo full `counter.json`
+/-- Hand-built Counter package freezing the target-owned canonical JSON shape
     (get, increment, initialize — name-sorted).
 
-    Operand wiring note (from official package JSON):
-    * `definitions[].inputs` often carry **raw same-type indices** (small u64).
-    * `assertions` left/right use **full** `(dataType<<32)|index` encoding.
+    Operand wiring:
+    * `definitions[].inputs` often carry raw same-type indices (small u64).
+    * `assertions` left/right use full `(dataType<<32)|index` encoding.
     * `SetContractStateSlotSingle.condition` uses full bool encoding; `value`
-      and bare `sub_slot_index` use raw indices / literals as emitted by dargo.
-    * View `get` uses sub_slot 0; init/increment writes use sub_slot 1 (dargo
-      layout quirk observed on Counter).
+      and bare `sub_slot_index` use raw indices / literals.
+    * View `get` uses sub-slot 0; init/increment writes use sub-slot 1.
 -/
 def counterPackageGoldenV1 : PackageV1 :=
   let b0 := encodeIndexedId .bool 0

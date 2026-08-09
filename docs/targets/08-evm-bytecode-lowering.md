@@ -19,7 +19,7 @@ normative: false
 | | 当前 EVM 工程事实 | 研究假说（未立项） |
 |---|---|---|
 | 产品主产物 | Yul / solc 工程路径 + 既有 solc/Anvil 门 | 可能：bytecode exact pin 为权威 |
-| 中间 | Yul 文本 | 可能：Yul = debug（对标 `.nr` / Leo / `.psy`） |
+| 中间 | Yul 文本 | 可能：Yul = debug（对标 `.nr`；Psy/Aleo 已采用 direct artifact） |
 | 工具 | locked solc + Anvil 差分 | 已有，无需新发明 |
 | 非目标 | 主网、formal hermetic | 不变 |
 

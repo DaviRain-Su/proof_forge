@@ -206,17 +206,12 @@ def noirSourceU64RelationsV1 : CodegenProfileId := ⟨"noir-source-u64-relations
     nargo 1.0.0-beta.26 to emit path-normalized ProgramArtifact extras.
     Remains `deployable=false` and claims no prove/verify/VK/witness product. -/
 def noirNargoAcirV1 : CodegenProfileId := ⟨"noir-nargo-1.0.0-beta.26-acir-v1"⟩
-/-- Default Aleo Leo 4.0.2 source-only profile (zero-tool product finalize). -/
-def aleoLeoU64V1 : CodegenProfileId := ⟨"aleo-leo-4.0.2-u64-v1"⟩
-/-- Explicit Aleo Leo 4.0.2 compile-only product profile (same Plan surface as
-    `aleoLeoU64V1`; locked offline finalization emits three compiler outputs,
-    remains `deployable=false`, and claims no execution/proof/deploy/query). -/
-def aleoLeoU64CompileV1 : CodegenProfileId := ⟨"aleo-leo-4.0.2-u64-compile-v1"⟩
-/-- Versioned Psy profile for locked dargo v0.1.0 VM-observed extensions.
-    Historical `psy-dargo-u64-v1` remains the default and preserves its
-    fail-closed envelope. -/
-def psyDargo010VmV1 : CodegenProfileId := ⟨"psy-dargo-0.1.0-vm-v1"⟩
-def psyDargoU64V1 : CodegenProfileId := ⟨"psy-dargo-u64-v1"⟩
+/-- Sole Aleo codegen profile: target-owned Plan lowers directly to canonical
+    Aleo Instructions text. No Leo source or compiler lane participates. -/
+def aleoInstructionsV1 : CodegenProfileId := ⟨"aleo-instructions-v1"⟩
+/-- Sole Psy codegen profile: target-owned Plan lowers directly to the
+    versioned DPN package schema. No Psy source lane participates. -/
+def psyDpnV1 : CodegenProfileId := ⟨"psy-dpn-v1"⟩
 def cosmwasmWasmU64V1 : CodegenProfileId := ⟨"cosmwasm-wasm-u64-v1"⟩
 def quintSourceU64ModelV1 : CodegenProfileId := ⟨"quint-source-u64-model-v1"⟩
 def tonTolkBocV1 : CodegenProfileId := ⟨"ton-tolk-boc-v1"⟩

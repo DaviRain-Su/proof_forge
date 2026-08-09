@@ -1,13 +1,11 @@
 /-
   Aleo Instructions Schema V1 — engineering AST for the official Aleo
-  Instructions register IR (Leo → Instructions → AVM).
-
+  Instructions register IR.
   Authority (engineering):
   * Official docs: https://docs.aleo.org/build/aleo-instructions/overview
   * Grammar pointer: https://github.com/ProvableHQ/grammars (Aleo Instructions ABNF)
-  * Golden authority: locked Leo 4.0.2 offline compile of product Counter
-    (`aleo-leo-4.0.2-u64-compile-v1` → `{id}.compiled.aleo`)
-  * Pin file: `testdata/golden/aleo-instructions-v1/counter.compiled.aleo`
+  * Golden authority: target-owned canonical Instructions fixtures under
+    `testdata/golden/aleo-instructions-v1`
 
   This module is **not** a full opcode surface, **not** snarkVM Program
   objects, and **not** formal semantics. Unknown opcodes/shapes fail closed
@@ -20,8 +18,6 @@ namespace ProofForgeV2.Targets.Aleo.Instructions.SchemaV1
 /-- Engineering schema id for this Instructions subset. -/
 def schemaIdV1 : String := "proof-forge.aleo-instructions.v1"
 
-/-- Tool Lock Leo version used as golden compiler pin. -/
-def goldenLeoVersionV1 : String := "4.0.2"
 
 /-- Visibility on typed register annotations (`as u64.public`).
     Constructors avoid Lean reserved words (`private`). -/
@@ -67,7 +63,7 @@ def BaseTypeV1.parse? : String → Option BaseTypeV1
   | _ => none
 
 /-- Type annotation on input/output / mapping key·value. Future types omit
-    visibility (Leo 4.0.2 Counter golden: `as counter.aleo/initialize.future`). -/
+    visibility (`as counter.aleo/initialize.future`). -/
 inductive TypeAnnV1 where
   | base (ty : BaseTypeV1) (vis : VisibilityV1)
   | future (programId : String) (functionName : String)
@@ -97,10 +93,9 @@ def OperandV1.render : OperandV1 → String
   | .literal s => s
   | .identifier n => n
 
-/-- Instruction subset: Counter golden (IR-1/2) + control-flow ops from
-    locked Leo 4.0.2 compile of if/match/bounded-for (IR-3) + scalar cast
-    for narrow shift counts (IR-4). Additional opcodes still require
-    golden/test evidence. -/
+/-- Instruction subset: Counter core (IR-1/2), control-flow operations
+    (IR-3), and scalar casts for narrow shift counts (IR-4). Additional
+    opcodes still require target-owned fixtures and tests. -/
 inductive InstructionV1 where
   /-- `input rN as <typeAnn>;` -/
   | input (reg : RegisterV1) (ty : TypeAnnV1)
@@ -123,7 +118,7 @@ inductive InstructionV1 where
   | getOrUse (mapping : String) (key : OperandV1) (default : OperandV1) (dest : RegisterV1)
   /-- `set value into mapping[key];` -/
   | set (value : OperandV1) (mapping : String) (key : OperandV1)
-  /-- Control: `branch.eq left right to label;` (IR-3; Leo 4.0.2 if/for) -/
+  /-- Control: `branch.eq left right to label;` (IR-3) -/
   | branchEq (left right : OperandV1) (label : String)
   /-- Control: `position label;` (IR-3 branch target) -/
   | position (label : String)
@@ -148,7 +143,7 @@ structure FinalizeDeclV1 where
   body : Array InstructionV1
   deriving DecidableEq, Repr, Inhabited
 
-/-- Program constructor (edition assert in Leo 4.0.2). -/
+/-- Aleo Instructions program constructor. -/
 structure ConstructorDeclV1 where
   body : Array InstructionV1
   deriving DecidableEq, Repr, Inhabited
@@ -168,8 +163,8 @@ structure ProgramV1 where
   items : Array ItemV1
   deriving DecidableEq, Repr, Inhabited
 
-/-- Hand-built Counter Instructions program ≡ locked-leo product golden
-    (`testdata/golden/aleo-instructions-v1/counter.compiled.aleo`). -/
+/-- Hand-built Counter Instructions program, pinned by the target-owned
+    golden under `testdata/golden/aleo-instructions-v1`. -/
 def counterProgramV1 : ProgramV1 := {
   name := "counter.aleo"
   items := #[

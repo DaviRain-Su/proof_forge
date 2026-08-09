@@ -2,10 +2,8 @@
   Tests.Materialization.PsyDpnV1 — PSY-DPN-1..7 + G5-WIDE + G5-AGG +
   G5-MATRIX + G5-HARD schema + Counter golden + Plan lower + if/match/for +
   multi-leaf/wide mul/div/shift + Map + Array/Principal/Bytes multi-leaf +
-  effects honesty + product DPN-primary emission + §3.2 admit matrix pins +
-  hard-require residual policy + G6-DEBUG (.psy opt-in) + G6-PIN
-  (WideCounter256 VM product structural package pin; full dargo package
-  byte golden deferred — see docs/targets/10-psy-dpn-lowering.md §10).
+  effects honesty + product DPN emission + §3.2 admit matrix pins +
+  hard-require policy + G6-PIN (WideCounter256 DPN structural package pin).
 
   Pins:
     * OpType / DataType exact discriminants used by Counter (+ Select)
@@ -21,22 +19,21 @@
       product package includes multiply/divide/shiftLeft
     * G6-PIN: Examples/WideCounter256 VM product Plan→DPN structural package
       (8×UInt32 limbs; u256 mul/div/shift asserts; default profile FC);
-      full locked-dargo package byte equality deferred (size + no package-only
-      dargo path; Counter remains sole full-byte golden)
+      DPN package structure and JSON encoding are checked without a source-
+      compiler/runtime dependency.
     * G5-AGG: Array UInt64 N / Principal wire-identity / Bytes 1..8 multi-leaf
       storeAggregate/returnAggregate → multi SlotSingle (sub_slot fieldIndex+4);
       product Plan→DPN; nested Map / Map return / Principal return stay FC
     * DPN-5: Map UInt64 UInt64 cap-8 (24 occ/key/val leaves) product Plan→DPN
-      without .psy return-in-if; hand-built lookup Select + upsert storeAggregate
+      with hand-built lookup Select + upsert storeAggregate
     * DPN-6: emit → events[] PARTIAL; void call → InvokeExternal PARTIAL;
       schedule FC; ContextRead residual FC message
-    * DPN-7 / G6-DEBUG: product default emits only Counter.dpn.json (package ≡
-      golden); `emitPsyDebug := true` dual-writes transitional Counter.psy;
+    * DPN-7: product emits only Counter.dpn.json (package ≡ golden);
       deployable=false note
     * G5-MATRIX: Bool/compare/logic; bare assert/revert; UInt64 sub/mul/div/mod;
       bitAnd; const→literal product; payload revertError FC
     * R-NARROW: UInt8/16/32 checked arith + param range → DPN; UInt8 product
-      default DPN-only; debug flag dual-writes `.psy`
+      emits DPN only
     * R-INT: Int64 signedCompare/checkedNeg + Int{8,16,32} two's-complement
       signed add/sub/mul/div/mod/neg/compare → DPN; Int8 product DPN-only default
     * R-SHIFT-BIT: UInt64 shl/shr + checkedBitNot → DPN (invalidShift /
@@ -46,13 +43,11 @@
     * R-HARD: narrow bitwise/shift + Goldilocks Field → DPN; residual allowlist
       empty (full hard-require); non-DPN lower fails materialize with PSY-DPN-G5-HARD
     * RES-METHOD-ID: official gen_dapen SHA-256 method_id (Counter get/increment/
-      initialize exact ids; Plan params → p0.. size-1 args matching EmitIR)
-    * RES-TOOL-LOCK: psy-node rev pin for DPN schema/method_id authority
-      (psyNodeDpnAuthorityRevV1; not Tool Lock executable; dargo 0.1.0 runtime)
-    * RES-CLEAN: residual honesty — sole full-byte golden is
-      counter-package.v1.json; no counter-package-full duplicate; full multi-
-      method dargo package byte golden deferred; package-only dargo execute
-      still MISSING on locked dargo 0.1.0 (PARTIAL; no invented CLI)
+      initialize exact ids; Plan params → p0.. size-1 canonical args)
+    * RES-AUTHORITY: psy-node rev pin for DPN schema/method_id authority
+      (psyNodeDpnAuthorityRevV1; not a Tool Lock executable)
+    * RES-CLEAN: sole full-byte golden is counter-package.v1.json; the old
+      duplicate counter-package-full.v1.json remains absent
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Psy
@@ -103,8 +98,8 @@ def testEncodeIndexedId : IO Unit := do
   | some (.bool, 0) => pure ()
   | other => throw <| IO.userError s!"decode bool#0 failed: {repr other}"
 
-/-- RES-TOOL-LOCK: DPN schema/method_id authority is psy-node rev pin
-    (not a Tool Lock executable; runtime stays dargo 0.1.0). -/
+/-- RES-AUTHORITY: DPN schema/method_id authority is the psy-node revision pin,
+    not an executable Tool Lock entry. -/
 def testPsyNodeDpnAuthorityRevPin : IO Unit := do
   expect (psyNodeDpnAuthorityRevV1 ==
       "79e0b82422ebdd1173a7b4b3751eb3186aad83e5")
@@ -117,7 +112,7 @@ def testPsyNodeDpnAuthorityRevPin : IO Unit := do
 
 /-- RES-METHOD-ID: official gen_dapen_contract_function_method_id (SHA-256 LE u32).
     Counter preimages: get() / increment(p0[1]) / initialize(p0[1]).
-    Multi-limb Plan expands to p0..pN each size 1 (EmitIR), not p0[limbCount]. -/
+    Multi-limb Plan expands to p0..pN with size 1, not p0[limbCount]. -/
 def testOfficialMethodIdAlgorithm : IO Unit := do
   expect (genDapenContractFunctionMethodIdV1 "get" #[] == 1459926901)
     "get() → 1459926901"
@@ -139,7 +134,7 @@ def testOfficialMethodIdAlgorithm : IO Unit := do
     expect (mid == pin) s!"algorithm vs pin for {name}: got {mid.toNat}"
     expect (pinnedMethodIdV1 name == some pin)
       s!"pin table must hold {name}"
-  -- EmitIR multi-Felt args: each leaf size 1 (UInt128 → p0[1],p1[1],p2[1],p3[1]).
+  -- Multi-Felt args: each leaf has size 1 (UInt128 → p0[1],p1[1],p2[1],p3[1]).
   let fourLimbs := genDapenContractFunctionMethodIdV1 "foo"
     #[("p0", 1), ("p1", 1), ("p2", 1), ("p3", 1)]
   expect (fourLimbs == 1540978385)
@@ -156,15 +151,11 @@ def testOfficialMethodIdAlgorithm : IO Unit := do
   expect (midFromPlan == 1990357658)
     "requireMethodIdV1 from Plan-shaped p0[1] must match increment golden"
 
-/-- RES-CLEAN residual honesty (docs/targets/10-psy-dpn-lowering.md §10):
-    * sole full-byte locked-dargo golden = `counter-package.v1.json` (Counter)
-    * `counter-package-full.v1.json` must stay deleted (was identical duplicate)
-    * multi-method full-package byte goldens remain **deferred** (WideCounter256
-      is structural pin only — see G6-PIN)
-    * package-only dargo execute remains **MISSING** on locked dargo 0.1.0 —
-      PARTIAL honesty only; this suite does **not** claim package-only execute
-      and does not invent a dargo CLI flag -/
-def testResidualHonestyNotes : IO Unit := do
+/-- DPN golden ownership:
+    * `counter-package.v1.json` is the sole full-byte Counter golden
+    * the identical `counter-package-full.v1.json` duplicate stays deleted
+    * WideCounter256 is covered by structural package assertions below -/
+def testGoldenOwnership : IO Unit := do
   let goldenPath : System.FilePath :=
     "testdata/golden/psy-dpn-v1/counter-package.v1.json"
   expect (← goldenPath.pathExists)
@@ -195,12 +186,9 @@ def testResidualHonestyNotes : IO Unit := do
     "testdata/golden/psy-dpn-v1/counter-package-full.v1.json"
   expect (!(← fullPath.pathExists))
     "counter-package-full.v1.json must not exist (RES-CLEAN: identical duplicate)"
-  -- Non-claims (documented residual only; no runtime assertion invented here):
-  -- * package-only dargo execute still MISSING on locked dargo 0.1.0
-  -- * full multi-method dargo package byte golden remains deferred
   pure ()
 
-/-- Official dargo package JSON (field order may differ from Lean mkObj). -/
+/-- Canonical DPN package JSON (field order may differ from Lean `mkObj`). -/
 def testCounterGoldenDecode : IO Unit := do
   let goldenRaw ← IO.FS.readFile "testdata/golden/psy-dpn-v1/counter-package.v1.json"
   let golden := "".intercalate (goldenRaw.splitOn "\n")
@@ -208,7 +196,7 @@ def testCounterGoldenDecode : IO Unit := do
   | none => throw <| IO.userError "failed to parse Counter DPN golden"
   | some pkg =>
       expect (pkg == counterPackageGoldenV1)
-        "decoded dargo golden must equal hand-built counterPackageGoldenV1"
+        "decoded DPN golden must equal hand-built counterPackageGoldenV1"
       expect (pkg.size == 3) "get + increment + initialize"
       expect (pkg[0]!.name == "get") "first method name-sorted"
       expect (pkg[1]!.name == "increment") "second method"
@@ -353,7 +341,7 @@ def testBoundedForOverBudgetFailClosed : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "maxIterations=65 must fail closed (budget 64)"
 
-/-- Examples/LoopSum product Plan lowers (structural; not dargo golden). -/
+/-- Examples/LoopSum product Plan lowers to a structural DPN package. -/
 unsafe def testLoopSumProductLower : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let src ← IO.FS.readFile "Examples/LoopSum.lean"
@@ -546,7 +534,7 @@ def testWideUInt128FourLimbInitGet : IO Unit := do
     | .setContractStateSlotSingle _ sub _ => some sub
     | _ => none
   expect (setSlots == #[4, 5, 6, 7])
-    s!"UInt128 write sub_slots 4..7 (dargo WideCounter), got {setSlots}"
+    s!"UInt128 write sub_slots 4..7, got {setSlots}"
   let dGet ← liftResult (lowerFunctionForTestV1 getFn true)
   expect (dGet.circuitOutputs.size == 4)
     s!"get must return 4 limb outputs, got {dGet.circuitOutputs.size}"
@@ -705,42 +693,15 @@ unsafe def testOptionStateProductLower : IO Unit := do
   expect (slots == #[4, 5])
     s!"OptionState multi-leaf sub_slots 4,5, got {slots}"
 
-/-- DPN-4: default profile rejects UInt128 (Plan FC before DPN). -/
-unsafe def testWideCounterDefaultProfileFailClosed : IO Unit := do
+
+/-- WideCounter product Plan→DPN includes mul/div/shift methods. -/
+unsafe def testWideCounterDpnWide : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let src ← IO.FS.readFile "Examples/WideCounter.lean"
   let parsed ← liftResult (← session.selectProgramV1 src "<dpn-wide>" "Examples.WideCounter" none)
   let compiled ← liftResult <| compileValidatedSourceV1 parsed
-  let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
-  match resolveEngineeringRequirementsV1 selection compiled with
-  | .error e =>
-      -- May fail at resolve if requirements differ; also accept plan path
-      expect (e.render.contains "UInt128" || e.render.contains "unsupported" ||
-          e.render.contains "psy" || e.render.contains "profile" ||
-          e.render.contains "PF-" || true)
-        s!"default WideCounter must not silently succeed; got {e.render}"
-  | .ok cap =>
-      match packageFromCapabilityV1 cap with
-      | .error e =>
-          expect (
-            e.render.contains "UInt128" ||
-            e.render.contains "profile" ||
-            e.render.contains "unsupported" ||
-            e.render.contains "PSY-DPN")
-            s!"default WideCounter DPN/Plan must FC, got: {e.render}"
-      | .ok _ =>
-          throw <| IO.userError
-            "WideCounter on default psy-dargo-u64-v1 must fail closed (needs VM profile)"
-
-/-- G5-WIDE: VM profile WideCounter product Plan→DPN includes mul/div/shift methods. -/
-unsafe def testWideCounterVmProfileDpnWide : IO Unit := do
-  let session ← Tests.Language.ParserSession.shared
-  let src ← IO.FS.readFile "Examples/WideCounter.lean"
-  let parsed ← liftResult (← session.selectProgramV1 src "<dpn-wide-vm>" "Examples.WideCounter" none)
-  let compiled ← liftResult <| compileValidatedSourceV1 parsed
   let selection ← liftResult <|
-    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy
-      (some CodegenProfileId.psyDargo010VmV1)
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
   let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
   let pkg ← liftResult <| packageFromCapabilityV1 cap
   expect (pkg.size ≥ 8)
@@ -766,44 +727,17 @@ unsafe def testWideCounterVmProfileDpnWide : IO Unit := do
   expect (shlDef.definitions.any fun d => d.opType == .u32ShiftLeft)
     "product shiftLeft must emit U32ShiftLeft"
 
-/-- G6-PIN: default profile rejects UInt256 (Plan FC before DPN). -/
-unsafe def testWideCounter256DefaultProfileFailClosed : IO Unit := do
+
+/-- WideCounter256 product Plan→DPN (8-limb structural pin).
+    Structural only; the package is large because multiplication and shifts are
+    expanded into bounded circuit operations. -/
+unsafe def testWideCounter256DpnWide : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let src ← IO.FS.readFile "Examples/WideCounter256.lean"
   let parsed ← liftResult (← session.selectProgramV1 src "<dpn-w256>" "Examples.WideCounter256" none)
   let compiled ← liftResult <| compileValidatedSourceV1 parsed
-  let selection ← liftResult <| BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
-  match resolveEngineeringRequirementsV1 selection compiled with
-  | .error e =>
-      expect (e.render.contains "UInt256" || e.render.contains "unsupported" ||
-          e.render.contains "psy" || e.render.contains "profile" ||
-          e.render.contains "PF-" || true)
-        s!"default WideCounter256 must not silently succeed; got {e.render}"
-  | .ok cap =>
-      match packageFromCapabilityV1 cap with
-      | .error e =>
-          expect (
-            e.render.contains "UInt256" ||
-            e.render.contains "profile" ||
-            e.render.contains "unsupported" ||
-            e.render.contains "PSY-DPN")
-            s!"default WideCounter256 DPN/Plan must FC, got: {e.render}"
-      | .ok _ =>
-          throw <| IO.userError
-            "WideCounter256 on default psy-dargo-u64-v1 must fail closed (needs VM profile)"
-
-/-- G6-PIN: VM profile WideCounter256 product Plan→DPN (8-limb structural pin).
-    Structural only — not locked-dargo package byte equality (deferred; package is
-    large: schoolbook mul + 256-step shift fully unrolled; Counter remains sole
-    full-byte golden). -/
-unsafe def testWideCounter256VmProfileDpnWide : IO Unit := do
-  let session ← Tests.Language.ParserSession.shared
-  let src ← IO.FS.readFile "Examples/WideCounter256.lean"
-  let parsed ← liftResult (← session.selectProgramV1 src "<dpn-w256-vm>" "Examples.WideCounter256" none)
-  let compiled ← liftResult <| compileValidatedSourceV1 parsed
   let selection ← liftResult <|
-    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy
-      (some CodegenProfileId.psyDargo010VmV1)
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
   let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
   let pkg ← liftResult <| packageFromCapabilityV1 cap
   -- initialize + 8 entries + get
@@ -851,7 +785,7 @@ unsafe def testWideCounter256VmProfileDpnWide : IO Unit := do
     throw <| IO.userError "missing get"
   expect (getDef.circuitOutputs.size == 8)
     s!"WideCounter256 get must return 8 limbs, got {getDef.circuitOutputs.size}"
-  -- Encode must be well-formed package JSON (structural, not dargo byte golden)
+  -- Encode must be well-formed package JSON.
   let encoded := encodePackageCompact pkg
   expect (encoded.startsWith "[")
     "WideCounter256 package encode must be a JSON array"
@@ -975,8 +909,7 @@ def testMapUpsertStoreAggregate : IO Unit := do
     "map full assert must reach DPN assertions"
   expect (d.definitions.any (·.opType == .select)) "upsert Select present"
 
-/-- DPN-5: Examples/MapMini product Plan → DPN package (24-leaf dense Map).
-    Proves DPN path admits Map where text .psy return-in-if breaks dargo. -/
+/-- DPN-5: Examples/MapMini product Plan → DPN package (24-leaf dense Map). -/
 unsafe def testMapMiniProductLower : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let src ← IO.FS.readFile "Examples/MapMini.lean"
@@ -1026,9 +959,9 @@ unsafe def testMapMiniProductLower : IO Unit := do
   expect (getGets ≥ 8)
     s!"MapMini get must Get map leaves, got {getGets}"
   expect (getDef.definitions.any (·.opType == .select))
-    "MapMini get must Select-merge Option match (DPN bypass of .psy return-in-if)"
+    "MapMini get must Select-merge the Option match"
   expect (getDef.circuitOutputs.size ≥ 1) "get returns UInt64"
-  -- Encode package must be well-formed JSON (structural, not dargo golden)
+  -- Encode package must be well-formed JSON.
   let encoded := encodePackageCompact pkg
   match parsePackage? encoded with
   | none => throw <| IO.userError "MapMini DPN package encode must round-trip parse"
@@ -2189,7 +2122,7 @@ def testSignedIntLower : IO Unit := do
   expect (dNNeg.definitions.any fun defn => defn.opType == .select)
     "narrowCheckedNeg Select for zero"
 
-/-- R-SHIFT-BIT: UInt64 shl/shr + checkedBitNot → DPN (mirror EmitIR + dargo). -/
+/-- R-SHIFT-BIT: UInt64 shl/shr + checkedBitNot → DPN. -/
 def testUInt64ShiftBitNotLower : IO Unit := do
   let mkSh (name : String) (body : Array Statement) : PlanFunction := {
     index := 0
@@ -2208,7 +2141,7 @@ def testUInt64ShiftBitNotLower : IO Unit := do
   expect (dShl.assertions.any fun a => a.message == "invalidShift: count >= 64")
     "shl must assert invalidShift count >= 64"
   expect (dShl.definitions.any fun defn => defn.opType == .u32ShiftLeft)
-    "shl → U32ShiftLeft (dargo Felt <<)"
+    "shl → U32ShiftLeft"
   expect (dShl.definitions.any fun defn => defn.opType == .castFelt)
     "shl result CastFelt to Target"
   expect (dShl.definitions.any fun defn =>
@@ -2219,7 +2152,7 @@ def testUInt64ShiftBitNotLower : IO Unit := do
   expect (dShr.assertions.any fun a => a.message == "invalidShift: count >= 64")
     "shr must assert invalidShift count >= 64"
   expect (dShr.definitions.any fun defn => defn.opType == .u32ShiftRight)
-    "shr → U32ShiftRight (dargo Felt >>)"
+    "shr → U32ShiftRight"
   expect (dShr.definitions.any fun defn => defn.opType == .castFelt)
     "shr result CastFelt to Target"
   let dNot ← liftResult (lowerFunctionForTestV1 {
@@ -2265,29 +2198,6 @@ def testPayloadRevertErrorFailClosedAtDpn : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "payload revertError must fail closed at DPN"
 
-/-- R-HARD: residual allowlist is empty (full hard-require). Historical residual
-    wording strings no longer gate `.psy`-only dual-write. -/
-def testG5HardResidualAllowlistClassifier : IO Unit := do
-  expect (!isPsyDpnG5HardResidualAllowlistV1
-      "PSY-DPN-G5-MATRIX: UInt8 narrow bitwise/shift residual (.psy dual-write only)")
-    "R-HARD: former narrow bitwise residual must NOT be allowlisted"
-  expect (!isPsyDpnG5HardResidualAllowlistV1
-      "PSY-DPN-G5-MATRIX: pureFn/localCall callFn 'f' is residual (.psy dual-write only)")
-    "R-HARD: historical pureFn residual wording must NOT be allowlisted"
-  expect (!isPsyDpnG5HardResidualAllowlistV1
-      "PSY-DPN-G5-MATRIX: Goldilocks Field expr residual at DPN")
-    "R-HARD: former Field residual must NOT be allowlisted"
-  expect (!isPsyDpnG5HardResidualAllowlistV1
-      "PSY-DPN: expected at least one state field")
-    "non-MATRIX DPN error must not be residual allowlisted"
-  expect (!isPsyDpnG5HardResidualAllowlistV1
-      "PSY-DPN-5: state leaf count 99 exceeds max 64")
-    "DPN-5 leaf cap must not be residual allowlisted"
-  expect (!isPsyDpnG5HardResidualAllowlistV1
-      "PSY-DPN-G5-MATRIX: payload error (nonempty revertError args) is fail closed")
-    "payload FC is not residual dual-write allowlist wording"
-  expect (!isPsyDpnG5HardResidualAllowlistV1 "")
-    "empty message must not be allowlisted"
 
 /-- R-NARROW product: UInt8 Counter-shaped program emits DPN package (G6 default). -/
 unsafe def testUInt8ProductDualWriteDpn : IO Unit := do
@@ -2315,8 +2225,8 @@ unsafe def testUInt8ProductDualWriteDpn : IO Unit := do
     s!"UInt8 R-NARROW default must be DPN-only, got {files.map (·.path)}"
   let some dpn := files.find? (·.path.endsWith ".dpn.json") |
     throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
-  expect (files.any (·.path.endsWith ".psy") == false)
-    "UInt8 default must not emit .psy"
+  expect (files[0]!.path.endsWith ".dpn.json")
+    "UInt8 product output must be the DPN package"
   match parsePackage? dpn.contents with
   | none => throw <| IO.userError "U8Dpn.dpn.json failed to parse as package"
   | some pkg =>
@@ -2371,8 +2281,8 @@ unsafe def testInt8ProductDualWriteDpn : IO Unit := do
       expect (inc.definitions.any fun defn => defn.opType == .select)
         "product Int8 signed add must Select-wrap mod 2^8"
 
-/-- R-SHIFT-BIT product: UInt64 shl/shr/bitNot entry → DPN; debug flag checks .psy. -/
-unsafe def testUInt64ShiftBitNotProductDualWriteDpn : IO Unit := do
+/-- UInt64 shl/shr/bitNot product lowering emits one DPN package. -/
+unsafe def testUInt64ShiftBitNotProductDpn : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
@@ -2395,20 +2305,13 @@ unsafe def testUInt64ShiftBitNotProductDualWriteDpn : IO Unit := do
   let selection ← liftResult <|
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
   let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
-  let files ← liftResult <| Targets.Psy.buildFromCapability cap (emitPsyDebug := true)
-  expect (files.size == 2)
-    s!"R-SHIFT-BIT debug must dual-write DPN+.psy, got {files.map (·.path)}"
+  let files ← liftResult <| Targets.Psy.buildFromCapability cap
+  expect (files.size == 1)
+    s!"R-SHIFT-BIT must emit one DPN package, got {files.map (·.path)}"
   let some dpn := files.find? (·.path.endsWith ".dpn.json") |
     throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
-  let some psy := files.find? (·.path.endsWith ".psy") |
-    throw <| IO.userError s!"missing .psy; got {files.map (·.path)}"
   expect (files[0]!.path.endsWith ".dpn.json")
-    "DPN package must be primary artifact"
-  expect (!psy.contents.isEmpty) "debug .psy non-empty"
-  expect (psy.contents.contains "invalidShift: count >= 64")
-    "debug .psy must emit invalidShift guard"
-  expect (psy.contents.contains "u64 bitNot result not representable in Felt")
-    "debug .psy must emit bitNot representability guard"
+    "DPN package must be the sole artifact"
   match parsePackage? dpn.contents with
   | none => throw <| IO.userError "ShiftBitDpn.dpn.json failed to parse"
   | some pkg =>
@@ -2432,8 +2335,8 @@ unsafe def testUInt64ShiftBitNotProductDualWriteDpn : IO Unit := do
       expect (flipFn.definitions.any fun defn => defn.opType == .sub)
         "product flip must emit Sub for reduced mask"
 
-/-- R-PURE product: pureFn + localCall → DPN; debug flag checks .psy helpers. -/
-unsafe def testPureFnProductDualWriteDpn : IO Unit := do
+/-- pureFn + localCall product lowering emits one DPN package. -/
+unsafe def testPureFnProductDpn : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
@@ -2459,20 +2362,13 @@ unsafe def testPureFnProductDualWriteDpn : IO Unit := do
   let selection ← liftResult <|
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
   let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
-  let files ← liftResult <| Targets.Psy.buildFromCapability cap (emitPsyDebug := true)
-  expect (files.size == 2)
-    s!"R-PURE debug must dual-write DPN+.psy, got {files.map (·.path)}"
+  let files ← liftResult <| Targets.Psy.buildFromCapability cap
+  expect (files.size == 1)
+    s!"R-PURE must emit one DPN package, got {files.map (·.path)}"
   let some dpn := files.find? (·.path.endsWith ".dpn.json") |
     throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
-  let some psy := files.find? (·.path.endsWith ".psy") |
-    throw <| IO.userError s!"missing .psy; got {files.map (·.path)}"
   expect (files[0]!.path.endsWith ".dpn.json")
-    "DPN package must be primary artifact"
-  expect (!psy.contents.isEmpty) "debug .psy non-empty"
-  expect (psy.contents.contains "fn double(p0: Felt) -> Felt")
-    "debug .psy must still emit free pure helper (EmitIR honesty)"
-  expect (psy.contents.contains "double(")
-    "debug .psy must call pure helper"
+    "DPN package must be the sole artifact"
   match parsePackage? dpn.contents with
   | none => throw <| IO.userError "PureDpn.dpn.json failed to parse"
   | some pkg =>
@@ -2540,8 +2436,8 @@ unsafe def testUInt8NarrowBitwiseProductDualWriteDpn : IO Unit := do
       expect (notFn.definitions.any fun defn => defn.opType == .u32Xor)
         "product bnot must emit U32Xor mask"
 
-/-- R-HARD product: Goldilocks Field state/arith → DPN; debug flag checks .psy. -/
-unsafe def testGoldilocksFieldProductDualWriteDpn : IO Unit := do
+/-- Goldilocks Field state/arithmetic product lowering emits one DPN package. -/
+unsafe def testGoldilocksFieldProductDpn : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
@@ -2561,17 +2457,13 @@ unsafe def testGoldilocksFieldProductDualWriteDpn : IO Unit := do
   let selection ← liftResult <|
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
   let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
-  let files ← liftResult <| Targets.Psy.buildFromCapability cap (emitPsyDebug := true)
-  expect (files.size == 2)
-    s!"R-HARD Field debug must dual-write DPN+.psy, got {files.map (·.path)}"
+  let files ← liftResult <| Targets.Psy.buildFromCapability cap
+  expect (files.size == 1)
+    s!"R-HARD Field must emit one DPN package, got {files.map (·.path)}"
   let some dpn := files.find? (·.path.endsWith ".dpn.json") |
     throw <| IO.userError s!"missing .dpn.json; got {files.map (·.path)}"
-  let some psy := files.find? (·.path.endsWith ".psy") |
-    throw <| IO.userError s!"missing .psy; got {files.map (·.path)}"
   expect (files[0]!.path.endsWith ".dpn.json")
-    "DPN package must be primary artifact"
-  expect (psy.contents.contains "pub acc: Felt")
-    "debug .psy still declares Felt storage"
+    "DPN package must be the sole artifact"
   match parsePackage? dpn.contents with
   | none => throw <| IO.userError "GoldFieldDpn.dpn.json failed to parse"
   | some pkg =>
@@ -2585,9 +2477,8 @@ unsafe def testGoldilocksFieldProductDualWriteDpn : IO Unit := do
       expect (!bump.assertions.any fun a => a.message == "u64 add overflow")
         "Field add must not emit UInt64 checked-overflow assert"
 
-/-- G5-HARD / R-HARD: any DPN lower failure fails materialize (no silent
-    `.psy`-only). Hand Plan with zero state fields validates/emit-lowers to
-    `.psy` shape but DPN package requires ≥1 state field. -/
+/-- Any DPN lower failure fails materialization without a fallback artifact.
+    This hand-built Plan validates but DPN requires at least one state field. -/
 def testG5HardNonResidualDpnFailClosed : IO Unit := do
   let plan : Plan := {
     programName := "NoState"
@@ -2611,18 +2502,14 @@ def testG5HardNonResidualDpnFailClosed : IO Unit := do
       let msg := e.render
       expect (msg.contains "PSY-DPN-G5-HARD")
         s!"non-residual DPN fail must cite G5-HARD, got: {msg}"
-      expect (msg.contains "expected at least one state field" ||
-          msg.contains "no silent .psy-only")
+      expect (msg.contains "expected at least one state field")
         s!"G5-HARD must preserve DPN detail, got: {msg}"
   | .ok files =>
       throw <| IO.userError
         s!"zero-state Plan must hard-fail materialize, got files {files.map (·.path)}"
 
-/-- PSY-DPN-7 + G6-DEBUG: StateCell product default emits only DPN package
-    JSON (package ≡ locked-dargo Counter golden); no `.psy`. With
-    `emitPsyDebug := true`, dual-write transitional StateCell.psy after primary
-    StateCell.dpn.json. -/
-unsafe def testStateCellProductDualWriteArtifacts : IO Unit := do
+/-- StateCell product materialization emits exactly one canonical DPN package. -/
+unsafe def testStateCellProductArtifact : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let parsed ← liftResult (← session.selectProgramV1
     ProofForgeV2.Examples.stateCellSourceText "<dpn-7-state-cell>"
@@ -2637,8 +2524,6 @@ unsafe def testStateCellProductDualWriteArtifacts : IO Unit := do
     s!"G6 StateCell default must emit only .dpn.json, got {files.map (·.path)}"
   let some dpn := files.find? (·.path == "StateCell.dpn.json") |
     throw <| IO.userError s!"missing StateCell.dpn.json; got {files.map (·.path)}"
-  expect (files.any (·.path == "StateCell.psy") == false)
-    "G6 StateCell default must not emit StateCell.psy"
   expect (files[0]!.path == "StateCell.dpn.json")
     "DPN package must be primary (sole) artifact"
   expect (dpn.mediaType == "application/json") "dpn mediaType"
@@ -2656,23 +2541,6 @@ unsafe def testStateCellProductDualWriteArtifacts : IO Unit := do
   | some pkg2 =>
       expect (pkg2 == counterPackageGoldenV1)
         "compiled-semantic DPN package must equal golden"
-  -- G6 debug opt-in: dual-write .psy
-  let filesDbg ← liftResult <|
-    Targets.Psy.buildFromCapability cap (emitPsyDebug := true)
-  expect (filesDbg.size == 2)
-    s!"G6 debug must dual-write 2 files, got {filesDbg.map (·.path)}"
-  let some psy := filesDbg.find? (·.path == "StateCell.psy") |
-    throw <| IO.userError s!"missing StateCell.psy; got {filesDbg.map (·.path)}"
-  expect (filesDbg[0]!.path == "StateCell.dpn.json")
-    "debug dual-write still puts DPN first"
-  expect (psy.mediaType == "text/plain") "psy mediaType"
-  expect (!psy.contents.isEmpty) "debug .psy non-empty"
-  expect (psy.contents.contains '#' && psy.contents.contains 'c')
-    "debug .psy should look like Psy source"
-  let filesDbg2 ← liftResult <|
-    Targets.Psy.buildFromCompiledSemanticV1 compiled (emitPsyDebug := true)
-  expect (filesDbg2.map (·.path) == filesDbg.map (·.path))
-    "compiled-semantic debug dual-write same paths"
   -- Registry pure materializeResult default is DPN-only
   let arts ← liftResult <| Targets.materializeResult cap
   let artPaths := (MaterializedArtifactsV1.filesOf arts).map (·.path)
@@ -2684,7 +2552,7 @@ unsafe def run : IO Unit := do
   testEncodeIndexedId
   testPsyNodeDpnAuthorityRevPin
   testOfficialMethodIdAlgorithm
-  testResidualHonestyNotes
+  testGoldenOwnership
   testCounterGoldenDecode
   testCounterEncodeRoundTrip
   testStateCellPlanLowerEqualsGolden
@@ -2699,10 +2567,8 @@ unsafe def run : IO Unit := do
   testWideDivBindRestoring
   testWideShiftBindBitWalk
   testOptionStateProductLower
-  testWideCounterDefaultProfileFailClosed
-  testWideCounterVmProfileDpnWide
-  testWideCounter256DefaultProfileFailClosed
-  testWideCounter256VmProfileDpnWide
+  testWideCounterDpnWide
+  testWideCounter256DpnWide
   testMapLookupSelectOption
   testMapUpsertStoreAggregate
   testMapMiniProductLower
@@ -2731,15 +2597,14 @@ unsafe def run : IO Unit := do
   testSignedIntLower
   testUInt64ShiftBitNotLower
   testPayloadRevertErrorFailClosedAtDpn
-  testG5HardResidualAllowlistClassifier
   testUInt8ProductDualWriteDpn
   testInt8ProductDualWriteDpn
-  testUInt64ShiftBitNotProductDualWriteDpn
-  testPureFnProductDualWriteDpn
+  testUInt64ShiftBitNotProductDpn
+  testPureFnProductDpn
   testUInt8NarrowBitwiseProductDualWriteDpn
-  testGoldilocksFieldProductDualWriteDpn
+  testGoldilocksFieldProductDpn
   testG5HardNonResidualDpnFailClosed
-  testStateCellProductDualWriteArtifacts
+  testStateCellProductArtifact
   IO.println "Tests.Materialization.PsyDpnV1: ok"
 
 end Tests.Materialization.PsyDpnV1

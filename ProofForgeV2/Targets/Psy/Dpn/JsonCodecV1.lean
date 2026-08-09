@@ -1,6 +1,5 @@
 /-
-  Sole JSON encode/decode for Psy DPN Schema V1, shaped like dargo package
-  `target/<pkg>.json` (array of `DPNFunctionCircuitDefinition`).
+  Sole canonical JSON encode/decode for Psy DPN Schema V1.
 -/
 import Lean.Data.Json
 import ProofForgeV2.Targets.Psy.Dpn.SchemaV1
@@ -22,7 +21,7 @@ private def exceptToOption {α} : Except String α → Option α
 
 private def jsonAsNat? : Json → Option Nat
   | .num n =>
-      -- Integer-only package JSON from dargo.
+      -- Canonical DPN package JSON is integer-only.
       n.toString.toNat?
   | _ => none
 
@@ -120,7 +119,7 @@ def encodeFunction (f : FunctionCircuitDefV1) : Json :=
 def encodePackage (pkg : PackageV1) : Json :=
   Json.arr (pkg.map encodeFunction)
 
-/-- Compact UTF-8 package JSON (no spaces), matching typical dargo write style. -/
+/-- Compact canonical UTF-8 package JSON (no spaces). -/
 def encodePackageCompact (pkg : PackageV1) : String :=
   (encodePackage pkg).compress
 

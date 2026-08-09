@@ -1,18 +1,18 @@
 ---
 id: ADR-0023
 title: Aleo（Leo 4.0.2）capability-gated target 集成
-status: proposed
+status: superseded
 owner: architecture
 updated: 2026-07-31
 normative: true
+successor: ADR-0035
 ---
 
-# ADR-0023：Aleo（Leo 4.0.2）capability-gated target 集成
+# ADR-0023：Aleo source-language target integration（superseded）
 
-## 状态
-
-proposed（`agent/aleo-target-port` 分支产物；与黑客松 `hackathon/aleo-2026-08`
-的 V1-direct 平行路径**不同**）
+> 本提案的 source-language product path 已由
+> [ADR-0035](0035-direct-native-artifact-materializers.md) 取代。以下正文保留历史记录，
+> 不再描述当前产品行为。
 
 ## 背景
 

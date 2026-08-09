@@ -47,13 +47,13 @@ def maxMapEntriesV1 : Nat := maxArrayElements
 def bn254FrFieldIdV1 : String := "proof-forge.field.bn254-fr.v1"
 
 /-- v1 Field catalog entry id for the BLS12-377 scalar field (T14 catalog v2).
-    Aleo native Leo `field` is the Edwards BLS / BLS12-377 scalar field — exact
-    modulus match. Other targets stay fail-closed on this spec. -/
+    Aleo direct Instructions admit this exact modulus; other targets stay
+    fail-closed on this spec. -/
 def bls12377FrFieldIdV1 : String := "proof-forge.field.bls12-377-fr.v1"
 
 /-- v1 Field catalog entry id for the Goldilocks prime field (T14 catalog v2).
-    Psy native `Felt` is plonky2 Goldilocks (`p = 2^64 − 2^32 + 1`) — exact
-    modulus match. Other targets stay fail-closed on this spec. -/
+    Psy direct DPN admits exact Goldilocks (`p = 2^64 − 2^32 + 1`);
+    other targets stay fail-closed on this spec. -/
 def goldilocksFieldIdV1 : String := "proof-forge.field.goldilocks.v1"
 
 /-- Closed v1 ContextRead key: immutable invocation wall-clock seconds. -/
@@ -116,8 +116,7 @@ def bn254FrModulusBEV1 : ByteArray :=
 
 /-- Exact BLS12-377 Fr modulus big-endian bytes (T14 catalog v2). The 253-bit
     scalar-field prime of the BLS12-377 pairing-friendly curve
-    (`r = 0x12ab655e9a2ca55660b44d1e5c37b00159aa76fed00000010a11800000000001`),
-    the native modulus of Aleo's Leo `field` (Edwards BLS scalar = BLS12-377 Fr).
+    (`r = 0x12ab655e9a2ca55660b44d1e5c37b00159aa76fed00000010a11800000000001`).
     Stored as 32 big-endian bytes (leading zero is the 253→256-bit pad). -/
 def bls12377FrModulusBEV1 : ByteArray :=
   ByteArray.mk #[
@@ -176,13 +175,13 @@ def bn254FrFieldSpecV1 : FieldSpecV1 :=
   { id := { value := bn254FrFieldIdV1 }, modulusBE := bn254FrModulusBEV1 }
 
 /-- v1 FieldSpec catalog entry for the BLS12-377 scalar field (T14 catalog v2).
-    Admitted by Aleo (Leo native `field`); fail-closed on every other target
+    Admitted by Aleo direct Instructions; fail-closed on every other target
     via the target-owned type-closure `PilotFieldPolicy`. -/
 def bls12377FrFieldSpecV1 : FieldSpecV1 :=
   { id := { value := bls12377FrFieldIdV1 }, modulusBE := bls12377FrModulusBEV1 }
 
 /-- v1 FieldSpec catalog entry for the Goldilocks prime field (T14 catalog v2).
-    Admitted by Psy (plonky2 `Felt`); fail-closed on every other target via
+    Admitted by Psy direct DPN; fail-closed on every other target via
     the target-owned type-closure `PilotFieldPolicy`. -/
 def goldilocksFieldSpecV1 : FieldSpecV1 :=
   { id := { value := goldilocksFieldIdV1 }, modulusBE := goldilocksModulusBEV1 }

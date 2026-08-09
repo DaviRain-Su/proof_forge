@@ -12,13 +12,12 @@ normative: false
 状态：`draft`（规划 + **NOIR-IR-1 金样已冻结** + **NOIR-IR-2 Plan→ACIR MVP 已接线** + **NOIR-IR-3 G3 admit-surface circuit-hash pins 已接线** + **NOIR-IR-4 multi-fixture inventory 已接线** + **NOIR-IR-5 诚实矩阵（G5 轻量）已接线** + **NOIR-IR-6 产品 ACIR dual-write 可选 profile 已接线** + **NOIR-IR-7 / G6 prove honesty PARTIAL+MISSING 已接线**）
 目标：在 **不改变 ProgramV1 可移植业务语义** 的前提下，把 Noir target 的权威物化从 **Noir 源包（`.nr` relations）** 切向官方 **电路中间表示（ACIR 及相关编译产物）**，并评估 admit 面覆盖。
 
-与 Psy / Aleo 对照：
+与 Psy / Aleo direct target 对照：
 
 | | Psy | Aleo | Noir（本规划） |
 |---|---|---|---|
-| 旧 sole 权威 | `.psy` 文本 | Leo 源 | **Noir source package**（`main.nr` + Nargo.toml） |
-| 新 sole 权威 | DPN package JSON | Aleo Instructions | **ACIR / nargo compile 电路产物**（精确形态 IR-1 冻结） |
-| 工具 pin | dargo 0.1.0 | Leo 4.0.2 | **nargo 1.0.0-beta.26**（Tool Lock 已有） |
+| sole 权威 | DPN package JSON | Aleo Instructions | **ACIR / nargo compile 电路产物**（精确形态 IR-1 冻结） |
+| 产品工具 | none | none | **nargo 1.0.0-beta.26**（Tool Lock 已有） |
 | 作者语言 | ProgramV1 | ProgramV1 | ProgramV1 |
 
 权威上游（规划 pin；IR-1 实测冻结）：
@@ -48,7 +47,7 @@ ProgramV1 → Semantic → NoirPlan → relation IR → Noir source package (.nr
                               └─ 可选：nargo compile（compile-only 验收，无 ACIR 入库）
 ```
 
-问题（与 Psy `.psy` / Aleo Leo 同构）：
+问题（Psy/Aleo 已以 direct target 避免此问题）：
 
 1. **脆性**：与 Noir 源语法 / nargo 版本耦合。
 2. **双重真相**：可证明的电路形状在 ACIR/backend；`.nr` 是第三方言。

@@ -271,8 +271,8 @@ def expectedMaturityLabelOfKindV1 : TargetKind → String
   | .solana => "plan-only"
   | .near => "wasm-validated-alpha"
   | .noir => "source-only"
-  | .aleo => "source-only"
-  | .psy => "source-only"
+  | .aleo => "instructions-only"
+  | .psy => "dpn-only"
   | .quint => "source-only"
   | .cosmwasm => "wasm-validated-alpha"
   | .ton => "source-only"
@@ -555,18 +555,12 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
     row .soroban (semanticsAxesOfKindV1 .soroban) #[] none,
     row .icp (semanticsAxesOfKindV1 .icp) #[] none,
     row .openvm (semanticsAxesOfKindV1 .openvm) #[] none,
-    -- Aleo dual profiles (ASCII ascending: compile-v1 < u64-v1); default remains
-    -- source-only `aleo-leo-4.0.2-u64-v1`. Same Plan surface; the explicit
-    -- compile profile selects locked Leo compile-only finalization while the
-    -- default remains zero-tool.
     row .aleo (semanticsAxesOfKindV1 .aleo)
-      #[CodegenProfileId.aleoLeoU64CompileV1, CodegenProfileId.aleoLeoU64V1]
-      (some CodegenProfileId.aleoLeoU64V1),
+      #[CodegenProfileId.aleoInstructionsV1]
+      (some CodegenProfileId.aleoInstructionsV1),
     row .psy (semanticsAxesOfKindV1 .psy)
-      #[CodegenProfileId.psyDargo010VmV1, CodegenProfileId.psyDargoU64V1]
-      -- Historical source profile remains the default; VM-observed extensions
-      -- require explicit `--profile psy-dargo-0.1.0-vm-v1` selection.
-      (some CodegenProfileId.psyDargoU64V1),
+      #[CodegenProfileId.psyDpnV1]
+      (some CodegenProfileId.psyDpnV1),
     row .quint (semanticsAxesOfKindV1 .quint)
       #[CodegenProfileId.quintSourceU64ModelV1]
       (some CodegenProfileId.quintSourceU64ModelV1),

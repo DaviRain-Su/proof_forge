@@ -3,11 +3,16 @@ id: RPT-024
 title: ALEO-R0 Leo 4.0.2 local package/build/execute/proof/finalize empirical freeze
 status: draft
 owner: engineering
-updated: 2026-08-07
+updated: 2026-08-10
 normative: false
 ---
 
 # ALEO-R0: Leo 4.0.2 local toolchain — empirical command/artifact freeze
+
+> **2026-08-10 status:** ADR-0035 deleted the Leo compiler/finalization and
+> network lanes. Aleo now emits canonical Instructions directly with zero-tool
+> finalization. The observations below are retained as historical research only;
+> none of the commands, profiles, tools, or artifacts is a current entrypoint.
 
 ## Question
 

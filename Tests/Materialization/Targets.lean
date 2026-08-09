@@ -262,7 +262,7 @@ private unsafe def testConstInvariantMaterializationBoundary : IO Unit := do
   let psyConstants ← liftResult <| materializeSelected TargetId.psy constCompiled
   let psyFiles := MaterializedArtifactsV1.filesOf psyConstants
   expect (psyFiles.any (·.path == "ConstTargetBoundary.dpn.json"))
-    s!"constant/psy: supported scalar Op.Constant must materialize to Psy DPN source; got {psyFiles.map (·.path)}"
+    s!"constant/psy: supported scalar Op.Constant must materialize to a Psy DPN package; got {psyFiles.map (·.path)}"
 
   let invariantSource ← liftResult (← session.selectProgramV1
     invariantTargetBoundarySourceTextV1 "<targets-invariant-boundary>"
@@ -284,7 +284,7 @@ private unsafe def testConstInvariantMaterializationBoundary : IO Unit := do
       (TargetId.near, TargetKind.near, "constants/invariants"),
       (TargetId.noir, TargetKind.noir, "constants/invariants"),
       (TargetId.aleo, TargetKind.aleo, "does not support invariants"),
-      (TargetId.psy, TargetKind.psy, "PSY-INVARIANT")] do
+      (TargetId.psy, TargetKind.psy, "unsupported Psy DPN semantic shape")] do
     expectMaterializePlanInvariantV1 "invariant" target kind invariantCompiled marker
 
 /-- N-STR-EVENT opens only the shared Semantic/Reference contract. Every target
@@ -463,13 +463,13 @@ private unsafe def testAnonymousResultMaterializationFailClosed : IO Unit := do
       throw <| IO.userError
         s!"anonymous-result: ton must admit Array UInt64 2 view return, got {e.render}"
   -- Aleo: view-over-state anonymous aggregate return stays fail closed via
-  -- the computed-view gate (only bare public-state reads map to leo query).
+  -- the computed-view gate (only bare public-state reads enter the query descriptor).
   match materializeSelected TargetId.aleo compiled with
   | .ok _ =>
       throw <| IO.userError
         "anonymous-result: aleo must decline view-over-state aggregate return"
   | .error e =>
-      expect ((e.render).contains "leo query" ||
+      expect ((e.render).contains "query descriptor" ||
           (e.render).contains "fail closed" ||
           (e.render).contains "aggregate")
         s!"anonymous-result aleo message must cite the computed-view/aggregate boundary, got {e.render}"
@@ -3120,9 +3120,9 @@ unsafe def run : IO Unit := do
     "T12 Noir Principal materialize must emit Noir source artifacts"
   -- PSY-SCALAR-ABI: Psy opens Principal wire-identity leaves (not address).
   let prinPsy ← liftResult <| materializeSelected TargetId.psy prinCompiled
-  expect ((MaterializedArtifactsV1.filesOf prinPsy).any
-      (fun f => f.path.endsWith ".psy" || f.path.endsWith ".json"))
-    "PSY-SCALAR-ABI Psy Principal materialize must emit .psy artifacts"
+  let prinPsyFiles := MaterializedArtifactsV1.filesOf prinPsy
+  expect (prinPsyFiles.size == 1 && prinPsyFiles[0]!.path.endsWith ".dpn.json")
+    "PSY-SCALAR-ABI Psy Principal materialize must emit exactly one DPN package"
   let psyPlan ← liftResult <| planPsy prinCompiled
   expect (psyPlan.stateFieldNames.size == 9)
     s!"PSY-SCALAR-ABI Psy Principal must flatten to 9 Felt leaves, got {psyPlan.stateFieldNames.size}"
@@ -3448,7 +3448,7 @@ unsafe def run : IO Unit := do
   -- B-RET-ABI: named Struct view return. EVM + Noir + Solana + NEAR + Psy +
   -- CosmWasm + TON admit (multi-leaf ABI: EVM tuple / Noir leaves /
   -- N×8 LE / [Felt; N] / JSON decimals / get-method stack); Aleo admits
-  -- non-state entry aggregate returns (native Leo tuple) while
+  -- non-state entry aggregate returns as native multi-output Instructions while
   -- view-over-state stays fail closed.
   let pairRetSource :=
     "import ProofForgeV2\n\n" ++
@@ -3478,16 +3478,16 @@ unsafe def run : IO Unit := do
   -- NEAR admits: plan has .aggregate resultKind (B-RET-ABI).
   let _nearPair ← liftResult <| planNear pairCompiled
   -- Aleo: view-over-state aggregate return is fail closed via the
-  -- computed-view gate (only bare public-state reads map to leo query).
+  -- computed-view gate (only bare public-state reads enter the query descriptor).
   match materializeSelected TargetId.aleo pairCompiled with
   | .ok _ =>
       throw <| IO.userError "B-RET-ABI: aleo must decline view-over-state aggregate return"
   | .error e =>
-      expect ((e.render).contains "leo query" ||
+      expect ((e.render).contains "query descriptor" ||
           (e.render).contains "fail closed" ||
           (e.render).contains "aggregate")
         s!"B-RET-ABI aleo message must cite the computed-view/aggregate boundary, got {e.render}"
-  -- Aleo admits non-state entry aggregate returns (native Leo tuple).
+  -- Aleo admits non-state entry aggregate returns as native multi-output Instructions.
   let aleoPairEntrySource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++

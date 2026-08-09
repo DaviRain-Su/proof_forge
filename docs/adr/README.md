@@ -3,14 +3,14 @@ id: ADR-INDEX
 title: Architecture Decision Records
 status: proposed
 owner: architecture
-updated: 2026-08-07
+updated: 2026-08-10
 normative: true
 ---
 
 # Architecture Decision Records
 
 状态：`proposed`
-更新日期：2026-08-07
+更新日期：2026-08-10
 
 ADR 是 V2 架构决定的最高规范性记录。frontmatter 生命周期统一使用
 `draft | proposed | in_review | accepted | superseded | archived`；未采纳的提案使用 `archived`
@@ -41,7 +41,7 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0020](0020-task-scoped-formal-qualification.md) | 任务作用域 formal qualification 与 release aggregate 分离 | accepted |
 | [ADR-0021](0021-task-qualification-terminal-signing.md) | Task qualification protected acceptance 的一次性终结签名 | accepted |
 | [ADR-0022](0022-d1-diagnostics-contained-frontend-contract.md) | D1 diagnostic / contained-frontend 工程契约（parser 1.0.0 default、containment class、receipts、DiagnosticOriginV1） | proposed |
-| [ADR-0023](0023-aleo-target-integration.md) | Aleo（Leo 4.0.2）capability-gated target 集成（第 5 个 implemented target；source-only） | proposed |
+| [ADR-0023](0023-aleo-target-integration.md) | Historical Aleo source-language target integration；superseded by direct Aleo Instructions materialization | superseded |
 | [ADR-0024](0024-ton-target-integration.md) | TON（Tolk 1.4.2 / TVM）capability-gated target 集成（第 8 个 implemented target；source-only；sync call fail closed） | proposed |
 | [ADR-0025](0025-evm-caller-principal-realization.md) | EVM `context.caller` Principal realization encoding contract（`u32le(20)\|\|CALLER`；shared wire 不变；**S1-EVM Plan 已 cutover 2026-08-06**） | accepted |
 | [ADR-0026](0026-quint-target-integration.md) | Quint（executable specification / model surface）capability-gated target 集成（第 9 个 implemented target；source-only；zero-tool finalize；Q0 UInt64 子集） | proposed |
@@ -53,3 +53,4 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0032](0032-solana-unified-materializer.md) | Solana 统一 materializer：full body 吸收进 sole CPI rail（U1） | proposed |
 | [ADR-0033](0033-miniamm-asset-transaction-model.md) | MiniAMM 真实资产事务模型冻结（pre-fund + vault credit；无 transferFrom；M0 数学面 / MiniAmmAssets 资产面分工） | proposed |
 | [ADR-0034](0034-preservation-abi.md) | Preservation ABI（proposed extension/amendment to ADR-0027；L1 step-preservation；通用 ABI + kind plumbing + **EvenCounter + ZeroCounter（P=`count==0`）preserving product positive GREEN**；业务主路径 D10 vs 工具 formal track 2；wave-2 通用性门闭合；supersession/MiniAmm P1 pending；禁止 MiniAmm 特例；ADR-0027 仍为 inline base authority） | proposed |
+| [ADR-0035](0035-direct-native-artifact-materializers.md) | Aleo Instructions + Psy DPN direct-only materializers；删除 source/compiler lanes | proposed |

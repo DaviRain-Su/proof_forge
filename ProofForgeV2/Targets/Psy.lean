@@ -9,42 +9,12 @@ import ProofForgeV2.Targets.Psy.Dpn.JsonCodecV1
 import ProofForgeV2.Targets.Psy.Dpn.LowerPlanV1
 
 /-!
-# ProofForgeV2.Targets.Psy — public façade
+# ProofForgeV2.Targets.Psy
 
-Capability-gated Psy (Dargo/PsyProtocol) target leaf.
-
-Port of the old `ProofForge.Backend.Psy` surface onto the current product
-spine: consumes retained `SemanticProgramV1` via
-`ResolvedEngineeringBuildV1` exactly like EVM/Solana/NEAR/Noir/Aleo.
-
-Psy maps the V2 public-UInt64 envelope to target-owned Plan then emits
-product artifacts (PSY-DPN-7 + G5-HARD + G6-DEBUG):
-  * **Primary (default sole)**: `{name}.dpn.json` — dargo-shaped package of
-    `DPNFunctionCircuitDefinition` when Plan→DPN lower succeeds
-  * **Debug-only `.psy`**: transitional text for dargo compile lanes; **not**
-    DPN authority. Emitted only with `emitPsyDebug := true` or product env
-    `PROOF_FORGE_PSY_EMIT_PSY=1`. Default product is DPN-only.
-  * R-HARD residual allowlist empty; any DPN failure hard-fails materialize
-    (`PSY-DPN-G5-HARD`); no residual `.psy`-only product path.
-  * UInt64/UInt32 → Felt, Bool → bool
-  * checked u64 arith via explicit assert guards (Felt is a field element)
-  * bitwise `&`/`|`/`^` and shifts as native Felt ops on the debug `.psy` path
-    (golden BitwiseProbe); DPN per-limb bitAnd/Or/Xor via U32+CastFelt
-    (G5-WIDE); unary `~` (bitNot) lowers for **UInt32** to `x ^ 4294967295u32`
-    (XOR mask; verified faithful on the real dargo VM) and stays fail-closed
-    on UInt64/Int64 (no u64 type, no bitwise-not unary, 2^64−1 not
-    representable as a Felt). UInt32 arithmetic/bitwise/shifts on u32
-    operands stay fail-closed (VM u32 ops are not faithful to Reference:
-    overflow/underflow are internal panics, shifts wrap); u32 comparisons
-    are admitted (native unsigned == Reference unsigned)
-  * emit → DPN events[] PARTIAL / debug `.psy` `__emit([...])`; void call →
-    InvokeExternal PARTIAL / `__invoke_sync#<Felt>(...)`; schedule FC
-  * revert → assert false / DPN assertions
-  * `deployable=false`; product Finalize is zero-tool (no dargo/psy_vm)
-
-Descriptor/registry wiring is P-B: this façade exposes
-`planFromCapability` + `Materializer .psy` and the pre-P-B
-`planFromCompiledSemanticV1` / `buildFromCompiledSemanticV1` test entries.
+Capability-gated Psy target leaf. The sole product path is retained
+`SemanticProgramV1` → target-owned Plan → versioned DPN IR/package JSON.
+There is no Psy source AST, renderer, compiler lane, or source fallback.
+Product finalization is zero-tool and remains non-deployable.
 -/
 
 namespace ProofForgeV2.Targets.Psy

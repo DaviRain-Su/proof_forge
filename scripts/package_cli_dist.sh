@@ -7,7 +7,7 @@
 #   dist/proof-forge-next-<ver>-<platform>.tar.gz
 #   dist/proof-forge-next-<ver>-<platform>.tar.gz.sha256
 #
-# Not formal Stage-0 / hermetic / mainnet. Does not bundle Tool Lock tools (leo etc.).
+# Not formal Stage-0 / hermetic / mainnet. Does not bundle Tool Lock tools.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -120,7 +120,7 @@ chmod 755 "$STAGE/bin/proof-forge-next"
 cp -a "$root/VERSION" "$STAGE/VERSION"
 cp -a "$root/lean-toolchain" "$STAGE/lean-toolchain"
 
-# CWD-free doctor/install/local/network engines + Tool Lock pins (REL-CWD-0).
+# CWD-free doctor/install/local engines + Tool Lock pins (REL-CWD-0).
 # These files are part of the CLI product surface for the engineering dist;
 # fail closed if a required engine or root lock is absent instead of silently
 # producing an unusable package.
@@ -128,13 +128,7 @@ mkdir -p "$STAGE/scripts"
 required_scripts=(
   proof_forge_doctor.py
   proof_forge_install.py
-  proof_forge_aleo_snarkos.py
   toolchain_assets.py
-  aleo_local_sandbox.sh
-  aleo_devnet.sh
-  aleo_devnet.py
-  aleo_network.sh
-  aleo_network_receipt.py
 )
 optional_scripts=(
   solana_runtime_test.sh
@@ -177,7 +171,7 @@ cat >"$STAGE/README.md" <<EOF
 This is an **engineering** CLI distribution for ProofForge V2.
 
 - **Not** formal Stage-0 / hermetic / mainnet release evidence
-- **Not** a Tool Lock *tool binary* bundle (leo/solc still via \`install\`)
+- **Not** a Tool Lock *tool binary* bundle (locked tools such as solc remain available via \`install\`)
 - Channel: \`engineering-dist\`
 - **CWD-free**: doctor/install/local/network resolve package root via
   \`PROOF_FORGE_ROOT\` (absolute) → parent of \`IO.appDir\` when \`scripts/\` is present → CWD

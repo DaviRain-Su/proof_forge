@@ -323,11 +323,11 @@ def inferDisclosureCommitmentStateIdV1 : String := "disclosure.commitment-state"
 def inferValueFieldBn254FrIdV1 : String := "value.field.bn254-fr"
 
 /-- Infer-only: BLS12-377 Fr Field type contribution (T14 catalog v2; not S2
-    catalog; freeze-skipped). Admitted by Aleo (Leo native field). -/
+    catalog; freeze-skipped). Admitted by Aleo direct Instructions. -/
 def inferValueFieldBls12377FrIdV1 : String := "value.field.bls12-377-fr"
 
 /-- Infer-only: Goldilocks Field type contribution (T14 catalog v2; not S2
-    catalog; freeze-skipped). Admitted by Psy (plonky2 Felt). -/
+    catalog; freeze-skipped). Admitted by Psy direct DPN. -/
 def inferValueFieldGoldilocksIdV1 : String := "value.field.goldilocks"
 
 /-- Closed infer-only contribution ids (not in S2 catalog).

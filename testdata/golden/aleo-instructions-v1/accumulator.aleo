@@ -21,12 +21,12 @@ finalize initialize:
     set r0 into pf_state_0[0u8];
     set true into initialized[0u8];
 
-function credit:
+function add:
     input r0 as u64.public;
-    async credit r0 into r1;
-    output r1 as accumulator.aleo/credit.future;
+    async add r0 into r1;
+    output r1 as accumulator.aleo/add.future;
 
-finalize credit:
+finalize add:
     input r0 as u64.public;
     get.or_use pf_state_0[0u8] 0u64 into r1;
     add r1 r0 into r2;

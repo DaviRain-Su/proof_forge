@@ -170,9 +170,10 @@ ProgramV1 command/export/v2 仍为 sole 源表面。
   Solana 有 SBPF→ELF + Mollusk 运行时差分工程链路；NEAR 有 locked `wat2wasm` 结构编译、
   host-optional runtime load 与 locked
   near-sandbox 2.13.0 StateCell receipt happy path（非 formal differential）；Noir 为 relation source
-  package + locked nargo compile-only（无 ACIR/witness/prove/verify）；Aleo 为 source-only package +
-  locked leo compile-only，Psy 为 source-only + host-optional compile。Quint 为不可部署的 `.qnt`
-  source-only model + zero-tool finalize；host-optional exact 0.32 typecheck/run 非 Tool Lock/formal。
+  package + locked nargo compile-only（无 ACIR/witness/prove/verify）；Aleo 仅 direct canonical
+  Instructions + query descriptor，Psy 仅 direct DPN package，二者均 zero-tool、non-deployable，
+  无旧编译器或本地/网络 runtime lane。Quint 为不可部署的 `.qnt` source-only model + zero-tool finalize；
+  host-optional exact 0.32 typecheck/run 非 Tool Lock/formal。
   CosmWasm/TON 已 capability Plan/IR/materialize/finalize
   （CW：sync 拒、async SubMsg 子集；TON：resolver admit async、Plan schedule FC；均非 formal/wasmd/主网）。
   九个 materializer 的 Plan body 均由 retained `SemanticProgramV1` 经 capability 构造；工程 output 已接 S7a–S7c + D3-E7

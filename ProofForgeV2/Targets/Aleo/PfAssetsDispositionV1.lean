@@ -27,9 +27,9 @@
         same-context failure-propagation contract as EVM value `CALL` or
         Solana program-direct lamports move. Treating it as portable sync
         transfer would over-claim.
-      * `transfer_private` consumes/produces **records** (async-shaped
-        Future / finalize paths in Leo 4). That is closer to fire-and-forget
-        / multi-phase custody than to ADR-0029 sync-atomic vault debit.
+      * `transfer_private` consumes/produces **records** through a multi-phase
+        application/finalization model. That is closer to fire-and-forget
+        custody than to ADR-0029 sync-atomic vault debit.
       * Resolver already declines both `effect.synchronous-call` and
         `effect.asynchronous-workflow` (and event). No honest call surface
         exists on the current Aleo leaf.

@@ -9,22 +9,22 @@
     * constructor: `assert.eq edition 0u16`
 
   IR-3 (control flow, structural):
-    * ifThenElse → `branch.eq` / `position` (Leo 4.0.2 if shape)
+    * ifThenElse → `branch.eq` / `position`
     * switchOn (match) → right-nested is.eq + branch chain
     * bounded for → static unroll of `0 .. maxIterations` with runtime
       `c < (end-start)` gate + boundExceeded assert when start < end
     * expression lower: public UInt64/Bool arithmetic/compare/logic/ternary
 
   IR-4 (multi-leaf / Map / Option / narrow widths):
-    * Reuse Leo flatten-to-mapping layout: each Plan state leaf →
-      `pf_state_{i}` mapping (key u8.public, value typed by leaf width)
+    * Each Plan state leaf → `pf_state_{i}` mapping
+      (key u8.public, value typed by leaf width)
     * Multi-leaf `storeAggregate`: evaluate all leaves on pre-store snapshot,
-      then sequential `set` (matches EmitIR atomic batch)
+      then sequential `set`
     * Option UInt64 / Array UInt64 N / dense Map UInt64 cap-2 arrive as
       already-flattened leaves from LowerSemantic (no nested Map construct)
     * Narrow UInt{8,16,32} state/param/literal + checked arith/bit/shift
-      (shift count: bound guard + cast to u8, EmitIR-portable)
-    * Aggregate Final returns: eval leaves and drop (same Leo Final model)
+      (shift count: bound guard + cast to u8)
+    * Aggregate Final returns: evaluate leaves and drop
 
   IR-5 (effects honesty matrix — F rows / no PARTIAL without evidence):
     Plan-reachable surfaces (checked here, stable `ALEO-IR-5:` diagnostics):
@@ -38,9 +38,9 @@
 
   G5-HARD residual true lower (former residual bucket → done):
     * Int64: i64 mapping/param/literal + signed arith/compare/bit/shift/neg
-      (mirror EmitIR native i64; two's-complement literal spelling)
+      (two's-complement literal spelling)
     * Field BLS12-377: field mapping/param/literal + field add/sub/mul/div/
-      eq/ne/neg (mirror EmitIR; native Aleo field = BLS12-377 Fr)
+      eq/ne/neg (native Aleo field = BLS12-377 Fr)
     * pureFn/localCall: callFn inlines pureHelper body into caller Final
       (arg operands as params; nested callFn fuel-bounded; pureHelpers
       omitted from top-level function/finalize emission — free helpers)
@@ -49,15 +49,13 @@
       (`lowerLiteral`); Instructions sees ordinary literal operands (no
       separate const opcode). String/Principal/aggregate/non-envelope FC.
 
-  Profile note (default vs compile) — **ALEO-IR-6 + G5-HARD product primary**:
-    * Plan body is profile-insensitive (shared by
-      `aleo-leo-4.0.2-u64-v1` and `aleo-leo-4.0.2-u64-compile-v1`).
-    * Product primary = Instructions text `{id}.aleo` when this lower succeeds
-      + query-contract; Leo is debug/compare only.
-    * G5-HARD: Plan admitted but this lower fails → stable `ALEO-IR-G5-HARD`
-      materialize FC (empty residual allowlist; no silent Leo-only primary).
+  Profile note — **ALEO-IR-6 + G5-HARD product primary**:
+    * Plan body is profile-insensitive.
+    * Product primary = Instructions text `{id}.aleo` + query-contract.
+    * G5-HARD: Plan admitted but this lower fails → stable
+      `ALEO-IR-G5-HARD` materialize FC (empty residual allowlist).
 
-  Unsupported Plan shapes fail closed here (no silent Leo-only product path).
+  Unsupported Plan shapes fail closed here.
 -/
 import ProofForgeV2.Targets.Aleo.LowerSemanticV1
 import ProofForgeV2.Targets.Aleo.ValidatePlanV1
@@ -75,7 +73,7 @@ open ProofForgeV2.Targets.Aleo.Instructions.SchemaV1
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .aleo message
 
-/-- Mapping key literal used by EmitIR and Leo 4.0.2 Counter golden. -/
+/-- Mapping key literal used by the target-owned Instructions path. -/
 def mappingKeyLiteralV1 : OperandV1 := .literal "0u8"
 
 /-- One-shot init guard mapping (not a DSL state leaf). -/
@@ -93,7 +91,7 @@ private def asciiLower (value : String) : String :=
     let code := c.toNat
     if 65 <= code && code <= 90 then Char.ofNat (code + 32) else c
 
-/-- Leo program id spelling for Instructions header (`counter.aleo`). -/
+/-- Aleo program-id spelling for the Instructions header (`counter.aleo`). -/
 def programNameFromPlanV1 (plan : Plan) : CompileResult String := do
   let id := asciiLower plan.programName
   unless !id.isEmpty do
@@ -139,10 +137,10 @@ private def defaultLiteralForWidth (w : Nat) : OperandV1 :=
   | 32 => .literal "0u32"
   | _ => .literal "0u64"
 
-/-- Int64 zero literal (Leo/Instructions `0i64`). -/
+/-- Int64 zero literal (`0i64`). -/
 private def i64ZeroLiteral : OperandV1 := .literal "0i64"
 
-/-- Field zero literal (Leo/Instructions `0field`). -/
+/-- Field zero literal (`0field`). -/
 private def fieldZeroLiteral : OperandV1 := .literal "0field"
 
 private def defaultLiteralForLeaf
@@ -329,8 +327,8 @@ private def compareOpcode (op : ComparisonOp) : String :=
   | .gt => "gt"
   | .ge => "gte"
 
-/-- Transition wrapper: `input*` → `async name args into r` → `output future`.
-    Matches Leo 4.0.2 compile of state-touching Final functions. -/
+/-- Transition wrapper: `input*` → `async name args into r` → `output future`,
+    followed by the target-owned Final body. -/
 def lowerTransitionFunctionV1
     (programName : String) (fnName : String) (params : Array PlanParam) :
     CompileResult FunctionDeclV1 := do
@@ -345,7 +343,7 @@ def lowerTransitionFunctionV1
   body := body.push (.output dest (.future programName fnName))
   pure { name := fnName, body }
 
-/-- Edition constructor (Leo 4.0.2 Counter golden). -/
+/-- Edition constructor pinned by the target-owned Counter golden. -/
 def constructorEditionV1 : ConstructorDeclV1 :=
   { body := #[.assertEq (.identifier "edition") (.literal "0u16")] }
 
@@ -810,7 +808,7 @@ mutual
           acc := acc ++ ic
           let (endThen, ctx2) := ctx1.freshLabel "end_then"
           let (endJoin, ctx3) := ctx2.freshLabel "end_otherwise"
-          -- Skip then when condition is false (Leo 4.0.2 shape).
+          -- Skip then when the condition is false.
           acc := acc.push (.branchEq co (.literal "false") endThen)
           let (thenInstrs, ctx4) ← lowerStatementsV1 ctx3 thenBody
           acc := acc ++ thenInstrs
@@ -965,7 +963,7 @@ def lowerFunctionV1
     G5-HARD pureFn inline). pureHelpers are omitted from top-level emission. -/
 def lowerPlanToInstructionsV1 (plan : Plan) : CompileResult ProgramV1 := do
   -- IR-5 first: Plan-reachable effect residual with stable ALEO-IR-5 diagnostics
-  -- (wins over shared ValidatePlan Leo-path wording for Instructions tests).
+  -- (wins over generic ValidatePlan wording in Instructions tests).
   checkEffectsHonestyMatrixV1 plan
   validatePlan plan
   unless plan.stateFieldNames.size ≥ 1 do

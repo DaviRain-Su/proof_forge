@@ -35,7 +35,7 @@ normative: false
 14. [`12-target-coverage-matrix.md`](12-target-coverage-matrix.md)：wire Op × target LOWERED/FAIL-CLOSED/GAP 矩阵（工程覆盖权威格子）。
 15. [`13-spec-normalize-diff.md`](13-spec-normalize-diff.md)：SPEC-LANG/SEM/TYPE × NormalizeV1 机械对账（DOC-SPEC-AUDIT）。
 16. [`14-n5-call-return-schema.md`](14-n5-call-return-schema.md)：N-5 external call 返回值 schema 影响（void ExternalCall 直至共享核 cutover）。
-17. [`15-aleo-psy-compiler-vm.md`](15-aleo-psy-compiler-vm.md)：C-2 Aleo/Psy 历史研究 + follow-up——Aleo 有 locked leo compile-only；Psy 已 pin dargo v0.1.0 + bundled std，并有 Linux Counter + explicit-profile WideCounter UInt128 add/sub/mul/compare local-VM/base-proof 工程门（Darwin 仅 pin）与 focused Reference join；二者 registry 成熟度仍 source-only，均未升格 formal/UPS/deploy。
+17. [`15-aleo-psy-compiler-vm.md`](15-aleo-psy-compiler-vm.md)：C-2 Aleo/Psy 历史 compiler/VM 实验；ADR-0035 后只保留 Aleo direct Instructions 与 Psy direct DPN 两条 zero-tool 产品 lane，旧 Leo/Dargo/compiler/runtime/network 入口均已删除。报告正文仅保留历史事实，不是当前入口或成熟度声明。
 18. [`16-noir-prove-path.md`](16-noir-prove-path.md)：C-4 Noir prove/verify 路径——G123 后 nargo compile-only 已锁定并接门，但无 Barretenberg/CRS/proof binding，故**不**升格 prove/verify；保持 source-only relations。
 19. [`13-noir-toolchain-research.md`](13-noir-toolchain-research.md)：RPT-017 的 2026-08-02 J1 历史快照及 2026-08-03 follow-up；明确哪些“无 nargo pin”结论已被 compile-only gate supersede，哪些 prove/verify 阻塞仍有效。
 20. [`17-openzeppelin-ethereum-coverage-audit.md`](17-openzeppelin-ethereum-coverage-audit.md)：OpenZeppelin v5.7.0 × ProofForge EVM 行为能力审计；固定 112 个稳定实现到 20 个族，区分 primitive、行为、ABI 与标准兼容，并给出 oracle/differential 路线。对象归属见 [`openzeppelin-v5.7.0-family-membership-v1.json`](openzeppelin-v5.7.0-family-membership-v1.json)。

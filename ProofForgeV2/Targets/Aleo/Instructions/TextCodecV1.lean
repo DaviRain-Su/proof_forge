@@ -1,10 +1,10 @@
 /-
   Sole text encode/decode for Aleo Instructions Schema V1.
 
-  Encode is authoritative for golden byte identity against locked Leo 4.0.2
-  `compiled.aleo` output (Counter). Decode is fail-closed for the IR-1 subset
-  and rejects unknown opcodes/shapes. Whitespace is exact (4-space indent,
-  blank line between top-level items, trailing newline on last line).
+  Encode is authoritative for the target-owned canonical Aleo Instructions
+  fixtures. Decode is fail-closed for the admitted subset and rejects unknown
+  opcodes/shapes. Whitespace is exact (4-space indent, blank line between
+  top-level items, trailing newline on last line).
 -/
 import ProofForgeV2.Targets.Aleo.Instructions.SchemaV1
 
@@ -65,7 +65,7 @@ private def renderItem : ItemV1 → String
   | .constructor c =>
       "constructor:\n" ++ renderBody c.body
 
-/-- Encode program to Aleo Instructions text (Leo `build/main.aleo` style). -/
+/-- Encode a program to canonical Aleo Instructions text. -/
 def encodeProgram (p : ProgramV1) : String :=
   let header := s!"program {p.name};\n"
   if p.items.isEmpty then

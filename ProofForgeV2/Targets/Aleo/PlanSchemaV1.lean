@@ -6,7 +6,7 @@
     encodeEngineeringAleoPlanBytesV1(plan))
 
   Length-framed closed-tag encoding of every Aleo.Plan content field and the
-  recursive Expr / Statement / ResultKind / AggregateReturnForm / FunctionKind /
+  recursive Expr / Statement / ResultKind / FunctionKind /
   PlanParam / PlanFunction / PlanView surface. No `repr` / map iteration.
   `validatePlan` runs before encoding so caller-constructed Plans cannot bypass
   canonicity gates.
@@ -65,13 +65,11 @@ private def encodeFieldArithOp : FieldArithOp → UInt8
 private def encodeFunctionKind : FunctionKind → UInt8
   | .initialize => 0 | .mutate => 1
 
-private def encodeAggregateReturnForm : AggregateReturnForm → UInt8
-  | .named => 0 | .array => 1 | .option => 2
 
 private def encodeLeafAbiType (leaf : LeafAbiType) : Except String ByteArray := do
   pure ((encodeBool leaf.isInt).append (← encodeNatAsU32le leaf.byteWidth))
 
-/-- Closed ResultKind tags: scalars 0..7; aggregate = 8 + leaves + form. -/
+/-- Closed ResultKind tags: scalars 0..7; aggregate = 8 + leaves. -/
 private def encodeResultKind : ResultKind → Except String ByteArray
   | .u64 => pure (encodeU8 0)
   | .bool => pure (encodeU8 1)
@@ -81,11 +79,10 @@ private def encodeResultKind : ResultKind → Except String ByteArray
   | .u32 => pure (encodeU8 5)
   | .field => pure (encodeU8 6)
   | .unit => pure (encodeU8 7)
-  | .aggregate leaves form => do
+  | .aggregate leaves => do
       let mut out := encodeU8 8
       out := out.append (← encodeNatAsU32le leaves.size)
       for leaf in leaves do out := out.append (← encodeLeafAbiType leaf)
-      out := out.append (encodeU8 (encodeAggregateReturnForm form))
       pure out
 
 private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
@@ -282,14 +279,13 @@ private def encodePlanFunction (fn : PlanFunction) : Except String ByteArray := 
   out := out.append (encodeBool fn.resultIsInt)
   out := out.append (← encodeNatAsU32le fn.resultUintWidth)
   out := out.append (encodeBool fn.resultIsField)
-  -- Stored aggregate leaves + form, then derived ResultKind (closed tags).
+  -- Stored aggregate leaves, then derived ResultKind (closed tags).
   match fn.resultAggregateLeaves with
   | none => out := out.append (encodeU8 0)
   | some leaves =>
       out := out.append (encodeU8 1)
       out := out.append (← encodeNatAsU32le leaves.size)
       for leaf in leaves do out := out.append (← encodeLeafAbiType leaf)
-  out := out.append (encodeU8 (encodeAggregateReturnForm fn.resultAggregateForm))
   out := out.append (← encodeResultKind fn.resultKind)
   out := out.append (encodeBool fn.resultDropped)
   out := out.append (encodeBool fn.isPureHelper)

@@ -5,12 +5,12 @@ import Lean.Data.Json.Parser
 /-!
 Compile-time authority for the two supported platform Tool Lock v4 files.
 
-## Psy DPN residual (RES-TOOL-LOCK) — schema/method_id authority pin
+## Psy DPN schema/method-id authority pin
 
-DPN schema + `gen_dapen` method_id algorithm authority is **not** a Tool Lock
-executable entry. Runtime stays the locked `dargo` **0.1.0** tool (psy-compiler
-release assets in both platform locks). Schema/method_id authority is the
-documented git rev:
+The canonical DPN schema + `gen_dapen` method-id algorithm authority is not an
+executable Tool Lock entry. The product emits DPN JSON directly; no Psy source
+compiler/runtime tool participates. Schema/method-id authority is the documented
+git revision:
 
 * repo: `https://github.com/PsyProtocol/psy-node`
 * rev: `79e0b82422ebdd1173a7b4b3751eb3186aad83e5`
@@ -19,15 +19,9 @@ documented git rev:
 * supply-chain annotation: `supply-chain/psy-node-dpn-authority.v1.json`
 * planning: `docs/targets/10-psy-dpn-lowering.md` § authority pin / Phase DPN-0
 
-**Fail closed / honesty bounds:**
-
-* Do **not** invent a cargo-git `psy-node` tools[] row without a provisionable
-  asset + member pins (toolchain_assets rejects unknown fields and broken
-  asset/tool graphs).
-* Do **not** rewrite dargo 0.1.0 `executableSha256` / asset hashes to “bind”
-  this rev — that would be a false runtime pin.
-* If upstream dargo / psy-compiler and psy-node rev diverge, re-pin both docs
-  and this comment together; do not silently keep one side.
+The pin is source/schema authority only. Do not invent a `psy-node` executable
+or source compiler row without a provisionable asset and a distinct product
+contract.
 -/
 
 namespace ProofForgeV2.Core.ToolLockV4
@@ -64,9 +58,9 @@ def embeddedToolLockV4Text : ToolLockPlatformV4 → String
 
 private def expectedRawDigestWire : ToolLockPlatformV4 → String
   | .darwinArm64 =>
-      "sha256:ef6c88ea82803e980810a567c9df3d9e86d41e9889b9065611bb90ac8fcea90b"
+      "sha256:2ea72980416b12228bc3a4f6c04fe5b20cdb3e48879a890ba5bf84b3084c4033"
   | .linuxX86_64 =>
-      "sha256:96b9960dfec04cd71e881434e55f518e3dc40f320ae1f2f09de77e94ff8a5c7a"
+      "sha256:18fa1a8b5ffe31255e832242c42a113a023ceb877158b58178df157c7a95848b"
 
 /-- Raw retained-file identity, kept distinct from ToolLockV4Digest. -/
 def embeddedToolLockV4RawDigest (platform : ToolLockPlatformV4) : Digest :=

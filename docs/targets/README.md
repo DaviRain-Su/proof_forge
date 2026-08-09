@@ -3,14 +3,14 @@ id: TARGET-INDEX
 title: Target 研究与实现档案
 status: proposed
 owner: architecture
-updated: 2026-08-03
+updated: 2026-08-10
 normative: true
 ---
 
 # Target 研究与实现档案
 
 状态：`proposed`
-更新日期：2026-08-03
+更新日期：2026-08-10
 
 本目录按执行语义而不是文件后缀组织目标。`family` 是阅读视图，编译器实际依据多轴 `TargetDescriptor` 和 exact `SupportClaim` 决策。
 
@@ -37,8 +37,8 @@ normative: true
 | `icp` | Wasm actor host | design only | `research` | design-only；无产品 backend | [ICP](06-icp.md) |
 | `noir` | circuit compiler | accepted Phase 1 implement | `specified` | retained-V1 Plan + relation source packages + locked nargo 1.0.0-beta.26 compile-only 门；**无** ACIR/witness/prove/verify，仍 source-only | [Noir](07-noir.md) |
 | `openvm` | zkVM | design only | `research` | design-only；无产品 backend | [OpenVM](08-openvm.md) |
-| `aleo` | ZK application chain | engineering implemented (scope ADR open) | `specified` | 工程 source-only leaf；locked leo 4.0.2 compile-only 验收；无 VM/prove/deploy；**非** accepted Phase 1 范围 | [Aleo](09-aleo.md) |
-| `psy` | ZK application chain | engineering implemented (scope ADR open) | `specified` | 工程 source-only leaf；历史默认 `psy-dargo-u64-v1` + 显式 `psy-dargo-0.1.0-vm-v1`（4×UInt32 limb UInt128 checked add/sub/mul/div/mod + compare）；dargo v0.1.0 + bundled std 已入两平台 Tool Lock；optional compile + 独立 `just psy-runtime` Counter/WideCounter local-VM/base-proof 门（Linux 实测，Darwin 仅 pin）；产品 Finalize 仍 zero-tool；bitwise/shift/UInt256 与 formal refinement / network UPS / deploy / hermetic 仍未开；**非** accepted Phase 1 范围 | [Psy](10-psy.md) |
+| `aleo` | ZK application chain | engineering implemented (scope ADR open) | `specified` | sole `aleo-instructions-v1`；retained-V1 Plan → canonical Aleo Instructions `.aleo` + query descriptor；zero-tool finalization；无 VM/prove/deploy/network query；**非** accepted Phase 1 范围 | [Aleo](09-aleo.md) · [ADR-0035](../adr/0035-direct-native-artifact-materializers.md) |
+| `psy` | ZK application chain | engineering implemented (scope ADR open) | `specified` | sole `psy-dpn-v1`；retained-V1 Plan → canonical `.dpn.json`；zero-tool finalization；无 DPN runtime/proof/UPS/network/deploy；**非** accepted Phase 1 范围 | [Psy DPN](10-psy.md) · [ADR-0035](../adr/0035-direct-native-artifact-materializers.md) |
 | `ton` | TVM Stack-Account | engineering implemented (scope ADR open) | `research` | retained-V1 Plan/IR → Tolk + real BoC；UInt8/16/32、named state、bounded view aggregate/Array/Option return；async schedule→`createMessage`（hash dest/value=0/fixed mode，PARTIAL），sync call FC；`@ton/sandbox` 10/10；registry label `source-only`；**非** 主网/formal；**非** accepted Phase 1 范围 | [TON](11-ton.md) · [family](family-tvm-stack-account.md) |
 | `quint` | executable specification / model | engineering implemented (scope ADR open) | `research` | retained-V1 Q0 Plan/IR → `.qnt` + **zero-tool** finalize；profile `quint-source-u64-model-v1`；resolver 仅 4-key；完整 UInt64 域；失败=显式 outcome+business-state stutter；zero-param Bool invariant→`val`；本机 Quint 0.32 typecheck/run 仅 host observation，非 locked gate；ITF/MBT/verify 未声称；不可部署、非 accepted Phase 1/formal D3/D4 | [Quint](12-quint.md) · [ADR-0026](../adr/0026-quint-target-integration.md) |
 

@@ -146,15 +146,9 @@ private def planDigestForCapabilityV1
     No residual Common resolve, no public makePlan, no public OutputSet/makeOutput
     product surface. Formal SupportClaim / OutputSetV1 remain pending.
 
-    Pure materialize. Psy default is DPN-only (`emitPsyDebug := false`);
-    pass `emitPsyDebug := true` (or use `materialize` IO, which reads
-    `PROOF_FORGE_PSY_EMIT_PSY=1`) for transitional `.psy` debug dual-write.
-    Aleo default is Instructions primary (`emitLeoDebug := false`);
-    pass `emitLeoDebug := true` (or use `materialize` IO, which reads
-    `PROOF_FORGE_ALEO_EMIT_LEO=1`) for transitional `{id}.leo` dual-write.
-    Compile profile always dual-writes Leo regardless of the flag. -/
-def materializeResult (capability : ResolvedEngineeringBuildV1)
-    (emitPsyDebug : Bool := false) (emitLeoDebug : Bool := false) :
+    Pure materialize. Aleo emits Instructions plus its query descriptor; Psy
+    emits DPN JSON. Neither target has a source-language debug lane. -/
+def materializeResult (capability : ResolvedEngineeringBuildV1) :
     CompileResult MaterializedArtifactsV1 := do
   let selection := ResolvedEngineeringBuildV1.selectionOf capability
   let planDigest ← planDigestForCapabilityV1 capability
@@ -181,25 +175,17 @@ def materializeResult (capability : ResolvedEngineeringBuildV1)
       let files ← Ton.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Ton.descriptor files planDigest
   | .aleo =>
-      let files ← Aleo.buildFromCapability capability emitLeoDebug
+      let files ← Aleo.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Aleo.descriptor files planDigest
   | .psy =>
-      let files ← Psy.buildFromCapability capability emitPsyDebug
+      let files ← Psy.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Psy.descriptor files planDigest
   | other => .error <| .targetNotImplemented other
 
-/-- IO materialize. For Psy, reads `PROOF_FORGE_PSY_EMIT_PSY=1` to opt in to
-    transitional `.psy` debug emission (G6-DEBUG); default remains DPN-only.
-    For Aleo, reads `PROOF_FORGE_ALEO_EMIT_LEO=1` to dual-write transitional
-    `{id}.leo` (ALEO-IR-6); default remains Instructions + query. -/
+/-- IO wrapper over the sole pure materializer. -/
 def materialize (capability : ResolvedEngineeringBuildV1) :
     IO MaterializedArtifactsV1 := do
-  let selection := ResolvedEngineeringBuildV1.selectionOf capability
-  let emitPsyDebug ←
-    if selection.kind == .psy then Psy.readEmitPsyDebugEnvV1 else pure false
-  let emitLeoDebug ←
-    if selection.kind == .aleo then Aleo.readEmitLeoDebugEnvV1 else pure false
-  match materializeResult capability emitPsyDebug emitLeoDebug with
+  match materializeResult capability with
   | .ok output => pure output
   | .error error => throw <| IO.userError error.render
 

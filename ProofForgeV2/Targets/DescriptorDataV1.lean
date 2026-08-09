@@ -47,21 +47,13 @@ def solana : TargetDescriptor :=
 
 /-- Residual descriptor profile acceptance for multi-profile targets.
     `TargetDescriptor.codegenProfile` is the default encoding profile.
-    Additional registered profiles for the same target are accepted here so
-    capability mint and artifact identity can bind them without a second row.
-    Solana: sole cpi-elf; EVM: default + Cancun; Aleo: default source + compile;
-    Noir: default source + nargo ACIR dual-write; Psy: historical default +
-    explicit locked-dargo VM profile. -/
+    EVM additionally admits Cancun; Noir admits the nargo ACIR profile. -/
 def acceptsCodegenProfile (descriptor : TargetDescriptor) (profile : CodegenProfileId) : Bool :=
   descriptor.codegenProfile == profile ||
     (descriptor.targetId == TargetId.evm &&
       profile == CodegenProfileId.evmYulSolc0834CancunV1) ||
-    (descriptor.targetId == TargetId.aleo &&
-      profile == CodegenProfileId.aleoLeoU64CompileV1) ||
     (descriptor.targetId == TargetId.noir &&
-      profile == CodegenProfileId.noirNargoAcirV1) ||
-    (descriptor.targetId == TargetId.psy &&
-      profile == CodegenProfileId.psyDargo010VmV1)
+      profile == CodegenProfileId.noirNargoAcirV1)
 
 def near : TargetDescriptor :=
   descriptorFromRegistryAxes .near .wasmText CodegenProfileId.nearWasmRawU64V1
@@ -69,14 +61,11 @@ def near : TargetDescriptor :=
 def noir : TargetDescriptor :=
   descriptorFromRegistryAxes .noir .noirSource CodegenProfileId.noirSourceU64RelationsV1
 
-/-- Residual Aleo descriptor binds the default source profile
-    (`aleo-leo-4.0.2-u64-v1`). The compile profile is accepted via
-    `acceptsCodegenProfile` without inventing a second TargetDescriptor. -/
 def aleo : TargetDescriptor :=
-  descriptorFromRegistryAxes .aleo .leoSource CodegenProfileId.aleoLeoU64V1
+  descriptorFromRegistryAxes .aleo .aleoInstructions CodegenProfileId.aleoInstructionsV1
 
 def psy : TargetDescriptor :=
-  descriptorFromRegistryAxes .psy .psySource CodegenProfileId.psyDargoU64V1
+  descriptorFromRegistryAxes .psy .psyDpn CodegenProfileId.psyDpnV1
 
 /-- Quint is a source-only executable state-model target. Product finalization
     emits `.qnt` but does not run Quint, Apalache, TLC, or a JVM. -/

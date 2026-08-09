@@ -208,10 +208,10 @@ private def testGrammar : IO Unit := do
     "well-known noir source profile constant"
   expect (CodegenProfileId.noirNargoAcirV1 == (← parseProfile "noir-nargo-1.0.0-beta.26-acir-v1"))
     "well-known noir ACIR profile constant"
-  expect (CodegenProfileId.psyDargo010VmV1 == (← parseProfile "psy-dargo-0.1.0-vm-v1"))
-    "well-known Psy dargo VM profile constant"
-  expect (CodegenProfileId.psyDargoU64V1 == (← parseProfile "psy-dargo-u64-v1"))
-    "well-known Psy historical source profile constant"
+  expect (CodegenProfileId.aleoInstructionsV1 == (← parseProfile "aleo-instructions-v1"))
+    "well-known Aleo Instructions profile constant"
+  expect (CodegenProfileId.psyDpnV1 == (← parseProfile "psy-dpn-v1"))
+    "well-known Psy DPN profile constant"
   expect (CodegenProfileId.quintSourceU64ModelV1 == (← parseProfile "quint-source-u64-model-v1"))
     "well-known Quint profile constant"
   expect (TargetId.parse? "quint" == some TargetId.quint)
@@ -285,28 +285,25 @@ private def testRegistrySeedMembership : IO Unit := do
       expect (reg.profiles == #[CodegenProfileId.solanaSbpfCpiElfV1])
         s!"Solana profiles must be sole rail cpi-elf, got {reg.profiles.map (·.toString)}"
   | none => throw <| IO.userError "missing Solana registration"
-  expectDefault TargetId.aleo "aleo-leo-4.0.2-u64-v1"
+  expectDefault TargetId.aleo "aleo-instructions-v1"
   match ← liftResult (registration? TargetId.aleo) with
   | some reg =>
-      expect (reg.profiles ==
-          #[CodegenProfileId.aleoLeoU64CompileV1, CodegenProfileId.aleoLeoU64V1])
-        s!"Aleo profiles must be ASCII ascending compile then u64, got {reg.profiles.map (·.toString)}"
-      expect (reg.defaultProfile == some CodegenProfileId.aleoLeoU64V1)
-        "Aleo default remains source u64-v1"
+      expect (reg.profiles == #[CodegenProfileId.aleoInstructionsV1])
+        s!"Aleo profiles must contain only Instructions, got {reg.profiles.map (·.toString)}"
   | none => throw <| IO.userError "missing Aleo registration"
-  -- Explicit compile resolve; unknown Aleo profile fails closed.
   let aleoDefault ← liftResult <| resolveBuildSelectionV1 TargetId.aleo none
-  expect (aleoDefault.codegenProfile == CodegenProfileId.aleoLeoU64V1)
-    "Aleo resolve none → source default"
-  let aleoCompile ← liftResult <|
-    resolveBuildSelectionV1 TargetId.aleo (some CodegenProfileId.aleoLeoU64CompileV1)
-  expect (aleoCompile.codegenProfile == CodegenProfileId.aleoLeoU64CompileV1)
-    "Aleo resolve explicit compile"
-  match CodegenProfileId.parse? "aleo-leo-4.0.2-u64-unknown-v1" with
-  | some ghost =>
-      expectErrorCode (resolveBuildSelectionV1 TargetId.aleo (some ghost))
-        "PF-PROFILE-UNKNOWN" "unknown Aleo profile rejected"
-  | none => throw <| IO.userError "ghost Aleo profile must be grammar-valid"
+  expect (aleoDefault.codegenProfile == CodegenProfileId.aleoInstructionsV1)
+    "Aleo resolve none → Instructions"
+  match CodegenProfileId.parse? "aleo-leo-4.0.2-u64-v1" with
+  | some removed =>
+      expectErrorCode (resolveBuildSelectionV1 TargetId.aleo (some removed))
+        "PF-PROFILE-UNKNOWN" "removed Aleo source profile rejected"
+  | none => throw <| IO.userError "removed Aleo profile must remain grammar-valid"
+  match CodegenProfileId.parse? "aleo-leo-4.0.2-u64-compile-v1" with
+  | some removed =>
+      expectErrorCode (resolveBuildSelectionV1 TargetId.aleo (some removed))
+        "PF-PROFILE-UNKNOWN" "removed Aleo compiler profile rejected"
+  | none => throw <| IO.userError "removed Aleo compiler profile must remain grammar-valid"
   expectDefault TargetId.near "near-wasm-raw-u64-v1"
   expectDefault TargetId.noir "noir-source-u64-relations-v1"
   match ← liftResult (registration? TargetId.noir) with
@@ -319,12 +316,11 @@ private def testRegistrySeedMembership : IO Unit := do
     resolveBuildSelectionV1 TargetId.noir (some CodegenProfileId.noirNargoAcirV1)
   expect (noirAcir.codegenProfile == CodegenProfileId.noirNargoAcirV1)
     "Noir resolve explicit ACIR profile"
-  expectDefault TargetId.psy "psy-dargo-u64-v1"
+  expectDefault TargetId.psy "psy-dpn-v1"
   match ← liftResult (registration? TargetId.psy) with
   | some reg =>
-      expect (reg.profiles ==
-          #[CodegenProfileId.psyDargo010VmV1, CodegenProfileId.psyDargoU64V1])
-        s!"Psy profiles must be exact VM + historical pair, got {reg.profiles.map (·.toString)}"
+      expect (reg.profiles == #[CodegenProfileId.psyDpnV1])
+        s!"Psy profiles must contain only DPN, got {reg.profiles.map (·.toString)}"
   | none => throw <| IO.userError "missing Psy registration"
   expectDefault TargetId.quint "quint-source-u64-model-v1"
   expectErrorCode (createTargetRegistryV1 #[])
@@ -496,16 +492,19 @@ private def testResolve : IO ResolvedBuildSelectionV1 := do
   expect (cosmwasmDefault.codegenProfile == CodegenProfileId.cosmwasmWasmU64V1)
     "cosmwasm default profile after promotion"
   let psyDefault ← liftResult <| resolveBuildSelectionV1 TargetId.psy none
-  expect (psyDefault.codegenProfile == CodegenProfileId.psyDargoU64V1 &&
+  expect (psyDefault.codegenProfile == CodegenProfileId.psyDpnV1 &&
       psyDefault.kind == .psy)
-    "Psy omitted profile preserves historical source profile"
-  let psyVm ← liftResult <| resolveBuildSelectionV1 TargetId.psy
-    (some CodegenProfileId.psyDargo010VmV1)
-  expect (psyVm.codegenProfile == CodegenProfileId.psyDargo010VmV1 &&
-      psyVm.kind == .psy)
-    "Psy explicit VM profile resolves without changing target identity"
-  expect (psyVm.codegenProfile != psyDefault.codegenProfile)
-    "Psy VM profile is explicit, not the default"
+    "Psy omitted profile resolves to DPN"
+  match CodegenProfileId.parse? "psy-dargo-u64-v1" with
+  | some removed =>
+      expectErrorCode (resolveBuildSelectionV1 TargetId.psy (some removed))
+        "PF-PROFILE-UNKNOWN" "removed Psy source profile rejected"
+  | none => throw <| IO.userError "removed Psy profile must remain grammar-valid"
+  match CodegenProfileId.parse? "psy-dargo-0.1.0-vm-v1" with
+  | some removed =>
+      expectErrorCode (resolveBuildSelectionV1 TargetId.psy (some removed))
+        "PF-PROFILE-UNKNOWN" "removed Psy VM profile rejected"
+  | none => throw <| IO.userError "removed Psy VM profile must remain grammar-valid"
   let solanaCpi ← liftResult <| resolveBuildSelectionV1 TargetId.solana
     (some CodegenProfileId.solanaSbpfCpiElfV1)
   expect (solanaCpi.codegenProfile == CodegenProfileId.solanaSbpfCpiElfV1 &&
@@ -553,20 +552,20 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   | Except.ok _ => throw <| IO.userError "product preflight must reject duplicate --target"
   let defaultList ← liftResult <| ProofForgeV2.CLI.listTargetLines false
   expect (defaultList.size == 9) "default list-targets is implemented-only"
-  expect (defaultList == #["aleo\tsource-only", "cosmwasm\twasm-validated-alpha",
+  expect (defaultList == #["aleo\tinstructions-only", "cosmwasm\twasm-validated-alpha",
       "evm\truntime-validated-alpha", "near\twasm-validated-alpha", "noir\tsource-only",
-      "psy\tsource-only", "quint\tsource-only", "solana\tplan-only", "ton\tsource-only"])
+      "psy\tdpn-only", "quint\tsource-only", "solana\tplan-only", "ton\tsource-only"])
     s!"default list-targets exact lines, got {defaultList}"
   let allList ← liftResult <| ProofForgeV2.CLI.listTargetLines true
   expect (allList == #[
-      "aleo\tsource-only",
+      "aleo\tinstructions-only",
       "cosmwasm\twasm-validated-alpha",
       "evm\truntime-validated-alpha",
       "icp\tresearch-only",
       "near\twasm-validated-alpha",
       "noir\tsource-only",
       "openvm\tresearch-only",
-      "psy\tsource-only",
+      "psy\tdpn-only",
       "quint\tsource-only",
       "solana\tplan-only",
       "soroban\tresearch-only",
@@ -634,26 +633,15 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (hasSubstr msg "unknown install argument") "bad install args"
   | .ok _ => throw <| IO.userError "install --bogus must fail"
   match ProofForgeV2.CLI.parseCliCommandV1
-      ["local", "--target", "aleo", "--mode", "sandbox", "--json", "--", "--skip-run"] with
+      ["local", "--target", "solana", "--mode", "runtime", "--json", "--", "status"] with
   | .ok (.local opts) =>
-      expect (opts.target == "aleo" && opts.mode == "sandbox" && opts.json &&
-        opts.scriptArgs == #["--skip-run"]) "parse local aleo sandbox"
+      expect (opts.target == "solana" && opts.mode == "runtime" && opts.json &&
+        opts.scriptArgs == #["status"]) "parse local solana runtime"
   | other => throw <| IO.userError s!"parse local: {repr other}"
-  match ProofForgeV2.CLI.parseCliCommandV1 ["local", "--mode", "sandbox"] with
+  match ProofForgeV2.CLI.parseCliCommandV1 ["local", "--mode", "runtime"] with
   | .error msg =>
       expect (hasSubstr msg "requires --target") "local without target"
   | .ok _ => throw <| IO.userError "local without --target must fail"
-  match ProofForgeV2.CLI.parseCliCommandV1
-      ["network", "--target", "aleo", "--broadcast", "--json",
-        "--", "--network", "testnet"] with
-  | .ok (.network opts) =>
-      expect (opts.target == "aleo" && opts.broadcast && opts.json &&
-        opts.scriptArgs == #["--network", "testnet"]) "parse network aleo"
-  | other => throw <| IO.userError s!"parse network: {repr other}"
-  match ProofForgeV2.CLI.parseCliCommandV1 ["network", "--target", "aleo"] with
-  | .error msg =>
-      expect (hasSubstr msg "requires explicit --broadcast") "network without broadcast"
-  | .ok _ => throw <| IO.userError "network without --broadcast must fail"
   match ProofForgeV2.CLI.parseCliCommandV1 ["inspect", "evm"] with
   | .ok (.inspect "evm" false) => pure ()
   | other => throw <| IO.userError s!"parse inspect: {repr other}"
@@ -685,13 +673,13 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   | other => throw <| IO.userError s!"parse build explicit profile: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
       ["build", "Examples/WideCounter.lean", "--module", "Examples.WideCounter",
-        "--target", "psy", "--profile", "psy-dargo-0.1.0-vm-v1"] with
+        "--target", "psy", "--profile", "psy-dpn-v1"] with
   | .ok (.build opts) =>
       expect (opts.target == some TargetId.psy)
-        "dispatcher Psy VM target"
-      expect (opts.profile == some CodegenProfileId.psyDargo010VmV1)
-        "dispatcher explicit Psy VM profile"
-  | other => throw <| IO.userError s!"parse Psy VM profile: {repr other}"
+        "dispatcher Psy DPN target"
+      expect (opts.profile == some CodegenProfileId.psyDpnV1)
+        "dispatcher explicit Psy DPN profile"
+  | other => throw <| IO.userError s!"parse Psy DPN profile: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
       ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "evm", "--profile", "near-wasm-raw-u64-v1"] with
@@ -795,18 +783,28 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   | .error e => throw <| IO.userError s!"inspect evm: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "aleo" with
   | .ok text =>
-      expect (hasSubstr text "target=aleo\nprofile=aleo-leo-4.0.2-u64-v1\n")
+      expect (hasSubstr text "target=aleo\nprofile=aleo-instructions-v1\n")
         s!"inspect aleo prefix, got {text}"
       expect (hasSubstr text
           "requirements=#[failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]")
         s!"inspect aleo requirements, got {text}"
-      expect (hasSubstr text "status=implemented") "aleo is implemented source-only"
+      expect (hasSubstr text "status=implemented") "aleo is implemented"
+      expect (hasSubstr text "maturity=instructions-only")
+        "aleo exposes only canonical Aleo Instructions"
   | .error e => throw <| IO.userError s!"inspect aleo: {e.render}"
+  match ProofForgeV2.CLI.inspectTargetText "psy" with
+  | .ok text =>
+      expect (hasSubstr text "target=psy\nprofile=psy-dpn-v1\n")
+        s!"inspect psy prefix, got {text}"
+      expect (hasSubstr text "status=implemented") "psy is implemented"
+      expect (hasSubstr text "maturity=dpn-only")
+        "psy exposes only canonical DPN packages"
+  | .error e => throw <| IO.userError s!"inspect psy: {e.render}"
   -- Legacy three-line helper remains for S2 exact-string join tests.
   match ProofForgeV2.CLI.describeTargetText "aleo" with
   | .ok text =>
       expect (text ==
-          "target=aleo\nprofile=aleo-leo-4.0.2-u64-v1\nrequirements=#[failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]")
+          "target=aleo\nprofile=aleo-instructions-v1\nrequirements=#[failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic]")
         s!"describe helper exact, got {text}"
   | .error e => throw <| IO.userError s!"describe helper aleo: {e.render}"
   expectErrorCode (ProofForgeV2.CLI.inspectTargetText "ghost-target")

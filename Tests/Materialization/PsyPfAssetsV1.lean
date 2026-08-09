@@ -7,14 +7,14 @@
       **resolve** (`PF-REQ-UNSUPPORTED`)
     * without extension, catalog QNs reach Plan and fail with explicit
       **unbound** diagnostic — deposit, sync transfer, and transferAsync
-      (must not alias `__invoke_sync` as vault/async value move)
+      (must not alias a generic DPN sync invoke as vault/async value move)
     * non-catalog L0 sync call still lowers (Phase D must not broaden FC)
 
   Note: transfer* QNs need Principal args. PSY-SCALAR-ABI opens Principal
   wire-identity leaves, so without extension those programs reach Plan and
   hit unbound catalog disposition (not Principal type-closure). Resolve-with-
   extension remains the product pin for all five. Schedule/async is pinned
-  separately in PsySourceV1 (`testScheduleFailClosed`); never rename sync.
+  separately in PsyDpnV1 (`testScheduleFailClosedAtDpn`); never rename sync.
 -/
 import ProofForgeV2
 import ProofForgeV2.Core.RequirementIdsV1
@@ -111,7 +111,7 @@ unsafe def testFiveCatalogQnsFailAtResolve : IO Unit := do
     "mint : Principal, dst : Principal, amount : UInt64"
 
 /-- Shared Plan unbound pin: resolve OK (sync-call advertised; no extension),
-    Plan fails with explicit unbound + QN (must not lower to `__invoke_sync`). -/
+    Plan fails with explicit unbound + QN (must not lower to a generic DPN invoke). -/
 unsafe def expectCatalogUnboundAtPlan (label qn callLine extraParams : String) : IO Unit := do
   let source :=
     "import ProofForgeV2\n" ++

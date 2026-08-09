@@ -1,7 +1,7 @@
 {
   "schema": "proof-forge.chain-client-catalog.v1",
   "version": "1",
-  "updated": "2026-08-09",
+  "updated": "2026-08-10",
   "notes": [
     "Metadata only for authors and Code Agents. Not a second compiler.",
     "clientSdk fields name ecosystem packages; ProofForge does not vendor or pin them here.",
@@ -13,13 +13,13 @@
     {
       "id": "aleo",
       "implemented": true,
-      "maturityLabel": "source-only + compile-finalization engineering",
+      "maturityLabel": "direct-instructions zero-tool",
       "role": "backend-contracts",
       "pfSurface": {
         "build": true,
-        "localModes": ["sandbox", "devnet"],
-        "network": "explicit-cli-broadcast-only",
-        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_local", "pf_artifacts", "pf_chain_catalog"],
+        "localModes": [],
+        "network": "none-product",
+        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_artifacts", "pf_chain_catalog"],
         "template": "templates/external-aleo-hello"
       },
       "frontendClients": [
@@ -31,13 +31,13 @@
         }
       ],
       "localDev": {
-        "offlineInterpret": "leo run via aleo_local_sandbox / pf_local",
-        "chainLike": "snarkos DevNet engineering wrapper (host-heavy; not Tool Lock)"
+        "offlineInterpret": null,
+        "chainLike": null
       },
       "honesty": [
         "deployable=false on product build",
-        "LEO-OFFLINE-RUN is local interpret not snarkVM package-only",
-        "mainnet/canary rejected on network wrapper"
+        "canonical Aleo Instructions and query descriptor only",
+        "no Leo compiler, local runtime, or network wrapper"
       ]
     },
     {
@@ -143,8 +143,8 @@
     {
       "id": "psy",
       "implemented": true,
-      "maturityLabel": "source-only",
-      "role": "backend-zkvm",
+      "maturityLabel": "direct-dpn zero-tool",
+      "role": "backend-zk-application-chain",
       "pfSurface": {
         "build": true,
         "localModes": [],
@@ -154,9 +154,9 @@
       "frontendClients": [],
       "localDev": {
         "offlineInterpret": null,
-        "chainLike": "optional host-heavy psy-runtime (not ordinary ci)"
+        "chainLike": null
       },
-      "honesty": ["product Finalize zero-tool"]
+      "honesty": ["canonical DPN package only; no Psy source, Dargo, local VM, or proof lane"]
     },
     {
       "id": "quint",

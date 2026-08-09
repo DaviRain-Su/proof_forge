@@ -3,11 +3,17 @@ id: RPT-015
 title: C-2 Aleo/Psy compiler and VM availability research
 status: draft
 owner: engineering
-updated: 2026-08-07
+updated: 2026-08-10
 normative: false
 ---
 
 # C-2: Aleo Leo compiler / Psy VM — promote acceptance gates?
+
+> **2026-08-10 status:** ADR-0035 removed both source-language lanes. Aleo now
+> emits only canonical Aleo Instructions; Psy now emits only canonical DPN
+> packages. Leo/Dargo compiler, runtime, proof, and network recipes were deleted.
+> This report is retained only as a historical 2026-08-02/07 experiment and is
+> not a current product or engineering entrypoint.
 
 ## Question
 
@@ -22,7 +28,7 @@ Code-first audit of in-tree target leaves and product materialize path
 `10-psy.md` and coverage matrix `12-target-coverage-matrix.md`.  
 **No** live network deploys; **no** claim of hermetic tool lock.
 
-## 2026-08-07 follow-up（当前状态）
+## 2026-08-07 follow-up（historical）
 
 Wave 1 / G123 superseded this snapshot's Aleo compile-only deferral by pinning
 Leo `4.0.2` in both Tool Lock v4 files and adding locked-only `AleoAcceptance`.

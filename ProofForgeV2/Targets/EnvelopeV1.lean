@@ -189,15 +189,15 @@ def isPilotBodyIntWidth (w : Nat) : Bool := isAbiIntWidth w
 
     T14 catalog v2: the catalog now carries three exact FieldSpecs (bn254 Fr,
     BLS12-377 Fr, Goldilocks). Each target admits only the spec whose modulus
-    exactly matches its native field: EVM/Noir admit bn254 Fr; Aleo admits
-    BLS12-377 Fr (Leo native `field`); Psy admits Goldilocks (plonky2 `Felt`).
+    exactly matches its native field: EVM/Noir admit bn254 Fr; Aleo Instructions
+    admit BLS12-377 Fr; Psy DPN admits Goldilocks.
     A target must never admit a spec whose modulus does not exactly match a
     native field — that would be a silent wrong-field mapping. -/
 structure PilotFieldPolicy where
   /-- When true, admit at most one anonymous `.field bn254FrFieldSpecV1`. -/
   admitBn254Fr : Bool
   /-- When true, admit at most one anonymous `.field bls12377FrFieldSpecV1`
-      (Aleo native Leo `field` = BLS12-377 Fr). -/
+      (Aleo Instructions native field = BLS12-377 Fr). -/
   admitBls12377Fr : Bool := false
   /-- When true, admit at most one anonymous `.field goldilocksFieldSpecV1`
       (Psy native `Felt` = Goldilocks prime). -/
@@ -216,8 +216,8 @@ def pilotFieldPolicyBn254 : PilotFieldPolicy where
   admitBls12377Fr := false
   admitGoldilocks := false
 
-/-- Aleo native Leo `field` (exact BLS12-377 Fr catalog modulus; T14 catalog
-    v2). Not EVM/Noir (bn254 Fr) and not Psy (Goldilocks). -/
+/-- Aleo Instructions native field (exact BLS12-377 Fr catalog modulus; T14
+    catalog v2). Not EVM/Noir (bn254 Fr) and not Psy (Goldilocks). -/
 def pilotFieldPolicyBls12377 : PilotFieldPolicy where
   admitBn254Fr := false
   admitBls12377Fr := true

@@ -48,15 +48,11 @@ def run : IO Unit := do
       expect (paths == #[])
         "sourceBuild sbpf must declare an empty content-addressed bundle closure"
 
-  -- ALEO-I3/I4: leo is content-addressed executable-only; Tool Lock binds the
-  -- default source and opt-in compile CodegenProfileIds (no phantom lane).
-  match requiredBundlePaths "leo" with
-  | .error error =>
-      throw <| IO.userError s!"locked leo closure could not be resolved: {error}"
-  | .ok paths =>
-      expect (paths == #["leo"])
-        "Aleo leo must depend only on its locked executable closure"
-      expect (!paths.contains "nargo" && !paths.contains "solc")
-        "unrelated product tools must not enter leo closure"
+  for removed in #["leo", "dargo"] do
+    match requiredBundlePaths removed with
+    | .error _ => pure ()
+    | .ok _ =>
+        throw <| IO.userError
+          s!"removed source compiler '{removed}' unexpectedly resolved from Tool Lock"
 
 end Tests.CLI.ToolchainPolicy

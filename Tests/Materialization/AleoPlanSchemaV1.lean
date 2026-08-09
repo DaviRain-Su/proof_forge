@@ -8,7 +8,7 @@
   * field / expr / stmt / view mutation non-aliasing
   * invalid Plan encode fail closed (validatePlan gate)
 
-  **Not** formal Plan identity / OutputSetV1 / leo runtime.
+  **Not** formal Plan identity / OutputSetV1 / Aleo runtime.
 -/
 import ProofForgeV2
 import ProofForgeV2.Core.Common
@@ -207,50 +207,8 @@ private def testTamperMatrix : IO Unit := do
   }
   expectDigestDiff "returnValue" base
     (← liftExcept "rv" (engineeringAleoPlanDigestV1 purePlan))
-  -- Aggregate return form non-alias (named vs array)
-  let aggLeaves : Array LeafAbiType :=
-    #[{ isInt := false, byteWidth := 8 }, { isInt := false, byteWidth := 8 }]
-  let aggFn (form : AggregateReturnForm) : PlanFunction := {
-    index := 0
-    name := "pack"
-    kind := .mutate
-    params := #[]
-    body := #[.returnAggregate #[.literal 1, .literal 2] #[false, false]]
-    touchesState := false
-    resultIsBool := false
-    resultAggregateLeaves := some aggLeaves
-    resultAggregateForm := form
-    resultDropped := false
-  }
-  let mkAgg (form : AggregateReturnForm) : Plan := {
-    programName := "Agg"
-    stateFieldNames := #[]
-    stateFieldIsInt := #[]
-    stateFieldUintWidth := #[]
-    stateFieldIsField := #[]
-    functions := #[aggFn form]
-    views := #[]
-    sourceHash := minimalPlan.sourceHash
-    semanticHash := minimalPlan.semanticHash
-  }
-  let dNamed ← liftExcept "agg-n" (engineeringAleoPlanDigestV1 (mkAgg .named))
-  let dArray ← liftExcept "agg-a" (engineeringAleoPlanDigestV1 (mkAgg .array))
-  expectDigestDiff "aggregate form named≠array" dNamed dArray
-  let dOption ← liftExcept "agg-o" (engineeringAleoPlanDigestV1 (mkAgg .option))
-  expectDigestDiff "aggregate form named≠option" dNamed dOption
 
 private def testInvalidPlanEncodeFails : IO Unit := do
-  -- Reserved Leo word as function name: validatePlan rejects → encode fails.
-  let bad : Plan := {
-    minimalPlan with functions := #[{
-      minimalPlan.functions[0]! with name := "final" }]
-  }
-  match encodeEngineeringAleoPlanBytesV1 bad with
-  | .error _ => pure ()
-  | .ok _ => throw <| IO.userError "encode must reject reserved function name"
-  match engineeringAleoPlanDigestV1 bad with
-  | .error _ => pure ()
-  | .ok _ => throw <| IO.userError "digest must reject reserved function name"
   -- resultDropped on pure (non-state-touching) function.
   let badDrop : Plan := {
     programName := "Tiny"

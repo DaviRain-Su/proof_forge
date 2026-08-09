@@ -3,7 +3,7 @@ import ProofForgeV2.Targets.Aleo.LowerSemanticV1
 /-!
 # Aleo ValidatePlanV1 — plan canonicity
 
-Validates the public `Aleo.Plan` value before any Leo source is produced.
+Validates the public `Aleo.Plan` value before Aleo Instructions are produced.
 -/
 
 namespace ProofForgeV2.Targets.Aleo
@@ -26,24 +26,6 @@ private def maxExprDepth : Nat := 256
     upsert unrolls to thousands of pure-expr nodes). -/
 private def maxPlanNodes : Nat := 100000
 
-/-- Leo 4.0.2 reserved words / mapping method names that a DSL identifier must
-    not collide with (conservative; `leo build` is the final authority).
-    `rem`/`neg`/`gt`/`lt`/`add`/`sub`/`mul`/`div`/`mod`/`and`/`or`/`xor`/
-    `not`/`shl`/`shr`/`pow`/`abs`/`sqrt`/`square`/`double`/`ternary`/`cast`
-    are Leo reserved opcode names (spike-verified with leo 4.0.2: a function
-    with any of these names fails to parse). -/
-private def reservedLeoWords : Array String :=
-  #[ "mapping", "transition", "finalize", "final", "function", "fn", "program",
-     "constructor", "async", "record", "struct", "enum", "for", "if", "else",
-     "return", "let", "assert", "true", "false", "public", "private",
-     "self", "as", "cast", "i8", "i16", "i32", "i64", "i128", "u8", "u16",
-     "u32", "u64", "u128", "field", "bool",
-     "add", "sub", "mul", "div", "rem", "mod", "pow", "abs", "sqrt", "square",
-     "neg", "and", "or", "xor", "not", "shl", "shr", "double", "ternary",
-     "gt", "lt" ]
-
-private def isReserved (name : String) : Bool :=
-  reservedLeoWords.contains name
 
 
 -- ---------------------------------------------------------------------------
@@ -158,10 +140,10 @@ private partial def validateStatements
         | _, _ => planError "Aleo plan expression exceeds the depth limit"
         validateStatements body stateFieldCount
     | .emitEvent .. =>
-        planError "Aleo does not support emit: Leo 4.0.2 has no on-chain event log"
+        planError "Aleo does not support emit: the Instructions subset has no event-log contract"
     | .revertError _ args =>
         unless args.isEmpty do
-          planError "Aleo does not support revert payloads: Leo 4.0.2 cannot represent error arguments"
+          planError "Aleo does not support revert payloads: the Instructions subset has no error-argument ABI"
 
 /-- B-RET-ABI depth defense: return form must match resultAggregateLeaves. -/
 private partial def checkReturnFormsV1
@@ -203,28 +185,6 @@ private partial def checkReturnFormsV1
         checkReturnFormsV1 fnName aggregateLeaves body
     | _ => pure ()
 
-/-- Leo 4.0.2 hard limit: a `final` block allows at most 32 mapping
-    `set`/`remove` commands (spike-verified ECMP0376015). Leo counts the
-    emitted commands **statically across every control-flow arm** (transfer's
-    two inner upserts both count), so this is a sum over arms, not a max.
-    `for` bodies are guarded by `ValidatePlanV1`'s bounded-iteration model:
-    the emitted body contains its sets once (the `for` is a single region),
-    so the body's set count counts once. Multi-leaf `storeAggregate` counts
-    one set per leaf (same as sequential emission). -/
-private partial def setCountPerFinalBlock (stmts : Array Statement) : Nat :=
-  stmts.foldl (fun acc stmt =>
-    match stmt with
-    | .store _ _ => acc + 1
-    | .storeAggregate leaves => acc + leaves.size
-    | .ifThenElse _ t e => acc + setCountPerFinalBlock t + setCountPerFinalBlock e
-    | .switchOn _ cases d =>
-        acc + cases.foldl (fun a (_, b) => a + setCountPerFinalBlock b)
-          (setCountPerFinalBlock d)
-    | .forLoop _ _ _ b => acc + setCountPerFinalBlock b
-    | _ => acc) 0
-
-/-- Leo final-block mapping command budget (ECMP0376015). -/
-private def maxLeoMappingSets : Nat := 32
 
 def validatePlan (plan : Plan) : CompileResult Unit := do
   if plan.functions.size > maxFunctions then
@@ -244,16 +204,10 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       planError "Aleo state leaf cannot be both Int64 and narrow UInt"
     if plan.stateFieldIsField.getD i false && isNarrowUintWidth w then
       planError "Aleo state leaf cannot be both Field and narrow UInt"
-  let names := plan.functions.map (·.name) ++ plan.views.map (·.name)
-  for name in names do
-    if isReserved name then
-      planError s!"Aleo identifier '{name}' collides with a reserved Leo word"
   for fn in plan.functions do
     if fn.params.size > maxParams then
       planError "Aleo plan function exceeds the parameter limit"
     for param in fn.params do
-      if isReserved param.name then
-        planError s!"Aleo parameter '{param.name}' collides with a reserved Leo word"
       if param.isInt && param.isBool then
         planError "Aleo parameter cannot be both Bool and Int64"
       if param.isInt && isNarrowUintWidth param.uintWidth then
@@ -261,11 +215,6 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
       if param.isField && isNarrowUintWidth param.uintWidth then
         planError "Aleo parameter cannot be both Field and narrow UInt"
     validateStatements fn.body plan.stateFieldNames.size
-    -- Leo ECMP0376015: >32 mapping sets in one final block is invalid Leo.
-    -- Fail closed at plan time (the dense Map upsert emits 3×capacity sets
-    -- per arm; multi-arm matches sum statically).
-    if fn.touchesState && setCountPerFinalBlock fn.body > maxLeoMappingSets then
-      planError "Aleo final function exceeds the Leo mapping-set budget (32 per final block)"
     if fn.resultIsInt && fn.resultIsBool then
       planError "Aleo function result cannot be both Bool and Int64"
     -- B-RET-ABI / N-ANON-RESULT: aggregate result is mutually exclusive with
@@ -285,16 +234,6 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
         if fn.isPureHelper then
           planError
             s!"function '{fn.name}' pure helper cannot return an aggregate (B-RET-ABI)"
-        match fn.resultAggregateForm with
-        | .array =>
-            unless leaves.all (fun l => !l.isInt) do
-              planError
-                s!"function '{fn.name}' array aggregate result leaves must be unsigned u64"
-        | .option =>
-            unless leaves.size == 2 && leaves.all (fun l => !l.isInt) do
-              planError
-                s!"function '{fn.name}' option aggregate result must be exactly 2 unsigned leaves"
-        | .named => pure ()
     | none => pure ()
     checkReturnFormsV1 fn.name fn.resultAggregateLeaves fn.body
     if fn.resultDropped && fn.kind != .mutate then
