@@ -1,14 +1,16 @@
 /-
-  Tests.Semantic.CodecInvertV1 — mig-a1 foundation + fields + callable:
+  Tests.Semantic.CodecInvertV1 — mig-a1 foundation + fields + callable + root:
   MidOffsetInvert, Visibility, InvariantDecl, empty tables/Requirements,
   Type.Bool, QN singleton, CallableKind, ValueDef, LoopBound, Op.Constant/
-  StateLoad/Commit/Literal, Term.Return, empty callables, array one/two lift.
+  StateLoad/Commit/Literal, Term.Return, empty callables, array one/two lift,
+  DecodeEncodeRoundtripGoal composition discharge.
 
-  Does not claim full parametric decode∘encode for arbitrary programs.
+  Does not claim full RootFieldInvert for arbitrary programs.
 -/
 import ProofForgeV2.Semantic.Wire.CodecInvertV1
 import ProofForgeV2.Semantic.Wire.CodecInvertFieldsV1
 import ProofForgeV2.Semantic.Wire.CodecInvertCallableV1
+import ProofForgeV2.Semantic.Wire.CodecInvertRootV1
 import ProofForgeV2.Semantic.WireV1
 
 namespace Tests.Semantic.CodecInvertV1
@@ -87,6 +89,20 @@ theorem valueDef_midOffsetInvert :
 theorem loopBound_midOffsetInvert :
     MidOffsetInvertV1 encodeLoopBoundV1 decodeLoopBoundV1 :=
   midOffsetInvert_encodeLoopBound_decodeLoopBound
+
+/-- Positive theorem: DecodeEncodeRoundtripGoal composition is discharged. -/
+theorem decodeEncodeRoundtripGoal_discharged_all
+    (data : SemanticProgramDataV1) (bytes : ByteArray) :
+    DecodeEncodeRoundtripGoalV1 data bytes :=
+  decodeEncodeRoundtripGoal_discharged data bytes
+
+/-- Positive theorem: encode + RootFieldInvert ⇒ transport decode. -/
+theorem decode_of_encode_of_rootFieldInvert
+    (data : SemanticProgramDataV1) (bytes : ByteArray)
+    (hencode : encodeSemanticProgramDataV1 data = .ok bytes)
+    (hinvert : RootFieldInvertV1 data) :
+    decodeSemanticProgramDataV1 bytes = .ok data :=
+  decodeSemanticProgramDataV1_of_encode_ok data bytes hencode hinvert
 
 /-- Positive theorem: empty constants table mid-offset invert. -/
 theorem empty_constants_table_mid :

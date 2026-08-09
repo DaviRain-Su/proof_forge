@@ -21,7 +21,10 @@ import Init.Data.Array.Lemmas
   Type.Bool shape, QN single-component + encode success foundation.
   Callable family (mig-a1-callable): see `Wire.CodecInvertCallableV1` —
   CallableKind/ValueDef/LoopBound, pure-U32 Op + Literal, Term.Return, array lift.
-  Full multi-component QN / full TypeShape / root composition residual → mig-a1-root.
+  Root composition (mig-a1-root): see `Wire.CodecInvertRootV1` —
+  `decodeSemanticProgramDataV1_of_encode_ok_of_rootFieldInvert` discharges
+  `DecodeEncodeRoundtripGoalV1`. Per-field full invert for arbitrary data
+  (multi-component QN / full TypeShape / Block-Callable) remains residual.
 
   Hard boundaries:
     * no axiom / sorry / native_decide / ofReduceBool
@@ -336,19 +339,14 @@ structure RootFieldInvertV1 (data : SemanticProgramDataV1) : Prop where
   requirements :
     MidOffsetInvertV1 encodeProgramRequirementsV1 decodeProgramRequirementsV1
 
-/-- **mig-a1 residual goal form.**
+/-- **mig-a1 composition goal form.**
 
     `RootFieldInvertV1 data` + successful structure-gated encode implies transport
-    decode recovers `data`. Field-family invertibility proofs discharge
-    `RootFieldInvertV1`; the composition theorem
-    `decodeSemanticProgramDataV1_of_encode_ok_of_rootFieldInvert` is the
-    remaining kernel obligation (stated, not yet closed in this foundation
-    slice).
-
-    This slice ships: MidOffsetInvert predicate, Visibility complete leaf,
-    array zero/one helpers, RootFieldInvert package, goal form. Full discharge
-    of `RootFieldInvertV1` for arbitrary `data` plus the composition theorem
-    is the subsequent field-family wave (TypeDecl → Callable/Op → Requirements). -/
+    decode recovers `data`. Composition is discharged in
+    `Wire.CodecInvertRootV1` as
+    `decodeSemanticProgramDataV1_of_encode_ok_of_rootFieldInvert` /
+    `decodeEncodeRoundtripGoal_discharged`. Field-family invertibility proofs
+    still discharge `RootFieldInvertV1` for concrete programs. -/
 def DecodeEncodeRoundtripGoalV1 (data : SemanticProgramDataV1) (bytes : ByteArray) :
     Prop :=
   encodeSemanticProgramDataV1 data = .ok bytes →
