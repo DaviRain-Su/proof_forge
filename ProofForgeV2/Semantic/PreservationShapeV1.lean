@@ -5,19 +5,21 @@ import ProofForgeV2.Semantic.ReferenceV1
   ProofForgeV2.Semantic.PreservationShapeV1 — shape-family packaging for L1
   preservation proofs on the sole product Reference step.
 
-  Wave-3′ mig-a2-shape: program-agnostic constructors + ready-step theorems so
-  same-file author proofs can be `apply` + `decide`/`rfl` shape facts instead of
-  replaying per-contract micro-paths. Families:
+  Wave-3′ mig-a2-shape + mig-b1 parity family: program-agnostic constructors +
+  ready-step theorems so same-file author proofs can be `apply` + `decide`/`rfl`
+  shape facts instead of replaying per-contract micro-paths. Families:
 
     * store-constant clear (single public UInt64 slot ← fixed literal zero)
     * view-load identity (single-slot load → re-encode; post = pre)
     * store-constant clear triple (3× public UInt64 ← zero; reuses
       triple-UInt64 machine packaging `4b7219a2b`)
     * view-load triple slot-2 (load slot 2; re-encode full overlay)
+    * increment-add-two (single public UInt64 load/+2/store/reload)
+    * UInt64 parity invariant (`(slot % 2) == 0` micro-path)
 
   Engineering only (track 1). No second State/Effect/step. No contract-specific
-  constants. Pin / ProofInstances remain optional golden accelerators until
-  wave-3′ C.
+  constants. Pin / residual golden modules remain optional accelerators until
+  wave-3′ C deletes them.
 -/
 
 namespace ProofForgeV2.Semantic.PreservationShapeV1
@@ -148,6 +150,76 @@ def viewLoadTripleSlot2CallableV1
   }]
   loopBounds := #[]
   invariantSteps := none
+}
+
+/-- Nullary entry: `stateLoad → literal 2 → add → stateStore → stateLoad → return`.
+    Single-slot UInt64 increment-by-two family (EvenCounter `increment`). -/
+def incrementAddTwoCallableV1
+    (callableId : CallableIdV1)
+    (entryName : Option String)
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1) : CallableV1 := {
+  id := callableId
+  kind := .entry
+  name := entryName
+  params := #[]
+  result := { typeId := uint64TypeId, visibility := .public_ }
+  entryBlock := 0
+  blocks := #[{
+    id := 0
+    params := #[]
+    instructions := #[
+      { result := some { valueId := 0, typeId := uint64TypeId },
+        op := .stateLoad stateId },
+      { result := some { valueId := 1, typeId := uint64TypeId },
+        op := .literal uint64TypeId two8BytesV1 },
+      { result := some { valueId := 2, typeId := uint64TypeId },
+        op := .binary .add 0 1 },
+      { result := none, op := .stateStore stateId 2 },
+      { result := some { valueId := 3, typeId := uint64TypeId },
+        op := .stateLoad stateId }
+    ]
+    terminator := .return_ (some 3)
+  }]
+  loopBounds := #[]
+  invariantSteps := none
+}
+
+/-- Nullary invariant: `stateLoad → literal 2 → mod → literal 0 → eq → return`.
+    Single-slot UInt64 parity predicate `(count % 2) == 0` (EvenCounter `even`).
+    `invariantSteps` is the closed production value for this five-instruction body. -/
+def uint64ParityInvariantCallableV1
+    (callableId : CallableIdV1)
+    (invName : Option String)
+    (uint64TypeId boolTypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (visibility : VisibilityV1)
+    (invariantSteps : Option UInt64) : CallableV1 := {
+  id := callableId
+  kind := .invariant
+  name := invName
+  params := #[]
+  result := { typeId := boolTypeId, visibility }
+  entryBlock := 0
+  blocks := #[{
+    id := 0
+    params := #[]
+    instructions := #[
+      { result := some { valueId := 0, typeId := uint64TypeId },
+        op := .stateLoad stateId },
+      { result := some { valueId := 1, typeId := uint64TypeId },
+        op := .literal uint64TypeId two8BytesV1 },
+      { result := some { valueId := 2, typeId := uint64TypeId },
+        op := .binary .mod 0 1 },
+      { result := some { valueId := 3, typeId := uint64TypeId },
+        op := .literal uint64TypeId zero8BytesV1 },
+      { result := some { valueId := 4, typeId := boolTypeId },
+        op := .binary .eq 2 3 }
+    ]
+    terminator := .return_ (some 4)
+  }]
+  loopBounds := #[]
+  invariantSteps
 }
 
 /-! ### Ready-step shape theorems (sole `stepReferenceSliceV1`)
@@ -493,6 +565,139 @@ theorem stepTrapped_of_readyViewLoadTripleSlot2_nonemptyResponsesV1
       callableId viewName responses vault context hadmitted_data htypeU hstate
       hstateId hcan hrespNonempty hgate
 
+/-- Increment-add-two with empty responses returns the encode of sum (+2). -/
+theorem stepReturned_of_readyIncrementAddTwoV1
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (data : SemanticProgramDataV1)
+    (countBytes : ByteArray)
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (stateName : String)
+    (callableId : CallableIdV1)
+    (entryName : Option String)
+    (post : LogicalStateV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (context : Array ContextInputV1)
+    (hadmitted_data : admitted.data = data)
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hstateId : stateId = 0)
+    (hcan :
+      validateValueBytesV1 data.types uint64TypeId countBytes = .ok ())
+    (hcanTwo :
+      validateValueBytesV1 data.types uint64TypeId two8BytesV1 = .ok ())
+    (hnoOverflow : leBytesToNatV1 countBytes + 2 < 2 ^ 64)
+    (hinit : pre.initialized = true)
+    (hencode :
+      encodeLogicalStateValuesV1 data true
+        #[natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8] = .ok post)
+    (hrespEmpty : responses.size = 0)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready
+          (incrementAddTwoCallableV1 callableId entryName uint64TypeId stateId)
+          #[countBytes] context false) :
+    let sumBytes := natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8
+    let v2 : ReferenceValueV1 :=
+      { typeId := uint64TypeId, valueBytes := sumBytes }
+    stepReferenceSliceV1 admitted pre invocation responses vault =
+      .returned post (some v2) #[] := by
+  simpa [incrementAddTwoCallableV1] using
+    stepReferenceSliceV1_ready_increment_returned admitted pre invocation data
+      countBytes uint64TypeId stateId stateName callableId entryName post
+      responses vault context hadmitted_data htypeU hstate hstateId hcan hcanTwo
+      hnoOverflow hinit hencode hrespEmpty hgate
+
+/-- Nonempty responses after increment-add-two trap with exact pre. -/
+theorem stepTrapped_of_readyIncrementAddTwo_nonemptyResponsesV1
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (data : SemanticProgramDataV1)
+    (countBytes : ByteArray)
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (stateName : String)
+    (callableId : CallableIdV1)
+    (entryName : Option String)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (context : Array ContextInputV1)
+    (hadmitted_data : admitted.data = data)
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hstateId : stateId = 0)
+    (hcan :
+      validateValueBytesV1 data.types uint64TypeId countBytes = .ok ())
+    (hcanTwo :
+      validateValueBytesV1 data.types uint64TypeId two8BytesV1 = .ok ())
+    (hnoOverflow : leBytesToNatV1 countBytes + 2 < 2 ^ 64)
+    (hrespNonempty : responses.size ≠ 0)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready
+          (incrementAddTwoCallableV1 callableId entryName uint64TypeId stateId)
+          #[countBytes] context false) :
+    stepReferenceSliceV1 admitted pre invocation responses vault =
+      .trapped .invalidExternalResponse pre := by
+  simpa [incrementAddTwoCallableV1] using
+    stepReferenceSliceV1_ready_increment_nonempty_responses_traps admitted pre
+      invocation data countBytes uint64TypeId stateId stateName callableId
+      entryName responses vault context hadmitted_data htypeU hstate hstateId
+      hcan hcanTwo hnoOverflow hrespNonempty hgate
+
+/-- Overflowing increment-add-two cannot produce a returned outcome. -/
+theorem stepNotReturned_of_readyIncrementAddTwo_overflowV1
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (data : SemanticProgramDataV1)
+    (countBytes : ByteArray)
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (stateName : String)
+    (callableId : CallableIdV1)
+    (entryName : Option String)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (context : Array ContextInputV1)
+    (post : LogicalStateV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hadmitted_data : admitted.data = data)
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hstateId : stateId = 0)
+    (hcan :
+      validateValueBytesV1 data.types uint64TypeId countBytes = .ok ())
+    (hcanTwo :
+      validateValueBytesV1 data.types uint64TypeId two8BytesV1 = .ok ())
+    (hoverflow : ¬ leBytesToNatV1 countBytes + 2 < 2 ^ 64)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready
+          (incrementAddTwoCallableV1 callableId entryName uint64TypeId stateId)
+          #[countBytes] context false) :
+    stepReferenceSliceV1 admitted pre invocation responses vault ≠
+      .returned post value effects := by
+  simpa [incrementAddTwoCallableV1] using
+    stepReferenceSliceV1_ready_increment_overflow_not_returned admitted pre
+      invocation data countBytes uint64TypeId stateId stateName callableId
+      entryName responses vault context post value effects hadmitted_data
+      htypeU hstate hstateId hcan hcanTwo hoverflow hgate
+
 /-! ### Preservation-step outcome packaging
 
     Given a known ready shape and a known post-state evaluation, package the
@@ -734,5 +939,64 @@ theorem preservationReturned_of_readyViewLoadTripleSlot2_postEqPreV1
     exact this.trans hpost_pre
   exact preservationStepReturnedPostEqPreV1 program ordinal pre post' heval_pre
     hpost'
+
+/-- Returned arm after increment-add-two when post keeps the invariant. -/
+theorem preservationReturned_of_readyIncrementAddTwoV1
+    (program : SemanticProgramV1)
+    (ordinal : InvariantOrdinalV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (data : SemanticProgramDataV1)
+    (countBytes : ByteArray)
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (stateName : String)
+    (callableId : CallableIdV1)
+    (entryName : Option String)
+    (post : LogicalStateV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (context : Array ContextInputV1)
+    (hadmitted_data : admitted.data = data)
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hstateId : stateId = 0)
+    (hcan :
+      validateValueBytesV1 data.types uint64TypeId countBytes = .ok ())
+    (hcanTwo :
+      validateValueBytesV1 data.types uint64TypeId two8BytesV1 = .ok ())
+    (hnoOverflow : leBytesToNatV1 countBytes + 2 < 2 ^ 64)
+    (hinit : pre.initialized = true)
+    (hencode :
+      encodeLogicalStateValuesV1 data true
+        #[natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8] = .ok post)
+    (hrespEmpty : responses.size = 0)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready
+          (incrementAddTwoCallableV1 callableId entryName uint64TypeId stateId)
+          #[countBytes] context false)
+    (heval_post : evalInvariantV1 program ordinal post = .returnedTrue)
+    (post' : LogicalStateV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hstep :
+      stepReferenceSliceV1 admitted pre invocation responses vault =
+        .returned post' value effects) :
+    evalInvariantV1 program ordinal post' = .returnedTrue := by
+  have hret :=
+    stepReturned_of_readyIncrementAddTwoV1 admitted pre invocation data
+      countBytes uint64TypeId stateId stateName callableId entryName post
+      responses vault context hadmitted_data htypeU hstate hstateId hcan hcanTwo
+      hnoOverflow hinit hencode hrespEmpty hgate
+  have h1 := hstep
+  have h2 := hret
+  rw [h2] at h1
+  injection h1 with hpost _ _
+  simpa [hpost.symm] using heval_post
 
 end ProofForgeV2.Semantic.PreservationShapeV1

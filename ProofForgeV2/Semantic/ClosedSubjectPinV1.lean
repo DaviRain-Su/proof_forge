@@ -31,14 +31,15 @@ import ProofForgeV2.Semantic.ZeroCounterShapeV1
      pin-name hop for identity. Convenience only.
   3. **Never** grow the pin table as the only way to prove a new contract.
 
-  ## Wave-3′ mig-b1 / mig-b2
+  ## Wave-3′ mig-b1 / mig-b2 (residual golden)
 
-  EvenCounter and ZeroCounter product paths left `ProofInstances/` (now
-  `Semantic.ParityCounter*` / `Semantic.ZeroCounter*`). Pin remains a golden
-  accelerator for nullary `exact …PreservationV1.preservation_theorem`
-  (transparent-spine `decide` on multi-KiB subjects is not product-practical).
-  Ordinary contract surfaces: `ProofForgeV2.Examples.EvenCounter` /
-  `ProofForgeV2.Examples.ZeroCounter`.
+  EvenCounter residual golden (`Semantic.ParityCounter*`) is a **consumer** of
+  `PreservationShapeV1` (increment-add-two / view-load / UInt64 parity); ZeroCounter
+  residual (`Semantic.ZeroCounter*`) consumes store-constant / view-load.
+  Pin remains a golden accelerator for nullary
+  `exact …PreservationV1.preservation_theorem` until mig-c1 deletes residual
+  golden + this pin table. Ordinary surfaces:
+  `ProofForgeV2.Examples.EvenCounter` / `ProofForgeV2.Examples.ZeroCounter`.
 
   **Product env coupling:** the product session imports only
   `ProgramElaborationV1` (and its transitive graph). Closed-instance *proof*

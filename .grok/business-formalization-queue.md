@@ -23,7 +23,7 @@
 
 | id | status | objective |
 |---|---|---|
-| mig-b1-evencounter | **redo** | drain-6 仅把 `ProofInstances/EvenCounter*` 改名为 `Semantic/ParityCounter*`——**换名不算迁移**（合约专属内容仍在产品包）。合规做法：parity 业务谓词推理迁出 Semantic，同文件 inline 证明 = `PreservationShapeV1` 通用定理 + `subjectDataV1` 形状事实（decide/rfl）；`Semantic/ParityCounter*` 转入 Tests 验收或删除 |
+| mig-b1-evencounter | done | parity 业务 step 迁入 `PreservationShapeV1`（`incrementAddTwoCallableV1` / `uint64ParityInvariantCallableV1` + ready-step / preservationReturned wrappers）；`ParityCounterShape` 证明 constructor 形状等式；`ParityCounterPreservation` 经 shape wrappers 打包 full theorem（pin residual 至 mig-c1）；Tests 钉 EvenCounter 形状；product `InlineProofCertifierV1` 仍 GREEN |
 | mig-b2-zerocounter | **redo** | 同上（`Semantic/ZeroCounter*` 同样处理） |
 | mig-b3-miniamm | pending | MiniAmm L1 P1（emptyPool）：在迁移后的通用路径上完成 preserve + product；不再新增 ProofInstances golden |
 

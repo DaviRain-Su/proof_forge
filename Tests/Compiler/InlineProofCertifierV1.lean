@@ -255,10 +255,10 @@ private unsafe def testPreservingFalseTheoremElab
         phase == .certification && detail == .elaborate
     | _ => false
 
-/-- Author body for EvenCounter L1 (mig-b1): nullary `exact` of the
-    shape-family `preservation_theorem`. Subject bytes are pin-aliased to
-    `ParityCounterShapeV1.canonicalBytes` (golden accelerator only — not
-    ProofInstances). Inventory admits only the theorem command. -/
+/-- Author body for EvenCounter L1 (mig-b1 redo): nullary `exact` of residual
+    golden `preservation_theorem` (thin consumer of PreservationShapeV1
+    increment-add-two / view-load / UInt64 parity families). Subject bytes are
+    pin-aliased to `ParityCounterShapeV1.canonicalBytes` until mig-c1. -/
 private def evenCounterPreservingTheoremBody
     (theoremName typeName : String) : String :=
   "theorem " ++ theoremName ++ " : " ++ typeName ++ " := by\n" ++

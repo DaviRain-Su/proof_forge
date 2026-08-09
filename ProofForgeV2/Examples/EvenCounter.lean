@@ -1,14 +1,14 @@
 import ProofForgeV2.Language.ProgramElaborationV1
 
 /-!
-  Ordinary EvenCounter contract surface (wave-3′ mig-b1-evencounter).
+  Ordinary EvenCounter contract surface (wave-3′ mig-b1 redo).
 
   Product-positive certification lives on the same-file program + author theorem
-  path exercised by `Tests.Compiler.InlineProofCertifierV1` (non-pin
-  `ParityCounterPreservationV1.preservation_theorem_of_eq_bytes` transport).
-  This module records the ordinary program shape under `ProofForgeV2.Examples`
-  without embedding the heavy closed shape golden (which stays in
-  `Semantic.ParityCounterShapeV1` until mig-c1 deletes residual golden modules).
+  path exercised by `Tests.Compiler.InlineProofCertifierV1` (`exact`
+  residual `ParityCounterPreservationV1.preservation_theorem`, which is a thin
+  consumer of `PreservationShapeV1` increment-add-two / view-load / UInt64 parity
+  families). Residual golden + pin remain until mig-c1; this module holds only
+  the ordinary program surface under `ProofForgeV2.Examples`.
 
   No ClosedSubjectPin row. No `ProofInstances/` import. Engineering only.
 -/

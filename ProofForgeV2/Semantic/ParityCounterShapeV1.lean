@@ -1,14 +1,17 @@
 import ProofForgeV2.Semantic.PreservationABI
+import ProofForgeV2.Semantic.PreservationShapeV1
 import ProofForgeV2.Semantic.RequirementsV1
 
 /-
-  Closed parity-counter shape family (increment +2, parity invariant) for the
-  product-normalized `Root.EvenCounter` program (wave-3′ mig-b1).
+  Residual pin golden for the product-normalized `Root.EvenCounter` program
+  (wave-3′ mig-b1 redo). Callables are **defined as**
+  `PreservationShapeV1` constructors (increment-add-two / view-load / UInt64
+  parity invariant) so same-file proofs are shape-family apply + rfl/decide —
+  not a second contract-local micro-path.
 
-  Shape-family golden under `Semantic/` (not `ProofInstances/`). Execution and
-  preservation continue to use sole product
-  `admitReferenceProgramSliceV1` / `stepReferenceSliceV1`. No MiniAmm or
-  target-specific surface. Pin is optional golden accelerator only.
+  Residual golden (data/bytes/structure/encode) stays in product only as pin
+  accelerator until mig-c1 deletes pin + residual modules. Sole step remains
+  `admitReferenceProgramSliceV1` / `stepReferenceSliceV1`.
 -/
 
 namespace ProofForgeV2.Semantic.ParityCounterShapeV1
@@ -16,6 +19,7 @@ namespace ProofForgeV2.Semantic.ParityCounterShapeV1
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.InvariantABI
 open ProofForgeV2.Semantic.PreservationABI
+open ProofForgeV2.Semantic.PreservationShapeV1
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.RequirementsV1
 open ProofForgeV2.Semantic.WireV1
@@ -52,6 +56,9 @@ def twoBytes : ByteArray := ByteArray.mk #[2, 0, 0, 0, 0, 0, 0, 0]
 
 def zeroBytes : ByteArray := ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]
 
+private theorem twoBytes_eq_two8 : twoBytes = two8BytesV1 := rfl
+private theorem zeroBytes_eq_zero8 : zeroBytes = zero8BytesV1 := rfl
+
 /-- `increment`: load, add the even literal 2, store, reload, return. -/
 def incrementBlock : BlockV1 := {
   id := 0
@@ -78,6 +85,13 @@ def incrementCallable : CallableV1 := {
   invariantSteps := none
 }
 
+/-- mig-b1: residual golden callables match PreservationShape constructors. -/
+theorem incrementCallable_is_incrementAddTwo :
+    incrementCallable =
+      incrementAddTwoCallableV1 0 (some "increment") 0 0 := by
+  simp [incrementCallable, incrementBlock, valueInstruction, valueDef,
+    voidInstruction, incrementAddTwoCallableV1, twoBytes_eq_two8]
+
 /-- `get`: read-only state projection. -/
 def getBlock : BlockV1 := {
   id := 0
@@ -97,6 +111,10 @@ def getCallable : CallableV1 := {
   loopBounds := #[]
   invariantSteps := none
 }
+
+theorem getCallable_is_viewLoad :
+    getCallable = viewLoadCallableV1 1 (some "get") 0 0 := by
+  simp [getCallable, getBlock, valueInstruction, valueDef, viewLoadCallableV1]
 
 /-- Executable parity predicate: `(count % 2) == 0`. -/
 def evenBlock : BlockV1 := {
@@ -123,6 +141,12 @@ def evenCallable : CallableV1 := {
   loopBounds := #[]
   invariantSteps := some 7
 }
+
+theorem evenCallable_is_uint64Parity :
+    evenCallable =
+      uint64ParityInvariantCallableV1 2 (some "even") 0 1 0 .public_ (some 7) := by
+  simp [evenCallable, evenBlock, valueInstruction, valueDef,
+    uint64ParityInvariantCallableV1, twoBytes_eq_two8, zeroBytes_eq_zero8]
 
 def evenInvariant : InvariantDeclV1 :=
   { id := 0, name := "even", callableId := 2 }
