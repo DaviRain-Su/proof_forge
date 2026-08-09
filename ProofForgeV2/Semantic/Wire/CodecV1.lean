@@ -295,6 +295,41 @@ theorem encodeTagged_eq_okV1 (tag : String) (fields : Array ByteArray)
     encodeNatAsU32le, encodeNatAsU16le, htagU32, hfieldSize, Bind.bind, Except.bind,
     Pure.pure, Except.pure]
 
+/-- Invert a successful `encodeTagged`: bytes are exactly `taggedBytesV1` and all
+    framing gates held. Lives next to the private Nat-as-u16/u32 helpers. -/
+theorem encodeTagged_ok_eq_taggedBytesV1 (tag : String) (fields : Array ByteArray)
+    (b : ByteArray) (h : encodeTagged tag fields = .ok b) :
+    b = taggedBytesV1 tag fields ∧
+      tag.isEmpty = false ∧
+      isAsciiTagV1 tag = true ∧
+      tag.toUTF8.size ≤ maxTagAsciiBytes ∧
+      tag.toUTF8.size ≤ UInt32.size - 1 ∧
+      fields.size ≤ UInt16.size - 1 := by
+  simp only [encodeTagged] at h
+  by_cases hempty : tag.isEmpty = true
+  · simp only [hempty, ↓reduceIte, err] at h; cases h
+  · have hemptyf : tag.isEmpty = false := Bool.eq_false_iff.mpr hempty
+    simp only [hemptyf, Bool.false_eq_true, ↓reduceIte] at h
+    by_cases hascii : isAsciiTagV1 tag = true
+    · simp only [hascii, ↓reduceIte] at h
+      by_cases htagSize : tag.toUTF8.size ≤ maxTagAsciiBytes
+      · simp only [htagSize, ↓reduceIte] at h
+        simp only [encodeNatAsU32le, encodeNatAsU16le] at h
+        by_cases htagU32 : tag.toUTF8.size ≤ UInt32.size - 1
+        · simp only [htagU32, ↓reduceIte] at h
+          by_cases hfieldSize : fields.size ≤ UInt16.size - 1
+          · simp only [hfieldSize, ↓reduceIte, Bind.bind, Pure.pure, Except.bind,
+              Except.pure] at h
+            exact And.intro (Except.ok.inj h.symm) <|
+              And.intro hemptyf <| And.intro hascii <|
+                And.intro htagSize <| And.intro htagU32 hfieldSize
+          · simp only [hfieldSize, ↓reduceIte, err, Bind.bind, Except.bind] at h
+            cases h
+        · simp only [htagU32, ↓reduceIte, err, Bind.bind, Except.bind] at h
+          cases h
+      · simp only [htagSize, ↓reduceIte, err] at h; cases h
+    · simp only [hascii, ↓reduceIte, err] at h; cases h
+
 theorem encodeTagged_eq_ok_of_bytesV1 (tag : String) (tagBytes : ByteArray)
     (fields : Array ByteArray) (htagBytes : tag.toUTF8 = tagBytes)
     (hempty : tag.isEmpty = false) (hascii : isAsciiTagV1 tag = true)

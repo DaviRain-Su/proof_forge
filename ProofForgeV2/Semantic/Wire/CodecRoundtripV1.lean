@@ -987,4 +987,209 @@ theorem readU16le_encode_midV1 (left right : ByteArray) (v : UInt16) :
   unfold readU16leAtV1
   simp only [r0', r1, Bind.bind, Pure.pure, Except.bind, Except.pure, u16le_roundtripV1]
 
+/-! ### Generic tagged-header mid-offset (product foundation for codec invert) -/
+
+/-- Production tagged header = `u32le(|tag|) ++ tag ++ u16le(fieldCount)`. -/
+def taggedHeaderBytesV1 (tag : String) (fieldCount : Nat) : ByteArray :=
+  ((encodeU32le (UInt32.ofNat tag.toUTF8.size)).append tag.toUTF8).append
+    (encodeU16le (UInt16.ofNat fieldCount))
+
+theorem taggedHeaderBytesV1_size (tag : String) (fieldCount : Nat) :
+    (taggedHeaderBytesV1 tag fieldCount).size = 4 + tag.toUTF8.size + 2 := by
+  unfold taggedHeaderBytesV1
+  change ((encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8) ++
+      encodeU16le (UInt16.ofNat fieldCount)).size = 4 + tag.toUTF8.size + 2
+  rw [ByteArray.size_append, ByteArray.size_append, encodeU32le_sizeV1,
+    encodeU16le_sizeV1]
+
+theorem ByteArray_bne_self_eq_falseV1 (a : ByteArray) : (a != a) = false := by
+  simp [bne, ByteArray_beq_reflV1]
+
+/-- Production length-prefixed ASCII tag read at mid-offset of
+    `u32le(|tag|) ++ tagBytes`. -/
+theorem readTagBytes_encode_midV1
+    (left right : ByteArray) (tagBytes : ByteArray)
+    (hnonempty : 1 ≤ tagBytes.size)
+    (hmax : tagBytes.size ≤ maxTagAsciiBytes)
+    (hfit : tagBytes.size ≤ UInt32.size - 1)
+    (hascii : isAsciiTagBytesV1 tagBytes = true) :
+    readTagBytesAtV1
+        (left ++ encodeU32le (UInt32.ofNat tagBytes.size) ++ tagBytes ++ right)
+        left.size =
+      .ok (tagBytes, left.size + 4 + tagBytes.size) := by
+  have hassoc :
+      left ++ encodeU32le (UInt32.ofNat tagBytes.size) ++ tagBytes ++ right =
+        left ++ encodeU32le (UInt32.ofNat tagBytes.size) ++ (tagBytes ++ right) := by
+    simp [ByteArray.append_assoc]
+  rw [hassoc]
+  have hread :=
+    readU32le_encode_midV1 left (tagBytes ++ right) (UInt32.ofNat tagBytes.size)
+  have hto : (UInt32.ofNat tagBytes.size).toNat = tagBytes.size :=
+    Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt hfit (by decide))
+  have htake :
+      takeBytesAtV1
+          (left ++ encodeU32le (UInt32.ofNat tagBytes.size) ++ (tagBytes ++ right))
+          (left.size + 4) tagBytes.size = .ok tagBytes := by
+    have hs4 : (encodeU32le (UInt32.ofNat tagBytes.size)).size = 4 :=
+      encodeU32le_sizeV1 _
+    have hA :
+        left ++ encodeU32le (UInt32.ofNat tagBytes.size) ++ (tagBytes ++ right) =
+          (left ++ encodeU32le (UInt32.ofNat tagBytes.size)) ++ tagBytes ++ right := by
+      simp [ByteArray.append_assoc]
+    have hoff :
+        (left ++ encodeU32le (UInt32.ofNat tagBytes.size)).size = left.size + 4 := by
+      rw [ByteArray.size_append, hs4]
+    rw [hA, ← hoff]
+    exact takeBytes_mid_payloadV1 _ tagBytes right
+  unfold readTagBytesAtV1
+  rw [hread]
+  dsimp only
+  have h1 : decide (1 ≤ tagBytes.size) = true := by simp [hnonempty]
+  have h2 : decide (tagBytes.size ≤ maxTagAsciiBytes) = true := by simp [hmax]
+  simp only [hto, h1, h2, Bool.and_self, Bool.not_true]
+  rw [if_neg (by decide : ¬(false = true))]
+  rw [htake]
+  simp only [hascii, ↓reduceIte]
+
+/-- Production expectTaggedHeader at mid-offset of
+    `taggedHeaderBytesV1 tag fieldCount ++ fieldsPayload`. -/
+theorem expectTaggedHeader_encode_midV1
+    (left right : ByteArray) (tag : String) (fieldCount : Nat)
+    (fieldsPayload : ByteArray)
+    (hnonempty : 1 ≤ tag.toUTF8.size)
+    (hmax : tag.toUTF8.size ≤ maxTagAsciiBytes)
+    (hfit : tag.toUTF8.size ≤ UInt32.size - 1)
+    (hasciiBytes : isAsciiTagBytesV1 tag.toUTF8 = true)
+    (hcountFit : fieldCount ≤ UInt16.size - 1) :
+    expectTaggedHeaderBytesAtV1
+        (left ++ taggedHeaderBytesV1 tag fieldCount ++ fieldsPayload ++ right)
+        left.size tag.toUTF8 fieldCount =
+      .ok (left.size + (taggedHeaderBytesV1 tag fieldCount).size) := by
+  have henc :
+      taggedHeaderBytesV1 tag fieldCount =
+        encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8 ++
+          encodeU16le (UInt16.ofNat fieldCount) := by
+    simp [taggedHeaderBytesV1, ByteArray.append_assoc]
+  have hin :
+      left ++ taggedHeaderBytesV1 tag fieldCount ++ fieldsPayload ++ right =
+        left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8 ++
+          (encodeU16le (UInt16.ofNat fieldCount) ++ fieldsPayload ++ right) := by
+    simp [henc, ByteArray.append_assoc]
+  rw [hin]
+  have htag :=
+    readTagBytes_encode_midV1 left
+      (encodeU16le (UInt16.ofNat fieldCount) ++ fieldsPayload ++ right)
+      tag.toUTF8 hnonempty hmax hfit hasciiBytes
+  unfold expectTaggedHeaderBytesAtV1
+  rw [htag]
+  dsimp only
+  rw [ByteArray_bne_self_eq_falseV1]
+  rw [if_neg (by decide : ¬(false = true))]
+  have hassoc2 :
+      left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8 ++
+          (encodeU16le (UInt16.ofNat fieldCount) ++ fieldsPayload ++ right) =
+        (left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8) ++
+          encodeU16le (UInt16.ofNat fieldCount) ++ (fieldsPayload ++ right) := by
+    simp [ByteArray.append_assoc]
+  have hszL :
+      (left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8).size =
+        left.size + 4 + tag.toUTF8.size := by
+    rw [ByteArray.size_append, ByteArray.size_append, encodeU32le_sizeV1]
+  have hcount :
+      readU16leAtV1
+          (left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8 ++
+            (encodeU16le (UInt16.ofNat fieldCount) ++ fieldsPayload ++ right))
+          (left.size + 4 + tag.toUTF8.size) =
+        .ok (UInt16.ofNat fieldCount,
+          left.size + 4 + tag.toUTF8.size + 2) := by
+    rw [hassoc2, ← hszL]
+    simpa [hszL] using
+      readU16le_encode_midV1
+        (left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8)
+        (fieldsPayload ++ right) (UInt16.ofNat fieldCount)
+  rw [hcount]
+  dsimp only
+  have htoC : (UInt16.ofNat fieldCount).toNat = fieldCount :=
+    Nat.mod_eq_of_lt (Nat.lt_of_le_of_lt hcountFit (by decide))
+  have heq : ((UInt16.ofNat fieldCount).toNat == fieldCount) = true := by
+    simp [htoC]
+  rw [heq, if_pos rfl]
+  have : left.size + 4 + tag.toUTF8.size + 2 =
+      left.size + (taggedHeaderBytesV1 tag fieldCount).size := by
+    rw [taggedHeaderBytesV1_size]; omega
+  exact congrArg Except.ok this
+
+/-- Production `expectTag` at mid-offset of a successful tagged header. -/
+theorem expectTag_encode_midV1
+    (left right : ByteArray) (tag : String) (fieldCount : Nat)
+    (fieldsPayload : ByteArray) (nesting : Nat)
+    (hnonempty : 1 ≤ tag.toUTF8.size)
+    (hmax : tag.toUTF8.size ≤ maxTagAsciiBytes)
+    (hfit : tag.toUTF8.size ≤ UInt32.size - 1)
+    (hasciiBytes : isAsciiTagBytesV1 tag.toUTF8 = true)
+    (hcountFit : fieldCount ≤ UInt16.size - 1) :
+    expectTag tag fieldCount
+        ⟨left ++ taggedHeaderBytesV1 tag fieldCount ++ fieldsPayload ++ right,
+          left.size, nesting⟩ =
+      .ok ((),
+        ⟨left ++ taggedHeaderBytesV1 tag fieldCount ++ fieldsPayload ++ right,
+          left.size + (taggedHeaderBytesV1 tag fieldCount).size, nesting⟩) := by
+  apply expectTag_eq_of_headerV1
+  exact expectTaggedHeader_encode_midV1 left right tag fieldCount fieldsPayload
+    hnonempty hmax hfit hasciiBytes hcountFit
+
+/-- Production `decodeTag` at mid-offset of `u32le(|tag|) ++ tag`. -/
+theorem decodeTag_encode_midV1
+    (left right : ByteArray) (tag : String) (nesting : Nat)
+    (hnonempty : 1 ≤ tag.toUTF8.size)
+    (hmax : tag.toUTF8.size ≤ maxTagAsciiBytes)
+    (hfit : tag.toUTF8.size ≤ UInt32.size - 1)
+    (hasciiBytes : isAsciiTagBytesV1 tag.toUTF8 = true)
+    (hasciiTag : isAsciiTagV1 tag = true) :
+    decodeTag
+        ⟨left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8 ++ right,
+          left.size, nesting⟩ =
+      .ok (tag,
+        ⟨left ++ encodeU32le (UInt32.ofNat tag.toUTF8.size) ++ tag.toUTF8 ++ right,
+          left.size + 4 + tag.toUTF8.size, nesting⟩) := by
+  apply decodeTag_eq_of_valueV1
+  · exact readTagBytes_encode_midV1 left right tag.toUTF8 hnonempty hmax hfit hasciiBytes
+  · exact fromUTF8?_toUTF8V1 tag
+  · exact hasciiTag
+
+/-- `taggedBytesV1` expands to header ++ foldl-append of fields. -/
+theorem taggedBytesV1_eq_header_payload (tag : String) (fields : Array ByteArray) :
+    taggedBytesV1 tag fields =
+      taggedHeaderBytesV1 tag fields.size ++
+        fields.foldl (fun out f => out.append f) ByteArray.empty := by
+  simp only [taggedBytesV1, taggedBytesFromBytesV1, taggedHeaderBytesV1,
+    appendTaggedFieldsV1]
+  have hfold (init : ByteArray) (xs : List ByteArray) :
+      xs.foldl (fun out f => out.append f) init =
+        init ++ xs.foldl (fun out f => out.append f) ByteArray.empty := by
+    induction xs generalizing init with
+    | nil =>
+        simp only [List.foldl_nil, ByteArray.append_empty]
+    | cons x xs ih =>
+        -- foldl_cons reduces both sides to recursive form.
+        simp only [List.foldl_cons]
+        -- LHS: foldl (init.append x) xs
+        -- RHS: init ++ foldl (empty.append x) xs
+        rw [ih (init.append x), ih (ByteArray.empty.append x)]
+        -- Normalize method append to ++
+        change (init ++ x) ++ List.foldl (fun out f => out.append f) ByteArray.empty xs =
+          init ++ ((ByteArray.empty ++ x) ++
+            List.foldl (fun out f => out.append f) ByteArray.empty xs)
+        rw [ByteArray.empty_append, ByteArray.append_assoc]
+  have hlist (init : ByteArray) :
+      fields.foldl (fun out field => out.append field) init =
+        fields.toList.foldl (fun out field => out.append field) init := by
+    simp [Array.foldl_toList]
+  let header :=
+    ((encodeU32le (UInt32.ofNat tag.toUTF8.size)).append tag.toUTF8).append
+      (encodeU16le (UInt16.ofNat fields.size))
+  change fields.foldl (fun out field => out.append field) header =
+    header ++ fields.foldl (fun out field => out.append field) ByteArray.empty
+  rw [hlist header, hlist ByteArray.empty, hfold header fields.toList]
+
 end ProofForgeV2.Semantic.WireV1

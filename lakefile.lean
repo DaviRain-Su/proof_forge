@@ -113,6 +113,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Semantic.ZeroCounterV1,
     `Tests.Semantic.InvariantTheoremV1,
     `Tests.Semantic.ProofBridgeV1,
+    `Tests.Semantic.CodecInvertV1,
     `Tests.Semantic.ProofedCertV1,
     `Tests.Semantic.ProofedEncodeCertV1,
     `Tests.Semantic.ProofedDecodeCertV1,

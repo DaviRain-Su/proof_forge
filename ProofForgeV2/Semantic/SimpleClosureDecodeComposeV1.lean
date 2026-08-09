@@ -51,10 +51,10 @@ open ProofForgeV2.Semantic.SimpleClosureStructureCertV1
 open ProofForgeV2.Semantic.SimpleClosureTraceV1
 open ProofForgeV2.Semantic.WireV1
 
--- Prefer RootQn header/tag constants; leaf mid-offset theorems via explicit paths.
+-- Prefer RootQn header/tag constants; product Wire owns taggedHeaderBytesV1.
 open ProofForgeV2.Semantic.SimpleClosureDecodeRootQnV1
   (semanticProgramDataTagV1 semanticProgramDataHeaderSizeV1
-    taggedHeaderBytesV1 header_size fieldsOk_body_eq
+    header_size fieldsOk_body_eq
     expectTag_of_fieldsOk expectTag_data_midV1)
 
 open ProofForgeV2.Semantic.SimpleClosureDecodeFixedFieldsV1

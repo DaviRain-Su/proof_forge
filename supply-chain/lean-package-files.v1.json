@@ -336,9 +336,9 @@
       "sha256": "e8439c930b14330d5d1c966ef9b2e86a2e9d364119946ae6caafe431655a10dd"
     },
     {
-      "bytes": 5348,
+      "bytes": 5581,
       "path": "ProofForgeV2/Semantic/ProofBridgeV1.lean",
-      "sha256": "2b4882eced209d7159a039b8f00283edbb7e5ea35ce113a06fdf1c12d8ff7c48"
+      "sha256": "cf268a1618c399a8335db901765fe6bab504b48aab870692b9c364ee736a4a74"
     },
     {
       "bytes": 29855,
@@ -391,19 +391,19 @@
       "sha256": "b453e698afeca47c9be95e08c19a041e14f51457098200d032a4ee4c5a644656"
     },
     {
-      "bytes": 41357,
+      "bytes": 41331,
       "path": "ProofForgeV2/Semantic/SimpleClosureDecodeComposeV1.lean",
-      "sha256": "d527a4089a3fb61fcd1314b8fced3569e991a271b36be5cd61540d68cb2f8b7d"
+      "sha256": "ebd29563c41e0c0beba79ac697a05a09e60b9b0cdb4a823a5d84848938d30d60"
     },
     {
-      "bytes": 82719,
+      "bytes": 75465,
       "path": "ProofForgeV2/Semantic/SimpleClosureDecodeFixedFieldsV1.lean",
-      "sha256": "5571b34c84a51c14b627779be96a7e7f9ec78c1724c648d8c3123020b0ce3917"
+      "sha256": "d95514b5882cc007e91ccb74f1ffe991fe916d0a86b50dca88de72dcb3340ed3"
     },
     {
-      "bytes": 14426,
+      "bytes": 13665,
       "path": "ProofForgeV2/Semantic/SimpleClosureDecodeRootQnV1.lean",
-      "sha256": "815be3ac5ff80c30cc89d3ad2ef6c69809f98fed6a4062468456afdc84c3fe77"
+      "sha256": "9162fb773cda3986597bff5b6334e4daa361dda8702baaa75134fd85cd09dcaf"
     },
     {
       "bytes": 27270,
@@ -441,14 +441,19 @@
       "sha256": "71e53f5c4fc6e8c212273ce754e012d4c44fb46bee2a80070d93427a3cfbecd2"
     },
     {
-      "bytes": 44772,
-      "path": "ProofForgeV2/Semantic/Wire/CodecRoundtripV1.lean",
-      "sha256": "faf451442b0c5a606bce75267c1368d2682a72fb9ee9f96e27d33e308ca964e7"
+      "bytes": 16181,
+      "path": "ProofForgeV2/Semantic/Wire/CodecInvertV1.lean",
+      "sha256": "ffbb63ebe6af3ae0c1d2b79e1f56fe343c90e9e07d43493ceb6e638cd7ad7f18"
     },
     {
-      "bytes": 147061,
+      "bytes": 54514,
+      "path": "ProofForgeV2/Semantic/Wire/CodecRoundtripV1.lean",
+      "sha256": "1c7e52c93bfb26bb5ff2b081d45cc383e4d9ed0b2c15c5f0e29fe1263666c57a"
+    },
+    {
+      "bytes": 148921,
       "path": "ProofForgeV2/Semantic/Wire/CodecV1.lean",
-      "sha256": "ff3cc9b4562cd97b705e8f715fa58a559c282db88b67ed574b8aafba0ea92f08"
+      "sha256": "77a6709a90bc2554149b1ea18ee6028efa2902f035aaee8491fbd703dbd625dc"
     },
     {
       "bytes": 58044,

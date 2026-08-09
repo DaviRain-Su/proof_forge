@@ -1,4 +1,5 @@
 import ProofForgeV2.Semantic.WireV1
+import ProofForgeV2.Semantic.Wire.CodecInvertV1
 
 /-
   ProofForgeV2.Semantic.ProofBridgeV1 — exact product-byte proof bridge.
@@ -16,10 +17,13 @@ import ProofForgeV2.Semantic.WireV1
       `decodeSemanticProgramDataV1 bytes = .ok data`
     * product kernel remains `SemanticProgramV1.canonicalBytes`
 
-  Remaining gap (documented, not forged):
-    parametric `decodeSemanticProgramDataV1 (encode data) = .ok data` for
-    arbitrary admitted data. Normalize already produces the encode witness;
-    full codec round-trip refinement is still open beyond fixture-level proofs.
+  Codec invert path (mig-a1 foundation, CodecInvertV1):
+    * `MidOffsetInvertV1` — parametric encode→decode at mid-offset
+    * `RootFieldInvertV1` — nine root-field invert package
+    * `DecodeEncodeRoundtripGoalV1` — residual goal form
+    * Visibility leaf fully inverted; array zero/one helpers shipped
+    * Remaining: field-family MidOffsetInvert (TypeDecl…Callable/Op) +
+      composition theorem discharging `DecodeEncodeRoundtripGoalV1`
 -/
 
 namespace ProofForgeV2.Semantic.ProofBridgeV1
