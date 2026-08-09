@@ -25,7 +25,7 @@ Surface: `Examples/MiniAmmL1.lean` (full vault-internal MiniAmm + executable `em
 |---|---|---|
 | bf3-surface | done | Ship `Examples/MiniAmmL1.lean` with executable `emptyPool`; product `check` ok |
 | bf3-admit-docs | done | Reference admit suite + focused `Tests.Semantic.MiniAmmL1Admit` (18470B carrier); INV-2/Agents/queue wave-3 open |
-| bf3-preserve | in_progress | Closed data (2342B) + production decode bridge GREEN. Foundation: `tripleUint64CanonicalV1` + `encodeLogicalStateValuesV1_triple_uint64_eq_ok` + `decodeLogicalStateValuesV1_triple_eq` in `InvariantFoundationV1`. Residual: decode-of-encode / encode-of-decode identity for triple UInt64 + multi-state clear/get `stepReferenceSliceV1` packing + emptyPool eval + full `PreservationTheoremV1` |
+| bf3-preserve | in_progress | Closed data (2342B) + production decode bridge GREEN. Foundation packing GREEN: `tripleUint64CanonicalV1` + encode ok + `decodeLogicalStateValuesV1_of_triple_uint64_encode` (decode-of-encode) + `decodeLogicalStateValuesV1_triple_eq` + `initialLogicalStateV1_triple_uint64_no_initializer_eq_ok`. Residual: encode-of-decode identity for triple UInt64 + multi-state clear/get `stepReferenceSliceV1` packing + emptyPool eval + full `PreservationTheoremV1` |
 | bf3-product | pending | same-file `proof emptyPool preserving` + product certifier positive (pin optional golden) |
 | bf3-docs | pending | ADR/research/Agents closeout; **not** ADR-0027 supersession; not formal |
 

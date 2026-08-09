@@ -1045,10 +1045,11 @@ theorem stateConformsV1_elim_of_validate_eq_ok
 /-! ### Triple UInt64 logical-state packing (multi-state L1 preservation) -/
 
 /-- Exact triple length-prefixed UInt64 layout (declaration order).
-    Left-associated to match `encodeLogicalStateValuesV1` forIn accumulation. -/
+    Left-associated `++` form matches encoder forIn accumulation (via
+    `ByteArray.append_assoc`) and Codec mid-offset lemmas. -/
 def tripleUint64CanonicalV1 (b0 b1 b2 : ByteArray) : ByteArray :=
-  (((encodeU32le 8).append b0).append ((encodeU32le 8).append b1)).append
-    ((encodeU32le 8).append b2)
+  encodeU32le (8 : UInt32) ++ b0 ++ encodeU32le (8 : UInt32) ++ b1 ++
+    encodeU32le (8 : UInt32) ++ b2
 
 private theorem array_push3_eq
     (b0 b1 b2 : ByteArray) :
@@ -1098,10 +1099,265 @@ theorem encodeLogicalStateValuesV1_triple_uint64_eq_ok
     have hle : b2.size ≤ UInt32.size - 1 := by simp [hs2]
     have hsz : UInt32.ofNat b2.size = 8 := by simp [hs2]
     simp only [if_pos hle, hsz, Pure.pure, Except.pure, Bind.bind, Except.bind]
-  unfold encodeLogicalStateValuesV1 tripleUint64CanonicalV1
+  unfold encodeLogicalStateValuesV1
   simp only [hstate]
   simp [hc0, hc1, hc2, hslot0, hslot1, hslot2,
     Pure.pure, Except.pure, Bind.bind, Except.bind, ByteArray.empty_append]
+  -- forIn: ((s0++s1)++s2) with si = enc++bi; flatten to mid-friendly layout
+  simp [tripleUint64CanonicalV1, ByteArray.append_assoc]
+
+/-- Mid-lemma: read UInt64 length header at `left.size` in a 4+8+… layout. -/
+private theorem read_uint64_slot_headerV1
+    (left payload right : ByteArray) :
+    readU32leAtV1
+        (left ++ encodeU32le (8 : UInt32) ++ payload ++ right) left.size =
+      .ok ((8 : UInt32), left.size + 4) := by
+  have h :=
+    readU32le_encode_midV1 left (payload ++ right) (8 : UInt32)
+  -- mid: left ++ enc ++ (payload ++ right)
+  -- goal layout: left ++ enc ++ payload ++ right
+  have heq :
+      left ++ encodeU32le (8 : UInt32) ++ (payload ++ right) =
+        left ++ encodeU32le (8 : UInt32) ++ payload ++ right := by
+    simp [ByteArray.append_assoc]
+  rwa [heq] at h
+
+/-- Mid-lemma: extract the 8-byte payload after a UInt64 length header. -/
+private theorem extract_uint64_slot_payloadV1
+    (left payload right : ByteArray)
+    (hsize : payload.size = 8) :
+    (left ++ encodeU32le (8 : UInt32) ++ payload ++ right).extract
+        (left.size + 4) (left.size + 4 + 8) =
+      payload := by
+  have h :=
+    extract_mid_payloadV1 (left ++ encodeU32le (8 : UInt32)) payload right
+  have hleft : (left ++ encodeU32le (8 : UInt32)).size = left.size + 4 := by
+    simp [ByteArray.size_append, encodeU32le_sizeV1]
+  simp only [hleft, hsize] at h
+  -- (left++enc) ++ payload ++ right  =  left ++ enc ++ payload ++ right
+  simpa [ByteArray.append_assoc] using h
+
+/-- Decode recovers three UInt64 payloads from the exact triple encode layout. -/
+theorem decodeLogicalStateValuesV1_of_triple_uint64_encode
+    (data : SemanticProgramDataV1)
+    (s0 s1 s2 : StateDeclV1)
+    (b0 b1 b2 : ByteArray)
+    (initialized : Bool)
+    (hstate : data.logicalState = #[s0, s1, s2])
+    (hc0 : validateValueBytesV1 data.types s0.typeId b0 = .ok ())
+    (hc1 : validateValueBytesV1 data.types s1.typeId b1 = .ok ())
+    (hc2 : validateValueBytesV1 data.types s2.typeId b2 = .ok ())
+    (hs0 : b0.size = 8) (hs1 : b1.size = 8) (hs2 : b2.size = 8) :
+    decodeLogicalStateValuesV1 data {
+      initialized
+      canonicalValues := tripleUint64CanonicalV1 b0 b1 b2
+    } = .ok #[b0, b1, b2] := by
+  let state : LogicalStateV1 := {
+    initialized
+    canonicalValues := tripleUint64CanonicalV1 b0 b1 b2
+  }
+  change decodeLogicalStateValuesV1 data state = .ok #[b0, b1, b2]
+  have hhdr : (encodeU32le (8 : UInt32)).size = 4 := encodeU32le_sizeV1 8
+  have hlist : data.logicalState.toList = [s0, s1, s2] := by simp [hstate]
+  have h8 : (8 : UInt32).toNat = 8 := by decide
+  have hsz : state.canonicalValues.size = 36 := by
+    simp [state, tripleUint64CanonicalV1, ByteArray.size_append, hhdr,
+      hs0, hs1, hs2]
+  -- Slot 0 @ 0
+  have hread0 :
+      readU32leAtV1 state.canonicalValues 0 = .ok ((8 : UInt32), 4) := by
+    have h :=
+      read_uint64_slot_headerV1 ByteArray.empty b0
+        (encodeU32le (8 : UInt32) ++ b1 ++ encodeU32le (8 : UInt32) ++ b2)
+    simpa [state, tripleUint64CanonicalV1, ByteArray.size_empty,
+      ByteArray.empty_append, ByteArray.append_assoc] using h
+  have hex0 :
+      state.canonicalValues.extract 4 (4 + (8 : UInt32).toNat) = b0 := by
+    have h :=
+      extract_uint64_slot_payloadV1 ByteArray.empty b0
+        (encodeU32le (8 : UInt32) ++ b1 ++ encodeU32le (8 : UInt32) ++ b2) hs0
+    simpa [state, tripleUint64CanonicalV1, ByteArray.size_empty, h8,
+      ByteArray.empty_append, ByteArray.append_assoc] using h
+  have hfit0 : 4 + (8 : UInt32).toNat ≤ state.canonicalValues.size := by
+    simp [hsz, h8]
+  -- Slot 1 @ residual offset 4+toNat 8
+  have hleft0 : (encodeU32le (8 : UInt32) ++ b0).size = 12 := by
+    simp [ByteArray.size_append, hhdr, hs0]
+  have hread1 :
+      readU32leAtV1 state.canonicalValues (4 + (8 : UInt32).toNat) =
+        .ok ((8 : UInt32), 4 + (8 : UInt32).toNat + 4) := by
+    have h :=
+      read_uint64_slot_headerV1
+        (encodeU32le (8 : UInt32) ++ b0) b1
+        (encodeU32le (8 : UInt32) ++ b2)
+    have hnum :
+        readU32leAtV1
+            (encodeU32le (8 : UInt32) ++ b0 ++ encodeU32le (8 : UInt32) ++ b1 ++
+              (encodeU32le (8 : UInt32) ++ b2))
+            12 =
+          .ok ((8 : UInt32), 16) := by
+      simpa [hleft0] using h
+    have hflat :
+        readU32leAtV1 (tripleUint64CanonicalV1 b0 b1 b2) 12 =
+          .ok ((8 : UInt32), 16) := by
+      simpa [tripleUint64CanonicalV1, ByteArray.append_assoc] using hnum
+    simpa [state, h8] using hflat
+  have hex1 :
+      state.canonicalValues.extract
+          (4 + (8 : UInt32).toNat + 4)
+          (4 + (8 : UInt32).toNat + 4 + (8 : UInt32).toNat) =
+        b1 := by
+    have h :=
+      extract_uint64_slot_payloadV1
+        (encodeU32le (8 : UInt32) ++ b0) b1
+        (encodeU32le (8 : UInt32) ++ b2) hs1
+    have hnum :
+        (encodeU32le (8 : UInt32) ++ b0 ++ encodeU32le (8 : UInt32) ++ b1 ++
+            (encodeU32le (8 : UInt32) ++ b2)).extract
+          16 (16 + 8) =
+        b1 := by
+      simpa [hleft0] using h
+    have hflat :
+        (tripleUint64CanonicalV1 b0 b1 b2).extract 16 (16 + (8 : UInt32).toNat) =
+          b1 := by
+      have hx :
+          (tripleUint64CanonicalV1 b0 b1 b2).extract 16 (16 + 8) = b1 := by
+        simpa [tripleUint64CanonicalV1, ByteArray.append_assoc] using hnum
+      simpa [h8] using hx
+    simpa [state, h8] using hflat
+  have hfit1 :
+      (4 + (8 : UInt32).toNat + 4) + (8 : UInt32).toNat ≤
+        state.canonicalValues.size := by
+    simp [hsz, h8]
+  -- Slot 2
+  have hleft01 :
+      (encodeU32le (8 : UInt32) ++ b0 ++ encodeU32le (8 : UInt32) ++ b1).size =
+        24 := by
+    simp [ByteArray.size_append, hhdr, hs0, hs1]
+  have hread2 :
+      readU32leAtV1 state.canonicalValues
+          (4 + (8 : UInt32).toNat + 4 + (8 : UInt32).toNat) =
+        .ok ((8 : UInt32),
+          4 + (8 : UInt32).toNat + 4 + (8 : UInt32).toNat + 4) := by
+    have h :=
+      read_uint64_slot_headerV1
+        (encodeU32le (8 : UInt32) ++ b0 ++ encodeU32le (8 : UInt32) ++ b1)
+        b2 ByteArray.empty
+    have hnum :
+        readU32leAtV1
+            (encodeU32le (8 : UInt32) ++ b0 ++ encodeU32le (8 : UInt32) ++ b1 ++
+              encodeU32le (8 : UInt32) ++ b2 ++ ByteArray.empty)
+            24 =
+          .ok ((8 : UInt32), 28) := by
+      simpa [hleft01] using h
+    have hflat :
+        readU32leAtV1 (tripleUint64CanonicalV1 b0 b1 b2) 24 =
+          .ok ((8 : UInt32), 28) := by
+      simpa [tripleUint64CanonicalV1, ByteArray.append_empty] using hnum
+    simpa [state, h8] using hflat
+  have hex2 :
+      state.canonicalValues.extract
+          (4 + (8 : UInt32).toNat + 4 + (8 : UInt32).toNat + 4)
+          (4 + (8 : UInt32).toNat + 4 + (8 : UInt32).toNat + 4 +
+            (8 : UInt32).toNat) =
+        b2 := by
+    have h :=
+      extract_uint64_slot_payloadV1
+        (encodeU32le (8 : UInt32) ++ b0 ++ encodeU32le (8 : UInt32) ++ b1)
+        b2 ByteArray.empty hs2
+    have hnum :
+        (encodeU32le (8 : UInt32) ++ b0 ++ encodeU32le (8 : UInt32) ++ b1 ++
+            encodeU32le (8 : UInt32) ++ b2 ++ ByteArray.empty).extract
+          28 (28 + 8) =
+        b2 := by
+      simpa [hleft01] using h
+    have hflat :
+        (tripleUint64CanonicalV1 b0 b1 b2).extract 28 (28 + (8 : UInt32).toNat) =
+          b2 := by
+      have hx :
+          (tripleUint64CanonicalV1 b0 b1 b2).extract 28 (28 + 8) = b2 := by
+        simpa [tripleUint64CanonicalV1, ByteArray.append_empty] using hnum
+      simpa [h8] using hx
+    simpa [state, h8] using hflat
+  have hfit2 :
+      (4 + (8 : UInt32).toNat + 4 + (8 : UInt32).toNat + 4) +
+          (8 : UInt32).toNat ≤
+        state.canonicalValues.size := by
+    simp [hsz, h8]
+  have htrail :
+      (4 + (8 : UInt32).toNat + 4 + (8 : UInt32).toNat + 4) +
+          (8 : UInt32).toNat =
+        state.canonicalValues.size := by
+    simp [hsz, h8]
+  unfold decodeLogicalStateValuesV1
+  simp only [hlist, decodeLogicalStateSlotsV1, Pure.pure, Except.pure,
+    Bind.bind, Except.bind, err]
+  rw [hread0]
+  simp only [if_pos hfit0, hex0, hc0, Bind.bind, Except.bind]
+  rw [hread1]
+  simp only [if_pos hfit1, hex1, hc1, Bind.bind, Except.bind]
+  rw [hread2]
+  simp only [if_pos hfit2, hex2, hc2, Bind.bind, Except.bind]
+  simp only [decodeLogicalStateSlotsV1, htrail, ↓reduceIte, Pure.pure,
+    Except.pure]
+  simpa [array_push3_eq b0 b1 b2]
+
+/-- No-initializer product initial state for three public UInt64 slots. -/
+theorem initialLogicalStateV1_triple_uint64_no_initializer_eq_ok
+    (program : SemanticProgramV1) (data : SemanticProgramDataV1)
+    (s0 s1 s2 : StateDeclV1) (typeDecl : TypeDeclV1)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hstate : data.logicalState = #[s0, s1, s2])
+    (ht0 : data.types[s0.typeId.toNat]? = some typeDecl)
+    (ht1 : data.types[s1.typeId.toNat]? = some typeDecl)
+    (ht2 : data.types[s2.typeId.toNat]? = some typeDecl)
+    (hshape : typeDecl.shape = .uint 64)
+    (hnoInitializer :
+      data.callables.any (fun c => c.kind == .initializer) = false)
+    (hz0 : validateValueBytesV1 data.types s0.typeId
+      (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]) = .ok ())
+    (hz1 : validateValueBytesV1 data.types s1.typeId
+      (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]) = .ok ())
+    (hz2 : validateValueBytesV1 data.types s2.typeId
+      (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]) = .ok ()) :
+    initialLogicalStateV1 program = .ok {
+      initialized := true
+      canonicalValues :=
+        tripleUint64CanonicalV1
+          (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0])
+          (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0])
+          (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0])
+    } := by
+  let zero := ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]
+  have hdef (tid : TypeIdV1)
+      (hlookup : data.types[tid.toNat]? = some typeDecl) :
+      defaultValueAtV1 data.types tid maxNesting = .ok zero := by
+    rw [show maxNesting = 255 + 1 by rfl, defaultValueAtV1.eq_2, hlookup]
+    simp only [hshape, Pure.pure, Except.pure]
+    rw [show (64 : UInt16).toNat / 8 = 8 by decide]
+    congr 1
+    simp [zeroBytesV1, List.range', zero]
+    apply ByteArray.ext
+    simp only [ByteArray.data_push]
+    have hempty : (ByteArray.emptyWithCapacity 8).data = (#[] : Array UInt8) := by
+      change (Array.emptyWithCapacity 8 : Array UInt8) = #[]
+      exact Array.emptyWithCapacity_eq
+    rw [hempty]
+    rfl
+  have hd0 := hdef s0.typeId ht0
+  have hd1 := hdef s1.typeId ht1
+  have hd2 := hdef s2.typeId ht2
+  have hszZ : zero.size = 8 := rfl
+  have henc :=
+    encodeLogicalStateValuesV1_triple_uint64_eq_ok data s0 s1 s2
+      zero zero zero true hstate hz0 hz1 hz2 hszZ hszZ hszZ
+  unfold initialLogicalStateV1
+  rw [hvalidate]
+  simp only [Bind.bind, Except.bind]
+  rw [hstate]
+  simp [hd0, hd1, hd2, hnoInitializer, Pure.pure, Except.pure, Bind.bind,
+    Except.bind]
+  simpa [zero, array_push3_eq] using henc
 
 /-- Successful triple decode yields three structure-gated slot payloads. -/
 theorem decodeLogicalStateValuesV1_triple_eq

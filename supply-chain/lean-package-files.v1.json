@@ -316,9 +316,9 @@
       "sha256": "79481bf9ce6828f86bbef90ba45a7bf836faa00c107fe6eaa13566132d41dd69"
     },
     {
-      "bytes": 51879,
+      "bytes": 62627,
       "path": "ProofForgeV2/Semantic/InvariantFoundationV1.lean",
-      "sha256": "01497534fb9c35db925eb14aefb9768b994441881f6902c0171a7aa493fbcf0f"
+      "sha256": "a00b3161a4228b019c188c9bda94d5f1c3b2f2d454097448c94294961bc64c6e"
     },
     {
       "bytes": 208791,
