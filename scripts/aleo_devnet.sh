@@ -24,6 +24,10 @@ LEO="${PROOF_FORGE_TOOL_ROOT:+${PROOF_FORGE_TOOL_ROOT%/}/leo}"
 LEO="${LEO:-$LEO_DEFAULT}"
 SNARKOS="${PROOF_FORGE_ALEO_SNARKOS:-$HOME/.cache/proof-forge-v2/aleo-devnet/cargo-install/bin/snarkos}"
 REST="${PROOF_FORGE_ALEO_ENDPOINT:-http://127.0.0.1:3030}"
+# Default matches leo devnet help (`--no-dev-txs` = do not emit synthetic txs).
+# Dev txs ON (traffic) can wedge local devnets on modest hosts; default is 1 (off).
+# Override: PROOF_FORGE_ALEO_DEVNET_DEV_TXS=1 aleo_devnet.sh start
+DEV_TXS="${PROOF_FORGE_ALEO_DEVNET_DEV_TXS:-0}"
 
 usage() {
   cat <<'EOF'
@@ -101,22 +105,34 @@ start_devnet() {
   stop_devnet || true
   mkdir -p "$DEVDIR"
   : >"$DEVDIR/devnet.log"
-  nohup "$LEO" devnet \
-    --disable-update-check \
-    --snarkos "$SNARKOS" \
-    --num-validators 4 \
-    --num-clients 0 \
-    --network testnet \
-    --storage "$DEVDIR" \
-    --clear-storage \
-    --yes \
-    --verbosity 1 \
-    >>"$DEVDIR/devnet.log" 2>&1 &
+  # Fast consensus ramp: V9+ from height 9, V18 by 17 — constructor-bearing
+  # programs (product Instructions) deploy immediately. Strictly increasing.
+  export CONSENSUS_VERSION_HEIGHTS="${PROOF_FORGE_ALEO_CONSENSUS_HEIGHTS:-0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17}"
+  local txflag=()
+  if [[ "$DEV_TXS" != "1" ]]; then
+    txflag=(--no-dev-txs)
+  fi
+  # Direct snarkos validators (REST on 3030..3033). leo devnet hardcodes
+  # --no-dev-txs today; use explicit flags for product predictability.
+  local i
+  for i in 0 1 2 3; do
+    nohup "$SNARKOS" start --nodisplay --network 1 --dev "$i" \
+      --dev-num-validators 4 \
+      --rest "0.0.0.0:$((3030 + i))" \
+      --validator \
+      "${txflag[@]}" \
+      --ledger-storage "$DEVDIR/node-$i" \
+      --node-data-storage "$DEVDIR/node-data-$i" \
+      --logfile "$DEVDIR/validator-$i.log" \
+      --verbosity 1 \
+      >>"$DEVDIR/devnet.log" 2>&1 &
+  done
+  # Track a sentinel pid (last child) for stop; pgrep snarkos covers all.
   echo $! >"$DEVDIR/devnet.pid"
-  echo "${PREFIX}: started pid=$(cat "$DEVDIR/devnet.pid") snarkos=$SNARKOS"
-  wait_rest
-  status_devnet
+  echo "${PREFIX}: started snarkos=$SNARKOS dev_txs=$DEV_TXS rest_base=3030 consensus=${CONSENSUS_VERSION_HEIGHTS}"
 }
+
+# REST wait is separate: use `aleo_devnet.sh wait` after start.
 
 case "$cmd" in
   start) start_devnet ;;

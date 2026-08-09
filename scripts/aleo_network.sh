@@ -348,11 +348,31 @@ fi
 PRIORITY_FEE_U="${PRIORITY_FEES:-1000000}"
 
 if [[ -n "$SNARKOS" ]]; then
-  # snarkos developer expects main.aleo at package root (not build/).
+  # snarkos developer expects main.aleo + the leo-built program.json at package
+  # root (not build/). Use the build-dir program.json so snarkos sees the same
+  # manifest it would for a leo package (empty description/license fields).
   SNARK_PKG="${WORKDIR}/snarkos-pkg"
   mkdir -p "$SNARK_PKG"
   cp "$PRIMARY_ALEO" "$SNARK_PKG/main.aleo"
+  cp "${PKG}/build/program.json" "$SNARK_PKG/program.json"
   NET_ID="$(network_id)"
+
+  # Wait until devnet is past the full consensus ramp (V18 = latest). Deploys
+  # broadcast while the node is still ramping get rejected later at inclusion
+  # ("missing program checksum"), so gate on the *latest* version, not V9.
+  echo "${PREFIX}: waiting for consensus version >= 18 before deploy …"
+  cv_pre=0
+  for _i in $(seq 1 90); do
+    cv_pre="$(curl -sf --max-time 3 "${ENDPOINT}/testnet/consensus_version" 2>/dev/null || echo 0)"
+    if [[ "$cv_pre" =~ ^[0-9]+$ && "$cv_pre" -ge 18 ]]; then
+      break
+    fi
+    sleep 3
+  done
+  if ! { [[ "$cv_pre" =~ ^[0-9]+$ ]] && [[ "$cv_pre" -ge 18 ]]; }; then
+    die "consensus version did not reach V18 at ${ENDPOINT} before deploy (devnet must be fully ramped)"
+  fi
+  echo "${PREFIX}: consensus_version=${cv_pre}"
 
   echo "${PREFIX}: --- snarkos developer deploy --broadcast (NETWORK-DEPLOY) ---"
   isolate_leo_env
@@ -378,22 +398,66 @@ if [[ -n "$SNARKOS" ]]; then
   fi
   echo "${PREFIX}: ok: NETWORK-DEPLOY via snarkos network=${NETWORK} program=${STEM}.aleo"
 
+  # Wait until the program is visible on-chain before any execute (N2).
+  # snarkos developer does not block on inclusion; poll REST.
+  # Constructor-bearing programs require ConsensusVersion::V9 at broadcast AND
+  # inclusion; devnet must be past V9 (fast ramp) before we deploy.
+  echo "${PREFIX}: waiting for consensus version >= 9 (constructor programs) …"
+  cv_ok=0
+  for _i in $(seq 1 60); do
+    cv="$(curl -sf --max-time 3 "${ENDPOINT}/testnet/consensus_version" 2>/dev/null || echo 0)"
+    if [[ "$cv" =~ ^[0-9]+$ && "$cv" -ge 9 ]]; then
+      cv_ok=1
+      break
+    fi
+    sleep 3
+  done
+  if [[ "$cv_ok" -ne 1 ]]; then
+    die "consensus version did not reach V9 at ${ENDPOINT}; constructor-bearing programs require V9+ (use fast consensus ramp on devnet)"
+  fi
+  echo "${PREFIX}: consensus_version=${cv}"
+
+  echo "${PREFIX}: waiting for program visibility ${STEM}.aleo …"
+  prog_ok=0
+  # ~6 minutes max (inclusion on fresh devnet usually < 60s after V9).
+  for _i in $(seq 1 120); do
+    if curl -sf --max-time 3 "${ENDPOINT}/testnet/program/${STEM}.aleo" >/dev/null 2>&1; then
+      prog_ok=1
+      break
+    fi
+    sleep 3
+  done
+  if [[ "$prog_ok" -ne 1 ]]; then
+    die "program ${STEM}.aleo not visible at ${ENDPOINT} after deploy (waited ~360s)"
+  fi
+  echo "${PREFIX}: program visible on-chain"
+
   if [[ "$DO_EXECUTE" -eq 1 ]]; then
     run_execute_snarkos() {
       local name="$1"
       shift
       echo "${PREFIX}: --- snarkos developer execute --broadcast ${name} $* (NETWORK-EXECUTE) ---"
       isolate_leo_env
-      set +e
-      eout="$("$SNARKOS" developer execute "${STEM}.aleo" "$name" "$@" \
-        --private-key "$PRIVATE_KEY" \
-        --endpoint "$ENDPOINT" \
-        --network "$NET_ID" \
-        --broadcast \
-        --priority-fee "$PRIORITY_FEE_U" \
-        --verbosity 1 2>&1)"
-      erc=$?
-      set -e
+      local attempts=0 erc=0 eout=""
+      # Retry on transient program-not-visible race (visibility wait is in deploy path,
+      # but inclusion can still lag across REST nodes on fresh devnets).
+      while (( attempts < 20 )); do
+        attempts=$((attempts + 1))
+        set +e
+        eout="$("$SNARKOS" developer execute "${STEM}.aleo" "$name" "$@" \
+          --private-key "$PRIVATE_KEY" \
+          --endpoint "$ENDPOINT" \
+          --network "$NET_ID" \
+          --broadcast \
+          --priority-fee "$PRIORITY_FEE_U" \
+          --verbosity 1 2>&1)"
+        erc=$?
+        set -e
+        if [[ "$erc" -eq 0 ]] && ! grep -qiE 'Failed to fetch program|Missing program for ID' <<<"$eout"; then
+          break
+        fi
+        sleep 4
+      done
       restore_home
       echo "$eout" | tail -30
       printf '%s\n' "$eout" >"${TX_DIR}/execute-${name}.log"
