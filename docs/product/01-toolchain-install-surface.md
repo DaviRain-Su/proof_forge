@@ -29,6 +29,7 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 | **External ProgramV1** | **done engineering**（[`02-external-program-v1.md`](02-external-program-v1.md) + `templates/external-aleo-hello/` + sandbox/SDK/MCP `--root` + `just external-hello-smoke`；非 Lake SDK / formal） |
 | **Hello agent playbook** | **done engineering**（[`03-hello-dapp-agent-playbook.md`](03-hello-dapp-agent-playbook.md)；MCP 顺序 doctor→install→build/local→artifacts） |
 | **Chain client catalog** | **done engineering**（[`04-chain-client-catalog.md`](04-chain-client-catalog.md) + `chain-client-catalog.v1.json` + `pf_chain_catalog` / SDK `chain_catalog`；元数据 only） |
+| **Distribution / packages** | **planned**（[`05-distribution-and-packages.md`](05-distribution-and-packages.md)：CLI engineering dist → Lean Author SDK → Host pip；**非** formal Stage-0） |
 
 本文是 **产品契约与实现顺序** 的权威草稿；I0–I3、MCP-V0、SDK-V0 已接线。不声称 formal / hermetic / mainnet / Stage-0。
 
