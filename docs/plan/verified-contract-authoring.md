@@ -656,7 +656,7 @@ proof-bearing target build 继续 fail closed。
 |---|---|---|---|
 | 0A | 删除第二套 executable semantics | **已完成** | `MiniAmmSafetySketchV1`、alpha `Core/Semantics`/`SemanticIR` 已不在 HEAD |
 | 0B | 唯一语义防回归门 | **已完成** | `alpha-deletion-gate` 固定平行语义、contract-specific registry/pin 的物理删除，不误杀 checker state |
-| 1 | Typed State + codec bridge | **进行中（typed→logical UInt64 首切已完成）** | generated `Model.State` 复用 production codec 且有 generic inverse/conformance soundness；conforming logical→typed 唯一性与 Bool state 仍待补 |
+| 1 | Typed State + codec bridge | **进行中（UInt64 conforming-state decode totality/uniqueness 首切已完成）** | generated `Model.State` 复用 production codec；typed encode 可 roundtrip/conform，且每个 conforming logical state 已有唯一 typed decode；`encode_decode_of_conforms`/完整 iff、更多 scalar shape 仍待补 |
 | 2 | Typed callable transition | 未开始 | 简单 entry theorem 只使用 typed State/args/outcome |
 | 3 | Typed invariant bridge | 未开始 | typed predicate 与 `evalInvariantV1` 双向对齐 |
 | 4 | Generic preservation composition | 未开始 | per-call lemmas 自动包成 exact `PreservationTheoremV1` |
@@ -664,17 +664,20 @@ proof-bearing target build 继续 fail closed。
 | 6 | authority amendment + VerifiedVaultPF + NEAR build/runtime | 未开始 | 先批准 versioned invariant-erasure contract，再完成单文件 proof + build + runtime differential；诚实标注 Reference-level |
 | 7 | Per-target refinement | 未开始 | target-specific refinement evidence逐个关闭 |
 
-### 第一个可实施代码切片
+### 首个代码切片进展
 
-在本规划评审通过后，下一 PR 建议只做 **0B + Phase 1 的最小 UInt64/Bool 纵切**：
+首个 Phase 1 纵切已经完成 0B 与 UInt64 typed state 的以下部分：
 
-1. 加入 semantic authority 防回归测试；
-2. 由 `subjectDataV1` 为一个小型未 pin program 生成 typed State；
-3. 复用 production logical-state codec，证明 UInt64/Bool roundtrip 与
-   `StateConformsV1` bridge；
-4. 不生成 callable step、不改 Reference machine、不改 target；
-5. 聚焦 Lean tests + inline elaboration name/identity negatives；
-6. 通过后再进入 Phase 2，避免一次把 state、step、certifier、target 全部耦合。
+1. semantic authority/deletion gate 已固定第二 executable semantics 与 contract-specific
+   registry/pin 的物理删除；
+2. 小型未 pin program 已能仅由 `subjectDataV1` 生成 source-order typed `Model.State`；
+3. encode/decode 继续复用 production logical-state codec，并已生成 `decode_encode`、
+   `conforms_of_encode` 与 `decode_existsUnique_of_conforms`；
+4. production decoder 已有通用 declaration-arity theorem，因此 logical→typed totality不依赖
+   contract-specific slot parser；
+5. 当前 Normalize accepted language 尚不包含 logical-state Bool，故不能把 Bool 写成已闭环；
+6. 下一切片继续完成 conforming typed re-encode/完整 iff，再进入 Phase 2，避免一次把 state、
+   step、certifier、target 全部耦合。
 
 ---
 

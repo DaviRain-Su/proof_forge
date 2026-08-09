@@ -57,6 +57,23 @@ theorem stateConformsV1_of_encodeLogicalStateValuesV1
   · exact decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1
       data true values state hencode
 
+/-- Eliminate production conformance into a successful initialized decode.
+    Generated typed models use the returned production value array directly;
+    no model-side conformance predicate or slot parser is introduced. -/
+theorem decodeInitializedStateValuesV1_exists_of_stateConformsV1
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (state : LogicalStateV1)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hconforms : StateConformsV1 program state) :
+    ∃ values : Array ByteArray,
+      decodeInitializedStateValuesV1 data state = .ok values := by
+  obtain ⟨hinitialized, values, hdecode⟩ :=
+    stateConformsV1_elim_of_validate_eq_ok program data state hvalidate hconforms
+  refine ⟨values, ?_⟩
+  simp [decodeInitializedStateValuesV1, hinitialized, hdecode,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 /-- Bool projection for bytes already accepted by `validateValueBytesV1` at a
     Bool slot. The comparison is against the production Wire encoding. -/
 def boolOfCanonicalValueBytesV1 (bytes : ByteArray) : Bool :=

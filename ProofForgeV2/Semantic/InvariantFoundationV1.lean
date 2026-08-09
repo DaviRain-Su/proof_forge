@@ -172,6 +172,55 @@ private def decodeLogicalStateSlotsV1
       decodeLogicalStateSlotsV1 types rest canonicalValues (afterLen + len)
         (acc.push slice)
 
+/-- A successful production slot decode has output cardinality equal to the
+    initial accumulator plus the declaration count. This is an arity fact about
+    the sole decoder, not a second state-shape checker. -/
+private theorem decodeLogicalStateSlotsV1_size
+    (types : Array TypeDeclV1)
+    (decls : List StateDeclV1)
+    (canonicalValues : ByteArray)
+    (offset : Nat)
+    (acc values : Array ByteArray)
+    (after : Nat)
+    (hdecode :
+      decodeLogicalStateSlotsV1 types decls canonicalValues offset acc =
+        .ok (values, after)) :
+    values.size = acc.size + decls.length := by
+  induction decls generalizing offset acc values after with
+  | nil =>
+      simp only [decodeLogicalStateSlotsV1, Pure.pure, Except.pure] at hdecode
+      have hpair : (acc, offset) = (values, after) := Except.ok.inj hdecode
+      have hvalues : acc = values := congrArg Prod.fst hpair
+      subst values
+      simp
+  | cons decl rest ih =>
+      unfold decodeLogicalStateSlotsV1 at hdecode
+      cases hread : readU32leAtV1 canonicalValues offset with
+      | error error =>
+          simp [hread, Bind.bind, Except.bind] at hdecode
+      | ok pair =>
+          rcases pair with ⟨lenU, afterLen⟩
+          simp only [hread, Bind.bind, Except.bind, Pure.pure, Except.pure] at hdecode
+          by_cases hfit : afterLen + lenU.toNat ≤ canonicalValues.size
+          · simp only [if_pos hfit] at hdecode
+            cases hcanonical :
+                validateValueBytesV1 types decl.typeId
+                  (canonicalValues.extract afterLen (afterLen + lenU.toNat)) with
+            | error error =>
+                simp [hcanonical, Bind.bind, Except.bind] at hdecode
+            | ok unit =>
+                cases unit
+                simp only [hcanonical, Bind.bind, Except.bind] at hdecode
+                have hrest :=
+                  ih (afterLen + lenU.toNat)
+                    (acc.push
+                      (canonicalValues.extract afterLen (afterLen + lenU.toNat)))
+                    values after hdecode
+                simp only [Array.size_push, List.length_cons] at hrest ⊢
+                omega
+          · simp only [if_neg hfit, err] at hdecode
+            cases hdecode
+
 /-- Parse `canonicalValues` into per-slot valueBytes arrays.
 
     Each slot is `u32le len || valueBytes` in `logicalState` order; every
@@ -187,6 +236,37 @@ def decodeLogicalStateValuesV1 (data : SemanticProgramDataV1) (state : LogicalSt
     unless offset == state.canonicalValues.size do
       return ← err .trailingBytes
     pure values
+
+/-- Every successful production logical-state decode returns an array whose
+    size equals the logical-state declaration count. Generated typed projections
+    use this theorem instead of repeating an arity parser. -/
+theorem decodeLogicalStateValuesV1_size
+    (data : SemanticProgramDataV1)
+    (state : LogicalStateV1)
+    (values : Array ByteArray)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok values) :
+    values.size = data.logicalState.size := by
+  unfold decodeLogicalStateValuesV1 at hdecode
+  cases hslots :
+      decodeLogicalStateSlotsV1 data.types data.logicalState.toList
+        state.canonicalValues 0
+        #[] with
+  | error error =>
+      simp [Array.emptyWithCapacity_eq, hslots, Bind.bind, Except.bind] at hdecode
+  | ok pair =>
+      rcases pair with ⟨decoded, after⟩
+      simp only [Array.emptyWithCapacity_eq, hslots, Bind.bind, Except.bind,
+        Pure.pure, Except.pure] at hdecode
+      by_cases htrail : (after == state.canonicalValues.size) = true
+      · simp only [htrail, ↓reduceIte] at hdecode
+        have hvalues : decoded = values := Except.ok.inj hdecode
+        have hsize :=
+          decodeLogicalStateSlotsV1_size data.types data.logicalState.toList
+            state.canonicalValues 0
+            #[] decoded after hslots
+        rw [hvalues] at hsize
+        simpa using hsize
+      · simp [htrail, err] at hdecode
 
 /-- Build a `LogicalStateV1` from per-slot valueBytes.
 

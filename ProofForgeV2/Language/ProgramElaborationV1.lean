@@ -216,13 +216,13 @@ private def quoteModelStateEncodeV1
       `(ProofForgeV2.Semantic.WireV1.encodeU64le $stateName.$fieldName)
 
 private def quoteModelStateDecodeV1
-    (valueName : TSyntax `ident)
+    (valueBytes : TSyntax `term)
     (scalar : ModelStateScalarV1) : MacroM (TSyntax `term) :=
   match scalar with
   | .bool =>
-      `(ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1 $valueName)
+      `(ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1 $valueBytes)
   | .uint64 =>
-      `(ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1 $valueName)
+      `(ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1 $valueBytes)
 
 /-- Emit the author-facing business-state view. It is only a typed projection
     over `Proof.subjectDataV1`: encoding and decoding call the production
@@ -237,19 +237,22 @@ private def elaborateStateModelV1
   let encodeStateName := mkIdent `encodeState
   let decodeStateName := mkIdent `decodeState
   let decodeEncodeName := mkIdent `decode_encode
+  let decodeExistsUniqueName := mkIdent `decode_existsUnique_of_conforms
   let conformsOfEncodeName := mkIdent `conforms_of_encode
   let logicalStateName := mkIdent `logicalState
+  let stateValuesName := mkIdent `stateValuesV1
   let fieldNames := fields.map fun field => mkIdent (Name.mkSimple field.name)
+  let fieldCount : TSyntax `term := ⟨Syntax.mkNumLit (toString fields.size)⟩
   let fieldTypes ← Lean.Elab.liftMacroM <|
     fields.mapM fun field => quoteModelStateTypeV1 field.scalar
   let encodedValues ← Lean.Elab.liftMacroM <|
     fields.zip fieldNames |>.mapM fun (field, fieldName) =>
       quoteModelStateEncodeV1 typedStateName fieldName field.scalar
-  let valueNames := fields.zipIdx.map fun (_, index) =>
-    mkIdent (Name.mkSimple s!"stateValue{index}V1")
   let decodedValues ← Lean.Elab.liftMacroM <|
-    fields.zip valueNames |>.mapM fun (field, valueName) =>
-      quoteModelStateDecodeV1 valueName field.scalar
+    fields.zipIdx.mapM fun (field, index) => do
+      let indexTerm : TSyntax `term := ⟨Syntax.mkNumLit (toString index)⟩
+      let valueBytes ← `($stateValuesName[$indexTerm]!)
+      quoteModelStateDecodeV1 valueBytes field.scalar
   let decodedState ← Lean.Elab.liftMacroM <|
     if fields.isEmpty then
       `(())
@@ -279,12 +282,12 @@ private def elaborateStateModelV1
     def $decodeStateName ($logicalStateName :
         ProofForgeV2.Semantic.InvariantABI.LogicalStateV1) :
         Except ProofForgeV2.Semantic.WireV1.SemanticWireErrorV1 $stateName := do
-      let values ←
+      let $stateValuesName ←
         ProofForgeV2.Semantic.StateModelV1.decodeInitializedStateValuesV1
           $subjectDataName $logicalStateName
-      match values.toList with
-      | [$valueNames,*] => pure $decodedState
-      | _ => ProofForgeV2.Semantic.WireV1.err .nonCanonical))
+      unless ($stateValuesName).size == $fieldCount do
+        return ← ProofForgeV2.Semantic.WireV1.err .nonCanonical
+      pure $decodedState))
   Lean.Elab.Command.elabCommand (← `(
     /-- Generated typed projection roundtrip. The success premise remains
         explicit because the production encoder is `Except`-valued. -/
@@ -303,6 +306,49 @@ private def elaborateStateModelV1
       simp [ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1_encodeBool,
         ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1_encodeU64le,
         Pure.pure, Except.pure, Bind.bind, Except.bind]))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Every state accepted by the sole production `StateConformsV1`
+        predicate has exactly one generated typed decode. Existence follows
+        from production decoder success and its declaration-arity theorem;
+        uniqueness follows from determinism of this generated projection. -/
+    theorem $decodeExistsUniqueName
+        ($logicalStateName : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+        (hvalidate :
+          ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+              $subjectProgramName = .ok $subjectDataName)
+        (hconforms :
+          ProofForgeV2.Semantic.InvariantABI.StateConformsV1
+            $subjectProgramName $logicalStateName) :
+        ∃ typedState : $stateName,
+          $decodeStateName $logicalStateName = .ok typedState ∧
+            ∀ other : $stateName,
+              $decodeStateName $logicalStateName = .ok other →
+                typedState = other := by
+      obtain ⟨hinitialized, $stateValuesName, hdecode⟩ :=
+        ProofForgeV2.Semantic.InvariantABI.stateConformsV1_elim_of_validate_eq_ok
+          $subjectProgramName $subjectDataName $logicalStateName hvalidate hconforms
+      have hvalues :
+          ProofForgeV2.Semantic.StateModelV1.decodeInitializedStateValuesV1
+              $subjectDataName $logicalStateName = .ok $stateValuesName := by
+        simp [ProofForgeV2.Semantic.StateModelV1.decodeInitializedStateValuesV1,
+          hinitialized, hdecode, Pure.pure, Except.pure, Bind.bind, Except.bind]
+      have hdecodedSize :=
+        ProofForgeV2.Semantic.InvariantABI.decodeLogicalStateValuesV1_size
+          $subjectDataName $logicalStateName $stateValuesName hdecode
+      have hsubjectSize : ($subjectDataName).logicalState.size = $fieldCount := by
+        rfl
+      have hmodelSize : ($stateValuesName).size = $fieldCount :=
+        hdecodedSize.trans hsubjectSize
+      let typedState : $stateName := $decodedState
+      have hsuccess :
+          $decodeStateName $logicalStateName = .ok typedState := by
+        unfold $decodeStateName
+        rw [hvalues]
+        simp [hmodelSize, typedState, Pure.pure, Except.pure, Bind.bind,
+          Except.bind]
+      refine ⟨typedState, hsuccess, ?_⟩
+      intro other hother
+      exact Except.ok.inj (hsuccess.symm.trans hother)))
   Lean.Elab.Command.elabCommand (← `(
     /-- Successful typed encoding conforms to the sole production state
         predicate once this exact generated subject has validated. -/

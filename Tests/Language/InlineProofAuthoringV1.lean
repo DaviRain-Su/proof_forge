@@ -25,6 +25,7 @@ theorem ProofedProof.safe : Proofed.Proof.safe := by
 #check Proofed.Model.encodeState
 #check Proofed.Model.decodeState
 #check Proofed.Model.decode_encode
+#check Proofed.Model.decode_existsUnique_of_conforms
 #check Proofed.Model.conforms_of_encode
 
 example : Proofed.Proof.safe =
@@ -110,6 +111,7 @@ program TypedStateSurface where
 #check TypedStateSurface.Model.encodeState
 #check TypedStateSurface.Model.decodeState
 #check TypedStateSurface.Model.decode_encode
+#check TypedStateSurface.Model.decode_existsUnique_of_conforms
 #check TypedStateSurface.Model.conforms_of_encode
 
 private def typedStateSampleV1 : TypedStateSurface.Model.State := {
@@ -141,6 +143,23 @@ example
       validateSemanticProgramV1 TypedStateSurface.Proof.subjectProgramV1 =
         .ok TypedStateSurface.Proof.subjectDataV1) :
     StateConformsV1 TypedStateSurface.Proof.subjectProgramV1 typedStateLogicalV1 := by
+  apply TypedStateSurface.Model.conforms_of_encode typedStateSampleV1
+    typedStateLogicalV1 hvalidate
+  rfl
+
+/-- Production conformance is sufficient for existence and uniqueness of the
+    generated typed projection; no contract-local decoder premise is needed. -/
+example
+    (hvalidate :
+      validateSemanticProgramV1 TypedStateSurface.Proof.subjectProgramV1 =
+        .ok TypedStateSurface.Proof.subjectDataV1) :
+    ∃ typedState : TypedStateSurface.Model.State,
+      TypedStateSurface.Model.decodeState typedStateLogicalV1 = .ok typedState ∧
+        ∀ other : TypedStateSurface.Model.State,
+          TypedStateSurface.Model.decodeState typedStateLogicalV1 = .ok other →
+            typedState = other := by
+  apply TypedStateSurface.Model.decode_existsUnique_of_conforms
+    typedStateLogicalV1 hvalidate
   apply TypedStateSurface.Model.conforms_of_encode typedStateSampleV1
     typedStateLogicalV1 hvalidate
   rfl
