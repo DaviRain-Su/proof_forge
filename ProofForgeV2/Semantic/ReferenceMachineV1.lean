@@ -2601,6 +2601,68 @@ private theorem finalize_failureStateUnchangedV1
         (.trapped .invalidExternalResponse pre)
       exact rfl
 
+/-- A successful final outcome exposes the exact returned candidate and the
+    sole production logical-state encoding that produced its post-state. This
+    is an inverse law for `finalize`, not another execution path. -/
+theorem finalize_returned_implies_encodeV1
+    (m : MachineV1)
+    (cand : CandidateV1)
+    (pre post : LogicalStateV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hfinalize : finalize m cand pre = .returned post value effects) :
+    cand = .returned value ∧
+      m.effects = effects ∧
+      encodeLogicalStateValuesV1 m.data
+          (pre.initialized || m.isInitializer) m.overlay = .ok post := by
+  unfold finalize at hfinalize
+  cases hcursor : (m.responseCursor != m.responses.size) with
+  | true =>
+      simp only [hcursor, ↓reduceIte] at hfinalize
+      cases hfinalize
+  | false =>
+      simp only [hcursor, Bool.false_eq_true, ↓reduceIte] at hfinalize
+      cases cand with
+      | trapped fault => cases hfinalize
+      | reverted reason => cases hfinalize
+      | returned returnedValue =>
+          cases hencode : encodeLogicalStateValuesV1 m.data
+              (pre.initialized || m.isInitializer) m.overlay with
+          | error error =>
+              simp only [hencode] at hfinalize
+              cases hfinalize
+          | ok encoded =>
+              simp only [hencode] at hfinalize
+              cases hfinalize
+              exact ⟨rfl, rfl, rfl⟩
+
+/-- Finalization from an initialized pre-state can return only a production-
+    conforming post-state for the exact validated machine data. This closes the
+    final state-codec seam without asserting that arbitrary machine values were
+    created by admission. -/
+theorem finalize_returned_stateConformsV1_of_initialized
+    (program : SemanticProgramV1)
+    (m : MachineV1)
+    (cand : CandidateV1)
+    (pre post : LogicalStateV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hvalidate : validateSemanticProgramV1 program = .ok m.data)
+    (hinitialized : pre.initialized = true)
+    (hfinalize : finalize m cand pre = .returned post value effects) :
+    StateConformsV1 program post := by
+  obtain ⟨_hcandidate, _heffects, hencode⟩ :=
+    finalize_returned_implies_encodeV1 m cand pre post value effects hfinalize
+  have hencodeInitialized :
+      encodeLogicalStateValuesV1 m.data true m.overlay = .ok post := by
+    simpa [hinitialized] using hencode
+  apply stateConformsV1_intro_of_validate_eq_ok
+    program m.data post m.overlay hvalidate
+  · exact post.initialized_of_encodeLogicalStateValuesV1
+      m.data true m.overlay hencodeInitialized
+  · exact decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1
+      m.data true m.overlay post hencodeInitialized
+
 /-- Shape-invalid invocations trap with the exact pre-state. -/
 theorem stepReferenceSliceV1_invalidInvocation_eq
     (admitted : AdmittedReferenceSliceV1)

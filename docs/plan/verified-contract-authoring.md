@@ -725,10 +725,15 @@ proof-bearing target build 继续 fail closed。
    result 的 TypeId/shape/canonical bytes 与 callable exact result row 一致；
 10. Unit result 已用 accepted declared-revert entry lowering 做 generated codec/relation/uniqueness 回归；
    这不扩张 accepted language，也不伪造 Unit return literal；
-11. 当前尚缺 initializer 的 initialized/uninitialized lifecycle bridge、Reference outcome→typed
+11. `finalize_returned_implies_encodeV1` 已从任意成功 final outcome 反解出 exact returned
+   candidate、effects 与唯一 production logical-state encode；对 initialized pre，
+   `finalize_returned_stateConformsV1_of_initialized` 已进一步证明 post-state 在 exact validated
+   machine data 上满足 `StateConformsV1`。这只关闭 finalizer/codec seam，尚未越过 `runMachine`
+   声称完整 step theorem；
+12. 当前尚缺 initializer 的 initialized/uninitialized lifecycle bridge、Reference outcome→typed
    outcome 的 full-outcome total/complete 方向、typed invariant bridge、per-call preservation
    composition 与短 executable notation；这些仍是后续 Phase 2–4 工作；
-12. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
+13. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
    完成前不能称 target artifact verified。
 
 ---
