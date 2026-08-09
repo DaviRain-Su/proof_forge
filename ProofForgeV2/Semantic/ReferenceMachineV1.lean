@@ -972,6 +972,18 @@ private inductive ExecResult where
   | next (m : MachineV1)
   | done (m : MachineV1) (cand : CandidateV1)
 
+/-- Proof-only projection invariant for machine-local execution results. -/
+private def ExecResultPreservesDataV1
+    (data : SemanticProgramDataV1) : ExecResult → Prop
+  | .next m => m.data = data
+  | .done m _ => m.data = data
+
+/-- Proof-only projection invariant for helpers which may return a machine. -/
+private def ExceptMachinePreservesDataV1
+    (data : SemanticProgramDataV1) : Except CandidateV1 MachineV1 → Prop
+  | .error _ => True
+  | .ok m => m.data = data
+
 def maxValueIdInCallable (c : CallableV1) : Nat := Id.run do
   let mut m : Nat := 0
   for p in c.params do
@@ -2213,6 +2225,245 @@ private def execTerminator (m : MachineV1) (term : TerminatorV1) : ExecResult :=
         | .internalInvariant => .internalInvariant
       .done m (.trapped fault)
 
+private theorem nextOccurrence_preserves_data
+    (m : MachineV1) (effectId : EffectIdV1) :
+    match nextOccurrence m effectId with
+    | none => True
+    | some (m', _) => m'.data = m.data := by
+  grind [nextOccurrence]
+
+private theorem noteBackEdge_preserves_data
+    (m : MachineV1) (fromBlock toBlock : BlockIdV1) :
+    ExecResultPreservesDataV1 m.data (noteBackEdge m fromBlock toBlock) := by
+  grind [ExecResultPreservesDataV1, noteBackEdge]
+
+private theorem storeResult_preserves_data
+    (m : MachineV1) (vid : ValueIdV1) (v : ReferenceValueV1) :
+    ExecResultPreservesDataV1 m.data (storeResult m vid v) := by
+  grind [ExecResultPreservesDataV1, storeResult]
+
+private theorem vaultTransferOut_preserves_data
+    (m : MachineV1) (callee : QualifiedName)
+    (argVals : Array ReferenceValueV1) (occ : EffectOccurrenceV1) :
+    ExceptMachinePreservesDataV1 m.data
+      (vaultTransferOut m callee argVals occ) := by
+  grind [ExceptMachinePreservesDataV1, vaultTransferOut]
+
+private theorem vaultDepositIn_preserves_data
+    (m : MachineV1) (callee : QualifiedName)
+    (argVals : Array ReferenceValueV1) :
+    ExceptMachinePreservesDataV1 m.data (vaultDepositIn m callee argVals) := by
+  grind [ExceptMachinePreservesDataV1, vaultDepositIn]
+
+private theorem vaultAsyncOut_preserves_data
+    (m : MachineV1) (callee : QualifiedName)
+    (argVals : Array ReferenceValueV1) :
+    (vaultAsyncOut m callee argVals).data = m.data := by
+  grind [vaultAsyncOut]
+
+private theorem returnedVoidVaultPipeline_preserves_data
+    (m : MachineV1) (callee : QualifiedName)
+    (argVals : Array ReferenceValueV1) (occ : EffectOccurrenceV1) :
+    ExecResultPreservesDataV1 m.data
+      (match vaultDepositIn m callee argVals with
+      | .error cand => .done m cand
+      | .ok m4 =>
+          match vaultTransferOut m4 callee argVals occ with
+          | .error cand => .done m cand
+          | .ok m5 => .next (vaultAsyncOut m5 callee argVals)) := by
+  cases hdeposit : vaultDepositIn m callee argVals with
+  | error candidate =>
+      simp only
+      rfl
+  | ok m4 =>
+      simp only
+      have hm4 : m4.data = m.data := by
+        have hpreserves := vaultDepositIn_preserves_data m callee argVals
+        simpa [ExceptMachinePreservesDataV1, hdeposit] using hpreserves
+      cases htransfer : vaultTransferOut m4 callee argVals occ with
+      | error candidate =>
+          simp only
+          rfl
+      | ok m5 =>
+          simp only
+          have hm5 : m5.data = m4.data := by
+            have hpreserves :=
+              vaultTransferOut_preserves_data m4 callee argVals occ
+            simpa [ExceptMachinePreservesDataV1, htransfer] using hpreserves
+          exact (vaultAsyncOut_preserves_data m5 callee argVals).trans
+            (hm5.trans hm4)
+
+private theorem fromEval_preserves_data
+    (m : MachineV1) (vid : ValueIdV1)
+    (r : Except CandidateV1 ReferenceValueV1) :
+    ExecResultPreservesDataV1 m.data (fromEval m vid r) := by
+  cases r with
+  | error candidate => rfl
+  | ok value => exact storeResult_preserves_data m vid value
+
+private theorem execInstruction_preserves_data
+    (m : MachineV1) (instr : InstructionV1) :
+    ExecResultPreservesDataV1 m.data (execInstruction m instr) := by
+  cases instr
+  case mk result op =>
+    cases op
+    case envRead key args =>
+      change ExecResultPreservesDataV1 m.data
+        (match result with
+        | none => .done m (.trapped .invalidCore)
+        | some resultDef =>
+            match key with
+            | .nativeVaultBalance =>
+                if args.isEmpty then
+                  storeResult m resultDef.valueId
+                    { typeId := resultDef.typeId
+                      valueBytes := natToLeBytes m.vaultNative.toNat 8 }
+                else
+                  .done m (.trapped .invalidCore)
+            | .tokenVaultBalance =>
+                match lookupArgs m.env args with
+                | some #[mintValue] =>
+                    match m.data.types[mintValue.typeId.toNat]? with
+                    | some { shape := .principal, .. } =>
+                        storeResult m resultDef.valueId
+                          { typeId := resultDef.typeId
+                            valueBytes := natToLeBytes
+                              (vaultTokenBalanceV1 m.vaultToken mintValue.valueBytes).toNat 8 }
+                    | _ => .done m (.trapped .invalidCore)
+                | _ => .done m (.trapped .invalidCore))
+      cases result with
+      | none => rfl
+      | some resultDef =>
+          cases key with
+          | nativeVaultBalance =>
+              change ExecResultPreservesDataV1 m.data
+                (if args.isEmpty then
+                  storeResult m resultDef.valueId
+                    { typeId := resultDef.typeId
+                      valueBytes := natToLeBytes m.vaultNative.toNat 8 }
+                else
+                  .done m (.trapped .invalidCore))
+              by_cases hisEmpty : args.isEmpty
+              · rw [if_pos hisEmpty]
+                exact storeResult_preserves_data m resultDef.valueId _
+              · rw [if_neg hisEmpty]
+                rfl
+          | tokenVaultBalance =>
+              change ExecResultPreservesDataV1 m.data
+                (match lookupArgs m.env args with
+                | some #[mintValue] =>
+                    match m.data.types[mintValue.typeId.toNat]? with
+                    | some { shape := .principal, .. } =>
+                        storeResult m resultDef.valueId
+                          { typeId := resultDef.typeId
+                            valueBytes := natToLeBytes
+                              (vaultTokenBalanceV1 m.vaultToken mintValue.valueBytes).toNat 8 }
+                    | _ => .done m (.trapped .invalidCore)
+                | _ => .done m (.trapped .invalidCore))
+              cases hargs : lookupArgs m.env args with
+              | none => rfl
+              | some values =>
+                  cases values with
+                  | mk valuesList =>
+                      cases valuesList with
+                      | nil => rfl
+                      | cons mint rest =>
+                          cases rest with
+                          | nil =>
+                              change ExecResultPreservesDataV1 m.data
+                                (match m.data.types[mint.typeId.toNat]? with
+                                | some { shape := .principal, .. } =>
+                                    storeResult m resultDef.valueId
+                                      { typeId := resultDef.typeId
+                                        valueBytes := natToLeBytes
+                                          (vaultTokenBalanceV1 m.vaultToken
+                                            mint.valueBytes).toNat 8 }
+                                | _ => .done m (.trapped .invalidCore))
+                              cases htype : m.data.types[mint.typeId.toNat]? with
+                              | none => rfl
+                              | some typeDecl =>
+                                  cases typeDecl with
+                                  | mk id name shape =>
+                                      cases shape <;> try rfl
+                                      exact storeResult_preserves_data
+                                        m resultDef.valueId _
+                          | cons next tail => rfl
+    case assert_ condition errorId args =>
+      dsimp only [execInstruction]
+      repeat
+        first
+        | rfl
+        | split
+    case externalCall effectId callee args =>
+      dsimp only [execInstruction]
+      cases hargs : lookupArgs m.env args with
+      | none => rfl
+      | some argVals =>
+          cases hoccurrence : nextOccurrence m effectId with
+          | none => rfl
+          | some occurrenceResult =>
+              cases occurrenceResult with
+              | mk m1 occurrence =>
+                  have hm1 : m1.data = m.data := by
+                    have hpreserves :=
+                      nextOccurrence_preserves_data m effectId
+                    simpa [hoccurrence] using hpreserves
+                  rw [← hm1]
+                  simp only
+                  repeat
+                    first
+                    | rfl
+                    | exact storeResult_preserves_data _ _ _
+                    | exact returnedVoidVaultPipeline_preserves_data _ _ _ _
+                    | split
+    all_goals
+      dsimp only [execInstruction]
+    all_goals
+      grind [ExecResultPreservesDataV1,
+        nextOccurrence_preserves_data, storeResult_preserves_data,
+        vaultTransferOut_preserves_data, vaultDepositIn_preserves_data,
+        vaultAsyncOut_preserves_data, fromEval_preserves_data]
+
+private theorem bindJumpTarget_preserves_data
+    (m : MachineV1) (target : JumpTargetV1) :
+    ExecResultPreservesDataV1 m.data (bindJumpTarget m target) := by
+  unfold bindJumpTarget
+  cases hblock : m.callable.blocks[target.blockId.toNat]? with
+  | none =>
+      simp only
+      rfl
+  | some block =>
+      simp only
+      split <;> try rfl
+      cases hedge : noteBackEdge m m.blockId target.blockId with
+      | done m' candidate =>
+          simp only
+          have hpreserves :=
+            noteBackEdge_preserves_data m m.blockId target.blockId
+          simpa [ExecResultPreservesDataV1, hedge] using hpreserves
+      | next mEdge =>
+          simp only
+          have hmEdge : mEdge.data = m.data := by
+            have hpreserves :=
+              noteBackEdge_preserves_data m m.blockId target.blockId
+            simpa [ExecResultPreservesDataV1, hedge] using hpreserves
+          simp only [Id.run_bind, Id.run_pure]
+          split
+          · exact hmEdge
+          · simp only [Id.run_bind, Id.run_pure]
+            split <;> exact hmEdge
+
+private theorem execTerminator_preserves_data
+    (m : MachineV1) (term : TerminatorV1) :
+    ExecResultPreservesDataV1 m.data (execTerminator m term) := by
+  cases term <;> dsimp only [execTerminator]
+  all_goals
+    repeat
+      first
+      | rfl
+      | exact bindJumpTarget_preserves_data _ _
+      | split
+
 /-- Fuel-bounded body interpreter (engineering; not formal `step`). -/
 def runMachine (chargeFrameEntry : Bool) :
     (fuel : Nat) → MachineV1 → Nat × MachineV1 × CandidateV1
@@ -2328,6 +2579,118 @@ def runMachine (chargeFrameEntry : Bool) :
                 match execTerminator m block.terminator with
                 | .done m' cand => (0, m', cand)
                 | .next mNext => runMachine chargeFrameEntry fuel mNext
+
+/-- Body execution never replaces the structure-validated semantic data
+    carried by its initial machine. -/
+theorem runMachine_data_eq
+    (chargeFrameEntry : Bool) (fuel : Nat) (m : MachineV1) :
+    (runMachine chargeFrameEntry fuel m).2.1.data = m.data := by
+  induction fuel using Nat.strongRecOn generalizing m with
+  | ind totalFuel ih =>
+      cases totalFuel with
+      | zero => rfl
+      | succ fuel =>
+          have instructionTail (instr : InstructionV1) :
+              (match execInstruction m instr with
+              | .done m' cand => (0, m', cand)
+              | .next m1 =>
+                  runMachine chargeFrameEntry fuel
+                    { m1 with instrIdx := m1.instrIdx + 1 }).2.1.data =
+                m.data := by
+            cases hexec : execInstruction m instr with
+            | done m' candidate =>
+                have hpreserves := execInstruction_preserves_data m instr
+                simpa [ExecResultPreservesDataV1, hexec] using hpreserves
+            | next m1 =>
+                have hm1 : m1.data = m.data := by
+                  have hpreserves := execInstruction_preserves_data m instr
+                  simpa [ExecResultPreservesDataV1, hexec] using hpreserves
+                exact (ih fuel (Nat.lt_succ_self fuel)
+                  { m1 with instrIdx := m1.instrIdx + 1 }).trans hm1
+          have terminatorTail (term : TerminatorV1) :
+              (match execTerminator m term with
+              | .done m' cand => (0, m', cand)
+              | .next mNext =>
+                  runMachine chargeFrameEntry fuel mNext).2.1.data =
+                m.data := by
+            cases hterm : execTerminator m term with
+            | done m' candidate =>
+                have hpreserves := execTerminator_preserves_data m term
+                simpa [ExecResultPreservesDataV1, hterm] using hpreserves
+            | next mNext =>
+                have hmNext : mNext.data = m.data := by
+                  have hpreserves := execTerminator_preserves_data m term
+                  simpa [ExecResultPreservesDataV1, hterm] using hpreserves
+                exact (ih fuel (Nat.lt_succ_self fuel) mNext).trans hmNext
+          simp only [runMachine]
+          cases hblock : m.callable.blocks[m.blockId.toNat]? with
+          | none => rfl
+          | some block =>
+              simp only
+              by_cases hinstructions : m.instrIdx < block.instructions.size
+              · rw [if_pos hinstructions]
+                cases hinstr : block.instructions[m.instrIdx]? with
+                | none => rfl
+                | some instr =>
+                    simp only
+                    cases hresult : instr.result with
+                    | none =>
+                        simpa [hresult] using instructionTail instr
+                    | some resultDef =>
+                        cases hop : instr.op <;>
+                          try { simpa [hresult, hop] using instructionTail instr }
+                        case pureCall calleeId argVids =>
+                          simp only
+                          cases hcallee : m.data.callables[calleeId.toNat]? with
+                          | none => rfl
+                          | some callee =>
+                              simp only
+                              by_cases hvalid :
+                                  callee.kind != .pureFn ||
+                                    resultDef.typeId != callee.result.typeId ||
+                                    argVids.size != callee.params.size
+                              · rw [if_pos hvalid]
+                              · rw [if_neg hvalid]
+                                cases hargs : lookupArgs m.env argVids with
+                                | none => rfl
+                                | some argVals =>
+                                    simp only
+                                    generalize hbound :
+                                        (Id.run do
+                                          let mut env := emptyEnv
+                                            (maxValueIdInCallable callee + 1)
+                                          let mut i : Nat := 0
+                                          for p in callee.params do
+                                            match argVals[i]? with
+                                            | none => return none
+                                            | some arg =>
+                                                if arg.typeId != p.typeId ||
+                                                    !valueCanonical m.data arg then
+                                                  return none
+                                                else
+                                                  match envSet env p.valueId arg with
+                                                  | none => return none
+                                                  | some env' => env := env'
+                                            i := i + 1
+                                          pure (some env)) = bound
+                                    cases bound with
+                                    | none => rfl
+                                    | some calleeEnv =>
+                                        cases hcharge : chargeFrameEntry with
+                                        | false =>
+                                            simp only [Bool.false_eq_true,
+                                              ↓reduceIte]
+                                            simpa [hcharge] using
+                                              ih fuel (Nat.lt_succ_self fuel) _
+                                        | true =>
+                                            simp only [↓reduceIte]
+                                            cases fuel with
+                                            | zero => rfl
+                                            | succ calleeFuel =>
+                                                simpa [hcharge] using
+                                                  ih calleeFuel (by omega) _
+              · rw [if_neg hinstructions]
+                grind (config := { gen := 8 })
 
 /-! ### Invocation validation -/
 
