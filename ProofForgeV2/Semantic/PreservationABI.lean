@@ -92,6 +92,116 @@ def TypedCallableRelationV1
               responses vault =
             .trapped fault logicalPre
 
+/-- The canonical typed callable relation is proof-functional whenever the
+    generated state and result projections are injective. Determinism comes
+    directly from the single `stepReferenceSliceV1` equality in each relation;
+    this theorem does not evaluate the callable or choose an outcome. -/
+theorem typedCallableRelationV1_outcome_unique
+    {State Result : Type}
+    {program : SemanticProgramV1}
+    (encodeState : State → Except SemanticWireErrorV1 LogicalStateV1)
+    (encodeResult : Result → Option ReferenceValueV1)
+    (encodeStateInjective : ∀ left right logical,
+      encodeState left = .ok logical →
+      encodeState right = .ok logical → left = right)
+    (encodeResultInjective : Function.Injective encodeResult)
+    (subject : AdmittedSubjectV1 program)
+    (pre : State)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (left right : TypedOutcomeV1 State Result)
+    (hleft : TypedCallableRelationV1 encodeState encodeResult subject pre
+      invocation responses vault left)
+    (hright : TypedCallableRelationV1 encodeState encodeResult subject pre
+      invocation responses vault right) :
+    left = right := by
+  cases left with
+  | returned leftPost leftValue leftEffects =>
+      rcases hleft with
+        ⟨leftPre, hleftPre, leftLogicalPost, hleftPost, hleftStep⟩
+      cases right with
+      | returned rightPost rightValue rightEffects =>
+          rcases hright with
+            ⟨rightPre, hrightPre, rightLogicalPost, hrightPost, hrightStep⟩
+          have hpre : leftPre = rightPre :=
+            Except.ok.inj (hleftPre.symm.trans hrightPre)
+          subst rightPre
+          obtain ⟨hlogicalPost, hvalue, heffects⟩ :=
+            OutcomeV1.returned.inj (hleftStep.symm.trans hrightStep)
+          subst rightLogicalPost
+          have hpost : leftPost = rightPost :=
+            encodeStateInjective
+              leftPost rightPost leftLogicalPost hleftPost hrightPost
+          have htypedValue : leftValue = rightValue :=
+            encodeResultInjective hvalue
+          subst rightPost
+          subst rightValue
+          subst rightEffects
+          rfl
+      | reverted _rightReason =>
+          rcases hright with ⟨rightPre, hrightPre, hrightStep⟩
+          have hpre : leftPre = rightPre :=
+            Except.ok.inj (hleftPre.symm.trans hrightPre)
+          subst rightPre
+          cases hleftStep.symm.trans hrightStep
+      | trapped _rightFault =>
+          rcases hright with ⟨rightPre, hrightPre, hrightStep⟩
+          have hpre : leftPre = rightPre :=
+            Except.ok.inj (hleftPre.symm.trans hrightPre)
+          subst rightPre
+          cases hleftStep.symm.trans hrightStep
+  | reverted leftReason =>
+      rcases hleft with ⟨leftPre, hleftPre, hleftStep⟩
+      cases right with
+      | returned _rightPost _rightValue _rightEffects =>
+          rcases hright with
+            ⟨rightPre, hrightPre, _rightLogicalPost, _hrightPost, hrightStep⟩
+          have hpre : leftPre = rightPre :=
+            Except.ok.inj (hleftPre.symm.trans hrightPre)
+          subst rightPre
+          cases hleftStep.symm.trans hrightStep
+      | reverted rightReason =>
+          rcases hright with ⟨rightPre, hrightPre, hrightStep⟩
+          have hpre : leftPre = rightPre :=
+            Except.ok.inj (hleftPre.symm.trans hrightPre)
+          subst rightPre
+          obtain ⟨hreasons, _⟩ :=
+            OutcomeV1.reverted.inj (hleftStep.symm.trans hrightStep)
+          subst rightReason
+          rfl
+      | trapped _rightFault =>
+          rcases hright with ⟨rightPre, hrightPre, hrightStep⟩
+          have hpre : leftPre = rightPre :=
+            Except.ok.inj (hleftPre.symm.trans hrightPre)
+          subst rightPre
+          cases hleftStep.symm.trans hrightStep
+  | trapped leftFault =>
+      rcases hleft with ⟨leftPre, hleftPre, hleftStep⟩
+      cases right with
+      | returned _rightPost _rightValue _rightEffects =>
+          rcases hright with
+            ⟨rightPre, hrightPre, _rightLogicalPost, _hrightPost, hrightStep⟩
+          have hpre : leftPre = rightPre :=
+            Except.ok.inj (hleftPre.symm.trans hrightPre)
+          subst rightPre
+          cases hleftStep.symm.trans hrightStep
+      | reverted _rightReason =>
+          rcases hright with ⟨rightPre, hrightPre, hrightStep⟩
+          have hpre : leftPre = rightPre :=
+            Except.ok.inj (hleftPre.symm.trans hrightPre)
+          subst rightPre
+          cases hleftStep.symm.trans hrightStep
+      | trapped rightFault =>
+          rcases hright with ⟨rightPre, hrightPre, hrightStep⟩
+          have hpre : leftPre = rightPre :=
+            Except.ok.inj (hleftPre.symm.trans hrightPre)
+          subst rightPre
+          obtain ⟨hfaults, _⟩ :=
+            OutcomeV1.trapped.inj (hleftStep.symm.trans hrightStep)
+          subst rightFault
+          rfl
+
 /-- Machine helper: reverted outcomes carry the exact pre-state. -/
 def OutcomeRevertedUnchangedV1
     (pre : LogicalStateV1)

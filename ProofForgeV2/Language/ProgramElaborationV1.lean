@@ -317,6 +317,61 @@ private def quoteModelCallableResultEncodeV1
           valueBytes := ProofForgeV2.Semantic.WireV1.encodeU64le value
         } : ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1))
 
+/-- Prove injectivity of the generated callable result projection. These are
+    codec facts only: Bool/UInt64 use the same production Wire encodings as the
+    Reference result, while Unit has exactly one inhabitant. -/
+private def quoteModelCallableResultEncodeInjectiveV1
+    (result : ModelCallableResultV1) : MacroM (TSyntax `term) := do
+  match result with
+  | .unit =>
+      `(by
+        intro left right _h
+        cases left
+        cases right
+        rfl)
+  | .bool =>
+      `(by
+        intro left right h
+        have hvalue := Option.some.inj h
+        have hbytes := congrArg
+          ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1.valueBytes hvalue
+        change ProofForgeV2.Semantic.WireV1.encodeBool left =
+          ProofForgeV2.Semantic.WireV1.encodeBool right at hbytes
+        calc
+          left =
+              ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1
+                (ProofForgeV2.Semantic.WireV1.encodeBool left) :=
+            (ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1_encodeBool
+              left).symm
+          _ =
+              ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1
+                (ProofForgeV2.Semantic.WireV1.encodeBool right) :=
+            congrArg _ hbytes
+          _ = right :=
+            ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1_encodeBool
+              right)
+  | .uint64 =>
+      `(by
+        intro left right h
+        have hvalue := Option.some.inj h
+        have hbytes := congrArg
+          ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1.valueBytes hvalue
+        change ProofForgeV2.Semantic.WireV1.encodeU64le left =
+          ProofForgeV2.Semantic.WireV1.encodeU64le right at hbytes
+        calc
+          left =
+              ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1
+                (ProofForgeV2.Semantic.WireV1.encodeU64le left) :=
+            (ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1_encodeU64le
+              left).symm
+          _ =
+              ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1
+                (ProofForgeV2.Semantic.WireV1.encodeU64le right) :=
+            congrArg _ hbytes
+          _ = right :=
+            ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1_encodeU64le
+              right)
+
 /-- Emit the program-level positive admission carrier and one exact relation
     namespace per supported entry/view. The generated surface constructs only
     canonical invocation values and delegates every outcome to
@@ -331,6 +386,7 @@ private def elaborateCallableModelsV1
   let outcomeName := mkIdent `Outcome
   let stateName := mkIdent `State
   let resultName := mkIdent `Result
+  let encodeInjectiveName := mkIdent `encode_injective_of_eq_ok
   Lean.Elab.Command.elabCommand (← `(
     /-- Positive Reference admission carrier bound to this exact generated
         semantic subject. One value is shared by all callable relations. -/
@@ -355,12 +411,17 @@ private def elaborateCallableModelsV1
     let invocationName := mkIdent `invocation
     let callableOutcomeName := mkIdent `Outcome
     let transitionName := mkIdent `Transition
+    let outcomeUniqueName := mkIdent `outcome_unique
     let subjectName := mkIdent `subject
     let preName := mkIdent `pre
     let contextName := mkIdent `context
     let responsesName := mkIdent `responses
     let vaultName := mkIdent `vault
     let typedOutcomeName := mkIdent `outcome
+    let leftOutcomeName := mkIdent `left
+    let rightOutcomeName := mkIdent `right
+    let leftTransitionName := mkIdent `hleft
+    let rightTransitionName := mkIdent `hright
     let callableIdTerm : TSyntax `term :=
       ⟨Syntax.mkNumLit (toString callableView.callableId.toNat)⟩
     let paramNames := callableView.params.map fun param =>
@@ -378,11 +439,23 @@ private def elaborateCallableModelsV1
       quoteModelCallableResultTypeV1 callableView.result
     let resultEncode ← Lean.Elab.liftMacroM <|
       quoteModelCallableResultEncodeV1 callableView.result callableView.resultTypeId
+    let resultEncodeInjective ← Lean.Elab.liftMacroM <|
+      quoteModelCallableResultEncodeInjectiveV1 callableView.result
     let invocationTerm ← Lean.Elab.liftMacroM <| do
       let mut term ← `($invocationName)
       for paramName in paramNames do
         term ← `($term $paramName)
       `($term $contextName)
+    let leftTransitionTerm ← Lean.Elab.liftMacroM <| do
+      let mut term ← `($transitionName $subjectName $preName)
+      for paramName in paramNames do
+        term ← `($term $paramName)
+      `($term $contextName $responsesName $vaultName $leftOutcomeName)
+    let rightTransitionTerm ← Lean.Elab.liftMacroM <| do
+      let mut term ← `($transitionName $subjectName $preName)
+      for paramName in paramNames do
+        term ← `($term $paramName)
+      `($term $contextName $responsesName $vaultName $rightOutcomeName)
     Lean.Elab.Command.elabCommand (← `(namespace $callableNamespace))
     Lean.Elab.Command.elabCommand (← `(
       /-- Canonical invocation constructor for this exact callable row. Context
@@ -419,6 +492,30 @@ private def elaborateCallableModelsV1
           $encodeStateName $resultEncode $subjectName $preName
           $invocationTerm
           $responsesName $vaultName $typedOutcomeName))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- The exact typed relation has at most one outcome for fixed inputs.
+          This is inherited from the sole Reference step plus codec
+          injectivity; it is not a second executable callable. -/
+      theorem $outcomeUniqueName
+          ($subjectName : $referenceSubjectName)
+          ($preName : $stateName)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($leftOutcomeName $rightOutcomeName : $callableOutcomeName)
+          ($leftTransitionName : $leftTransitionTerm)
+          ($rightTransitionName : $rightTransitionTerm) :
+          $leftOutcomeName = $rightOutcomeName := by
+        exact
+          ProofForgeV2.Semantic.PreservationABI.typedCallableRelationV1_outcome_unique
+            $encodeStateName $resultEncode $encodeInjectiveName
+            $resultEncodeInjective $subjectName $preName $invocationTerm
+            $responsesName $vaultName $leftOutcomeName $rightOutcomeName
+            $leftTransitionName $rightTransitionName))
     Lean.Elab.Command.elabCommand (← `(end $callableNamespace))
 
 /-- Emit the author-facing business-state view. It is only a typed projection
