@@ -4,6 +4,7 @@
   Covers:
     * parameterized kernel: Legal alone ⇒ production encode + full transport
       decode recover materialize and close ordinal-0 InvariantTheoremV1
+    * production root-field inversion for every legal simple closure
     * demo Legal kernel discharge + QN encode/parse
     * Unicode-runtime encode/decode parity
     * tagged body recovery at post-magic offset
@@ -74,6 +75,13 @@ theorem kernel_decode_of_legal
     decodeSemanticProgramDataV1 (simpleClosureWireBytesV1 p) =
       .ok (materializeSimpleClosureDataV1 p) :=
   decodeSimpleClosure_of_legal p legal
+
+/-- Legal alone certifies arbitrary-framing inversion for all nine production
+    root-field codecs. -/
+theorem kernel_root_field_invert_of_legal
+    (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p) :
+    RootFieldInvertV1 (materializeSimpleClosureDataV1 p) :=
+  rootFieldInvertV1_of_legal p legal
 
 /-- Legal alone closes the exact ordinal-0 invariant theorem. -/
 theorem kernel_invariant_of_legal

@@ -366,9 +366,9 @@
       "sha256": "b453e698afeca47c9be95e08c19a041e14f51457098200d032a4ee4c5a644656"
     },
     {
-      "bytes": 41331,
+      "bytes": 43997,
       "path": "ProofForgeV2/Semantic/SimpleClosureDecodeComposeV1.lean",
-      "sha256": "ebd29563c41e0c0beba79ac697a05a09e60b9b0cdb4a823a5d84848938d30d60"
+      "sha256": "39cb9cdf632be8fd502ca536e33061de13bd866e0eac44b9198c23fa0f0049fd"
     },
     {
       "bytes": 75465,

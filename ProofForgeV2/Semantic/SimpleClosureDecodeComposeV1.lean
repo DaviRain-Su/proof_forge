@@ -8,6 +8,8 @@ import ProofForgeV2.Semantic.SimpleClosureEncodeV1
 import ProofForgeV2.Semantic.SimpleClosureEncodeFieldsV1
 import ProofForgeV2.Semantic.SimpleClosureStructureCertV1
 import ProofForgeV2.Semantic.SimpleClosureTraceV1
+import ProofForgeV2.Semantic.Wire.CodecInvertCallableV1
+import ProofForgeV2.Semantic.Wire.CodecInvertFieldsV1
 import ProofForgeV2.Semantic.Wire.CodecRoundtripV1
 import ProofForgeV2.Semantic.WireV1
 import Init.Data.ByteArray.Lemmas
@@ -826,6 +828,68 @@ theorem decodeSimpleClosure_of_legal
       .ok (materializeSimpleClosureDataV1 p) := by
   simpa [DecodeSimpleClosureGoalV1, canonicalWireBytesV1] using
     decodeSimpleClosureGoal_of_legal p legal
+
+/-- The nine production root-field codecs invert for every legal simple
+    closure. This package is parameterized by names and arbitrary framing; it
+    does not pin a complete contract byte string. -/
+theorem rootFieldInvertV1_of_legal
+    (p : SimpleClosureParamsV1) (legal : SimpleClosureParamsLegalV1 p) :
+    RootFieldInvertV1 (materializeSimpleClosureDataV1 p) := by
+  refine {
+    qualifiedName := ?_
+    types := ?_
+    constants := ?_
+    logicalState := ?_
+    events := ?_
+    errors := ?_
+    callables := ?_
+    invariants := ?_
+    requirements := ?_
+  }
+  · simpa [materializeSimpleClosureDataV1] using
+      (ExactMidOffsetInvertAtV1.ofExact
+        (exactMidOffsetInvert_qualifiedName p.toQualifiedName)
+        (by decide : 1 < maxNesting))
+  · intro b left right hencode
+    have hb : b = typesArrayBytesV1 :=
+      Except.ok.inj (hencode.symm.trans (encodeTypes_materialize_eq_ok p))
+    subst b
+    simpa [materializeSimpleClosureDataV1] using
+      decodeTypes_simpleClosure_midV1 left right 1 (by decide)
+  · simpa [materializeSimpleClosureDataV1] using
+      (exactAt_array_emptyV1 encodeConstantV1 decodeConstantV1
+        maxTableElements 1)
+  · simpa [materializeSimpleClosureDataV1] using
+      (exactAt_array_emptyV1 encodeStateDeclV1 decodeStateDeclV1
+        maxTableElements 1)
+  · simpa [materializeSimpleClosureDataV1] using
+      (exactAt_array_emptyV1 encodeEventDeclV1 decodeEventDeclV1
+        maxTableElements 1)
+  · simpa [materializeSimpleClosureDataV1] using
+      (exactAt_array_emptyV1 encodeErrorDeclV1 decodeErrorDeclV1
+        maxTableElements 1)
+  · intro b left right hencode
+    have hb : b = callablesArrayBytesV1 p :=
+      Except.ok.inj
+        (hencode.symm.trans (encode_callablesArray_of_legal p legal))
+    subst b
+    simpa [materializeSimpleClosureDataV1] using
+      decodeCallableArrayV1_simpleClosure_of_legal
+        left right p legal 1 (by decide)
+  · intro b left right hencode
+    have hb : b = invariantsArrayBytesV1 p.invName :=
+      Except.ok.inj
+        (hencode.symm.trans (encodeInvariants_materialize_of_legal p legal))
+    subst b
+    simpa [materializeSimpleClosureDataV1] using
+      decodeInvariants_array_of_legal_midV1 left right p legal 1 (by decide)
+  · intro b left right hencode
+    have hb : b = programRequirementsValueBoolBytesV1 :=
+      Except.ok.inj
+        (hencode.symm.trans (encodeRequirements_materialize_eq_ok p))
+    subst b
+    simpa [materializeSimpleClosureDataV1] using
+      decodeProgramRequirements_valueBool_midV1 left right 1 (by decide)
 
 /-- Fully closed ordinal-0 invariant theorem for every legal simple-closure
     parameter set. This composes only production encode/decode equalities and
