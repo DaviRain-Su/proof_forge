@@ -54,21 +54,35 @@ ProgramV1 → AleoPlan → Aleo Instructions → {id}.aleo + query descriptor
 
 ## Wave B — 本地解释（不上链）
 
-**目标**：在 **不** 恢复 Leo source 产品路径的前提下，对已 load 的 Instructions 做本地状态迁移观察。
+**目标**：在 **不** 恢复 Leo source 产品路径的前提下，对已 load 的 Instructions 做本地 VM 调用。
 
-候选（择一，fail-closed）：
+**选定路径（2026-08-10）**：Leo runner shell + **PF bytecode import pin**。
 
-1. **Package interpret lane**（operator）：最小 Leo package 仅作 runner 壳，**业务权威仍是 PF `.aleo`**（需钉：`leo run` 是否重编译 src；当前实测 `run` 会走 package src）
-2. **snarkVM CLI**（若 Tool Lock 可 pin）：直接 load `.aleo` 解释
-3. **产品 `local --target aleo --mode interpret`**：仅在 1/2 稳定后薄封装；默认仍无 network
+```text
+proof-forge-next build --target aleo
+  → {id}.aleo
+ephemeral leo package `runner` + `leo add --local` metadata dep
+  → copy PF {id}.aleo → runner/build/imports/{id}.aleo   (must stay PF bytes)
+leo run --offline {id}.aleo::{fn} …
+  → VM loads statecell.aleo (local) from imports
+post-run: sha256(imports) == sha256(PF emission)
+```
 
-DoD：
+| 项 | 内容 |
+|---|---|
+| 入口 | `just aleo-instructions-interpret` → `scripts/aleo_instructions_interpret_acceptance.sh` |
+| Fixture | `Examples/StateCell`：`initialize 5u64`、`increment 3u64` |
+| 完整性 | imports 保留 PF `not r1 into r2` 形态与 sha256（防 Leo 重编译替换） |
+| 负例 | unknown function fail；Accumulator 产品 reserved-name FC（Wave A join） |
+| 非声称 | 无 proof、无 durable ledger、无 Devnet/Testnet/Mainnet、`deployable=false` |
 
-- [ ] 固定 fixture：`initialize` → `increment` 可观察 mapping 效果（或明确等价观测）
-- [ ] 缺工具 skip-clean；有工具失败 exit ≠ 0
-- [ ] 文档钉：interpret ≠ proof ≠ on-chain
+**为何不是 snarkVM CLI / 产品 `local`：**
 
-**状态**：`pending`（依赖 Wave A 关闭）
+- 本机无独立 snarkVM 二进制；不在 Wave B 引入新 Tool Lock 大依赖
+- 产品 `local --target aleo` 仍 fail closed（ADR-0035）；Wave B 是 **host-optional acceptance**，不是产品 local lane
+- 直接 `leo run` 同名 package 会 **重编译 src**，不能当 PF 权威；必须走 imports pin
+
+**状态**：`done`（2026-08-10）— 本机 Leo 4.0.2：`ok (PF bytecode local VM + import integrity)`。
 
 ---
 
@@ -106,10 +120,10 @@ DoD：
 ## 击杀顺序
 
 ```text
-A1. reserved-name FC + StateCell/LoopSum leo abi          ← 本切片
-A2. just + docs + backlog 登记
-B1. 选定 interpret 权威（snarkVM vs package shell）并 spike
-B2. acceptance script + optional local mode
-C1. Tool Lock snarkOS/Leo network pins
+A1. reserved-name FC + StateCell/LoopSum leo abi          ← done
+A2. just + docs + backlog 登记                            ← done
+B1. runner shell + PF imports pin interpret               ← done
+B2. just aleo-instructions-interpret                      ← done
+C1. Tool Lock snarkOS/Leo network pins（或显式 host pins）
 C2. opt-in devnet then testnet runbooks（host-optional）
 ```

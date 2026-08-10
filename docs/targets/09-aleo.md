@@ -122,5 +122,12 @@ on-chain finalization、offline query、hermetic 或 formal refinement 证据；
 `add`）。Lowerer 在 `LowerPlanV1.reservedInstructionIdentifierV1` fail closed，禁止静默改名。
 官方 Leo 4.0.x `leo abi` 加载验收见 `just aleo-instructions-load` 与
 [`../plan/aleo-official-load-dev-testnet.md`](../plan/aleo-official-load-dev-testnet.md)。
-该门只证明 parse/load，不证明 run/prove/deploy。Devnet/Testnet 为后续 Wave C；Mainnet
-不进产品路径。
+该门只证明 parse/load，不证明 run/prove/deploy。
+
+## 9. Local interpret gate（Wave B，engineering）
+
+Host-optional：`just aleo-instructions-interpret` 将 PF `{id}.aleo` 钉入 ephemeral Leo
+runner 的 `build/imports/`，再 `leo run --offline {id}.aleo::{fn}`。产品权威是 PF
+Instructions 字节（post-run sha 必须不变）；Leo 只做 VM runner shell，**不是** source
+materializer。interpret ≠ proof ≠ on-chain。Devnet/Testnet 为 Wave C；Mainnet 不进产品路径。
+产品 CLI `local --target aleo` 仍 fail closed。

@@ -1351,6 +1351,14 @@ aleo-instructions-load: build
     /bin/bash -p scripts/aleo_instructions_load_acceptance.sh
 
 
+# Aleo Wave-B: local VM interpret of PF-emitted Instructions via Leo runner shell.
+# Product authority = PF .aleo copied into runner/build/imports (byte-pinned).
+# Host-optional; skip-clean if leo missing. Not proof/devnet/testnet/mainnet.
+# See docs/plan/aleo-official-load-dev-testnet.md.
+aleo-instructions-interpret: build
+    /bin/bash -p scripts/aleo_instructions_interpret_acceptance.sh
+
+
 # Noir ACIR IR-7 / G6 prove honesty probe (host-heavy; NOT ordinary ci).
 # Probes locked $PROOF_FORGE_TOOL_ROOT/bb|barretenberg only (never PATH).
 # Default today: PF-TOOLCHAIN-MISSING + PARTIAL (Tool Lock barretenberg=null;
