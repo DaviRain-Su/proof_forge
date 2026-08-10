@@ -219,6 +219,23 @@ theorem literalFieldComparisonCallableTable_exactAt_root
     leftStateId rightStateId viewValueBytes invariantValueBytes hviewName
     hliteralInvariantName heqName hneName
 
+/-- Two production requirement rows compose through the generic array and
+    tagged ProgramRequirements wrappers without caller-supplied row bytes. -/
+theorem twoRequirements_exactAt_root
+    (row0 row1 : RequirementRequestV1)
+    (h0 : ExactMidOffsetInvertAtV1 encodeRequirementRequestV1
+      decodeRequirementRequestV1 row0 2)
+    (h1 : ExactMidOffsetInvertAtV1 encodeRequirementRequestV1
+      decodeRequirementRequestV1 row1 2) :
+    ExactMidOffsetInvertAtV1 encodeProgramRequirementsV1
+      decodeProgramRequirementsV1 ({ items := #[row0, row1] } :
+        ProgramRequirementsV1) 1 :=
+  exactAt_programRequirements_of_itemsV1
+    ({ items := #[row0, row1] } : ProgramRequirementsV1) 1 (by decide)
+    (exactAt_array_two_of_exactAtV1 encodeRequirementRequestV1
+      decodeRequirementRequestV1 maxArrayElements (by decide) (by decide)
+      row0 row1 2 h0 h1)
+
 /-- A production field codec consumes the generic four-element fixed-depth
     array seam without supplying element bytes. -/
 theorem invariantTable_four_exactAt_root

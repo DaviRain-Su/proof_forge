@@ -1405,6 +1405,126 @@ theorem exactMidOffsetInvert_array_of_forall_encoded_exact
         exact ExactMidOffsetInvertAtV1.ofExact (hinv value hvalue) hdepth)
       b left right henc
 
+/-- Two-element fixed-depth array lift without caller-supplied element bytes.
+    The production-array worker remains the sole array decoder induction. -/
+theorem exactAt_array_two_of_exactAtV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (decode : Decoder α) (maxCount : Nat)
+    (hmax : 2 ≤ maxCount) (hmaxArray : maxCount ≤ maxArrayElements)
+    (v0 v1 : α) (nesting : Nat)
+    (h0 : ExactMidOffsetInvertAtV1 encode decode v0 nesting)
+    (h1 : ExactMidOffsetInvertAtV1 encode decode v1 nesting) :
+    ExactMidOffsetInvertAtV1 (encodeArray encode) (decodeArray maxCount decode)
+      #[v0, v1] nesting := by
+  cases henc0 : encode v0 with
+  | error error =>
+      intro b left right henc
+      have harr := encodeArray_two_error_firstV1 encode v0 v1 error henc0
+      rw [harr] at henc
+      cases henc
+  | ok b0 =>
+      cases henc1 : encode v1 with
+      | error error =>
+          intro b left right henc
+          have harr := encodeArray_two_error_secondV1 encode v0 v1
+            b0 error henc0 henc1
+          rw [harr] at henc
+          cases henc
+      | ok b1 =>
+          exact
+            exactMidOffsetInvertAt_array_of_forall_encoded_exactAt
+              encode decode maxCount #[v0, v1] nesting hmax hmaxArray
+              (by
+                change 2 ≤ UInt32.size - 1
+                decide)
+              (by
+                intro value hvalue
+                simp at hvalue
+                rcases hvalue with rfl | rfl
+                · exact ⟨b0, henc0⟩
+                · exact ⟨b1, henc1⟩)
+              (by
+                intro value hvalue
+                simp at hvalue
+                rcases hvalue with rfl | rfl
+                · exact h0
+                · exact h1)
+
+/-- Lift the production items-array codec through the sole tagged
+    `ProgramRequirementsV1` wrapper at a fixed depth. -/
+theorem exactAt_programRequirements_of_itemsV1
+    (requirements : ProgramRequirementsV1) (nesting : Nat)
+    (hdepth : nesting < maxNesting)
+    (hitems : ExactMidOffsetInvertAtV1
+      (encodeArray encodeRequirementRequestV1)
+      (decodeArray maxArrayElements decodeRequirementRequestV1)
+      requirements.items (nesting + 1)) :
+    ExactMidOffsetInvertAtV1 encodeProgramRequirementsV1
+      decodeProgramRequirementsV1 requirements nesting := by
+  intro b left right henc
+  cases hitemsEnc : encodeArray encodeRequirementRequestV1 requirements.items with
+  | error error =>
+      simp [encodeProgramRequirementsV1, hitemsEnc, Bind.bind, Except.bind] at henc
+  | ok itemsB =>
+      have hb : b = taggedBytesV1 "ProgramRequirements" #[itemsB] := by
+        simp only [encodeProgramRequirementsV1, hitemsEnc, Bind.bind,
+          Except.bind] at henc
+        exact (encodeTagged_ok_eq_taggedBytesV1
+          "ProgramRequirements" #[itemsB] b henc).1
+      subst b
+      rw [taggedBytes_one_field]
+      have htag :
+          expectTag "ProgramRequirements" 1
+              ⟨left ++ taggedHeaderBytesV1 "ProgramRequirements" 1 ++
+                  itemsB ++ right, left.size, nesting + 1⟩ =
+            .ok ((),
+              ⟨left ++ taggedHeaderBytesV1 "ProgramRequirements" 1 ++
+                  itemsB ++ right,
+                left.size + (taggedHeaderBytesV1
+                  "ProgramRequirements" 1).size, nesting + 1⟩) :=
+        expectTag_encode_midV1 left right "ProgramRequirements" 1 itemsB
+          (nesting + 1) (by decide) (by decide) (by decide)
+          isAsciiTagBytes_ProgramRequirements (by decide)
+      have hitemsDec :
+          decodeArray maxArrayElements decodeRequirementRequestV1
+              ⟨left ++ taggedHeaderBytesV1 "ProgramRequirements" 1 ++
+                  itemsB ++ right,
+                left.size + (taggedHeaderBytesV1
+                  "ProgramRequirements" 1).size, nesting + 1⟩ =
+            .ok (requirements.items,
+              ⟨left ++ taggedHeaderBytesV1 "ProgramRequirements" 1 ++
+                  itemsB ++ right,
+                left.size + (taggedHeaderBytesV1
+                  "ProgramRequirements" 1).size + itemsB.size,
+                nesting + 1⟩) := by
+        have hmid := hitems itemsB
+          (left ++ taggedHeaderBytesV1 "ProgramRequirements" 1) right hitemsEnc
+        simpa [ByteArray.append_assoc, ByteArray.size_append,
+          Nat.add_assoc] using hmid
+      have hbody := decodeProgramRequirementsBodyV1_eq_of_fields
+        ⟨left ++ taggedHeaderBytesV1 "ProgramRequirements" 1 ++ itemsB ++ right,
+          left.size, nesting + 1⟩
+        ⟨left ++ taggedHeaderBytesV1 "ProgramRequirements" 1 ++ itemsB ++ right,
+          left.size + (taggedHeaderBytesV1 "ProgramRequirements" 1).size,
+          nesting + 1⟩
+        ⟨left ++ taggedHeaderBytesV1 "ProgramRequirements" 1 ++ itemsB ++ right,
+          left.size + (taggedHeaderBytesV1 "ProgramRequirements" 1).size +
+            itemsB.size, nesting + 1⟩
+        requirements.items htag hitemsDec
+      have hrequirements :
+          ({ items := requirements.items } : ProgramRequirementsV1) = requirements := by
+        cases requirements
+        rfl
+      rw [hrequirements] at hbody
+      have hshell := decodeProgramRequirementsV1_eq_of_bodyV1
+        ⟨left ++ taggedHeaderBytesV1 "ProgramRequirements" 1 ++ itemsB ++ right,
+          left.size, nesting⟩ requirements
+        ⟨left ++ taggedHeaderBytesV1 "ProgramRequirements" 1 ++ itemsB ++ right,
+          left.size + (taggedHeaderBytesV1 "ProgramRequirements" 1).size +
+            itemsB.size, nesting + 1⟩ hdepth hbody
+      simpa [ByteArray.append_assoc, ByteArray.size_append,
+        Nat.add_assoc] using hshell
+
 /-- Successful list validation implies every component satisfies the shared
     production identifier-component validator. -/
 private theorem validateIdentifierComponentsListV1_forall_of_ok

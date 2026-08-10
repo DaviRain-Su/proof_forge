@@ -865,7 +865,10 @@ expression translator：
     处分叉，不固定 callable id/name/type/state id/payload；目标 family 的四行 callable table
     也已由 production 四元素 array seam 组合为 parameterized exact package，仍不固定合约
     qualified name 或 encoded table bytes；这些仍只是 root-table 组合地基，不能单独推出
-    structure/validation success；
+    structure/validation success；production array worker 现在也补齐了不要求 caller 提供
+    element bytes 的二元素 fixed-depth lift，并可将任意 exact items-array certificate 通过
+    唯一的 tagged `ProgramRequirementsV1` codec wrapper 提升，目标的两行 requirements
+    不再需要另写 closed byte proof；
     当前已把 `subjectBodyEncodeOkV1` + 全部 production root gates + structure success +
     whole-program `RootFieldInvertV1` 组合 exact validation 的 theorem 抽到通用
     `SubjectDataBridgeV1`，不再归属于 parity shape；elaborator 现已对每个 proof-bearing program
