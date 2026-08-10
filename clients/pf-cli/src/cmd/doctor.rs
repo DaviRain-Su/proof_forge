@@ -242,20 +242,27 @@ fn collect_deps(target: &str) -> Vec<Dep> {
                     path: None,
                 });
             }
-            let root = compiler::resolve_package_root();
-            if root.is_none() {
-                deps.push(Dep {
+            match crate::targets::evm::test::resolve_evm_test_script() {
+                Ok(p) => deps.push(Dep {
+                    id: "evm-test-harness",
+                    status: "ok",
+                    summary: "pf_evm_test.sh (standalone Anvil smoke; bundle or monorepo)".into(),
+                    install: vec![],
+                    path: Some(p.display().to_string()),
+                }),
+                Err(_) => deps.push(Dep {
                     id: "evm-test-harness",
                     status: "info",
-                    summary: "pf test -t evm still uses monorepo scripts/pf_evm_test.sh today"
-                        .into(),
+                    summary: "pf test -t evm needs scripts/pf_evm_test.sh from bundle".into(),
                     install: vec![
-                        "# full EVM test matrix: clone monorepo and set:".into(),
-                        "export PROOF_FORGE_ROOT=/path/to/proof_forge".into(),
-                        "# save-only package works without monorepo: pf deploy -t evm".into(),
+                        "# external authors: install engineering bundle (includes scripts/)".into(),
+                        "pf bootstrap --from proof-forge-bundle-*.tar.gz".into(),
+                        "export PROOF_FORGE_ROOT=$HOME/.local/proof-forge/current".into(),
+                        "pf -y setup --target evm   # anvil+cast into Tool Root".into(),
+                        "# save-only without Anvil: pf deploy -t evm".into(),
                     ],
                     path: None,
-                });
+                }),
             }
         }
         "solana" => {
@@ -500,24 +507,30 @@ fn try_auto_install(target: &str) -> Vec<String> {
     }
 
     // Compiler Tool Lock install via proof-forge-next (bundle or monorepo package root).
+    // EVM: also pull runtime (anvil/cast) so `pf test` works standalone.
     match compiler::resolve_compiler() {
         Ok(cli) => {
+            let mut args = vec!["install", "--targets", target, "--yes"];
+            if target == "evm" {
+                args.push("--with-runtime");
+            }
             let mut cmd = Command::new(&cli);
-            cmd.args(["install", "--targets", target, "--yes"]);
+            cmd.args(&args);
             compiler::ensure_host_mode_env(&mut cmd);
             if let Some(root) = compiler::resolve_package_root() {
                 cmd.current_dir(&root);
                 cmd.env("PROOF_FORGE_ROOT", &root);
             }
-            // Prefer isolated default tool root; inherit if user set one.
             let status = cmd.status();
+            let label = if target == "evm" {
+                format!("{} install --targets {target} --yes --with-runtime", cli.display())
+            } else {
+                format!("{} install --targets {target} --yes", cli.display())
+            };
             match status {
-                Ok(s) if s.success() => notes.push(format!(
-                    "ran {} install --targets {target} --yes",
-                    cli.display()
-                )),
+                Ok(s) if s.success() => notes.push(format!("ran {label}")),
                 Ok(s) => notes.push(format!(
-                    "proof-forge-next install exited {:?} (may be ok if tools already locked or network blocked)",
+                    "{label} exited {:?} (may be ok if tools already locked or network blocked)",
                     s.code()
                 )),
                 Err(e) => notes.push(format!("proof-forge-next install spawn failed: {e}")),
@@ -557,10 +570,10 @@ fn next_commands(target: &str) -> Vec<String> {
             "pf test                         # needs monorepo Mollusk harness today".into(),
         ],
         "evm" => vec![
-            "pf setup --target evm".into(),
+            "pf -y setup --target evm        # compiler install + Tool Root solc/anvil".into(),
             "pf new cell --target evm && cd cell".into(),
             "pf build && pf deploy           # save-only always works with compiler".into(),
-            "pf test                         # needs anvil+cast (+ monorepo script today)".into(),
+            "pf test                         # Anvil smoke via bundle scripts/pf_evm_test.sh".into(),
         ],
         "psy" => vec![
             "pf setup --target psy".into(),

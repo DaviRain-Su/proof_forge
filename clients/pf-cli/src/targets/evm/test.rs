@@ -1,5 +1,10 @@
-//! Spawn `scripts/pf_evm_test.sh` against an EVM OutputSet (offline Anvil).
+//! Local EVM Anvil smoke for `pf test -t evm` (standalone-capable).
+//!
+//! Prefers the package-owned script shipped in the engineering **bundle**
+//! (`scripts/pf_evm_test.sh` next to `proof-forge-next`). Monorepo checkout is
+//! optional fallback only — not required for external authors (ADR-0039 / P1-1).
 
+use crate::compiler;
 use crate::error::{PfError, PfResult};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
@@ -31,7 +36,17 @@ fn default_tool_root() -> PathBuf {
     }
 }
 
-/// Resolve monorepo `scripts/pf_evm_test.sh`.
+fn script_if_file(path: PathBuf) -> Option<PathBuf> {
+    path.is_file().then_some(path)
+}
+
+/// Resolve `scripts/pf_evm_test.sh` without requiring a monorepo checkout.
+///
+/// Order:
+/// 1. `PROOF_FORGE_EVM_TEST_SCRIPT`
+/// 2. package root next to compiler / `PROOF_FORGE_ROOT` (bundle layout)
+/// 3. sibling of `proof-forge-next` → `../scripts/pf_evm_test.sh`
+/// 4. cwd / parent walk (contributor monorepo)
 pub fn resolve_evm_test_script() -> PfResult<PathBuf> {
     if let Ok(p) = std::env::var("PROOF_FORGE_EVM_TEST_SCRIPT") {
         let pb = PathBuf::from(&p);
@@ -43,25 +58,43 @@ pub fn resolve_evm_test_script() -> PfResult<PathBuf> {
         )));
     }
 
+    // Bundle / install tree: package root has scripts/pf_evm_test.sh
+    if let Some(root) = compiler::resolve_package_root() {
+        if let Some(p) = script_if_file(root.join("scripts/pf_evm_test.sh")) {
+            return Ok(p);
+        }
+    }
+
     if let Ok(root) = std::env::var("PROOF_FORGE_ROOT") {
-        let cand = PathBuf::from(&root).join("scripts/pf_evm_test.sh");
-        if cand.is_file() {
-            return Ok(cand);
+        if let Some(p) = script_if_file(PathBuf::from(&root).join("scripts/pf_evm_test.sh")) {
+            return Ok(p);
+        }
+    }
+
+    // Sibling of compiler binary: …/bin/proof-forge-next → …/scripts/
+    if let Ok(cli) = compiler::resolve_compiler() {
+        if let Some(bin_dir) = cli.parent() {
+            if let Some(pkg) = bin_dir.parent() {
+                if let Some(p) = script_if_file(pkg.join("scripts/pf_evm_test.sh")) {
+                    return Ok(p);
+                }
+            }
+            // Also accept scripts/ next to bin/ (flat layouts)
+            if let Some(p) = script_if_file(bin_dir.join("scripts/pf_evm_test.sh")) {
+                return Ok(p);
+            }
         }
     }
 
     let cwd = std::env::current_dir()?;
-    let cand = cwd.join("scripts/pf_evm_test.sh");
-    if cand.is_file() {
-        return Ok(cand);
+    if let Some(p) = script_if_file(cwd.join("scripts/pf_evm_test.sh")) {
+        return Ok(p);
     }
 
-    // Walk parents from cwd (project may sit under monorepo).
     let mut dir = cwd;
     loop {
-        let cand = dir.join("scripts/pf_evm_test.sh");
-        if cand.is_file() {
-            return Ok(cand);
+        if let Some(p) = script_if_file(dir.join("scripts/pf_evm_test.sh")) {
+            return Ok(p);
         }
         if !dir.pop() {
             break;
@@ -70,14 +103,13 @@ pub fn resolve_evm_test_script() -> PfResult<PathBuf> {
 
     Err(PfError::Tool(
         "scripts/pf_evm_test.sh not found.\n\
-         `pf test -t evm` currently shells into a monorepo Anvil script — \
-         NOT included in `cargo install proof-forge-pf`.\n\
-         Fix one of:\n\
-           • run from a proof_forge checkout with PROOF_FORGE_ROOT set\n\
-           • set PROOF_FORGE_EVM_TEST_SCRIPT=/path/to/pf_evm_test.sh\n\
-           • use Release/monorepo install for full EVM test\n\
-         Save-only package without Anvil matrix: pf deploy -t evm\n\
-         See clients/pf-cli/ARCHITECTURE.md"
+         External authors: install the engineering **bundle** (pf + proof-forge-next + scripts/):\n\
+           pf bootstrap --from proof-forge-bundle-*.tar.gz\n\
+           export PROOF_FORGE_ROOT=$HOME/.local/proof-forge/current\n\
+           pf -y setup --target evm   # materializes anvil+cast into Tool Root\n\
+         Override: PROOF_FORGE_EVM_TEST_SCRIPT=/path/to/pf_evm_test.sh\n\
+         Save-only without Anvil: pf deploy -t evm\n\
+         See docs/product/14-external-author-mvp.md · ADR-0039"
             .into(),
     ))
 }
@@ -121,11 +153,15 @@ pub fn run_anvil_test(artifact_dir: &Path) -> PfResult<TestOutcome> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .env("PF_EVM_ARTIFACT_DIR", artifact_dir)
-        .env("PROOF_FORGE_TOOL_ROOT", &tool_root);
+        .env("PROOF_FORGE_TOOL_ROOT", &tool_root)
+        .env("PROOF_FORGE_HOST_MODE", std::env::var("PROOF_FORGE_HOST_MODE").unwrap_or_else(|_| "dev".into()));
     if let Ok(fb) = std::env::var("FOUNDRY_BIN") {
         cmd.env("FOUNDRY_BIN", fb);
     }
-    if let Ok(root) = std::env::var("PROOF_FORGE_ROOT") {
+    // Optional: only needed if the script grows monorepo-only legs.
+    if let Some(root) = compiler::resolve_package_root() {
+        cmd.env("PROOF_FORGE_ROOT", root);
+    } else if let Ok(root) = std::env::var("PROOF_FORGE_ROOT") {
         cmd.env("PROOF_FORGE_ROOT", root);
     }
 
@@ -154,7 +190,9 @@ pub fn run_anvil_test(artifact_dir: &Path) -> PfResult<TestOutcome> {
 
     if !out.status.success() {
         return Err(PfError::Tool(format!(
-            "evm anvil test failed (exit {:?})\n{stderr}{stdout}",
+            "evm anvil test failed (exit {:?})\n{stderr}{stdout}\n\
+fix: pf -y setup --target evm   # ensure Tool Root has anvil+cast\n\
+# or set PROOF_FORGE_TOOL_ROOT to a lock-materialized root",
             out.status.code()
         )));
     }

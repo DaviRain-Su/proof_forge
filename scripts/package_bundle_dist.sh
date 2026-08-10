@@ -185,11 +185,11 @@ required_scripts=(
   proof_forge_doctor.py
   proof_forge_install.py
   toolchain_assets.py
+  pf_evm_test.sh
 )
 optional_scripts=(
   solana_runtime_test.sh
   evm_anvil_differential.sh
-  pf_evm_test.sh
 )
 for f in "${required_scripts[@]}"; do
   [[ -f "$root/scripts/$f" ]] || bad "missing required package script scripts/$f"

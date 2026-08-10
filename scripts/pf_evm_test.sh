@@ -1,9 +1,13 @@
 #!/usr/bin/env bash
-# Minimal EVM Anvil local test for `pf test -t evm` (D7c).
+# Minimal EVM Anvil local test for `pf test -t evm` (D7c / P1-1 standalone).
 #
 # Inputs:
 #   PF_EVM_ARTIFACT_DIR  — OutputSet dir with *.bin (required)
 #   PROOF_FORGE_TOOL_ROOT / FOUNDRY_BIN — locked anvil+cast root
+#
+# Standalone: this script only needs bash + python3 + anvil/cast under Tool Root.
+# It does **not** require a monorepo checkout, lake, or PROOF_FORGE_ROOT.
+# Shipped in the engineering bundle under scripts/ (ADR-0039).
 #
 # Behavior:
 #   - Missing anvil/cast → skip-clean exit 0 (host-optional; not a pass claim)
@@ -13,7 +17,9 @@
 # Not formal / not mainnet / not full differential corpus.
 set -euo pipefail
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# Package root is optional (bundle parent of scripts/); only used for diagnostics.
+_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd "${_script_dir}/.." && pwd)"
 artifact_dir="${PF_EVM_ARTIFACT_DIR:-${1:-}}"
 if [[ -z "$artifact_dir" ]]; then
   echo "pf-evm-test: usage: PF_EVM_ARTIFACT_DIR=<dir> $0" >&2

@@ -125,7 +125,7 @@ pf test                         # 可选 Anvil（Tool Root 内）
 
 | ID | 需求 | 说明 | 验收要点 |
 |---|---|---|---|
-| **P1-1** | `pf test -t evm` 不依赖 monorepo 路径 | 今天 Anvil 矩阵绑 `scripts/pf_evm_test.sh` + `PROOF_FORGE_ROOT` | standalone bundle 用户可 test |
+| **P1-1** | `pf test -t evm` 不依赖 monorepo 路径 | **done engineering**：bundle 解析 `scripts/pf_evm_test.sh`；`pf -y setup -t evm` 装 anvil/cast | standalone bundle 用户可 test（缺 tool → skip-clean） |
 | **P1-2** | `pf deploy` 与前端同一产物契约 | 固定 `build/evm/*.abi.json` + `*.bin` + `deployment.json` schema；可选 `--write-ui-json` | UI 模板只认 `pf build` OutputSet |
 | **P1-3** | public testnet broadcast 策略与文档一致 | 落实 D3；setup/doctor 文案一致 | 无「能 build 不能讲清怎么上链」 |
 | **P1-4** | 网络 catalog 进 CLI | `pf network list` / `pf network use evm.xlayer.testnet` 读 `networks.v1.json` | 少手写 chainId/RPC |
@@ -301,3 +301,5 @@ Week 3  Epic F 文档两轨收敛 + agent cheatsheet
 |---|---|
 | 2026-08-10 | 初稿：诊断 + D1–D5 + P0/P1/P2 + Epic + CI 三绿线 + 最小五切片 |
 | 2026-08-10 | **实现切片落地**：ADR-0040；`HostMode=dev` 默认；Diagnostic fix-up；`package_bundle_dist` + `install.sh` + `pf bootstrap`；setup `-y` 真调 install；pf 版本对齐 0.1.1；release workflow 打 bundle + EA smoke |
+| 2026-08-10 | **实现切片落地**：ADR-0040；`HostMode=dev` 默认；Diagnostic fix-up；`package_bundle_dist` + `install.sh` + `pf bootstrap`；setup `-y` 真调 install；pf 版本对齐 0.1.1；release workflow 打 bundle + EA smoke |
+| 2026-08-10 | **Wave A+B**：README 两轨；`external-author-smoke.yml`；P1-1 standalone `pf test -t evm`（bundle 脚本解析 + setup `--with-runtime`） |

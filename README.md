@@ -51,6 +51,31 @@ program StateCell where
     return count
 ```
 
+### 路径 ① — 外部作者 / Agent（推荐；**不**需要 monorepo `lake build`）
+
+从 GitHub Release 取 **engineering-dist bundle**（`proof-forge-bundle-<ver>-<plat>.tar.gz`，含 `pf` + `proof-forge-next` + olean + scripts）。详见 [ADR-0039](docs/adr/0039-external-author-host-mode-and-bundle.md) / [`docs/product/14-external-author-mvp.md`](docs/product/14-external-author-mvp.md)。
+
+```bash
+# 有 Release 资产后：
+bash scripts/install.sh --from proof-forge-bundle-*.tar.gz
+# 或: pf bootstrap --from proof-forge-bundle-*.tar.gz
+
+export PATH="$HOME/.local/proof-forge/current/bin:$PATH"
+export PROOF_FORGE_CLI="$HOME/.local/proof-forge/current/bin/proof-forge-next"
+export PROOF_FORGE_ROOT="$HOME/.local/proof-forge/current"
+# 默认 PROOF_FORGE_HOST_MODE=dev（不 pin 他机 host:stat）
+
+pf -y setup --target evm          # Tool Lock: solc + anvil/cast
+pf new hello --target evm && cd hello
+pf build
+pf test                           # 本地 Anvil smoke（bundle 内 scripts/pf_evm_test.sh）
+pf deploy                         # save-only 包；--broadcast 仅 local
+```
+
+零工具 target（无需 solc）可先用 `aleo` / `psy` 验证装机：`pf -y setup --target aleo && pf new h --target aleo && pf build`。
+
+### 路径 ② — 贡献者 monorepo
+
 ```bash
 # 安装 Lean（见 lean-toolchain）后：
 just dev-check   # 快速文档检查、构建与核心产品测试
