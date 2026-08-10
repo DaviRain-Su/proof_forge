@@ -1090,15 +1090,17 @@ private def elaborateStateModelV1
       `(())
     else
       `({ $[$fieldNames:ident := $decodedValues],* })
-  let allUInt64 := fields.all fun field =>
+  let completeScalarCodecs := fields.all fun field =>
     match field.scalar with
     | .uint64 => true
-    | .bool => false
+    | .bool => true
   let decodedEncodedValues ← Lean.Elab.liftMacroM <|
-    decodedValues.mapM fun value =>
-      `(ProofForgeV2.Semantic.WireV1.encodeU64le $value)
+    fields.zip decodedValues |>.mapM fun (field, value) =>
+      match field.scalar with
+      | .bool => `(ProofForgeV2.Semantic.WireV1.encodeBool $value)
+      | .uint64 => `(ProofForgeV2.Semantic.WireV1.encodeU64le $value)
   let decodedValueRoundtrips : Array (TSyntax `Lean.Parser.Tactic.simpLemma) ←
-    fields.zipIdx.mapM fun (_field, index) => do
+    fields.zipIdx.mapM fun (field, index) => do
       let indexTerm : TSyntax `term := ⟨Syntax.mkNumLit (toString index)⟩
       let stateDecl ← match data.logicalState[index]? with
         | some value => pure value
@@ -1112,12 +1114,19 @@ private def elaborateStateModelV1
         ProofForgeV2.Language.SubjectDataQuoteV1.quoteStateDeclV1 stateDecl
       let typeDeclTerm ← Lean.Elab.liftMacroM <|
         ProofForgeV2.Language.SubjectDataQuoteV1.quoteTypeDeclV1 typeDecl
-      let proof ← Lean.Elab.liftMacroM <| `(
-        ProofForgeV2.Semantic.StateModelV1.encodeU64le_uint64OfDecodedStateValueV1
-          $subjectDataName $logicalStateName $stateValuesName hdecode
-          $indexTerm (by omega)
-          $stateDeclTerm $typeDeclTerm
-          (by rfl) (by rfl) (by rfl))
+      let proof ← Lean.Elab.liftMacroM <| match field.scalar with
+        | .bool => `(
+            ProofForgeV2.Semantic.StateModelV1.encodeBool_boolOfDecodedStateValueV1
+              $subjectDataName $logicalStateName $stateValuesName hdecode
+              $indexTerm (by omega)
+              $stateDeclTerm $typeDeclTerm
+              (by rfl) (by rfl) (by rfl))
+        | .uint64 => `(
+            ProofForgeV2.Semantic.StateModelV1.encodeU64le_uint64OfDecodedStateValueV1
+              $subjectDataName $logicalStateName $stateValuesName hdecode
+              $indexTerm (by omega)
+              $stateDeclTerm $typeDeclTerm
+              (by rfl) (by rfl) (by rfl))
       Lean.Elab.liftMacroM <|
         `(Lean.Parser.Tactic.simpLemma| $proof:term)
   let rewriteDecodedValues ← Lean.Elab.liftMacroM <|
@@ -1229,10 +1238,11 @@ private def elaborateStateModelV1
       refine ⟨typedState, hsuccess, ?_⟩
       intro other hother
       exact Except.ok.inj (hsuccess.symm.trans hother)))
-  if allUInt64 then
+  if completeScalarCodecs then
     Lean.Elab.Command.elabCommand (← `(
-      /-- Every production-conforming initialized UInt64 state has a typed
-          decode that re-encodes to the exact same production carrier. -/
+      /-- Every production-conforming initialized state in the generated
+          scalar subset has a typed decode that re-encodes to the exact same
+          production carrier. -/
       theorem $encodeDecodeName
           ($logicalStateName : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
           (hvalidate :
@@ -1309,10 +1319,10 @@ private def elaborateStateModelV1
         ProofForgeV2.Semantic.StateModelV1.stateConformsV1_of_encodeLogicalStateValuesV1
           $subjectProgramName $subjectDataName #[$encodedValues,*]
           $logicalStateName hvalidate hencode))
-  if allUInt64 then
+  if completeScalarCodecs then
     Lean.Elab.Command.elabCommand (← `(
-      /-- On the generated UInt64 typed-state subset, production conformance
-          is equivalent to representability by the production encoder. -/
+      /-- On the generated typed-state scalar subset, production conformance is
+          equivalent to representability by the production encoder. -/
       theorem $conformsIffEncodeName
           ($logicalStateName : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
           (hvalidate :

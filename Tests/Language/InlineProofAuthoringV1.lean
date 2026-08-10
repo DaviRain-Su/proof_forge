@@ -12,6 +12,8 @@ open Lean.Elab.Command
 
 namespace Tests.Language.InlineProofAuthoringV1
 
+#check ProofForgeV2.Semantic.StateModelV1.encodeBool_boolOfDecodedStateValueV1
+
 program Proofed where
   view alive() : Bool do
     return true

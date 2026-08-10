@@ -145,6 +145,32 @@ theorem encodeU64le_uint64OfCanonicalValueBytesV1
   exact validateValueBytesV1_uint64_size
     types typeId decl bytes hlookup hshape hcanonical
 
+/-- A Bool slot returned at a known source-order index by the production
+    decoder survives typed projection and Wire re-encoding byte-for-byte. -/
+theorem encodeBool_boolOfDecodedStateValueV1
+    (data : SemanticProgramDataV1)
+    (state : LogicalStateV1)
+    (values : Array ByteArray)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok values)
+    (index : Nat)
+    (hindex : index < values.size)
+    (stateDecl : StateDeclV1)
+    (typeDecl : TypeDeclV1)
+    (hstateDecl : data.logicalState[index]? = some stateDecl)
+    (htypeDecl : data.types[stateDecl.typeId.toNat]? = some typeDecl)
+    (hshape : typeDecl.shape = .bool) :
+    encodeBool (boolOfCanonicalValueBytesV1 values[index]!) =
+      values[index]! := by
+  have hvalue : values[index]? = some values[index]! := by
+    simp [hindex]
+  have hcanonical :=
+    validateValueBytesV1_of_decodeLogicalStateValuesV1_getElem
+      data state values hdecode index stateDecl values[index]!
+      hstateDecl hvalue
+  exact encodeBool_boolOfCanonicalValueBytesV1
+    data.types stateDecl.typeId typeDecl values[index]!
+    htypeDecl hshape hcanonical
+
 /-- A UInt64 slot returned at a known source-order index by the production
     decoder survives typed projection and Wire re-encoding byte-for-byte. -/
 theorem encodeU64le_uint64OfDecodedStateValueV1
