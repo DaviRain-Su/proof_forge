@@ -110,6 +110,18 @@ Agent 完成后端后，**前端不是可选闲笔**——完整 Aleo APP 需要
 - 不得从 Instructions artifact  alone 推断「已部署」
 - 浏览器禁止嵌入 `APrivateKey1…`
 
+
+## 7b. EVM 前端下一步
+
+对称 Aleo 前端剧本：[`08-evm-dapp-frontend.md`](08-evm-dapp-frontend.md)
+
+```bash
+bash scripts/pf_evm_local_demo.sh
+cd templates/evm-dapp-ui && npm install && npm run dev
+```
+
+本地 Anvil only；无 public broadcast。
+
 ## 8. 失败剧本
 
 | 现象 | 处理 |

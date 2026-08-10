@@ -1,0 +1,5 @@
+[
+  {"type":"constructor","stateMutability":"nonpayable","inputs":[{"name":"initial","type":"uint64"}]},
+  {"type":"function","name":"increment","stateMutability":"nonpayable","inputs":[{"name":"delta","type":"uint64"}],"outputs":[{"name":"","type":"uint64"}]},
+  {"type":"function","name":"get","stateMutability":"view","inputs":[],"outputs":[{"name":"","type":"uint64"}]}
+]

@@ -8,7 +8,8 @@
     "pfSurface describes product CLI/MCP/SDK entry points only.",
     "deployable is always false on product OutputSet until N3 product decision.",
     "No network broadcast tools on MCP default surface.",
-    "Aleo frontend detail: docs/product/07-aleo-dapp-frontend-wallet.md (wallet adaptor + Provable SDK; not shipped by PF)."
+    "Aleo frontend detail: docs/product/07-aleo-dapp-frontend-wallet.md (wallet adaptor + Provable SDK; not shipped by PF).",
+    "EVM frontend detail: docs/product/08-evm-dapp-frontend.md + templates/evm-dapp-ui (viem/local Anvil)."
   ],
   "targets": [
     {
@@ -114,14 +115,43 @@
           "pf_local",
           "pf_artifacts",
           "pf_chain_catalog"
-        ]
+        ],
+        "frontendTemplate": "templates/evm-dapp-ui"
       },
       "frontendClients": [
         {
-          "name": "ethers / viem / wagmi (ecosystem)",
+          "name": "viem (+ injected window.ethereum / MetaMask)",
           "kind": "js-ts",
-          "purpose": "RPC, wallet, ABI call for dApp UI",
-          "shippedByProofForge": false
+          "purpose": "typed RPC, deploy/call StateCell-shaped ABI; default template stack",
+          "shippedByProofForge": false,
+          "docs": [
+            "https://viem.sh",
+            "docs/product/08-evm-dapp-frontend.md",
+            "templates/evm-dapp-ui"
+          ],
+          "packages": [
+            "viem"
+          ]
+        },
+        {
+          "name": "wagmi + viem (ecosystem)",
+          "kind": "js-ts",
+          "purpose": "React hooks wallet UX; optional upgrade from minimal template",
+          "shippedByProofForge": false,
+          "packages": [
+            "wagmi",
+            "viem",
+            "@wagmi/core"
+          ]
+        },
+        {
+          "name": "ethers v6 (ecosystem)",
+          "kind": "js-ts",
+          "purpose": "alternative provider/contract API",
+          "shippedByProofForge": false,
+          "packages": [
+            "ethers"
+          ]
         }
       ],
       "localDev": {
@@ -129,8 +159,13 @@
         "chainLike": "Anvil engineering differential (host-heavy)"
       },
       "honesty": [
-        "product OutputSet deployable depends on profile; do not invent mainnet"
-      ]
+        "product OutputSet deployable depends on profile; do not invent mainnet",
+        "frontend packages are ecosystem — PF does not vendor or pin npm versions",
+        "pf v0 refuses EVM public-chain broadcast; local Anvil only for write demos",
+        "see PRODUCT-EVM-DAPP-FRONTEND and templates/evm-dapp-ui"
+      ],
+      "frontendGuide": "docs/product/08-evm-dapp-frontend.md",
+      "frontendTemplate": "templates/evm-dapp-ui"
     },
     {
       "id": "solana",

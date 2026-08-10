@@ -84,3 +84,10 @@ Aleo dApp 前端（Wallet Adapter · Provable SDK · 与 `pf` 产物对接）见
 Catalog JSON 的 `aleo.frontendClients` 列出具体 `@provablehq/aleo-wallet-adaptor-*` 与 `@provablehq/sdk` 包名；**仍不**由 PF 安装或 pin。
 
 最小可运行 UI 模板：[`templates/aleo-dapp-ui/`](../../templates/aleo-dapp-ui/)。
+
+## 8. EVM frontend deep-dive
+
+EVM dApp 前端（viem / MetaMask / 本地 Anvil）见：
+
+[`08-evm-dapp-frontend.md`](08-evm-dapp-frontend.md) · 模板 [`templates/evm-dapp-ui/`](../../templates/evm-dapp-ui/)
+
