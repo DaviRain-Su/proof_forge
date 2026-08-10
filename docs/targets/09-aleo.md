@@ -115,3 +115,12 @@ evidence、manifest-last 与 `inspect` exact disk closure。
 on-chain finalization、offline query、hermetic 或 formal refinement 证据；删除旧编译器路径不提高
 这些成熟度。accepted PRD Phase 1 仍为 EVM/Solana/NEAR/Noir；Aleo 属 engineering
 扩面，accepted/engineering scope 边界由 ADR-0036 固定。
+
+## 8. Official load gate（Wave A，engineering）
+
+函数/program 标识符不得与 Aleo Instructions **保留 opcode/关键字**碰撞（例如 entry 名
+`add`）。Lowerer 在 `LowerPlanV1.reservedInstructionIdentifierV1` fail closed，禁止静默改名。
+官方 Leo 4.0.x `leo abi` 加载验收见 `just aleo-instructions-load` 与
+[`../plan/aleo-official-load-dev-testnet.md`](../plan/aleo-official-load-dev-testnet.md)。
+该门只证明 parse/load，不证明 run/prove/deploy。Devnet/Testnet 为后续 Wave C；Mainnet
+不进产品路径。

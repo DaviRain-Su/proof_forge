@@ -91,11 +91,42 @@ private def asciiLower (value : String) : String :=
     let code := c.toNat
     if 65 <= code && code <= 90 then Char.ofNat (code + 32) else c
 
-/-- Aleo program-id spelling for the Instructions header (`counter.aleo`). -/
+private def containsSubstr (haystack needle : String) : Bool :=
+  (haystack.splitOn needle).length > 1
+
+/-- Identifiers that official Aleo Instructions tooling rejects as function /
+    mapping / program-member names (opcodes + structural keywords). Confirmed
+    against Leo 4.0.2 `leo abi` (`'add' is a reserved opcode`). This is an
+    engineering load gate, not a full snarkVM keyword corpus. -/
+def reservedInstructionIdentifierV1 (name : String) : Bool :=
+  let n := asciiLower name
+  n == "abs" || n == "add" || n == "and" || n == "assert" || n == "async" ||
+    n == "cast" || n == "constructor" || n == "div" || n == "edition" ||
+    n == "false" || n == "finalize" || n == "function" || n == "get" ||
+    n == "gt" || n == "gte" || n == "input" || n == "inv" || n == "lt" ||
+    n == "lte" || n == "mapping" || n == "mod" || n == "mul" || n == "neg" ||
+    n == "not" || n == "or" || n == "output" || n == "position" || n == "pow" ||
+    n == "program" || n == "record" || n == "rem" || n == "set" || n == "shl" ||
+    n == "shr" || n == "struct" || n == "sub" || n == "ternary" ||
+    n == "transition" || n == "true" || n == "xor" ||
+    -- dotted opcode spellings that must not appear as bare identifiers either
+    n == "assert.eq" || n == "assert.neq" || n == "branch.eq" ||
+    n == "branch.neq" || n == "get.or_use" || n == "is.eq" || n == "is.neq"
+
+/-- Aleo program-id spelling for the Instructions header (`counter.aleo`).
+    Leo ENV03711001 also rejects program ids containing the substring `aleo`. -/
 def programNameFromPlanV1 (plan : Plan) : CompileResult String := do
   let id := asciiLower plan.programName
   unless !id.isEmpty do
     planError "ALEO-IR: program name is empty after lowercasing"
+  unless !(containsSubstr id "aleo") do
+    planError
+      s!"ALEO-IR: program id '{id}' must not contain substring 'aleo' \
+(Leo ENV03711001 / official load gate)"
+  unless !reservedInstructionIdentifierV1 id do
+    planError
+      s!"ALEO-IR: program id '{id}' collides with a reserved Aleo Instructions \
+identifier (official leo abi / snarkVM load gate)"
   pure s!"{id}.aleo"
 
 /-- Admitted unsigned widths on the Instructions Final path (T8 + UInt64). -/
@@ -332,6 +363,10 @@ private def compareOpcode (op : ComparisonOp) : String :=
 def lowerTransitionFunctionV1
     (programName : String) (fnName : String) (params : Array PlanParam) :
     CompileResult FunctionDeclV1 := do
+  unless !reservedInstructionIdentifierV1 fnName do
+    planError
+      s!"ALEO-IR: function name '{fnName}' collides with a reserved Aleo \
+Instructions identifier (official leo abi rejects reserved opcodes as names)"
   let mut body : Array InstructionV1 := #[]
   for i in [0:params.size] do
     let ty ← paramInputType params[i]!

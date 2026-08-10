@@ -1343,6 +1343,14 @@ local-cli-smoke: build
     /bin/bash -p scripts/local_network_smoke.sh
 
 
+# Aleo Wave-A: official Leo `abi` load gate for PF-emitted Instructions.
+# Host-optional Leo 4.0.x (PROOF_FORGE_ALEO_LEO / TOOL_ROOT / cargo). Skip-clean
+# if leo missing. Not VM/proof/devnet/testnet/mainnet/deployable evidence.
+# See docs/plan/aleo-official-load-dev-testnet.md.
+aleo-instructions-load: build
+    /bin/bash -p scripts/aleo_instructions_load_acceptance.sh
+
+
 # Noir ACIR IR-7 / G6 prove honesty probe (host-heavy; NOT ordinary ci).
 # Probes locked $PROOF_FORGE_TOOL_ROOT/bb|barretenberg only (never PATH).
 # Default today: PF-TOOLCHAIN-MISSING + PARTIAL (Tool Lock barretenberg=null;

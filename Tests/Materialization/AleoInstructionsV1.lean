@@ -1639,35 +1639,40 @@ unsafe def testMultiGoldenLoopSumProduct : IO Unit := do
   expect (!Targets.Aleo.isAleoInstructionsG5HardResidualAllowlistV1 "")
     "G5-HARD allowlist remains empty under MULTI-GOLDEN"
 
-/-- ALEO-MULTI-GOLDEN: the shared Accumulator lowers directly to Instructions. -/
+/-- ALEO-MULTI-GOLDEN / Wave-A load gate: portable Accumulator entry `add` is an
+    Aleo Instructions reserved opcode name. Product path fails closed (no silent
+    rename). Golden `accumulator.aleo` remains a TextCodec structural oracle only. -/
 unsafe def testMultiGoldenAccumulatorAdmitSurface : IO Unit := do
   let source ← IO.FS.readFile "Examples/Accumulator.lean"
-  let prog ← productProgramFromSource "accumulator" source "Examples.Accumulator"
-  expect (prog.name == "accumulator.aleo") "Accumulator program name"
-  let (maps, funs, fins, ctors) := countItemKinds prog
-  expect (maps == 2)
-    s!"Accumulator mappings (state+guard), got {maps}"
-  expect (funs == 2 && fins == 2)
-    s!"Accumulator initialize+add fn/final, got fns={funs} finals={fins}"
-  expect (ctors == 1) "Accumulator constructor"
-  expect (hasFunctionNamed prog "initialize") "Accumulator initialize"
-  expect (hasFunctionNamed prog "add") "Accumulator add entry"
-  expect (!hasFunctionNamed prog "current")
-    "bare view current is query-only, not on-chain"
-  expect (hasBinaryOp prog "add") "add body checkedAdd → add"
-  expect (countSetsInFinalize prog "add" ≥ 1)
-    "add must set total"
-  expect (countGetOrUseInFinalize prog "add" ≥ 1)
-    "add must get.or_use total"
-  expect (countSetsInFinalize prog "initialize" ≥ 2)
-    "init must set total + initialized guard"
-  let encoded := encodeProgram prog
-  expect (encoded.length > 0) "Accumulator encode nonempty"
-  expect (encoded.startsWith "program accumulator.aleo;")
-    "Accumulator header"
-  match decodeProgram? encoded with
-  | none => throw <| IO.userError "Accumulator encode→decode failed"
-  | some p2 => expect (p2 == prog) "Accumulator structural round-trip"
+  let session ← Tests.Language.ParserSession.shared
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-multi-accumulator-fc>" "Examples.Accumulator" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  match resolveEngineeringRequirementsV1 selection compiled with
+  | .error e =>
+      expect (e.render.length > 0) "Accumulator reserved-name FC diagnostic"
+  | .ok cap =>
+      match programFromCapabilityV1 cap with
+      | .ok _ =>
+          throw <| IO.userError
+            "Examples/Accumulator entry add must fail closed on Aleo \
+(reserved opcode identifier; official leo abi rejects it)"
+      | .error e =>
+          expect
+            (e.render.contains "reserved" || e.render.contains "add")
+            s!"Accumulator FC must cite reserved/add, got: {e.render}"
+  -- Codec oracle still round-trips independently of product lowering.
+  expect (← accumulatorGoldenPath.pathExists) "Accumulator golden present"
+  let golden ← IO.FS.readFile accumulatorGoldenPath
+  match decodeProgram? golden with
+  | none => throw <| IO.userError "Accumulator golden decode failed"
+  | some prog =>
+      expect (hasFunctionNamed prog "add")
+        "golden codec oracle retains historical add spelling"
+      expect (encodeProgram prog == golden)
+        "Accumulator golden encode round-trip"
 
 /-- ALEO-MULTI-GOLDEN: OptionState admit-surface product pin (entry-only;
     full Examples/OptionState computed `peek` view is Plan-FC). Structural only.
@@ -1791,7 +1796,8 @@ def testMultiGoldenClassificationInventory : IO Unit := do
     "MULTI-GOLDEN: G5-HARD residual allowlist stays empty"
   pure ()
 
-/-- Shared Accumulator Plan→Instructions bytes equal the committed oracle. -/
+/-- Accumulator golden is a TextCodec structural oracle only (historical `add`
+    spelling). Product lowering of Examples/Accumulator is reserved-name FC. -/
 unsafe def testCompileCompareAccumulatorAdmitPlanEqualsGolden : IO Unit := do
   expect (← accumulatorGoldenPath.pathExists)
     "Accumulator Instructions golden must exist"
@@ -1801,17 +1807,34 @@ unsafe def testCompileCompareAccumulatorAdmitPlanEqualsGolden : IO Unit := do
   expect (golden.startsWith "program accumulator.aleo;")
     "Accumulator golden program header"
   expect (golden.contains "function add:")
-    "Accumulator golden contains the source entry"
-  let source ← IO.FS.readFile "Examples/Accumulator.lean"
-  let prog ← productProgramFromSource "accumulator-direct" source "Examples.Accumulator"
-  let encoded := encodeProgram prog
-  expect (encoded == golden)
-    s!"Accumulator Plan→Instructions bytes must equal the oracle\n--- encoded ---\n{encoded}\n--- golden ---\n{golden}"
+    "Accumulator golden retains historical add spelling for codec"
   match decodeProgram? golden with
   | none => throw <| IO.userError "Accumulator golden decode failed"
   | some decoded =>
-      expect (decoded == prog)
-        "decoded Accumulator golden must equal product Plan→IR structure"
+      expect (encodeProgram decoded == golden)
+        "Accumulator golden re-encode byte identity"
+      expect (hasFunctionNamed decoded "add")
+        "decoded Accumulator golden has add"
+  -- Product path must not emit this reserved-name program.
+  let source ← IO.FS.readFile "Examples/Accumulator.lean"
+  let session ← Tests.Language.ParserSession.shared
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-acc-product-fc>" "Examples.Accumulator" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  match resolveEngineeringRequirementsV1 selection compiled with
+  | .error e =>
+      expect (e.render.length > 0) "product Accumulator FC diagnostic"
+  | .ok cap =>
+      match programFromCapabilityV1 cap with
+      | .ok _ =>
+          throw <| IO.userError
+            "product Accumulator must not lower reserved entry add"
+      | .error e =>
+          expect
+            (e.render.contains "reserved" || e.render.contains "add")
+            s!"product Accumulator FC must cite reserved/add, got: {e.render}"
   let counterGolden ← IO.FS.readFile goldenPath
   expect (counterGolden != golden)
     "Accumulator and Counter goldens must differ"
@@ -1892,19 +1915,26 @@ def testAdmitFixturesDurableSourceAuthority : IO Unit := do
 
 /-- Product lowering for the shared Accumulator and entry-only aggregate fixtures. -/
 unsafe def testAdmitFixturesProductLowerAll : IO Unit := do
+  -- Portable Accumulator is reserved-name FC on Aleo (entry `add`).
   let accSource ← IO.FS.readFile "Examples/Accumulator.lean"
-  let acc ← productProgramFromSource "accumulator" accSource "Examples.Accumulator"
-  expect (acc.name == "accumulator.aleo")
-    "Accumulator program id"
-  expect (hasFunctionNamed acc "add") "Accumulator add entry"
-  expect (hasBinaryOp acc "add") "Accumulator checkedAdd"
-  let (accMaps, accFuns, accFins, accCtors) := countItemKinds acc
-  expect (accMaps == 2 && accFuns == 2 && accFins == 2 && accCtors == 1)
-    s!"Accumulator shape maps={accMaps} fns={accFuns}"
-  let accEnc := encodeProgram acc
-  match decodeProgram? accEnc with
-  | none => throw <| IO.userError "Accumulator encode→decode"
-  | some p => expect (p == acc) "Accumulator round-trip"
+  let session ← Tests.Language.ParserSession.shared
+  let accParsed ← liftResult (← session.selectProgramV1
+    accSource "<aleo-admit-acc-fc>" "Examples.Accumulator" none)
+  let accCompiled ← liftResult <| Compiler.compileValidatedSourceV1 accParsed
+  let accSelection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  match resolveEngineeringRequirementsV1 accSelection accCompiled with
+  | .error e =>
+      expect (e.render.length > 0) "ADMIT-FIXTURES Accumulator FC diagnostic"
+  | .ok accCap =>
+      match programFromCapabilityV1 accCap with
+      | .ok _ =>
+          throw <| IO.userError
+            "ADMIT-FIXTURES: Accumulator entry add must fail closed on Aleo"
+      | .error e =>
+          expect
+            (e.render.contains "reserved" || e.render.contains "add")
+            s!"ADMIT-FIXTURES Accumulator FC must cite reserved/add, got: {e.render}"
 
   -- OptionState entry-only
   let opt ← productProgramFromSource optionStateAdmitProgramId
