@@ -197,6 +197,9 @@ CLOSED_CODES = (
     "PF-ARTIFACT-INVALID",
     "PF-TOOLCHAIN-MISSING",
     "PF-TOOLCHAIN-MISMATCH",
+    # Legacy Solana plan/elf profiles are removed from the registry; CLI
+    # fail-closes with PF-PROFILE-UNKNOWN (see ProofForgeV2.Core.Diagnostic).
+    "PF-PROFILE-UNKNOWN",
 )
 if any(code in text for code in CLOSED_CODES):
     raise SystemExit(0)
@@ -204,7 +207,7 @@ if any(code in text for code in CLOSED_CODES):
 wire = re.compile(
     r"\b(PF-REQ-UNSUPPORTED|PF-PLAN-INVARIANT|PF-SRC-INVALID|"
     r"PF-ARTIFACT-NONDEPLOYABLE|PF-ARTIFACT-INVALID|"
-    r"PF-TOOLCHAIN-MISSING|PF-TOOLCHAIN-MISMATCH)\b"
+    r"PF-TOOLCHAIN-MISSING|PF-TOOLCHAIN-MISMATCH|PF-PROFILE-UNKNOWN)\b"
 )
 if wire.search(text):
     raise SystemExit(0)
