@@ -31,6 +31,8 @@ pub const MAX_TOTAL_BYTES: u64 = 256 * 1024 * 1024;
 
 pub const PLAN_DIGEST_DOMAIN: &str = "pf.solana.cpi-plan.v1";
 pub const IR_DIGEST_DOMAIN: &str = "pf.solana.cpi-product-ir.v1";
+/// Domain for full-body hybrid marker `*.cpi-ir.json` (P3-g).
+pub const FULL_BODY_HYBRID_IR_DIGEST_DOMAIN: &str = "pf.solana.full-body-hybrid-ir.v1";
 pub const OUTPUT_SET_DOMAIN: &str = "pf.output-set.engineering.v1";
 
 #[derive(Debug, Clone, Deserialize)]

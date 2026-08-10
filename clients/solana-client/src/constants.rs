@@ -24,6 +24,12 @@ pub const CPI_PLAN_SCHEMA: &str = "proof-forge.solana.cpi-plan.v1";
 pub const CPI_IDL_SCHEMA: &str = "proof-forge.solana.cpi-idl.v1";
 pub const CPI_BINDINGS_SCHEMA: &str = "proof-forge.solana.cpi-bindings.v1";
 pub const CPI_IR_SCHEMA_LINE: &str = "proof-forge.solana.cpi-product-ir.v1";
+/// Body-only / Map programs (P3-c full-body hybrid marker IR).
+pub const FULL_BODY_HYBRID_IR_SCHEMA: &str = "proof-forge.solana.full-body-hybrid-ir.v1";
+pub const BODY_ONLY_EXTENSION_ID: &str = "proof-forge.solana.body-only.v1";
+pub const BODY_ONLY_EXTENSION_VERSION: &str = "1.0.0";
+pub const BODY_ONLY_EXTENSION_DIGEST_HEX: &str =
+    "4d1411f28eb064d0b8c402645dcac3832e4d174cd6af89f189f56baa2651a044";
 
 pub const SYSTEM_PROGRAM_BASE58: &str = "11111111111111111111111111111111";
 pub const SYSTEM_PACKAGE_ID: &str = "system-v1";

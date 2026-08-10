@@ -192,29 +192,46 @@ private def finalizeCpiElfProfile
           s!"PF-ARTIFACT-NONDEPLOYABLE: CPI product base files recompute failed: {e.render}"
   let programName := MaterializedArtifactsV1.artifactProgramNameOf artifacts
   let productIrResult := productIrFromCapabilityV1 capability
+  -- Evidence irDigest must join the **on-disk** `*.cpi-ir.json` bytes.
+  -- Body-only / Map programs emit full-body hybrid marker IR (P3-c/g);
+  -- CPI-site programs emit escrow product IR. Prefer file schema detection so
+  -- a successful productIrFromCapability mint cannot stamp a foreign digest
+  -- onto hybrid marker bytes (StateCell-class false join).
+  let irPath := s!"{programName}.cpi-ir.json"
+  let some irFile := baseFiles.find? (·.path == irPath) |
+    throw <| IO.userError
+      s!"PF-ARTIFACT-NONDEPLOYABLE: missing recomputed '{irPath}'"
   let irDigestNote : String ←
-    match productIrResult with
-    | .ok productIr => do
-        let irDigest := ResolvedSolanaCpiProductIRV1.digestOf productIr
-        let irCand := ResolvedSolanaCpiProductIRV1.candidateOf productIr
-        unless digestsEqual irCand.sourcePlanDigest planDigest do
+    if isFullBodyHybridIrTextV1 irFile.contents then
+      match fullBodyHybridIrDigestV1 irFile.contents.toUTF8 with
+      | .ok d => digestWireIO d
+      | .error e =>
           throw <| IO.userError
-            "PF-ARTIFACT-NONDEPLOYABLE: product IR sourcePlanDigest diverges from Plan digest"
-        digestWireIO irDigest
-    | .error _ => do
-        let irPath := s!"{programName}.cpi-ir.json"
-        let some irFile := baseFiles.find? (·.path == irPath) |
-          throw <| IO.userError
-            s!"PF-ARTIFACT-NONDEPLOYABLE: full-body hybrid missing recomputed '{irPath}'"
-        unless isFullBodyHybridIrTextV1 irFile.contents do
-          throw <| IO.userError
-            ("PF-ARTIFACT-NONDEPLOYABLE: full-body hybrid cpi-ir schema mismatch " ++
-              s!"(expected {fullBodyHybridIrSchemaV1})")
-        match fullBodyHybridIrDigestV1 irFile.contents.toUTF8 with
-        | .ok d => digestWireIO d
-        | .error e =>
+            s!"PF-ARTIFACT-NONDEPLOYABLE: full-body hybrid irDigest: {e}"
+    else
+      match productIrResult with
+      | .ok productIr => do
+          let irDigest := ResolvedSolanaCpiProductIRV1.digestOf productIr
+          let irCand := ResolvedSolanaCpiProductIRV1.candidateOf productIr
+          unless digestsEqual irCand.sourcePlanDigest planDigest do
             throw <| IO.userError
-              s!"PF-ARTIFACT-NONDEPLOYABLE: full-body hybrid irDigest: {e}"
+              "PF-ARTIFACT-NONDEPLOYABLE: product IR sourcePlanDigest diverges from Plan digest"
+          -- Join: product IR digest must equal domain-hash of the staged IR text.
+          let fileDig ← match
+              domainSeparatedSha256
+                productIrDigestDomainV1
+                irFile.contents.toUTF8 with
+            | .ok d => pure d
+            | .error e =>
+                throw <| IO.userError
+                  s!"PF-ARTIFACT-NONDEPLOYABLE: product IR file digest: {e}"
+          unless digestsEqual irDigest fileDig do
+            throw <| IO.userError
+              "PF-ARTIFACT-NONDEPLOYABLE: product IR digest diverges from staged cpi-ir.json bytes"
+          digestWireIO irDigest
+      | .error e =>
+          throw <| IO.userError
+            s!"PF-ARTIFACT-NONDEPLOYABLE: product IR mint failed and IR is not full-body hybrid: {e.render}"
 
   let matFiles := MaterializedArtifactsV1.filesOf artifacts
   unless matFiles.map (·.path) == baseFiles.map (·.path) do

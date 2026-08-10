@@ -7,15 +7,17 @@ use std::collections::BTreeMap;
 use serde_json::Value;
 
 use crate::constants::{
+    BODY_ONLY_EXTENSION_DIGEST_HEX, BODY_ONLY_EXTENSION_ID, BODY_ONLY_EXTENSION_VERSION,
     CPI_BINDINGS_SCHEMA, CPI_CATALOG_DIGEST_HEX, CPI_EXTENSION_DIGEST_HEX, CPI_EXTENSION_ID,
     CPI_EXTENSION_VERSION, CPI_IDL_SCHEMA, CPI_IR_SCHEMA_LINE, CPI_PLAN_SCHEMA,
-    CPI_PROFILE_DIGEST_HEX, PROFILE_CPI_ELF_V1, PROFILE_ELF_V1, PROFILE_PLAN_V1, SYSTEM_PACKAGE_ID,
-    SYSTEM_PROGRAM_ID_HEX, SYSTEM_RUNTIME_NATIVE_BINDING,
+    CPI_PROFILE_DIGEST_HEX, FULL_BODY_HYBRID_IR_SCHEMA, PROFILE_CPI_ELF_V1, PROFILE_ELF_V1,
+    PROFILE_PLAN_V1, SYSTEM_PACKAGE_ID, SYSTEM_PROGRAM_ID_HEX, SYSTEM_RUNTIME_NATIVE_BINDING,
 };
 use crate::error::ClientError;
 use crate::output_set::{
     cpi_elf_expected_leaves, elf_expected_leaves, leaf_bytes_by_name, plan_expected_leaves,
-    require_exact_leaf_shape, LoadedOutputSet, IR_DIGEST_DOMAIN, PLAN_DIGEST_DOMAIN,
+    require_exact_leaf_shape, LoadedOutputSet, FULL_BODY_HYBRID_IR_DIGEST_DOMAIN, IR_DIGEST_DOMAIN,
+    PLAN_DIGEST_DOMAIN,
 };
 use crate::util::{
     domain_separated_sha256_hex, parse_json_no_dups, require_digest_wire_eq, require_sha256_wire,
@@ -229,7 +231,14 @@ fn verify_cpi_elf_profile(loaded: &LoadedOutputSet) -> Result<ProfileJoinResult,
             loaded.manifest.plan_digest
         )));
     }
-    let ir_digest = domain_separated_sha256_hex(IR_DIGEST_DOMAIN, ir_bytes);
+    let ir_text = String::from_utf8(ir_bytes.to_vec())
+        .map_err(|e| ClientError::AbiJoin(format!("ir utf-8: {e}")))?;
+    let hybrid = is_full_body_hybrid_ir_text(&ir_text);
+    let ir_digest = if hybrid {
+        domain_separated_sha256_hex(FULL_BODY_HYBRID_IR_DIGEST_DOMAIN, ir_bytes)
+    } else {
+        domain_separated_sha256_hex(IR_DIGEST_DOMAIN, ir_bytes)
+    };
     validate_cpi_evidence_note(
         &loaded.evidence.note,
         &loaded.manifest.plan_digest,
@@ -239,21 +248,32 @@ fn verify_cpi_elf_profile(loaded: &LoadedOutputSet) -> Result<ProfileJoinResult,
     let plan_v = parse_json_no_dups(plan_bytes)?;
     let idl_v = parse_json_no_dups(idl_bytes)?;
     let bindings_v = parse_json_no_dups(bindings_bytes)?;
-    let ir_text = String::from_utf8(ir_bytes.to_vec())
-        .map_err(|e| ClientError::AbiJoin(format!("ir utf-8: {e}")))?;
     let asm_text = String::from_utf8(asm_bytes.to_vec())
         .map_err(|e| ClientError::AbiJoin(format!("assembly must be UTF-8: {e}")))?;
 
-    join_cpi_generic(
-        name,
-        &loaded.manifest.plan_digest,
-        &plan_v,
-        &idl_v,
-        &bindings_v,
-        &ir_text,
-        &asm_text,
-        &ir_digest,
-    )?;
+    if hybrid {
+        join_cpi_full_body_hybrid(
+            name,
+            &loaded.manifest.plan_digest,
+            &plan_v,
+            &idl_v,
+            &bindings_v,
+            &ir_text,
+            &asm_text,
+            &ir_digest,
+        )?;
+    } else {
+        join_cpi_generic(
+            name,
+            &loaded.manifest.plan_digest,
+            &plan_v,
+            &idl_v,
+            &bindings_v,
+            &ir_text,
+            &asm_text,
+            &ir_digest,
+        )?;
+    }
 
     Ok(ProfileJoinResult {
         profile_id: PROFILE_CPI_ELF_V1.into(),
@@ -305,6 +325,203 @@ fn validate_cpi_evidence_note(
     if !note.contains(&format!("irDigest=sha256:{expected_ir_digest}")) {
         return Err(ClientError::Artifact(
             "evidence.note missing exact irDigest join".into(),
+        ));
+    }
+    Ok(())
+}
+
+
+fn is_full_body_hybrid_ir_text(ir_text: &str) -> bool {
+    ir_text.contains(&format!("\"schema\":\"{FULL_BODY_HYBRID_IR_SCHEMA}\""))
+        || ir_text.contains(&format!("\"schema\": \"{FULL_BODY_HYBRID_IR_SCHEMA}\""))
+}
+
+/// Body-only / Map full-body hybrid product joins (P3-c/g).
+/// Marker IR is compact JSON (not escrow product line-oriented IR).
+#[allow(clippy::too_many_arguments)]
+fn join_cpi_full_body_hybrid(
+    program_name: &str,
+    plan_digest: &str,
+    plan: &Value,
+    idl: &Value,
+    bindings: &Value,
+    ir_text: &str,
+    asm_text: &str,
+    expected_ir_digest: &str,
+) -> Result<(), ClientError> {
+    // ---- Plan (body-only admission extension) ----
+    require_str(plan, "schema", CPI_PLAN_SCHEMA)?;
+    require_str(plan, "programName", program_name)?;
+    require_str(plan, "profileId", PROFILE_CPI_ELF_V1)?;
+    require_digest_wire_eq(
+        "plan.profileDigest",
+        plan_str(plan, "profileDigest")?,
+        CPI_PROFILE_DIGEST_HEX,
+    )?;
+    require_digest_wire_eq(
+        "plan.calleeCatalogDigest",
+        plan_str(plan, "calleeCatalogDigest")?,
+        CPI_CATALOG_DIGEST_HEX,
+    )?;
+
+    let ext = plan
+        .get("extensionRequirement")
+        .ok_or_else(|| ClientError::AbiJoin("plan missing extensionRequirement".into()))?;
+    require_str(ext, "id", BODY_ONLY_EXTENSION_ID)?;
+    require_str(ext, "version", BODY_ONLY_EXTENSION_VERSION)?;
+    require_digest_wire_eq(
+        "plan.extensionRequirement.digest",
+        plan_str(ext, "digest")?,
+        BODY_ONLY_EXTENSION_DIGEST_HEX,
+    )?;
+    if !as_array(ext, "predicates")?.is_empty() {
+        return Err(ClientError::AbiJoin(
+            "plan.extensionRequirement.predicates must be empty".into(),
+        ));
+    }
+
+    let handlers = as_array(plan, "handlers")?;
+    if handlers.is_empty() {
+        return Err(ClientError::AbiJoin(
+            "plan.handlers must be non-empty".into(),
+        ));
+    }
+    for (i, h) in handlers.iter().enumerate() {
+        if h.get("handlerId").and_then(Value::as_u64) != Some(i as u64) {
+            return Err(ClientError::AbiJoin(format!(
+                "handlers[{i}].handlerId must be {i}"
+            )));
+        }
+        if h.get("name").and_then(Value::as_str).is_none() {
+            return Err(ClientError::AbiJoin(format!(
+                "handlers[{i}].name must be a string"
+            )));
+        }
+        if h.get("mode").and_then(Value::as_str).is_none() {
+            return Err(ClientError::AbiJoin(format!(
+                "handlers[{i}].mode must be a string"
+            )));
+        }
+    }
+    let sites = as_array(plan, "cpiSites")?;
+    if !sites.is_empty() {
+        return Err(ClientError::AbiJoin(
+            "full-body hybrid plan.cpiSites must be empty".into(),
+        ));
+    }
+    let assumptions = plan
+        .get("computeAssumptions")
+        .ok_or_else(|| ClientError::AbiJoin("plan.computeAssumptions missing".into()))?;
+    require_str(
+        assumptions,
+        "implementationState",
+        "product-exact-synchronous-call-active-v1",
+    )?;
+
+    // ---- Bindings (hybrid compact shape) ----
+    require_str(bindings, "schema", CPI_BINDINGS_SCHEMA)?;
+    if bindings.get("fullBodyHybrid").and_then(Value::as_bool) != Some(true) {
+        return Err(ClientError::AbiJoin(
+            "hybrid bindings.fullBodyHybrid must be true".into(),
+        ));
+    }
+    require_str(bindings, "programName", program_name)?;
+    require_str(bindings, "frameMode", "bodyOnly")?;
+    if bindings.get("frameBytes").and_then(Value::as_u64) != Some(4096) {
+        return Err(ClientError::AbiJoin(
+            "hybrid bindings.frameBytes must be 4096".into(),
+        ));
+    }
+    if bindings.get("cpiSites").and_then(Value::as_u64) != Some(0) {
+        return Err(ClientError::AbiJoin(
+            "hybrid bindings.cpiSites must be 0".into(),
+        ));
+    }
+    let bind_ir = require_sha256_wire("bindings.irDigest", plan_str(bindings, "irDigest")?)?;
+    if bind_ir != expected_ir_digest {
+        return Err(ClientError::AbiJoin(format!(
+            "hybrid bindings.irDigest domain recompute mismatch: bindings={bind_ir} recomputed={expected_ir_digest}"
+        )));
+    }
+
+    // ---- IDL ----
+    require_str(idl, "schema", CPI_IDL_SCHEMA)?;
+    require_str(idl, "programName", program_name)?;
+    require_str(idl, "profileId", PROFILE_CPI_ELF_V1)?;
+    require_digest_wire_eq(
+        "idl.profileDigest",
+        plan_str(idl, "profileDigest")?,
+        CPI_PROFILE_DIGEST_HEX,
+    )?;
+    require_digest_wire_eq(
+        "idl.catalogDigest",
+        plan_str(idl, "catalogDigest")?,
+        CPI_CATALOG_DIGEST_HEX,
+    )?;
+    let idl_plan = require_sha256_wire("idl.planDigest", plan_str(idl, "planDigest")?)?;
+    if idl_plan != plan_digest {
+        return Err(ClientError::AbiJoin(
+            "idl.planDigest != manifest.planDigest".into(),
+        ));
+    }
+    let instructions = as_array(idl, "instructions")?;
+    if instructions.len() != handlers.len() {
+        return Err(ClientError::AbiJoin(format!(
+            "idl.instructions length {} must equal plan.handlers length {}",
+            instructions.len(),
+            handlers.len()
+        )));
+    }
+    for (i, ix) in instructions.iter().enumerate() {
+        if ix.get("handlerId").and_then(Value::as_u64) != Some(i as u64) {
+            return Err(ClientError::AbiJoin(format!(
+                "idl.instructions[{i}].handlerId must be {i}"
+            )));
+        }
+        let plan_name = handlers[i]
+            .get("name")
+            .and_then(Value::as_str)
+            .unwrap_or("");
+        let ix_name = ix.get("name").and_then(Value::as_str).unwrap_or("");
+        if ix_name != plan_name {
+            return Err(ClientError::AbiJoin(format!(
+                "idl.instructions[{i}].name '{ix_name}' != plan.handlers[{i}].name '{plan_name}'"
+            )));
+        }
+    }
+
+    // ---- Hybrid IR marker JSON ----
+    validate_full_body_hybrid_ir_json(ir_text)?;
+
+    // ---- Assembly (body-only S1b surface; not composite CPI product markers) ----
+    validate_full_body_hybrid_assembly(asm_text)?;
+
+    Ok(())
+}
+
+fn validate_full_body_hybrid_ir_json(ir_text: &str) -> Result<(), ClientError> {
+    let v: Value = serde_json::from_str(ir_text)
+        .map_err(|e| ClientError::AbiJoin(format!("hybrid ir json: {e}")))?;
+    require_str(&v, "schema", FULL_BODY_HYBRID_IR_SCHEMA)?;
+    // marker fields — engineering honesty, not provenance
+    if v.get("synthesize").and_then(Value::as_str).is_none() {
+        return Err(ClientError::AbiJoin(
+            "hybrid ir missing synthesize".into(),
+        ));
+    }
+    if v.get("frameMode").and_then(Value::as_str) != Some("bodyOnly") {
+        return Err(ClientError::AbiJoin(
+            "hybrid ir frameMode must be bodyOnly".into(),
+        ));
+    }
+    if v.get("frameBytes").and_then(Value::as_u64) != Some(4096) {
+        return Err(ClientError::AbiJoin(
+            "hybrid ir frameBytes must be 4096".into(),
+        ));
+    }
+    if v.get("cpiSites").and_then(Value::as_u64) != Some(0) {
+        return Err(ClientError::AbiJoin(
+            "hybrid ir cpiSites must be 0".into(),
         ));
     }
     Ok(())
@@ -646,6 +863,31 @@ fn validate_cpi_ir_text(
         return Err(ClientError::AbiJoin(format!(
             "ir handler line count {handler_lines} must equal plan.handlers length {expected_handler_lines}"
         )));
+    }
+    Ok(())
+}
+
+
+fn validate_full_body_hybrid_assembly(asm: &str) -> Result<(), ClientError> {
+    let lower = asm.to_ascii_lowercase();
+    if lower.contains("preactivation")
+        || lower.contains("activationdenied")
+        || lower.contains("activation-denied")
+        || lower.contains("test-preactivation")
+        || lower.contains("callx")
+    {
+        return Err(ClientError::AbiJoin(
+            "hybrid assembly contains a preactivation/indirect-call marker".into(),
+        ));
+    }
+    // Body-only / Map programs use the ordinary S1b emitter, not the composite
+    // CPI product banner (PRODUCT ARTIFACT / sol_invoke_signed_c).
+    for marker in ["PROOF-FORGE-SBPF-ASM", ".globl entrypoint", "entrypoint:"] {
+        if !asm.contains(marker) {
+            return Err(ClientError::AbiJoin(format!(
+                "hybrid assembly missing marker {marker}"
+            )));
+        }
     }
     Ok(())
 }
