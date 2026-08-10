@@ -107,6 +107,7 @@ pf build
 
 ls *.dpn.json manifest.json evidence.json
 pf inspect --output-dir .
+python3 scripts/psy_dpn_to_abi.py --dpn *.dpn.json -o StateCell.abi.json
 
 
 > **Session continuity:** `psy_user_cli simulate` is **one call per process** (fresh memory).
@@ -197,6 +198,10 @@ Probe chain: `bash scripts/psy_local_chain_status.sh`
 - Principal / identity model ≠ EVM address 全局等价  
 - Never paste private keys into chat / MCP / git  
 - Config endpoints drift — always refresh `config.psy-protocol.xyz/config.json`
+
+## Frontend template
+
+[`templates/psy-dapp-ui`](../../templates/psy-dapp-ui/) — copy `deployment.json` + `*.abi.json`, `npm run dev`, connect official wallet.
 
 ## Related
 

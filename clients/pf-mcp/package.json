@@ -1,6 +1,6 @@
 {
   "name": "proof-forge-mcp",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "private": true,
   "description": "ProofForge remote MCP server (Cloudflare Workers, Streamable HTTP)",
   "type": "module",

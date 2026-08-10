@@ -1,0 +1,107 @@
+{
+  "schema": "proof-forge.psy.abi.v1",
+  "program": "StateCell",
+  "target": "psy",
+  "source": "derived-from-dpn",
+  "note": "Synthesized from DPN; dargo generate-abi still preferred when .psy source exists",
+  "methods": [
+    {
+      "name": "get",
+      "methodId": 1459926901,
+      "mode": "view",
+      "isView": true,
+      "params": [],
+      "returns": [
+        {
+          "name": "ret0",
+          "type": "u64",
+          "feltSize": 1
+        }
+      ],
+      "arity": {
+        "inputs": 0,
+        "outputs": 1
+      },
+      "callInputsJson": "[]"
+    },
+    {
+      "name": "increment",
+      "methodId": 1990357658,
+      "mode": "entry",
+      "isView": false,
+      "params": [
+        {
+          "name": "arg0",
+          "type": "u64",
+          "feltSize": 1
+        }
+      ],
+      "returns": [
+        {
+          "name": "ret0",
+          "type": "u64",
+          "feltSize": 1
+        }
+      ],
+      "arity": {
+        "inputs": 1,
+        "outputs": 1
+      },
+      "callInputsJson": "[0]"
+    },
+    {
+      "name": "initialize",
+      "methodId": 202172507,
+      "mode": "initialize",
+      "isView": false,
+      "params": [
+        {
+          "name": "arg0",
+          "type": "u64",
+          "feltSize": 1
+        }
+      ],
+      "returns": [],
+      "arity": {
+        "inputs": 1,
+        "outputs": 0
+      },
+      "callInputsJson": "[0]"
+    }
+  ],
+  "officialProjection": {
+    "contract_name": "StateCell",
+    "methods": [
+      {
+        "name": "get",
+        "method_id": 1459926901,
+        "is_view": true,
+        "params": []
+      },
+      {
+        "name": "increment",
+        "method_id": 1990357658,
+        "is_view": false,
+        "params": [
+          {
+            "name": "arg0",
+            "param_type": "u64",
+            "felt_size": 1
+          }
+        ]
+      },
+      {
+        "name": "initialize",
+        "method_id": 202172507,
+        "is_view": false,
+        "params": [
+          {
+            "name": "arg0",
+            "param_type": "u64",
+            "felt_size": 1
+          }
+        ]
+      }
+    ]
+  }
+}

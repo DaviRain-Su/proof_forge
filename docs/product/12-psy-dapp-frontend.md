@@ -37,6 +37,8 @@ pf build Examples/StateCell.lean --module Examples.StateCell --target psy -o <di
 | 文件 | 前端/官方工具是否需要 |
 |---|---|
 | `StateCell.dpn.json` | **是** — canonical DPN package（method_id / definitions / state_commands） |
+| `StateCell.abi.json` | **是** — `scripts/psy_dpn_to_abi.py` / pf deploy·test 派生 |
+| `tx/deployment.json` | **是** — contractId/uuid after deploy |
 | `manifest.json` | 审计 / Agent inspect |
 | `evidence.json` | 可选 |
 
@@ -100,6 +102,17 @@ curl -sS https://config.psy-protocol.xyz/config.json | jq '.services,.frontends,
 ```
 
 L1 侧当前公开面为 **Sepolia** bridge 相关合约；Psy L2/realm 走 coordinator + realm RPCs。地址会变 — **禁止**把旧地址写死进 PF 仓库当权威。
+
+## 3.5 PF template
+
+```bash
+# after pf build + abi + deploy
+cp <out>/*.abi.json templates/psy-dapp-ui/public/artifacts/StateCell.abi.json
+cp <out>/tx/deployment.json templates/psy-dapp-ui/public/deployment.json
+cd templates/psy-dapp-ui && npm i && npm run dev
+```
+
+Template: [`templates/psy-dapp-ui/`](../../templates/psy-dapp-ui/) — uses official `window.psy`, not a PF-owned wallet.
 
 ## 4. 与 DPN / method_id 的衔接
 

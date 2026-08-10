@@ -1,0 +1,42 @@
+:root {
+  color-scheme: light dark;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  line-height: 1.45;
+}
+body { margin: 0; padding: 1.25rem; max-width: 44rem; }
+h1 { font-size: 1.25rem; margin: 0 0 0.5rem; }
+.card {
+  border: 1px solid #8884;
+  border-radius: 10px;
+  padding: 1rem;
+  margin: 0.75rem 0;
+}
+label { display: block; font-size: 0.85rem; opacity: 0.8; margin-top: 0.5rem; }
+input, select, button {
+  font: inherit;
+  margin-top: 0.25rem;
+  padding: 0.4rem 0.55rem;
+}
+button { cursor: pointer; margin-right: 0.4rem; margin-top: 0.6rem; }
+.row { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: end; }
+.log {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  max-height: 16rem;
+  overflow: auto;
+  background: #1112;
+  padding: 0.75rem;
+  border-radius: 8px;
+}
+.pill {
+  display: inline-block;
+  border: 1px solid #8885;
+  border-radius: 999px;
+  padding: 0.1rem 0.55rem;
+  font-size: 0.8rem;
+}
+.ok { color: #1a7f37; }
+.bad { color: #cf222e; }
+.muted { opacity: 0.75; font-size: 0.9rem; }
+a { color: inherit; }

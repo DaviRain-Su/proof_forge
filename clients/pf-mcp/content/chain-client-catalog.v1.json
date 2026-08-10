@@ -400,8 +400,10 @@
         "chainLike": "scripts/psy_local_chain_status.sh; full fabric via psy-node",
         "deploy": "pf deploy wraps psy_user_cli deploy-contract; --broadcast → --is-deploy",
         "execute": "pf execute -t psy --broadcast wraps psy_user_cli call",
-        "frontend": "official psy-template + @psy-protocol/* (not PF template yet)",
-        "dpnArtifact": "{program}.dpn.json from pf build -t psy"
+        "frontend": "templates/psy-dapp-ui + official window.psy / @psy-protocol/*",
+        "dpnArtifact": "{program}.dpn.json from pf build -t psy",
+        "abi": "scripts/psy_dpn_to_abi.py → *.abi.json (also pf deploy/test)",
+        "diff": "just psy-dpn-diff (official simulate vs session)"
       },
       "honesty": [
         "PF emits canonical DPN (psy-dpn-v1); OutputSet deployable remains false",

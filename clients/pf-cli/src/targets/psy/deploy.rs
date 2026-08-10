@@ -8,6 +8,7 @@
 //!
 //! Never invents a second deployer — only shells to psy_user_cli.
 
+use super::abi::derive_abi_path;
 use super::simulate::{self, find_dpn, resolve_psy_user_cli};
 use crate::error::{PfError, PfResult};
 use crate::safety::{self, NetworkKind};
@@ -141,6 +142,7 @@ fn require_local_config_is_loopback(cfg: &Path) -> PfResult<()> {
 pub fn deploy(req: DeployRequest<'_>) -> PfResult<DeployOutcome> {
     refuse_psy_mainnet(req.network)?;
     let dpn = find_dpn(req.artifact_dir)?;
+    let derived_abi = derive_abi_path(req.artifact_dir).ok();
     let cli = resolve_psy_user_cli()?;
     let rpc_config = resolve_rpc_config(req.network, req.rpc_config)?;
 
@@ -220,10 +222,13 @@ pub fn deploy(req: DeployRequest<'_>) -> PfResult<DeployOutcome> {
         .arg(&key)
         .arg("--output-path")
         .arg(&out_path);
-    if let Some(abi) = req.abi_path {
-        if abi.is_file() {
-            cmd.arg("--abi-path").arg(abi);
-        }
+    let abi_file = req
+        .abi_path
+        .filter(|p| p.is_file())
+        .map(|p| p.to_path_buf())
+        .or(derived_abi);
+    if let Some(ref abi) = abi_file {
+        cmd.arg("--abi-path").arg(abi);
     }
     if req.broadcast {
         cmd.arg("--is-deploy");

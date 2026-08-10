@@ -25,7 +25,7 @@ import {
 } from "./content";
 
 const SERVER_NAME = "proof-forge-mcp";
-const SERVER_VERSION = "0.3.5";
+const SERVER_VERSION = "0.3.6";
 
 /** Psy: PF emits DPN only; deploy/wallet/SDK are official ecosystem. */
 const PSY_PF = {
@@ -70,6 +70,8 @@ const PSY_PF = {
     "pf run -t psy -- <method> (wraps psy_user_cli simulate)",
     "pf deploy -t psy (wraps deploy-contract; receipt has contractUuid/contractId)",
     "pf execute -t psy --broadcast (wraps psy_user_cli call)",
+    "ABI: scripts/psy_dpn_to_abi.py / pf deploy·test emit *.abi.json",
+    "diff: just psy-dpn-diff · UI: templates/psy-dapp-ui",
     "just psy-dpn-local-smoke / psy-example-matrix / psy_local_chain_status",
     "frontend: @psy-protocol/* + psy-wallet window.psy",
   ],

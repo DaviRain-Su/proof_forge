@@ -32,12 +32,14 @@ info "1/5 build"
 dpn=$(find "$out" -maxdepth 1 -name '*.dpn.json' | head -1)
 [[ -f "$dpn" ]] || die "no dpn"
 
-info "2/5 multi-step session (shared state → 12)"
+info "2/6 multi-step session (shared state → 12)"
 python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" \
   --call initialize:7 --call increment:5 --call get | tee "$out/session.log"
 
 if command -v psy_user_cli >/dev/null 2>&1; then
-  info "3/5 official simulate single-call"
+  info "3/6 derive ABI from DPN"
+python3 -I -S "$root/scripts/psy_dpn_to_abi.py" --dpn "$dpn" -o "${dpn%.dpn.json}.abi.json" || python3 -I -S "$root/scripts/psy_dpn_to_abi.py" --dpn "$dpn" -o "$out/StateCell.abi.json"
+info "4/6 official simulate single-call"
   raw=$(mktemp)
   psy_user_cli simulate --circuit-defs-path "$dpn" --method initialize --inputs 7 --format json >"$raw" 2>&1
   python3 -I -S -c "
@@ -54,7 +56,7 @@ else
 fi
 
 if [[ -n "${pf_cli:-}" && -x "$pf_cli" ]]; then
-  info "4/5 pf deploy save-only (wraps psy_user_cli deploy-contract)"
+  info "5/6 pf deploy save-only (wraps psy_user_cli deploy-contract)"
   export PROOF_FORGE_CLI="$pf_bin"
   "$pf_cli" deploy -t psy --artifact "$out" --network local 2>&1 | tee "$out/deploy-save.log" | tail -20
   ls -la "$out/tx" 2>/dev/null || ls -la "$out"/**/deploy_cmd.json 2>/dev/null || true
@@ -75,11 +77,13 @@ else
   fi
 fi
 
-info "5/5 local chain status probe"
+info "6/6 local chain status probe"
 bash "$root/scripts/psy_local_chain_status.sh" || info "local/public coordinator not up (expected if no cluster)"
 
 info "OK psy DPN smoke complete"
 info "  session continuity: YES (12)"
 info "  official simulate: single-call"
 info "  pf deploy: save-only wraps deploy-contract"
+info "  ABI: *.abi.json via psy_dpn_to_abi.py (also on pf deploy/test)"
+info "  UI: templates/psy-dapp-ui (copy deployment.json + abi)"
 info "  persistent chain: start psy-node local-devnet, then pf deploy --broadcast"

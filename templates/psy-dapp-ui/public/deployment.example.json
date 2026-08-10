@@ -1,0 +1,9 @@
+{
+  "schema": "proof-forge.pf.psy-local-deployment.v1",
+  "target": "psy",
+  "network": "testnet",
+  "contractUuid": "REPLACE_AFTER_PF_DEPLOY",
+  "contractId": 21,
+  "explorer": "https://explorer.psy-protocol.xyz",
+  "callHint": "pf execute -t psy --network testnet --broadcast --private-key-env PF_PSY_KEY -- initialize 7"
+}

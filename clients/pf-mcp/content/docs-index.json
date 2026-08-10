@@ -76,13 +76,13 @@
     {
       "id": "11-psy-agent-playbook.md",
       "title": "Psy agent playbook — ProofForge DPN + official Psy toolchain",
-      "bytes": 8164,
+      "bytes": 8399,
       "kind": "markdown"
     },
     {
       "id": "12-psy-dapp-frontend.md",
       "title": "Psy dApp frontend — wallet + SDK (FCCP companion)",
-      "bytes": 4905,
+      "bytes": 5453,
       "kind": "markdown"
     },
     {
@@ -124,7 +124,7 @@
     {
       "id": "chain-client-catalog.v1.json",
       "title": "Chain client catalog",
-      "bytes": 20038,
+      "bytes": 20187,
       "kind": "catalog"
     },
     {

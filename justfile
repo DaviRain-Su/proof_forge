@@ -1553,3 +1553,11 @@ pf-psy-deploy-save: build pf-cli-build
 # Psy: compile matrix for a few Examples + StateCell session
 psy-example-matrix: build
     bash scripts/psy_example_matrix.sh
+
+# Psy: official simulate vs session differential + continuity
+psy-dpn-diff: build
+    bash scripts/psy_dpn_diff_matrix.sh
+
+# Psy: derive ABI JSON from DPN (no dargo source)
+psy-dpn-abi dpn:
+    python3 scripts/psy_dpn_to_abi.py --dpn {{dpn}} -o {{dpn}}.abi.json

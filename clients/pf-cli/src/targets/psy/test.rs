@@ -1,5 +1,6 @@
 //! `pf test -t psy` — multi-step DPN session (shared state) + optional official CLI.
 
+use super::abi;
 use super::simulate;
 use crate::error::{PfError, PfResult};
 use serde_json::Value;
@@ -54,6 +55,7 @@ pub fn run_official_simulate_smoke(dir: &Path) -> PfResult<TestOutcome> {
         )));
     }
     let dpn = simulate::find_dpn(dir)?;
+    let _ = abi::derive_abi_path(dir);
     let script = match resolve_session_script() {
         Ok(s) => s,
         Err(e) => {
