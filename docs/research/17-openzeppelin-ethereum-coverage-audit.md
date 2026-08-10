@@ -470,7 +470,7 @@ OwnableLike caller 同族）
 - revert 后 state/log/balance 全部回滚。
 
 当前 Token 只有 `pf.adapter.token.conservation.v1`（optional adapter）。EVM `storeAtomic`
-spill 已修复 solc StackTooDeep，但当前 creation bytecode 为 258460 B，超过 EIP-3860 的
+spill 已修复 solc StackTooDeep；creation bytecode 现约 2.6 KiB（历史峰值曾为 258460 B，超过当时 EIP-3860 的
 49152 B initcode 上限；runtime 因该部署上限只能显式 **skip**，**不得**记 pass。该 case
 不能重命名或复用为 ABI case。
 
@@ -491,7 +491,7 @@ spill 已修复 solc StackTooDeep，但当前 creation bytecode 为 258460 B，�
 - W0：**done**（Counter/Accumulator/ArithOps/EventFlow/OwnableLike caller → `primitive`）。
 - W1：**partial**——Token 已有 explicit `adapter` case，覆盖双账户 transfer 序列、conservation
   与 rollback steps；**未**交付 cap-8 fill boundary / capacity 边界 corpus；solc StackTooDeep
-  已修，但 258460 B creation bytecode 超过 EIP-3860，full runtime 仍按部署上限显式 **skip**
+  已修；creation bytecode 现约 2.6 KiB（低于 EIP-3860）。历史记录中 full runtime 曾按部署上限显式 **skip**
   （不得记 pass）。
 - W2：**partial**——Ownable PF primitive 已交付并退役 caller blocker；真正的 OZ behavior leg、
   其余 family blocked catalog 与 closed CLI diagnostic 仍 pending。
@@ -578,7 +578,7 @@ modifier、library 或 assembly 全部搬进共享 core。
 - 仓库还没有统一 ABI byte-level、storage-layout 或 standard-conformance corpus。
 - 已有 EVM caller 与受限 value CALL 证据，但仍没有 dynamic runtime target/raw callback/proxy/user-precompile 的完整产品行为证据；
   Ownable PF primitive 已 pass，F01 仍精确 **Blocked** 于 OZ behavior/标准 address+event+error ABI（不是 ContextRead blocker）。
-- Token adapter 已通过 locked solc/finalization，但 258460 B creation bytecode 超过 EIP-3860；
+- Token adapter 已通过 locked solc/finalization；creation bytecode 现约 2.6 KiB（低于 EIP-3860）；
   full runtime 只能按部署上限显式 **skip**（不得 pass），且尚无链上 runtime 证据。
 - 完整 Governor extension delta、crypto failure matrix 与 7 个 draft 实现未逐对象行为分类。
 - 64 个 library 只做能力语料；本报告没有把每个纯算法库逐一判为 Exact/Blocked。

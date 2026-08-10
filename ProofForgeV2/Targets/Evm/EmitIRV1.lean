@@ -89,117 +89,148 @@ private def yulPrincipalKeyEqFromMem (b keyMem : String) : String := Id.run do
     acc := s!"and({acc}, {leaf i})"
   acc
 
+/-- Shared UInt64 storage-load helper. Factoring the range gate into one Yul
+    function shrinks programs with many `.storageLoad` / UInt64 indexed loads
+    (MiniAmm-scale) without changing overflow semantics: out-of-range words
+    still revert. Emitted only when a phase actually calls it. -/
+private def renderSloadU64Helper (indent : String) : String :=
+  indent ++
+    "function pf_sload_u64(slot) -> v {\n" ++
+  indent ++ "  v := sload(slot)\n" ++
+  indent ++ "  if gt(v, 0xffffffffffffffff) { revert(0, 0) }\n" ++
+  indent ++ "}\n"
+
 /-- M2 compact Principal Map Yul helpers. Dense cap-4 layout:
     entry `e` at `base + 11*e`: occ, k0..k8, val.
     Keys/value live in memory (`keyMem` → 9 key words + value) so helpers stay
-    within solc stack limits (no 9+ parameter lists). -/
-private def renderPrincipalMapHelpers (indent : String) : String :=
+    within solc stack limits (no 9+ parameter lists).
+    Each family member is optional so dead `upsert_leaf` / unused lookup are
+    not emitted into a phase that never calls them. -/
+private def renderPrincipalMapHelpers (indent : String)
+    (needLookup needUpsert needUpsertLeaf : Bool) : String :=
   let keq := yulPrincipalKeyEqFromMem "b" "keyMem"
-  -- Lookup: (base, keyMem) → tag, payload
-  indent ++
-    "function pf_map_p_lookup(base, keyMem) -> tag, payload {\n" ++
-  indent ++ "  tag := 0\n" ++
-  indent ++ "  payload := 0\n" ++
-  indent ++ "  for { let e := 0 } lt(e, 4) { e := add(e, 1) } {\n" ++
-  indent ++ "    let b := add(base, mul(e, 11))\n" ++
-  indent ++ "    let occ := sload(b)\n" ++
-  indent ++ "    if occ {\n" ++
-  indent ++ s!"      if {keq} \{\n" ++
-  indent ++ "        tag := 1\n" ++
-  indent ++ "        payload := sload(add(b, 10))\n" ++
-  indent ++ "      }\n" ++
-  indent ++ "    }\n" ++
-  indent ++ "  }\n" ++
-  indent ++ "}\n" ++
-  -- Full upsert: write 44 result leaves to outMem; revert when map full.
-  indent ++
-    "function pf_map_p_upsert(base, keyMem, outMem) {\n" ++
-  indent ++ "  let anyMatch := 0\n" ++
-  indent ++ "  let firstEmpty := 4\n" ++
-  indent ++ "  for { let e := 0 } lt(e, 4) { e := add(e, 1) } {\n" ++
-  indent ++ "    let b := add(base, mul(e, 11))\n" ++
-  indent ++ "    let occ := sload(b)\n" ++
-  indent ++ "    if occ {\n" ++
-  indent ++ s!"      if {keq} \{ anyMatch := 1 }\n" ++
-  indent ++ "    }\n" ++
-  indent ++ "    if and(iszero(occ), eq(firstEmpty, 4)) { firstEmpty := e }\n" ++
-  indent ++ "  }\n" ++
-  indent ++ "  if iszero(or(anyMatch, lt(firstEmpty, 4))) { revert(0, 0) }\n" ++
-  indent ++ "  let val := mload(add(keyMem, 288))\n" ++
-  indent ++ "  for { let e := 0 } lt(e, 4) { e := add(e, 1) } {\n" ++
-  indent ++ "    let b := add(base, mul(e, 11))\n" ++
-  indent ++ "    let occ := sload(b)\n" ++
-  indent ++ "    let matchHit := 0\n" ++
-  indent ++ "    if occ {\n" ++
-  indent ++ s!"      if {keq} \{ matchHit := 1 }\n" ++
-  indent ++ "    }\n" ++
-  indent ++ "    let insertHere := and(iszero(anyMatch), eq(e, firstEmpty))\n" ++
-  indent ++ "    let write := or(matchHit, insertHere)\n" ++
-  indent ++ "    let out := add(outMem, mul(mul(e, 11), 32))\n" ++
-  indent ++ "    mstore(out, or(occ, write))\n" ++
-  indent ++ "    for { let k := 0 } lt(k, 9) { k := add(k, 1) } {\n" ++
-  indent ++ "      let want := mload(add(keyMem, mul(k, 32)))\n" ++
-  indent ++ "      let stored := sload(add(b, add(1, k)))\n" ++
-  indent ++ "      mstore(add(out, mul(add(1, k), 32)), add(mul(write, want), mul(iszero(write), stored)))\n" ++
-  indent ++ "    }\n" ++
-  indent ++ "    let oldV := sload(add(b, 10))\n" ++
-  indent ++ "    mstore(add(out, 320), add(mul(write, val), mul(iszero(write), oldV)))\n" ++
-  indent ++ "  }\n" ++
-  indent ++ "}\n" ++
-  -- Single-leaf view of full upsert (for non-batch Expr uses): write all 44
-  -- into a private scratch then return leafIdx. Scratch at keyMem+320.
-  indent ++
-    "function pf_map_p_upsert_leaf(base, leafIdx, keyMem) -> r {\n" ++
-  indent ++ "  let scratch := add(keyMem, 320)\n" ++
-  indent ++ "  pf_map_p_upsert(base, keyMem, scratch)\n" ++
-  indent ++ "  r := mload(add(scratch, mul(leafIdx, 32)))\n" ++
-  indent ++ "}\n"
+  let lookup :=
+    if !needLookup then ""
+    else
+      indent ++
+        "function pf_map_p_lookup(base, keyMem) -> tag, payload {\n" ++
+      indent ++ "  tag := 0\n" ++
+      indent ++ "  payload := 0\n" ++
+      indent ++ "  for { let e := 0 } lt(e, 4) { e := add(e, 1) } {\n" ++
+      indent ++ "    let b := add(base, mul(e, 11))\n" ++
+      indent ++ "    let occ := sload(b)\n" ++
+      indent ++ "    if occ {\n" ++
+      indent ++ s!"      if {keq} \{\n" ++
+      indent ++ "        tag := 1\n" ++
+      indent ++ "        payload := sload(add(b, 10))\n" ++
+      indent ++ "      }\n" ++
+      indent ++ "    }\n" ++
+      indent ++ "  }\n" ++
+      indent ++ "}\n"
+  let upsert :=
+    if !(needUpsert || needUpsertLeaf) then ""
+    else
+      indent ++
+        "function pf_map_p_upsert(base, keyMem, outMem) {\n" ++
+      indent ++ "  let anyMatch := 0\n" ++
+      indent ++ "  let firstEmpty := 4\n" ++
+      indent ++ "  for { let e := 0 } lt(e, 4) { e := add(e, 1) } {\n" ++
+      indent ++ "    let b := add(base, mul(e, 11))\n" ++
+      indent ++ "    let occ := sload(b)\n" ++
+      indent ++ "    if occ {\n" ++
+      indent ++ s!"      if {keq} \{ anyMatch := 1 }\n" ++
+      indent ++ "    }\n" ++
+      indent ++ "    if and(iszero(occ), eq(firstEmpty, 4)) { firstEmpty := e }\n" ++
+      indent ++ "  }\n" ++
+      indent ++ "  if iszero(or(anyMatch, lt(firstEmpty, 4))) { revert(0, 0) }\n" ++
+      indent ++ "  let val := mload(add(keyMem, 288))\n" ++
+      indent ++ "  for { let e := 0 } lt(e, 4) { e := add(e, 1) } {\n" ++
+      indent ++ "    let b := add(base, mul(e, 11))\n" ++
+      indent ++ "    let occ := sload(b)\n" ++
+      indent ++ "    let matchHit := 0\n" ++
+      indent ++ "    if occ {\n" ++
+      indent ++ s!"      if {keq} \{ matchHit := 1 }\n" ++
+      indent ++ "    }\n" ++
+      indent ++ "    let insertHere := and(iszero(anyMatch), eq(e, firstEmpty))\n" ++
+      indent ++ "    let write := or(matchHit, insertHere)\n" ++
+      indent ++ "    let out := add(outMem, mul(mul(e, 11), 32))\n" ++
+      indent ++ "    mstore(out, or(occ, write))\n" ++
+      indent ++ "    for { let k := 0 } lt(k, 9) { k := add(k, 1) } {\n" ++
+      indent ++ "      let want := mload(add(keyMem, mul(k, 32)))\n" ++
+      indent ++ "      let stored := sload(add(b, add(1, k)))\n" ++
+      indent ++ "      mstore(add(out, mul(add(1, k), 32)), add(mul(write, want), mul(iszero(write), stored)))\n" ++
+      indent ++ "    }\n" ++
+      indent ++ "    let oldV := sload(add(b, 10))\n" ++
+      indent ++ "    mstore(add(out, 320), add(mul(write, val), mul(iszero(write), oldV)))\n" ++
+      indent ++ "  }\n" ++
+      indent ++ "}\n"
+  let upsertLeaf :=
+    if !needUpsertLeaf then ""
+    else
+      indent ++
+        "function pf_map_p_upsert_leaf(base, leafIdx, keyMem) -> r {\n" ++
+      indent ++ "  let scratch := add(keyMem, 320)\n" ++
+      indent ++ "  pf_map_p_upsert(base, keyMem, scratch)\n" ++
+      indent ++ "  r := mload(add(scratch, mul(leafIdx, 32)))\n" ++
+      indent ++ "}\n"
+  lookup ++ upsert ++ upsertLeaf
 
 /-- M2b compact Map UInt64 Yul helpers. Dense cap-8 layout:
     entry `e` at `base + 3*e`: occ, key, val. Single UInt64 key as arg. -/
-private def renderMapUInt64Helpers (indent : String) : String :=
-  indent ++
-    "function pf_map_u64_lookup(base, key) -> tag, payload {\n" ++
-  indent ++ "  tag := 0\n" ++
-  indent ++ "  payload := 0\n" ++
-  indent ++ "  for { let e := 0 } lt(e, 8) { e := add(e, 1) } {\n" ++
-  indent ++ "    let b := add(base, mul(e, 3))\n" ++
-  indent ++ "    let occ := sload(b)\n" ++
-  indent ++ "    if and(occ, eq(sload(add(b, 1)), key)) {\n" ++
-  indent ++ "      tag := 1\n" ++
-  indent ++ "      payload := sload(add(b, 2))\n" ++
-  indent ++ "    }\n" ++
-  indent ++ "  }\n" ++
-  indent ++ "}\n" ++
-  indent ++
-    "function pf_map_u64_upsert(base, key, val, outMem) {\n" ++
-  indent ++ "  let anyMatch := 0\n" ++
-  indent ++ "  let firstEmpty := 8\n" ++
-  indent ++ "  for { let e := 0 } lt(e, 8) { e := add(e, 1) } {\n" ++
-  indent ++ "    let b := add(base, mul(e, 3))\n" ++
-  indent ++ "    let occ := sload(b)\n" ++
-  indent ++ "    if and(occ, eq(sload(add(b, 1)), key)) { anyMatch := 1 }\n" ++
-  indent ++ "    if and(iszero(occ), eq(firstEmpty, 8)) { firstEmpty := e }\n" ++
-  indent ++ "  }\n" ++
-  indent ++ "  if iszero(or(anyMatch, lt(firstEmpty, 8))) { revert(0, 0) }\n" ++
-  indent ++ "  for { let e := 0 } lt(e, 8) { e := add(e, 1) } {\n" ++
-  indent ++ "    let b := add(base, mul(e, 3))\n" ++
-  indent ++ "    let occ := sload(b)\n" ++
-  indent ++ "    let matchHit := and(occ, eq(sload(add(b, 1)), key))\n" ++
-  indent ++ "    let insertHere := and(iszero(anyMatch), eq(e, firstEmpty))\n" ++
-  indent ++ "    let write := or(matchHit, insertHere)\n" ++
-  indent ++ "    let out := add(outMem, mul(mul(e, 3), 32))\n" ++
-  indent ++ "    mstore(out, or(occ, write))\n" ++
-  indent ++ "    mstore(add(out, 32), add(mul(write, key), mul(iszero(write), sload(add(b, 1)))))\n" ++
-  indent ++ "    mstore(add(out, 64), add(mul(write, val), mul(iszero(write), sload(add(b, 2)))))\n" ++
-  indent ++ "  }\n" ++
-  indent ++ "}\n" ++
-  indent ++
-    "function pf_map_u64_upsert_leaf(base, leafIdx, key, val) -> r {\n" ++
-  indent ++ "  let scratch := 0x18000\n" ++
-  indent ++ "  pf_map_u64_upsert(base, key, val, scratch)\n" ++
-  indent ++ "  r := mload(add(scratch, mul(leafIdx, 32)))\n" ++
-  indent ++ "}\n"
+private def renderMapUInt64Helpers (indent : String)
+    (needLookup needUpsert needUpsertLeaf : Bool) : String :=
+  let lookup :=
+    if !needLookup then ""
+    else
+      indent ++
+        "function pf_map_u64_lookup(base, key) -> tag, payload {\n" ++
+      indent ++ "  tag := 0\n" ++
+      indent ++ "  payload := 0\n" ++
+      indent ++ "  for { let e := 0 } lt(e, 8) { e := add(e, 1) } {\n" ++
+      indent ++ "    let b := add(base, mul(e, 3))\n" ++
+      indent ++ "    let occ := sload(b)\n" ++
+      indent ++ "    if and(occ, eq(sload(add(b, 1)), key)) {\n" ++
+      indent ++ "      tag := 1\n" ++
+      indent ++ "      payload := sload(add(b, 2))\n" ++
+      indent ++ "    }\n" ++
+      indent ++ "  }\n" ++
+      indent ++ "}\n"
+  let upsert :=
+    if !(needUpsert || needUpsertLeaf) then ""
+    else
+      indent ++
+        "function pf_map_u64_upsert(base, key, val, outMem) {\n" ++
+      indent ++ "  let anyMatch := 0\n" ++
+      indent ++ "  let firstEmpty := 8\n" ++
+      indent ++ "  for { let e := 0 } lt(e, 8) { e := add(e, 1) } {\n" ++
+      indent ++ "    let b := add(base, mul(e, 3))\n" ++
+      indent ++ "    let occ := sload(b)\n" ++
+      indent ++ "    if and(occ, eq(sload(add(b, 1)), key)) { anyMatch := 1 }\n" ++
+      indent ++ "    if and(iszero(occ), eq(firstEmpty, 8)) { firstEmpty := e }\n" ++
+      indent ++ "  }\n" ++
+      indent ++ "  if iszero(or(anyMatch, lt(firstEmpty, 8))) { revert(0, 0) }\n" ++
+      indent ++ "  for { let e := 0 } lt(e, 8) { e := add(e, 1) } {\n" ++
+      indent ++ "    let b := add(base, mul(e, 3))\n" ++
+      indent ++ "    let occ := sload(b)\n" ++
+      indent ++ "    let matchHit := and(occ, eq(sload(add(b, 1)), key))\n" ++
+      indent ++ "    let insertHere := and(iszero(anyMatch), eq(e, firstEmpty))\n" ++
+      indent ++ "    let write := or(matchHit, insertHere)\n" ++
+      indent ++ "    let out := add(outMem, mul(mul(e, 3), 32))\n" ++
+      indent ++ "    mstore(out, or(occ, write))\n" ++
+      indent ++ "    mstore(add(out, 32), add(mul(write, key), mul(iszero(write), sload(add(b, 1)))))\n" ++
+      indent ++ "    mstore(add(out, 64), add(mul(write, val), mul(iszero(write), sload(add(b, 2)))))\n" ++
+      indent ++ "  }\n" ++
+      indent ++ "}\n"
+  let upsertLeaf :=
+    if !needUpsertLeaf then ""
+    else
+      indent ++
+        "function pf_map_u64_upsert_leaf(base, leafIdx, key, val) -> r {\n" ++
+      indent ++ "  let scratch := 0x18000\n" ++
+      indent ++ "  pf_map_u64_upsert(base, key, val, scratch)\n" ++
+      indent ++ "  r := mload(add(scratch, mul(leafIdx, 32)))\n" ++
+      indent ++ "}\n"
+  lookup ++ upsert ++ upsertLeaf
 
 /-- Nested Yul expression form (no intermediate lets). Used for for-loop
     condition/update slots that require expression positions. Storage loads
@@ -518,9 +549,10 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
           s!"{indent}let {name} := pf_map_u64_upsert_leaf({mapBaseSlot}, {leafIndex}, {keyR.value}, {valR.value})\n",
         value := name, next := valR.next + 1 }
   | .storageLoad slot =>
+      -- Shared helper keeps UInt64 range semantics; one function body amortizes
+      -- the gate across many loads (see renderSloadU64Helper).
       let name := s!"expr{next}"
-      { code := s!"{indent}let {name} := sload({slot})\n" ++
-          s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
+      { code := s!"{indent}let {name} := pf_sload_u64({slot})\n",
         value := name, next := next + 1 }
   | .narrowStorageLoad bitWidth slot =>
       let name := s!"expr{next}"
@@ -1065,8 +1097,7 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       let slotTmp := s!"slot{index.next}"
       let maskCode :=
         if byteWidth == 8 then
-          s!"{indent}let {name} := sload({slotTmp})\n" ++
-            s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n"
+          s!"{indent}let {name} := pf_sload_u64({slotTmp})\n"
         else
           let mask := yulUintMask (bitWidthOfByteWidth byteWidth)
           s!"{indent}let {name} := and(sload({slotTmp}), {mask})\n"
@@ -1753,22 +1784,26 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
   return { code := output, next }
 
 /-- Emit `function pf_fn{i}(...) -> r { ... }` definitions. Duplicated into both
-    Yul objects because each object is self-contained. -/
-private def renderFnDefs (indent : String) (plan : Plan) : String := Id.run do
+    Yul objects because each object is self-contained (FnCall goldens pin two
+    copies). `emitFn` is retained for future phase-local emission; callers
+    currently pass `fun _ => true`. -/
+private def renderFnDefs (indent : String) (plan : Plan) (emitFn : Nat → Bool) : String :=
+  Id.run do
   if plan.fns.isEmpty then
     return ""
   let mut output := ""
   for index in [0:plan.fns.size] do
-    let fn := plan.fns[index]!
-    let mut paramList := ""
-    for i in [0:fn.params.size] do
-      if i > 0 then paramList := paramList ++ ", "
-      paramList := paramList ++ s!"arg{i}"
-    let body := renderBody (indent ++ "  ") "arg" 0 plan.events plan.errors (some "r") fn.body
-    output := output ++
-      s!"{indent}function pf_fn{index}({paramList}) -> r \{\n" ++
-      body.code ++
-      s!"{indent}}\n"
+    if emitFn index then
+      let fn := plan.fns[index]!
+      let mut paramList := ""
+      for i in [0:fn.params.size] do
+        if i > 0 then paramList := paramList ++ ", "
+        paramList := paramList ++ s!"arg{i}"
+      let body := renderBody (indent ++ "  ") "arg" 0 plan.events plan.errors (some "r") fn.body
+      output := output ++
+        s!"{indent}function pf_fn{index}({paramList}) -> r \{\n" ++
+        body.code ++
+        s!"{indent}}\n"
   return output
 
 private def renderConstructor (plan : Plan) : String := Id.run do
@@ -1839,20 +1874,86 @@ private def renderEntry (plan : Plan) (entry : Entry) (hasPayable : Bool) : Stri
     (renderBody "        " "arg" 0 plan.events plan.errors none entry.body).code
   return output ++ "      }\n"
 
-/-- Shared walker: which compact Map families appear in a Plan expr. -/
-private structure CompactMapUsesV1 where
-  principal : Bool := false
-  uint64 : Bool := false
+/-- Per-phase helper demand: which Yul helpers a constructor or runtime
+    object actually needs. Finer than family-level flags so dead
+    `upsert_leaf` / unused Map families / unused `pf_sload_u64` are not
+    emitted. solc DCE already drops unused helpers from bytecode; selective
+    emission still shrinks Yul text. `pf_sload_u64` additionally shrinks
+    bytecode by sharing the UInt64 range gate. -/
+private structure PhaseHelperNeedsV1 where
+  principalLookup : Bool := false
+  principalUpsert : Bool := false
+  principalUpsertLeaf : Bool := false
+  uint64Lookup : Bool := false
+  uint64Upsert : Bool := false
+  uint64UpsertLeaf : Bool := false
+  sloadU64 : Bool := false
   deriving Inhabited
 
-private def mergeMapUses (a b : CompactMapUsesV1) : CompactMapUsesV1 :=
-  { principal := a.principal || b.principal, uint64 := a.uint64 || b.uint64 }
+private def mergeHelperNeeds (a b : PhaseHelperNeedsV1) : PhaseHelperNeedsV1 :=
+  { principalLookup := a.principalLookup || b.principalLookup
+    principalUpsert := a.principalUpsert || b.principalUpsert
+    principalUpsertLeaf := a.principalUpsertLeaf || b.principalUpsertLeaf
+    uint64Lookup := a.uint64Lookup || b.uint64Lookup
+    uint64Upsert := a.uint64Upsert || b.uint64Upsert
+    uint64UpsertLeaf := a.uint64UpsertLeaf || b.uint64UpsertLeaf
+    sloadU64 := a.sloadU64 || b.sloadU64 }
 
-private partial def exprCompactMapUsesV1 : Expr → CompactMapUsesV1
-  | .mapPrincipalLookupTag .. | .mapPrincipalLookupPayload ..
-  | .mapPrincipalUpsertLeaf .. => { principal := true }
-  | .mapUInt64LookupTag .. | .mapUInt64LookupPayload ..
-  | .mapUInt64UpsertLeaf .. => { uint64 := true }
+/-- True when `operations` is a full Principal Map upsert batch (44 leaves).
+    Mirrors the fast path predicate in `renderBody`. -/
+private def isPrincipalUpsertBatchOpsV1 (operations : Array Store) : Bool :=
+  Id.run do
+    if operations.size != 44 then return false
+    let some first := operations[0]? | return false
+    match first.value with
+    | .mapPrincipalUpsertLeaf base0 keys0 val0 0 =>
+        for i in [0:44] do
+          match operations[i]? with
+          | none => return false
+          | some st =>
+              match st.value with
+              | .mapPrincipalUpsertLeaf base keys val leafIdx =>
+                  unless base == base0 && leafIdx == i &&
+                      keys == keys0 && val == val0 do
+                    return false
+              | _ => return false
+        return true
+    | _ => return false
+
+/-- True when `operations` is a full UInt64 Map upsert batch (24 leaves). -/
+private def isUInt64UpsertBatchOpsV1 (operations : Array Store) : Bool :=
+  Id.run do
+    if operations.size != 24 then return false
+    let some first := operations[0]? | return false
+    match first.value with
+    | .mapUInt64UpsertLeaf base0 key0 val0 0 =>
+        for i in [0:24] do
+          match operations[i]? with
+          | none => return false
+          | some st =>
+              match st.value with
+              | .mapUInt64UpsertLeaf base key val leafIdx =>
+                  unless base == base0 && leafIdx == i &&
+                      key == key0 && val == val0 do
+                    return false
+              | _ => return false
+        return true
+    | _ => return false
+
+private partial def exprHelperNeedsV1 : Expr → PhaseHelperNeedsV1
+  | .mapPrincipalLookupTag .. | .mapPrincipalLookupPayload .. =>
+      { principalLookup := true }
+  | .mapPrincipalUpsertLeaf .. =>
+      { principalUpsert := true, principalUpsertLeaf := true }
+  | .mapUInt64LookupTag .. | .mapUInt64LookupPayload .. =>
+      { uint64Lookup := true }
+  | .mapUInt64UpsertLeaf .. =>
+      { uint64Upsert := true, uint64UpsertLeaf := true }
+  | .storageLoad _ => { sloadU64 := true }
+  | .indexedStorageLoad _ _ index byteWidth =>
+      let base : PhaseHelperNeedsV1 :=
+        if byteWidth == 8 then { sloadU64 := true } else {}
+      mergeHelperNeeds base (exprHelperNeedsV1 index)
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .add l r | .compare _ l r | .signedCompare _ l r
   | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r | .shr l r | .sar l r
@@ -1867,94 +1968,125 @@ private partial def exprCompactMapUsesV1 : Expr → CompactMapUsesV1
   | .narrowSignedCheckedMul _ l r | .narrowSignedCheckedDiv _ l r
   | .narrowSignedCheckedMod _ l r | .narrowSignedCompare _ _ l r
   | .fieldAdd l r | .fieldSub l r | .fieldMul l r | .fieldDiv l r =>
-      mergeMapUses (exprCompactMapUsesV1 l) (exprCompactMapUsesV1 r)
+      mergeHelperNeeds (exprHelperNeedsV1 l) (exprHelperNeedsV1 r)
   | .bitNot o | .boolNot o | .narrowBitNot _ o | .checkedNeg o
-  | .narrowCheckedNeg _ o | .fieldNeg o => exprCompactMapUsesV1 o
-  | .indexedStorageLoad _ _ index _ => exprCompactMapUsesV1 index
-  | .boundsCheckedIndex index _ => exprCompactMapUsesV1 index
+  | .narrowCheckedNeg _ o | .fieldNeg o => exprHelperNeedsV1 o
+  | .boundsCheckedIndex index _ => exprHelperNeedsV1 index
   | .arrayIndexGet index leaves =>
-      leaves.foldl (fun acc e => mergeMapUses acc (exprCompactMapUsesV1 e))
-        (exprCompactMapUsesV1 index)
+      leaves.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e))
+        (exprHelperNeedsV1 index)
   | .callFn _ args =>
-      args.foldl (fun acc e => mergeMapUses acc (exprCompactMapUsesV1 e)) {}
+      args.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
   | _ => {}
 
-private partial def statementCompactMapUsesV1 : Statement → CompactMapUsesV1
-  | .store s => exprCompactMapUsesV1 s.value
+private partial def statementHelperNeedsV1 : Statement → PhaseHelperNeedsV1
+  | .store s => exprHelperNeedsV1 s.value
   | .storeAtomic ops =>
-      ops.foldl (fun acc s => mergeMapUses acc (exprCompactMapUsesV1 s.value)) {}
-  | .returnValue v => exprCompactMapUsesV1 v
+      if isPrincipalUpsertBatchOpsV1 ops then
+        { principalUpsert := true }
+      else if isUInt64UpsertBatchOpsV1 ops then
+        { uint64Upsert := true }
+      else
+        ops.foldl (fun acc s => mergeHelperNeeds acc (exprHelperNeedsV1 s.value)) {}
+  | .returnValue v => exprHelperNeedsV1 v
   | .returnAggregate leaves _ =>
-      leaves.foldl (fun acc e => mergeMapUses acc (exprCompactMapUsesV1 e)) {}
-  | .assert c => exprCompactMapUsesV1 c
+      leaves.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
+  | .assert c => exprHelperNeedsV1 c
   | .emitEvent _ args | .revertError _ args =>
-      args.foldl (fun acc e => mergeMapUses acc (exprCompactMapUsesV1 e)) {}
+      args.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
   | .externalCall _ args | .schedule _ args | .externalCallResult _ args _ =>
-      args.foldl (fun acc e => mergeMapUses acc (exprCompactMapUsesV1 e)) {}
-  | .nativeDeposit a => exprCompactMapUsesV1 a
+      args.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
+  | .nativeDeposit a => exprHelperNeedsV1 a
   | .nativeTransfer dl dw a =>
-      mergeMapUses (exprCompactMapUsesV1 dl)
-        (mergeMapUses
-          (dw.foldl (fun acc e => mergeMapUses acc (exprCompactMapUsesV1 e)) {})
-          (exprCompactMapUsesV1 a))
+      mergeHelperNeeds (exprHelperNeedsV1 dl)
+        (mergeHelperNeeds
+          (dw.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {})
+          (exprHelperNeedsV1 a))
   | .tokenTransfer ml mw dl dw a =>
-      mergeMapUses (exprCompactMapUsesV1 ml)
-        (mergeMapUses
-          (mw.foldl (fun acc e => mergeMapUses acc (exprCompactMapUsesV1 e)) {})
-          (mergeMapUses (exprCompactMapUsesV1 dl)
-            (mergeMapUses
-              (dw.foldl (fun acc e => mergeMapUses acc (exprCompactMapUsesV1 e)) {})
-              (exprCompactMapUsesV1 a))))
+      mergeHelperNeeds (exprHelperNeedsV1 ml)
+        (mergeHelperNeeds
+          (mw.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {})
+          (mergeHelperNeeds (exprHelperNeedsV1 dl)
+            (mergeHelperNeeds
+              (dw.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {})
+              (exprHelperNeedsV1 a))))
   | .tokenBalanceOf ml mw _ =>
-      mergeMapUses (exprCompactMapUsesV1 ml)
-        (mw.foldl (fun acc e => mergeMapUses acc (exprCompactMapUsesV1 e)) {})
+      mergeHelperNeeds (exprHelperNeedsV1 ml)
+        (mw.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {})
   | .ifThenElse c t e =>
-      mergeMapUses (exprCompactMapUsesV1 c)
-        (mergeMapUses
-          (t.foldl (fun acc s => mergeMapUses acc (statementCompactMapUsesV1 s)) {})
-          (e.foldl (fun acc s => mergeMapUses acc (statementCompactMapUsesV1 s)) {}))
+      mergeHelperNeeds (exprHelperNeedsV1 c)
+        (mergeHelperNeeds
+          (t.foldl (fun acc s => mergeHelperNeeds acc (statementHelperNeedsV1 s)) {})
+          (e.foldl (fun acc s => mergeHelperNeeds acc (statementHelperNeedsV1 s)) {}))
   | .switchOn s cases d =>
-      mergeMapUses (exprCompactMapUsesV1 s)
-        (mergeMapUses
+      mergeHelperNeeds (exprHelperNeedsV1 s)
+        (mergeHelperNeeds
           (cases.foldl (fun acc (_, b) =>
-            b.foldl (fun acc s => mergeMapUses acc (statementCompactMapUsesV1 s)) acc) {})
-          (d.foldl (fun acc s => mergeMapUses acc (statementCompactMapUsesV1 s)) {}))
+            b.foldl (fun acc s => mergeHelperNeeds acc (statementHelperNeedsV1 s)) acc) {})
+          (d.foldl (fun acc s => mergeHelperNeeds acc (statementHelperNeedsV1 s)) {}))
   | .forLoop _ _ _ init cond update body =>
-      mergeMapUses (exprCompactMapUsesV1 init)
-        (mergeMapUses (exprCompactMapUsesV1 cond)
-          (mergeMapUses (exprCompactMapUsesV1 update)
-            (body.foldl (fun acc s => mergeMapUses acc (statementCompactMapUsesV1 s)) {})))
+      mergeHelperNeeds (exprHelperNeedsV1 init)
+        (mergeHelperNeeds (exprHelperNeedsV1 cond)
+          (mergeHelperNeeds (exprHelperNeedsV1 update)
+            (body.foldl (fun acc s => mergeHelperNeeds acc (statementHelperNeedsV1 s)) {})))
   | .returnNone => {}
 
-private def planCompactMapUsesV1 (plan : Plan) : CompactMapUsesV1 :=
-  let ctor :=
-    match plan.constructor with
-    | some c =>
-        mergeMapUses
-          (c.body.foldl (fun acc s => mergeMapUses acc (statementCompactMapUsesV1 s)) {})
-          (c.stores.foldl (fun acc s => mergeMapUses acc (exprCompactMapUsesV1 s.value)) {})
-    | none => {}
-  let entries :=
-    plan.entries.foldl (fun acc e =>
-      e.body.foldl (fun acc s => mergeMapUses acc (statementCompactMapUsesV1 s)) acc) {}
-  let fns :=
-    plan.fns.foldl (fun acc f =>
-      f.body.foldl (fun acc s => mergeMapUses acc (statementCompactMapUsesV1 s)) acc) {}
-  mergeMapUses ctor (mergeMapUses entries fns)
+private def bodyHelperNeedsV1 (body : Array Statement) : PhaseHelperNeedsV1 :=
+  body.foldl (fun acc s => mergeHelperNeeds acc (statementHelperNeedsV1 s)) {}
+
+/-- Helper demand for one Yul object phase, including reachable pureFns. -/
+private def phaseHelperNeedsV1 (plan : Plan) (seed : Array Statement)
+    (extra : PhaseHelperNeedsV1) (reach : Array Bool) : PhaseHelperNeedsV1 :=
+  Id.run do
+    let mut needs := mergeHelperNeeds extra (bodyHelperNeedsV1 seed)
+    for i in [0:plan.fns.size] do
+      if reach[i]! then
+        needs := mergeHelperNeeds needs (bodyHelperNeedsV1 plan.fns[i]!.body)
+    return needs
+
+private def renderMapHelpersForNeeds (indent : String) (needs : PhaseHelperNeedsV1) :
+    String :=
+  (if needs.principalLookup || needs.principalUpsert || needs.principalUpsertLeaf then
+      renderPrincipalMapHelpers indent needs.principalLookup needs.principalUpsert
+        needs.principalUpsertLeaf
+    else "") ++
+  (if needs.uint64Lookup || needs.uint64Upsert || needs.uint64UpsertLeaf then
+      renderMapUInt64Helpers indent needs.uint64Lookup needs.uint64Upsert
+        needs.uint64UpsertLeaf
+    else "") ++
+  (if needs.sloadU64 then renderSloadU64Helper indent else "")
 
 private def renderYul (plan : Plan) : String :=
   let hasPayable := planHasPayableEntry plan
   let entries := plan.entries.foldl
     (fun output entry => output ++ renderEntry plan entry hasPayable) ""
-  let ctorFns := renderFnDefs "    " plan
-  let runtimeFns := renderFnDefs "      " plan
-  let uses := planCompactMapUsesV1 plan
-  let mapHelpersCtor :=
-    (if uses.principal then renderPrincipalMapHelpers "    " else "") ++
-    (if uses.uint64 then renderMapUInt64Helpers "    " else "")
-  let mapHelpersRuntime :=
-    (if uses.principal then renderPrincipalMapHelpers "      " else "") ++
-    (if uses.uint64 then renderMapUInt64Helpers "      " else "")
+  -- Constructor phase: initializer body/stores + reachable pureFns only.
+  let ctorSeed : Array Statement :=
+    match plan.constructor with
+    | some c =>
+        if c.body.isEmpty then
+          c.stores.map fun s => Statement.store s
+        else c.body
+    | none => #[]
+  let ctorExtra : PhaseHelperNeedsV1 :=
+    match plan.constructor with
+    | some c =>
+        c.stores.foldl (fun acc s => mergeHelperNeeds acc (exprHelperNeedsV1 s.value)) {}
+    | none => {}
+  -- pureFn defs stay duplicated into both Yul objects (historical FnCall
+  -- goldens + self-contained objects). Because every pf_fn is emitted in
+  -- both phases, helper demand must include *all* pureFn bodies on both
+  -- sides — otherwise a runtime-only pureFn could call a missing helper
+  -- from the constructor object copy.
+  let allFnReach : Array Bool := Array.replicate plan.fns.size true
+  let ctorNeeds := phaseHelperNeedsV1 plan ctorSeed ctorExtra allFnReach
+  let ctorFns := renderFnDefs "    " plan (fun _ => true)
+  let mapHelpersCtor := renderMapHelpersForNeeds "    " ctorNeeds
+  let runtimeSeed :=
+    plan.entries.foldl (fun acc e => acc ++ e.body) #[]
+  let runtimeNeeds := phaseHelperNeedsV1 plan runtimeSeed {} allFnReach
+  let runtimeFns := renderFnDefs "      " plan (fun _ => true)
+  let mapHelpersRuntime := renderMapHelpersForNeeds "      " runtimeNeeds
   -- Keep global callvalue guard when no entry is payable (byte-identical with
   -- historical Counter/Guarded goldens). Payable programs drop the global
   -- guard; non-payable/view arms carry entry-local guards instead.
@@ -1974,6 +2106,7 @@ private def renderYul (plan : Plan) : String :=
     runtimeFns ++
     mapHelpersRuntime ++
     "    }\n  }\n}\n"
+
 
 private def renderParamJson (param : Param) : String :=
   let ty := abiParamTypeString param

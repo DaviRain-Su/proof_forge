@@ -1718,9 +1718,11 @@ private unsafe def testPrincipalStateStorage : IO Unit := do
     "PrincipalOwner Yul must sstore leaf 0 (len)"
   expect (yul.contains "sstore(8," || yul.contains "sstore(8, ")
     "PrincipalOwner Yul must sstore leaf 8 (last payload word)"
-  expect (yul.contains "sload(0)" || yul.contains "sload(0,")
+  expect (yul.contains "sload(0)" || yul.contains "sload(0," ||
+      yul.contains "pf_sload_u64(0)")
     "PrincipalOwner Yul must sload leaf 0 for matchesOwner"
-  expect (yul.contains "sload(8)" || yul.contains "sload(8,")
+  expect (yul.contains "sload(8)" || yul.contains "sload(8," ||
+      yul.contains "pf_sload_u64(8)")
     "PrincipalOwner Yul must sload leaf 8 for matchesOwner"
   expect (yul.contains "eq(")
     "PrincipalOwner Yul must emit leaf-wise eq for Principal comparison"
@@ -2764,9 +2766,11 @@ private unsafe def testArrayStateIndexOps : IO Unit := do
   let some litYul := (MaterializedArtifactsV1.filesOf litOut).find?
       (·.path == "ArrayBox.yul") |
     throw <| IO.userError "ArrayBox: missing ArrayBox.yul"
-  expect (litYul.contents.contains "sstore(0," && litYul.contents.contains "sload(0)")
+  expect (litYul.contents.contains "sstore(0," &&
+      (litYul.contents.contains "sload(0)" || litYul.contents.contains "pf_sload_u64(0)"))
     "ArrayBox Yul must sstore/sload slot 0 for set0/get0"
-  expect (litYul.contents.contains "sstore(1," || litYul.contents.contains "sload(1)")
+  expect (litYul.contents.contains "sstore(1," || litYul.contents.contains "sload(1)" ||
+      litYul.contents.contains "pf_sload_u64(1)")
     "ArrayBox Yul must touch slot 1 for the second leaf"
   let litPlan2 ← liftResult "plan ArrayBox again" <| planEvm litCompiled
   expect (litPlan == litPlan2) "ArrayBox plan rebuild must be deterministic"
@@ -3778,7 +3782,8 @@ private unsafe def testOptionUInt64State : IO Unit := do
   let yul := yulFile.contents
   expect (yul.contains "sstore(0," && yul.contains "sstore(1,")
     "OptionState Yul must sstore both tag and payload slots"
-  expect (yul.contains "sload(0)" && yul.contains "sload(1)")
+  expect ((yul.contains "sload(0)" || yul.contains "pf_sload_u64(0)") &&
+      (yul.contains "sload(1)" || yul.contains "pf_sload_u64(1)"))
     "OptionState Yul must sload both tag and payload slots"
   -- storeAtomic spill idiom (B-EVM-MAP-STACK) for the 2-leaf batch.
   expect (yul.contains "mstore(" && yul.contains "mload(")

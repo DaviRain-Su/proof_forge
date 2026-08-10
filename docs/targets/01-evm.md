@@ -3,7 +3,7 @@ id: TARGET-EVM
 title: EVM target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-06
+updated: 2026-08-10
 normative: true
 ---
 
@@ -31,10 +31,10 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
   结构；`EvmSolcAcceptance` 检查 host solc，`TokenV1` 产品路径锁定 solc 0.8.34；
 - **ADR-0030 E4 EVM-first demo**：`Examples/MiniAmm.lean` 以 `context.caller` 作为
   cap-4 Principal-key LP share key，提供 vault-internal addLiquidity/swap0to1/balanceOf；
-  Plan/Yul/`EvmSmoke` 钉测 + host-optional `scripts/evm_mini_amm_anvil_smoke.sh`（creation
-  bytecode 远超 EIP-3860，strict Anvil 拒绝后以 `--disable-code-size-limit` engineering
-  override 跑通 local add/swap/revert；**非** mainnet/EIP-3860 部署声明）。无 `pf.assets`
-  asset movement 或 remove-liquidity，不得写成双链 MiniAMM closure；
+  Plan/Yul/`EvmSmoke` 钉测 + host-optional `scripts/evm_mini_amm_anvil_smoke.sh`。
+  当前 locked-solc creation bytecode ≈ 6.4 KiB（远低于 EIP-3860 的 49152 B initcode
+  上限；旧文档中的“远超 EIP-3860”已过期）。无 `pf.assets` asset movement 或
+  remove-liquidity，不得写成双链 MiniAMM closure；
 - **Option UInt64 state（BL-31）**：Enum-shaped tag/payload 双 slot；`none` 与 reset 清零 payload，
   `StateStore` 复用 `storeAtomic`；Option parameter、非 UInt64 payload 与 nested Option 仍 fail-closed；
 - **bounded aggregate return ABI**：named Struct/Enum 与 anonymous `Array UInt64 N`（1..8）/
@@ -42,8 +42,11 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
 - **static-QN external call/schedule**：sync 发真实 `CALL`；result-bearing UInt64 路径要求
   `returndatasize ≥ 32`、读取首 word并做 UInt64 range check；schedule 仍同步 CALL+discard。
   callee 仍为 target-path hash stub，真实 deployment-address binding 未闭合；
-- Token 当前仅恢复到 **locked-solc engineering finalization**：creation bytecode 为 258460 B，
-  已超过 EIP-3860 的 49152 B initcode 上限，因此没有 Anvil/mainnet deployment、runtime 或 OZ 声明；
+- Token 当前为 **locked-solc engineering finalization**：creation bytecode ≈ 2.6 KiB
+  （远低于 EIP-3860 49152 B initcode 上限；旧文档 258460 B 数字来自早期 unrolled Map
+  helper 路径，已过期）。Yul 文本仍大于 bytecode（Map helpers + 展开 body）；emitter
+  对 constructor/runtime 做 phase-local helper 发射，并用共享 `pf_sload_u64` 摊销
+  UInt64 range gate。Anvil/mainnet/OZ 产品声明仍以各自 runtime 门为准，不因体积单独阻断；
 - Yul + digest-pinned `solc` bytecode；**EvmSolc** `solc --strict-assembly` 验收门（工具缺席干净跳过）；
 - engineering planDigest 可绑 BuildIdentity/OutputSet；G4 `evm_anvil_differential.sh` 从产品 CLI
   制品运行 Counter/Accumulator/ArithOps/EventFlow，固定 overflow state-hold 与 emit 日志。
