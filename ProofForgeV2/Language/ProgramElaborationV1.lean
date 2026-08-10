@@ -247,7 +247,8 @@ private def modelStateFieldsV1
     optional callable view; they never reject or reinterpret the DSL program. -/
 private def isReservedModelCallableNameV1 (name : String) : Bool :=
   name == "State" || name == "encodeState" || name == "decodeState" ||
-    name == "decode_encode" || name == "encode_injective_of_eq_ok" ||
+    name == "encode_exists" || name == "decode_encode" ||
+    name == "encode_injective_of_eq_ok" ||
     name == "decode_existsUnique_of_conforms" ||
     name == "encode_decode_of_conforms" || name == "conforms_of_encode" ||
     name == "conforms_iff_exists_encode" || name == "ReferenceSubject" ||
@@ -1961,6 +1962,7 @@ private def elaborateInvariantModelsV1
   let stateName := mkIdent `State
   let typedStateName := mkIdent `typedState
   let logicalStateName := mkIdent `logicalState
+  let encodeExistsName := mkIdent `encode_exists
   let invariantNamespace := mkIdent `Invariant
   let fieldNames := fields.map fun field => mkIdent (Name.mkSimple field.name)
   let encodedValues ← Lean.Elab.liftMacroM <|
@@ -2027,20 +2029,19 @@ private def elaborateInvariantModelsV1
         quoteModelVisibilityV1 equality.rightState.visibility
       Lean.Elab.Command.elabCommand (← `(
         /-- Narrow mathematical view of the exact lowered two-field equality
-            invariant. Validation and successful typed encoding remain
-            explicit; execution is still the production invariant evaluator. -/
+            invariant. Exact subject validation remains explicit; typed
+            encoder success follows from the generated production-codec
+            theorem, and execution remains the production invariant evaluator. -/
         theorem $fieldBridgeName
             ($typedStateName : $stateName)
-            ($logicalStateName :
-              ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
             (hvalidate :
               ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
-                  $subjectProgramName = .ok $subjectDataName)
-            (hencode :
-              $encodeStateName $typedStateName = .ok $logicalStateName) :
+                  $subjectProgramName = .ok $subjectDataName) :
             $predicateName $typedStateName ↔
               ($typedStateName).$leftFieldName =
                 ($typedStateName).$rightFieldName := by
+          obtain ⟨$logicalStateName, hencode⟩ :=
+            $encodeExistsName $typedStateName
           rw [$bridgeName $typedStateName $logicalStateName hencode]
           have hproductionEncode :
               ProofForgeV2.Semantic.InvariantABI.encodeLogicalStateValuesV1
@@ -2098,6 +2099,7 @@ private def elaborateStateModelV1
   let typedStateName := mkIdent `typedState
   let encodeStateName := mkIdent `encodeState
   let decodeStateName := mkIdent `decodeState
+  let encodeExistsName := mkIdent `encode_exists
   let decodeEncodeName := mkIdent `decode_encode
   let encodeInjectiveName := mkIdent `encode_injective_of_eq_ok
   let decodeExistsUniqueName := mkIdent `decode_existsUnique_of_conforms
@@ -2113,6 +2115,77 @@ private def elaborateStateModelV1
   let encodedValues ← Lean.Elab.liftMacroM <|
     fields.zip fieldNames |>.mapM fun (field, fieldName) =>
       quoteModelStateEncodeV1 typedStateName fieldName field.scalar
+  let statePairs ← fields.zipIdx.mapM fun (_, index) => do
+    let stateDecl ← match data.logicalState[index]? with
+      | some value => pure value
+      | none => throwError
+          "generated Model field is missing its production state declaration"
+    let stateDeclTerm ← Lean.Elab.liftMacroM <|
+      ProofForgeV2.Language.SubjectDataQuoteV1.quoteStateDeclV1 stateDecl
+    let encodedValue ← match encodedValues[index]? with
+      | some value => pure value
+      | none => throwError
+          "generated Model field is missing its production encoded value"
+    Lean.Elab.liftMacroM <| `(($stateDeclTerm, $encodedValue))
+  let canonicalPairFacts ← fields.zipIdx.mapM fun (field, index) => do
+    let fieldName ← match fieldNames[index]? with
+      | some value => pure value
+      | none => throwError "generated Model field is missing its Lean name"
+    let stateDecl ← match data.logicalState[index]? with
+      | some value => pure value
+      | none => throwError
+          "generated Model field is missing its production state declaration"
+    let typeDecl ← match data.types[stateDecl.typeId.toNat]? with
+      | some value => pure value
+      | none => throwError
+          "generated Model field is missing its production type declaration"
+    let stateDeclTerm ← Lean.Elab.liftMacroM <|
+      ProofForgeV2.Language.SubjectDataQuoteV1.quoteStateDeclV1 stateDecl
+    let typeDeclTerm ← Lean.Elab.liftMacroM <|
+      ProofForgeV2.Language.SubjectDataQuoteV1.quoteTypeDeclV1 typeDecl
+    Lean.Elab.liftMacroM <| match field.scalar with
+      | .bool => `(
+          ((by
+            constructor
+            · apply
+                ProofForgeV2.Semantic.WireV1.validateValueBytesV1_encodeBool
+                  ($subjectDataName).types ($stateDeclTerm).typeId
+                    $typeDeclTerm ($typedStateName).$fieldName
+              · rfl
+              · rfl
+            · cases ($typedStateName).$fieldName <;> decide) :
+          ProofForgeV2.Semantic.WireV1.validateValueBytesV1
+                ($subjectDataName).types ($stateDeclTerm).typeId
+                (ProofForgeV2.Semantic.WireV1.encodeBool
+                  ($typedStateName).$fieldName) = .ok () ∧
+            (ProofForgeV2.Semantic.WireV1.encodeBool
+              ($typedStateName).$fieldName).size ≤ UInt32.size - 1))
+      | .uint64 => `(
+          ((by
+            constructor
+            · apply
+                ProofForgeV2.Semantic.WireV1.validateValueBytesV1_uint64_of_size
+                  ($subjectDataName).types ($stateDeclTerm).typeId
+                    $typeDeclTerm
+              · rfl
+              · rfl
+              · exact ProofForgeV2.Semantic.WireV1.encodeU64le_size
+                  ($typedStateName).$fieldName
+            · rw [ProofForgeV2.Semantic.WireV1.encodeU64le_size]
+              decide) :
+          ProofForgeV2.Semantic.WireV1.validateValueBytesV1
+                ($subjectDataName).types ($stateDeclTerm).typeId
+                (ProofForgeV2.Semantic.WireV1.encodeU64le
+                  ($typedStateName).$fieldName) = .ok () ∧
+            (ProofForgeV2.Semantic.WireV1.encodeU64le
+              ($typedStateName).$fieldName).size ≤ UInt32.size - 1))
+  let mut canonicalPairsProof : TSyntax `term ← Lean.Elab.liftMacroM <|
+    `(by
+      intro pair hpair
+      simp at hpair)
+  for fact in canonicalPairFacts.reverse do
+    canonicalPairsProof ← Lean.Elab.liftMacroM <|
+      `(List.forall_mem_cons.mpr ⟨$fact, $canonicalPairsProof⟩)
   let decodedValues ← Lean.Elab.liftMacroM <|
     fields.zipIdx.mapM fun (field, index) => do
       let indexTerm : TSyntax `term := ⟨Syntax.mkNumLit (toString index)⟩
@@ -2185,6 +2258,18 @@ private def elaborateStateModelV1
           ProofForgeV2.Semantic.InvariantABI.LogicalStateV1 :=
       ProofForgeV2.Semantic.InvariantABI.encodeLogicalStateValuesV1
         $subjectDataName true #[$encodedValues,*]))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Every generated typed state has a successful exact production-codec
+        encoding. This is a totality theorem about `encodeState`, not a second
+        state encoder. -/
+    theorem $encodeExistsName ($typedStateName : $stateName) :
+        ∃ logicalState : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1,
+          $encodeStateName $typedStateName = .ok logicalState := by
+      unfold $encodeStateName
+      exact
+        ProofForgeV2.Semantic.InvariantABI.encodeLogicalStateValuesV1_exists_of_pairs
+          $subjectDataName true #[$encodedValues,*] [$statePairs,*]
+            (by rfl) (by rfl) $canonicalPairsProof))
   Lean.Elab.Command.elabCommand (← `(
     /-- Decode only initialized carriers through the production codec, then
         project canonical scalar bytes into Lean fields. -/

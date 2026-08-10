@@ -133,6 +133,7 @@ program TypedStateSurface where
 #check TypedStateSurface.Model.State.count
 #check TypedStateSurface.Model.State.total
 #check TypedStateSurface.Model.encodeState
+#check TypedStateSurface.Model.encode_exists
 #check TypedStateSurface.Model.decodeState
 #check TypedStateSurface.Model.decode_encode
 #check TypedStateSurface.Model.encode_injective_of_eq_ok
@@ -227,6 +228,14 @@ example : TypedStateSurface.Model.decodeState typedStateUninitializedV1 =
     .error .nonCanonical := by
   rfl
 
+/- Encoder totality concludes through the generated wrapper around the sole
+   production codec. -/
+example (typedState : TypedStateSurface.Model.State) :
+    ∃ logicalState : LogicalStateV1,
+      TypedStateSurface.Model.encodeState typedState =
+        .ok logicalState :=
+  TypedStateSurface.Model.encode_exists typedState
+
 /-- The generated author predicate is definitionally only the exact production
     state encoder plus `evalInvariantV1` at the lowered invariant ordinal. -/
 example (typedState : TypedStateSurface.Model.State) :
@@ -287,23 +296,20 @@ program TypedInvariantFieldEqualitySurface where
   proof nonsolvent using TypedInvariantFieldEqualitySurfaceProof.nonsolvent
 
 #check TypedInvariantFieldEqualitySurface.Model.solvent
+#check TypedInvariantFieldEqualitySurface.Model.encode_exists
 #check TypedInvariantFieldEqualitySurface.Model.Invariant.solvent_iff_eval
 #check TypedInvariantFieldEqualitySurface.Model.Invariant.solvent_iff_fields
 
 example
     (typedState : TypedInvariantFieldEqualitySurface.Model.State)
-    (logicalState : LogicalStateV1)
     (hvalidate :
       validateSemanticProgramV1
           TypedInvariantFieldEqualitySurface.Proof.subjectProgramV1 =
-        .ok TypedInvariantFieldEqualitySurface.Proof.subjectDataV1)
-    (hencode :
-      TypedInvariantFieldEqualitySurface.Model.encodeState typedState =
-        .ok logicalState) :
+        .ok TypedInvariantFieldEqualitySurface.Proof.subjectDataV1) :
     TypedInvariantFieldEqualitySurface.Model.solvent typedState ↔
       typedState.reserves = typedState.shares :=
   TypedInvariantFieldEqualitySurface.Model.Invariant.solvent_iff_fields
-    typedState logicalState hvalidate hencode
+    typedState hvalidate
 
 /- Unsupported invariant CFGs keep their evaluator bridge but fail closed for
     the optional field-level mathematical theorem. -/

@@ -280,6 +280,75 @@ def encodeLogicalStateValuesV1 (data : SemanticProgramDataV1) (initialized : Boo
     encodeLogicalStateSlotsV1 data.types data.logicalState.toList values.toList
   pure { initialized, canonicalValues := canonical }
 
+/-- Pairwise canonical declaration/value rows are sufficient for the sole
+    production slot encoder to return an exact canonical byte carrier. The
+    pair list is proof metadata only: execution remains
+    `encodeLogicalStateSlotsV1`. -/
+private theorem encodeLogicalStateSlotsV1_exists_of_pairs
+    (types : Array TypeDeclV1)
+    (pairs : List (StateDeclV1 × ByteArray))
+    (canonical : ByteArray)
+    (hcanonical : ∀ pair ∈ pairs,
+      validateValueBytesV1 types pair.1.typeId pair.2 = .ok () ∧
+        pair.2.size ≤ UInt32.size - 1) :
+    ∃ encoded,
+      encodeLogicalStateSlotsV1 types (pairs.map Prod.fst)
+          (pairs.map Prod.snd) canonical = .ok encoded := by
+  induction pairs generalizing canonical with
+  | nil =>
+      exact ⟨canonical, rfl⟩
+  | cons pair rest ih =>
+      have hhead := hcanonical pair (by simp)
+      have hrest : ∀ current ∈ rest,
+          validateValueBytesV1 types current.1.typeId current.2 = .ok () ∧
+            current.2.size ≤ UInt32.size - 1 := by
+        intro current hcurrent
+        exact hcanonical current (by simp [hcurrent])
+      let slot :=
+        (encodeU32le (UInt32.ofNat pair.2.size)).append pair.2
+      have hslot : encodeStateSlotV1 pair.2 = .ok slot := by
+        unfold encodeStateSlotV1
+        simp only [if_pos hhead.2, Pure.pure, Except.pure, Bind.bind,
+          Except.bind]
+        rfl
+      obtain ⟨encoded, hencoded⟩ := ih (canonical.append slot) hrest
+      refine ⟨encoded, ?_⟩
+      simp only [List.map, encodeLogicalStateSlotsV1, hhead.1, Bind.bind,
+        Except.bind, hslot]
+      exact hencoded
+
+/-- Generated typed-state views can establish encoder totality by supplying
+    source-order declaration/value pairs whose payloads pass the sole public
+    value validator and fit the production u32 slot length. This theorem does
+    not construct a parallel state codec: its conclusion is a successful call
+    to `encodeLogicalStateValuesV1` itself. -/
+theorem encodeLogicalStateValuesV1_exists_of_pairs
+    (data : SemanticProgramDataV1)
+    (initialized : Bool)
+    (values : Array ByteArray)
+    (pairs : List (StateDeclV1 × ByteArray))
+    (hdecls : data.logicalState.toList = pairs.map Prod.fst)
+    (hvalues : values.toList = pairs.map Prod.snd)
+    (hcanonical : ∀ pair ∈ pairs,
+      validateValueBytesV1 data.types pair.1.typeId pair.2 = .ok () ∧
+        pair.2.size ≤ UInt32.size - 1) :
+    ∃ state,
+      encodeLogicalStateValuesV1 data initialized values = .ok state := by
+  have hdeclLength : data.logicalState.size = pairs.length := by
+    simpa using congrArg List.length hdecls
+  have hvalueLength : values.size = pairs.length := by
+    simpa using congrArg List.length hvalues
+  have harity : values.size = data.logicalState.size :=
+    hvalueLength.trans hdeclLength.symm
+  obtain ⟨canonical, hslots⟩ :=
+    encodeLogicalStateSlotsV1_exists_of_pairs
+      data.types pairs ByteArray.empty hcanonical
+  refine ⟨{ initialized, canonicalValues := canonical }, ?_⟩
+  unfold encodeLogicalStateValuesV1
+  simp only [harity, beq_self_eq_true, ↓reduceIte, Bind.bind, Except.bind]
+  rw [hdecls, hvalues, hslots]
+  rfl
+
 /-- Successful tail-recursive encoding preserves its exact input prefix. -/
 private theorem encodeLogicalStateSlotsV1_prefix
     (types : Array TypeDeclV1)

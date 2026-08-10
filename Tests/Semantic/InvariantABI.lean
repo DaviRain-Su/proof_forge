@@ -41,6 +41,54 @@ example (program : SemanticProgramV1) (ordinal : InvariantOrdinalV1) :
         ∀ state : LogicalStateV1, StateConformsV1 program state →
           evalInvariantV1 program ordinal state = .returnedTrue) := Iff.rfl
 
+private def encodeExistenceBoolType : TypeDeclV1 :=
+  { id := 0, name := none, shape := .bool }
+
+private def encodeExistenceUInt64Type : TypeDeclV1 :=
+  { id := 1, name := none, shape := .uint 64 }
+
+private def encodeExistenceBoolState : StateDeclV1 :=
+  { id := 0, name := "enabled", typeId := 0, visibility := .public_ }
+
+private def encodeExistenceUInt64State : StateDeclV1 :=
+  { id := 1, name := "count", typeId := 1, visibility := .public_ }
+
+/-! The generic existence bridge remains tied to the sole production state
+encoder for a representative mixed multi-slot canonical payload. -/
+example
+    (data : SemanticProgramDataV1)
+    (enabled : Bool)
+    (count : UInt64)
+    (htypes : data.types = #[encodeExistenceBoolType, encodeExistenceUInt64Type])
+    (hstate : data.logicalState =
+      #[encodeExistenceBoolState, encodeExistenceUInt64State]) :
+    ∃ state,
+      encodeLogicalStateValuesV1 data true
+          #[encodeBool enabled, encodeU64le count] = .ok state := by
+  apply encodeLogicalStateValuesV1_exists_of_pairs data true
+    #[encodeBool enabled, encodeU64le count]
+    [(encodeExistenceBoolState, encodeBool enabled),
+      (encodeExistenceUInt64State, encodeU64le count)]
+  · simp [hstate]
+  · rfl
+  · intro pair hpair
+    simp only [List.mem_cons, List.not_mem_nil, or_false] at hpair
+    rcases hpair with rfl | rfl
+    · constructor
+      · apply validateValueBytesV1_encodeBool data.types 0
+          encodeExistenceBoolType enabled
+        · simp [htypes]
+        · rfl
+      · cases enabled <;> decide
+    · constructor
+      · apply validateValueBytesV1_uint64_of_size data.types 1
+          encodeExistenceUInt64Type (encodeU64le count)
+        · simp [htypes]
+        · rfl
+        · exact encodeU64le_size count
+      · rw [encodeU64le_size]
+        decide
+
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 

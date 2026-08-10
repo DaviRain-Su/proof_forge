@@ -151,7 +151,9 @@ ProofForge 目标
 3. evaluator-backed typed invariant predicate 与 exact ordinal/evaluator bridge 首切已完成；
    exact `stateLoad; stateLoad; eq; return` 的 UInt64 字段相等首切也已投影成普通 Lean
    `reserves = shares` 并与 evaluator-backed predicate 对齐；更多 expression shape、
-   premise-free subject validation/encoder packaging 与 arithmetic/lookup bridge 仍待补。
+   premise-free exact subject validation packaging 与 arithmetic/lookup bridge 仍待补。generated
+   typed encoder 已有 production-codec success theorem，因此字段相等 bridge 不再要求作者
+   手工提供 `LogicalStateV1`/`hencode` witness。
 4. `PreservationTheoremV1` 要求 base + 全输入 + 全 callable + 三 Outcome；当前缺少把
    per-callable 业务 lemma 自动组合成该 ABI 的程序级 packager。
 5. ClosedSubjectPin/contract-specific golden 可以加速已知样例，但不能成为任意合约的主证明通道。
@@ -363,7 +365,8 @@ Reference failure。vault 只有在有真正的 independence theorem 后才能�
 
 ### Phase 1 — 生成 typed State view 与 codec bridge
 
-**状态**：UInt64/空 state table 首切已完成；其余 accepted scalar/aggregate shape 待扩展。
+**状态**：UInt64/空 state table 首切已完成，并已对 generated typed state 证明 production
+encoder success；其余 accepted scalar/aggregate shape 待扩展。
 
 主要落点：program elaborator + 新的 program-agnostic Model bridge（避免每个 contract 一个平台模块）。
 
@@ -386,6 +389,10 @@ Reference failure。vault 只有在有真正的 independence theorem 后才能�
    - 若 `Model.State` 的字段类型已把全部 canonical size/resource bounds 编入类型，
      `encodeState` 可进一步证明 total；
    - 否则保持 `Except`，所有 relation 必须携显式 `.ok pre/.ok post`；
+   - 当前 Bool/UInt64 generated scalar 已通过
+     `encodeLogicalStateValuesV1_exists_of_pairs` 证明唯一 production encoder 必然存在
+     successful result，并生成 `Model.encode_exists`；该 theorem 的 declaration/value pair
+     只用于证明 source-order identity 和 canonicality，不是第二 encoder；
    - 对每个 conforming logical state，必须证明存在**唯一** typed decode，不能只证
      typed→logical 单向 soundness。
 4. 首切支持 Bool、UInt8/16/32/64、Unit；随后按 canonical Wire codec 扩 Struct/Enum/
@@ -447,8 +454,9 @@ decode 已完成；独立的 generated pre-init `LifecycleState`、initializer p
 **状态**：进行中。已生成 `<Program>.Model.<inv> : State → Prop` 的 evaluator-backed
 首切及 exact `evalInvariantV1` bridge；并已对 exact lowered
 `stateLoad left; stateLoad right; eq; return` UInt64 shape 生成字段相等数学 bridge。
-更广 expression 投影、premise-free subject/encoder packaging、checked arithmetic/lookup
-通用引理与业务 proof ergonomics 尚未完成。
+该字段 bridge 已用 generated `Model.encode_exists` 内部取得 production encoding witness，
+作者只需提供 exact subject validation premise。更广 expression 投影、premise-free exact
+subject validation packaging、checked arithmetic/lookup 通用引理与业务 proof ergonomics尚未完成。
 
 交付：
 
@@ -466,15 +474,17 @@ decode 已完成；独立的 generated pre-init `LifecycleState`、initializer p
 
    ```lean
    theorem solvent_iff_fields
+       (typedState : Model.State)
        (hvalidate : validateSemanticProgramV1 subjectProgramV1 =
-         .ok subjectDataV1)
-       (hencode : encodeState typedState = .ok logical) :
+         .ok subjectDataV1) :
        Model.solvent typedState ↔
          typedState.reserves = typedState.shares
    ```
 
-   这里的 premises 暂时显式保留；在通用 subject validation 与 typed encoder
-   success packaging 完成前，不用 closed reduction 或第二 evaluator 隐藏它们。
+   `Model.encode_exists typedState` 从 production codec 内部提供 logical carrier 与
+   successful encode equality，不要求业务作者手工构造 witness。exact `hvalidate` 仍显式保留；
+   在 generated subject data 与 production validation result 的 exact identity bridge 完成前，
+   不借 admission carrier 偷换 validated data，也不用 closed reduction 或第二 evaluator 隐藏它。
 
 3. checked arithmetic/trap 边界必须与 invariant evaluator一致；不能把 partial evaluator
    简化成无条件数学运算。
@@ -688,9 +698,9 @@ proof-bearing target build 继续 fail closed。
 |---|---|---|---|
 | 0A | 删除第二套 executable semantics | **已完成** | `MiniAmmSafetySketchV1`、alpha `Core/Semantics`/`SemanticIR` 已不在 HEAD |
 | 0B | 唯一语义防回归门 | **已完成** | `alpha-deletion-gate` 固定平行语义、contract-specific registry/pin 的物理删除，不误杀 checker state |
-| 1 | Typed State + codec bridge | **进行中（generated Bool/UInt64 双向 complete/unique 首切已完成）** | generated `Model.State` 复用 production codec；`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；Bool 的产品 accepted-language 接线与更多 scalar shape 仍待补 |
+| 1 | Typed State + codec bridge | **进行中（generated Bool/UInt64 codec proof 首切已完成）** | generated `Model.State` 复用 production codec；`Model.encode_exists`、`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；Bool 的产品 accepted-language 接线与更多 scalar shape 仍待补 |
 | 2 | Typed callable transition | **进行中（initialized entry/view + 独立 initializer lifecycle relation 首切已完成）** | pre-init 只使用 exact production lifecycle carrier；initializer returned state 与 ordinary callable returned state 均可唯一投影为 typed State，固定 typed 输入有且至多有一个 typed outcome |
-| 3 | Typed invariant bridge | **进行中（evaluator + UInt64 字段相等数学 bridge 首切已完成）** | generated predicate 使用 exact state encoder 与 lowered invariant ordinal，并与 production `evalInvariantV1` 双向对齐；exact two-state equality CFG 已 fail-closed 投影成字段等式，更多表达式与 premise packaging 仍待补 |
+| 3 | Typed invariant bridge | **进行中（evaluator + UInt64 字段相等数学 bridge 首切已完成）** | generated predicate 使用 exact state encoder 与 lowered invariant ordinal，并与 production `evalInvariantV1` 双向对齐；exact two-state equality CFG 已 fail-closed 投影成字段等式且不再暴露 encoding witness，更多表达式与 exact validation packaging 仍待补 |
 | 4 | Generic preservation composition | 未开始 | per-call lemmas 自动包成 exact `PreservationTheoremV1` |
 | 5 | Same-file certifier ergonomics | 部分地基已有 | 任意未 pin 合约的真实 proof body可 certified |
 | 6 | authority amendment + VerifiedVaultPF + NEAR build/runtime | 未开始 | 先批准 versioned invariant-erasure contract，再完成单文件 proof + build + runtime differential；诚实标注 Reference-level |
@@ -716,9 +726,13 @@ proof-bearing target build 继续 fail closed。
    table 与多 UInt64 state table 都有 generated theorem 回归覆盖；
 7. generated codec 的 Bool scalar projection/re-encode kernel 已闭合，但当前 Normalize accepted
    language 尚不包含 logical-state Bool，故仍不能把 Bool 写成产品 authoring 已闭环；
-8. Bool callable **result** 与 generated state scalar 的 projection 均已可生成，但这不代表
+8. production logical-state encoder 已有 declaration/value pair canonicality 驱动的通用
+   existence theorem；generated `Model.encode_exists` 对当前 typed fields specialization，并由
+   mixed Bool/UInt64 semantic regression 与 generated multi-UInt64 authoring regression 固定。
+   该 theorem 只证明 `encodeLogicalStateValuesV1` 的成功结果，不构造平行 byte encoder；
+9. Bool callable **result** 与 generated state scalar 的 projection 均已可生成，但这不代表
    product Normalize 已接受 logical-state Bool；当前 accepted language 仍维持原边界；
-9. Phase 1 的后续工作继续按 accepted language 扩 scalar/field projection，并与 Phase 2 的
+10. Phase 1 的后续工作继续按 accepted language 扩 scalar/field projection，并与 Phase 2 的
    relation 工作保持小切片，避免一次把 state、step、certifier、target 全部耦合。
 
 ### Phase 2 首切进展
@@ -825,8 +839,10 @@ expression translator：
    通过 production projection left inverse 收回普通 Lean 字段 equality。回归覆盖非零 StateId、
    非零 invariant ordinal，并确认 unsupported literal-true 与近似 `!=` CFG 都不生成该
    optional theorem；
-10. 当前 `_iff_fields` 仍显式接收 exact `hvalidate` 与 successful `hencode`。尚未证明通用
-    premise-free subject validation/encoder packaging，也尚未处理 arithmetic/Struct/Map expression；
+10. 当前 `_iff_fields` 仍显式接收 exact `hvalidate`，但不再接收作者提供的
+    `LogicalStateV1`/successful `hencode`；它调用 generated `Model.encode_exists`，而该 theorem
+    只证明 production `encodeLogicalStateValuesV1` 的 successful result。尚未证明通用
+    premise-free exact subject validation packaging，也尚未处理 arithmetic/Struct/Map expression；
     不得把此 narrow shape 宣称为完整 expression translation 或通用
     `Spec.solvent ↔ Model.solvent`；
 11. 当前声明仍仅是 Reference-level proof view 地基；它不改变 target materialization authority，
