@@ -140,6 +140,8 @@ program TypedStateSurface where
 #check TypedStateSurface.Model.encode_decode_of_conforms
 #check TypedStateSurface.Model.conforms_of_encode
 #check TypedStateSurface.Model.conforms_iff_exists_encode
+#check TypedStateSurface.Model.safe
+#check TypedStateSurface.Model.Invariant.safe_iff_eval
 
 private def typedStateSampleV1 : TypedStateSurface.Model.State := {
   count := 7
@@ -224,6 +226,75 @@ private def typedStateUninitializedV1 : LogicalStateV1 :=
 example : TypedStateSurface.Model.decodeState typedStateUninitializedV1 =
     .error .nonCanonical := by
   rfl
+
+/-- The generated author predicate is definitionally only the exact production
+    state encoder plus `evalInvariantV1` at the lowered invariant ordinal. -/
+example (typedState : TypedStateSurface.Model.State) :
+    TypedStateSurface.Model.safe typedState =
+      TypedInvariantV1 TypedStateSurface.Model.encodeState
+        TypedStateSurface.Proof.subjectProgramV1 0 typedState := rfl
+
+/-- Once encoding fixes the logical carrier, the generated bridge is an exact
+    equivalence with the sole production invariant evaluator. -/
+example
+    (typedState : TypedStateSurface.Model.State)
+    (logicalState : LogicalStateV1)
+    (hencode :
+      TypedStateSurface.Model.encodeState typedState = .ok logicalState) :
+    TypedStateSurface.Model.safe typedState ↔
+      evalInvariantV1 TypedStateSurface.Proof.subjectProgramV1 0 logicalState =
+        .returnedTrue :=
+  TypedStateSurface.Model.Invariant.safe_iff_eval
+    typedState logicalState hencode
+
+/-- The generic typed predicate itself exposes the production encoder and
+    evaluator directly; no generated invariant interpreter is hidden here. -/
+example
+    {State : Type}
+    (encodeState : State → Except SemanticWireErrorV1 LogicalStateV1)
+    (semanticProgram : SemanticProgramV1)
+    (ordinal : InvariantOrdinalV1)
+    (typedState : State) :
+    TypedInvariantV1 encodeState semanticProgram ordinal typedState ↔
+      ∃ logicalState,
+        encodeState typedState = .ok logicalState ∧
+          evalInvariantV1 semanticProgram ordinal logicalState =
+            .returnedTrue := by
+  rfl
+
+/-- Encoder failure cannot satisfy the predicate by choosing another logical
+    state; the evaluator-backed projection is positive rather than vacuous. -/
+example (semanticProgram : SemanticProgramV1)
+    (ordinal : InvariantOrdinalV1) :
+    ¬ TypedInvariantV1
+      (fun _ : Unit => .error .nonCanonical) semanticProgram ordinal () := by
+  simp [TypedInvariantV1]
+
+/- Invariant predicates are selected from the exact lowered invariant table;
+   in particular, a second declaration is not silently hard-coded to zero. -/
+program TypedInvariantOrdinalSurface where
+  state count : UInt64
+  view alive() : Bool do
+    return true
+  invariant primary : true
+  invariant secondary : true
+  proof primary using TypedInvariantOrdinalSurfaceProof.primary
+  proof secondary using TypedInvariantOrdinalSurfaceProof.secondary
+
+#check TypedInvariantOrdinalSurface.Model.primary
+#check TypedInvariantOrdinalSurface.Model.secondary
+#check TypedInvariantOrdinalSurface.Model.Invariant.primary_iff_eval
+#check TypedInvariantOrdinalSurface.Model.Invariant.secondary_iff_eval
+
+example (typedState : TypedInvariantOrdinalSurface.Model.State) :
+    TypedInvariantOrdinalSurface.Model.secondary typedState =
+      TypedInvariantV1 TypedInvariantOrdinalSurface.Model.encodeState
+        TypedInvariantOrdinalSurface.Proof.subjectProgramV1 1 typedState := rfl
+
+example :
+    TypedInvariantOrdinalSurface.Proof.subjectDataV1.invariants[1]?.map
+        (fun invariant => invariant.name) =
+      some "secondary" := rfl
 
 program TypedCallableSurface where
   state count : UInt64
@@ -493,6 +564,12 @@ program TypedInitializerSurface where
 #check TypedInitializerSurface.Model.init.transition_exists
 #check TypedInitializerSurface.Model.init.outcome_unique
 #check TypedInitializerSurface.Model.get.Transition
+#check TypedInitializerSurface.Model.safe
+
+/-- Initializer lifecycle input remains a separate type: invariant predicates
+    are properties only of initialized generated business states. -/
+example : TypedInitializerSurface.Model.State → Prop :=
+  TypedInitializerSurface.Model.safe
 
 example : TypedInitializerSurface.Model.init.invocation 7 #[] = ({
     callableId := 0
@@ -727,6 +804,87 @@ run_cmd do
     `Tests.Language.InlineProofAuthoringV1.ModelReservedStateName.Model.State
   if env.contains modelStateName then
     throwError "reserved structure field name must withhold only the Model surface"
+  let invariantBridgeName :=
+    `Tests.Language.InlineProofAuthoringV1.ModelReservedStateName.Model.Invariant.safe_iff_eval
+  if env.contains invariantBridgeName then
+    throwError "unsupported typed state must not emit a dangling invariant bridge"
+
+/- A generated-root collision with an invariant name withholds only that
+   optional typed invariant predicate/bridge, preserving Proof subject aliases. -/
+program ReservedInvariantModelSurface where
+  state count : UInt64
+  view alive() : Bool do
+    return true
+  invariant Outcome : true
+  invariant Invariant : true
+  invariant safe : true
+  proof Outcome using ReservedInvariantModelSurfaceProof.holds
+  proof Invariant using ReservedInvariantModelSurfaceProof.namespaceCollision
+  proof safe using ReservedInvariantModelSurfaceProof.safe
+
+#check ReservedInvariantModelSurface.Proof.subjectProgramV1
+#check ReservedInvariantModelSurface.Proof.Outcome
+#check ReservedInvariantModelSurface.Proof.Invariant
+#check ReservedInvariantModelSurface.Proof.safe
+#check ReservedInvariantModelSurface.Model.State
+#check ReservedInvariantModelSurface.Model.safe
+#check ReservedInvariantModelSurface.Model.Invariant.safe_iff_eval
+
+/-- Filtering reserved Model names must not renumber surviving evaluator rows. -/
+example (typedState : ReservedInvariantModelSurface.Model.State) :
+    ReservedInvariantModelSurface.Model.safe typedState =
+      TypedInvariantV1 ReservedInvariantModelSurface.Model.encodeState
+        ReservedInvariantModelSurface.Proof.subjectProgramV1 2 typedState := rfl
+
+example
+    (typedState : ReservedInvariantModelSurface.Model.State)
+    (logicalState : LogicalStateV1)
+    (hencode :
+      ReservedInvariantModelSurface.Model.encodeState typedState =
+        .ok logicalState) :
+    ReservedInvariantModelSurface.Model.safe typedState ↔
+      evalInvariantV1 ReservedInvariantModelSurface.Proof.subjectProgramV1 2
+          logicalState = .returnedTrue :=
+  ReservedInvariantModelSurface.Model.Invariant.safe_iff_eval
+    typedState logicalState hencode
+
+run_cmd do
+  let env ← getEnv
+  let outcomeBridgeName :=
+    `Tests.Language.InlineProofAuthoringV1.ReservedInvariantModelSurface.Model.Invariant.Outcome_iff_eval
+  if env.contains outcomeBridgeName then
+    throwError "reserved Model invariant name must not emit an evaluator bridge"
+  let namespaceBridgeName :=
+    `Tests.Language.InlineProofAuthoringV1.ReservedInvariantModelSurface.Model.Invariant.Invariant_iff_eval
+  if env.contains namespaceBridgeName then
+    throwError "Model.Invariant namespace collision must not emit an evaluator bridge"
+
+/- Accepted state shapes outside the current generated scalar subset must keep
+   their Proof aliases while withholding the whole optional Model surface. -/
+program UnsupportedInvariantStateSurface where
+  state wide : UInt128
+  view alive() : Bool do
+    return true
+  invariant safe : true
+  proof safe using UnsupportedInvariantStateSurfaceProof.safe
+
+#check UnsupportedInvariantStateSurface.Proof.subjectProgramV1
+#check UnsupportedInvariantStateSurface.Proof.safe
+
+run_cmd do
+  let env ← getEnv
+  let modelStateName :=
+    `Tests.Language.InlineProofAuthoringV1.UnsupportedInvariantStateSurface.Model.State
+  if env.contains modelStateName then
+    throwError "unsupported state scalar must not emit a typed Model.State"
+  let predicateName :=
+    `Tests.Language.InlineProofAuthoringV1.UnsupportedInvariantStateSurface.Model.safe
+  if env.contains predicateName then
+    throwError "unsupported state scalar must not emit a typed invariant predicate"
+  let bridgeName :=
+    `Tests.Language.InlineProofAuthoringV1.UnsupportedInvariantStateSurface.Model.Invariant.safe_iff_eval
+  if env.contains bridgeName then
+    throwError "unsupported state scalar must not emit a dangling invariant bridge"
 
 /-- Bridge has the exact product Prop-alias conclusion under a wire-trace
     premise (no free hyps beyond `t`). -/

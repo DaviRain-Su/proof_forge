@@ -57,6 +57,42 @@ def initialLifecycleStateV1 (program : SemanticProgramV1) :
   | .ok logical => .ok ⟨logical, hinitial⟩
   | .error error => .error error
 
+/-- Typed invariant predicate backed by the exact production state encoder and
+    `evalInvariantV1`. This is a proof view, not a second invariant evaluator:
+    a typed state satisfies the predicate precisely when it encodes and the
+    sole production evaluator returns true at the selected ordinal. -/
+def TypedInvariantV1
+    {State : Type}
+    (encodeState : State → Except SemanticWireErrorV1 LogicalStateV1)
+    (program : SemanticProgramV1)
+    (ordinal : InvariantOrdinalV1)
+    (state : State) : Prop :=
+  ∃ logical,
+    encodeState state = .ok logical ∧
+      evalInvariantV1 program ordinal logical = .returnedTrue
+
+/-- Exact bridge from an encoded typed state to the production invariant
+    evaluator. The successful encoder equality fixes the same logical carrier
+    on both sides; no validation, execution, or expression reinterpretation is
+    hidden in this theorem. -/
+theorem typedInvariantV1_iff_eval_of_encode
+    {State : Type}
+    (encodeState : State → Except SemanticWireErrorV1 LogicalStateV1)
+    (program : SemanticProgramV1)
+    (ordinal : InvariantOrdinalV1)
+    (state : State)
+    (logical : LogicalStateV1)
+    (hencode : encodeState state = .ok logical) :
+    TypedInvariantV1 encodeState program ordinal state ↔
+      evalInvariantV1 program ordinal logical = .returnedTrue := by
+  constructor
+  · rintro ⟨other, hother, heval⟩
+    have hlogical : other = logical :=
+      Except.ok.inj (hother.symm.trans hencode)
+    simpa [hlogical] using heval
+  · intro heval
+    exact ⟨logical, hencode, heval⟩
+
 /-- Typed author view of the three canonical Reference outcomes. Returned
     states/results are typed projections; revert/trap retain the production
     reason/fault, while exact unchanged-state behavior is enforced by

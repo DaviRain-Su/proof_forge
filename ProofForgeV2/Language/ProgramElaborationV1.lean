@@ -192,6 +192,10 @@ private structure ModelCallableViewV1 where
   resultTypeId : TypeIdV1
   result : ModelCallableResultV1
 
+private structure ModelInvariantViewV1 where
+  name : String
+  ordinal : Nat
+
 /-- Phase-1 typed-state support is deliberately narrow and fail closed. The
     mapping is read from the exact lowered subject data; source AST types are
     never reinterpreted here. `none` means no `Model` surface is emitted. -/
@@ -225,7 +229,23 @@ private def isReservedModelCallableNameV1 (name : String) : Bool :=
     name == "encode_decode_of_conforms" || name == "conforms_of_encode" ||
     name == "conforms_iff_exists_encode" || name == "ReferenceSubject" ||
     name == "admitReferenceSubject" || name == "LifecycleState" ||
-    name == "initialLifecycleState" || name == "Outcome"
+    name == "initialLifecycleState" || name == "Outcome" ||
+    name == "Invariant"
+
+/-- Typed invariant predicates occupy the Model root while their exact
+    evaluator bridge theorems live under `Model.Invariant`. Unsupported name
+    collisions with either fixed surface fail closed without changing the DSL
+    program or its Proof aliases. -/
+private def isReservedModelInvariantNameV1 (name : String) : Bool :=
+  isReservedModelCallableNameV1 name || name == "init"
+
+private def modelInvariantViewsV1
+    (data : SemanticProgramDataV1) : Array ModelInvariantViewV1 :=
+  data.invariants.zipIdx.filterMap fun (invariant, ordinal) =>
+    if isReservedModelInvariantNameV1 invariant.name then
+      none
+    else
+      some { name := invariant.name, ordinal }
 
 /-- Project the common supported callable shape from the exact lowered table.
     Root-kind selection remains separate below so initializer lifecycle cannot
@@ -1826,6 +1846,53 @@ private def elaborateInitializerModelsV1
             $leftTransitionName $rightTransitionName))
     Lean.Elab.Command.elabCommand (← `(end $callableNamespace))
 
+/-- Emit evaluator-backed typed invariant predicates. The predicate and bridge
+    both delegate to `TypedInvariantV1` / `evalInvariantV1`; this phase does not
+    translate or execute the DSL invariant expression independently. -/
+private def elaborateInvariantModelsV1
+    (subjectProgramName : TSyntax `ident)
+    (encodeStateName : TSyntax `ident)
+    (views : Array ModelInvariantViewV1) : CommandElabM Unit := do
+  if views.isEmpty then
+    return
+  let stateName := mkIdent `State
+  let typedStateName := mkIdent `typedState
+  let logicalStateName := mkIdent `logicalState
+  let invariantNamespace := mkIdent `Invariant
+  for invariantView in views do
+    let predicateName := mkIdent (Name.mkSimple invariantView.name)
+    let ordinalTerm : TSyntax `term :=
+      ⟨Syntax.mkNumLit (toString invariantView.ordinal)⟩
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Typed author predicate for this exact invariant ordinal. Its sole
+          evaluator authority is the production `evalInvariantV1`. -/
+      def $predicateName ($typedStateName : $stateName) : Prop :=
+        ProofForgeV2.Semantic.PreservationABI.TypedInvariantV1
+          $encodeStateName $subjectProgramName $ordinalTerm $typedStateName))
+  Lean.Elab.Command.elabCommand (← `(namespace $invariantNamespace))
+  for invariantView in views do
+    let predicateName := mkIdent (Name.mkSimple invariantView.name)
+    let bridgeName := mkIdent (Name.mkSimple (invariantView.name ++ "_iff_eval"))
+    let ordinalTerm : TSyntax `term :=
+      ⟨Syntax.mkNumLit (toString invariantView.ordinal)⟩
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Exact bridge from the generated typed predicate to the production
+          invariant evaluator on the same encoded logical state. -/
+      theorem $bridgeName
+          ($typedStateName : $stateName)
+          ($logicalStateName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          (hencode : $encodeStateName $typedStateName = .ok $logicalStateName) :
+          $predicateName $typedStateName ↔
+            ProofForgeV2.Semantic.InvariantABI.evalInvariantV1
+                $subjectProgramName $ordinalTerm $logicalStateName =
+              .returnedTrue := by
+        exact
+          ProofForgeV2.Semantic.PreservationABI.typedInvariantV1_iff_eval_of_encode
+            $encodeStateName $subjectProgramName $ordinalTerm $typedStateName
+              $logicalStateName hencode))
+  Lean.Elab.Command.elabCommand (← `(end $invariantNamespace))
+
 /-- Emit the author-facing business-state view. It is only a typed projection
     over `Proof.subjectDataV1`: encoding and decoding call the production
     logical-state codec, and this phase intentionally emits no step/evaluator. -/
@@ -2118,6 +2185,8 @@ private def elaborateStateModelV1
     decodeStateName encodeDecodeName data (modelCallableViewsV1 data)
   elaborateInitializerModelsV1 subjectProgramName subjectDataName encodeStateName
     decodeStateName encodeDecodeName data (modelInitializerViewsV1 data)
+  elaborateInvariantModelsV1 subjectProgramName encodeStateName
+    (modelInvariantViewsV1 data)
   Lean.Elab.Command.elabCommand (← `(end $modelNamespace))
 
 private def proofSurfaceV1
