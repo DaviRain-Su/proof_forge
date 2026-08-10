@@ -133,6 +133,32 @@ example (pre changed : LogicalStateV1) (fault : SemanticFaultV1)
     ¬ OutcomeTrappedUnchangedV1 pre fault changed := by
   simpa [OutcomeTrappedUnchangedV1] using hne
 
+/-! Production initializer lifecycle pin: a returned invocation selected by
+the exact admitted initializer row yields a conforming initialized state via
+the sole Reference step. -/
+
+example
+    (program : SemanticProgramV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (pre post : LogicalStateV1)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hadmit : admitReferenceProgramSliceV1 program = .ok admitted)
+    (hinitializer :
+      admitted.data.callables[invocation.callableId.toNat]?.map
+          (fun callable => callable.kind) =
+        some CallableKindV1.initializer)
+    (hstep :
+      stepReferenceSliceV1 admitted pre invocation responses vault =
+        .returned post value effects) :
+    StateConformsV1 program post :=
+  stepReferenceSliceV1_returned_stateConformsV1_of_initializer
+    program admitted pre post invocation responses vault value effects
+      hadmit hinitializer hstep
+
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
 

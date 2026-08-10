@@ -397,9 +397,10 @@ Reference failure。vault 只有在有真正的 independence theorem 后才能�
 
 ### Phase 2 — 生成 per-callable typed transition view
 
-**状态**：进行中。entry/view 的 UInt64 参数、Unit/Bool/UInt64 result codec/relation、outcome
-uniqueness 与 returned state/result 唯一 typed decode 首切已完成；initializer lifecycle、
-returned branch packaging、full-outcome 双向 totality 与 executable 短 notation 尚未完成。
+**状态**：进行中。entry/view 的 UInt64 参数、Unit/Bool/UInt64 result codec/relation、三分支
+packaging、full-outcome relational totality、outcome uniqueness 与 returned state/result 唯一 typed
+decode 已完成；production initializer returned-state lifecycle seam 已闭合。generated pre-init /
+initializer typed surface、full-outcome 反向 completeness 与 executable 短 notation尚未完成。
 
 交付：
 
@@ -739,8 +740,10 @@ proof-bearing target build 继续 fail closed。
    post-state 满足 exact admitted program 的 `StateConformsV1`；generated
    `decodeState_complete_of_returned` 已将该事实接到 production `decodeState`/`encodeState`，得到
    唯一 typed post-state及 exact re-encode；原 `decodeState_existsUnique_of_returned` 作为兼容投影
-   保留。该 theorem 显式要求 initialized pre-state，initializer post-state 仍由独立 lifecycle
-   theorem 处理；
+   保留。initialized entry/view wrapper 仍显式要求 initialized pre-state；独立 production
+   initializer lifecycle theorem 现从 exact admitted initializer lookup 出发，经
+   `runMachine_isInitializer_eq` 将 gate 的 initializer bit 传到真实 finalizer，并证明 every returned
+   initializer post 满足 `StateConformsV1`；它没有把 initializer 混入普通 callable typed surface；
 12. generated `transition_returned_of_step` 已把同一真实 Reference returned step 的 typed post、
    typed result 与原 effects 合并为 `Transition … (.returned post value effects)` witness；证明只
    组合上述 state/result complete theorem 和 `TypedCallableRelationV1`，不运行另一 evaluator；
@@ -750,8 +753,9 @@ proof-bearing target build 继续 fail closed。
 14. generated `transition_exists` 对 sole `stepReferenceSliceV1` 的实际结果作三分支分类，并调用
    上述 exact bridges，证明 initialized typed pre 的任意完整 Reference execution 都存在 typed
    outcome；与 `outcome_unique` 合用即得到存在且至多唯一，不新增 executable typed step；
-15. 当前仍缺 initializer 的 initialized/uninitialized lifecycle bridge、typed invariant bridge、
-   per-call preservation composition 与短 executable notation；这些仍是后续 Phase 2–4 工作；
+15. 当前仍缺 generated pre-init `LifecycleState`、initializer typed params/result/relation 与唯一 typed
+   post decode；production returned-state conformance seam 已完成。typed invariant bridge、per-call
+   preservation composition 与短 executable notation仍是后续 Phase 2–4 工作；
 16. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
    完成前不能称 target artifact verified。
 

@@ -1116,6 +1116,14 @@ private def ExecResultPreservesDataV1
   | .next m => m.data = data
   | .done m _ => m.data = data
 
+/-- Proof-only projection invariant for the root invocation lifecycle bit.
+    Instructions and terminators may enter and leave pure-call frames, but
+    they cannot change whether the root invocation is an initializer. -/
+private def ExecResultPreservesInitializerV1
+    (isInitializer : Bool) : ExecResult → Prop
+  | .next m => m.isInitializer = isInitializer
+  | .done m _ => m.isInitializer = isInitializer
+
 /-- Instruction-local execution preserves the active callable/call stack while
     it continues and cannot manufacture a successful contract return. -/
 private def ExecResultPreservesCallStackFailureV1
@@ -1160,6 +1168,11 @@ private def ExceptMachinePreservesDataV1
     (data : SemanticProgramDataV1) : Except LocalFailureV1 MachineV1 → Prop
   | .error _ => True
   | .ok m => m.data = data
+
+private def ExceptMachinePreservesInitializerV1
+    (isInitializer : Bool) : Except LocalFailureV1 MachineV1 → Prop
+  | .error _ => True
+  | .ok m => m.isInitializer = isInitializer
 
 private def ExceptMachinePreservesCallStackV1
     (callable : CallableV1)
@@ -2485,6 +2498,86 @@ private theorem fromEval_preserves_data
   | error candidate => rfl
   | ok value => exact storeResult_preserves_data m vid value
 
+private theorem nextOccurrence_preserves_initializer
+    (m : MachineV1) (effectId : EffectIdV1) :
+    match nextOccurrence m effectId with
+    | none => True
+    | some (m', _) => m'.isInitializer = m.isInitializer := by
+  grind [nextOccurrence]
+
+private theorem noteBackEdge_preserves_initializer
+    (m : MachineV1) (fromBlock toBlock : BlockIdV1) :
+    ExecResultPreservesInitializerV1 m.isInitializer
+      (noteBackEdge m fromBlock toBlock) := by
+  grind [ExecResultPreservesInitializerV1, noteBackEdge]
+
+private theorem storeResult_preserves_initializer
+    (m : MachineV1) (vid : ValueIdV1) (v : ReferenceValueV1) :
+    ExecResultPreservesInitializerV1 m.isInitializer
+      (storeResult m vid v) := by
+  grind [ExecResultPreservesInitializerV1, storeResult]
+
+private theorem vaultTransferOut_preserves_initializer
+    (m : MachineV1) (callee : QualifiedName)
+    (argVals : Array ReferenceValueV1) (occ : EffectOccurrenceV1) :
+    ExceptMachinePreservesInitializerV1 m.isInitializer
+      (vaultTransferOut m callee argVals occ) := by
+  grind [ExceptMachinePreservesInitializerV1, vaultTransferOut]
+
+private theorem vaultDepositIn_preserves_initializer
+    (m : MachineV1) (callee : QualifiedName)
+    (argVals : Array ReferenceValueV1) :
+    ExceptMachinePreservesInitializerV1 m.isInitializer
+      (vaultDepositIn m callee argVals) := by
+  grind [ExceptMachinePreservesInitializerV1, vaultDepositIn]
+
+private theorem vaultAsyncOut_preserves_initializer
+    (m : MachineV1) (callee : QualifiedName)
+    (argVals : Array ReferenceValueV1) :
+    (vaultAsyncOut m callee argVals).isInitializer = m.isInitializer := by
+  grind [vaultAsyncOut]
+
+private theorem returnedVoidVaultPipeline_preserves_initializer
+    (m : MachineV1) (callee : QualifiedName)
+    (argVals : Array ReferenceValueV1) (occ : EffectOccurrenceV1) :
+    ExecResultPreservesInitializerV1 m.isInitializer
+      (match vaultDepositIn m callee argVals with
+      | .error failure => .done m failure.toCandidateV1
+      | .ok m4 =>
+          match vaultTransferOut m4 callee argVals occ with
+          | .error failure => .done m failure.toCandidateV1
+          | .ok m5 => .next (vaultAsyncOut m5 callee argVals)) := by
+  cases hdeposit : vaultDepositIn m callee argVals with
+  | error failure =>
+      simp only [hdeposit]
+      rfl
+  | ok m4 =>
+      simp only [hdeposit]
+      have hm4 : m4.isInitializer = m.isInitializer := by
+        have hpreserves :=
+          vaultDepositIn_preserves_initializer m callee argVals
+        simpa [ExceptMachinePreservesInitializerV1, hdeposit] using hpreserves
+      cases htransfer : vaultTransferOut m4 callee argVals occ with
+      | error failure =>
+          simp only [htransfer]
+          rfl
+      | ok m5 =>
+          simp only [htransfer]
+          have hm5 : m5.isInitializer = m4.isInitializer := by
+            have hpreserves :=
+              vaultTransferOut_preserves_initializer m4 callee argVals occ
+            simpa [ExceptMachinePreservesInitializerV1, htransfer] using hpreserves
+          exact (vaultAsyncOut_preserves_initializer m5 callee argVals).trans
+            (hm5.trans hm4)
+
+private theorem fromEval_preserves_initializer
+    (m : MachineV1) (vid : ValueIdV1)
+    (r : Except LocalFailureV1 ReferenceValueV1) :
+    ExecResultPreservesInitializerV1 m.isInitializer (fromEval m vid r) := by
+  cases r with
+  | error failure => rfl
+  | ok value => exact storeResult_preserves_initializer m vid value
+
 private theorem nextOccurrence_preserves_callStack
     (m : MachineV1) (effectId : EffectIdV1) :
     match nextOccurrence m effectId with
@@ -2700,6 +2793,137 @@ private theorem execInstruction_preserves_data
         vaultTransferOut_preserves_data, vaultDepositIn_preserves_data,
         vaultAsyncOut_preserves_data, fromEval_preserves_data]
 
+private theorem execInstruction_preserves_initializer
+    (m : MachineV1) (instr : InstructionV1) :
+    ExecResultPreservesInitializerV1 m.isInitializer
+      (execInstruction m instr) := by
+  cases instr
+  case mk result op =>
+    cases op
+    case envRead key args =>
+      change ExecResultPreservesInitializerV1 m.isInitializer
+        (match result with
+        | none => .done m (.trapped .invalidCore)
+        | some resultDef =>
+            match key with
+            | .nativeVaultBalance =>
+                if args.isEmpty then
+                  storeResult m resultDef.valueId
+                    { typeId := resultDef.typeId
+                      valueBytes := natToLeBytes m.vaultNative.toNat 8 }
+                else
+                  .done m (.trapped .invalidCore)
+            | .tokenVaultBalance =>
+                match lookupArgs m.env args with
+                | some #[mintValue] =>
+                    match m.data.types[mintValue.typeId.toNat]? with
+                    | some { shape := .principal, .. } =>
+                        storeResult m resultDef.valueId
+                          { typeId := resultDef.typeId
+                            valueBytes := natToLeBytes
+                              (vaultTokenBalanceV1 m.vaultToken
+                                mintValue.valueBytes).toNat 8 }
+                    | _ => .done m (.trapped .invalidCore)
+                | _ => .done m (.trapped .invalidCore))
+      cases result with
+      | none => rfl
+      | some resultDef =>
+          cases key with
+          | nativeVaultBalance =>
+              change ExecResultPreservesInitializerV1 m.isInitializer
+                (if args.isEmpty then
+                  storeResult m resultDef.valueId
+                    { typeId := resultDef.typeId
+                      valueBytes := natToLeBytes m.vaultNative.toNat 8 }
+                else
+                  .done m (.trapped .invalidCore))
+              by_cases hisEmpty : args.isEmpty
+              · rw [if_pos hisEmpty]
+                exact storeResult_preserves_initializer m resultDef.valueId _
+              · rw [if_neg hisEmpty]
+                rfl
+          | tokenVaultBalance =>
+              change ExecResultPreservesInitializerV1 m.isInitializer
+                (match lookupArgs m.env args with
+                | some #[mintValue] =>
+                    match m.data.types[mintValue.typeId.toNat]? with
+                    | some { shape := .principal, .. } =>
+                        storeResult m resultDef.valueId
+                          { typeId := resultDef.typeId
+                            valueBytes := natToLeBytes
+                              (vaultTokenBalanceV1 m.vaultToken
+                                mintValue.valueBytes).toNat 8 }
+                    | _ => .done m (.trapped .invalidCore)
+                | _ => .done m (.trapped .invalidCore))
+              cases hargs : lookupArgs m.env args with
+              | none => rfl
+              | some values =>
+                  cases values with
+                  | mk valuesList =>
+                      cases valuesList with
+                      | nil => rfl
+                      | cons mint rest =>
+                          cases rest with
+                          | nil =>
+                              change ExecResultPreservesInitializerV1
+                                m.isInitializer
+                                (match m.data.types[mint.typeId.toNat]? with
+                                | some { shape := .principal, .. } =>
+                                    storeResult m resultDef.valueId
+                                      { typeId := resultDef.typeId
+                                        valueBytes := natToLeBytes
+                                          (vaultTokenBalanceV1 m.vaultToken
+                                            mint.valueBytes).toNat 8 }
+                                | _ => .done m (.trapped .invalidCore))
+                              cases htype : m.data.types[mint.typeId.toNat]? with
+                              | none => rfl
+                              | some typeDecl =>
+                                  cases typeDecl with
+                                  | mk id name shape =>
+                                      cases shape <;> try rfl
+                                      exact storeResult_preserves_initializer
+                                        m resultDef.valueId _
+                          | cons next tail => rfl
+    case assert_ condition errorId args =>
+      dsimp only [execInstruction]
+      repeat
+        first
+        | rfl
+        | split
+    case externalCall effectId callee args =>
+      dsimp only [execInstruction]
+      cases hargs : lookupArgs m.env args with
+      | none => rfl
+      | some argVals =>
+          cases hoccurrence : nextOccurrence m effectId with
+          | none => rfl
+          | some occurrenceResult =>
+              cases occurrenceResult with
+              | mk m1 occurrence =>
+                  have hm1 : m1.isInitializer = m.isInitializer := by
+                    have hpreserves :=
+                      nextOccurrence_preserves_initializer m effectId
+                    simpa [hoccurrence] using hpreserves
+                  rw [← hm1]
+                  simp only
+                  repeat
+                    first
+                    | rfl
+                    | exact storeResult_preserves_initializer _ _ _
+                    | exact
+                        returnedVoidVaultPipeline_preserves_initializer _ _ _ _
+                    | split
+    all_goals
+      dsimp only [execInstruction]
+    all_goals
+      grind [ExecResultPreservesInitializerV1,
+        nextOccurrence_preserves_initializer,
+        storeResult_preserves_initializer,
+        vaultTransferOut_preserves_initializer,
+        vaultDepositIn_preserves_initializer,
+        vaultAsyncOut_preserves_initializer,
+        fromEval_preserves_initializer]
+
 private theorem execInstruction_preserves_callStackFailure
     (m : MachineV1) (instr : InstructionV1) :
     ExecResultPreservesCallStackFailureV1 m.callable m.frames
@@ -2862,6 +3086,32 @@ private theorem bindJumpTarget_preserves_data
           · simp only [Id.run_bind, Id.run_pure]
             split <;> exact hmEdge
 
+private theorem bindJumpTarget_preserves_initializer
+    (m : MachineV1) (target : JumpTargetV1) :
+    ExecResultPreservesInitializerV1 m.isInitializer
+      (bindJumpTarget m target) := by
+  unfold bindJumpTarget
+  cases hblock : m.callable.blocks[target.blockId.toNat]? with
+  | none => rfl
+  | some block =>
+      simp only
+      split <;> try rfl
+      cases hedge : noteBackEdge m m.blockId target.blockId with
+      | done m' candidate =>
+          have hpreserves :=
+            noteBackEdge_preserves_initializer m m.blockId target.blockId
+          simpa [ExecResultPreservesInitializerV1, hedge] using hpreserves
+      | next mEdge =>
+          have hmEdge : mEdge.isInitializer = m.isInitializer := by
+            have hpreserves :=
+              noteBackEdge_preserves_initializer m m.blockId target.blockId
+            simpa [ExecResultPreservesInitializerV1, hedge] using hpreserves
+          simp only [Id.run_bind, Id.run_pure]
+          split
+          · exact hmEdge
+          · simp only [Id.run_bind, Id.run_pure]
+            split <;> exact hmEdge
+
 private theorem bindJumpTarget_preserves_callStackFailure
     (m : MachineV1) (target : JumpTargetV1) :
     ExecResultPreservesCallStackFailureV1 m.callable m.frames
@@ -2903,6 +3153,18 @@ private theorem execTerminator_preserves_data
       first
       | rfl
       | exact bindJumpTarget_preserves_data _ _
+      | split
+
+private theorem execTerminator_preserves_initializer
+    (m : MachineV1) (term : TerminatorV1) :
+    ExecResultPreservesInitializerV1 m.isInitializer
+      (execTerminator m term) := by
+  cases term <;> dsimp only [execTerminator]
+  all_goals
+    repeat
+      first
+      | rfl
+      | exact bindJumpTarget_preserves_initializer _ _
       | split
 
 private theorem bindJumpTarget_terminatorContract
@@ -3112,6 +3374,121 @@ theorem runMachine_data_eq
                 have hmNext : mNext.data = m.data := by
                   have hpreserves := execTerminator_preserves_data m term
                   simpa [ExecResultPreservesDataV1, hterm] using hpreserves
+                exact (ih fuel (Nat.lt_succ_self fuel) mNext).trans hmNext
+          simp only [runMachine]
+          cases hblock : m.callable.blocks[m.blockId.toNat]? with
+          | none => rfl
+          | some block =>
+              simp only
+              by_cases hinstructions : m.instrIdx < block.instructions.size
+              · rw [if_pos hinstructions]
+                cases hinstr : block.instructions[m.instrIdx]? with
+                | none => rfl
+                | some instr =>
+                    simp only
+                    cases hresult : instr.result with
+                    | none =>
+                        simpa [hresult] using instructionTail instr
+                    | some resultDef =>
+                        cases hop : instr.op <;>
+                          try { simpa [hresult, hop] using instructionTail instr }
+                        case pureCall calleeId argVids =>
+                          simp only
+                          cases hcallee : m.data.callables[calleeId.toNat]? with
+                          | none => rfl
+                          | some callee =>
+                              simp only
+                              by_cases hvalid :
+                                  callee.kind != .pureFn ||
+                                    resultDef.typeId != callee.result.typeId ||
+                                    argVids.size != callee.params.size
+                              · rw [if_pos hvalid]
+                              · rw [if_neg hvalid]
+                                cases hargs : lookupArgs m.env argVids with
+                                | none => rfl
+                                | some argVals =>
+                                    simp only
+                                    generalize hbound :
+                                        (Id.run do
+                                          let mut env := emptyEnv
+                                            (maxValueIdInCallable callee + 1)
+                                          let mut i : Nat := 0
+                                          for p in callee.params do
+                                            match argVals[i]? with
+                                            | none => return none
+                                            | some arg =>
+                                                if arg.typeId != p.typeId ||
+                                                    !valueCanonical m.data arg then
+                                                  return none
+                                                else
+                                                  match envSet env p.valueId arg with
+                                                  | none => return none
+                                                  | some env' => env := env'
+                                            i := i + 1
+                                          pure (some env)) = bound
+                                    cases bound with
+                                    | none => rfl
+                                    | some calleeEnv =>
+                                        cases hcharge : chargeFrameEntry with
+                                        | false =>
+                                            simp only [Bool.false_eq_true,
+                                              ↓reduceIte]
+                                            simpa [hcharge] using
+                                              ih fuel (Nat.lt_succ_self fuel) _
+                                        | true =>
+                                            simp only [↓reduceIte]
+                                            cases fuel with
+                                            | zero => rfl
+                                            | succ calleeFuel =>
+                                                simpa [hcharge] using
+                                                  ih calleeFuel (by omega) _
+              · rw [if_neg hinstructions]
+                grind (config := { gen := 8 })
+
+/-- Body execution preserves whether the root invocation is an initializer.
+    Pure-function entry and return update only frame-local fields, so final
+    lifecycle publication uses the same bit accepted by `gateInvocation`. -/
+theorem runMachine_isInitializer_eq
+    (chargeFrameEntry : Bool) (fuel : Nat) (m : MachineV1) :
+    (runMachine chargeFrameEntry fuel m).2.1.isInitializer = m.isInitializer := by
+  induction fuel using Nat.strongRecOn generalizing m with
+  | ind totalFuel ih =>
+      cases totalFuel with
+      | zero => rfl
+      | succ fuel =>
+          have instructionTail (instr : InstructionV1) :
+              (match execInstruction m instr with
+              | .done m' cand => (0, m', cand)
+              | .next m1 =>
+                  runMachine chargeFrameEntry fuel
+                    { m1 with instrIdx := m1.instrIdx + 1 }).2.1.isInitializer =
+                m.isInitializer := by
+            cases hexec : execInstruction m instr with
+            | done m' candidate =>
+                have hpreserves := execInstruction_preserves_initializer m instr
+                simpa [ExecResultPreservesInitializerV1, hexec] using hpreserves
+            | next m1 =>
+                have hm1 : m1.isInitializer = m.isInitializer := by
+                  have hpreserves :=
+                    execInstruction_preserves_initializer m instr
+                  simpa [ExecResultPreservesInitializerV1, hexec] using hpreserves
+                exact (ih fuel (Nat.lt_succ_self fuel)
+                  { m1 with instrIdx := m1.instrIdx + 1 }).trans hm1
+          have terminatorTail (term : TerminatorV1) :
+              (match execTerminator m term with
+              | .done m' cand => (0, m', cand)
+              | .next mNext =>
+                  runMachine chargeFrameEntry fuel mNext).2.1.isInitializer =
+                m.isInitializer := by
+            cases hterm : execTerminator m term with
+            | done m' candidate =>
+                have hpreserves := execTerminator_preserves_initializer m term
+                simpa [ExecResultPreservesInitializerV1, hterm] using hpreserves
+            | next mNext =>
+                have hmNext : mNext.isInitializer = m.isInitializer := by
+                  have hpreserves :=
+                    execTerminator_preserves_initializer m term
+                  simpa [ExecResultPreservesInitializerV1, hterm] using hpreserves
                 exact (ih fuel (Nat.lt_succ_self fuel) mNext).trans hmNext
           simp only [runMachine]
           cases hblock : m.callable.blocks[m.blockId.toNat]? with
@@ -3839,10 +4216,37 @@ theorem finalize_returned_implies_encodeV1
               cases hfinalize
               exact ⟨rfl, rfl, rfl⟩
 
-/-- Finalization from an initialized pre-state can return only a production-
-    conforming post-state for the exact validated machine data. This closes the
-    final state-codec seam without asserting that arbitrary machine values were
-    created by admission. -/
+/-- Finalization can return a conforming post-state whenever the exact
+    lifecycle bit passed to the production state encoder is initialized. This
+    covers both initialized entry/view calls and the first successful
+    initializer call without inventing a second state transition. -/
+theorem finalize_returned_stateConformsV1_of_published_initialized
+    (program : SemanticProgramV1)
+    (m : MachineV1)
+    (cand : CandidateV1)
+    (pre post : LogicalStateV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hvalidate : validateSemanticProgramV1 program = .ok m.data)
+    (hpublishedInitialized :
+      (pre.initialized || m.isInitializer) = true)
+    (hfinalize : finalize m cand pre = .returned post value effects) :
+    StateConformsV1 program post := by
+  obtain ⟨_hcandidate, _heffects, hencode⟩ :=
+    finalize_returned_implies_encodeV1 m cand pre post value effects hfinalize
+  have hencodeInitialized :
+      encodeLogicalStateValuesV1 m.data true m.overlay = .ok post := by
+    rw [hpublishedInitialized] at hencode
+    exact hencode
+  apply stateConformsV1_intro_of_validate_eq_ok
+    program m.data post m.overlay hvalidate
+  · exact post.initialized_of_encodeLogicalStateValuesV1
+      m.data true m.overlay hencodeInitialized
+  · exact decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1
+      m.data true m.overlay post hencodeInitialized
+
+/-- Initialized entry/view compatibility wrapper over the exact publication-
+    bit theorem. Initializer lifecycle uses the generalized theorem directly. -/
 theorem finalize_returned_stateConformsV1_of_initialized
     (program : SemanticProgramV1)
     (m : MachineV1)
@@ -3854,17 +4258,10 @@ theorem finalize_returned_stateConformsV1_of_initialized
     (hinitialized : pre.initialized = true)
     (hfinalize : finalize m cand pre = .returned post value effects) :
     StateConformsV1 program post := by
-  obtain ⟨_hcandidate, _heffects, hencode⟩ :=
-    finalize_returned_implies_encodeV1 m cand pre post value effects hfinalize
-  have hencodeInitialized :
-      encodeLogicalStateValuesV1 m.data true m.overlay = .ok post := by
-    simpa [hinitialized] using hencode
-  apply stateConformsV1_intro_of_validate_eq_ok
-    program m.data post m.overlay hvalidate
-  · exact post.initialized_of_encodeLogicalStateValuesV1
-      m.data true m.overlay hencodeInitialized
-  · exact decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1
-      m.data true m.overlay post hencodeInitialized
+  apply finalize_returned_stateConformsV1_of_published_initialized
+    program m cand pre post value effects hvalidate
+  · simp [hinitialized]
+  · exact hfinalize
 
 private theorem finalizeLifecycle_ne_returnedV1
     (pre post : LogicalStateV1)
@@ -3877,6 +4274,98 @@ private theorem finalizeLifecycle_ne_returnedV1
   split
   · simp
   · cases cand <;> simp
+
+/-- A returned ready invocation whose production publication bit is true
+    yields a conforming state. This follows the sole executable path and keeps
+    the ready-gate lifecycle decision connected to the final machine through
+    `runMachine_isInitializer_eq`. -/
+theorem stepReferenceSliceV1_returned_stateConformsV1_of_ready
+    (program : SemanticProgramV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (pre post : LogicalStateV1)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vaultSeed : ReferenceVaultSeedV1)
+    (callable : CallableV1)
+    (overlay : Array ByteArray)
+    (context : Array ContextInputV1)
+    (isInitializer : Bool)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hadmit : admitReferenceProgramSliceV1 program = .ok admitted)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready callable overlay context isInitializer)
+    (hpublishedInitialized : (pre.initialized || isInitializer) = true)
+    (hstep :
+      stepReferenceSliceV1 admitted pre invocation responses vaultSeed =
+        .returned post value effects) :
+    StateConformsV1 program post := by
+  obtain ⟨_hprogram, hvalidate⟩ :=
+    admitReferenceProgramSliceV1_ok_implies_validate program admitted hadmit
+  unfold stepReferenceSliceV1 at hstep
+  simp only [hgate] at hstep
+  generalize hbind :
+      (Id.run do
+        let mut env := emptyEnv (maxValueIdInCallable callable + 1)
+        let mut i : Nat := 0
+        for p in callable.params do
+          match invocation.args[i]? with
+          | none => return none
+          | some arg =>
+              match envSet env p.valueId arg with
+              | none => return none
+              | some env' => env := env'
+          i := i + 1
+        pure (some env)) = bindResult at hstep
+  cases bindResult with
+  | none =>
+      simp only at hstep
+      exact False.elim
+        (finalizeLifecycle_ne_returnedV1
+          pre post responses (.trapped .internalInvariant)
+            value effects hstep)
+  | some env =>
+      simp only at hstep
+      let m0 : MachineV1 := {
+        data := admitted.data
+        pre
+        callable
+        isInitializer
+        context
+        overlay
+        env
+        effects := #[]
+        occCounts := Array.replicate
+          (maxEffectIdInCallable callable + 1) (0 : UInt32)
+        responseCursor := 0
+        responses
+        loopCounts := Array.replicate callable.loopBounds.size (0 : UInt32)
+        blockId := callable.entryBlock
+        instrIdx := 0
+        frames := #[]
+        vaultNative := vaultSeed.native
+        vaultToken := vaultSeed.token
+      }
+      change finalize (runMachine false 1000000 m0).2.1
+          (runMachine false 1000000 m0).2.2 pre =
+        .returned post value effects at hstep
+      have hrunData := runMachine_data_eq false 1000000 m0
+      have hvalidateEnd :
+          validateSemanticProgramV1 program =
+            .ok (runMachine false 1000000 m0).2.1.data := by
+        rw [hrunData]
+        exact hvalidate
+      have hrunInitializer := runMachine_isInitializer_eq false 1000000 m0
+      have hpublishedEnd :
+          (pre.initialized ||
+              (runMachine false 1000000 m0).2.1.isInitializer) = true := by
+        rw [hrunInitializer]
+        exact hpublishedInitialized
+      exact finalize_returned_stateConformsV1_of_published_initialized
+        program (runMachine false 1000000 m0).2.1
+          (runMachine false 1000000 m0).2.2
+          pre post value effects hvalidateEnd hpublishedEnd hstep
 
 /-- A successful ready invocation returns exactly the canonical carrier of the
     callable selected by the production invocation gate. This theorem covers
@@ -3978,75 +4467,22 @@ theorem stepReferenceSliceV1_returned_stateConformsV1_of_initialized
       stepReferenceSliceV1 admitted pre invocation responses vaultSeed =
         .returned post value effects) :
     StateConformsV1 program post := by
-  obtain ⟨_hprogram, hvalidate⟩ :=
-    admitReferenceProgramSliceV1_ok_implies_validate program admitted hadmit
-  unfold stepReferenceSliceV1 at hstep
+  have hstepGate := hstep
+  unfold stepReferenceSliceV1 at hstepGate
   cases hgate : gateInvocation admitted pre invocation with
   | invalidInvocation =>
-      simp only [hgate] at hstep
-      cases hstep
-  | lifecycle cand =>
-      simp only [hgate] at hstep
+      simp only [hgate] at hstepGate
+      cases hstepGate
+  | lifecycle candidate =>
+      simp only [hgate] at hstepGate
       exact False.elim
         (finalizeLifecycle_ne_returnedV1
-          pre post responses cand value effects hstep)
+          pre post responses candidate value effects hstepGate)
   | ready callable overlay context isInitializer =>
-      simp only [hgate] at hstep
-      generalize hbind :
-          (Id.run do
-            let mut env := emptyEnv (maxValueIdInCallable callable + 1)
-            let mut i : Nat := 0
-            for p in callable.params do
-              match invocation.args[i]? with
-              | none => return none
-              | some arg =>
-                  match envSet env p.valueId arg with
-                  | none => return none
-                  | some env' => env := env'
-              i := i + 1
-            pure (some env)) = bindResult at hstep
-      cases bindResult with
-      | none =>
-          simp only at hstep
-          exact False.elim
-            (finalizeLifecycle_ne_returnedV1
-              pre post responses (.trapped .internalInvariant)
-                value effects hstep)
-      | some env =>
-          simp only at hstep
-          let m0 : MachineV1 := {
-            data := admitted.data
-            pre
-            callable
-            isInitializer
-            context
-            overlay
-            env
-            effects := #[]
-            occCounts := Array.replicate
-              (maxEffectIdInCallable callable + 1) (0 : UInt32)
-            responseCursor := 0
-            responses
-            loopCounts := Array.replicate callable.loopBounds.size (0 : UInt32)
-            blockId := callable.entryBlock
-            instrIdx := 0
-            frames := #[]
-            vaultNative := vaultSeed.native
-            vaultToken := vaultSeed.token
-          }
-          change finalize (runMachine false 1000000 m0).2.1
-              (runMachine false 1000000 m0).2.2 pre =
-            .returned post value effects at hstep
-          have hrunData := runMachine_data_eq false 1000000 m0
-          have hvalidateEnd :
-              validateSemanticProgramV1 program =
-                .ok (runMachine false 1000000 m0).2.1.data := by
-            rw [hrunData]
-            exact hvalidate
-          exact finalize_returned_stateConformsV1_of_initialized
-            program (runMachine false 1000000 m0).2.1
-              (runMachine false 1000000 m0).2.2
-              pre post value effects hvalidateEnd hinitialized hstep
+      exact stepReferenceSliceV1_returned_stateConformsV1_of_ready
+        program admitted pre post invocation responses vaultSeed callable overlay
+          context isInitializer value effects hadmit hgate
+          (by simp [hinitialized]) hstep
 
 /-- Shape-invalid invocations trap with the exact pre-state. -/
 theorem stepReferenceSliceV1_invalidInvocation_eq
@@ -4184,6 +4620,53 @@ theorem gateInvocation_ready_callable_lookup
                                       simp only [hdec] at hgate
                                       cases hgate
                                       exact ⟨rfl, by simp [his]⟩
+
+/-- A returned initializer step publishes a production-conforming initialized
+    state. Initializer selection is proved from the exact admitted callable
+    lookup; it is not folded into the initialized entry/view theorem surface. -/
+theorem stepReferenceSliceV1_returned_stateConformsV1_of_initializer
+    (program : SemanticProgramV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (pre post : LogicalStateV1)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vaultSeed : ReferenceVaultSeedV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hadmit : admitReferenceProgramSliceV1 program = .ok admitted)
+    (hinitializer :
+      admitted.data.callables[invocation.callableId.toNat]?.map
+          (fun callable => callable.kind) =
+        some CallableKindV1.initializer)
+    (hstep :
+      stepReferenceSliceV1 admitted pre invocation responses vaultSeed =
+        .returned post value effects) :
+    StateConformsV1 program post := by
+  have hstepGate := hstep
+  unfold stepReferenceSliceV1 at hstepGate
+  cases hgate : gateInvocation admitted pre invocation with
+  | invalidInvocation =>
+      simp only [hgate] at hstepGate
+      cases hstepGate
+  | lifecycle candidate =>
+      simp only [hgate] at hstepGate
+      exact False.elim
+        (finalizeLifecycle_ne_returnedV1
+          pre post responses candidate value effects hstepGate)
+  | ready callable overlay context isInitializer =>
+      have hselected :=
+        gateInvocation_ready_callable_lookup
+          admitted pre invocation callable overlay context isInitializer hgate
+      have hkind : callable.kind = CallableKindV1.initializer := by
+        rw [hselected.1] at hinitializer
+        exact Option.some.inj hinitializer
+      have hisInitializer : isInitializer = true := by
+        rw [hselected.2, hkind]
+        rfl
+      exact stepReferenceSliceV1_returned_stateConformsV1_of_ready
+        program admitted pre post invocation responses vaultSeed callable overlay
+          context isInitializer value effects hadmit hgate
+          (by simp [hisInitializer]) hstep
 
 /-- A returned step conforms to any exact callable row recovered from the
     production invocation lookup. This removes the private ready-gate witness
