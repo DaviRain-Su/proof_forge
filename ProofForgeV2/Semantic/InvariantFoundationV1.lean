@@ -1448,7 +1448,109 @@ theorem stateConformsV1_elim_of_validate_eq_ok
 
 
 
-/-! ### Triple UInt64 logical-state packing (multi-state L1 preservation) -/
+/-! ### Multi-UInt64 logical-state packing (multi-state L1 preservation) -/
+
+/-- Exact double length-prefixed UInt64 layout in declaration order. -/
+def doubleUint64CanonicalV1 (b0 b1 : ByteArray) : ByteArray :=
+  encodeU32le (8 : UInt32) ++ b0 ++ encodeU32le (8 : UInt32) ++ b1
+
+private theorem array_push2_eq
+    (b0 b1 : ByteArray) :
+    (((Array.emptyWithCapacity 2).push b0).push b1) = #[b0, b1] := by
+  apply Array.ext
+  · simp [Array.emptyWithCapacity_eq]
+  · intro i hi hi'
+    match i with
+    | 0 => simp
+    | 1 => simp
+    | n + 2 =>
+        have : n + 2 < 2 := by
+          simpa [Array.size_push, Array.emptyWithCapacity_eq] using hi
+        omega
+
+/-- Double public-UInt64 encode under successful valueBytes gates. -/
+theorem encodeLogicalStateValuesV1_double_uint64_eq_ok
+    (data : SemanticProgramDataV1)
+    (s0 s1 : StateDeclV1)
+    (b0 b1 : ByteArray)
+    (initialized : Bool)
+    (hstate : data.logicalState = #[s0, s1])
+    (hc0 : validateValueBytesV1 data.types s0.typeId b0 = .ok ())
+    (hc1 : validateValueBytesV1 data.types s1.typeId b1 = .ok ())
+    (hs0 : b0.size = 8) (hs1 : b1.size = 8) :
+    encodeLogicalStateValuesV1 data initialized #[b0, b1] = .ok {
+      initialized
+      canonicalValues := doubleUint64CanonicalV1 b0 b1
+    } := by
+  have hslot0 :
+      encodeStateSlotV1 b0 = .ok ((encodeU32le 8).append b0) := by
+    unfold encodeStateSlotV1
+    have hle : b0.size ≤ UInt32.size - 1 := by simp [hs0]
+    have hsz : UInt32.ofNat b0.size = 8 := by simp [hs0]
+    simp only [if_pos hle, hsz, Pure.pure, Except.pure, Bind.bind, Except.bind]
+  have hslot1 :
+      encodeStateSlotV1 b1 = .ok ((encodeU32le 8).append b1) := by
+    unfold encodeStateSlotV1
+    have hle : b1.size ≤ UInt32.size - 1 := by simp [hs1]
+    have hsz : UInt32.ofNat b1.size = 8 := by simp [hs1]
+    simp only [if_pos hle, hsz, Pure.pure, Except.pure, Bind.bind, Except.bind]
+  unfold encodeLogicalStateValuesV1
+  simp only [hstate]
+  simp [encodeLogicalStateSlotsV1, hc0, hc1, hslot0, hslot1,
+    Pure.pure, Except.pure, Bind.bind, Except.bind, ByteArray.empty_append]
+  simp [doubleUint64CanonicalV1, ByteArray.append_assoc]
+
+/-- No-initializer product initial state for two public UInt64 slots. -/
+theorem initialLogicalStateV1_double_uint64_no_initializer_eq_ok
+    (program : SemanticProgramV1) (data : SemanticProgramDataV1)
+    (s0 s1 : StateDeclV1) (typeDecl : TypeDeclV1)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hstate : data.logicalState = #[s0, s1])
+    (ht0 : data.types[s0.typeId.toNat]? = some typeDecl)
+    (ht1 : data.types[s1.typeId.toNat]? = some typeDecl)
+    (hshape : typeDecl.shape = .uint 64)
+    (hnoInitializer :
+      data.callables.any (fun c => c.kind == .initializer) = false)
+    (hz0 : validateValueBytesV1 data.types s0.typeId
+      (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]) = .ok ())
+    (hz1 : validateValueBytesV1 data.types s1.typeId
+      (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]) = .ok ()) :
+    initialLogicalStateV1 program = .ok {
+      initialized := true
+      canonicalValues :=
+        doubleUint64CanonicalV1
+          (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0])
+          (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0])
+    } := by
+  let zero := ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]
+  have hdef (tid : TypeIdV1)
+      (hlookup : data.types[tid.toNat]? = some typeDecl) :
+      defaultValueAtV1 data.types tid maxNesting = .ok zero := by
+    rw [show maxNesting = 255 + 1 by rfl, defaultValueAtV1.eq_2, hlookup]
+    simp only [hshape, Pure.pure, Except.pure]
+    rw [show (64 : UInt16).toNat / 8 = 8 by decide]
+    congr 1
+    simp [zeroBytesV1, List.range', zero]
+    apply ByteArray.ext
+    simp only [ByteArray.data_push]
+    have hempty : (ByteArray.emptyWithCapacity 8).data = (#[] : Array UInt8) := by
+      change (Array.emptyWithCapacity 8 : Array UInt8) = #[]
+      exact Array.emptyWithCapacity_eq
+    rw [hempty]
+    rfl
+  have hd0 := hdef s0.typeId ht0
+  have hd1 := hdef s1.typeId ht1
+  have hszZ : zero.size = 8 := rfl
+  have henc :=
+    encodeLogicalStateValuesV1_double_uint64_eq_ok data s0 s1
+      zero zero true hstate hz0 hz1 hszZ hszZ
+  unfold initialLogicalStateV1
+  rw [hvalidate]
+  simp only [Bind.bind, Except.bind]
+  rw [hstate]
+  simp [hd0, hd1, hnoInitializer, Pure.pure, Except.pure, Bind.bind,
+    Except.bind]
+  simpa [zero, array_push2_eq] using henc
 
 /-- Exact triple length-prefixed UInt64 layout (declaration order).
     Left-associated `++` form matches encoder forIn accumulation (via

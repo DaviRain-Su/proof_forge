@@ -766,9 +766,8 @@ example
       hvalidate hcallableId hgate
 
 /- The first state-dependent, genuinely mutating business-preservation fixture.
-   Its unsupported whole-program structural family intentionally keeps an
-   explicit production validation premise in the business theorem below; this
-   slice does not manufacture a validation/admission certificate. -/
+   Its generated certificate belongs to a name-parameterized production
+   subject family rather than a contract-qualified closed proof. -/
 program StateChangingPreservationSurface where
   state reserves : UInt64
   state shares : UInt64
@@ -779,6 +778,15 @@ program StateChangingPreservationSurface where
   invariant solvent : reserves == shares
   proof solvent preserving using StateChangingPreservationSurfaceProof.aggregate
 
+/-- The generated data is exactly the parameterized production validation
+    family; no contract-qualified pin or alternate validity predicate is used. -/
+theorem stateChangingPreservationSurface_subjectData_eq :
+    StateChangingPreservationSurface.Proof.subjectDataV1 =
+      ProofForgeV2.Semantic.StatefulEqualitySubjectV1.subjectDataV1
+        StateChangingPreservationSurface.Proof.subjectDataV1.qualifiedName
+        "reserves" "shares" "sync" "amount" "solvent" := by
+  rfl
+
 #check StateChangingPreservationSurface.Model.sync.invocation
 #check StateChangingPreservationSurface.Model.sync.invocation_complete_of_ready
 #check StateChangingPreservationSurface.Model.sync.Transition
@@ -786,6 +794,8 @@ program StateChangingPreservationSurface where
 #check StateChangingPreservationSurface.Model.Invariant.solvent_iff_eval
 #check StateChangingPreservationSurface.Model.Invariant.solvent_iff_fields
 #check StateChangingPreservationSurface.ProofPreserving.solvent.callable0TypedReturnedV1
+#check StateChangingPreservationSurface.Proof.subjectStructureOkV1
+#check StateChangingPreservationSurface.Proof.subjectValidationOkV1
 
 /- Pin the exact production CFG consumed by the business proof. Any Normalize
    drift changes this equality instead of silently selecting another shape. -/
@@ -817,22 +827,11 @@ theorem stateChangingPreservationSurface_sync_callable_shape :
       invariantSteps := none
     } := rfl
 
-run_cmd do
-  let env ← getEnv
-  let unsupportedValidation :=
-    `Tests.Language.InlineProofAuthoringV1.StateChangingPreservationSurface.Proof.subjectValidationOkV1
-  if env.contains unsupportedValidation then
-    throwError "state-changing fixture must not gain an unsupported validation certificate"
-
 /-- A successful production-backed typed relation for `sync` exposes the exact
     accepted UInt64 argument and exact typed post-state. The proof inverts the
     sole Reference step through the fixed generated CFG above. -/
 theorem StateChangingPreservationSurfaceProof.sync_returned_post_eq
     (admitted : AdmittedReferenceSliceV1)
-    (hvalidate :
-      validateSemanticProgramV1
-          StateChangingPreservationSurface.Proof.subjectProgramV1 =
-        .ok StateChangingPreservationSurface.Proof.subjectDataV1)
     (hadmit :
       admitReferenceProgramSliceV1
           StateChangingPreservationSurface.Proof.subjectProgramV1 =
@@ -856,6 +855,8 @@ theorem StateChangingPreservationSurfaceProof.sync_returned_post_eq
             invocation.context ∧
         post = ({ reserves := amount, shares := amount } :
           StateChangingPreservationSurface.Model.State) := by
+  have hvalidate :=
+    StateChangingPreservationSurface.Proof.subjectValidationOkV1
   unfold TypedCallableRelationV1 at htransition
   obtain ⟨logicalPre, hencodePre, logicalPost, hencodePost, hstep⟩ :=
     htransition
@@ -997,33 +998,169 @@ theorem StateChangingPreservationSurfaceProof.sync_returned_post_eq
           post expected logicalPost hencodePost hencodeExpected
       exact ⟨amount, hinvocation, by simpa [expected] using hpost⟩
 
-/-- The actual generated typed returned-row obligation is now discharged by
-    ordinary field mathematics after the sole Reference execution is inverted.
-    This theorem remains conditional on exact production validation/admission;
-    the fixture intentionally has no manufactured whole-program certificate. -/
+/-- The actual generated typed returned-row obligation is discharged by
+    ordinary field mathematics after the sole Reference execution is inverted. -/
 theorem StateChangingPreservationSurfaceProof.sync_typed_preserves_solvent
     (admitted : AdmittedReferenceSliceV1)
-    (hvalidate :
-      validateSemanticProgramV1
-          StateChangingPreservationSurface.Proof.subjectProgramV1 =
-        .ok StateChangingPreservationSurface.Proof.subjectDataV1)
     (hadmit :
       admitReferenceProgramSliceV1
           StateChangingPreservationSurface.Proof.subjectProgramV1 =
         .ok admitted) :
     StateChangingPreservationSurface.ProofPreserving.solvent.callable0TypedReturnedV1
       admitted hadmit := by
+  have hvalidate :=
+    StateChangingPreservationSurface.Proof.subjectValidationOkV1
   intro pre post result effects invocation responses vault hcallableId
     _hpreInvariant htransition
   obtain ⟨amount, _hinvocation, hpost⟩ :=
     StateChangingPreservationSurfaceProof.sync_returned_post_eq
-      admitted hvalidate hadmit pre post result effects invocation responses
+      admitted hadmit pre post result effects invocation responses
         vault hcallableId htransition
   subst post
   apply
     (StateChangingPreservationSurface.Model.Invariant.solvent_iff_fields
       { reserves := amount, shares := amount } hvalidate).2
   rfl
+
+/-- Same-file program-level preservation for the state-changing equality
+    family. Validation, Reference admission, initial-state construction, and
+    both exact callable rows are all discharged through production APIs. -/
+theorem StateChangingPreservationSurfaceProof.aggregate :
+    StateChangingPreservationSurface.ProofPreserving.solvent := by
+  have hvalidate :=
+    StateChangingPreservationSurface.Proof.subjectValidationOkV1
+  have hadmission :
+      validateReferenceProgramDataAdmissionV1
+          StateChangingPreservationSurface.Proof.subjectDataV1 = .ok () := by
+    rw [stateChangingPreservationSurface_subjectData_eq]
+    exact
+      ProofForgeV2.Semantic.StatefulEqualitySubjectV1.referenceAdmissionV1
+        StateChangingPreservationSurface.Proof.subjectDataV1.qualifiedName
+        "reserves" "shares" "sync" "amount" "solvent"
+  obtain ⟨admitted, hadmit⟩ :=
+    admitReferenceProgramSliceV1_exists_of_checks
+      StateChangingPreservationSurface.Proof.subjectProgramV1
+      StateChangingPreservationSurface.Proof.subjectDataV1 hvalidate hadmission
+  have hadmittedData :
+      admitted.data = StateChangingPreservationSurface.Proof.subjectDataV1 :=
+    (admitReferenceProgramSliceV1_ok_implies
+      StateChangingPreservationSurface.Proof.subjectProgramV1
+      StateChangingPreservationSurface.Proof.subjectDataV1 admitted hvalidate
+        hadmit).2
+  have hnoInitializerAny :
+      StateChangingPreservationSurface.Proof.subjectDataV1.callables.any
+          (fun callable => callable.kind == .initializer) = false := by
+    rw [stateChangingPreservationSurface_subjectData_eq]
+    simp [ProofForgeV2.Semantic.StatefulEqualitySubjectV1.subjectDataV1,
+      ProofForgeV2.Semantic.StatefulEqualitySubjectV1.callablesV1,
+      ProofForgeV2.Semantic.PreservationShapeV1.storeParameterTwoReturnCallableV1,
+      ProofForgeV2.Semantic.PreservationShapeV1.twoStateCompareInvariantCallableV1]
+    constructor <;> decide
+  have hbase :
+      StateChangingPreservationSurface.ProofPreserving.solvent.BaseV1
+        admitted := by
+    apply
+      ProofForgeV2.Semantic.PreservationPackagingV1.preservationBaseV1_of_noInitializerV1
+    · exact
+        not_hasInitializerV1_of_validate_and_any_eq_false
+          StateChangingPreservationSurface.Proof.subjectProgramV1
+          StateChangingPreservationSurface.Proof.subjectDataV1 hvalidate
+            hnoInitializerAny
+    · let zero := ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]
+      let initial : LogicalStateV1 := {
+        initialized := true
+        canonicalValues := doubleUint64CanonicalV1 zero zero
+      }
+      have hinitial :
+          initialLogicalStateV1
+              StateChangingPreservationSurface.Proof.subjectProgramV1 =
+            .ok initial := by
+        simpa [initial, zero] using
+          initialLogicalStateV1_double_uint64_no_initializer_eq_ok
+            StateChangingPreservationSurface.Proof.subjectProgramV1
+            StateChangingPreservationSurface.Proof.subjectDataV1
+            (StateDeclV1.mk 0 "reserves" 0 .public_)
+            (StateDeclV1.mk 1 "shares" 0 .public_)
+            (TypeDeclV1.mk 0 none (.uint 64))
+            hvalidate rfl rfl rfl rfl hnoInitializerAny rfl rfl
+      let typedInitial : StateChangingPreservationSurface.Model.State := {
+        reserves := 0
+        shares := 0
+      }
+      have hencodeInitial :
+          StateChangingPreservationSurface.Model.encodeState typedInitial =
+            .ok initial := by
+        have hzeroEncode : encodeU64le 0 = zero := by rfl
+        unfold StateChangingPreservationSurface.Model.encodeState
+        simpa [typedInitial, initial, hzeroEncode] using
+          encodeLogicalStateValuesV1_double_uint64_eq_ok
+            StateChangingPreservationSurface.Proof.subjectDataV1
+            (StateDeclV1.mk 0 "reserves" 0 .public_)
+            (StateDeclV1.mk 1 "shares" 0 .public_)
+            (encodeU64le 0) (encodeU64le 0) true rfl rfl rfl rfl rfl
+      have hconforms :
+          StateConformsV1
+            StateChangingPreservationSurface.Proof.subjectProgramV1 initial :=
+        StateChangingPreservationSurface.Model.conforms_of_encode
+          typedInitial initial hvalidate hencodeInitial
+      have htypedInvariant :
+          StateChangingPreservationSurface.Model.solvent typedInitial := by
+        apply
+          (StateChangingPreservationSurface.Model.Invariant.solvent_iff_fields
+            typedInitial hvalidate).2
+        rfl
+      have heval :
+          evalInvariantV1
+              StateChangingPreservationSurface.Proof.subjectProgramV1 0
+              initial = .returnedTrue :=
+        (StateChangingPreservationSurface.Model.Invariant.solvent_iff_eval
+          typedInitial initial hencodeInitial).1 htypedInvariant
+      exact ⟨initial, hinitial, hconforms, heval⟩
+  have hcallable0 :
+      StateChangingPreservationSurface.ProofPreserving.solvent.callable0ReturnedV1
+        admitted :=
+    StateChangingPreservationSurface.ProofPreserving.solvent.callable0ReturnedV1_of_typed
+      admitted hvalidate hadmit
+        (StateChangingPreservationSurfaceProof.sync_typed_preserves_solvent
+          admitted hadmit)
+  have hcallable1 :
+      StateChangingPreservationSurface.ProofPreserving.solvent.callable1ReturnedV1
+        admitted := by
+    intro pre invocation responses vault overlay context isInitializer
+      postState value effects hcallableId _hconforms _heval hgate _hstep
+    simp [gateInvocation, hadmittedData, hcallableId,
+      StateChangingPreservationSurface.Proof.subjectDataV1,
+      ProofForgeV2.Semantic.StatefulEqualitySubjectV1.subjectDataV1,
+      ProofForgeV2.Semantic.StatefulEqualitySubjectV1.callablesV1,
+      ProofForgeV2.Semantic.PreservationShapeV1.twoStateCompareInvariantCallableV1,
+      show (CallableKindV1.invariant == CallableKindV1.initializer) = false by
+        decide,
+      show (CallableKindV1.invariant == CallableKindV1.entry) = false by decide,
+      show (CallableKindV1.invariant == CallableKindV1.view) = false by decide]
+      at hgate
+  exact
+    StateChangingPreservationSurface.ProofPreserving.solvent.ofRowObligationsV1
+      admitted hvalidate hadmit hbase hcallable0 hcallable1
+
+/- A nearby entry that updates only one field must not inherit the exact
+   stateful-equality family's production certificates. -/
+program StateChangingPreservationNearMiss where
+  state reserves : UInt64
+  state shares : UInt64
+  entry sync(amount : UInt64) : UInt64 do
+    reserves := amount
+    return reserves
+  invariant solvent : reserves == shares
+  proof solvent preserving using StateChangingPreservationNearMissProof.aggregate
+
+run_cmd do
+  let env ← getEnv
+  let structureCertificate :=
+    `Tests.Language.InlineProofAuthoringV1.StateChangingPreservationNearMiss.Proof.subjectStructureOkV1
+  let validationCertificate :=
+    `Tests.Language.InlineProofAuthoringV1.StateChangingPreservationNearMiss.Proof.subjectValidationOkV1
+  if env.contains structureCertificate || env.contains validationCertificate then
+    throwError "stateful equality near miss must not emit production certificates"
 
 /-- Generated result decoding checks the exact lowered TypeId and delegates
     canonical payload validation to the production valueBytes validator. -/

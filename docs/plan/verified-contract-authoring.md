@@ -152,15 +152,16 @@ ProofForge 目标
    exact `stateLoad; stateLoad; eq; return` 的 UInt64 字段相等首切也已投影成普通 Lean
    `reserves = shares` 并与 evaluator-backed predicate 对齐；更多 expression shape、
    arbitrary-family premise-free exact subject validation packaging 与 arithmetic/lookup bridge 仍待补。
-   exact recognized simple-closure 与首个 field-comparison family 均已生成
+   exact recognized simple-closure、首个 field-comparison 与 stateful-equality family 均已生成
    `Proof.subjectValidationOkV1`，因此该字段样例可直接把 certificate 传给 `_iff_fields`；通用
    generated `_iff_fields` 仍保留 exact `hvalidate`，不支持的 family 不会因此被自动准入。
    generated typed encoder 已有 production-codec success theorem，所以字段相等 bridge 也不要求
    作者手工提供 `LogicalStateV1`/`hencode` witness。
 4. `PreservationTheoremV1` 要求 base + 全输入 + 全 callable + 三 Outcome；程序级 composer
    已有，首个真实修改 UInt64 state 且保持字段不变量的 generated typed returned-row theorem
-   也已闭合。但该业务 CFG 尚无通用 whole-program validation certificate，因此还不能把此
-   row theorem 无前提地组装并认证为最终 `PreservationTheoremV1`。
+   也已闭合。exact name-parameterized `sync(amount)` equality family 现已有 production
+   validation/admission、two-UInt64 initial base 与全 row 组装，已得到最终 Reference-level
+   `PreservationTheoremV1`；但 arbitrary callable/expression family 的同类 packaging 仍待补。
 5. ClosedSubjectPin/contract-specific golden 可以加速已知样例，但不能成为任意合约的主证明通道。
 6. [`Examples/MiniAmmL1.lean`](../../Examples/MiniAmmL1.lean) 当前只有 executable
    `emptyPool` invariant 与 Normalize/Reference admission 正例，没有同文件 proof binding 和完整
@@ -709,7 +710,7 @@ proof-bearing target build 继续 fail closed。
 | 1 | Typed State + codec bridge | **进行中（generated Bool/UInt64 codec proof 首切已完成）** | generated `Model.State` 复用 production codec；`Model.encode_exists`、`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；Bool 的产品 accepted-language 接线与更多 scalar shape 仍待补 |
 | 2 | Typed callable transition | **进行中（typed UInt64 参数投影 + initialized entry/view + 独立 initializer lifecycle relation 首切已完成）** | production ready gate 可把 raw invocation 精确恢复为 generated named invocation；pre-init 只使用 exact production lifecycle carrier；initializer returned state 与 ordinary callable returned state 均可唯一投影为 typed State，固定 typed 输入有且至多有一个 typed outcome |
 | 3 | Typed invariant bridge | **进行中（evaluator + UInt64 字段 Eq/Ne 数学 bridge 首切已完成）** | generated predicate 使用 exact state encoder 与 lowered invariant ordinal，并与 production `evalInvariantV1` 双向对齐；exact two-state Eq/Ne CFG 已 fail-closed 投影成字段 `=`/`≠` 且不再暴露 encoding witness；这不是任意 expression translator，更多表达式与 exact validation packaging 仍待补 |
-| 4 | Generic preservation composition | **进行中（首个 state-changing typed returned-row business theorem 已完成）** | composer、finite-row assembler、typed returned lift、UInt64 参数投影及 literal-true 程序级闭环已有；`sync(amount)` 已经真实 Reference step 修改两个 UInt64 字段并证明 post-state `reserves = shares`。该 unsupported whole-program shape 仍显式要求 validation/admission evidence，尚未闭合最终 `PreservationTheoremV1`/inline certification；完整 Vault 实例仍待补 |
+| 4 | Generic preservation composition | **进行中（首个 state-changing program-level preserving 闭环已完成）** | composer、finite-row assembler、typed returned lift、UInt64 参数投影及 literal-true 程序级闭环已有；`sync(amount)` 已经真实 Reference step 修改两个 UInt64 字段并证明 post-state `reserves = shares`，并由 name-parameterized production validation/admission family、two-UInt64 initial base 与 exact rows 组装成最终 `PreservationTheoremV1`。这仍只是该 narrow family 的 Reference certification 地基；完整 Vault 与通用合约覆盖仍待补 |
 | 5 | Same-file certifier ergonomics | 部分地基已有 | 任意未 pin 合约的真实 proof body可 certified |
 | 6 | authority amendment + VerifiedVaultPF + NEAR build/runtime | 未开始 | 先批准 versioned invariant-erasure contract，再完成单文件 proof + build + runtime differential；诚实标注 Reference-level |
 | 7 | Per-target refinement | 未开始 | target-specific refinement evidence逐个关闭 |
@@ -814,8 +815,9 @@ proof-bearing target build 继续 fail closed。
    数学投影；Phase 4 也已有 per-callable returned composer、program-specific exact row/ordinal
    finite aggregation/assembler，以及不隐藏 full inputs 的 typed returned lift。首个一参数
    state-changing callable 已从 production ready gate 恢复 named UInt64 参数，并沿唯一 Reference
-   step 证明 exact typed post-state和字段相等不变量；更多 expression shape、通用 validation
-   evidence 与 premise-free program-level packaging 仍未完成；
+   step 证明 exact typed post-state和字段相等不变量；该 narrow stateful-equality family 现已
+   闭合 production validation/admission、two-UInt64 initial base 与 premise-free program-level
+   `PreservationTheoremV1` packaging；更多 expression/callable shape 与通用 family 生成仍未完成；
 18. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
    完成前不能称 target artifact verified。
 
@@ -895,8 +897,11 @@ expression translator：
     fail-closed family recognition：它先把完整 generated `SemanticProgramDataV1` 与参数化
     production constructor 做 exact 比较，再生成 `Proof.subjectStructureOkV1` 与
     `Proof.subjectValidationOkV1`；后者只组合 generated body identity、root gates、上述
-    structure certificate 和 `RootFieldInvertV1`，使普通同文件 `_iff_fields` 定理无需调用者
-    再传 `hvalidate`；near-miss/unsupported family 继续不生成这两个 certificate；
+    structure certificate 和 `RootFieldInvertV1`，使普通同文件作者可直接用 generated
+    certificate 关闭 `_iff_fields` 的 exact `hvalidate` 前提，而不再依赖外部假设；
+    near-miss/unsupported family 继续不生成这两个 certificate；stateful-equality family 也已
+    以同一方式闭合 singleton `state.persistent` requirements、完整 structure phases、
+    `RootFieldInvertV1` 与 Reference resource admission，且同样先做 whole-subject exact 比较；
     当前已把 `subjectBodyEncodeOkV1` + 全部 production root gates + structure success +
     whole-program `RootFieldInvertV1` 组合 exact validation 的 theorem 抽到通用
     `SubjectDataBridgeV1`，不再归属于 parity shape；elaborator 现已对每个 proof-bearing program
@@ -906,8 +911,9 @@ expression translator：
     `subjectDataV1`，再复用 `SimpleClosureStructureCertV1.structure_of_legal`（其内部通过
     `validateSemanticProgramStructureV1_eq_ok_of_phases` 组合全部 production phase），并通过
     parameterized、arbitrary-framing 的 `rootFieldInvertV1_of_legal` 证明九个 production root-field
-    codec inversion；field-comparison family 则复用本节上述参数化 structure/codec certificates。
-    elaborator 最终对这两个 exact family 用 `SubjectDataBridgeV1` 组合
+    codec inversion；field-comparison 与 stateful-equality family 则分别复用本节上述参数化
+    structure/codec certificates。elaborator 最终对这三个 exact family 用
+    `SubjectDataBridgeV1` 组合
     body/root/structure/inversion，生成
     `Proof.subjectValidationOkV1 : validateSemanticProgramV1 subjectProgramV1 = .ok subjectDataV1`。
     不支持的 lowered shape 保留 subject/typed Model surface，但不生成 structure/validation
@@ -922,7 +928,8 @@ expression translator：
 
 ### Phase 4 首切进展
 
-当前完成的是通用结构 composer 和首个 state-changing typed-row 业务证明，不是完整业务证明生成：
+当前完成的是通用结构 composer 和首个 state-changing program-level 业务闭环，不是任意
+业务证明自动生成：
 
 1. `PreservationReturnedCallableV1` 保留 raw invocation（args/context）、production gate
    overlay/context、responses、vault、returned value/effects 与 exact
@@ -973,15 +980,15 @@ expression translator：
     `callable0TypedReturnedV1` surface 上用普通字段等式关闭 `solvent : reserves == shares`；
     context、responses、vault、returned result/effects 与 raw invocation 均未被隐藏，也没有
     第二 evaluator；
-12. 该 fixture 的 whole-program structure 当前不属于已认证的 narrow validation family，测试会
-    明确拒绝意外生成 `Proof.subjectValidationOkV1`。因此上述 theorem 保留 exact
-    `hvalidate`/`hadmit` 前提，尚未组装最终 program-level `PreservationTheoremV1`，也没有生成
-    `.certified` 产品；production codec 已补齐任意 framing/nesting 下具名 public
-    `ParameterV1`、unary `stateStore; stateStore; stateLoad; return` callable 及其与 equality
-    invariant 组成的两行 callable table exact inversion seams，且继续使用唯一 production codec。
-    name-parameterized `StatefulEqualitySubjectV1` 已进一步把这些 seams 组合成完整
-    `RootFieldInvertV1`，不 pin whole-program bytes；下一步仍需闭合 production structure phases
-    并接入 fail-closed elaborator recognition，而不是伪造 admission carrier；
+12. 该 fixture 现已 exact 命中 name-parameterized `StatefulEqualitySubjectV1`：family 使用真实
+    singleton `state.persistent` requirements，组合 production structure phases 与
+    `RootFieldInvertV1`；elaborator 只有在 reconstructed whole subject 完全相等时才生成
+    `Proof.subjectStructureOkV1` / `Proof.subjectValidationOkV1`。随后 same-file aggregate 通过 sole
+    Reference admission scan、可复用 two-UInt64/no-initializer initial-state theorem、typed entry row
+    lift，以及 production gate 对 invariant callable row 的不可调用性，最终组装原始
+    `PreservationTheoremV1`。没有 contract-qualified closed pin、admission carrier 伪造或第二套
+    State/Effect/step/evaluator；这证明了一个 parameterized family 的闭环，但尚未单独验收产品
+    inline certifier 的 `.certified` 输出，更不代表 arbitrary contract generator 已完成；
 13. VerifiedVaultPF 的 initializer、deposit、withdraw、status returned 业务 lemmas仍未完成；
     因此 Phase 4 与“任意业务合约验证”仍不能称完成，当前最高声明仍是
     `reference-certified` 地基而非 target artifact verified。
