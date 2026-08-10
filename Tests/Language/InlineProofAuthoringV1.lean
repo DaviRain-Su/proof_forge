@@ -68,6 +68,7 @@ example
 #check Proofed.Proof.subjectDataV1
 #check Proofed.Proof.subjectRootGatesOkV1
 #check Proofed.Proof.subjectStructureOkV1
+#check Proofed.Proof.subjectValidationOkV1
 
 example :
     validateProgramQualifiedNameShapeV1
@@ -84,6 +85,11 @@ example :
 example :
     validateSemanticProgramStructureV1 Proofed.Proof.subjectDataV1 = .ok () :=
   Proofed.Proof.subjectStructureOkV1
+
+example :
+    validateSemanticProgramV1 Proofed.Proof.subjectProgramV1 =
+      .ok Proofed.Proof.subjectDataV1 :=
+  Proofed.Proof.subjectValidationOkV1
 
 -- Name/module-parameterized certificate AST emitted for the literal-true
 -- simple-closure family (foundation for product-positive cert generation).
@@ -119,12 +125,18 @@ program PreservingSurface where
 
 #check PreservingSurface.Proof.subjectProgramV1
 #check PreservingSurface.Proof.subjectStructureOkV1
+#check PreservingSurface.Proof.subjectValidationOkV1
 #check PreservingSurface.ProofPreserving.safe
 
 example :
     validateSemanticProgramStructureV1
         PreservingSurface.Proof.subjectDataV1 = .ok () :=
   PreservingSurface.Proof.subjectStructureOkV1
+
+example :
+    validateSemanticProgramV1 PreservingSurface.Proof.subjectProgramV1 =
+      .ok PreservingSurface.Proof.subjectDataV1 :=
+  PreservingSurface.Proof.subjectValidationOkV1
 
 example : PreservingSurface.ProofPreserving.safe =
     ProofForgeV2.Semantic.PreservationABI.PreservationTheoremV1
@@ -433,6 +445,10 @@ run_cmd do
     `Tests.Language.InlineProofAuthoringV1.TypedCallableSurface.Proof.subjectStructureOkV1
   if env.contains structureCertificate then
     throwError "unsupported structural families must not emit a structure certificate"
+  let validationCertificate :=
+    `Tests.Language.InlineProofAuthoringV1.TypedCallableSurface.Proof.subjectValidationOkV1
+  if env.contains validationCertificate then
+    throwError "unsupported structural families must not emit a validation certificate"
 
 /-- Typed arguments are encoded as canonical Reference values using the exact
     callable and TypeIds from the generated semantic subject. -/

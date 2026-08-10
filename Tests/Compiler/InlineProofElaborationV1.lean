@@ -59,6 +59,14 @@ private def reservedStructureInvariantSource : String :=
   "  invariant subjectStructureOkV1 : true\n" ++
   "  proof subjectStructureOkV1 using ReservedStructureInvariantProof.safe\n"
 
+private def reservedValidationInvariantSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "program ReservedValidationInvariant where\n" ++
+  "  view alive() : Bool do\n" ++
+  "    return true\n" ++
+  "  invariant subjectValidationOkV1 : true\n" ++
+  "  proof subjectValidationOkV1 using ReservedValidationInvariantProof.safe\n"
+
 private unsafe def expectSuccessDecl (base : Environment) : IO Unit := do
   match ← elaborateInlineProofSourceV1 base successSource with
   | .error fault =>
@@ -101,6 +109,14 @@ private unsafe def expectReservedStructureInvariantFails
         "compiler-owned structure certificate name unexpectedly accepted"
   | .error fault => expectPhase fault .commands "reserved structure invariant"
 
+private unsafe def expectReservedValidationInvariantFails
+    (base : Environment) : IO Unit := do
+  match ← elaborateInlineProofSourceV1 base reservedValidationInvariantSource with
+  | .ok _ =>
+      throw <| IO.userError
+        "compiler-owned validation certificate name unexpectedly accepted"
+  | .error fault => expectPhase fault .commands "reserved validation invariant"
+
 /-- Same in-memory String surface for every case (no disk re-read path). -/
 unsafe def run : IO Unit := do
   let productSession ← ProductParserSessionV1.create
@@ -111,6 +127,7 @@ unsafe def run : IO Unit := do
   expectMalformedFails base
   expectReservedRootGateInvariantFails base
   expectReservedStructureInvariantFails base
+  expectReservedValidationInvariantFails base
   IO.println "Tests.Compiler.InlineProofElaborationV1: ok"
 
 end Tests.Compiler.InlineProofElaborationV1

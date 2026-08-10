@@ -151,9 +151,11 @@ ProofForge 目标
 3. evaluator-backed typed invariant predicate 与 exact ordinal/evaluator bridge 首切已完成；
    exact `stateLoad; stateLoad; eq; return` 的 UInt64 字段相等首切也已投影成普通 Lean
    `reserves = shares` 并与 evaluator-backed predicate 对齐；更多 expression shape、
-   premise-free exact subject validation packaging 与 arithmetic/lookup bridge 仍待补。generated
-   typed encoder 已有 production-codec success theorem，因此字段相等 bridge 不再要求作者
-   手工提供 `LogicalStateV1`/`hencode` witness。
+   arbitrary-family premise-free exact subject validation packaging 与 arithmetic/lookup bridge 仍待补。
+   exact recognized simple-closure family 已生成 `Proof.subjectValidationOkV1`，但字段相等 family
+   并不属于该窄 family，因此 generated `_iff_fields` 仍保留 exact `hvalidate`。generated typed
+   encoder 已有 production-codec success theorem，所以字段相等 bridge 不再要求作者手工提供
+   `LogicalStateV1`/`hencode` witness。
 4. `PreservationTheoremV1` 要求 base + 全输入 + 全 callable + 三 Outcome；当前缺少把
    per-callable 业务 lemma 自动组合成该 ABI 的程序级 packager。
 5. ClosedSubjectPin/contract-specific golden 可以加速已知样例，但不能成为任意合约的主证明通道。
@@ -455,8 +457,10 @@ decode 已完成；独立的 generated pre-init `LifecycleState`、initializer p
 首切及 exact `evalInvariantV1` bridge；并已对 exact lowered
 `stateLoad left; stateLoad right; eq; return` UInt64 shape 生成字段相等数学 bridge。
 该字段 bridge 已用 generated `Model.encode_exists` 内部取得 production encoding witness，
-作者只需提供 exact subject validation premise。更广 expression 投影、premise-free exact
-subject validation packaging、checked arithmetic/lookup 通用引理与业务 proof ergonomics尚未完成。
+作者只需提供 exact subject validation premise。simple-closure family 已有 premise-free exact
+`Proof.subjectValidationOkV1`，但该能力尚未扩展到字段相等或任意 lowered family；更广 expression
+投影、通用 validation packaging、checked arithmetic/lookup 通用引理与业务 proof ergonomics
+尚未完成。
 
 交付：
 
@@ -841,8 +845,9 @@ expression translator：
    optional theorem；
 10. 当前 `_iff_fields` 仍显式接收 exact `hvalidate`，但不再接收作者提供的
     `LogicalStateV1`/successful `hencode`；它调用 generated `Model.encode_exists`，而该 theorem
-    只证明 production `encodeLogicalStateValuesV1` 的 successful result。尚未证明通用
-    premise-free exact subject validation packaging，也尚未处理 arithmetic/Struct/Map expression；
+    只证明 production `encodeLogicalStateValuesV1` 的 successful result。尚未证明任意 lowered
+    family 的 premise-free exact subject validation packaging，也尚未处理 arithmetic/Struct/Map
+    expression；
     当前已把 `subjectBodyEncodeOkV1` + 全部 production root gates + structure success +
     whole-program `RootFieldInvertV1` 组合 exact validation 的 theorem 抽到通用
     `SubjectDataBridgeV1`，不再归属于 parity shape；elaborator 现已对每个 proof-bearing program
@@ -850,12 +855,16 @@ expression translator：
     table-size gate；并开始对 exact recognized、已有 production phase proof 的 structural family
     生成 `Proof.subjectStructureOkV1`。当前 simple-closure family 通过 kernel `change` 绑定 exact
     `subjectDataV1`，再复用 `SimpleClosureStructureCertV1.structure_of_legal`（其内部通过
-    `validateSemanticProgramStructureV1_eq_ok_of_phases` 组合全部 production phase）；不支持的
-    lowered shape 保留 subject/typed Model surface，但不生成该 capability，也不退回 whole-validator
-    `decide`。通用生成仍需先补 qsort uniqueness、budget trace、TypeKey、CFG/closure 等 production
-    certificate seam；whole-program codec inversion certificate 也仍待生成。在它们完成前
-    body/root/structure certificate 不能冒充 program validity，
-    `subjectValidationOkV1` 与删除 `hvalidate` 都必须继续 fail closed；
+    `validateSemanticProgramStructureV1_eq_ok_of_phases` 组合全部 production phase），并通过
+    parameterized、arbitrary-framing 的 `rootFieldInvertV1_of_legal` 证明九个 production root-field
+    codec inversion；elaborator 最终用 `SubjectDataBridgeV1` 组合 body/root/structure/inversion，
+    只为该 exact family 生成
+    `Proof.subjectValidationOkV1 : validateSemanticProgramV1 subjectProgramV1 = .ok subjectDataV1`。
+    不支持的 lowered shape 保留 subject/typed Model surface，但不生成 structure/validation
+    capability，也不退回 whole-validator `decide`。通用生成仍需先补 qsort uniqueness、budget
+    trace、TypeKey、CFG/closure 与对应 codec inversion 等 production certificate seam；在它们
+    完成前 body/root/structure certificate 不能冒充 program validity，unsupported-family
+    `subjectValidationOkV1` 与删除通用 `_iff_fields` 的 `hvalidate` 都必须继续 fail closed；
     不得把此 narrow shape 宣称为完整 expression translation 或通用
     `Spec.solvent ↔ Model.solvent`；
 11. 当前声明仍仅是 Reference-level proof view 地基；它不改变 target materialization authority，

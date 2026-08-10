@@ -8,6 +8,7 @@ import ProofForgeV2.Semantic.UInt64ParityPreservationV1
 import ProofForgeV2.Semantic.UInt64ParitySubjectV1
 import ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1
 import ProofForgeV2.Semantic.SimpleClosureTraceV1
+import ProofForgeV2.Semantic.SubjectDataBridgeV1
 import ProofForgeV2.Semantic.WireV1
 
 open Lean Parser Command
@@ -73,6 +74,7 @@ private def isFixedInlineProofSurfaceNameV1 (name : String) : Bool :=
   name == "subjectProgramV1" || name == "subjectBytesV1" ||
     name == "subjectDataV1" || name == "subjectBodyEncodeOkV1" ||
     name == "subjectRootGatesOkV1" || name == "subjectStructureOkV1" ||
+    name == "subjectValidationOkV1" ||
     name == "simpleClosureParamsV1" || name == "simpleClosureDataV1" ||
     name == "simpleClosureQnTailLegalV1" ||
     name == "simpleClosureParamsLegalV1"
@@ -2498,8 +2500,9 @@ private def proofSurfaceV1
     Every generated proof term is kernel checked; unsupported/non-ASCII params
     emit neither capability and therefore fail closed in the certifier. -/
 private def elaborateSimpleClosureGeneratedTheoremsV1
-    (paramsName subjectDataName subjectBytesName subjectStructureOkName :
-      TSyntax `ident)
+    (paramsName subjectProgramName subjectDataName subjectBytesName
+      subjectBodyEncodeOkName subjectRootGatesOkName subjectStructureOkName
+      subjectValidationOkName : TSyntax `ident)
     (params : SimpleClosureParamsV1)
     (invariantNames holdsNames : Array String) : CommandElabM Unit := do
   unless simpleClosureParamsReadyForGeneratedProofV1 params do
@@ -2552,6 +2555,35 @@ private def elaborateSimpleClosureGeneratedTheoremsV1
       exact
         ProofForgeV2.Semantic.SimpleClosureStructureCertV1.structure_of_legal
           $paramsName $paramsLegalIdent))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Exact validation success for this generated simple-closure subject.
+        The proof composes only production body encoding, root gates,
+        structure validation, and root-field codec inversion. -/
+    theorem $subjectValidationOkName :
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+          $subjectProgramName = .ok $subjectDataName := by
+      change
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+            ⟨$subjectBytesName⟩ = .ok $subjectDataName
+      have hroot := $subjectRootGatesOkName
+      rcases hroot with
+        ⟨hnameShape, htypesSize, hconstantsSize, hstateSize, heventsSize,
+          herrorsSize, hcallablesSize, hinvariantsSize⟩
+      have hinvert :
+          ProofForgeV2.Semantic.WireV1.RootFieldInvertV1
+            $subjectDataName := by
+        change
+          ProofForgeV2.Semantic.WireV1.RootFieldInvertV1
+            (ProofForgeV2.Semantic.SimpleClosureTraceV1.materializeSimpleClosureDataV1
+              $paramsName)
+        exact
+          ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1.rootFieldInvertV1_of_legal
+            $paramsName $paramsLegalIdent
+      exact
+        ProofForgeV2.Semantic.SubjectDataBridgeV1.validate_of_subjectData_body_gates_invert
+          $subjectDataName $subjectBytesName hnameShape htypesSize
+          hconstantsSize hstateSize heventsSize herrorsSize hcallablesSize
+          hinvariantsSize $subjectStructureOkName $subjectBodyEncodeOkName hinvert))
   for (invariantName, ordinal) in invariantNames.zipIdx do
     unless holdsNames.contains invariantName do
       continue
@@ -2638,6 +2670,7 @@ private def elaborateProofObligations
   let subjectBodyEncodeOkName := mkIdent `subjectBodyEncodeOkV1
   let subjectRootGatesOkName := mkIdent `subjectRootGatesOkV1
   let subjectStructureOkName := mkIdent `subjectStructureOkV1
+  let subjectValidationOkName := mkIdent `subjectValidationOkV1
   Lean.Elab.Command.elabCommand (← `(namespace $programName))
   Lean.Elab.Command.elabCommand (← `(namespace $proofNamespace))
   Lean.Elab.Command.elabCommand (← `(def $subjectDataName :
@@ -2702,8 +2735,9 @@ private def elaborateProofObligations
         ProofForgeV2.Semantic.SimpleClosureTraceV1.materializeSimpleClosureDataV1
           $paramsName))
       elaborateSimpleClosureGeneratedTheoremsV1
-        paramsName subjectDataName subjectBytesName subjectStructureOkName params
-          surface.invariantNames surface.holdsNames
+        paramsName subjectName subjectDataName subjectBytesName
+          subjectBodyEncodeOkName subjectRootGatesOkName subjectStructureOkName
+          subjectValidationOkName params surface.invariantNames surface.holdsNames
   Lean.Elab.Command.elabCommand (← `(end $proofNamespace))
   match modelStateFieldsV1 data with
   | none => pure ()
@@ -2758,6 +2792,8 @@ end ProofForgeV2.Language
     * one exact generated semantic subject shared by both proof kinds;
     * kind-selected source-order aliases under `Proof` / `ProofPreserving`;
     * concrete ASCII identifier legality certificates for holds;
+    * exact `Proof.subjectValidationOkV1` composed from production body encode,
+      root gates, structure validation, and root-field codec inversion;
     * hypothesis-honest `generated…V1_of_wireTrace` holds bridge;
     * premise-free `generated…V1 : <Program>.Proof.<inv>` derived from
       `invariantTheoremV1_of_simpleClosure_legal`;
