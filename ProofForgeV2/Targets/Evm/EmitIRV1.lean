@@ -82,8 +82,10 @@ private def mapPrincipalKeyMemBaseV1 : Nat := 0x20000
 /-- M2: key equality using keys loaded from `keyMem` (9 words).
     Built iteratively so nesting parens stay exact (9 leaves → 8 `and`s). -/
 private def yulPrincipalKeyEqFromMem (b keyMem : String) : String := Id.run do
+  -- Key leaves are UInt64 semantic words; route through pf_sload_u64 so dirty
+  -- storage above UInt64.max fails closed (same discipline as scalar loads).
   let leaf (i : Nat) : String :=
-    s!"eq(sload(add({b}, {1 + i})), mload(add({keyMem}, {32 * i})))"
+    s!"eq(pf_sload_u64(add({b}, {1 + i})), mload(add({keyMem}, {32 * i})))"
   let mut acc := leaf 0
   for i in [1:9] do
     acc := s!"and({acc}, {leaf i})"
@@ -118,11 +120,11 @@ private def renderPrincipalMapHelpers (indent : String)
       indent ++ "  payload := 0\n" ++
       indent ++ "  for { let e := 0 } lt(e, 4) { e := add(e, 1) } {\n" ++
       indent ++ "    let b := add(base, mul(e, 11))\n" ++
-      indent ++ "    let occ := sload(b)\n" ++
+      indent ++ "    let occ := pf_sload_u64(b)\n" ++
       indent ++ "    if occ {\n" ++
       indent ++ s!"      if {keq} \{\n" ++
       indent ++ "        tag := 1\n" ++
-      indent ++ "        payload := sload(add(b, 10))\n" ++
+      indent ++ "        payload := pf_sload_u64(add(b, 10))\n" ++
       indent ++ "      }\n" ++
       indent ++ "    }\n" ++
       indent ++ "  }\n" ++
@@ -137,24 +139,21 @@ private def renderPrincipalMapHelpers (indent : String)
         "function pf_map_p_upsert(base, keyMem) {\n" ++
       indent ++ "  let anyMatch := 0\n" ++
       indent ++ "  let firstEmpty := 4\n" ++
+      indent ++ "  let target := 4\n" ++
       indent ++ "  for { let e := 0 } lt(e, 4) { e := add(e, 1) } {\n" ++
       indent ++ "    let b := add(base, mul(e, 11))\n" ++
-      indent ++ "    let occ := sload(b)\n" ++
+      indent ++ "    let occ := pf_sload_u64(b)\n" ++
       indent ++ "    if occ {\n" ++
-      indent ++ s!"      if {keq} \{ anyMatch := 1 }\n" ++
+      indent ++ s!"      if {keq} \{\n" ++
+      indent ++ "        anyMatch := 1\n" ++
+      indent ++ "        target := e\n" ++
+      indent ++ "      }\n" ++
       indent ++ "    }\n" ++
       indent ++ "    if and(iszero(occ), eq(firstEmpty, 4)) { firstEmpty := e }\n" ++
       indent ++ "  }\n" ++
       indent ++ "  if iszero(or(anyMatch, lt(firstEmpty, 4))) { revert(0, 0) }\n" ++
+      indent ++ "  if iszero(anyMatch) { target := firstEmpty }\n" ++
       indent ++ "  let val := mload(add(keyMem, 288))\n" ++
-      indent ++ "  let target := firstEmpty\n" ++
-      indent ++ "  for { let e := 0 } lt(e, 4) { e := add(e, 1) } {\n" ++
-      indent ++ "    let b := add(base, mul(e, 11))\n" ++
-      indent ++ "    let occ := sload(b)\n" ++
-      indent ++ "    if occ {\n" ++
-      indent ++ s!"      if {keq} \{ target := e }\n" ++
-      indent ++ "    }\n" ++
-      indent ++ "  }\n" ++
       indent ++ "  let b := add(base, mul(target, 11))\n" ++
       indent ++ "  sstore(b, 1)\n" ++
       indent ++ "  for { let k := 0 } lt(k, 9) { k := add(k, 1) } {\n" ++
@@ -168,7 +167,7 @@ private def renderPrincipalMapHelpers (indent : String)
       indent ++
         "function pf_map_p_upsert_leaf(base, leafIdx, keyMem) -> r {\n" ++
       indent ++ "  pf_map_p_upsert(base, keyMem)\n" ++
-      indent ++ "  r := sload(add(base, leafIdx))\n" ++
+      indent ++ "  r := pf_sload_u64(add(base, leafIdx))\n" ++
       indent ++ "}\n"
   lookup ++ upsert ++ upsertLeaf
 
@@ -185,10 +184,10 @@ private def renderMapUInt64Helpers (indent : String)
       indent ++ "  payload := 0\n" ++
       indent ++ "  for { let e := 0 } lt(e, 8) { e := add(e, 1) } {\n" ++
       indent ++ "    let b := add(base, mul(e, 3))\n" ++
-      indent ++ "    let occ := sload(b)\n" ++
-      indent ++ "    if and(occ, eq(sload(add(b, 1)), key)) {\n" ++
+      indent ++ "    let occ := pf_sload_u64(b)\n" ++
+      indent ++ "    if and(occ, eq(pf_sload_u64(add(b, 1)), key)) {\n" ++
       indent ++ "      tag := 1\n" ++
-      indent ++ "      payload := sload(add(b, 2))\n" ++
+      indent ++ "      payload := pf_sload_u64(add(b, 2))\n" ++
       indent ++ "    }\n" ++
       indent ++ "  }\n" ++
       indent ++ "}\n"
@@ -203,8 +202,8 @@ private def renderMapUInt64Helpers (indent : String)
       indent ++ "  let target := 8\n" ++
       indent ++ "  for { let e := 0 } lt(e, 8) { e := add(e, 1) } {\n" ++
       indent ++ "    let b := add(base, mul(e, 3))\n" ++
-      indent ++ "    let occ := sload(b)\n" ++
-      indent ++ "    if and(occ, eq(sload(add(b, 1)), key)) {\n" ++
+      indent ++ "    let occ := pf_sload_u64(b)\n" ++
+      indent ++ "    if and(occ, eq(pf_sload_u64(add(b, 1)), key)) {\n" ++
       indent ++ "      anyMatch := 1\n" ++
       indent ++ "      target := e\n" ++
       indent ++ "    }\n" ++
@@ -223,7 +222,7 @@ private def renderMapUInt64Helpers (indent : String)
       indent ++
         "function pf_map_u64_upsert_leaf(base, leafIdx, key, val) -> r {\n" ++
       indent ++ "  pf_map_u64_upsert(base, key, val)\n" ++
-      indent ++ "  r := sload(add(base, leafIdx))\n" ++
+      indent ++ "  r := pf_sload_u64(add(base, leafIdx))\n" ++
       indent ++ "}\n"
   lookup ++ upsert ++ upsertLeaf
 
@@ -1181,14 +1180,31 @@ private def storeAtomicSpillBaseV1 : Nat := 0x10000
 private def storeAtomicSpillAddrV1 (leafIndex : Nat) : Nat :=
   storeAtomicSpillBaseV1 + 32 * leafIndex
 
-private def renderStores (indent paramPrefix : String) (stores : Array Store) : String := Id.run do
+/-- True when `e` is the pure literal zero (constructor fresh-storage elision). -/
+private def exprIsLiteralZeroV1 : Expr → Bool
+  | .literal 0 => true
+  | .bigLiteral 0 => true
+  | _ => false
+
+/-- All leaves of a storeAtomic batch are pure literal zero. -/
+private def storeAtomicIsAllLiteralZeroV1 (ops : Array Store) : Bool :=
+  ops.all (fun s => exprIsLiteralZeroV1 s.value)
+
+/-- Emit scalar stores. When `omitFreshZeros`, skip pure-literal-zero writes:
+    EVM account storage starts zero, so constructor first-writes of 0 are no-ops
+    (Map.empty / scalar := 0). Non-literal zeros keep evaluation/traps. -/
+private def renderStores (indent paramPrefix : String) (stores : Array Store)
+    (omitFreshZeros : Bool := false) : String := Id.run do
   let mut output := ""
   let mut next := 0
   for store in stores do
-    let rendered := renderExpr indent paramPrefix next store.value
-    output := output ++ rendered.code ++
-      renderMaskedSstore indent store.slot rendered.value store.byteWidth
-    next := rendered.next
+    if omitFreshZeros && exprIsLiteralZeroV1 store.value then
+      pure ()
+    else
+      let rendered := renderExpr indent paramPrefix next store.value
+      output := output ++ rendered.code ++
+        renderMaskedSstore indent store.slot rendered.value store.byteWidth
+      next := rendered.next
   return output
 
 private structure RenderedBody where
@@ -1228,111 +1244,114 @@ private def peelForCondV1 (indent paramPrefix : String) (next varTemp : Nat)
 private partial def renderBody (indent paramPrefix : String) (next : Nat)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
     (returnVar : Option String)
-    (body : Array Statement) : RenderedBody := Id.run do
+    (body : Array Statement)
+    (omitFreshZeros : Bool := false) : RenderedBody := Id.run do
   let mut output := ""
   let mut next := next
   for statement in body do
     match statement with
     | .store store =>
-        let rendered := renderExpr indent paramPrefix next store.value
-        output := output ++ rendered.code ++
-          renderMaskedSstore indent store.slot rendered.value store.byteWidth
-        next := rendered.next
-    | .storeAtomic operations =>
-        -- B-EVM-MAP-STACK / B-MAP-STRUCT-PIN / M2:
-        -- Default path: Phase 1 (compute + spill) each leaf in its own nested
-        -- Yul block; Phase 2 contiguous sstore from spill.
-        -- M2 fast path: when all 44 leaves are `mapPrincipalUpsertLeaf` for the
-        -- same (base, keys, value) with leafIndex==i, spill keys once and call
-        -- in-place `pf_map_p_upsert` (helper sstores only the dirty entry).
-        let isPrincipalUpsertBatch : Bool := Id.run do
-          if operations.size != 44 then return false
-          let some first := operations[0]? | return false
-          match first.value with
-          | .mapPrincipalUpsertLeaf base0 keys0 val0 0 =>
-              for i in [0:44] do
-                match operations[i]? with
-                | none => return false
-                | some st =>
-                    match st.value with
-                    | .mapPrincipalUpsertLeaf base keys val leafIdx =>
-                        unless base == base0 && leafIdx == i &&
-                            keys == keys0 && val == val0 do
-                          return false
-                    | _ => return false
-              return true
-          | _ => return false
-        let isUInt64UpsertBatch : Bool := Id.run do
-          if operations.size != 24 then return false
-          let some first := operations[0]? | return false
-          match first.value with
-          | .mapUInt64UpsertLeaf base0 key0 val0 0 =>
-              for i in [0:24] do
-                match operations[i]? with
-                | none => return false
-                | some st =>
-                    match st.value with
-                    | .mapUInt64UpsertLeaf base key val leafIdx =>
-                        unless base == base0 && leafIdx == i &&
-                            key == key0 && val == val0 do
-                          return false
-                    | _ => return false
-              return true
-          | _ => return false
-        if isPrincipalUpsertBatch then
-          let some first := operations[0]? | pure ()
-          match first.value with
-          | .mapPrincipalUpsertLeaf mapBaseSlot keyLeaves value _ =>
-              let keyMem := mapPrincipalKeyMemBaseV1
-              for i in [0:keyLeaves.size] do
-                let some k := keyLeaves[i]? | pure ()
-                let rendered := renderExpr indent paramPrefix next k
-                output := output ++ rendered.code
-                next := rendered.next
-                output := output ++
-                  s!"{indent}mstore({keyMem + 32 * i}, {rendered.value})\n"
-              let valR := renderExpr indent paramPrefix next value
-              output := output ++ valR.code
-              next := valR.next
-              -- In-place helper sstores the single dirty entry; no 44-leaf spill.
-              output := output ++
-                s!"{indent}mstore({keyMem + 288}, {valR.value})\n" ++
-                s!"{indent}pf_map_p_upsert({mapBaseSlot}, {keyMem})\n"
-          | _ => pure ()
-        else if isUInt64UpsertBatch then
-          let some first := operations[0]? | pure ()
-          match first.value with
-          | .mapUInt64UpsertLeaf mapBaseSlot key value _ =>
-              let keyR := renderExpr indent paramPrefix next key
-              output := output ++ keyR.code
-              next := keyR.next
-              let valR := renderExpr indent paramPrefix next value
-              output := output ++ valR.code
-              next := valR.next
-              -- In-place helper sstores the single dirty (occ,key,val) triple.
-              output := output ++
-                s!"{indent}pf_map_u64_upsert({mapBaseSlot}, {keyR.value}, {valR.value})\n"
-          | _ => pure ()
+        if omitFreshZeros && exprIsLiteralZeroV1 store.value then
+          pure ()
         else
-          let nested := indent ++ "  "
-          for i in [0:operations.size] do
-            match operations[i]? with
-            | none => pure ()
-            | some store =>
-                let rendered := renderExpr nested paramPrefix next store.value
-                let addr := storeAtomicSpillAddrV1 i
-                output := output ++ s!"{indent}\{\n" ++
-                  rendered.code ++
-                  s!"{nested}mstore({addr}, {rendered.value})\n" ++
-                  s!"{indent}}\n"
-                next := rendered.next
-          for i in [0:operations.size] do
-            match operations[i]? with
-            | none => pure ()
-            | some store =>
-                let loaded := s!"mload({storeAtomicSpillAddrV1 i})"
+          let rendered := renderExpr indent paramPrefix next store.value
+          output := output ++ rendered.code ++
+            renderMaskedSstore indent store.slot rendered.value store.byteWidth
+          next := rendered.next
+    | .storeAtomic operations =>
+        -- Constructor Map.empty / Option.none: all-literal-zero batch is a
+        -- no-op on fresh EVM storage (skip spill + zero sstores).
+        if omitFreshZeros && storeAtomicIsAllLiteralZeroV1 operations then
+          pure ()
+        else do
+  let isPrincipalUpsertBatch : Bool := Id.run do
+            if operations.size != 44 then return false
+            let some first := operations[0]? | return false
+            match first.value with
+            | .mapPrincipalUpsertLeaf base0 keys0 val0 0 =>
+                for i in [0:44] do
+                  match operations[i]? with
+                  | none => return false
+                  | some st =>
+                      match st.value with
+                      | .mapPrincipalUpsertLeaf base keys val leafIdx =>
+                          unless base == base0 && leafIdx == i &&
+                              keys == keys0 && val == val0 do
+                            return false
+                      | _ => return false
+                return true
+            | _ => return false
+          let isUInt64UpsertBatch : Bool := Id.run do
+            if operations.size != 24 then return false
+            let some first := operations[0]? | return false
+            match first.value with
+            | .mapUInt64UpsertLeaf base0 key0 val0 0 =>
+                for i in [0:24] do
+                  match operations[i]? with
+                  | none => return false
+                  | some st =>
+                      match st.value with
+                      | .mapUInt64UpsertLeaf base key val leafIdx =>
+                          unless base == base0 && leafIdx == i &&
+                              key == key0 && val == val0 do
+                            return false
+                      | _ => return false
+                return true
+            | _ => return false
+          if isPrincipalUpsertBatch then
+            let some first := operations[0]? | pure ()
+            match first.value with
+            | .mapPrincipalUpsertLeaf mapBaseSlot keyLeaves value _ =>
+                let keyMem := mapPrincipalKeyMemBaseV1
+                for i in [0:keyLeaves.size] do
+                  let some k := keyLeaves[i]? | pure ()
+                  let rendered := renderExpr indent paramPrefix next k
+                  output := output ++ rendered.code
+                  next := rendered.next
+                  output := output ++
+                    s!"{indent}mstore({keyMem + 32 * i}, {rendered.value})\n"
+                let valR := renderExpr indent paramPrefix next value
+                output := output ++ valR.code
+                next := valR.next
+                -- In-place helper sstores the single dirty entry; no 44-leaf spill.
                 output := output ++
-                  renderMaskedSstore indent store.slot loaded store.byteWidth
+                  s!"{indent}mstore({keyMem + 288}, {valR.value})\n" ++
+                  s!"{indent}pf_map_p_upsert({mapBaseSlot}, {keyMem})\n"
+            | _ => pure ()
+          else if isUInt64UpsertBatch then
+            let some first := operations[0]? | pure ()
+            match first.value with
+            | .mapUInt64UpsertLeaf mapBaseSlot key value _ =>
+                let keyR := renderExpr indent paramPrefix next key
+                output := output ++ keyR.code
+                next := keyR.next
+                let valR := renderExpr indent paramPrefix next value
+                output := output ++ valR.code
+                next := valR.next
+                -- In-place helper sstores the single dirty (occ,key,val) triple.
+                output := output ++
+                  s!"{indent}pf_map_u64_upsert({mapBaseSlot}, {keyR.value}, {valR.value})\n"
+            | _ => pure ()
+          else
+            let nested := indent ++ "  "
+            for i in [0:operations.size] do
+              match operations[i]? with
+              | none => pure ()
+              | some store =>
+                  let rendered := renderExpr nested paramPrefix next store.value
+                  let addr := storeAtomicSpillAddrV1 i
+                  output := output ++ s!"{indent}\{\n" ++
+                    rendered.code ++
+                    s!"{nested}mstore({addr}, {rendered.value})\n" ++
+                    s!"{indent}}\n"
+                  next := rendered.next
+            for i in [0:operations.size] do
+              match operations[i]? with
+              | none => pure ()
+              | some store =>
+                  let loaded := s!"mload({storeAtomicSpillAddrV1 i})"
+                  output := output ++
+                    renderMaskedSstore indent store.slot loaded store.byteWidth
     | .assert condition =>
         let rendered := renderExpr indent paramPrefix next condition
         output := output ++ rendered.code ++
@@ -1809,12 +1828,15 @@ private def renderConstructor (plan : Plan) : String := Id.run do
       let mask := yulUintMask (param.byteWidth * 8)
       output := output ++
         s!"    let ctor_arg{param.wordIndex} := and({raw}, {mask})\n"
-  -- Store-only constructors keep body empty for byte-identical Yul via stores.
+  -- Fresh EVM storage is zero: omit pure-literal-zero first writes (scalar
+  -- := 0 and Map.empty / Option.none storeAtomic batches). Non-zero and
+  -- non-literal stores keep full evaluation.
   output := output ++
     (if constructor.body.isEmpty then
-      renderStores "    " "ctor_arg" constructor.stores
+      renderStores "    " "ctor_arg" constructor.stores (omitFreshZeros := true)
     else
-      (renderBody "    " "ctor_arg" 0 plan.events plan.errors none constructor.body).code)
+      (renderBody "    " "ctor_arg" 0 plan.events plan.errors none
+        constructor.body (omitFreshZeros := true)).code)
   return output ++
     s!"    datacopy(0, dataoffset(\"{plan.runtimeObjectName}\"), datasize(\"{plan.runtimeObjectName}\"))\n" ++
     s!"    return(0, datasize(\"{plan.runtimeObjectName}\"))\n"
@@ -2026,15 +2048,19 @@ private def phaseHelperNeedsV1 (plan : Plan) (seed : Array Statement)
 
 private def renderMapHelpersForNeeds (indent : String) (needs : PhaseHelperNeedsV1) :
     String :=
-  (if needs.principalLookup || needs.principalUpsert || needs.principalUpsertLeaf then
+  let mapP := needs.principalLookup || needs.principalUpsert || needs.principalUpsertLeaf
+  let mapU := needs.uint64Lookup || needs.uint64Upsert || needs.uint64UpsertLeaf
+  -- Compact Map helpers call pf_sload_u64 for dirty-storage UInt64 gates.
+  let needSload := needs.sloadU64 || mapP || mapU
+  (if mapP then
       renderPrincipalMapHelpers indent needs.principalLookup needs.principalUpsert
         needs.principalUpsertLeaf
     else "") ++
-  (if needs.uint64Lookup || needs.uint64Upsert || needs.uint64UpsertLeaf then
+  (if mapU then
       renderMapUInt64Helpers indent needs.uint64Lookup needs.uint64Upsert
         needs.uint64UpsertLeaf
     else "") ++
-  (if needs.sloadU64 then renderSloadU64Helper indent else "")
+  (if needSload then renderSloadU64Helper indent else "")
 
 
 /-- Parse `let NAME := pf_sload_u64(SLOT)`. -/
