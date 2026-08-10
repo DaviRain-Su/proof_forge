@@ -31,7 +31,7 @@ Generator: `scripts/psy_dpn_op_coverage.py` · `just psy-dpn-op-coverage`
 
 - events (emitter encodes; session does not assert event list)
 - void `InvokeExternalContractFunctionSync` (shape only)
-- Map dense put: **official simulate also yields empty `state_delta`** for MapMini — emitter/layout gap, not session-only
+- Map dense put: **fixed** (wire-resolved sub_slot + def-step resolution + encoded bool ops); MapMini put/get official+session green
 
 ## Regenerating
 

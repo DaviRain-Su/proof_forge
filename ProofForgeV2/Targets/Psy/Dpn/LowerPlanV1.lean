@@ -14,8 +14,11 @@
   DPN-4: multi-leaf + wide UInt128 (4×UInt32 limbs)
     * storeAggregate / returnAggregate → multi SlotSingle Get/Set
     * limbAdd/limbSub + select/compare + per-limb bitwise
-    * multi-field sub_slot engineering map (single-field Counter templates
-      keep Counter golden; multi-leaf uses fieldIndex+4)
+    * multi-field leaves: physical leaf index = fieldIndex (0..n-1).
+      Official psy_vm resolve()s state-cmd sub_slot_index/value as wire ids
+      (simulate InMemory backend). General path emits Constant targets holding
+      the leaf index and stores those wire indices in the cmd. Counter
+      templates keep historical bare indices that resolve to slot 0.
     * UInt32 param range asserts
     * sole `psy-dpn-v1` profile lowers Option/Array multi-leaf and admitted
       wide UInt plans directly to DPN
@@ -33,7 +36,7 @@
 
   G5-AGG: Array / Principal / Bytes (and named Struct flatten) multi-leaf
     * Same storeAggregate / returnAggregate → multi SlotSingle path as
-      Option/Map/wide (fieldIndex+4 sub_slots when multiLeaf)
+      Option/Map/wide (physical leaf fieldIndex; cmd carries Constant wire)
     * Array UInt64 N → N Felt leaves; Bytes 1..8 → N×UInt8 leaves;
       Principal/String wire identity → len + 8×UInt32 body (9 leaves);
       named Struct preorder flatten already Plan-admitted
@@ -371,22 +374,25 @@ private def trueWire (b : BuilderV1) : WireV1 := .bool b.trueBool
 
 private def zeroWire (b : BuilderV1) : WireV1 := .target b.zeroTarget
 
-/-- Single-field Counter writes use canonical sub-slot 1 for field 0.
-    Multi-leaf state uses fieldIndex+4 for both Get/Set. View-only Counter
-    field 0 stays 0. -/
-private def writeSubSlot (b : BuilderV1) (fieldIndex : Nat) : UInt64 :=
-  if b.multiLeaf then
-    UInt64.ofNat (fieldIndex + 4)
-  else if fieldIndex == 0 then
-    1
-  else
-    UInt64.ofNat fieldIndex
+/-- Physical storage leaf index for a Plan field.
+    Multi-leaf packages use contiguous leaves 0..n-1.
+    Single-field Counter templates historically use write cmd sub_slot=1 and
+    view cmd sub_slot=0; those bare indices resolve (via target wires) to
+    storage slot 0 under official simulate — kept only on the template path. -/
+private def physicalLeafIndex (b : BuilderV1) (fieldIndex : Nat) : Nat :=
+  if b.multiLeaf then fieldIndex
+  else fieldIndex
 
-private def viewSubSlot (b : BuilderV1) (fieldIndex : Nat) : UInt64 :=
-  if b.multiLeaf then
-    UInt64.ofNat (fieldIndex + 4)
+/-- Emit (or reuse zero) a Target Constant equal to `leaf`, returning the
+    bare target index to place in Get/Set `sub_slot_index` so official
+    `registers.get_by_encoded_id` yields `leaf`. -/
+private def emitLeafIndexWire (b : BuilderV1) (leaf : Nat) :
+    BuilderV1 × Nat :=
+  if leaf == 0 then
+    (b, b.zeroTarget)
   else
-    UInt64.ofNat fieldIndex
+    let (b1, w) := pushTarget b .constant #[UInt64.ofNat leaf]
+    (b1, w.rawIndex)
 
 private def asTargetIndex (w : WireV1) : CompileResult Nat :=
   match w with
@@ -417,45 +423,63 @@ private def compareOpType : ComparisonOp → OpTypeV1
   | .eq => .eq | .ne => .eq  -- ne lowered as not(eq)
   | .lt => .lt | .le => .lte | .gt => .gt | .ge => .gte
 
-/-- Emit Get + GetStateCommandResultSingle; returns value wire. -/
-private def emitStateLoad (b : BuilderV1) (fieldIndex : Nat) (viewPath : Bool) :
+/-- Emit Get + GetStateCommandResultSingle; returns value wire.
+    `sub_slot_index` is a Target wire index whose value is the physical leaf.
+
+    Official `psy_vm` simulate resolution index = **definition step** (not target
+    wire index): state cmds with `res == step` run *before* evaluating
+    `definitions[step]`. Get must resolve at the GetState def's own step. -/
+private def emitStateLoad (b : BuilderV1) (fieldIndex : Nat) (_viewPath : Bool) :
     BuilderV1 × WireV1 :=
-  let slot := if viewPath then viewSubSlot b fieldIndex else writeSubSlot b fieldIndex
-  let cmdIdx := b.cmds.size
-  let b1 := { b with cmds := b.cmds.push (.getSelfUserCurrentContractStateSlotSingle slot) }
+  let leaf := physicalLeafIndex b fieldIndex
+  let (b0, slotWireIdx) := emitLeafIndexWire b leaf
+  let cmdIdx := b0.cmds.size
+  let b1 := {
+    b0 with
+      cmds := b0.cmds.push
+        (.getSelfUserCurrentContractStateSlotSingle (UInt64.ofNat slotWireIdx))
+  }
   let (b2, w) := pushTarget b1 .getStateCommandResultSingle #[UInt64.ofNat cmdIdx]
-  -- Resolution: target index of the GetState result (Counter increment style).
-  let b3 := { b2 with res := b2.res.push w.rawIndex }
+  -- Resolution = definition index of the GetState op (defs.size - 1).
+  let getDefStep := b2.defs.size - 1
+  let b3 := { b2 with res := b2.res.push getDefStep }
   (b3, w)
 
-/-- Conditional store; `cond` is a bool wire (ConstantTrue for unconditional). -/
+/-- Conditional store; `cond` is a bool wire (ConstantTrue for unconditional).
+    `sub_slot_index` / `value` are Target wire indices (official resolve).
+
+    Resolution = current `defs.size` so the Set runs after all currently
+    emitted defs (including the value wire) and before any later def. -/
 private def emitStateStore (b : BuilderV1) (fieldIndex : Nat) (cond : WireV1)
     (value : WireV1) : CompileResult BuilderV1 := do
   let vIdx ← asTargetIndex value
   let cEnc := cond.encoded
-  let slot := writeSubSlot b fieldIndex
+  let leaf := physicalLeafIndex b fieldIndex
+  let (b0, slotWireIdx) := emitLeafIndexWire b leaf
   let b1 := {
-    b with
-      cmds := b.cmds.push (.setContractStateSlotSingle cEnc slot (UInt64.ofNat vIdx))
-      -- Sets have no GetState result; pin resolution to nextTarget (Counter init style).
-      res := b.res.push b.nextTarget
+    b0 with
+      cmds := b0.cmds.push
+        (.setContractStateSlotSingle cEnc (UInt64.ofNat slotWireIdx) (UInt64.ofNat vIdx))
+      res := b0.res.push b0.defs.size
   }
   pure b1
 
-/-- Bool AND of two conditions (for nested if / loop step guards). -/
+/-- Bool AND of two conditions (for nested if / loop step guards).
+    Official simulate `resolve()`s every op input via encoded id — Bool wires
+    must use `(bool<<32)|index`, not bare index (bare would read Target[i]). -/
 private def emitBoolAnd (b : BuilderV1) (a c : WireV1) : CompileResult (BuilderV1 × WireV1) := do
-  let ai ← asBoolIndex a
-  let ci ← asBoolIndex c
-  pure (pushBool b .boolAnd #[UInt64.ofNat ai, UInt64.ofNat ci])
+  let _ ← asBoolIndex a
+  let _ ← asBoolIndex c
+  pure (pushBool b .boolAnd #[a.operand, c.operand])
 
 private def emitBoolOr (b : BuilderV1) (a c : WireV1) : CompileResult (BuilderV1 × WireV1) := do
-  let ai ← asBoolIndex a
-  let ci ← asBoolIndex c
-  pure (pushBool b .boolOr #[UInt64.ofNat ai, UInt64.ofNat ci])
+  let _ ← asBoolIndex a
+  let _ ← asBoolIndex c
+  pure (pushBool b .boolOr #[a.operand, c.operand])
 
 private def emitBoolNot (b : BuilderV1) (a : WireV1) : CompileResult (BuilderV1 × WireV1) := do
-  let ai ← asBoolIndex a
-  pure (pushBool b .boolNot #[UInt64.ofNat ai])
+  let _ ← asBoolIndex a
+  pure (pushBool b .boolNot #[a.operand])
 
 /-- Select mux. Select always yields Target, or Bool for two Bool arms.
     U32 arms pass encoded U32 ids into Target Select. Condition uses the full

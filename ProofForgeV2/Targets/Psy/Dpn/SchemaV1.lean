@@ -249,9 +249,12 @@ abbrev PackageV1 := Array FunctionCircuitDefV1
     Operand wiring:
     * `definitions[].inputs` often carry raw same-type indices (small u64).
     * `assertions` left/right use full `(dataType<<32)|index` encoding.
-    * `SetContractStateSlotSingle.condition` uses full bool encoding; `value`
-      and bare `sub_slot_index` use raw indices / literals.
-    * View `get` uses sub-slot 0; init/increment writes use sub-slot 1.
+    * `SetContractStateSlotSingle.condition` uses full bool encoding.
+    * Official simulate `resolve()`s `sub_slot_index` and `value` as wire ids
+      (target index or encoded id) — not as raw storage keys. Counter golden
+      keeps historical bare indices that resolve to storage slot 0.
+    * General multi-leaf path emits Constant targets for each leaf index and
+      stores those wire indices in the cmd.
 -/
 def counterPackageGoldenV1 : PackageV1 :=
   let b0 := encodeIndexedId .bool 0

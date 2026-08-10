@@ -9,19 +9,17 @@ Why not shell `psy_user_cli simulate` three times?
 This harness keeps one Session and commits Set overlays between calls, matching
 the Psy IDE/WASM pattern. Engineering only — not UPS/proof/network.
 
-State-command scheduling (engineering, matched to official simulate behavior):
-  * GetState ops (54/53/55) lazily execute their command when evaluated.
-  * Before a Get, any earlier ready Set/Invoke in the cmd list is committed
-    (write-then-reload pattern used by increment/return-after-store).
-  * Remaining Sets flush at end of definitions (initialize/setSome style).
-  * resolution_indices are retained for diagnostics; lazy+order is the executor rule.
+State-command scheduling (official psy_vm simulate):
+  * `state_command_resolution_indices[i]` = definition **step** at which cmd i runs
+    (before evaluating definitions[step]; res==len(defs) means after all defs).
+  * GetState ops (54/53/55) also force their cmd if not yet run (defensive).
+  * Before a Get, earlier ready Sets are committed (write-then-reload).
 
-Slot model:
-  * Official *SlotSingle reports always use slot_index=0.
-  * PF StateCell golden uses get@sub_slot=0 and set@sub_slot=1 for one UInt64.
-  * Multi-leaf programs use distinct sub_slot_index as limbs.
-  * Rule: if package only ever mentions sub_slots ⊆ {0,1}, collapse to physical 0;
-    otherwise physical key = sub_slot_index.
+Slot model (aligned with official psy_vm simulate resolve()):
+  * state cmd `sub_slot_index` / `value` are **wire ids**; physical leaf =
+    Constant wire's literal (general multi-leaf path).
+  * Counter golden keeps bare 0/1 indices that collapse to storage slot 0.
+  * Multi-leaf programs use physical leaves 0..n-1.
 """
 from __future__ import annotations
 
@@ -67,28 +65,68 @@ class Session:
         self.slots[slot] = [int(v) & U64 for v in value]
 
 
-def package_sub_slots(pkg: dict[str, dict]) -> set[int]:
-    subs: set[int] = set()
+def decode_wire_literal_from_defs(defs: list[dict], wire_ref: int) -> int | None:
+    """If wire_ref is a Target Constant, return its literal; else None."""
+    wire_ref = int(wire_ref) & U64
+    # bare target index or encoded target id
+    if wire_ref > INDEX_MASK:
+        dt, idx = decode_id(wire_ref)
+        if dt != DT_TARGET:
+            return None
+    else:
+        idx = wire_ref
+    for d in defs:
+        if int(d.get("data_type", -1)) == DT_TARGET and int(d.get("index", -1)) == idx:
+            if int(d.get("op_type", -1)) == 1:  # constant
+                ins = d.get("inputs") or [0]
+                return int(ins[0]) & U64
+            return None
+    return None
+
+
+def package_physical_leaves(pkg: dict[str, dict]) -> set[int]:
+    """Physical storage leaves referenced by Get/Set cmds (after wire resolve)."""
+    leaves: set[int] = set()
     for fn in pkg.values():
+        defs = list(fn.get("definitions") or [])
         for c in fn.get("state_commands") or []:
             if "sub_slot_index" in c:
-                subs.add(int(c["sub_slot_index"]))
+                ref = int(c["sub_slot_index"])
+                lit = decode_wire_literal_from_defs(defs, ref)
+                leaves.add(ref if lit is None else lit)
             elif "slot_index" in c:
-                subs.add(int(c["slot_index"]))
-    return subs
+                leaves.add(int(c["slot_index"]))
+    return leaves
 
 
-def physical_slot(sub: int, subs: set[int]) -> int:
-    if subs <= {0, 1}:
-        return 0
-    return int(sub)
+def physical_slot_from_cmd(cmd: dict, defs: list[dict], leaves: set[int]) -> int:
+    """Map cmd sub_slot wire → physical leaf for session storage.
+
+    Official simulate: slot = resolve(sub_slot_index wire).
+    Counter golden uses bare 0/1 that resolve via target wires to slot 0 values
+    in product packages we collapse {0,1}-only packages historically — but with
+    wire-resolved leaves, multi-leaf packages use 0..n-1 directly.
+    """
+    if "sub_slot_index" in cmd:
+        ref = int(cmd["sub_slot_index"])
+        lit = decode_wire_literal_from_defs(defs, ref)
+        if lit is not None:
+            return int(lit)
+        # bare index (Counter template): treat as physical leaf; {0,1}-only
+        # single-field programs collapse both to 0 for get@0/set@1 golden.
+        if leaves <= {0, 1}:
+            return 0
+        return ref if ref <= INDEX_MASK else decode_id(ref)[1]
+    if "slot_index" in cmd:
+        return int(cmd["slot_index"])
+    return 0
 
 
 class Executor:
-    def __init__(self, session: Session, fn: dict[str, Any], subs: set[int]):
+    def __init__(self, session: Session, fn: dict[str, Any], leaves: set[int]):
         self.s = session
         self.fn = fn
-        self.subs = subs
+        self.leaves = leaves
         self.v: dict[int, int] = {}
         self.cmd_res: list[list[int]] = []
         self.reads: list[dict] = []
@@ -177,7 +215,15 @@ class Executor:
         self.cmd_res = [[] for _ in self.cmds]
         self.done = set()
 
+        # Official psy_vm: resolution index = definition step. Cmds with
+        # res==step run *before* evaluating definitions[step].
+        def run_cmds_at_step(step: int) -> None:
+            for i, r in enumerate(res):
+                if r == step and i not in self.done:
+                    self.run_cmd(i)
+
         for di, d in enumerate(defs):
+            run_cmds_at_step(di)
             op = int(d["op_type"])
             dt, idx = int(d["data_type"]), int(d["index"])
             ins = [int(x) for x in (d.get("inputs") or [])]
@@ -302,10 +348,9 @@ class Executor:
             else:
                 raise DpnError(f"unsupported op_type {op} at def {di}")
 
-        # Flush remaining Sets (initialize / pure-store methods).
-        for i, c in enumerate(self.cmds):
-            if i not in self.done and self._is_set(c) and self._set_ready(i):
-                self.run_cmd(i)
+        # State cmds resolving after last definition (res == len(defs)).
+        run_cmds_at_step(len(defs))
+        # Any remaining ready cmds (defensive).
         for i in range(len(self.cmds)):
             if i not in self.done and self._set_ready(i):
                 self.run_cmd(i)
@@ -335,11 +380,8 @@ class Executor:
         }
 
     def _slot_key(self, cmd: dict[str, Any]) -> int:
-        if "sub_slot_index" in cmd:
-            return physical_slot(int(cmd["sub_slot_index"]), self.subs)
-        if "slot_index" in cmd:
-            return physical_slot(int(cmd["slot_index"]), self.subs)
-        return 0
+        defs = list(self.fn.get("definitions") or [])
+        return physical_slot_from_cmd(cmd, defs, self.leaves)
 
     def _cmd(self, i: int, cmd: dict[str, Any]) -> None:
         ctype = cmd.get("type") or ""
@@ -440,7 +482,7 @@ def main() -> int:
 
     pkg_list = json.loads(args.dpn.read_text())
     pkg = {d["name"]: d for d in pkg_list}
-    subs = package_sub_slots(pkg)
+    leaves = package_physical_leaves(pkg)
     session = Session()
     results = []
 
@@ -454,7 +496,7 @@ def main() -> int:
             print(f"unknown method {name}; have {sorted(pkg)}", file=sys.stderr)
             return 1
         try:
-            r = Executor(session, pkg[name], subs).run(inputs)
+            r = Executor(session, pkg[name], leaves).run(inputs)
         except DpnError as e:
             print(f"FAIL {name}: {e}", file=sys.stderr)
             return 2
@@ -470,7 +512,7 @@ def main() -> int:
                 "success": True,
                 "calls": results,
                 "slots": {str(k): v for k, v in sorted(session.slots.items())},
-                "sub_slots_in_package": sorted(subs),
+                "physical_leaves_in_package": sorted(leaves),
             },
             sys.stdout,
             indent=2,

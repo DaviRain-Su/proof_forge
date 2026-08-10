@@ -265,7 +265,7 @@ def main() -> int:
             },
             {
                 "id": "Map-dense-put",
-                "status": "emits; official simulate also empty state_delta — layout gap",
+                "status": "fixed 2026-08-10: wire-resolved sub_slot + def-step resolution + encoded bool ops",
             },
             {
                 "id": "ContextRead-Commit",

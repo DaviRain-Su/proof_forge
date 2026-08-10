@@ -56,7 +56,10 @@ for entry in "${mods[@]}"; do
             && echo "  OK session LoopSum (official also 0 on empty)" || { echo "  FAIL session"; fail=$((fail+1)); continue; }
           ;;
         MapMini)
-          echo "  NOTE MapMini put: official simulate also empty state_delta (emitter/layout gap)"
+          python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" \
+            --call initialize --call put:1,99 --call get:1 >/tmp/psy-mat-session-$name.log \
+            && rg -q 'outputs=\[99\]' /tmp/psy-mat-session-$name.log \
+            && echo "  OK session put/get 99" || { echo "  FAIL session"; fail=$((fail+1)); continue; }
           ;;
       esac
       ok=$((ok+1))

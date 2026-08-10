@@ -22,7 +22,7 @@
       DPN package structure and JSON encoding are checked without a source-
       compiler/runtime dependency.
     * G5-AGG: Array UInt64 N / Principal wire-identity / Bytes 1..8 multi-leaf
-      storeAggregate/returnAggregate → multi SlotSingle (sub_slot fieldIndex+4);
+      storeAggregate/returnAggregate → multi SlotSingle (physical leaf fieldIndex; cmd wire-resolved);
       product Plan→DPN; nested Map / Map return / Principal return stay FC
     * DPN-5: Map UInt64 UInt64 cap-8 (24 occ/key/val leaves) product Plan→DPN
       with hand-built lookup Select + upsert storeAggregate
@@ -67,6 +67,32 @@ open ProofForgeV2.Targets.Psy
 open ProofForgeV2.Targets.Psy.Dpn.SchemaV1
 open ProofForgeV2.Targets.Psy.Dpn.JsonCodecV1
 open ProofForgeV2.Targets.Psy.Dpn.LowerPlanV1
+
+
+/-- Official simulate resolves `sub_slot_index` as a Target wire id. Physical
+    leaf = Constant inputs[0] when the wire is a constant; else bare index
+    (Counter golden path, resolves to 0). -/
+private def physicalSubSlotV1 (defs : Array IndexedVarDefV1) (subWire : UInt64) : UInt64 :=
+  let idx := subWire.toNat
+  match defs.find? (fun d => d.dataType == .target && d.index == idx) with
+  | some d =>
+      if d.opType == .constant then
+        match d.inputs[0]? with
+        | some v => v
+        | none => subWire
+      else subWire
+  | none => subWire
+
+private def setPhysicalSlotsV1 (fn : FunctionCircuitDefV1) : Array UInt64 :=
+  fn.stateCommands.filterMap fun
+    | .setContractStateSlotSingle _ sub _ => some (physicalSubSlotV1 fn.definitions sub)
+    | _ => none
+
+private def getPhysicalSlotsV1 (fn : FunctionCircuitDefV1) : Array UInt64 :=
+  fn.stateCommands.filterMap fun
+    | .getSelfUserCurrentContractStateSlotSingle sub =>
+        some (physicalSubSlotV1 fn.definitions sub)
+    | _ => none
 
 private def expect (cond : Bool) (message : String) : IO Unit :=
   unless cond do throw <| IO.userError message
@@ -411,11 +437,9 @@ def testOptionDualLeafStoreAggregate : IO Unit := do
     match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
   expect (setCount == 2)
     s!"Option init must emit 2 Sets (tag+payload), got {setCount}"
-  let slots := dInit.stateCommands.filterMap fun
-    | .setContractStateSlotSingle _ sub _ => some sub
-    | _ => none
-  expect (slots == #[4, 5])
-    s!"multi-leaf sub_slots must be fieldIndex+4 (WideCounter evidence), got {slots}"
+  let slots := setPhysicalSlotsV1 dInit
+  expect (slots == #[0, 1])
+    s!"multi-leaf physical leaves 0,1 (via Constant wires), got {slots}"
   let dSet ← liftResult (lowerFunctionForTestV1 setFn true)
   expect (dSet.circuitInputs.size == 1) "setSome one param"
   expect (dSet.circuitOutputs.size == 1) "setSome returns payload"
@@ -530,19 +554,15 @@ def testWideUInt128FourLimbInitGet : IO Unit := do
     if a.message == "u32 param out of range" then n + 1 else n) 0
   expect (u32Asserts == 4)
     s!"four UInt32 limbs must each assert < 2^32, got {u32Asserts}"
-  let setSlots := dInit.stateCommands.filterMap fun
-    | .setContractStateSlotSingle _ sub _ => some sub
-    | _ => none
-  expect (setSlots == #[4, 5, 6, 7])
-    s!"UInt128 write sub_slots 4..7, got {setSlots}"
+  let setSlots := setPhysicalSlotsV1 dInit
+  expect (setSlots == #[0, 1, 2, 3])
+    s!"UInt128 write physical leaves 0..3, got {setSlots}"
   let dGet ← liftResult (lowerFunctionForTestV1 getFn true)
   expect (dGet.circuitOutputs.size == 4)
     s!"get must return 4 limb outputs, got {dGet.circuitOutputs.size}"
-  let getSlots := dGet.stateCommands.filterMap fun
-    | .getSelfUserCurrentContractStateSlotSingle sub => some sub
-    | _ => none
-  expect (getSlots == #[4, 5, 6, 7])
-    s!"multi-leaf view Gets use same sub_slots as writes, got {getSlots}"
+  let getSlots := getPhysicalSlotsV1 dGet
+  expect (getSlots == #[0, 1, 2, 3])
+    s!"multi-leaf view Gets use same physical leaves as writes, got {getSlots}"
   let dAdd ← liftResult (lowerFunctionForTestV1 addFn true)
   expect (dAdd.definitions.any fun defn => defn.opType == .add)
     "wide add must emit limb Add"
@@ -687,11 +707,9 @@ unsafe def testOptionStateProductLower : IO Unit := do
     match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
   expect (setCount == 2)
     s!"OptionState init must dual-leaf Set, got {setCount}"
-  let slots := initDef.stateCommands.filterMap fun
-    | .setContractStateSlotSingle _ sub _ => some sub
-    | _ => none
-  expect (slots == #[4, 5])
-    s!"OptionState multi-leaf sub_slots 4,5, got {slots}"
+  let slots := setPhysicalSlotsV1 initDef
+  expect (slots == #[0, 1])
+    s!"OptionState multi-leaf physical leaves 0,1, got {slots}"
 
 
 /-- WideCounter product Plan→DPN includes mul/div/shift methods. -/
@@ -749,12 +767,10 @@ unsafe def testWideCounter256DpnWide : IO Unit := do
     match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
   expect (setCount == 8)
     s!"WideCounter256 init 8 Sets (UInt32 limbs), got {setCount}"
-  let initSlots := initDef.stateCommands.filterMap fun
-    | .setContractStateSlotSingle _ sub _ => some sub
-    | _ => none
-  -- multi-leaf sub_slot = fieldIndex+4 → 4..11 for eight limbs
-  expect (initSlots == #[4, 5, 6, 7, 8, 9, 10, 11])
-    s!"WideCounter256 init multi-leaf sub_slots 4..11, got {initSlots}"
+  let initSlots := setPhysicalSlotsV1 initDef
+  -- multi-leaf physical leaves 0..7 for eight limbs
+  expect (initSlots == #[0, 1, 2, 3, 4, 5, 6, 7])
+    s!"WideCounter256 init multi-leaf physical leaves 0..7, got {initSlots}"
   let some mulDef := pkg.find? (·.name == "multiply") |
     throw <| IO.userError s!"missing multiply; got {pkg.map (·.name)}"
   expect (mulDef.definitions.any fun d => d.opType == .mul)
@@ -899,12 +915,10 @@ def testMapUpsertStoreAggregate : IO Unit := do
     match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
   expect (setCount == 6)
     s!"mapPut storeAggregate must emit 6 Sets, got {setCount}"
-  let slots := d.stateCommands.filterMap fun
-    | .setContractStateSlotSingle _ sub _ => some sub
-    | _ => none
-  -- multi-leaf sub_slot = fieldIndex+4 → 4..9
-  expect (slots == #[4, 5, 6, 7, 8, 9])
-    s!"mapPut multi-leaf sub_slots 4..9, got {slots}"
+  let slots := setPhysicalSlotsV1 d
+  -- multi-leaf physical leaves 0..5 for 6 map leaves in hand-built test
+  expect (slots == #[0, 1, 2, 3, 4, 5])
+    s!"mapPut multi-leaf physical leaves 0..5, got {slots}"
   expect (d.assertions.any (·.message == "map full: no empty slot for new key"))
     "map full assert must reach DPN assertions"
   expect (d.definitions.any (·.opType == .select)) "upsert Select present"
@@ -923,18 +937,16 @@ unsafe def testMapMiniProductLower : IO Unit := do
   expect (pkg.any fun f => f.name == "initialize") "must include initialize"
   expect (pkg.any fun f => f.name == "put") "must include put"
   expect (pkg.any fun f => f.name == "get") "must include get"
-  -- Init: Map.empty → 24 zero storeAggregate Sets (sub_slots 4..27)
+  -- Init: Map.empty → 24 zero storeAggregate Sets (physical leaves 0..23)
   let some initDef := pkg.find? (·.name == "initialize") |
     throw <| IO.userError "missing initialize"
   let initSets := initDef.stateCommands.foldl (fun n c =>
     match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
   expect (initSets == 24)
     s!"MapMini init must 24-leaf Set (cap-8×3), got {initSets}"
-  let initSlots := initDef.stateCommands.filterMap fun
-    | .setContractStateSlotSingle _ sub _ => some sub
-    | _ => none
-  expect (initSlots.size == 24 && initSlots[0]! == 4 && initSlots[23]! == 27)
-    s!"MapMini init sub_slots 4..27, got first={initSlots[0]?} last={initSlots[23]?}"
+  let initSlots := setPhysicalSlotsV1 initDef
+  expect (initSlots.size == 24 && initSlots[0]! == 0 && initSlots[23]! == 23)
+    s!"MapMini init physical leaves 0..23, got first={initSlots[0]?} last={initSlots[23]?}"
   -- put: map-full assert + 24 Sets + return
   let some putDef := pkg.find? (·.name == "put") |
     throw <| IO.userError "missing put"
@@ -1030,11 +1042,9 @@ def testArrayTwoLeafStoreReturnAggregate : IO Unit := do
     match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
   expect (setCount == 2)
     s!"Array init must dual-leaf Set, got {setCount}"
-  let slots := dInit.stateCommands.filterMap fun
-    | .setContractStateSlotSingle _ sub _ => some sub
-    | _ => none
-  expect (slots == #[4, 5])
-    s!"Array multi-leaf sub_slots 4,5, got {slots}"
+  let slots := setPhysicalSlotsV1 dInit
+  expect (slots == #[0, 1])
+    s!"Array multi-leaf physical leaves 0,1, got {slots}"
   expect (dInit.circuitInputs.size == 2) "Array init 2 params"
   let dGet ← liftResult (lowerFunctionForTestV1 getFn true)
   expect (dGet.circuitOutputs.size == 2) "Array returnAggregate 2 leaves"
@@ -1042,11 +1052,9 @@ def testArrayTwoLeafStoreReturnAggregate : IO Unit := do
     match c with | .getSelfUserCurrentContractStateSlotSingle _ => n + 1 | _ => n) 0
   expect (getCount == 2)
     s!"Array view must Get 2 leaves, got {getCount}"
-  let getSlots := dGet.stateCommands.filterMap fun
-    | .getSelfUserCurrentContractStateSlotSingle sub => some sub
-    | _ => none
-  expect (getSlots == #[4, 5])
-    s!"Array view Gets use multi-leaf sub_slots 4,5, got {getSlots}"
+  let getSlots := getPhysicalSlotsV1 dGet
+  expect (getSlots == #[0, 1])
+    s!"Array view Gets use multi-leaf physical leaves 0,1, got {getSlots}"
 
 /-- G5-AGG: hand-built Principal wire-identity 9-leaf storeAggregate + U32 range. -/
 def testPrincipalNineLeafStoreAggregate : IO Unit := do
@@ -1080,11 +1088,9 @@ def testPrincipalNineLeafStoreAggregate : IO Unit := do
     match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
   expect (setCount == 9)
     s!"Principal init must 9-leaf Set (len+8 body), got {setCount}"
-  let slots := dInit.stateCommands.filterMap fun
-    | .setContractStateSlotSingle _ sub _ => some sub
-    | _ => none
-  expect (slots.size == 9 && slots[0]! == 4 && slots[8]! == 12)
-    s!"Principal multi-leaf sub_slots 4..12, got first={slots[0]?} last={slots[8]?}"
+  let slots := setPhysicalSlotsV1 dInit
+  expect (slots.size == 9 && slots[0]! == 0 && slots[8]! == 8)
+    s!"Principal multi-leaf physical leaves 0..8, got first={slots[0]?} last={slots[8]?}"
   let rangeAsserts := dInit.assertions.filter (·.message == "u32 param out of range")
   expect (rangeAsserts.size == 9)
     s!"Principal UInt32 limbs must each get u32 range assert, got {rangeAsserts.size}"
@@ -1142,11 +1148,9 @@ def testBytesFourLeafStoreReturnAggregate : IO Unit := do
     match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
   expect (setCount == 4)
     s!"Bytes4 init must 4-leaf Set, got {setCount}"
-  let slots := dInit.stateCommands.filterMap fun
-    | .setContractStateSlotSingle _ sub _ => some sub
-    | _ => none
-  expect (slots == #[4, 5, 6, 7])
-    s!"Bytes multi-leaf sub_slots 4..7, got {slots}"
+  let slots := setPhysicalSlotsV1 dInit
+  expect (slots == #[0, 1, 2, 3])
+    s!"Bytes multi-leaf physical leaves 0..3, got {slots}"
   let dGet ← liftResult (lowerFunctionForTestV1 getFn true)
   expect (dGet.circuitOutputs.size == 4) "Bytes returnAggregate 4 leaves"
   let dSet0 ← liftResult (lowerFunctionForTestV1 set0Fn true)
@@ -1234,11 +1238,9 @@ unsafe def testArrayProductLower : IO Unit := do
   -- atomic path; either way multi-leaf admit must produce ≥2 Sets.
   expect (initSets ≥ 2)
     s!"Array init must multi-leaf Set (≥2), got {initSets}"
-  let initSlots := initDef.stateCommands.filterMap fun
-    | .setContractStateSlotSingle _ sub _ => some sub
-    | _ => none
-  expect (initSlots.all (fun s => s ≥ 4))
-    s!"Array multi-leaf write sub_slots ≥4, got {initSlots}"
+  let initSlots := setPhysicalSlotsV1 initDef
+  expect (initSlots.all (fun s => s ≤ 1))
+    s!"Array multi-leaf physical leaves in 0..1, got {initSlots}"
   let some getDef := pkg.find? (·.name == "getArr") |
     throw <| IO.userError "missing getArr"
   expect (getDef.circuitOutputs.size == 2)
@@ -1289,11 +1291,9 @@ unsafe def testBytesProductLower : IO Unit := do
   -- Four element assigns → each may rewrite full 4-leaf aggregate.
   expect (initSets ≥ 4)
     s!"Bytes init must multi-leaf Sets (≥4), got {initSets}"
-  let initSlots := initDef.stateCommands.filterMap fun
-    | .setContractStateSlotSingle _ sub _ => some sub
-    | _ => none
-  expect (initSlots.all (fun s => s ≥ 4 && s ≤ 7))
-    s!"Bytes multi-leaf sub_slots in 4..7, got {initSlots}"
+  let initSlots := setPhysicalSlotsV1 initDef
+  expect (initSlots.all (fun s => s ≤ 3))
+    s!"Bytes multi-leaf physical leaves in 0..3, got {initSlots}"
   let some getDef := pkg.find? (·.name == "get") |
     throw <| IO.userError "missing Bytes get"
   expect (getDef.circuitOutputs.size == 4)
@@ -1337,11 +1337,9 @@ unsafe def testPrincipalProductLower : IO Unit := do
     match c with | .setContractStateSlotSingle .. => n + 1 | _ => n) 0
   expect (initSets == 9)
     s!"Principal init must 9-leaf storeAggregate Sets, got {initSets}"
-  let slots := initDef.stateCommands.filterMap fun
-    | .setContractStateSlotSingle _ sub _ => some sub
-    | _ => none
-  expect (slots.size == 9 && slots[0]! == 4 && slots[8]! == 12)
-    s!"Principal multi-leaf sub_slots 4..12, got first={slots[0]?} last={slots[8]?}"
+  let slots := setPhysicalSlotsV1 initDef
+  expect (slots.size == 9 && slots[0]! == 0 && slots[8]! == 8)
+    s!"Principal multi-leaf physical leaves 0..8, got first={slots[0]?} last={slots[8]?}"
   expect (initDef.assertions.any (·.message == "u32 param out of range"))
     "Principal limbs must carry u32 param range asserts"
   let some setDef := pkg.find? (·.name == "set") |
