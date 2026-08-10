@@ -136,6 +136,23 @@ theorem stateDecl_public_exactAt_root
       ({ id, name := stateName, typeId, visibility := .public_ } : StateDeclV1) 1 :=
   exactAt_stateDecl_publicV1 id typeId stateName hname 1 (by decide)
 
+/-- A production field codec consumes the generic four-element fixed-depth
+    array seam without supplying element bytes. -/
+theorem invariantTable_four_exactAt_root
+    (v0 v1 v2 v3 : InvariantDeclV1) :
+    ExactMidOffsetInvertAtV1 (encodeArray encodeInvariantDeclV1)
+      (decodeArray maxTableElements decodeInvariantDeclV1) #[v0, v1, v2, v3] 1 :=
+  exactAt_array_four_of_exactAtV1 encodeInvariantDeclV1 decodeInvariantDeclV1
+    maxTableElements (by decide) (by decide) v0 v1 v2 v3 1
+    (ExactMidOffsetInvertAtV1.ofGlobal
+      midOffsetInvert_encodeInvariantDecl_decodeInvariantDecl v0 (by decide))
+    (ExactMidOffsetInvertAtV1.ofGlobal
+      midOffsetInvert_encodeInvariantDecl_decodeInvariantDecl v1 (by decide))
+    (ExactMidOffsetInvertAtV1.ofGlobal
+      midOffsetInvert_encodeInvariantDecl_decodeInvariantDecl v2 (by decide))
+    (ExactMidOffsetInvertAtV1.ofGlobal
+      midOffsetInvert_encodeInvariantDecl_decodeInvariantDecl v3 (by decide))
+
 /-- Positive theorem: CallableKind MidOffsetInvert package. -/
 theorem callableKind_midOffsetInvert :
     MidOffsetInvertV1 encodeCallableKindV1 decodeCallableKindV1 :=

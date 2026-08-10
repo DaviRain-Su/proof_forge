@@ -855,7 +855,9 @@ expression translator：
     depth 组合；anonymous Bool/UInt `TypeDecl` 也已有 parameterized fixed-depth leaf certificate，
     不再限于 closed two-row decoder；public `StateDecl` leaf certificate 也已保留任意 declaration
     id / type id，只要求 production identifier gate 与明确的 nesting margin，不再局限于 singleton
-    state 0；这些仍只是 root-table 组合地基，不能单独推出 structure/validation success；
+    state 0；fixed-depth array lift 也已补齐四元素档位，可直接承接目标 equality fixture 的
+    四行 callable table，而不需要 caller 提供 element bytes；这些仍只是 root-table 组合地基，
+    不能单独推出 structure/validation success；
     当前已把 `subjectBodyEncodeOkV1` + 全部 production root gates + structure success +
     whole-program `RootFieldInvertV1` 组合 exact validation 的 theorem 抽到通用
     `SubjectDataBridgeV1`，不再归属于 parity shape；elaborator 现已对每个 proof-bearing program

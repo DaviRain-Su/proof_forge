@@ -2964,6 +2964,73 @@ theorem exactAt_array_three_of_exactAtV1
               exact exactAt_array_three_of_encodedAtV1 encode decode maxCount hmax
                 v0 v1 v2 b0 b1 b2 nesting henc0 henc1 henc2 h0 h1 h2
 
+/-- Four-element fixed-depth array lift without caller-supplied element bytes.
+    The successful branch delegates to the generic production-array induction. -/
+theorem exactAt_array_four_of_exactAtV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (decode : Decoder α) (maxCount : Nat)
+    (hmax : 4 ≤ maxCount) (hmaxArray : maxCount ≤ maxArrayElements)
+    (v0 v1 v2 v3 : α) (nesting : Nat)
+    (h0 : ExactMidOffsetInvertAtV1 encode decode v0 nesting)
+    (h1 : ExactMidOffsetInvertAtV1 encode decode v1 nesting)
+    (h2 : ExactMidOffsetInvertAtV1 encode decode v2 nesting)
+    (h3 : ExactMidOffsetInvertAtV1 encode decode v3 nesting) :
+    ExactMidOffsetInvertAtV1 (encodeArray encode) (decodeArray maxCount decode)
+      #[v0, v1, v2, v3] nesting := by
+  cases henc0 : encode v0 with
+  | error error =>
+      intro b left right henc
+      have harr := encodeArray_four_error_firstV1 encode v0 v1 v2 v3 error henc0
+      rw [harr] at henc
+      cases henc
+  | ok b0 =>
+      cases henc1 : encode v1 with
+      | error error =>
+          intro b left right henc
+          have harr := encodeArray_four_error_secondV1 encode v0 v1 v2 v3
+            b0 error henc0 henc1
+          rw [harr] at henc
+          cases henc
+      | ok b1 =>
+          cases henc2 : encode v2 with
+          | error error =>
+              intro b left right henc
+              have harr := encodeArray_four_error_thirdV1 encode v0 v1 v2 v3
+                b0 b1 error henc0 henc1 henc2
+              rw [harr] at henc
+              cases henc
+          | ok b2 =>
+              cases henc3 : encode v3 with
+              | error error =>
+                  intro b left right henc
+                  have harr := encodeArray_four_error_fourthV1 encode v0 v1 v2 v3
+                    b0 b1 b2 error henc0 henc1 henc2 henc3
+                  rw [harr] at henc
+                  cases henc
+              | ok b3 =>
+                  exact
+                    exactMidOffsetInvertAt_array_of_forall_encoded_exactAt
+                      encode decode maxCount #[v0, v1, v2, v3] nesting
+                      hmax hmaxArray (by
+                        change 4 ≤ UInt32.size - 1
+                        decide)
+                      (by
+                        intro value hvalue
+                        simp at hvalue
+                        rcases hvalue with rfl | rfl | rfl | rfl
+                        · exact ⟨b0, henc0⟩
+                        · exact ⟨b1, henc1⟩
+                        · exact ⟨b2, henc2⟩
+                        · exact ⟨b3, henc3⟩)
+                      (by
+                        intro value hvalue
+                        simp at hvalue
+                        rcases hvalue with rfl | rfl | rfl | rfl
+                        · exact h0
+                        · exact h1
+                        · exact h2
+                        · exact h3)
+
 /-- Five-element fixed-depth array lift from production element bytes. -/
 theorem exactAt_array_five_of_encodedAtV1
     (encode : α → Except SemanticWireErrorV1 ByteArray)

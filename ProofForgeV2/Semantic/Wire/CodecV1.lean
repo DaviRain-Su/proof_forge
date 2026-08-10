@@ -200,6 +200,45 @@ theorem encodeArray_three_error_thirdV1
     show 3 ≤ UInt32.size - 1 by decide, encodeArrayChunksV1, h0, h1, h2]
   rfl
 
+theorem encodeArray_four_error_firstV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 v3 : α) (error : SemanticWireErrorV1)
+    (h0 : encode v0 = .error error) :
+    encodeArray encode #[v0, v1, v2, v3] = .error error := by
+  simp [encodeArray, show 4 ≤ maxArrayElements by decide, encodeNatAsU32le,
+    show 4 ≤ UInt32.size - 1 by decide, encodeArrayChunksV1, h0]
+  rfl
+
+theorem encodeArray_four_error_secondV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 v3 : α) (b0 : ByteArray) (error : SemanticWireErrorV1)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .error error) :
+    encodeArray encode #[v0, v1, v2, v3] = .error error := by
+  simp [encodeArray, show 4 ≤ maxArrayElements by decide, encodeNatAsU32le,
+    show 4 ≤ UInt32.size - 1 by decide, encodeArrayChunksV1, h0, h1]
+  rfl
+
+theorem encodeArray_four_error_thirdV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 v3 : α) (b0 b1 : ByteArray) (error : SemanticWireErrorV1)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .ok b1)
+    (h2 : encode v2 = .error error) :
+    encodeArray encode #[v0, v1, v2, v3] = .error error := by
+  simp [encodeArray, show 4 ≤ maxArrayElements by decide, encodeNatAsU32le,
+    show 4 ≤ UInt32.size - 1 by decide, encodeArrayChunksV1, h0, h1, h2]
+  rfl
+
+theorem encodeArray_four_error_fourthV1
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (v0 v1 v2 v3 : α) (b0 b1 b2 : ByteArray)
+    (error : SemanticWireErrorV1)
+    (h0 : encode v0 = .ok b0) (h1 : encode v1 = .ok b1)
+    (h2 : encode v2 = .ok b2) (h3 : encode v3 = .error error) :
+    encodeArray encode #[v0, v1, v2, v3] = .error error := by
+  simp [encodeArray, show 4 ≤ maxArrayElements by decide, encodeNatAsU32le,
+    show 4 ≤ UInt32.size - 1 by decide, encodeArrayChunksV1, h0, h1, h2, h3]
+  rfl
+
 theorem encodeArray_five_error_firstV1
     (encode : α → Except SemanticWireErrorV1 ByteArray)
     (v0 v1 v2 v3 v4 : α) (error : SemanticWireErrorV1)
