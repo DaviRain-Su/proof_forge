@@ -77,6 +77,13 @@ enum Commands {
         #[arg(long)]
         adapter: Option<String>,
     },
+    /// Local runtime test (EVM: Anvil; Solana Mollusk pending)
+    Test {
+        #[arg(long, short = 't')]
+        target: Option<String>,
+        #[arg(long)]
+        artifact: Option<PathBuf>,
+    },
     /// Local run (Aleo VM). Alias of `local run`.
     Run(RunArgs),
     Local {
@@ -192,6 +199,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Check(_) => "check",
         Commands::Inspect { .. } => "inspect",
         Commands::Verify { .. } => "verify",
+        Commands::Test { .. } => "test",
         Commands::Run(_) | Commands::Local { .. } => "run",
         Commands::Deploy(_) => "deploy",
         Commands::Execute(_) => "execute",
@@ -247,6 +255,9 @@ fn dispatch(cli: Cli) -> PfResult<()> {
             adapter.as_deref(),
             json,
         ),
+        Commands::Test { target, artifact } => {
+            cmd::test::run(target.as_deref(), artifact.as_deref(), json)
+        }
         Commands::Run(a) => cmd::local_run::run(
             a.target.as_deref(),
             a.artifact.as_deref(),

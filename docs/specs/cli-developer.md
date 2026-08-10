@@ -23,6 +23,7 @@ Compiler CLI 契约仍见 [SPEC-CLI-001](cli.md)（`proof-forge-next` only）。
 | wrap 官方链工具（Aleo: Leo；Solana: solana-client verify） | 默认广播交易 |
 | Aleo local run / deploy-save / execute-save | mainnet 第一期 |
 | Solana offline `pf verify`（OutputSet self-consistency） | Solana/EVM network deploy（v0） |
+| EVM local `pf test`（Anvil via `scripts/pf_evm_test.sh`） | 全量 differential corpus / forge 框架替代 |
 | 稳定 JSON + 人类输出 | 托管私钥钱包文件格式（第一期） |
 
 可执行文件名固定 **`pf`**。package 名 `proof-forge-pf`。
@@ -69,6 +70,7 @@ pf check
 pf run -- <fn> [inputs...]                 # = local run；默认 build/<target>/
 pf inspect
 pf verify [-t solana] [--artifact DIR] [--adapter transfer-sol-v1]
+pf test   [-t evm] [--artifact DIR]            # host-optional Anvil
 pf deploy [-n testnet|devnet] [--broadcast] [--private-key-env NAME]
 pf execute [-n …] [--broadcast] -- <fn> [inputs...]
 pf doctor | pf setup | pf version | pf list-targets
@@ -88,6 +90,7 @@ pf build <source.lean> --module <Lean.Name> -t aleo -o build/aleo
 | `build` | spawn compiler build；校验 OutputSet 存在 `*.aleo`（aleo） |
 | `local run` | Aleo Wave-B：imports 钉扎 PF bytecode → `leo run --offline` |
 | `verify` | **Solana only（D7a）**：spawn `proof-forge-solana-client verify-artifacts`；offline，无 RPC/wallet/deploy |
+| `test` | **EVM（D7c）**：spawn `scripts/pf_evm_test.sh` → local Anvil deploy+call；缺 anvil/cast skip-clean；Solana Mollusk 待 D7b |
 | `deploy` | 默认 save-only；twin exact-match 后 `leo deploy --save` |
 | `execute` | 默认 save-only；`leo execute --save`（可 `--skip-execute-proof`） |
 
@@ -161,6 +164,16 @@ increment:  get state; add; set; get.or_use again (dropped)
 6. 非声称：不是 formal、不是 hermetic、不是 network-write、不是 Mollusk 执行（D7b）。
 7. 金样 fixture：`Examples/TransferSol`；部分 generic CPI 产物可能在 evidence.note irDigest join 上失败——保持 FC。
 
+## 4.6 EVM local Anvil test（D7c）
+
+1. 仅 `target=evm`；`aleo` → 指引 `pf run`；`solana` → 指引 `pf verify` / D7b。
+2. 默认 artifact：`build/evm/`（或 `--artifact`）。
+3. 解析脚本：`PROOF_FORGE_EVM_TEST_SCRIPT` → `$PROOF_FORGE_ROOT/scripts/pf_evm_test.sh` → cwd/parents。
+4. 工具：`PROOF_FORGE_TOOL_ROOT` / `FOUNDRY_BIN` 下 locked `anvil`+`cast`（禁止把 PATH 乱装进 lock）。
+5. 矩阵（StateCell 形）：constructor(7) → get=7 → eth_call increment(5)=12 且不提交 → send increment → get=12 → overflow hold。
+6. 缺工具：exit 0 + `skipped:`（host-optional，**不是 pass 声称**）；工具在场断言失败 → exit 1。
+7. 非声称：不是 formal、不是 mainnet、不是全量 differential corpus。
+
 ## 5. JSON 成功对象（最小）
 
 ```json
@@ -213,7 +226,7 @@ increment:  get state; add; set; get.or_use again (dropped)
 ## 6. 非目标（v0）
 
 - EVM/Solana **network** deploy（adapter stub 可存在，命令 fail closed with “not implemented”）。
-- Solana Mollusk `pf test`（D7b）、EVM Anvil `pf test`（D7c）——计划中，非本切片。
+- Solana Mollusk `pf test`（D7b）——计划中。
 - MCP 暴露 broadcast。
 - 交互式钱包 UI。
 - 把 acceptance scripts 删除（CI 仍用 scripts 或 `pf` 的 `--gate` 模式）。
@@ -226,7 +239,8 @@ increment:  get state; add; set; get.or_use again (dropped)
 | integration | `pf build` against built `proof-forge-next`（host） |
 | host-optional | `pf local run` / `pf deploy` save-only（需 leo + network） |
 | host-optional | `pf verify -t solana` on TransferSol（需 solana-client binary） |
-| CI ordinary | 不强制 leo/network/solana-client；unit + clap smoke |
+| host-optional | `pf test -t evm` on StateCell（需 locked anvil/cast） |
+| CI ordinary | 不强制 leo/network/solana-client/anvil；unit + clap smoke |
 
 ## 8. 版本
 

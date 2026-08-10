@@ -57,7 +57,7 @@ just pf-cli-test | pf-cli-build | pf-cli-smoke
 | PF-D4 | just recipes + README + unit tests | **done** |
 | PF-D5 | multi-target build + clean + capability notes | **done** |
 | PF-D6 | quiet run + `pf_cli_smoke` | **done** |
-| **PF-D7** | **EVM local + Solana verify/test 接入 `pf`** | **D7a done**（`pf verify -t solana`）；D7b/D7c pending |
+| **PF-D7** | **EVM local + Solana verify/test 接入 `pf`** | **D7a+D7c done**；D7b Mollusk pending |
 | PF-D8 | 统一 `pf test` 命令面（按 target 分派） | pending（D7 后） |
 | PF-D9 | 分发：`pf` 与 compiler 并排 release / install 文档 | pending |
 | PF-D10 | （可选）Aleo twin 扩到非 StateCell 程序 | pending |
@@ -203,24 +203,25 @@ pf build -t solana
 pf test -t solana     # 需 Mollusk/runtime deps
 ```
 
-### 5.4 D7c — EVM test / local（Anvil，host-optional）
+### 5.4 D7c — EVM test / local（Anvil，host-optional） — **done 2026-08-10**
 
 **实现**
 
-- `pf test -t evm` → wrap 一条 **最小** Anvil 路径：
-  - 首选：对当前 `build/evm` 跑既有 differential 中与 StateCell/Counter 同形的子集；
-  - 或：`scripts/evm_anvil_differential.sh` 的窄入口（新建 `scripts/pf_evm_test.sh` 以免全 corpus）。
-- `anvil`/`cast`/`solc` 来自 Tool Lock（`PROOF_FORGE_TOOL_ROOT`），禁止 PATH 乱装进 lock。
-- 起节点 → deploy bytecode → call → 断言 → 关节点；全在脚本/adapter 内，超时 fail closed。
+- `scripts/pf_evm_test.sh`：最小 StateCell 形矩阵（init7 + inc5 + overflow-hold）
+- `clients/pf-cli/src/targets/evm/test.rs` + `cmd/test.rs`
+- `pf test -t evm [--artifact DIR]`
+- 工具：`PROOF_FORGE_TOOL_ROOT` / `FOUNDRY_BIN` locked anvil+cast；缺工具 skip-clean
+- `just pf-cli-evm-test`；`just pf-cli-smoke` 在工具在场时覆盖
 
 **验收**
 
 ```bash
-pf build -t evm
-pf test -t evm        # 需 anvil+cast
+pf build Examples/StateCell.lean --module Examples.StateCell -t evm -o build/v2/sc
+pf test -t evm --artifact build/v2/sc
+just pf-cli-evm-test
 ```
 
-**非声称**：不是 mainnet；不是 forge 全套框架替代。
+**非声称**：不是 mainnet；不是 forge 全套框架替代；不是全量 differential corpus。
 
 ### 5.5 D7 不做清单
 
@@ -268,10 +269,9 @@ pf test -t aleo,evm      # 多 target 顺序跑；单个 fail → 非零
 ## 7. 建议击杀顺序（从现在开始）
 
 ```text
-D7a done ──► D7c EVM Anvil 最小 test wrap     # 2–3 天，对标「本地节点」
-         ──► D7b Solana Mollusk focused test  # 2–3 天，host-heavy
-         ──► D8  pf test 统一入口 + smoke 扩  # 1 天
-         ──► D9  分发/安装体验                 # 按 release 节奏
+D7a+D7c done ──► D7b Solana Mollusk focused test  # 2–3 天，host-heavy
+             ──► D8  pf test 统一入口（aleo/solana 分派）  # 1 天
+             ──► D9  分发/安装体验                 # 按 release 节奏
 ```
 
 **并行建议**
@@ -289,12 +289,12 @@ A∥B∥C 文件几乎不重叠，可多 agent。
 ## 8. 验收总表（D7 done 定义）
 
 - [x] `pf build -t solana && pf verify` 在 monorepo TransferSol 金样上绿（StateCell 若 irDigest join fail 保持 FC）
-- [ ] `pf build -t evm && pf test -t evm` host-optional 绿（缺 anvil skip 或明确错误）
-- [ ] `pf test -t solana` host-optional 绿（或明确「需 just solana-runtime 依赖」）
-- [ ] `pf run -t evm|solana` 行为有文档：实现或稳定 FC 文案（禁止含糊）
-- [x] `just pf-cli-smoke` 含 TransferSol `pf verify`（host builds solana-client）；EVM test smoke 仍待 D7c
-- [x] README + SPEC-CLI-DEV 更新 `pf verify` / Solana offline 能力
-- [x] 无 Devnet 自动写、无 mainnet、无 `deployable=true` 改写（verify offline only）
+- [x] `pf build -t evm && pf test -t evm` host-optional 绿（缺 anvil skip-clean；在场 hard assert）
+- [ ] `pf test -t solana` host-optional 绿（或明确「需 just solana-runtime 依赖」）— D7b
+- [x] `pf run -t evm|solana` 稳定 FC 文案（指引 `pf test` / `pf verify`）
+- [x] `just pf-cli-smoke` 含 TransferSol verify + StateCell evm test（工具在场时）
+- [x] README + SPEC-CLI-DEV 更新 `pf verify` / `pf test -t evm`
+- [x] 无 Devnet 自动写、无 mainnet、无 `deployable=true` 改写
 
 ---
 

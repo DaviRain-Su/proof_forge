@@ -1410,6 +1410,19 @@ pf-cli-smoke: build pf-cli-build
     cargo build --manifest-path clients/solana-client/Cargo.toml --locked --release
     /bin/bash -p scripts/pf_cli_smoke.sh
 
+# Host-optional: pf test -t evm against StateCell (needs locked anvil/cast).
+pf-cli-evm-test: build pf-cli-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PROOF_FORGE_CLI="${PROOF_FORGE_CLI:-$PWD/.lake/build/bin/proof-forge-next}"
+    export PROOF_FORGE_ROOT="${PROOF_FORGE_ROOT:-$PWD}"
+    export PROOF_FORGE_TOOL_ROOT="${PROOF_FORGE_TOOL_ROOT:-$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64}"
+    PF="${PF:-$PWD/clients/pf-cli/target/release/pf}"
+    out="$PWD/build/v2/pf-d7c-statecell"
+    rm -rf "$out"
+    "$PF" build Examples/StateCell.lean --module Examples.StateCell -t evm -o "$out"
+    "$PF" test -t evm --artifact "$out"
+
 # Build the exact TransferSol product tree, then apply both the generic Solana
 # profile verifier and the explicit TransferSol program adapter.
 solana-transfer-sol-offline:

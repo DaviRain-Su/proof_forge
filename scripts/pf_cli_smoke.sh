@@ -104,8 +104,36 @@ echo "pf-cli-smoke: evm run not-implemented message"
   code=$?
   set -e
   [[ "$code" -ne 0 ]]
-  echo "$err" | rg -qi 'anvil|not implemented|evm'
+  echo "$err" | rg -qi 'pf test|anvil|not implemented|evm'
 )
+
+# D7c: EVM Anvil test (optional if anvil+cast present)
+tool_root="${PROOF_FORGE_TOOL_ROOT:-${FOUNDRY_BIN:-$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64}}"
+if [[ -x "$tool_root/anvil" && -x "$tool_root/cast" ]]; then
+  echo "pf-cli-smoke: evm test (StateCell monorepo fixture)"
+  export PROOF_FORGE_TOOL_ROOT="$tool_root"
+  export PROOF_FORGE_ROOT="$root"
+  evm_out="$tmp/evm-sc"
+  "$cli" build Examples/StateCell.lean \
+    --module Examples.StateCell --target evm -o "$evm_out" >/dev/null
+  tout="$("$pf_bin" test -t evm --artifact "$evm_out" 2>&1)" || {
+    echo "$tout" >&2
+    exit 1
+  }
+  echo "$tout" | rg -qi 'Finished `test`|pf-evm-test: ok|Skipped `test`'
+  jout="$("$pf_bin" --json test -t evm --artifact "$evm_out")"
+  echo "$jout" | python3 -I -c '
+import json,sys
+o=json.load(sys.stdin)
+assert o.get("schema")=="proof-forge.pf.result.v1", o
+assert o.get("command")=="test", o
+assert o.get("ok") is True, o
+assert o.get("target")=="evm", o
+print("evm-json-ok")
+'
+else
+  echo "pf-cli-smoke: skipped evm test (anvil/cast missing under $tool_root)"
+fi
 
 # D7a: Solana offline verify (optional if solana-client binary present)
 sc="${PROOF_FORGE_SOLANA_CLIENT:-}"

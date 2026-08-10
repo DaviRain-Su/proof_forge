@@ -36,6 +36,15 @@ export PROOF_FORGE_SOLANA_CLIENT="$PWD/clients/solana-client/target/release/proo
 "$PF" verify -t solana --artifact build/v2/ts --adapter transfer-sol-v1
 ```
 
+### EVM local Anvil test (D7c)
+
+```bash
+export PROOF_FORGE_TOOL_ROOT="$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64"  # locked anvil+cast
+"$PF" build Examples/StateCell.lean --module Examples.StateCell -t evm -o build/v2/sc-evm
+"$PF" test -t evm --artifact build/v2/sc-evm
+# or: just pf-cli-evm-test
+```
+
 ## Commands
 
 | Command | Purpose |
@@ -49,6 +58,7 @@ export PROOF_FORGE_SOLANA_CLIENT="$PWD/clients/solana-client/target/release/proo
 | `pf inspect` | Validate artifact dir |
 | `pf verify -t solana` | Offline Solana OutputSet verify (`proof-forge-solana-client`) |
 | `pf verify -t solana --adapter transfer-sol-v1` | + TransferSol program pins |
+| `pf test -t evm` | Local Anvil deploy+call matrix (`scripts/pf_evm_test.sh`) |
 | `pf deploy` / `pf execute` | Save network txs (Aleo; no broadcast by default) |
 | `pf doctor` / `pf setup` | Toolchain status |
 | `pf list-targets` | Implemented targets from compiler |

@@ -1,6 +1,7 @@
 //! Per-chain developer adapters.
 
 pub mod aleo;
+pub mod evm;
 pub mod solana;
 
 use crate::error::{PfError, PfResult};
@@ -38,7 +39,7 @@ pub fn capability_note(target: &str) -> &'static str {
     match TargetId::parse(target) {
         TargetId::Aleo => "build, local run, deploy, and execute supported",
         TargetId::Evm => {
-            "build supported via proof-forge-next; local run not in pf v0 (use just evm-* / anvil scripts)"
+            "build + `pf test` (local Anvil via scripts/pf_evm_test.sh); deploy not in pf v0"
         }
         TargetId::Solana => {
             "build + `pf verify` (offline solana-client); Mollusk test pending D7b; deploy not in pf v0"
@@ -53,7 +54,7 @@ mod tests {
 
     #[test]
     fn capability_notes_are_target_specific() {
-        assert!(capability_note("evm").contains("anvil scripts"));
+        assert!(capability_note("evm").contains("pf test"));
         assert!(capability_note("solana").contains("pf verify"));
         assert!(capability_note("near").contains("fail closed"));
     }

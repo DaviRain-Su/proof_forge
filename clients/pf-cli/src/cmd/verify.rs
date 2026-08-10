@@ -26,7 +26,8 @@ pub fn run(
         }
         targets::TargetId::Evm => {
             return Err(PfError::NotImplemented(
-                "evm: verify/test not in pf yet (D7c: Anvil); use just evm-* scripts".into(),
+                "evm: use `pf test -t evm` (local Anvil); offline verify client not separate"
+                    .into(),
             ));
         }
         targets::TargetId::Other => {

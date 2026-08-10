@@ -22,6 +22,17 @@ pub fn run(
     let project = Project::discover()?;
     project.apply_toolchain_env()?;
     let target = project.resolve_target(target_cli);
+    if targets::TargetId::parse(&target) == targets::TargetId::Evm {
+        return Err(PfError::NotImplemented(
+            "evm: use `pf test -t evm` (local Anvil); `pf run` is Aleo-only in v0".into(),
+        ));
+    }
+    if targets::TargetId::parse(&target) == targets::TargetId::Solana {
+        return Err(PfError::NotImplemented(
+            "solana: use `pf verify -t solana` (offline) or `pf test -t solana` (D7b pending)"
+                .into(),
+        ));
+    }
     targets::require_aleo(&target)?;
     let dir = project.resolve_artifact_dir(&target, artifact_cli, None);
     if !dir.is_dir() {
