@@ -115,6 +115,18 @@ theorem invariantTable_exactAt_of_forall_encoded
             midOffsetInvert_encodeInvariantDecl_decodeInvariantDecl value
             (by decide))
 
+/-- Anonymous TypeDecl leaves expose root-depth exact certificates without a
+    contract byte pin. -/
+theorem typeDecl_uint64_exactAt_root (id : UInt32) :
+    ExactMidOffsetInvertAtV1 encodeTypeDeclV1 decodeTypeDeclV1
+      ({ id := id, name := none, shape := .uint 64 } : TypeDeclV1) 1 :=
+  exactAt_typeDecl_uint_noneV1 id 64 1 (by decide)
+
+theorem typeDecl_bool_exactAt_root (id : UInt32) :
+    ExactMidOffsetInvertAtV1 encodeTypeDeclV1 decodeTypeDeclV1
+      ({ id := id, name := none, shape := .bool } : TypeDeclV1) 1 :=
+  exactAt_typeDecl_bool_noneV1 id 1 (by decide)
+
 /-- Positive theorem: CallableKind MidOffsetInvert package. -/
 theorem callableKind_midOffsetInvert :
     MidOffsetInvertV1 encodeCallableKindV1 decodeCallableKindV1 :=

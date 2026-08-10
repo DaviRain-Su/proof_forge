@@ -2175,6 +2175,37 @@ theorem decodeTypeDecl_bool_none_of_encode_midV1
   decodeTypeDecl_none_of_encode_midV1 id .bool exactMidOffsetInvert_typeShape_bool
     b left right nesting hdepth henc
 
+/-- Fixed-depth exact inversion for an anonymous TypeDecl whose nested shape
+    has a production exact-inversion certificate. -/
+theorem exactAt_typeDecl_none_of_shapeV1
+    (id : UInt32) (shape : TypeShapeV1) (nesting : Nat)
+    (hdepth : nesting + 1 < maxNesting)
+    (hshapeInv : ExactMidOffsetInvertV1 encodeTypeShapeV1 decodeTypeShapeV1 shape) :
+    ExactMidOffsetInvertAtV1 encodeTypeDeclV1 decodeTypeDeclV1
+      ({ id := id, name := none, shape := shape } : TypeDeclV1) nesting := by
+  intro b left right henc
+  exact
+    decodeTypeDecl_none_of_encode_midV1 id shape hshapeInv b left right
+      nesting hdepth henc
+
+/-- Fixed-depth anonymous UInt TypeDecl inversion. -/
+theorem exactAt_typeDecl_uint_noneV1
+    (id : UInt32) (width : UInt16) (nesting : Nat)
+    (hdepth : nesting + 1 < maxNesting) :
+    ExactMidOffsetInvertAtV1 encodeTypeDeclV1 decodeTypeDeclV1
+      ({ id := id, name := none, shape := .uint width } : TypeDeclV1) nesting :=
+  exactAt_typeDecl_none_of_shapeV1 id (.uint width) nesting hdepth
+    (exactMidOffsetInvert_typeShape_uint width)
+
+/-- Fixed-depth anonymous Bool TypeDecl inversion. -/
+theorem exactAt_typeDecl_bool_noneV1
+    (id : UInt32) (nesting : Nat)
+    (hdepth : nesting + 1 < maxNesting) :
+    ExactMidOffsetInvertAtV1 encodeTypeDeclV1 decodeTypeDeclV1
+      ({ id := id, name := none, shape := .bool } : TypeDeclV1) nesting :=
+  exactAt_typeDecl_none_of_shapeV1 id .bool nesting hdepth
+    exactMidOffsetInvert_typeShape_bool
+
 /-- Exact two-element anonymous TypeDecl root table for UInt64 then Bool. -/
 theorem decodeTypes_uint64_bool_table_of_encode_midV1
     (uintB boolB : ByteArray)
