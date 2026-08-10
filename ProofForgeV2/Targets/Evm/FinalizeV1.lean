@@ -6,8 +6,11 @@
   `Binary representation:\n`, write `{name}.bin` + `\n`.
 
   Profile selection (capability-bound, no ambient fallback):
-  - `evm-yul-solc-0.8.34-v1` (default): `#['--strict-assembly','--bin', source]`
+  - `evm-yul-solc-0.8.34-v1` (default):
+      `#['--strict-assembly','--optimize','--bin', source]`
   - `evm-yul-solc-0.8.34-cancun-v1`: adds `--evm-version cancun` before `--bin`
+    Both profiles enable solc's Yul optimizer (same pipeline Solidity uses for
+    `--optimize` on IR). Source Yul stays unoptimized for readability/debug.
 
   Same locked solc 0.8.34 binary for both profiles. PATH is never consulted.
   Separate from pure `Targets.Evm` Plan/IR core (no tool runner in Evm.lean).
@@ -38,9 +41,10 @@ def requireNonemptySolcBytecode (binary : String) : IO Unit := do
 def solcArgsForProfile (profile : CodegenProfileId) (source : String) :
     Except String (Array String) :=
   if profile == CodegenProfileId.evmYulSolc0834CancunV1 then
-    pure #["--strict-assembly", "--evm-version", "cancun", "--bin", source]
+    pure #["--strict-assembly", "--optimize", "--evm-version", "cancun",
+      "--bin", source]
   else if profile == CodegenProfileId.evmYulSolc0834V1 then
-    pure #["--strict-assembly", "--bin", source]
+    pure #["--strict-assembly", "--optimize", "--bin", source]
   else
     throw s!"unsupported EVM finalize profile '{profile}'"
 

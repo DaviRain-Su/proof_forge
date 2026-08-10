@@ -5,7 +5,7 @@
   (select → compileValidatedSourceV1 → resolve → materializeResult), writes the
   emitted `.yul` object to a staging directory, and invokes:
 
-      solc --strict-assembly --bin <name>.yul
+      solc --strict-assembly --optimize --bin <name>.yul
 
   matching FinalizeV1 / locked-solc product finalization args.
 
@@ -76,13 +76,13 @@ private unsafe def materializeYul
     s!"{label}: Yul must start with top-level object"
   pure (yulFile.contents, expectedYulPath)
 
-/-- Run `solc --strict-assembly --bin <file>` in `cwd`; fail closed on error.
+/-- Run `solc --strict-assembly --optimize --bin <file>` in `cwd`; fail closed on error.
     B-EVM-MAP-STACK: stderr must never report StackTooDeep (dense Map/Token). -/
 private def runSolc (solc : String) (cwd : FilePath) (yulFileName : String)
     (label : String) : IO Unit := do
   let process ← IO.Process.output {
     cmd := solc
-    args := #["--strict-assembly", "--bin", yulFileName]
+    args := #["--strict-assembly", "--optimize", "--bin", yulFileName]
     cwd := some cwd
   }
   let combined := process.stdout ++ "\n" ++ process.stderr
@@ -90,7 +90,7 @@ private def runSolc (solc : String) (cwd : FilePath) (yulFileName : String)
     s!"{label}: solc reported StackTooDeep (B-EVM-MAP-STACK regression)\n{combined}"
   unless process.exitCode == 0 do
     throw <| IO.userError
-      (label ++ ": solc --strict-assembly --bin failed (exit " ++
+      (label ++ ": solc --strict-assembly --optimize --bin failed (exit " ++
         toString process.exitCode ++ ")\nstdout:\n" ++ process.stdout ++
         "\nstderr:\n" ++ process.stderr)
   expect (process.stdout.contains "Binary representation:")

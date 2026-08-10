@@ -110,13 +110,14 @@ private def testSupportAndDescriptor : IO Unit := do
 private def testFinalizeArgsAndNote : IO Unit := do
   match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834V1 "StateCell.yul" with
   | .ok legacyArgs =>
-      expect (legacyArgs == #["--strict-assembly", "--bin", "StateCell.yul"])
-        "legacy solc args keep historical wire (no ambient --evm-version)"
+      expect (legacyArgs == #["--strict-assembly", "--optimize", "--bin", "StateCell.yul"])
+        "legacy solc args enable --optimize (no ambient --evm-version)"
   | .error e => throw <| IO.userError s!"legacy solcArgs must succeed: {e}"
   match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834CancunV1 "StateCell.yul" with
   | .ok cancunArgs =>
       expect (cancunArgs ==
-          #["--strict-assembly", "--evm-version", "cancun", "--bin", "StateCell.yul"])
+          #["--strict-assembly", "--optimize", "--evm-version", "cancun",
+            "--bin", "StateCell.yul"])
         "cancun solc args pin --evm-version cancun"
   | .error e => throw <| IO.userError s!"cancun solcArgs must succeed: {e}"
   -- Unknown profile fail closed (open-else would silently treat as legacy).
