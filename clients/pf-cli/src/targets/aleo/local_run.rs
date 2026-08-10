@@ -107,52 +107,59 @@ fn tempfile_dir() -> PfResult<PathBuf> {
 }
 
 fn leo_new(leo: &Path, parent: &Path, name: &str, home: &Path) -> PfResult<()> {
-    let st = Command::new(leo)
+    // Capture output so default `pf run` stays quiet (setup chatter is not product UX).
+    let out = Command::new(leo)
         .current_dir(parent)
         .args(["new", name, "--disable-update-check"])
         .env("HOME", home)
-        .status()
+        .output()
         .map_err(|e| PfError::Tool(format!("leo new: {e}")))?;
-    if !st.success() {
+    if !out.status.success() {
         return Err(PfError::Tool(format!(
-            "leo new {name} failed (exit {:?})",
-            st.code()
+            "leo new {name} failed (exit {:?})\n{}{}",
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr),
+            String::from_utf8_lossy(&out.stdout)
         )));
     }
     Ok(())
 }
 
 fn leo_build(leo: &Path, pkg: &Path, home: &Path) -> PfResult<()> {
-    let st = Command::new(leo)
+    let out = Command::new(leo)
         .args(["build", "--offline", "--disable-update-check", "--path"])
         .arg(pkg)
         .args(["--network", "testnet"])
         .env("HOME", home)
-        .status()
+        .output()
         .map_err(|e| PfError::Tool(format!("leo build: {e}")))?;
-    if !st.success() {
+    if !out.status.success() {
         return Err(PfError::Tool(format!(
-            "leo build failed (exit {:?})",
-            st.code()
+            "leo build failed (exit {:?})\n{}{}",
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr),
+            String::from_utf8_lossy(&out.stdout)
         )));
     }
     Ok(())
 }
 
 fn leo_add_local(leo: &Path, runner: &Path, dep: &Path, name: &str, home: &Path) -> PfResult<()> {
-    let st = Command::new(leo)
+    let out = Command::new(leo)
         .args(["add", "--disable-update-check", "--path"])
         .arg(runner)
         .arg("--local")
         .arg(dep)
         .arg(name)
         .env("HOME", home)
-        .status()
+        .output()
         .map_err(|e| PfError::Tool(format!("leo add: {e}")))?;
-    if !st.success() {
+    if !out.status.success() {
         return Err(PfError::Tool(format!(
-            "leo add --local failed (exit {:?})",
-            st.code()
+            "leo add --local failed (exit {:?})\n{}{}",
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr),
+            String::from_utf8_lossy(&out.stdout)
         )));
     }
     Ok(())

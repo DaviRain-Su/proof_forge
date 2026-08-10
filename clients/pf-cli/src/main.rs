@@ -56,6 +56,8 @@ enum Commands {
     },
     /// Build the project (default target from pf.toml → build/<target>/)
     Build(BuildArgs),
+    /// Remove all build artifacts under the configured out-dir
+    Clean,
     /// Typecheck / validate without writing artifacts
     Check(CheckArgs),
     /// Validate an artifact directory (default: build/<target>/)
@@ -117,6 +119,9 @@ struct RunArgs {
     target: Option<String>,
     #[arg(long)]
     artifact: Option<PathBuf>,
+    /// Print full Leo toolchain chatter (default: summary only)
+    #[arg(long, short = 'v')]
+    verbose: bool,
     /// Function and inputs after `--`, e.g. `initialize 5u64`
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     args: Vec<String>,
@@ -173,6 +178,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Setup { .. } => "setup",
         Commands::Doctor { .. } => "doctor",
         Commands::Build(_) => "build",
+        Commands::Clean => "clean",
         Commands::Check(_) => "check",
         Commands::Inspect { .. } => "inspect",
         Commands::Run(_) | Commands::Local { .. } => "run",
@@ -210,18 +216,32 @@ fn dispatch(cli: Cli) -> PfResult<()> {
             profile: a.profile.as_deref(),
             json,
         }),
-        Commands::Check(a) => {
-            cmd::check::run(a.source.as_deref(), a.module.as_deref(), a.root.as_deref(), json)
-        }
+        Commands::Clean => cmd::clean::run(json),
+        Commands::Check(a) => cmd::check::run(
+            a.source.as_deref(),
+            a.module.as_deref(),
+            a.root.as_deref(),
+            json,
+        ),
         Commands::Inspect { artifact, target } => {
             cmd::inspect::run(artifact.as_deref(), target.as_deref(), json)
         }
-        Commands::Run(a) => {
-            cmd::local_run::run(a.target.as_deref(), a.artifact.as_deref(), &a.args, json)
-        }
+        Commands::Run(a) => cmd::local_run::run(
+            a.target.as_deref(),
+            a.artifact.as_deref(),
+            &a.args,
+            json,
+            a.verbose,
+        ),
         Commands::Local {
             command: LocalCommands::Run(a),
-        } => cmd::local_run::run(a.target.as_deref(), a.artifact.as_deref(), &a.args, json),
+        } => cmd::local_run::run(
+            a.target.as_deref(),
+            a.artifact.as_deref(),
+            &a.args,
+            json,
+            a.verbose,
+        ),
         Commands::Deploy(a) => cmd::deploy::run(
             a.target.as_deref(),
             a.artifact.as_deref(),

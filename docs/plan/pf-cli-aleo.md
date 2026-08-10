@@ -33,7 +33,9 @@ clients/pf-cli/
 | PF-D2 | `local run`（Wave-B 逻辑 Rust 化） | **done** |
 | PF-D3 | `deploy`/`execute` save-only（Wave-C + StateCell twin） | **done** |
 | PF-D4 | just recipes + README 30s + unit tests | **done** |
-| PF-D5 | （后）EVM/Solana adapter stubs 明确 FC | pending |
+| PF-D5 | EVM/Solana capability notes + `pf build -t` multi-target + `pf clean` | **done** |
+| PF-D6 | quiet `pf run` + `scripts/pf_cli_smoke.sh` / `just pf-cli-smoke` | **done** |
+| PF-D7 | （后）EVM local / Solana verify adapters 真正接线 | pending |
 
 ## 命令优先级
 

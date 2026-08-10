@@ -1,7 +1,7 @@
 use crate::artifact;
 use crate::cmd::{compiler_json, emit};
 use crate::compiler;
-use crate::error::PfResult;
+use crate::error::{PfError, PfResult};
 use crate::project::Project;
 use crate::result_json::PfOk;
 use std::path::Path;
@@ -64,6 +64,11 @@ pub fn run(opts: BuildOpts<'_>) -> PfResult<()> {
     let out = compiler::run_compiler_checked(&refs, None)?;
     if target == "aleo" {
         artifact::load_aleo_artifact(&output)?;
+    } else if !output.join("manifest.json").is_file() {
+        return Err(PfError::Artifact(format!(
+            "missing manifest.json under {}",
+            output.display()
+        )));
     }
     let mut ok = PfOk::new("build");
     ok.target = Some(target.clone());

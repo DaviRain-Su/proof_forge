@@ -16,6 +16,7 @@ pub struct NetworkTxOutcome {
     pub endpoint: String,
     pub broadcast: bool,
     pub saved: Vec<PathBuf>,
+    #[allow(dead_code)] // Retained for diagnostics and future receipt reporting.
     pub work_dir: PathBuf,
 }
 

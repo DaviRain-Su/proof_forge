@@ -271,6 +271,33 @@ impl Project {
         self.root.join(out_root).join(target)
     }
 
+    /// Configured output root, constrained to remain beneath the project root.
+    pub fn output_root(&self) -> PfResult<PathBuf> {
+        let configured = self
+            .config
+            .as_ref()
+            .map(|c| c.build.out_dir.as_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("build");
+        let relative = Path::new(configured);
+        let safe = !relative.is_absolute()
+            && relative.components().all(|component| {
+                matches!(
+                    component,
+                    std::path::Component::Normal(_) | std::path::Component::CurDir
+                )
+            })
+            && relative
+                .components()
+                .any(|c| matches!(c, std::path::Component::Normal(_)));
+        if !safe {
+            return Err(PfError::Safety(format!(
+                "[build].out-dir must name a directory under the project root (got '{configured}')"
+            )));
+        }
+        Ok(self.root.join(relative))
+    }
+
     pub fn resolve_artifact_dir(
         &self,
         target: &str,
@@ -552,5 +579,24 @@ compiler-path = "/opt/pf/proof-forge-next"
             c.toolchain.compiler_path.as_deref(),
             Some("/opt/pf/proof-forge-next")
         );
+    }
+
+    #[test]
+    fn output_root_rejects_paths_outside_project() {
+        let config: ProjectConfig = toml::from_str(
+            r#"
+[package]
+name = "demo"
+module = "Demo"
+[build]
+out-dir = "../outside"
+"#,
+        )
+        .unwrap();
+        let project = Project {
+            root: PathBuf::from("/tmp/demo"),
+            config: Some(config),
+        };
+        assert!(matches!(project.output_root(), Err(PfError::Safety(_))));
     }
 }

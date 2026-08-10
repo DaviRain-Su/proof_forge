@@ -33,13 +33,16 @@ cd hello
 | `pf new <name>` | Scaffold project (`pf.toml` + StateCell-shaped program) |
 | `pf build` | Build default target → `build/<target>/` |
 | `pf build -t solana` | Build a specific target → `build/solana/` |
+| `pf clean` | Remove configured `out-dir` (default `build/`) |
 | `pf check` | Validate without writing artifacts |
-| `pf run -- <fn> …` | Local run (Aleo) using last build |
+| `pf run -- <fn> …` | Local run (Aleo); quiet by default, `-v` full Leo log |
 | `pf inspect` | Validate artifact dir |
 | `pf deploy` / `pf execute` | Save network txs (no broadcast by default) |
 | `pf doctor` / `pf setup` | Toolchain status |
 | `pf list-targets` | Implemented targets from compiler |
 | `pf version` | pf + compiler path + leo |
+
+Smoke (host-optional): `just pf-cli-smoke`
 
 ## Dependency model (important)
 

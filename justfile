@@ -1400,7 +1400,11 @@ pf-cli-test:
     cargo test --manifest-path clients/pf-cli/Cargo.toml --locked
 
 pf-cli-build:
-    cargo build --manifest-path clients/pf-cli/Cargo.toml --locked
+    cargo build --manifest-path clients/pf-cli/Cargo.toml --locked --release
+
+# Host-optional e2e: pf new/build/run/clean + multi-target + safety (needs proof-forge-next; leo optional).
+pf-cli-smoke: build pf-cli-build
+    /bin/bash -p scripts/pf_cli_smoke.sh
 
 # Build the exact TransferSol product tree, then apply both the generic Solana
 # profile verifier and the explicit TransferSol program adapter.
