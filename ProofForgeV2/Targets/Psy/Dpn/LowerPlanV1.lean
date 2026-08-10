@@ -55,7 +55,7 @@
     * emitEvent → DPNEventRecord (condition + GetCheckpointId/GetUserId/
       GetContractId + data wires); matches official emit_event compile shape
     * void externalCall → InvokeExternalContractFunctionSync (num_outputs=0)
-    * ADR-0037: Expr.hashNoPad → OpTypeV1.hashNoPad (1..8 Felt args; first limb)
+    * ADR-0039: Expr.hashNoPad → OpTypeV1.hashNoPad (1..8 Felt args; first limb)
       with FNV component hashes (PARTIAL)
     * schedule / assets / ContextRead / Commit / nonempty invariant stay FC
       (Plan already FC; DPN depth-defends schedule with stable diagnostic)
@@ -1478,7 +1478,7 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
       let w ← lookupWideShift b kind operationId limbIndex
       pure (b, w)
   | .hashNoPad args => do
-      -- ADR-0037: DPN HashNoPad (op 21). Inputs are Target wire ids (raw index
+      -- ADR-0039: DPN HashNoPad (op 21). Inputs are Target wire ids (raw index
       -- for type=0). Scalar result = first Poseidon HashOut limb (official simulate).
       unless args.size ≥ 1 && args.size ≤ 8 do
         planError s!"PSY-DPN: hashNoPad arity must be 1..8, got {args.size}"

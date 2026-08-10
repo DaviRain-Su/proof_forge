@@ -56,6 +56,5 @@ just psy-dpn-op-coverage  # from build/v2/psy-op-audit or default
 
 ## Design gates (not bugs)
 
-- Hash gadgets: [`../adr/0037-psy-hash-gadgets-gate.md`](../adr/0037-psy-hash-gadgets-gate.md)
+- Hash gadgets: [`../adr/0039-psy-hash-gadgets-gate.md`](../adr/0039-psy-hash-gadgets-gate.md)
 - ContextRead / Commit (P3): [`psy-p3-context-commit-gate.md`](psy-p3-context-commit-gate.md)
-

@@ -90,7 +90,7 @@ for entry in "${mods[@]}"; do
           if python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" --call initialize --call hashPair:1,2 >/tmp/psy-mat-hash-sess.txt 2>&1; then
             echo "  FAIL session should reject hashNoPad"; fail=$((fail+1)); continue
           fi
-          rg -q 'hashNoPad|op 21|ADR-0037' /tmp/psy-mat-hash-sess.txt \
+          rg -q 'hashNoPad|op 21|ADR-0039' /tmp/psy-mat-hash-sess.txt \
             && echo "  OK session hash fail-closed" || { echo "  FAIL session hash msg"; fail=$((fail+1)); continue; }
           ;;
       esac

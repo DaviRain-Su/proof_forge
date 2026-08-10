@@ -252,7 +252,7 @@ inductive Expr where
   | narrowSignedCompare (bitWidth : Nat) (op : ComparisonOp) (lhs rhs : Expr)
   | narrowCheckedNeg (bitWidth : Nat) (operand : Expr)
   | callFn (fnName : String) (args : Array Expr)
-  /-- ADR-0037: Poseidon `hashNoPad` over 1..8 Felt/UInt64 args.
+  /-- ADR-0039: Poseidon `hashNoPad` over 1..8 Felt/UInt64 args.
       Product returns the first HashOut limb (official simulate scalar result). -/
   | hashNoPad (args : Array Expr)
   /-- Target-internal exact limb arithmetic. Operands are range-bounded
@@ -2150,7 +2150,7 @@ private partial def lowerRegion
         -- PSY-CALL-EVENT: void sync call → direct DPN
         -- InvokeExternalContractFunctionSync (hashed static QN; no deployment
         -- binding, callee-failure refinement, or product runtime gate).
-        -- ADR-0037: result-bearing `pf.crypto.hashNoPad` is a DPN gadget, not a
+        -- ADR-0039: result-bearing `pf.crypto.hashNoPad` is a DPN gadget, not a
         -- contract invoke — lower to Expr.hashNoPad (first HashOut limb).
         let comps := callee.components.toArray
         let qn := String.intercalate "." comps.toList
@@ -2174,7 +2174,7 @@ private partial def lowerRegion
               env := envInsert env valueDef.valueId (.hashNoPad argExprs)
             else
               planError
-                "unsupported Psy semantic shape: result-bearing external call is not admitted (no DPN response-binding / return-value ABI; PSY-CALL-EVENT FC). Admitted: pf.crypto.hashNoPad (ADR-0037)"
+                "unsupported Psy semantic shape: result-bearing external call is not admitted (no DPN response-binding / return-value ABI; PSY-CALL-EVENT FC). Admitted: pf.crypto.hashNoPad (ADR-0039)"
         | none =>
             unless comps.size ≥ 2 do
               planError "unsupported Psy semantic shape: external callee must have at least two components"

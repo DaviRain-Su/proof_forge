@@ -286,7 +286,7 @@ python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_l" \
   --call initialize:10 --call run:0 --call get | tee "$out/session-loop.log"
 rg -q 'outputs=\[14\]' "$out/session-loop.log"
 
-# --- HashProbe (ADR-0037 hashNoPad; official authority) ---
+# --- HashProbe (ADR-0039 hashNoPad; official authority) ---
 dpn_h=$(build_ex HashProbe Examples.HashProbe)
 info "official HashProbe hashPair(1,2)"
 run_official hash-pair "$dpn_h" hashPair --inputs 1 --inputs 2
@@ -313,8 +313,8 @@ python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_h" \
 rc=$?
 set -e
 [[ $rc -ne 0 ]] || die "session unexpectedly accepted hashNoPad"
-rg -q 'hashNoPad|op 21|ADR-0037' "$out/sess-hash-pair.txt" \
-  || die "session hash failure message missing ADR-0037 hint"
+rg -q 'hashNoPad|op 21|ADR-0039' "$out/sess-hash-pair.txt" \
+  || die "session hash failure message missing ADR-0039 hint"
 info "OK session hash fail-closed"
 
 # coverage report from built artifacts

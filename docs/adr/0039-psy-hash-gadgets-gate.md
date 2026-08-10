@@ -1,11 +1,13 @@
 ---
-id: ADR-0037
+id: ADR-0039
 title: Psy hash gadgets — design gate (not yet emitted)
-status: accepted-partial
-date: 2026-08-10
+status: proposed
+owner: architecture
+updated: 2026-08-10
+normative: true
 ---
 
-# ADR-0037: Psy hash gadgets design gate
+# ADR-0039: Psy hash gadgets design gate
 
 ## Context
 
@@ -71,9 +73,8 @@ Claiming hash coverage without a language entry would be dishonest.
 | DPN | `OpTypeV1.hashNoPad` |
 | Probe | `Examples/HashProbe.lean` |
 | Official differential | `psy-dpn-diff` / example matrix |
-| Session | fail-closed with ADR-0037 message |
+| Session | fail-closed with ADR-0039 message |
 
 ## Still closed
 
 `hashPad`, `hashTwoToOne`, `keccak256`, `calculateMerkleRoot`, full HashOut multi-limb returns, IMT.
-

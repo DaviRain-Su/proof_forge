@@ -1,7 +1,7 @@
 import ProofForgeV2
 namespace Examples
 open ProofForgeV2.Language
--- Poseidon hashNoPad probe (ADR-0037): expression-position
+-- Poseidon hashNoPad probe (ADR-0039): expression-position
 -- `call pf.crypto.hashNoPad(a, b)` lowers to DPN op 21; product returns first HashOut limb.
 program HashProbe where
   state h : UInt64

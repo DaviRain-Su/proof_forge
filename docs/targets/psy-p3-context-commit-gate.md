@@ -1,3 +1,12 @@
+---
+id: TARGET-PSY-P3-CONTEXT-COMMIT-GATE
+title: Psy P3 ContextRead and Commit boundary gate
+status: draft
+owner: engineering
+updated: 2026-08-10
+normative: false
+---
+
 # Psy P3: ContextRead / Commit — boundary note
 
 Status: **Plan fail-closed** (not implemented).  
@@ -32,7 +41,7 @@ Opening these as ordinary state/Felt ops would over-claim.
 |------|----------|
 | Caller / height checks | Use another target (EVM/Solana/…) or wait for P3 ADR |
 | Application counters, maps, events, void calls | Supported Psy subset (see probes) |
-| Hash / IMT | See ADR-0037 / IMT official-only note |
+| Hash / IMT | See ADR-0039 / IMT official-only note |
 
 ## Probes already shipping (not P3)
 

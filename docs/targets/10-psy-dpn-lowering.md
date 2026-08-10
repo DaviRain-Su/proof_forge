@@ -187,7 +187,7 @@ Counter golden templates keep historical bare 0/1 indices that resolve to storag
 
 Result-bearing `call` / `schedule` remain Plan fail-closed.
 
-## 11. HashNoPad (ADR-0037 partial)
+## 11. HashNoPad (ADR-0039 partial)
 
 Language: `let x : UInt64 := call pf.crypto.hashNoPad(a0, …, aN)` with `N ∈ 1..8`.
 
@@ -198,4 +198,3 @@ Lowering:
 3. Product result = first Poseidon HashOut limb (matches `psy_user_cli simulate`).
 
 Session harness does **not** reimplement Poseidon; use official simulate.
-
