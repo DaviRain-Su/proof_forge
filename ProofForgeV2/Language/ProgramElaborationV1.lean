@@ -274,7 +274,12 @@ private structure ModelCallableViewV1 where
   resultTypeId : TypeIdV1
   result : ModelCallableResultV1
 
-private structure ModelInvariantFieldEqualityV1 where
+private inductive ModelFieldComparisonKindV1 where
+  | eq
+  | ne
+
+private structure ModelInvariantFieldComparisonV1 where
+  kind : ModelFieldComparisonKindV1
   invariant : InvariantDeclV1
   callable : CallableV1
   valueType : TypeDeclV1
@@ -285,7 +290,7 @@ private structure ModelInvariantFieldEqualityV1 where
 private structure ModelInvariantViewV1 where
   name : String
   ordinal : Nat
-  fieldEquality : Option ModelInvariantFieldEqualityV1
+  fieldComparison : Option ModelInvariantFieldComparisonV1
 
 /-- Phase-1 typed-state support is deliberately narrow and fail closed. The
     mapping is read from the exact lowered subject data; source AST types are
@@ -331,15 +336,16 @@ private def isReservedModelCallableNameV1 (name : String) : Bool :=
 private def isReservedModelInvariantNameV1 (name : String) : Bool :=
   isReservedModelCallableNameV1 name || name == "init"
 
-/-- Recognize only the exact lowered CFG for equality between two generated
-    UInt64 state fields. This reads `SemanticProgramDataV1`, not the source AST,
-    and returns `none` for every additional block, instruction, value-id shape,
-    type, or fuel variant. The result is metadata for theorem emission only;
-    execution remains owned by `evalInvariantV1` / `runInvariantCallableV1`. -/
-private def modelInvariantFieldEqualityV1?
+/-- Recognize only the exact lowered CFG for equality or inequality between
+    two generated UInt64 state fields. This reads `SemanticProgramDataV1`, not
+    the source AST, and returns `none` for every additional block, instruction,
+    value-id shape, type, or fuel variant. The result is metadata for theorem
+    emission only; execution remains owned by `evalInvariantV1` /
+    `runInvariantCallableV1`. -/
+private def modelInvariantFieldComparisonV1?
     (data : SemanticProgramDataV1) (invariant : InvariantDeclV1)
     (ordinal : Nat) :
-    Option ModelInvariantFieldEqualityV1 := do
+    Option ModelInvariantFieldComparisonV1 := do
   guard (invariant.id.toNat == ordinal)
   let callable ← data.callables[invariant.callableId.toNat]?
   guard (callable.id == invariant.callableId)
@@ -357,35 +363,39 @@ private def modelInvariantFieldEqualityV1?
   guard (block.instructions.size == 3)
   let leftInstruction ← block.instructions[0]?
   let rightInstruction ← block.instructions[1]?
-  let equalityInstruction ← block.instructions[2]?
+  let comparisonInstruction ← block.instructions[2]?
   let leftResult ← leftInstruction.result
   let rightResult ← rightInstruction.result
-  let equalityResult ← equalityInstruction.result
+  let comparisonResult ← comparisonInstruction.result
   guard (leftResult.valueId == 0)
   guard (rightResult.valueId == 1)
-  guard (equalityResult.valueId == 2)
+  guard (comparisonResult.valueId == 2)
   let leftStateId ← match leftInstruction.op with
     | .stateLoad stateId => some stateId
     | _ => none
   let rightStateId ← match rightInstruction.op with
     | .stateLoad stateId => some stateId
     | _ => none
-  match equalityInstruction.op with
+  let kind ← match comparisonInstruction.op with
   | .binary .eq leftValueId rightValueId =>
       guard (leftValueId == 0 && rightValueId == 1)
+      pure ModelFieldComparisonKindV1.eq
+  | .binary .ne leftValueId rightValueId =>
+      guard (leftValueId == 0 && rightValueId == 1)
+      pure ModelFieldComparisonKindV1.ne
   | _ => none
   match block.terminator with
   | .return_ (some valueId) => guard (valueId == 2)
   | _ => none
   guard (leftResult.typeId == rightResult.typeId)
-  guard (callable.result.typeId == equalityResult.typeId)
+  guard (callable.result.typeId == comparisonResult.typeId)
   let valueType ← data.types[leftResult.typeId.toNat]?
   guard (valueType.id == leftResult.typeId)
   match valueType.shape with
   | .uint 64 => pure ()
   | _ => none
-  let boolType ← data.types[equalityResult.typeId.toNat]?
-  guard (boolType.id == equalityResult.typeId)
+  let boolType ← data.types[comparisonResult.typeId.toNat]?
+  guard (boolType.id == comparisonResult.typeId)
   guard boolType.name.isNone
   match boolType.shape with
   | .bool => pure ()
@@ -397,6 +407,7 @@ private def modelInvariantFieldEqualityV1?
   guard (leftState.typeId == valueType.id)
   guard (rightState.typeId == valueType.id)
   pure {
+    kind := kind
     invariant := invariant
     callable := callable
     valueType := valueType
@@ -414,7 +425,7 @@ private def modelInvariantViewsV1
       some {
         name := invariant.name
         ordinal
-        fieldEquality := modelInvariantFieldEqualityV1? data invariant ordinal
+        fieldComparison := modelInvariantFieldComparisonV1? data invariant ordinal
       }
 
 /-- Project the common supported callable shape from the exact lowered table.
@@ -2068,35 +2079,51 @@ private def elaborateInvariantModelsV1
           ProofForgeV2.Semantic.PreservationABI.typedInvariantV1_iff_eval_of_encode
             $encodeStateName $subjectProgramName $ordinalTerm $typedStateName
               $logicalStateName hencode))
-    match invariantView.fieldEquality with
+    match invariantView.fieldComparison with
     | none => pure ()
-    | some equality =>
+    | some comparison =>
       let fieldBridgeName :=
         mkIdent (Name.mkSimple (invariantView.name ++ "_iff_fields"))
       let invariantIdTerm : TSyntax `term :=
-        ⟨Syntax.mkNumLit (toString equality.invariant.id.toNat)⟩
+        ⟨Syntax.mkNumLit (toString comparison.invariant.id.toNat)⟩
       let callableIdTerm : TSyntax `term :=
-        ⟨Syntax.mkNumLit (toString equality.callable.id.toNat)⟩
+        ⟨Syntax.mkNumLit (toString comparison.callable.id.toNat)⟩
       let valueTypeIdTerm : TSyntax `term :=
-        ⟨Syntax.mkNumLit (toString equality.valueType.id.toNat)⟩
+        ⟨Syntax.mkNumLit (toString comparison.valueType.id.toNat)⟩
       let boolTypeIdTerm : TSyntax `term :=
-        ⟨Syntax.mkNumLit (toString equality.boolType.id.toNat)⟩
+        ⟨Syntax.mkNumLit (toString comparison.boolType.id.toNat)⟩
       let leftStateIdTerm : TSyntax `term :=
-        ⟨Syntax.mkNumLit (toString equality.leftState.id.toNat)⟩
+        ⟨Syntax.mkNumLit (toString comparison.leftState.id.toNat)⟩
       let rightStateIdTerm : TSyntax `term :=
-        ⟨Syntax.mkNumLit (toString equality.rightState.id.toNat)⟩
-      let leftFieldName := mkIdent (Name.mkSimple equality.leftState.name)
-      let rightFieldName := mkIdent (Name.mkSimple equality.rightState.name)
+        ⟨Syntax.mkNumLit (toString comparison.rightState.id.toNat)⟩
+      let leftFieldName := mkIdent (Name.mkSimple comparison.leftState.name)
+      let rightFieldName := mkIdent (Name.mkSimple comparison.rightState.name)
       let rootNameTerm ← Lean.Elab.liftMacroM <|
-        quoteModelOptionStringV1 equality.callable.name
+        quoteModelOptionStringV1 comparison.callable.name
       let rootVisibilityTerm ← Lean.Elab.liftMacroM <|
-        quoteModelVisibilityV1 equality.callable.result.visibility
+        quoteModelVisibilityV1 comparison.callable.result.visibility
       let leftVisibilityTerm ← Lean.Elab.liftMacroM <|
-        quoteModelVisibilityV1 equality.leftState.visibility
+        quoteModelVisibilityV1 comparison.leftState.visibility
       let rightVisibilityTerm ← Lean.Elab.liftMacroM <|
-        quoteModelVisibilityV1 equality.rightState.visibility
+        quoteModelVisibilityV1 comparison.rightState.visibility
+      let comparisonTerm ← match comparison.kind with
+        | .eq => `(term| ($typedStateName).$leftFieldName = ($typedStateName).$rightFieldName)
+        | .ne => `(term| ($typedStateName).$leftFieldName ≠ ($typedStateName).$rightFieldName)
+      let evaluatorBridgeName := match comparison.kind with
+        | .eq => mkIdent `ProofForgeV2.Semantic.InvariantABI.evalInvariantV1_returnedTrue_iff_two_state_bytes_eq
+        | .ne => mkIdent `ProofForgeV2.Semantic.InvariantABI.evalInvariantV1_returnedTrue_iff_two_state_bytes_ne
+      let forwardProof : TSyntax `Lean.Parser.Tactic.tacticSeq ← match comparison.kind with
+        | .eq => `(tacticSeq| simpa only
+            [ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1_encodeU64le]
+            using (congrArg ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1 h))
+        | .ne => `(tacticSeq| intro hvalues; apply h; simpa [hvalues])
+      let backwardProof : TSyntax `Lean.Parser.Tactic.tacticSeq ← match comparison.kind with
+        | .eq => `(tacticSeq| simpa only [h])
+        | .ne => `(tacticSeq| intro hbytes; apply h; simpa only
+            [ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1_encodeU64le]
+            using (congrArg ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1 hbytes))
       Lean.Elab.Command.elabCommand (← `(
-        /-- Narrow mathematical view of the exact lowered two-field equality
+        /-- Narrow mathematical view of an exact lowered two-field comparison
             invariant. Exact subject validation remains explicit; typed
             encoder success follows from the generated production-codec
             theorem, and execution remains the production invariant evaluator. -/
@@ -2105,9 +2132,7 @@ private def elaborateInvariantModelsV1
             (hvalidate :
               ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
                   $subjectProgramName = .ok $subjectDataName) :
-            $predicateName $typedStateName ↔
-              ($typedStateName).$leftFieldName =
-                ($typedStateName).$rightFieldName := by
+            $predicateName $typedStateName ↔ $comparisonTerm := by
           obtain ⟨$logicalStateName, hencode⟩ :=
             $encodeExistsName $typedStateName
           rw [$bridgeName $typedStateName $logicalStateName hencode]
@@ -2128,9 +2153,9 @@ private def elaborateInvariantModelsV1
             ProofForgeV2.Semantic.InvariantABI.decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1
               $subjectDataName true #[$encodedValues,*] $logicalStateName
                 hproductionEncode
-          rw [ProofForgeV2.Semantic.InvariantABI.evalInvariantV1_returnedTrue_iff_two_state_bytes_eq
+          rw [$evaluatorBridgeName
             $subjectProgramName $subjectDataName $ordinalTerm $invariantIdTerm
-            $(quote equality.invariant.name) $logicalStateName
+            $(quote comparison.invariant.name) $logicalStateName
             #[$encodedValues,*]
             (ProofForgeV2.Semantic.WireV1.encodeU64le
               ($typedStateName).$leftFieldName)
@@ -2139,19 +2164,12 @@ private def elaborateInvariantModelsV1
             $callableIdTerm $valueTypeIdTerm $boolTypeIdTerm
             $leftStateIdTerm $rightStateIdTerm $rootNameTerm
             $rootVisibilityTerm $leftVisibilityTerm $rightVisibilityTerm
-            $(quote equality.leftState.name) $(quote equality.rightState.name)
+            $(quote comparison.leftState.name) $(quote comparison.rightState.name)
             hvalidate hinitialized hdecode (by rfl) (by rfl) (by rfl)
             (by rfl) (by rfl) (by rfl) (by rfl)]
-          constructor
-          · intro hbytes
-            have hvalues := congrArg
-              ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1
-              hbytes
-            simpa only [
-              ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1_encodeU64le]
-              using hvalues
-          · intro hvalues
-            simpa only [hvalues]))
+          constructor <;> intro h
+          · $forwardProof
+          · $backwardProof))
   Lean.Elab.Command.elabCommand (← `(end $invariantNamespace))
 
 /-- Emit the author-facing business-state view. It is only a typed projection

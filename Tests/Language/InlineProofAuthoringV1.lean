@@ -337,6 +337,7 @@ program TypedInvariantFieldEqualitySurface where
 #check TypedInvariantFieldEqualitySurface.Model.encode_exists
 #check TypedInvariantFieldEqualitySurface.Model.Invariant.solvent_iff_eval
 #check TypedInvariantFieldEqualitySurface.Model.Invariant.solvent_iff_fields
+#check TypedInvariantFieldEqualitySurface.Model.Invariant.nonsolvent_iff_fields
 #check TypedInvariantFieldEqualitySurface.Proof.subjectStructureOkV1
 #check TypedInvariantFieldEqualitySurface.Proof.subjectValidationOkV1
 
@@ -435,6 +436,12 @@ example (typedState : TypedInvariantFieldEqualitySurface.Model.State) :
     typedState
     TypedInvariantFieldEqualitySurface.Proof.subjectValidationOkV1
 
+example (typedState : TypedInvariantFieldEqualitySurface.Model.State) :
+    TypedInvariantFieldEqualitySurface.Model.nonsolvent typedState ↔
+      typedState.reserves ≠ typedState.shares :=
+  TypedInvariantFieldEqualitySurface.Model.Invariant.nonsolvent_iff_fields
+    typedState TypedInvariantFieldEqualitySurface.Proof.subjectValidationOkV1
+
 /- Unsupported invariant CFGs keep their evaluator bridge but fail closed for
     the optional field-level mathematical theorem. -/
 run_cmd do
@@ -442,11 +449,26 @@ run_cmd do
   let unsupportedFieldBridge :=
     `Tests.Language.InlineProofAuthoringV1.TypedInvariantFieldEqualitySurface.Model.Invariant.primary_iff_fields
   if env.contains unsupportedFieldBridge then
-    throwError "literal-true invariant must not emit a field equality bridge"
+    throwError "literal-true invariant must not emit a field comparison bridge"
+
+/- A composition around a supported comparison remains evaluator-backed but
+   must not be mistaken for the exact three-instruction comparison rule. -/
+program TypedInvariantFieldComparisonNearMiss where
+  state reserves : UInt64
+  state shares : UInt64
+  view alive() : Bool do
+    return true
+  invariant nonsolvent : reserves != shares && true
+  proof nonsolvent using TypedInvariantFieldComparisonNearMissProof.nonsolvent
+
+#check TypedInvariantFieldComparisonNearMiss.Model.Invariant.nonsolvent_iff_eval
+
+run_cmd do
+  let env ← getEnv
   let nearMissFieldBridge :=
-    `Tests.Language.InlineProofAuthoringV1.TypedInvariantFieldEqualitySurface.Model.Invariant.nonsolvent_iff_fields
+    `Tests.Language.InlineProofAuthoringV1.TypedInvariantFieldComparisonNearMiss.Model.Invariant.nonsolvent_iff_fields
   if env.contains nearMissFieldBridge then
-    throwError "not-equal invariant must not emit a field equality bridge"
+    throwError "composed inequality must not emit an exact field comparison bridge"
 
 /- Invariant predicates are selected from the exact lowered invariant table;
    in particular, a second declaration is not silently hard-coded to zero. -/

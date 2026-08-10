@@ -456,7 +456,8 @@ decode 已完成；独立的 generated pre-init `LifecycleState`、initializer p
 
 **状态**：进行中。已生成 `<Program>.Model.<inv> : State → Prop` 的 evaluator-backed
 首切及 exact `evalInvariantV1` bridge；并已对 exact lowered
-`stateLoad left; stateLoad right; eq; return` UInt64 shape 生成字段相等数学 bridge。
+`stateLoad left; stateLoad right; Eq/Ne; return` UInt64 shape 生成字段比较数学 bridge
+（Eq 投影为 `=`，Ne 投影为 `≠`）。
 该字段 bridge 已用 generated `Model.encode_exists` 内部取得 production encoding witness，
 作者只需提供 exact subject validation premise。simple-closure 与首个 exact field-comparison
 family 已有 premise-free exact `Proof.subjectValidationOkV1`；该能力尚未扩展到任意 lowered
@@ -475,7 +476,7 @@ checked arithmetic/lookup 通用引理与业务 proof ergonomics尚未完成。
          evalInvariantV1 subjectProgramV1 ordinal logical = .returnedTrue
    ```
 
-   首个字段相等 shape 还生成：
+   exact 两字段 Eq/Ne shape 还生成 `<inv>_iff_fields`：
 
    ```lean
    theorem solvent_iff_fields
@@ -705,7 +706,7 @@ proof-bearing target build 继续 fail closed。
 | 0B | 唯一语义防回归门 | **已完成** | `alpha-deletion-gate` 固定平行语义、contract-specific registry/pin 的物理删除，不误杀 checker state |
 | 1 | Typed State + codec bridge | **进行中（generated Bool/UInt64 codec proof 首切已完成）** | generated `Model.State` 复用 production codec；`Model.encode_exists`、`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；Bool 的产品 accepted-language 接线与更多 scalar shape 仍待补 |
 | 2 | Typed callable transition | **进行中（initialized entry/view + 独立 initializer lifecycle relation 首切已完成）** | pre-init 只使用 exact production lifecycle carrier；initializer returned state 与 ordinary callable returned state 均可唯一投影为 typed State，固定 typed 输入有且至多有一个 typed outcome |
-| 3 | Typed invariant bridge | **进行中（evaluator + UInt64 字段相等数学 bridge 首切已完成）** | generated predicate 使用 exact state encoder 与 lowered invariant ordinal，并与 production `evalInvariantV1` 双向对齐；exact two-state equality CFG 已 fail-closed 投影成字段等式且不再暴露 encoding witness，更多表达式与 exact validation packaging 仍待补 |
+| 3 | Typed invariant bridge | **进行中（evaluator + UInt64 字段 Eq/Ne 数学 bridge 首切已完成）** | generated predicate 使用 exact state encoder 与 lowered invariant ordinal，并与 production `evalInvariantV1` 双向对齐；exact two-state Eq/Ne CFG 已 fail-closed 投影成字段 `=`/`≠` 且不再暴露 encoding witness；这不是任意 expression translator，更多表达式与 exact validation packaging 仍待补 |
 | 4 | Generic preservation composition | 未开始 | per-call lemmas 自动包成 exact `PreservationTheoremV1` |
 | 5 | Same-file certifier ergonomics | 部分地基已有 | 任意未 pin 合约的真实 proof body可 certified |
 | 6 | authority amendment + VerifiedVaultPF + NEAR build/runtime | 未开始 | 先批准 versioned invariant-erasure contract，再完成单文件 proof + build + runtime differential；诚实标注 Reference-level |
@@ -834,16 +835,16 @@ expression translator：
    state shape 不生成悬空 predicate/bridge，既有 program 与 `Proof` aliases 保持可用；
 6. 回归覆盖 exact encoder binding、非零 invariant ordinal、evaluator bridge 展开、initializer
    lifecycle 分离和 fail-closed name/state shape；
-7. production machine 已证明 exact 三指令 equality body 的
-   `runInvariantCallableV1 = returnedTrue ↔ decodedLeftBytes = decodedRightBytes`；public
+7. production machine 已证明 exact 三指令 Eq/Ne body 的
+   `runInvariantCallableV1 = returnedTrue` 分别等价于 decoded bytes 相等/不等；public
    `evalInvariantV1` bridge 再组合 exact validation、ordinal selection 与 initialized decoder；
 8. elaborator 只检查 exact lowered CFG、`invariantSteps = some 5`、ValueId `0/1/2`、
    arbitrary concrete StateId、anonymous Bool result 与同一 UInt64 field type；不读取 source AST，
    任一额外 block/instruction/type/fuel variant 都返回 `none`，但保留原 `_iff_eval` API；
-9. 对支持 shape 生成 `Model.Invariant.<inv>_iff_fields`，把 canonical `encodeU64le` equality
-   通过 production projection left inverse 收回普通 Lean 字段 equality。回归覆盖非零 StateId、
-   非零 invariant ordinal，并确认 unsupported literal-true 与近似 `!=` CFG 都不生成该
-   optional theorem；
+9. 对支持 shape 生成 `Model.Invariant.<inv>_iff_fields`，把 canonical `encodeU64le` 的 Eq/Ne
+   通过 production projection left inverse 收回普通 Lean 字段 `=`/`≠`。回归覆盖非零 StateId、
+   非零 invariant ordinal，并确认 unsupported literal-true 不生成该 optional theorem；这仍是
+   exact CFG comparison rule，不是任意 expression translator；
 10. 当前 `_iff_fields` 仍显式接收 exact `hvalidate`，但不再接收作者提供的
     `LogicalStateV1`/successful `hencode`；它调用 generated `Model.encode_exists`，而该 theorem
     只证明 production `encodeLogicalStateValuesV1` 的 successful result。尚未证明任意 lowered
