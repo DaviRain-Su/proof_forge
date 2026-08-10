@@ -108,6 +108,11 @@ pf build
 ls *.dpn.json manifest.json evidence.json
 pf inspect --output-dir .
 
+
+> **Session continuity:** `psy_user_cli simulate` is **one call per process** (fresh memory).
+> For `init(7) → increment(5) → get = 12`, use `scripts/psy_dpn_session.py` / `pf test -t psy`
+> (shared-state harness). Do not expect three separate simulates to accumulate.
+
 # Local DPN VM (official psy_user_cli simulate — host tool)
 export PATH="$HOME/.psy/bin:$PATH"
 pf test -t psy

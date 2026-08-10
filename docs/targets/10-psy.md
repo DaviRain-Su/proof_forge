@@ -122,3 +122,8 @@ network deploy、hermetic 或 formal refinement 证据；删除旧 source/compil
 - Frontend / wallet companion: [`../product/12-psy-dapp-frontend.md`](../product/12-psy-dapp-frontend.md)
 - Demo walkthrough: [`../demos/psy-dpn-walkthrough.md`](../demos/psy-dpn-walkthrough.md)
 - Official: [app](https://app.psy-protocol.xyz) · [wallet](https://app.psy-protocol.xyz/#/wallet) · [explorer](https://explorer.psy-protocol.xyz) · [IDE](https://ide.psy-protocol.xyz) · [config](https://config.psy-protocol.xyz/config.json) · [docs](https://docs.psy-protocol.xyz)
+
+> **Session continuity:** `psy_user_cli simulate` is **one call per process** (fresh memory).
+> For `init(7) → increment(5) → get = 12`, use `scripts/psy_dpn_session.py` / `pf test -t psy`
+> (shared-state harness). Do not expect three separate simulates to accumulate.
+

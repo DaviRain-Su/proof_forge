@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
-# Host-optional: build PF StateCell → DPN, execute via official psy_user_cli simulate.
-# Engineering only — not UPS/proof/network/deploy/formal.
+# Host-optional Psy DPN local smoke:
+#   1) pf build → *.dpn.json
+#   2) multi-step session: initialize(7)→increment(5)→get  expect 12
+#   3) optional single-call official psy_user_cli simulate (process-isolated)
+#
+# IMPORTANT: official `psy_user_cli simulate` is ONE method per process with a
+# fresh InMemoryStateBackend. Three separate simulates cannot show 7+5=12.
+# Continuity is scripts/psy_dpn_session.py (IDE/WASM-style commit loop).
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -16,9 +22,6 @@ if [[ -f "${HOME}/.psy/env" ]]; then
   # shellcheck disable=SC1091
   source "${HOME}/.psy/env" || true
 fi
-
-command -v psy_user_cli >/dev/null 2>&1 \
-  || die "psy_user_cli missing — install via psyup (https://github.com/QEDProtocol/psyup)"
 
 pf_bin="${PROOF_FORGE_CLI:-}"
 if [[ -z "$pf_bin" && -x "$root/.lake/build/bin/proof-forge-next" ]]; then
@@ -41,73 +44,36 @@ info "build $src → $out (target=psy)"
 dpn="$(find "$out" -maxdepth 1 -name '*.dpn.json' | head -1)"
 [[ -n "$dpn" && -f "$dpn" ]] || die "no *.dpn.json under $out"
 info "dpn=$dpn"
-info "psy_user_cli=$(command -v psy_user_cli)"
 
-log_dir="$out/simulate-logs"
-mkdir -p "$log_dir"
+info "multi-step session (shared state): init(7)+inc(5)+get → 12"
+/usr/bin/python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" \
+  --call initialize:7 --call increment:5 --call get \
+  | tee "$out/session.log"
 
-# psy_user_cli prints tracing logs on stdout before JSON — strip to first object.
-sim_to() {
-  local method="$1" dest="$2"; shift 2
-  local raw
-  raw="$(mktemp "${TMPDIR:-/tmp}/pf-psy-sim.XXXXXX")"
-  # shellcheck disable=SC2068
-  psy_user_cli simulate \
-    --circuit-defs-path "$dpn" \
-    --method "$method" \
-    --format json \
-    $@ >"$raw" 2>&1 || {
-      cat "$raw" >&2
-      rm -f "$raw"
-      die "simulate $method failed"
-    }
+# Optional: prove official CLI still accepts the package (single-call only)
+if command -v psy_user_cli >/dev/null 2>&1; then
+  info "official simulate single-call sanity (fresh state each time — NOT a sequence)"
+  raw="$(mktemp)"
+  psy_user_cli simulate --circuit-defs-path "$dpn" --method initialize --inputs 7 --format json \
+    >"$raw" 2>&1 || { cat "$raw" >&2; die "official simulate failed"; }
   /usr/bin/python3 -I -S -c "
 import sys
 raw=open(sys.argv[1],encoding='utf-8',errors='replace').read()
-i=raw.find('{'); j=raw.rfind('}')
-if i<0 or j<=i: raise SystemExit('no json object in simulate output')
-open(sys.argv[2],'w',encoding='utf-8').write(raw[i:j+1]+'\n')
-" "$raw" "$dest"
-  rm -f "$raw"
-}
-
-check_json() {
-  local path="$1" expect="$2"
-  /usr/bin/python3 -I -S -c "
-import json,sys
-path, expect = sys.argv[1], sys.argv[2]
-d=json.load(open(path))
+i,j=raw.find('{'),raw.rfind('}')
+import json
+d=json.loads(raw[i:j+1])
 assert d.get('success') is True, d
-if expect.startswith('write:'):
-    want=int(expect.split(':',1)[1])
-    writes=d.get('state_writes') or []
-    assert writes, d
-    nv=writes[0].get('new_value') or []
-    assert nv and int(nv[0])==want, d
-    print(f'OK write slot -> {want}')
-elif expect.startswith('out:'):
-    want=int(expect.split(':',1)[1])
-    outs=d.get('outputs') or []
-    assert outs and int(outs[0])==want, d
-    print(f'OK output -> {want}')
-else:
-    raise SystemExit(f'bad expect {expect}')
-" "$path" "$expect"
-}
+w=d.get('state_writes') or []
+assert w and int(w[0]['new_value'][0])==7, d
+print('OK official simulate initialize(7) alone')
+" "$raw"
+  rm -f "$raw"
+else
+  info "skip official simulate (psy_user_cli not on PATH)"
+fi
 
-info "simulate initialize(7)"
-sim_to initialize "$log_dir/initialize.json" --inputs 7
-check_json "$log_dir/initialize.json" "write:7"
-
-info "simulate increment(5) on fresh state (0+5)"
-sim_to increment "$log_dir/increment.json" --inputs 5
-check_json "$log_dir/increment.json" "out:5"
-
-info "simulate get() on fresh state"
-sim_to get "$log_dir/get.json"
-check_json "$log_dir/get.json" "out:0"
-
-info "OK official DPN VM executed PF package"
-info "  note: each simulate uses fresh InMemoryStateBackend (no multi-tx session)"
-info "  deploy (official, not pf): psy_user_cli deploy-contract --contract-path <dpn>"
+info "OK"
+info "  continuity: scripts/psy_dpn_session.py (expect 12)"
+info "  official single-call: psy_user_cli simulate (expect fresh state)"
+info "  deploy: psy_user_cli deploy-contract --contract-path <dpn> (not pf)"
 info "engineering only — not formal/hermetic/mainnet"

@@ -287,7 +287,7 @@ fn psy_smoke(dir: &Path) -> PfResult<TargetReport> {
             target: "psy".into(),
             status: "skipped",
             artifact_dir: Some(dir.display().to_string()),
-            lane: Some("psy_user_cli-simulate".into()),
+            lane: Some("psy-dpn-session".into()),
             message: outcome
                 .skip_reason
                 .unwrap_or_else(|| "host tools missing".into()),
@@ -298,16 +298,12 @@ fn psy_smoke(dir: &Path) -> PfResult<TargetReport> {
         target: "psy".into(),
         status: "ok",
         artifact_dir: Some(dir.display().to_string()),
-        lane: Some("psy_user_cli-simulate".into()),
+        lane: Some("psy-dpn-session".into()),
         message: outcome.message,
         detail: Some(json!({
             "dpn": outcome.dpn_path.map(|p| p.display().to_string()),
-            "steps": outcome.steps.iter().map(|s| json!({
-                "method": s.method,
-                "inputs": s.inputs,
-                "success": s.result.get("success"),
-                "outputs": s.result.get("outputs"),
-            })).collect::<Vec<_>>(),
+            "session": outcome.session,
+            "note": "multi-step shared state; not three isolated psy_user_cli simulate processes",
         })),
     })
 }
