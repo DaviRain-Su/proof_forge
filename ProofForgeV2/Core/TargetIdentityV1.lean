@@ -182,18 +182,19 @@ instance : ToString CodegenProfileId := ⟨toString⟩
 def parse? (s : String) : Option CodegenProfileId :=
   if validProfileIdGrammar s then some ⟨s⟩ else none
 
-/-- Shipped Phase-1 default profiles (private-ctor constants; no public bang). -/
+/-- Explicit dense Map layout profile (24/44-leaf pilot tables). Not the
+    product default; select with `--profile evm-yul-solc-0.8.34-v1`. -/
 def evmYulSolc0834V1 : CodegenProfileId := ⟨"evm-yul-solc-0.8.34-v1"⟩
-/-- Explicit Cancun hardfork EVM profile (not the default; legacy 0.8.34-v1 remains default).
+/-- Explicit Cancun hardfork EVM profile (not the product default).
     Finalize uses `solc --evm-version cancun`; Anvil runtime uses `--hardfork cancun`.
     Same locked solc 0.8.34 / Anvil 0.3.0 binaries as the default profile. -/
 def evmYulSolc0834CancunV1 : CodegenProfileId := ⟨"evm-yul-solc-0.8.34-cancun-v1"⟩
-/-- Opt-in EVM hashed-Map storage profile (not default). Map state uses a single
+/-- Product-default EVM hashed-Map storage profile. Map state uses a single
     base slot; entries live at `keccak256(key || base)` (UInt64 keys) or
     `keccak256(principalWire || base)` (Principal keys). Dense 24/44-leaf layout
-    remains the default (`evm-yul-solc-0.8.34-v1`). Same locked solc 0.8.34 +
-    `--optimize` finalize as the default profile. Migration-incompatible with
-    dense deployments. -/
+    remains available as explicit `evm-yul-solc-0.8.34-v1`. Same locked solc
+    0.8.34 + `--optimize` finalize. Migration-incompatible with dense
+    deployments. -/
 def evmYulSolc0834HashMapV1 : CodegenProfileId := ⟨"evm-yul-solc-0.8.34-hashmap-v1"⟩
 /-- Retired single-account plan shim (ADR-0032 U1 deletion). Not a registry
     member; kept only so historical strings/tests can name the removed id. -/

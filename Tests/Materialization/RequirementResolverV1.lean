@@ -1192,7 +1192,7 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
   if ← outputDir.pathExists then IO.FS.removeDirAll outputDir
   let manifest ← ProofForgeV2.CLI.emitProgram capability outputDir
   expect (manifest.target == TargetId.evm) "CLI emit via capability"
-  expect (manifest.codegenProfile == CodegenProfileId.evmYulSolc0834V1)
+  expect (manifest.codegenProfile == CodegenProfileId.evmYulSolc0834HashMapV1)
     "CLI emit profile"
   match ProofForgeV2.CLI.inspectTargetText "evm" with
   | .ok text =>
@@ -1202,7 +1202,7 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         "effect.asynchronous-workflow, effect.event, effect.synchronous-call, extension.pf-assets, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic"
       expect
         (hasSubstr text
-          s!"target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[{expectedIds}]")
+          s!"target=evm\nprofile=evm-yul-solc-0.8.34-hashmap-v1\nrequirements=#[{expectedIds}]")
         s!"inspect exact S2+pf-assets support row, got {text}"
       expect (hasSubstr text "registryRootDigest=sha256:")
         "inspect includes registry root"
@@ -1242,7 +1242,7 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         "effect.asynchronous-workflow, effect.event, effect.synchronous-call, extension.pf-assets, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic"
       expect
         (text ==
-          s!"target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[{expectedIds}]")
+          s!"target=evm\nprofile=evm-yul-solc-0.8.34-hashmap-v1\nrequirements=#[{expectedIds}]")
         s!"describe helper exact S2+pf-assets, got {text}"
   | .error e => throw <| IO.userError e.render
 

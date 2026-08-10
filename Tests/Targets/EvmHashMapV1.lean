@@ -15,7 +15,7 @@ import Tests.Language.ParserSession
 # Tests.Targets.EvmHashMapV1 — opt-in hashed-Map storage profile
 
 Pins (engineering only):
-* registry membership of `evm-yul-solc-0.8.34-hashmap-v1`; default remains dense v1
+* registry membership of `evm-yul-solc-0.8.34-hashmap-v1` as product default
 * descriptor accepts hashmap; foreign profiles fail closed
 * Finalize argv matches dense (`--optimize --bin`); evidence note `map-storage=hashed`
 * capability mint + materialize succeed for StateCell under hashmap profile
@@ -77,8 +77,8 @@ private def testRegistryAndDescriptor : IO Unit := do
     | none => throw <| IO.userError "evm registration missing"
   expect (reg.profiles.any (· == CodegenProfileId.evmYulSolc0834HashMapV1))
     "registry: evm profiles include hashmap-v1"
-  expect (reg.defaultProfile == some CodegenProfileId.evmYulSolc0834V1)
-    "registry: default remains dense v1"
+  expect (reg.defaultProfile == some CodegenProfileId.evmYulSolc0834HashMapV1)
+    "registry: default is hashmap-v1"
   let sel ← liftResult <|
     resolveBuildSelectionV1 TargetId.evm (some CodegenProfileId.evmYulSolc0834HashMapV1)
   expect (sel.codegenProfile == CodegenProfileId.evmYulSolc0834HashMapV1)
@@ -129,10 +129,16 @@ private unsafe def testCapabilityAndMapPlan : IO Unit := do
         s!"hashed Map base leaf name must end with _base, got {b.name}"
   | none => throw <| IO.userError "hashed layout missing base binding"
 
-  -- Dense default still 24 leaves for MapMini.
-  let denseCap ← liftResult <| evmCapability mapCompiled none
+  -- Default (none) is now hashed; dense still available via explicit profile.
+  let defaultCap ← liftResult <| evmCapability mapCompiled none
+  let defaultPlan ← liftResult <| materializePlanFromCapabilityV1 defaultCap
+  expect defaultPlan.hashedMapStorage "default MapMini plan is hashed"
+  expect (defaultPlan.storageLayout.size == 1)
+    s!"default MapMini layout must be 1 base slot, got {defaultPlan.storageLayout.size}"
+  let denseCap ← liftResult <|
+    evmCapability mapCompiled (some CodegenProfileId.evmYulSolc0834V1)
   let densePlan ← liftResult <| materializePlanFromCapabilityV1 denseCap
-  expect (!densePlan.hashedMapStorage) "dense default hashedMapStorage=false"
+  expect (!densePlan.hashedMapStorage) "explicit dense hashedMapStorage=false"
   expect (densePlan.storageLayout.size == 24)
     s!"dense MapMini layout must stay 24 leaves, got {densePlan.storageLayout.size}"
 

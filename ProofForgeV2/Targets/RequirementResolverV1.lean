@@ -337,8 +337,8 @@ private def mkImplementedRow
 /-- Shipped eleven-row seed body (canonical targetId order: aleo, cosmwasm,
     evm×2, near, noir×2, psy, quint, solana, ton). Aleo and Psy each expose
     one direct target IR profile. EVM carries both
-    `evm-yul-solc-0.8.34-cancun-v1` and `evm-yul-solc-0.8.34-v1`
-    (ASCII ascending; default remains legacy v1). Solana is sole
+    `evm-yul-solc-0.8.34-cancun-v1`, `…-hashmap-v1`, and `…-v1`
+    (ASCII ascending; default is hashmap-v1). Solana is sole
     `solana-sbpf-cpi-elf-v1` (ADR-0032 U1). The opt-in CPI profile (#125)
     admits exact `effect.synchronous-call` plus the exact ADR-0028 extension and
     still declines `effect.asynchronous-workflow`.

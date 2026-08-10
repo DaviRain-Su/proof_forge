@@ -52,7 +52,7 @@ private def evmCapability
   let selection ← resolveBuildSelectionV1 TargetId.evm profile?
   Targets.resolveEngineeringRequirementsV1 selection compiled
 
-/-- Registry: cancun profile is a member; default remains legacy v1; ascending. -/
+/-- Registry: cancun profile is a member; default is hashmap-v1; ascending. -/
 private def testRegistryMembership : IO Unit := do
   let reg ← liftResult <| registration? TargetId.evm
   let reg ← match reg with
@@ -62,8 +62,8 @@ private def testRegistryMembership : IO Unit := do
     "registry: evm profiles include cancun-v1"
   expect (reg.profiles.any (· == CodegenProfileId.evmYulSolc0834V1))
     "registry: evm profiles include legacy v1"
-  expect (reg.defaultProfile == some CodegenProfileId.evmYulSolc0834V1)
-    "registry: default profile remains evm-yul-solc-0.8.34-v1"
+  expect (reg.defaultProfile == some CodegenProfileId.evmYulSolc0834HashMapV1)
+    "registry: default profile is evm-yul-solc-0.8.34-hashmap-v1"
   match reg.profiles[0]?, reg.profiles[1]?, reg.profiles[2]? with
   | some p0, some p1, some p2 =>
       expect (p0 == CodegenProfileId.evmYulSolc0834CancunV1)
@@ -74,8 +74,8 @@ private def testRegistryMembership : IO Unit := do
         "registry: ascending third is legacy v1"
   | _, _, _ => throw <| IO.userError "registry: expected exactly three evm profiles"
   let defaultSel ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
-  expect (defaultSel.codegenProfile == CodegenProfileId.evmYulSolc0834V1)
-    "resolve none → legacy default"
+  expect (defaultSel.codegenProfile == CodegenProfileId.evmYulSolc0834HashMapV1)
+    "resolve none → hashmap default"
   let cancunSel ← liftResult <|
     resolveBuildSelectionV1 TargetId.evm (some CodegenProfileId.evmYulSolc0834CancunV1)
   expect (cancunSel.codegenProfile == CodegenProfileId.evmYulSolc0834CancunV1)
@@ -99,8 +99,8 @@ private def testSupportAndDescriptor : IO Unit := do
   expect (cancunRow.supported.map (·.id) == legacyRow.supported.map (·.id))
     "support: cancun and legacy share exact S2 id list"
   let desc := Targets.Evm.descriptor
-  expect (desc.codegenProfile == CodegenProfileId.evmYulSolc0834V1)
-    "descriptor residual is legacy default"
+  expect (desc.codegenProfile == CodegenProfileId.evmYulSolc0834HashMapV1)
+    "descriptor residual is hashmap default"
   expect (acceptsCodegenProfile desc CodegenProfileId.evmYulSolc0834V1)
     "accepts legacy"
   expect (acceptsCodegenProfile desc CodegenProfileId.evmYulSolc0834CancunV1)
@@ -151,8 +151,8 @@ private unsafe def testCapabilityMint : IO Unit := do
     "<evm-cancun-stateCell>"
   let legacyCap ← liftResult <| evmCapability compiled none
   expect (Targets.ResolvedEngineeringBuildV1.codegenProfileOf legacyCap ==
-      CodegenProfileId.evmYulSolc0834V1)
-    "default capability binds legacy profile"
+      CodegenProfileId.evmYulSolc0834HashMapV1)
+    "default capability binds hashmap profile"
   let cancunCap ← liftResult <|
     evmCapability compiled (some CodegenProfileId.evmYulSolc0834CancunV1)
   expect (Targets.ResolvedEngineeringBuildV1.codegenProfileOf cancunCap ==
@@ -161,8 +161,8 @@ private unsafe def testCapabilityMint : IO Unit := do
   let legacyOut ← liftResult <| Targets.materializeResult legacyCap
   let cancunOut ← liftResult <| Targets.materializeResult cancunCap
   expect (MaterializedArtifactsV1.codegenProfileIdOf legacyOut ==
-      CodegenProfileId.evmYulSolc0834V1)
-    "materialized legacy profile"
+      CodegenProfileId.evmYulSolc0834HashMapV1)
+    "materialized default hashmap profile"
   expect (MaterializedArtifactsV1.codegenProfileIdOf cancunOut ==
       CodegenProfileId.evmYulSolc0834CancunV1)
     "materialized cancun profile"

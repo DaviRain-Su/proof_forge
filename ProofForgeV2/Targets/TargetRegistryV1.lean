@@ -531,11 +531,12 @@ private def row
 def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
   #[
     row .evm (semanticsAxesOfKindV1 .evm)
-      -- Strictly ASCII-ascending: cancun-v1 < v1. Default stays legacy v1.
+      -- Strictly ASCII-ascending: cancun-v1 < hashmap-v1 < v1. Default = hashmap-v1.
       #[CodegenProfileId.evmYulSolc0834CancunV1,
         CodegenProfileId.evmYulSolc0834HashMapV1,
         CodegenProfileId.evmYulSolc0834V1]
-      (some CodegenProfileId.evmYulSolc0834V1),
+      -- Default: hashed-Map storage (keccak mapping). Dense v1 remains explicit.
+      (some CodegenProfileId.evmYulSolc0834HashMapV1),
     row .solana (semanticsAxesOfKindV1 .solana)
       -- ADR-0032 U1: sole product rail only. plan-v1 / elf-v1 shims removed
       -- (no longer registry members; resolve/build reject them).

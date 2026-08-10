@@ -166,8 +166,12 @@ private def testValidationAndLookup : IO Unit := do
   let insp ← liftResult (inspectTargetV1 registry TargetId.evm)
   expect insp.implemented "inspect implemented"
   expect (insp.profiles ==
-      #[CodegenProfileId.evmYulSolc0834CancunV1, CodegenProfileId.evmYulSolc0834V1])
-    "inspect profiles (cancun-v1 < v1 ascending; default remains v1)"
+      #[CodegenProfileId.evmYulSolc0834CancunV1,
+        CodegenProfileId.evmYulSolc0834HashMapV1,
+        CodegenProfileId.evmYulSolc0834V1])
+    "inspect profiles (cancun < hashmap < v1; default hashmap)"
+  expect (insp.defaultProfile == some CodegenProfileId.evmYulSolc0834HashMapV1)
+    "inspect default profile is hashmap-v1"
   let aleoInsp ← liftResult (inspectTargetV1 registry TargetId.aleo)
   expect (aleoInsp.profiles == #[CodegenProfileId.aleoInstructionsV1])
     "inspect aleo exposes only the direct Instructions profile"

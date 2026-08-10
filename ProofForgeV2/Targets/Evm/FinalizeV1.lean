@@ -6,11 +6,12 @@
   `Binary representation:\n`, write `{name}.bin` + `\n`.
 
   Profile selection (capability-bound, no ambient fallback):
-  - `evm-yul-solc-0.8.34-v1` (default, dense Map layout):
-      `#['--strict-assembly','--optimize','--bin', source]`
+  - `evm-yul-solc-0.8.34-hashmap-v1` (default, hashed Map storage):
+      `#['--strict-assembly','--optimize','--bin', source]`;
+      evidence note ` map-storage=hashed`
+  - `evm-yul-solc-0.8.34-v1` (explicit dense Map layout):
+      same solc argv as default; no map-storage evidence fragment
   - `evm-yul-solc-0.8.34-cancun-v1`: adds `--evm-version cancun` before `--bin`
-  - `evm-yul-solc-0.8.34-hashmap-v1` (opt-in hashed Map storage):
-      same solc argv as default; evidence note ` map-storage=hashed`
     All EVM profiles enable solc's Yul optimizer (same pipeline Solidity uses for
     `--optimize` on IR). Source Yul stays unoptimized for readability/debug.
 

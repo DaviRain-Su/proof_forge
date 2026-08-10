@@ -175,6 +175,7 @@ private def testGrammar : IO Unit := do
   expectParseTarget "a b" false
   expectParseProfile "a" true
   expectParseProfile "evm-yul-solc-0.8.34-v1" true
+  expectParseProfile "evm-yul-solc-0.8.34-hashmap-v1" true
   expectParseProfile "a.b" true
   expectParseProfile "a-b.c0" true
   expectParseProfile "a-" false
@@ -191,6 +192,8 @@ private def testGrammar : IO Unit := do
   expectParseNetwork "a--" false
   expectParseNetwork "Main" false
   expect (CodegenProfileId.evmYulSolc0834V1 == (← parseProfile "evm-yul-solc-0.8.34-v1"))
+  expect (CodegenProfileId.evmYulSolc0834HashMapV1 ==
+      (← parseProfile "evm-yul-solc-0.8.34-hashmap-v1"))
     "well-known evm profile constant"
   expect (CodegenProfileId.evmYulSolc0834CancunV1 ==
       (← parseProfile "evm-yul-solc-0.8.34-cancun-v1"))
@@ -278,7 +281,7 @@ private def testRegistrySeedMembership : IO Unit := do
         | some defP => expect (defP.toString == profile) s!"{tid} default profile"
         | none => throw <| IO.userError s!"{tid} has no default"
     | none => throw <| IO.userError s!"missing registration {tid}"
-  expectDefault TargetId.evm "evm-yul-solc-0.8.34-v1"
+  expectDefault TargetId.evm "evm-yul-solc-0.8.34-hashmap-v1"
   expectDefault TargetId.solana "solana-sbpf-cpi-elf-v1"
   match ← liftResult (registration? TargetId.solana) with
   | some reg =>
@@ -737,7 +740,7 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   let insp ← liftResult <|
     inspectBuildSelectionWithSeedV1 initialTargetRegistryV1Result
       TargetId.evm none
-  expect (insp.codegenProfile == CodegenProfileId.evmYulSolc0834V1)
+  expect (insp.codegenProfile == CodegenProfileId.evmYulSolc0834HashMapV1)
     "inspection of frozen seed"
   expect (insp.targetId == TargetId.evm) "inspection target"
   -- Forged catalog with closed policy labels but alternate profile cannot
@@ -762,7 +765,7 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   | .error e => throw <| IO.userError s!"forged catalog should validate: {e.render}"
   match ProofForgeV2.CLI.inspectTargetText "evm" with
   | .ok text =>
-      expect (text.startsWith "target=evm\nprofile=evm-yul-solc-0.8.34-v1\n")
+      expect (text.startsWith "target=evm\nprofile=evm-yul-solc-0.8.34-hashmap-v1\n")
         s!"inspect implemented evm, got {text}"
       expect (hasSubstr text "requirements=") "inspect implemented includes requirements"
       expect (hasSubstr text "failure.atomic-rollback")
@@ -879,14 +882,14 @@ private unsafe def testMaterializeIdentity : IO Unit := do
   expect ((MaterializedArtifactsV1.targetIdOf evmOut).toString == "evm")
     "EVM carrier target wire"
   expect (MaterializedArtifactsV1.codegenProfileIdOf evmOut ==
-      CodegenProfileId.evmYulSolc0834V1)
+      CodegenProfileId.evmYulSolc0834HashMapV1)
     "EVM carrier profile wire"
   let evmDir := System.FilePath.mk "build/v2/build-selection-emit-evm"
   if ← evmDir.pathExists then IO.FS.removeDirAll evmDir
   let _ ← ProofForgeV2.CLI.emitProgram evmCap evmDir
   let json ← IO.FS.readFile (evmDir / "manifest.json")
   expect (hasSubstr json "\"target\": \"evm\"") "manifest JSON target"
-  expect (hasSubstr json "\"codegenProfile\": \"evm-yul-solc-0.8.34-v1\"")
+  expect (hasSubstr json "\"codegenProfile\": \"evm-yul-solc-0.8.34-hashmap-v1\"")
     "manifest JSON profile"
   let viaSelected ← liftResult <| materializeSelected TargetId.near compiled
   expect (MaterializedArtifactsV1.targetIdOf viaSelected == TargetId.near)

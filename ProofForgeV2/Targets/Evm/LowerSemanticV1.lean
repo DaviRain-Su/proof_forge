@@ -479,8 +479,8 @@ structure Plan where
   keeps historical Plan literals byte-identical. -/
   fns : Array FnBinding := #[]
   /-- When true, Map state uses hashed storage (1 base slot per Map; entries at
-      keccak256). Default false preserves dense 24/44-leaf layout and historical
-      Plan goldens. Set by `evm-yul-solc-0.8.34-hashmap-v1` only. -/
+      keccak256). Set by product-default `evm-yul-solc-0.8.34-hashmap-v1`.
+      Explicit dense profile keeps false (24/44-leaf pilot tables). -/
   hashedMapStorage : Bool := false
   deriving BEq, Inhabited, Repr
 private def planError (message : String) : CompileResult α :=

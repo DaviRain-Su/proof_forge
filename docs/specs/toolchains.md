@@ -811,7 +811,7 @@ stderr substring 或检查偶然顺序把一种失败伪装成另一种。
 
 ## Profile Mapping
 
-- `evm-yul-solc-0.8.34-v1`：官方 solc asset（默认）；runtime profile 使用同一 Foundry archive；
+- `evm-yul-solc-0.8.34-hashmap-v1`：官方 solc asset（默认 hashed-Map）；dense `…-v1` 可显式选择；runtime profile 使用同一 Foundry archive；
   Finalize 历史 argv（无 ambient `--evm-version`）。
 - `evm-yul-solc-0.8.34-cancun-v1`：同一 solc 0.8.34 / Anvil·cast 0.3.0 二进制；Finalize 显式
   `solc --evm-version cancun`；runtime 经 `PF_EVM_PROFILE` 启动 `anvil --hardfork cancun`。
