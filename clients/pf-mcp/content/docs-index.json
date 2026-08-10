@@ -76,7 +76,7 @@
     {
       "id": "11-psy-agent-playbook.md",
       "title": "Psy agent playbook — ProofForge DPN + official Psy toolchain",
-      "bytes": 7419,
+      "bytes": 7708,
       "kind": "markdown"
     },
     {
@@ -112,7 +112,7 @@
     {
       "id": "psy-dpn-walkthrough.md",
       "title": "Demo — Psy DPN with pf (+ official ecosystem pointers)",
-      "bytes": 3661,
+      "bytes": 3732,
       "kind": "markdown"
     },
     {
@@ -124,7 +124,7 @@
     {
       "id": "chain-client-catalog.v1.json",
       "title": "Chain client catalog",
-      "bytes": 19796,
+      "bytes": 20038,
       "kind": "catalog"
     },
     {

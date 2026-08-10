@@ -23,7 +23,7 @@ normative: false
 
 ## Safety
 
-1. PF does **not** broadcast to Psy networks.  
+1. Default `pf deploy` is **save-only**; `--broadcast` wraps official `deploy-contract --is-deploy` (testnet/local).  
 2. Do **not** paste private keys into chat, slides, or git.  
 3. Success ≠ mainnet / formal readiness.  
 4. Public endpoints from `config.psy-protocol.xyz` **drift** — refresh live JSON.

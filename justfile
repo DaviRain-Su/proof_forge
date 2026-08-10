@@ -1549,3 +1549,7 @@ psy-local-chain-status:
 # Psy: pf deploy save-only (needs pf-cli-build + psy_user_cli)
 pf-psy-deploy-save: build pf-cli-build
     bash -c 'set -euo pipefail; export PATH="$HOME/.psy/bin:$PATH"; export PROOF_FORGE_CLI="$PWD/.lake/build/bin/proof-forge-next"; out=build/v2/psy-deploy-save; rm -rf "$out"; "$PROOF_FORGE_CLI" build Examples/StateCell.lean --module Examples.StateCell --target psy -o "$out"; clients/pf-cli/target/release/pf deploy -t psy --artifact "$out" --network local; test -f "$out/tx/deploy_cmd.json"; echo OK "$out/tx/deploy_cmd.json"'
+
+# Psy: compile matrix for a few Examples + StateCell session
+psy-example-matrix: build
+    bash scripts/psy_example_matrix.sh

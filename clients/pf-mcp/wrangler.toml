@@ -5,4 +5,4 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 MCP_PUBLIC_NAME = "ProofForge Developer MCP"
-MCP_VERSION = "0.3.4"
+MCP_VERSION = "0.3.5"

@@ -189,6 +189,9 @@ pub fn run(
                 "lane": "psy_user_cli-deploy-contract",
                 "contractPath": out.contract_path.display().to_string(),
                 "rpcConfig": out.rpc_config.display().to_string(),
+                "contractUuid": out.contract_uuid,
+                "contractId": out.contract_id,
+                "explorer": out.explorer_hint,
                 "stdoutTail": out.stdout_tail,
             }));
             emit(ok, json, || {
@@ -197,6 +200,15 @@ pub fn run(
                     out.broadcast,
                     saved.join(", ")
                 );
+                if let Some(u) = &out.contract_uuid {
+                    println!("      contract_uuid: {u}");
+                }
+                if let Some(id) = out.contract_id {
+                    println!("      contract_id:   {id}");
+                }
+                if let Some(e) = &out.explorer_hint {
+                    println!("      explorer:      {e}");
+                }
                 for n in &out.notes {
                     println!("      note: {n}");
                 }

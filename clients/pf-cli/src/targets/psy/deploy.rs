@@ -25,6 +25,9 @@ pub struct DeployOutcome {
     pub contract_path: PathBuf,
     pub notes: Vec<String>,
     pub stdout_tail: String,
+    pub contract_uuid: Option<String>,
+    pub contract_id: Option<u64>,
+    pub explorer_hint: Option<String>,
 }
 
 pub struct DeployRequest<'a> {
@@ -37,7 +40,7 @@ pub struct DeployRequest<'a> {
     pub abi_path: Option<&'a Path>,
 }
 
-fn resolve_rpc_config(network: NetworkKind, override_path: Option<&Path>) -> PfResult<PathBuf> {
+pub fn resolve_rpc_config(network: NetworkKind, override_path: Option<&Path>) -> PfResult<PathBuf> {
     if let Some(p) = override_path {
         if p.is_file() {
             return Ok(p.to_path_buf());
@@ -254,7 +257,57 @@ pub fn deploy(req: DeployRequest<'_>) -> PfResult<DeployOutcome> {
         format!("official cli: {}", cli.display()),
     ];
 
-    // Best-effort receipt
+    let mut contract_uuid = parse_contract_uuid(&combined);
+    let mut contract_id = None;
+    if req.broadcast {
+        if let Some(ref uuid) = contract_uuid {
+            notes.push(format!("contract_uuid={uuid}"));
+            match lookup_contract_id(&rpc_config, uuid, 30) {
+                Ok(Some(id)) => {
+                    contract_id = Some(id);
+                    notes.push(format!("contract_id={id}"));
+                }
+                Ok(None) => notes.push(
+                    "contract_id lookup timed out — poll services API or re-run lookup".into(),
+                ),
+                Err(e) => notes.push(format!("contract_id lookup: {e}")),
+            }
+        } else {
+            notes.push("deploy log missing 'contract deployed: <uuid>' line".into());
+        }
+    } else {
+        notes.push("re-run with --broadcast --private-key-env KEY to submit".into());
+    }
+
+    // Preserve prior broadcast ids on save-only re-runs (before writing files).
+    let meta_path = req.save_dir.join("deployment.json");
+    if (contract_uuid.is_none() || contract_id.is_none()) && meta_path.is_file() {
+        if let Ok(prev) = serde_json::from_str::<serde_json::Value>(
+            &fs::read_to_string(&meta_path).unwrap_or_default(),
+        ) {
+            if contract_uuid.is_none() {
+                contract_uuid = prev
+                    .get("contractUuid")
+                    .or_else(|| prev.get("contract_uuid"))
+                    .and_then(|x| x.as_str())
+                    .map(|s| s.to_string());
+            }
+            if contract_id.is_none() {
+                contract_id = prev
+                    .get("contractId")
+                    .or_else(|| prev.get("contract_id"))
+                    .and_then(|x| {
+                        x.as_u64()
+                            .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+                    });
+            }
+        }
+    }
+
+    let explorer_hint = Some("https://explorer.psy-protocol.xyz".to_string());
+    let services = services_base_url(&rpc_config).ok().flatten();
+
+    // Structured receipt (no private keys)
     let receipt = json!({
         "schema": "proof-forge.pf.psy-deployment.receipt.v1",
         "target": "psy",
@@ -263,17 +316,51 @@ pub fn deploy(req: DeployRequest<'_>) -> PfResult<DeployOutcome> {
         "contractPath": dpn.display().to_string(),
         "deployCmdPath": out_path.display().to_string(),
         "rpcConfig": rpc_config.display().to_string(),
-        "cliTail": combined.chars().rev().take(4000).collect::<String>().chars().rev().collect::<String>(),
+        "contractUuid": contract_uuid,
+        "contractId": contract_id,
+        "explorer": explorer_hint,
+        "servicesBase": services,
+        "cliTail": combined.chars().rev().take(2000).collect::<String>().chars().rev().collect::<String>(),
     });
     fs::write(
         &receipt_path,
         serde_json::to_string_pretty(&receipt).expect("json"),
     )?;
 
-    if req.broadcast {
-        notes.push("confirm on explorer / services API; PF does not rewrite deployable".into());
-    } else {
-        notes.push("re-run with --broadcast --private-key-env KEY to submit".into());
+    // Frontend / follow-up friendly meta (uuid + id).
+    let meta = json!({
+        "schema": "proof-forge.pf.psy-local-deployment.v1",
+        "target": "psy",
+        "network": req.network.as_str(),
+        "contractUuid": contract_uuid,
+        "contractId": contract_id,
+        "rpcConfig": rpc_config.display().to_string(),
+        "contractPath": dpn.display().to_string(),
+        "explorer": explorer_hint,
+        "callHint": contract_id.map(|id| format!(
+            "pf execute -t psy --network {} --broadcast --private-key-env KEY -- --contract-id {id} initialize 7",
+            req.network.as_str()
+        )),
+    });
+    fs::write(
+        &meta_path,
+        serde_json::to_string_pretty(&meta).expect("json"),
+    )?;
+
+    // psyup-compatible sidecar
+    if let (Some(u), Some(id)) = (&contract_uuid, contract_id) {
+        let psy_deploy = req.save_dir.join(".psy-deploy");
+        let body = serde_json::json!({
+            "contract_uuid": u,
+            "contract_id": id,
+        });
+        let s = serde_json::to_string(&body).expect("json") + "\n";
+        fs::write(&psy_deploy, s)?;
+    }
+
+    let mut saved = vec![package_path, out_path, receipt_path, meta_path];
+    if req.save_dir.join(".psy-deploy").is_file() {
+        saved.push(req.save_dir.join(".psy-deploy"));
     }
 
     let tail: String = combined.chars().rev().take(800).collect::<String>().chars().rev().collect();
@@ -282,11 +369,145 @@ pub fn deploy(req: DeployRequest<'_>) -> PfResult<DeployOutcome> {
         network: req.network.as_str().into(),
         rpc_config,
         broadcast: req.broadcast,
-        saved: vec![package_path, out_path, receipt_path],
+        saved,
         contract_path: dpn,
         notes,
         stdout_tail: tail,
+        contract_uuid,
+        contract_id,
+        explorer_hint,
     })
+}
+
+
+/// Deployment metadata written next to deploy artifacts.
+#[derive(Debug, Clone)]
+pub struct DeployMeta {
+    pub contract_uuid: Option<String>,
+    pub contract_id: Option<u64>,
+    pub network: Option<String>,
+    pub path: PathBuf,
+}
+
+pub fn parse_contract_uuid(log: &str) -> Option<String> {
+    for line in log.lines() {
+        let lower = line.to_ascii_lowercase();
+        if let Some(idx) = lower.find("contract deployed:") {
+            let rest = line[idx + "contract deployed:".len()..].trim();
+            // take first hex token length >= 32
+            for tok in rest.split_whitespace() {
+                let t = tok.trim_matches(|c: char| !c.is_ascii_hexdigit());
+                if t.len() >= 32 && t.chars().all(|c| c.is_ascii_hexdigit()) {
+                    return Some(t.to_ascii_lowercase());
+                }
+            }
+        }
+    }
+    None
+}
+
+pub fn services_base_url(rpc_config: &Path) -> PfResult<Option<String>> {
+    let text = fs::read_to_string(rpc_config).map_err(|e| PfError::Tool(e.to_string()))?;
+    let v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| PfError::Tool(format!("rpc config: {e}")))?;
+    let default = v
+        .get("defaultNetwork")
+        .and_then(|x| x.as_str())
+        .unwrap_or("sepolia");
+    if let Some(nets) = v.get("networks").and_then(|n| n.as_object()) {
+        let net = nets.get(default).or_else(|| nets.values().next());
+        if let Some(n) = net {
+            if let Some(arr) = n.get("api_services_url").and_then(|a| a.as_array()) {
+                if let Some(u) = arr.first().and_then(|x| x.as_str()) {
+                    return Ok(Some(u.trim_end_matches('/').to_string()));
+                }
+            }
+            if let Some(u) = n.get("api_services_url").and_then(|x| x.as_str()) {
+                return Ok(Some(u.trim_end_matches('/').to_string()));
+            }
+        }
+    }
+    if let Some(u) = v.pointer("/services/psy_services").and_then(|x| x.as_str()) {
+        return Ok(Some(u.trim_end_matches('/').to_string()));
+    }
+    Ok(None)
+}
+
+/// Poll official services API for numeric contract_id (psyup-compatible).
+pub fn lookup_contract_id(
+    rpc_config: &Path,
+    uuid: &str,
+    attempts: u32,
+) -> PfResult<Option<u64>> {
+    let base = services_base_url(rpc_config)?
+        .ok_or_else(|| PfError::Tool("no api_services_url in rpc config".into()))?;
+    let url = format!("{base}/api/v1/transaction/hash/{uuid}");
+    for i in 0..attempts {
+        let out = Command::new("curl")
+            .args(["-sS", "-L", "--max-time", "5", &url])
+            .output()
+            .map_err(|e| PfError::Tool(format!("curl: {e}")))?;
+        if out.status.success() {
+            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
+                let status = v
+                    .pointer("/data/status")
+                    .and_then(|x| x.as_str())
+                    .unwrap_or("");
+                if status == "included" {
+                    if let Some(id) = v
+                        .pointer("/data/result/contract_id")
+                        .and_then(|x| x.as_u64())
+                    {
+                        return Ok(Some(id));
+                    }
+                }
+            }
+        }
+        if i + 1 < attempts {
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    }
+    Ok(None)
+}
+
+pub fn load_deployment_meta(artifact_dir: &Path) -> PfResult<Option<DeployMeta>> {
+    let candidates = [
+        artifact_dir.join("tx/deployment.json"),
+        artifact_dir.join("deployment.json"),
+        artifact_dir.join("tx/.psy-deploy"),
+    ];
+    for p in candidates {
+        if !p.is_file() {
+            continue;
+        }
+        let v: serde_json::Value = serde_json::from_str(
+            &fs::read_to_string(&p).map_err(|e| PfError::Tool(e.to_string()))?,
+        )
+        .map_err(|e| PfError::Tool(format!("deployment meta {}: {e}", p.display())))?;
+        let uuid = v
+            .get("contractUuid")
+            .or_else(|| v.get("contract_uuid"))
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
+        let id = v
+            .get("contractId")
+            .or_else(|| v.get("contract_id"))
+            .and_then(|x| {
+                x.as_u64()
+                    .or_else(|| x.as_str().and_then(|s| s.parse().ok()))
+            });
+        let network = v
+            .get("network")
+            .and_then(|x| x.as_str())
+            .map(|s| s.to_string());
+        return Ok(Some(DeployMeta {
+            contract_uuid: uuid,
+            contract_id: id,
+            network,
+            path: p,
+        }));
+    }
+    Ok(None)
 }
 
 /// Probe whether localhost Psy RPC from config answers (persistent local chain).
@@ -377,6 +598,15 @@ mod tests {
     fn refuse_mainnet_network() {
         assert!(refuse_psy_mainnet(NetworkKind::Mainnet).is_err());
         assert!(refuse_psy_mainnet(NetworkKind::Testnet).is_ok());
+    }
+
+    #[test]
+    fn parse_contract_uuid_from_log() {
+        let log = "INFO contract deployed: 3b51455bd8ee8d829f5914bd6e6e40d07ac9c9507ad21d8f23897f04980ba3b8\n";
+        assert_eq!(
+            parse_contract_uuid(log).as_deref(),
+            Some("3b51455bd8ee8d829f5914bd6e6e40d07ac9c9507ad21d8f23897f04980ba3b8")
+        );
     }
 
     #[test]

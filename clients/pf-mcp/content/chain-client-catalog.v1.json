@@ -347,12 +347,15 @@
     {
       "id": "psy",
       "implemented": true,
-      "maturityLabel": "direct-dpn zero-tool",
+      "maturityLabel": "dpn-emit + official-cli wrap",
       "role": "backend-zk-application-chain",
       "pfSurface": {
         "build": true,
-        "localModes": [],
-        "network": "none-product",
+        "localModes": [
+          "session-test",
+          "simulate-run"
+        ],
+        "network": "deploy-wrap-testnet",
         "mcpTools": [
           "pf_list_targets",
           "pf_doctor",
@@ -393,18 +396,19 @@
         }
       ],
       "localDev": {
-        "offlineInterpret": null,
-        "chainLike": null,
-        "deploy": "official psyup deploy / psy_user_cli / WebIDE — not pf deploy",
+        "offlineInterpret": "pf test -t psy (multi-step session) / pf run (psy_user_cli simulate)",
+        "chainLike": "scripts/psy_local_chain_status.sh; full fabric via psy-node",
+        "deploy": "pf deploy wraps psy_user_cli deploy-contract; --broadcast → --is-deploy",
+        "execute": "pf execute -t psy --broadcast wraps psy_user_cli call",
         "frontend": "official psy-template + @psy-protocol/* (not PF template yet)",
         "dpnArtifact": "{program}.dpn.json from pf build -t psy"
       },
       "honesty": [
-        "canonical DPN package only from PF (profile psy-dpn-v1, deployable=false)",
-        "no Psy-lang source, Dargo, local VM, UPS, proof, or network lane inside PF",
-        "hand-off to official psyup/dargo/psy_user_cli/SDK/wallet for deploy & UX",
-        "config endpoints drift — refresh config.psy-protocol.xyz",
-        "engineering only — not formal/hermetic/mainnet evidence"
+        "PF emits canonical DPN (psy-dpn-v1); OutputSet deployable remains false",
+        "local multi-step uses session harness; single-call uses official simulate",
+        "network deploy/call wrap official psy_user_cli only",
+        "mainnet refused; keys via --private-key-env only",
+        "engineering only — not formal/hermetic evidence"
       ],
       "ecosystem": {
         "docs": [

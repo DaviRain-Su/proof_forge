@@ -174,6 +174,9 @@ pf deploy -t psy --artifact build/v2/sc-psy --network local
 pf deploy -t psy --artifact build/v2/sc-psy --network local --broadcast --private-key-env PF_PSY_KEY
 # public staging/testnet (sepolia config in ~/.psy/config.json):
 pf deploy -t psy --artifact build/v2/sc-psy --network testnet --broadcast --private-key-env PF_PSY_KEY
+# after deploy: tx/deployment.json has contractId
+pf execute -t psy --artifact build/v2/sc-psy --network testnet --broadcast --private-key-env PF_PSY_KEY -- initialize 7
+pf execute -t psy --artifact build/v2/sc-psy --network testnet --broadcast --private-key-env PF_PSY_KEY -- increment 5
 ```
 
 `pf` only shells to `psy_user_cli deploy-contract`. Mainnet refused.

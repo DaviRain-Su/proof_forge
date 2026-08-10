@@ -25,7 +25,7 @@ import {
 } from "./content";
 
 const SERVER_NAME = "proof-forge-mcp";
-const SERVER_VERSION = "0.3.4";
+const SERVER_VERSION = "0.3.5";
 
 /** Psy: PF emits DPN only; deploy/wallet/SDK are official ecosystem. */
 const PSY_PF = {
@@ -68,8 +68,9 @@ const PSY_PF = {
     "pf build --target psy → *.dpn.json",
     "pf test -t psy (multi-step session 7+5=12)",
     "pf run -t psy -- <method> (wraps psy_user_cli simulate)",
-    "pf deploy -t psy (wraps psy_user_cli deploy-contract; --broadcast → --is-deploy)",
-    "just psy-dpn-local-smoke / scripts/psy_local_chain_status.sh",
+    "pf deploy -t psy (wraps deploy-contract; receipt has contractUuid/contractId)",
+    "pf execute -t psy --broadcast (wraps psy_user_cli call)",
+    "just psy-dpn-local-smoke / psy-example-matrix / psy_local_chain_status",
     "frontend: @psy-protocol/* + psy-wallet window.psy",
   ],
   safety: [

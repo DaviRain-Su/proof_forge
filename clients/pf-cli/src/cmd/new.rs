@@ -45,6 +45,15 @@ pub fn run(name: &str, target: Option<&str>, path: Option<&PathBuf>, json: bool)
                     "  # pf deploy --broadcast --network local --endpoint http://127.0.0.1:8899"
                 );
             }
+            "psy" => {
+                println!("  pf setup --target psy");
+                println!("  pf test              # multi-step DPN session (7+5=12)");
+                println!("  pf run -- initialize 7   # official psy_user_cli simulate");
+                println!("  pf deploy            # save-only → deploy_cmd.json");
+                println!("  # export PF_PSY_KEY=…");
+                println!("  # pf deploy --network testnet --broadcast --private-key-env PF_PSY_KEY");
+                println!("  # pf execute --network testnet --broadcast --private-key-env PF_PSY_KEY -- initialize 7");
+            }
             _ => {
                 println!("  pf build -t <target>");
             }
