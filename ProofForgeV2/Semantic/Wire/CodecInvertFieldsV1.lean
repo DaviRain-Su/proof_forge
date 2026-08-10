@@ -2258,13 +2258,14 @@ theorem decodeTypes_uint64_bool_table_of_encode_midV1
 /-- Exact mid-offset inversion for the public state declaration leaf used by the
     non-callable root table package. -/
 theorem decodeStateDecl_public_of_encode_midV1
-    (stateName : String) (hval : validateIdentifierComponent stateName = .ok ())
+    (id typeId : UInt32) (stateName : String)
+    (hval : validateIdentifierComponent stateName = .ok ())
     (b left right : ByteArray) (nesting : Nat)
     (hdepth : nesting + 1 < maxNesting)
     (henc : encodeStateDeclV1
-      { id := 0, name := stateName, typeId := 0, visibility := .public_ } = .ok b) :
+      { id, name := stateName, typeId, visibility := .public_ } = .ok b) :
     decodeStateDeclV1 ⟨left ++ b ++ right, left.size, nesting⟩ =
-      .ok ({ id := 0, name := stateName, typeId := 0, visibility := .public_ },
+      .ok ({ id, name := stateName, typeId, visibility := .public_ },
         ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
   have hnameEnc : encodeString stateName = .ok (stringPayloadBytesV1 stateName) :=
     encodeString_of_identifierV1 stateName hval
@@ -2273,58 +2274,58 @@ theorem decodeStateDecl_public_of_encode_midV1
   simp only [encodeStateDeclV1, hnameEnc, hvisEnc, Bind.bind, Except.bind,
     Pure.pure, Except.pure] at henc
   have hb := (encodeTagged_ok_eq_taggedBytesV1 "StateDecl"
-    #[encodeU32le 0, stringPayloadBytesV1 stateName, encodeU32le 0,
+    #[encodeU32le id, stringPayloadBytesV1 stateName, encodeU32le typeId,
       taggedHeaderBytesV1 "Visibility.Public" 0] b henc).1
   subst b
-  have hlayout := taggedBytes_four_fields "StateDecl" (encodeU32le 0)
-    (stringPayloadBytesV1 stateName) (encodeU32le 0)
+  have hlayout := taggedBytes_four_fields "StateDecl" (encodeU32le id)
+    (stringPayloadBytesV1 stateName) (encodeU32le typeId)
     (taggedHeaderBytesV1 "Visibility.Public" 0)
   rw [hlayout]
   have hflatIn :
       left ++
-          (taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0 ++ stringPayloadBytesV1 stateName ++
-            encodeU32le 0 ++ taggedHeaderBytesV1 "Visibility.Public" 0) ++ right =
-        left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0 ++ stringPayloadBytesV1 stateName ++
-          encodeU32le 0 ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right := by
+          (taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id ++ stringPayloadBytesV1 stateName ++
+            encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0) ++ right =
+        left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id ++ stringPayloadBytesV1 stateName ++
+          encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right := by
     simp [ByteArray.append_assoc]
   rw [hflatIn]
   have houter : nesting < maxNesting := Nat.lt_of_succ_lt hdepth
-  let input := left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0 ++
-    stringPayloadBytesV1 stateName ++ encodeU32le 0 ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right
-  let body := taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0 ++
-    stringPayloadBytesV1 stateName ++ encodeU32le 0 ++ taggedHeaderBytesV1 "Visibility.Public" 0
+  let input := left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id ++
+    stringPayloadBytesV1 stateName ++ encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right
+  let body := taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id ++
+    stringPayloadBytesV1 stateName ++ encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0
   have hexpect :
       expectTag "StateDecl" 4 ⟨input, left.size, nesting + 1⟩ =
         .ok ((), ⟨input, left.size + (taggedHeaderBytesV1 "StateDecl" 4).size, nesting + 1⟩) := by
     subst input
     have hin :
-        left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0 ++ stringPayloadBytesV1 stateName ++
-            encodeU32le 0 ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right =
+        left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id ++ stringPayloadBytesV1 stateName ++
+            encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right =
           left ++ taggedHeaderBytesV1 "StateDecl" 4 ++
-            (encodeU32le 0 ++ stringPayloadBytesV1 stateName ++ encodeU32le 0 ++
+            (encodeU32le id ++ stringPayloadBytesV1 stateName ++ encodeU32le typeId ++
               taggedHeaderBytesV1 "Visibility.Public" 0) ++ right := by
       simp [ByteArray.append_assoc]
     rw [hin]
     exact expectTag_encode_midV1 left right "StateDecl" 4
-      (encodeU32le 0 ++ stringPayloadBytesV1 stateName ++ encodeU32le 0 ++
+      (encodeU32le id ++ stringPayloadBytesV1 stateName ++ encodeU32le typeId ++
         taggedHeaderBytesV1 "Visibility.Public" 0) (nesting + 1)
       (by decide) (by decide) (by decide) isAsciiTagBytes_StateDecl (by decide)
   have hid :
       decodeU32le ⟨input, left.size + (taggedHeaderBytesV1 "StateDecl" 4).size, nesting + 1⟩ =
-        .ok (0, ⟨input, left.size + (taggedHeaderBytesV1 "StateDecl" 4).size + 4, nesting + 1⟩) := by
+        .ok (id, ⟨input, left.size + (taggedHeaderBytesV1 "StateDecl" 4).size + 4, nesting + 1⟩) := by
     subst input
     have hin :
-        left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0 ++ stringPayloadBytesV1 stateName ++
-            encodeU32le 0 ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right =
-          (left ++ taggedHeaderBytesV1 "StateDecl" 4) ++ encodeU32le 0 ++
-            (stringPayloadBytesV1 stateName ++ encodeU32le 0 ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right) := by
+        left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id ++ stringPayloadBytesV1 stateName ++
+            encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right =
+          (left ++ taggedHeaderBytesV1 "StateDecl" 4) ++ encodeU32le id ++
+            (stringPayloadBytesV1 stateName ++ encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right) := by
       simp [ByteArray.append_assoc]
     have hsz : (left ++ taggedHeaderBytesV1 "StateDecl" 4).size =
         left.size + (taggedHeaderBytesV1 "StateDecl" 4).size := by simp [ByteArray.size_append]
     rw [hin, ← hsz]
     exact decodeU32le_encode_midV1 (left ++ taggedHeaderBytesV1 "StateDecl" 4)
-      (stringPayloadBytesV1 stateName ++ encodeU32le 0 ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right)
-      0 (nesting + 1)
+      (stringPayloadBytesV1 stateName ++ encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right)
+      id (nesting + 1)
   have hname :
       decodeString ⟨input, left.size + (taggedHeaderBytesV1 "StateDecl" 4).size + 4, nesting + 1⟩ =
         .ok (stateName,
@@ -2332,18 +2333,18 @@ theorem decodeStateDecl_public_of_encode_midV1
             (stringPayloadBytesV1 stateName).size, nesting + 1⟩) := by
     subst input
     have hmid := decodeString_of_encodeString_okV1
-      (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0)
-      (encodeU32le 0 ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right)
+      (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id)
+      (encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right)
       stateName (stringPayloadBytesV1 stateName) (nesting + 1) hnameEnc
     have hin :
-        (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0) ++
+        (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id) ++
             stringPayloadBytesV1 stateName ++
-            (encodeU32le 0 ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right) =
-          left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0 ++
-            stringPayloadBytesV1 stateName ++ encodeU32le 0 ++
+            (encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right) =
+          left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id ++
+            stringPayloadBytesV1 stateName ++ encodeU32le typeId ++
             taggedHeaderBytesV1 "Visibility.Public" 0 ++ right := by
       simp [ByteArray.append_assoc]
-    have hsz : (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0).size =
+    have hsz : (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id).size =
         left.size + (taggedHeaderBytesV1 "StateDecl" 4).size + 4 := by
       simp [ByteArray.size_append, encodeU32le_sizeV1]
     simpa [hin, hsz] using hmid
@@ -2351,23 +2352,23 @@ theorem decodeStateDecl_public_of_encode_midV1
       decodeU32le ⟨input,
         left.size + (taggedHeaderBytesV1 "StateDecl" 4).size + 4 +
           (stringPayloadBytesV1 stateName).size, nesting + 1⟩ =
-        .ok (0, ⟨input,
+        .ok (typeId, ⟨input,
           left.size + (taggedHeaderBytesV1 "StateDecl" 4).size + 4 +
             (stringPayloadBytesV1 stateName).size + 4, nesting + 1⟩) := by
     subst input
     have hmid := decodeU32le_encode_midV1
-      (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0 ++
+      (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id ++
         stringPayloadBytesV1 stateName)
-      (taggedHeaderBytesV1 "Visibility.Public" 0 ++ right) 0 (nesting + 1)
+      (taggedHeaderBytesV1 "Visibility.Public" 0 ++ right) typeId (nesting + 1)
     have hin :
-        (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0 ++
-            stringPayloadBytesV1 stateName) ++ encodeU32le 0 ++
+        (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id ++
+            stringPayloadBytesV1 stateName) ++ encodeU32le typeId ++
             (taggedHeaderBytesV1 "Visibility.Public" 0 ++ right) =
-          left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0 ++
-            stringPayloadBytesV1 stateName ++ encodeU32le 0 ++
+          left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id ++
+            stringPayloadBytesV1 stateName ++ encodeU32le typeId ++
             taggedHeaderBytesV1 "Visibility.Public" 0 ++ right := by
       simp [ByteArray.append_assoc]
-    have hsz : (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0 ++
+    have hsz : (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id ++
         stringPayloadBytesV1 stateName).size =
         left.size + (taggedHeaderBytesV1 "StateDecl" 4).size + 4 +
           (stringPayloadBytesV1 stateName).size := by
@@ -2381,19 +2382,19 @@ theorem decodeStateDecl_public_of_encode_midV1
     subst input body
     have hmid := decodeVisibility_of_encode_midV1 .public_
       (taggedHeaderBytesV1 "Visibility.Public" 0)
-      (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0 ++
-        stringPayloadBytesV1 stateName ++ encodeU32le 0)
+      (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id ++
+        stringPayloadBytesV1 stateName ++ encodeU32le typeId)
       right (nesting + 1) hdepth hvisEnc
     have hin :
-        (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0 ++
-            stringPayloadBytesV1 stateName ++ encodeU32le 0) ++
+        (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id ++
+            stringPayloadBytesV1 stateName ++ encodeU32le typeId) ++
             taggedHeaderBytesV1 "Visibility.Public" 0 ++ right =
-          left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0 ++
-            stringPayloadBytesV1 stateName ++ encodeU32le 0 ++
+          left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id ++
+            stringPayloadBytesV1 stateName ++ encodeU32le typeId ++
             taggedHeaderBytesV1 "Visibility.Public" 0 ++ right := by
       simp [ByteArray.append_assoc]
-    have hsz : (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le 0 ++
-        stringPayloadBytesV1 stateName ++ encodeU32le 0).size =
+    have hsz : (left ++ taggedHeaderBytesV1 "StateDecl" 4 ++ encodeU32le id ++
+        stringPayloadBytesV1 stateName ++ encodeU32le typeId).size =
         left.size + (taggedHeaderBytesV1 "StateDecl" 4).size + 4 +
           (stringPayloadBytesV1 stateName).size + 4 := by
       simp [ByteArray.size_append, encodeU32le_sizeV1]
@@ -2402,8 +2403,8 @@ theorem decodeStateDecl_public_of_encode_midV1
             (stringPayloadBytesV1 stateName).size + 4 +
             (taggedHeaderBytesV1 "Visibility.Public" 0).size =
           left.size +
-            ((taggedHeaderBytesV1 "StateDecl" 4).size + (encodeU32le 0).size +
-              (stringPayloadBytesV1 stateName).size + (encodeU32le 0).size +
+            ((taggedHeaderBytesV1 "StateDecl" 4).size + (encodeU32le id).size +
+              (stringPayloadBytesV1 stateName).size + (encodeU32le typeId).size +
               (taggedHeaderBytesV1 "Visibility.Public" 0).size) := by
       simp only [encodeU32le_sizeV1]
       omega
@@ -2417,13 +2418,27 @@ theorem decodeStateDecl_public_of_encode_midV1
     ⟨input, left.size + (taggedHeaderBytesV1 "StateDecl" 4).size + 4 +
       (stringPayloadBytesV1 stateName).size + 4, nesting + 1⟩
     ⟨input, left.size + body.size, nesting + 1⟩
-    0 0 stateName .public_ hexpect hid hname htype hvis
+    id typeId stateName .public_ hexpect hid hname htype hvis
   have hs := decodeStateDeclV1_eq_of_bodyV1
     ⟨input, left.size, nesting⟩
-    ({ id := 0, name := stateName, typeId := 0, visibility := .public_ } : StateDeclV1)
+    ({ id, name := stateName, typeId, visibility := .public_ } : StateDeclV1)
     ⟨input, left.size + body.size, nesting + 1⟩ houter hbody
   subst input body
   simpa [ByteArray.size_append, encodeU32le_sizeV1] using hs
+
+/-- Fixed-depth exact inversion for a public state declaration with arbitrary
+    declaration and type ids. -/
+theorem exactAt_stateDecl_publicV1
+    (id typeId : UInt32) (stateName : String)
+    (hval : validateIdentifierComponent stateName = .ok ())
+    (nesting : Nat) (hdepth : nesting + 1 < maxNesting) :
+    ExactMidOffsetInvertAtV1 encodeStateDeclV1 decodeStateDeclV1
+      ({ id, name := stateName, typeId, visibility := .public_ } : StateDeclV1)
+      nesting := by
+  intro b left right henc
+  exact
+    decodeStateDecl_public_of_encode_midV1 id typeId stateName hval b left right
+      nesting hdepth henc
 
 /-- Exact singleton public state table inversion. -/
 theorem decodeStateDecl_singleton_public_table_of_encode_midV1
@@ -2444,7 +2459,7 @@ theorem decodeStateDecl_singleton_public_table_of_encode_midV1
         .ok ({ id := 0, name := stateName, typeId := 0, visibility := .public_ },
           ⟨left ++ encodeU32le 1 ++ stateB ++ right,
             left.size + 4 + stateB.size, nesting⟩) := by
-    have hmid := decodeStateDecl_public_of_encode_midV1 stateName hval stateB
+    have hmid := decodeStateDecl_public_of_encode_midV1 0 0 stateName hval stateB
       (left ++ encodeU32le 1) right nesting hdepth hstate
     have hin : (left ++ encodeU32le 1) ++ stateB ++ right =
         left ++ encodeU32le 1 ++ stateB ++ right := by simp [ByteArray.append_assoc]

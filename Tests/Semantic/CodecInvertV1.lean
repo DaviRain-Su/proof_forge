@@ -127,6 +127,15 @@ theorem typeDecl_bool_exactAt_root (id : UInt32) :
       ({ id := id, name := none, shape := .bool } : TypeDeclV1) 1 :=
   exactAt_typeDecl_bool_noneV1 id 1 (by decide)
 
+/-- Public StateDecl leaves retain arbitrary declaration/type ids at the
+    root-table element depth. -/
+theorem stateDecl_public_exactAt_root
+    (id typeId : UInt32) (stateName : String)
+    (hname : validateIdentifierComponent stateName = .ok ()) :
+    ExactMidOffsetInvertAtV1 encodeStateDeclV1 decodeStateDeclV1
+      ({ id, name := stateName, typeId, visibility := .public_ } : StateDeclV1) 1 :=
+  exactAt_stateDecl_publicV1 id typeId stateName hname 1 (by decide)
+
 /-- Positive theorem: CallableKind MidOffsetInvert package. -/
 theorem callableKind_midOffsetInvert :
     MidOffsetInvertV1 encodeCallableKindV1 decodeCallableKindV1 :=
