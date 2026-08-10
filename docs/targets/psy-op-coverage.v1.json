@@ -6,8 +6,8 @@
     "schemaOpCount": 73,
     "emitterReachableCount": 28,
     "sessionImplementedCount": 48,
-    "artifactOpKinds": 25,
-    "artifactFiles": 7,
+    "artifactOpKinds": 26,
+    "artifactFiles": 8,
     "p0EmitterWithoutSession": [],
     "featureBacklog": [
       {
@@ -61,11 +61,12 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 54,
+      "artifactCount": 56,
       "examples": [
         "Accumulator",
         "CallProbe",
         "EmitProbe",
+        "LoopSum",
         "MapMini",
         "OptionState",
         "StateCell",
@@ -80,11 +81,12 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 2732,
+      "artifactCount": 2752,
       "examples": [
         "Accumulator",
         "CallProbe",
         "EmitProbe",
+        "LoopSum",
         "MapMini",
         "OptionState",
         "StateCell",
@@ -99,11 +101,12 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 28,
+      "artifactCount": 30,
       "examples": [
         "Accumulator",
         "CallProbe",
         "EmitProbe",
+        "LoopSum",
         "MapMini",
         "OptionState",
         "StateCell",
@@ -131,11 +134,12 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 2354,
+      "artifactCount": 2371,
       "examples": [
         "Accumulator",
         "CallProbe",
         "EmitProbe",
+        "LoopSum",
         "StateCell",
         "WideCounter"
       ],
@@ -148,8 +152,9 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 2316,
+      "artifactCount": 2317,
       "examples": [
+        "LoopSum",
         "WideCounter"
       ],
       "status": "covered"
@@ -200,8 +205,9 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 1080,
+      "artifactCount": 1088,
       "examples": [
+        "LoopSum",
         "MapMini",
         "OptionState",
         "WideCounter"
@@ -265,10 +271,12 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 1,
+      "examples": [
+        "LoopSum"
+      ],
+      "status": "covered"
     },
     {
       "opId": 15,
@@ -277,11 +285,12 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 286,
+      "artifactCount": 295,
       "examples": [
         "Accumulator",
         "CallProbe",
         "EmitProbe",
+        "LoopSum",
         "StateCell",
         "WideCounter"
       ],
@@ -307,8 +316,9 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 1378,
+      "artifactCount": 1387,
       "examples": [
+        "LoopSum",
         "WideCounter"
       ],
       "status": "covered"
@@ -375,8 +385,9 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 5648,
+      "artifactCount": 5649,
       "examples": [
+        "LoopSum",
         "MapMini",
         "OptionState",
         "WideCounter"
@@ -725,11 +736,12 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 797,
+      "artifactCount": 807,
       "examples": [
         "Accumulator",
         "CallProbe",
         "EmitProbe",
+        "LoopSum",
         "MapMini",
         "OptionState",
         "StateCell",
@@ -955,14 +967,14 @@
       "pfSchema": true,
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 801
+      "artifactCount": 812
     },
     {
       "name": "SetContractStateSlotSingle",
       "pfSchema": true,
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 106
+      "artifactCount": 115
     },
     {
       "name": "GetSelfUserCurrentContractStateSlotHash",
@@ -1139,21 +1151,22 @@
     }
   ],
   "artifactOps": {
-    "0": 54,
-    "1": 2732,
-    "2": 28,
+    "0": 56,
+    "1": 2752,
+    "2": 30,
     "3": 2,
-    "4": 2354,
-    "5": 2316,
+    "4": 2371,
+    "5": 2317,
     "6": 68,
     "8": 940,
-    "9": 1080,
+    "9": 1088,
     "10": 2513,
     "13": 2553,
-    "15": 286,
+    "14": 1,
+    "15": 295,
     "16": 768,
-    "17": 1378,
-    "23": 5648,
+    "17": 1387,
+    "23": 5649,
     "32": 924,
     "34": 2820,
     "36": 4,
@@ -1162,12 +1175,12 @@
     "46": 1,
     "47": 1,
     "48": 1,
-    "54": 797,
+    "54": 807,
     "72": 20
   },
   "artifactStateCmds": {
-    "GetSelfUserCurrentContractStateSlotSingle": 801,
-    "SetContractStateSlotSingle": 106,
+    "GetSelfUserCurrentContractStateSlotSingle": 812,
+    "SetContractStateSlotSingle": 115,
     "InvokeExternalContractFunctionSync": 1
   }
 }

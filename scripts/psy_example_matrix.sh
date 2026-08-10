@@ -54,8 +54,9 @@ for entry in "${mods[@]}"; do
           ;;
         LoopSum)
           python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" \
-            --call initialize:0 --call run:0 --call get >/tmp/psy-mat-session-$name.log \
-            && echo "  OK session LoopSum (official also 0 on empty)" || { echo "  FAIL session"; fail=$((fail+1)); continue; }
+            --call initialize:10 --call run:0 --call get >/tmp/psy-mat-session-$name.log \
+            && rg -q 'outputs=\[14\]' /tmp/psy-mat-session-$name.log \
+            && echo "  OK session LoopSum 10+4=14" || { echo "  FAIL session"; fail=$((fail+1)); continue; }
           ;;
         MapMini)
           python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" \

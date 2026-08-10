@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Differential: official psy_user_cli simulate (single-call) vs psy_dpn_session.py
-# + multi-step continuity for StateCell / OptionState / Accumulator / WideCounter / MapMini / EmitProbe / CallProbe.
+# + multi-step continuity for StateCell / OptionState / Accumulator / WideCounter / MapMini / EmitProbe / CallProbe / LoopSum.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
@@ -270,6 +270,22 @@ python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_c" \
   --call initialize:0 --call notify:7 --call get | tee "$out/session-call.log"
 rg -q 'outputs=\[7\]' "$out/session-call.log"
 
+# --- LoopSum (bounded-for static unroll) ---
+dpn_l=$(build_ex LoopSum Examples.LoopSum)
+# Fresh memory: run(0) adds 1 four times → 4
+diff_pair loop-run0 "$dpn_l" run --inputs 0
+compare_nonzero_writes loop-run0-writes \
+  "$out/off-loop-run0.json" "$out/sess-loop-run0.json"
+# n only shifts the induction range; body still +1 × 4
+diff_pair loop-run5 "$dpn_l" run --inputs 5
+compare_nonzero_writes loop-run5-writes \
+  "$out/off-loop-run5.json" "$out/sess-loop-run5.json"
+
+info "session continuity LoopSum init(10)+run(0)+get => 14"
+python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_l" \
+  --call initialize:10 --call run:0 --call get | tee "$out/session-loop.log"
+rg -q 'outputs=\[14\]' "$out/session-loop.log"
+
 # coverage report from built artifacts
 python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
   --artifact-root "$out" -o "$out/psy-op-coverage.v1.json"
@@ -277,5 +293,5 @@ python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
 python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
   --artifact-root "$out" -o "$root/docs/targets/psy-op-coverage.v1.json"
 
-info "OK differential matrix + MapMini multi-key + EmitProbe events + CallProbe invoke + coverage"
+info "OK differential matrix + MapMini multi-key + EmitProbe events + CallProbe invoke + LoopSum + coverage"
 echo "artifacts: $out"

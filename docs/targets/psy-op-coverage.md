@@ -30,7 +30,7 @@ Generator: `scripts/psy_dpn_op_coverage.py` · `just psy-dpn-op-coverage`
 - MapMini: official put/get + session multi-key (`put`/`get`, overwrite, miss→0)
 - EmitProbe: `emit` events (PARTIAL) official+session data/user/contract align
 - CallProbe: void `call` → InvokeExternalContractFunctionSync (PARTIAL; no nested exec)
-- LoopSum: session matches official single-call (loop body shape)
+- LoopSum: official run(0)/run(5) → +4; session continuity init(10)+run(0)=14
 
 **Schema-only / not emitted by PF (not a session bug):**
 
@@ -52,3 +52,9 @@ just psy-example-matrix   # builds examples + sessions + refreshes JSON
 just psy-dpn-diff         # official vs session + continuity
 just psy-dpn-op-coverage  # from build/v2/psy-op-audit or default
 ```
+
+## Design gates (not bugs)
+
+- Hash gadgets: [`../adr/0037-psy-hash-gadgets-gate.md`](../adr/0037-psy-hash-gadgets-gate.md)
+- ContextRead / Commit (P3): [`psy-p3-context-commit-gate.md`](psy-p3-context-commit-gate.md)
+

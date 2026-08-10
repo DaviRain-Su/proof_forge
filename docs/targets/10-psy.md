@@ -149,3 +149,9 @@ Do **not** claim full official DPN OP coverage. Layers:
 Machine-readable matrix: [`psy-op-coverage.v1.json`](psy-op-coverage.v1.json) · narrative [`psy-op-coverage.md`](psy-op-coverage.md).
 Regenerate: `just psy-dpn-op-coverage` / `just psy-example-matrix` / `just psy-dpn-diff`.
 
+## 11. Open design gates
+
+- Hash gadgets: [ADR-0037](../adr/0037-psy-hash-gadgets-gate.md)
+- ContextRead / Commit (P3): [psy-p3-context-commit-gate.md](psy-p3-context-commit-gate.md)
+- OP coverage matrix: [psy-op-coverage.md](psy-op-coverage.md)
+
