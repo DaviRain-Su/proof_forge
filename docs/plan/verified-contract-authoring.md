@@ -143,10 +143,11 @@ ProofForge 目标
 
 ### 2.2 当前离目标体验还有什么距离
 
-1. 作者仍面对 `LogicalStateV1`、canonical bytes、callable id、invocation、responses、vault
-   和大段 shape/decode 义务，缺少合约本地 typed `State`。
-2. 缺少自动生成的 per-callable typed transition API；作者不能自然写
-   `deposit s amount = .returned next`。
+1. UInt64/空 state 支持子集已有合约本地 typed `State`，但更多 accepted state shape 尚待接线；
+   组合 preservation theorem 时仍会暴露 `LogicalStateV1`、raw invocation、responses、vault
+   和 full-input gate 义务。
+2. 已有首个自动生成的 per-callable typed relation API，但尚缺面向业务证明的
+   `deposit s amount = .returned next` 短 executable notation。
 3. 缺少 DSL invariant expression 与 typed predicate 的通用等价桥。
 4. `PreservationTheoremV1` 要求 base + 全输入 + 全 callable + 三 Outcome；当前缺少把
    per-callable 业务 lemma 自动组合成该 ABI 的程序级 packager。
@@ -399,8 +400,9 @@ Reference failure。vault 只有在有真正的 independence theorem 后才能�
 
 **状态**：进行中。entry/view 的 UInt64 参数、Unit/Bool/UInt64 result codec/relation、三分支
 packaging、full-outcome relational totality、outcome uniqueness 与 returned state/result 唯一 typed
-decode 已完成；production initializer returned-state lifecycle seam 已闭合。generated pre-init /
-initializer typed surface、full-outcome 反向 completeness 与 executable 短 notation尚未完成。
+decode 已完成；独立的 generated pre-init `LifecycleState`、initializer params/result/relation、
+三分支 packaging、outcome totality/uniqueness 与 returned post-state 唯一 typed decode 也已完成。
+全 raw-input gate partition、面向 preservation packager 的组合 bridge 与 executable 短 notation尚未完成。
 
 交付：
 
@@ -664,7 +666,7 @@ proof-bearing target build 继续 fail closed。
 | 0A | 删除第二套 executable semantics | **已完成** | `MiniAmmSafetySketchV1`、alpha `Core/Semantics`/`SemanticIR` 已不在 HEAD |
 | 0B | 唯一语义防回归门 | **已完成** | `alpha-deletion-gate` 固定平行语义、contract-specific registry/pin 的物理删除，不误杀 checker state |
 | 1 | Typed State + codec bridge | **进行中（generated Bool/UInt64 双向 complete/unique 首切已完成）** | generated `Model.State` 复用 production codec；`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；Bool 的产品 accepted-language 接线与更多 scalar shape 仍待补 |
-| 2 | Typed callable transition | **进行中（entry/view relation + returned typed transition witness + outcome uniqueness 首切已完成）** | 真实 initialized returned step 可包装为 typed State/result/outcome；固定 typed 输入至多对应一个 typed outcome |
+| 2 | Typed callable transition | **进行中（initialized entry/view + 独立 initializer lifecycle relation 首切已完成）** | pre-init 只使用 exact production lifecycle carrier；initializer returned state 与 ordinary callable returned state 均可唯一投影为 typed State，固定 typed 输入有且至多有一个 typed outcome |
 | 3 | Typed invariant bridge | 未开始 | typed predicate 与 `evalInvariantV1` 双向对齐 |
 | 4 | Generic preservation composition | 未开始 | per-call lemmas 自动包成 exact `PreservationTheoremV1` |
 | 5 | Same-file certifier ergonomics | 部分地基已有 | 任意未 pin 合约的真实 proof body可 certified |
@@ -709,9 +711,10 @@ proof-bearing target build 继续 fail closed。
    直接包含 sole `stepReferenceSliceV1` equality；revert/trap 明确要求 exact encoded pre-state；
 4. elaborator 从 exact lowered `SemanticProgramDataV1.callables` 读取 callable id、parameter
    TypeId 与 result TypeId，生成 canonical invocation/result projection，不从 source AST 重算 id；
-5. 当前 generated subset 仅覆盖 entry/view、UInt64 parameters、Unit/Bool/UInt64 result；
-   unsupported parameter/result、initializer 与固定 `Model` surface 名冲突均 fail closed，不生成
-   半成品 transition；
+5. 当前 generated subset 覆盖 initialized entry/view 及独立 initializer lifecycle、UInt64
+   parameters、Unit/Bool/UInt64 result；unsupported parameter/result、ordinary callable 与固定
+   `Model` surface/`init` namespace 冲突均 fail closed，不生成半成品 transition；canonical Wire
+   上匿名的 sole initializer 只在 proof projection 中映射为 `Model.init`，不改写 subject data；
 6. `context`、`ExternalResponsesV1`、`ReferenceVaultSeedV1` 均保持显式，未以空值或默认值
    冒充全输入 theorem；
 7. `typedCallableRelationV1_outcome_unique` 已证明：在 generated state/result codec injective
@@ -753,10 +756,18 @@ proof-bearing target build 继续 fail closed。
 14. generated `transition_exists` 对 sole `stepReferenceSliceV1` 的实际结果作三分支分类，并调用
    上述 exact bridges，证明 initialized typed pre 的任意完整 Reference execution 都存在 typed
    outcome；与 `outcome_unique` 合用即得到存在且至多唯一，不新增 executable typed step；
-15. 当前仍缺 generated pre-init `LifecycleState`、initializer typed params/result/relation 与唯一 typed
-   post decode；production returned-state conformance seam 已完成。typed invariant bridge、per-call
-   preservation composition 与短 executable notation仍是后续 Phase 2–4 工作；
-16. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
+15. `InitialLifecycleStateV1` 以
+   `initialLogicalStateV1 exactProgram = .ok logical` 精确携带 pre-init state；generated
+   `Model.LifecycleState` / `initialLifecycleState` 直接复用该 production constructor。initializer
+   `Transition` 的 pre-state 不再伪装成 initialized business `State`，只有 returned post-state进入
+   既有 `decodeState`；revert/trap 都保留 exact lifecycle logical pre-state；
+16. initializer 专属 emitter 从 exact lowered anonymous initializer row 生成 `Model.init` 的 invocation、
+   result codec、三分支 relation、returned/reverted/trapped packaging、`transition_exists` 与
+   `outcome_unique`；ordinary selector仍只接受 entry/view。回归同时 pin initializer id/kind、ordinary
+   view id，以及 relation 展开后每个分支唯一出现的 `stepReferenceSliceV1`；没有 generated evaluator；
+17. 当前仍缺 typed invariant bridge、full raw-input gate partition、per-call preservation composition
+   与短 executable notation；这些仍是后续 Phase 2–4 工作；
+18. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
    完成前不能称 target artifact verified。
 
 ---

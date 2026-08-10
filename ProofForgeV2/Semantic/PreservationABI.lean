@@ -40,6 +40,23 @@ def admitSubjectV1 (program : SemanticProgramV1) :
   | .ok admitted => .ok ⟨admitted, hadmit⟩
   | .error error => .error error
 
+/-- Exact product initial-state carrier. Generated initializer proof views use
+    this type instead of pretending the pre-initialization state is an
+    initialized business `State`. The equality binds the carrier directly to
+    the sole production `initialLogicalStateV1` constructor. -/
+structure InitialLifecycleStateV1 (program : SemanticProgramV1) where
+  logical : LogicalStateV1
+  hinitial : initialLogicalStateV1 program = .ok logical
+
+/-- Run the production initial-state constructor and retain its exact success
+    equality. This packages lifecycle identity only; it does not execute an
+    initializer or reconstruct state defaults. -/
+def initialLifecycleStateV1 (program : SemanticProgramV1) :
+    Except SemanticWireErrorV1 (InitialLifecycleStateV1 program) :=
+  match hinitial : initialLogicalStateV1 program with
+  | .ok logical => .ok ⟨logical, hinitial⟩
+  | .error error => .error error
+
 /-- Typed author view of the three canonical Reference outcomes. Returned
     states/results are typed projections; revert/trap retain the production
     reason/fault, while exact unchanged-state behavior is enforced by
@@ -91,6 +108,38 @@ def TypedCallableRelationV1
           stepReferenceSliceV1 subject.admitted logicalPre invocation
               responses vault =
             .trapped fault logicalPre
+
+/-- Canonical initializer relation from the exact production lifecycle state
+    to an initialized typed business state. Unlike `TypedCallableRelationV1`,
+    the pre and returned state types are intentionally different. Every branch
+    is still headed by the sole `stepReferenceSliceV1`; this is a proof
+    relation, not an executable initializer implementation. -/
+def TypedInitializerRelationV1
+    {State Result : Type}
+    {program : SemanticProgramV1}
+    (encodeState : State → Except SemanticWireErrorV1 LogicalStateV1)
+    (encodeResult : Result → Option ReferenceValueV1)
+    (subject : AdmittedSubjectV1 program)
+    (pre : InitialLifecycleStateV1 program)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (outcome : TypedOutcomeV1 State Result) : Prop :=
+  match outcome with
+  | .returned post value effects =>
+      ∃ logicalPost,
+        encodeState post = .ok logicalPost ∧
+          stepReferenceSliceV1 subject.admitted pre.logical invocation
+              responses vault =
+            .returned logicalPost (encodeResult value) effects
+  | .reverted reason =>
+      stepReferenceSliceV1 subject.admitted pre.logical invocation
+          responses vault =
+        .reverted reason pre.logical
+  | .trapped fault =>
+      stepReferenceSliceV1 subject.admitted pre.logical invocation
+          responses vault =
+        .trapped fault pre.logical
 
 /-- The canonical typed callable relation is proof-functional whenever the
     generated state and result projections are injective. Determinism comes
@@ -199,6 +248,78 @@ theorem typedCallableRelationV1_outcome_unique
           subst rightPre
           obtain ⟨hfaults, _⟩ :=
             OutcomeV1.trapped.inj (hleftStep.symm.trans hrightStep)
+          subst rightFault
+          rfl
+
+/-- The canonical initializer relation is proof-functional whenever the
+    generated post-state and result projections are injective. Determinism is
+    inherited directly from the single production Reference step. -/
+theorem typedInitializerRelationV1_outcome_unique
+    {State Result : Type}
+    {program : SemanticProgramV1}
+    (encodeState : State → Except SemanticWireErrorV1 LogicalStateV1)
+    (encodeResult : Result → Option ReferenceValueV1)
+    (encodeStateInjective : ∀ left right logical,
+      encodeState left = .ok logical →
+      encodeState right = .ok logical → left = right)
+    (encodeResultInjective : Function.Injective encodeResult)
+    (subject : AdmittedSubjectV1 program)
+    (pre : InitialLifecycleStateV1 program)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (left right : TypedOutcomeV1 State Result)
+    (hleft : TypedInitializerRelationV1 encodeState encodeResult subject pre
+      invocation responses vault left)
+    (hright : TypedInitializerRelationV1 encodeState encodeResult subject pre
+      invocation responses vault right) :
+    left = right := by
+  cases left with
+  | returned leftPost leftValue leftEffects =>
+      rcases hleft with ⟨leftLogicalPost, hleftPost, hleftStep⟩
+      cases right with
+      | returned rightPost rightValue rightEffects =>
+          rcases hright with ⟨rightLogicalPost, hrightPost, hrightStep⟩
+          obtain ⟨hlogicalPost, hvalue, heffects⟩ :=
+            OutcomeV1.returned.inj (hleftStep.symm.trans hrightStep)
+          subst rightLogicalPost
+          have hpost : leftPost = rightPost :=
+            encodeStateInjective
+              leftPost rightPost leftLogicalPost hleftPost hrightPost
+          have htypedValue : leftValue = rightValue :=
+            encodeResultInjective hvalue
+          subst rightPost
+          subst rightValue
+          subst rightEffects
+          rfl
+      | reverted _rightReason =>
+          cases hleftStep.symm.trans hright
+      | trapped _rightFault =>
+          cases hleftStep.symm.trans hright
+  | reverted leftReason =>
+      cases right with
+      | returned _rightPost _rightValue _rightEffects =>
+          rcases hright with
+            ⟨_rightLogicalPost, _hrightPost, hrightStep⟩
+          cases hleft.symm.trans hrightStep
+      | reverted rightReason =>
+          obtain ⟨hreasons, _⟩ :=
+            OutcomeV1.reverted.inj (hleft.symm.trans hright)
+          subst rightReason
+          rfl
+      | trapped _rightFault =>
+          cases hleft.symm.trans hright
+  | trapped leftFault =>
+      cases right with
+      | returned _rightPost _rightValue _rightEffects =>
+          rcases hright with
+            ⟨_rightLogicalPost, _hrightPost, hrightStep⟩
+          cases hleft.symm.trans hrightStep
+      | reverted _rightReason =>
+          cases hleft.symm.trans hright
+      | trapped rightFault =>
+          obtain ⟨hfaults, _⟩ :=
+            OutcomeV1.trapped.inj (hleft.symm.trans hright)
           subst rightFault
           rfl
 

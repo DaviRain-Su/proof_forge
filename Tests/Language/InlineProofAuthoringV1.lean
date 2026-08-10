@@ -463,6 +463,167 @@ example
     unfold TypedCallableRelationV1
     rfl
 
+/- Initializer authoring has a separate production lifecycle pre-state. It is
+   not emitted as an ordinary initialized callable relation. -/
+program TypedInitializerSurface where
+  state count : UInt64
+  init(seed : UInt64) do
+    count := seed
+  view get() : UInt64 do
+    return count
+  invariant safe : true
+  proof safe using TypedInitializerSurfaceProof.safe
+
+#check TypedInitializerSurface.Model.LifecycleState
+#check TypedInitializerSurface.Model.initialLifecycleState
+#check TypedInitializerSurface.Model.init.invocation
+#check TypedInitializerSurface.Model.init.Result
+#check TypedInitializerSurface.Model.init.encodeResult
+#check TypedInitializerSurface.Model.init.decodeResult
+#check TypedInitializerSurface.Model.init.decode_encode_result
+#check TypedInitializerSurface.Model.init.decodeResult_complete_of_conforms
+#check TypedInitializerSurface.Model.init.decodeResult_complete_of_returned
+#check TypedInitializerSurface.Model.init.decodeState_complete_of_returned
+#check TypedInitializerSurface.Model.init.encodeResult_injective
+#check TypedInitializerSurface.Model.init.Outcome
+#check TypedInitializerSurface.Model.init.Transition
+#check TypedInitializerSurface.Model.init.transition_returned_of_step
+#check TypedInitializerSurface.Model.init.transition_reverted_of_step
+#check TypedInitializerSurface.Model.init.transition_trapped_of_step
+#check TypedInitializerSurface.Model.init.transition_exists
+#check TypedInitializerSurface.Model.init.outcome_unique
+#check TypedInitializerSurface.Model.get.Transition
+
+example : TypedInitializerSurface.Model.init.invocation 7 #[] = ({
+    callableId := 0
+    args := #[{ typeId := 0, valueBytes := encodeU64le 7 }]
+    context := #[]
+  } : InvocationV1) := rfl
+
+example :
+    TypedInitializerSurface.Proof.subjectDataV1.callables[0]?.map
+        (fun callable => callable.kind) =
+      some CallableKindV1.initializer := rfl
+
+example : TypedInitializerSurface.Model.get.invocation #[] = ({
+    callableId := 1
+    args := #[]
+    context := #[]
+  } : InvocationV1) := rfl
+
+/-- The generated lifecycle carrier is definitionally bound to the exact
+    production initial-state constructor. -/
+example (pre : TypedInitializerSurface.Model.LifecycleState) :
+    initialLogicalStateV1 TypedInitializerSurface.Proof.subjectProgramV1 =
+      .ok pre.logical :=
+  pre.hinitial
+
+/-- Expanding the initializer relation reaches the sole generic production
+    Reference relation, with different pre/post state types. -/
+example
+    (subject : TypedInitializerSurface.Model.ReferenceSubject)
+    (pre : TypedInitializerSurface.Model.LifecycleState)
+    (seed : UInt64)
+    (context : Array ContextInputV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (outcome : TypedInitializerSurface.Model.init.Outcome) :
+    TypedInitializerSurface.Model.init.Transition
+        subject pre seed context responses vault outcome ↔
+      TypedInitializerRelationV1
+        TypedInitializerSurface.Model.encodeState
+        TypedInitializerSurface.Model.init.encodeResult subject pre
+        (TypedInitializerSurface.Model.init.invocation seed context)
+        responses vault outcome := by
+  rfl
+
+/-- The generic initializer relation itself unfolds directly to the production
+    step in every outcome branch; it does not hide a generated evaluator. -/
+example
+    {State Result : Type}
+    {semanticProgram : SemanticProgramV1}
+    (encodeState : State → Except SemanticWireErrorV1 LogicalStateV1)
+    (encodeResult : Result → Option ReferenceValueV1)
+    (subject : AdmittedSubjectV1 semanticProgram)
+    (pre : InitialLifecycleStateV1 semanticProgram)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (outcome : TypedOutcomeV1 State Result) :
+    TypedInitializerRelationV1 encodeState encodeResult subject pre invocation
+        responses vault outcome ↔
+      match outcome with
+      | .returned post value effects =>
+          ∃ logicalPost,
+            encodeState post = .ok logicalPost ∧
+              stepReferenceSliceV1 subject.admitted pre.logical invocation
+                  responses vault =
+                .returned logicalPost (encodeResult value) effects
+      | .reverted reason =>
+          stepReferenceSliceV1 subject.admitted pre.logical invocation
+              responses vault =
+            .reverted reason pre.logical
+      | .trapped fault =>
+          stepReferenceSliceV1 subject.admitted pre.logical invocation
+              responses vault =
+            .trapped fault pre.logical := by
+  unfold TypedInitializerRelationV1
+  rfl
+
+/- Initializer invocation identity comes from the lowered callable row rather
+   than assuming source `init` is callable zero. -/
+program NonzeroInitializerSurface where
+  state count : UInt64
+  view get() : UInt64 do
+    return count
+  init(seed : UInt64) do
+    count := seed
+  invariant safe : true
+  proof safe using NonzeroInitializerSurfaceProof.safe
+
+example : NonzeroInitializerSurface.Model.get.invocation #[] = ({
+    callableId := 0
+    args := #[]
+    context := #[]
+  } : InvocationV1) := rfl
+
+example : NonzeroInitializerSurface.Model.init.invocation 9 #[] = ({
+    callableId := 1
+    args := #[{ typeId := 0, valueBytes := encodeU64le 9 }]
+    context := #[]
+  } : InvocationV1) := rfl
+
+example :
+    NonzeroInitializerSurface.Proof.subjectDataV1.callables[1]?.map
+        (fun callable => callable.kind) =
+      some CallableKindV1.initializer := rfl
+
+/- An initializer outside the supported typed parameter subset withholds only
+   the optional initializer lifecycle surface. Supported ordinary callables
+   continue to receive initialized-state relations. -/
+program UnsupportedInitializerModelSurface where
+  state count : UInt64
+  init(_seed : UInt128) do
+    count := 0
+  view get() : UInt64 do
+    return count
+  invariant safe : true
+  proof safe using UnsupportedInitializerModelSurfaceProof.safe
+
+#check UnsupportedInitializerModelSurface.Model.State
+#check UnsupportedInitializerModelSurface.Model.get.Transition
+
+run_cmd do
+  let env ← getEnv
+  let lifecycleState :=
+    `Tests.Language.InlineProofAuthoringV1.UnsupportedInitializerModelSurface.Model.LifecycleState
+  if env.contains lifecycleState then
+    throwError "unsupported initializer params must not emit a lifecycle state surface"
+  let initializerTransition :=
+    `Tests.Language.InlineProofAuthoringV1.UnsupportedInitializerModelSurface.Model.init.Transition
+  if env.contains initializerTransition then
+    throwError "unsupported initializer params must not emit a typed transition relation"
+
 /- Unit is represented by `none` on the canonical Reference result surface.
     A declared-revert entry supplies an accepted lowering path for exercising
     the generated Unit relation without inventing a Unit-valued return literal. -/

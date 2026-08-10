@@ -224,18 +224,15 @@ private def isReservedModelCallableNameV1 (name : String) : Bool :=
     name == "decode_existsUnique_of_conforms" ||
     name == "encode_decode_of_conforms" || name == "conforms_of_encode" ||
     name == "conforms_iff_exists_encode" || name == "ReferenceSubject" ||
-    name == "admitReferenceSubject" || name == "Outcome"
+    name == "admitReferenceSubject" || name == "LifecycleState" ||
+    name == "initialLifecycleState" || name == "Outcome"
 
-/-- Phase-2 first callable subset: initialized entry/view roots whose parameters
-    are all canonical UInt64 and whose result is Unit, Bool, or UInt64. The
-    declaration and TypeIds come only from the exact lowered subject table.
-    Initializers are intentionally deferred until the pre-init lifecycle bridge
-    is emitted; wider/aggregate/context-specialized callables fail closed by
-    receiving no typed relation. -/
-private def modelCallableViewV1?
+/-- Project the common supported callable shape from the exact lowered table.
+    Root-kind selection remains separate below so initializer lifecycle cannot
+    be folded into the initialized entry/view surface. -/
+private def modelCallableShapeV1?
     (data : SemanticProgramDataV1) (callable : CallableV1) :
     Option ModelCallableViewV1 := do
-  guard (callable.kind == .entry || callable.kind == .view)
   let name ← callable.name
   guard (!isReservedModelCallableNameV1 name)
   let params ← callable.params.mapM fun param => do
@@ -258,9 +255,34 @@ private def modelCallableViewV1?
     result
   }
 
+/-- Phase-2 initialized callable subset. Initializers are deliberately not
+    selected here: they use the independent lifecycle emitter below. -/
+private def modelCallableViewV1?
+    (data : SemanticProgramDataV1) (callable : CallableV1) :
+    Option ModelCallableViewV1 := do
+  guard (callable.kind == .entry || callable.kind == .view)
+  modelCallableShapeV1? data callable
+
 private def modelCallableViewsV1
     (data : SemanticProgramDataV1) : Array ModelCallableViewV1 :=
   data.callables.filterMap (modelCallableViewV1? data)
+
+/-- Phase-2 initializer subset. It shares only the exact parameter/result
+    projection with ordinary callables; its relation starts from the production
+    initial lifecycle carrier rather than an initialized typed `State`. -/
+private def modelInitializerViewV1?
+    (data : SemanticProgramDataV1) (callable : CallableV1) :
+    Option ModelCallableViewV1 := do
+  guard (callable.kind == .initializer)
+  -- Initializers are anonymous on the canonical Wire surface. Give the sole
+  -- source `init` declaration its author-facing namespace only in this proof
+  -- projection, and fail closed if a named callable would collide with it.
+  guard (!(data.callables.any fun candidate => candidate.name == some "init"))
+  modelCallableShapeV1? data { callable with name := some "init" }
+
+private def modelInitializerViewsV1
+    (data : SemanticProgramDataV1) : Array ModelCallableViewV1 :=
+  data.callables.filterMap (modelInitializerViewV1? data)
 
 private def quoteModelStateTypeV1
     (scalar : ModelStateScalarV1) : MacroM (TSyntax `term) :=
@@ -1296,6 +1318,514 @@ private def elaborateCallableModelsV1
             $leftTransitionName $rightTransitionName))
     Lean.Elab.Command.elabCommand (← `(end $callableNamespace))
 
+/-- Emit the initializer-only authoring surface. Its pre-state is an exact
+    `initialLogicalStateV1` carrier and its returned state is the generated
+    initialized business `State`; initializer lifecycle is therefore never
+    folded into the ordinary entry/view relation. -/
+private def elaborateInitializerModelsV1
+    (subjectProgramName : TSyntax `ident)
+    (subjectDataName : TSyntax `ident)
+    (encodeStateName : TSyntax `ident)
+    (decodeStateName : TSyntax `ident)
+    (encodeStateDecodeName : TSyntax `ident)
+    (data : SemanticProgramDataV1)
+    (initializers : Array ModelCallableViewV1) : CommandElabM Unit := do
+  if initializers.isEmpty then
+    return
+  let referenceSubjectName := mkIdent `ReferenceSubject
+  let lifecycleStateName := mkIdent `LifecycleState
+  let initialLifecycleStateName := mkIdent `initialLifecycleState
+  let stateName := mkIdent `State
+  let encodeInjectiveName := mkIdent `encode_injective_of_eq_ok
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Exact production pre-initialization carrier. It is distinct from the
+        initialized business `State` returned by an initializer. -/
+    abbrev $lifecycleStateName :=
+      ProofForgeV2.Semantic.PreservationABI.InitialLifecycleStateV1
+        $subjectProgramName))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Construct the exact lifecycle state through the production initial
+        state function; no generated default-state implementation is used. -/
+    def $initialLifecycleStateName :
+        Except ProofForgeV2.Semantic.WireV1.SemanticWireErrorV1
+          $lifecycleStateName :=
+      ProofForgeV2.Semantic.PreservationABI.initialLifecycleStateV1
+        $subjectProgramName))
+  for callableView in initializers do
+    let callableNamespace := mkIdent (Name.mkSimple callableView.name)
+    let invocationName := mkIdent `invocation
+    let resultName := mkIdent `Result
+    let encodeResultName := mkIdent `encodeResult
+    let decodeResultName := mkIdent `decodeResult
+    let decodeEncodeResultName := mkIdent `decode_encode_result
+    let decodeResultCompleteName := mkIdent `decodeResult_complete_of_conforms
+    let decodeReturnedResultCompleteName :=
+      mkIdent `decodeResult_complete_of_returned
+    let decodeReturnedStateCompleteName :=
+      mkIdent `decodeState_complete_of_returned
+    let encodeResultInjectiveName := mkIdent `encodeResult_injective
+    let callableOutcomeName := mkIdent `Outcome
+    let transitionName := mkIdent `Transition
+    let transitionReturnedName := mkIdent `transition_returned_of_step
+    let transitionRevertedName := mkIdent `transition_reverted_of_step
+    let transitionTrappedName := mkIdent `transition_trapped_of_step
+    let transitionExistsName := mkIdent `transition_exists
+    let outcomeUniqueName := mkIdent `outcome_unique
+    let subjectName := mkIdent `subject
+    let preName := mkIdent `pre
+    let contextName := mkIdent `context
+    let responsesName := mkIdent `responses
+    let vaultName := mkIdent `vault
+    let typedOutcomeName := mkIdent `outcome
+    let leftOutcomeName := mkIdent `left
+    let rightOutcomeName := mkIdent `right
+    let leftTransitionName := mkIdent `hleft
+    let rightTransitionName := mkIdent `hright
+    let referenceValueName := mkIdent `referenceValue
+    let conformsName := mkIdent `hconforms
+    let logicalPostName := mkIdent `logicalPost
+    let effectsName := mkIdent `effects
+    let reasonName := mkIdent `reason
+    let faultName := mkIdent `fault
+    let unchangedName := mkIdent `unchanged
+    let validateName := mkIdent `hvalidate
+    let stepName := mkIdent `hstep
+    let callableIdTerm : TSyntax `term :=
+      ⟨Syntax.mkNumLit (toString callableView.callableId.toNat)⟩
+    let paramNames := callableView.params.map fun param =>
+      mkIdent (Name.mkSimple (param.name ++ "Arg"))
+    let paramTypes ← Lean.Elab.liftMacroM <|
+      callableView.params.mapM fun _ => `(UInt64)
+    let referenceArgs ← Lean.Elab.liftMacroM <|
+      callableView.params.zip paramNames |>.mapM fun (param, paramName) => do
+        let typeIdTerm : TSyntax `term :=
+          ⟨Syntax.mkNumLit (toString param.typeId.toNat)⟩
+        `(({ typeId := $typeIdTerm
+             valueBytes := ProofForgeV2.Semantic.WireV1.encodeU64le $paramName
+           } : ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1))
+    let resultType ← Lean.Elab.liftMacroM <|
+      quoteModelCallableResultTypeV1 callableView.result
+    let resultEncode ← Lean.Elab.liftMacroM <|
+      quoteModelCallableResultEncodeV1 callableView.result callableView.resultTypeId
+    let resultDecode ← Lean.Elab.liftMacroM <|
+      quoteModelCallableResultDecodeV1
+        subjectDataName callableView.result callableView.resultTypeId
+    let resultTypeDecl ← match data.types[callableView.resultTypeId.toNat]? with
+      | some value => pure value
+      | none => throwError
+          "generated initializer result is missing its production type declaration"
+    let resultTypeDeclTerm ← Lean.Elab.liftMacroM <|
+      ProofForgeV2.Language.SubjectDataQuoteV1.quoteTypeDeclV1 resultTypeDecl
+    let resultDecodeEncode ← Lean.Elab.liftMacroM <|
+      quoteModelCallableResultDecodeEncodeV1 subjectDataName encodeResultName
+        decodeResultName callableView.result callableView.resultTypeId
+        resultTypeDeclTerm
+    let resultDecodeComplete ← Lean.Elab.liftMacroM <|
+      quoteModelCallableResultDecodeCompleteV1 subjectDataName encodeResultName
+        decodeResultName callableView.result callableView.callableId
+        callableView.resultTypeId resultTypeDeclTerm
+    let invocationTerm ← Lean.Elab.liftMacroM <| do
+      let mut term ← `($invocationName)
+      for paramName in paramNames do
+        term ← `($term $paramName)
+      `($term $contextName)
+    let returnedResultCompleteTerm ← Lean.Elab.liftMacroM <| do
+      let mut term ← `($decodeReturnedResultCompleteName $subjectName $preName
+        $logicalPostName)
+      for paramName in paramNames do
+        term ← `($term $paramName)
+      `($term $contextName $responsesName $vaultName $referenceValueName
+        $effectsName $validateName $stepName)
+    let returnedStateCompleteTerm ← Lean.Elab.liftMacroM <| do
+      let mut term ← `($decodeReturnedStateCompleteName $subjectName $preName
+        $logicalPostName)
+      for paramName in paramNames do
+        term ← `($term $paramName)
+      `($term $contextName $responsesName $vaultName $referenceValueName
+        $effectsName $validateName $stepName)
+    let transitionPrefixTerm ← Lean.Elab.liftMacroM <| do
+      let mut term ← `($transitionName $subjectName $preName)
+      for paramName in paramNames do
+        term ← `($term $paramName)
+      `($term $contextName $responsesName $vaultName)
+    let leftTransitionTerm ← Lean.Elab.liftMacroM <| do
+      let mut term ← `($transitionName $subjectName $preName)
+      for paramName in paramNames do
+        term ← `($term $paramName)
+      `($term $contextName $responsesName $vaultName $leftOutcomeName)
+    let rightTransitionTerm ← Lean.Elab.liftMacroM <| do
+      let mut term ← `($transitionName $subjectName $preName)
+      for paramName in paramNames do
+        term ← `($term $paramName)
+      `($term $contextName $responsesName $vaultName $rightOutcomeName)
+    Lean.Elab.Command.elabCommand (← `(namespace $callableNamespace))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Lean result type projected from this exact initializer row. -/
+      abbrev $resultName := $resultType))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Encode this initializer result into its canonical Reference carrier. -/
+      def $encodeResultName (value : $resultName) : Option
+          ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1 :=
+        $resultEncode value))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Decode only this initializer's exact canonical Reference result. -/
+      def $decodeResultName (referenceValue : Option
+          ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1) :
+          Except ProofForgeV2.Semantic.WireV1.SemanticWireErrorV1 $resultName :=
+        $resultDecode referenceValue))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Initializer result codec roundtrip through the production scalar
+          validator and projection. -/
+      theorem $decodeEncodeResultName (value : $resultName) :
+          $decodeResultName ($encodeResultName value) = .ok value :=
+        $resultDecodeEncode))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Every conforming Reference initializer result has one exact typed
+          decode/re-encode and no second typed decode. -/
+      theorem $decodeResultCompleteName
+          ($referenceValueName : Option
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1)
+          ($conformsName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceResultConformsV1
+              $subjectDataName
+              (($subjectDataName).callables[$callableIdTerm]'(by decide)).result
+              $referenceValueName) :
+          ∃ value : $resultName,
+            $decodeResultName $referenceValueName = .ok value ∧
+              $encodeResultName value = $referenceValueName ∧
+                ∀ other : $resultName,
+                  $decodeResultName $referenceValueName = .ok other →
+                    value = other :=
+        $resultDecodeComplete $referenceValueName $conformsName))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Canonical result encoding is injective because generated decoding is
+          its left inverse. -/
+      theorem $encodeResultInjectiveName :
+          Function.Injective $encodeResultName := by
+        intro left right h
+        have hleft := ($decodeEncodeResultName left).symm
+        have hmiddle := congrArg $decodeResultName h
+        have hright := $decodeEncodeResultName right
+        exact Except.ok.inj (hleft.trans (hmiddle.trans hright))))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Canonical invocation constructor for this exact initializer row.
+          Context remains explicit and production-validated. -/
+      def $invocationName
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1) :
+          ProofForgeV2.Semantic.ReferenceV1.InvocationV1 := {
+        callableId := $callableIdTerm
+        args := #[$referenceArgs,*]
+        context := $contextName
+      }))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Every returned production initializer result has one exact typed
+          decode/re-encode. Selection comes from the exact admitted row. -/
+      theorem $decodeReturnedResultCompleteName
+          ($subjectName : $referenceSubjectName)
+          ($preName : $lifecycleStateName)
+          ($logicalPostName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($referenceValueName : Option
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1)
+          ($effectsName : Array
+            ProofForgeV2.Semantic.ReferenceV1.OrderedEffectV1)
+          ($validateName :
+            ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+                $subjectProgramName = .ok $subjectDataName)
+          ($stepName :
+            ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1
+                ($subjectName).admitted ($preName).logical $invocationTerm
+                  $responsesName $vaultName =
+              .returned $logicalPostName $referenceValueName $effectsName) :
+          ∃ value : $resultName,
+            $decodeResultName $referenceValueName = .ok value ∧
+              $encodeResultName value = $referenceValueName ∧
+                ∀ other : $resultName,
+                  $decodeResultName $referenceValueName = .ok other →
+                    value = other := by
+        have hadmittedData : ($subjectName).admitted.data = $subjectDataName :=
+          (ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1_ok_implies
+            $subjectProgramName $subjectDataName ($subjectName).admitted
+              $validateName ($subjectName).hadmit).2
+        have hlookup :
+            ($subjectName).admitted.data.callables[$callableIdTerm]? =
+              some (($subjectDataName).callables[$callableIdTerm]'(by decide)) := by
+          rw [hadmittedData]
+          rfl
+        have hconforms :=
+          ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1_returned_resultConformsV1_of_lookup
+            ($subjectName).admitted ($preName).logical $logicalPostName
+              $invocationTerm $responsesName $vaultName
+              (($subjectDataName).callables[$callableIdTerm]'(by decide))
+              $referenceValueName $effectsName hlookup $stepName
+        rw [hadmittedData] at hconforms
+        exact $decodeResultCompleteName $referenceValueName hconforms))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Every returned initializer post-state uniquely decodes as an
+          initialized typed business state. The lifecycle theorem is selected
+          by the exact admitted initializer row. -/
+      theorem $decodeReturnedStateCompleteName
+          ($subjectName : $referenceSubjectName)
+          ($preName : $lifecycleStateName)
+          ($logicalPostName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($referenceValueName : Option
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1)
+          ($effectsName : Array
+            ProofForgeV2.Semantic.ReferenceV1.OrderedEffectV1)
+          ($validateName :
+            ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+                $subjectProgramName = .ok $subjectDataName)
+          ($stepName :
+            ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1
+                ($subjectName).admitted ($preName).logical $invocationTerm
+                  $responsesName $vaultName =
+              .returned $logicalPostName $referenceValueName $effectsName) :
+          ∃ post : $stateName,
+            $decodeStateName $logicalPostName = .ok post ∧
+              $encodeStateName post = .ok $logicalPostName ∧
+                ∀ other : $stateName,
+                  $decodeStateName $logicalPostName = .ok other →
+                    post = other := by
+        have hadmittedData : ($subjectName).admitted.data = $subjectDataName :=
+          (ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1_ok_implies
+            $subjectProgramName $subjectDataName ($subjectName).admitted
+              $validateName ($subjectName).hadmit).2
+        have hinitializer :
+            ($subjectName).admitted.data.callables[$callableIdTerm]?.map
+                (fun callable => callable.kind) =
+              some ProofForgeV2.Semantic.WireV1.CallableKindV1.initializer := by
+          rw [hadmittedData]
+          rfl
+        have hconforms :=
+          ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1_returned_stateConformsV1_of_initializer
+            $subjectProgramName ($subjectName).admitted ($preName).logical
+              $logicalPostName $invocationTerm $responsesName $vaultName
+              $referenceValueName $effectsName ($subjectName).hadmit
+              hinitializer $stepName
+        obtain ⟨post, hdecode, hencode⟩ :=
+          $encodeStateDecodeName $logicalPostName $validateName hconforms
+        refine ⟨post, hdecode, hencode, ?_⟩
+        intro other hother
+        exact Except.ok.inj (hdecode.symm.trans hother)))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Typed full-outcome view specialized to this initializer result. -/
+      abbrev $callableOutcomeName :=
+        ProofForgeV2.Semantic.PreservationABI.TypedOutcomeV1
+          $stateName $resultName))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Exact initializer relation from production lifecycle state to typed
+          initialized state. It is a Reference-step theorem view, not an
+          executable typed initializer. -/
+      def $transitionName
+          ($subjectName : $referenceSubjectName)
+          ($preName : $lifecycleStateName)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($typedOutcomeName : $callableOutcomeName) : Prop :=
+        ProofForgeV2.Semantic.PreservationABI.TypedInitializerRelationV1
+          $encodeStateName $encodeResultName $subjectName $preName
+          $invocationTerm $responsesName $vaultName $typedOutcomeName))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Package one exact returned initializer step as a typed transition. -/
+      theorem $transitionReturnedName
+          ($subjectName : $referenceSubjectName)
+          ($preName : $lifecycleStateName)
+          ($logicalPostName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($referenceValueName : Option
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1)
+          ($effectsName : Array
+            ProofForgeV2.Semantic.ReferenceV1.OrderedEffectV1)
+          ($validateName :
+            ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+                $subjectProgramName = .ok $subjectDataName)
+          ($stepName :
+            ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1
+                ($subjectName).admitted ($preName).logical $invocationTerm
+                  $responsesName $vaultName =
+              .returned $logicalPostName $referenceValueName $effectsName) :
+          ∃ post : $stateName, ∃ value : $resultName,
+            $decodeStateName $logicalPostName = .ok post ∧
+              $decodeResultName $referenceValueName = .ok value ∧
+                $transitionPrefixTerm (.returned post value $effectsName) := by
+        obtain ⟨postWitness, hdecodePost, hencodePost, _huniquePost⟩ :=
+          $returnedStateCompleteTerm
+        obtain ⟨valueWitness, hdecodeValue, hencodeValue, _huniqueValue⟩ :=
+          $returnedResultCompleteTerm
+        refine ⟨postWitness, valueWitness, hdecodePost, hdecodeValue, ?_⟩
+        unfold $transitionName
+          ProofForgeV2.Semantic.PreservationABI.TypedInitializerRelationV1
+        refine ⟨$logicalPostName, hencodePost, ?_⟩
+        rw [hencodeValue]
+        exact $stepName))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Package one exact reverted initializer step; the production theorem
+          proves the carried state is the lifecycle pre-state. -/
+      theorem $transitionRevertedName
+          ($subjectName : $referenceSubjectName)
+          ($preName : $lifecycleStateName)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($reasonName :
+            ProofForgeV2.Semantic.ReferenceV1.SemanticRevertV1)
+          ($unchangedName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          ($stepName :
+            ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1
+                ($subjectName).admitted ($preName).logical $invocationTerm
+                  $responsesName $vaultName =
+              .reverted $reasonName $unchangedName) :
+          $unchangedName = ($preName).logical ∧
+            $transitionPrefixTerm (.reverted $reasonName) := by
+        have hunchanged :=
+          ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1_reverted_state_eq
+            ($subjectName).admitted ($preName).logical $invocationTerm
+              $responsesName $vaultName $reasonName $unchangedName $stepName
+        subst $unchangedName
+        refine ⟨rfl, ?_⟩
+        unfold $transitionName
+          ProofForgeV2.Semantic.PreservationABI.TypedInitializerRelationV1
+        exact $stepName))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Package one exact trapped initializer step; the production theorem
+          proves the carried state is the lifecycle pre-state. -/
+      theorem $transitionTrappedName
+          ($subjectName : $referenceSubjectName)
+          ($preName : $lifecycleStateName)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($faultName :
+            ProofForgeV2.Semantic.ReferenceV1.SemanticFaultV1)
+          ($unchangedName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          ($stepName :
+            ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1
+                ($subjectName).admitted ($preName).logical $invocationTerm
+                  $responsesName $vaultName =
+              .trapped $faultName $unchangedName) :
+          $unchangedName = ($preName).logical ∧
+            $transitionPrefixTerm (.trapped $faultName) := by
+        have hunchanged :=
+          ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1_trapped_state_eq
+            ($subjectName).admitted ($preName).logical $invocationTerm
+              $responsesName $vaultName $faultName $unchangedName $stepName
+        subst $unchangedName
+        refine ⟨rfl, ?_⟩
+        unfold $transitionName
+          ProofForgeV2.Semantic.PreservationABI.TypedInitializerRelationV1
+        exact $stepName))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Every execution of the sole Reference step from the exact lifecycle
+          state has one typed initializer outcome. -/
+      theorem $transitionExistsName
+          ($subjectName : $referenceSubjectName)
+          ($preName : $lifecycleStateName)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($validateName :
+            ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+                $subjectProgramName = .ok $subjectDataName) :
+          ∃ outcome : $callableOutcomeName,
+            $transitionPrefixTerm outcome := by
+        generalize $stepName :
+          ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1
+              ($subjectName).admitted ($preName).logical $invocationTerm
+                $responsesName $vaultName = referenceOutcome
+        cases referenceOutcome with
+        | returned logicalPost referenceValue effects =>
+            obtain ⟨post, value, _hdecodePost, _hdecodeValue, htransition⟩ :=
+              $transitionReturnedName
+                (subject := $subjectName) (pre := $preName)
+                (logicalPost := logicalPost) (context := $contextName)
+                (responses := $responsesName) (vault := $vaultName)
+                (referenceValue := referenceValue) (effects := effects)
+                (hvalidate := $validateName) (hstep := $stepName)
+            exact ⟨.returned post value effects, htransition⟩
+        | reverted reason unchanged =>
+            have htransition :=
+              ($transitionRevertedName
+                (subject := $subjectName) (pre := $preName)
+                (context := $contextName) (responses := $responsesName)
+                (vault := $vaultName) (reason := reason)
+                (unchanged := unchanged) (hstep := $stepName)).2
+            exact ⟨.reverted reason, htransition⟩
+        | trapped fault unchanged =>
+            have htransition :=
+              ($transitionTrappedName
+                (subject := $subjectName) (pre := $preName)
+                (context := $contextName) (responses := $responsesName)
+                (vault := $vaultName) (fault := fault)
+                (unchanged := unchanged) (hstep := $stepName)).2
+            exact ⟨.trapped fault, htransition⟩))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- The exact initializer relation has at most one outcome for fixed
+          lifecycle/input values. -/
+      theorem $outcomeUniqueName
+          ($subjectName : $referenceSubjectName)
+          ($preName : $lifecycleStateName)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($leftOutcomeName $rightOutcomeName : $callableOutcomeName)
+          ($leftTransitionName : $leftTransitionTerm)
+          ($rightTransitionName : $rightTransitionTerm) :
+          $leftOutcomeName = $rightOutcomeName := by
+        exact
+          ProofForgeV2.Semantic.PreservationABI.typedInitializerRelationV1_outcome_unique
+            $encodeStateName $encodeResultName $encodeInjectiveName
+            $encodeResultInjectiveName $subjectName $preName $invocationTerm
+            $responsesName $vaultName $leftOutcomeName $rightOutcomeName
+            $leftTransitionName $rightTransitionName))
+    Lean.Elab.Command.elabCommand (← `(end $callableNamespace))
+
 /-- Emit the author-facing business-state view. It is only a typed projection
     over `Proof.subjectDataV1`: encoding and decoding call the production
     logical-state codec, and this phase intentionally emits no step/evaluator. -/
@@ -1586,6 +2116,8 @@ private def elaborateStateModelV1
             hvalidate hencode))
   elaborateCallableModelsV1 subjectProgramName subjectDataName encodeStateName
     decodeStateName encodeDecodeName data (modelCallableViewsV1 data)
+  elaborateInitializerModelsV1 subjectProgramName subjectDataName encodeStateName
+    decodeStateName encodeDecodeName data (modelInitializerViewsV1 data)
   Lean.Elab.Command.elabCommand (← `(end $modelNamespace))
 
 private def proofSurfaceV1
