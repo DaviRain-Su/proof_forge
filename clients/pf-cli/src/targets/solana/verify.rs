@@ -65,12 +65,11 @@ pub fn resolve_solana_client() -> PfResult<PathBuf> {
 
     Err(PfError::Tool(
         "proof-forge-solana-client not found.\n\
-         `pf verify -t solana` spawns a separate offline verifier binary \
-         (not shipped inside the crates.io `proof-forge-pf` package).\n\
-         Fix one of:\n\
-           • set PROOF_FORGE_SOLANA_CLIENT=/path/to/proof-forge-solana-client\n\
-           • put proof-forge-solana-client next to the `pf` binary (Release bundle)\n\
-           • monorepo: cargo build -p proof-forge-solana-client --release\n\
+         Install (crates.io):\n\
+           cargo install proof-forge-solana-client --locked\n\
+           export PROOF_FORGE_SOLANA_CLIENT=\"$(command -v proof-forge-solana-client)\"\n\
+         Or: place binary next to `pf`, or monorepo release build.\n\
+         Then: pf setup --target solana\n\
          See clients/pf-cli/ARCHITECTURE.md"
             .into(),
     ))

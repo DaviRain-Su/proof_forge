@@ -2,10 +2,25 @@
 name = "proof-forge-solana-client"
 version = "0.1.0"
 edition = "2021"
-publish = false
 description = "Offline generic Solana OutputSet verifier for ProofForge product artifacts"
 license = "Apache-2.0"
 readme = "README.md"
+repository = "https://github.com/DaviRain-Su/proof_forge"
+homepage = "https://github.com/DaviRain-Su/proof_forge"
+documentation = "https://docs.rs/proof-forge-solana-client"
+keywords = ["proof-forge", "solana", "verifier", "offline"]
+categories = ["command-line-utilities", "development-tools"]
+# Offline verifier only — no RPC/deploy/wallet. Used by `pf verify -t solana`.
+publish = true
+include = [
+  "src/**",
+  "tests/**",
+  "Cargo.toml",
+  "Cargo.lock",
+  "README.md",
+  "LICENSE",
+  "PUBLISH.md",
+]
 
 [[bin]]
 name = "proof-forge-solana-client"
@@ -14,6 +29,7 @@ path = "src/main.rs"
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
 hex = "0.4"
+# Pin: keep lockfile stable across hosts (see monorepo history).
 libc = "=0.2.189"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

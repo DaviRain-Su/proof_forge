@@ -1478,6 +1478,25 @@ pf-cli-publish: pf-cli-test
     fi
     cargo publish --manifest-path clients/pf-cli/Cargo.toml --locked
 
+# Offline Solana verifier crate
+solana-client-test:
+    cargo test --manifest-path clients/solana-client/Cargo.toml --locked
+
+solana-client-publish-dry-run: solana-client-test
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo package --manifest-path clients/solana-client/Cargo.toml --locked --allow-dirty --list
+    cargo publish --manifest-path clients/solana-client/Cargo.toml --locked --dry-run --allow-dirty
+
+solana-client-publish: solana-client-test
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "${SC_PUBLISH:-}" != "1" ]]; then
+      echo "solana-client-publish: refuse (set SC_PUBLISH=1 after reading clients/solana-client/PUBLISH.md)" >&2
+      exit 2
+    fi
+    cargo publish --manifest-path clients/solana-client/Cargo.toml --locked
+
 # Ordinary-host product gate. Release qualification is intentionally excluded.
 # `source-bounds` is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate;
 # selection and S5–S7c deletion gates retain the engineering output closure.

@@ -3,34 +3,41 @@
 `pf` is a **thin orchestrator**. The real compiler is `proof-forge-next`.
 Install **both** on the same machine/path layout when possible.
 
-## crates.io (orchestrator only) — read this first
+## Recommended: install → setup → work
 
 ```bash
-cargo install proof-forge-pf --locked
-# binary is `pf` — crate name cannot be `pf` (taken on crates.io)
-pf --version
-```
+# 1) orchestrator (crates.io)
+cargo install proof-forge-pf --locked          # binary name: pf
 
-**What you got:** only the CLI shell (`pf`).
+# 2) ALWAYS run setup first — prints copy-paste install commands for missing tools
+pf setup --target aleo
+pf setup --target solana
+pf setup --target solana --yes                # best-effort: cargo install companions
 
-**What you did *not* get:**
+# 3) install what setup printed, e.g. Solana offline verifier:
+cargo install proof-forge-solana-client --locked
+export PROOF_FORGE_SOLANA_CLIENT="$(command -v proof-forge-solana-client)"
 
-| Missing piece | Needed for |
-|---|---|
-| `proof-forge-next` | almost everything (`pf build`, …) |
-| `proof-forge-solana-client` | `pf verify -t solana` |
-| monorepo `scripts/` + `runtime-tests/` | `pf test -t solana` / `pf test -t evm` (today) |
-| leo / anvil / cast / sbpf | chain-specific run/test/deploy |
-
-```bash
+# 4) compiler (NOT on crates.io — monorepo or Release bundle)
 export PROOF_FORGE_CLI=/path/to/proof-forge-next
-pf setup --target aleo    # prints NEED lines honestly
+
+# 5) re-check
+pf setup --target solana
+pf new counter --target solana && cd counter && pf build && pf verify
 ```
 
-If that feels incomplete — **it is, by design.**  
-Prefer **`just pf-cli-dist` / GitHub Release** for a side-by-side `pf` + `proof-forge-next` bundle.
+### What each crates.io package is
 
-Full map: [`ARCHITECTURE.md`](./ARCHITECTURE.md) · maintainers: [`PUBLISH.md`](./PUBLISH.md).
+| Install | Binary | Role |
+|---|---|---|
+| `cargo install proof-forge-pf` | `pf` | developer UX / orchestrator |
+| `cargo install proof-forge-solana-client` | `proof-forge-solana-client` | offline `pf verify -t solana` |
+
+Still **not** on crates.io: `proof-forge-next` (compiler), Mollusk harness, Foundry lock.
+
+`pf setup` is the source of truth for missing pieces + install commands.
+
+Full map: [`ARCHITECTURE.md`](./ARCHITECTURE.md).
 
 ## Option A — monorepo (contributors)
 

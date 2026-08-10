@@ -49,6 +49,20 @@ else
   echo "  build with: lake build proof_forge_next" >&2
 fi
 
+# Optional offline Solana verifier (sibling discovery used by pf verify).
+sc_src="${PROOF_FORGE_SOLANA_CLIENT:-$root/clients/solana-client/target/release/proof-forge-solana-client}"
+if [[ ! -x "$sc_src" ]]; then
+  cargo build --manifest-path "$root/clients/solana-client/Cargo.toml" --locked --release \
+    && sc_src="$root/clients/solana-client/target/release/proof-forge-solana-client"
+fi
+if [[ -x "$sc_src" ]]; then
+  cp "$sc_src" "$out/proof-forge-solana-client"
+  chmod 755 "$out/proof-forge-solana-client"
+  echo "pf-cli-dist: bundled proof-forge-solana-client"
+else
+  echo "pf-cli-dist: WARNING: solana-client missing (pf verify -t solana will need cargo install)" >&2
+fi
+
 cp "$root/clients/pf-cli/INSTALL.md" "$out/INSTALL.md"
 cat >"$out/README.txt" <<EOF
 ProofForge developer CLI bundle ($label)

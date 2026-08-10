@@ -32,13 +32,21 @@ If you only `cargo install proof-forge-pf`, many commands will correctly refuse 
 └───────────────────────────┬─────────────────────────────────┘
                             │ some commands only
 ┌───────────────────────────▼─────────────────────────────────┐
-│  D. Monorepo / contributor-only companions                   │
-│     proof-forge-solana-client   → pf verify -t solana        │
-│     scripts/pf_evm_test.sh      → pf test -t evm (today)     │
-│     scripts/pf_solana_test.sh   → pf test -t solana (today)  │
-│     runtime-tests/solana        → Mollusk cargo tests        │
-│     env: PROOF_FORGE_ROOT, PROOF_FORGE_SOLANA_CLIENT, …       │
+│  D. Companions                                               │
+│     proof-forge-solana-client → crates.io OR monorepo        │
+│       (pf verify -t solana; PATH / PROOF_FORGE_SOLANA_CLIENT)│
+│     scripts/pf_* + runtime-tests → monorepo (pf test today)  │
 └─────────────────────────────────────────────────────────────┘
+```
+
+### First-run UX
+
+```bash
+cargo install proof-forge-pf --locked
+pf setup --target solana                 # prints install commands
+cargo install proof-forge-solana-client --locked
+export PROOF_FORGE_SOLANA_CLIENT="$(command -v proof-forge-solana-client)"
+pf setup --target solana --yes           # optional auto cargo install
 ```
 
 ## Command × what it needs
@@ -53,9 +61,9 @@ If you only `cargo install proof-forge-pf`, many commands will correctly refuse 
 | `pf deploy` evm `--broadcast --network local` | | ✅ | anvil+cast | |
 | `pf deploy` solana save | | ✅ | | |
 | `pf deploy` solana local broadcast | | ✅ | solana CLI + local RPC | |
-| `pf verify -t solana` | | ✅ | | **solana-client binary** |
-| `pf test -t evm` | | ✅ | anvil+cast | **scripts/pf_evm_test.sh** (today) |
-| `pf test -t solana` | | ✅ | cargo | **scripts + runtime-tests** (today) |
+| `pf verify -t solana` | | ✅ | | **solana-client** (`cargo install proof-forge-solana-client`) |
+| `pf test -t evm` | | ✅ | anvil+cast | **scripts/pf_evm_test.sh** (monorepo today) |
+| `pf test -t solana` | | ✅ | cargo | **scripts + runtime-tests** (monorepo today) |
 
 ## Why Solana Client is separate (this is intentional)
 
