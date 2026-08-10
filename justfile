@@ -1403,7 +1403,11 @@ pf-cli-build:
     cargo build --manifest-path clients/pf-cli/Cargo.toml --locked --release
 
 # Host-optional e2e: pf new/build/run/clean + multi-target + safety (needs proof-forge-next; leo optional).
+# Also builds solana-client when possible for `pf verify` D7a coverage.
 pf-cli-smoke: build pf-cli-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    cargo build --manifest-path clients/solana-client/Cargo.toml --locked --release
     /bin/bash -p scripts/pf_cli_smoke.sh
 
 # Build the exact TransferSol product tree, then apply both the generic Solana

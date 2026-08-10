@@ -67,6 +67,16 @@ enum Commands {
         #[arg(long)]
         target: Option<String>,
     },
+    /// Offline chain verify (Solana: proof-forge-solana-client)
+    Verify {
+        #[arg(long, short = 't')]
+        target: Option<String>,
+        #[arg(long)]
+        artifact: Option<PathBuf>,
+        /// Solana program adapter id (e.g. transfer-sol-v1)
+        #[arg(long)]
+        adapter: Option<String>,
+    },
     /// Local run (Aleo VM). Alias of `local run`.
     Run(RunArgs),
     Local {
@@ -181,6 +191,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Clean => "clean",
         Commands::Check(_) => "check",
         Commands::Inspect { .. } => "inspect",
+        Commands::Verify { .. } => "verify",
         Commands::Run(_) | Commands::Local { .. } => "run",
         Commands::Deploy(_) => "deploy",
         Commands::Execute(_) => "execute",
@@ -226,6 +237,16 @@ fn dispatch(cli: Cli) -> PfResult<()> {
         Commands::Inspect { artifact, target } => {
             cmd::inspect::run(artifact.as_deref(), target.as_deref(), json)
         }
+        Commands::Verify {
+            target,
+            artifact,
+            adapter,
+        } => cmd::verify::run(
+            target.as_deref(),
+            artifact.as_deref(),
+            adapter.as_deref(),
+            json,
+        ),
         Commands::Run(a) => cmd::local_run::run(
             a.target.as_deref(),
             a.artifact.as_deref(),

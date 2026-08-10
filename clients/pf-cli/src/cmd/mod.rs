@@ -8,6 +8,7 @@ pub mod inspect;
 pub mod list_targets;
 pub mod local_run;
 pub mod new;
+pub mod verify;
 pub mod version;
 
 use crate::error::{PfError, PfResult};

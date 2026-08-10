@@ -1,6 +1,7 @@
 //! Per-chain developer adapters.
 
 pub mod aleo;
+pub mod solana;
 
 use crate::error::{PfError, PfResult};
 
@@ -40,7 +41,7 @@ pub fn capability_note(target: &str) -> &'static str {
             "build supported via proof-forge-next; local run not in pf v0 (use just evm-* / anvil scripts)"
         }
         TargetId::Solana => {
-            "build supported; local verify via proof-forge-solana-client; deploy not in pf v0"
+            "build + `pf verify` (offline solana-client); Mollusk test pending D7b; deploy not in pf v0"
         }
         TargetId::Other => "unsupported developer operation in pf v0 (fail closed)",
     }
@@ -53,7 +54,7 @@ mod tests {
     #[test]
     fn capability_notes_are_target_specific() {
         assert!(capability_note("evm").contains("anvil scripts"));
-        assert!(capability_note("solana").contains("proof-forge-solana-client"));
+        assert!(capability_note("solana").contains("pf verify"));
         assert!(capability_note("near").contains("fail closed"));
     }
 }

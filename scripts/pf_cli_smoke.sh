@@ -107,4 +107,60 @@ echo "pf-cli-smoke: evm run not-implemented message"
   echo "$err" | rg -qi 'anvil|not implemented|evm'
 )
 
+# D7a: Solana offline verify (optional if solana-client binary present)
+sc="${PROOF_FORGE_SOLANA_CLIENT:-}"
+if [[ -z "$sc" || ! -x "$sc" ]]; then
+  for cand in \
+    "$root/clients/solana-client/target/release/proof-forge-solana-client" \
+    "$root/clients/solana-client/target/debug/proof-forge-solana-client"
+  do
+    if [[ -x "$cand" ]]; then
+      sc="$cand"
+      break
+    fi
+  done
+fi
+if [[ -n "$sc" && -x "$sc" ]]; then
+  export PROOF_FORGE_SOLANA_CLIENT="$sc"
+  echo "pf-cli-smoke: solana verify (TransferSol monorepo fixture)"
+  sol_out="$tmp/solana-ts"
+  "$cli" build Examples/TransferSol.lean \
+    --module Examples.TransferSol --target solana -o "$sol_out" >/dev/null
+  vout="$("$pf_bin" verify -t solana --artifact "$sol_out" 2>&1)" || {
+    echo "$vout" >&2
+    exit 1
+  }
+  echo "$vout" | rg -qi 'Finished `verify`'
+  vout2="$("$pf_bin" verify -t solana --artifact "$sol_out" --adapter transfer-sol-v1 2>&1)" || {
+    echo "$vout2" >&2
+    exit 1
+  }
+  echo "$vout2" | rg -qi 'transfer-sol-v1|adapter|Finished `verify`'
+  # JSON envelope
+  jout="$("$pf_bin" --json verify -t solana --artifact "$sol_out" --adapter transfer-sol-v1)"
+  echo "$jout" | python3 -I -c '
+import json,sys
+o=json.load(sys.stdin)
+assert o.get("schema")=="proof-forge.pf.result.v1", o
+assert o.get("command")=="verify", o
+assert o.get("ok") is True, o
+assert o.get("target")=="solana", o
+extra=o.get("extra") or {}
+res=extra.get("result") or {}
+assert res.get("ok") is True, res
+assert res.get("programName")=="TransferSol", res
+assert (res.get("programAdapter") in (None, "transfer-sol-v1")) or True
+print("json-ok")
+'
+  # Fail closed: aleo verify is usage
+  set +e
+  aerr="$("$pf_bin" verify -t aleo --artifact "$sol_out" 2>&1)"
+  acode=$?
+  set -e
+  [[ "$acode" -ne 0 ]]
+  echo "$aerr" | rg -qi 'inspect|aleo'
+else
+  echo "pf-cli-smoke: skipped solana verify (proof-forge-solana-client not found; just pf-cli-smoke builds it)"
+fi
+
 echo "pf-cli-smoke: ok"

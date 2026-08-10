@@ -57,7 +57,7 @@ just pf-cli-test | pf-cli-build | pf-cli-smoke
 | PF-D4 | just recipes + README + unit tests | **done** |
 | PF-D5 | multi-target build + clean + capability notes | **done** |
 | PF-D6 | quiet run + `pf_cli_smoke` | **done** |
-| **PF-D7** | **EVM local + Solana verify/test 接入 `pf`** | **pending（下一主轴）** |
+| **PF-D7** | **EVM local + Solana verify/test 接入 `pf`** | **D7a done**（`pf verify -t solana`）；D7b/D7c pending |
 | PF-D8 | 统一 `pf test` 命令面（按 target 分派） | pending（D7 后） |
 | PF-D9 | 分发：`pf` 与 compiler 并排 release / install 文档 | pending |
 | PF-D10 | （可选）Aleo twin 扩到非 StateCell 程序 | pending |
@@ -163,29 +163,29 @@ Solana `run` 建议 **不要** 假装成 `solana program deploy`；若实现，�
 error: solana: use `pf verify` (offline) or `pf test` (Mollusk); deploy not in pf v0
 ```
 
-### 5.2 D7a — Solana verify（优先，风险最低）
+### 5.2 D7a — Solana verify（优先，风险最低） — **done 2026-08-10**
 
 **实现**
 
-- `clients/pf-cli/src/targets/solana/verify.rs`
-- spawn：
-  ```bash
-  cargo run --manifest-path clients/solana-client/Cargo.toml --locked -- \
-    verify-artifacts --artifact-dir <build/solana> \
-    [--program-adapter transfer-sol-v1]
-  ```
-- 或 release 后调用 `proof-forge-solana-client` 二进制（若 PATH/同目录存在）。
+- `clients/pf-cli/src/targets/solana/verify.rs` + `cmd/verify.rs`
+- `pf verify -t solana [--artifact DIR] [--adapter transfer-sol-v1]`
+- 解析 `PROOF_FORGE_SOLANA_CLIENT` → monorepo `clients/solana-client/target/{release,debug}/…`
+- spawn：`proof-forge-solana-client verify-artifacts --artifact-dir …`
 
 **验收**
 
 ```bash
-pf new demo -t solana   # 或 pf.toml default-target=solana
-cd demo && pf build
-pf verify
-# optional adapter when fixture is TransferSol-shaped
+# TransferSol monorepo fixture (full client joins; StateCell may fail irDigest note join)
+proof-forge-next build Examples/TransferSol.lean \
+  --module Examples.TransferSol --target solana -o build/v2/ts
+pf verify -t solana --artifact build/v2/ts
+pf verify -t solana --artifact build/v2/ts --adapter transfer-sol-v1
+just pf-cli-smoke   # includes verify when client builds
 ```
 
-**非声称**：不是 formal；不是链上。
+**非声称**：不是 formal；不是链上；不是 Mollusk 执行（D7b）。
+
+**已知边界**：部分 generic CPI 产物（如 StateCell）可能在 solana-client 的 evidence.note irDigest join 上 fail；TransferSol 为 D7a 金样。
 
 ### 5.3 D7b — Solana test（Mollusk，host-optional）
 
@@ -268,11 +268,10 @@ pf test -t aleo,evm      # 多 target 顺序跑；单个 fail → 非零
 ## 7. 建议击杀顺序（从现在开始）
 
 ```text
-现在 ──► D7a Solana verify 接入 pf          # 1–2 天，价值高、风险低
-      ──► D7c EVM Anvil 最小 test wrap     # 2–3 天，对标「本地节点」
-      ──► D7b Solana Mollusk focused test  # 2–3 天，host-heavy
-      ──► D8  pf test 统一入口 + smoke 扩  # 1 天
-      ──► D9  分发/安装体验                 # 按 release 节奏
+D7a done ──► D7c EVM Anvil 最小 test wrap     # 2–3 天，对标「本地节点」
+         ──► D7b Solana Mollusk focused test  # 2–3 天，host-heavy
+         ──► D8  pf test 统一入口 + smoke 扩  # 1 天
+         ──► D9  分发/安装体验                 # 按 release 节奏
 ```
 
 **并行建议**
@@ -289,13 +288,13 @@ A∥B∥C 文件几乎不重叠，可多 agent。
 
 ## 8. 验收总表（D7 done 定义）
 
-- [ ] `pf build -t solana && pf verify` 在 monorepo 示例或 `pf new` 模板上绿
+- [x] `pf build -t solana && pf verify` 在 monorepo TransferSol 金样上绿（StateCell 若 irDigest join fail 保持 FC）
 - [ ] `pf build -t evm && pf test -t evm` host-optional 绿（缺 anvil skip 或明确错误）
 - [ ] `pf test -t solana` host-optional 绿（或明确「需 just solana-runtime 依赖」）
 - [ ] `pf run -t evm|solana` 行为有文档：实现或稳定 FC 文案（禁止含糊）
-- [ ] `just pf-cli-smoke` 仍绿；新增 `pf-cli-solana-verify-smoke` / `pf-cli-evm-test` **不**绑 ordinary ci
-- [ ] catalog / README 更新 local 能力表
-- [ ] 无 Devnet 自动写、无 mainnet、无 `deployable=true` 改写
+- [x] `just pf-cli-smoke` 含 TransferSol `pf verify`（host builds solana-client）；EVM test smoke 仍待 D7c
+- [x] README + SPEC-CLI-DEV 更新 `pf verify` / Solana offline 能力
+- [x] 无 Devnet 自动写、无 mainnet、无 `deployable=true` 改写（verify offline only）
 
 ---
 

@@ -26,6 +26,16 @@ cd hello
 "$PF" execute -- initialize 5u64
 ```
 
+### Solana offline verify (D7a)
+
+```bash
+export PROOF_FORGE_SOLANA_CLIENT="$PWD/clients/solana-client/target/release/proof-forge-solana-client"
+# monorepo fixture (TransferSol is the gold sample)
+"$PF" build Examples/TransferSol.lean --module Examples.TransferSol -t solana -o build/v2/ts
+"$PF" verify -t solana --artifact build/v2/ts
+"$PF" verify -t solana --artifact build/v2/ts --adapter transfer-sol-v1
+```
+
 ## Commands
 
 | Command | Purpose |
@@ -37,7 +47,9 @@ cd hello
 | `pf check` | Validate without writing artifacts |
 | `pf run -- <fn> …` | Local run (Aleo); quiet by default, `-v` full Leo log |
 | `pf inspect` | Validate artifact dir |
-| `pf deploy` / `pf execute` | Save network txs (no broadcast by default) |
+| `pf verify -t solana` | Offline Solana OutputSet verify (`proof-forge-solana-client`) |
+| `pf verify -t solana --adapter transfer-sol-v1` | + TransferSol program pins |
+| `pf deploy` / `pf execute` | Save network txs (Aleo; no broadcast by default) |
 | `pf doctor` / `pf setup` | Toolchain status |
 | `pf list-targets` | Implemented targets from compiler |
 | `pf version` | pf + compiler path + leo |
@@ -108,6 +120,7 @@ default = "testnet"
 | `PROOF_FORGE_ROOT` | monorepo root (optional) |
 | `PROOF_FORGE_TOOL_ROOT` | locked tools |
 | `PROOF_FORGE_ALEO_LEO` | Leo override |
+| `PROOF_FORGE_SOLANA_CLIENT` | `proof-forge-solana-client` for `pf verify -t solana` |
 | `PF_TARGET` / `PF_NETWORK` | default target/network |
 
 ## Safety

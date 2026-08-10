@@ -20,8 +20,9 @@ Compiler CLI 契约仍见 [SPEC-CLI-001](cli.md)（`proof-forge-next` only）。
 |---|---|
 | spawn `proof-forge-next` 做 build/check/inspect/doctor/install | 解析/类型检查 ProgramV1 |
 | 读 `proof-forge.output.v1` | 改写 `deployable` / maturity |
-| wrap 官方链工具（Aleo: Leo） | 默认广播交易 |
+| wrap 官方链工具（Aleo: Leo；Solana: solana-client verify） | 默认广播交易 |
 | Aleo local run / deploy-save / execute-save | mainnet 第一期 |
+| Solana offline `pf verify`（OutputSet self-consistency） | Solana/EVM network deploy（v0） |
 | 稳定 JSON + 人类输出 | 托管私钥钱包文件格式（第一期） |
 
 可执行文件名固定 **`pf`**。package 名 `proof-forge-pf`。
@@ -36,6 +37,7 @@ Compiler CLI 契约仍见 [SPEC-CLI-001](cli.md)（`proof-forge-next` only）。
 | `PROOF_FORGE_ROOT` | monorepo/package root（含 scripts/ 时用于 doctor/install） |
 | `PROOF_FORGE_TOOL_ROOT` | Tool Lock 根（无 PATH fallback 写入） |
 | `PROOF_FORGE_ALEO_LEO` | 可选 Leo 覆盖 |
+| `PROOF_FORGE_SOLANA_CLIENT` | 可选 `proof-forge-solana-client` 覆盖（`pf verify -t solana`） |
 
 缺 `PROOF_FORGE_CLI` 时解析顺序：`env` → 与 `pf` 同目录 `proof-forge-next` →
 `$PROOF_FORGE_ROOT/.lake/build/bin/proof-forge-next` → error。
@@ -66,6 +68,7 @@ pf build [-t <target>] [-o <out>]          # 读 pf.toml；可省略 source/modu
 pf check
 pf run -- <fn> [inputs...]                 # = local run；默认 build/<target>/
 pf inspect
+pf verify [-t solana] [--artifact DIR] [--adapter transfer-sol-v1]
 pf deploy [-n testnet|devnet] [--broadcast] [--private-key-env NAME]
 pf execute [-n …] [--broadcast] -- <fn> [inputs...]
 pf doctor | pf setup | pf version | pf list-targets
@@ -84,6 +87,7 @@ pf build <source.lean> --module <Lean.Name> -t aleo -o build/aleo
 | `setup` | `doctor`；若缺工具则 `proof-forge-next install --targets … --yes`（Aleo zero-tool 可仅检查 leo host 可选） |
 | `build` | spawn compiler build；校验 OutputSet 存在 `*.aleo`（aleo） |
 | `local run` | Aleo Wave-B：imports 钉扎 PF bytecode → `leo run --offline` |
+| `verify` | **Solana only（D7a）**：spawn `proof-forge-solana-client verify-artifacts`；offline，无 RPC/wallet/deploy |
 | `deploy` | 默认 save-only；twin exact-match 后 `leo deploy --save` |
 | `execute` | 默认 save-only；`leo execute --save`（可 `--skip-execute-proof`） |
 
@@ -145,6 +149,18 @@ increment:  get state; add; set; get.or_use again (dropped)
   `~/.cargo/bin/leo`（host-optional；**不** 写入 Tool Root）。
 - 不实现第二套 Aleo VM。
 
+## 4.5 Solana offline verify（D7a）
+
+1. 仅 `target=solana`；`aleo` → 指引 `pf inspect`；`evm` → not implemented（D7c）。
+2. 默认 artifact：`build/solana/`（或 `--artifact`）。
+3. 解析 client：`PROOF_FORGE_SOLANA_CLIENT` → 与 `pf` 同目录 →  
+   `$PROOF_FORGE_ROOT/clients/solana-client/target/{release,debug}/proof-forge-solana-client` →  
+   cwd monorepo 同路径 → `PATH`。
+4. spawn：`verify-artifacts --artifact-dir <dir> [--program-adapter <id>]`。
+5. client 非 0 或 JSON `ok=false` → fail closed（exit 1）；**禁止**静默降级为成功。
+6. 非声称：不是 formal、不是 hermetic、不是 network-write、不是 Mollusk 执行（D7b）。
+7. 金样 fixture：`Examples/TransferSol`；部分 generic CPI 产物可能在 evidence.note irDigest join 上失败——保持 FC。
+
 ## 5. JSON 成功对象（最小）
 
 ```json
@@ -161,6 +177,28 @@ increment:  get state; add; set; get.or_use again (dropped)
 }
 ```
 
+`pf verify` 成功对象额外：
+
+```json
+{
+  "schema": "proof-forge.pf.result.v1",
+  "command": "verify",
+  "ok": true,
+  "target": "solana",
+  "artifactDir": "...",
+  "extra": {
+    "client": ".../proof-forge-solana-client",
+    "programAdapter": "transfer-sol-v1",
+    "result": { "ok": true, "programName": "TransferSol", "...": "..." }
+  },
+  "notes": [
+    "offline OutputSet self-consistency only",
+    "not formal/hermetic/network-write",
+    "deployable not rewritten"
+  ]
+}
+```
+
 失败：
 
 ```json
@@ -174,7 +212,8 @@ increment:  get state; add; set; get.or_use again (dropped)
 
 ## 6. 非目标（v0）
 
-- EVM/Solana deploy（adapter stub 可存在，命令 fail closed with “not implemented”）。
+- EVM/Solana **network** deploy（adapter stub 可存在，命令 fail closed with “not implemented”）。
+- Solana Mollusk `pf test`（D7b）、EVM Anvil `pf test`（D7c）——计划中，非本切片。
 - MCP 暴露 broadcast。
 - 交互式钱包 UI。
 - 把 acceptance scripts 删除（CI 仍用 scripts 或 `pf` 的 `--gate` 模式）。
@@ -183,10 +222,11 @@ increment:  get state; add; set; get.or_use again (dropped)
 
 | 层 | 内容 |
 |---|---|
-| unit | safety gates、artifact parse、program id rewrite |
+| unit | safety gates、artifact parse、program id rewrite、solana client resolve |
 | integration | `pf build` against built `proof-forge-next`（host） |
 | host-optional | `pf local run` / `pf deploy` save-only（需 leo + network） |
-| CI ordinary | 不强制 leo/network；unit + clap smoke |
+| host-optional | `pf verify -t solana` on TransferSol（需 solana-client binary） |
+| CI ordinary | 不强制 leo/network/solana-client；unit + clap smoke |
 
 ## 8. 版本
 
