@@ -42,9 +42,14 @@ just pf-cli-publish-dry-run
 # 4) login (once per machine)
 cargo login                 # crates.io API token — do NOT commit
 
-# 5) publish (maintainers only)
-just pf-cli-publish         # requires confirmation env PF_PUBLISH=1
+# 5) publish (maintainers only) — git tree must be clean under clients/pf-cli
+git status --short clients/pf-cli    # must be empty
+PF_PUBLISH=1 just pf-cli-publish
 ```
+
+Cargo refuses dirty trees on real `cargo publish` (dry-run may use `--allow-dirty`).
+Commit setup/docs changes first, then publish.
+
 
 ## Versioning
 

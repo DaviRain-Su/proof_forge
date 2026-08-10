@@ -1468,12 +1468,17 @@ pf-cli-publish-dry-run: pf-cli-test
     cargo package --manifest-path clients/pf-cli/Cargo.toml --locked --allow-dirty --list
     cargo publish --manifest-path clients/pf-cli/Cargo.toml --locked --dry-run --allow-dirty
 
-# Real crates.io publish — requires PF_PUBLISH=1 and cargo login.
+# Real crates.io publish — requires PF_PUBLISH=1, cargo login, and a clean git tree.
 pf-cli-publish: pf-cli-test
     #!/usr/bin/env bash
     set -euo pipefail
     if [[ "${PF_PUBLISH:-}" != "1" ]]; then
       echo "pf-cli-publish: refuse (set PF_PUBLISH=1 after reading clients/pf-cli/PUBLISH.md)" >&2
+      exit 2
+    fi
+    if [[ -n "$(git status --porcelain clients/pf-cli)" ]]; then
+      echo "pf-cli-publish: clients/pf-cli has uncommitted changes — commit first (cargo publish refuses dirty trees)" >&2
+      git status --short clients/pf-cli >&2
       exit 2
     fi
     cargo publish --manifest-path clients/pf-cli/Cargo.toml --locked
@@ -1493,6 +1498,11 @@ solana-client-publish: solana-client-test
     set -euo pipefail
     if [[ "${SC_PUBLISH:-}" != "1" ]]; then
       echo "solana-client-publish: refuse (set SC_PUBLISH=1 after reading clients/solana-client/PUBLISH.md)" >&2
+      exit 2
+    fi
+    if [[ -n "$(git status --porcelain clients/solana-client)" ]]; then
+      echo "solana-client-publish: clients/solana-client has uncommitted changes — commit first" >&2
+      git status --short clients/solana-client >&2
       exit 2
     fi
     cargo publish --manifest-path clients/solana-client/Cargo.toml --locked
