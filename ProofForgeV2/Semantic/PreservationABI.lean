@@ -476,6 +476,48 @@ def PreservationStepV1
       | .trapped fault unchangedState =>
           OutcomeTrappedUnchangedV1 pre fault unchangedState
 
+/-- Returned-state preservation obligation for one exact callable-table row.
+    The production gate and step equalities keep invocation arguments/context,
+    responses, vault, result, and effects explicit. Failure outcomes are not a
+    business obligation: the generic composer closes them from the production
+    unchanged-state theorem. -/
+def PreservationReturnedCallableV1
+    (program : SemanticProgramV1)
+    (ordinal : InvariantOrdinalV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (callableId : CallableIdV1)
+    (callable : CallableV1) : Prop :=
+  ∀ (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (overlay : Array ByteArray)
+    (context : Array ContextInputV1)
+    (isInitializer : Bool)
+    (postState : LogicalStateV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1),
+    invocation.callableId = callableId →
+    StateConformsV1 program pre →
+    evalInvariantV1 program ordinal pre = .returnedTrue →
+    gateInvocation admitted pre invocation =
+      .ready callable overlay context isInitializer →
+    stepReferenceSliceV1 admitted pre invocation responses vault =
+      .returned postState value effects →
+    evalInvariantV1 program ordinal postState = .returnedTrue
+
+/-- Exhaustive returned-state obligations indexed by the exact admitted
+    callable table. Looking up every row makes callable coverage fail closed:
+    adding or replacing a row changes this proposition. Invalid roots and
+    lifecycle-only outcomes are excluded by the production ready gate. -/
+def PreservationReturnedCallablesV1
+    (program : SemanticProgramV1)
+    (ordinal : InvariantOrdinalV1)
+    (admitted : AdmittedReferenceSliceV1) : Prop :=
+  ∀ (callableId : CallableIdV1) (callable : CallableV1),
+    admitted.data.callables[callableId.toNat]? = some callable →
+    PreservationReturnedCallableV1 program ordinal admitted callableId callable
+
 /-- Generic L1 preservation proposition. Reference admission is a positive
     existential obligation, so unsupported programs cannot satisfy it vacuously. -/
 def PreservationTheoremV1

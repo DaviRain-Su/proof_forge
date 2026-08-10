@@ -1,4 +1,4 @@
-import ProofForgeV2.Semantic.PreservationABI
+import ProofForgeV2.Semantic.PreservationPackagingV1
 import Tests.Semantic.InvariantABI
 
 /-
@@ -12,6 +12,7 @@ namespace Tests.Semantic.PreservationABI
 
 open ProofForgeV2.Semantic.InvariantABI
 open ProofForgeV2.Semantic.PreservationABI
+open ProofForgeV2.Semantic.PreservationPackagingV1
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
 open Tests.Semantic.InvariantABI.CanonicalInvariantFixtureV1
@@ -65,6 +66,44 @@ example (program : SemanticProgramV1) (ordinal : InvariantOrdinalV1)
               OutcomeRevertedUnchangedV1 pre reason unchangedState
           | .trapped fault unchangedState =>
               OutcomeTrappedUnchangedV1 pre fault unchangedState := Iff.rfl
+
+example (program : SemanticProgramV1) (ordinal : InvariantOrdinalV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (hstep : PreservationStepV1 program ordinal admitted) :
+    PreservationReturnedCallablesV1 program ordinal admitted :=
+  preservationReturnedCallablesV1_of_stepV1 program ordinal admitted hstep
+
+example (program : SemanticProgramV1) (ordinal : InvariantOrdinalV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (hreturned : PreservationReturnedCallablesV1 program ordinal admitted) :
+    PreservationStepV1 program ordinal admitted :=
+  preservationStepV1_of_returnedCallablesV1 program ordinal admitted hreturned
+
+example (program : SemanticProgramV1) (ordinal : InvariantOrdinalV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (hordinal : ordinal.toNat < program.invariants.size)
+    (hadmit : admitReferenceProgramSliceV1 program = .ok admitted)
+    (hbase : PreservationBaseV1 program ordinal admitted)
+    (hreturned : PreservationReturnedCallablesV1 program ordinal admitted) :
+    PreservationTheoremV1 program ordinal :=
+  preservationTheoremV1_of_callableObligationsV1 program ordinal admitted
+    hordinal hadmit hbase hreturned
+
+example (program : SemanticProgramV1) (ordinal : InvariantOrdinalV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (hhasInitializer : HasInitializerV1 program)
+    (hbase : PreservationBaseWithInitializerV1 program ordinal admitted) :
+    PreservationBaseV1 program ordinal admitted :=
+  preservationBaseV1_of_initializerV1 program ordinal admitted
+    hhasInitializer hbase
+
+example (program : SemanticProgramV1) (ordinal : InvariantOrdinalV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (hnoInitializer : ¬ HasInitializerV1 program)
+    (hbase : PreservationBaseNoInitializerV1 program ordinal) :
+    PreservationBaseV1 program ordinal admitted :=
+  preservationBaseV1_of_noInitializerV1 program ordinal admitted
+    hnoInitializer hbase
 
 example (program : SemanticProgramV1) (ordinal : InvariantOrdinalV1) :
     PreservationTheoremV1 program ordinal ↔

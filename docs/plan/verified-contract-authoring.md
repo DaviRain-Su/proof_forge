@@ -707,7 +707,7 @@ proof-bearing target build 继续 fail closed。
 | 1 | Typed State + codec bridge | **进行中（generated Bool/UInt64 codec proof 首切已完成）** | generated `Model.State` 复用 production codec；`Model.encode_exists`、`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；Bool 的产品 accepted-language 接线与更多 scalar shape 仍待补 |
 | 2 | Typed callable transition | **进行中（initialized entry/view + 独立 initializer lifecycle relation 首切已完成）** | pre-init 只使用 exact production lifecycle carrier；initializer returned state 与 ordinary callable returned state 均可唯一投影为 typed State，固定 typed 输入有且至多有一个 typed outcome |
 | 3 | Typed invariant bridge | **进行中（evaluator + UInt64 字段 Eq/Ne 数学 bridge 首切已完成）** | generated predicate 使用 exact state encoder 与 lowered invariant ordinal，并与 production `evalInvariantV1` 双向对齐；exact two-state Eq/Ne CFG 已 fail-closed 投影成字段 `=`/`≠` 且不再暴露 encoding witness；这不是任意 expression translator，更多表达式与 exact validation packaging 仍待补 |
-| 4 | Generic preservation composition | 未开始 | per-call lemmas 自动包成 exact `PreservationTheoremV1` |
+| 4 | Generic preservation composition | **进行中（per-callable returned composer 首切已完成）** | exact admitted callable-table coverage + initializer/no-initializer base + per-call returned lemmas 自动包成 exact `PreservationTheoremV1`；generated skeleton 与完整 Vault 实例仍待补 |
 | 5 | Same-file certifier ergonomics | 部分地基已有 | 任意未 pin 合约的真实 proof body可 certified |
 | 6 | authority amendment + VerifiedVaultPF + NEAR build/runtime | 未开始 | 先批准 versioned invariant-erasure contract，再完成单文件 proof + build + runtime differential；诚实标注 Reference-level |
 | 7 | Per-target refinement | 未开始 | target-specific refinement evidence逐个关闭 |
@@ -808,9 +808,9 @@ proof-bearing target build 继续 fail closed。
    result codec、三分支 relation、returned/reverted/trapped packaging、`transition_exists` 与
    `outcome_unique`；ordinary selector仍只接受 entry/view。回归同时 pin initializer id/kind、ordinary
    view id，以及 relation 展开后每个分支唯一出现的 `stepReferenceSliceV1`；没有 generated evaluator；
-17. 当前仍缺 full raw-input gate partition、per-call preservation composition 与短 executable
-   notation；typed invariant 已进入下述 Phase 3 首切，并完成 exact UInt64 两字段 equality 的
-   普通 Lean 数学投影，但更多 expression shape 与 premise-free packaging 仍未完成；
+17. typed invariant 已进入下述 Phase 3 首切，并完成 exact UInt64 两字段 Eq/Ne 的普通 Lean
+   数学投影；Phase 4 也已有 per-callable returned obligation/composer 首切，但 generated proof
+   skeleton、更多 expression shape 与 premise-free packaging 仍未完成；
 18. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
    完成前不能称 target artifact verified。
 
@@ -914,6 +914,26 @@ expression translator：
     `Spec.solvent ↔ Model.solvent`；
 11. 当前声明仍仅是 Reference-level proof view 地基；它不改变 target materialization authority，
    更不构成 Reference→target refinement。
+
+### Phase 4 首切进展
+
+当前完成的是通用结构 composer，不是完整业务证明生成：
+
+1. `PreservationReturnedCallableV1` 保留 raw invocation（args/context）、production gate
+   overlay/context、responses、vault、returned value/effects 与 exact
+   `stepReferenceSliceV1 = .returned ...`；作者义务只覆盖成功 returned post-state；
+2. `PreservationReturnedCallablesV1` 按 `admitted.data.callables[id]? = some callable` 枚举 exact
+   admitted table。新增、替换或重排 callable row 会改变 obligation，不能被旧 aggregate 静默遗漏；
+3. `preservationStepV1_of_returnedCallablesV1` 从 production ready gate 取得同一 row lookup；
+   invalid root 与 lifecycle-only gate 不可能 returned，reverted/trapped 则只用 production
+   `stepReferenceSliceV1_failureStateUnchangedV1` 关闭；
+4. initializer 与 no-initializer base 仍分别使用 `PreservationBaseWithInitializerV1` 和
+   `PreservationBaseNoInitializerV1`，没有把 pre-init carrier伪装成 typed business state；
+5. `preservationTheoremV1_of_callableObligationsV1` 共享一个 positive admitted witness，并把
+   ordinal bound、selected lifecycle base、exact callable-table returned obligations 组合成原有
+   `PreservationTheoremV1`。没有新增 `State`、`Effect`、step 或 evaluator；
+6. 当前尚未生成 program-specific per-call skeleton，也尚未完成 VerifiedVaultPF 的 initializer、
+   deposit、withdraw、status returned 业务 lemmas；因此 Phase 4 与“任意业务合约验证”仍不能称完成。
 
 ---
 

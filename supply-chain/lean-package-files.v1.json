@@ -301,14 +301,14 @@
       "sha256": "c8616a4f091a18d000473133a4be4c91f09ef8251a3df8b810fdca45554f2fb8"
     },
     {
-      "bytes": 25943,
+      "bytes": 27920,
       "path": "ProofForgeV2/Semantic/PreservationABI.lean",
-      "sha256": "9ff6d8aa39ada26c20e0de2f8d6b3eb575895b6fa8cc24fa92de372f68bb69a6"
+      "sha256": "8c770572a7af129d0bbf928b1a47f05e9507efce1c8b2aaebeb27b14288f845e"
     },
     {
-      "bytes": 5376,
+      "bytes": 10218,
       "path": "ProofForgeV2/Semantic/PreservationPackagingV1.lean",
-      "sha256": "5536c0230bdcea16856bbd34494ce7935a8b7df2ad352a0c8e607dd14c183e49"
+      "sha256": "f77a655a50ae875c784226d646d0f836e290c83f46f0e907b6c99faa72058fb9"
     },
     {
       "bytes": 43535,
