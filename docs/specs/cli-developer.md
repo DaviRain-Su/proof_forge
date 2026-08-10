@@ -40,25 +40,25 @@ Compiler CLI 契约仍见 [SPEC-CLI-001](cli.md)（`proof-forge-next` only）。
 缺 `PROOF_FORGE_CLI` 时解析顺序：`env` → 与 `pf` 同目录 `proof-forge-next` →
 `$PROOF_FORGE_ROOT/.lake/build/bin/proof-forge-next` → error。
 
-## 3. 命令面（v0 / Aleo-first）
+## 3. 命令面（v0 / Aleo-first，cargo-like）
+
+项目文件：`pf.toml`（`pf new` 生成）。默认 target=`aleo`，默认输出=`build/<target>/`。
 
 ```text
-pf setup --target <id> [--yes]
-pf doctor [--target <id>]... [--json]
-pf build --target <id> --module <Lean.Name> <source>
-        [--root <dir>] [-o <out>] [--profile <id>] [--json]
-pf check --module <Lean.Name> <source> [--root <dir>] [--json]
-pf inspect --artifact <out-dir> [--json]
-pf local run --target aleo --artifact <out-dir> -- <fn> [inputs...]
-pf deploy --target aleo --artifact <out-dir>
-          --network testnet|devnet [--endpoint <url>]
-          [--broadcast] [--private-key-env <NAME>] [--save <dir>] [--json]
-pf execute --target aleo --artifact <out-dir>
-           --network testnet|devnet [--endpoint <url>]
-           [--broadcast] [--private-key-env <NAME>] [--save <dir>] [--json]
-           -- <fn> [inputs...]
-pf version
-pf list-targets [--json]
+pf new <name> [--target aleo]
+pf build [-t <target>] [-o <out>]          # 读 pf.toml；可省略 source/module
+pf check
+pf run -- <fn> [inputs...]                 # = local run；默认 build/<target>/
+pf inspect
+pf deploy [-n testnet|devnet] [--broadcast] [--private-key-env NAME]
+pf execute [-n …] [--broadcast] -- <fn> [inputs...]
+pf doctor | pf setup | pf version | pf list-targets
+```
+
+仍支持显式 monorepo 路径（无 pf.toml 时）：
+
+```text
+pf build <source.lean> --module <Lean.Name> -t aleo -o build/aleo
 ```
 
 ### 3.1 语义摘要

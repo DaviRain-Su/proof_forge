@@ -2,6 +2,7 @@ mod artifact;
 mod cmd;
 mod compiler;
 mod error;
+mod project;
 mod result_json;
 mod safety;
 mod targets;
@@ -12,7 +13,16 @@ use error::PfResult;
 use std::path::PathBuf;
 
 #[derive(Parser)]
-#[command(name = "pf", version, about = "ProofForge developer CLI")]
+#[command(
+    name = "pf",
+    version,
+    about = "ProofForge developer CLI (cargo-like)",
+    long_about = "Project-oriented wrapper around proof-forge-next and official chain tools.\n\
+\n\
+Typical flow:\n  pf new hello && cd hello\n  pf build\n  pf run -- initialize 5u64\n  pf deploy --network testnet\n\
+\n\
+Defaults come from pf.toml (default-target=aleo, out-dir=build/<target>/)."
+)]
 struct Cli {
     #[arg(long, global = true)]
     json: bool,
@@ -24,25 +34,46 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
+    /// Create a new ProofForge project from the StateCell template
+    New {
+        /// Package directory / name
+        name: String,
+        /// Default build target written into pf.toml
+        #[arg(long, default_value = "aleo")]
+        target: String,
+        /// Optional path (default: ./<name>)
+        #[arg(long)]
+        path: Option<PathBuf>,
+    },
+    /// Show toolchain status (compiler + host Leo when present)
     Setup {
         #[arg(long)]
-        target: String,
+        target: Option<String>,
     },
     Doctor {
         #[arg(long)]
         target: Vec<String>,
     },
+    /// Build the project (default target from pf.toml → build/<target>/)
     Build(BuildArgs),
+    /// Typecheck / validate without writing artifacts
     Check(CheckArgs),
+    /// Validate an artifact directory (default: build/<target>/)
     Inspect {
         #[arg(long)]
-        artifact: PathBuf,
+        artifact: Option<PathBuf>,
+        #[arg(long)]
+        target: Option<String>,
     },
+    /// Local run (Aleo VM). Alias of `local run`.
+    Run(RunArgs),
     Local {
         #[command(subcommand)]
         command: LocalCommands,
     },
+    /// Materialize deploy tx (save-only unless --broadcast)
     Deploy(NetworkArgs),
+    /// Materialize execute tx (save-only unless --broadcast)
     Execute(ExecuteArgs),
     Version,
     ListTargets,
@@ -50,51 +81,56 @@ enum Commands {
 
 #[derive(Args)]
 struct BuildArgs {
-    source: PathBuf,
+    /// Optional source override (default: pf.toml package.source)
+    source: Option<PathBuf>,
     #[arg(long)]
-    module: String,
-    #[arg(long)]
-    target: String,
+    module: Option<String>,
+    /// Override default-target from pf.toml / PF_TARGET
+    #[arg(long, short = 't')]
+    target: Option<String>,
     #[arg(long)]
     root: Option<PathBuf>,
-    #[arg(short = 'o', long, default_value = "build/v2")]
-    output: PathBuf,
+    /// Override output directory (default: build/<target>/)
+    #[arg(short = 'o', long)]
+    output: Option<PathBuf>,
     #[arg(long)]
     profile: Option<String>,
 }
 
 #[derive(Args)]
 struct CheckArgs {
-    source: PathBuf,
+    source: Option<PathBuf>,
     #[arg(long)]
-    module: String,
+    module: Option<String>,
     #[arg(long)]
     root: Option<PathBuf>,
 }
 
 #[derive(Subcommand)]
 enum LocalCommands {
-    Run(LocalRunArgs),
+    Run(RunArgs),
 }
 
 #[derive(Args)]
-struct LocalRunArgs {
+struct RunArgs {
+    #[arg(long, short = 't')]
+    target: Option<String>,
     #[arg(long)]
-    target: String,
-    #[arg(long)]
-    artifact: PathBuf,
+    artifact: Option<PathBuf>,
+    /// Function and inputs after `--`, e.g. `initialize 5u64`
     #[arg(required = true, trailing_var_arg = true, allow_hyphen_values = true)]
     args: Vec<String>,
 }
 
 #[derive(Args)]
 struct NetworkArgs {
+    #[arg(long, short = 't')]
+    target: Option<String>,
     #[arg(long)]
-    target: String,
-    #[arg(long)]
-    artifact: PathBuf,
-    #[arg(long)]
-    network: String,
+    artifact: Option<PathBuf>,
+    /// testnet|devnet (mainnet refused). Default: pf.toml [network].default or testnet
+    #[arg(long, short = 'n')]
+    network: Option<String>,
     #[arg(long)]
     endpoint: Option<String>,
     #[arg(long)]
@@ -133,12 +169,13 @@ fn main() {
 
 fn command_name(command: &Commands) -> &'static str {
     match command {
+        Commands::New { .. } => "new",
         Commands::Setup { .. } => "setup",
         Commands::Doctor { .. } => "doctor",
         Commands::Build(_) => "build",
         Commands::Check(_) => "check",
         Commands::Inspect { .. } => "inspect",
-        Commands::Local { .. } => "local run",
+        Commands::Run(_) | Commands::Local { .. } => "run",
         Commands::Deploy(_) => "deploy",
         Commands::Execute(_) => "execute",
         Commands::Version => "version",
@@ -149,26 +186,46 @@ fn command_name(command: &Commands) -> &'static str {
 fn dispatch(cli: Cli) -> PfResult<()> {
     let json = cli.json;
     match cli.command {
-        Commands::Setup { target } => cmd::doctor::setup(&target, cli.yes, json),
-        Commands::Doctor { target } => cmd::doctor::run(&target, json),
-        Commands::Build(a) => cmd::build::run(
-            &a.source,
-            &a.module,
-            &a.target,
-            a.root.as_deref(),
-            &a.output,
-            a.profile.as_deref(),
+        Commands::New { name, target, path } => {
+            cmd::new::run(&name, Some(&target), path.as_ref(), json)
+        }
+        Commands::Setup { target } => {
+            let t = target.unwrap_or_else(|| project::DEFAULT_TARGET.into());
+            cmd::doctor::setup(&t, cli.yes, json)
+        }
+        Commands::Doctor { target } => {
+            let targets = if target.is_empty() {
+                vec![project::DEFAULT_TARGET.to_string()]
+            } else {
+                target
+            };
+            cmd::doctor::run(&targets, json)
+        }
+        Commands::Build(a) => cmd::build::run(cmd::build::BuildOpts {
+            source: a.source.as_deref(),
+            module: a.module.as_deref(),
+            target: a.target.as_deref(),
+            root: a.root.as_deref(),
+            output: a.output.as_deref(),
+            profile: a.profile.as_deref(),
             json,
-        ),
-        Commands::Check(a) => cmd::check::run(&a.source, &a.module, a.root.as_deref(), json),
-        Commands::Inspect { artifact } => cmd::inspect::run(&artifact, json),
+        }),
+        Commands::Check(a) => {
+            cmd::check::run(a.source.as_deref(), a.module.as_deref(), a.root.as_deref(), json)
+        }
+        Commands::Inspect { artifact, target } => {
+            cmd::inspect::run(artifact.as_deref(), target.as_deref(), json)
+        }
+        Commands::Run(a) => {
+            cmd::local_run::run(a.target.as_deref(), a.artifact.as_deref(), &a.args, json)
+        }
         Commands::Local {
             command: LocalCommands::Run(a),
-        } => cmd::local_run::run(&a.target, &a.artifact, &a.args[0], &a.args[1..], json),
+        } => cmd::local_run::run(a.target.as_deref(), a.artifact.as_deref(), &a.args, json),
         Commands::Deploy(a) => cmd::deploy::run(
-            &a.target,
-            &a.artifact,
-            &a.network,
+            a.target.as_deref(),
+            a.artifact.as_deref(),
+            a.network.as_deref(),
             a.endpoint.as_deref(),
             a.broadcast,
             a.private_key_env.as_deref(),
@@ -176,15 +233,14 @@ fn dispatch(cli: Cli) -> PfResult<()> {
             json,
         ),
         Commands::Execute(a) => cmd::execute::run(
-            &a.network.target,
-            &a.network.artifact,
-            &a.network.network,
+            a.network.target.as_deref(),
+            a.network.artifact.as_deref(),
+            a.network.network.as_deref(),
             a.network.endpoint.as_deref(),
             a.network.broadcast,
             a.network.private_key_env.as_deref(),
             a.network.save.as_deref(),
-            &a.args[0],
-            &a.args[1..],
+            &a.args,
             json,
         ),
         Commands::Version => cmd::version::run(json),

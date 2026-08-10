@@ -1,13 +1,24 @@
 use crate::cmd::{compiler_json, emit};
-use crate::{compiler, error::PfResult, result_json::PfOk};
+use crate::compiler;
+use crate::error::PfResult;
+use crate::project::Project;
+use crate::result_json::PfOk;
 use std::path::Path;
 
-pub fn run(source: &Path, module: &str, root: Option<&Path>, json: bool) -> PfResult<()> {
+pub fn run(
+    source: Option<&Path>,
+    module: Option<&str>,
+    root: Option<&Path>,
+    json: bool,
+) -> PfResult<()> {
+    let project = Project::discover()?;
+    let (source, module, root_from_project) = project.resolve_source_module(source, module)?;
+    let root = root.or(root_from_project.as_deref());
     let mut owned = vec![
         "check".into(),
         source.to_string_lossy().into_owned(),
         "--module".into(),
-        module.into(),
+        module,
         "--json".into(),
     ];
     if let Some(v) = root {
@@ -18,6 +29,10 @@ pub fn run(source: &Path, module: &str, root: Option<&Path>, json: bool) -> PfRe
     let mut ok = PfOk::new("check");
     ok.extra = Some(compiler_json(&out.stdout)?);
     emit(ok, json, || {
-        println!("check passed: {} ({module})", source.display())
+        println!("    Finished `check` ok");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        if !stderr.trim().is_empty() {
+            eprint!("{stderr}");
+        }
     })
 }
