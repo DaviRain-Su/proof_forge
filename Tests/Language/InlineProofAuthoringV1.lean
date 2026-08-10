@@ -122,11 +122,90 @@ program PreservingSurface where
   view alive() : Bool do
     return true
   invariant safe : true
+  proof safe using PreservingSurfaceProof.holds
   proof safe preserving using PreservingSurfaceProof.safe
+
+theorem PreservingSurfaceProof.holds : PreservingSurface.Proof.safe := by
+  exact PreservingSurface.Proof.generatedSafeV1
+
+theorem PreservingSurfaceProof.safe :
+    PreservingSurface.ProofPreserving.safe := by
+  have hvalidate :
+      validateSemanticProgramV1 PreservingSurface.Proof.subjectProgramV1 =
+        .ok PreservingSurface.Proof.subjectDataV1 :=
+    PreservingSurface.Proof.subjectValidationOkV1
+  have hadmission :
+      validateReferenceProgramDataAdmissionV1
+          PreservingSurface.Proof.subjectDataV1 = .ok () := by
+    rfl
+  obtain ⟨admitted, hadmit⟩ :=
+    admitReferenceProgramSliceV1_exists_of_checks
+      PreservingSurface.Proof.subjectProgramV1
+      PreservingSurface.Proof.subjectDataV1 hvalidate hadmission
+  have hinvariant :
+      InvariantTheoremV1 PreservingSurface.Proof.subjectProgramV1 0 :=
+    PreservingSurface.Proof.generatedSafeV1
+  have hnoInitializerAny :
+      PreservingSurface.Proof.subjectDataV1.callables.any
+          (fun callable => callable.kind == .initializer) = false := by
+    simp [PreservingSurface.Proof.subjectDataV1] <;> decide
+  have hemptyState :
+      PreservingSurface.Proof.subjectDataV1.logicalState = #[] := by
+    simp [PreservingSurface.Proof.subjectDataV1]
+  have hreturned :
+      ∀ (callableId : CallableIdV1) (callable : CallableV1),
+        PreservationReturnedCallableV1
+          PreservingSurface.Proof.subjectProgramV1 0 admitted callableId
+            callable := by
+    intro callableId callable pre invocation responses vault overlay context
+      isInitializer postState value effects _hcallableId hconforms _heval
+      _hgate hstep
+    have hinitialized : pre.initialized = true :=
+      (stateConformsV1_elim_of_validate_eq_ok
+        PreservingSurface.Proof.subjectProgramV1
+        PreservingSurface.Proof.subjectDataV1 pre hvalidate hconforms).1
+    apply hinvariant.2 postState
+    exact
+      stepReferenceSliceV1_returned_stateConformsV1_of_initialized
+        PreservingSurface.Proof.subjectProgramV1 admitted pre postState invocation
+        responses vault value effects hadmit hinitialized hstep
+  apply
+    PreservingSurface.ProofPreserving.safe.ofRowObligationsV1 admitted hvalidate
+      hadmit
+  · apply
+      ProofForgeV2.Semantic.PreservationPackagingV1.preservationBaseV1_of_noInitializerV1
+    · exact
+        not_hasInitializerV1_of_validate_and_any_eq_false
+          PreservingSurface.Proof.subjectProgramV1
+          PreservingSurface.Proof.subjectDataV1 hvalidate hnoInitializerAny
+    · let initial : LogicalStateV1 := {
+        initialized := true
+        canonicalValues := ByteArray.empty
+      }
+      have hinitial :
+          initialLogicalStateV1 PreservingSurface.Proof.subjectProgramV1 =
+            .ok initial := by
+        simpa [initial] using
+          initialLogicalStateV1_empty_no_initializer_eq_ok
+            PreservingSurface.Proof.subjectProgramV1
+            PreservingSurface.Proof.subjectDataV1 hvalidate hemptyState
+              hnoInitializerAny
+      have hconforms :
+          StateConformsV1 PreservingSurface.Proof.subjectProgramV1 initial := by
+        apply stateConformsV1_intro_of_validate_eq_ok
+          PreservingSurface.Proof.subjectProgramV1
+          PreservingSurface.Proof.subjectDataV1 initial #[] hvalidate rfl
+        rfl
+      exact ⟨initial, hinitial, hconforms, hinvariant.2 initial hconforms⟩
+  · exact hreturned 0
+      (PreservingSurface.Proof.subjectDataV1.callables[0]'(by decide))
+  · exact hreturned 1
+      (PreservingSurface.Proof.subjectDataV1.callables[1]'(by decide))
 
 #check PreservingSurface.Proof.subjectProgramV1
 #check PreservingSurface.Proof.subjectStructureOkV1
 #check PreservingSurface.Proof.subjectValidationOkV1
+#check PreservingSurface.Proof.generatedSafeV1
 #check PreservingSurface.ProofPreserving.safe
 #check PreservingSurface.ProofPreserving.safe.BaseV1
 #check PreservingSurface.ProofPreserving.safe.WithInitializerBaseV1

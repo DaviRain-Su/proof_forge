@@ -591,6 +591,26 @@ def initialLogicalStateV1 (program : SemanticProgramV1) :
   let hasInitializer := data.callables.any fun c => c.kind == .initializer
   encodeLogicalStateValuesV1 data (!hasInitializer) values
 
+/-- A validated program with no state declarations and no initializer starts
+    initialized with the empty canonical state carrier. This is a projection
+    of the sole production default-state constructor, not a parallel state
+    initialization rule. -/
+theorem initialLogicalStateV1_empty_no_initializer_eq_ok
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hemptyState : data.logicalState = #[])
+    (hnoInitializer :
+      data.callables.any (fun callable => callable.kind == .initializer) =
+        false) :
+    initialLogicalStateV1 program = .ok {
+      initialized := true
+      canonicalValues := ByteArray.empty
+    } := by
+  unfold initialLogicalStateV1
+  simp [hvalidate, hemptyState, hnoInitializer, encodeLogicalStateValuesV1,
+    encodeLogicalStateSlotsV1, Bind.bind, Pure.pure, Except.bind, Except.pure]
+
 /-- Single-slot encode of an 8-byte (UInt64) payload under a successful valueBytes
     gate. Mirrors the closed zero-state encode reduction used by
     `initialLogicalStateV1_single_uint64_no_initializer_eq_ok`. -/
