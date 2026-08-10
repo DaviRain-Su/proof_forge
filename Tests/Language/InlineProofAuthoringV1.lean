@@ -380,6 +380,23 @@ theorem typedInvariantFieldEqualitySubject_cfgInvariantPhasesV1 :
     TypedInvariantFieldEqualitySurface.Proof.subjectDataV1.qualifiedName
     "nonce" "reserves" "shares" "alive" "primary" "solvent" "nonsolvent"
 
+/-- The generated subject's root shape, dense table IDs, and shallow
+    references pass the production structure prelude. -/
+theorem typedInvariantFieldEqualitySubject_structurePreludeV1 :
+    validateSemanticProgramStructurePreludeV1
+      TypedInvariantFieldEqualitySurface.Proof.subjectDataV1 = .ok () := by
+  rw [typedInvariantFieldEqualitySubject_subjectData_eq]
+  apply ProofForgeV2.Semantic.FieldComparisonSubjectV1.structurePreludeV1
+  rfl
+
+/-- The generated anonymous UInt64/Bool table passes the production TypeKey
+    phase; this is not a closed whole-structure claim. -/
+theorem typedInvariantFieldEqualitySubject_typeKeyPhasesV1 :
+    validateTypeKeyPhasesV1
+      TypedInvariantFieldEqualitySurface.Proof.subjectDataV1.types = .ok () := by
+  rw [typedInvariantFieldEqualitySubject_subjectData_eq]
+  exact ProofForgeV2.Semantic.FieldComparisonSubjectV1.typeKeyPhasesV1
+
 example
     (typedState : TypedInvariantFieldEqualitySurface.Model.State)
     (hvalidate :

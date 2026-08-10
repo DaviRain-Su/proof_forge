@@ -45,6 +45,12 @@ def requirementsV1 : ProgramRequirementsV1 := {
   items := #[persistentStateRequirementV1, boolRequirementV1]
 }
 
+/-- Anonymous production types used by field-comparison lowering. -/
+def typesV1 : Array TypeDeclV1 := #[
+  { id := 0, name := none, shape := .uint 64 },
+  { id := 1, name := none, shape := .bool }
+]
+
 /-- Exact source-order callable table shared by codec and structure phases. -/
 def callablesV1
     (viewName literalInvariantName eqInvariantName neInvariantName : String) :
@@ -66,10 +72,7 @@ def subjectDataV1
     (viewName literalInvariantName eqInvariantName neInvariantName : String) :
     SemanticProgramDataV1 := {
   qualifiedName
-  types := #[
-    { id := 0, name := none, shape := .uint 64 },
-    { id := 1, name := none, shape := .bool }
-  ]
+  types := typesV1
   constants := #[]
   logicalState := #[
     { id := 0, name := state0Name, typeId := 0, visibility := .public_ },
@@ -191,7 +194,7 @@ theorem rootFieldInvertV1
       (ExactMidOffsetInvertAtV1.ofExact
         (exactMidOffsetInvert_qualifiedName qualifiedName)
         (by decide : 1 < maxNesting))
-  · simpa [subjectDataV1] using exactAtRoot_typesV1
+  · simpa [subjectDataV1, typesV1] using exactAtRoot_typesV1
   · simpa [subjectDataV1] using
       (exactAt_array_emptyV1 encodeConstantV1 decodeConstantV1
         maxTableElements 1)
@@ -212,6 +215,85 @@ theorem rootFieldInvertV1
   · simpa [subjectDataV1] using
       exactAtRoot_invariantsV1 literalInvariantName eqInvariantName neInvariantName
   · simpa [subjectDataV1] using exactAtRoot_requirementsV1
+
+/-! ### Production structure foundation -/
+
+private def uint64TypeShapeBytesV1 : ByteArray :=
+  ByteArray.mk #[9, 0, 0, 0, 84, 121, 112, 101, 46, 85, 73, 110, 116, 1, 0, 64, 0]
+
+private def boolTypeShapeBytesV1 : ByteArray :=
+  ByteArray.mk #[9, 0, 0, 0, 84, 121, 112, 101, 46, 66, 111, 111, 108, 0, 0]
+
+private theorem encodeTypeShape_uint64V1 :
+    encodeTypeShapeV1 (.uint 64) = .ok uint64TypeShapeBytesV1 := by
+  change encodeTagged "Type.UInt" #[encodeU16le 64] = .ok uint64TypeShapeBytesV1
+  rw [encodeTagged_eq_okV1 "Type.UInt" #[encodeU16le 64]
+    (by decide) (by decide) (by decide) (by decide) (by decide)]
+  rfl
+
+private theorem encodeTypeShape_boolV1 :
+    encodeTypeShapeV1 (.bool : TypeShapeV1) = .ok boolTypeShapeBytesV1 := by
+  change encodeNullary "Type.Bool" = .ok boolTypeShapeBytesV1
+  rw [encodeNullary_eq_okV1 "Type.Bool" (by decide) (by decide) (by decide)]
+  congr 1
+
+private theorem compare_uint64_boolV1 :
+    compareByteArrayLex uint64TypeShapeBytesV1 boolTypeShapeBytesV1 = .gt := by
+  rw [compareByteArrayLex]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 0 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 1 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 2 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 3 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 4 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 5 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 6 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 7 (by decide) (by decide)]
+  rw [compareByteArrayLexLoopV1_eq_next _ _ _ 8 (by decide) (by decide)]
+  apply compareByteArrayLexLoopV1_eq_gt
+  · decide
+  · decide
+
+/-- Root shape, dense IDs, and shallow production references for the family. -/
+theorem structurePreludeV1
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name state2Name : String)
+    (viewName literalInvariantName eqInvariantName neInvariantName : String)
+    (hnameShape : validateProgramQualifiedNameShapeV1 qualifiedName = .ok ()) :
+    validateSemanticProgramStructurePreludeV1
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName) = .ok () := by
+  simp [subjectDataV1, typesV1, callablesV1, literalReturnCallableV1,
+    literalReturnBlockV1, twoStateCompareInvariantCallableV1,
+    twoStateCompareInvariantBlockV1, validateSemanticProgramStructurePreludeV1,
+    checkTableIdsV1, checkTypeShapeRefs, checkTypeIdInRange,
+    checkCallableIdInRange, checkIdEqualsIndex, hnameShape,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+/-- Type-shape legality for the fixed anonymous UInt64/Bool table. -/
+theorem typesStructureV1 : validateTypesStructureV1 typesV1 = .ok () := by
+  simp [typesV1, validateTypesStructureV1, validateTypeDeclShapeV1,
+    validateTypeDeclNamedRuleV1, legalIntegerWidthV1_64,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+/-- Full production TypeKey phase for the fixed anonymous UInt64/Bool table. -/
+theorem typeKeyPhasesV1 : validateTypeKeyPhasesV1 typesV1 = .ok () := by
+  apply validateTypeKeyPhasesV1_eq_ok_of_phases
+  · simp [typesV1, validateNamedPrefixRankV1,
+      Pure.pure, Except.pure, Bind.bind, Except.bind]
+  · simp [typesV1, validatePrimitiveAnonymousTypeKeyUniquenessV1,
+      encodeTypeShape_uint64V1, encodeTypeShape_boolV1, compare_uint64_boolV1,
+      Pure.pure, Except.pure, Bind.bind, Except.bind]
+  · simp [typesV1, validateRecursiveAnonymousTypeKeyUniquenessV1,
+      Pure.pure, Except.pure]
+  · simp [typesV1, validateNamedBodyOptionCycleLegalityV1,
+      Pure.pure, Except.pure]
+
+/-- There are no named TypeDecl rows in this lowering family. -/
+theorem namedTypeNamesV1 :
+    validateNamedTypeNameUniquenessV1 typesV1 = .ok () := by
+  simp [typesV1, validateNamedTypeNameUniquenessV1,
+    checkUniqueDeclarationNamesV1, Pure.pure, Except.pure, Bind.bind,
+    Except.bind]
 
 /-! ### Production generic CFG/SSA/typing phase -/
 

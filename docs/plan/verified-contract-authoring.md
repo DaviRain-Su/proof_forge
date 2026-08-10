@@ -877,7 +877,10 @@ expression translator：
     汇总；随后同一参数化 callable table 也已通过 production invariant closure 与 fuel
     phases：membership 为 `#[false,true,true,true]`、没有 `PureCall` 边、三个 root 的 exact
     intrinsic/carried fuel 为 3/5/5；现已由 production composer 闭合完整 CFG/invariant
-    segment，其余 structure phases 仍保持独立、尚未关闭；
+    segment；production structure prelude（root shape、dense table IDs、shallow references）
+    与 anonymous UInt64/Bool 的 type-shape、TypeKey、named-type phases 也已参数化闭合并由
+    真实 generated fixture 消费；valueBytes、declaration names/signatures、requirements 等
+    其余 structure phases 仍保持独立、尚未关闭；
     当前已把 `subjectBodyEncodeOkV1` + 全部 production root gates + structure success +
     whole-program `RootFieldInvertV1` 组合 exact validation 的 theorem 抽到通用
     `SubjectDataBridgeV1`，不再归属于 parity shape；elaborator 现已对每个 proof-bearing program
