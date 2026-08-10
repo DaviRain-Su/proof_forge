@@ -1,3 +1,12 @@
+---
+id: TARGET-PSY-OP-COVERAGE
+title: Psy DPN OP and feature coverage
+status: draft
+owner: engineering
+updated: 2026-08-10
+normative: false
+---
+
 # Psy DPN OP / feature coverage
 
 Machine-readable: [`psy-op-coverage.v1.json`](psy-op-coverage.v1.json)  

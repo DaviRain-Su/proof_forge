@@ -1,3 +1,12 @@
+---
+id: ADR-0038
+title: EVM hashed-Map storage profile
+status: proposed
+owner: architecture
+updated: 2026-08-10
+normative: true
+---
+
 # ADR-0038: Opt-in EVM hashed-Map storage profile
 
 ## Status

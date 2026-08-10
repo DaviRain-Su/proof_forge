@@ -12,10 +12,10 @@ normative: false
 > **目标**：让 ProofForge 合约作者获得与
 > [`VerifiedVault.lean`](https://github.com/DaviRain-Su/lean4/blob/zig-backend-codegen-clean/examples/near/contracts/VerifiedVault.lean)
 > 相近的体验——业务程序、typed state/transition 视图和普通 Lean theorem 位于同一个
-> `.lean` 文件；Lean kernel 检查 theorem；产品只在证明门通过后继续物化。  
+> `.lean` 文件；Lean kernel 检查 theorem；产品只在证明门通过后继续物化。
 > **关键约束**：ProofForge 只能有一个 authoritative executable semantics：
 > `SemanticProgramV1 + ReferenceMachineV1`。作者友好的 typed proof view 必须从该语义
-> 派生并有 bridge theorem，不能重新实现 `State / Effect / step`。  
+> 派生并有 bridge theorem，不能重新实现 `State / Effect / step`。
 > **性质**：工程实施规划，不改写 accepted PRD/Architecture/Technical Spec，不关闭
 > formal `TASK-D2-07`、`TST-SEM-002/003`、`TST-PROOF-001`，也不声称 target artifact
 > 已经被形式化验证。
