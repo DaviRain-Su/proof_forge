@@ -161,3 +161,18 @@ fail-closes on the rest. Hash/IMT/secp/keccak and most official-only state comma
 
 See [`psy-op-coverage.md`](psy-op-coverage.md).
 
+
+## 9. Official simulate binding (2026-08-10)
+
+`psy_user_cli simulate` (`InMemoryStateBackend`) resolves state-command fields:
+
+* `condition` / `sub_slot_index` / `value` via `registers.get_by_encoded_id` (wire ids);
+* `state_command_resolution_indices[i]` = **definition step** (run before `definitions[step]`).
+
+PF general multi-leaf path therefore:
+
+1. emits Target `Constant` leaves `0..n-1` and stores those **wire indices** in cmds;
+2. pins Get resolution to the GetState def step and Set resolution to `defs.size` at emit;
+3. encodes Bool op inputs as `(bool<<32)|index` (bare bool index would read Target[i]).
+
+Counter golden templates keep historical bare 0/1 indices that resolve to storage slot 0.
