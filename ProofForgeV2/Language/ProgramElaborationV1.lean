@@ -4,6 +4,7 @@ import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Semantic.PreservationABI
 import ProofForgeV2.Semantic.StateModelV1
+import ProofForgeV2.Semantic.FieldComparisonSubjectV1
 import ProofForgeV2.Semantic.UInt64ParityPreservationV1
 import ProofForgeV2.Semantic.UInt64ParitySubjectV1
 import ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1
@@ -179,6 +180,70 @@ private def extractSimpleClosureParamsFromCarrierV1
         extractSimpleClosureParamsV1 data
       else
         none
+
+/-- Runtime-only extraction result for the exact generated field-comparison
+    family. It carries source names, never a proof or alternate semantic model;
+    emitted declarations are rechecked against `subjectDataV1` by the kernel. -/
+private structure FieldComparisonParamsV1 where
+  state0Name : String
+  state1Name : String
+  state2Name : String
+  viewName : String
+  literalInvariantName : String
+  eqInvariantName : String
+  neInvariantName : String
+
+/-- Recognize only the exact production-lowered field-comparison family.
+    Candidate names are read from their canonical rows and then the complete
+    `SemanticProgramDataV1` is compared with the parameterized production
+    constructor; unsupported nearby shapes fail closed. -/
+private def extractFieldComparisonParamsV1
+    (data : SemanticProgramDataV1) : Option FieldComparisonParamsV1 :=
+  match data.logicalState[0]?, data.logicalState[1]?, data.logicalState[2]?,
+      data.callables[0]?, data.callables[1]?, data.callables[2]?,
+      data.callables[3]? with
+  | some state0, some state1, some state2, some viewCallable,
+      some literalCallable, some eqCallable, some neCallable =>
+      match viewCallable.name, literalCallable.name, eqCallable.name,
+          neCallable.name with
+      | some viewName, some literalInvariantName, some eqInvariantName,
+          some neInvariantName =>
+          let params : FieldComparisonParamsV1 := {
+            state0Name := state0.name
+            state1Name := state1.name
+            state2Name := state2.name
+            viewName
+            literalInvariantName
+            eqInvariantName
+            neInvariantName
+          }
+          let expected :=
+            ProofForgeV2.Semantic.FieldComparisonSubjectV1.subjectDataV1
+              data.qualifiedName params.state0Name params.state1Name
+              params.state2Name params.viewName params.literalInvariantName
+              params.eqInvariantName params.neInvariantName
+          if data == expected then some params else none
+      | _, _, _, _ => none
+  | _, _, _, _, _, _, _ => none
+
+private def fieldComparisonParamsReadyForGeneratedProofV1
+    (p : FieldComparisonParamsV1) : Bool :=
+  identifierReadyForGeneratedProofV1 p.state0Name &&
+    identifierReadyForGeneratedProofV1 p.state1Name &&
+    identifierReadyForGeneratedProofV1 p.state2Name &&
+    identifierReadyForGeneratedProofV1 p.viewName &&
+    identifierReadyForGeneratedProofV1 p.literalInvariantName &&
+    identifierReadyForGeneratedProofV1 p.eqInvariantName &&
+    identifierReadyForGeneratedProofV1 p.neInvariantName &&
+    decide (p.state0Name ≠ p.state1Name) &&
+    decide (p.state0Name ≠ p.state2Name) &&
+    decide (p.state1Name ≠ p.state2Name) &&
+    decide (p.viewName ≠ p.literalInvariantName) &&
+    decide (p.viewName ≠ p.eqInvariantName) &&
+    decide (p.viewName ≠ p.neInvariantName) &&
+    decide (p.literalInvariantName ≠ p.eqInvariantName) &&
+    decide (p.literalInvariantName ≠ p.neInvariantName) &&
+    decide (p.eqInvariantName ≠ p.neInvariantName)
 
 private structure ProofSurfaceV1 where
   invariantNames : Array String
@@ -2622,6 +2687,110 @@ private def elaborateSimpleClosureGeneratedTheoremsV1
           ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1.invariantTheoremV1_of_simpleClosure_legal
             $paramsName $paramsLegalIdent))
 
+/-- Emit only production structure and full-validation certificates for the
+    exact field-comparison family. The authored invariant theorems remain
+    ordinary adjacent Lean declarations; this helper does not manufacture a
+    second invariant semantics or a closed business theorem. -/
+private def elaborateFieldComparisonCertificatesV1
+    (subjectProgramName subjectDataName subjectBytesName
+      subjectBodyEncodeOkName subjectRootGatesOkName subjectStructureOkName
+      subjectValidationOkName : TSyntax `ident)
+    (params : FieldComparisonParamsV1) : CommandElabM Unit := do
+  unless fieldComparisonParamsReadyForGeneratedProofV1 params do
+    return
+  let state0Proof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.state0Name
+  let state1Proof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.state1Name
+  let state2Proof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.state2Name
+  let viewProof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.viewName
+  let literalProof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.literalInvariantName
+  let eqProof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.eqInvariantName
+  let neProof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.neInvariantName
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Production structure success for this exact generated
+        field-comparison subject. -/
+    theorem $subjectStructureOkName :
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramStructureV1
+          $subjectDataName = .ok () := by
+      have hroot := $subjectRootGatesOkName
+      rcases hroot with
+        ⟨hnameShape, _htypesSize, _hconstantsSize, _hstateSize, _heventsSize,
+          _herrorsSize, _hcallablesSize, _hinvariantsSize⟩
+      change
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramStructureV1
+          (ProofForgeV2.Semantic.FieldComparisonSubjectV1.subjectDataV1
+            ($subjectDataName).qualifiedName $(quote params.state0Name)
+            $(quote params.state1Name) $(quote params.state2Name)
+            $(quote params.viewName) $(quote params.literalInvariantName)
+            $(quote params.eqInvariantName) $(quote params.neInvariantName)) =
+          .ok ()
+      exact
+        ProofForgeV2.Semantic.FieldComparisonSubjectV1.structureV1
+          ($subjectDataName).qualifiedName $(quote params.state0Name)
+          $(quote params.state1Name) $(quote params.state2Name)
+          $(quote params.viewName) $(quote params.literalInvariantName)
+          $(quote params.eqInvariantName) $(quote params.neInvariantName) {
+            hnameShape := hnameShape
+            hstate0Name := $state0Proof
+            hstate1Name := $state1Proof
+            hstate2Name := $state2Proof
+            hviewName := $viewProof
+            hliteralInvariantName := $literalProof
+            heqInvariantName := $eqProof
+            hneInvariantName := $neProof
+            hstate01 := by decide
+            hstate02 := by decide
+            hstate12 := by decide
+            hviewLiteral := by decide
+            hviewEq := by decide
+            hviewNe := by decide
+            hliteralEq := by decide
+            hliteralNe := by decide
+            heqNe := by decide
+          }))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Exact production validation for this generated field-comparison
+        subject: body encoding + root gates + structure + root codec invert. -/
+    theorem $subjectValidationOkName :
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+          $subjectProgramName = .ok $subjectDataName := by
+      change
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+          ⟨$subjectBytesName⟩ = .ok $subjectDataName
+      have hroot := $subjectRootGatesOkName
+      rcases hroot with
+        ⟨hnameShape, htypesSize, hconstantsSize, hstateSize, heventsSize,
+          herrorsSize, hcallablesSize, hinvariantsSize⟩
+      have hinvert :
+          ProofForgeV2.Semantic.WireV1.RootFieldInvertV1
+            $subjectDataName := by
+        change
+          ProofForgeV2.Semantic.WireV1.RootFieldInvertV1
+            (ProofForgeV2.Semantic.FieldComparisonSubjectV1.subjectDataV1
+              ($subjectDataName).qualifiedName $(quote params.state0Name)
+              $(quote params.state1Name) $(quote params.state2Name)
+              $(quote params.viewName) $(quote params.literalInvariantName)
+              $(quote params.eqInvariantName) $(quote params.neInvariantName))
+        exact
+          ProofForgeV2.Semantic.FieldComparisonSubjectV1.rootFieldInvertV1
+            ($subjectDataName).qualifiedName $(quote params.state0Name)
+            $(quote params.state1Name) $(quote params.state2Name)
+            $(quote params.viewName) $(quote params.literalInvariantName)
+            $(quote params.eqInvariantName) $(quote params.neInvariantName)
+            $state0Proof $state1Proof $state2Proof $viewProof $literalProof
+            $eqProof $neProof
+      exact
+        ProofForgeV2.Semantic.SubjectDataBridgeV1.validate_of_subjectData_body_gates_invert
+          $subjectDataName $subjectBytesName hnameShape htypesSize
+          hconstantsSize hstateSize heventsSize herrorsSize hcallablesSize
+          hinvariantsSize $subjectStructureOkName $subjectBodyEncodeOkName hinvert))
+
 private def elaborateProofObligations
     (programName : TSyntax `ident)
     (source : ValidatedSourceV1)
@@ -2738,6 +2907,12 @@ private def elaborateProofObligations
         paramsName subjectName subjectDataName subjectBytesName
           subjectBodyEncodeOkName subjectRootGatesOkName subjectStructureOkName
           subjectValidationOkName params surface.invariantNames surface.holdsNames
+  match extractFieldComparisonParamsV1 data with
+  | none => pure ()
+  | some params =>
+      elaborateFieldComparisonCertificatesV1 subjectName subjectDataName
+        subjectBytesName subjectBodyEncodeOkName subjectRootGatesOkName
+        subjectStructureOkName subjectValidationOkName params
   Lean.Elab.Command.elabCommand (← `(end $proofNamespace))
   match modelStateFieldsV1 data with
   | none => pure ()

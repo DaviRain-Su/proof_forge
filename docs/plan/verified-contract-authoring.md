@@ -152,10 +152,11 @@ ProofForge 目标
    exact `stateLoad; stateLoad; eq; return` 的 UInt64 字段相等首切也已投影成普通 Lean
    `reserves = shares` 并与 evaluator-backed predicate 对齐；更多 expression shape、
    arbitrary-family premise-free exact subject validation packaging 与 arithmetic/lookup bridge 仍待补。
-   exact recognized simple-closure family 已生成 `Proof.subjectValidationOkV1`，但字段相等 family
-   并不属于该窄 family，因此 generated `_iff_fields` 仍保留 exact `hvalidate`。generated typed
-   encoder 已有 production-codec success theorem，所以字段相等 bridge 不再要求作者手工提供
-   `LogicalStateV1`/`hencode` witness。
+   exact recognized simple-closure 与首个 field-comparison family 均已生成
+   `Proof.subjectValidationOkV1`，因此该字段样例可直接把 certificate 传给 `_iff_fields`；通用
+   generated `_iff_fields` 仍保留 exact `hvalidate`，不支持的 family 不会因此被自动准入。
+   generated typed encoder 已有 production-codec success theorem，所以字段相等 bridge 也不要求
+   作者手工提供 `LogicalStateV1`/`hencode` witness。
 4. `PreservationTheoremV1` 要求 base + 全输入 + 全 callable + 三 Outcome；当前缺少把
    per-callable 业务 lemma 自动组合成该 ABI 的程序级 packager。
 5. ClosedSubjectPin/contract-specific golden 可以加速已知样例，但不能成为任意合约的主证明通道。
@@ -457,10 +458,10 @@ decode 已完成；独立的 generated pre-init `LifecycleState`、initializer p
 首切及 exact `evalInvariantV1` bridge；并已对 exact lowered
 `stateLoad left; stateLoad right; eq; return` UInt64 shape 生成字段相等数学 bridge。
 该字段 bridge 已用 generated `Model.encode_exists` 内部取得 production encoding witness，
-作者只需提供 exact subject validation premise。simple-closure family 已有 premise-free exact
-`Proof.subjectValidationOkV1`，但该能力尚未扩展到字段相等或任意 lowered family；更广 expression
-投影、通用 validation packaging、checked arithmetic/lookup 通用引理与业务 proof ergonomics
-尚未完成。
+作者只需提供 exact subject validation premise。simple-closure 与首个 exact field-comparison
+family 已有 premise-free exact `Proof.subjectValidationOkV1`；该能力尚未扩展到任意 lowered
+family，故通用 bridge 的 premise 不删除。更广 expression 投影、通用 validation packaging、
+checked arithmetic/lookup 通用引理与业务 proof ergonomics尚未完成。
 
 交付：
 
@@ -884,22 +885,28 @@ expression translator：
     `state.persistent`/`value.bool` requirements 及空 ContextRead/Commit/EnvRead joins，并由
     production phase composer 得到该参数化 family 的完整 structure success；witness 仅携带
     production identifier facts 与 state/callable namespace distinctness，不包含 shadow
-    validity predicate 或 whole-validator reduction；
+    validity predicate 或 whole-validator reduction；在此之后才扩大 elaborator 的 exact
+    fail-closed family recognition：它先把完整 generated `SemanticProgramDataV1` 与参数化
+    production constructor 做 exact 比较，再生成 `Proof.subjectStructureOkV1` 与
+    `Proof.subjectValidationOkV1`；后者只组合 generated body identity、root gates、上述
+    structure certificate 和 `RootFieldInvertV1`，使普通同文件 `_iff_fields` 定理无需调用者
+    再传 `hvalidate`；near-miss/unsupported family 继续不生成这两个 certificate；
     当前已把 `subjectBodyEncodeOkV1` + 全部 production root gates + structure success +
     whole-program `RootFieldInvertV1` 组合 exact validation 的 theorem 抽到通用
     `SubjectDataBridgeV1`，不再归属于 parity shape；elaborator 现已对每个 proof-bearing program
     生成通用 `Proof.subjectRootGatesOkV1`，逐项 kernel-check production qualified-name 与七个
     table-size gate；并开始对 exact recognized、已有 production phase proof 的 structural family
-    生成 `Proof.subjectStructureOkV1`。当前 simple-closure family 通过 kernel `change` 绑定 exact
+    生成 `Proof.subjectStructureOkV1`。simple-closure family 通过 kernel `change` 绑定 exact
     `subjectDataV1`，再复用 `SimpleClosureStructureCertV1.structure_of_legal`（其内部通过
     `validateSemanticProgramStructureV1_eq_ok_of_phases` 组合全部 production phase），并通过
     parameterized、arbitrary-framing 的 `rootFieldInvertV1_of_legal` 证明九个 production root-field
-    codec inversion；elaborator 最终用 `SubjectDataBridgeV1` 组合 body/root/structure/inversion，
-    只为该 exact family 生成
+    codec inversion；field-comparison family 则复用本节上述参数化 structure/codec certificates。
+    elaborator 最终对这两个 exact family 用 `SubjectDataBridgeV1` 组合
+    body/root/structure/inversion，生成
     `Proof.subjectValidationOkV1 : validateSemanticProgramV1 subjectProgramV1 = .ok subjectDataV1`。
     不支持的 lowered shape 保留 subject/typed Model surface，但不生成 structure/validation
-    capability，也不退回 whole-validator `decide`。通用生成仍需先补 qsort uniqueness、budget
-    trace、TypeKey、CFG/closure 与对应 codec inversion 等 production certificate seam；在它们
+    capability，也不退回 whole-validator `decide`。通用生成仍需先补较大表 qsort uniqueness、
+    budget trace、TypeKey、CFG/closure 与对应 codec inversion 等 production certificate seam；在它们
     完成前 body/root/structure certificate 不能冒充 program validity，unsupported-family
     `subjectValidationOkV1` 与删除通用 `_iff_fields` 的 `hvalidate` 都必须继续 fail closed；
     不得把此 narrow shape 宣称为完整 expression translation 或通用

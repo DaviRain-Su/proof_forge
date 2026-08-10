@@ -337,6 +337,8 @@ program TypedInvariantFieldEqualitySurface where
 #check TypedInvariantFieldEqualitySurface.Model.encode_exists
 #check TypedInvariantFieldEqualitySurface.Model.Invariant.solvent_iff_eval
 #check TypedInvariantFieldEqualitySurface.Model.Invariant.solvent_iff_fields
+#check TypedInvariantFieldEqualitySurface.Proof.subjectStructureOkV1
+#check TypedInvariantFieldEqualitySurface.Proof.subjectValidationOkV1
 
 /-- The generated subject is definitionally the parameterized production
     field-comparison family; no admission carrier supplies these fields. -/
@@ -424,16 +426,14 @@ theorem typedInvariantFieldEqualitySubject_structureV1 :
     heqNe := by decide
   }
 
-example
-    (typedState : TypedInvariantFieldEqualitySurface.Model.State)
-    (hvalidate :
-      validateSemanticProgramV1
-          TypedInvariantFieldEqualitySurface.Proof.subjectProgramV1 =
-        .ok TypedInvariantFieldEqualitySurface.Proof.subjectDataV1) :
+/-- Ordinary field mathematics now consumes the premise-free generated
+    production validation certificate, matching the intended same-file style. -/
+example (typedState : TypedInvariantFieldEqualitySurface.Model.State) :
     TypedInvariantFieldEqualitySurface.Model.solvent typedState ↔
       typedState.reserves = typedState.shares :=
   TypedInvariantFieldEqualitySurface.Model.Invariant.solvent_iff_fields
-    typedState hvalidate
+    typedState
+    TypedInvariantFieldEqualitySurface.Proof.subjectValidationOkV1
 
 /- Unsupported invariant CFGs keep their evaluator bridge but fail closed for
     the optional field-level mathematical theorem. -/
@@ -463,6 +463,17 @@ program TypedInvariantOrdinalSurface where
 #check TypedInvariantOrdinalSurface.Model.secondary
 #check TypedInvariantOrdinalSurface.Model.Invariant.primary_iff_eval
 #check TypedInvariantOrdinalSurface.Model.Invariant.secondary_iff_eval
+
+run_cmd do
+  let env ← getEnv
+  let nearMissStructure :=
+    `Tests.Language.InlineProofAuthoringV1.TypedInvariantOrdinalSurface.Proof.subjectStructureOkV1
+  if env.contains nearMissStructure then
+    throwError "near-miss invariant tables must not emit a structure certificate"
+  let nearMissValidation :=
+    `Tests.Language.InlineProofAuthoringV1.TypedInvariantOrdinalSurface.Proof.subjectValidationOkV1
+  if env.contains nearMissValidation then
+    throwError "near-miss invariant tables must not emit a validation certificate"
 
 example (typedState : TypedInvariantOrdinalSurface.Model.State) :
     TypedInvariantOrdinalSurface.Model.secondary typedState =
