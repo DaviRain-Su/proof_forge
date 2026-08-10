@@ -295,6 +295,235 @@ theorem namedTypeNamesV1 :
     checkUniqueDeclarationNamesV1, Pure.pure, Except.pure, Bind.bind,
     Except.bind]
 
+/-! ### Production values, names, signatures, and requirements -/
+
+/-- Exact hypotheses needed by the remaining name-sensitive structure phases.
+    Every field is a production validator fact or source-namespace
+    distinctness fact that ProgramElaboration can construct. -/
+structure StructureLegalV1
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name state2Name : String)
+    (viewName literalInvariantName eqInvariantName neInvariantName : String) :
+    Prop where
+  hnameShape : validateProgramQualifiedNameShapeV1 qualifiedName = .ok ()
+  hstate0Name : validateIdentifierComponent state0Name = .ok ()
+  hstate1Name : validateIdentifierComponent state1Name = .ok ()
+  hstate2Name : validateIdentifierComponent state2Name = .ok ()
+  hviewName : validateIdentifierComponent viewName = .ok ()
+  hliteralInvariantName :
+    validateIdentifierComponent literalInvariantName = .ok ()
+  heqInvariantName : validateIdentifierComponent eqInvariantName = .ok ()
+  hneInvariantName : validateIdentifierComponent neInvariantName = .ok ()
+  hstate01 : state0Name ≠ state1Name
+  hstate02 : state0Name ≠ state2Name
+  hstate12 : state1Name ≠ state2Name
+  hviewLiteral : viewName ≠ literalInvariantName
+  hviewEq : viewName ≠ eqInvariantName
+  hviewNe : viewName ≠ neInvariantName
+  hliteralEq : literalInvariantName ≠ eqInvariantName
+  hliteralNe : literalInvariantName ≠ neInvariantName
+  heqNe : eqInvariantName ≠ neInvariantName
+
+theorem constantsValueBytesV1
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name state2Name : String)
+    (viewName literalInvariantName eqInvariantName neInvariantName : String) :
+    validateConstantsValueBytesV1 typesV1
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName).constants
+      maxCanonicalProgramBytes = .ok maxCanonicalProgramBytes := by
+  simp [subjectDataV1, validateConstantsValueBytesV1,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+/-- The two Bool literals consume two work units each; state loads and Eq/Ne
+    consume no valueBytes budget. -/
+theorem callablesValueBytesV1
+    (viewName literalInvariantName eqInvariantName neInvariantName : String) :
+    validateCallablesValueBytesV1 typesV1
+      (callablesV1 viewName literalInvariantName eqInvariantName neInvariantName)
+      maxCanonicalProgramBytes = .ok (maxCanonicalProgramBytes - 4) := by
+  have htrue :
+      validateOpValueBytesV1 typesV1 (.literal 1 (encodeU8 1))
+        maxCanonicalProgramBytes = .ok (maxCanonicalProgramBytes - 2) := by
+    apply validateOpValueBytesV1_literal_bool_eq_ok typesV1 1
+      ({ id := 1, name := none, shape := .bool } : TypeDeclV1) 1
+    · rfl
+    · rfl
+    · exact Or.inr rfl
+    · decide
+  have htrue2 :
+      validateOpValueBytesV1 typesV1 (.literal 1 (encodeU8 1))
+        (maxCanonicalProgramBytes - 2) =
+        .ok (maxCanonicalProgramBytes - 4) := by
+    apply validateOpValueBytesV1_literal_bool_eq_ok typesV1 1
+      ({ id := 1, name := none, shape := .bool } : TypeDeclV1) 1
+    · rfl
+    · rfl
+    · exact Or.inr rfl
+    · decide
+  have hterm (value : Option ValueIdV1) (budget : Nat) :
+      validateTerminatorValueBytesV1 typesV1 (.return_ value) budget =
+        .ok budget := rfl
+  have hload (stateId : StateIdV1) (budget : Nat) :
+      validateOpValueBytesV1 typesV1 (.stateLoad stateId) budget =
+        .ok budget := rfl
+  have hbinary (op : BinaryOpV1) (left right : ValueIdV1) (budget : Nat) :
+      validateOpValueBytesV1 typesV1 (.binary op left right) budget =
+        .ok budget := rfl
+  simp [validateCallablesValueBytesV1, callablesV1, literalReturnCallableV1,
+    literalReturnBlockV1, twoStateCompareInvariantCallableV1,
+    twoStateCompareInvariantBlockV1, htrue, htrue2, hterm, hload, hbinary,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+theorem constantNamesV1
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name state2Name : String)
+    (viewName literalInvariantName eqInvariantName neInvariantName : String) :
+    validateConstantNameUniquenessV1
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName).constants =
+      .ok () := by
+  simp [subjectDataV1, validateConstantNameUniquenessV1,
+    checkUniqueDeclarationNamesV1, Pure.pure, Except.pure]
+
+theorem logicalStateNamesV1
+    (state0Name state1Name state2Name : String)
+    (hstate01 : state0Name ≠ state1Name)
+    (hstate02 : state0Name ≠ state2Name)
+    (hstate12 : state1Name ≠ state2Name) :
+    validateLogicalStateNameUniquenessV1 #[
+      { id := 0, name := state0Name, typeId := 0, visibility := .public_ },
+      { id := 1, name := state1Name, typeId := 0, visibility := .public_ },
+      { id := 2, name := state2Name, typeId := 0, visibility := .public_ }
+    ] = .ok () := by
+  have h01 : (state0Name == state1Name) = false := by
+    exact Bool.eq_false_iff.mpr (by simpa [BEq.beq] using hstate01)
+  have h02 : (state0Name == state2Name) = false := by
+    exact Bool.eq_false_iff.mpr (by simpa [BEq.beq] using hstate02)
+  have h12 : (state1Name == state2Name) = false := by
+    exact Bool.eq_false_iff.mpr (by simpa [BEq.beq] using hstate12)
+  simp [validateLogicalStateNameUniquenessV1, checkUniqueDeclarationNamesV1,
+    h01, h02, h12, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+theorem callableSignaturesV1
+    (viewName literalInvariantName eqInvariantName neInvariantName : String)
+    (hviewLiteral : viewName ≠ literalInvariantName)
+    (hviewEq : viewName ≠ eqInvariantName)
+    (hviewNe : viewName ≠ neInvariantName)
+    (hliteralEq : literalInvariantName ≠ eqInvariantName)
+    (hliteralNe : literalInvariantName ≠ neInvariantName)
+    (heqNe : eqInvariantName ≠ neInvariantName) :
+    validateCallableSignaturePhasesV1 typesV1
+      (callablesV1 viewName literalInvariantName eqInvariantName
+        neInvariantName) = .ok () := by
+  have hVL : (viewName == literalInvariantName) = false := by
+    exact Bool.eq_false_iff.mpr (by simpa [BEq.beq] using hviewLiteral)
+  have hVE : (viewName == eqInvariantName) = false := by
+    exact Bool.eq_false_iff.mpr (by simpa [BEq.beq] using hviewEq)
+  have hVN : (viewName == neInvariantName) = false := by
+    exact Bool.eq_false_iff.mpr (by simpa [BEq.beq] using hviewNe)
+  have hLE : (literalInvariantName == eqInvariantName) = false := by
+    exact Bool.eq_false_iff.mpr (by simpa [BEq.beq] using hliteralEq)
+  have hLN : (literalInvariantName == neInvariantName) = false := by
+    exact Bool.eq_false_iff.mpr (by simpa [BEq.beq] using hliteralNe)
+  have hEN : (eqInvariantName == neInvariantName) = false := by
+    exact Bool.eq_false_iff.mpr (by simpa [BEq.beq] using heqNe)
+  have hViewInit : ((.view : CallableKindV1) == .initializer) = false := by
+    decide
+  have hInvInit : ((.invariant : CallableKindV1) == .initializer) = false := by
+    decide
+  have hViewInv : ((.view : CallableKindV1) == .invariant) = false := by
+    decide
+  have hInvInv : ((.invariant : CallableKindV1) == .invariant) = true := by
+    decide
+  have hPublic : ((.public_ : VisibilityV1) == .public_) = true := by
+    decide
+  apply validateCallableSignaturePhasesV1_eq_ok_of_phases
+  all_goals
+    simp [typesV1, callablesV1, literalReturnCallableV1,
+      literalReturnBlockV1, twoStateCompareInvariantCallableV1,
+      twoStateCompareInvariantBlockV1, validateCallableKindNamePresenceV1,
+      validateCallableNameUniquenessV1,
+      validateCallableParameterNameUniquenessV1,
+      validateCallableEntryViewPresenceV1, validateInitializerCardinalityV1,
+      validateInitializerResultShapeV1, validateInvariantResultShapeV1,
+      validateInvariantParameterShapeV1, validateInvariantLoopBoundsShapeV1,
+      validateNonClosureCallableInvariantStepsV1,
+      validateInvariantRootStepsPresenceV1, hVL, hVE, hVN, hLE, hLN, hEN,
+      hViewInit, hInvInit, hViewInv, hInvInv, hPublic,
+      Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+theorem invariantDeclarationJoinV1
+    (viewName literalInvariantName eqInvariantName neInvariantName : String) :
+    validateInvariantDeclarationJoinV1
+      (callablesV1 viewName literalInvariantName eqInvariantName neInvariantName)
+      #[{ id := 0, name := literalInvariantName, callableId := 1 },
+        { id := 1, name := eqInvariantName, callableId := 2 },
+        { id := 2, name := neInvariantName, callableId := 3 }] = .ok () := by
+  have hViewInv : ((.view : CallableKindV1) == .invariant) = false := by
+    decide
+  have hInvInv : ((.invariant : CallableKindV1) == .invariant) = true := by
+    decide
+  simp [callablesV1, literalReturnCallableV1, literalReturnBlockV1,
+    twoStateCompareInvariantCallableV1, twoStateCompareInvariantBlockV1,
+    validateInvariantDeclarationJoinV1, hViewInv, hInvInv,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+theorem declarationIdentifierNamesV1
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name state2Name : String)
+    (viewName literalInvariantName eqInvariantName neInvariantName : String)
+    (hstate0Name : validateIdentifierComponent state0Name = .ok ())
+    (hstate1Name : validateIdentifierComponent state1Name = .ok ())
+    (hstate2Name : validateIdentifierComponent state2Name = .ok ())
+    (hviewName : validateIdentifierComponent viewName = .ok ())
+    (hliteralInvariantName :
+      validateIdentifierComponent literalInvariantName = .ok ())
+    (heqInvariantName : validateIdentifierComponent eqInvariantName = .ok ())
+    (hneInvariantName : validateIdentifierComponent neInvariantName = .ok ()) :
+    validateDeclarationIdentifierNamesV1
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName) = .ok () := by
+  have hstate0 := validateIdentifierNameV1_eq_ok_of_common state0Name hstate0Name
+  have hstate1 := validateIdentifierNameV1_eq_ok_of_common state1Name hstate1Name
+  have hstate2 := validateIdentifierNameV1_eq_ok_of_common state2Name hstate2Name
+  have hview := validateIdentifierNameV1_eq_ok_of_common viewName hviewName
+  have hliteral := validateIdentifierNameV1_eq_ok_of_common
+    literalInvariantName hliteralInvariantName
+  have heq := validateIdentifierNameV1_eq_ok_of_common
+    eqInvariantName heqInvariantName
+  have hne := validateIdentifierNameV1_eq_ok_of_common
+    neInvariantName hneInvariantName
+  simp [subjectDataV1, typesV1, callablesV1, literalReturnCallableV1,
+    literalReturnBlockV1, twoStateCompareInvariantCallableV1,
+    twoStateCompareInvariantBlockV1, validateDeclarationIdentifierNamesV1,
+    validateTypeShapeIdentifierNamesV1, hstate0, hstate1, hstate2, hview,
+    hliteral, heq, hne, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+theorem programRequirementsStructureV1 :
+    validateProgramRequirementsStructure requirementsV1 = .ok () := by
+  simpa [requirementsV1, persistentStateRequirementV1, boolRequirementV1,
+    requirementV1, s2StatePersistentIdV1, s2ValueBoolIdV1] using
+    validateProgramRequirementsStructure_state_bool_eq_ok
+      s2RequirementVersionV1 s2RequirementVersionV1
+      { algorithm := .sha256, bytes := s2StatePersistentDigestBytesV1 }
+      { algorithm := .sha256, bytes := s2ValueBoolDigestBytesV1 }
+
+theorem emptyOperationRequirementsV1
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name state2Name : String)
+    (viewName literalInvariantName eqInvariantName neInvariantName : String) :
+    validateContextReadRequirementsV1
+        (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+          literalInvariantName eqInvariantName neInvariantName) = .ok () ∧
+      validateCommitRequirementsV1
+        (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+          literalInvariantName eqInvariantName neInvariantName) = .ok () ∧
+      validateEnvReadRequirementsV1
+        (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+          literalInvariantName eqInvariantName neInvariantName) = .ok () := by
+  exact ⟨rfl, rfl, rfl⟩
+
 /-! ### Production generic CFG/SSA/typing phase -/
 
 private theorem literalCfgV1
@@ -462,5 +691,69 @@ theorem cfgInvariantPhasesV1
   · simpa [subjectDataV1] using
       invariantFuelPhasesV1 viewName literalInvariantName eqInvariantName
         neInvariantName
+
+/-! ### Full production structure composition -/
+
+/-- Every production structure phase accepts the parameterized
+    field-comparison family under exact source-name legality and namespace
+    distinctness. No whole-validator reduction or alternate validity predicate
+    participates in this certificate. -/
+theorem structureV1
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name state2Name : String)
+    (viewName literalInvariantName eqInvariantName neInvariantName : String)
+    (legal : StructureLegalV1 qualifiedName state0Name state1Name state2Name
+      viewName literalInvariantName eqInvariantName neInvariantName) :
+    validateSemanticProgramStructureV1
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName) = .ok () := by
+  let data := subjectDataV1 qualifiedName state0Name state1Name state2Name
+    viewName literalInvariantName eqInvariantName neInvariantName
+  apply validateSemanticProgramStructureV1_eq_ok_of_phases data
+    maxCanonicalProgramBytes (maxCanonicalProgramBytes - 4)
+  · exact structurePreludeV1 qualifiedName state0Name state1Name state2Name
+      viewName literalInvariantName eqInvariantName neInvariantName
+      legal.hnameShape
+  · simpa [data, subjectDataV1] using typesStructureV1
+  · simpa [data, subjectDataV1] using typeKeyPhasesV1
+  · simpa [data, subjectDataV1] using namedTypeNamesV1
+  · exact constantsValueBytesV1 qualifiedName state0Name state1Name state2Name
+      viewName literalInvariantName eqInvariantName neInvariantName
+  · simpa [data, subjectDataV1] using
+      callablesValueBytesV1 viewName literalInvariantName eqInvariantName
+        neInvariantName
+  · exact constantNamesV1 qualifiedName state0Name state1Name state2Name
+      viewName literalInvariantName eqInvariantName neInvariantName
+  · simpa [data, subjectDataV1] using
+      logicalStateNamesV1 state0Name state1Name state2Name legal.hstate01
+        legal.hstate02 legal.hstate12
+  · simp [data, subjectDataV1, validateEventNameUniquenessV1,
+      checkUniqueDeclarationNamesV1, Pure.pure, Except.pure]
+  · simp [data, subjectDataV1, validateErrorNameUniquenessV1,
+      checkUniqueDeclarationNamesV1, Pure.pure, Except.pure]
+  · simp [data, subjectDataV1, validateInterfaceFieldNameUniquenessV1,
+      Pure.pure, Except.pure, Bind.bind, Except.bind]
+  · simpa [data, subjectDataV1] using
+      callableSignaturesV1 viewName literalInvariantName eqInvariantName
+        neInvariantName legal.hviewLiteral legal.hviewEq legal.hviewNe
+        legal.hliteralEq legal.hliteralNe legal.heqNe
+  · simpa [data, subjectDataV1] using
+      invariantDeclarationJoinV1 viewName literalInvariantName eqInvariantName
+        neInvariantName
+  · exact declarationIdentifierNamesV1 qualifiedName state0Name state1Name
+      state2Name viewName literalInvariantName eqInvariantName neInvariantName
+      legal.hstate0Name legal.hstate1Name legal.hstate2Name legal.hviewName
+      legal.hliteralInvariantName legal.heqInvariantName legal.hneInvariantName
+  · exact cfgInvariantPhasesV1 qualifiedName state0Name state1Name state2Name
+      viewName literalInvariantName eqInvariantName neInvariantName
+  · simpa [data, subjectDataV1] using programRequirementsStructureV1
+  · exact (emptyOperationRequirementsV1 qualifiedName state0Name state1Name
+      state2Name viewName literalInvariantName eqInvariantName neInvariantName).1
+  · exact (emptyOperationRequirementsV1 qualifiedName state0Name state1Name
+      state2Name viewName literalInvariantName eqInvariantName
+      neInvariantName).2.1
+  · exact (emptyOperationRequirementsV1 qualifiedName state0Name state1Name
+      state2Name viewName literalInvariantName eqInvariantName
+      neInvariantName).2.2
 
 end ProofForgeV2.Semantic.FieldComparisonSubjectV1

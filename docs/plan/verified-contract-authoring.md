@@ -879,8 +879,12 @@ expression translator：
     intrinsic/carried fuel 为 3/5/5；现已由 production composer 闭合完整 CFG/invariant
     segment；production structure prelude（root shape、dense table IDs、shallow references）
     与 anonymous UInt64/Bool 的 type-shape、TypeKey、named-type phases 也已参数化闭合并由
-    真实 generated fixture 消费；valueBytes、declaration names/signatures、requirements 等
-    其余 structure phases 仍保持独立、尚未关闭；
+    真实 generated fixture 消费；现已继续闭合 canonical Bool valueBytes、state/callable
+    exact-name uniqueness、special signatures、InvariantDecl join、identifier grammar、
+    `state.persistent`/`value.bool` requirements 及空 ContextRead/Commit/EnvRead joins，并由
+    production phase composer 得到该参数化 family 的完整 structure success；witness 仅携带
+    production identifier facts 与 state/callable namespace distinctness，不包含 shadow
+    validity predicate 或 whole-validator reduction；
     当前已把 `subjectBodyEncodeOkV1` + 全部 production root gates + structure success +
     whole-program `RootFieldInvertV1` 组合 exact validation 的 theorem 抽到通用
     `SubjectDataBridgeV1`，不再归属于 parity shape；elaborator 现已对每个 proof-bearing program

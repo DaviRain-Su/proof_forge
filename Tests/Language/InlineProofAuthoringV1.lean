@@ -397,6 +397,33 @@ theorem typedInvariantFieldEqualitySubject_typeKeyPhasesV1 :
   rw [typedInvariantFieldEqualitySubject_subjectData_eq]
   exact ProofForgeV2.Semantic.FieldComparisonSubjectV1.typeKeyPhasesV1
 
+/-- The actual generated subject now passes every production structure phase.
+    Its witness contains only source-name legality and namespace distinctness. -/
+theorem typedInvariantFieldEqualitySubject_structureV1 :
+    validateSemanticProgramStructureV1
+      TypedInvariantFieldEqualitySurface.Proof.subjectDataV1 = .ok () := by
+  rw [typedInvariantFieldEqualitySubject_subjectData_eq]
+  apply ProofForgeV2.Semantic.FieldComparisonSubjectV1.structureV1
+  exact {
+    hnameShape := by rfl
+    hstate0Name := by rfl
+    hstate1Name := by rfl
+    hstate2Name := by rfl
+    hviewName := by rfl
+    hliteralInvariantName := by rfl
+    heqInvariantName := by rfl
+    hneInvariantName := by rfl
+    hstate01 := by decide
+    hstate02 := by decide
+    hstate12 := by decide
+    hviewLiteral := by decide
+    hviewEq := by decide
+    hviewNe := by decide
+    hliteralEq := by decide
+    hliteralNe := by decide
+    heqNe := by decide
+  }
+
 example
     (typedState : TypedInvariantFieldEqualitySurface.Model.State)
     (hvalidate :

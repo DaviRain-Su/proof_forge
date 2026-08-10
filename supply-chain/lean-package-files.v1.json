@@ -276,9 +276,9 @@
       "sha256": "219bb09ae2700d055320076d0c38c4236c22a50735cbb89f3b7db3687940df1a"
     },
     {
-      "bytes": 21901,
+      "bytes": 37735,
       "path": "ProofForgeV2/Semantic/FieldComparisonSubjectV1.lean",
-      "sha256": "1cf5ec616f5da2c1f6cb5c255632ac0fe04b92dfd1bfe529ec4ee4428ed00f37"
+      "sha256": "8d244e55e92ac7a0ae3437ec6a03830d8d3ff20162eedebdaf489453cba36aa1"
     },
     {
       "bytes": 3891,
@@ -481,9 +481,9 @@
       "sha256": "486841b81d88f703139a374a9309a809c0a27f439326c6f4a9893052cbfc226e"
     },
     {
-      "bytes": 6856,
+      "bytes": 7512,
       "path": "ProofForgeV2/Semantic/Wire/NamesV1.lean",
-      "sha256": "fc57bb710fb8a89ebe68b68e163e9ba74d7ee37c1ef2a34cad857b642ea75315"
+      "sha256": "19814f9db001b2eed1e3b479e476cd35ec460a999eb25e22f2bcb545097a35e5"
     },
     {
       "bytes": 17961,
