@@ -145,6 +145,54 @@ theorem encodeU64le_uint64OfCanonicalValueBytesV1
   exact validateValueBytesV1_uint64_size
     types typeId decl bytes hlookup hshape hcanonical
 
+/-- A ready production argument whose exact parameter row is UInt64 has one
+    canonical typed projection. The argument is selected and validated only by
+    `gateInvocation`; this theorem merely re-encodes that accepted payload. -/
+theorem gateInvocation_ready_uint64_argumentV1
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (callable : CallableV1)
+    (overlay : Array ByteArray)
+    (context : Array ContextInputV1)
+    (isInitializer : Bool)
+    (index : Nat)
+    (hindex : index < callable.params.size)
+    (typeId : TypeIdV1)
+    (htypeId : callable.params[index].typeId = typeId)
+    (decl : TypeDeclV1)
+    (hlookup :
+      admitted.data.types[typeId.toNat]? = some decl)
+    (hshape : decl.shape = .uint 64)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready callable overlay context isInitializer) :
+    ∃ value : UInt64,
+      invocation.args[index]? = some {
+        typeId := typeId
+        valueBytes := encodeU64le value
+      } := by
+  obtain ⟨argument, hargument, htype, hcanonical⟩ :=
+    gateInvocation_ready_argument admitted pre invocation callable overlay
+      context isInitializer index hindex hgate
+  have hcanonical' :
+      validateValueBytesV1 admitted.data.types
+          typeId argument.valueBytes = .ok () := by
+    simpa [htype, htypeId] using hcanonical
+  let value := uint64OfCanonicalValueBytesV1 argument.valueBytes
+  have hbytes : encodeU64le value = argument.valueBytes := by
+    exact encodeU64le_uint64OfCanonicalValueBytesV1 admitted.data.types
+      typeId decl argument.valueBytes hlookup hshape hcanonical'
+  refine ⟨value, ?_⟩
+  rw [hargument]
+  congr 1
+  cases argument with
+  | mk argumentType argumentBytes =>
+      change argumentType = callable.params[index].typeId at htype
+      change encodeU64le value = argumentBytes at hbytes
+      subst argumentType
+      rw [hbytes, htypeId]
+
 /-- A Bool slot returned at a known source-order index by the production
     decoder survives typed projection and Wire re-encoding byte-for-byte. -/
 theorem encodeBool_boolOfDecodedStateValueV1

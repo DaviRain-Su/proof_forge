@@ -674,6 +674,7 @@ program TypedCallableSurface where
 #check TypedCallableSurface.Model.admitReferenceSubject
 #check TypedCallableSurface.Model.Outcome
 #check TypedCallableSurface.Model.add.invocation
+#check TypedCallableSurface.Model.add.invocation_complete_of_ready
 #check TypedCallableSurface.Model.add.Result
 #check TypedCallableSurface.Model.add.encodeResult
 #check TypedCallableSurface.Model.add.decodeResult
@@ -693,6 +694,7 @@ program TypedCallableSurface where
 #check TypedCallableSurface.Model.add.transition_exists
 #check TypedCallableSurface.Model.add.outcome_unique
 #check TypedCallableSurface.Model.alive.invocation
+#check TypedCallableSurface.Model.alive.invocation_complete_of_ready
 #check TypedCallableSurface.Model.alive.Result
 #check TypedCallableSurface.Model.alive.encodeResult
 #check TypedCallableSurface.Model.alive.decodeResult
@@ -736,6 +738,32 @@ example : TypedCallableSurface.Model.alive.invocation #[] = ({
     args := #[]
     context := #[]
   } : InvocationV1) := rfl
+
+/-- The generated projection consumes the sole production gate and recovers
+    the named UInt64 argument without interpreting the callable body again. -/
+example
+    (subject : TypedCallableSurface.Model.ReferenceSubject)
+    (logicalPre : LogicalStateV1)
+    (rawInvocation : InvocationV1)
+    (argumentOverlay : Array ByteArray)
+    (context : Array ContextInputV1)
+    (isInitializer : Bool)
+    (hvalidate :
+      validateSemanticProgramV1
+          TypedCallableSurface.Proof.subjectProgramV1 =
+        .ok TypedCallableSurface.Proof.subjectDataV1)
+    (hcallableId : rawInvocation.callableId = 0)
+    (hgate :
+      gateInvocation subject.admitted logicalPre rawInvocation =
+        .ready
+          (TypedCallableSurface.Proof.subjectDataV1.callables[0]'(by decide))
+          argumentOverlay context isInitializer) :
+    ∃ deltaArg : UInt64,
+      rawInvocation = TypedCallableSurface.Model.add.invocation
+        deltaArg rawInvocation.context :=
+  TypedCallableSurface.Model.add.invocation_complete_of_ready
+    subject logicalPre rawInvocation argumentOverlay context isInitializer
+      hvalidate hcallableId hgate
 
 /-- Generated result decoding checks the exact lowered TypeId and delegates
     canonical payload validation to the production valueBytes validator. -/
@@ -1088,6 +1116,7 @@ program TypedUnitCallableSurface where
   proof safe using TypedUnitCallableSurfaceProof.safe
 
 #check TypedUnitCallableSurface.Model.clear.invocation
+#check TypedUnitCallableSurface.Model.clear.invocation_complete_of_ready
 #check TypedUnitCallableSurface.Model.clear.Result
 #check TypedUnitCallableSurface.Model.clear.encodeResult
 #check TypedUnitCallableSurface.Model.clear.decodeResult

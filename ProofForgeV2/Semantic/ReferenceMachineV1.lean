@@ -939,6 +939,17 @@ private theorem valueCanonical_eq_true_iff
       cases unit
       simp
 
+/-- Canonical argument validation factored from the invocation gate. The
+    callable parameter table and invocation array are zipped only after the
+    gate has checked equal arity. This remains part of the sole production
+    gate; it is not an argument evaluator. -/
+private def invocationArgumentsCanonicalV1
+    (data : SemanticProgramDataV1)
+    (callable : CallableV1)
+    (invocation : InvocationV1) : Bool :=
+  (callable.params.zip invocation.args).all fun pair =>
+    pair.2.typeId == pair.1.typeId && valueCanonical data pair.2
+
 /-- A Reference return value matches one exact callable result row. Unit uses
     the canonical `none` carrier; every other result carries the exact lowered
     TypeId and bytes accepted by the production value validator. This is a
@@ -4010,25 +4021,12 @@ def gateInvocation
           .invalidInvocation
         else if invocation.args.size != callable.params.size then
           .invalidInvocation
+        else if !invocationArgumentsCanonicalV1 data callable invocation then
+          .invalidInvocation
         else
-          let argsOk : Bool := Id.run do
-            let mut argsOk : Bool := true
-            let mut i : Nat := 0
-            for p in callable.params do
-              if argsOk then
-                match invocation.args[i]? with
-                | none => argsOk := false
-                | some arg =>
-                    if arg.typeId != p.typeId || !valueCanonical data arg then
-                      argsOk := false
-              i := i + 1
-            pure argsOk
-          if !argsOk then
-            .invalidInvocation
-          else
-            match validateInvocationContext data callable invocation.context with
-            | none => .invalidInvocation
-            | some context =>
+          match validateInvocationContext data callable invocation.context with
+          | none => .invalidInvocation
+          | some context =>
                 let isInit := callable.kind == .initializer
                 match initialLogicalStateV1 program with
                 | .error _ =>
@@ -4511,9 +4509,9 @@ theorem stepReferenceSliceV1_lifecycle_eq
   unfold stepReferenceSliceV1
   rw [hgate]
 
-/-- A ready gate recovers the callable row looked up in `admitted.data`, and
-    packages `isInitializer` exactly as `callable.kind == .initializer`. -/
-theorem gateInvocation_ready_callable_lookup
+/-- Internal ready-gate inversion shared by the public callable and argument
+    projections below. -/
+private theorem gateInvocation_ready_details
     (admitted : AdmittedReferenceSliceV1)
     (pre : LogicalStateV1)
     (invocation : InvocationV1)
@@ -4525,7 +4523,10 @@ theorem gateInvocation_ready_callable_lookup
       gateInvocation admitted pre invocation =
         .ready callable overlay context isInitializer) :
     admitted.data.callables[invocation.callableId.toNat]? = some callable ∧
-      isInitializer = (callable.kind == CallableKindV1.initializer) := by
+      isInitializer = (callable.kind == CallableKindV1.initializer) ∧
+        invocation.args.size = callable.params.size ∧
+          invocationArgumentsCanonicalV1 admitted.data callable invocation =
+            true := by
   unfold gateInvocation at hgate
   cases hlookup : admitted.data.callables[invocation.callableId.toNat]? with
   | none =>
@@ -4543,24 +4544,11 @@ theorem gateInvocation_ready_callable_lookup
           | true => simp [harity] at hgate
           | false =>
               simp only [harity, Bool.false_eq_true, ↓reduceIte] at hgate
-              generalize hargsOk :
-                (Id.run do
-                  let mut argsOk : Bool := true
-                  let mut i : Nat := 0
-                  for p in c.params do
-                    if argsOk then
-                      match invocation.args[i]? with
-                      | none => argsOk := false
-                      | some arg =>
-                          if arg.typeId != p.typeId ||
-                              !valueCanonical admitted.data arg then
-                            argsOk := false
-                    i := i + 1
-                  pure argsOk) = aok at hgate
-              cases haok : aok with
-              | false => simp [haok] at hgate
+              cases hargs :
+                  invocationArgumentsCanonicalV1 admitted.data c invocation with
+              | false => simp [hargs] at hgate
               | true =>
-                  simp only [hargsOk, haok, Bool.not_true, Bool.false_eq_true,
+                  simp only [hargs, Bool.not_true, Bool.false_eq_true,
                     ↓reduceIte] at hgate
                   cases hctx : validateInvocationContext admitted.data c
                       invocation.context with
@@ -4587,7 +4575,8 @@ theorem gateInvocation_ready_callable_lookup
                                       simp only [hdec] at hgate
                                       cases hgate
                                       -- After cases, c = callable and lookup is refl.
-                                      exact ⟨rfl, by simp [his]⟩
+                                      exact ⟨rfl, by simp [his], by simpa using harity,
+                                        hargs⟩
                               | false =>
                                   simp only [heq, Bool.false_eq_true,
                                     ↓reduceIte] at hgate
@@ -4619,7 +4608,83 @@ theorem gateInvocation_ready_callable_lookup
                                   | ok ov =>
                                       simp only [hdec] at hgate
                                       cases hgate
-                                      exact ⟨rfl, by simp [his]⟩
+                                      exact ⟨rfl, by simp [his], by simpa using harity,
+                                        hargs⟩
+
+/-- A ready gate recovers the callable row looked up in `admitted.data`, and
+    packages `isInitializer` exactly as `callable.kind == .initializer`. -/
+theorem gateInvocation_ready_callable_lookup
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (callable : CallableV1)
+    (overlay : Array ByteArray)
+    (context : Array ContextInputV1)
+    (isInitializer : Bool)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready callable overlay context isInitializer) :
+    admitted.data.callables[invocation.callableId.toNat]? = some callable ∧
+      isInitializer = (callable.kind == CallableKindV1.initializer) := by
+  have hdetails := gateInvocation_ready_details admitted pre invocation callable
+    overlay context isInitializer hgate
+  exact ⟨hdetails.1, hdetails.2.1⟩
+
+/-- A ready production invocation has exactly the selected callable's arity. -/
+theorem gateInvocation_ready_arity
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (callable : CallableV1)
+    (overlay : Array ByteArray)
+    (context : Array ContextInputV1)
+    (isInitializer : Bool)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready callable overlay context isInitializer) :
+    invocation.args.size = callable.params.size := by
+  exact (gateInvocation_ready_details admitted pre invocation callable overlay
+    context isInitializer hgate).2.2.1
+
+/-- Project one exact canonical argument from a ready production invocation.
+    This theorem exposes the gate's existing positional check; it neither
+    decodes the callable body nor defines another invocation evaluator. -/
+theorem gateInvocation_ready_argument
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (callable : CallableV1)
+    (overlay : Array ByteArray)
+    (context : Array ContextInputV1)
+    (isInitializer : Bool)
+    (index : Nat)
+    (hindex : index < callable.params.size)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready callable overlay context isInitializer) :
+    ∃ argument : ReferenceValueV1,
+      invocation.args[index]? = some argument ∧
+        argument.typeId = callable.params[index].typeId ∧
+          validateValueBytesV1 admitted.data.types argument.typeId
+              argument.valueBytes = .ok () := by
+  have hdetails := gateInvocation_ready_details admitted pre invocation callable
+    overlay context isInitializer hgate
+  have hsize := hdetails.2.2.1
+  have hcanonical := hdetails.2.2.2
+  have hargumentIndex : index < invocation.args.size := by omega
+  have hzipIndex : index < (callable.params.zip invocation.args).size := by
+    simp only [Array.size_zip]
+    omega
+  have hitem := (Array.all_eq_true.mp hcanonical) index hzipIndex
+  rw [Array.getElem_zip] at hitem
+  change
+    (invocation.args[index].typeId == callable.params[index].typeId &&
+      valueCanonical admitted.data invocation.args[index]) = true at hitem
+  simp only [Bool.and_eq_true] at hitem
+  exact ⟨invocation.args[index], Array.getElem?_eq_getElem hargumentIndex,
+    (beq_iff_eq.mp hitem.1),
+    (valueCanonical_eq_true_iff admitted.data invocation.args[index]).mp
+      hitem.2⟩
 
 /-- A returned initializer step publishes a production-conforming initialized
     state. Initializer selection is proved from the exact admitted callable
@@ -4744,25 +4809,12 @@ theorem gateInvocation_ready_noninit_decode
               simp [harity] at hgate
           | false =>
               simp only [harity, Bool.false_eq_true, ↓reduceIte] at hgate
-              generalize hargsOk :
-                (Id.run do
-                  let mut argsOk : Bool := true
-                  let mut i : Nat := 0
-                  for p in c.params do
-                    if argsOk then
-                      match invocation.args[i]? with
-                      | none => argsOk := false
-                      | some arg =>
-                          if arg.typeId != p.typeId ||
-                              !valueCanonical admitted.data arg then
-                            argsOk := false
-                    i := i + 1
-                  pure argsOk) = aok at hgate
-              cases haok : aok with
+              cases hargs :
+                  invocationArgumentsCanonicalV1 admitted.data c invocation with
               | false =>
-                  simp [haok] at hgate
+                  simp [hargs] at hgate
               | true =>
-                  simp only [hargsOk, haok, Bool.not_true, Bool.false_eq_true,
+                  simp only [hargs, Bool.not_true, Bool.false_eq_true,
                     ↓reduceIte] at hgate
                   cases hctx : validateInvocationContext admitted.data c
                       invocation.context with

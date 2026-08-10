@@ -705,9 +705,9 @@ proof-bearing target build 继续 fail closed。
 | 0A | 删除第二套 executable semantics | **已完成** | `MiniAmmSafetySketchV1`、alpha `Core/Semantics`/`SemanticIR` 已不在 HEAD |
 | 0B | 唯一语义防回归门 | **已完成** | `alpha-deletion-gate` 固定平行语义、contract-specific registry/pin 的物理删除，不误杀 checker state |
 | 1 | Typed State + codec bridge | **进行中（generated Bool/UInt64 codec proof 首切已完成）** | generated `Model.State` 复用 production codec；`Model.encode_exists`、`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；Bool 的产品 accepted-language 接线与更多 scalar shape 仍待补 |
-| 2 | Typed callable transition | **进行中（initialized entry/view + 独立 initializer lifecycle relation 首切已完成）** | pre-init 只使用 exact production lifecycle carrier；initializer returned state 与 ordinary callable returned state 均可唯一投影为 typed State，固定 typed 输入有且至多有一个 typed outcome |
+| 2 | Typed callable transition | **进行中（typed UInt64 参数投影 + initialized entry/view + 独立 initializer lifecycle relation 首切已完成）** | production ready gate 可把 raw invocation 精确恢复为 generated named invocation；pre-init 只使用 exact production lifecycle carrier；initializer returned state 与 ordinary callable returned state 均可唯一投影为 typed State，固定 typed 输入有且至多有一个 typed outcome |
 | 3 | Typed invariant bridge | **进行中（evaluator + UInt64 字段 Eq/Ne 数学 bridge 首切已完成）** | generated predicate 使用 exact state encoder 与 lowered invariant ordinal，并与 production `evalInvariantV1` 双向对齐；exact two-state Eq/Ne CFG 已 fail-closed 投影成字段 `=`/`≠` 且不再暴露 encoding witness；这不是任意 expression translator，更多表达式与 exact validation packaging 仍待补 |
-| 4 | Generic preservation composition | **进行中（composer + finite-row assembler + typed returned lift + literal-true same-file 闭环已完成）** | exact admitted callable-table coverage + initializer/no-initializer base + per-call returned obligations 自动包成 exact `PreservationTheoremV1`；generated entry/view row 可将 production-backed typed business theorem lift 回 raw row；nontrivial state-changing theorem、typed-argument ergonomics 和完整 Vault 实例仍待补 |
+| 4 | Generic preservation composition | **进行中（composer + finite-row assembler + typed returned lift + UInt64 参数投影 + literal-true same-file 闭环已完成）** | exact admitted callable-table coverage + initializer/no-initializer base + per-call returned obligations 自动包成 exact `PreservationTheoremV1`；generated entry/view row 可将 production-backed typed business theorem lift 回 raw row，production ready invocation 可恢复 generated named UInt64 参数；nontrivial state-changing theorem 与完整 Vault 实例仍待补 |
 | 5 | Same-file certifier ergonomics | 部分地基已有 | 任意未 pin 合约的真实 proof body可 certified |
 | 6 | authority amendment + VerifiedVaultPF + NEAR build/runtime | 未开始 | 先批准 versioned invariant-erasure contract，再完成单文件 proof + build + runtime differential；诚实标注 Reference-level |
 | 7 | Per-target refinement | 未开始 | target-specific refinement evidence逐个关闭 |
@@ -955,9 +955,16 @@ expression translator：
    vault、returned value/effects；通用 lift 只从 production state/result conformance 获取 typed
    witness，再用 exact encoder/evaluator bridge 返回 raw `PreservationReturnedCallableV1`。
    `PreservingSurfaceProof.safe` 的 view row 已实际改用 generated typed lift；
-10. 当前尚未完成 typed UInt64 参数到 named `Model.<callable>.Transition` 的 authoring convenience，也
-   尚无非平凡 state-changing same-file business theorem，也尚未完成 VerifiedVaultPF 的 initializer、
-   deposit、withdraw、status returned 业务 lemmas；因此 Phase 4 与“任意业务合约验证”仍不能称完成。
+10. production `gateInvocation` 的 canonical argument 检查现可公开投影 exact arity 与逐位置
+    canonical argument；StateModel 在 exact UInt64 TypeId/shape 下把 accepted bytes 唯一重编码为
+    `UInt64`。elaborator 因此为每个 supported entry/view 生成
+    `Model.<callable>.invocation_complete_of_ready`：它从同一个 positive admitted subject、exact
+    callable row 与 ready gate 恢复全部具名 UInt64 参数，并证明 raw invocation 精确等于 generated
+    `Model.<callable>.invocation ... rawInvocation.context`。一参数 state-changing entry、零参数 view
+    与 Unit entry 均有 ordinary Lean 回归；该证明不执行或解释 callable body，也没有新增 step；
+11. 当前仍尚无非平凡 state-changing same-file business theorem，也尚未完成 VerifiedVaultPF 的
+    initializer、deposit、withdraw、status returned 业务 lemmas；因此 Phase 4 与“任意业务合约验证”
+    仍不能称完成。
 
 ---
 

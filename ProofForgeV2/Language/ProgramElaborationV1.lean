@@ -932,6 +932,7 @@ private def elaborateCallableModelsV1
   for callableView in views do
     let callableNamespace := mkIdent (Name.mkSimple callableView.name)
     let invocationName := mkIdent `invocation
+    let invocationCompleteName := mkIdent `invocation_complete_of_ready
     let resultName := mkIdent `Result
     let encodeResultName := mkIdent `encodeResult
     let decodeResultName := mkIdent `decodeResult
@@ -977,8 +978,25 @@ private def elaborateCallableModelsV1
     let initializedName := mkIdent `hinitialized
     let encodePreName := mkIdent `hencodePre
     let stepName := mkIdent `hstep
+    let rawInvocationName := mkIdent `rawInvocation
+    let rawCallableIdName := mkIdent `rawCallableId
+    let rawArgsName := mkIdent `rawArgs
+    let rawContextName := mkIdent `rawContext
+    let argumentOverlayName := mkIdent `argumentOverlay
+    let argumentIndexName := mkIdent `argumentIndex
+    let rawIndexProofName := mkIdent `hrawIndex
+    let canonicalIndexProofName := mkIdent `hcanonicalIndex
+    let isInitializerName := mkIdent `isInitializer
+    let callableIdProofName := mkIdent `hcallableId
+    let gateName := mkIdent `hgate
+    let admittedDataName := mkIdent `hadmittedData
+    let rawInvocationElimTarget ← Lean.Elab.liftMacroM <|
+      `(Lean.Parser.Tactic.elimTarget| ($rawInvocationName))
+    let rawCallableIdProofName := mkIdent `hrawCallableId
     let callableIdTerm : TSyntax `term :=
       ⟨Syntax.mkNumLit (toString callableView.callableId.toNat)⟩
+    let paramCountTerm : TSyntax `term :=
+      ⟨Syntax.mkNumLit (toString callableView.params.size)⟩
     let paramNames := callableView.params.map fun param =>
       mkIdent (Name.mkSimple (param.name ++ "Arg"))
     let paramTypes ← Lean.Elab.liftMacroM <|
@@ -1016,6 +1034,89 @@ private def elaborateCallableModelsV1
       for paramName in paramNames do
         term ← `($term $paramName)
       `($term $contextName)
+    let rawInvocationTerm ← Lean.Elab.liftMacroM <| do
+      let mut term ← `($invocationName)
+      for paramName in paramNames do
+        term ← `($term $paramName)
+      `($term ($rawInvocationName).context)
+    let callableRowTerm ← Lean.Elab.liftMacroM <|
+      `(($subjectDataName).callables[$callableIdTerm]'(by decide))
+    let argumentProofNames := callableView.params.mapIdx fun index _ =>
+      mkIdent (Name.mkSimple (s!"hargument{index}"))
+    let argumentProjectionTactics ← Lean.Elab.liftMacroM <|
+      callableView.params.zipIdx.mapM fun (param, index) => do
+        let paramName := paramNames[index]!
+        let argumentProofName := argumentProofNames[index]!
+        let indexTerm : TSyntax `term :=
+          ⟨Syntax.mkNumLit (toString index)⟩
+        let typeIdTerm : TSyntax `term :=
+          ⟨Syntax.mkNumLit (toString param.typeId.toNat)⟩
+        `(tactic|
+          obtain ⟨$paramName, $argumentProofName⟩ :=
+            ProofForgeV2.Semantic.StateModelV1.gateInvocation_ready_uint64_argumentV1
+              ($subjectName).admitted $logicalPreName $rawInvocationName
+                $callableRowTerm $argumentOverlayName $contextName
+                  $isInitializerName $indexTerm (by decide)
+                    $typeIdTerm (by rfl)
+                    (($subjectDataName).types[$typeIdTerm]'(by decide))
+                      (by
+                        have hadmittedData' := $admittedDataName
+                        rw [hadmittedData']
+                        rfl)
+                      (by rfl) $gateName)
+    let mut argumentItemProof : TSyntax `term ← `(term| by
+      have hcanonicalBound := $canonicalIndexProofName
+      simp at hcanonicalBound <;> omega)
+    for (argumentProofName, index) in argumentProofNames.zipIdx.reverse do
+      let indexTerm : TSyntax `term :=
+        ⟨Syntax.mkNumLit (toString index)⟩
+      argumentItemProof ← `(term|
+        if hindex : $argumentIndexName = $indexTerm then
+          by
+            subst $argumentIndexName
+            have hvalue := Option.some.inj
+              ((Array.getElem?_eq_getElem $rawIndexProofName).symm.trans
+                $argumentProofName)
+            simpa using hvalue
+        else $argumentItemProof)
+    let invocationEqualityProof ← Lean.Elab.liftMacroM <| `(term| by
+      have harity :=
+        ProofForgeV2.Semantic.ReferenceV1.gateInvocation_ready_arity
+          ($subjectName).admitted $logicalPreName $rawInvocationName
+            $callableRowTerm $argumentOverlayName $contextName
+              $isInitializerName $gateName
+      have harityCanonical :
+          ($rawInvocationName).args.size = $paramCountTerm :=
+        harity.trans (by decide)
+      have hargs : ($rawInvocationName).args = #[$referenceArgs,*] := by
+        apply Array.ext
+        · simpa using harityCanonical
+        · intro $argumentIndexName $rawIndexProofName $canonicalIndexProofName
+          exact $argumentItemProof
+      cases $rawInvocationElimTarget with
+      | mk $rawCallableIdName $rawArgsName $rawContextName =>
+          have $rawCallableIdProofName :
+              $rawCallableIdName = $callableIdTerm := by
+            exact $callableIdProofName
+          change $rawArgsName = #[$referenceArgs,*] at hargs
+          subst $rawCallableIdName
+          subst $rawArgsName
+          rfl)
+    let invocationCompleteProof ← Lean.Elab.liftMacroM <|
+      if paramNames.isEmpty then
+        pure invocationEqualityProof
+      else
+        `(term| ⟨$paramNames,*, $invocationEqualityProof⟩)
+    let invocationCompleteType ← Lean.Elab.liftMacroM <|
+      if paramNames.isEmpty then
+        `(term| $rawInvocationName = $rawInvocationTerm)
+      else
+        `(term| ∃ $[($paramNames:ident : $paramTypes)]*,
+          $rawInvocationName = $rawInvocationTerm)
+    let invocationCompleteFinalTactic ← Lean.Elab.liftMacroM <|
+      `(tactic| exact $invocationCompleteProof)
+    let invocationCompleteTactics :=
+      argumentProjectionTactics.push invocationCompleteFinalTactic
     let returnedResultCompleteTerm ← Lean.Elab.liftMacroM <| do
       let mut term ← `($decodeReturnedResultCompleteName $subjectName
         $logicalPreName $logicalPostName)
@@ -1125,6 +1226,38 @@ private def elaborateCallableModelsV1
         args := #[$referenceArgs,*]
         context := $contextName
       }))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Every ready raw invocation for this exact callable row has canonical
+          UInt64 arguments and is exactly the generated named constructor.
+          The proof projects the sole production gate; it does not re-run or
+          reinterpret the callable body. -/
+      theorem $invocationCompleteName
+          ($subjectName : $referenceSubjectName)
+          ($logicalPreName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          ($rawInvocationName :
+            ProofForgeV2.Semantic.ReferenceV1.InvocationV1)
+          ($argumentOverlayName : Array ByteArray)
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($isInitializerName : Bool)
+          ($validateName :
+            ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+                $subjectProgramName = .ok $subjectDataName)
+          ($callableIdProofName :
+            ($rawInvocationName).callableId = $callableIdTerm)
+          ($gateName :
+            ProofForgeV2.Semantic.ReferenceV1.gateInvocation
+                ($subjectName).admitted $logicalPreName $rawInvocationName =
+              .ready $callableRowTerm $argumentOverlayName $contextName
+                $isInitializerName) :
+          $invocationCompleteType := by
+        have $admittedDataName :
+            ($subjectName).admitted.data = $subjectDataName :=
+          (ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1_ok_implies
+            $subjectProgramName $subjectDataName ($subjectName).admitted
+              $validateName ($subjectName).hadmit).2
+        $[$invocationCompleteTactics]*))
     Lean.Elab.Command.elabCommand (← `(
       /-- Every successful production step for this generated invocation has
           one exact typed result decode/re-encode. Callable selection and result
