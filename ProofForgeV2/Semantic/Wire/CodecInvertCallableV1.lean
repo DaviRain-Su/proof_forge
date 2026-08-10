@@ -3471,6 +3471,132 @@ theorem exactAt_callable_of_fieldsV1
     simpa [ByteArray.append_assoc, ByteArray.size_append, encodeU32le_sizeV1,
       Nat.add_assoc] using hmid
 
-/- Remaining composition layer is generated below as compact shape-specific exact packages. -/
+/-! ### Parameterized callable shape packages -/
+
+private theorem exactAt_literalReturnBlockV1
+    (typeId : TypeIdV1) (valueBytes : ByteArray) :
+    ExactMidOffsetInvertAtV1 encodeBlockV1 decodeBlockV1
+      (literalReturnBlockV1 typeId valueBytes) 2 := by
+  simpa [literalReturnBlockV1] using
+    exactAt_block_of_fieldsV1 (literalReturnBlockV1 typeId valueBytes) 2
+      (by decide)
+      (exactAt_array_emptyV1 encodeBlockParameterV1 decodeBlockParameterV1
+        maxArrayElements 3)
+      (exactAt_array_one_of_exactAtV1 encodeInstructionV1 decodeInstructionV1
+        maxArrayElements (by decide)
+        (InstructionV1.mk (some (ValueDefV1.mk 0 typeId))
+          (.literal typeId valueBytes)) 3
+        (exactAt_valueInstruction_of_opV1 0 typeId
+          (.literal typeId valueBytes) 3 (by decide) (by decide)
+          (exactAt_semanticOp_literalV1 typeId valueBytes 4 (by decide))))
+      (exactAt_terminatorReturnV1 (some 0) 3 (by decide))
+
+/-- Exact root-depth codec package for the parameterized single-literal
+    callable. Caller supplies only the production name gate and exact optional
+    budget package. -/
+theorem exactAt_literalReturnCallableV1
+    (callableId : CallableIdV1)
+    (kind : CallableKindV1)
+    (name : String)
+    (typeId : TypeIdV1)
+    (valueBytes : ByteArray)
+    (visibility : VisibilityV1)
+    (invariantSteps : Option UInt64)
+    (hname : validateIdentifierComponent name = .ok ())
+    (hsteps : ExactMidOffsetInvertAtV1
+      (encodeOption (fun value : UInt64 => pure (encodeU64le value)))
+      (decodeOption decodeU64le) invariantSteps 2) :
+    ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
+      (literalReturnCallableV1 callableId kind (some name) typeId valueBytes
+        visibility invariantSteps) 1 := by
+  simpa [literalReturnCallableV1] using
+    exactAt_callable_of_fieldsV1
+      (literalReturnCallableV1 callableId kind (some name) typeId valueBytes
+        visibility invariantSteps) 1 (by decide)
+      (exactAt_callableKindV1 kind 2 (by decide))
+      (exactAt_optionString_some_identifierV1 name hname 2)
+      (exactAt_array_emptyV1 encodeParameterV1 decodeParameterV1
+        maxArrayElements 2)
+      (exactAt_callableResultV1 ({ typeId, visibility } : CallableResultV1)
+        2 (by decide) (by decide))
+      (exactAt_array_one_of_exactAtV1 encodeBlockV1 decodeBlockV1
+        maxArrayElements (by decide) (literalReturnBlockV1 typeId valueBytes) 2
+        (exactAt_literalReturnBlockV1 typeId valueBytes))
+      (exactAt_array_emptyV1 encodeLoopBoundV1 decodeLoopBoundV1
+        maxArrayElements 2)
+      hsteps
+
+private theorem exactAt_twoStateCompareInvariantBlockV1
+    (valueTypeId boolTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (op : BinaryOpV1)
+    (hop : ExactMidOffsetInvertAtV1 encodeSemanticOpV1 decodeSemanticOpV1
+      (.binary op 0 1) 4) :
+    ExactMidOffsetInvertAtV1 encodeBlockV1 decodeBlockV1
+      (twoStateCompareInvariantBlockV1 valueTypeId boolTypeId
+        leftStateId rightStateId op) 2 := by
+  simpa [twoStateCompareInvariantBlockV1] using
+    exactAt_block_of_fieldsV1
+      (twoStateCompareInvariantBlockV1 valueTypeId boolTypeId
+        leftStateId rightStateId op) 2 (by decide)
+      (exactAt_array_emptyV1 encodeBlockParameterV1 decodeBlockParameterV1
+        maxArrayElements 3)
+      (exactAt_array_three_of_exactAtV1 encodeInstructionV1 decodeInstructionV1
+        maxArrayElements (by decide)
+        (InstructionV1.mk (some (ValueDefV1.mk 0 valueTypeId))
+          (.stateLoad leftStateId))
+        (InstructionV1.mk (some (ValueDefV1.mk 1 valueTypeId))
+          (.stateLoad rightStateId))
+        (InstructionV1.mk (some (ValueDefV1.mk 2 boolTypeId))
+          (.binary op 0 1)) 3
+        (exactAt_valueInstruction_of_opV1 0 valueTypeId
+          (.stateLoad leftStateId) 3 (by decide) (by decide)
+          (exactAt_semanticOp_stateLoadV1 leftStateId 4 (by decide)))
+        (exactAt_valueInstruction_of_opV1 1 valueTypeId
+          (.stateLoad rightStateId) 3 (by decide) (by decide)
+          (exactAt_semanticOp_stateLoadV1 rightStateId 4 (by decide)))
+        (exactAt_valueInstruction_of_opV1 2 boolTypeId
+          (.binary op 0 1) 3 (by decide) (by decide) hop))
+      (exactAt_terminatorReturnV1 (some 2) 3 (by decide))
+
+/-- Exact root-depth codec package for a nullary two-state comparison
+    invariant. IDs, types, slots, operator, visibility, name, and structural
+    budget remain parameters. -/
+theorem exactAt_twoStateCompareInvariantCallableV1
+    (callableId : CallableIdV1)
+    (name : String)
+    (valueTypeId boolTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (op : BinaryOpV1)
+    (visibility : VisibilityV1)
+    (steps : UInt8)
+    (hname : validateIdentifierComponent name = .ok ())
+    (hop : ExactMidOffsetInvertAtV1 encodeSemanticOpV1 decodeSemanticOpV1
+      (.binary op 0 1) 4) :
+    ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
+      (twoStateCompareInvariantCallableV1 callableId (some name)
+        valueTypeId boolTypeId leftStateId rightStateId op visibility
+        (some steps.toUInt64)) 1 := by
+  simpa [twoStateCompareInvariantCallableV1] using
+    exactAt_callable_of_fieldsV1
+      (twoStateCompareInvariantCallableV1 callableId (some name)
+        valueTypeId boolTypeId leftStateId rightStateId op visibility
+        (some steps.toUInt64)) 1 (by decide)
+      (exactAt_callableKindV1 .invariant 2 (by decide))
+      (exactAt_optionString_some_identifierV1 name hname 2)
+      (exactAt_array_emptyV1 encodeParameterV1 decodeParameterV1
+        maxArrayElements 2)
+      (exactAt_callableResultV1
+        ({ typeId := boolTypeId, visibility } : CallableResultV1)
+        2 (by decide) (by decide))
+      (exactAt_array_one_of_exactAtV1 encodeBlockV1 decodeBlockV1
+        maxArrayElements (by decide)
+        (twoStateCompareInvariantBlockV1 valueTypeId boolTypeId
+          leftStateId rightStateId op) 2
+        (exactAt_twoStateCompareInvariantBlockV1 valueTypeId boolTypeId
+          leftStateId rightStateId op hop))
+      (exactAt_array_emptyV1 encodeLoopBoundV1 decodeLoopBoundV1
+        maxArrayElements 2)
+      (exactAt_optionU64_someUInt8V1 steps 2)
 
 end ProofForgeV2.Semantic.WireV1

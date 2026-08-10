@@ -859,8 +859,11 @@ expression translator：
     四行 callable table，而不需要 caller 提供 element bytes；目标 fixture 使用的 production
     `Binary.Ne` leaf 也已有与 `Binary.Eq` 同层级的 fixed-depth exact inversion；callable 的
     `invariantSteps` present-option seam 也已从 closed `some 7` 泛化到任意 UInt8 structural
-    budget，目标的 `some 3` / `some 5` 不再需要各自 pin bytes；这些仍只是 root-table 组合
-    地基，不能单独推出 structure/validation success；
+    budget，目标的 `some 3` / `some 5` 不再需要各自 pin bytes；单 literal-return 与双
+    state-load compare-return callable 现在也都有 parameterized production `CallableV1` shape
+    与 root-depth exact codec package，Eq/Ne 仅在各自 production binary-op leaf certificate
+    处分叉，不固定 callable id/name/type/state id/payload；这些仍只是 root-table 组合地基，
+    不能单独推出 structure/validation success；
     当前已把 `subjectBodyEncodeOkV1` + 全部 production root gates + structure success +
     whole-program `RootFieldInvertV1` 组合 exact validation 的 theorem 抽到通用
     `SubjectDataBridgeV1`，不再归属于 parity shape；elaborator 现已对每个 proof-bearing program

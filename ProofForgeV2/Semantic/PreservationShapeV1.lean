@@ -255,6 +255,81 @@ def uint64EqZeroInvariantCallableV1
   invariantSteps
 }
 
+/-- One value-producing literal instruction followed by return. This is a
+    production `BlockV1` constructor, not a second evaluator. -/
+def literalReturnBlockV1
+    (typeId : TypeIdV1) (valueBytes : ByteArray) : BlockV1 := {
+  id := 0
+  params := #[]
+  instructions := #[{
+    result := some { valueId := 0, typeId }
+    op := .literal typeId valueBytes
+  }]
+  terminator := .return_ (some 0)
+}
+
+/-- Nullary view/invariant shape for a single literal result. Kind, identity,
+    visibility, payload, and optional structural budget stay parameterized. -/
+def literalReturnCallableV1
+    (callableId : CallableIdV1)
+    (kind : CallableKindV1)
+    (name : Option String)
+    (typeId : TypeIdV1)
+    (valueBytes : ByteArray)
+    (visibility : VisibilityV1)
+    (invariantSteps : Option UInt64) : CallableV1 := {
+  id := callableId
+  kind
+  name
+  params := #[]
+  result := { typeId, visibility }
+  entryBlock := 0
+  blocks := #[literalReturnBlockV1 typeId valueBytes]
+  loopBounds := #[]
+  invariantSteps
+}
+
+/-- Load two state slots, compare their values, and return the Bool result.
+    The binary operator remains explicit so equality and inequality share the
+    same production CFG constructor. -/
+def twoStateCompareInvariantBlockV1
+    (valueTypeId boolTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (op : BinaryOpV1) : BlockV1 := {
+  id := 0
+  params := #[]
+  instructions := #[
+    { result := some { valueId := 0, typeId := valueTypeId },
+      op := .stateLoad leftStateId },
+    { result := some { valueId := 1, typeId := valueTypeId },
+      op := .stateLoad rightStateId },
+    { result := some { valueId := 2, typeId := boolTypeId },
+      op := .binary op 0 1 }
+  ]
+  terminator := .return_ (some 2)
+}
+
+/-- Nullary invariant callable for a two-state comparison. -/
+def twoStateCompareInvariantCallableV1
+    (callableId : CallableIdV1)
+    (name : Option String)
+    (valueTypeId boolTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (op : BinaryOpV1)
+    (visibility : VisibilityV1)
+    (invariantSteps : Option UInt64) : CallableV1 := {
+  id := callableId
+  kind := .invariant
+  name
+  params := #[]
+  result := { typeId := boolTypeId, visibility }
+  entryBlock := 0
+  blocks := #[twoStateCompareInvariantBlockV1 valueTypeId boolTypeId
+    leftStateId rightStateId op]
+  loopBounds := #[]
+  invariantSteps
+}
+
 /-! ### Ready-step shape theorems (sole `stepReferenceSliceV1`)
 
     Thin wrappers: gate carries the constructor spelling so author proofs only

@@ -15,6 +15,7 @@ import ProofForgeV2.Semantic.WireV1
 
 namespace Tests.Semantic.CodecInvertV1
 
+open ProofForgeV2.Semantic.PreservationShapeV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Core.Common
 
@@ -150,6 +151,45 @@ theorem invariantSteps_exactAt_root (steps : UInt8) :
       (encodeOption (fun value : UInt64 => pure (encodeU64le value)))
       (decodeOption decodeU64le) (some steps.toUInt64) 2 :=
   exactAt_optionU64_someUInt8V1 steps 2
+
+/-- Single-literal callable composition remains independent of concrete IDs,
+    names, payloads, kind, and optional structural budget. -/
+theorem literalReturnCallable_exactAt_root
+    (callableId typeId : UInt32) (kind : CallableKindV1)
+    (name : String) (valueBytes : ByteArray) (visibility : VisibilityV1)
+    (steps : Option UInt64)
+    (hname : validateIdentifierComponent name = .ok ())
+    (hsteps : ExactMidOffsetInvertAtV1
+      (encodeOption (fun value : UInt64 => pure (encodeU64le value)))
+      (decodeOption decodeU64le) steps 2) :
+    ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
+      (literalReturnCallableV1 callableId kind (some name) typeId valueBytes
+        visibility steps) 1 :=
+  exactAt_literalReturnCallableV1 callableId kind name typeId valueBytes
+    visibility steps hname hsteps
+
+/-- Equality and inequality callables share the same parameterized production
+    CFG package; only their binary-op leaf certificate differs. -/
+theorem twoStateCompareCallables_exactAt_root
+    (eqId neId valueTypeId boolTypeId leftStateId rightStateId : UInt32)
+    (eqName neName : String)
+    (heqName : validateIdentifierComponent eqName = .ok ())
+    (hneName : validateIdentifierComponent neName = .ok ()) :
+    ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
+        (twoStateCompareInvariantCallableV1 eqId (some eqName)
+          valueTypeId boolTypeId leftStateId rightStateId .eq .public_ (some 5)) 1 ∧
+      ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
+        (twoStateCompareInvariantCallableV1 neId (some neName)
+          valueTypeId boolTypeId leftStateId rightStateId .ne .public_ (some 5)) 1 := by
+  constructor
+  · simpa using
+      exactAt_twoStateCompareInvariantCallableV1 eqId eqName valueTypeId
+        boolTypeId leftStateId rightStateId .eq .public_ 5 heqName
+        (exactAt_semanticOp_binaryEqV1 0 1 4 (by decide) (by decide))
+  · simpa using
+      exactAt_twoStateCompareInvariantCallableV1 neId neName valueTypeId
+        boolTypeId leftStateId rightStateId .ne .public_ 5 hneName
+        (exactAt_semanticOp_binaryNeV1 0 1 4 (by decide) (by decide))
 
 /-- A production field codec consumes the generic four-element fixed-depth
     array seam without supplying element bytes. -/
