@@ -2036,6 +2036,152 @@ private def renderMapHelpersForNeeds (indent : String) (needs : PhaseHelperNeeds
     else "") ++
   (if needs.sloadU64 then renderSloadU64Helper indent else "")
 
+
+/-- Parse `let NAME := pf_sload_u64(SLOT)`. -/
+private def parseSloadU64BindV1 (trimmed : String) : Option (String × Nat) :=
+  let marker := " := pf_sload_u64("
+  if !trimmed.startsWith "let " then none
+  else
+    match trimmed.splitOn marker with
+    | [lhs, rhs] =>
+        -- lhs = "let NAME"
+        match lhs.splitOn " " with
+        | ["let", name] =>
+            if name.isEmpty then none
+            else
+              let cs := rhs.toList
+              let digs := cs.takeWhile Char.isDigit
+              if digs.isEmpty then none
+              else
+                match String.ofList digs |>.toNat? with
+                | some slot =>
+                    match cs.drop digs.length with
+                    | ')' :: _ => some (name, slot)
+                    | _ => none
+                | none => none
+        | _ => none
+    | _ => none
+
+/-- Parse leading `sstore(SLOT,`. -/
+private def parseSstoreSlotV1 (trimmed : String) : Option Nat :=
+  if !trimmed.startsWith "sstore(" then none
+  else
+    match trimmed.splitOn "sstore(" with
+    | ["", rhs] =>
+        let cs := rhs.toList
+        let digs := cs.takeWhile Char.isDigit
+        if digs.isEmpty then none
+        else
+          match String.ofList digs |>.toNat? with
+          | some slot =>
+              match cs.drop digs.length with
+              | ',' :: _ => some slot
+              | _ => none
+          | none => none
+    | _ => none
+
+private def isYulIdentCharV1 (c : Char) : Bool :=
+  c.isAlphanum || c == '_'
+
+/-- Replace whole-identifier `frm` with `too` inside a Yul line. -/
+private def rewriteYulIdentV1 (line frm too : String) : String := Id.run do
+  if frm == too || frm.isEmpty then return line
+  let chars := line.toList
+  let fcs := frm.toList
+  let n := fcs.length
+  let mut out : List Char := []
+  let mut i := 0
+  while i < chars.length do
+    let canMatch :=
+      i + n ≤ chars.length &&
+        (List.range n).all (fun k => chars[i + k]! == fcs[k]!) &&
+        (i == 0 || !isYulIdentCharV1 chars[i - 1]!) &&
+        (i + n == chars.length || !isYulIdentCharV1 chars[i + n]!)
+    if canMatch then
+      out := out ++ too.toList
+      i := i + n
+    else
+      out := out ++ [chars[i]!]
+      i := i + 1
+  return String.ofList out
+
+/-- Basic-block CSE for `let v := pf_sload_u64(slot)` in emitted Yul text.
+    Safe rules:
+    * reuse only within the same brace-nested block;
+    * `sstore(slot, …)` kills that slot;
+    * map upsert helpers kill the whole block cache (unknown dirty set);
+    * entering `{` pushes a cache copy; leaving `}` pops (if/else arms
+      start from the pre-branch cache, join does not re-export loads).
+    Does not change ABI, storage layout, or overflow semantics. -/
+private def cseSloadU64YulV1 (yul : String) : String := Id.run do
+  let mut rewrites : Array (String × String) := #[]
+  let mut stack : Array (Array (Nat × String)) := #[#[] ]
+  let mut out : Array String := #[]
+  let lines := yul.splitOn "\n"
+  for line0 in lines do
+    let mut line := line0
+    -- Never rewrite identifiers on a `let` binding LHS (including multi-return
+    -- `let a, b := …`); only substitute uses in the RHS / other statements.
+    let trimmed0 :=
+      String.ofList (line0.toList.dropWhile (fun c => c == ' ' || c == '\t'))
+    if trimmed0.startsWith "let " then
+      match line0.splitOn " := " with
+      | [lhs, rhs] =>
+          let mut rhs' := rhs
+          for (frm, too) in rewrites do
+            rhs' := rewriteYulIdentV1 rhs' frm too
+          line := lhs ++ " := " ++ rhs'
+      | _ =>
+          for (frm, too) in rewrites do
+            line := rewriteYulIdentV1 line frm too
+    else
+      for (frm, too) in rewrites do
+        line := rewriteYulIdentV1 line frm too
+    let trimmed :=
+      String.ofList (line.toList.dropWhile (fun c => c == ' ' || c == '\t'))
+    -- Fresh rewrite env at function / switch-case boundaries so CSE aliases
+    -- never escape their originating basic-block region (Yul vars are
+    -- block-scoped; a global rewrite list would corrupt later cases).
+    if trimmed.startsWith "function " || trimmed.startsWith "case " then
+      stack := #[#[] ]
+      rewrites := #[]
+      out := out.push line
+      continue
+    let opens := line.foldl (fun n c => if c == '{' then n + 1 else n) 0
+    let closes := line.foldl (fun n c => if c == '}' then n + 1 else n) 0
+    let isSloadBind :=
+      trimmed.startsWith "let " && trimmed.contains " := pf_sload_u64("
+    if isSloadBind then
+      match parseSloadU64BindV1 trimmed with
+      | some (name, slot) =>
+          let top := stack.back!
+          match top.findIdx? (·.1 == slot) with
+          | some idx =>
+              let kept := (top[idx]!).2
+              rewrites := rewrites.push (name, kept)
+          | none =>
+              stack := stack.set! (stack.size - 1) (top.push (slot, name))
+              out := out.push line
+      | none =>
+          out := out.push line
+    else
+      match parseSstoreSlotV1 trimmed with
+      | some slot =>
+          let top := stack.back!.filter (fun p => p.1 != slot)
+          stack := stack.set! (stack.size - 1) top
+      | none => pure ()
+      if trimmed.contains "pf_map_p_upsert(" || trimmed.contains "pf_map_u64_upsert("
+          || trimmed.contains "pf_map_p_upsert_leaf("
+          || trimmed.contains "pf_map_u64_upsert_leaf(" then
+        stack := stack.set! (stack.size - 1) #[]
+      out := out.push line
+    for _ in [0:opens] do
+      stack := stack.push stack.back!
+    for _ in [0:closes] do
+      if stack.size > 1 then
+        stack := stack.pop
+  return String.intercalate "\n" out.toList
+
 private def renderYul (plan : Plan) : String :=
   let hasPayable := planHasPayableEntry plan
   let entries := plan.entries.foldl
@@ -2073,19 +2219,20 @@ private def renderYul (plan : Plan) : String :=
   let runtimeCallvalueGuard :=
     if hasPayable then ""
     else "      if callvalue() { revert(0, 0) }\n"
-  s!"object \"{plan.objectName}\" \{\n  code \{\n" ++
-    renderConstructor plan ++
-    ctorFns ++
-    mapHelpersCtor ++
-    s!"  }\n  object \"{plan.runtimeObjectName}\" \{\n    code \{\n" ++
-    runtimeCallvalueGuard ++
-    "      if lt(calldatasize(), 4) { revert(0, 0) }\n" ++
-    "      switch shr(224, calldataload(0))\n" ++
-    entries ++
-    "      default { revert(0, 0) }\n" ++
-    runtimeFns ++
-    mapHelpersRuntime ++
-    "    }\n  }\n}\n"
+  cseSloadU64YulV1 (
+    s!"object \"{plan.objectName}\" \{\n  code \{\n" ++
+      renderConstructor plan ++
+      ctorFns ++
+      mapHelpersCtor ++
+      s!"  }\n  object \"{plan.runtimeObjectName}\" \{\n    code \{\n" ++
+      runtimeCallvalueGuard ++
+      "      if lt(calldatasize(), 4) { revert(0, 0) }\n" ++
+      "      switch shr(224, calldataload(0))\n" ++
+      entries ++
+      "      default { revert(0, 0) }\n" ++
+      runtimeFns ++
+      mapHelpersRuntime ++
+      "    }\n  }\n}\n")
 
 
 private def renderParamJson (param : Param) : String :=
