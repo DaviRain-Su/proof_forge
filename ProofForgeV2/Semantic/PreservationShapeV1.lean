@@ -289,6 +289,48 @@ def literalReturnCallableV1
   invariantSteps
 }
 
+/-- Store one callable parameter into two state slots, load the second slot,
+    and return it. This is only a production `BlockV1` constructor; execution
+    remains exclusively in `ReferenceMachineV1`. -/
+def storeParameterTwoReturnBlockV1
+    (typeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1) : BlockV1 := {
+  id := 0
+  params := #[]
+  instructions := #[
+    { result := none, op := .stateStore leftStateId 0 },
+    { result := none, op := .stateStore rightStateId 0 },
+    { result := some { valueId := 1, typeId },
+      op := .stateLoad rightStateId }
+  ]
+  terminator := .return_ (some 1)
+}
+
+/-- Unary entry shape backed by `storeParameterTwoReturnBlockV1`. Names, IDs,
+    state slots, and visibility remain explicit production data. -/
+def storeParameterTwoReturnCallableV1
+    (callableId : CallableIdV1)
+    (name : Option String)
+    (parameterName : String)
+    (typeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (visibility : VisibilityV1) : CallableV1 := {
+  id := callableId
+  kind := .entry
+  name
+  params := #[{
+    valueId := 0
+    name := parameterName
+    typeId
+    visibility
+  }]
+  result := { typeId, visibility }
+  entryBlock := 0
+  blocks := #[storeParameterTwoReturnBlockV1 typeId leftStateId rightStateId]
+  loopBounds := #[]
+  invariantSteps := none
+}
+
 /-- Load two state slots, compare their values, and return the Bool result.
     The binary operator remains explicit so equality and inequality share the
     same production CFG constructor. -/

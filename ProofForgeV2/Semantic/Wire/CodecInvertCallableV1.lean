@@ -3718,6 +3718,75 @@ theorem exactAt_literalReturnCallableV1
         maxArrayElements 2)
       hsteps
 
+private theorem exactAt_storeParameterTwoReturnBlockV1
+    (typeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1) :
+    ExactMidOffsetInvertAtV1 encodeBlockV1 decodeBlockV1
+      (storeParameterTwoReturnBlockV1 typeId leftStateId rightStateId) 2 := by
+  simpa [storeParameterTwoReturnBlockV1] using
+    exactAt_block_of_fieldsV1
+      (storeParameterTwoReturnBlockV1 typeId leftStateId rightStateId) 2
+      (by decide)
+      (exactAt_array_emptyV1 encodeBlockParameterV1 decodeBlockParameterV1
+        maxArrayElements 3)
+      (exactAt_array_three_of_exactAtV1 encodeInstructionV1 decodeInstructionV1
+        maxArrayElements (by decide)
+        (InstructionV1.mk none (.stateStore leftStateId 0))
+        (InstructionV1.mk none (.stateStore rightStateId 0))
+        (InstructionV1.mk (some (ValueDefV1.mk 1 typeId))
+          (.stateLoad rightStateId)) 3
+        (exactAt_voidInstruction_of_opV1 (.stateStore leftStateId 0) 3
+          (by decide)
+          (exactAt_semanticOp_stateStoreV1 leftStateId 0 4 (by decide)))
+        (exactAt_voidInstruction_of_opV1 (.stateStore rightStateId 0) 3
+          (by decide)
+          (exactAt_semanticOp_stateStoreV1 rightStateId 0 4 (by decide)))
+        (exactAt_valueInstruction_of_opV1 1 typeId
+          (.stateLoad rightStateId) 3 (by decide) (by decide)
+          (exactAt_semanticOp_stateLoadV1 rightStateId 4 (by decide))))
+      (exactAt_terminatorReturnV1 (some 1) 3 (by decide))
+
+/-- Exact root-depth production-codec package for the unary
+    store/store/load/return entry shape. -/
+theorem exactAt_storeParameterTwoReturnCallableV1
+    (callableId : CallableIdV1)
+    (name parameterName : String)
+    (typeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (hname : validateIdentifierComponent name = .ok ())
+    (hparameterName : validateIdentifierComponent parameterName = .ok ()) :
+    ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
+      (storeParameterTwoReturnCallableV1 callableId (some name) parameterName
+        typeId leftStateId rightStateId .public_) 1 := by
+  simpa [storeParameterTwoReturnCallableV1] using
+    exactAt_callable_of_fieldsV1
+      (storeParameterTwoReturnCallableV1 callableId (some name) parameterName
+        typeId leftStateId rightStateId .public_) 1 (by decide)
+      (exactAt_callableKindV1 .entry 2 (by decide))
+      (exactAt_optionString_some_identifierV1 name hname 2)
+      (exactAt_array_one_of_exactAtV1 encodeParameterV1 decodeParameterV1
+        maxArrayElements (by decide)
+        ({
+          valueId := 0
+          name := parameterName
+          typeId
+          visibility := .public_
+        } : ParameterV1) 2
+        (exactAt_parameter_publicV1 0 typeId parameterName hparameterName 2
+          (by decide)))
+      (exactAt_callableResultV1
+        ({ typeId, visibility := .public_ } : CallableResultV1)
+        2 (by decide) (by decide))
+      (exactAt_array_one_of_exactAtV1 encodeBlockV1 decodeBlockV1
+        maxArrayElements (by decide)
+        (storeParameterTwoReturnBlockV1 typeId leftStateId rightStateId) 2
+        (exactAt_storeParameterTwoReturnBlockV1 typeId leftStateId rightStateId))
+      (exactAt_array_emptyV1 encodeLoopBoundV1 decodeLoopBoundV1
+        maxArrayElements 2)
+      (exactAt_option_noneV1
+        (fun value : UInt64 => pure (encodeU64le value))
+        decodeU64le 2)
+
 private theorem exactAt_twoStateCompareInvariantBlockV1
     (valueTypeId boolTypeId : TypeIdV1)
     (leftStateId rightStateId : StateIdV1)
@@ -3790,6 +3859,36 @@ theorem exactAt_twoStateCompareInvariantCallableV1
       (exactAt_array_emptyV1 encodeLoopBoundV1 decodeLoopBoundV1
         maxArrayElements 2)
       (exactAt_optionU64_someUInt8V1 steps 2)
+
+/-- Two-row production callable table used by the first state-changing
+    equality-preservation family: one unary entry and one equality invariant. -/
+theorem exactAt_storeParameterEqualityCallableTableV1
+    (entryId invariantId : CallableIdV1)
+    (entryName parameterName invariantName : String)
+    (valueTypeId boolTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (hentryName : validateIdentifierComponent entryName = .ok ())
+    (hparameterName : validateIdentifierComponent parameterName = .ok ())
+    (hinvariantName : validateIdentifierComponent invariantName = .ok ()) :
+    ExactMidOffsetInvertAtV1 (encodeArray encodeCallableV1)
+      (decodeArray maxTableElements decodeCallableV1)
+      #[storeParameterTwoReturnCallableV1 entryId (some entryName) parameterName
+          valueTypeId leftStateId rightStateId .public_,
+        twoStateCompareInvariantCallableV1 invariantId (some invariantName)
+          valueTypeId boolTypeId leftStateId rightStateId .eq .public_
+          (some 5)] 1 :=
+  exactAt_array_two_of_exactAtV1 encodeCallableV1 decodeCallableV1
+    maxTableElements (by decide) (by decide)
+    (storeParameterTwoReturnCallableV1 entryId (some entryName) parameterName
+      valueTypeId leftStateId rightStateId .public_)
+    (twoStateCompareInvariantCallableV1 invariantId (some invariantName)
+      valueTypeId boolTypeId leftStateId rightStateId .eq .public_ (some 5)) 1
+    (exactAt_storeParameterTwoReturnCallableV1 entryId entryName parameterName
+      valueTypeId leftStateId rightStateId hentryName hparameterName)
+    (exactAt_twoStateCompareInvariantCallableV1 invariantId invariantName
+      valueTypeId boolTypeId leftStateId rightStateId .eq .public_ 5
+      hinvariantName (exactAt_semanticOp_binaryEqV1 0 1 4
+        (by decide) (by decide)))
 
 /-- Four-row production callable-table package for the field-comparison
     authoring family: a literal view, a literal invariant, equality, and

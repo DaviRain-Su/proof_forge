@@ -74,6 +74,18 @@ theorem parameter_public_exactAt :
       } : ParameterV1) 2 :=
   exactAt_parameter_publicV1 0 0 "amount" (by rfl) 2 (by decide)
 
+/-- The complete state-changing entry plus equality-invariant table is
+    packaged from production callable codecs, not from pinned bytes. -/
+theorem stateful_equality_callable_table_exactAt :
+    ExactMidOffsetInvertAtV1 (encodeArray encodeCallableV1)
+      (decodeArray maxTableElements decodeCallableV1)
+      #[storeParameterTwoReturnCallableV1 0 (some "sync") "amount"
+          0 0 1 .public_,
+        twoStateCompareInvariantCallableV1 1 (some "solvent")
+          0 1 0 1 .eq .public_ (some 5)] 1 :=
+  exactAt_storeParameterEqualityCallableTableV1 0 1 "sync" "amount"
+    "solvent" 0 1 0 1 (by rfl) (by rfl) (by rfl)
+
 /-- Positive theorem: empty array mid-offset invert. -/
 theorem array_zero_mid :
     decodeArray 10 (decodeVisibilityV1)
