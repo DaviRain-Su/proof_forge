@@ -151,3 +151,13 @@ recipes and distribution payloads.
 Current claim ceiling：canonical DPN emission with content-bound artifact closure. No local execution,
 proof generation, UPS, network settlement, deployment, hermetic qualification or formal
 Reference↔Psy refinement is claimed.
+
+## 8. Runtime coverage vs schema
+
+Schema lists the full official OpType wire space. PF only **emits** a reachable subset;
+the multi-step session harness implements that subset (plus a few safe extras) and
+fail-closes on the rest. Hash/IMT/secp/keccak and most official-only state commands are
+**not** ProgramV1-reachable today.
+
+See [`psy-op-coverage.md`](psy-op-coverage.md).
+

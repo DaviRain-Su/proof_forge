@@ -137,3 +137,15 @@ network deploy、hermetic 或 formal refinement 证据；删除旧 source/compil
 | chain probe | `scripts/psy_local_chain_status.sh` |
 
 Persistent local chain requires host-heavy `psy-node` / `psy_node_cli` fabric — not auto-started by pf.
+
+## 10. OP / feature coverage
+
+Do **not** claim full official DPN OP coverage. Layers:
+
+- official `psy_vm` / `psy_user_cli simulate` — full official surface
+- PF emitter — capability-gated subset (see LowerPlanV1)
+- PF session harness — multi-step engineering subset; fail-closed on unknown ops
+
+Machine-readable matrix: [`psy-op-coverage.v1.json`](psy-op-coverage.v1.json) · narrative [`psy-op-coverage.md`](psy-op-coverage.md).
+Regenerate: `just psy-dpn-op-coverage` / `just psy-example-matrix` / `just psy-dpn-diff`.
+

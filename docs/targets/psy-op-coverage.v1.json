@@ -1,0 +1,1164 @@
+{
+  "version": "psy-op-coverage.v1",
+  "updated": "2026-08-10",
+  "authority": "supply-chain/psy-node-dpn-authority.v1.json",
+  "summary": {
+    "schemaOpCount": 73,
+    "emitterReachableCount": 28,
+    "sessionImplementedCount": 48,
+    "artifactOpKinds": 23,
+    "artifactFiles": 6,
+    "p0EmitterWithoutSession": [],
+    "featureBacklog": [
+      {
+        "id": "hash-gadgets",
+        "ops": [
+          "hashNoPad",
+          "hashPad",
+          "hashTwoToOne",
+          "keccak256",
+          "calculateMerkleRoot"
+        ],
+        "status": "not-emitted-by-PF"
+      },
+      {
+        "id": "IMT-state-cmds",
+        "status": "official-only-fail-closed-in-PF-schema"
+      },
+      {
+        "id": "external-call-result",
+        "status": "void-sync PARTIAL; result/deferred FC"
+      },
+      {
+        "id": "events",
+        "status": "PARTIAL encoding in emitter; session ignores events[]"
+      },
+      {
+        "id": "Map-dense-put",
+        "status": "emits; official simulate also empty state_delta \u2014 layout gap"
+      },
+      {
+        "id": "ContextRead-Commit",
+        "status": "Plan FC"
+      },
+      {
+        "id": "wide-u128-u256",
+        "status": "emitter schoolbook; session via u32 ops when present"
+      }
+    ],
+    "layers": {
+      "officialVm": "full official DPN via psy_user_cli simulate / psy_vm",
+      "pfEmitter": "capability-gated ProgramV1 subset \u2192 DPN",
+      "pfSession": "engineering multi-step harness; not full VM",
+      "differential": "StateCell + expanded matrix in psy_dpn_diff_matrix.sh"
+    }
+  },
+  "ops": [
+    {
+      "opId": 0,
+      "name": "inputTarget",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 52,
+      "examples": [
+        "Accumulator",
+        "LoopSum",
+        "MapMini",
+        "OptionState",
+        "StateCell",
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 1,
+      "name": "constant",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 1981,
+      "examples": [
+        "Accumulator",
+        "LoopSum",
+        "MapMini",
+        "OptionState",
+        "StateCell",
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 2,
+      "name": "constantTrue",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 26,
+      "examples": [
+        "Accumulator",
+        "LoopSum",
+        "MapMini",
+        "OptionState",
+        "StateCell",
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 3,
+      "name": "constantFalse",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 2,
+      "examples": [
+        "MapMini"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 4,
+      "name": "add",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 2369,
+      "examples": [
+        "Accumulator",
+        "LoopSum",
+        "StateCell",
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 5,
+      "name": "sub",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 2317,
+      "examples": [
+        "LoopSum",
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 6,
+      "name": "mul",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 68,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 7,
+      "name": "div",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "emitter+session-no-artifact"
+    },
+    {
+      "opId": 8,
+      "name": "boolNot",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 940,
+      "examples": [
+        "MapMini",
+        "OptionState",
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 9,
+      "name": "boolAnd",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 1088,
+      "examples": [
+        "LoopSum",
+        "MapMini",
+        "OptionState",
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 10,
+      "name": "boolOr",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 2513,
+      "examples": [
+        "MapMini",
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 11,
+      "name": "xor",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 12,
+      "name": "nor",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 13,
+      "name": "eq",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 2553,
+      "examples": [
+        "MapMini",
+        "OptionState",
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 14,
+      "name": "lte",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 1,
+      "examples": [
+        "LoopSum"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 15,
+      "name": "gte",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 293,
+      "examples": [
+        "Accumulator",
+        "LoopSum",
+        "StateCell",
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 16,
+      "name": "gt",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 768,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 17,
+      "name": "lt",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 1387,
+      "examples": [
+        "LoopSum",
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 18,
+      "name": "splitBits",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 19,
+      "name": "sumBits",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 20,
+      "name": "targetAt",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 21,
+      "name": "hashNoPad",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 22,
+      "name": "hashPad",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 23,
+      "name": "select",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 5649,
+      "examples": [
+        "LoopSum",
+        "MapMini",
+        "OptionState",
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 24,
+      "name": "exp",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 25,
+      "name": "expConstantPower",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 26,
+      "name": "expConstantBase",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 27,
+      "name": "mod_",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "emitter+session-no-artifact"
+    },
+    {
+      "opId": 28,
+      "name": "modConstantDividend",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 29,
+      "name": "modConstantDivisor",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 30,
+      "name": "divRem4",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 31,
+      "name": "castU32",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 32,
+      "name": "u32And",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 924,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 33,
+      "name": "u32AndConstant",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 34,
+      "name": "u32Or",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 2820,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 35,
+      "name": "u32OrConstant",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 36,
+      "name": "u32Xor",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 4,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 37,
+      "name": "u32XorConstant",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 38,
+      "name": "u32ShiftLeft",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 2944,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 40,
+      "name": "u32ShiftLeftConstantBitDistance",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 41,
+      "name": "u32ShiftLeftConstantValue",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 42,
+      "name": "u32ShiftRight",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 3480,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 43,
+      "name": "u32ShiftRightConstantBitDistance",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 44,
+      "name": "u32ShiftRightConstantValue",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 45,
+      "name": "calculateMerkleRoot",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 46,
+      "name": "getUserId",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "emitter+session-no-artifact"
+    },
+    {
+      "opId": 47,
+      "name": "getContractId",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "emitter+session-no-artifact"
+    },
+    {
+      "opId": 48,
+      "name": "getCheckpointId",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "emitter+session-no-artifact"
+    },
+    {
+      "opId": 49,
+      "name": "getNonce",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 50,
+      "name": "getUserPublicKeyHash",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 51,
+      "name": "getStateQueryResult",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 52,
+      "name": "getStateQueryResultSingle",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 53,
+      "name": "getStateCommandResultHash",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 54,
+      "name": "getStateCommandResultSingle",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 801,
+      "examples": [
+        "Accumulator",
+        "LoopSum",
+        "MapMini",
+        "OptionState",
+        "StateCell",
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 55,
+      "name": "getStateCommandResultArray",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 64,
+      "name": "unaryInverse",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 65,
+      "name": "unaryNegative",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 66,
+      "name": "u32InputTarget",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 67,
+      "name": "constantU32",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 68,
+      "name": "u32Add",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 69,
+      "name": "u32Sub",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 70,
+      "name": "u32Mul",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 71,
+      "name": "u32Div",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 72,
+      "name": "castFelt",
+      "officialSchema": true,
+      "pfEmitter": "reachable",
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 20,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
+    },
+    {
+      "opId": 73,
+      "name": "castBool",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 74,
+      "name": "boolInputTarget",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 75,
+      "name": "u32Mod",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "session-extra"
+    },
+    {
+      "opId": 76,
+      "name": "u32Exp",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 77,
+      "name": "secp256k1Verify",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 78,
+      "name": "hashTwoToOne",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 79,
+      "name": "getCallerContractId",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 80,
+      "name": "getSessionProofTreeRoot",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    },
+    {
+      "opId": 81,
+      "name": "keccak256",
+      "officialSchema": true,
+      "pfEmitter": "not-reachable",
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "schema-only-not-emitted"
+    }
+  ],
+  "stateCommands": [
+    {
+      "name": "GetSelfUserCurrentContractStateSlotSingle",
+      "pfSchema": true,
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 804
+    },
+    {
+      "name": "SetContractStateSlotSingle",
+      "pfSchema": true,
+      "session": "implemented",
+      "seenInArtifacts": true,
+      "artifactCount": 111
+    },
+    {
+      "name": "GetSelfUserCurrentContractStateSlotHash",
+      "pfSchema": true,
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0
+    },
+    {
+      "name": "SetContractStateSlotHash",
+      "pfSchema": true,
+      "session": "implemented",
+      "seenInArtifacts": false,
+      "artifactCount": 0
+    },
+    {
+      "name": "InvokeExternalContractFunctionSync",
+      "pfSchema": true,
+      "session": "partial",
+      "seenInArtifacts": false,
+      "artifactCount": 0
+    },
+    {
+      "name": "SetContractStateSlotRange",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "ClearEntireTree",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "InvokeExternalContractFunctionDeferred",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "GetSelfUserCurrentContractStateSlotRange",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "GetSelfUserExternalContractStateSlotHash",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "GetSelfUserExternalContractStateSlotSingle",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "GetSelfUserExternalContractStateSlotRange",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "GetOtherUserContractStateSlotHash",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "GetOtherUserContractStateSlotSingle",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "GetOtherUserContractStateSlotRange",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "GetCheckpointLeafStats",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "GetContractLeaf",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "GetGlobalStateRoots",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "SetIMTContractStateValue",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "GetSelfUserCurrentIMTContractStateValue",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "GetSelfUserExternalIMTContractStateValue",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "GetOtherUserIMTContractStateValue",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "ContainsSelfUserCurrentIMTContractStateValue",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    },
+    {
+      "name": "ContainsOtherUserIMTContractStateValue",
+      "pfSchema": false,
+      "session": "unsupported",
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "note": "official psy_vm only; PF codec fail-closed"
+    }
+  ],
+  "artifactOps": {
+    "0": 52,
+    "1": 1981,
+    "2": 26,
+    "3": 2,
+    "4": 2369,
+    "5": 2317,
+    "6": 68,
+    "8": 940,
+    "9": 1088,
+    "10": 2513,
+    "13": 2553,
+    "14": 1,
+    "15": 293,
+    "16": 768,
+    "17": 1387,
+    "23": 5649,
+    "32": 924,
+    "34": 2820,
+    "36": 4,
+    "38": 2944,
+    "42": 3480,
+    "54": 801,
+    "72": 20
+  },
+  "artifactStateCmds": {
+    "GetSelfUserCurrentContractStateSlotSingle": 804,
+    "SetContractStateSlotSingle": 111
+  }
+}

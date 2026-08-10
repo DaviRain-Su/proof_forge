@@ -1561,3 +1561,7 @@ psy-dpn-diff: build
 # Psy: derive ABI JSON from DPN (no dargo source)
 psy-dpn-abi dpn:
     python3 scripts/psy_dpn_to_abi.py --dpn {{dpn}} -o {{dpn}}.abi.json
+
+# Psy: machine-readable OP coverage (schema × emitter × session × artifacts)
+psy-dpn-op-coverage:
+    python3 scripts/psy_dpn_op_coverage.py
