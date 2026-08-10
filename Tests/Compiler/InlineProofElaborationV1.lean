@@ -41,6 +41,16 @@ private def malformedCommandSource : String :=
   "import ProofForgeV2\n\n" ++
   "theorem inlineBroken : True :=\n"
 
+/-- Compiler-owned subject certificate names cannot be reused as invariant
+    aliases in the generated `Proof` namespace. -/
+private def reservedRootGateInvariantSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "program ReservedRootGateInvariant where\n" ++
+  "  view alive() : Bool do\n" ++
+  "    return true\n" ++
+  "  invariant subjectRootGatesOkV1 : true\n" ++
+  "  proof subjectRootGatesOkV1 using ReservedRootGateInvariantProof.safe\n"
+
 private unsafe def expectSuccessDecl (base : Environment) : IO Unit := do
   match ← elaborateInlineProofSourceV1 base successSource with
   | .error fault =>
@@ -67,6 +77,14 @@ private unsafe def expectMalformedFails (base : Environment) : IO Unit := do
   | .ok _ => throw <| IO.userError "malformed command unexpectedly succeeded"
   | .error fault => expectPhase fault .commands "malformed command"
 
+private unsafe def expectReservedRootGateInvariantFails
+    (base : Environment) : IO Unit := do
+  match ← elaborateInlineProofSourceV1 base reservedRootGateInvariantSource with
+  | .ok _ =>
+      throw <| IO.userError
+        "compiler-owned root-gate certificate name unexpectedly accepted"
+  | .error fault => expectPhase fault .commands "reserved root-gate invariant"
+
 /-- Same in-memory String surface for every case (no disk re-read path). -/
 unsafe def run : IO Unit := do
   let productSession ← ProductParserSessionV1.create
@@ -75,6 +93,7 @@ unsafe def run : IO Unit := do
   expectFalseProofFails base
   expectExtraImportFails base
   expectMalformedFails base
+  expectReservedRootGateInvariantFails base
   IO.println "Tests.Compiler.InlineProofElaborationV1: ok"
 
 end Tests.Compiler.InlineProofElaborationV1

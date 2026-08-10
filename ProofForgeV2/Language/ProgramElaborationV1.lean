@@ -72,6 +72,7 @@ def generatedSimpleClosureTheoremNameDefV1 (invName : String) : String :=
 private def isFixedInlineProofSurfaceNameV1 (name : String) : Bool :=
   name == "subjectProgramV1" || name == "subjectBytesV1" ||
     name == "subjectDataV1" || name == "subjectBodyEncodeOkV1" ||
+    name == "subjectRootGatesOkV1" ||
     name == "simpleClosureParamsV1" || name == "simpleClosureDataV1" ||
     name == "simpleClosureQnTailLegalV1" ||
     name == "simpleClosureParamsLegalV1"
@@ -2621,6 +2622,7 @@ private def elaborateProofObligations
   let modelSubjectDataName :=
     mkIdent (programName.getId ++ `Proof.subjectDataV1)
   let subjectBodyEncodeOkName := mkIdent `subjectBodyEncodeOkV1
+  let subjectRootGatesOkName := mkIdent `subjectRootGatesOkV1
   Lean.Elab.Command.elabCommand (← `(namespace $programName))
   Lean.Elab.Command.elabCommand (← `(namespace $proofNamespace))
   Lean.Elab.Command.elabCommand (← `(def $subjectDataName :
@@ -2639,6 +2641,28 @@ private def elaborateProofObligations
         ProofForgeV2.Semantic.WireV1.encodeSemanticProgramDataBodyV1
           $subjectDataName = .ok $subjectBytesName := by
       rfl))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Kernel-checked production root-gate certificate for the exact generated
+        subject. This proves only the qualified-name and table-size gates; it
+        does not stand in for structure validation or codec inversion. -/
+    theorem $subjectRootGatesOkName :
+        ProofForgeV2.Semantic.WireV1.validateProgramQualifiedNameShapeV1
+            ($subjectDataName).qualifiedName = .ok () ∧
+          ProofForgeV2.Semantic.WireV1.checkTableSize
+              ($subjectDataName).types.size = .ok () ∧
+          ProofForgeV2.Semantic.WireV1.checkTableSize
+              ($subjectDataName).constants.size = .ok () ∧
+          ProofForgeV2.Semantic.WireV1.checkTableSize
+              ($subjectDataName).logicalState.size = .ok () ∧
+          ProofForgeV2.Semantic.WireV1.checkTableSize
+              ($subjectDataName).events.size = .ok () ∧
+          ProofForgeV2.Semantic.WireV1.checkTableSize
+              ($subjectDataName).errors.size = .ok () ∧
+          ProofForgeV2.Semantic.WireV1.checkTableSize
+              ($subjectDataName).callables.size = .ok () ∧
+          ProofForgeV2.Semantic.WireV1.checkTableSize
+              ($subjectDataName).invariants.size = .ok () := by
+      exact ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩))
   for (invariantName, ordinal) in surface.invariantNames.zipIdx do
     if surface.holdsNames.contains invariantName then
       let invariantIdent := mkIdent (Name.str .anonymous invariantName)

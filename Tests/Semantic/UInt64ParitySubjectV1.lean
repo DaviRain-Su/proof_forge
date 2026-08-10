@@ -88,6 +88,9 @@ example
       ParityProbe.Proof.subjectDataV1 = .ok ()) :
     validateSemanticProgramV1 ⟨ParityProbe.Proof.subjectBytesV1⟩ =
       .ok ParityProbe.Proof.subjectDataV1 := by
+  rcases ParityProbe.Proof.subjectRootGatesOkV1 with
+    ⟨hnameShape, htypesSize, hconstantsSize, hstateSize, heventsSize,
+      herrorsSize, hcallablesSize, hinvariantsSize⟩
   have hinvert : RootFieldInvertV1 ParityProbe.Proof.subjectDataV1 := by
     change RootFieldInvertV1
       (ProofForgeV2.Semantic.UInt64ParitySubjectV1.subjectDataV1
@@ -99,7 +102,8 @@ example
       ident_count ident_increment ident_get ident_even
   exact ProofForgeV2.Semantic.SubjectDataBridgeV1.validate_of_subjectData_body_gates_invert
     ParityProbe.Proof.subjectDataV1 ParityProbe.Proof.subjectBytesV1
-    rfl rfl rfl rfl rfl rfl rfl rfl hstructure rfl hinvert
+    hnameShape htypesSize hconstantsSize hstateSize heventsSize herrorsSize
+    hcallablesSize hinvariantsSize hstructure rfl hinvert
 
 private def expect (condition : Bool) (message : String) : IO Unit := do
   unless condition do throw <| IO.userError message

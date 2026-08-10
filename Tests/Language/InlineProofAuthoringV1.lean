@@ -66,6 +66,20 @@ example
 -- Structured subject data (mig-a3-elab): preferred author surface; encode of
 -- this spine must recover product subject bytes (runtime check in `run`).
 #check Proofed.Proof.subjectDataV1
+#check Proofed.Proof.subjectRootGatesOkV1
+
+example :
+    validateProgramQualifiedNameShapeV1
+          Proofed.Proof.subjectDataV1.qualifiedName = .ok () ∧
+      checkTableSize Proofed.Proof.subjectDataV1.types.size = .ok () ∧
+      checkTableSize Proofed.Proof.subjectDataV1.constants.size = .ok () ∧
+      checkTableSize Proofed.Proof.subjectDataV1.logicalState.size = .ok () ∧
+      checkTableSize Proofed.Proof.subjectDataV1.events.size = .ok () ∧
+      checkTableSize Proofed.Proof.subjectDataV1.errors.size = .ok () ∧
+      checkTableSize Proofed.Proof.subjectDataV1.callables.size = .ok () ∧
+      checkTableSize Proofed.Proof.subjectDataV1.invariants.size = .ok () :=
+  Proofed.Proof.subjectRootGatesOkV1
+
 -- Name/module-parameterized certificate AST emitted for the literal-true
 -- simple-closure family (foundation for product-positive cert generation).
 #check Proofed.Proof.simpleClosureParamsV1
