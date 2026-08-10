@@ -132,6 +132,7 @@ class Executor:
         self.reads: list[dict] = []
         self.writes: list[dict] = []
         self.events: list[dict] = []
+        self.invokes: list[dict] = []
         self.user_id = session.user_id
         self.contract_id = session.contract_id
         self.checkpoint_id = 100  # matches psy_user_cli simulate default context
@@ -393,6 +394,7 @@ class Executor:
             "state_reads": self.reads,
             "state_writes": self.writes,
             "events": self.events,
+            "external_calls": self.invokes,
             "state_delta": [
                 {
                     "slot_index": w["slot_index"],
@@ -472,21 +474,28 @@ class Executor:
                 }
             )
         elif ctype == "InvokeExternalContractFunctionSync":
+            # PARTIAL: record shape only; no nested dispatch (matches official
+            # simulate counting external_call_ops without executing callee).
             if "condition" in cmd and not self.g(int(cmd["condition"])):
                 self.cmd_res[i] = []
                 return
             self.cmd_res[i] = []
-            self.writes.append(
-                {
-                    "command_index": i,
-                    "command_type": ctype,
-                    "slot_index": slot,
-                    "contract_id": cmd.get("contract_id"),
-                    "method_id": cmd.get("method_id"),
-                    "input_args": [self.g(int(x)) for x in (cmd.get("input_args") or [])],
-                    "note": "PARTIAL: invoke recorded, not executed",
-                }
-            )
+            def _rw(ref: int) -> int:
+                try:
+                    return self.g(int(ref))
+                except DpnError:
+                    return int(ref)
+            inv = {
+                "command_index": i,
+                "command_type": ctype,
+                "condition": True,
+                "contract_id": _rw(cmd.get("contract_id", 0)),
+                "method_id": _rw(cmd.get("method_id", 0)),
+                "input_args": [_rw(x) for x in (cmd.get("input_args") or [])],
+                "num_outputs": int(cmd.get("num_outputs") or 0),
+                "note": "PARTIAL: invoke recorded, not executed",
+            }
+            self.invokes.append(inv)
         else:
             raise DpnError(f"unsupported state cmd {ctype}")
 

@@ -585,8 +585,9 @@ private def emitVoidExternalCallV1 (b : BuilderV1) (writeCond : WireV1)
       cmds := b2.cmds.push
         (.invokeExternalContractFunctionSync
           writeCond.encoded (UInt64.ofNat ti) (UInt64.ofNat mi) args 0)
-      -- Void invoke: no consumed GetState result (official unused-result path).
-      res := b2.res.push b2.nextTarget
+      -- Official simulate: resolution = definition step. Run after hash
+      -- Constant defs (and arg wires) exist — i.e. current defs.size.
+      res := b2.res.push b2.defs.size
   }
 
 private def emitCheckedAdd (b : BuilderV1) (l r : WireV1) :

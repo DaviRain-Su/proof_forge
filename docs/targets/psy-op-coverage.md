@@ -20,6 +20,7 @@ Generator: `scripts/psy_dpn_op_coverage.py` · `just psy-dpn-op-coverage`
 - Accumulator, WideCounter (UInt128 limbs via u32 ops)
 - MapMini: official put/get + session multi-key (`put`/`get`, overwrite, miss→0)
 - EmitProbe: `emit` events (PARTIAL) official+session data/user/contract align
+- CallProbe: void `call` → InvokeExternalContractFunctionSync (PARTIAL; no nested exec)
 - LoopSum: session matches official single-call (loop body shape)
 
 **Schema-only / not emitted by PF (not a session bug):**
@@ -32,7 +33,7 @@ Generator: `scripts/psy_dpn_op_coverage.py` · `just psy-dpn-op-coverage`
 **PARTIAL:**
 
 - events: **EmitProbe covered** (session collects conditioned events; ordered-event runtime gate still PARTIAL)
-- void `InvokeExternalContractFunctionSync` (shape only)
+- void call: **CallProbe covered** (shape + hashed QN + args; nested callee not executed)
 - Map dense put: **fixed** (wire-resolved sub_slot + def-step resolution + encoded bool ops); MapMini put/get official+session green
 
 ## Regenerating

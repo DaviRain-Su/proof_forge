@@ -257,7 +257,7 @@ def main() -> int:
             },
             {
                 "id": "external-call-result",
-                "status": "void-sync PARTIAL; result/deferred FC",
+                "status": "void-sync PARTIAL CallProbe covered (shape+hashes+args); nested exec absent; result/deferred FC",
             },
             {
                 "id": "events",

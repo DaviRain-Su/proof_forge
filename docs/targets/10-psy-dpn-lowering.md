@@ -176,3 +176,14 @@ PF general multi-leaf path therefore:
 3. encodes Bool op inputs as `(bool<<32)|index` (bare bool index would read Target[i]).
 
 Counter golden templates keep historical bare 0/1 indices that resolve to storage slot 0.
+
+## 10. Void sync call + events (product probes)
+
+- `Examples/EmitProbe.lean` — `emit` → DPN `events[]` (PARTIAL ordered-event gate).
+- `Examples/CallProbe.lean` — void `call Other.ping(x)` →
+  `InvokeExternalContractFunctionSync` with FNV component hashes; `num_outputs=0`.
+  Official simulate counts `external_call_ops` without nested execution.
+  Session records the invoke (resolved contract/method hashes + args) the same way.
+
+Result-bearing `call` / `schedule` remain Plan fail-closed.
+

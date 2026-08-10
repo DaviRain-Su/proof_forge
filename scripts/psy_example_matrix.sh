@@ -14,6 +14,7 @@ mods=(
   "Examples/WideCounter.lean:Examples.WideCounter"
   "Examples/MapMini.lean:Examples.MapMini"
   "Examples/EmitProbe.lean:Examples.EmitProbe"
+  "Examples/CallProbe.lean:Examples.CallProbe"
 )
 ok=0; fail=0; skip=0
 out_root="$root/build/v2/psy-matrix"
@@ -67,6 +68,12 @@ for entry in "${mods[@]}"; do
             --call initialize:0 --call ping:5 --call get >/tmp/psy-mat-session-$name.json \
             && python3 -I -S -c "import json;d=json.load(open('/tmp/psy-mat-session-EmitProbe.json'));assert d['calls'][1]['outputs']==[5] and d['calls'][1]['events'][0]['data']==[5]" \
             && echo "  OK session emit ping" || { echo "  FAIL session"; fail=$((fail+1)); continue; }
+          ;;
+        CallProbe)
+          python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" --json \
+            --call initialize:0 --call notify:7 --call get >/tmp/psy-mat-session-$name.json \
+            && python3 -I -S -c "import json;d=json.load(open('/tmp/psy-mat-session-CallProbe.json'));assert d['calls'][1]['outputs']==[7] and d['calls'][1]['external_calls'][0]['input_args']==[7]" \
+            && echo "  OK session void call" || { echo "  FAIL session"; fail=$((fail+1)); continue; }
           ;;
       esac
       ok=$((ok+1))

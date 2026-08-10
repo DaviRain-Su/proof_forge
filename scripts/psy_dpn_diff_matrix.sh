@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Differential: official psy_user_cli simulate (single-call) vs psy_dpn_session.py
-# + multi-step continuity for StateCell / OptionState / Accumulator / WideCounter / MapMini / EmitProbe.
+# + multi-step continuity for StateCell / OptionState / Accumulator / WideCounter / MapMini / EmitProbe / CallProbe.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
@@ -240,6 +240,36 @@ python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_e" \
   --call initialize:0 --call ping:5 --call get | tee "$out/session-emit.log"
 rg -q 'outputs=\[5\]' "$out/session-emit.log"
 
+# --- CallProbe (void external call PARTIAL) ---
+dpn_c=$(build_ex CallProbe Examples.CallProbe)
+diff_pair call-notify "$dpn_c" notify --inputs 7
+python3 -I -S - "$out/off-call-notify.json" "$out/sess-call-notify.json" "$dpn_c" <<'PYC'
+import json,sys
+off=json.load(open(sys.argv[1]))
+sess=json.load(open(sys.argv[2]))
+dpn=json.load(open(sys.argv[3]))
+s=sess["calls"][0]
+assert off.get("success") and s.get("success")
+assert [int(x) for x in (off.get("outputs") or [])]==[int(x) for x in (s.get("outputs") or [])]==[7]
+# official counts the invoke
+assert int((off.get("op_counts") or {}).get("external_call_ops", 0))==1
+invs=s.get("external_calls") or []
+assert len(invs)==1 and invs[0]["input_args"]==[7] and invs[0]["num_outputs"]==0
+# hashes in package Constants must match session-resolved contract/method ids
+fn=[f for f in dpn if f["name"]=="notify"][0]
+inv_cmd=[c for c in fn["state_commands"] if c.get("type")=="InvokeExternalContractFunctionSync"][0]
+tc={d["index"]:(d["inputs"][0] if d.get("inputs") else 0)
+    for d in fn["definitions"] if d.get("data_type")==0 and d.get("op_type")==1}
+want_c=int(tc[int(inv_cmd["contract_id"])]); want_m=int(tc[int(inv_cmd["method_id"])])
+assert int(invs[0]["contract_id"])==want_c and int(invs[0]["method_id"])==want_m
+print(f"OK diff call-notify invoke args=[7] hashes=({want_c},{want_m})")
+PYC
+
+info "session continuity CallProbe init+notify+get"
+python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_c" \
+  --call initialize:0 --call notify:7 --call get | tee "$out/session-call.log"
+rg -q 'outputs=\[7\]' "$out/session-call.log"
+
 # coverage report from built artifacts
 python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
   --artifact-root "$out" -o "$out/psy-op-coverage.v1.json"
@@ -247,5 +277,5 @@ python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
 python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
   --artifact-root "$out" -o "$root/docs/targets/psy-op-coverage.v1.json"
 
-info "OK differential matrix + MapMini multi-key + EmitProbe events + coverage"
+info "OK differential matrix + MapMini multi-key + EmitProbe events + CallProbe invoke + coverage"
 echo "artifacts: $out"
