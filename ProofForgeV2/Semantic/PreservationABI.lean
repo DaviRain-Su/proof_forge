@@ -518,6 +518,20 @@ def PreservationReturnedCallablesV1
     admitted.data.callables[callableId.toNat]? = some callable →
     PreservationReturnedCallableV1 program ordinal admitted callableId callable
 
+/-- Finite exact-row view of returned preservation obligations. This is the
+    program-specific skeleton shape: each `Fin data.callables.size` row fixes
+    both its dense callable id and the exact `CallableV1` value. A separate
+    equality must bind `data` to the positively admitted subject before these
+    rows can close the exhaustive admitted-table proposition above. -/
+def PreservationReturnedRowsV1
+    (program : SemanticProgramV1)
+    (ordinal : InvariantOrdinalV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (data : SemanticProgramDataV1) : Prop :=
+  ∀ index : Fin data.callables.size,
+    PreservationReturnedCallableV1 program ordinal admitted
+      (UInt32.ofNat index.val) data.callables[index]
+
 /-- Generic L1 preservation proposition. Reference admission is a positive
     existential obligation, so unsupported programs cannot satisfy it vacuously. -/
 def PreservationTheoremV1

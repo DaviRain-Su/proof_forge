@@ -707,7 +707,7 @@ proof-bearing target build 继续 fail closed。
 | 1 | Typed State + codec bridge | **进行中（generated Bool/UInt64 codec proof 首切已完成）** | generated `Model.State` 复用 production codec；`Model.encode_exists`、`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；Bool 的产品 accepted-language 接线与更多 scalar shape 仍待补 |
 | 2 | Typed callable transition | **进行中（initialized entry/view + 独立 initializer lifecycle relation 首切已完成）** | pre-init 只使用 exact production lifecycle carrier；initializer returned state 与 ordinary callable returned state 均可唯一投影为 typed State，固定 typed 输入有且至多有一个 typed outcome |
 | 3 | Typed invariant bridge | **进行中（evaluator + UInt64 字段 Eq/Ne 数学 bridge 首切已完成）** | generated predicate 使用 exact state encoder 与 lowered invariant ordinal，并与 production `evalInvariantV1` 双向对齐；exact two-state Eq/Ne CFG 已 fail-closed 投影成字段 `=`/`≠` 且不再暴露 encoding witness；这不是任意 expression translator，更多表达式与 exact validation packaging 仍待补 |
-| 4 | Generic preservation composition | **进行中（composer + generated obligation skeleton 首切已完成）** | exact admitted callable-table coverage + initializer/no-initializer base + per-call returned obligations 自动包成 exact `PreservationTheoremV1`；每个 preserving invariant 已生成 exact ordinal/callable-row targets 与 assembler，typed row aggregation ergonomics 和完整 Vault 实例仍待补 |
+| 4 | Generic preservation composition | **进行中（composer + generated finite-row assembler 首切已完成）** | exact admitted callable-table coverage + initializer/no-initializer base + per-call returned obligations 自动包成 exact `PreservationTheoremV1`；每个 preserving invariant 已生成 exact ordinal/callable-row targets 与 finite-row assembler，typed business bridge 和完整 Vault 实例仍待补 |
 | 5 | Same-file certifier ergonomics | 部分地基已有 | 任意未 pin 合约的真实 proof body可 certified |
 | 6 | authority amendment + VerifiedVaultPF + NEAR build/runtime | 未开始 | 先批准 versioned invariant-erasure contract，再完成单文件 proof + build + runtime differential；诚实标注 Reference-level |
 | 7 | Per-target refinement | 未开始 | target-specific refinement evidence逐个关闭 |
@@ -810,7 +810,7 @@ proof-bearing target build 继续 fail closed。
    view id，以及 relation 展开后每个分支唯一出现的 `stepReferenceSliceV1`；没有 generated evaluator；
 17. typed invariant 已进入下述 Phase 3 首切，并完成 exact UInt64 两字段 Eq/Ne 的普通 Lean
    数学投影；Phase 4 也已有 per-callable returned composer 与 program-specific exact row/ordinal
-   obligation skeleton，但 typed row aggregation ergonomics、更多 expression shape 与
+   finite aggregation/assembler，但 typed business bridge、更多 expression shape 与
    premise-free packaging 仍未完成；
 18. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
    完成前不能称 target artifact verified。
@@ -933,13 +933,17 @@ expression translator：
 5. `preservationTheoremV1_of_callableObligationsV1` 共享一个 positive admitted witness，并把
    ordinal bound、selected lifecycle base、exact callable-table returned obligations 组合成原有
    `PreservationTheoremV1`。没有新增 `State`、`Effect`、step 或 evaluator；
-6. elaborator 已在每个 `ProofPreserving.<inv>` namespace 生成 exact `BaseV1`、initializer/no-init
-   分支、`ReturnedCallablesV1`、逐 callable-index `callable<N>ReturnedV1` 与
-   `ofCallableObligationsV1`；nonzero invariant ordinal 与 exact callable row 均有回归。它只生成
+6. `PreservationReturnedRowsV1` 以 `Fin subjectData.callables.size` 固定 finite row；通用 lift 只有在
+   `admitted.data = subjectData` 时才把 rows 升为 exhaustive admitted-table obligations，避免用另一
+   subject 的 row proof 拼接；
+7. elaborator 已在每个 `ProofPreserving.<inv>` namespace 生成 exact `BaseV1`、initializer/no-init
+   分支、`ReturnedCallablesV1`/`ReturnedRowsV1`、逐 callable-index
+   `callable<N>ReturnedV1`、finite `returnedRowsV1` 与 `ofRowObligationsV1`；新增/重排 row 会改变
+   assembler premise list。nonzero invariant ordinal 与 exact callable row 均有回归。它只生成
    theorem target/assembler，不生成业务 proof 或 transition；
-7. 当前尚未把逐 row typed business lemmas自动聚合为 `ReturnedCallablesV1`，也尚未完成
-   VerifiedVaultPF 的 initializer、deposit、withdraw、status returned 业务 lemmas；因此 Phase 4
-   与“任意业务合约验证”仍不能称完成。
+8. 当前尚未把 generated typed `Model.<callable>.Transition` business theorem便利地桥接到 raw
+   returned-row obligation，也尚未完成 VerifiedVaultPF 的 initializer、deposit、withdraw、status
+   returned 业务 lemmas；因此 Phase 4 与“任意业务合约验证”仍不能称完成。
 
 ---
 

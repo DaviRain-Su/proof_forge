@@ -75,6 +75,15 @@ example (program : SemanticProgramV1) (ordinal : InvariantOrdinalV1)
 
 example (program : SemanticProgramV1) (ordinal : InvariantOrdinalV1)
     (admitted : AdmittedReferenceSliceV1)
+    (data : SemanticProgramDataV1)
+    (hadmittedData : admitted.data = data)
+    (hrows : PreservationReturnedRowsV1 program ordinal admitted data) :
+    PreservationReturnedCallablesV1 program ordinal admitted :=
+  preservationReturnedCallablesV1_of_rowsV1 program ordinal admitted data
+    hadmittedData hrows
+
+example (program : SemanticProgramV1) (ordinal : InvariantOrdinalV1)
+    (admitted : AdmittedReferenceSliceV1)
     (hreturned : PreservationReturnedCallablesV1 program ordinal admitted) :
     PreservationStepV1 program ordinal admitted :=
   preservationStepV1_of_returnedCallablesV1 program ordinal admitted hreturned

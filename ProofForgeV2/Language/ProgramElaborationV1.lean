@@ -2826,13 +2826,29 @@ private def elaboratePreservationSkeletonV1
   let withInitializerBaseName := mkIdent `WithInitializerBaseV1
   let noInitializerBaseName := mkIdent `NoInitializerBaseV1
   let returnedCallablesName := mkIdent `ReturnedCallablesV1
+  let returnedRowsName := mkIdent `ReturnedRowsV1
+  let returnedRowsConstructorName := mkIdent `returnedRowsV1
+  let returnedCallablesOfRowsName := mkIdent `returnedCallablesOfRowsV1
   let assembleName := mkIdent `ofCallableObligationsV1
+  let assembleRowsName := mkIdent `ofRowObligationsV1
   let validateName := mkIdent `hvalidate
   let admitName := mkIdent `hadmit
   let baseProofName := mkIdent `hbase
   let returnedProofName := mkIdent `hreturned
+  let rowsProofName := mkIdent `hrows
+  let indexName := mkIdent `index
+  let rowNames : Array (TSyntax `ident) :=
+    data.callables.zipIdx.map fun (_callable, callableIndex) =>
+      mkIdent (Name.mkSimple (s!"callable{callableIndex}ReturnedV1"))
+  let rowProofNames : Array (TSyntax `ident) :=
+    data.callables.zipIdx.map fun (_callable, callableIndex) =>
+      mkIdent (Name.mkSimple (s!"hcallable{callableIndex}"))
+  let rowProofTypes ← Lean.Elab.liftMacroM <|
+    rowNames.mapM fun rowName => `(term| $rowName $admittedName)
   let ordinalTerm : TSyntax `term :=
     ⟨Syntax.mkNumLit (toString ordinal)⟩
+  let callableCountTerm : TSyntax `term :=
+    ⟨Syntax.mkNumLit (toString data.callables.size)⟩
   Lean.Elab.Command.elabCommand (← `(namespace $invariantNamespace))
   Lean.Elab.Command.elabCommand (← `(
     /-- Exact selected lifecycle-base obligation for this generated subject
@@ -2863,9 +2879,15 @@ private def elaboratePreservationSkeletonV1
           ProofForgeV2.Semantic.ReferenceV1.AdmittedReferenceSliceV1) : Prop :=
       ProofForgeV2.Semantic.PreservationABI.PreservationReturnedCallablesV1
         $subjectProgramName $ordinalTerm $admittedName))
-  for (_callable, callableIndex) in data.callables.zipIdx do
-    let rowName :=
-      mkIdent (Name.mkSimple (s!"callable{callableIndex}ReturnedV1"))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Finite exact-row form used to combine one proof per generated callable
+        before lifting to admitted-table coverage. -/
+    abbrev $returnedRowsName
+        ($admittedName :
+          ProofForgeV2.Semantic.ReferenceV1.AdmittedReferenceSliceV1) : Prop :=
+      ProofForgeV2.Semantic.PreservationABI.PreservationReturnedRowsV1
+        $subjectProgramName $ordinalTerm $admittedName $subjectDataName))
+  for (rowName, callableIndex) in rowNames.zipIdx do
     let callableIndexTerm : TSyntax `term :=
       ⟨Syntax.mkNumLit (toString callableIndex)⟩
     Lean.Elab.Command.elabCommand (← `(
@@ -2876,8 +2898,64 @@ private def elaboratePreservationSkeletonV1
           ($admittedName :
             ProofForgeV2.Semantic.ReferenceV1.AdmittedReferenceSliceV1) : Prop :=
         ProofForgeV2.Semantic.PreservationABI.PreservationReturnedCallableV1
-          $subjectProgramName $ordinalTerm $admittedName $callableIndexTerm
+          $subjectProgramName $ordinalTerm $admittedName
+          (UInt32.ofNat $callableIndexTerm)
           (($subjectDataName).callables[$callableIndexTerm]'(by decide))))
+  let mut rowsBody : TSyntax `term ← `(term| by
+    have hbound := ($indexName).isLt
+    change ($indexName).val < $callableCountTerm at hbound
+    omega)
+  for (rowProofName, callableIndex) in rowProofNames.zipIdx.reverse do
+    let callableIndexTerm : TSyntax `term :=
+      ⟨Syntax.mkNumLit (toString callableIndex)⟩
+    rowsBody ← `(term|
+      if hindex : ($indexName).val = $callableIndexTerm then
+        by
+          have hbound :
+              $callableIndexTerm < ($subjectDataName).callables.size := by
+            change $callableIndexTerm < $callableCountTerm
+            decide
+          have hfin : $indexName =
+              (⟨$callableIndexTerm, hbound⟩ :
+                Fin ($subjectDataName).callables.size) :=
+            Fin.ext hindex
+          subst $indexName
+          exact $rowProofName
+      else $rowsBody)
+  let rowsFunction ← Lean.Elab.liftMacroM <|
+    `(term| fun $indexName => $rowsBody)
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Combine the separately proved exact callable rows. The generated finite
+        split is exhaustive for this subject table, so adding/reordering a row
+        changes this theorem's premises. -/
+    theorem $returnedRowsConstructorName
+        ($admittedName :
+          ProofForgeV2.Semantic.ReferenceV1.AdmittedReferenceSliceV1)
+        $[($rowProofNames : $rowProofTypes)]* :
+        $returnedRowsName $admittedName :=
+      $rowsFunction))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Bind generated finite rows to the same positively admitted data and
+        recover exhaustive callable-table coverage. -/
+    theorem $returnedCallablesOfRowsName
+        ($admittedName :
+          ProofForgeV2.Semantic.ReferenceV1.AdmittedReferenceSliceV1)
+        ($validateName :
+          ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+              $subjectProgramName = .ok $subjectDataName)
+        ($admitName :
+          ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1
+              $subjectProgramName = .ok $admittedName)
+        ($rowsProofName : $returnedRowsName $admittedName) :
+        $returnedCallablesName $admittedName := by
+      have hadmittedData : ($admittedName).data = $subjectDataName :=
+        (ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1_ok_implies
+          $subjectProgramName $subjectDataName $admittedName $validateName
+            $admitName).2
+      exact
+        ProofForgeV2.Semantic.PreservationPackagingV1.preservationReturnedCallablesV1_of_rowsV1
+          $subjectProgramName $ordinalTerm $admittedName $subjectDataName
+            hadmittedData $rowsProofName))
   Lean.Elab.Command.elabCommand (← `(
     /-- Assemble this exact preserving obligation from one positive admission,
         the selected lifecycle base, and exhaustive returned callable proofs.
@@ -2906,6 +2984,30 @@ private def elaboratePreservationSkeletonV1
       · exact $admitName
       · exact $baseProofName
       · exact $returnedProofName))
+  let mut rowsTerm : TSyntax `term ←
+    `(term| $returnedRowsConstructorName $admittedName)
+  for rowProofName in rowProofNames do
+    rowsTerm ← `(term| $rowsTerm $rowProofName)
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Author-facing finite-row assembler: one exact premise per generated
+        callable plus the selected lifecycle base yields the preserving theorem.
+        Production gate/failure coverage remains in the generic composer. -/
+    theorem $assembleRowsName
+        ($admittedName :
+          ProofForgeV2.Semantic.ReferenceV1.AdmittedReferenceSliceV1)
+        ($validateName :
+          ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+              $subjectProgramName = .ok $subjectDataName)
+        ($admitName :
+          ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1
+              $subjectProgramName = .ok $admittedName)
+        ($baseProofName : $baseName $admittedName)
+        $[($rowProofNames : $rowProofTypes)]* :
+        ProofForgeV2.Semantic.PreservationABI.PreservationTheoremV1
+          $subjectProgramName $ordinalTerm := by
+      apply $assembleName $admittedName $validateName $admitName $baseProofName
+      apply $returnedCallablesOfRowsName $admittedName $validateName $admitName
+      exact $rowsTerm))
   Lean.Elab.Command.elabCommand (← `(end $invariantNamespace))
 
 private def elaborateProofObligations

@@ -132,9 +132,13 @@ program PreservingSurface where
 #check PreservingSurface.ProofPreserving.safe.WithInitializerBaseV1
 #check PreservingSurface.ProofPreserving.safe.NoInitializerBaseV1
 #check PreservingSurface.ProofPreserving.safe.ReturnedCallablesV1
+#check PreservingSurface.ProofPreserving.safe.ReturnedRowsV1
 #check PreservingSurface.ProofPreserving.safe.callable0ReturnedV1
 #check PreservingSurface.ProofPreserving.safe.callable1ReturnedV1
+#check PreservingSurface.ProofPreserving.safe.returnedRowsV1
+#check PreservingSurface.ProofPreserving.safe.returnedCallablesOfRowsV1
 #check PreservingSurface.ProofPreserving.safe.ofCallableObligationsV1
+#check PreservingSurface.ProofPreserving.safe.ofRowObligationsV1
 
 example :
     validateSemanticProgramStructureV1
@@ -165,6 +169,19 @@ example (admitted : AdmittedReferenceSliceV1)
     PreservingSurface.ProofPreserving.safe :=
   PreservingSurface.ProofPreserving.safe.ofCallableObligationsV1 admitted
     PreservingSurface.Proof.subjectValidationOkV1 hadmit hbase hreturned
+
+example (admitted : AdmittedReferenceSliceV1)
+    (hadmit : admitReferenceProgramSliceV1
+      PreservingSurface.Proof.subjectProgramV1 = .ok admitted)
+    (hbase : PreservingSurface.ProofPreserving.safe.BaseV1 admitted)
+    (hcallable0 :
+      PreservingSurface.ProofPreserving.safe.callable0ReturnedV1 admitted)
+    (hcallable1 :
+      PreservingSurface.ProofPreserving.safe.callable1ReturnedV1 admitted) :
+    PreservingSurface.ProofPreserving.safe :=
+  PreservingSurface.ProofPreserving.safe.ofRowObligationsV1 admitted
+    PreservingSurface.Proof.subjectValidationOkV1 hadmit hbase hcallable0
+      hcallable1
 
 program DualKindSurface where
   view alive() : Bool do
@@ -513,6 +530,7 @@ program TypedInvariantOrdinalSurface where
 #check TypedInvariantOrdinalSurface.ProofPreserving.secondary.callable0ReturnedV1
 #check TypedInvariantOrdinalSurface.ProofPreserving.secondary.ReturnedCallablesV1
 #check TypedInvariantOrdinalSurface.ProofPreserving.secondary.ofCallableObligationsV1
+#check TypedInvariantOrdinalSurface.ProofPreserving.secondary.ofRowObligationsV1
 
 example (admitted : AdmittedReferenceSliceV1) :
     TypedInvariantOrdinalSurface.ProofPreserving.secondary.ReturnedCallablesV1

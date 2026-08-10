@@ -135,6 +135,29 @@ theorem preservationReturnedCallablesV1_of_stepV1
   rw [hstep] at hresult
   exact hresult
 
+/-- Lift a finite exact-row proof into exhaustive admitted-table coverage.
+    `hadmittedData` must identify the row source with the same positive
+    admission witness used by the production step. -/
+theorem preservationReturnedCallablesV1_of_rowsV1
+    (program : SemanticProgramV1)
+    (ordinal : InvariantOrdinalV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (data : SemanticProgramDataV1)
+    (hadmittedData : admitted.data = data)
+    (hrows : PreservationReturnedRowsV1 program ordinal admitted data) :
+    PreservationReturnedCallablesV1 program ordinal admitted := by
+  intro callableId callable hlookup
+  rw [hadmittedData] at hlookup
+  rcases Array.getElem?_eq_some_iff.mp hlookup with ⟨hbound, heq⟩
+  let index : Fin data.callables.size := ⟨callableId.toNat, hbound⟩
+  have hrow := hrows index
+  have hcallable : data.callables[index] = callable := by
+    simpa [index] using heq
+  have hcallableId : UInt32.ofNat index.val = callableId := by
+    simp [index, UInt32.ofNat_toNat]
+  rw [hcallableId, hcallable] at hrow
+  exact hrow
+
 /-- Compose exhaustive per-callable returned obligations with the generic
     production failure arms into the universal one-step preservation ABI. -/
 theorem preservationStepV1_of_returnedCallablesV1
