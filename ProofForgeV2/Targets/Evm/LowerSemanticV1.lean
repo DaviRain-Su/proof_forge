@@ -4,6 +4,7 @@ import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Targets.EnvelopeV1
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Core.RequirementIdsV1
+import ProofForgeV2.Core.TargetIdentityV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Targets.Evm.Keccak
 import ProofForgeV2.Targets.Evm.PfAssetsCatalogV1
@@ -263,6 +264,17 @@ inductive Expr where
       Full map reverts inside the helper; `storeAtomic` batch path folds 24
       leaves into one `pf_map_u64_upsert`. -/
   | mapUInt64UpsertLeaf (mapBaseSlot : Nat) (key value : Expr) (leafIndex : Nat)
+  /-- Hashed-Map profile: Option tag from `sload(keccak256(key||base))` occupancy. -/
+  | mapUInt64HashedLookupTag (mapBaseSlot : Nat) (key : Expr)
+  /-- Hashed-Map profile: payload from `sload(keccak256(key||base)+1)`. -/
+  | mapUInt64HashedLookupPayload (mapBaseSlot : Nat) (key : Expr)
+  /-- Hashed-Map profile: upsert writes occ at keccak(h) and payload at h+1;
+      used as the sole leaf of a one-slot Map aggregate store. -/
+  | mapUInt64HashedUpsert (mapBaseSlot : Nat) (key value : Expr)
+  /-- Hashed-Map Principal: Option tag (key = 9-leaf Principal in keyMem). -/
+  | mapPrincipalHashedLookupTag (mapBaseSlot : Nat) (keyLeaves : Array Expr)
+  | mapPrincipalHashedLookupPayload (mapBaseSlot : Nat) (keyLeaves : Array Expr)
+  | mapPrincipalHashedUpsert (mapBaseSlot : Nat) (keyLeaves : Array Expr) (value : Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -466,6 +478,10 @@ structure Plan where
   /-- Dense pureFn table in source-order of pureFn callables. Default empty
   keeps historical Plan literals byte-identical. -/
   fns : Array FnBinding := #[]
+  /-- When true, Map state uses hashed storage (1 base slot per Map; entries at
+      keccak256). Default false preserves dense 24/44-leaf layout and historical
+      Plan goldens. Set by `evm-yul-solc-0.8.34-hashmap-v1` only. -/
+  hashedMapStorage : Bool := false
   deriving BEq, Inhabited, Repr
 private def planError (message : String) : CompileResult α :=
   .error <| .planInvariant .evm message
@@ -547,6 +563,8 @@ private structure EvmLowerLayoutV1 where
   /-- Exact `extension.pf-assets` row present in retained requirements
       (ADR-0029 B2 QN gate). -/
   pfAssetsDeclared : Bool := false
+  /-- Hashed-Map storage profile (1 base slot per Map). -/
+  hashedMapStorage : Bool := false
   deriving Inhabited
 
 /-- Resolve admitted scalar state/param TypeId to physical byte width
@@ -876,7 +894,8 @@ private def evmMapPrincipalLeafCountV1 : Nat :=
     Dynamic keys supported. Returns `none` when not an admitted Map shape. -/
 private def mapUInt64LeafCountV1
     (typeDecls : Array TypeDeclV1) (types : EvmTypeClosureV1)
-    (_mapStaticKeys : Array UInt64) (typeId : TypeIdV1) :
+    (_mapStaticKeys : Array UInt64) (typeId : TypeIdV1)
+    (hashedMapStorage : Bool := false) :
     CompileResult (Option Nat) := do
   match typeDecls[typeId.toNat]? with
   | some { shape := .map keyTid valTid, .. } =>
@@ -884,9 +903,10 @@ private def mapUInt64LeafCountV1
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: Map state value must be UInt64"
       if keyTid == types.uint64TypeId then
-        pure (some evmMapPilotLeafCountV1)
+        -- Hashed profile: one base slot (entries at keccak256(key||base)).
+        pure (some (if hashedMapStorage then 1 else evmMapPilotLeafCountV1))
       else if types.isPrincipal keyTid then
-        pure (some evmMapPrincipalLeafCountV1)
+        pure (some (if hashedMapStorage then 1 else evmMapPrincipalLeafCountV1))
       else
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: Map state admits only Map UInt64 UInt64 or Map Principal UInt64"
@@ -927,7 +947,21 @@ private def contiguousMapUInt64BaseV1 (leaves : Array Expr) : Option Nat := Id.r
 /-- Dense Map IndexGet → Option UInt64 as `[tag, payload]`.
     Prefers M2b compact storage-base ops; forest fallback for non-storage bases. -/
 private def mapLookupOptionLeavesV1
-    (mapLeaves : Array Expr) (key : Expr) : CompileResult (Array Expr) := do
+    (mapLeaves : Array Expr) (key : Expr)
+    (hashedMapStorage : Bool := false) : CompileResult (Array Expr) := do
+  if hashedMapStorage then
+    unless mapLeaves.size == 1 do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: hashed Map leaf count must be 1"
+    let some head := mapLeaves[0]? |
+      throw <| .planInvariant .evm "hashed Map base leaf missing"
+    match head with
+    | .storageLoad baseSlot =>
+        return #[Expr.mapUInt64HashedLookupTag baseSlot key,
+          Expr.mapUInt64HashedLookupPayload baseSlot key]
+    | _ =>
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: hashed Map base must be storageLoad"
   unless mapLeaves.size == evmMapPilotLeafCountV1 do
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: Map leaf count must match pilot capacity"
@@ -955,8 +989,21 @@ private def mapLookupOptionLeavesV1
 /-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert).
     Compact path: 24 `mapUInt64UpsertLeaf` + `okInsert=literal 1` (helper reverts). -/
 private def mapUpsertLeavesV1
-    (mapLeaves : Array Expr) (key value : Expr) :
+    (mapLeaves : Array Expr) (key value : Expr)
+    (hashedMapStorage : Bool := false) :
     CompileResult (Array Expr × Expr) := do
+  if hashedMapStorage then
+    unless mapLeaves.size == 1 do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: hashed Map leaf count must be 1"
+    let some head := mapLeaves[0]? |
+      throw <| .planInvariant .evm "hashed Map base leaf missing"
+    match head with
+    | .storageLoad baseSlot =>
+        return (#[Expr.mapUInt64HashedUpsert baseSlot key value], Expr.literal 1)
+    | _ =>
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: hashed Map base must be storageLoad"
   unless mapLeaves.size == evmMapPilotLeafCountV1 do
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: Map leaf count must match pilot capacity"
@@ -1033,14 +1080,28 @@ private def contiguousPrincipalMapBaseV1 (leaves : Array Expr) : Option Nat := I
     historical per-entry mux forest only when the map is not contiguous storage
     (intermediate non-state aggregates — rare; still correct, large). -/
 private def mapPrincipalLookupOptionLeavesV1
-    (mapLeaves : Array Expr) (keyLeaves : Array Expr) :
+    (mapLeaves : Array Expr) (keyLeaves : Array Expr)
+    (hashedMapStorage : Bool := false) :
     CompileResult (Array Expr) := do
-  unless mapLeaves.size == evmMapPrincipalLeafCountV1 do
-    throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: Principal Map leaf count must match pilot capacity"
   unless keyLeaves.size == evmMapPrincipalKeyLeafCountV1 do
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: Principal Map key must be 9-leaf Principal"
+  if hashedMapStorage then
+    unless mapLeaves.size == 1 do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: hashed Principal Map leaf count must be 1"
+    let some head := mapLeaves[0]? |
+      throw <| .planInvariant .evm "hashed Principal Map base leaf missing"
+    match head with
+    | .storageLoad baseSlot =>
+        return #[Expr.mapPrincipalHashedLookupTag baseSlot keyLeaves,
+          Expr.mapPrincipalHashedLookupPayload baseSlot keyLeaves]
+    | _ =>
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: hashed Principal Map base must be storageLoad"
+  unless mapLeaves.size == evmMapPrincipalLeafCountV1 do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: Principal Map leaf count must match pilot capacity"
   match contiguousPrincipalMapBaseV1 mapLeaves with
   | some baseSlot =>
       pure #[
@@ -1077,14 +1138,27 @@ private def mapPrincipalLookupOptionLeavesV1
     `okInsert` is then the constant 1 so the existing first-leaf gate is a
     no-op. Forest fallback returns a real `okInsert` for non-storage bases. -/
 private def mapPrincipalUpsertLeavesV1
-    (mapLeaves : Array Expr) (keyLeaves : Array Expr) (value : Expr) :
+    (mapLeaves : Array Expr) (keyLeaves : Array Expr) (value : Expr)
+    (hashedMapStorage : Bool := false) :
     CompileResult (Array Expr × Expr) := do
-  unless mapLeaves.size == evmMapPrincipalLeafCountV1 do
-    throw <| .planInvariant .evm
-      "unsupported EVM semantic shape: Principal Map leaf count must match pilot capacity"
   unless keyLeaves.size == evmMapPrincipalKeyLeafCountV1 do
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: Principal Map key must be 9-leaf Principal"
+  if hashedMapStorage then
+    unless mapLeaves.size == 1 do
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: hashed Principal Map leaf count must be 1"
+    let some head := mapLeaves[0]? |
+      throw <| .planInvariant .evm "hashed Principal Map base leaf missing"
+    match head with
+    | .storageLoad baseSlot =>
+        return (#[Expr.mapPrincipalHashedUpsert baseSlot keyLeaves value], Expr.literal 1)
+    | _ =>
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: hashed Principal Map base must be storageLoad"
+  unless mapLeaves.size == evmMapPrincipalLeafCountV1 do
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: Principal Map leaf count must match pilot capacity"
   match contiguousPrincipalMapBaseV1 mapLeaves with
   | some baseSlot => do
       let mut out : Array Expr := #[]
@@ -1332,7 +1406,8 @@ private def makeStorageLayoutV1
     (typeDecls : Array TypeDeclV1)
     (states : Array StateDeclV1)
     (mapStaticKeys : Array UInt64)
-    (pfAssetsDeclared : Bool := false) : CompileResult EvmLowerLayoutV1 := do
+    (pfAssetsDeclared : Bool := false)
+    (hashedMapStorage : Bool := false) : CompileResult EvmLowerLayoutV1 := do
   if states.size > maxStorageBindings then
     throw <| .planInvariant .evm s!"state count exceeds profile limit {maxStorageBindings}"
   let mut bindings : Array StorageBinding := #[]
@@ -1342,16 +1417,19 @@ private def makeStorageLayoutV1
       throw <| .planInvariant .evm "semantic state ids must match declaration order"
     unless isIdentifier state.name do
       throw <| .planInvariant .evm s!"state name '{state.name}' is not an EVM ABI identifier"
-    match ← mapUInt64LeafCountV1 typeDecls types mapStaticKeys state.typeId with
+    match ← mapUInt64LeafCountV1 typeDecls types mapStaticKeys state.typeId
+        hashedMapStorage with
     | some n =>
-        -- Dense Map pilot: fixed 3×capacity occ/key/val leaves named `{state}_{i}`.
+        -- Dense: fixed 3×capacity leaves; hashed: single base slot `{state}_base`.
         requirePublicUInt64OrInt64OrFieldOrPrincipalOrNamedOrContainerState
           evmPlanErr types state (allowNonPublic := true)
         if bindings.size + n > maxStorageBindings then
           throw <| .planInvariant .evm s!"state count exceeds profile limit {maxStorageBindings}"
         let mut leaves : Array Nat := #[]
         for i in [0:n] do
-          let leafName := state.name ++ "_" ++ toString i
+          let leafName :=
+            if hashedMapStorage && n == 1 then state.name ++ "_base"
+            else state.name ++ "_" ++ toString i
           unless isIdentifier leafName do
             throw <| .planInvariant .evm
               s!"state name '{leafName}' is not an EVM ABI identifier"
@@ -1449,7 +1527,14 @@ private def makeStorageLayoutV1
                     byteWidth
                   }
                   stateLeaves := stateLeaves.push #[slot]
-  pure { bindings, stateLeaves, typeDecls, mapStaticKeys, pfAssetsDeclared }
+  pure {
+    bindings := bindings
+    stateLeaves := stateLeaves
+    typeDecls := typeDecls
+    mapStaticKeys := mapStaticKeys
+    pfAssetsDeclared := pfAssetsDeclared
+    hashedMapStorage := hashedMapStorage
+  }
 
 /-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
 private def mkParamExpr (bitWidth : Nat) (wordIndex : Nat) : Expr :=
@@ -2576,7 +2661,7 @@ private def lowerBlockInstructionsV1
         if types.isContainer result.typeId then
           -- Array/Bytes multi-leaf load OR I1 Map present+value leaves.
           let bitWidth ← match ← mapUInt64LeafCountV1 layout.typeDecls types
-              layout.mapStaticKeys result.typeId with
+              layout.mapStaticKeys result.typeId layout.hashedMapStorage with
             | some n =>
                 unless leaves.size == n do
                   throw <| .planInvariant .evm
@@ -3198,15 +3283,22 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: construct result typeId must match op typeId"
         if types.isContainer typeId then
-          match ← mapUInt64LeafCountV1 layout.typeDecls types layout.mapStaticKeys typeId with
+          match ← mapUInt64LeafCountV1 layout.typeDecls types layout.mapStaticKeys typeId layout.hashedMapStorage with
           | some n =>
-              -- I1: Map.empty only (ctor 0, no args) → 2N zero present+value leaves.
+              -- I1: Map.empty only (ctor 0, no args) → dense 24/44 zero leaves,
+              -- or hashed single base-slot zero (constructor only).
               unless ctorIdx == 0 do
                 throw <| .planInvariant .evm
                   "unsupported EVM semantic shape: Map construct ctorIdx must be 0 (Map.empty)"
               unless argIds.isEmpty do
                 throw <| .planInvariant .evm
                   "unsupported EVM semantic shape: Map construct admits only empty Map.empty"
+              -- Hashed Map cannot enumerate historical keccak entries; runtime
+              -- `m := Map.empty()` would silently leave stale entries. Allow
+              -- constructor init only (fresh storage is zero); fail closed else.
+              if layout.hashedMapStorage && mode != .constructor then
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: hashed Map profile admits Map.empty only in constructor (no runtime clear)"
               let mut leafExprs : Array Expr := #[]
               let mut leafIsInt : Array Bool := #[]
               for _ in [0:n] do
@@ -3577,7 +3669,8 @@ private def lowerBlockInstructionsV1
         -- Principal Map: key is 9-leaf Principal aggregate (not UInt).
         match types.uintWidthOf result.typeId with
         | none =>
-            if isEvmMapPrincipalLeafCountV1 base.leafExprs.size then
+            if isEvmMapPrincipalLeafCountV1 base.leafExprs.size ||
+                (layout.hashedMapStorage && base.leafExprs.size == 1 && idx.isAggregate) then
               unless idx.isAggregate do
                 throw <| .planInvariant .evm
                   "unsupported EVM semantic shape: Principal Map IndexGet key must be Principal aggregate"
@@ -3586,6 +3679,7 @@ private def lowerBlockInstructionsV1
                   "unsupported EVM semantic shape: Principal Map IndexGet key leaf count mismatch"
               let optLeaves ←
                 mapPrincipalLookupOptionLeavesV1 base.leafExprs idx.leafExprs
+                  layout.hashedMapStorage
               let value := mkAggregateValueV1
                 optLeaves #[false, false] #[baseId, idxId]
                 (Nat.max base.depth idx.depth + 1)
@@ -3595,11 +3689,13 @@ private def lowerBlockInstructionsV1
               unless !idx.isBool && !idx.isInt && !idx.isField && !idx.isAggregate do
                 throw <| .planInvariant .evm
                   "unsupported EVM semantic shape: IndexGet index must be unsigned integer"
-              -- Map UInt64 → Option path (dense pilot table; dynamic keys OK).
-              unless base.leafExprs.size == evmMapPilotLeafCountV1 do
+              -- Map UInt64 → Option path (dense 24 leaves or hashed 1 base).
+              unless base.leafExprs.size == evmMapPilotLeafCountV1 ||
+                  (layout.hashedMapStorage && base.leafExprs.size == 1) do
                 throw <| .planInvariant .evm
                   "unsupported EVM semantic shape: Map IndexGet base leaf count mismatch"
               let optLeaves ← mapLookupOptionLeavesV1 base.leafExprs idx.expr
+                layout.hashedMapStorage
               let value := mkAggregateValueV1
                 optLeaves #[false, false] #[baseId, idxId]
                 (Nat.max base.depth idx.depth + 1)
@@ -3652,7 +3748,7 @@ private def lowerBlockInstructionsV1
         unless !val.isBool && !val.isInt && !val.isField && !val.isAggregate do
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: IndexSet value must be scalar UInt"
-        match ← mapUInt64LeafCountV1 layout.typeDecls types layout.mapStaticKeys result.typeId with
+        match ← mapUInt64LeafCountV1 layout.typeDecls types layout.mapStaticKeys result.typeId layout.hashedMapStorage with
         | some n =>
             -- Dense Map IndexSet: dynamic key upsert; assert not full.
             unless base.leafExprs.size == n do
@@ -3662,7 +3758,8 @@ private def lowerBlockInstructionsV1
               throw <| .planInvariant .evm
                 "unsupported EVM semantic shape: Map IndexSet value must be UInt64"
             let (outLeaves0, okInsert) ←
-              if isEvmMapPrincipalLeafCountV1 n then
+              if isEvmMapPrincipalLeafCountV1 n ||
+                  (layout.hashedMapStorage && n == 1 && idx.isAggregate) then
                 unless idx.isAggregate do
                   throw <| .planInvariant .evm
                     "unsupported EVM semantic shape: Principal Map IndexSet key must be Principal aggregate"
@@ -3670,11 +3767,13 @@ private def lowerBlockInstructionsV1
                   throw <| .planInvariant .evm
                     "unsupported EVM semantic shape: Principal Map IndexSet key leaf count mismatch"
                 mapPrincipalUpsertLeavesV1 base.leafExprs idx.leafExprs val.expr
+                  layout.hashedMapStorage
               else do
                 unless !idx.isBool && !idx.isInt && !idx.isField && !idx.isAggregate do
                   throw <| .planInvariant .evm
                     "unsupported EVM semantic shape: IndexSet index must be unsigned integer"
                 mapUpsertLeavesV1 base.leafExprs idx.expr val.expr
+                  layout.hashedMapStorage
             -- Fail closed when map is full: `1 / okInsert` reverts on 0.
             -- Gate only the first leaf so the large `okInsert` tree is not
             -- duplicated across all capacity leaves (Token transfer was
@@ -4790,7 +4889,8 @@ private def makeInterfaceBindingV1 (label : String) (name : String)
     SSA-tree policy remain EVM-owned until another native consumer proves a
     genuinely common bounded utility. -/
 private def makePlanFromSemanticDataV1
-    (source : SemanticProgramDataV1) : CompileResult Plan := do
+    (source : SemanticProgramDataV1)
+    (hashedMapStorage : Bool := false) : CompileResult Plan := do
   if !source.constants.isEmpty || !source.invariants.isEmpty then
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: constants/invariants are outside the current UInt64 pilot"
@@ -4808,7 +4908,7 @@ private def makePlanFromSemanticDataV1
     source.requirements.items.any (·.id == wireExtensionPfAssetsIdV1)
   let storageLayout ←
     makeStorageLayoutV1 types source.types source.logicalState mapStaticKeys
-      pfAssetsDeclared
+      pfAssetsDeclared hashedMapStorage
   let events ← source.events.mapM (fun d =>
     makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
   let errors ← source.errors.mapM (fun d =>
@@ -4898,11 +4998,13 @@ private def makePlanFromSemanticDataV1
     constructor
     entries
     fns
+    hashedMapStorage
   }
   return plan
 
 private def makePlanFromSemanticV1
-    (source : SemanticProgramV1) : CompileResult Plan := do
+    (source : SemanticProgramV1)
+    (hashedMapStorage : Bool := false) : CompileResult Plan := do
   -- Semantic structure was validated once at the capability mint
   -- (resolveEngineeringRequirementsV1 → validateSemanticProgramV1); the
   -- carrier is private-ctor so re-validation here is redundant. Transport
@@ -4911,7 +5013,7 @@ private def makePlanFromSemanticV1
     | .ok value => pure value
     | .error _ =>
         throw <| .invalidProgram "EVM received an invalid SemanticProgramV1 carrier"
-  makePlanFromSemanticDataV1 data
+  makePlanFromSemanticDataV1 data hashedMapStorage
 
 /-- Internal Evm family phase entry: capability → Plan (pre-canonicity). -/
 def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
@@ -4919,6 +5021,8 @@ def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : 
     throw <| .planInvariant .evm "engineering capability kind is not EVM"
   let source := CompiledSemanticV1.semanticV1Of
     (ResolvedEngineeringBuildV1.compiledOf capability)
-  makePlanFromSemanticV1 source
+  let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
+  let hashed := profile == CodegenProfileId.evmYulSolc0834HashMapV1
+  makePlanFromSemanticV1 source hashed
 
 end ProofForgeV2.Targets.Evm

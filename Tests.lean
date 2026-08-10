@@ -165,6 +165,7 @@ import Tests.Targets.SolanaProductFrameV1
 import Tests.Targets.SolanaProductCpiRecipesV1
 import Tests.Targets.SolanaElfV1
 import Tests.Targets.EvmCancunV1
+import Tests.Targets.EvmHashMapV1
 import Tests.Materialization.EvmCorpusBlockedV1
 import Tests.Product.StateCellV1Evm
 import Tests.Product.PrivateSum4PrivacyV1
@@ -253,6 +254,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Targets.SolanaProductCpiRecipesV1.run
   Tests.Targets.SolanaElfV1.run
   Tests.Targets.EvmCancunV1.run
+  Tests.Targets.EvmHashMapV1.run
   Tests.Materialization.EvmCorpusBlockedV1.run
   Tests.Product.StateCellV1Evm.run
   Tests.Product.PrivateSum4PrivacyV1.run

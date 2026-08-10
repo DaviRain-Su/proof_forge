@@ -6,13 +6,15 @@
   `Binary representation:\n`, write `{name}.bin` + `\n`.
 
   Profile selection (capability-bound, no ambient fallback):
-  - `evm-yul-solc-0.8.34-v1` (default):
+  - `evm-yul-solc-0.8.34-v1` (default, dense Map layout):
       `#['--strict-assembly','--optimize','--bin', source]`
   - `evm-yul-solc-0.8.34-cancun-v1`: adds `--evm-version cancun` before `--bin`
-    Both profiles enable solc's Yul optimizer (same pipeline Solidity uses for
+  - `evm-yul-solc-0.8.34-hashmap-v1` (opt-in hashed Map storage):
+      same solc argv as default; evidence note ` map-storage=hashed`
+    All EVM profiles enable solc's Yul optimizer (same pipeline Solidity uses for
     `--optimize` on IR). Source Yul stays unoptimized for readability/debug.
 
-  Same locked solc 0.8.34 binary for both profiles. PATH is never consulted.
+  Same locked solc 0.8.34 binary for all EVM profiles. PATH is never consulted.
   Separate from pure `Targets.Evm` Plan/IR core (no tool runner in Evm.lean).
   Not formal ToolchainIdentity / OutputSetV1.
 -/
@@ -35,7 +37,7 @@ def requireNonemptySolcBytecode (binary : String) : IO Unit := do
     throw <| IO.userError "PF-ARTIFACT-NONDEPLOYABLE: solc returned no bytecode"
 
 /-- Pure solc argv for a known EVM codegen profile.
-    Explicit branches only: both EVM profiles always pass `--optimize`;
+    Explicit branches only: all EVM profiles always pass `--optimize`;
     Cancun additionally pins `--evm-version cancun`. Unknown profiles fail
     closed (defense in depth; capability selection should already reject them). -/
 def solcArgsForProfile (profile : CodegenProfileId) (source : String) :
@@ -43,7 +45,8 @@ def solcArgsForProfile (profile : CodegenProfileId) (source : String) :
   if profile == CodegenProfileId.evmYulSolc0834CancunV1 then
     pure #["--strict-assembly", "--optimize", "--evm-version", "cancun",
       "--bin", source]
-  else if profile == CodegenProfileId.evmYulSolc0834V1 then
+  else if profile == CodegenProfileId.evmYulSolc0834V1 ||
+      profile == CodegenProfileId.evmYulSolc0834HashMapV1 then
     pure #["--strict-assembly", "--optimize", "--bin", source]
   else
     throw s!"unsupported EVM finalize profile '{profile}'"
@@ -54,6 +57,8 @@ def evidenceHardforkNote (profile : CodegenProfileId) : Except String String :=
     pure " evm-version=cancun"
   else if profile == CodegenProfileId.evmYulSolc0834V1 then
     pure ""
+  else if profile == CodegenProfileId.evmYulSolc0834HashMapV1 then
+    pure " map-storage=hashed"
   else
     throw s!"unsupported EVM finalize profile '{profile}'"
 

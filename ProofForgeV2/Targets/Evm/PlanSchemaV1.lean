@@ -261,6 +261,32 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
       pure (((((encodeU8 68).append (← encodeNatAsU32le mapBaseSlot)).append
         (← encodeExpr key)).append (← encodeExpr value)).append
         (← encodeNatAsU32le leafIndex))
+  -- Hashed-Map profile Expr tags (69..74). Appended; prior tags byte-identical.
+  | .mapUInt64HashedLookupTag mapBaseSlot key =>
+      pure (((encodeU8 69).append (← encodeNatAsU32le mapBaseSlot)).append
+        (← encodeExpr key))
+  | .mapUInt64HashedLookupPayload mapBaseSlot key =>
+      pure (((encodeU8 70).append (← encodeNatAsU32le mapBaseSlot)).append
+        (← encodeExpr key))
+  | .mapUInt64HashedUpsert mapBaseSlot key value =>
+      pure ((((encodeU8 71).append (← encodeNatAsU32le mapBaseSlot)).append
+        (← encodeExpr key)).append (← encodeExpr value))
+  | .mapPrincipalHashedLookupTag mapBaseSlot keyLeaves => do
+      let mut out := (encodeU8 72).append (← encodeNatAsU32le mapBaseSlot)
+      out := out.append (← encodeNatAsU32le keyLeaves.size)
+      for k in keyLeaves do out := out.append (← encodeExpr k)
+      pure out
+  | .mapPrincipalHashedLookupPayload mapBaseSlot keyLeaves => do
+      let mut out := (encodeU8 73).append (← encodeNatAsU32le mapBaseSlot)
+      out := out.append (← encodeNatAsU32le keyLeaves.size)
+      for k in keyLeaves do out := out.append (← encodeExpr k)
+      pure out
+  | .mapPrincipalHashedUpsert mapBaseSlot keyLeaves value => do
+      let mut out := (encodeU8 74).append (← encodeNatAsU32le mapBaseSlot)
+      out := out.append (← encodeNatAsU32le keyLeaves.size)
+      for k in keyLeaves do out := out.append (← encodeExpr k)
+      out := out.append (← encodeExpr value)
+      pure out
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with
@@ -442,7 +468,7 @@ private def encodeFnBinding (f : FnBinding) : Except String ByteArray := do
 /-- Canonical engineering EVM Plan preimage bytes.
 
     Layout: objectName, runtimeObjectName, storageLayout[], events[], errors[],
-    constructor option, entries[], fns[] — length-framed, LE u32, closed Expr/Stmt tags.
+    constructor option, entries[], fns[], hashedMapStorage bool — length-framed, LE u32, closed Expr/Stmt tags.
 -/
 def encodeEngineeringEvmPlanBytesV1 (plan : Plan) : Except String ByteArray := do
   let mut out := ByteArray.empty
@@ -463,6 +489,8 @@ def encodeEngineeringEvmPlanBytesV1 (plan : Plan) : Except String ByteArray := d
   for e in plan.entries do out := out.append (← encodeEntry e)
   out := out.append (← encodeNatAsU32le plan.fns.size)
   for f in plan.fns do out := out.append (← encodeFnBinding f)
+  -- Hashed-Map storage flag (appended; historical dense plans encode false=0x00).
+  out := out.append (encodeBool plan.hashedMapStorage)
   pure out
 
 def engineeringEvmPlanDigestV1 (plan : Plan) : Except String Digest := do

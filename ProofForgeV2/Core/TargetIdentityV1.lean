@@ -188,6 +188,13 @@ def evmYulSolc0834V1 : CodegenProfileId := ⟨"evm-yul-solc-0.8.34-v1"⟩
     Finalize uses `solc --evm-version cancun`; Anvil runtime uses `--hardfork cancun`.
     Same locked solc 0.8.34 / Anvil 0.3.0 binaries as the default profile. -/
 def evmYulSolc0834CancunV1 : CodegenProfileId := ⟨"evm-yul-solc-0.8.34-cancun-v1"⟩
+/-- Opt-in EVM hashed-Map storage profile (not default). Map state uses a single
+    base slot; entries live at `keccak256(key || base)` (UInt64 keys) or
+    `keccak256(principalWire || base)` (Principal keys). Dense 24/44-leaf layout
+    remains the default (`evm-yul-solc-0.8.34-v1`). Same locked solc 0.8.34 +
+    `--optimize` finalize as the default profile. Migration-incompatible with
+    dense deployments. -/
+def evmYulSolc0834HashMapV1 : CodegenProfileId := ⟨"evm-yul-solc-0.8.34-hashmap-v1"⟩
 /-- Retired single-account plan shim (ADR-0032 U1 deletion). Not a registry
     member; kept only so historical strings/tests can name the removed id. -/
 def solanaSbpfPlanV1 : CodegenProfileId := ⟨"solana-sbpf-plan-v1"⟩

@@ -269,6 +269,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Targets.SolanaProductCpiRecipesV1,
     `Tests.Targets.SolanaElfV1,
     `Tests.Targets.EvmCancunV1,
+    `Tests.Targets.EvmHashMapV1,
     `Tests.Materialization.EvmCorpusBlockedV1,
     `Tests.Product.StateCellV1Evm,
     `Tests.Product.PrivateSum4PrivacyV1,

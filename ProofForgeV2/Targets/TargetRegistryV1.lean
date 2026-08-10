@@ -532,7 +532,9 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
   #[
     row .evm (semanticsAxesOfKindV1 .evm)
       -- Strictly ASCII-ascending: cancun-v1 < v1. Default stays legacy v1.
-      #[CodegenProfileId.evmYulSolc0834CancunV1, CodegenProfileId.evmYulSolc0834V1]
+      #[CodegenProfileId.evmYulSolc0834CancunV1,
+        CodegenProfileId.evmYulSolc0834HashMapV1,
+        CodegenProfileId.evmYulSolc0834V1]
       (some CodegenProfileId.evmYulSolc0834V1),
     row .solana (semanticsAxesOfKindV1 .solana)
       -- ADR-0032 U1: sole product rail only. plan-v1 / elf-v1 shims removed

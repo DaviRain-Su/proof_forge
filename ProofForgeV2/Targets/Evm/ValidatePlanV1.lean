@@ -247,6 +247,64 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
                     (available - keyNodes) fns value with
                 | none => none
                 | some valNodes => some (1 + keyNodes + valNodes)
+    -- Hashed-Map profile: single base slot declared in layout; entries live at
+    -- keccak-derived slots outside the declared binding table.
+    | .mapUInt64HashedLookupTag mapBaseSlot key
+    | .mapUInt64HashedLookupPayload mapBaseSlot key =>
+        if !slots.contains mapBaseSlot then none
+        else
+          let childDepth := depthLeft - 1
+          let available := nodeBudget - 1
+          match planExprNodes? slots paramCount childDepth available fns key with
+          | none => none
+          | some nodes => some (1 + nodes)
+    | .mapUInt64HashedUpsert mapBaseSlot key value =>
+        if !slots.contains mapBaseSlot then none
+        else
+          let childDepth := depthLeft - 1
+          let available := nodeBudget - 1
+          match planExprNodes? slots paramCount childDepth available fns key with
+          | none => none
+          | some keyNodes =>
+              match planExprNodes? slots paramCount childDepth
+                  (available - keyNodes) fns value with
+              | none => none
+              | some valNodes => some (1 + keyNodes + valNodes)
+    | .mapPrincipalHashedLookupTag mapBaseSlot keyLeaves
+    | .mapPrincipalHashedLookupPayload mapBaseSlot keyLeaves =>
+        if keyLeaves.size != 9 || !slots.contains mapBaseSlot then none
+        else
+          let childDepth := depthLeft - 1
+          Id.run do
+            let mut available := nodeBudget - 1
+            let mut total : Nat := 1
+            let mut ok := true
+            for k in keyLeaves do
+              match planExprNodes? slots paramCount childDepth available fns k with
+              | none => ok := false
+              | some nodes =>
+                  total := total + nodes
+                  available := available - nodes
+            if ok then some total else none
+    | .mapPrincipalHashedUpsert mapBaseSlot keyLeaves value =>
+        if keyLeaves.size != 9 || !slots.contains mapBaseSlot then none
+        else
+          let childDepth := depthLeft - 1
+          Id.run do
+            let mut available := nodeBudget - 1
+            let mut total : Nat := 1
+            let mut ok := true
+            for k in keyLeaves do
+              match planExprNodes? slots paramCount childDepth available fns k with
+              | none => ok := false
+              | some nodes =>
+                  total := total + nodes
+                  available := available - nodes
+            if ok then
+              match planExprNodes? slots paramCount childDepth available fns value with
+              | none => none
+              | some nodes => some (total + nodes)
+            else none
 
 private def addPlanExprNodes (slots : Array Nat) (paramCount total : Nat)
     (fns : Array FnBinding) (expr : Expr) : CompileResult Nat := do

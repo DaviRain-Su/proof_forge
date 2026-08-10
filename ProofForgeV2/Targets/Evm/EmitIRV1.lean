@@ -226,6 +226,74 @@ private def renderMapUInt64Helpers (indent : String)
       indent ++ "}\n"
   lookup ++ upsert ++ upsertLeaf
 
+/-- Hashed-Map profile Yul helpers (opt-in `evm-yul-solc-0.8.34-hashmap-v1`).
+    UInt64: `h = keccak256(key || base)` (two 32-byte words at mem 0/32).
+    Principal: hash 9 key words from `keyMem` plus a trailing base word at
+    `keyMem + 288` (upsert saves the value word first). Layout at hashed entry:
+    slot `h` = occupancy 0/1, `h+1` = UInt64 payload (Some(0) representable). -/
+private def renderHashedMapHelpers (indent : String)
+    (needU64Lookup needU64Upsert needPLookup needPUpsert : Bool) : String :=
+  let u64slot :=
+    if !(needU64Lookup || needU64Upsert) then ""
+    else
+      indent ++
+        "function pf_hmap_u64_slot(base, key) -> h {\n" ++
+      indent ++ "  mstore(0, key)\n" ++
+      indent ++ "  mstore(32, base)\n" ++
+      indent ++ "  h := keccak256(0, 64)\n" ++
+      indent ++ "}\n"
+  let u64lookup :=
+    if !needU64Lookup then ""
+    else
+      indent ++
+        "function pf_hmap_u64_lookup(base, key) -> tag, payload {\n" ++
+      indent ++ "  let h := pf_hmap_u64_slot(base, key)\n" ++
+      indent ++ "  tag := pf_sload_u64(h)\n" ++
+      indent ++ "  payload := 0\n" ++
+      indent ++ "  if tag { payload := pf_sload_u64(add(h, 1)) }\n" ++
+      indent ++ "}\n"
+  let u64upsert :=
+    if !needU64Upsert then ""
+    else
+      indent ++
+        "function pf_hmap_u64_upsert(base, key, val) {\n" ++
+      indent ++ "  let h := pf_hmap_u64_slot(base, key)\n" ++
+      indent ++ "  sstore(h, 1)\n" ++
+      indent ++ "  sstore(add(h, 1), val)\n" ++
+      indent ++ "}\n"
+  let pslot :=
+    if !(needPLookup || needPUpsert) then ""
+    else
+      indent ++
+        "function pf_hmap_p_slot(base, keyMem) -> h {\n" ++
+      indent ++ "  // Trailing domain word after the 9 key leaves (288 bytes).\n" ++
+      indent ++ "  mstore(add(keyMem, 288), base)\n" ++
+      indent ++ "  h := keccak256(keyMem, 320)\n" ++
+      indent ++ "}\n"
+  let plookup :=
+    if !needPLookup then ""
+    else
+      indent ++
+        "function pf_hmap_p_lookup(base, keyMem) -> tag, payload {\n" ++
+      indent ++ "  let h := pf_hmap_p_slot(base, keyMem)\n" ++
+      indent ++ "  tag := pf_sload_u64(h)\n" ++
+      indent ++ "  payload := 0\n" ++
+      indent ++ "  if tag { payload := pf_sload_u64(add(h, 1)) }\n" ++
+      indent ++ "}\n"
+  let pupsert :=
+    if !needPUpsert then ""
+    else
+      -- val is at keyMem+288 for dense path; hashed slot also wants base at +288.
+      -- Save val, write base for keccak, then sstore val.
+      indent ++
+        "function pf_hmap_p_upsert(base, keyMem) {\n" ++
+      indent ++ "  let val := mload(add(keyMem, 288))\n" ++
+      indent ++ "  let h := pf_hmap_p_slot(base, keyMem)\n" ++
+      indent ++ "  sstore(h, 1)\n" ++
+      indent ++ "  sstore(add(h, 1), val)\n" ++
+      indent ++ "}\n"
+  u64slot ++ u64lookup ++ u64upsert ++ pslot ++ plookup ++ pupsert
+
 /-- Nested Yul expression form (no intermediate lets). Used for for-loop
     condition/update slots that require expression positions. Storage loads
     and checked overflow guards are not nested here — callers pre-render
@@ -248,7 +316,11 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
   | .mapPrincipalLookupTag .. | .mapPrincipalLookupPayload ..
   | .mapPrincipalUpsertLeaf ..
   | .mapUInt64LookupTag .. | .mapUInt64LookupPayload ..
-  | .mapUInt64UpsertLeaf .. => "0"
+  | .mapUInt64UpsertLeaf ..
+  | .mapUInt64HashedLookupTag .. | .mapUInt64HashedLookupPayload ..
+  | .mapUInt64HashedUpsert ..
+  | .mapPrincipalHashedLookupTag .. | .mapPrincipalHashedLookupPayload ..
+  | .mapPrincipalHashedUpsert .. => "0"
   | .storageLoad slot => s!"sload({slot})"
   | .narrowStorageLoad bitWidth slot =>
       s!"and(sload({slot}), {yulUintMask bitWidth})"
@@ -542,6 +614,78 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       { code := keyR.code ++ valR.code ++
           s!"{indent}let {name} := pf_map_u64_upsert_leaf({mapBaseSlot}, {leafIndex}, {keyR.value}, {valR.value})\n",
         value := name, next := valR.next + 1 }
+  | .mapUInt64HashedLookupTag mapBaseSlot key =>
+      let keyR := renderExpr indent paramPrefix next key
+      let tagName := s!"expr{keyR.next}"
+      let payloadName := s!"expr{keyR.next + 1}"
+      { code := keyR.code ++
+          s!"{indent}let {tagName}, {payloadName} := pf_hmap_u64_lookup({mapBaseSlot}, {keyR.value})\n",
+        value := tagName, next := keyR.next + 2 }
+  | .mapUInt64HashedLookupPayload mapBaseSlot key =>
+      let keyR := renderExpr indent paramPrefix next key
+      let tagName := s!"expr{keyR.next}"
+      let payloadName := s!"expr{keyR.next + 1}"
+      { code := keyR.code ++
+          s!"{indent}let {tagName}, {payloadName} := pf_hmap_u64_lookup({mapBaseSlot}, {keyR.value})\n",
+        value := payloadName, next := keyR.next + 2 }
+  | .mapUInt64HashedUpsert mapBaseSlot key value =>
+      -- Side-effecting; value returned is literal 1 (occupancy after write).
+      let keyR := renderExpr indent paramPrefix next key
+      let valR := renderExpr indent paramPrefix keyR.next value
+      let name := s!"expr{valR.next}"
+      { code := keyR.code ++ valR.code ++
+          s!"{indent}pf_hmap_u64_upsert({mapBaseSlot}, {keyR.value}, {valR.value})\n" ++
+          s!"{indent}let {name} := 1\n",
+        value := name, next := valR.next + 1 }
+  | .mapPrincipalHashedLookupTag mapBaseSlot keyLeaves => Id.run do
+      let mut code := ""
+      let mut next := next
+      let keyMem := mapPrincipalKeyMemBaseV1
+      for i in [0:keyLeaves.size] do
+        let some k := keyLeaves[i]? | pure ()
+        let rendered := renderExpr indent paramPrefix next k
+        code := code ++ rendered.code
+        next := rendered.next
+        code := code ++ s!"{indent}mstore({keyMem + 32 * i}, {rendered.value})\n"
+      let tagName := s!"expr{next}"
+      let payloadName := s!"expr{next + 1}"
+      { code := code ++
+          s!"{indent}let {tagName}, {payloadName} := pf_hmap_p_lookup({mapBaseSlot}, {keyMem})\n",
+        value := tagName, next := next + 2 }
+  | .mapPrincipalHashedLookupPayload mapBaseSlot keyLeaves => Id.run do
+      let mut code := ""
+      let mut next := next
+      let keyMem := mapPrincipalKeyMemBaseV1
+      for i in [0:keyLeaves.size] do
+        let some k := keyLeaves[i]? | pure ()
+        let rendered := renderExpr indent paramPrefix next k
+        code := code ++ rendered.code
+        next := rendered.next
+        code := code ++ s!"{indent}mstore({keyMem + 32 * i}, {rendered.value})\n"
+      let tagName := s!"expr{next}"
+      let payloadName := s!"expr{next + 1}"
+      { code := code ++
+          s!"{indent}let {tagName}, {payloadName} := pf_hmap_p_lookup({mapBaseSlot}, {keyMem})\n",
+        value := payloadName, next := next + 2 }
+  | .mapPrincipalHashedUpsert mapBaseSlot keyLeaves value => Id.run do
+      let mut code := ""
+      let mut next := next
+      let keyMem := mapPrincipalKeyMemBaseV1
+      for i in [0:keyLeaves.size] do
+        let some k := keyLeaves[i]? | pure ()
+        let rendered := renderExpr indent paramPrefix next k
+        code := code ++ rendered.code
+        next := rendered.next
+        code := code ++ s!"{indent}mstore({keyMem + 32 * i}, {rendered.value})\n"
+      let valR := renderExpr indent paramPrefix next value
+      code := code ++ valR.code
+      next := valR.next
+      code := code ++ s!"{indent}mstore({keyMem + 288}, {valR.value})\n"
+      let name := s!"expr{next}"
+      { code := code ++
+          s!"{indent}pf_hmap_p_upsert({mapBaseSlot}, {keyMem})\n" ++
+          s!"{indent}let {name} := 1\n",
+        value := name, next := next + 1 }
   | .storageLoad slot =>
       -- Shared helper keeps UInt64 range semantics; one function body amortizes
       -- the gate across many loads (see renderSloadU64Helper).
@@ -1298,6 +1442,18 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
                       | _ => return false
                 return true
             | _ => return false
+          let isHashedUInt64UpsertBatch : Bool := Id.run do
+            if operations.size != 1 then return false
+            let some first := operations[0]? | return false
+            match first.value with
+            | .mapUInt64HashedUpsert .. => return true
+            | _ => return false
+          let isHashedPrincipalUpsertBatch : Bool := Id.run do
+            if operations.size != 1 then return false
+            let some first := operations[0]? | return false
+            match first.value with
+            | .mapPrincipalHashedUpsert .. => return true
+            | _ => return false
           if isPrincipalUpsertBatch then
             let some first := operations[0]? | pure ()
             match first.value with
@@ -1331,6 +1487,38 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
                 -- In-place helper sstores the single dirty (occ,key,val) triple.
                 output := output ++
                   s!"{indent}pf_map_u64_upsert({mapBaseSlot}, {keyR.value}, {valR.value})\n"
+            | _ => pure ()
+          else if isHashedUInt64UpsertBatch then
+            let some first := operations[0]? | pure ()
+            match first.value with
+            | .mapUInt64HashedUpsert mapBaseSlot key value =>
+                let keyR := renderExpr indent paramPrefix next key
+                output := output ++ keyR.code
+                next := keyR.next
+                let valR := renderExpr indent paramPrefix next value
+                output := output ++ valR.code
+                next := valR.next
+                output := output ++
+                  s!"{indent}pf_hmap_u64_upsert({mapBaseSlot}, {keyR.value}, {valR.value})\n"
+            | _ => pure ()
+          else if isHashedPrincipalUpsertBatch then
+            let some first := operations[0]? | pure ()
+            match first.value with
+            | .mapPrincipalHashedUpsert mapBaseSlot keyLeaves value =>
+                let keyMem := mapPrincipalKeyMemBaseV1
+                for i in [0:keyLeaves.size] do
+                  let some k := keyLeaves[i]? | pure ()
+                  let rendered := renderExpr indent paramPrefix next k
+                  output := output ++ rendered.code
+                  next := rendered.next
+                  output := output ++
+                    s!"{indent}mstore({keyMem + 32 * i}, {rendered.value})\n"
+                let valR := renderExpr indent paramPrefix next value
+                output := output ++ valR.code
+                next := valR.next
+                output := output ++
+                  s!"{indent}mstore({keyMem + 288}, {valR.value})\n" ++
+                  s!"{indent}pf_hmap_p_upsert({mapBaseSlot}, {keyMem})\n"
             | _ => pure ()
           else
             let nested := indent ++ "  "
@@ -1889,6 +2077,10 @@ private structure PhaseHelperNeedsV1 where
   uint64Lookup : Bool := false
   uint64Upsert : Bool := false
   uint64UpsertLeaf : Bool := false
+  hashedU64Lookup : Bool := false
+  hashedU64Upsert : Bool := false
+  hashedPrincipalLookup : Bool := false
+  hashedPrincipalUpsert : Bool := false
   sloadU64 : Bool := false
   deriving Inhabited
 
@@ -1899,6 +2091,10 @@ private def mergeHelperNeeds (a b : PhaseHelperNeedsV1) : PhaseHelperNeedsV1 :=
     uint64Lookup := a.uint64Lookup || b.uint64Lookup
     uint64Upsert := a.uint64Upsert || b.uint64Upsert
     uint64UpsertLeaf := a.uint64UpsertLeaf || b.uint64UpsertLeaf
+    hashedU64Lookup := a.hashedU64Lookup || b.hashedU64Lookup
+    hashedU64Upsert := a.hashedU64Upsert || b.hashedU64Upsert
+    hashedPrincipalLookup := a.hashedPrincipalLookup || b.hashedPrincipalLookup
+    hashedPrincipalUpsert := a.hashedPrincipalUpsert || b.hashedPrincipalUpsert
     sloadU64 := a.sloadU64 || b.sloadU64 }
 
 /-- True when `operations` is a full Principal Map upsert batch (44 leaves).
@@ -1951,6 +2147,14 @@ private partial def exprHelperNeedsV1 : Expr → PhaseHelperNeedsV1
       { uint64Lookup := true }
   | .mapUInt64UpsertLeaf .. =>
       { uint64Upsert := true, uint64UpsertLeaf := true }
+  | .mapUInt64HashedLookupTag .. | .mapUInt64HashedLookupPayload .. =>
+      { hashedU64Lookup := true, sloadU64 := true }
+  | .mapUInt64HashedUpsert .. =>
+      { hashedU64Upsert := true, sloadU64 := true }
+  | .mapPrincipalHashedLookupTag .. | .mapPrincipalHashedLookupPayload .. =>
+      { hashedPrincipalLookup := true, sloadU64 := true }
+  | .mapPrincipalHashedUpsert .. =>
+      { hashedPrincipalUpsert := true, sloadU64 := true }
   | .storageLoad _ => { sloadU64 := true }
   | .indexedStorageLoad _ _ index byteWidth =>
       let base : PhaseHelperNeedsV1 :=
@@ -1988,6 +2192,16 @@ private partial def statementHelperNeedsV1 : Statement → PhaseHelperNeedsV1
         { principalUpsert := true }
       else if isUInt64UpsertBatchOpsV1 ops then
         { uint64Upsert := true }
+      else if ops.size == 1 then
+        match ops[0]? with
+        | some st =>
+            match st.value with
+            | .mapUInt64HashedUpsert .. =>
+                { hashedU64Upsert := true, sloadU64 := true }
+            | .mapPrincipalHashedUpsert .. =>
+                { hashedPrincipalUpsert := true, sloadU64 := true }
+            | _ => exprHelperNeedsV1 st.value
+        | none => {}
       else
         ops.foldl (fun acc s => mergeHelperNeeds acc (exprHelperNeedsV1 s.value)) {}
   | .returnValue v => exprHelperNeedsV1 v
@@ -2050,8 +2264,10 @@ private def renderMapHelpersForNeeds (indent : String) (needs : PhaseHelperNeeds
     String :=
   let mapP := needs.principalLookup || needs.principalUpsert || needs.principalUpsertLeaf
   let mapU := needs.uint64Lookup || needs.uint64Upsert || needs.uint64UpsertLeaf
-  -- Compact Map helpers call pf_sload_u64 for dirty-storage UInt64 gates.
-  let needSload := needs.sloadU64 || mapP || mapU
+  let mapH := needs.hashedU64Lookup || needs.hashedU64Upsert ||
+    needs.hashedPrincipalLookup || needs.hashedPrincipalUpsert
+  -- Compact / hashed Map helpers call pf_sload_u64 for dirty-storage UInt64 gates.
+  let needSload := needs.sloadU64 || mapP || mapU || mapH
   (if mapP then
       renderPrincipalMapHelpers indent needs.principalLookup needs.principalUpsert
         needs.principalUpsertLeaf
@@ -2059,6 +2275,10 @@ private def renderMapHelpersForNeeds (indent : String) (needs : PhaseHelperNeeds
   (if mapU then
       renderMapUInt64Helpers indent needs.uint64Lookup needs.uint64Upsert
         needs.uint64UpsertLeaf
+    else "") ++
+  (if mapH then
+      renderHashedMapHelpers indent needs.hashedU64Lookup needs.hashedU64Upsert
+        needs.hashedPrincipalLookup needs.hashedPrincipalUpsert
     else "") ++
   (if needSload then renderSloadU64Helper indent else "")
 
@@ -2198,7 +2418,9 @@ private def cseSloadU64YulV1 (yul : String) : String := Id.run do
       | none => pure ()
       if trimmed.contains "pf_map_p_upsert(" || trimmed.contains "pf_map_u64_upsert("
           || trimmed.contains "pf_map_p_upsert_leaf("
-          || trimmed.contains "pf_map_u64_upsert_leaf(" then
+          || trimmed.contains "pf_map_u64_upsert_leaf("
+          || trimmed.contains "pf_hmap_u64_upsert("
+          || trimmed.contains "pf_hmap_p_upsert(" then
         stack := stack.set! (stack.size - 1) #[]
       out := out.push line
     for _ in [0:opens] do
@@ -2332,7 +2554,9 @@ private def cseMapLookupYulV1 (yul : String) : String := Id.run do
         trimmed.contains "pf_map_p_upsert(" ||
         trimmed.contains "pf_map_u64_upsert(" ||
         trimmed.contains "pf_map_p_upsert_leaf(" ||
-        trimmed.contains "pf_map_u64_upsert_leaf("
+        trimmed.contains "pf_map_u64_upsert_leaf(" ||
+        trimmed.contains "pf_hmap_u64_upsert(" ||
+        trimmed.contains "pf_hmap_p_upsert("
     if kills then
       cache := #[]
     match parseSimpleAliasV1 trimmed with

@@ -64,13 +64,15 @@ private def testRegistryMembership : IO Unit := do
     "registry: evm profiles include legacy v1"
   expect (reg.defaultProfile == some CodegenProfileId.evmYulSolc0834V1)
     "registry: default profile remains evm-yul-solc-0.8.34-v1"
-  match reg.profiles[0]?, reg.profiles[1]? with
-  | some p0, some p1 =>
+  match reg.profiles[0]?, reg.profiles[1]?, reg.profiles[2]? with
+  | some p0, some p1, some p2 =>
       expect (p0 == CodegenProfileId.evmYulSolc0834CancunV1)
         "registry: ascending first is cancun-v1"
-      expect (p1 == CodegenProfileId.evmYulSolc0834V1)
-        "registry: ascending second is legacy v1"
-  | _, _ => throw <| IO.userError "registry: expected exactly two evm profiles"
+      expect (p1 == CodegenProfileId.evmYulSolc0834HashMapV1)
+        "registry: ascending second is hashmap-v1"
+      expect (p2 == CodegenProfileId.evmYulSolc0834V1)
+        "registry: ascending third is legacy v1"
+  | _, _, _ => throw <| IO.userError "registry: expected exactly three evm profiles"
   let defaultSel ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
   expect (defaultSel.codegenProfile == CodegenProfileId.evmYulSolc0834V1)
     "resolve none → legacy default"
@@ -79,7 +81,7 @@ private def testRegistryMembership : IO Unit := do
   expect (cancunSel.codegenProfile == CodegenProfileId.evmYulSolc0834CancunV1)
     "resolve explicit cancun"
 
-/-- Support rows: both EVM profiles present with identical S2 capability size. -/
+/-- Support rows: EVM profiles present with identical S2 capability size. -/
 private def testSupportAndDescriptor : IO Unit := do
   let rows ← liftResult productSupportRowsV1
   let cancunRow ← match rows.find? (fun r =>
@@ -103,6 +105,8 @@ private def testSupportAndDescriptor : IO Unit := do
     "accepts legacy"
   expect (acceptsCodegenProfile desc CodegenProfileId.evmYulSolc0834CancunV1)
     "accepts cancun"
+  expect (acceptsCodegenProfile desc CodegenProfileId.evmYulSolc0834HashMapV1)
+    "accepts hashmap"
   expect (!acceptsCodegenProfile desc CodegenProfileId.solanaSbpfPlanV1)
     "rejects foreign solana profile"
 

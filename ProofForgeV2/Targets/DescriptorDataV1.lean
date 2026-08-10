@@ -51,7 +51,8 @@ def solana : TargetDescriptor :=
 def acceptsCodegenProfile (descriptor : TargetDescriptor) (profile : CodegenProfileId) : Bool :=
   descriptor.codegenProfile == profile ||
     (descriptor.targetId == TargetId.evm &&
-      profile == CodegenProfileId.evmYulSolc0834CancunV1) ||
+      (profile == CodegenProfileId.evmYulSolc0834CancunV1 ||
+        profile == CodegenProfileId.evmYulSolc0834HashMapV1)) ||
     (descriptor.targetId == TargetId.noir &&
       profile == CodegenProfileId.noirNargoAcirV1)
 

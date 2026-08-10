@@ -27,7 +27,8 @@
       (ADR-0028 / #125)
     * `extension.pf-assets` → (quint, quint-source-u64-model-v1)
       (ADR-0029 Phase A)
-    * `extension.pf-assets` → (evm, evm-yul-solc-0.8.34-cancun-v1) and
+    * `extension.pf-assets` → (evm, evm-yul-solc-0.8.34-cancun-v1),
+      (evm, evm-yul-solc-0.8.34-hashmap-v1), and
       (evm, evm-yul-solc-0.8.34-v1) (ADR-0029 Phase B2 native deposit/transfer)
     * `extension.pf-assets` → (solana, solana-sbpf-cpi-elf-v1)
       (ADR-0029 Phase B1 Solana vault-PDA + System CPI binding)
@@ -35,7 +36,7 @@
       (ADR-0029 Phase C2 NEAR deposit + transferAsync half binding)
     * `extension.pf-assets` → (cosmwasm, cosmwasm-wasm-u64-v1)
       (ADR-0029 Phase C1 bank funds / BankMsg::Send sync native binding)
-  ADR-0029 Phase A5/B1/B2/C1/C2: Quint, both EVM profiles, Solana CPI, NEAR
+  ADR-0029 Phase A5/B1/B2/C1/C2: Quint, all EVM profiles, Solana CPI, NEAR
   and CosmWasm advertise exact `extension.pf-assets` **and**
   `effect.synchronous-call` (sync pf.assets native deposit/transfer; NEAR
   binds deposit + transferAsync only, sync transfer permanently fail closed).
@@ -128,7 +129,7 @@ private def s2CatalogRequests : CompileResult (Array RequirementRequestV1) := do
 
 /-- Closed (extension wire id → admitted target+profile + exact seed) table.
     One extension id may admit multiple (target, profile) rows (ADR-0029:
-    Quint + both EVM profiles + Solana CPI + NEAR + CosmWasm for
+    Quint + all EVM profiles + Solana CPI + NEAR + CosmWasm for
     `extension.pf-assets`). Solana CPI remains ADR-0028 profile-scoped.
     Any other (target, profile) advertising an
     extension row fails closed at index construction. -/
@@ -159,11 +160,15 @@ private def closedExtensionAdvertiseTableV1 :
       targetId := TargetId.quint
       profile := CodegenProfileId.quintSourceU64ModelV1
       expected := pfAssets },
-    -- ADR-0029 Phase B2: both EVM profiles advertise exact extension.pf-assets
+    -- ADR-0029 Phase B2: all EVM profiles advertise exact extension.pf-assets
     -- (same capability set; hardfork is Finalize/runtime pin only).
     { rowId := pfAssetsExtensionRequirementIdV1
       targetId := TargetId.evm
       profile := CodegenProfileId.evmYulSolc0834CancunV1
+      expected := pfAssets },
+    { rowId := pfAssetsExtensionRequirementIdV1
+      targetId := TargetId.evm
+      profile := CodegenProfileId.evmYulSolc0834HashMapV1
       expected := pfAssets },
     { rowId := pfAssetsExtensionRequirementIdV1
       targetId := TargetId.evm
@@ -340,7 +345,7 @@ private def mkImplementedRow
 
     **ADR-0029 Phase A5/B1/B2 extension advertise**: closed table (see
     `closedExtensionAdvertiseTableV1`) — Quint `quint-source-u64-model-v1`,
-    both EVM profiles and Solana `solana-sbpf-cpi-elf-v1` advertise exact
+    all EVM profiles and Solana `solana-sbpf-cpi-elf-v1` advertise exact
     `extension.pf-assets`. Quint keeps the Q0 four S2 keys plus sync-call
     (vault-modeled native deposit/transfer only; non-catalog / async / token
     QNs fail closed at Plan/lowering). EVM keeps the full seven S2 keys plus
@@ -449,7 +454,7 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   -- Phase A5: exact extension.pf-assets + effect.synchronous-call on Quint.
   let quintRequests :=
     (quintBaseRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
-  -- Phase B2: both EVM profiles carry full S2 seven keys + exact extension.pf-assets.
+  -- Phase B2: all EVM profiles carry full S2 seven keys + exact extension.pf-assets.
   let evmRequests :=
     (catalogRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
   -- ADR-0029 Phase C2: NEAR advertises exact extension.pf-assets plus
@@ -465,9 +470,11 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     mkImplementedRow .aleo CodegenProfileId.aleoInstructionsV1 aleoRequests,
     mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,
     -- AddressBearing: full seven keys — static QN call/schedule Plan open.
-    -- Both EVM profiles share the same S2+extension capability set; hardfork
-    -- is a Finalize/runtime pin, not a requirement-gate difference.
+    -- EVM profiles share the same S2+extension capability set; hardfork /
+    -- Map-storage layout are Finalize/runtime pins, not requirement-gate diffs.
+    -- ASCII ascending: cancun-v1 < hashmap-v1 < v1.
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmRequests,
+    mkImplementedRow .evm CodegenProfileId.evmYulSolc0834HashMapV1 evmRequests,
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 evmRequests,
     mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 nearRequests,
     -- Noir dual profiles share the exact S2 catalog set; ACIR dual-write is a
