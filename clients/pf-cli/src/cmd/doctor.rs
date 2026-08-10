@@ -333,23 +333,64 @@ fn collect_deps(target: &str) -> Vec<Dep> {
                 Ok(p) => deps.push(Dep {
                     id: "psy_user_cli",
                     status: "ok",
-                    summary: "official DPN simulate / deploy-contract CLI".into(),
+                    summary: "official simulate / deploy-contract / call CLI".into(),
                     install: vec![],
                     path: Some(p.display().to_string()),
                 }),
                 Err(_) => deps.push(Dep {
                     id: "psy_user_cli",
                     status: "need",
-                    summary: "required for pf test/run -t psy (official VM)".into(),
+                    summary: "required for pf run/deploy/test -t psy (official toolchain)".into(),
                     install: vec![
-                        "curl -fsSL https://raw.githubusercontent.com/QEDProtocol/psyup/main/install.sh | sh".into(),
+                        "curl -fsSL https://raw.githubusercontent.com/QEDProtocol/psyup/main/install.sh | PSYUP_DEFAULT_NETWORK=sepolia sh".into(),
                         "psyup install".into(),
                         "export PATH=\"$HOME/.psy/bin:$PATH\"".into(),
+                        "source \"$HOME/.psy/env\"  # optional".into(),
                         "# or: export PROOF_FORGE_PSY_USER_CLI=$HOME/.psy/bin/psy_user_cli".into(),
                     ],
                     path: None,
                 }),
             }
+            // RPC config is required for deploy packaging / broadcast.
+            let cfg = std::env::var_os("RPC_CONFIG")
+                .map(PathBuf::from)
+                .filter(|p| p.is_file())
+                .or_else(|| {
+                    let home = std::env::var_os("HOME").map(PathBuf::from)?;
+                    let c = home.join(".psy/config.json");
+                    c.is_file().then_some(c)
+                });
+            match cfg {
+                Some(p) => deps.push(Dep {
+                    id: "psy-rpc-config",
+                    status: "ok",
+                    summary: "Psy network config (localhost/sepolia/…)".into(),
+                    install: vec![],
+                    path: Some(p.display().to_string()),
+                }),
+                None => deps.push(Dep {
+                    id: "psy-rpc-config",
+                    status: "need",
+                    summary: "missing ~/.psy/config.json (from psyup install)".into(),
+                    install: vec![
+                        "psyup install".into(),
+                        "export RPC_CONFIG=\"$HOME/.psy/config.json\"".into(),
+                        "# testnet broadcast: ensure defaultNetwork=sepolia or pass a sepolia config file".into(),
+                    ],
+                    path: None,
+                }),
+            }
+            deps.push(Dep {
+                id: "psy-broadcast-key",
+                status: "info",
+                summary: "funded key only for pf deploy --broadcast (never commit keys)".into(),
+                install: vec![
+                    "export PF_PSY_KEY='<hex-private-key>'   # shell only; not git".into(),
+                    "pf deploy -t psy --network testnet --broadcast --private-key-env PF_PSY_KEY".into(),
+                    "# optional: psyup init  # keystore under ~/.psy/keystore/default".into(),
+                ],
+                path: None,
+            });
         }
         _ => {}
     }
@@ -423,6 +464,35 @@ fn try_auto_install(target: &str) -> Vec<String> {
             }
         } else {
             notes.push("cargo not on PATH — cannot auto-install solana-client".into());
+        }
+    }
+
+    // Psy official toolchain via psyup (best-effort; network required).
+    if target == "psy" && crate::targets::psy::simulate::resolve_psy_user_cli().is_err() {
+        let install_sh = "curl -fsSL https://raw.githubusercontent.com/QEDProtocol/psyup/main/install.sh | PSYUP_DEFAULT_NETWORK=sepolia sh";
+        let status = Command::new("bash")
+            .args(["-lc", install_sh])
+            .status();
+        match status {
+            Ok(s) if s.success() => {
+                notes.push("ran psyup install.sh".into());
+                let _ = Command::new("bash")
+                    .args(["-lc", "command -v psyup >/dev/null && psyup install || true"])
+                    .status();
+                if let Ok(p) = crate::targets::psy::simulate::resolve_psy_user_cli() {
+                    notes.push(format!("psy_user_cli ready → {}", p.display()));
+                } else {
+                    notes.push(
+                        "psyup install finished but psy_user_cli still missing — check PATH=$HOME/.psy/bin"
+                            .into(),
+                    );
+                }
+            }
+            Ok(s) => notes.push(format!(
+                "psyup install.sh exited {:?} — run manually: {install_sh}",
+                s.code()
+            )),
+            Err(e) => notes.push(format!("psyup install spawn failed: {e}")),
         }
     }
 

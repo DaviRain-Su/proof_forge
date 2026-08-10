@@ -50,25 +50,66 @@ fn resolve_rpc_config(network: NetworkKind, override_path: Option<&Path>) -> PfR
     if let Ok(p) = std::env::var("RPC_CONFIG") {
         let pb = PathBuf::from(&p);
         if pb.is_file() {
-            return Ok(pb);
+            // If user wants testnet but config defaultNetwork is localhost, materialize a sibling.
+            return maybe_rewrite_default_network(pb, network);
         }
     }
     let home = std::env::var_os("HOME").map(PathBuf::from);
     if let Some(h) = home {
         let cand = h.join(".psy/config.json");
         if cand.is_file() {
-            // Prefer network-specific note: config may contain localhost|sepolia|ethereum.
-            return Ok(cand);
+            return maybe_rewrite_default_network(cand, network);
         }
         let cand2 = h.join(".psy/toolchains/psy-0.1.0/config.json");
         if cand2.is_file() {
-            return Ok(cand2);
+            return maybe_rewrite_default_network(cand2, network);
         }
     }
-    let _ = network;
     Err(PfError::Tool(
-        "Psy RPC config not found — set RPC_CONFIG or install psyup (~/.psy/config.json)".into(),
+        "Psy RPC config not found — run `pf setup --target psy --yes` / psyup install".into(),
     ))
+}
+
+/// Official CLI reads `defaultNetwork` from config. For testnet/devnet deploys we write a
+/// temp config with defaultNetwork=sepolia (or keep localhost for local) without mutating ~/.psy.
+fn maybe_rewrite_default_network(base: PathBuf, network: NetworkKind) -> PfResult<PathBuf> {
+    let want = match network {
+        NetworkKind::Local => "localhost",
+        NetworkKind::Testnet | NetworkKind::Devnet => "sepolia",
+        NetworkKind::Mainnet => {
+            return Err(PfError::Safety("mainnet refused".into()));
+        }
+    };
+    let text = fs::read_to_string(&base).map_err(|e| PfError::Tool(e.to_string()))?;
+    let mut v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| PfError::Tool(format!("rpc config: {e}")))?;
+    let cur = v
+        .get("defaultNetwork")
+        .and_then(|x| x.as_str())
+        .unwrap_or("");
+    if cur == want {
+        return Ok(base);
+    }
+    // Ensure network block exists
+    if let Some(nets) = v.get("networks").and_then(|n| n.as_object()) {
+        if !nets.contains_key(want) {
+            return Err(PfError::Tool(format!(
+                "rpc config {} has no networks.{want} block",
+                base.display()
+            )));
+        }
+    }
+    if let Some(obj) = v.as_object_mut() {
+        obj.insert("defaultNetwork".into(), serde_json::Value::String(want.into()));
+    }
+    let dir = std::env::temp_dir().join("proof-forge-psy");
+    fs::create_dir_all(&dir)?;
+    let out = dir.join(format!("rpc-{}-{}.json", want, std::process::id()));
+    fs::write(
+        &out,
+        serde_json::to_string_pretty(&v).map_err(|e| PfError::Tool(e.to_string()))?,
+    )?;
+    Ok(out)
 }
 
 /// Refuse production ethereum/mainnet-style Psy networks.
