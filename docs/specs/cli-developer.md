@@ -92,7 +92,7 @@ pf build <source.lean> --module <Lean.Name> -t aleo -o build/aleo
 | `verify` | **Solana only（D7a）**：spawn `proof-forge-solana-client verify-artifacts`；offline，无 RPC/wallet/deploy |
 | `test` | 单/多 target（`-t evm,solana`）；EVM Anvil / Solana Mollusk / Aleo leo smoke；统一 report；skip ≠ pass |
 | `setup` | doctor checklist + 可选 `proof-forge-next install --yes`；打印短路径 next steps |
-| `deploy` | 默认 save-only；twin exact-match 后 `leo deploy --save` |
+| `deploy` | **Aleo** twin+leo save；**EVM/Solana** 默认 save-only package；`--broadcast` 仅 `--network local` |
 | `execute` | 默认 save-only；`leo execute --save`（可 `--skip-execute-proof`） |
 
 ### 3.2 网络安全门禁
@@ -285,9 +285,20 @@ pf test           # 默认 StateCell-shaped Mollusk
 - 登记 id 列表：`statecell-v1`（唯一 materializer）
 - 未知形状 → deploy fail closed；禁止 silent 近似
 
+## 4.11 Multi-chain deploy（D11）
+
+| Target | 默认 | broadcast |
+|---|---|---|
+| aleo | leo deploy --save（twin） | key env；拒 mainnet + well-known |
+| evm | `*.deployment.package.json` | `--network local` only；loopback RPC 或 ephemeral Anvil |
+| solana | `*.deployment.package.json` | `--network local` + loopback `--endpoint`；`solana program deploy` |
+
+`network=local` 别名：`localhost` / `anvil` / `surfpool`。  
+公共 endpoint 标记（alchemy/infura/sepolia/…）→ safety fail。
+
 ## 6. 非目标（v0）
 
-- EVM/Solana **network** deploy（**D11 deferred**；`pf deploy` Aleo-only）。
+- EVM/Solana **公共网** deploy/broadcast（仅 local loopback）。
 - MCP 暴露 broadcast。
 - 交互式钱包 UI。
 - 把 acceptance scripts 删除（CI 仍用 scripts 或 `pf` 的 `--gate` 模式）。

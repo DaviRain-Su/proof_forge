@@ -9,6 +9,8 @@ pub const LEO_WELL_KNOWN_DEV_KEY: &str =
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum NetworkKind {
+    /// Local node only (Anvil / local validator / Surfpool). Default for EVM/Solana deploy.
+    Local,
     Devnet,
     Testnet,
     Mainnet,
@@ -17,17 +19,19 @@ pub enum NetworkKind {
 impl NetworkKind {
     pub fn parse(s: &str) -> PfResult<Self> {
         match s.trim().to_ascii_lowercase().as_str() {
+            "local" | "localhost" | "anvil" | "surfpool" => Ok(Self::Local),
             "devnet" => Ok(Self::Devnet),
             "testnet" => Ok(Self::Testnet),
             "mainnet" => Ok(Self::Mainnet),
             other => Err(PfError::Usage(format!(
-                "unknown network '{other}' (want testnet|devnet; mainnet refused in v0)"
+                "unknown network '{other}' (want local|testnet|devnet; mainnet refused in v0)"
             ))),
         }
     }
 
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::Local => "local",
             Self::Devnet => "devnet",
             Self::Testnet => "testnet",
             Self::Mainnet => "mainnet",
@@ -36,10 +40,15 @@ impl NetworkKind {
 
     pub fn default_endpoint(self) -> &'static str {
         match self {
+            Self::Local => "http://127.0.0.1:8545",
             Self::Devnet => "http://localhost:3030",
             Self::Testnet => "https://api.explorer.provable.com/v1",
             Self::Mainnet => "https://api.explorer.provable.com/v1",
         }
+    }
+
+    pub fn is_local(self) -> bool {
+        self == Self::Local
     }
 }
 
@@ -47,8 +56,56 @@ impl NetworkKind {
 pub fn refuse_mainnet(net: NetworkKind) -> PfResult<()> {
     if net == NetworkKind::Mainnet {
         return Err(PfError::Safety(
-            "mainnet is refused by pf v0 (product scope: devnet/testnet only)".into(),
+            "mainnet is refused by pf v0 (product scope: local/devnet/testnet only)".into(),
         ));
+    }
+    Ok(())
+}
+
+/// EVM/Solana broadcast is local-node only in v0 (no public RPC write).
+pub fn refuse_public_chain_broadcast(net: NetworkKind, chain: &str) -> PfResult<()> {
+    refuse_mainnet(net)?;
+    if !net.is_local() {
+        return Err(PfError::Safety(format!(
+            "{chain}: --broadcast only allowed with --network local in pf v0 \
+             (no public Devnet/Testnet/Mainnet write; use save-only package or local Anvil/validator)"
+        )));
+    }
+    Ok(())
+}
+
+/// Endpoint must be loopback for local broadcast.
+pub fn require_loopback_endpoint(endpoint: &str) -> PfResult<()> {
+    let e = endpoint.trim().to_ascii_lowercase();
+    let ok = e.contains("127.0.0.1")
+        || e.contains("localhost")
+        || e.contains("[::1]")
+        || e.contains("0.0.0.0"); // anvil bind; still local process
+    if !ok {
+        return Err(PfError::Safety(format!(
+            "local broadcast endpoint must be loopback (got '{endpoint}')"
+        )));
+    }
+    // Refuse obvious public hosts even if someone passes weird local names.
+    for bad in [
+        "mainnet",
+        "sepolia",
+        "goerli",
+        "holesky",
+        "alchemy.com",
+        "infura.io",
+        "publicnode.com",
+        "ankr.com",
+        "api.mainnet",
+        "api.devnet.solana",
+        "api.testnet.solana",
+        "explorer.provable.com",
+    ] {
+        if e.contains(bad) {
+            return Err(PfError::Safety(format!(
+                "refusing non-local endpoint marker '{bad}' in '{endpoint}'"
+            )));
+        }
     }
     Ok(())
 }
@@ -107,6 +164,20 @@ mod tests {
     fn mainnet_refused() {
         assert!(refuse_mainnet(NetworkKind::Mainnet).is_err());
         assert!(refuse_mainnet(NetworkKind::Testnet).is_ok());
+        assert!(refuse_mainnet(NetworkKind::Local).is_ok());
+    }
+
+    #[test]
+    fn public_broadcast_refused_for_evm_solana() {
+        assert!(refuse_public_chain_broadcast(NetworkKind::Testnet, "evm").is_err());
+        assert!(refuse_public_chain_broadcast(NetworkKind::Local, "solana").is_ok());
+    }
+
+    #[test]
+    fn loopback_endpoint_gate() {
+        assert!(require_loopback_endpoint("http://127.0.0.1:8545").is_ok());
+        assert!(require_loopback_endpoint("http://localhost:8899").is_ok());
+        assert!(require_loopback_endpoint("https://eth.llamarpc.com").is_err());
     }
 
     #[test]

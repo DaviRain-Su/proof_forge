@@ -24,6 +24,9 @@ cd hello
 cd counter
 "$PF" build                         # → build/solana/
 "$PF" test                          # Mollusk StateCell-shaped (any name)
+"$PF" deploy                        # save-only package
+# optional local validator/surfpool:
+# "$PF" deploy --broadcast --network local --endpoint http://127.0.0.1:8899
 ```
 
 ### EVM
@@ -33,6 +36,9 @@ cd counter
 cd cell
 "$PF" build                         # → build/evm/
 "$PF" test                          # local Anvil
+"$PF" deploy                        # save-only → build/evm/tx/*.package.json
+# optional local broadcast (Anvil default key #0 if no --private-key-env):
+# "$PF" deploy --broadcast --network local
 ```
 
 No monorepo long paths in the happy path.  
@@ -55,7 +61,8 @@ No monorepo long paths in the happy path.
 | `pf test -t evm,solana` | **D8** 多 target 顺序 + 统一 report（任一 fail → 非零） |
 | `pf test -t aleo` | Leo smoke `initialize(0)` 或 skip（无 leo） |
 | `pf verify -t solana` | Offline OutputSet joins |
-| `pf deploy` / `pf execute` | **Aleo only** save-only（D11：无 Solana/EVM 网络 deploy） |
+| `pf deploy` | **Aleo / EVM / Solana**：默认 save-only package；`--broadcast` 仅 local |
+| `pf execute` | Aleo execute save-only |
 | `pf setup [--target] [-y]` | Checklist + 可选 compiler install |
 | `pf doctor` / `pf version` / `pf list-targets` | Toolchain |
 

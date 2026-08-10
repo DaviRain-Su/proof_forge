@@ -61,7 +61,7 @@ just pf-cli-test | pf-cli-build | pf-cli-smoke
 | PF-D8 | 统一 `pf test` 多 target + report | **done** |
 | PF-D9 | 分发：`pf` + compiler 并排包 / `pf setup` / INSTALL | **done**（工程切片） |
 | PF-D10 | Aleo twin **registry**（扩面入口；仍仅 statecell-v1） | **done skeleton** |
-| PF-D11 | Solana/EVM **network deploy** | **deferred**（产品门；文档钉死） |
+| PF-D11 | Solana/EVM deploy wrap（save-only + local broadcast） | **done**（公共网写仍拒绝） |
 
 ---
 
@@ -272,32 +272,38 @@ pf test -t aleo          # leo smoke initialize(0) 或 skip（无 leo）
 - 扩面流程：新 twin 源 + `looks_like_*` + 登记 + 验收；**禁止** silent 近似
 - 更多程序 twin **仍产品可选**，不是默认承诺
 
-### D11 — 网络 deploy — **deferred（产品门）**
+### D11 — Solana/EVM deploy wrap — **done 2026-08-10**
 
-**决策钉死（v0）**：
-
-| 链 | `pf deploy` | 说明 |
+| 链 | 默认 | `--broadcast` |
 |---|---|---|
-| Aleo | ✅ save-only（已有） | twin exact-match；默认不 broadcast |
-| Solana | ❌ | 无 Devnet 自动水龙头；无 RPC deploy 产品面 |
-| EVM | ❌ | 无默认广播；本地用 `pf test` Anvil |
+| Aleo | save-only twin packaging（testnet/devnet） | 需 key env；拒 mainnet + well-known key |
+| EVM | save-only package → `build/evm/tx/*.deployment.package.json` | **仅** `--network local` + loopback；可起 ephemeral Anvil |
+| Solana | save-only package → `build/solana/tx/*.deployment.package.json` | **仅** `--network local` + loopback `--endpoint`；`solana program deploy` |
 
-若未来产品要 Solana/EVM 网络写：
+**仍拒绝**：
 
-1. 另开 ADR + 显式 opt-in 标志  
-2. 默认仍 save/unsigned  
-3. 禁止 mainnet 第一期  
-4. 不得改写 `deployable`
+- mainnet  
+- EVM/Solana 公共 Devnet/Testnet/Mainnet 写  
+- 改写 `deployable`  
+- 默认广播  
 
-在此之前 **`pf deploy` 保持 Aleo-only**。
+```bash
+pf new cell --target evm && cd cell && pf build
+pf deploy                          # save-only
+pf deploy --broadcast --network local --private-key-env ANVIL_KEY   # optional
+
+pf new c --target solana && cd c && pf build
+pf deploy                          # save-only
+# after local validator/surfpool:
+pf deploy --broadcast --network local --endpoint http://127.0.0.1:8899
+```
 
 ---
 
 ## 7. 建议击杀顺序（从现在开始）
 
 ```text
-D0–D10 skeleton done
-  └── D11 network deploy still deferred (product gate)
+D0–D11 done (public-chain write still refused)
   └── optional: more Aleo twin materializers / GH Release wiring
 ```
 

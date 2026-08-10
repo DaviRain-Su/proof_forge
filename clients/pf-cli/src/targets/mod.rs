@@ -39,10 +39,10 @@ pub fn capability_note(target: &str) -> &'static str {
     match TargetId::parse(target) {
         TargetId::Aleo => "build, local run, deploy, and execute supported",
         TargetId::Evm => {
-            "build + `pf test` (local Anvil via scripts/pf_evm_test.sh); deploy not in pf v0"
+            "build + `pf test` (Anvil) + `pf deploy` (save-only; --broadcast local only)"
         }
         TargetId::Solana => {
-            "build + `pf test` (Mollusk StateCell-shaped / TransferSol); `pf verify` offline when client joins; deploy not in pf v0"
+            "build + `pf test` (Mollusk) + `pf verify` + `pf deploy` (save-only; --broadcast local only)"
         }
         TargetId::Other => "unsupported developer operation in pf v0 (fail closed)",
     }

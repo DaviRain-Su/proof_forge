@@ -255,4 +255,39 @@ fi
 echo "pf-cli-smoke: setup"
 "$pf_bin" setup --target aleo >/dev/null
 
+# D11: EVM/Solana save-only deploy packages + public broadcast FC
+echo "pf-cli-smoke: evm/solana deploy save-only"
+(
+  set -euo pipefail
+  d="$tmp/deploy-proj"
+  "$pf_bin" new d11 --target evm --path "$d" >/dev/null
+  (
+    cd "$d"
+    "$pf_bin" build >/dev/null
+    "$pf_bin" deploy >/dev/null
+    test -f build/evm/tx/*.deployment.package.json || test -n "$(ls build/evm/tx/*package.json 2>/dev/null)"
+    # public broadcast refused
+    set +e
+    err="$("$pf_bin" deploy --broadcast -n testnet 2>&1)"
+    code=$?
+    set -e
+    [[ "$code" -ne 0 ]]
+    echo "$err" | rg -qi 'local|broadcast|refused|safety|mainnet|public'
+  )
+  d2="$tmp/deploy-sol"
+  "$pf_bin" new d11s --target solana --path "$d2" >/dev/null
+  (
+    cd "$d2"
+    "$pf_bin" build >/dev/null
+    "$pf_bin" deploy >/dev/null
+    ls build/solana/tx/*package.json >/dev/null
+    set +e
+    err="$("$pf_bin" deploy --broadcast -n devnet --endpoint https://api.devnet.solana.com 2>&1)"
+    code=$?
+    set -e
+    [[ "$code" -ne 0 ]]
+    echo "$err" | rg -qi 'local|broadcast|refused|loopback|public|safety'
+  )
+)
+
 echo "pf-cli-smoke: ok"

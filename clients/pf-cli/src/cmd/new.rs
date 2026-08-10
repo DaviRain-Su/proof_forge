@@ -34,11 +34,16 @@ pub fn run(name: &str, target: Option<&str>, path: Option<&PathBuf>, json: bool)
                 println!("  pf deploy");
             }
             "evm" => {
-                println!("  pf test              # local Anvil (needs locked anvil/cast)");
+                println!("  pf test              # local Anvil");
+                println!("  pf deploy            # save-only package (tx/)");
+                println!("  # pf deploy --broadcast --network local --private-key-env KEY");
             }
             "solana" => {
                 println!("  pf test              # local Mollusk (StateCell-shaped)");
-                println!("  # pf verify          # offline joins when solana-client accepts notes");
+                println!("  pf deploy            # save-only package (tx/)");
+                println!(
+                    "  # pf deploy --broadcast --network local --endpoint http://127.0.0.1:8899"
+                );
             }
             _ => {
                 println!("  pf build -t <target>");

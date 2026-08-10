@@ -153,7 +153,7 @@ struct NetworkArgs {
     target: Option<String>,
     #[arg(long)]
     artifact: Option<PathBuf>,
-    /// testnet|devnet (mainnet refused). Default: pf.toml [network].default or testnet
+    /// local|testnet|devnet (mainnet refused). Aleo default=testnet; EVM/Solana deploy default=local
     #[arg(long, short = 'n')]
     network: Option<String>,
     #[arg(long)]
