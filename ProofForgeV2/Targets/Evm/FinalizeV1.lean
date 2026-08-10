@@ -35,9 +35,9 @@ def requireNonemptySolcBytecode (binary : String) : IO Unit := do
     throw <| IO.userError "PF-ARTIFACT-NONDEPLOYABLE: solc returned no bytecode"
 
 /-- Pure solc argv for a known EVM codegen profile.
-    Explicit branches only: Cancun pins `--evm-version cancun`; legacy keeps
-    historical args. Unknown profiles fail closed (defense in depth; capability
-    selection should already reject them). -/
+    Explicit branches only: both EVM profiles always pass `--optimize`;
+    Cancun additionally pins `--evm-version cancun`. Unknown profiles fail
+    closed (defense in depth; capability selection should already reject them). -/
 def solcArgsForProfile (profile : CodegenProfileId) (source : String) :
     Except String (Array String) :=
   if profile == CodegenProfileId.evmYulSolc0834CancunV1 then

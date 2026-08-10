@@ -80,7 +80,7 @@ object "MockCallee" {
 }
 YUL
 
-"$solc_bin" --strict-assembly --bin "$work/MockCallee.yul" > "$work/mock.out" 2>"$work/mock.err" \
+"$solc_bin" --strict-assembly --optimize --bin "$work/MockCallee.yul" > "$work/mock.out" 2>"$work/mock.err" \
   || die "mock callee failed strict-assembly: $(tail -2 "$work/mock.err")"
 mock_bin="$(awk '/Binary representation:/{getline; print $1; exit}' "$work/mock.out")"
 
@@ -129,7 +129,7 @@ object "ProbeCaller" {
 }
 YUL
 
-"$solc_bin" --strict-assembly --bin "$work/ProbeCaller.yul" > "$work/caller.out" 2>"$work/caller.err" \
+"$solc_bin" --strict-assembly --optimize --bin "$work/ProbeCaller.yul" > "$work/caller.out" 2>"$work/caller.err" \
   || die "caller failed strict-assembly: $(tail -2 "$work/caller.err")"
 caller_bin="$(awk '/Binary representation:/{getline; print $1; exit}' "$work/caller.out")"
 
@@ -171,7 +171,7 @@ object "BoomCaller" {
   }
 }
 YUL
-"$solc_bin" --strict-assembly --bin "$work/BoomCaller.yul" > "$work/boom.out" 2>/dev/null
+"$solc_bin" --strict-assembly --optimize --bin "$work/BoomCaller.yul" > "$work/boom.out" 2>/dev/null
 boom_bin="$(awk '/Binary representation:/{getline; print $1; exit}' "$work/boom.out")"
 boom_addr="$("$cast_bin" send --rpc-url http://127.0.0.1:18545 --private-key "$deployer_key" \
   --create "$boom_bin" --json | python3 -c 'import json,sys; print(json.load(sys.stdin)["contractAddress"])')"

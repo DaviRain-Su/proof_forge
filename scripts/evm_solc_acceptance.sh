@@ -2,7 +2,7 @@
 # EVM solc acceptance helper (engineering only).
 #
 # Compiles every *.yul under a directory (or a single file) with:
-#   solc --strict-assembly --bin <file>
+#   solc --strict-assembly --optimize --bin <file>
 # matching FinalizeV1 product finalization args.
 #
 # Exit codes:
@@ -67,9 +67,9 @@ for f in "${files[@]}"; do
   echo "--- $f"
   dir="$(cd "$(dirname "$f")" && pwd)"
   base="$(basename "$f")"
-  if ! out="$("$solc" --strict-assembly --bin "$base" --base-path "$dir" 2>&1)"; then
+  if ! out="$("$solc" --strict-assembly --optimize --bin "$base" --base-path "$dir" 2>&1)"; then
     # Retry with cwd-relative path (FinalizeV1 style: cwd = staging dir).
-    if ! (cd "$dir" && out="$("$solc" --strict-assembly --bin "$base" 2>&1)"); then
+    if ! (cd "$dir" && out="$("$solc" --strict-assembly --optimize --bin "$base" 2>&1)"); then
       echo "FAIL: solc rejected $f" >&2
       echo "$out" >&2
       failed=1
@@ -78,7 +78,7 @@ for f in "${files[@]}"; do
   fi
   if ! grep -q 'Binary representation:' <<<"$out"; then
     # Second attempt with cwd
-    out="$(cd "$dir" && "$solc" --strict-assembly --bin "$base" 2>&1)" || {
+    out="$(cd "$dir" && "$solc" --strict-assembly --optimize --bin "$base" 2>&1)" || {
       echo "FAIL: solc rejected $f" >&2
       echo "$out" >&2
       failed=1
