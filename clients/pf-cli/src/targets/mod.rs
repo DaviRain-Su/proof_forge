@@ -48,7 +48,7 @@ pub fn capability_note(target: &str) -> &'static str {
             "build + `pf test` (Mollusk) + `pf verify` + `pf deploy` (save-only; --broadcast local only)"
         }
         TargetId::Psy => {
-            "build DPN + `pf test`/`pf run` via official psy_user_cli simulate (no PF network deploy)"
+            "build DPN + `pf test` (session) + `pf run` (simulate) + `pf deploy` wraps psy_user_cli deploy-contract"
         }
         TargetId::Other => "unsupported developer operation in pf v0 (fail closed)",
     }

@@ -1540,3 +1540,12 @@ ci-target-smoke: test-targets ci-target-cli-smoke
 ci: ci-lean-product ci-target-smoke
 
 check: ci
+
+
+# Psy: probe localhost/sepolia coordinator from ~/.psy/config.json
+psy-local-chain-status:
+    bash scripts/psy_local_chain_status.sh
+
+# Psy: pf deploy save-only (needs pf-cli-build + psy_user_cli)
+pf-psy-deploy-save: build pf-cli-build
+    bash -c 'set -euo pipefail; export PATH="$HOME/.psy/bin:$PATH"; export PROOF_FORGE_CLI="$PWD/.lake/build/bin/proof-forge-next"; out=build/v2/psy-deploy-save; rm -rf "$out"; "$PROOF_FORGE_CLI" build Examples/StateCell.lean --module Examples.StateCell --target psy -o "$out"; clients/pf-cli/target/release/pf deploy -t psy --artifact "$out" --network local; test -f "$out/tx/deploy_cmd.json"; echo OK "$out/tx/deploy_cmd.json"'

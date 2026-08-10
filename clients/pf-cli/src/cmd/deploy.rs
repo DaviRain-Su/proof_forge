@@ -4,7 +4,7 @@ use crate::error::{PfError, PfResult};
 use crate::project::Project;
 use crate::result_json::PfOk;
 use crate::safety::NetworkKind;
-use crate::targets::{self, aleo, evm, solana};
+use crate::targets::{self, aleo, evm, psy, solana};
 use std::path::Path;
 
 pub fn run(
@@ -154,13 +154,54 @@ pub fn run(
                 }
             })
         }
-        targets::TargetId::Psy => Err(PfError::NotImplemented(
-            "psy: PF does not deploy DPN packages. Use official:\n  \
-             psy_user_cli deploy-contract --contract-path <out>/*.dpn.json \\\n  \
-             [--rpc-config ~/.psy/config.json] [--is-deploy] --private-key-env KEY\n  \
-             Local VM: `pf test -t psy` / `pf run -t psy -- <method> [inputs…]` (psy_user_cli simulate)."
-                .into(),
-        )),
+        targets::TargetId::Psy => {
+            let net_s = network_cli.unwrap_or("local");
+            let network = NetworkKind::parse(net_s)?;
+            let save_default = dir.join("tx");
+            let save_dir = save.unwrap_or(save_default.as_path());
+            // Optional ABI next to DPN
+            let abi_guess = dir.join("StateCell.abi.json");
+            let abi = if abi_guess.is_file() {
+                Some(abi_guess.as_path())
+            } else {
+                None
+            };
+            let rpc_path = endpoint.map(Path::new); // reuse --endpoint as rpc-config path override when it looks like a file
+            let rpc_override = rpc_path.filter(|p| p.is_file());
+            let out = psy::deploy::deploy(psy::deploy::DeployRequest {
+                artifact_dir: &dir,
+                network,
+                rpc_config: rpc_override,
+                broadcast,
+                private_key_env: key_env,
+                save_dir,
+                abi_path: abi,
+            })?;
+            let saved: Vec<String> = out.saved.iter().map(|p| p.display().to_string()).collect();
+            let mut ok = PfOk::new("deploy");
+            ok.target = Some(target);
+            ok.network = Some(out.network.clone());
+            ok.broadcast = Some(out.broadcast);
+            ok.artifact_dir = Some(dir.display().to_string());
+            ok.saved = Some(saved.clone());
+            ok.notes = Some(out.notes.clone());
+            ok.extra = Some(serde_json::json!({
+                "lane": "psy_user_cli-deploy-contract",
+                "contractPath": out.contract_path.display().to_string(),
+                "rpcConfig": out.rpc_config.display().to_string(),
+                "stdoutTail": out.stdout_tail,
+            }));
+            emit(ok, json, || {
+                println!(
+                    "    Finished `deploy` psy (broadcast={}) → {}",
+                    out.broadcast,
+                    saved.join(", ")
+                );
+                for n in &out.notes {
+                    println!("      note: {n}");
+                }
+            })
+        }
         targets::TargetId::Other => Err(PfError::NotImplemented(format!(
             "target '{target}': {}",
             targets::capability_note(&target)

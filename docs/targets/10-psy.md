@@ -127,3 +127,13 @@ network deploy、hermetic 或 formal refinement 证据；删除旧 source/compil
 > For `init(7) → increment(5) → get = 12`, use `scripts/psy_dpn_session.py` / `pf test -t psy`
 > (shared-state harness). Do not expect three separate simulates to accumulate.
 
+## 9. Official tool wrap (pf)
+
+| pf command | Official tool |
+|---|---|
+| `pf run -t psy` | `psy_user_cli simulate` |
+| `pf deploy -t psy` | `psy_user_cli deploy-contract` (save-only default; `--broadcast` → `--is-deploy`) |
+| `pf test -t psy` | multi-step session harness + optional simulate sanity |
+| chain probe | `scripts/psy_local_chain_status.sh` |
+
+Persistent local chain requires host-heavy `psy-node` / `psy_node_cli` fabric — not auto-started by pf.

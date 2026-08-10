@@ -483,10 +483,12 @@ fn next_commands(target: &str) -> Vec<String> {
         ],
         "psy" => vec![
             "pf setup --target psy".into(),
-            "pf build -t psy                 # → *.dpn.json (deployable=false)".into(),
-            "pf test -t psy                  # official psy_user_cli simulate".into(),
-            "pf run -t psy -- initialize 7".into(),
-            "# network deploy is official only: psy_user_cli deploy-contract --contract-path <dpn>".into(),
+            "pf build -t psy                 # → *.dpn.json".into(),
+            "pf test -t psy                  # multi-step session (7+5=12)".into(),
+            "pf run -t psy -- initialize 7   # official psy_user_cli simulate".into(),
+            "pf deploy -t psy                # save-only wraps deploy-contract".into(),
+            "pf deploy -t psy --broadcast --network testnet --private-key-env KEY".into(),
+            "bash scripts/psy_local_chain_status.sh".into(),
         ],
         _ => vec![
             format!("pf setup --target {target}"),

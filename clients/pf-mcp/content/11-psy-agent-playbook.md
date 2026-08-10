@@ -108,6 +108,11 @@ pf build
 ls *.dpn.json manifest.json evidence.json
 pf inspect --output-dir .
 
+
+> **Session continuity:** `psy_user_cli simulate` is **one call per process** (fresh memory).
+> For `init(7) → increment(5) → get = 12`, use `scripts/psy_dpn_session.py` / `pf test -t psy`
+> (shared-state harness). Do not expect three separate simulates to accumulate.
+
 # Local DPN VM (official psy_user_cli simulate — host tool)
 export PATH="$HOME/.psy/bin:$PATH"
 pf test -t psy
@@ -155,6 +160,24 @@ cd my-app/contract && psyup build
 | `@psy-protocol/utils` | 共享工具 |
 
 模板注入：`window.psy.requestAccounts` / `sendTransaction`（见官方 `psy-template`）。
+
+
+## Deploy (official CLI wrapped by `pf`)
+
+```bash
+pf build -t psy -o build/v2/sc-psy
+# save-only: materialize deploy_cmd.json via psy_user_cli deploy-contract (no --is-deploy)
+pf deploy -t psy --artifact build/v2/sc-psy --network local
+
+# broadcast (needs funded key + live coordinator)
+# local cluster:
+pf deploy -t psy --artifact build/v2/sc-psy --network local --broadcast --private-key-env PF_PSY_KEY
+# public staging/testnet (sepolia config in ~/.psy/config.json):
+pf deploy -t psy --artifact build/v2/sc-psy --network testnet --broadcast --private-key-env PF_PSY_KEY
+```
+
+`pf` only shells to `psy_user_cli deploy-contract`. Mainnet refused.
+Probe chain: `bash scripts/psy_local_chain_status.sh`
 
 ## Honesty
 

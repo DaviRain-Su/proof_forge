@@ -161,6 +161,24 @@ cd my-app/contract && psyup build
 
 模板注入：`window.psy.requestAccounts` / `sendTransaction`（见官方 `psy-template`）。
 
+
+## Deploy (official CLI wrapped by `pf`)
+
+```bash
+pf build -t psy -o build/v2/sc-psy
+# save-only: materialize deploy_cmd.json via psy_user_cli deploy-contract (no --is-deploy)
+pf deploy -t psy --artifact build/v2/sc-psy --network local
+
+# broadcast (needs funded key + live coordinator)
+# local cluster:
+pf deploy -t psy --artifact build/v2/sc-psy --network local --broadcast --private-key-env PF_PSY_KEY
+# public staging/testnet (sepolia config in ~/.psy/config.json):
+pf deploy -t psy --artifact build/v2/sc-psy --network testnet --broadcast --private-key-env PF_PSY_KEY
+```
+
+`pf` only shells to `psy_user_cli deploy-contract`. Mainnet refused.
+Probe chain: `bash scripts/psy_local_chain_status.sh`
+
 ## Honesty
 
 - engineering DPN emission ≠ execution / UPS / proof / network settlement  

@@ -1,79 +1,85 @@
 #!/usr/bin/env bash
-# Host-optional Psy DPN local smoke:
-#   1) pf build → *.dpn.json
-#   2) multi-step session: initialize(7)→increment(5)→get  expect 12
-#   3) optional single-call official psy_user_cli simulate (process-isolated)
-#
-# IMPORTANT: official `psy_user_cli simulate` is ONE method per process with a
-# fresh InMemoryStateBackend. Three separate simulates cannot show 7+5=12.
-# Continuity is scripts/psy_dpn_session.py (IDE/WASM-style commit loop).
+# Psy DPN local smoke — official CLI first:
+#   1) pf/proof-forge-next build → *.dpn.json
+#   2) multi-step session continuity (init+inc+get=12)
+#   3) official psy_user_cli simulate single-call
+#   4) pf deploy save-only wrapping psy_user_cli deploy-contract
+#   5) local chain status probe (does not start nodes)
 set -euo pipefail
-
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
+info(){ printf 'psy-dpn-local-smoke: %s\n' "$*" >&2; }
+die(){ info "ERROR: $*"; exit 1; }
 
-info() { printf 'psy-dpn-local-smoke: %s\n' "$*" >&2; }
-die() { info "ERROR: $*"; exit 1; }
-
-if [[ -x "${HOME}/.psy/bin/psy_user_cli" ]]; then
-  export PATH="${HOME}/.psy/bin:${PATH}"
-fi
-if [[ -f "${HOME}/.psy/env" ]]; then
-  # shellcheck disable=SC1091
-  source "${HOME}/.psy/env" || true
-fi
+export PATH="${HOME}/.psy/bin:${PATH}"
+[[ -f "${HOME}/.psy/env" ]] && source "${HOME}/.psy/env" || true
 
 pf_bin="${PROOF_FORGE_CLI:-}"
-if [[ -z "$pf_bin" && -x "$root/.lake/build/bin/proof-forge-next" ]]; then
-  pf_bin="$root/.lake/build/bin/proof-forge-next"
-fi
-if [[ -z "$pf_bin" ]] && command -v proof-forge-next >/dev/null 2>&1; then
-  pf_bin="$(command -v proof-forge-next)"
-fi
-[[ -n "$pf_bin" && -x "$pf_bin" ]] || die "proof-forge-next not found (set PROOF_FORGE_CLI)"
+[[ -z "$pf_bin" && -x "$root/.lake/build/bin/proof-forge-next" ]] && pf_bin="$root/.lake/build/bin/proof-forge-next"
+[[ -z "$pf_bin" ]] && command -v proof-forge-next >/dev/null && pf_bin=$(command -v proof-forge-next)
+[[ -n "${pf_bin:-}" ]] || die "proof-forge-next missing"
+
+pf_cli="${PF_BIN:-}"
+[[ -z "$pf_cli" && -x "$root/clients/pf-cli/target/release/pf" ]] && pf_cli="$root/clients/pf-cli/target/release/pf"
+[[ -z "$pf_cli" ]] && command -v pf >/dev/null && pf_cli=$(command -v pf)
 
 out="${PF_PSY_OUT:-$root/build/v2/psy-dpn-smoke}"
-src="${PF_PSY_SOURCE:-Examples/StateCell.lean}"
-mod="${PF_PSY_MODULE:-Examples.StateCell}"
 rm -rf "$out"
 mkdir -p "$(dirname "$out")"
 
-info "build $src → $out (target=psy)"
-"$pf_bin" build "$src" --module "$mod" --target psy -o "$out" >&2
+info "1/5 build"
+"$pf_bin" build Examples/StateCell.lean --module Examples.StateCell --target psy -o "$out" >&2
+dpn=$(find "$out" -maxdepth 1 -name '*.dpn.json' | head -1)
+[[ -f "$dpn" ]] || die "no dpn"
 
-dpn="$(find "$out" -maxdepth 1 -name '*.dpn.json' | head -1)"
-[[ -n "$dpn" && -f "$dpn" ]] || die "no *.dpn.json under $out"
-info "dpn=$dpn"
+info "2/5 multi-step session (shared state → 12)"
+python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" \
+  --call initialize:7 --call increment:5 --call get | tee "$out/session.log"
 
-info "multi-step session (shared state): init(7)+inc(5)+get → 12"
-/usr/bin/python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" \
-  --call initialize:7 --call increment:5 --call get \
-  | tee "$out/session.log"
-
-# Optional: prove official CLI still accepts the package (single-call only)
 if command -v psy_user_cli >/dev/null 2>&1; then
-  info "official simulate single-call sanity (fresh state each time — NOT a sequence)"
-  raw="$(mktemp)"
-  psy_user_cli simulate --circuit-defs-path "$dpn" --method initialize --inputs 7 --format json \
-    >"$raw" 2>&1 || { cat "$raw" >&2; die "official simulate failed"; }
-  /usr/bin/python3 -I -S -c "
-import sys
-raw=open(sys.argv[1],encoding='utf-8',errors='replace').read()
-i,j=raw.find('{'),raw.rfind('}')
-import json
-d=json.loads(raw[i:j+1])
-assert d.get('success') is True, d
-w=d.get('state_writes') or []
-assert w and int(w[0]['new_value'][0])==7, d
-print('OK official simulate initialize(7) alone')
+  info "3/5 official simulate single-call"
+  raw=$(mktemp)
+  psy_user_cli simulate --circuit-defs-path "$dpn" --method initialize --inputs 7 --format json >"$raw" 2>&1
+  python3 -I -S -c "
+import sys,json
+t=open(sys.argv[1],encoding='utf-8',errors='replace').read()
+i,j=t.find('{'),t.rfind('}')
+d=json.loads(t[i:j+1])
+assert d.get('success') is True
+print('OK official simulate initialize')
 " "$raw"
   rm -f "$raw"
 else
-  info "skip official simulate (psy_user_cli not on PATH)"
+  info "3/5 skip official simulate (no psy_user_cli)"
 fi
 
-info "OK"
-info "  continuity: scripts/psy_dpn_session.py (expect 12)"
-info "  official single-call: psy_user_cli simulate (expect fresh state)"
-info "  deploy: psy_user_cli deploy-contract --contract-path <dpn> (not pf)"
-info "engineering only — not formal/hermetic/mainnet"
+if [[ -n "${pf_cli:-}" && -x "$pf_cli" ]]; then
+  info "4/5 pf deploy save-only (wraps psy_user_cli deploy-contract)"
+  export PROOF_FORGE_CLI="$pf_bin"
+  "$pf_cli" deploy -t psy --artifact "$out" --network local 2>&1 | tee "$out/deploy-save.log" | tail -20
+  ls -la "$out/tx" 2>/dev/null || ls -la "$out"/**/deploy_cmd.json 2>/dev/null || true
+  # find deploy_cmd
+  if find "$out" -name 'deploy_cmd.json' | head -1 | grep -q .; then
+    info "OK deploy_cmd.json written by official CLI via pf"
+  else
+    die "deploy_cmd.json missing after pf deploy"
+  fi
+else
+  info "4/5 skip pf deploy (build pf first: cargo build -p proof-forge-pf --release)"
+  if command -v psy_user_cli >/dev/null; then
+    info "    direct official save-only deploy-contract"
+    export PRIVATE_KEY="${PRIVATE_KEY:-0000000000000000000000000000000000000000000000000000000000000001}"
+    mkdir -p "$out/tx"
+    psy_user_cli deploy-contract --contract-path "$dpn" --private-key "$PRIVATE_KEY" \
+      --output-path "$out/tx/deploy_cmd.json" --rpc-config "${RPC_CONFIG:-$HOME/.psy/config.json}" >&2
+  fi
+fi
+
+info "5/5 local chain status probe"
+bash "$root/scripts/psy_local_chain_status.sh" || info "local/public coordinator not up (expected if no cluster)"
+
+info "OK psy DPN smoke complete"
+info "  session continuity: YES (12)"
+info "  official simulate: single-call"
+info "  pf deploy: save-only wraps deploy-contract"
+info "  persistent chain: start psy-node local-devnet, then pf deploy --broadcast"

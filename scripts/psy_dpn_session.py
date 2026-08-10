@@ -105,12 +105,25 @@ class Executor:
                 self.p(dt, idx, 1)
             elif op == 3:
                 self.p(dt, idx, 0)
-            elif op == 4:
+            elif op == 4:  # add
                 self.p(dt, idx, self.g(ins[0]) + self.g(ins[1]))
             elif op == 5:
                 self.p(dt, idx, self.g(ins[0]) - self.g(ins[1]))
             elif op == 6:
                 self.p(dt, idx, self.g(ins[0]) * self.g(ins[1]))
+            elif op == 7:  # div
+                den = self.g(ins[1])
+                if den == 0:
+                    raise DpnError("div by zero")
+                self.p(dt, idx, self.g(ins[0]) // den)
+            elif op == 8:  # boolNot
+                self.p(dt, idx, 0 if self.g(ins[0]) else 1)
+            elif op == 9:
+                self.p(dt, idx, 1 if self.g(ins[0]) and self.g(ins[1]) else 0)
+            elif op == 10:
+                self.p(dt, idx, 1 if self.g(ins[0]) or self.g(ins[1]) else 0)
+            elif op == 11:  # xor
+                self.p(dt, idx, self.g(ins[0]) ^ self.g(ins[1]))
             elif op == 13:
                 self.p(dt, idx, 1 if self.g(ins[0]) == self.g(ins[1]) else 0)
             elif op == 14:
@@ -121,6 +134,36 @@ class Executor:
                 self.p(dt, idx, 1 if self.g(ins[0]) > self.g(ins[1]) else 0)
             elif op == 17:
                 self.p(dt, idx, 1 if self.g(ins[0]) < self.g(ins[1]) else 0)
+            elif op == 23:  # select(cond, a, b) — if cond then a else b
+                self.p(dt, idx, self.g(ins[1]) if self.g(ins[0]) else self.g(ins[2]))
+            elif op == 27:  # mod
+                den = self.g(ins[1])
+                if den == 0:
+                    raise DpnError("mod by zero")
+                self.p(dt, idx, self.g(ins[0]) % den)
+            elif op == 31:  # castU32
+                self.p(dt, idx, self.g(ins[0]) & 0xFFFFFFFF)
+            elif op in (32, 33):  # u32And / const
+                a = self.g(ins[0])
+                b = self.g(ins[1]) if op == 32 else ins[1]
+                self.p(dt, idx, (a & b) & 0xFFFFFFFF)
+            elif op in (34, 35):
+                a = self.g(ins[0])
+                b = self.g(ins[1]) if op == 34 else ins[1]
+                self.p(dt, idx, (a | b) & 0xFFFFFFFF)
+            elif op in (36, 37):
+                a = self.g(ins[0])
+                b = self.g(ins[1]) if op == 36 else ins[1]
+                self.p(dt, idx, (a ^ b) & 0xFFFFFFFF)
+            elif op == 38:  # u32ShiftLeft
+                self.p(dt, idx, (self.g(ins[0]) << (self.g(ins[1]) & 31)) & 0xFFFFFFFF)
+            elif op == 42:  # u32ShiftRight
+                self.p(dt, idx, (self.g(ins[0]) & 0xFFFFFFFF) >> (self.g(ins[1]) & 31))
+            elif op == 53:  # getStateCommandResultHash — treat as single limb 0 placeholder
+                ci = ins[0]
+                run_cmd(ci)
+                limbs = self.cmd_res[ci] or [0]
+                self.p(dt, idx, limbs[0])
             elif op == 54:  # getStateCommandResultSingle — inputs[0] = cmd index
                 ci = ins[0]
                 run_cmd(ci)
@@ -128,6 +171,36 @@ class Executor:
                 if not limbs:
                     raise DpnError(f"cmd {ci} empty result for op54")
                 self.p(dt, idx, limbs[0])
+            elif op == 55:  # getStateCommandResultArray — take first limb
+                ci = ins[0]
+                run_cmd(ci)
+                limbs = self.cmd_res[ci] or [0]
+                self.p(dt, idx, limbs[0])
+            elif op == 65:  # unaryNegative
+                self.p(dt, idx, (-self.g(ins[0])) & U64)
+            elif op in (66, 67, 72, 73, 74):  # u32Input/constU32/castFelt/castBool/boolInput
+                if op == 67:
+                    self.p(dt, idx, ins[0] if ins else 0)
+                elif op == 66:
+                    ord_ = ins[0] if ins else idx
+                    self.p(dt, idx, inputs[ord_] & 0xFFFFFFFF)
+                elif op == 74:
+                    ord_ = ins[0] if ins else idx
+                    self.p(dt, idx, 1 if inputs[ord_] else 0)
+                else:
+                    self.p(dt, idx, self.g(ins[0]))
+            elif op in (68, 69, 70, 71):  # u32 arith
+                a, b = self.g(ins[0]), self.g(ins[1])
+                if op == 68:
+                    self.p(dt, idx, (a + b) & 0xFFFFFFFF)
+                elif op == 69:
+                    self.p(dt, idx, (a - b) & 0xFFFFFFFF)
+                elif op == 70:
+                    self.p(dt, idx, (a * b) & 0xFFFFFFFF)
+                else:
+                    if b == 0:
+                        raise DpnError("u32 div0")
+                    self.p(dt, idx, (a // b) & 0xFFFFFFFF)
             else:
                 raise DpnError(f"unsupported op_type {op} at def {di}")
 

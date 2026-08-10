@@ -67,6 +67,11 @@ Expected shape: array of function circuit defs (`get` / `increment` / `initializ
 
 
 
+
+> **Session continuity:** `psy_user_cli simulate` is **one call per process** (fresh memory).
+> For `init(7) → increment(5) → get = 12`, use `scripts/psy_dpn_session.py` / `pf test -t psy`
+> (shared-state harness). Do not expect three separate simulates to accumulate.
+
 ### 3b) Local VM via official `psy_user_cli simulate` (now wired)
 
 ```bash
