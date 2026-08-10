@@ -6,7 +6,7 @@
   "description": "Minimal Solana React dApp: wallet-adapter + PF StateCell-shaped IDL (local validator default)",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc --noEmit && vite build",
     "preview": "vite preview"
   },
   "dependencies": {

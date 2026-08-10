@@ -1,10 +1,22 @@
 import type { FC } from "react";
 import { useMemo } from "react";
-import { ConnectionProvider, WalletProvider } from "@solana/wallet-adapter-react";
-import { WalletModalProvider, WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import {
+  ConnectionProvider as ConnectionProviderImpl,
+  WalletProvider as WalletProviderImpl,
+} from "@solana/wallet-adapter-react";
+import {
+  WalletModalProvider as WalletModalProviderImpl,
+  WalletMultiButton as WalletMultiButtonImpl,
+} from "@solana/wallet-adapter-react-ui";
 import { PhantomWalletAdapter, SolflareWalletAdapter } from "@solana/wallet-adapter-wallets";
 import { DappPanel } from "./DappPanel";
 import { envRpc } from "./config";
+
+// wallet-adapter FC types can disagree with @types/react minor lines; cast for JSX.
+const ConnectionProvider = ConnectionProviderImpl as FC<any>;
+const WalletProvider = WalletProviderImpl as FC<any>;
+const WalletModalProvider = WalletModalProviderImpl as FC<any>;
+const WalletMultiButton = WalletMultiButtonImpl as FC<any>;
 
 export const App: FC = () => {
   const endpoint = envRpc();

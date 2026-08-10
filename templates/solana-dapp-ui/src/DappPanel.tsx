@@ -1,3 +1,4 @@
+import { Buffer } from "buffer";
 import { useCallback, useEffect, useMemo, useState, type FC } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import {
@@ -132,7 +133,7 @@ export const DappPanel: FC = () => {
     }
     setBusy(true);
     try {
-      const data = encodePfIxData(spec.handlerId, params);
+      const data = Buffer.from(encodePfIxData(spec.handlerId, params));
       const isWritable = Boolean(spec.accounts[0]?.outerWritable ?? true);
       // state is program-owned — never marked signer here; wallet is fee payer only.
       const ix = new TransactionInstruction({
