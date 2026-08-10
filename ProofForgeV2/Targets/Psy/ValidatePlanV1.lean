@@ -60,6 +60,12 @@ private def validateExprNodes (expr : Expr) : Option Nat :=
         let da ← validateExprNodes arg
         total := total + da
       if total > maxExprDepth then none else some total
+  | .hashNoPad args => do
+      let mut total : Nat := 1
+      for arg in args do
+        let da ← validateExprNodes arg
+        total := total + da
+      if total > maxExprDepth then none else some total
 
 private partial def validateStatements (stmts : Array Statement) : CompileResult Unit := do
   if stmts.size > maxBodyStatements then
@@ -212,6 +218,9 @@ private partial def validateWideExpr
       validateWideExpr defined thenValue
       validateWideExpr defined elseValue
   | .callFn _ args =>
+      for arg in args do
+        validateWideExpr defined arg
+  | .hashNoPad args =>
       for arg in args do
         validateWideExpr defined arg
 

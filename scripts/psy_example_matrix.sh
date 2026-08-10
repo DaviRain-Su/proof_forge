@@ -15,6 +15,7 @@ mods=(
   "Examples/MapMini.lean:Examples.MapMini"
   "Examples/EmitProbe.lean:Examples.EmitProbe"
   "Examples/CallProbe.lean:Examples.CallProbe"
+  "Examples/HashProbe.lean:Examples.HashProbe"
 )
 ok=0; fail=0; skip=0
 out_root="$root/build/v2/psy-matrix"
@@ -75,6 +76,22 @@ for entry in "${mods[@]}"; do
             --call initialize:0 --call notify:7 --call get >/tmp/psy-mat-session-$name.json \
             && python3 -I -S -c "import json;d=json.load(open('/tmp/psy-mat-session-CallProbe.json'));assert d['calls'][1]['outputs']==[7] and d['calls'][1]['external_calls'][0]['input_args']==[7]" \
             && echo "  OK session void call" || { echo "  FAIL session"; fail=$((fail+1)); continue; }
+          ;;
+        HashProbe)
+          # build-only + official optional; session must fail-closed on op 21
+          if command -v psy_user_cli >/dev/null 2>&1; then
+            psy_user_cli simulate --circuit-defs-path "$dpn" --method hashPair --inputs 1 --inputs 2 --format json \
+              >/tmp/psy-mat-hash-off.json 2>/tmp/psy-mat-hash-off.err \
+              && python3 -I -S -c "import json;t=open('/tmp/psy-mat-hash-off.json').read();i,j=t.find('{'),t.rfind('}');d=json.loads(t[i:j+1]);assert d['success'] and d['outputs']" \
+              && echo "  OK official hashPair" || { echo "  FAIL official hash"; fail=$((fail+1)); continue; }
+          else
+            echo "  SKIP official hash (no psy_user_cli)"
+          fi
+          if python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" --call initialize --call hashPair:1,2 >/tmp/psy-mat-hash-sess.txt 2>&1; then
+            echo "  FAIL session should reject hashNoPad"; fail=$((fail+1)); continue
+          fi
+          rg -q 'hashNoPad|op 21|ADR-0037' /tmp/psy-mat-hash-sess.txt \
+            && echo "  OK session hash fail-closed" || { echo "  FAIL session hash msg"; fail=$((fail+1)); continue; }
           ;;
       esac
       ok=$((ok+1))

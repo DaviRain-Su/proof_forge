@@ -348,6 +348,15 @@ class Executor:
                     raise DpnError("u32 mod0")
                 self.put(dt, idx, (self.g(ins[0]) % b) & 0xFFFFFFFF)
             else:
+                if op == 21:
+                    raise DpnError(
+                        "hashNoPad (op 21): session harness does not reimplement Poseidon; "
+                        "use official psy_user_cli simulate (ADR-0037)"
+                    )
+                if op in (22, 45, 78, 81):
+                    raise DpnError(
+                        f"hash/merkle gadget op_type {op}: use official simulate (ADR-0037)"
+                    )
                 raise DpnError(f"unsupported op_type {op} at def {di}")
 
         # State cmds resolving after last definition (res == len(defs)).

@@ -249,7 +249,7 @@ def main() -> int:
             {
                 "id": "hash-gadgets",
                 "ops": ["hashNoPad", "hashPad", "hashTwoToOne", "keccak256", "calculateMerkleRoot"],
-                "status": "not-emitted-by-PF; no ProgramV1/language surface yet (P2 design gate)",
+                "status": "hashNoPad open (pf.crypto.hashNoPad, first limb); pad/two-to-one/keccak/merkle still closed (ADR-0037)",
             },
             {
                 "id": "IMT-state-cmds",

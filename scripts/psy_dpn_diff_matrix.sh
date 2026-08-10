@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Differential: official psy_user_cli simulate (single-call) vs psy_dpn_session.py
-# + multi-step continuity for StateCell / OptionState / Accumulator / WideCounter / MapMini / EmitProbe / CallProbe / LoopSum.
+# + multi-step continuity for StateCell / OptionState / Accumulator / WideCounter / MapMini / EmitProbe / CallProbe / LoopSum / HashProbe.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
@@ -286,6 +286,37 @@ python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_l" \
   --call initialize:10 --call run:0 --call get | tee "$out/session-loop.log"
 rg -q 'outputs=\[14\]' "$out/session-loop.log"
 
+# --- HashProbe (ADR-0037 hashNoPad; official authority) ---
+dpn_h=$(build_ex HashProbe Examples.HashProbe)
+info "official HashProbe hashPair(1,2)"
+run_official hash-pair "$dpn_h" hashPair --inputs 1 --inputs 2
+python3 -I -S - "$out/off-hash-pair.json" "$dpn_h" <<'PYH'
+import json,sys
+off=json.load(open(sys.argv[1]))
+dpn=json.load(open(sys.argv[2]))
+assert off.get("success") is True, off
+outs=off.get("outputs") or []
+assert len(outs)==1 and int(outs[0])!=0, outs
+assert int((off.get("op_counts") or {}).get("hash_ops",0))>=1
+# package must contain op 21
+ops={int(d["op_type"]) for fn in dpn for d in fn.get("definitions") or []}
+assert 21 in ops, ops
+delta=off.get("state_delta") or []
+assert delta and int((delta[0].get("new_value") or [0])[0])==int(outs[0])
+print(f"OK official hash-pair out={outs[0]} hash_ops={off['op_counts']['hash_ops']}")
+PYH
+# Session must fail closed (no Poseidon reimplementation)
+info "session HashProbe fail-closed"
+set +e
+python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_h" \
+  --call initialize --call hashPair:1,2 >"$out/sess-hash-pair.txt" 2>&1
+rc=$?
+set -e
+[[ $rc -ne 0 ]] || die "session unexpectedly accepted hashNoPad"
+rg -q 'hashNoPad|op 21|ADR-0037' "$out/sess-hash-pair.txt" \
+  || die "session hash failure message missing ADR-0037 hint"
+info "OK session hash fail-closed"
+
 # coverage report from built artifacts
 python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
   --artifact-root "$out" -o "$out/psy-op-coverage.v1.json"
@@ -293,5 +324,5 @@ python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
 python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
   --artifact-root "$out" -o "$root/docs/targets/psy-op-coverage.v1.json"
 
-info "OK differential matrix + MapMini multi-key + EmitProbe events + CallProbe invoke + LoopSum + coverage"
+info "OK differential matrix + MapMini multi-key + EmitProbe events + CallProbe invoke + LoopSum + HashProbe + coverage"
 echo "artifacts: $out"

@@ -6,8 +6,8 @@
     "schemaOpCount": 73,
     "emitterReachableCount": 28,
     "sessionImplementedCount": 48,
-    "artifactOpKinds": 26,
-    "artifactFiles": 8,
+    "artifactOpKinds": 27,
+    "artifactFiles": 9,
     "p0EmitterWithoutSession": [],
     "featureBacklog": [
       {
@@ -19,7 +19,7 @@
           "keccak256",
           "calculateMerkleRoot"
         ],
-        "status": "not-emitted-by-PF; no ProgramV1/language surface yet (P2 design gate)"
+        "status": "hashNoPad open (pf.crypto.hashNoPad, first limb); pad/two-to-one/keccak/merkle still closed (ADR-0037)"
       },
       {
         "id": "IMT-state-cmds",
@@ -61,11 +61,12 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 56,
+      "artifactCount": 58,
       "examples": [
         "Accumulator",
         "CallProbe",
         "EmitProbe",
+        "HashProbe",
         "LoopSum",
         "MapMini",
         "OptionState",
@@ -81,11 +82,12 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 2752,
+      "artifactCount": 2755,
       "examples": [
         "Accumulator",
         "CallProbe",
         "EmitProbe",
+        "HashProbe",
         "LoopSum",
         "MapMini",
         "OptionState",
@@ -101,11 +103,12 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 30,
+      "artifactCount": 32,
       "examples": [
         "Accumulator",
         "CallProbe",
         "EmitProbe",
+        "HashProbe",
         "LoopSum",
         "MapMini",
         "OptionState",
@@ -362,9 +365,11 @@
       "officialSchema": true,
       "pfEmitter": "not-reachable",
       "session": "unsupported",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
+      "seenInArtifacts": true,
+      "artifactCount": 2,
+      "examples": [
+        "HashProbe"
+      ],
       "status": "schema-only-not-emitted"
     },
     {
@@ -736,11 +741,12 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 807,
+      "artifactCount": 808,
       "examples": [
         "Accumulator",
         "CallProbe",
         "EmitProbe",
+        "HashProbe",
         "LoopSum",
         "MapMini",
         "OptionState",
@@ -967,14 +973,14 @@
       "pfSchema": true,
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 812
+      "artifactCount": 813
     },
     {
       "name": "SetContractStateSlotSingle",
       "pfSchema": true,
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 115
+      "artifactCount": 117
     },
     {
       "name": "GetSelfUserCurrentContractStateSlotHash",
@@ -1151,9 +1157,9 @@
     }
   ],
   "artifactOps": {
-    "0": 56,
-    "1": 2752,
-    "2": 30,
+    "0": 58,
+    "1": 2755,
+    "2": 32,
     "3": 2,
     "4": 2371,
     "5": 2317,
@@ -1166,6 +1172,7 @@
     "15": 295,
     "16": 768,
     "17": 1387,
+    "21": 2,
     "23": 5649,
     "32": 924,
     "34": 2820,
@@ -1175,12 +1182,12 @@
     "46": 1,
     "47": 1,
     "48": 1,
-    "54": 807,
+    "54": 808,
     "72": 20
   },
   "artifactStateCmds": {
-    "GetSelfUserCurrentContractStateSlotSingle": 812,
-    "SetContractStateSlotSingle": 115,
+    "GetSelfUserCurrentContractStateSlotSingle": 813,
+    "SetContractStateSlotSingle": 117,
     "InvokeExternalContractFunctionSync": 1
   }
 }

@@ -55,6 +55,7 @@
     * emitEvent → DPNEventRecord (condition + GetCheckpointId/GetUserId/
       GetContractId + data wires); matches official emit_event compile shape
     * void externalCall → InvokeExternalContractFunctionSync (num_outputs=0)
+    * ADR-0037: Expr.hashNoPad → OpTypeV1.hashNoPad (1..8 Felt args; first limb)
       with FNV component hashes (PARTIAL)
     * schedule / assets / ContextRead / Commit / nonempty invariant stay FC
       (Plan already FC; DPN depth-defends schedule with stable diagnostic)
@@ -1476,6 +1477,19 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
   | .wideUintShiftLimb kind _bitWidth operationId limbIndex => do
       let w ← lookupWideShift b kind operationId limbIndex
       pure (b, w)
+  | .hashNoPad args => do
+      -- ADR-0037: DPN HashNoPad (op 21). Inputs are Target wire ids (raw index
+      -- for type=0). Scalar result = first Poseidon HashOut limb (official simulate).
+      unless args.size ≥ 1 && args.size ≤ 8 do
+        planError s!"PSY-DPN: hashNoPad arity must be 1..8, got {args.size}"
+      let mut bCur := b
+      let mut ins : Array UInt64 := #[]
+      for a in args do
+        let (b1, w) ← lowerExprV1 bCur params viewPath a
+        let ti ← asTargetIndex w
+        bCur := b1
+        ins := ins.push (UInt64.ofNat ti)
+      pure (pushTarget bCur .hashNoPad ins)
   | .callFn name args => do
       -- R-PURE: inline pureHelper body into caller definitions (preferred over
       -- separate DPN method). Expression-level pure-body walker (no mutual

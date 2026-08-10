@@ -1,7 +1,7 @@
 ---
 id: ADR-0037
 title: Psy hash gadgets — design gate (not yet emitted)
-status: proposed
+status: accepted-partial
 date: 2026-08-10
 ---
 
@@ -21,8 +21,11 @@ Official DPN / `psy_vm` exposes hash-related opcodes (schema pin
 | 45 | `calculateMerkleRoot` |
 
 ProofForge `SchemaV1.lean` mirrors these wire ids for codec alignment.
-**PF emitter does not push them today.** There is no ProgramV1 / language surface
-(`hash`, `poseidon`, …) and no capability row that admits them.
+**Partial open (2026-08-10):** expression-position
+`call pf.crypto.hashNoPad(a0, …, aN)` (N∈1..8) lowers to DPN `hashNoPad` (op 21).
+Product ABI returns the **first HashOut limb** as `UInt64` (official simulate).
+Other hash ops (`hashPad`, `hashTwoToOne`, `keccak256`, merkle) remain closed.
+Session harness **fail-closes** on op 21 — Poseidon authority is official only.
 
 Product work through 2026-08-10 focused on:
 
@@ -58,3 +61,19 @@ Claiming hash coverage without a language entry would be dishonest.
 - Implementing Poseidon/Keccak in Lean or Python.
 - UPS / proof-system binding for hash public inputs.
 - Replacing official `hashTwoToOne` merkle gadgets with custom trees.
+
+## Implemented slice
+
+| Item | Status |
+|------|--------|
+| Language entry | `call pf.crypto.hashNoPad(...)` (expr position) |
+| Plan | `Expr.hashNoPad` |
+| DPN | `OpTypeV1.hashNoPad` |
+| Probe | `Examples/HashProbe.lean` |
+| Official differential | `psy-dpn-diff` / example matrix |
+| Session | fail-closed with ADR-0037 message |
+
+## Still closed
+
+`hashPad`, `hashTwoToOne`, `keccak256`, `calculateMerkleRoot`, full HashOut multi-limb returns, IMT.
+

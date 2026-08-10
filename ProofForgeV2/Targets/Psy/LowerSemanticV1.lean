@@ -252,6 +252,9 @@ inductive Expr where
   | narrowSignedCompare (bitWidth : Nat) (op : ComparisonOp) (lhs rhs : Expr)
   | narrowCheckedNeg (bitWidth : Nat) (operand : Expr)
   | callFn (fnName : String) (args : Array Expr)
+  /-- ADR-0037: Poseidon `hashNoPad` over 1..8 Felt/UInt64 args.
+      Product returns the first HashOut limb (official simulate scalar result). -/
+  | hashNoPad (args : Array Expr)
   /-- Target-internal exact limb arithmetic. Operands are range-bounded
       UInt32 Felt limbs/intermediates, so these raw Felt operations cannot wrap
       Goldilocks in the admitted UInt128 add/sub construction. -/
@@ -2147,22 +2150,42 @@ private partial def lowerRegion
         -- PSY-CALL-EVENT: void sync call → direct DPN
         -- InvokeExternalContractFunctionSync (hashed static QN; no deployment
         -- binding, callee-failure refinement, or product runtime gate).
-        -- Result-bearing calls have no response-binding ABI and fail closed.
-        match instr.result with
-        | some _ =>
-            planError
-              "unsupported Psy semantic shape: result-bearing external call is not admitted (no DPN response-binding / return-value ABI; PSY-CALL-EVENT FC)"
-        | none => pure ()
+        -- ADR-0037: result-bearing `pf.crypto.hashNoPad` is a DPN gadget, not a
+        -- contract invoke — lower to Expr.hashNoPad (first HashOut limb).
         let comps := callee.components.toArray
-        unless comps.size ≥ 2 do
-          planError "unsupported Psy semantic shape: external callee must have at least two components"
-        -- ADR-0029 Phase D: catalog QNs are unbound. Hashing them into a DPN
-        -- sync invoke would falsely imply native value movement.
         let qn := String.intercalate "." comps.toList
-        if isPfAssetsCatalogQnV1 qn then
-          planError s!"unsupported Psy semantic shape: {unboundCatalogDiagV1 qn}"
-        let argExprs ← lookupArgs env args "externalCall"
-        ls := { ls with stmts := ls.stmts.push (.externalCall comps argExprs) }
+        match instr.result with
+        | some valueDef =>
+            if qn == "pf.crypto.hashNoPad" then
+              unless comps.size == 3 do
+                planError "unsupported Psy semantic shape: pf.crypto.hashNoPad callee must be exactly three components"
+              unless args.size ≥ 1 && args.size ≤ 8 do
+                planError s!"unsupported Psy semantic shape: pf.crypto.hashNoPad arity must be 1..8, got {args.size}"
+              -- Result must be scalar UInt64 / Felt (first HashOut limb product ABI).
+              match uintWidthOfType data valueDef.typeId with
+              | some 64 | none => pure ()
+              | some w =>
+                  if isNarrowUintWidth w then
+                    planError s!"unsupported Psy semantic shape: pf.crypto.hashNoPad result must be UInt64/Felt, got UInt{w}"
+                  else if w == 128 || w == 256 then
+                    planError "unsupported Psy semantic shape: pf.crypto.hashNoPad does not return wide UInt"
+                  else pure ()
+              let argExprs ← lookupArgs env args "hashNoPad" true
+              env := envInsert env valueDef.valueId (.hashNoPad argExprs)
+            else
+              planError
+                "unsupported Psy semantic shape: result-bearing external call is not admitted (no DPN response-binding / return-value ABI; PSY-CALL-EVENT FC). Admitted: pf.crypto.hashNoPad (ADR-0037)"
+        | none =>
+            unless comps.size ≥ 2 do
+              planError "unsupported Psy semantic shape: external callee must have at least two components"
+            -- ADR-0029 Phase D: catalog QNs are unbound. Hashing them into a DPN
+            -- sync invoke would falsely imply native value movement.
+            if isPfAssetsCatalogQnV1 qn then
+              planError s!"unsupported Psy semantic shape: {unboundCatalogDiagV1 qn}"
+            if qn == "pf.crypto.hashNoPad" then
+              planError "unsupported Psy semantic shape: pf.crypto.hashNoPad is value-producing (use in expression position, not void call)"
+            let argExprs ← lookupArgs env args "externalCall"
+            ls := { ls with stmts := ls.stmts.push (.externalCall comps argExprs) }
     | .schedule _effectId callee args => do
         -- PSY-CALL-EVENT / async: DPN has no admitted deferred crosscall op;
         -- never alias the synchronous invoke operation.

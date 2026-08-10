@@ -151,7 +151,7 @@ Regenerate: `just psy-dpn-op-coverage` / `just psy-example-matrix` / `just psy-d
 
 ## 11. Open design gates
 
-- Hash gadgets: [ADR-0037](../adr/0037-psy-hash-gadgets-gate.md)
+- Hash gadgets: [ADR-0037](../adr/0037-psy-hash-gadgets-gate.md) — **hashNoPad partial open** (`Examples/HashProbe.lean`)
 - ContextRead / Commit (P3): [psy-p3-context-commit-gate.md](psy-p3-context-commit-gate.md)
 - OP coverage matrix: [psy-op-coverage.md](psy-op-coverage.md)
 
