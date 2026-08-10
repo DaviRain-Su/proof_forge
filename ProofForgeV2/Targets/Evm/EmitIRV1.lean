@@ -2208,6 +2208,154 @@ private def cseSloadU64YulV1 (yul : String) : String := Id.run do
         stack := stack.pop
   return String.intercalate "\n" out.toList
 
+
+
+/-- Parse `let TAG, PAYLOAD := pf_map_u64_lookup(BASE, KEY)` or principal form.
+    Returns (tag, payload, kind, base, keyArg) with kind = "u64" | "p". -/
+private def parseMapLookupBindV1 (trimmed : String) :
+    Option (String × String × String × String × String) :=
+  let u64m := " := pf_map_u64_lookup("
+  let pm := " := pf_map_p_lookup("
+  if trimmed.startsWith "let " && trimmed.contains u64m then
+    match trimmed.splitOn u64m with
+    | [lhs, rhs] =>
+        match lhs.splitOn "," with
+        | [tPart, pPart] =>
+            let tag := String.intercalate "" ((tPart.splitOn "let ").drop 1)
+            let payload := String.intercalate "" (pPart.splitOn " " |>.filter (·.length > 0))
+            -- payload may have leading spaces: take first non-empty token
+            let payload :=
+              match pPart.splitOn " " |>.filter (fun s => !s.isEmpty) with
+              | p :: _ => p
+              | [] => ""
+            match rhs.splitOn "," with
+            | [baseS, keyS] =>
+                let baseToks := baseS.splitOn " " |>.filter (fun s => !s.isEmpty)
+                let base := match baseToks with | b :: _ => b | [] => ""
+                let keyCs := keyS.toList.dropWhile (fun c => c == ' ')
+                let key := String.ofList (keyCs.takeWhile (fun c => c != ')'))
+                if tag.isEmpty || payload.isEmpty || base.isEmpty || key.isEmpty then none
+                else some (tag, payload, "u64", base, key)
+            | _ => none
+        | _ => none
+    | _ => none
+  else if trimmed.startsWith "let " && trimmed.contains pm then
+    match trimmed.splitOn pm with
+    | [lhs, rhs] =>
+        match lhs.splitOn "," with
+        | [tPart, pPart] =>
+            let tag := String.intercalate "" ((tPart.splitOn "let ").drop 1)
+            let payload :=
+              match pPart.splitOn " " |>.filter (fun s => !s.isEmpty) with
+              | p :: _ => p
+              | [] => ""
+            match rhs.splitOn "," with
+            | [baseS, keyS] =>
+                let base :=
+                  match baseS.splitOn " " |>.filter (fun s => !s.isEmpty) with
+                  | b :: _ => b
+                  | [] => ""
+                let keyCs := keyS.toList.dropWhile (fun c => c == ' ')
+                let key := String.ofList (keyCs.takeWhile (fun c => c != ')'))
+                if tag.isEmpty || payload.isEmpty || base.isEmpty || key.isEmpty then none
+                else some (tag, payload, "p", base, key)
+            | _ => none
+        | _ => none
+    | _ => none
+  else none
+
+/-- Parse simple `let NAME := IDENT` (no call). -/
+private def parseSimpleAliasV1 (trimmed : String) : Option (String × String) :=
+  if !trimmed.startsWith "let " then none
+  else if trimmed.contains "(" then none
+  else
+    match trimmed.splitOn " := " with
+    | [lhs, rhs] =>
+        let name := String.intercalate "" ((lhs.splitOn "let ").drop 1)
+        let name :=
+          match name.splitOn " " |>.filter (fun s => !s.isEmpty) with
+          | n :: _ => n
+          | [] => ""
+        let rhsId := String.ofList (rhs.toList.dropWhile (fun c => c == ' ') |>.takeWhile isYulIdentCharV1)
+        if name.isEmpty || rhsId.isEmpty then none
+        else if name == rhsId then none
+        else some (name, rhsId)
+    | _ => none
+
+private partial def resolveAliasV1 (aliases : Array (String × String)) (id : String) : String :=
+  match aliases.findIdx? (fun p => p.1 == id) with
+  | none => id
+  | some i =>
+      let to := (aliases[i]!).2
+      if to == id then id else resolveAliasV1 aliases to
+
+/-- CSE consecutive compact Map lookups with the same (kind, base, key).
+    Handles IndexGet→Option lowering:
+      let t0, p0 := pf_map_*_lookup(base, k)
+      ...
+      let t1, p1 := pf_map_*_lookup(base, k')  -- dropped when k' aliases k
+    Kill cache on sstore / map upsert / case / function. -/
+private def cseMapLookupYulV1 (yul : String) : String := Id.run do
+  let mut rewrites : Array (String × String) := #[]
+  let mut aliases : Array (String × String) := #[]
+  -- entries: (cacheKey, tagVar, payloadVar)
+  let mut cache : Array (String × String × String) := #[]
+  let mut out : Array String := #[]
+  let lines := yul.splitOn "\n"
+  for line0 in lines do
+    let mut line := line0
+    let trimmed0 :=
+      String.ofList (line0.toList.dropWhile (fun c => c == ' ' || c == '\t'))
+    if trimmed0.startsWith "let " then
+      match line0.splitOn " := " with
+      | [lhs, rhs] =>
+          let mut rhs' := rhs
+          for (frm, too) in rewrites do
+            rhs' := rewriteYulIdentV1 rhs' frm too
+          line := lhs ++ " := " ++ rhs'
+      | _ =>
+          for (frm, too) in rewrites do
+            line := rewriteYulIdentV1 line frm too
+    else
+      for (frm, too) in rewrites do
+        line := rewriteYulIdentV1 line frm too
+    let trimmed :=
+      String.ofList (line.toList.dropWhile (fun c => c == ' ' || c == '\t'))
+    if trimmed.startsWith "function " || trimmed.startsWith "case " then
+      rewrites := #[]
+      aliases := #[]
+      cache := #[]
+      out := out.push line
+      continue
+    let kills :=
+      trimmed.startsWith "sstore(" ||
+        trimmed.contains "pf_map_p_upsert(" ||
+        trimmed.contains "pf_map_u64_upsert(" ||
+        trimmed.contains "pf_map_p_upsert_leaf(" ||
+        trimmed.contains "pf_map_u64_upsert_leaf("
+    if kills then
+      cache := #[]
+    match parseSimpleAliasV1 trimmed with
+    | some (name, rhs) =>
+        aliases := aliases.push (name, resolveAliasV1 aliases rhs)
+    | none => pure ()
+    match parseMapLookupBindV1 trimmed with
+    | some (tag, payload, kind, base, key) =>
+        let keyR := resolveAliasV1 aliases key
+        let ck := kind ++ "|" ++ base ++ "|" ++ keyR
+        match cache.findIdx? (fun e => e.1 == ck) with
+        | some i =>
+            let e := cache[i]!
+            let keptTag := e.2.1
+            let keptPayload := e.2.2
+            rewrites := rewrites.push (tag, keptTag) |>.push (payload, keptPayload)
+        | none =>
+            cache := cache.push (ck, (tag, payload))
+            out := out.push line
+    | none =>
+        out := out.push line
+  return String.intercalate "\n" out.toList
+
 private def renderYul (plan : Plan) : String :=
   let hasPayable := planHasPayableEntry plan
   let entries := plan.entries.foldl
@@ -2245,7 +2393,7 @@ private def renderYul (plan : Plan) : String :=
   let runtimeCallvalueGuard :=
     if hasPayable then ""
     else "      if callvalue() { revert(0, 0) }\n"
-  cseSloadU64YulV1 (
+  cseMapLookupYulV1 (cseSloadU64YulV1 (
     s!"object \"{plan.objectName}\" \{\n  code \{\n" ++
       renderConstructor plan ++
       ctorFns ++
@@ -2258,7 +2406,7 @@ private def renderYul (plan : Plan) : String :=
       "      default { revert(0, 0) }\n" ++
       runtimeFns ++
       mapHelpersRuntime ++
-      "    }\n  }\n}\n")
+      "    }\n  }\n}\n"))
 
 
 private def renderParamJson (param : Param) : String :=

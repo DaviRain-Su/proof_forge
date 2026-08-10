@@ -32,7 +32,7 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
 - **ADR-0030 E4 EVM-first demo**：`Examples/MiniAmm.lean` 以 `context.caller` 作为
   cap-4 Principal-key LP share key，提供 vault-internal addLiquidity/swap0to1/balanceOf；
   Plan/Yul/`EvmSmoke` 钉测 + host-optional `scripts/evm_mini_amm_anvil_smoke.sh`。
-  当前 locked-solc `--optimize` creation bytecode ≈ 2.8 KiB（远低于 EIP-3860 的 49152 B initcode
+  当前 locked-solc `--optimize` creation bytecode ≈ 2.6 KiB（远低于 EIP-3860 的 49152 B initcode
   上限；旧文档中的“远超 EIP-3860”已过期）。无 `pf.assets` asset movement 或
   remove-liquidity，不得写成双链 MiniAMM closure；
 - **Option UInt64 state（BL-31）**：Enum-shaped tag/payload 双 slot；`none` 与 reset 清零 payload，
@@ -42,7 +42,7 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
 - **static-QN external call/schedule**：sync 发真实 `CALL`；result-bearing UInt64 路径要求
   `returndatasize ≥ 32`、读取首 word并做 UInt64 range check；schedule 仍同步 CALL+discard。
   callee 仍为 target-path hash stub，真实 deployment-address binding 未闭合；
-- Token 当前为 **locked-solc engineering finalization**：creation bytecode ≈ 0.86 KiB（`--optimize`）
+- Token 当前为 **locked-solc engineering finalization**：creation bytecode ≈ 0.79 KiB（`--optimize`）
   （远低于 EIP-3860 49152 B initcode 上限；旧文档 258460 B 数字来自早期 unrolled Map
   helper 路径，已过期）。Yul 文本仍大于 bytecode（Map helpers + 展开 body）；emitter
   对 constructor/runtime 做 phase-local helper 发射，共享 `pf_sload_u64` 摊销
@@ -50,7 +50,8 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
   `sstore`（不再 spill+整表 24/44 次 sstore）；Yul 后处理对同基本块
   重复 `pf_sload_u64(slot)` 做 CSE（`sstore`/map upsert/`case`/`function` 边界失效）；
   构造函数省略新鲜存储上的字面量 0 写入（`Map.empty`/scalar `:= 0`）；
-  compact Map helper 经 `pf_sload_u64` 做脏存储 UInt64 门。Anvil/mainnet/OZ 产品声明仍以各自 runtime 门为准，不因体积单独阻断；
+  compact Map helper 经 `pf_sload_u64` 做脏存储 UInt64 门；
+  Map lookup 后处理 CSE 合并同一 (base,key) 的 tag/payload 双次 helper 调用。Anvil/mainnet/OZ 产品声明仍以各自 runtime 门为准，不因体积单独阻断；
 - Yul + digest-pinned `solc --strict-assembly --optimize` bytecode（与 Solidity `--optimize` 同源 Yul 优化器）；**EvmSolc** 验收门（工具缺席干净跳过）；
 - engineering planDigest 可绑 BuildIdentity/OutputSet；G4 `evm_anvil_differential.sh` 从产品 CLI
   制品运行 Counter/Accumulator/ArithOps/EventFlow，固定 overflow state-hold 与 emit 日志。
