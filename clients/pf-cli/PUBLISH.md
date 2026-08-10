@@ -5,11 +5,15 @@
 | Artifact | crates.io? | Notes |
 |---|---|---|
 | `pf` binary (Rust orchestrator) | **Yes** — crate `proof-forge-pf` | `cargo install proof-forge-pf` |
-| `proof-forge-next` (Lean compiler) | **No** | Built via Lake / GitHub Release tarball |
+| `proof-forge-next` (Lean compiler) | **No** | Lake / GitHub Release tarball |
+| `proof-forge-solana-client` | **Not yet** | Separate crate/binary; monorepo or future publish |
+| Mollusk `runtime-tests` + bash harness | **No** | Monorepo contributor path |
 | Locked anvil/cast/sbpf/Leo | **No** | Host / Tool Lock |
 
 **crates.io alone is not a full toolchain install.**  
-After `cargo install proof-forge-pf` you still need `proof-forge-next` on `PROOF_FORGE_CLI` (or sibling path).
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the A/B/C/D layer diagram.
+
+After `cargo install proof-forge-pf` you still need at least `proof-forge-next` on `PROOF_FORGE_CLI`.
 
 Recommended full install paths:
 

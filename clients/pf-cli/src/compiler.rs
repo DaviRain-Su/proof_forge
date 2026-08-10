@@ -48,7 +48,15 @@ pub fn resolve_compiler() -> PfResult<PathBuf> {
     }
 
     Err(PfError::Compiler(
-        "cannot resolve proof-forge-next (set PROOF_FORGE_CLI or build via lake)".into(),
+        "cannot resolve proof-forge-next.\n\
+         The crates.io package only installs the `pf` orchestrator; the Lean compiler \
+         binary is separate.\n\
+         Fix one of:\n\
+           • export PROOF_FORGE_CLI=/absolute/path/to/proof-forge-next\n\
+           • place proof-forge-next next to the `pf` binary (see just pf-cli-dist)\n\
+           • monorepo: lake build proof_forge_next\n\
+         See clients/pf-cli/ARCHITECTURE.md / INSTALL.md"
+            .into(),
     ))
 }
 

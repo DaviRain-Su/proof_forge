@@ -65,7 +65,17 @@ pub fn resolve_solana_test_script() -> PfResult<PathBuf> {
     }
 
     Err(PfError::Tool(
-        "scripts/pf_solana_test.sh not found (set PROOF_FORGE_ROOT or run from monorepo)".into(),
+        "scripts/pf_solana_test.sh not found.\n\
+         `pf test -t solana` currently shells into the monorepo Mollusk harness \
+         (runtime-tests/solana) — this is NOT included in `cargo install proof-forge-pf`.\n\
+         Fix one of:\n\
+           • run from a proof_forge checkout with PROOF_FORGE_ROOT set\n\
+           • set PROOF_FORGE_SOLANA_TEST_SCRIPT=/path/to/pf_solana_test.sh\n\
+           • use Release/monorepo install for full Solana test\n\
+         Offline artifact joins without Mollusk: pf verify -t solana \
+         (needs proof-forge-solana-client).\n\
+         See clients/pf-cli/ARCHITECTURE.md"
+            .into(),
     ))
 }
 

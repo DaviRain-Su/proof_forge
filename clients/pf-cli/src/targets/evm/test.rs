@@ -69,7 +69,16 @@ pub fn resolve_evm_test_script() -> PfResult<PathBuf> {
     }
 
     Err(PfError::Tool(
-        "scripts/pf_evm_test.sh not found (set PROOF_FORGE_ROOT or run from monorepo)".into(),
+        "scripts/pf_evm_test.sh not found.\n\
+         `pf test -t evm` currently shells into a monorepo Anvil script — \
+         NOT included in `cargo install proof-forge-pf`.\n\
+         Fix one of:\n\
+           • run from a proof_forge checkout with PROOF_FORGE_ROOT set\n\
+           • set PROOF_FORGE_EVM_TEST_SCRIPT=/path/to/pf_evm_test.sh\n\
+           • use Release/monorepo install for full EVM test\n\
+         Save-only package without Anvil matrix: pf deploy -t evm\n\
+         See clients/pf-cli/ARCHITECTURE.md"
+            .into(),
     ))
 }
 

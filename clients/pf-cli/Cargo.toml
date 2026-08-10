@@ -1,6 +1,6 @@
 [package]
 name = "proof-forge-pf"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "ProofForge developer CLI (pf): orchestrates proof-forge-next and official chain tools"
 license = "Apache-2.0"
@@ -20,6 +20,7 @@ include = [
   "README.md",
   "INSTALL.md",
   "PUBLISH.md",
+  "ARCHITECTURE.md",
   "LICENSE",
 ]
 

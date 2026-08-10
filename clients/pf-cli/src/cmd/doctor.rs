@@ -63,26 +63,39 @@ pub fn setup(target: &str, yes: bool, json: bool) -> PfResult<()> {
                     .into(),
             ),
         },
-        "evm" => match &tool_root {
-            Some(tr) if tr.join("anvil").is_file() && tr.join("cast").is_file() => {
-                steps.push(format!("ok  anvil+cast under {}", tr.display()));
+        "evm" => {
+            match &tool_root {
+                Some(tr) if tr.join("anvil").is_file() && tr.join("cast").is_file() => {
+                    steps.push(format!("ok  anvil+cast under {}", tr.display()));
+                }
+                _ => {
+                    ready = false;
+                    steps.push(
+                        "NEED EVM tools: locked anvil+cast under PROOF_FORGE_TOOL_ROOT \
+                         (see docs / `proof-forge-next install` when available)"
+                            .into(),
+                    );
+                }
             }
-            _ => {
-                ready = false;
+            if root.is_some() {
                 steps.push(
-                    "NEED EVM tools: locked anvil+cast under PROOF_FORGE_TOOL_ROOT \
-                     (see docs / `proof-forge-next install` when available)"
+                    "ok  monorepo root — `pf test -t evm` can use scripts/pf_evm_test.sh".into(),
+                );
+            } else {
+                steps.push(
+                    "info monorepo root missing — `pf test -t evm` needs PROOF_FORGE_ROOT \
+                     (Anvil matrix script is monorepo-oriented today)"
                         .into(),
                 );
             }
-        },
+        }
         "solana" => {
             match &solana_client {
-                Some(p) => steps.push(format!("ok  solana-client: {}", p.display())),
+                Some(p) => steps.push(format!("ok  solana-client (verify): {}", p.display())),
                 None => steps.push(
-                    "info solana-client: not found — `pf verify` needs \
-                     PROOF_FORGE_SOLANA_CLIENT or monorepo clients/solana-client build; \
-                     `pf test` only needs cargo + runtime-tests"
+                    "NEED-FOR-VERIFY solana-client: separate binary proof-forge-solana-client \
+                     (NOT in crates.io pf package). Set PROOF_FORGE_SOLANA_CLIENT or use \
+                     Release/monorepo build of clients/solana-client"
                         .into(),
                 ),
             }
@@ -95,6 +108,18 @@ pub fn setup(target: &str, yes: bool, json: bool) -> PfResult<()> {
                      `pf build -t solana` finalize on some hosts"
                         .into(),
                 ),
+            }
+            if root.is_some() {
+                steps.push(
+                    "ok  monorepo root — `pf test -t solana` can use scripts/ + runtime-tests"
+                        .into(),
+                );
+            } else {
+                steps.push(
+                    "info monorepo root missing — `pf test -t solana` needs PROOF_FORGE_ROOT \
+                     (Mollusk harness is monorepo-only today; crates.io install alone is not enough)"
+                        .into(),
+                );
             }
         }
         _ => steps.push(format!(
@@ -184,7 +209,8 @@ pub fn setup(target: &str, yes: bool, json: bool) -> PfResult<()> {
             println!("  {line}");
         }
         println!();
-        println!("install guide: clients/pf-cli/INSTALL.md (or docs after package install)");
+        println!("layers: orchestrator(pf) ≠ compiler(proof-forge-next) ≠ host tools ≠ monorepo companions");
+        println!("install: INSTALL.md · architecture: ARCHITECTURE.md · publish: PUBLISH.md");
     })
 }
 

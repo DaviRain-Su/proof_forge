@@ -3,6 +3,10 @@
 Cargo-like project workflow around `proof-forge-next` and official chain tools.
 Does **not** reimplement the compiler.
 
+> **crates.io note:** `cargo install proof-forge-pf` installs **only this orchestrator**.  
+> Compiler, Solana verifier, and Mollusk/Anvil harnesses are **external**.  
+> See [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+
 ## 30 seconds (project flow)
 
 ```bash

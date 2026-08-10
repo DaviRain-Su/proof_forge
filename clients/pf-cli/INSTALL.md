@@ -3,7 +3,7 @@
 `pf` is a **thin orchestrator**. The real compiler is `proof-forge-next`.
 Install **both** on the same machine/path layout when possible.
 
-## crates.io (orchestrator only)
+## crates.io (orchestrator only) — read this first
 
 ```bash
 cargo install proof-forge-pf --locked
@@ -11,15 +11,26 @@ cargo install proof-forge-pf --locked
 pf --version
 ```
 
-You **still need** the Lean compiler binary separately:
+**What you got:** only the CLI shell (`pf`).
+
+**What you did *not* get:**
+
+| Missing piece | Needed for |
+|---|---|
+| `proof-forge-next` | almost everything (`pf build`, …) |
+| `proof-forge-solana-client` | `pf verify -t solana` |
+| monorepo `scripts/` + `runtime-tests/` | `pf test -t solana` / `pf test -t evm` (today) |
+| leo / anvil / cast / sbpf | chain-specific run/test/deploy |
 
 ```bash
 export PROOF_FORGE_CLI=/path/to/proof-forge-next
-pf setup --target aleo
+pf setup --target aleo    # prints NEED lines honestly
 ```
 
-Full side-by-side bundle remains the recommended end-user path (`just pf-cli-dist` or GitHub Release).  
-Publish procedure for maintainers: [`PUBLISH.md`](./PUBLISH.md).
+If that feels incomplete — **it is, by design.**  
+Prefer **`just pf-cli-dist` / GitHub Release** for a side-by-side `pf` + `proof-forge-next` bundle.
+
+Full map: [`ARCHITECTURE.md`](./ARCHITECTURE.md) · maintainers: [`PUBLISH.md`](./PUBLISH.md).
 
 ## Option A — monorepo (contributors)
 
