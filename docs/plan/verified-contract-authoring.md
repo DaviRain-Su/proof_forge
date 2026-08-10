@@ -747,10 +747,12 @@ proof-bearing target build 继续 fail closed。
 13. generated `transition_reverted_of_step` / `transition_trapped_of_step` 已把真实 failure step
    包装为 typed transition，并同时返回 production theorem 保证的 `unchanged = logicalPre`；
    failure branch 不需要 state/result decode，也不执行另一 evaluator；
-14. 当前仍缺 initializer 的 initialized/uninitialized lifecycle bridge、由完整 Reference outcome
-   到 typed outcome 的总存在定理、typed invariant bridge、per-call preservation composition 与
-   短 executable notation；这些仍是后续 Phase 2–4 工作；
-15. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
+14. generated `transition_exists` 对 sole `stepReferenceSliceV1` 的实际结果作三分支分类，并调用
+   上述 exact bridges，证明 initialized typed pre 的任意完整 Reference execution 都存在 typed
+   outcome；与 `outcome_unique` 合用即得到存在且至多唯一，不新增 executable typed step；
+15. 当前仍缺 initializer 的 initialized/uninitialized lifecycle bridge、typed invariant bridge、
+   per-call preservation composition 与短 executable notation；这些仍是后续 Phase 2–4 工作；
+16. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
    完成前不能称 target artifact verified。
 
 ---

@@ -729,6 +729,7 @@ private def elaborateCallableModelsV1
     let transitionReturnedName := mkIdent `transition_returned_of_step
     let transitionRevertedName := mkIdent `transition_reverted_of_step
     let transitionTrappedName := mkIdent `transition_trapped_of_step
+    let transitionExistsName := mkIdent `transition_exists
     let outcomeUniqueName := mkIdent `outcome_unique
     let subjectName := mkIdent `subject
     let preName := mkIdent `pre
@@ -1210,6 +1211,65 @@ private def elaborateCallableModelsV1
         unfold $transitionName
           ProofForgeV2.Semantic.PreservationABI.TypedCallableRelationV1
         exact ⟨$logicalPreName, $encodePreName, $stepName⟩))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Every execution of the sole Reference step from an initialized typed
+          pre-state has a typed outcome in this relation. The proof classifies
+          that actual Reference outcome and delegates to the three exact
+          branch bridges; it does not define or run a typed evaluator. -/
+      theorem $transitionExistsName
+          ($subjectName : $referenceSubjectName)
+          ($preName : $stateName)
+          ($logicalPreName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($encodePreName :
+            $encodeStateName $preName = .ok $logicalPreName)
+          ($initializedName : ($logicalPreName).initialized = true)
+          ($validateName :
+            ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+                $subjectProgramName = .ok $subjectDataName) :
+          ∃ outcome : $callableOutcomeName,
+            $returnedTransitionPrefixTerm outcome := by
+        generalize $stepName :
+          ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1
+              ($subjectName).admitted $logicalPreName $invocationTerm
+                $responsesName $vaultName = referenceOutcome
+        cases referenceOutcome with
+        | returned logicalPost referenceValue effects =>
+            obtain ⟨post, value, _hdecodePost, _hdecodeValue, htransition⟩ :=
+              $transitionReturnedName
+                (subject := $subjectName) (pre := $preName)
+                (logicalPre := $logicalPreName) (logicalPost := logicalPost)
+                (context := $contextName) (responses := $responsesName)
+                (vault := $vaultName) (referenceValue := referenceValue)
+                (effects := effects) (hencodePre := $encodePreName)
+                (hinitialized := $initializedName)
+                (hvalidate := $validateName) (hstep := $stepName)
+            exact ⟨.returned post value effects, htransition⟩
+        | reverted reason unchanged =>
+            have htransition :=
+              ($transitionRevertedName
+                (subject := $subjectName) (pre := $preName)
+                (logicalPre := $logicalPreName) (context := $contextName)
+                (responses := $responsesName) (vault := $vaultName)
+                (reason := reason) (unchanged := unchanged)
+                (hencodePre := $encodePreName) (hstep := $stepName)).2
+            exact ⟨.reverted reason, htransition⟩
+        | trapped fault unchanged =>
+            have htransition :=
+              ($transitionTrappedName
+                (subject := $subjectName) (pre := $preName)
+                (logicalPre := $logicalPreName) (context := $contextName)
+                (responses := $responsesName) (vault := $vaultName)
+                (fault := fault) (unchanged := unchanged)
+                (hencodePre := $encodePreName) (hstep := $stepName)).2
+            exact ⟨.trapped fault, htransition⟩))
     Lean.Elab.Command.elabCommand (← `(
       /-- The exact typed relation has at most one outcome for fixed inputs.
           This is inherited from the sole Reference step plus codec
