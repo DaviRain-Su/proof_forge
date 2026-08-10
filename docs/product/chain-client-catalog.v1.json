@@ -10,7 +10,7 @@
     "No network broadcast tools on MCP default surface.",
     "Aleo frontend detail: docs/product/07-aleo-dapp-frontend-wallet.md (wallet adaptor + Provable SDK; not shipped by PF).",
     "EVM frontend detail: docs/product/08-evm-dapp-frontend.md + templates/evm-dapp-ui (viem/local Anvil).",
-    "Solana: dual MCP — ProofForge guidance + official https://mcp.solana.com/mcp (docs/autofixer)."
+    "Solana contracts: ProofForge ProgramV1 + pf CLI; frontend templates/solana-dapp-ui; PF MCP summarizes ix codec (not external Anchor MCP)."
   ],
   "targets": [
     {
@@ -188,63 +188,46 @@
           "pf_artifacts",
           "pf_chain_catalog",
           "pf_solana_scaffold",
-          "pf_solana_official_mcp"
+          "pf_solana_ix_codec",
+          "pf_solana_artifacts"
         ],
         "template": "pf new <name> --target solana",
-        "officialMcp": {
-          "name": "Solana Developer MCP",
-          "url": "https://mcp.solana.com/mcp",
-          "landing": "https://mcp.solana.com/",
-          "tools": [
-            "list_sections",
-            "get_documentation",
-            "Solana_Documentation_Search",
-            "Solana_Expert__Ask_For_Help",
-            "program_autofixer"
-          ],
-          "note": "Connect alongside ProofForge MCP; PF does not proxy these tools."
-        }
+        "frontendTemplate": "templates/solana-dapp-ui"
       },
       "frontendClients": [
         {
-          "name": "@solana/web3.js / @solana/kit (ecosystem)",
+          "name": "@solana/web3.js + wallet-adapter (template default)",
           "kind": "js-ts",
-          "purpose": "RPC, transaction build/send",
+          "purpose": "local validator + wallet UX over PF IDL/ix encoding",
           "shippedByProofForge": false,
           "docs": [
-            "https://solana.com/docs",
-            "https://mcp.solana.com/"
+            "docs/product/10-solana-dapp-frontend.md",
+            "templates/solana-dapp-ui"
           ],
           "packages": [
             "@solana/web3.js",
-            "@solana/kit"
-          ]
-        },
-        {
-          "name": "@solana/wallet-adapter (ecosystem)",
-          "kind": "js-ts",
-          "purpose": "React wallet connect UX",
-          "shippedByProofForge": false,
-          "packages": [
-            "@solana/wallet-adapter-base",
             "@solana/wallet-adapter-react",
-            "@solana/wallet-adapter-react-ui"
+            "@solana/wallet-adapter-react-ui",
+            "@solana/wallet-adapter-wallets"
           ]
         }
       ],
       "localDev": {
         "offlineInterpret": "pf verify -t solana (proof-forge-solana-client)",
-        "chainLike": "Mollusk runtime tests (host-heavy; just solana-runtime / pf test)",
-        "deploy": "pf deploy --network local (save-only); --broadcast loopback only"
+        "chainLike": "Mollusk / pf test (host-heavy)",
+        "deploy": "pf deploy --network local; UI uses deployment.json",
+        "frontend": "templates/solana-dapp-ui"
       },
       "honesty": [
+        "Contracts authored in ProofForge ProgramV1 — not Anchor as primary path",
         "Principal is not Solana pubkey globally",
         "Public RPC broadcast refused in pf v0",
-        "Use official Solana MCP for Anchor/Pinocchio Rust autofixer — separate from PF Lean→sBPF path",
+        "ix-data = handlerId u64 LE + u64 params (not Anchor sighash)",
         "engineering maturity — not formal/mainnet evidence"
       ],
       "agentGuide": "docs/product/09-solana-agent-playbook.md",
-      "demoGuide": "docs/demos/solana-local-walkthrough.md"
+      "demoGuide": "docs/demos/solana-local-walkthrough.md",
+      "frontendGuide": "docs/product/10-solana-dapp-frontend.md"
     },
     {
       "id": "near",

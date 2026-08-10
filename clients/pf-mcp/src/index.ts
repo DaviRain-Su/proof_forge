@@ -1,10 +1,10 @@
 /**
  * ProofForge remote MCP server (Cloudflare Workers).
  *
- * Shape mirrors Solana Developer MCP (https://mcp.solana.com/mcp):
- *   - Streamable HTTP transport at POST /mcp
+ * Streamable HTTP remote MCP for coding agents:
+ *   - Transport at POST /mcp
  *   - Public, no API key (v0)
- *   - Docs / catalog / agent-guidance tools for coding agents
+ *   - Docs / catalog / PF-target guidance (Solana = ProgramV1 + pf CLI, not Anchor MCP)
  *
  * This edge surface does NOT spawn Lean/CLI binaries (Workers cannot).
  * Local compile/deploy stays on:
@@ -23,29 +23,35 @@ import {
 } from "./content";
 
 const SERVER_NAME = "proof-forge-mcp";
-const SERVER_VERSION = "0.2.0";
+const SERVER_VERSION = "0.3.0";
 
-const SOLANA_OFFICIAL = {
-  name: "Solana Developer MCP",
-  landing: "https://mcp.solana.com/",
-  endpoint: "https://mcp.solana.com/mcp",
-  transport: "streamable-http",
-  auth: "none",
-  tools: [
-    "list_sections",
-    "get_documentation",
-    "Solana_Documentation_Search",
-    "Solana_Expert__Ask_For_Help",
-    "program_autofixer",
+/** In-product Solana knowledge for PF agents (not a pointer to external MCP). */
+const SOLANA_PF = {
+  contractPath: "ProofForge ProgramV1 + pf CLI (not Anchor/Rust scaffold)",
+  frontendTemplate: "templates/solana-dapp-ui",
+  docs: [
+    "09-solana-agent-playbook.md",
+    "10-solana-dapp-frontend.md",
+    "solana-local-walkthrough.md",
   ],
-  connect: {
-    codex: "codex mcp add solana-mcp --url https://mcp.solana.com/mcp",
-    claude:
-      "claude mcp add --transport http solana-mcp https://mcp.solana.com/mcp",
-    cursor: "npx -y mcp-remote https://mcp.solana.com/mcp",
+  ixEncoding: {
+    schema: "proof-forge.solana.ix-data.v1",
+    layout: "handlerId_u64le + params_u64le_sequence",
+    notAnchorSighash: true,
+    detail:
+      "Instruction data = u64 little-endian handlerId (from *.idl.json), then each non-Principal scalar param as u64 LE (narrow ints zero-extended). Do NOT use Anchor 8-byte sighash discriminators with PF ELF.",
   },
-  note:
-    "Official Solana docs + Anchor/Pinocchio program_autofixer. Connect alongside ProofForge MCP; this Worker does not proxy Solana tools.",
+  artifacts: {
+    forFrontend: ["*.idl.json", "deployment.json (after local deploy)"],
+    forCliDeploy: ["*.so", "manifest.json", "evidence.json"],
+    engineeringOnly: ["*.s", "*.cpi-*.json"],
+  },
+  safety: [
+    "public Solana RPC broadcast refused in pf v0",
+    "Principal wire identity ≠ Solana pubkey globally",
+    "no private keys in MCP/chat/git",
+    "engineering only — not formal/hermetic/mainnet",
+  ],
 };
 
 const LIVE = {
@@ -109,12 +115,11 @@ function createServer() {
           "pf_aleo_live_demo",
           "pf_cli_cheatsheet",
           "pf_solana_scaffold",
-          "pf_solana_official_mcp",
+          "pf_solana_ix_codec",
+          "pf_solana_artifacts",
         ],
         liveDemo: LIVE,
-        companionMcps: {
-          solanaOfficial: SOLANA_OFFICIAL,
-        },
+        solana: SOLANA_PF,
       }),
   );
 
@@ -261,10 +266,12 @@ function createServer() {
             ? [
                 "pf setup --target solana && pf doctor --target solana",
                 "pf new hello --target solana && cd hello",
+                "# edit Lean ProgramV1 — not Anchor/Cargo",
                 "pf build && pf verify && pf test",
-                "pf deploy --network local  # save-only; public RPC broadcast refused",
-                "# companion: codex mcp add solana-mcp --url https://mcp.solana.com/mcp",
-                "# see pf_solana_scaffold + 09-solana-agent-playbook.md",
+                "pf deploy --network local",
+                "cp build/**/**.idl.json templates/solana-dapp-ui/public/artifacts/",
+                "cd templates/solana-dapp-ui && npm i && npm run dev",
+                "# see pf_solana_scaffold / pf_solana_ix_codec",
               ]
             : id === "evm"
               ? [
@@ -306,15 +313,8 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
 - Use \`pf_chain_catalog\` / \`pf_target_info\` before choosing a chain.
 - Use \`pf_cli_cheatsheet\` for command sequences.
 - Use \`pf_aleo_live_demo\` for the published Aleo Testnet evidence links.
-- Use \`pf_solana_scaffold\` + \`pf_solana_official_mcp\` for Solana target ladder and dual-MCP wiring.
+- Use \`pf_solana_scaffold\`, \`pf_solana_ix_codec\`, \`pf_solana_artifacts\` for Solana (PF path).
 - This remote server does **not** compile, does **not** hold keys, and does **not** broadcast.
-
-## Official Solana Developer MCP (companion — not proxied here)
-- Endpoint: \`https://mcp.solana.com/mcp\` (Streamable HTTP, no API key).
-- Connect: \`codex mcp add solana-mcp --url https://mcp.solana.com/mcp\`.
-- Tools: docs list/get/search, expert help, \`program_autofixer\` (Anchor + Pinocchio Rust).
-- When reviewing hand-written Solana Rust, run \`program_autofixer\`, apply fixes, re-run until clean.
-- PF Lean→sBPF path is separate: do not treat autofixer as a substitute for \`pf build/verify\`.
 
 ## Local execution (developer machine)
 - Install/use \`pf\` (\`proof-forge-pf\` on crates.io) + \`proof-forge-next\` compiler.
@@ -329,11 +329,14 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
 - Broadcast: \`--broadcast --private-key-env NAME --program-id <stem>\`.
 - Keep the same \`--program-id\` for deploy and execute.
 
-## Solana notes
-- Ladder: \`pf setup -t solana\` → \`pf new … -t solana\` → \`pf build\` → \`pf verify\` → \`pf test\`.
-- Deploy: \`pf deploy --network local\` (package only). \`--broadcast\` only with loopback RPC.
+## Solana notes (ProofForge-first)
+- **Contracts are written in ProofForge ProgramV1**, compiled with \`pf build --target solana\`.
+- Do **not** start an Anchor/Cargo program as the primary contract path.
+- Ladder: \`pf setup -t solana\` → \`pf new … -t solana\` → edit Lean → \`pf build\` → \`pf verify\` → \`pf test\`.
+- Deploy: \`pf deploy --network local\` (save-only). \`--broadcast\` only with loopback RPC.
+- Frontend: \`templates/solana-dapp-ui\` consumes \`*.idl.json\` (ix-data = handlerId u64 LE + u64 params).
 - Principal wire identity ≠ Solana pubkey globally.
-- Dual MCP: ProofForge for PF surface; Solana MCP for ecosystem docs/Rust review.
+- External Solana Rust/Anchor docs MCP is **out of the default agent path**; PF MCP already summarizes ix encoding + artifacts.
 
 ## Safety
 - No default network broadcast on MCP.
@@ -396,13 +399,14 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
           : t === "solana"
             ? [
                 "pf setup --target solana && pf doctor --target solana",
-                "pf new hello --target solana && cd hello && pf build",
-                "pf verify --target solana",
+                "pf new hello --target solana && cd hello",
+                "# edit ProgramV1 Lean source (not Anchor)",
+                "pf build && pf verify --target solana",
                 "pf test --target solana",
                 "pf deploy --network local",
-                "# pf deploy --network local --broadcast --endpoint http://127.0.0.1:8899",
-                "# companion: codex mcp add solana-mcp --url https://mcp.solana.com/mcp",
-                "# docs: pf_get_doc id=09-solana-agent-playbook.md",
+                "cp <out>/*.idl.json templates/solana-dapp-ui/public/artifacts/",
+                "cd templates/solana-dapp-ui && npm i && npm run dev",
+                "# docs: pf_get_doc id=09-solana-agent-playbook.md | 10-solana-dapp-frontend.md",
               ]
             : t === "evm"
               ? [
@@ -422,61 +426,26 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
 
 
   server.registerTool(
-    "pf_solana_official_mcp",
-    {
-      description:
-        "How to connect the official Solana Developer MCP (https://mcp.solana.com/mcp) alongside ProofForge. Lists official tools (docs + program_autofixer). This Worker does not proxy Solana tools — agents must add the second MCP server.",
-      inputSchema: z.object({}),
-    },
-    async () =>
-      textResult({
-        schema: "proof-forge.mcp.solana-official.v1",
-        proofForgeMcp: {
-          role: "PF catalog, pf CLI ladder, Solana target honesty",
-          endpointPath: "/mcp",
-        },
-        solanaOfficial: SOLANA_OFFICIAL,
-        dualMcpRecommended: true,
-        routing: [
-          "PF surface / maturity / pf commands → ProofForge tools (pf_solana_scaffold, pf_target_info)",
-          "Solana ecosystem docs / Anchor-Pinocchio Rust review → official Solana tools",
-          "Compile/test/deploy → local pf + toolchains (never edge MCP)",
-        ],
-        agentLoop:
-          "For hand-written Anchor/Pinocchio Rust: call program_autofixer, apply fixes, re-run until clean. For PF ProgramV1→sBPF: use pf build/verify locally.",
-      }),
-  );
-
-  server.registerTool(
     "pf_solana_scaffold",
     {
       description:
-        "Solana target scaffold for agents: dual-MCP wiring, pf setup/new/build/verify/test/deploy ladder, install companions, and honesty boundaries. Prefer this before writing Solana-targeted PF projects.",
+        "Solana target scaffold using ProofForge only: write ProgramV1, pf setup/new/build/verify/test/deploy, then templates/solana-dapp-ui. Not an Anchor/Rust path.",
       inputSchema: z.object({
-        includeOfficialMcp: z
+        includeFrontend: z
           .boolean()
           .optional()
-          .describe("Include official Solana MCP connect block (default true)"),
+          .describe("Include frontend template steps (default true)"),
       }),
     },
-    async ({ includeOfficialMcp }) => {
+    async ({ includeFrontend }) => {
       const row = targetById("solana");
-      const includeOfficial = includeOfficialMcp !== false;
+      const fe = includeFrontend !== false;
       return textResult({
         schema: "proof-forge.mcp.solana-scaffold.v1",
         target: "solana",
+        contractPath: SOLANA_PF.contractPath,
         catalog: row,
-        docs: [
-          "09-solana-agent-playbook.md",
-          "solana-local-walkthrough.md",
-          "chain-client-catalog.v1.json",
-        ],
-        dualMcp: includeOfficial
-          ? {
-              proofForge: "this server (/mcp)",
-              solanaOfficial: SOLANA_OFFICIAL,
-            }
-          : { proofForge: "this server (/mcp)" },
+        docs: SOLANA_PF.docs,
         install: [
           "cargo install proof-forge-pf --locked",
           "cargo install proof-forge-solana-client --locked",
@@ -487,24 +456,146 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
         ],
         projectLadder: [
           "pf new hello --target solana && cd hello",
+          "# edit Lean ProgramV1 sources — do not create Anchor/Cargo program",
           "pf build",
           "pf verify",
           "pf test",
           "pf deploy --network local",
         ],
         monorepoExample: [
-          "pf build Examples/StateCell.lean --module Examples.StateCell -t solana -o build/v2/sc-sol",
-          "pf verify -t solana -o build/v2/sc-sol",
-          "# optional host-heavy: just solana-runtime",
+          "pf build Examples/StateCell.lean --module Examples.StateCell --target solana -o build/v2/sc-sol",
+          "pf verify --target solana -o build/v2/sc-sol",
         ],
-        safety: [
-          "public Solana RPC broadcast refused in pf v0",
-          "no private keys in MCP/chat/git",
-          "Principal ≠ Solana pubkey globally",
-          "engineering only — not formal/hermetic/mainnet",
-        ],
+        frontend: fe
+          ? {
+              template: SOLANA_PF.frontendTemplate,
+              steps: [
+                "cp <out>/*.idl.json templates/solana-dapp-ui/public/artifacts/",
+                "write public/deployment.json after local deploy (see deployment.example.json)",
+                "cd templates/solana-dapp-ui && npm install && npm run dev",
+              ],
+              guide: "docs/product/10-solana-dapp-frontend.md",
+            }
+          : undefined,
+        ixEncoding: SOLANA_PF.ixEncoding,
+        safety: SOLANA_PF.safety,
         edgeNote:
-          "Remote MCP is guidance-only. Run compile/test/deploy on a machine with pf + toolchains.",
+          "Remote MCP is guidance-only. Compile/test/deploy with local pf + toolchains.",
+      });
+    },
+  );
+
+  server.registerTool(
+    "pf_solana_ix_codec",
+    {
+      description:
+        "Summarize ProofForge Solana instruction-data encoding for agents and frontends. PF uses handlerId u64 LE + u64 LE params — NOT Anchor sighash. Optional: encode a sample payload.",
+      inputSchema: z.object({
+        handlerId: z.number().int().min(0).optional(),
+        params: z.array(z.string()).optional()
+          .describe("Decimal u64 strings, e.g. [\"5\"] for increment delta"),
+      }),
+    },
+    async ({ handlerId, params }) => {
+      const enc = SOLANA_PF.ixEncoding;
+      let sample: { hex: string; bytes: number[] } | undefined;
+      if (handlerId !== undefined) {
+        const ps = (params ?? []).map((s) => {
+          const n = BigInt(s);
+          if (n < 0n || n > 0xffff_ffff_ffff_ffffn) {
+            throw new Error(`param out of u64 range: ${s}`);
+          }
+          return n;
+        });
+        const out = new Uint8Array(8 + ps.length * 8);
+        const view = new DataView(out.buffer);
+        view.setBigUint64(0, BigInt(handlerId), true);
+        ps.forEach((p, i) => view.setBigUint64(8 + i * 8, p, true));
+        const hex = Array.from(out)
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+        sample = { hex, bytes: Array.from(out) };
+      }
+      return textResult({
+        schema: "proof-forge.mcp.solana-ix-codec.v1",
+        ...enc,
+        example: {
+          stateCell: {
+            init: "handlerId=0 then u64 initial",
+            increment: "handlerId=1 then u64 delta",
+            get: "handlerId=2 (no params)",
+          },
+          note: "Exact handlerId values come from the program's *.idl.json after pf build.",
+        },
+        sample,
+        frontendHelper: "templates/solana-dapp-ui/src/ix.ts → encodePfIxData",
+        antiPatterns: [
+          "Anchor sha256('global:name')[0..8] discriminators",
+          "Borsh-only layouts without PF handlerId prefix",
+          "Assuming Principal params are 32-byte pubkeys in ix data without PF wire rules",
+        ],
+      });
+    },
+  );
+
+  server.registerTool(
+    "pf_solana_artifacts",
+    {
+      description:
+        "Explain pf build --target solana output files: which go to the frontend template vs CLI deploy/verify. PF-first; no external MCP.",
+      inputSchema: z.object({
+        programName: z
+          .string()
+          .optional()
+          .describe("Artifact stem, default StateCell"),
+      }),
+    },
+    async ({ programName }) => {
+      const name = (programName ?? "StateCell").trim() || "StateCell";
+      return textResult({
+        schema: "proof-forge.mcp.solana-artifacts.v1",
+        buildCommand: `pf build <Source.lean> --module <Module> --target solana -o <out>`,
+        files: [
+          {
+            path: `${name}.idl.json`,
+            role: "frontend + agents",
+            requiredForUi: true,
+            note: "handlerId, instruction names, account roles",
+          },
+          {
+            path: `${name}.so`,
+            role: "CLI deploy / Mollusk",
+            requiredForUi: false,
+          },
+          {
+            path: `${name}.s`,
+            role: "debug asm",
+            requiredForUi: false,
+          },
+          {
+            path: "manifest.json",
+            role: "OutputSet / pf verify",
+            requiredForUi: false,
+          },
+          {
+            path: "evidence.json",
+            role: "engineering evidence note",
+            requiredForUi: false,
+          },
+          {
+            path: `${name}.cpi-*.json`,
+            role: "engineering intermediate",
+            requiredForUi: false,
+          },
+        ],
+        uiCopy: [
+          `cp <out>/${name}.idl.json templates/solana-dapp-ui/public/artifacts/`,
+          "after deploy: write templates/solana-dapp-ui/public/deployment.json",
+        ],
+        verify: "pf verify --target solana -o <out>",
+        deploy: "pf deploy --network local -o <out>",
+        template: SOLANA_PF.frontendTemplate,
+        docs: SOLANA_PF.docs,
       });
     },
   );
@@ -536,7 +627,7 @@ const LANDING = `<!doctype html>
   <h1>ProofForge Developer MCP</h1>
   <p>
     Coding-agent surface for ProofForge product docs, chain catalog, and CLI guidance —
-    similar in shape to <a href="https://mcp.solana.com/">Solana Developer MCP</a>.
+    Streamable HTTP remote MCP for agents (docs · catalog · PF Solana/EVM/Aleo guidance).
   </p>
   <h2>Live endpoint</h2>
   <pre>POST https://&lt;this-host&gt;/mcp
@@ -559,17 +650,16 @@ npx -y mcp-remote https://&lt;this-host&gt;/mcp</pre>
     <tr><td><code>pf_agent_instructions</code></td><td>How agents should use PF</td></tr>
     <tr><td><code>pf_cli_cheatsheet</code></td><td>Local <code>pf</code> commands</td></tr>
     <tr><td><code>pf_aleo_live_demo</code></td><td>Published Aleo Testnet evidence</td></tr>
-    <tr><td><code>pf_solana_scaffold</code></td><td>Solana <code>pf</code> ladder + dual-MCP wiring</td></tr>
-    <tr><td><code>pf_solana_official_mcp</code></td><td>Official Solana MCP connect (docs + autofixer)</td></tr>
+    <tr><td><code>pf_solana_scaffold</code></td><td>Solana PF ladder + frontend template</td></tr>
+    <tr><td><code>pf_solana_ix_codec</code></td><td>PF ix-data encoding (handlerId u64 LE)</td></tr>
+    <tr><td><code>pf_solana_artifacts</code></td><td>build outputs → UI vs CLI</td></tr>
   </table>
-  <h2>Companion: official Solana MCP</h2>
+  <h2>Solana (ProofForge path)</h2>
   <p>
-    For Solana ecosystem docs and Anchor/Pinocchio <code>program_autofixer</code>, also connect
-    <a href="https://mcp.solana.com/">Solana Developer MCP</a>:
+    Contracts: <strong>ProgramV1 + <code>pf build --target solana</code></strong> (not Anchor).
+    Frontend: <code>templates/solana-dapp-ui</code>. Tools: <code>pf_solana_scaffold</code>,
+    <code>pf_solana_ix_codec</code>, <code>pf_solana_artifacts</code>.
   </p>
-  <pre>codex mcp add solana-mcp --url https://mcp.solana.com/mcp
-claude mcp add --transport http solana-mcp https://mcp.solana.com/mcp</pre>
-  <p>ProofForge MCP does <strong>not</strong> proxy those tools — add both servers. See <code>pf_solana_scaffold</code>.</p>
   <h2>Boundaries</h2>
   <ul>
     <li>Edge MCP is <strong>guidance-only</strong> (no Lean/CLI spawn, no keys, no broadcast).</li>

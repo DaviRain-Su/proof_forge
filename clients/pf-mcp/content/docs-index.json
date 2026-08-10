@@ -22,7 +22,7 @@
     {
       "id": "04-chain-client-catalog.md",
       "title": "Chain client / frontend catalog (metadata for agents)",
-      "bytes": 3767,
+      "bytes": 3810,
       "kind": "markdown"
     },
     {
@@ -51,14 +51,14 @@
     },
     {
       "id": "09-solana-agent-playbook.md",
-      "title": "Solana agent playbook — pf target + official Solana MCP",
-      "bytes": 4432,
+      "title": "Solana agent playbook — ProofForge CLI/SDK first",
+      "bytes": 3022,
       "kind": "markdown"
     },
     {
       "id": "aleo-testnet-walkthrough.md",
       "title": "Demo — Aleo with pf (local run → Testnet deploy → execute)",
-      "bytes": 11805,
+      "bytes": 11782,
       "kind": "markdown"
     },
     {
@@ -70,19 +70,19 @@
     {
       "id": "mcp-stdio-readme.md",
       "title": "ProofForge MCP-V0",
-      "bytes": 4131,
+      "bytes": 4430,
       "kind": "markdown"
     },
     {
       "id": "solana-local-walkthrough.md",
-      "title": "Demo — Solana with pf (build → verify → optional Mollusk)",
-      "bytes": 2020,
+      "title": "Demo — Solana with pf (build → verify → optional UI)",
+      "bytes": 1533,
       "kind": "markdown"
     },
     {
       "id": "chain-client-catalog.v1.json",
       "title": "Chain client catalog",
-      "bytes": 15280,
+      "bytes": 14847,
       "kind": "catalog"
     }
   ]

@@ -96,19 +96,14 @@ npx -y mcp-remote https://proof-forge-mcp.davirain-yin.workers.dev/mcp
 ```
 
 **Edge tools (guidance only):** `pf_health`, `pf_list_docs`, `pf_get_doc`, `pf_search_docs`,
-`pf_chain_catalog`, `pf_target_info`, `pf_agent_instructions`, `pf_cli_cheatsheet`, `pf_aleo_live_demo`, `pf_solana_scaffold`, `pf_solana_official_mcp`.
+`pf_chain_catalog`, `pf_target_info`, `pf_agent_instructions`, `pf_cli_cheatsheet`, `pf_aleo_live_demo`, `pf_solana_scaffold`, `pf_solana_ix_codec`, `pf_solana_artifacts`.
 
 The remote Worker **does not** spawn Lean/CLI, hold keys, or broadcast. Local compile/deploy still uses
 this stdio server or the `pf` CLI.
 
 
-## Companion: official Solana MCP
+## Solana (ProofForge path)
 
-For Solana ecosystem docs and `program_autofixer`, also register:
-
-```bash
-codex mcp add solana-mcp --url https://mcp.solana.com/mcp
-```
-
-ProofForge remote MCP (`clients/pf-mcp`) exposes `pf_solana_scaffold` / `pf_solana_official_mcp`
-for dual-MCP wiring; it does not proxy Solana tools.
+Remote MCP tools: `pf_solana_scaffold`, `pf_solana_ix_codec`, `pf_solana_artifacts`.
+Frontend template: `templates/solana-dapp-ui`.
+Contracts: ProgramV1 + `pf build --target solana` (not Anchor-first).

@@ -1,0 +1,203 @@
+{
+  "schema": "proof-forge.pf.solana-local-deployment.v1",
+  "program": "StateCell",
+  "target": "solana",
+  "rpcUrl": "http://127.0.0.1:8899",
+  "programId": "REPLACE_AFTER_LOCAL_DEPLOY",
+  "stateAccount": "REPLACE_STATE_ACCOUNT_PUBKEY",
+  "idl": {
+    "catalogDigest": "sha256:e2c2ebac5e690b99ad50fb7f8a5f6ecfdb8295bb43f3913229c2fd48d2820419",
+    "cpiSites": [],
+    "instructions": [
+      {
+        "accounts": [
+          {
+            "aliasPolicy": {
+              "cpiSiteMetaKeys": "pairwise-distinct",
+              "outerRoleKeys": "pairwise-distinct",
+              "sameRoleAcrossCpiSites": "allowed-and-reused",
+              "separateRolesAcrossCpiSites": "must-remain-distinct"
+            },
+            "constraint": {
+              "data": {
+                "kind": "proofForgeState"
+              },
+              "executable": "forbidden",
+              "initialization": "initializerUninitializedOtherwiseInitialized",
+              "owner": {
+                "kind": "currentProgram"
+              },
+              "provisioning": "mustExist"
+            },
+            "directSignerContribution": true,
+            "directWritableContribution": true,
+            "keyPolicy": {
+              "kind": "state",
+              "schemaId": 0
+            },
+            "name": "state",
+            "outerSigner": true,
+            "outerWritable": true,
+            "position": 0,
+            "roleId": 0
+          }
+        ],
+        "cpiSiteIds": [],
+        "handlerId": 0,
+        "mode": "initialize",
+        "name": "init"
+      },
+      {
+        "accounts": [
+          {
+            "aliasPolicy": {
+              "cpiSiteMetaKeys": "pairwise-distinct",
+              "outerRoleKeys": "pairwise-distinct",
+              "sameRoleAcrossCpiSites": "allowed-and-reused",
+              "separateRolesAcrossCpiSites": "must-remain-distinct"
+            },
+            "constraint": {
+              "data": {
+                "kind": "proofForgeState"
+              },
+              "executable": "forbidden",
+              "initialization": "initializerUninitializedOtherwiseInitialized",
+              "owner": {
+                "kind": "currentProgram"
+              },
+              "provisioning": "mustExist"
+            },
+            "directSignerContribution": false,
+            "directWritableContribution": true,
+            "keyPolicy": {
+              "kind": "state",
+              "schemaId": 0
+            },
+            "name": "state",
+            "outerSigner": false,
+            "outerWritable": true,
+            "position": 0,
+            "roleId": 0
+          }
+        ],
+        "cpiSiteIds": [],
+        "handlerId": 1,
+        "mode": "entry",
+        "name": "increment"
+      },
+      {
+        "accounts": [
+          {
+            "aliasPolicy": {
+              "cpiSiteMetaKeys": "pairwise-distinct",
+              "outerRoleKeys": "pairwise-distinct",
+              "sameRoleAcrossCpiSites": "allowed-and-reused",
+              "separateRolesAcrossCpiSites": "must-remain-distinct"
+            },
+            "constraint": {
+              "data": {
+                "kind": "proofForgeState"
+              },
+              "executable": "forbidden",
+              "initialization": "initializerUninitializedOtherwiseInitialized",
+              "owner": {
+                "kind": "currentProgram"
+              },
+              "provisioning": "mustExist"
+            },
+            "directSignerContribution": false,
+            "directWritableContribution": false,
+            "keyPolicy": {
+              "kind": "state",
+              "schemaId": 0
+            },
+            "name": "state",
+            "outerSigner": false,
+            "outerWritable": false,
+            "position": 0,
+            "roleId": 0
+          }
+        ],
+        "cpiSiteIds": [],
+        "handlerId": 2,
+        "mode": "view",
+        "name": "get"
+      }
+    ],
+    "pdaRules": [
+      {
+        "derivationProgram": {
+          "kind": "currentProgram"
+        },
+        "ruleId": "current-program-tagged-v1",
+        "search": "providedBumpMustEqualCanonical255Through1",
+        "seeds": [
+          {
+            "hex": "70726f6f662d666f7267653a7064613a7631",
+            "kind": "literalHex"
+          },
+          {
+            "argName": "seedAuthority",
+            "kind": "accountKey"
+          },
+          {
+            "argName": "seedTag",
+            "kind": "uint64Le"
+          },
+          {
+            "argName": "bump",
+            "kind": "uint8"
+          }
+        ],
+        "signerEligible": true
+      },
+      {
+        "derivationProgram": {
+          "kind": "fixedPackage",
+          "packageId": "ata-classic-v1"
+        },
+        "ruleId": "ata-classic-v1",
+        "search": "canonical255Through1",
+        "seeds": [
+          {
+            "argName": "wallet",
+            "kind": "accountKey"
+          },
+          {
+            "kind": "fixedProgramId",
+            "packageId": "token-classic-v1"
+          },
+          {
+            "argName": "mint",
+            "kind": "accountKey"
+          }
+        ],
+        "signerEligible": false
+      }
+    ],
+    "planDigest": "sha256:6618da42f6bd860b2d38d67e0b2a7d5d0c3e8a6f893a44dc606050cc6fa7f5ac",
+    "profileDigest": "sha256:b0f3f5bc7f3973daf176c308cc4ca310f8ad5b51ea33a33c9d1bd3e4d3e91b04",
+    "profileId": "solana-sbpf-cpi-elf-v1",
+    "programName": "StateCell",
+    "schema": "proof-forge.solana.cpi-idl.v1",
+    "stateSchemas": [
+      {
+        "exactDataLen": 16,
+        "initializedMarker": "0bbe897f0336e6fc",
+        "layoutDigest": "sha256:0bbe897f0336e6fce5387766b6e29ee61a4921915d0e84f592317f12e93051a6",
+        "name": "state",
+        "schemaId": 0
+      }
+    ]
+  },
+  "ixEncoding": {
+    "schema": "proof-forge.solana.ix-data.v1",
+    "layout": "handlerId_u64le + params_u64le_sequence",
+    "note": "PF sBPF entrypoint: first 8 bytes = handlerId LE; following non-Principal scalar params are u64 LE words (UInt8 zero-extended)."
+  },
+  "notes": [
+    "Build with: pf build -t solana",
+    "Deploy local only: pf deploy --network local [--broadcast --endpoint http://127.0.0.1:8899]",
+    "engineering demo \u2014 not mainnet"
+  ]
+}

@@ -341,8 +341,7 @@ ffmpeg -f avfoundation -i "2:none" -r 30 -t 600 build/demos/aleo/screen.mp4
 
 ## Remote MCP (agents)
 
-ProofForge also ships a **public remote MCP** (Cloudflare Workers), similar to
-[Solana Developer MCP](https://mcp.solana.com/):
+ProofForge also ships a **public remote MCP** (Cloudflare Workers), for coding agents (Streamable HTTP):
 
 - Landing: https://proof-forge-mcp.davirain-yin.workers.dev/
 - Endpoint: `https://proof-forge-mcp.davirain-yin.workers.dev/mcp`

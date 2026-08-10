@@ -92,11 +92,7 @@ EVM dApp 前端（viem / MetaMask / 本地 Anvil）见：
 [`08-evm-dapp-frontend.md`](08-evm-dapp-frontend.md) · 模板 [`templates/evm-dapp-ui/`](../../templates/evm-dapp-ui/)
 
 
-## Solana + official MCP
+## Solana (ProofForge path)
 
-Solana product surface is dual-MCP:
-
-- ProofForge remote MCP — `pf_solana_scaffold` / catalog / `pf` ladder  
-- Official [Solana Developer MCP](https://mcp.solana.com/) — docs + `program_autofixer`  
-
-See `docs/product/09-solana-agent-playbook.md`.
+Contracts: ProgramV1 + `pf build --target solana`. Frontend: `templates/solana-dapp-ui`. MCP: `pf_solana_scaffold` / `pf_solana_ix_codec` / `pf_solana_artifacts` (in-product summary — not external Anchor MCP).
+See `docs/product/09-solana-agent-playbook.md` and `10-solana-dapp-frontend.md`.

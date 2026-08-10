@@ -96,8 +96,14 @@ npx -y mcp-remote https://proof-forge-mcp.davirain-yin.workers.dev/mcp
 ```
 
 **Edge tools (guidance only):** `pf_health`, `pf_list_docs`, `pf_get_doc`, `pf_search_docs`,
-`pf_chain_catalog`, `pf_target_info`, `pf_agent_instructions`, `pf_cli_cheatsheet`, `pf_aleo_live_demo`.
+`pf_chain_catalog`, `pf_target_info`, `pf_agent_instructions`, `pf_cli_cheatsheet`, `pf_aleo_live_demo`, `pf_solana_scaffold`, `pf_solana_ix_codec`, `pf_solana_artifacts`.
 
 The remote Worker **does not** spawn Lean/CLI, hold keys, or broadcast. Local compile/deploy still uses
 this stdio server or the `pf` CLI.
 
+
+## Solana (ProofForge path)
+
+Remote MCP tools: `pf_solana_scaffold`, `pf_solana_ix_codec`, `pf_solana_artifacts`.
+Frontend template: `templates/solana-dapp-ui`.
+Contracts: ProgramV1 + `pf build --target solana` (not Anchor-first).

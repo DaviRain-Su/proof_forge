@@ -1,7 +1,6 @@
 # ProofForge remote MCP (Cloudflare Workers)
 
-Public **Streamable HTTP** MCP server for coding agents — same *shape* as
-[Solana Developer MCP](https://mcp.solana.com/) (`https://mcp.solana.com/mcp`).
+Public **Streamable HTTP** MCP server for coding agents — Streamable HTTP remote MCP for coding agents.
 
 | | |
 |---|---|
@@ -50,23 +49,17 @@ claude mcp add --transport http proof-forge-mcp https://proof-forge-mcp.<account
 - `pf_agent_instructions`
 - `pf_cli_cheatsheet`
 - `pf_aleo_live_demo`
-- `pf_solana_scaffold` — Solana `pf` ladder + dual-MCP wiring
-- `pf_solana_official_mcp` — how to connect official Solana MCP
+- `pf_solana_scaffold` — PF Solana ladder + `templates/solana-dapp-ui`
+- `pf_solana_ix_codec` — PF ix-data encoding summary (handlerId u64 LE)
+- `pf_solana_artifacts` — build outputs → UI vs CLI
 
-## Companion: official Solana MCP
+## Solana (in this MCP)
 
-ProofForge MCP is **guidance-only** for PF. For live Solana docs + Anchor/Pinocchio
-`program_autofixer`, also connect the official server:
+Contracts are **ProofForge ProgramV1 + `pf`**, not Anchor. This server **summarizes**
+ix encoding and artifact layout for agents; it does not recommend an external
+Solana Rust MCP as the default path. See `docs/product/09-solana-agent-playbook.md`
+and `docs/product/10-solana-dapp-frontend.md`.
 
-```bash
-codex mcp add solana-mcp --url https://mcp.solana.com/mcp
-# or
-claude mcp add --transport http solana-mcp https://mcp.solana.com/mcp
-```
-
-Landing: https://mcp.solana.com/ · Endpoint: `https://mcp.solana.com/mcp`  
-This Worker does **not** proxy Solana tools — agents should register **both** MCP servers.
-See `docs/product/09-solana-agent-playbook.md`.
 
 ## Content refresh
 

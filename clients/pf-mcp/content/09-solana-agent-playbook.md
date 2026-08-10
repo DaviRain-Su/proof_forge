@@ -1,77 +1,77 @@
 ---
 id: PRODUCT-SOLANA-AGENT-PLAYBOOK
-title: Solana agent playbook — pf target + official Solana MCP
+title: Solana agent playbook — ProofForge CLI/SDK first
 status: draft
 owner: product+engineering
 updated: 2026-08-10
 normative: false
 ---
 
-# Solana agent playbook
+# Solana agent playbook（ProofForge 主路径）
 
-**Audience:** coding agents + developers building with ProofForge **`--target solana`**.  
-**Claims:** engineering guidance only — **not** formal / hermetic / mainnet evidence.
+**Audience:** coding agents + developers  
+**Claims:** engineering guidance only — **not** formal / hermetic / mainnet
 
-## Two MCP servers (use both)
+## 一句话
 
-| Server | Endpoint | Role |
+用 **ProofForge 语言 + `pf` CLI（+ host SDK）** 写/编/测/部署 Solana 程序；  
+前端用 **`templates/solana-dapp-ui`** 消费 `*.idl.json`。  
+**不要**把「Solana 官方 Rust/Anchor MCP」当成写 PF 合约的入口。
+
+## 唯一推荐 MCP
+
+| Server | Endpoint | 用途 |
 |---|---|---|
-| **ProofForge remote MCP** | `https://proof-forge-mcp.davirain-yin.workers.dev/mcp` | PF catalog, `pf` CLI guidance, Solana target honesty, build/test/verify ladder |
-| **Solana Developer MCP** (official) | `https://mcp.solana.com/mcp` | Live Solana docs, semantic search, Anchor/Pinocchio `program_autofixer` |
-
-Connect both:
+| **ProofForge remote MCP** | `https://proof-forge-mcp.davirain-yin.workers.dev/mcp` | catalog、CLI ladder、ix 编码摘要、前端模板指引 |
 
 ```bash
-# ProofForge (docs/catalog/guidance — no compile on edge)
 codex mcp add proof-forge-mcp --url https://proof-forge-mcp.davirain-yin.workers.dev/mcp
-
-# Official Solana (docs + program_autofixer)
-codex mcp add solana-mcp --url https://mcp.solana.com/mcp
 ```
 
-Claude Code:
+PF MCP 工具（Solana）：
+
+| Tool | 作用 |
+|---|---|
+| `pf_solana_scaffold` | setup → new → build → verify → test → deploy → UI |
+| `pf_solana_ix_codec` | **摘要** PF ix-data 布局（handlerId u64 LE + params） |
+| `pf_solana_artifacts` | build 产物清单 / 哪些给前端 |
+| `pf_target_info` / `pf_cli_cheatsheet` | target=solana |
+| `pf_get_doc` | `09-…` / `10-…` / demo walkthrough |
+
+> 说明：官方 `https://mcp.solana.com/mcp` 面向 **Rust/Anchor/Pinocchio** 文档与 autofixer。  
+> 与 PF Lean→sBPF 路径不同；本产品 **不在 agent 默认路径里推荐** 双 MCP。  
+> 若维护者手写生态 Rust 适配层，可自行查阅 Solana 文档，但 **合约本体仍走 PF**。
+
+## 本地 `pf` ladder
 
 ```bash
-claude mcp add --transport http proof-forge-mcp https://proof-forge-mcp.davirain-yin.workers.dev/mcp
-claude mcp add --transport http solana-mcp https://mcp.solana.com/mcp
-```
-
-### When to call which
-
-1. **Choosing PF surface / maturity / commands** → ProofForge tools  
-   (`pf_chain_catalog`, `pf_target_info`, `pf_solana_scaffold`, `pf_cli_cheatsheet`)
-2. **Solana ecosystem how-to, Anchor/Pinocchio Rust review** → official Solana tools  
-   (`Solana_Documentation_Search`, `Solana_Expert__Ask_For_Help`, `program_autofixer`)
-3. **Compile / test / deploy** → local `pf` + toolchains (edge MCP never spawns Lean/CLI)
-
-## Local `pf` ladder (Solana target)
-
-```bash
-export PROOF_FORGE_CLI=/path/to/proof-forge-next   # monorepo: .lake/build/bin/proof-forge-next
+export PROOF_FORGE_CLI=/path/to/proof-forge-next
 export PATH="$HOME/.cargo/bin:$PATH"
 
 pf setup --target solana
 pf doctor --target solana
 
-# Project mode
 pf new hello --target solana && cd hello
-pf build                         # default target from ProofForge.toml
-pf test                          # Mollusk / StateCell-shaped when available
-pf verify                        # offline OutputSet via proof-forge-solana-client
-pf deploy --network local        # save-only package under tx/ by default
-# Broadcast only on loopback local validator (public RPC refused in pf v0):
+# 编辑 src/*.lean（ProgramV1）— 不是 Cargo/Anchor 工程
+pf build
+pf verify
+pf test
+pf deploy --network local
+# optional loopback only:
 # pf deploy --network local --broadcast --endpoint http://127.0.0.1:8899
 ```
 
-One-shot from monorepo examples:
+Monorepo example:
 
 ```bash
-pf build Examples/StateCell.lean --module Examples.StateCell -t solana -o build/v2/sc-sol
-pf verify -t solana -o build/v2/sc-sol
-# host-heavy runtime (optional):
-# just solana-runtime
-# or: pf test -t solana   (when harness resolves)
+pf build Examples/StateCell.lean --module Examples.StateCell --target solana -o build/v2/sc-sol
+pf verify --target solana -o build/v2/sc-sol
+cp build/v2/sc-sol/StateCell.idl.json templates/solana-dapp-ui/public/artifacts/
 ```
+
+## 前端
+
+见 [`10-solana-dapp-frontend.md`](10-solana-dapp-frontend.md) · 模板 [`templates/solana-dapp-ui/`](../../templates/solana-dapp-ui/)。
 
 ## Install companions
 
@@ -79,34 +79,17 @@ pf verify -t solana -o build/v2/sc-sol
 |---|---|
 | `pf` (`proof-forge-pf`) | Developer CLI |
 | `proof-forge-next` | Compiler |
-| `proof-forge-solana-client` | Offline `pf verify -t solana` |
+| `proof-forge-solana-client` | `pf verify -t solana` |
 
-```bash
-cargo install proof-forge-pf --locked
-cargo install proof-forge-solana-client --locked
-# monorepo compiler:
-lake build proof_forge_next
-export PROOF_FORGE_CLI=$PWD/.lake/build/bin/proof-forge-next
-export PROOF_FORGE_SOLANA_CLIENT="$(command -v proof-forge-solana-client)"
-```
+## Honesty
 
-## Honesty / safety
-
-- Product default Solana rail is CPI/ELF engineering (`solana-sbpf-cpi-elf-v1`); maturity is **not** “mainnet ready”.
-- **Principal ≠ Solana pubkey** globally (wire identity; no silent truncate/pad).
-- `pf` v0 **refuses public Solana broadcast** (devnet/testnet/mainnet endpoints). Local loopback only when `--broadcast`.
-- Never paste private keys into chat, git, or remote MCP tool arguments.
-- Official Solana `program_autofixer` reviews **Rust** Anchor/Pinocchio — PF emits sBPF from Lean ProgramV1; use autofixer on any hand-written Rust adapters, not as a substitute for PF Plan validation.
-
-## Agent checklist
-
-1. `pf_target_info` / `pf_solana_scaffold` (ProofForge MCP) — confirm commands + boundaries.  
-2. If writing/reviewing ecosystem Rust (Anchor/Pinocchio) → `program_autofixer` loop on Solana MCP.  
-3. Run `pf build -t solana` locally; then `pf verify` / `pf test` as available.  
-4. Do not claim formal/hermetic/mainnet success from engineering smokes.
+- CPI/ELF engineering maturity — not mainnet-ready claim  
+- Principal ≠ Solana pubkey globally  
+- Public RPC broadcast refused in pf v0  
+- Never paste private keys into chat / MCP / git  
 
 ## Related
 
-- `docs/targets/02-solana.md` — target dossier  
-- `docs/demos/solana-local-walkthrough.md` — short demo shot list  
-- Official: https://mcp.solana.com/ · endpoint `https://mcp.solana.com/mcp`
+- `docs/demos/solana-local-walkthrough.md`  
+- `docs/targets/02-solana.md`  
+- `docs/product/10-solana-dapp-frontend.md`  
