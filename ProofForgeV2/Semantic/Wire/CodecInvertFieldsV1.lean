@@ -1236,9 +1236,8 @@ private theorem decodeArrayElements_of_encodeArrayChunks_midV1
     (encode : α → Except SemanticWireErrorV1 ByteArray)
     (decode : Decoder α) :
     ∀ (xs : List α) (acc : Array α) (payload left right : ByteArray) (nesting : Nat),
-      nesting < maxNesting →
       encodeArrayChunksV1 encode xs ByteArray.empty = .ok payload →
-      (∀ x ∈ xs, ExactMidOffsetInvertV1 encode decode x) →
+      (∀ x ∈ xs, ExactMidOffsetInvertAtV1 encode decode x nesting) →
       decodeArrayElementsV1 decode xs.length acc
           ⟨left ++ payload ++ right, left.size, nesting⟩ =
         .ok (acc ++ xs.toArray,
@@ -1246,13 +1245,13 @@ private theorem decodeArrayElements_of_encodeArrayChunks_midV1
   intro xs
   induction xs with
   | nil =>
-      intro acc payload left right nesting _hdepth hchunks _hinv
+      intro acc payload left right nesting hchunks _hinv
       have hp : payload = ByteArray.empty := by
         simpa [encodeArrayChunksV1, Pure.pure, Except.pure] using hchunks.symm
       subst payload
       simp [decodeArrayElementsV1]
   | cons x xs ih =>
-      intro acc payload left right nesting hdepth hchunks hinv
+      intro acc payload left right nesting hchunks hinv
       cases hencx : encode x with
       | error e =>
           simp [encodeArrayChunksV1, hencx, Bind.bind, Except.bind] at hchunks
@@ -1274,22 +1273,23 @@ private theorem decodeArrayElements_of_encodeArrayChunks_midV1
               have hpayload : payload = chunk ++ tailPayload := by
                 exact Except.ok.inj (hchunks'.symm.trans hcomp)
               subst payload
-              have hinvHead : ExactMidOffsetInvertV1 encode decode x :=
+              have hinvHead : ExactMidOffsetInvertAtV1 encode decode x nesting :=
                 hinv x (List.mem_cons_self)
-              have htailInv : ∀ y ∈ xs, ExactMidOffsetInvertV1 encode decode y := by
+              have htailInv :
+                  ∀ y ∈ xs, ExactMidOffsetInvertAtV1 encode decode y nesting := by
                 intro y hy
                 exact hinv y (List.Mem.tail x hy)
               have hfirst :
                   decode ⟨left ++ (chunk ++ tailPayload) ++ right, left.size, nesting⟩ =
                     .ok (x, ⟨left ++ (chunk ++ tailPayload) ++ right,
                       left.size + chunk.size, nesting⟩) := by
-                have hmid := hinvHead chunk left (tailPayload ++ right) nesting hdepth hencx
+                have hmid := hinvHead chunk left (tailPayload ++ right) hencx
                 have hin : left ++ chunk ++ (tailPayload ++ right) =
                     left ++ (chunk ++ tailPayload) ++ right := by
                   simp [ByteArray.append_assoc]
                 simpa [hin, ByteArray.append_assoc] using hmid
               have htailRaw :=
-                ih (acc.push x) tailPayload (left ++ chunk) right nesting hdepth htail htailInv
+                ih (acc.push x) tailPayload (left ++ chunk) right nesting htail htailInv
               have htailDec :
                   decodeArrayElementsV1 decode xs.length (acc.push x)
                     ⟨left ++ (chunk ++ tailPayload) ++ right,
@@ -1319,22 +1319,24 @@ private theorem decodeArrayElements_of_encodeArrayChunks_midV1
                 omega
               simpa [List.length_cons, ByteArray.size_append, hoffFinal] using hsucc
 
-/-- Generic exact inversion for production arrays, parameterized by element
-    encode success and element exact inversion.
+/-- Generic fixed-depth exact inversion for production arrays, parameterized
+    by element encode success and fixed-depth element exact inversion.
 
     This is the reusable root-table seam: callers prove only the production
     codec facts for each source element, while this theorem owns the sole
     `encodeArrayChunksV1` / `decodeArrayElementsV1` induction. -/
-theorem exactMidOffsetInvert_array_of_forall_encoded_exact
+theorem exactMidOffsetInvertAt_array_of_forall_encoded_exactAt
     (encode : α → Except SemanticWireErrorV1 ByteArray)
-    (decode : Decoder α) (maxCount : Nat) (values : Array α)
+    (decode : Decoder α) (maxCount : Nat) (values : Array α) (nesting : Nat)
     (hmax : values.size ≤ maxCount)
     (hmaxArray : maxCount ≤ maxArrayElements)
     (hsizeU32 : values.size ≤ UInt32.size - 1)
     (hencElems : ∀ x ∈ values.toList, ∃ b, encode x = .ok b)
-    (hinv : ∀ x ∈ values.toList, ExactMidOffsetInvertV1 encode decode x) :
-    ExactMidOffsetInvertV1 (encodeArray encode) (decodeArray maxCount decode) values := by
-  intro b left right nesting hdepth henc
+    (hinv :
+      ∀ x ∈ values.toList, ExactMidOffsetInvertAtV1 encode decode x nesting) :
+    ExactMidOffsetInvertAtV1
+      (encodeArray encode) (decodeArray maxCount decode) values nesting := by
+  intro b left right henc
   obtain ⟨payload, hchunks⟩ :=
     encodeArrayChunksV1_ok_of_forall encode values.toList ByteArray.empty hencElems
   have harray := encodeArray_eq_of_chunksV1 encode values payload
@@ -1351,8 +1353,9 @@ theorem exactMidOffsetInvert_array_of_forall_encoded_exact
       simp [ByteArray.append_assoc]
     rw [hin]
     exact readArrayCount_encode_midV1 left (payload ++ right) values.size maxCount hsizeU32 hmax
-  have helemsRaw := decodeArrayElements_of_encodeArrayChunks_midV1 encode decode values.toList #[]
-    payload (left ++ encodeU32le (UInt32.ofNat values.size)) right nesting hdepth hchunks hinv
+  have helemsRaw := decodeArrayElements_of_encodeArrayChunks_midV1 encode decode
+    values.toList #[] payload (left ++ encodeU32le (UInt32.ofNat values.size))
+      right nesting hchunks hinv
   have helems :
       decodeArrayElementsV1 decode values.size #[]
           ⟨left ++ (encodeU32le (UInt32.ofNat values.size)).append payload ++ right,
@@ -1380,6 +1383,27 @@ theorem exactMidOffsetInvert_array_of_forall_encoded_exact
     simp [ByteArray.size_append, encodeU32le_sizeV1]
     omega
   simpa [hoff, ByteArray.append_assoc] using hdec
+
+/-- Generic all-depth production-array inversion. This is a wrapper around the
+    fixed-depth theorem above, so both root-only nested codecs and globally
+    invertible leaf codecs share one array-worker proof. -/
+theorem exactMidOffsetInvert_array_of_forall_encoded_exact
+    (encode : α → Except SemanticWireErrorV1 ByteArray)
+    (decode : Decoder α) (maxCount : Nat) (values : Array α)
+    (hmax : values.size ≤ maxCount)
+    (hmaxArray : maxCount ≤ maxArrayElements)
+    (hsizeU32 : values.size ≤ UInt32.size - 1)
+    (hencElems : ∀ x ∈ values.toList, ∃ b, encode x = .ok b)
+    (hinv : ∀ x ∈ values.toList, ExactMidOffsetInvertV1 encode decode x) :
+    ExactMidOffsetInvertV1 (encodeArray encode) (decodeArray maxCount decode) values := by
+  intro b left right nesting hdepth henc
+  exact
+    exactMidOffsetInvertAt_array_of_forall_encoded_exactAt
+      encode decode maxCount values nesting hmax hmaxArray hsizeU32 hencElems
+      (by
+        intro value hvalue
+        exact ExactMidOffsetInvertAtV1.ofExact (hinv value hvalue) hdepth)
+      b left right henc
 
 /-- Successful list validation implies every component satisfies the shared
     production identifier-component validator. -/

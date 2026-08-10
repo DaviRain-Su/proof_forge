@@ -95,6 +95,26 @@ theorem invariantTable_exact_of_forall_encoded
           ExactMidOffsetInvertV1.ofGlobal
             midOffsetInvert_encodeInvariantDecl_decodeInvariantDecl value)
 
+/-- The same production-array induction is consumable at the root's fixed
+    nesting depth, which is required by element codecs with deeper children. -/
+theorem invariantTable_exactAt_of_forall_encoded
+    (values : Array InvariantDeclV1)
+    (hsize : values.size ≤ maxTableElements)
+    (hsizeU32 : values.size ≤ UInt32.size - 1)
+    (hencoded :
+      ∀ value ∈ values.toList, ∃ bytes, encodeInvariantDeclV1 value = .ok bytes) :
+    ExactMidOffsetInvertAtV1 (encodeArray encodeInvariantDeclV1)
+      (decodeArray maxTableElements decodeInvariantDeclV1) values 1 := by
+  exact
+    exactMidOffsetInvertAt_array_of_forall_encoded_exactAt
+      encodeInvariantDeclV1 decodeInvariantDeclV1 maxTableElements values 1
+      hsize (by decide) hsizeU32 hencoded (by
+        intro value _hvalue
+        exact
+          ExactMidOffsetInvertAtV1.ofGlobal
+            midOffsetInvert_encodeInvariantDecl_decodeInvariantDecl value
+            (by decide))
+
 /-- Positive theorem: CallableKind MidOffsetInvert package. -/
 theorem callableKind_midOffsetInvert :
     MidOffsetInvertV1 encodeCallableKindV1 decodeCallableKindV1 :=
