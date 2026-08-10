@@ -1627,6 +1627,14 @@ private theorem isAsciiTagBytes_CallableResult :
   exact isAsciiTagBytes_of_list_all
     [67, 97, 108, 108, 97, 98, 108, 101, 82, 101, 115, 117, 108, 116] (by decide)
 
+private theorem utf8_Parameter :
+    "Parameter".toUTF8 = ByteArray.mk #[80, 97, 114, 97, 109, 101, 116, 101, 114] := by rfl
+
+private theorem isAsciiTagBytes_Parameter :
+    isAsciiTagBytesV1 "Parameter".toUTF8 = true := by
+  rw [utf8_Parameter]
+  exact isAsciiTagBytes_of_list_all [80, 97, 114, 97, 109, 101, 116, 101, 114] (by decide)
+
 private theorem utf8_Block :
     "Block".toUTF8 = ByteArray.mk #[66, 108, 111, 99, 107] := by rfl
 private theorem isAsciiTagBytes_Block :
@@ -2338,6 +2346,190 @@ theorem decodeInstructionArray_five_of_encode_midV1
   decodeArray_of_encodeArray_five_ok_midV1 encodeInstructionV1 decodeInstructionV1
     maxArrayElements i0 i1 i2 i3 i4 b b0 b1 b2 b3 b4 left right nesting (by decide)
     h0 h1 h2 h3 h4 henc hinv0 hinv1 hinv2 hinv3 hinv4
+
+/-! ### Parameter exact inversion -/
+
+theorem decodeParameter_public_of_encode_midV1
+    (valueId typeId : UInt32) (parameterName : String)
+    (hname : validateIdentifierComponent parameterName = .ok ())
+    (b left right : ByteArray) (nesting : Nat)
+    (hdepth : nesting + 1 < maxNesting)
+    (henc : encodeParameterV1
+      { valueId, name := parameterName, typeId, visibility := .public_ } = .ok b) :
+    decodeParameterV1 ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok ({ valueId, name := parameterName, typeId, visibility := .public_ },
+        ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
+  have hnameEnc : encodeString parameterName = .ok (stringPayloadBytesV1 parameterName) :=
+    encodeString_of_identifierV1 parameterName hname
+  have hvisEnc : encodeVisibilityV1 .public_ = .ok (taggedHeaderBytesV1 "Visibility.Public" 0) :=
+    encodeVisibility_public_eq
+  simp only [encodeParameterV1, hnameEnc, hvisEnc, Bind.bind, Except.bind] at henc
+  have hb := (encodeTagged_ok_eq_taggedBytesV1 "Parameter"
+    #[encodeU32le valueId, stringPayloadBytesV1 parameterName, encodeU32le typeId,
+      taggedHeaderBytesV1 "Visibility.Public" 0] b henc).1
+  subst b
+  have hlayout := taggedBytes_four_fields "Parameter" (encodeU32le valueId)
+    (stringPayloadBytesV1 parameterName) (encodeU32le typeId)
+    (taggedHeaderBytesV1 "Visibility.Public" 0)
+  rw [hlayout]
+  have hflatIn :
+      left ++
+          (taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId ++ stringPayloadBytesV1 parameterName ++
+            encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0) ++ right =
+        left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId ++ stringPayloadBytesV1 parameterName ++
+          encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right := by
+    simp [ByteArray.append_assoc]
+  rw [hflatIn]
+  have houter : nesting < maxNesting := Nat.lt_of_succ_lt hdepth
+  let input := left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId ++
+    stringPayloadBytesV1 parameterName ++ encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right
+  let body := taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId ++
+    stringPayloadBytesV1 parameterName ++ encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0
+  have hexpect :
+      expectTag "Parameter" 4 ⟨input, left.size, nesting + 1⟩ =
+        .ok ((), ⟨input, left.size + (taggedHeaderBytesV1 "Parameter" 4).size, nesting + 1⟩) := by
+    subst input
+    have hin :
+        left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId ++ stringPayloadBytesV1 parameterName ++
+            encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right =
+          left ++ taggedHeaderBytesV1 "Parameter" 4 ++
+            (encodeU32le valueId ++ stringPayloadBytesV1 parameterName ++ encodeU32le typeId ++
+              taggedHeaderBytesV1 "Visibility.Public" 0) ++ right := by
+      simp [ByteArray.append_assoc]
+    rw [hin]
+    exact expectTag_encode_midV1 left right "Parameter" 4
+      (encodeU32le valueId ++ stringPayloadBytesV1 parameterName ++ encodeU32le typeId ++
+        taggedHeaderBytesV1 "Visibility.Public" 0) (nesting + 1)
+      (by decide) (by decide) (by decide) isAsciiTagBytes_Parameter (by decide)
+  have hid :
+      decodeU32le ⟨input, left.size + (taggedHeaderBytesV1 "Parameter" 4).size, nesting + 1⟩ =
+        .ok (valueId, ⟨input, left.size + (taggedHeaderBytesV1 "Parameter" 4).size + 4, nesting + 1⟩) := by
+    subst input
+    have hin :
+        left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId ++ stringPayloadBytesV1 parameterName ++
+            encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right =
+          (left ++ taggedHeaderBytesV1 "Parameter" 4) ++ encodeU32le valueId ++
+            (stringPayloadBytesV1 parameterName ++ encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right) := by
+      simp [ByteArray.append_assoc]
+    have hsz : (left ++ taggedHeaderBytesV1 "Parameter" 4).size =
+        left.size + (taggedHeaderBytesV1 "Parameter" 4).size := by simp [ByteArray.size_append]
+    rw [hin, ← hsz]
+    exact decodeU32le_encode_midV1 (left ++ taggedHeaderBytesV1 "Parameter" 4)
+      (stringPayloadBytesV1 parameterName ++ encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right)
+      valueId (nesting + 1)
+  have hname :
+      decodeString ⟨input, left.size + (taggedHeaderBytesV1 "Parameter" 4).size + 4, nesting + 1⟩ =
+        .ok (parameterName,
+          ⟨input, left.size + (taggedHeaderBytesV1 "Parameter" 4).size + 4 +
+            (stringPayloadBytesV1 parameterName).size, nesting + 1⟩) := by
+    subst input
+    have hmid := decodeString_of_encodeString_okV1
+      (left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId)
+      (encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right)
+      parameterName (stringPayloadBytesV1 parameterName) (nesting + 1) hnameEnc
+    have hin :
+        (left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId) ++
+            stringPayloadBytesV1 parameterName ++
+            (encodeU32le typeId ++ taggedHeaderBytesV1 "Visibility.Public" 0 ++ right) =
+          left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId ++
+            stringPayloadBytesV1 parameterName ++ encodeU32le typeId ++
+            taggedHeaderBytesV1 "Visibility.Public" 0 ++ right := by
+      simp [ByteArray.append_assoc]
+    have hsz : (left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId).size =
+        left.size + (taggedHeaderBytesV1 "Parameter" 4).size + 4 := by
+      simp [ByteArray.size_append, encodeU32le_sizeV1]
+    simpa [hin, hsz] using hmid
+  have htype :
+      decodeU32le ⟨input,
+        left.size + (taggedHeaderBytesV1 "Parameter" 4).size + 4 +
+          (stringPayloadBytesV1 parameterName).size, nesting + 1⟩ =
+        .ok (typeId, ⟨input,
+          left.size + (taggedHeaderBytesV1 "Parameter" 4).size + 4 +
+            (stringPayloadBytesV1 parameterName).size + 4, nesting + 1⟩) := by
+    subst input
+    have hmid := decodeU32le_encode_midV1
+      (left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId ++
+        stringPayloadBytesV1 parameterName)
+      (taggedHeaderBytesV1 "Visibility.Public" 0 ++ right) typeId (nesting + 1)
+    have hin :
+        (left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId ++
+            stringPayloadBytesV1 parameterName) ++ encodeU32le typeId ++
+            (taggedHeaderBytesV1 "Visibility.Public" 0 ++ right) =
+          left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId ++
+            stringPayloadBytesV1 parameterName ++ encodeU32le typeId ++
+            taggedHeaderBytesV1 "Visibility.Public" 0 ++ right := by
+      simp [ByteArray.append_assoc]
+    have hsz : (left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId ++
+        stringPayloadBytesV1 parameterName).size =
+        left.size + (taggedHeaderBytesV1 "Parameter" 4).size + 4 +
+          (stringPayloadBytesV1 parameterName).size := by
+      simp [ByteArray.size_append, encodeU32le_sizeV1]
+    simpa [hin, hsz] using hmid
+  have hvis :
+      decodeVisibilityV1 ⟨input,
+        left.size + (taggedHeaderBytesV1 "Parameter" 4).size + 4 +
+          (stringPayloadBytesV1 parameterName).size + 4, nesting + 1⟩ =
+        .ok (.public_, ⟨input, left.size + body.size, nesting + 1⟩) := by
+    subst input body
+    have hmid := decodeVisibility_of_encode_midV1 .public_
+      (taggedHeaderBytesV1 "Visibility.Public" 0)
+      (left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId ++
+        stringPayloadBytesV1 parameterName ++ encodeU32le typeId)
+      right (nesting + 1) hdepth hvisEnc
+    have hin :
+        (left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId ++
+            stringPayloadBytesV1 parameterName ++ encodeU32le typeId) ++
+            taggedHeaderBytesV1 "Visibility.Public" 0 ++ right =
+          left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId ++
+            stringPayloadBytesV1 parameterName ++ encodeU32le typeId ++
+            taggedHeaderBytesV1 "Visibility.Public" 0 ++ right := by
+      simp [ByteArray.append_assoc]
+    have hsz : (left ++ taggedHeaderBytesV1 "Parameter" 4 ++ encodeU32le valueId ++
+        stringPayloadBytesV1 parameterName ++ encodeU32le typeId).size =
+        left.size + (taggedHeaderBytesV1 "Parameter" 4).size + 4 +
+          (stringPayloadBytesV1 parameterName).size + 4 := by
+      simp [ByteArray.size_append, encodeU32le_sizeV1]
+    have hfinal :
+        left.size + (taggedHeaderBytesV1 "Parameter" 4).size + 4 +
+            (stringPayloadBytesV1 parameterName).size + 4 +
+            (taggedHeaderBytesV1 "Visibility.Public" 0).size =
+          left.size +
+            ((taggedHeaderBytesV1 "Parameter" 4).size + (encodeU32le valueId).size +
+              (stringPayloadBytesV1 parameterName).size + (encodeU32le typeId).size +
+              (taggedHeaderBytesV1 "Visibility.Public" 0).size) := by
+      simp only [encodeU32le_sizeV1]
+      omega
+    simpa [hin, hsz, hfinal, ByteArray.size_append, encodeU32le_sizeV1] using hmid
+  have hbody := decodeParameterBodyV1_eq_of_fields
+    ⟨input, left.size, nesting + 1⟩
+    ⟨input, left.size + (taggedHeaderBytesV1 "Parameter" 4).size, nesting + 1⟩
+    ⟨input, left.size + (taggedHeaderBytesV1 "Parameter" 4).size + 4, nesting + 1⟩
+    ⟨input, left.size + (taggedHeaderBytesV1 "Parameter" 4).size + 4 +
+      (stringPayloadBytesV1 parameterName).size, nesting + 1⟩
+    ⟨input, left.size + (taggedHeaderBytesV1 "Parameter" 4).size + 4 +
+      (stringPayloadBytesV1 parameterName).size + 4, nesting + 1⟩
+    ⟨input, left.size + body.size, nesting + 1⟩
+    valueId typeId parameterName .public_ hexpect hid hname htype hvis
+  have hs := decodeParameterV1_eq_of_bodyV1
+    ⟨input, left.size, nesting⟩
+    ({ valueId, name := parameterName, typeId, visibility := .public_ } : ParameterV1)
+    ⟨input, left.size + body.size, nesting + 1⟩ houter hbody
+  subst input body
+  simpa [ByteArray.size_append, encodeU32le_sizeV1] using hs
+
+/-- Fixed-depth exact inversion for a public parameter with arbitrary
+    value and type ids. -/
+theorem exactAt_parameter_publicV1
+    (valueId typeId : UInt32) (parameterName : String)
+    (hname : validateIdentifierComponent parameterName = .ok ())
+    (nesting : Nat) (hdepth : nesting + 1 < maxNesting) :
+    ExactMidOffsetInvertAtV1 encodeParameterV1 decodeParameterV1
+      ({ valueId, name := parameterName, typeId, visibility := .public_ } : ParameterV1)
+      nesting := by
+  intro b left right henc
+  exact
+    decodeParameter_public_of_encode_midV1 valueId typeId parameterName hname b left right
+      nesting hdepth henc
 
 /-! ### CallableResult exact inversion -/
 

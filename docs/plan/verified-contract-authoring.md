@@ -976,8 +976,10 @@ expression translator：
 12. 该 fixture 的 whole-program structure 当前不属于已认证的 narrow validation family，测试会
     明确拒绝意外生成 `Proof.subjectValidationOkV1`。因此上述 theorem 保留 exact
     `hvalidate`/`hadmit` 前提，尚未组装最终 program-level `PreservationTheoremV1`，也没有生成
-    `.certified` 产品；下一步应扩展可复用的 production validation evidence，或推进具有现有
-    validation support 的 lifecycle slice，而不是伪造 admission carrier；
+    `.certified` 产品；production codec 已先补齐任意 framing/nesting 下具名 public
+    `ParameterV1` 的 exact inversion seam，且继续使用唯一 `encodeParameterV1`/
+    `decodeParameterV1`。下一步仍需组合 unary `stateStore; stateStore; stateLoad; return` callable
+    与两行 callable table 的 structure/root certificates，而不是伪造 admission carrier；
 13. VerifiedVaultPF 的 initializer、deposit、withdraw、status returned 业务 lemmas仍未完成；
     因此 Phase 4 与“任意业务合约验证”仍不能称完成，当前最高声明仍是
     `reference-certified` 地基而非 target artifact verified。

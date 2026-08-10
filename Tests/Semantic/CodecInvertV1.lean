@@ -62,6 +62,18 @@ theorem visibility_midOffsetInvert :
     MidOffsetInvertV1 encodeVisibilityV1 decodeVisibilityV1 :=
   midOffsetInvert_encodeVisibility_decodeVisibility
 
+/-- A named public callable parameter uses the actual production codec and is
+    exactly invertible under arbitrary framing at callable-array depth. -/
+theorem parameter_public_exactAt :
+    ExactMidOffsetInvertAtV1 encodeParameterV1 decodeParameterV1
+      ({
+        valueId := 0
+        name := "amount"
+        typeId := 0
+        visibility := .public_
+      } : ParameterV1) 2 :=
+  exactAt_parameter_publicV1 0 0 "amount" (by rfl) 2 (by decide)
+
 /-- Positive theorem: empty array mid-offset invert. -/
 theorem array_zero_mid :
     decodeArray 10 (decodeVisibilityV1)

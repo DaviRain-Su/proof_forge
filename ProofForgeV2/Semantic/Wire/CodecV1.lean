@@ -2133,13 +2133,40 @@ def encodeParameterV1 (p : ParameterV1) : Except SemanticWireErrorV1 ByteArray :
   let visB ← encodeVisibilityV1 p.visibility
   encodeTagged "Parameter" #[valueB, nameB, typeB, visB]
 
-def decodeParameterV1 : Decoder ParameterV1 := withTaggedNesting fun c => do
+/-- Sole production body for a Parameter tagged record. -/
+def decodeParameterBodyV1 : Decoder ParameterV1 := fun c => do
   let ((), c) ← expectTag "Parameter" 4 c
   let (valueId, c) ← decodeU32le c
   let (name, c) ← decodeString c
   let (typeId, c) ← decodeU32le c
   let (visibility, c) ← decodeVisibilityV1 c
   pure ({ valueId, name, typeId, visibility }, c)
+
+def decodeParameterV1 : Decoder ParameterV1 :=
+  withTaggedNesting decodeParameterBodyV1
+
+/-- Compose Parameter from its actual production field decoders. -/
+theorem decodeParameterBodyV1_eq_of_fields
+    (c afterTag afterValue afterName afterType afterVisibility : Cursor)
+    (valueId typeId : UInt32) (name : String) (visibility : VisibilityV1)
+    (htag : expectTag "Parameter" 4 c = .ok ((), afterTag))
+    (hvalue : decodeU32le afterTag = .ok (valueId, afterValue))
+    (hname : decodeString afterValue = .ok (name, afterName))
+    (htype : decodeU32le afterName = .ok (typeId, afterType))
+    (hvisibility : decodeVisibilityV1 afterType = .ok (visibility, afterVisibility)) :
+    decodeParameterBodyV1 c =
+      .ok ({ valueId, name, typeId, visibility }, afterVisibility) := by
+  simp only [decodeParameterBodyV1, htag, hvalue, hname, htype, hvisibility, Bind.bind,
+    Pure.pure, Except.bind, Except.pure]
+
+/-- Compose a successful Parameter body through tagged nesting. -/
+theorem decodeParameterV1_eq_of_bodyV1 (c : Cursor) (parameter : ParameterV1)
+    (c' : Cursor) (hdepth : c.nesting < maxNesting)
+    (hbody : decodeParameterBodyV1 ⟨c.input, c.offset, c.nesting + 1⟩ =
+      .ok (parameter, c')) :
+    decodeParameterV1 c = .ok (parameter, ⟨c'.input, c'.offset, c.nesting⟩) := by
+  unfold decodeParameterV1 withTaggedNesting
+  simp only [hdepth, ↓reduceIte, Bind.bind, Pure.pure, Except.bind, Except.pure, hbody]
 
 def encodeCallableResultV1 (r : CallableResultV1) : Except SemanticWireErrorV1 ByteArray := do
   let typeB := encodeU32le r.typeId
