@@ -1,0 +1,22 @@
+{
+  "name": "proof-forge-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ProofForge remote MCP server (Cloudflare Workers, Streamable HTTP)",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "types": "wrangler types"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.0.0",
+    "agents": "0.20.1",
+    "zod": "4.0.17"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "5.20260810.1",
+    "typescript": "5.9.2",
+    "wrangler": "4.120.0"
+  }
+}

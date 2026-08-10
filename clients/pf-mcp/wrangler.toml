@@ -1,0 +1,8 @@
+name = "proof-forge-mcp"
+main = "src/index.ts"
+compatibility_date = "2026-06-11"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+MCP_PUBLIC_NAME = "ProofForge Developer MCP"
+MCP_VERSION = "0.1.0"
