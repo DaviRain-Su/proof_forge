@@ -136,6 +136,13 @@ theorem stateDecl_public_exactAt_root
       ({ id, name := stateName, typeId, visibility := .public_ } : StateDeclV1) 1 :=
   exactAt_stateDecl_publicV1 id typeId stateName hname 1 (by decide)
 
+/-- Binary inequality uses the same production tagged-op inversion path as
+    equality; the operands remain arbitrary. -/
+theorem binaryNe_exactAt_instructionOp (lhs rhs : UInt32) :
+    ExactMidOffsetInvertAtV1 encodeSemanticOpV1 decodeSemanticOpV1
+      (.binary .ne lhs rhs) 4 :=
+  exactAt_semanticOp_binaryNeV1 lhs rhs 4 (by decide) (by decide)
+
 /-- A production field codec consumes the generic four-element fixed-depth
     array seam without supplying element bytes. -/
 theorem invariantTable_four_exactAt_root

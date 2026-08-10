@@ -1588,6 +1588,13 @@ private theorem isAsciiTagBytes_Binary_Eq :
   rw [utf8_Binary_Eq]
   exact isAsciiTagBytes_of_list_all [66, 105, 110, 97, 114, 121, 46, 69, 113] (by decide)
 
+private theorem utf8_Binary_Ne :
+    "Binary.Ne".toUTF8 = ByteArray.mk #[66, 105, 110, 97, 114, 121, 46, 78, 101] := by rfl
+private theorem isAsciiTagBytes_Binary_Ne :
+    isAsciiTagBytesV1 "Binary.Ne".toUTF8 = true := by
+  rw [utf8_Binary_Ne]
+  exact isAsciiTagBytes_of_list_all [66, 105, 110, 97, 114, 121, 46, 78, 101] (by decide)
+
 private theorem utf8_Op_StateStore :
     "Op.StateStore".toUTF8 =
       ByteArray.mk #[79, 112, 46, 83, 116, 97, 116, 101, 83, 116, 111, 114, 101] := by rfl
@@ -1677,6 +1684,12 @@ theorem encodeBinaryOp_eq_eq :
   have h := encodeNullary_eq_okV1 "Binary.Eq" (by decide) (by decide) (by decide)
   simpa [taggedHeaderBytesV1, ByteArray.append_assoc] using h
 
+theorem encodeBinaryOp_ne_eq :
+    encodeBinaryOpV1 .ne = .ok (taggedHeaderBytesV1 "Binary.Ne" 0) := by
+  change encodeNullary "Binary.Ne" = .ok (taggedHeaderBytesV1 "Binary.Ne" 0)
+  have h := encodeNullary_eq_okV1 "Binary.Ne" (by decide) (by decide) (by decide)
+  simpa [taggedHeaderBytesV1, ByteArray.append_assoc] using h
+
 private theorem decodeBinaryOp_nullary_midV1
     (tag : String) (op : BinaryOpV1) (left right : ByteArray) (nesting : Nat)
     (hdepth : nesting < maxNesting)
@@ -1742,12 +1755,28 @@ theorem decodeBinaryOp_eq_of_encode_midV1
       simp only [decodeBinaryOpBodyV1, htag, hfields, Bind.bind, Pure.pure, Except.bind,
         Except.pure])
 
+theorem decodeBinaryOp_ne_of_encode_midV1
+    (b left right : ByteArray) (nesting : Nat) (hdepth : nesting < maxNesting)
+    (henc : encodeBinaryOpV1 .ne = .ok b) :
+    decodeBinaryOpV1 ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (.ne, ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
+  have hb : b = taggedHeaderBytesV1 "Binary.Ne" 0 :=
+    Except.ok.inj (henc.symm.trans encodeBinaryOp_ne_eq)
+  subst b
+  exact decodeBinaryOp_nullary_midV1 "Binary.Ne" .ne left right nesting hdepth
+    (by decide) (by decide) (by decide) isAsciiTagBytes_Binary_Ne (by decide)
+    (fun c afterTag afterFields htag hfields => by
+      simp only [decodeBinaryOpBodyV1, htag, hfields, Bind.bind, Pure.pure, Except.bind,
+        Except.pure])
+
 private theorem exactBinaryOp_add : ExactMidOffsetInvertV1 encodeBinaryOpV1 decodeBinaryOpV1 .add :=
   fun b left right nesting hdepth henc => decodeBinaryOp_add_of_encode_midV1 b left right nesting hdepth henc
 private theorem exactBinaryOp_mod : ExactMidOffsetInvertV1 encodeBinaryOpV1 decodeBinaryOpV1 .mod :=
   fun b left right nesting hdepth henc => decodeBinaryOp_mod_of_encode_midV1 b left right nesting hdepth henc
 private theorem exactBinaryOp_eq : ExactMidOffsetInvertV1 encodeBinaryOpV1 decodeBinaryOpV1 .eq :=
   fun b left right nesting hdepth henc => decodeBinaryOp_eq_of_encode_midV1 b left right nesting hdepth henc
+private theorem exactBinaryOp_ne : ExactMidOffsetInvertV1 encodeBinaryOpV1 decodeBinaryOpV1 .ne :=
+  fun b left right nesting hdepth henc => decodeBinaryOp_ne_of_encode_midV1 b left right nesting hdepth henc
 
 theorem encodeSemanticOp_stateStore_ok_eq (stateId value : UInt32) (b : ByteArray)
     (h : encodeSemanticOpV1 (.stateStore stateId value) = .ok b) :
@@ -2003,6 +2032,14 @@ theorem decodeSemanticOp_binary_eq_of_encode_midV1
     decodeSemanticOpV1 ⟨left ++ b ++ right, left.size, nesting⟩ =
       .ok (.binary .eq lhs rhs, ⟨left ++ b ++ right, left.size + b.size, nesting⟩) :=
   decodeSemanticOp_binary_of_encode_midV1 .eq lhs rhs b left right nesting hdepth hdepthOp exactBinaryOp_eq henc
+
+theorem decodeSemanticOp_binary_ne_of_encode_midV1
+    (lhs rhs : UInt32) (b left right : ByteArray) (nesting : Nat)
+    (hdepth : nesting < maxNesting) (hdepthOp : nesting + 1 < maxNesting)
+    (henc : encodeSemanticOpV1 (.binary .ne lhs rhs) = .ok b) :
+    decodeSemanticOpV1 ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (.binary .ne lhs rhs, ⟨left ++ b ++ right, left.size + b.size, nesting⟩) :=
+  decodeSemanticOp_binary_of_encode_midV1 .ne lhs rhs b left right nesting hdepth hdepthOp exactBinaryOp_ne henc
 
 theorem decodeOptionValueDef_none_of_encode_midV1
     (b left right : ByteArray) (nesting : Nat)
@@ -3195,6 +3232,15 @@ theorem exactAt_semanticOp_binaryEqV1 (lhs rhs : UInt32) (nesting : Nat)
       (.binary .eq lhs rhs) nesting := by
   intro b left right henc
   exact decodeSemanticOp_binary_eq_of_encode_midV1 lhs rhs b left right nesting
+    hdepth hdepthOp henc
+
+/-- Binary-inequality operation inversion at the two checked tagged depths. -/
+theorem exactAt_semanticOp_binaryNeV1 (lhs rhs : UInt32) (nesting : Nat)
+    (hdepth : nesting < maxNesting) (hdepthOp : nesting + 1 < maxNesting) :
+    ExactMidOffsetInvertAtV1 encodeSemanticOpV1 decodeSemanticOpV1
+      (.binary .ne lhs rhs) nesting := by
+  intro b left right henc
+  exact decodeSemanticOp_binary_ne_of_encode_midV1 lhs rhs b left right nesting
     hdepth hdepthOp henc
 
 /-- Return terminators inherit their exact production theorem at fixed depth. -/
