@@ -23,23 +23,44 @@ import {
 } from "./content";
 
 const SERVER_NAME = "proof-forge-mcp";
-const SERVER_VERSION = "0.3.0";
+const SERVER_VERSION = "0.3.1";
 
 /** In-product Solana knowledge for PF agents (not a pointer to external MCP). */
 const SOLANA_PF = {
   contractPath: "ProofForge ProgramV1 + pf CLI (not Anchor/Rust scaffold)",
   frontendTemplate: "templates/solana-dapp-ui",
+  localDemo: "scripts/pf_solana_local_demo.sh (Surfpool)",
   docs: [
     "09-solana-agent-playbook.md",
     "10-solana-dapp-frontend.md",
     "solana-local-walkthrough.md",
   ],
+  /** Default demo path = body-only S1b (StateCell / pf new). */
   ixEncoding: {
-    schema: "proof-forge.solana.ix-data.v1",
-    layout: "handlerId_u64le + params_u64le_sequence",
+    schema: "proof-forge.solana.ix-data.body-only.v1",
+    profile: "body-only-S1b",
+    layout:
+      "sha256('proof-forge-solana-v1:' + name + '(' + types + ')')[0:8] + params_u64le",
     notAnchorSighash: true,
+    notHandlerId: true,
     detail:
-      "Instruction data = u64 little-endian handlerId (from *.idl.json), then each non-Principal scalar param as u64 LE (narrow ints zero-extended). Do NOT use Anchor 8-byte sighash discriminators with PF ELF.",
+      "Body-only (StateCell, pf new HelloSol): first 8 bytes = SHA256('proof-forge-solana-v1:' + discName + '(' + 'u64'*n joined by ',' + ')')[0:8], then each non-Principal scalar as u64 LE. Initializer disc name is 'initialize' (IDL name may be 'init'). Do NOT use Anchor sighash and do NOT use handlerId for body-only ELF.",
+    cpiProductBranch: {
+      schema: "proof-forge.solana.ix-data.cpi-product.v1",
+      profile: "cpi-product",
+      layout: "handlerId_u64le + params_u64le_sequence",
+      detail:
+        "CPI-product programs (e.g. TransferSol) use u64 LE handlerId from *.idl.json then u64 LE params. Branch on build profile / manifest — never assume one layout for all PF Solana ELFs.",
+    },
+    stateCellLayout: {
+      schema: "proof-forge.solana.state-layout.ordinary.v1",
+      bytes: 16,
+      fields: [
+        { name: "layoutMarker", offset: 0, width: 8 },
+        { name: "count", offset: 8, width: 8 },
+      ],
+      note: "init requires state account is_signer + is_writable; entry needs writable; view is read-only.",
+    },
   },
   artifacts: {
     forFrontend: ["*.idl.json", "deployment.json (after local deploy)"],
@@ -51,6 +72,7 @@ const SOLANA_PF = {
     "Principal wire identity ≠ Solana pubkey globally",
     "no private keys in MCP/chat/git",
     "engineering only — not formal/hermetic/mainnet",
+    "Surfpool/local validator only for dApp demo",
   ],
 };
 
@@ -334,7 +356,8 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
 - Do **not** start an Anchor/Cargo program as the primary contract path.
 - Ladder: \`pf setup -t solana\` → \`pf new … -t solana\` → edit Lean → \`pf build\` → \`pf verify\` → \`pf test\`.
 - Deploy: \`pf deploy --network local\` (save-only). \`--broadcast\` only with loopback RPC.
-- Frontend: \`templates/solana-dapp-ui\` consumes \`*.idl.json\` (ix-data = handlerId u64 LE + u64 params).
+- Frontend: \`templates/solana-dapp-ui\` consumes \`*.idl.json\`. Body-only ix-data = PF name discriminator (sha256 domain) + u64 params — **not** handlerId, **not** Anchor sighash. CPI-product uses handlerId (see \`pf_solana_ix_codec\`).
+- StateCell account: 16 bytes = layout marker @0 + count @8. Local demo: \`scripts/pf_solana_local_demo.sh\` (Surfpool).
 - Principal wire identity ≠ Solana pubkey globally.
 - External Solana Rust/Anchor docs MCP is **out of the default agent path**; PF MCP already summarizes ix encoding + artifacts.
 
@@ -461,20 +484,25 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
           "pf verify",
           "pf test",
           "pf deploy --network local",
+          "# end-to-end Surfpool + UI: just pf-solana-local-demo",
         ],
         monorepoExample: [
           "pf build Examples/StateCell.lean --module Examples.StateCell --target solana -o build/v2/sc-sol",
           "pf verify --target solana -o build/v2/sc-sol",
+          "just pf-solana-local-demo  # Surfpool deploy + init + deployment.json",
         ],
         frontend: fe
           ? {
               template: SOLANA_PF.frontendTemplate,
+              localDemo: SOLANA_PF.localDemo,
               steps: [
-                "cp <out>/*.idl.json templates/solana-dapp-ui/public/artifacts/",
-                "write public/deployment.json after local deploy (see deployment.example.json)",
+                "just pf-solana-local-demo   # preferred: Surfpool + init + deployment.json",
+                "# or manual: cp <out>/*.idl.json templates/solana-dapp-ui/public/artifacts/",
                 "cd templates/solana-dapp-ui && npm install && npm run dev",
+                "# wallet connects to Surfpool RPC from deployment.json (entry/view; init via script)",
               ],
               guide: "docs/product/10-solana-dapp-frontend.md",
+              walkthrough: "docs/demos/solana-local-walkthrough.md",
             }
           : undefined,
         ixEncoding: SOLANA_PF.ixEncoding,
@@ -489,24 +517,46 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
     "pf_solana_ix_codec",
     {
       description:
-        "Summarize ProofForge Solana instruction-data encoding for agents and frontends. PF uses handlerId u64 LE + u64 LE params — NOT Anchor sighash. Optional: encode a sample payload.",
+        "Summarize ProofForge Solana instruction-data encoding. Default body-only S1b uses sha256('proof-forge-solana-v1:name(types)')[0:8] + u64 params (StateCell). CPI-product uses handlerId u64 LE. NOT Anchor sighash. Optional: encode a body-only sample.",
       inputSchema: z.object({
-        handlerId: z.number().int().min(0).optional(),
-        params: z.array(z.string()).optional()
-          .describe("Decimal u64 strings, e.g. [\"5\"] for increment delta"),
+        name: z
+          .string()
+          .optional()
+          .describe(
+            "Body-only disc name, e.g. initialize | increment | get (init → initialize)",
+          ),
+        params: z
+          .array(z.string())
+          .optional()
+          .describe('Decimal u64 strings, e.g. ["5"] for increment delta'),
+        profile: z
+          .enum(["body-only", "cpi-product"])
+          .optional()
+          .describe("Encoding branch; default body-only"),
+        handlerId: z
+          .number()
+          .int()
+          .min(0)
+          .optional()
+          .describe("Only for profile=cpi-product sample encode"),
       }),
     },
-    async ({ handlerId, params }) => {
+    async ({ name, params, profile, handlerId }) => {
       const enc = SOLANA_PF.ixEncoding;
-      let sample: { hex: string; bytes: number[] } | undefined;
-      if (handlerId !== undefined) {
-        const ps = (params ?? []).map((s) => {
-          const n = BigInt(s);
-          if (n < 0n || n > 0xffff_ffff_ffff_ffffn) {
-            throw new Error(`param out of u64 range: ${s}`);
-          }
-          return n;
-        });
+      const branch = profile === "cpi-product" ? "cpi-product" : "body-only";
+      let sample:
+        | { profile: string; hex: string; bytes: number[]; preimage?: string }
+        | undefined;
+
+      const ps = (params ?? []).map((s) => {
+        const n = BigInt(s);
+        if (n < 0n || n > 0xffff_ffff_ffff_ffffn) {
+          throw new Error(`param out of u64 range: ${s}`);
+        }
+        return n;
+      });
+
+      if (branch === "cpi-product" && handlerId !== undefined) {
         const out = new Uint8Array(8 + ps.length * 8);
         const view = new DataView(out.buffer);
         view.setBigUint64(0, BigInt(handlerId), true);
@@ -514,25 +564,62 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
         const hex = Array.from(out)
           .map((b) => b.toString(16).padStart(2, "0"))
           .join("");
-        sample = { hex, bytes: Array.from(out) };
+        sample = { profile: "cpi-product", hex, bytes: Array.from(out) };
+      } else if (branch === "body-only" && name) {
+        const discName =
+          name === "init" || name === "initializer" ? "initialize" : name;
+        const types = Array.from({ length: ps.length }, () => "u64").join(",");
+        const preimage = `proof-forge-solana-v1:${discName}(${types})`;
+        const digest = new Uint8Array(
+          await crypto.subtle.digest(
+            "SHA-256",
+            new TextEncoder().encode(preimage),
+          ),
+        );
+        const out = new Uint8Array(8 + ps.length * 8);
+        out.set(digest.slice(0, 8), 0);
+        const view = new DataView(out.buffer);
+        ps.forEach((p, i) => view.setBigUint64(8 + i * 8, p, true));
+        const hex = Array.from(out)
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+        sample = {
+          profile: "body-only-S1b",
+          hex,
+          bytes: Array.from(out),
+          preimage,
+        };
       }
+
       return textResult({
-        schema: "proof-forge.mcp.solana-ix-codec.v1",
         ...enc,
+        schema: "proof-forge.mcp.solana-ix-codec.v2",
+        defaultProfile: "body-only-S1b",
         example: {
-          stateCell: {
-            init: "handlerId=0 then u64 initial",
-            increment: "handlerId=1 then u64 delta",
-            get: "handlerId=2 (no params)",
+          stateCellBodyOnly: {
+            init: "disc=sha256('proof-forge-solana-v1:initialize(u64)')[0:8] || u64le(initial); state is_signer+writable",
+            increment:
+              "disc=sha256('proof-forge-solana-v1:increment(u64)')[0:8] || u64le(delta); state writable",
+            get: "disc=sha256('proof-forge-solana-v1:get()')[0:8]; state readonly",
+            knownDiscs: {
+              initialize_u64: "5e494767a7582864",
+              increment_u64: "9dc79703d1db3e22",
+              get: "a4a276b0d690dd37",
+            },
           },
-          note: "Exact handlerId values come from the program's *.idl.json after pf build.",
+          cpiProduct: {
+            note: "TransferSol-class: handlerId u64 LE from IDL + u64 params",
+          },
         },
         sample,
         frontendHelper: "templates/solana-dapp-ui/src/ix.ts → encodePfIxData",
+        localDemo: SOLANA_PF.localDemo,
         antiPatterns: [
-          "Anchor sha256('global:name')[0..8] discriminators",
-          "Borsh-only layouts without PF handlerId prefix",
+          "Anchor sha256('global:name')[0..8] discriminators on PF ELF",
+          "Using handlerId for StateCell / body-only S1b programs",
+          "Using body-only name disc for CPI-product TransferSol without checking profile",
           "Assuming Principal params are 32-byte pubkeys in ix data without PF wire rules",
+          "Reading StateCell count at offset 0 (count is at offset 8 after layout marker)",
         ],
       });
     },
@@ -560,7 +647,7 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
             path: `${name}.idl.json`,
             role: "frontend + agents",
             requiredForUi: true,
-            note: "handlerId, instruction names, account roles",
+            note: "instruction names, modes, accounts; handlerId only for CPI-product branch",
           },
           {
             path: `${name}.so`,
@@ -651,7 +738,7 @@ npx -y mcp-remote https://&lt;this-host&gt;/mcp</pre>
     <tr><td><code>pf_cli_cheatsheet</code></td><td>Local <code>pf</code> commands</td></tr>
     <tr><td><code>pf_aleo_live_demo</code></td><td>Published Aleo Testnet evidence</td></tr>
     <tr><td><code>pf_solana_scaffold</code></td><td>Solana PF ladder + frontend template</td></tr>
-    <tr><td><code>pf_solana_ix_codec</code></td><td>PF ix-data encoding (handlerId u64 LE)</td></tr>
+    <tr><td><code>pf_solana_ix_codec</code></td><td>PF ix-data (body-only disc / CPI handlerId)</td></tr>
     <tr><td><code>pf_solana_artifacts</code></td><td>build outputs → UI vs CLI</td></tr>
   </table>
   <h2>Solana (ProofForge path)</h2>

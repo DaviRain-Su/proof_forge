@@ -16,7 +16,8 @@ BUNDLED = ROOT / "clients" / "pf-mcp" / "src" / "bundled.ts"
 def sync_from_monorepo() -> None:
     CONTENT.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "docs/product/chain-client-catalog.v1.json", CONTENT / "chain-client-catalog.v1.json")
-    for src in sorted((ROOT / "docs/product").glob("0*.md")):
+    # Product docs: 01-..09- and 10-.. (e.g. 10-solana-dapp-frontend.md)
+    for src in sorted((ROOT / "docs/product").glob("[0-9][0-9]-*.md")):
         shutil.copy2(src, CONTENT / src.name)
     for src in sorted((ROOT / "docs/demos").glob("*.md")):
         shutil.copy2(src, CONTENT / src.name)

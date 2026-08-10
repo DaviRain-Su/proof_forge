@@ -214,15 +214,15 @@
       ],
       "localDev": {
         "offlineInterpret": "pf verify -t solana (proof-forge-solana-client)",
-        "chainLike": "Mollusk / pf test (host-heavy)",
-        "deploy": "pf deploy --network local; UI uses deployment.json",
+        "chainLike": "Mollusk / pf test; Surfpool for dApp loopback",
+        "deploy": "scripts/pf_solana_local_demo.sh (Surfpool) or pf deploy --network local; UI uses deployment.json",
         "frontend": "templates/solana-dapp-ui"
       },
       "honesty": [
         "Contracts authored in ProofForge ProgramV1 — not Anchor as primary path",
         "Principal is not Solana pubkey globally",
         "Public RPC broadcast refused in pf v0",
-        "ix-data = handlerId u64 LE + u64 params (not Anchor sighash)",
+        "ix-data body-only = sha256(proof-forge-solana-v1:name(types))[0:8]+u64 params; CPI-product = handlerId u64 LE (not Anchor sighash)",
         "engineering maturity — not formal/mainnet evidence"
       ],
       "agentGuide": "docs/product/09-solana-agent-playbook.md",

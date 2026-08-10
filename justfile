@@ -1434,6 +1434,10 @@ solana-transfer-sol-offline: build pf-cli-build
 solana-surfpool-up:
     bash scripts/solana_surfpool_up.sh
 
+# StateCell Surfpool demo → templates/solana-dapp-ui/public/deployment.json
+pf-solana-local-demo:
+    bash scripts/pf_solana_local_demo.sh
+
 solana-surfpool-down:
     bash scripts/solana_surfpool_down.sh
 

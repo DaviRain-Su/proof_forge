@@ -33,7 +33,7 @@ PF MCP 工具（Solana）：
 | Tool | 作用 |
 |---|---|
 | `pf_solana_scaffold` | setup → new → build → verify → test → deploy → UI |
-| `pf_solana_ix_codec` | **摘要** PF ix-data 布局（handlerId u64 LE + params） |
+| `pf_solana_ix_codec` | **摘要** PF ix-data（body-only disc **或** CPI handlerId） |
 | `pf_solana_artifacts` | build 产物清单 / 哪些给前端 |
 | `pf_target_info` / `pf_cli_cheatsheet` | target=solana |
 | `pf_get_doc` | `09-…` / `10-…` / demo walkthrough |
@@ -61,6 +61,16 @@ pf deploy --network local
 # pf deploy --network local --broadcast --endpoint http://127.0.0.1:8899
 ```
 
+### Surfpool end-to-end（StateCell → UI）
+
+```bash
+just pf-solana-local-demo
+# build → verify → Surfpool up → deploy → create state → init/increment/get
+# → templates/solana-dapp-ui/public/deployment.json
+cd templates/solana-dapp-ui && npm install && npm run dev
+just solana-surfpool-down   # when done
+```
+
 Monorepo example:
 
 ```bash
@@ -68,6 +78,19 @@ pf build Examples/StateCell.lean --module Examples.StateCell --target solana -o 
 pf verify --target solana -o build/v2/sc-sol
 cp build/v2/sc-sol/StateCell.idl.json templates/solana-dapp-ui/public/artifacts/
 ```
+
+## Instruction encoding（agents must branch）
+
+| Profile | Programs | ix prefix |
+|---|---|---|
+| **body-only S1b** | StateCell, `pf new` | `sha256("proof-forge-solana-v1:"+name+"("+types+")")[0:8]` |
+| **CPI-product** | TransferSol, … | `u64le(handlerId)` from IDL |
+
+- `init` → disc name **`initialize`**
+- StateCell state: 16B = marker@0 + count@8
+- init needs **state signer** (script, not browser wallet)
+
+See MCP `pf_solana_ix_codec` and `templates/solana-dapp-ui/src/ix.ts`.
 
 ## 前端
 
@@ -80,6 +103,7 @@ cp build/v2/sc-sol/StateCell.idl.json templates/solana-dapp-ui/public/artifacts/
 | `pf` (`proof-forge-pf`) | Developer CLI |
 | `proof-forge-next` | Compiler |
 | `proof-forge-solana-client` | `pf verify -t solana` |
+| `surfpool` 1.x | local Surfnet for dApp demo (`~/.local/bin`) |
 
 ## Honesty
 

@@ -52,7 +52,13 @@
     {
       "id": "09-solana-agent-playbook.md",
       "title": "Solana agent playbook — ProofForge CLI/SDK first",
-      "bytes": 3022,
+      "bytes": 3905,
+      "kind": "markdown"
+    },
+    {
+      "id": "10-solana-dapp-frontend.md",
+      "title": "Solana dApp frontend — wallet-adapter + PF IDL (not Anchor)",
+      "bytes": 5096,
       "kind": "markdown"
     },
     {
@@ -75,14 +81,14 @@
     },
     {
       "id": "solana-local-walkthrough.md",
-      "title": "Demo — Solana with pf (build → verify → optional UI)",
-      "bytes": 1533,
+      "title": "Demo — Solana with pf (build → Surfpool → UI)",
+      "bytes": 2594,
       "kind": "markdown"
     },
     {
       "id": "chain-client-catalog.v1.json",
       "title": "Chain client catalog",
-      "bytes": 14847,
+      "bytes": 14978,
       "kind": "catalog"
     }
   ]

@@ -9,7 +9,7 @@ import {
   Keypair,
 } from "@solana/web3.js";
 import { envProgramId, envStateAccount, loadDefaultIdl, loadDeployment } from "./config";
-import { encodePfIxData, readU64Le } from "./ix";
+import { encodePfIxData, readStateCellCount } from "./ix";
 import type { DeploymentFile, PfIdl, PfIdlInstruction } from "./types";
 
 type LogLine = { at: string; text: string; kind?: "ok" | "bad" | "info" };
@@ -91,22 +91,12 @@ export const DappPanel: FC = () => {
         pushLog("state account missing on RPC", "bad");
         return;
       }
-      // StateCell layout (ordinary single-state): first u64 after PF header varies by
-      // profile; product CPI state often stores count at a fixed leaf. Demo reads
-      // bytes[0..8] when data is short, else tries offset 0 then 8.
+      // StateCell ordinary layout: [layout_marker u64 LE | count u64 LE] (16 bytes).
+      // See runtime-tests/solana/tests/common/mod.rs::state_data + STATE_HEADER_BYTES.
       const data = info.data;
-      let value: bigint;
-      try {
-        value = readU64Le(data, 0);
-        // Heuristic: if looks like a length/tag with huge value, try +8
-        if (value > 1_000_000_000_000n && data.length >= 16) {
-          value = readU64Le(data, 8);
-        }
-      } catch (e) {
-        throw e;
-      }
+      const value = readStateCellCount(data);
       setCount(value.toString());
-      pushLog(`state u64@0 = ${value.toString()} (raw read; confirm layout for your profile)`, "ok");
+      pushLog(`state count@8 = ${value.toString()} (StateCell layout marker@0)`, "ok");
     } catch (e) {
       setCount(null);
       pushLog(`read state failed: ${e instanceof Error ? e.message : String(e)}`, "bad");
@@ -133,9 +123,19 @@ export const DappPanel: FC = () => {
     }
     setBusy(true);
     try {
-      const data = Buffer.from(encodePfIxData(spec.handlerId, params));
+      const data = Buffer.from(await encodePfIxData(spec, params));
       const isWritable = Boolean(spec.accounts[0]?.outerWritable ?? true);
-      // state is program-owned — never marked signer here; wallet is fee payer only.
+      const isSigner = Boolean(spec.accounts[0]?.outerSigner);
+      // Body-only init requires state signer; UI usually uses demo-preinited state
+      // and only sends entry/view (state non-signer). If outerSigner, wallet cannot
+      // sign arbitrary state key — prefer scripts/pf_solana_local_demo.sh for init.
+      if (isSigner) {
+        pushLog(
+          `${ixName} needs state as signer — run scripts/pf_solana_local_demo.sh for init`,
+          "bad",
+        );
+        return;
+      }
       const ix = new TransactionInstruction({
         programId,
         keys: [{ pubkey: stateKey, isSigner: false, isWritable }],
