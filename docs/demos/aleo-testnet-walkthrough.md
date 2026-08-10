@@ -160,16 +160,52 @@ pf --help | head -40
 
 ## Live Testnet result (2026-08-10)
 
-Successful end-to-end broadcast with funded key:
+Successful end-to-end broadcast with funded key.
+
+### Public recording
+
+| Item | Link |
+|------|------|
+| **asciinema (public)** | https://asciinema.org/a/1262697 |
+| Embed | `<script src="https://asciinema.org/a/1262697.js" id="asciicast-1262697" async></script>` |
+| Local cast (gitignored) | `build/demos/aleo/pf-aleo-demo-20260810T043722Z.cast` |
+
+```bash
+# local replay
+asciinema play build/demos/aleo/pf-aleo-demo-20260810T043722Z.cast
+```
+
+### On-chain
 
 | Item | Value |
 |------|-------|
+| Network | Aleo **testnet** (`https://api.explorer.provable.com/v1`) |
 | Program | `pfdemo336641.aleo` |
 | Deploy tx | `at147hjftmt294hrdgy7hfkjzn69ryxj3j2ank4jxl4u9qn8vl6nvqs73a5mt` |
 | Execute tx (increment) | `at1j4g47meu322csew7vdlwx5x3hrpfaq0fftmet3zphdyzvxfanczsns58fd` |
-| On-chain state | `pf_state_0[0]=8u64`, `initialized[0]=true` |
-| Explorer program | https://testnet.explorer.provable.com/program/pfdemo336641.aleo |
-| Local cast | `build/demos/aleo/pf-aleo-demo-20260810T043722Z.cast` (gitignored) |
+| On-chain state | `pf_state_0[0]=8u64` (initialize `5` + increment `3`), `initialized[0]=true` |
+| Deploy fee | `3125778` microcredits (~3.13 credits) |
+| Execute fee (increment) | `1849` microcredits |
+
+### Explorer (click-through)
+
+| What | URL |
+|------|-----|
+| Program | https://testnet.explorer.provable.com/program/pfdemo336641.aleo |
+| Deploy transaction | https://testnet.explorer.provable.com/transaction/at147hjftmt294hrdgy7hfkjzn69ryxj3j2ank4jxl4u9qn8vl6nvqs73a5mt |
+| Execute transaction | https://testnet.explorer.provable.com/transaction/at1j4g47meu322csew7vdlwx5x3hrpfaq0fftmet3zphdyzvxfanczsns58fd |
+
+API cross-checks used during the demo:
+
+```bash
+# deployment id for program
+curl -sS https://api.explorer.provable.com/v1/testnet/find/transactionID/deployment/pfdemo336641.aleo
+# mappings present
+curl -sS https://api.explorer.provable.com/v1/testnet/program/pfdemo336641.aleo/mappings
+# live state
+curl -sS https://api.explorer.provable.com/v1/testnet/program/pfdemo336641.aleo/mapping/pf_state_0/0u8
+curl -sS https://api.explorer.provable.com/v1/testnet/program/pfdemo336641.aleo/mapping/initialized/0u8
+```
 
 **Toolchain gate:** Leo **4.4.1+** required for current Testnet base-fee validation. Leo 4.0.2 under-estimates deployment base fee and is rejected by the node.
 
@@ -259,6 +295,7 @@ just pf-cli-aleo-record
 asciinema play build/demos/aleo/pf-aleo-demo-*.cast
 # optional public share:
 # asciinema upload build/demos/aleo/pf-aleo-demo-*.cast
+# published public recording: https://asciinema.org/a/1262697
 ```
 
 ### Real Testnet broadcast record
