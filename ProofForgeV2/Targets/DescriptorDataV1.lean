@@ -35,10 +35,9 @@ private def descriptorFromRegistryAxes
   }
 
 def evm : TargetDescriptor :=
-  -- Residual descriptor tracks the product default (hashmap-v1). Cancun and
-  -- dense v1 remain accepted via `acceptsCodegenProfile` without a second
-  -- TargetDescriptor table.
-  descriptorFromRegistryAxes .evm .evmYul CodegenProfileId.evmYulSolc0834HashMapV1
+  -- Residual descriptor tracks the product default (v1, hashed Map). Cancun
+  -- is accepted via `acceptsCodegenProfile` without a second descriptor table.
+  descriptorFromRegistryAxes .evm .evmYul CodegenProfileId.evmYulSolc0834V1
 
 def solana : TargetDescriptor :=
   -- ADR-0032 U1: sole residual descriptor binds `solana-sbpf-cpi-elf-v1` only.
@@ -47,13 +46,11 @@ def solana : TargetDescriptor :=
 
 /-- Residual descriptor profile acceptance for multi-profile targets.
     `TargetDescriptor.codegenProfile` is the default encoding profile.
-    EVM additionally admits Cancun + dense v1 (hashmap is residual default);
-    Noir admits the nargo ACIR profile. -/
+    EVM additionally admits Cancun; Noir admits the nargo ACIR profile. -/
 def acceptsCodegenProfile (descriptor : TargetDescriptor) (profile : CodegenProfileId) : Bool :=
   descriptor.codegenProfile == profile ||
     (descriptor.targetId == TargetId.evm &&
-      (profile == CodegenProfileId.evmYulSolc0834CancunV1 ||
-        profile == CodegenProfileId.evmYulSolc0834V1)) ||
+      profile == CodegenProfileId.evmYulSolc0834CancunV1) ||
     (descriptor.targetId == TargetId.noir &&
       profile == CodegenProfileId.noirNargoAcirV1)
 

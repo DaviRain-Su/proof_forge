@@ -342,8 +342,8 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
 private def testSupportTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
-  expect (rows.size == 12)
-    "exactly twelve support rows (Noir dual; EVM triple; all other targets single-profile)"
+  expect (rows.size == 11)
+    "exactly eleven support rows (Noir dual; EVM dual; all other targets single-profile)"
   let expectedSolanaExtension ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError error
@@ -356,7 +356,6 @@ private def testSupportTable : IO Unit := do
     ("cosmwasm", "cosmwasm-wasm-u64-v1", 8, false, true),
     -- Phase B2: EVM = 7 S2 keys + exact extension.pf-assets
     ("evm", "evm-yul-solc-0.8.34-cancun-v1", 8, false, true),
-    ("evm", "evm-yul-solc-0.8.34-hashmap-v1", 8, false, true),
     ("evm", "evm-yul-solc-0.8.34-v1", 8, false, true),
     -- Phase C2: NEAR = 7 S2 keys (incl sync-call for pf.assets catalog scope)
     -- + exact extension.pf-assets; sync transfer stays permanently FC at Plan.
@@ -436,8 +435,8 @@ private def testSupportTable : IO Unit := do
     | _, _ => throw <| IO.userError s!"row {i} missing"
     i := i + 1
 
-/-- Canonical 12-row (target,profile) skeleton matching the shipped index shape
-    (Noir dual / EVM triple; all other targets single-profile).
+/-- Canonical 11-row (target,profile) skeleton matching the shipped index shape
+    (Noir dual / EVM dual; all other targets single-profile).
     `evmSupported` replaces all EVM rows; extension-owning rows intentionally
     omit their extension seeds so presence-gate negatives can reuse this fixture. -/
 private def supportRowsWithoutExtensions
@@ -448,7 +447,6 @@ private def supportRowsWithoutExtensions
     mkRow .aleo CodegenProfileId.aleoInstructionsV1 base,
     mkRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 base,
     mkRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmSupported,
-    mkRow .evm CodegenProfileId.evmYulSolc0834HashMapV1 evmSupported,
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 evmSupported,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 base,
     mkRow .noir CodegenProfileId.noirNargoAcirV1 base,
@@ -460,7 +458,7 @@ private def supportRowsWithoutExtensions
   ]
 
 
-/-- Same 12-row skeleton, but every closed-extension owner carries its exact
+/-- Same 11-row skeleton, but every closed-extension owner carries its exact
     seed (Quint/NEAR/CosmWasm/EVM: pf.assets; Solana CPI: both), so content
     negatives reach their intended validation phase. -/
 private def supportRowsWithExtensions
@@ -474,7 +472,6 @@ private def supportRowsWithExtensions
     mkRow .aleo CodegenProfileId.aleoInstructionsV1 base,
     mkRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 withPf,
     mkRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmSupported,
-    mkRow .evm CodegenProfileId.evmYulSolc0834HashMapV1 evmSupported,
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 evmSupported,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 withPf,
     mkRow .noir CodegenProfileId.noirNargoAcirV1 base,
@@ -1192,7 +1189,7 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
   if ← outputDir.pathExists then IO.FS.removeDirAll outputDir
   let manifest ← ProofForgeV2.CLI.emitProgram capability outputDir
   expect (manifest.target == TargetId.evm) "CLI emit via capability"
-  expect (manifest.codegenProfile == CodegenProfileId.evmYulSolc0834HashMapV1)
+  expect (manifest.codegenProfile == CodegenProfileId.evmYulSolc0834V1)
     "CLI emit profile"
   match ProofForgeV2.CLI.inspectTargetText "evm" with
   | .ok text =>
@@ -1202,7 +1199,7 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         "effect.asynchronous-workflow, effect.event, effect.synchronous-call, extension.pf-assets, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic"
       expect
         (hasSubstr text
-          s!"target=evm\nprofile=evm-yul-solc-0.8.34-hashmap-v1\nrequirements=#[{expectedIds}]")
+          s!"target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[{expectedIds}]")
         s!"inspect exact S2+pf-assets support row, got {text}"
       expect (hasSubstr text "registryRootDigest=sha256:")
         "inspect includes registry root"
@@ -1242,7 +1239,7 @@ private unsafe def testCliEmitAndDescribe : IO Unit := do
         "effect.asynchronous-workflow, effect.event, effect.synchronous-call, extension.pf-assets, failure.atomic-rollback, state.persistent, value.bool, value.checked-arithmetic"
       expect
         (text ==
-          s!"target=evm\nprofile=evm-yul-solc-0.8.34-hashmap-v1\nrequirements=#[{expectedIds}]")
+          s!"target=evm\nprofile=evm-yul-solc-0.8.34-v1\nrequirements=#[{expectedIds}]")
         s!"describe helper exact S2+pf-assets, got {text}"
   | .error e => throw <| IO.userError e.render
 

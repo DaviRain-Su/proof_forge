@@ -479,8 +479,7 @@ structure Plan where
   keeps historical Plan literals byte-identical. -/
   fns : Array FnBinding := #[]
   /-- When true, Map state uses hashed storage (1 base slot per Map; entries at
-      keccak256). Set by product-default `evm-yul-solc-0.8.34-hashmap-v1`.
-      Explicit dense profile keeps false (24/44-leaf pilot tables). -/
+      keccak256). Product EVM profiles always set true. -/
   hashedMapStorage : Bool := false
   deriving BEq, Inhabited, Repr
 private def planError (message : String) : CompileResult α :=
@@ -5021,8 +5020,7 @@ def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : 
     throw <| .planInvariant .evm "engineering capability kind is not EVM"
   let source := CompiledSemanticV1.semanticV1Of
     (ResolvedEngineeringBuildV1.compiledOf capability)
-  let profile := ResolvedEngineeringBuildV1.codegenProfileOf capability
-  let hashed := profile == CodegenProfileId.evmYulSolc0834HashMapV1
-  makePlanFromSemanticV1 source hashed
+  -- All shipped EVM profiles use hashed Map storage (v1 default + Cancun).
+  makePlanFromSemanticV1 source (hashedMapStorage := true)
 
 end ProofForgeV2.Targets.Evm

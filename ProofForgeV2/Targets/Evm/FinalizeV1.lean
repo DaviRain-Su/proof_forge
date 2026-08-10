@@ -6,12 +6,11 @@
   `Binary representation:\n`, write `{name}.bin` + `\n`.
 
   Profile selection (capability-bound, no ambient fallback):
-  - `evm-yul-solc-0.8.34-hashmap-v1` (default, hashed Map storage):
+  - `evm-yul-solc-0.8.34-v1` (default, hashed Map storage):
       `#['--strict-assembly','--optimize','--bin', source]`;
       evidence note ` map-storage=hashed`
-  - `evm-yul-solc-0.8.34-v1` (explicit dense Map layout):
-      same solc argv as default; no map-storage evidence fragment
   - `evm-yul-solc-0.8.34-cancun-v1`: adds `--evm-version cancun` before `--bin`
+    (same hashed Map storage; hardfork pin only)
     All EVM profiles enable solc's Yul optimizer (same pipeline Solidity uses for
     `--optimize` on IR). Source Yul stays unoptimized for readability/debug.
 
@@ -46,8 +45,7 @@ def solcArgsForProfile (profile : CodegenProfileId) (source : String) :
   if profile == CodegenProfileId.evmYulSolc0834CancunV1 then
     pure #["--strict-assembly", "--optimize", "--evm-version", "cancun",
       "--bin", source]
-  else if profile == CodegenProfileId.evmYulSolc0834V1 ||
-      profile == CodegenProfileId.evmYulSolc0834HashMapV1 then
+  else if profile == CodegenProfileId.evmYulSolc0834V1 then
     pure #["--strict-assembly", "--optimize", "--bin", source]
   else
     throw s!"unsupported EVM finalize profile '{profile}'"
@@ -55,10 +53,8 @@ def solcArgsForProfile (profile : CodegenProfileId) (source : String) :
 /-- Pure evidence-note fragment for a known EVM profile's hardfork pin. -/
 def evidenceHardforkNote (profile : CodegenProfileId) : Except String String :=
   if profile == CodegenProfileId.evmYulSolc0834CancunV1 then
-    pure " evm-version=cancun"
+    pure " evm-version=cancun map-storage=hashed"
   else if profile == CodegenProfileId.evmYulSolc0834V1 then
-    pure ""
-  else if profile == CodegenProfileId.evmYulSolc0834HashMapV1 then
     pure " map-storage=hashed"
   else
     throw s!"unsupported EVM finalize profile '{profile}'"

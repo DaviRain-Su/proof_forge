@@ -55,7 +55,7 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
 - Yul + digest-pinned `solc --strict-assembly --optimize` bytecode（与 Solidity `--optimize` 同源 Yul 优化器）；**EvmSolc** 验收门（工具缺席干净跳过）；
 - engineering planDigest 可绑 BuildIdentity/OutputSet；G4 `evm_anvil_differential.sh` 从产品 CLI
   制品运行 Counter/Accumulator/ArithOps/EventFlow，固定 overflow state-hold 与 emit 日志。
-- **双 profile（EVMOZ-001）**：默认 `evm-yul-solc-0.8.34-hashmap-v1`（dense `…-v1` 仍可显式选择）（历史 solc 参数，无 ambient
+- **双 profile（EVMOZ-001）**：默认 `evm-yul-solc-0.8.34-v1`（hashed Map）（历史 solc 参数，无 ambient
   `--evm-version`）；显式 `evm-yul-solc-0.8.34-cancun-v1` 在 Finalize 加
   `solc --evm-version cancun`，runtime 经 `PF_EVM_PROFILE=…cancun-v1` 启动
   `anvil --hardfork cancun`。两 profile 共用锁定 solc 0.8.34 / Anvil 0.3.0，不升级工具。
@@ -163,7 +163,7 @@ Phase-1 当前通用 lowering 切片只接收 verifier-visible `UInt64` 状态�
 还把每个 `stateStore` 与最终 `return` 视为 effect segment sink：该 sink必须消费自上一 store 后产生的
 全部 value definitions，且依赖不得指向旧 segment；dead、reordered、stale 或跨 effect-boundary value
 均 fail closed。该约束是当前 public-UInt64 evaluation-order合同，不应被泛化成完整 CFG lowering语义。
-当前 EVM profiles（默认 `evm-yul-solc-0.8.34-hashmap-v1`（dense `…-v1` 仍可显式选择），显式
+当前 EVM profiles（默认 `evm-yul-solc-0.8.34-v1`（hashed Map），显式
 `evm-yul-solc-0.8.34-cancun-v1`）在 selector hashing 前只接受 ASCII
 `[A-Za-z_][A-Za-z0-9_]*` identifier，byte length 限制为 240，
 program artifact stem 因 `.abi.json` 后缀限制为 231 bytes；state/entry 各 1024、每 callable

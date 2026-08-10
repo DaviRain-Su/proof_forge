@@ -445,7 +445,7 @@ registry digest。
 
 | TargetId | Default CodegenProfileId | AcceptanceProfileId | Phase 1 | Static dossier ceiling | Descriptor 摘要 |
 |---|---|---|---|---|---|
-| `evm` | `evm-yul-solc-0.8.34-hashmap-v1` | `phase1.evm-u64.v1` | implement | `specified` | bytecode/EVM/storage/sync call/transaction commit/no proof/EVM settlement |
+| `evm` | `evm-yul-solc-0.8.34-v1` | `phase1.evm-u64.v1` | implement | `specified` | bytecode/EVM/storage/sync call/transaction commit/no proof/EVM settlement |
 | `solana` | `solana-sbpf-plan-v1` | `phase1.solana-u64.v1` | implement | `specified` | non-executable plan/SVM/explicit accounts+CPI/transaction commit/Solana settlement |
 | `near` | `near-wasm-raw-u64-v1` | `phase1.near-u64.v1` | implement | `specified` | Wasm/NEAR host/KV/receipt-local commit/Promise/NEAR settlement |
 | `noir` | `noir-source-u64-relations-v1` | `phase1.noir-u64-private-sum.v1` | implement | `specified` | source relation/external state/no proof backend/external verifier |

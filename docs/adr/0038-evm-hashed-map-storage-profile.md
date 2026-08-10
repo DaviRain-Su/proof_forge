@@ -2,8 +2,10 @@
 
 ## Status
 
-Accepted. **Product default** for EVM as of the follow-up default flip
-(`evm-yul-solc-0.8.34-hashmap-v1`). Dense layout remains an explicit profile.
+Accepted and **folded into the sole product default**
+`evm-yul-solc-0.8.34-v1`. The transitional `…-hashmap-v1` profile id was
+removed; Cancun remains the only additional EVM profile (same hashed Map
+storage, hardfork pin only).
 
 ## Context
 
@@ -22,17 +24,17 @@ instead.
 Product default codegen profile:
 
 ```text
-evm-yul-solc-0.8.34-hashmap-v1   # keccak Map storage (default)
+evm-yul-solc-0.8.34-v1   # keccak Map storage (default)
 ```
 
-Dense layout remains available as an explicit selection:
+Optional hardfork profile (same Map storage):
 
 ```text
-evm-yul-solc-0.8.34-v1   # dense 24/44-leaf Map layout (explicit)
+evm-yul-solc-0.8.34-cancun-v1
 ```
 
-There is **no** automatic migration between dense and hashed deployments.
-Existing dense deployments must keep `--profile evm-yul-solc-0.8.34-v1`.
+Dense 24/44-leaf pilot tables are **no longer a shipped profile**. Historical
+dense deployments are not migrated automatically.
 
 ### Storage wire (canonical)
 
@@ -77,7 +79,7 @@ otherwise identical programs.
 
 ### Finalize
 
-Same locked solc 0.8.34 argv as dense default:
+Same locked solc 0.8.34 argv:
 
 ```text
 --strict-assembly --optimize --bin
@@ -90,5 +92,5 @@ Evidence note fragment: ` map-storage=hashed`.
 * Smaller Map-heavy bytecode / gas expected (Token, MiniAmm) vs dense tables.
 * Loses fixed enumerable layout and dense cross-target layout parity.
 * Product docs must say hashed is opt-in and migration-incompatible.
-* Dense remains available for portability / historical goldens via explicit profile.
-* New EVM builds default to hashed Map storage.
+* All shipped EVM profiles use hashed Map storage.
+* Dense pilot tables are retired from product profiles.

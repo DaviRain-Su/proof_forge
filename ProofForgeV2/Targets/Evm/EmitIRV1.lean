@@ -226,7 +226,7 @@ private def renderMapUInt64Helpers (indent : String)
       indent ++ "}\n"
   lookup ++ upsert ++ upsertLeaf
 
-/-- Hashed-Map profile Yul helpers (opt-in `evm-yul-solc-0.8.34-hashmap-v1`).
+/-- Hashed-Map Yul helpers (product EVM default `evm-yul-solc-0.8.34-v1`).
     UInt64: `h = keccak256(key || base)` (two 32-byte words at mem 0/32).
     Principal: hash 9 key words from `keyMem` plus a trailing base word at
     `keyMem + 288` (upsert saves the value word first). Layout at hashed entry:

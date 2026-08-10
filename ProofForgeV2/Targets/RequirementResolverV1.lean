@@ -27,8 +27,7 @@
       (ADR-0028 / #125)
     * `extension.pf-assets` → (quint, quint-source-u64-model-v1)
       (ADR-0029 Phase A)
-    * `extension.pf-assets` → (evm, evm-yul-solc-0.8.34-cancun-v1),
-      (evm, evm-yul-solc-0.8.34-hashmap-v1), and
+    * `extension.pf-assets` → (evm, evm-yul-solc-0.8.34-cancun-v1) and
       (evm, evm-yul-solc-0.8.34-v1) (ADR-0029 Phase B2 native deposit/transfer)
     * `extension.pf-assets` → (solana, solana-sbpf-cpi-elf-v1)
       (ADR-0029 Phase B1 Solana vault-PDA + System CPI binding)
@@ -165,10 +164,6 @@ private def closedExtensionAdvertiseTableV1 :
     { rowId := pfAssetsExtensionRequirementIdV1
       targetId := TargetId.evm
       profile := CodegenProfileId.evmYulSolc0834CancunV1
-      expected := pfAssets },
-    { rowId := pfAssetsExtensionRequirementIdV1
-      targetId := TargetId.evm
-      profile := CodegenProfileId.evmYulSolc0834HashMapV1
       expected := pfAssets },
     { rowId := pfAssetsExtensionRequirementIdV1
       targetId := TargetId.evm
@@ -337,8 +332,8 @@ private def mkImplementedRow
 /-- Shipped eleven-row seed body (canonical targetId order: aleo, cosmwasm,
     evm×2, near, noir×2, psy, quint, solana, ton). Aleo and Psy each expose
     one direct target IR profile. EVM carries both
-    `evm-yul-solc-0.8.34-cancun-v1`, `…-hashmap-v1`, and `…-v1`
-    (ASCII ascending; default is hashmap-v1). Solana is sole
+    `evm-yul-solc-0.8.34-cancun-v1` and `evm-yul-solc-0.8.34-v1`
+    (ASCII ascending; default is v1). Solana is sole
     `solana-sbpf-cpi-elf-v1` (ADR-0032 U1). The opt-in CPI profile (#125)
     admits exact `effect.synchronous-call` plus the exact ADR-0028 extension and
     still declines `effect.asynchronous-workflow`.
@@ -472,9 +467,8 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     -- AddressBearing: full seven keys — static QN call/schedule Plan open.
     -- EVM profiles share the same S2+extension capability set; hardfork /
     -- Map-storage layout are Finalize/runtime pins, not requirement-gate diffs.
-    -- ASCII ascending: cancun-v1 < hashmap-v1 < v1.
+    -- ASCII ascending: cancun-v1 < v1.
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmRequests,
-    mkImplementedRow .evm CodegenProfileId.evmYulSolc0834HashMapV1 evmRequests,
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 evmRequests,
     mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 nearRequests,
     -- Noir dual profiles share the exact S2 catalog set; ACIR dual-write is a

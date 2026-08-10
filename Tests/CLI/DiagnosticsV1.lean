@@ -445,7 +445,7 @@ private def testInspectDigests : IO Unit := do
     s!"inspect evm must exit 0, got {ec}\n{stderr}"
   expect (containsSubstr stdout "target=evm\n")
     s!"inspect target line: {stdout}"
-  expect (containsSubstr stdout "profile=evm-yul-solc-0.8.34-hashmap-v1\n")
+  expect (containsSubstr stdout "profile=evm-yul-solc-0.8.34-v1\n")
     s!"inspect profile: {stdout}"
   expect (containsSubstr stdout "requirements=#[")
     s!"inspect requirements: {stdout}"

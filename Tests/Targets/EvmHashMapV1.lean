@@ -12,14 +12,13 @@ import ProofForgeV2.Language.Loader
 import Tests.Language.ParserSession
 
 /-!
-# Tests.Targets.EvmHashMapV1 — opt-in hashed-Map storage profile
+# Tests.Targets.EvmHashMapV1 — product-default hashed-Map storage
 
 Pins (engineering only):
-* registry membership of `evm-yul-solc-0.8.34-hashmap-v1` as product default
-* descriptor accepts hashmap; foreign profiles fail closed
-* Finalize argv matches dense (`--optimize --bin`); evidence note `map-storage=hashed`
-* capability mint + materialize succeed for StateCell under hashmap profile
-* MapMini under hashed profile lowers with `hashedMapStorage = true` and 1-slot Map base
+* sole default profile is `evm-yul-solc-0.8.34-v1` (hashed Map; no separate hashmap id)
+* Cancun remains the only additional EVM profile
+* Finalize argv + evidence note ` map-storage=hashed` on default v1
+* MapMini default plan is hashed (1 base slot)
 -/
 
 namespace Tests.Targets.EvmHashMapV1
@@ -75,52 +74,60 @@ private def testRegistryAndDescriptor : IO Unit := do
   let reg ← match reg with
     | some r => pure r
     | none => throw <| IO.userError "evm registration missing"
-  expect (reg.profiles.any (· == CodegenProfileId.evmYulSolc0834HashMapV1))
-    "registry: evm profiles include hashmap-v1"
-  expect (reg.defaultProfile == some CodegenProfileId.evmYulSolc0834HashMapV1)
-    "registry: default is hashmap-v1"
-  let sel ← liftResult <|
-    resolveBuildSelectionV1 TargetId.evm (some CodegenProfileId.evmYulSolc0834HashMapV1)
-  expect (sel.codegenProfile == CodegenProfileId.evmYulSolc0834HashMapV1)
-    "resolve explicit hashmap"
+  expect (reg.profiles ==
+      #[CodegenProfileId.evmYulSolc0834CancunV1, CodegenProfileId.evmYulSolc0834V1])
+    "registry: only cancun + v1"
+  expect (reg.defaultProfile == some CodegenProfileId.evmYulSolc0834V1)
+    "registry: default is v1"
+  let sel ← liftResult <| resolveBuildSelectionV1 TargetId.evm none
+  expect (sel.codegenProfile == CodegenProfileId.evmYulSolc0834V1)
+    "resolve none → v1"
   let desc := Targets.Evm.descriptor
-  expect (acceptsCodegenProfile desc CodegenProfileId.evmYulSolc0834HashMapV1)
-    "accepts hashmap"
+  expect (desc.codegenProfile == CodegenProfileId.evmYulSolc0834V1)
+    "descriptor residual is v1"
+  expect (acceptsCodegenProfile desc CodegenProfileId.evmYulSolc0834V1)
+    "accepts v1"
+  expect (acceptsCodegenProfile desc CodegenProfileId.evmYulSolc0834CancunV1)
+    "accepts cancun"
   expect (!acceptsCodegenProfile desc CodegenProfileId.solanaSbpfPlanV1)
     "rejects foreign"
 
 private def testFinalizeArgsAndNote : IO Unit := do
-  match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834HashMapV1 "x.yul" with
+  match FinalizeV1.solcArgsForProfile CodegenProfileId.evmYulSolc0834V1 "x.yul" with
   | .ok args =>
       expect (args == #["--strict-assembly", "--optimize", "--bin", "x.yul"])
-        "hashmap solc args match dense optimized finalize"
-  | .error e => throw <| IO.userError s!"hashmap solcArgs must succeed: {e}"
-  match FinalizeV1.evidenceHardforkNote CodegenProfileId.evmYulSolc0834HashMapV1 with
+        "v1 solc args"
+  | .error e => throw <| IO.userError s!"v1 solcArgs must succeed: {e}"
+  match FinalizeV1.evidenceHardforkNote CodegenProfileId.evmYulSolc0834V1 with
   | .ok note =>
       expect (note == " map-storage=hashed")
-        "hashmap evidence note observes map-storage=hashed"
-  | .error e => throw <| IO.userError s!"hashmap hardfork note must succeed: {e}"
+        "v1 evidence note observes map-storage=hashed"
+  | .error e => throw <| IO.userError s!"v1 hardfork note must succeed: {e}"
+  match FinalizeV1.evidenceHardforkNote CodegenProfileId.evmYulSolc0834CancunV1 with
+  | .ok note =>
+      expect (note == " evm-version=cancun map-storage=hashed")
+        "cancun evidence includes hardfork + hashed map"
+  | .error e => throw <| IO.userError s!"cancun hardfork note must succeed: {e}"
 
 private unsafe def testCapabilityAndMapPlan : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
-    "<evm-hashmap-stateCell>"
-  let cap ← liftResult <|
-    evmCapability compiled (some CodegenProfileId.evmYulSolc0834HashMapV1)
+    "<evm-hashed-stateCell>"
+  let cap ← liftResult <| evmCapability compiled none
   expect (Targets.ResolvedEngineeringBuildV1.codegenProfileOf cap ==
-      CodegenProfileId.evmYulSolc0834HashMapV1)
-    "hashmap capability binds hashmap profile"
+      CodegenProfileId.evmYulSolc0834V1)
+    "default capability binds v1"
   let out ← liftResult <| Targets.materializeResult cap
   expect (MaterializedArtifactsV1.codegenProfileIdOf out ==
-      CodegenProfileId.evmYulSolc0834HashMapV1)
-    "materialized hashmap profile"
+      CodegenProfileId.evmYulSolc0834V1)
+    "materialized v1"
 
-  let mapCompiled ← compileSource session mapMiniSource "Tests.EvmHashMapMini" "<evm-hashmap-mapMini>"
-  let mapCap ← liftResult <|
-    evmCapability mapCompiled (some CodegenProfileId.evmYulSolc0834HashMapV1)
+  let mapCompiled ← compileSource session mapMiniSource "Tests.EvmHashMapMini"
+    "<evm-hashed-mapMini>"
+  let mapCap ← liftResult <| evmCapability mapCompiled none
   let plan ← liftResult <| materializePlanFromCapabilityV1 mapCap
   expect plan.hashedMapStorage
-    "MapMini hashed plan sets hashedMapStorage"
+    "MapMini default plan sets hashedMapStorage"
   expect (plan.storageLayout.size == 1)
     s!"MapMini hashed layout must be single base slot, got {plan.storageLayout.size}"
   match plan.storageLayout[0]? with
@@ -129,18 +136,13 @@ private unsafe def testCapabilityAndMapPlan : IO Unit := do
         s!"hashed Map base leaf name must end with _base, got {b.name}"
   | none => throw <| IO.userError "hashed layout missing base binding"
 
-  -- Default (none) is now hashed; dense still available via explicit profile.
-  let defaultCap ← liftResult <| evmCapability mapCompiled none
-  let defaultPlan ← liftResult <| materializePlanFromCapabilityV1 defaultCap
-  expect defaultPlan.hashedMapStorage "default MapMini plan is hashed"
-  expect (defaultPlan.storageLayout.size == 1)
-    s!"default MapMini layout must be 1 base slot, got {defaultPlan.storageLayout.size}"
-  let denseCap ← liftResult <|
-    evmCapability mapCompiled (some CodegenProfileId.evmYulSolc0834V1)
-  let densePlan ← liftResult <| materializePlanFromCapabilityV1 denseCap
-  expect (!densePlan.hashedMapStorage) "explicit dense hashedMapStorage=false"
-  expect (densePlan.storageLayout.size == 24)
-    s!"dense MapMini layout must stay 24 leaves, got {densePlan.storageLayout.size}"
+  -- Cancun also hashed.
+  let cancunCap ← liftResult <|
+    evmCapability mapCompiled (some CodegenProfileId.evmYulSolc0834CancunV1)
+  let cancunPlan ← liftResult <| materializePlanFromCapabilityV1 cancunCap
+  expect cancunPlan.hashedMapStorage "cancun MapMini plan is hashed"
+  expect (cancunPlan.storageLayout.size == 1)
+    s!"cancun MapMini layout must be 1 base slot, got {cancunPlan.storageLayout.size}"
 
 unsafe def run : IO Unit := do
   testRegistryAndDescriptor
