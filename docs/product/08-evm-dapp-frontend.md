@@ -13,6 +13,7 @@ normative: false
 前置：[`03-hello-dapp-agent-playbook.md`](03-hello-dapp-agent-playbook.md) · [`04-chain-client-catalog.md`](04-chain-client-catalog.md) · [`01-toolchain-install-surface.md`](01-toolchain-install-surface.md)  
 模板：[`templates/evm-dapp-ui/`](../../templates/evm-dapp-ui/)  
 Walkthrough：[`../demos/evm-local-walkthrough.md`](../demos/evm-local-walkthrough.md)  
+X Layer / OnchainOS：[`13-xlayer-onchainos.md`](13-xlayer-onchainos.md) · [`networks.v1.json`](networks.v1.json)  
 对称文档（Aleo）：[`07-aleo-dapp-frontend-wallet.md`](07-aleo-dapp-frontend-wallet.md)
 
 ## 1. 问题
@@ -41,7 +42,18 @@ ProofForge: pf build -t evm → *.abi.json + *.bin
 | Local test | `pf test -t evm` / Anvil scripts | Anvil 默认 key（本机） |
 | Local deploy | `pf deploy --broadcast --network local` 或 demo script | 本机 / Anvil #0 |
 | dApp UX | `templates/evm-dapp-ui` + MetaMask | **钱包**；禁止主网私钥进前端 |
-| Public chain write | **pf v0 拒绝** | — |
+| Public chain write | **pf v0 默认拒绝**；catalog 有 X Layer 元数据 | — |
+| X Layer attach UI | `VITE_NETWORK_ID=evm.xlayer.testnet` 等 | 用户钱包 |
+
+## 2b. 网络预设
+
+| id | chainId | 用途 |
+|---|---|---|
+| `evm.local.anvil` | 31337 | 产品默认 demo |
+| `evm.xlayer.testnet` | 1952 | 黑客松 / 联调（OKB） |
+| `evm.xlayer.mainnet` | 196 | mainnet-gated（OKB） |
+
+权威：[`networks.v1.json`](networks.v1.json)。模板：`src/chains.ts`。
 
 ## 3. PF 产物（StateCell 形）
 
@@ -95,24 +107,30 @@ cd templates/evm-dapp-ui && npm install && npm run dev
 | F2 | `bash scripts/pf_evm_local_demo.sh` 或 `pf test -t evm` |
 | F3 | 起 `templates/evm-dapp-ui` · MetaMask 加本地链 |
 | F4 | connect → get → increment |
-| F5 | **不要**配置 public RPC + 热钱包到模板默认路径 |
+| F5 | **不要**把热私钥写进模板默认路径 |
+| F6 | （可选）`VITE_NETWORK_ID=evm.xlayer.testnet` attach 已部署合约；DEX 走官方 OnchainOS MCP |
 
 ## 7. 安全
 
 1. Anvil #0 私钥仅本地演示；永不用于 public 链。  
-2. pf v0 **拒绝** EVM public broadcast（testnet/mainnet 写）。  
-3. 前端不要内嵌部署私钥；用户签名走扩展。  
+2. pf v0 **默认拒绝** EVM public broadcast；X Layer 写链是工程/钱包决策。  
+3. 前端不要内嵌部署私钥；用户签名走扩展 / OKX Wallet。  
 4. `deployment.json` 可进 gitignore（含本机地址）；模板默认 ignore。  
-5. 成功 ≠ formal / hermetic / mainnet。
+5. 成功 ≠ formal / hermetic / mainnet。  
+6. OnchainOS `OK-ACCESS-KEY` 仅应用本地；不进 PF remote MCP。
 
 ## 8. 与路线 B 的边界
 
 本文 + 模板是 **路线 A（产品闭环）**。  
-路线 B（code-size、真实 CALL 地址、corpus 扩面、OZ）见 engineering backlog / `docs/targets/01-evm.md` residuals——**不在本切片声明完成**。
+路线 B（code-size、真实 CALL 地址、corpus 扩面、OZ）见 engineering backlog / `docs/targets/01-evm.md` residuals——**不在本切片声明完成**。  
+X Layer / OnchainOS 元数据与双 MCP 见 [`13-xlayer-onchainos.md`](13-xlayer-onchainos.md)（P0 catalog done；P1+ 另列）。
 
 ## 9. 相关
 
 - 模板 README：`templates/evm-dapp-ui/README.md`  
 - Demo 脚本：`scripts/pf_evm_local_demo.sh`  
+- X Layer 工程 stub：`scripts/pf_evm_xlayer_deploy.sh`  
+- 网络 catalog：`docs/product/networks.v1.json`  
 - 既有 Anvil 测：`scripts/pf_evm_test.sh` · `scripts/evm_anvil_differential.sh`  
 - Target dossier：`docs/targets/01-evm.md`  
+ 

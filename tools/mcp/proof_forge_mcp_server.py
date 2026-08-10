@@ -647,6 +647,191 @@ def tool_pf_chain_catalog(repo_root: Path, cli: Path, args: Dict[str, Any]) -> D
     )
 
 
+def tool_pf_network_info(repo_root: Path, cli: Path, args: Dict[str, Any]) -> Dict[str, Any]:
+    """Static network catalog (X Layer / Anvil / placeholders). Metadata only."""
+    del cli
+    path = repo_root / "docs" / "product" / "networks.v1.json"
+    if not path.is_file():
+        return _tool_result_text(
+            {
+                "schema": SCHEMA_WRAP,
+                "ok": False,
+                "exitCode": 2,
+                "command": [],
+                "stdout": "",
+                "stderr": f"missing network catalog {path}",
+                "parsed": None,
+                "error": "usage",
+            },
+            is_error=True,
+        )
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return _tool_result_text(
+            {
+                "schema": SCHEMA_WRAP,
+                "ok": False,
+                "exitCode": 1,
+                "command": [str(path)],
+                "stdout": "",
+                "stderr": str(e),
+                "parsed": None,
+                "error": "failed",
+            },
+            is_error=True,
+        )
+    if not isinstance(data, dict) or data.get("schema") != "proof-forge.network-catalog.v1":
+        return _tool_result_text(
+            {
+                "schema": SCHEMA_WRAP,
+                "ok": False,
+                "exitCode": 1,
+                "command": [str(path)],
+                "stdout": "",
+                "stderr": "invalid network catalog schema",
+                "parsed": None,
+                "error": "failed",
+            },
+            is_error=True,
+        )
+    network_id = args.get("id") or args.get("networkId") or args.get("network_id")
+    target_family = args.get("targetFamily") or args.get("target_family")
+    env = args.get("env")
+    chain_id = args.get("chainId") if "chainId" in args else args.get("chain_id")
+    rows = data.get("networks") or []
+    filtered = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        rid = str(row.get("id") or "")
+        if network_id is not None and rid != str(network_id):
+            continue
+        if target_family is not None and str(row.get("targetFamily") or "") != str(
+            target_family
+        ):
+            continue
+        if env is not None and str(row.get("env") or "") != str(env):
+            continue
+        if chain_id is not None:
+            try:
+                if int(row.get("chainId")) != int(chain_id):
+                    continue
+            except (TypeError, ValueError):
+                continue
+        filtered.append(row)
+    if network_id is not None and not filtered:
+        return _tool_result_text(
+            {
+                "schema": SCHEMA_WRAP,
+                "ok": False,
+                "exitCode": 2,
+                "command": [str(path)],
+                "stdout": "",
+                "stderr": f"unknown network id: {network_id}",
+                "parsed": None,
+                "error": "usage",
+            },
+            is_error=True,
+        )
+    out = dict(data)
+    out["networks"] = filtered
+    out["filter"] = {
+        "id": network_id,
+        "targetFamily": target_family,
+        "env": env,
+        "chainId": chain_id,
+    }
+    return _tool_result_text(
+        {
+            "schema": SCHEMA_WRAP,
+            "ok": True,
+            "exitCode": 0,
+            "command": [str(path)],
+            "stdout": json.dumps(out, ensure_ascii=False, separators=(",", ":")),
+            "stderr": "",
+            "parsed": out,
+            "error": None,
+        },
+        is_error=False,
+    )
+
+
+def tool_pf_onchainos_guide(repo_root: Path, cli: Path, args: Dict[str, Any]) -> Dict[str, Any]:
+    """OKX OnchainOS dual-MCP guidance from networks.v1.json ecosystems block."""
+    del cli
+    del args
+    path = repo_root / "docs" / "product" / "networks.v1.json"
+    guide_md = repo_root / "docs" / "product" / "13-xlayer-onchainos.md"
+    if not path.is_file():
+        return _tool_result_text(
+            {
+                "schema": SCHEMA_WRAP,
+                "ok": False,
+                "exitCode": 2,
+                "command": [],
+                "stdout": "",
+                "stderr": f"missing {path}",
+                "parsed": None,
+                "error": "usage",
+            },
+            is_error=True,
+        )
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        return _tool_result_text(
+            {
+                "schema": SCHEMA_WRAP,
+                "ok": False,
+                "exitCode": 1,
+                "command": [str(path)],
+                "stdout": "",
+                "stderr": str(e),
+                "parsed": None,
+                "error": "failed",
+            },
+            is_error=True,
+        )
+    eco = (data.get("ecosystems") or {}).get("okx-onchainos") if isinstance(data, dict) else None
+    payload = {
+        "schema": "proof-forge.mcp.onchainos-guide.v1",
+        "guide": "docs/product/13-xlayer-onchainos.md",
+        "networksCatalog": "docs/product/networks.v1.json",
+        "guidePresent": guide_md.is_file(),
+        "okxOnchainOs": eco,
+        "agentWiring": {
+            "proofForgeRemoteMcp": "https://proof-forge-mcp.davirain-yin.workers.dev/mcp",
+            "onchainosOfficialMcp": "https://web3.okx.com/api/v1/onchainos-mcp",
+            "onchainosAuthHeader": "OK-ACCESS-KEY",
+            "devPortal": "https://web3.okx.com/zh-hans/onchainos/dev-portal/project",
+            "never": [
+                "put OK-ACCESS-KEY in git or PF remote Worker env",
+                "pass private keys to MCP tools",
+                "treat catalog presence as product public broadcast",
+            ],
+        },
+        "priority": {
+            "P0": "networks catalog + dual MCP docs + X Layer UI presets + official DEX MCP",
+            "P1": "market API probe / optional read-only proxy; Agentic Wallet notes; testnet deploy engineering",
+            "P2": "payments; more EVM rows; Lean NetworkRegistry product cutover",
+        },
+    }
+    return _tool_result_text(
+        {
+            "schema": SCHEMA_WRAP,
+            "ok": True,
+            "exitCode": 0,
+            "command": [str(path)],
+            "stdout": json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+            "stderr": "",
+            "parsed": payload,
+            "error": None,
+        },
+        is_error=False,
+    )
+
+
 TOOL_HANDLERS = {
     "pf_list_targets": tool_pf_list_targets,
     "pf_doctor": tool_pf_doctor,
@@ -655,6 +840,8 @@ TOOL_HANDLERS = {
     "pf_artifacts": tool_pf_artifacts,
     "pf_local": tool_pf_local,
     "pf_chain_catalog": tool_pf_chain_catalog,
+    "pf_network_info": tool_pf_network_info,
+    "pf_onchainos_guide": tool_pf_onchainos_guide,
 }
 
 
@@ -906,6 +1093,48 @@ def tool_definitions() -> List[Dict[str, Any]]:
                 "additionalProperties": False,
             },
         },
+        {
+            "name": "pf_network_info",
+            "description": (
+                "Static network catalog (Anvil, X Layer testnet/mainnet, placeholders). "
+                "Schema proof-forge.network-catalog.v1. Metadata and deploy-policy only — "
+                "does not broadcast, hold keys, or claim Lean NetworkRegistry product cutover."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Network id, e.g. evm.xlayer.testnet",
+                    },
+                    "targetFamily": {
+                        "type": "string",
+                        "description": "Filter by target family, e.g. evm",
+                    },
+                    "env": {
+                        "type": "string",
+                        "description": "Filter: local | testnet | mainnet",
+                    },
+                    "chainId": {
+                        "type": "integer",
+                        "description": "Filter by EVM chain id (1952, 196, 31337, …)",
+                    },
+                },
+                "additionalProperties": False,
+            },
+        },
+        {
+            "name": "pf_onchainos_guide",
+            "description": (
+                "OKX OnchainOS dual-MCP guide: official DEX MCP URL, wallet/trade/market/payments map, "
+                "P0–P2 roadmap. Prefer official onchainos-mcp for quotes/swaps; PF does not reimplement DEX."
+            ),
+            "inputSchema": {
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False,
+            },
+        },
     ]
 
 
@@ -1061,7 +1290,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             "  PROOF_FORGE_ROOT   package root (optional if launched from tools/mcp)\n"
             "  PROOF_FORGE_CLI    path to proof-forge-next binary (optional)\n"
             "  PROOF_FORGE_TOOL_ROOT  Tool Lock root (consumed by doctor/install/build)\n"
-            "Tools: pf_list_targets pf_doctor pf_install pf_build pf_artifacts pf_local pf_chain_catalog\n"
+            "Tools: pf_list_targets pf_doctor pf_install pf_build pf_artifacts pf_local "
+            "pf_chain_catalog pf_network_info pf_onchainos_guide\n"
         )
         return 0
     if "--self-check" in argv:

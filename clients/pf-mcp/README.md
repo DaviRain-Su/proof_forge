@@ -7,8 +7,8 @@ Public **Streamable HTTP** MCP server for coding agents — Streamable HTTP remo
 | Transport | Streamable HTTP |
 | Path | `/mcp` |
 | Auth | none (v0 public) |
-| Role | docs · catalog · agent guidance · live demo links |
-| Not included | Lean compile, key custody, network broadcast |
+| Role | docs · catalog · networks · OnchainOS guide · agent guidance · live demo links |
+| Not included | Lean compile, key custody, network broadcast, OKX API proxy |
 
 Local compile/deploy remains:
 
@@ -46,12 +46,20 @@ claude mcp add --transport http proof-forge-mcp https://proof-forge-mcp.<account
 - `pf_health`
 - `pf_list_docs` / `pf_get_doc` / `pf_search_docs`
 - `pf_chain_catalog` / `pf_target_info`
+- `pf_network_info` — Anvil / X Layer network catalog (`networks.v1.json`)
+- `pf_onchainos_guide` — OKX OnchainOS dual-MCP + P0–P2 map
 - `pf_agent_instructions`
 - `pf_cli_cheatsheet`
 - `pf_aleo_live_demo`
 - `pf_solana_scaffold` — PF Solana ladder + `templates/solana-dapp-ui`
 - `pf_solana_ix_codec` — PF ix-data encoding summary (handlerId u64 LE)
 - `pf_solana_artifacts` — build outputs → UI vs CLI
+
+## X Layer / OnchainOS
+
+- Catalog: `docs/product/networks.v1.json` · guide `docs/product/13-xlayer-onchainos.md`
+- Testnet **1952** · mainnet **196** · gas **OKB**
+- DEX: official `https://web3.okx.com/api/v1/onchainos-mcp` (hang beside this server; do not put `OK-ACCESS-KEY` here)
 
 ## Solana (in this MCP)
 
@@ -66,11 +74,8 @@ and `docs/product/10-solana-dapp-frontend.md`.
 Bundled snapshots live under `content/`. After editing monorepo docs:
 
 ```bash
-cp docs/product/chain-client-catalog.v1.json clients/pf-mcp/content/
-cp docs/product/0*.md clients/pf-mcp/content/
-cp docs/demos/*.md clients/pf-mcp/content/
-# regenerate docs-index.json + src/bundled.ts:
-python3 -I scripts/pf_mcp_bundle_content.py   # or the inline regen used in deploy notes
+# syncs chain-client-catalog + networks.v1.json + product/demo md → content/ + src/bundled.ts
+python3 -I scripts/pf_mcp_bundle_content.py
 ```
 
 ## Safety

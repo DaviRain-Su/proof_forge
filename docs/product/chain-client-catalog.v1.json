@@ -9,9 +9,20 @@
     "deployable is always false on product OutputSet until N3 product decision.",
     "No network broadcast tools on MCP default surface.",
     "Aleo frontend detail: docs/product/07-aleo-dapp-frontend-wallet.md (wallet adaptor + Provable SDK; not shipped by PF).",
-    "EVM frontend detail: docs/product/08-evm-dapp-frontend.md + templates/evm-dapp-ui (viem/local Anvil).",
+    "EVM frontend detail: docs/product/08-evm-dapp-frontend.md + templates/evm-dapp-ui (viem/local Anvil + X Layer presets).",
+    "EVM public networks (X Layer testnet/mainnet, …): docs/product/networks.v1.json + docs/product/13-xlayer-onchainos.md; MCP pf_network_info / pf_onchainos_guide.",
+    "OKX OnchainOS: official DEX MCP at https://web3.okx.com/api/v1/onchainos-mcp — dual-MCP with PF; do not reimplement DEX inside PF.",
     "Solana contracts: ProofForge ProgramV1 + pf CLI; frontend templates/solana-dapp-ui; PF MCP summarizes ix codec (not external Anchor MCP)."
   ],
+  "networksRef": {
+    "schema": "proof-forge.network-catalog.v1",
+    "path": "docs/product/networks.v1.json",
+    "guide": "docs/product/13-xlayer-onchainos.md",
+    "mcpTools": [
+      "pf_network_info",
+      "pf_onchainos_guide"
+    ]
+  },
   "targets": [
     {
       "id": "aleo",
@@ -107,7 +118,7 @@
         "localModes": [
           "runtime"
         ],
-        "network": "none-product",
+        "network": "catalog-metadata-plus-local-anvil",
         "mcpTools": [
           "pf_list_targets",
           "pf_doctor",
@@ -115,19 +126,43 @@
           "pf_build",
           "pf_local",
           "pf_artifacts",
-          "pf_chain_catalog"
+          "pf_chain_catalog",
+          "pf_network_info",
+          "pf_onchainos_guide"
         ],
         "frontendTemplate": "templates/evm-dapp-ui"
+      },
+      "networks": [
+        "evm.local.anvil",
+        "evm.xlayer.testnet",
+        "evm.xlayer.mainnet"
+      ],
+      "ecosystem": {
+        "okxOnchainOs": {
+          "guide": "docs/product/13-xlayer-onchainos.md",
+          "networksCatalog": "docs/product/networks.v1.json",
+          "officialMcp": "https://web3.okx.com/api/v1/onchainos-mcp",
+          "devPortal": "https://web3.okx.com/zh-hans/onchainos/dev-portal/project",
+          "xLayerAbout": "https://web3.okx.com/zh-hans/onchainos/dev-docs/xlayer/developer/build-on-xlayer/about-xlayer",
+          "capabilities": [
+            "wallet-agentic",
+            "trade-dex",
+            "market-data",
+            "payments-app"
+          ],
+          "dualMcp": "PF MCP for contracts/catalog; OnchainOS MCP for DEX quote/swap"
+        }
       },
       "frontendClients": [
         {
           "name": "viem (+ injected window.ethereum / MetaMask)",
           "kind": "js-ts",
-          "purpose": "typed RPC, deploy/call StateCell-shaped ABI; default template stack",
+          "purpose": "typed RPC, deploy/call StateCell-shaped ABI; default template stack; X Layer chain presets in template",
           "shippedByProofForge": false,
           "docs": [
             "https://viem.sh",
             "docs/product/08-evm-dapp-frontend.md",
+            "docs/product/13-xlayer-onchainos.md",
             "templates/evm-dapp-ui"
           ],
           "packages": [
@@ -153,19 +188,33 @@
           "packages": [
             "ethers"
           ]
+        },
+        {
+          "name": "OKX Wallet / browser injected (ecosystem)",
+          "kind": "js-ts",
+          "purpose": "user wallet on X Layer; pair with viem; Agentic Wallet for agent paths (OnchainOS)",
+          "shippedByProofForge": false,
+          "docs": [
+            "https://web3.okx.com/zh-hans/onchainos/dev-docs/wallet/agentic-wallet",
+            "https://web3.okx.com/wallet/x-layer"
+          ]
         }
       ],
       "localDev": {
         "offlineInterpret": null,
-        "chainLike": "Anvil engineering differential (host-heavy)"
+        "chainLike": "Anvil engineering differential (host-heavy)",
+        "publicNetworks": "docs/product/networks.v1.json (metadata); engineering deploy scripts/pf_evm_xlayer_deploy.sh is opt-in print/stub"
       },
       "honesty": [
         "product OutputSet deployable depends on profile; do not invent mainnet",
         "frontend packages are ecosystem — PF does not vendor or pin npm versions",
-        "pf v0 refuses EVM public-chain broadcast; local Anvil only for write demos",
-        "see PRODUCT-EVM-DAPP-FRONTEND and templates/evm-dapp-ui"
+        "pf v0 default refuses EVM public-chain broadcast; local Anvil is the product write demo",
+        "X Layer rows are catalog + UI presets — not a claim that Lean NetworkRegistry deploy is product-complete",
+        "OnchainOS DEX uses official MCP with app-local OK-ACCESS-KEY — not PF remote edge",
+        "see PRODUCT-EVM-DAPP-FRONTEND, PRODUCT-XLAYER-ONCHAINOS, templates/evm-dapp-ui"
       ],
       "frontendGuide": "docs/product/08-evm-dapp-frontend.md",
+      "networkGuide": "docs/product/13-xlayer-onchainos.md",
       "frontendTemplate": "templates/evm-dapp-ui"
     },
     {

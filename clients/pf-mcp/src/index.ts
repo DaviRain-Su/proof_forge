@@ -16,8 +16,10 @@ import { createMcpHandler } from "agents/mcp/server";
 import { z } from "zod";
 import {
   CATALOG,
+  filterNetworks,
   getDoc,
   listDocs,
+  NETWORKS,
   searchDocs,
   targetById,
 } from "./content";
@@ -185,6 +187,8 @@ function createServer() {
           "pf_get_doc",
           "pf_search_docs",
           "pf_chain_catalog",
+          "pf_network_info",
+          "pf_onchainos_guide",
           "pf_target_info",
           "pf_agent_instructions",
           "pf_aleo_live_demo",
@@ -199,6 +203,14 @@ function createServer() {
         liveDemo: LIVE,
         solana: SOLANA_PF,
         psy: PSY_PF,
+        xlayer: {
+          networksCatalog: "networks.v1.json",
+          guide: "13-xlayer-onchainos.md",
+          testnetChainId: 1952,
+          mainnetChainId: 196,
+          gas: "OKB",
+          onchainosMcp: "https://web3.okx.com/api/v1/onchainos-mcp",
+        },
       }),
   );
 
@@ -300,6 +312,7 @@ function createServer() {
           filter: target,
           target: one,
           found: Boolean(one),
+          networksRef: CATALOG.networksRef,
         });
       }
       return textResult({
@@ -307,9 +320,86 @@ function createServer() {
         version: CATALOG.version,
         updated: CATALOG.updated,
         notes: CATALOG.notes,
+        networksRef: CATALOG.networksRef,
         targets,
       });
     },
+  );
+
+  server.registerTool(
+    "pf_network_info",
+    {
+      description:
+        "Return the ProofForge network catalog (Anvil, X Layer testnet/mainnet, placeholders). Metadata + policy only — no broadcast.",
+      inputSchema: z.object({
+        id: z
+          .string()
+          .optional()
+          .describe("Network id, e.g. evm.xlayer.testnet"),
+        targetFamily: z
+          .string()
+          .optional()
+          .describe("Filter by target family, e.g. evm"),
+        env: z
+          .string()
+          .optional()
+          .describe("Filter: local | testnet | mainnet"),
+        chainId: z
+          .number()
+          .int()
+          .optional()
+          .describe("EVM chain id filter (1952, 196, 31337, …)"),
+      }),
+    },
+    async ({ id, targetFamily, env, chainId }) => {
+      const result = filterNetworks({ id, targetFamily, env, chainId });
+      if (id && id.trim() && !result.found) {
+        return textResult({
+          ok: false,
+          error: `unknown network id '${id}'`,
+          known: NETWORKS.networks.map((n) => n.id),
+        });
+      }
+      return textResult({
+        ok: true,
+        ...result,
+        note: "Catalog presence ≠ product public broadcast. See 13-xlayer-onchainos.md.",
+      });
+    },
+  );
+
+  server.registerTool(
+    "pf_onchainos_guide",
+    {
+      description:
+        "OKX OnchainOS dual-MCP guide: official DEX MCP, wallet/trade/market/payments map, P0–P2 roadmap. Prefer official onchainos-mcp for swaps.",
+      inputSchema: z.object({}),
+    },
+    async () =>
+      textResult({
+        schema: "proof-forge.mcp.onchainos-guide.v1",
+        guide: "13-xlayer-onchainos.md",
+        networksCatalog: "networks.v1.json",
+        okxOnchainOs: NETWORKS.ecosystems?.["okx-onchainos"] ?? null,
+        agentWiring: {
+          proofForgeRemoteMcp:
+            "https://proof-forge-mcp.davirain-yin.workers.dev/mcp",
+          onchainosOfficialMcp: "https://web3.okx.com/api/v1/onchainos-mcp",
+          onchainosAuthHeader: "OK-ACCESS-KEY",
+          devPortal:
+            "https://web3.okx.com/zh-hans/onchainos/dev-portal/project",
+          never: [
+            "put OK-ACCESS-KEY in git or PF remote Worker env",
+            "pass private keys to MCP tools",
+            "treat catalog presence as product public broadcast",
+          ],
+        },
+        priority: {
+          P0: "networks catalog + dual MCP docs + X Layer UI presets + official DEX MCP",
+          P1: "market API probe / optional read-only proxy; Agentic Wallet notes; testnet deploy engineering",
+          P2: "payments; more EVM rows; Lean NetworkRegistry product cutover",
+        },
+      }),
   );
 
   server.registerTool(
@@ -358,6 +448,9 @@ function createServer() {
                   "pf new hello --target evm && cd hello",
                   "pf build && pf test",
                   "pf deploy --network local --broadcast  # Anvil/local only",
+                  "pf_network_info id=evm.xlayer.testnet  # catalog metadata",
+                  "templates/evm-dapp-ui: VITE_NETWORK_ID=evm.xlayer.testnet",
+                  "DEX: official onchainos-mcp (not PF) — see pf_onchainos_guide",
                 ]
               : [
                   `pf setup --target ${id}`,
@@ -390,6 +483,8 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
 ## Remote MCP (this server)
 - Use \`pf_list_docs\` then \`pf_get_doc\` / \`pf_search_docs\` for product contracts.
 - Use \`pf_chain_catalog\` / \`pf_target_info\` before choosing a chain.
+- Use \`pf_network_info\` for Anvil / X Layer chain ids + RPC (metadata only).
+- Use \`pf_onchainos_guide\` for OKX OnchainOS dual-MCP wiring (DEX = official onchainos-mcp).
 - Use \`pf_cli_cheatsheet\` for command sequences.
 - Use \`pf_aleo_live_demo\` for the published Aleo Testnet evidence links.
 - Use \`pf_solana_scaffold\`, \`pf_solana_ix_codec\`, \`pf_solana_artifacts\` for Solana (PF path).
@@ -425,6 +520,13 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
 - Official deploy/prove/wallet: \`psyup\` / \`dargo\` / \`psy_user_cli\` / WebIDE / \`@psy-protocol/psy-sdk\` / psy-wallet.
 - Surfaces: app · wallet · explorer · IDE · config.psy-protocol.xyz (see \`pf_psy_ecosystem\`).
 - DPN schema authority pin is psy-node revision annotation — not an installable Tool Lock binary.
+
+## X Layer / OnchainOS
+- Networks: \`pf_network_info\` / doc \`13-xlayer-onchainos.md\` / \`networks.v1.json\`.
+- Testnet chainId **1952**, mainnet **196**, gas **OKB** (not ETH).
+- PF \`--target evm\` artifacts apply (full EVM equivalence).
+- DEX quote/swap: hang **official** \`https://web3.okx.com/api/v1/onchainos-mcp\` with app-local \`OK-ACCESS-KEY\`.
+- Do **not** put OKX keys on this public PF edge Worker.
 
 ## Safety
 - No default network broadcast on MCP.

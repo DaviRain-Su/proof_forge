@@ -16,7 +16,8 @@ BUNDLED = ROOT / "clients" / "pf-mcp" / "src" / "bundled.ts"
 def sync_from_monorepo() -> None:
     CONTENT.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "docs/product/chain-client-catalog.v1.json", CONTENT / "chain-client-catalog.v1.json")
-    # Product docs: 01-.. / 10-.. / 11-psy / 12-psy …
+    shutil.copy2(ROOT / "docs/product/networks.v1.json", CONTENT / "networks.v1.json")
+    # Product docs: 01-.. / 10-.. / 11-psy / 12-psy / 13-xlayer …
     for src in sorted((ROOT / "docs/product").glob("[0-9][0-9]-*.md")):
         shutil.copy2(src, CONTENT / src.name)
     for src in sorted((ROOT / "docs/demos").glob("*.md")):
@@ -51,9 +52,14 @@ def write_docs_index() -> dict:
                     title = m2.group(1).strip()
             kind = "markdown"
         else:
-            kind = "catalog" if "catalog" in f.name else "markdown"
-            if kind == "catalog":
+            if f.name == "chain-client-catalog.v1.json":
+                kind = "catalog"
                 title = "Chain client catalog"
+            elif f.name == "networks.v1.json":
+                kind = "catalog"
+                title = "Network catalog (X Layer / Anvil)"
+            else:
+                kind = "catalog" if "catalog" in f.name else "markdown"
         docs.append(
             {
                 "id": f.name,
@@ -71,6 +77,7 @@ def write_docs_index() -> dict:
 
 def write_bundled() -> None:
     catalog = json.loads((CONTENT / "chain-client-catalog.v1.json").read_text(encoding="utf-8"))
+    networks = json.loads((CONTENT / "networks.v1.json").read_text(encoding="utf-8"))
     index = json.loads((CONTENT / "docs-index.json").read_text(encoding="utf-8"))
     md = {
         f.name: f.read_text(encoding="utf-8")
@@ -79,6 +86,8 @@ def write_bundled() -> None:
     lines = [
         "// AUTO-GENERATED — do not edit by hand.",
         f"export const CATALOG_JSON = {json.dumps(catalog, indent=2, ensure_ascii=False)} as const;",
+        "",
+        f"export const NETWORKS_JSON = {json.dumps(networks, indent=2, ensure_ascii=False)} as const;",
         "",
         f"export const DOCS_INDEX_JSON = {json.dumps(index, indent=2, ensure_ascii=False)} as const;",
         "",

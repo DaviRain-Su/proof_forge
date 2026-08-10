@@ -45,7 +45,9 @@ SCHEMA_DOCTOR = "proof-forge.doctor.v1"
 SCHEMA_INSTALL = "proof-forge.install.v1"
 SCHEMA_OUTPUT = "proof-forge.output.v1"
 SCHEMA_CHAIN_CATALOG = "proof-forge.chain-client-catalog.v1"
+SCHEMA_NETWORK_CATALOG = "proof-forge.network-catalog.v1"
 CATALOG_REL = Path("docs/product/chain-client-catalog.v1.json")
+NETWORKS_REL = Path("docs/product/networks.v1.json")
 
 IMPLEMENTED_TARGETS = (
     "evm",
@@ -305,6 +307,62 @@ def load_chain_client_catalog(
     out["filter"] = {
         "target": target,
         "includeDesignOnly": include_design_only,
+    }
+    return out
+
+
+def load_network_catalog(
+    repo_root: PathLike,
+    *,
+    network_id: Optional[str] = None,
+    target_family: Optional[str] = None,
+    env: Optional[str] = None,
+    chain_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    """Load static EVM/network catalog (metadata only; not a deploy authority)."""
+    root = Path(repo_root).expanduser().resolve()
+    path = root / NETWORKS_REL
+    if not path.is_file():
+        raise FileNotFoundError(f"missing network catalog: {path}")
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict):
+        raise ValueError(f"{path}: root must be object")
+    if data.get("schema") != SCHEMA_NETWORK_CATALOG:
+        raise ValueError(
+            f"{path}: expected schema {SCHEMA_NETWORK_CATALOG!r}, got {data.get('schema')!r}"
+        )
+    rows = data.get("networks")
+    if not isinstance(rows, list):
+        raise ValueError(f"{path}: networks must be an array")
+    filtered: List[Any] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        rid = str(row.get("id") or "")
+        if network_id is not None and rid != str(network_id):
+            continue
+        if target_family is not None and str(row.get("targetFamily") or "") != str(
+            target_family
+        ):
+            continue
+        if env is not None and str(row.get("env") or "") != str(env):
+            continue
+        if chain_id is not None:
+            try:
+                if int(row.get("chainId")) != int(chain_id):
+                    continue
+            except (TypeError, ValueError):
+                continue
+        filtered.append(row)
+    if network_id is not None and not filtered:
+        raise KeyError(f"unknown network id: {network_id}")
+    out = dict(data)
+    out["networks"] = filtered
+    out["filter"] = {
+        "id": network_id,
+        "targetFamily": target_family,
+        "env": env,
+        "chainId": chain_id,
     }
     return out
 
@@ -723,6 +781,40 @@ class ProofForgeClient:
             product_ok=True,
         )
 
+    def network_catalog(
+        self,
+        *,
+        network_id: Optional[str] = None,
+        target_family: Optional[str] = None,
+        env: Optional[str] = None,
+        chain_id: Optional[int] = None,
+    ) -> CliResult:
+        """Static network catalog (X Layer, Anvil, …). Metadata only."""
+        try:
+            data = load_network_catalog(
+                self.root,
+                network_id=network_id,
+                target_family=target_family,
+                env=env,
+                chain_id=chain_id,
+            )
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as e:
+            return CliResult(
+                ok=False,
+                exit_code=2,
+                command=["network-catalog"],
+                stderr=str(e),
+                error="usage",
+            )
+        return CliResult(
+            ok=True,
+            exit_code=0,
+            command=["network-catalog"],
+            stdout=json.dumps(data, ensure_ascii=False, separators=(",", ":")),
+            parsed=data,
+            product_ok=True,
+        )
+
 
 # ---------------------------------------------------------------------------
 # Self-check / CLI entry
@@ -750,6 +842,7 @@ def self_check(*, root: Optional[PathLike] = None) -> Dict[str, Any]:
             "local",
             "load_output_manifest",
             "chain_catalog",
+            "network_catalog",
         ],
         "notes": [
             "SDK only spawns product CLI / package engines",
@@ -758,6 +851,7 @@ def self_check(*, root: Optional[PathLike] = None) -> Dict[str, Any]:
             "local is generic (Aleo: --source/--module/--run; no default program)",
             "no default network broadcast helper",
             "chain_catalog is static metadata (frontend/client names; not shipped SDKs)",
+            "network_catalog is static metadata (X Layer/Anvil; not deploy authority)",
         ],
     }
     try:
@@ -842,6 +936,15 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
     p_cat.add_argument("--target", default=None)
     p_cat.add_argument("--all", action="store_true", help="include design-only rows")
 
+    p_net = sub.add_parser(
+        "network-catalog",
+        help="static network catalog JSON (X Layer / Anvil; metadata only)",
+    )
+    p_net.add_argument("--id", dest="network_id", default=None)
+    p_net.add_argument("--target-family", default=None)
+    p_net.add_argument("--env", default=None)
+    p_net.add_argument("--chain-id", type=int, default=None)
+
     args = parser.parse_args(list(argv) if argv is not None else None)
 
     if args.self_check or args.cmd is None:
@@ -883,6 +986,13 @@ def _main(argv: Optional[Sequence[str]] = None) -> int:
         r = client.chain_catalog(
             target=args.target,
             include_design_only=bool(args.all),
+        )
+    elif args.cmd == "network-catalog":
+        r = client.network_catalog(
+            network_id=args.network_id,
+            target_family=args.target_family,
+            env=args.env,
+            chain_id=args.chain_id,
         )
     elif args.cmd == "load-manifest":
         try:

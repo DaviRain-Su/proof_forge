@@ -1,0 +1,290 @@
+{
+  "schema": "proof-forge.network-catalog.v1",
+  "version": "1",
+  "updated": "2026-08-10",
+  "notes": [
+    "Metadata + deploy-policy catalog for agents and future pf deploy --network.",
+    "Does NOT enable product-level public broadcast by itself.",
+    "build must never take --network (see docs/specs/cli.md / target-registry.md).",
+    "RPC URLs are public endpoints from official docs; they may rate-limit or change.",
+    "Keys never belong in this file. MCP remote surface never broadcasts.",
+    "Add new EVM nets as rows under networks[] with id evm.<chain>.<env>."
+  ],
+  "policyEnum": [
+    "local-only",
+    "testnet-opt-in",
+    "mainnet-gated",
+    "metadata-only"
+  ],
+  "networks": [
+    {
+      "id": "evm.local.anvil",
+      "targetFamily": "evm",
+      "displayName": "Anvil (local)",
+      "env": "local",
+      "chainId": 31337,
+      "nativeCurrency": {
+        "name": "Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "rpcUrls": [
+        "http://127.0.0.1:8545"
+      ],
+      "explorers": [],
+      "policy": "local-only",
+      "pfProductBroadcast": "local-loopback-only",
+      "viemChainHint": "foundry",
+      "related": {
+        "demoScript": "scripts/pf_evm_local_demo.sh",
+        "frontendTemplate": "templates/evm-dapp-ui",
+        "guide": "docs/product/08-evm-dapp-frontend.md"
+      },
+      "honesty": [
+        "Default EVM demo path",
+        "Anvil #0 key is local-only — never use on public nets"
+      ]
+    },
+    {
+      "id": "evm.xlayer.testnet",
+      "targetFamily": "evm",
+      "displayName": "X Layer testnet",
+      "env": "testnet",
+      "chainId": 1952,
+      "nativeCurrency": {
+        "name": "OKB",
+        "symbol": "OKB",
+        "decimals": 18
+      },
+      "rpcUrls": [
+        "https://testrpc.xlayer.tech/terigon",
+        "https://xlayertestrpc.okx.com/terigon"
+      ],
+      "explorers": [
+        {
+          "name": "OKX Web3 Explorer (X Layer test)",
+          "url": "https://www.okx.com/web3/explorer/xlayer-test"
+        }
+      ],
+      "faucet": "https://web3.okx.com/xlayer/faucet",
+      "bridge": "https://web3.okx.com/xlayer/bridge",
+      "docs": [
+        "https://web3.okx.com/zh-hans/onchainos/dev-docs/xlayer/developer/build-on-xlayer/about-xlayer",
+        "https://web3.okx.com/zh-hans/onchainos/dev-docs/xlayer/developer/build-on-xlayer/network-information"
+      ],
+      "policy": "testnet-opt-in",
+      "pfProductBroadcast": "engineering-lane-not-default",
+      "ecosystem": "okx-xlayer",
+      "hackathon": {
+        "event": "Build X AI Season",
+        "requirement": "Deploy on X Layer testnet during hackathon; mainnet later",
+        "page": "https://web3.okx.com/zh-hans/xlayer/build-x-series"
+      },
+      "related": {
+        "guide": "docs/product/13-xlayer-onchainos.md",
+        "frontendTemplate": "templates/evm-dapp-ui",
+        "deployScript": "scripts/pf_evm_xlayer_deploy.sh"
+      },
+      "honesty": [
+        "Full EVM equivalence — PF --target evm artifacts apply",
+        "Gas token is OKB, not ETH",
+        "Catalog presence ≠ pf product mainnet/testnet broadcast shipped",
+        "Use wallet or developer-local key env for writes; never MCP remote keys"
+      ]
+    },
+    {
+      "id": "evm.xlayer.mainnet",
+      "targetFamily": "evm",
+      "displayName": "X Layer mainnet",
+      "env": "mainnet",
+      "chainId": 196,
+      "nativeCurrency": {
+        "name": "OKB",
+        "symbol": "OKB",
+        "decimals": 18
+      },
+      "rpcUrls": [
+        "https://rpc.xlayer.tech",
+        "https://xlayerrpc.okx.com"
+      ],
+      "explorers": [
+        {
+          "name": "OKX Web3 Explorer (X Layer)",
+          "url": "https://www.okx.com/web3/explorer/xlayer"
+        }
+      ],
+      "bridge": "https://web3.okx.com/xlayer/bridge",
+      "docs": [
+        "https://web3.okx.com/zh-hans/onchainos/dev-docs/xlayer/developer/build-on-xlayer/about-xlayer",
+        "https://web3.okx.com/zh-hans/onchainos/dev-docs/xlayer/developer/build-on-xlayer/network-information",
+        "https://web3.okx.com/xlayer"
+      ],
+      "policy": "mainnet-gated",
+      "pfProductBroadcast": "refused-or-explicit-gate",
+      "ecosystem": "okx-xlayer",
+      "architecture": {
+        "stack": "OP Stack optimistic rollup + AggLayer",
+        "vm": "EVM-equivalent",
+        "gasToken": "OKB"
+      },
+      "related": {
+        "guide": "docs/product/13-xlayer-onchainos.md",
+        "frontendTemplate": "templates/evm-dapp-ui"
+      },
+      "honesty": [
+        "Mainnet writes are application/operator decisions",
+        "pf v0 default refuses public EVM broadcast",
+        "Not formal / hermetic / Stage-0 evidence"
+      ]
+    },
+    {
+      "id": "evm.ethereum.sepolia",
+      "targetFamily": "evm",
+      "displayName": "Ethereum Sepolia",
+      "env": "testnet",
+      "chainId": 11155111,
+      "nativeCurrency": {
+        "name": "Sepolia Ether",
+        "symbol": "ETH",
+        "decimals": 18
+      },
+      "rpcUrls": [],
+      "explorers": [
+        {
+          "name": "Etherscan Sepolia",
+          "url": "https://sepolia.etherscan.io"
+        }
+      ],
+      "policy": "metadata-only",
+      "pfProductBroadcast": "not-shipped",
+      "status": "placeholder-for-future-rows",
+      "honesty": [
+        "Row reserved so multi-EVM expansion is data-driven",
+        "No PF product deploy path yet — fill rpcUrls when adopted"
+      ]
+    }
+  ],
+  "ecosystems": {
+    "okx-onchainos": {
+      "name": "OKX Onchain OS",
+      "tagline": "AI-native Web3 infrastructure — wallet, trade, market, payments",
+      "home": "https://web3.okx.com/zh-hans/onchainos/dev-docs/home/what-is-onchainos",
+      "devPortal": "https://web3.okx.com/zh-hans/onchainos/dev-portal/project",
+      "integrationModes": [
+        "Skills (agent conversation)",
+        "Open API (programmatic)",
+        "Official MCP (DEX tools)"
+      ],
+      "capabilities": {
+        "wallet": {
+          "name": "Agentic Wallet",
+          "summary": "TEE-backed agent wallet; email/Google/Apple create; agent can trade without exposing keys",
+          "docs": [
+            "https://web3.okx.com/zh-hans/onchainos/dev-docs/wallet/agentic-wallet"
+          ],
+          "mcp": {
+            "status": "skills-and-api-primary",
+            "note": "Prefer Agentic Wallet / user extension for signing; PF never holds keys"
+          },
+          "priority": "P1"
+        },
+        "trade": {
+          "name": "DEX API / aggregator",
+          "summary": "Multi-chain DEX quotes, approve calldata, swap tx construction (EVM + Solana)",
+          "docs": [
+            "https://web3.okx.com/onchainos/dev-docs/trade/dex-api-introduction",
+            "https://web3.okx.com/onchainos/dev-docs/trade/dex-ai-tools-mcp-server"
+          ],
+          "mcp": {
+            "status": "official",
+            "url": "https://web3.okx.com/api/v1/onchainos-mcp",
+            "authHeader": "OK-ACCESS-KEY",
+            "tools": [
+              "dex-okx-dex-aggregator-supported-chains",
+              "dex-okx-dex-liquidity",
+              "dex-okx-dex-quote",
+              "dex-okx-dex-approve-transaction",
+              "dex-okx-dex-swap",
+              "dex-okx-dex-solana-swap-instruction"
+            ],
+            "xLayerExamples": [
+              "Which DEXs are available on X-layer?",
+              "How much USDC will I get for 1 OKB on X-layer?"
+            ]
+          },
+          "priority": "P0"
+        },
+        "market": {
+          "name": "Market API",
+          "summary": "Multi-market and onchain data: prices, tokens, portfolio, social, balances, tx history",
+          "docs": [
+            "https://web3.okx.com/onchainos/dev-docs/market/market-api-introduction"
+          ],
+          "surfaces": [
+            "market-price",
+            "index-price",
+            "token",
+            "strategy",
+            "address-analysis",
+            "social-analysis",
+            "balance",
+            "tx-history"
+          ],
+          "mcp": {
+            "status": "open-api-primary-probe-official-mcp",
+            "note": "If official MCP does not expose market tools, optional thin REST proxy MCP (read-only) is P1"
+          },
+          "priority": "P1"
+        },
+        "payments": {
+          "name": "Payments (APP protocol)",
+          "summary": "Pay-as-you-go agent payment scenarios",
+          "docs": [
+            "https://web3.okx.com/onchainos/dev-docs/payments/overview"
+          ],
+          "mcp": {
+            "status": "docs-placeholder",
+            "note": "P2 — agent gas/API payment story after wallet+trade path works"
+          },
+          "priority": "P2"
+        }
+      },
+      "dualMcpPattern": {
+        "proofForge": {
+          "role": "semantic-controlled contracts: build, catalog, docs, local runtime guidance",
+          "remote": "https://proof-forge-mcp.davirain-yin.workers.dev/mcp",
+          "stdio": "tools/mcp/proof_forge_mcp_server.py",
+          "never": [
+            "hold OK-ACCESS-KEY for third parties on public edge",
+            "broadcast mainnet txs",
+            "accept private keys as tool args"
+          ]
+        },
+        "onchainos": {
+          "role": "DEX quote/liquidity/swap construction; later market/wallet as available",
+          "remote": "https://web3.okx.com/api/v1/onchainos-mcp",
+          "auth": "OK-ACCESS-KEY from OnchainOS dev portal (app-local)"
+        }
+      },
+      "roadmap": {
+        "P0": [
+          "Ship networks.v1.json with X Layer testnet/mainnet + Anvil",
+          "Expose pf_network_info / pf_onchainos_guide on PF MCP",
+          "Document dual-MCP wiring for agents",
+          "evm-dapp-ui chain presets for X Layer (read/attach; no default public hot-key deploy)"
+        ],
+        "P1": [
+          "Probe official MCP tools/list after API key",
+          "Optional read-only market REST proxy MCP if needed",
+          "Agentic Wallet / Skills wiring notes for dApp demos",
+          "Engineering deploy script for X Layer testnet (developer-local key env)"
+        ],
+        "P2": [
+          "Payments APP protocol integration notes",
+          "More EVM rows (Base, Arbitrum, …) when product needs them",
+          "Lean NetworkRegistry product cutover for deploy identity join (spec already exists)"
+        ]
+      }
+    }
+  }
+}

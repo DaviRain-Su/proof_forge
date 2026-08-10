@@ -11,8 +11,10 @@ normative: false
 
 状态：`draft`（2026-08-09）  
 机器可读权威：[`chain-client-catalog.v1.json`](chain-client-catalog.v1.json)  
+网络表：[`networks.v1.json`](networks.v1.json)（schema `proof-forge.network-catalog.v1`）  
+X Layer / OnchainOS：[`13-xlayer-onchainos.md`](13-xlayer-onchainos.md)  
 schema：`proof-forge.chain-client-catalog.v1`  
-MCP：`pf_chain_catalog` · SDK：`ProofForgeClient.chain_catalog`
+MCP：`pf_chain_catalog` · `pf_network_info` · `pf_onchainos_guide` · SDK：`chain_catalog` / `network_catalog`
 
 ## 1. 目的
 
@@ -72,8 +74,14 @@ python3 -I tools/sdk/proof_forge_sdk.py chain-catalog --target aleo
 ## 6. 非目标
 
 - 不安装前端 npm 包
-- 不提供 mainnet endpoint 白名单（network 脚本另有 policy）
+- 不因 catalog 存在而默认 public broadcast（policy 在 `networks.v1.json`）
 - 不 formal / Stage-0
+
+## 6b. EVM networks + OnchainOS
+
+- 网络 id / RPC / policy：[`networks.v1.json`](networks.v1.json)
+- 集成与 P0–P2：[`13-xlayer-onchainos.md`](13-xlayer-onchainos.md)
+- `evm` target 行含 `networks[]`、`ecosystem.okxOnchainOs`、`networksRef`
 
 ## 7. Aleo frontend deep-dive
 
@@ -87,10 +95,9 @@ Catalog JSON 的 `aleo.frontendClients` 列出具体 `@provablehq/aleo-wallet-ad
 
 ## 8. EVM frontend deep-dive
 
-EVM dApp 前端（viem / MetaMask / 本地 Anvil）见：
+EVM dApp 前端（viem / MetaMask / 本地 Anvil + X Layer 预设）见：
 
-[`08-evm-dapp-frontend.md`](08-evm-dapp-frontend.md) · 模板 [`templates/evm-dapp-ui/`](../../templates/evm-dapp-ui/)
-
+[`08-evm-dapp-frontend.md`](08-evm-dapp-frontend.md) · 模板 [`templates/evm-dapp-ui/`](../../templates/evm-dapp-ui/) · [`13-xlayer-onchainos.md`](13-xlayer-onchainos.md)
 
 ## Solana (ProofForge path)
 

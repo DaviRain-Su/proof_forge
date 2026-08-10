@@ -15,11 +15,14 @@ Authority: [`docs/product/01-toolchain-install-surface.md`](../../docs/product/0
 | `pf_artifacts` | `proof-forge-next inspect --output-dir <dir> --json` |
 | `pf_local` | `proof-forge-next local --target … [--mode sandbox] -- --source … --module … [--root …]` |
 | `pf_chain_catalog` | static `docs/product/chain-client-catalog.v1.json` (client/frontend metadata) |
+| `pf_network_info` | static `docs/product/networks.v1.json` (Anvil / X Layer / placeholders) |
+| `pf_onchainos_guide` | OKX OnchainOS dual-MCP map + P0–P2 (from networks catalog ecosystems) |
 
 - **No** default network broadcast tool (use product CLI `network --broadcast` explicitly if needed).
 - Aleo `pf_local` is **generic**: requires `source` + `module`; optional `root` / `runs` / `golden` / `skipRun` — no default program. When `root` is provided it is passed through as product `--root` after `--`, so repo-external source paths resolve against that project root.
 - Hello agent playbook: [`docs/product/03-hello-dapp-agent-playbook.md`](../../docs/product/03-hello-dapp-agent-playbook.md).
-- Tools **only** spawn the product CLI / package engines (except `pf_chain_catalog`, which reads package JSON); they do **not** reimplement solc/leo/nargo.
+- X Layer / OnchainOS: [`docs/product/13-xlayer-onchainos.md`](../../docs/product/13-xlayer-onchainos.md). DEX quotes use **official** `https://web3.okx.com/api/v1/onchainos-mcp` (not this server).
+- Tools **only** spawn the product CLI / package engines (except catalog tools, which read package JSON); they do **not** reimplement solc/leo/nargo.
 - Tool Lock installs never use PATH fallback into `PROOF_FORGE_TOOL_ROOT`.
 - Success is **not** formal / hermetic / mainnet / `deployable=true` evidence.
 
@@ -96,7 +99,8 @@ npx -y mcp-remote https://proof-forge-mcp.davirain-yin.workers.dev/mcp
 ```
 
 **Edge tools (guidance only):** `pf_health`, `pf_list_docs`, `pf_get_doc`, `pf_search_docs`,
-`pf_chain_catalog`, `pf_target_info`, `pf_agent_instructions`, `pf_cli_cheatsheet`, `pf_aleo_live_demo`, `pf_solana_scaffold`, `pf_solana_ix_codec`, `pf_solana_artifacts`.
+`pf_chain_catalog`, `pf_network_info`, `pf_onchainos_guide`, `pf_target_info`, `pf_agent_instructions`,
+`pf_cli_cheatsheet`, `pf_aleo_live_demo`, `pf_solana_scaffold`, `pf_solana_ix_codec`, `pf_solana_artifacts`.
 
 The remote Worker **does not** spawn Lean/CLI, hold keys, or broadcast. Local compile/deploy still uses
 this stdio server or the `pf` CLI.

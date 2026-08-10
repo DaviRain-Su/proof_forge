@@ -1,11 +1,28 @@
 import type { Abi } from "viem";
+import {
+  ANVIL_LOCAL,
+  presetByChainId,
+  presetById,
+  type ChainPreset,
+} from "./chains";
 import type { DeploymentFile } from "./types";
 
-export const DEFAULT_RPC = "http://127.0.0.1:8545";
-export const DEFAULT_CHAIN_ID = 31337;
+export const DEFAULT_RPC = ANVIL_LOCAL.rpcUrls[0];
+export const DEFAULT_CHAIN_ID = ANVIL_LOCAL.chainId;
 /** Anvil account #0 — local demo only. Never use on public nets. */
 export const ANVIL_ACCOUNT0 =
   "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266" as const;
+
+export {
+  ANVIL_LOCAL,
+  XLAYER_TESTNET,
+  XLAYER_MAINNET,
+  CHAIN_PRESETS,
+  presetByChainId,
+  presetById,
+  walletAddEthereumChainParams,
+} from "./chains";
+export type { ChainPreset } from "./chains";
 
 export async function loadDeployment(): Promise<DeploymentFile | null> {
   try {
@@ -23,13 +40,38 @@ export async function loadDefaultAbi(): Promise<Abi> {
   return (await res.json()) as Abi;
 }
 
-export function envRpc(): string {
-  return (import.meta.env.VITE_RPC_URL ?? DEFAULT_RPC).replace(/\/$/, "");
+/**
+ * Optional `VITE_NETWORK_ID` = networks.v1.json id (e.g. evm.xlayer.testnet).
+ * Overrides default chain when VITE_CHAIN_ID / VITE_RPC_URL are unset.
+ */
+export function envNetworkPreset(): ChainPreset | null {
+  const id = (import.meta.env.VITE_NETWORK_ID ?? "").trim();
+  if (!id) return null;
+  return presetById(id) ?? null;
 }
 
 export function envChainId(): number {
-  const n = Number(import.meta.env.VITE_CHAIN_ID ?? DEFAULT_CHAIN_ID);
-  return Number.isFinite(n) ? n : DEFAULT_CHAIN_ID;
+  const fromEnv = Number(import.meta.env.VITE_CHAIN_ID ?? "");
+  if (Number.isFinite(fromEnv) && fromEnv > 0) return fromEnv;
+  const preset = envNetworkPreset();
+  if (preset) return preset.chainId;
+  return DEFAULT_CHAIN_ID;
+}
+
+export function envRpc(): string {
+  const explicit = (import.meta.env.VITE_RPC_URL ?? "").trim();
+  if (explicit) return explicit.replace(/\/$/, "");
+  const preset =
+    envNetworkPreset() ?? presetByChainId(envChainId()) ?? ANVIL_LOCAL;
+  return preset.rpcUrls[0].replace(/\/$/, "");
+}
+
+export function envChainPreset(): ChainPreset {
+  return (
+    envNetworkPreset() ??
+    presetByChainId(envChainId()) ??
+    ANVIL_LOCAL
+  );
 }
 
 export function envAddress(): `0x${string}` | null {

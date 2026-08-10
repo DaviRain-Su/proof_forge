@@ -12,8 +12,9 @@ browser wallet → get() / increment(uint64)
 ```
 
 - **Default path is local Anvil** (chain id 31337)
-- **No public-chain broadcast** in pf v0 product surface
-- Guide: [`docs/product/08-evm-dapp-frontend.md`](../../docs/product/08-evm-dapp-frontend.md)
+- **X Layer presets** in `src/chains.ts` (testnet **1952**, mainnet **196**, gas **OKB**)
+- **No default public-chain broadcast** in pf v0 product surface
+- Guides: [`08-evm-dapp-frontend.md`](../../docs/product/08-evm-dapp-frontend.md) · [`13-xlayer-onchainos.md`](../../docs/product/13-xlayer-onchainos.md) · [`networks.v1.json`](../../docs/product/networks.v1.json)
 
 ## Quick start (recommended)
 
@@ -57,8 +58,21 @@ Then start your own Anvil, deploy with `cast`/`pf deploy --broadcast --network l
 |---|---|---|
 | `VITE_RPC_URL` | `http://127.0.0.1:8545` | overridden by deployment.json |
 | `VITE_CHAIN_ID` | `31337` | |
+| `VITE_NETWORK_ID` | empty | e.g. `evm.xlayer.testnet` → chain 1952 + public RPC |
 | `VITE_CONTRACT_ADDRESS` | empty | |
 | `VITE_CONSTRUCTOR_INITIAL` | `7` | StateCell ctor |
+
+### X Layer (attach-only demo)
+
+```bash
+export VITE_NETWORK_ID=evm.xlayer.testnet
+export VITE_CONTRACT_ADDRESS=0x…   # already deployed
+npm run dev
+# MetaMask / OKX Wallet: add chain 1952, fund OKB for gas
+```
+
+Public writes are **operator/wallet** decisions. Engineering deploy stub:
+`scripts/pf_evm_xlayer_deploy.sh` (print-only unless future execute gate).
 
 ## Expected ABI shape
 
@@ -74,7 +88,7 @@ function get() view returns (uint64)
 |---|---|
 | Wallet UX + local calls | Compile / Anvil test / local deploy package |
 | viem + injected provider | Does not vendor wagmi; catalog lists ethers/viem/wagmi as ecosystem |
-| Not Sepolia/mainnet product | pf refuses public broadcast in v0 |
+| X Layer presets (1952/196) | catalog + UI attach; pf refuses default public broadcast in v0 |
 
 ## References
 

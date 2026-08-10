@@ -22,7 +22,7 @@
     {
       "id": "04-chain-client-catalog.md",
       "title": "Chain client / frontend catalog (metadata for agents)",
-      "bytes": 3810,
+      "bytes": 4367,
       "kind": "markdown"
     },
     {
@@ -46,7 +46,7 @@
     {
       "id": "08-evm-dapp-frontend.md",
       "title": "EVM dApp frontend — viem/MetaMask + PF bytecode (FCCP companion)",
-      "bytes": 4222,
+      "bytes": 5218,
       "kind": "markdown"
     },
     {
@@ -106,7 +106,7 @@
     {
       "id": "mcp-stdio-readme.md",
       "title": "ProofForge MCP-V0",
-      "bytes": 4430,
+      "bytes": 4858,
       "kind": "markdown"
     },
     {
@@ -125,6 +125,12 @@
       "id": "chain-client-catalog.v1.json",
       "title": "Chain client catalog",
       "bytes": 19796,
+      "kind": "catalog"
+    },
+    {
+      "id": "networks.v1.json",
+      "title": "Network catalog (X Layer / Anvil)",
+      "bytes": 10314,
       "kind": "catalog"
     }
   ]
