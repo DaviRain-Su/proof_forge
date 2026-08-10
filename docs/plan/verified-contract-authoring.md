@@ -979,8 +979,9 @@ expression translator：
     `.certified` 产品；production codec 已补齐任意 framing/nesting 下具名 public
     `ParameterV1`、unary `stateStore; stateStore; stateLoad; return` callable 及其与 equality
     invariant 组成的两行 callable table exact inversion seams，且继续使用唯一 production codec。
-    下一步仍需组合该 family 的其余 root fields 与 production structure phases，而不是伪造
-    admission carrier；
+    name-parameterized `StatefulEqualitySubjectV1` 已进一步把这些 seams 组合成完整
+    `RootFieldInvertV1`，不 pin whole-program bytes；下一步仍需闭合 production structure phases
+    并接入 fail-closed elaborator recognition，而不是伪造 admission carrier；
 13. VerifiedVaultPF 的 initializer、deposit、withdraw、status returned 业务 lemmas仍未完成；
     因此 Phase 4 与“任意业务合约验证”仍不能称完成，当前最高声明仍是
     `reference-certified` 地基而非 target artifact verified。
