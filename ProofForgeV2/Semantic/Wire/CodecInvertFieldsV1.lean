@@ -1320,8 +1320,12 @@ private theorem decodeArrayElements_of_encodeArrayChunks_midV1
               simpa [List.length_cons, ByteArray.size_append, hoffFinal] using hsucc
 
 /-- Generic exact inversion for production arrays, parameterized by element
-    encode success and element exact inversion. -/
-private theorem exactMidOffsetInvert_array_of_forall_encoded_exact
+    encode success and element exact inversion.
+
+    This is the reusable root-table seam: callers prove only the production
+    codec facts for each source element, while this theorem owns the sole
+    `encodeArrayChunksV1` / `decodeArrayElementsV1` induction. -/
+theorem exactMidOffsetInvert_array_of_forall_encoded_exact
     (encode : α → Except SemanticWireErrorV1 ByteArray)
     (decode : Decoder α) (maxCount : Nat) (values : Array α)
     (hmax : values.size ≤ maxCount)

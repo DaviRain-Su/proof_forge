@@ -75,6 +75,26 @@ theorem invariantDecl_midOffsetInvert :
     MidOffsetInvertV1 encodeInvariantDeclV1 decodeInvariantDeclV1 :=
   midOffsetInvert_encodeInvariantDecl_decodeInvariantDecl
 
+/-- The public production-array induction packages arbitrary-length invariant
+    tables from per-element production codec facts; it is not limited to a
+    closed singleton or contract-specific byte layout. -/
+theorem invariantTable_exact_of_forall_encoded
+    (values : Array InvariantDeclV1)
+    (hsize : values.size ≤ maxTableElements)
+    (hsizeU32 : values.size ≤ UInt32.size - 1)
+    (hencoded :
+      ∀ value ∈ values.toList, ∃ bytes, encodeInvariantDeclV1 value = .ok bytes) :
+    ExactMidOffsetInvertV1 (encodeArray encodeInvariantDeclV1)
+      (decodeArray maxTableElements decodeInvariantDeclV1) values := by
+  exact
+    exactMidOffsetInvert_array_of_forall_encoded_exact
+      encodeInvariantDeclV1 decodeInvariantDeclV1 maxTableElements values
+      hsize (by decide) hsizeU32 hencoded (by
+        intro value _hvalue
+        exact
+          ExactMidOffsetInvertV1.ofGlobal
+            midOffsetInvert_encodeInvariantDecl_decodeInvariantDecl value)
+
 /-- Positive theorem: CallableKind MidOffsetInvert package. -/
 theorem callableKind_midOffsetInvert :
     MidOffsetInvertV1 encodeCallableKindV1 decodeCallableKindV1 :=

@@ -848,6 +848,10 @@ expression translator：
     只证明 production `encodeLogicalStateValuesV1` 的 successful result。尚未证明任意 lowered
     family 的 premise-free exact subject validation packaging，也尚未处理 arithmetic/Struct/Map
     expression；
+    production root codec 层现已公开任意长度 array 的 exact inversion 归纳 seam：调用方只需
+    提供每个 source element 的 production encode success 与 exact inversion，不再为固定表长
+    重写 `encodeArrayChunksV1` / `decodeArrayElementsV1` 或 pin 整表 bytes；这仍只是 root-table
+    组合地基，不能单独推出 structure/validation success；
     当前已把 `subjectBodyEncodeOkV1` + 全部 production root gates + structure success +
     whole-program `RootFieldInvertV1` 组合 exact validation 的 theorem 抽到通用
     `SubjectDataBridgeV1`，不再归属于 parity shape；elaborator 现已对每个 proof-bearing program

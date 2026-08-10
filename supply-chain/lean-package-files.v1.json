@@ -441,9 +441,9 @@
       "sha256": "8cd059d448b067e9fa614a99cf0f30ca5883725863204ee370f1c241a510a6d4"
     },
     {
-      "bytes": 124136,
+      "bytes": 124342,
       "path": "ProofForgeV2/Semantic/Wire/CodecInvertFieldsV1.lean",
-      "sha256": "3134b17ad07fcd095232fdc752d4d54f637794d8fa45d8599dd58279091d9ebf"
+      "sha256": "88e0b1ff74e211487b03d5a3b051888898cce983d2e6de98e599904b08455531"
     },
     {
       "bytes": 34724,
