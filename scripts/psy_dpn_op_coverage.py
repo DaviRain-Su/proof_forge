@@ -249,7 +249,7 @@ def main() -> int:
             {
                 "id": "hash-gadgets",
                 "ops": ["hashNoPad", "hashPad", "hashTwoToOne", "keccak256", "calculateMerkleRoot"],
-                "status": "not-emitted-by-PF",
+                "status": "not-emitted-by-PF; no ProgramV1/language surface yet (P2 design gate)",
             },
             {
                 "id": "IMT-state-cmds",
@@ -261,11 +261,11 @@ def main() -> int:
             },
             {
                 "id": "events",
-                "status": "PARTIAL encoding in emitter; session ignores events[]",
+                "status": "PARTIAL: EmitProbe official+session event data aligned; no ordered-event runtime gate",
             },
             {
                 "id": "Map-dense-put",
-                "status": "fixed 2026-08-10: wire-resolved sub_slot + def-step resolution + encoded bool ops",
+                "status": "fixed 2026-08-10 + P1 diff/multi-key: wire-resolved sub_slot, def-step resolution, encoded bool ops",
             },
             {
                 "id": "ContextRead-Commit",

@@ -13,6 +13,7 @@ mods=(
   "Examples/Accumulator.lean:Examples.Accumulator"
   "Examples/WideCounter.lean:Examples.WideCounter"
   "Examples/MapMini.lean:Examples.MapMini"
+  "Examples/EmitProbe.lean:Examples.EmitProbe"
 )
 ok=0; fail=0; skip=0
 out_root="$root/build/v2/psy-matrix"
@@ -60,6 +61,12 @@ for entry in "${mods[@]}"; do
             --call initialize --call put:1,99 --call get:1 >/tmp/psy-mat-session-$name.log \
             && rg -q 'outputs=\[99\]' /tmp/psy-mat-session-$name.log \
             && echo "  OK session put/get 99" || { echo "  FAIL session"; fail=$((fail+1)); continue; }
+          ;;
+        EmitProbe)
+          python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" --json \
+            --call initialize:0 --call ping:5 --call get >/tmp/psy-mat-session-$name.json \
+            && python3 -I -S -c "import json;d=json.load(open('/tmp/psy-mat-session-EmitProbe.json'));assert d['calls'][1]['outputs']==[5] and d['calls'][1]['events'][0]['data']==[5]" \
+            && echo "  OK session emit ping" || { echo "  FAIL session"; fail=$((fail+1)); continue; }
           ;;
       esac
       ok=$((ok+1))

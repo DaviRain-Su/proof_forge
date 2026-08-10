@@ -131,9 +131,10 @@ class Executor:
         self.cmd_res: list[list[int]] = []
         self.reads: list[dict] = []
         self.writes: list[dict] = []
+        self.events: list[dict] = []
         self.user_id = session.user_id
         self.contract_id = session.contract_id
-        self.checkpoint_id = 0
+        self.checkpoint_id = 100  # matches psy_user_cli simulate default context
         self.cmds: list[dict] = []
         self.done: set[int] = set()
 
@@ -360,6 +361,28 @@ class Executor:
             if left != right:
                 raise DpnError(f"assert {a.get('message', '')!r}: {left} != {right}")
 
+        # PARTIAL events: filter by condition; resolve identity + data wires.
+        for ev in fn.get("events") or []:
+            cond = int(ev.get("condition", 0))
+            try:
+                if not self.g(cond):
+                    continue
+            except DpnError:
+                continue
+            def _rid(ref: int) -> int:
+                try:
+                    return self.g(int(ref))
+                except DpnError:
+                    return int(ref)
+            self.events.append(
+                {
+                    "checkpoint_id": _rid(ev.get("checkpoint_id", 0)),
+                    "user_id": _rid(ev.get("user_id", self.user_id)),
+                    "contract_id": _rid(ev.get("contract_id", self.contract_id)),
+                    "data": [_rid(x) for x in (ev.get("data") or [])],
+                }
+            )
+
         outs = [self.g(int(w)) for w in (fn.get("circuit_outputs") or [])]
         return {
             "success": True,
@@ -369,6 +392,7 @@ class Executor:
             "outputs": outs,
             "state_reads": self.reads,
             "state_writes": self.writes,
+            "events": self.events,
             "state_delta": [
                 {
                     "slot_index": w["slot_index"],

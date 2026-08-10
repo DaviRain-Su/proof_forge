@@ -6,7 +6,7 @@
     "schemaOpCount": 73,
     "emitterReachableCount": 28,
     "sessionImplementedCount": 48,
-    "artifactOpKinds": 23,
+    "artifactOpKinds": 25,
     "artifactFiles": 6,
     "p0EmitterWithoutSession": [],
     "featureBacklog": [
@@ -19,7 +19,7 @@
           "keccak256",
           "calculateMerkleRoot"
         ],
-        "status": "not-emitted-by-PF"
+        "status": "not-emitted-by-PF; no ProgramV1/language surface yet (P2 design gate)"
       },
       {
         "id": "IMT-state-cmds",
@@ -31,11 +31,11 @@
       },
       {
         "id": "events",
-        "status": "PARTIAL encoding in emitter; session ignores events[]"
+        "status": "PARTIAL: EmitProbe official+session event data aligned; no ordered-event runtime gate"
       },
       {
         "id": "Map-dense-put",
-        "status": "fixed 2026-08-10: wire-resolved sub_slot + def-step resolution + encoded bool ops"
+        "status": "fixed 2026-08-10 + P1 diff/multi-key: wire-resolved sub_slot, def-step resolution, encoded bool ops"
       },
       {
         "id": "ContextRead-Commit",
@@ -64,7 +64,7 @@
       "artifactCount": 52,
       "examples": [
         "Accumulator",
-        "LoopSum",
+        "EmitProbe",
         "MapMini",
         "OptionState",
         "StateCell",
@@ -79,10 +79,10 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 1981,
+      "artifactCount": 2727,
       "examples": [
         "Accumulator",
-        "LoopSum",
+        "EmitProbe",
         "MapMini",
         "OptionState",
         "StateCell",
@@ -100,7 +100,7 @@
       "artifactCount": 26,
       "examples": [
         "Accumulator",
-        "LoopSum",
+        "EmitProbe",
         "MapMini",
         "OptionState",
         "StateCell",
@@ -128,10 +128,10 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 2369,
+      "artifactCount": 2353,
       "examples": [
         "Accumulator",
-        "LoopSum",
+        "EmitProbe",
         "StateCell",
         "WideCounter"
       ],
@@ -144,9 +144,8 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 2317,
+      "artifactCount": 2316,
       "examples": [
-        "LoopSum",
         "WideCounter"
       ],
       "status": "covered"
@@ -197,9 +196,8 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 1088,
+      "artifactCount": 1080,
       "examples": [
-        "LoopSum",
         "MapMini",
         "OptionState",
         "WideCounter"
@@ -263,12 +261,10 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": true,
-      "artifactCount": 1,
-      "examples": [
-        "LoopSum"
-      ],
-      "status": "covered"
+      "seenInArtifacts": false,
+      "artifactCount": 0,
+      "examples": [],
+      "status": "emitter+session-no-artifact"
     },
     {
       "opId": 15,
@@ -277,10 +273,10 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 293,
+      "artifactCount": 285,
       "examples": [
         "Accumulator",
-        "LoopSum",
+        "EmitProbe",
         "StateCell",
         "WideCounter"
       ],
@@ -306,9 +302,8 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 1387,
+      "artifactCount": 1378,
       "examples": [
-        "LoopSum",
         "WideCounter"
       ],
       "status": "covered"
@@ -375,9 +370,8 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 5649,
+      "artifactCount": 5648,
       "examples": [
-        "LoopSum",
         "MapMini",
         "OptionState",
         "WideCounter"
@@ -631,10 +625,12 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 1,
+      "examples": [
+        "EmitProbe"
+      ],
+      "status": "covered"
     },
     {
       "opId": 47,
@@ -642,10 +638,12 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 1,
+      "examples": [
+        "EmitProbe"
+      ],
+      "status": "covered"
     },
     {
       "opId": 48,
@@ -653,10 +651,12 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 1,
+      "examples": [
+        "EmitProbe"
+      ],
+      "status": "covered"
     },
     {
       "opId": 49,
@@ -720,10 +720,10 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 801,
+      "artifactCount": 794,
       "examples": [
         "Accumulator",
-        "LoopSum",
+        "EmitProbe",
         "MapMini",
         "OptionState",
         "StateCell",
@@ -949,14 +949,14 @@
       "pfSchema": true,
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 804
+      "artifactCount": 797
     },
     {
       "name": "SetContractStateSlotSingle",
       "pfSchema": true,
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 111
+      "artifactCount": 104
     },
     {
       "name": "GetSelfUserCurrentContractStateSlotHash",
@@ -1134,31 +1134,33 @@
   ],
   "artifactOps": {
     "0": 52,
-    "1": 1981,
+    "1": 2727,
     "2": 26,
     "3": 2,
-    "4": 2369,
-    "5": 2317,
+    "4": 2353,
+    "5": 2316,
     "6": 68,
     "8": 940,
-    "9": 1088,
+    "9": 1080,
     "10": 2513,
     "13": 2553,
-    "14": 1,
-    "15": 293,
+    "15": 285,
     "16": 768,
-    "17": 1387,
-    "23": 5649,
+    "17": 1378,
+    "23": 5648,
     "32": 924,
     "34": 2820,
     "36": 4,
     "38": 2944,
     "42": 3480,
-    "54": 801,
+    "46": 1,
+    "47": 1,
+    "48": 1,
+    "54": 794,
     "72": 20
   },
   "artifactStateCmds": {
-    "GetSelfUserCurrentContractStateSlotSingle": 804,
-    "SetContractStateSlotSingle": 111
+    "GetSelfUserCurrentContractStateSlotSingle": 797,
+    "SetContractStateSlotSingle": 104
   }
 }

@@ -18,6 +18,8 @@ Generator: `scripts/psy_dpn_op_coverage.py` · `just psy-dpn-op-coverage`
 - StateCell: `initialize` / `increment` / `get` (continuity 7→12)
 - OptionState: multi-leaf tag+payload (`setSome` / `peek` / `clear`)
 - Accumulator, WideCounter (UInt128 limbs via u32 ops)
+- MapMini: official put/get + session multi-key (`put`/`get`, overwrite, miss→0)
+- EmitProbe: `emit` events (PARTIAL) official+session data/user/contract align
 - LoopSum: session matches official single-call (loop body shape)
 
 **Schema-only / not emitted by PF (not a session bug):**
@@ -29,7 +31,7 @@ Generator: `scripts/psy_dpn_op_coverage.py` · `just psy-dpn-op-coverage`
 
 **PARTIAL:**
 
-- events (emitter encodes; session does not assert event list)
+- events: **EmitProbe covered** (session collects conditioned events; ordered-event runtime gate still PARTIAL)
 - void `InvokeExternalContractFunctionSync` (shape only)
 - Map dense put: **fixed** (wire-resolved sub_slot + def-step resolution + encoded bool ops); MapMini put/get official+session green
 
