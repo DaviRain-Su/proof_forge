@@ -24,7 +24,7 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
 - state/param/result **UInt8/16/32/64 与窄 Int** ABI/body 子集（UInt128/256 软件多字已开 T9e；mul 为 schoolbook，div/mod 已于 `910835aa4` 切 exact binary long division）；
 - **`EmitSbpfAsmV1`** 完整 Operation 表面 → 锁定 `sbpf` 汇编为 deployable Solana ELF `.so`
   （`solana-sbpf-elf-v1` profile；默认仍可走 plan-only profile）；
-- **Mollusk 运行时差分**：tracked inventory 为 **21 integration test binaries / 405 active tests**，
+- **Mollusk 运行时差分**：tracked inventory 为 **22 integration test binaries / 410 active tests**，
   覆盖 legacy Counter/fixture ELF、active CPI product programs、TransferSol 与 CallerIsMe；
   legacy call 已从旧 profile runtime 面移除。新增 9 项 wide-div 覆盖：8 个 UInt128/256
   数值/div·mod 零除全账户回滚 oracle，加 1 个组合 `WideDivDispatch` 最远 `mod256` runtime-verifier pin；
@@ -111,7 +111,7 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
   `extension.pf-assets`/sync-call ticket；Plan/IR/assembly 明示 caller≠tx.origin，两个
   legacy profile 纵深 FC。Mollusk `caller_isme` **8/8** 覆盖 true/false、non-signer、
   len 0/65 与 nonzero high-tail 的 `Custom(1)` + exact snapshot；当前 tracked runtime
-  inventory 为 **21 integration test binaries / 405 active tests**。**非** formal/mainnet parity，且不把
+  inventory 为 **22 integration test binaries / 410 active tests**。**非** formal/mainnet parity，且不把
   wire Principal 全局等同 Solana pubkey。
 - **`context.blockHeight`（ADR-0031 S2，ordinary-elf）**：legacy `solana-sbpf-plan-v1` /
   `solana-sbpf-elf-v1` 经 host `sol_get_clock_sysvar` 读 `Clock.slot`（Plan `Expr.clockSlot`

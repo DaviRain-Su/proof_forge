@@ -175,13 +175,38 @@ increment:  get state; add; set; get.or_use again (dropped)
 
 ## 4.7 Solana Mollusk test（D7b）
 
+### 开发者短路径（规范）
+
+```text
+pf new hello --target solana
+cd hello
+pf build          # → build/solana/  （读 pf.toml，无 --module/-o）
+pf test           # 默认 StateCell-shaped Mollusk
+```
+
+### 实现
+
 1. `target=solana`；默认 artifact：`build/solana/`（或 `--artifact`）。
-2. 解析脚本：`PROOF_FORGE_SOLANA_TEST_SCRIPT` → `$PROOF_FORGE_ROOT/scripts/pf_solana_test.sh`。
-3. spawn：`cargo test --manifest-path runtime-tests/solana/Cargo.toml --locked --test transfer_sol_product`，  
-   环境 `PROOF_FORGE_TRANSFER_SOL_OUT=<artifact>`。
-4. **金样 only**：要求 `TransferSol.so` + manifest `artifactProgramName=TransferSol`；其它程序 fail closed（指引 `pf verify`）。
-5. 缺 cargo / runtime-tests crate：exit 0 + `skipped:`；cargo 在场断言失败 → exit 1。
-6. 非声称：不是 formal、不是 mainnet、不是全量 `solana-runtime` 19-program corpus、无 RPC/wallet/deploy。
+2. 脚本：`scripts/pf_solana_test.sh`（`PROOF_FORGE_SOLANA_TEST_SCRIPT` 可覆盖）。
+3. **默认 lane — StateCell-shaped（通用）**  
+   - 任意 `artifactProgramName`（`Hello` / `Counter` / `StateCell` …）  
+   - IDL：`init|initialize` + `increment` + `get`，`exactDataLen=16`  
+   - spawn：`cargo test --test state_cell_shaped_product`  
+   - env：`PROOF_FORGE_SOLANA_TEST_OUT=<artifact>`
+4. **专项 lane — TransferSol CPI gold（自动探测）**  
+   - 当 artifact 为 TransferSol 时改走 `transfer_sol_product`  
+   - env：`PROOF_FORGE_TRANSFER_SOL_OUT`  
+   - **不是** 默认开发者路径；文档 monorepo 长命令仅 CI/维护用。
+5. 其它形状：fail closed（指引改模板或 `pf verify`）。
+6. 缺 cargo / runtime-tests：skip-clean；在场失败 → exit 1。
+7. 非声称：不是 formal / mainnet / 全量 19-program corpus / RPC。
+
+### `pf verify` 与 `pf test` 分工
+
+| 命令 | 通用性 | 说明 |
+|---|---|---|
+| `pf test -t solana` | StateCell-shaped **通用** | 本地 Mollusk 执行差分 |
+| `pf verify -t solana` | offline joins | 部分 generic CPI 可能 irDigest note 失败（FC）；TransferSol 为 client 金样 |
 
 ## 5. JSON 成功对象（最小）
 

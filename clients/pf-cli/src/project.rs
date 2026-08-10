@@ -467,13 +467,18 @@ Python `proof-forge-sdk` is an optional **host** client for agents/scripts; it i
 ```bash
 export PROOF_FORGE_CLI=/path/to/proof-forge-next   # or set toolchain.compiler-path
 
-pf build                 # → build/{target}/
-pf run -- initialize 5u64
-pf run -- increment 3u64
-pf deploy --network testnet   # save-only by default
+pf build                 # → build/{target}/  (reads pf.toml; no long paths)
 ```
 
-Override target: `pf build -t solana` or `PF_TARGET=evm pf build`.
+Then, by target:
+
+| default-target | next |
+|---|---|
+| `aleo` | `pf run -- initialize 5u64` · `pf deploy` (save-only) |
+| `solana` | `pf test` (local Mollusk, StateCell-shaped) |
+| `evm` | `pf test` (local Anvil) |
+
+Override target once: `pf build -t solana` (still short; no `--module` needed inside a project).
 "#
         ),
     )?;

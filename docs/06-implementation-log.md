@@ -713,7 +713,7 @@ normative: false
 - Multi-role ABIv1 non-dup walk 要求 21 个 outer key 两两不同：测试侧 `unique_role_key` 填
   占位槽，handler 执行前 `wire_swap0`/`wire_remove` 把真实 mint/ATA/vault PDA 写入 CPI 槽。
 - Focused `cargo test --locked --test miniamm_assets` **10/10**。tracked inventory 现为
-  **21 integration test binaries / 405 active tests**。工程 only — 非 formal TASK-D5 /
+  **22 integration test binaries / 410 active tests**。工程 only — 非 formal TASK-D5 /
   hermetic / mainnet；E4 仍缺 M5 EVM 双 ERC-20 Anvil。
 
 ## 2026-08-06 — wave3 correctness closure：Map/Array 分派 + WideDiv 长距 dispatch

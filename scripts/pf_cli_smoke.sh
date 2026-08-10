@@ -188,25 +188,36 @@ print("json-ok")
   [[ "$acode" -ne 0 ]]
   echo "$aerr" | rg -qi 'inspect|aleo'
 
-  # D7b: focused Mollusk (TransferSol only; host-optional if cargo/crate missing)
+  # D7b: generic StateCell-shaped project flow (pf new → build → test)
   if [[ -f "$root/runtime-tests/solana/Cargo.toml" ]] && command -v cargo >/dev/null 2>&1; then
-    echo "pf-cli-smoke: solana test (TransferSol Mollusk)"
+    echo "pf-cli-smoke: solana project flow (pf new → build → test)"
     export PROOF_FORGE_ROOT="$root"
-    mout="$("$pf_bin" test -t solana --artifact "$sol_out" 2>&1)" || {
-      echo "$mout" >&2
-      exit 1
-    }
-    echo "$mout" | rg -qi 'Finished `test`|pf-solana-test: ok|Skipped `test`'
-    mj="$("$pf_bin" --json test -t solana --artifact "$sol_out")"
-    echo "$mj" | python3 -I -c '
+    proj="$tmp/sol-proj"
+    "$pf_bin" new counter --target solana --path "$proj" >/dev/null
+    (
+      cd "$proj"
+      "$pf_bin" build >/dev/null
+      mout="$("$pf_bin" test 2>&1)" || { echo "$mout" >&2; exit 1; }
+      echo "$mout" | rg -qi 'Finished `test`|state-cell-shaped|pf-solana-test: ok'
+      mj="$("$pf_bin" --json test)"
+      echo "$mj" | python3 -I -c '
 import json,sys
 o=json.load(sys.stdin)
 assert o.get("schema")=="proof-forge.pf.result.v1", o
-assert o.get("command")=="test", o
-assert o.get("ok") is True, o
-assert o.get("target")=="solana", o
-print("solana-test-json-ok")
+assert o.get("command")=="test" and o.get("ok") is True
+assert o.get("target")=="solana"
+lane=(o.get("extra") or {}).get("lane") or ""
+assert "state-cell" in lane or lane == "mollusk", lane
+print("solana-project-test-json-ok")
 '
+    )
+    # Specialty TransferSol still accepted when that artifact is used
+    echo "pf-cli-smoke: solana TransferSol specialty lane"
+    mout2="$("$pf_bin" test -t solana --artifact "$sol_out" 2>&1)" || {
+      echo "$mout2" >&2
+      exit 1
+    }
+    echo "$mout2" | rg -qi 'transfer-sol|Finished `test`|pf-solana-test: ok'
   else
     echo "pf-cli-smoke: skipped solana mollusk test (cargo/runtime-tests missing)"
   fi

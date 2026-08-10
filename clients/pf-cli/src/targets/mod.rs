@@ -42,7 +42,7 @@ pub fn capability_note(target: &str) -> &'static str {
             "build + `pf test` (local Anvil via scripts/pf_evm_test.sh); deploy not in pf v0"
         }
         TargetId::Solana => {
-            "build + `pf verify` (offline) + `pf test` (Mollusk TransferSol); deploy not in pf v0"
+            "build + `pf test` (Mollusk StateCell-shaped / TransferSol); `pf verify` offline when client joins; deploy not in pf v0"
         }
         TargetId::Other => "unsupported developer operation in pf v0 (fail closed)",
     }

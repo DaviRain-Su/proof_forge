@@ -187,21 +187,25 @@ just pf-cli-smoke   # includes verify when client builds
 
 **已知边界**：部分 generic CPI 产物（如 StateCell）可能在 solana-client 的 evidence.note irDigest join 上 fail；TransferSol 为 D7a 金样。
 
-### 5.3 D7b — Solana test（Mollusk，host-optional） — **done 2026-08-10**
+### 5.3 D7b — Solana test（Mollusk，host-optional） — **done 2026-08-10**（通用 StateCell-shaped）
 
 **实现**
 
-- `scripts/pf_solana_test.sh`：focused TransferSol only（避免全量 19 programs）
-- `clients/pf-cli/src/targets/solana/test.rs` + `cmd/test.rs` 分派
-- spawn：`cargo test … --test transfer_sol_product` + `PROOF_FORGE_TRANSFER_SOL_OUT`
-- 非 TransferSol artifact → fail closed（指引 `pf verify`）
+- **默认 lane**：`state_cell_shaped_product` — 任意 `pf new` 程序名（Hello/Counter/…）
+- **专项 lane**：TransferSol CPI gold（artifact 自动探测）
+- `scripts/pf_solana_test.sh` + `targets/solana/test.rs`
+- 开发者短路径：`pf new … && pf build && pf test`（**禁止**把 monorepo 长路径当产品 UX）
 - 缺 cargo/crate → skip-clean；`just pf-cli-solana-test` host-optional
 - **不进** ordinary `just ci`
 
 **验收**
 
 ```bash
-pf build Examples/TransferSol.lean --module Examples.TransferSol -t solana -o build/v2/ts
+# product UX
+pf new demo --target solana && cd demo && pf build && pf test
+
+# maintainer specialty only
+pf build Examples/TransferSol.lean --module Examples.TransferSol --target solana -o build/v2/ts
 pf test -t solana --artifact build/v2/ts
 just pf-cli-solana-test
 ```
@@ -295,10 +299,10 @@ A∥B∥C 文件几乎不重叠，可多 agent。
 
 - [x] `pf build -t solana && pf verify` 在 monorepo TransferSol 金样上绿（StateCell 若 irDigest join fail 保持 FC）
 - [x] `pf build -t evm && pf test -t evm` host-optional 绿（缺 anvil skip-clean；在场 hard assert）
-- [x] `pf test -t solana` TransferSol Mollusk 绿（非金样 FC；缺 cargo skip-clean）
+- [x] `pf test -t solana`：**`pf new` 项目流** StateCell-shaped 绿 + TransferSol 专项绿
 - [x] `pf run -t evm|solana` 稳定 FC 文案（指引 `pf test` / `pf verify`）
-- [x] `just pf-cli-smoke` 含 verify + evm test + solana mollusk（工具在场时）
-- [x] README + SPEC-CLI-DEV 更新 `pf verify` / `pf test -t evm|solana`
+- [x] `just pf-cli-smoke` 含 project-flow solana test + TransferSol specialty + evm
+- [x] README 以短路径为主；monorepo 长命令标为 maintainer-only
 - [x] 无 Devnet 自动写、无 mainnet、无 `deployable=true` 改写
 
 ---

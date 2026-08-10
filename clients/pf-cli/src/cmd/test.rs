@@ -54,11 +54,34 @@ pub fn run(target_cli: Option<&str>, artifact_cli: Option<&Path>, json: bool) ->
         }
         targets::TargetId::Solana => {
             let outcome = solana::test::run_mollusk_test(&dir)?;
+            // Prefer lane marker from script output when present.
+            let lane = outcome
+                .stdout
+                .lines()
+                .chain(outcome.stderr.lines())
+                .find_map(|l| {
+                    l.split_whitespace()
+                        .find(|t| t.starts_with("lane="))
+                        .map(|t| t.trim_start_matches("lane=").to_string())
+                })
+                .or_else(|| {
+                    if outcome.stdout.contains("state-cell-shaped")
+                        || outcome.stderr.contains("state-cell-shaped")
+                    {
+                        Some("state-cell-shaped".into())
+                    } else if outcome.stdout.contains("transfer-sol")
+                        || outcome.stderr.contains("transfer-sol")
+                    {
+                        Some("transfer-sol-cpi-gold".into())
+                    } else {
+                        Some("mollusk".into())
+                    }
+                });
             let mut ok = PfOk::new("test");
             ok.target = Some(target.clone());
             ok.artifact_dir = Some(dir.display().to_string());
             ok.extra = Some(serde_json::json!({
-                "lane": "mollusk-transfer-sol-product",
+                "lane": lane,
                 "script": outcome.script_path.display().to_string(),
                 "skipped": outcome.skipped,
                 "skipReason": outcome.skip_reason,
@@ -66,7 +89,8 @@ pub fn run(target_cli: Option<&str>, artifact_cli: Option<&Path>, json: bool) ->
                 "stderr": outcome.stderr,
             }));
             ok.notes = Some(vec![
-                "local Mollusk only (TransferSol gold fixture)".into(),
+                "local Mollusk only".into(),
+                "default: StateCell-shaped (pf new template); TransferSol = CPI specialty".into(),
                 "not formal/hermetic/mainnet".into(),
                 "not full solana-runtime corpus".into(),
                 "no RPC/wallet/deploy".into(),
