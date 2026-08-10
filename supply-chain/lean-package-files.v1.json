@@ -276,9 +276,9 @@
       "sha256": "219bb09ae2700d055320076d0c38c4236c22a50735cbb89f3b7db3687940df1a"
     },
     {
-      "bytes": 15142,
+      "bytes": 17784,
       "path": "ProofForgeV2/Semantic/FieldComparisonSubjectV1.lean",
-      "sha256": "aab46ded7f899fff8a49e4fcf03f3ba2f517c806640379ccc2ae5b8333a22fbc"
+      "sha256": "9cc448891a35b72c57299dab97c07eda7ec1a21b68b6622a9c94aaa96b7d7ca5"
     },
     {
       "bytes": 3891,

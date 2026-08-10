@@ -45,6 +45,20 @@ def requirementsV1 : ProgramRequirementsV1 := {
   items := #[persistentStateRequirementV1, boolRequirementV1]
 }
 
+/-- Exact source-order callable table shared by codec and structure phases. -/
+def callablesV1
+    (viewName literalInvariantName eqInvariantName neInvariantName : String) :
+    Array CallableV1 := #[
+  literalReturnCallableV1 0 .view (some viewName) 1 (encodeU8 1)
+    .public_ none,
+  literalReturnCallableV1 1 .invariant (some literalInvariantName) 1
+    (encodeU8 1) .public_ (some 3),
+  twoStateCompareInvariantCallableV1 2 (some eqInvariantName)
+    0 1 1 2 .eq .public_ (some 5),
+  twoStateCompareInvariantCallableV1 3 (some neInvariantName)
+    0 1 1 2 .ne .public_ (some 5)
+]
+
 /-- Contract-name-parametric semantic data for the field-comparison family. -/
 def subjectDataV1
     (qualifiedName : QualifiedName)
@@ -64,16 +78,8 @@ def subjectDataV1
   ]
   events := #[]
   errors := #[]
-  callables := #[
-    literalReturnCallableV1 0 .view (some viewName) 1 (encodeU8 1)
-      .public_ none,
-    literalReturnCallableV1 1 .invariant (some literalInvariantName) 1
-      (encodeU8 1) .public_ (some 3),
-    twoStateCompareInvariantCallableV1 2 (some eqInvariantName)
-      0 1 1 2 .eq .public_ (some 5),
-    twoStateCompareInvariantCallableV1 3 (some neInvariantName)
-      0 1 1 2 .ne .public_ (some 5)
-  ]
+  callables := callablesV1 viewName literalInvariantName eqInvariantName
+    neInvariantName
   invariants := #[
     { id := 0, name := literalInvariantName, callableId := 1 },
     { id := 1, name := eqInvariantName, callableId := 2 },
@@ -198,7 +204,7 @@ theorem rootFieldInvertV1
   · simpa [subjectDataV1] using
       (exactAt_array_emptyV1 encodeErrorDeclV1 decodeErrorDeclV1
         maxTableElements 1)
-  · simpa [subjectDataV1] using
+  · simpa [subjectDataV1, callablesV1] using
       exactAt_literalFieldComparisonCallableTableV1 0 1 2 3 viewName
         literalInvariantName eqInvariantName neInvariantName 0 1 1 2
         (encodeU8 1) (encodeU8 1) hviewName hliteralInvariantName
@@ -325,5 +331,54 @@ theorem genericCfgPhasesV1
       literalInvariantName eqInvariantName neInvariantName 3 neInvariantName
       .ne (Or.inr rfl)
   · rfl
+
+/-! ### Production invariant closure and fuel phases -/
+
+def closureMembersV1 : Array Bool := #[false, true, true, true]
+
+/-- The three invariant roots are independent closure members and the view is
+    outside the closure. There are no `PureCall` edges or PureFn metadata. -/
+theorem invariantClosurePhasesV1
+    (viewName literalInvariantName eqInvariantName neInvariantName : String) :
+    validateInvariantClosurePhasesV1
+      (callablesV1 viewName literalInvariantName eqInvariantName
+        neInvariantName) = .ok closureMembersV1 := by
+  simp [validateInvariantClosurePhasesV1,
+    validateInvariantClosureDagPhasesV1,
+    validateInvariantClosureMembershipPhasesV1,
+    invariantClosureMembershipResultV1, callablesV1, closureMembersV1,
+    literalReturnCallableV1, literalReturnBlockV1,
+    twoStateCompareInvariantCallableV1, twoStateCompareInvariantBlockV1]
+  rfl
+
+/-- Intrinsic production fuel is exactly 3 for literal true and 5 for each
+    two-load comparison; with no closure edges, carried and intrinsic totals
+    coincide. -/
+theorem invariantFuelPhasesV1
+    (viewName literalInvariantName eqInvariantName neInvariantName : String) :
+    validateInvariantFuelPhasesV1
+      (callablesV1 viewName literalInvariantName eqInvariantName
+        neInvariantName) closureMembersV1 = .ok () := by
+  rfl
+
+/-- Complete production CFG/invariant segment for the family. -/
+theorem cfgInvariantPhasesV1
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name state2Name : String)
+    (viewName literalInvariantName eqInvariantName neInvariantName : String) :
+    validateCfgInvariantPhasesV1
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName) = .ok () := by
+  apply validateCfgInvariantPhasesV1_eq_ok
+    (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+      literalInvariantName eqInvariantName neInvariantName) closureMembersV1
+  · exact genericCfgPhasesV1 qualifiedName state0Name state1Name state2Name
+      viewName literalInvariantName eqInvariantName neInvariantName
+  · simpa [subjectDataV1] using
+      invariantClosurePhasesV1 viewName literalInvariantName eqInvariantName
+        neInvariantName
+  · simpa [subjectDataV1] using
+      invariantFuelPhasesV1 viewName literalInvariantName eqInvariantName
+        neInvariantName
 
 end ProofForgeV2.Semantic.FieldComparisonSubjectV1

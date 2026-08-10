@@ -370,6 +370,16 @@ theorem typedInvariantFieldEqualitySubject_genericCfgPhasesV1 :
     TypedInvariantFieldEqualitySurface.Proof.subjectDataV1.qualifiedName
     "nonce" "reserves" "shares" "alive" "primary" "solvent" "nonsolvent"
 
+/-- The generated subject passes the complete production CFG/invariant
+    segment, including no-PureCall closure and exact 3/5/5 fuel. -/
+theorem typedInvariantFieldEqualitySubject_cfgInvariantPhasesV1 :
+    validateCfgInvariantPhasesV1
+      TypedInvariantFieldEqualitySurface.Proof.subjectDataV1 = .ok () := by
+  rw [typedInvariantFieldEqualitySubject_subjectData_eq]
+  exact ProofForgeV2.Semantic.FieldComparisonSubjectV1.cfgInvariantPhasesV1
+    TypedInvariantFieldEqualitySurface.Proof.subjectDataV1.qualifiedName
+    "nonce" "reserves" "shares" "alive" "primary" "solvent" "nonsolvent"
+
 example
     (typedState : TypedInvariantFieldEqualitySurface.Model.State)
     (hvalidate :

@@ -874,7 +874,10 @@ expression translator：
     是 codec transport certificate，尚未声称 structure/full validation success；该 family
     的四个 callable 也已逐项通过 production generic CFG phase（reachability、SSA uses /
     dominance、state lookup 与 UInt64 Eq/Ne typing），并由 production four-callable composer
-    汇总；invariant closure/fuel 与其余 structure phases 仍保持独立、尚未关闭；
+    汇总；随后同一参数化 callable table 也已通过 production invariant closure 与 fuel
+    phases：membership 为 `#[false,true,true,true]`、没有 `PureCall` 边、三个 root 的 exact
+    intrinsic/carried fuel 为 3/5/5；现已由 production composer 闭合完整 CFG/invariant
+    segment，其余 structure phases 仍保持独立、尚未关闭；
     当前已把 `subjectBodyEncodeOkV1` + 全部 production root gates + structure success +
     whole-program `RootFieldInvertV1` 组合 exact validation 的 theorem 抽到通用
     `SubjectDataBridgeV1`，不再归属于 parity shape；elaborator 现已对每个 proof-bearing program
