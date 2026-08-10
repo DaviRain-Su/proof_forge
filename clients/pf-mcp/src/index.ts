@@ -23,7 +23,58 @@ import {
 } from "./content";
 
 const SERVER_NAME = "proof-forge-mcp";
-const SERVER_VERSION = "0.3.1";
+const SERVER_VERSION = "0.3.2";
+
+/** Psy: PF emits DPN only; deploy/wallet/SDK are official ecosystem. */
+const PSY_PF = {
+  contractPath: "ProofForge ProgramV1 + pf CLI → canonical *.dpn.json (not Dargo/.psy source)",
+  profile: "psy-dpn-v1",
+  deployable: false,
+  zeroTool: true,
+  docs: [
+    "11-psy-agent-playbook.md",
+    "12-psy-dapp-frontend.md",
+    "psy-dpn-walkthrough.md",
+    "10-psy.md",
+  ],
+  artifact: {
+    schema: "proof-forge.psy.dpn-package.v1",
+    file: "{programName}.dpn.json",
+    mime: "application/json",
+    encoding: "psyDpn",
+    note: "Array of DPNFunctionCircuitDefinition (name, method_id, definitions, state_commands, …). Authority pin: PsyProtocol/psy-node DPN schema — not a Tool Lock binary.",
+  },
+  official: {
+    docs: ["https://docs.psy-protocol.xyz", "https://psy.xyz/docs"],
+    app: "https://app.psy-protocol.xyz",
+    wallet: "https://app.psy-protocol.xyz/#/wallet",
+    explorer: "https://explorer.psy-protocol.xyz",
+    ide: "https://ide.psy-protocol.xyz",
+    config: "https://config.psy-protocol.xyz/config.json",
+    toolchainInstaller: "https://github.com/QEDProtocol/psyup",
+    template: "https://github.com/PsyProtocol/psy-template",
+    sdk: "https://github.com/PsyProtocol/psy-sdk",
+    node: "https://github.com/PsyProtocol/psy-node",
+    packages: [
+      "@psy-protocol/psy-sdk",
+      "@psy-protocol/contract-sdk",
+      "@psy-protocol/utils",
+    ],
+    cli: ["psyup", "dargo", "psy_user_cli"],
+  },
+  handOff: [
+    "pf build --target psy → *.dpn.json",
+    "developer machine: psyup install / dargo / WebIDE for Psy-lang projects",
+    "deploy: psyup deploy or psy_user_cli (NOT pf deploy)",
+    "frontend: @psy-protocol/* + psy-wallet window.psy",
+  ],
+  safety: [
+    "PF has no Psy network broadcast product command",
+    "no private keys in MCP/chat/git",
+    "config endpoints drift — refresh config.psy-protocol.xyz",
+    "engineering DPN emission ≠ UPS/proof/mainnet evidence",
+  ],
+};
 
 /** In-product Solana knowledge for PF agents (not a pointer to external MCP). */
 const SOLANA_PF = {
@@ -139,9 +190,13 @@ function createServer() {
           "pf_solana_scaffold",
           "pf_solana_ix_codec",
           "pf_solana_artifacts",
+          "pf_psy_scaffold",
+          "pf_psy_artifacts",
+          "pf_psy_ecosystem",
         ],
         liveDemo: LIVE,
         solana: SOLANA_PF,
+        psy: PSY_PF,
       }),
   );
 
@@ -336,6 +391,7 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
 - Use \`pf_cli_cheatsheet\` for command sequences.
 - Use \`pf_aleo_live_demo\` for the published Aleo Testnet evidence links.
 - Use \`pf_solana_scaffold\`, \`pf_solana_ix_codec\`, \`pf_solana_artifacts\` for Solana (PF path).
+- Use \`pf_psy_scaffold\`, \`pf_psy_artifacts\`, \`pf_psy_ecosystem\` for Psy (DPN only + official hand-off).
 - This remote server does **not** compile, does **not** hold keys, and does **not** broadcast.
 
 ## Local execution (developer machine)
@@ -360,6 +416,13 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
 - StateCell account: 16 bytes = layout marker @0 + count @8. Local demo: \`scripts/pf_solana_local_demo.sh\` (Surfpool).
 - Principal wire identity ≠ Solana pubkey globally.
 - External Solana Rust/Anchor docs MCP is **out of the default agent path**; PF MCP already summarizes ix encoding + artifacts.
+
+## Psy notes (DPN hand-off)
+- **PF sole path:** \`pf build --target psy\` → \`{name}.dpn.json\` (profile \`psy-dpn-v1\`, \`deployable=false\`, zero-tool).
+- Do **not** treat Dargo/\`.psy\` as the PF source of truth; do **not** expect \`pf deploy\` for Psy.
+- Official deploy/prove/wallet: \`psyup\` / \`dargo\` / \`psy_user_cli\` / WebIDE / \`@psy-protocol/psy-sdk\` / psy-wallet.
+- Surfaces: app · wallet · explorer · IDE · config.psy-protocol.xyz (see \`pf_psy_ecosystem\`).
+- DPN schema authority pin is psy-node revision annotation — not an installable Tool Lock binary.
 
 ## Safety
 - No default network broadcast on MCP.
@@ -436,7 +499,17 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
                   "pf test --target evm",
                   "pf deploy --network local --broadcast",
                 ]
-              : [`# see pf_target_info for ${t}`];
+              : t === "psy"
+                ? [
+                    "pf setup --target psy && pf doctor --target psy",
+                    "pf new hello --target psy && cd hello",
+                    "# edit ProgramV1 Lean (not Dargo.toml / .psy as PF source)",
+                    "pf build   # → *.dpn.json  deployable=false",
+                    "pf inspect --output-dir .",
+                    "# hand-off: official psyup/dargo/WebIDE/wallet — NOT pf deploy",
+                    "# docs: pf_get_doc id=11-psy-agent-playbook.md | 12-psy-dapp-frontend.md | psy-dpn-walkthrough.md",
+                  ]
+                : [`# see pf_target_info for ${t}`];
       return textResult({
         target: t,
         common,
@@ -447,6 +520,130 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
     },
   );
 
+  server.registerTool(
+    "pf_psy_scaffold",
+    {
+      description:
+        "Psy target scaffold: ProofForge emits canonical DPN only; then hand off to official psyup/dargo/SDK/wallet. No PF network broadcast.",
+      inputSchema: z.object({
+        includeEcosystem: z
+          .boolean()
+          .optional()
+          .describe("Include official Psy URLs and toolchain notes (default true)"),
+      }),
+    },
+    async ({ includeEcosystem }) => {
+      const row = targetById("psy");
+      const eco = includeEcosystem !== false;
+      return textResult({
+        schema: "proof-forge.mcp.psy-scaffold.v1",
+        target: "psy",
+        contractPath: PSY_PF.contractPath,
+        profile: PSY_PF.profile,
+        deployable: PSY_PF.deployable,
+        catalog: row,
+        docs: PSY_PF.docs,
+        pfLadder: [
+          "export PROOF_FORGE_CLI=/path/to/proof-forge-next",
+          "pf setup --target psy",
+          "pf doctor --target psy   # zero-tool ok",
+          "pf new hello --target psy && cd hello",
+          "# edit Lean ProgramV1",
+          "pf build",
+          "ls *.dpn.json manifest.json",
+          "pf inspect --output-dir .",
+        ],
+        monorepoExample: [
+          "pf build Examples/StateCell.lean --module Examples.StateCell --target psy -o build/v2/sc-psy",
+          "jq '.[].name, .[].method_id' build/v2/sc-psy/StateCell.dpn.json",
+        ],
+        officialHandOff: eco ? PSY_PF.handOff : undefined,
+        official: eco ? PSY_PF.official : undefined,
+        safety: PSY_PF.safety,
+        edgeNote:
+          "Remote MCP is guidance-only. DPN compile is local pf; deploy/prove stay on official Psy tools.",
+      });
+    },
+  );
+
+  server.registerTool(
+    "pf_psy_artifacts",
+    {
+      description:
+        "Explain pf build --target psy outputs: sole *.dpn.json package, manifest deployable=false, no PF deploy artifact.",
+      inputSchema: z.object({
+        programName: z
+          .string()
+          .optional()
+          .describe("Artifact stem, default StateCell"),
+      }),
+    },
+    async ({ programName }) => {
+      const name = (programName ?? "StateCell").trim() || "StateCell";
+      return textResult({
+        schema: "proof-forge.mcp.psy-artifacts.v1",
+        buildCommand: `pf build <Source.lean> --module <Module> --target psy -o <out>`,
+        profile: PSY_PF.profile,
+        deployable: false,
+        files: [
+          {
+            path: `${name}.dpn.json`,
+            role: "materialized-base",
+            note: PSY_PF.artifact.note,
+          },
+          {
+            path: "manifest.json",
+            role: "inventory",
+            note: "proof-forge.output.v1; deployable=false",
+          },
+          {
+            path: "evidence.json",
+            role: "evidence",
+            note: "content-bound engineering evidence",
+          },
+        ],
+        notEmitted: [
+          ".psy source",
+          "Dargo.toml project",
+          "UPS proofs",
+          "network deployment receipt from pf",
+        ],
+        nextSteps: PSY_PF.handOff,
+        docs: PSY_PF.docs,
+      });
+    },
+  );
+
+  server.registerTool(
+    "pf_psy_ecosystem",
+    {
+      description:
+        "Official Psy Protocol surfaces (app, wallet, explorer, IDE, config, SDK, psyup) for agents. Not installed by ProofForge.",
+      inputSchema: z.object({}),
+    },
+    async () =>
+      textResult({
+        schema: "proof-forge.mcp.psy-ecosystem.v1",
+        ...PSY_PF.official,
+        samplePublicConfig: {
+          source: "https://config.psy-protocol.xyz/config.json",
+          note: "Live JSON drifts; always refetch. Snapshot fields observed 2026-07-20 release config.",
+          l1: "Ethereum Sepolia chain_id=11155111",
+          services: {
+            coordinator_rpc: "https://coordinator.psy-protocol.xyz",
+            realm_rpcs: [
+              "https://realm0.psy-protocol.xyz",
+              "https://realm1.psy-protocol.xyz",
+            ],
+            prove_proxy: "https://prove.psy-protocol.xyz",
+            indexer_graphql: "https://indexer.psy-protocol.xyz/v1/graphql",
+          },
+        },
+        pfBoundary: PSY_PF.contractPath,
+        safety: PSY_PF.safety,
+        docs: PSY_PF.docs,
+      }),
+  );
 
   server.registerTool(
     "pf_solana_scaffold",
@@ -740,12 +937,26 @@ npx -y mcp-remote https://&lt;this-host&gt;/mcp</pre>
     <tr><td><code>pf_solana_scaffold</code></td><td>Solana PF ladder + frontend template</td></tr>
     <tr><td><code>pf_solana_ix_codec</code></td><td>PF ix-data (body-only disc / CPI handlerId)</td></tr>
     <tr><td><code>pf_solana_artifacts</code></td><td>build outputs → UI vs CLI</td></tr>
+    <tr><td><code>pf_psy_scaffold</code></td><td>Psy DPN ladder + official hand-off</td></tr>
+    <tr><td><code>pf_psy_artifacts</code></td><td><code>*.dpn.json</code> package shape</td></tr>
+    <tr><td><code>pf_psy_ecosystem</code></td><td>app / wallet / explorer / IDE / SDK</td></tr>
   </table>
   <h2>Solana (ProofForge path)</h2>
   <p>
     Contracts: <strong>ProgramV1 + <code>pf build --target solana</code></strong> (not Anchor).
     Frontend: <code>templates/solana-dapp-ui</code>. Tools: <code>pf_solana_scaffold</code>,
     <code>pf_solana_ix_codec</code>, <code>pf_solana_artifacts</code>.
+  </p>
+  <h2>Psy (DPN hand-off)</h2>
+  <p>
+    Contracts: <strong>ProgramV1 + <code>pf build --target psy</code> → <code>*.dpn.json</code></strong>
+    (<code>deployable=false</code>). Deploy/wallet/SDK: official
+    <a href="https://app.psy-protocol.xyz">app</a> ·
+    <a href="https://app.psy-protocol.xyz/#/wallet">wallet</a> ·
+    <a href="https://ide.psy-protocol.xyz">WebIDE</a> ·
+    <a href="https://explorer.psy-protocol.xyz">explorer</a> ·
+    <code>psyup</code>/<code>dargo</code>. Tools: <code>pf_psy_scaffold</code>,
+    <code>pf_psy_artifacts</code>, <code>pf_psy_ecosystem</code>.
   </p>
   <h2>Boundaries</h2>
   <ul>

@@ -310,17 +310,72 @@
           "pf_install",
           "pf_build",
           "pf_artifacts",
-          "pf_chain_catalog"
+          "pf_chain_catalog",
+          "pf_psy_scaffold",
+          "pf_psy_artifacts",
+          "pf_psy_ecosystem"
         ]
       },
-      "frontendClients": [],
+      "frontendClients": [
+        {
+          "name": "@psy-protocol/psy-sdk",
+          "kind": "js-ts",
+          "purpose": "RPC, wallet provider, local web prover/compiler (official; not PF)",
+          "shippedByProofForge": false,
+          "packages": [
+            "@psy-protocol/psy-sdk",
+            "@psy-protocol/contract-sdk",
+            "@psy-protocol/utils"
+          ],
+          "docs": [
+            "docs/product/12-psy-dapp-frontend.md",
+            "https://github.com/PsyProtocol/psy-sdk"
+          ]
+        },
+        {
+          "name": "psy-wallet / window.psy",
+          "kind": "browser-extension",
+          "purpose": "user keys + sendTransaction approval UX",
+          "shippedByProofForge": false,
+          "docs": [
+            "https://app.psy-protocol.xyz/#/wallet",
+            "https://github.com/PsyProtocol/psy-template"
+          ]
+        }
+      ],
       "localDev": {
         "offlineInterpret": null,
-        "chainLike": null
+        "chainLike": null,
+        "deploy": "official psyup deploy / psy_user_cli / WebIDE — not pf deploy",
+        "frontend": "official psy-template + @psy-protocol/* (not PF template yet)",
+        "dpnArtifact": "{program}.dpn.json from pf build -t psy"
       },
       "honesty": [
-        "canonical DPN package only; no Psy source, Dargo, local VM, or proof lane"
-      ]
+        "canonical DPN package only from PF (profile psy-dpn-v1, deployable=false)",
+        "no Psy-lang source, Dargo, local VM, UPS, proof, or network lane inside PF",
+        "hand-off to official psyup/dargo/psy_user_cli/SDK/wallet for deploy & UX",
+        "config endpoints drift — refresh config.psy-protocol.xyz",
+        "engineering only — not formal/hermetic/mainnet evidence"
+      ],
+      "ecosystem": {
+        "docs": [
+          "https://docs.psy-protocol.xyz",
+          "https://psy.xyz/docs"
+        ],
+        "app": "https://app.psy-protocol.xyz",
+        "wallet": "https://app.psy-protocol.xyz/#/wallet",
+        "explorer": "https://explorer.psy-protocol.xyz",
+        "ide": "https://ide.psy-protocol.xyz",
+        "config": "https://config.psy-protocol.xyz/config.json",
+        "toolchain": "https://github.com/QEDProtocol/psyup",
+        "template": "https://github.com/PsyProtocol/psy-template",
+        "node": "https://github.com/PsyProtocol/psy-node"
+      },
+      "agentGuide": "docs/product/11-psy-agent-playbook.md",
+      "demoGuide": "docs/demos/psy-dpn-walkthrough.md",
+      "frontendGuide": "docs/product/12-psy-dapp-frontend.md",
+      "targetDossier": "docs/targets/10-psy.md",
+      "dpnLowering": "docs/targets/10-psy-dpn-lowering.md"
     },
     {
       "id": "quint",

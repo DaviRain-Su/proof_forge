@@ -56,9 +56,33 @@
       "kind": "markdown"
     },
     {
+      "id": "10-psy-dpn-lowering.md",
+      "title": "Psy DPN lowering contract",
+      "bytes": 5915,
+      "kind": "markdown"
+    },
+    {
+      "id": "10-psy.md",
+      "title": "Psy DPN target dossier",
+      "bytes": 5396,
+      "kind": "markdown"
+    },
+    {
       "id": "10-solana-dapp-frontend.md",
       "title": "Solana dApp frontend — wallet-adapter + PF IDL (not Anchor)",
       "bytes": 5096,
+      "kind": "markdown"
+    },
+    {
+      "id": "11-psy-agent-playbook.md",
+      "title": "Psy agent playbook — ProofForge DPN + official Psy toolchain",
+      "bytes": 6218,
+      "kind": "markdown"
+    },
+    {
+      "id": "12-psy-dapp-frontend.md",
+      "title": "Psy dApp frontend — wallet + SDK (FCCP companion)",
+      "bytes": 4905,
       "kind": "markdown"
     },
     {
@@ -80,6 +104,12 @@
       "kind": "markdown"
     },
     {
+      "id": "psy-dpn-walkthrough.md",
+      "title": "Demo — Psy DPN with pf (+ official ecosystem pointers)",
+      "bytes": 2794,
+      "kind": "markdown"
+    },
+    {
       "id": "solana-local-walkthrough.md",
       "title": "Demo — Solana with pf (build → Surfpool → UI)",
       "bytes": 2594,
@@ -88,7 +118,7 @@
     {
       "id": "chain-client-catalog.v1.json",
       "title": "Chain client catalog",
-      "bytes": 14978,
+      "bytes": 17364,
       "kind": "catalog"
     }
   ]

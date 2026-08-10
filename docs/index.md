@@ -31,7 +31,8 @@ wasmd Docker rung-1；TON：Tolk/BoC + sandbox 10/10（schedule `createMessage` 
 **Goal 全队列执行**：[`.grok/goals/prompt-master-queue.md`](../.grok/goals/prompt-master-queue.md)（[`QUEUE.md`](../.grok/goals/QUEUE.md) + [`slices/`](../.grok/goals/slices/)）。
 宽度/ABI 专项：[`roadmap-t8.md`](roadmap-t8.md)。
 Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md)。
-Psy DPN 物化规划：[`targets/10-psy-dpn-lowering.md`](targets/10-psy-dpn-lowering.md)（lane idle）。
+Psy DPN 物化：[`targets/10-psy.md`](targets/10-psy.md) · [`targets/10-psy-dpn-lowering.md`](targets/10-psy-dpn-lowering.md)（sole `psy-dpn-v1`，zero-tool，`deployable=false`）。
+Psy agent / 前端 / demo：[`product/11-psy-agent-playbook.md`](product/11-psy-agent-playbook.md) · [`product/12-psy-dapp-frontend.md`](product/12-psy-dapp-frontend.md) · [`demos/psy-dpn-walkthrough.md`](demos/psy-dpn-walkthrough.md)（官方 app/wallet/explorer/IDE/config 指针；PF 不广播）。
 Aleo Instructions IR 物化规划：[`targets/09-aleo-instructions-lowering.md`](targets/09-aleo-instructions-lowering.md)（idle residual；OPTION-COMPARE done）。
 外部 ProgramV1 工程（`--root` + Aleo direct Instructions）：[`product/02-external-program-v1.md`](product/02-external-program-v1.md)。
 Hello dApp Agent 剧本：[`product/03-hello-dapp-agent-playbook.md`](product/03-hello-dapp-agent-playbook.md)。

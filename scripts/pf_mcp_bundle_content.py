@@ -16,11 +16,16 @@ BUNDLED = ROOT / "clients" / "pf-mcp" / "src" / "bundled.ts"
 def sync_from_monorepo() -> None:
     CONTENT.mkdir(parents=True, exist_ok=True)
     shutil.copy2(ROOT / "docs/product/chain-client-catalog.v1.json", CONTENT / "chain-client-catalog.v1.json")
-    # Product docs: 01-..09- and 10-.. (e.g. 10-solana-dapp-frontend.md)
+    # Product docs: 01-.. / 10-.. / 11-psy / 12-psy …
     for src in sorted((ROOT / "docs/product").glob("[0-9][0-9]-*.md")):
         shutil.copy2(src, CONTENT / src.name)
     for src in sorted((ROOT / "docs/demos").glob("*.md")):
         shutil.copy2(src, CONTENT / src.name)
+    # Target dossiers agents often need (Psy DPN boundary)
+    for name in ("10-psy.md", "10-psy-dpn-lowering.md"):
+        src = ROOT / "docs" / "targets" / name
+        if src.exists():
+            shutil.copy2(src, CONTENT / src.name)
     mcp_readme = ROOT / "tools/mcp/README.md"
     if mcp_readme.exists():
         shutil.copy2(mcp_readme, CONTENT / "mcp-stdio-readme.md")
