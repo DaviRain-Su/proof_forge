@@ -304,6 +304,51 @@ theorem validateProgramRequirementsStructure_singleton_state_persistent_eq_ok
   have hPred := validatePredicatesSorted_empty
   simp [hDom, hPred, Pure.pure, Except.pure, Bind.bind, Except.bind]
 
+/-- The standard persistent-state / Bool requirement pair is in canonical
+    requirement-key order. Versions and digests remain parameters because the
+    distinct ids determine the comparison first. -/
+theorem validateProgramRequirementsStructure_state_bool_eq_ok
+    (stateVersion boolVersion : SemVer)
+    (stateDigest boolDigest : Digest) :
+    validateProgramRequirementsStructure {
+      items := #[{
+        id := "state.persistent"
+        version := stateVersion
+        digest := stateDigest
+        predicates := #[]
+      }, {
+        id := "value.bool"
+        version := boolVersion
+        digest := boolDigest
+        predicates := #[]
+      }]
+    } = .ok () := by
+  have hState := validateRequirementIdDomain_state_persistent
+  have hBool := validateRequirementIdDomain_value_bool
+  have hPred := validatePredicatesSorted_empty
+  have hId :
+      compareByteArrayLex "state.persistent".toByteArray
+        "value.bool".toByteArray = .lt := by
+    rw [compareByteArrayLex]
+    apply compareByteArrayLexLoopV1_eq_lt
+    · decide
+    · decide
+  have hStateBool :
+      compareRequirementKey {
+        id := "state.persistent"
+        version := stateVersion
+        digest := stateDigest
+        predicates := #[]
+      } {
+        id := "value.bool"
+        version := boolVersion
+        digest := boolDigest
+        predicates := #[]
+      } = .ok .lt := by
+    simp [compareRequirementKey, hId, Pure.pure, Except.pure]
+  simp [validateProgramRequirementsStructure, hState, hBool, hPred,
+    hStateBool, Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 /-- Apply `f` to every instruction in callables → blocks → instructions
     source order. Full scan; no early exit. -/
 private def forEachInstruction {m : Type → Type} [Monad m]
