@@ -157,8 +157,10 @@ ProofForge 目标
    generated `_iff_fields` 仍保留 exact `hvalidate`，不支持的 family 不会因此被自动准入。
    generated typed encoder 已有 production-codec success theorem，所以字段相等 bridge 也不要求
    作者手工提供 `LogicalStateV1`/`hencode` witness。
-4. `PreservationTheoremV1` 要求 base + 全输入 + 全 callable + 三 Outcome；当前缺少把
-   per-callable 业务 lemma 自动组合成该 ABI 的程序级 packager。
+4. `PreservationTheoremV1` 要求 base + 全输入 + 全 callable + 三 Outcome；程序级 composer
+   已有，首个真实修改 UInt64 state 且保持字段不变量的 generated typed returned-row theorem
+   也已闭合。但该业务 CFG 尚无通用 whole-program validation certificate，因此还不能把此
+   row theorem 无前提地组装并认证为最终 `PreservationTheoremV1`。
 5. ClosedSubjectPin/contract-specific golden 可以加速已知样例，但不能成为任意合约的主证明通道。
 6. [`Examples/MiniAmmL1.lean`](../../Examples/MiniAmmL1.lean) 当前只有 executable
    `emptyPool` invariant 与 Normalize/Reference admission 正例，没有同文件 proof binding 和完整
@@ -707,7 +709,7 @@ proof-bearing target build 继续 fail closed。
 | 1 | Typed State + codec bridge | **进行中（generated Bool/UInt64 codec proof 首切已完成）** | generated `Model.State` 复用 production codec；`Model.encode_exists`、`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；Bool 的产品 accepted-language 接线与更多 scalar shape 仍待补 |
 | 2 | Typed callable transition | **进行中（typed UInt64 参数投影 + initialized entry/view + 独立 initializer lifecycle relation 首切已完成）** | production ready gate 可把 raw invocation 精确恢复为 generated named invocation；pre-init 只使用 exact production lifecycle carrier；initializer returned state 与 ordinary callable returned state 均可唯一投影为 typed State，固定 typed 输入有且至多有一个 typed outcome |
 | 3 | Typed invariant bridge | **进行中（evaluator + UInt64 字段 Eq/Ne 数学 bridge 首切已完成）** | generated predicate 使用 exact state encoder 与 lowered invariant ordinal，并与 production `evalInvariantV1` 双向对齐；exact two-state Eq/Ne CFG 已 fail-closed 投影成字段 `=`/`≠` 且不再暴露 encoding witness；这不是任意 expression translator，更多表达式与 exact validation packaging 仍待补 |
-| 4 | Generic preservation composition | **进行中（composer + finite-row assembler + typed returned lift + UInt64 参数投影 + literal-true same-file 闭环已完成）** | exact admitted callable-table coverage + initializer/no-initializer base + per-call returned obligations 自动包成 exact `PreservationTheoremV1`；generated entry/view row 可将 production-backed typed business theorem lift 回 raw row，production ready invocation 可恢复 generated named UInt64 参数；nontrivial state-changing theorem 与完整 Vault 实例仍待补 |
+| 4 | Generic preservation composition | **进行中（首个 state-changing typed returned-row business theorem 已完成）** | composer、finite-row assembler、typed returned lift、UInt64 参数投影及 literal-true 程序级闭环已有；`sync(amount)` 已经真实 Reference step 修改两个 UInt64 字段并证明 post-state `reserves = shares`。该 unsupported whole-program shape 仍显式要求 validation/admission evidence，尚未闭合最终 `PreservationTheoremV1`/inline certification；完整 Vault 实例仍待补 |
 | 5 | Same-file certifier ergonomics | 部分地基已有 | 任意未 pin 合约的真实 proof body可 certified |
 | 6 | authority amendment + VerifiedVaultPF + NEAR build/runtime | 未开始 | 先批准 versioned invariant-erasure contract，再完成单文件 proof + build + runtime differential；诚实标注 Reference-level |
 | 7 | Per-target refinement | 未开始 | target-specific refinement evidence逐个关闭 |
@@ -810,9 +812,10 @@ proof-bearing target build 继续 fail closed。
    view id，以及 relation 展开后每个分支唯一出现的 `stepReferenceSliceV1`；没有 generated evaluator；
 17. typed invariant 已进入下述 Phase 3 首切，并完成 exact UInt64 两字段 Eq/Ne 的普通 Lean
    数学投影；Phase 4 也已有 per-callable returned composer、program-specific exact row/ordinal
-   finite aggregation/assembler，以及不隐藏 full inputs 的 typed returned lift；非平凡
-   state-changing business theorem、typed-argument ergonomics、更多 expression shape 与
-   premise-free packaging 仍未完成；
+   finite aggregation/assembler，以及不隐藏 full inputs 的 typed returned lift。首个一参数
+   state-changing callable 已从 production ready gate 恢复 named UInt64 参数，并沿唯一 Reference
+   step 证明 exact typed post-state和字段相等不变量；更多 expression shape、通用 validation
+   evidence 与 premise-free program-level packaging 仍未完成；
 18. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
    完成前不能称 target artifact verified。
 
@@ -919,7 +922,7 @@ expression translator：
 
 ### Phase 4 首切进展
 
-当前完成的是通用结构 composer，不是完整业务证明生成：
+当前完成的是通用结构 composer 和首个 state-changing typed-row 业务证明，不是完整业务证明生成：
 
 1. `PreservationReturnedCallableV1` 保留 raw invocation（args/context）、production gate
    overlay/context、responses、vault、returned value/effects 与 exact
@@ -962,9 +965,22 @@ expression translator：
     callable row 与 ready gate 恢复全部具名 UInt64 参数，并证明 raw invocation 精确等于 generated
     `Model.<callable>.invocation ... rawInvocation.context`。一参数 state-changing entry、零参数 view
     与 Unit entry 均有 ordinary Lean 回归；该证明不执行或解释 callable body，也没有新增 step；
-11. 当前仍尚无非平凡 state-changing same-file business theorem，也尚未完成 VerifiedVaultPF 的
-    initializer、deposit、withdraw、status returned 业务 lemmas；因此 Phase 4 与“任意业务合约验证”
-    仍不能称完成。
+11. `StateChangingPreservationSurface` 是首个非平凡 state-changing same-file business slice：
+    `sync(amount)` 的 production CFG 依次执行 `stateStore 0 0`、`stateStore 1 0`、
+    `stateLoad 1`、`return`；新增的 Reference inversion theorem 从真实 ready gate 与
+    `stepReferenceSliceV1 = .returned ...` 推出 post-state 正是
+    `{ reserves := amount, shares := amount }`。业务 theorem 随后在 generated
+    `callable0TypedReturnedV1` surface 上用普通字段等式关闭 `solvent : reserves == shares`；
+    context、responses、vault、returned result/effects 与 raw invocation 均未被隐藏，也没有
+    第二 evaluator；
+12. 该 fixture 的 whole-program structure 当前不属于已认证的 narrow validation family，测试会
+    明确拒绝意外生成 `Proof.subjectValidationOkV1`。因此上述 theorem 保留 exact
+    `hvalidate`/`hadmit` 前提，尚未组装最终 program-level `PreservationTheoremV1`，也没有生成
+    `.certified` 产品；下一步应扩展可复用的 production validation evidence，或推进具有现有
+    validation support 的 lifecycle slice，而不是伪造 admission carrier；
+13. VerifiedVaultPF 的 initializer、deposit、withdraw、status returned 业务 lemmas仍未完成；
+    因此 Phase 4 与“任意业务合约验证”仍不能称完成，当前最高声明仍是
+    `reference-certified` 地基而非 target artifact verified。
 
 ---
 

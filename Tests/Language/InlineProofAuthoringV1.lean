@@ -765,6 +765,266 @@ example
     subject logicalPre rawInvocation argumentOverlay context isInitializer
       hvalidate hcallableId hgate
 
+/- The first state-dependent, genuinely mutating business-preservation fixture.
+   Its unsupported whole-program structural family intentionally keeps an
+   explicit production validation premise in the business theorem below; this
+   slice does not manufacture a validation/admission certificate. -/
+program StateChangingPreservationSurface where
+  state reserves : UInt64
+  state shares : UInt64
+  entry sync(amount : UInt64) : UInt64 do
+    reserves := amount
+    shares := amount
+    return shares
+  invariant solvent : reserves == shares
+  proof solvent preserving using StateChangingPreservationSurfaceProof.aggregate
+
+#check StateChangingPreservationSurface.Model.sync.invocation
+#check StateChangingPreservationSurface.Model.sync.invocation_complete_of_ready
+#check StateChangingPreservationSurface.Model.sync.Transition
+#check StateChangingPreservationSurface.Model.solvent
+#check StateChangingPreservationSurface.Model.Invariant.solvent_iff_eval
+#check StateChangingPreservationSurface.Model.Invariant.solvent_iff_fields
+#check StateChangingPreservationSurface.ProofPreserving.solvent.callable0TypedReturnedV1
+
+/- Pin the exact production CFG consumed by the business proof. Any Normalize
+   drift changes this equality instead of silently selecting another shape. -/
+theorem stateChangingPreservationSurface_sync_callable_shape :
+    StateChangingPreservationSurface.Proof.subjectDataV1.callables[0] = {
+      id := 0
+      kind := .entry
+      name := some "sync"
+      params := #[{
+        valueId := 0
+        name := "amount"
+        typeId := 0
+        visibility := .public_
+      }]
+      result := { typeId := 0, visibility := .public_ }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[
+          { result := none, op := .stateStore 0 0 },
+          { result := none, op := .stateStore 1 0 },
+          { result := some { valueId := 1, typeId := 0 },
+            op := .stateLoad 1 }
+        ]
+        terminator := .return_ (some 1)
+      }]
+      loopBounds := #[]
+      invariantSteps := none
+    } := rfl
+
+run_cmd do
+  let env ← getEnv
+  let unsupportedValidation :=
+    `Tests.Language.InlineProofAuthoringV1.StateChangingPreservationSurface.Proof.subjectValidationOkV1
+  if env.contains unsupportedValidation then
+    throwError "state-changing fixture must not gain an unsupported validation certificate"
+
+/-- A successful production-backed typed relation for `sync` exposes the exact
+    accepted UInt64 argument and exact typed post-state. The proof inverts the
+    sole Reference step through the fixed generated CFG above. -/
+theorem StateChangingPreservationSurfaceProof.sync_returned_post_eq
+    (admitted : AdmittedReferenceSliceV1)
+    (hvalidate :
+      validateSemanticProgramV1
+          StateChangingPreservationSurface.Proof.subjectProgramV1 =
+        .ok StateChangingPreservationSurface.Proof.subjectDataV1)
+    (hadmit :
+      admitReferenceProgramSliceV1
+          StateChangingPreservationSurface.Proof.subjectProgramV1 =
+        .ok admitted)
+    (pre post : StateChangingPreservationSurface.Model.State)
+    (result : StateChangingPreservationSurface.Model.sync.Result)
+    (effects : Array OrderedEffectV1)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (hcallableId : invocation.callableId = 0)
+    (htransition :
+      TypedCallableRelationV1
+        StateChangingPreservationSurface.Model.encodeState
+        StateChangingPreservationSurface.Model.sync.encodeResult
+        ⟨admitted, hadmit⟩ pre invocation responses vault
+        (.returned post result effects)) :
+    ∃ amount : UInt64,
+      invocation =
+          StateChangingPreservationSurface.Model.sync.invocation amount
+            invocation.context ∧
+        post = ({ reserves := amount, shares := amount } :
+          StateChangingPreservationSurface.Model.State) := by
+  unfold TypedCallableRelationV1 at htransition
+  obtain ⟨logicalPre, hencodePre, logicalPost, hencodePost, hstep⟩ :=
+    htransition
+  have hready :=
+    ProofForgeV2.Semantic.PreservationPackagingV1.stepReturnedImpliesGateReadyV1
+      admitted logicalPre invocation responses vault logicalPost
+        (StateChangingPreservationSurface.Model.sync.encodeResult result)
+        effects hstep
+  cases hgate : gateInvocation admitted logicalPre invocation with
+  | invalidInvocation =>
+      rw [hgate] at hready
+      exact False.elim hready
+  | lifecycle candidate =>
+      rw [hgate] at hready
+      exact False.elim hready
+  | ready callable overlay gateContext isInitializer =>
+      have hadmittedData :
+          admitted.data =
+            StateChangingPreservationSurface.Proof.subjectDataV1 :=
+        (admitReferenceProgramSliceV1_ok_implies
+          StateChangingPreservationSurface.Proof.subjectProgramV1
+          StateChangingPreservationSurface.Proof.subjectDataV1 admitted
+          hvalidate hadmit).2
+      have hlookup :=
+        (gateInvocation_ready_callable_lookup admitted logicalPre invocation
+          callable overlay gateContext isInitializer hgate).1
+      have hlookup0 :
+          StateChangingPreservationSurface.Proof.subjectDataV1.callables[0]? =
+            some callable := by
+        rw [hadmittedData] at hlookup
+        simpa [hcallableId] using hlookup
+      have hcallable :
+          callable =
+            StateChangingPreservationSurface.Proof.subjectDataV1.callables[0] := by
+        have hrow :
+            StateChangingPreservationSurface.Proof.subjectDataV1.callables[0]? =
+              some
+                StateChangingPreservationSurface.Proof.subjectDataV1.callables[0] :=
+          rfl
+        exact Option.some.inj (hlookup0.symm.trans hrow)
+      have hgateRow :
+          gateInvocation admitted logicalPre invocation =
+            .ready
+              StateChangingPreservationSurface.Proof.subjectDataV1.callables[0]
+              overlay gateContext isInitializer := by
+        simpa [hcallable] using hgate
+      obtain ⟨amount, hinvocation⟩ :=
+        StateChangingPreservationSurface.Model.sync.invocation_complete_of_ready
+          ⟨admitted, hadmit⟩ logicalPre invocation overlay gateContext
+            isInitializer hvalidate hcallableId hgateRow
+      have hisInitializer : isInitializer = false := by
+        have hkind :=
+          (gateInvocation_ready_callable_lookup admitted logicalPre invocation
+            callable overlay gateContext isInitializer hgate).2
+        rw [hcallable] at hkind
+        rw [stateChangingPreservationSurface_sync_callable_shape] at hkind
+        exact hkind.trans (by decide)
+      have hgateNoninit :
+          gateInvocation admitted logicalPre invocation =
+            .ready
+              StateChangingPreservationSurface.Proof.subjectDataV1.callables[0]
+              overlay gateContext false := by
+        simpa [hisInitializer] using hgateRow
+      have hdecodeGate :
+          decodeLogicalStateValuesV1
+              StateChangingPreservationSurface.Proof.subjectDataV1 logicalPre =
+            .ok overlay := by
+        have hdecode :=
+          (gateInvocation_ready_noninit_decode admitted logicalPre invocation
+            StateChangingPreservationSurface.Proof.subjectDataV1.callables[0]
+            overlay gateContext hgateNoninit).1
+        simpa [hadmittedData] using hdecode
+      have hencodeValues :
+          encodeLogicalStateValuesV1
+              StateChangingPreservationSurface.Proof.subjectDataV1 true #[
+                encodeU64le pre.reserves,
+                encodeU64le pre.shares
+              ] = .ok logicalPre := by
+        unfold StateChangingPreservationSurface.Model.encodeState at hencodePre
+        exact hencodePre
+      have hdecodePre :
+          decodeLogicalStateValuesV1
+              StateChangingPreservationSurface.Proof.subjectDataV1 logicalPre =
+            .ok #[encodeU64le pre.reserves, encodeU64le pre.shares] :=
+        decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1
+          StateChangingPreservationSurface.Proof.subjectDataV1 true
+          #[encodeU64le pre.reserves, encodeU64le pre.shares] logicalPre
+          hencodeValues
+      have hoverlay :
+          overlay = #[encodeU64le pre.reserves, encodeU64le pre.shares] := by
+        rw [hdecodeGate] at hdecodePre
+        exact Except.ok.inj hdecodePre
+      have hcanonical :
+          validateValueBytesV1
+              StateChangingPreservationSurface.Proof.subjectDataV1.types 0
+              (encodeU64le amount) = .ok () := by
+        apply validateValueBytesV1_uint64_of_size
+          StateChangingPreservationSurface.Proof.subjectDataV1.types 0
+          (StateChangingPreservationSurface.Proof.subjectDataV1.types[0])
+          (encodeU64le amount)
+        · rfl
+        · rfl
+        · exact encodeU64le_size amount
+      have hgateSync := hgateNoninit
+      have hstepSync := hstep
+      rw [hinvocation, hoverlay] at hgateSync
+      rw [hinvocation] at hstepSync
+      have hpostEncode :
+          encodeLogicalStateValuesV1
+              StateChangingPreservationSurface.Proof.subjectDataV1 true
+              #[encodeU64le amount, encodeU64le amount] = .ok logicalPost := by
+        apply stepReferenceSliceV1_ready_store_parameter_two_returned_post_encode
+          admitted logicalPre logicalPost
+          StateChangingPreservationSurface.Proof.subjectDataV1
+          (encodeU64le pre.reserves) (encodeU64le pre.shares)
+          (encodeU64le amount) 0 "reserves" "shares" "amount" 0
+          (some "sync") invocation.context gateContext responses vault
+          (StateChangingPreservationSurface.Model.sync.encodeResult result)
+          effects hadmittedData
+        · rfl
+        · rfl
+        · rfl
+        · exact hcanonical
+        · simpa [StateChangingPreservationSurface.Model.sync.invocation,
+            stateChangingPreservationSurface_sync_callable_shape] using hgateSync
+        · simpa [StateChangingPreservationSurface.Model.sync.invocation] using
+            hstepSync
+      let expected : StateChangingPreservationSurface.Model.State := {
+        reserves := amount
+        shares := amount
+      }
+      have hencodeExpected :
+          StateChangingPreservationSurface.Model.encodeState expected =
+            .ok logicalPost := by
+        unfold StateChangingPreservationSurface.Model.encodeState
+        simpa [expected] using hpostEncode
+      have hpost : post = expected :=
+        StateChangingPreservationSurface.Model.encode_injective_of_eq_ok
+          post expected logicalPost hencodePost hencodeExpected
+      exact ⟨amount, hinvocation, by simpa [expected] using hpost⟩
+
+/-- The actual generated typed returned-row obligation is now discharged by
+    ordinary field mathematics after the sole Reference execution is inverted.
+    This theorem remains conditional on exact production validation/admission;
+    the fixture intentionally has no manufactured whole-program certificate. -/
+theorem StateChangingPreservationSurfaceProof.sync_typed_preserves_solvent
+    (admitted : AdmittedReferenceSliceV1)
+    (hvalidate :
+      validateSemanticProgramV1
+          StateChangingPreservationSurface.Proof.subjectProgramV1 =
+        .ok StateChangingPreservationSurface.Proof.subjectDataV1)
+    (hadmit :
+      admitReferenceProgramSliceV1
+          StateChangingPreservationSurface.Proof.subjectProgramV1 =
+        .ok admitted) :
+    StateChangingPreservationSurface.ProofPreserving.solvent.callable0TypedReturnedV1
+      admitted hadmit := by
+  intro pre post result effects invocation responses vault hcallableId
+    _hpreInvariant htransition
+  obtain ⟨amount, _hinvocation, hpost⟩ :=
+    StateChangingPreservationSurfaceProof.sync_returned_post_eq
+      admitted hvalidate hadmit pre post result effects invocation responses
+        vault hcallableId htransition
+  subst post
+  apply
+    (StateChangingPreservationSurface.Model.Invariant.solvent_iff_fields
+      { reserves := amount, shares := amount } hvalidate).2
+  rfl
+
 /-- Generated result decoding checks the exact lowered TypeId and delegates
     canonical payload validation to the production valueBytes validator. -/
 example : TypedCallableSurface.Model.add.decodeResult
