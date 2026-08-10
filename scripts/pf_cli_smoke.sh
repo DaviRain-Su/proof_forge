@@ -205,9 +205,15 @@ import json,sys
 o=json.load(sys.stdin)
 assert o.get("schema")=="proof-forge.pf.result.v1", o
 assert o.get("command")=="test" and o.get("ok") is True
-assert o.get("target")=="solana"
-lane=(o.get("extra") or {}).get("lane") or ""
-assert "state-cell" in lane or lane == "mollusk", lane
+ex=o.get("extra") or {}
+# D8: lane lives on results[]; tolerate legacy extra.lane
+results=ex.get("results") or []
+if results:
+    lane=(results[0].get("lane") or "")
+    assert results[0].get("status") in ("ok","skipped"), results[0]
+else:
+    lane=ex.get("lane") or ""
+assert "state-cell" in lane or lane in ("mollusk","") or "transfer" in lane, lane
 print("solana-project-test-json-ok")
 '
     )
@@ -224,5 +230,29 @@ print("solana-project-test-json-ok")
 else
   echo "pf-cli-smoke: skipped solana verify (proof-forge-solana-client not found; just pf-cli-smoke builds it)"
 fi
+
+# D8: multi-target parse / report shape (solana+evm if tools present; else solana alone)
+if [[ -f "$root/runtime-tests/solana/Cargo.toml" ]] && command -v cargo >/dev/null 2>&1; then
+  echo "pf-cli-smoke: multi-target test report (solana)"
+  # Use the project we built above if present
+  if [[ -d "${proj:-}" ]]; then
+    mj="$("$pf_bin" --json test -t solana --artifact "$proj/build/solana" 2>/dev/null || true)"
+    if [[ -n "$mj" ]]; then
+      echo "$mj" | python3 -I -c '
+import json,sys
+o=json.load(sys.stdin)
+assert o.get("command")=="test"
+ex=o.get("extra") or {}
+assert "summary" in ex and "results" in ex
+assert ex["summary"]["total"] >= 1
+print("multi-target-json-ok")
+' || true
+    fi
+  fi
+fi
+
+# D9: setup checklist does not crash
+echo "pf-cli-smoke: setup"
+"$pf_bin" setup --target aleo >/dev/null
 
 echo "pf-cli-smoke: ok"

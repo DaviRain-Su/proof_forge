@@ -70,10 +70,10 @@ pf check
 pf run -- <fn> [inputs...]                 # = local run；默认 build/<target>/
 pf inspect
 pf verify [-t solana] [--artifact DIR] [--adapter transfer-sol-v1]
-pf test   [-t evm|solana] [--artifact DIR]     # host-optional Anvil / Mollusk
-pf deploy [-n testnet|devnet] [--broadcast] [--private-key-env NAME]
+pf test   [-t evm|solana|aleo|evm,solana] [--artifact DIR]
+pf deploy [-n testnet|devnet] [--broadcast] [--private-key-env NAME]   # Aleo only
 pf execute [-n …] [--broadcast] -- <fn> [inputs...]
-pf doctor | pf setup | pf version | pf list-targets
+pf doctor | pf setup [--target …] [--yes] | pf version | pf list-targets
 ```
 
 仍支持显式 monorepo 路径（无 pf.toml 时）：
@@ -90,7 +90,8 @@ pf build <source.lean> --module <Lean.Name> -t aleo -o build/aleo
 | `build` | spawn compiler build；校验 OutputSet 存在 `*.aleo`（aleo） |
 | `local run` | Aleo Wave-B：imports 钉扎 PF bytecode → `leo run --offline` |
 | `verify` | **Solana only（D7a）**：spawn `proof-forge-solana-client verify-artifacts`；offline，无 RPC/wallet/deploy |
-| `test` | **EVM（D7c）** Anvil / **Solana（D7b）** Mollusk TransferSol；缺 host 工具 skip-clean；非金样 FC |
+| `test` | 单/多 target（`-t evm,solana`）；EVM Anvil / Solana Mollusk / Aleo leo smoke；统一 report；skip ≠ pass |
+| `setup` | doctor checklist + 可选 `proof-forge-next install --yes`；打印短路径 next steps |
 | `deploy` | 默认 save-only；twin exact-match 后 `leo deploy --save` |
 | `execute` | 默认 save-only；`leo execute --save`（可 `--skip-execute-proof`） |
 
@@ -257,12 +258,40 @@ pf test           # 默认 StateCell-shaped Mollusk
 }
 ```
 
+## 4.8 Multi-target `pf test` report（D8）
+
+成功 JSON（单或多 target）`extra`：
+
+```json
+{
+  "targets": ["evm", "solana"],
+  "summary": { "total": 2, "ok": 1, "skipped": 1, "failed": 0, "notImplemented": 0 },
+  "results": [
+    { "target": "evm", "status": "ok", "lane": "anvil-statecell", "artifactDir": "…", "message": "…" },
+    { "target": "solana", "status": "skipped", "lane": "state-cell-shaped", "message": "…" }
+  ]
+}
+```
+
+规则：`status=failed|not_implemented` → 进程非零；全 `skipped` → 零但 human 标明非 pass。
+
+## 4.9 Setup / 分发（D9）
+
+- `pf setup`：见 `clients/pf-cli/INSTALL.md`
+- `just pf-cli-dist` → `build/dist/pf-<os>-<arch>/` 并排 `pf` + `proof-forge-next`
+
+## 4.10 Twin registry（D10）
+
+- 登记 id 列表：`statecell-v1`（唯一 materializer）
+- 未知形状 → deploy fail closed；禁止 silent 近似
+
 ## 6. 非目标（v0）
 
-- EVM/Solana **network** deploy（adapter stub 可存在，命令 fail closed with “not implemented”）。
+- EVM/Solana **network** deploy（**D11 deferred**；`pf deploy` Aleo-only）。
 - MCP 暴露 broadcast。
 - 交互式钱包 UI。
 - 把 acceptance scripts 删除（CI 仍用 scripts 或 `pf` 的 `--gate` 模式）。
+- GitHub Release 自动上传（dist 脚本已有；CI 接线可选）。
 
 ## 7. 测试
 

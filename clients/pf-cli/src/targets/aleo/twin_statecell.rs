@@ -58,12 +58,13 @@ pub fn materialize_and_verify_twin(
     program_stem: &str,
     pf: &AleoArtifact,
 ) -> PfResult<std::path::PathBuf> {
-    if !looks_like_statecell_instructions(&pf.content) {
-        return Err(PfError::Artifact(
-            "pf deploy v0 only supports StateCell-shaped Aleo Instructions \
-(initialize/increment + not-guard + dropped re-read); other programs fail closed"
-                .into(),
-        ));
+    // D10: go through twin registry (currently only statecell-v1).
+    let twin_id = crate::targets::aleo::twin_registry::require_registered(&pf.content)
+        .map_err(PfError::Artifact)?;
+    if twin_id != crate::targets::aleo::twin_registry::TWIN_STATECELL_V1 {
+        return Err(PfError::Artifact(format!(
+            "twin id '{twin_id}' has no materializer yet (fail closed)"
+        )));
     }
 
     fs::create_dir_all(pkg_dir.join("src"))?;

@@ -58,10 +58,10 @@ just pf-cli-test | pf-cli-build | pf-cli-smoke
 | PF-D5 | multi-target build + clean + capability notes | **done** |
 | PF-D6 | quiet run + `pf_cli_smoke` | **done** |
 | **PF-D7** | **EVM local + Solana verify/test 接入 `pf`** | **D7a+D7b+D7c done** |
-| PF-D8 | 统一 `pf test` 命令面（按 target 分派） | pending（D7 后） |
-| PF-D9 | 分发：`pf` 与 compiler 并排 release / install 文档 | pending |
-| PF-D10 | （可选）Aleo twin 扩到非 StateCell 程序 | pending |
-| PF-D11 | （可选）Solana/EVM **network deploy** 产品决策后再做 | deferred |
+| PF-D8 | 统一 `pf test` 多 target + report | **done** |
+| PF-D9 | 分发：`pf` + compiler 并排包 / `pf setup` / INSTALL | **done**（工程切片） |
+| PF-D10 | Aleo twin **registry**（扩面入口；仍仅 statecell-v1） | **done skeleton** |
+| PF-D11 | Solana/EVM **network deploy** | **deferred**（产品门；文档钉死） |
 
 ---
 
@@ -244,32 +244,50 @@ just pf-cli-evm-test
 
 ## 6. D7 之后（D8–D11）
 
-### D8 — 统一 `pf test`
+### D8 — 统一 `pf test` — **done 2026-08-10**
 
 ```text
-pf test                  # 使用 pf.toml default-target
-pf test -t aleo,evm      # 多 target 顺序跑；单个 fail → 非零
+pf test                  # pf.toml default-target
+pf test -t solana
+pf test -t evm,solana    # 顺序；任一 failed/not_implemented → 非零
+pf test -t aleo          # leo smoke initialize(0) 或 skip（无 leo）
 ```
 
-内部：`TargetAdapter::test(artifact) -> Report`。
+- 统一 `TargetReport`：`status ∈ {ok,skipped,failed,not_implemented}`
+- JSON `extra.results[]` + `extra.summary`
+- `--artifact` 仅单 target 生效；多 target 用 `build/<target>/`
+- skipped ≠ pass
 
-### D9 — 分发
+### D9 — 分发 — **done 工程切片 2026-08-10**
 
-- GitHub Release 附 `pf` + `proof-forge-next` 同平台二进制
-- `pf setup`：doctor + 指引设置 `PROOF_FORGE_CLI`（Aleo 仍 zero-tool；EVM/Solana 可触发 install targets）
-- 文档：30 秒安装（非 formal Stage-0）
+- `clients/pf-cli/INSTALL.md`：30 秒安装
+- `scripts/pf_cli_dist.sh` + `just pf-cli-dist`：并排打包 `pf` + `proof-forge-next`
+- `pf setup [--target] [--yes]`：checklist + 可选 `proof-forge-next install`
+- **未**接 GitHub Actions 自动 Release（可后续接线）；本地/operator 可先用 dist 目录
 
-### D10 — Aleo twin 扩展
+### D10 — Aleo twin registry — **skeleton done 2026-08-10**
 
-- 今天 deploy packaging 仅 StateCell 形 exact twin
-- 按需登记更多模板（或生成器），禁止 silent 近似
+- `targets/aleo/twin_registry.rs`：登记表 + fail-closed 探测
+- 当前仅 `statecell-v1` materializer
+- 扩面流程：新 twin 源 + `looks_like_*` + 登记 + 验收；**禁止** silent 近似
+- 更多程序 twin **仍产品可选**，不是默认承诺
 
-### D11 — 网络 deploy（产品决策门）
+### D11 — 网络 deploy — **deferred（产品门）**
 
-仅当产品明确要：
+**决策钉死（v0）**：
 
-- Solana：本地 validator 或显式 operator 网络（仍默认非 Devnet 自动水龙头）
-- EVM：显式 RPC + key，默认 save/unsigned
+| 链 | `pf deploy` | 说明 |
+|---|---|---|
+| Aleo | ✅ save-only（已有） | twin exact-match；默认不 broadcast |
+| Solana | ❌ | 无 Devnet 自动水龙头；无 RPC deploy 产品面 |
+| EVM | ❌ | 无默认广播；本地用 `pf test` Anvil |
+
+若未来产品要 Solana/EVM 网络写：
+
+1. 另开 ADR + 显式 opt-in 标志  
+2. 默认仍 save/unsigned  
+3. 禁止 mainnet 第一期  
+4. 不得改写 `deployable`
 
 在此之前 **`pf deploy` 保持 Aleo-only**。
 
@@ -278,9 +296,9 @@ pf test -t aleo,evm      # 多 target 顺序跑；单个 fail → 非零
 ## 7. 建议击杀顺序（从现在开始）
 
 ```text
-D7 done ──► D8  pf test 多 target 顺序 / 统一 report  # 可选 polish
-        ──► D9  分发/安装体验                         # 按 release 节奏
-        ──► D10 Aleo twin 扩面 / D11 network deploy   # 产品门
+D0–D10 skeleton done
+  └── D11 network deploy still deferred (product gate)
+  └── optional: more Aleo twin materializers / GH Release wiring
 ```
 
 **并行建议**

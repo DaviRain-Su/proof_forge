@@ -49,12 +49,17 @@ No monorepo long paths in the happy path.
 | `pf check` | Validate without writing artifacts |
 | `pf run -- <fn> …` | Local run (**Aleo**); quiet by default, `-v` full Leo log |
 | `pf inspect` | Validate artifact dir |
-| `pf test` | Local runtime: **EVM Anvil** / **Solana Mollusk** (from `pf.toml` target) |
-| `pf test -t solana` | Mollusk: default **StateCell-shaped** (`pf new`); auto **TransferSol** CPI specialty |
-| `pf test -t evm` | Anvil deploy+call matrix |
-| `pf verify -t solana` | Offline OutputSet joins (`proof-forge-solana-client`) when notes join |
-| `pf deploy` / `pf execute` | Aleo network txs (save-only by default) |
-| `pf doctor` / `pf setup` / `pf version` / `pf list-targets` | Toolchain |
+| `pf test` | Local runtime from `pf.toml` target |
+| `pf test -t solana` | Mollusk StateCell-shaped（通用）；TransferSol = CPI 专项 |
+| `pf test -t evm` | Anvil |
+| `pf test -t evm,solana` | **D8** 多 target 顺序 + 统一 report（任一 fail → 非零） |
+| `pf test -t aleo` | Leo smoke `initialize(0)` 或 skip（无 leo） |
+| `pf verify -t solana` | Offline OutputSet joins |
+| `pf deploy` / `pf execute` | **Aleo only** save-only（D11：无 Solana/EVM 网络 deploy） |
+| `pf setup [--target] [-y]` | Checklist + 可选 compiler install |
+| `pf doctor` / `pf version` / `pf list-targets` | Toolchain |
+
+Install / dist: [`INSTALL.md`](./INSTALL.md) · `just pf-cli-dist`
 
 Smoke (host-optional): `just pf-cli-smoke`
 

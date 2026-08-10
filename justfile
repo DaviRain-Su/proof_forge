@@ -1423,6 +1423,10 @@ pf-cli-evm-test: build pf-cli-build
     "$PF" build Examples/StateCell.lean --module Examples.StateCell -t evm -o "$out"
     "$PF" test -t evm --artifact "$out"
 
+# D9: side-by-side pf + proof-forge-next package under build/dist/ (host-optional).
+pf-cli-dist: pf-cli-build
+    /bin/bash -p scripts/pf_cli_dist.sh
+
 # Host-optional: pf new → build → test (StateCell-shaped; needs cargo + mollusk deps).
 pf-cli-solana-test: build pf-cli-build
     #!/usr/bin/env bash

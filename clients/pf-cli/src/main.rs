@@ -77,10 +77,13 @@ enum Commands {
         #[arg(long)]
         adapter: Option<String>,
     },
-    /// Local runtime test (EVM: Anvil; Solana: Mollusk TransferSol)
+    /// Local runtime test (EVM Anvil / Solana Mollusk / Aleo leo smoke).
+    /// Multi-target: `-t evm,solana` runs sequentially; any hard fail → non-zero.
     Test {
+        /// Target or comma-list (default: pf.toml default-target)
         #[arg(long, short = 't')]
         target: Option<String>,
+        /// Artifact dir (single-target only; multi-target uses build/<target>/)
         #[arg(long)]
         artifact: Option<PathBuf>,
     },

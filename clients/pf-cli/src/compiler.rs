@@ -52,7 +52,6 @@ pub fn resolve_compiler() -> PfResult<PathBuf> {
     ))
 }
 
-#[allow(dead_code)]
 pub fn resolve_package_root() -> Option<PathBuf> {
     if let Ok(root) = std::env::var("PROOF_FORGE_ROOT") {
         let p = PathBuf::from(root);
