@@ -4185,6 +4185,47 @@ theorem gateInvocation_ready_callable_lookup
                                       cases hgate
                                       exact ⟨rfl, by simp [his]⟩
 
+/-- A returned step conforms to any exact callable row recovered from the
+    production invocation lookup. This removes the private ready-gate witness
+    from generated typed-result bridges without re-running or reinterpreting
+    the callable. -/
+theorem stepReferenceSliceV1_returned_resultConformsV1_of_lookup
+    (admitted : AdmittedReferenceSliceV1)
+    (pre post : LogicalStateV1)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vaultSeed : ReferenceVaultSeedV1)
+    (callable : CallableV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hlookup :
+      admitted.data.callables[invocation.callableId.toNat]? = some callable)
+    (hstep :
+      stepReferenceSliceV1 admitted pre invocation responses vaultSeed =
+        .returned post value effects) :
+    ReferenceResultConformsV1 admitted.data callable.result value := by
+  have hstepGate := hstep
+  unfold stepReferenceSliceV1 at hstepGate
+  cases hgate : gateInvocation admitted pre invocation with
+  | invalidInvocation =>
+      simp only [hgate] at hstepGate
+      cases hstepGate
+  | lifecycle candidate =>
+      simp only [hgate] at hstepGate
+      exact False.elim
+        (finalizeLifecycle_ne_returnedV1
+          pre post responses candidate value effects hstepGate)
+  | ready selected overlay context isInitializer =>
+      have hselected :=
+        gateInvocation_ready_callable_lookup
+          admitted pre invocation selected overlay context isInitializer hgate
+      have hcallable : selected = callable :=
+        Option.some.inj (hselected.1.symm.trans hlookup)
+      subst selected
+      exact stepReferenceSliceV1_returned_resultConformsV1
+        admitted pre post invocation responses vaultSeed callable overlay context
+          isInitializer value effects hgate hstep
+
 /-- Non-initializer ready gate is produced only from a successful decode of
     `pre` under initialized+conforming state. -/
 theorem gateInvocation_ready_noninit_decode

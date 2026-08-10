@@ -3,7 +3,7 @@ id: PLAN-VERIFIED-CONTRACT-AUTHORING
 title: ProofForge VerifiedVault 风格形式化验证作者体验实施规划
 status: draft
 owner: engineering
-updated: 2026-08-09
+updated: 2026-08-10
 normative: false
 ---
 
@@ -397,9 +397,9 @@ Reference failure。vault 只有在有真正的 independence theorem 后才能�
 
 ### Phase 2 — 生成 per-callable typed transition view
 
-**状态**：进行中。entry/view 的 UInt64 参数、Unit/Bool/UInt64 result codec/relation 与 outcome
-uniqueness 首切已完成；initializer lifecycle、full-outcome 双向 totality 与 executable 短
-notation 尚未完成。
+**状态**：进行中。entry/view 的 UInt64 参数、Unit/Bool/UInt64 result codec/relation、outcome
+uniqueness 与 returned result 唯一 typed decode 首切已完成；initializer lifecycle、returned
+post-state typed decode、full-outcome 双向 totality 与 executable 短 notation 尚未完成。
 
 交付：
 
@@ -663,7 +663,7 @@ proof-bearing target build 继续 fail closed。
 | 0A | 删除第二套 executable semantics | **已完成** | `MiniAmmSafetySketchV1`、alpha `Core/Semantics`/`SemanticIR` 已不在 HEAD |
 | 0B | 唯一语义防回归门 | **已完成** | `alpha-deletion-gate` 固定平行语义、contract-specific registry/pin 的物理删除，不误杀 checker state |
 | 1 | Typed State + codec bridge | **进行中（0B/UInt64 双向 complete/unique 首切已完成）** | generated `Model.State` 复用 production codec；`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；更多 accepted scalar shape 仍待补 |
-| 2 | Typed callable transition | **进行中（entry/view relation + result codec + outcome uniqueness 首切已完成）** | 简单 entry theorem 只使用 typed State/args/outcome；固定 typed 输入至多对应一个 typed outcome |
+| 2 | Typed callable transition | **进行中（entry/view relation + result codec + returned result typed decode + outcome uniqueness 首切已完成）** | 简单 entry theorem 只使用 typed State/args/outcome；固定 typed 输入至多对应一个 typed outcome |
 | 3 | Typed invariant bridge | 未开始 | typed predicate 与 `evalInvariantV1` 双向对齐 |
 | 4 | Generic preservation composition | 未开始 | per-call lemmas 自动包成 exact `PreservationTheoremV1` |
 | 5 | Same-file certifier ergonomics | 部分地基已有 | 任意未 pin 合约的真实 proof body可 certified |
@@ -720,16 +720,20 @@ proof-bearing target build 继续 fail closed。
    `decode_encode_result` 与 `encodeResult_injective`。decoder 检查 exact lowered TypeId，并调用
    production `validateValueBytesV1` 和 scalar projection；Bool/UInt64 canonical bytes 的正向
    roundtrip 由 production validator theorem 关闭，wrong TypeId/malformed bytes fail closed；
-9. 上述 result decoder 目前只建立 partial codec + left-inverse/injectivity bridge，不声称任意
-   Reference returned result 都存在 typed decode。后者仍需要 machine theorem 证明 returned
-   result 的 TypeId/shape/canonical bytes 与 callable exact result row 一致；
+9. sole Reference machine 已从完整 successful step 证明 returned result 与 production-selected
+   callable result row 一致：Unit 必须使用 `none`，非 Unit 必须使用 exact TypeId 且通过
+   production `validateValueBytesV1`。generated Unit/Bool/UInt64 callable 进一步生成
+   `decode_existsUnique_of_conforms` 与 `decode_existsUnique_of_returned`，因此任一真实 returned
+   result 都存在唯一 typed decode；该 bridge 只消费 exact callable lookup、Reference step 与
+   production validator，不执行第二套 callable；
 10. Unit result 已用 accepted declared-revert entry lowering 做 generated codec/relation/uniqueness 回归；
    这不扩张 accepted language，也不伪造 Unit return literal；
 11. `finalize_returned_implies_encodeV1` 已从任意成功 final outcome 反解出 exact returned
-   candidate、effects 与唯一 production logical-state encode；对 initialized pre，
-   `finalize_returned_stateConformsV1_of_initialized` 已进一步证明 post-state 在 exact validated
-   machine data 上满足 `StateConformsV1`。这只关闭 finalizer/codec seam，尚未越过 `runMachine`
-   声称完整 step theorem；
+   candidate、effects 与唯一 production logical-state encode；
+   `stepReferenceSliceV1_returned_stateConformsV1_of_initialized` 已沿完整
+   `stepReferenceSliceV1 → runMachine → finalize` 路径证明 initialized entry/view 的 returned
+   post-state 满足 exact admitted program 的 `StateConformsV1`。initializer post-state 仍由独立
+   lifecycle theorem 处理，generated post-state unique typed decode 尚待接线；
 12. 当前尚缺 initializer 的 initialized/uninitialized lifecycle bridge、Reference outcome→typed
    outcome 的 full-outcome total/complete 方向、typed invariant bridge、per-call preservation
    composition 与短 executable notation；这些仍是后续 Phase 2–4 工作；

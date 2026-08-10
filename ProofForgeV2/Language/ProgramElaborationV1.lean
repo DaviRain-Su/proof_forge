@@ -427,6 +427,205 @@ private def quoteModelCallableResultDecodeEncodeV1
           (ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1_encodeU64le
             value))
 
+/-- Close typed decode existence and uniqueness for every production-conforming
+    result carrier in the generated Unit/Bool/UInt64 subset. This consumes the
+    machine's `ReferenceResultConformsV1` predicate and the same production
+    validator used by `decodeResult`; it does not execute the callable. -/
+private def quoteModelCallableResultDecodeExistsUniqueV1
+    (subjectDataName : TSyntax `ident)
+    (decodeResultName : TSyntax `ident)
+    (result : ModelCallableResultV1)
+    (callableId : CallableIdV1)
+    (typeId : TypeIdV1) : MacroM (TSyntax `term) := do
+  let callableIdTerm : TSyntax `term :=
+    ⟨Syntax.mkNumLit (toString callableId.toNat)⟩
+  let typeIdTerm : TSyntax `term :=
+    ⟨Syntax.mkNumLit (toString typeId.toNat)⟩
+  match result with
+  | .unit =>
+      `(fun
+          (referenceValue : Option
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1)
+          (hconforms :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceResultConformsV1
+              $subjectDataName
+              (($subjectDataName).callables[$callableIdTerm]'(by decide)).result
+              referenceValue) =>
+          show ∃ value : Unit,
+            $decodeResultName referenceValue = .ok value ∧
+              ∀ other : Unit,
+                $decodeResultName referenceValue = .ok other →
+                  value = other from by
+        cases referenceValue with
+        | none =>
+            refine ⟨(), rfl, ?_⟩
+            intro other hother
+            cases other
+            rfl
+        | some value =>
+            have hfalse : False := by
+              have htypeId :
+                  (($subjectDataName).callables[$callableIdTerm]'(by decide)).result.typeId =
+                    $typeIdTerm := by
+                rfl
+              have hisUnit :
+                  (match ($subjectDataName).types[
+                    (($typeIdTerm : ProofForgeV2.Semantic.WireV1.TypeIdV1).toNat)]? with
+                  | some { shape := .unit, .. } => true
+                  | _ => false) = true := by
+                rfl
+              unfold
+                ProofForgeV2.Semantic.ReferenceV1.ReferenceResultConformsV1
+                at hconforms
+              rw [htypeId] at hconforms
+              dsimp only at hconforms
+              exact Bool.noConfusion (hisUnit.symm.trans hconforms.1)
+            exact hfalse.elim)
+  | .bool =>
+      `(fun
+          (referenceValue : Option
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1)
+          (hconforms :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceResultConformsV1
+              $subjectDataName
+              (($subjectDataName).callables[$callableIdTerm]'(by decide)).result
+              referenceValue) =>
+          show ∃ value : Bool,
+            $decodeResultName referenceValue = .ok value ∧
+              ∀ other : Bool,
+                $decodeResultName referenceValue = .ok other →
+                  value = other from by
+        cases referenceValue with
+        | none =>
+            have hfalse : False := by
+              have htypeId :
+                  (($subjectDataName).callables[$callableIdTerm]'(by decide)).result.typeId =
+                    $typeIdTerm := by
+                rfl
+              have hisUnit :
+                  (match ($subjectDataName).types[
+                    (($typeIdTerm : ProofForgeV2.Semantic.WireV1.TypeIdV1).toNat)]? with
+                  | some { shape := .unit, .. } => true
+                  | _ => false) = false := by
+                rfl
+              unfold
+                ProofForgeV2.Semantic.ReferenceV1.ReferenceResultConformsV1
+                at hconforms
+              rw [htypeId] at hconforms
+              dsimp only at hconforms
+              exact Bool.noConfusion (hisUnit.symm.trans hconforms)
+            exact hfalse.elim
+        | some referenceValue =>
+            rcases referenceValue with ⟨valueTypeId, valueBytes⟩
+            have hnormalized :
+                valueTypeId = $typeIdTerm ∧
+                  ProofForgeV2.Semantic.WireV1.validateValueBytesV1
+                    ($subjectDataName).types valueTypeId valueBytes = .ok () := by
+              have htypeId :
+                  (($subjectDataName).callables[$callableIdTerm]'(by decide)).result.typeId =
+                    $typeIdTerm := by
+                rfl
+              have hisUnit :
+                  (match ($subjectDataName).types[
+                    (($typeIdTerm : ProofForgeV2.Semantic.WireV1.TypeIdV1).toNat)]? with
+                  | some { shape := .unit, .. } => true
+                  | _ => false) = false := by
+                rfl
+              unfold
+                ProofForgeV2.Semantic.ReferenceV1.ReferenceResultConformsV1
+                at hconforms
+              rw [htypeId] at hconforms
+              dsimp only at hconforms
+              exact hconforms.2
+            rcases hnormalized with ⟨htype, hcanonical⟩
+            subst valueTypeId
+            let typedValue :=
+              ProofForgeV2.Semantic.StateModelV1.boolOfCanonicalValueBytesV1
+                valueBytes
+            have hsuccess :
+                $decodeResultName (some {
+                  typeId := $typeIdTerm
+                  valueBytes := valueBytes
+                }) = .ok typedValue := by
+              unfold $decodeResultName
+              simp [hcanonical, typedValue, Pure.pure, Except.pure, Bind.bind,
+                Except.bind]
+            refine ⟨typedValue, hsuccess, ?_⟩
+            intro other hother
+            exact Except.ok.inj (hsuccess.symm.trans hother))
+  | .uint64 =>
+      `(fun
+          (referenceValue : Option
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1)
+          (hconforms :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceResultConformsV1
+              $subjectDataName
+              (($subjectDataName).callables[$callableIdTerm]'(by decide)).result
+              referenceValue) =>
+          show ∃ value : UInt64,
+            $decodeResultName referenceValue = .ok value ∧
+              ∀ other : UInt64,
+                $decodeResultName referenceValue = .ok other →
+                  value = other from by
+        cases referenceValue with
+        | none =>
+            have hfalse : False := by
+              have htypeId :
+                  (($subjectDataName).callables[$callableIdTerm]'(by decide)).result.typeId =
+                    $typeIdTerm := by
+                rfl
+              have hisUnit :
+                  (match ($subjectDataName).types[
+                    (($typeIdTerm : ProofForgeV2.Semantic.WireV1.TypeIdV1).toNat)]? with
+                  | some { shape := .unit, .. } => true
+                  | _ => false) = false := by
+                rfl
+              unfold
+                ProofForgeV2.Semantic.ReferenceV1.ReferenceResultConformsV1
+                at hconforms
+              rw [htypeId] at hconforms
+              dsimp only at hconforms
+              exact Bool.noConfusion (hisUnit.symm.trans hconforms)
+            exact hfalse.elim
+        | some referenceValue =>
+            rcases referenceValue with ⟨valueTypeId, valueBytes⟩
+            have hnormalized :
+                valueTypeId = $typeIdTerm ∧
+                  ProofForgeV2.Semantic.WireV1.validateValueBytesV1
+                    ($subjectDataName).types valueTypeId valueBytes = .ok () := by
+              have htypeId :
+                  (($subjectDataName).callables[$callableIdTerm]'(by decide)).result.typeId =
+                    $typeIdTerm := by
+                rfl
+              have hisUnit :
+                  (match ($subjectDataName).types[
+                    (($typeIdTerm : ProofForgeV2.Semantic.WireV1.TypeIdV1).toNat)]? with
+                  | some { shape := .unit, .. } => true
+                  | _ => false) = false := by
+                rfl
+              unfold
+                ProofForgeV2.Semantic.ReferenceV1.ReferenceResultConformsV1
+                at hconforms
+              rw [htypeId] at hconforms
+              dsimp only at hconforms
+              exact hconforms.2
+            rcases hnormalized with ⟨htype, hcanonical⟩
+            subst valueTypeId
+            let typedValue :=
+              ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1
+                valueBytes
+            have hsuccess :
+                $decodeResultName (some {
+                  typeId := $typeIdTerm
+                  valueBytes := valueBytes
+                }) = .ok typedValue := by
+              unfold $decodeResultName
+              simp [hcanonical, typedValue, Pure.pure, Except.pure, Bind.bind,
+                Except.bind]
+            refine ⟨typedValue, hsuccess, ?_⟩
+            intro other hother
+            exact Except.ok.inj (hsuccess.symm.trans hother))
+
 /-- Emit the program-level positive admission carrier and one exact relation
     namespace per supported entry/view. The generated surface constructs only
     canonical invocation values and delegates every outcome to
@@ -470,6 +669,9 @@ private def elaborateCallableModelsV1
     let encodeResultName := mkIdent `encodeResult
     let decodeResultName := mkIdent `decodeResult
     let decodeEncodeResultName := mkIdent `decode_encode_result
+    let decodeExistsUniqueName := mkIdent `decode_existsUnique_of_conforms
+    let decodeReturnedExistsUniqueName :=
+      mkIdent `decode_existsUnique_of_returned
     let encodeResultInjectiveName := mkIdent `encodeResult_injective
     let callableOutcomeName := mkIdent `Outcome
     let transitionName := mkIdent `Transition
@@ -484,6 +686,13 @@ private def elaborateCallableModelsV1
     let rightOutcomeName := mkIdent `right
     let leftTransitionName := mkIdent `hleft
     let rightTransitionName := mkIdent `hright
+    let referenceValueName := mkIdent `referenceValue
+    let conformsName := mkIdent `hconforms
+    let logicalPreName := mkIdent `logicalPre
+    let logicalPostName := mkIdent `logicalPost
+    let effectsName := mkIdent `effects
+    let validateName := mkIdent `hvalidate
+    let stepName := mkIdent `hstep
     let callableIdTerm : TSyntax `term :=
       ⟨Syntax.mkNumLit (toString callableView.callableId.toNat)⟩
     let paramNames := callableView.params.map fun param =>
@@ -514,6 +723,10 @@ private def elaborateCallableModelsV1
       quoteModelCallableResultDecodeEncodeV1 subjectDataName encodeResultName
         decodeResultName callableView.result callableView.resultTypeId
         resultTypeDeclTerm
+    let resultDecodeExistsUnique ← Lean.Elab.liftMacroM <|
+      quoteModelCallableResultDecodeExistsUniqueV1 subjectDataName
+        decodeResultName callableView.result callableView.callableId
+        callableView.resultTypeId
     let invocationTerm ← Lean.Elab.liftMacroM <| do
       let mut term ← `($invocationName)
       for paramName in paramNames do
@@ -551,6 +764,23 @@ private def elaborateCallableModelsV1
           $decodeResultName ($encodeResultName value) = .ok value :=
         $resultDecodeEncode))
     Lean.Elab.Command.elabCommand (← `(
+      /-- Every Reference result conforming to this exact lowered callable row
+          has one unique typed decode through the production validator. -/
+      theorem $decodeExistsUniqueName
+          ($referenceValueName : Option
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1)
+          ($conformsName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceResultConformsV1
+              $subjectDataName
+              (($subjectDataName).callables[$callableIdTerm]'(by decide)).result
+              $referenceValueName) :
+          ∃ value : $resultName,
+            $decodeResultName $referenceValueName = .ok value ∧
+              ∀ other : $resultName,
+                $decodeResultName $referenceValueName = .ok other →
+                  value = other :=
+        $resultDecodeExistsUnique $referenceValueName $conformsName))
+    Lean.Elab.Command.elabCommand (← `(
       /-- Canonical result encoding is injective because generated decoding is
           its left inverse. -/
       theorem $encodeResultInjectiveName :
@@ -572,6 +802,55 @@ private def elaborateCallableModelsV1
         args := #[$referenceArgs,*]
         context := $contextName
       }))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Every successful production step for this generated invocation has
+          one unique typed result decode. Callable selection and result
+          canonicality come from the sole Reference gate/machine. -/
+      theorem $decodeReturnedExistsUniqueName
+          ($subjectName : $referenceSubjectName)
+          ($logicalPreName $logicalPostName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($referenceValueName : Option
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1)
+          ($effectsName : Array
+            ProofForgeV2.Semantic.ReferenceV1.OrderedEffectV1)
+          ($validateName :
+            ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+                $subjectProgramName = .ok $subjectDataName)
+          ($stepName :
+            ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1
+                ($subjectName).admitted $logicalPreName $invocationTerm
+                  $responsesName $vaultName =
+              .returned $logicalPostName $referenceValueName $effectsName) :
+          ∃ value : $resultName,
+            $decodeResultName $referenceValueName = .ok value ∧
+              ∀ other : $resultName,
+                $decodeResultName $referenceValueName = .ok other →
+                  value = other := by
+        have hadmittedData : ($subjectName).admitted.data = $subjectDataName :=
+          (ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1_ok_implies
+            $subjectProgramName $subjectDataName ($subjectName).admitted
+              $validateName ($subjectName).hadmit).2
+        have hlookup :
+            ($subjectName).admitted.data.callables[$callableIdTerm]? =
+              some (($subjectDataName).callables[$callableIdTerm]'(by decide)) := by
+          rw [hadmittedData]
+          rfl
+        have hconforms :=
+          ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1_returned_resultConformsV1_of_lookup
+            ($subjectName).admitted $logicalPreName $logicalPostName $invocationTerm
+              $responsesName $vaultName
+              (($subjectDataName).callables[$callableIdTerm]'(by decide))
+              $referenceValueName $effectsName hlookup $stepName
+        rw [hadmittedData] at hconforms
+        exact $decodeExistsUniqueName $referenceValueName hconforms))
     Lean.Elab.Command.elabCommand (← `(
       /-- Typed full-outcome view specialized to this callable result type. -/
       abbrev $callableOutcomeName :=
