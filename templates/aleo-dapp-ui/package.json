@@ -1,0 +1,30 @@
+{
+  "name": "proof-forge-aleo-dapp-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Minimal Aleo React dApp template: wallet connect + execute PF StateCell-shaped programs",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@provablehq/aleo-types": "^1.0.1",
+    "@provablehq/aleo-wallet-adaptor-core": "^1.0.1",
+    "@provablehq/aleo-wallet-adaptor-leo": "^1.0.1",
+    "@provablehq/aleo-wallet-adaptor-puzzle": "^1.0.1",
+    "@provablehq/aleo-wallet-adaptor-react": "^1.0.1",
+    "@provablehq/aleo-wallet-adaptor-react-ui": "^1.0.1",
+    "@provablehq/aleo-wallet-adaptor-shield": "^1.0.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11"
+  }
+}

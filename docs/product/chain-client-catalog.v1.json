@@ -28,7 +28,8 @@
           "pf_artifacts",
           "pf_chain_catalog"
         ],
-        "template": "templates/external-aleo-hello"
+        "template": "templates/external-aleo-hello",
+        "frontendTemplate": "templates/aleo-dapp-ui"
       },
       "frontendClients": [
         {
@@ -91,7 +92,8 @@
         "browser must not embed APrivateKey; CLI broadcast keys stay developer-local only",
         "see PRODUCT-ALEO-DAPP-FRONTEND-WALLET for dApp wiring"
       ],
-      "frontendGuide": "docs/product/07-aleo-dapp-frontend-wallet.md"
+      "frontendGuide": "docs/product/07-aleo-dapp-frontend-wallet.md",
+      "frontendTemplate": "templates/aleo-dapp-ui"
     },
     {
       "id": "evm",

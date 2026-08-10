@@ -99,7 +99,7 @@ Agent 完成后端后，**前端不是可选闲笔**——完整 Aleo APP 需要
 最短路径：
 
 1. `pf_chain_catalog` `target=aleo` → 读 `frontendClients`（`@provablehq/aleo-wallet-adaptor-*` · `@provablehq/sdk`）
-2. 脚手架 React（Vite/Next）+ `AleoWalletProvider` / `WalletMultiButton`（Leo/Puzzle/Shield…）
+2. 脚手架：复制/打开 [`templates/aleo-dapp-ui`](../../templates/aleo-dapp-ui/)（Vite + `AleoWalletProvider` / `WalletMultiButton`）
 3. 从 PF `pf deploy`（或 explorer）取得 **program id**，写入前端 env（**无私钥**）
 4. 用户钱包 `executeTransaction` 调 `initialize` / `increment`；public mapping 用 explorer REST 读
 5. 开发者本机仍可用 `pf deploy|execute --broadcast` 做冒烟；**终端用户只走钱包**

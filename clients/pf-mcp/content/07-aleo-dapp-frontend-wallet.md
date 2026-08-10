@@ -352,9 +352,26 @@ Remote MCP 可增加的 **guidance-only** 提示（已有 `pf_cli_cheatsheet` / 
 | 项 | 状态 |
 |---|---|
 | 本文 + catalog 字段 | **engineering draft** |
-| PF 发货 React 模板 / pin npm | **未做**（可选后续 `templates/aleo-dapp-ui`） |
+| 最小 React 模板 | **done**：[`templates/aleo-dapp-ui/`](../../templates/aleo-dapp-ui/)（不 pin 进 Tool Lock） |
 | MCP 代签 / 远程 broadcast | **明确不做** |
 | Formal / mainnet / hermetic | **不声称** |
+
+
+## 11b. 最小模板（可运行）
+
+仓库内脚手架：
+
+```bash
+cd templates/aleo-dapp-ui
+cp .env.example .env
+npm install
+npm run dev
+# http://127.0.0.1:5173
+```
+
+默认 `VITE_ALEO_PROGRAM_ID=pfdemo336641.aleo`（live Testnet demo）。  
+功能：WalletMultiButton · initialize/increment · explorer mapping 刷新。  
+细节见模板 [`README.md`](../../templates/aleo-dapp-ui/README.md)。
 
 ## 12. 相关
 
