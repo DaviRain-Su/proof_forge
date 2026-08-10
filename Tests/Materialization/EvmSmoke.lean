@@ -2950,41 +2950,27 @@ private unsafe def testMapPutIntoEmptyAtomicStore : IO Unit := do
   let some caseAt := indexOf yulCs caseMarker.toList 0 |
     throw <| IO.userError "MapPut: put case marker not found"
   let putRegion := String.ofList (yulCs.drop caseAt)
-  -- B-EVM-MAP-STACK + B-MAP-STRUCT-PIN + M2b batch:
-  -- put case calls `pf_map_u64_upsert(..., outMem=0x10000)` once (sloads live
-  -- inside the helper definition, not inlined in the case), then a contiguous
-  -- 24-sstore run that only `mload`s spilled words (no mid-batch sload).
-  let some firstSstore := indexOf putRegion.toList "sstore(".toList 0 |
-    throw <| IO.userError "MapPut put case must contain sstore"
-  let beforeSstore := String.ofList (putRegion.toList.take firstSstore)
-  expect (beforeSstore.contains "pf_map_u64_upsert(")
-    "Map put must call pf_map_u64_upsert before first sstore (M2b batch path)"
-  expect (!beforeSstore.contains "sstore(")
-    "Map put compute/spill phase must contain no sstore before the write batch"
-  let mut pos := firstSstore
-  let mut count := 0
-  let putCs := putRegion.toList
-  while count < 24 do
-    let tail := putCs.drop pos
-    match indexOf tail "sstore(".toList 0 with
-    | none =>
-        throw <| IO.userError
-          s!"MapPut put case expected 24 sstores in write batch, found {count}"
-    | some rel =>
-        let sPos := pos + rel
-        if count > 0 then
-          let between := String.ofList ((putCs.drop pos).take rel)
-          expect (!between.contains "sload(")
-            s!"Map put atomic batch must not sload between sstore {count} and next (store-then-read)"
-          expect (!between.contains "mstore(")
-            s!"Map put write batch must not mstore between sstore {count} and next"
-        -- Write phase reloads spilled words (mload of high spill addr).
-        let sstoreSlice := String.ofList ((putCs.drop sPos).take 80)
-        expect (sstoreSlice.contains "mload(")
-          s!"Map put sstore {count} must mload spilled leaf value"
-        count := count + 1
-        pos := sPos + "sstore(".length
-  expect (count == 24) "Map put write batch must be exactly 24 sstores"
+  -- M2b in-place batch: put case calls `pf_map_u64_upsert(base,key,val)` once.
+  -- The helper owns the dirty-entry sstores; the case body itself must not
+  -- expand a 24-leaf spill/sstore run (size + gas). sloads live only inside
+  -- the helper definition, not between case-level stores.
+  expect (putRegion.contains "pf_map_u64_upsert(")
+    "Map put must call pf_map_u64_upsert (M2b in-place batch path)"
+  -- Case body before the helper def: at most the call site, no bare sstore run.
+  let caseBodyEnd :=
+    match indexOf putRegion.toList "function pf_map_".toList 0 with
+    | some i => i
+    | none => putRegion.length
+  let caseBody := String.ofList (putRegion.toList.take caseBodyEnd)
+  expect (caseBody.contains "pf_map_u64_upsert(")
+    "Map put case body must invoke pf_map_u64_upsert"
+  -- No expanded 24-leaf write loop in the case body.
+  let caseSstores := (caseBody.splitOn "sstore(").length - 1
+  expect (caseSstores == 0)
+    s!"Map put case body must not expand leaf sstores (helper-owned), got {caseSstores}"
+  -- Helper definition still performs sstore (in-place dirty entry).
+  expect (putRegion.contains "function pf_map_u64_upsert" && putRegion.contains "sstore(")
+    "Map put helper must define pf_map_u64_upsert with in-place sstore"
   -- Dual StateStore still separate: init Map.empty is its own atomic batch.
   match plan.constructor with
   | none => throw <| IO.userError "MapPut must have constructor"
@@ -3192,63 +3178,28 @@ private unsafe def testTokenDualStoreBatchSeparation : IO Unit := do
   let some caseAt := indexOf yul.toList caseMarker.toList 0 |
     throw <| IO.userError "Token dual: transfer case marker not found"
   let transferRegion := String.ofList (yul.toList.drop caseAt)
-  -- Collect every sstore( position in the transfer case.
-  let rec collectSstores (hay : List Char) (base : Nat) (acc : Array Nat) : Array Nat :=
-    match indexOf hay "sstore(".toList 0 with
-    | none => acc
-    | some rel =>
-        let pos := base + rel
-        collectSstores (hay.drop (rel + "sstore(".length)) (pos + "sstore(".length)
-          (acc.push pos)
-  let sstorePoses := collectSstores transferRegion.toList 0 #[]
-  -- Dual-write path emits 2 × 24 = 48 sstores per arm; both arms are present
-  -- in the lowered switch, so expect ≥ 48 (often 96 for two full dual arms).
-  expect (sstorePoses.size >= 48)
-    s!"Token transfer Yul must emit ≥48 Map sstores (dual 24-leaf batches), got {sstorePoses.size}"
-  -- M2b batch: each StateStore → one `pf_map_u64_upsert(..., outMem)` then
-  -- 24 sstores that only `mload` the spill. Dual StateStores stay separate
-  -- as two helper calls (not one merged 48-leaf batch).
+  -- M2b in-place: each StateStore → one `pf_map_u64_upsert(base,key,val)`;
+  -- sstores live inside the shared helper, not as expanded 24-leaf runs.
+  -- Dual StateStores stay separate as two helper calls.
   expect (transferRegion.contains "pf_map_u64_upsert(")
-    "Token transfer must call pf_map_u64_upsert (M2b batch path)"
-  expect (transferRegion.contains "mload(65536)" || transferRegion.contains "mload(0x10000)")
-    "Token transfer Yul write phase must mload spill base for sstore"
-  let mut foundAtomic24 := false
-  let mut foundSeparatedBatches := false
-  let mut foundHelperBeforeBatch := false
-  let trCs := transferRegion.toList
-  let mut bi := 0
-  while bi + 24 ≤ sstorePoses.size do
-    let mut contiguous := true
-    let mut j := 1
-    while j < 24 && contiguous do
-      let prev := sstorePoses[bi + j - 1]!
-      let cur := sstorePoses[bi + j]!
-      let between := String.ofList ((trCs.drop (prev + "sstore(".length)).take
-        (cur - (prev + "sstore(".length)))
-      if between.contains "sload(" then
-        contiguous := false
-      j := j + 1
-    if contiguous then
-      foundAtomic24 := true
-      let batchStart := sstorePoses[bi]!
-      let preStart := if bi == 0 then 0 else sstorePoses[bi - 1]! + "sstore(".length
-      let preBatch := String.ofList ((trCs.drop preStart).take (batchStart - preStart))
-      if preBatch.contains "pf_map_u64_upsert(" && !preBatch.contains "sstore(" then
-        foundHelperBeforeBatch := true
-      if bi + 24 < sstorePoses.size then
-        let batchEnd := sstorePoses[bi + 23]!
-        let nextStore := sstorePoses[bi + 24]!
-        let gap := String.ofList ((trCs.drop (batchEnd + "sstore(".length)).take
-          (nextStore - (batchEnd + "sstore(".length)))
-        if gap.contains "pf_map_u64_upsert(" then
-          foundSeparatedBatches := true
-    bi := bi + 1
-  expect foundAtomic24
-    "Token transfer Yul must contain a contiguous 24-sstore atomic write batch (no mid-batch sload)"
-  expect foundSeparatedBatches
-    "Token transfer dual StateStores must stay separate (two pf_map_u64_upsert batches)"
-  expect foundHelperBeforeBatch
-    "Token transfer each atomic batch must call pf_map_u64_upsert before its sstore run"
+    "Token transfer must call pf_map_u64_upsert (M2b in-place batch path)"
+  let upsertCalls := (transferRegion.splitOn "pf_map_u64_upsert(").length - 1
+  -- definition + ≥2 call sites (dual StateStore); allow more for both arms.
+  expect (upsertCalls >= 3)
+    s!"Token transfer must invoke pf_map_u64_upsert for dual StateStores, got {upsertCalls} occurrences"
+  -- Case body must not expand 24-leaf sstore runs; helper owns writes.
+  let caseBodyEnd :=
+    match indexOf transferRegion.toList "function pf_map_".toList 0 with
+    | some i => i
+    | none => transferRegion.length
+  let caseBody := String.ofList (transferRegion.toList.take caseBodyEnd)
+  let caseSstores := (caseBody.splitOn "sstore(").length - 1
+  expect (caseSstores == 0)
+    s!"Token transfer case body must not expand Map leaf sstores, got {caseSstores}"
+  -- Helper definition still contains the in-place sstore triple.
+  expect (transferRegion.contains "function pf_map_u64_upsert" &&
+      transferRegion.contains "sstore(b, 1)")
+    "Token transfer helper must in-place sstore dirty entry"
   -- mint: Map storeAtomic + scalar supply store stay distinct statement kinds.
   let some mint := plan.entries.find? (·.name == "mint") |
     throw <| IO.userError "Token dual: missing mint entry"

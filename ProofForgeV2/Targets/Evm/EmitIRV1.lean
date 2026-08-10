@@ -127,11 +127,14 @@ private def renderPrincipalMapHelpers (indent : String)
       indent ++ "    }\n" ++
       indent ++ "  }\n" ++
       indent ++ "}\n"
+  -- In-place upsert: write only the matched/inserted entry via sstore.
+    -- Unchanged entries are left alone (equivalent to full-table rewrite of
+    -- identical words, far smaller Yul/bytecode than spill+44×sstore).
   let upsert :=
     if !(needUpsert || needUpsertLeaf) then ""
     else
       indent ++
-        "function pf_map_p_upsert(base, keyMem, outMem) {\n" ++
+        "function pf_map_p_upsert(base, keyMem) {\n" ++
       indent ++ "  let anyMatch := 0\n" ++
       indent ++ "  let firstEmpty := 4\n" ++
       indent ++ "  for { let e := 0 } lt(e, 4) { e := add(e, 1) } {\n" ++
@@ -144,34 +147,28 @@ private def renderPrincipalMapHelpers (indent : String)
       indent ++ "  }\n" ++
       indent ++ "  if iszero(or(anyMatch, lt(firstEmpty, 4))) { revert(0, 0) }\n" ++
       indent ++ "  let val := mload(add(keyMem, 288))\n" ++
+      indent ++ "  let target := firstEmpty\n" ++
       indent ++ "  for { let e := 0 } lt(e, 4) { e := add(e, 1) } {\n" ++
       indent ++ "    let b := add(base, mul(e, 11))\n" ++
       indent ++ "    let occ := sload(b)\n" ++
-      indent ++ "    let matchHit := 0\n" ++
       indent ++ "    if occ {\n" ++
-      indent ++ s!"      if {keq} \{ matchHit := 1 }\n" ++
+      indent ++ s!"      if {keq} \{ target := e }\n" ++
       indent ++ "    }\n" ++
-      indent ++ "    let insertHere := and(iszero(anyMatch), eq(e, firstEmpty))\n" ++
-      indent ++ "    let write := or(matchHit, insertHere)\n" ++
-      indent ++ "    let out := add(outMem, mul(mul(e, 11), 32))\n" ++
-      indent ++ "    mstore(out, or(occ, write))\n" ++
-      indent ++ "    for { let k := 0 } lt(k, 9) { k := add(k, 1) } {\n" ++
-      indent ++ "      let want := mload(add(keyMem, mul(k, 32)))\n" ++
-      indent ++ "      let stored := sload(add(b, add(1, k)))\n" ++
-      indent ++ "      mstore(add(out, mul(add(1, k), 32)), add(mul(write, want), mul(iszero(write), stored)))\n" ++
-      indent ++ "    }\n" ++
-      indent ++ "    let oldV := sload(add(b, 10))\n" ++
-      indent ++ "    mstore(add(out, 320), add(mul(write, val), mul(iszero(write), oldV)))\n" ++
       indent ++ "  }\n" ++
+      indent ++ "  let b := add(base, mul(target, 11))\n" ++
+      indent ++ "  sstore(b, 1)\n" ++
+      indent ++ "  for { let k := 0 } lt(k, 9) { k := add(k, 1) } {\n" ++
+      indent ++ "    sstore(add(b, add(1, k)), mload(add(keyMem, mul(k, 32))))\n" ++
+      indent ++ "  }\n" ++
+      indent ++ "  sstore(add(b, 10), val)\n" ++
       indent ++ "}\n"
   let upsertLeaf :=
     if !needUpsertLeaf then ""
     else
       indent ++
         "function pf_map_p_upsert_leaf(base, leafIdx, keyMem) -> r {\n" ++
-      indent ++ "  let scratch := add(keyMem, 320)\n" ++
-      indent ++ "  pf_map_p_upsert(base, keyMem, scratch)\n" ++
-      indent ++ "  r := mload(add(scratch, mul(leafIdx, 32)))\n" ++
+      indent ++ "  pf_map_p_upsert(base, keyMem)\n" ++
+      indent ++ "  r := sload(add(base, leafIdx))\n" ++
       indent ++ "}\n"
   lookup ++ upsert ++ upsertLeaf
 
@@ -195,40 +192,38 @@ private def renderMapUInt64Helpers (indent : String)
       indent ++ "    }\n" ++
       indent ++ "  }\n" ++
       indent ++ "}\n"
+  -- In-place upsert: sstore only the matched/inserted (occ,key,val) triple.
   let upsert :=
     if !(needUpsert || needUpsertLeaf) then ""
     else
       indent ++
-        "function pf_map_u64_upsert(base, key, val, outMem) {\n" ++
+        "function pf_map_u64_upsert(base, key, val) {\n" ++
       indent ++ "  let anyMatch := 0\n" ++
       indent ++ "  let firstEmpty := 8\n" ++
+      indent ++ "  let target := 8\n" ++
       indent ++ "  for { let e := 0 } lt(e, 8) { e := add(e, 1) } {\n" ++
       indent ++ "    let b := add(base, mul(e, 3))\n" ++
       indent ++ "    let occ := sload(b)\n" ++
-      indent ++ "    if and(occ, eq(sload(add(b, 1)), key)) { anyMatch := 1 }\n" ++
+      indent ++ "    if and(occ, eq(sload(add(b, 1)), key)) {\n" ++
+      indent ++ "      anyMatch := 1\n" ++
+      indent ++ "      target := e\n" ++
+      indent ++ "    }\n" ++
       indent ++ "    if and(iszero(occ), eq(firstEmpty, 8)) { firstEmpty := e }\n" ++
       indent ++ "  }\n" ++
       indent ++ "  if iszero(or(anyMatch, lt(firstEmpty, 8))) { revert(0, 0) }\n" ++
-      indent ++ "  for { let e := 0 } lt(e, 8) { e := add(e, 1) } {\n" ++
-      indent ++ "    let b := add(base, mul(e, 3))\n" ++
-      indent ++ "    let occ := sload(b)\n" ++
-      indent ++ "    let matchHit := and(occ, eq(sload(add(b, 1)), key))\n" ++
-      indent ++ "    let insertHere := and(iszero(anyMatch), eq(e, firstEmpty))\n" ++
-      indent ++ "    let write := or(matchHit, insertHere)\n" ++
-      indent ++ "    let out := add(outMem, mul(mul(e, 3), 32))\n" ++
-      indent ++ "    mstore(out, or(occ, write))\n" ++
-      indent ++ "    mstore(add(out, 32), add(mul(write, key), mul(iszero(write), sload(add(b, 1)))))\n" ++
-      indent ++ "    mstore(add(out, 64), add(mul(write, val), mul(iszero(write), sload(add(b, 2)))))\n" ++
-      indent ++ "  }\n" ++
+      indent ++ "  if iszero(anyMatch) { target := firstEmpty }\n" ++
+      indent ++ "  let b := add(base, mul(target, 3))\n" ++
+      indent ++ "  sstore(b, 1)\n" ++
+      indent ++ "  sstore(add(b, 1), key)\n" ++
+      indent ++ "  sstore(add(b, 2), val)\n" ++
       indent ++ "}\n"
   let upsertLeaf :=
     if !needUpsertLeaf then ""
     else
       indent ++
         "function pf_map_u64_upsert_leaf(base, leafIdx, key, val) -> r {\n" ++
-      indent ++ "  let scratch := 0x18000\n" ++
-      indent ++ "  pf_map_u64_upsert(base, key, val, scratch)\n" ++
-      indent ++ "  r := mload(add(scratch, mul(leafIdx, 32)))\n" ++
+      indent ++ "  pf_map_u64_upsert(base, key, val)\n" ++
+      indent ++ "  r := sload(add(base, leafIdx))\n" ++
       indent ++ "}\n"
   lookup ++ upsert ++ upsertLeaf
 
@@ -1248,9 +1243,8 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         -- Default path: Phase 1 (compute + spill) each leaf in its own nested
         -- Yul block; Phase 2 contiguous sstore from spill.
         -- M2 fast path: when all 44 leaves are `mapPrincipalUpsertLeaf` for the
-        -- same (base, keys, value) with leafIndex==i, spill keys once, call
-        -- `pf_map_p_upsert` into storeAtomic spill, then sstore — avoids
-        -- 44× full-table rescans and keeps solc stack flat.
+        -- same (base, keys, value) with leafIndex==i, spill keys once and call
+        -- in-place `pf_map_p_upsert` (helper sstores only the dirty entry).
         let isPrincipalUpsertBatch : Bool := Id.run do
           if operations.size != 44 then return false
           let some first := operations[0]? | return false
@@ -1290,7 +1284,6 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           match first.value with
           | .mapPrincipalUpsertLeaf mapBaseSlot keyLeaves value _ =>
               let keyMem := mapPrincipalKeyMemBaseV1
-              let outMem := storeAtomicSpillBaseV1
               for i in [0:keyLeaves.size] do
                 let some k := keyLeaves[i]? | pure ()
                 let rendered := renderExpr indent paramPrefix next k
@@ -1301,37 +1294,24 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
               let valR := renderExpr indent paramPrefix next value
               output := output ++ valR.code
               next := valR.next
+              -- In-place helper sstores the single dirty entry; no 44-leaf spill.
               output := output ++
                 s!"{indent}mstore({keyMem + 288}, {valR.value})\n" ++
-                s!"{indent}pf_map_p_upsert({mapBaseSlot}, {keyMem}, {outMem})\n"
-              for i in [0:operations.size] do
-                match operations[i]? with
-                | none => pure ()
-                | some store =>
-                    let loaded := s!"mload({storeAtomicSpillAddrV1 i})"
-                    output := output ++
-                      renderMaskedSstore indent store.slot loaded store.byteWidth
+                s!"{indent}pf_map_p_upsert({mapBaseSlot}, {keyMem})\n"
           | _ => pure ()
         else if isUInt64UpsertBatch then
           let some first := operations[0]? | pure ()
           match first.value with
           | .mapUInt64UpsertLeaf mapBaseSlot key value _ =>
-              let outMem := storeAtomicSpillBaseV1
               let keyR := renderExpr indent paramPrefix next key
               output := output ++ keyR.code
               next := keyR.next
               let valR := renderExpr indent paramPrefix next value
               output := output ++ valR.code
               next := valR.next
+              -- In-place helper sstores the single dirty (occ,key,val) triple.
               output := output ++
-                s!"{indent}pf_map_u64_upsert({mapBaseSlot}, {keyR.value}, {valR.value}, {outMem})\n"
-              for i in [0:operations.size] do
-                match operations[i]? with
-                | none => pure ()
-                | some store =>
-                    let loaded := s!"mload({storeAtomicSpillAddrV1 i})"
-                    output := output ++
-                      renderMaskedSstore indent store.slot loaded store.byteWidth
+                s!"{indent}pf_map_u64_upsert({mapBaseSlot}, {keyR.value}, {valR.value})\n"
           | _ => pure ()
         else
           let nested := indent ++ "  "

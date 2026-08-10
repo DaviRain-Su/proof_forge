@@ -237,8 +237,12 @@ fi
 # Anvil default key
 pk=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
 # Deploy create
-binhex=$(xxd -p -c 1000000 "$token_bin" | tr -d '\n')
-# Token Map pilot bytecode can exceed Anvil/EIP-3860 initcode limits (~49KiB).
+# Product .bin is already hex text (same as MiniAmm path). Do NOT xxd again —
+# that doubles the payload and falsely trips initcode limits.
+binhex="$(tr -d '\n\r ' < "$token_bin")"
+[[ -n "$binhex" ]] || { echo "evm-token-anvil: Token.bin empty (hard)" >&2; exit 1; }
+# Historical note: early dense-Map Token exceeded EIP-3860; current in-place
+# map upsert keeps initcode well under the limit (~1.4KiB).
 addr=$("$cast_path" send --rpc-url "$rpc" --private-key "$pk" --create "0x$binhex" --json 2>"$create_err" | /usr/bin/python3 -I -S -c 'import sys,json
 try:
   print(json.load(sys.stdin).get("contractAddress",""))
