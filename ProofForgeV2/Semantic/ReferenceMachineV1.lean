@@ -926,6 +926,66 @@ private def valueCanonical (data : SemanticProgramDataV1) (v : ReferenceValueV1)
   | .ok _ => true
   | .error _ => false
 
+private theorem valueCanonical_eq_true_iff
+    (data : SemanticProgramDataV1)
+    (value : ReferenceValueV1) :
+    valueCanonical data value = true ↔
+      validateValueBytesV1 data.types value.typeId value.valueBytes = .ok () := by
+  unfold valueCanonical
+  cases hvalidate :
+      validateValueBytesV1 data.types value.typeId value.valueBytes with
+  | error error => simp
+  | ok unit =>
+      cases unit
+      simp
+
+/-- A Reference return value matches one exact callable result row. Unit uses
+    the canonical `none` carrier; every other result carries the exact lowered
+    TypeId and bytes accepted by the production value validator. This is a
+    proof predicate over the production carrier, not another result codec. -/
+def ReferenceResultConformsV1
+    (data : SemanticProgramDataV1)
+    (result : CallableResultV1)
+    (value : Option ReferenceValueV1) : Prop :=
+  let resultIsUnit :=
+    match data.types[result.typeId.toNat]? with
+    | some { shape := .unit, .. } => true
+    | _ => false
+  match value with
+  | none => resultIsUnit = true
+  | some returned =>
+      resultIsUnit = false ∧
+        returned.typeId = result.typeId ∧
+        validateValueBytesV1 data.types returned.typeId returned.valueBytes = .ok ()
+
+private theorem referenceResultConformsV1_none_iff
+    (data : SemanticProgramDataV1)
+    (result : CallableResultV1) :
+    ReferenceResultConformsV1 data result none ↔
+      isUnitType data result.typeId = true := by
+  unfold ReferenceResultConformsV1 isUnitType shapeOf
+  cases htype : data.types[result.typeId.toNat]? with
+  | none => simp
+  | some typeDecl =>
+      cases typeDecl with
+      | mk id name shape =>
+          cases shape <;> simp
+
+private theorem referenceResultConformsV1_some_iff
+    (data : SemanticProgramDataV1)
+    (result : CallableResultV1)
+    (value : ReferenceValueV1) :
+    ReferenceResultConformsV1 data result (some value) ↔
+      isUnitType data result.typeId = false ∧
+        value.typeId = result.typeId ∧ valueCanonical data value = true := by
+  unfold ReferenceResultConformsV1 isUnitType shapeOf
+  cases hresult : data.types[result.typeId.toNat]? with
+  | none => simp [valueCanonical_eq_true_iff]
+  | some typeDecl =>
+      cases typeDecl with
+      | mk id name shape =>
+          cases shape <;> simp [valueCanonical_eq_true_iff]
+
 /-! ### Machine -/
 
 /-- Suspended caller state while a pure-fn callee runs. The callee cannot
@@ -961,11 +1021,89 @@ structure MachineV1 where
       canonical valueBytes; absent key reads as zero. -/
   vaultToken     : Array (ByteArray × UInt64)
 
+/-- Result row of the outermost callable. A suspended pure-call stack stores
+    the outermost caller in its first frame; an empty stack uses the active
+    callable. This projection is proof-only and does not affect execution. -/
+private def rootCallableResultV1 (m : MachineV1) : CallableResultV1 :=
+  match m.frames[0]? with
+  | some frame => frame.callable.result
+  | none => m.callable.result
+
+private theorem rootCallableResultV1_enterPureCall
+    (m : MachineV1)
+    (callee : CallableV1)
+    (calleeEnv : Array (Option ReferenceValueV1))
+    (frame : CallFrameV1)
+    (hcaller : frame.callable = m.callable) :
+    rootCallableResultV1 {
+      m with
+      callable := callee
+      env := calleeEnv
+      loopCounts := Array.replicate callee.loopBounds.size (0 : UInt32)
+      blockId := callee.entryBlock
+      instrIdx := 0
+      frames := m.frames.push frame
+    } = rootCallableResultV1 m := by
+  unfold rootCallableResultV1
+  rw [Array.getElem?_push]
+  by_cases hempty : m.frames.size = 0
+  · have hframes : m.frames = #[] := Array.size_eq_zero_iff.mp hempty
+    rw [hframes]
+    simp [hcaller]
+  · have hnonzero : 0 ≠ m.frames.size := Ne.symm hempty
+    have hfirst := Array.getElem?_eq_getElem (Nat.pos_of_ne_zero hempty)
+    simp [hnonzero, hfirst]
+
+private theorem rootCallableResultV1_leavePureCall
+    (m : MachineV1)
+    (frame : CallFrameV1)
+    (env : Array (Option ReferenceValueV1))
+    (hback : m.frames.back? = some frame) :
+    rootCallableResultV1 {
+      m with
+      callable := frame.callable
+      env
+      loopCounts := frame.loopCounts
+      blockId := frame.blockId
+      instrIdx := frame.instrIdx
+      frames := m.frames.pop
+    } = rootCallableResultV1 m := by
+  obtain ⟨frames, hframes⟩ := Array.back?_eq_some_iff.mp hback
+  unfold rootCallableResultV1
+  rw [hframes, Array.pop_push, Array.getElem?_push]
+  by_cases hempty : frames.size = 0
+  · have hframes : frames = #[] := Array.size_eq_zero_iff.mp hempty
+    rw [hframes]
+    rfl
+  · have hnonzero : 0 ≠ frames.size := Ne.symm hempty
+    have hfirst := Array.getElem?_eq_getElem (Nat.pos_of_ne_zero hempty)
+    simp [hnonzero, hfirst]
+
+private theorem rootCallableResultV1_eq_of_callStack_eq
+    (before after : MachineV1)
+    (hcallable : after.callable = before.callable)
+    (hframes : after.frames = before.frames) :
+    rootCallableResultV1 after = rootCallableResultV1 before := by
+  unfold rootCallableResultV1
+  rw [hframes, hcallable]
+
 /-- Body halt candidate before `finalize` reattaches pre on failure. -/
 inductive CandidateV1 where
   | returned (value : Option ReferenceValueV1)
   | reverted (reason : SemanticRevertV1)
   | trapped (fault : SemanticFaultV1)
+
+/-- Private instruction-local failure channel. Evaluators and vault helpers
+    can only revert or trap; successful contract return remains exclusive to a
+    terminator. Conversion at the execution boundary preserves the existing
+    `CandidateV1` surface and observable machine semantics. -/
+private inductive LocalFailureV1 where
+  | reverted (reason : SemanticRevertV1)
+  | trapped (fault : SemanticFaultV1)
+
+private def LocalFailureV1.toCandidateV1 : LocalFailureV1 → CandidateV1
+  | .reverted reason => .reverted reason
+  | .trapped fault => .trapped fault
 
 /-- Instruction/terminator local result: continue machine or halt with candidate. -/
 private inductive ExecResult where
@@ -978,11 +1116,57 @@ private def ExecResultPreservesDataV1
   | .next m => m.data = data
   | .done m _ => m.data = data
 
+/-- Instruction-local execution preserves the active callable/call stack while
+    it continues and cannot manufacture a successful contract return. -/
+private def ExecResultPreservesCallStackFailureV1
+    (callable : CallableV1)
+    (frames : Array CallFrameV1) : ExecResult → Prop
+  | .next after =>
+      after.callable = callable ∧ after.frames = frames
+  | .done _ (.returned _) => False
+  | .done _ (.reverted _) => True
+  | .done _ (.trapped _) => True
+
+private def ExecTerminatorContractV1
+    (m : MachineV1) : ExecResult → Prop
+  | .next after =>
+      after.callable = m.callable ∧ after.frames = m.frames
+  | .done _ (.returned value) =>
+      ReferenceResultConformsV1 m.data m.callable.result value
+  | .done _ (.reverted _) => True
+  | .done _ (.trapped _) => True
+
+private def CandidateResultConformsV1
+    (data : SemanticProgramDataV1)
+    (result : CallableResultV1) : CandidateV1 → Prop
+  | .returned value => ReferenceResultConformsV1 data result value
+  | .reverted _ => True
+  | .trapped _ => True
+
+private theorem candidateResultConformsV1_congr
+    {data₁ data₂ : SemanticProgramDataV1}
+    {result₁ result₂ : CallableResultV1}
+    {candidate : CandidateV1}
+    (hdata : data₁ = data₂)
+    (hresult : result₁ = result₂)
+    (hconforms : CandidateResultConformsV1 data₁ result₁ candidate) :
+    CandidateResultConformsV1 data₂ result₂ candidate := by
+  subst data₂
+  subst result₂
+  exact hconforms
+
 /-- Proof-only projection invariant for helpers which may return a machine. -/
 private def ExceptMachinePreservesDataV1
-    (data : SemanticProgramDataV1) : Except CandidateV1 MachineV1 → Prop
+    (data : SemanticProgramDataV1) : Except LocalFailureV1 MachineV1 → Prop
   | .error _ => True
   | .ok m => m.data = data
+
+private def ExceptMachinePreservesCallStackV1
+    (callable : CallableV1)
+    (frames : Array CallFrameV1) : Except LocalFailureV1 MachineV1 → Prop
+  | .error _ => True
+  | .ok after =>
+      after.callable = callable ∧ after.frames = frames
 
 def maxValueIdInCallable (c : CallableV1) : Nat := Id.run do
   let mut m : Nat := 0
@@ -1099,7 +1283,7 @@ def finalize (m : MachineV1) (cand : CandidateV1)
 
 private def evalUnary (data : SemanticProgramDataV1) (op : UnaryOpV1)
     (operand : ReferenceValueV1) (resultTypeId : TypeIdV1) :
-    Except CandidateV1 ReferenceValueV1 :=
+    Except LocalFailureV1 ReferenceValueV1 :=
   match op with
   | .not =>
       if !(isBoolType data operand.typeId && isBoolType data resultTypeId) then
@@ -1153,7 +1337,7 @@ private def evalUnary (data : SemanticProgramDataV1) (op : UnaryOpV1)
 
 private def evalBinary (data : SemanticProgramDataV1) (op : BinaryOpV1)
     (lhs rhs : ReferenceValueV1) (resultTypeId : TypeIdV1) :
-    Except CandidateV1 ReferenceValueV1 :=
+    Except LocalFailureV1 ReferenceValueV1 :=
   match op with
   | .add | .sub | .mul | .div | .mod =>
       if !(lhs.typeId == rhs.typeId && lhs.typeId == resultTypeId &&
@@ -1368,7 +1552,7 @@ private def evalBinary (data : SemanticProgramDataV1) (op : BinaryOpV1)
 
 private def evalCheckedCast (data : SemanticProgramDataV1) (src : ReferenceValueV1)
     (toType : TypeIdV1) (resultTypeId : TypeIdV1) :
-    Except CandidateV1 ReferenceValueV1 :=
+    Except LocalFailureV1 ReferenceValueV1 :=
   if resultTypeId != toType then
     .error (.trapped .invalidCore)
   else if !valueCanonical data src then
@@ -1398,7 +1582,7 @@ private def evalCheckedCast (data : SemanticProgramDataV1) (src : ReferenceValue
 private def evalStructConstruct (data : SemanticProgramDataV1)
     (typeId : TypeIdV1) (constructorIndex : UInt32)
     (args : Array ReferenceValueV1) (resultTypeId : TypeIdV1) :
-    Except CandidateV1 ReferenceValueV1 := do
+    Except LocalFailureV1 ReferenceValueV1 := do
   unless resultTypeId == typeId && constructorIndex == 0 do
     throw (.trapped .invalidCore)
   let fields ←
@@ -1424,7 +1608,7 @@ private def evalStructConstruct (data : SemanticProgramDataV1)
 private def evalArrayConstruct (data : SemanticProgramDataV1)
     (typeId : TypeIdV1) (constructorIndex : UInt32)
     (args : Array ReferenceValueV1) (resultTypeId : TypeIdV1) :
-    Except CandidateV1 ReferenceValueV1 := do
+    Except LocalFailureV1 ReferenceValueV1 := do
   unless resultTypeId == typeId && constructorIndex == 0 do
     throw (.trapped .invalidCore)
   let (element, length) ←
@@ -1444,7 +1628,7 @@ private def evalArrayConstruct (data : SemanticProgramDataV1)
 private def evalMapConstruct (data : SemanticProgramDataV1)
     (typeId : TypeIdV1) (constructorIndex : UInt32)
     (args : Array ReferenceValueV1) (resultTypeId : TypeIdV1) :
-    Except CandidateV1 ReferenceValueV1 := do
+    Except LocalFailureV1 ReferenceValueV1 := do
   -- N-MAP-CONSTRUCT: ctor 0 with flattened key/value pairs. Semantics:
   -- empty map + sequential upsert in arg order (duplicate key last-wins,
   -- matching IndexSet; canonical value stays sorted via the upsert helper).
@@ -1470,14 +1654,14 @@ private def evalMapConstruct (data : SemanticProgramDataV1)
 private def evalUnitConstruct (data : SemanticProgramDataV1)
     (typeId : TypeIdV1) (constructorIndex : UInt32)
     (args : Array ReferenceValueV1) (resultTypeId : TypeIdV1) :
-    Except CandidateV1 ReferenceValueV1 := do
+    Except LocalFailureV1 ReferenceValueV1 := do
   unless resultTypeId == typeId && constructorIndex == 0 && args.isEmpty do
     throw (.trapped .invalidCore)
   unless isUnitType data typeId do throw (.trapped .invalidCore)
   pure { typeId, valueBytes := ByteArray.empty }
 
 private def checkedIndex (data : SemanticProgramDataV1)
-    (index : ReferenceValueV1) : Except CandidateV1 Nat := do
+    (index : ReferenceValueV1) : Except LocalFailureV1 Nat := do
   match data.types[index.typeId.toNat]? with
   | some { shape := .uint 32, .. } => pure ()
   | _ => throw (.trapped .invalidCore)
@@ -1486,7 +1670,7 @@ private def checkedIndex (data : SemanticProgramDataV1)
   pure (leBytesToNat index.valueBytes)
 
 private def evalIndexGet (data : SemanticProgramDataV1) (base index : ReferenceValueV1)
-    (resultTypeId : TypeIdV1) : Except CandidateV1 ReferenceValueV1 := do
+    (resultTypeId : TypeIdV1) : Except LocalFailureV1 ReferenceValueV1 := do
   match data.types[base.typeId.toNat]? with
   | some { shape := .array element _, .. } =>
       unless valueCanonical data base do throw (.trapped .invalidCore)
@@ -1527,7 +1711,7 @@ private def evalIndexGet (data : SemanticProgramDataV1) (base index : ReferenceV
   | _ => throw (.trapped .invalidCore)
 
 private def evalIndexSet (data : SemanticProgramDataV1) (base index value : ReferenceValueV1)
-    (resultTypeId : TypeIdV1) : Except CandidateV1 ReferenceValueV1 := do
+    (resultTypeId : TypeIdV1) : Except LocalFailureV1 ReferenceValueV1 := do
   unless resultTypeId == base.typeId do throw (.trapped .invalidCore)
   match data.types[base.typeId.toNat]? with
   | some { shape := .array element _, .. } =>
@@ -1572,7 +1756,7 @@ private def evalIndexSet (data : SemanticProgramDataV1) (base index value : Refe
 private def evalVariantConstruct (data : SemanticProgramDataV1)
     (typeId : TypeIdV1) (constructorIndex : UInt32)
     (args : Array ReferenceValueV1) (resultTypeId : TypeIdV1) :
-    Except CandidateV1 ReferenceValueV1 := do
+    Except LocalFailureV1 ReferenceValueV1 := do
   unless resultTypeId == typeId do throw (.trapped .invalidCore)
   let payloadTypes ←
     match data.types[typeId.toNat]? with
@@ -1599,7 +1783,7 @@ private def evalVariantConstruct (data : SemanticProgramDataV1)
   | .error _ => throw (.trapped .invalidCore)
 
 private def evalVariantTag (data : SemanticProgramDataV1) (base : ReferenceValueV1)
-    (resultTypeId : TypeIdV1) : Except CandidateV1 ReferenceValueV1 := do
+    (resultTypeId : TypeIdV1) : Except LocalFailureV1 ReferenceValueV1 := do
   match data.types[resultTypeId.toNat]? with
   | some { shape := .uint 32, .. } => pure ()
   | _ => throw (.trapped .invalidCore)
@@ -1609,7 +1793,7 @@ private def evalVariantTag (data : SemanticProgramDataV1) (base : ReferenceValue
 
 private def evalVariantPayload (data : SemanticProgramDataV1)
     (base : ReferenceValueV1) (variantIndex payloadIndex : UInt32)
-    (resultTypeId : TypeIdV1) : Except CandidateV1 ReferenceValueV1 := do
+    (resultTypeId : TypeIdV1) : Except LocalFailureV1 ReferenceValueV1 := do
   let expectedType ←
     match data.types[base.typeId.toNat]? with
     | some { shape := .option element, .. } =>
@@ -1634,7 +1818,7 @@ private def evalVariantPayload (data : SemanticProgramDataV1)
 
 private def evalStructFieldGet (data : SemanticProgramDataV1)
     (base : ReferenceValueV1) (fieldIndex : UInt32)
-    (resultTypeId : TypeIdV1) : Except CandidateV1 ReferenceValueV1 := do
+    (resultTypeId : TypeIdV1) : Except LocalFailureV1 ReferenceValueV1 := do
   let fields ←
     match data.types[base.typeId.toNat]? with
     | some { shape := .struct fields, .. } => pure fields
@@ -1654,7 +1838,7 @@ private def evalStructFieldGet (data : SemanticProgramDataV1)
 private def evalStructFieldSet (data : SemanticProgramDataV1)
     (base : ReferenceValueV1) (fieldIndex : UInt32)
     (value : ReferenceValueV1) (resultTypeId : TypeIdV1) :
-    Except CandidateV1 ReferenceValueV1 := do
+    Except LocalFailureV1 ReferenceValueV1 := do
   unless resultTypeId == base.typeId do
     throw (.trapped .invalidCore)
   let fields ←
@@ -1738,7 +1922,7 @@ private def vaultTokenDebitV1 (vault : Array (ByteArray × UInt64)) (key : ByteA
     response row) stays uniform. Non-transfer QNs pass through. -/
 private def vaultTransferOut (m : MachineV1) (callee : QualifiedName)
     (argVals : Array ReferenceValueV1) (occ : EffectOccurrenceV1) :
-    Except CandidateV1 MachineV1 :=
+    Except LocalFailureV1 MachineV1 :=
   if qnEqualsV1 callee "pf.assets.native.transfer" then
     match argVals[1]? with
     | some amountV =>
@@ -1767,7 +1951,7 @@ private def vaultTransferOut (m : MachineV1) (callee : QualifiedName)
     add; overflow is a harness inconsistency and traps invalidCore).
     Non-deposit QNs pass through. -/
 private def vaultDepositIn (m : MachineV1) (callee : QualifiedName)
-    (argVals : Array ReferenceValueV1) : Except CandidateV1 MachineV1 :=
+    (argVals : Array ReferenceValueV1) : Except LocalFailureV1 MachineV1 :=
   if qnEqualsV1 callee "pf.assets.native.deposit" then
     match argVals[0]? with
     | some amountV =>
@@ -1810,9 +1994,9 @@ private def vaultAsyncOut (m : MachineV1) (callee : QualifiedName)
   else m
 
 private def fromEval (m : MachineV1) (vid : ValueIdV1)
-    (r : Except CandidateV1 ReferenceValueV1) : ExecResult :=
+    (r : Except LocalFailureV1 ReferenceValueV1) : ExecResult :=
   match r with
-  | .error cand => .done m cand
+  | .error failure => .done m failure.toCandidateV1
   | .ok v => storeResult m vid v
 
 /-! ### Instruction / terminator -/
@@ -1976,10 +2160,10 @@ private def execInstruction (m : MachineV1) (instr : InstructionV1) : ExecResult
                             -- is vault-neutral otherwise (remote failure is
                             -- invisible locally); other QNs are vault-neutral.
                             match vaultDepositIn m3 callee argVals with
-                            | .error cand => .done m3 cand
+                            | .error failure => .done m3 failure.toCandidateV1
                             | .ok m4 =>
                             match vaultTransferOut m4 callee argVals occ with
-                            | .error cand => .done m3 cand
+                            | .error failure => .done m3 failure.toCandidateV1
                             | .ok m5 => .next (vaultAsyncOut m5 callee argVals)
                         | some _, none => .done m3 (.trapped .invalidExternalResponse)
   | .schedule effectId callee args =>
@@ -2266,10 +2450,10 @@ private theorem returnedVoidVaultPipeline_preserves_data
     (argVals : Array ReferenceValueV1) (occ : EffectOccurrenceV1) :
     ExecResultPreservesDataV1 m.data
       (match vaultDepositIn m callee argVals with
-      | .error cand => .done m cand
+      | .error failure => .done m failure.toCandidateV1
       | .ok m4 =>
           match vaultTransferOut m4 callee argVals occ with
-          | .error cand => .done m cand
+          | .error failure => .done m failure.toCandidateV1
           | .ok m5 => .next (vaultAsyncOut m5 callee argVals)) := by
   cases hdeposit : vaultDepositIn m callee argVals with
   | error candidate =>
@@ -2295,11 +2479,103 @@ private theorem returnedVoidVaultPipeline_preserves_data
 
 private theorem fromEval_preserves_data
     (m : MachineV1) (vid : ValueIdV1)
-    (r : Except CandidateV1 ReferenceValueV1) :
+    (r : Except LocalFailureV1 ReferenceValueV1) :
     ExecResultPreservesDataV1 m.data (fromEval m vid r) := by
   cases r with
   | error candidate => rfl
   | ok value => exact storeResult_preserves_data m vid value
+
+private theorem nextOccurrence_preserves_callStack
+    (m : MachineV1) (effectId : EffectIdV1) :
+    match nextOccurrence m effectId with
+    | none => True
+    | some (m', _) =>
+        m'.callable = m.callable ∧ m'.frames = m.frames := by
+  grind [nextOccurrence]
+
+private theorem noteBackEdge_preserves_callStackFailure
+    (m : MachineV1) (fromBlock toBlock : BlockIdV1) :
+    ExecResultPreservesCallStackFailureV1 m.callable m.frames
+      (noteBackEdge m fromBlock toBlock) := by
+  grind [ExecResultPreservesCallStackFailureV1, noteBackEdge]
+
+private theorem storeResult_preserves_callStackFailure
+    (m : MachineV1) (vid : ValueIdV1) (value : ReferenceValueV1) :
+    ExecResultPreservesCallStackFailureV1 m.callable m.frames
+      (storeResult m vid value) := by
+  grind [ExecResultPreservesCallStackFailureV1, storeResult]
+
+private theorem vaultTransferOut_preserves_callStack
+    (m : MachineV1) (callee : QualifiedName)
+    (argVals : Array ReferenceValueV1) (occ : EffectOccurrenceV1) :
+    ExceptMachinePreservesCallStackV1 m.callable m.frames
+      (vaultTransferOut m callee argVals occ) := by
+  grind [ExceptMachinePreservesCallStackV1, vaultTransferOut]
+
+private theorem vaultDepositIn_preserves_callStack
+    (m : MachineV1) (callee : QualifiedName)
+    (argVals : Array ReferenceValueV1) :
+    ExceptMachinePreservesCallStackV1 m.callable m.frames
+      (vaultDepositIn m callee argVals) := by
+  grind [ExceptMachinePreservesCallStackV1, vaultDepositIn]
+
+private theorem vaultAsyncOut_preserves_callStack
+    (m : MachineV1) (callee : QualifiedName)
+    (argVals : Array ReferenceValueV1) :
+    (vaultAsyncOut m callee argVals).callable = m.callable ∧
+      (vaultAsyncOut m callee argVals).frames = m.frames := by
+  grind [vaultAsyncOut]
+
+private theorem returnedVoidVaultPipeline_preserves_callStackFailure
+    (m : MachineV1) (callee : QualifiedName)
+    (argVals : Array ReferenceValueV1) (occ : EffectOccurrenceV1) :
+    ExecResultPreservesCallStackFailureV1 m.callable m.frames
+      (match vaultDepositIn m callee argVals with
+      | .error failure => .done m failure.toCandidateV1
+      | .ok m4 =>
+          match vaultTransferOut m4 callee argVals occ with
+          | .error failure => .done m failure.toCandidateV1
+          | .ok m5 => .next (vaultAsyncOut m5 callee argVals)) := by
+  cases hdeposit : vaultDepositIn m callee argVals with
+  | error failure =>
+      simp only [hdeposit]
+      cases failure <;>
+        simp [ExecResultPreservesCallStackFailureV1,
+          LocalFailureV1.toCandidateV1]
+  | ok m4 =>
+      simp only [hdeposit]
+      have hm4 : m4.callable = m.callable ∧ m4.frames = m.frames := by
+        have hpreserves := vaultDepositIn_preserves_callStack m callee argVals
+        simpa [ExceptMachinePreservesCallStackV1, hdeposit] using hpreserves
+      cases htransfer : vaultTransferOut m4 callee argVals occ with
+      | error failure =>
+          simp only [htransfer]
+          cases failure <;>
+            simp [ExecResultPreservesCallStackFailureV1,
+              LocalFailureV1.toCandidateV1]
+      | ok m5 =>
+          simp only [htransfer]
+          have hm5 :
+              m5.callable = m4.callable ∧ m5.frames = m4.frames := by
+            have hpreserves :=
+              vaultTransferOut_preserves_callStack m4 callee argVals occ
+            simpa [ExceptMachinePreservesCallStackV1, htransfer] using hpreserves
+          have hasync := vaultAsyncOut_preserves_callStack m5 callee argVals
+          exact ⟨hasync.1.trans (hm5.1.trans hm4.1),
+            hasync.2.trans (hm5.2.trans hm4.2)⟩
+
+private theorem fromEval_preserves_callStackFailure
+    (m : MachineV1) (vid : ValueIdV1)
+    (result : Except LocalFailureV1 ReferenceValueV1) :
+    ExecResultPreservesCallStackFailureV1 m.callable m.frames
+      (fromEval m vid result) := by
+  cases result with
+  | error failure =>
+      cases failure <;>
+        simp [fromEval, ExecResultPreservesCallStackFailureV1,
+          LocalFailureV1.toCandidateV1]
+  | ok value =>
+      exact storeResult_preserves_callStackFailure m vid value
 
 private theorem execInstruction_preserves_data
     (m : MachineV1) (instr : InstructionV1) :
@@ -2424,6 +2700,139 @@ private theorem execInstruction_preserves_data
         vaultTransferOut_preserves_data, vaultDepositIn_preserves_data,
         vaultAsyncOut_preserves_data, fromEval_preserves_data]
 
+private theorem execInstruction_preserves_callStackFailure
+    (m : MachineV1) (instr : InstructionV1) :
+    ExecResultPreservesCallStackFailureV1 m.callable m.frames
+      (execInstruction m instr) := by
+  cases instr
+  case mk result op =>
+    cases op
+    case envRead key args =>
+      change ExecResultPreservesCallStackFailureV1 m.callable m.frames
+        (match result with
+        | none => .done m (.trapped .invalidCore)
+        | some resultDef =>
+            match key with
+            | .nativeVaultBalance =>
+                if args.isEmpty then
+                  storeResult m resultDef.valueId
+                    { typeId := resultDef.typeId
+                      valueBytes := natToLeBytes m.vaultNative.toNat 8 }
+                else
+                  .done m (.trapped .invalidCore)
+            | .tokenVaultBalance =>
+                match lookupArgs m.env args with
+                | some #[mintValue] =>
+                    match m.data.types[mintValue.typeId.toNat]? with
+                    | some { shape := .principal, .. } =>
+                        storeResult m resultDef.valueId
+                          { typeId := resultDef.typeId
+                            valueBytes := natToLeBytes
+                              (vaultTokenBalanceV1 m.vaultToken mintValue.valueBytes).toNat 8 }
+                    | _ => .done m (.trapped .invalidCore)
+                | _ => .done m (.trapped .invalidCore))
+      cases result with
+      | none => trivial
+      | some resultDef =>
+          cases key with
+          | nativeVaultBalance =>
+              change ExecResultPreservesCallStackFailureV1 m.callable m.frames
+                (if args.isEmpty then
+                  storeResult m resultDef.valueId
+                    { typeId := resultDef.typeId
+                      valueBytes := natToLeBytes m.vaultNative.toNat 8 }
+                else
+                  .done m (.trapped .invalidCore))
+              by_cases hisEmpty : args.isEmpty
+              · rw [if_pos hisEmpty]
+                exact storeResult_preserves_callStackFailure
+                  m resultDef.valueId _
+              · rw [if_neg hisEmpty]
+                trivial
+          | tokenVaultBalance =>
+              change ExecResultPreservesCallStackFailureV1 m.callable m.frames
+                (match lookupArgs m.env args with
+                | some #[mintValue] =>
+                    match m.data.types[mintValue.typeId.toNat]? with
+                    | some { shape := .principal, .. } =>
+                        storeResult m resultDef.valueId
+                          { typeId := resultDef.typeId
+                            valueBytes := natToLeBytes
+                              (vaultTokenBalanceV1 m.vaultToken
+                                mintValue.valueBytes).toNat 8 }
+                    | _ => .done m (.trapped .invalidCore)
+                | _ => .done m (.trapped .invalidCore))
+              cases hargs : lookupArgs m.env args with
+              | none => trivial
+              | some values =>
+                  cases values with
+                  | mk valuesList =>
+                      cases valuesList with
+                      | nil => trivial
+                      | cons mint rest =>
+                          cases rest with
+                          | nil =>
+                              change ExecResultPreservesCallStackFailureV1
+                                m.callable m.frames
+                                (match m.data.types[mint.typeId.toNat]? with
+                                | some { shape := .principal, .. } =>
+                                    storeResult m resultDef.valueId
+                                      { typeId := resultDef.typeId
+                                        valueBytes := natToLeBytes
+                                          (vaultTokenBalanceV1 m.vaultToken
+                                            mint.valueBytes).toNat 8 }
+                                | _ => .done m (.trapped .invalidCore))
+                              cases htype : m.data.types[mint.typeId.toNat]? with
+                              | none => trivial
+                              | some typeDecl =>
+                                  cases typeDecl with
+                                  | mk id name shape =>
+                                      cases shape <;> try trivial
+                                      exact storeResult_preserves_callStackFailure
+                                        m resultDef.valueId _
+                          | cons next tail => trivial
+    case assert_ condition errorId args =>
+      dsimp only [execInstruction]
+      repeat
+        first
+        | trivial
+        | split
+    case externalCall effectId callee args =>
+      dsimp only [execInstruction]
+      cases hargs : lookupArgs m.env args with
+      | none => trivial
+      | some argVals =>
+          cases hoccurrence : nextOccurrence m effectId with
+          | none => trivial
+          | some occurrenceResult =>
+              cases occurrenceResult with
+              | mk m1 occurrence =>
+                  have hm1 :
+                      m1.callable = m.callable ∧ m1.frames = m.frames := by
+                    have hpreserves :=
+                      nextOccurrence_preserves_callStack m effectId
+                    simpa [hoccurrence] using hpreserves
+                  rw [← hm1.1, ← hm1.2]
+                  simp only
+                  repeat
+                    first
+                    | trivial
+                    | exact storeResult_preserves_callStackFailure _ _ _
+                    | exact
+                        returnedVoidVaultPipeline_preserves_callStackFailure
+                          _ _ _ _
+                    | split
+    all_goals
+      dsimp only [execInstruction]
+    all_goals
+      grind [ExecResultPreservesCallStackFailureV1,
+        nextOccurrence_preserves_callStack,
+        storeResult_preserves_callStackFailure,
+        vaultTransferOut_preserves_callStack,
+        vaultDepositIn_preserves_callStack,
+        vaultAsyncOut_preserves_callStack,
+        fromEval_preserves_callStackFailure]
+
 private theorem bindJumpTarget_preserves_data
     (m : MachineV1) (target : JumpTargetV1) :
     ExecResultPreservesDataV1 m.data (bindJumpTarget m target) := by
@@ -2453,6 +2862,38 @@ private theorem bindJumpTarget_preserves_data
           · simp only [Id.run_bind, Id.run_pure]
             split <;> exact hmEdge
 
+private theorem bindJumpTarget_preserves_callStackFailure
+    (m : MachineV1) (target : JumpTargetV1) :
+    ExecResultPreservesCallStackFailureV1 m.callable m.frames
+      (bindJumpTarget m target) := by
+  unfold bindJumpTarget
+  cases hblock : m.callable.blocks[target.blockId.toNat]? with
+  | none =>
+      trivial
+  | some block =>
+      simp only
+      split <;> try trivial
+      cases hedge : noteBackEdge m m.blockId target.blockId with
+      | done m' candidate =>
+          have hpreserves :=
+            noteBackEdge_preserves_callStackFailure
+              m m.blockId target.blockId
+          simpa [ExecResultPreservesCallStackFailureV1, hedge]
+            using hpreserves
+      | next mEdge =>
+          have hmEdge :
+              mEdge.callable = m.callable ∧ mEdge.frames = m.frames := by
+            have hpreserves :=
+              noteBackEdge_preserves_callStackFailure
+                m m.blockId target.blockId
+            simpa [ExecResultPreservesCallStackFailureV1, hedge]
+              using hpreserves
+          simp only [Id.run_bind, Id.run_pure]
+          split
+          · first | trivial | exact hmEdge
+          · simp only [Id.run_bind, Id.run_pure]
+            split <;> first | trivial | exact hmEdge
+
 private theorem execTerminator_preserves_data
     (m : MachineV1) (term : TerminatorV1) :
     ExecResultPreservesDataV1 m.data (execTerminator m term) := by
@@ -2462,6 +2903,56 @@ private theorem execTerminator_preserves_data
       first
       | rfl
       | exact bindJumpTarget_preserves_data _ _
+      | split
+
+private theorem bindJumpTarget_terminatorContract
+    (m : MachineV1) (target : JumpTargetV1) :
+    ExecTerminatorContractV1 m (bindJumpTarget m target) := by
+  have hpreserves := bindJumpTarget_preserves_callStackFailure m target
+  cases hbind : bindJumpTarget m target with
+  | next after =>
+      simpa [ExecTerminatorContractV1,
+        ExecResultPreservesCallStackFailureV1, hbind] using hpreserves
+  | done after candidate =>
+      cases candidate with
+      | returned value =>
+          have : False := by
+            simpa [ExecResultPreservesCallStackFailureV1, hbind]
+              using hpreserves
+          contradiction
+      | reverted reason => trivial
+      | trapped fault => trivial
+
+private theorem execTerminator_contract
+    (m : MachineV1) (term : TerminatorV1) :
+    ExecTerminatorContractV1 m (execTerminator m term) := by
+  cases term <;> dsimp only [execTerminator]
+  all_goals
+    repeat
+      first
+      | trivial
+      | exact bindJumpTarget_terminatorContract _ _
+      | exact (referenceResultConformsV1_none_iff _ _).2 (by assumption)
+      | exact (referenceResultConformsV1_some_iff _ _ _).2
+          ⟨by assumption, by assumption, by assumption⟩
+      | split
+  all_goals
+    apply (referenceResultConformsV1_some_iff _ _ _).2
+    refine ⟨Bool.eq_false_iff.mpr (by assumption), ?_, ?_⟩
+    all_goals simp_all
+
+private theorem execTerminator_preserves_callStackFailure_of_not_return
+    (m : MachineV1) (term : TerminatorV1)
+    (hnotReturn : ∀ value, term ≠ .return_ value) :
+    ExecResultPreservesCallStackFailureV1 m.callable m.frames
+      (execTerminator m term) := by
+  cases term <;> dsimp only [execTerminator]
+  case return_ value => exact False.elim (hnotReturn value rfl)
+  all_goals
+    repeat
+      first
+      | trivial
+      | exact bindJumpTarget_preserves_callStackFailure _ _
       | split
 
 /-- Fuel-bounded body interpreter (engineering; not formal `step`). -/
@@ -2691,6 +3182,332 @@ theorem runMachine_data_eq
                                                   ih calleeFuel (by omega) _
               · rw [if_neg hinstructions]
                 grind (config := { gen := 8 })
+
+/-- Every successful body result conforms to the outermost callable result row
+    that was active when execution began. Pure-call frame entry/exit changes
+    only the active callable; the proof follows the production frame stack. -/
+private theorem runMachine_candidateResultConformsV1
+    (chargeFrameEntry : Bool) (fuel : Nat) (m : MachineV1) :
+    CandidateResultConformsV1 m.data (rootCallableResultV1 m)
+      (runMachine chargeFrameEntry fuel m).2.2 := by
+  induction fuel using Nat.strongRecOn generalizing m with
+  | ind totalFuel ih =>
+      cases totalFuel with
+      | zero => trivial
+      | succ fuel =>
+          have instructionTail (instr : InstructionV1) :
+              CandidateResultConformsV1 m.data (rootCallableResultV1 m)
+                (match execInstruction m instr with
+                | .done m' cand => (0, m', cand)
+                | .next m1 =>
+                    runMachine chargeFrameEntry fuel
+                      { m1 with instrIdx := m1.instrIdx + 1 }).2.2 := by
+            cases hexec : execInstruction m instr with
+            | done m' candidate =>
+                cases candidate with
+                | returned value =>
+                    have hpreserves :=
+                      execInstruction_preserves_callStackFailure m instr
+                    have : False := by
+                      simpa [ExecResultPreservesCallStackFailureV1, hexec]
+                        using hpreserves
+                    contradiction
+                | reverted reason => trivial
+                | trapped fault => trivial
+            | next m1 =>
+                have hdata : m1.data = m.data := by
+                  have hpreserves := execInstruction_preserves_data m instr
+                  simpa [ExecResultPreservesDataV1, hexec] using hpreserves
+                have hstack :
+                    m1.callable = m.callable ∧ m1.frames = m.frames := by
+                  have hpreserves :=
+                    execInstruction_preserves_callStackFailure m instr
+                  simpa [ExecResultPreservesCallStackFailureV1, hexec]
+                    using hpreserves
+                have hroot :
+                    rootCallableResultV1 m1 = rootCallableResultV1 m :=
+                  rootCallableResultV1_eq_of_callStack_eq m m1
+                    hstack.1 hstack.2
+                have htail := ih fuel (Nat.lt_succ_self fuel)
+                  { m1 with instrIdx := m1.instrIdx + 1 }
+                have hupdatedRoot :
+                    rootCallableResultV1
+                        { m1 with instrIdx := m1.instrIdx + 1 } =
+                      rootCallableResultV1 m := by
+                  apply rootCallableResultV1_eq_of_callStack_eq
+                  · exact hstack.1
+                  · exact hstack.2
+                have hconforms := candidateResultConformsV1_congr
+                  hdata hupdatedRoot htail
+                simpa only [hexec] using hconforms
+          have terminatorTail (term : TerminatorV1)
+              (hroot : m.callable.result = rootCallableResultV1 m) :
+              CandidateResultConformsV1 m.data (rootCallableResultV1 m)
+                (match execTerminator m term with
+                | .done m' cand => (0, m', cand)
+                | .next mNext =>
+                    runMachine chargeFrameEntry fuel mNext).2.2 := by
+            cases hterm : execTerminator m term with
+            | done m' candidate =>
+                cases candidate with
+                | returned value =>
+                    have hcontract := execTerminator_contract m term
+                    have hconforms :
+                        ReferenceResultConformsV1 m.data
+                          m.callable.result value := by
+                      simpa [ExecTerminatorContractV1, hterm]
+                        using hcontract
+                    simpa [CandidateResultConformsV1, hroot] using hconforms
+                | reverted reason => trivial
+                | trapped fault => trivial
+            | next mNext =>
+                have hdata : mNext.data = m.data := by
+                  have hpreserves := execTerminator_preserves_data m term
+                  simpa [ExecResultPreservesDataV1, hterm] using hpreserves
+                have hstack :
+                    mNext.callable = m.callable ∧
+                      mNext.frames = m.frames := by
+                  have hcontract := execTerminator_contract m term
+                  simpa [ExecTerminatorContractV1, hterm] using hcontract
+                have hnextRoot :
+                    rootCallableResultV1 mNext = rootCallableResultV1 m :=
+                  rootCallableResultV1_eq_of_callStack_eq m mNext
+                    hstack.1 hstack.2
+                have htail := ih fuel (Nat.lt_succ_self fuel) mNext
+                simpa [CandidateResultConformsV1, hdata, hnextRoot] using htail
+          have terminatorFailureTail (term : TerminatorV1)
+              (hnotReturn : ∀ value, term ≠ .return_ value) :
+              CandidateResultConformsV1 m.data (rootCallableResultV1 m)
+                (match execTerminator m term with
+                | .done m' cand => (0, m', cand)
+                | .next mNext =>
+                    runMachine chargeFrameEntry fuel mNext).2.2 := by
+            cases hterm : execTerminator m term with
+            | done m' candidate =>
+                cases candidate with
+                | returned value =>
+                    have hpreserves :=
+                      execTerminator_preserves_callStackFailure_of_not_return
+                        m term hnotReturn
+                    have : False := by
+                      simpa [ExecResultPreservesCallStackFailureV1, hterm]
+                        using hpreserves
+                    contradiction
+                | reverted reason => trivial
+                | trapped fault => trivial
+            | next mNext =>
+                have hdata : mNext.data = m.data := by
+                  have hpreserves := execTerminator_preserves_data m term
+                  simpa [ExecResultPreservesDataV1, hterm] using hpreserves
+                have hstack :
+                    mNext.callable = m.callable ∧
+                      mNext.frames = m.frames := by
+                  have hpreserves :=
+                    execTerminator_preserves_callStackFailure_of_not_return
+                      m term hnotReturn
+                  simpa [ExecResultPreservesCallStackFailureV1, hterm]
+                    using hpreserves
+                have hnextRoot :
+                    rootCallableResultV1 mNext = rootCallableResultV1 m :=
+                  rootCallableResultV1_eq_of_callStack_eq m mNext
+                    hstack.1 hstack.2
+                have htail := ih fuel (Nat.lt_succ_self fuel) mNext
+                simpa [CandidateResultConformsV1, hdata, hnextRoot] using htail
+          simp only [runMachine]
+          cases hblock : m.callable.blocks[m.blockId.toNat]? with
+          | none => trivial
+          | some block =>
+              simp only
+              by_cases hinstructions : m.instrIdx < block.instructions.size
+              · rw [if_pos hinstructions]
+                cases hinstr : block.instructions[m.instrIdx]? with
+                | none => trivial
+                | some instr =>
+                    simp only
+                    cases hresult : instr.result with
+                    | none =>
+                        simpa [hresult] using instructionTail instr
+                    | some resultDef =>
+                        cases hop : instr.op <;>
+                          try { simpa [hresult, hop] using instructionTail instr }
+                        case pureCall calleeId argVids =>
+                          simp only
+                          cases hcallee : m.data.callables[calleeId.toNat]? with
+                          | none => trivial
+                          | some callee =>
+                              simp only
+                              by_cases hvalid :
+                                  callee.kind != .pureFn ||
+                                    resultDef.typeId != callee.result.typeId ||
+                                    argVids.size != callee.params.size
+                              · rw [if_pos hvalid]
+                                trivial
+                              · rw [if_neg hvalid]
+                                cases hargs : lookupArgs m.env argVids with
+                                | none => trivial
+                                | some argVals =>
+                                    simp only
+                                    generalize hbound :
+                                        (Id.run do
+                                          let mut env := emptyEnv
+                                            (maxValueIdInCallable callee + 1)
+                                          let mut i : Nat := 0
+                                          for p in callee.params do
+                                            match argVals[i]? with
+                                            | none => return none
+                                            | some arg =>
+                                                if arg.typeId != p.typeId ||
+                                                    !valueCanonical m.data arg then
+                                                  return none
+                                                else
+                                                  match envSet env p.valueId arg with
+                                                  | none => return none
+                                                  | some env' => env := env'
+                                            i := i + 1
+                                          pure (some env)) = bound
+                                    cases bound with
+                                    | none => trivial
+                                    | some calleeEnv =>
+                                        let frame : CallFrameV1 := {
+                                          callable := m.callable
+                                          env := m.env
+                                          loopCounts := m.loopCounts
+                                          blockId := m.blockId
+                                          instrIdx := m.instrIdx + 1
+                                          resultValueId := resultDef.valueId
+                                        }
+                                        let calleeMachine : MachineV1 := { m with
+                                          callable := callee
+                                          env := calleeEnv
+                                          loopCounts := Array.replicate
+                                            callee.loopBounds.size (0 : UInt32)
+                                          blockId := callee.entryBlock
+                                          instrIdx := 0
+                                          frames := m.frames.push frame }
+                                        have hroot :
+                                            rootCallableResultV1 calleeMachine =
+                                              rootCallableResultV1 m := by
+                                          exact rootCallableResultV1_enterPureCall
+                                            m callee calleeEnv frame rfl
+                                        cases hcharge : chargeFrameEntry with
+                                        | false =>
+                                            simp only [Bool.false_eq_true,
+                                              ↓reduceIte]
+                                            have htail := ih fuel
+                                              (Nat.lt_succ_self fuel) calleeMachine
+                                            simpa [hcharge, frame, calleeMachine,
+                                              CandidateResultConformsV1, hroot]
+                                              using htail
+                                        | true =>
+                                            simp only [↓reduceIte]
+                                            cases fuel with
+                                            | zero => trivial
+                                            | succ calleeFuel =>
+                                                have htail := ih calleeFuel
+                                                  (by omega) calleeMachine
+                                                simpa [hcharge, frame,
+                                                  calleeMachine,
+                                                  CandidateResultConformsV1,
+                                                  hroot] using htail
+              · rw [if_neg hinstructions]
+                cases hterm : block.terminator with
+                | jump target =>
+                    simpa [hterm] using
+                      terminatorFailureTail (.jump target) (by simp)
+                | branch condition thenTarget elseTarget =>
+                    simpa [hterm] using
+                      terminatorFailureTail
+                        (.branch condition thenTarget elseTarget) (by simp)
+                | switch scrut cases defaultTarget =>
+                    simpa [hterm] using
+                      terminatorFailureTail
+                        (.switch scrut cases defaultTarget) (by simp)
+                | return_ valueId =>
+                    cases hback : m.frames.back? with
+                    | none =>
+                        have hframes : m.frames = #[] :=
+                          Array.back?_eq_none_iff.mp hback
+                        have hroot :
+                            m.callable.result = rootCallableResultV1 m := by
+                          unfold rootCallableResultV1
+                          rw [hframes]
+                          rfl
+                        simpa [hterm, hback] using
+                          terminatorTail (.return_ valueId) hroot
+                    | some frame =>
+                        simp only [hterm, hback]
+                        generalize hresult :
+                            (match valueId with
+                            | none =>
+                                if isUnitType m.data
+                                    m.callable.result.typeId then
+                                  some ({
+                                    typeId := m.callable.result.typeId
+                                    valueBytes := ByteArray.empty
+                                  } : ReferenceValueV1)
+                                else none
+                            | some vid =>
+                                if isUnitType m.data
+                                    m.callable.result.typeId then
+                                  none
+                                else
+                                  match envGet m.env vid with
+                                  | some value =>
+                                      if value.typeId ==
+                                          m.callable.result.typeId &&
+                                          valueCanonical m.data value then
+                                        some value
+                                      else none
+                                  | none => none) = result?
+                        cases result? with
+                        | none => simp [hresult, CandidateResultConformsV1]
+                        | some result =>
+                            simp only [hresult]
+                            cases henv : envSet frame.env
+                                frame.resultValueId result with
+                            | none => simp [CandidateResultConformsV1]
+                            | some env' =>
+                                let callerMachine : MachineV1 := { m with
+                                  callable := frame.callable
+                                  env := env'
+                                  loopCounts := frame.loopCounts
+                                  blockId := frame.blockId
+                                  instrIdx := frame.instrIdx
+                                  frames := m.frames.pop }
+                                have hcallerRoot :
+                                    rootCallableResultV1 callerMachine =
+                                      rootCallableResultV1 m := by
+                                  exact rootCallableResultV1_leavePureCall
+                                    m frame env' hback
+                                have hcallerData : callerMachine.data = m.data := rfl
+                                have htail := ih fuel (Nat.lt_succ_self fuel)
+                                  callerMachine
+                                rw [hcallerRoot, hcallerData] at htail
+                                exact htail
+                | revert errorId args =>
+                    simpa [hterm] using
+                      terminatorFailureTail (.revert errorId args) (by simp)
+                | trap code =>
+                    simpa [hterm] using
+                      terminatorFailureTail (.trap code) (by simp)
+
+/-- A completed top-level machine can expose only the canonical production
+    result carrier declared by its callable. The empty-frame premise marks a
+    top-level invocation; nested PureCall frames are discharged internally. -/
+theorem runMachine_returned_resultConformsV1_of_empty_frames
+    (chargeFrameEntry : Bool)
+    (fuel : Nat)
+    (m : MachineV1)
+    (value : Option ReferenceValueV1)
+    (hframes : m.frames = #[])
+    (hrun :
+      (runMachine chargeFrameEntry fuel m).2.2 = .returned value) :
+    ReferenceResultConformsV1 m.data m.callable.result value := by
+  have hconforms :=
+    runMachine_candidateResultConformsV1 chargeFrameEntry fuel m
+  rw [hrun] at hconforms
+  simpa [CandidateResultConformsV1, rootCallableResultV1, hframes]
+    using hconforms
 
 /-! ### Invocation validation -/
 
@@ -3060,6 +3877,86 @@ private theorem finalizeLifecycle_ne_returnedV1
   split
   · simp
   · cases cand <;> simp
+
+/-- A successful ready invocation returns exactly the canonical carrier of the
+    callable selected by the production invocation gate. This theorem covers
+    result encoding only; initializer state lifecycle remains separate from
+    initialized entry/view preservation. -/
+theorem stepReferenceSliceV1_returned_resultConformsV1
+    (admitted : AdmittedReferenceSliceV1)
+    (pre post : LogicalStateV1)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vaultSeed : ReferenceVaultSeedV1)
+    (callable : CallableV1)
+    (overlay : Array ByteArray)
+    (context : Array ContextInputV1)
+    (isInitializer : Bool)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready callable overlay context isInitializer)
+    (hstep :
+      stepReferenceSliceV1 admitted pre invocation responses vaultSeed =
+        .returned post value effects) :
+    ReferenceResultConformsV1 admitted.data callable.result value := by
+  unfold stepReferenceSliceV1 at hstep
+  simp only [hgate] at hstep
+  generalize hbind :
+      (Id.run do
+        let mut env := emptyEnv (maxValueIdInCallable callable + 1)
+        let mut i : Nat := 0
+        for p in callable.params do
+          match invocation.args[i]? with
+          | none => return none
+          | some arg =>
+              match envSet env p.valueId arg with
+              | none => return none
+              | some env' => env := env'
+          i := i + 1
+        pure (some env)) = bindResult at hstep
+  cases bindResult with
+  | none =>
+      simp only at hstep
+      exact False.elim
+        (finalizeLifecycle_ne_returnedV1
+          pre post responses (.trapped .internalInvariant)
+            value effects hstep)
+  | some env =>
+      simp only at hstep
+      let m0 : MachineV1 := {
+        data := admitted.data
+        pre
+        callable
+        isInitializer
+        context
+        overlay
+        env
+        effects := #[]
+        occCounts := Array.replicate
+          (maxEffectIdInCallable callable + 1) (0 : UInt32)
+        responseCursor := 0
+        responses
+        loopCounts := Array.replicate callable.loopBounds.size (0 : UInt32)
+        blockId := callable.entryBlock
+        instrIdx := 0
+        frames := #[]
+        vaultNative := vaultSeed.native
+        vaultToken := vaultSeed.token
+      }
+      change finalize (runMachine false 1000000 m0).2.1
+          (runMachine false 1000000 m0).2.2 pre =
+        .returned post value effects at hstep
+      obtain ⟨hcandidate, _heffects, _hencode⟩ :=
+        finalize_returned_implies_encodeV1
+          (runMachine false 1000000 m0).2.1
+          (runMachine false 1000000 m0).2.2
+          pre post value effects hstep
+      have hconforms :=
+        runMachine_returned_resultConformsV1_of_empty_frames
+          false 1000000 m0 value (by rfl) hcandidate
+      simpa [m0] using hconforms
 
 /-- A returned initialized entry/view step preserves production state
     conformance for the exact admitted program. The theorem follows the sole
@@ -7194,7 +8091,8 @@ theorem stepReferenceSliceV1_ready_increment_overflow_not_returned
         Array.getElem?_set_self hs1
       simp [envGet, e2, h1, UInt32.toNat]
     simp only [mk, execInstruction, hg0, hg1, hvc0, hvc1, Bool.not_true,
-      Bool.or_false, Bool.false_eq_true, ↓reduceIte, haddErr, fromEval]
+      Bool.or_false, Bool.false_eq_true, ↓reduceIte, haddErr, fromEval,
+      LocalFailureV1.toCandidateV1]
   have step0 :
       runMachine false 1000000 (mk (emptyEnv 4) 0) =
         runMachine false 999999 (mk e1 1) := by
