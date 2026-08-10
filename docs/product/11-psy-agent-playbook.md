@@ -107,6 +107,12 @@ pf build
 
 ls *.dpn.json manifest.json evidence.json
 pf inspect --output-dir .
+
+# Local DPN VM (official psy_user_cli simulate — host tool)
+export PATH="$HOME/.psy/bin:$PATH"
+pf test -t psy
+pf run -t psy -- initialize 7
+# multi-call session is NOT preserved across simulates (fresh memory each call)
 ```
 
 StateCell 示例 method_id（DPN，算法钉死；重建可能变若 schema pin 变）：

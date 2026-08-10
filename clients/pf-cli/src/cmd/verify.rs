@@ -30,6 +30,12 @@ pub fn run(
                     .into(),
             ));
         }
+        targets::TargetId::Psy => {
+            return Err(PfError::Usage(
+                "psy: use `pf inspect` for OutputSet checks and `pf test -t psy` for official DPN simulate"
+                    .into(),
+            ));
+        }
         targets::TargetId::Other => {
             return Err(PfError::NotImplemented(format!(
                 "target '{target}': {}",

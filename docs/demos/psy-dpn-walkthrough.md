@@ -65,6 +65,24 @@ jq '{target,codegenProfile,deployable,files}' build/v2/sc-psy/manifest.json
 
 Expected shape: array of function circuit defs (`get` / `increment` / `initialize`).
 
+
+
+### 3b) Local VM via official `psy_user_cli simulate` (now wired)
+
+```bash
+# one-shot monorepo smoke
+just psy-dpn-local-smoke
+# or:
+export PATH="$HOME/.psy/bin:$PATH"
+pf build Examples/StateCell.lean --module Examples.StateCell --target psy -o build/v2/sc-psy
+pf test -t psy --artifact build/v2/sc-psy
+pf run -t psy --artifact build/v2/sc-psy -- initialize 7
+pf run -t psy --artifact build/v2/sc-psy -- increment 5
+```
+
+**Honesty:** each `simulate` uses a **fresh** in-memory state (no multi-tx session).  
+This is the official DPN VM, not a PF-written interpreter. Not UPS/proof/network.
+
 ### 4) Official surfaces (browser)
 
 | Open | Why |

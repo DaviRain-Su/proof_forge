@@ -1438,6 +1438,11 @@ solana-surfpool-up:
 pf-solana-local-demo:
     bash scripts/pf_solana_local_demo.sh
 
+# Psy DPN local: pf build + official psy_user_cli simulate (host-optional).
+psy-dpn-local-smoke: build
+    bash scripts/psy_dpn_local_smoke.sh
+
+
 solana-surfpool-down:
     bash scripts/solana_surfpool_down.sh
 

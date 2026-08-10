@@ -3,7 +3,7 @@ use crate::cmd::emit;
 use crate::error::{PfError, PfResult};
 use crate::project::Project;
 use crate::result_json::PfOk;
-use crate::targets::{self, aleo::local_run};
+use crate::targets::{self, aleo::local_run, psy};
 use std::path::Path;
 
 /// `pf run -- <fn> [inputs...]` or `pf local run ...`
@@ -22,17 +22,17 @@ pub fn run(
     let project = Project::discover()?;
     project.apply_toolchain_env()?;
     let target = project.resolve_target(target_cli);
-    if targets::TargetId::parse(&target) == targets::TargetId::Evm {
+    let tid = targets::TargetId::parse(&target);
+    if tid == targets::TargetId::Evm {
         return Err(PfError::NotImplemented(
-            "evm: use `pf test -t evm` (local Anvil); `pf run` is Aleo-only in v0".into(),
+            "evm: use `pf test -t evm` (local Anvil); `pf run` is Aleo/Psy in v0".into(),
         ));
     }
-    if targets::TargetId::parse(&target) == targets::TargetId::Solana {
+    if tid == targets::TargetId::Solana {
         return Err(PfError::NotImplemented(
             "solana: use `pf verify -t solana` (offline) or `pf test -t solana` (Mollusk)".into(),
         ));
     }
-    targets::require_aleo(&target)?;
     let dir = project.resolve_artifact_dir(&target, artifact_cli, None);
     if !dir.is_dir() {
         return Err(PfError::Artifact(format!(
@@ -41,9 +41,39 @@ pub fn run(
         )));
     }
     let function = &call_args[0];
-    let inputs = &call_args[1..];
+    let inputs = call_args[1..].to_vec();
+
+    if tid == targets::TargetId::Psy {
+        let outcome = psy::simulate::simulate(&dir, function, &inputs)?;
+        let mut ok = PfOk::new("run");
+        ok.target = Some(target.clone());
+        ok.artifact_dir = Some(dir.display().to_string());
+        ok.extra = Some(serde_json::json!({
+            "lane": "psy_user_cli-simulate",
+            "dpn": outcome.dpn_path.display().to_string(),
+            "method": outcome.method,
+            "inputs": outcome.inputs,
+            "result": outcome.result,
+            "note": "ephemeral InMemoryStateBackend; not network/UPS/proof",
+        }));
+        return emit(ok, json, || {
+            println!("    Finished `run` {target}::{function} (official DPN simulate)");
+            if verbose {
+                println!("{}", outcome.raw_stdout);
+            } else if let Some(outs) = outcome.result.get("outputs") {
+                println!("outputs: {outs}");
+            }
+            if let Some(delta) = outcome.result.get("state_delta") {
+                if delta.as_array().map(|a| !a.is_empty()).unwrap_or(false) {
+                    println!("state_delta: {delta}");
+                }
+            }
+        });
+    }
+
+    targets::require_aleo(&target)?;
     let artifact = load_aleo_artifact(&dir)?;
-    let outcome = local_run::run_local(&artifact, function, inputs)?;
+    let outcome = local_run::run_local(&artifact, function, &inputs)?;
     let summary = summarize_leo_output(&outcome.stdout);
     let mut ok = PfOk::new("run");
     ok.target = Some(target.clone());

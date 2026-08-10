@@ -154,6 +154,13 @@ pub fn run(
                 }
             })
         }
+        targets::TargetId::Psy => Err(PfError::NotImplemented(
+            "psy: PF does not deploy DPN packages. Use official:\n  \
+             psy_user_cli deploy-contract --contract-path <out>/*.dpn.json \\\n  \
+             [--rpc-config ~/.psy/config.json] [--is-deploy] --private-key-env KEY\n  \
+             Local VM: `pf test -t psy` / `pf run -t psy -- <method> [inputs…]` (psy_user_cli simulate)."
+                .into(),
+        )),
         targets::TargetId::Other => Err(PfError::NotImplemented(format!(
             "target '{target}': {}",
             targets::capability_note(&target)

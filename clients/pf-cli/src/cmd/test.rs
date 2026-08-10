@@ -10,7 +10,7 @@ use crate::cmd::emit;
 use crate::error::{PfError, PfResult};
 use crate::project::Project;
 use crate::result_json::PfOk;
-use crate::targets::{self, evm, solana};
+use crate::targets::{self, evm, psy, solana};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -272,11 +272,44 @@ fn run_one(target: &str, dir: &Path) -> PfResult<TargetReport> {
             // of initialize(0) when leo is available; otherwise clear guidance.
             aleo_smoke(dir)
         }
+        targets::TargetId::Psy => psy_smoke(dir),
         targets::TargetId::Other => Err(PfError::NotImplemented(format!(
             "target '{target}': {}",
             targets::capability_note(target)
         ))),
     }
+}
+
+fn psy_smoke(dir: &Path) -> PfResult<TargetReport> {
+    let outcome = psy::test::run_official_simulate_smoke(dir)?;
+    if outcome.skipped {
+        return Ok(TargetReport {
+            target: "psy".into(),
+            status: "skipped",
+            artifact_dir: Some(dir.display().to_string()),
+            lane: Some("psy_user_cli-simulate".into()),
+            message: outcome
+                .skip_reason
+                .unwrap_or_else(|| "host tools missing".into()),
+            detail: outcome.dpn_path.map(|p| json!({ "dpn": p.display().to_string() })),
+        });
+    }
+    Ok(TargetReport {
+        target: "psy".into(),
+        status: "ok",
+        artifact_dir: Some(dir.display().to_string()),
+        lane: Some("psy_user_cli-simulate".into()),
+        message: outcome.message,
+        detail: Some(json!({
+            "dpn": outcome.dpn_path.map(|p| p.display().to_string()),
+            "steps": outcome.steps.iter().map(|s| json!({
+                "method": s.method,
+                "inputs": s.inputs,
+                "success": s.result.get("success"),
+                "outputs": s.result.get("outputs"),
+            })).collect::<Vec<_>>(),
+        })),
+    })
 }
 
 fn detect_solana_lane(stdout: &str, stderr: &str) -> String {

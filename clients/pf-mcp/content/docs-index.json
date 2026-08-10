@@ -64,7 +64,7 @@
     {
       "id": "10-psy.md",
       "title": "Psy DPN target dossier",
-      "bytes": 5396,
+      "bytes": 5514,
       "kind": "markdown"
     },
     {
@@ -76,13 +76,19 @@
     {
       "id": "11-psy-agent-playbook.md",
       "title": "Psy agent playbook — ProofForge DPN + official Psy toolchain",
-      "bytes": 6218,
+      "bytes": 6441,
       "kind": "markdown"
     },
     {
       "id": "12-psy-dapp-frontend.md",
       "title": "Psy dApp frontend — wallet + SDK (FCCP companion)",
       "bytes": 4905,
+      "kind": "markdown"
+    },
+    {
+      "id": "13-xlayer-onchainos.md",
+      "title": "X Layer networks + OKX OnchainOS integration (catalog / MCP / roadmap)",
+      "bytes": 7987,
       "kind": "markdown"
     },
     {
@@ -106,7 +112,7 @@
     {
       "id": "psy-dpn-walkthrough.md",
       "title": "Demo — Psy DPN with pf (+ official ecosystem pointers)",
-      "bytes": 2794,
+      "bytes": 3386,
       "kind": "markdown"
     },
     {
@@ -118,7 +124,7 @@
     {
       "id": "chain-client-catalog.v1.json",
       "title": "Chain client catalog",
-      "bytes": 17364,
+      "bytes": 19796,
       "kind": "catalog"
     }
   ]

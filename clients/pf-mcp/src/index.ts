@@ -23,7 +23,7 @@ import {
 } from "./content";
 
 const SERVER_NAME = "proof-forge-mcp";
-const SERVER_VERSION = "0.3.2";
+const SERVER_VERSION = "0.3.3";
 
 /** Psy: PF emits DPN only; deploy/wallet/SDK are official ecosystem. */
 const PSY_PF = {
@@ -64,8 +64,10 @@ const PSY_PF = {
   },
   handOff: [
     "pf build --target psy → *.dpn.json",
-    "developer machine: psyup install / dargo / WebIDE for Psy-lang projects",
-    "deploy: psyup deploy or psy_user_cli (NOT pf deploy)",
+    "local VM: pf test -t psy / pf run -t psy -- <method> … (wraps psy_user_cli simulate)",
+    "or: just psy-dpn-local-smoke",
+    "developer machine: psyup install (needs psy_user_cli on PATH)",
+    "deploy: psy_user_cli deploy-contract --contract-path <dpn> (NOT pf deploy)",
     "frontend: @psy-protocol/* + psy-wallet window.psy",
   ],
   safety: [
@@ -552,6 +554,8 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
           "pf build",
           "ls *.dpn.json manifest.json",
           "pf inspect --output-dir .",
+          "pf test -t psy          # official psy_user_cli simulate",
+          "pf run -t psy -- initialize 7",
         ],
         monorepoExample: [
           "pf build Examples/StateCell.lean --module Examples.StateCell --target psy -o build/v2/sc-psy",

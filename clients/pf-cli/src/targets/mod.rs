@@ -2,6 +2,7 @@
 
 pub mod aleo;
 pub mod evm;
+pub mod psy;
 pub mod solana;
 
 use crate::error::{PfError, PfResult};
@@ -11,6 +12,7 @@ pub enum TargetId {
     Aleo,
     Evm,
     Solana,
+    Psy,
     Other,
 }
 
@@ -20,6 +22,7 @@ impl TargetId {
             "aleo" => Self::Aleo,
             "evm" => Self::Evm,
             "solana" => Self::Solana,
+            "psy" => Self::Psy,
             _ => Self::Other,
         }
     }
@@ -44,6 +47,9 @@ pub fn capability_note(target: &str) -> &'static str {
         TargetId::Solana => {
             "build + `pf test` (Mollusk) + `pf verify` + `pf deploy` (save-only; --broadcast local only)"
         }
+        TargetId::Psy => {
+            "build DPN + `pf test`/`pf run` via official psy_user_cli simulate (no PF network deploy)"
+        }
         TargetId::Other => "unsupported developer operation in pf v0 (fail closed)",
     }
 }
@@ -56,6 +62,7 @@ mod tests {
     fn capability_notes_are_target_specific() {
         assert!(capability_note("evm").contains("pf test"));
         assert!(capability_note("solana").contains("pf verify"));
+        assert!(capability_note("psy").contains("psy_user_cli"));
         assert!(capability_note("near").contains("fail closed"));
     }
 }

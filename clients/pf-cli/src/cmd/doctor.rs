@@ -328,6 +328,29 @@ fn collect_deps(target: &str) -> Vec<Dep> {
                 });
             }
         }
+        "psy" => {
+            match crate::targets::psy::simulate::resolve_psy_user_cli() {
+                Ok(p) => deps.push(Dep {
+                    id: "psy_user_cli",
+                    status: "ok",
+                    summary: "official DPN simulate / deploy-contract CLI".into(),
+                    install: vec![],
+                    path: Some(p.display().to_string()),
+                }),
+                Err(_) => deps.push(Dep {
+                    id: "psy_user_cli",
+                    status: "need",
+                    summary: "required for pf test/run -t psy (official VM)".into(),
+                    install: vec![
+                        "curl -fsSL https://raw.githubusercontent.com/QEDProtocol/psyup/main/install.sh | sh".into(),
+                        "psyup install".into(),
+                        "export PATH=\"$HOME/.psy/bin:$PATH\"".into(),
+                        "# or: export PROOF_FORGE_PSY_USER_CLI=$HOME/.psy/bin/psy_user_cli".into(),
+                    ],
+                    path: None,
+                }),
+            }
+        }
         _ => {}
     }
 
@@ -457,6 +480,13 @@ fn next_commands(target: &str) -> Vec<String> {
             "pf new cell --target evm && cd cell".into(),
             "pf build && pf deploy           # save-only always works with compiler".into(),
             "pf test                         # needs anvil+cast (+ monorepo script today)".into(),
+        ],
+        "psy" => vec![
+            "pf setup --target psy".into(),
+            "pf build -t psy                 # → *.dpn.json (deployable=false)".into(),
+            "pf test -t psy                  # official psy_user_cli simulate".into(),
+            "pf run -t psy -- initialize 7".into(),
+            "# network deploy is official only: psy_user_cli deploy-contract --contract-path <dpn>".into(),
         ],
         _ => vec![
             format!("pf setup --target {target}"),
