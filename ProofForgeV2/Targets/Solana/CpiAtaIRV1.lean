@@ -209,8 +209,6 @@ private def mapExcept (e : Except String α) (ctx : String) : CompileResult α :
   | .ok v => pure v
   | .error msg => tFail s!"{ctx}: {msg}"
 
-private def digestsEqual (left right : Digest) : Bool :=
-  left.algorithm == right.algorithm && left.bytes == right.bytes
 
 private def getArr (arr : Array α) (i : Nat) (ctx : String) : CompileResult α :=
   match arr[i]? with
@@ -751,49 +749,6 @@ private def resolvePrincipalAccountBinding
     localIndex := handle.localIndex
   }
 
-private def resolveU64Source
-    (types : Array TypeDeclV1) (callable : CallableV1)
-    (layout : Array (Nat × Nat × Nat)) (vid : ValueIdV1) (ctx : String) :
-    CompileResult CpiAtaU64SourceV1 := do
-  match findLiteralU64? types callable vid with
-  | some v => pure (.literal v)
-  | none =>
-      match directPublicU64ParamOrdinal? types callable vid with
-      | some ord =>
-          match ixOffsetOfParam? layout ord with
-          | some (off, w) =>
-              unless w == 64 do
-                tFail s!"{ctx}: UInt64 param ordinal {ord} has wrong width slot"
-              pure (.param ord off)
-          | none =>
-              tFail s!"{ctx}: UInt64 param ordinal {ord} missing from probe layout"
-      | none =>
-          tFail
-            s!"{ctx}: admits only direct public UInt64 param or UInt64 literal"
-
-private def resolveU8Source
-    (types : Array TypeDeclV1) (callable : CallableV1)
-    (layout : Array (Nat × Nat × Nat)) (vid : ValueIdV1) (ctx : String)
-    (rejectZeroLiteral : Bool) :
-    CompileResult CpiAtaU8SourceV1 := do
-  match findLiteralU8? types callable vid with
-  | some v =>
-      if rejectZeroLiteral && v == 0 then
-        tFail s!"{ctx}: bump literal 0 is rejected (canonical search is 255..1)"
-      pure (.literal v)
-  | none =>
-      match directPublicU8ParamOrdinal? types callable vid with
-      | some ord =>
-          match ixOffsetOfParam? layout ord with
-          | some (off, w) =>
-              unless w == 8 do
-                tFail s!"{ctx}: UInt8 param ordinal {ord} has wrong width slot"
-              pure (.param ord off)
-          | none =>
-              tFail s!"{ctx}: UInt8 param ordinal {ord} missing from probe layout"
-      | none =>
-          tFail
-            s!"{ctx}: admits only direct public UInt8 param or UInt8 literal"
 
 private def projectMetas
     (handles : Array CpiIRRoleHandleV1) (site : CpiIRSiteV1) :
@@ -1255,13 +1210,6 @@ private def encodeUInt8LowerHex2 (value : UInt8) : String :=
   let n := value.toNat
   String.ofList [lowerHexDigit (n / 16), lowerHexDigit (n % 16)]
 
-private def renderU64Source : CpiAtaU64SourceV1 → String
-  | .param ord off => s!"param:{ord}@{off}"
-  | .literal v => s!"lit:{encodeUInt64LowerHex16 v}"
-
-private def renderU8Source : CpiAtaU8SourceV1 → String
-  | .param ord off => s!"param:{ord}@{off}"
-  | .literal v => s!"lit:{encodeUInt8LowerHex2 v}"
 
 private def renderMeta (m : CpiAtaMetaV1) : String :=
   let sg := match m.signerGroupId with

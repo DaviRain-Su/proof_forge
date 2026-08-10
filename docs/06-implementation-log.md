@@ -51,8 +51,8 @@ normative: false
   uint64 size packaging；EvenCounter 删除 thin alias，直连共享 lemmas；product certifier 仍 GREEN。
 - **bf-unpin-1**：ClosedSubjectPin / packaging 模块明确非 pin 主路径；
   `Tests.Semantic.ClosedSubjectPinV1`（exact pin / miss / eq-bytes transport 无 pin API）。
-- **自治入口**：`.grok/goals/prompt-business-formalization.md`（drain Goal）、
-  `business-formalization-drain` workflow、`.grok/business-formalization-queue.md`。
+- **自治入口（历史）**：`.grok/goals/prompt-business-formalization.md`（drain Goal）、
+  `business-formalization-drain` workflow（后续已 retired/removed）、`.grok/business-formalization-queue.md`。
 - **边界（历史本条）**：当时第二非 AMM 仍 deferred；现已由 wave-2 闭合。不 supersede ADR-0027；不 formal 关闭。
 
 ## 2026-08-08 — EvenCounter L1 preserving product positive + 业务形式化主路径文档（engineering）

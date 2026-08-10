@@ -1562,9 +1562,6 @@ private def findValueV1 (values : Array LoweredValueV1)
   | some value => .ok value
   | none => planError s!"semantic expression references unknown ValueId {id.toNat}"
 
-private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 :=
-  decodeUInt64LiteralLe evmPlanErr "EVM" bytes
-
 /-- Pack wire `u32le len || body` valueBytes into EVM pilot leaves: length word
     + `dataWordCount`×UInt64 data words (zero-padded). Shared by N4 String and
     T10 Principal (opaque body; String UTF-8 is already validated on wire). -/
@@ -1613,11 +1610,6 @@ private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
     CompileResult (Array Expr) :=
   decodeWireBytesLiteralLeavesV1 "Principal" evmPrincipalMaxPayloadBytesV1
     evmPrincipalDataWordCountV1 bytes 1
-
-/-- Shift-count literals are 4-byte LE UInt32 on the wire; widen to UInt64 for
-    the Plan expression surface (values are always < 2^32). -/
-private def decodeUInt32LiteralV1 (bytes : ByteArray) : CompileResult UInt64 :=
-  decodeUInt32LiteralLe evmPlanErr "EVM" bytes
 
 private def currentValueV1
     (values : Array LoweredValueV1)

@@ -81,13 +81,11 @@ open ProofForgeV2.Source.SpanV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Source.WireV1
 
-private abbrev SrcType := ProofForgeV2.Source.AstV1.TypeV1
 private abbrev SrcExpr := ProofForgeV2.Source.AstSpineV1.ExprV1
 private abbrev SrcStmt := ProofForgeV2.Source.AstSpineV1.StmtV1
 private abbrev SrcPlace := ProofForgeV2.Source.AstSpineV1.PlaceV1
 private abbrev SrcBlock := ProofForgeV2.Source.AstSpineV1.BlockV1
 private abbrev SrcParam := ProofForgeV2.Source.AstSupportV1.ParamV1
-private abbrev SrcVis := ProofForgeV2.Source.AstV1.VisibilityV1
 
 inductive ProvenanceBuildErrorV1 where
   | identity (detail : String)

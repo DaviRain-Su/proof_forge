@@ -542,11 +542,6 @@ private def uintWidthOfType
       if w == 8 || w == 16 || w == 32 || w == 64 then some w.toNat else none
   | _ => none
 
-private def isUnitType (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Bool :=
-  match data.types[typeId.toNat]? with
-  | some { shape := .unit, .. } => true
-  | _ => false
-
 /-- T14 catalog v2 (BLS12-377): is this the admitted BLS12-377 Field type?
     `PilotTypeClosureV1.fieldTypeId` is `some` iff the exact BLS12-377
     FieldSpec passed the target type-closure. Any other catalog spec was

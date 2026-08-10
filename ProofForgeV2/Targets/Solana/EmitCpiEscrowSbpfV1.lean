@@ -168,9 +168,6 @@ private def emitHeaderCore
     b := emitBlank b
     pure b
 
-private def emitHeader
-    (b0 : AsmBuf) (handlerCount frameBytes cpiBase : Nat) : AsmBuf :=
-  emitHeaderCore b0 handlerCount frameBytes cpiBase false
 
 private def emitErrShape (b0 : AsmBuf) : AsmBuf :=
   let b := emit b0 "err_shape:"

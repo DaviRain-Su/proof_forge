@@ -617,15 +617,6 @@ private def containerLeafLayoutV1
       pure (some (n, 1))
   | _ => pure none
 
-/-- Array / Map / Bytes leaf count (Byte width recovered via
-    `containerLeafLayoutV1`). `none` when not a container TypeId. -/
-private def mapUInt64LeafCountV1
-    (typeDecls : Array TypeDeclV1) (types : NoirTypeClosureV1)
-    (typeId : TypeIdV1) : CompileResult (Option Nat) := do
-  match ← containerLeafLayoutV1 typeDecls types typeId with
-  | some (n, _) => pure (some n)
-  | none => pure none
-
 /-- True when `typeId` is an anonymous Option TypeDecl (not named; not in
     `containerTypeIds`). Admitted surfaces: Map IndexGet intermediate,
     N-ANON-RESULT / B-RET-ABI return, and B-OPT-STATE `Option UInt64` storage

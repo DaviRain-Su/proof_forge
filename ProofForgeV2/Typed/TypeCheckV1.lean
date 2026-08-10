@@ -1562,8 +1562,6 @@ private def resultRequiredDiagnosticDraft (expected : TypeV1) :
     TypedDiagnosticDraftV1 :=
   expectedActualDiagnosticDraft (typeName expected) "empty return"
 
-private def resultRequiredDiagnostic (expected : TypeV1) : DiagnosticV1 :=
-  erase (resultRequiredDiagnosticDraft expected)
 
 mutual
   partial def typeCheckStmtDrafts (scope : TypeCheckScopeV1)

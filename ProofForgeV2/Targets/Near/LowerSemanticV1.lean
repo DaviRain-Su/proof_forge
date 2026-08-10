@@ -1508,27 +1508,6 @@ private def findFieldV1 (layout : StorageLayout)
           else planError s!"semantic expression references noncanonical state id {id.toNat}"
       | none => planError s!"semantic expression references unknown state id {id.toNat}"
 
-/-- Resolve all physical leaf fields for a logical state id (T12 Principal). -/
-private def findStateLeafFieldsV1 (layout : StorageLayout)
-    (id : StateIdV1) : CompileResult (Array StorageField) := do
-  match layout.stateLeaves[id.toNat]? with
-  | some leaves =>
-      let mut out : Array StorageField := #[]
-      for fi in leaves do
-        match layout.fields[fi]? with
-        | some field =>
-            unless field.sourceId == fi do
-              throw <| .planInvariant .near
-                s!"semantic expression references noncanonical state leaf {fi}"
-            out := out.push field
-        | none =>
-            throw <| .planInvariant .near
-              s!"semantic expression references unknown state leaf {fi}"
-      pure out
-  | none =>
-      let field ← findFieldV1 layout id
-      pure #[field]
-
 private def findValueV1 (values : Array LoweredValueV1)
     (id : ValueIdV1) : CompileResult LoweredValueV1 :=
   match values[id.toNat]? with
@@ -1618,13 +1597,6 @@ private def makeBinaryTreeValueKindsV1
     expandedNodes := 1 + lhs.expandedNodes + rhs.expandedNodes
     dependencies := #[lhsId, rhsId]
   }
-
-private def makeBinaryTreeValueV1
-    (mk : Expr → Expr → Expr)
-    (kind : NearValueKindV1)
-    (lhsId rhsId : ValueIdV1)
-    (lhs rhs : LoweredValueV1) : CompileResult LoweredValueV1 :=
-  makeBinaryTreeValueKindsV1 mk .uint64 .uint64 kind lhsId rhsId lhs rhs
 
 /-- Width-dispatch: UInt64 keeps historical constructors; narrow widths use
     `narrow*` so Emit can attach width overflow/mask guards. -/

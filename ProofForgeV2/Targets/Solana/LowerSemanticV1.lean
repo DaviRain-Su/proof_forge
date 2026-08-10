@@ -1065,106 +1065,7 @@ private def principalKeyEqExprV1
     keyEq := Expr.boolAnd keyEq (Expr.compare .eq stored want)
   pure keyEq
 
-/-- Dense Map Principal UInt64 IndexGet → Option UInt64 as `[tag, payload]`.
-    Key equality is leaf-wise across the 9 Principal wire leaves. -/
-private def mapPrincipalLookupOptionLeavesV1
-    (mapLeaves : Array Expr) (keyLeaves : Array Expr) :
-    CompileResult (Array Expr) := do
-  unless mapLeaves.size == solanaMapPrincipalLeafCountV1 do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: Principal Map leaf count must match pilot capacity"
-  unless keyLeaves.size == solanaMapPrincipalKeyLeafCountV1 do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: Principal Map key must be 9-leaf Principal"
-  let mut found : Expr := .literal 0
-  let mut payload : Expr := .literal 0
-  for e in [0:solanaMapPrincipalCapacityV1] do
-    let base := e * solanaMapPrincipalSlotsPerEntryV1
-    let some occ := mapLeaves[base]? |
-      throw <| .planInvariant .solana "Principal Map lookup occ leaf missing"
-    let mut storedKeys : Array Expr := #[]
-    for k in [0:solanaMapPrincipalKeyLeafCountV1] do
-      let some stored := mapLeaves[base + 1 + k]? |
-        throw <| .planInvariant .solana "Principal Map lookup key leaf missing"
-      storedKeys := storedKeys.push stored
-    let keyEq ← principalKeyEqExprV1 storedKeys keyLeaves
-    let hit := Expr.checkedMul occ keyEq
-    let miss := Expr.boolNot hit
-    let some v := mapLeaves[base + 1 + solanaMapPrincipalKeyLeafCountV1]? |
-      throw <| .planInvariant .solana "Principal Map lookup val leaf missing"
-    found := Expr.boolOr found hit
-    payload :=
-      Expr.checkedAdd (Expr.checkedMul hit v) (Expr.checkedMul miss payload)
-  pure #[Expr.checkedAdd found (.literal 0), payload]
 
-/-- Dense Map Principal UInt64 IndexSet upsert. Returns (newLeaves, okInsert). -/
-private def mapPrincipalUpsertLeavesV1
-    (mapLeaves : Array Expr) (keyLeaves : Array Expr) (value : Expr) :
-    CompileResult (Array Expr × Expr) := do
-  unless mapLeaves.size == solanaMapPrincipalLeafCountV1 do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: Principal Map leaf count must match pilot capacity"
-  unless keyLeaves.size == solanaMapPrincipalKeyLeafCountV1 do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: Principal Map key must be 9-leaf Principal"
-  let mut anyMatch : Expr := .literal 0
-  for e in [0:solanaMapPrincipalCapacityV1] do
-    let base := e * solanaMapPrincipalSlotsPerEntryV1
-    let some occ := mapLeaves[base]? |
-      throw <| .planInvariant .solana "Principal Map upsert occ leaf missing"
-    let mut storedKeys : Array Expr := #[]
-    for k in [0:solanaMapPrincipalKeyLeafCountV1] do
-      let some stored := mapLeaves[base + 1 + k]? |
-        throw <| .planInvariant .solana "Principal Map upsert key leaf missing"
-      storedKeys := storedKeys.push stored
-    let keyEq ← principalKeyEqExprV1 storedKeys keyLeaves
-    let hit := Expr.checkedMul occ keyEq
-    anyMatch := Expr.boolOr anyMatch hit
-  let mut seenEmpty : Expr := .literal 0
-  let mut isFirstEmpty : Array Expr := #[]
-  for e in [0:solanaMapPrincipalCapacityV1] do
-    let base := e * solanaMapPrincipalSlotsPerEntryV1
-    let some occ := mapLeaves[base]? |
-      throw <| .planInvariant .solana "Principal Map upsert empty-scan occ missing"
-    let empty := Expr.boolNot occ
-    let first := Expr.checkedMul empty (Expr.boolNot seenEmpty)
-    isFirstEmpty := isFirstEmpty.push first
-    seenEmpty := Expr.boolOr seenEmpty empty
-  let okInsert := Expr.boolOr anyMatch seenEmpty
-  let mut out : Array Expr := #[]
-  for e in [0:solanaMapPrincipalCapacityV1] do
-    let base := e * solanaMapPrincipalSlotsPerEntryV1
-    let some occ := mapLeaves[base]? |
-      throw <| .planInvariant .solana "Principal Map upsert rebuild occ missing"
-    let mut storedKeys : Array Expr := #[]
-    for k in [0:solanaMapPrincipalKeyLeafCountV1] do
-      let some stored := mapLeaves[base + 1 + k]? |
-        throw <| .planInvariant .solana "Principal Map upsert rebuild key missing"
-      storedKeys := storedKeys.push stored
-    let keyEq ← principalKeyEqExprV1 storedKeys keyLeaves
-    let matchHit := Expr.checkedMul occ keyEq
-    let some firstE := isFirstEmpty[e]? |
-      throw <| .planInvariant .solana "Principal Map upsert firstEmpty missing"
-    let insertHere := Expr.checkedMul firstE (Expr.boolNot anyMatch)
-    let write := Expr.boolOr matchHit insertHere
-    let miss := Expr.boolNot write
-    let occ' :=
-      Expr.checkedAdd (Expr.boolOr occ write) (.literal 0)
-    out := out.push occ'
-    for k in [0:solanaMapPrincipalKeyLeafCountV1] do
-      let some stored := mapLeaves[base + 1 + k]? |
-        throw <| .planInvariant .solana "Principal Map upsert rebuild key leaf missing"
-      let some want := keyLeaves[k]? |
-        throw <| .planInvariant .solana "Principal Map upsert rebuild want leaf missing"
-      let k' :=
-        Expr.checkedAdd (Expr.checkedMul write want) (Expr.checkedMul miss stored)
-      out := out.push k'
-    let some v := mapLeaves[base + 1 + solanaMapPrincipalKeyLeafCountV1]? |
-      throw <| .planInvariant .solana "Principal Map upsert rebuild val missing"
-    let v' :=
-      Expr.checkedAdd (Expr.checkedMul write value) (Expr.checkedMul miss v)
-    out := out.push v'
-  pure (out, okInsert)
 
 /-- Classify an admitted Map TypeId by key shape for IndexSet dispatch.
     Using the result Map TypeId avoids colliding with Array UInt64 24/44. -/
@@ -1607,19 +1508,6 @@ private def decodeUInt64LiteralV1 (bytes : ByteArray) : CompileResult UInt64 :=
 private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult Bool :=
   decodeBoolLiteralBit solanaPlanErr "Solana" bytes
 
-/-- Decode a 4-byte little-endian UInt32 shift-count literal into a UInt64
-    carrier (plan temps remain 64-bit words; the type flag carries the width).
-    Hand-rolled LE without trailing-byte finish check — intentionally not the
-    shared `decodeUInt32LiteralLe` (EVM/NEAR path). -/
-private def decodeUInt32LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
-  unless bytes.size == 4 do
-    throw <| .planInvariant .solana
-      "unsupported Solana semantic shape: UInt32 literal must contain exactly 4 bytes"
-  let b0 := bytes[0]!.toNat
-  let b1 := bytes[1]!.toNat
-  let b2 := bytes[2]!.toNat
-  let b3 := bytes[3]!.toNat
-  pure (UInt64.ofNat (b0 + b1 * 256 + b2 * 65536 + b3 * 16777216))
 
 /-- Effect-boundary gate: values defined before `blockEntry` dominate this
     block (params, block-param slots, earlier pure SSA). Only in-block pure
@@ -1758,8 +1646,6 @@ private def mkSignedCompare (w : Nat) (op : ComparisonOp) (l r : Expr) : Expr :=
   if w == 64 then .signedCompare op l r else .narrowSignedCompare w op l r
 private def mkCheckedNeg (w : Nat) (o : Expr) : Expr :=
   if w == 64 then .checkedNeg o else .narrowCheckedNeg w o
-private def mkSar (w : Nat) (l r : Expr) : Expr :=
-  if w == 64 then .sar l r else .narrowSar w l r
 
 private def makeCheckedAddValueV1
     (bitWidth : Nat)

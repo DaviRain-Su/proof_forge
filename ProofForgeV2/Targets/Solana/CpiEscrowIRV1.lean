@@ -326,8 +326,6 @@ private def mapExcept (e : Except String α) (ctx : String) : CompileResult α :
   | .ok v => pure v
   | .error msg => tFail s!"{ctx}: {msg}"
 
-private def digestsEqual (left right : Digest) : Bool :=
-  left.algorithm == right.algorithm && left.bytes == right.bytes
 
 private def getArr (arr : Array α) (i : Nat) (ctx : String) : CompileResult α :=
   match arr[i]? with

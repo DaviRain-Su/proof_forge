@@ -63,14 +63,6 @@ def deploySoPathV1 (projectRoot : FilePath) (programName : String) : FilePath :=
 def projectAsmPathV1 (projectRoot : FilePath) (programName : String) : FilePath :=
   projectRoot / "src" / programName / s!"{programName}.s"
 
-/-- Exact Solana plan-profile zero-tool finalization: no extras, fixed note. -/
-private def finalizePlanProfile : IO EngineeringFinalizationDraftV1 :=
-  pure {
-    deployable := false
-    extraFiles := #[]
-    evidenceNote :=
-      "no pinned/approved sBPF assembler is configured; typed plan and IDL artifacts are non-executable"
-  }
 
 /-- Shared locked-sbpf assemble of staging `{name}.s` → stage `{name}.so`.
     Returns (toolVersion, executableSha256). -/
@@ -113,19 +105,6 @@ private def assembleStagingSbpfV1
     IO.FS.writeBinFile stagingSo soBytes
     pure (sbpf.version, sbpf.executableSha256)
 
-/-- ELF-profile finalization: locked `sbpf build` over a temp project that
-    mirrors `src/<name>/<name>.s`, then stage `{name}.so` as an extra. -/
-private def finalizeElfProfile
-    (artifacts : MaterializedArtifactsV1)
-    (stagingDir : FilePath) : IO EngineeringFinalizationDraftV1 := do
-  let programName := MaterializedArtifactsV1.artifactProgramNameOf artifacts
-  let (version, sha) ← assembleStagingSbpfV1 artifacts stagingDir "solana-sbpf-elf-v1"
-  pure {
-    deployable := true
-    extraFiles := #[s!"{programName}.so"]
-    evidenceNote :=
-      s!"sbpf {version} sha256={sha} completed successfully"
-  }
 
 private def digestsEqual (left right : Digest) : Bool :=
   left.algorithm == right.algorithm && left.bytes == right.bytes

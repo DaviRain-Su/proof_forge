@@ -1168,15 +1168,6 @@ private def makeStateLayoutV1
       planError "unsupported Psy semantic shape: state must be UInt{8,16,32,64,128,256}, Int{8,16,32,64}, Goldilocks Field, named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes 1..8, Principal, String, or Option UInt64"
   pure { fieldNames, stateLeaves, typeDecls, types }
 
-private def literalIndexNatV1 (v : LoweredVal) : CompileResult Nat := do
-  unless !v.isAggregate do
-    planError "unsupported Psy semantic shape: Array index must be a scalar UInt literal"
-  match v.expr with
-  | .literal n => pure n.toNat
-  | .u32Literal n => pure n.toNat
-  | _ =>
-      planError "unsupported Psy semantic shape: Array IndexGet/IndexSet requires a compile-time constant index"
-
 /-- Optional compile-time Nat when `v` is a UInt literal index; `none` → runtime. -/
 private def literalIndexNat? (v : LoweredVal) : Option Nat :=
   if v.isAggregate then none

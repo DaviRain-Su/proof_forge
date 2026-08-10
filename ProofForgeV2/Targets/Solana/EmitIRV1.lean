@@ -200,9 +200,7 @@ private def natToLimbsLE (n : Nat) (count : Nat) : Array UInt64 := Id.run do
   pure out
 
 /-- Dense Map Principal UInt64 layout constants (match LowerSemanticV1). -/
-private def mapPrincipalCapacityV1 : Nat := 4
 private def mapPrincipalKeyLeafCountV1 : Nat := 9
-private def mapPrincipalSlotsPerEntryV1 : Nat := 11
 private def mapPrincipalLeafCountV1 : Nat := 44
 
 /-- Lookup plan-level loop induction / specialized lookup temp → IR temp.

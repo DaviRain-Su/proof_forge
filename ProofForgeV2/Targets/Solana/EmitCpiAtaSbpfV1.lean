@@ -446,35 +446,6 @@ private def emitLoadTemp (b0 : AsmBuf) (tempId : Nat) (dstReg : String) : AsmBuf
 private def emitStoreTemp (b0 : AsmBuf) (tempId : Nat) (srcReg : String) : AsmBuf :=
   emit b0 s!"  stxdw [r10 - {tempSlot tempId}], {srcReg}"
 
-private def emitResolveU64Source
-    (b0 : AsmBuf) (src : CpiAtaU64SourceV1) (dstReg : String) : AsmBuf :=
-  match src with
-  | .literal v =>
-      Id.run do
-        let mut b := b0
-        b := emit b s!"  lddw {dstReg}, {hexImm v.toNat}"
-        pure b
-  | .param _ord off =>
-      Id.run do
-        let mut b := b0
-        b := emit b "  ldxdw r1, [r10 - SLOT_IX_DATA]"
-        b := emit b s!"  ldxdw {dstReg}, [r1 + {off}]"
-        pure b
-
-private def emitResolveU8Source
-    (b0 : AsmBuf) (src : CpiAtaU8SourceV1) (dstReg : String) : AsmBuf :=
-  match src with
-  | .literal v =>
-      Id.run do
-        let mut b := b0
-        b := emit b s!"  lddw {dstReg}, {hexImm v.toNat}"
-        pure b
-  | .param _ord off =>
-      Id.run do
-        let mut b := b0
-        b := emit b "  ldxdw r1, [r10 - SLOT_IX_DATA]"
-        b := emit b s!"  ldxb {dstReg}, [r1 + {off}]"
-        pure b
 
 private def emitFillAccountInfos
     (b0 : AsmBuf) (n : Nat) (infosOff : Nat) (labSuffix : String) : AsmBuf :=
