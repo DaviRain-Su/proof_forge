@@ -1483,10 +1483,7 @@ pf-cli-publish: pf-cli-test
     fi
     cargo publish --manifest-path clients/pf-cli/Cargo.toml --locked
 
-# Offline Solana verifier crate
-solana-client-test:
-    cargo test --manifest-path clients/solana-client/Cargo.toml --locked
-
+# Offline Solana verifier crate (test recipe lives above with clippy).
 solana-client-publish-dry-run: solana-client-test
     #!/usr/bin/env bash
     set -euo pipefail
