@@ -241,7 +241,9 @@ program TypedCallableSurface where
 #check TypedCallableSurface.Model.add.encodeResult
 #check TypedCallableSurface.Model.add.decodeResult
 #check TypedCallableSurface.Model.add.decode_encode_result
+#check TypedCallableSurface.Model.add.decodeResult_complete_of_conforms
 #check TypedCallableSurface.Model.add.decodeResult_existsUnique_of_conforms
+#check TypedCallableSurface.Model.add.decodeResult_complete_of_returned
 #check TypedCallableSurface.Model.add.decodeResult_existsUnique_of_returned
 #check TypedCallableSurface.Model.add.decodeState_existsUnique_of_returned
 #check TypedCallableSurface.Model.add.encodeResult_injective
@@ -253,7 +255,9 @@ program TypedCallableSurface where
 #check TypedCallableSurface.Model.alive.encodeResult
 #check TypedCallableSurface.Model.alive.decodeResult
 #check TypedCallableSurface.Model.alive.decode_encode_result
+#check TypedCallableSurface.Model.alive.decodeResult_complete_of_conforms
 #check TypedCallableSurface.Model.alive.decodeResult_existsUnique_of_conforms
+#check TypedCallableSurface.Model.alive.decodeResult_complete_of_returned
 #check TypedCallableSurface.Model.alive.decodeResult_existsUnique_of_returned
 #check TypedCallableSurface.Model.alive.decodeState_existsUnique_of_returned
 #check TypedCallableSurface.Model.alive.encodeResult_injective
@@ -311,6 +315,23 @@ example
           TypedCallableSurface.Model.alive.decodeResult referenceValue = .ok other →
             value = other :=
   TypedCallableSurface.Model.alive.decodeResult_existsUnique_of_conforms
+    referenceValue hconforms
+
+/-- A conforming Bool result does not merely decode: canonical re-encoding
+    recovers the exact Reference carrier needed by the typed relation. -/
+example
+    (referenceValue : Option ReferenceValueV1)
+    (hconforms :
+      ReferenceResultConformsV1 TypedCallableSurface.Proof.subjectDataV1
+        (TypedCallableSurface.Proof.subjectDataV1.callables[1]'(by decide)).result
+        referenceValue) :
+    ∃ value : TypedCallableSurface.Model.alive.Result,
+      TypedCallableSurface.Model.alive.decodeResult referenceValue = .ok value ∧
+        TypedCallableSurface.Model.alive.encodeResult value = referenceValue ∧
+          ∀ other : TypedCallableSurface.Model.alive.Result,
+            TypedCallableSurface.Model.alive.decodeResult referenceValue = .ok other →
+              value = other :=
+  TypedCallableSurface.Model.alive.decodeResult_complete_of_conforms
     referenceValue hconforms
 
 example : TypedCallableSurface.Model.alive.decodeResult
@@ -446,7 +467,9 @@ program TypedUnitCallableSurface where
 #check TypedUnitCallableSurface.Model.clear.encodeResult
 #check TypedUnitCallableSurface.Model.clear.decodeResult
 #check TypedUnitCallableSurface.Model.clear.decode_encode_result
+#check TypedUnitCallableSurface.Model.clear.decodeResult_complete_of_conforms
 #check TypedUnitCallableSurface.Model.clear.decodeResult_existsUnique_of_conforms
+#check TypedUnitCallableSurface.Model.clear.decodeResult_complete_of_returned
 #check TypedUnitCallableSurface.Model.clear.decodeResult_existsUnique_of_returned
 #check TypedUnitCallableSurface.Model.clear.decodeState_existsUnique_of_returned
 #check TypedUnitCallableSurface.Model.clear.encodeResult_injective

@@ -427,16 +427,18 @@ private def quoteModelCallableResultDecodeEncodeV1
           (ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1_encodeU64le
             value))
 
-/-- Close typed decode existence and uniqueness for every production-conforming
-    result carrier in the generated Unit/Bool/UInt64 subset. This consumes the
-    machine's `ReferenceResultConformsV1` predicate and the same production
-    validator used by `decodeResult`; it does not execute the callable. -/
-private def quoteModelCallableResultDecodeExistsUniqueV1
+/-- Close exact typed decode/re-encode and uniqueness for every
+    production-conforming result carrier in the generated Unit/Bool/UInt64
+    subset. This consumes the machine's `ReferenceResultConformsV1` predicate
+    and the same production validator used by `decodeResult`; it does not
+    execute the callable. -/
+private def quoteModelCallableResultDecodeCompleteV1
     (subjectDataName : TSyntax `ident)
-    (decodeResultName : TSyntax `ident)
+    (encodeResultName decodeResultName : TSyntax `ident)
     (result : ModelCallableResultV1)
     (callableId : CallableIdV1)
-    (typeId : TypeIdV1) : MacroM (TSyntax `term) := do
+    (typeId : TypeIdV1)
+    (typeDeclTerm : TSyntax `term) : MacroM (TSyntax `term) := do
   let callableIdTerm : TSyntax `term :=
     ⟨Syntax.mkNumLit (toString callableId.toNat)⟩
   let typeIdTerm : TSyntax `term :=
@@ -453,12 +455,13 @@ private def quoteModelCallableResultDecodeExistsUniqueV1
               referenceValue) =>
           show ∃ value : Unit,
             $decodeResultName referenceValue = .ok value ∧
-              ∀ other : Unit,
-                $decodeResultName referenceValue = .ok other →
-                  value = other from by
+              $encodeResultName value = referenceValue ∧
+                ∀ other : Unit,
+                  $decodeResultName referenceValue = .ok other →
+                    value = other from by
         cases referenceValue with
         | none =>
-            refine ⟨(), rfl, ?_⟩
+            refine ⟨(), rfl, rfl, ?_⟩
             intro other hother
             cases other
             rfl
@@ -492,9 +495,10 @@ private def quoteModelCallableResultDecodeExistsUniqueV1
               referenceValue) =>
           show ∃ value : Bool,
             $decodeResultName referenceValue = .ok value ∧
-              ∀ other : Bool,
-                $decodeResultName referenceValue = .ok other →
-                  value = other from by
+              $encodeResultName value = referenceValue ∧
+                ∀ other : Bool,
+                  $decodeResultName referenceValue = .ok other →
+                    value = other from by
         cases referenceValue with
         | none =>
             have hfalse : False := by
@@ -550,7 +554,25 @@ private def quoteModelCallableResultDecodeExistsUniqueV1
               unfold $decodeResultName
               simp [hcanonical, typedValue, Pure.pure, Except.pure, Bind.bind,
                 Except.bind]
-            refine ⟨typedValue, hsuccess, ?_⟩
+            have hencodeBytes :
+                ProofForgeV2.Semantic.WireV1.encodeBool typedValue =
+                  valueBytes :=
+              ProofForgeV2.Semantic.StateModelV1.encodeBool_boolOfCanonicalValueBytesV1
+                ($subjectDataName).types $typeIdTerm $typeDeclTerm valueBytes
+                  (by rfl) (by rfl) hcanonical
+            have hencode :
+                $encodeResultName typedValue = some {
+                  typeId := $typeIdTerm
+                  valueBytes := valueBytes
+                } := by
+              unfold $encodeResultName
+              exact congrArg
+                (fun bytes => some ({
+                  typeId := $typeIdTerm
+                  valueBytes := bytes
+                } : ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1))
+                hencodeBytes
+            refine ⟨typedValue, hsuccess, hencode, ?_⟩
             intro other hother
             exact Except.ok.inj (hsuccess.symm.trans hother))
   | .uint64 =>
@@ -564,9 +586,10 @@ private def quoteModelCallableResultDecodeExistsUniqueV1
               referenceValue) =>
           show ∃ value : UInt64,
             $decodeResultName referenceValue = .ok value ∧
-              ∀ other : UInt64,
-                $decodeResultName referenceValue = .ok other →
-                  value = other from by
+              $encodeResultName value = referenceValue ∧
+                ∀ other : UInt64,
+                  $decodeResultName referenceValue = .ok other →
+                    value = other from by
         cases referenceValue with
         | none =>
             have hfalse : False := by
@@ -622,7 +645,25 @@ private def quoteModelCallableResultDecodeExistsUniqueV1
               unfold $decodeResultName
               simp [hcanonical, typedValue, Pure.pure, Except.pure, Bind.bind,
                 Except.bind]
-            refine ⟨typedValue, hsuccess, ?_⟩
+            have hencodeBytes :
+                ProofForgeV2.Semantic.WireV1.encodeU64le typedValue =
+                  valueBytes :=
+              ProofForgeV2.Semantic.StateModelV1.encodeU64le_uint64OfCanonicalValueBytesV1
+                ($subjectDataName).types $typeIdTerm $typeDeclTerm valueBytes
+                  (by rfl) (by rfl) hcanonical
+            have hencode :
+                $encodeResultName typedValue = some {
+                  typeId := $typeIdTerm
+                  valueBytes := valueBytes
+                } := by
+              unfold $encodeResultName
+              exact congrArg
+                (fun bytes => some ({
+                  typeId := $typeIdTerm
+                  valueBytes := bytes
+                } : ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1))
+                hencodeBytes
+            refine ⟨typedValue, hsuccess, hencode, ?_⟩
             intro other hother
             exact Except.ok.inj (hsuccess.symm.trans hother))
 
@@ -671,8 +712,11 @@ private def elaborateCallableModelsV1
     let encodeResultName := mkIdent `encodeResult
     let decodeResultName := mkIdent `decodeResult
     let decodeEncodeResultName := mkIdent `decode_encode_result
+    let decodeResultCompleteName := mkIdent `decodeResult_complete_of_conforms
     let decodeResultExistsUniqueName :=
       mkIdent `decodeResult_existsUnique_of_conforms
+    let decodeReturnedResultCompleteName :=
+      mkIdent `decodeResult_complete_of_returned
     let decodeReturnedResultExistsUniqueName :=
       mkIdent `decodeResult_existsUnique_of_returned
     let decodeReturnedStateExistsUniqueName :=
@@ -729,15 +773,22 @@ private def elaborateCallableModelsV1
       quoteModelCallableResultDecodeEncodeV1 subjectDataName encodeResultName
         decodeResultName callableView.result callableView.resultTypeId
         resultTypeDeclTerm
-    let resultDecodeExistsUnique ← Lean.Elab.liftMacroM <|
-      quoteModelCallableResultDecodeExistsUniqueV1 subjectDataName
+    let resultDecodeComplete ← Lean.Elab.liftMacroM <|
+      quoteModelCallableResultDecodeCompleteV1 subjectDataName encodeResultName
         decodeResultName callableView.result callableView.callableId
-        callableView.resultTypeId
+        callableView.resultTypeId resultTypeDeclTerm
     let invocationTerm ← Lean.Elab.liftMacroM <| do
       let mut term ← `($invocationName)
       for paramName in paramNames do
         term ← `($term $paramName)
       `($term $contextName)
+    let returnedResultCompleteTerm ← Lean.Elab.liftMacroM <| do
+      let mut term ← `($decodeReturnedResultCompleteName $subjectName
+        $logicalPreName $logicalPostName)
+      for paramName in paramNames do
+        term ← `($term $paramName)
+      `($term $contextName $responsesName $vaultName $referenceValueName
+        $effectsName $validateName $stepName)
     let leftTransitionTerm ← Lean.Elab.liftMacroM <| do
       let mut term ← `($transitionName $subjectName $preName)
       for paramName in paramNames do
@@ -770,6 +821,24 @@ private def elaborateCallableModelsV1
           $decodeResultName ($encodeResultName value) = .ok value :=
         $resultDecodeEncode))
     Lean.Elab.Command.elabCommand (← `(
+      /-- Every conforming Reference result decodes, re-encodes to the exact
+          original carrier, and has no second typed decode. -/
+      theorem $decodeResultCompleteName
+          ($referenceValueName : Option
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1)
+          ($conformsName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceResultConformsV1
+              $subjectDataName
+              (($subjectDataName).callables[$callableIdTerm]'(by decide)).result
+              $referenceValueName) :
+          ∃ value : $resultName,
+            $decodeResultName $referenceValueName = .ok value ∧
+              $encodeResultName value = $referenceValueName ∧
+                ∀ other : $resultName,
+                  $decodeResultName $referenceValueName = .ok other →
+                    value = other :=
+        $resultDecodeComplete $referenceValueName $conformsName))
+    Lean.Elab.Command.elabCommand (← `(
       /-- Every Reference result conforming to this exact lowered callable row
           has one unique typed decode through the production validator. -/
       theorem $decodeResultExistsUniqueName
@@ -784,8 +853,10 @@ private def elaborateCallableModelsV1
             $decodeResultName $referenceValueName = .ok value ∧
               ∀ other : $resultName,
                 $decodeResultName $referenceValueName = .ok other →
-                  value = other :=
-        $resultDecodeExistsUnique $referenceValueName $conformsName))
+                  value = other := by
+        obtain ⟨value, hdecode, _hencode, hunique⟩ :=
+          $decodeResultCompleteName $referenceValueName $conformsName
+        exact ⟨value, hdecode, hunique⟩))
     Lean.Elab.Command.elabCommand (← `(
       /-- Canonical result encoding is injective because generated decoding is
           its left inverse. -/
@@ -810,8 +881,57 @@ private def elaborateCallableModelsV1
       }))
     Lean.Elab.Command.elabCommand (← `(
       /-- Every successful production step for this generated invocation has
-          one unique typed result decode. Callable selection and result
+          one exact typed result decode/re-encode. Callable selection and result
           canonicality come from the sole Reference gate/machine. -/
+      theorem $decodeReturnedResultCompleteName
+          ($subjectName : $referenceSubjectName)
+          ($logicalPreName $logicalPostName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($referenceValueName : Option
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1)
+          ($effectsName : Array
+            ProofForgeV2.Semantic.ReferenceV1.OrderedEffectV1)
+          ($validateName :
+            ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+                $subjectProgramName = .ok $subjectDataName)
+          ($stepName :
+            ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1
+                ($subjectName).admitted $logicalPreName $invocationTerm
+                  $responsesName $vaultName =
+              .returned $logicalPostName $referenceValueName $effectsName) :
+          ∃ value : $resultName,
+            $decodeResultName $referenceValueName = .ok value ∧
+              $encodeResultName value = $referenceValueName ∧
+                ∀ other : $resultName,
+                  $decodeResultName $referenceValueName = .ok other →
+                    value = other := by
+        have hadmittedData : ($subjectName).admitted.data = $subjectDataName :=
+          (ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1_ok_implies
+            $subjectProgramName $subjectDataName ($subjectName).admitted
+              $validateName ($subjectName).hadmit).2
+        have hlookup :
+            ($subjectName).admitted.data.callables[$callableIdTerm]? =
+              some (($subjectDataName).callables[$callableIdTerm]'(by decide)) := by
+          rw [hadmittedData]
+          rfl
+        have hconforms :=
+          ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1_returned_resultConformsV1_of_lookup
+            ($subjectName).admitted $logicalPreName $logicalPostName $invocationTerm
+              $responsesName $vaultName
+              (($subjectDataName).callables[$callableIdTerm]'(by decide))
+              $referenceValueName $effectsName hlookup $stepName
+        rw [hadmittedData] at hconforms
+        exact $decodeResultCompleteName $referenceValueName hconforms))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Compatibility projection of the exact returned-result package to
+          decode existence and uniqueness. -/
       theorem $decodeReturnedResultExistsUniqueName
           ($subjectName : $referenceSubjectName)
           ($logicalPreName $logicalPostName :
@@ -840,23 +960,9 @@ private def elaborateCallableModelsV1
               ∀ other : $resultName,
                 $decodeResultName $referenceValueName = .ok other →
                   value = other := by
-        have hadmittedData : ($subjectName).admitted.data = $subjectDataName :=
-          (ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1_ok_implies
-            $subjectProgramName $subjectDataName ($subjectName).admitted
-              $validateName ($subjectName).hadmit).2
-        have hlookup :
-            ($subjectName).admitted.data.callables[$callableIdTerm]? =
-              some (($subjectDataName).callables[$callableIdTerm]'(by decide)) := by
-          rw [hadmittedData]
-          rfl
-        have hconforms :=
-          ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1_returned_resultConformsV1_of_lookup
-            ($subjectName).admitted $logicalPreName $logicalPostName $invocationTerm
-              $responsesName $vaultName
-              (($subjectDataName).callables[$callableIdTerm]'(by decide))
-              $referenceValueName $effectsName hlookup $stepName
-        rw [hadmittedData] at hconforms
-        exact $decodeResultExistsUniqueName $referenceValueName hconforms))
+        obtain ⟨value, hdecode, _hencode, hunique⟩ :=
+          $returnedResultCompleteTerm
+        exact ⟨value, hdecode, hunique⟩))
     Lean.Elab.Command.elabCommand (← `(
       /-- Every returned initialized entry/view post-state has one unique typed
           decode. Initializer lifecycle remains a separate proof surface. -/

@@ -720,11 +720,14 @@ proof-bearing target build 继续 fail closed。
    `decode_encode_result` 与 `encodeResult_injective`。decoder 检查 exact lowered TypeId，并调用
    production `validateValueBytesV1` 和 scalar projection；Bool/UInt64 canonical bytes 的正向
    roundtrip 由 production validator theorem 关闭，wrong TypeId/malformed bytes fail closed；
+   production Bool validator 现也有 canonical payload→exact `encodeBool` carrier 的反向事实，
+   与既有 UInt64 exact re-encode theorem 一起支撑 typed result 完整回编；
 9. sole Reference machine 已从完整 successful step 证明 returned result 与 production-selected
    callable result row 一致：Unit 必须使用 `none`，非 Unit 必须使用 exact TypeId 且通过
    production `validateValueBytesV1`。generated Unit/Bool/UInt64 callable 进一步生成
-   `decodeResult_existsUnique_of_conforms` 与 `decodeResult_existsUnique_of_returned`，因此任一
-   真实 returned result 都存在唯一 typed decode；该 bridge 只消费 exact callable lookup、
+   `decodeResult_complete_of_conforms` 与 `decodeResult_complete_of_returned`：任一真实 returned
+   result 都存在唯一 typed decode，且 typed re-encode 精确恢复原 Reference carrier；原
+   `decodeResult_existsUnique_of_*` 作为兼容投影保留。该 bridge 只消费 exact callable lookup、
    Reference step 与 production validator，不执行第二套 callable；
 10. Unit result 已用 accepted declared-revert entry lowering 做 generated codec/relation/uniqueness 回归；
    这不扩张 accepted language，也不伪造 Unit return literal；
@@ -736,9 +739,11 @@ proof-bearing target build 继续 fail closed。
    `decodeState_existsUnique_of_returned` 已将该事实接到 production `decodeState`，得到唯一 typed
    post-state。该 theorem 显式要求 initialized pre-state，initializer post-state 仍由独立
    lifecycle theorem 处理；
-12. 当前尚缺 initializer 的 initialized/uninitialized lifecycle bridge、Reference outcome→typed
-   outcome 的 full-outcome total/complete 方向、typed invariant bridge、per-call preservation
-   composition 与短 executable notation；这些仍是后续 Phase 2–4 工作；
+12. 当前 returned result 的 typed decode/re-encode 已 complete，但尚缺把 returned state/result
+   合并成 typed `Transition.returned` witness；同时仍缺 initializer 的 initialized/uninitialized
+   lifecycle bridge、Reference outcome→typed outcome 的 full-outcome total/complete 方向、typed
+   invariant bridge、per-call preservation composition 与短 executable notation；这些仍是后续
+   Phase 2–4 工作；
 13. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
    完成前不能称 target artifact verified。
 

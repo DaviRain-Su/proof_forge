@@ -108,6 +108,22 @@ theorem boolOfCanonicalValueBytesV1_encodeBool (value : Bool) :
     boolOfCanonicalValueBytesV1 (encodeBool value) = value := by
   cases value <;> rfl
 
+/-- Re-encoding a production-validated Bool payload after typed projection
+    recovers the exact canonical bytes. -/
+theorem encodeBool_boolOfCanonicalValueBytesV1
+    (types : Array TypeDeclV1)
+    (typeId : TypeIdV1)
+    (decl : TypeDeclV1)
+    (bytes : ByteArray)
+    (hlookup : types[typeId.toNat]? = some decl)
+    (hshape : decl.shape = .bool)
+    (hcanonical : validateValueBytesV1 types typeId bytes = .ok ()) :
+    encodeBool (boolOfCanonicalValueBytesV1 bytes) = bytes := by
+  obtain ⟨value, hencode⟩ :=
+    validateValueBytesV1_bool_exists_encode
+      types typeId decl bytes hlookup hshape hcanonical
+  rw [← hencode, boolOfCanonicalValueBytesV1_encodeBool]
+
 theorem uint64OfCanonicalValueBytesV1_encodeU64le (value : UInt64) :
     uint64OfCanonicalValueBytesV1 (encodeU64le value) = value := by
   unfold uint64OfCanonicalValueBytesV1

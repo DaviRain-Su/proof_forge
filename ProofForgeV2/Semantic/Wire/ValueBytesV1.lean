@@ -715,6 +715,94 @@ theorem validateValueBytesV1_encodeBool
   · exact validateValueBytesV1_bool_eq_ok types typeId decl 1 hlookup hshape
       (Or.inr rfl)
 
+/-- Every payload accepted for a Bool declaration is an exact production Bool
+    encoding. This is the reverse canonicality fact needed by typed
+    projections; it exposes no alternate decoder. -/
+theorem validateValueBytesV1_bool_exists_encode
+    (types : Array TypeDeclV1) (typeId : TypeIdV1) (decl : TypeDeclV1)
+    (bytes : ByteArray)
+    (hlookup : types[typeId.toNat]? = some decl)
+    (hshape : decl.shape = .bool)
+    (hcanonical : validateValueBytesV1 types typeId bytes = .ok ()) :
+    ∃ value : Bool, encodeBool value = bytes := by
+  unfold validateValueBytesV1 validateValueBytesWithFuelV1 at hcanonical
+  by_cases hlimit : bytes.size ≤ maxCanonicalValueBytes
+  · simp only [if_pos hlimit, Pure.pure, Except.pure, Bind.bind, Except.bind]
+      at hcanonical
+    have hfuel : maxNesting = 255 + 1 := by rfl
+    rw [hfuel, decodeAndReencodeValueBytesV1.eq_2] at hcanonical
+    have hentry : 1 ≤ maxCanonicalProgramBytes := by decide
+    have hspendEntry :
+        spendCanonicalValueWorkV1 maxCanonicalProgramBytes 1 =
+          .ok (maxCanonicalProgramBytes - 1) := by
+      simp [spendCanonicalValueWorkV1, hentry, Pure.pure, Except.pure]
+    simp only [hspendEntry, hlookup, hshape, Pure.pure, Except.pure,
+      Bind.bind, Except.bind] at hcanonical
+    have hstart : start bytes = ⟨bytes, 0, 0⟩ := rfl
+    by_cases hnonempty : remaining ⟨bytes, 0, 0⟩ ≥ 1
+    · let bit := bytes.get! 0
+      have htake :
+          takeByteNC (start bytes) = .ok (bit, ⟨bytes, 1, 0⟩) := by
+        unfold takeByteNC
+        rw [hstart]
+        simp only [if_pos hnonempty, Pure.pure, Except.pure, Bind.bind,
+          Except.bind]
+        rfl
+      simp only [htake, Pure.pure, Except.pure, Bind.bind, Except.bind]
+        at hcanonical
+      by_cases hbit : bit == 0 || bit == 1
+      · simp only [if_pos hbit, Pure.pure, Except.pure, Bind.bind, Except.bind]
+          at hcanonical
+        have houtput : 1 ≤ maxCanonicalProgramBytes - 1 := by decide
+        have hencodedSize : (encodeU8 bit).size = 1 := encodeU8_size bit
+        have hspendOutput :
+            spendCanonicalValueWorkV1 (maxCanonicalProgramBytes - 1)
+                (max 1 (encodeU8 bit).size) =
+              .ok (maxCanonicalProgramBytes - 1 - 1) := by
+          simp [hencodedSize, spendCanonicalValueWorkV1, houtput, Pure.pure,
+            Except.pure]
+        simp only [hspendOutput, Pure.pure, Except.pure, Bind.bind,
+          Except.bind] at hcanonical
+        have hremainingZero : (remaining ⟨bytes, 1, 0⟩ == 0) = true := by
+          by_cases hzero : (remaining ⟨bytes, 1, 0⟩ == 0) = true
+          · exact hzero
+          · have hfalse : (remaining ⟨bytes, 1, 0⟩ == 0) = false :=
+              Bool.eq_false_iff.mpr hzero
+            simp [hfalse, err] at hcanonical
+        simp only [hremainingZero, ↓reduceIte] at hcanonical
+        have hreencoded : (encodeU8 bit == bytes) = true := by
+          by_cases heq : (encodeU8 bit == bytes) = true
+          · exact heq
+          · have hfalse : (encodeU8 bit == bytes) = false :=
+              Bool.eq_false_iff.mpr heq
+            simp [hfalse, err] at hcanonical
+        have hbytes : encodeU8 bit = bytes := by
+          apply ByteArray.ext
+          change ((encodeU8 bit).data == bytes.data) = true at hreencoded
+          exact beq_iff_eq.mp hreencoded
+        have hbitCases : bit = 0 ∨ bit = 1 := by
+          simpa only [Bool.or_eq_true, beq_iff_eq] using hbit
+        rcases hbitCases with hzero | hone
+        · refine ⟨false, ?_⟩
+          simpa [encodeBool, hzero] using hbytes
+        · refine ⟨true, ?_⟩
+          simpa [encodeBool, hone] using hbytes
+      · simp [hbit, Pure.pure, Except.pure, Bind.bind, Except.bind, err]
+          at hcanonical
+    · have htake :
+          takeByteNC (start bytes) =
+            Except.error SemanticWireErrorV1.nonCanonical := by
+        unfold takeByteNC
+        rw [hstart]
+        simp only [if_neg hnonempty, Pure.pure, Except.pure, Bind.bind,
+          Except.bind, err]
+      simp only [htake, Pure.pure, Except.pure, Bind.bind, Except.bind]
+        at hcanonical
+      cases hcanonical
+  · simp only [if_neg hlimit, Pure.pure, Except.pure, Bind.bind, Except.bind,
+      err] at hcanonical
+    cases hcanonical
+
 /-- A canonical eight-byte UInt64 literal consumes one entry-work unit and
     eight output-byte work units through the sole production valueBytes decoder.
     The byte payload remains arbitrary: fixed-width UInt canonicality is exact
