@@ -207,4 +207,123 @@ theorem rootFieldInvertV1
       exactAtRoot_invariantsV1 literalInvariantName eqInvariantName neInvariantName
   · simpa [subjectDataV1] using exactAtRoot_requirementsV1
 
+/-! ### Production generic CFG/SSA/typing phase -/
+
+private theorem literalCfgV1
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name state2Name : String)
+    (viewName literalInvariantName eqInvariantName neInvariantName : String)
+    (callableId : CallableIdV1) (kind : CallableKindV1)
+    (callableName : String) (invariantSteps : Option UInt64) :
+    validateCallableCfgShape
+      (literalReturnCallableV1 callableId kind (some callableName) 1
+        (encodeU8 1) .public_ invariantSteps)
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName).types.size
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName).types
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName) = .ok () := by
+  let data := subjectDataV1 qualifiedName state0Name state1Name state2Name
+    viewName literalInvariantName eqInvariantName neInvariantName
+  let callable := literalReturnCallableV1 callableId kind (some callableName) 1
+    (encodeU8 1) .public_ invariantSteps
+  let instruction : InstructionV1 := {
+    result := some { valueId := 0, typeId := 1 }
+    op := .literal 1 (encodeU8 1)
+  }
+  refine validateCallableCfgShape_eq_ok_of_phases callable data.types.size
+    data.types data #[true] ?_ ?_ ?_ ?_ ?_
+  · rfl
+  · rfl
+  · rfl
+  · apply validateCallableCfgValueFlow_eq_ok_of_phases
+      callable #[true] #[(0, 0)]
+    · rfl
+    · rfl
+    · apply checkValueIdUsesExist_single_local_return_eq_ok callable instruction
+      · rfl
+      · rfl
+    · apply validateCallableDominanceOfUse_single_local_return_eq_ok
+        callable instruction
+      · rfl
+      · rfl
+  · rfl
+
+private theorem compareCfgV1
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name state2Name : String)
+    (viewName literalInvariantName eqInvariantName neInvariantName : String)
+    (callableId : CallableIdV1) (callableName : String)
+    (op : BinaryOpV1) (hop : op = .eq ∨ op = .ne) :
+    validateCallableCfgShape
+      (twoStateCompareInvariantCallableV1 callableId (some callableName)
+        0 1 1 2 op .public_ (some 5))
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName).types.size
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName).types
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName) = .ok () := by
+  rcases hop with rfl | rfl
+  all_goals
+    refine validateCallableCfgShape_eq_ok_of_phases
+      (twoStateCompareInvariantCallableV1 callableId (some callableName)
+        0 1 1 2 _ .public_ (some 5)) 2
+      #[{ id := 0, name := none, shape := .uint 64 },
+        { id := 1, name := none, shape := .bool }]
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName) #[true]
+      ?_ ?_ ?_ ?_ ?_
+    · rfl
+    · rfl
+    · rfl
+    · apply validateCallableCfgValueFlow_eq_ok_of_phases
+        (twoStateCompareInvariantCallableV1 callableId (some callableName)
+          0 1 1 2 _ .public_ (some 5)) #[true]
+        #[(0, 0), (1, 0), (2, 0)]
+      · rfl
+      · rfl
+      · simp [checkValueIdUsesExist, twoStateCompareInvariantCallableV1,
+          twoStateCompareInvariantBlockV1, opValueUses, terminatorValueUses,
+          Pure.pure, Except.pure, Bind.bind, Except.bind]
+      · rfl
+    · rfl
+
+/-- Exact production generic CFG phase for all four family callables. This
+    proves reachability, loop/effect IDs, SSA uses/dominance, state lookup, and
+    UInt64 Eq/Ne result typing; invariant closure/fuel remain separate. -/
+theorem genericCfgPhasesV1
+    (qualifiedName : QualifiedName)
+    (state0Name state1Name state2Name : String)
+    (viewName literalInvariantName eqInvariantName neInvariantName : String) :
+    validateGenericCfgPhasesV1
+      (subjectDataV1 qualifiedName state0Name state1Name state2Name viewName
+        literalInvariantName eqInvariantName neInvariantName) = .ok () := by
+  let data := subjectDataV1 qualifiedName state0Name state1Name state2Name
+    viewName literalInvariantName eqInvariantName neInvariantName
+  let viewCallable := literalReturnCallableV1 0 .view (some viewName) 1
+    (encodeU8 1) .public_ none
+  let literalInvariantCallable := literalReturnCallableV1 1 .invariant
+    (some literalInvariantName) 1 (encodeU8 1) .public_ (some 3)
+  let eqCallable := twoStateCompareInvariantCallableV1 2 (some eqInvariantName)
+    0 1 1 2 .eq .public_ (some 5)
+  let neCallable := twoStateCompareInvariantCallableV1 3 (some neInvariantName)
+    0 1 1 2 .ne .public_ (some 5)
+  apply validateGenericCfgPhasesV1_four_eq_ok data viewCallable
+    literalInvariantCallable eqCallable neCallable
+  · rfl
+  · exact literalCfgV1 qualifiedName state0Name state1Name state2Name viewName
+      literalInvariantName eqInvariantName neInvariantName 0 .view viewName none
+  · exact literalCfgV1 qualifiedName state0Name state1Name state2Name viewName
+      literalInvariantName eqInvariantName neInvariantName 1 .invariant
+      literalInvariantName (some 3)
+  · exact compareCfgV1 qualifiedName state0Name state1Name state2Name viewName
+      literalInvariantName eqInvariantName neInvariantName 2 eqInvariantName
+      .eq (Or.inl rfl)
+  · exact compareCfgV1 qualifiedName state0Name state1Name state2Name viewName
+      literalInvariantName eqInvariantName neInvariantName 3 neInvariantName
+      .ne (Or.inr rfl)
+  · rfl
+
 end ProofForgeV2.Semantic.FieldComparisonSubjectV1

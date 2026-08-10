@@ -360,6 +360,16 @@ theorem typedInvariantFieldEqualitySubject_rootFieldInvertV1 :
       "nonsolvent" (by rfl) (by rfl) (by rfl) (by rfl)
       (by rfl) (by rfl) (by rfl)
 
+/-- The actual generated subject passes the production generic CFG/SSA/typing
+    phase; this does not bypass the later invariant closure/fuel phases. -/
+theorem typedInvariantFieldEqualitySubject_genericCfgPhasesV1 :
+    validateGenericCfgPhasesV1
+      TypedInvariantFieldEqualitySurface.Proof.subjectDataV1 = .ok () := by
+  rw [typedInvariantFieldEqualitySubject_subjectData_eq]
+  exact ProofForgeV2.Semantic.FieldComparisonSubjectV1.genericCfgPhasesV1
+    TypedInvariantFieldEqualitySurface.Proof.subjectDataV1.qualifiedName
+    "nonce" "reserves" "shares" "alive" "primary" "solvent" "nonsolvent"
+
 example
     (typedState : TypedInvariantFieldEqualitySurface.Model.State)
     (hvalidate :

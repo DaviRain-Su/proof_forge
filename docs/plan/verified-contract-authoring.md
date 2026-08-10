@@ -871,7 +871,10 @@ expression translator：
     不再需要另写 closed byte proof；在这些 leaf/table seams 上，现已有独立的、名称与
     qualified-name 参数化的 field-comparison subject family，实际 generated equality fixture
     与它 definitionally 相等，并已取得真实 whole-program `RootFieldInvertV1`；该结论仍只
-    是 codec transport certificate，尚未声称 structure/full validation success；
+    是 codec transport certificate，尚未声称 structure/full validation success；该 family
+    的四个 callable 也已逐项通过 production generic CFG phase（reachability、SSA uses /
+    dominance、state lookup 与 UInt64 Eq/Ne typing），并由 production four-callable composer
+    汇总；invariant closure/fuel 与其余 structure phases 仍保持独立、尚未关闭；
     当前已把 `subjectBodyEncodeOkV1` + 全部 production root gates + structure success +
     whole-program `RootFieldInvertV1` 组合 exact validation 的 theorem 抽到通用
     `SubjectDataBridgeV1`，不再归属于 parity shape；elaborator 现已对每个 proof-bearing program
