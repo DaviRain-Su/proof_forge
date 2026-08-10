@@ -857,8 +857,10 @@ expression translator：
     id / type id，只要求 production identifier gate 与明确的 nesting margin，不再局限于 singleton
     state 0；fixed-depth array lift 也已补齐四元素档位，可直接承接目标 equality fixture 的
     四行 callable table，而不需要 caller 提供 element bytes；目标 fixture 使用的 production
-    `Binary.Ne` leaf 也已有与 `Binary.Eq` 同层级的 fixed-depth exact inversion；这些仍只是
-    root-table 组合地基，不能单独推出 structure/validation success；
+    `Binary.Ne` leaf 也已有与 `Binary.Eq` 同层级的 fixed-depth exact inversion；callable 的
+    `invariantSteps` present-option seam 也已从 closed `some 7` 泛化到任意 UInt8 structural
+    budget，目标的 `some 3` / `some 5` 不再需要各自 pin bytes；这些仍只是 root-table 组合
+    地基，不能单独推出 structure/validation success；
     当前已把 `subjectBodyEncodeOkV1` + 全部 production root gates + structure success +
     whole-program `RootFieldInvertV1` 组合 exact validation 的 theorem 抽到通用
     `SubjectDataBridgeV1`，不再归属于 parity shape；elaborator 现已对每个 proof-bearing program

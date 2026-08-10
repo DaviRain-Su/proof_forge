@@ -143,6 +143,14 @@ theorem binaryNe_exactAt_instructionOp (lhs rhs : UInt32) :
       (.binary .ne lhs rhs) 4 :=
   exactAt_semanticOp_binaryNeV1 lhs rhs 4 (by decide) (by decide)
 
+/-- Literal-true and field-comparison structural budgets share one
+    production option-codec theorem rather than closed `3`/`5` byte proofs. -/
+theorem invariantSteps_exactAt_root (steps : UInt8) :
+    ExactMidOffsetInvertAtV1
+      (encodeOption (fun value : UInt64 => pure (encodeU64le value)))
+      (decodeOption decodeU64le) (some steps.toUInt64) 2 :=
+  exactAt_optionU64_someUInt8V1 steps 2
+
 /-- A production field codec consumes the generic four-element fixed-depth
     array seam without supplying element bytes. -/
 theorem invariantTable_four_exactAt_root

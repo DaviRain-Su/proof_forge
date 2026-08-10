@@ -2782,53 +2782,105 @@ theorem exactAt_optionString_some_identifierV1
   simpa [someStringPayloadBytesV1, stringPayloadBytesV1, ByteArray.size_append,
     encodeU8_size, encodeU32le_sizeV1, ByteArray.append_assoc] using hdec
 
-/-- Production U64 decoder recovers the fixed invariant-fuel value `7`. -/
-theorem decodeU64le_seven_encode_midV1
-    (left right : ByteArray) (nesting : Nat) :
-    decodeU64le ⟨left ++ encodeU64le 7 ++ right, left.size, nesting⟩ =
-      .ok (7, ⟨left ++ encodeU64le 7 ++ right, left.size + 8, nesting⟩) := by
+/-- Production U64 decoder recovers any value carried by one low byte. This
+    covers structural step budgets without pinning a contract-specific byte
+    spine. -/
+theorem decodeU64le_uInt8_encode_midV1
+    (value : UInt8) (left right : ByteArray) (nesting : Nat) :
+    decodeU64le
+        ⟨left ++ encodeU64le value.toUInt64 ++ right, left.size, nesting⟩ =
+      .ok (value.toUInt64,
+        ⟨left ++ encodeU64le value.toUInt64 ++ right,
+          left.size + 8, nesting⟩) := by
   apply decodeU64le_eq_of_readV1
-  have h0 : readByteAtV1 (left ++ encodeU64le 7 ++ right) (left.size + 0) = .ok 7 := by
-    exact readByte_mid_payloadV1 left (encodeU64le 7) right 0 7 (by decide) (by decide)
-  have h1 : readByteAtV1 (left ++ encodeU64le 7 ++ right) (left.size + 1) = .ok 0 := by
-    exact readByte_mid_payloadV1 left (encodeU64le 7) right 1 0 (by decide) (by decide)
-  have h2 : readByteAtV1 (left ++ encodeU64le 7 ++ right) (left.size + 2) = .ok 0 := by
-    exact readByte_mid_payloadV1 left (encodeU64le 7) right 2 0 (by decide) (by decide)
-  have h3 : readByteAtV1 (left ++ encodeU64le 7 ++ right) (left.size + 3) = .ok 0 := by
-    exact readByte_mid_payloadV1 left (encodeU64le 7) right 3 0 (by decide) (by decide)
-  have h4 : readByteAtV1 (left ++ encodeU64le 7 ++ right) (left.size + 4) = .ok 0 := by
-    exact readByte_mid_payloadV1 left (encodeU64le 7) right 4 0 (by decide) (by decide)
-  have h5 : readByteAtV1 (left ++ encodeU64le 7 ++ right) (left.size + 5) = .ok 0 := by
-    exact readByte_mid_payloadV1 left (encodeU64le 7) right 5 0 (by decide) (by decide)
-  have h6 : readByteAtV1 (left ++ encodeU64le 7 ++ right) (left.size + 6) = .ok 0 := by
-    exact readByte_mid_payloadV1 left (encodeU64le 7) right 6 0 (by decide) (by decide)
-  have h7 : readByteAtV1 (left ++ encodeU64le 7 ++ right) (left.size + 7) = .ok 0 := by
-    exact readByte_mid_payloadV1 left (encodeU64le 7) right 7 0 (by decide) (by decide)
+  have hs : (encodeU64le value.toUInt64).size = 8 := encodeU64le_size _
+  have hdiv256 : value.toNat / 256 = 0 := Nat.div_eq_of_lt value.toNat_lt
+  have hdiv65536 : value.toNat / 65536 = 0 :=
+    Nat.div_eq_of_lt (Nat.lt_trans value.toNat_lt (by decide))
+  have hdiv16777216 : value.toNat / 16777216 = 0 :=
+    Nat.div_eq_of_lt (Nat.lt_trans value.toNat_lt (by decide))
+  have hdiv4294967296 : value.toNat / 4294967296 = 0 :=
+    Nat.div_eq_of_lt (Nat.lt_trans value.toNat_lt (by decide))
+  have hdiv1099511627776 : value.toNat / 1099511627776 = 0 :=
+    Nat.div_eq_of_lt (Nat.lt_trans value.toNat_lt (by decide))
+  have hdiv281474976710656 : value.toNat / 281474976710656 = 0 :=
+    Nat.div_eq_of_lt (Nat.lt_trans value.toNat_lt (by decide))
+  have hdiv72057594037927936 : value.toNat / 72057594037927936 = 0 :=
+    Nat.div_eq_of_lt (Nat.lt_trans value.toNat_lt (by decide))
+  have d0 : (encodeU64le value.toUInt64).data[0]? = some value := by
+    simp [encodeU64le, Nat.mod_eq_of_lt value.toNat_lt]
+  have d1 : (encodeU64le value.toUInt64).data[1]? = some 0 := by
+    simp [encodeU64le, hdiv256]
+  have d2 : (encodeU64le value.toUInt64).data[2]? = some 0 := by
+    simp [encodeU64le, hdiv65536]
+  have d3 : (encodeU64le value.toUInt64).data[3]? = some 0 := by
+    simp [encodeU64le, hdiv16777216]
+  have d4 : (encodeU64le value.toUInt64).data[4]? = some 0 := by
+    simp [encodeU64le, hdiv4294967296]
+  have d5 : (encodeU64le value.toUInt64).data[5]? = some 0 := by
+    simp [encodeU64le, hdiv1099511627776]
+  have d6 : (encodeU64le value.toUInt64).data[6]? = some 0 := by
+    simp [encodeU64le, hdiv281474976710656]
+  have d7 : (encodeU64le value.toUInt64).data[7]? = some 0 := by
+    simp [encodeU64le, hdiv72057594037927936]
+  have h0 := readByte_mid_payloadV1 left (encodeU64le value.toUInt64) right
+    0 value (by rw [hs]; decide) d0
+  have h1 := readByte_mid_payloadV1 left (encodeU64le value.toUInt64) right
+    1 0 (by rw [hs]; decide) d1
+  have h2 := readByte_mid_payloadV1 left (encodeU64le value.toUInt64) right
+    2 0 (by rw [hs]; decide) d2
+  have h3 := readByte_mid_payloadV1 left (encodeU64le value.toUInt64) right
+    3 0 (by rw [hs]; decide) d3
+  have h4 := readByte_mid_payloadV1 left (encodeU64le value.toUInt64) right
+    4 0 (by rw [hs]; decide) d4
+  have h5 := readByte_mid_payloadV1 left (encodeU64le value.toUInt64) right
+    5 0 (by rw [hs]; decide) d5
+  have h6 := readByte_mid_payloadV1 left (encodeU64le value.toUInt64) right
+    6 0 (by rw [hs]; decide) d6
+  have h7 := readByte_mid_payloadV1 left (encodeU64le value.toUInt64) right
+    7 0 (by rw [hs]; decide) d7
   have h0' :
-      readByteAtV1 (left ++ encodeU64le 7 ++ right) left.size = .ok 7 := by
+      readByteAtV1 (left ++ encodeU64le value.toUInt64 ++ right) left.size =
+        .ok value := by
     simpa using h0
   unfold readU64leAtV1
   simp only [h0', h1, h2, h3, h4, h5, h6, h7, Bind.bind, Except.bind,
     Pure.pure, Except.pure]
-  congr 2
+  simp
+
+/-- Compatibility specialization for the existing parity fuel value. -/
+theorem decodeU64le_seven_encode_midV1
+    (left right : ByteArray) (nesting : Nat) :
+    decodeU64le ⟨left ++ encodeU64le 7 ++ right, left.size, nesting⟩ =
+      .ok (7, ⟨left ++ encodeU64le 7 ++ right, left.size + 8, nesting⟩) := by
+  simpa using decodeU64le_uInt8_encode_midV1 7 left right nesting
+
+/-- Fixed-depth present U64 option for any one-byte structural budget. -/
+theorem exactAt_optionU64_someUInt8V1 (value : UInt8) (nesting : Nat) :
+    ExactMidOffsetInvertAtV1
+      (encodeOption (fun value : UInt64 => pure (encodeU64le value)))
+      (decodeOption decodeU64le) (some value.toUInt64) nesting := by
+  intro b left right henc
+  simp only [encodeOption, Bind.bind, Except.bind, Pure.pure, Except.pure] at henc
+  have hb : b = encodeU8 1 ++ encodeU64le value.toUInt64 :=
+    Except.ok.inj henc.symm
+  subst b
+  have hdec := decodeOption_some_of_encode_midV1
+    (fun value : UInt64 => pure (encodeU64le value)) decodeU64le
+    value.toUInt64 (encodeU64le value.toUInt64) left right nesting rfl (by
+      have h := decodeU64le_uInt8_encode_midV1 value
+        (left ++ encodeU8 1) right nesting
+      simpa [ByteArray.append_assoc, ByteArray.size_append, encodeU8_size,
+        encodeU64le_size] using h)
+  simpa [ByteArray.append_assoc, ByteArray.size_append, encodeU8_size,
+    encodeU64le_size, Nat.add_assoc] using hdec
 
 /-- Fixed-depth present invariant-fuel option for the closed value `7`. -/
 theorem exactAt_optionU64_someSevenV1 (nesting : Nat) :
     ExactMidOffsetInvertAtV1
       (encodeOption (fun value : UInt64 => pure (encodeU64le value)))
       (decodeOption decodeU64le) (some 7) nesting := by
-  intro b left right henc
-  simp only [encodeOption, Bind.bind, Except.bind, Pure.pure, Except.pure] at henc
-  have hb : b = encodeU8 1 ++ encodeU64le 7 := Except.ok.inj henc.symm
-  subst b
-  have hdec := decodeOption_some_of_encode_midV1
-    (fun value : UInt64 => pure (encodeU64le value)) decodeU64le 7 (encodeU64le 7)
-    left right nesting rfl (by
-      have h := decodeU64le_seven_encode_midV1 (left ++ encodeU8 1) right nesting
-      simpa [ByteArray.append_assoc, ByteArray.size_append, encodeU8_size,
-        encodeU64le_size] using h)
-  simpa [ByteArray.append_assoc, ByteArray.size_append, encodeU8_size,
-    encodeU64le_size, Nat.add_assoc] using hdec
+  simpa using exactAt_optionU64_someUInt8V1 7 nesting
 
 /-! ### Fixed-depth array composition -/
 
