@@ -51,6 +51,14 @@ private def reservedRootGateInvariantSource : String :=
   "  invariant subjectRootGatesOkV1 : true\n" ++
   "  proof subjectRootGatesOkV1 using ReservedRootGateInvariantProof.safe\n"
 
+private def reservedStructureInvariantSource : String :=
+  "import ProofForgeV2\n\n" ++
+  "program ReservedStructureInvariant where\n" ++
+  "  view alive() : Bool do\n" ++
+  "    return true\n" ++
+  "  invariant subjectStructureOkV1 : true\n" ++
+  "  proof subjectStructureOkV1 using ReservedStructureInvariantProof.safe\n"
+
 private unsafe def expectSuccessDecl (base : Environment) : IO Unit := do
   match ← elaborateInlineProofSourceV1 base successSource with
   | .error fault =>
@@ -85,6 +93,14 @@ private unsafe def expectReservedRootGateInvariantFails
         "compiler-owned root-gate certificate name unexpectedly accepted"
   | .error fault => expectPhase fault .commands "reserved root-gate invariant"
 
+private unsafe def expectReservedStructureInvariantFails
+    (base : Environment) : IO Unit := do
+  match ← elaborateInlineProofSourceV1 base reservedStructureInvariantSource with
+  | .ok _ =>
+      throw <| IO.userError
+        "compiler-owned structure certificate name unexpectedly accepted"
+  | .error fault => expectPhase fault .commands "reserved structure invariant"
+
 /-- Same in-memory String surface for every case (no disk re-read path). -/
 unsafe def run : IO Unit := do
   let productSession ← ProductParserSessionV1.create
@@ -94,6 +110,7 @@ unsafe def run : IO Unit := do
   expectExtraImportFails base
   expectMalformedFails base
   expectReservedRootGateInvariantFails base
+  expectReservedStructureInvariantFails base
   IO.println "Tests.Compiler.InlineProofElaborationV1: ok"
 
 end Tests.Compiler.InlineProofElaborationV1

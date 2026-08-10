@@ -67,6 +67,7 @@ example
 -- this spine must recover product subject bytes (runtime check in `run`).
 #check Proofed.Proof.subjectDataV1
 #check Proofed.Proof.subjectRootGatesOkV1
+#check Proofed.Proof.subjectStructureOkV1
 
 example :
     validateProgramQualifiedNameShapeV1
@@ -79,6 +80,10 @@ example :
       checkTableSize Proofed.Proof.subjectDataV1.callables.size = .ok () ∧
       checkTableSize Proofed.Proof.subjectDataV1.invariants.size = .ok () :=
   Proofed.Proof.subjectRootGatesOkV1
+
+example :
+    validateSemanticProgramStructureV1 Proofed.Proof.subjectDataV1 = .ok () :=
+  Proofed.Proof.subjectStructureOkV1
 
 -- Name/module-parameterized certificate AST emitted for the literal-true
 -- simple-closure family (foundation for product-positive cert generation).
@@ -113,7 +118,13 @@ program PreservingSurface where
   proof safe preserving using PreservingSurfaceProof.safe
 
 #check PreservingSurface.Proof.subjectProgramV1
+#check PreservingSurface.Proof.subjectStructureOkV1
 #check PreservingSurface.ProofPreserving.safe
+
+example :
+    validateSemanticProgramStructureV1
+        PreservingSurface.Proof.subjectDataV1 = .ok () :=
+  PreservingSurface.Proof.subjectStructureOkV1
 
 example : PreservingSurface.ProofPreserving.safe =
     ProofForgeV2.Semantic.PreservationABI.PreservationTheoremV1
@@ -415,6 +426,13 @@ program TypedCallableSurface where
 #check TypedCallableSurface.Model.alive.transition_trapped_of_step
 #check TypedCallableSurface.Model.alive.transition_exists
 #check TypedCallableSurface.Model.alive.outcome_unique
+
+run_cmd do
+  let env ← getEnv
+  let structureCertificate :=
+    `Tests.Language.InlineProofAuthoringV1.TypedCallableSurface.Proof.subjectStructureOkV1
+  if env.contains structureCertificate then
+    throwError "unsupported structural families must not emit a structure certificate"
 
 /-- Typed arguments are encoded as canonical Reference values using the exact
     callable and TypeIds from the generated semantic subject. -/

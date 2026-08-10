@@ -847,8 +847,14 @@ expression translator：
     whole-program `RootFieldInvertV1` 组合 exact validation 的 theorem 抽到通用
     `SubjectDataBridgeV1`，不再归属于 parity shape；elaborator 现已对每个 proof-bearing program
     生成通用 `Proof.subjectRootGatesOkV1`，逐项 kernel-check production qualified-name 与七个
-    table-size gate，不闭式运行整体验证器。structure success 与 whole-program codec inversion
-    certificate 仍待生成；在它们完成前 body/root-gate equality 不能冒充 program validity，
+    table-size gate；并开始对 exact recognized、已有 production phase proof 的 structural family
+    生成 `Proof.subjectStructureOkV1`。当前 simple-closure family 通过 kernel `change` 绑定 exact
+    `subjectDataV1`，再复用 `SimpleClosureStructureCertV1.structure_of_legal`（其内部通过
+    `validateSemanticProgramStructureV1_eq_ok_of_phases` 组合全部 production phase）；不支持的
+    lowered shape 保留 subject/typed Model surface，但不生成该 capability，也不退回 whole-validator
+    `decide`。通用生成仍需先补 qsort uniqueness、budget trace、TypeKey、CFG/closure 等 production
+    certificate seam；whole-program codec inversion certificate 也仍待生成。在它们完成前
+    body/root/structure certificate 不能冒充 program validity，
     `subjectValidationOkV1` 与删除 `hvalidate` 都必须继续 fail closed；
     不得把此 narrow shape 宣称为完整 expression translation 或通用
     `Spec.solvent ↔ Model.solvent`；

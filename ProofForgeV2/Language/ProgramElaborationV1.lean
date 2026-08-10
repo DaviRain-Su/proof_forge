@@ -72,7 +72,7 @@ def generatedSimpleClosureTheoremNameDefV1 (invName : String) : String :=
 private def isFixedInlineProofSurfaceNameV1 (name : String) : Bool :=
   name == "subjectProgramV1" || name == "subjectBytesV1" ||
     name == "subjectDataV1" || name == "subjectBodyEncodeOkV1" ||
-    name == "subjectRootGatesOkV1" ||
+    name == "subjectRootGatesOkV1" || name == "subjectStructureOkV1" ||
     name == "simpleClosureParamsV1" || name == "simpleClosureDataV1" ||
     name == "simpleClosureQnTailLegalV1" ||
     name == "simpleClosureParamsLegalV1"
@@ -2498,7 +2498,8 @@ private def proofSurfaceV1
     Every generated proof term is kernel checked; unsupported/non-ASCII params
     emit neither capability and therefore fail closed in the certifier. -/
 private def elaborateSimpleClosureGeneratedTheoremsV1
-    (paramsName subjectBytesName : TSyntax `ident)
+    (paramsName subjectDataName subjectBytesName subjectStructureOkName :
+      TSyntax `ident)
     (params : SimpleClosureParamsV1)
     (invariantNames holdsNames : Array String) : CommandElabM Unit := do
   unless simpleClosureParamsReadyForGeneratedProofV1 params do
@@ -2512,6 +2513,45 @@ private def elaborateSimpleClosureGeneratedTheoremsV1
     quoteAsciiIdentifierProofV1 params.viewName
   let invProof ← Lean.Elab.liftMacroM <|
     quoteAsciiIdentifierProofV1 params.invName
+  let tailLegalIdent := mkIdent `simpleClosureQnTailLegalV1
+  let paramsLegalIdent := mkIdent `simpleClosureParamsLegalV1
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Exact source-order QN-tail legality certificate. -/
+    def $tailLegalIdent :
+        ProofForgeV2.Semantic.SimpleClosureStructureCertV1.IdentifierListLegalV1
+          ($paramsName).qnTail.toList := by
+      change
+        ProofForgeV2.Semantic.SimpleClosureStructureCertV1.IdentifierListLegalV1
+          ($tailArray).toList
+      exact $tailProof))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Exact legal-parameter certificate for the generated simple closure. -/
+    def $paramsLegalIdent :
+        ProofForgeV2.Semantic.SimpleClosureStructureCertV1.SimpleClosureParamsLegalV1
+          $paramsName := {
+      hqnSize := by decide
+      hqnCap := by decide
+      hdistinct := by decide
+      hqnHead := $headProof
+      hqnTail := fun i hi =>
+        ProofForgeV2.Semantic.SimpleClosureStructureCertV1.IdentifierListLegalV1.arrayGetElem
+          $tailLegalIdent i hi
+      hview := $viewProof
+      hinv := $invProof
+    }))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Production structure success for this exact generated subject. The
+        family theorem itself composes every production structure phase. -/
+    theorem $subjectStructureOkName :
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramStructureV1
+          $subjectDataName = .ok () := by
+      change
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramStructureV1
+          (ProofForgeV2.Semantic.SimpleClosureTraceV1.materializeSimpleClosureDataV1
+            $paramsName) = .ok ()
+      exact
+        ProofForgeV2.Semantic.SimpleClosureStructureCertV1.structure_of_legal
+          $paramsName $paramsLegalIdent))
   for (invariantName, ordinal) in invariantNames.zipIdx do
     unless holdsNames.contains invariantName do
       continue
@@ -2529,35 +2569,9 @@ private def elaborateSimpleClosureGeneratedTheoremsV1
     let bridgeIdent := mkIdent (Name.mkSimple bridgeStr)
     let generatedIdent := mkIdent (Name.mkSimple genBase)
     let invIdent := mkIdent (Name.mkSimple invariantName)
-    let tailLegalIdent := mkIdent `simpleClosureQnTailLegalV1
-    let paramsLegalIdent := mkIdent `simpleClosureParamsLegalV1
     Lean.Elab.Command.elabCommand (← `(
       /-- Compiler-owned generated theorem name for this invariant. -/
       def $nameDefIdent : String := $(quote genBase)))
-    Lean.Elab.Command.elabCommand (← `(
-      /-- Exact source-order QN-tail legality certificate. -/
-      def $tailLegalIdent :
-          ProofForgeV2.Semantic.SimpleClosureStructureCertV1.IdentifierListLegalV1
-            ($paramsName).qnTail.toList := by
-        change
-          ProofForgeV2.Semantic.SimpleClosureStructureCertV1.IdentifierListLegalV1
-            ($tailArray).toList
-        exact $tailProof))
-    Lean.Elab.Command.elabCommand (← `(
-      /-- Exact legal-parameter certificate for the generated simple closure. -/
-      def $paramsLegalIdent :
-          ProofForgeV2.Semantic.SimpleClosureStructureCertV1.SimpleClosureParamsLegalV1
-            $paramsName := {
-        hqnSize := by decide
-        hqnCap := by decide
-        hdistinct := by decide
-        hqnHead := $headProof
-        hqnTail := fun i hi =>
-          ProofForgeV2.Semantic.SimpleClosureStructureCertV1.IdentifierListLegalV1.arrayGetElem
-            $tailLegalIdent i hi
-        hview := $viewProof
-        hinv := $invProof
-      }))
     Lean.Elab.Command.elabCommand (← `(
       /-- Hypothesis-honest compatibility bridge for explicit wire traces. -/
       theorem $bridgeIdent
@@ -2623,6 +2637,7 @@ private def elaborateProofObligations
     mkIdent (programName.getId ++ `Proof.subjectDataV1)
   let subjectBodyEncodeOkName := mkIdent `subjectBodyEncodeOkV1
   let subjectRootGatesOkName := mkIdent `subjectRootGatesOkV1
+  let subjectStructureOkName := mkIdent `subjectStructureOkV1
   Lean.Elab.Command.elabCommand (← `(namespace $programName))
   Lean.Elab.Command.elabCommand (← `(namespace $proofNamespace))
   Lean.Elab.Command.elabCommand (← `(def $subjectDataName :
@@ -2670,25 +2685,25 @@ private def elaborateProofObligations
       Lean.Elab.Command.elabCommand (← `(abbrev $invariantIdent : Prop :=
         ProofForgeV2.Semantic.InvariantABI.InvariantTheoremV1
           $subjectName $ordinalTerm))
-  -- Name/module-parameterized certificate AST for the literal-true simple-
-  -- closure family remains holds-only. Preserving proofs never receive a
-  -- generated helper that could masquerade as a step-preservation proof.
-  unless surface.holdsNames.isEmpty do
-    match extractSimpleClosureParamsFromCarrierV1 carrier with
-    | none => pure ()
-    | some params => do
-        let paramsName := mkIdent `simpleClosureParamsV1
-        let dataName := mkIdent `simpleClosureDataV1
-        let paramsExpr ← Lean.Elab.liftMacroM <| quoteSimpleClosureParams params
-        Lean.Elab.Command.elabCommand (← `(def $paramsName :
-            ProofForgeV2.Semantic.SimpleClosureTraceV1.SimpleClosureParamsV1 :=
-          $paramsExpr))
-        Lean.Elab.Command.elabCommand (← `(def $dataName :
-            ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1 :=
-          ProofForgeV2.Semantic.SimpleClosureTraceV1.materializeSimpleClosureDataV1
-            $paramsName))
-        elaborateSimpleClosureGeneratedTheoremsV1
-          paramsName subjectBytesName params surface.invariantNames surface.holdsNames
+  -- Structure certification is independent of proof kind. It is emitted only
+  -- for an exactly recognized family with an existing production-phase proof;
+  -- holds-only generated invariant helpers remain selected inside the helper.
+  match extractSimpleClosureParamsFromCarrierV1 carrier with
+  | none => pure ()
+  | some params => do
+      let paramsName := mkIdent `simpleClosureParamsV1
+      let dataName := mkIdent `simpleClosureDataV1
+      let paramsExpr ← Lean.Elab.liftMacroM <| quoteSimpleClosureParams params
+      Lean.Elab.Command.elabCommand (← `(def $paramsName :
+          ProofForgeV2.Semantic.SimpleClosureTraceV1.SimpleClosureParamsV1 :=
+        $paramsExpr))
+      Lean.Elab.Command.elabCommand (← `(def $dataName :
+          ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1 :=
+        ProofForgeV2.Semantic.SimpleClosureTraceV1.materializeSimpleClosureDataV1
+          $paramsName))
+      elaborateSimpleClosureGeneratedTheoremsV1
+        paramsName subjectDataName subjectBytesName subjectStructureOkName params
+          surface.invariantNames surface.holdsNames
   Lean.Elab.Command.elabCommand (← `(end $proofNamespace))
   match modelStateFieldsV1 data with
   | none => pure ()
