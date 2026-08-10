@@ -3,6 +3,7 @@ import ProofForgeV2.Language.SubjectDataQuoteV1
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.NormalizeV1
 import ProofForgeV2.Semantic.PreservationABI
+import ProofForgeV2.Semantic.PreservationPackagingV1
 import ProofForgeV2.Semantic.StateModelV1
 import ProofForgeV2.Semantic.FieldComparisonSubjectV1
 import ProofForgeV2.Semantic.UInt64ParityPreservationV1
@@ -2809,6 +2810,104 @@ private def elaborateFieldComparisonCertificatesV1
           hconstantsSize hstateSize heventsSize herrorsSize hcallablesSize
           hinvariantsSize $subjectStructureOkName $subjectBodyEncodeOkName hinvert))
 
+/-- Emit the exact program-specific obligation skeleton for one preserving
+    invariant. The aliases only specialize the generic preservation ABI to the
+    generated subject, ordinal, and callable rows; they do not execute or
+    reinterpret a callable. -/
+private def elaboratePreservationSkeletonV1
+    (subjectProgramName : TSyntax `ident)
+    (subjectDataName : TSyntax `ident)
+    (data : SemanticProgramDataV1)
+    (invariantName : String)
+    (ordinal : Nat) : CommandElabM Unit := do
+  let invariantNamespace := mkIdent (Name.mkSimple invariantName)
+  let admittedName := mkIdent `admitted
+  let baseName := mkIdent `BaseV1
+  let withInitializerBaseName := mkIdent `WithInitializerBaseV1
+  let noInitializerBaseName := mkIdent `NoInitializerBaseV1
+  let returnedCallablesName := mkIdent `ReturnedCallablesV1
+  let assembleName := mkIdent `ofCallableObligationsV1
+  let validateName := mkIdent `hvalidate
+  let admitName := mkIdent `hadmit
+  let baseProofName := mkIdent `hbase
+  let returnedProofName := mkIdent `hreturned
+  let ordinalTerm : TSyntax `term :=
+    ⟨Syntax.mkNumLit (toString ordinal)⟩
+  Lean.Elab.Command.elabCommand (← `(namespace $invariantNamespace))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Exact selected lifecycle-base obligation for this generated subject
+        and invariant ordinal. -/
+    abbrev $baseName
+        ($admittedName :
+          ProofForgeV2.Semantic.ReferenceV1.AdmittedReferenceSliceV1) : Prop :=
+      ProofForgeV2.Semantic.PreservationABI.PreservationBaseV1
+        $subjectProgramName $ordinalTerm $admittedName))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Initializer lifecycle-base branch for this generated subject. -/
+    abbrev $withInitializerBaseName
+        ($admittedName :
+          ProofForgeV2.Semantic.ReferenceV1.AdmittedReferenceSliceV1) : Prop :=
+      ProofForgeV2.Semantic.PreservationABI.PreservationBaseWithInitializerV1
+        $subjectProgramName $ordinalTerm $admittedName))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- No-initializer product initial-state branch for this generated
+        subject. -/
+    abbrev $noInitializerBaseName : Prop :=
+      ProofForgeV2.Semantic.PreservationABI.PreservationBaseNoInitializerV1
+        $subjectProgramName $ordinalTerm))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Exhaustive returned-state obligations over the exact admitted callable
+        table for this generated subject and invariant ordinal. -/
+    abbrev $returnedCallablesName
+        ($admittedName :
+          ProofForgeV2.Semantic.ReferenceV1.AdmittedReferenceSliceV1) : Prop :=
+      ProofForgeV2.Semantic.PreservationABI.PreservationReturnedCallablesV1
+        $subjectProgramName $ordinalTerm $admittedName))
+  for (_callable, callableIndex) in data.callables.zipIdx do
+    let rowName :=
+      mkIdent (Name.mkSimple (s!"callable{callableIndex}ReturnedV1"))
+    let callableIndexTerm : TSyntax `term :=
+      ⟨Syntax.mkNumLit (toString callableIndex)⟩
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Returned-state business obligation for this exact generated callable
+          row. Inputs, external responses, vault, value, and effects remain
+          universally quantified by the generic ABI. -/
+      abbrev $rowName
+          ($admittedName :
+            ProofForgeV2.Semantic.ReferenceV1.AdmittedReferenceSliceV1) : Prop :=
+        ProofForgeV2.Semantic.PreservationABI.PreservationReturnedCallableV1
+          $subjectProgramName $ordinalTerm $admittedName $callableIndexTerm
+          (($subjectDataName).callables[$callableIndexTerm]'(by decide))))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Assemble this exact preserving obligation from one positive admission,
+        the selected lifecycle base, and exhaustive returned callable proofs.
+        Invalid/lifecycle-only and reverted/trapped arms are closed by the
+        production-machine composer. -/
+    theorem $assembleName
+        ($admittedName :
+          ProofForgeV2.Semantic.ReferenceV1.AdmittedReferenceSliceV1)
+        ($validateName :
+          ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+              $subjectProgramName = .ok $subjectDataName)
+        ($admitName :
+          ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1
+              $subjectProgramName = .ok $admittedName)
+        ($baseProofName : $baseName $admittedName)
+        ($returnedProofName : $returnedCallablesName $admittedName) :
+        ProofForgeV2.Semantic.PreservationABI.PreservationTheoremV1
+          $subjectProgramName $ordinalTerm := by
+      apply
+        ProofForgeV2.Semantic.PreservationPackagingV1.preservationTheoremV1_of_callableObligationsV1
+          $subjectProgramName $ordinalTerm $admittedName
+      · rw [
+          ProofForgeV2.Semantic.WireV1.SemanticProgramV1.invariants_eq_of_validate
+            $subjectProgramName $subjectDataName $validateName]
+        decide
+      · exact $admitName
+      · exact $baseProofName
+      · exact $returnedProofName))
+  Lean.Elab.Command.elabCommand (← `(end $invariantNamespace))
+
 private def elaborateProofObligations
     (programName : TSyntax `ident)
     (source : ValidatedSourceV1)
@@ -2848,6 +2947,7 @@ private def elaborateProofObligations
   let preservingNamespace := mkIdent `ProofPreserving
   let subjectName := mkIdent `subjectProgramV1
   let sharedSubjectName := mkIdent `Proof.subjectProgramV1
+  let sharedSubjectDataName := mkIdent `Proof.subjectDataV1
   let subjectBytesName := mkIdent `subjectBytesV1
   let subjectDataName := mkIdent `subjectDataV1
   let modelSubjectProgramName :=
@@ -2945,6 +3045,8 @@ private def elaborateProofObligations
         Lean.Elab.Command.elabCommand (← `(abbrev $invariantIdent : Prop :=
           ProofForgeV2.Semantic.PreservationABI.PreservationTheoremV1
             $sharedSubjectName $ordinalTerm))
+        elaboratePreservationSkeletonV1 sharedSubjectName sharedSubjectDataName
+          data invariantName ordinal
     Lean.Elab.Command.elabCommand (← `(end $preservingNamespace))
   Lean.Elab.Command.elabCommand (← `(end $programName))
 elab_rules : command

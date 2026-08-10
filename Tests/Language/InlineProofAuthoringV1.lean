@@ -128,6 +128,13 @@ program PreservingSurface where
 #check PreservingSurface.Proof.subjectStructureOkV1
 #check PreservingSurface.Proof.subjectValidationOkV1
 #check PreservingSurface.ProofPreserving.safe
+#check PreservingSurface.ProofPreserving.safe.BaseV1
+#check PreservingSurface.ProofPreserving.safe.WithInitializerBaseV1
+#check PreservingSurface.ProofPreserving.safe.NoInitializerBaseV1
+#check PreservingSurface.ProofPreserving.safe.ReturnedCallablesV1
+#check PreservingSurface.ProofPreserving.safe.callable0ReturnedV1
+#check PreservingSurface.ProofPreserving.safe.callable1ReturnedV1
+#check PreservingSurface.ProofPreserving.safe.ofCallableObligationsV1
 
 example :
     validateSemanticProgramStructureV1
@@ -142,6 +149,22 @@ example :
 example : PreservingSurface.ProofPreserving.safe =
     ProofForgeV2.Semantic.PreservationABI.PreservationTheoremV1
       PreservingSurface.Proof.subjectProgramV1 0 := rfl
+
+example (admitted : AdmittedReferenceSliceV1) :
+    PreservingSurface.ProofPreserving.safe.callable0ReturnedV1 admitted =
+      PreservationReturnedCallableV1
+        PreservingSurface.Proof.subjectProgramV1 0 admitted 0
+        (PreservingSurface.Proof.subjectDataV1.callables[0]'(by decide)) := rfl
+
+example (admitted : AdmittedReferenceSliceV1)
+    (hadmit : admitReferenceProgramSliceV1
+      PreservingSurface.Proof.subjectProgramV1 = .ok admitted)
+    (hbase : PreservingSurface.ProofPreserving.safe.BaseV1 admitted)
+    (hreturned :
+      PreservingSurface.ProofPreserving.safe.ReturnedCallablesV1 admitted) :
+    PreservingSurface.ProofPreserving.safe :=
+  PreservingSurface.ProofPreserving.safe.ofCallableObligationsV1 admitted
+    PreservingSurface.Proof.subjectValidationOkV1 hadmit hbase hreturned
 
 program DualKindSurface where
   view alive() : Bool do
@@ -480,11 +503,22 @@ program TypedInvariantOrdinalSurface where
   invariant secondary : true
   proof primary using TypedInvariantOrdinalSurfaceProof.primary
   proof secondary using TypedInvariantOrdinalSurfaceProof.secondary
+  proof secondary preserving using TypedInvariantOrdinalSurfaceProof.secondaryPreserving
 
 #check TypedInvariantOrdinalSurface.Model.primary
 #check TypedInvariantOrdinalSurface.Model.secondary
 #check TypedInvariantOrdinalSurface.Model.Invariant.primary_iff_eval
 #check TypedInvariantOrdinalSurface.Model.Invariant.secondary_iff_eval
+#check TypedInvariantOrdinalSurface.ProofPreserving.secondary
+#check TypedInvariantOrdinalSurface.ProofPreserving.secondary.callable0ReturnedV1
+#check TypedInvariantOrdinalSurface.ProofPreserving.secondary.ReturnedCallablesV1
+#check TypedInvariantOrdinalSurface.ProofPreserving.secondary.ofCallableObligationsV1
+
+example (admitted : AdmittedReferenceSliceV1) :
+    TypedInvariantOrdinalSurface.ProofPreserving.secondary.ReturnedCallablesV1
+        admitted =
+      PreservationReturnedCallablesV1
+        TypedInvariantOrdinalSurface.Proof.subjectProgramV1 1 admitted := rfl
 
 run_cmd do
   let env ← getEnv
