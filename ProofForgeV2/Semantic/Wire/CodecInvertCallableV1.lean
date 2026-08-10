@@ -3599,4 +3599,62 @@ theorem exactAt_twoStateCompareInvariantCallableV1
         maxArrayElements 2)
       (exactAt_optionU64_someUInt8V1 steps 2)
 
+/-- Four-row production callable-table package for the field-comparison
+    authoring family: a literal view, a literal invariant, equality, and
+    inequality. Contract identities, types, state slots, and literal payloads
+    remain parameters; only the structural 3/5-step budgets are fixed. -/
+theorem exactAt_literalFieldComparisonCallableTableV1
+    (viewId literalInvariantId eqId neId : CallableIdV1)
+    (viewName literalInvariantName eqName neName : String)
+    (valueTypeId boolTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (viewValueBytes invariantValueBytes : ByteArray)
+    (hviewName : validateIdentifierComponent viewName = .ok ())
+    (hliteralInvariantName :
+      validateIdentifierComponent literalInvariantName = .ok ())
+    (heqName : validateIdentifierComponent eqName = .ok ())
+    (hneName : validateIdentifierComponent neName = .ok ()) :
+    ExactMidOffsetInvertAtV1 (encodeArray encodeCallableV1)
+      (decodeArray maxTableElements decodeCallableV1)
+      #[literalReturnCallableV1 viewId .view (some viewName) boolTypeId
+          viewValueBytes .public_ none,
+        literalReturnCallableV1 literalInvariantId .invariant
+          (some literalInvariantName) boolTypeId invariantValueBytes .public_
+          (some 3),
+        twoStateCompareInvariantCallableV1 eqId (some eqName)
+          valueTypeId boolTypeId leftStateId rightStateId .eq .public_ (some 5),
+        twoStateCompareInvariantCallableV1 neId (some neName)
+          valueTypeId boolTypeId leftStateId rightStateId .ne .public_ (some 5)] 1 :=
+  exactAt_array_four_of_exactAtV1 encodeCallableV1 decodeCallableV1
+    maxTableElements (by decide) (by decide)
+    (literalReturnCallableV1 viewId .view (some viewName) boolTypeId
+      viewValueBytes .public_ none)
+    (literalReturnCallableV1 literalInvariantId .invariant
+      (some literalInvariantName) boolTypeId invariantValueBytes .public_
+      (some 3))
+    (twoStateCompareInvariantCallableV1 eqId (some eqName)
+      valueTypeId boolTypeId leftStateId rightStateId .eq .public_ (some 5))
+    (twoStateCompareInvariantCallableV1 neId (some neName)
+      valueTypeId boolTypeId leftStateId rightStateId .ne .public_ (some 5)) 1
+    (exactAt_literalReturnCallableV1 viewId .view viewName boolTypeId
+      viewValueBytes .public_ none hviewName
+      (exactAt_option_noneV1
+        (fun value : UInt64 => pure (encodeU64le value)) decodeU64le 2))
+    (by
+      simpa using
+        exactAt_literalReturnCallableV1 literalInvariantId .invariant
+          literalInvariantName boolTypeId invariantValueBytes .public_
+          (some 3) hliteralInvariantName
+          (exactAt_optionU64_someUInt8V1 3 2))
+    (by
+      simpa using
+        exactAt_twoStateCompareInvariantCallableV1 eqId eqName valueTypeId
+          boolTypeId leftStateId rightStateId .eq .public_ 5 heqName
+          (exactAt_semanticOp_binaryEqV1 0 1 4 (by decide) (by decide)))
+    (by
+      simpa using
+        exactAt_twoStateCompareInvariantCallableV1 neId neName valueTypeId
+          boolTypeId leftStateId rightStateId .ne .public_ 5 hneName
+          (exactAt_semanticOp_binaryNeV1 0 1 4 (by decide) (by decide)))
+
 end ProofForgeV2.Semantic.WireV1

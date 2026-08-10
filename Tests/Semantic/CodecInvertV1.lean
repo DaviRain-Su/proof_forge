@@ -191,6 +191,34 @@ theorem twoStateCompareCallables_exactAt_root
         boolTypeId leftStateId rightStateId .ne .public_ 5 hneName
         (exactAt_semanticOp_binaryNeV1 0 1 4 (by decide) (by decide))
 
+/-- The four-row authoring-family package composes without contract-specific
+    names, IDs, state slots, type IDs, literal bytes, or encoded table bytes. -/
+theorem literalFieldComparisonCallableTable_exactAt_root
+    (viewId literalInvariantId eqId neId valueTypeId boolTypeId
+      leftStateId rightStateId : UInt32)
+    (viewName literalInvariantName eqName neName : String)
+    (viewValueBytes invariantValueBytes : ByteArray)
+    (hviewName : validateIdentifierComponent viewName = .ok ())
+    (hliteralInvariantName :
+      validateIdentifierComponent literalInvariantName = .ok ())
+    (heqName : validateIdentifierComponent eqName = .ok ())
+    (hneName : validateIdentifierComponent neName = .ok ()) :
+    ExactMidOffsetInvertAtV1 (encodeArray encodeCallableV1)
+      (decodeArray maxTableElements decodeCallableV1)
+      #[literalReturnCallableV1 viewId .view (some viewName) boolTypeId
+          viewValueBytes .public_ none,
+        literalReturnCallableV1 literalInvariantId .invariant
+          (some literalInvariantName) boolTypeId invariantValueBytes .public_
+          (some 3),
+        twoStateCompareInvariantCallableV1 eqId (some eqName)
+          valueTypeId boolTypeId leftStateId rightStateId .eq .public_ (some 5),
+        twoStateCompareInvariantCallableV1 neId (some neName)
+          valueTypeId boolTypeId leftStateId rightStateId .ne .public_ (some 5)] 1 :=
+  exactAt_literalFieldComparisonCallableTableV1 viewId literalInvariantId
+    eqId neId viewName literalInvariantName eqName neName valueTypeId boolTypeId
+    leftStateId rightStateId viewValueBytes invariantValueBytes hviewName
+    hliteralInvariantName heqName hneName
+
 /-- A production field codec consumes the generic four-element fixed-depth
     array seam without supplying element bytes. -/
 theorem invariantTable_four_exactAt_root
