@@ -330,9 +330,14 @@ def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
       | .error _ =>
           throw <| .planInvariant .solana "invalid SemanticProgramV1 carrier"
     let needsBody := semanticNeedsFullBodyV1 data
-    -- Zero CPI sites always full-body synthesize. Escrow composite only for
-    -- straight-line non-empty sites without multi-block/aggregate body.
-    if !hasSites || needsBody then
+    -- Empty logical state (view-only programs such as CallerIsMe): full-body
+    -- LowerSemantic Plan requires nonempty state + initializer, so stay on the
+    -- CPI product Plan/IDL/ELF path (stateSchemas=[], pf_caller-only roles).
+    -- Nonempty state + zero CPI sites → full-body synthesize. Escrow composite
+    -- only for straight-line non-empty sites without multi-block/aggregate body.
+    if data.logicalState.isEmpty then
+      productBaseFilesFromCapabilityV1 capability
+    else if !hasSites || needsBody then
       synthesizeFullBodyProductBaseFilesV1 capability hasSites
     else
       let files ← productBaseFilesFromCapabilityV1 capability
