@@ -727,6 +727,8 @@ private def elaborateCallableModelsV1
     let callableOutcomeName := mkIdent `Outcome
     let transitionName := mkIdent `Transition
     let transitionReturnedName := mkIdent `transition_returned_of_step
+    let transitionRevertedName := mkIdent `transition_reverted_of_step
+    let transitionTrappedName := mkIdent `transition_trapped_of_step
     let outcomeUniqueName := mkIdent `outcome_unique
     let subjectName := mkIdent `subject
     let preName := mkIdent `pre
@@ -743,6 +745,9 @@ private def elaborateCallableModelsV1
     let logicalPreName := mkIdent `logicalPre
     let logicalPostName := mkIdent `logicalPost
     let effectsName := mkIdent `effects
+    let reasonName := mkIdent `reason
+    let faultName := mkIdent `fault
+    let unchangedName := mkIdent `unchanged
     let validateName := mkIdent `hvalidate
     let initializedName := mkIdent `hinitialized
     let encodePreName := mkIdent `hencodePre
@@ -1129,6 +1134,82 @@ private def elaborateCallableModelsV1
           hencodePost, ?_⟩
         rw [hencodeValue]
         exact $stepName))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Package one exact reverted Reference step as a typed transition.
+          The production machine theorem proves that the carried failure state
+          is the exact encoded pre-state; no second step function is run. -/
+      theorem $transitionRevertedName
+          ($subjectName : $referenceSubjectName)
+          ($preName : $stateName)
+          ($logicalPreName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($reasonName :
+            ProofForgeV2.Semantic.ReferenceV1.SemanticRevertV1)
+          ($unchangedName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          ($encodePreName :
+            $encodeStateName $preName = .ok $logicalPreName)
+          ($stepName :
+            ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1
+                ($subjectName).admitted $logicalPreName $invocationTerm
+                  $responsesName $vaultName =
+              .reverted $reasonName $unchangedName) :
+          $unchangedName = $logicalPreName ∧
+            $returnedTransitionPrefixTerm (.reverted $reasonName) := by
+        have hunchanged :=
+          ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1_reverted_state_eq
+            ($subjectName).admitted $logicalPreName $invocationTerm
+              $responsesName $vaultName $reasonName $unchangedName $stepName
+        subst $unchangedName
+        refine ⟨rfl, ?_⟩
+        unfold $transitionName
+          ProofForgeV2.Semantic.PreservationABI.TypedCallableRelationV1
+        exact ⟨$logicalPreName, $encodePreName, $stepName⟩))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Package one exact trapped Reference step as a typed transition.
+          The production machine theorem proves that the carried failure state
+          is the exact encoded pre-state; no second step function is run. -/
+      theorem $transitionTrappedName
+          ($subjectName : $referenceSubjectName)
+          ($preName : $stateName)
+          ($logicalPreName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($faultName :
+            ProofForgeV2.Semantic.ReferenceV1.SemanticFaultV1)
+          ($unchangedName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          ($encodePreName :
+            $encodeStateName $preName = .ok $logicalPreName)
+          ($stepName :
+            ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1
+                ($subjectName).admitted $logicalPreName $invocationTerm
+                  $responsesName $vaultName =
+              .trapped $faultName $unchangedName) :
+          $unchangedName = $logicalPreName ∧
+            $returnedTransitionPrefixTerm (.trapped $faultName) := by
+        have hunchanged :=
+          ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1_trapped_state_eq
+            ($subjectName).admitted $logicalPreName $invocationTerm
+              $responsesName $vaultName $faultName $unchangedName $stepName
+        subst $unchangedName
+        refine ⟨rfl, ?_⟩
+        unfold $transitionName
+          ProofForgeV2.Semantic.PreservationABI.TypedCallableRelationV1
+        exact ⟨$logicalPreName, $encodePreName, $stepName⟩))
     Lean.Elab.Command.elabCommand (← `(
       /-- The exact typed relation has at most one outcome for fixed inputs.
           This is inherited from the sole Reference step plus codec

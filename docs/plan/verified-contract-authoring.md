@@ -744,10 +744,13 @@ proof-bearing target build 继续 fail closed。
 12. generated `transition_returned_of_step` 已把同一真实 Reference returned step 的 typed post、
    typed result 与原 effects 合并为 `Transition … (.returned post value effects)` witness；证明只
    组合上述 state/result complete theorem 和 `TypedCallableRelationV1`，不运行另一 evaluator；
-13. 当前仍缺 initializer 的 initialized/uninitialized lifecycle bridge、reverted/trapped branch
-   packaging 及由完整 Reference outcome 到 typed outcome 的总存在定理、typed invariant bridge、
-   per-call preservation composition 与短 executable notation；这些仍是后续 Phase 2–4 工作；
-14. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
+13. generated `transition_reverted_of_step` / `transition_trapped_of_step` 已把真实 failure step
+   包装为 typed transition，并同时返回 production theorem 保证的 `unchanged = logicalPre`；
+   failure branch 不需要 state/result decode，也不执行另一 evaluator；
+14. 当前仍缺 initializer 的 initialized/uninitialized lifecycle bridge、由完整 Reference outcome
+   到 typed outcome 的总存在定理、typed invariant bridge、per-call preservation composition 与
+   短 executable notation；这些仍是后续 Phase 2–4 工作；
+15. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
    完成前不能称 target artifact verified。
 
 ---

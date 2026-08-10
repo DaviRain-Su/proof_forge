@@ -253,6 +253,8 @@ program TypedCallableSurface where
 #check TypedCallableSurface.Model.add.Outcome
 #check TypedCallableSurface.Model.add.Transition
 #check TypedCallableSurface.Model.add.transition_returned_of_step
+#check TypedCallableSurface.Model.add.transition_reverted_of_step
+#check TypedCallableSurface.Model.add.transition_trapped_of_step
 #check TypedCallableSurface.Model.add.outcome_unique
 #check TypedCallableSurface.Model.alive.invocation
 #check TypedCallableSurface.Model.alive.Result
@@ -269,6 +271,8 @@ program TypedCallableSurface where
 #check TypedCallableSurface.Model.alive.Outcome
 #check TypedCallableSurface.Model.alive.Transition
 #check TypedCallableSurface.Model.alive.transition_returned_of_step
+#check TypedCallableSurface.Model.alive.transition_reverted_of_step
+#check TypedCallableSurface.Model.alive.transition_trapped_of_step
 #check TypedCallableSurface.Model.alive.outcome_unique
 
 /-- Typed arguments are encoded as canonical Reference values using the exact
@@ -483,6 +487,8 @@ program TypedUnitCallableSurface where
 #check TypedUnitCallableSurface.Model.clear.Outcome
 #check TypedUnitCallableSurface.Model.clear.Transition
 #check TypedUnitCallableSurface.Model.clear.transition_returned_of_step
+#check TypedUnitCallableSurface.Model.clear.transition_reverted_of_step
+#check TypedUnitCallableSurface.Model.clear.transition_trapped_of_step
 #check TypedUnitCallableSurface.Model.clear.outcome_unique
 
 example : TypedUnitCallableSurface.Model.clear.Outcome =
