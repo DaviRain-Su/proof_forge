@@ -281,9 +281,9 @@
       "sha256": "12e001bc17205d46a016253f017786c28f6b7180321a22d203dc542566e4048c"
     },
     {
-      "bytes": 6140,
+      "bytes": 9787,
       "path": "ProofForgeV2/Semantic/InvariantABI.lean",
-      "sha256": "79481bf9ce6828f86bbef90ba45a7bf836faa00c107fe6eaa13566132d41dd69"
+      "sha256": "b2100a241a7242777d85dbe5029a08aa8c9d895dfeb141f1e86ac3656dc27d14"
     },
     {
       "bytes": 115770,

@@ -74,6 +74,84 @@ theorem evalInvariantV1_eq_of_validated_selection
   simp only [evalInvariantV1, hvalidate, hinitialized, Bool.not_true,
     Bool.false_eq_true, ↓reduceIte, hselection, hdecode, hrun]
 
+/-- For the exact lowered invariant body
+    `stateLoad left; stateLoad right; eq; return`, the public production
+    evaluator returns true precisely when the two production-decoded canonical
+    payloads are equal. This composes validation/ordinal selection with the
+    sole Reference machine theorem; it does not interpret a source expression
+    or define another evaluator. -/
+theorem evalInvariantV1_returnedTrue_iff_two_state_bytes_eq
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (invariantOrdinal : InvariantOrdinalV1)
+    (invariantId : InvariantIdV1)
+    (invariantName : String)
+    (state : LogicalStateV1)
+    (overlay : Array ByteArray)
+    (leftBytes rightBytes : ByteArray)
+    (rootId : CallableIdV1)
+    (valueTypeId boolTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (rootName : Option String)
+    (rootVisibility leftVisibility rightVisibility : VisibilityV1)
+    (leftStateName rightStateName : String)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hinitialized : state.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok overlay)
+    (hselection : data.invariants[invariantOrdinal.toNat]? = some {
+      id := invariantId, name := invariantName, callableId := rootId })
+    (htypeB : data.types[boolTypeId.toNat]? = some {
+      id := boolTypeId, name := none, shape := .bool })
+    (hleftState : data.logicalState[leftStateId.toNat]? = some {
+      id := leftStateId, name := leftStateName, typeId := valueTypeId,
+      visibility := leftVisibility })
+    (hrightState : data.logicalState[rightStateId.toNat]? = some {
+      id := rightStateId, name := rightStateName, typeId := valueTypeId,
+      visibility := rightVisibility })
+    (hleftOverlay : overlay[leftStateId.toNat]? = some leftBytes)
+    (hrightOverlay : overlay[rightStateId.toNat]? = some rightBytes)
+    (hroot : data.callables[rootId.toNat]? = some {
+      id := rootId
+      kind := .invariant
+      name := rootName
+      params := #[]
+      result := { typeId := boolTypeId, visibility := rootVisibility }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[
+          { result := some { valueId := 0, typeId := valueTypeId },
+            op := .stateLoad leftStateId },
+          { result := some { valueId := 1, typeId := valueTypeId },
+            op := .stateLoad rightStateId },
+          { result := some { valueId := 2, typeId := boolTypeId },
+            op := .binary .eq 0 1 }
+        ]
+        terminator := .return_ (some 2)
+      }]
+      loopBounds := #[]
+      invariantSteps := some 5
+    }) :
+    evalInvariantV1 program invariantOrdinal state = .returnedTrue ↔
+      leftBytes = rightBytes := by
+  let invariant : InvariantDeclV1 :=
+    { id := invariantId, name := invariantName, callableId := rootId }
+  change data.invariants[invariantOrdinal.toNat]? = some invariant at hselection
+  have heval :
+      evalInvariantV1 program invariantOrdinal state =
+        runInvariantCallableV1 data rootId state := by
+    exact evalInvariantV1_eq_of_validated_selection
+      program data invariantOrdinal invariant state overlay
+      (runInvariantCallableV1 data rootId state) hvalidate hinitialized hdecode
+      hselection rfl
+  rw [heval]
+  exact runInvariantCallableV1_returnedTrue_iff_two_state_bytes_eq
+    data state overlay leftBytes rightBytes rootId valueTypeId boolTypeId
+    leftStateId rightStateId rootName rootVisibility leftVisibility
+    rightVisibility leftStateName rightStateName hinitialized hdecode htypeB
+    hleftState hrightState hleftOverlay hrightOverlay hroot
+
 /-- Close the exact public invariant proposition from a successful production
     validation, the decoded table bound, and the production evaluator theorem. -/
 theorem invariantTheoremV1_of_validate_eq_ok
