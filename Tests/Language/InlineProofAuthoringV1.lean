@@ -247,10 +247,12 @@ program TypedCallableSurface where
 #check TypedCallableSurface.Model.add.decodeResult_existsUnique_of_conforms
 #check TypedCallableSurface.Model.add.decodeResult_complete_of_returned
 #check TypedCallableSurface.Model.add.decodeResult_existsUnique_of_returned
+#check TypedCallableSurface.Model.add.decodeState_complete_of_returned
 #check TypedCallableSurface.Model.add.decodeState_existsUnique_of_returned
 #check TypedCallableSurface.Model.add.encodeResult_injective
 #check TypedCallableSurface.Model.add.Outcome
 #check TypedCallableSurface.Model.add.Transition
+#check TypedCallableSurface.Model.add.transition_returned_of_step
 #check TypedCallableSurface.Model.add.outcome_unique
 #check TypedCallableSurface.Model.alive.invocation
 #check TypedCallableSurface.Model.alive.Result
@@ -261,10 +263,12 @@ program TypedCallableSurface where
 #check TypedCallableSurface.Model.alive.decodeResult_existsUnique_of_conforms
 #check TypedCallableSurface.Model.alive.decodeResult_complete_of_returned
 #check TypedCallableSurface.Model.alive.decodeResult_existsUnique_of_returned
+#check TypedCallableSurface.Model.alive.decodeState_complete_of_returned
 #check TypedCallableSurface.Model.alive.decodeState_existsUnique_of_returned
 #check TypedCallableSurface.Model.alive.encodeResult_injective
 #check TypedCallableSurface.Model.alive.Outcome
 #check TypedCallableSurface.Model.alive.Transition
+#check TypedCallableSurface.Model.alive.transition_returned_of_step
 #check TypedCallableSurface.Model.alive.outcome_unique
 
 /-- Typed arguments are encoded as canonical Reference values using the exact
@@ -473,10 +477,12 @@ program TypedUnitCallableSurface where
 #check TypedUnitCallableSurface.Model.clear.decodeResult_existsUnique_of_conforms
 #check TypedUnitCallableSurface.Model.clear.decodeResult_complete_of_returned
 #check TypedUnitCallableSurface.Model.clear.decodeResult_existsUnique_of_returned
+#check TypedUnitCallableSurface.Model.clear.decodeState_complete_of_returned
 #check TypedUnitCallableSurface.Model.clear.decodeState_existsUnique_of_returned
 #check TypedUnitCallableSurface.Model.clear.encodeResult_injective
 #check TypedUnitCallableSurface.Model.clear.Outcome
 #check TypedUnitCallableSurface.Model.clear.Transition
+#check TypedUnitCallableSurface.Model.clear.transition_returned_of_step
 #check TypedUnitCallableSurface.Model.clear.outcome_unique
 
 example : TypedUnitCallableSurface.Model.clear.Outcome =

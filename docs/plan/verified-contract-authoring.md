@@ -663,7 +663,7 @@ proof-bearing target build 继续 fail closed。
 | 0A | 删除第二套 executable semantics | **已完成** | `MiniAmmSafetySketchV1`、alpha `Core/Semantics`/`SemanticIR` 已不在 HEAD |
 | 0B | 唯一语义防回归门 | **已完成** | `alpha-deletion-gate` 固定平行语义、contract-specific registry/pin 的物理删除，不误杀 checker state |
 | 1 | Typed State + codec bridge | **进行中（generated Bool/UInt64 双向 complete/unique 首切已完成）** | generated `Model.State` 复用 production codec；`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；Bool 的产品 accepted-language 接线与更多 scalar shape 仍待补 |
-| 2 | Typed callable transition | **进行中（entry/view relation + result codec + returned state/result typed decode + outcome uniqueness 首切已完成）** | 简单 entry theorem 只使用 typed State/args/outcome；固定 typed 输入至多对应一个 typed outcome |
+| 2 | Typed callable transition | **进行中（entry/view relation + returned typed transition witness + outcome uniqueness 首切已完成）** | 真实 initialized returned step 可包装为 typed State/result/outcome；固定 typed 输入至多对应一个 typed outcome |
 | 3 | Typed invariant bridge | 未开始 | typed predicate 与 `evalInvariantV1` 双向对齐 |
 | 4 | Generic preservation composition | 未开始 | per-call lemmas 自动包成 exact `PreservationTheoremV1` |
 | 5 | Same-file certifier ergonomics | 部分地基已有 | 任意未 pin 合约的真实 proof body可 certified |
@@ -737,15 +737,17 @@ proof-bearing target build 继续 fail closed。
    `stepReferenceSliceV1_returned_stateConformsV1_of_initialized` 已沿完整
    `stepReferenceSliceV1 → runMachine → finalize` 路径证明 initialized entry/view 的 returned
    post-state 满足 exact admitted program 的 `StateConformsV1`；generated
-   `decodeState_existsUnique_of_returned` 已将该事实接到 production `decodeState`，得到唯一 typed
-   post-state。该 theorem 显式要求 initialized pre-state，initializer post-state 仍由独立
-   lifecycle theorem 处理；
-12. 当前 returned result 的 typed decode/re-encode 已 complete，但尚缺把 returned state/result
-   合并成 typed `Transition.returned` witness；同时仍缺 initializer 的 initialized/uninitialized
-   lifecycle bridge、Reference outcome→typed outcome 的 full-outcome total/complete 方向、typed
-   invariant bridge、per-call preservation composition 与短 executable notation；这些仍是后续
-   Phase 2–4 工作；
-13. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
+   `decodeState_complete_of_returned` 已将该事实接到 production `decodeState`/`encodeState`，得到
+   唯一 typed post-state及 exact re-encode；原 `decodeState_existsUnique_of_returned` 作为兼容投影
+   保留。该 theorem 显式要求 initialized pre-state，initializer post-state 仍由独立 lifecycle
+   theorem 处理；
+12. generated `transition_returned_of_step` 已把同一真实 Reference returned step 的 typed post、
+   typed result 与原 effects 合并为 `Transition … (.returned post value effects)` witness；证明只
+   组合上述 state/result complete theorem 和 `TypedCallableRelationV1`，不运行另一 evaluator；
+13. 当前仍缺 initializer 的 initialized/uninitialized lifecycle bridge、reverted/trapped branch
+   packaging 及由完整 Reference outcome 到 typed outcome 的总存在定理、typed invariant bridge、
+   per-call preservation composition 与短 executable notation；这些仍是后续 Phase 2–4 工作；
+14. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
    完成前不能称 target artifact verified。
 
 ---

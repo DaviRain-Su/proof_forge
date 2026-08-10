@@ -677,7 +677,7 @@ private def elaborateCallableModelsV1
     (subjectDataName : TSyntax `ident)
     (encodeStateName : TSyntax `ident)
     (decodeStateName : TSyntax `ident)
-    (decodeStateExistsUniqueName : TSyntax `ident)
+    (encodeStateDecodeName : TSyntax `ident)
     (data : SemanticProgramDataV1)
     (views : Array ModelCallableViewV1) : CommandElabM Unit := do
   let referenceSubjectName := mkIdent `ReferenceSubject
@@ -719,11 +719,14 @@ private def elaborateCallableModelsV1
       mkIdent `decodeResult_complete_of_returned
     let decodeReturnedResultExistsUniqueName :=
       mkIdent `decodeResult_existsUnique_of_returned
+    let decodeReturnedStateCompleteName :=
+      mkIdent `decodeState_complete_of_returned
     let decodeReturnedStateExistsUniqueName :=
       mkIdent `decodeState_existsUnique_of_returned
     let encodeResultInjectiveName := mkIdent `encodeResult_injective
     let callableOutcomeName := mkIdent `Outcome
     let transitionName := mkIdent `Transition
+    let transitionReturnedName := mkIdent `transition_returned_of_step
     let outcomeUniqueName := mkIdent `outcome_unique
     let subjectName := mkIdent `subject
     let preName := mkIdent `pre
@@ -742,6 +745,7 @@ private def elaborateCallableModelsV1
     let effectsName := mkIdent `effects
     let validateName := mkIdent `hvalidate
     let initializedName := mkIdent `hinitialized
+    let encodePreName := mkIdent `hencodePre
     let stepName := mkIdent `hstep
     let callableIdTerm : TSyntax `term :=
       ⟨Syntax.mkNumLit (toString callableView.callableId.toNat)⟩
@@ -789,6 +793,18 @@ private def elaborateCallableModelsV1
         term ← `($term $paramName)
       `($term $contextName $responsesName $vaultName $referenceValueName
         $effectsName $validateName $stepName)
+    let returnedStateCompleteTerm ← Lean.Elab.liftMacroM <| do
+      let mut term ← `($decodeReturnedStateCompleteName $subjectName
+        $logicalPreName $logicalPostName)
+      for paramName in paramNames do
+        term ← `($term $paramName)
+      `($term $contextName $responsesName $vaultName $referenceValueName
+        $effectsName $initializedName $validateName $stepName)
+    let returnedTransitionPrefixTerm ← Lean.Elab.liftMacroM <| do
+      let mut term ← `($transitionName $subjectName $preName)
+      for paramName in paramNames do
+        term ← `($term $paramName)
+      `($term $contextName $responsesName $vaultName)
     let leftTransitionTerm ← Lean.Elab.liftMacroM <| do
       let mut term ← `($transitionName $subjectName $preName)
       for paramName in paramNames do
@@ -964,8 +980,53 @@ private def elaborateCallableModelsV1
           $returnedResultCompleteTerm
         exact ⟨value, hdecode, hunique⟩))
     Lean.Elab.Command.elabCommand (← `(
-      /-- Every returned initialized entry/view post-state has one unique typed
-          decode. Initializer lifecycle remains a separate proof surface. -/
+      /-- Every returned initialized entry/view post-state has one exact typed
+          decode/re-encode. Initializer lifecycle remains a separate proof
+          surface. -/
+      theorem $decodeReturnedStateCompleteName
+          ($subjectName : $referenceSubjectName)
+          ($logicalPreName $logicalPostName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($referenceValueName : Option
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1)
+          ($effectsName : Array
+            ProofForgeV2.Semantic.ReferenceV1.OrderedEffectV1)
+          ($initializedName : ($logicalPreName).initialized = true)
+          ($validateName :
+            ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+                $subjectProgramName = .ok $subjectDataName)
+          ($stepName :
+            ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1
+                ($subjectName).admitted $logicalPreName $invocationTerm
+                  $responsesName $vaultName =
+              .returned $logicalPostName $referenceValueName $effectsName) :
+          ∃ post : $stateName,
+            $decodeStateName $logicalPostName = .ok post ∧
+              $encodeStateName post = .ok $logicalPostName ∧
+                ∀ other : $stateName,
+                  $decodeStateName $logicalPostName = .ok other →
+                    post = other := by
+        have hconforms :=
+          ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1_returned_stateConformsV1_of_initialized
+            $subjectProgramName ($subjectName).admitted $logicalPreName
+              $logicalPostName $invocationTerm $responsesName $vaultName
+              $referenceValueName $effectsName ($subjectName).hadmit
+              $initializedName $stepName
+        obtain ⟨post, hdecode, hencode⟩ :=
+          $encodeStateDecodeName $logicalPostName $validateName hconforms
+        refine ⟨post, hdecode, hencode, ?_⟩
+        intro other hother
+        exact Except.ok.inj (hdecode.symm.trans hother)))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Compatibility projection of the exact returned-state package to
+          decode existence and uniqueness. -/
       theorem $decodeReturnedStateExistsUniqueName
           ($subjectName : $referenceSubjectName)
           ($logicalPreName $logicalPostName :
@@ -995,14 +1056,9 @@ private def elaborateCallableModelsV1
               ∀ other : $stateName,
                 $decodeStateName $logicalPostName = .ok other →
                   post = other := by
-        have hconforms :=
-          ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1_returned_stateConformsV1_of_initialized
-            $subjectProgramName ($subjectName).admitted $logicalPreName
-              $logicalPostName $invocationTerm $responsesName $vaultName
-              $referenceValueName $effectsName ($subjectName).hadmit
-              $initializedName $stepName
-        exact $decodeStateExistsUniqueName $logicalPostName $validateName
-          hconforms))
+        obtain ⟨post, hdecode, _hencode, hunique⟩ :=
+          $returnedStateCompleteTerm
+        exact ⟨post, hdecode, hunique⟩))
     Lean.Elab.Command.elabCommand (← `(
       /-- Typed full-outcome view specialized to this callable result type. -/
       abbrev $callableOutcomeName :=
@@ -1026,6 +1082,53 @@ private def elaborateCallableModelsV1
           $encodeStateName $encodeResultName $subjectName $preName
           $invocationTerm
           $responsesName $vaultName $typedOutcomeName))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Package one exact returned Reference step as a typed transition.
+          State/result witnesses come only from production-conforming codecs;
+          this theorem does not execute a second step function. -/
+      theorem $transitionReturnedName
+          ($subjectName : $referenceSubjectName)
+          ($preName : $stateName)
+          ($logicalPreName $logicalPostName :
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+          $[($paramNames : $paramTypes)]*
+          ($contextName : Array
+            ProofForgeV2.Semantic.ReferenceV1.ContextInputV1)
+          ($responsesName :
+            ProofForgeV2.Semantic.ReferenceV1.ExternalResponsesV1)
+          ($vaultName :
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceVaultSeedV1)
+          ($referenceValueName : Option
+            ProofForgeV2.Semantic.ReferenceV1.ReferenceValueV1)
+          ($effectsName : Array
+            ProofForgeV2.Semantic.ReferenceV1.OrderedEffectV1)
+          ($encodePreName :
+            $encodeStateName $preName = .ok $logicalPreName)
+          ($initializedName : ($logicalPreName).initialized = true)
+          ($validateName :
+            ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+                $subjectProgramName = .ok $subjectDataName)
+          ($stepName :
+            ProofForgeV2.Semantic.ReferenceV1.stepReferenceSliceV1
+                ($subjectName).admitted $logicalPreName $invocationTerm
+                  $responsesName $vaultName =
+              .returned $logicalPostName $referenceValueName $effectsName) :
+          ∃ post : $stateName, ∃ value : $resultName,
+            $decodeStateName $logicalPostName = .ok post ∧
+              $decodeResultName $referenceValueName = .ok value ∧
+                $returnedTransitionPrefixTerm
+                  (.returned post value $effectsName) := by
+        obtain ⟨postWitness, hdecodePost, hencodePost, _huniquePost⟩ :=
+          $returnedStateCompleteTerm
+        obtain ⟨valueWitness, hdecodeValue, hencodeValue, _huniqueValue⟩ :=
+          $returnedResultCompleteTerm
+        refine ⟨postWitness, valueWitness, hdecodePost, hdecodeValue, ?_⟩
+        unfold $transitionName
+          ProofForgeV2.Semantic.PreservationABI.TypedCallableRelationV1
+        refine ⟨$logicalPreName, $encodePreName, $logicalPostName,
+          hencodePost, ?_⟩
+        rw [hencodeValue]
+        exact $stepName))
     Lean.Elab.Command.elabCommand (← `(
       /-- The exact typed relation has at most one outcome for fixed inputs.
           This is inherited from the sole Reference step plus codec
@@ -1341,7 +1444,7 @@ private def elaborateStateModelV1
           exact $conformsOfEncodeName candidate $logicalStateName
             hvalidate hencode))
   elaborateCallableModelsV1 subjectProgramName subjectDataName encodeStateName
-    decodeStateName decodeExistsUniqueName data (modelCallableViewsV1 data)
+    decodeStateName encodeDecodeName data (modelCallableViewsV1 data)
   Lean.Elab.Command.elabCommand (← `(end $modelNamespace))
 
 private def proofSurfaceV1
