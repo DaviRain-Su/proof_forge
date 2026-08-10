@@ -32,3 +32,6 @@ __pycache__/
 .idea/
 .vscode/
 /.surfpool/
+
+# Local demo recordings (may contain sensitive leo output)
+build/demos/

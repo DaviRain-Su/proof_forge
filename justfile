@@ -1459,6 +1459,10 @@ pf-cli-aleo-local: build pf-cli-build
 pf-cli-aleo-demo: build pf-cli-build
     /bin/bash -p scripts/demo_aleo_testnet_save_only.sh
 
+# asciinema record of Aleo demo (save-only unless PF_ALEO_BROADCAST=1 + PF_ALEO_TESTNET_KEY)
+pf-cli-aleo-record: build pf-cli-build
+    /bin/bash -p scripts/demo_aleo_record.sh
+
 pf-cli-evm-project: build pf-cli-build
     /bin/bash -p scripts/evm_pf_statecell_smoke.sh
 

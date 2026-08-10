@@ -217,8 +217,53 @@ Save as `scripts/demo_aleo_testnet_save_only.sh` in the monorepo (optional) and 
 - Claiming formal verification or “production ready”  
 - Showing private keys or seed phrases  
 
+## CLI recording tools (what we use)
+
+| Tool | Role | Install |
+|---|---|---|
+| **asciinema** | Terminal session cast (best for CLI demos) | `brew install asciinema` |
+| **ffmpeg** | Optional screen MP4 from desktop | `brew install ffmpeg` |
+| **script(1)** | Plain typescript log | preinstalled on macOS |
+
+### One-command record (save-only)
+
+```bash
+export PROOF_FORGE_CLI="$PWD/.lake/build/bin/proof-forge-next"
+just pf-cli-aleo-record
+# → build/demos/aleo/pf-aleo-demo-*.cast
+asciinema play build/demos/aleo/pf-aleo-demo-*.cast
+# optional public share:
+# asciinema upload build/demos/aleo/pf-aleo-demo-*.cast
+```
+
+### Real Testnet broadcast record
+
+1. Create account (off camera): `leo account new`  
+2. Fund via **https://faucet.aleo.org/** (captcha — human only; ~3+ credits for deploy)  
+3. Load key into env (never echo):
+
+```bash
+export PF_ALEO_TESTNET_KEY='APrivateKey1…'   # funded testnet key
+export PF_ALEO_BROADCAST=1
+just pf-cli-aleo-record
+```
+
+Deploy fee observed in rehearsal: **~3.04 credits** (namespace + storage + synthesis).
+
+Without faucet funds, broadcast correctly fails with insufficient balance after building the deployment plan — still useful footage.
+
+### Optional desktop MP4 (macOS)
+
+```bash
+# Capture main display while you run the demo in Terminal (large font)
+ffmpeg -f avfoundation -i "2:none" -r 30 -t 600 build/demos/aleo/screen.mp4
+```
+
+(`2` = “Capture screen 0” from `ffmpeg -f avfoundation -list_devices true -i ""`)
+
 ## Related
 
 - `clients/pf-cli/README.md`  
 - `docs/specs/cli-developer.md` § Aleo  
+- `scripts/demo_aleo_record.sh` / `scripts/demo_aleo_testnet_save_only.sh`  
 - `scripts/aleo_instructions_network_tx_acceptance.sh` (CI gate; save-only default)  
