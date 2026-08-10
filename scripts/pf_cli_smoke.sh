@@ -187,6 +187,29 @@ print("json-ok")
   set -e
   [[ "$acode" -ne 0 ]]
   echo "$aerr" | rg -qi 'inspect|aleo'
+
+  # D7b: focused Mollusk (TransferSol only; host-optional if cargo/crate missing)
+  if [[ -f "$root/runtime-tests/solana/Cargo.toml" ]] && command -v cargo >/dev/null 2>&1; then
+    echo "pf-cli-smoke: solana test (TransferSol Mollusk)"
+    export PROOF_FORGE_ROOT="$root"
+    mout="$("$pf_bin" test -t solana --artifact "$sol_out" 2>&1)" || {
+      echo "$mout" >&2
+      exit 1
+    }
+    echo "$mout" | rg -qi 'Finished `test`|pf-solana-test: ok|Skipped `test`'
+    mj="$("$pf_bin" --json test -t solana --artifact "$sol_out")"
+    echo "$mj" | python3 -I -c '
+import json,sys
+o=json.load(sys.stdin)
+assert o.get("schema")=="proof-forge.pf.result.v1", o
+assert o.get("command")=="test", o
+assert o.get("ok") is True, o
+assert o.get("target")=="solana", o
+print("solana-test-json-ok")
+'
+  else
+    echo "pf-cli-smoke: skipped solana mollusk test (cargo/runtime-tests missing)"
+  fi
 else
   echo "pf-cli-smoke: skipped solana verify (proof-forge-solana-client not found; just pf-cli-smoke builds it)"
 fi

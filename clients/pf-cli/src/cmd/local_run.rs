@@ -29,8 +29,7 @@ pub fn run(
     }
     if targets::TargetId::parse(&target) == targets::TargetId::Solana {
         return Err(PfError::NotImplemented(
-            "solana: use `pf verify -t solana` (offline) or `pf test -t solana` (D7b pending)"
-                .into(),
+            "solana: use `pf verify -t solana` (offline) or `pf test -t solana` (Mollusk)".into(),
         ));
     }
     targets::require_aleo(&target)?;

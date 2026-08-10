@@ -181,7 +181,7 @@ D1–D4 = 0/27 done。
 | **SKEPTIC-1** | Goal 内闭合 skeptic 三缺口：DOC-T9-0 真扫 + DONE_IDS 全量（含 B-1d/B-1e/T9e）+ BUILD-5 exit-0 日志 | 入口 `prompt-skeptic-recovery.md` | **done**（2026-08-02：DOC-T9-0 `1657989ca` 含矩阵；`just run-deletion-gates` EXIT=0 无 traceback；DONE_IDS 含 B-1d/B-1e/T9e） |
 | **DOC-SPEC-AUDIT** | SPEC-LANG/SEM/TYPE × Normalize **机械对账** | `docs/research/13-spec-normalize-diff.md`；回流 backlog 校准 | **done**（2026-08-02：RPT-013 表 + N-2/N-3/N-BYTES 校准注；非 formal 全集 EBNF） |
 | **DOC-DEDUP** | 禁止再开第四份平行 gap 清单 | 新研究只追加 11/12 或本文件；关掉旧 `build/*-audit.md` 心智依赖 | **done**（2026-08-02：research README + goals README + index 已指向 sole live queues） |
-| **PF-CLI** | Rust Developer CLI `pf`（ADR-0037） | Aleo 闭环 + multi-target + **D7a Solana verify** + **D7c EVM Anvil test** | **D0–D6 + D7a + D7c done**（2026-08-10）；**Next=D7b Mollusk `pf test -t solana`**——见 [`plan/pf-cli-aleo.md`](plan/pf-cli-aleo.md) |
+| **PF-CLI** | Rust Developer CLI `pf`（ADR-0037） | Aleo 闭环 + multi-target + **D7 全量**（Solana verify/Mollusk + EVM Anvil） | **D0–D7 done**（2026-08-10）；**Next=D8/D9** 统一 test report / 分发——见 [`plan/pf-cli-aleo.md`](plan/pf-cli-aleo.md) |
 
 ---
 

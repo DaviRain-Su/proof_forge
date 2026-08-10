@@ -77,7 +77,7 @@ enum Commands {
         #[arg(long)]
         adapter: Option<String>,
     },
-    /// Local runtime test (EVM: Anvil; Solana Mollusk pending)
+    /// Local runtime test (EVM: Anvil; Solana: Mollusk TransferSol)
     Test {
         #[arg(long, short = 't')]
         target: Option<String>,

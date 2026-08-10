@@ -45,6 +45,15 @@ export PROOF_FORGE_TOOL_ROOT="$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64
 # or: just pf-cli-evm-test
 ```
 
+### Solana Mollusk test (D7b, TransferSol gold)
+
+```bash
+"$PF" build Examples/TransferSol.lean --module Examples.TransferSol -t solana -o build/v2/ts
+"$PF" test -t solana --artifact build/v2/ts
+# or: just pf-cli-solana-test
+# Non-TransferSol artifacts fail closed (use pf verify offline instead).
+```
+
 ## Commands
 
 | Command | Purpose |
@@ -59,6 +68,7 @@ export PROOF_FORGE_TOOL_ROOT="$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64
 | `pf verify -t solana` | Offline Solana OutputSet verify (`proof-forge-solana-client`) |
 | `pf verify -t solana --adapter transfer-sol-v1` | + TransferSol program pins |
 | `pf test -t evm` | Local Anvil deploy+call matrix (`scripts/pf_evm_test.sh`) |
+| `pf test -t solana` | Local Mollusk TransferSol lane (`scripts/pf_solana_test.sh`) |
 | `pf deploy` / `pf execute` | Save network txs (Aleo; no broadcast by default) |
 | `pf doctor` / `pf setup` | Toolchain status |
 | `pf list-targets` | Implemented targets from compiler |

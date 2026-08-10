@@ -57,7 +57,7 @@ just pf-cli-test | pf-cli-build | pf-cli-smoke
 | PF-D4 | just recipes + README + unit tests | **done** |
 | PF-D5 | multi-target build + clean + capability notes | **done** |
 | PF-D6 | quiet run + `pf_cli_smoke` | **done** |
-| **PF-D7** | **EVM local + Solana verify/test 接入 `pf`** | **D7a+D7c done**；D7b Mollusk pending |
+| **PF-D7** | **EVM local + Solana verify/test 接入 `pf`** | **D7a+D7b+D7c done** |
 | PF-D8 | 统一 `pf test` 命令面（按 target 分派） | pending（D7 后） |
 | PF-D9 | 分发：`pf` 与 compiler 并排 release / install 文档 | pending |
 | PF-D10 | （可选）Aleo twin 扩到非 StateCell 程序 | pending |
@@ -187,21 +187,26 @@ just pf-cli-smoke   # includes verify when client builds
 
 **已知边界**：部分 generic CPI 产物（如 StateCell）可能在 solana-client 的 evidence.note irDigest join 上 fail；TransferSol 为 D7a 金样。
 
-### 5.3 D7b — Solana test（Mollusk，host-optional）
+### 5.3 D7b — Solana test（Mollusk，host-optional） — **done 2026-08-10**
 
 **实现**
 
-- `pf test -t solana` → 薄封装 `scripts/solana_runtime_test.sh` **或** 更窄的 focused recipe
-  （优先 focused：TransferSol / Counter 一类，避免默认拉全量 19 programs）。
-- 环境：继承 `PROOF_FORGE_TOOL_ROOT`；缺工具 skip-clean 或明确 fail（与 script 一致）。
-- **不进** ordinary `just ci`；可加 `just pf-cli-solana-test` host-optional。
+- `scripts/pf_solana_test.sh`：focused TransferSol only（避免全量 19 programs）
+- `clients/pf-cli/src/targets/solana/test.rs` + `cmd/test.rs` 分派
+- spawn：`cargo test … --test transfer_sol_product` + `PROOF_FORGE_TRANSFER_SOL_OUT`
+- 非 TransferSol artifact → fail closed（指引 `pf verify`）
+- 缺 cargo/crate → skip-clean；`just pf-cli-solana-test` host-optional
+- **不进** ordinary `just ci`
 
 **验收**
 
 ```bash
-pf build -t solana
-pf test -t solana     # 需 Mollusk/runtime deps
+pf build Examples/TransferSol.lean --module Examples.TransferSol -t solana -o build/v2/ts
+pf test -t solana --artifact build/v2/ts
+just pf-cli-solana-test
 ```
+
+**非声称**：不是 formal；不是链上；不是全量 `solana-runtime`。
 
 ### 5.4 D7c — EVM test / local（Anvil，host-optional） — **done 2026-08-10**
 
@@ -269,9 +274,9 @@ pf test -t aleo,evm      # 多 target 顺序跑；单个 fail → 非零
 ## 7. 建议击杀顺序（从现在开始）
 
 ```text
-D7a+D7c done ──► D7b Solana Mollusk focused test  # 2–3 天，host-heavy
-             ──► D8  pf test 统一入口（aleo/solana 分派）  # 1 天
-             ──► D9  分发/安装体验                 # 按 release 节奏
+D7 done ──► D8  pf test 多 target 顺序 / 统一 report  # 可选 polish
+        ──► D9  分发/安装体验                         # 按 release 节奏
+        ──► D10 Aleo twin 扩面 / D11 network deploy   # 产品门
 ```
 
 **并行建议**
@@ -290,10 +295,10 @@ A∥B∥C 文件几乎不重叠，可多 agent。
 
 - [x] `pf build -t solana && pf verify` 在 monorepo TransferSol 金样上绿（StateCell 若 irDigest join fail 保持 FC）
 - [x] `pf build -t evm && pf test -t evm` host-optional 绿（缺 anvil skip-clean；在场 hard assert）
-- [ ] `pf test -t solana` host-optional 绿（或明确「需 just solana-runtime 依赖」）— D7b
+- [x] `pf test -t solana` TransferSol Mollusk 绿（非金样 FC；缺 cargo skip-clean）
 - [x] `pf run -t evm|solana` 稳定 FC 文案（指引 `pf test` / `pf verify`）
-- [x] `just pf-cli-smoke` 含 TransferSol verify + StateCell evm test（工具在场时）
-- [x] README + SPEC-CLI-DEV 更新 `pf verify` / `pf test -t evm`
+- [x] `just pf-cli-smoke` 含 verify + evm test + solana mollusk（工具在场时）
+- [x] README + SPEC-CLI-DEV 更新 `pf verify` / `pf test -t evm|solana`
 - [x] 无 Devnet 自动写、无 mainnet、无 `deployable=true` 改写
 
 ---

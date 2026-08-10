@@ -1423,6 +1423,19 @@ pf-cli-evm-test: build pf-cli-build
     "$PF" build Examples/StateCell.lean --module Examples.StateCell -t evm -o "$out"
     "$PF" test -t evm --artifact "$out"
 
+# Host-optional: pf test -t solana against TransferSol (needs cargo + mollusk deps).
+pf-cli-solana-test: build pf-cli-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    export PROOF_FORGE_CLI="${PROOF_FORGE_CLI:-$PWD/.lake/build/bin/proof-forge-next}"
+    export PROOF_FORGE_ROOT="${PROOF_FORGE_ROOT:-$PWD}"
+    export PROOF_FORGE_TOOL_ROOT="${PROOF_FORGE_TOOL_ROOT:-$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64}"
+    PF="${PF:-$PWD/clients/pf-cli/target/release/pf}"
+    out="$PWD/build/v2/pf-d7b-transfer-sol"
+    rm -rf "$out"
+    "$PF" build Examples/TransferSol.lean --module Examples.TransferSol -t solana -o "$out"
+    "$PF" test -t solana --artifact "$out"
+
 # Build the exact TransferSol product tree, then apply both the generic Solana
 # profile verifier and the explicit TransferSol program adapter.
 solana-transfer-sol-offline:
