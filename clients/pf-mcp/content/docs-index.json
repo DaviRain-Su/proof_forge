@@ -3,69 +3,87 @@
   "docs": [
     {
       "id": "01-toolchain-install-surface.md",
-      "title": "\u4ea7\u54c1\u9762\u9636\u68af\uff1a\u5b89\u88c5\u9009\u94fe \u2192 \u672c\u673a\u9a8c\u8bc1 \u2192 SDK / MCP",
-      "bytes": 17876,
+      "title": "Product surface ladder — install / doctor / CLI / MCP",
+      "bytes": 17976,
       "kind": "markdown"
     },
     {
       "id": "02-external-program-v1.md",
-      "title": "\u5916\u90e8 ProgramV1 \u5de5\u7a0b\uff1a\u5199\u5408\u7ea6 \u2192 build \u2192 inspect",
+      "title": "External ProgramV1 project guide (build / SDK / MCP)",
       "bytes": 4176,
       "kind": "markdown"
     },
     {
       "id": "03-hello-dapp-agent-playbook.md",
-      "title": "Hello dApp\uff1aCode Agent \u5267\u672c\uff08\u540e\u7aef\u5408\u7ea6 + direct artifact\uff09",
+      "title": "Hello dApp agent playbook (MCP / SDK / external template)",
       "bytes": 4459,
       "kind": "markdown"
     },
     {
       "id": "04-chain-client-catalog.md",
-      "title": "\u591a\u94fe\u5ba2\u6237\u7aef / \u524d\u7aef catalog\uff08\u5143\u6570\u636e\uff09",
-      "bytes": 3487,
+      "title": "Chain client / frontend catalog (metadata for agents)",
+      "bytes": 3767,
       "kind": "markdown"
     },
     {
       "id": "05-distribution-and-packages.md",
-      "title": "\u5206\u53d1\u67b6\u6784\uff1aCLI \u53d1\u7248 \u00b7 Lean \u5199\u5408\u7ea6\u5305 \u00b7 \u5bbf\u4e3b SDK/MCP",
+      "title": "Distribution architecture — CLI release vs Lean author SDK vs host wrappers",
       "bytes": 16425,
       "kind": "markdown"
     },
     {
+      "id": "06-pypi-host-sdk.md",
+      "title": "Host SDK PyPI publish (engineering-dist)",
+      "bytes": 5561,
+      "kind": "markdown"
+    },
+    {
       "id": "07-aleo-dapp-frontend-wallet.md",
-      "title": "Aleo dApp \u524d\u7aef\uff1aWallet Adapter \u00b7 Provable SDK \u00b7 \u4e0e ProofForge \u7684\u5206\u5de5",
+      "title": "Aleo dApp frontend — Wallet Adapter + Provable SDK (FCCP companion)",
       "bytes": 16801,
       "kind": "markdown"
     },
     {
       "id": "08-evm-dapp-frontend.md",
-      "title": "EVM dApp \u524d\u7aef\uff1aviem \u00b7 MetaMask \u00b7 \u4e0e ProofForge \u7684\u5206\u5de5",
+      "title": "EVM dApp frontend — viem/MetaMask + PF bytecode (FCCP companion)",
       "bytes": 4222,
       "kind": "markdown"
     },
     {
-      "id": "aleo-testnet-walkthrough.md",
-      "title": "Demo: Aleo with `pf` \u2014 local run \u2192 Testnet deploy \u2192 execute",
-      "bytes": 11087,
+      "id": "09-solana-agent-playbook.md",
+      "title": "Solana agent playbook — pf target + official Solana MCP",
+      "bytes": 4432,
       "kind": "markdown"
     },
     {
-      "id": "chain-client-catalog.v1.json",
-      "title": "chain-client-catalog.v1",
-      "bytes": 13511,
-      "kind": "catalog"
+      "id": "aleo-testnet-walkthrough.md",
+      "title": "Demo — Aleo with pf (local run → Testnet deploy → execute)",
+      "bytes": 11805,
+      "kind": "markdown"
     },
     {
       "id": "evm-local-walkthrough.md",
-      "title": "Demo: EVM with `pf` \u2014 build \u2192 local Anvil \u2192 browser",
+      "title": "Demo — EVM with pf (build → Anvil deploy → browser UI)",
       "bytes": 1718,
       "kind": "markdown"
     },
     {
       "id": "mcp-stdio-readme.md",
       "title": "ProofForge MCP-V0",
-      "bytes": 3129,
+      "bytes": 4131,
       "kind": "markdown"
+    },
+    {
+      "id": "solana-local-walkthrough.md",
+      "title": "Demo — Solana with pf (build → verify → optional Mollusk)",
+      "bytes": 2020,
+      "kind": "markdown"
+    },
+    {
+      "id": "chain-client-catalog.v1.json",
+      "title": "Chain client catalog",
+      "bytes": 15280,
+      "kind": "catalog"
     }
   ]
 }

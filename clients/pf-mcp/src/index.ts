@@ -23,7 +23,30 @@ import {
 } from "./content";
 
 const SERVER_NAME = "proof-forge-mcp";
-const SERVER_VERSION = "0.1.0";
+const SERVER_VERSION = "0.2.0";
+
+const SOLANA_OFFICIAL = {
+  name: "Solana Developer MCP",
+  landing: "https://mcp.solana.com/",
+  endpoint: "https://mcp.solana.com/mcp",
+  transport: "streamable-http",
+  auth: "none",
+  tools: [
+    "list_sections",
+    "get_documentation",
+    "Solana_Documentation_Search",
+    "Solana_Expert__Ask_For_Help",
+    "program_autofixer",
+  ],
+  connect: {
+    codex: "codex mcp add solana-mcp --url https://mcp.solana.com/mcp",
+    claude:
+      "claude mcp add --transport http solana-mcp https://mcp.solana.com/mcp",
+    cursor: "npx -y mcp-remote https://mcp.solana.com/mcp",
+  },
+  note:
+    "Official Solana docs + Anchor/Pinocchio program_autofixer. Connect alongside ProofForge MCP; this Worker does not proxy Solana tools.",
+};
 
 const LIVE = {
   program: "pfdemo336641.aleo",
@@ -85,8 +108,13 @@ function createServer() {
           "pf_agent_instructions",
           "pf_aleo_live_demo",
           "pf_cli_cheatsheet",
+          "pf_solana_scaffold",
+          "pf_solana_official_mcp",
         ],
         liveDemo: LIVE,
+        companionMcps: {
+          solanaOfficial: SOLANA_OFFICIAL,
+        },
       }),
   );
 
@@ -231,10 +259,12 @@ function createServer() {
             ]
           : id === "solana"
             ? [
-                "pf setup --target solana",
+                "pf setup --target solana && pf doctor --target solana",
                 "pf new hello --target solana && cd hello",
-                "pf build && pf test",
-                "pf deploy --network local  # public broadcast refused in pf v0",
+                "pf build && pf verify && pf test",
+                "pf deploy --network local  # save-only; public RPC broadcast refused",
+                "# companion: codex mcp add solana-mcp --url https://mcp.solana.com/mcp",
+                "# see pf_solana_scaffold + 09-solana-agent-playbook.md",
               ]
             : id === "evm"
               ? [
@@ -275,20 +305,35 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
 - Use \`pf_list_docs\` then \`pf_get_doc\` / \`pf_search_docs\` for product contracts.
 - Use \`pf_chain_catalog\` / \`pf_target_info\` before choosing a chain.
 - Use \`pf_cli_cheatsheet\` for command sequences.
-- Use \`pf_aleo_live_demo\` for the published Testnet evidence links.
+- Use \`pf_aleo_live_demo\` for the published Aleo Testnet evidence links.
+- Use \`pf_solana_scaffold\` + \`pf_solana_official_mcp\` for Solana target ladder and dual-MCP wiring.
 - This remote server does **not** compile, does **not** hold keys, and does **not** broadcast.
+
+## Official Solana Developer MCP (companion — not proxied here)
+- Endpoint: \`https://mcp.solana.com/mcp\` (Streamable HTTP, no API key).
+- Connect: \`codex mcp add solana-mcp --url https://mcp.solana.com/mcp\`.
+- Tools: docs list/get/search, expert help, \`program_autofixer\` (Anchor + Pinocchio Rust).
+- When reviewing hand-written Solana Rust, run \`program_autofixer\`, apply fixes, re-run until clean.
+- PF Lean→sBPF path is separate: do not treat autofixer as a substitute for \`pf build/verify\`.
 
 ## Local execution (developer machine)
 - Install/use \`pf\` (\`proof-forge-pf\` on crates.io) + \`proof-forge-next\` compiler.
+- Solana offline verify: \`proof-forge-solana-client\` (\`pf verify -t solana\`).
 - Stdio MCP (full CLI tools): monorepo \`tools/mcp/proof_forge_mcp_server.py\`.
 - Never paste private keys into chat, git, or remote MCP tool args.
-- Mainnet is refused by \`pf\` v0. Default deploy/execute are save-only.
+- Mainnet / public Solana RPC broadcast is refused by \`pf\` v0. Default deploy is save-only.
 - Success is **not** formal / hermetic / mainnet evidence.
 
 ## Aleo notes
 - Live Testnet needs Leo **4.4.1+** (4.0.2 under-estimates base fee).
 - Broadcast: \`--broadcast --private-key-env NAME --program-id <stem>\`.
 - Keep the same \`--program-id\` for deploy and execute.
+
+## Solana notes
+- Ladder: \`pf setup -t solana\` → \`pf new … -t solana\` → \`pf build\` → \`pf verify\` → \`pf test\`.
+- Deploy: \`pf deploy --network local\` (package only). \`--broadcast\` only with loopback RPC.
+- Principal wire identity ≠ Solana pubkey globally.
+- Dual MCP: ProofForge for PF surface; Solana MCP for ecosystem docs/Rust review.
 
 ## Safety
 - No default network broadcast on MCP.
@@ -350,9 +395,14 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
             ]
           : t === "solana"
             ? [
-                "pf test --target solana",
+                "pf setup --target solana && pf doctor --target solana",
+                "pf new hello --target solana && cd hello && pf build",
                 "pf verify --target solana",
+                "pf test --target solana",
                 "pf deploy --network local",
+                "# pf deploy --network local --broadcast --endpoint http://127.0.0.1:8899",
+                "# companion: codex mcp add solana-mcp --url https://mcp.solana.com/mcp",
+                "# docs: pf_get_doc id=09-solana-agent-playbook.md",
               ]
             : t === "evm"
               ? [
@@ -366,6 +416,95 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
         focused,
         remoteMcp:
           "guidance only — run these commands on a host with toolchains installed",
+      });
+    },
+  );
+
+
+  server.registerTool(
+    "pf_solana_official_mcp",
+    {
+      description:
+        "How to connect the official Solana Developer MCP (https://mcp.solana.com/mcp) alongside ProofForge. Lists official tools (docs + program_autofixer). This Worker does not proxy Solana tools — agents must add the second MCP server.",
+      inputSchema: z.object({}),
+    },
+    async () =>
+      textResult({
+        schema: "proof-forge.mcp.solana-official.v1",
+        proofForgeMcp: {
+          role: "PF catalog, pf CLI ladder, Solana target honesty",
+          endpointPath: "/mcp",
+        },
+        solanaOfficial: SOLANA_OFFICIAL,
+        dualMcpRecommended: true,
+        routing: [
+          "PF surface / maturity / pf commands → ProofForge tools (pf_solana_scaffold, pf_target_info)",
+          "Solana ecosystem docs / Anchor-Pinocchio Rust review → official Solana tools",
+          "Compile/test/deploy → local pf + toolchains (never edge MCP)",
+        ],
+        agentLoop:
+          "For hand-written Anchor/Pinocchio Rust: call program_autofixer, apply fixes, re-run until clean. For PF ProgramV1→sBPF: use pf build/verify locally.",
+      }),
+  );
+
+  server.registerTool(
+    "pf_solana_scaffold",
+    {
+      description:
+        "Solana target scaffold for agents: dual-MCP wiring, pf setup/new/build/verify/test/deploy ladder, install companions, and honesty boundaries. Prefer this before writing Solana-targeted PF projects.",
+      inputSchema: z.object({
+        includeOfficialMcp: z
+          .boolean()
+          .optional()
+          .describe("Include official Solana MCP connect block (default true)"),
+      }),
+    },
+    async ({ includeOfficialMcp }) => {
+      const row = targetById("solana");
+      const includeOfficial = includeOfficialMcp !== false;
+      return textResult({
+        schema: "proof-forge.mcp.solana-scaffold.v1",
+        target: "solana",
+        catalog: row,
+        docs: [
+          "09-solana-agent-playbook.md",
+          "solana-local-walkthrough.md",
+          "chain-client-catalog.v1.json",
+        ],
+        dualMcp: includeOfficial
+          ? {
+              proofForge: "this server (/mcp)",
+              solanaOfficial: SOLANA_OFFICIAL,
+            }
+          : { proofForge: "this server (/mcp)" },
+        install: [
+          "cargo install proof-forge-pf --locked",
+          "cargo install proof-forge-solana-client --locked",
+          "export PROOF_FORGE_CLI=/path/to/proof-forge-next",
+          'export PROOF_FORGE_SOLANA_CLIENT="$(command -v proof-forge-solana-client)"',
+          "pf setup --target solana",
+          "pf doctor --target solana",
+        ],
+        projectLadder: [
+          "pf new hello --target solana && cd hello",
+          "pf build",
+          "pf verify",
+          "pf test",
+          "pf deploy --network local",
+        ],
+        monorepoExample: [
+          "pf build Examples/StateCell.lean --module Examples.StateCell -t solana -o build/v2/sc-sol",
+          "pf verify -t solana -o build/v2/sc-sol",
+          "# optional host-heavy: just solana-runtime",
+        ],
+        safety: [
+          "public Solana RPC broadcast refused in pf v0",
+          "no private keys in MCP/chat/git",
+          "Principal ≠ Solana pubkey globally",
+          "engineering only — not formal/hermetic/mainnet",
+        ],
+        edgeNote:
+          "Remote MCP is guidance-only. Run compile/test/deploy on a machine with pf + toolchains.",
       });
     },
   );
@@ -419,8 +558,18 @@ npx -y mcp-remote https://&lt;this-host&gt;/mcp</pre>
     <tr><td><code>pf_chain_catalog</code> / <code>pf_target_info</code></td><td>Target metadata</td></tr>
     <tr><td><code>pf_agent_instructions</code></td><td>How agents should use PF</td></tr>
     <tr><td><code>pf_cli_cheatsheet</code></td><td>Local <code>pf</code> commands</td></tr>
-    <tr><td><code>pf_aleo_live_demo</code></td><td>Published Testnet evidence</td></tr>
+    <tr><td><code>pf_aleo_live_demo</code></td><td>Published Aleo Testnet evidence</td></tr>
+    <tr><td><code>pf_solana_scaffold</code></td><td>Solana <code>pf</code> ladder + dual-MCP wiring</td></tr>
+    <tr><td><code>pf_solana_official_mcp</code></td><td>Official Solana MCP connect (docs + autofixer)</td></tr>
   </table>
+  <h2>Companion: official Solana MCP</h2>
+  <p>
+    For Solana ecosystem docs and Anchor/Pinocchio <code>program_autofixer</code>, also connect
+    <a href="https://mcp.solana.com/">Solana Developer MCP</a>:
+  </p>
+  <pre>codex mcp add solana-mcp --url https://mcp.solana.com/mcp
+claude mcp add --transport http solana-mcp https://mcp.solana.com/mcp</pre>
+  <p>ProofForge MCP does <strong>not</strong> proxy those tools — add both servers. See <code>pf_solana_scaffold</code>.</p>
   <h2>Boundaries</h2>
   <ul>
     <li>Edge MCP is <strong>guidance-only</strong> (no Lean/CLI spawn, no keys, no broadcast).</li>

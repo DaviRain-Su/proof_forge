@@ -1,3 +1,12 @@
+---
+id: DEMO-ALEO-TESTNET-WALKTHROUGH
+title: Demo — Aleo with pf (local run → Testnet deploy → execute)
+status: draft
+owner: product+engineering
+updated: 2026-08-10
+normative: false
+---
+
 # Demo: Aleo with `pf` — local run → Testnet deploy → execute
 
 **Audience:** video / livestream  
@@ -328,4 +337,20 @@ ffmpeg -f avfoundation -i "2:none" -r 30 -t 600 build/demos/aleo/screen.mp4
 - `clients/pf-cli/README.md`  
 - `docs/specs/cli-developer.md` § Aleo  
 - `scripts/demo_aleo_record.sh` / `scripts/demo_aleo_testnet_save_only.sh`  
-- `scripts/aleo_instructions_network_tx_acceptance.sh` (CI gate; save-only default)  
+- `scripts/aleo_instructions_network_tx_acceptance.sh` (CI gate; save-only default)
+
+## Remote MCP (agents)
+
+ProofForge also ships a **public remote MCP** (Cloudflare Workers), similar to
+[Solana Developer MCP](https://mcp.solana.com/):
+
+- Landing: https://proof-forge-mcp.davirain-yin.workers.dev/
+- Endpoint: `https://proof-forge-mcp.davirain-yin.workers.dev/mcp`
+- Tool for this demo: `pf_aleo_live_demo`
+
+```bash
+codex mcp add proof-forge-mcp --url https://proof-forge-mcp.davirain-yin.workers.dev/mcp
+```
+
+Edge MCP is docs/catalog/guidance only — compile and Testnet broadcast still run via local `pf`.
+

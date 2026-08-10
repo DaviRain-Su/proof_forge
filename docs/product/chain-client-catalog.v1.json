@@ -9,7 +9,8 @@
     "deployable is always false on product OutputSet until N3 product decision.",
     "No network broadcast tools on MCP default surface.",
     "Aleo frontend detail: docs/product/07-aleo-dapp-frontend-wallet.md (wallet adaptor + Provable SDK; not shipped by PF).",
-    "EVM frontend detail: docs/product/08-evm-dapp-frontend.md + templates/evm-dapp-ui (viem/local Anvil)."
+    "EVM frontend detail: docs/product/08-evm-dapp-frontend.md + templates/evm-dapp-ui (viem/local Anvil).",
+    "Solana: dual MCP — ProofForge guidance + official https://mcp.solana.com/mcp (docs/autofixer)."
   ],
   "targets": [
     {
@@ -170,14 +171,14 @@
     {
       "id": "solana",
       "implemented": true,
-      "maturityLabel": "plan-only / ELF engineering",
+      "maturityLabel": "CPI/ELF engineering (Mollusk host-heavy)",
       "role": "backend-contracts",
       "pfSurface": {
         "build": true,
         "localModes": [
           "runtime"
         ],
-        "network": "none-product",
+        "network": "local-loopback-only",
         "mcpTools": [
           "pf_list_targets",
           "pf_doctor",
@@ -185,24 +186,65 @@
           "pf_build",
           "pf_local",
           "pf_artifacts",
-          "pf_chain_catalog"
-        ]
+          "pf_chain_catalog",
+          "pf_solana_scaffold",
+          "pf_solana_official_mcp"
+        ],
+        "template": "pf new <name> --target solana",
+        "officialMcp": {
+          "name": "Solana Developer MCP",
+          "url": "https://mcp.solana.com/mcp",
+          "landing": "https://mcp.solana.com/",
+          "tools": [
+            "list_sections",
+            "get_documentation",
+            "Solana_Documentation_Search",
+            "Solana_Expert__Ask_For_Help",
+            "program_autofixer"
+          ],
+          "note": "Connect alongside ProofForge MCP; PF does not proxy these tools."
+        }
       },
       "frontendClients": [
         {
-          "name": "@solana/web3.js / wallet-adapter (ecosystem)",
+          "name": "@solana/web3.js / @solana/kit (ecosystem)",
           "kind": "js-ts",
-          "purpose": "RPC, wallet, instruction send",
-          "shippedByProofForge": false
+          "purpose": "RPC, transaction build/send",
+          "shippedByProofForge": false,
+          "docs": [
+            "https://solana.com/docs",
+            "https://mcp.solana.com/"
+          ],
+          "packages": [
+            "@solana/web3.js",
+            "@solana/kit"
+          ]
+        },
+        {
+          "name": "@solana/wallet-adapter (ecosystem)",
+          "kind": "js-ts",
+          "purpose": "React wallet connect UX",
+          "shippedByProofForge": false,
+          "packages": [
+            "@solana/wallet-adapter-base",
+            "@solana/wallet-adapter-react",
+            "@solana/wallet-adapter-react-ui"
+          ]
         }
       ],
       "localDev": {
-        "offlineInterpret": null,
-        "chainLike": "Mollusk runtime tests (host-heavy; not ordinary ci)"
+        "offlineInterpret": "pf verify -t solana (proof-forge-solana-client)",
+        "chainLike": "Mollusk runtime tests (host-heavy; just solana-runtime / pf test)",
+        "deploy": "pf deploy --network local (save-only); --broadcast loopback only"
       },
       "honesty": [
-        "Principal is not Solana pubkey globally"
-      ]
+        "Principal is not Solana pubkey globally",
+        "Public RPC broadcast refused in pf v0",
+        "Use official Solana MCP for Anchor/Pinocchio Rust autofixer — separate from PF Lean→sBPF path",
+        "engineering maturity — not formal/mainnet evidence"
+      ],
+      "agentGuide": "docs/product/09-solana-agent-playbook.md",
+      "demoGuide": "docs/demos/solana-local-walkthrough.md"
     },
     {
       "id": "near",

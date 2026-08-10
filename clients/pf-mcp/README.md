@@ -50,6 +50,23 @@ claude mcp add --transport http proof-forge-mcp https://proof-forge-mcp.<account
 - `pf_agent_instructions`
 - `pf_cli_cheatsheet`
 - `pf_aleo_live_demo`
+- `pf_solana_scaffold` — Solana `pf` ladder + dual-MCP wiring
+- `pf_solana_official_mcp` — how to connect official Solana MCP
+
+## Companion: official Solana MCP
+
+ProofForge MCP is **guidance-only** for PF. For live Solana docs + Anchor/Pinocchio
+`program_autofixer`, also connect the official server:
+
+```bash
+codex mcp add solana-mcp --url https://mcp.solana.com/mcp
+# or
+claude mcp add --transport http solana-mcp https://mcp.solana.com/mcp
+```
+
+Landing: https://mcp.solana.com/ · Endpoint: `https://mcp.solana.com/mcp`  
+This Worker does **not** proxy Solana tools — agents should register **both** MCP servers.
+See `docs/product/09-solana-agent-playbook.md`.
 
 ## Content refresh
 
@@ -58,8 +75,9 @@ Bundled snapshots live under `content/`. After editing monorepo docs:
 ```bash
 cp docs/product/chain-client-catalog.v1.json clients/pf-mcp/content/
 cp docs/product/0*.md clients/pf-mcp/content/
-cp docs/demos/aleo-testnet-walkthrough.md clients/pf-mcp/content/
-# regenerate docs-index.json (see package scripts / deploy notes)
+cp docs/demos/*.md clients/pf-mcp/content/
+# regenerate docs-index.json + src/bundled.ts:
+python3 -I scripts/pf_mcp_bundle_content.py   # or the inline regen used in deploy notes
 ```
 
 ## Safety
