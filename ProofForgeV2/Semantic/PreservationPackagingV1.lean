@@ -135,6 +135,68 @@ theorem preservationReturnedCallablesV1_of_stepV1
   rw [hstep] at hresult
   exact hresult
 
+/-- Lift a typed returned-state business theorem to the exact raw callable-row
+    obligation. State/result witnesses come only from production conformance;
+    the resulting typed relation contains the same Reference step equality and
+    preserves the full invocation/context/responses/vault/value/effects
+    surface. -/
+theorem preservationReturnedCallableV1_of_typedV1
+    {State Result : Type}
+    (encodeState : State → Except SemanticWireErrorV1 LogicalStateV1)
+    (encodeResult : Result → Option ReferenceValueV1)
+    (program : SemanticProgramV1)
+    (ordinal : InvariantOrdinalV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (callableId : CallableIdV1)
+    (callable : CallableV1)
+    (hadmit : admitReferenceProgramSliceV1 program = .ok admitted)
+    (decodeStateComplete : ∀ logical,
+      StateConformsV1 program logical →
+        ∃ state, encodeState state = .ok logical)
+    (decodeResultComplete : ∀ referenceValue,
+      ReferenceResultConformsV1 admitted.data callable.result referenceValue →
+        ∃ value, encodeResult value = referenceValue)
+    (hpreserve : TypedReturnedPreservationV1 encodeState encodeResult ordinal
+      ⟨admitted, hadmit⟩ callableId) :
+    PreservationReturnedCallableV1 program ordinal admitted callableId
+      callable := by
+  intro pre invocation responses vault overlay context isInitializer postState
+    referenceValue effects hcallableId hconforms heval hgate hstep
+  obtain ⟨typedPre, hencodePre⟩ := decodeStateComplete pre hconforms
+  obtain ⟨_hprogram, hvalidate⟩ :=
+    admitReferenceProgramSliceV1_ok_implies_validate program admitted hadmit
+  have hinitialized : pre.initialized = true :=
+    (stateConformsV1_elim_of_validate_eq_ok program admitted.data pre hvalidate
+      hconforms).1
+  have hpostConforms : StateConformsV1 program postState :=
+    stepReferenceSliceV1_returned_stateConformsV1_of_initialized
+      program admitted pre postState invocation responses vault referenceValue
+        effects hadmit hinitialized hstep
+  obtain ⟨typedPost, hencodePost⟩ :=
+    decodeStateComplete postState hpostConforms
+  have hresultConforms :
+      ReferenceResultConformsV1 admitted.data callable.result referenceValue :=
+    stepReferenceSliceV1_returned_resultConformsV1 admitted pre postState
+      invocation responses vault callable overlay context isInitializer
+        referenceValue effects hgate hstep
+  obtain ⟨typedValue, hencodeValue⟩ :=
+    decodeResultComplete referenceValue hresultConforms
+  have hpreInvariant : TypedInvariantV1 encodeState program ordinal typedPre :=
+    ⟨pre, hencodePre, heval⟩
+  have hrelation :
+      TypedCallableRelationV1 encodeState encodeResult ⟨admitted, hadmit⟩
+        typedPre invocation responses vault
+          (.returned typedPost typedValue effects) := by
+    refine ⟨pre, hencodePre, postState, hencodePost, ?_⟩
+    rw [hencodeValue]
+    exact hstep
+  have hpostInvariant :=
+    hpreserve typedPre typedPost typedValue effects invocation responses vault
+      hcallableId hpreInvariant hrelation
+  exact
+    (typedInvariantV1_iff_eval_of_encode encodeState program ordinal typedPost
+      postState hencodePost).mp hpostInvariant
+
 /-- Lift a finite exact-row proof into exhaustive admitted-table coverage.
     `hadmittedData` must identify the row source with the same positive
     admission witness used by the production step. -/

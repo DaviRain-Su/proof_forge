@@ -506,6 +506,31 @@ def PreservationReturnedCallableV1
       .returned postState value effects →
     evalInvariantV1 program ordinal postState = .returnedTrue
 
+/-- Author-facing typed business obligation for one callable id. The relation
+    premise remains the canonical `TypedCallableRelationV1`, so invocation,
+    context, responses, vault, returned value, and effects all stay explicit
+    and its only executable equality is headed by `stepReferenceSliceV1`.
+    This proposition does not decode an invocation or define another step. -/
+def TypedReturnedPreservationV1
+    {State Result : Type}
+    (encodeState : State → Except SemanticWireErrorV1 LogicalStateV1)
+    (encodeResult : Result → Option ReferenceValueV1)
+    {program : SemanticProgramV1}
+    (ordinal : InvariantOrdinalV1)
+    (subject : AdmittedSubjectV1 program)
+    (callableId : CallableIdV1) : Prop :=
+  ∀ (pre post : State)
+    (value : Result)
+    (effects : Array OrderedEffectV1)
+    (invocation : InvocationV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1),
+    invocation.callableId = callableId →
+    TypedInvariantV1 encodeState program ordinal pre →
+    TypedCallableRelationV1 encodeState encodeResult subject pre invocation
+        responses vault (.returned post value effects) →
+    TypedInvariantV1 encodeState program ordinal post
+
 /-- Exhaustive returned-state obligations indexed by the exact admitted
     callable table. Looking up every row makes callable coverage fail closed:
     adding or replacing a row changes this proposition. Invalid roots and

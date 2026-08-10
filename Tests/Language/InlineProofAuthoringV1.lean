@@ -169,6 +169,13 @@ theorem PreservingSurfaceProof.safe :
       stepReferenceSliceV1_returned_stateConformsV1_of_initialized
         PreservingSurface.Proof.subjectProgramV1 admitted pre postState invocation
         responses vault value effects hadmit hinitialized hstep
+  have htypedReturned :
+      PreservingSurface.ProofPreserving.safe.callable0TypedReturnedV1 admitted
+        hadmit := by
+    intro pre post value effects invocation responses vault _hcallableId
+      hpreInvariant _htransition
+    have hstate : post = pre := Subsingleton.elim post pre
+    simpa [hstate] using hpreInvariant
   apply
     PreservingSurface.ProofPreserving.safe.ofRowObligationsV1 admitted hvalidate
       hadmit
@@ -197,8 +204,9 @@ theorem PreservingSurfaceProof.safe :
           PreservingSurface.Proof.subjectDataV1 initial #[] hvalidate rfl
         rfl
       exact ⟨initial, hinitial, hconforms, hinvariant.2 initial hconforms⟩
-  · exact hreturned 0
-      (PreservingSurface.Proof.subjectDataV1.callables[0]'(by decide))
+  · exact
+      PreservingSurface.ProofPreserving.safe.callable0ReturnedV1_of_typed
+        admitted hvalidate hadmit htypedReturned
   · exact hreturned 1
       (PreservingSurface.Proof.subjectDataV1.callables[1]'(by decide))
 
@@ -214,6 +222,8 @@ theorem PreservingSurfaceProof.safe :
 #check PreservingSurface.ProofPreserving.safe.ReturnedRowsV1
 #check PreservingSurface.ProofPreserving.safe.callable0ReturnedV1
 #check PreservingSurface.ProofPreserving.safe.callable1ReturnedV1
+#check PreservingSurface.ProofPreserving.safe.callable0TypedReturnedV1
+#check PreservingSurface.ProofPreserving.safe.callable0ReturnedV1_of_typed
 #check PreservingSurface.ProofPreserving.safe.returnedRowsV1
 #check PreservingSurface.ProofPreserving.safe.returnedCallablesOfRowsV1
 #check PreservingSurface.ProofPreserving.safe.ofCallableObligationsV1
@@ -607,6 +617,8 @@ program TypedInvariantOrdinalSurface where
 #check TypedInvariantOrdinalSurface.Model.Invariant.secondary_iff_eval
 #check TypedInvariantOrdinalSurface.ProofPreserving.secondary
 #check TypedInvariantOrdinalSurface.ProofPreserving.secondary.callable0ReturnedV1
+#check TypedInvariantOrdinalSurface.ProofPreserving.secondary.callable0TypedReturnedV1
+#check TypedInvariantOrdinalSurface.ProofPreserving.secondary.callable0ReturnedV1_of_typed
 #check TypedInvariantOrdinalSurface.ProofPreserving.secondary.ReturnedCallablesV1
 #check TypedInvariantOrdinalSurface.ProofPreserving.secondary.ofCallableObligationsV1
 #check TypedInvariantOrdinalSurface.ProofPreserving.secondary.ofRowObligationsV1
@@ -616,6 +628,16 @@ example (admitted : AdmittedReferenceSliceV1) :
         admitted =
       PreservationReturnedCallablesV1
         TypedInvariantOrdinalSurface.Proof.subjectProgramV1 1 admitted := rfl
+
+example (admitted : AdmittedReferenceSliceV1)
+    (hadmit : admitReferenceProgramSliceV1
+      TypedInvariantOrdinalSurface.Proof.subjectProgramV1 = .ok admitted) :
+    TypedInvariantOrdinalSurface.ProofPreserving.secondary.callable0TypedReturnedV1
+        admitted hadmit =
+      TypedReturnedPreservationV1
+        TypedInvariantOrdinalSurface.Model.encodeState
+        TypedInvariantOrdinalSurface.Model.alive.encodeResult 1
+        ⟨admitted, hadmit⟩ 0 := rfl
 
 run_cmd do
   let env ← getEnv
@@ -1161,6 +1183,10 @@ run_cmd do
     `Tests.Language.InlineProofAuthoringV1.ModelReservedStateName.Model.Invariant.safe_iff_eval
   if env.contains invariantBridgeName then
     throwError "unsupported typed state must not emit a dangling invariant bridge"
+  let typedPreservationName :=
+    `Tests.Language.InlineProofAuthoringV1.ModelReservedStateName.ProofPreserving.safe.callable0TypedReturnedV1
+  if env.contains typedPreservationName then
+    throwError "unsupported typed state must not emit a dangling preservation bridge"
 
 /- A generated-root collision with an invariant name withholds only that
    optional typed invariant predicate/bridge, preserving Proof subject aliases. -/

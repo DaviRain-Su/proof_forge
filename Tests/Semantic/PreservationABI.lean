@@ -73,6 +73,27 @@ example (program : SemanticProgramV1) (ordinal : InvariantOrdinalV1)
     PreservationReturnedCallablesV1 program ordinal admitted :=
   preservationReturnedCallablesV1_of_stepV1 program ordinal admitted hstep
 
+example {State Result : Type}
+    (encodeState : State → Except SemanticWireErrorV1 LogicalStateV1)
+    (encodeResult : Result → Option ReferenceValueV1)
+    (program : SemanticProgramV1) (ordinal : InvariantOrdinalV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (callableId : CallableIdV1) (callable : CallableV1)
+    (hadmit : admitReferenceProgramSliceV1 program = .ok admitted)
+    (decodeStateComplete : ∀ logical,
+      StateConformsV1 program logical →
+        ∃ state, encodeState state = .ok logical)
+    (decodeResultComplete : ∀ referenceValue,
+      ReferenceResultConformsV1 admitted.data callable.result referenceValue →
+        ∃ value, encodeResult value = referenceValue)
+    (hpreserve : TypedReturnedPreservationV1 encodeState encodeResult ordinal
+      ⟨admitted, hadmit⟩ callableId) :
+    PreservationReturnedCallableV1 program ordinal admitted callableId
+      callable :=
+  preservationReturnedCallableV1_of_typedV1 encodeState encodeResult program
+    ordinal admitted callableId callable hadmit decodeStateComplete
+      decodeResultComplete hpreserve
+
 example (program : SemanticProgramV1) (ordinal : InvariantOrdinalV1)
     (admitted : AdmittedReferenceSliceV1)
     (data : SemanticProgramDataV1)

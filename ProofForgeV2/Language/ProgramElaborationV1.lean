@@ -2815,6 +2815,7 @@ private def elaborateFieldComparisonCertificatesV1
     generated subject, ordinal, and callable rows; they do not execute or
     reinterpret a callable. -/
 private def elaboratePreservationSkeletonV1
+    (programName : TSyntax `ident)
     (subjectProgramName : TSyntax `ident)
     (subjectDataName : TSyntax `ident)
     (data : SemanticProgramDataV1)
@@ -2901,6 +2902,79 @@ private def elaboratePreservationSkeletonV1
           $subjectProgramName $ordinalTerm $admittedName
           (UInt32.ofNat $callableIndexTerm)
           (($subjectDataName).callables[$callableIndexTerm]'(by decide))))
+  let typedCallableViews :=
+    match modelStateFieldsV1 data with
+    | some _fields => modelCallableViewsV1 data
+    | none => #[]
+  for callableView in typedCallableViews do
+    let callableIndex := callableView.callableId.toNat
+    let callableIndexTerm : TSyntax `term :=
+      ⟨Syntax.mkNumLit (toString callableIndex)⟩
+    let rowName :=
+      mkIdent (Name.mkSimple (s!"callable{callableIndex}ReturnedV1"))
+    let typedRowName :=
+      mkIdent (Name.mkSimple (s!"callable{callableIndex}TypedReturnedV1"))
+    let typedLiftName :=
+      mkIdent
+        (Name.mkSimple (s!"callable{callableIndex}ReturnedV1_of_typed"))
+    let modelNamespace := programName.getId ++ `Model
+    let modelEncodeStateName := mkIdent (modelNamespace ++ `encodeState)
+    let modelEncodeDecodeName :=
+      mkIdent (modelNamespace ++ `encode_decode_of_conforms)
+    let callableModelNamespace :=
+      modelNamespace ++ Name.mkSimple callableView.name
+    let modelEncodeResultName :=
+      mkIdent (callableModelNamespace ++ `encodeResult)
+    let modelDecodeResultCompleteName :=
+      mkIdent (callableModelNamespace ++ `decodeResult_complete_of_conforms)
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Typed business-preservation target for this generated entry/view row.
+          Its transition premise remains the production-backed generic typed
+          relation and retains the full external input/effect surface. -/
+      abbrev $typedRowName
+          ($admittedName :
+            ProofForgeV2.Semantic.ReferenceV1.AdmittedReferenceSliceV1)
+          ($admitName :
+            ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1
+                $subjectProgramName = .ok $admittedName) : Prop :=
+        ProofForgeV2.Semantic.PreservationABI.TypedReturnedPreservationV1
+          $modelEncodeStateName $modelEncodeResultName $ordinalTerm
+            ⟨$admittedName, $admitName⟩ (UInt32.ofNat $callableIndexTerm)))
+    Lean.Elab.Command.elabCommand (← `(
+      /-- Lift this generated typed business theorem to its exact raw returned
+          row. State/result decoding comes only from generated projections of
+          production conformance; no invocation or transition is re-executed. -/
+      theorem $typedLiftName
+          ($admittedName :
+            ProofForgeV2.Semantic.ReferenceV1.AdmittedReferenceSliceV1)
+          ($validateName :
+            ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+                $subjectProgramName = .ok $subjectDataName)
+          ($admitName :
+            ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1
+                $subjectProgramName = .ok $admittedName)
+          (hpreserve : $typedRowName $admittedName $admitName) :
+          $rowName $admittedName := by
+        apply
+          ProofForgeV2.Semantic.PreservationPackagingV1.preservationReturnedCallableV1_of_typedV1
+            $modelEncodeStateName $modelEncodeResultName $subjectProgramName
+              $ordinalTerm $admittedName (UInt32.ofNat $callableIndexTerm)
+              (($subjectDataName).callables[$callableIndexTerm]'(by decide))
+                $admitName
+        · intro logical hconforms
+          obtain ⟨typedState, _hdecode, hencode⟩ :=
+            $modelEncodeDecodeName logical $validateName hconforms
+          exact ⟨typedState, hencode⟩
+        · intro referenceValue hconforms
+          have hadmittedData : ($admittedName).data = $subjectDataName :=
+            (ProofForgeV2.Semantic.ReferenceV1.admitReferenceProgramSliceV1_ok_implies
+              $subjectProgramName $subjectDataName $admittedName $validateName
+                $admitName).2
+          rw [hadmittedData] at hconforms
+          obtain ⟨typedValue, _hdecode, hencode, _hunique⟩ :=
+            $modelDecodeResultCompleteName referenceValue hconforms
+          exact ⟨typedValue, hencode⟩
+        · exact hpreserve))
   let mut rowsBody : TSyntax `term ← `(term| by
     have hbound := ($indexName).isLt
     change ($indexName).val < $callableCountTerm at hbound
@@ -3147,8 +3221,8 @@ private def elaborateProofObligations
         Lean.Elab.Command.elabCommand (← `(abbrev $invariantIdent : Prop :=
           ProofForgeV2.Semantic.PreservationABI.PreservationTheoremV1
             $sharedSubjectName $ordinalTerm))
-        elaboratePreservationSkeletonV1 sharedSubjectName sharedSubjectDataName
-          data invariantName ordinal
+        elaboratePreservationSkeletonV1 programName sharedSubjectName
+          sharedSubjectDataName data invariantName ordinal
     Lean.Elab.Command.elabCommand (← `(end $preservingNamespace))
   Lean.Elab.Command.elabCommand (← `(end $programName))
 elab_rules : command

@@ -707,7 +707,7 @@ proof-bearing target build 继续 fail closed。
 | 1 | Typed State + codec bridge | **进行中（generated Bool/UInt64 codec proof 首切已完成）** | generated `Model.State` 复用 production codec；`Model.encode_exists`、`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；Bool 的产品 accepted-language 接线与更多 scalar shape 仍待补 |
 | 2 | Typed callable transition | **进行中（initialized entry/view + 独立 initializer lifecycle relation 首切已完成）** | pre-init 只使用 exact production lifecycle carrier；initializer returned state 与 ordinary callable returned state 均可唯一投影为 typed State，固定 typed 输入有且至多有一个 typed outcome |
 | 3 | Typed invariant bridge | **进行中（evaluator + UInt64 字段 Eq/Ne 数学 bridge 首切已完成）** | generated predicate 使用 exact state encoder 与 lowered invariant ordinal，并与 production `evalInvariantV1` 双向对齐；exact two-state Eq/Ne CFG 已 fail-closed 投影成字段 `=`/`≠` 且不再暴露 encoding witness；这不是任意 expression translator，更多表达式与 exact validation packaging 仍待补 |
-| 4 | Generic preservation composition | **进行中（composer + generated finite-row assembler + literal-true same-file 闭环已完成）** | exact admitted callable-table coverage + initializer/no-initializer base + per-call returned obligations 自动包成 exact `PreservationTheoremV1`；首个同文件 fixture 已通过 positive admission、production initial state/conformance 与 exact generated rows 产出真实 theorem，nontrivial typed business bridge 和完整 Vault 实例仍待补 |
+| 4 | Generic preservation composition | **进行中（composer + finite-row assembler + typed returned lift + literal-true same-file 闭环已完成）** | exact admitted callable-table coverage + initializer/no-initializer base + per-call returned obligations 自动包成 exact `PreservationTheoremV1`；generated entry/view row 可将 production-backed typed business theorem lift 回 raw row；nontrivial state-changing theorem、typed-argument ergonomics 和完整 Vault 实例仍待补 |
 | 5 | Same-file certifier ergonomics | 部分地基已有 | 任意未 pin 合约的真实 proof body可 certified |
 | 6 | authority amendment + VerifiedVaultPF + NEAR build/runtime | 未开始 | 先批准 versioned invariant-erasure contract，再完成单文件 proof + build + runtime differential；诚实标注 Reference-level |
 | 7 | Per-target refinement | 未开始 | target-specific refinement evidence逐个关闭 |
@@ -809,8 +809,9 @@ proof-bearing target build 继续 fail closed。
    `outcome_unique`；ordinary selector仍只接受 entry/view。回归同时 pin initializer id/kind、ordinary
    view id，以及 relation 展开后每个分支唯一出现的 `stepReferenceSliceV1`；没有 generated evaluator；
 17. typed invariant 已进入下述 Phase 3 首切，并完成 exact UInt64 两字段 Eq/Ne 的普通 Lean
-   数学投影；Phase 4 也已有 per-callable returned composer 与 program-specific exact row/ordinal
-   finite aggregation/assembler，但 typed business bridge、更多 expression shape 与
+   数学投影；Phase 4 也已有 per-callable returned composer、program-specific exact row/ordinal
+   finite aggregation/assembler，以及不隐藏 full inputs 的 typed returned lift；非平凡
+   state-changing business theorem、typed-argument ergonomics、更多 expression shape 与
    premise-free packaging 仍未完成；
 18. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
    完成前不能称 target artifact verified。
@@ -939,17 +940,24 @@ expression translator：
 7. elaborator 已在每个 `ProofPreserving.<inv>` namespace 生成 exact `BaseV1`、initializer/no-init
    分支、`ReturnedCallablesV1`/`ReturnedRowsV1`、逐 callable-index
    `callable<N>ReturnedV1`、finite `returnedRowsV1` 与 `ofRowObligationsV1`；新增/重排 row 会改变
-   assembler premise list。nonzero invariant ordinal 与 exact callable row 均有回归。它只生成
-   theorem target/assembler，不生成业务 proof 或 transition；
+   assembler premise list。对拥有完整 generated Model codec 的 entry/view row，另生成
+   `callable<N>TypedReturnedV1` 与 `callable<N>ReturnedV1_of_typed`；unsupported typed state 不生成
+   dangling bridge，nonzero invariant ordinal 与 exact callable row 均有回归。它只生成 theorem
+   target/lift/assembler，不生成业务 proof 或 transition；
 8. `PreservingSurfaceProof.safe` 已构成首个同文件 preserving 闭环：同一 DSL subject 的 production
    validation 产生 positive admitted witness；无 initializer base 直接使用 production
    `initialLogicalStateV1`（并新增其 empty-state/no-initializer projection theorem）；returned rows
    则由 `stepReferenceSliceV1_returned_stateConformsV1_of_initialized` 证明 post-state conformance，
    最后调用 generated `ofRowObligationsV1` 得到原始 `PreservationTheoremV1`。该 fixture 的
    invariant 是 literal `true`，只验收 authoring/composition 链路，不代表非平凡业务保持性；
-9. 当前尚未把 generated typed `Model.<callable>.Transition` 的非平凡 business theorem便利地桥接到
-   raw returned-row obligation，也尚未完成 VerifiedVaultPF 的 initializer、deposit、withdraw、status
-   returned 业务 lemmas；因此 Phase 4 与“任意业务合约验证”仍不能称完成。
+9. `TypedReturnedPreservationV1` 让作者在 generated State/Result 上证明保持性，premise 仍是唯一
+   production step 支撑的 `TypedCallableRelationV1`，并显式保留 raw invocation/context、responses、
+   vault、returned value/effects；通用 lift 只从 production state/result conformance 获取 typed
+   witness，再用 exact encoder/evaluator bridge 返回 raw `PreservationReturnedCallableV1`。
+   `PreservingSurfaceProof.safe` 的 view row 已实际改用 generated typed lift；
+10. 当前尚未完成 typed UInt64 参数到 named `Model.<callable>.Transition` 的 authoring convenience，也
+   尚无非平凡 state-changing same-file business theorem，也尚未完成 VerifiedVaultPF 的 initializer、
+   deposit、withdraw、status returned 业务 lemmas；因此 Phase 4 与“任意业务合约验证”仍不能称完成。
 
 ---
 
