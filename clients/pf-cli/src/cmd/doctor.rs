@@ -559,6 +559,7 @@ fn next_commands(target: &str) -> Vec<String> {
             "pf deploy -t psy                # save-only wraps deploy-contract".into(),
             "pf deploy -t psy --broadcast --network testnet --private-key-env KEY".into(),
             "pf execute -t psy --network testnet --broadcast --private-key-env KEY -- initialize 7".into(),
+            "# call needs L2 balance (GUTA/DA fees); fund via https://app.psy-protocol.xyz if insufficient balance".into(),
             "bash scripts/psy_local_chain_status.sh".into(),
         ],
         _ => vec![

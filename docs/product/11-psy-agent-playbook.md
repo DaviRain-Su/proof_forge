@@ -182,6 +182,15 @@ pf execute -t psy --artifact build/v2/sc-psy --network testnet --broadcast --pri
 `pf` only shells to `psy_user_cli deploy-contract`. Mainnet refused.
 Probe chain: `bash scripts/psy_local_chain_status.sh`
 
+
+### Funding note (call vs deploy)
+
+- `pf deploy --broadcast` may succeed with **zero L2 balance**.
+- `pf execute` / `psy_user_cli call` burns **GUTA + DA fees** (~1e9 native units observed on staging).
+- If you see `insufficient balance (left: 0, right: 1)`: fund via
+  [Psy app / faucet / bridge](https://app.psy-protocol.xyz) for the registered user, then retry.
+- Check leaf: `psy_user_cli get-user-leaf --user-id <id> --rpc-config <sepolia-config>`.
+
 ## Honesty
 
 - engineering DPN emission ≠ execution / UPS / proof / network settlement  

@@ -75,16 +75,30 @@ pub fn call(req: CallRequest<'_>) -> PfResult<CallOutcome> {
         .arg(contract_id.to_string())
         .arg("--method-name")
         .arg(req.method);
-    if !req.inputs.is_empty() {
-        cmd.arg("--inputs");
+    // Official CLI parses each --inputs value as JSON; scalars must be arrays: [7]
+    // Zero-arity methods still need an empty array so lengths match contract_id/method.
+    cmd.arg("--inputs");
+    if req.inputs.is_empty() {
+        cmd.arg("[]");
+    } else {
+        let mut arr: Vec<serde_json::Value> = Vec::with_capacity(req.inputs.len());
         for i in req.inputs {
             let cleaned = i
                 .trim()
                 .trim_end_matches("u64")
                 .trim_end_matches("felt")
                 .trim();
-            cmd.arg(cleaned);
+            if let Ok(n) = cleaned.parse::<u64>() {
+                arr.push(serde_json::Value::Number(n.into()));
+            } else if let Ok(v) = serde_json::from_str::<serde_json::Value>(cleaned) {
+                // allow already-JSON tokens
+                arr.push(v);
+            } else {
+                arr.push(serde_json::Value::String(cleaned.to_string()));
+            }
         }
+        // One JSON array for the single method call (parallel arrays API uses one entry).
+        cmd.arg(serde_json::Value::Array(arr).to_string());
     }
     if req.wait {
         cmd.arg("--wait-until-confirmation");
@@ -97,10 +111,24 @@ pub fn call(req: CallRequest<'_>) -> PfResult<CallOutcome> {
     let stderr = String::from_utf8_lossy(&out.stderr).into_owned();
     let combined = format!("{stdout}{stderr}");
     if !out.status.success() {
-        return Err(PfError::Network(format!(
+        let mut msg = format!(
             "psy_user_cli call failed (exit {:?}):\n{combined}",
             out.status.code()
-        )));
+        );
+        let low = combined.to_ascii_lowercase();
+        if low.contains("insufficient balance") {
+            msg.push_str(
+                "\n\nhint: account L2 balance is 0 — contract call burns GUTA/DA fees. \
+                 Fund the user via Psy faucet/app (https://app.psy-protocol.xyz) or bridge, \
+                 then retry. Deploy may succeed with zero balance while call does not.",
+            );
+        }
+        if low.contains("expected a sequence") || low.contains("invalid inputs json") {
+            msg.push_str(
+                "\n\nhint: official --inputs must be JSON arrays (pf now sends [7] / []).",
+            );
+        }
+        return Err(PfError::Network(msg));
     }
 
     let log_path = req.save_dir.join(format!(
