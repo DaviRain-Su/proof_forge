@@ -1,29 +1,36 @@
-# Install `pf` (developer CLI) — 30 seconds
+# Install `pf` (developer CLI) — external authors first
 
 `pf` is a **thin orchestrator**. The real compiler is `proof-forge-next`.
-Install **both** on the same machine/path layout when possible.
+**External authors never need `lake build`.** See ADR-0040 /
+`docs/product/14-external-author-mvp.md`.
 
-## Recommended: install → setup → work
+## Recommended (external author): bundle → setup → work
 
 ```bash
-# 1) orchestrator (crates.io)
-cargo install proof-forge-pf --locked          # binary name: pf
+# 1) Get engineering-dist bundle (GitHub Release asset)
+#    proof-forge-bundle-<ver>-linux-x86_64.tar.gz  (or darwin-arm64)
 
-# 2) ALWAYS run setup first — prints copy-paste install commands for missing tools
-pf setup --target aleo
-pf setup --target solana
-pf setup --target solana --yes                # best-effort: cargo install companions
+bash scripts/install.sh --from proof-forge-bundle-*.tar.gz
+# or: pf bootstrap --from proof-forge-bundle-*.tar.gz
 
-# 3) install what setup printed, e.g. Solana offline verifier:
-cargo install proof-forge-solana-client --locked
-export PROOF_FORGE_SOLANA_CLIENT="$(command -v proof-forge-solana-client)"
+export PATH="$HOME/.local/proof-forge/current/bin:$PATH"
+export PROOF_FORGE_CLI="$HOME/.local/proof-forge/current/bin/proof-forge-next"
+export PROOF_FORGE_ROOT="$HOME/.local/proof-forge/current"
+# hostMode defaults to dev (no hermetic host:stat pin)
 
-# 4) compiler (NOT on crates.io — monorepo or Release bundle)
-export PROOF_FORGE_CLI=/path/to/proof-forge-next
+pf version
+pf -y setup --target evm          # installs Tool Lock solc via proof-forge-next install
+pf new hello --target evm && cd hello
+pf build
+```
 
-# 5) re-check
-pf setup --target solana
-pf new counter --target solana && cd counter && pf build && pf verify
+## Alternative: crates.io orchestrator only
+
+```bash
+cargo install proof-forge-pf --locked          # binary name: pf  (version == VERSION)
+# still need the compiler from a Release bundle:
+pf bootstrap --from /path/to/proof-forge-bundle-*.tar.gz
+pf -y setup --target aleo
 ```
 
 ### What each crates.io package is

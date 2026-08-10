@@ -50,12 +50,14 @@ pub fn resolve_compiler() -> PfResult<PathBuf> {
     Err(PfError::Compiler(
         "cannot resolve proof-forge-next.\n\
          The crates.io package only installs the `pf` orchestrator; the Lean compiler \
-         binary is separate.\n\
-         Fix one of:\n\
+         binary is separate (ADR-0040).\n\
+         Fix (external authors — preferred):\n\
+           • pf bootstrap --from /path/to/proof-forge-bundle-*.tar.gz\n\
+           • or: place proof-forge-next next to the `pf` binary (bundle layout)\n\
            • export PROOF_FORGE_CLI=/absolute/path/to/proof-forge-next\n\
-           • place proof-forge-next next to the `pf` binary (see just pf-cli-dist)\n\
+         Contributors only:\n\
            • monorepo: lake build proof_forge_next\n\
-         See clients/pf-cli/ARCHITECTURE.md / INSTALL.md"
+         See clients/pf-cli/INSTALL.md · docs/product/14-external-author-mvp.md"
             .into(),
     ))
 }
@@ -67,11 +69,32 @@ pub fn resolve_package_root() -> Option<PathBuf> {
             return Some(p);
         }
     }
+    // Bundle layout: proof-forge-next lives in bin/; package root is parent.
+    if let Ok(cli) = resolve_compiler() {
+        if let Some(bin_dir) = cli.parent() {
+            if let Some(root) = bin_dir.parent() {
+                if root.join("scripts").join("proof_forge_doctor.py").is_file() {
+                    return Some(root.to_path_buf());
+                }
+            }
+        }
+    }
     let cwd = std::env::current_dir().ok()?;
     if cwd.join("scripts").join("proof_forge_doctor.py").is_file() {
         return Some(cwd);
     }
     None
+}
+
+/// Ensure child compiler processes see engineering host mode when unset.
+pub fn ensure_host_mode_env(cmd: &mut Command) {
+    if std::env::var_os("PROOF_FORGE_HOST_MODE").is_none() {
+        // Match Lean default (dev). Explicit so nested tools see the same mode.
+        cmd.env("PROOF_FORGE_HOST_MODE", "dev");
+    }
+    if let Some(root) = resolve_package_root() {
+        cmd.env("PROOF_FORGE_ROOT", root);
+    }
 }
 
 pub fn run_compiler(args: &[&str], cwd: Option<&Path>) -> PfResult<Output> {
@@ -88,6 +111,7 @@ pub fn run_compiler(args: &[&str], cwd: Option<&Path>) -> PfResult<Output> {
     if let Ok(tr) = std::env::var("PROOF_FORGE_TOOL_ROOT") {
         cmd.env("PROOF_FORGE_TOOL_ROOT", tr);
     }
+    ensure_host_mode_env(&mut cmd);
     let out = cmd
         .output()
         .map_err(|e| PfError::Compiler(format!("failed to spawn {}: {e}", cli.display())))?;
@@ -101,8 +125,21 @@ pub fn run_compiler_checked(args: &[&str], cwd: Option<&Path>) -> PfResult<Outpu
     }
     let stderr = String::from_utf8_lossy(&out.stderr);
     let stdout = String::from_utf8_lossy(&out.stdout);
-    Err(PfError::Compiler(format!(
+    let mut msg = format!(
         "proof-forge-next failed (exit {:?})\n{stderr}{stdout}",
         out.status.code()
-    )))
+    );
+    // EA-P0-6: always leave a single actionable line for agents.
+    if !msg.contains("fix:") {
+        if msg.contains("PF-TOOLCHAIN-MISMATCH") && msg.contains("host") {
+            msg.push_str(
+                "\nfix: export PROOF_FORGE_HOST_MODE=dev   # skip hermetic host pin (default)\n",
+            );
+        } else if msg.contains("PF-TOOLCHAIN-MISSING") {
+            msg.push_str("\nfix: pf setup --target <target> -y\n");
+        } else {
+            msg.push_str("\nfix: pf doctor --target <target>\n");
+        }
+    }
+    Err(PfError::Compiler(msg))
 }

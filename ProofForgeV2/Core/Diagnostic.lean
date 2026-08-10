@@ -73,8 +73,28 @@ def message : CompileError → String
   | .registryDuplicate detail => detail
   | .registryInvalid detail => detail
 
+/-- Human-facing render with external-author fix-up lines (EA-P0-6).
+    Not a second diagnostic schema; stderr convenience only. -/
 def render (error : CompileError) : String :=
-  s!"{error.code}: {error.message}"
+  let base := s!"{error.code}: {error.message}"
+  match error with
+  | .toolchainMissing tool =>
+      s!"{base}\n\
+fix: pf setup --target <target> -y\n\
+# or: proof-forge-next install --targets <target> --yes\n\
+# missing binary '{tool}' — set PROOF_FORGE_TOOL_ROOT after install"
+  | .toolchainMismatch tool _expected _actual =>
+      if tool.startsWith "host:" then
+        s!"{base}\n\
+fix: export PROOF_FORGE_HOST_MODE=dev\n\
+# engineering default skips hermetic host pin (stat/env digest);\n\
+# Tool Root lock tools are still verified. See docs/product/14-external-author-mvp.md\n\
+# hermetic only on lock-native hosts: PROOF_FORGE_HOST_MODE=hermetic"
+      else
+        s!"{base}\n\
+fix: pf doctor --target <target>\n\
+# re-install locked tool: proof-forge-next install --targets <target> --yes"
+  | _ => base
 
 end CompileError
 

@@ -1323,6 +1323,19 @@ package-cli-smoke:
 package-cli-cwd-free-smoke:
     bash scripts/package_cli_cwd_free_smoke.sh
 
+# External Author MVP: pf + proof-forge-next bundle (ADR-0040).
+# Authority: docs/product/14-external-author-mvp.md
+package-bundle *ARGS:
+    bash scripts/package_bundle_dist.sh {{ARGS}}
+
+package-bundle-smoke:
+    bash scripts/package_bundle_dist_smoke.sh
+
+# Bundle → install.sh → pf new → pf build (no monorepo .lake as compiler).
+# Default target=aleo (zero-tool). EVM: PROOF_FORGE_EA_TARGET=evm (needs network for solc).
+external-author-dist-smoke:
+    bash scripts/external_author_dist_smoke.sh
+
 # Minimal Lean Author SDK (Syntax import closure). Engineering-dist only.
 # Authority: docs/product/05-distribution-and-packages.md REL-AUTHOR-0
 package-author-sdk *ARGS:

@@ -3,7 +3,7 @@ id: ENG-BACKLOG
 title: 工程业务 Backlog（文档↔实现差异 + 构建加速）
 status: draft
 owner: engineering
-updated: 2026-08-07
+updated: 2026-08-10
 normative: false
 ---
 
@@ -400,6 +400,41 @@ D1–D4 = 0/27 done。
 
 ---
 
+## 11. External Author MVP（工程化 / 外部可用性，2026-08-10）
+
+权威草稿：[`product/14-external-author-mvp.md`](product/14-external-author-mvp.md)。  
+问题本质：**分发 + host 策略 + 命令闭环**，不是 Lean Hello 语义慢，也不是「再写几个 shell」能代替。
+
+| ID | 项 | 状态 | 说明 |
+|---|---|---|---|
+| **EA-D1..D5** | 产品决策拍板（外部永不 lake / host dev 默认 / testnet broadcast / 同 VERSION / Agent 双轨） | **done** | ADR-0040 proposed；用户 2026-08-10 确认建议默认 |
+| **EA-P0-1** | Release bundle：`pf` + `proof-forge-next` 同包 + install.sh / `pf bootstrap` | **done engineering** | `scripts/package_bundle_dist.sh` + release upload；crates.io 仍仅 orchestrator |
+| **EA-P0-2** | `HostMode=dev`：engineering build 不 pin 他机 `host:stat`；只严校 Tool Root | **done engineering** | `LockedToolchainV1.resolveHostMode` 默认 dev |
+| **EA-P0-3** | `pf setup -t <target> -y` 真装齐（`proof-forge-next install`） | **done engineering** | 有 compiler 即 spawn install；缺 compiler → bootstrap 提示 |
+| **EA-P0-4** | Agent 双轨诚实：stdio MCP spawn 本机 CLI；edge 不装 compile | **partial** | 设计已接受；playbook 默认路径待全文改写 |
+| **EA-P0-5** | 外部路径永不 lake；预编译 next 为 sole 冷启动 | **done engineering** | INSTALL/setup 文案主路径 = bundle |
+| **EA-P0-6** | 错误 → 可执行修复（fix: 行） | **done engineering** | Diagnostic.render + pf compiler wrapper + mismatch fixup |
+| **EA-CI-1** | `install-dist-smoke` / external-author-dist-smoke | **done engineering** | `scripts/external_author_dist_smoke.sh` 挂 release job |
+| **EA-CI-2** | `host-dev-mode-smoke`：非 lock 原生 distro build 不改 lock | **partial** | dev 默认即覆盖；专用 Debian 矩阵仍可加 |
+| **EA-CI-3** | `agent-path-smoke`：仅 env + pf 子命令；禁 lake / 手改 lock | **partial** | EA smoke 断言 compiler 路径不含 `.lake` |
+| **EA-P1-*** | test/deploy/network/UI 脱钩 monorepo；catalog CLI；多发行版矩阵 | **pending** | P0 之后；见 14 §4.2 |
+| **EA-MVP-SLICE** | 最小五切片一轮：bundle + bootstrap + host dev + Ubuntu E2E + fix-up 错误 | **done engineering** | 待本机/CI 绿证据关闭 residual |
+
+**最小 DoD（EVM-first）**：
+
+```text
+干净 Ubuntu（无 monorepo lake 产物）:
+  install.sh | sh
+  pf new hello --target evm && cd hello
+  pf setup --target evm -y && pf doctor --target evm
+  pf build   # exit 0，proof-forge.output.v1
+# 全程无 lake build、无手改 host-profiles.lock.json
+```
+
+推荐击杀：`EA-D*` 确认 → `EA-P0-1` ∥ `EA-P0-2` → `EA-P0-3` → `EA-CI-*` 挂 release gate → 文档两轨（P2）→ P1 日用。
+
+---
+
 ## 推荐击杀顺序（产品开发）
 
 ```text
@@ -451,6 +486,7 @@ D1–D4 = 0/27 done。
 | 2026-08-10 | **ALEO-LOAD-A**：官方 Leo `abi` 加载门 + reserved-name FC；三波计划（A load / B interpret / C Dev·Testnet；Mainnet 不做产品路径）登记 `docs/plan/aleo-official-load-dev-testnet.md` |
 | 2026-08-10 | **ALEO-LOAD-B**：PF Instructions 本地 VM interpret（Leo runner + imports 字节钉扎）；`just aleo-instructions-interpret`；非 proof/Devnet |
 | 2026-08-10 | **ALEO-LOAD-C**：testnet deploy/execute **tx save**（默认无 broadcast）；PF↔Leo twin exact bytecode；mainnet 拒绝；broadcast 显式 opt-in |
+| 2026-08-10 | **External Author MVP**：登记 §11 + [`product/14-external-author-mvp.md`](product/14-external-author-mvp.md)（bundle 分发 / host dev / setup 真装齐 / CI 三绿线）；诊断：慢在工具链交付与宿主门禁，非 program Hello 语义 |
 
 ---
 

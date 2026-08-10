@@ -10,6 +10,8 @@ name: Release engineering-dist
 # Assets:
 #   proof-forge-next-<ver>-linux-x86_64.tar.gz(+.sha256)
 #   proof-forge-next-<ver>-darwin-arm64.tar.gz(+.sha256)
+#   proof-forge-bundle-<ver>-linux-x86_64.tar.gz(+.sha256)   # ADR-0040: pf+next
+#   proof-forge-bundle-<ver>-darwin-arm64.tar.gz(+.sha256)
 #   proof-forge-author-<ver>.tar.gz(+.sha256)
 #   proof_forge_sdk / proof-forge-sdk wheel + sdist (+.sha256)
 #   Host SDK also published to PyPI on tag push (Trusted Publishing / environment pypi)
@@ -81,6 +83,12 @@ jobs:
       - name: Package CLI engineering dist
         run: just package-cli
 
+      - name: Package external-author bundle (pf + next)
+        run: |
+          set -euo pipefail
+          # Align pf Cargo version is gated inside package_bundle_dist.sh
+          just package-bundle
+
       - name: Version identity smoke
         shell: bash
         run: |
@@ -91,6 +99,17 @@ jobs:
           # Platform id in archive name
           ls dist/proof-forge-next-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz
           ls dist/proof-forge-next-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz.sha256
+          ls dist/proof-forge-bundle-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz
+          ls dist/proof-forge-bundle-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz.sha256
+
+      - name: External-author path smoke (bundle only, hostMode=dev)
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PROOF_FORGE_BUNDLE_ARCHIVE="dist/proof-forge-bundle-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz"
+          export PROOF_FORGE_EA_TARGET=aleo
+          export PROOF_FORGE_HOST_MODE=dev
+          bash scripts/external_author_dist_smoke.sh
 
       - name: Upload CLI artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
@@ -99,6 +118,8 @@ jobs:
           path: |
             dist/proof-forge-next-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz
             dist/proof-forge-next-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz.sha256
+            dist/proof-forge-bundle-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz
+            dist/proof-forge-bundle-${{ steps.ver.outputs.version }}-${{ matrix.platform }}.tar.gz.sha256
           if-no-files-found: error
 
   package-portable:
@@ -205,6 +226,8 @@ jobs:
           # Required CLI arches
           test -f release-assets/proof-forge-next-${{ steps.ver.outputs.version }}-linux-x86_64.tar.gz
           test -f release-assets/proof-forge-next-${{ steps.ver.outputs.version }}-darwin-arm64.tar.gz
+          test -f release-assets/proof-forge-bundle-${{ steps.ver.outputs.version }}-linux-x86_64.tar.gz
+          test -f release-assets/proof-forge-bundle-${{ steps.ver.outputs.version }}-darwin-arm64.tar.gz
           test -f release-assets/proof-forge-author-${{ steps.ver.outputs.version }}.tar.gz
           ls release-assets/*.whl | head -1
 
@@ -223,21 +246,31 @@ jobs:
             **Channel:** `engineering-dist`  
             **Not** formal Stage-0 / hermetic / mainnet / `just release-check`.
 
-            ### CLI (native)
+            ### External authors (preferred) — bundle ADR-0040
+            | Platform | Asset |
+            |---|---|
+            | linux-x86_64 | `proof-forge-bundle-${{ steps.ver.outputs.version }}-linux-x86_64.tar.gz` |
+            | darwin-arm64 | `proof-forge-bundle-${{ steps.ver.outputs.version }}-darwin-arm64.tar.gz` |
+
+            ```bash
+            # or: curl …/scripts/install.sh | PROOF_FORGE_BUNDLE_URL=… sh
+            bash scripts/install.sh --from proof-forge-bundle-${{ steps.ver.outputs.version }}-linux-x86_64.tar.gz
+            export PATH="$HOME/.local/proof-forge/current/bin:$PATH"
+            export PROOF_FORGE_CLI="$HOME/.local/proof-forge/current/bin/proof-forge-next"
+            export PROOF_FORGE_ROOT="$HOME/.local/proof-forge/current"
+            # default hostMode=dev (no Mint/stat pin). Tool Root tools still locked.
+            pf -y setup --target aleo
+            pf new hello --target aleo && cd hello && pf build
+            ```
+
+            ### CLI compiler-only (native)
             | Platform | Asset |
             |---|---|
             | linux-x86_64 | `proof-forge-next-${{ steps.ver.outputs.version }}-linux-x86_64.tar.gz` |
             | darwin-arm64 | `proof-forge-next-${{ steps.ver.outputs.version }}-darwin-arm64.tar.gz` |
 
-            ```bash
-            tar -xzf proof-forge-next-${{ steps.ver.outputs.version }}-linux-x86_64.tar.gz
-            export PROOF_FORGE_CLI=$PWD/proof-forge-next-${{ steps.ver.outputs.version }}-linux-x86_64/bin/proof-forge-next
-            "$PROOF_FORGE_CLI" version --json
-            "$PROOF_FORGE_CLI" doctor --target aleo --json   # CWD-free
-            ```
-
             Tool Lock *tool binaries* are not bundled; use `install --targets …`.
-            Dist includes `scripts/` + Tool Lock pin JSON.
+            Dist includes `scripts/` + Tool Lock pin JSON. **Not** monorepo `lake build`.
 
             ### Lean Author SDK
             `proof-forge-author-${{ steps.ver.outputs.version }}.tar.gz` — path-require for Lake/IDE.

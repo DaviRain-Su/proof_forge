@@ -90,10 +90,11 @@ pub fn setup(target: &str, yes: bool, json: bool) -> PfResult<()> {
         "next": next_commands(target),
     }));
     ok.notes = Some(vec![
-        "run `pf setup` first after cargo install".into(),
+        "run `pf setup -y` after bootstrap / bundle install".into(),
         "setup never rewrites deployable".into(),
-        "crates.io companions: proof-forge-pf + proof-forge-solana-client".into(),
-        "compiler proof-forge-next is NOT on crates.io".into(),
+        "external authors: pf bootstrap --from bundle.tar.gz (not lake build)".into(),
+        "compiler proof-forge-next is NOT on crates.io — use Release bundle".into(),
+        "default PROOF_FORGE_HOST_MODE=dev (skips hermetic host pin)".into(),
         "not formal Stage-0".into(),
     ]);
 
@@ -162,15 +163,17 @@ fn collect_deps(target: &str) -> Vec<Dep> {
         Err(_) => deps.push(Dep {
             id: "proof-forge-next",
             status: "need",
-            summary: "Lean product compiler (NOT on crates.io)".into(),
+            summary: "Lean product compiler (NOT on crates.io) — use bundle".into(),
             install: vec![
-                "# pick ONE:".into(),
-                "# A) monorepo".into(),
-                "git clone https://github.com/DaviRain-Su/proof_forge && cd proof_forge".into(),
-                "lake build proof_forge_next".into(),
-                "export PROOF_FORGE_CLI=\"$PWD/.lake/build/bin/proof-forge-next\"".into(),
-                "# B) side-by-side Release / just pf-cli-dist bundle — place next to `pf`".into(),
-                "# export PROOF_FORGE_CLI=/path/to/proof-forge-next".into(),
+                "# External authors (preferred) — ADR-0040 bundle:".into(),
+                "pf bootstrap --from /path/to/proof-forge-bundle-<ver>-<plat>.tar.gz".into(),
+                "# or:".into(),
+                "bash scripts/install.sh --from /path/to/proof-forge-bundle-*.tar.gz".into(),
+                "export PATH=\"$HOME/.local/proof-forge/current/bin:$PATH\"".into(),
+                "export PROOF_FORGE_CLI=\"$HOME/.local/proof-forge/current/bin/proof-forge-next\"".into(),
+                "export PROOF_FORGE_ROOT=\"$HOME/.local/proof-forge/current\"".into(),
+                "# Contributors only (monorepo):".into(),
+                "# lake build proof_forge_next && export PROOF_FORGE_CLI=$PWD/.lake/build/bin/proof-forge-next".into(),
             ],
             path: None,
         }),
@@ -496,26 +499,34 @@ fn try_auto_install(target: &str) -> Vec<String> {
         }
     }
 
-    // Compiler install via proof-forge-next when monorepo root known.
-    if let (Ok(cli), Some(root)) = (
-        compiler::resolve_compiler(),
-        compiler::resolve_package_root(),
-    ) {
-        let status = Command::new(&cli)
-            .args(["install", "--targets", target, "--yes"])
-            .current_dir(&root)
-            .status();
-        match status {
-            Ok(s) if s.success() => notes.push(format!(
-                "ran {} install --targets {target} --yes",
-                cli.display()
-            )),
-            Ok(s) => notes.push(format!(
-                "proof-forge-next install exited {:?} (may be ok if tools already locked)",
-                s.code()
-            )),
-            Err(e) => notes.push(format!("proof-forge-next install spawn failed: {e}")),
+    // Compiler Tool Lock install via proof-forge-next (bundle or monorepo package root).
+    match compiler::resolve_compiler() {
+        Ok(cli) => {
+            let mut cmd = Command::new(&cli);
+            cmd.args(["install", "--targets", target, "--yes"]);
+            compiler::ensure_host_mode_env(&mut cmd);
+            if let Some(root) = compiler::resolve_package_root() {
+                cmd.current_dir(&root);
+                cmd.env("PROOF_FORGE_ROOT", &root);
+            }
+            // Prefer isolated default tool root; inherit if user set one.
+            let status = cmd.status();
+            match status {
+                Ok(s) if s.success() => notes.push(format!(
+                    "ran {} install --targets {target} --yes",
+                    cli.display()
+                )),
+                Ok(s) => notes.push(format!(
+                    "proof-forge-next install exited {:?} (may be ok if tools already locked or network blocked)",
+                    s.code()
+                )),
+                Err(e) => notes.push(format!("proof-forge-next install spawn failed: {e}")),
+            }
         }
+        Err(_) => notes.push(
+            "proof-forge-next not resolved — run: pf bootstrap --from proof-forge-bundle-*.tar.gz"
+                .into(),
+        ),
     }
 
     notes

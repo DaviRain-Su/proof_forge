@@ -29,6 +29,7 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 | **Hello agent playbook** | **done engineering**（[`03-hello-dapp-agent-playbook.md`](03-hello-dapp-agent-playbook.md)；MCP 顺序 doctor→install→build/local→artifacts） |
 | **Chain client catalog** | **done engineering**（[`04-chain-client-catalog.md`](04-chain-client-catalog.md) + `chain-client-catalog.v1.json` + `pf_chain_catalog` / SDK `chain_catalog`；元数据 only） |
 | **Distribution / packages** | **engineering-dist + PyPI wiring done**（[`05-distribution-and-packages.md`](05-distribution-and-packages.md) / [`06-pypi-host-sdk.md`](06-pypi-host-sdk.md)：CLI multi-arch、Author SDK、Host wheel+OIDC PyPI job；Trusted Publisher 需一次人工配置；formal Stage-0 仍 pending） |
+| **External Author MVP** | **planned**（[`14-external-author-mvp.md`](14-external-author-mvp.md)：`pf`+`proof-forge-next` 同包 bundle、host `dev` 模式不钉他机 `stat`、`pf setup -y` 真装齐、干净 Ubuntu install→new→build CI；外部作者默认路径禁止 monorepo `lake build`） |
 
 本文是 **产品契约与实现顺序** 的权威草稿；I0–I2、MCP-V0、SDK-V0 与 distribution engineering dist 已接线。Aleo/Psy 仅保留 zero-tool direct materializer；不再提供 Leo/Dargo/snarkOS/local VM/network 产品或工程 lane。不声称 formal / hermetic / mainnet / Stage-0。
 

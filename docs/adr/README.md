@@ -58,3 +58,4 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0037](0037-developer-cli-pf.md) | Rust Developer CLI `pf` 与 compiler CLI 权威分离；Aleo-first 安全编排 | proposed |
 | [ADR-0038](0038-evm-hashed-map-storage-profile.md) | EVM hashed-Map storage profile folded into the product default | proposed |
 | [ADR-0039](0039-psy-hash-gadgets-gate.md) | Psy hash gadgets；hashNoPad/twoToOne/keccak open；hashPad emit-only | accepted-partial |
+| [ADR-0040](0040-external-author-host-mode-and-bundle.md) | Engineering `HostMode=dev` 默认 + external-author bundle（pf+next 同 VERSION）；外部作者永不 lake build | proposed |

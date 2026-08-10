@@ -102,6 +102,47 @@ private def embeddedHostLock : String := include_str "../../host-profiles.lock.j
 
 private def isDarwinHost : Bool := System.Platform.isOSX
 
+/-- Host verification mode (External Author MVP / ADR-0040).
+
+    * `hermetic` — pin host `stat`/`env` digests from embedded `host-profiles.lock.json`
+      (lock-native CI / formal hosts only).
+    * `dev` — use the machine's `/usr/bin/stat` and `/usr/bin/env` **without** digest pin;
+      still fully verify Tool Root content-addressed tools (solc, sbpf, …).
+
+    Default is `dev` so Debian/Ubuntu/etc. can `pf build` without rewriting the embedded
+    Mint/Darwin host lock. Set `PROOF_FORGE_HOST_MODE=hermetic` to restore fail-closed pins.
+    Dev mode is **not** hermetic / Stage-0 / formal evidence. -/
+inductive HostMode where
+  | hermetic
+  | dev
+  deriving BEq, Repr
+
+def hostModeName : HostMode → String
+  | .hermetic => "hermetic"
+  | .dev => "dev"
+
+/-- Read `PROOF_FORGE_HOST_MODE`. Unset → `dev`. Unknown value → hard error. -/
+private def asciiLowerChar (c : Char) : Char :=
+  if 'A' ≤ c && c ≤ 'Z' then Char.ofNat (c.toNat + 32) else c
+
+private def asciiLower (s : String) : String :=
+  s.map asciiLowerChar
+
+def resolveHostMode : IO HostMode := do
+  match (← IO.getEnv "PROOF_FORGE_HOST_MODE") with
+  | none => pure .dev
+  | some raw =>
+      let v := asciiLower raw.trimAscii.copy
+      if v == "dev" || v == "engineering" || v == "default" then
+        pure .dev
+      else if v == "hermetic" || v == "formal" || v == "strict" then
+        pure .hermetic
+      else
+        throw <| IO.userError
+          s!"PF-TOOLCHAIN-MISMATCH: unknown PROOF_FORGE_HOST_MODE '{raw}' \
+(want dev|engineering|hermetic)\n\
+fix: unset PROOF_FORGE_HOST_MODE  # defaults to dev"
+
 /-- Both platforms share Tool Lock v4 (`cargo-git` + `sourceBuild`); platform
     policy (macho vs elf) is selected by host, not by schema name. -/
 private def expectedLockSchema : String := "proof-forge.toolchains.v4"
@@ -124,8 +165,21 @@ private def loadHostLock : Except String HostLockFile := do
 private def throwCompile (error : CompileError) : IO α :=
   throw <| IO.userError error.render
 
-private def mismatch (message : String) : IO α :=
-  throw <| IO.userError s!"PF-TOOLCHAIN-MISMATCH: {message}"
+private def mismatch (message : String) : IO α := do
+  -- Host-pin failures mention host: / system tool; Tool Root failures need install.
+  let hostish :=
+    message.startsWith "host:" || message.contains "host profile" ||
+      message.contains "host system" || message.contains "exactly one host profile"
+  let fixup :=
+    if hostish then
+      "fix: export PROOF_FORGE_HOST_MODE=dev\n\
+# engineering default (unset) skips hermetic host pin; Tool Root tools still verified\n\
+# see docs/product/14-external-author-mvp.md"
+    else
+      "fix: pf doctor --target <target>\n\
+# or: proof-forge-next install --targets <target> --yes\n\
+# host pin issues only: export PROOF_FORGE_HOST_MODE=dev"
+  throw <| IO.userError s!"PF-TOOLCHAIN-MISMATCH: {message}\n{fixup}"
 
 private def safeRelativeComponents (label path : String) : IO (List String) := do
   let components := path.splitOn "/"
@@ -399,21 +453,64 @@ private def verifyProtectedPath (statTool : VerifiedSystemTool) (label : String)
       mismatch s!"{label} path has unexpected node type at '{component}'"
     verifyNotGroupOrWorldWritable statTool label component
 
+/-- Dev-mode host utility: exist + regular file, hash is session evidence only
+    (not compared to embedded host lock). -/
+private def resolveHostUtilityDev (id : String) (candidates : Array String)
+    (requireSingleLink : Bool) : IO VerifiedSystemTool := do
+  let mut found : Option FilePath := none
+  for c in candidates do
+    let p := FilePath.mk c
+    if (← p.pathExists) then
+      found := some p
+      break
+  let path ← match found with
+    | some p => pure p
+    | none =>
+        throw <| IO.userError
+          s!"PF-TOOLCHAIN-MISSING: host system tool '{id}' \
+(tried {candidates}; hostMode=dev)\n\
+fix: install coreutils / ensure /usr/bin/{id} exists"
+  unless path.isAbsolute do
+    mismatch s!"host:{id} path must be absolute"
+  let before ← path.symlinkMetadata
+  unless before.type == .file do
+    mismatch s!"host:{id} must be a regular file"
+  if requireSingleLink && before.numLinks != 1 then
+    -- Dev mode: warn-soft — some distros multi-link env/stat; still usable for
+    -- permission probes. Do not fail closed (that is hermetic's job).
+    pure ()
+  let realPath ← IO.FS.realPath path
+  let bytes ← IO.FS.readBinFile realPath
+  let actualHash := sha256Hex bytes
+  return { id, path := realPath, sha256 := actualHash }
+
 private def resolveStat : IO VerifiedSystemTool := do
-  let profile ← singleHostProfile
-  -- Darwin's signed `/usr/bin/stat` has two system-owned hard links. Its exact
-  -- content is locked, then it is used only to inspect permission bits that
-  -- Lean's portable Metadata API does not expose.
-  let statTool ← resolveSystemToolBasic profile "stat" false
-  verifyProtectedPath statTool "host:stat" statTool.path .file
-  return statTool
+  match ← resolveHostMode with
+  | .hermetic =>
+      let profile ← singleHostProfile
+      -- Darwin's signed `/usr/bin/stat` has two system-owned hard links. Its exact
+      -- content is locked, then it is used only to inspect permission bits that
+      -- Lean's portable Metadata API does not expose.
+      let statTool ← resolveSystemToolBasic profile "stat" false
+      verifyProtectedPath statTool "host:stat" statTool.path .file
+      return statTool
+  | .dev =>
+      -- No digest pin against Mint/Darwin lock. Prefer well-known absolute paths.
+      resolveHostUtilityDev "stat" #["/usr/bin/stat", "/bin/stat"] false
 
 private def resolveLauncher : IO (VerifiedSystemTool × VerifiedSystemTool) := do
-  let profile ← singleHostProfile
-  let statTool ← resolveStat
-  let launcher ← resolveSystemToolBasic profile "env" true
-  verifyProtectedPath statTool "host:env" launcher.path .file
-  return (launcher, statTool)
+  match ← resolveHostMode with
+  | .hermetic =>
+      let profile ← singleHostProfile
+      let statTool ← resolveStat
+      let launcher ← resolveSystemToolBasic profile "env" true
+      verifyProtectedPath statTool "host:env" launcher.path .file
+      return (launcher, statTool)
+  | .dev =>
+      let statTool ← resolveStat
+      let launcher ←
+        resolveHostUtilityDev "env" #["/usr/bin/env", "/bin/env"] false
+      return (launcher, statTool)
 
 private def expectedDirectories (files : Array LockedBundleFile) : IO (Array String) := do
   let mut directories : Array String := #[]

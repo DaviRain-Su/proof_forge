@@ -45,7 +45,25 @@ enum Commands {
         #[arg(long)]
         path: Option<PathBuf>,
     },
-    /// Show toolchain status (compiler + host Leo when present)
+    /// Install engineering bundle (pf + proof-forge-next) via scripts/install.sh
+    Bootstrap {
+        /// Local proof-forge-bundle-*.tar.gz
+        #[arg(long)]
+        from: Option<PathBuf>,
+        /// Install prefix (default: ~/.local/proof-forge)
+        #[arg(long)]
+        prefix: Option<PathBuf>,
+        /// Bundle download URL (or set PROOF_FORGE_BUNDLE_URL)
+        #[arg(long)]
+        url: Option<String>,
+        /// Expected sha256 of tarball
+        #[arg(long)]
+        sha256: Option<String>,
+        /// Append PATH exports to shell rc
+        #[arg(long)]
+        yes_path: bool,
+    },
+    /// Show toolchain status; with global `-y` / `--yes`, install missing pieces
     Setup {
         #[arg(long)]
         target: Option<String>,
@@ -201,6 +219,7 @@ fn main() {
 fn command_name(command: &Commands) -> &'static str {
     match command {
         Commands::New { .. } => "new",
+        Commands::Bootstrap { .. } => "bootstrap",
         Commands::Setup { .. } => "setup",
         Commands::Doctor { .. } => "doctor",
         Commands::Build(_) => "build",
@@ -223,6 +242,20 @@ fn dispatch(cli: Cli) -> PfResult<()> {
         Commands::New { name, target, path } => {
             cmd::new::run(&name, Some(&target), path.as_ref(), json)
         }
+        Commands::Bootstrap {
+            from,
+            prefix,
+            url,
+            sha256,
+            yes_path,
+        } => cmd::bootstrap::run(cmd::bootstrap::BootstrapOpts {
+            from: from.as_deref(),
+            prefix: prefix.as_deref(),
+            url: url.as_deref(),
+            sha256: sha256.as_deref(),
+            yes_path,
+            json,
+        }),
         Commands::Setup { target } => {
             let t = target.unwrap_or_else(|| project::DEFAULT_TARGET.into());
             cmd::doctor::setup(&t, cli.yes, json)
