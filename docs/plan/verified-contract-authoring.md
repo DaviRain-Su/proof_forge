@@ -868,7 +868,10 @@ expression translator：
     structure/validation success；production array worker 现在也补齐了不要求 caller 提供
     element bytes 的二元素 fixed-depth lift，并可将任意 exact items-array certificate 通过
     唯一的 tagged `ProgramRequirementsV1` codec wrapper 提升，目标的两行 requirements
-    不再需要另写 closed byte proof；
+    不再需要另写 closed byte proof；在这些 leaf/table seams 上，现已有独立的、名称与
+    qualified-name 参数化的 field-comparison subject family，实际 generated equality fixture
+    与它 definitionally 相等，并已取得真实 whole-program `RootFieldInvertV1`；该结论仍只
+    是 codec transport certificate，尚未声称 structure/full validation success；
     当前已把 `subjectBodyEncodeOkV1` + 全部 production root gates + structure success +
     whole-program `RootFieldInvertV1` 组合 exact validation 的 theorem 抽到通用
     `SubjectDataBridgeV1`，不再归属于 parity shape；elaborator 现已对每个 proof-bearing program

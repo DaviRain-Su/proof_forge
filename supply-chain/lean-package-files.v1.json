@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 5455,
+      "bytes": 5509,
       "path": "ProofForgeV2.lean",
-      "sha256": "a1b9ff63fa14bfc0fa780033c474c2f90a4fb22033f60996778b62091582dea0"
+      "sha256": "67ac493e12dcfbd615b04e166d7ae915fdef65d054c6dad1448f074b6fdfb540"
     },
     {
       "bytes": 93998,
@@ -274,6 +274,11 @@
       "bytes": 8688,
       "path": "ProofForgeV2/Semantic/AuthorWireCertV1.lean",
       "sha256": "219bb09ae2700d055320076d0c38c4236c22a50735cbb89f3b7db3687940df1a"
+    },
+    {
+      "bytes": 9372,
+      "path": "ProofForgeV2/Semantic/FieldComparisonSubjectV1.lean",
+      "sha256": "c3fa5d5df87cbbb639f8d61d681b9e199812d1438651ed2f2f80eb025e8577b0"
     },
     {
       "bytes": 3891,

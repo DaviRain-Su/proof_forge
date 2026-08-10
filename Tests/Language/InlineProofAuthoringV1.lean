@@ -1,4 +1,5 @@
 import ProofForgeV2.Language.ProgramElaborationV1
+import ProofForgeV2.Semantic.FieldComparisonSubjectV1
 import ProofForgeV2.Semantic.SimpleClosureTraceV1
 
 open ProofForgeV2.Language
@@ -336,6 +337,28 @@ program TypedInvariantFieldEqualitySurface where
 #check TypedInvariantFieldEqualitySurface.Model.encode_exists
 #check TypedInvariantFieldEqualitySurface.Model.Invariant.solvent_iff_eval
 #check TypedInvariantFieldEqualitySurface.Model.Invariant.solvent_iff_fields
+
+/-- The generated subject is definitionally the parameterized production
+    field-comparison family; no admission carrier supplies these fields. -/
+theorem typedInvariantFieldEqualitySubject_subjectData_eq :
+    TypedInvariantFieldEqualitySurface.Proof.subjectDataV1 =
+      ProofForgeV2.Semantic.FieldComparisonSubjectV1.subjectDataV1
+        TypedInvariantFieldEqualitySurface.Proof.subjectDataV1.qualifiedName
+        "nonce" "reserves" "shares" "alive" "primary" "solvent"
+        "nonsolvent" := rfl
+
+/-- The actual generated subject now has a whole-program production-codec
+    inversion package. Structure and full validation remain separate gates. -/
+theorem typedInvariantFieldEqualitySubject_rootFieldInvertV1 :
+    RootFieldInvertV1
+      TypedInvariantFieldEqualitySurface.Proof.subjectDataV1 := by
+  rw [typedInvariantFieldEqualitySubject_subjectData_eq]
+  exact
+    ProofForgeV2.Semantic.FieldComparisonSubjectV1.rootFieldInvertV1
+      TypedInvariantFieldEqualitySurface.Proof.subjectDataV1.qualifiedName
+      "nonce" "reserves" "shares" "alive" "primary" "solvent"
+      "nonsolvent" (by rfl) (by rfl) (by rfl) (by rfl)
+      (by rfl) (by rfl) (by rfl)
 
 example
     (typedState : TypedInvariantFieldEqualitySurface.Model.State)
