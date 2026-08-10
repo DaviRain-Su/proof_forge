@@ -20,8 +20,12 @@ pub fn run(name: &str, target: Option<&str>, path: Option<&PathBuf>, json: bool)
         println!("created {}", dir.display());
         println!("  config: {}/{}", dir.display(), project::CONFIG_NAME);
         println!("  default-target: {target}");
+        println!("  depends-on: proof-forge-next (compiler binary) + ProofForgeV2 (source gate)");
+        println!();
+        println!("note: this is not a Lake package; set PROOF_FORGE_CLI or toolchain.compiler-path");
         println!();
         println!("next:");
+        println!("  export PROOF_FORGE_CLI=/path/to/proof-forge-next");
         println!("  cd {}", dir.display());
         println!("  pf build");
         println!("  pf run -- initialize 5u64");

@@ -21,6 +21,7 @@ pub fn run(
     json: bool,
 ) -> PfResult<()> {
     let project = Project::discover()?;
+    project.apply_toolchain_env()?;
     let target = project.resolve_target(target_cli);
     targets::require_aleo(&target)?;
     let network = NetworkKind::parse(&project.resolve_network(network_cli))?;

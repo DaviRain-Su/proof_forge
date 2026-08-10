@@ -12,6 +12,7 @@ pub fn run(
     json: bool,
 ) -> PfResult<()> {
     let project = Project::discover()?;
+    project.apply_toolchain_env()?;
     let (source, module, root_from_project) = project.resolve_source_module(source, module)?;
     let root = root.or(root_from_project.as_deref());
     let mut owned = vec![

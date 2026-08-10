@@ -19,6 +19,7 @@ pub fn run(
         ));
     }
     let project = Project::discover()?;
+    project.apply_toolchain_env()?;
     let target = project.resolve_target(target_cli);
     targets::require_aleo(&target)?;
     let dir = project.resolve_artifact_dir(&target, artifact_cli, None);

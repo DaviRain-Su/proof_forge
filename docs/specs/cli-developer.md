@@ -44,6 +44,22 @@ Compiler CLI 契约仍见 [SPEC-CLI-001](cli.md)（`proof-forge-next` only）。
 
 项目文件：`pf.toml`（`pf new` 生成）。默认 target=`aleo`，默认输出=`build/<target>/`。
 
+### 3.0 依赖模型（与 Cargo/Lake 的差异）
+
+外部合约工程 **不是** Lake package，**不** `require proof-forge-next` 作为 Lean 库。
+
+| 依赖 | 声明位置 | 运行时含义 |
+|---|---|---|
+| 编译器产品 | `[dependencies] compiler = "proof-forge-next"` | `pf` spawn 该二进制 |
+| 语言/DSL 门 | `[dependencies] language = "ProofForgeV2"` | 源文件必须含 exact `import ProofForgeV2`（**文本 gate**，非 Lake 解析） |
+| 二进制路径 | `PROOF_FORGE_CLI` 或 `[toolchain].compiler-path` | 找到 `proof-forge-next` |
+| 可选 monorepo root | `PROOF_FORGE_ROOT` / `[toolchain].root` | doctor/install 包根 |
+| 可选 host SDK | Python `proof-forge-sdk` | **不**写进合约 `pf.toml`；给 Agent/脚本用 |
+
+`import ProofForgeV2` / `open ProofForgeV2.Language` 看起来像 Lean import，在外部
+`pf build` 路径上只是 **source gate + DSL 语法标记**；真正的编译语义在
+`proof-forge-next` 进程内 Loader，不在用户 Lake 依赖图里。
+
 ```text
 pf new <name> [--target aleo]
 pf build [-t <target>] [-o <out>]          # 读 pf.toml；可省略 source/module

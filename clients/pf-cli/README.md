@@ -41,6 +41,29 @@ cd hello
 | `pf list-targets` | Implemented targets from compiler |
 | `pf version` | pf + compiler path + leo |
 
+## Dependency model (important)
+
+This is **not** a Lake/`cargo` library project. You do **not** put ProofForge in
+`lake-packages` or crates.io.
+
+```text
+your project (pf.toml + src/*.lean)
+        │
+        ▼  pf build
+proof-forge-next   ← real dependency (compiler binary)
+        │
+        ▼
+build/<target>/    (.aleo / other artifacts)
+```
+
+| Dependency | Declared as | Resolved by |
+|---|---|---|
+| Compiler | `[dependencies] compiler = "proof-forge-next"` | `PROOF_FORGE_CLI` or `[toolchain].compiler-path` |
+| Language gate | `[dependencies] language = "ProofForgeV2"` | source must contain `import ProofForgeV2` |
+| Host SDK (optional) | *not in pf.toml* | `pip install proof-forge-sdk` for agents only |
+
+`import ProofForgeV2` is a **product source-gate string**, not a Lake import graph edge.
+
 ## Defaults (like Cargo)
 
 | Setting | Default | Override |
@@ -57,6 +80,14 @@ Example `pf.toml`:
 name = "hello"
 module = "Hello"
 source = "src/Hello.lean"
+
+[dependencies]
+compiler = "proof-forge-next"
+language = "ProofForgeV2"
+
+[toolchain]
+channel = "stable"
+# compiler-path = "/abs/path/to/proof-forge-next"
 
 [build]
 default-target = "aleo"

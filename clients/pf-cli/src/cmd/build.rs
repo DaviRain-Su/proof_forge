@@ -18,6 +18,7 @@ pub struct BuildOpts<'a> {
 
 pub fn run(opts: BuildOpts<'_>) -> PfResult<()> {
     let project = Project::discover()?;
+    project.apply_toolchain_env()?;
     let target = project.resolve_target(opts.target);
     let (source, module, root_from_project) =
         project.resolve_source_module(opts.source, opts.module)?;
