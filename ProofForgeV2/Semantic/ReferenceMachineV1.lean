@@ -9657,6 +9657,390 @@ theorem runInvariantCallableV1_eq_returnedFalse_of_uint64_ne_zero
   have hneTrue : (encodeU8 0 == encodeU8 1) = false := by decide
   simp [htyEq, hneTrue, hfalseBytes, v2]
 
+private theorem evalBinary_eq_same_type_bytes
+    (data : SemanticProgramDataV1)
+    (valueTypeId boolTypeId : TypeIdV1)
+    (leftBytes rightBytes : ByteArray)
+    (bit : UInt8)
+    (htypeB : data.types[boolTypeId.toNat]? = some {
+      id := boolTypeId, name := none, shape := .bool })
+    (hbit : bit = if leftBytes == rightBytes then 1 else 0) :
+    evalBinary data .eq
+      { typeId := valueTypeId, valueBytes := leftBytes }
+      { typeId := valueTypeId, valueBytes := rightBytes }
+      boolTypeId =
+      .ok { typeId := boolTypeId, valueBytes := encodeU8 bit } := by
+  have htid : (valueTypeId == valueTypeId) = true := by simp [BEq.beq]
+  have hbool : isBoolType data boolTypeId = true := by
+    simp [isBoolType, shapeOf, htypeB]
+  simp only [evalBinary, htid, hbool, bytesEqual]
+  rw [hbit]
+  simp
+  rfl
+
+private theorem byteArray_beq_eq_true_iff
+    (left right : ByteArray) : (left == right) = true ↔ left = right := by
+  cases left with
+  | mk leftData =>
+    cases right with
+    | mk rightData =>
+      constructor
+      · intro h
+        apply ByteArray.ext
+        change (leftData == rightData) = true at h
+        exact beq_iff_eq.mp h
+      · intro h
+        cases h
+        change (leftData == leftData) = true
+        exact beq_self_eq_true leftData
+
+/-- Execute the exact straight-line invariant body
+    `stateLoad left; stateLoad right; eq; return`. The proof runs the sole
+    production invariant machine; `bit` only records the result of canonical
+    byte equality and does not interpret an expression independently. -/
+private theorem runInvariantCallableV1_eq_two_state_bytes
+    (data : SemanticProgramDataV1)
+    (state : LogicalStateV1)
+    (overlay : Array ByteArray)
+    (leftBytes rightBytes : ByteArray)
+    (rootId : CallableIdV1)
+    (valueTypeId boolTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (rootName : Option String)
+    (rootVisibility leftVisibility rightVisibility : VisibilityV1)
+    (leftStateName rightStateName : String)
+    (bit : UInt8)
+    (hinitialized : state.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok overlay)
+    (htypeB : data.types[boolTypeId.toNat]? = some {
+      id := boolTypeId, name := none, shape := .bool })
+    (hleftState : data.logicalState[leftStateId.toNat]? = some {
+      id := leftStateId, name := leftStateName, typeId := valueTypeId,
+      visibility := leftVisibility })
+    (hrightState : data.logicalState[rightStateId.toNat]? = some {
+      id := rightStateId, name := rightStateName, typeId := valueTypeId,
+      visibility := rightVisibility })
+    (hleftOverlay : overlay[leftStateId.toNat]? = some leftBytes)
+    (hrightOverlay : overlay[rightStateId.toNat]? = some rightBytes)
+    (hroot : data.callables[rootId.toNat]? = some {
+      id := rootId
+      kind := .invariant
+      name := rootName
+      params := #[]
+      result := { typeId := boolTypeId, visibility := rootVisibility }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[
+          { result := some { valueId := 0, typeId := valueTypeId },
+            op := .stateLoad leftStateId },
+          { result := some { valueId := 1, typeId := valueTypeId },
+            op := .stateLoad rightStateId },
+          { result := some { valueId := 2, typeId := boolTypeId },
+            op := .binary .eq 0 1 }
+        ]
+        terminator := .return_ (some 2)
+      }]
+      loopBounds := #[]
+      invariantSteps := some 5
+    })
+    (hcanLeft :
+      validateValueBytesV1 data.types valueTypeId leftBytes = .ok ())
+    (hcanRight :
+      validateValueBytesV1 data.types valueTypeId rightBytes = .ok ())
+    (hcanBit :
+      validateValueBytesV1 data.types boolTypeId (encodeU8 bit) = .ok ())
+    (hbit : bit = if leftBytes == rightBytes then 1 else 0) :
+    runInvariantCallableV1 data rootId state =
+      if bit == 1 then .returnedTrue else .returnedFalse := by
+  let root : CallableV1 := {
+    id := rootId
+    kind := .invariant
+    name := rootName
+    params := #[]
+    result := { typeId := boolTypeId, visibility := rootVisibility }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[
+        { result := some { valueId := 0, typeId := valueTypeId },
+          op := .stateLoad leftStateId },
+        { result := some { valueId := 1, typeId := valueTypeId },
+          op := .stateLoad rightStateId },
+        { result := some { valueId := 2, typeId := boolTypeId },
+          op := .binary .eq 0 1 }
+      ]
+      terminator := .return_ (some 2)
+    }]
+    loopBounds := #[]
+    invariantSteps := some 5
+  }
+  change data.callables[rootId.toNat]? = some root at hroot
+  have hrootMax : maxValueIdInCallable root = 2 :=
+    maxValueIdInCallable_eq_two_of_three_results root
+      valueTypeId valueTypeId boolTypeId
+      (.stateLoad leftStateId) (.stateLoad rightStateId)
+      (.binary .eq 0 1) (.return_ (some 2)) (by rfl) (by rfl)
+  have hrootSteps : root.invariantSteps = some 5 := by rfl
+  have hrootKind : root.kind = .invariant := by rfl
+  have hrootParams : root.params = #[] := by rfl
+  have hrootLoops : root.loopBounds = #[] := by rfl
+  have hrootResult : root.result.typeId = boolTypeId := by rfl
+  have hrootEntry : root.entryBlock = 0 := by rfl
+  have hrootBlocks : root.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[
+        { result := some { valueId := 0, typeId := valueTypeId },
+          op := .stateLoad leftStateId },
+        { result := some { valueId := 1, typeId := valueTypeId },
+          op := .stateLoad rightStateId },
+        { result := some { valueId := 2, typeId := boolTypeId },
+          op := .binary .eq 0 1 }
+      ]
+      terminator := .return_ (some 2)
+    }] := by rfl
+  have hbool : isBoolType data root.result.typeId = true := by
+    simp [isBoolType, shapeOf, hrootResult, htypeB]
+  have hkindBne : (CallableKindV1.invariant != .invariant) = false := by decide
+  have hfive : 5 % 2 ^ 64 = (5 : Nat) := by decide
+  have hvcLeft :
+      valueCanonical data { typeId := valueTypeId, valueBytes := leftBytes } =
+        true := by
+    simp [valueCanonical, hcanLeft]
+  have hvcRight :
+      valueCanonical data { typeId := valueTypeId, valueBytes := rightBytes } =
+        true := by
+    simp [valueCanonical, hcanRight]
+  have hvcBit :
+      valueCanonical data { typeId := boolTypeId, valueBytes := encodeU8 bit } =
+        true := by
+    simp [valueCanonical, hcanBit]
+  have heq :=
+    evalBinary_eq_same_type_bytes data valueTypeId boolTypeId leftBytes
+      rightBytes bit htypeB hbit
+  let v0 : ReferenceValueV1 :=
+    { typeId := valueTypeId, valueBytes := leftBytes }
+  let v1 : ReferenceValueV1 :=
+    { typeId := valueTypeId, valueBytes := rightBytes }
+  let v2 : ReferenceValueV1 :=
+    { typeId := boolTypeId, valueBytes := encodeU8 bit }
+  have hs0 : (0 : ValueIdV1).toNat < (emptyEnv 3).size := by
+    simp [emptyEnv, UInt32.toNat]
+  let e1 := (emptyEnv 3).set (0 : ValueIdV1).toNat (some v0) hs0
+  have hset0 : envSet (emptyEnv 3) 0 v0 = some e1 := by
+    simpa [e1] using envSet_of_lt (emptyEnv 3) (0 : ValueIdV1) v0 hs0
+  have hs1 : (1 : ValueIdV1).toNat < e1.size := by
+    simp [e1, emptyEnv, Array.size_set, UInt32.toNat]
+  let e2 := e1.set (1 : ValueIdV1).toNat (some v1) hs1
+  have hset1 : envSet e1 1 v1 = some e2 := by
+    simpa [e2] using envSet_of_lt e1 (1 : ValueIdV1) v1 hs1
+  have hs2 : (2 : ValueIdV1).toNat < e2.size := by
+    simp [e2, e1, emptyEnv, Array.size_set, UInt32.toNat]
+  let e3 := e2.set (2 : ValueIdV1).toNat (some v2) hs2
+  have hset2 : envSet e2 2 v2 = some e3 := by
+    simpa [e3] using envSet_of_lt e2 (2 : ValueIdV1) v2 hs2
+  let mk (env : Array (Option ReferenceValueV1)) (idx : Nat) : MachineV1 := {
+    data, pre := state, callable := root, isInitializer := false,
+    context := #[], overlay, env, effects := #[],
+    occCounts := Array.replicate (maxEffectIdInCallable root + 1) 0,
+    responseCursor := 0, responses := #[], loopCounts := #[],
+    blockId := 0, instrIdx := idx, frames := #[],
+    vaultNative := 0, vaultToken := #[]
+  }
+  rw [runInvariantCallableV1]
+  simp only [hinitialized, Bool.not_true, Bool.false_eq_true, ↓reduceIte, hroot]
+  simp only [hrootSteps, hrootKind, hrootParams, Array.isEmpty_empty,
+    hrootLoops, hbool, Bool.not_true, Bool.or_false]
+  rw [hdecode]
+  simp only [UInt64.toNat_ofNat, hrootMax, hrootEntry, hkindBne, hfive]
+  simp only [Bool.false_eq_true, ↓reduceIte]
+  change (match (runMachine true 4 (mk (emptyEnv 3) 0)).2.2 with
+    | .reverted _ => InvariantEvalResultV1.reverted
+    | .trapped _ => InvariantEvalResultV1.trapped
+    | .returned (some value) =>
+        if value.typeId != root.result.typeId then .trapped
+        else if value.valueBytes == encodeU8 1 then .returnedTrue
+        else if value.valueBytes == encodeU8 0 then .returnedFalse
+        else .trapped
+    | .returned none => .trapped) =
+      if bit == 1 then .returnedTrue else .returnedFalse
+  have hexec0 :
+      execInstruction (mk (emptyEnv 3) 0)
+        { result := some { valueId := 0, typeId := valueTypeId },
+          op := .stateLoad leftStateId } =
+        .next (mk e1 0) := by
+    have hty : (valueTypeId != valueTypeId) = false := by
+      simp [BEq.beq, bne]
+    simp only [mk, execInstruction, hleftState, hleftOverlay, hty, ↓reduceIte]
+    have hstore := storeResult_envSet (mk (emptyEnv 3) 0) 0 v0 e1 hvcLeft hset0
+    simpa [mk, e1, v0] using hstore
+  have step0 : runMachine true 4 (mk (emptyEnv 3) 0) =
+      runMachine true 3 (mk e1 1) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hexec0]
+  have hexec1 :
+      execInstruction (mk e1 1)
+        { result := some { valueId := 1, typeId := valueTypeId },
+          op := .stateLoad rightStateId } =
+        .next (mk e2 1) := by
+    have hty : (valueTypeId != valueTypeId) = false := by
+      simp [BEq.beq, bne]
+    simp only [mk, execInstruction, hrightState, hrightOverlay, hty, ↓reduceIte]
+    have hstore := storeResult_envSet (mk e1 1) 1 v1 e2 hvcRight hset1
+    simpa [mk, e2, v1] using hstore
+  have step1 : runMachine true 3 (mk e1 1) = runMachine true 2 (mk e2 2) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hexec1]
+  have hexec2 :
+      execInstruction (mk e2 2)
+        { result := some { valueId := 2, typeId := boolTypeId },
+          op := .binary .eq 0 1 } =
+        .next (mk e3 2) := by
+    have hvc0 : valueCanonical data v0 = true := by
+      simpa [v0] using hvcLeft
+    have hvc1 : valueCanonical data v1 = true := by
+      simpa [v1] using hvcRight
+    have hg0 : envGet e2 0 = some v0 := by
+      have hne :
+          (e1.set (1 : ValueIdV1).toNat (some v1) hs1)[0]? = e1[0]? :=
+        Array.getElem?_set_ne hs1 (by decide : (1 : Nat) ≠ 0)
+      have h0 : e1[0]? = some (some v0) := Array.getElem?_set_self hs0
+      change envGet (e1.set (1 : ValueIdV1).toNat (some v1) hs1) 0 = some v0
+      simp [envGet, hne, h0]
+    have hg1 : envGet e2 1 = some v1 := by
+      have h1 : e2[(1 : ValueIdV1).toNat]? = some (some v1) :=
+        Array.getElem?_set_self hs1
+      simp [envGet, e2, h1, UInt32.toNat]
+    have heq' : evalBinary data .eq v0 v1 boolTypeId = .ok v2 := by
+      simpa [v0, v1, v2] using heq
+    simp only [mk, execInstruction, hg0, hg1, hvc0, hvc1,
+      Bool.not_true, Bool.or_false, Bool.false_eq_true, ↓reduceIte, heq', fromEval]
+    have hstore := storeResult_envSet (mk e2 2) 2 v2 e3 hvcBit hset2
+    simpa [mk, e3, v2] using hstore
+  have step2 : runMachine true 2 (mk e2 2) = runMachine true 1 (mk e3 3) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hexec2]
+  have hg2 : envGet e3 2 = some v2 := by
+    have h2 : e3[(2 : ValueIdV1).toNat]? = some (some v2) :=
+      Array.getElem?_set_self hs2
+    simp [envGet, e3, h2, UInt32.toNat]
+  have hret :
+      execTerminator (mk e3 3) (.return_ (some 2)) =
+        .done (mk e3 3) (.returned (some v2)) := by
+    have hunit : isUnitType data root.result.typeId = false := by
+      simp [isUnitType, shapeOf, hrootResult, htypeB]
+    have hbeq : (v2.typeId != root.result.typeId) = false := by
+      simp [v2, hrootResult, BEq.beq, bne]
+    have hcond :
+        (v2.typeId != root.result.typeId || !valueCanonical data v2) = false := by
+      simp [hbeq, hvcBit, v2]
+    simp only [mk, execTerminator, hg2]
+    simp only [hunit, Bool.false_eq_true, ↓reduceIte, hcond, ↓reduceIte]
+  have stepT : runMachine true 1 (mk e3 3) =
+      (0, mk e3 3, CandidateV1.returned (some v2)) := by
+    rw [runMachine.eq_def]; simp [mk, hrootBlocks, hret]
+  rw [step0, step1, step2, stepT]
+  have htyEq : (v2.typeId != root.result.typeId) = false := by
+    simp [v2, hrootResult, BEq.beq, bne]
+  have htrueBytes : (encodeU8 1 == encodeU8 1) = true := by decide
+  have hfalseTrueBytes : (encodeU8 0 == encodeU8 1) = false := by decide
+  have hfalseBytes : (encodeU8 0 == encodeU8 0) = true := by decide
+  subst bit
+  by_cases heqBytes : leftBytes == rightBytes
+  · simp [htyEq, heqBytes, htrueBytes, v2]
+  · simp [htyEq, heqBytes, hfalseTrueBytes, hfalseBytes, v2]
+
+/-- The exact lowered two-state equality invariant returns true precisely when
+    the two production-decoded canonical field payloads are equal. This is a
+    theorem about `runInvariantCallableV1`, not a second evaluator. -/
+theorem runInvariantCallableV1_returnedTrue_iff_two_state_bytes_eq
+    (data : SemanticProgramDataV1)
+    (state : LogicalStateV1)
+    (overlay : Array ByteArray)
+    (leftBytes rightBytes : ByteArray)
+    (rootId : CallableIdV1)
+    (valueTypeId boolTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (rootName : Option String)
+    (rootVisibility leftVisibility rightVisibility : VisibilityV1)
+    (leftStateName rightStateName : String)
+    (hinitialized : state.initialized = true)
+    (hdecode : decodeLogicalStateValuesV1 data state = .ok overlay)
+    (htypeB : data.types[boolTypeId.toNat]? = some {
+      id := boolTypeId, name := none, shape := .bool })
+    (hleftState : data.logicalState[leftStateId.toNat]? = some {
+      id := leftStateId, name := leftStateName, typeId := valueTypeId,
+      visibility := leftVisibility })
+    (hrightState : data.logicalState[rightStateId.toNat]? = some {
+      id := rightStateId, name := rightStateName, typeId := valueTypeId,
+      visibility := rightVisibility })
+    (hleftOverlay : overlay[leftStateId.toNat]? = some leftBytes)
+    (hrightOverlay : overlay[rightStateId.toNat]? = some rightBytes)
+    (hroot : data.callables[rootId.toNat]? = some {
+      id := rootId
+      kind := .invariant
+      name := rootName
+      params := #[]
+      result := { typeId := boolTypeId, visibility := rootVisibility }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[
+          { result := some { valueId := 0, typeId := valueTypeId },
+            op := .stateLoad leftStateId },
+          { result := some { valueId := 1, typeId := valueTypeId },
+            op := .stateLoad rightStateId },
+          { result := some { valueId := 2, typeId := boolTypeId },
+            op := .binary .eq 0 1 }
+        ]
+        terminator := .return_ (some 2)
+      }]
+      loopBounds := #[]
+      invariantSteps := some 5
+    }) :
+    runInvariantCallableV1 data rootId state = .returnedTrue ↔
+      leftBytes = rightBytes := by
+  have hcanLeft :
+      validateValueBytesV1 data.types valueTypeId leftBytes = .ok () :=
+    validateValueBytesV1_of_decodeLogicalStateValuesV1_getElem
+      data state overlay hdecode leftStateId.toNat
+      { id := leftStateId, name := leftStateName, typeId := valueTypeId,
+        visibility := leftVisibility }
+      leftBytes hleftState hleftOverlay
+  have hcanRight :
+      validateValueBytesV1 data.types valueTypeId rightBytes = .ok () :=
+    validateValueBytesV1_of_decodeLogicalStateValuesV1_getElem
+      data state overlay hdecode rightStateId.toNat
+      { id := rightStateId, name := rightStateName, typeId := valueTypeId,
+        visibility := rightVisibility }
+      rightBytes hrightState hrightOverlay
+  have hcanTrue :
+      validateValueBytesV1 data.types boolTypeId (encodeU8 1) = .ok () := by
+    exact validateValueBytesV1_bool_eq_ok data.types boolTypeId
+      { id := boolTypeId, name := none, shape := .bool } 1 htypeB rfl
+      (Or.inr rfl)
+  have hcanFalse :
+      validateValueBytesV1 data.types boolTypeId (encodeU8 0) = .ok () := by
+    exact validateValueBytesV1_bool_eq_ok data.types boolTypeId
+      { id := boolTypeId, name := none, shape := .bool } 0 htypeB rfl
+      (Or.inl rfl)
+  let bit : UInt8 := if leftBytes == rightBytes then 1 else 0
+  have hbit : bit = if leftBytes == rightBytes then 1 else 0 := rfl
+  have hcanBit :
+      validateValueBytesV1 data.types boolTypeId (encodeU8 bit) = .ok () := by
+    by_cases heqBytes : leftBytes == rightBytes
+    · simpa [bit, heqBytes] using hcanTrue
+    · simpa [bit, heqBytes] using hcanFalse
+  have hrun :=
+    runInvariantCallableV1_eq_two_state_bytes data state overlay leftBytes
+      rightBytes rootId valueTypeId boolTypeId leftStateId rightStateId
+      rootName rootVisibility leftVisibility rightVisibility leftStateName
+      rightStateName bit hinitialized hdecode htypeB hleftState hrightState
+      hleftOverlay hrightOverlay hroot hcanLeft hcanRight hcanBit hbit
+  rw [hrun]
+  simp [bit, byteArray_beq_eq_true_iff]
+
 /-- Evaluate one admitted invariant using its structure-validated exact fuel.
     This deliberately bypasses `InvocationV1`: normal root invocation of an
     invariant remains invalid, and invariant execution never publishes an
