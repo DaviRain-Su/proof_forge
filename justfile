@@ -1455,6 +1455,10 @@ solana-transfer-sol-local: build pf-cli-build
 pf-cli-aleo-local: build pf-cli-build
     /bin/bash -p scripts/aleo_pf_local_smoke.sh
 
+# Video/rehearsal: Aleo full path save-only (no broadcast). See docs/demos/aleo-testnet-walkthrough.md
+pf-cli-aleo-demo: build pf-cli-build
+    /bin/bash -p scripts/demo_aleo_testnet_save_only.sh
+
 pf-cli-evm-project: build pf-cli-build
     /bin/bash -p scripts/evm_pf_statecell_smoke.sh
 
