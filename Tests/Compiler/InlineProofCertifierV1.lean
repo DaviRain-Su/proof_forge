@@ -274,6 +274,38 @@ private unsafe def testSameFileCounterPreservingProductPositive
       throw <| IO.userError
         s!"Counter preserving product-positive requires .certified; got phase={repr phase} detail={repr detail}"
 
+/-- Strict product certification of the shipped state-changing equality family. -/
+private unsafe def testSameFileStatefulEqualityPreservingProductPositive
+    (session : ProductParserSessionV1) : IO Unit := do
+  let src ← IO.FS.readFile "Examples/StatefulEquality.lean"
+  let path ← parsePath "Examples/StatefulEquality.lean"
+  let (source, origin, inventory) ← loadProduct session src
+    "Examples/StatefulEquality.lean" "Examples.StatefulEquality"
+  let bindings := theoremInventoryBindingsV1 inventory
+  expect (bindings.size == 1) "StatefulEquality preserving inventory size"
+  let binding := bindings[0]!
+  expect (binding.invariantName == "solvent" && binding.kind == .preserving)
+    "StatefulEquality preserving composite key"
+  expect (binding.theoremComponents == #["StatefulEqualityProof", "solvent"])
+    "StatefulEquality author theorem components"
+  expect (binding.typeComponents == #["StatefulEquality", "ProofPreserving", "solvent"])
+    "StatefulEquality preserving type components"
+  let compiled ← compileOf source origin
+  let outcome ← certifyInlineProofV1 session src source origin inventory compiled
+    path "Examples.StatefulEquality" none
+  match outcome with
+  | .certified carrier =>
+      expect (CertifiedInlineProofV1.theoremCount carrier == 1)
+        "StatefulEquality theoremCount must be 1"
+      expect (digestPresent (CertifiedInlineProofV1.proofCertificationDigest carrier))
+        "StatefulEquality certification digest must be present"
+      expect ((CertifiedInlineProofV1.audited carrier).size == 1)
+        "StatefulEquality audited theorem set must contain one theorem"
+  | .noProof => throw <| IO.userError "StatefulEquality proof returned noProof"
+  | .failed phase detail =>
+      throw <| IO.userError
+        s!"StatefulEquality requires .certified; got phase={repr phase} detail={repr detail}"
+
 /-- Proof kind is source certification metadata: changing only holds ↔ preserving
     changes canonical ProgramV1/source identity, while Normalize emits the same
     business SemanticProgramV1 bytes and digest. -/
@@ -685,6 +717,7 @@ unsafe def run : IO Unit := do
   testFalseTheoremElab session
   testPreservingFalseTheoremElab session
   testSameFileCounterPreservingProductPositive session
+  testSameFileStatefulEqualityPreservingProductPositive session
   testProofKindIdentityBoundary session
   testForbiddenMainModule session
   testWrongSubjectBytes session

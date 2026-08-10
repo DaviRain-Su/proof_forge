@@ -987,8 +987,10 @@ expression translator：
     Reference admission scan、可复用 two-UInt64/no-initializer initial-state theorem、typed entry row
     lift，以及 production gate 对 invariant callable row 的不可调用性，最终组装原始
     `PreservationTheoremV1`。没有 contract-qualified closed pin、admission carrier 伪造或第二套
-    State/Effect/step/evaluator；这证明了一个 parameterized family 的闭环，但尚未单独验收产品
-    inline certifier 的 `.certified` 输出，更不代表 arbitrary contract generator 已完成；
+    State/Effect/step/evaluator；该 name-parameterized family 现已有 shipped same-file source，且真实
+    in-process certifier 与 CLI `check` 均验收 `.certified`（theorem count 1 与非空 SHA-256
+    certification digest），无 contract-specific pin/package。这仍不代表 arbitrary contract
+    generator、完整 VerifiedVaultPF 或任何 target refinement 已完成；
 13. VerifiedVaultPF 的 initializer、deposit、withdraw、status returned 业务 lemmas仍未完成；
     因此 Phase 4 与“任意业务合约验证”仍不能称完成，当前最高声明仍是
     `reference-certified` 地基而非 target artifact verified。

@@ -1,4 +1,5 @@
 import ProofForgeV2.Semantic.FieldComparisonSubjectV1
+import ProofForgeV2.Semantic.SubjectDataBridgeV1
 
 /-!
   ProofForgeV2.Semantic.StatefulEqualitySubjectV1 — parameterized production
@@ -58,6 +59,10 @@ def subjectDataV1
   invariants := #[{ id := 0, name := invariantName, callableId := 1 }]
   requirements := requirementsV1
 }
+
+/-- Exact production body encoder proposition used by generated subjects. -/
+def bodyEncodeOkV1 (data : SemanticProgramDataV1) (bytes : ByteArray) : Prop :=
+  encodeSemanticProgramDataBodyV1 data = .ok bytes
 
 theorem exactAtRoot_typesV1 :
     ExactMidOffsetInvertAtV1 (encodeArray encodeTypeDeclV1)

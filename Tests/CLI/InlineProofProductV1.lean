@@ -484,6 +484,56 @@ private def testSimpleClosureProductPositiveCli : IO Unit := do
   IO.println
     "Tests.CLI.InlineProofProductV1: simple-closure product-positive CERTIFIED (2–6)"
 
+/-- Real shipped state-changing family certifies; an otherwise identical
+    one-field update cannot establish the exact-family subject equality. -/
+private def testStatefulEqualityProductCli : IO Unit := do
+  let args := #["check", "Examples/StatefulEquality.lean",
+    "--module", "Examples.StatefulEquality"]
+  let (ec, stdout, stderr) ← runCli args
+  expect (ec == 0) s!"StatefulEquality human check: {ec}\n{stderr}\n{stdout}"
+  expect (hasSubstr stdout "proofStatus=certified") "StatefulEquality human certified"
+  expect (hasSubstr stdout "proofTheoremCount=1") "StatefulEquality human theorem count"
+  expect (hasSubstr stdout "proofCertificationDigest=sha256:")
+    "StatefulEquality human certification digest"
+  expect (stderr == "") s!"StatefulEquality human stderr: {stderr}"
+  let (ecJ, stdoutJ, stderrJ) ← runCli (args.push "--json")
+  expect (ecJ == 0) s!"StatefulEquality JSON check: {ecJ}\n{stderrJ}"
+  expectCanonicalJson "stateful-equality-check" stdoutJ
+  expect (hasSubstr stdoutJ "\"proofStatus\":\"certified\"")
+    "StatefulEquality JSON certified"
+  expect (hasSubstr stdoutJ "\"proofTheoremCount\":1")
+    "StatefulEquality JSON theorem count"
+  expect (hasSubstr stdoutJ "\"proofCertificationDigest\":\"sha256:")
+    "StatefulEquality JSON certification digest"
+  expect (stderrJ == "") s!"StatefulEquality JSON stderr: {stderrJ}"
+
+  let nearMiss := fixtureHeader ++
+    "program StatefulEqualityNearMiss where\n" ++
+    "  state reserves : UInt64\n" ++
+    "  state shares : UInt64\n" ++
+    "  entry sync(amount : UInt64) : UInt64 do\n" ++
+    "    reserves := amount\n" ++
+    "    return shares\n" ++
+    "  invariant solvent : reserves == shares\n" ++
+    "  proof solvent preserving using StatefulEqualityNearMissProof.solvent\n" ++
+    "theorem StatefulEqualityNearMissProof.solvent : StatefulEqualityNearMiss.ProofPreserving.solvent := by\n" ++
+    "  exact ProofForgeV2.Semantic.StatefulEqualityPreservationV1.preservationTheorem_of_subjectBodyV1\n" ++
+    "    StatefulEqualityNearMiss.Proof.subjectDataV1.qualifiedName \"reserves\" \"shares\" \"sync\" \"amount\" \"solvent\"\n" ++
+    "    StatefulEqualityNearMiss.Proof.subjectDataV1 StatefulEqualityNearMiss.Proof.subjectBytesV1\n" ++
+    "    (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by decide) (by decide)\n" ++
+    "    (by rfl) StatefulEqualityNearMiss.Proof.subjectBodyEncodeOkV1\n"
+  let _ ← writeFixture "stateful-equality-near-miss.lean" nearMiss
+  let (ecN, stdoutN, stderrN) ← runCli #["check",
+    relativeFixture "stateful-equality-near-miss.lean", "--module", "Root"]
+  expect (ecN == 3) s!"StatefulEquality near-miss exit: {ecN}\n{stderrN}"
+  expect (hasSubstr stderrN "PF-SRC-INVALID")
+    s!"StatefulEquality near-miss diagnostic: {stderrN}"
+  expect (hasSubstr stderrN
+      "inline proof certification failed: phase=certification detail=elaborate")
+    s!"StatefulEquality near-miss must fail during theorem elaboration: {stderrN}"
+  expect (!hasSubstr stdoutN "proofStatus=certified")
+    "StatefulEquality near-miss must not claim certified"
+
 def run : IO Unit := do
   testRenderProofStatusFields
   testLegacyProofBundleFlagsUnknown
@@ -496,6 +546,7 @@ def run : IO Unit := do
   testFalseTheoremBuildBeforeInvalidTarget
   testFalseTheoremBuildBeforeMaterialize
   testSimpleClosureProductPositiveCli
+  testStatefulEqualityProductCli
   IO.println "Tests.CLI.InlineProofProductV1: ok"
 
 end Tests.CLI.InlineProofProductV1

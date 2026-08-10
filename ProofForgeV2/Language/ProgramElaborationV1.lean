@@ -7,6 +7,7 @@ import ProofForgeV2.Semantic.PreservationPackagingV1
 import ProofForgeV2.Semantic.StateModelV1
 import ProofForgeV2.Semantic.FieldComparisonSubjectV1
 import ProofForgeV2.Semantic.StatefulEqualitySubjectV1
+import ProofForgeV2.Semantic.StatefulEqualityPreservationV1
 import ProofForgeV2.Semantic.UInt64ParityPreservationV1
 import ProofForgeV2.Semantic.UInt64ParitySubjectV1
 import ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1

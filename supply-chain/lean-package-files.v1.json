@@ -1,9 +1,9 @@
 {
   "files": [
     {
-      "bytes": 5564,
+      "bytes": 5624,
       "path": "ProofForgeV2.lean",
-      "sha256": "beaca2f1f4e9cb1ca194f2b6e057d90c8d19bb6c6373020e098e087c1b79f3aa"
+      "sha256": "3b2ce7cbcf143936802500f946251945d441b549d867b08c4ed45249a2ef3f93"
     },
     {
       "bytes": 93998,
@@ -211,9 +211,9 @@
       "sha256": "3cedc2dc67364b531a5d3f3052015a5d99f41a8f10f3e2bfa60a2c3ae7e41502"
     },
     {
-      "bytes": 177505,
+      "bytes": 177565,
       "path": "ProofForgeV2/Language/ProgramElaborationV1.lean",
-      "sha256": "1f9bfea74933786cef696065d28432f4e40d9c643fa79dd6d383b3c972be3af7"
+      "sha256": "d142a4d195e52f9232155e6de952f0f8625c857e65f52e80cce645813bfe361c"
     },
     {
       "bytes": 15977,
@@ -416,9 +416,14 @@
       "sha256": "7e9461e250eaf11d0b0cead54cdc3582ecece9005ad4cb72bf831cbb967fa9c7"
     },
     {
-      "bytes": 24686,
+      "bytes": 12033,
+      "path": "ProofForgeV2/Semantic/StatefulEqualityPreservationV1.lean",
+      "sha256": "5cbfc5e476879ddba3b25e60a6d401ce7edde45ea88fd8d96a09f76514f2e9f8"
+    },
+    {
+      "bytes": 24944,
       "path": "ProofForgeV2/Semantic/StatefulEqualitySubjectV1.lean",
-      "sha256": "fb77ecf3a75b40abe129b832cbe82e767e33351049465c4da3edc4e1a2097e73"
+      "sha256": "dbb1089d75463bc0cebdcb1be6949bbeb1b1806ac650b6e69d4af4d3cea381b0"
     },
     {
       "bytes": 6872,
