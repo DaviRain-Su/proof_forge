@@ -158,6 +158,31 @@ pf --help | head -40
 
 ---
 
+## Live Testnet result (2026-08-10)
+
+Successful end-to-end broadcast with funded key:
+
+| Item | Value |
+|------|-------|
+| Program | `pfdemo336641.aleo` |
+| Deploy tx | `at147hjftmt294hrdgy7hfkjzn69ryxj3j2ank4jxl4u9qn8vl6nvqs73a5mt` |
+| Execute tx (increment) | `at1j4g47meu322csew7vdlwx5x3hrpfaq0fftmet3zphdyzvxfanczsns58fd` |
+| On-chain state | `pf_state_0[0]=8u64`, `initialized[0]=true` |
+| Explorer program | https://testnet.explorer.provable.com/program/pfdemo336641.aleo |
+| Local cast | `build/demos/aleo/pf-aleo-demo-20260810T043722Z.cast` (gitignored) |
+
+**Toolchain gate:** Leo **4.4.1+** required for current Testnet base-fee validation. Leo 4.0.2 under-estimates deployment base fee and is rejected by the node.
+
+**pf flags used for live broadcast:**
+
+```bash
+pf deploy --network testnet --broadcast --private-key-env PF_ALEO_TESTNET_KEY --program-id pfdemo336641
+pf execute --network testnet --broadcast --private-key-env PF_ALEO_TESTNET_KEY --program-id pfdemo336641 -- initialize 5u64
+pf execute --network testnet --broadcast --private-key-env PF_ALEO_TESTNET_KEY --program-id pfdemo336641 -- increment 3u64
+```
+
+Broadcast mode generates real deploy certificates / execution proofs (save-only still uses skip flags for speed).
+
 ## One-shot rehearsal script (no broadcast)
 
 ```bash

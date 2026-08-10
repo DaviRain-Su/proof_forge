@@ -164,6 +164,12 @@ struct NetworkArgs {
     private_key_env: Option<String>,
     #[arg(long)]
     save: Option<PathBuf>,
+    /// Fixed Aleo program stem (without .aleo). Default: unique pfsc* stem.
+    #[arg(long)]
+    program_id: Option<String>,
+    /// Leo priority fee in microcredits (Aleo only).
+    #[arg(long)]
+    priority_fee: Option<u64>,
 }
 
 #[derive(Args)]
@@ -285,6 +291,8 @@ fn dispatch(cli: Cli) -> PfResult<()> {
             a.broadcast,
             a.private_key_env.as_deref(),
             a.save.as_deref(),
+            a.program_id.as_deref(),
+            a.priority_fee,
             json,
         ),
         Commands::Execute(a) => cmd::execute::run(
@@ -295,6 +303,8 @@ fn dispatch(cli: Cli) -> PfResult<()> {
             a.network.broadcast,
             a.network.private_key_env.as_deref(),
             a.network.save.as_deref(),
+            a.network.program_id.as_deref(),
+            a.network.priority_fee,
             &a.args,
             json,
         ),

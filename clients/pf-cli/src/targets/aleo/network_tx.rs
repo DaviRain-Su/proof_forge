@@ -27,6 +27,10 @@ pub struct DeployRequest<'a> {
     pub broadcast: bool,
     pub private_key_env: Option<&'a str>,
     pub save_dir: Option<&'a Path>,
+    /// Optional fixed program stem (without `.aleo`). Default: fresh unique stem.
+    pub program_id: Option<&'a str>,
+    /// Optional Leo priority fee in microcredits (default 0).
+    pub priority_fee_microcredits: Option<u64>,
 }
 
 pub fn deploy(req: DeployRequest<'_>) -> PfResult<NetworkTxOutcome> {
@@ -43,7 +47,7 @@ pub fn deploy(req: DeployRequest<'_>) -> PfResult<NetworkTxOutcome> {
     let home = tmp.join("home");
     fs::create_dir_all(home.join(".aleo"))?;
 
-    let stem = fresh_program_stem();
+    let stem = resolve_program_stem(req.program_id)?;
     let pkg = tmp.join(&stem);
     twin_statecell::materialize_and_verify_twin(&leo, &pkg, &stem, req.artifact)?;
 
@@ -66,11 +70,19 @@ pub fn deploy(req: DeployRequest<'_>) -> PfResult<NetworkTxOutcome> {
         "2".into(),
         "--private-key".into(),
         key.clone(),
-        "--skip-deploy-certificate".into(),
         "--save".into(),
         save.to_string_lossy().into_owned(),
         "-y".into(),
     ];
+    // Placeholder certs under-estimate base fee and fail real broadcast validation.
+    // Keep the fast path only for save-only packaging.
+    if !req.broadcast {
+        args.push("--skip-deploy-certificate".into());
+    }
+    if let Some(fee) = req.priority_fee_microcredits {
+        args.push("--priority-fees".into());
+        args.push(fee.to_string());
+    }
     if req.broadcast {
         args.push("--broadcast".into());
     }
@@ -135,6 +147,11 @@ pub struct ExecuteRequest<'a> {
     pub save_dir: Option<&'a Path>,
     pub fn_name: &'a str,
     pub inputs: &'a [String],
+    /// Optional fixed program stem (without `.aleo`). Default: fresh unique stem.
+    /// For real broadcast, pass the stem previously deployed.
+    pub program_id: Option<&'a str>,
+    /// Optional Leo priority fee in microcredits (default 0).
+    pub priority_fee_microcredits: Option<u64>,
 }
 
 pub fn execute(req: ExecuteRequest<'_>) -> PfResult<NetworkTxOutcome> {
@@ -151,7 +168,7 @@ pub fn execute(req: ExecuteRequest<'_>) -> PfResult<NetworkTxOutcome> {
     let home = tmp.join("home");
     fs::create_dir_all(home.join(".aleo"))?;
 
-    let stem = fresh_program_stem();
+    let stem = resolve_program_stem(req.program_id)?;
     let pkg = tmp.join(&stem);
     twin_statecell::materialize_and_verify_twin(&leo, &pkg, &stem, req.artifact)?;
 
@@ -160,6 +177,13 @@ pub fn execute(req: ExecuteRequest<'_>) -> PfResult<NetworkTxOutcome> {
         .map(|p| p.to_path_buf())
         .unwrap_or_else(|| tmp.join("ex"));
     fs::create_dir_all(&save)?;
+
+    // Prefer fully-qualified call so Leo targets the on-chain program id.
+    let call_name = if req.fn_name.contains("::") || req.fn_name.contains('.') {
+        req.fn_name.to_string()
+    } else {
+        format!("{stem}.aleo::{}", req.fn_name)
+    };
 
     let mut args: Vec<String> = vec![
         "execute".into(),
@@ -174,14 +198,22 @@ pub fn execute(req: ExecuteRequest<'_>) -> PfResult<NetworkTxOutcome> {
         "2".into(),
         "--private-key".into(),
         key,
-        "--skip-execute-proof".into(),
         "--save".into(),
         save.to_string_lossy().into_owned(),
         "-y".into(),
-        req.fn_name.into(),
+        call_name,
     ];
     for i in req.inputs {
         args.push(i.clone());
+    }
+    // Placeholder proofs are fine for save-only packaging, but real broadcast
+    // must produce a valid execution proof.
+    if !req.broadcast {
+        args.push("--skip-execute-proof".into());
+    }
+    if let Some(fee) = req.priority_fee_microcredits {
+        args.push("--priority-fees".into());
+        args.push(fee.to_string());
     }
     if req.broadcast {
         args.push("--broadcast".into());
@@ -246,6 +278,41 @@ fn probe_endpoint(endpoint: &str, network: NetworkKind) -> PfResult<()> {
         )));
     }
     Ok(())
+}
+
+fn resolve_program_stem(program_id: Option<&str>) -> PfResult<String> {
+    match program_id {
+        None => Ok(fresh_program_stem()),
+        Some(raw) => {
+            let s = raw.trim();
+            let s = s.strip_suffix(".aleo").unwrap_or(s);
+            if s.is_empty() {
+                return Err(PfError::Usage(
+                    "--program-id must be a non-empty Aleo program stem".into(),
+                ));
+            }
+            if s.contains('.') || s.contains('/') || s.contains('\\') || s.contains(':') {
+                return Err(PfError::Usage(format!(
+                    "invalid --program-id '{raw}' (use bare stem like pfsc123456)"
+                )));
+            }
+            // Leo forbids program names containing the substring "aleo".
+            if s.to_ascii_lowercase().contains("aleo") {
+                return Err(PfError::Usage(format!(
+                    "invalid --program-id '{raw}' (must not contain substring 'aleo')"
+                )));
+            }
+            if !s
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+            {
+                return Err(PfError::Usage(format!(
+                    "invalid --program-id '{raw}' (use [a-z0-9_]+ stem)"
+                )));
+            }
+            Ok(s.to_string())
+        }
+    }
 }
 
 fn fresh_program_stem() -> String {

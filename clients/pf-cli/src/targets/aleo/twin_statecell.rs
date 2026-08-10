@@ -1,6 +1,6 @@
 //! Structural Leo twin that lowers to the same Instructions as PF StateCell.
 //!
-//! Empirically locked against Leo 4.0.2: `assert(!guard)` → `not`; increment
+//! Empirically locked against Leo 4.0.2 / 4.4.x: `assert(!guard)` → `not`; increment
 //! keeps dropped `get.or_use` re-read. See Wave-C acceptance.
 
 use crate::artifact::{rewrite_program_id, AleoArtifact};
@@ -12,7 +12,7 @@ use std::process::Command;
 /// Leo source template. `{program_stem}` is substituted (no `.aleo` suffix).
 pub fn statecell_twin_leo_source(program_stem: &str) -> String {
     format!(
-        r#"// pf twin: exact Instructions match for PF StateCell (Leo 4.0.2).
+        r#"// pf twin: exact Instructions match for PF StateCell (Leo 4.x).
 // Product authority remains PF .aleo; this source is packaging-only.
 program {program_stem}.aleo {{
     @noupgrade
@@ -51,7 +51,7 @@ pub fn looks_like_statecell_instructions(content: &str) -> bool {
 }
 
 /// Build twin package at `pkg_dir` named `program_stem`, verify exact match to PF
-/// content rewritten to that stem. Returns path to `build/main.aleo`.
+/// content rewritten to that stem. Returns path to built `.aleo` bytecode.
 pub fn materialize_and_verify_twin(
     leo: &Path,
     pkg_dir: &Path,
@@ -73,7 +73,7 @@ pub fn materialize_and_verify_twin(
         "version": "0.1.0",
         "description": "pf packaging twin",
         "license": "MIT",
-        "leo": "4.0.2",
+        "leo": "4.4.1",
         "dependencies": null,
         "dev_dependencies": null
     });
@@ -99,12 +99,8 @@ pub fn materialize_and_verify_twin(
         )));
     }
 
-    let main_aleo = pkg_dir.join("build").join("main.aleo");
-    if !main_aleo.is_file() {
-        return Err(PfError::Tool(
-            "leo build twin missing build/main.aleo".into(),
-        ));
-    }
+    // Leo <=4.0.x wrote build/main.aleo; Leo 4.4+ writes build/<stem>/<stem>.aleo.
+    let main_aleo = resolve_built_aleo(pkg_dir, program_stem)?;
     let twin = fs::read_to_string(&main_aleo)?;
     let expected = rewrite_program_id(&pf.content, &pf.program_stem, program_stem);
     if twin != expected {
@@ -114,6 +110,26 @@ pub fn materialize_and_verify_twin(
         )));
     }
     Ok(main_aleo)
+}
+
+
+fn resolve_built_aleo(pkg_dir: &Path, program_stem: &str) -> PfResult<std::path::PathBuf> {
+    let candidates = [
+        pkg_dir
+            .join("build")
+            .join(program_stem)
+            .join(format!("{program_stem}.aleo")),
+        pkg_dir.join("build").join("main.aleo"),
+        pkg_dir.join("build").join(format!("{program_stem}.aleo")),
+    ];
+    for c in &candidates {
+        if c.is_file() {
+            return Ok(c.clone());
+        }
+    }
+    Err(PfError::Tool(format!(
+        "leo build twin missing bytecode (tried build/{program_stem}/{program_stem}.aleo and build/main.aleo)"
+    )))
 }
 
 #[cfg(test)]

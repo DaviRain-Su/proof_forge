@@ -74,18 +74,23 @@ run_demo() {
     else
       echo "======== 8) REAL testnet broadcast deploy ========"
       echo "(private key loaded from env name only; value not printed)"
+      # Stable on-chain program id for deploy + subsequent executes.
+      PROGRAM_ID="${PF_ALEO_PROGRAM_ID:-pfdemo$(date +%s | tail -c 7)}"
+      echo "program_id=$PROGRAM_ID.aleo"
       set +e
-      pf deploy --network testnet --broadcast --private-key-env PF_ALEO_TESTNET_KEY
-      dep_rc=$?
+      # Real certificate generation (no --skip-deploy-certificate) so base fee matches chain.
+      pf deploy --network testnet --broadcast --private-key-env PF_ALEO_TESTNET_KEY         --program-id "$PROGRAM_ID" --json | tee /tmp/pf-aleo-deploy-out.json
+      dep_rc=${PIPESTATUS[0]}
       set -e
       echo "broadcast deploy exit=$dep_rc"
       if [[ "$dep_rc" -eq 0 ]]; then
         echo "======== 9) REAL testnet broadcast execute ========"
-        pf execute --network testnet --broadcast --private-key-env PF_ALEO_TESTNET_KEY -- initialize 5u64
-        pf execute --network testnet --broadcast --private-key-env PF_ALEO_TESTNET_KEY -- increment 3u64
-        echo "BROADCAST OK — check https://testnet.explorer.provable.com/"
+        pf execute --network testnet --broadcast --private-key-env PF_ALEO_TESTNET_KEY           --program-id "$PROGRAM_ID" -- initialize 5u64
+        pf execute --network testnet --broadcast --private-key-env PF_ALEO_TESTNET_KEY           --program-id "$PROGRAM_ID" -- increment 3u64
+        echo "BROADCAST OK — program $PROGRAM_ID.aleo"
+        echo "Explorer: https://testnet.explorer.provable.com/program/$PROGRAM_ID.aleo"
       else
-        echo "BROADCAST FAILED — usually insufficient testnet credits."
+        echo "BROADCAST FAILED — check fee / network / name collision."
         echo "Fund address via https://faucet.aleo.org/ then re-run with same key."
       fi
     fi

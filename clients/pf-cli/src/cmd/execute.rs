@@ -18,6 +18,8 @@ pub fn run(
     broadcast: bool,
     key_env: Option<&str>,
     save: Option<&Path>,
+    program_id: Option<&str>,
+    priority_fee: Option<u64>,
     call_args: &[String],
     json: bool,
 ) -> PfResult<()> {
@@ -53,6 +55,8 @@ pub fn run(
         save_dir: Some(save_dir),
         fn_name,
         inputs,
+        program_id,
+        priority_fee_microcredits: priority_fee,
     })?;
     let saved: Vec<String> = out.saved.iter().map(|p| p.display().to_string()).collect();
     let mut ok = PfOk::new("execute");

@@ -15,6 +15,8 @@ pub fn run(
     broadcast: bool,
     key_env: Option<&str>,
     save: Option<&Path>,
+    program_id: Option<&str>,
+    priority_fee: Option<u64>,
     json: bool,
 ) -> PfResult<()> {
     let project = Project::discover()?;
@@ -47,6 +49,8 @@ pub fn run(
                 broadcast,
                 private_key_env: key_env,
                 save_dir: Some(save_dir),
+                program_id,
+                priority_fee_microcredits: priority_fee,
             })?;
             let saved: Vec<String> = out.saved.iter().map(|p| p.display().to_string()).collect();
             let mut ok = PfOk::new("deploy");
