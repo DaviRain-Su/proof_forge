@@ -3,6 +3,24 @@
 `pf` is a **thin orchestrator**. The real compiler is `proof-forge-next`.
 Install **both** on the same machine/path layout when possible.
 
+## crates.io (orchestrator only)
+
+```bash
+cargo install proof-forge-pf --locked
+# binary is `pf` — crate name cannot be `pf` (taken on crates.io)
+pf --version
+```
+
+You **still need** the Lean compiler binary separately:
+
+```bash
+export PROOF_FORGE_CLI=/path/to/proof-forge-next
+pf setup --target aleo
+```
+
+Full side-by-side bundle remains the recommended end-user path (`just pf-cli-dist` or GitHub Release).  
+Publish procedure for maintainers: [`PUBLISH.md`](./PUBLISH.md).
+
 ## Option A — monorepo (contributors)
 
 ```bash

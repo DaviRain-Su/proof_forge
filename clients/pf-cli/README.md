@@ -66,7 +66,8 @@ No monorepo long paths in the happy path.
 | `pf setup [--target] [-y]` | Checklist + 可选 compiler install |
 | `pf doctor` / `pf version` / `pf list-targets` | Toolchain |
 
-Install / dist: [`INSTALL.md`](./INSTALL.md) · `just pf-cli-dist`
+Install / dist: [`INSTALL.md`](./INSTALL.md) · `just pf-cli-dist`  
+crates.io publish: [`PUBLISH.md`](./PUBLISH.md) · `cargo install proof-forge-pf` (binary name `pf`; still needs `proof-forge-next`)
 
 Smoke (host-optional): `just pf-cli-smoke`
 

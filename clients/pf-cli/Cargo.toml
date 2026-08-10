@@ -2,10 +2,26 @@
 name = "proof-forge-pf"
 version = "0.1.0"
 edition = "2021"
-publish = false
 description = "ProofForge developer CLI (pf): orchestrates proof-forge-next and official chain tools"
 license = "Apache-2.0"
 readme = "README.md"
+repository = "https://github.com/DaviRain-Su/proof_forge"
+homepage = "https://github.com/DaviRain-Su/proof_forge"
+documentation = "https://docs.rs/proof-forge-pf"
+keywords = ["proof-forge", "cli", "blockchain", "aleo", "solana"]
+categories = ["command-line-utilities", "development-tools"]
+# Publishable orchestrator only — does NOT bundle Lean compiler proof-forge-next.
+# See PUBLISH.md. Binary name is `pf` (crate name `pf` is taken on crates.io).
+publish = true
+include = [
+  "src/**",
+  "Cargo.toml",
+  "Cargo.lock",
+  "README.md",
+  "INSTALL.md",
+  "PUBLISH.md",
+  "LICENSE",
+]
 
 [[bin]]
 name = "pf"

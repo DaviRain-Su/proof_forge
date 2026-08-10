@@ -1410,50 +1410,24 @@ pf-cli-smoke: build pf-cli-build
     cargo build --manifest-path clients/solana-client/Cargo.toml --locked --release
     /bin/bash -p scripts/pf_cli_smoke.sh
 
-# Host-optional: pf test -t evm against StateCell (needs locked anvil/cast).
+# Host-optional: pf project flow EVM (new → build → test → deploy save).
 pf-cli-evm-test: build pf-cli-build
-    #!/usr/bin/env bash
-    set -euo pipefail
-    export PROOF_FORGE_CLI="${PROOF_FORGE_CLI:-$PWD/.lake/build/bin/proof-forge-next}"
-    export PROOF_FORGE_ROOT="${PROOF_FORGE_ROOT:-$PWD}"
-    export PROOF_FORGE_TOOL_ROOT="${PROOF_FORGE_TOOL_ROOT:-$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64}"
-    PF="${PF:-$PWD/clients/pf-cli/target/release/pf}"
-    out="$PWD/build/v2/pf-d7c-statecell"
-    rm -rf "$out"
-    "$PF" build Examples/StateCell.lean --module Examples.StateCell -t evm -o "$out"
-    "$PF" test -t evm --artifact "$out"
+    /bin/bash -p scripts/evm_pf_statecell_smoke.sh
 
 # D9: side-by-side pf + proof-forge-next package under build/dist/ (host-optional).
 pf-cli-dist: pf-cli-build
     /bin/bash -p scripts/pf_cli_dist.sh
 
-# Host-optional: pf new → build → test (StateCell-shaped; needs cargo + mollusk deps).
+# Host-optional: pf Solana project smoke + TransferSol specialty via pf scripts.
 pf-cli-solana-test: build pf-cli-build
     #!/usr/bin/env bash
     set -euo pipefail
-    export PROOF_FORGE_CLI="${PROOF_FORGE_CLI:-$PWD/.lake/build/bin/proof-forge-next}"
-    export PROOF_FORGE_ROOT="${PROOF_FORGE_ROOT:-$PWD}"
-    export PROOF_FORGE_TOOL_ROOT="${PROOF_FORGE_TOOL_ROOT:-$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64}"
-    PF="${PF:-$PWD/clients/pf-cli/target/release/pf}"
-    tmp="$(mktemp -d "${TMPDIR:-/tmp}/pf-cli-solana-test.XXXXXX")"
-    trap 'rm -rf "$tmp"' EXIT
-    "$PF" new demo --target solana --path "$tmp/demo"
-    ( cd "$tmp/demo" && "$PF" build && "$PF" test )
-    # Specialty CPI gold still works when TransferSol artifact is passed explicitly.
-    out="$PWD/build/v2/pf-d7b-transfer-sol"
-    rm -rf "$out"
-    "$PF" build Examples/TransferSol.lean --module Examples.TransferSol --target solana -o "$out"
-    "$PF" test -t solana --artifact "$out"
+    /bin/bash -p scripts/solana_pf_project_smoke.sh
+    /bin/bash -p scripts/solana_transfer_sol_local.sh
 
-# Build the exact TransferSol product tree, then apply both the generic Solana
-# profile verifier and the explicit TransferSol program adapter.
-solana-transfer-sol-offline:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    bash scripts/solana_transfer_sol_build.sh
-    out="${PROOF_FORGE_TRANSFER_SOL_OUT:-$PWD/build/v2/solana-transfer-sol-product}"
-    cargo run --manifest-path clients/solana-client/Cargo.toml --locked -- \
-      verify-artifacts --artifact-dir "$out" --program-adapter transfer-sol-v1
+# TransferSol offline via developer CLI `pf` (build + verify + adapter).
+solana-transfer-sol-offline: build pf-cli-build
+    /bin/bash -p scripts/solana_transfer_sol_offline.sh
 
 # Surfpool local Surfnet (engineering). Requires `surfpool` + Solana CLI on PATH.
 # Not ordinary ci; not formal/mainnet. Mollusk remains the CPI differential gate.
@@ -1473,19 +1447,36 @@ solana-surfpool-miniamm-smoke:
 solana-surfpool-miniamm-business:
     bash scripts/solana_miniamm_assets_surfpool_business.sh
 
-# Local-only executable call lane: build and independently verify the product
-# OutputSet, then load its manifest-bound ELF in Mollusk and invoke native System.
-# No RPC, faucet, wallet, Program ID, deployment, or test token is involved.
-solana-transfer-sol-local:
+# TransferSol local via `pf` (build + verify + Mollusk). No public RPC.
+solana-transfer-sol-local: build pf-cli-build
+    /bin/bash -p scripts/solana_transfer_sol_local.sh
+
+# Developer-facing smokes that only use `pf` (project flow).
+pf-cli-aleo-local: build pf-cli-build
+    /bin/bash -p scripts/aleo_pf_local_smoke.sh
+
+pf-cli-evm-project: build pf-cli-build
+    /bin/bash -p scripts/evm_pf_statecell_smoke.sh
+
+pf-cli-solana-project: build pf-cli-build
+    /bin/bash -p scripts/solana_pf_project_smoke.sh
+
+# crates.io dry-run (no upload). See clients/pf-cli/PUBLISH.md
+pf-cli-publish-dry-run: pf-cli-test
     #!/usr/bin/env bash
     set -euo pipefail
-    bash scripts/solana_transfer_sol_build.sh
-    out="${PROOF_FORGE_TRANSFER_SOL_OUT:-$PWD/build/v2/solana-transfer-sol-product}"
-    cargo run --manifest-path clients/solana-client/Cargo.toml --locked -- \
-      verify-artifacts --artifact-dir "$out" --program-adapter transfer-sol-v1
-    PROOF_FORGE_TRANSFER_SOL_OUT="$out" \
-      cargo test --manifest-path runtime-tests/solana/Cargo.toml --locked \
-        --test transfer_sol_product -- --nocapture
+    cargo package --manifest-path clients/pf-cli/Cargo.toml --locked --allow-dirty --list
+    cargo publish --manifest-path clients/pf-cli/Cargo.toml --locked --dry-run --allow-dirty
+
+# Real crates.io publish — requires PF_PUBLISH=1 and cargo login.
+pf-cli-publish: pf-cli-test
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ "${PF_PUBLISH:-}" != "1" ]]; then
+      echo "pf-cli-publish: refuse (set PF_PUBLISH=1 after reading clients/pf-cli/PUBLISH.md)" >&2
+      exit 2
+    fi
+    cargo publish --manifest-path clients/pf-cli/Cargo.toml --locked
 
 # Ordinary-host product gate. Release qualification is intentionally excluded.
 # `source-bounds` is the dedicated ProgramV1 PF-BOUND-001 / 16 MiB gate;

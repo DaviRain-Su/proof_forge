@@ -77,7 +77,8 @@ Solana 侧已有先例：`clients/solana-client` 是 **独立 Rust 二进制**�
 
 - `pf` 成功 ≠ formal / hermetic / mainnet / Stage-0。
 - `pf deploy` save-only ≠ 链上 inclusion。
-- 第一期不承诺 EVM/Solana deploy 面（Solana client 仍 verify-only，除非另开 ADR）。
+- EVM/Solana **公共网** deploy 仍非目标；local save/broadcast 已由 D11 接入。
+- crates.io 仅发布 orchestrator crate `proof-forge-pf`（bin `pf`）；`proof-forge-next` 不走 crates.io。
 
 ## Alternatives rejected
 

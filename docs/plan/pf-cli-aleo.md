@@ -304,7 +304,9 @@ pf deploy --broadcast --network local --endpoint http://127.0.0.1:8899
 
 ```text
 D0–D11 done (public-chain write still refused)
-  └── optional: more Aleo twin materializers / GH Release wiring
+  └── developer just/scripts prefer `pf` wrappers
+  └── crates.io: proof-forge-pf (orchestrator); compiler via dist/Release
+  └── optional: more Aleo twin materializers / GH Release automation
 ```
 
 **并行建议**
