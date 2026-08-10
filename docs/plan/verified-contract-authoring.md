@@ -149,8 +149,9 @@ ProofForge 目标
 2. 已有首个自动生成的 per-callable typed relation API，但尚缺面向业务证明的
    `deposit s amount = .returned next` 短 executable notation。
 3. evaluator-backed typed invariant predicate 与 exact ordinal/evaluator bridge 首切已完成；
-   尚缺将支持的 DSL invariant expression 投影成普通 Lean 数学谓词（例如
-   `reserves = shares`）并与该 evaluator-backed predicate 对齐的通用 bridge。
+   exact `stateLoad; stateLoad; eq; return` 的 UInt64 字段相等首切也已投影成普通 Lean
+   `reserves = shares` 并与 evaluator-backed predicate 对齐；更多 expression shape、
+   premise-free subject validation/encoder packaging 与 arithmetic/lookup bridge 仍待补。
 4. `PreservationTheoremV1` 要求 base + 全输入 + 全 callable + 三 Outcome；当前缺少把
    per-callable 业务 lemma 自动组合成该 ABI 的程序级 packager。
 5. ClosedSubjectPin/contract-specific golden 可以加速已知样例，但不能成为任意合约的主证明通道。
@@ -444,7 +445,9 @@ decode 已完成；独立的 generated pre-init `LifecycleState`、initializer p
 ### Phase 3 — Typed invariant 与 evaluator bridge
 
 **状态**：进行中。已生成 `<Program>.Model.<inv> : State → Prop` 的 evaluator-backed
-首切及 exact `evalInvariantV1` bridge；普通 Lean 数学表达式投影、checked arithmetic/lookup
+首切及 exact `evalInvariantV1` bridge；并已对 exact lowered
+`stateLoad left; stateLoad right; eq; return` UInt64 shape 生成字段相等数学 bridge。
+更广 expression 投影、premise-free subject/encoder packaging、checked arithmetic/lookup
 通用引理与业务 proof ergonomics 尚未完成。
 
 交付：
@@ -458,6 +461,20 @@ decode 已完成；独立的 generated pre-init `LifecycleState`、initializer p
        Model.solvent typedState ↔
          evalInvariantV1 subjectProgramV1 ordinal logical = .returnedTrue
    ```
+
+   首个字段相等 shape 还生成：
+
+   ```lean
+   theorem solvent_iff_fields
+       (hvalidate : validateSemanticProgramV1 subjectProgramV1 =
+         .ok subjectDataV1)
+       (hencode : encodeState typedState = .ok logical) :
+       Model.solvent typedState ↔
+         typedState.reserves = typedState.shares
+   ```
+
+   这里的 premises 暂时显式保留；在通用 subject validation 与 typed encoder
+   success packaging 完成前，不用 closed reduction 或第二 evaluator 隐藏它们。
 
 3. checked arithmetic/trap 边界必须与 invariant evaluator一致；不能把 partial evaluator
    简化成无条件数学运算。
@@ -673,7 +690,7 @@ proof-bearing target build 继续 fail closed。
 | 0B | 唯一语义防回归门 | **已完成** | `alpha-deletion-gate` 固定平行语义、contract-specific registry/pin 的物理删除，不误杀 checker state |
 | 1 | Typed State + codec bridge | **进行中（generated Bool/UInt64 双向 complete/unique 首切已完成）** | generated `Model.State` 复用 production codec；`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；Bool 的产品 accepted-language 接线与更多 scalar shape 仍待补 |
 | 2 | Typed callable transition | **进行中（initialized entry/view + 独立 initializer lifecycle relation 首切已完成）** | pre-init 只使用 exact production lifecycle carrier；initializer returned state 与 ordinary callable returned state 均可唯一投影为 typed State，固定 typed 输入有且至多有一个 typed outcome |
-| 3 | Typed invariant bridge | **进行中（evaluator-backed exact bridge 首切已完成）** | generated predicate 使用 exact state encoder 与 lowered invariant ordinal，并与 production `evalInvariantV1` 双向对齐；普通 Lean 数学谓词投影仍待补 |
+| 3 | Typed invariant bridge | **进行中（evaluator + UInt64 字段相等数学 bridge 首切已完成）** | generated predicate 使用 exact state encoder 与 lowered invariant ordinal，并与 production `evalInvariantV1` 双向对齐；exact two-state equality CFG 已 fail-closed 投影成字段等式，更多表达式与 premise packaging 仍待补 |
 | 4 | Generic preservation composition | 未开始 | per-call lemmas 自动包成 exact `PreservationTheoremV1` |
 | 5 | Same-file certifier ergonomics | 部分地基已有 | 任意未 pin 合约的真实 proof body可 certified |
 | 6 | authority amendment + VerifiedVaultPF + NEAR build/runtime | 未开始 | 先批准 versioned invariant-erasure contract，再完成单文件 proof + build + runtime differential；诚实标注 Reference-level |
@@ -772,14 +789,15 @@ proof-bearing target build 继续 fail closed。
    `outcome_unique`；ordinary selector仍只接受 entry/view。回归同时 pin initializer id/kind、ordinary
    view id，以及 relation 展开后每个分支唯一出现的 `stepReferenceSliceV1`；没有 generated evaluator；
 17. 当前仍缺 full raw-input gate partition、per-call preservation composition 与短 executable
-   notation；typed invariant 的 evaluator-backed exact bridge 已进入下述 Phase 3 首切，但普通
-   Lean 数学谓词投影仍未完成；
+   notation；typed invariant 已进入下述 Phase 3 首切，并完成 exact UInt64 两字段 equality 的
+   普通 Lean 数学投影，但更多 expression shape 与 premise-free packaging 仍未完成；
 18. 当前成果只能称 Reference-level proof view / `reference-certified` 地基；target refinement
    完成前不能称 target artifact verified。
 
 ### Phase 3 首切进展
 
-当前完成的是 evaluator-backed 地基，而不是完整的业务数学投影：
+当前完成的是 evaluator-backed 地基和一个 fail-closed 业务数学投影 shape，而不是通用
+expression translator：
 
 1. `TypedInvariantV1 encodeState program ordinal state` 只要求 generated production encoder
    成功，并要求唯一的 production evaluator
@@ -797,10 +815,21 @@ proof-bearing target build 继续 fail closed。
    state shape 不生成悬空 predicate/bridge，既有 program 与 `Proof` aliases 保持可用；
 6. 回归覆盖 exact encoder binding、非零 invariant ordinal、evaluator bridge 展开、initializer
    lifecycle 分离和 fail-closed name/state shape；
-7. 本切片尚未把 `reserves == shares` 等 DSL expression 翻译为普通 Lean 字段公式，也没有证明
-   通用 `Spec.solvent ↔ Model.solvent`。这些是 Phase 3 后续，不得把当前 evaluator 桥夸大成
-   已完成业务谓词形式化；
-8. 当前声明仍仅是 Reference-level proof view 地基；它不改变 target materialization authority，
+7. production machine 已证明 exact 三指令 equality body 的
+   `runInvariantCallableV1 = returnedTrue ↔ decodedLeftBytes = decodedRightBytes`；public
+   `evalInvariantV1` bridge 再组合 exact validation、ordinal selection 与 initialized decoder；
+8. elaborator 只检查 exact lowered CFG、`invariantSteps = some 5`、ValueId `0/1/2`、
+   arbitrary concrete StateId、anonymous Bool result 与同一 UInt64 field type；不读取 source AST，
+   任一额外 block/instruction/type/fuel variant 都返回 `none`，但保留原 `_iff_eval` API；
+9. 对支持 shape 生成 `Model.Invariant.<inv>_iff_fields`，把 canonical `encodeU64le` equality
+   通过 production projection left inverse 收回普通 Lean 字段 equality。回归覆盖非零 StateId、
+   非零 invariant ordinal，并确认 unsupported literal-true 与近似 `!=` CFG 都不生成该
+   optional theorem；
+10. 当前 `_iff_fields` 仍显式接收 exact `hvalidate` 与 successful `hencode`。尚未证明通用
+    premise-free subject validation/encoder packaging，也尚未处理 arithmetic/Struct/Map expression；
+    不得把此 narrow shape 宣称为完整 expression translation 或通用
+    `Spec.solvent ↔ Model.solvent`；
+11. 当前声明仍仅是 Reference-level proof view 地基；它不改变 target materialization authority，
    更不构成 Reference→target refinement。
 
 ---

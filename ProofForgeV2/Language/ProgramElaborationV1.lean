@@ -105,6 +105,20 @@ private def quoteStringArray (xs : Array String) : MacroM (TSyntax `term) := do
     elems := elems.push (quote s)
   `(#[$elems,*])
 
+private def quoteModelOptionStringV1
+    (value : Option String) : MacroM (TSyntax `term) :=
+  match value with
+  | none => `(none)
+  | some text => `(some $(quote text))
+
+private def quoteModelVisibilityV1
+    (visibility : ProofForgeV2.Semantic.WireV1.VisibilityV1) :
+    MacroM (TSyntax `term) :=
+  match visibility with
+  | .public_ => `(ProofForgeV2.Semantic.WireV1.VisibilityV1.public_)
+  | .private_ => `(ProofForgeV2.Semantic.WireV1.VisibilityV1.private_)
+  | .commitment => `(ProofForgeV2.Semantic.WireV1.VisibilityV1.commitment)
+
 /-- Quote name-parameterized simple-closure certificate params (no bytes). -/
 private def quoteSimpleClosureParams
     (p : SimpleClosureParamsV1) : MacroM (TSyntax `term) := do
@@ -192,9 +206,18 @@ private structure ModelCallableViewV1 where
   resultTypeId : TypeIdV1
   result : ModelCallableResultV1
 
+private structure ModelInvariantFieldEqualityV1 where
+  invariant : InvariantDeclV1
+  callable : CallableV1
+  valueType : TypeDeclV1
+  boolType : TypeDeclV1
+  leftState : StateDeclV1
+  rightState : StateDeclV1
+
 private structure ModelInvariantViewV1 where
   name : String
   ordinal : Nat
+  fieldEquality : Option ModelInvariantFieldEqualityV1
 
 /-- Phase-1 typed-state support is deliberately narrow and fail closed. The
     mapping is read from the exact lowered subject data; source AST types are
@@ -239,13 +262,91 @@ private def isReservedModelCallableNameV1 (name : String) : Bool :=
 private def isReservedModelInvariantNameV1 (name : String) : Bool :=
   isReservedModelCallableNameV1 name || name == "init"
 
+/-- Recognize only the exact lowered CFG for equality between two generated
+    UInt64 state fields. This reads `SemanticProgramDataV1`, not the source AST,
+    and returns `none` for every additional block, instruction, value-id shape,
+    type, or fuel variant. The result is metadata for theorem emission only;
+    execution remains owned by `evalInvariantV1` / `runInvariantCallableV1`. -/
+private def modelInvariantFieldEqualityV1?
+    (data : SemanticProgramDataV1) (invariant : InvariantDeclV1)
+    (ordinal : Nat) :
+    Option ModelInvariantFieldEqualityV1 := do
+  guard (invariant.id.toNat == ordinal)
+  let callable ← data.callables[invariant.callableId.toNat]?
+  guard (callable.id == invariant.callableId)
+  guard (callable.kind == .invariant)
+  guard (callable.name == some invariant.name)
+  guard callable.params.isEmpty
+  guard (callable.result.visibility == .public_)
+  guard (callable.entryBlock == 0)
+  guard callable.loopBounds.isEmpty
+  guard (callable.invariantSteps == some 5)
+  guard (callable.blocks.size == 1)
+  let block ← callable.blocks[0]?
+  guard (block.id == 0)
+  guard block.params.isEmpty
+  guard (block.instructions.size == 3)
+  let leftInstruction ← block.instructions[0]?
+  let rightInstruction ← block.instructions[1]?
+  let equalityInstruction ← block.instructions[2]?
+  let leftResult ← leftInstruction.result
+  let rightResult ← rightInstruction.result
+  let equalityResult ← equalityInstruction.result
+  guard (leftResult.valueId == 0)
+  guard (rightResult.valueId == 1)
+  guard (equalityResult.valueId == 2)
+  let leftStateId ← match leftInstruction.op with
+    | .stateLoad stateId => some stateId
+    | _ => none
+  let rightStateId ← match rightInstruction.op with
+    | .stateLoad stateId => some stateId
+    | _ => none
+  match equalityInstruction.op with
+  | .binary .eq leftValueId rightValueId =>
+      guard (leftValueId == 0 && rightValueId == 1)
+  | _ => none
+  match block.terminator with
+  | .return_ (some valueId) => guard (valueId == 2)
+  | _ => none
+  guard (leftResult.typeId == rightResult.typeId)
+  guard (callable.result.typeId == equalityResult.typeId)
+  let valueType ← data.types[leftResult.typeId.toNat]?
+  guard (valueType.id == leftResult.typeId)
+  match valueType.shape with
+  | .uint 64 => pure ()
+  | _ => none
+  let boolType ← data.types[equalityResult.typeId.toNat]?
+  guard (boolType.id == equalityResult.typeId)
+  guard boolType.name.isNone
+  match boolType.shape with
+  | .bool => pure ()
+  | _ => none
+  let leftState ← data.logicalState[leftStateId.toNat]?
+  let rightState ← data.logicalState[rightStateId.toNat]?
+  guard (leftState.id == leftStateId)
+  guard (rightState.id == rightStateId)
+  guard (leftState.typeId == valueType.id)
+  guard (rightState.typeId == valueType.id)
+  pure {
+    invariant := invariant
+    callable := callable
+    valueType := valueType
+    boolType := boolType
+    leftState := leftState
+    rightState := rightState
+  }
+
 private def modelInvariantViewsV1
     (data : SemanticProgramDataV1) : Array ModelInvariantViewV1 :=
   data.invariants.zipIdx.filterMap fun (invariant, ordinal) =>
     if isReservedModelInvariantNameV1 invariant.name then
       none
     else
-      some { name := invariant.name, ordinal }
+      some {
+        name := invariant.name
+        ordinal
+        fieldEquality := modelInvariantFieldEqualityV1? data invariant ordinal
+      }
 
 /-- Project the common supported callable shape from the exact lowered table.
     Root-kind selection remains separate below so initializer lifecycle cannot
@@ -1851,7 +1952,9 @@ private def elaborateInitializerModelsV1
     translate or execute the DSL invariant expression independently. -/
 private def elaborateInvariantModelsV1
     (subjectProgramName : TSyntax `ident)
+    (subjectDataName : TSyntax `ident)
     (encodeStateName : TSyntax `ident)
+    (fields : Array ModelStateFieldV1)
     (views : Array ModelInvariantViewV1) : CommandElabM Unit := do
   if views.isEmpty then
     return
@@ -1859,6 +1962,10 @@ private def elaborateInvariantModelsV1
   let typedStateName := mkIdent `typedState
   let logicalStateName := mkIdent `logicalState
   let invariantNamespace := mkIdent `Invariant
+  let fieldNames := fields.map fun field => mkIdent (Name.mkSimple field.name)
+  let encodedValues ← Lean.Elab.liftMacroM <|
+    fields.zip fieldNames |>.mapM fun (field, fieldName) =>
+      quoteModelStateEncodeV1 typedStateName fieldName field.scalar
   for invariantView in views do
     let predicateName := mkIdent (Name.mkSimple invariantView.name)
     let ordinalTerm : TSyntax `term :=
@@ -1891,6 +1998,91 @@ private def elaborateInvariantModelsV1
           ProofForgeV2.Semantic.PreservationABI.typedInvariantV1_iff_eval_of_encode
             $encodeStateName $subjectProgramName $ordinalTerm $typedStateName
               $logicalStateName hencode))
+    match invariantView.fieldEquality with
+    | none => pure ()
+    | some equality =>
+      let fieldBridgeName :=
+        mkIdent (Name.mkSimple (invariantView.name ++ "_iff_fields"))
+      let invariantIdTerm : TSyntax `term :=
+        ⟨Syntax.mkNumLit (toString equality.invariant.id.toNat)⟩
+      let callableIdTerm : TSyntax `term :=
+        ⟨Syntax.mkNumLit (toString equality.callable.id.toNat)⟩
+      let valueTypeIdTerm : TSyntax `term :=
+        ⟨Syntax.mkNumLit (toString equality.valueType.id.toNat)⟩
+      let boolTypeIdTerm : TSyntax `term :=
+        ⟨Syntax.mkNumLit (toString equality.boolType.id.toNat)⟩
+      let leftStateIdTerm : TSyntax `term :=
+        ⟨Syntax.mkNumLit (toString equality.leftState.id.toNat)⟩
+      let rightStateIdTerm : TSyntax `term :=
+        ⟨Syntax.mkNumLit (toString equality.rightState.id.toNat)⟩
+      let leftFieldName := mkIdent (Name.mkSimple equality.leftState.name)
+      let rightFieldName := mkIdent (Name.mkSimple equality.rightState.name)
+      let rootNameTerm ← Lean.Elab.liftMacroM <|
+        quoteModelOptionStringV1 equality.callable.name
+      let rootVisibilityTerm ← Lean.Elab.liftMacroM <|
+        quoteModelVisibilityV1 equality.callable.result.visibility
+      let leftVisibilityTerm ← Lean.Elab.liftMacroM <|
+        quoteModelVisibilityV1 equality.leftState.visibility
+      let rightVisibilityTerm ← Lean.Elab.liftMacroM <|
+        quoteModelVisibilityV1 equality.rightState.visibility
+      Lean.Elab.Command.elabCommand (← `(
+        /-- Narrow mathematical view of the exact lowered two-field equality
+            invariant. Validation and successful typed encoding remain
+            explicit; execution is still the production invariant evaluator. -/
+        theorem $fieldBridgeName
+            ($typedStateName : $stateName)
+            ($logicalStateName :
+              ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+            (hvalidate :
+              ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+                  $subjectProgramName = .ok $subjectDataName)
+            (hencode :
+              $encodeStateName $typedStateName = .ok $logicalStateName) :
+            $predicateName $typedStateName ↔
+              ($typedStateName).$leftFieldName =
+                ($typedStateName).$rightFieldName := by
+          rw [$bridgeName $typedStateName $logicalStateName hencode]
+          have hproductionEncode :
+              ProofForgeV2.Semantic.InvariantABI.encodeLogicalStateValuesV1
+                  $subjectDataName true #[$encodedValues,*] =
+                .ok $logicalStateName := by
+            unfold $encodeStateName at hencode
+            exact hencode
+          have hinitialized : ($logicalStateName).initialized = true :=
+            ProofForgeV2.Semantic.InvariantABI.LogicalStateV1.initialized_of_encodeLogicalStateValuesV1
+              $subjectDataName true #[$encodedValues,*] $logicalStateName
+                hproductionEncode
+          have hdecode :
+              ProofForgeV2.Semantic.InvariantABI.decodeLogicalStateValuesV1
+                  $subjectDataName $logicalStateName =
+                .ok #[$encodedValues,*] :=
+            ProofForgeV2.Semantic.InvariantABI.decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1
+              $subjectDataName true #[$encodedValues,*] $logicalStateName
+                hproductionEncode
+          rw [ProofForgeV2.Semantic.InvariantABI.evalInvariantV1_returnedTrue_iff_two_state_bytes_eq
+            $subjectProgramName $subjectDataName $ordinalTerm $invariantIdTerm
+            $(quote equality.invariant.name) $logicalStateName
+            #[$encodedValues,*]
+            (ProofForgeV2.Semantic.WireV1.encodeU64le
+              ($typedStateName).$leftFieldName)
+            (ProofForgeV2.Semantic.WireV1.encodeU64le
+              ($typedStateName).$rightFieldName)
+            $callableIdTerm $valueTypeIdTerm $boolTypeIdTerm
+            $leftStateIdTerm $rightStateIdTerm $rootNameTerm
+            $rootVisibilityTerm $leftVisibilityTerm $rightVisibilityTerm
+            $(quote equality.leftState.name) $(quote equality.rightState.name)
+            hvalidate hinitialized hdecode (by rfl) (by rfl) (by rfl)
+            (by rfl) (by rfl) (by rfl) (by rfl)]
+          constructor
+          · intro hbytes
+            have hvalues := congrArg
+              ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1
+              hbytes
+            simpa only [
+              ProofForgeV2.Semantic.StateModelV1.uint64OfCanonicalValueBytesV1_encodeU64le]
+              using hvalues
+          · intro hvalues
+            simpa only [hvalues]))
   Lean.Elab.Command.elabCommand (← `(end $invariantNamespace))
 
 /-- Emit the author-facing business-state view. It is only a typed projection
@@ -2185,8 +2377,8 @@ private def elaborateStateModelV1
     decodeStateName encodeDecodeName data (modelCallableViewsV1 data)
   elaborateInitializerModelsV1 subjectProgramName subjectDataName encodeStateName
     decodeStateName encodeDecodeName data (modelInitializerViewsV1 data)
-  elaborateInvariantModelsV1 subjectProgramName encodeStateName
-    (modelInvariantViewsV1 data)
+  elaborateInvariantModelsV1 subjectProgramName subjectDataName encodeStateName
+    fields (modelInvariantViewsV1 data)
   Lean.Elab.Command.elabCommand (← `(end $modelNamespace))
 
 private def proofSurfaceV1

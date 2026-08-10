@@ -270,6 +270,54 @@ example (semanticProgram : SemanticProgramV1)
       (fun _ : Unit => .error .nonCanonical) semanticProgram ordinal () := by
   simp [TypedInvariantV1]
 
+/- The first ordinary mathematical invariant view is recognized from the
+   exact lowered CFG. Nonzero state IDs and invariant ordinal ensure the
+   emitter does not assume either table starts at the equality operands. -/
+program TypedInvariantFieldEqualitySurface where
+  state nonce : UInt64
+  state reserves : UInt64
+  state shares : UInt64
+  view alive() : Bool do
+    return true
+  invariant primary : true
+  invariant solvent : reserves == shares
+  invariant nonsolvent : reserves != shares
+  proof primary using TypedInvariantFieldEqualitySurfaceProof.primary
+  proof solvent using TypedInvariantFieldEqualitySurfaceProof.solvent
+  proof nonsolvent using TypedInvariantFieldEqualitySurfaceProof.nonsolvent
+
+#check TypedInvariantFieldEqualitySurface.Model.solvent
+#check TypedInvariantFieldEqualitySurface.Model.Invariant.solvent_iff_eval
+#check TypedInvariantFieldEqualitySurface.Model.Invariant.solvent_iff_fields
+
+example
+    (typedState : TypedInvariantFieldEqualitySurface.Model.State)
+    (logicalState : LogicalStateV1)
+    (hvalidate :
+      validateSemanticProgramV1
+          TypedInvariantFieldEqualitySurface.Proof.subjectProgramV1 =
+        .ok TypedInvariantFieldEqualitySurface.Proof.subjectDataV1)
+    (hencode :
+      TypedInvariantFieldEqualitySurface.Model.encodeState typedState =
+        .ok logicalState) :
+    TypedInvariantFieldEqualitySurface.Model.solvent typedState ↔
+      typedState.reserves = typedState.shares :=
+  TypedInvariantFieldEqualitySurface.Model.Invariant.solvent_iff_fields
+    typedState logicalState hvalidate hencode
+
+/- Unsupported invariant CFGs keep their evaluator bridge but fail closed for
+    the optional field-level mathematical theorem. -/
+run_cmd do
+  let env ← getEnv
+  let unsupportedFieldBridge :=
+    `Tests.Language.InlineProofAuthoringV1.TypedInvariantFieldEqualitySurface.Model.Invariant.primary_iff_fields
+  if env.contains unsupportedFieldBridge then
+    throwError "literal-true invariant must not emit a field equality bridge"
+  let nearMissFieldBridge :=
+    `Tests.Language.InlineProofAuthoringV1.TypedInvariantFieldEqualitySurface.Model.Invariant.nonsolvent_iff_fields
+  if env.contains nearMissFieldBridge then
+    throwError "not-equal invariant must not emit a field equality bridge"
+
 /- Invariant predicates are selected from the exact lowered invariant table;
    in particular, a second declaration is not silently hard-coded to zero. -/
 program TypedInvariantOrdinalSurface where
