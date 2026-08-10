@@ -129,5 +129,13 @@ on-chain finalization、offline query、hermetic 或 formal refinement 证据；
 Host-optional：`just aleo-instructions-interpret` 将 PF `{id}.aleo` 钉入 ephemeral Leo
 runner 的 `build/imports/`，再 `leo run --offline {id}.aleo::{fn}`。产品权威是 PF
 Instructions 字节（post-run sha 必须不变）；Leo 只做 VM runner shell，**不是** source
-materializer。interpret ≠ proof ≠ on-chain。Devnet/Testnet 为 Wave C；Mainnet 不进产品路径。
-产品 CLI `local --target aleo` 仍 fail closed。
+materializer。interpret ≠ proof ≠ on-chain。产品 CLI `local --target aleo` 仍 fail closed。
+
+## 10. Network tx gate（Wave C，engineering）
+
+Host-optional：`just aleo-instructions-network-tx`。对 StateCell：构造与 PF Instructions
+**字节全等**的 Leo twin（`assert(!seen)` 形态），再对 testnet（或显式 devnet endpoint）
+跑 `leo deploy --save` / `leo execute --save`。默认 **不 broadcast**；广播需
+`PROOF_FORGE_ALEO_BROADCAST=1` + funded `PROOF_FORGE_ALEO_PRIVATE_KEY`。Mainnet 拒绝。
+不设产品 `deployable=true`。完整边界见
+[`../plan/aleo-official-load-dev-testnet.md`](../plan/aleo-official-load-dev-testnet.md)。

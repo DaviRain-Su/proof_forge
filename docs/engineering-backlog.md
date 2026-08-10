@@ -303,7 +303,7 @@ D1–D4 = 0/27 done。
 | **ALEO-DIRECT-CLEANUP** | 删除 obsolete source/compiler/network lanes | Aleo/CLI/ToolLock/scripts/tests/docs | **done（2026-08-10）**：见 ADR-0035；删除全部旧代码、recipes、fixtures、tests、profile aliases、tool entries 与 network receipts；不提高 maturity |
 | **ALEO-LOAD-A** | 官方工具加载 PF `.aleo`（Wave A） | Aleo Instructions + Leo abi | **done（2026-08-10）**：`reservedInstructionIdentifierV1` fail-closed（含 entry `add`）；`just aleo-instructions-load` 对 StateCell/LoopSum + golden counter/optionstate 跑 `leo abi` 全绿；Accumulator 产品 FC + reserved golden 被 leo 拒绝；Lean `AleoInstructionsV1` 同步；计划 [`plan/aleo-official-load-dev-testnet.md`](plan/aleo-official-load-dev-testnet.md)。**非** VM/proof/Devnet/Testnet/Mainnet |
 | **ALEO-LOAD-B** | 本地 interpret（Wave B） | host-optional | **done（2026-08-10）**：`just aleo-instructions-interpret`；Leo runner shell + PF `{id}.aleo` → `build/imports` 字节钉扎；StateCell initialize/increment offline VM；imports sha 与 PF emission 一致；非 proof/network/durable ledger；产品 `local aleo` 仍 FC |
-| **ALEO-LOAD-C** | Devnet/Testnet opt-in（Wave C） | host-optional network | **pending**：显式 endpoint/key；Mainnet **不做**产品路径；`deployable` 仍 false 直至另决策 |
+| **ALEO-LOAD-C** | Devnet/Testnet tx materialization（Wave C） | host-optional network | **done（2026-08-10）**：`just aleo-instructions-network-tx`；PF StateCell ↔ Leo twin **exact Instructions match**；默认 testnet `leo deploy/execute --save` 无 broadcast；`PROOF_FORGE_ALEO_BROADCAST=1`+funded key 才广播；mainnet 拒绝；`deployable=false`；endpoint 不可达 skip-clean |
 | **B-1d** | Solana Map/Bytes/Option state：open 或钉死 FAIL-CLOSED | Solana/** | **done**（2026-08-02：Array + **Map UInt64 dense pilot** cap-8；默认仍 plan profile，opt-in ELF+Mollusk 已通；aggregate CSE/storeStateMulti 修复 empty upsert，MapMini 4/4 active；Option 中间值自 Map IndexGet；**Bytes 已随 B-1d2 开放，`Option UInt64` state 后由 BL-29 开放**） |
 | **B-1d2** | Solana named Struct/Enum + Bytes state | Solana/** | **done**（2026-08-03：L2 lane `integrate/w1-all`；named 聚合 flatten + Bytes N×UInt8 state/params + atomic storeAggregate/storeStateMulti；4096B frame 硬门保持、plan/ELF 绿；该 lane 当时聚合返回/Option state FC，后续已由 B-RET-ABI/N-ANON-RESULT 与 BL-29 开放 bounded return / `Option UInt64` state；Bytes construct/ContextRead 仍 FC） |
 | **B-1e** | EVM Map/Bytes/Option state：同上 | Evm/** | **done**（2026-08-02：Array EvmIndex + Bytes D4-E2；**Map UInt64 dense pilot** cap-8 + Token locked-solc finalization；creation bytecode 超 EIP-3860，chain deployment 未闭合；Option-from-Map 当时仅中间值，后续 BL-31 已开 `Option UInt64` state；EVM/Solana/NEAR/Noir/Aleo Map 横向已开并闭合 aggregate snapshot hazard） |
@@ -449,6 +449,7 @@ D1–D4 = 0/27 done。
 | 2026-08-09 | **INV-2 wave-2 ZeroCounter 通用性门闭合（bf2-docs）**：EvenCounter + ZeroCounter（P=`count==0`）双 preserving product GREEN；packaging/non-pin 已交付；ADR-0034/research-023/Agents/document-status 第二实例状态同步；**不** supersede ADR-0027；MiniAmm P1 仍后置；非 formal |
 | 2026-08-10 | **ALEO-LOAD-A**：官方 Leo `abi` 加载门 + reserved-name FC；三波计划（A load / B interpret / C Dev·Testnet；Mainnet 不做产品路径）登记 `docs/plan/aleo-official-load-dev-testnet.md` |
 | 2026-08-10 | **ALEO-LOAD-B**：PF Instructions 本地 VM interpret（Leo runner + imports 字节钉扎）；`just aleo-instructions-interpret`；非 proof/Devnet |
+| 2026-08-10 | **ALEO-LOAD-C**：testnet deploy/execute **tx save**（默认无 broadcast）；PF↔Leo twin exact bytecode；mainnet 拒绝；broadcast 显式 opt-in |
 
 ---
 

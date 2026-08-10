@@ -86,25 +86,41 @@ post-run: sha256(imports) == sha256(PF emission)
 
 ---
 
-## Wave C — Devnet / Testnet deploy+execute（opt-in）
+## Wave C — Devnet / Testnet tx materialization（opt-in broadcast）
 
-**目标**：operator 显式网络提交；**不进 ordinary CI**；MCP 默认仍无 broadcast。
+**目标**：在 **不** 打开产品 `deployable=true` 的前提下，对 PF-equivalent Instructions
+构造可提交的 deploy/execute 交易；默认 **只 save、不 broadcast**。
 
-前置：
+**选定路径（2026-08-10）**：
 
-- Wave A load 绿
-- Wave B interpret 至少一条稳定路径
-- Tool Lock：Leo 与/或 snarkOS **精确版本 + digest**（禁止 PATH 冒充产品 finalize）
-- endpoint + network id + credits + key **全部显式**
+```text
+PF build StateCell → statecell.aleo
+Leo twin package (assert(!seen) + dropped re-read)
+  leo build → build/main.aleo
+  assert main.aleo == rewrite(PF, statecell→{freshId})   # exact bytes
+leo deploy --save  (live endpoint for stateRoot; NO --broadcast by default)
+leo execute --save initialize 5u64  (--skip-execute-proof; NO broadcast)
+artifacts under build/v2/aleo-network-tx-{network}-{id}/
+```
 
-DoD：
+| 项 | 内容 |
+|---|---|
+| 入口 | `just aleo-instructions-network-tx` |
+| 默认网络 | `testnet` + `https://api.explorer.provable.com/v1` |
+| Devnet | `PROOF_FORGE_ALEO_NETWORK=devnet` + `PROOF_FORGE_ALEO_ENDPOINT=http://localhost:3030`（需自备 snarkOS） |
+| Broadcast | 仅 `PROOF_FORGE_ALEO_BROADCAST=1` **且** `PROOF_FORGE_ALEO_PRIVATE_KEY`（拒绝 well-known dev key） |
+| Mainnet | **exit 2 拒绝** |
+| Twin 说明 | `leo deploy` 会重编译 src，不能直接塞 PF 文件；twin 经实证与 PF StateCell Instructions **字节全等**（id 改写后） |
+| 非声称 | 默认不证明链上 inclusion；`deployable=false`；非 formal/hermetic；非 MCP 默认工具 |
 
-- [ ] `devnet`：deploy program → execute transition → query mapping（point-in-time）
-- [ ] `testnet`：同上，独立证据目录
-- [ ] 产品 CLI 若暴露：仅 `network --broadcast` 类显式 flag；拒绝默认 mainnet
-- [ ] 证据只写 tx/program id/endpoint binding；**不**设 `deployable=true` 除非另开产品决策
+**状态**：`done`（2026-08-10 engineering）— 本机对公共 testnet：
 
-**状态**：`pending`
+- twin exact-match PF
+- deploy `.deployment.json` saved（含 `not r1 into r2` 程序体）
+- execute `initialize` `.execution.json` saved
+- `broadcast=0`
+
+**Broadcast / 真上链**：operator 自备 funded key +（devnet 时）snarkOS；本仓库默认门禁不广播。
 
 ---
 
@@ -112,7 +128,7 @@ DoD：
 
 - 恢复 `aleo-leo-4.0.2-*` source/compiler product profile
 - Mainnet 产品门禁 / MCP 默认 broadcast
-- 把 `leo abi` 成功说成 formal / hermetic / mainnet
+- 把 `leo abi` / tx-save 成功说成 formal / hermetic / mainnet / `deployable=true`
 - 静默 rename 保留名（必须作者改名或 target FC）
 
 ---
@@ -120,10 +136,8 @@ DoD：
 ## 击杀顺序
 
 ```text
-A1. reserved-name FC + StateCell/LoopSum leo abi          ← done
-A2. just + docs + backlog 登记                            ← done
-B1. runner shell + PF imports pin interpret               ← done
-B2. just aleo-instructions-interpret                      ← done
-C1. Tool Lock snarkOS/Leo network pins（或显式 host pins）
-C2. opt-in devnet then testnet runbooks（host-optional）
+A1–A2  load gate                         ← done
+B1–B2  interpret gate                    ← done
+C1     twin exact-match + deploy/execute --save (testnet)  ← done
+C2     optional operator broadcast / local snarkOS devnet  ← operator
 ```

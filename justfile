@@ -1359,6 +1359,16 @@ aleo-instructions-interpret: build
     /bin/bash -p scripts/aleo_instructions_interpret_acceptance.sh
 
 
+# Aleo Wave-C: network tx materialization (default save-only, no broadcast).
+# Builds PF StateCell, proves Leo twin == PF Instructions (id rewrite), then
+# leo deploy/execute --save against testnet (or PROOF_FORGE_ALEO_NETWORK=devnet).
+# Broadcast only if PROOF_FORGE_ALEO_BROADCAST=1 + PROOF_FORGE_ALEO_PRIVATE_KEY.
+# Mainnet rejected. Not product deployable=true / formal / MCP default.
+# See docs/plan/aleo-official-load-dev-testnet.md.
+aleo-instructions-network-tx: build
+    /bin/bash -p scripts/aleo_instructions_network_tx_acceptance.sh
+
+
 # Noir ACIR IR-7 / G6 prove honesty probe (host-heavy; NOT ordinary ci).
 # Probes locked $PROOF_FORGE_TOOL_ROOT/bb|barretenberg only (never PATH).
 # Default today: PF-TOOLCHAIN-MISSING + PARTIAL (Tool Lock barretenberg=null;
