@@ -90,13 +90,25 @@ proof-forge-next build src/Hello.lean --module Hello --target aleo \
 proof-forge-next inspect --output-dir "$PROJ/out-aleo" --json
 ```
 
-## 7. 前端下一步（剧本外）
+## 7. 前端下一步（Aleo dApp）
 
-Agent 完成后端后：
+Agent 完成后端后，**前端不是可选闲笔**——完整 Aleo APP 需要 Wallet 交互。权威剧本：
 
-1. `pf_chain_catalog` 读 `frontendClients`（ecosystem，**非** PF 发货）
-2. 用生态 SDK 做极薄页面/脚本（未来网络接线）— **人工或后续切片**
-3. Aleo network deploy 当前 unsupported；不得从 Instructions artifact 推断已部署
+[`07-aleo-dapp-frontend-wallet.md`](07-aleo-dapp-frontend-wallet.md)
+
+最短路径：
+
+1. `pf_chain_catalog` `target=aleo` → 读 `frontendClients`（`@provablehq/aleo-wallet-adaptor-*` · `@provablehq/sdk`）
+2. 脚手架 React（Vite/Next）+ `AleoWalletProvider` / `WalletMultiButton`（Leo/Puzzle/Shield…）
+3. 从 PF `pf deploy`（或 explorer）取得 **program id**，写入前端 env（**无私钥**）
+4. 用户钱包 `executeTransaction` 调 `initialize` / `increment`；public mapping 用 explorer REST 读
+5. 开发者本机仍可用 `pf deploy|execute --broadcast` 做冒烟；**终端用户只走钱包**
+
+边界：
+
+- MCP **不**代签、不持 key、不默认 broadcast
+- 不得从 Instructions artifact  alone 推断「已部署」
+- 浏览器禁止嵌入 `APrivateKey1…`
 
 ## 8. 失败剧本
 

@@ -16,19 +16,25 @@
     {
       "id": "03-hello-dapp-agent-playbook.md",
       "title": "Hello dApp\uff1aCode Agent \u5267\u672c\uff08\u540e\u7aef\u5408\u7ea6 + direct artifact\uff09",
-      "bytes": 3546,
+      "bytes": 4164,
       "kind": "markdown"
     },
     {
       "id": "04-chain-client-catalog.md",
       "title": "\u591a\u94fe\u5ba2\u6237\u7aef / \u524d\u7aef catalog\uff08\u5143\u6570\u636e\uff09",
-      "bytes": 2844,
+      "bytes": 3186,
       "kind": "markdown"
     },
     {
       "id": "05-distribution-and-packages.md",
       "title": "\u5206\u53d1\u67b6\u6784\uff1aCLI \u53d1\u7248 \u00b7 Lean \u5199\u5408\u7ea6\u5305 \u00b7 \u5bbf\u4e3b SDK/MCP",
       "bytes": 16425,
+      "kind": "markdown"
+    },
+    {
+      "id": "07-aleo-dapp-frontend-wallet.md",
+      "title": "Aleo dApp \u524d\u7aef\uff1aWallet Adapter \u00b7 Provable SDK \u00b7 \u4e0e ProofForge \u7684\u5206\u5de5",
+      "bytes": 16369,
       "kind": "markdown"
     },
     {
@@ -40,7 +46,7 @@
     {
       "id": "chain-client-catalog.v1.json",
       "title": "chain-client-catalog.v1",
-      "bytes": 8832,
+      "bytes": 12068,
       "kind": "catalog"
     },
     {

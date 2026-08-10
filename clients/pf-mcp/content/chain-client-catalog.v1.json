@@ -7,7 +7,8 @@
     "clientSdk fields name ecosystem packages; ProofForge does not vendor or pin them here.",
     "pfSurface describes product CLI/MCP/SDK entry points only.",
     "deployable is always false on product OutputSet until N3 product decision.",
-    "No network broadcast tools on MCP default surface."
+    "No network broadcast tools on MCP default surface.",
+    "Aleo frontend detail: docs/product/07-aleo-dapp-frontend-wallet.md (wallet adaptor + Provable SDK; not shipped by PF)."
   ],
   "targets": [
     {
@@ -19,15 +20,63 @@
         "build": true,
         "localModes": [],
         "network": "none-product",
-        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_artifacts", "pf_chain_catalog"],
+        "mcpTools": [
+          "pf_list_targets",
+          "pf_doctor",
+          "pf_install",
+          "pf_build",
+          "pf_artifacts",
+          "pf_chain_catalog"
+        ],
         "template": "templates/external-aleo-hello"
       },
       "frontendClients": [
         {
-          "name": "Aleo SDK / Provable SDK (ecosystem)",
+          "name": "@provablehq/aleo-wallet-adaptor-react (+ react-ui, core, standard, types)",
           "kind": "js-ts",
-          "purpose": "wallet, program query, transaction submit outside ProofForge",
-          "shippedByProofForge": false
+          "purpose": "React WalletProvider/useWallet/WalletMultiButton — connect Leo/Puzzle/Shield/Fox/Soter; sign/decrypt/records/executeTransaction/executeDeployment",
+          "shippedByProofForge": false,
+          "docs": [
+            "https://docs.aleo.org/build/wallets/wallet-adapter/getting-started",
+            "https://github.com/ProvableHQ/aleo-dev-toolkit",
+            "docs/product/07-aleo-dapp-frontend-wallet.md"
+          ],
+          "packages": [
+            "@provablehq/aleo-wallet-adaptor-react",
+            "@provablehq/aleo-wallet-adaptor-react-ui",
+            "@provablehq/aleo-wallet-adaptor-core",
+            "@provablehq/aleo-wallet-standard",
+            "@provablehq/aleo-types",
+            "@provablehq/aleo-wallet-adaptor-leo",
+            "@provablehq/aleo-wallet-adaptor-puzzle",
+            "@provablehq/aleo-wallet-adaptor-shield",
+            "@provablehq/aleo-wallet-adaptor-fox",
+            "@provablehq/aleo-wallet-adaptor-soter"
+          ]
+        },
+        {
+          "name": "@provablehq/sdk (+ @provablehq/wasm)",
+          "kind": "js-ts",
+          "purpose": "Program/Account/Transaction objects, optional browser/node prove, RPC helpers; pair with wallet for user-signed txs",
+          "shippedByProofForge": false,
+          "docs": [
+            "https://github.com/ProvableHQ/sdk",
+            "https://www.npmjs.com/package/@provablehq/sdk"
+          ],
+          "packages": [
+            "@provablehq/sdk",
+            "@provablehq/wasm",
+            "create-leo-app"
+          ]
+        },
+        {
+          "name": "Explorer REST (api.explorer.provable.com)",
+          "kind": "http",
+          "purpose": "Public program/mapping/tx queries without wallet; testnet default for PF demos",
+          "shippedByProofForge": false,
+          "docs": [
+            "https://api.explorer.provable.com/v1"
+          ]
         }
       ],
       "localDev": {
@@ -37,8 +86,12 @@
       "honesty": [
         "deployable=false on product build",
         "canonical Aleo Instructions and query descriptor only",
-        "no Leo compiler, local runtime, or network wrapper"
-      ]
+        "no Leo compiler, local runtime, or network wrapper",
+        "frontend wallet/sdk are ecosystem packages — PF does not vendor or pin versions",
+        "browser must not embed APrivateKey; CLI broadcast keys stay developer-local only",
+        "see PRODUCT-ALEO-DAPP-FRONTEND-WALLET for dApp wiring"
+      ],
+      "frontendGuide": "docs/product/07-aleo-dapp-frontend-wallet.md"
     },
     {
       "id": "evm",
@@ -47,9 +100,19 @@
       "role": "backend-contracts",
       "pfSurface": {
         "build": true,
-        "localModes": ["runtime"],
+        "localModes": [
+          "runtime"
+        ],
         "network": "none-product",
-        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_local", "pf_artifacts", "pf_chain_catalog"]
+        "mcpTools": [
+          "pf_list_targets",
+          "pf_doctor",
+          "pf_install",
+          "pf_build",
+          "pf_local",
+          "pf_artifacts",
+          "pf_chain_catalog"
+        ]
       },
       "frontendClients": [
         {
@@ -63,7 +126,9 @@
         "offlineInterpret": null,
         "chainLike": "Anvil engineering differential (host-heavy)"
       },
-      "honesty": ["product OutputSet deployable depends on profile; do not invent mainnet"]
+      "honesty": [
+        "product OutputSet deployable depends on profile; do not invent mainnet"
+      ]
     },
     {
       "id": "solana",
@@ -72,9 +137,19 @@
       "role": "backend-contracts",
       "pfSurface": {
         "build": true,
-        "localModes": ["runtime"],
+        "localModes": [
+          "runtime"
+        ],
         "network": "none-product",
-        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_local", "pf_artifacts", "pf_chain_catalog"]
+        "mcpTools": [
+          "pf_list_targets",
+          "pf_doctor",
+          "pf_install",
+          "pf_build",
+          "pf_local",
+          "pf_artifacts",
+          "pf_chain_catalog"
+        ]
       },
       "frontendClients": [
         {
@@ -88,7 +163,9 @@
         "offlineInterpret": null,
         "chainLike": "Mollusk runtime tests (host-heavy; not ordinary ci)"
       },
-      "honesty": ["Principal is not Solana pubkey globally"]
+      "honesty": [
+        "Principal is not Solana pubkey globally"
+      ]
     },
     {
       "id": "near",
@@ -99,7 +176,14 @@
         "build": true,
         "localModes": [],
         "network": "none-product",
-        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_artifacts", "pf_chain_catalog"]
+        "mcpTools": [
+          "pf_list_targets",
+          "pf_doctor",
+          "pf_install",
+          "pf_build",
+          "pf_artifacts",
+          "pf_chain_catalog"
+        ]
       },
       "frontendClients": [
         {
@@ -124,7 +208,14 @@
         "build": true,
         "localModes": [],
         "network": "none-product",
-        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_artifacts", "pf_chain_catalog"]
+        "mcpTools": [
+          "pf_list_targets",
+          "pf_doctor",
+          "pf_install",
+          "pf_build",
+          "pf_artifacts",
+          "pf_chain_catalog"
+        ]
       },
       "frontendClients": [
         {
@@ -138,7 +229,9 @@
         "offlineInterpret": null,
         "chainLike": "nargo compile-only engineering; prove/VK fail-closed honesty"
       },
-      "honesty": ["ACIR dual-write is opt-in profile; default is source relations"]
+      "honesty": [
+        "ACIR dual-write is opt-in profile; default is source relations"
+      ]
     },
     {
       "id": "psy",
@@ -149,14 +242,23 @@
         "build": true,
         "localModes": [],
         "network": "none-product",
-        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_artifacts", "pf_chain_catalog"]
+        "mcpTools": [
+          "pf_list_targets",
+          "pf_doctor",
+          "pf_install",
+          "pf_build",
+          "pf_artifacts",
+          "pf_chain_catalog"
+        ]
       },
       "frontendClients": [],
       "localDev": {
         "offlineInterpret": null,
         "chainLike": null
       },
-      "honesty": ["canonical DPN package only; no Psy source, Dargo, local VM, or proof lane"]
+      "honesty": [
+        "canonical DPN package only; no Psy source, Dargo, local VM, or proof lane"
+      ]
     },
     {
       "id": "quint",
@@ -167,14 +269,23 @@
         "build": true,
         "localModes": [],
         "network": "none-product",
-        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_artifacts", "pf_chain_catalog"]
+        "mcpTools": [
+          "pf_list_targets",
+          "pf_doctor",
+          "pf_install",
+          "pf_build",
+          "pf_artifacts",
+          "pf_chain_catalog"
+        ]
       },
       "frontendClients": [],
       "localDev": {
         "offlineInterpret": null,
         "chainLike": "zero-tool .qnt emission; product does not run Quint/Apalache"
       },
-      "honesty": ["not a deployable chain target"]
+      "honesty": [
+        "not a deployable chain target"
+      ]
     },
     {
       "id": "cosmwasm",
@@ -185,7 +296,14 @@
         "build": true,
         "localModes": [],
         "network": "none-product",
-        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_artifacts", "pf_chain_catalog"]
+        "mcpTools": [
+          "pf_list_targets",
+          "pf_doctor",
+          "pf_install",
+          "pf_build",
+          "pf_artifacts",
+          "pf_chain_catalog"
+        ]
       },
       "frontendClients": [
         {
@@ -199,7 +317,9 @@
         "offlineInterpret": null,
         "chainLike": "cosmwasm-vm mock + wasmd engineering rungs"
       },
-      "honesty": ["sync call FC; async SubMsg subset"]
+      "honesty": [
+        "sync call FC; async SubMsg subset"
+      ]
     },
     {
       "id": "ton",
@@ -210,7 +330,14 @@
         "build": true,
         "localModes": [],
         "network": "none-product",
-        "mcpTools": ["pf_list_targets", "pf_doctor", "pf_install", "pf_build", "pf_artifacts", "pf_chain_catalog"]
+        "mcpTools": [
+          "pf_list_targets",
+          "pf_doctor",
+          "pf_install",
+          "pf_build",
+          "pf_artifacts",
+          "pf_chain_catalog"
+        ]
       },
       "frontendClients": [
         {
@@ -235,11 +362,19 @@
         "build": false,
         "localModes": [],
         "network": "none",
-        "mcpTools": ["pf_list_targets", "pf_chain_catalog"]
+        "mcpTools": [
+          "pf_list_targets",
+          "pf_chain_catalog"
+        ]
       },
       "frontendClients": [],
-      "localDev": { "offlineInterpret": null, "chainLike": null },
-      "honesty": ["unsupported for install/build"]
+      "localDev": {
+        "offlineInterpret": null,
+        "chainLike": null
+      },
+      "honesty": [
+        "unsupported for install/build"
+      ]
     },
     {
       "id": "icp",
@@ -250,11 +385,19 @@
         "build": false,
         "localModes": [],
         "network": "none",
-        "mcpTools": ["pf_list_targets", "pf_chain_catalog"]
+        "mcpTools": [
+          "pf_list_targets",
+          "pf_chain_catalog"
+        ]
       },
       "frontendClients": [],
-      "localDev": { "offlineInterpret": null, "chainLike": null },
-      "honesty": ["unsupported for install/build"]
+      "localDev": {
+        "offlineInterpret": null,
+        "chainLike": null
+      },
+      "honesty": [
+        "unsupported for install/build"
+      ]
     },
     {
       "id": "openvm",
@@ -265,11 +408,19 @@
         "build": false,
         "localModes": [],
         "network": "none",
-        "mcpTools": ["pf_list_targets", "pf_chain_catalog"]
+        "mcpTools": [
+          "pf_list_targets",
+          "pf_chain_catalog"
+        ]
       },
       "frontendClients": [],
-      "localDev": { "offlineInterpret": null, "chainLike": null },
-      "honesty": ["unsupported for install/build"]
+      "localDev": {
+        "offlineInterpret": null,
+        "chainLike": null
+      },
+      "honesty": [
+        "unsupported for install/build"
+      ]
     }
   ]
 }

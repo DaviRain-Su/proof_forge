@@ -3,7 +3,7 @@ id: PRODUCT-CHAIN-CLIENT-CATALOG
 title: Chain client / frontend catalog (metadata for agents)
 status: draft
 owner: product+engineering
-updated: 2026-08-09
+updated: 2026-08-10
 normative: false
 ---
 
@@ -74,3 +74,12 @@ python3 -I tools/sdk/proof_forge_sdk.py chain-catalog --target aleo
 - 不安装前端 npm 包
 - 不提供 mainnet endpoint 白名单（network 脚本另有 policy）
 - 不 formal / Stage-0
+
+## 7. Aleo frontend deep-dive
+
+Aleo dApp 前端（Wallet Adapter · Provable SDK · 与 `pf` 产物对接）见：
+
+[`07-aleo-dapp-frontend-wallet.md`](07-aleo-dapp-frontend-wallet.md)
+
+Catalog JSON 的 `aleo.frontendClients` 列出具体 `@provablehq/aleo-wallet-adaptor-*` 与 `@provablehq/sdk` 包名；**仍不**由 PF 安装或 pin。
+

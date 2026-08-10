@@ -35,6 +35,7 @@ Psy DPN 物化规划：[`targets/10-psy-dpn-lowering.md`](targets/10-psy-dpn-low
 Aleo Instructions IR 物化规划：[`targets/09-aleo-instructions-lowering.md`](targets/09-aleo-instructions-lowering.md)（idle residual；OPTION-COMPARE done）。
 外部 ProgramV1 工程（`--root` + Aleo direct Instructions）：[`product/02-external-program-v1.md`](product/02-external-program-v1.md)。
 Hello dApp Agent 剧本：[`product/03-hello-dapp-agent-playbook.md`](product/03-hello-dapp-agent-playbook.md)。
+Aleo dApp 前端 / Wallet SDK（FCCP 补全）：[`product/07-aleo-dapp-frontend-wallet.md`](product/07-aleo-dapp-frontend-wallet.md)。
 多链客户端 catalog：[`product/04-chain-client-catalog.md`](product/04-chain-client-catalog.md) / [`product/chain-client-catalog.v1.json`](product/chain-client-catalog.v1.json)（MCP `pf_chain_catalog`）。
 分发架构（CLI multi-arch · Author SDK · Host PyPI · CI Release）：[`product/05-distribution-and-packages.md`](product/05-distribution-and-packages.md)（tag `v${VERSION}` → CLI + Author + `pip install proof-forge-sdk`；Host SDK Trusted Publisher 配置表：[`product/06-pypi-host-sdk.md`](product/06-pypi-host-sdk.md)；非 formal Stage-0）。
 产品面阶梯（install/doctor → CLI → MCP/SDK）：[`product/01-toolchain-install-surface.md`](product/01-toolchain-install-surface.md)（workflow `product-surface-ladder`；I0–I3 + MCP-V0 + SDK-V0 已接线；非 formal/hermetic；无默认 `deployable=true`）。
