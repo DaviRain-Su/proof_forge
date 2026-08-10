@@ -29,6 +29,11 @@ private def params : SimpleClosureParamsV1 := {
 private def data : SemanticProgramDataV1 :=
   materializeSimpleClosureDataV1 params
 
+/-- The production body codec accepts this transport shape, but the sole root
+    encoder must reject its one-component program identity. -/
+private def invalidRootData : SemanticProgramDataV1 :=
+  { data with qualifiedName := { components := ⟨"Root", #[]⟩ } }
+
 /-- Closed encode of the probe data (runtime-checked below). -/
 private def probeBytes? : Option ByteArray :=
   match encodeSemanticProgramDataV1 data with
@@ -57,6 +62,8 @@ def run : IO Unit := do
       -- Force packaging theorem types into the elaborator (no step execution).
       let _ := @programOfEncodeV1_canonicalBytes
       let _ := @toEncodeWitnessV1_data
+      let _ := @encode_of_subjectData_body_gates
+      let _ := @validate_of_subjectData_body_gates_invert
       let _ := @validate_of_subjectData_decode
       let _ := @structure_of_subjectData_encode
       let _ := @probe_encode_ok
@@ -67,6 +74,27 @@ def run : IO Unit := do
       throw <| IO.userError s!"encodeSubjectBytesV1 failed: {repr e}"
   | _, .error e =>
       throw <| IO.userError s!"production encode failed: {repr e}"
+  match encodeSemanticProgramDataBodyV1 invalidRootData with
+  | .error error =>
+      throw <| IO.userError
+        s!"invalid-root body encode unexpectedly failed: {repr error}"
+  | .ok bytes =>
+      match encodeSemanticProgramDataV1 invalidRootData with
+      | .error .badScalar => pure ()
+      | .error error =>
+          throw <| IO.userError
+            s!"invalid-root encoder returned wrong error: {repr error}"
+      | .ok _ =>
+          throw <| IO.userError
+            "body equality must not bypass the production root-name gate"
+      match validateSemanticProgramV1 ⟨bytes⟩ with
+      | .error .badScalar => pure ()
+      | .error error =>
+          throw <| IO.userError
+            s!"invalid-root validator returned wrong error: {repr error}"
+      | .ok _ =>
+          throw <| IO.userError
+            "body-only carrier must not validate without production root gates"
   IO.println "Tests.Semantic.SubjectDataBridgeV1: ok"
 
 end Tests.Semantic.SubjectDataBridgeV1

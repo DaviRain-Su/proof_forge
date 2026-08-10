@@ -607,12 +607,14 @@ theorem preservationTheorem_of_subjectBodyV1
     exact hnameShape
   have hvalidate : validateSemanticProgramV1 program = .ok data := by
     change validateSemanticProgramV1 ⟨bytes⟩ = .ok data
-    exact ProofForgeV2.Semantic.UInt64ParitySubjectV1.validate_ok_of_bodyEncode_invertV1
-      data bytes ⟨qualifiedName, stateName, entryName, viewName, invariantName,
-        by simp [data]⟩
-      hnameShapeData
+    exact ProofForgeV2.Semantic.SubjectDataBridgeV1.validate_of_subjectData_body_gates_invert
+      data bytes hnameShapeData
       (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
-      hstructure (by simpa [data] using hbody) hinvert
+      hstructure
+      (by
+        simpa [data, ProofForgeV2.Semantic.UInt64ParitySubjectV1.bodyEncodeOkV1]
+          using hbody)
+      hinvert
   have hadmission : validateReferenceProgramDataAdmissionV1 data = .ok () := by
     rfl
   have hordinal : (0 : InvariantOrdinalV1).toNat < program.invariants.size := by

@@ -56,6 +56,28 @@ theorem toEncodeWitnessV1_data
     (toEncodeWitnessV1 data bytes hencode).data = data :=
   rfl
 
+/-- Lift the elaborator's exact production-body equality to the sole root
+    encoder once every production root gate has been proved. Keeping the gates
+    explicit prevents body-byte equality from masquerading as program
+    validity. -/
+theorem encode_of_subjectData_body_gates
+    (data : SemanticProgramDataV1) (bytes : ByteArray)
+    (hnameShape : validateProgramQualifiedNameShapeV1 data.qualifiedName = .ok ())
+    (htypesSize : checkTableSize data.types.size = .ok ())
+    (hconstantsSize : checkTableSize data.constants.size = .ok ())
+    (hstateSize : checkTableSize data.logicalState.size = .ok ())
+    (heventsSize : checkTableSize data.events.size = .ok ())
+    (herrorsSize : checkTableSize data.errors.size = .ok ())
+    (hcallablesSize : checkTableSize data.callables.size = .ok ())
+    (hinvariantsSize : checkTableSize data.invariants.size = .ok ())
+    (hstructure : validateSemanticProgramStructureV1 data = .ok ())
+    (hbody : encodeSemanticProgramDataBodyV1 data = .ok bytes) :
+    encodeSemanticProgramDataV1 data = .ok bytes := by
+  rw [encodeSemanticProgramDataV1_eq_body_of_gates data hnameShape htypesSize
+    hconstantsSize hstateSize heventsSize herrorsSize hcallablesSize
+    hinvariantsSize hstructure]
+  exact hbody
+
 /-- Lift structured subject + encode + root-field invert to a validated carrier
     (no free decode hyp; reuses mig-a1-root composition). -/
 def toValidatedOfInvertV1
@@ -72,6 +94,30 @@ theorem validate_of_subjectData_invert
     (hinvert : RootFieldInvertV1 data) :
     validateSemanticProgramV1 (programOfEncodeV1 data bytes hencode) = .ok data :=
   validate_of_encode_witness (toEncodeWitnessV1 data bytes hencode) hinvert
+
+/-- Exact generated-subject validation from the elaborator's production-body
+    equality, every production root gate, and whole-program production-codec
+    inversion. This is the generic kernel seam for future generated subject
+    certificates; none of the premises may be replaced by Reference admission. -/
+theorem validate_of_subjectData_body_gates_invert
+    (data : SemanticProgramDataV1) (bytes : ByteArray)
+    (hnameShape : validateProgramQualifiedNameShapeV1 data.qualifiedName = .ok ())
+    (htypesSize : checkTableSize data.types.size = .ok ())
+    (hconstantsSize : checkTableSize data.constants.size = .ok ())
+    (hstateSize : checkTableSize data.logicalState.size = .ok ())
+    (heventsSize : checkTableSize data.events.size = .ok ())
+    (herrorsSize : checkTableSize data.errors.size = .ok ())
+    (hcallablesSize : checkTableSize data.callables.size = .ok ())
+    (hinvariantsSize : checkTableSize data.invariants.size = .ok ())
+    (hstructure : validateSemanticProgramStructureV1 data = .ok ())
+    (hbody : encodeSemanticProgramDataBodyV1 data = .ok bytes)
+    (hinvert : RootFieldInvertV1 data) :
+    validateSemanticProgramV1 ⟨bytes⟩ = .ok data := by
+  have hencode := encode_of_subjectData_body_gates data bytes hnameShape
+    htypesSize hconstantsSize hstateSize heventsSize herrorsSize hcallablesSize
+    hinvariantsSize hstructure hbody
+  exact validateSemanticProgramV1_eq_ok_of_encode_decode data bytes hencode
+    (decodeSemanticProgramDataV1_of_encode_ok data bytes hencode hinvert)
 
 /-- Validate from structured subject + encode + explicit transport decode. -/
 theorem validate_of_subjectData_decode

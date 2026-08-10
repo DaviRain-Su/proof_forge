@@ -843,6 +843,10 @@ expression translator：
     `LogicalStateV1`/successful `hencode`；它调用 generated `Model.encode_exists`，而该 theorem
     只证明 production `encodeLogicalStateValuesV1` 的 successful result。尚未证明通用
     premise-free exact subject validation packaging，也尚未处理 arithmetic/Struct/Map expression；
+    当前已把 `subjectBodyEncodeOkV1` + 全部 production root gates + structure success +
+    whole-program `RootFieldInvertV1` 组合 exact validation 的 theorem 抽到通用
+    `SubjectDataBridgeV1`，不再归属于 parity shape。下一步必须生成这些 kernel premises；在此之前
+    body equality 不能单独冒充 program validity，`hvalidate` 也不能提前删除；
     不得把此 narrow shape 宣称为完整 expression translation 或通用
     `Spec.solvent ↔ Model.solvent`；
 11. 当前声明仍仅是 Reference-level proof view 地基；它不改变 target materialization authority，

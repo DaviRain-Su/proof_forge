@@ -97,10 +97,8 @@ example
       ParityProbe.Proof.subjectDataV1.qualifiedName
       "count" "increment" "get" "even"
       ident_count ident_increment ident_get ident_even
-  exact ProofForgeV2.Semantic.UInt64ParitySubjectV1.validate_ok_of_bodyEncode_invertV1
+  exact ProofForgeV2.Semantic.SubjectDataBridgeV1.validate_of_subjectData_body_gates_invert
     ParityProbe.Proof.subjectDataV1 ParityProbe.Proof.subjectBytesV1
-    ⟨ParityProbe.Proof.subjectDataV1.qualifiedName,
-      "count", "increment", "get", "even", rfl⟩
     rfl rfl rfl rfl rfl rfl rfl rfl hstructure rfl hinvert
 
 private def expect (condition : Bool) (message : String) : IO Unit := do
