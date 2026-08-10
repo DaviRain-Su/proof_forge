@@ -1395,6 +1395,13 @@ solana-client-test:
     cargo test --manifest-path clients/solana-client/Cargo.toml --locked
     cargo clippy --manifest-path clients/solana-client/Cargo.toml --locked --all-targets -- -D warnings
 
+# Rust developer CLI (Aleo-first); compiler authority remains proof-forge-next.
+pf-cli-test:
+    cargo test --manifest-path clients/pf-cli/Cargo.toml --locked
+
+pf-cli-build:
+    cargo build --manifest-path clients/pf-cli/Cargo.toml --locked
+
 # Build the exact TransferSol product tree, then apply both the generic Solana
 # profile verifier and the explicit TransferSol program adapter.
 solana-transfer-sol-offline:

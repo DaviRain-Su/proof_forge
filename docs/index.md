@@ -38,6 +38,7 @@ Hello dApp Agent 剧本：[`product/03-hello-dapp-agent-playbook.md`](product/03
 多链客户端 catalog：[`product/04-chain-client-catalog.md`](product/04-chain-client-catalog.md) / [`product/chain-client-catalog.v1.json`](product/chain-client-catalog.v1.json)（MCP `pf_chain_catalog`）。
 分发架构（CLI multi-arch · Author SDK · Host PyPI · CI Release）：[`product/05-distribution-and-packages.md`](product/05-distribution-and-packages.md)（tag `v${VERSION}` → CLI + Author + `pip install proof-forge-sdk`；Host SDK Trusted Publisher 配置表：[`product/06-pypi-host-sdk.md`](product/06-pypi-host-sdk.md)；非 formal Stage-0）。
 产品面阶梯（install/doctor → CLI → MCP/SDK）：[`product/01-toolchain-install-surface.md`](product/01-toolchain-install-surface.md)（workflow `product-surface-ladder`；I0–I3 + MCP-V0 + SDK-V0 已接线；非 formal/hermetic；无默认 `deployable=true`）。
+Developer CLI `pf`（Rust，Aleo-first）：[`clients/pf-cli/README.md`](../clients/pf-cli/README.md) / [`adr/0037-developer-cli-pf.md`](adr/0037-developer-cli-pf.md) / [`plan/pf-cli-aleo.md`](plan/pf-cli-aleo.md)。
 Noir ACIR 物化规划：[`targets/07-noir-acir-lowering.md`](targets/07-noir-acir-lowering.md)（lane **idle** residual；IR-0..IR-7 done；金样 `testdata/golden/noir-acir-v1/` Counter + IR-4 multi-fixture `fixtures/*` inventory + G3 circuit-hash pins + 诚实矩阵 + opt-in dual-write）。
 EVM bytecode sole 权威 cutover：**仅研究暂停** [`targets/08-evm-bytecode-lowering.md`](targets/08-evm-bytecode-lowering.md)（**不** Active；用户未授权实现 lane；见 backlog `EVM-BC-RESEARCH`）。
 
@@ -82,7 +83,8 @@ target refinement、sandbox/hermetic/release 仍 open。见
   [`specs/target-registry.md`](specs/target-registry.md)、
   [`specs/target-aleo.md`](specs/target-aleo.md)、
   [`specs/materializer-protocol.md`](specs/materializer-protocol.md)。
-- 公共产品面：[`specs/cli.md`](specs/cli.md)、
+- 公共产品面：[`specs/cli.md`](specs/cli.md)（compiler `proof-forge-next`）、
+  [`specs/cli-developer.md`](specs/cli-developer.md)（developer `pf`，ADR-0037）、
   [`specs/output-contract.md`](specs/output-contract.md)、
   [`specs/diagnostics.md`](specs/diagnostics.md)。
 - 公共 primitive 与资源 profile：[`specs/common-types.md`](specs/common-types.md)。

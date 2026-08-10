@@ -1,7 +1,7 @@
 ---
 id: PLAN-ALEO-LOAD-DEV-TESTNET
 title: Aleo Instructions → official load → Dev/Testnet (3 waves)
-status: in_progress
+status: draft
 owner: engineering
 updated: 2026-08-10
 normative: false
