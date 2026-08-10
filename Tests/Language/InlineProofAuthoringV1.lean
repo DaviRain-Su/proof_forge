@@ -241,8 +241,9 @@ program TypedCallableSurface where
 #check TypedCallableSurface.Model.add.encodeResult
 #check TypedCallableSurface.Model.add.decodeResult
 #check TypedCallableSurface.Model.add.decode_encode_result
-#check TypedCallableSurface.Model.add.decode_existsUnique_of_conforms
-#check TypedCallableSurface.Model.add.decode_existsUnique_of_returned
+#check TypedCallableSurface.Model.add.decodeResult_existsUnique_of_conforms
+#check TypedCallableSurface.Model.add.decodeResult_existsUnique_of_returned
+#check TypedCallableSurface.Model.add.decodeState_existsUnique_of_returned
 #check TypedCallableSurface.Model.add.encodeResult_injective
 #check TypedCallableSurface.Model.add.Outcome
 #check TypedCallableSurface.Model.add.Transition
@@ -252,8 +253,9 @@ program TypedCallableSurface where
 #check TypedCallableSurface.Model.alive.encodeResult
 #check TypedCallableSurface.Model.alive.decodeResult
 #check TypedCallableSurface.Model.alive.decode_encode_result
-#check TypedCallableSurface.Model.alive.decode_existsUnique_of_conforms
-#check TypedCallableSurface.Model.alive.decode_existsUnique_of_returned
+#check TypedCallableSurface.Model.alive.decodeResult_existsUnique_of_conforms
+#check TypedCallableSurface.Model.alive.decodeResult_existsUnique_of_returned
+#check TypedCallableSurface.Model.alive.decodeState_existsUnique_of_returned
 #check TypedCallableSurface.Model.alive.encodeResult_injective
 #check TypedCallableSurface.Model.alive.Outcome
 #check TypedCallableSurface.Model.alive.Transition
@@ -294,7 +296,7 @@ example
         ∀ other : TypedCallableSurface.Model.add.Result,
           TypedCallableSurface.Model.add.decodeResult referenceValue = .ok other →
             value = other :=
-  TypedCallableSurface.Model.add.decode_existsUnique_of_conforms
+  TypedCallableSurface.Model.add.decodeResult_existsUnique_of_conforms
     referenceValue hconforms
 
 example
@@ -308,7 +310,7 @@ example
         ∀ other : TypedCallableSurface.Model.alive.Result,
           TypedCallableSurface.Model.alive.decodeResult referenceValue = .ok other →
             value = other :=
-  TypedCallableSurface.Model.alive.decode_existsUnique_of_conforms
+  TypedCallableSurface.Model.alive.decodeResult_existsUnique_of_conforms
     referenceValue hconforms
 
 example : TypedCallableSurface.Model.alive.decodeResult
@@ -444,8 +446,9 @@ program TypedUnitCallableSurface where
 #check TypedUnitCallableSurface.Model.clear.encodeResult
 #check TypedUnitCallableSurface.Model.clear.decodeResult
 #check TypedUnitCallableSurface.Model.clear.decode_encode_result
-#check TypedUnitCallableSurface.Model.clear.decode_existsUnique_of_conforms
-#check TypedUnitCallableSurface.Model.clear.decode_existsUnique_of_returned
+#check TypedUnitCallableSurface.Model.clear.decodeResult_existsUnique_of_conforms
+#check TypedUnitCallableSurface.Model.clear.decodeResult_existsUnique_of_returned
+#check TypedUnitCallableSurface.Model.clear.decodeState_existsUnique_of_returned
 #check TypedUnitCallableSurface.Model.clear.encodeResult_injective
 #check TypedUnitCallableSurface.Model.clear.Outcome
 #check TypedUnitCallableSurface.Model.clear.Transition
@@ -469,7 +472,7 @@ example
         ∀ other : TypedUnitCallableSurface.Model.clear.Result,
           TypedUnitCallableSurface.Model.clear.decodeResult referenceValue = .ok other →
             value = other :=
-  TypedUnitCallableSurface.Model.clear.decode_existsUnique_of_conforms
+  TypedUnitCallableSurface.Model.clear.decodeResult_existsUnique_of_conforms
     referenceValue hconforms
 
 example : TypedUnitCallableSurface.Model.clear.decodeResult (some {
