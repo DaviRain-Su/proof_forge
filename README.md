@@ -53,7 +53,7 @@ program StateCell where
 
 ### 路径 ① — 外部作者 / Agent（推荐；**不**需要 monorepo `lake build`）
 
-从 GitHub Release 取 **engineering-dist bundle**（`proof-forge-bundle-<ver>-<plat>.tar.gz`，含 `pf` + `proof-forge-next` + olean + scripts）。详见 [ADR-0039](docs/adr/0039-external-author-host-mode-and-bundle.md) / [`docs/product/14-external-author-mvp.md`](docs/product/14-external-author-mvp.md)。
+从 GitHub Release 取 **engineering-dist bundle**（`proof-forge-bundle-<ver>-<plat>.tar.gz`，含 `pf` + `proof-forge-next` + olean + scripts）。详见 [ADR-0040](docs/adr/0040-external-author-host-mode-and-bundle.md) / [`docs/product/14-external-author-mvp.md`](docs/product/14-external-author-mvp.md)。
 
 ```bash
 # 有 Release 资产后：

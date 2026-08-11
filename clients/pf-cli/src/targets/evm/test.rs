@@ -2,7 +2,7 @@
 //!
 //! Prefers the package-owned script shipped in the engineering **bundle**
 //! (`scripts/pf_evm_test.sh` next to `proof-forge-next`). Monorepo checkout is
-//! optional fallback only — not required for external authors (ADR-0039 / P1-1).
+//! optional fallback only — not required for external authors (ADR-0040 / P1-1).
 
 use crate::compiler;
 use crate::error::{PfError, PfResult};
@@ -109,7 +109,7 @@ pub fn resolve_evm_test_script() -> PfResult<PathBuf> {
            pf -y setup --target evm   # materializes anvil+cast into Tool Root\n\
          Override: PROOF_FORGE_EVM_TEST_SCRIPT=/path/to/pf_evm_test.sh\n\
          Save-only without Anvil: pf deploy -t evm\n\
-         See docs/product/14-external-author-mvp.md · ADR-0039"
+         See docs/product/14-external-author-mvp.md · ADR-0040"
             .into(),
     ))
 }

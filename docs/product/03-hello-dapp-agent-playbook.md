@@ -9,7 +9,7 @@ normative: false
 
 # Hello dApp：Code Agent 剧本（后端合约 + direct artifact）
 
-状态：`draft`（2026-08-10；**默认路径 = engineering bundle**，ADR-0039）  
+状态：`draft`（2026-08-10；**默认路径 = engineering bundle**，ADR-0040）  
 前置：[`14-external-author-mvp.md`](14-external-author-mvp.md)、[`01-toolchain-install-surface.md`](01-toolchain-install-surface.md)、[`02-external-program-v1.md`](02-external-program-v1.md)  
 Catalog：[`04-chain-client-catalog.md`](04-chain-client-catalog.md) / `pf_chain_catalog`  
 网络：[`networks.v1.json`](networks.v1.json) · `pf network list`
@@ -169,6 +169,6 @@ cd templates/evm-dapp-ui && npm install && npm run dev
 
 ## 10. 相关
 
-- ADR-0039 host mode + bundle  
+- ADR-0040 host mode + bundle  
 - [`14-external-author-mvp.md`](14-external-author-mvp.md)  
 - `pf network list` / `pf network use evm.xlayer.testnet`（元数据 only）

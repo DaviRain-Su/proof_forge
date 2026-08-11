@@ -1,6 +1,6 @@
 name: External author smoke
 
-# Lightweight gate for ADR-0039 external-author path.
+# Lightweight gate for ADR-0040 external-author path.
 # Does NOT replace ordinary CI lean-product / target-smoke.
 # NOT formal Stage-0 / hermetic.
 #

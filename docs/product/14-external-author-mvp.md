@@ -301,7 +301,6 @@ Week 3  Epic F 文档两轨收敛 + agent cheatsheet
 |---|---|
 | 2026-08-10 | 初稿：诊断 + D1–D5 + P0/P1/P2 + Epic + CI 三绿线 + 最小五切片 |
 | 2026-08-10 | **实现切片落地**：ADR-0040；`HostMode=dev` 默认；Diagnostic fix-up；`package_bundle_dist` + `install.sh` + `pf bootstrap`；setup `-y` 真调 install；pf 版本对齐 0.1.1；release workflow 打 bundle + EA smoke |
-| 2026-08-10 | **实现切片落地**：ADR-0040；`HostMode=dev` 默认；Diagnostic fix-up；`package_bundle_dist` + `install.sh` + `pf bootstrap`；setup `-y` 真调 install；pf 版本对齐 0.1.1；release workflow 打 bundle + EA smoke |
 | 2026-08-10 | **Wave A+B**：README 两轨；`external-author-smoke.yml`；P1-1 standalone `pf test -t evm`（bundle 脚本解析 + setup `--with-runtime`） |
 | 2026-08-10 | **P1-2/3/4 + playbook**：`pf network`；`pf write-ui-json`；deploy 写 UI JSON；agent playbook 默认 bundle |
 | 2026-08-10 | **P1-7**：`pf scaffold-ui` 拷 dApp 模板 + 对齐 build 产物；bundle 打包 `templates/` |
