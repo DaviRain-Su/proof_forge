@@ -10,7 +10,7 @@ normative: false
 # Yul / EVM 形式化 backend 候选登记
 
 > **产品决策（2026-08-11）**  
-> - **Hackathon / ForgeRWA / 赛期产品路径：不接入、不依赖** 外部 Yul→EVM 已证编译器或 EVM 形式语义包（无 Lake import、无 dual materializer 切换、无「已形式化编译」对外声称）。  
+> - **Hackathon / ProofShip（AI-RWA 竖切）/ 赛期产品路径：不接入、不依赖** 外部 Yul→EVM 已证编译器或 EVM 形式语义包（无 Lake import、无 dual materializer 切换、无「已形式化编译」对外声称）。  
 > - **正式 D4 / EVM formal lighthouse：登记为候选**，按阶段评估；接入形态最多是 **可选 backend / 差分 / refinement 桥**，不得替换 `SemanticProgramV1` 权威或新增第二套业务语义机。  
 > - 产品竖切规划见 [`docs/plan/ai-rwa-verified-ship-xlayer.md`](../plan/ai-rwa-verified-ship-xlayer.md) §7.4。  
 > - 范围对齐 [`ADR-0036`](../adr/0036-engineering-scope-and-evm-formal-lighthouse.md)：EVM-first formal 不得用外部工程 positives 或黑客松交付代签。
@@ -63,7 +63,7 @@ ProofForge 信任链（工程现状）
 | EVM 可执行/关系语义 | 工程差分（Anvil 等） | **高（长期 differential）** |
 | 两周 AI-RWA + X Layer ship | 现货管线 | **无直接帮助** |
 
-**结论**：「更好」仅对 **IR/字节码形式可信** 成立；对 **ForgeRWA 赛期交付** 不成立。赛期接入会把产品工期换成 compiler research，并抬高 overclaim 风险。
+**结论**：「更好」仅对 **IR/字节码形式可信** 成立；对 **ProofShip 赛期交付** 不成立。赛期接入会把产品工期换成 compiler research，并抬高 overclaim 风险。
 
 ---
 
@@ -104,7 +104,7 @@ ProofForge 信任链（工程现状）
 
 ## 4. 禁止与允许
 
-### 4.1 赛期 / ForgeRWA **禁止**
+### 4.1 赛期 / ProofShip **禁止**
 
 - Lake 依赖上述仓库或 fork 进入 **产品** `lakefile` / 产品 CLI 路径  
 - 用 verified yul-c **替换** 现货 `solc --strict-assembly` 作为 sole emit  

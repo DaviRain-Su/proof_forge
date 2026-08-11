@@ -16,10 +16,13 @@ normative: false
 
 ## 读这个顺序
 
-0. **产品合体规划（2026-08-11）**：[`docs/plan/ai-rwa-verified-ship-xlayer.md`](../../plan/ai-rwa-verified-ship-xlayer.md)
-   —— 将「A Verified Ship（Web3 Vercel）」与「C AI-RWA 竖切」压成单一产品 **ForgeRWA**；
+0. **品牌/定位（2026-08-11）**：[`docs/product/proofship-positioning.md`](../../product/proofship-positioning.md)
+   —— 产品主名 **ProofShip**；副叙事 **AI-RWA**（旗下首发 vertical）；引擎 ProofForge。
+0a. **产品合体规划（2026-08-11）**：[`docs/plan/ai-rwa-verified-ship-xlayer.md`](../../plan/ai-rwa-verified-ship-xlayer.md)
+   —— 将「A Verified Ship（Web3 Vercel）」与「C AI-RWA 竖切」压成单一产品 **ProofShip**；
    原 final 护栏金库升维为 RWA 份额策略层。**竖切以该 plan 为准**；编译器能力边界仍以
    `final.md` 实测为准。plan **§7.4**：赛期 **不接入** 外部 Yul→EVM 形式化 backend。
+   （历史暂定名 ForgeRWA 已弃用。）
 0b. **Yul/EVM formal backend 登记（2026-08-11）**：
    [`docs/research/2026-08-11-yul-evm-formal-backends.md`](../2026-08-11-yul-evm-formal-backends.md)
    —— powdr / EVMYulLean / Solidus 等仅作 **D4 候选**；禁止产品 Lake 依赖与字节码已证声称。

@@ -7,48 +7,50 @@ updated: 2026-08-11
 normative: false
 ---
 
-# A×C 合一：Verified Ship + AI-RWA
+# A×C 合一：ProofShip + AI-RWA vertical
 
 > **目标**：把两条叙事压成**一条可演示产品**，而不是两个并行项目。  
+> - **产品主品牌**：**ProofShip** — verified onchain ship 工作台。  
 > - **A（平台脊骨）**：Web3 Vercel — 自然语言 / 模板 → `program ... where` → check/proof gate → materialize → **X Layer 部署**。  
-> - **C（黑客松竖切）**：AI-RWA — 用同一条脊骨交付「真实世界资产登记 / 份额 / 受限转让」场景，争取 **评审奖 + AI-RWA Liquidity Grant 叙事资格**。  
+> - **C（黑客松竖切 / 副叙事）**：**AI-RWA** — 旗下首个 vertical：真实世界资产取向的份额登记 / 受限转让；争取 **评审奖 + AI-RWA Liquidity Grant 叙事资格**。  
 >
+> **品牌权威**（命名/层级）：[`docs/product/proofship-positioning.md`](../product/proofship-positioning.md)。  
 > **性质**：工程/产品规划，不改写 accepted PRD/Architecture/Technical Spec；不关闭 formal TASK；不声称 hermetic / formal Stage-0 / 链上字节码已证明。
 
 ## 0. 先给结论
 
 | 问题 | 结论 |
 |---|---|
-| A 和 C 是两个产品吗？ | **否。** A 是管线；C 是管线上的默认业务模板 + 演示 DApp。 |
-| 对外一句话怎么说？ | **AI 起草 RWA 份额合约，经 ProofForge 机器核验门禁后，一键部署到 X Layer。** |
-| 隐喻怎么站？ | 主隐喻 **Vercel（Verified Ship）**；RWA 是首个 **template vertical**；**不是** Cloudflare / 通用 CDN。 |
+| 产品主名是什么？ | **ProofShip**（已定稿；弃用 ForgeRWA / ProofForge RWA）。 |
+| A 和 C 是两个产品吗？ | **否。** A 是脊骨；**AI-RWA 是 ProofShip 旗下首个 vertical**（模板 + 演示 DApp + 赛道文案），不是并列产品。 |
+| 对外一句话怎么说？ | **ProofShip：AI 起草份额规则，经 ProofForge 机器核验门禁后，一键部署到 X Layer。** 副叙事：**AI-RWA**。 |
+| 隐喻怎么站？ | 主隐喻 **Vercel（Verified Ship）**；AI-RWA 是首个 **template vertical**；**不是** Cloudflare / 通用 CDN / Pump.fun。 |
 | 和既有调研关系？ | 继承 [`docs/research/2026-08-10-xlayer-hackathon-proofforge/final.md`](../research/2026-08-10-xlayer-hackathon-proofforge/final.md) 的可行性结论（LLM→DSL→EVM 已实测）；把原「金库护栏」**升维为 RWA 份额金库**，护栏（白名单/限额）变成 RWA 合规控制面的一部分。 |
 | 两周内必须 ship 什么？ | **一条竖切闭环**：AI 生成 → check → build → X Layer testnet 部署 → 前端/agent 演示 claim/transfer/拒绝路径；可选 proof 族内 certified 演示。 |
 | 明确不做？ | 不接真实法域托管；不做完整证券合规；不刷 Launch Grant 量；不改 formal D2–D4；不新增第二套语义机。 |
 | **外部 Yul→EVM 形式化要不要先接入？** | **不要。** 赛期产品路径 **不依赖** powdr yul-c / EVMYulLean / Solidus 等；仅 **D4 候选登记**。权威说明见 [§7.4](#74-外部-yulevm-形式化-backend赛期不接入-d4-登记) 与 [`research/2026-08-11-yul-evm-formal-backends.md`](../research/2026-08-11-yul-evm-formal-backends.md)。 |
 
 ```text
-                    ┌─────────────────────────────────────┐
-                    │  C · AI-RWA vertical (用户看见的)     │
-                    │  资产登记 / 份额 / 白名单 / 限额转让   │
-                    └─────────────────┬───────────────────┘
-                                      │ 同一份 program 源
-                    ┌─────────────────▼───────────────────┐
-                    │  A · Verified Ship spine (差异化)     │
-                    │  NL/模板 → ProgramV1 → check/proof     │
-                    │  → EVM materialize → X Layer deploy   │
-                    └─────────────────┬───────────────────┘
-                                      │
-                              X Layer (1952/196)
-                              + OKX Wallet / 可选 DEX
+                         ProofShip (product brand)
+                                    │
+          ┌─────────────────────────┼─────────────────────────┐
+          │                         │                         │
+   Spine A (Verified Ship)   Vertical C (AI-RWA)      Engine (ProofForge)
+   NL/模板→check/proof        份额/白名单/限额          compile + gate
+   →EVM→X Layer deploy        默认模板 rwa-share-v1     不当产品主名
+          │                         │
+          └────────────┬────────────┘
+                       │ 同一份 program 源
+                       ▼
+                X Layer (1952/196)
+                + OKX Wallet / 可选 DEX
 ```
 
 **一句话产品定义（提交表单用）：**
 
-> **ForgeRWA**（暂定名）：面向 AI agent 与开发者的 **verified onchain ship 工作台**。  
-> 你用自然语言描述 RWA 份额规则，AI 写出 ProofForge 程序；只有通过语义检查与（可选）同文件证明门禁后，才会编译并部署到 X Layer。  
-> 首发竖切：可证明约束下的 **链上份额登记与受限转让**（AI-RWA）。
-
+> **ProofShip** — AI-drafted programs, machine-gated, then shipped to X Layer.  
+> 你用自然语言描述份额 / 转让规则，AI 写出 ProofForge 程序；只有通过语义检查与（可选）同文件证明门禁后，才会编译并部署。  
+> **First vertical（副叙事）：AI-RWA** — 可证明约束下的链上份额登记与受限转让。
 ---
 
 ## 1. 为什么必须 A+C 合体（而不是二选一）
@@ -111,9 +113,18 @@ normative: false
 8. 高潮（可选）: 故意坏 theorem 或坏规则 → proof/check 拒绝，**零部署制品**
 ```
 
-### 2.3 最小 UI 表面（黑客松）
+### 2.3 最小 UI 表面（黑客松 = 交付形态 P0）
 
-不必做完整 SaaS，三页够：
+**形态演进已拍板**（详见 [`product/proofship-positioning.md`](../product/proofship-positioning.md) §4）：
+
+| Phase | 含义 | 赛期 |
+|---|---|---|
+| **P0 Local-first hybrid** | 本机 CLI + Agent/MCP + 最小 Web/dApp；编译与部署钥在本地 | **只做这个** |
+| P1 Hosted surface | 静态 Studio 上云（如 Cloudflare Pages） | 有余力 |
+| P2 Managed build | 受控远程 build 队列 | 赛后 |
+| P3 Multi-tenant SaaS | 账号/配额/计费全托管 | 赛后；另开 ADR |
+
+不必做完整 SaaS，P0 三页够：
 
 | 面 | 内容 | 技术建议 |
 |---|---|---|
@@ -179,7 +190,7 @@ program RwaShareRegistry where
 
 ### 3.3 与「金库护栏」的映射（复用调研资产）
 
-| 原 ProofGuard 概念 | 升维到 ForgeRWA |
+| 原 ProofGuard 概念 | 升维到 ProofShip · AI-RWA vertical |
 |---|---|
 | Agent 支付白名单 | 份额受让白名单 |
 | 单笔限额 | 单笔转让上限 |
@@ -347,7 +358,7 @@ Source (NL | 模板 | 手写 .lean)
 
 **决策（2026-08-11，已拍板写入本 plan）：**
 
-> **Hackathon / ForgeRWA：不接入、不依赖** 外部 Yul→EVM 已证编译器或 EVM 形式语义包。  
+> **Hackathon / ProofShip（AI-RWA 竖切）：不接入、不依赖** 外部 Yul→EVM 已证编译器或 EVM 形式语义包。  
 > **并行：研究登记** 为 formal D4 / EVM lighthouse 的 backend 候选；禁止用其进度代签 formal TASK 或赛期「字节码已证明」叙事。
 
 触发背景：[@leonardoalt 对 EVM formal methods 列表的更新](https://x.com/leonardoalt/status/2086829714144944549)（powdr yul-c / evm·yul-semantics、EVMYulLean 生态、equiVM 等）。完整候选表、禁止项与阶段 0–3 见：
@@ -474,19 +485,25 @@ SemanticProgramV1 → EVM Plan/IR → 工程 Yul → solc --strict-assembly → 
 
 ## 11. 命名与对外物料
 
-| 用途 | 建议 |
+权威定位卡：[`docs/product/proofship-positioning.md`](../product/proofship-positioning.md)。
+
+| 用途 | 定稿 |
 |---|---|
-| 产品名 | **ForgeRWA** 或 **ProofForge Ship · RWA**（二选一，提交后勿改） |
-| 副标题 | Verified onchain ship for AI-drafted RWA share policies |
-| 中文副标题 | AI 起草、机器核验、一键上 X Layer 的 RWA 份额部署台 |
-| 标签 | `#AI` `#RWA` `#XLayer` `#Agent` `#VerifiedDeploy` |
+| **产品主名** | **ProofShip**（提交表单 Project Name；提交后勿改） |
+| **副叙事 / vertical** | **AI-RWA**（首发场景文案与 Liquidity Grant 对齐；**不是**第二产品名） |
+| **引擎** | ProofForge — *Powered by ProofForge*（不当 Project Name） |
+| **Tagline** | AI drafts the rules. The gate checks. Then it ships to X Layer. |
+| 副标题 | Verified onchain ship for AI-drafted share policies · AI-RWA first vertical |
+| 中文副标题 | AI 起草、机器核验、一键上 X Layer；首发 AI-RWA 份额规则 |
+| 标签 | `#ProofShip` `#AI` `#RWA` `#XLayer` `#Agent` `#VerifiedDeploy` |
+| 弃用名 | ForgeRWA · ProofForge RWA · ProofGuard（对外） |
 | 仓库布局建议 | `examples/rwa-share-v1/` · `scripts/xlayer/` · `docs/demos/xlayer-rwa-walkthrough.md`（实现期再建） |
 
 **一页纸电梯稿：**
 
 1. Agent 与发行人正在把真实资产规则写上链，但 vibe code 太危险。  
-2. ForgeRWA 让 AI 写 ProofForge 程序，**不过门禁就不能部署**。  
-3. 首发场景：X Layer 上的受限份额登记（AI-RWA）。  
+2. **ProofShip** 让 AI 写 ProofForge 程序，**不过门禁就不能部署**。  
+3. 首发 vertical：**AI-RWA** — X Layer 上的受限份额登记。  
 4. 演示：生成 → certified/check → 测试网 → 超限 revert → 坏证明被拒。  
 
 ---
@@ -497,13 +514,13 @@ SemanticProgramV1 → EVM Plan/IR → 工程 Yul → solc --strict-assembly → 
 
 | # | 决策 | 默认建议 |
 |---|---|---|
-| D1 | 产品暂定名 | ForgeRWA |
+| D1 | 产品主名 | **ProofShip**（已定稿 2026-08-11）；副叙事 **AI-RWA** |
 | D2 | 赛期是否包含 inline proof 演示 | **是**（族内）；失败则仅 check |
 | D3 | 是否做 PDF/发票抽取 | **是**（弱 AI 也要有） |
 | D4 | 是否追 Liquidity 文案 | **是**；不保证奖 |
 | D5 | 是否追 Launch 量 | **否** |
 | D6 | 部署文件是否允许无 invariant 孪生 | 按 EVM 现货能力；若必须孪生则文档化 |
-| D7 | UI 形态 | 优先脚本+最小 Web；有余力再 Studio |
+| D7 | 交付形态 | **P0 Local-first hybrid**（本机引擎+Agent+最小 Web）；P1–P3 渐进 SaaS 见 positioning §4；赛期不承诺多租户 |
 | D8 | 赛期是否接入外部 Yul→EVM / EVM 形式语义 backend | **否**（已拍板，§7.4）；赛后 D4 再评估 |
 | D9 | 赛期是否允许 1 人日桌面调研写回 research | **是**（可选，不阻塞 P0） |
 
@@ -513,6 +530,7 @@ SemanticProgramV1 → EVM Plan/IR → 工程 Yul → solc --strict-assembly → 
 
 | 文档 | 关系 |
 |---|---|
+| [`product/proofship-positioning.md`](../product/proofship-positioning.md) | **ProofShip 品牌/定位/层级权威** |
 | [`research/2026-08-10-xlayer-hackathon-proofforge/final.md`](../research/2026-08-10-xlayer-hackathon-proofforge/final.md) | 可行性、证明悬崖、11 天旧计划（护栏向） |
 | [`research/2026-08-11-yul-evm-formal-backends.md`](../research/2026-08-11-yul-evm-formal-backends.md) | **外部 Yul/EVM formal backend 候选登记；赛期不接入边界** |
 | [`product/13-xlayer-onchainos.md`](../product/13-xlayer-onchainos.md) | 网络、OnchainOS、密钥边界 |
