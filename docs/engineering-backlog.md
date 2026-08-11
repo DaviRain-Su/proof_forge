@@ -420,7 +420,8 @@ D1–D4 = 0/27 done。
 | **EA-P1-1** | `pf test -t evm` 不依赖 monorepo 路径 | **done engineering** | 解析 bundle `scripts/pf_evm_test.sh`；setup EVM 带 `--with-runtime` |
 | **EA-P1-2** | EVM UI 产物契约 `write-ui-json` / deploy 写 deployment | **done engineering** | schema 对齐 templates/evm-dapp-ui |
 | **EA-P1-4** | `pf network list/show/use` | **done engineering** | embedded + docs/product/networks.v1.json |
-| **EA-P1-*** | scaffold-ui 一键、多发行版矩阵、Solana test 脱钩 | **pending** | 见 14 §4.2 residual |
+| **EA-P1-7** | `pf scaffold-ui --template evm-dapp` | **done engineering** | 拷模板 + sync abi/bin/deployment.json；bundle 含 templates/ |
+| **EA-P1-*** | 多发行版矩阵、Solana test 脱钩 | **pending** | residual |
 | **EA-MVP-SLICE** | 最小五切片一轮：bundle + bootstrap + host dev + Ubuntu E2E + fix-up 错误 | **done engineering** | Wave A/B 续：README 两轨 + EA CI + standalone test |
 
 **最小 DoD（EVM-first）**：

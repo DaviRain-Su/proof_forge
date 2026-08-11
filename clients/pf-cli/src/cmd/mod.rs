@@ -10,6 +10,7 @@ pub mod list_targets;
 pub mod local_run;
 pub mod network;
 pub mod new;
+pub mod scaffold_ui;
 pub mod test;
 pub mod verify;
 pub mod version;

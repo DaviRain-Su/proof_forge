@@ -36,6 +36,7 @@ pub fn run(name: &str, target: Option<&str>, path: Option<&PathBuf>, json: bool)
             "evm" => {
                 println!("  pf test              # local Anvil");
                 println!("  pf deploy            # save-only package (tx/)");
+                println!("  pf scaffold-ui --template evm-dapp   # after build: copies UI + abi/bin");
                 println!("  # pf deploy --broadcast --network local --private-key-env KEY");
             }
             "solana" => {

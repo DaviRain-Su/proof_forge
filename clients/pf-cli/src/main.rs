@@ -123,6 +123,32 @@ enum Commands {
         #[command(subcommand)]
         command: NetworkCommands,
     },
+    /// Copy dApp UI template into the project (align abi/bin when built)
+    ScaffoldUi {
+        /// Template id: evm-dapp | solana-dapp | aleo-dapp | psy-dapp
+        #[arg(long, default_value = "evm-dapp")]
+        template: String,
+        /// Destination directory (default: <project>/ui/<template>)
+        #[arg(long, short = 'o')]
+        out: Option<PathBuf>,
+        /// Artifact dir for sync (default: build/<target>/)
+        #[arg(long)]
+        artifact: Option<PathBuf>,
+        /// Optional contract address for deployment.json
+        #[arg(long)]
+        address: Option<String>,
+        /// Network catalog id for deployment.json (default: evm.local.anvil)
+        #[arg(long)]
+        network_id: Option<String>,
+        #[arg(long, default_value_t = 7)]
+        constructor_initial: u64,
+        /// Overwrite existing destination
+        #[arg(long)]
+        force: bool,
+        /// Do not copy abi/bin or write deployment.json
+        #[arg(long)]
+        no_sync_artifacts: bool,
+    },
     /// Write EVM UI attachment JSON (abi/bin ± address) for templates/evm-dapp-ui
     WriteUiJson {
         #[arg(long, short = 't')]
@@ -272,6 +298,7 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Version => "version",
         Commands::ListTargets => "list-targets",
         Commands::Network { .. } => "network",
+        Commands::ScaffoldUi { .. } => "scaffold-ui",
         Commands::WriteUiJson { .. } => "write-ui-json",
     }
 }
@@ -390,6 +417,26 @@ fn dispatch(cli: Cli) -> PfResult<()> {
             NetworkCommands::Show { id } => cmd::network::show(&id, json),
             NetworkCommands::Use { id } => cmd::network::use_network(&id, json),
         },
+        Commands::ScaffoldUi {
+            template,
+            out,
+            artifact,
+            address,
+            network_id,
+            constructor_initial,
+            force,
+            no_sync_artifacts,
+        } => cmd::scaffold_ui::run(cmd::scaffold_ui::ScaffoldOpts {
+            template: &template,
+            out: out.as_deref(),
+            artifact: artifact.as_deref(),
+            address: address.as_deref(),
+            network_id: network_id.as_deref(),
+            constructor_initial,
+            force,
+            no_sync_artifacts,
+            json,
+        }),
         Commands::WriteUiJson {
             target,
             artifact,

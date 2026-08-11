@@ -213,6 +213,33 @@ elif [[ -f "$root/clients/pf-cli/data/networks.v1.json" ]]; then
   mkdir -p "$STAGE/docs/product"
   cp -a "$root/clients/pf-cli/data/networks.v1.json" "$STAGE/docs/product/networks.v1.json"
 fi
+
+# UI templates for `pf scaffold-ui` (no node_modules/dist).
+if [[ -d "$root/templates" ]]; then
+  echo "${PREFIX}: staging templates/ (dApp UI sources, no node_modules)"
+  mkdir -p "$STAGE/templates"
+  /usr/bin/python3 -I -S - "$root/templates" "$STAGE/templates" <<'PY'
+import shutil, sys
+from pathlib import Path
+src_root, dst_root = map(Path, sys.argv[1:3])
+skip_dirs = {"node_modules", "dist", ".git", "target"}
+skip_names = {"package-lock.json"}
+n = 0
+for src in src_root.rglob("*"):
+    if any(p in skip_dirs for p in src.parts):
+        continue
+    if src.is_dir():
+        continue
+    if src.name in skip_names or src.name.endswith(".tsbuildinfo"):
+        continue
+    rel = src.relative_to(src_root)
+    dst = dst_root / rel
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(src, dst)
+    n += 1
+print(f"package-bundle-dist: staged {n} template files under templates/")
+PY
+fi
 shopt -s nullglob
 lock_files=("$root"/toolchains*.lock.json)
 shopt -u nullglob

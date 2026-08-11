@@ -70,6 +70,7 @@ pf new hello --target evm && cd hello
 pf build
 pf test                           # 本地 Anvil smoke（bundle 内 scripts/pf_evm_test.sh）
 pf deploy                         # save-only 包；--broadcast 仅 local
+pf scaffold-ui --template evm-dapp  # ui/evm-dapp + abi/bin；cd ui/evm-dapp && npm i && npm run dev
 ```
 
 零工具 target（无需 solc）可先用 `aleo` / `psy` 验证装机：`pf -y setup --target aleo && pf new h --target aleo && pf build`。

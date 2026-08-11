@@ -67,17 +67,19 @@ MCP 接线见 [`tools/mcp/README.md`](../../tools/mcp/README.md)（stdio 本机 
 | 4 | `pf build` | `build/evm/manifest.json` + `*.bin` + `*.abi.json` |
 | 5 | `pf test` | Anvil smoke ok **或** skip-clean（缺 anvil） |
 | 6 | `pf deploy` | save-only `build/evm/tx/*deployment.package.json` |
-| 7 | `pf write-ui-json` | `build/evm/ui-deployment.json` → 拷到 UI `public/deployment.json` |
+| 7 | `pf scaffold-ui --template evm-dapp` | `ui/evm-dapp/` + 同步 abi/bin + `public/deployment.json` |
+| 8 | `pf write-ui-json`（可选） | 单独刷新 UI JSON，不重拷模板 |
 
 ```bash
 pf -y setup --target evm
 pf new hello --target evm && cd hello
 pf build && pf test
 pf deploy
-pf write-ui-json --network-id evm.local.anvil
-# optional after local broadcast:
+pf scaffold-ui --template evm-dapp
+cd ui/evm-dapp && npm install && npm run dev
+# optional after local broadcast (fills contractAddress):
 # pf deploy --broadcast --network local
-# → also writes ui-deployment.json with contractAddress
+# pf scaffold-ui --template evm-dapp --force --address 0x…
 ```
 
 ### 4b. Aleo hello（zero-tool）
