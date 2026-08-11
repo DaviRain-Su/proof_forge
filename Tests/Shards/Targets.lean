@@ -1,3 +1,14 @@
+/-
+  Aggregate targets entry (compat / one-shot debug).
+
+  Prefer the three memory/wall-bounded processes in CI and `just test-targets`:
+    proof-forge-next-tests-shard-targets-evm
+    proof-forge-next-tests-shard-targets-solana
+    proof-forge-next-tests-shard-targets-host
+
+  This binary still runs the full suite in one process for
+  `just test-shard targets`.
+-/
 import Tests.Materialization.BuildSelectionV1
 import Tests.Materialization.TargetRegistryV1
 import Tests.Materialization.RegistryRootV1
@@ -14,7 +25,6 @@ import Tests.Materialization.CosmWasmCheckAcceptance
 import Tests.Materialization.CosmWasmPlanV1
 import Tests.Materialization.TonPlanV1
 import Tests.Materialization.OutputSetV1
-
 import Tests.Materialization.OutputEnvelopeV1
 import Tests.Materialization.EngineeringFinalizationV1
 import Tests.Materialization.ArtifactContentV1
@@ -50,6 +60,7 @@ import Tests.CLI.ToolchainPolicy
 import Tests.CLI.DiagnosticsV1
 import Tests.CLI.ResourceFlagsV1
 import Tests.CLI.InlineProofProductV1
+
 unsafe def main : IO Unit := do
   IO.eprintln "CP run"
   Tests.Materialization.BuildSelectionV1.run
@@ -82,7 +93,6 @@ unsafe def main : IO Unit := do
   Tests.Materialization.TonPlanV1.run
   IO.eprintln "CP run"
   Tests.Materialization.OutputSetV1.run
-
   IO.eprintln "CP run"
   Tests.Materialization.OutputEnvelopeV1.run
   IO.eprintln "CP run"

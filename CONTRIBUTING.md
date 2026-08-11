@@ -26,7 +26,10 @@ the change to the smallest command. **Prefer `test-fast` / `test-shard` /
 | `docs/**`, `*.md`, product markdown | `just docs-check` && `git diff --check` | `docs` only (heavy jobs skipped on PR) |
 | One Lean test area | `just test-shard core` (or `typed` / `language*` / `targets` / …) | path filter → relevant heavy jobs |
 | Daily product smoke | `just test-fast` or `just dev-check` | full on `main` push |
-| EVM/Solana/NEAR/Noir materialize tests | `just test-targets` | `target-smoke` |
+| EVM materialize / CLI pins | `just test-shard targets-evm` | `target-smoke` |
+| Solana Lean plan/CPI (no Mollusk) | `just test-shard targets-solana` | `target-smoke` |
+| NEAR/CW/TON/Noir/Psy/Quint | `just test-shard targets-host` | `target-smoke` |
+| All target materialize suites | `just test-targets` (3-way parallel) | `target-smoke` |
 | Solana Mollusk / CPI runtime | `just solana-runtime` (slow) | `solana-runtime` |
 | Full ordinary-host gate | `just ci` (slow; last resort) | all heavy jobs |
 
@@ -34,8 +37,8 @@ the change to the smallest command. **Prefer `test-fast` / `test-shard` /
 just docs-check         # docs control plane only (~seconds)
 just test-fast          # core product tests only (daily feedback)
 just dev-check          # docs + build + test-fast + light gates
-just test-shard targets # one shard: core|typed|language*|aggregate|source*|targets
-just test-targets       # targets materialization suite only
+just test-shard targets-evm     # focused: also targets-solana | targets-host | targets
+just test-targets       # three target processes in parallel (CI default)
 just test-nontarget     # nine non-target shards (CI lean-product half)
 just solana-runtime     # Mollusk differential (heavy; needs tool root + Rust)
 just test               # all shards, bounded parallel (still long)
@@ -61,7 +64,7 @@ just test-frontend-worker
 |---|---|---|
 | `docs` | `just docs-check` + whitespace | ~10s |
 | `lean-product` | nine non-target shards + `ci-lean-gates` | ~25–30 min |
-| `target-smoke` | serial targets shard + CLI smoke | ~25–30 min |
+| `target-smoke` | 3 parallel target shards + CLI smoke | ~12–18 min (was ~25–30 serial) |
 | `solana-runtime` | `lake build` CLI + Mollusk | ~25–30 min |
 
 Jobs run **in parallel**; total wall ≈ slowest job. Path filter
@@ -69,6 +72,10 @@ Jobs run **in parallel**; total wall ≈ slowest job. Path filter
 PRs. **Pushes to `main` always run all heavy jobs.** `workflow_dispatch` also
 forces all lanes. A green hosted CI does **not** mean hermetic or formal
 release evidence.
+
+Target shards: `targets-evm` · `targets-solana` · `targets-host` (see
+`Tests/Shards/Targets*.lean`). Aggregate `test-shard targets` still exists for
+one-process debugging.
 
 ## Style and docs
 

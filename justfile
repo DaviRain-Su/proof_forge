@@ -39,7 +39,9 @@ test: build
       proof_forge_next_tests_shard_language_heavy \
       proof_forge_next_tests_shard_source \
       proof_forge_next_tests_shard_source_b \
-      proof_forge_next_tests_shard_targets
+      proof_forge_next_tests_shard_targets_evm \
+      proof_forge_next_tests_shard_targets_solana \
+      proof_forge_next_tests_shard_targets_host
     jobs='{{test_jobs}}'
     if ! [[ "${jobs}" =~ ^[1-9][0-9]*$ ]]; then
       jobs=4
@@ -54,7 +56,9 @@ test: build
       proof-forge-next-tests-shard-language-heavy
       proof-forge-next-tests-shard-source
       proof-forge-next-tests-shard-source-b
-      proof-forge-next-tests-shard-targets
+      proof-forge-next-tests-shard-targets-evm
+      proof-forge-next-tests-shard-targets-solana
+      proof-forge-next-tests-shard-targets-host
     )
     run_shard() {
       local name="$1"
@@ -129,15 +133,16 @@ test-frontend-worker: build-frontend-worker
     lake env .lake/build/bin/proof-forge-next-tests-shard-worker
 
 # Focused shard: `just test-shard core` → proof-forge-next-tests-shard-core.
-# Names: core typed language language-b language-c aggregate language-heavy source source-b targets
+# Names: core typed language language-b language-c aggregate language-heavy source source-b
+#        targets | targets-evm | targets-solana | targets-host
 # No recipe dependency on `build`: validate the name before any lake work.
 test-shard name:
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{name}}" in
-      core|typed|language|language-b|language-c|aggregate|language-heavy|source|source-b|targets) ;;
+      core|typed|language|language-b|language-c|aggregate|language-heavy|source|source-b|targets|targets-evm|targets-solana|targets-host) ;;
       *)
-        echo "test-shard: unknown name '{{name}}' (want core|typed|language|language-b|language-c|aggregate|language-heavy|source|source-b|targets)" >&2
+        echo "test-shard: unknown name '{{name}}' (want core|typed|language*|aggregate|source*|targets|targets-evm|targets-solana|targets-host)" >&2
         exit 2
         ;;
     esac
@@ -147,10 +152,37 @@ test-shard name:
     lake build ProofForgeV2 proof_forge_next "${lake_target}"
     lake env ".lake/build/bin/${bin_name}"
 
-# Targets materialization / host-model suite only (faster than full `just test`).
+# Targets materialization suite as three processes (evm / solana-lean / host+zk).
+# Parallel by default (PROOF_FORGE_TEST_JOBS); set =1 for serial low-memory hosts.
+# One-shot aggregate remains: `just test-shard targets`.
 test-targets: build
-    lake build proof_forge_next_tests_shard_targets
-    lake env .lake/build/bin/proof-forge-next-tests-shard-targets
+    #!/usr/bin/env bash
+    set -euo pipefail
+    lake build \
+      proof_forge_next_tests_shard_targets_evm \
+      proof_forge_next_tests_shard_targets_solana \
+      proof_forge_next_tests_shard_targets_host
+    jobs='{{test_jobs}}'
+    if ! [[ "${jobs}" =~ ^[1-9][0-9]*$ ]]; then
+      jobs=4
+    fi
+    shards=(
+      proof-forge-next-tests-shard-targets-evm
+      proof-forge-next-tests-shard-targets-solana
+      proof-forge-next-tests-shard-targets-host
+    )
+    run_shard() {
+      local name="$1"
+      echo "=== targets shard start: ${name} ==="
+      if lake env ".lake/build/bin/${name}"; then
+        echo "=== targets shard ok: ${name} ==="
+      else
+        echo "FAIL targets shard: ${name}" >&2
+        exit 1
+      fi
+    }
+    export -f run_shard
+    printf '%s\n' "${shards[@]}" | xargs -P "${jobs}" -n1 bash -c 'run_shard "$@"' _
 
 # Wave 2 single-semantic-carrier cutover gate.
 # Product compilation, resolver, materialization, finalization, CLI, and target

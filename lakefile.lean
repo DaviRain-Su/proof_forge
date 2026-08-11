@@ -423,3 +423,20 @@ lean_exe proof_forge_next_tests_shard_targets where
   exeName := "proof-forge-next-tests-shard-targets"
   root := `Tests.Shards.Targets
   supportInterpreter := true
+
+-- Split targets suite (CI parallel / lower RSS per process). Aggregate
+-- `proof_forge_next_tests_shard_targets` remains for one-shot local debug.
+lean_exe proof_forge_next_tests_shard_targets_evm where
+  exeName := "proof-forge-next-tests-shard-targets-evm"
+  root := `Tests.Shards.TargetsEvm
+  supportInterpreter := true
+
+lean_exe proof_forge_next_tests_shard_targets_solana where
+  exeName := "proof-forge-next-tests-shard-targets-solana"
+  root := `Tests.Shards.TargetsSolana
+  supportInterpreter := true
+
+lean_exe proof_forge_next_tests_shard_targets_host where
+  exeName := "proof-forge-next-tests-shard-targets-host"
+  root := `Tests.Shards.TargetsHost
+  supportInterpreter := true

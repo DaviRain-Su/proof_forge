@@ -5,7 +5,8 @@ name: CI
 # Required lanes for branch protection (BUILD-4 independent fail isolation):
 #   docs            - documentation control-plane check (always)
 #   lean-product    - nine non-target test shards, product-negative, deletion gates
-#   target-smoke    - serial target shard + target CLI positive/negative checks
+#   target-smoke    - three parallel target shards (evm / solana-lean / host+zk)
+#                     + target CLI positive/negative checks
 #   solana-runtime  - Mollusk runtime differential
 #
 # Path filter (scripts/ci/detect_ci_paths.sh):
@@ -13,6 +14,11 @@ name: CI
 #   * PR / feature push → skip heavy lanes when only docs/templates/MCP content
 #     changed; Solana-only paths can skip lean-product when safe, etc.
 #   * Filter is fail-closed: unknown paths still run lean-product.
+#
+# Targets suite split (wall-clock):
+#   just test-targets runs targets-evm + targets-solana + targets-host in
+#   parallel processes (PROOF_FORGE_TEST_JOBS). Aggregate
+#   proof-forge-next-tests-shard-targets remains for one-shot local debug.
 #
 # Manual audit lane:
 #   linux-tool-root - explicit toolchain lock/provision/materialize inspection.
@@ -186,7 +192,10 @@ jobs:
       - name: Prune stale olean artifacts
         run: /usr/bin/python3 -I -S scripts/ci/prune_stale_oleans.py
 
-      - name: Serial target shard
+      - name: Parallel target shards (evm / solana-lean / host+zk)
+        env:
+          # Three processes; keep modest parallelism on 2-core runners.
+          PROOF_FORGE_TEST_JOBS: "3"
         run: just test-targets
 
       - name: Target CLI and NFR smoke
