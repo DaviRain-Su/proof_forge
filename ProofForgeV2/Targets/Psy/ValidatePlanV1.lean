@@ -82,6 +82,12 @@ private def validateExprNodes (expr : Expr) : Option Nat :=
         let da ← validateExprNodes arg
         total := total + da
       if total > maxExprDepth then none else some total
+  | .hashOutLimb _kind _limb args => do
+      let mut total : Nat := 1
+      for arg in args do
+        let da ← validateExprNodes arg
+        total := total + da
+      if total > maxExprDepth then none else some total
 
 private partial def validateStatements (stmts : Array Statement) : CompileResult Unit := do
   if stmts.size > maxBodyStatements then
@@ -251,6 +257,13 @@ private partial def validateWideExpr
       for arg in args do
         validateWideExpr defined arg
   | .hashNoPad args | .hashPad args | .hashTwoToOne args | .keccak256 args =>
+      for arg in args do
+        validateWideExpr defined arg
+  | .hashOutLimb kind limbIndex args => do
+      unless kind ≤ 5 do
+        planError "Psy hashOutLimb kind must be 0..5"
+      unless limbIndex < 4 do
+        planError "Psy hashOutLimb limbIndex must be 0..3"
       for arg in args do
         validateWideExpr defined arg
 

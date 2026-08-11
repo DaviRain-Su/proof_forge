@@ -287,6 +287,15 @@ structure ImtMemoEntryV1 where
   result : WireV1
   deriving Inhabited
 
+/-- CSE for HashOut-producing ops: one HashOut def + four TargetAt limbs. -/
+structure HashOutMemoEntryV1 where
+  kind : Nat
+  /-- Fingerprint of arg target indices (FNV-ish). -/
+  argsKey : UInt64
+  hashIndex : Nat
+  limbs : Array WireV1  -- length 4
+  deriving Inhabited
+
 structure BuilderV1 where
   nextTarget : Nat := 0
   nextBool : Nat := 0
@@ -319,6 +328,8 @@ structure BuilderV1 where
   inlineDepth : Nat := 0
   /-- IMT effect CSE: same (kind,key[,val]) wires → one state cmd. -/
   imtMemo : Array ImtMemoEntryV1 := #[]
+  /-- HashOut full-ABI CSE. -/
+  hashOutMemo : Array HashOutMemoEntryV1 := #[]
   deriving Inhabited
 
 private def pushTarget (b : BuilderV1) (op : OpTypeV1) (inputs : Array UInt64) :
@@ -468,7 +479,53 @@ private def emitImtBaseCap (b : BuilderV1) : BuilderV1 × Nat × Nat :=
     uses 20 to match common dargo fixtures. -/
 private def imtDefaultTreeHeightV1 : UInt8 := 20
 
-/-- Allocate a HashOut valueless context op and return TargetAt limb0. -/
+/-- Fingerprint arg target indices for HashOut CSE. -/
+private def hashOutArgsKeyV1 (ins : Array UInt64) : UInt64 := Id.run do
+  let mut h : UInt64 := 14695981039346656037
+  let prime : UInt64 := 1099511628211
+  for x in ins do
+    h := (h ^^^ x) * prime
+  pure h
+
+/-- Emit one HashOut op (data_type=hashOut) and four TargetAt limbs.
+    Returns builder + limb wires. CSE by (kind, argsKey). -/
+private def emitHashOutFull (b : BuilderV1) (kind : Nat) (op : OpTypeV1)
+    (inputs : Array UInt64) : BuilderV1 × Array WireV1 := Id.run do
+  let key := hashOutArgsKeyV1 inputs
+  match b.hashOutMemo.find? (fun e => e.kind == kind && e.argsKey == key) with
+  | some e => pure (b, e.limbs)
+  | none =>
+      let hashIdx :=
+        (b.defs.filter (fun d => d.dataType == .hashOut)).size
+      let hashDef : IndexedVarDefV1 := {
+        dataType := .hashOut
+        index := hashIdx
+        opType := op
+        inputs
+      }
+      let b1 := { b with defs := b.defs.push hashDef }
+      let hashEnc := encodeIndexedId .hashOut hashIdx
+      let mut bCur := b1
+      let mut limbs : Array WireV1 := #[]
+      for i in [0:4] do
+        -- Constant limb index (cannot call emitLiteralU64 here — defined later).
+        let (bL, lit) :=
+          if i == 0 then (bCur, zeroWire bCur)
+          else pushTarget bCur .constant #[UInt64.ofNat i]
+        let (bT, tw) := pushTarget bL .targetAt #[hashEnc, UInt64.ofNat lit.rawIndex]
+        bCur := bT
+        limbs := limbs.push tw
+      let b2 := {
+        bCur with
+          hashOutMemo := bCur.hashOutMemo.push {
+            kind, argsKey := key, hashIndex := hashIdx, limbs
+          }
+      }
+      pure (b2, limbs)
+
+/-- Allocate a HashOut valueless context op and return **only** TargetAt limb0.
+    Official software eval often stores only the scalar first limb for context
+    HashOut ops (no `hash_out_arrays` fill) — TargetAt index≥1 panics. -/
 private def emitHashOutLimb0 (b : BuilderV1) (op : OpTypeV1) :
     BuilderV1 × WireV1 :=
   let hashIdx :=
@@ -481,6 +538,7 @@ private def emitHashOutLimb0 (b : BuilderV1) (op : OpTypeV1) :
   }
   let b1 := { b with defs := b.defs.push hashDef }
   let hashEnc := encodeIndexedId .hashOut hashIdx
+  -- limb index 0 = shared zero Target
   pushTarget b1 .targetAt #[hashEnc, UInt64.ofNat b1.zeroTarget]
 
 /-- Push GetStateCommandResultHash + TargetAt limb0 for an IMT get cmd. -/
@@ -1686,7 +1744,7 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
       let w ← lookupWideShift b kind operationId limbIndex
       pure (b, w)
   | .hashNoPad args => do
-      -- ADR-0039: DPN HashNoPad (op 21). First HashOut limb product ABI.
+      -- ADR-0039: first HashOut limb (scalar ABI). Full 4-limb uses hashOutLimb.
       unless args.size ≥ 1 && args.size ≤ 8 do
         planError s!"PSY-DPN: hashNoPad arity must be 1..8, got {args.size}"
       let mut bCur := b
@@ -1696,8 +1754,12 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
         let ti ← asTargetIndex w
         bCur := b1
         ins := ins.push (UInt64.ofNat ti)
-      pure (pushTarget bCur .hashNoPad ins)
+      let (b2, limbs) := emitHashOutFull bCur 0 .hashNoPad ins
+      match limbs[0]? with
+      | some w => pure (b2, w)
+      | none => planError "PSY-DPN: hashNoPad limb0 missing"
   | .hashPad args => do
+      -- hashPad: Target-typed scalar (official software eval is emit-only no-op).
       unless args.size ≥ 1 && args.size ≤ 8 do
         planError s!"PSY-DPN: hashPad arity must be 1..8, got {args.size}"
       let mut bCur := b
@@ -1718,8 +1780,13 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
         let ti ← asTargetIndex w
         bCur := b1
         ins := ins.push (UInt64.ofNat ti)
-      pure (pushTarget bCur .hashTwoToOne ins)
+      let (b2, limbs) := emitHashOutFull bCur 2 .hashTwoToOne ins
+      match limbs[0]? with
+      | some w => pure (b2, w)
+      | none => planError "PSY-DPN: hashTwoToOne limb0 missing"
   | .keccak256 args => do
+      -- keccak256: Target-typed first-word ABI (official stores U32TargetArray,
+      -- not HashOut arrays — Array4 full ABI is not admitted for keccak).
       unless args.size ≥ 1 && args.size ≤ 16 do
         planError s!"PSY-DPN: keccak256 arity must be 1..16, got {args.size}"
       let mut bCur := b
@@ -1730,6 +1797,33 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
         bCur := b1
         ins := ins.push (UInt64.ofNat ti)
       pure (pushTarget bCur .keccak256 ins)
+  | .hashOutLimb kind limbIndex args => do
+      unless kind ≤ 5 do
+        planError s!"PSY-DPN: hashOutLimb kind {kind} out of range"
+      unless limbIndex < 4 do
+        planError s!"PSY-DPN: hashOutLimb limbIndex {limbIndex} out of range"
+      let mut bCur := b
+      let mut ins : Array UInt64 := #[]
+      for a in args do
+        let (b1, w) ← lowerExprV1 bCur params viewPath a
+        let ti ← asTargetIndex w
+        bCur := b1
+        ins := ins.push (UInt64.ofNat ti)
+      let op : OpTypeV1 :=
+        match kind with
+        | 0 => .hashNoPad
+        | 1 => .hashPad
+        | 2 => .hashTwoToOne
+        | 3 => .keccak256
+        | 4 => .getUserPublicKeyHash
+        | _ => .getSessionProofTreeRoot
+      -- Context ops are valueless (inputs [0]); crypto uses lowered args.
+      let inputs :=
+        if kind ≥ 4 then (#[0] : Array UInt64) else ins
+      let (b2, limbs) := emitHashOutFull bCur kind op inputs
+      match limbs[limbIndex]? with
+      | some w => pure (b2, w)
+      | none => planError "PSY-DPN: hashOutLimb missing"
   | .ctxUserId =>
       pure (pushValuelessTarget b .getUserId)
   | .ctxContractId =>

@@ -2754,10 +2754,16 @@ private partial def lowerExpr
           | some (.uint w) | some (.int w) =>
               w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
           | some (.bytes n) => n.toNat ≤ maxTypeLengthV1
+          -- HashOut full product ABI: fixed Array UInt64 4 (Psy pf.crypto / context).
+          | some (.array elTid len) =>
+              len.toNat == 4 &&
+                match shapeOf? st.interner.types elTid with
+                | some (.uint 64) => true
+                | _ => false
           | _ => false
         unless resultLegal do
           return ← failUnsupported
-            "S1 call result type must be Bool, a legal UInt/Int width, or Bytes"
+            "S1 call result type must be Bool, a legal UInt/Int width, Bytes, or Array UInt64 4 (HashOut)"
         let mut st' := st
         let mut argIds : Array ValueIdV1 := #[]
         for arg in call.args do

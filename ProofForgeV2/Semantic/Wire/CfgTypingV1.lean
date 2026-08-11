@@ -675,9 +675,11 @@ def checkOpTyping (instr : InstructionV1) (env : OpTypingEnv) :
   -- SPEC §5.1/§6 + N-CALL-RET: Schedule is genuinely void. ExternalCall may
   --   carry a result (value-position sync call); when present its typeId MUST
   --   resolve to a serializable scalar (Bool / legal UInt/Int width / Bytes
-  --   within maxTypeLengthV1). Result shape is checked before callee shape to
-  --   preserve the existing fail-closed order. Arg serializability is a later
-  --   slice; EffectId canonical assignment is owned by CFG step e.5.
+  --   within maxTypeLengthV1) **or** fixed `Array UInt64 4` (HashOut full
+  --   product ABI for Psy pf.crypto / context). Result shape is checked before
+  --   callee shape to preserve the existing fail-closed order. Arg
+  --   serializability is a later slice; EffectId canonical assignment is owned
+  --   by CFG step e.5.
   | .externalCall _effectId callee _args => do
       match instr.result with
       | none => pure ()
@@ -688,6 +690,11 @@ def checkOpTyping (instr : InstructionV1) (env : OpTypingEnv) :
             | some (.uint w) | some (.int w) =>
                 w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
             | some (.bytes n) => n.toNat ≤ maxTypeLengthV1
+            | some (.array elTid len) =>
+                len.toNat == 4 &&
+                  match env.shapeOf elTid with
+                  | some (.uint 64) => true
+                  | _ => false
             | _ => false
           unless legal do return ← err .badCfg
       unless 2 ≤ callee.components.toArray.size do return ← err .badCfg

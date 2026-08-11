@@ -78,6 +78,7 @@ algorithms。支持结论以当前 Plan/DPN tests 为准，不由历史 source c
 - result-bearing call、schedule、EVM-style ContextRead（`context.caller` / `blockHeight` / `unixTimeSeconds`）、Commit、nonempty invariant；
 - `pf.assets` bindings、UPS、network 与 deploy。
 - **已开放（非 EVM ContextRead）**：`call pf.context.userId|contractId|checkpointId|nonce|callerContractId|userPublicKeyHash|sessionProofTreeRoot()` → DPN ExecutionContext（见 `Examples/ContextProbe.lean`；HashOut 仅 limb0）。
+- **已开放 HashOut 4-limb**：`call pf.crypto.hashNoPad|hashTwoToOne` 结果类型为 `Array UInt64 4`（见 `Examples/HashOutProbe.lean`）；keccak/context 仍 limb0。
 - **已开放 IMT**：`call pf.imt.get|contains|set|getExternal|getOther|containsOther`（见 `Examples/ImtProbe.lean`）；store+return CSE；`CalculateMerkleRoot` 仍 FC。
 
 Plan admitted 但 DPN lowering 失败时返回 `PSY-DPN-G5-HARD`；不存在 source 语言旁路。
@@ -153,6 +154,7 @@ Regenerate: `just psy-dpn-op-coverage` / `just psy-example-matrix` / `just psy-d
 
 ## 11. Open design gates
 
-- Hash gadgets: [ADR-0039](../adr/0039-psy-hash-gadgets-gate.md) — **hashNoPad / hashTwoToOne / keccak256 open**; hashPad emit-only (`Examples/HashProbe.lean`)
-- Context / Commit (P3): [psy-p3-context-commit-gate.md](psy-p3-context-commit-gate.md) — **DPN `pf.context.*` partial open**; EVM ContextRead + Commit still FC
+- Hash gadgets: [ADR-0039](../adr/0039-psy-hash-gadgets-gate.md) — **scalar limb0 + Array4 for hashNoPad/twoToOne** (`HashProbe` / `HashOutProbe`); hashPad emit-only; merkle FC
+- HashOut Array4 guide: [product/15-psy-hashout-array4.md](../product/15-psy-hashout-array4.md)
+- Context / Commit (P3): [psy-p3-context-commit-gate.md](psy-p3-context-commit-gate.md) — **DPN `pf.context.*` open** (limb0); Commit **FC by [ADR-0041](../adr/0041-psy-commit-public-input-gate.md)**
 - OP coverage matrix: [psy-op-coverage.md](psy-op-coverage.md)

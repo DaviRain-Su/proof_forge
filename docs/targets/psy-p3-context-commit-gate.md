@@ -66,11 +66,18 @@ DPN **ExecutionContext** identity is available as expression-position calls
 
 Probe: `Examples/ContextProbe.lean`.
 
+**HashOut full limbs:** only `pf.crypto.hashNoPad|hashTwoToOne` admit
+`Array UInt64 4` (see `HashOutProbe`). Context pk/sessionRoot stay **UInt64 limb0**
+(official software eval does not fill full HashOut arrays for those ops).
+
 Still **fail-closed**:
 
 - `context.caller` (Principal / msg.sender)
 - `context.blockHeight` / `context.unixTimeSeconds`
-- full 4-limb HashOut product return ABI (only limb0 today)
-- `Commit` / B-COMMIT-ZK
-- `CalculateMerkleRoot` (official software evaluator `todo!`)
+- `Commit` / B-COMMIT-ZK — **frozen decision:** [ADR-0041](../adr/0041-psy-commit-public-input-gate.md) (no emitter work until checklist)
+- `CalculateMerkleRoot` (official software evaluator `todo!` — wait on Psy upstream)
+
+## Product docs
+
+- HashOut Array4 author guide: [`docs/product/15-psy-hashout-array4.md`](../product/15-psy-hashout-array4.md)
 

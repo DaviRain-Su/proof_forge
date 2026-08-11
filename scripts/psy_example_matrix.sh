@@ -16,6 +16,7 @@ mods=(
   "Examples/EmitProbe.lean:Examples.EmitProbe"
   "Examples/CallProbe.lean:Examples.CallProbe"
   "Examples/HashProbe.lean:Examples.HashProbe"
+  "Examples/HashOutProbe.lean:Examples.HashOutProbe"
   "Examples/ContextProbe.lean:Examples.ContextProbe"
   "Examples/ImtProbe.lean:Examples.ImtProbe"
 )
@@ -105,6 +106,42 @@ for entry in "${mods[@]}"; do
           fi
           rg -q 'hashNoPad|op 21|ADR-0039|hash/merkle' /tmp/psy-mat-hash-sess.txt \
             && echo "  OK session hash fail-closed" || { echo "  FAIL session hash msg"; fail=$((fail+1)); continue; }
+          ;;
+        HashOutProbe)
+          if command -v psy_user_cli >/dev/null 2>&1; then
+            okh=1
+            if ! psy_user_cli simulate --circuit-defs-path "$dpn" --method hashPairFull --format json \
+                --inputs 1 --inputs 2 >/tmp/psy-mat-hof-pair.json 2>/tmp/psy-mat-hof-pair.err; then
+              okh=0; echo "  FAIL official hashPairFull"
+            else
+              python3 -I -S -c "
+import json
+t=open('/tmp/psy-mat-hof-pair.json').read();i,j=t.find('{'),t.rfind('}')
+d=json.loads(t[i:j+1]); outs=[int(x) for x in (d.get('outputs') or [])]
+assert d.get('success') and len(outs)==4 and outs[0]!=0 and any(x!=0 for x in outs[1:]), (outs,d)
+" || { okh=0; echo "  FAIL hashPairFull 4-limb"; }
+            fi
+            if ! psy_user_cli simulate --circuit-defs-path "$dpn" --method hashCombineFull --format json \
+                --inputs 1 --inputs 0 --inputs 0 --inputs 0 --inputs 2 --inputs 0 --inputs 0 --inputs 0 \
+                >/tmp/psy-mat-hof-comb.json 2>/tmp/psy-mat-hof-comb.err; then
+              okh=0; echo "  FAIL official hashCombineFull"
+            else
+              python3 -I -S -c "
+import json
+t=open('/tmp/psy-mat-hof-comb.json').read();i,j=t.find('{'),t.rfind('}')
+d=json.loads(t[i:j+1]); outs=[int(x) for x in (d.get('outputs') or [])]
+assert d.get('success') and len(outs)==4 and outs[0]!=0, outs
+" || { okh=0; echo "  FAIL hashCombineFull 4-limb"; }
+            fi
+            [[ $okh -eq 1 ]] && echo "  OK official HashOut 4-limb" || { fail=$((fail+1)); continue; }
+          else
+            echo "  SKIP official HashOut (no psy_user_cli)"
+          fi
+          if python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" --call initialize --call hashPairFull:1,2 >/tmp/psy-mat-hof-sess.txt 2>&1; then
+            echo "  FAIL session should reject hashOut full"; fail=$((fail+1)); continue
+          fi
+          rg -q 'hashNoPad|op 21|ADR-0039|hash/merkle' /tmp/psy-mat-hof-sess.txt \
+            && echo "  OK session HashOut fail-closed" || { echo "  FAIL session HashOut msg"; fail=$((fail+1)); continue; }
           ;;
         ContextProbe)
           python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" --json \

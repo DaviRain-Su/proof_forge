@@ -74,7 +74,19 @@ Claiming hash coverage without a language entry would be dishonest.
 | hashPad official software eval | **gap**: `psy_user_cli simulate` currently returns 0 / hash_ops=0 (emit still correct) |
 | Session | fail-closed with ADR-0039 message |
 
+## Full HashOut multi-limb ABI (2026-08-11)
+
+When the call result type is `Array UInt64 4`, **`hashNoPad` / `hashTwoToOne`**
+lower to one HashOut-typed DPN op + four `TargetAt` limbs (`Expr.hashOutLimb`),
+CSE’d so store+return share a single hash def. Official `psy_vm` software eval
+fills `hash_out_arrays` only for those two ops.
+
+- `keccak256` / context pk / sessionRoot: **UInt64 limb0 only** (official does
+  not populate full HashOut arrays for TargetAt).
+- Scalar `UInt64` path remains first-limb (backward compatible).
+- Probe: `Examples/HashOutProbe.lean`.
+
 ## Still closed
 
-`calculateMerkleRoot`, full HashOut multi-limb returns, IMT.
+`calculateMerkleRoot`.
 

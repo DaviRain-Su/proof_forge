@@ -249,7 +249,7 @@ def main() -> int:
             {
                 "id": "hash-gadgets",
                 "ops": ["hashNoPad", "hashPad", "hashTwoToOne", "keccak256", "calculateMerkleRoot"],
-                "status": "hashNoPad+hashTwoToOne+keccak256 open (first limb); hashPad emit-only (official software eval no-op); merkle still closed",
+                "status": "hashNoPad+hashTwoToOne+keccak256 open; Array UInt64 4 full HashOut for hashNoPad/twoToOne only (HashOutProbe); keccak/context limb0; hashPad emit-only; merkle FC",
             },
             {
                 "id": "IMT-state-cmds",
@@ -269,7 +269,7 @@ def main() -> int:
             },
             {
                 "id": "ContextRead-Commit",
-                "status": "EVM context.* FC; pf.context.* ids+userPublicKeyHash+sessionProofTreeRoot(limb0) open (ContextProbe); Commit/merkle FC",
+                "status": "EVM context.* FC; pf.context.* open (limb0); Commit FC by ADR-0041 until PI checklist; merkle official todo!",
             },
             {
                 "id": "wide-u128-u256",
