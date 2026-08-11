@@ -3,7 +3,7 @@ id: TARGET-EVM
 title: EVM target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-10
+updated: 2026-08-11
 normative: true
 ---
 
@@ -23,18 +23,17 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
 - multi-width UInt/Int 与 body 窄宽、UInt128/256（EVM-only）ABI/body 子集；Field(bn254) mod-p 通道；
 - 控制流 if/match、fn/localCall、let/bounded for、shift/bitwise/logical、revert/emit；
 - named 聚合 flatten、定长 Array IndexGet/Set（bounds revert）；String 类型面（**String match switch 已落地 N-A1**）；
-- **Map UInt64→UInt64 dense pilot（cap-8）+ Map Principal→UInt64 LP pilot（cap-4，
-  每 entry occ+9-leaf Principal+value=11 叶，共 44 叶；leaf-wise key eq）+ Bytes
-  （N×UInt8 leaves，D4-E2）**；aggregate `StateStore` 以 `storeAtomic` 两阶段 Yul：每个
-  leaf 在独立 block 中求值并 spill 到 reserved memory，全部 leaf 完成后再连续 `sstore`。
-  `EvmSmoke` 固定 empty Map upsert、Principal-Map LpShares、双 batch 可见性与 spill
-  结构；`EvmSolcAcceptance` 检查 host solc，`TokenV1` 产品路径锁定 solc 0.8.34；
-- **ADR-0030 E4 EVM-first demo**：`Examples/MiniAmm.lean` 以 `context.caller` 作为
-  cap-4 Principal-key LP share key，提供 vault-internal addLiquidity/swap0to1/balanceOf；
-  Plan/Yul/`EvmSmoke` 钉测 + host-optional `scripts/evm_mini_amm_anvil_smoke.sh`。
-  当前 locked-solc `--optimize` creation bytecode ≈ 2.6 KiB（远低于 EIP-3860 的 49152 B initcode
-  上限；旧文档中的“远超 EIP-3860”已过期）。无 `pf.assets` asset movement 或
-  remove-liquidity，不得写成双链 MiniAMM closure；
+- **Map 产品默认 = hashed storage（ADR-0038）**：`Map UInt64 UInt64` 与
+  `Map Principal UInt64` 各占 **1 个 base storage leaf**；entry 经 keccak 派生 slot，
+  Yul helpers `pf_hmap_u64_*` / `pf_hmap_p_*`。dense 24/44-leaf 表已从产品默认退役
+  （历史 pilot 仅作对照，不得再写成主路径）。Bytes（N×UInt8 leaves，D4-E2）仍为
+  定长 leaf 布局。`EvmSmoke` 钉 hashed layout size、helper 名与 dual-StateStore 分离；
+  `EvmSolcAcceptance` 检查 host solc，`TokenV1` 产品路径锁定 solc 0.8.34；
+- **ADR-0030 E4 EVM demo**：`Examples/MiniAmm.lean` 以 `context.caller` 作 Principal-key
+  LP share（hashed Map base + 5×UInt64 = 6 slots），vault-internal addLiquidity /
+  swap / removeLiquidity / balanceOf；Plan/Yul/`EvmSmoke` + host-optional Anvil smoke。
+  locked-solc `--optimize` creation bytecode 远低于 EIP-3860 49152 B initcode 上限。
+  无 `pf.assets` 的 MiniAmm 不得写成双链 MiniAMM closure；
 - **Option UInt64 state（BL-31）**：Enum-shaped tag/payload 双 slot；`none` 与 reset 清零 payload，
   `StateStore` 复用 `storeAtomic`；Option parameter、非 UInt64 payload 与 nested Option 仍 fail-closed；
 - **bounded aggregate return ABI**：named Struct/Enum 与 anonymous `Array UInt64 N`（1..8）/
@@ -42,23 +41,18 @@ lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `make
 - **static-QN external call/schedule**：sync 发真实 `CALL`；result-bearing UInt64 路径要求
   `returndatasize ≥ 32`、读取首 word并做 UInt64 range check；schedule 仍同步 CALL+discard。
   callee 仍为 target-path hash stub，真实 deployment-address binding 未闭合；
-- Token 当前为 **locked-solc engineering finalization**：creation bytecode ≈ 0.79 KiB（`--optimize`）
-  （远低于 EIP-3860 49152 B initcode 上限；旧文档 258460 B 数字来自早期 unrolled Map
-  helper 路径，已过期）。Yul 文本仍大于 bytecode（Map helpers + 展开 body）；emitter
-  对 constructor/runtime 做 phase-local helper 发射，共享 `pf_sload_u64` 摊销
-  UInt64 range gate，且 dense Map upsert 改为 helper 内 in-place dirty-entry
-  `sstore`（不再 spill+整表 24/44 次 sstore）；Yul 后处理对同基本块
-  重复 `pf_sload_u64(slot)` 做 CSE（`sstore`/map upsert/`case`/`function` 边界失效）；
-  构造函数省略新鲜存储上的字面量 0 写入（`Map.empty`/scalar `:= 0`）；
-  compact Map helper 经 `pf_sload_u64` 做脏存储 UInt64 门；
-  Map lookup 后处理 CSE 合并同一 (base,key) 的 tag/payload 双次 helper 调用。Anvil/mainnet/OZ 产品声明仍以各自 runtime 门为准，不因体积单独阻断；
+- Token 当前为 **locked-solc engineering finalization**（hashed Map）：creation bytecode
+  远低于 EIP-3860（旧 258460 B 数字来自 unrolled dense Map，已过期）。emitter 对
+  constructor/runtime 做 phase-local helper 发射；共享 `pf_sload_u64` 摊销 UInt64 range
+  gate；hashed upsert 走 `pf_hmap_*`（非整表 24/44 sstore）。Anvil/mainnet/OZ 产品声明
+  仍以各自 runtime 门为准；
 - Yul + digest-pinned `solc --strict-assembly --optimize` bytecode（与 Solidity `--optimize` 同源 Yul 优化器）；**EvmSolc** 验收门（工具缺席干净跳过）；
 - engineering planDigest 可绑 BuildIdentity/OutputSet；G4 `evm_anvil_differential.sh` 从产品 CLI
   制品运行 Counter/Accumulator/ArithOps/EventFlow，固定 overflow state-hold 与 emit 日志。
-- **双 profile（EVMOZ-001）**：默认 `evm-yul-solc-0.8.34-v1`（hashed Map）（历史 solc 参数，无 ambient
-  `--evm-version`）；显式 `evm-yul-solc-0.8.34-cancun-v1` 在 Finalize 加
-  `solc --evm-version cancun`，runtime 经 `PF_EVM_PROFILE=…cancun-v1` 启动
-  `anvil --hardfork cancun`。两 profile 共用锁定 solc 0.8.34 / Anvil 0.3.0，不升级工具。
+- **双 profile（EVMOZ-001）**：默认 `evm-yul-solc-0.8.34-v1`（**hashed Map**，evidence
+  `map-storage=hashed`）；显式 `evm-yul-solc-0.8.34-cancun-v1` 在 Finalize 加
+  `solc --evm-version cancun` + 同 hashed Map，runtime 经 `PF_EVM_PROFILE=…cancun-v1`
+  启动 `anvil --hardfork cancun`。两 profile 共用锁定 solc 0.8.34 / Anvil 0.3.0。
 - **`pf.assets` native binding（ADR-0029 Phase B2，2026-08-05）**：两 profile 均 advertise
   exact `extension.pf-assets`（resolver multi-permit）。`pf.assets.native.deposit` →
   exact `callvalue()==amount`（无 deposit 的 entry 强制 `callvalue()==0`；无 payable

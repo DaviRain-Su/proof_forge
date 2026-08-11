@@ -1633,22 +1633,20 @@ private unsafe def testVoidEntryRejected
   match ← session.selectProgramV1 text "<solana-void-entry>" "Examples.VoidEntry" none with
   | .error e => throw <| IO.userError s!"void entry load: {e.render}"
   | .ok source =>
-      match Compiler.compileValidatedSourceV1 source with
+      let compiled ← match Compiler.compileValidatedSourceV1 source with
+        | .ok compiled => pure compiled
+        | .error e =>
+            throw <| IO.userError
+              s!"void entry must compile through canonical Unit fallthrough, got {e.render}"
+      match planSolana compiled with
+      | .error (.planInvariant .solana msg) =>
+          expect (msg.contains "entry 'run' does not return public")
+            s!"void entry planInvariant must reject the Unit result, got: {msg}"
       | .error e =>
-          expect (e.render.contains "return" || e.render.contains "Unit" ||
-              e.render.contains "unsupported" || e.render.contains "PF-SRC-INVALID")
-            s!"void entry compile failure must mention return/Unit/unsupported, got {e.render}"
-      | .ok compiled =>
-          match planSolana compiled with
-          | .error (.planInvariant .solana msg) =>
-              expect (msg.contains "run" &&
-                  msg.contains "does not return public UInt64 or Bool")
-                s!"void entry planInvariant must match makeEntryV1, got: {msg}"
-          | .error e =>
-              throw <| IO.userError
-                s!"void entry must fail with planInvariant .solana, got {e.render}"
-          | .ok _ =>
-              throw <| IO.userError "void entry must not produce a Solana plan"
+          throw <| IO.userError
+            s!"void entry must fail with planInvariant .solana, got {e.render}"
+      | .ok _ =>
+          throw <| IO.userError "void entry must not produce a Solana plan"
 
 /-- Two declared events emitted in one entry: pin emit_event plan/IDL. -/
 private unsafe def testMultipleEvents

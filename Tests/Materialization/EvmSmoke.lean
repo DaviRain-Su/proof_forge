@@ -2280,8 +2280,10 @@ private unsafe def testUInt128ResultAdmitted : IO Unit := do
   expect (plan.entries.map (·.resultKind) == #[.uint128])
     "T9b: UInt128 entry resultKind"
 
-/-- Unit/void entry (`entry run() do`, no result type) fails closed at the EVM
-    Plan seam: makeEntryV1 rejects non-UInt64/Bool entry results. -/
+/-- Unit/void entry (`entry run() do`, no result type) lowers through canonical
+    Unit fallthrough, then fails closed at the EVM result-kind gate
+    (`entry '…' does not return public …`). Explicit bare `return` remains
+    rejected by Normalize. -/
 private unsafe def testVoidEntryRejected : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let text :=
@@ -2297,23 +2299,19 @@ private unsafe def testVoidEntryRejected : IO Unit := do
     "    return count\n"
   let source ← liftResult "load VoidEntry" (← session.selectProgramV1
     text "<evm-void-entry>" "Tests.EvmVoidEntry" none)
-  match Compiler.compileValidatedSourceV1 source with
+  let compiled ← match Compiler.compileValidatedSourceV1 source with
+    | .ok compiled => pure compiled
+    | .error e =>
+        throw <| IO.userError
+          s!"void entry must compile through canonical Unit fallthrough, got {e.render}"
+  match materializeSelected TargetId.evm compiled with
+  | .error (.planInvariant .evm msg) =>
+      expect (msg.contains "entry 'run' does not return public")
+        s!"void entry planInvariant must reject the Unit result, got: {msg}"
   | .error e =>
-      -- Normalize may reject Unit entry before the plan seam (no bare/implicit
-      -- return for entry). That is still product fail-closed for void entry.
-      expect (e.render.contains "return" || e.render.contains "Unit" ||
-          e.render.contains "unsupported" || e.render.contains "PF-SRC-INVALID")
-        s!"void entry compile failure must mention return/Unit/unsupported, got {e.render}"
-  | .ok compiled =>
-      match materializeSelected TargetId.evm compiled with
-      | .error (.planInvariant .evm msg) =>
-          expect (msg.contains "run" &&
-              msg.contains "does not return public UInt64 or Bool")
-            s!"void entry planInvariant must match makeEntryV1, got: {msg}"
-      | .error e =>
-          throw <| IO.userError s!"void entry must fail with planInvariant .evm, got {e.render}"
-      | .ok _ =>
-          throw <| IO.userError "void entry must not materialize on EVM"
+      throw <| IO.userError s!"void entry must fail with planInvariant .evm, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "void entry must not materialize on EVM"
 
 /-- Two declared events emitted in one entry: pin both log topics and ABI. -/
 private unsafe def testMultipleEvents : IO Unit := do
