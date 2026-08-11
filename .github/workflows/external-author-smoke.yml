@@ -95,30 +95,43 @@ jobs:
           rg -n 'inductive HostMode' ProofForgeV2/Materialization/LockedToolchainV1.lean
 
   # Debian-like container: no Lean rebuild; prove scripts + pf unit on non-Mint.
+  # Note: debian:bookworm-slim default shell is dash (`sh`); always use bash -euo pipefail.
   debian-script-smoke:
     name: debian bookworm script smoke
     runs-on: ubuntu-latest
     container:
       image: debian:bookworm-slim
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
+      - name: Install bash first (container default is dash)
+        shell: sh
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends bash
+
       - name: Install tools
+        shell: bash
         run: |
           set -euo pipefail
-          apt-get update
           apt-get install -y --no-install-recommends \
-            bash ca-certificates curl build-essential pkg-config \
+            ca-certificates curl build-essential pkg-config \
             libssl-dev ripgrep python3
           curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-          . "$HOME/.cargo/env"
+          # shellcheck source=/dev/null
+          source "$HOME/.cargo/env"
           rustc --version
 
       - name: bash -n + VERSION gate + pf-cli test
+        shell: bash
         run: |
           set -euo pipefail
-          . "$HOME/.cargo/env"
+          # shellcheck source=/dev/null
+          source "$HOME/.cargo/env"
           bash -n scripts/install.sh
           bash -n scripts/pf_evm_test.sh
           bash -n scripts/pf_solana_test.sh
