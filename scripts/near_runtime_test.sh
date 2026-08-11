@@ -14,6 +14,8 @@
 #     reserves/shares equality, Unit withdraw, and failure rollback
 #   PoseTransform: translate / rotate90 / scale + Int64 overflow state-hold
 #   BlockHeightCheck: context.blockHeight ↔ sandbox latest_block_height
+#   ConstAnswer: scalar const table (ANSWER=42) via Op.Constant
+#   UnixTimeCheck: context.unixTimeSeconds ↔ block_timestamp ns÷10^9
 #
 # Not testnet, not mainnet, not formal Stage-0 / hermetic release evidence /
 # Reference↔sandbox formal differential (main agent decides just recipe wiring).
@@ -179,6 +181,8 @@ programs=(
   "runtime-tests/near/fixtures/CallerCheck.lean:Examples.CallerCheck:CallerCheck"
   "Examples/PoseTransform.lean:Examples.PoseTransform:PoseTransform"
   "Examples/BlockHeightCheck.lean:Examples.BlockHeightCheck:BlockHeightCheck"
+  "Examples/ConstAnswer.lean:Examples.ConstAnswer:ConstAnswer"
+  "Examples/UnixTimeCheck.lean:Examples.UnixTimeCheck:UnixTimeCheck"
 )
 
 echo "near-runtime-test: engineering near-sandbox differential (not formal/testnet)"
@@ -275,6 +279,8 @@ envreadjar_wasm="$out_dir/EnvReadJar/EnvReadJar.wasm"
 callercheck_wasm="$out_dir/CallerCheck/CallerCheck.wasm"
 posetransform_wasm="$out_dir/PoseTransform/PoseTransform.wasm"
 blockheightcheck_wasm="$out_dir/BlockHeightCheck/BlockHeightCheck.wasm"
+constanswer_wasm="$out_dir/ConstAnswer/ConstAnswer.wasm"
+unixtimecheck_wasm="$out_dir/UnixTimeCheck/UnixTimeCheck.wasm"
 [[ -f "$state_cell_wasm" ]] || die "missing $state_cell_wasm"
 [[ -f "$pairret_wasm" ]] || die "missing $pairret_wasm"
 [[ -f "$arrayret_wasm" ]] || die "missing $arrayret_wasm"
@@ -287,6 +293,8 @@ blockheightcheck_wasm="$out_dir/BlockHeightCheck/BlockHeightCheck.wasm"
 [[ -f "$callercheck_wasm" ]] || die "missing $callercheck_wasm"
 [[ -f "$posetransform_wasm" ]] || die "missing $posetransform_wasm"
 [[ -f "$blockheightcheck_wasm" ]] || die "missing $blockheightcheck_wasm"
+[[ -f "$constanswer_wasm" ]] || die "missing $constanswer_wasm"
+[[ -f "$unixtimecheck_wasm" ]] || die "missing $unixtimecheck_wasm"
 
 # --- sandbox helpers --------------------------------------------------------
 
@@ -450,5 +458,11 @@ run_suite posetransform "$posetransform_wasm" || die "PoseTransform suite failed
 echo "near-runtime-test: running BlockHeightCheck suite against near-sandbox"
 run_suite blockheightcheck "$blockheightcheck_wasm" || die "BlockHeightCheck suite failed"
 
-echo "near-runtime-test: PASS (StateCell + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + CallerCheck + PoseTransform + BlockHeightCheck engineering sandbox differential)"
+echo "near-runtime-test: running ConstAnswer suite against near-sandbox"
+run_suite constanswer "$constanswer_wasm" || die "ConstAnswer suite failed"
+
+echo "near-runtime-test: running UnixTimeCheck suite against near-sandbox"
+run_suite unixtimecheck "$unixtimecheck_wasm" || die "UnixTimeCheck suite failed"
+
+echo "near-runtime-test: PASS (StateCell + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + CallerCheck + PoseTransform + BlockHeightCheck + ConstAnswer + UnixTimeCheck engineering sandbox differential)"
 exit 0

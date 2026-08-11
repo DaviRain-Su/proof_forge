@@ -36,11 +36,16 @@ Phase 1：实现
   `runtime-tests/near` 已覆盖 StateCell init/mutate/view、overflow state-hold+recovery、PairRet、
   ArrayRet、OptionRet、OptionState、proof-bearing `VerifiedVaultPF`、TipJarAsync、TokenJarAsync、
   EnvReadJar、CallerCheck、低集成 `PoseTransform`（translate/rotate90/scale + Int64 overflow
-  state-hold）与 `BlockHeightCheck`（`context.blockHeight` ↔ sandbox
-  `status.sync_info.latest_block_height`）。2026-08-11 required run 以 userspace GLIBC 2.39
-  loader 在 GLIBC 2.36 host 启动原始 locked executable，原十套 corpus 全部 PASS；后续
-  PoseTransform + BlockHeightCheck 扩为十二套 engineering 门。该 loader 尚非 Tool Lock 资产，
-  因此不是 hermetic release evidence。产品推进见 `docs/plan/near-parity-roadmap.md`。
+  state-hold）、`BlockHeightCheck`（`context.blockHeight` ↔ sandbox
+  `status.sync_info.latest_block_height`）、`ConstAnswer`（scalar `const` 表 / `Op.Constant`）
+  与 `UnixTimeCheck`（`context.unixTimeSeconds` ↔ `block_timestamp` ns÷10^9）。
+  2026-08-11 required run 以 userspace GLIBC 2.39 loader 在 GLIBC 2.36 host 启动原始 locked
+  executable，原十套 corpus 全部 PASS；后续扩为十四套 engineering 门。该 loader 尚非 Tool Lock
+  资产，因此不是 hermetic release evidence。产品推进见 `docs/plan/near-parity-roadmap.md`。
+- **Scalar constants table**：source `const` / body `Op.Constant` 对
+  UInt{8,16,32,64} / Int{8,16,32,64} / Bool 开放，预解码进 `StorageLayout` 后按 inline
+  plan literal 发射；UInt128/256、aggregate、Principal const 仍 FC。空表保持 historical
+  Plan bytes。
 - **Proof-bearing invariant-root erasure（ADR-0042）**：普通 capability + nonempty invariants
   仍 fail closed；只有 private audited `CertifiedInlineProofV1` 在 source/semantic digest exact
   match、每个 invariant 有完整 preserving coverage 时可 mint NEAR-only authorization。

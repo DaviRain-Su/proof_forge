@@ -30,7 +30,7 @@ Honesty baseline (do not rewrite):
 | **1** | Low-integration demo | One standalone product Example with sandbox | `PoseTransform` builds + sandbox PASS | **done** (sandbox PASS) |
 | **2** | Runtime hole-fill | Close known engineering residuals that EVM already gates | `BlockHeightCheck` sandbox PASS; dossier updated | **done** (sandbox PASS) |
 | **3** | Product surface | Install / docs / agent path closer to EVM | Cheatsheet + catalog notes | **done** (lite: cheatsheet + catalog) |
-| **4** | Deferred / explicit non-goals | Stop the infinite backlog | Listed below; only reopen with product decision | deferred |
+| **4** | Remaining engineering slices | constants + unixTime runtime + network catalog; formal deferred | scalar const + unixTime sandbox + near network ids | **partial** (formal still deferred) |
 
 ### Phase 0 — Inventory (done as of this doc)
 
@@ -84,12 +84,21 @@ constants table, Map return, formal identity.
 Out of Phase 3: public testnet broadcast, full `pf deploy -t near`, dApp UI
 scaffold parity with EVM.
 
-### Phase 4 — Explicit non-goals (do not start without a decision)
+### Phase 4 — Remaining slices + explicit non-goals
+
+**Done in this wave (engineering):**
+
+- Scalar `const` / `Op.Constant` on NEAR (UInt/Int/Bool) + `ConstAnswer` sandbox
+- `UnixTimeCheck` sandbox for `context.unixTimeSeconds`
+- Network catalog: `near.local.sandbox` + `near.testnet` (broadcast refused)
+
+**Still deferred (do not start without a decision):**
 
 - Reference↔Wasm / sandbox **formal** differential
 - Sync call or sync transfer wrappers
 - Full NEP-141 ledger / mainnet
-- view `context.caller`, nonempty source `constants` table, Map/Bytes return
+- view `context.caller` (host-forbidden; keep FC)
+- Map/Bytes return ABI expansion
 - Replacing monorepo contributor path (still valid for compiler dev)
 
 ## Suggested execution order

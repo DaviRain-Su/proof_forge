@@ -40,16 +40,27 @@ scripts/near_runtime_test.sh
 |---------|-----|
 | `Examples/PoseTransform.lean` | translate / rotate90 / scale; Int64 pose; overflow hold |
 | `Examples/BlockHeightCheck.lean` | `context.blockHeight` → `block_index` |
+| `Examples/UnixTimeCheck.lean` | `context.unixTimeSeconds` → `block_timestamp` ns÷10^9 |
+| `Examples/ConstAnswer.lean` | scalar `const` table (`Op.Constant`) |
 | `Examples/StateCell.lean` | minimal state machine |
 | `Examples/VerifiedVaultPF.lean` | proof-bearing invariant-root erasure (ADR-0042); **not formal** |
+
+## Networks (catalog only)
+
+```bash
+pf network list --family near
+# near.local.sandbox  — engineering sandbox narrative (ephemeral port in scripts)
+# near.testnet        — RPC discovery only; pf deploy --broadcast refused
+```
 
 ## Permanent fail-closed (do not file as bugs)
 
 - Sync `call` / sync native or token `transfer`
 - `pf.assets.token` balance-of (async view call)
-- view-path `context.caller`
-- nonempty source `constants` table on NEAR materialize
+- view-path `context.caller` (NEAR host forbids predecessor in view)
+- UInt128/256 / aggregate / Principal **const** rows (scalar UInt/Int/Bool ok)
 - Map / Bytes / nested aggregate **returns**
+- Public testnet/mainnet `pf deploy --broadcast`
 
 ## Roadmap
 

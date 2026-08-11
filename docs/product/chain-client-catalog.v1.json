@@ -306,7 +306,7 @@
       ],
       "localDev": {
         "offlineInterpret": null,
-        "chainLike": "near-sandbox engineering (host-heavy); scripts/near_runtime_test.sh twelve suites"
+        "chainLike": "near-sandbox engineering (host-heavy); scripts/near_runtime_test.sh fourteen suites"
       },
       "honesty": [
         "Engineering Wasm + near-sandbox only — not formal Reference↔sandbox",
@@ -319,6 +319,8 @@
       "demoExamples": [
         "Examples/PoseTransform.lean",
         "Examples/BlockHeightCheck.lean",
+        "Examples/UnixTimeCheck.lean",
+        "Examples/ConstAnswer.lean",
         "Examples/StateCell.lean",
         "Examples/VerifiedVaultPF.lean"
       ]

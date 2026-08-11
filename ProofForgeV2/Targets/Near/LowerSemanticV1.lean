@@ -154,6 +154,12 @@ structure StorageLayout where
       Threaded through body lowering for the catalog QN gate; not part of the
       engineering planDigest encoding. -/
   pfAssetsDeclared : Bool := false
+  /-- Dense `ConstantId` → pre-decoded scalar plan word. Parallel arrays keep
+      `StorageLayout` free of a forward ref to `NearValueKindV1`. Empty keeps
+      historical no-constant Plans byte-identical. Not part of planDigest. -/
+  constantTypeIds : Array TypeIdV1 := #[]
+  constantKinds : Array Nat := #[]
+  constantValues : Array UInt64 := #[]
   deriving BEq, Inhabited, Repr
 
 structure Param where
@@ -676,6 +682,26 @@ private def uintKindOfWidthV1 (w : Nat) : Option NearValueKindV1 :=
   | 256 => some .uint256
   | _ => none
 
+/-- Dense tag for `StorageLayout.constantKinds` (keeps layout free of
+    `NearValueKindV1` at structure-definition time). -/
+private def nearConstantKindTagV1 : NearValueKindV1 → Nat
+  | .uint64 => 0
+  | .uint32 => 1
+  | .uint16 => 2
+  | .uint8 => 3
+  | .bool => 4
+  | .int64 => 5
+  | .uint128 | .uint256 => 0  -- unused for constants pilot
+
+private def nearConstantKindOfTagV1 (tag : Nat) : Option NearValueKindV1 :=
+  match tag with
+  | 0 => some .uint64
+  | 1 => some .uint32
+  | 2 => some .uint16
+  | 3 => some .uint8
+  | 4 => some .bool
+  | 5 => some .int64
+  | _ => none
 
 /-- Inverse of `uintKindOfWidthV1` for store/width gates. -/
 private def widthOfUintKindV1 (k : NearValueKindV1) : Option Nat :=
@@ -1594,6 +1620,62 @@ private def decodeUInt32LiteralV1 (bytes : ByteArray) : CompileResult UInt64 :=
 private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult Bool :=
   decodeBoolLiteralBit nearPlanErr "NEAR" bytes
 
+/-- Decode one source `ConstantV1` into a NEAR plan surface word + kind tag.
+    Admits the same scalar envelope as inline `.literal` (UInt{8,16,32,64} /
+    Int{8,16,32,64} / Bool). Aggregate / multiword / Principal constants FC. -/
+private def decodeNearConstantSlotV1
+    (types : NearTypeClosureV1) (typeId : TypeIdV1) (bytes : ByteArray) :
+    CompileResult (NearValueKindV1 × UInt64) := do
+  if let some bitWidth := types.intWidthOf typeId then
+    unless isAbiIntWidth bitWidth do
+      throw <| .planInvariant .near
+        s!"unsupported NEAR semantic shape: Int{bitWidth} constant is not admitted"
+    let value ← decodeIntWidthLiteralLe nearPlanErr "NEAR" bitWidth bytes
+    pure (.int64, value)
+  else if let some bitWidth := types.uintWidthOf typeId then
+    -- Constants pilot: single-word body widths only (no UInt128/256 const table).
+    unless bitWidth ≤ 64 && isNearBodyUintWidth bitWidth do
+      throw <| .planInvariant .near
+        s!"unsupported NEAR semantic shape: UInt{bitWidth} constant is outside the NEAR scalar const pilot"
+    let kind ← match uintKindOfWidthV1 bitWidth with
+      | some k => pure k
+      | none =>
+          throw <| .planInvariant .near
+            s!"unsupported NEAR semantic shape: UInt{bitWidth} constant is not admitted"
+    let value ← decodeUIntWidthLiteralLe nearPlanErr "NEAR" bitWidth bytes
+    pure (kind, value)
+  else
+    let boolTypeId ← match types.boolTypeId with
+      | some tid => pure tid
+      | none =>
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: Bool type is missing for Bool constant"
+    unless typeId == boolTypeId do
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: constant is not admitted UInt width, Int width, or Bool"
+    let flag ← decodeBoolLiteralV1 bytes
+    pure (.bool, if flag then 1 else 0)
+
+/-- Materialize dense ConstantId → plan slots for body `Op.Constant`. -/
+private def makeNearConstantTableV1
+    (types : NearTypeClosureV1) (constants : Array ConstantV1) :
+    CompileResult (Array TypeIdV1 × Array Nat × Array UInt64) := do
+  let mut typeIds : Array TypeIdV1 := #[]
+  let mut kinds : Array Nat := #[]
+  let mut values : Array UInt64 := #[]
+  for i in [0:constants.size] do
+    let some c := constants[i]? |
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: constant table hole"
+    unless c.id.toNat == i do
+      throw <| .planInvariant .near
+        "unsupported NEAR semantic shape: Constant id does not match declaration order"
+    let (kind, value) ← decodeNearConstantSlotV1 types c.typeId c.valueBytes
+    typeIds := typeIds.push c.typeId
+    kinds := kinds.push (nearConstantKindTagV1 kind)
+    values := values.push value
+  pure (typeIds, kinds, values)
+
 private def comparisonOpOfBinaryV1 (op : BinaryOpV1) : Option ComparisonOp :=
   match op with
   | .eq => some .eq
@@ -2012,6 +2094,32 @@ private def lowerBlockInstructionsV1
   let mut body : Array Statement := #[]
   for instruction in block.instructions do
     match instruction.op, instruction.result with
+    | .constant constantId, some result =>
+        -- Scalar const table: same plan surface as inline `.literal`.
+        let some typeId := layout.constantTypeIds[constantId.toNat]? |
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: Constant references an unknown constant id"
+        let some kindTag := layout.constantKinds[constantId.toNat]? |
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: Constant kind table is incomplete"
+        let some value := layout.constantValues[constantId.toNat]? |
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: Constant value table is incomplete"
+        unless result.typeId == typeId do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: Constant result typeId must match the declaration"
+        let kind ← match nearConstantKindOfTagV1 kindTag with
+          | some k => pure k
+          | none =>
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: Constant kind tag is corrupt"
+        values := ← appendResultValueV1 typeId values result {
+          expr := .literal value
+          kind
+          depth := 1
+          expandedNodes := 1
+          dependencies := #[]
+        }
     | .literal typeId bytes, some result =>
         if let some bitWidth := types.intWidthOf typeId then
           unless isAbiIntWidth bitWidth do
@@ -4345,9 +4453,6 @@ private def makePlanFromSemanticDataV1
     (source : SemanticProgramDataV1)
     (erasureAuthorization? : Option NearInvariantErasureAuthorizationV1) :
     CompileResult Plan := do
-  if !source.constants.isEmpty then
-    throw <| .planInvariant .near
-      "unsupported NEAR semantic shape: constants are outside the current UInt64 pilot"
   let erasureAuthorization? ←
     if source.invariants.isEmpty then
       match erasureAuthorization? with
@@ -4379,7 +4484,18 @@ private def makePlanFromSemanticDataV1
   let pfAssetsDeclared :=
     source.requirements.items.any (·.id == wireExtensionPfAssetsIdV1)
   let storage0 ← makeStorageLayoutV1 types typeDecls source.logicalState
-  let storage := { storage0 with pfAssetsDeclared }
+  -- Scalar const table (UInt/Int/Bool): decode once, thread via layout for body
+  -- `Op.Constant`. Empty table keeps historical Plan bytes. Multiword /
+  -- aggregate / Principal constants fail closed inside makeNearConstantTableV1.
+  let (constTypeIds, constKinds, constValues) ←
+    makeNearConstantTableV1 types source.constants
+  let storage := {
+    storage0 with
+      pfAssetsDeclared
+      constantTypeIds := constTypeIds
+      constantKinds := constKinds
+      constantValues := constValues
+  }
   let events ← source.events.mapM (fun d =>
     makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
   let errors ← source.errors.mapM (fun d =>

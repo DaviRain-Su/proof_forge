@@ -252,10 +252,13 @@ private unsafe def testConstInvariantMaterializationBoundary : IO Unit := do
   for (target, kind, marker) in #[
       (TargetId.evm, TargetKind.evm, "constants/invariants"),
       (TargetId.solana, TargetKind.solana, "constants/invariants"),
-      -- NEAR still FC on nonempty constants, with pilot-specific wording.
-      (TargetId.near, TargetKind.near, "constants are outside"),
       (TargetId.noir, TargetKind.noir, "constants/invariants")] do
     expectMaterializePlanInvariantV1 "constant" target kind constCompiled marker
+  -- NEAR admits scalar UInt/Int/Bool const table (inline as plan literals).
+  let nearConstants ← liftResult <| materializeSelected TargetId.near constCompiled
+  let nearFiles := MaterializedArtifactsV1.filesOf nearConstants
+  expect (nearFiles.any (fun f => f.path.endsWith ".wat" || f.path.endsWith ".wasm"))
+    s!"constant/near: scalar Op.Constant must materialize WAT/Wasm; got {nearFiles.map (·.path)}"
   let aleoConstants ← liftResult <| materializeSelected TargetId.aleo constCompiled
   let aleoFiles := MaterializedArtifactsV1.filesOf aleoConstants
   expect (aleoFiles.any (·.path == "consttargetboundary.aleo"))

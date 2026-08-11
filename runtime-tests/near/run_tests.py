@@ -11,6 +11,8 @@ Suites:
                   erasure + deposit/withdraw/rollback storage observations
   posetransform — Examples/PoseTransform: translate / rotate90 / scale + overflow hold
   blockheightcheck — Examples/BlockHeightCheck: context.blockHeight ↔ sandbox height
+  constanswer — Examples/ConstAnswer: scalar const table (ANSWER=42)
+  unixtimecheck — Examples/UnixTimeCheck: context.unixTimeSeconds ↔ block_timestamp
 
 Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_RPC          e.g. http://127.0.0.1:PORT
@@ -18,7 +20,8 @@ Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_WASM         path to product .wasm for the suite
   PF_NEAR_SUITE        state_cell | pairret | arrayret | optionret | optionstate |
                        verifiedvault | tipjarasync | tokenjarasync | envreadjar |
-                       callercheck | posetransform | blockheightcheck | single
+                       callercheck | posetransform | blockheightcheck |
+                       constanswer | unixtimecheck | single
 
 Honesty: engineering sandbox differential only — not testnet/mainnet,
 not formal Stage-0 / hermetic / Reference↔sandbox closure.
@@ -741,6 +744,108 @@ def suite_posetransform(client: NearClient, wasm: Path) -> None:
     print("suite PoseTransform: PASS")
 
 
+def suite_constanswer(client: NearClient, wasm: Path) -> None:
+    """Scalar const-table product path: const ANSWER := 42.
+
+    init → get==0; answer() adds ANSWER into state and returns cumulative sum.
+    Engineering only — not formal Reference↔sandbox.
+    """
+    print("=== suite: ConstAnswer (scalar Op.Constant table) ===")
+    client.deploy(wasm)
+
+    client.call("init", b"")
+    got = client.view_u64("get")
+    if got != 0:
+        raise AssertionError(f"after init: get() expected 0, got {got}")
+    print("constanswer: init → get()==0 ok")
+
+    res = client.call("answer", b"")
+    sv = NearClient.success_value_bytes(res)
+    if sv is None or len(sv) < 8:
+        raise AssertionError(f"answer SuccessValue expected ≥8 LE bytes, got {sv!r}")
+    ret = NearClient.decode_u64_le(sv, 0)
+    if ret != 42:
+        raise AssertionError(f"answer() SuccessValue expected 42, got {ret}")
+    got = client.view_u64("get")
+    if got != 42:
+        raise AssertionError(f"after answer: get() expected 42, got {got}")
+    print("constanswer: answer() → 42 ok")
+
+    res = client.call("answer", b"")
+    sv = NearClient.success_value_bytes(res)
+    if sv is None or len(sv) < 8:
+        raise AssertionError(f"second answer SuccessValue expected ≥8 LE bytes, got {sv!r}")
+    ret = NearClient.decode_u64_le(sv, 0)
+    if ret != 84:
+        raise AssertionError(f"second answer() SuccessValue expected 84, got {ret}")
+    got = client.view_u64("get")
+    if got != 84:
+        raise AssertionError(f"after second answer: get() expected 84, got {got}")
+    print("constanswer: answer() again → 84 ok")
+    print("suite ConstAnswer: PASS")
+
+
+def suite_unixtimecheck(client: NearClient, wasm: Path) -> None:
+    """B-CTX-OPEN NEAR: context.unixTimeSeconds → block_timestamp ns÷10^9.
+
+    Pins seconds()/stamp() against status.sync_info.latest_block_time whole seconds.
+    Engineering only — not formal clock model.
+    """
+    print("=== suite: UnixTimeCheck (context.unixTimeSeconds / block_timestamp) ===")
+    client.deploy(wasm)
+
+    client.call("init", NearClient.encode_u64_le(0))
+    got = client.view_u64("get")
+    if got != 0:
+        raise AssertionError(f"after init(0): get() expected 0, got {got}")
+    print("unixtimecheck: init(0) → get()==0 ok")
+
+    def pin_seconds_view() -> tuple[int, int]:
+        t0 = client.latest_block_time_unix_seconds()
+        view_t = client.view_u64("seconds")
+        t1 = client.latest_block_time_unix_seconds()
+        if t0 != t1:
+            t0 = t1
+            view_t = client.view_u64("seconds")
+            t1 = client.latest_block_time_unix_seconds()
+            if t0 != t1:
+                raise AssertionError(
+                    f"block time still advancing under sole-client view (t0={t0}, t1={t1})"
+                )
+        return t0, view_t
+
+    rpc_t, view_t = pin_seconds_view()
+    # Allow ±1s skew: view may observe the same block as status or a peer-local
+    # truncation boundary on ns→s conversion vs ISO parse.
+    if abs(view_t - rpc_t) > 1:
+        raise AssertionError(
+            f"seconds() must be within 1s of latest_block_time ({rpc_t}), got {view_t}"
+        )
+    print(f"unixtimecheck: seconds()≈latest_block_time ({view_t}~{rpc_t}) ok")
+
+    before = client.latest_block_time_unix_seconds()
+    res = client.call("stamp", b"")
+    after = client.latest_block_time_unix_seconds()
+    sv = NearClient.success_value_bytes(res)
+    if sv is None or len(sv) < 8:
+        raise AssertionError(f"stamp SuccessValue expected ≥8 LE bytes, got {sv!r}")
+    stamped = NearClient.decode_u64_le(sv, 0)
+    stored = client.view_u64("get")
+    if stored != stamped:
+        raise AssertionError(
+            f"get() after stamp must equal SuccessValue ({stamped}), got {stored}"
+        )
+    if not (before - 1 <= stamped <= after + 1):
+        raise AssertionError(
+            f"stamp seconds {stamped} not in [{before - 1}, {after + 1}]"
+        )
+    print(
+        f"unixtimecheck: stamp() → get()=={stamped} "
+        f"(before={before}, after={after}) ok"
+    )
+    print("suite UnixTimeCheck: PASS")
+
+
 def suite_blockheightcheck(client: NearClient, wasm: Path) -> None:
     """ADR-0031 S2 NEAR: context.blockHeight → host block_index().
 
@@ -956,6 +1061,12 @@ def main(argv: list[str]) -> int:
                 os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_BLOCKHEIGHTCHECK_WASM")
             )
             suite_blockheightcheck(client, wasm)
+        elif suite == "constanswer":
+            wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_CONSTANSWER_WASM"))
+            suite_constanswer(client, wasm)
+        elif suite == "unixtimecheck":
+            wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_UNIXTIMECHECK_WASM"))
+            suite_unixtimecheck(client, wasm)
         elif suite == "all":
             # Same sandbox / same account: run suites only if
             # caller redeploys after a fresh home (script boots once per suite).

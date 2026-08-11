@@ -103,6 +103,49 @@ class NearClient:
             raise NearRpcError(f"status missing sync_info.latest_block_height: {st!r}")
         return int(h)
 
+    def latest_block_time_unix_seconds(self) -> int:
+        """Best-effort whole seconds from status.sync_info.latest_block_time.
+
+        neard emits RFC3339 / ISO-8601 timestamps. Engineering pin only —
+        not a formal clock model.
+        """
+        st = self.status()
+        sync = st.get("sync_info") or {}
+        raw = sync.get("latest_block_time")
+        if raw is None:
+            raise NearRpcError(f"status missing sync_info.latest_block_time: {st!r}")
+        if isinstance(raw, (int, float)):
+            # Some builds may expose nanoseconds or seconds as number.
+            v = int(raw)
+            if v > 10**12:  # ns
+                return v // 1_000_000_000
+            if v > 10**10:  # ms
+                return v // 1000
+            return v
+        s = str(raw).strip()
+        # RFC3339: 2024-01-02T03:04:05.123456789Z
+        from datetime import datetime, timezone
+
+        if s.endswith("Z"):
+            s = s[:-1] + "+00:00"
+        # Trim subsecond to 6 digits for fromisoformat if longer.
+        if "." in s:
+            head, rest = s.split(".", 1)
+            frac = ""
+            tz = ""
+            for i, ch in enumerate(rest):
+                if ch.isdigit():
+                    frac += ch
+                else:
+                    tz = rest[i:]
+                    break
+            frac = (frac + "000000")[:6]
+            s = f"{head}.{frac}{tz}"
+        dt = datetime.fromisoformat(s)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int(dt.timestamp())
+
     # --- RPC ----------------------------------------------------------
 
     @staticmethod
