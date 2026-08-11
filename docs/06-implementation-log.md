@@ -14774,3 +14774,20 @@ normative: false
   simulation、rollback execution refinement 或 artifact identity theorem，也没有新增第二套
   State/Effect/evaluator/step 或 Plan→IR lowering。assurance 仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-11 — Phase 7 NEAR `status` exact Reference/observation composition
+
+- `ReferenceMachineV1` 新增任意长度 ready overlay 的 nullary UInt64 view-load exact theorem；
+  它从 production gate decode 取得 canonical loaded slot，复用 sole `runMachine`/`finalize` 路径，
+  在 empty external responses 下证明结果精确为 `.returned pre (some loaded) #[]`。
+- `PreservationShapeV1` 导出 contract-agnostic constructor wrapper；既有单 slot API 保留，未增加
+  State、Effect、evaluator 或 step。
+- 两字段 `VerifiedVault.status` fixture 现同时闭合 static Method/MethodIR recipe、initialized marker/KV
+  representation、nullary empty-input ABI，以及真实 `stepReferenceSliceV1` outcome 与 passive
+  successful target observation relation；不再仅证明 returned post-state stutter。
+- 边界不变：target observation 仍由外部提供；没有 `Operation`/IR/Wasm/NEAR target semantics、
+  simulation、rollback implementation refinement 或 artifact identity theorem。该切片仍是
+  proposition-only foundation，不把 assurance 升级为 target-refined。
+- 已执行 focused Lean build、`just test-shard targets-host-fast`、`just docs-check`、
+  `just sbom-package-files-check`（277 files）、`just alpha-deletion-gate`、`git diff --check`
+  与完整 `just ci`，均 exit 0；缺失的 optional host tools 继续按既有门禁明确 skip。

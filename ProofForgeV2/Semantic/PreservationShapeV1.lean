@@ -595,6 +595,48 @@ theorem postEqPre_of_readyViewLoadV1
       callableId viewName context responses vault value effects hadmittedData
       htypeU hstate hloaded hgate hstep
 
+/-- A ready nullary UInt64 view-load over an overlay of any arity has the exact
+    successful Reference outcome when external responses are empty. -/
+theorem stepReturned_of_readyViewLoadOverlayV1
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (data : SemanticProgramDataV1)
+    (overlay : Array ByteArray)
+    (loadedBytes : ByteArray)
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (stateName : String)
+    (callableId : CallableIdV1)
+    (viewName : Option String)
+    (context : Array ContextInputV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (hadmittedData : admitted.data = data)
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hloaded : overlay[stateId.toNat]? = some loadedBytes)
+    (hrespEmpty : responses.size = 0)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready
+          (viewLoadCallableV1 callableId viewName uint64TypeId stateId)
+          overlay context false) :
+    let loaded : ReferenceValueV1 := {
+      typeId := uint64TypeId
+      valueBytes := loadedBytes
+    }
+    stepReferenceSliceV1 admitted pre invocation responses vault =
+      .returned pre (some loaded) #[] := by
+  simpa [viewLoadCallableV1] using
+    stepReferenceSliceV1_ready_viewLoad_returned_exact admitted pre invocation
+      data overlay loadedBytes uint64TypeId stateId stateName callableId
+      viewName context responses vault hadmittedData htypeU hstate hloaded
+      hrespEmpty hgate
+
 /-- Store-constant clear (zero) with empty responses returns the encode of zero. -/
 theorem stepReturned_of_readyStoreConstantClearZeroV1
     (admitted : AdmittedReferenceSliceV1)

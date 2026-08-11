@@ -7937,6 +7937,162 @@ theorem stepReferenceSliceV1_ready_viewLoad_returned_post_eq_pre
       hdecode
   exact Except.ok.inj (hencodePost.symm.trans hencodePre)
 
+/-- A ready nullary UInt64 `stateLoad; return` view over an overlay of any
+    arity has one exact successful Reference outcome when external responses
+    are empty: it returns the loaded slot, emits no ordered effects, and
+    re-encodes the unchanged logical state. -/
+theorem stepReferenceSliceV1_ready_viewLoad_returned_exact
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (data : SemanticProgramDataV1)
+    (overlay : Array ByteArray)
+    (loadedBytes : ByteArray)
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (stateName : String)
+    (callableId : CallableIdV1)
+    (viewName : Option String)
+    (context : Array ContextInputV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (hadmittedData : admitted.data = data)
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hloaded : overlay[stateId.toNat]? = some loadedBytes)
+    (hrespEmpty : responses.size = 0)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready {
+          id := callableId
+          kind := .view
+          name := viewName
+          params := #[]
+          result := { typeId := uint64TypeId, visibility := .public_ }
+          entryBlock := 0
+          blocks := #[{
+            id := 0
+            params := #[]
+            instructions := #[{
+              result := some { valueId := 0, typeId := uint64TypeId }
+              op := .stateLoad stateId
+            }]
+            terminator := .return_ (some 0)
+          }]
+          loopBounds := #[]
+          invariantSteps := none
+        } overlay context false) :
+    let loaded : ReferenceValueV1 := {
+      typeId := uint64TypeId
+      valueBytes := loadedBytes
+    }
+    stepReferenceSliceV1 admitted pre invocation responses vault =
+      .returned pre (some loaded) #[] := by
+  let getCallable : CallableV1 := {
+    id := callableId
+    kind := .view
+    name := viewName
+    params := #[]
+    result := { typeId := uint64TypeId, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some { valueId := 0, typeId := uint64TypeId }
+        op := .stateLoad stateId
+      }]
+      terminator := .return_ (some 0)
+    }]
+    loopBounds := #[]
+    invariantSteps := none
+  }
+  let loaded : ReferenceValueV1 := {
+    typeId := uint64TypeId
+    valueBytes := loadedBytes
+  }
+  have hdecodeAdmitted :
+      decodeLogicalStateValuesV1 admitted.data pre = .ok overlay :=
+    gateInvocation_ready_decodeV1 admitted pre invocation getCallable overlay
+      context false (by simpa [getCallable] using hgate)
+  have hdecode : decodeLogicalStateValuesV1 data pre = .ok overlay := by
+    simpa [hadmittedData] using hdecodeAdmitted
+  have hcanonical :
+      validateValueBytesV1 data.types uint64TypeId loadedBytes = .ok () := by
+    exact
+      validateValueBytesV1_of_decodeLogicalStateValuesV1_getElem data pre
+        overlay hdecode stateId.toNat
+        { id := stateId, name := stateName, typeId := uint64TypeId,
+          visibility := .public_ }
+        loadedBytes hstate hloaded
+  have hnull :=
+    stepReferenceSliceV1_ready_nullary_eq admitted pre invocation responses vault
+      getCallable overlay context false (by simpa [getCallable] using hgate)
+        (by rfl)
+  have hmax : maxValueIdInCallable getCallable = 0 :=
+    maxValueIdInCallable_eq_zero_of_single_result_zero getCallable uint64TypeId
+      (.stateLoad stateId) (.return_ (some 0)) (by rfl) (by rfl)
+  have hmaxEffect : maxEffectIdInCallable getCallable = 0 :=
+    maxEffectIdInCallable_eq_zero_of_get_shape getCallable uint64TypeId stateId
+      (by rfl) (by rfl)
+  have hrun :=
+    runMachine_nullary_stateLoad_return data pre overlay loadedBytes
+      uint64TypeId stateId stateName callableId viewName 999998 responses
+      vault.native vault.token context htypeU hstate hloaded hcanonical
+  rcases hrun with ⟨finalEnv, _hset, hrunEq⟩
+  let initialMachine : MachineV1 := {
+    data
+    pre
+    callable := getCallable
+    isInitializer := false
+    context
+    overlay
+    env := emptyEnv 1
+    effects := #[]
+    occCounts := Array.replicate (maxEffectIdInCallable getCallable + 1) 0
+    responseCursor := 0
+    responses
+    loopCounts := #[]
+    blockId := 0
+    instrIdx := 0
+    frames := #[]
+    vaultNative := vault.native
+    vaultToken := vault.token
+  }
+  let finalMachine : MachineV1 := {
+    initialMachine with env := finalEnv, instrIdx := 1
+  }
+  have hrunExact :
+      runMachine false 1000000 initialMachine =
+        (0, finalMachine, CandidateV1.returned (some loaded)) := by
+    have hfuel : (999998 : Nat) + 2 = 1000000 := by decide
+    simpa [hfuel, initialMachine, finalMachine, getCallable, loaded] using
+      hrunEq
+  have hstepAsFinalize :
+      stepReferenceSliceV1 admitted pre invocation responses vault =
+        finalize (runMachine false 1000000 initialMachine).2.1
+          (runMachine false 1000000 initialMachine).2.2 pre := by
+    simpa [initialMachine, hadmittedData, hmax, hmaxEffect, getCallable] using
+      hnull
+  have hencodePre :
+      encodeLogicalStateValuesV1 data pre.initialized overlay = .ok pre :=
+    encodeLogicalStateValuesV1_of_decodeLogicalStateValuesV1 data pre overlay
+      hdecode
+  have hfinalize :
+      finalize finalMachine (.returned (some loaded)) pre =
+        .returned pre (some loaded) #[] := by
+    have hfinalizeRaw :=
+      finalize_returned_of_encode finalMachine pre (some loaded) pre
+        (by simp [finalMachine, initialMachine])
+        (by simpa [finalMachine, initialMachine] using hrespEmpty)
+        (by simpa [finalMachine, initialMachine] using hencodePre)
+    simpa [finalMachine, initialMachine] using hfinalizeRaw
+  rw [hstepAsFinalize, hrunExact]
+  exact hfinalize
+
 
 /-! ### Nullary entry (increment) micro-path: load; lit 2; add; store; reload; return
 

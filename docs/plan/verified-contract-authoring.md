@@ -655,8 +655,12 @@ certification elaboration 阶段 fail closed。
   并导出 source Plan、keys、method array及 entry-index MethodIR provenance；没有新增第二个
   Plan→IR constructor；
 - 测试已在 exact VerifiedVault subject 上复用 production logical-state codec roundtrip 与
-  `stepReferenceSliceV1_ready_viewLoad_returned_post_eq_pre`，固定 successful status 的完整逻辑
-  state不变；真实 same-file certification fixture 继续经过 certified capability → production Plan →
+  `stepReferenceSliceV1_ready_viewLoad_returned_exact`：对任意长度 ready overlay 和空 external
+  responses，固定 successful status 的完整 Reference outcome 为逻辑 state不变、返回被加载的
+  canonical UInt64、ordered effects 为空；同一 theorem fixture 把该真实 Reference step 与
+  initialized KV representation、nullary/empty-input ABI、passive successful observation relation
+  合并成一个 kernel-checked proposition。真实 same-file certification fixture 继续经过
+  certified capability → production Plan →
   production IR，固定 status 为 Plan entry 2 / IR method 3，携带 concrete
   `MethodIRLoweringV1` evidence；第三静态切新增 public proof-producing Method/MethodIR syntax
   recognizer，把动态 production 值恢复成 exact nullary UInt64 view 与四操作 static recipe。
@@ -664,9 +668,9 @@ certification elaboration 阶段 fail closed。
   semantic/storage binding、canonical key lookup 与 Plan→IR provenance，因此不是依赖另一份
   test golden literal。它只刻画本次 production output，不是一般 private lowering correctness。
 
-这仍然只是 **static alignment/refinement foundation**：production Plan/key/IR provenance 已连接，
-但没有 NEAR `Operation` execution semantics、IR/Wasm step、simulation theorem、一般 lowering
-characterization、
+这仍然只是 **static alignment/refinement foundation**：Reference outcome 已精确闭合且
+production Plan/key/IR provenance 已连接，但 target observation 仍是外部提供的 passive carrier；
+没有 NEAR `Operation` execution semantics、IR/Wasm step、simulation theorem、一般 lowering characterization、
 artifact/toolchain identity theorem。`NearHostModel` 继续是 private test-only engineering model，
 不能作为 formal target semantics。当前声明仍是
 **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

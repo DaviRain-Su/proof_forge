@@ -78,6 +78,14 @@ Phase 1：实现
   不是一般 private lowering characterization。该切片仍不执行 `Operation`，也未证明
   IR/Wasm/NEAR execution 或 simulation，因而只是 static alignment/refinement foundation，
   不改变 assurance 声明。
+- **VerifiedVault `status` exact Reference outcome（Phase 7 第四切）**：
+  sole `stepReferenceSliceV1` 现有任意长度 ready overlay 的 exact theorem；空 external responses
+  时，nullary UInt64 `stateLoad; return` 必然返回被加载的 canonical slot、ordered effects 为空且
+  完整 logical state 不变。两字段 VerifiedVault fixture 已把该真实 Reference step 与 initialized
+  marker/KV relation、nullary empty-input ABI、既有 passive successful observation relation及静态
+  Method/MethodIR recipe 合并检查。这里的 observation 仍由外部边界提供；没有定义 target
+  transition，也没有从 observation 推出 NEAR runtime、Wasm 或 `Operation` 执行正确性，因此
+  仍不是 execution refinement，assurance 不变。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`

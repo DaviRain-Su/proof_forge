@@ -360,6 +360,55 @@ example
   · simpa [statusCallable] using hgate
   · exact hstep
 
+example
+    (admitted : AdmittedReferenceSliceV1)
+    (vault : ReferenceVaultSeedV1)
+    (context : Array ContextInputV1)
+    (hadmittedData : admitted.data = data)
+    (hgate :
+      gateInvocation admitted logicalTen {
+        callableId := 3
+        args := #[]
+        context := #[]
+      } = .ready statusCallable #[tenBytes, tenBytes] context false) :
+    NullaryUInt64ViewStaticAlignmentV1 data storage reservesBinding "status"
+        statusMethod markerRegion reservesRegion statusIR ∧
+      InitializedUInt64StorageRelV1 data storage reservesBinding logicalTen
+        #[tenBytes, tenBytes] tenBytes successfulObservation.preStorage ∧
+      NullaryUInt64ViewInputRelV1 3 {
+        callableId := 3
+        args := #[]
+        context := #[]
+      } statusMethod successfulObservation ∧
+      UInt64ReturnedObservationRelV1 data 0 logicalTen
+        (stepReferenceSliceV1 admitted logicalTen {
+          callableId := 3
+          args := #[]
+          context := #[]
+        } #[] vault)
+        tenBytes successfulObservation := by
+  refine ⟨?_, ?_, ?_, ?_⟩
+  · simp [NullaryUInt64ViewStaticAlignmentV1, UInt64StateBindingRelV1, data,
+      Examples.VerifiedVaultPF.Proof.subjectDataV1,
+      storage, reservesBinding, statusMethod, markerRegion, reservesRegion,
+      statusIR]
+  · refine ⟨reservesBinding_rel, rfl, logicalTen_decoded, rfl, ?_, ?_⟩
+    · simp [successfulObservation, observedStorage, storage, layoutMarkerKey]
+    · simp [successfulObservation, observedStorage, reservesBinding, reservesKey,
+        layoutMarkerKey]
+  · simp [NullaryUInt64ViewInputRelV1, statusMethod, successfulObservation]
+  · have hstep :=
+      stepReferenceSliceV1_ready_viewLoad_returned_exact admitted logicalTen {
+          callableId := 3
+          args := #[]
+          context := #[]
+        } data #[tenBytes, tenBytes] tenBytes 0 0 "reserves" 3
+          (some "status") context #[] vault hadmittedData (by rfl) (by rfl)
+          (by rfl) (by rfl) (by simpa [statusCallable] using hgate)
+    rw [hstep]
+    exact
+      ⟨tenBytes_canonical, tenBytes_size, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
 example :
     FailureNoCommitObservationRelV1 logicalTen
       (.reverted (.standard .assertionFailed) logicalTen)
