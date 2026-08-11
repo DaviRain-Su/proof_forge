@@ -60,7 +60,7 @@ Phase 1：实现
   suite 已直接观察 reserves/shares 两个 KV slots 相等、Unit withdraw、overflow/guard failure
   rollback 与 erased `solvent` 的 `MethodNotFound`。当前可声明
   **Reference-verified + NEAR engineering runtime observed**，但这不是 formal target refinement。
-- **VerifiedVault `status` production static alignment（Phase 7 第二静态切）**：
+- **VerifiedVault `status` production static alignment（Phase 7 第二/第三静态切）**：
   `StaticAlignmentV1` 新增 passive storage/call observation carrier，以及 public UInt64 semantic
   state ↔ initialized marker/physical KV/8-byte LE value、nullary empty-input ABI、successful
   returned observation与 failure/no-commit observation 的 proposition-only relation；独立 candidate
@@ -70,9 +70,14 @@ Phase 1：实现
   entry-index MethodIR provenance；没有第二个 constructor/lowering。
   真实 same-file VerifiedVault certification fixture 现在继续经过 certified capability → production
   materialized Plan → `irFromCapability`，固定 `status` 为 Plan entry 2 / IR method 3，并以 graph
-  theorem携带 concrete `MethodIRLoweringV1` evidence，同时检查 production keys 与 exact
-  nullary UInt64 `status` recipe shape。该切片仍不执行 `Operation`，也未证明 IR/Wasm/NEAR
-  execution 或 simulation，因而只是 static alignment/refinement foundation，不改变 assurance 声明。
+  theorem携带 concrete `MethodIRLoweringV1` evidence。public proof-producing syntax recognizer
+  现在把动态 production `Method` 与 `MethodIR` 分别恢复成 exact nullary UInt64 view 和
+  `checkInputLen; requireLayout; loadState; setReturnData` 四操作 recipe；validated semantic-data
+  等式、UInt64 state/storage binding 与 canonical key lookups 一并组成 kernel-checked
+  `ProductionNullaryUInt64ViewStaticAlignmentV1`。这证明的是该 production output 的静态形状，
+  不是一般 private lowering characterization。该切片仍不执行 `Operation`，也未证明
+  IR/Wasm/NEAR execution 或 simulation，因而只是 static alignment/refinement foundation，
+  不改变 assurance 声明。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -132,7 +137,9 @@ Phase 1：实现
 **明确未闭合**：near-sandbox 门不是 Reference↔Wasm/sandbox formal 差分；VerifiedVaultPF
 exact slots、Unit withdraw、overflow/guard rollback 与 missing-export corpus 已形成 engineering
 runtime observation；`StaticAlignmentV1` 的 passive relation 与 exact status recipe 已连接到
-production Plan/key/IR successful graph，但尚无 target transition。当前仍没有
+production validated semantic data、Plan/key/IR successful graph；production Method/MethodIR 的
+exact syntax 已由 proof-producing recognizer 纳入 kernel proposition，但尚无 target transition，
+也没有一般 lowering correctness theorem。当前仍没有
 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
 覆盖 corrupt storage、bad input 或 gas/profile；Option
 params、非 UInt64/nested Option、Map/nested aggregate return 仍 fail-closed

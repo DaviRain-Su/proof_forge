@@ -14752,3 +14752,25 @@ normative: false
 - 边界不变：没有新增 State/Effect/evaluator/step，不执行 NEAR `Operation`，没有 IR/Wasm/NEAR
   simulation 或 rollback refinement theorem；`NearHostModel` 仍是 test-only engineering model。
   当前仍是 **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-11 — Phase 7 NEAR `status` proof-producing static alignment
+
+- `StaticAlignmentV1` 新增 public syntax-only recognizers：
+  `recognizeNullaryUInt64ViewMethodV1` 从 `Method` 恢复 exact nullary/query-only UInt64
+  `stateLoad; return` shape；`recognizeNullaryUInt64ViewMethodIRV1` 从 `MethodIR` 恢复 exact
+  `checkInputLen; requireLayout; loadState; setReturnData` 四操作 recipe。两个 success theorem 都
+  产出完整结构等式，不依赖 opaque whole-structure `BEq`。
+- 新增 `ProductionNullaryUInt64ViewStaticAlignmentV1` bridge，把 validated
+  `SemanticProgramV1 → SemanticProgramDataV1` 等式、`KeyRegionsV1`、canonical key lookups、
+  concrete `MethodIRLoweringV1`、UInt64 semantic/storage binding 与两项 recognizer equality
+  组合成 kernel-checked static-alignment proposition；semantic validation equation 阻止调用方用
+  无关 data 替换 production subject。
+- `VerifiedVaultPF` same-file product-positive 现在对 capability 内 exact semantic carrier 重新保留
+  validation equation，并对动态 production Plan entry 2 / IR method 3、marker/reserves regions、
+  state/type/storage rows执行 proof-retaining match；最终 theorem term 直接引用这些 production
+  `statusMethod` / `statusIR`，而不是 test-only golden literal。
+- 边界：这只证明被观察到的 production output 具有 exact public static syntax；没有从
+  `MethodIRLoweringV1` 单独推出一般 recipe，没有执行 `Operation`，没有 IR/Wasm/NEAR
+  simulation、rollback execution refinement 或 artifact identity theorem，也没有新增第二套
+  State/Effect/evaluator/step 或 Plan→IR lowering。assurance 仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

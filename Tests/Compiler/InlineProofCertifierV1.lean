@@ -50,8 +50,11 @@ open ProofForgeV2.Core.Common
 open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Language.Loader
 open ProofForgeV2.Language.TheoremInventoryV1
+open ProofForgeV2.Semantic.InvariantABI
+open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Targets.BuildSelectionV1
+open ProofForgeV2.Targets.Near
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
@@ -68,6 +71,146 @@ private def liftResultWithProof (result : CompileResult α) :
   match result with
   | .ok value => pure ⟨value, rfl⟩
   | .error error => throw <| IO.userError error.render
+
+private theorem stateDeclV1_eq_of_fields
+    (decl : StateDeclV1)
+    (hid : decl.id = 0)
+    (hname : decl.name = "reserves")
+    (htype : decl.typeId = 0)
+    (hvisibility : decl.visibility = .public_) :
+    decl = {
+      id := 0
+      name := "reserves"
+      typeId := 0
+      visibility := .public_
+    } := by
+  cases decl
+  simp_all
+
+private theorem typeDeclV1_eq_uint64_of_fields
+    (decl : TypeDeclV1)
+    (hid : decl.id = 0)
+    (hname : decl.name = none)
+    (hshape : decl.shape = .uint 64) :
+    decl = {
+      id := 0
+      name := none
+      shape := .uint 64
+    } := by
+  cases decl
+  simp_all
+
+private theorem storageField_eq_reserves_of_fields
+    (field : StorageField)
+    (key : String)
+    (hsource : field.sourceId = 0)
+    (hname : field.name = "reserves")
+    (hkey : field.key = key)
+    (hwidth : field.byteWidth = 8)
+    (hendianness : field.endianness = .little) :
+    field = {
+      sourceId := 0
+      name := "reserves"
+      key := key
+      byteWidth := 8
+      endianness := .little
+    } := by
+  cases field
+  simp_all
+
+private theorem nearEndianness_eq_little (endianness : Endianness) :
+    endianness = .little := by
+  cases endianness
+  rfl
+
+private def productionReservesBinding (physicalKey : String) :
+    UInt64StateBindingV1 := {
+  semanticStateId := 0
+  semanticTypeId := 0
+  semanticName := "reserves"
+  physicalFieldIndex := 0
+  physicalKey
+}
+
+/-- Turn public scalar/lookup checks on the dynamically decoded production
+    values into the exact proposition consumed by static alignment. -/
+private def checkProductionReservesBinding
+    (data : SemanticProgramDataV1)
+    (storage : StorageLayout)
+    (physicalKey : String) :
+    IO (Subtype fun _ : Unit =>
+      UInt64StateBindingRelV1 data storage
+        (productionReservesBinding physicalKey)) := do
+  match hstate : data.logicalState[0]? with
+  | none =>
+      throw <| IO.userError
+        "VerifiedVaultPF production semantic data is missing state 0"
+  | some stateDecl =>
+      if hstateFields :
+          stateDecl.id = 0 ∧ stateDecl.name = "reserves" ∧
+          stateDecl.typeId = 0 ∧ stateDecl.visibility = .public_ then
+        match htype : data.types[0]? with
+        | none =>
+            throw <| IO.userError
+              "VerifiedVaultPF production semantic data is missing type 0"
+        | some typeDecl =>
+            match hshape : typeDecl.shape with
+            | .uint width =>
+                if htypeFields :
+                    typeDecl.id = 0 ∧ typeDecl.name = none ∧ width = 64 then
+                  match hleaves : storage.stateLeaves[0]? with
+                  | none =>
+                      throw <| IO.userError
+                        "VerifiedVaultPF production storage is missing state leaves 0"
+                  | some leaves =>
+                      if hleavesExact : leaves = #[0] then
+                        match hfield : storage.fields[0]? with
+                        | none =>
+                            throw <| IO.userError
+                              "VerifiedVaultPF production storage is missing field 0"
+                        | some field =>
+                            if hfieldFields :
+                                field.sourceId = 0 ∧
+                                field.name = "reserves" ∧
+                                field.key = physicalKey ∧
+                                field.byteWidth = 8 then
+                              have hstateExact := stateDeclV1_eq_of_fields stateDecl
+                                hstateFields.1 hstateFields.2.1
+                                hstateFields.2.2.1 hstateFields.2.2.2
+                              have hshapeExact : typeDecl.shape = .uint 64 := by
+                                rw [hshape, htypeFields.2.2]
+                              have htypeExact := typeDeclV1_eq_uint64_of_fields
+                                typeDecl htypeFields.1 htypeFields.2.1 hshapeExact
+                              have hendianness :
+                                  StorageField.endianness field = .little :=
+                                nearEndianness_eq_little
+                                  (StorageField.endianness field)
+                              have hfieldExact := storageField_eq_reserves_of_fields
+                                field physicalKey hfieldFields.1
+                                hfieldFields.2.1 hfieldFields.2.2.1
+                                hfieldFields.2.2.2 hendianness
+                              pure ⟨(), by
+                                refine ⟨?_, ?_, ?_, ?_⟩
+                                · exact hstate.trans (congrArg some hstateExact)
+                                · exact htype.trans (congrArg some htypeExact)
+                                · exact hleaves.trans (congrArg some hleavesExact)
+                                · exact hfield.trans (congrArg some hfieldExact)
+                              ⟩
+                            else
+                                throw <| IO.userError
+                                  "VerifiedVaultPF production reserves field is not canonical"
+                      else
+                        throw <| IO.userError
+                          "VerifiedVaultPF production reserves leaves are not singleton field 0"
+                else
+                  throw <| IO.userError
+                    "VerifiedVaultPF production type 0 is not canonical UInt64"
+            | _ =>
+                throw <| IO.userError
+                  "VerifiedVaultPF production type 0 is not UInt64"
+      else
+        throw <| IO.userError
+          "VerifiedVaultPF production state 0 is not public UInt64 reserves"
 
 private def expectNearPlanRejected
     (label : String) (plan : ProofForgeV2.Targets.Near.Plan) : IO Unit :=
@@ -410,6 +553,20 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
       let capability ← liftResult <|
         ProofForgeV2.Targets.authorizeCertifiedNearInvariantErasureV1
           ordinary carrier
+      let semantic := CompiledSemanticV1.semanticV1Of
+        (ProofForgeV2.Targets.ResolvedEngineeringBuildV1.compiledOf capability)
+      let semanticDataResult :=
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1 semantic
+      let semanticDataWithProof : IO {
+          value : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1 //
+          semanticDataResult = .ok value
+        } :=
+        match h : semanticDataResult with
+        | .ok value => pure ⟨value, rfl⟩
+        | .error _ =>
+            throw <| IO.userError
+              "VerifiedVaultPF production semantic carrier failed validation"
+      let ⟨semanticData, hsemanticData⟩ ← semanticDataWithProof
       let planResult := ProofForgeV2.Targets.Near.planFromCapability capability
       let ⟨plan, hplanResult⟩ ← liftResultWithProof planResult
       expect (plan.initializer.name == "init" &&
@@ -500,7 +657,7 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
           | none =>
               throw <| IO.userError "VerifiedVaultPF production IR is missing status at method 3"
           | some statusIR =>
-              have _ :
+              have hstatusLowering :
                   ProofForgeV2.Targets.Near.MethodIRLoweringV1
                     plan ir.keys statusMethod statusIR :=
                 ProofForgeV2.Targets.Near.planIRLoweringV1_entry_lookup_eq_some
@@ -526,6 +683,145 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                     .setReturnData 8 0
                   ])
                 "VerifiedVaultPF production status MethodIR static alignment"
+              match hmarkerLookup : ir.keys[0]? with
+              | none =>
+                  throw <| IO.userError
+                    "VerifiedVaultPF production IR is missing its marker key region"
+              | some alignedMarkerRegion =>
+                  match hreservesLookup : ir.keys[1]? with
+                  | none =>
+                      throw <| IO.userError
+                        "VerifiedVaultPF production IR is missing its reserves key region"
+                  | some alignedReservesRegion =>
+                      let statusBinding :=
+                        productionReservesBinding alignedReservesRegion.key
+                      let ⟨_, hbinding⟩ ← checkProductionReservesBinding
+                        semanticData plan.storage alignedReservesRegion.key
+                      if hmarkerCanonical :
+                          alignedMarkerRegion.key = plan.storage.markerKey ∧
+                          alignedMarkerRegion.length =
+                            plan.storage.markerKey.toUTF8.size then
+                        if hfieldCanonical :
+                            alignedReservesRegion.length =
+                              alignedReservesRegion.key.toUTF8.size then
+                          match hmethodRecognize :
+                              recognizeNullaryUInt64ViewMethodV1 statusMethod with
+                          | none =>
+                              throw <| IO.userError
+                                "VerifiedVaultPF production status Method was not structurally recognized"
+                          | some methodShape =>
+                              if hmethodFields :
+                                  methodShape.viewName = "status" ∧
+                                  methodShape.physicalFieldIndex = 0 then
+                                match hmethodIRRecognize :
+                                    recognizeNullaryUInt64ViewMethodIRV1 statusIR with
+                                | none =>
+                                    throw <| IO.userError
+                                      "VerifiedVaultPF production status MethodIR was not structurally recognized"
+                                | some methodIRShape =>
+                                    if hirScalars :
+                                        methodIRShape.viewName = "status" ∧
+                                        methodIRShape.markerValue =
+                                          plan.storage.markerValue then
+                                      if hirMarkerFields :
+                                          methodIRShape.markerRegion.key =
+                                              alignedMarkerRegion.key ∧
+                                          methodIRShape.markerRegion.offset =
+                                              alignedMarkerRegion.offset ∧
+                                          methodIRShape.markerRegion.length =
+                                              alignedMarkerRegion.length then
+                                        if hirFieldFields :
+                                            methodIRShape.fieldRegion.key =
+                                                alignedReservesRegion.key ∧
+                                            methodIRShape.fieldRegion.offset =
+                                                alignedReservesRegion.offset ∧
+                                            methodIRShape.fieldRegion.length =
+                                                alignedReservesRegion.length then
+                                          have hmethodShapeExact :
+                                              methodShape = {
+                                                viewName := "status"
+                                                physicalFieldIndex := 0
+                                              } := by
+                                            cases methodShape
+                                            simp_all
+                                          have hirMarkerExact := keyRegion_eq_of_fields
+                                            methodIRShape.markerRegion alignedMarkerRegion
+                                            hirMarkerFields.1 hirMarkerFields.2.1
+                                            hirMarkerFields.2.2
+                                          have hirFieldExact := keyRegion_eq_of_fields
+                                            methodIRShape.fieldRegion alignedReservesRegion
+                                            hirFieldFields.1 hirFieldFields.2.1
+                                            hirFieldFields.2.2
+                                          have hmethodIRShapeExact :
+                                              methodIRShape = {
+                                                viewName := "status"
+                                                markerRegion := alignedMarkerRegion
+                                                markerValue := plan.storage.markerValue
+                                                fieldRegion := alignedReservesRegion
+                                              } := by
+                                            cases methodIRShape
+                                            simp_all
+                                          have hrecognizedMethod :
+                                              recognizeNullaryUInt64ViewMethodV1
+                                                  statusMethod = some {
+                                                viewName := "status"
+                                                physicalFieldIndex := 0
+                                              } :=
+                                            hmethodRecognize.trans
+                                              (congrArg some hmethodShapeExact)
+                                          have hrecognizedMethodIR :
+                                              recognizeNullaryUInt64ViewMethodIRV1
+                                                  statusIR = some {
+                                                viewName := "status"
+                                                markerRegion := alignedMarkerRegion
+                                                markerValue := plan.storage.markerValue
+                                                fieldRegion := alignedReservesRegion
+                                              } :=
+                                            hmethodIRRecognize.trans
+                                              (congrArg some hmethodIRShapeExact)
+                                          have hvalidate :
+                                              validateSemanticProgramV1 semantic =
+                                                .ok semanticData := by
+                                            simpa [semanticDataResult] using hsemanticData
+                                          have _ :
+                                              ProductionNullaryUInt64ViewStaticAlignmentV1
+                                                semantic semanticData plan ir.keys
+                                                statusBinding "status" statusMethod
+                                                alignedMarkerRegion alignedReservesRegion
+                                                statusIR :=
+                                            productionNullaryUInt64ViewStaticAlignmentV1_of_recognized
+                                              semantic semanticData plan ir.keys
+                                              statusBinding "status" statusMethod
+                                              alignedMarkerRegion alignedReservesRegion
+                                              statusIR hvalidate hgraphs.2.1
+                                              hmarkerLookup
+                                              (by simpa [statusBinding,
+                                                productionReservesBinding] using
+                                                hreservesLookup)
+                                              hstatusLowering hbinding
+                                              hmarkerCanonical.1
+                                              hmarkerCanonical.2 rfl
+                                              hfieldCanonical hrecognizedMethod
+                                              hrecognizedMethodIR
+                                          pure ()
+                                        else
+                                          throw <| IO.userError
+                                            "VerifiedVaultPF recognized status field region diverges from production keys"
+                                      else
+                                        throw <| IO.userError
+                                          "VerifiedVaultPF recognized status marker region diverges from production keys"
+                                    else
+                                      throw <| IO.userError
+                                        "VerifiedVaultPF recognized status MethodIR has wrong name or marker"
+                              else
+                                throw <| IO.userError
+                                  "VerifiedVaultPF recognized status Method has wrong name or state index"
+                        else
+                          throw <| IO.userError
+                            "VerifiedVaultPF production reserves key region has wrong length"
+                      else
+                        throw <| IO.userError
+                          "VerifiedVaultPF production marker key region is not canonical"
 
       -- Public Plan tampering remains fail-closed at the target validator.
       expectNearPlanRejected "erasure decision removed" {

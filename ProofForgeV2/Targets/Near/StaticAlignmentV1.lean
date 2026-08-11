@@ -167,6 +167,123 @@ def FailureNoCommitObservationRelV1
   observed.promises = #[] ∧
   observed.postStorage = observed.preStorage
 
+/-- Public-syntax witness for the exact Method shape admitted by the first
+    static alignment slice. This recognizes syntax only; it neither constructs
+    a Method nor lowers or executes one. -/
+structure NullaryUInt64ViewMethodShapeV1 where
+  viewName : String
+  physicalFieldIndex : Nat
+  deriving Repr
+
+/-- Proof-producing syntax recognizer for a nullary query-only UInt64 state
+    view. Structural array patterns avoid relying on opaque derived `BEq`. -/
+def recognizeNullaryUInt64ViewMethodV1
+    (method : Method) : Option NullaryUInt64ViewMethodShapeV1 :=
+  match method.params.toList, method.exactInputLen, method.mode,
+      method.depositPolicy, method.resultKind, method.body.toList with
+  | [], 0, .view, .queryOnly, .uint64,
+      [.returnValue (.stateLoad physicalFieldIndex)] =>
+    some { viewName := method.name, physicalFieldIndex }
+  | _, _, _, _, _, _ => none
+
+/-- A successful Method recognizer result is an exact structural equality. -/
+theorem recognizeNullaryUInt64ViewMethodV1_sound
+    (method : Method)
+    (shape : NullaryUInt64ViewMethodShapeV1)
+    (hrecognize : recognizeNullaryUInt64ViewMethodV1 method = some shape) :
+    method = {
+      name := shape.viewName
+      params := #[]
+      exactInputLen := 0
+      mode := .view
+      depositPolicy := .queryOnly
+      resultKind := .uint64
+      body := #[.returnValue (.stateLoad shape.physicalFieldIndex)]
+    } := by
+  rcases method with ⟨name, params, exactInputLen, mode, depositPolicy,
+    resultKind, body⟩
+  simp only [recognizeNullaryUInt64ViewMethodV1] at hrecognize
+  split at hrecognize
+  · cases hrecognize
+    have hparams : params = #[] :=
+      Array.toList_inj.mp (by assumption)
+    have hbody : body = #[.returnValue (.stateLoad _)] :=
+      Array.toList_inj.mp (by assumption)
+    cases hparams
+    cases hbody
+    rfl
+  · contradiction
+
+/-- Public-syntax witness for the exact MethodIR recipe admitted by the first
+    static alignment slice. The regions and marker value are read from the
+    recipe; this witness does not assert that they are canonical Plan data. -/
+structure NullaryUInt64ViewMethodIRShapeV1 where
+  viewName : String
+  markerRegion : KeyRegion
+  markerValue : UInt64
+  fieldRegion : KeyRegion
+  deriving Repr
+
+/-- Fieldwise equality helper for public key-region observations. -/
+theorem keyRegion_eq_of_fields
+    (left right : KeyRegion)
+    (hkey : left.key = right.key)
+    (hoffset : left.offset = right.offset)
+    (hlength : left.length = right.length) :
+    left = right := by
+  cases left
+  cases right
+  simp_all
+
+/-- Proof-producing syntax recognizer for the exact four-operation static
+    recipe. It classifies public IR syntax and is not another lowering. -/
+def recognizeNullaryUInt64ViewMethodIRV1
+    (methodIR : MethodIR) : Option NullaryUInt64ViewMethodIRShapeV1 :=
+  match methodIR.params.toList, methodIR.mode, methodIR.tempCount,
+      methodIR.operations.toList with
+  | [], .view, 1, [
+      .checkInputLen 0,
+      .requireLayout markerRegion markerValue,
+      .loadState 0 fieldRegion,
+      .setReturnData 8 0
+    ] =>
+    some { viewName := methodIR.name, markerRegion, markerValue, fieldRegion }
+  | _, _, _, _ => none
+
+/-- A successful MethodIR recognizer result is an exact structural equality. -/
+theorem recognizeNullaryUInt64ViewMethodIRV1_sound
+    (methodIR : MethodIR)
+    (shape : NullaryUInt64ViewMethodIRShapeV1)
+    (hrecognize : recognizeNullaryUInt64ViewMethodIRV1 methodIR = some shape) :
+    methodIR = {
+      name := shape.viewName
+      params := #[]
+      mode := .view
+      tempCount := 1
+      operations := #[
+        .checkInputLen 0,
+        .requireLayout shape.markerRegion shape.markerValue,
+        .loadState 0 shape.fieldRegion,
+        .setReturnData 8 0
+      ]
+    } := by
+  rcases methodIR with ⟨name, params, mode, tempCount, operations⟩
+  simp only [recognizeNullaryUInt64ViewMethodIRV1] at hrecognize
+  split at hrecognize
+  · cases hrecognize
+    have hparams : params = #[] :=
+      Array.toList_inj.mp (by assumption)
+    have hoperations : operations = #[
+        .checkInputLen 0,
+        .requireLayout _ _,
+        .loadState 0 _,
+        .setReturnData 8 0
+      ] := Array.toList_inj.mp (by assumption)
+    cases hparams
+    cases hoperations
+    rfl
+  · contradiction
+
 /-- Exact static alignment for the scalar `stateLoad; return` view slice. The
     MethodIR clause is complete equality, so additional stores/effects/returns
     cannot satisfy the relation. This is recipe syntax, not recipe execution. -/
@@ -222,5 +339,74 @@ theorem nullaryUInt64ViewStaticAlignmentV1_methodIR_unique
   rcases hleft with ⟨_, _, _, _, _, _, hleftIR⟩
   rcases hright with ⟨_, _, _, _, _, _, hrightIR⟩
   exact hleftIR.trans hrightIR.symm
+
+/-- Production provenance and the passive static relation carried together for
+    one selected method. The validated semantic-data equation prevents callers
+    from substituting unrelated data while retaining the same Plan/IR graphs.
+    This packages existing proof graphs and recognized public syntax; it does
+    not state or prove target execution behavior. -/
+def ProductionNullaryUInt64ViewStaticAlignmentV1
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (keys : Array KeyRegion)
+    (binding : UInt64StateBindingV1)
+    (viewName : String)
+    (method : Method)
+    (markerRegion fieldRegion : KeyRegion)
+    (methodIR : MethodIR) : Prop :=
+  validateSemanticProgramV1 program = .ok data ∧
+  KeyRegionsV1 plan keys ∧
+  keys[0]? = some markerRegion ∧
+  keys[binding.physicalFieldIndex + 1]? = some fieldRegion ∧
+  MethodIRLoweringV1 plan keys method methodIR ∧
+  NullaryUInt64ViewStaticAlignmentV1 data plan.storage binding viewName
+    method markerRegion fieldRegion methodIR
+
+/-- Successful structural recognition bridges existing production provenance
+    to the complete passive static alignment relation. Semantic→storage binding
+    and selected canonical-key facts remain explicit hypotheses; they do not
+    follow merely from recognizing MethodIR syntax. -/
+theorem productionNullaryUInt64ViewStaticAlignmentV1_of_recognized
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (keys : Array KeyRegion)
+    (binding : UInt64StateBindingV1)
+    (viewName : String)
+    (method : Method)
+    (markerRegion fieldRegion : KeyRegion)
+    (methodIR : MethodIR)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hkeys : KeyRegionsV1 plan keys)
+    (hmarkerLookup : keys[0]? = some markerRegion)
+    (hfieldLookup :
+      keys[binding.physicalFieldIndex + 1]? = some fieldRegion)
+    (hlowering : MethodIRLoweringV1 plan keys method methodIR)
+    (hbinding : UInt64StateBindingRelV1 data plan.storage binding)
+    (hmarkerKey : markerRegion.key = plan.storage.markerKey)
+    (hmarkerLength :
+      markerRegion.length = plan.storage.markerKey.toUTF8.size)
+    (hfieldKey : fieldRegion.key = binding.physicalKey)
+    (hfieldLength :
+      fieldRegion.length = binding.physicalKey.toUTF8.size)
+    (hmethodShape :
+      recognizeNullaryUInt64ViewMethodV1 method = some {
+        viewName
+        physicalFieldIndex := binding.physicalFieldIndex
+      })
+    (hmethodIRShape :
+      recognizeNullaryUInt64ViewMethodIRV1 methodIR = some {
+        viewName
+        markerRegion
+        markerValue := plan.storage.markerValue
+        fieldRegion
+      }) :
+    ProductionNullaryUInt64ViewStaticAlignmentV1 program data plan keys binding
+      viewName method markerRegion fieldRegion methodIR := by
+  refine ⟨hvalidate, hkeys, hmarkerLookup, hfieldLookup, hlowering, hbinding,
+    hmarkerKey, hmarkerLength, hfieldKey, hfieldLength, ?_, ?_⟩
+  · exact recognizeNullaryUInt64ViewMethodV1_sound method _ hmethodShape
+  · exact recognizeNullaryUInt64ViewMethodIRV1_sound methodIR _ hmethodIRShape
 
 end ProofForgeV2.Targets.Near

@@ -16,9 +16,9 @@
       "sha256": "f2ea59a97963f9d3fc26676fda1f4ea206164eca5f85612e38ea4a77dd1ea838"
     },
     {
-      "bytes": 33130,
+      "bytes": 34437,
       "path": "ProofForgeV2/CLI/Main.lean",
-      "sha256": "da1873688289b9d636a398093129cbdbb3d851512289cc87d220393cdafe38a6"
+      "sha256": "ec2db2bf6f07d24154db04e87899135abb7dd3f80c89c9bbcf08bb7d93cf3ec7"
     },
     {
       "bytes": 2585,
@@ -981,9 +981,9 @@
       "sha256": "86214dc8f0841e75707781ccee89ce6675cb918f57194e3283c3865c608365ab"
     },
     {
-      "bytes": 8529,
+      "bytes": 15933,
       "path": "ProofForgeV2/Targets/Near/StaticAlignmentV1.lean",
-      "sha256": "97dfe2eb313cb42e8825879697f77c076bb0939c27fc2884eb36f9349b75198f"
+      "sha256": "89e3d67e6d9d084491f9b405ee8d8c575e874d143a3dc127ba8fed704cb0130e"
     },
     {
       "bytes": 36359,

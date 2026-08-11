@@ -227,6 +227,18 @@ private def statusIR : MethodIR := {
   ]
 }
 
+private def statusMethodShape : NullaryUInt64ViewMethodShapeV1 := {
+  viewName := "status"
+  physicalFieldIndex := 0
+}
+
+private def statusMethodIRShape : NullaryUInt64ViewMethodIRShapeV1 := {
+  viewName := "status"
+  markerRegion
+  markerValue := storage.markerValue
+  fieldRegion := reservesRegion
+}
+
 private def successfulObservation : CallObservationV1 := {
   exportName := "status"
   input := ByteArray.empty
@@ -373,10 +385,60 @@ example :
     storage, reservesBinding, statusMethod, markerRegion, reservesRegion,
     statusIR]
 
+example :
+    recognizeNullaryUInt64ViewMethodV1 statusMethod =
+      some statusMethodShape := by
+  rfl
+
+example :
+    recognizeNullaryUInt64ViewMethodIRV1 statusIR =
+      some statusMethodIRShape := by
+  rfl
+
+example :
+    statusMethod = {
+      name := "status"
+      params := #[]
+      exactInputLen := 0
+      mode := .view
+      depositPolicy := .queryOnly
+      resultKind := .uint64
+      body := #[.returnValue (.stateLoad 0)]
+    } :=
+  recognizeNullaryUInt64ViewMethodV1_sound statusMethod statusMethodShape rfl
+
+example :
+    statusIR = {
+      name := "status"
+      params := #[]
+      mode := .view
+      tempCount := 1
+      operations := #[
+        .checkInputLen 0,
+        .requireLayout markerRegion storage.markerValue,
+        .loadState 0 reservesRegion,
+        .setReturnData 8 0
+      ]
+    } :=
+  recognizeNullaryUInt64ViewMethodIRV1_sound statusIR statusMethodIRShape rfl
+
+example :
+    recognizeNullaryUInt64ViewMethodV1 {
+      statusMethod with
+      body := #[.returnValue (.stateLoad 2)]
+    } = some {
+      viewName := "status"
+      physicalFieldIndex := 2
+    } := by
+  rfl
+
 private def forgedStatusIR : MethodIR := {
   statusIR with
   operations := statusIR.operations.push (.storeState reservesRegion 0)
 }
+
+example : recognizeNullaryUInt64ViewMethodIRV1 forgedStatusIR = none := by
+  rfl
 
 example :
     ¬ NullaryUInt64ViewStaticAlignmentV1 data storage reservesBinding "status"

@@ -658,10 +658,15 @@ certification elaboration 阶段 fail closed。
   `stepReferenceSliceV1_ready_viewLoad_returned_post_eq_pre`，固定 successful status 的完整逻辑
   state不变；真实 same-file certification fixture 继续经过 certified capability → production Plan →
   production IR，固定 status 为 Plan entry 2 / IR method 3，携带 concrete
-  `MethodIRLoweringV1` evidence，并检查 canonical keys 与 exact static recipe shape。
+  `MethodIRLoweringV1` evidence；第三静态切新增 public proof-producing Method/MethodIR syntax
+  recognizer，把动态 production 值恢复成 exact nullary UInt64 view 与四操作 static recipe。
+  production relation 同时保留 capability 内 semantic carrier 的 validated-data 等式、UInt64
+  semantic/storage binding、canonical key lookup 与 Plan→IR provenance，因此不是依赖另一份
+  test golden literal。它只刻画本次 production output，不是一般 private lowering correctness。
 
 这仍然只是 **static alignment/refinement foundation**：production Plan/key/IR provenance 已连接，
-但没有 NEAR `Operation` execution semantics、IR/Wasm step、simulation theorem、
+但没有 NEAR `Operation` execution semantics、IR/Wasm step、simulation theorem、一般 lowering
+characterization、
 artifact/toolchain identity theorem。`NearHostModel` 继续是 private test-only engineering model，
 不能作为 formal target semantics。当前声明仍是
 **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
@@ -766,7 +771,7 @@ artifact/toolchain identity theorem。`NearHostModel` 继续是 private test-onl
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR status production 静态连接）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation、independent candidate status shape、Reference state-stutter实例，以及 certified capability → production materialized Plan → canonical keys → Plan→IR graph → status MethodIR provenance；尚无 target execution semantics、simulation 或 artifact identity evidence |
+| 7 | Per-target refinement | **进行中（NEAR status production 静态命题已闭合）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation、Reference state-stutter实例，以及 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR graph → status Method/MethodIR proof-producing syntax recognition → complete static-alignment proposition；尚无一般 lowering theorem、target execution semantics、simulation 或 artifact identity evidence |
 
 ### 首个代码切片进展
 
