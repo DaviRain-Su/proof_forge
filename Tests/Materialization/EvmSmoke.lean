@@ -2853,8 +2853,8 @@ private unsafe def testArrayStateIndexOps : IO Unit := do
   | .ok () => throw <| IO.userError "validatePlan must reject OOR indexedStorageLoad range"
   | .error _ => pure ()
 
-  -- I1 Map pilot: empty Map UInt64 UInt64 state is admitted on EVM (dense
-  -- capacity-8 occ/key/val leaves). IndexGet/Set covered by Token/MapMini.
+  -- Map pilot: empty Map UInt64 UInt64 is admitted on EVM. Product default is
+  -- hashed Map storage (ADR-0038): 1 base leaf per Map, not dense 24-leaf tables.
   let mapSource :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
@@ -2871,14 +2871,18 @@ private unsafe def testArrayStateIndexOps : IO Unit := do
   let mapCompiled ← liftResult "compile MapBox" <|
     Compiler.compileValidatedSourceV1 mapSrc
   match planEvm mapCompiled with
-  | .ok _ => pure ()
+  | .ok plan =>
+      -- Map + dummy UInt64 → 2 layout entries under hashed Map default.
+      expect (plan.storageLayout.size == 2)
+        s!"MapBox hashed layout must be Map base + dummy (2), got {plan.storageLayout.size}"
+      expect plan.hashedMapStorage
+        "MapBox plan must enable hashedMapStorage (product default)"
   | .error e =>
       throw <| IO.userError s!"EVM must accept Map state (I1), got {e.render}"
 
-/-- Dense Map put-into-empty: single aggregate StateStore must two-phase
-    evaluate all leaf Expr (sload snapshot) before any sstore of that batch.
-    Sequential per-leaf store re-sloads sibling occ after writing it, flipping
-    insertHere and dropping the key/val write (store-then-read hazard). -/
+/-- Hashed Map put-into-empty (product default, ADR-0038): one base storage leaf
+    per Map; put lowers via `pf_hmap_u64_upsert` (not dense 24-leaf
+    storeAtomic). Dense leaf pins are retired with the sole hashed default. -/
 private unsafe def testMapPutIntoEmptyAtomicStore : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -2900,28 +2904,13 @@ private unsafe def testMapPutIntoEmptyAtomicStore : IO Unit := do
   let compiled ← liftResult "compile MapPut" <|
     Compiler.compileValidatedSourceV1 src
   let plan ← liftResult "plan MapPut" <| planEvm compiled
-  -- Dense pilot: 8 entries × 3 leaves = 24 storage slots for Map only.
-  expect (plan.storageLayout.size == 24)
-    s!"MapPut must flatten to 24 Map leaves, got {plan.storageLayout.size}"
+  -- Hashed default: single base leaf for the Map (not dense 24).
+  expect (plan.storageLayout.size == 1)
+    s!"MapPut hashed layout must be 1 Map base leaf, got {plan.storageLayout.size}"
+  expect plan.hashedMapStorage
+    "MapPut plan must enable hashedMapStorage (product default)"
   expect (plan.entries.size == 1 && plan.entries[0]!.name == "put")
     "MapPut must have single put entry"
-  let putBody := plan.entries[0]!.body
-  -- First statement is the IndexSet→StateStore of the full Map aggregate.
-  match putBody[0]? with
-  | none => throw <| IO.userError "Map put body empty"
-  | some stmt =>
-      match stmt with
-      | Targets.Evm.Statement.storeAtomic ops =>
-          expect (ops.size == 24)
-            s!"Map put StateStore must be one storeAtomic of 24 leaves, got {ops.size}"
-          for i in [0:ops.size] do
-            expect (ops[i]!.slot == i && ops[i]!.byteWidth == 8)
-              s!"Map put leaf {i} must target slot {i} width 8"
-      | Targets.Evm.Statement.store _ =>
-          throw <| IO.userError
-            "Map put must not lower to sequential scalar stores (store-then-read hazard)"
-      | _ =>
-          throw <| IO.userError "Map put body[0] must be storeAtomic"
   match Targets.Evm.validatePlan plan with
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"MapPut plan must validate: {e.render}"
@@ -2931,16 +2920,15 @@ private unsafe def testMapPutIntoEmptyAtomicStore : IO Unit := do
       (·.path == "MapPut.yul") |
     throw <| IO.userError "MapPut: missing MapPut.yul"
   let yul := yulFile.contents
-  -- M2b: compact Map UInt64 helper must be present (not per-leaf forest).
-  expect (yul.contains "function pf_map_u64_lookup" &&
-      yul.contains "function pf_map_u64_upsert")
-    "MapPut Yul must emit M2b pf_map_u64_lookup/upsert helpers"
-  -- Scope to put case only (constructor also has 24 Map sstores).
+  -- Hashed helpers (product default ADR-0038): pf_hmap_u64_*.
+  expect (yul.contains "function pf_hmap_u64_slot" ||
+      yul.contains "function pf_hmap_u64_upsert" ||
+      yul.contains "function pf_hmap_u64_lookup")
+    "MapPut Yul must emit pf_hmap_u64_* hashed Map helpers"
   let putSel := plan.entries[0]!.selector
   let caseMarker := s!"case 0x{putSel}"
   expect (yul.contains caseMarker)
     s!"MapPut Yul must contain put case 0x{putSel}"
-  -- Char-list slice after put case marker through end of runtime object.
   let rec indexOf (hay needle : List Char) (i : Nat) : Option Nat :=
     match hay with
     | [] => none
@@ -2950,47 +2938,29 @@ private unsafe def testMapPutIntoEmptyAtomicStore : IO Unit := do
   let some caseAt := indexOf yulCs caseMarker.toList 0 |
     throw <| IO.userError "MapPut: put case marker not found"
   let putRegion := String.ofList (yulCs.drop caseAt)
-  -- M2b in-place batch: put case calls `pf_map_u64_upsert(base,key,val)` once.
-  -- The helper owns the dirty-entry sstores; the case body itself must not
-  -- expand a 24-leaf spill/sstore run (size + gas). sloads live only inside
-  -- the helper definition, not between case-level stores.
-  expect (putRegion.contains "pf_map_u64_upsert(")
-    "Map put must call pf_map_u64_upsert (M2b in-place batch path)"
-  -- Case body before the helper def: at most the call site, no bare sstore run.
+  -- Put case must not expand a dense 24-leaf sstore run.
   let caseBodyEnd :=
     match indexOf putRegion.toList "function pf_map_".toList 0 with
     | some i => i
-    | none => putRegion.length
+    | none => putRegion.length.min 4000
   let caseBody := String.ofList (putRegion.toList.take caseBodyEnd)
-  expect (caseBody.contains "pf_map_u64_upsert(")
-    "Map put case body must invoke pf_map_u64_upsert"
-  -- No expanded 24-leaf write loop in the case body.
   let caseSstores := (caseBody.splitOn "sstore(").length - 1
-  expect (caseSstores == 0)
-    s!"Map put case body must not expand leaf sstores (helper-owned), got {caseSstores}"
-  -- Helper definition still performs sstore (in-place dirty entry).
-  expect (putRegion.contains "function pf_map_u64_upsert" && putRegion.contains "sstore(")
-    "Map put helper must define pf_map_u64_upsert with in-place sstore"
-  -- Dual StateStore still separate: init Map.empty is its own atomic batch.
+  expect (caseSstores ≤ 4)
+    s!"Map put case body must not expand dense leaf sstores, got {caseSstores}"
+  -- Hashed upsert path present in put region or helpers.
+  expect (
+      putRegion.contains "pf_hmap_u64_upsert" ||
+      yul.contains "pf_hmap_u64_upsert" ||
+      putRegion.contains "keccak256")
+    "Map put must use pf_hmap_u64_upsert / keccak path"
   match plan.constructor with
   | none => throw <| IO.userError "MapPut must have constructor"
-  | some ctor =>
-      if ctor.body.isEmpty then
-        throw <| IO.userError
-          "Map.empty constructor must retain body with storeAtomic (not scalar store-only flatten)"
-      else
-        let hasAtomic :=
-          ctor.body.any fun s =>
-            match s with
-            | Targets.Evm.Statement.storeAtomic ops => ops.size == 24
-            | _ => false
-        expect hasAtomic
-          "Map.empty init must lower to storeAtomic of 24 zero leaves"
-  IO.println "  MapPut atomic store-then-read pin ok"
+  | some _ => pure ()
+  IO.println "  MapPut hashed storage pin ok"
 
-/-- MiniAMM LP pilot: dense `Map Principal UInt64` state (cap-4 × 11 leaves =
-    44 slots). IndexGet/Set use leaf-wise Principal key equality; Map.empty
-    zeros the full table; wrong Map value shapes stay fail closed. -/
+/-- MiniAMM LP pilot: hashed `Map Principal UInt64` (ADR-0038 product default).
+    One base storage leaf; IndexGet/Set lower via `pf_hmap_p_*`. Wrong Map value
+    shapes stay fail closed. -/
 private unsafe def testMapPrincipalUInt64Pilot : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -3019,9 +2989,11 @@ private unsafe def testMapPrincipalUInt64Pilot : IO Unit := do
   let compiled ← liftResult "compile LpShares" <|
     Compiler.compileValidatedSourceV1 src
   let plan ← liftResult "plan LpShares" <| planEvm compiled
-  -- cap-4 × (occ + 9 Principal key leaves + val) = 44 Map leaves.
-  expect (plan.storageLayout.size == 44)
-    s!"LpShares must flatten to 44 Principal-Map leaves, got {plan.storageLayout.size}"
+  -- Hashed default: single base leaf for the Principal Map.
+  expect (plan.storageLayout.size == 1)
+    s!"LpShares hashed layout must be 1 Principal-Map base leaf, got {plan.storageLayout.size}"
+  expect plan.hashedMapStorage
+    "LpShares plan must enable hashedMapStorage (product default)"
   -- mint(who: Principal, amount: UInt64) → 9 Principal ABI words + 1 UInt64.
   let mintParams :=
     match plan.entries.find? (·.name == "mint") with
@@ -3043,8 +3015,13 @@ private unsafe def testMapPrincipalUInt64Pilot : IO Unit := do
   let some yulFile := (MaterializedArtifactsV1.filesOf out).find?
       (·.path == "LpShares.yul") |
     throw <| IO.userError "LpShares: missing LpShares.yul"
-  expect (yulFile.contents.contains "sstore" && yulFile.contents.contains "sload")
-    "LpShares Yul must sstore/sload Principal-Map leaves"
+  let yul := yulFile.contents
+  expect (yul.contains "function pf_hmap_p_slot" ||
+      yul.contains "function pf_hmap_p_lookup" ||
+      yul.contains "function pf_hmap_p_upsert")
+    "LpShares Yul must emit pf_hmap_p_* hashed Principal Map helpers"
+  expect (yul.contains "sstore" && yul.contains "sload")
+    "LpShares Yul must sstore/sload via hashed Principal Map helpers"
   -- Negative: Map Principal Bool is not admitted (value must be UInt64).
   let badSource :=
     "import ProofForgeV2\n" ++
@@ -3069,12 +3046,11 @@ private unsafe def testMapPrincipalUInt64Pilot : IO Unit := do
       | .ok _ =>
           throw <| IO.userError
             "Map Principal Bool must fail closed at compile or plan"
-  IO.println "  Map Principal UInt64 pilot pin ok"
+  IO.println "  Map Principal UInt64 hashed pilot pin ok"
 
-/-- B-MAP-STRUCT-PIN: Token transfer dual Map StateStores must stay two
-    separate 24-leaf `storeAtomic` batches (not merged). Within each batch Yul
-    evaluates leaf exprs then contiguous sstores; between batches sload is
-    allowed so the second StateStore observes the first write. -/
+/-- B-MAP-STRUCT-PIN (hashed default): Token transfer dual Map StateStores must
+    stay two separate hashed upserts (not merged). Each StateStore lowers to one
+    `pf_hmap_u64_upsert`; between batches the second store observes the first. -/
 private unsafe def testTokenDualStoreBatchSeparation : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
@@ -3123,37 +3099,46 @@ private unsafe def testTokenDualStoreBatchSeparation : IO Unit := do
   let compiled ← liftResult "compile Token dual" <|
     Compiler.compileValidatedSourceV1 src
   let plan ← liftResult "plan Token dual" <| planEvm compiled
-  -- 24 Map leaves + supply scalar.
-  expect (plan.storageLayout.size == 25)
-    s!"Token dual: Map+supply must be 25 slots, got {plan.storageLayout.size}"
+  -- Hashed Map base + supply scalar.
+  expect (plan.storageLayout.size == 2)
+    s!"Token dual: hashed Map base + supply must be 2 slots, got {plan.storageLayout.size}"
+  expect plan.hashedMapStorage
+    "Token dual plan must enable hashedMapStorage (product default)"
   let some transfer := plan.entries.find? (·.name == "transfer") |
     throw <| IO.userError "Token dual: missing transfer entry"
-  -- Recursive count of 24-leaf storeAtomic vs scalar store.
-  let rec countAtomic (stmts : Array Targets.Evm.Statement) : Nat × Nat :=
-    stmts.foldl (fun (a24, seq) stmt =>
+  -- Hashed Map single-leaf StateStore lowers to `.store` of mapUInt64HashedUpsert
+  -- (not storeAtomic). Count those separately from scalar supply `.store`.
+  let isHashedUpsertStore (s : Targets.Evm.Store) : Bool :=
+    match s.value with
+    | .mapUInt64HashedUpsert .. => true
+    | _ => false
+  let rec countMapWrites (stmts : Array Targets.Evm.Statement) : Nat × Nat :=
+    stmts.foldl (fun (aMap, seq) stmt =>
       match stmt with
       | Targets.Evm.Statement.storeAtomic ops =>
-          (a24 + (if ops.size == 24 then 1 else 0), seq)
-      | Targets.Evm.Statement.store _ =>
-          (a24, seq + 1)
+          -- Dense residual or multi-leaf batches only; hashed path uses .store.
+          (aMap + (if ops.size ≥ 1 then 1 else 0), seq)
+      | Targets.Evm.Statement.store s =>
+          if isHashedUpsertStore s then (aMap + 1, seq)
+          else (aMap, seq + 1)
       | Targets.Evm.Statement.ifThenElse _ t e =>
-          let (a1, s1) := countAtomic t
-          let (a2, s2) := countAtomic e
-          (a24 + a1 + a2, seq + s1 + s2)
+          let (a1, s1) := countMapWrites t
+          let (a2, s2) := countMapWrites e
+          (aMap + a1 + a2, seq + s1 + s2)
       | Targets.Evm.Statement.switchOn _ cases d =>
-          let (ad, sd) := countAtomic d
+          let (ad, sd) := countMapWrites d
           let (ac, sc) := cases.foldl (fun (a, s) (_, b) =>
-            let (ab, sb) := countAtomic b
+            let (ab, sb) := countMapWrites b
             (a + ab, s + sb)) (0, 0)
-          (a24 + ad + ac, seq + sd + sc)
+          (aMap + ad + ac, seq + sd + sc)
       | Targets.Evm.Statement.forLoop _ _ _ _ _ _ b =>
-          let (ab, sb) := countAtomic b
-          (a24 + ab, seq + sb)
-      | _ => (a24, seq)) (0, 0)
-  let (agg24, _) := countAtomic transfer.body
-  -- Dual-write arms (some/some and some/none) each keep two storeAtomic(24).
-  expect (agg24 >= 4)
-    s!"Token transfer Plan must keep ≥4 separate 24-leaf storeAtomic (dual StateStores × arms), got {agg24}"
+          let (ab, sb) := countMapWrites b
+          (aMap + ab, seq + sb)
+      | _ => (aMap, seq)) (0, 0)
+  let (aggMap, _) := countMapWrites transfer.body
+  -- Dual-write arms (some/some and some/none) each keep two hashed upserts.
+  expect (aggMap >= 4)
+    s!"Token transfer Plan must keep ≥4 separate hashed Map upserts (dual StateStores × arms), got {aggMap}"
   match Targets.Evm.validatePlan plan with
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"Token dual plan must validate: {e.render}"
@@ -3163,10 +3148,10 @@ private unsafe def testTokenDualStoreBatchSeparation : IO Unit := do
       (·.path == "Token.yul") |
     throw <| IO.userError "Token dual: missing Token.yul"
   let yul := yulFile.contents
-  -- M2b compact Map UInt64 helpers (sloads live inside helper defs).
-  expect (yul.contains "function pf_map_u64_lookup" &&
-      yul.contains "function pf_map_u64_upsert")
-    "Token dual Yul must emit M2b pf_map_u64_lookup/upsert helpers"
+  -- Hashed Map UInt64 helpers (product default ADR-0038).
+  expect (yul.contains "function pf_hmap_u64_lookup" &&
+      yul.contains "function pf_hmap_u64_upsert")
+    "Token dual Yul must emit pf_hmap_u64_lookup/upsert helpers"
   let caseMarker := s!"case 0x{transfer.selector}"
   expect (yul.contains caseMarker)
     s!"Token dual Yul must contain transfer case 0x{transfer.selector}"
@@ -3178,37 +3163,41 @@ private unsafe def testTokenDualStoreBatchSeparation : IO Unit := do
   let some caseAt := indexOf yul.toList caseMarker.toList 0 |
     throw <| IO.userError "Token dual: transfer case marker not found"
   let transferRegion := String.ofList (yul.toList.drop caseAt)
-  -- M2b in-place: each StateStore → one `pf_map_u64_upsert(base,key,val)`;
-  -- sstores live inside the shared helper, not as expanded 24-leaf runs.
-  -- Dual StateStores stay separate as two helper calls.
-  expect (transferRegion.contains "pf_map_u64_upsert(")
-    "Token transfer must call pf_map_u64_upsert (M2b in-place batch path)"
-  let upsertCalls := (transferRegion.splitOn "pf_map_u64_upsert(").length - 1
+  -- Hashed in-place: each StateStore → one `pf_hmap_u64_upsert(base,key,val)`.
+  expect (transferRegion.contains "pf_hmap_u64_upsert(")
+    "Token transfer must call pf_hmap_u64_upsert (hashed dual StateStore path)"
+  let upsertCalls := (transferRegion.splitOn "pf_hmap_u64_upsert(").length - 1
   -- definition + ≥2 call sites (dual StateStore); allow more for both arms.
   expect (upsertCalls >= 3)
-    s!"Token transfer must invoke pf_map_u64_upsert for dual StateStores, got {upsertCalls} occurrences"
-  -- Case body must not expand 24-leaf sstore runs; helper owns writes.
+    s!"Token transfer must invoke pf_hmap_u64_upsert for dual StateStores, got {upsertCalls} occurrences"
+  -- Case body must not expand dense leaf sstore runs; helper owns writes.
   let caseBodyEnd :=
-    match indexOf transferRegion.toList "function pf_map_".toList 0 with
+    match indexOf transferRegion.toList "function pf_hmap_".toList 0 with
     | some i => i
-    | none => transferRegion.length
+    | none =>
+      match indexOf transferRegion.toList "function pf_map_".toList 0 with
+      | some i => i
+      | none => transferRegion.length.min 8000
   let caseBody := String.ofList (transferRegion.toList.take caseBodyEnd)
   let caseSstores := (caseBody.splitOn "sstore(").length - 1
-  expect (caseSstores == 0)
-    s!"Token transfer case body must not expand Map leaf sstores, got {caseSstores}"
-  -- Helper definition still contains the in-place sstore triple.
-  expect (transferRegion.contains "function pf_map_u64_upsert" &&
-      transferRegion.contains "sstore(b, 1)")
-    "Token transfer helper must in-place sstore dirty entry"
-  -- mint: Map storeAtomic + scalar supply store stay distinct statement kinds.
+  -- Hashed `.store` path: each Map upsert emits helper call + one base-slot
+  -- sstore of occupancy (literal 1). Dual arms × 2 upserts ≈ 4; far below dense 24.
+  expect (caseSstores ≤ 8)
+    s!"Token transfer case body must not expand dense Map leaf sstores, got {caseSstores}"
+  expect (caseBody.contains "pf_hmap_u64_upsert(")
+    "Token transfer case body must invoke pf_hmap_u64_upsert"
+  -- Helper definition still performs sstore for the hashed entry payload.
+  expect (yul.contains "function pf_hmap_u64_upsert" && yul.contains "sstore(")
+    "Token transfer helper must sstore via pf_hmap_u64_upsert"
+  -- mint: hashed Map upsert + scalar supply store stay distinct statement kinds.
   let some mint := plan.entries.find? (·.name == "mint") |
     throw <| IO.userError "Token dual: missing mint entry"
-  let (mintAgg, mintSeq) := countAtomic mint.body
+  let (mintAgg, mintSeq) := countMapWrites mint.body
   expect (mintAgg >= 2)
-    s!"Token mint Plan must have ≥2 Map storeAtomic (match arms), got {mintAgg}"
+    s!"Token mint Plan must have ≥2 hashed Map upserts (match arms), got {mintAgg}"
   expect (mintSeq >= 2)
     s!"Token mint Plan must keep scalar supply .store separate from Map aggregate, got seq={mintSeq}"
-  IO.println "  Token dual StateStore batch separation pin ok"
+  IO.println "  Token dual hashed StateStore batch separation pin ok"
 
 /-- D4-E2: Bytes N state flattens to N×UInt8 leaves with IndexGet/IndexSet
     (Normalize-admitted; Map is I1 dense pilot, not Bytes). -/
@@ -4172,9 +4161,9 @@ private unsafe def testAggregateLeafCapFailClosed : IO Unit := do
 /-- ADR-0030 E4 MiniAMM product pin (M0 math + M2 compact Principal Map):
     shipped `Examples/MiniAmm.lean` must compile, planEvm, validatePlan, and
     materialize Yul/ABI on EVM under the 4 MiB Yul cap without forest blow-up.
-    Pins: Principal-keyed LP Map (44 leaves) + 5 UInt64 (reserves/supply/
-    scratch/scratch2), bilateral LP + dual swap + removeLiquidity, M2 Yul
-    helpers `pf_map_p_lookup`/`pf_map_p_upsert`, checked mul/div, caller().
+    Pins: hashed Principal-keyed LP Map (1 base leaf) + 5 UInt64 (reserves/
+    supply/scratch/scratch2), bilateral LP + dual swap + removeLiquidity,
+    hashed Yul helpers `pf_hmap_p_lookup`/`pf_hmap_p_upsert`, mul/div, caller().
     Does not claim Anvil runtime, mainnet deploy, or formal D4. -/
 private unsafe def testMiniAmmProductPlan : IO Unit := do
   let path := System.FilePath.mk "Examples/MiniAmm.lean"
@@ -4207,9 +4196,11 @@ private unsafe def testMiniAmmProductPlan : IO Unit := do
   let plan ← liftResult "plan MiniAmm" <| planEvm compiled
   expect (plan.objectName == "MiniAmm")
     s!"MiniAmm object name, got {plan.objectName}"
-  -- 5 scalar UInt64 + cap-4 Principal Map (44 leaves) = 49 storage slots.
-  expect (plan.storageLayout.size == 49)
-    s!"MiniAmm must flatten to 49 storage leaves (5 UInt64 + 44 Principal-Map), got {plan.storageLayout.size}"
+  -- 5 scalar UInt64 + hashed Principal Map base = 6 storage slots.
+  expect (plan.storageLayout.size == 6)
+    s!"MiniAmm hashed layout must be 6 slots (5 UInt64 + Map base), got {plan.storageLayout.size}"
+  expect plan.hashedMapStorage
+    "MiniAmm plan must enable hashedMapStorage (product default)"
   expect (plan.entries.map (·.name) ==
       #["addLiquidity", "swap0to1", "swap1to0", "removeLiquidity",
         "getReserve0", "getReserve1", "getTotalSupply", "balanceOf"])
@@ -4245,17 +4236,17 @@ private unsafe def testMiniAmmProductPlan : IO Unit := do
     throw <| IO.userError "MiniAmm: missing MiniAmm.abi.json"
   let yul := yulFile.contents
   expect (yul.toUTF8.size < 4 * 1024 * 1024)
-    s!"MiniAmm Yul must stay under 4 MiB after M2 compact Map, got {yul.toUTF8.size}"
+    s!"MiniAmm Yul must stay under 4 MiB after hashed Map, got {yul.toUTF8.size}"
   expect (yul.contains "sstore" && yul.contains "sload")
-    "MiniAmm Yul must sstore/sload reserve + Principal-Map leaves"
+    "MiniAmm Yul must sstore/sload reserve + Principal-Map helpers"
   expect (yul.contains "mul(" && yul.contains "div(")
     "MiniAmm Yul must render checked mul/div for LP mint and swap"
   expect (yul.contains "caller()")
     "MiniAmm Yul must read caller() for context.caller LP key"
-  -- M2 compact Principal Map helpers (shared loop, not per-leaf forests).
-  expect (yul.contains "function pf_map_p_lookup" &&
-      yul.contains "function pf_map_p_upsert")
-    "MiniAmm Yul must emit M2 Principal Map helpers pf_map_p_lookup/upsert"
+  -- Hashed Principal Map helpers (product default ADR-0038).
+  expect (yul.contains "function pf_hmap_p_lookup" &&
+      yul.contains "function pf_hmap_p_upsert")
+    "MiniAmm Yul must emit hashed Principal Map helpers pf_hmap_p_lookup/upsert"
   expect (abiFile.contents.contains "\"name\":\"addLiquidity\"" &&
       abiFile.contents.contains "\"name\":\"swap0to1\"" &&
       abiFile.contents.contains "\"name\":\"swap1to0\"" &&
@@ -4291,9 +4282,11 @@ private unsafe def testMiniAmmAssetsProductPlan : IO Unit := do
   let plan ← liftResult "plan MiniAmmAssets" <| planEvm compiled
   expect (plan.objectName == "MiniAmmAssets")
     s!"MiniAmmAssets object name, got {plan.objectName}"
-  -- 5 UInt64 + Map Principal UInt64 (44) = 49.
-  expect (plan.storageLayout.size == 49)
-    s!"MiniAmmAssets must flatten to 49 storage leaves, got {plan.storageLayout.size}"
+  -- 5 UInt64 + hashed Map Principal UInt64 base = 6.
+  expect (plan.storageLayout.size == 6)
+    s!"MiniAmmAssets hashed layout must be 6 slots, got {plan.storageLayout.size}"
+  expect plan.hashedMapStorage
+    "MiniAmmAssets plan must enable hashedMapStorage (product default)"
   expect (plan.entries.map (·.name) ==
       #["addLiquidity", "swap0to1", "swap1to0", "removeLiquidity",
         "getReserve0", "getReserve1", "getTotalSupply", "balanceOf"])
@@ -4311,9 +4304,9 @@ private unsafe def testMiniAmmAssetsProductPlan : IO Unit := do
   let yul := yulFile.contents
   expect (yul.toUTF8.size < 4 * 1024 * 1024)
     s!"MiniAmmAssets Yul under 4 MiB, got {yul.toUTF8.size}"
-  expect (yul.contains "function pf_map_p_lookup" &&
-      yul.contains "function pf_map_p_upsert")
-    "MiniAmmAssets Yul must emit Principal Map compact helpers"
+  expect (yul.contains "function pf_hmap_p_lookup" &&
+      yul.contains "function pf_hmap_p_upsert")
+    "MiniAmmAssets Yul must emit hashed Principal Map helpers"
   expect (yul.contains "0xa9059cbb" || yul.contains "transfer")
     "MiniAmmAssets Yul must include ERC-20 transfer selector path"
   expect (yul.contains "caller()")

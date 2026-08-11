@@ -328,7 +328,8 @@ private unsafe def testStringInterfaceMaterializationFailClosed : IO Unit := do
     "string interface: event/error fields must bind one anonymous String TypeId"
   for (target, kind, marker) in #[
       (TargetId.evm, TargetKind.evm, "fields must be public UInt64"),
-      (TargetId.solana, TargetKind.solana, "only UInt8"),
+      -- Sole rail solana-sbpf-cpi-elf-v1 / Escrow CPI IR fail-closed wording.
+      (TargetId.solana, TargetKind.solana, "only UInt64/UInt8"),
       (TargetId.near, TargetKind.near, "only UInt8"),
       (TargetId.noir, TargetKind.noir, "only UInt8"),
       (TargetId.psy, TargetKind.psy, "emit does not accept aggregate arguments")] do
@@ -3070,9 +3071,14 @@ unsafe def run : IO Unit := do
   let some prinYul := (MaterializedArtifactsV1.filesOf prinEvm).find?
       (·.path == "PrincipalMix.yul") |
     throw <| IO.userError "T10 principal: missing PrincipalMix.yul"
-  expect (prinYul.contents.contains "sload(0)" &&
-      prinYul.contents.contains "sload(8)")
-    "T10 EVM Principal state must load all 9 leaf slots (0..8)"
+  -- Scalar Principal state still flattens to 9 leaves; loads go through the
+  -- shared `pf_sload_u64` helper (not bare `sload(N)` in entry bodies).
+  expect (
+      (prinYul.contents.contains "pf_sload_u64(0)" &&
+        prinYul.contents.contains "pf_sload_u64(8)") ||
+      (prinYul.contents.contains "sload(0)" &&
+        prinYul.contents.contains "sload(8)"))
+    "T10 EVM Principal state must load all 9 leaf slots (0..8 via pf_sload_u64 or sload)"
   let prinPlan ← liftResult <| planEvm prinCompiled
   expect (prinPlan.storageLayout.size == 9)
     s!"T10 EVM Principal state must flatten to 9 leaves, got {prinPlan.storageLayout.size}"

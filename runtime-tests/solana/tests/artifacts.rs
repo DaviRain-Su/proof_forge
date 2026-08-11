@@ -55,12 +55,32 @@ fn write_json(path: &Path, value: &Value) {
 }
 
 fn write_artifact_fixture(root: &Path, name: &str) -> Value {
+    // Sole-rail Solana leaves (solana-sbpf-cpi-elf-v1): six paths matching
+    // runtime-tests/solana/tests/common/mod.rs::manifest_for_output.
     let leaves = [
-        (format!("{name}.idl.json"), b"{}\n".to_vec(), "materialized-base"),
-        (format!("{name}.s"), b"; asm\n".to_vec(), "materialized-base"),
         (
-            format!("{name}.sbpf-plan"),
-            format!(".program {name}\n").into_bytes(),
+            format!("{name}.cpi-bindings.json"),
+            format!("{{\"programName\":\"{name}\"}}\n").into_bytes(),
+            "materialized-base",
+        ),
+        (
+            format!("{name}.cpi-ir.json"),
+            format!("{{\"schema\":\"proof-forge.solana.full-body-hybrid-ir.v1\"}}\n").into_bytes(),
+            "materialized-base",
+        ),
+        (
+            format!("{name}.cpi-plan.json"),
+            format!("{{\"programName\":\"{name}\"}}\n").into_bytes(),
+            "materialized-base",
+        ),
+        (
+            format!("{name}.idl.json"),
+            format!("{{\"name\":\"{name}\"}}\n").into_bytes(),
+            "materialized-base",
+        ),
+        (
+            format!("{name}.s"),
+            format!("; asm {name}\n").into_bytes(),
             "materialized-base",
         ),
         (
@@ -85,7 +105,7 @@ fn write_artifact_fixture(root: &Path, name: &str) -> Value {
     let manifest = json!({
         "schemaVersion": "proof-forge.output.v1",
         "target": "solana",
-        "codegenProfile": "solana-sbpf-elf-v1",
+        "codegenProfile": "solana-sbpf-cpi-elf-v1",
         "artifactProgramName": name,
         "sourceHash": ZERO,
         "semanticHash": ZERO,
@@ -155,14 +175,14 @@ fn manifest_leaf_rejects_tamper_role_size_hash_and_cross_fixture() {
     let files = manifest["files"].as_array_mut().expect("files array");
     let plan_descriptor = files
         .iter_mut()
-        .find(|item| item["path"] == "Bound.sbpf-plan")
+        .find(|item| item["path"] == "Bound.cpi-plan.json")
         .expect("plan descriptor");
     plan_descriptor["size"] = json!(999);
     write_json(&root.path().join("manifest.json"), &manifest);
     let error = read_manifest_leaf_bytes(
         root.path(),
         "Bound",
-        "Bound.sbpf-plan",
+        "Bound.cpi-plan.json",
         "materialized-base",
     )
     .expect_err("wrong size must fail");
