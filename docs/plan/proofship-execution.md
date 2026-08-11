@@ -100,6 +100,9 @@ proofship/                        ← 产品面（不碰 Examples/ 与 Tests/ �
       调研矩阵与认证模式：[`research/2026-08-11-code-agent-landscape.md`](../research/2026-08-11-code-agent-landscape.md)
 - [ ] 另一 MCP agent（Claude/Cursor）同流程跑通（agent-agnostic 补充证据）
 - [ ] 文档字段抽取 P0-lite（发票/条款 → 参数）
+- [x] **R0 中继已实现并上线**（提前于赛后计划）：`proofship/relay`（SessionRoom DO）部署至
+      `proofship-relay.davirain-yin.workers.dev`；bridge `--link` 模式（PROOFSHIP_RELAY/TOKEN）；
+      dapp 只读 live 视图（`?launch=<id>`）；本地全链验证（viewer 实时收到 gate.start/done/sealed）
 
 ### D4–D5（proof verdicts）✅ 资产就绪
 - [x] certified 正例 ×2 + 快速负例 ×1，固化在 `scripts/proof-gate.sh`
