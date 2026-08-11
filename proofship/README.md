@@ -48,6 +48,15 @@ npm run bridge     # 本机门禁服务（:5198）——Studio 对话里的 gate
 npm run dev        # http://localhost:5175（/api 自动代理到 bridge）
 ```
 
+R0 preview relay link（让云端 Studio 旁观本机 bridge）：
+
+```bash
+cd proofship/rwa-share-v1/dapp
+PROOFSHIP_RELAY=wss://proofship-relay.<acct>.workers.dev \
+PROOFSHIP_DEVICE_TOKEN=<shared-secret> \
+npm run bridge
+```
+
 线上托管壳（静态，无 bridge 时展示最近一次封存的 gate 报告）：
 **https://proofship.pages.dev**
 

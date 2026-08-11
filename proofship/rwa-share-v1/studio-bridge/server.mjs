@@ -28,8 +28,137 @@ const cli = join(repo, ".lake/build/bin/proof-forge-next");
 const inbox = join(proj, "studio-inbox");
 const PORT = Number(process.env.PROOFSHIP_BRIDGE_PORT ?? 5198);
 const MAX_SOURCE = 64 * 1024;
+const RELAY_BASE = process.env.PROOFSHIP_RELAY;
+const RELAY_TOKEN = process.env.PROOFSHIP_DEVICE_TOKEN ?? "";
+const RELAY_LAUNCH_ID = process.env.PROOFSHIP_LAUNCH_ID ?? "default";
+const RELAY_BUFFER_CAP = 200;
+const RELAY_MAX_TEXT = 4096;
+
 
 const MODULE_RE = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+
+let inFlightAgentProc = null;
+let relayWs = null;
+let relayReconnectTimer = null;
+let relayBackoffMs = 1000;
+const relayQueue = [];
+
+function trimRelayText(value) {
+  return String(value ?? "").slice(0, RELAY_MAX_TEXT);
+}
+
+function relaySocketUrl() {
+  const base = String(RELAY_BASE ?? "").replace(/\/+$/, "");
+  const launchId = encodeURIComponent(RELAY_LAUNCH_ID);
+  const token = encodeURIComponent(RELAY_TOKEN);
+  return `${base}/ws/engine/${launchId}?token=${token}`;
+}
+
+function relaySendRaw(obj) {
+  const msg = JSON.stringify(obj);
+  if (relayWs?.readyState === WebSocket.OPEN) {
+    try {
+      relayWs.send(msg);
+      return;
+    } catch {
+      // Fall through and buffer below; reconnect handling will report state.
+    }
+  }
+  relayQueue.push(msg);
+  while (relayQueue.length > RELAY_BUFFER_CAP) relayQueue.shift();
+}
+
+function relayEvent(kind, payload) {
+  if (!RELAY_BASE) return;
+  relaySendRaw({ type: "event", kind, payload });
+}
+
+function relayFlush() {
+  while (relayQueue.length > 0 && relayWs?.readyState === WebSocket.OPEN) {
+    relayWs.send(relayQueue.shift());
+  }
+}
+
+function relayScheduleReconnect() {
+  if (!RELAY_BASE || relayReconnectTimer) return;
+  const wait = relayBackoffMs;
+  console.error(`relay: disconnected, retry in ${Math.ceil(wait / 1000)}s`);
+  relayReconnectTimer = setTimeout(() => {
+    relayReconnectTimer = null;
+    relayConnect();
+  }, wait);
+  relayBackoffMs = Math.min(relayBackoffMs * 2, 30_000);
+}
+
+function relayConnect() {
+  if (!RELAY_BASE) return;
+  if (typeof WebSocket === "undefined") {
+    console.error("relay: WebSocket unavailable; Node 25+ global WebSocket is required for PROOFSHIP_RELAY");
+    process.exit(70);
+  }
+  let ws;
+  try {
+    ws = new WebSocket(relaySocketUrl());
+  } catch (err) {
+    relayScheduleReconnect();
+    return;
+  }
+  relayWs = ws;
+  ws.addEventListener("open", () => {
+    relayBackoffMs = 1000;
+    console.error("relay: connected");
+    relayFlush();
+  });
+  ws.addEventListener("message", (ev) => {
+    void handleRelayMessage(ev.data);
+  });
+  ws.addEventListener("close", () => {
+    if (relayWs === ws) relayWs = null;
+    relayScheduleReconnect();
+  });
+  ws.addEventListener("error", () => {
+    try { ws.close(); } catch { /* already closing */ }
+  });
+}
+
+async function handleRelayMessage(data) {
+  let msg;
+  try {
+    msg = JSON.parse(String(data));
+  } catch {
+    return;
+  }
+  if (msg?.type === "cmd.prompt") {
+    const nl = String(msg.nl ?? "").slice(0, 4000);
+    if (!nl.trim()) {
+      relayEvent("note", { level: "warn", text: "empty nl" });
+      return;
+    }
+    const lane = msg.lane === undefined ? DEFAULT_LANE : String(msg.lane);
+    const draft = await createAgentDraft({ nl, lane });
+    emitDraftRelayResult(draft);
+    if (!draft.ok) return;
+    await runGate({ moduleName: draft.module, source: draft.source });
+    return;
+  }
+  if (msg?.type === "cmd.cancel") {
+    try { inFlightAgentProc?.kill("SIGTERM"); } catch { /* best effort */ }
+  }
+}
+
+function emitDraftRelayResult(result) {
+  if (result.ok) {
+    relayEvent("draft.ready", {
+      lane: result.lane,
+      module: result.module,
+      file: result.file,
+      source: result.source,
+      workdir: result.workdir,
+    });
+  } else {
+    relayEvent("note", { level: "warn", text: trimRelayText(result.error ?? "draft failed") });
+  }
+}
 
 function runCli(args) {
   return new Promise((res) => {
@@ -58,32 +187,33 @@ function json(res, status, body) {
   res.end(payload);
 }
 
-async function handleGate(req, res) {
+async function parseGateBody(req) {
   let raw = "";
   for await (const chunk of req) {
     raw += chunk;
     if (raw.length > MAX_SOURCE + 4096) {
-      json(res, 413, { ok: false, stage: "check", error: "source too large" });
-      return;
+      return { ok: false, status: 413, body: { ok: false, stage: "check", error: "source too large" } };
     }
   }
   let body;
   try {
     body = JSON.parse(raw);
   } catch {
-    json(res, 400, { ok: false, stage: "check", error: "bad json" });
-    return;
+    return { ok: false, status: 400, body: { ok: false, stage: "check", error: "bad json" } };
   }
   const moduleName = String(body?.module ?? "");
   const source = String(body?.source ?? "");
   if (!MODULE_RE.test(moduleName)) {
-    json(res, 400, { ok: false, stage: "check", error: "bad module name" });
-    return;
+    return { ok: false, status: 400, body: { ok: false, stage: "check", error: "bad module name" } };
   }
   if (!source.startsWith("import ProofForgeV2") || source.length > MAX_SOURCE) {
-    json(res, 400, { ok: false, stage: "check", error: "source contract violated" });
-    return;
+    return { ok: false, status: 400, body: { ok: false, stage: "check", error: "source contract violated" } };
   }
+  return { ok: true, moduleName, source };
+}
+
+async function runGate({ moduleName, source }) {
+  relayEvent("gate.start", { module: moduleName });
 
   await mkdir(inbox, { recursive: true });
   const relSource = `studio-inbox/${moduleName}.lean`;
@@ -91,12 +221,19 @@ async function handleGate(req, res) {
 
   const check = await runCli(["check", relSource, "--module", moduleName]);
   if (check.code !== 0) {
-    json(res, 200, {
+    const result = {
       ok: false,
       stage: "check",
       check: (check.stdout + check.stderr).trim(),
+    };
+    relayEvent("gate.done", {
+      ok: result.ok,
+      stage: result.stage,
+      check: trimRelayText(result.check),
+      build: "",
+      inspect: "",
     });
-    return;
+    return result;
   }
 
   const outRel = `studio-inbox/out-${moduleName.toLowerCase()}`;
@@ -112,24 +249,52 @@ async function handleGate(req, res) {
     outRel,
   ]);
   if (build.code !== 0) {
-    json(res, 200, {
+    const result = {
       ok: false,
       stage: "build",
       check: check.stdout.trim(),
       build: (build.stdout + build.stderr).trim(),
+    };
+    relayEvent("gate.done", {
+      ok: result.ok,
+      stage: result.stage,
+      check: trimRelayText(result.check),
+      build: trimRelayText(result.build),
+      inspect: "",
     });
-    return;
+    return result;
   }
 
   const inspect = await runCli(["inspect", "--output-dir", outRel]);
-  json(res, 200, {
+  const result = {
     ok: inspect.code === 0,
     stage: inspect.code === 0 ? "done" : "inspect",
     check: check.stdout.trim(),
     build: build.stdout.trim(),
     inspect: (inspect.stdout + inspect.stderr).trim(),
+  };
+  relayEvent("gate.done", {
+    ok: result.ok,
+    stage: result.stage,
+    check: trimRelayText(result.check),
+    build: trimRelayText(result.build),
+    inspect: trimRelayText(result.inspect),
   });
+  if (result.ok && result.stage === "done") {
+    relayEvent("artifact.sealed", { outputDir: outRel });
+  }
+  return result;
 }
+
+async function handleGate(req, res) {
+  const parsed = await parseGateBody(req);
+  if (!parsed.ok) {
+    json(res, parsed.status, parsed.body);
+    return;
+  }
+  json(res, 200, await runGate(parsed));
+}
+
 
 /* ---------------------------------------------------------------------------
  * Local code-agent lanes (driver registry).
@@ -270,6 +435,7 @@ function acpDraft(promptText, workdir, driver) {
       stdio: ["pipe", "pipe", "pipe"],
       env: { ...process.env },
     });
+    inFlightAgentProc = proc;
     let buf = "";
     let stderrTail = "";
     let nextId = 1;
@@ -282,6 +448,7 @@ function acpDraft(promptText, workdir, driver) {
       done = true;
       clearTimeout(timer);
       try { proc.kill("SIGTERM"); } catch { /* already gone */ }
+      if (inFlightAgentProc === proc) inFlightAgentProc = null;
       resolvePromise(value);
     };
     const timer = setTimeout(
@@ -374,6 +541,7 @@ function execDraft(promptText, workdir, driver) {
       cwd: workdir,
       stdio: ["ignore", "pipe", "pipe"],
     });
+    inFlightAgentProc = proc;
     let out = "";
     let err = "";
     let done = false;
@@ -382,6 +550,7 @@ function execDraft(promptText, workdir, driver) {
       done = true;
       clearTimeout(timer);
       try { proc.kill("SIGTERM"); } catch { /* gone */ }
+      if (inFlightAgentProc === proc) inFlightAgentProc = null;
       resolvePromise(v);
     };
     const timer = setTimeout(
@@ -403,35 +572,18 @@ function pickModuleName(nl) {
   return nl.includes("发票") ? "InvoiceShare" : "RwaShareRegistry";
 }
 
-async function handleAgentDraft(req, res) {
-  let raw;
-  try {
-    raw = await readJsonBody(req);
-  } catch {
-    json(res, 413, { ok: false, error: "body too large" });
-    return;
+async function createAgentDraft({ nl, lane }) {
+  const nlText = String(nl ?? "").slice(0, 4000);
+  if (!nlText.trim()) {
+    return { ok: false, error: "empty nl" };
   }
-  let body;
-  try {
-    body = JSON.parse(raw);
-  } catch {
-    json(res, 400, { ok: false, error: "bad json" });
-    return;
-  }
-  const nl = String(body?.nl ?? "").slice(0, 4000);
-  if (!nl.trim()) {
-    json(res, 400, { ok: false, error: "empty nl" });
-    return;
-  }
-  const laneName = String(body?.lane ?? DEFAULT_LANE);
+  const laneName = String(lane ?? DEFAULT_LANE);
   if (laneName === "off") {
-    json(res, 200, { ok: false, error: "agent lane disabled" });
-    return;
+    return { ok: false, lane: laneName, error: "agent lane disabled" };
   }
   const driver = DRIVERS[laneName];
   if (!driver) {
-    json(res, 400, { ok: false, error: `unknown lane '${laneName}'`, lanes: Object.keys(DRIVERS) });
-    return;
+    return { ok: false, lane: laneName, error: `unknown lane '${laneName}'`, lanes: Object.keys(DRIVERS) };
   }
 
   const id = `${Date.now().toString(36)}`;
@@ -442,36 +594,60 @@ async function handleAgentDraft(req, res) {
     ? await readFile(systemPromptPath, "utf8")
     : "Write one ProofForge ProgramV1 file.";
 
-  const promptText = fullPrompt(systemPrompt, nl);
+  const promptText = fullPrompt(systemPrompt, nlText);
   const out = driver.kind === "acp"
     ? await acpDraft(promptText, workdir, driver)
     : await execDraft(promptText, workdir, driver);
   if (!out.ok) {
-    json(res, 200, { ok: false, lane: laneName, error: out.error, stderrTail: out.stderrTail ?? "" });
-    return;
+    return { ok: false, lane: laneName, error: out.error, stderrTail: out.stderrTail ?? "" };
   }
 
   const files = (await readdir(workdir)).filter((f) => f.endsWith(".lean"));
   if (files.length === 0) {
-    json(res, 200, {
+    return {
       ok: false,
       lane: laneName,
       error: "agent produced no .lean file",
       agentText: out.chunks.join("").slice(-1500),
-    });
-    return;
+    };
   }
   const file = files[0];
   const source = await readFile(join(workdir, file), "utf8");
-  json(res, 200, {
+  return {
     ok: true,
     lane: laneName,
     file,
     module: file.replace(/\.lean$/, ""),
     source,
     workdir: `studio-inbox/agent/${id}`,
-  });
+  };
 }
+
+async function handleAgentDraft(req, res) {
+  let raw;
+  try {
+    raw = await readJsonBody(req);
+  } catch {
+    const result = { ok: false, error: "body too large" };
+    emitDraftRelayResult(result);
+    json(res, 413, result);
+    return;
+  }
+  let body;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    const result = { ok: false, error: "bad json" };
+    emitDraftRelayResult(result);
+    json(res, 400, result);
+    return;
+  }
+  const result = await createAgentDraft({ nl: body?.nl, lane: body?.lane });
+  emitDraftRelayResult(result);
+  const status = !result.ok && (result.error === "empty nl" || String(result.error).startsWith("unknown lane")) ? 400 : 200;
+  json(res, status, result);
+}
+
 
 const server = createServer(async (req, res) => {
   if (req.method === "OPTIONS") {
@@ -513,6 +689,8 @@ server.on("error", (err) => {
   }
   throw err;
 });
+
+relayConnect();
 
 server.listen(PORT, "127.0.0.1", () => {
   console.log(`studio-bridge: listening on http://127.0.0.1:${PORT}/api (local-only)`);

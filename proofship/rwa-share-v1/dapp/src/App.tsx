@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FC } from "react";
 import { Inspector } from "./Inspector";
+import { LivePanel } from "./LivePanel";
 import { RegistryPanel } from "./RegistryPanel";
 import { StudioPanel } from "./StudioPanel";
 import { loadLaunches, newLaunch, saveLaunches, type Launch } from "./studio/store";
@@ -8,6 +9,9 @@ export const App: FC = () => {
   const [view, setView] = useState<"studio" | "registry">("studio");
   const [launches, setLaunches] = useState<Launch[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const [liveId, setLiveId] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get("launch"),
+  );
 
   useEffect(() => {
     const loaded = loadLaunches();
@@ -91,7 +95,9 @@ export const App: FC = () => {
       </aside>
 
       <main className="main">
-        {view === "studio" ? (
+        {liveId ? (
+          <LivePanel launchId={liveId} onExit={() => setLiveId(null)} />
+        ) : view === "studio" ? (
           active ? (
             <StudioPanel
               launch={active}
