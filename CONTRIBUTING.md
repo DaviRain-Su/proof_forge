@@ -28,8 +28,10 @@ the change to the smallest command. **Prefer `test-fast` / `test-shard` /
 | Daily product smoke | `just test-fast` or `just dev-check` | full on `main` push |
 | EVM materialize / CLI pins | `just test-shard targets-evm` | `target-smoke` |
 | Solana Lean plan/CPI (no Mollusk) | `just test-shard targets-solana` | `target-smoke` |
-| NEAR/CW/TON/Noir/Psy/Quint | `just test-shard targets-host` | `target-smoke` |
-| All target materialize suites | `just test-targets` (3-way parallel) | `target-smoke` |
+| NEAR/CW/TON/Noir/Psy/Quint (fast) | `just test-shard targets-host-fast` | `target-smoke` |
+| CosmWasmPlan + NoirAcir (slow) | `just test-shard targets-host-slow` | `target-host-slow` (main only) |
+| All ordinary target suites | `just test-targets` (3-way parallel, host-fast) | `target-smoke` |
+| Full host incl. slow | `PROOF_FORGE_TARGET_HOST_SLOW=1 just test-targets` | main + local |
 | Solana Mollusk / CPI runtime | `just solana-runtime` (slow) | `solana-runtime` |
 | Full ordinary-host gate | `just ci` (slow; last resort) | all heavy jobs |
 
@@ -37,10 +39,11 @@ the change to the smallest command. **Prefer `test-fast` / `test-shard` /
 just docs-check         # docs control plane only (~seconds)
 just test-fast          # core product tests only (daily feedback)
 just dev-check          # docs + build + test-fast + light gates
-just test-shard targets-evm     # focused: also targets-solana | targets-host | targets
-just test-targets       # three target processes in parallel (CI default)
-just test-nontarget     # nine non-target shards (CI lean-product half)
-just solana-runtime     # Mollusk differential (heavy; needs tool root + Rust)
+just test-shard targets-evm        # also: targets-solana | targets-host-fast | targets-host-slow
+just test-targets                  # evm + solana-lean + host-fast (parallel; CI default)
+PROOF_FORGE_TARGET_HOST_SLOW=1 just test-targets   # + CosmWasmPlan/NoirAcir
+just test-nontarget                # nine non-target shards (CI lean-product half)
+just solana-runtime                # Mollusk (reuses PROOF_FORGE_CLI if set)
 just test               # all shards, bounded parallel (still long)
 just ci                 # full product tests — avoid for routine local loops
 
@@ -64,18 +67,19 @@ just test-frontend-worker
 |---|---|---|
 | `docs` | `just docs-check` + whitespace | ~10s |
 | `lean-product` | nine non-target shards + `ci-lean-gates` | ~25–30 min |
-| `target-smoke` | 3 parallel target shards + CLI smoke | ~12–18 min (was ~25–30 serial) |
-| `solana-runtime` | `lake build` CLI + Mollusk | ~25–30 min |
+| `target-smoke` | 3 parallel shards (evm/solana/host-**fast**) + CLI | ~10–15 min |
+| `target-host-slow` | CosmWasmPlan + NoirAcir | ~10–15 min (**main/dispatch only**) |
+| `solana-runtime` | Mollusk; reuses CLI artifact when available | ~12–20 min (was ~28 with lake) |
 
-Jobs run **in parallel**; total wall ≈ slowest job. Path filter
-(`scripts/ci/detect_ci_paths.sh`) skips heavy jobs on docs/MCP/template-only
-PRs. **Pushes to `main` always run all heavy jobs.** `workflow_dispatch` also
-forces all lanes. A green hosted CI does **not** mean hermetic or formal
+Jobs run **in parallel** where independent; `solana-runtime` waits on
+lean-product/target-smoke only to download the CLI artifact (skips a third
+full monorepo lake build when possible). Path filter skips heavy jobs on
+docs/MCP/template-only PRs. **Pushes to `main` always run heavy lanes**
+(including host-slow). A green hosted CI does **not** mean hermetic/formal
 release evidence.
 
-Target shards: `targets-evm` · `targets-solana` · `targets-host` (see
-`Tests/Shards/Targets*.lean`). Aggregate `test-shard targets` still exists for
-one-process debugging.
+Target shards: `targets-evm` · `targets-solana` · `targets-host-fast` ·
+`targets-host-slow` (see `Tests/Shards/Targets*.lean`).
 
 ## Style and docs
 

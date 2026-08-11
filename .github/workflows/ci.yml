@@ -5,28 +5,22 @@ name: CI
 # Required lanes for branch protection (BUILD-4 independent fail isolation):
 #   docs            - documentation control-plane check (always)
 #   lean-product    - nine non-target test shards, product-negative, deletion gates
-#   target-smoke    - three parallel target shards (evm / solana-lean / host+zk)
-#                     + target CLI positive/negative checks
-#   solana-runtime  - Mollusk runtime differential
+#   target-smoke    - parallel target shards (evm / solana-lean / host-fast) + CLI smoke
+#   solana-runtime  - Mollusk runtime differential (reuses CLI artifact when present)
+#   target-host-slow - CosmWasmPlan + NoirAcir (main / workflow_dispatch only)
 #
 # Path filter (scripts/ci/detect_ci_paths.sh):
 #   * push to main/master, workflow_dispatch → all heavy lanes
 #   * PR / feature push → skip heavy lanes when only docs/templates/MCP content
-#     changed; Solana-only paths can skip lean-product when safe, etc.
-#   * Filter is fail-closed: unknown paths still run lean-product.
+#     changed; fail-closed unknown paths still run lean-product.
 #
 # Targets suite split (wall-clock):
-#   just test-targets runs targets-evm + targets-solana + targets-host in
-#   parallel processes (PROOF_FORGE_TEST_JOBS). Aggregate
-#   proof-forge-next-tests-shard-targets remains for one-shot local debug.
+#   just test-targets → targets-evm + targets-solana + targets-host-fast (parallel)
+#   PROOF_FORGE_TARGET_HOST_SLOW=1 adds targets-host-slow
+#   Aggregate proof-forge-next-tests-shard-targets remains for one-shot debug.
 #
 # Manual audit lane:
-#   linux-tool-root - explicit toolchain lock/provision/materialize inspection.
-#   It is not part of ordinary push/PR completion and never creates formal EV.
-#
-# Not run by hosted product CI:
-#   governance-check, release-check, Stage-0, SBOM ceremony, custody,
-#   clean-room qualification, or target-smoke with locked external tools.
+#   linux-tool-root - workflow_dispatch only; never creates formal EV.
 
 on:
   push:
@@ -77,9 +71,6 @@ jobs:
       - name: Whitespace / conflict markers
         run: git diff --check
 
-  # Shared Lean/tool setup is duplicated across lean-product / target-smoke /
-  # solana-runtime so each job can fail independently (BUILD-4). Cache restore
-  # keys share the lake-v2 prefix so cold starts still hit sibling job artifacts.
   lean-product:
     name: lean-product
     needs: changes
@@ -104,6 +95,14 @@ jobs:
 
       - name: Select linux tool root
         run: echo "PROOF_FORGE_TOOL_ROOT=$RUNNER_TEMP/proof-forge-v2/tool-root/linux-x86_64" >> "$GITHUB_ENV"
+
+      - name: Cache linux tool root
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: ${{ runner.temp }}/proof-forge-v2/tool-root/linux-x86_64
+          key: ${{ runner.os }}-toolroot-${{ hashFiles('toolchains-linux-x86_64.lock.json', 'toolchains.lock.json', 'host-profiles.lock.json', 'host-bootstrap-linux.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-toolroot-
 
       - name: Provision linux external assets
         run: just toolchains-provision-external
@@ -144,6 +143,14 @@ jobs:
       - name: Lean product and deletion gates
         run: just ci-lean-gates
 
+      - name: Upload proof-forge-next CLI
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08  # v4.6.0
+        with:
+          name: proof-forge-next-cli
+          path: .lake/build/bin/proof-forge-next
+          if-no-files-found: error
+          retention-days: 1
+
   target-smoke:
     name: target-smoke
     needs: changes
@@ -169,6 +176,14 @@ jobs:
       - name: Select linux tool root
         run: echo "PROOF_FORGE_TOOL_ROOT=$RUNNER_TEMP/proof-forge-v2/tool-root/linux-x86_64" >> "$GITHUB_ENV"
 
+      - name: Cache linux tool root
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: ${{ runner.temp }}/proof-forge-v2/tool-root/linux-x86_64
+          key: ${{ runner.os }}-toolroot-${{ hashFiles('toolchains-linux-x86_64.lock.json', 'toolchains.lock.json', 'host-profiles.lock.json', 'host-bootstrap-linux.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-toolroot-
+
       - name: Provision linux external assets
         run: just toolchains-provision-external
 
@@ -192,21 +207,40 @@ jobs:
       - name: Prune stale olean artifacts
         run: /usr/bin/python3 -I -S scripts/ci/prune_stale_oleans.py
 
-      - name: Parallel target shards (evm / solana-lean / host+zk)
+      - name: Parallel target shards (evm / solana-lean / host-fast)
         env:
-          # Three processes; keep modest parallelism on 2-core runners.
           PROOF_FORGE_TEST_JOBS: "3"
         run: just test-targets
 
       - name: Target CLI and NFR smoke
         run: just ci-target-cli-smoke
 
-  # BUILD-4: Solana Mollusk runtime is a separate job so Lean product CI failures
-  # surface without waiting on Rust, and Solana failures do not hide Lean green.
-  solana-runtime:
-    name: solana-runtime
+      # Fallback CLI upload when lean-product is path-skipped but targets still run.
+      - name: Ensure product CLI binary
+        run: |
+          if [[ ! -x .lake/build/bin/proof-forge-next ]]; then
+            just build
+          fi
+          test -x .lake/build/bin/proof-forge-next
+
+      - name: Upload proof-forge-next CLI (target-smoke)
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08  # v4.6.0
+        with:
+          name: proof-forge-next-cli-from-targets
+          path: .lake/build/bin/proof-forge-next
+          if-no-files-found: error
+          retention-days: 1
+
+  # Slow host suites: CosmWasmPlan + NoirAcir. Trunk + manual only so PR wall-clock
+  # stays dominated by host-fast / lean-product / Mollusk rather than mulCP/ACIR.
+  target-host-slow:
+    name: target-host-slow
     needs: changes
-    if: needs.changes.outputs.solana_runtime == 'true'
+    if: >
+      needs.changes.outputs.target_smoke == 'true' &&
+      (github.ref == 'refs/heads/main' ||
+       github.ref == 'refs/heads/master' ||
+       github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -225,6 +259,14 @@ jobs:
       - name: Select linux tool root
         run: echo "PROOF_FORGE_TOOL_ROOT=$RUNNER_TEMP/proof-forge-v2/tool-root/linux-x86_64" >> "$GITHUB_ENV"
 
+      - name: Cache linux tool root
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: ${{ runner.temp }}/proof-forge-v2/tool-root/linux-x86_64
+          key: ${{ runner.os }}-toolroot-${{ hashFiles('toolchains-linux-x86_64.lock.json', 'toolchains.lock.json', 'host-profiles.lock.json', 'host-bootstrap-linux.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-toolroot-
+
       - name: Provision linux external assets
         run: just toolchains-provision-external
 
@@ -240,7 +282,7 @@ jobs:
           path: |
             .lake/build
             .lake/packages
-          key: ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-solana-runtime
+          key: ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-host-slow
           restore-keys: |
             ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-
             ${{ runner.os }}-lake-v2-
@@ -248,8 +290,110 @@ jobs:
       - name: Prune stale olean artifacts
         run: /usr/bin/python3 -I -S scripts/ci/prune_stale_oleans.py
 
-      - name: Build product CLI
-        run: just build
+      - name: Host slow suites (CosmWasmPlan + NoirAcir)
+        run: just test-shard targets-host-slow
+
+  # BUILD-4: Solana Mollusk stays independent. Prefers prebuilt CLI artifact from
+  # lean-product or target-smoke to avoid a third full lake monorepo build.
+  solana-runtime:
+    name: solana-runtime
+    needs: [changes, lean-product, target-smoke]
+    # Run when path filter asks for it, and neither upstream heavy job failed
+    # (skipped is OK — then we lake-build CLI ourselves).
+    if: >
+      always() &&
+      needs.changes.result == 'success' &&
+      needs.changes.outputs.solana_runtime == 'true' &&
+      needs.lean-product.result != 'failure' &&
+      needs.lean-product.result != 'cancelled' &&
+      needs.target-smoke.result != 'failure' &&
+      needs.target-smoke.result != 'cancelled'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Install just
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
+        with:
+          tool: just@1.48.0
+
+      - name: Install Lean
+        run: |
+          scripts/ci/install-lean.sh
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Select linux tool root
+        run: echo "PROOF_FORGE_TOOL_ROOT=$RUNNER_TEMP/proof-forge-v2/tool-root/linux-x86_64" >> "$GITHUB_ENV"
+
+      - name: Cache linux tool root
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: ${{ runner.temp }}/proof-forge-v2/tool-root/linux-x86_64
+          key: ${{ runner.os }}-toolroot-${{ hashFiles('toolchains-linux-x86_64.lock.json', 'toolchains.lock.json', 'host-profiles.lock.json', 'host-bootstrap-linux.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-toolroot-
+
+      - name: Provision linux external assets
+        run: just toolchains-provision-external
+
+      - name: Materialize linux tool root
+        run: just toolchains-materialize-external "$PROOF_FORGE_TOOL_ROOT"
+
+      - name: Verify linux tool root
+        run: just toolchains-verify-external
+
+      - name: Download CLI from lean-product
+        if: needs.lean-product.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: proof-forge-next-cli
+          path: .lake/build/bin
+
+      - name: Download CLI from target-smoke
+        if: needs.lean-product.result != 'success' && needs.target-smoke.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: proof-forge-next-cli-from-targets
+          path: .lake/build/bin
+
+      - name: Prepare prebuilt CLI
+        id: cli
+        run: |
+          mkdir -p .lake/build/bin
+          cli=".lake/build/bin/proof-forge-next"
+          if [[ -f "$cli" ]]; then
+            chmod +x "$cli"
+          fi
+          if [[ -x "$cli" ]]; then
+            echo "prebuilt=true" >> "$GITHUB_OUTPUT"
+            echo "PROOF_FORGE_CLI=$PWD/$cli" >> "$GITHUB_ENV"
+            echo "PROOF_FORGE_SKIP_LAKE_BUILD=1" >> "$GITHUB_ENV"
+            echo "Using prebuilt CLI: $PWD/$cli"
+            "$cli" --help >/dev/null 2>&1 || true
+          else
+            echo "prebuilt=false" >> "$GITHUB_OUTPUT"
+            echo "No prebuilt CLI; solana-runtime-test will lake build"
+          fi
+
+      # Lake cache only needed when we must compile the CLI ourselves.
+      - name: Cache Lake build products
+        if: steps.cli.outputs.prebuilt != 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: |
+            .lake/build
+            .lake/packages
+          key: ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-solana-runtime
+          restore-keys: |
+            ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-
+            ${{ runner.os }}-lake-v2-
+
+      - name: Prune stale olean artifacts
+        if: steps.cli.outputs.prebuilt != 'true'
+        run: /usr/bin/python3 -I -S scripts/ci/prune_stale_oleans.py
 
       - name: Install Rust toolchain
         run: |

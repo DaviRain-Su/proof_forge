@@ -440,3 +440,15 @@ lean_exe proof_forge_next_tests_shard_targets_host where
   exeName := "proof-forge-next-tests-shard-targets-host"
   root := `Tests.Shards.TargetsHost
   supportInterpreter := true
+
+-- Ordinary CI host lane (skips CosmWasmPlan + NoirAcir wall-clock).
+lean_exe proof_forge_next_tests_shard_targets_host_fast where
+  exeName := "proof-forge-next-tests-shard-targets-host-fast"
+  root := `Tests.Shards.TargetsHostFast
+  supportInterpreter := true
+
+-- Optional slow host suites (main/dispatch CI job or PROOF_FORGE_TARGET_HOST_SLOW=1).
+lean_exe proof_forge_next_tests_shard_targets_host_slow where
+  exeName := "proof-forge-next-tests-shard-targets-host-slow"
+  root := `Tests.Shards.TargetsHostSlow
+  supportInterpreter := true

@@ -1,7 +1,10 @@
 /-
-  Full host/ZK shard (fast + slow) for one-shot local debugging.
+  Targets host/ZK **fast** shard for ordinary CI.
 
-  Ordinary CI uses TargetsHostFast; slow suites are TargetsHostSlow.
+  Omits NoirAcir live/golden capture and CosmWasmPlan heavy plan matrix
+  (see TargetsHostSlow). Still covers Aleo, NEAR wasm/sandbox/host model,
+  CosmWasm check fixtures, TON, Noir compile acceptance + relation model,
+  Psy, Quint.
 -/
 import Tests.Materialization.AleoPlanSchemaV1
 import Tests.Materialization.AleoInstructionsV1
@@ -11,11 +14,9 @@ import Tests.Materialization.NearSandboxAcceptance
 import Tests.Materialization.NearHostModel
 import Tests.Materialization.NearStaticAlignmentV1
 import Tests.Materialization.CosmWasmCheckAcceptance
-import Tests.Materialization.CosmWasmPlanV1
 import Tests.Materialization.TonPlanV1
 import Tests.Materialization.NoirRelationModel
 import Tests.Materialization.NoirCompileAcceptance
-import Tests.Materialization.NoirAcirV1
 import Tests.Materialization.PsyPfAssetsV1
 import Tests.Materialization.PsyDpnV1
 import Tests.Materialization.QuintSourceV1
@@ -34,13 +35,9 @@ unsafe def main : IO Unit := do
   IO.eprintln "CP run"
   Tests.Materialization.CosmWasmCheckAcceptance.run
   IO.eprintln "CP run"
-  Tests.Materialization.CosmWasmPlanV1.run
-  IO.eprintln "CP run"
   Tests.Materialization.TonPlanV1.run
   IO.eprintln "CP run"
   Tests.Materialization.NoirCompileAcceptance.run
-  IO.eprintln "CP run"
-  Tests.Materialization.NoirAcirV1.run
   IO.eprintln "CP run"
   Tests.Materialization.NearHostModel.run
   Tests.Materialization.NearStaticAlignmentV1.run
@@ -54,4 +51,4 @@ unsafe def main : IO Unit := do
   Tests.Materialization.QuintSourceV1.run
   IO.eprintln "CP run"
   Tests.Materialization.QuintAcceptance.run
-  IO.println "shard-targets-host: ok"
+  IO.println "shard-targets-host-fast: ok"

@@ -41,7 +41,7 @@ test: build
       proof_forge_next_tests_shard_source_b \
       proof_forge_next_tests_shard_targets_evm \
       proof_forge_next_tests_shard_targets_solana \
-      proof_forge_next_tests_shard_targets_host
+      proof_forge_next_tests_shard_targets_host_fast
     jobs='{{test_jobs}}'
     if ! [[ "${jobs}" =~ ^[1-9][0-9]*$ ]]; then
       jobs=4
@@ -58,7 +58,7 @@ test: build
       proof-forge-next-tests-shard-source-b
       proof-forge-next-tests-shard-targets-evm
       proof-forge-next-tests-shard-targets-solana
-      proof-forge-next-tests-shard-targets-host
+      proof-forge-next-tests-shard-targets-host-fast
     )
     run_shard() {
       local name="$1"
@@ -140,9 +140,9 @@ test-shard name:
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{name}}" in
-      core|typed|language|language-b|language-c|aggregate|language-heavy|source|source-b|targets|targets-evm|targets-solana|targets-host) ;;
+      core|typed|language|language-b|language-c|aggregate|language-heavy|source|source-b|targets|targets-evm|targets-solana|targets-host|targets-host-fast|targets-host-slow) ;;
       *)
-        echo "test-shard: unknown name '{{name}}' (want core|typed|language*|aggregate|source*|targets|targets-evm|targets-solana|targets-host)" >&2
+        echo "test-shard: unknown name '{{name}}' (want core|typed|language*|aggregate|source*|targets|targets-evm|targets-solana|targets-host|targets-host-fast|targets-host-slow)" >&2
         exit 2
         ;;
     esac
@@ -152,16 +152,21 @@ test-shard name:
     lake build ProofForgeV2 proof_forge_next "${lake_target}"
     lake env ".lake/build/bin/${bin_name}"
 
-# Targets materialization suite as three processes (evm / solana-lean / host+zk).
-# Parallel by default (PROOF_FORGE_TEST_JOBS); set =1 for serial low-memory hosts.
-# One-shot aggregate remains: `just test-shard targets`.
+# Targets materialization suite as parallel processes.
+# Default host lane is **fast** (skips CosmWasmPlan + NoirAcir). Full host:
+#   PROOF_FORGE_TARGET_HOST_SLOW=1 just test-targets
+#   just test-shard targets-host-slow
+# One-shot aggregate: `just test-shard targets`.
 test-targets: build
     #!/usr/bin/env bash
     set -euo pipefail
     lake build \
       proof_forge_next_tests_shard_targets_evm \
       proof_forge_next_tests_shard_targets_solana \
-      proof_forge_next_tests_shard_targets_host
+      proof_forge_next_tests_shard_targets_host_fast
+    if [[ "${PROOF_FORGE_TARGET_HOST_SLOW:-}" == "1" ]]; then
+      lake build proof_forge_next_tests_shard_targets_host_slow
+    fi
     jobs='{{test_jobs}}'
     if ! [[ "${jobs}" =~ ^[1-9][0-9]*$ ]]; then
       jobs=4
@@ -169,8 +174,11 @@ test-targets: build
     shards=(
       proof-forge-next-tests-shard-targets-evm
       proof-forge-next-tests-shard-targets-solana
-      proof-forge-next-tests-shard-targets-host
+      proof-forge-next-tests-shard-targets-host-fast
     )
+    if [[ "${PROOF_FORGE_TARGET_HOST_SLOW:-}" == "1" ]]; then
+      shards+=(proof-forge-next-tests-shard-targets-host-slow)
+    fi
     run_shard() {
       local name="$1"
       echo "=== targets shard start: ${name} ==="

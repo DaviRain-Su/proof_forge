@@ -106,10 +106,23 @@ echo "solana-runtime-test: artifact binding self-test"
 "$python_bin" -I -S scripts/solana_runtime_bind_output_self_test.py \
   || die "artifact binding self-test failed"
 
-echo "solana-runtime-test: building proof-forge-next (lake build proof_forge_next)"
-# Lean exe target is `proof_forge_next`; on-disk name is `proof-forge-next`.
-lake build proof_forge_next || die "lake build proof_forge_next failed"
+# Prefer a prebuilt CLI when CI uploads the binary from target-smoke / lean-product
+# (PROOF_FORGE_CLI) or when PROOF_FORGE_SKIP_LAKE_BUILD=1 and the default path exists.
+if [[ -n "${PROOF_FORGE_CLI:-}" ]]; then
+  cli="$PROOF_FORGE_CLI"
+fi
+if [[ -x "$cli" && "${PROOF_FORGE_SKIP_LAKE_BUILD:-}" == "1" ]]; then
+  echo "solana-runtime-test: using prebuilt CLI $cli (PROOF_FORGE_SKIP_LAKE_BUILD=1)"
+elif [[ -x "$cli" && -n "${PROOF_FORGE_CLI:-}" ]]; then
+  echo "solana-runtime-test: using PROOF_FORGE_CLI=$cli (skip lake build)"
+else
+  echo "solana-runtime-test: building proof-forge-next (lake build proof_forge_next)"
+  # Lean exe target is `proof_forge_next`; on-disk name is `proof-forge-next`.
+  lake build proof_forge_next || die "lake build proof_forge_next failed"
+fi
 [[ -x "$cli" ]] || die "CLI missing after build: $cli"
+# Re-export for child scripts that read PROOF_FORGE_CLI.
+export PROOF_FORGE_CLI="$cli"
 
 echo "solana-runtime-test: tool root=$PROOF_FORGE_TOOL_ROOT"
 echo "solana-runtime-test: sbpf=$("$sbpf_bin" --version 2>&1 || true)"
