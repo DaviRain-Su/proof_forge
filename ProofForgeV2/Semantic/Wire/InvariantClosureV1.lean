@@ -1135,6 +1135,25 @@ theorem validateGenericCfgPhasesV1_four_eq_ok
   simp [validateGenericCfgPhasesV1, hCallables, h0, h1, h2, h3, hContext',
     Pure.pure, Except.pure, Bind.bind, Except.bind]
 
+/-- Compose the exact generic `.cfg` phase for a five-callable source-order
+    table while preserving the production ContextRead catalog result. -/
+theorem validateGenericCfgPhasesV1_five_eq_ok
+    (data : SemanticProgramDataV1) (c0 c1 c2 c3 c4 : CallableV1)
+    (hCallables : data.callables = #[c0, c1, c2, c3, c4])
+    (h0 : validateCallableCfgShape c0 data.types.size data.types data = .ok ())
+    (h1 : validateCallableCfgShape c1 data.types.size data.types data = .ok ())
+    (h2 : validateCallableCfgShape c2 data.types.size data.types data = .ok ())
+    (h3 : validateCallableCfgShape c3 data.types.size data.types data = .ok ())
+    (h4 : validateCallableCfgShape c4 data.types.size data.types data = .ok ())
+    (hContext : validateContextReadCatalogV1 data.types data.callables = .ok ()) :
+    validateGenericCfgPhasesV1 data = .ok () := by
+  have hContext' :
+      validateContextReadCatalogV1 data.types #[c0, c1, c2, c3, c4] = .ok () := by
+    rw [← hCallables]
+    exact hContext
+  simp [validateGenericCfgPhasesV1, hCallables, h0, h1, h2, h3, h4,
+    hContext', Pure.pure, Except.pure, Bind.bind, Except.bind]
+
 /-- Runs the exact stable §6.2 segment used by the structure gate: every
     callable's generic CFG/op validation, then the global ContextRead
     same-key result-TypeId consistency pass (SPEC §5.1, `.cfg` phase), then

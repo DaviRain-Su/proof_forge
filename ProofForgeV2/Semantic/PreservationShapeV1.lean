@@ -272,6 +272,47 @@ def addParameterTwoReturnCallableV1
   invariantSteps := none
 }
 
+/-- Unary checked-sub body guarded independently against both state slots. The
+    parameter is value 0; successful execution updates both slots and returns
+    Unit. This is a contract-agnostic CFG constructor. -/
+def guardedSubParameterTwoUnitBlockV1
+    (valueTypeId boolTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1) : BlockV1 := {
+  id := 0
+  params := #[]
+  instructions := #[
+    { result := some { valueId := 1, typeId := valueTypeId }, op := .stateLoad leftStateId },
+    { result := some { valueId := 2, typeId := boolTypeId }, op := .binary .le 0 1 },
+    { result := none, op := .assert_ 2 none #[] },
+    { result := some { valueId := 3, typeId := valueTypeId }, op := .stateLoad rightStateId },
+    { result := some { valueId := 4, typeId := boolTypeId }, op := .binary .le 0 3 },
+    { result := none, op := .assert_ 4 none #[] },
+    { result := some { valueId := 5, typeId := valueTypeId }, op := .stateLoad leftStateId },
+    { result := some { valueId := 6, typeId := valueTypeId }, op := .binary .sub 5 0 },
+    { result := none, op := .stateStore leftStateId 6 },
+    { result := some { valueId := 7, typeId := valueTypeId }, op := .stateLoad rightStateId },
+    { result := some { valueId := 8, typeId := valueTypeId }, op := .binary .sub 7 0 },
+    { result := none, op := .stateStore rightStateId 8 }
+  ]
+  terminator := .return_ none
+}
+
+/-- Unary entry backed by `guardedSubParameterTwoUnitBlockV1`. -/
+def guardedSubParameterTwoUnitCallableV1
+    (callableId : CallableIdV1) (entryName : Option String)
+    (parameterName : String) (valueTypeId boolTypeId unitTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1) (visibility : VisibilityV1) : CallableV1 := {
+  id := callableId
+  kind := .entry
+  name := entryName
+  params := #[{ valueId := 0, name := parameterName, typeId := valueTypeId, visibility }]
+  result := { typeId := unitTypeId, visibility := .public_ }
+  entryBlock := 0
+  blocks := #[guardedSubParameterTwoUnitBlockV1 valueTypeId boolTypeId leftStateId rightStateId]
+  loopBounds := #[]
+  invariantSteps := none
+}
+
 /-- Nullary invariant: `stateLoad → literal 2 → mod → literal 0 → eq → return`.
     Generic single-slot UInt64 parity predicate.
     `invariantSteps` is the closed production value for this five-instruction body. -/

@@ -1575,6 +1575,20 @@ private theorem isAsciiTagBytes_Binary_Add :
   rw [utf8_Binary_Add]
   exact isAsciiTagBytes_of_list_all [66, 105, 110, 97, 114, 121, 46, 65, 100, 100] (by decide)
 
+private theorem utf8_Binary_Sub :
+    "Binary.Sub".toUTF8 = ByteArray.mk #[66, 105, 110, 97, 114, 121, 46, 83, 117, 98] := by rfl
+private theorem isAsciiTagBytes_Binary_Sub :
+    isAsciiTagBytesV1 "Binary.Sub".toUTF8 = true := by
+  rw [utf8_Binary_Sub]
+  exact isAsciiTagBytes_of_list_all [66, 105, 110, 97, 114, 121, 46, 83, 117, 98] (by decide)
+
+private theorem utf8_Binary_Le :
+    "Binary.Le".toUTF8 = ByteArray.mk #[66, 105, 110, 97, 114, 121, 46, 76, 101] := by rfl
+private theorem isAsciiTagBytes_Binary_Le :
+    isAsciiTagBytesV1 "Binary.Le".toUTF8 = true := by
+  rw [utf8_Binary_Le]
+  exact isAsciiTagBytes_of_list_all [66, 105, 110, 97, 114, 121, 46, 76, 101] (by decide)
+
 private theorem utf8_Binary_Mod :
     "Binary.Mod".toUTF8 = ByteArray.mk #[66, 105, 110, 97, 114, 121, 46, 77, 111, 100] := by rfl
 private theorem isAsciiTagBytes_Binary_Mod :
@@ -1611,6 +1625,13 @@ private theorem isAsciiTagBytes_Op_Binary :
     isAsciiTagBytesV1 "Op.Binary".toUTF8 = true := by
   rw [utf8_Op_Binary]
   exact isAsciiTagBytes_of_list_all [79, 112, 46, 66, 105, 110, 97, 114, 121] (by decide)
+
+private theorem utf8_Op_Assert :
+    "Op.Assert".toUTF8 = ByteArray.mk #[79, 112, 46, 65, 115, 115, 101, 114, 116] := by rfl
+private theorem isAsciiTagBytes_Op_Assert :
+    isAsciiTagBytesV1 "Op.Assert".toUTF8 = true := by
+  rw [utf8_Op_Assert]
+  exact isAsciiTagBytes_of_list_all [79, 112, 46, 65, 115, 115, 101, 114, 116] (by decide)
 
 private theorem utf8_Instruction :
     "Instruction".toUTF8 = ByteArray.mk #[73, 110, 115, 116, 114, 117, 99, 116, 105, 111, 110] := by rfl
@@ -1681,6 +1702,18 @@ theorem encodeBinaryOp_add_eq :
   have h := encodeNullary_eq_okV1 "Binary.Add" (by decide) (by decide) (by decide)
   simpa [taggedHeaderBytesV1, ByteArray.append_assoc] using h
 
+theorem encodeBinaryOp_sub_eq :
+    encodeBinaryOpV1 .sub = .ok (taggedHeaderBytesV1 "Binary.Sub" 0) := by
+  change encodeNullary "Binary.Sub" = .ok (taggedHeaderBytesV1 "Binary.Sub" 0)
+  have h := encodeNullary_eq_okV1 "Binary.Sub" (by decide) (by decide) (by decide)
+  simpa [taggedHeaderBytesV1, ByteArray.append_assoc] using h
+
+theorem encodeBinaryOp_le_eq :
+    encodeBinaryOpV1 .le = .ok (taggedHeaderBytesV1 "Binary.Le" 0) := by
+  change encodeNullary "Binary.Le" = .ok (taggedHeaderBytesV1 "Binary.Le" 0)
+  have h := encodeNullary_eq_okV1 "Binary.Le" (by decide) (by decide) (by decide)
+  simpa [taggedHeaderBytesV1, ByteArray.append_assoc] using h
+
 theorem encodeBinaryOp_mod_eq :
     encodeBinaryOpV1 .mod = .ok (taggedHeaderBytesV1 "Binary.Mod" 0) := by
   change encodeNullary "Binary.Mod" = .ok (taggedHeaderBytesV1 "Binary.Mod" 0)
@@ -1736,6 +1769,34 @@ theorem decodeBinaryOp_add_of_encode_midV1
       simp only [decodeBinaryOpBodyV1, htag, hfields, Bind.bind, Pure.pure, Except.bind,
         Except.pure])
 
+theorem decodeBinaryOp_sub_of_encode_midV1
+    (b left right : ByteArray) (nesting : Nat) (hdepth : nesting < maxNesting)
+    (henc : encodeBinaryOpV1 .sub = .ok b) :
+    decodeBinaryOpV1 ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (.sub, ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
+  have hb : b = taggedHeaderBytesV1 "Binary.Sub" 0 :=
+    Except.ok.inj (henc.symm.trans encodeBinaryOp_sub_eq)
+  subst b
+  exact decodeBinaryOp_nullary_midV1 "Binary.Sub" .sub left right nesting hdepth
+    (by decide) (by decide) (by decide) isAsciiTagBytes_Binary_Sub (by decide)
+    (fun c afterTag afterFields htag hfields => by
+      simp only [decodeBinaryOpBodyV1, htag, hfields, Bind.bind, Pure.pure, Except.bind,
+        Except.pure])
+
+theorem decodeBinaryOp_le_of_encode_midV1
+    (b left right : ByteArray) (nesting : Nat) (hdepth : nesting < maxNesting)
+    (henc : encodeBinaryOpV1 .le = .ok b) :
+    decodeBinaryOpV1 ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (.le, ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
+  have hb : b = taggedHeaderBytesV1 "Binary.Le" 0 :=
+    Except.ok.inj (henc.symm.trans encodeBinaryOp_le_eq)
+  subst b
+  exact decodeBinaryOp_nullary_midV1 "Binary.Le" .le left right nesting hdepth
+    (by decide) (by decide) (by decide) isAsciiTagBytes_Binary_Le (by decide)
+    (fun c afterTag afterFields htag hfields => by
+      simp only [decodeBinaryOpBodyV1, htag, hfields, Bind.bind, Pure.pure, Except.bind,
+        Except.pure])
+
 theorem decodeBinaryOp_mod_of_encode_midV1
     (b left right : ByteArray) (nesting : Nat) (hdepth : nesting < maxNesting)
     (henc : encodeBinaryOpV1 .mod = .ok b) :
@@ -1780,6 +1841,10 @@ theorem decodeBinaryOp_ne_of_encode_midV1
 
 private theorem exactBinaryOp_add : ExactMidOffsetInvertV1 encodeBinaryOpV1 decodeBinaryOpV1 .add :=
   fun b left right nesting hdepth henc => decodeBinaryOp_add_of_encode_midV1 b left right nesting hdepth henc
+private theorem exactBinaryOp_sub : ExactMidOffsetInvertV1 encodeBinaryOpV1 decodeBinaryOpV1 .sub :=
+  fun b left right nesting hdepth henc => decodeBinaryOp_sub_of_encode_midV1 b left right nesting hdepth henc
+private theorem exactBinaryOp_le : ExactMidOffsetInvertV1 encodeBinaryOpV1 decodeBinaryOpV1 .le :=
+  fun b left right nesting hdepth henc => decodeBinaryOp_le_of_encode_midV1 b left right nesting hdepth henc
 private theorem exactBinaryOp_mod : ExactMidOffsetInvertV1 encodeBinaryOpV1 decodeBinaryOpV1 .mod :=
   fun b left right nesting hdepth henc => decodeBinaryOp_mod_of_encode_midV1 b left right nesting hdepth henc
 private theorem exactBinaryOp_eq : ExactMidOffsetInvertV1 encodeBinaryOpV1 decodeBinaryOpV1 .eq :=
@@ -2026,6 +2091,22 @@ theorem decodeSemanticOp_binary_add_of_encode_midV1
       .ok (.binary .add lhs rhs, ⟨left ++ b ++ right, left.size + b.size, nesting⟩) :=
   decodeSemanticOp_binary_of_encode_midV1 .add lhs rhs b left right nesting hdepth hdepthOp exactBinaryOp_add henc
 
+theorem decodeSemanticOp_binary_sub_of_encode_midV1
+    (lhs rhs : UInt32) (b left right : ByteArray) (nesting : Nat)
+    (hdepth : nesting < maxNesting) (hdepthOp : nesting + 1 < maxNesting)
+    (henc : encodeSemanticOpV1 (.binary .sub lhs rhs) = .ok b) :
+    decodeSemanticOpV1 ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (.binary .sub lhs rhs, ⟨left ++ b ++ right, left.size + b.size, nesting⟩) :=
+  decodeSemanticOp_binary_of_encode_midV1 .sub lhs rhs b left right nesting hdepth hdepthOp exactBinaryOp_sub henc
+
+theorem decodeSemanticOp_binary_le_of_encode_midV1
+    (lhs rhs : UInt32) (b left right : ByteArray) (nesting : Nat)
+    (hdepth : nesting < maxNesting) (hdepthOp : nesting + 1 < maxNesting)
+    (henc : encodeSemanticOpV1 (.binary .le lhs rhs) = .ok b) :
+    decodeSemanticOpV1 ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (.binary .le lhs rhs, ⟨left ++ b ++ right, left.size + b.size, nesting⟩) :=
+  decodeSemanticOp_binary_of_encode_midV1 .le lhs rhs b left right nesting hdepth hdepthOp exactBinaryOp_le henc
+
 theorem decodeSemanticOp_binary_mod_of_encode_midV1
     (lhs rhs : UInt32) (b left right : ByteArray) (nesting : Nat)
     (hdepth : nesting < maxNesting) (hdepthOp : nesting + 1 < maxNesting)
@@ -2049,6 +2130,79 @@ theorem decodeSemanticOp_binary_ne_of_encode_midV1
     decodeSemanticOpV1 ⟨left ++ b ++ right, left.size, nesting⟩ =
       .ok (.binary .ne lhs rhs, ⟨left ++ b ++ right, left.size + b.size, nesting⟩) :=
   decodeSemanticOp_binary_of_encode_midV1 .ne lhs rhs b left right nesting hdepth hdepthOp exactBinaryOp_ne henc
+
+theorem decodeSemanticOp_assertNoneEmpty_of_encode_midV1
+    (condition : UInt32) (b left right : ByteArray) (nesting : Nat)
+    (hdepth : nesting < maxNesting)
+    (henc : encodeSemanticOpV1 (.assert_ condition none #[]) = .ok b) :
+    decodeSemanticOpV1 ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (.assert_ condition none #[],
+        ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
+  have hb : b = taggedBytesV1 "Op.Assert"
+      #[encodeU32le condition, encodeU8 0, encodeU32le 0] := by
+    simp only [encodeSemanticOpV1, encodeOption, encodeArray, Array.foldl_empty,
+      Bind.bind, Except.bind, Pure.pure, Except.pure] at henc
+    exact (encodeTagged_ok_eq_taggedBytesV1 "Op.Assert"
+      #[encodeU32le condition, encodeU8 0, encodeU32le 0] b henc).1
+  subst b
+  rw [taggedBytes_three_fields]
+  let buf := left ++ taggedHeaderBytesV1 "Op.Assert" 3 ++ encodeU32le condition ++
+    encodeU8 0 ++ encodeU32le 0 ++ right
+  have hflat :
+      left ++ (taggedHeaderBytesV1 "Op.Assert" 3 ++ encodeU32le condition ++
+        encodeU8 0 ++ encodeU32le 0) ++ right = buf := by
+    simp [buf, ByteArray.append_assoc]
+  rw [hflat]
+  obtain ⟨htag0, hfc0⟩ := decodeTag_fieldCount_midV1 "Op.Assert" 3
+    (encodeU32le condition ++ encodeU8 0 ++ encodeU32le 0) left right
+    (nesting + 1) (by decide) (by decide) (by decide)
+    isAsciiTagBytes_Op_Assert (by decide)
+  have hbuf : left ++ taggedHeaderBytesV1 "Op.Assert" 3 ++
+      (encodeU32le condition ++ encodeU8 0 ++ encodeU32le 0) ++ right = buf := by
+    simp [buf, ByteArray.append_assoc]
+  have htag : decodeTag ⟨buf, left.size, nesting + 1⟩ =
+      .ok ("Op.Assert", ⟨buf, left.size + 4 + "Op.Assert".toUTF8.size, nesting + 1⟩) := by
+    simpa [hbuf] using htag0
+  have hfc : decodeFieldCount 3
+      ⟨buf, left.size + 4 + "Op.Assert".toUTF8.size, nesting + 1⟩ =
+      .ok ((), ⟨buf, left.size + (taggedHeaderBytesV1 "Op.Assert" 3).size,
+        nesting + 1⟩) := by
+    simpa [hbuf] using hfc0
+  have hcondition : decodeU32le
+      ⟨buf, left.size + (taggedHeaderBytesV1 "Op.Assert" 3).size, nesting + 1⟩ =
+      .ok (condition, ⟨buf,
+        left.size + (taggedHeaderBytesV1 "Op.Assert" 3).size + 4, nesting + 1⟩) := by
+    have hmid := decodeU32le_encode_midV1
+      (left ++ taggedHeaderBytesV1 "Op.Assert" 3)
+      (encodeU8 0 ++ encodeU32le 0 ++ right) condition (nesting + 1)
+    simpa [buf, ByteArray.append_assoc, ByteArray.size_append] using hmid
+  have hnone : decodeOption decodeU32le
+      ⟨buf, left.size + (taggedHeaderBytesV1 "Op.Assert" 3).size + 4, nesting + 1⟩ =
+      .ok (none, ⟨buf,
+        left.size + (taggedHeaderBytesV1 "Op.Assert" 3).size + 4 + 1, nesting + 1⟩) := by
+    have hmid := decodeOption_none_encode_midV1 decodeU32le
+      (left ++ taggedHeaderBytesV1 "Op.Assert" 3 ++ encodeU32le condition)
+      (encodeU32le 0 ++ right) (nesting + 1)
+    simpa [buf, ByteArray.append_assoc, ByteArray.size_append, encodeU32le_sizeV1,
+      encodeU8_size, Nat.add_assoc] using hmid
+  have hempty : decodeArray maxArrayElements decodeU32le
+      ⟨buf, left.size + (taggedHeaderBytesV1 "Op.Assert" 3).size + 4 + 1, nesting + 1⟩ =
+      .ok (#[], ⟨buf,
+        left.size + (taggedHeaderBytesV1 "Op.Assert" 3).size + 4 + 1 + 4,
+        nesting + 1⟩) := by
+    have hmid := decodeArray_encode_zero_midV1 maxArrayElements decodeU32le
+      (left ++ taggedHeaderBytesV1 "Op.Assert" 3 ++ encodeU32le condition ++ encodeU8 0)
+      right (nesting + 1)
+    simpa [buf, ByteArray.append_assoc, ByteArray.size_append, encodeU32le_sizeV1,
+      encodeU8_size, Nat.add_assoc] using hmid
+  have hshell := decodeSemanticOpV1_eq_of_bodyV1
+    ⟨buf, left.size, nesting⟩ (.assert_ condition none #[])
+    ⟨buf, left.size + (taggedHeaderBytesV1 "Op.Assert" 3).size + 4 + 1 + 4,
+      nesting + 1⟩ hdepth (by
+      simp only [decodeSemanticOpBodyV1, htag, hfc, hcondition, hnone, hempty,
+        Bind.bind, Except.bind, Pure.pure, Except.pure])
+  simpa [buf, ByteArray.size_append, encodeU32le_sizeV1, encodeU8_size,
+    ByteArray.append_assoc, Nat.add_assoc] using hshell
 
 theorem decodeOptionValueDef_none_of_encode_midV1
     (b left right : ByteArray) (nesting : Nat)
@@ -3461,6 +3615,24 @@ theorem exactAt_semanticOp_binaryAddV1 (lhs rhs : UInt32) (nesting : Nat)
   exact decodeSemanticOp_binary_add_of_encode_midV1 lhs rhs b left right nesting
     hdepth hdepthOp henc
 
+/-- Binary-sub operation inversion at the two checked tagged depths. -/
+theorem exactAt_semanticOp_binarySubV1 (lhs rhs : UInt32) (nesting : Nat)
+    (hdepth : nesting < maxNesting) (hdepthOp : nesting + 1 < maxNesting) :
+    ExactMidOffsetInvertAtV1 encodeSemanticOpV1 decodeSemanticOpV1
+      (.binary .sub lhs rhs) nesting := by
+  intro b left right henc
+  exact decodeSemanticOp_binary_sub_of_encode_midV1 lhs rhs b left right nesting
+    hdepth hdepthOp henc
+
+/-- Binary-less-or-equal operation inversion at the two checked tagged depths. -/
+theorem exactAt_semanticOp_binaryLeV1 (lhs rhs : UInt32) (nesting : Nat)
+    (hdepth : nesting < maxNesting) (hdepthOp : nesting + 1 < maxNesting) :
+    ExactMidOffsetInvertAtV1 encodeSemanticOpV1 decodeSemanticOpV1
+      (.binary .le lhs rhs) nesting := by
+  intro b left right henc
+  exact decodeSemanticOp_binary_le_of_encode_midV1 lhs rhs b left right nesting
+    hdepth hdepthOp henc
+
 /-- Binary-mod operation inversion at the two checked tagged depths. -/
 theorem exactAt_semanticOp_binaryModV1 (lhs rhs : UInt32) (nesting : Nat)
     (hdepth : nesting < maxNesting) (hdepthOp : nesting + 1 < maxNesting) :
@@ -3487,6 +3659,15 @@ theorem exactAt_semanticOp_binaryNeV1 (lhs rhs : UInt32) (nesting : Nat)
   intro b left right henc
   exact decodeSemanticOp_binary_ne_of_encode_midV1 lhs rhs b left right nesting
     hdepth hdepthOp henc
+
+/-- Assert with absent error id and empty arguments at a checked depth. -/
+theorem exactAt_semanticOp_assertNoneEmptyV1 (condition : UInt32) (nesting : Nat)
+    (hdepth : nesting < maxNesting) :
+    ExactMidOffsetInvertAtV1 encodeSemanticOpV1 decodeSemanticOpV1
+      (.assert_ condition none #[]) nesting := by
+  intro b left right henc
+  exact decodeSemanticOp_assertNoneEmpty_of_encode_midV1 condition b left right
+    nesting hdepth henc
 
 /-- Return terminators inherit their exact production theorem at fixed depth. -/
 theorem exactAt_terminatorReturnV1 (value : Option UInt32) (nesting : Nat)
@@ -4036,6 +4217,105 @@ theorem exactAt_addParameterTwoReturnCallableV1
         (fun value : UInt64 => pure (encodeU64le value))
         decodeU64le 2)
 
+private theorem exactAt_guardedSubParameterTwoUnitBlockV1
+    (valueTypeId boolTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1) :
+    ExactMidOffsetInvertAtV1 encodeBlockV1 decodeBlockV1
+      (guardedSubParameterTwoUnitBlockV1 valueTypeId boolTypeId leftStateId rightStateId) 2 := by
+  let i0 : InstructionV1 := ⟨some ⟨1, valueTypeId⟩, .stateLoad leftStateId⟩
+  let i1 : InstructionV1 := ⟨some ⟨2, boolTypeId⟩, .binary .le 0 1⟩
+  let i2 : InstructionV1 := ⟨none, .assert_ 2 none #[]⟩
+  let i3 : InstructionV1 := ⟨some ⟨3, valueTypeId⟩, .stateLoad rightStateId⟩
+  let i4 : InstructionV1 := ⟨some ⟨4, boolTypeId⟩, .binary .le 0 3⟩
+  let i5 : InstructionV1 := ⟨none, .assert_ 4 none #[]⟩
+  let i6 : InstructionV1 := ⟨some ⟨5, valueTypeId⟩, .stateLoad leftStateId⟩
+  let i7 : InstructionV1 := ⟨some ⟨6, valueTypeId⟩, .binary .sub 5 0⟩
+  let i8 : InstructionV1 := ⟨none, .stateStore leftStateId 6⟩
+  let i9 : InstructionV1 := ⟨some ⟨7, valueTypeId⟩, .stateLoad rightStateId⟩
+  let i10 : InstructionV1 := ⟨some ⟨8, valueTypeId⟩, .binary .sub 7 0⟩
+  let i11 : InstructionV1 := ⟨none, .stateStore rightStateId 8⟩
+  have h0 := exactAt_valueInstruction_of_opV1 1 valueTypeId (.stateLoad leftStateId)
+    3 (by decide) (by decide) (exactAt_semanticOp_stateLoadV1 leftStateId 4 (by decide))
+  have h1 := exactAt_valueInstruction_of_opV1 2 boolTypeId (.binary .le 0 1)
+    3 (by decide) (by decide) (exactAt_semanticOp_binaryLeV1 0 1 4 (by decide) (by decide))
+  have h2 := exactAt_voidInstruction_of_opV1 (.assert_ 2 none #[]) 3 (by decide)
+    (exactAt_semanticOp_assertNoneEmptyV1 2 4 (by decide))
+  have h3 := exactAt_valueInstruction_of_opV1 3 valueTypeId (.stateLoad rightStateId)
+    3 (by decide) (by decide) (exactAt_semanticOp_stateLoadV1 rightStateId 4 (by decide))
+  have h4 := exactAt_valueInstruction_of_opV1 4 boolTypeId (.binary .le 0 3)
+    3 (by decide) (by decide) (exactAt_semanticOp_binaryLeV1 0 3 4 (by decide) (by decide))
+  have h5 := exactAt_voidInstruction_of_opV1 (.assert_ 4 none #[]) 3 (by decide)
+    (exactAt_semanticOp_assertNoneEmptyV1 4 4 (by decide))
+  have h6 := exactAt_valueInstruction_of_opV1 5 valueTypeId (.stateLoad leftStateId)
+    3 (by decide) (by decide) (exactAt_semanticOp_stateLoadV1 leftStateId 4 (by decide))
+  have h7 := exactAt_valueInstruction_of_opV1 6 valueTypeId (.binary .sub 5 0)
+    3 (by decide) (by decide) (exactAt_semanticOp_binarySubV1 5 0 4 (by decide) (by decide))
+  have h8 := exactAt_voidInstruction_of_opV1 (.stateStore leftStateId 6) 3 (by decide)
+    (exactAt_semanticOp_stateStoreV1 leftStateId 6 4 (by decide))
+  have h9 := exactAt_valueInstruction_of_opV1 7 valueTypeId (.stateLoad rightStateId)
+    3 (by decide) (by decide) (exactAt_semanticOp_stateLoadV1 rightStateId 4 (by decide))
+  have h10 := exactAt_valueInstruction_of_opV1 8 valueTypeId (.binary .sub 7 0)
+    3 (by decide) (by decide) (exactAt_semanticOp_binarySubV1 7 0 4 (by decide) (by decide))
+  have h11 := exactAt_voidInstruction_of_opV1 (.stateStore rightStateId 8) 3 (by decide)
+    (exactAt_semanticOp_stateStoreV1 rightStateId 8 4 (by decide))
+  have hi : ExactMidOffsetInvertAtV1 (encodeArray encodeInstructionV1)
+      (decodeArray maxArrayElements decodeInstructionV1)
+      #[i0, i1, i2, i3, i4, i5, i6, i7, i8, i9, i10, i11] 3 := by
+    apply exactMidOffsetInvertAt_array_of_forall_encoded_exactAt
+    · change 12 ≤ maxArrayElements; decide
+    · exact Nat.le_refl maxArrayElements
+    · change 12 ≤ UInt32.size - 1; decide
+    · intro value hv
+      simp at hv
+      rcases hv with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+      all_goals exact ⟨_, rfl⟩
+    · intro value hv
+      simp at hv
+      rcases hv with rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl | rfl
+      · exact h0
+      · exact h1
+      · exact h2
+      · exact h3
+      · exact h4
+      · exact h5
+      · exact h6
+      · exact h7
+      · exact h8
+      · exact h9
+      · exact h10
+      · exact h11
+  simpa [guardedSubParameterTwoUnitBlockV1, i0, i1, i2, i3, i4, i5, i6,
+    i7, i8, i9, i10, i11] using exactAt_block_of_fieldsV1
+      (guardedSubParameterTwoUnitBlockV1 valueTypeId boolTypeId leftStateId rightStateId)
+      2 (by decide)
+      (exactAt_array_emptyV1 encodeBlockParameterV1 decodeBlockParameterV1 maxArrayElements 3)
+      hi (exactAt_terminatorReturnV1 none 3 (by decide))
+
+theorem exactAt_guardedSubParameterTwoUnitCallableV1
+    (callableId : CallableIdV1) (name parameterName : String)
+    (valueTypeId boolTypeId unitTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (hname : validateIdentifierComponent name = .ok ())
+    (hparameterName : validateIdentifierComponent parameterName = .ok ()) :
+    ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
+      (guardedSubParameterTwoUnitCallableV1 callableId (some name) parameterName
+        valueTypeId boolTypeId unitTypeId leftStateId rightStateId .public_) 1 := by
+  simpa [guardedSubParameterTwoUnitCallableV1] using exactAt_callable_of_fieldsV1
+    (guardedSubParameterTwoUnitCallableV1 callableId (some name) parameterName
+      valueTypeId boolTypeId unitTypeId leftStateId rightStateId .public_) 1 (by decide)
+    (exactAt_callableKindV1 .entry 2 (by decide))
+    (exactAt_optionString_some_identifierV1 name hname 2)
+    (exactAt_array_one_of_exactAtV1 encodeParameterV1 decodeParameterV1 maxArrayElements
+      (by decide) ⟨0, parameterName, valueTypeId, .public_⟩ 2
+      (exactAt_parameter_publicV1 0 valueTypeId parameterName hparameterName 2 (by decide)))
+    (exactAt_callableResultV1 ⟨unitTypeId, .public_⟩ 2 (by decide) (by decide))
+    (exactAt_array_one_of_exactAtV1 encodeBlockV1 decodeBlockV1 maxArrayElements
+      (by decide) (guardedSubParameterTwoUnitBlockV1 valueTypeId boolTypeId
+        leftStateId rightStateId) 2
+      (exactAt_guardedSubParameterTwoUnitBlockV1 valueTypeId boolTypeId leftStateId rightStateId))
+    (exactAt_array_emptyV1 encodeLoopBoundV1 decodeLoopBoundV1 maxArrayElements 2)
+    (exactAt_option_noneV1 (fun value : UInt64 => pure (encodeU64le value)) decodeU64le 2)
+
 private theorem exactAt_twoStateCompareInvariantBlockV1
     (valueTypeId boolTypeId : TypeIdV1)
     (leftStateId rightStateId : StateIdV1)
@@ -4208,6 +4488,49 @@ theorem exactAt_initializerAddViewEqualityCallableTableV1
       uint64TypeId boolTypeId leftStateId rightStateId .eq .public_ 5
       hinvariantName (exactAt_semanticOp_binaryEqV1 0 1 4
         (by decide) (by decide)))
+
+/-- Five-row initializer/add/guarded-sub/view/equality production table. -/
+theorem exactAt_initializerAddGuardedSubViewEqualityCallableTableV1
+    (initializerId addId guardedSubId viewId invariantId : CallableIdV1)
+    (addName addParameterName guardedSubName guardedSubParameterName viewName invariantName : String)
+    (valueTypeId boolTypeId unitTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (haddName : validateIdentifierComponent addName = .ok ())
+    (haddParameterName : validateIdentifierComponent addParameterName = .ok ())
+    (hguardedSubName : validateIdentifierComponent guardedSubName = .ok ())
+    (hguardedSubParameterName : validateIdentifierComponent guardedSubParameterName = .ok ())
+    (hviewName : validateIdentifierComponent viewName = .ok ())
+    (hinvariantName : validateIdentifierComponent invariantName = .ok ()) :
+    ExactMidOffsetInvertAtV1 (encodeArray encodeCallableV1)
+      (decodeArray maxTableElements decodeCallableV1)
+      #[initializerStoreZeroTwoCallableV1 initializerId valueTypeId unitTypeId,
+        addParameterTwoReturnCallableV1 addId (some addName) addParameterName valueTypeId
+          leftStateId rightStateId .public_,
+        guardedSubParameterTwoUnitCallableV1 guardedSubId (some guardedSubName)
+          guardedSubParameterName valueTypeId boolTypeId unitTypeId leftStateId rightStateId .public_,
+        viewLoadCallableV1 viewId (some viewName) valueTypeId leftStateId,
+        twoStateCompareInvariantCallableV1 invariantId (some invariantName) valueTypeId
+          boolTypeId leftStateId rightStateId .eq .public_ (some 5)] 1 :=
+  exactAt_array_five_of_exactAtV1 encodeCallableV1 decodeCallableV1 maxTableElements
+    (by decide)
+    (initializerStoreZeroTwoCallableV1 initializerId valueTypeId unitTypeId)
+    (addParameterTwoReturnCallableV1 addId (some addName) addParameterName valueTypeId
+      leftStateId rightStateId .public_)
+    (guardedSubParameterTwoUnitCallableV1 guardedSubId (some guardedSubName)
+      guardedSubParameterName valueTypeId boolTypeId unitTypeId leftStateId rightStateId .public_)
+    (viewLoadCallableV1 viewId (some viewName) valueTypeId leftStateId)
+    (twoStateCompareInvariantCallableV1 invariantId (some invariantName) valueTypeId
+      boolTypeId leftStateId rightStateId .eq .public_ (some 5)) 1
+    (exactAt_initializerStoreZeroTwoCallableV1 initializerId valueTypeId unitTypeId)
+    (exactAt_addParameterTwoReturnCallableV1 addId addName addParameterName valueTypeId
+      leftStateId rightStateId haddName haddParameterName)
+    (exactAt_guardedSubParameterTwoUnitCallableV1 guardedSubId guardedSubName
+      guardedSubParameterName valueTypeId boolTypeId unitTypeId leftStateId rightStateId
+      hguardedSubName hguardedSubParameterName)
+    (exactAt_viewLoadCallableV1 viewId viewName valueTypeId leftStateId hviewName)
+    (exactAt_twoStateCompareInvariantCallableV1 invariantId invariantName valueTypeId
+      boolTypeId leftStateId rightStateId .eq .public_ 5 hinvariantName
+      (exactAt_semanticOp_binaryEqV1 0 1 4 (by decide) (by decide)))
 
 /-- Four-row production callable-table package for the field-comparison
     authoring family: a literal view, a literal invariant, equality, and
