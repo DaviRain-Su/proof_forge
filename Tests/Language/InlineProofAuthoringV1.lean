@@ -800,6 +800,55 @@ theorem initializerViewEqualitySurface_subjectData_eq :
 #check InitializerViewEqualitySurface.ProofPreserving.solvent.callable1ReturnedV1_of_typed
 #check InitializerViewEqualitySurface.ProofPreserving.solvent.callable2ReturnedV1
 
+/- Alpha-renamed initializer/additive-entry/view/equality surface. This proves
+   that the production elaborator recognizes the generic semantic shape rather
+   than the business names used by `Examples.VerifiedVaultPF`. -/
+program InitializerDepositViewEqualitySurface where
+  state assets : UInt64
+  state liabilities : UInt64
+  init() do
+    assets := 0
+    liabilities := 0
+  entry contribute(quantity : UInt64) : UInt64 do
+    assets := assets + quantity
+    liabilities := liabilities + quantity
+    return liabilities
+  view readAssets() : UInt64 do
+    return assets
+  invariant balanced : assets == liabilities
+  proof balanced preserving using InitializerDepositViewEqualitySurfaceProof.balanced
+
+theorem initializerDepositViewEqualitySurface_subjectData_eq :
+    InitializerDepositViewEqualitySurface.Proof.subjectDataV1 =
+      ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1.subjectDataV1
+        InitializerDepositViewEqualitySurface.Proof.subjectDataV1.qualifiedName
+        "assets" "liabilities" "contribute" "quantity" "readAssets" "balanced" := by
+  rfl
+
+#check InitializerDepositViewEqualitySurface.Proof.subjectStructureOkV1
+#check InitializerDepositViewEqualitySurface.Proof.subjectValidationOkV1
+#check InitializerDepositViewEqualitySurface.Model.init.Transition
+#check InitializerDepositViewEqualitySurface.Model.contribute.Transition
+#check InitializerDepositViewEqualitySurface.Model.readAssets.Transition
+#check InitializerDepositViewEqualitySurface.Model.Invariant.balanced_iff_eval
+#check InitializerDepositViewEqualitySurface.Model.Invariant.balanced_iff_fields
+#check InitializerDepositViewEqualitySurface.ProofPreserving.balanced.callable0ReturnedV1
+#check InitializerDepositViewEqualitySurface.ProofPreserving.balanced.callable1ReturnedV1
+#check InitializerDepositViewEqualitySurface.ProofPreserving.balanced.callable2ReturnedV1
+#check InitializerDepositViewEqualitySurface.ProofPreserving.balanced.callable3ReturnedV1
+
+theorem InitializerDepositViewEqualitySurfaceProof.balanced :
+    InitializerDepositViewEqualitySurface.ProofPreserving.balanced := by
+  exact
+    ProofForgeV2.Semantic.InitializerDepositViewEqualityPreservationV1.preservationTheorem_of_subjectBodyV1
+      InitializerDepositViewEqualitySurface.Proof.subjectDataV1.qualifiedName
+      "assets" "liabilities" "contribute" "quantity" "readAssets" "balanced"
+      InitializerDepositViewEqualitySurface.Proof.subjectDataV1
+      InitializerDepositViewEqualitySurface.Proof.subjectBytesV1
+      (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
+      (by decide) (by decide) (by decide) (by decide) (by rfl)
+      InitializerDepositViewEqualitySurface.Proof.subjectBodyEncodeOkV1
+
 /- The first state-dependent, genuinely mutating business-preservation fixture.
    Its generated certificate belongs to a name-parameterized production
    subject family rather than a contract-qualified closed proof. -/

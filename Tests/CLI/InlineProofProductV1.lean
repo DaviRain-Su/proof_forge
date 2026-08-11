@@ -534,8 +534,8 @@ private def testStatefulEqualityProductCli : IO Unit := do
   expect (!hasSubstr stdoutN "proofStatus=certified")
     "StatefulEquality near-miss must not claim certified"
 
-/-- The first initializer/view business slice certifies through the real CLI;
-    deleting one initializer store remains typed-valid but cannot elaborate the
+/-- The initializer/deposit/view business slice certifies through the real CLI;
+    deleting one deposit update remains typed-valid but cannot elaborate the
     exact-family preservation proof. -/
 private def testVerifiedVaultPFProductCli : IO Unit := do
   let args := #["check", "Examples/VerifiedVaultPF.lean",
@@ -566,17 +566,21 @@ private def testVerifiedVaultPFProductCli : IO Unit := do
     "  state shares : UInt64\n" ++
     "  init() do\n" ++
     "    reserves := 0\n" ++
+    "    shares := 0\n" ++
+    "  entry deposit(amount : UInt64) : UInt64 do\n" ++
+    "    reserves := reserves + amount\n" ++
+    "    return shares\n" ++
     "  view status() : UInt64 do\n" ++
     "    return reserves\n" ++
     "  invariant solvent : reserves == shares\n" ++
     "  proof solvent preserving using VerifiedVaultPFNearMissProof.solvent\n" ++
     "theorem VerifiedVaultPFNearMissProof.solvent : VerifiedVaultPFNearMiss.ProofPreserving.solvent := by\n" ++
-    "  exact ProofForgeV2.Semantic.InitializerViewEqualityPreservationV1.preservationTheorem_of_subjectBodyV1\n" ++
+    "  exact ProofForgeV2.Semantic.InitializerDepositViewEqualityPreservationV1.preservationTheorem_of_subjectBodyV1\n" ++
     "    VerifiedVaultPFNearMiss.Proof.subjectDataV1.qualifiedName\n" ++
-    "    \"reserves\" \"shares\" \"status\" \"solvent\"\n" ++
+    "    \"reserves\" \"shares\" \"deposit\" \"amount\" \"status\" \"solvent\"\n" ++
     "    VerifiedVaultPFNearMiss.Proof.subjectDataV1 VerifiedVaultPFNearMiss.Proof.subjectBytesV1\n" ++
-    "    (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)\n" ++
-    "    (by decide) (by decide) (by rfl)\n" ++
+    "    (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)\n" ++
+    "    (by decide) (by decide) (by decide) (by decide) (by rfl)\n" ++
     "    VerifiedVaultPFNearMiss.Proof.subjectBodyEncodeOkV1\n"
   let _ ← writeFixture "verified-vault-pf-near-miss.lean" nearMiss
   let (ecN, stdoutN, stderrN) ← runCli #["check",

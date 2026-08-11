@@ -65,6 +65,8 @@ import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Semantic.ProofBridgeV1
 import ProofForgeV2.Semantic.SubjectDataBridgeV1
 import ProofForgeV2.Semantic.FieldComparisonSubjectV1
+import ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1
+import ProofForgeV2.Semantic.InitializerDepositViewEqualityPreservationV1
 import ProofForgeV2.Semantic.InitializerViewEqualitySubjectV1
 import ProofForgeV2.Semantic.InitializerViewEqualityPreservationV1
 import ProofForgeV2.Semantic.StatefulEqualitySubjectV1

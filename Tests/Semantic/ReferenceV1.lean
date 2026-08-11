@@ -1450,6 +1450,114 @@ private unsafe def testCounterReferenceSlice
       (inv entryId #[refU64 u64Tid 1]) emptyResponses
   expectRevertedStandard "counter-overflow" overflow .arithmeticOverflow maxPre
 
+/-- Product Normalize → sole Reference machine coverage for the additive
+    two-slot Vault shape. Success updates both slots equally; checked-add
+    overflow and malformed invocation traps both preserve the exact pre-state,
+    so an already true equality invariant remains true transactionally. -/
+private unsafe def testInitializerDepositViewEqualityReferenceSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "InitializerDepositViewEqualityRef" <|
+    "  state reserves : UInt64\n" ++
+    "  state shares : UInt64\n" ++
+    "  init() do\n" ++
+    "    reserves := 0\n" ++
+    "    shares := 0\n" ++
+    "  entry deposit(amount : UInt64) : UInt64 do\n" ++
+    "    reserves := reserves + amount\n" ++
+    "    shares := shares + amount\n" ++
+    "    return shares\n" ++
+    "  view status() : UInt64 do\n" ++
+    "    return reserves\n" ++
+    "  invariant solvent : reserves == shares\n"
+  let validated ← loadSource session "initializer-deposit-view-equality" source
+  let carrier ← match normalizeProgramV1 validated with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError
+          s!"initializer-deposit-view-equality: normalize failed: {repr error}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError
+          s!"initializer-deposit-view-equality: validate failed: {repr error}"
+  let admitted ← admitOk "initializer-deposit-view-equality" carrier
+  let u64Tid : TypeIdV1 :=
+    match data.types.findIdx? fun typeDecl =>
+        typeDecl.name.isNone &&
+          match typeDecl.shape with | .uint 64 => true | _ => false with
+    | some index => UInt32.ofNat index
+    | none => 0
+  expect (data.callables.size == 4)
+    "initializer-deposit-view-equality: init/deposit/view/invariant callables"
+  let slots (n : Nat) := (stateSlot (u64Bytes n)).append (stateSlot (u64Bytes n))
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError
+          s!"initializer-deposit-view-equality: initial state failed: {repr error}"
+  let zeroState : LogicalStateV1 := {
+    initialized := true
+    canonicalValues := slots 0
+  }
+  let afterInit :=
+    stepReferenceSliceV1 admitted initial (inv 0 #[]) emptyResponses
+  expectReturned "initializer-deposit-view-equality-init" afterInit zeroState none #[]
+
+  let fiveState : LogicalStateV1 := {
+    initialized := true
+    canonicalValues := slots 5
+  }
+  let afterDeposit :=
+    stepReferenceSliceV1 admitted zeroState
+      (inv 1 #[refU64 u64Tid 5]) emptyResponses
+  expectReturned "initializer-deposit-view-equality-deposit" afterDeposit fiveState
+    (some (refU64 u64Tid 5)) #[]
+  expect (evalInvariantReferenceSliceV1 admitted 0 fiveState == .returnedTrue)
+    "initializer-deposit-view-equality: successful deposit preserves equality"
+  let afterView :=
+    stepReferenceSliceV1 admitted fiveState (inv 2 #[]) emptyResponses
+  expectReturned "initializer-deposit-view-equality-view" afterView fiveState
+    (some (refU64 u64Tid 5)) #[]
+
+  let max : Nat := 18446744073709551615
+  let maxState : LogicalStateV1 := {
+    initialized := true
+    canonicalValues := slots max
+  }
+  expect (evalInvariantReferenceSliceV1 admitted 0 maxState == .returnedTrue)
+    "initializer-deposit-view-equality: overflow pre-state satisfies equality"
+  let overflow :=
+    stepReferenceSliceV1 admitted maxState
+      (inv 1 #[refU64 u64Tid 1]) emptyResponses
+  expectRevertedStandard "initializer-deposit-view-equality-overflow" overflow
+    .arithmeticOverflow maxState
+
+  -- Exercise rollback after the first store has provisionally updated the
+  -- overlay and only the second checked add overflows. This pre-state does not
+  -- satisfy the business invariant; it pins the transaction rule itself.
+  let secondOverflowPre : LogicalStateV1 := {
+    initialized := true
+    canonicalValues :=
+      (stateSlot (u64Bytes 0)).append (stateSlot (u64Bytes max))
+  }
+  let secondOverflow :=
+    stepReferenceSliceV1 admitted secondOverflowPre
+      (inv 1 #[refU64 u64Tid 1]) emptyResponses
+  expectRevertedStandard "initializer-deposit-view-equality-second-overflow"
+    secondOverflow .arithmeticOverflow secondOverflowPre
+
+  let malformedArgument : ReferenceValueV1 := {
+    typeId := u64Tid
+    valueBytes := ByteArray.mk #[0]
+  }
+  let malformed :=
+    stepReferenceSliceV1 admitted fiveState
+      (inv 1 #[malformedArgument]) emptyResponses
+  expectTrapped "initializer-deposit-view-equality-malformed-argument" malformed
+    .invalidInvocation fiveState
+  expect (evalInvariantReferenceSliceV1 admitted 0 fiveState == .returnedTrue)
+    "initializer-deposit-view-equality: trapped transaction preserves equality"
+
 private def primitiveEffectProgram : IO
     (SemanticProgramV1 × SemanticProgramDataV1 × QualifiedName × QualifiedName) := do
   -- types: 0 = Bool, 1 = Unit (anonymous leaves)
@@ -6085,6 +6193,7 @@ private unsafe def testMiniAmmL1EmptyPoolAdmit
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testCounterReferenceSlice session
+  testInitializerDepositViewEqualityReferenceSlice session
   testGuardedCounterReferenceSlice session
   testAssertElseReferenceSlice
   testBoolResultReferenceSlice session

@@ -7062,6 +7062,40 @@ theorem encodeU64le_uint64OfLeBytesToNatV1_of_size
       bytes.data
   rw [← hlength, natToLeBytesList_leBytesToNatList]
 
+private theorem evalBinary_add_uint64_characterization
+    (data : SemanticProgramDataV1) (uint64TypeId : TypeIdV1)
+    (lhs rhs : ByteArray)
+    (htype : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hcanLhs : validateValueBytesV1 data.types uint64TypeId lhs = .ok ())
+    (hcanRhs : validateValueBytesV1 data.types uint64TypeId rhs = .ok ()) :
+    evalBinary data .add
+      { typeId := uint64TypeId, valueBytes := lhs }
+      { typeId := uint64TypeId, valueBytes := rhs }
+      uint64TypeId =
+      if leBytesToNatV1 lhs + leBytesToNatV1 rhs ≥ 2 ^ 64 then
+        .error (.reverted (.standard .arithmeticOverflow))
+      else
+        .ok {
+          typeId := uint64TypeId
+          valueBytes := natToLeBytesV1
+            (leBytesToNatV1 lhs + leBytesToNatV1 rhs) 8
+        } := by
+  have hvcL : valueCanonical data
+      { typeId := uint64TypeId, valueBytes := lhs } = true := by
+    simp [valueCanonical, hcanLhs]
+  have hvcR : valueCanonical data
+      { typeId := uint64TypeId, valueBytes := rhs } = true := by
+    simp [valueCanonical, hcanRhs]
+  have htid : (uint64TypeId == uint64TypeId) = true := by simp [BEq.beq]
+  have hwidth : uintWidth data uint64TypeId = some 64 := by
+    simp [uintWidth, shapeOf, htype]
+  have hmax : uintMax 64 = 2 ^ 64 := by simp [uintMax]
+  simp only [evalBinary, hvcL, hvcR, htid, Bool.and_self, Bool.not_true,
+    Bool.false_eq_true, ↓reduceIte, hwidth, intWidth, shapeOf, htype,
+    uintByteLen, hmax, ge_iff_le]
+  rfl
+
 private theorem evalBinary_add_uint64_two
     (data : SemanticProgramDataV1) (uint64TypeId : TypeIdV1)
     (countBytes : ByteArray)
@@ -7080,28 +7114,13 @@ private theorem evalBinary_add_uint64_two
         typeId := uint64TypeId
         valueBytes := natToLeBytesV1 (leBytesToNatV1 countBytes + 2) 8
       } := by
-  have hvcC :
-      valueCanonical data { typeId := uint64TypeId, valueBytes := countBytes } =
-        true := by simp [valueCanonical, hcanCount]
-  have hvcT :
-      valueCanonical data { typeId := uint64TypeId, valueBytes := two8BytesV1 } =
-        true := by simp [valueCanonical, hcanTwo]
-  have htid : (uint64TypeId == uint64TypeId) = true := by simp [BEq.beq]
-  have hwidth : uintWidth data uint64TypeId = some 64 := by
-    simp [uintWidth, shapeOf, htype]
   have ht : leBytesToNat two8BytesV1 = 2 := by
     simpa [two8BytesV1] using leBytesToNat_two8
-  have hmax : uintMax 64 = 2 ^ 64 := by
-    simp [uintMax]
-  simp only [evalBinary, hvcC, hvcT, htid, Bool.and_self, Bool.not_true,
-    Bool.false_eq_true, ↓reduceIte, hwidth, intWidth, shapeOf, htype,
-    uintByteLen, ht, hmax, ge_iff_le]
-  have hle : (2 ^ 64 ≤ leBytesToNat countBytes + 2) = False := by
-    simp only [eq_iff_iff, iff_false]
-    exact Nat.not_le_of_gt hnoOverflow
-  simp only [hle, ↓reduceIte]
-  -- Align public aliases with private helpers: 64/8 = 8 and leBytesToNatV1.
-  rfl
+  have htV : leBytesToNatV1 two8BytesV1 = 2 := ht
+  rw [evalBinary_add_uint64_characterization data uint64TypeId countBytes
+    two8BytesV1 htype hcanCount hcanTwo]
+  rw [htV]
+  simp only [if_neg (Nat.not_le_of_gt hnoOverflow)]
 
 /-- Adding the even literal 2 preserves parity. -/
 theorem add_two_preserves_even
@@ -11930,6 +11949,498 @@ theorem stepReferenceSliceV1_ready_initializer_store_zero_two_returned_post_enco
     sole `runMachine`/`stepReferenceSliceV1` path, not an executable business
     wrapper. -/
 
+/-- Successful private trace for the exact unary two-slot additive body. -/
+private theorem runMachine_add_parameter_two_return
+    (data : SemanticProgramDataV1) (pre : LogicalStateV1)
+    (beforeBytes argumentBytes sumBytes : ByteArray)
+    (uint64TypeId : TypeIdV1)
+    (state0Name state1Name parameterName : String)
+    (callableId : CallableIdV1) (entryName : Option String) (fuel : Nat)
+    (responses : ExternalResponsesV1 := #[]) (vaultNative : UInt64 := 0)
+    (vaultToken : Array (ByteArray × UInt64) := #[])
+    (context : Array ContextInputV1 := #[])
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate0 : data.logicalState[0]? = some {
+      id := 0, name := state0Name, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hstate1 : data.logicalState[1]? = some {
+      id := 1, name := state1Name, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hcanBefore : validateValueBytesV1 data.types uint64TypeId beforeBytes = .ok ())
+    (hcanArgument : validateValueBytesV1 data.types uint64TypeId argumentBytes = .ok ())
+    (hadd : evalBinary data .add
+      { typeId := uint64TypeId, valueBytes := beforeBytes }
+      { typeId := uint64TypeId, valueBytes := argumentBytes }
+      uint64TypeId = .ok { typeId := uint64TypeId, valueBytes := sumBytes })
+    (hcanSum : validateValueBytesV1 data.types uint64TypeId sumBytes = .ok ()) :
+    let addCallable : CallableV1 := {
+      id := callableId, kind := .entry, name := entryName
+      params := #[{
+        valueId := 0
+        name := parameterName
+        typeId := uint64TypeId
+        visibility := .public_
+      }]
+      result := { typeId := uint64TypeId, visibility := .public_ }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[
+        { result := some { valueId := 1, typeId := uint64TypeId }, op := .stateLoad 0 },
+        { result := some { valueId := 2, typeId := uint64TypeId }, op := .binary .add 1 0 },
+        { result := none, op := .stateStore 0 2 },
+        { result := some { valueId := 3, typeId := uint64TypeId }, op := .stateLoad 1 },
+        { result := some { valueId := 4, typeId := uint64TypeId }, op := .binary .add 3 0 },
+        { result := none, op := .stateStore 1 4 },
+        { result := some { valueId := 5, typeId := uint64TypeId }, op := .stateLoad 1 }]
+        terminator := .return_ (some 5) }]
+      loopBounds := #[], invariantSteps := none }
+    let argument : ReferenceValueV1 :=
+      { typeId := uint64TypeId, valueBytes := argumentBytes }
+    let hslot0 : (0 : ValueIdV1).toNat < (emptyEnv 6).size := by
+      simp [emptyEnv, UInt32.toNat]
+    let boundEnv := (emptyEnv 6).set 0 (some argument) hslot0
+    ∃ finalEnv,
+      runMachine false (fuel + 8) {
+        data
+        pre
+        callable := addCallable
+        isInitializer := false
+        context
+        overlay := #[beforeBytes, beforeBytes]
+        env := boundEnv
+        effects := #[]
+        occCounts := Array.replicate (maxEffectIdInCallable addCallable + 1) 0
+        responseCursor := 0
+        responses
+        loopCounts := #[]
+        blockId := 0
+        instrIdx := 0
+        frames := #[]
+        vaultNative
+        vaultToken } =
+      (0, {
+        data
+        pre
+        callable := addCallable
+        isInitializer := false
+        context
+        overlay := #[sumBytes, sumBytes]
+        env := finalEnv
+        effects := #[]
+        occCounts := Array.replicate (maxEffectIdInCallable addCallable + 1) 0
+        responseCursor := 0
+        responses
+        loopCounts := #[]
+        blockId := 0
+        instrIdx := 7
+        frames := #[]
+        vaultNative
+        vaultToken },
+        CandidateV1.returned (some {
+          typeId := uint64TypeId, valueBytes := sumBytes })) := by
+  let addCallable : CallableV1 := {
+    id := callableId, kind := .entry, name := entryName
+    params := #[{
+      valueId := 0
+      name := parameterName
+      typeId := uint64TypeId
+      visibility := .public_
+    }]
+    result := { typeId := uint64TypeId, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[
+      { result := some { valueId := 1, typeId := uint64TypeId }, op := .stateLoad 0 },
+      { result := some { valueId := 2, typeId := uint64TypeId }, op := .binary .add 1 0 },
+      { result := none, op := .stateStore 0 2 },
+      { result := some { valueId := 3, typeId := uint64TypeId }, op := .stateLoad 1 },
+      { result := some { valueId := 4, typeId := uint64TypeId }, op := .binary .add 3 0 },
+      { result := none, op := .stateStore 1 4 },
+      { result := some { valueId := 5, typeId := uint64TypeId }, op := .stateLoad 1 }]
+      terminator := .return_ (some 5) }]
+    loopBounds := #[], invariantSteps := none }
+  let beforeValue : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := beforeBytes }
+  let argument : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := argumentBytes }
+  let sumValue : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := sumBytes }
+  let hslot0 : (0 : ValueIdV1).toNat < (emptyEnv 6).size := by
+    simp [emptyEnv, UInt32.toNat]
+  let boundEnv := (emptyEnv 6).set 0 (some argument) hslot0
+  have hblocks : addCallable.blocks = #[{
+      id := 0
+      params := #[]
+      instructions := #[
+      { result := some { valueId := 1, typeId := uint64TypeId }, op := .stateLoad 0 },
+      { result := some { valueId := 2, typeId := uint64TypeId }, op := .binary .add 1 0 },
+      { result := none, op := .stateStore 0 2 },
+      { result := some { valueId := 3, typeId := uint64TypeId }, op := .stateLoad 1 },
+      { result := some { valueId := 4, typeId := uint64TypeId }, op := .binary .add 3 0 },
+      { result := none, op := .stateStore 1 4 },
+      { result := some { valueId := 5, typeId := uint64TypeId }, op := .stateLoad 1 }]
+      terminator := .return_ (some 5) }] := by rfl
+  have hresult : addCallable.result.typeId = uint64TypeId := by rfl
+  have hvcBefore : valueCanonical data beforeValue = true := by
+    simp [valueCanonical, beforeValue, hcanBefore]
+  have hvcArgument : valueCanonical data argument = true := by
+    simp [valueCanonical, argument, hcanArgument]
+  have hvcSum : valueCanonical data sumValue = true := by
+    simp [valueCanonical, sumValue, hcanSum]
+  have hadd' : evalBinary data .add beforeValue argument uint64TypeId =
+      .ok sumValue := by
+    simpa [beforeValue, argument, sumValue] using hadd
+  have hget0 : envGet boundEnv 0 = some argument := by
+    simp [envGet, boundEnv, hslot0, UInt32.toNat]
+  have hs1 : (1 : ValueIdV1).toNat < boundEnv.size := by
+    simp [boundEnv, emptyEnv, UInt32.toNat]
+  let e1 := boundEnv.set 1 (some beforeValue) hs1
+  have hset1 : envSet boundEnv 1 beforeValue = some e1 := by
+    simpa [e1] using envSet_of_lt boundEnv (1 : ValueIdV1) beforeValue hs1
+  have hs2 : (2 : ValueIdV1).toNat < e1.size := by
+    simp [e1, boundEnv, emptyEnv, UInt32.toNat]
+  let e2 := e1.set 2 (some sumValue) hs2
+  have hset2 : envSet e1 2 sumValue = some e2 := by
+    simpa [e2] using envSet_of_lt e1 (2 : ValueIdV1) sumValue hs2
+  have hs3 : (3 : ValueIdV1).toNat < e2.size := by
+    simp [e2, e1, boundEnv, emptyEnv, UInt32.toNat]
+  let e3 := e2.set 3 (some beforeValue) hs3
+  have hset3 : envSet e2 3 beforeValue = some e3 := by
+    simpa [e3] using envSet_of_lt e2 (3 : ValueIdV1) beforeValue hs3
+  have hs4 : (4 : ValueIdV1).toNat < e3.size := by
+    simp [e3, e2, e1, boundEnv, emptyEnv, UInt32.toNat]
+  let e4 := e3.set 4 (some sumValue) hs4
+  have hset4 : envSet e3 4 sumValue = some e4 := by
+    simpa [e4] using envSet_of_lt e3 (4 : ValueIdV1) sumValue hs4
+  have hs5 : (5 : ValueIdV1).toNat < e4.size := by
+    simp [e4, e3, e2, e1, boundEnv, emptyEnv, UInt32.toNat]
+  let e5 := e4.set 5 (some sumValue) hs5
+  have hset5 : envSet e4 5 sumValue = some e5 := by
+    simpa [e5] using envSet_of_lt e4 (5 : ValueIdV1) sumValue hs5
+  have hov0 : (0 : Nat) < (#[beforeBytes, beforeBytes] : Array ByteArray).size := by simp
+  let overlay1 := (#[beforeBytes, beforeBytes] : Array ByteArray).set 0 sumBytes hov0
+  have hov1 : (1 : Nat) < overlay1.size := by simp [overlay1]
+  let overlay2 := overlay1.set 1 sumBytes hov1
+  have overlay2_eq : overlay2 = #[sumBytes, sumBytes] := by
+    refine Array.ext_getElem? (fun index => ?_)
+    match index with
+    | 0 =>
+        have hne : (1 : Nat) ≠ 0 := by decide
+        simp only [overlay2]
+        rw [Array.getElem?_set_ne hov1 hne]
+        simp [overlay1]
+    | 1 => simp [overlay2]
+    | index + 2 =>
+        have hleft : overlay2[index + 2]? = none := by
+          apply Array.getElem?_eq_none
+          simp [overlay2, overlay1]
+        have hright :
+            (#[sumBytes, sumBytes] : Array ByteArray)[index + 2]? = none := by
+          apply Array.getElem?_eq_none
+          simp
+        exact hleft.trans hright.symm
+  let mk (env : Array (Option ReferenceValueV1)) (overlay : Array ByteArray)
+      (idx : Nat) : MachineV1 := {
+    data
+    pre
+    callable := addCallable
+    isInitializer := false
+    context
+    overlay
+    env
+    effects := #[]
+    occCounts := Array.replicate (maxEffectIdInCallable addCallable + 1) 0
+    responseCursor := 0
+    responses
+    loopCounts := #[]
+    blockId := 0
+    instrIdx := idx
+    frames := #[]
+    vaultNative
+    vaultToken }
+  have hstate0' : data.logicalState[(0 : StateIdV1).toNat]? = some {
+      id := 0, name := state0Name, typeId := uint64TypeId,
+      visibility := .public_ } := by simpa using hstate0
+  have hstate1' : data.logicalState[(1 : StateIdV1).toNat]? = some {
+      id := 1, name := state1Name, typeId := uint64TypeId,
+      visibility := .public_ } := by simpa using hstate1
+  have hexec0 : execInstruction (mk boundEnv #[beforeBytes, beforeBytes] 0)
+      { result := some { valueId := 1, typeId := uint64TypeId }, op := .stateLoad 0 } =
+      .next (mk e1 #[beforeBytes, beforeBytes] 0) := by
+    have hloaded : (#[beforeBytes, beforeBytes] : Array ByteArray)[(0 : StateIdV1).toNat]? = some beforeBytes := by simp
+    have hty : (uint64TypeId != uint64TypeId) = false := by simp [BEq.beq, bne]
+    simp only [mk, execInstruction, hstate0', hloaded, hty]
+    simpa [mk, e1, beforeValue] using
+      storeResult_envSet (mk boundEnv #[beforeBytes, beforeBytes] 0) 1 beforeValue e1 hvcBefore hset1
+  have hget1 : envGet e1 1 = some beforeValue := by
+    simp [envGet, e1, UInt32.toNat]
+  have hget0e1 : envGet e1 0 = some argument := by
+    simp [envGet, e1, boundEnv, hslot0, UInt32.toNat]
+  have hexec1 : execInstruction (mk e1 #[beforeBytes, beforeBytes] 1)
+      { result := some { valueId := 2, typeId := uint64TypeId }, op := .binary .add 1 0 } =
+      .next (mk e2 #[beforeBytes, beforeBytes] 1) := by
+    simp only [mk, execInstruction, hget1, hget0e1, hvcBefore, hvcArgument,
+      Bool.not_true, Bool.or_false, Bool.false_eq_true, ↓reduceIte, hadd', fromEval]
+    simpa [mk, e2, sumValue, beforeValue, argument] using
+      storeResult_envSet (mk e1 #[beforeBytes, beforeBytes] 1) 2 sumValue e2 hvcSum hset2
+  have hget2 : envGet e2 2 = some sumValue := by simp [envGet, e2, UInt32.toNat]
+  have hexec2 : execInstruction (mk e2 #[beforeBytes, beforeBytes] 2)
+      { result := none, op := .stateStore 0 2 } = .next (mk e2 overlay1 2) := by
+    have hty : (sumValue.typeId != uint64TypeId) = false := by simp [sumValue, BEq.beq, bne]
+    simp only [mk, execInstruction, hstate0', hget2, hty, hvcSum, Bool.not_true,
+      Bool.false_eq_true, ↓reduceIte, hov0, ↓reduceDIte]
+    simp [mk, overlay1, sumValue, UInt32.toNat]
+  have hloaded1 : overlay1[(1 : StateIdV1).toNat]? = some beforeBytes := by
+    simp [overlay1, UInt32.toNat]
+  have hexec3 : execInstruction (mk e2 overlay1 3)
+      { result := some { valueId := 3, typeId := uint64TypeId }, op := .stateLoad 1 } =
+      .next (mk e3 overlay1 3) := by
+    have hty : (uint64TypeId != uint64TypeId) = false := by simp [BEq.beq, bne]
+    simp only [mk, execInstruction, hstate1', hloaded1, hty]
+    simpa [mk, e3, beforeValue] using storeResult_envSet
+      (mk e2 overlay1 3) 3 beforeValue e3 hvcBefore hset3
+  have hget3 : envGet e3 3 = some beforeValue := by simp [envGet, e3, UInt32.toNat]
+  have hget0e3 : envGet e3 0 = some argument := by
+    simp [envGet, e3, e2, e1, boundEnv, hslot0, UInt32.toNat]
+  have hexec4 : execInstruction (mk e3 overlay1 4)
+      { result := some { valueId := 4, typeId := uint64TypeId }, op := .binary .add 3 0 } =
+      .next (mk e4 overlay1 4) := by
+    simp only [mk, execInstruction, hget3, hget0e3, hvcBefore, hvcArgument,
+      Bool.not_true, Bool.or_false, Bool.false_eq_true, ↓reduceIte, hadd', fromEval]
+    simpa [mk, e4, sumValue, beforeValue, argument] using
+      storeResult_envSet (mk e3 overlay1 4) 4 sumValue e4 hvcSum hset4
+  have hget4 : envGet e4 4 = some sumValue := by simp [envGet, e4, UInt32.toNat]
+  have hexec5 : execInstruction (mk e4 overlay1 5)
+      { result := none, op := .stateStore 1 4 } = .next (mk e4 overlay2 5) := by
+    have hty : (sumValue.typeId != uint64TypeId) = false := by simp [sumValue, BEq.beq, bne]
+    have hbound : (1 : StateIdV1).toNat < overlay1.size := by
+      simp [overlay1, UInt32.toNat]
+    simp only [mk, execInstruction, hstate1', hget4, hty, hvcSum, Bool.not_true,
+      Bool.false_eq_true, ↓reduceIte, hbound, ↓reduceDIte]
+    simp [mk, overlay2, sumValue, UInt32.toNat]
+  have hloaded2 : overlay2[(1 : StateIdV1).toNat]? = some sumBytes := by
+    simp [overlay2, UInt32.toNat]
+  have hexec6 : execInstruction (mk e4 overlay2 6)
+      { result := some { valueId := 5, typeId := uint64TypeId }, op := .stateLoad 1 } =
+      .next (mk e5 overlay2 6) := by
+    have hty : (uint64TypeId != uint64TypeId) = false := by simp [BEq.beq, bne]
+    simp only [mk, execInstruction, hstate1', hloaded2, hty]
+    simpa [mk, e5, sumValue] using
+      storeResult_envSet (mk e4 overlay2 6) 5 sumValue e5 hvcSum hset5
+  have hget5 : envGet e5 5 = some sumValue := by simp [envGet, e5, UInt32.toNat]
+  have hreturn : execTerminator (mk e5 overlay2 7) (.return_ (some 5)) =
+      .done (mk e5 overlay2 7) (.returned (some sumValue)) := by
+    have hunit : isUnitType data addCallable.result.typeId = false := by
+      simp [isUnitType, shapeOf, hresult, htypeU]
+    have hvalid : (sumValue.typeId != addCallable.result.typeId ||
+        !valueCanonical data sumValue) = false := by
+      simp [sumValue, hresult, hvcSum, BEq.beq, bne]
+    simp only [mk, execTerminator, hget5, hunit, Bool.false_eq_true,
+      ↓reduceIte, hvalid]
+  have step0 : runMachine false (fuel + 8) (mk boundEnv #[beforeBytes, beforeBytes] 0) =
+      runMachine false (fuel + 7) (mk e1 #[beforeBytes, beforeBytes] 1) := by
+    rw [show fuel + 8 = (fuel + 7).succ by omega, runMachine]; simp [mk, hblocks, hexec0]
+  have step1 : runMachine false (fuel + 7) (mk e1 #[beforeBytes, beforeBytes] 1) =
+      runMachine false (fuel + 6) (mk e2 #[beforeBytes, beforeBytes] 2) := by
+    rw [show fuel + 7 = (fuel + 6).succ by omega, runMachine]; simp [mk, hblocks, hexec1]
+  have step2 : runMachine false (fuel + 6) (mk e2 #[beforeBytes, beforeBytes] 2) =
+      runMachine false (fuel + 5) (mk e2 overlay1 3) := by
+    rw [show fuel + 6 = (fuel + 5).succ by omega, runMachine]; simp [mk, hblocks, hexec2]
+  have step3 : runMachine false (fuel + 5) (mk e2 overlay1 3) =
+      runMachine false (fuel + 4) (mk e3 overlay1 4) := by
+    rw [show fuel + 5 = (fuel + 4).succ by omega, runMachine]; simp [mk, hblocks, hexec3]
+  have step4 : runMachine false (fuel + 4) (mk e3 overlay1 4) =
+      runMachine false (fuel + 3) (mk e4 overlay1 5) := by
+    rw [show fuel + 4 = (fuel + 3).succ by omega, runMachine]; simp [mk, hblocks, hexec4]
+  have step5 : runMachine false (fuel + 3) (mk e4 overlay1 5) =
+      runMachine false (fuel + 2) (mk e4 overlay2 6) := by
+    rw [show fuel + 3 = (fuel + 2).succ by omega, runMachine]; simp [mk, hblocks, hexec5]
+  have step6 : runMachine false (fuel + 2) (mk e4 overlay2 6) =
+      runMachine false (fuel + 1) (mk e5 overlay2 7) := by
+    rw [show fuel + 2 = (fuel + 1).succ by omega, runMachine]; simp [mk, hblocks, hexec6]
+  have step7 : runMachine false (fuel + 1) (mk e5 overlay2 7) =
+      (0, mk e5 overlay2 7, CandidateV1.returned (some sumValue)) := by
+    rw [show fuel + 1 = fuel.succ by omega, runMachine]; simp [mk, hblocks, hreturn]
+  refine ⟨e5, ?_⟩
+  have hchain := step0.trans (step1.trans (step2.trans (step3.trans
+    (step4.trans (step5.trans (step6.trans step7))))))
+  simpa [mk, overlay2_eq, sumValue] using hchain
+
+/-- Private failure trace for the first addition in the exact unary two-slot
+    additive body. The load succeeds, then the evaluator failure halts before
+    either state slot is changed. -/
+private theorem runMachine_add_parameter_two_first_eval_error
+    (data : SemanticProgramDataV1) (pre : LogicalStateV1)
+    (beforeBytes argumentBytes : ByteArray)
+    (uint64TypeId : TypeIdV1)
+    (state0Name state1Name parameterName : String)
+    (callableId : CallableIdV1) (entryName : Option String) (fuel : Nat)
+    (responses : ExternalResponsesV1 := #[]) (vaultNative : UInt64 := 0)
+    (vaultToken : Array (ByteArray × UInt64) := #[])
+    (context : Array ContextInputV1 := #[])
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate0 : data.logicalState[0]? = some {
+      id := 0, name := state0Name, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hstate1 : data.logicalState[1]? = some {
+      id := 1, name := state1Name, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hcanBefore : validateValueBytesV1 data.types uint64TypeId beforeBytes = .ok ())
+    (hcanArgument : validateValueBytesV1 data.types uint64TypeId argumentBytes = .ok ())
+    (failure : LocalFailureV1)
+    (haddError : evalBinary data .add
+      { typeId := uint64TypeId, valueBytes := beforeBytes }
+      { typeId := uint64TypeId, valueBytes := argumentBytes }
+      uint64TypeId = .error failure) :
+    let addCallable : CallableV1 := {
+      id := callableId, kind := .entry, name := entryName
+      params := #[{
+        valueId := 0
+        name := parameterName
+        typeId := uint64TypeId
+        visibility := .public_
+      }]
+      result := { typeId := uint64TypeId, visibility := .public_ }
+      entryBlock := 0
+      blocks := #[{
+        id := 0
+        params := #[]
+        instructions := #[
+        { result := some { valueId := 1, typeId := uint64TypeId }, op := .stateLoad 0 },
+        { result := some { valueId := 2, typeId := uint64TypeId }, op := .binary .add 1 0 },
+        { result := none, op := .stateStore 0 2 },
+        { result := some { valueId := 3, typeId := uint64TypeId }, op := .stateLoad 1 },
+        { result := some { valueId := 4, typeId := uint64TypeId }, op := .binary .add 3 0 },
+        { result := none, op := .stateStore 1 4 },
+        { result := some { valueId := 5, typeId := uint64TypeId }, op := .stateLoad 1 }]
+        terminator := .return_ (some 5) }]
+      loopBounds := #[], invariantSteps := none }
+    let argument : ReferenceValueV1 :=
+      { typeId := uint64TypeId, valueBytes := argumentBytes }
+    let hslot0 : (0 : ValueIdV1).toNat < (emptyEnv 6).size := by
+      simp [emptyEnv, UInt32.toNat]
+    let boundEnv := (emptyEnv 6).set 0 (some argument) hslot0
+    ∃ envAfterLoad,
+      runMachine false (fuel + 2) {
+        data
+        pre
+        callable := addCallable
+        isInitializer := false
+        context
+        overlay := #[beforeBytes, beforeBytes]
+        env := boundEnv
+        effects := #[]
+        occCounts := Array.replicate (maxEffectIdInCallable addCallable + 1) 0
+        responseCursor := 0
+        responses
+        loopCounts := #[]
+        blockId := 0
+        instrIdx := 0
+        frames := #[]
+        vaultNative
+        vaultToken } =
+      (0, {
+        data
+        pre
+        callable := addCallable
+        isInitializer := false
+        context
+        overlay := #[beforeBytes, beforeBytes]
+        env := envAfterLoad
+        effects := #[]
+        occCounts := Array.replicate (maxEffectIdInCallable addCallable + 1) 0
+        responseCursor := 0
+        responses
+        loopCounts := #[]
+        blockId := 0
+        instrIdx := 1
+        frames := #[]
+        vaultNative
+        vaultToken }, failure.toCandidateV1) := by
+  let addCallable : CallableV1 := {
+    id := callableId, kind := .entry, name := entryName
+    params := #[{
+      valueId := 0, name := parameterName, typeId := uint64TypeId,
+      visibility := .public_ }]
+    result := { typeId := uint64TypeId, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[{
+      id := 0, params := #[],
+      instructions := #[
+      { result := some { valueId := 1, typeId := uint64TypeId }, op := .stateLoad 0 },
+      { result := some { valueId := 2, typeId := uint64TypeId }, op := .binary .add 1 0 },
+      { result := none, op := .stateStore 0 2 },
+      { result := some { valueId := 3, typeId := uint64TypeId }, op := .stateLoad 1 },
+      { result := some { valueId := 4, typeId := uint64TypeId }, op := .binary .add 3 0 },
+      { result := none, op := .stateStore 1 4 },
+      { result := some { valueId := 5, typeId := uint64TypeId }, op := .stateLoad 1 }],
+      terminator := .return_ (some 5) }]
+    loopBounds := #[], invariantSteps := none }
+  let beforeValue : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := beforeBytes }
+  let argument : ReferenceValueV1 :=
+    { typeId := uint64TypeId, valueBytes := argumentBytes }
+  let hslot0 : (0 : ValueIdV1).toNat < (emptyEnv 6).size := by
+    simp [emptyEnv, UInt32.toNat]
+  let boundEnv := (emptyEnv 6).set 0 (some argument) hslot0
+  have hvcBefore : valueCanonical data beforeValue = true := by
+    simp [valueCanonical, beforeValue, hcanBefore]
+  have hvcArgument : valueCanonical data argument = true := by
+    simp [valueCanonical, argument, hcanArgument]
+  have hget0 : envGet boundEnv 0 = some argument := by
+    simp [envGet, boundEnv, hslot0, UInt32.toNat]
+  have hs1 : (1 : ValueIdV1).toNat < boundEnv.size := by
+    simp [boundEnv, emptyEnv, UInt32.toNat]
+  let envAfterLoad := boundEnv.set 1 (some beforeValue) hs1
+  have hset1 : envSet boundEnv 1 beforeValue = some envAfterLoad := by
+    simpa [envAfterLoad] using
+      envSet_of_lt boundEnv (1 : ValueIdV1) beforeValue hs1
+  let mk (env : Array (Option ReferenceValueV1)) (idx : Nat) : MachineV1 := {
+    data, pre, callable := addCallable, isInitializer := false, context
+    overlay := #[beforeBytes, beforeBytes], env, effects := #[]
+    occCounts := Array.replicate (maxEffectIdInCallable addCallable + 1) 0
+    responseCursor := 0, responses, loopCounts := #[], blockId := 0, instrIdx := idx
+    frames := #[], vaultNative, vaultToken }
+  have hstate0' : data.logicalState[(0 : StateIdV1).toNat]? = some {
+      id := 0, name := state0Name, typeId := uint64TypeId,
+      visibility := .public_ } := by simpa using hstate0
+  have hexec0 : execInstruction (mk boundEnv 0)
+      { result := some { valueId := 1, typeId := uint64TypeId }, op := .stateLoad 0 } =
+      .next (mk envAfterLoad 0) := by
+    have hloaded : (#[beforeBytes, beforeBytes] : Array ByteArray)[(0 : StateIdV1).toNat]? =
+        some beforeBytes := by simp
+    have hty : (uint64TypeId != uint64TypeId) = false := by simp [BEq.beq, bne]
+    simp only [mk, execInstruction, hstate0', hloaded, hty]
+    simpa [mk, envAfterLoad, beforeValue] using
+      storeResult_envSet (mk boundEnv 0) 1 beforeValue envAfterLoad hvcBefore hset1
+  have hget1 : envGet envAfterLoad 1 = some beforeValue := by
+    simp [envGet, envAfterLoad, UInt32.toNat]
+  have hget0After : envGet envAfterLoad 0 = some argument := by
+    simp [envGet, envAfterLoad, boundEnv, hslot0, UInt32.toNat]
+  have haddError' : evalBinary data .add beforeValue argument uint64TypeId = .error failure := by
+    simpa [beforeValue, argument] using haddError
+  have hexec1 : execInstruction (mk envAfterLoad 1)
+      { result := some { valueId := 2, typeId := uint64TypeId }, op := .binary .add 1 0 } =
+      .done (mk envAfterLoad 1) failure.toCandidateV1 := by
+    simp [mk, execInstruction, hget1, hget0After, hvcBefore, hvcArgument,
+      haddError', fromEval]
+  have step0 : runMachine false (fuel + 2) (mk boundEnv 0) =
+      runMachine false (fuel + 1) (mk envAfterLoad 1) := by
+    rw [show fuel + 2 = (fuel + 1).succ by omega, runMachine]
+    simp [mk, addCallable, hexec0]
+  have step1 : runMachine false (fuel + 1) (mk envAfterLoad 1) =
+      (0, mk envAfterLoad 1, failure.toCandidateV1) := by
+    rw [show fuel + 1 = fuel.succ by omega, runMachine]
+    simp [mk, addCallable, hexec1]
+  refine ⟨envAfterLoad, ?_⟩
+  simpa [mk] using step0.trans step1
+
 /-- Execute the exact store-parameter/store-parameter/load/return body from the
     environment produced by unary invocation binding. -/
 private theorem runMachine_store_parameter_two_return
@@ -12219,6 +12730,180 @@ private theorem runMachine_store_parameter_two_return
           CandidateV1.returned (some argument)) := by
     rw [step0, step1, step2, stepReturn]
   simpa [hoverlay2Eq, mk] using hrun
+
+/-- Invert a successful sole Reference step for the exact unary synchronization
+    CFG. The conclusion is the production logical-state encoder result for the
+    duplicated accepted argument; no caller supplies an expected post-state. -/
+theorem stepReferenceSliceV1_ready_add_parameter_two_returned_post_encode
+    (admitted : AdmittedReferenceSliceV1) (pre post : LogicalStateV1)
+    (data : SemanticProgramDataV1) (beforeBytes argumentBytes : ByteArray)
+    (uint64TypeId : TypeIdV1) (state0Name state1Name parameterName : String)
+    (callableId : CallableIdV1) (entryName : Option String)
+    (invocationContext context : Array ContextInputV1)
+    (responses : ExternalResponsesV1) (vault : ReferenceVaultSeedV1)
+    (value : Option ReferenceValueV1) (effects : Array OrderedEffectV1)
+    (hadmittedData : admitted.data = data)
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate0 : data.logicalState[0]? = some {
+      id := 0, name := state0Name, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hstate1 : data.logicalState[1]? = some {
+      id := 1, name := state1Name, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hcanonical : validateValueBytesV1 data.types uint64TypeId argumentBytes = .ok ())
+    (hgate : gateInvocation admitted pre {
+      callableId, args := #[{ typeId := uint64TypeId, valueBytes := argumentBytes }],
+      context := invocationContext } = .ready {
+        id := callableId
+        kind := .entry
+        name := entryName
+        params := #[{
+          valueId := 0
+          name := parameterName
+          typeId := uint64TypeId
+          visibility := .public_ }]
+        result := { typeId := uint64TypeId, visibility := .public_ }
+        entryBlock := 0
+        blocks := #[{
+          id := 0
+          params := #[]
+          instructions := #[
+          { result := some { valueId := 1, typeId := uint64TypeId }, op := .stateLoad 0 },
+          { result := some { valueId := 2, typeId := uint64TypeId }, op := .binary .add 1 0 },
+          { result := none, op := .stateStore 0 2 },
+          { result := some { valueId := 3, typeId := uint64TypeId }, op := .stateLoad 1 },
+          { result := some { valueId := 4, typeId := uint64TypeId }, op := .binary .add 3 0 },
+          { result := none, op := .stateStore 1 4 },
+          { result := some { valueId := 5, typeId := uint64TypeId }, op := .stateLoad 1 }]
+          terminator := .return_ (some 5) }]
+        loopBounds := #[], invariantSteps := none }
+      #[beforeBytes, beforeBytes] context false)
+    (hstep : stepReferenceSliceV1 admitted pre {
+      callableId, args := #[{ typeId := uint64TypeId, valueBytes := argumentBytes }],
+      context := invocationContext } responses vault = .returned post value effects) :
+    ∃ sumBytes, encodeLogicalStateValuesV1 data true #[sumBytes, sumBytes] = .ok post := by
+  let addCallable : CallableV1 := {
+    id := callableId
+    kind := .entry
+    name := entryName
+    params := #[{
+      valueId := 0
+      name := parameterName
+      typeId := uint64TypeId
+      visibility := .public_ }]
+    result := { typeId := uint64TypeId, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[
+      { result := some { valueId := 1, typeId := uint64TypeId }, op := .stateLoad 0 },
+      { result := some { valueId := 2, typeId := uint64TypeId }, op := .binary .add 1 0 },
+      { result := none, op := .stateStore 0 2 },
+      { result := some { valueId := 3, typeId := uint64TypeId }, op := .stateLoad 1 },
+      { result := some { valueId := 4, typeId := uint64TypeId }, op := .binary .add 3 0 },
+      { result := none, op := .stateStore 1 4 },
+      { result := some { valueId := 5, typeId := uint64TypeId }, op := .stateLoad 1 }]
+      terminator := .return_ (some 5) }]
+    loopBounds := #[], invariantSteps := none }
+  let argument : ReferenceValueV1 := { typeId := uint64TypeId, valueBytes := argumentBytes }
+  let invocation : InvocationV1 := { callableId, args := #[argument], context := invocationContext }
+  let hslot0 : (0 : ValueIdV1).toNat < (emptyEnv 6).size := by simp [emptyEnv, UInt32.toNat]
+  let boundEnv := (emptyEnv 6).set 0 (some argument) hslot0
+  let initialMachine : MachineV1 := {
+    data, pre, callable := addCallable, isInitializer := false, context
+    overlay := #[beforeBytes, beforeBytes], env := boundEnv, effects := #[]
+    occCounts := Array.replicate (maxEffectIdInCallable addCallable + 1) 0
+    responseCursor := 0, responses, loopCounts := #[], blockId := 0, instrIdx := 0
+    frames := #[], vaultNative := vault.native, vaultToken := vault.token }
+  have hmax : maxValueIdInCallable addCallable = 5 := by
+    simp [maxValueIdInCallable, addCallable]
+  have hmaxEffect : maxEffectIdInCallable addCallable = 0 := by
+    simp [maxEffectIdInCallable, addCallable]
+  have hgate' : gateInvocation admitted pre invocation =
+      .ready addCallable #[beforeBytes, beforeBytes] context false := by
+    simpa [invocation, addCallable, argument] using hgate
+  have hstepAsFinalize : stepReferenceSliceV1 admitted pre invocation responses vault =
+      finalize (runMachine false 1000000 initialMachine).2.1
+        (runMachine false 1000000 initialMachine).2.2 pre := by
+    unfold stepReferenceSliceV1
+    rw [hgate']
+    simp [initialMachine, addCallable, argument, invocation, boundEnv, hslot0,
+      hadmittedData, hmax, hmaxEffect, emptyEnv, envSet]
+  have hdecodeAdmitted := (gateInvocation_ready_noninit_decode admitted pre invocation
+    addCallable #[beforeBytes, beforeBytes] context hgate').1
+  have hdecode : decodeLogicalStateValuesV1 data pre = .ok #[beforeBytes, beforeBytes] := by
+    simpa [hadmittedData] using hdecodeAdmitted
+  have hcanBefore : validateValueBytesV1 data.types uint64TypeId beforeBytes = .ok () := by
+    exact validateValueBytesV1_of_decodeLogicalStateValuesV1_getElem data pre
+      #[beforeBytes, beforeBytes] hdecode 0
+      { id := 0, name := state0Name, typeId := uint64TypeId, visibility := .public_ }
+      beforeBytes hstate0 (by simp)
+  let sumBytes := natToLeBytesV1
+    (leBytesToNatV1 beforeBytes + leBytesToNatV1 argumentBytes) 8
+  have haddCharacterization := evalBinary_add_uint64_characterization data uint64TypeId
+    beforeBytes argumentBytes htypeU hcanBefore hcanonical
+  by_cases hoverflow : 2 ^ 64 ≤ leBytesToNatV1 beforeBytes + leBytesToNatV1 argumentBytes
+  · have haddError : evalBinary data .add
+        { typeId := uint64TypeId, valueBytes := beforeBytes }
+        { typeId := uint64TypeId, valueBytes := argumentBytes } uint64TypeId =
+        .error (.reverted (.standard .arithmeticOverflow)) := by
+      simpa [hoverflow] using haddCharacterization
+    obtain ⟨envAfterLoad, hrun⟩ := runMachine_add_parameter_two_first_eval_error
+      data pre beforeBytes argumentBytes uint64TypeId state0Name state1Name parameterName
+      callableId entryName 999998 responses vault.native vault.token context htypeU hstate0
+      hstate1 hcanBefore hcanonical (.reverted (.standard .arithmeticOverflow)) haddError
+    let failureMachine : MachineV1 := {
+      data, pre, callable := addCallable, isInitializer := false, context
+      overlay := #[beforeBytes, beforeBytes], env := envAfterLoad, effects := #[]
+      occCounts := Array.replicate (maxEffectIdInCallable addCallable + 1) 0
+      responseCursor := 0, responses, loopCounts := #[], blockId := 0, instrIdx := 1
+      frames := #[], vaultNative := vault.native, vaultToken := vault.token }
+    have hrunExact : runMachine false 1000000 initialMachine =
+        (0, failureMachine, CandidateV1.reverted (.standard .arithmeticOverflow)) := by
+      simpa [initialMachine, failureMachine, addCallable, argument, boundEnv, hslot0,
+        LocalFailureV1.toCandidateV1] using hrun
+    have hstep' : stepReferenceSliceV1 admitted pre invocation responses vault =
+        .returned post value effects := by simpa [invocation, argument] using hstep
+    rw [hstepAsFinalize, hrunExact] at hstep'
+    have hc := (finalize_returned_implies_encodeV1 failureMachine
+      (.reverted (.standard .arithmeticOverflow)) pre post value effects hstep').1
+    cases hc
+  · have hadd : evalBinary data .add
+        { typeId := uint64TypeId, valueBytes := beforeBytes }
+        { typeId := uint64TypeId, valueBytes := argumentBytes } uint64TypeId =
+        .ok { typeId := uint64TypeId, valueBytes := sumBytes } := by
+      simpa [hoverflow, sumBytes] using haddCharacterization
+    have hcanSum : validateValueBytesV1 data.types uint64TypeId sumBytes = .ok () := by
+      have hsize : sumBytes.size = 8 := by simp [sumBytes, natToLeBytesV1_size]
+      exact validateValueBytesV1_uint64_of_size data.types uint64TypeId
+        { id := uint64TypeId, name := none, shape := .uint 64 }
+        sumBytes htypeU rfl hsize
+    obtain ⟨finalEnv, hrun⟩ := runMachine_add_parameter_two_return data pre beforeBytes
+      argumentBytes sumBytes uint64TypeId state0Name state1Name parameterName callableId
+      entryName 999992 responses vault.native vault.token context htypeU hstate0 hstate1
+      hcanBefore hcanonical hadd hcanSum
+    let finalMachine : MachineV1 := {
+      data, pre, callable := addCallable, isInitializer := false, context
+      overlay := #[sumBytes, sumBytes], env := finalEnv, effects := #[]
+      occCounts := Array.replicate (maxEffectIdInCallable addCallable + 1) 0
+      responseCursor := 0, responses, loopCounts := #[], blockId := 0, instrIdx := 7
+      frames := #[], vaultNative := vault.native, vaultToken := vault.token }
+    have hrunExact : runMachine false 1000000 initialMachine =
+        (0, finalMachine, CandidateV1.returned
+          (some { typeId := uint64TypeId, valueBytes := sumBytes })) := by
+      simpa [initialMachine, finalMachine, addCallable, argument, boundEnv, hslot0] using hrun
+    have hstep' : stepReferenceSliceV1 admitted pre invocation responses vault =
+        .returned post value effects := by simpa [invocation, argument] using hstep
+    rw [hstepAsFinalize, hrunExact] at hstep'
+    obtain ⟨_, _, hencode⟩ := finalize_returned_implies_encodeV1 finalMachine
+      (.returned (some { typeId := uint64TypeId, valueBytes := sumBytes }))
+      pre post value effects hstep'
+    have hinitialized := (gateInvocation_ready_noninit_decode admitted pre invocation
+      addCallable #[beforeBytes, beforeBytes] context hgate').2.1
+    refine ⟨sumBytes, ?_⟩
+    simpa [finalMachine, hinitialized] using hencode
 
 /-- Invert a successful sole Reference step for the exact unary synchronization
     CFG. The conclusion is the production logical-state encoder result for the

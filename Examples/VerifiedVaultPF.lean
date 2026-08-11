@@ -1,9 +1,8 @@
 import ProofForgeV2
 
-/- The first business-level initializer/view preservation slice. It certifies
-the exact DSL subject through the production Reference semantics; deposit and
-withdraw operations and target-artifact refinement are intentionally outside
-this example's claim. -/
+/- A business-level initializer/deposit/view preservation slice. It certifies
+the exact DSL subject through the production Reference semantics; withdraw and
+target-artifact refinement are intentionally outside this example's claim. -/
 
 namespace Examples
 
@@ -17,6 +16,11 @@ program VerifiedVaultPF where
     reserves := 0
     shares := 0
 
+  entry deposit(amount : UInt64) : UInt64 do
+    reserves := reserves + amount
+    shares := shares + amount
+    return shares
+
   view status() : UInt64 do
     return reserves
 
@@ -26,13 +30,13 @@ program VerifiedVaultPF where
 theorem VerifiedVaultPFProof.solvent :
     VerifiedVaultPF.ProofPreserving.solvent := by
   exact
-    ProofForgeV2.Semantic.InitializerViewEqualityPreservationV1.preservationTheorem_of_subjectBodyV1
+    ProofForgeV2.Semantic.InitializerDepositViewEqualityPreservationV1.preservationTheorem_of_subjectBodyV1
       VerifiedVaultPF.Proof.subjectDataV1.qualifiedName
-      "reserves" "shares" "status" "solvent"
+      "reserves" "shares" "deposit" "amount" "status" "solvent"
       VerifiedVaultPF.Proof.subjectDataV1
       VerifiedVaultPF.Proof.subjectBytesV1
-      (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
-      (by decide) (by decide) (by rfl)
+      (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
+      (by decide) (by decide) (by decide) (by decide) (by rfl)
       VerifiedVaultPF.Proof.subjectBodyEncodeOkV1
 
 end Examples

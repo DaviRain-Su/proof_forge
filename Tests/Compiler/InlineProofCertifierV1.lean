@@ -405,6 +405,115 @@ private unsafe def testInitializerViewEqualityFamilyProductCoverage
           phase == .certification && detail == .elaborate
       | _ => false
 
+private def initializerDepositViewEqualitySource
+    (programName leftState rightState depositName parameterName viewName
+      invariantName initBody depositBody viewBody : String) : String :=
+  let proofName := programName ++ "Proof." ++ invariantName
+  header ++
+  "program " ++ programName ++ " where\n" ++
+  "  state " ++ leftState ++ " : UInt64\n" ++
+  "  state " ++ rightState ++ " : UInt64\n" ++
+  initBody ++ depositBody ++ viewBody ++
+  "  invariant " ++ invariantName ++ " : " ++ leftState ++ " == " ++ rightState ++ "\n" ++
+  "  proof " ++ invariantName ++ " preserving using " ++ proofName ++ "\n" ++
+  "theorem " ++ proofName ++ " : " ++ programName ++
+    ".ProofPreserving." ++ invariantName ++ " := by\n" ++
+  "  exact ProofForgeV2.Semantic.InitializerDepositViewEqualityPreservationV1.preservationTheorem_of_subjectBodyV1\n" ++
+  "    " ++ programName ++ ".Proof.subjectDataV1.qualifiedName\n" ++
+  "    \"" ++ leftState ++ "\" \"" ++ rightState ++ "\" \"" ++ depositName ++
+    "\" \"" ++ parameterName ++ "\" \"" ++ viewName ++ "\" \"" ++
+    invariantName ++ "\"\n" ++
+  "    " ++ programName ++ ".Proof.subjectDataV1 " ++ programName ++
+    ".Proof.subjectBytesV1\n" ++
+  "    (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)\n" ++
+  "    (by decide) (by decide) (by decide) (by decide) (by rfl)\n" ++
+  "    " ++ programName ++ ".Proof.subjectBodyEncodeOkV1\n"
+
+/-- The additive business family is name-parameterized but shape-exact. The
+    alpha-renamed program certifies; typed-valid changes to either update,
+    checked-add data flow, result, or callable order fail during theorem
+    elaboration rather than inheriting an unrelated preservation theorem. -/
+private unsafe def testInitializerDepositViewEqualityFamilyProductCoverage
+    (session : ProductParserSessionV1) : IO Unit := do
+  let renamed := initializerDepositViewEqualitySource
+    "AlphaRenamedInitializerDepositViewEquality"
+    "assets" "liabilities" "contribute" "quantity" "readAssets" "balanced"
+    "  init() do\n    assets := 0\n    liabilities := 0\n"
+    ("  entry contribute(quantity : UInt64) : UInt64 do\n" ++
+      "    assets := assets + quantity\n" ++
+      "    liabilities := liabilities + quantity\n" ++
+      "    return liabilities\n")
+    "  view readAssets() : UInt64 do\n    return assets\n"
+  let renamedPath ← parsePath
+    "tests/inline-proof/AlphaRenamedInitializerDepositViewEquality.lean"
+  let (renamedSource, renamedOrigin, renamedInventory) ← loadProduct session renamed
+    "tests/inline-proof/AlphaRenamedInitializerDepositViewEquality.lean" "Root"
+  let renamedCompiled ← compileOf renamedSource renamedOrigin
+  let renamedOutcome ← certifyInlineProofV1 session renamed renamedSource renamedOrigin
+    renamedInventory renamedCompiled renamedPath "Root" none
+  expectOutcome "alpha-renamed initializer/deposit/view equality" renamedOutcome fun
+    | .certified carrier =>
+        CertifiedInlineProofV1.theoremCount carrier == 1 &&
+        digestPresent (CertifiedInlineProofV1.proofCertificationDigest carrier) &&
+        (CertifiedInlineProofV1.audited carrier).size == 1
+    | _ => false
+
+  let initBody := "  init() do\n    assets := 0\n    liabilities := 0\n"
+  let viewBody := "  view readAssets() : UInt64 do\n    return assets\n"
+  let cases := #[
+    ("DepositSecondStoreMissing",
+      ("  entry contribute(quantity : UInt64) : UInt64 do\n" ++
+        "    assets := assets + quantity\n" ++
+        "    return liabilities\n"),
+      viewBody),
+    ("DepositSecondLoadWrong",
+      ("  entry contribute(quantity : UInt64) : UInt64 do\n" ++
+        "    assets := assets + quantity\n" ++
+        "    liabilities := assets + quantity\n" ++
+        "    return liabilities\n"),
+      viewBody),
+    ("DepositOverwriteInsteadOfAdd",
+      ("  entry contribute(quantity : UInt64) : UInt64 do\n" ++
+        "    assets := quantity\n" ++
+        "    liabilities := quantity\n" ++
+        "    return liabilities\n"),
+      viewBody),
+    ("DepositWrongReturnSlot",
+      ("  entry contribute(quantity : UInt64) : UInt64 do\n" ++
+        "    assets := assets + quantity\n" ++
+        "    liabilities := liabilities + quantity\n" ++
+        "    return assets\n"),
+      viewBody),
+    ("DepositBoolResult",
+      ("  entry contribute(quantity : UInt64) : Bool do\n" ++
+        "    assets := assets + quantity\n" ++
+        "    liabilities := liabilities + quantity\n" ++
+        "    return true\n"),
+      viewBody),
+    ("DepositCallableOrder",
+      ("  view readAssets() : UInt64 do\n" ++
+        "    return assets\n" ++
+        "  entry contribute(quantity : UInt64) : UInt64 do\n" ++
+        "    assets := assets + quantity\n" ++
+        "    liabilities := liabilities + quantity\n" ++
+        "    return liabilities\n"),
+      "")
+  ]
+  for (programName, depositBody, trailingViewBody) in cases do
+    let src := initializerDepositViewEqualitySource programName
+      "assets" "liabilities" "contribute" "quantity" "readAssets" "balanced"
+      initBody depositBody trailingViewBody
+    let fileName := s!"tests/inline-proof/{programName}.lean"
+    let path ← parsePath fileName
+    let (source, origin, inventory) ← loadProduct session src fileName "Root"
+    let compiled ← compileOf source origin
+    let outcome ← certifyInlineProofV1 session src source origin inventory compiled
+      path "Root" none
+    expectOutcome programName outcome fun
+      | .failed phase detail =>
+          phase == .certification && detail == .elaborate
+      | _ => false
+
 /-- Proof kind is source certification metadata: changing only holds ↔ preserving
     changes canonical ProgramV1/source identity, while Normalize emits the same
     business SemanticProgramV1 bytes and digest. -/
@@ -819,6 +928,7 @@ unsafe def run : IO Unit := do
   testSameFileStatefulEqualityPreservingProductPositive session
   testSameFileVerifiedVaultPFPreservingProductPositive session
   testInitializerViewEqualityFamilyProductCoverage session
+  testInitializerDepositViewEqualityFamilyProductCoverage session
   testProofKindIdentityBoundary session
   testForbiddenMainModule session
   testWrongSubjectBytes session
