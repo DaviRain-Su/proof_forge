@@ -269,7 +269,7 @@ def main() -> int:
             },
             {
                 "id": "ContextRead-Commit",
-                "status": "Plan FC",
+                "status": "EVM context.* FC; pf.context.userId|contractId|checkpointId|nonce|callerContractId open (ContextProbe)",
             },
             {
                 "id": "wide-u128-u256",

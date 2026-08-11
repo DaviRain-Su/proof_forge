@@ -261,6 +261,12 @@ inductive Expr where
   | hashTwoToOne (args : Array Expr)
   /-- ADR-0039: `keccak256` over 1..16 UInt64 words (first u32-limb as UInt64). -/
   | keccak256 (args : Array Expr)
+  /-- P3 partial: DPN-native context (ExecutionContext), not EVM msg.sender. -/
+  | ctxUserId
+  | ctxContractId
+  | ctxCheckpointId
+  | ctxNonce
+  | ctxCallerContractId
   /-- Target-internal exact limb arithmetic. Operands are range-bounded
       UInt32 Felt limbs/intermediates, so these raw Felt operations cannot wrap
       Goldilocks in the admitted UInt128 add/sub construction. -/
@@ -2202,9 +2208,34 @@ private partial def lowerRegion
               admitScalarResult
               let argExprs ← lookupArgs env args "keccak256" true
               env := envInsert env valueDef.valueId (.keccak256 argExprs)
+            else if qn == "pf.context.userId" then
+              unless comps.size == 3 && args.size == 0 do
+                planError "unsupported Psy semantic shape: pf.context.userId() takes no args"
+              admitScalarResult
+              env := envInsert env valueDef.valueId .ctxUserId
+            else if qn == "pf.context.contractId" then
+              unless comps.size == 3 && args.size == 0 do
+                planError "unsupported Psy semantic shape: pf.context.contractId() takes no args"
+              admitScalarResult
+              env := envInsert env valueDef.valueId .ctxContractId
+            else if qn == "pf.context.checkpointId" then
+              unless comps.size == 3 && args.size == 0 do
+                planError "unsupported Psy semantic shape: pf.context.checkpointId() takes no args"
+              admitScalarResult
+              env := envInsert env valueDef.valueId .ctxCheckpointId
+            else if qn == "pf.context.nonce" then
+              unless comps.size == 3 && args.size == 0 do
+                planError "unsupported Psy semantic shape: pf.context.nonce() takes no args"
+              admitScalarResult
+              env := envInsert env valueDef.valueId .ctxNonce
+            else if qn == "pf.context.callerContractId" then
+              unless comps.size == 3 && args.size == 0 do
+                planError "unsupported Psy semantic shape: pf.context.callerContractId() takes no args"
+              admitScalarResult
+              env := envInsert env valueDef.valueId .ctxCallerContractId
             else
               planError
-                "unsupported Psy semantic shape: result-bearing external call is not admitted (no DPN response-binding / return-value ABI; PSY-CALL-EVENT FC). Admitted ADR-0039: pf.crypto.hashNoPad|hashPad|hashTwoToOne|keccak256"
+                "unsupported Psy semantic shape: result-bearing external call is not admitted. Admitted: pf.crypto.hash*|keccak256; pf.context.userId|contractId|checkpointId|nonce|callerContractId"
         | none =>
             unless comps.size ≥ 2 do
               planError "unsupported Psy semantic shape: external callee must have at least two components"
@@ -2212,8 +2243,7 @@ private partial def lowerRegion
             -- sync invoke would falsely imply native value movement.
             if isPfAssetsCatalogQnV1 qn then
               planError s!"unsupported Psy semantic shape: {unboundCatalogDiagV1 qn}"
-            if qn == "pf.crypto.hashNoPad" || qn == "pf.crypto.hashPad"
-                || qn == "pf.crypto.hashTwoToOne" || qn == "pf.crypto.keccak256" then
+            if qn.startsWith "pf.crypto." || qn.startsWith "pf.context." then
               planError s!"unsupported Psy semantic shape: {qn} is value-producing (use in expression position, not void call)"
             let argExprs ← lookupArgs env args "externalCall"
             ls := { ls with stmts := ls.stmts.push (.externalCall comps argExprs) }
@@ -2717,15 +2747,17 @@ private partial def lowerRegion
     -- injection proves only that the program used T, not that T is chain
     -- reality. Commit also needs a frozen proof/public-input/commitment binding.
     | .contextRead key =>
+        -- EVM-style context.* places stay FC on Psy. DPN-native session identity
+        -- is available as value-producing `call pf.context.userId()` etc. (P3 partial).
         if key == unixTimeSecondsContextKeyV1 then
           planError
-            "unsupported Psy semantic shape: ContextRead context.unixTimeSeconds has no bound DPN wall-clock input (circuit-domain FC)"
+            "unsupported Psy semantic shape: context.unixTimeSeconds has no DPN wall-clock binding (FC). Psy session time is not admitted; use pf.context.checkpointId() for checkpoint identity if needed"
         else if key == callerContextKeyV1 then
           planError
-            "unsupported Psy semantic shape: ContextRead context.caller has no bound DPN caller input; Principal is not a Psy address (circuit-domain FC)"
+            "unsupported Psy semantic shape: context.caller (Principal/msg.sender) is not a Psy address. Use call pf.context.userId() / pf.context.callerContractId() for DPN ExecutionContext ids"
         else if key == blockHeightContextKeyV1 then
           planError
-            "unsupported Psy semantic shape: ContextRead context.blockHeight has no bound DPN height input (circuit-domain FC)"
+            "unsupported Psy semantic shape: context.blockHeight has no DPN height binding (FC). Use call pf.context.checkpointId() for checkpoint identity"
         else
           planError
             s!"unsupported Psy semantic shape: unknown ContextRead key '{key.value}' is not admitted by pilot context policy"

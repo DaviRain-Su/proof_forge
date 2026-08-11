@@ -1522,6 +1522,16 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
         bCur := b1
         ins := ins.push (UInt64.ofNat ti)
       pure (pushTarget bCur .keccak256 ins)
+  | .ctxUserId =>
+      pure (pushValuelessTarget b .getUserId)
+  | .ctxContractId =>
+      pure (pushValuelessTarget b .getContractId)
+  | .ctxCheckpointId =>
+      pure (pushValuelessTarget b .getCheckpointId)
+  | .ctxNonce =>
+      pure (pushValuelessTarget b .getNonce)
+  | .ctxCallerContractId =>
+      pure (pushValuelessTarget b .getCallerContractId)
   | .callFn name args => do
       -- R-PURE: inline pureHelper body into caller definitions (preferred over
       -- separate DPN method). Expression-level pure-body walker (no mutual

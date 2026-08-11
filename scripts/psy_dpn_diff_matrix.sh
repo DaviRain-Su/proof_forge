@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Differential: official psy_user_cli simulate (single-call) vs psy_dpn_session.py
-# + multi-step continuity for StateCell / OptionState / Accumulator / WideCounter / MapMini / EmitProbe / CallProbe / LoopSum / HashProbe.
+# + multi-step continuity for StateCell / OptionState / Accumulator / WideCounter / MapMini / EmitProbe / CallProbe / LoopSum / HashProbe / ContextProbe.
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
@@ -355,6 +355,33 @@ for call in hashPair:1,2 hashPadPair:1,2 keccakWord:1; do
 done
 info "OK session hash gadgets fail-closed"
 
+# --- ContextProbe (P3 partial: DPN ExecutionContext ids) ---
+dpn_x=$(build_ex ContextProbe Examples.ContextProbe)
+for pair in "ctx-user:snapUser:1" "ctx-contract:snapContract:1" "ctx-cp:snapCheckpoint:100" "ctx-nonce:snapNonce:0" "ctx-caller:snapCallerContract:0"; do
+  tag="${pair%%:*}"; rest="${pair#*:}"; method="${rest%%:*}"; want="${rest##*:}"
+  diff_pair "$tag" "$dpn_x" "$method"
+  python3 -I -S - "$out/off-${tag}.json" "$want" <<'PYC'
+import json,sys
+off=json.load(open(sys.argv[1])); want=int(sys.argv[2])
+assert off.get("success") is True
+outs=[int(x) for x in (off.get("outputs") or [])]
+assert outs==[want], (outs, want)
+print(f"OK official want={want} out={outs}")
+PYC
+done
+info "session continuity ContextProbe snaps"
+python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_x" --json \
+  --call initialize --call snapUser --call snapCheckpoint --call get \
+  >"$out/session-ctx.json"
+python3 -I -S - "$out/session-ctx.json" <<'PYC'
+import json,sys
+d=json.load(open(sys.argv[1]))
+assert d["calls"][1]["outputs"]==[1]
+assert d["calls"][2]["outputs"]==[100]
+assert d["calls"][3]["outputs"]==[100]
+print("OK session context continuity")
+PYC
+
 # coverage report from built artifacts
 python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
   --artifact-root "$out" -o "$out/psy-op-coverage.v1.json"
@@ -362,5 +389,5 @@ python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
 python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
   --artifact-root "$out" -o "$root/docs/targets/psy-op-coverage.v1.json"
 
-info "OK differential matrix + MapMini multi-key + EmitProbe events + CallProbe invoke + LoopSum + HashProbe + coverage"
+info "OK differential matrix + MapMini multi-key + EmitProbe events + CallProbe invoke + LoopSum + HashProbe + ContextProbe + coverage"
 echo "artifacts: $out"

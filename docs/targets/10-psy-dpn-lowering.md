@@ -119,7 +119,8 @@ zero-divisor behavior由 target-owned lowering固定。
 | event | PARTIAL | ordered DPN event encoding only |
 | void sync call | PARTIAL | exact DPN invoke shape only |
 | result call / schedule | fail closed | capability/Plan gate |
-| ContextRead / Commit | fail closed | no frozen public-input binding |
+| ContextRead (EVM places) / Commit | fail closed | no frozen public-input binding |
+| `pf.context.userId|contractId|checkpointId|nonce|callerContractId` | lowered | DPN ExecutionContext ops 46–49, 79 (ContextProbe) |
 | nonempty invariant | fail closed | no target refinement contract |
 | UPS / network / deploy | absent | outside materializer/finalizer |
 

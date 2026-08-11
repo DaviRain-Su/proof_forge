@@ -6,8 +6,8 @@
     "schemaOpCount": 73,
     "emitterReachableCount": 28,
     "sessionImplementedCount": 48,
-    "artifactOpKinds": 8,
-    "artifactFiles": 1,
+    "artifactOpKinds": 32,
+    "artifactFiles": 10,
     "p0EmitterWithoutSession": [],
     "featureBacklog": [
       {
@@ -39,7 +39,7 @@
       },
       {
         "id": "ContextRead-Commit",
-        "status": "Plan FC"
+        "status": "EVM context.* FC; pf.context.userId|contractId|checkpointId|nonce|callerContractId open (ContextProbe)"
       },
       {
         "id": "wide-u128-u256",
@@ -61,9 +61,17 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 13,
+      "artifactCount": 69,
       "examples": [
-        "hash-probe"
+        "Accumulator",
+        "CallProbe",
+        "EmitProbe",
+        "HashProbe",
+        "LoopSum",
+        "MapMini",
+        "OptionState",
+        "StateCell",
+        "WideCounter"
       ],
       "status": "covered"
     },
@@ -74,9 +82,18 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 6,
+      "artifactCount": 2765,
       "examples": [
-        "hash-probe"
+        "Accumulator",
+        "CallProbe",
+        "ContextProbe",
+        "EmitProbe",
+        "HashProbe",
+        "LoopSum",
+        "MapMini",
+        "OptionState",
+        "StateCell",
+        "WideCounter"
       ],
       "status": "covered"
     },
@@ -87,9 +104,18 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 5,
+      "artifactCount": 41,
       "examples": [
-        "hash-probe"
+        "Accumulator",
+        "CallProbe",
+        "ContextProbe",
+        "EmitProbe",
+        "HashProbe",
+        "LoopSum",
+        "MapMini",
+        "OptionState",
+        "StateCell",
+        "WideCounter"
       ],
       "status": "covered"
     },
@@ -99,10 +125,12 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 2,
+      "examples": [
+        "MapMini"
+      ],
+      "status": "covered"
     },
     {
       "opId": 4,
@@ -110,10 +138,17 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 2371,
+      "examples": [
+        "Accumulator",
+        "CallProbe",
+        "EmitProbe",
+        "LoopSum",
+        "StateCell",
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 5,
@@ -121,10 +156,13 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 2317,
+      "examples": [
+        "LoopSum",
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 6,
@@ -132,10 +170,12 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 68,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 7,
@@ -154,10 +194,14 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 940,
+      "examples": [
+        "MapMini",
+        "OptionState",
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 9,
@@ -165,10 +209,15 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 1088,
+      "examples": [
+        "LoopSum",
+        "MapMini",
+        "OptionState",
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 10,
@@ -176,10 +225,13 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 2513,
+      "examples": [
+        "MapMini",
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 11,
@@ -209,10 +261,14 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 2553,
+      "examples": [
+        "MapMini",
+        "OptionState",
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 14,
@@ -220,10 +276,12 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 1,
+      "examples": [
+        "LoopSum"
+      ],
+      "status": "covered"
     },
     {
       "opId": 15,
@@ -231,10 +289,17 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 295,
+      "examples": [
+        "Accumulator",
+        "CallProbe",
+        "EmitProbe",
+        "LoopSum",
+        "StateCell",
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 16,
@@ -242,10 +307,12 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 768,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 17,
@@ -253,10 +320,13 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 1387,
+      "examples": [
+        "LoopSum",
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 18,
@@ -300,7 +370,7 @@
       "seenInArtifacts": true,
       "artifactCount": 2,
       "examples": [
-        "hash-probe"
+        "HashProbe"
       ],
       "status": "schema-only-not-emitted"
     },
@@ -313,7 +383,7 @@
       "seenInArtifacts": true,
       "artifactCount": 2,
       "examples": [
-        "hash-probe"
+        "HashProbe"
       ],
       "status": "schema-only-not-emitted"
     },
@@ -323,10 +393,15 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 5649,
+      "examples": [
+        "LoopSum",
+        "MapMini",
+        "OptionState",
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 24,
@@ -422,10 +497,12 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 924,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 33,
@@ -444,10 +521,12 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 2820,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 35,
@@ -466,10 +545,12 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 4,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 37,
@@ -488,10 +569,12 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 2944,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 40,
@@ -521,10 +604,12 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 3480,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 43,
@@ -565,10 +650,13 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 3,
+      "examples": [
+        "ContextProbe",
+        "EmitProbe"
+      ],
+      "status": "covered"
     },
     {
       "opId": 47,
@@ -576,10 +664,13 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 3,
+      "examples": [
+        "ContextProbe",
+        "EmitProbe"
+      ],
+      "status": "covered"
     },
     {
       "opId": 48,
@@ -587,10 +678,13 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 3,
+      "examples": [
+        "ContextProbe",
+        "EmitProbe"
+      ],
+      "status": "covered"
     },
     {
       "opId": 49,
@@ -598,9 +692,11 @@
       "officialSchema": true,
       "pfEmitter": "not-reachable",
       "session": "unsupported",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
+      "seenInArtifacts": true,
+      "artifactCount": 2,
+      "examples": [
+        "ContextProbe"
+      ],
       "status": "schema-only-not-emitted"
     },
     {
@@ -654,9 +750,18 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 1,
+      "artifactCount": 809,
       "examples": [
-        "hash-probe"
+        "Accumulator",
+        "CallProbe",
+        "ContextProbe",
+        "EmitProbe",
+        "HashProbe",
+        "LoopSum",
+        "MapMini",
+        "OptionState",
+        "StateCell",
+        "WideCounter"
       ],
       "status": "covered"
     },
@@ -765,10 +870,12 @@
       "officialSchema": true,
       "pfEmitter": "reachable",
       "session": "implemented",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
-      "status": "emitter+session-no-artifact"
+      "seenInArtifacts": true,
+      "artifactCount": 20,
+      "examples": [
+        "WideCounter"
+      ],
+      "status": "covered"
     },
     {
       "opId": 73,
@@ -834,7 +941,7 @@
       "seenInArtifacts": true,
       "artifactCount": 2,
       "examples": [
-        "hash-probe"
+        "HashProbe"
       ],
       "status": "schema-only-not-emitted"
     },
@@ -844,9 +951,11 @@
       "officialSchema": true,
       "pfEmitter": "not-reachable",
       "session": "unsupported",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
+      "seenInArtifacts": true,
+      "artifactCount": 2,
+      "examples": [
+        "ContextProbe"
+      ],
       "status": "schema-only-not-emitted"
     },
     {
@@ -869,7 +978,7 @@
       "seenInArtifacts": true,
       "artifactCount": 2,
       "examples": [
-        "hash-probe"
+        "HashProbe"
       ],
       "status": "schema-only-not-emitted"
     }
@@ -880,14 +989,14 @@
       "pfSchema": true,
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 1
+      "artifactCount": 814
     },
     {
       "name": "SetContractStateSlotSingle",
       "pfSchema": true,
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 5
+      "artifactCount": 126
     },
     {
       "name": "GetSelfUserCurrentContractStateSlotHash",
@@ -907,8 +1016,8 @@
       "name": "InvokeExternalContractFunctionSync",
       "pfSchema": true,
       "session": "partial",
-      "seenInArtifacts": false,
-      "artifactCount": 0
+      "seenInArtifacts": true,
+      "artifactCount": 1
     },
     {
       "name": "SetContractStateSlotRange",
@@ -1064,17 +1173,42 @@
     }
   ],
   "artifactOps": {
-    "0": 13,
-    "1": 6,
-    "2": 5,
+    "0": 69,
+    "1": 2765,
+    "2": 41,
+    "3": 2,
+    "4": 2371,
+    "5": 2317,
+    "6": 68,
+    "8": 940,
+    "9": 1088,
+    "10": 2513,
+    "13": 2553,
+    "14": 1,
+    "15": 295,
+    "16": 768,
+    "17": 1387,
     "21": 2,
     "22": 2,
-    "54": 1,
+    "23": 5649,
+    "32": 924,
+    "34": 2820,
+    "36": 4,
+    "38": 2944,
+    "42": 3480,
+    "46": 3,
+    "47": 3,
+    "48": 3,
+    "49": 2,
+    "54": 809,
+    "72": 20,
     "78": 2,
+    "79": 2,
     "81": 2
   },
   "artifactStateCmds": {
-    "GetSelfUserCurrentContractStateSlotSingle": 1,
-    "SetContractStateSlotSingle": 5
+    "GetSelfUserCurrentContractStateSlotSingle": 814,
+    "SetContractStateSlotSingle": 126,
+    "InvokeExternalContractFunctionSync": 1
   }
 }

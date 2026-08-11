@@ -3,13 +3,13 @@ id: TARGET-PSY-P3-CONTEXT-COMMIT-GATE
 title: Psy P3 ContextRead and Commit boundary gate
 status: draft
 owner: engineering
-updated: 2026-08-10
+updated: 2026-08-11
 normative: false
 ---
 
 # Psy P3: ContextRead / Commit — boundary note
 
-Status: **Plan fail-closed** (not implemented).  
+Status: **Partial open** — DPN-native `pf.context.*` open; EVM-style ContextRead + Commit remain Plan fail-closed.  
 Related: `LowerSemanticV1` PSY-CONTEXT-COMMIT, `docs/targets/10-psy-dpn-lowering.md` FC matrix.
 
 ## Why FC today
@@ -48,3 +48,25 @@ Opening these as ordinary state/Felt ops would over-claim.
 - `Examples/StateCell.lean`, `MapMini.lean`, `OptionState.lean`, `WideCounter.lean`
 - `Examples/LoopSum.lean` — bounded-for
 - `Examples/EmitProbe.lean`, `CallProbe.lean` — PARTIAL effect leaves
+
+## Partial open (2026-08-11)
+
+DPN **ExecutionContext** identity is available as expression-position calls
+(not EVM `context.caller` / `context.blockHeight` places):
+
+| Language | DPN op | official simulate default |
+|----------|-------:|---------------------------|
+| `call pf.context.userId()` | 46 getUserId | 1 |
+| `call pf.context.contractId()` | 47 getContractId | 1 |
+| `call pf.context.checkpointId()` | 48 getCheckpointId | 100 |
+| `call pf.context.nonce()` | 49 getNonce | 0 |
+| `call pf.context.callerContractId()` | 79 getCallerContractId | 0 |
+
+Probe: `Examples/ContextProbe.lean`.
+
+Still **fail-closed**:
+
+- `context.caller` (Principal / msg.sender)
+- `context.blockHeight` / `context.unixTimeSeconds`
+- `Commit` / B-COMMIT-ZK
+

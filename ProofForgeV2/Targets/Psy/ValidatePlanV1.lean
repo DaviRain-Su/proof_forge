@@ -25,7 +25,8 @@ private def validateExprNodes (expr : Expr) : Option Nat :=
   match expr with
   | .literal _ | .u32Literal _ | .boolLiteral _ | .fieldLiteral _
   | .param _ | .loopVar _ | .stateLoad _ | .wideUintMulLimb _ _ _
-  | .wideUintDivModLimb _ _ _ _ | .wideUintShiftLimb _ _ _ _ => some 1
+  | .wideUintDivModLimb _ _ _ _ | .wideUintShiftLimb _ _ _ _
+  | .ctxUserId | .ctxContractId | .ctxCheckpointId | .ctxNonce | .ctxCallerContractId => some 1
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r
   | .logicalAnd l r | .logicalOr l r | .shl l r | .shr l r
@@ -173,7 +174,8 @@ private partial def validateWideExpr
     (defined : WideBindingEnvV1) (expr : Expr) : CompileResult Unit := do
   match expr with
   | .literal _ | .u32Literal _ | .boolLiteral _ | .fieldLiteral _
-  | .param _ | .loopVar _ | .stateLoad _ => pure ()
+  | .param _ | .loopVar _ | .stateLoad _
+  | .ctxUserId | .ctxContractId | .ctxCheckpointId | .ctxNonce | .ctxCallerContractId => pure ()
   | .wideUintMulLimb bitWidth operationId limbIndex =>
       unless bitWidth == 128 || bitWidth == 256 do
         planError "Psy wide multiplication bitWidth must be 128 or 256"

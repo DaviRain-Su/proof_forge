@@ -16,6 +16,7 @@ mods=(
   "Examples/EmitProbe.lean:Examples.EmitProbe"
   "Examples/CallProbe.lean:Examples.CallProbe"
   "Examples/HashProbe.lean:Examples.HashProbe"
+  "Examples/ContextProbe.lean:Examples.ContextProbe"
 )
 ok=0; fail=0; skip=0
 out_root="$root/build/v2/psy-matrix"
@@ -103,6 +104,13 @@ for entry in "${mods[@]}"; do
           fi
           rg -q 'hashNoPad|op 21|ADR-0039|hash/merkle' /tmp/psy-mat-hash-sess.txt \
             && echo "  OK session hash fail-closed" || { echo "  FAIL session hash msg"; fail=$((fail+1)); continue; }
+          ;;
+        ContextProbe)
+          python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" --json \
+            --call initialize --call snapUser --call snapCheckpoint --call get \
+            >/tmp/psy-mat-session-$name.json \
+            && python3 -I -S -c "import json;d=json.load(open('/tmp/psy-mat-session-ContextProbe.json'));assert d['calls'][1]['outputs']==[1] and d['calls'][2]['outputs']==[100]" \
+            && echo "  OK session context ids" || { echo "  FAIL session context"; fail=$((fail+1)); continue; }
           ;;
       esac
       ok=$((ok+1))

@@ -307,6 +307,10 @@ class Executor:
                 self.put(dt, idx, self.contract_id)
             elif op == 48:
                 self.put(dt, idx, self.checkpoint_id)
+            elif op == 49:  # getNonce
+                self.put(dt, idx, 0)
+            elif op == 79:  # getCallerContractId
+                self.put(dt, idx, 0)
             elif op in (53, 54, 55):
                 ci = int(ins[0])
                 self.run_cmd(ci)
