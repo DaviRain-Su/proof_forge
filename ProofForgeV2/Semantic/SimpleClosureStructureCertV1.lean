@@ -192,6 +192,7 @@ theorem typeKeyPrimitiveLeaf_simpleClosure (p : SimpleClosureParamsV1) :
     validatePrimitiveAnonymousTypeKeyUniquenessV1
       (materializeSimpleClosureDataV1 p).types = .ok () := by
   simp [materializeSimpleClosureDataV1, validatePrimitiveAnonymousTypeKeyUniquenessV1,
+    collectPrimitiveAnonymousTypeKeysV1,
     simpleClosureBoolTypeV1, simpleClosureUInt64TypeV1,
     encodeTypeShape_bool_simpleClosure, encodeTypeShape_uint64_simpleClosure,
     compare_bool_uint64_simpleClosure, Pure.pure, Except.pure, Bind.bind,

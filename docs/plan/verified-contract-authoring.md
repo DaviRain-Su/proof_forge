@@ -3,7 +3,7 @@ id: PLAN-VERIFIED-CONTRACT-AUTHORING
 title: ProofForge VerifiedVault 风格形式化验证作者体验实施规划
 status: draft
 owner: engineering
-updated: 2026-08-10
+updated: 2026-08-11
 normative: false
 ---
 
@@ -548,6 +548,11 @@ checked arithmetic/lookup 通用引理与业务 proof ergonomics尚未完成。
 
 ### Phase 5 — Same-file authoring 与 certifier 体验
 
+**状态**：exact initializer + read-only view + two-field equality family 的首个 business slice
+已闭合；通用 arbitrary-family 作者体验仍在进行中。真实 `VerifiedVaultPF.lean` 已由同一文件内
+ordinary Lean theorem 通过产品 certifier 与 CLI `check`，而删除 initializer store、改变
+callable kind/body shape 的 typed-valid near miss 会在 certification elaboration 阶段 fail closed。
+
 交付：
 
 1. Elaborator 在同一 program namespace 生成稳定 `Model` + `Proof` +
@@ -573,12 +578,17 @@ checked arithmetic/lookup 通用引理与业务 proof ergonomics尚未完成。
 
 ### Phase 6 — `VerifiedVaultPF.lean` 纵向样例与 proof-bearing build
 
-**前置 authority change**：当前 ADR-0034 与各 target contract 明确保持 nonempty invariant
-materialization fail closed。本 draft 不能覆盖该规则。进入 Phase 6 代码前，必须先提交并批准独立
-ADR/target-spec amendment，冻结 versioned proof-only invariant erasure Plan；在该变更获批前，
-proof-bearing target build 继续 fail closed。
+本阶段拆成两个不互相冒充的子阶段：
 
-交付一个真实单文件样例，不使用缩小 golden 替代完整业务程序：
+- **Phase 6A — Reference-certified author slice**：只要求产品 `check`，不触碰 target
+  materialization authority，因此无需 invariant-erasure amendment。initializer + read-only status +
+  equality invariant 的首切已完成；deposit/withdraw 仍待实现。
+- **Phase 6B — proof-bearing target build/runtime**：当前 ADR-0034 与各 target contract 明确保持
+  nonempty invariant materialization fail closed。本 draft 不能覆盖该规则。进入 6B 代码前，必须
+  先提交并批准独立 ADR/target-spec amendment，冻结 versioned proof-only invariant erasure Plan；
+  在该变更获批前，proof-bearing target build 继续 fail closed。
+
+6A/6B 最终共同交付一个真实单文件样例，不使用缩小 golden 替代完整业务程序：
 
 1. state：`reserves` / `shares`；
 2. init：两者归零；
@@ -711,8 +721,9 @@ proof-bearing target build 继续 fail closed。
 | 2 | Typed callable transition | **进行中（typed UInt64 参数投影 + initialized entry/view + 独立 initializer lifecycle relation 首切已完成）** | production ready gate 可把 raw invocation 精确恢复为 generated named invocation；pre-init 只使用 exact production lifecycle carrier；initializer returned state 与 ordinary callable returned state 均可唯一投影为 typed State，固定 typed 输入有且至多有一个 typed outcome |
 | 3 | Typed invariant bridge | **进行中（evaluator + UInt64 字段 Eq/Ne 数学 bridge 首切已完成）** | generated predicate 使用 exact state encoder 与 lowered invariant ordinal，并与 production `evalInvariantV1` 双向对齐；exact two-state Eq/Ne CFG 已 fail-closed 投影成字段 `=`/`≠` 且不再暴露 encoding witness；这不是任意 expression translator，更多表达式与 exact validation packaging 仍待补 |
 | 4 | Generic preservation composition | **进行中（首个 state-changing program-level preserving 闭环已完成）** | composer、finite-row assembler、typed returned lift、UInt64 参数投影及 literal-true 程序级闭环已有；`sync(amount)` 已经真实 Reference step 修改两个 UInt64 字段并证明 post-state `reserves = shares`，并由 name-parameterized production validation/admission family、two-UInt64 initial base 与 exact rows 组装成最终 `PreservationTheoremV1`。这仍只是该 narrow family 的 Reference certification 地基；完整 Vault 与通用合约覆盖仍待补 |
-| 5 | Same-file certifier ergonomics | 部分地基已有 | 任意未 pin 合约的真实 proof body可 certified |
-| 6 | authority amendment + VerifiedVaultPF + NEAR build/runtime | 未开始 | 先批准 versioned invariant-erasure contract，再完成单文件 proof + build + runtime differential；诚实标注 Reference-level |
+| 5 | Same-file certifier ergonomics | **进行中（首个 initializer/view business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 首切已通过真实 certifier 与 CLI；typed-valid shape near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
+| 6A | VerifiedVaultPF Reference-certified author slice | **进行中（initializer + status + equality invariant 已完成）** | 当前首切 exact `check` certified；下一步加入 deposit/withdraw 的 state-changing business lemmas，不宣称 target artifact refinement |
+| 6B | authority amendment + NEAR build/runtime | 未开始 | 先批准 versioned invariant-erasure contract，再完成 proof-bearing build + runtime differential；诚实标注 Reference-level + engineering observed |
 | 7 | Per-target refinement | 未开始 | target-specific refinement evidence逐个关闭 |
 
 ### 首个代码切片进展
@@ -980,7 +991,8 @@ expression translator：
     `callable0TypedReturnedV1` surface 上用普通字段等式关闭 `solvent : reserves == shares`；
     context、responses、vault、returned result/effects 与 raw invocation 均未被隐藏，也没有
     第二 evaluator；
-12. 该 fixture 现已 exact 命中 name-parameterized `StatefulEqualitySubjectV1`：family 使用真实
+12. `StateChangingPreservationSurface` 已 exact 命中 name-parameterized
+    `StatefulEqualitySubjectV1`：family 使用真实
     singleton `state.persistent` requirements，组合 production structure phases 与
     `RootFieldInvertV1`；elaborator 只有在 reconstructed whole subject 完全相等时才生成
     `Proof.subjectStructureOkV1` / `Proof.subjectValidationOkV1`。随后 same-file aggregate 通过 sole
@@ -991,9 +1003,17 @@ expression translator：
     in-process certifier 与 CLI `check` 均验收 `.certified`（theorem count 1 与非空 SHA-256
     certification digest），无 contract-specific pin/package。这仍不代表 arbitrary contract
     generator、完整 VerifiedVaultPF 或任何 target refinement 已完成；
-13. VerifiedVaultPF 的 initializer、deposit、withdraw、status returned 业务 lemmas仍未完成；
-    因此 Phase 4 与“任意业务合约验证”仍不能称完成，当前最高声明仍是
-    `reference-certified` 地基而非 target artifact verified。
+13. 首个真实 `Examples/VerifiedVaultPF.lean` 现已完成 initializer + read-only `status` +
+    `reserves == shares` invariant 的 exact production family：两字段 canonical zero 初始化经 sole
+    Reference machine 建立 lifecycle base，status returned 路径证明 `post = pre`，最终同文件
+    ordinary theorem 组装为原始 `PreservationTheoremV1`。产品 certifier/CLI 报告
+    `proofStatus=certified`、theorem count 1 与非空 certification digest；删除一个 zero store、
+    将 status 改为 typed-valid state-changing entry 等 near miss 都不能复用该 family theorem，
+    并在 certification elaboration fail closed；
+14. deposit、withdraw 及其 overflow/guard/underflow rollback 业务 lemma 仍未完成，proof-bearing
+    target build 也仍受 invariant-erasure authority gate 阻止。因此 Phase 4/6 与“任意业务合约
+    验证”均不能称完成；当前最高声明只是该窄切片的 `reference-certified`，不是完整 Vault，
+    更不是 target artifact verified。
 
 ---
 

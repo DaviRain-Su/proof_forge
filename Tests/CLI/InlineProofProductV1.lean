@@ -534,6 +534,62 @@ private def testStatefulEqualityProductCli : IO Unit := do
   expect (!hasSubstr stdoutN "proofStatus=certified")
     "StatefulEquality near-miss must not claim certified"
 
+/-- The first initializer/view business slice certifies through the real CLI;
+    deleting one initializer store remains typed-valid but cannot elaborate the
+    exact-family preservation proof. -/
+private def testVerifiedVaultPFProductCli : IO Unit := do
+  let args := #["check", "Examples/VerifiedVaultPF.lean",
+    "--module", "Examples.VerifiedVaultPF"]
+  let (ec, stdout, stderr) ← runCli args
+  expect (ec == 0) s!"VerifiedVaultPF human check: {ec}\n{stderr}\n{stdout}"
+  expect (hasSubstr stdout "proofStatus=certified")
+    "VerifiedVaultPF human certified"
+  expect (hasSubstr stdout "proofTheoremCount=1")
+    "VerifiedVaultPF human theorem count"
+  expect (hasSubstr stdout "proofCertificationDigest=sha256:")
+    "VerifiedVaultPF human certification digest"
+  expect (stderr == "") s!"VerifiedVaultPF human stderr: {stderr}"
+  let (ecJ, stdoutJ, stderrJ) ← runCli (args.push "--json")
+  expect (ecJ == 0) s!"VerifiedVaultPF JSON check: {ecJ}\n{stderrJ}"
+  expectCanonicalJson "verified-vault-pf-check" stdoutJ
+  expect (hasSubstr stdoutJ "\"proofStatus\":\"certified\"")
+    "VerifiedVaultPF JSON certified"
+  expect (hasSubstr stdoutJ "\"proofTheoremCount\":1")
+    "VerifiedVaultPF JSON theorem count"
+  expect (hasSubstr stdoutJ "\"proofCertificationDigest\":\"sha256:")
+    "VerifiedVaultPF JSON certification digest"
+  expect (stderrJ == "") s!"VerifiedVaultPF JSON stderr: {stderrJ}"
+
+  let nearMiss := fixtureHeader ++
+    "program VerifiedVaultPFNearMiss where\n" ++
+    "  state reserves : UInt64\n" ++
+    "  state shares : UInt64\n" ++
+    "  init() do\n" ++
+    "    reserves := 0\n" ++
+    "  view status() : UInt64 do\n" ++
+    "    return reserves\n" ++
+    "  invariant solvent : reserves == shares\n" ++
+    "  proof solvent preserving using VerifiedVaultPFNearMissProof.solvent\n" ++
+    "theorem VerifiedVaultPFNearMissProof.solvent : VerifiedVaultPFNearMiss.ProofPreserving.solvent := by\n" ++
+    "  exact ProofForgeV2.Semantic.InitializerViewEqualityPreservationV1.preservationTheorem_of_subjectBodyV1\n" ++
+    "    VerifiedVaultPFNearMiss.Proof.subjectDataV1.qualifiedName\n" ++
+    "    \"reserves\" \"shares\" \"status\" \"solvent\"\n" ++
+    "    VerifiedVaultPFNearMiss.Proof.subjectDataV1 VerifiedVaultPFNearMiss.Proof.subjectBytesV1\n" ++
+    "    (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)\n" ++
+    "    (by decide) (by decide) (by rfl)\n" ++
+    "    VerifiedVaultPFNearMiss.Proof.subjectBodyEncodeOkV1\n"
+  let _ ← writeFixture "verified-vault-pf-near-miss.lean" nearMiss
+  let (ecN, stdoutN, stderrN) ← runCli #["check",
+    relativeFixture "verified-vault-pf-near-miss.lean", "--module", "Root"]
+  expect (ecN == 3) s!"VerifiedVaultPF near-miss exit: {ecN}\n{stderrN}"
+  expect (hasSubstr stderrN "PF-SRC-INVALID")
+    s!"VerifiedVaultPF near-miss diagnostic: {stderrN}"
+  expect (hasSubstr stderrN
+      "inline proof certification failed: phase=certification detail=elaborate")
+    s!"VerifiedVaultPF near-miss must fail during theorem elaboration: {stderrN}"
+  expect (!hasSubstr stdoutN "proofStatus=certified")
+    "VerifiedVaultPF near-miss must not claim certified"
+
 def run : IO Unit := do
   testRenderProofStatusFields
   testLegacyProofBundleFlagsUnknown
@@ -547,6 +603,7 @@ def run : IO Unit := do
   testFalseTheoremBuildBeforeMaterialize
   testSimpleClosureProductPositiveCli
   testStatefulEqualityProductCli
+  testVerifiedVaultPFProductCli
   IO.println "Tests.CLI.InlineProofProductV1: ok"
 
 end Tests.CLI.InlineProofProductV1

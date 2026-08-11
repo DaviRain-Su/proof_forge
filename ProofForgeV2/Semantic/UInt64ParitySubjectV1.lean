@@ -555,6 +555,7 @@ private theorem typeKeyPrimitiveLeafV1 :
     validatePrimitiveAnonymousTypeKeyUniquenessV1 typesV1 = .ok () := by
   simp [typesV1, uint64Type0V1, boolType1V1,
     validatePrimitiveAnonymousTypeKeyUniquenessV1,
+    collectPrimitiveAnonymousTypeKeysV1,
     encodeTypeShape_uint64V1, encodeTypeShape_boolV1, compare_uint64_boolV1,
     Pure.pure, Except.pure, Bind.bind, Except.bind]
 
@@ -649,6 +650,7 @@ private theorem callablesValueBytesV1
   have hreturn (value : Option ValueIdV1) (budget : Nat) :
       validateTerminatorValueBytesV1 typesV1 (.return_ value) budget = .ok budget := rfl
   simp [subjectDataV1, incrementAddTwoCallableV1, viewLoadCallableV1,
+    ProofForgeV2.Semantic.PreservationShapeV1.viewLoadBlockV1,
     uint64ParityInvariantCallableV1, validateCallablesValueBytesV1,
     hload, hstore, hbinary, hreturn, htwo0, htwo1, hzero,
     Pure.pure, Except.pure, Bind.bind, Except.bind]
@@ -828,7 +830,8 @@ private theorem getCfgV1
       (viewLoadCallableV1 1 (some viewName) 0 0) #[true] #[(0, 0)]
     · rfl
     · rfl
-    · simp [checkValueIdUsesExist, viewLoadCallableV1, opValueUses,
+    · simp [checkValueIdUsesExist, viewLoadCallableV1,
+        ProofForgeV2.Semantic.PreservationShapeV1.viewLoadBlockV1, opValueUses,
         terminatorValueUses, Pure.pure, Except.pure, Bind.bind, Except.bind]
     · rfl
   · rfl

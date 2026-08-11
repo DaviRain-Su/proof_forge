@@ -52,6 +52,18 @@ private theorem isAsciiTagBytes_Type_Bool :
 
 private theorem isAsciiTag_Type_Bool : isAsciiTagV1 "Type.Bool" = true := by decide
 
+private theorem utf8_Type_Unit :
+    "Type.Unit".toUTF8 =
+      ByteArray.mk #[84, 121, 112, 101, 46, 85, 110, 105, 116] := by rfl
+
+private theorem isAsciiTagBytes_Type_Unit :
+    isAsciiTagBytesV1 "Type.Unit".toUTF8 = true := by
+  rw [utf8_Type_Unit]
+  exact isAsciiTagBytes_of_list_all
+    [84, 121, 112, 101, 46, 85, 110, 105, 116] (by decide)
+
+private theorem isAsciiTag_Type_Unit : isAsciiTagV1 "Type.Unit" = true := by decide
+
 private theorem utf8_ProgramRequirements :
     "ProgramRequirements".toUTF8 =
       ByteArray.mk #[80, 114, 111, 103, 114, 97, 109, 82, 101, 113, 117, 105, 114, 101,
@@ -1196,6 +1208,93 @@ theorem decodeTypeShape_bool_of_encode_midV1
       left.size + (taggedHeaderBytesV1 "Type.Bool" 0).size, nesting + 1⟩
     hdepth hbody
 
+/-! ### Type.Unit nullary TypeShape invert -/
+
+theorem decodeTypeShape_unit_of_encode_midV1
+    (b left right : ByteArray) (nesting : Nat)
+    (hdepth : nesting < maxNesting)
+    (henc : encodeTypeShapeV1 .unit = .ok b) :
+    decodeTypeShapeV1 ⟨left ++ b ++ right, left.size, nesting⟩ =
+      .ok (.unit, ⟨left ++ b ++ right, left.size + b.size, nesting⟩) := by
+  have hb := encodeNullary_ok_taggedHeader "Type.Unit" (by decide)
+    isAsciiTag_Type_Unit (by decide) b henc
+  subst b
+  have hencH :
+      taggedHeaderBytesV1 "Type.Unit" 0 =
+        encodeU32le (UInt32.ofNat "Type.Unit".toUTF8.size) ++
+          "Type.Unit".toUTF8 ++ encodeU16le 0 := by
+    simp [taggedHeaderBytesV1, ByteArray.append_assoc]
+  have htag :
+      decodeTag
+          ⟨left ++ taggedHeaderBytesV1 "Type.Unit" 0 ++ right,
+            left.size, nesting + 1⟩ =
+        .ok ("Type.Unit",
+          ⟨left ++ taggedHeaderBytesV1 "Type.Unit" 0 ++ right,
+            left.size + 4 + "Type.Unit".toUTF8.size, nesting + 1⟩) := by
+    have hin :
+        left ++ taggedHeaderBytesV1 "Type.Unit" 0 ++ right =
+          left ++ encodeU32le (UInt32.ofNat "Type.Unit".toUTF8.size) ++
+            "Type.Unit".toUTF8 ++ (encodeU16le 0 ++ right) := by
+      simp [hencH, ByteArray.append_assoc]
+    rw [hin]
+    simpa [ByteArray.append_assoc] using
+      decodeTag_encode_midV1 left (encodeU16le 0 ++ right) "Type.Unit"
+        (nesting + 1) (by decide) (by decide) (by decide)
+        isAsciiTagBytes_Type_Unit isAsciiTag_Type_Unit
+  have hfc :
+      decodeFieldCount 0
+          ⟨left ++ taggedHeaderBytesV1 "Type.Unit" 0 ++ right,
+            left.size + 4 + "Type.Unit".toUTF8.size, nesting + 1⟩ =
+        .ok ((),
+          ⟨left ++ taggedHeaderBytesV1 "Type.Unit" 0 ++ right,
+            left.size + (taggedHeaderBytesV1 "Type.Unit" 0).size,
+            nesting + 1⟩) := by
+    have hassoc :
+        left ++ taggedHeaderBytesV1 "Type.Unit" 0 ++ right =
+          (left ++ encodeU32le (UInt32.ofNat "Type.Unit".toUTF8.size) ++
+            "Type.Unit".toUTF8) ++ encodeU16le 0 ++ right := by
+      simp [hencH, ByteArray.append_assoc]
+    have hsz :
+        (left ++ encodeU32le (UInt32.ofNat "Type.Unit".toUTF8.size) ++
+            "Type.Unit".toUTF8).size =
+          left.size + 4 + "Type.Unit".toUTF8.size := by
+      rw [ByteArray.size_append, ByteArray.size_append, encodeU32le_sizeV1]
+    have hread :
+        readU16leAtV1 (left ++ taggedHeaderBytesV1 "Type.Unit" 0 ++ right)
+            (left.size + 4 + "Type.Unit".toUTF8.size) =
+          .ok (0, left.size + 4 + "Type.Unit".toUTF8.size + 2) := by
+      rw [hassoc, ← hsz]
+      simpa [hsz] using
+        readU16le_encode_midV1
+          (left ++ encodeU32le (UInt32.ofNat "Type.Unit".toUTF8.size) ++
+            "Type.Unit".toUTF8)
+          right 0
+    have hszFinal :
+        left.size + 4 + "Type.Unit".toUTF8.size + 2 =
+          left.size + (taggedHeaderBytesV1 "Type.Unit" 0).size := by
+      simp only [taggedHeaderBytesV1_size]
+      omega
+    rw [← hszFinal]
+    exact decodeFieldCount_eq_of_readU16leV1 0
+      ⟨left ++ taggedHeaderBytesV1 "Type.Unit" 0 ++ right,
+        left.size + 4 + "Type.Unit".toUTF8.size, nesting + 1⟩
+      0 (left.size + 4 + "Type.Unit".toUTF8.size + 2) hread
+  have hbody := decodeTypeShapeBodyV1_unit
+    ⟨left ++ taggedHeaderBytesV1 "Type.Unit" 0 ++ right,
+      left.size, nesting + 1⟩
+    ⟨left ++ taggedHeaderBytesV1 "Type.Unit" 0 ++ right,
+      left.size + 4 + "Type.Unit".toUTF8.size, nesting + 1⟩
+    ⟨left ++ taggedHeaderBytesV1 "Type.Unit" 0 ++ right,
+      left.size + (taggedHeaderBytesV1 "Type.Unit" 0).size, nesting + 1⟩
+    htag hfc
+  exact decodeTypeShapeV1_eq_of_bodyV1
+    ⟨left ++ taggedHeaderBytesV1 "Type.Unit" 0 ++ right,
+      left.size, nesting⟩
+    .unit
+    ⟨left ++ taggedHeaderBytesV1 "Type.Unit" 0 ++ right,
+      left.size + (taggedHeaderBytesV1 "Type.Unit" 0).size, nesting + 1⟩
+    hdepth hbody
+
 /-! ### QN foundation: encode success + single-component invert -/
 
 theorem encodeQualifiedName_ok_eqV1 (name : QualifiedName) (b : ByteArray)
@@ -2103,6 +2202,12 @@ theorem exactMidOffsetInvert_typeShape_bool :
   intro b left right nesting hdepth henc
   exact decodeTypeShape_bool_of_encode_midV1 b left right nesting hdepth henc
 
+/-- Exact mid-offset inversion for the production Unit TypeShape codec. -/
+theorem exactMidOffsetInvert_typeShape_unit :
+    ExactMidOffsetInvertV1 encodeTypeShapeV1 decodeTypeShapeV1 .unit := by
+  intro b left right nesting hdepth henc
+  exact decodeTypeShape_unit_of_encode_midV1 b left right nesting hdepth henc
+
 /-- Exact mid-offset inversion for the production UInt TypeShape codec. -/
 theorem exactMidOffsetInvert_typeShape_uint (w : UInt16) :
     ExactMidOffsetInvertV1 encodeTypeShapeV1 decodeTypeShapeV1 (.uint w) := by
@@ -2325,6 +2430,15 @@ theorem exactAt_typeDecl_bool_noneV1
       ({ id := id, name := none, shape := .bool } : TypeDeclV1) nesting :=
   exactAt_typeDecl_none_of_shapeV1 id .bool nesting hdepth
     exactMidOffsetInvert_typeShape_bool
+
+/-- Fixed-depth anonymous Unit TypeDecl inversion. -/
+theorem exactAt_typeDecl_unit_noneV1
+    (id : UInt32) (nesting : Nat)
+    (hdepth : nesting + 1 < maxNesting) :
+    ExactMidOffsetInvertAtV1 encodeTypeDeclV1 decodeTypeDeclV1
+      ({ id := id, name := none, shape := .unit } : TypeDeclV1) nesting :=
+  exactAt_typeDecl_none_of_shapeV1 id .unit nesting hdepth
+    exactMidOffsetInvert_typeShape_unit
 
 /-- Exact two-element anonymous TypeDecl root table for UInt64 then Bool. -/
 theorem decodeTypes_uint64_bool_table_of_encode_midV1

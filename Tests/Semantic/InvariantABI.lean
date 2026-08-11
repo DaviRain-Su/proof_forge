@@ -773,8 +773,9 @@ private theorem compare_bool_unit_fixture :
     TypeShape encoding and bounded byte-comparison uniqueness path. -/
 theorem typeKeyPrimitiveLeaf_data :
     validatePrimitiveAnonymousTypeKeyUniquenessV1 data.types = .ok () := by
-  simp [validatePrimitiveAnonymousTypeKeyUniquenessV1, data, types, boolType,
-    principalType, unitType, encodeTypeShape_bool_fixture,
+  simp [validatePrimitiveAnonymousTypeKeyUniquenessV1,
+    collectPrimitiveAnonymousTypeKeysV1, data, types, boolType, principalType,
+    unitType, encodeTypeShape_bool_fixture,
     encodeTypeShape_principal_fixture, encodeTypeShape_unit_fixture,
     compare_bool_principal_fixture, compare_bool_unit_fixture,
     compare_principal_unit_fixture, Pure.pure, Except.pure, Bind.bind, Except.bind]

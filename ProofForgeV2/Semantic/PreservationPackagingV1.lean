@@ -272,6 +272,47 @@ theorem preservationBaseV1_of_initializerV1
     PreservationBaseV1 program ordinal admitted :=
   Or.inl ⟨hhasInitializer, hbase⟩
 
+/-- Build the initializer lifecycle base from only its successful returned
+    obligation. Revert and trap are closed by the sole Reference machine's
+    exact unchanged-state theorem, with invocation, responses, and vault still
+    universally quantified. -/
+theorem preservationBaseWithInitializerV1_of_returnedV1
+    (program : SemanticProgramV1)
+    (ordinal : InvariantOrdinalV1)
+    (admitted : AdmittedReferenceSliceV1)
+    (initial : LogicalStateV1)
+    (hinitial : initialLogicalStateV1 program = .ok initial)
+    (hreturned :
+      ∀ (invocation : InvocationV1)
+        (responses : ExternalResponsesV1)
+        (vault : ReferenceVaultSeedV1)
+        (postState : LogicalStateV1)
+        (value : Option ReferenceValueV1)
+        (effects : Array OrderedEffectV1),
+        IsInitializerInvocationV1 program invocation →
+        stepReferenceSliceV1 admitted initial invocation responses vault =
+          .returned postState value effects →
+        evalInvariantV1 program ordinal postState = .returnedTrue) :
+    PreservationBaseWithInitializerV1 program ordinal admitted := by
+  refine ⟨initial, hinitial, ?_⟩
+  intro invocation responses vault hinitializer
+  have hfailure :=
+    preservationStepFailureArmsV1 admitted initial invocation responses vault
+  generalize hstep :
+    stepReferenceSliceV1 admitted initial invocation responses vault = outcome
+  cases outcome with
+  | returned postState value effects =>
+      exact hreturned invocation responses vault postState value effects
+        hinitializer hstep
+  | reverted reason unchangedState =>
+      rw [hstep] at hfailure
+      simpa [OutcomeFailureStateUnchangedV1, OutcomeRevertedUnchangedV1] using
+        hfailure
+  | trapped fault unchangedState =>
+      rw [hstep] at hfailure
+      simpa [OutcomeFailureStateUnchangedV1, OutcomeTrappedUnchangedV1] using
+        hfailure
+
 /-- Select the positive product initial-state base for a program with no
     initializer. -/
 theorem preservationBaseV1_of_noInitializerV1
@@ -315,6 +356,23 @@ theorem preservationStepReturnedPostEqPreV1
     (hpost : post = pre) :
     evalInvariantV1 program ordinal post = .returnedTrue := by
   rw [hpost]
+  exact heval
+
+/-- If one production state encoder expression yields both the actual returned
+    post-state and a known invariant-satisfying state, the two logical carriers
+    are identical and the invariant transfers. -/
+theorem preservationStepReturnedOfSameEncodingV1
+    (program : SemanticProgramV1)
+    (ordinal : InvariantOrdinalV1)
+    (encoded : Except SemanticWireErrorV1 LogicalStateV1)
+    (post expected : LogicalStateV1)
+    (hpost : encoded = .ok post)
+    (hexpected : encoded = .ok expected)
+    (heval : evalInvariantV1 program ordinal expected = .returnedTrue) :
+    evalInvariantV1 program ordinal post = .returnedTrue := by
+  have hpostExpected : post = expected :=
+    Except.ok.inj (hpost.symm.trans hexpected)
+  rw [hpostExpected]
   exact heval
 
 /-! ### UInt64 size-from-validate packaging

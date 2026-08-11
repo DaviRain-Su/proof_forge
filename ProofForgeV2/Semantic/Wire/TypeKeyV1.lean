@@ -195,8 +195,8 @@ def validateNamedPrefixRankV1
     after every declaration shape/catalog check succeeds. -/
 -- Internal production primitive-leaf TypeKey subphase exposed for refinement.
 -- The complete TypeKey gate remains `validateTypeKeyPhasesV1`.
-def validatePrimitiveAnonymousTypeKeyUniquenessV1
-    (types : Array TypeDeclV1) : Except SemanticWireErrorV1 Unit := do
+def collectPrimitiveAnonymousTypeKeysV1
+    (types : Array TypeDeclV1) : Except SemanticWireErrorV1 (Array ByteArray) := do
   let mut keys : Array ByteArray := #[]
   for decl in types do
     let isPrimitive := match decl.shape with
@@ -204,22 +204,36 @@ def validatePrimitiveAnonymousTypeKeyUniquenessV1
       | .array _ _ | .map _ _ | .option _ | .struct _ | .enum _ => false
     if isPrimitive then
       keys := keys.push (← encodeTypeShapeV1 decl.shape)
-  -- Zero/one key is unique by construction. Besides avoiding unnecessary
-  -- sorting work, this keeps the minimal closed proof subject on transparent
-  -- collection operations only.
-  if keys.size ≤ 1 then return
-  -- Keep the small-table path transparent and allocation-free: at most three
-  -- unordered pairs are checked with the same production byte comparator.
-  -- All keys have already been encoded, preserving encoding-error precedence.
-  if keys.size ≤ 3 then
-    if compareByteArrayLex keys[0]! keys[1]! == .eq then
+  pure keys
+
+/-- Small-table branch of the production primitive TypeKey uniqueness scan. -/
+@[simp] def validatePrimitiveAnonymousTypeKeysSmallV1
+    (keys : Array ByteArray) : Except SemanticWireErrorV1 Unit := do
+  if compareByteArrayLex keys[0]! keys[1]! == .eq then
+    return ← err .nonCanonical
+  if keys.size == 3 then
+    if compareByteArrayLex keys[0]! keys[2]! == .eq then
       return ← err .nonCanonical
-    if keys.size == 3 then
-      if compareByteArrayLex keys[0]! keys[2]! == .eq then
-        return ← err .nonCanonical
-      if compareByteArrayLex keys[1]! keys[2]! == .eq then
-        return ← err .nonCanonical
-    return
+    if compareByteArrayLex keys[1]! keys[2]! == .eq then
+      return ← err .nonCanonical
+  pure ()
+
+/-- Three pairwise-distinct encoded primitive keys pass the exact production
+    small-table branch. -/
+theorem validatePrimitiveAnonymousTypeKeysSmallV1_three_eq_ok
+    (k0 k1 k2 : ByteArray)
+    (h01 : (compareByteArrayLex k0 k1 == .eq) = false)
+    (h02 : (compareByteArrayLex k0 k2 == .eq) = false)
+    (h12 : (compareByteArrayLex k1 k2 == .eq) = false) :
+    validatePrimitiveAnonymousTypeKeysSmallV1 #[k0, k1, k2] = .ok () := by
+  simp [validatePrimitiveAnonymousTypeKeysSmallV1, h01, h02, h12,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
+
+/-- Allocation-backed branch of the same production primitive-key scan. It is
+    named separately so small-table certificates do not elaborate or replay
+    the unreachable sort/loop proof term. -/
+def validatePrimitiveAnonymousTypeKeysLargeV1
+    (keys : Array ByteArray) : Except SemanticWireErrorV1 Unit := do
   let sorted := keys.qsort fun left right =>
     compareByteArrayLex left right == .lt
   let mut index : Nat := 1
@@ -228,6 +242,36 @@ def validatePrimitiveAnonymousTypeKeyUniquenessV1
       return ← err .nonCanonical
     index := index + 1
   pure ()
+
+/-- Production primitive anonymous TypeKey uniqueness scan, composed from the
+    exact collection, small-table, and allocation-backed branches above. -/
+def validatePrimitiveAnonymousTypeKeyUniquenessV1
+    (types : Array TypeDeclV1) : Except SemanticWireErrorV1 Unit := do
+  let keys ← collectPrimitiveAnonymousTypeKeysV1 types
+  -- Zero/one key is unique by construction. Besides avoiding unnecessary
+  -- sorting work, this keeps the minimal closed proof subject on transparent
+  -- collection operations only.
+  if keys.size ≤ 1 then return
+  -- Keep the small-table path transparent and allocation-free: at most three
+  -- unordered pairs are checked with the same production byte comparator.
+  -- All keys have already been encoded, preserving encoding-error precedence.
+  if keys.size ≤ 3 then
+    validatePrimitiveAnonymousTypeKeysSmallV1 keys
+  else
+    validatePrimitiveAnonymousTypeKeysLargeV1 keys
+
+/-- Compose the exact production collector and small-table branch for three
+    pairwise-distinct primitive keys. -/
+theorem validatePrimitiveAnonymousTypeKeyUniquenessV1_collect_three_eq_ok
+    (types : Array TypeDeclV1) (k0 k1 k2 : ByteArray)
+    (hcollect : collectPrimitiveAnonymousTypeKeysV1 types = .ok #[k0, k1, k2])
+    (h01 : (compareByteArrayLex k0 k1 == .eq) = false)
+    (h02 : (compareByteArrayLex k0 k2 == .eq) = false)
+    (h12 : (compareByteArrayLex k1 k2 == .eq) = false) :
+    validatePrimitiveAnonymousTypeKeyUniquenessV1 types = .ok () := by
+  simp [validatePrimitiveAnonymousTypeKeyUniquenessV1, hcollect,
+    validatePrimitiveAnonymousTypeKeysSmallV1, h01, h02, h12,
+    Pure.pure, Except.pure, Bind.bind, Except.bind]
 
 /-- Fixed-size internal structural-class signature builder (SPEC §5
     engineering subset). This is **not** the SPEC canonical unsigned-

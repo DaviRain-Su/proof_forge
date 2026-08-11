@@ -765,6 +765,41 @@ example
     subject logicalPre rawInvocation argumentOverlay context isInitializer
       hvalidate hcallableId hgate
 
+/- Exact generated proof views for the two-zero initializer, stuttering view,
+   and two-field equality family used by the business-level Vault slice. -/
+program InitializerViewEqualitySurface where
+  state reserves : UInt64
+  state shares : UInt64
+  init() do
+    reserves := 0
+    shares := 0
+  view status() : UInt64 do
+    return reserves
+  invariant solvent : reserves == shares
+  proof solvent preserving using InitializerViewEqualitySurfaceProof.solvent
+
+theorem initializerViewEqualitySurface_subjectData_eq :
+    InitializerViewEqualitySurface.Proof.subjectDataV1 =
+      ProofForgeV2.Semantic.InitializerViewEqualitySubjectV1.subjectDataV1
+        InitializerViewEqualitySurface.Proof.subjectDataV1.qualifiedName
+        "reserves" "shares" "status" "solvent" := by
+  rfl
+
+#check InitializerViewEqualitySurface.Proof.subjectStructureOkV1
+#check InitializerViewEqualitySurface.Proof.subjectValidationOkV1
+#check InitializerViewEqualitySurface.Model.LifecycleState
+#check InitializerViewEqualitySurface.Model.initialLifecycleState
+#check InitializerViewEqualitySurface.Model.init.Transition
+#check InitializerViewEqualitySurface.Model.status.Transition
+#check InitializerViewEqualitySurface.Model.solvent
+#check InitializerViewEqualitySurface.Model.Invariant.solvent_iff_eval
+#check InitializerViewEqualitySurface.Model.Invariant.solvent_iff_fields
+#check InitializerViewEqualitySurface.ProofPreserving.solvent.WithInitializerBaseV1
+#check InitializerViewEqualitySurface.ProofPreserving.solvent.callable0ReturnedV1
+#check InitializerViewEqualitySurface.ProofPreserving.solvent.callable1TypedReturnedV1
+#check InitializerViewEqualitySurface.ProofPreserving.solvent.callable1ReturnedV1_of_typed
+#check InitializerViewEqualitySurface.ProofPreserving.solvent.callable2ReturnedV1
+
 /- The first state-dependent, genuinely mutating business-preservation fixture.
    Its generated certificate belongs to a name-parameterized production
    subject family rather than a contract-qualified closed proof. -/

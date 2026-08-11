@@ -155,7 +155,8 @@ private theorem compare_bool_uint64_proofed :
 
 theorem typeKeyPrimitiveLeaf_proofed :
     validatePrimitiveAnonymousTypeKeyUniquenessV1 proofedData.types = .ok () := by
-  simp [validatePrimitiveAnonymousTypeKeyUniquenessV1, proofedData, boolT, u64T,
+  simp [validatePrimitiveAnonymousTypeKeyUniquenessV1,
+    collectPrimitiveAnonymousTypeKeysV1, proofedData, boolT, u64T,
     encodeTypeShape_bool_proofed, encodeTypeShape_uint64_proofed,
     compare_bool_uint64_proofed, Pure.pure, Except.pure, Bind.bind, Except.bind]
 

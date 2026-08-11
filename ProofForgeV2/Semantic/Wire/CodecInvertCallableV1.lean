@@ -1566,6 +1566,7 @@ theorem midOffsetInvert_array_two_loopBound
 /-! ### Callable shape codec layer for PreservationShapeV1 constructors -/
 
 open ProofForgeV2.Semantic.PreservationShapeV1
+open ProofForgeV2.Semantic.ReferenceV1
 
 private theorem utf8_Binary_Add :
     "Binary.Add".toUTF8 = ByteArray.mk #[66, 105, 110, 97, 114, 121, 46, 65, 100, 100] := by rfl
@@ -3718,6 +3719,111 @@ theorem exactAt_literalReturnCallableV1
         maxArrayElements 2)
       hsteps
 
+/-- Exact production codec package for the two-slot zero initializer block. -/
+private theorem exactAt_initializerStoreZeroTwoBlockV1
+    (uint64TypeId : TypeIdV1) :
+    ExactMidOffsetInvertAtV1 encodeBlockV1 decodeBlockV1
+      (initializerStoreZeroTwoBlockV1 uint64TypeId) 2 := by
+  simpa [initializerStoreZeroTwoBlockV1] using
+    exactAt_block_of_fieldsV1
+      (initializerStoreZeroTwoBlockV1 uint64TypeId) 2 (by decide)
+      (exactAt_array_emptyV1 encodeBlockParameterV1 decodeBlockParameterV1
+        maxArrayElements 3)
+      (exactAt_array_four_of_exactAtV1 encodeInstructionV1 decodeInstructionV1
+        maxArrayElements (by decide) (by decide)
+        (InstructionV1.mk (some (ValueDefV1.mk 0 uint64TypeId))
+          (.literal uint64TypeId zero8BytesV1))
+        (InstructionV1.mk none (.stateStore 0 0))
+        (InstructionV1.mk (some (ValueDefV1.mk 1 uint64TypeId))
+          (.literal uint64TypeId zero8BytesV1))
+        (InstructionV1.mk none (.stateStore 1 1)) 3
+        (exactAt_valueInstruction_of_opV1 0 uint64TypeId
+          (.literal uint64TypeId zero8BytesV1) 3 (by decide) (by decide)
+          (exactAt_semanticOp_literalV1 uint64TypeId zero8BytesV1 4
+            (by decide)))
+        (exactAt_voidInstruction_of_opV1 (.stateStore 0 0) 3 (by decide)
+          (exactAt_semanticOp_stateStoreV1 0 0 4 (by decide)))
+        (exactAt_valueInstruction_of_opV1 1 uint64TypeId
+          (.literal uint64TypeId zero8BytesV1) 3 (by decide) (by decide)
+          (exactAt_semanticOp_literalV1 uint64TypeId zero8BytesV1 4
+            (by decide)))
+        (exactAt_voidInstruction_of_opV1 (.stateStore 1 1) 3 (by decide)
+          (exactAt_semanticOp_stateStoreV1 1 1 4 (by decide))))
+      (exactAt_terminatorReturnV1 none 3 (by decide))
+
+/-- Exact root-depth package for the two-slot zero initializer callable. -/
+theorem exactAt_initializerStoreZeroTwoCallableV1
+    (callableId : CallableIdV1)
+    (uint64TypeId unitTypeId : TypeIdV1) :
+    ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
+      (initializerStoreZeroTwoCallableV1 callableId uint64TypeId unitTypeId) 1 := by
+  simpa [initializerStoreZeroTwoCallableV1] using
+    exactAt_callable_of_fieldsV1
+      (initializerStoreZeroTwoCallableV1 callableId uint64TypeId unitTypeId)
+      1 (by decide)
+      (exactAt_callableKindV1 .initializer 2 (by decide))
+      (exactAt_option_noneV1 encodeString decodeString 2)
+      (exactAt_array_emptyV1 encodeParameterV1 decodeParameterV1
+        maxArrayElements 2)
+      (exactAt_callableResultV1
+        ({ typeId := unitTypeId, visibility := .public_ } : CallableResultV1)
+        2 (by decide) (by decide))
+      (exactAt_array_one_of_exactAtV1 encodeBlockV1 decodeBlockV1
+        maxArrayElements (by decide)
+        (initializerStoreZeroTwoBlockV1 uint64TypeId) 2
+        (exactAt_initializerStoreZeroTwoBlockV1 uint64TypeId))
+      (exactAt_array_emptyV1 encodeLoopBoundV1 decodeLoopBoundV1
+        maxArrayElements 2)
+      (exactAt_option_noneV1
+        (fun value : UInt64 => pure (encodeU64le value)) decodeU64le 2)
+
+/-- Exact production codec package for a nullary UInt64 view-load block. -/
+private theorem exactAt_viewLoadBlockV1
+    (uint64TypeId : TypeIdV1) (stateId : StateIdV1) :
+    ExactMidOffsetInvertAtV1 encodeBlockV1 decodeBlockV1
+      (viewLoadBlockV1 uint64TypeId stateId) 2 := by
+  simpa [viewLoadBlockV1] using
+    exactAt_block_of_fieldsV1 (viewLoadBlockV1 uint64TypeId stateId) 2
+      (by decide)
+      (exactAt_array_emptyV1 encodeBlockParameterV1 decodeBlockParameterV1
+        maxArrayElements 3)
+      (exactAt_array_one_of_exactAtV1 encodeInstructionV1 decodeInstructionV1
+        maxArrayElements (by decide)
+        (InstructionV1.mk (some (ValueDefV1.mk 0 uint64TypeId))
+          (.stateLoad stateId)) 3
+        (exactAt_valueInstruction_of_opV1 0 uint64TypeId
+          (.stateLoad stateId) 3 (by decide) (by decide)
+          (exactAt_semanticOp_stateLoadV1 stateId 4 (by decide))))
+      (exactAt_terminatorReturnV1 (some 0) 3 (by decide))
+
+/-- Exact root-depth package for a named nullary UInt64 view-load callable. -/
+theorem exactAt_viewLoadCallableV1
+    (callableId : CallableIdV1)
+    (name : String)
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (hname : validateIdentifierComponent name = .ok ()) :
+    ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
+      (viewLoadCallableV1 callableId (some name) uint64TypeId stateId) 1 := by
+  simpa [viewLoadCallableV1] using
+    exactAt_callable_of_fieldsV1
+      (viewLoadCallableV1 callableId (some name) uint64TypeId stateId)
+      1 (by decide)
+      (exactAt_callableKindV1 .view 2 (by decide))
+      (exactAt_optionString_some_identifierV1 name hname 2)
+      (exactAt_array_emptyV1 encodeParameterV1 decodeParameterV1
+        maxArrayElements 2)
+      (exactAt_callableResultV1
+        ({ typeId := uint64TypeId, visibility := .public_ } : CallableResultV1)
+        2 (by decide) (by decide))
+      (exactAt_array_one_of_exactAtV1 encodeBlockV1 decodeBlockV1
+        maxArrayElements (by decide) (viewLoadBlockV1 uint64TypeId stateId) 2
+        (exactAt_viewLoadBlockV1 uint64TypeId stateId))
+      (exactAt_array_emptyV1 encodeLoopBoundV1 decodeLoopBoundV1
+        maxArrayElements 2)
+      (exactAt_option_noneV1
+        (fun value : UInt64 => pure (encodeU64le value)) decodeU64le 2)
+
 private theorem exactAt_storeParameterTwoReturnBlockV1
     (typeId : TypeIdV1)
     (leftStateId rightStateId : StateIdV1) :
@@ -3887,6 +3993,37 @@ theorem exactAt_storeParameterEqualityCallableTableV1
       valueTypeId leftStateId rightStateId hentryName hparameterName)
     (exactAt_twoStateCompareInvariantCallableV1 invariantId invariantName
       valueTypeId boolTypeId leftStateId rightStateId .eq .public_ 5
+      hinvariantName (exactAt_semanticOp_binaryEqV1 0 1 4
+        (by decide) (by decide)))
+
+/-- Three-row production table for a two-slot zero initializer, a nullary
+    UInt64 view-load, and a two-state equality invariant. -/
+theorem exactAt_initializerViewEqualityCallableTableV1
+    (initializerId viewId invariantId : CallableIdV1)
+    (viewName invariantName : String)
+    (uint64TypeId unitTypeId boolTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (hviewName : validateIdentifierComponent viewName = .ok ())
+    (hinvariantName : validateIdentifierComponent invariantName = .ok ()) :
+    ExactMidOffsetInvertAtV1 (encodeArray encodeCallableV1)
+      (decodeArray maxTableElements decodeCallableV1)
+      #[initializerStoreZeroTwoCallableV1 initializerId uint64TypeId unitTypeId,
+        viewLoadCallableV1 viewId (some viewName) uint64TypeId leftStateId,
+        twoStateCompareInvariantCallableV1 invariantId (some invariantName)
+          uint64TypeId boolTypeId leftStateId rightStateId .eq .public_
+          (some 5)] 1 :=
+  exactAt_array_three_of_exactAtV1 encodeCallableV1 decodeCallableV1
+    maxTableElements (by decide)
+    (initializerStoreZeroTwoCallableV1 initializerId uint64TypeId unitTypeId)
+    (viewLoadCallableV1 viewId (some viewName) uint64TypeId leftStateId)
+    (twoStateCompareInvariantCallableV1 invariantId (some invariantName)
+      uint64TypeId boolTypeId leftStateId rightStateId .eq .public_ (some 5)) 1
+    (exactAt_initializerStoreZeroTwoCallableV1 initializerId uint64TypeId
+      unitTypeId)
+    (exactAt_viewLoadCallableV1 viewId viewName uint64TypeId leftStateId
+      hviewName)
+    (exactAt_twoStateCompareInvariantCallableV1 invariantId invariantName
+      uint64TypeId boolTypeId leftStateId rightStateId .eq .public_ 5
       hinvariantName (exactAt_semanticOp_binaryEqV1 0 1 4
         (by decide) (by decide)))
 

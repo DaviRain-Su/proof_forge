@@ -6,6 +6,8 @@ import ProofForgeV2.Semantic.PreservationABI
 import ProofForgeV2.Semantic.PreservationPackagingV1
 import ProofForgeV2.Semantic.StateModelV1
 import ProofForgeV2.Semantic.FieldComparisonSubjectV1
+import ProofForgeV2.Semantic.InitializerViewEqualitySubjectV1
+import ProofForgeV2.Semantic.InitializerViewEqualityPreservationV1
 import ProofForgeV2.Semantic.StatefulEqualitySubjectV1
 import ProofForgeV2.Semantic.StatefulEqualityPreservationV1
 import ProofForgeV2.Semantic.UInt64ParityPreservationV1
@@ -291,6 +293,48 @@ private def statefulEqualityParamsReadyForGeneratedProofV1
     identifierReadyForGeneratedProofV1 p.invariantName &&
     decide (p.state0Name ≠ p.state1Name) &&
     decide (p.entryName ≠ p.invariantName)
+
+/-- Runtime-only names recovered from the exact initializer/view/equality
+    subject. Emitted certificates reconstruct and kernel-check the complete
+    production data again. -/
+private structure InitializerViewEqualityParamsV1 where
+  state0Name : String
+  state1Name : String
+  viewName : String
+  invariantName : String
+
+/-- Recognize only the complete production lowering shape: two UInt64 states,
+    the exact two-zero initializer, one nullary state-load view, and one
+    equality invariant. Every nearby body fails closed. -/
+private def extractInitializerViewEqualityParamsV1
+    (data : SemanticProgramDataV1) : Option InitializerViewEqualityParamsV1 :=
+  match data.logicalState[0]?, data.logicalState[1]?,
+      data.callables[1]?, data.callables[2]? with
+  | some state0, some state1, some viewCallable, some invariantCallable =>
+      match viewCallable.name, invariantCallable.name with
+      | some viewName, some invariantName =>
+          let params : InitializerViewEqualityParamsV1 := {
+            state0Name := state0.name
+            state1Name := state1.name
+            viewName
+            invariantName
+          }
+          let expected :=
+            ProofForgeV2.Semantic.InitializerViewEqualitySubjectV1.subjectDataV1
+              data.qualifiedName params.state0Name params.state1Name
+              params.viewName params.invariantName
+          if data == expected then some params else none
+      | _, _ => none
+  | _, _, _, _ => none
+
+private def initializerViewEqualityParamsReadyForGeneratedProofV1
+    (p : InitializerViewEqualityParamsV1) : Bool :=
+  identifierReadyForGeneratedProofV1 p.state0Name &&
+    identifierReadyForGeneratedProofV1 p.state1Name &&
+    identifierReadyForGeneratedProofV1 p.viewName &&
+    identifierReadyForGeneratedProofV1 p.invariantName &&
+    decide (p.state0Name ≠ p.state1Name) &&
+    decide (p.viewName ≠ p.invariantName)
 
 private structure ProofSurfaceV1 where
   invariantNames : Array String
@@ -3073,6 +3117,86 @@ private def elaborateStatefulEqualityCertificatesV1
           hconstantsSize hstateSize heventsSize herrorsSize hcallablesSize
           hinvariantsSize $subjectStructureOkName $subjectBodyEncodeOkName hinvert))
 
+/-- Emit production structure and full-validation certificates only for the
+    exact initializer/view/equality subject family. -/
+private def elaborateInitializerViewEqualityCertificatesV1
+    (subjectProgramName subjectDataName subjectBytesName
+      subjectBodyEncodeOkName subjectRootGatesOkName subjectStructureOkName
+      subjectValidationOkName : TSyntax `ident)
+    (params : InitializerViewEqualityParamsV1) : CommandElabM Unit := do
+  unless initializerViewEqualityParamsReadyForGeneratedProofV1 params do
+    return
+  let state0Proof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.state0Name
+  let state1Proof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.state1Name
+  let viewProof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.viewName
+  let invariantProof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.invariantName
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Production structure success for this exact generated
+        initializer/view/equality subject. -/
+    theorem $subjectStructureOkName :
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramStructureV1
+          $subjectDataName = .ok () := by
+      have hroot := $subjectRootGatesOkName
+      rcases hroot with
+        ⟨hnameShape, _htypesSize, _hconstantsSize, _hstateSize, _heventsSize,
+          _herrorsSize, _hcallablesSize, _hinvariantsSize⟩
+      change
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramStructureV1
+          (ProofForgeV2.Semantic.InitializerViewEqualitySubjectV1.subjectDataV1
+            ($subjectDataName).qualifiedName $(quote params.state0Name)
+            $(quote params.state1Name) $(quote params.viewName)
+            $(quote params.invariantName)) = .ok ()
+      exact
+        ProofForgeV2.Semantic.InitializerViewEqualitySubjectV1.structureV1
+          ($subjectDataName).qualifiedName $(quote params.state0Name)
+          $(quote params.state1Name) $(quote params.viewName)
+          $(quote params.invariantName) {
+            hnameShape := hnameShape
+            hstate0Name := $state0Proof
+            hstate1Name := $state1Proof
+            hviewName := $viewProof
+            hinvariantName := $invariantProof
+            hstate01 := by decide
+            hviewInvariant := by decide
+          }))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Exact production validation for this generated
+        initializer/view/equality subject. -/
+    theorem $subjectValidationOkName :
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+          $subjectProgramName = .ok $subjectDataName := by
+      change
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+          ⟨$subjectBytesName⟩ = .ok $subjectDataName
+      have hroot := $subjectRootGatesOkName
+      rcases hroot with
+        ⟨hnameShape, htypesSize, hconstantsSize, hstateSize, heventsSize,
+          herrorsSize, hcallablesSize, hinvariantsSize⟩
+      have hinvert :
+          ProofForgeV2.Semantic.WireV1.RootFieldInvertV1
+            $subjectDataName := by
+        change
+          ProofForgeV2.Semantic.WireV1.RootFieldInvertV1
+            (ProofForgeV2.Semantic.InitializerViewEqualitySubjectV1.subjectDataV1
+              ($subjectDataName).qualifiedName $(quote params.state0Name)
+              $(quote params.state1Name) $(quote params.viewName)
+              $(quote params.invariantName))
+        exact
+          ProofForgeV2.Semantic.InitializerViewEqualitySubjectV1.rootFieldInvertV1
+            ($subjectDataName).qualifiedName $(quote params.state0Name)
+            $(quote params.state1Name) $(quote params.viewName)
+            $(quote params.invariantName) $state0Proof $state1Proof $viewProof
+            $invariantProof
+      exact
+        ProofForgeV2.Semantic.SubjectDataBridgeV1.validate_of_subjectData_body_gates_invert
+          $subjectDataName $subjectBytesName hnameShape htypesSize
+          hconstantsSize hstateSize heventsSize herrorsSize hcallablesSize
+          hinvariantsSize $subjectStructureOkName $subjectBodyEncodeOkName hinvert))
+
 /-- Emit the exact program-specific obligation skeleton for one preserving
     invariant. The aliases only specialize the generic preservation ABI to the
     generated subject, ordinal, and callable rows; they do not execute or
@@ -3476,6 +3600,13 @@ private def elaborateProofObligations
       elaborateStatefulEqualityCertificatesV1 subjectName subjectDataName
         subjectBytesName subjectBodyEncodeOkName subjectRootGatesOkName
         subjectStructureOkName subjectValidationOkName params
+  match extractInitializerViewEqualityParamsV1 data with
+  | none => pure ()
+  | some params =>
+      elaborateInitializerViewEqualityCertificatesV1 subjectName
+        subjectDataName subjectBytesName subjectBodyEncodeOkName
+        subjectRootGatesOkName subjectStructureOkName subjectValidationOkName
+        params
   Lean.Elab.Command.elabCommand (← `(end $proofNamespace))
   match modelStateFieldsV1 data with
   | none => pure ()

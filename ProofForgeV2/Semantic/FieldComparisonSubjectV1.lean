@@ -281,6 +281,7 @@ theorem typeKeyPhasesV1 : validateTypeKeyPhasesV1 typesV1 = .ok () := by
   · simp [typesV1, validateNamedPrefixRankV1,
       Pure.pure, Except.pure, Bind.bind, Except.bind]
   · simp [typesV1, validatePrimitiveAnonymousTypeKeyUniquenessV1,
+      collectPrimitiveAnonymousTypeKeysV1,
       encodeTypeShape_uint64V1, encodeTypeShape_boolV1, compare_uint64_boolV1,
       Pure.pure, Except.pure, Bind.bind, Except.bind]
   · simp [typesV1, validateRecursiveAnonymousTypeKeyUniquenessV1,

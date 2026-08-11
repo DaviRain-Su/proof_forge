@@ -67,6 +67,52 @@ def storeConstantClearCallableV1
   invariantSteps := none
 }
 
+/-- Production block for a two-slot canonical UInt64-zero initializer. -/
+def initializerStoreZeroTwoBlockV1
+    (uint64TypeId : TypeIdV1) : BlockV1 := {
+    id := 0
+    params := #[]
+    instructions := #[
+      { result := some { valueId := 0, typeId := uint64TypeId },
+        op := .literal uint64TypeId zero8BytesV1 },
+      { result := none, op := .stateStore 0 0 },
+      { result := some { valueId := 1, typeId := uint64TypeId },
+        op := .literal uint64TypeId zero8BytesV1 },
+      { result := none, op := .stateStore 1 1 }
+    ]
+    terminator := .return_ none
+}
+
+/-- Nullary initializer: write canonical UInt64 zero to state slots 0 and 1,
+    then return Unit. This constructor fixes only the production CFG shape;
+    execution remains exclusively in `ReferenceMachineV1`. -/
+def initializerStoreZeroTwoCallableV1
+    (callableId : CallableIdV1)
+    (uint64TypeId unitTypeId : TypeIdV1) : CallableV1 := {
+  id := callableId
+  kind := .initializer
+  name := none
+  params := #[]
+  result := { typeId := unitTypeId, visibility := .public_ }
+  entryBlock := 0
+  blocks := #[initializerStoreZeroTwoBlockV1 uint64TypeId]
+  loopBounds := #[]
+  invariantSteps := none
+}
+
+/-- Production block for a nullary UInt64 `stateLoad; return` view. -/
+def viewLoadBlockV1
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1) : BlockV1 := {
+  id := 0
+  params := #[]
+  instructions := #[{
+    result := some { valueId := 0, typeId := uint64TypeId }
+    op := .stateLoad stateId
+  }]
+  terminator := .return_ (some 0)
+}
+
 /-- Nullary view: `stateLoad → return`. Get/view identity family. -/
 def viewLoadCallableV1
     (callableId : CallableIdV1)
@@ -79,15 +125,7 @@ def viewLoadCallableV1
   params := #[]
   result := { typeId := uint64TypeId, visibility := .public_ }
   entryBlock := 0
-  blocks := #[{
-    id := 0
-    params := #[]
-    instructions := #[{
-      result := some { valueId := 0, typeId := uint64TypeId }
-      op := .stateLoad stateId
-    }]
-    terminator := .return_ (some 0)
-  }]
+  blocks := #[viewLoadBlockV1 uint64TypeId stateId]
   loopBounds := #[]
   invariantSteps := none
 }
@@ -377,6 +415,95 @@ def twoStateCompareInvariantCallableV1
     Thin wrappers: gate carries the constructor spelling so author proofs only
     need shape equality + type/state/can hyps.
 -/
+
+/-- A returned two-slot zero initializer post-state is exactly the production
+    initialized encoding of two canonical UInt64 zeros. No empty response,
+    context, or vault assumption is hidden: those inputs remain explicit and
+    success itself is the premise. -/
+theorem postEncode_of_readyInitializerStoreZeroTwoV1
+    (admitted : AdmittedReferenceSliceV1)
+    (pre post : LogicalStateV1)
+    (invocation : InvocationV1)
+    (data : SemanticProgramDataV1)
+    (before0 before1 : ByteArray)
+    (uint64TypeId unitTypeId : TypeIdV1)
+    (state0Name state1Name : String)
+    (callableId : CallableIdV1)
+    (context : Array ContextInputV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hadmittedData : admitted.data = data)
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (htypeUnit : data.types[unitTypeId.toNat]? = some {
+      id := unitTypeId, name := none, shape := .unit })
+    (hstate0 : data.logicalState[0]? = some {
+      id := 0, name := state0Name, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hstate1 : data.logicalState[1]? = some {
+      id := 1, name := state1Name, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hcanZero :
+      validateValueBytesV1 data.types uint64TypeId zero8BytesV1 = .ok ())
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready
+          (initializerStoreZeroTwoCallableV1 callableId uint64TypeId
+            unitTypeId)
+          #[before0, before1] context true)
+    (hstep :
+      stepReferenceSliceV1 admitted pre invocation responses vault =
+        .returned post value effects) :
+    encodeLogicalStateValuesV1 data true
+      #[zero8BytesV1, zero8BytesV1] = .ok post := by
+  simpa [initializerStoreZeroTwoCallableV1] using
+    stepReferenceSliceV1_ready_initializer_store_zero_two_returned_post_encode
+      admitted pre post invocation data before0 before1 uint64TypeId unitTypeId
+      state0Name state1Name callableId context responses vault value effects
+      hadmittedData htypeU htypeUnit hstate0 hstate1 hcanZero hgate hstep
+
+/-- A returned nullary UInt64 view-load is a state stutter for a production
+    ready overlay of any arity. -/
+theorem postEqPre_of_readyViewLoadV1
+    (admitted : AdmittedReferenceSliceV1)
+    (pre post : LogicalStateV1)
+    (invocation : InvocationV1)
+    (data : SemanticProgramDataV1)
+    (overlay : Array ByteArray)
+    (loadedBytes : ByteArray)
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (stateName : String)
+    (callableId : CallableIdV1)
+    (viewName : Option String)
+    (context : Array ContextInputV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hadmittedData : admitted.data = data)
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId, name := stateName, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hloaded : overlay[stateId.toNat]? = some loadedBytes)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready
+          (viewLoadCallableV1 callableId viewName uint64TypeId stateId)
+          overlay context false)
+    (hstep :
+      stepReferenceSliceV1 admitted pre invocation responses vault =
+        .returned post value effects) :
+    post = pre := by
+  simpa [viewLoadCallableV1] using
+    stepReferenceSliceV1_ready_viewLoad_returned_post_eq_pre admitted pre post
+      invocation data overlay loadedBytes uint64TypeId stateId stateName
+      callableId viewName context responses vault value effects hadmittedData
+      htypeU hstate hloaded hgate hstep
 
 /-- Store-constant clear (zero) with empty responses returns the encode of zero. -/
 theorem stepReturned_of_readyStoreConstantClearZeroV1

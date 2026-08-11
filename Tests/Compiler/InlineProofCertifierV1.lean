@@ -306,6 +306,105 @@ private unsafe def testSameFileStatefulEqualityPreservingProductPositive
       throw <| IO.userError
         s!"StatefulEquality requires .certified; got phase={repr phase} detail={repr detail}"
 
+/-- Strict product certification of the first initializer/view business slice. -/
+private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
+    (session : ProductParserSessionV1) : IO Unit := do
+  let src ← IO.FS.readFile "Examples/VerifiedVaultPF.lean"
+  let path ← parsePath "Examples/VerifiedVaultPF.lean"
+  let (source, origin, inventory) ← loadProduct session src
+    "Examples/VerifiedVaultPF.lean" "Examples.VerifiedVaultPF"
+  let bindings := theoremInventoryBindingsV1 inventory
+  expect (bindings.size == 1) "VerifiedVaultPF preserving inventory size"
+  let binding := bindings[0]!
+  expect (binding.invariantName == "solvent" && binding.kind == .preserving)
+    "VerifiedVaultPF preserving composite key"
+  expect (binding.theoremComponents == #["VerifiedVaultPFProof", "solvent"])
+    "VerifiedVaultPF author theorem components"
+  expect (binding.typeComponents == #["VerifiedVaultPF", "ProofPreserving", "solvent"])
+    "VerifiedVaultPF preserving type components"
+  let compiled ← compileOf source origin
+  let outcome ← certifyInlineProofV1 session src source origin inventory compiled
+    path "Examples.VerifiedVaultPF" none
+  match outcome with
+  | .certified carrier =>
+      expect (CertifiedInlineProofV1.theoremCount carrier == 1)
+        "VerifiedVaultPF theoremCount must be 1"
+      expect (digestPresent (CertifiedInlineProofV1.proofCertificationDigest carrier))
+        "VerifiedVaultPF certification digest must be present"
+      expect ((CertifiedInlineProofV1.audited carrier).size == 1)
+        "VerifiedVaultPF audited theorem set must contain one theorem"
+  | .noProof => throw <| IO.userError "VerifiedVaultPF proof returned noProof"
+  | .failed phase detail =>
+      throw <| IO.userError
+        s!"VerifiedVaultPF requires .certified; got phase={repr phase} detail={repr detail}"
+
+private def initializerViewEqualitySource
+    (programName leftState rightState viewName invariantName initBody callableBody : String) :
+    String :=
+  let proofName := programName ++ "Proof." ++ invariantName
+  header ++
+  "program " ++ programName ++ " where\n" ++
+  "  state " ++ leftState ++ " : UInt64\n" ++
+  "  state " ++ rightState ++ " : UInt64\n" ++
+  initBody ++ callableBody ++
+  "  invariant " ++ invariantName ++ " : " ++ leftState ++ " == " ++ rightState ++ "\n" ++
+  "  proof " ++ invariantName ++ " preserving using " ++ proofName ++ "\n" ++
+  "theorem " ++ proofName ++ " : " ++ programName ++
+    ".ProofPreserving." ++ invariantName ++ " := by\n" ++
+  "  exact ProofForgeV2.Semantic.InitializerViewEqualityPreservationV1.preservationTheorem_of_subjectBodyV1\n" ++
+  "    " ++ programName ++ ".Proof.subjectDataV1.qualifiedName\n" ++
+  "    \"" ++ leftState ++ "\" \"" ++ rightState ++ "\" \"" ++ viewName ++
+    "\" \"" ++ invariantName ++ "\"\n" ++
+  "    " ++ programName ++ ".Proof.subjectDataV1 " ++ programName ++
+    ".Proof.subjectBytesV1\n" ++
+  "    (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)\n" ++
+  "    (by decide) (by decide) (by rfl)\n" ++
+  "    " ++ programName ++ ".Proof.subjectBodyEncodeOkV1\n"
+
+/-- The family is genuinely name-parameterized. Near misses remain valid DSL
+    programs and reach certification, but cannot reuse its exact theorem after
+    changing initializer shape or only the state slot loaded by the view. -/
+private unsafe def testInitializerViewEqualityFamilyProductCoverage
+    (session : ProductParserSessionV1) : IO Unit := do
+  let renamed := initializerViewEqualitySource
+    "AlphaRenamedInitializerViewEquality"
+    "assets" "liabilities" "readAssets" "balanced"
+    "  init() do\n    assets := 0\n    liabilities := 0\n"
+    "  view readAssets() : UInt64 do\n    return assets\n"
+  let renamedPath ← parsePath "tests/inline-proof/AlphaRenamedInitializerViewEquality.lean"
+  let (renamedSource, renamedOrigin, renamedInventory) ← loadProduct session renamed
+    "tests/inline-proof/AlphaRenamedInitializerViewEquality.lean" "Root"
+  let renamedCompiled ← compileOf renamedSource renamedOrigin
+  let renamedOutcome ← certifyInlineProofV1 session renamed renamedSource renamedOrigin
+    renamedInventory renamedCompiled renamedPath "Root" none
+  expectOutcome "alpha-renamed initializer/view equality" renamedOutcome fun
+    | .certified carrier =>
+        CertifiedInlineProofV1.theoremCount carrier == 1 &&
+        digestPresent (CertifiedInlineProofV1.proofCertificationDigest carrier)
+    | _ => false
+
+  let cases := #[
+    ("InitializerStoreNearMiss",
+      "  init() do\n    reserves := 0\n",
+      "  view status() : UInt64 do\n    return reserves\n"),
+    ("StatusLoadedSlotNearMiss",
+      "  init() do\n    reserves := 0\n    shares := 0\n",
+      "  view status() : UInt64 do\n    return shares\n")
+  ]
+  for (programName, initBody, callableBody) in cases do
+    let src := initializerViewEqualitySource programName
+      "reserves" "shares" "status" "solvent" initBody callableBody
+    let fileName := s!"tests/inline-proof/{programName}.lean"
+    let path ← parsePath fileName
+    let (source, origin, inventory) ← loadProduct session src fileName "Root"
+    let compiled ← compileOf source origin
+    let outcome ← certifyInlineProofV1 session src source origin inventory compiled
+      path "Root" none
+    expectOutcome programName outcome fun
+      | .failed phase detail =>
+          phase == .certification && detail == .elaborate
+      | _ => false
+
 /-- Proof kind is source certification metadata: changing only holds ↔ preserving
     changes canonical ProgramV1/source identity, while Normalize emits the same
     business SemanticProgramV1 bytes and digest. -/
@@ -718,6 +817,8 @@ unsafe def run : IO Unit := do
   testPreservingFalseTheoremElab session
   testSameFileCounterPreservingProductPositive session
   testSameFileStatefulEqualityPreservingProductPositive session
+  testSameFileVerifiedVaultPFPreservingProductPositive session
+  testInitializerViewEqualityFamilyProductCoverage session
   testProofKindIdentityBoundary session
   testForbiddenMainModule session
   testWrongSubjectBytes session

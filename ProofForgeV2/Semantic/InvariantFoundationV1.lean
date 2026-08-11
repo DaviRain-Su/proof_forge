@@ -1500,6 +1500,61 @@ theorem encodeLogicalStateValuesV1_double_uint64_eq_ok
     Pure.pure, Except.pure, Bind.bind, Except.bind, ByteArray.empty_append]
   simp [doubleUint64CanonicalV1, ByteArray.append_assoc]
 
+/-- Product initial state for two public UInt64 slots, with the initialized bit
+    selected by the exact production initializer-table scan. This is the shared
+    form used by both initializer and no-initializer preservation bases. -/
+theorem initialLogicalStateV1_double_uint64_eq_ok
+    (program : SemanticProgramV1) (data : SemanticProgramDataV1)
+    (s0 s1 : StateDeclV1) (typeDecl : TypeDeclV1)
+    (hasInitializer : Bool)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hstate : data.logicalState = #[s0, s1])
+    (ht0 : data.types[s0.typeId.toNat]? = some typeDecl)
+    (ht1 : data.types[s1.typeId.toNat]? = some typeDecl)
+    (hshape : typeDecl.shape = .uint 64)
+    (hhasInitializer :
+      data.callables.any (fun c => c.kind == .initializer) = hasInitializer)
+    (hz0 : validateValueBytesV1 data.types s0.typeId
+      (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]) = .ok ())
+    (hz1 : validateValueBytesV1 data.types s1.typeId
+      (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]) = .ok ()) :
+    initialLogicalStateV1 program = .ok {
+      initialized := !hasInitializer
+      canonicalValues :=
+        doubleUint64CanonicalV1
+          (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0])
+          (ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0])
+    } := by
+  let zero := ByteArray.mk #[0, 0, 0, 0, 0, 0, 0, 0]
+  have hdef (tid : TypeIdV1)
+      (hlookup : data.types[tid.toNat]? = some typeDecl) :
+      defaultValueAtV1 data.types tid maxNesting = .ok zero := by
+    rw [show maxNesting = 255 + 1 by rfl, defaultValueAtV1.eq_2, hlookup]
+    simp only [hshape, Pure.pure, Except.pure]
+    rw [show (64 : UInt16).toNat / 8 = 8 by decide]
+    congr 1
+    simp [zeroBytesV1, List.range', zero]
+    apply ByteArray.ext
+    simp only [ByteArray.data_push]
+    have hempty : (ByteArray.emptyWithCapacity 8).data = (#[] : Array UInt8) := by
+      change (Array.emptyWithCapacity 8 : Array UInt8) = #[]
+      exact Array.emptyWithCapacity_eq
+    rw [hempty]
+    rfl
+  have hd0 := hdef s0.typeId ht0
+  have hd1 := hdef s1.typeId ht1
+  have hszZ : zero.size = 8 := rfl
+  have henc :=
+    encodeLogicalStateValuesV1_double_uint64_eq_ok data s0 s1
+      zero zero (!hasInitializer) hstate hz0 hz1 hszZ hszZ
+  unfold initialLogicalStateV1
+  rw [hvalidate]
+  simp only [Bind.bind, Except.bind]
+  rw [hstate]
+  simp [hd0, hd1, hhasInitializer, Pure.pure, Except.pure, Bind.bind,
+    Except.bind]
+  simpa [zero, array_push2_eq] using henc
+
 /-- No-initializer product initial state for two public UInt64 slots. -/
 theorem initialLogicalStateV1_double_uint64_no_initializer_eq_ok
     (program : SemanticProgramV1) (data : SemanticProgramDataV1)
