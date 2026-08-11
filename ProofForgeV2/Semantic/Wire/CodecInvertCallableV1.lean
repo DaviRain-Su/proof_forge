@@ -3893,6 +3893,149 @@ theorem exactAt_storeParameterTwoReturnCallableV1
         (fun value : UInt64 => pure (encodeU64le value))
         decodeU64le 2)
 
+/-- Exact production codec package for the two-slot checked-add block. -/
+private theorem exactAt_addParameterTwoReturnBlockV1
+    (typeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1) :
+    ExactMidOffsetInvertAtV1 encodeBlockV1 decodeBlockV1
+      (addParameterTwoReturnBlockV1 typeId leftStateId rightStateId) 2 := by
+  let i0 : InstructionV1 := {
+    result := some { valueId := 1, typeId }
+    op := .stateLoad leftStateId
+  }
+  let i1 : InstructionV1 := {
+    result := some { valueId := 2, typeId }
+    op := .binary .add 1 0
+  }
+  let i2 : InstructionV1 := {
+    result := none
+    op := .stateStore leftStateId 2
+  }
+  let i3 : InstructionV1 := {
+    result := some { valueId := 3, typeId }
+    op := .stateLoad rightStateId
+  }
+  let i4 : InstructionV1 := {
+    result := some { valueId := 4, typeId }
+    op := .binary .add 3 0
+  }
+  let i5 : InstructionV1 := {
+    result := none
+    op := .stateStore rightStateId 4
+  }
+  let i6 : InstructionV1 := {
+    result := some { valueId := 5, typeId }
+    op := .stateLoad rightStateId
+  }
+  have h0 : ExactMidOffsetInvertAtV1 encodeInstructionV1 decodeInstructionV1
+      i0 3 := by
+    exact exactAt_valueInstruction_of_opV1 1 typeId
+      (.stateLoad leftStateId) 3 (by decide) (by decide)
+      (exactAt_semanticOp_stateLoadV1 leftStateId 4 (by decide))
+  have h1 : ExactMidOffsetInvertAtV1 encodeInstructionV1 decodeInstructionV1
+      i1 3 := by
+    exact exactAt_valueInstruction_of_opV1 2 typeId
+      (.binary .add 1 0) 3 (by decide) (by decide)
+      (exactAt_semanticOp_binaryAddV1 1 0 4 (by decide) (by decide))
+  have h2 : ExactMidOffsetInvertAtV1 encodeInstructionV1 decodeInstructionV1
+      i2 3 := by
+    exact exactAt_voidInstruction_of_opV1 (.stateStore leftStateId 2)
+      3 (by decide)
+      (exactAt_semanticOp_stateStoreV1 leftStateId 2 4 (by decide))
+  have h3 : ExactMidOffsetInvertAtV1 encodeInstructionV1 decodeInstructionV1
+      i3 3 := by
+    exact exactAt_valueInstruction_of_opV1 3 typeId
+      (.stateLoad rightStateId) 3 (by decide) (by decide)
+      (exactAt_semanticOp_stateLoadV1 rightStateId 4 (by decide))
+  have h4 : ExactMidOffsetInvertAtV1 encodeInstructionV1 decodeInstructionV1
+      i4 3 := by
+    exact exactAt_valueInstruction_of_opV1 4 typeId
+      (.binary .add 3 0) 3 (by decide) (by decide)
+      (exactAt_semanticOp_binaryAddV1 3 0 4 (by decide) (by decide))
+  have h5 : ExactMidOffsetInvertAtV1 encodeInstructionV1 decodeInstructionV1
+      i5 3 := by
+    exact exactAt_voidInstruction_of_opV1 (.stateStore rightStateId 4)
+      3 (by decide)
+      (exactAt_semanticOp_stateStoreV1 rightStateId 4 4 (by decide))
+  have h6 : ExactMidOffsetInvertAtV1 encodeInstructionV1 decodeInstructionV1
+      i6 3 := by
+    exact exactAt_valueInstruction_of_opV1 5 typeId
+      (.stateLoad rightStateId) 3 (by decide) (by decide)
+      (exactAt_semanticOp_stateLoadV1 rightStateId 4 (by decide))
+  have hinstructions : ExactMidOffsetInvertAtV1
+      (encodeArray encodeInstructionV1)
+      (decodeArray maxArrayElements decodeInstructionV1)
+      #[i0, i1, i2, i3, i4, i5, i6] 3 := by
+    apply exactMidOffsetInvertAt_array_of_forall_encoded_exactAt
+    · change 7 ≤ maxArrayElements
+      decide
+    · exact Nat.le_refl maxArrayElements
+    · change 7 ≤ UInt32.size - 1
+      decide
+    · intro value hvalue
+      simp at hvalue
+      rcases hvalue with rfl | rfl | rfl | rfl | rfl | rfl | rfl
+      all_goals exact ⟨_, rfl⟩
+    · intro value hvalue
+      simp at hvalue
+      rcases hvalue with rfl | rfl | rfl | rfl | rfl | rfl | rfl
+      · exact h0
+      · exact h1
+      · exact h2
+      · exact h3
+      · exact h4
+      · exact h5
+      · exact h6
+  simpa [addParameterTwoReturnBlockV1, i0, i1, i2, i3, i4, i5, i6] using
+    exactAt_block_of_fieldsV1
+      (addParameterTwoReturnBlockV1 typeId leftStateId rightStateId)
+      2 (by decide)
+      (exactAt_array_emptyV1 encodeBlockParameterV1 decodeBlockParameterV1
+        maxArrayElements 3)
+      hinstructions
+      (exactAt_terminatorReturnV1 (some 5) 3 (by decide))
+
+/-- Exact root-depth production-codec package for the unary checked-add entry
+    over two state slots. -/
+theorem exactAt_addParameterTwoReturnCallableV1
+    (callableId : CallableIdV1)
+    (name parameterName : String)
+    (typeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (hname : validateIdentifierComponent name = .ok ())
+    (hparameterName : validateIdentifierComponent parameterName = .ok ()) :
+    ExactMidOffsetInvertAtV1 encodeCallableV1 decodeCallableV1
+      (addParameterTwoReturnCallableV1 callableId (some name) parameterName
+        typeId leftStateId rightStateId .public_) 1 := by
+  simpa [addParameterTwoReturnCallableV1] using
+    exactAt_callable_of_fieldsV1
+      (addParameterTwoReturnCallableV1 callableId (some name) parameterName
+        typeId leftStateId rightStateId .public_) 1 (by decide)
+      (exactAt_callableKindV1 .entry 2 (by decide))
+      (exactAt_optionString_some_identifierV1 name hname 2)
+      (exactAt_array_one_of_exactAtV1 encodeParameterV1 decodeParameterV1
+        maxArrayElements (by decide)
+        ({
+          valueId := 0
+          name := parameterName
+          typeId
+          visibility := .public_
+        } : ParameterV1) 2
+        (exactAt_parameter_publicV1 0 typeId parameterName hparameterName 2
+          (by decide)))
+      (exactAt_callableResultV1
+        ({ typeId, visibility := .public_ } : CallableResultV1)
+        2 (by decide) (by decide))
+      (exactAt_array_one_of_exactAtV1 encodeBlockV1 decodeBlockV1
+        maxArrayElements (by decide)
+        (addParameterTwoReturnBlockV1 typeId leftStateId rightStateId) 2
+        (exactAt_addParameterTwoReturnBlockV1 typeId leftStateId rightStateId))
+      (exactAt_array_emptyV1 encodeLoopBoundV1 decodeLoopBoundV1
+        maxArrayElements 2)
+      (exactAt_option_noneV1
+        (fun value : UInt64 => pure (encodeU64le value))
+        decodeU64le 2)
+
 private theorem exactAt_twoStateCompareInvariantBlockV1
     (valueTypeId boolTypeId : TypeIdV1)
     (leftStateId rightStateId : StateIdV1)
@@ -4020,6 +4163,45 @@ theorem exactAt_initializerViewEqualityCallableTableV1
       uint64TypeId boolTypeId leftStateId rightStateId .eq .public_ (some 5)) 1
     (exactAt_initializerStoreZeroTwoCallableV1 initializerId uint64TypeId
       unitTypeId)
+    (exactAt_viewLoadCallableV1 viewId viewName uint64TypeId leftStateId
+      hviewName)
+    (exactAt_twoStateCompareInvariantCallableV1 invariantId invariantName
+      uint64TypeId boolTypeId leftStateId rightStateId .eq .public_ 5
+      hinvariantName (exactAt_semanticOp_binaryEqV1 0 1 4
+        (by decide) (by decide)))
+
+/-- Four-row production table for a two-slot zero initializer, a unary
+    checked-add entry, a nullary UInt64 view, and an equality invariant. -/
+theorem exactAt_initializerAddViewEqualityCallableTableV1
+    (initializerId entryId viewId invariantId : CallableIdV1)
+    (entryName parameterName viewName invariantName : String)
+    (uint64TypeId unitTypeId boolTypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (hentryName : validateIdentifierComponent entryName = .ok ())
+    (hparameterName : validateIdentifierComponent parameterName = .ok ())
+    (hviewName : validateIdentifierComponent viewName = .ok ())
+    (hinvariantName : validateIdentifierComponent invariantName = .ok ()) :
+    ExactMidOffsetInvertAtV1 (encodeArray encodeCallableV1)
+      (decodeArray maxTableElements decodeCallableV1)
+      #[initializerStoreZeroTwoCallableV1 initializerId uint64TypeId unitTypeId,
+        addParameterTwoReturnCallableV1 entryId (some entryName) parameterName
+          uint64TypeId leftStateId rightStateId .public_,
+        viewLoadCallableV1 viewId (some viewName) uint64TypeId leftStateId,
+        twoStateCompareInvariantCallableV1 invariantId (some invariantName)
+          uint64TypeId boolTypeId leftStateId rightStateId .eq .public_
+          (some 5)] 1 :=
+  exactAt_array_four_of_exactAtV1 encodeCallableV1 decodeCallableV1
+    maxTableElements (by decide) (by decide)
+    (initializerStoreZeroTwoCallableV1 initializerId uint64TypeId unitTypeId)
+    (addParameterTwoReturnCallableV1 entryId (some entryName) parameterName
+      uint64TypeId leftStateId rightStateId .public_)
+    (viewLoadCallableV1 viewId (some viewName) uint64TypeId leftStateId)
+    (twoStateCompareInvariantCallableV1 invariantId (some invariantName)
+      uint64TypeId boolTypeId leftStateId rightStateId .eq .public_ (some 5)) 1
+    (exactAt_initializerStoreZeroTwoCallableV1 initializerId uint64TypeId
+      unitTypeId)
+    (exactAt_addParameterTwoReturnCallableV1 entryId entryName parameterName
+      uint64TypeId leftStateId rightStateId hentryName hparameterName)
     (exactAt_viewLoadCallableV1 viewId viewName uint64TypeId leftStateId
       hviewName)
     (exactAt_twoStateCompareInvariantCallableV1 invariantId invariantName

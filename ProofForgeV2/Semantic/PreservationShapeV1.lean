@@ -223,6 +223,55 @@ def incrementAddTwoCallableV1
   invariantSteps := none
 }
 
+/-- Exact checked-add body for two UInt64 slots. The parameter occupies value
+    id 0; both additions therefore consume the same argument. This is only a
+    contract-agnostic CFG constructor: execution remains exclusively in
+    `ReferenceMachineV1`. -/
+def addParameterTwoReturnBlockV1
+    (uint64TypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1) : BlockV1 := {
+  id := 0
+  params := #[]
+  instructions := #[
+    { result := some { valueId := 1, typeId := uint64TypeId },
+      op := .stateLoad leftStateId },
+    { result := some { valueId := 2, typeId := uint64TypeId },
+      op := .binary .add 1 0 },
+    { result := none, op := .stateStore leftStateId 2 },
+    { result := some { valueId := 3, typeId := uint64TypeId },
+      op := .stateLoad rightStateId },
+    { result := some { valueId := 4, typeId := uint64TypeId },
+      op := .binary .add 3 0 },
+    { result := none, op := .stateStore rightStateId 4 },
+    { result := some { valueId := 5, typeId := uint64TypeId },
+      op := .stateLoad rightStateId }
+  ]
+  terminator := .return_ (some 5)
+}
+
+/-- Unary entry backed by `addParameterTwoReturnBlockV1`. -/
+def addParameterTwoReturnCallableV1
+    (callableId : CallableIdV1)
+    (entryName : Option String)
+    (parameterName : String)
+    (uint64TypeId : TypeIdV1)
+    (leftStateId rightStateId : StateIdV1)
+    (visibility : VisibilityV1) : CallableV1 := {
+  id := callableId
+  kind := .entry
+  name := entryName
+  params := #[{
+    valueId := 0, name := parameterName, typeId := uint64TypeId,
+    visibility
+  }]
+  result := { typeId := uint64TypeId, visibility := .public_ }
+  entryBlock := 0
+  blocks := #[addParameterTwoReturnBlockV1 uint64TypeId
+    leftStateId rightStateId]
+  loopBounds := #[]
+  invariantSteps := none
+}
+
 /-- Nullary invariant: `stateLoad → literal 2 → mod → literal 0 → eq → return`.
     Generic single-slot UInt64 parity predicate.
     `invariantSteps` is the closed production value for this five-instruction body. -/
