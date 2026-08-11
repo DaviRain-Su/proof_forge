@@ -127,40 +127,59 @@ is_mcp_or_template() {
   return 1
 }
 
-is_solana_runtime() {
+# Pure Solana Mollusk / CPI runtime surface (does not by itself force lean-product).
+is_solana_runtime_core() {
   local f="$1"
   case "${f}" in
     ProofForgeV2/Targets/Solana/*|runtime-tests/solana/*)
       return 0 ;;
-    scripts/solana_*|scripts/*solana*)
+    scripts/solana_*|scripts/*solana*|scripts/pf_solana_*)
       return 0 ;;
     supply-chain/solana*|supply-chain/solana-cpi-assets/*)
       return 0 ;;
-    # Shared product CLI / lake wiring used by solana-runtime-test.sh
+  esac
+  return 1
+}
+
+# Paths that change the product CLI binary used by solana-runtime-test.
+is_solana_cli_dep() {
+  local f="$1"
+  case "${f}" in
     justfile|lakefile.lean|lean-toolchain|lake-manifest.json|ProofForgeV2.lean)
       return 0 ;;
     ProofForgeV2/CLI/*|ProofForgeV2/Materialization/*|ProofForgeV2/Compiler/*)
       return 0 ;;
     ProofForgeV2/Targets/EngineeringBuildV1.lean|ProofForgeV2/Targets/EnvelopeV1.lean|ProofForgeV2/Targets/DescriptorDataV1.lean)
       return 0 ;;
-    .github/workflows/ci.yml|scripts/ci/*)
+    .github/workflows/ci.yml|.github/workflows/ci-nightly.yml|scripts/ci/*)
       return 0 ;;
   esac
+  return 1
+}
+
+is_solana_runtime() {
+  local f="$1"
+  if is_solana_runtime_core "${f}" || is_solana_cli_dep "${f}"; then
+    return 0
+  fi
   return 1
 }
 
 is_target_smoke() {
   local f="$1"
   case "${f}" in
-    Tests/Materialization/*|Tests/Targets/*|Tests/CLI/*|Tests/Product/*|Tests/Shards/Targets.lean)
+    Tests/Materialization/*|Tests/Targets/*|Tests/CLI/*|Tests/Product/*|Tests/Shards/Targets*)
       return 0 ;;
     ProofForgeV2/Targets/*|Examples/*)
       return 0 ;;
     scripts/evm_*|scripts/near_*|scripts/psy_*|scripts/noir_*|scripts/cosmwasm_*|scripts/ton_*|scripts/quint_*)
       return 0 ;;
-    scripts/pf_evm_*|scripts/pf_solana_*|scripts/smoke_evm*|scripts/mcp_*|scripts/local_*)
+    scripts/pf_evm_*|scripts/smoke_evm*|scripts/mcp_*|scripts/local_*)
       return 0 ;;
-    testdata/evm-corpus/*|runtime-tests/*)
+    testdata/evm-corpus/*)
+      return 0 ;;
+    # Non-Solana runtime-tests still force target-smoke (NEAR sandbox fixtures, etc.)
+    runtime-tests/near/*|runtime-tests/evm/*|runtime-tests/cosmwasm/*|runtime-tests/noir/*)
       return 0 ;;
     justfile|lakefile.lean|lean-toolchain|lake-manifest.json|Tests.lean|Examples.lean)
       return 0 ;;
@@ -168,7 +187,7 @@ is_target_smoke() {
       return 0 ;;
     supply-chain/*)
       return 0 ;;
-    .github/workflows/ci.yml|scripts/ci/*|scripts/docs_check.py|scripts/sbom_*|scripts/gate_*)
+    .github/workflows/ci.yml|.github/workflows/ci-nightly.yml|scripts/ci/*|scripts/docs_check.py|scripts/sbom_*|scripts/gate_*)
       return 0 ;;
   esac
   return 1
@@ -176,15 +195,27 @@ is_target_smoke() {
 
 is_lean_product() {
   local f="$1"
-  # Everything that is not pure docs / pure frontend template noise.
   if is_docs_path "${f}"; then
     return 1
   fi
   if is_mcp_or_template "${f}"; then
-    # MCP server TS without Lean: skip lean-product unless workflow itself changed
     case "${f}" in
       .github/*|justfile|scripts/ci/*) return 0 ;;
       *) return 1 ;;
+    esac
+  fi
+  # Pure Solana Mollusk/Rust fixture edits: covered by solana-runtime + targets-solana
+  # via target_smoke when Solana Lean changes; skip lean-product for runtime-tests only.
+  if is_solana_runtime_core "${f}"; then
+    case "${f}" in
+      ProofForgeV2/Targets/Solana/*)
+        return 0 ;;  # Solana lowering still needs product Lean shards when shared
+      runtime-tests/solana/*)
+        return 1 ;;
+      scripts/solana_*|scripts/*solana*|scripts/pf_solana_*)
+        return 1 ;;
+      supply-chain/solana*|supply-chain/solana-cpi-assets/*)
+        return 1 ;;
     esac
   fi
   case "${f}" in
@@ -192,7 +223,7 @@ is_lean_product() {
       return 0 ;;
     justfile|lakefile.lean|lean-toolchain|lake-manifest.json|*.lean|host-*.lock*|toolchains*.lock.json|unicode.lock.json)
       return 0 ;;
-    .github/workflows/ci.yml|scripts/ci/*)
+    .github/workflows/ci.yml|.github/workflows/ci-nightly.yml|scripts/ci/*)
       return 0 ;;
     clients/pf-cli/*)
       return 0 ;;
@@ -232,7 +263,7 @@ fi
 # Changing CI path logic itself must exercise all lanes once.
 for f in "${files[@]}"; do
   case "${f}" in
-    .github/workflows/ci.yml|scripts/ci/detect_ci_paths.sh)
+    .github/workflows/ci.yml|.github/workflows/ci-nightly.yml|scripts/ci/detect_ci_paths.sh|.github/actions/*)
       lean_product=true
       target_smoke=true
       solana_runtime=true
@@ -241,6 +272,11 @@ for f in "${files[@]}"; do
   esac
 done
 
+# If only Solana runtime-tests/scripts changed (no Lean product), still run
+# target-smoke (Solana Lean pins) + solana-runtime, but lean-product may stay off.
+if [[ "${solana_runtime}" == "true" && "${lean_product}" == "false" ]]; then
+  target_smoke=true
+fi
 docs_only=false
 if [[ "${all_docs_or_mcp}" == "true" ]]; then
   docs_only=true

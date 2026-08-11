@@ -61,22 +61,21 @@ just test-frontend-worker
 # just release-check
 ```
 
-### Hosted CI map (`.github/workflows/ci.yml`)
+### Hosted CI map
 
-| Job | What | Approx. wall (warm cache) |
+| Workflow / job | What | When |
 |---|---|---|
-| `docs` | `just docs-check` + whitespace | ~10s |
-| `lean-product` | nine non-target shards + `ci-lean-gates` | ~25–30 min |
-| `target-smoke` | 3 parallel shards (evm/solana/host-**fast**) + CLI | ~10–15 min |
-| `target-host-slow` | CosmWasmPlan + NoirAcir | ~10–15 min (**main/dispatch only**) |
-| `solana-runtime` | Mollusk; reuses CLI artifact when available | ~12–20 min (was ~28 with lake) |
+| `CI` / `docs` | docs-check + path-filter self-test | always |
+| `CI` / `lean-product` | nine non-target shards + gates | path filter; always on main |
+| `CI` / `target-smoke` | evm + solana-lean + **host-fast** (parallel) | path filter; always on main |
+| `CI` / `target-host-slow` | CosmWasmPlan + NoirAcir | **main / workflow_dispatch only** |
+| `CI` / `solana-runtime` | Mollusk; reuses CLI artifact | path filter; waits for CLI upload |
+| `CI nightly` | full host-slow + all targets + Mollusk | daily 08:00 UTC + dispatch |
 
-Jobs run **in parallel** where independent; `solana-runtime` waits on
-lean-product/target-smoke only to download the CLI artifact (skips a third
-full monorepo lake build when possible). Path filter skips heavy jobs on
-docs/MCP/template-only PRs. **Pushes to `main` always run heavy lanes**
-(including host-slow). A green hosted CI does **not** mean hermetic/formal
-release evidence.
+Path filter (`scripts/ci/detect_ci_paths.sh`): docs/MCP/template-only PRs skip
+heavy jobs; pure `runtime-tests/solana/**` skips lean-product but still runs
+target-smoke + solana-runtime. **Pushes to `main` force all ordinary heavy
+lanes.** A green CI is **not** hermetic/formal release evidence.
 
 Target shards: `targets-evm` · `targets-solana` · `targets-host-fast` ·
 `targets-host-slow` (see `Tests/Shards/Targets*.lean`).

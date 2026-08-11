@@ -27,9 +27,9 @@ run() {
 run docs_only $'docs/targets/01-evm.md\nREADME.md' lean_product=false target_smoke=false solana_runtime=false docs_only=true
 run mcp_only $'clients/pf-mcp/src/index.ts' lean_product=false docs_only=true
 run lean_core $'ProofForgeV2/Compiler/Pipeline.lean' lean_product=true target_smoke=true
-run solana_rt $'runtime-tests/solana/tests/artifacts.rs' solana_runtime=true
+run solana_rt $'runtime-tests/solana/tests/artifacts.rs' solana_runtime=true target_smoke=true lean_product=false
+run solana_lean $'ProofForgeV2/Targets/Solana/FinalizeV1.lean' solana_runtime=true lean_product=true
 run ci_self $'.github/workflows/ci.yml' lean_product=true target_smoke=true solana_runtime=true
-
 out="$(mktemp)"
 export GITHUB_EVENT_NAME=push GITHUB_REF_NAME=main GITHUB_OUTPUT="$out"
 unset PF_CI_PATH_LIST || true
