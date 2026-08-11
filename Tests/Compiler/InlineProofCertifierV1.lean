@@ -61,6 +61,14 @@ private def liftResult (result : CompileResult α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
 
+/-- Preserve the successful equation when an integration test must instantiate
+    a proposition-only graph theorem for the exact production result. -/
+private def liftResultWithProof (result : CompileResult α) :
+    IO { value : α // result = .ok value } :=
+  match result with
+  | .ok value => pure ⟨value, rfl⟩
+  | .error error => throw <| IO.userError error.render
+
 private def expectNearPlanRejected
     (label : String) (plan : ProofForgeV2.Targets.Near.Plan) : IO Unit :=
   match ProofForgeV2.Targets.Near.validatePlan plan with
@@ -402,7 +410,8 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
       let capability ← liftResult <|
         ProofForgeV2.Targets.authorizeCertifiedNearInvariantErasureV1
           ordinary carrier
-      let plan ← liftResult <| ProofForgeV2.Targets.Near.planFromCapability capability
+      let planResult := ProofForgeV2.Targets.Near.planFromCapability capability
+      let ⟨plan, hplanResult⟩ ← liftResultWithProof planResult
       expect (plan.initializer.name == "init" &&
           plan.entries.map (·.name) == #["deposit", "withdraw", "status"] &&
           plan.entries.map (·.resultKind) ==
@@ -447,6 +456,76 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
             throw <| IO.userError s!"VerifiedVaultPF altered NEAR Plan digest failed: {error}"
       expect (digest != alteredDigest)
         "NEAR Plan digest must bind the proof certification digest"
+
+      -- Continue through the same capability-gated production path. The
+      -- equations retained above and below instantiate the proposition-only
+      -- full-Plan graph; no test Plan, key constructor, or lowering is used.
+      let irResult := ProofForgeV2.Targets.Near.irFromCapability capability
+      let ⟨ir, hirResult⟩ ← liftResultWithProof irResult
+      have hgraphs :=
+        ProofForgeV2.Targets.Near.planAndIRFromCapability_eq_ok_graphsV1
+          capability plan ir
+          (by simpa [planResult] using hplanResult)
+          (by simpa [irResult] using hirResult)
+      expect (ir.sourcePlan == plan)
+        "VerifiedVaultPF IR must retain the exact production Plan"
+      expect (ir.keys.size == 3 && plan.storage.fields.size == 2 &&
+          plan.storage.stateLeaves == #[#[0], #[1]] &&
+          plan.storage.fields.map (·.key) ==
+            #["pf:v1:state:0", "pf:v1:state:1"] &&
+          plan.storage.fields.map (fun field =>
+            (field.sourceId, field.name, field.byteWidth, field.endianness)) == #[
+              (0, "reserves", 8, .little),
+              (1, "shares", 8, .little)
+            ])
+        "VerifiedVaultPF canonical storage/key shape"
+      let markerRegion := ir.keys[0]!
+      let reservesRegion := ir.keys[1]!
+      let sharesRegion := ir.keys[2]!
+      expect (markerRegion.key == plan.storage.markerKey &&
+          markerRegion.offset == 0 &&
+          markerRegion.length == plan.storage.markerKey.toUTF8.size &&
+          reservesRegion.key == plan.storage.fields[0]!.key &&
+          reservesRegion.offset == markerRegion.length &&
+          reservesRegion.length == plan.storage.fields[0]!.key.toUTF8.size &&
+          sharesRegion.key == plan.storage.fields[1]!.key &&
+          sharesRegion.offset == markerRegion.length + reservesRegion.length &&
+          sharesRegion.length == plan.storage.fields[1]!.key.toUTF8.size)
+        "VerifiedVaultPF IR keys must be the canonical production regions"
+      match hstatus : plan.entries[2]? with
+      | none =>
+          throw <| IO.userError "VerifiedVaultPF production Plan is missing status at entry 2"
+      | some statusMethod =>
+          match hstatusIR : ir.methods[3]? with
+          | none =>
+              throw <| IO.userError "VerifiedVaultPF production IR is missing status at method 3"
+          | some statusIR =>
+              have _ :
+                  ProofForgeV2.Targets.Near.MethodIRLoweringV1
+                    plan ir.keys statusMethod statusIR :=
+                ProofForgeV2.Targets.Near.planIRLoweringV1_entry_lookup_eq_some
+                  plan ir 2 statusMethod statusIR hgraphs.2.2 hstatus hstatusIR
+              expect (statusMethod.name == "status" &&
+                  statusMethod.params.isEmpty &&
+                  statusMethod.exactInputLen == 0 &&
+                  statusMethod.mode == .view &&
+                  statusMethod.depositPolicy == .queryOnly &&
+                  statusMethod.resultKind == .uint64 &&
+                  statusMethod.body ==
+                    #[ProofForgeV2.Targets.Near.Statement.returnValue
+                      (.stateLoad 0)])
+                "VerifiedVaultPF production status Method shape"
+              expect (statusIR.name == "status" &&
+                  statusIR.params.isEmpty &&
+                  statusIR.mode == .view &&
+                  statusIR.tempCount == 1 &&
+                  statusIR.operations == #[
+                    .checkInputLen 0,
+                    .requireLayout markerRegion plan.storage.markerValue,
+                    .loadState 0 reservesRegion,
+                    .setReturnData 8 0
+                  ])
+                "VerifiedVaultPF production status MethodIR static alignment"
 
       -- Public Plan tampering remains fail-closed at the target validator.
       expectNearPlanRejected "erasure decision removed" {

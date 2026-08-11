@@ -198,6 +198,19 @@ private def makeKeyRegions (plan : Plan) : Array KeyRegion := Id.run do
     offset := offset + length
   return regions
 
+/-- Proposition-only graph of the production key-region constructor. The
+    constructor stays private; this relation exposes only evidence that a
+    supplied array is its exact result. -/
+def KeyRegionsV1 (plan : Plan) (keys : Array KeyRegion) : Prop :=
+  keys = makeKeyRegions plan
+
+/-- The production key-region graph determines one exact array. -/
+theorem keyRegionsV1_unique (plan : Plan) (left right : Array KeyRegion)
+    (hleft : KeyRegionsV1 plan left)
+    (hright : KeyRegionsV1 plan right) :
+    left = right := by
+  exact hleft.trans hright.symm
+
 private def maxInputLen (plan : Plan) : Nat :=
   plan.entries.foldl (fun current method => max current method.exactInputLen)
     plan.initializer.exactInputLen
@@ -1074,11 +1087,10 @@ def validateIR (ir : IR) : CompileResult Unit := do
     throw <| .planInvariant .near
       "typed NEAR IR pureFn operations are not the exact lowering of their source Plan"
 
-private def lower (plan : Plan) : CompileResult IR := do
-  validatePlan plan
+private def makeIR (plan : Plan) : IR :=
   let keys := makeKeyRegions plan
   let memory := makeMemoryLayout plan keys
-  let ir : IR := {
+  {
     sourcePlan := plan
     name := plan.programName
     imports := plan.hostImports
@@ -1088,8 +1100,93 @@ private def lower (plan : Plan) : CompileResult IR := do
     methods := expectedMethods plan keys
     fns := expectedFns plan keys
   }
+
+private def lower (plan : Plan) : CompileResult IR := do
+  validatePlan plan
+  let ir := makeIR plan
   validateIR ir
   return ir
+
+/-- Exact proposition-only graph of successful production Plan→IR lowering.
+    This does not expose a public Plan→IR constructor: the right-hand side is
+    the existing private validated lowering. -/
+def PlanIRLoweringV1 (plan : Plan) (ir : IR) : Prop :=
+  lower plan = .ok ir
+
+private theorem planIRLoweringV1_eq_makeIR
+    (plan : Plan) (ir : IR)
+    (hgraph : PlanIRLoweringV1 plan ir) :
+    makeIR plan = ir := by
+  unfold PlanIRLoweringV1 lower at hgraph
+  cases hplan : validatePlan plan with
+  | error error =>
+      simp [hplan, Bind.bind, Except.bind] at hgraph
+  | ok _ =>
+      cases hir : validateIR (makeIR plan) with
+      | error error =>
+          simp [hplan, hir, Bind.bind, Except.bind] at hgraph
+      | ok _ =>
+          have hok : (Except.ok (makeIR plan) : CompileResult IR) = .ok ir := by
+            simpa [hplan, hir, Bind.bind, Except.bind, Pure.pure,
+              Except.pure] using hgraph
+          exact Except.ok.inj hok
+
+/-- A successful production lowering retains the exact source Plan. -/
+theorem planIRLoweringV1_sourcePlan
+    (plan : Plan) (ir : IR)
+    (hgraph : PlanIRLoweringV1 plan ir) :
+    ir.sourcePlan = plan := by
+  have hir := planIRLoweringV1_eq_makeIR plan ir hgraph
+  rw [← hir]
+  rfl
+
+/-- A successful production lowering uses the exact private canonical key
+    regions for its source Plan. -/
+theorem planIRLoweringV1_keyRegions
+    (plan : Plan) (ir : IR)
+    (hgraph : PlanIRLoweringV1 plan ir) :
+    KeyRegionsV1 plan ir.keys := by
+  have hir := planIRLoweringV1_eq_makeIR plan ir hgraph
+  rw [← hir]
+  rfl
+
+/-- A successful production lowering uses the exact production method array. -/
+theorem planIRLoweringV1_methods
+    (plan : Plan) (ir : IR)
+    (hgraph : PlanIRLoweringV1 plan ir) :
+    ir.methods = expectedMethods plan ir.keys := by
+  have hir := planIRLoweringV1_eq_makeIR plan ir hgraph
+  rw [← hir]
+  rfl
+
+/-- Entry `i` is lowered to IR method `i + 1`; index zero is reserved for the
+    initializer. The method evidence is the existing production lowering graph. -/
+theorem planIRLoweringV1_entry_lookup
+    (plan : Plan) (ir : IR) (i : Nat) (method : Method)
+    (hgraph : PlanIRLoweringV1 plan ir)
+    (hentry : plan.entries[i]? = some method) :
+    ∃ methodIR,
+      ir.methods[i + 1]? = some methodIR ∧
+      MethodIRLoweringV1 plan ir.keys method methodIR := by
+  have hmethods := planIRLoweringV1_methods plan ir hgraph
+  refine ⟨lowerMethod plan ir.keys method, ?_, rfl⟩
+  rw [hmethods, expectedMethods]
+  rw [Array.getElem?_append_right (by simp)]
+  simp [Array.getElem?_map, hentry]
+
+/-- If both source and emitted entry lookups are known, the concrete emitted
+    MethodIR carries the existing production method-lowering graph evidence. -/
+theorem planIRLoweringV1_entry_lookup_eq_some
+    (plan : Plan) (ir : IR) (i : Nat) (method : Method) (methodIR : MethodIR)
+    (hgraph : PlanIRLoweringV1 plan ir)
+    (hentry : plan.entries[i]? = some method)
+    (hmethodIR : ir.methods[i + 1]? = some methodIR) :
+    MethodIRLoweringV1 plan ir.keys method methodIR := by
+  obtain ⟨lowered, hlowered, hgraphMethod⟩ :=
+    planIRLoweringV1_entry_lookup plan ir i method hgraph hentry
+  have : lowered = methodIR :=
+    Option.some.inj (hlowered.symm.trans hmethodIR)
+  simpa [this] using hgraphMethod
 
 private def uint64Hex (value : UInt64) : String :=
   let raw := String.ofList (Nat.toDigits 16 value.toNat)
@@ -2503,6 +2600,26 @@ def irFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult I
   let plan ← materializePlanFromCapabilityV1 capability
   validatePlan plan
   lower plan
+
+/-- Every successful capability-gated IR result comes from the exact production
+    Plan materializer and private validated Plan→IR lowering. -/
+theorem irFromCapability_eq_ok_graphsV1
+    (capability : ResolvedEngineeringBuildV1) (ir : IR)
+    (hir : irFromCapability capability = .ok ir) :
+    ∃ plan,
+      materializePlanFromCapabilityV1 capability = .ok plan ∧
+      PlanIRLoweringV1 plan ir := by
+  cases hplan : materializePlanFromCapabilityV1 capability with
+  | error error =>
+      simp [irFromCapability, hplan, Bind.bind, Except.bind] at hir
+  | ok plan =>
+      refine ⟨plan, rfl, ?_⟩
+      cases hvalidate : validatePlan plan with
+      | error error =>
+          simp [irFromCapability, hplan, hvalidate, Bind.bind, Except.bind] at hir
+      | ok _ =>
+          simpa [irFromCapability, hplan, hvalidate, PlanIRLoweringV1,
+            Bind.bind, Except.bind] using hir
 
 /-- Capability-gated public materialize entry (S6). -/
 def buildFromCapability (capability : ResolvedEngineeringBuildV1) :

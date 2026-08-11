@@ -650,17 +650,20 @@ certification elaboration 阶段 fail closed。
   为空、target logs/promises为空和 target pre/post storage observation相等；failure relation要求
   Reference failure携 exact pre-state且 target observation无 commit；
 - exact VerifiedVault semantic subject 的独立 candidate `status` Method/MethodIR shape 已满足静态
-  relation，追加 store 会 fail closed；它尚未连接 materialized VerifiedVault Plan、canonical key
-  regions 或 emitted IR；production private `lowerMethod` 对 supplied raw Plan/keys/method 只通过
-  `MethodIRLoweringV1` 命题图暴露 existence/uniqueness seam，没有新增第二个 Plan→IR constructor；
+  relation，追加 store 会 fail closed；production 现以 `KeyRegionsV1` / `PlanIRLoweringV1` exact
+  successful graph连接 materialized Plan、private canonical key constructor 与 validated lowering，
+  并导出 source Plan、keys、method array及 entry-index MethodIR provenance；没有新增第二个
+  Plan→IR constructor；
 - 测试已在 exact VerifiedVault subject 上复用 production logical-state codec roundtrip 与
   `stepReferenceSliceV1_ready_viewLoad_returned_post_eq_pre`，固定 successful status 的完整逻辑
-  state不变。
+  state不变；真实 same-file certification fixture 继续经过 certified capability → production Plan →
+  production IR，固定 status 为 Plan entry 2 / IR method 3，携带 concrete
+  `MethodIRLoweringV1` evidence，并检查 canonical keys 与 exact static recipe shape。
 
-这仍然只是 **static alignment/refinement foundation**：尚未证明某个 concrete materialized Plan
-的 graph 等于该 status recipe，也没有 NEAR `Operation` execution semantics、IR/Wasm step、
-simulation theorem、artifact/toolchain identity theorem。`NearHostModel` 继续是 private test-only
-engineering model，不能作为 formal target semantics。当前声明仍是
+这仍然只是 **static alignment/refinement foundation**：production Plan/key/IR provenance 已连接，
+但没有 NEAR `Operation` execution semantics、IR/Wasm step、simulation theorem、
+artifact/toolchain identity theorem。`NearHostModel` 继续是 private test-only engineering model，
+不能作为 formal target semantics。当前声明仍是
 **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
 
 每个 target 至少需要：
@@ -763,7 +766,7 @@ engineering model，不能作为 formal target semantics。当前声明仍是
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR status 静态地基首切）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation、independent candidate status Method/IR shape、production lowering proposition graph seam 与 Reference state-stutter 实例；尚无 materialized VerifiedVault Plan/canonical key/IR connection、concrete Plan graph proof、target execution semantics、simulation 或 artifact identity evidence |
+| 7 | Per-target refinement | **进行中（NEAR status production 静态连接）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation、independent candidate status shape、Reference state-stutter实例，以及 certified capability → production materialized Plan → canonical keys → Plan→IR graph → status MethodIR provenance；尚无 target execution semantics、simulation 或 artifact identity evidence |
 
 ### 首个代码切片进展
 

@@ -14737,3 +14737,18 @@ normative: false
 - 成熟度不变：该结果是 engineering EVM primitive/runtime closure，不是 OZ behavior/ABI、
   formal C-3/D4、hermetic/release 或 mainnet deployment 证据；F01 仍因无 pinned OZ leg 与
   标准 address/event/error ABI 保持 Blocked。
+
+## 2026-08-11 — Phase 7 NEAR `status` production static provenance
+
+- 在既有 private `makeKeyRegions` / validated `lower` 上增加 proposition-only exact successful
+  graph：`KeyRegionsV1` 与 `PlanIRLoweringV1`；constructor 与 Plan→IR entry 均未公开，也未复制。
+- full-plan graph 导出 exact source Plan、canonical key regions、production methods，以及
+  Plan entry `i` → IR method `i+1` 的 `MethodIRLoweringV1` evidence；capability bridge证明
+  `irFromCapability` success 必来自同一 production materializer 和 validated lowering。
+- `VerifiedVaultPF` 的真实 same-file certifier positive 继续使用 audited certificate mint NEAR
+  capability，再调用 production `planFromCapability` / `irFromCapability`；测试固定 Plan
+  `status` entry 2、IR method 3、`pf:v1:state:0/1` canonical regions及 exact nullary UInt64
+  `stateLoad; setReturnData` recipe，并实例化 concrete method-lowering graph。
+- 边界不变：没有新增 State/Effect/evaluator/step，不执行 NEAR `Operation`，没有 IR/Wasm/NEAR
+  simulation 或 rollback refinement theorem；`NearHostModel` 仍是 test-only engineering model。
+  当前仍是 **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
