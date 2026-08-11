@@ -534,9 +534,9 @@ private def testStatefulEqualityProductCli : IO Unit := do
   expect (!hasSubstr stdoutN "proofStatus=certified")
     "StatefulEquality near-miss must not claim certified"
 
-/-- The initializer/deposit/view business slice certifies through the real CLI;
-    deleting one deposit update remains typed-valid but cannot elaborate the
-    exact-family preservation proof. -/
+/-- Exact initializer/deposit/guarded-withdraw/view equality family: the shipped
+    five-callable source certifies, while a typed-valid withdraw missing its
+    second checked subtraction/store fails closed during elaboration. -/
 private def testVerifiedVaultPFProductCli : IO Unit := do
   let args := #["check", "Examples/VerifiedVaultPF.lean",
     "--module", "Examples.VerifiedVaultPF"]
@@ -569,18 +569,23 @@ private def testVerifiedVaultPFProductCli : IO Unit := do
     "    shares := 0\n" ++
     "  entry deposit(amount : UInt64) : UInt64 do\n" ++
     "    reserves := reserves + amount\n" ++
+    "    shares := shares + amount\n" ++
     "    return shares\n" ++
+    "  entry withdraw(amount : UInt64) : Unit do\n" ++
+    "    assert amount <= reserves\n" ++
+    "    assert amount <= shares\n" ++
+    "    reserves := reserves - amount\n" ++
     "  view status() : UInt64 do\n" ++
     "    return reserves\n" ++
     "  invariant solvent : reserves == shares\n" ++
     "  proof solvent preserving using VerifiedVaultPFNearMissProof.solvent\n" ++
     "theorem VerifiedVaultPFNearMissProof.solvent : VerifiedVaultPFNearMiss.ProofPreserving.solvent := by\n" ++
-    "  exact ProofForgeV2.Semantic.InitializerDepositViewEqualityPreservationV1.preservationTheorem_of_subjectBodyV1\n" ++
+    "  exact ProofForgeV2.Semantic.InitializerDepositWithdrawViewEqualityPreservationV1.preservationTheorem_of_subjectBodyV1\n" ++
     "    VerifiedVaultPFNearMiss.Proof.subjectDataV1.qualifiedName\n" ++
-    "    \"reserves\" \"shares\" \"deposit\" \"amount\" \"status\" \"solvent\"\n" ++
+    "    \"reserves\" \"shares\" \"deposit\" \"amount\" \"withdraw\" \"amount\" \"status\" \"solvent\"\n" ++
     "    VerifiedVaultPFNearMiss.Proof.subjectDataV1 VerifiedVaultPFNearMiss.Proof.subjectBytesV1\n" ++
-    "    (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)\n" ++
-    "    (by decide) (by decide) (by decide) (by decide) (by rfl)\n" ++
+    "    (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)\n" ++
+    "    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (by rfl)\n" ++
     "    VerifiedVaultPFNearMiss.Proof.subjectBodyEncodeOkV1\n"
   let _ ← writeFixture "verified-vault-pf-near-miss.lean" nearMiss
   let (ecN, stdoutN, stderrN) ← runCli #["check",

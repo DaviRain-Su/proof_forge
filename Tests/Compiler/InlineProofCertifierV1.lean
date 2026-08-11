@@ -514,6 +514,55 @@ private unsafe def testInitializerDepositViewEqualityFamilyProductCoverage
           phase == .certification && detail == .elaborate
       | _ => false
 
+private def initializerDepositWithdrawViewEqualitySource
+    (programName withdrawBody viewAndWithdrawBody : String) : String :=
+  let proofName := programName ++ "Proof.balanced"
+  header ++ "program " ++ programName ++ " where\n" ++
+  "  state assets : UInt64\n  state liabilities : UInt64\n" ++
+  "  init() do\n    assets := 0\n    liabilities := 0\n" ++
+  "  entry contribute(quantity : UInt64) : UInt64 do\n" ++
+  "    assets := assets + quantity\n    liabilities := liabilities + quantity\n    return liabilities\n" ++
+  withdrawBody ++ viewAndWithdrawBody ++
+  "  invariant balanced : assets == liabilities\n" ++
+  "  proof balanced preserving using " ++ proofName ++ "\n" ++
+  "theorem " ++ proofName ++ " : " ++ programName ++ ".ProofPreserving.balanced := by\n" ++
+  "  exact ProofForgeV2.Semantic.InitializerDepositWithdrawViewEqualityPreservationV1.preservationTheorem_of_subjectBodyV1\n" ++
+  "    " ++ programName ++ ".Proof.subjectDataV1.qualifiedName\n" ++
+  "    \"assets\" \"liabilities\" \"contribute\" \"quantity\" \"redeem\" \"quantity\"\n" ++
+  "    \"readAssets\" \"balanced\"\n" ++
+  "    " ++ programName ++ ".Proof.subjectDataV1 " ++ programName ++ ".Proof.subjectBytesV1\n" ++
+  "    (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)\n" ++
+  "    (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (by decide) (by rfl)\n" ++
+  "    " ++ programName ++ ".Proof.subjectBodyEncodeOkV1\n"
+
+private unsafe def testInitializerDepositWithdrawViewEqualityFamilyProductCoverage
+    (session : ProductParserSessionV1) : IO Unit := do
+  let exactWithdraw := "  entry redeem(quantity : UInt64) : Unit do\n    assert quantity <= assets\n    assert quantity <= liabilities\n    assets := assets - quantity\n    liabilities := liabilities - quantity\n"
+  let viewBody := "  view readAssets() : UInt64 do\n    return assets\n"
+  let cases := #[
+    ("AlphaRenamedFiveCallable", exactWithdraw, viewBody, true),
+    ("WithdrawMissingSecondSubtractStore", "  entry redeem(quantity : UInt64) : Unit do\n    assert quantity <= assets\n    assert quantity <= liabilities\n    assets := assets - quantity\n", viewBody, false),
+    ("WithdrawWrongSubtractSource", "  entry redeem(quantity : UInt64) : Unit do\n    assert quantity <= assets\n    assert quantity <= liabilities\n    assets := liabilities - quantity\n    liabilities := liabilities - quantity\n", viewBody, false),
+    ("WithdrawWrongStateSlot", "  entry redeem(quantity : UInt64) : Unit do\n    assert quantity <= assets\n    assert quantity <= liabilities\n    assets := assets - quantity\n    assets := assets - quantity\n", viewBody, false),
+    ("WithdrawMissingFirstAssert", "  entry redeem(quantity : UInt64) : Unit do\n    assert quantity <= liabilities\n    assets := assets - quantity\n    liabilities := liabilities - quantity\n", viewBody, false),
+    ("WithdrawMissingSecondAssert", "  entry redeem(quantity : UInt64) : Unit do\n    assert quantity <= assets\n    assets := assets - quantity\n    liabilities := liabilities - quantity\n", viewBody, false),
+    ("WithdrawReversedAssert", "  entry redeem(quantity : UInt64) : Unit do\n    assert assets <= quantity\n    assert quantity <= liabilities\n    assets := assets - quantity\n    liabilities := liabilities - quantity\n", viewBody, false),
+    ("WithdrawOverwrite", "  entry redeem(quantity : UInt64) : Unit do\n    assert quantity <= assets\n    assert quantity <= liabilities\n    assets := quantity\n    liabilities := quantity\n", viewBody, false),
+    ("WithdrawWrongResultShape", "  entry redeem(quantity : UInt64) : UInt64 do\n    assert quantity <= assets\n    assert quantity <= liabilities\n    assets := assets - quantity\n    liabilities := liabilities - quantity\n    return liabilities\n", viewBody, false),
+    ("WithdrawWrongCallableOrder", "", viewBody ++ exactWithdraw, false)
+  ]
+  for (programName, withdrawBody, trailingBody, shouldCertify) in cases do
+    let src := initializerDepositWithdrawViewEqualitySource programName withdrawBody trailingBody
+    let fileName := s!"tests/inline-proof/{programName}.lean"
+    let path ← parsePath fileName
+    let (source, origin, inventory) ← loadProduct session src fileName "Root"
+    let compiled ← compileOf source origin
+    let outcome ← certifyInlineProofV1 session src source origin inventory compiled path "Root" none
+    expectOutcome programName outcome fun
+      | .certified carrier => shouldCertify && CertifiedInlineProofV1.theoremCount carrier == 1
+      | .failed phase detail => !shouldCertify && phase == .certification && detail == .elaborate
+      | _ => false
+
 /-- Proof kind is source certification metadata: changing only holds ↔ preserving
     changes canonical ProgramV1/source identity, while Normalize emits the same
     business SemanticProgramV1 bytes and digest. -/
@@ -929,6 +978,7 @@ unsafe def run : IO Unit := do
   testSameFileVerifiedVaultPFPreservingProductPositive session
   testInitializerViewEqualityFamilyProductCoverage session
   testInitializerDepositViewEqualityFamilyProductCoverage session
+  testInitializerDepositWithdrawViewEqualityFamilyProductCoverage session
   testProofKindIdentityBoundary session
   testForbiddenMainModule session
   testWrongSubjectBytes session

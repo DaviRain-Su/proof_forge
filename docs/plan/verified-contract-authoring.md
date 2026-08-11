@@ -160,10 +160,11 @@ ProofForge 目标
 4. `PreservationTheoremV1` 要求 base + 全输入 + 全 callable + 三 Outcome；程序级 composer
    已有，首个真实修改 UInt64 state 且保持字段不变量的 generated typed returned-row theorem
    也已闭合。除 exact name-parameterized `sync(amount)` equality family 外，当前还闭合了
-   initializer + 双槽位同参数 checked-add entry + read-only view + equality invariant family：
-   production validation/admission、initializer base、returned success、overflow/revert/trap rollback
-   与全 row 组装共同得到最终 Reference-level `PreservationTheoremV1`；但 arbitrary
-   callable/expression family 的同类 packaging 仍待补。
+   initializer + 双槽位同参数 checked-add entry + 双 guard checked-sub Unit entry + read-only
+   view + equality invariant family：production validation/admission、initializer base、两个 entry
+   的 returned success、assert/overflow/revert/trap rollback 与五个 callable row 组装共同得到最终
+   Reference-level `PreservationTheoremV1`；但 arbitrary callable/expression family 的同类
+   packaging 仍待补。
 5. ClosedSubjectPin/contract-specific golden 可以加速已知样例，但不能成为任意合约的主证明通道。
 6. [`Examples/MiniAmmL1.lean`](../../Examples/MiniAmmL1.lean) 当前只有 executable
    `emptyPool` invariant 与 Normalize/Reference admission 正例，没有同文件 proof binding 和完整
@@ -551,12 +552,13 @@ checked arithmetic/lookup 通用引理与业务 proof ergonomics尚未完成。
 
 ### Phase 5 — Same-file authoring 与 certifier 体验
 
-**状态**：exact initializer + 双槽位同参数 checked-add deposit + read-only view + two-field
-equality family 的 business slice 已闭合；通用 arbitrary-family 作者体验仍在进行中。真实
-`VerifiedVaultPF.lean` 已由同一文件内 ordinary Lean theorem 通过产品 certifier 与 CLI
-`check`。alpha-renamed 同构 family 同样可认证；删除任一 deposit store、改变第二次 add 的
-state/value flow、用覆盖赋值替代 add、改变 result/return slot 或 callable order 的 typed-valid
-near miss 都会在 certification elaboration 阶段 fail closed。
+**状态**：exact initializer + 双槽位同参数 checked-add deposit + 双 `<=` guard checked-sub
+Unit withdraw + read-only view + two-field equality family 的 business slice 已闭合；通用
+arbitrary-family 作者体验仍在进行中。真实 `VerifiedVaultPF.lean` 已由同一文件内 ordinary
+Lean theorem 通过产品 certifier 与 CLI `check`。alpha-renamed 五 callable 同构 family 同样可
+认证；删除任一 store/sub、改变 subtraction state/value flow、漏/reverse assert、用覆盖赋值
+替代 subtraction、改变 withdraw result shape 或 callable order 的 typed-valid near miss 都会在
+certification elaboration 阶段 fail closed。
 
 交付：
 
@@ -587,7 +589,9 @@ near miss 都会在 certification elaboration 阶段 fail closed。
 
 - **Phase 6A — Reference-certified author slice**：只要求产品 `check`，不触碰 target
   materialization authority，因此无需 invariant-erasure amendment。initializer + checked-add
-  deposit + read-only status + equality invariant 已完成；withdraw 仍待实现。
+  deposit + 双 guard checked-sub Unit withdraw + read-only status + equality invariant 已完成；
+  exact subject、positive Reference admission、sole Reference execution、五 callable preservation、
+  same-file theorem、product certifier 与真实 CLI `check` 已闭环。
 - **Phase 6B — proof-bearing target build/runtime**：当前 ADR-0034 与各 target contract 明确保持
   nonempty invariant materialization fail closed。本 draft 不能覆盖该规则。进入 6B 代码前，必须
   先提交并批准独立 ADR/target-spec amendment，冻结 versioned proof-only invariant erasure Plan；
@@ -725,9 +729,9 @@ near miss 都会在 certification elaboration 阶段 fail closed。
 | 1 | Typed State + codec bridge | **进行中（generated Bool/UInt64 codec proof 首切已完成）** | generated `Model.State` 复用 production codec；`Model.encode_exists`、`decode_encode`、`encode_decode_of_conforms`、conformance/typed-encode iff 与 conforming decode 唯一性均已闭合；Bool 的产品 accepted-language 接线与更多 scalar shape 仍待补 |
 | 2 | Typed callable transition | **进行中（typed UInt64 参数投影 + initialized entry/view + 独立 initializer lifecycle relation 首切已完成）** | production ready gate 可把 raw invocation 精确恢复为 generated named invocation；pre-init 只使用 exact production lifecycle carrier；initializer returned state 与 ordinary callable returned state 均可唯一投影为 typed State，固定 typed 输入有且至多有一个 typed outcome |
 | 3 | Typed invariant bridge | **进行中（evaluator + UInt64 字段 Eq/Ne 数学 bridge 首切已完成）** | generated predicate 使用 exact state encoder 与 lowered invariant ordinal，并与 production `evalInvariantV1` 双向对齐；exact two-state Eq/Ne CFG 已 fail-closed 投影成字段 `=`/`≠` 且不再暴露 encoding witness；这不是任意 expression translator，更多表达式与 exact validation packaging 仍待补 |
-| 4 | Generic preservation composition | **进行中（initializer/deposit/view program-level preserving 闭环已完成）** | composer、finite-row assembler、typed returned lift、UInt64 参数投影及 literal-true 程序级闭环已有；除 `sync(amount)` 外，双槽位同参数 checked-add deposit 已经沿真实 Reference step 证明 returned post-state两字段相等，overflow/revert/trap 由唯一事务语义保持 exact pre，并由 name-parameterized production validation/admission family、initializer base 与 exact rows 组装成最终 `PreservationTheoremV1`。这仍只是 narrow family；withdraw 与 arbitrary contract coverage 仍待补 |
-| 5 | Same-file certifier ergonomics | **进行中（initializer/deposit/view business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 同构正例通过，漏 store、错误 add flow、覆盖赋值、result/return slot 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
-| 6A | VerifiedVaultPF Reference-certified author slice | **进行中（initializer + deposit + status + equality invariant 已完成）** | 当前 exact `check` certified、theorem count 1、digest 非空；下一步加入 withdraw 的 guard/checked-sub business slice，不宣称 target artifact refinement |
+| 4 | Generic preservation composition | **进行中（VerifiedVault 五 callable narrow family 已闭环）** | composer、finite-row assembler、typed returned lift、UInt64 参数投影及 literal-true 程序级闭环已有；除 `sync(amount)` 外，双槽位同参数 checked-add deposit 与双 guard checked-sub Unit withdraw 已经沿唯一 Reference step 证明 returned post-state两字段相等，assert/overflow/revert/trap 由唯一事务语义保持 exact pre，并由 name-parameterized production validation/admission family、initializer base 与五个 exact rows 组装成最终 `PreservationTheoremV1`。arbitrary contract coverage 仍待补 |
+| 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
+| 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | 未开始 | 先批准 versioned invariant-erasure contract，再完成 proof-bearing build + runtime differential；诚实标注 Reference-level + engineering observed |
 | 7 | Per-target refinement | 未开始 | target-specific refinement evidence逐个关闭 |
 
@@ -1007,28 +1011,27 @@ expression translator：
     State/Effect/step/evaluator；该 name-parameterized family 现已有 shipped same-file source，且真实
     in-process certifier 与 CLI `check` 均验收 `.certified`（theorem count 1 与非空 SHA-256
     certification digest），无 contract-specific pin/package。这仍不代表 arbitrary contract
-    generator、完整 VerifiedVaultPF 或任何 target refinement 已完成；
-13. 首个真实 `Examples/VerifiedVaultPF.lean` 现已完成 initializer + `deposit(amount)` + read-only
-    `status` + `reserves == shares` invariant 的 exact production family：两字段 canonical zero
-    初始化经 sole Reference machine 建立 lifecycle base；deposit 对两个槽位分别执行同一参数的
-    checked-add 并返回第二槽位；returned success 的 post 编码精确为同一 `sumBytes` 两次；status
-    returned 路径证明 `post = pre`；最终同文件 ordinary theorem 组装为原始
-    `PreservationTheoremV1`。通用 Reference characterization覆盖任意 canonical UInt64 add；第一次
-    add overflow 不能形成 returned outcome，第二次 add 与第一次使用相同输入；所有
-    reverted/trapped outcome 继续由 production transaction packaging 保证 `post = pre`，没有新增
-    evaluator 或 step；
-14. 产品 elaborator 只在完整 `SemanticProgramDataV1` 与该名称参数化 family exact 相等时生成
-    structure/validation certificate。真实 certifier/CLI 报告 `proofStatus=certified`、theorem count 1
-    与非空 SHA-256 certification digest；alpha-renamed 同构正例同样 certified。漏掉第二个 store、
-    第二次 add 读取错误槽位、覆盖赋值、改变 result/return slot 或 callable order 的 typed-valid
-    near miss 都在 certification elaboration fail closed。Reference engineering trace另外覆盖 init、
-    deposit success、status stutter、第一次 add overflow、第一槽位已 provisional store 后第二次 add
-    overflow的 exact rollback，以及 malformed invocation 的 exact `.invalidInvocation` trap rollback，
-    并重新求值 equality invariant确认保持；
-15. withdraw 及其 guard/underflow rollback 业务 slice 仍未完成，proof-bearing target build 也仍受
-    invariant-erasure authority gate 阻止。因此 Phase 4/6 与“任意业务合约验证”均不能称完成；
-    当前最高声明只是 initializer/deposit/view 窄切片的 `reference-certified`，不是完整 Vault，
-    更不是 target artifact verified。
+    generator 或任何 target refinement 已完成；
+13. 首个真实 `Examples/VerifiedVaultPF.lean` 现已完成 initializer + `deposit(amount)` +
+    `withdraw(amount)` + read-only `status` + `reserves == shares` invariant 的 exact production
+    family：两字段 canonical zero 初始化经 sole Reference machine 建立 lifecycle base；deposit 对
+    两个槽位分别执行同一参数的 checked-add 并返回第二槽位；withdraw 依次检查
+    `amount <= reserves` 与 `amount <= shares`，再对两个槽位执行 checked subtraction，以 implicit
+    Unit return结束；returned success 的 post 编码精确为同一 difference bytes 两次；status
+    returned 路径证明 `post = pre`；最终同文件 ordinary theorem 将五个 callable row 组装为原始
+    `PreservationTheoremV1`。assert false、checked arithmetic failure 与其他 reverted/trapped
+    outcome 继续由 production transaction packaging 保证 exact pre rollback，没有新增 evaluator
+    或 step；
+14. 产品 elaborator 只在完整 `SemanticProgramDataV1` 与该名称参数化五 callable family exact 相等
+    时生成 structure/validation certificate。真实 certifier/CLI 报告
+    `proofStatus=certified`、theorem count 1 与非空 SHA-256 certification digest；alpha-renamed 同构
+    正例同样 certified。除既有 deposit near miss 外，漏掉 withdraw 第二个 sub/store、读取错误
+    subtraction 源/槽位、漏掉或反转 assert、用覆盖赋值替代 subtraction、改变 withdraw result
+    shape 或 callable order 的 typed-valid near miss 都在 certification elaboration fail closed；
+15. Phase 6A 的完整 Vault 业务窄切片已经达到 `reference-certified`，但 proof-bearing target build
+    仍受 invariant-erasure authority gate 阻止，arbitrary callable/expression family 也尚未完成。
+    因此不能把这一条 exact family 宣传成“任意业务合约都已自动可证”，更不能声称 emitted
+    target artifact 已形式化验证；Phase 6B 与 Phase 7 的边界保持不变。
 
 ---
 

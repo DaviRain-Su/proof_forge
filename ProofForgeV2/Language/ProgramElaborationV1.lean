@@ -6,6 +6,8 @@ import ProofForgeV2.Semantic.PreservationABI
 import ProofForgeV2.Semantic.PreservationPackagingV1
 import ProofForgeV2.Semantic.StateModelV1
 import ProofForgeV2.Semantic.FieldComparisonSubjectV1
+import ProofForgeV2.Semantic.InitializerDepositWithdrawViewEqualitySubjectV1
+import ProofForgeV2.Semantic.InitializerDepositWithdrawViewEqualityPreservationV1
 import ProofForgeV2.Semantic.InitializerDepositViewEqualitySubjectV1
 import ProofForgeV2.Semantic.InitializerDepositViewEqualityPreservationV1
 import ProofForgeV2.Semantic.InitializerViewEqualitySubjectV1
@@ -386,6 +388,68 @@ private def initializerDepositViewEqualityParamsReadyForGeneratedProofV1
     decide (p.state0Name ≠ p.state1Name) &&
     decide (p.depositName ≠ p.viewName) &&
     decide (p.depositName ≠ p.invariantName) &&
+    decide (p.viewName ≠ p.invariantName)
+
+private structure InitializerDepositWithdrawViewEqualityParamsV1 where
+  state0Name : String
+  state1Name : String
+  depositName : String
+  depositParameterName : String
+  withdrawName : String
+  withdrawParameterName : String
+  viewName : String
+  invariantName : String
+
+/-- Recognize only the complete initializer/deposit/withdraw/view/equality
+    production subject. Names are recovered from canonical rows, then the
+    entire data value is reconstructed and compared exactly. -/
+private def extractInitializerDepositWithdrawViewEqualityParamsV1
+    (data : SemanticProgramDataV1) :
+    Option InitializerDepositWithdrawViewEqualityParamsV1 :=
+  match data.logicalState[0]?, data.logicalState[1]?, data.callables[1]?,
+      data.callables[2]?, data.callables[3]?, data.callables[4]? with
+  | some state0, some state1, some depositCallable, some withdrawCallable,
+      some viewCallable, some invariantCallable =>
+      match depositCallable.name, depositCallable.params[0]?,
+          withdrawCallable.name, withdrawCallable.params[0]?,
+          viewCallable.name, invariantCallable.name with
+      | some depositName, some depositParameter, some withdrawName,
+          some withdrawParameter, some viewName, some invariantName =>
+          let params : InitializerDepositWithdrawViewEqualityParamsV1 := {
+            state0Name := state0.name
+            state1Name := state1.name
+            depositName
+            depositParameterName := depositParameter.name
+            withdrawName
+            withdrawParameterName := withdrawParameter.name
+            viewName
+            invariantName
+          }
+          let expected :=
+            ProofForgeV2.Semantic.InitializerDepositWithdrawViewEqualitySubjectV1.subjectDataV1
+              data.qualifiedName params.state0Name params.state1Name
+              params.depositName params.depositParameterName params.withdrawName
+              params.withdrawParameterName params.viewName params.invariantName
+          if data == expected then some params else none
+      | _, _, _, _, _, _ => none
+  | _, _, _, _, _, _ => none
+
+private def initializerDepositWithdrawViewEqualityParamsReadyForGeneratedProofV1
+    (p : InitializerDepositWithdrawViewEqualityParamsV1) : Bool :=
+  identifierReadyForGeneratedProofV1 p.state0Name &&
+    identifierReadyForGeneratedProofV1 p.state1Name &&
+    identifierReadyForGeneratedProofV1 p.depositName &&
+    identifierReadyForGeneratedProofV1 p.depositParameterName &&
+    identifierReadyForGeneratedProofV1 p.withdrawName &&
+    identifierReadyForGeneratedProofV1 p.withdrawParameterName &&
+    identifierReadyForGeneratedProofV1 p.viewName &&
+    identifierReadyForGeneratedProofV1 p.invariantName &&
+    decide (p.state0Name ≠ p.state1Name) &&
+    decide (p.depositName ≠ p.withdrawName) &&
+    decide (p.depositName ≠ p.viewName) &&
+    decide (p.depositName ≠ p.invariantName) &&
+    decide (p.withdrawName ≠ p.viewName) &&
+    decide (p.withdrawName ≠ p.invariantName) &&
     decide (p.viewName ≠ p.invariantName)
 
 private structure ProofSurfaceV1 where
@@ -3330,6 +3394,102 @@ private def elaborateInitializerDepositViewEqualityCertificatesV1
           hconstantsSize hstateSize heventsSize herrorsSize hcallablesSize
           hinvariantsSize $subjectStructureOkName $subjectBodyEncodeOkName hinvert))
 
+/-- Emit production certificates for the exact initializer/deposit/withdraw/
+    view/equality family. -/
+private def elaborateInitializerDepositWithdrawViewEqualityCertificatesV1
+    (subjectProgramName subjectDataName subjectBytesName
+      subjectBodyEncodeOkName subjectRootGatesOkName subjectStructureOkName
+      subjectValidationOkName : TSyntax `ident)
+    (params : InitializerDepositWithdrawViewEqualityParamsV1) :
+    CommandElabM Unit := do
+  unless initializerDepositWithdrawViewEqualityParamsReadyForGeneratedProofV1 params do
+    return
+  let state0Proof ← Lean.Elab.liftMacroM <| quoteAsciiIdentifierProofV1 params.state0Name
+  let state1Proof ← Lean.Elab.liftMacroM <| quoteAsciiIdentifierProofV1 params.state1Name
+  let depositProof ← Lean.Elab.liftMacroM <| quoteAsciiIdentifierProofV1 params.depositName
+  let depositParameterProof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.depositParameterName
+  let withdrawProof ← Lean.Elab.liftMacroM <| quoteAsciiIdentifierProofV1 params.withdrawName
+  let withdrawParameterProof ← Lean.Elab.liftMacroM <|
+    quoteAsciiIdentifierProofV1 params.withdrawParameterName
+  let viewProof ← Lean.Elab.liftMacroM <| quoteAsciiIdentifierProofV1 params.viewName
+  let invariantProof ← Lean.Elab.liftMacroM <| quoteAsciiIdentifierProofV1 params.invariantName
+  Lean.Elab.Command.elabCommand (← `(
+    theorem $subjectStructureOkName :
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramStructureV1
+          $subjectDataName = .ok () := by
+      have hroot := $subjectRootGatesOkName
+      rcases hroot with
+        ⟨hnameShape, _htypesSize, _hconstantsSize, _hstateSize, _heventsSize,
+          _herrorsSize, _hcallablesSize, _hinvariantsSize⟩
+      change
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramStructureV1
+          (ProofForgeV2.Semantic.InitializerDepositWithdrawViewEqualitySubjectV1.subjectDataV1
+            ($subjectDataName).qualifiedName $(quote params.state0Name)
+            $(quote params.state1Name) $(quote params.depositName)
+            $(quote params.depositParameterName) $(quote params.withdrawName)
+            $(quote params.withdrawParameterName) $(quote params.viewName)
+            $(quote params.invariantName)) = .ok ()
+      exact
+        ProofForgeV2.Semantic.InitializerDepositWithdrawViewEqualitySubjectV1.structureV1
+          ($subjectDataName).qualifiedName $(quote params.state0Name)
+          $(quote params.state1Name) $(quote params.depositName)
+          $(quote params.depositParameterName) $(quote params.withdrawName)
+          $(quote params.withdrawParameterName) $(quote params.viewName)
+          $(quote params.invariantName) {
+            hnameShape := hnameShape
+            hstate0Name := $state0Proof
+            hstate1Name := $state1Proof
+            hdepositName := $depositProof
+            hdepositParameterName := $depositParameterProof
+            hwithdrawName := $withdrawProof
+            hwithdrawParameterName := $withdrawParameterProof
+            hviewName := $viewProof
+            hinvariantName := $invariantProof
+            hstate01 := by decide
+            hdepositWithdraw := by decide
+            hdepositView := by decide
+            hdepositInvariant := by decide
+            hwithdrawView := by decide
+            hwithdrawInvariant := by decide
+            hviewInvariant := by decide
+          }))
+  Lean.Elab.Command.elabCommand (← `(
+    theorem $subjectValidationOkName :
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+          $subjectProgramName = .ok $subjectDataName := by
+      change
+        ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+          ⟨$subjectBytesName⟩ = .ok $subjectDataName
+      have hroot := $subjectRootGatesOkName
+      rcases hroot with
+        ⟨hnameShape, htypesSize, hconstantsSize, hstateSize, heventsSize,
+          herrorsSize, hcallablesSize, hinvariantsSize⟩
+      have hinvert :
+          ProofForgeV2.Semantic.WireV1.RootFieldInvertV1 $subjectDataName := by
+        change
+          ProofForgeV2.Semantic.WireV1.RootFieldInvertV1
+            (ProofForgeV2.Semantic.InitializerDepositWithdrawViewEqualitySubjectV1.subjectDataV1
+              ($subjectDataName).qualifiedName $(quote params.state0Name)
+              $(quote params.state1Name) $(quote params.depositName)
+              $(quote params.depositParameterName) $(quote params.withdrawName)
+              $(quote params.withdrawParameterName) $(quote params.viewName)
+              $(quote params.invariantName))
+        exact
+          ProofForgeV2.Semantic.InitializerDepositWithdrawViewEqualitySubjectV1.rootFieldInvertV1
+            ($subjectDataName).qualifiedName $(quote params.state0Name)
+            $(quote params.state1Name) $(quote params.depositName)
+            $(quote params.depositParameterName) $(quote params.withdrawName)
+            $(quote params.withdrawParameterName) $(quote params.viewName)
+            $(quote params.invariantName) $state0Proof $state1Proof $depositProof
+            $depositParameterProof $withdrawProof $withdrawParameterProof
+            $viewProof $invariantProof
+      exact
+        ProofForgeV2.Semantic.SubjectDataBridgeV1.validate_of_subjectData_body_gates_invert
+          $subjectDataName $subjectBytesName hnameShape htypesSize
+          hconstantsSize hstateSize heventsSize herrorsSize hcallablesSize
+          hinvariantsSize $subjectStructureOkName $subjectBodyEncodeOkName hinvert))
+
 /-- Emit the exact program-specific obligation skeleton for one preserving
     invariant. The aliases only specialize the generic preservation ABI to the
     generated subject, ordinal, and callable rows; they do not execute or
@@ -3737,6 +3897,13 @@ private def elaborateProofObligations
   | none => pure ()
   | some params =>
       elaborateInitializerViewEqualityCertificatesV1 subjectName
+        subjectDataName subjectBytesName subjectBodyEncodeOkName
+        subjectRootGatesOkName subjectStructureOkName subjectValidationOkName
+        params
+  match extractInitializerDepositWithdrawViewEqualityParamsV1 data with
+  | none => pure ()
+  | some params =>
+      elaborateInitializerDepositWithdrawViewEqualityCertificatesV1 subjectName
         subjectDataName subjectBytesName subjectBodyEncodeOkName
         subjectRootGatesOkName subjectStructureOkName subjectValidationOkName
         params

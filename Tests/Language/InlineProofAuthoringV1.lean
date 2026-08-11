@@ -849,6 +849,90 @@ theorem InitializerDepositViewEqualitySurfaceProof.balanced :
       (by decide) (by decide) (by decide) (by decide) (by rfl)
       InitializerDepositViewEqualitySurface.Proof.subjectBodyEncodeOkV1
 
+/- Exact five-callable family, alpha-renamed away from the shipped vault. -/
+program InitializerDepositWithdrawViewEqualitySurface where
+  state assets : UInt64
+  state liabilities : UInt64
+  init() do
+    assets := 0
+    liabilities := 0
+  entry contribute(quantity : UInt64) : UInt64 do
+    assets := assets + quantity
+    liabilities := liabilities + quantity
+    return liabilities
+  entry redeem(quantity : UInt64) : Unit do
+    assert quantity <= assets
+    assert quantity <= liabilities
+    assets := assets - quantity
+    liabilities := liabilities - quantity
+  view readAssets() : UInt64 do
+    return assets
+  invariant balanced : assets == liabilities
+  proof balanced preserving using InitializerDepositWithdrawViewEqualitySurfaceProof.balanced
+
+theorem initializerDepositWithdrawViewEqualitySurface_subjectData_eq :
+    InitializerDepositWithdrawViewEqualitySurface.Proof.subjectDataV1 =
+      ProofForgeV2.Semantic.InitializerDepositWithdrawViewEqualitySubjectV1.subjectDataV1
+        InitializerDepositWithdrawViewEqualitySurface.Proof.subjectDataV1.qualifiedName
+        "assets" "liabilities" "contribute" "quantity" "redeem" "quantity"
+        "readAssets" "balanced" := by
+  rfl
+
+#check InitializerDepositWithdrawViewEqualitySurface.Proof.subjectStructureOkV1
+#check InitializerDepositWithdrawViewEqualitySurface.Proof.subjectValidationOkV1
+#check InitializerDepositWithdrawViewEqualitySurface.Model.init.Transition
+#check InitializerDepositWithdrawViewEqualitySurface.Model.contribute.Transition
+#check InitializerDepositWithdrawViewEqualitySurface.Model.redeem.Transition
+#check InitializerDepositWithdrawViewEqualitySurface.Model.readAssets.Transition
+#check InitializerDepositWithdrawViewEqualitySurface.Model.Invariant.balanced_iff_eval
+#check InitializerDepositWithdrawViewEqualitySurface.Model.Invariant.balanced_iff_fields
+#check InitializerDepositWithdrawViewEqualitySurface.ProofPreserving.balanced.callable0ReturnedV1
+#check InitializerDepositWithdrawViewEqualitySurface.ProofPreserving.balanced.callable1ReturnedV1
+#check InitializerDepositWithdrawViewEqualitySurface.ProofPreserving.balanced.callable2ReturnedV1
+#check InitializerDepositWithdrawViewEqualitySurface.ProofPreserving.balanced.callable3ReturnedV1
+#check InitializerDepositWithdrawViewEqualitySurface.ProofPreserving.balanced.callable4ReturnedV1
+
+theorem InitializerDepositWithdrawViewEqualitySurfaceProof.balanced :
+    InitializerDepositWithdrawViewEqualitySurface.ProofPreserving.balanced := by
+  exact
+    ProofForgeV2.Semantic.InitializerDepositWithdrawViewEqualityPreservationV1.preservationTheorem_of_subjectBodyV1
+      InitializerDepositWithdrawViewEqualitySurface.Proof.subjectDataV1.qualifiedName
+      "assets" "liabilities" "contribute" "quantity" "redeem" "quantity"
+      "readAssets" "balanced"
+      InitializerDepositWithdrawViewEqualitySurface.Proof.subjectDataV1
+      InitializerDepositWithdrawViewEqualitySurface.Proof.subjectBytesV1
+      (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
+      (by rfl) (by rfl)
+      (by decide) (by decide) (by decide) (by decide) (by decide) (by decide)
+      (by decide) (by rfl)
+      InitializerDepositWithdrawViewEqualitySurface.Proof.subjectBodyEncodeOkV1
+
+/- Typed-valid but shape-inexact: the second checked subtraction/store is absent. -/
+program InitializerDepositWithdrawViewEqualityNearMiss where
+  state assets : UInt64
+  state liabilities : UInt64
+  init() do
+    assets := 0
+    liabilities := 0
+  entry contribute(quantity : UInt64) : UInt64 do
+    assets := assets + quantity
+    liabilities := liabilities + quantity
+    return liabilities
+  entry redeem(quantity : UInt64) : Unit do
+    assert quantity <= assets
+    assert quantity <= liabilities
+    assets := assets - quantity
+  view readAssets() : UInt64 do
+    return assets
+  invariant balanced : assets == liabilities
+  proof balanced preserving using InitializerDepositWithdrawViewEqualityNearMissProof.balanced
+
+run_cmd do
+  let env ← getEnv
+  if env.contains `Tests.Language.InlineProofAuthoringV1.InitializerDepositWithdrawViewEqualityNearMiss.Proof.subjectStructureOkV1 ||
+      env.contains `Tests.Language.InlineProofAuthoringV1.InitializerDepositWithdrawViewEqualityNearMiss.Proof.subjectValidationOkV1 then
+    throwError "five-callable near miss must not emit production certificates"
+
 /- The first state-dependent, genuinely mutating business-preservation fixture.
    Its generated certificate belongs to a name-parameterized production
    subject family rather than a contract-qualified closed proof. -/
