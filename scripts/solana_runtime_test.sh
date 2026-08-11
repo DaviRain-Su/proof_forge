@@ -369,8 +369,12 @@ echo "solana-runtime-test: CallerIsMe.so=$(wc -c <"$caller_isme_out/CallerIsMe.s
 
 echo "solana-runtime-test: cargo test (cwd=$crate_dir)"
 
+state_cell_out="$(cd "$state_cell_out" && pwd -P)"
 export PROOF_FORGE_STATE_CELL_OUT="$state_cell_out"
 export PROOF_FORGE_FIXTURES_DIR="$out_dir"
+# Developer-lane StateCell-shaped product tests (pf test -t solana) reuse the
+# same StateCell OutputSet built above.
+export PROOF_FORGE_SOLANA_TEST_OUT="$state_cell_out"
 
 if ! (
   cd "$crate_dir"
