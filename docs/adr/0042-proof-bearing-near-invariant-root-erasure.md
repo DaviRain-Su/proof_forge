@@ -100,17 +100,22 @@ NEAR 已支持 effect-only `entry ... : Unit`：它只能是 mutate method，Pla
 
 ## Assurance boundary
 
-在 locked sandbox 尚未于兼容 host 执行的当前状态，本 ADR 允许的最强声明是：
+2026-08-11，完整 runtime corpus 已使用原始 locked near-sandbox 2.13.0
+（SHA-256 `634bc8c5e14a53c2a622c787975201b1505ec07712b8159f38e97ede3607e114`）
+执行通过。Debian 12 / GLIBC 2.36 host 通过 Ubuntu Noble `libc6 2.39-0ubuntu8.8`
+userspace loader 启动该原始 executable；未用 wrapper 替换或冒充 Tool Lock artifact。因此本
+ADR 允许的最强声明升级为：
 
 ```text
-Reference-verified + NEAR artifact engineering built
+Reference-verified + NEAR engineering runtime observed
 ≠ formally target-refined
 ```
 
 Lean kernel/audit 证明的是 exact `SemanticProgramV1` 在唯一 Reference semantics 上的
-preservation。locked `wat2wasm` 与 Plan/ABI mutation tests 是当前已有的 engineering evidence；
-near-sandbox storage/rollback corpus 已接线，但只有在兼容 host 实际通过后才属于 runtime
-observation。它们都不构成 Reference→Wasm/NEAR simulation theorem、formal
+preservation。locked `wat2wasm` 与 Plan/ABI mutation tests 是 engineering evidence；required
+near-sandbox run 已实际观察 exact storage/rollback corpus。兼容 libc/loader 是 runner evidence，
+尚未纳入 ProofForge Tool Lock，故该次运行也不是 hermetic release evidence。上述证据都不构成
+Reference→Wasm/NEAR simulation theorem、formal
 `TASK-D2-07`/`TST-SEM-002/003`、hermetic release 或 network evidence。
 
 ## Consequences
@@ -142,3 +147,4 @@ observation。它们都不构成 Reference→Wasm/NEAR simulation theorem、form
 - runtime：locked near-sandbox 直接观察两 KV slots 的 equality、Unit withdraw、overflow/assert
   rollback，并要求 erased invariant call 以 exact `MethodNotFound` 失败；qualification invocation
   设置 `PF_NEAR_RUNTIME_REQUIRED=1`，禁止 missing/incompatible sandbox 被 optional skip 冒充通过。
+  2026-08-11 compatible-loader required run 已完成，十个 suite 全部 PASS。

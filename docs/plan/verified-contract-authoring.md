@@ -598,9 +598,11 @@ certification elaboration 阶段 fail closed。
   并按 private certificate authority、exact digest/coverage binding、derived callable partition、
   canonical Plan attestation 与 ordinary-path fail-closed 实现。`VerifiedVaultPF build --target near`
   已用 locked `wat2wasm` 产出 deployable Wasm/ABI；runtime corpus 已接入 exact KV slots、Unit
-  withdraw、overflow/guard rollback 与 missing invariant export。当前 orb 的 locked
-  near-sandbox 2.13.0 要求 GLIBC 2.38/2.39，而 host 是 GLIBC 2.36，故本次尚未执行 sandbox
-  assertions；在兼容 runner 上通过之前，6B 不标记完成，也不声明 runtime observed。
+  withdraw、overflow/guard rollback 与 missing invariant export。2026-08-11 已在当前 GLIBC 2.36
+  orb 中以 Ubuntu Noble `libc6 2.39-0ubuntu8.8` userspace loader 启动原始 locked
+  near-sandbox 2.13.0，required 模式完整十套 corpus 全部 PASS；未以 wrapper 替换 locked
+  executable。6B 因此达到 **NEAR engineering runtime observed**，但兼容 loader 尚非 Tool Lock
+  资产，该运行不是 hermetic release evidence，也不构成 formal target refinement。
 
 6A/6B 最终共同交付一个真实单文件样例，不使用缩小 golden 替代完整业务程序：
 
@@ -738,7 +740,7 @@ certification elaboration 阶段 fail closed。
 | 4 | Generic preservation composition | **进行中（VerifiedVault 五 callable narrow family 已闭环）** | composer、finite-row assembler、typed returned lift、UInt64 参数投影及 literal-true 程序级闭环已有；除 `sync(amount)` 外，双槽位同参数 checked-add deposit 与双 guard checked-sub Unit withdraw 已经沿唯一 Reference step 证明 returned post-state两字段相等，assert/overflow/revert/trap 由唯一事务语义保持 exact pre，并由 name-parameterized production validation/admission family、initializer base 与五个 exact rows 组装成最终 `PreservationTheoremV1`。arbitrary contract coverage 仍待补 |
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
-| 6B | authority amendment + NEAR build/runtime | **进行中（ADR/Plan/build 已闭环；sandbox host ABI 阻塞）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 与 runtime corpus 已接线；当前 GLIBC 2.36 不能运行要求 2.38/2.39 的 locked near-sandbox 2.13.0，须在兼容 runner 通过 exact slots/rollback suite 后才能标记 engineering observed |
+| 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
 | 7 | Per-target refinement | 未开始 | target-specific refinement evidence逐个关闭 |
 
 ### 首个代码切片进展
@@ -1038,10 +1040,12 @@ expression translator：
     让 sole ordinary capability mint 经 private certificate authorization transition 获得 NEAR-only
     invariant-root erasure authority；Plan digest 绑定 exact proof digest/callable partition，真实
     CLI build 已产出只导出 init/deposit/withdraw/status 的 Wasm/ABI，`solvent` 仍只属于 compile-time
-    proof subject。near-sandbox exact slots/rollback corpus 已接线，但本次 orb 的 GLIBC 2.36 无法
-    启动要求 GLIBC 2.38/2.39 的 locked binary，因此尚不能声明 runtime observed。此外，
-    arbitrary callable/expression family 与 formal target refinement 也仍未完成；不能把这一条
-    exact family 宣传成“任意业务合约都已自动可证”，更不能声称 emitted target artifact 已形式化验证。
+    proof subject。2026-08-11 以 userspace GLIBC 2.39 loader 启动原始 locked binary 的 required
+    runtime run 已让十套 corpus 全部 PASS，其中 Vault exact slots、Unit withdraw、guard/overflow
+    rollback 与 missing invariant export 均真实观察通过，Phase 6B 达到 engineering observed。
+    兼容 loader 未入 Tool Lock，故不是 hermetic release evidence；arbitrary callable/expression
+    family 与 formal target refinement 也仍未完成。不能把这一条 exact family 宣传成“任意业务
+    合约都已自动可证”，更不能声称 emitted target artifact 已形式化验证。
 
 ---
 

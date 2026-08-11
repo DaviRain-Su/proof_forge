@@ -22,6 +22,9 @@
 #   - locked near-sandbox under PROOF_FORGE_TOOL_ROOT (or default cache root)
 #   - locked wat2wasm under PROOF_FORGE_TOOL_ROOT (or PATH) for finalize
 #   - curl (RPC readiness probe)
+#   - optional Linux compatibility loader: set both PF_NEAR_SANDBOX_LOADER and
+#     PF_NEAR_SANDBOX_LIBRARY_PATH. This changes only how the locked executable
+#     is launched; it does not replace the Tool Lock artifact.
 #
 # Exit codes:
 #   0 success (or optional skip-clean when tools/python deps absent)
@@ -103,11 +106,31 @@ if ! wat2wasm="$(resolve_tool wat2wasm)"; then
   skip_clean "wat2wasm not found under $PROOF_FORGE_TOOL_ROOT (or PATH)"
 fi
 
+sandbox_command=("$sandbox")
+if [[ -n "${PF_NEAR_SANDBOX_LOADER:-}" || -n "${PF_NEAR_SANDBOX_LIBRARY_PATH:-}" ]]; then
+  if [[ "$(uname -s)" != "Linux" ]]; then
+    missing "PF_NEAR_SANDBOX_LOADER is supported only on Linux"
+  fi
+  if [[ -z "${PF_NEAR_SANDBOX_LOADER:-}" || -z "${PF_NEAR_SANDBOX_LIBRARY_PATH:-}" ]]; then
+    missing "PF_NEAR_SANDBOX_LOADER and PF_NEAR_SANDBOX_LIBRARY_PATH must be set together"
+  fi
+  if [[ "$PF_NEAR_SANDBOX_LOADER" != /* || ! -f "$PF_NEAR_SANDBOX_LOADER" ||
+        ! -x "$PF_NEAR_SANDBOX_LOADER" ||
+        -L "$PF_NEAR_SANDBOX_LOADER" ]]; then
+    missing "PF_NEAR_SANDBOX_LOADER must be an absolute, executable, non-symlink file"
+  fi
+  sandbox_command=(
+    "$PF_NEAR_SANDBOX_LOADER"
+    --library-path "$PF_NEAR_SANDBOX_LIBRARY_PATH"
+    "$sandbox"
+  )
+fi
+
 # An installed lock artifact may still be unrunnable on the current host
 # (for example a newer GLIBC requirement). Treat that exactly like a missing
 # runtime tool before building fixtures; do not misreport it as a contract
 # assertion failure after partial suite setup.
-if ! sandbox_version="$($sandbox --version 2>&1)"; then
+if ! sandbox_version="$("${sandbox_command[@]}" --version 2>&1)"; then
   first_error="$(printf '%s\n' "$sandbox_version" | head -1)"
   skip_clean "near-sandbox is not runnable on this host: $first_error"
 fi
@@ -161,6 +184,9 @@ lake build proof_forge_next || die "lake build proof_forge_next failed"
 
 echo "near-runtime-test: tool root=$PROOF_FORGE_TOOL_ROOT"
 echo "near-runtime-test: near-sandbox=$sandbox"
+if [[ ${#sandbox_command[@]} -gt 1 ]]; then
+  echo "near-runtime-test: compatibility loader=$PF_NEAR_SANDBOX_LOADER"
+fi
 printf '%s\n' "$sandbox_version" | head -1
 echo "near-runtime-test: wat2wasm=$wat2wasm ($("$wat2wasm" --version 2>&1 | head -1 || true))"
 echo "near-runtime-test: python3=$(python3 --version 2>&1)"
@@ -288,7 +314,7 @@ run_suite() {
   home="$workdir/home"
   mkdir -p "$home"
   echo "near-runtime-test: [$suite_name] near-sandbox init --home $home"
-  "$sandbox" --home "$home" init >/dev/null
+  "${sandbox_command[@]}" --home "$home" init >/dev/null
 
   rpc_port="$(pick_port)"
   net_port="$(pick_port)"
@@ -304,7 +330,7 @@ cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
 PY
 
   echo "near-runtime-test: [$suite_name] starting node rpc=127.0.0.1:${rpc_port}"
-  "$sandbox" --home "$home" run >"$workdir/node.log" 2>&1 &
+  "${sandbox_command[@]}" --home "$home" run >"$workdir/node.log" 2>&1 &
   sandbox_pid=$!
 
   rpc="http://127.0.0.1:${rpc_port}"

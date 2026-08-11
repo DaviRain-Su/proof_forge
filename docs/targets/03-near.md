@@ -33,20 +33,20 @@ Phase 1：实现
 - **Principal 9×KV leaf 存储（T12）**（wire identity 原样；**非** account-id）；
 - WAT 发射 + locked `wat2wasm` 结构编译；`NearWasmAcceptance` 另需 host-optional
   `wasm-interp`/`wasmtime`/`wasmer` 之一做 runtime load；locked near-sandbox 2.13.0 的
-  `runtime-tests/near` 已覆盖 Counter init/mutate/view、overflow state-hold+recovery、PairRet、
-  ArrayRet、OptionRet 与 OptionState；proof-bearing `VerifiedVaultPF` corpus 已接线，但本次
-  GLIBC 2.36 host 不能运行要求 GLIBC 2.38/2.39 的 locked near-sandbox binary，尚待兼容 runner
-  执行。
+  `runtime-tests/near` 已覆盖 StateCell init/mutate/view、overflow state-hold+recovery、PairRet、
+  ArrayRet、OptionRet、OptionState、proof-bearing `VerifiedVaultPF`、TipJarAsync、TokenJarAsync、
+  EnvReadJar 与 CallerCheck。2026-08-11 required run 以 userspace GLIBC 2.39 loader 在 GLIBC 2.36
+  host 启动原始 locked executable，十套 corpus 全部 PASS；该 loader 尚非 Tool Lock 资产，因此
+  不是 hermetic release evidence。
 - **Proof-bearing invariant-root erasure（ADR-0042）**：普通 capability + nonempty invariants
   仍 fail closed；只有 private audited `CertifiedInlineProofV1` 在 source/semantic digest exact
   match、每个 invariant 有完整 preserving coverage 时可 mint NEAR-only authorization。
   version `proof-forge.near.invariant-root-erasure.v1` 的 Plan attestation 绑定 proof digest 与
   exact callable partition；只擦除 invariant roots，initializer/entry/view/pureFn 与原 callable id
   保留。`VerifiedVaultPF` 的真实 ABI/Wasm build 只导出 init/deposit/withdraw/status；sandbox
-  suite 将直接观察 reserves/shares 两个 KV slots 相等及 overflow/guard failure rollback，但
-  当前 host ABI 阻塞尚未执行。当前可声明 **Reference-verified + NEAR artifact built**；只有
-  compatible runner 通过后才升级为 **NEAR engineering runtime observed**。二者都不是 formal
-  target refinement。
+  suite 已直接观察 reserves/shares 两个 KV slots 相等、Unit withdraw、overflow/guard failure
+  rollback 与 erased `solvent` 的 `MethodNotFound`。当前可声明
+  **Reference-verified + NEAR engineering runtime observed**，但这不是 formal target refinement。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -102,8 +102,9 @@ Phase 1：实现
   Reference↔sandbox formal 差分或 testnet/mainnet 证据。
 
 **明确未闭合**：near-sandbox 门不是 Reference↔Wasm/sandbox formal 差分；VerifiedVaultPF
-exact slots 与 overflow/guard rollback corpus 已接线，但本次 host ABI 阻塞，尚未形成 runtime
-observation。通用 corpus 也仍不完整覆盖 corrupt storage、bad input 或 gas/profile；Option
+exact slots、Unit withdraw、overflow/guard rollback 与 missing-export corpus 已形成 engineering
+runtime observation，但没有 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
+覆盖 corrupt storage、bad input 或 gas/profile；Option
 params、非 UInt64/nested Option、Map/Bytes/nested aggregate
 return 仍 fail-closed；ContextRead 已开放 `unixTimeSeconds`、view-safe `blockHeight` 与
 init/entry `caller`，但 view caller、其他键及 blockHeight 的专门 sandbox runtime 仍缺；formal
@@ -194,7 +195,10 @@ digest/version probe（Darwin near-sandbox 另闭合 xz/liblzma runtime）；`wa
 load engine。missing、PATH shadow、version/hash mismatch、unknown host import/export 或结构失败
 必须 fail closed。WABT 编译不能替代 NEAR host semantics；near-sandbox acceptance 也只是外置
 Counter receipt happy path，不能替代完整 protocol profile、Reference differential 或 formal
-Stage-0 evidence。
+Stage-0 evidence。`scripts/near_runtime_test.sh` 可在 Linux 显式同时设置
+`PF_NEAR_SANDBOX_LOADER` 与 `PF_NEAR_SANDBOX_LIBRARY_PATH`，只改变原始 locked executable 的
+启动方式；它不会用 wrapper 替换 Tool Lock 路径。该外部 compatibility environment 本身未锁定
+时，只能作为 engineering runner evidence，不能升级为 hermetic release evidence。
 
 ## 7. 部署/证明流程
 
