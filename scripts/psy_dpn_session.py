@@ -334,6 +334,8 @@ class Executor:
                 self.put(dt, idx, self.checkpoint_id)
             elif op == 49:  # getNonce
                 self.put(dt, idx, 0)
+            elif op == 50:  # getUserPublicKeyHash (first limb; simulate default 0)
+                self.put(dt, idx, 0)
             elif op == 79:  # getCallerContractId
                 self.put(dt, idx, 0)
             elif op in (53, 54, 55):

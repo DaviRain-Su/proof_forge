@@ -30,8 +30,8 @@ Generator: `scripts/psy_dpn_op_coverage.py` · `just psy-dpn-op-coverage`
 - MapMini: official put/get + session multi-key (`put`/`get`, overwrite, miss→0)
 - EmitProbe: `emit` events (PARTIAL) official+session data/user/contract align
 - CallProbe: void `call` → InvokeExternalContractFunctionSync (PARTIAL; no nested exec)
-- ContextProbe: `pf.context.userId|contractId|checkpointId|nonce|callerContractId`
-- ImtProbe: `pf.imt.set|get|contains` self-current (UInt64→limb0 pack); session multi-key continuity
+- ContextProbe: `pf.context.userId|contractId|checkpointId|nonce|callerContractId|userPublicKeyHash`
+- ImtProbe: `pf.imt.set|get|contains` self-current (UInt64→limb0 pack); session multi-key continuity; store+return CSE (single SetIMT)
 - HashProbe: `hashNoPad`/`hashTwoToOne`/`keccak256` official; `hashPad` emit-only; session fail-closed
 - LoopSum: official run(0)/run(5) → +4; session continuity init(10)+run(0)=14
 

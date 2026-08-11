@@ -36,6 +36,11 @@ program ContextProbe where
     last := c
     return c
 
+  entry snapUserPk() : UInt64 do
+    let h : UInt64 := call pf.context.userPublicKeyHash()
+    last := h
+    return h
+
   view get() : UInt64 do
     return last
 end Examples

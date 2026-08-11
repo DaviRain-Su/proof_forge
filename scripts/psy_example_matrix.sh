@@ -108,10 +108,10 @@ for entry in "${mods[@]}"; do
           ;;
         ContextProbe)
           python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" --json \
-            --call initialize --call snapUser --call snapCheckpoint --call get \
+            --call initialize --call snapUser --call snapCheckpoint --call snapUserPk --call get \
             >/tmp/psy-mat-session-$name.json \
-            && python3 -I -S -c "import json;d=json.load(open('/tmp/psy-mat-session-ContextProbe.json'));assert d['calls'][1]['outputs']==[1] and d['calls'][2]['outputs']==[100]" \
-            && echo "  OK session context ids" || { echo "  FAIL session context"; fail=$((fail+1)); continue; }
+            && python3 -I -S -c "import json;d=json.load(open('/tmp/psy-mat-session-ContextProbe.json'));assert d['calls'][1]['outputs']==[1] and d['calls'][2]['outputs']==[100] and d['calls'][3]['outputs']==[0]" \
+            && echo "  OK session context ids+pk" || { echo "  FAIL session context"; fail=$((fail+1)); continue; }
           ;;
         ImtProbe)
           python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" --json \

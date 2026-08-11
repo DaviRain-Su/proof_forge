@@ -26,7 +26,8 @@ private def validateExprNodes (expr : Expr) : Option Nat :=
   | .literal _ | .u32Literal _ | .boolLiteral _ | .fieldLiteral _
   | .param _ | .loopVar _ | .stateLoad _ | .wideUintMulLimb _ _ _
   | .wideUintDivModLimb _ _ _ _ | .wideUintShiftLimb _ _ _ _
-  | .ctxUserId | .ctxContractId | .ctxCheckpointId | .ctxNonce | .ctxCallerContractId => some 1
+  | .ctxUserId | .ctxContractId | .ctxCheckpointId | .ctxNonce | .ctxCallerContractId
+  | .ctxUserPublicKeyHash => some 1
   | .imtGet k => (validateExprNodes k).map (· + 1)
   | .imtContains k => (validateExprNodes k).map (· + 1)
   | .imtSet k v =>
@@ -181,7 +182,8 @@ private partial def validateWideExpr
   match expr with
   | .literal _ | .u32Literal _ | .boolLiteral _ | .fieldLiteral _
   | .param _ | .loopVar _ | .stateLoad _
-  | .ctxUserId | .ctxContractId | .ctxCheckpointId | .ctxNonce | .ctxCallerContractId => pure ()
+  | .ctxUserId | .ctxContractId | .ctxCheckpointId | .ctxNonce | .ctxCallerContractId
+  | .ctxUserPublicKeyHash => pure ()
   | .imtGet k => validateWideExpr defined k
   | .imtContains k => validateWideExpr defined k
   | .imtSet k v => do

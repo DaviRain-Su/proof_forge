@@ -77,8 +77,8 @@ algorithms。支持结论以当前 Plan/DPN tests 为准，不由历史 source c
 - nested Map、Map return、超出 aggregate-return cap；
 - result-bearing call、schedule、EVM-style ContextRead（`context.caller` / `blockHeight` / `unixTimeSeconds`）、Commit、nonempty invariant；
 - `pf.assets` bindings、UPS、network 与 deploy。
-- **已开放（非 EVM ContextRead）**：`call pf.context.userId|contractId|checkpointId|nonce|callerContractId()` → DPN ExecutionContext（见 `Examples/ContextProbe.lean`）。
-- **已开放 IMT self-current**：`call pf.imt.get|contains|set` → DPN IMT state cmds（见 `Examples/ImtProbe.lean`）；external/other-user IMT 与 `CalculateMerkleRoot` 仍 FC。
+- **已开放（非 EVM ContextRead）**：`call pf.context.userId|contractId|checkpointId|nonce|callerContractId|userPublicKeyHash()` → DPN ExecutionContext（见 `Examples/ContextProbe.lean`）。
+- **已开放 IMT self-current**：`call pf.imt.get|contains|set` → DPN IMT state cmds（见 `Examples/ImtProbe.lean`）；store+return CSE；external/other-user IMT 与 `CalculateMerkleRoot` 仍 FC。
 
 Plan admitted 但 DPN lowering 失败时返回 `PSY-DPN-G5-HARD`；不存在 source 语言旁路。
 

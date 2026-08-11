@@ -120,8 +120,8 @@ zero-divisor behavior由 target-owned lowering固定。
 | void sync call | PARTIAL | exact DPN invoke shape only |
 | result call / schedule | fail closed | capability/Plan gate |
 | ContextRead (EVM places) / Commit | fail closed | no frozen public-input binding |
-| `pf.context.userId|contractId|checkpointId|nonce|callerContractId` | lowered | DPN ExecutionContext ops 46–49, 79 (ContextProbe) |
-| `pf.imt.get|contains|set` | lowered | self-current IMT cmds 56/59/48 subset (ImtProbe); UInt64 limb0 pack |
+| `pf.context.userId|contractId|checkpointId|nonce|callerContractId|userPublicKeyHash` | lowered | DPN ExecutionContext ops 46–50, 79 (ContextProbe) |
+| `pf.imt.get|contains|set` | lowered | self-current IMT cmds; UInt64 limb0 pack; store+return CSE (ImtProbe) |
 | `CalculateMerkleRoot` / external IMT | fail closed | official software evaluator `todo!` / unmodeled |
 | nonempty invariant | fail closed | no target refinement contract |
 | UPS / network / deploy | absent | outside materializer/finalizer |

@@ -357,7 +357,7 @@ info "OK session hash gadgets fail-closed"
 
 # --- ContextProbe (P3 partial: DPN ExecutionContext ids) ---
 dpn_x=$(build_ex ContextProbe Examples.ContextProbe)
-for pair in "ctx-user:snapUser:1" "ctx-contract:snapContract:1" "ctx-cp:snapCheckpoint:100" "ctx-nonce:snapNonce:0" "ctx-caller:snapCallerContract:0"; do
+for pair in "ctx-user:snapUser:1" "ctx-contract:snapContract:1" "ctx-cp:snapCheckpoint:100" "ctx-nonce:snapNonce:0" "ctx-caller:snapCallerContract:0" "ctx-pk:snapUserPk:0"; do
   tag="${pair%%:*}"; rest="${pair#*:}"; method="${rest%%:*}"; want="${rest##*:}"
   diff_pair "$tag" "$dpn_x" "$method"
   python3 -I -S - "$out/off-${tag}.json" "$want" <<'PYC'
@@ -371,15 +371,16 @@ PYC
 done
 info "session continuity ContextProbe snaps"
 python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_x" --json \
-  --call initialize --call snapUser --call snapCheckpoint --call get \
+  --call initialize --call snapUser --call snapCheckpoint --call snapUserPk --call get \
   >"$out/session-ctx.json"
 python3 -I -S - "$out/session-ctx.json" <<'PYC'
 import json,sys
 d=json.load(open(sys.argv[1]))
 assert d["calls"][1]["outputs"]==[1]
 assert d["calls"][2]["outputs"]==[100]
-assert d["calls"][3]["outputs"]==[100]
-print("OK session context continuity")
+assert d["calls"][3]["outputs"]==[0]
+assert d["calls"][4]["outputs"]==[0]
+print("OK session context continuity (incl userPublicKeyHash=0)")
 PYC
 
 # --- ImtProbe (IMT self-current subset) ---

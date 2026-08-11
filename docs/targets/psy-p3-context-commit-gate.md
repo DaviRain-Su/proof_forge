@@ -61,6 +61,7 @@ DPN **ExecutionContext** identity is available as expression-position calls
 | `call pf.context.checkpointId()` | 48 getCheckpointId | 100 |
 | `call pf.context.nonce()` | 49 getNonce | 0 |
 | `call pf.context.callerContractId()` | 79 getCallerContractId | 0 |
+| `call pf.context.userPublicKeyHash()` | 50 getUserPublicKeyHash (limb0) | 0 |
 
 Probe: `Examples/ContextProbe.lean`.
 
@@ -68,5 +69,7 @@ Still **fail-closed**:
 
 - `context.caller` (Principal / msg.sender)
 - `context.blockHeight` / `context.unixTimeSeconds`
+- `pf.context.sessionProofTreeRoot` (HashOut; no product multi-limb ABI yet)
 - `Commit` / B-COMMIT-ZK
+- `CalculateMerkleRoot` (official software evaluator `todo!`)
 

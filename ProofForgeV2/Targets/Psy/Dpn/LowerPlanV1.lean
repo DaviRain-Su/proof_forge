@@ -279,6 +279,14 @@ structure WideShiftBindV1 where
   limbs : Array WireV1
   deriving Inhabited
 
+/-- Memo entry so effectful IMT exprs shared by store+return lower once. -/
+structure ImtMemoEntryV1 where
+  kind : Nat  -- 0=get, 1=contains, 2=set
+  keyIdx : Nat
+  valIdx : Nat  -- 0 for get/contains
+  result : WireV1
+  deriving Inhabited
+
 structure BuilderV1 where
   nextTarget : Nat := 0
   nextBool : Nat := 0
@@ -309,6 +317,8 @@ structure BuilderV1 where
   helpers : Array PlanFunction := #[]
   /-- R-PURE: nested callFn inline depth (0 = top-level method body). -/
   inlineDepth : Nat := 0
+  /-- IMT effect CSE: same (kind,key[,val]) wires → one state cmd. -/
+  imtMemo : Array ImtMemoEntryV1 := #[]
   deriving Inhabited
 
 private def pushTarget (b : BuilderV1) (op : OpTypeV1) (inputs : Array UInt64) :
@@ -460,67 +470,93 @@ private def emitImtU64As4 (b : BuilderV1) (scalar : WireV1) :
   let z := b.zeroTarget
   pure (b, #[UInt64.ofNat sIdx, UInt64.ofNat z, UInt64.ofNat z, UInt64.ofNat z])
 
+private def lookupImtMemo (b : BuilderV1) (kind keyIdx valIdx : Nat) :
+    Option WireV1 :=
+  match b.imtMemo.find? (fun e => e.kind == kind && e.keyIdx == keyIdx && e.valIdx == valIdx) with
+  | some e => some e.result
+  | none => none
+
+private def pushImtMemo (b : BuilderV1) (kind keyIdx valIdx : Nat) (w : WireV1) :
+    BuilderV1 :=
+  { b with imtMemo := b.imtMemo.push { kind, keyIdx, valIdx, result := w } }
+
 /-- IMT get → GetSelfUserCurrentIMT + TargetAt limb0 (product UInt64 ABI). -/
 private def emitImtGet (b : BuilderV1) (keyW : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
-  let (b0, key4) ← emitImtU64As4 b keyW
-  let (b1, baseIdx, capIdx) := emitImtBaseCap b0
-  let cmdIdx := b1.cmds.size
-  let b2 := {
-    b1 with
-      cmds := b1.cmds.push
-        (.getSelfUserCurrentIMTContractStateValue
-          (UInt64.ofNat baseIdx) (UInt64.ofNat capIdx) key4)
-  }
-  -- HashOut result: data_type=hashOut, op=getStateCommandResultHash
-  let hashIdx :=
-    (b2.defs.filter (fun d => d.dataType == .hashOut)).size
-  let hashDef : IndexedVarDefV1 := {
-    dataType := .hashOut
-    index := hashIdx
-    opType := .getStateCommandResultHash
-    inputs := #[UInt64.ofNat cmdIdx]
-  }
-  let b3 := { b2 with defs := b2.defs.push hashDef }
-  let getDefStep := b3.defs.size - 1
-  let b4 := { b3 with res := b3.res.push getDefStep }
-  -- targetAt(hashEnc, limbIndexWire): limb 0 uses shared zero Target.
-  let hashEnc := encodeIndexedId .hashOut hashIdx
-  pure (pushTarget b4 .targetAt #[hashEnc, UInt64.ofNat b4.zeroTarget])
+  let kIdx ← asTargetIndex keyW
+  if let some w := lookupImtMemo b 0 kIdx 0 then
+    pure (b, w)
+  else
+    let (b0, key4) ← emitImtU64As4 b keyW
+    let (b1, baseIdx, capIdx) := emitImtBaseCap b0
+    let cmdIdx := b1.cmds.size
+    let b2 := {
+      b1 with
+        cmds := b1.cmds.push
+          (.getSelfUserCurrentIMTContractStateValue
+            (UInt64.ofNat baseIdx) (UInt64.ofNat capIdx) key4)
+    }
+    -- HashOut result: data_type=hashOut, op=getStateCommandResultHash
+    let hashIdx :=
+      (b2.defs.filter (fun d => d.dataType == .hashOut)).size
+    let hashDef : IndexedVarDefV1 := {
+      dataType := .hashOut
+      index := hashIdx
+      opType := .getStateCommandResultHash
+      inputs := #[UInt64.ofNat cmdIdx]
+    }
+    let b3 := { b2 with defs := b2.defs.push hashDef }
+    let getDefStep := b3.defs.size - 1
+    let b4 := { b3 with res := b3.res.push getDefStep }
+    -- targetAt(hashEnc, limbIndexWire): limb 0 uses shared zero Target.
+    let hashEnc := encodeIndexedId .hashOut hashIdx
+    let (b5, w) := pushTarget b4 .targetAt #[hashEnc, UInt64.ofNat b4.zeroTarget]
+    pure (pushImtMemo b5 0 kIdx 0 w, w)
 
 /-- IMT contains → ContainsSelfUserCurrentIMT + GetStateCommandResultSingle. -/
 private def emitImtContains (b : BuilderV1) (keyW : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
-  let (b0, key4) ← emitImtU64As4 b keyW
-  let (b1, baseIdx, capIdx) := emitImtBaseCap b0
-  let cmdIdx := b1.cmds.size
-  let b2 := {
-    b1 with
-      cmds := b1.cmds.push
-        (.containsSelfUserCurrentIMTContractStateValue
-          (UInt64.ofNat baseIdx) (UInt64.ofNat capIdx) key4)
-  }
-  let (b3, w) := pushTarget b2 .getStateCommandResultSingle #[UInt64.ofNat cmdIdx]
-  let getDefStep := b3.defs.size - 1
-  pure ({ b3 with res := b3.res.push getDefStep }, w)
+  let kIdx ← asTargetIndex keyW
+  if let some w := lookupImtMemo b 1 kIdx 0 then
+    pure (b, w)
+  else
+    let (b0, key4) ← emitImtU64As4 b keyW
+    let (b1, baseIdx, capIdx) := emitImtBaseCap b0
+    let cmdIdx := b1.cmds.size
+    let b2 := {
+      b1 with
+        cmds := b1.cmds.push
+          (.containsSelfUserCurrentIMTContractStateValue
+            (UInt64.ofNat baseIdx) (UInt64.ofNat capIdx) key4)
+    }
+    let (b3, w) := pushTarget b2 .getStateCommandResultSingle #[UInt64.ofNat cmdIdx]
+    let getDefStep := b3.defs.size - 1
+    let b4 := { b3 with res := b3.res.push getDefStep }
+    pure (pushImtMemo b4 1 kIdx 0 w, w)
 
 /-- IMT set → SetIMTContractStateValue; return written value (product ABI).
-    Official result is old||new HashOut pair (8 felts); product returns `value`. -/
+    Official result is old||new HashOut pair (8 felts); product returns `value`.
+    Memoized so `let w := set(...); store w; return w` emits one Set. -/
 private def emitImtSet (b : BuilderV1) (keyW valueW : WireV1) :
     CompileResult (BuilderV1 × WireV1) := do
-  let (b0, key4) ← emitImtU64As4 b keyW
-  let (b1, val4) ← emitImtU64As4 b0 valueW
-  let (b2, baseIdx, capIdx) := emitImtBaseCap b1
-  let cEnc := (trueWire b2).encoded
-  let b3 := {
-    b2 with
-      cmds := b2.cmds.push
-        (.setIMTContractStateValue
-          cEnc (UInt64.ofNat baseIdx) (UInt64.ofNat capIdx) key4 val4)
-      -- Set resolves after current defs (value wires already emitted).
-      res := b2.res.push b2.defs.size
-  }
-  pure (b3, valueW)
+  let kIdx ← asTargetIndex keyW
+  let vIdx ← asTargetIndex valueW
+  if let some w := lookupImtMemo b 2 kIdx vIdx then
+    pure (b, w)
+  else
+    let (b0, key4) ← emitImtU64As4 b keyW
+    let (b1, val4) ← emitImtU64As4 b0 valueW
+    let (b2, baseIdx, capIdx) := emitImtBaseCap b1
+    let cEnc := (trueWire b2).encoded
+    let b3 := {
+      b2 with
+        cmds := b2.cmds.push
+          (.setIMTContractStateValue
+            cEnc (UInt64.ofNat baseIdx) (UInt64.ofNat capIdx) key4 val4)
+        -- Set resolves after current defs (value wires already emitted).
+        res := b2.res.push b2.defs.size
+    }
+    pure (pushImtMemo b3 2 kIdx vIdx valueW, valueW)
 
 /-- Conditional store; `cond` is a bool wire (ConstantTrue for unconditional).
     `sub_slot_index` / `value` are Target wire indices (official resolve).
@@ -1608,6 +1644,10 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
       pure (pushValuelessTarget b .getNonce)
   | .ctxCallerContractId =>
       pure (pushValuelessTarget b .getCallerContractId)
+  | .ctxUserPublicKeyHash =>
+      -- Official executor Target path returns limb0 of user_public_key_hash.
+      -- Simulate default injects [0;4] → product 0.
+      pure (pushValuelessTarget b .getUserPublicKeyHash)
   | .imtGet k => do
       if b.inlineDepth > 0 then
         planError "PSY-DPN: pureFn/localCall inline cannot use pf.imt.* (effectful)"

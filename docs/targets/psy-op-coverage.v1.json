@@ -6,7 +6,7 @@
     "schemaOpCount": 73,
     "emitterReachableCount": 29,
     "sessionImplementedCount": 48,
-    "artifactOpKinds": 34,
+    "artifactOpKinds": 35,
     "artifactFiles": 11,
     "p0EmitterWithoutSession": [],
     "featureBacklog": [
@@ -39,7 +39,7 @@
       },
       {
         "id": "ContextRead-Commit",
-        "status": "EVM context.* FC; pf.context.userId|contractId|checkpointId|nonce|callerContractId open (ContextProbe)"
+        "status": "EVM context.* FC; pf.context.userId|contractId|checkpointId|nonce|callerContractId|userPublicKeyHash open (ContextProbe); sessionProofTreeRoot/merkle FC"
       },
       {
         "id": "wide-u128-u256",
@@ -83,7 +83,7 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 2776,
+      "artifactCount": 2774,
       "examples": [
         "Accumulator",
         "CallProbe",
@@ -106,7 +106,7 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 45,
+      "artifactCount": 46,
       "examples": [
         "Accumulator",
         "CallProbe",
@@ -360,7 +360,7 @@
       "pfEmitter": "not-reachable",
       "session": "unsupported",
       "seenInArtifacts": true,
-      "artifactCount": 2,
+      "artifactCount": 1,
       "examples": [
         "ImtProbe"
       ],
@@ -710,9 +710,11 @@
       "officialSchema": true,
       "pfEmitter": "not-reachable",
       "session": "unsupported",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
+      "seenInArtifacts": true,
+      "artifactCount": 2,
+      "examples": [
+        "ContextProbe"
+      ],
       "status": "schema-only-not-emitted"
     },
     {
@@ -744,7 +746,7 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 2,
+      "artifactCount": 1,
       "examples": [
         "ImtProbe"
       ],
@@ -757,7 +759,7 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 812,
+      "artifactCount": 811,
       "examples": [
         "Accumulator",
         "CallProbe",
@@ -1004,7 +1006,7 @@
       "pfSchema": true,
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 130
+      "artifactCount": 131
     },
     {
       "name": "GetSelfUserCurrentContractStateSlotHash",
@@ -1182,8 +1184,8 @@
   ],
   "artifactOps": {
     "0": 73,
-    "1": 2776,
-    "2": 45,
+    "1": 2774,
+    "2": 46,
     "3": 2,
     "4": 2371,
     "5": 2317,
@@ -1196,7 +1198,7 @@
     "15": 295,
     "16": 768,
     "17": 1387,
-    "20": 2,
+    "20": 1,
     "21": 2,
     "22": 2,
     "23": 5649,
@@ -1209,8 +1211,9 @@
     "47": 3,
     "48": 3,
     "49": 2,
-    "53": 2,
-    "54": 812,
+    "50": 2,
+    "53": 1,
+    "54": 811,
     "72": 20,
     "78": 2,
     "79": 2,
@@ -1218,10 +1221,10 @@
   },
   "artifactStateCmds": {
     "GetSelfUserCurrentContractStateSlotSingle": 815,
-    "SetContractStateSlotSingle": 130,
+    "SetContractStateSlotSingle": 131,
     "InvokeExternalContractFunctionSync": 1,
-    "GetSelfUserCurrentIMTContractStateValue": 2,
-    "ContainsSelfUserCurrentIMTContractStateValue": 2,
-    "SetIMTContractStateValue": 2
+    "GetSelfUserCurrentIMTContractStateValue": 1,
+    "ContainsSelfUserCurrentIMTContractStateValue": 1,
+    "SetIMTContractStateValue": 1
   }
 }

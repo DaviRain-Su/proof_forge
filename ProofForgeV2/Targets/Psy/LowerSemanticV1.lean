@@ -267,6 +267,9 @@ inductive Expr where
   | ctxCheckpointId
   | ctxNonce
   | ctxCallerContractId
+  /-- P3: DPN GetUserPublicKeyHash (op 50) first HashOut limb product ABI.
+      Official simulate default is 0 (cli injects [0;4]). -/
+  | ctxUserPublicKeyHash
   /-- IMT self-current pilot: UInt64 key/value packed as 256-bit limbs
       (limb0 = scalar, limbs 1..3 = 0). Not dense Map state. -/
   | imtGet (key : Expr)
@@ -2238,6 +2241,11 @@ private partial def lowerRegion
                 planError "unsupported Psy semantic shape: pf.context.callerContractId() takes no args"
               admitScalarResult
               env := envInsert env valueDef.valueId .ctxCallerContractId
+            else if qn == "pf.context.userPublicKeyHash" then
+              unless comps.size == 3 && args.size == 0 do
+                planError "unsupported Psy semantic shape: pf.context.userPublicKeyHash() takes no args"
+              admitScalarResult
+              env := envInsert env valueDef.valueId .ctxUserPublicKeyHash
             else if qn == "pf.imt.get" then
               unless comps.size == 3 && args.size == 1 do
                 planError "unsupported Psy semantic shape: pf.imt.get(key) takes exactly one UInt64 key"
@@ -2266,7 +2274,7 @@ private partial def lowerRegion
               env := envInsert env valueDef.valueId (.imtSet k v)
             else
               planError
-                "unsupported Psy semantic shape: result-bearing external call is not admitted. Admitted: pf.crypto.hash*|keccak256; pf.context.*; pf.imt.get|contains|set"
+                "unsupported Psy semantic shape: result-bearing external call is not admitted. Admitted: pf.crypto.hash*|keccak256; pf.context.* (incl userPublicKeyHash); pf.imt.get|contains|set"
         | none =>
             unless comps.size ≥ 2 do
               planError "unsupported Psy semantic shape: external callee must have at least two components"
