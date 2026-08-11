@@ -703,8 +703,30 @@ def run : IO Unit := do
     expectInvalid label want (Compiler.compileValidatedSourceV1 bad)
 
   -- Product Typed gate: CheckV1 (incl. EffectCheckV1) wins when it fires.
-  -- After-return / missing-return now surface via Normalize S1 detail; the
-  -- isolated legacy alpha checker is not a product post-gate.
+  -- Unit entries may end by falling through to the canonical `return_ none`;
+  -- non-Unit missing-return and after-return cases still surface via Normalize
+  -- S1 detail. The isolated legacy alpha checker is not a product post-gate.
+  let unitFallthrough ← validated moduleName identity demo #[
+    .state (state x),
+    .entry (entry runN (block #[.assign (.name x) (var seed)]) #[param seed] .unit)]
+  let unitFallthroughCompiled ← compileOk "unit implicit return" unitFallthrough
+  let unitFallthroughData ← match validateSemanticProgramV1
+      (CompiledSemanticV1.semanticV1Of unitFallthroughCompiled) with
+    | .ok data => pure data
+    | .error error =>
+        throw <| IO.userError s!"unit implicit return validation: {repr error}"
+  match (unitFallthroughData.callables[0]?.bind (·.blocks[0]?)).map
+      (·.terminator) with
+  | some (ProofForgeV2.Semantic.WireV1.TerminatorV1.return_ none) => pure ()
+  | _ => throw <| IO.userError "unit implicit return must lower to the canonical return-none terminator"
+
+  let nonUnitFallthrough ← validated moduleName identity demo #[
+    .state (state x),
+    .entry (entry runN (block #[.assign (.name x) (var seed)]) #[param seed])]
+  expectInvalid "non-unit missing return"
+    "S1 normalizer requires explicit return for entry/view"
+    (Compiler.compileValidatedSourceV1 nonUnitFallthrough)
+
   let typedCases : Array (String × Array ProgramItemV1 × String) := #[
     ("unknown", #[.entry (entry runN (ret (var y)))], "unknown name 'y' (expected value)"),
     ("assign", #[.entry (entry runN (block #[.assign (.name y) (u 1), .return_ (some (u 1))]))],
@@ -720,9 +742,6 @@ def run : IO Unit := do
     ("init return", #[.init { params := #[], body := block #[.return_ (some (u 0))] },
       .entry (entry runN (ret (var seed)) #[param seed])],
       "type mismatch: expected Unit, got integer literal"),
-    ("missing return", #[.state (state x),
-      .entry (entry runN (block #[.assign (.name x) (var seed)]) #[param seed] .unit)],
-      "S1 normalizer requires explicit return for entry/view"),
     ("after return", #[.entry (entry runN (block #[
       .return_ (some (var seed)), .assign (.name x) (var seed)]) #[param seed]),
       .state (state x)],

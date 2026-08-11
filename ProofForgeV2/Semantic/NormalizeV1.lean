@@ -18,8 +18,9 @@
       sole catalog Field, Principal, String, and the documented aggregates;
       event/error fields admit public anonymous legal UInt/Int or String),
       init, entry, view
-    * statements: bare-place assign to state, return (some/none); init may omit
-      return (implicit return none); bare `assert` with a Bool condition, and
+    * statements: bare-place assign to state, return (some/none); init and Unit
+      entries may omit the final return (implicit return none); bare `assert`
+      with a Bool condition, and
       `assert cond else Err` referencing a declared zero-argument error (lowered
       to `Op.Assert cond (some eid) #[]`); referencing a parameterized error
       fails closed because the source `assert Expr else Ident` carries no args;
@@ -3912,11 +3913,15 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         let (interner'', resultTid) ← internSourceType interner e.result
         interner := interner''
         requireCallableResultTypeId interner.types resultTid s!"entry '{raw e.name}' result"
+        let allowImplicitReturnNone :=
+          match anonShapeOf? interner.types resultTid with
+          | some .unit => true
+          | _ => false
         let (blocks, loopBounds, interner''', ux, uc, uh, cm) ←
           lowerBlock e.body params resultTid interner stateTable constantTable
             eventTable errorTable fnTable
-            false true usedContextUnixTime usedContextCaller usedContextBlockHeight
-              usedCommit
+            allowImplicitReturnNone true usedContextUnixTime usedContextCaller
+              usedContextBlockHeight usedCommit
         interner := interner'''
         usedContextUnixTime := ux
         usedContextCaller := uc

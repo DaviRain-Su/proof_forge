@@ -12,8 +12,9 @@
   to its declaration, expression, statement, or nearest producing source NodeId
   (reconstructed by the same AST walk NormalizeV1 uses). Multi-origin
   requirements collect every producing site and sort uniquely by SourceOrigin
-  wire key. Synthetic Unit types and implicit init return terminators bind the
-  nearest producing declaration/block node — never an arbitrary inventory pick.
+  wire key. Synthetic Unit types and implicit init/Unit-entry return terminators
+  bind the nearest producing declaration/block node — never an arbitrary
+  inventory pick.
   Completely unreferenced TypeIds (Normalize PilotTypeClosure force-intern of
   anonymous UInt64 when never used) bind the Program root the same way;
   referenced TypeIds still require a real type annotation or expression origin.
@@ -1557,7 +1558,12 @@ private def attributeCounterEntitiesV1
         acc := accR
         typeBound := tbR
         let bodyPath := directChild itemPath "EntryDecl" "body"
-        acc ← attrBlock cid e.body bodyPath params states constants idx acc false
+        let allowImplicitReturnNone :=
+          match e.result with
+          | .unit => true
+          | _ => false
+        acc ← attrBlock cid e.body bodyPath params states constants idx acc
+          allowImplicitReturnNone
         callableId := callableId + 1
     | .view v =>
         let some c := data.callables[callableId]? |

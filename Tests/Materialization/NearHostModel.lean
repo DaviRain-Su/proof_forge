@@ -2662,12 +2662,10 @@ private unsafe def testScheduleProductPath
       throw <| IO.userError
         "sync call: NEAR Plan must fail closed for generic non-catalog sync call"
 
-/-- Void entry `entry run() do` (no result / no return) fails closed on the
-    product path. Primary gate today is Normalize
-    (`S1 normalizer requires explicit return for entry/view`); bare `return`
-    is also rejected. NEAR lowerer secondary defense (planInvariant
-    `entry '…' does not return public UInt64 or Bool`) is therefore currently
-    unreachable for this source shape. -/
+/-- Void entry `entry run() do` (no result / no return) lowers to canonical
+    `return_ none`, then fails closed at the NEAR result-kind gate
+    (`entry '…' does not return public …`). Explicit bare `return` remains
+    rejected by Normalize. -/
 private unsafe def testVoidEntryFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   let text :=
@@ -2683,27 +2681,25 @@ private unsafe def testVoidEntryFailClosed
     "end ProofForgeV2.Examples\n"
   let source ← liftResult (← session.selectProgramV1
     text "<near-void-run>" "Examples.VoidRun" none)
-  match Compiler.compileValidatedSourceV1 source with
-  | .error err =>
-      expect (err.render.contains "explicit return" ||
-          err.render.contains "PF-SRC-INVALID")
-        s!"void entry must fail closed at product compile, got {err.render}"
-  | .ok compiled =>
-      -- If Normalize ever admits Unit entries, the NEAR result-kind gate must
-      -- still reject at plan materialize.
-      let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
-      let capability ← liftResult <|
-        Targets.resolveEngineeringRequirementsV1 selection compiled
-      match Targets.Near.planFromCapability capability with
-      | .error (.planInvariant .near msg) =>
-          expect (msg.contains "does not return public UInt64 or Bool")
-            s!"void entry planInvariant must mention UInt64/Bool, got {msg}"
-      | .error other =>
-          throw <| IO.userError
-            s!"void entry: expected planInvariant .near, got {other.render}"
-      | .ok _ =>
-          throw <| IO.userError
-            "void entry must fail closed at NEAR plan materialize"
+  let compiled ← match Compiler.compileValidatedSourceV1 source with
+    | .ok compiled => pure compiled
+    | .error err =>
+        throw <| IO.userError
+          s!"void entry must compile through canonical Unit fallthrough, got {err.render}"
+  -- The NEAR result-kind gate must still reject at plan materialize.
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  match Targets.Near.planFromCapability capability with
+  | .error (.planInvariant .near msg) =>
+      expect (msg.contains "entry 'run' does not return public")
+        s!"void entry planInvariant must reject the Unit result, got {msg}"
+  | .error other =>
+      throw <| IO.userError
+        s!"void entry: expected planInvariant .near, got {other.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "void entry must fail closed at NEAR plan materialize"
 
 /-- Two declared events, both emitted: pins Plan table + host pf-event logs +
     WAT log_utf8. -/

@@ -4,8 +4,8 @@
   compileValidatedSourceV1 seam.
 
   Pins StateCell happy path (Normalize structure gate + single semantic carrier),
-  type / effect / bound / disclosure product wires, Normalize-gate unsupported
-  control-flow (missing/after-return) and private unused state through the
+  type / effect / bound / disclosure product wires, canonical Unit fallthrough,
+  Normalize-gate unsupported after-return control flow, and private unused state through the
   sole ProgramV1 product path. Bound-only coverage is a well-typed triple-nested
   `for bounded 4096` (UInt32 product overflow). Alpha Typed.checkV1 parity was
   removed with the alpha residual modules.
@@ -160,6 +160,14 @@ private unsafe def accumulatorSource : String :=
   "  view current() : UInt64 do\n" ++
   "    return total\n"
 
+private unsafe def unitFallthroughSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "program UnitFallthroughGate where\n" ++
+  "  state count : UInt64\n" ++
+  "  entry clear(value : UInt64) : Unit do\n" ++
+  "    count := value\n"
+
 /-- Direct AST coverage of Normalize plus the shared non-product compile carrier seam. -/
 def runAst : IO Unit := do
   let demo ← n "Demo"; let count ← n "count"; let delta ← n "delta"
@@ -247,15 +255,15 @@ def runAst : IO Unit := do
     "PF-BOUND-001: loop bound product overflows UInt32 in entry 'run' (bound 4096)"
     (Compiler.compileValidatedSourceV1 boundOnly)
 
-  -- Unsupported control-flow fails at Normalize S1 on the sole product path.
-  -- Nonempty block without return (unit entry + state assign); empty blocks are
-  -- rejected by ValidatedSourceV1 before the compiler.
+  -- A Unit entry may end by falling through; Normalize S1 inserts the canonical
+  -- `return_ none` on the sole product path. Empty blocks are rejected by
+  -- ValidatedSourceV1 before the compiler.
   let missing ← validated moduleQ identity demo #[
     .state (mkState count),
     .entry (mkEntry runN (block #[.assign (.name count) (var seed)]) #[param seed] .unit)]
-  expectRender "normalize-missing-return"
-    "PF-SRC-INVALID: S1 normalizer requires explicit return for entry/view"
+  let _ ← expectOk "normalize-unit-fallthrough"
     (Compiler.compileValidatedSourceV1 missing)
+  expectNormalizeOk "normalize-unit-fallthrough" missing
 
   let after ← validated moduleQ identity demo #[
     .state (mkState count),
@@ -344,6 +352,27 @@ def runAst : IO Unit := do
 
 private unsafe def runSource
     (session : Language.Loader.ParserSession) : IO Unit := do
+  match ← session.selectProgramV1WithOrigins unitFallthroughSource
+      "<checkv1-product-unit-fallthrough>" moduleName none with
+  | .ok (source, origins) =>
+      let compiled ← match Compiler.compileProgramProductV1 source origins with
+        | .ok compiled => pure compiled
+        | .error bundle =>
+            throw <| IO.userError s!"unit-fallthrough product compile: {
+              ProofForgeV2.Core.DiagnosticBundleV1.DiagnosticBundleV1.renderHuman bundle}"
+      let data ← match ProofForgeV2.Semantic.WireV1.validateSemanticProgramV1
+          (Compiler.CompiledSemanticV1.semanticV1Of compiled) with
+        | .ok data => pure data
+        | .error error =>
+            throw <| IO.userError s!"unit-fallthrough product validation: {repr error}"
+      match (data.callables[0]?.bind (·.blocks[0]?)).map (·.terminator) with
+      | some (ProofForgeV2.Semantic.WireV1.TerminatorV1.return_ none) => pure ()
+      | _ =>
+          throw <| IO.userError
+            "unit-fallthrough product must retain the canonical return-none terminator"
+  | .error error =>
+      throw <| IO.userError s!"unit-fallthrough product load: {error.render}"
+
   match ← session.selectProgramV1 stateCellSource
       "<checkv1-product-stateCell>" moduleName none with
   | .ok source =>

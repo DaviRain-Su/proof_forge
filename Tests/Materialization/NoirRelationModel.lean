@@ -2187,12 +2187,10 @@ private unsafe def checkExternalCallScheduleProduct : IO Unit := do
       laterNr.contents.contains "sched_e1_a0: pub u64")
     "ExtFlow later .nr must declare both schedule arg slots"
 
-/-- Void entry `entry run() do` (no result / no return) fails closed on the
-    product path. Primary gate today is Normalize
-    (`S1 normalizer requires explicit return for entry/view`). Noir lowerer
-    secondary defense (planInvariant
-    `entry '…' does not return public UInt64 or Bool`) is currently
-    unreachable for this source shape. -/
+/-- Void entry `entry run() do` (no result / no return) lowers to canonical
+    `return_ none`, then fails closed at the Noir result-kind gate
+    (`entry '…' does not return public …`). Explicit bare `return` remains
+    rejected by Normalize. -/
 private unsafe def checkVoidEntryFailClosed : IO Unit := do
   let text :=
     "import ProofForgeV2\n\n" ++
@@ -2208,25 +2206,24 @@ private unsafe def checkVoidEntryFailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source ← liftResult (← session.selectProgramV1 text
     "<noir-void-run>" "Examples.VoidRun" none)
-  match Compiler.compileValidatedSourceV1 source with
-  | .error err =>
-      expect (err.render.contains "explicit return" ||
-          err.render.contains "PF-SRC-INVALID")
-        s!"void entry must fail closed at product compile, got {err.render}"
-  | .ok compiled =>
-      let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
-      let capability ← liftResult <|
-        Targets.resolveEngineeringRequirementsV1 selection compiled
-      match Targets.Noir.planFromCapability capability with
-      | .error (.planInvariant .noir msg) =>
-          expect (msg.contains "does not return public UInt64 or Bool")
-            s!"void entry planInvariant must mention UInt64/Bool, got {msg}"
-      | .error other =>
-          throw <| IO.userError
-            s!"void entry: expected planInvariant .noir, got {other.render}"
-      | .ok _ =>
-          throw <| IO.userError
-            "void entry must fail closed at Noir plan materialize"
+  let compiled ← match Compiler.compileValidatedSourceV1 source with
+    | .ok compiled => pure compiled
+    | .error err =>
+        throw <| IO.userError
+          s!"void entry must compile through canonical Unit fallthrough, got {err.render}"
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  match Targets.Noir.planFromCapability capability with
+  | .error (.planInvariant .noir msg) =>
+      expect (msg.contains "entry 'run' does not return public")
+        s!"void entry planInvariant must reject the Unit result, got {msg}"
+  | .error other =>
+      throw <| IO.userError
+        s!"void entry: expected planInvariant .noir, got {other.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "void entry must fail closed at Noir plan materialize"
 
 /-- Two declared events, both emitted: pins event-slot inputs and .nr surface. -/
 private def multiEventSourceText : String :=
