@@ -2662,10 +2662,10 @@ private unsafe def testScheduleProductPath
       throw <| IO.userError
         "sync call: NEAR Plan must fail closed for generic non-catalog sync call"
 
-/-- Void entry `entry run() do` (no result / no return) lowers to canonical
-    `return_ none`, then fails closed at the NEAR result-kind gate
-    (`entry '…' does not return public …`). Explicit bare `return` remains
-    rejected by Normalize. -/
+/-- Void entry `entry run() do` (no result / no return) lowers through canonical
+    Unit fallthrough. NEAR admits Unit **entry** results as `MethodResultKind.unit`
+    + `returnNone` (views stay non-Unit). Explicit bare `return` remains rejected
+    by Normalize. -/
 private unsafe def testVoidEntryFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   let text :=
@@ -2686,20 +2686,21 @@ private unsafe def testVoidEntryFailClosed
     | .error err =>
         throw <| IO.userError
           s!"void entry must compile through canonical Unit fallthrough, got {err.render}"
-  -- The NEAR result-kind gate must still reject at plan materialize.
   let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
   let capability ← liftResult <|
     Targets.resolveEngineeringRequirementsV1 selection compiled
-  match Targets.Near.planFromCapability capability with
-  | .error (.planInvariant .near msg) =>
-      expect (msg.contains "entry 'run' does not return public")
-        s!"void entry planInvariant must reject the Unit result, got {msg}"
-  | .error other =>
-      throw <| IO.userError
-        s!"void entry: expected planInvariant .near, got {other.render}"
-  | .ok _ =>
-      throw <| IO.userError
-        "void entry must fail closed at NEAR plan materialize"
+  let plan ← match Targets.Near.planFromCapability capability with
+    | .ok plan => pure plan
+    | .error e =>
+        throw <| IO.userError
+          s!"void entry NEAR plan must admit Unit entry result, got {e.render}"
+  let some run := plan.entries.find? (·.name == "run") |
+    throw <| IO.userError "void entry: missing run method"
+  expect (run.resultKind == .unit)
+    s!"void entry run must have MethodResultKind.unit, got {repr run.resultKind}"
+  expect (run.body.any fun s =>
+      match s with | .returnNone => true | _ => false)
+    "void entry run body must contain returnNone"
 
 /-- Two declared events, both emitted: pins Plan table + host pf-event logs +
     WAT log_utf8. -/

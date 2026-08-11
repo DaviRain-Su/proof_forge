@@ -252,7 +252,8 @@ private unsafe def testConstInvariantMaterializationBoundary : IO Unit := do
   for (target, kind, marker) in #[
       (TargetId.evm, TargetKind.evm, "constants/invariants"),
       (TargetId.solana, TargetKind.solana, "constants/invariants"),
-      (TargetId.near, TargetKind.near, "constants/invariants"),
+      -- NEAR still FC on nonempty constants, with pilot-specific wording.
+      (TargetId.near, TargetKind.near, "constants are outside"),
       (TargetId.noir, TargetKind.noir, "constants/invariants")] do
     expectMaterializePlanInvariantV1 "constant" target kind constCompiled marker
   let aleoConstants ← liftResult <| materializeSelected TargetId.aleo constCompiled
@@ -281,7 +282,10 @@ private unsafe def testConstInvariantMaterializationBoundary : IO Unit := do
       (TargetId.evm, TargetKind.evm, "constants/invariants"),
       (TargetId.solana, TargetKind.solana,
         "CPI derive rejects nonempty invariants table"),
-      (TargetId.near, TargetKind.near, "constants/invariants"),
+      -- NEAR admits nonempty invariants only with proof-bearing erasure auth;
+      -- ordinary materialize fails closed without that authorization.
+      (TargetId.near, TargetKind.near,
+        "proof-bearing NEAR invariant-root erasure"),
       (TargetId.noir, TargetKind.noir, "constants/invariants"),
       (TargetId.aleo, TargetKind.aleo, "does not support invariants"),
       (TargetId.psy, TargetKind.psy, "unsupported Psy DPN semantic shape")] do
