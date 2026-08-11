@@ -221,6 +221,53 @@
         "pf deploy --broadcast refused \u2014 no product key path",
         "Not formal / not mainnet"
       ]
+    },
+    {
+      "id": "cosmwasm.local.mock",
+      "targetFamily": "cosmwasm",
+      "displayName": "CosmWasm cosmwasm-vm mock (local engineering)",
+      "env": "local",
+      "chainId": null,
+      "nativeCurrency": {
+        "name": "stake",
+        "symbol": "STAKE",
+        "decimals": 6
+      },
+      "rpcUrls": [],
+      "explorers": [],
+      "policy": "local-only",
+      "pfProductBroadcast": "refused",
+      "related": {
+        "runtimeScript": "scripts/cosmwasm_runtime_test.sh",
+        "guide": "docs/product/cosmwasm-agent-cheatsheet.md"
+      },
+      "honesty": [
+        "Engineering mock only \u2014 not wasmd chain / mainnet",
+        "pf deploy --broadcast refused"
+      ]
+    },
+    {
+      "id": "cosmwasm.testnet.catalog-only",
+      "targetFamily": "cosmwasm",
+      "displayName": "CosmWasm testnet (catalog only)",
+      "env": "testnet",
+      "chainId": null,
+      "nativeCurrency": {
+        "name": "stake",
+        "symbol": "STAKE",
+        "decimals": 6
+      },
+      "rpcUrls": [],
+      "explorers": [],
+      "policy": "public-testnet-catalog-only",
+      "pfProductBroadcast": "refused",
+      "related": {
+        "guide": "docs/product/cosmwasm-agent-cheatsheet.md"
+      },
+      "honesty": [
+        "Catalog placeholder only \u2014 no product key path",
+        "Not formal / not mainnet"
+      ]
     }
   ],
   "ecosystems": {

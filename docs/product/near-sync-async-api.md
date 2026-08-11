@@ -79,8 +79,8 @@ Agents must not unify “transfer” across chains into one sync API.
 | Local | **`proof-forge-next local --target near`** | same script path as product local JSON |
 | Deploy | **`pf deploy -t near`** | save-only package; **`--broadcast` refused** (all nets) |
 | Network catalog | `pf network list --family near` | `near.local.sandbox`, `near.testnet` (catalog only) |
-| Host SDK | `ProofForgeClient.build/doctor/install` + `local(target="near")` | spawn CLI only; no second compiler |
-| MCP | `pf_build`, `pf_local` (near via product local once wired), `pf_chain_catalog` | no broadcast tools |
+| Host SDK | `ProofForgeClient.build/doctor/install` + `local(target="near"\|"cosmwasm")` | spawn CLI only; no second compiler |
+| MCP | `pf_build`, `pf_local` (near/cosmwasm/ton runtime), `pf_chain_catalog` | no broadcast tools |
 
 ## 5. Agent rules (short)
 

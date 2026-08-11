@@ -3,7 +3,7 @@ id: TARGET-COSMWASM
 title: CosmWasm target dossier
 status: draft
 owner: architecture
-updated: 2026-08-06
+updated: 2026-08-11
 normative: true
 ---
 
@@ -33,12 +33,17 @@ UInt64/Int64 leaf 的 named entry/view aggregate return，以及 anonymous `Arra
 （1..8）/`Option UInt64` entry/view return 已开。Map/Bytes return、Option/Bytes state、
 nested/非 UInt64元素、aggregate param/pureFn仍 fail closed。
 
-**runtime rungs**：`runtime-tests/cosmwasm` 的 cosmwasm-vm 3.0.9 mock 当前有 48 个
-`#[test]`，覆盖 Counter/Accumulator/EventFlow、hardening、ScheduleFlow、NarrowCounter、
-PairRet、ArrayRet、OptionRet、OptionState、pf.assets、env-read 与 CallerGate；另有
-`scripts/cosmwasm_wasmd_test.sh` 的 wasmd v0.70.3
-Docker 工程 rung，覆盖 Counter 与 ScheduleFlow 子消息失败导致 whole-tx abort。两者都不是
-主网、formal 或 hermetic evidence。
+**runtime rungs**：`runtime-tests/cosmwasm` 的 cosmwasm-vm 3.0.9 mock 覆盖
+Counter/Accumulator/EventFlow、hardening、ScheduleFlow、NarrowCounter、PairRet、
+ArrayRet、OptionRet、OptionState、pf.assets、env-read、CallerGate，以及
+**BlockHeightCheck**（ADR-0031 S2：`context.blockHeight` ↔ `Env.block.height`）。
+另有 `scripts/cosmwasm_wasmd_test.sh` 的 wasmd v0.70.3 Docker 工程 rung，覆盖 Counter
+与 ScheduleFlow 子消息失败导致 whole-tx abort。两者都不是主网、formal 或 hermetic evidence。
+
+**产品面（2026-08-11）**：`pf test -t cosmwasm` / `proof-forge-next local --target cosmwasm`
+→ `scripts/pf_cosmwasm_test.sh`；`pf deploy -t cosmwasm` save-only
+`proof-forge.pf.cosmwasm-deploy-package.v1`（`--broadcast` 拒绝）；agent cheatsheet
+`docs/product/cosmwasm-agent-cheatsheet.md`；network catalog `cosmwasm.local.mock`。
 
 **schedule**：`schedule` → `SubMsg{reply_on:never,id:0,WasmMsg::Execute}`；`msg` 已由
 CW-6 升级为 UTF-8 method JSON 的 Binary/base64。它仍是同事务 savepoint 分发（非跨 tx
@@ -101,17 +106,19 @@ lowercase `[a-z0-9]` 门，排除大写、标点、引号/反斜线与 JSON esca
 `caller_gate.rs` **7/7** 覆盖 true/false、entry 状态推进/失败保持、query FC 与 non-caller
 entry 的 branch-local 正向；**非** formal/mainnet parity。
 
-**`context.blockHeight` binding（ADR-0031 S2，2026-08-06）**：instantiate/execute/query
-均从 Env Region 的 bare-u64 JSON 字段 `"height"` 解析 `Env.block.height`，写入
-`$pf_block_height` 后由 Plan Expr tag 55 / IR `blockHeight` 读取；宿主类型已是 u64，除十进制
-parser overflow trap 外无需宽度转换。当前仅有 Plan/IR/emitter 与 `CosmWasmPlanV1` 钉测，
-尚未加入 cw-vm 专门 runtime fixture，不能把既有 48 tests 写成 S2 runtime closure。
+**`context.blockHeight` binding（ADR-0031 S2，2026-08-06；runtime 2026-08-11）**：
+instantiate/execute/query 均从 Env Region 的 bare-u64 JSON 字段 `"height"` 解析
+`Env.block.height`，写入 `$pf_block_height` 后由 Plan Expr tag 55 / IR `blockHeight` 读取；
+宿主类型已是 u64，除十进制 parser overflow trap 外无需宽度转换。Plan/IR/emitter +
+`CosmWasmPlanV1` 钉测已有；`runtime-tests/cosmwasm/tests/block_height.rs` 对
+`Examples/BlockHeightCheck.lean` 固定 query `height()` 跟踪 Env height、`stamp()` 写入 pad。
 
-**仍 fail closed / 未闭合**：iterator、IBC、migrate、reply entry、Option state、Map/Bytes
-return、Field/Principal/String interface、除 execute/init `context.caller` 与 Env-backed
-`context.blockHeight` 外的 ContextRead、blockHeight 专门 runtime、Commit、nonempty invariants、
-UInt128/256、narrow Int、JSON 全集与 gas model。wasmd smart query
-当前仍非 Binary，rung-1 harness 使用 raw state。
+**仍 fail closed / 未闭合**：iterator、IBC、migrate、reply entry、Map/Bytes return、
+Field/Principal/String interface、除 execute/init `context.caller` 与 Env-backed
+`context.blockHeight`（含 cw-vm runtime 门）外的 ContextRead、Commit、nonempty
+constants/invariants、UInt128/256 ABI state/param/result（body multiword 已开）、narrow Int、
+JSON 全集与 gas model。Option UInt64 state 已开。wasmd smart query 当前仍非 Binary，
+rung-1 harness 使用 raw state。不得写成 formal runtime-validated。
 
 ## 0.1 A0→隔离→修复/design-exit 过程记录（2026-08-03）
 

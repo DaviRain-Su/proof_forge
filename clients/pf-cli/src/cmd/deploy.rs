@@ -4,7 +4,7 @@ use crate::error::{PfError, PfResult};
 use crate::project::Project;
 use crate::result_json::PfOk;
 use crate::safety::NetworkKind;
-use crate::targets::{self, aleo, evm, near, psy, solana};
+use crate::targets::{self, aleo, cosmwasm, evm, near, psy, solana};
 use std::path::Path;
 
 pub fn run(
@@ -251,7 +251,43 @@ pub fn run(
                 }
             })
         }
-        targets::TargetId::Cosmwasm | targets::TargetId::Ton => Err(PfError::NotImplemented(format!(
+        targets::TargetId::Cosmwasm => {
+            let net_s = network_cli.unwrap_or("local");
+            let network = NetworkKind::parse(net_s)?;
+            let save_default = dir.join("tx");
+            let save_dir = save.unwrap_or(save_default.as_path());
+            let out = cosmwasm::deploy::deploy(cosmwasm::deploy::DeployRequest {
+                artifact_dir: &dir,
+                network,
+                endpoint,
+                broadcast,
+                private_key_env: key_env,
+                save_dir,
+            })?;
+            let saved: Vec<String> = out.saved.iter().map(|p| p.display().to_string()).collect();
+            let mut ok = PfOk::new("deploy");
+            ok.target = Some(target);
+            ok.network = Some(out.network.clone());
+            ok.broadcast = Some(out.broadcast);
+            ok.artifact_dir = Some(dir.display().to_string());
+            ok.saved = Some(saved.clone());
+            ok.notes = Some(out.notes.clone());
+            ok.extra = Some(serde_json::json!({
+                "lane": "cosmwasm-save-only-package",
+                "endpoint": out.endpoint,
+            }));
+            emit(ok, json, || {
+                println!(
+                    "    Finished `deploy` cosmwasm (broadcast={}) → {}",
+                    out.broadcast,
+                    saved.join(", ")
+                );
+                for n in &out.notes {
+                    println!("      note: {n}");
+                }
+            })
+        }
+        targets::TargetId::Ton => Err(PfError::NotImplemented(format!(
             "target '{target}': {}",
             targets::capability_note(&target)
         ))),

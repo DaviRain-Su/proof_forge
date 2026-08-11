@@ -999,8 +999,8 @@ def tool_definitions() -> List[Dict[str, Any]]:
             "name": "pf_local",
             "description": (
                 "Run product local host-heavy scripts. "
-                "Runtime: evm (Anvil), solana (Mollusk), near (near-sandbox corpus via "
-                "scripts/pf_near_test.sh; Promise=async, sync call FC). "
+                "Runtime: evm (Anvil), solana (Mollusk), near (near-sandbox), "
+                "cosmwasm (cosmwasm-vm mock), ton (@ton/sandbox). "
                 "Aleo sandbox: pass source + module + optional runs (no default program). "
                 "Does NOT broadcast network or accept private keys. "
                 "Maps to: proof-forge-next local --target … [--mode runtime|sandbox] …"

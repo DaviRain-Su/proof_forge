@@ -102,6 +102,7 @@ programs=(
   "Examples/TokenJar.lean:Examples.TokenJar:TokenJar"
   "runtime-tests/cosmwasm/fixtures/EnvReadJar.lean:Examples.EnvReadJar:EnvReadJar"
   "runtime-tests/cosmwasm/fixtures/CallerGate.lean:Examples.CallerGate:CallerGate"
+  "Examples/BlockHeightCheck.lean:Examples.BlockHeightCheck:BlockHeightCheck"
 )
 
 echo "cosmwasm-runtime-test: building proof-forge-next (lake build proof_forge_next)"

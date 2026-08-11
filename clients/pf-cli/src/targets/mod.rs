@@ -63,7 +63,7 @@ pub fn capability_note(target: &str) -> &'static str {
             "build Wasm + `pf test` (near-sandbox; artifact fast-path or full corpus) + `pf deploy` (save-only; --broadcast refused)"
         }
         TargetId::Cosmwasm => {
-            "build Wasm + `pf test` (cosmwasm-vm mock corpus; skip-clean if tools missing); deploy/broadcast not product"
+            "build Wasm + `pf test` (cosmwasm-vm mock) + `pf deploy` (save-only; --broadcast refused)"
         }
         TargetId::Ton => {
             "build Tolk/BoC + `pf test` (@ton/sandbox corpus; skip-clean if tools missing); deploy/broadcast not product"
