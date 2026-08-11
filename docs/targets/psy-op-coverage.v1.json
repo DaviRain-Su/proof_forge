@@ -7,7 +7,7 @@
     "emitterReachableCount": 29,
     "sessionImplementedCount": 48,
     "artifactOpKinds": 36,
-    "artifactFiles": 11,
+    "artifactFiles": 12,
     "p0EmitterWithoutSession": [],
     "featureBacklog": [
       {
@@ -19,7 +19,7 @@
           "keccak256",
           "calculateMerkleRoot"
         ],
-        "status": "hashNoPad+hashTwoToOne+keccak256 open (first limb); hashPad emit-only (official software eval no-op); merkle still closed"
+        "status": "hashNoPad+hashTwoToOne+keccak256 open; Array UInt64 4 full HashOut for hashNoPad/twoToOne only (HashOutProbe); keccak/context limb0; hashPad emit-only; merkle FC"
       },
       {
         "id": "IMT-state-cmds",
@@ -39,7 +39,7 @@
       },
       {
         "id": "ContextRead-Commit",
-        "status": "EVM context.* FC; pf.context.* ids+userPublicKeyHash+sessionProofTreeRoot(limb0) open (ContextProbe); Commit/merkle FC"
+        "status": "EVM context.* FC; pf.context.* ids+userPublicKeyHash+sessionProofTreeRoot open (limb0 or Array4); Commit/merkle FC"
       },
       {
         "id": "wide-u128-u256",
@@ -61,11 +61,12 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 81,
+      "artifactCount": 91,
       "examples": [
         "Accumulator",
         "CallProbe",
         "EmitProbe",
+        "HashOutProbe",
         "HashProbe",
         "ImtProbe",
         "LoopSum",
@@ -83,12 +84,13 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 2781,
+      "artifactCount": 2797,
       "examples": [
         "Accumulator",
         "CallProbe",
         "ContextProbe",
         "EmitProbe",
+        "HashOutProbe",
         "HashProbe",
         "ImtProbe",
         "LoopSum",
@@ -106,12 +108,13 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 50,
+      "artifactCount": 53,
       "examples": [
         "Accumulator",
         "CallProbe",
         "ContextProbe",
         "EmitProbe",
+        "HashOutProbe",
         "HashProbe",
         "ImtProbe",
         "LoopSum",
@@ -360,9 +363,11 @@
       "pfEmitter": "not-reachable",
       "session": "unsupported",
       "seenInArtifacts": true,
-      "artifactCount": 5,
+      "artifactCount": 21,
       "examples": [
         "ContextProbe",
+        "HashOutProbe",
+        "HashProbe",
         "ImtProbe"
       ],
       "status": "schema-only-not-emitted"
@@ -376,6 +381,7 @@
       "seenInArtifacts": true,
       "artifactCount": 2,
       "examples": [
+        "HashOutProbe",
         "HashProbe"
       ],
       "status": "schema-only-not-emitted"
@@ -760,12 +766,13 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 812,
+      "artifactCount": 813,
       "examples": [
         "Accumulator",
         "CallProbe",
         "ContextProbe",
         "EmitProbe",
+        "HashOutProbe",
         "HashProbe",
         "ImtProbe",
         "LoopSum",
@@ -952,6 +959,7 @@
       "seenInArtifacts": true,
       "artifactCount": 2,
       "examples": [
+        "HashOutProbe",
         "HashProbe"
       ],
       "status": "schema-only-not-emitted"
@@ -1002,14 +1010,14 @@
       "pfSchema": true,
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 815
+      "artifactCount": 816
     },
     {
       "name": "SetContractStateSlotSingle",
       "pfSchema": true,
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 135
+      "artifactCount": 138
     },
     {
       "name": "GetSelfUserCurrentContractStateSlotHash",
@@ -1186,9 +1194,9 @@
     }
   ],
   "artifactOps": {
-    "0": 81,
-    "1": 2781,
-    "2": 50,
+    "0": 91,
+    "1": 2797,
+    "2": 53,
     "3": 2,
     "4": 2371,
     "5": 2317,
@@ -1201,7 +1209,7 @@
     "15": 295,
     "16": 768,
     "17": 1387,
-    "20": 5,
+    "20": 21,
     "21": 2,
     "22": 2,
     "23": 5649,
@@ -1216,7 +1224,7 @@
     "49": 2,
     "50": 2,
     "53": 3,
-    "54": 812,
+    "54": 813,
     "72": 20,
     "78": 2,
     "79": 2,
@@ -1224,8 +1232,8 @@
     "81": 2
   },
   "artifactStateCmds": {
-    "GetSelfUserCurrentContractStateSlotSingle": 815,
-    "SetContractStateSlotSingle": 135,
+    "GetSelfUserCurrentContractStateSlotSingle": 816,
+    "SetContractStateSlotSingle": 138,
     "InvokeExternalContractFunctionSync": 1,
     "GetSelfUserCurrentIMTContractStateValue": 1,
     "GetSelfUserExternalIMTContractStateValue": 1,

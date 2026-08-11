@@ -121,6 +121,7 @@ zero-divisor behavior由 target-owned lowering固定。
 | result call / schedule | fail closed | capability/Plan gate |
 | ContextRead (EVM places) / Commit | fail closed | no frozen public-input binding |
 | `pf.context.userId|contractId|checkpointId|nonce|callerContractId|userPublicKeyHash|sessionProofTreeRoot` | lowered | ops 46–50, 79–80 limb0 (ContextProbe) |
+| `pf.crypto.hashNoPad|hashTwoToOne` as `Array UInt64 4` | lowered | HashOut+TargetAt×4 CSE (HashOutProbe); keccak/context limb0 only |
 | `pf.imt.get|contains|set|getExternal|getOther|containsOther` | lowered | full self/external/other IMT; UInt64 limb0; CSE (ImtProbe) |
 | `CalculateMerkleRoot` | fail closed | official software evaluator `todo!` |
 | nonempty invariant | fail closed | no target refinement contract |

@@ -32,12 +32,13 @@ Generator: `scripts/psy_dpn_op_coverage.py` · `just psy-dpn-op-coverage`
 - CallProbe: void `call` → InvokeExternalContractFunctionSync (PARTIAL; no nested exec)
 - ContextProbe: `pf.context.userId|contractId|checkpointId|nonce|callerContractId|userPublicKeyHash|sessionProofTreeRoot`
 - ImtProbe: `pf.imt.set|get|contains|getExternal|getOther|containsOther` (UInt64→limb0 pack); session continuity; store+return CSE
-- HashProbe: `hashNoPad`/`hashTwoToOne`/`keccak256` official; `hashPad` emit-only; session fail-closed
+- HashProbe: `hashNoPad`/`hashTwoToOne`/`keccak256` scalar limb0 official; `hashPad` emit-only; session fail-closed
+- HashOutProbe: `hashNoPad`/`hashTwoToOne` as **`Array UInt64 4`** full HashOut (4 outputs; limb0 matches scalar)
 - LoopSum: official run(0)/run(5) → +4; session continuity init(10)+run(0)=14
 
 **Schema-only / not emitted by PF (not a session bug):**
 
-- hash gadgets: **hashNoPad + hashTwoToOne + keccak256 open**; hashPad emit (official software-eval gap); merkle closed (`CalculateMerkleRoot` official `todo!`)
+- hash gadgets: **scalar + full Array4 open**; hashPad emit (official software-eval gap); merkle closed (`CalculateMerkleRoot` official `todo!`)
 - IMT full self/external/other-user read path open (ImtProbe); merkle still closed
 - secp256k1Verify, exp/divRem variants, many u32 const forms
 - EVM-style ContextRead / Commit / result-bearing call / schedule (Plan FC)

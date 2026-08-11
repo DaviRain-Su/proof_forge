@@ -253,7 +253,7 @@ inductive Expr where
   | narrowCheckedNeg (bitWidth : Nat) (operand : Expr)
   | callFn (fnName : String) (args : Array Expr)
   /-- ADR-0039: Poseidon `hashNoPad` over 1..8 Felt/UInt64 args.
-      Product returns the first HashOut limb (official simulate scalar result). -/
+      Scalar product ABI: first HashOut limb. Full ABI uses `hashOutLimb`. -/
   | hashNoPad (args : Array Expr)
   /-- ADR-0039: Poseidon `hashPad` over 1..8 Felt/UInt64 args (first limb). -/
   | hashPad (args : Array Expr)
@@ -261,6 +261,11 @@ inductive Expr where
   | hashTwoToOne (args : Array Expr)
   /-- ADR-0039: `keccak256` over 1..16 UInt64 words (first u32-limb as UInt64). -/
   | keccak256 (args : Array Expr)
+  /-- Full HashOut multi-limb product ABI (`Array UInt64 4` result).
+      `kind`: 0=hashNoPad, 1=hashPad, 2=hashTwoToOne, 3=keccak256,
+      4=userPublicKeyHash, 5=sessionProofTreeRoot.
+      `limbIndex` ∈ 0..3. LowerPlan CSE-emits one HashOut op per (kind,args). -/
+  | hashOutLimb (kind limbIndex : Nat) (args : Array Expr)
   /-- P3 partial: DPN-native context (ExecutionContext), not EVM msg.sender. -/
   | ctxUserId
   | ctxContractId
@@ -2183,22 +2188,50 @@ private partial def lowerRegion
         let qn := String.intercalate "." comps.toList
         match instr.result with
         | some valueDef => do
-            -- ADR-0039 crypto gadgets (value-producing; first limb product ABI).
+            -- ADR-0039 crypto gadgets + P3 context:
+            --   UInt64/Felt result → first HashOut limb (historical ABI)
+            --   Array UInt64 4      → full HashOut via hashOutLimb 0..3
             let admitScalarResult : CompileResult Unit := do
               match uintWidthOfType data valueDef.typeId with
               | some 64 | none => pure ()
               | some w =>
                   if isNarrowUintWidth w || w == 128 || w == 256 then
-                    planError s!"unsupported Psy semantic shape: pf.crypto hash gadget result must be UInt64/Felt, got width {w}"
+                    planError s!"unsupported Psy semantic shape: pf.crypto/context scalar result must be UInt64/Felt, got width {w}"
                   else pure ()
+            let hashOut4? ← arrayUInt64LeafCountV1 layout.typeDecls layout.types valueDef.typeId
+            let wantFullHashOut : Bool :=
+              match hashOut4? with
+              | some 4 => true
+              | some n =>
+                  -- Non-4 Array is not a valid HashOut full ABI.
+                  false  -- will error below if Array non-4 used with hash
+              | none => false
+            if let some n := hashOut4? then
+              unless n == 4 do
+                planError s!"unsupported Psy semantic shape: HashOut full ABI requires Array UInt64 4, got length {n}"
+            let mkHashOut4 (kind : Nat) (argExprs : Array Expr) : LoweredVal :=
+              Id.run do
+                let mut leaves : Array Expr := #[]
+                for i in [0:4] do
+                  leaves := leaves.push (.hashOutLimb kind i argExprs)
+                pure (mkAggregateVal leaves)
+            -- Full Array4 HashOut only for ops official software eval fills in
+            -- hash_out_arrays (HashNoPad / HashTwoToOne). keccak/context stay limb0.
+            if wantFullHashOut then
+              unless qn == "pf.crypto.hashNoPad" || qn == "pf.crypto.hashTwoToOne" do
+                planError
+                  "unsupported Psy semantic shape: Array UInt64 4 HashOut full ABI is only admitted for pf.crypto.hashNoPad|hashTwoToOne (official simulate fills full HashOut); use UInt64 limb0 for keccak/context"
             if qn == "pf.crypto.hashNoPad" then
               unless comps.size == 3 do
                 planError "unsupported Psy semantic shape: pf.crypto.hashNoPad callee must be exactly three components"
               unless args.size ≥ 1 && args.size ≤ 8 do
                 planError s!"unsupported Psy semantic shape: pf.crypto.hashNoPad arity must be 1..8, got {args.size}"
-              admitScalarResult
               let argExprs ← lookupArgs env args "hashNoPad" true
-              env := envInsert env valueDef.valueId (.hashNoPad argExprs)
+              if wantFullHashOut then
+                env := envInsertVal env valueDef.valueId (mkHashOut4 0 argExprs)
+              else
+                admitScalarResult
+                env := envInsert env valueDef.valueId (.hashNoPad argExprs)
             else if qn == "pf.crypto.hashPad" then
               unless comps.size == 3 do
                 planError "unsupported Psy semantic shape: pf.crypto.hashPad callee must be exactly three components"
@@ -2212,9 +2245,12 @@ private partial def lowerRegion
                 planError "unsupported Psy semantic shape: pf.crypto.hashTwoToOne callee must be exactly three components"
               unless args.size == 8 do
                 planError s!"unsupported Psy semantic shape: pf.crypto.hashTwoToOne requires exactly 8 limbs (left||right HashOut), got {args.size}"
-              admitScalarResult
               let argExprs ← lookupArgs env args "hashTwoToOne" true
-              env := envInsert env valueDef.valueId (.hashTwoToOne argExprs)
+              if wantFullHashOut then
+                env := envInsertVal env valueDef.valueId (mkHashOut4 2 argExprs)
+              else
+                admitScalarResult
+                env := envInsert env valueDef.valueId (.hashTwoToOne argExprs)
             else if qn == "pf.crypto.keccak256" then
               unless comps.size == 3 do
                 planError "unsupported Psy semantic shape: pf.crypto.keccak256 callee must be exactly three components"

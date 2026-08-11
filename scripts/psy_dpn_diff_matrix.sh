@@ -355,6 +355,51 @@ for call in hashPair:1,2 hashPadPair:1,2 keccakWord:1; do
 done
 info "OK session hash gadgets fail-closed"
 
+# --- HashOutProbe (full 4-limb HashOut product ABI; official-only like HashProbe) ---
+dpn_ho=$(build_ex HashOutProbe Examples.HashOutProbe)
+info "official HashOutProbe hashPairFull(1,2)"
+run_official hof-pair "$dpn_ho" hashPairFull --inputs 1 --inputs 2
+python3 -I -S - "$out/off-hof-pair.json" "$out/off-hash-pair.json" <<'PYH'
+import json,sys,os
+full=json.load(open(sys.argv[1]))
+assert full.get("success") is True
+fouts=[int(x) for x in (full.get("outputs") or [])]
+assert len(fouts)==4 and fouts[0]!=0, fouts
+# limbs 1..3 should be populated for Poseidon HashOut (not just limb0)
+assert any(x!=0 for x in fouts[1:]), fouts
+if os.path.exists(sys.argv[2]):
+    sc=json.load(open(sys.argv[2]))
+    souts=[int(x) for x in (sc.get("outputs") or [])]
+    if souts:
+        assert fouts[0]==souts[0], (fouts, souts)
+print("OK hashPairFull 4-limb", fouts, "matches scalar limb0")
+PYH
+info "official HashOutProbe hashCombineFull"
+run_official hof-comb "$dpn_ho" hashCombineFull \
+  --inputs 1 --inputs 0 --inputs 0 --inputs 0 \
+  --inputs 2 --inputs 0 --inputs 0 --inputs 0
+python3 -I -S - "$out/off-hof-comb.json" "$out/off-hash-combine.json" <<'PYH'
+import json,sys,os
+full=json.load(open(sys.argv[1]))
+assert full.get("success") is True
+fouts=[int(x) for x in (full.get("outputs") or [])]
+assert len(fouts)==4 and fouts[0]!=0, fouts
+if os.path.exists(sys.argv[2]):
+    sc=json.load(open(sys.argv[2]))
+    souts=[int(x) for x in (sc.get("outputs") or [])]
+    if souts:
+        assert fouts[0]==souts[0], (fouts, souts)
+print("OK hashCombineFull 4-limb", fouts)
+PYH
+info "session HashOutProbe fail-closed on crypto"
+set +e
+python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_ho" \
+  --call initialize --call hashPairFull:1,2 >"$out/sess-hof.txt" 2>&1
+rc=$?
+set -e
+[[ $rc -ne 0 ]] || die "session unexpectedly accepted hashPairFull"
+info "OK session HashOut full fail-closed"
+
 # --- ContextProbe (P3 partial: DPN ExecutionContext ids) ---
 dpn_x=$(build_ex ContextProbe Examples.ContextProbe)
 for pair in "ctx-user:snapUser:1" "ctx-contract:snapContract:1" "ctx-cp:snapCheckpoint:100" "ctx-nonce:snapNonce:0" "ctx-caller:snapCallerContract:0" "ctx-pk:snapUserPk:0" "ctx-root:snapSessionRoot:0"; do
@@ -433,5 +478,5 @@ python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
 python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
   --artifact-root "$out" -o "$root/docs/targets/psy-op-coverage.v1.json"
 
-info "OK differential matrix + MapMini multi-key + EmitProbe events + CallProbe invoke + LoopSum + HashProbe + ContextProbe + ImtProbe + coverage"
+info "OK differential matrix + MapMini multi-key + EmitProbe events + CallProbe invoke + LoopSum + HashProbe + HashOutProbe + ContextProbe + ImtProbe + coverage"
 echo "artifacts: $out"
