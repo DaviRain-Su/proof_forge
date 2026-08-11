@@ -19,6 +19,8 @@ __pycache__/
 /proofship/**/out-*/
 /proofship/**/studio-inbox/
 /proofship/cloud-spike/context/
+node_modules/
+.wrangler/
 
 # Rust engineering/runtime client build outputs
 /runtime-tests/solana/target/
