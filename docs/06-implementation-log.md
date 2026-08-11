@@ -14819,3 +14819,30 @@ normative: false
   `just sbom-package-files-refresh`/`just sbom-package-files-check`（277 files）、
   `just alpha-deletion-gate`、`git diff --check` 与完整 `just ci`，均 exit 0；ordinary CI 中
   缺失的 optional host tools 继续按既有门禁明确 skip。
+
+## 2026-08-11 — Phase 7 NEAR `status` direct-free context closure
+
+- `ReferenceMachineV1` 新增 total syntactic sufficient certificate
+  `directInvocationContextFreeV1`：它只检查单个 callable 的全部 instruction 是否不含
+  `ContextRead` / `PureCall`，不验证 supplied context、CFG、callable identity，也不计算
+  transitive closure。
+- sole private production `requiredInvocationContext` 先以 supplied root id lookup validated data
+  中的 authoritative callable row；只有该 row direct-free 才返回 `some #[]`，否则继续执行原
+  private bounded worklist traversal。missing row、malformed ContextRead、invalid/non-pure callee 与
+  conflicting context type 仍 fail closed；没有新增第二套 closure checker，也未公开 traversal。
+- public recovery theorem要求 exact authoritative-row lookup equality与同一 row 的 certificate，
+  才能推出 `emptyInvocationContextAcceptedV1 = true`。semantic regression 固定 direct-free、
+  direct ContextRead、transitive PureCall 与 forged mismatched-root：supplied direct-free body 若 id
+  指向 authoritative context-dependent row，empty context 仍必须拒绝。
+- 真实 generated `VerifiedVault.status` row 只有 `StateLoad`，certificate 由 kernel `simp` 证明；
+  `NearStaticAlignmentV1` 由 exact lookup + certificate 删除最后一个 `hemptyContext` premise。
+  validation、Reference admission/data identity、initialized two-slot decode、status lookup、exact
+  ready 与 exact Reference outcome/static observation composition 现均无调用方 context premise。
+- 边界不变：没有 target `Operation`/IR/Wasm/NEAR execution semantics、一般 lowering theorem、
+  simulation、rollback implementation refinement 或 artifact identity theorem；不能称
+  VerifiedVault 已完整 target-refined，仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+- 已执行三个 focused Lean build、`just test-fast`、`just test-shard targets-host-fast`、
+  `just docs-check`、`just sbom-package-files-refresh`/`check`（277 files）、
+  `just alpha-deletion-gate`、`git diff --check` 与完整 `just ci`，均 exit 0；独立高风险复核
+  未发现 collector equivalence、authoritative-row identity、fallback 或 theorem strength 问题。

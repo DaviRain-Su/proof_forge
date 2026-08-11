@@ -3928,11 +3928,23 @@ private def compareBytesLex (left right : ByteArray) : Ordering := Id.run do
 private def compareContextKey (left right : SchemaId) : Ordering :=
   compareBytesLex left.value.toUTF8 right.value.toUTF8
 
+/-- Syntactic sufficient certificate that one callable forms a singleton
+    invocation-context closure: every instruction is free of both ContextRead
+    and static PureCall edges. This does not validate a supplied context, CFG,
+    callable identity, or transitive closure. The sole production context
+    collector consumes it as its direct-root fast path. -/
+def directInvocationContextFreeV1 (callable : CallableV1) : Bool :=
+  callable.blocks.all fun block =>
+    block.instructions.all fun instr =>
+      match instr.op with
+      | .contextRead _ | .pureCall _ _ => false
+      | _ => true
+
 /-- Collect the exact ContextRead key/type set reachable from the selected
     invocation root through static PureCall edges. Wire validation has already
     proved that every edge targets an in-range pureFn and that equal keys use
     one TypeId; this bounded traversal rechecks both facts fail closed. -/
-private def requiredInvocationContext
+private def requiredInvocationContextTraversal
     (data : SemanticProgramDataV1) (root : CallableV1) :
     Option (Array (SchemaId × TypeIdV1)) := Id.run do
   let mut visited := Array.replicate data.callables.size false
@@ -3975,6 +3987,21 @@ private def requiredInvocationContext
             | _ => pure ()
   pure (some (required.qsort fun left right =>
     compareContextKey left.1 right.1 == .lt))
+
+/-- Sole invocation-context requirement collector. The direct-root branch is
+    a conservative production fast path over the authoritative callable-table
+    row; every callable containing ContextRead or PureCall still uses the exact
+    bounded traversal above. -/
+private def requiredInvocationContext
+    (data : SemanticProgramDataV1) (root : CallableV1) :
+    Option (Array (SchemaId × TypeIdV1)) :=
+  match data.callables[root.id.toNat]? with
+  | none => none
+  | some selected =>
+      if directInvocationContextFreeV1 selected then
+        some #[]
+      else
+        requiredInvocationContextTraversal data root
 
 /-- Validate canonical key order and exact key/type/value membership, returning
     the supplied immutable snapshot unchanged for machine execution. -/
@@ -4025,6 +4052,18 @@ private theorem validateInvocationContext_empty_eq_some_of_acceptedV1
       have hempty : context = #[] := by
         exact Array.isEmpty_iff.mp (by simpa [hcontext] using haccepted)
       simpa [hempty] using hcontext
+
+/-- An exact authoritative callable-table row with no ContextRead or PureCall
+    instructions needs the empty invocation-context snapshot. This theorem is
+    a sufficient singleton-closure characterization of the sole production
+    collector, not an alternative context validator. -/
+theorem emptyInvocationContextAcceptedV1_of_directInvocationContextFreeV1
+    (data : SemanticProgramDataV1) (root : CallableV1)
+    (hlookup : data.callables[root.id.toNat]? = some root)
+    (hfree : directInvocationContextFreeV1 root = true) :
+    emptyInvocationContextAcceptedV1 data root = true := by
+  simp [emptyInvocationContextAcceptedV1, validateInvocationContext,
+    requiredInvocationContext, hlookup, hfree]
 
 /-- Sole production invocation gate (shape + lifecycle + decode overlay).
     Shape checks → invalidInvocation; lifecycle halt → lifecycle candidate;

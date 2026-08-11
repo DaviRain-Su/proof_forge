@@ -2100,6 +2100,55 @@ private def testContextReadReferenceSlice : IO Unit := do
       callables := #[leaf, nested, initializer, direct, throughNested, noContext, repeated]
       requirements := { items := #[requirement, commitRequirement] }
   }
+
+  -- The public direct-root certificate is deliberately conservative: a root
+  -- with neither ContextRead nor PureCall closes immediately, while either op
+  -- keeps the sole production bounded traversal authoritative.
+  expect (directInvocationContextFreeV1 noContext)
+    "context-direct-free: ordinary root must certify"
+  expect (!directInvocationContextFreeV1 direct)
+    "context-direct-free: ContextRead must not certify"
+  expect (!directInvocationContextFreeV1 throughNested)
+    "context-direct-free: PureCall must not certify"
+  expect (emptyInvocationContextAcceptedV1 data noContext)
+    "context-direct-free: exact selected row must accept empty context"
+
+  -- The fast path inspects the authoritative callable-table row, never a
+  -- caller-supplied body carrying the same id.
+  let mismatchedDirectFreeRoot := { noContext with id := direct.id }
+  expect (directInvocationContextFreeV1 mismatchedDirectFreeRoot)
+    "context-direct-free: mismatched supplied body is syntactically free"
+  expect (!emptyInvocationContextAcceptedV1 data mismatchedDirectFreeRoot)
+    "context-direct-free: selected ContextRead row must defeat mismatched body"
+  let outOfRangeRoot := { noContext with id := 99 }
+  expect (!emptyInvocationContextAcceptedV1 data outOfRangeRoot)
+    "context-direct-free: out-of-range root must remain rejected"
+
+  -- A valid context-free PureCall closure still succeeds via the unchanged
+  -- fallback traversal; malformed ContextRead/PureCall rows remain rejected.
+  let contextFreeLeaf := mkPureFn 0 "constantClock" #[] 0
+    #[instr (some (vd 0 0)) (.literal 0 (u64Bytes 7))]
+    (.return_ (some 0))
+  let contextFreeClosureData := {
+    data with callables := data.callables.set! 0 contextFreeLeaf
+  }
+  expect (emptyInvocationContextAcceptedV1 contextFreeClosureData throughNested)
+    "context-direct-free: context-free PureCall closure must use fallback"
+  let malformedContext := mkEntry 3 "directClock" #[] 0
+    #[instr none (.contextRead key)] (.return_ none)
+  let malformedContextData := {
+    data with callables := data.callables.set! 3 malformedContext
+  }
+  expect (!emptyInvocationContextAcceptedV1 malformedContextData malformedContext)
+    "context-direct-free: malformed ContextRead must remain rejected"
+  let malformedPureCall := mkView 4 "nestedView" #[] 0
+    #[instr (some (vd 0 0)) (.pureCall 99 #[])] (.return_ (some 0))
+  let malformedPureCallData := {
+    data with callables := data.callables.set! 4 malformedPureCall
+  }
+  expect (!emptyInvocationContextAcceptedV1 malformedPureCallData malformedPureCall)
+    "context-direct-free: malformed PureCall must remain rejected"
+
   let carrier ← encodeCarrier "context-read-runtime" data
   let admitted ← admitOk "context-read-runtime" carrier
   let initial ← match initialLogicalStateV1 carrier with

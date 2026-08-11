@@ -217,9 +217,11 @@ private def statusCallable : CallableV1 := {
   invariantSteps := none
 }
 
-private theorem verifiedVaultStatusReady
-    (hemptyContext :
-      emptyInvocationContextAcceptedV1 data statusCallable = true) :
+private theorem statusDirectInvocationContextFreeV1 :
+    directInvocationContextFreeV1 statusCallable = true := by
+  simp [directInvocationContextFreeV1, statusCallable]
+
+private theorem verifiedVaultStatusReady :
     ∃ admitted : AdmittedReferenceSliceV1,
       admitReferenceProgramSliceV1 subjectProgram = .ok admitted ∧
         admitted.data = data ∧
@@ -265,8 +267,9 @@ private theorem verifiedVaultStatusReady
     rfl
   have hcontext :
       emptyInvocationContextAcceptedV1 admitted.data statusCallable = true := by
-    rw [hadmitted.2]
-    exact hemptyContext
+    exact
+      emptyInvocationContextAcceptedV1_of_directInvocationContextFreeV1
+        admitted.data statusCallable hlookup statusDirectInvocationContextFreeV1
   refine ⟨admitted, hadmit, hadmitted.2, ?_⟩
   simpa [statusCallable] using
     gateInvocation_ready_nullary_view_of_checksV1 admitted logicalTen
@@ -422,9 +425,7 @@ example
   · exact hstep
 
 example
-    (vault : ReferenceVaultSeedV1)
-    (hemptyContext :
-      emptyInvocationContextAcceptedV1 data statusCallable = true) :
+    (vault : ReferenceVaultSeedV1) :
     ∃ admitted : AdmittedReferenceSliceV1,
       admitReferenceProgramSliceV1 subjectProgram = .ok admitted ∧
         NullaryUInt64ViewStaticAlignmentV1 data storage reservesBinding "status"
@@ -444,7 +445,7 @@ example
           } #[] vault)
           tenBytes successfulObservation := by
   obtain ⟨admitted, hadmit, hadmittedData, hgate⟩ :=
-    verifiedVaultStatusReady hemptyContext
+    verifiedVaultStatusReady
   refine ⟨admitted, hadmit, ?_, ?_, ?_, ?_⟩
   · simp [NullaryUInt64ViewStaticAlignmentV1, UInt64StateBindingRelV1, data,
       Examples.VerifiedVaultPF.Proof.subjectDataV1,

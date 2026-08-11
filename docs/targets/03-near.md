@@ -92,10 +92,16 @@ Phase 1：实现
   再组合原 `gateInvocation` 的 callable lookup、arity、initial state、initialized conformance 与
   logical-state decode。真实 generated VerifiedVault subject 因此已闭合 validation、Reference
   admission、admitted data identity、两槽 initialized decode、status row lookup 与 exact ready
-  gate，调用方不再提供整个 ready equality。唯一残留 kernel premise 是该 production empty-context
-  projection 为 true；target shard 执行同一 projection 已观察通过，但这只是 engineering runtime
-  check，不是 kernel proof。当前没有复制/公开 private bounded context traversal；删除最后 premise
-  需要后续 stable total characterization seam。该切片不定义 target transition，也不改变
+  gate，调用方不再提供整个 ready equality；
+- **VerifiedVault `status` direct-free context closure（Phase 7 第六切）**：
+  public total certificate `directInvocationContextFreeV1` 只判定单个 callable 是否不含
+  `ContextRead` / `PureCall`。sole production collector 先以 callable id lookup validated data 中的
+  authoritative row；该 row direct-free 才走 empty fast path，否则仍执行原 private bounded
+  transitive traversal。它不是第二套 closure checker，也不验证 supplied context/CFG/identity；
+  lookup failure、malformed ContextRead、invalid PureCall 等仍由原路径 fail closed。mismatched-root
+  regression 固定 supplied forged body 不能欺骗 fast path。真实 `status` row 只有 `StateLoad`，
+  因而 lookup + certificate 已在 kernel 中推出 empty-context acceptance，ready 与 exact Reference
+  outcome composition 不再带调用方 context premise。该切片仍不定义 target transition，也不改变
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined** 边界。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
@@ -157,8 +163,9 @@ Phase 1：实现
 exact slots、Unit withdraw、overflow/guard rollback 与 missing-export corpus 已形成 engineering
 runtime observation；`StaticAlignmentV1` 的 passive relation 与 exact status recipe 已连接到
 production validated semantic data、Plan/key/IR successful graph；production Method/MethodIR 的
-exact syntax 已由 proof-producing recognizer 纳入 kernel proposition，但尚无 target transition，
-也没有一般 lowering correctness theorem。当前仍没有
+exact syntax 已由 proof-producing recognizer 纳入 kernel proposition，真实 status 的
+validation/admission/initial state/lookup/empty-context ready/exact Reference outcome 也已无外部
+context premise闭合，但尚无 target transition，也没有一般 lowering correctness theorem。当前仍没有
 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
 覆盖 corrupt storage、bad input 或 gas/profile；Option
 params、非 UInt64/nested Option、Map/nested aggregate return 仍 fail-closed

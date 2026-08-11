@@ -675,11 +675,18 @@ certification elaboration 阶段 fail closed。
   `gateInvocation = .ready ...`；它没有第二次收集 context，也没有新增 invocation evaluator。
   VerifiedVault fixture 现从真实 generated subject 闭合 validation、Reference admission、admitted
   data identity、initializer presence、initialized state conformance、两槽 decode、status row lookup
-  和 exact ready gate，不再要求调用者直接提供整个 `hgate`。目前唯一残留的 kernel premise 是
-  `emptyInvocationContextAcceptedV1 data statusCallable = true`；target shard 会直接执行同一个
-  production projection并观察为 true，但 runtime Bool 观察不是 kernel theorem。为了不复制或
-  公开 private bounded context traversal，本切片保持 fail closed；下一切需要一个稳定、total、
-  非重复的 public context-closure characterization 后，才能删除这最后一个 premise。
+  和 exact ready gate，不再要求调用者直接提供整个 `hgate`；
+- 第六静态切删除上述最后一个 context premise：public、total 的
+  `directInvocationContextFreeV1` 只检查单个 callable 是否完全不含 `ContextRead` / `PureCall`，
+  是 empty context closure 的充分语法证书，不验证 supplied context、CFG、identity，也不计算
+  transitive closure。sole production collector 先按 `root.id` 从 validated data lookup
+  authoritative row，再在该 row 获证时返回 `some #[]`；含任一相关 op 时仍走原 private bounded
+  worklist traversal，lookup 失败及 malformed/callee failure 仍 fail closed。因 fast path 不信任
+  caller-supplied body，mismatched-root regression 已固定同 id forged root 不能绕过 context gate。
+  `VerifiedVault.status` 的真实 authoritative row 只有 `StateLoad`，因此 certificate 由 kernel
+  `simp` 闭合，并经 lookup equality 推出 production empty-context acceptance；ready theorem与
+  exact Reference outcome composition 现在均无外部 context premise。这里没有第二套 context
+  closure checker、gate、evaluator 或 step，private traversal 也未公开。
 
 这仍然只是 **static alignment/refinement foundation**：Reference outcome 已精确闭合且
 production Plan/key/IR provenance 已连接，但 target observation 仍是外部提供的 passive carrier；
@@ -788,7 +795,7 @@ artifact/toolchain identity theorem。`NearHostModel` 继续是 private test-onl
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR status production 静态命题与条件化 exact gate composition 已闭合）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation、exact Reference outcome，以及 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR graph → status Method/MethodIR proof-producing syntax recognition → complete static-alignment proposition；真实 generated subject 的 admission/initialized decode/status ready gate 现只剩 sole production empty-context acceptance premise，engineering shard 已执行观察为 true，但尚缺其稳定 kernel characterization，也尚无一般 lowering theorem、target execution semantics、simulation 或 artifact identity evidence |
+| 7 | Per-target refinement | **进行中（NEAR status production 静态命题与无前提 exact Reference composition 已闭合）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation、exact Reference outcome，以及 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR graph → status Method/MethodIR proof-producing syntax recognition → complete static-alignment proposition；真实 generated subject 的 validation/admission/initialized decode/status lookup/empty-context gate/ready/outcome 已由 kernel 无外部 context premise组合，direct-free fast path 仍由 sole production collector消费 authoritative row。尚无一般 lowering theorem、target execution semantics、simulation 或 artifact identity evidence |
 
 ### 首个代码切片进展
 
