@@ -1,8 +1,10 @@
 ---
 id: ADR-0039
 title: Psy hash gadgets — design gate (not yet emitted)
-status: accepted-partial
-date: 2026-08-10
+status: proposed
+owner: engineering
+updated: 2026-08-11
+normative: true
 ---
 
 # ADR-0039: Psy hash gadgets design gate

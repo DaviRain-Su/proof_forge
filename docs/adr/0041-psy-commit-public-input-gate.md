@@ -1,9 +1,9 @@
 ---
 id: ADR-0041
 title: Psy Commit / public-input binding — fail-closed gate
-status: accepted
-date: 2026-08-11
+status: proposed
 owner: engineering
+updated: 2026-08-11
 normative: true
 ---
 
@@ -11,7 +11,7 @@ normative: true
 
 ## Status
 
-**accepted** (2026-08-11). This ADR freezes the product decision: **do not open
+**proposed** (2026-08-11). This ADR freezes the product decision: **do not open
 `Op.Commit` / B-COMMIT-ZK on the Psy DPN target** until the checklist below is
 met with official authority. No implementation work is authorized by this document.
 

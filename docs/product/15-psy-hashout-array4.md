@@ -1,9 +1,10 @@
 ---
 id: PRODUCT-PSY-HASHOUT-ARRAY4
 title: Psy HashOut full limbs (Array UInt64 4) — author guide
-status: active
+status: draft
 owner: product+engineering
 updated: 2026-08-11
+normative: false
 ---
 
 # Psy: full HashOut via `Array UInt64 4`
