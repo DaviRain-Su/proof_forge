@@ -186,6 +186,7 @@ required_scripts=(
   proof_forge_install.py
   toolchain_assets.py
   pf_evm_test.sh
+  pf_solana_test.sh
 )
 optional_scripts=(
   solana_runtime_test.sh

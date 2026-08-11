@@ -1,33 +1,31 @@
 #!/usr/bin/env bash
-# Solana local Mollusk test for `pf test -t solana` (D7b, developer-first).
+# Solana local Mollusk test for `pf test -t solana` (D7b / ADR-0040).
+#
+# Script resolution is bundle-first (shipped under scripts/ in engineering-dist).
+# Full Mollusk still needs monorepo `runtime-tests/solana` + cargo — without it
+# this script **skip-cleans** (exit 0 + "skipped:"; not a pass claim).
+# Offline joins without Mollusk: `pf verify -t solana`.
 #
 # Default lane: **StateCell-shaped** programs (what `pf new` scaffolds).
-#   Any program name (Hello, MyCounter, StateCell, …) with
-#   init + increment + get and a single UInt64 state field.
-#
-# Specialty lane (auto): **TransferSol** CPI gold fixture when TransferSol.so
-# is present — same matrix as `just solana-transfer-sol-local` Mollusk half.
+# Specialty lane (auto): **TransferSol** when TransferSol.so is present.
 #
 # Inputs:
 #   PF_SOLANA_ARTIFACT_DIR  — OutputSet from `pf build` (required)
-#   PROOF_FORGE_ROOT        — monorepo root (auto from script)
+#   PROOF_FORGE_ROOT        — monorepo or bundle root (optional; auto from script parent)
 #
 # Behavior:
 #   - Missing cargo / runtime-tests → skip-clean exit 0
 #   - Unsupported program shape → fail closed (not silent pass)
 #   - No RPC / wallet / deploy
-#
-# Developer UX (short):
-#   pf new hello --target solana && cd hello
-#   pf build
-#   pf test
 set -euo pipefail
 
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+_script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+root="$(cd "${_script_dir}/.." && pwd)"
 artifact_dir="${PF_SOLANA_ARTIFACT_DIR:-${1:-}}"
 if [[ -z "$artifact_dir" ]]; then
   echo "pf-solana-test: usage: PF_SOLANA_ARTIFACT_DIR=<dir> $0" >&2
-  echo "  developer path: pf new hello --target solana && cd hello && pf build && pf test" >&2
+  echo "  path: pf new hello --target solana && cd hello && pf build && pf test" >&2
+  echo "  note: Mollusk needs monorepo runtime-tests/solana; else skip-clean" >&2
   exit 2
 fi
 if [[ ! -d "$artifact_dir" ]]; then
@@ -41,17 +39,35 @@ artifact_dir="$(cd "$artifact_dir" && pwd)"
 manifest="$artifact_dir/manifest.json"
 [[ -f "$manifest" ]] || die "missing manifest.json under $artifact_dir"
 
-crate="$root/runtime-tests/solana/Cargo.toml"
+# Prefer explicit monorepo root for harness; bundle root alone is not enough.
+crate_root="${PROOF_FORGE_ROOT:-$root}"
+crate="$crate_root/runtime-tests/solana/Cargo.toml"
 if [[ ! -f "$crate" ]]; then
-  echo "pf-solana-test: skipped: runtime-tests/solana crate missing (optional; not pass)" >&2
-  exit 0
+  # Walk parents for monorepo layout when script lives in bundle.
+  walk="$root"
+  found=""
+  for _ in 1 2 3 4 5 6; do
+    if [[ -f "$walk/runtime-tests/solana/Cargo.toml" ]]; then
+      found="$walk/runtime-tests/solana/Cargo.toml"
+      crate_root="$walk"
+      break
+    fi
+    walk="$(dirname "$walk")"
+  done
+  if [[ -n "$found" ]]; then
+    crate="$found"
+  else
+    echo "pf-solana-test: skipped: runtime-tests/solana crate missing (bundle-only install; not pass)" >&2
+    echo "pf-solana-test: offline alternative: pf verify -t solana" >&2
+    exit 0
+  fi
 fi
 if ! command -v cargo >/dev/null 2>&1; then
   echo "pf-solana-test: skipped: cargo not on PATH (optional; not pass)" >&2
   exit 0
 fi
 
-export PROOF_FORGE_ROOT="${PROOF_FORGE_ROOT:-$root}"
+export PROOF_FORGE_ROOT="${PROOF_FORGE_ROOT:-$crate_root}"
 case "$(uname -s)" in
   Darwin) default_tool_root="$HOME/.cache/proof-forge-v2/tool-root/darwin-arm64" ;;
   Linux)  default_tool_root="$HOME/.cache/proof-forge-v2/tool-root/linux-$(uname -m)" ;;

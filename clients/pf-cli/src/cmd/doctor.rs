@@ -311,20 +311,38 @@ fn collect_deps(target: &str) -> Vec<Dep> {
                     path: None,
                 });
             }
-            if compiler::resolve_package_root().is_none() {
-                deps.push(Dep {
-                    id: "solana-mollusk-harness",
-                    status: "info",
-                    summary: "pf test -t solana needs monorepo runtime-tests (Mollusk) today"
+            match crate::targets::solana::test::resolve_solana_test_script() {
+                Ok(p) => deps.push(Dep {
+                    id: "solana-test-script",
+                    status: "ok",
+                    summary: "pf_solana_test.sh resolved (Mollusk still needs monorepo harness)"
                         .into(),
+                    install: vec![],
+                    path: Some(p.display().to_string()),
+                }),
+                Err(_) => deps.push(Dep {
+                    id: "solana-test-script",
+                    status: "info",
+                    summary: "pf test -t solana needs scripts/pf_solana_test.sh from bundle".into(),
                     install: vec![
-                        "export PROOF_FORGE_ROOT=/path/to/proof_forge   # monorepo checkout".into(),
-                        "# offline joins without Mollusk:".into(),
-                        "pf verify -t solana".into(),
+                        "pf bootstrap --from proof-forge-bundle-*.tar.gz".into(),
+                        "export PROOF_FORGE_ROOT=$HOME/.local/proof-forge/current".into(),
                     ],
                     path: None,
-                });
+                }),
             }
+            deps.push(Dep {
+                id: "solana-mollusk-harness",
+                status: "info",
+                summary: "full pf test Mollusk needs monorepo runtime-tests/solana + cargo; else skip-clean"
+                    .into(),
+                install: vec![
+                    "# offline joins without Mollusk (external authors):".into(),
+                    "pf verify -t solana".into(),
+                    "# full Mollusk: monorepo checkout with runtime-tests/solana".into(),
+                ],
+                path: None,
+            });
             if which::which("solana").is_err() {
                 deps.push(Dep {
                     id: "solana-cli",
@@ -567,7 +585,8 @@ fn next_commands(target: &str) -> Vec<String> {
             "pf setup --target solana --yes  # best-effort cargo install companions".into(),
             "pf new counter --target solana && cd counter".into(),
             "pf build && pf verify           # verify needs solana-client".into(),
-            "pf test                         # needs monorepo Mollusk harness today".into(),
+            "pf test                         # Mollusk if monorepo harness; else skip-clean".into(),
+            "pf scaffold-ui --template solana-dapp".into(),
         ],
         "evm" => vec![
             "pf -y setup --target evm        # compiler install + Tool Root solc/anvil".into(),

@@ -415,14 +415,16 @@ D1–D4 = 0/27 done。
 | **EA-P0-5** | 外部路径永不 lake；预编译 next 为 sole 冷启动 | **done engineering** | INSTALL/setup/README 主路径 = bundle |
 | **EA-P0-6** | 错误 → 可执行修复（fix: 行） | **done engineering** | Diagnostic.render + pf compiler wrapper + mismatch fixup |
 | **EA-CI-1** | `install-dist-smoke` / external-author-dist-smoke | **done engineering** | release job + `external-author-smoke.yml` |
-| **EA-CI-2** | `host-dev-mode-smoke`：非 lock 原生 distro build 不改 lock | **partial** | dev 默认即覆盖；专用 Debian 矩阵仍可加 |
-| **EA-CI-3** | `agent-path-smoke`：仅 env + pf 子命令；禁 lake / 手改 lock | **partial** | EA smoke 断言 compiler 路径不含 `.lake` |
-| **EA-P1-1** | `pf test -t evm` 不依赖 monorepo 路径 | **done engineering** | 解析 bundle `scripts/pf_evm_test.sh`；setup EVM 带 `--with-runtime` |
-| **EA-P1-2** | EVM UI 产物契约 `write-ui-json` / deploy 写 deployment | **done engineering** | schema 对齐 templates/evm-dapp-ui |
-| **EA-P1-4** | `pf network list/show/use` | **done engineering** | embedded + docs/product/networks.v1.json |
-| **EA-P1-7** | `pf scaffold-ui --template evm-dapp` | **done engineering** | 拷模板 + sync abi/bin/deployment.json；bundle 含 templates/ |
-| **EA-P1-*** | 多发行版矩阵、Solana test 脱钩 | **pending** | residual |
-| **EA-MVP-SLICE** | 最小五切片一轮：bundle + bootstrap + host dev + Ubuntu E2E + fix-up 错误 | **done engineering** | Wave A/B 续：README 两轨 + EA CI + standalone test |
+| **EA-CI-2** | `host-dev-mode-smoke`：非 lock 原生 distro | **done engineering** | ubuntu-22.04/24.04 + debian:bookworm pf-cli unit；source pin `HostMode=dev` |
+| **EA-CI-3** | `agent-path-smoke`：仅 env + pf；禁 lake | **done engineering** | EA smoke 断言 + cheatsheet 禁止 lake |
+| **EA-P1-1** | `pf test -t evm` 不依赖 monorepo 路径 | **done engineering** | bundle `pf_evm_test.sh` + setup `--with-runtime` |
+| **EA-P1-2** | EVM UI 产物契约 | **done engineering** | write-ui-json / deploy UI JSON |
+| **EA-P1-4** | `pf network list/show/use` | **done engineering** | embedded catalog |
+| **EA-P1-7** | `pf scaffold-ui` | **done engineering** | 模板 + artifacts sync |
+| **EA-P1-solana-test** | Solana test 脚本 bundle 解析 + 诚实 skip | **done engineering** | Mollusk 仍需 monorepo harness；`pf verify` 为外部路径 |
+| **EA-P2-cheatsheet** | Agent 单页 cheatsheet | **done engineering** | `docs/product/16-external-author-cheatsheet.md` |
+| **EA-MVP-SLICE** | External Author MVP 工程收口 | **done engineering** | 公开 Release tag 仍可选（产品发版动作，非代码缺口） |
+| **EA-P1-5** | monorepo 增量编译 | **pending** | 贡献者路径；非外部主路径 |
 
 **最小 DoD（EVM-first）**：
 

@@ -4,9 +4,8 @@ name: External author smoke
 # Does NOT replace ordinary CI lean-product / target-smoke.
 # NOT formal Stage-0 / hermetic.
 #
-# On push/PR: only cheap script + Rust unit checks (no full lake rebuild).
-# On workflow_dispatch / release-adjacent: full bundle → install → pf new → build
-# when a prebuilt proof-forge-next is available (same runner as package).
+# On push/PR: cheap multi-distro script + Rust unit checks (no full lake rebuild).
+# On workflow_dispatch / tags: full bundle → install → pf new → build.
 
 on:
   push:
@@ -17,7 +16,10 @@ on:
       - "scripts/external_author_dist_smoke.sh"
       - "scripts/install.sh"
       - "scripts/pf_evm_test.sh"
+      - "scripts/pf_solana_test.sh"
       - "docs/product/14-external-author-mvp.md"
+      - "docs/product/16-external-author-cheatsheet.md"
+      - "docs/adr/0040-external-author-host-mode-and-bundle.md"
       - ".github/workflows/external-author-smoke.yml"
       - ".github/workflows/release-engineering-dist.yml"
   pull_request:
@@ -28,7 +30,9 @@ on:
       - "scripts/external_author_dist_smoke.sh"
       - "scripts/install.sh"
       - "scripts/pf_evm_test.sh"
+      - "scripts/pf_solana_test.sh"
       - "docs/product/14-external-author-mvp.md"
+      - "docs/product/16-external-author-cheatsheet.md"
       - ".github/workflows/external-author-smoke.yml"
   workflow_dispatch:
 
@@ -38,14 +42,21 @@ concurrency:
 
 jobs:
   pf-cli-unit:
-    name: pf-cli unit + resolve smoke
-    runs-on: ubuntu-latest
+    name: pf-cli unit (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install ripgrep
+        run: sudo apt-get update && sudo apt-get install -y ripgrep
 
       - name: pf-cli tests
         run: cargo test --manifest-path clients/pf-cli/Cargo.toml --locked
@@ -65,16 +76,60 @@ jobs:
           bash -n scripts/package_bundle_dist_smoke.sh
           bash -n scripts/external_author_dist_smoke.sh
           bash -n scripts/pf_evm_test.sh
+          bash -n scripts/pf_solana_test.sh
 
-      - name: pf_evm_test.sh is package-required
+      - name: bundle packager requires EA scripts + templates
         run: |
           set -euo pipefail
-          # Bundle packager must list pf_evm_test.sh as required (P1-1).
-          rg -n 'pf_evm_test\.sh' scripts/package_bundle_dist.sh
-          rg -n 'required_scripts=\(' -A20 scripts/package_bundle_dist.sh | rg -q 'pf_evm_test\.sh'
+          rg -n 'required_scripts=\(' -A30 scripts/package_bundle_dist.sh | rg -q 'pf_evm_test\.sh'
+          rg -n 'required_scripts=\(' -A30 scripts/package_bundle_dist.sh | rg -q 'pf_solana_test\.sh'
+          rg -n 'templates/' scripts/package_bundle_dist.sh | head -1
+          test -f docs/adr/0040-external-author-host-mode-and-bundle.md
+          test -f docs/product/16-external-author-cheatsheet.md
 
-  # Full path needs a built compiler; run when manually dispatched or on tags.
-  # Release workflow already runs external_author_dist_smoke after packaging.
+      - name: hostMode default is dev (source pin)
+        run: |
+          set -euo pipefail
+          # Engineering default must not require hermetic host lock on foreign distros.
+          rg -n 'none => pure \.dev' ProofForgeV2/Materialization/LockedToolchainV1.lean
+          rg -n 'inductive HostMode' ProofForgeV2/Materialization/LockedToolchainV1.lean
+
+  # Debian-like container: no Lean rebuild; prove scripts + pf unit on non-Mint.
+  debian-script-smoke:
+    name: debian bookworm script smoke
+    runs-on: ubuntu-latest
+    container:
+      image: debian:bookworm-slim
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Install tools
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            bash ca-certificates curl build-essential pkg-config \
+            libssl-dev ripgrep python3
+          curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+          . "$HOME/.cargo/env"
+          rustc --version
+
+      - name: bash -n + VERSION gate + pf-cli test
+        run: |
+          set -euo pipefail
+          . "$HOME/.cargo/env"
+          bash -n scripts/install.sh
+          bash -n scripts/pf_evm_test.sh
+          bash -n scripts/pf_solana_test.sh
+          bash -n scripts/package_bundle_dist.sh
+          V="$(tr -d '[:space:]' < VERSION)"
+          C="$(awk -F'"' '/^version = / { print $2; exit }' clients/pf-cli/Cargo.toml)"
+          test "$V" = "$C"
+          # hostMode default present (foreign distro must use dev)
+          grep -q 'none => pure \.dev' ProofForgeV2/Materialization/LockedToolchainV1.lean
+          cargo test --manifest-path clients/pf-cli/Cargo.toml --locked
+
   bundle-path-dispatch:
     name: bundle path (dispatch / tag)
     if: github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')

@@ -130,7 +130,7 @@ pf test                         # 可选 Anvil（Tool Root 内）
 | **P1-3** | public testnet broadcast 策略与文档一致 | **done engineering**：catalog `pfProductBroadcast` + network use 文案；v0 仍拒 public broadcast | 讲得清 |
 | **P1-4** | 网络 catalog 进 CLI | **done engineering**：`pf network list\|show\|use` 读 `networks.v1.json`（embedded + package） | 少手写 chainId/RPC |
 | **P1-5** | 增量编译 / 模块缓存（贡献者路径） | 改一行 Hello 不应碰无关 target C 对象 | 仅 monorepo 开发体验；外部路径无关 |
-| **P1-6** | CI 矩阵：linux-x86_64 + 非 Mint 发行版 smoke | Ubuntu 22.04/24.04、Debian 12：install dist → pf new → pf build 必须绿 | 见 §6 |
+| **P1-6** | CI 矩阵：linux-x86_64 + 非 Mint 发行版 smoke | **done engineering（轻量）**：ubuntu-22.04/24.04 + debian bookworm pf-cli/unit + HostMode pin；full bundle path on dispatch/tag/release | 见 §6 / external-author-smoke.yml |
 | **P1-7** | `pf new` 后 out-dir 与 UI 模板一键对齐 | **done engineering**：`pf scaffold-ui --template evm-dapp` 拷模板 + 同步 abi/bin/`deployment.json`；bundle 含 `templates/` | `ui/evm-dapp` + npm run dev |
 
 ### 4.3 P2 — 体验与产品叙事
@@ -304,3 +304,4 @@ Week 3  Epic F 文档两轨收敛 + agent cheatsheet
 | 2026-08-10 | **Wave A+B**：README 两轨；`external-author-smoke.yml`；P1-1 standalone `pf test -t evm`（bundle 脚本解析 + setup `--with-runtime`） |
 | 2026-08-10 | **P1-2/3/4 + playbook**：`pf network`；`pf write-ui-json`；deploy 写 UI JSON；agent playbook 默认 bundle |
 | 2026-08-10 | **P1-7**：`pf scaffold-ui` 拷 dApp 模板 + 对齐 build 产物；bundle 打包 `templates/` |
+| 2026-08-11 | **EA 收口**：Solana test bundle 解析 + 诚实 skip；ubuntu/debian CI 矩阵；`16-external-author-cheatsheet`；ADR-0040 |

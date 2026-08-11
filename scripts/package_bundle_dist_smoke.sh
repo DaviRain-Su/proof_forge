@@ -47,6 +47,8 @@ stage="$(find "$extract" -maxdepth 1 -type d -name 'proof-forge-bundle-*' | head
 [[ -f "$stage/lib/lean/ProofForgeV2/Language/ProgramElaborationV1.olean" ]] \
   || die "missing package-owned olean root (ProgramElaborationV1)"
 [[ -f "$stage/scripts/pf_evm_test.sh" ]] || die "missing scripts/pf_evm_test.sh (P1-1 standalone test)"
+[[ -f "$stage/scripts/pf_solana_test.sh" ]] || die "missing scripts/pf_solana_test.sh (bundle resolve)"
+[[ -d "$stage/templates/evm-dapp-ui" ]] || die "missing templates/evm-dapp-ui (scaffold-ui)"
 
 export PATH="$stage/bin:$PATH"
 export PROOF_FORGE_CLI="$stage/bin/proof-forge-next"
