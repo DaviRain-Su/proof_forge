@@ -10,7 +10,7 @@ use crate::cmd::emit;
 use crate::error::{PfError, PfResult};
 use crate::project::Project;
 use crate::result_json::PfOk;
-use crate::targets::{self, evm, psy, solana};
+use crate::targets::{self, evm, near, psy, solana};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -273,11 +273,39 @@ fn run_one(target: &str, dir: &Path) -> PfResult<TargetReport> {
             aleo_smoke(dir)
         }
         targets::TargetId::Psy => psy_smoke(dir),
-        targets::TargetId::Near => Err(PfError::Usage(
-            "near: use scripts/near_runtime_test.sh (locked near-sandbox); \
-             `pf test -t near` is not wired in v0"
-                .into(),
-        )),
+        targets::TargetId::Near => {
+            let outcome = near::test::run_sandbox_test(dir)?;
+            if outcome.skipped {
+                return Ok(TargetReport {
+                    target: target.into(),
+                    status: "skipped",
+                    artifact_dir: Some(dir.display().to_string()),
+                    lane: Some("near-sandbox-corpus".into()),
+                    message: outcome
+                        .skip_reason
+                        .unwrap_or_else(|| "host tools missing".into()),
+                    detail: None,
+                });
+            }
+            let summary = outcome
+                .stdout
+                .lines()
+                .chain(outcome.stderr.lines())
+                .find(|l| l.contains("pf-near-test: ok") || l.contains("near-runtime-test: PASS"))
+                .unwrap_or("pf-near-test: ok")
+                .to_string();
+            Ok(TargetReport {
+                target: target.into(),
+                status: "ok",
+                artifact_dir: Some(dir.display().to_string()),
+                lane: Some("near-sandbox-corpus".into()),
+                message: summary,
+                detail: Some(json!({
+                    "script": outcome.script_path.display().to_string(),
+                    "honesty": "engineering sandbox only; Promise=async; sync call FC; not formal/testnet",
+                })),
+            })
+        }
         targets::TargetId::Other => Err(PfError::NotImplemented(format!(
             "target '{target}': {}",
             targets::capability_note(target)

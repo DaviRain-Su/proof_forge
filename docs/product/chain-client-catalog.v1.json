@@ -285,14 +285,17 @@
       "role": "backend-contracts",
       "pfSurface": {
         "build": true,
-        "localModes": ["near-sandbox-engineering"],
-        "network": "none-product",
+        "localModes": ["runtime"],
+        "test": "pf test -t near → scripts/pf_near_test.sh (near-sandbox corpus; skip-clean if tools missing)",
+        "deploy": "pf deploy -t near save-only; --broadcast refused",
+        "network": "catalog-only (near.local.sandbox / near.testnet); no product broadcast",
         "mcpTools": [
           "pf_list_targets",
           "pf_doctor",
           "pf_install",
           "pf_build",
           "pf_artifacts",
+          "pf_local",
           "pf_chain_catalog"
         ]
       },
@@ -315,6 +318,7 @@
         "Proof-bearing vault (ADR-0042) is Reference-verified + runtime observed, not formal target refinement"
       ],
       "agentGuide": "docs/product/near-agent-cheatsheet.md",
+      "syncAsyncGuide": "docs/product/near-sync-async-api.md",
       "parityRoadmap": "docs/plan/near-parity-roadmap.md",
       "demoExamples": [
         "Examples/PoseTransform.lean",

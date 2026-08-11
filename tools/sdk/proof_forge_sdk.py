@@ -678,6 +678,10 @@ class ProofForgeClient:
     ) -> CliResult:
         """Product ``local`` wrapper (host-heavy package scripts).
 
+        Supported runtime targets (product CLI): ``evm``, ``solana``, ``near``
+        (near → ``scripts/pf_near_test.sh`` / near-sandbox corpus; Promise is
+        async — sync call/transfer stay compiler fail-closed).
+
         For Aleo sandbox, pass ``source`` + ``module`` (generic; no default
         program). Optional ``runs`` become ``--run`` lines; ``skip_run`` skips
         leo run. Never accepts network broadcast or raw private keys.

@@ -27,8 +27,12 @@ pf setup --target near --with-runtime -y   # when bootstrap path is available
 proof-forge-next build Examples/PoseTransform.lean \
   --module Examples.PoseTransform --target near -o build/v2/near-pose
 
-# 3) Runtime gate (fifteen engineering suites, skip-clean if tools missing)
-scripts/near_runtime_test.sh
+# 3) Runtime gate — product CLI (preferred)
+pf test -t near
+# same corpus via product local:
+# proof-forge-next local --target near --mode runtime
+# monorepo equivalent:
+# scripts/near_runtime_test.sh   # or scripts/pf_near_test.sh
 
 # 4) Deploy packaging (save-only; --broadcast refused)
 pf deploy -t near --network local
@@ -66,6 +70,11 @@ pf network list --family near
 - UInt128/256 / aggregate / Principal **const** rows (scalar UInt/Int/Bool ok)
 - Map / nested aggregate **returns** (Bytes N 1..8 return admitted)
 - Public testnet/mainnet `pf deploy --broadcast` (NEAR broadcast refused even for local)
+
+## Sync vs async (read this before calling)
+
+`docs/product/near-sync-async-api.md` — NEAR Promise is async; sync transfer/call
+are permanent fail-closed. Use `*Async` / `schedule` for fire-and-forget only.
 
 ## Roadmap
 

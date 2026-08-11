@@ -54,7 +54,7 @@ pub fn capability_note(target: &str) -> &'static str {
             "build DPN + `pf test` (session) + `pf run` (simulate) + `pf deploy` wraps psy_user_cli deploy-contract"
         }
         TargetId::Near => {
-            "build Wasm + `pf deploy` (save-only package; --broadcast refused) + near-sandbox runtime scripts"
+            "build Wasm + `pf test` (near-sandbox corpus) + `pf deploy` (save-only; --broadcast refused)"
         }
         TargetId::Other => "unsupported developer operation in pf v0 (fail closed)",
     }
@@ -71,5 +71,6 @@ mod tests {
         assert!(capability_note("psy").contains("psy_user_cli"));
         assert!(capability_note("near").contains("save-only"));
         assert!(capability_note("near").contains("broadcast refused"));
+        assert!(capability_note("near").contains("pf test"));
     }
 }

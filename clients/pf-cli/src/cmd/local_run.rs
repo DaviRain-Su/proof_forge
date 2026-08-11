@@ -33,6 +33,13 @@ pub fn run(
             "solana: use `pf verify -t solana` (offline) or `pf test -t solana` (Mollusk)".into(),
         ));
     }
+    if tid == targets::TargetId::Near {
+        return Err(PfError::NotImplemented(
+            "near: use `pf test -t near` (near-sandbox corpus) or `proof-forge-next local --target near`; \
+             `pf run` is Aleo/Psy in v0; Promise/cross-contract is async (sync call FC)"
+                .into(),
+        ));
+    }
     let dir = project.resolve_artifact_dir(&target, artifact_cli, None);
     if !dir.is_dir() {
         return Err(PfError::Artifact(format!(

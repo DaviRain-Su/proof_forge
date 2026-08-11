@@ -998,10 +998,12 @@ def tool_definitions() -> List[Dict[str, Any]]:
         {
             "name": "pf_local",
             "description": (
-                "Run product local host-heavy scripts (e.g. Aleo offline sandbox). "
-                "Generic: for Aleo sandbox pass source + module + optional runs "
-                "(no default program). Does NOT broadcast network or accept private keys. "
-                "Maps to: proof-forge-next local --target … [--mode sandbox] -- --source … --module …"
+                "Run product local host-heavy scripts. "
+                "Runtime: evm (Anvil), solana (Mollusk), near (near-sandbox corpus via "
+                "scripts/pf_near_test.sh; Promise=async, sync call FC). "
+                "Aleo sandbox: pass source + module + optional runs (no default program). "
+                "Does NOT broadcast network or accept private keys. "
+                "Maps to: proof-forge-next local --target … [--mode runtime|sandbox] …"
             ),
             "inputSchema": {
                 "type": "object",
@@ -1009,11 +1011,11 @@ def tool_definitions() -> List[Dict[str, Any]]:
                 "properties": {
                     "target": {
                         "type": "string",
-                        "description": "Implemented target id (aleo, solana, evm, …).",
+                        "description": "Implemented target id (evm, solana, near, aleo, …).",
                     },
                     "mode": {
                         "type": "string",
-                        "description": "Local mode (aleo: sandbox|devnet; default sandbox).",
+                        "description": "Local mode (evm/solana/near: runtime; aleo: sandbox|devnet).",
                     },
                     "source": {
                         "type": "string",
