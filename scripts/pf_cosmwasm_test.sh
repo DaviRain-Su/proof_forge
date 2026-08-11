@@ -112,6 +112,8 @@ map_program_to_suite() {
     BlockHeightCheck|blockheightcheck) echo "block_height" ;;
     ConstAnswer|constanswer) echo "const_answer" ;;
     BytesRet|bytesret) echo "bytes_ret" ;;
+    UnixTimeCheck|unixtimecheck) echo "unix_time" ;;
+    PoseTransform|posetransform) echo "pose_transform" ;;
     *) echo "" ;;
   esac
 }
@@ -126,7 +128,8 @@ run_artifact_suite() {
     die "unsupported cosmwasm program shape for artifact fast-path: stem='$program_stem'
   known: StateCell, Accumulator, PairRet, ArrayRet, OptionRet, OptionState,
          NarrowStateCell, EventFlow, ScheduleFlow, TipJar, TokenJar, EnvReadJar,
-         CallerGate, BlockHeightCheck, ConstAnswer, BytesRet
+         CallerGate, BlockHeightCheck, ConstAnswer, BytesRet,
+         UnixTimeCheck, PoseTransform
   force suite: PF_COSMWASM_SUITE=state_cell
   full corpus: PF_COSMWASM_TEST_MODE=corpus"
   fi

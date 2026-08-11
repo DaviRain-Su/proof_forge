@@ -105,6 +105,8 @@ programs=(
   "Examples/BlockHeightCheck.lean:Examples.BlockHeightCheck:BlockHeightCheck"
   "Examples/ConstAnswer.lean:Examples.ConstAnswer:ConstAnswer"
   "runtime-tests/cosmwasm/fixtures/BytesRet.lean:Examples.BytesRet:BytesRet"
+  "Examples/UnixTimeCheck.lean:Examples.UnixTimeCheck:UnixTimeCheck"
+  "Examples/PoseTransform.lean:Examples.PoseTransform:PoseTransform"
 )
 
 echo "cosmwasm-runtime-test: building proof-forge-next (lake build proof_forge_next)"

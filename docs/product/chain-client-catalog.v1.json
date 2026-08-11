@@ -10,8 +10,8 @@
     "No network broadcast tools on MCP default surface.",
     "Aleo frontend detail: docs/product/07-aleo-dapp-frontend-wallet.md (wallet adaptor + Provable SDK; not shipped by PF).",
     "EVM frontend detail: docs/product/08-evm-dapp-frontend.md + templates/evm-dapp-ui (viem/local Anvil + X Layer presets).",
-    "EVM public networks (X Layer testnet/mainnet, \u2026): docs/product/networks.v1.json + docs/product/13-xlayer-onchainos.md; MCP pf_network_info / pf_onchainos_guide.",
-    "OKX OnchainOS: official DEX MCP at https://web3.okx.com/api/v1/onchainos-mcp \u2014 dual-MCP with PF; do not reimplement DEX inside PF.",
+    "EVM public networks (X Layer testnet/mainnet, …): docs/product/networks.v1.json + docs/product/13-xlayer-onchainos.md; MCP pf_network_info / pf_onchainos_guide.",
+    "OKX OnchainOS: official DEX MCP at https://web3.okx.com/api/v1/onchainos-mcp — dual-MCP with PF; do not reimplement DEX inside PF.",
     "Solana contracts: ProofForge ProgramV1 + pf CLI; frontend templates/solana-dapp-ui; PF MCP summarizes ix codec (not external Anchor MCP)."
   ],
   "networksRef": {
@@ -48,7 +48,7 @@
         {
           "name": "@provablehq/aleo-wallet-adaptor-react (+ react-ui, core, standard, types)",
           "kind": "js-ts",
-          "purpose": "React WalletProvider/useWallet/WalletMultiButton \u2014 connect Leo/Puzzle/Shield/Fox/Soter; sign/decrypt/records/executeTransaction/executeDeployment",
+          "purpose": "React WalletProvider/useWallet/WalletMultiButton — connect Leo/Puzzle/Shield/Fox/Soter; sign/decrypt/records/executeTransaction/executeDeployment",
           "shippedByProofForge": false,
           "docs": [
             "https://docs.aleo.org/build/wallets/wallet-adapter/getting-started",
@@ -101,7 +101,7 @@
         "deployable=false on product build",
         "canonical Aleo Instructions and query descriptor only",
         "no Leo compiler, local runtime, or network wrapper",
-        "frontend wallet/sdk are ecosystem packages \u2014 PF does not vendor or pin versions",
+        "frontend wallet/sdk are ecosystem packages — PF does not vendor or pin versions",
         "browser must not embed APrivateKey; CLI broadcast keys stay developer-local only",
         "see PRODUCT-ALEO-DAPP-FRONTEND-WALLET for dApp wiring"
       ],
@@ -207,10 +207,10 @@
       },
       "honesty": [
         "product OutputSet deployable depends on profile; do not invent mainnet",
-        "frontend packages are ecosystem \u2014 PF does not vendor or pin npm versions",
+        "frontend packages are ecosystem — PF does not vendor or pin npm versions",
         "pf v0 default refuses EVM public-chain broadcast; local Anvil is the product write demo",
-        "X Layer rows are catalog + UI presets \u2014 not a claim that Lean NetworkRegistry deploy is product-complete",
-        "OnchainOS DEX uses official MCP with app-local OK-ACCESS-KEY \u2014 not PF remote edge",
+        "X Layer rows are catalog + UI presets — not a claim that Lean NetworkRegistry deploy is product-complete",
+        "OnchainOS DEX uses official MCP with app-local OK-ACCESS-KEY — not PF remote edge",
         "see PRODUCT-EVM-DAPP-FRONTEND, PRODUCT-XLAYER-ONCHAINOS, templates/evm-dapp-ui"
       ],
       "frontendGuide": "docs/product/08-evm-dapp-frontend.md",
@@ -268,11 +268,11 @@
         "frontend": "templates/solana-dapp-ui"
       },
       "honesty": [
-        "Contracts authored in ProofForge ProgramV1 \u2014 not Anchor as primary path",
+        "Contracts authored in ProofForge ProgramV1 — not Anchor as primary path",
         "Principal is not Solana pubkey globally",
         "Public RPC broadcast refused in pf v0",
         "ix-data body-only = sha256(proof-forge-solana-v1:name(types))[0:8]+u64 params; CPI-product = handlerId u64 LE (not Anchor sighash)",
-        "engineering maturity \u2014 not formal/mainnet evidence"
+        "engineering maturity — not formal/mainnet evidence"
       ],
       "agentGuide": "docs/product/09-solana-agent-playbook.md",
       "demoGuide": "docs/demos/solana-local-walkthrough.md",
@@ -288,7 +288,7 @@
         "localModes": [
           "runtime"
         ],
-        "test": "pf test -t near \u2192 scripts/pf_near_test.sh (near-sandbox corpus; skip-clean if tools missing)",
+        "test": "pf test -t near → scripts/pf_near_test.sh (near-sandbox corpus; skip-clean if tools missing)",
         "deploy": "pf deploy -t near save-only; --broadcast refused",
         "network": "catalog-only (near.local.sandbox / near.testnet); no product broadcast",
         "mcpTools": [
@@ -314,8 +314,8 @@
         "chainLike": "near-sandbox engineering (host-heavy); scripts/near_runtime_test.sh fifteen suites; pf deploy save-only"
       },
       "honesty": [
-        "Engineering Wasm + near-sandbox only \u2014 not formal Reference\u2194sandbox",
-        "Sync call / sync native\u00b7token transfer permanent fail-closed (Promise async)",
+        "Engineering Wasm + near-sandbox only — not formal Reference↔sandbox",
+        "Sync call / sync native·token transfer permanent fail-closed (Promise async)",
         "Public testnet/mainnet broadcast not a product path",
         "Proof-bearing vault (ADR-0042) is Reference-verified + runtime observed, not formal target refinement"
       ],
@@ -419,11 +419,11 @@
       "localDev": {
         "offlineInterpret": "pf test -t psy (multi-step session) / pf run (psy_user_cli simulate)",
         "chainLike": "scripts/psy_local_chain_status.sh; full fabric via psy-node",
-        "deploy": "pf deploy wraps psy_user_cli deploy-contract; --broadcast \u2192 --is-deploy",
+        "deploy": "pf deploy wraps psy_user_cli deploy-contract; --broadcast → --is-deploy",
         "execute": "pf execute -t psy --broadcast wraps psy_user_cli call",
         "frontend": "templates/psy-dapp-ui + official window.psy / @psy-protocol/*",
         "dpnArtifact": "{program}.dpn.json from pf build -t psy",
-        "abi": "scripts/psy_dpn_to_abi.py \u2192 *.abi.json (also pf deploy/test)",
+        "abi": "scripts/psy_dpn_to_abi.py → *.abi.json (also pf deploy/test)",
         "diff": "just psy-dpn-diff (official simulate vs session)"
       },
       "honesty": [
@@ -431,7 +431,7 @@
         "local multi-step uses session harness; single-call uses official simulate",
         "network deploy/call wrap official psy_user_cli only",
         "mainnet refused; keys via --private-key-env only",
-        "engineering only \u2014 not formal/hermetic evidence"
+        "engineering only — not formal/hermetic evidence"
       ],
       "ecosystem": {
         "docs": [
@@ -490,7 +490,7 @@
         "localModes": [
           "runtime"
         ],
-        "test": "pf test -t cosmwasm \u2192 scripts/pf_cosmwasm_test.sh (artifact fast-path when *.wasm present; else corpus; skip-clean if tools missing)",
+        "test": "pf test -t cosmwasm → scripts/pf_cosmwasm_test.sh (artifact fast-path when *.wasm present; else corpus; skip-clean if tools missing)",
         "deploy": "pf deploy -t cosmwasm save-only; --broadcast refused",
         "network": "catalog-only (cosmwasm.local.mock); no product broadcast",
         "mcpTools": [
@@ -502,36 +502,38 @@
           "pf_local",
           "pf_chain_catalog"
         ]
-        },
-        "frontendClients": [
+      },
+      "frontendClients": [
         {
           "name": "cosmjs (ecosystem)",
           "kind": "js-ts",
           "purpose": "Cosmos LCD/RPC, signing",
           "shippedByProofForge": false
         }
-        ],
-        "localDev": {
+      ],
+      "localDev": {
         "offlineInterpret": null,
         "chainLike": "cosmwasm-vm mock + optional wasmd Docker rung; pf deploy save-only"
-        },
-        "honesty": [
-        "Engineering Wasm + cosmwasm-vm only \u2014 not formal Reference\u2194host",
+      },
+      "honesty": [
+        "Engineering Wasm + cosmwasm-vm only — not formal Reference↔host",
         "Generic sync call permanent fail-closed; pf.assets bank/CW20 use SubMsg reply_on=never (error-propagating)",
         "schedule = same-tx SubMsg never (not cross-tx async)",
         "Public chain broadcast refused in pf v0",
         "Scalar const + Bytes N state/return open; Map return and invariants remain fail-closed"
-        ],
-        "agentGuide": "docs/product/cosmwasm-agent-cheatsheet.md",
-        "demoExamples": [
+      ],
+      "agentGuide": "docs/product/cosmwasm-agent-cheatsheet.md",
+      "demoExamples": [
         "Examples/StateCell.lean",
         "Examples/ConstAnswer.lean",
         "Examples/BlockHeightCheck.lean",
         "Examples/TipJar.lean",
         "Examples/TokenJar.lean",
         "runtime-tests/cosmwasm/fixtures/BytesRet.lean",
-        "runtime-tests/cosmwasm/fixtures/CallerGate.lean"
-        ]
+        "runtime-tests/cosmwasm/fixtures/CallerGate.lean",
+        "Examples/UnixTimeCheck.lean",
+        "Examples/PoseTransform.lean"
+      ]
     },
     {
       "id": "ton",

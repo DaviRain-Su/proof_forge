@@ -39,7 +39,11 @@ Int64/Bool 表）已开。Map return、nested/非 UInt64 元素、aggregate para
 Counter/Accumulator/EventFlow、hardening、ScheduleFlow、NarrowCounter、PairRet、
 ArrayRet、OptionRet、OptionState、pf.assets、env-read、CallerGate、
 **BlockHeightCheck**（ADR-0031 S2：`context.blockHeight` ↔ `Env.block.height`）、
-**ConstAnswer**（scalar Op.Constant）、**BytesRet**（anonymous Bytes 4 return）。
+**ConstAnswer**（scalar Op.Constant）、**BytesRet**（anonymous Bytes 4 return）、
+**UnixTimeCheck**（`context.unixTimeSeconds`）、**PoseTransform**（named Struct Int64 pose）。
+Dense `Map UInt64` **compiles** but pure-expr expansion exceeds cosmwasm-vm
+`MAX_LOCALS=100`（MapMini ~3k locals）— runtime gate deferred until Map emit
+uses scratch/loop lowering rather than fully unrolled temps。
 另有 `scripts/cosmwasm_wasmd_test.sh` 的 wasmd v0.70.3 Docker 工程 rung，覆盖 Counter
 与 ScheduleFlow 子消息失败导致 whole-tx abort。两者都不是主网、formal 或 hermetic evidence。
 
