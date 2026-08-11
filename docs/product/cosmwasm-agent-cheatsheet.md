@@ -26,11 +26,13 @@ pf setup --target cosmwasm --with-runtime -y   # when bootstrap path is availabl
 proof-forge-next build Examples/StateCell.lean \
   --module Examples.StateCell --target cosmwasm -o build/v2/cw-state
 
-# 3) Runtime gate
+# 3) Runtime gate (artifact fast-path when OutputSet has *.wasm)
 pf test -t cosmwasm
+# force full corpus rebuild:
+#   PF_COSMWASM_TEST_MODE=corpus pf test -t cosmwasm
 # product local:
 #   proof-forge-next local --target cosmwasm --mode runtime
-# monorepo:
+# monorepo full corpus:
 #   scripts/cosmwasm_runtime_test.sh
 # optional wasmd Docker rung:
 #   scripts/cosmwasm_wasmd_test.sh
@@ -45,9 +47,11 @@ pf deploy -t cosmwasm --network local
 | Example | Why |
 |---------|-----|
 | `Examples/StateCell.lean` | minimal state machine |
+| `Examples/ConstAnswer.lean` | scalar `const` / Op.Constant table |
 | `Examples/BlockHeightCheck.lean` | `context.blockHeight` → Env.block.height |
 | `Examples/TipJar.lean` | pf.assets native deposit + BankMsg::Send |
 | `Examples/TokenJar.lean` | CW20 transfer SubMsg |
+| `runtime-tests/cosmwasm/fixtures/BytesRet.lean` | Bytes 4 state + anonymous return |
 | `runtime-tests/cosmwasm/fixtures/CallerGate.lean` | context.caller / MessageInfo.sender |
 | `runtime-tests/cosmwasm/fixtures/ScheduleFlow.lean` | schedule → SubMsg reply_on=never |
 
@@ -69,8 +73,8 @@ See also cross-chain table in `docs/product/near-sync-async-api.md`.
 
 - Generic sync `call` (non-catalog)
 - query/view `context.caller`
-- Map / Bytes return (named/Array/Option return open)
-- nonempty source constants/invariants (UInt64 pilot)
+- Map return (named/Array/Option/**Bytes N** return open)
+- nonempty source **invariants** (scalar constants open)
 - public `pf deploy --broadcast`
 - IBC / migrate / reply entry (not in MVP)
 

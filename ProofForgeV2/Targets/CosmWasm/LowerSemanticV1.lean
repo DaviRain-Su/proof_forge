@@ -140,6 +140,11 @@ structure StorageLayout where
   /-- Exact `extension.pf-assets` row present in retained requirements
       (ADR-0029 C1 QN gate). Not part of planDigest storage identity. -/
   pfAssetsDeclared : Bool := false
+  /-- Dense `ConstantId` → pre-decoded scalar plan word (parallel arrays; empty
+      keeps historical no-constant Plans). Not part of planDigest. -/
+  constantTypeIds : Array TypeIdV1 := #[]
+  constantKinds : Array Nat := #[]
+  constantValues : Array UInt64 := #[]
   deriving BEq, Inhabited, Repr
 
 structure Param where
@@ -266,10 +271,11 @@ inductive Statement where
   | storeAtomic (leaves : Array Store)
   | returnValue (value : Expr)
   /-- B-RET-ABI: multi-leaf aggregate return (named Struct/Enum or admitted
-      anonymous Array/Option). `leaves` are per-leaf expressions in preorder
-      flatten order; `leafIsInt` is parallel. Emitted as one JSON array of
-      decimal strings (execute result attribute / query `ok` string), matching
-      the existing scalar decimal JSON ABI idiom. -/
+      anonymous Array/Option/Bytes). `leaves` are per-leaf expressions in
+      preorder flatten order; `leafIsInt` is parallel. Emitted as one JSON
+      array of decimal strings (execute result attribute / query `ok` string),
+      matching the existing scalar decimal JSON ABI idiom. Bytes leaves are
+      zero-extended u64 decimals on the wire. -/
   | returnAggregate (leaves : Array Expr) (leafIsInt : Array Bool)
   | returnNone
   | assert (condition : Expr)
@@ -412,8 +418,9 @@ inductive MethodResultKind where
   /-- T9e: multiword public UInt entry/view results (16/32-byte LE). -/
   | uint128
   | uint256
-  /-- B-RET-ABI: named Struct/Enum or admitted anonymous Array/Option aggregate
-  return. `leaves` is preorder flatten order (1..8). Map/Bytes/nested/narrow
+  /-- B-RET-ABI: named Struct/Enum or admitted anonymous Array/Option/Bytes
+  aggregate return. `leaves` is preorder flatten order (1..8). Bytes N (1..8)
+  wires as N×u64 JSON decimals (zero-extended bytes). Map/nested/narrow-element
   anonymous containers stay fail-closed. -/
   | aggregate (leaves : Array LeafAbiType)
   deriving BEq, Inhabited, Repr
@@ -646,6 +653,25 @@ private def uintKindOfWidthV1 (w : Nat) : Option CosmWasmValueKindV1 :=
   | 256 => some .uint256
   | _ => none
 
+/-- Dense tag for `StorageLayout.constantKinds`. -/
+private def cwConstantKindTagV1 : CosmWasmValueKindV1 → Nat
+  | .uint64 => 0
+  | .uint32 => 1
+  | .uint16 => 2
+  | .uint8 => 3
+  | .bool => 4
+  | .int64 => 5
+  | .uint128 | .uint256 => 0
+
+private def cwConstantKindOfTagV1 (tag : Nat) : Option CosmWasmValueKindV1 :=
+  match tag with
+  | 0 => some .uint64
+  | 1 => some .uint32
+  | 2 => some .uint16
+  | 3 => some .uint8
+  | 4 => some .bool
+  | 5 => some .int64
+  | _ => none
 
 /-- Inverse of `uintKindOfWidthV1` for store/width gates. -/
 private def widthOfUintKindV1 (k : CosmWasmValueKindV1) : Option Nat :=
@@ -677,15 +703,17 @@ private def cosmwasmPlanErr (message : String) : CompileError :=
     **state** admitted as Enum-shaped tag+payload KV leaves (`name_tag`/
     `name_p0`; none default = zero fields; storeAtomic on assign; match via
     VariantTag/VariantPayload). Option of non-UInt64, nested Option, Option
-    params stay fail closed. Bytes, Field, String, narrow Int{8,16,32} fail
-    closed at type closure. **T12 + ADR-0029 C1**: Principal admitted as full
-    wire-identity storage/param leaves (len + 8×UInt64; not bech32 AccAddress
-    pin).
-    **N-ANON-RESULT (CosmWasm ABI)**: anonymous `Array UInt64 N` (1..8) and
-    `Option UInt64` entry/view returns reuse B-RET-ABI multi-leaf JSON decimal
-    arrays (execute `result` attr + query `{"ok":"[d0,...]"}`); Map/Bytes/
-    nested/narrow-element anonymous returns stay fail closed. Named aggregate
-    params and pureFn aggregate returns stay fail closed at callable lowering.
+    params stay fail closed. Field, String, narrow Int{8,16,32} fail closed at
+    type closure. **Bytes N** admitted for state + entry/view return (1..8
+    leaves as zero-extended UInt64 JSON decimals). **T12 + ADR-0029 C1**:
+    Principal admitted as full wire-identity storage/param leaves
+    (len + 8×UInt64; not bech32 AccAddress pin).
+    **N-ANON-RESULT (CosmWasm ABI)**: anonymous `Array UInt64 N` (1..8),
+    `Option UInt64`, and `Bytes N` (1..8) entry/view returns reuse B-RET-ABI
+    multi-leaf JSON decimal arrays (execute `result` attr + query
+    `{"ok":"[d0,...]"}`); Map/nested/narrow-element anonymous returns stay
+    fail closed. Named aggregate params and pureFn aggregate returns stay
+    fail closed at callable lowering.
 
     Physical KV honesty: CosmWasm always stores scalar state as an 8-byte LE
     Region value (`pf_db_store_u64`). Narrow Plan `field.byteWidth` records the
@@ -707,7 +735,7 @@ private def cosmwasmTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt{8,16,32,64,128,256} and Int64 integer types are supported (narrow Int fail closed; UInt128/256 are body-only)"
   unsupportedShapeDetail :=
-    "only UInt{8,16,32,64,128,256}, Int64, Unit, Bool, Principal, named Struct/Enum, and admitted Array/Map containers are supported (no Field/Bytes)"
+    "only UInt{8,16,32,64,128,256}, Int64, Unit, Bool, Principal, named Struct/Enum, and admitted Array/Map/Bytes containers are supported (no Field)"
 
 private def validateCosmWasmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult CosmWasmTypeClosureV1 :=
@@ -716,7 +744,7 @@ private def validateCosmWasmTypeClosureV1
     (intPolicy := pilotIntWidthPolicyI64)
     (principalPolicy := pilotPrincipalPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
-    (containerPolicy := pilotContainerStatePolicyArrayMap)
+    (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
 
 /-- CosmWasm pilot Principal storage layout (T12, isomorphic to EVM T10):
     * leaf 0: wire body length (`UInt64`)
@@ -948,8 +976,9 @@ private def requireOptionUInt64StateV1
         s!"unsupported CosmWasm semantic shape: state '{stateName}' is not anonymous Option UInt64"
 
 /-- N-ANON-RESULT (CosmWasm ABI): anonymous result leaf layout for admitted
-container returns. `Array UInt64 N` → N×u64 leaves; `Option UInt64` →
-tag+payload (none=(0,0), some v=(1,v)). Map/Bytes throw for precise FC. -/
+ container returns. `Array UInt64 N` → N×u64 leaves; `Option UInt64` →
+ tag+payload; `Bytes N` (1..8) → N×u64 leaves carrying zero-extended bytes
+ (JSON decimal array wire, same as Array). Map stays FC (dense expand >8). -/
 private def anonymousReturnLeafAbiV1
     (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option (Array LeafAbiType)) := do
@@ -968,13 +997,19 @@ private def anonymousReturnLeafAbiV1
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: anonymous Option return requires UInt64 payload"
       pure (some #[{ isInt := false, byteWidth := 8 }, { isInt := false, byteWidth := 8 }])
+  | some { shape := .bytes len, name := none, .. } =>
+      let n := len.toNat
+      unless n ≥ 1 && n ≤ 8 do
+        throw <| .planInvariant .cosmwasm
+          s!"unsupported CosmWasm semantic shape: anonymous Bytes return length must be in 1..8, got {n}"
+      -- Wire as N×u64 JSON decimals (high bytes zero); physical Bytes state is
+      -- still 1-byte KV leaves — return path zero-extends each byte.
+      pure (some (Array.replicate n { isInt := false, byteWidth := 8 }))
   | some { shape := .map .., name := none, .. } =>
       throw <| .planInvariant .cosmwasm
-        "unsupported CosmWasm semantic shape: anonymous Map return is outside the CosmWasm B-RET ABI"
-  | some { shape := .bytes .., name := none, .. } =>
-      throw <| .planInvariant .cosmwasm
-        "unsupported CosmWasm semantic shape: anonymous Bytes return is outside the CosmWasm B-RET ABI"
-  | some { shape := .array .., .. } | some { shape := .option .., .. } =>
+        "unsupported CosmWasm semantic shape: anonymous Map return is outside the CosmWasm B-RET ABI (dense Map expands past the 8-leaf cap)"
+  | some { shape := .array .., .. } | some { shape := .option .., .. }
+  | some { shape := .bytes .., .. } =>
       pure none
   | _ => pure none
 
@@ -993,9 +1028,9 @@ private def isAggregateResultCandidateV1
     | some { shape := .bytes .., name := none, .. } => true
     | _ => false
 
-/-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous Array/Option
+/-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous Array/Option/Bytes
 result TypeId into an aggregate `MethodResultKind`. Enforces 1..8 leaves.
-Map/Bytes/nested/narrow-element anonymous containers fail closed. -/
+Map/nested/narrow-element anonymous containers fail closed. -/
 private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult MethodResultKind := do
@@ -1011,7 +1046,7 @@ private def aggregateResultKindOfV1
       | some ls => pure ls
       | none =>
           throw <| .planInvariant .cosmwasm
-            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option aggregate"
+            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option/Bytes aggregate"
   let n := leaves.size
   unless n > 0 do
     throw <| .planInvariant .cosmwasm
@@ -1524,6 +1559,61 @@ private def decodeUInt32LiteralV1 (bytes : ByteArray) : CompileResult UInt64 :=
 private def decodeBoolLiteralV1 (bytes : ByteArray) : CompileResult Bool :=
   decodeBoolLiteralBit cosmwasmPlanErr "CosmWasm" bytes
 
+/-- Decode one source `ConstantV1` into a CosmWasm plan surface word + kind tag.
+    Admits the same scalar envelope as inline `.literal` (UInt{8,16,32,64} /
+    Int{8,16,32,64} / Bool). Aggregate / multiword / Principal constants FC. -/
+private def decodeCwConstantSlotV1
+    (types : CosmWasmTypeClosureV1) (typeId : TypeIdV1) (bytes : ByteArray) :
+    CompileResult (CosmWasmValueKindV1 × UInt64) := do
+  if let some bitWidth := types.intWidthOf typeId then
+    unless isAbiIntWidth bitWidth do
+      throw <| .planInvariant .cosmwasm
+        s!"unsupported CosmWasm semantic shape: Int{bitWidth} constant is not admitted"
+    let value ← decodeIntWidthLiteralLe cosmwasmPlanErr "CosmWasm" bitWidth bytes
+    pure (.int64, value)
+  else if let some bitWidth := types.uintWidthOf typeId then
+    unless bitWidth ≤ 64 && isCosmWasmBodyUintWidth bitWidth do
+      throw <| .planInvariant .cosmwasm
+        s!"unsupported CosmWasm semantic shape: UInt{bitWidth} constant is outside the CosmWasm scalar const pilot"
+    let kind ← match uintKindOfWidthV1 bitWidth with
+      | some k => pure k
+      | none =>
+          throw <| .planInvariant .cosmwasm
+            s!"unsupported CosmWasm semantic shape: UInt{bitWidth} constant is not admitted"
+    let value ← decodeUIntWidthLiteralLe cosmwasmPlanErr "CosmWasm" bitWidth bytes
+    pure (kind, value)
+  else
+    let boolTypeId ← match types.boolTypeId with
+      | some tid => pure tid
+      | none =>
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: Bool type is missing for Bool constant"
+    unless typeId == boolTypeId do
+      throw <| .planInvariant .cosmwasm
+        "unsupported CosmWasm semantic shape: constant is not admitted UInt width, Int width, or Bool"
+    let flag ← decodeBoolLiteralV1 bytes
+    pure (.bool, if flag then 1 else 0)
+
+/-- Materialize dense ConstantId → plan slots for body `Op.Constant`. -/
+private def makeCwConstantTableV1
+    (types : CosmWasmTypeClosureV1) (constants : Array ConstantV1) :
+    CompileResult (Array TypeIdV1 × Array Nat × Array UInt64) := do
+  let mut typeIds : Array TypeIdV1 := #[]
+  let mut kinds : Array Nat := #[]
+  let mut values : Array UInt64 := #[]
+  for i in [0:constants.size] do
+    let some c := constants[i]? |
+      throw <| .planInvariant .cosmwasm
+        "unsupported CosmWasm semantic shape: constant table hole"
+    unless c.id.toNat == i do
+      throw <| .planInvariant .cosmwasm
+        "unsupported CosmWasm semantic shape: Constant id does not match declaration order"
+    let (kind, value) ← decodeCwConstantSlotV1 types c.typeId c.valueBytes
+    typeIds := typeIds.push c.typeId
+    kinds := kinds.push (cwConstantKindTagV1 kind)
+    values := values.push value
+  pure (typeIds, kinds, values)
+
 private def comparisonOpOfBinaryV1 (op : BinaryOpV1) : Option ComparisonOp :=
   match op with
   | .eq => some .eq
@@ -1982,6 +2072,31 @@ private def lowerBlockInstructionsV1
   let mut body : Array Statement := #[]
   for instruction in block.instructions do
     match instruction.op, instruction.result with
+    | .constant constantId, some result =>
+        let some typeId := layout.constantTypeIds[constantId.toNat]? |
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: Constant references an unknown constant id"
+        let some kindTag := layout.constantKinds[constantId.toNat]? |
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: Constant kind table is incomplete"
+        let some value := layout.constantValues[constantId.toNat]? |
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: Constant value table is incomplete"
+        unless result.typeId == typeId do
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: Constant result typeId must match the declaration"
+        let kind ← match cwConstantKindOfTagV1 kindTag with
+          | some k => pure k
+          | none =>
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: Constant kind tag is corrupt"
+        values := ← appendResultValueV1 typeId values result {
+          expr := .literal value
+          kind
+          depth := 1
+          expandedNodes := 1
+          dependencies := #[]
+        }
     | .literal typeId bytes, some result =>
         if let some bitWidth := types.intWidthOf typeId then
           unless isAbiIntWidth bitWidth do
@@ -3482,9 +3597,13 @@ private partial def emitRegionV1
               unless gotLeaves.size == expectedLeaves.size do
                 throw <| .planInvariant .cosmwasm
                   s!"unsupported CosmWasm semantic shape: aggregate return leaf count mismatch (expected {expectedLeaves.size}, got {gotLeaves.size})"
-              unless root.leafByteWidth == 8 do
+              -- Physical Bytes state uses 1-byte leaves; return ABI zero-extends
+              -- each byte into a u64 JSON decimal (same wire as Array UInt64 N).
+              -- Only 1-byte (Bytes) and 8-byte (Array/Option/named) leaf widths
+              -- are admitted; other narrow widths stay fail closed.
+              unless root.leafByteWidth == 8 || root.leafByteWidth == 1 do
                 throw <| .planInvariant .cosmwasm
-                  "unsupported CosmWasm semantic shape: multi-leaf return requires 8-byte leaves (Bytes/narrow container returns stay fail closed)"
+                  "unsupported CosmWasm semantic shape: multi-leaf return requires 1-byte (Bytes) or 8-byte leaves"
               let consumed ← consumeCurrentSegmentValueV1 values blockEntry segmentStart valueId
               let leafIsInt := expectedLeaves.map (·.isInt)
               pure (instrs.push (.returnAggregate consumed.leafExprs leafIsInt),
@@ -3894,10 +4013,11 @@ private def makeEntryV1
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .cosmwasm s!"entry '{name}' does not return a public result"
   -- BL-15: scalar ABI is UInt{8,16,32,64} / Bool / Int64; B-RET-ABI admits named
-  -- Struct/Enum and anonymous Array UInt64 N / Option UInt64 (≤8 leaves).
-  -- Map/Bytes/nested/narrow-element anonymous returns, UInt128/256, narrow Int
-  -- stay FC. JSON result wire remains decimal for all scalar UInt; multi-leaf
-  -- reuses the JSON-array-of-decimals idiom (BL-9 / N-ANON-RESULT).
+  -- Struct/Enum and anonymous Array UInt64 N / Option UInt64 / Bytes N (≤8 leaves).
+  -- Map/nested/narrow-element anonymous returns, UInt128/256, narrow Int stay FC.
+  -- JSON result wire remains decimal for all scalar UInt; multi-leaf (incl.
+  -- Bytes as zero-extended u64 decimals) reuses JSON-array-of-decimals
+  -- (BL-9 / N-ANON-RESULT).
   let (resultKind, expectedReturn, expectedAggregateLeaves) ←
     if isAggregateResultCandidateV1 typeDecls types callable.result.typeId then
       let kind ← aggregateResultKindOfV1 typeDecls types s!"entry '{name}'"
@@ -4136,9 +4256,9 @@ private def buildCosmWasmFnEnvV1
 
 private def makePlanFromSemanticDataV1
     (source : SemanticProgramDataV1) : CompileResult Plan := do
-  if !source.constants.isEmpty || !source.invariants.isEmpty then
+  if !source.invariants.isEmpty then
     throw <| .planInvariant .cosmwasm
-      "unsupported CosmWasm semantic shape: constants/invariants are outside the current UInt64 pilot"
+      "unsupported CosmWasm semantic shape: invariants are outside the current UInt64 pilot"
   -- init + entries + pureFns share the profile budget (maxEntries each class,
   -- plus one initializer); total still fails closed above 2·maxEntries + 1.
   if source.callables.size > maxEntries + maxEntries + 1 then
@@ -4152,7 +4272,15 @@ private def makePlanFromSemanticDataV1
   let pfAssetsDeclared :=
     source.requirements.items.any (·.id == wireExtensionPfAssetsIdV1)
   let storage0 ← makeStorageLayoutV1 types typeDecls source.logicalState
-  let storage := { storage0 with pfAssetsDeclared }
+  let (constTypeIds, constKinds, constValues) ←
+    makeCwConstantTableV1 types source.constants
+  let storage := {
+    storage0 with
+      pfAssetsDeclared
+      constantTypeIds := constTypeIds
+      constantKinds := constKinds
+      constantValues := constValues
+  }
   let events ← source.events.mapM (fun d =>
     makeInterfaceBindingV1 "event" d.name d.fields types.uint64TypeId)
   let errors ← source.errors.mapM (fun d =>

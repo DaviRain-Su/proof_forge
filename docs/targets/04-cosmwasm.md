@@ -30,13 +30,16 @@ target-owned Plan/IR/WAT emitter（KV state→`env.db_*`、init/entry/view →
 binary long division，ABI state/param/result 与 narrow Int、multiword shift 仍 FC）；named
 Struct/Enum state、`Array UInt64 N` state 与 dense `Map UInt64 UInt64` cap-8 state 已开；≤8 个
 UInt64/Int64 leaf 的 named entry/view aggregate return，以及 anonymous `Array UInt64 N`
-（1..8）/`Option UInt64` entry/view return 已开。Map/Bytes return、Option/Bytes state、
-nested/非 UInt64元素、aggregate param/pureFn仍 fail closed。
+（1..8）/`Option UInt64`/`Bytes N`（1..8，JSON 十进制数组、字节零扩展）entry/view return 已开；
+**Bytes N state**（1-byte KV leaves）与 **scalar `const` / `Op.Constant`**（UInt{8,16,32,64}/
+Int64/Bool 表）已开。Map return、nested/非 UInt64 元素、aggregate param/pureFn、invariants
+仍 fail closed。
 
 **runtime rungs**：`runtime-tests/cosmwasm` 的 cosmwasm-vm 3.0.9 mock 覆盖
 Counter/Accumulator/EventFlow、hardening、ScheduleFlow、NarrowCounter、PairRet、
-ArrayRet、OptionRet、OptionState、pf.assets、env-read、CallerGate，以及
-**BlockHeightCheck**（ADR-0031 S2：`context.blockHeight` ↔ `Env.block.height`）。
+ArrayRet、OptionRet、OptionState、pf.assets、env-read、CallerGate、
+**BlockHeightCheck**（ADR-0031 S2：`context.blockHeight` ↔ `Env.block.height`）、
+**ConstAnswer**（scalar Op.Constant）、**BytesRet**（anonymous Bytes 4 return）。
 另有 `scripts/cosmwasm_wasmd_test.sh` 的 wasmd v0.70.3 Docker 工程 rung，覆盖 Counter
 与 ScheduleFlow 子消息失败导致 whole-tx abort。两者都不是主网、formal 或 hermetic evidence。
 
@@ -113,12 +116,13 @@ instantiate/execute/query 均从 Env Region 的 bare-u64 JSON 字段 `"height"` 
 `CosmWasmPlanV1` 钉测已有；`runtime-tests/cosmwasm/tests/block_height.rs` 对
 `Examples/BlockHeightCheck.lean` 固定 query `height()` 跟踪 Env height、`stamp()` 写入 pad。
 
-**仍 fail closed / 未闭合**：iterator、IBC、migrate、reply entry、Map/Bytes return、
+**仍 fail closed / 未闭合**：iterator、IBC、migrate、reply entry、Map return、
 Field/Principal/String interface、除 execute/init `context.caller` 与 Env-backed
 `context.blockHeight`（含 cw-vm runtime 门）外的 ContextRead、Commit、nonempty
-constants/invariants、UInt128/256 ABI state/param/result（body multiword 已开）、narrow Int、
-JSON 全集与 gas model。Option UInt64 state 已开。wasmd smart query 当前仍非 Binary，
-rung-1 harness 使用 raw state。不得写成 formal runtime-validated。
+**invariants**（scalar constants 已开）、UInt128/256 ABI state/param/result（body multiword 已开）、
+narrow Int、JSON 全集与 gas model。Option UInt64 state 与 Bytes N state/return 已开。
+wasmd smart query 当前仍非 Binary，rung-1 harness 使用 raw state。不得写成 formal
+runtime-validated。
 
 ## 0.1 A0→隔离→修复/design-exit 过程记录（2026-08-03）
 

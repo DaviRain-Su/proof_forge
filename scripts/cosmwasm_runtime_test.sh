@@ -103,6 +103,8 @@ programs=(
   "runtime-tests/cosmwasm/fixtures/EnvReadJar.lean:Examples.EnvReadJar:EnvReadJar"
   "runtime-tests/cosmwasm/fixtures/CallerGate.lean:Examples.CallerGate:CallerGate"
   "Examples/BlockHeightCheck.lean:Examples.BlockHeightCheck:BlockHeightCheck"
+  "Examples/ConstAnswer.lean:Examples.ConstAnswer:ConstAnswer"
+  "runtime-tests/cosmwasm/fixtures/BytesRet.lean:Examples.BytesRet:BytesRet"
 )
 
 echo "cosmwasm-runtime-test: building proof-forge-next (lake build proof_forge_next)"

@@ -259,6 +259,11 @@ private unsafe def testConstInvariantMaterializationBoundary : IO Unit := do
   let nearFiles := MaterializedArtifactsV1.filesOf nearConstants
   expect (nearFiles.any (fun f => f.path.endsWith ".wat" || f.path.endsWith ".wasm"))
     s!"constant/near: scalar Op.Constant must materialize WAT/Wasm; got {nearFiles.map (·.path)}"
+  -- CosmWasm admits the same scalar const table (plan literals → i64.const).
+  let cwConstants ← liftResult <| materializeSelected TargetId.cosmwasm constCompiled
+  let cwFiles := MaterializedArtifactsV1.filesOf cwConstants
+  expect (cwFiles.any (fun f => f.path.endsWith ".wat" || f.path.endsWith ".wasm"))
+    s!"constant/cosmwasm: scalar Op.Constant must materialize WAT/Wasm; got {cwFiles.map (·.path)}"
   let aleoConstants ← liftResult <| materializeSelected TargetId.aleo constCompiled
   let aleoFiles := MaterializedArtifactsV1.filesOf aleoConstants
   expect (aleoFiles.any (·.path == "consttargetboundary.aleo"))
@@ -289,6 +294,8 @@ private unsafe def testConstInvariantMaterializationBoundary : IO Unit := do
       -- ordinary materialize fails closed without that authorization.
       (TargetId.near, TargetKind.near,
         "proof-bearing NEAR invariant-root erasure"),
+      -- CosmWasm still FC on invariants (const table is open; invariants are not).
+      (TargetId.cosmwasm, TargetKind.cosmwasm, "invariants are outside"),
       (TargetId.noir, TargetKind.noir, "constants/invariants"),
       (TargetId.aleo, TargetKind.aleo, "does not support invariants"),
       (TargetId.psy, TargetKind.psy, "unsupported Psy DPN semantic shape")] do

@@ -490,7 +490,7 @@
         "localModes": [
           "runtime"
         ],
-        "test": "pf test -t cosmwasm \u2192 scripts/pf_cosmwasm_test.sh (cosmwasm-vm mock; skip-clean if tools missing)",
+        "test": "pf test -t cosmwasm \u2192 scripts/pf_cosmwasm_test.sh (artifact fast-path when *.wasm present; else corpus; skip-clean if tools missing)",
         "deploy": "pf deploy -t cosmwasm save-only; --broadcast refused",
         "network": "catalog-only (cosmwasm.local.mock); no product broadcast",
         "mcpTools": [
@@ -502,33 +502,36 @@
           "pf_local",
           "pf_chain_catalog"
         ]
-      },
-      "frontendClients": [
+        },
+        "frontendClients": [
         {
           "name": "cosmjs (ecosystem)",
           "kind": "js-ts",
           "purpose": "Cosmos LCD/RPC, signing",
           "shippedByProofForge": false
         }
-      ],
-      "localDev": {
+        ],
+        "localDev": {
         "offlineInterpret": null,
         "chainLike": "cosmwasm-vm mock + optional wasmd Docker rung; pf deploy save-only"
-      },
-      "honesty": [
+        },
+        "honesty": [
         "Engineering Wasm + cosmwasm-vm only \u2014 not formal Reference\u2194host",
         "Generic sync call permanent fail-closed; pf.assets bank/CW20 use SubMsg reply_on=never (error-propagating)",
         "schedule = same-tx SubMsg never (not cross-tx async)",
-        "Public chain broadcast refused in pf v0"
-      ],
-      "agentGuide": "docs/product/cosmwasm-agent-cheatsheet.md",
-      "demoExamples": [
+        "Public chain broadcast refused in pf v0",
+        "Scalar const + Bytes N state/return open; Map return and invariants remain fail-closed"
+        ],
+        "agentGuide": "docs/product/cosmwasm-agent-cheatsheet.md",
+        "demoExamples": [
         "Examples/StateCell.lean",
+        "Examples/ConstAnswer.lean",
         "Examples/BlockHeightCheck.lean",
         "Examples/TipJar.lean",
         "Examples/TokenJar.lean",
+        "runtime-tests/cosmwasm/fixtures/BytesRet.lean",
         "runtime-tests/cosmwasm/fixtures/CallerGate.lean"
-      ]
+        ]
     },
     {
       "id": "ton",
