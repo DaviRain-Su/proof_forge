@@ -155,5 +155,6 @@ Regenerate: `just psy-dpn-op-coverage` / `just psy-example-matrix` / `just psy-d
 ## 11. Open design gates
 
 - Hash gadgets: [ADR-0039](../adr/0039-psy-hash-gadgets-gate.md) — **scalar limb0 + Array4 for hashNoPad/twoToOne** (`HashProbe` / `HashOutProbe`); hashPad emit-only; merkle FC
-- Context / Commit (P3): [psy-p3-context-commit-gate.md](psy-p3-context-commit-gate.md) — **DPN `pf.context.*` open** (limb0); EVM ContextRead + Commit still FC
+- HashOut Array4 guide: [product/15-psy-hashout-array4.md](../product/15-psy-hashout-array4.md)
+- Context / Commit (P3): [psy-p3-context-commit-gate.md](psy-p3-context-commit-gate.md) — **DPN `pf.context.*` open** (limb0); Commit **FC by [ADR-0041](../adr/0041-psy-commit-public-input-gate.md)**
 - OP coverage matrix: [psy-op-coverage.md](psy-op-coverage.md)

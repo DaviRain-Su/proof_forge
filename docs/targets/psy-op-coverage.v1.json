@@ -39,7 +39,7 @@
       },
       {
         "id": "ContextRead-Commit",
-        "status": "EVM context.* FC; pf.context.* ids+userPublicKeyHash+sessionProofTreeRoot open (limb0 or Array4); Commit/merkle FC"
+        "status": "EVM context.* FC; pf.context.* open (limb0); Commit FC by ADR-0041 until PI checklist; merkle official todo!"
       },
       {
         "id": "wide-u128-u256",
