@@ -226,6 +226,17 @@ inductive StateCmdV1 where
   | invokeExternalContractFunctionSync
       (condition contractId methodId : UInt64)
       (inputArgs : Array UInt64) (numOutputs : UInt32)
+  /-- IMT (Indexed Merkle Tree) self-current subset (official software evaluator
+      executes these). Keys/values are 4-limb wire indices; product pilot packs
+      UInt64 as limb0 with limbs 1..3 = 0. `baseOffset`/`capacity` are Target
+      wire indices (official defaults: 0 / 2^20). -/
+  | setIMTContractStateValue
+      (condition baseOffset capacity : UInt64)
+      (key value : Array UInt64)
+  | getSelfUserCurrentIMTContractStateValue
+      (baseOffset capacity : UInt64) (key : Array UInt64)
+  | containsSelfUserCurrentIMTContractStateValue
+      (baseOffset capacity : UInt64) (key : Array UInt64)
   deriving DecidableEq, Repr
 
 structure FunctionCircuitDefV1 where

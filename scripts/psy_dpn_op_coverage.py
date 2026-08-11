@@ -253,7 +253,7 @@ def main() -> int:
             },
             {
                 "id": "IMT-state-cmds",
-                "status": "official-only-fail-closed-in-PF-schema",
+                "status": "self-current open: Set/Get/Contains via pf.imt.set|get|contains (ImtProbe); external/other-user IMT + CalculateMerkleRoot still FC",
             },
             {
                 "id": "external-call-result",

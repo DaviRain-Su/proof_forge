@@ -446,6 +446,82 @@ private def emitStateLoad (b : BuilderV1) (fieldIndex : Nat) (_viewPath : Bool) 
   let b3 := { b2 with res := b2.res.push getDefStep }
   (b3, w)
 
+/-- Official IMT pilot defaults: base_offset=0, capacity=2^20 (from dargo
+    private_claim fixture). Returned as bare Target wire indices. -/
+private def emitImtBaseCap (b : BuilderV1) : BuilderV1 × Nat × Nat :=
+  let baseIdx := b.zeroTarget
+  let (b1, capW) := pushTarget b .constant #[UInt64.ofNat 1048576]
+  (b1, baseIdx, capW.rawIndex)
+
+/-- Pack UInt64 scalar as 4-limb IMT key/value: [scalar, 0, 0, 0] wire indices. -/
+private def emitImtU64As4 (b : BuilderV1) (scalar : WireV1) :
+    CompileResult (BuilderV1 × Array UInt64) := do
+  let sIdx ← asTargetIndex scalar
+  let z := b.zeroTarget
+  pure (b, #[UInt64.ofNat sIdx, UInt64.ofNat z, UInt64.ofNat z, UInt64.ofNat z])
+
+/-- IMT get → GetSelfUserCurrentIMT + TargetAt limb0 (product UInt64 ABI). -/
+private def emitImtGet (b : BuilderV1) (keyW : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let (b0, key4) ← emitImtU64As4 b keyW
+  let (b1, baseIdx, capIdx) := emitImtBaseCap b0
+  let cmdIdx := b1.cmds.size
+  let b2 := {
+    b1 with
+      cmds := b1.cmds.push
+        (.getSelfUserCurrentIMTContractStateValue
+          (UInt64.ofNat baseIdx) (UInt64.ofNat capIdx) key4)
+  }
+  -- HashOut result: data_type=hashOut, op=getStateCommandResultHash
+  let hashIdx :=
+    (b2.defs.filter (fun d => d.dataType == .hashOut)).size
+  let hashDef : IndexedVarDefV1 := {
+    dataType := .hashOut
+    index := hashIdx
+    opType := .getStateCommandResultHash
+    inputs := #[UInt64.ofNat cmdIdx]
+  }
+  let b3 := { b2 with defs := b2.defs.push hashDef }
+  let getDefStep := b3.defs.size - 1
+  let b4 := { b3 with res := b3.res.push getDefStep }
+  -- targetAt(hashEnc, limbIndexWire): limb 0 uses shared zero Target.
+  let hashEnc := encodeIndexedId .hashOut hashIdx
+  pure (pushTarget b4 .targetAt #[hashEnc, UInt64.ofNat b4.zeroTarget])
+
+/-- IMT contains → ContainsSelfUserCurrentIMT + GetStateCommandResultSingle. -/
+private def emitImtContains (b : BuilderV1) (keyW : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let (b0, key4) ← emitImtU64As4 b keyW
+  let (b1, baseIdx, capIdx) := emitImtBaseCap b0
+  let cmdIdx := b1.cmds.size
+  let b2 := {
+    b1 with
+      cmds := b1.cmds.push
+        (.containsSelfUserCurrentIMTContractStateValue
+          (UInt64.ofNat baseIdx) (UInt64.ofNat capIdx) key4)
+  }
+  let (b3, w) := pushTarget b2 .getStateCommandResultSingle #[UInt64.ofNat cmdIdx]
+  let getDefStep := b3.defs.size - 1
+  pure ({ b3 with res := b3.res.push getDefStep }, w)
+
+/-- IMT set → SetIMTContractStateValue; return written value (product ABI).
+    Official result is old||new HashOut pair (8 felts); product returns `value`. -/
+private def emitImtSet (b : BuilderV1) (keyW valueW : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let (b0, key4) ← emitImtU64As4 b keyW
+  let (b1, val4) ← emitImtU64As4 b0 valueW
+  let (b2, baseIdx, capIdx) := emitImtBaseCap b1
+  let cEnc := (trueWire b2).encoded
+  let b3 := {
+    b2 with
+      cmds := b2.cmds.push
+        (.setIMTContractStateValue
+          cEnc (UInt64.ofNat baseIdx) (UInt64.ofNat capIdx) key4 val4)
+      -- Set resolves after current defs (value wires already emitted).
+      res := b2.res.push b2.defs.size
+  }
+  pure (b3, valueW)
+
 /-- Conditional store; `cond` is a bool wire (ConstantTrue for unconditional).
     `sub_slot_index` / `value` are Target wire indices (official resolve).
 
@@ -1532,6 +1608,22 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
       pure (pushValuelessTarget b .getNonce)
   | .ctxCallerContractId =>
       pure (pushValuelessTarget b .getCallerContractId)
+  | .imtGet k => do
+      if b.inlineDepth > 0 then
+        planError "PSY-DPN: pureFn/localCall inline cannot use pf.imt.* (effectful)"
+      let (b1, kw) ← lowerExprV1 b params viewPath k
+      emitImtGet b1 kw
+  | .imtContains k => do
+      if b.inlineDepth > 0 then
+        planError "PSY-DPN: pureFn/localCall inline cannot use pf.imt.* (effectful)"
+      let (b1, kw) ← lowerExprV1 b params viewPath k
+      emitImtContains b1 kw
+  | .imtSet k v => do
+      if b.inlineDepth > 0 then
+        planError "PSY-DPN: pureFn/localCall inline cannot use pf.imt.* (effectful)"
+      let (b1, kw) ← lowerExprV1 b params viewPath k
+      let (b2, vw) ← lowerExprV1 b1 params viewPath v
+      emitImtSet b2 kw vw
   | .callFn name args => do
       -- R-PURE: inline pureHelper body into caller definitions (preferred over
       -- separate DPN method). Expression-level pure-body walker (no mutual

@@ -31,15 +31,16 @@ Generator: `scripts/psy_dpn_op_coverage.py` · `just psy-dpn-op-coverage`
 - EmitProbe: `emit` events (PARTIAL) official+session data/user/contract align
 - CallProbe: void `call` → InvokeExternalContractFunctionSync (PARTIAL; no nested exec)
 - ContextProbe: `pf.context.userId|contractId|checkpointId|nonce|callerContractId`
+- ImtProbe: `pf.imt.set|get|contains` self-current (UInt64→limb0 pack); session multi-key continuity
 - HashProbe: `hashNoPad`/`hashTwoToOne`/`keccak256` official; `hashPad` emit-only; session fail-closed
 - LoopSum: official run(0)/run(5) → +4; session continuity init(10)+run(0)=14
 
 **Schema-only / not emitted by PF (not a session bug):**
 
-- hash gadgets: **hashNoPad + hashTwoToOne + keccak256 open**; hashPad emit (official software-eval gap); merkle closed
-- IMT state commands (not in PF `StateCmdV1`; official-only)
+- hash gadgets: **hashNoPad + hashTwoToOne + keccak256 open**; hashPad emit (official software-eval gap); merkle closed (`CalculateMerkleRoot` official `todo!`)
+- IMT external/other-user cmds still FC; self-current Set/Get/Contains open (ImtProbe)
 - secp256k1Verify, exp/divRem variants, many u32 const forms
-- ContextRead / Commit / result-bearing call / schedule (Plan FC)
+- EVM-style ContextRead / Commit / result-bearing call / schedule (Plan FC)
 
 **PARTIAL:**
 

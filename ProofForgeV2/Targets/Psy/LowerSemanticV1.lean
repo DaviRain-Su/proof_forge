@@ -267,6 +267,11 @@ inductive Expr where
   | ctxCheckpointId
   | ctxNonce
   | ctxCallerContractId
+  /-- IMT self-current pilot: UInt64 key/value packed as 256-bit limbs
+      (limb0 = scalar, limbs 1..3 = 0). Not dense Map state. -/
+  | imtGet (key : Expr)
+  | imtContains (key : Expr)
+  | imtSet (key value : Expr)
   /-- Target-internal exact limb arithmetic. Operands are range-bounded
       UInt32 Felt limbs/intermediates, so these raw Felt operations cannot wrap
       Goldilocks in the admitted UInt128 add/sub construction. -/
@@ -2233,9 +2238,35 @@ private partial def lowerRegion
                 planError "unsupported Psy semantic shape: pf.context.callerContractId() takes no args"
               admitScalarResult
               env := envInsert env valueDef.valueId .ctxCallerContractId
+            else if qn == "pf.imt.get" then
+              unless comps.size == 3 && args.size == 1 do
+                planError "unsupported Psy semantic shape: pf.imt.get(key) takes exactly one UInt64 key"
+              admitScalarResult
+              let argExprs ← lookupArgs env args "imtGet" true
+              let some k := argExprs[0]? |
+                planError "unsupported Psy semantic shape: pf.imt.get missing key"
+              env := envInsert env valueDef.valueId (.imtGet k)
+            else if qn == "pf.imt.contains" then
+              unless comps.size == 3 && args.size == 1 do
+                planError "unsupported Psy semantic shape: pf.imt.contains(key) takes exactly one UInt64 key"
+              admitScalarResult
+              let argExprs ← lookupArgs env args "imtContains" true
+              let some k := argExprs[0]? |
+                planError "unsupported Psy semantic shape: pf.imt.contains missing key"
+              env := envInsert env valueDef.valueId (.imtContains k)
+            else if qn == "pf.imt.set" then
+              unless comps.size == 3 && args.size == 2 do
+                planError "unsupported Psy semantic shape: pf.imt.set(key, value) takes two UInt64 args"
+              admitScalarResult
+              let argExprs ← lookupArgs env args "imtSet" true
+              let some k := argExprs[0]? |
+                planError "unsupported Psy semantic shape: pf.imt.set missing key"
+              let some v := argExprs[1]? |
+                planError "unsupported Psy semantic shape: pf.imt.set missing value"
+              env := envInsert env valueDef.valueId (.imtSet k v)
             else
               planError
-                "unsupported Psy semantic shape: result-bearing external call is not admitted. Admitted: pf.crypto.hash*|keccak256; pf.context.userId|contractId|checkpointId|nonce|callerContractId"
+                "unsupported Psy semantic shape: result-bearing external call is not admitted. Admitted: pf.crypto.hash*|keccak256; pf.context.*; pf.imt.get|contains|set"
         | none =>
             unless comps.size ≥ 2 do
               planError "unsupported Psy semantic shape: external callee must have at least two components"
@@ -2243,7 +2274,8 @@ private partial def lowerRegion
             -- sync invoke would falsely imply native value movement.
             if isPfAssetsCatalogQnV1 qn then
               planError s!"unsupported Psy semantic shape: {unboundCatalogDiagV1 qn}"
-            if qn.startsWith "pf.crypto." || qn.startsWith "pf.context." then
+            if qn.startsWith "pf.crypto." || qn.startsWith "pf.context."
+                || qn.startsWith "pf.imt." then
               planError s!"unsupported Psy semantic shape: {qn} is value-producing (use in expression position, not void call)"
             let argExprs ← lookupArgs env args "externalCall"
             ls := { ls with stmts := ls.stmts.push (.externalCall comps argExprs) }

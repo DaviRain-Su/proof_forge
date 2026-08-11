@@ -92,6 +92,29 @@ def encodeStateCmd : StateCmdV1 → Json
         ("input_args", Json.arr (args.map u64ToJson)),
         ("num_outputs", natToJson nOut.toNat)
       ]
+  | .setIMTContractStateValue cond base cap key value =>
+      Json.mkObj [
+        ("type", Json.str "SetIMTContractStateValue"),
+        ("condition", u64ToJson cond),
+        ("base_offset", u64ToJson base),
+        ("capacity", u64ToJson cap),
+        ("key", Json.arr (key.map u64ToJson)),
+        ("value", Json.arr (value.map u64ToJson))
+      ]
+  | .getSelfUserCurrentIMTContractStateValue base cap key =>
+      Json.mkObj [
+        ("type", Json.str "GetSelfUserCurrentIMTContractStateValue"),
+        ("base_offset", u64ToJson base),
+        ("capacity", u64ToJson cap),
+        ("key", Json.arr (key.map u64ToJson))
+      ]
+  | .containsSelfUserCurrentIMTContractStateValue base cap key =>
+      Json.mkObj [
+        ("type", Json.str "ContainsSelfUserCurrentIMTContractStateValue"),
+        ("base_offset", u64ToJson base),
+        ("capacity", u64ToJson cap),
+        ("key", Json.arr (key.map u64ToJson))
+      ]
 
 def encodeEvent (e : EventRecordV1) : Json :=
   Json.mkObj [
@@ -163,6 +186,27 @@ private def decodeStateCmd? (j : Json) : Option StateCmdV1 := do
         (← jsonAsUInt64? (← field? j "method_id"))
         (← argsJ.mapM jsonAsUInt64?)
         (← jsonAsUInt32? (← field? j "num_outputs")))
+  | "SetIMTContractStateValue" =>
+      let keyJ ← arr? (← field? j "key")
+      let valJ ← arr? (← field? j "value")
+      pure (.setIMTContractStateValue
+        (← jsonAsUInt64? (← field? j "condition"))
+        (← jsonAsUInt64? (← field? j "base_offset"))
+        (← jsonAsUInt64? (← field? j "capacity"))
+        (← keyJ.mapM jsonAsUInt64?)
+        (← valJ.mapM jsonAsUInt64?))
+  | "GetSelfUserCurrentIMTContractStateValue" =>
+      let keyJ ← arr? (← field? j "key")
+      pure (.getSelfUserCurrentIMTContractStateValue
+        (← jsonAsUInt64? (← field? j "base_offset"))
+        (← jsonAsUInt64? (← field? j "capacity"))
+        (← keyJ.mapM jsonAsUInt64?))
+  | "ContainsSelfUserCurrentIMTContractStateValue" =>
+      let keyJ ← arr? (← field? j "key")
+      pure (.containsSelfUserCurrentIMTContractStateValue
+        (← jsonAsUInt64? (← field? j "base_offset"))
+        (← jsonAsUInt64? (← field? j "capacity"))
+        (← keyJ.mapM jsonAsUInt64?))
   | _ => none
 
 private def decodeEvent? (j : Json) : Option EventRecordV1 := do

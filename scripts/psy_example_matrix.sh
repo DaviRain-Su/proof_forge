@@ -17,6 +17,7 @@ mods=(
   "Examples/CallProbe.lean:Examples.CallProbe"
   "Examples/HashProbe.lean:Examples.HashProbe"
   "Examples/ContextProbe.lean:Examples.ContextProbe"
+  "Examples/ImtProbe.lean:Examples.ImtProbe"
 )
 ok=0; fail=0; skip=0
 out_root="$root/build/v2/psy-matrix"
@@ -111,6 +112,13 @@ for entry in "${mods[@]}"; do
             >/tmp/psy-mat-session-$name.json \
             && python3 -I -S -c "import json;d=json.load(open('/tmp/psy-mat-session-ContextProbe.json'));assert d['calls'][1]['outputs']==[1] and d['calls'][2]['outputs']==[100]" \
             && echo "  OK session context ids" || { echo "  FAIL session context"; fail=$((fail+1)); continue; }
+          ;;
+        ImtProbe)
+          python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" --json \
+            --call initialize --call put:7,42 --call get:7 --call has:7 --call get:9 \
+            >/tmp/psy-mat-session-$name.json \
+            && python3 -I -S -c "import json;d=json.load(open('/tmp/psy-mat-session-ImtProbe.json'));assert d['calls'][1]['outputs']==[42] and d['calls'][2]['outputs']==[42] and d['calls'][3]['outputs']==[1] and d['calls'][4]['outputs']==[0]" \
+            && echo "  OK session IMT put/get/has" || { echo "  FAIL session IMT"; fail=$((fail+1)); continue; }
           ;;
       esac
       ok=$((ok+1))

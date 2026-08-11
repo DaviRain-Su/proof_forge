@@ -382,6 +382,34 @@ assert d["calls"][3]["outputs"]==[100]
 print("OK session context continuity")
 PYC
 
+# --- ImtProbe (IMT self-current subset) ---
+dpn_i=$(build_ex ImtProbe Examples.ImtProbe)
+info "official ImtProbe put/get/has"
+diff_pair "imt-put" "$dpn_i" put --inputs 7 --inputs 42
+diff_pair "imt-get-empty" "$dpn_i" get --inputs 7
+python3 -I -S - "$out/off-imt-put.json" "$out/off-imt-get-empty.json" <<'PYI'
+import json,sys
+put=json.load(open(sys.argv[1])); get=json.load(open(sys.argv[2]))
+assert put.get("success") is True and get.get("success") is True
+assert [int(x) for x in (put.get("outputs") or [])]==[42], put.get("outputs")
+# fresh simulate has empty IMT → get miss returns 0
+assert [int(x) for x in (get.get("outputs") or [])]==[0], get.get("outputs")
+print("OK official put=42 get-empty=0")
+PYI
+info "session continuity ImtProbe put/get/has"
+python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_i" --json \
+  --call initialize --call put:7,42 --call get:7 --call has:7 --call get:9 \
+  >"$out/session-imt.json"
+python3 -I -S - "$out/session-imt.json" <<'PYI'
+import json,sys
+d=json.load(open(sys.argv[1]))
+assert d["calls"][1]["outputs"]==[42]
+assert d["calls"][2]["outputs"]==[42]
+assert d["calls"][3]["outputs"]==[1]
+assert d["calls"][4]["outputs"]==[0]
+print("OK session IMT continuity put7→42 get7→42 has7→1 get9→0")
+PYI
+
 # coverage report from built artifacts
 python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
   --artifact-root "$out" -o "$out/psy-op-coverage.v1.json"
@@ -389,5 +417,5 @@ python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
 python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \
   --artifact-root "$out" -o "$root/docs/targets/psy-op-coverage.v1.json"
 
-info "OK differential matrix + MapMini multi-key + EmitProbe events + CallProbe invoke + LoopSum + HashProbe + ContextProbe + coverage"
+info "OK differential matrix + MapMini multi-key + EmitProbe events + CallProbe invoke + LoopSum + HashProbe + ContextProbe + ImtProbe + coverage"
 echo "artifacts: $out"

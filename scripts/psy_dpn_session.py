@@ -37,6 +37,8 @@ U64 = (1 << 64) - 1
 DT_TARGET = 0
 DT_BOOL = 1
 DT_U32 = 2
+DT_HASH = 3
+DT_TARGET_ARRAY = 5
 
 
 def encode_id(data_type: int, index: int) -> int:
@@ -57,12 +59,27 @@ class Session:
     user_id: int = 1
     contract_id: int = 1
     slots: dict[int, list[int]] = field(default_factory=dict)
+    # IMT: (user_id, contract_id, key0..key3) → value[4]
+    imt: dict[tuple[int, int, int, int, int, int], list[int]] = field(default_factory=dict)
 
     def get(self, slot: int = 0) -> list[int]:
         return list(self.slots.get(slot, [0]))
 
     def set(self, slot: int, value: list[int]) -> None:
         self.slots[slot] = [int(v) & U64 for v in value]
+
+    def imt_get(self, user_id: int, contract_id: int, key: list[int]) -> list[int]:
+        k = (int(user_id), int(contract_id), int(key[0]) & U64, int(key[1]) & U64,
+             int(key[2]) & U64, int(key[3]) & U64)
+        return list(self.imt.get(k, [0, 0, 0, 0]))
+
+    def imt_set(self, user_id: int, contract_id: int, key: list[int], value: list[int]) -> None:
+        k = (int(user_id), int(contract_id), int(key[0]) & U64, int(key[1]) & U64,
+             int(key[2]) & U64, int(key[3]) & U64)
+        vv = [int(v) & U64 for v in value]
+        while len(vv) < 4:
+            vv.append(0)
+        self.imt[k] = vv[:4]
 
 
 def decode_wire_literal_from_defs(defs: list[dict], wire_ref: int) -> int | None:
@@ -128,6 +145,7 @@ class Executor:
         self.fn = fn
         self.leaves = leaves
         self.v: dict[int, int] = {}
+        self.hash_vals: dict[int, list[int]] = {}  # hashOut index → 4 limbs
         self.cmd_res: list[list[int]] = []
         self.reads: list[dict] = []
         self.writes: list[dict] = []
@@ -166,7 +184,7 @@ class Executor:
 
     def _is_get(self, c: dict) -> bool:
         t = c.get("type") or ""
-        return t.startswith("Get")
+        return t.startswith("Get") or t.startswith("Contains")
 
     def _set_ready(self, i: int) -> bool:
         c = self.cmds[i]
@@ -180,6 +198,13 @@ class Executor:
                         self.g(int(x))
                 else:
                     self.g(int(val))
+            if "key" in c:
+                for x in c.get("key") or []:
+                    self.g(int(x))
+            if "base_offset" in c:
+                self.g(int(c["base_offset"]))
+            if "capacity" in c:
+                self.g(int(c["capacity"]))
             for x in c.get("input_args") or []:
                 self.g(int(x))
             return True
@@ -312,10 +337,31 @@ class Executor:
             elif op == 79:  # getCallerContractId
                 self.put(dt, idx, 0)
             elif op in (53, 54, 55):
+                # 53 getStateCommandResultHash → HashOut (4 limbs)
+                # 54 getStateCommandResultSingle → Target (1 limb)
+                # 55 getStateCommandResultArray → TargetArray
                 ci = int(ins[0])
                 self.run_cmd(ci)
                 limbs = self.cmd_res[ci] or [0]
-                self.put(dt, idx, limbs[0])
+                if op == 53 or dt == DT_HASH:
+                    while len(limbs) < 4:
+                        limbs = list(limbs) + [0]
+                    self.hash_vals[idx] = list(limbs[:4])
+                    # also expose limb0 as encoded hash wire for accidental g()
+                    self.put(dt, idx, limbs[0])
+                else:
+                    self.put(dt, idx, limbs[0] if limbs else 0)
+            elif op == 20:  # targetAt(hashOrArray, limbIndex)
+                src = int(ins[0]) if ins else 0
+                limb_ref = int(ins[1]) if len(ins) > 1 else 0
+                limb_i = self.g(limb_ref)
+                sdt, sidx = decode_id(src)
+                if sdt == DT_HASH or src in self.hash_vals or sidx in self.hash_vals:
+                    hv = self.hash_vals.get(sidx) or self.hash_vals.get(src) or [0, 0, 0, 0]
+                    self.put(dt, idx, hv[int(limb_i) % 4] if hv else 0)
+                else:
+                    # fall back: treat as already-resolved target
+                    self.put(dt, idx, self.g(src))
             elif op == 64:
                 raise DpnError(
                     "unsupported op_type 64 unaryInverse (use official psy_user_cli simulate)"
@@ -410,7 +456,11 @@ class Executor:
             "external_calls": self.invokes,
             "state_delta": [
                 {
-                    "slot_index": w["slot_index"],
+                    **(
+                        {"slot_index": w["slot_index"]}
+                        if "slot_index" in w
+                        else {"key": w.get("key")}
+                    ),
                     "old_value": w["old_value"],
                     "new_value": w["new_value"],
                 }
@@ -509,6 +559,59 @@ class Executor:
                 "note": "PARTIAL: invoke recorded, not executed",
             }
             self.invokes.append(inv)
+        elif ctype == "GetSelfUserCurrentIMTContractStateValue":
+            key = [self.g(int(x)) for x in (cmd.get("key") or [0, 0, 0, 0])]
+            while len(key) < 4:
+                key.append(0)
+            val = self.s.imt_get(self.user_id, self.contract_id, key)
+            self.cmd_res[i] = list(val)
+            self.reads.append(
+                {
+                    "command_index": i,
+                    "command_type": ctype,
+                    "key": key,
+                    "value": list(val),
+                }
+            )
+        elif ctype == "SetIMTContractStateValue":
+            if "condition" in cmd and not self.g(int(cmd["condition"])):
+                self.cmd_res[i] = []
+                return
+            key = [self.g(int(x)) for x in (cmd.get("key") or [0, 0, 0, 0])]
+            while len(key) < 4:
+                key.append(0)
+            new_v = [self.g(int(x)) for x in (cmd.get("value") or [0, 0, 0, 0])]
+            while len(new_v) < 4:
+                new_v.append(0)
+            old_v = self.s.imt_get(self.user_id, self.contract_id, key)
+            self.s.imt_set(self.user_id, self.contract_id, key, new_v)
+            # official: old[4] || new[4]
+            self.cmd_res[i] = list(old_v) + list(new_v)
+            self.writes.append(
+                {
+                    "command_index": i,
+                    "command_type": ctype,
+                    "key": key,
+                    "old_value": list(old_v),
+                    "new_value": list(new_v),
+                    "condition": True,
+                }
+            )
+        elif ctype == "ContainsSelfUserCurrentIMTContractStateValue":
+            key = [self.g(int(x)) for x in (cmd.get("key") or [0, 0, 0, 0])]
+            while len(key) < 4:
+                key.append(0)
+            val = self.s.imt_get(self.user_id, self.contract_id, key)
+            exists = 0 if val == [0, 0, 0, 0] else 1
+            self.cmd_res[i] = [exists]
+            self.reads.append(
+                {
+                    "command_index": i,
+                    "command_type": ctype,
+                    "key": key,
+                    "value": [exists],
+                }
+            )
         else:
             raise DpnError(f"unsupported state cmd {ctype}")
 

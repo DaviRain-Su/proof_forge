@@ -27,6 +27,12 @@ private def validateExprNodes (expr : Expr) : Option Nat :=
   | .param _ | .loopVar _ | .stateLoad _ | .wideUintMulLimb _ _ _
   | .wideUintDivModLimb _ _ _ _ | .wideUintShiftLimb _ _ _ _
   | .ctxUserId | .ctxContractId | .ctxCheckpointId | .ctxNonce | .ctxCallerContractId => some 1
+  | .imtGet k => (validateExprNodes k).map (· + 1)
+  | .imtContains k => (validateExprNodes k).map (· + 1)
+  | .imtSet k v =>
+      match validateExprNodes k, validateExprNodes v with
+      | some a, some b => some (a + b + 1)
+      | _, _ => none
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r
   | .logicalAnd l r | .logicalOr l r | .shl l r | .shr l r
@@ -176,6 +182,11 @@ private partial def validateWideExpr
   | .literal _ | .u32Literal _ | .boolLiteral _ | .fieldLiteral _
   | .param _ | .loopVar _ | .stateLoad _
   | .ctxUserId | .ctxContractId | .ctxCheckpointId | .ctxNonce | .ctxCallerContractId => pure ()
+  | .imtGet k => validateWideExpr defined k
+  | .imtContains k => validateWideExpr defined k
+  | .imtSet k v => do
+      validateWideExpr defined k
+      validateWideExpr defined v
   | .wideUintMulLimb bitWidth operationId limbIndex =>
       unless bitWidth == 128 || bitWidth == 256 do
         planError "Psy wide multiplication bitWidth must be 128 or 256"
