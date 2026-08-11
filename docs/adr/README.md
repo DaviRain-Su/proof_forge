@@ -3,14 +3,14 @@ id: ADR-INDEX
 title: Architecture Decision Records
 status: proposed
 owner: architecture
-updated: 2026-08-10
+updated: 2026-08-11
 normative: true
 ---
 
 # Architecture Decision Records
 
 状态：`proposed`
-更新日期：2026-08-10
+更新日期：2026-08-11
 
 ADR 是 V2 架构决定的最高规范性记录。frontmatter 生命周期统一使用
 `draft | proposed | in_review | accepted | superseded | archived`；未采纳的提案使用 `archived`
@@ -60,3 +60,4 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0039](0039-psy-hash-gadgets-gate.md) | Psy hash gadgets；hashNoPad/twoToOne/keccak open；hashPad emit-only | proposed |
 | [ADR-0040](0040-external-author-host-mode-and-bundle.md) | Engineering `HostMode=dev` 默认 + external-author bundle（pf+next 同 VERSION）；外部作者永不 lake build | proposed |
 | [ADR-0041](0041-psy-commit-public-input-gate.md) | Psy Commit / public-input binding 保持 fail-closed 直至 official checklist | proposed |
+| [ADR-0042](0042-proof-bearing-near-invariant-root-erasure.md) | Proof-bearing NEAR invariant-root erasure（私有 certificate authority、exact digest/coverage binding、versioned Plan partition；当前 Reference-verified + artifact built，runtime observation 待兼容 runner；非 target-refined） | proposed |

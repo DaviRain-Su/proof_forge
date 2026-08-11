@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # NEAR near-sandbox engineering runtime differential (BL-13 / BL-20 / BL-30):
-#   product CLI build → StateCell/PairRet/ArrayRet/OptionRet/OptionState.wasm
+#   product CLI build → StateCell/PairRet/ArrayRet/OptionRet/OptionState/
+#   VerifiedVaultPF.wasm
 #   (wat2wasm) → near-sandbox init/run → JSON-RPC deploy/call/view assert → kill
 #
 # Covers:
@@ -9,6 +10,8 @@
 #   ArrayRet: anonymous Array UInt64 2 return (init + setArr/getArr N×8 LE)
 #   OptionRet: anonymous Option UInt64 none/some (2×8 LE tag+payload)
 #   OptionState: Option UInt64 state tag+payload (none default / some / clear zero)
+#   VerifiedVaultPF: proof-bearing invariant-root erasure, exact concrete
+#     reserves/shares equality, Unit withdraw, and failure rollback
 #
 # Not testnet, not mainnet, not formal Stage-0 / hermetic release evidence /
 # Reference↔sandbox formal differential (main agent decides just recipe wiring).
@@ -21,9 +24,10 @@
 #   - curl (RPC readiness probe)
 #
 # Exit codes:
-#   0 success (or skip-clean when tools/python deps absent)
+#   0 success (or optional skip-clean when tools/python deps absent)
 #   1 product / sandbox / assert failure
-#   2 missing tools / usage (hard miss on unsupported host)
+#   2 missing tools / usage (hard miss on unsupported host or when
+#     PF_NEAR_RUNTIME_REQUIRED=1)
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -41,6 +45,9 @@ missing() {
 
 skip_clean() {
   echo "near-runtime-test: skipped: $*" >&2
+  if [[ "${PF_NEAR_RUNTIME_REQUIRED:-0}" == "1" ]]; then
+    exit 2
+  fi
   exit 0
 }
 
@@ -96,6 +103,15 @@ if ! wat2wasm="$(resolve_tool wat2wasm)"; then
   skip_clean "wat2wasm not found under $PROOF_FORGE_TOOL_ROOT (or PATH)"
 fi
 
+# An installed lock artifact may still be unrunnable on the current host
+# (for example a newer GLIBC requirement). Treat that exactly like a missing
+# runtime tool before building fixtures; do not misreport it as a contract
+# assertion failure after partial suite setup.
+if ! sandbox_version="$($sandbox --version 2>&1)"; then
+  first_error="$(printf '%s\n' "$sandbox_version" | head -1)"
+  skip_clean "near-sandbox is not runnable on this host: $first_error"
+fi
+
 # cryptography + base58 required for Ed25519 tx signing / key wire.
 if ! python3 - <<'PY' >/dev/null 2>&1
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -131,6 +147,7 @@ programs=(
   "runtime-tests/near/fixtures/ArrayRet.lean:Examples.ArrayRet:ArrayRet"
   "runtime-tests/near/fixtures/OptionRet.lean:Examples.OptionRet:OptionRet"
   "runtime-tests/near/fixtures/OptionState.lean:Examples.OptionState:OptionState"
+  "Examples/VerifiedVaultPF.lean:Examples.VerifiedVaultPF:VerifiedVaultPF"
   "Examples/TipJarAsync.lean:Examples.TipJarAsync:TipJarAsync"
   "runtime-tests/near/fixtures/TokenJarAsync.lean:Examples.TokenJarAsync:TokenJarAsync"
   "runtime-tests/near/fixtures/EnvReadJar.lean:Examples.EnvReadJar:EnvReadJar"
@@ -144,7 +161,7 @@ lake build proof_forge_next || die "lake build proof_forge_next failed"
 
 echo "near-runtime-test: tool root=$PROOF_FORGE_TOOL_ROOT"
 echo "near-runtime-test: near-sandbox=$sandbox"
-"$sandbox" --version 2>&1 | head -1 || true
+printf '%s\n' "$sandbox_version" | head -1
 echo "near-runtime-test: wat2wasm=$wat2wasm ($("$wat2wasm" --version 2>&1 | head -1 || true))"
 echo "near-runtime-test: python3=$(python3 --version 2>&1)"
 
@@ -221,6 +238,7 @@ pairret_wasm="$out_dir/PairRet/PairRet.wasm"
 arrayret_wasm="$out_dir/ArrayRet/ArrayRet.wasm"
 optionret_wasm="$out_dir/OptionRet/OptionRet.wasm"
 optionstate_wasm="$out_dir/OptionState/OptionState.wasm"
+verifiedvault_wasm="$out_dir/VerifiedVaultPF/VerifiedVaultPF.wasm"
 tipjarasync_wasm="$out_dir/TipJarAsync/TipJarAsync.wasm"
 tokenjarasync_wasm="$out_dir/TokenJarAsync/TokenJarAsync.wasm"
 envreadjar_wasm="$out_dir/EnvReadJar/EnvReadJar.wasm"
@@ -230,6 +248,7 @@ callercheck_wasm="$out_dir/CallerCheck/CallerCheck.wasm"
 [[ -f "$arrayret_wasm" ]] || die "missing $arrayret_wasm"
 [[ -f "$optionret_wasm" ]] || die "missing $optionret_wasm"
 [[ -f "$optionstate_wasm" ]] || die "missing $optionstate_wasm"
+[[ -f "$verifiedvault_wasm" ]] || die "missing $verifiedvault_wasm"
 [[ -f "$tipjarasync_wasm" ]] || die "missing $tipjarasync_wasm"
 [[ -f "$tokenjarasync_wasm" ]] || die "missing $tokenjarasync_wasm"
 [[ -f "$envreadjar_wasm" ]] || die "missing $envreadjar_wasm"
@@ -354,6 +373,30 @@ run_suite optionret "$optionret_wasm" || die "OptionRet suite failed"
 echo "near-runtime-test: running OptionState suite against near-sandbox"
 run_suite optionstate "$optionstate_wasm" || die "OptionState suite failed"
 
+echo "near-runtime-test: checking VerifiedVaultPF invariant root is absent from target ABI/WAT"
+python3 - "$out_dir/VerifiedVaultPF/VerifiedVaultPF.near-abi.json" \
+  "$out_dir/VerifiedVaultPF/VerifiedVaultPF.wat" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+abi = json.loads(Path(sys.argv[1]).read_text())
+exports = [row.get("name") for row in abi.get("exports", [])]
+expected = ["init", "deposit", "withdraw", "status"]
+if exports != expected:
+    raise SystemExit(
+        f"near-runtime-test: VerifiedVaultPF ABI exports {exports!r}, expected {expected!r}"
+    )
+wat = Path(sys.argv[2]).read_text()
+if '(export "solvent")' in wat:
+    raise SystemExit(
+        "near-runtime-test: VerifiedVaultPF invariant root unexpectedly appears in WAT exports"
+    )
+PY
+
+echo "near-runtime-test: running VerifiedVaultPF proof-bearing suite against near-sandbox"
+run_suite verifiedvault "$verifiedvault_wasm" || die "VerifiedVaultPF suite failed"
+
 echo "near-runtime-test: running TipJarAsync suite against near-sandbox"
 run_suite tipjarasync "$tipjarasync_wasm" || die "TipJarAsync suite failed"
 
@@ -367,5 +410,5 @@ run_suite envreadjar "$envreadjar_wasm" || die "EnvReadJar suite failed"
 echo "near-runtime-test: running CallerCheck suite against near-sandbox"
 run_suite callercheck "$callercheck_wasm" || die "CallerCheck suite failed"
 
-echo "near-runtime-test: PASS (StateCell + PairRet + ArrayRet + OptionRet + OptionState + TipJarAsync + TokenJarAsync + EnvReadJar + CallerCheck engineering sandbox differential)"
+echo "near-runtime-test: PASS (StateCell + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + CallerCheck engineering sandbox differential)"
 exit 0

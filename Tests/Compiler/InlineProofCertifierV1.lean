@@ -37,9 +37,12 @@ import ProofForgeV2.Core.DiagnosticBundleV1
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Language.TheoremInventoryV1
 import ProofForgeV2.Source.ValidatedSourceV1
+import ProofForgeV2.Targets.BuildSelectionV1
+import ProofForgeV2.Targets.Near
 
 namespace Tests.Compiler.InlineProofCertifierV1
 
+open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Compiler.InlineProofCertifierV1
 open ProofForgeV2.Compiler.InlineProofProtocolV1
@@ -48,9 +51,24 @@ open ProofForgeV2.Core.DiagnosticBundleV1
 open ProofForgeV2.Language.Loader
 open ProofForgeV2.Language.TheoremInventoryV1
 open ProofForgeV2.Source.ValidatedSourceV1
+open ProofForgeV2.Targets.BuildSelectionV1
 
 private def expect (condition : Bool) (message : String) : IO Unit :=
   unless condition do throw <| IO.userError message
+
+private def liftResult (result : CompileResult α) : IO α :=
+  match result with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError error.render
+
+private def expectNearPlanRejected
+    (label : String) (plan : ProofForgeV2.Targets.Near.Plan) : IO Unit :=
+  match ProofForgeV2.Targets.Near.validatePlan plan with
+  | .error (.planInvariant .near _) => pure ()
+  | .error error =>
+      throw <| IO.userError s!"{label}: wrong failure: {error.render}"
+  | .ok () =>
+      throw <| IO.userError s!"{label}: malformed NEAR Plan was accepted"
 
 private def expectOutcome
     (label : String)
@@ -197,6 +215,12 @@ private unsafe def testNoProofBypass (session : ProductParserSessionV1) : IO Uni
   expectOutcome "noProof" outcome fun
     | .noProof => true
     | _ => false
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    ProofForgeV2.Targets.resolveEngineeringRequirementsV1 selection compiled
+  expect (ProofForgeV2.Targets.ResolvedEngineeringBuildV1.nearInvariantErasureAuthorization?
+      capability |>.isNone)
+    "no-invariant program must not carry NEAR invariant-erasure authorization"
 
 /-- Structurally legal inventory + false theorem body fails at elaboration. -/
 private unsafe def testFalseTheoremElab (session : ProductParserSessionV1) : IO Unit := do
@@ -333,6 +357,156 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
         "VerifiedVaultPF certification digest must be present"
       expect ((CertifiedInlineProofV1.audited carrier).size == 1)
         "VerifiedVaultPF audited theorem set must contain one theorem"
+      expect (CertifiedInlineProofV1.sourceDigest carrier ==
+          CompiledSemanticV1.sourceDigestOf compiled)
+        "VerifiedVaultPF certificate must bind the exact source digest"
+      expect (CertifiedInlineProofV1.semanticDigest carrier ==
+          CompiledSemanticV1.semanticDigestOf compiled)
+        "VerifiedVaultPF certificate must bind the exact semantic digest"
+      expect (CertifiedInlineProofV1.hasCompletePreservingInvariantCoverage carrier)
+        "VerifiedVaultPF certificate must cover every invariant with preserving proof"
+
+      -- A valid private certificate is not transferable to another compiled
+      -- subject. The target capability mint rechecks both bound digests.
+      let (foreignSource, foreignOrigin, _) ← loadProduct session bareProgram
+        "tests/inline-proof/verified-vault-foreign-subject.pf" "Root"
+      let foreignCompiled ← compileOf foreignSource foreignOrigin
+      let nearSelection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+      let foreignCapability ← liftResult <|
+        ProofForgeV2.Targets.resolveEngineeringRequirementsV1
+          nearSelection foreignCompiled
+      match ProofForgeV2.Targets.authorizeCertifiedNearInvariantErasureV1
+          foreignCapability carrier with
+      | .error (.registryInvalid _) => pure ()
+      | .error error =>
+          throw <| IO.userError
+            s!"VerifiedVaultPF foreign certificate reuse failed with wrong error: {error.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "VerifiedVaultPF certificate must not authorize a foreign compiled subject"
+
+      -- The ordinary capability remains fail-closed for nonempty invariants.
+      let selection := nearSelection
+      let ordinary ← liftResult <|
+        ProofForgeV2.Targets.resolveEngineeringRequirementsV1 selection compiled
+      match ProofForgeV2.Targets.Near.planFromCapability ordinary with
+      | .error (.planInvariant .near _) => pure ()
+      | .error error =>
+          throw <| IO.userError
+            s!"VerifiedVaultPF ordinary NEAR path failed with wrong error: {error.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "VerifiedVaultPF ordinary NEAR path must not erase invariant roots"
+
+      -- Only the private audited carrier opens the proof-bearing NEAR path.
+      let capability ← liftResult <|
+        ProofForgeV2.Targets.authorizeCertifiedNearInvariantErasureV1
+          ordinary carrier
+      let plan ← liftResult <| ProofForgeV2.Targets.Near.planFromCapability capability
+      expect (plan.initializer.name == "init" &&
+          plan.entries.map (·.name) == #["deposit", "withdraw", "status"] &&
+          plan.entries.map (·.resultKind) ==
+            #[.uint64, .unit, .uint64] && plan.fns.isEmpty)
+        "VerifiedVaultPF NEAR Plan must retain only the four business callables"
+      let decision ← match plan.invariantErasure? with
+        | some value => pure value
+        | none =>
+            throw <| IO.userError
+              "VerifiedVaultPF NEAR Plan is missing invariant-erasure attestation"
+      expect (decision.version ==
+          ProofForgeV2.Targets.Near.invariantErasurePlanVersionV1 &&
+          decision.sourceDigest == CertifiedInlineProofV1.sourceDigest carrier &&
+          decision.semanticDigest == CertifiedInlineProofV1.semanticDigest carrier &&
+          decision.proofCertificationDigest ==
+            CertifiedInlineProofV1.proofCertificationDigest carrier &&
+          decision.semanticCallableCount == 5 &&
+          decision.retainedInitializerCallableId == 0 &&
+          decision.retainedMethodCallableIds == #[1, 2, 3] &&
+          decision.retainedPureFnCallableIds.isEmpty &&
+          decision.erasedInvariantCallableIds == #[4])
+        "VerifiedVaultPF NEAR erasure attestation must be the exact callable partition"
+      let digest ← match ProofForgeV2.Targets.Near.engineeringNearPlanDigestV1 plan with
+        | .ok value => pure value
+        | .error error =>
+            throw <| IO.userError s!"VerifiedVaultPF NEAR Plan digest failed: {error}"
+      let unerasedDigest ← match ProofForgeV2.Targets.Near.engineeringNearPlanDigestV1
+          { plan with invariantErasure? := none } with
+        | .ok value => pure value
+        | .error error =>
+            throw <| IO.userError s!"VerifiedVaultPF unerased NEAR Plan digest failed: {error}"
+      expect (digest != unerasedDigest)
+        "NEAR Plan digest must distinguish an invariant-erasure decision from none"
+      let alteredDecision := {
+        decision with
+        proofCertificationDigest := CertifiedInlineProofV1.sourceDigest carrier
+      }
+      let alteredDigest ← match ProofForgeV2.Targets.Near.engineeringNearPlanDigestV1
+          { plan with invariantErasure? := some alteredDecision } with
+        | .ok value => pure value
+        | .error error =>
+            throw <| IO.userError s!"VerifiedVaultPF altered NEAR Plan digest failed: {error}"
+      expect (digest != alteredDigest)
+        "NEAR Plan digest must bind the proof certification digest"
+
+      -- Public Plan tampering remains fail-closed at the target validator.
+      expectNearPlanRejected "erasure decision removed" {
+        plan with invariantErasure? := none
+      }
+      expectNearPlanRejected "erasure wrong version" {
+        plan with invariantErasure? := some {
+          decision with version := decision.version ++ ".forged"
+        }
+      }
+      expectNearPlanRejected "erasure invalid digest" {
+        plan with invariantErasure? := some {
+          decision with sourceDigest := {
+            decision.sourceDigest with bytes := ByteArray.empty
+          }
+        }
+      }
+      expectNearPlanRejected "erasure empty roots" {
+        plan with invariantErasure? := some {
+          decision with erasedInvariantCallableIds := #[]
+        }
+      }
+      expectNearPlanRejected "erasure unsorted methods" {
+        plan with invariantErasure? := some {
+          decision with retainedMethodCallableIds := #[2, 1, 3]
+        }
+      }
+      expectNearPlanRejected "erasure out-of-range root" {
+        plan with invariantErasure? := some {
+          decision with erasedInvariantCallableIds := #[5]
+        }
+      }
+      expectNearPlanRejected "erasure retained/root overlap" {
+        plan with invariantErasure? := some {
+          decision with
+            retainedMethodCallableIds := #[1, 2, 4]
+            erasedInvariantCallableIds := #[4]
+        }
+      }
+      -- Dense, ordered and count-preserving, but semantically transposes the
+      -- status view and invariant root. The private whole-Plan binding must
+      -- reject this mutation even though the structural partition alone looks
+      -- valid.
+      expectNearPlanRejected "erasure semantic repartition" {
+        plan with invariantErasure? := some {
+          decision with
+            retainedMethodCallableIds := #[1, 2, 4]
+            erasedInvariantCallableIds := #[3]
+        }
+      }
+      expectNearPlanRejected "erasure missing callable" {
+        plan with invariantErasure? := some {
+          decision with semanticCallableCount := 6
+        }
+      }
+      expectNearPlanRejected "erasure wrong callable count" {
+        plan with invariantErasure? := some {
+          decision with semanticCallableCount := 4
+        }
+      }
   | .noProof => throw <| IO.userError "VerifiedVaultPF proof returned noProof"
   | .failed phase detail =>
       throw <| IO.userError
@@ -898,6 +1072,20 @@ private unsafe def testSimpleClosureProductPositive
           ("simple-closure alt body requires .certified; got failed " ++
             s!"phase={repr phase} detail={repr detail}")
   expectCertifiedCarrier "simple-closure-B" cB
+  expect (!CertifiedInlineProofV1.hasCompletePreservingInvariantCoverage cA)
+    "holds-only certificate must not claim preserving invariant coverage"
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    ProofForgeV2.Targets.resolveEngineeringRequirementsV1 selection compiledA
+  match ProofForgeV2.Targets.authorizeCertifiedNearInvariantErasureV1
+      capability cA with
+  | .error (.planInvariant .near _) => pure ()
+  | .error error =>
+      throw <| IO.userError
+        s!"holds-only NEAR authorization failed with wrong error: {error.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "holds-only certificate must not authorize NEAR invariant erasure"
   -- proofCertificationDigest binds raw source → body rewrite must change it.
   let digA := CertifiedInlineProofV1.proofCertificationDigest cA
   let digB := CertifiedInlineProofV1.proofCertificationDigest cB

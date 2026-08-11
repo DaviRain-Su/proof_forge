@@ -18,6 +18,9 @@ open ProofForgeV2.Core.Common
 def engineeringNearPlanDomainV1 : String :=
   "pf.near-plan.engineering.v1"
 
+def invariantErasurePlanExtensionTagV1 : String :=
+  "pf.near-plan.extension.invariant-erasure.v1"
+
 private def encodeU32le (value : UInt32) : ByteArray :=
   let v := value.toNat
   let b0 := UInt8.ofNat (v % 256)
@@ -295,6 +298,36 @@ private def encodeStorageField (f : StorageField) : Except String ByteArray := d
     (← encodeString f.key)).append (← encodeNatAsU32le f.byteWidth)).append
     (encodeU8 (encodeEndianness f.endianness)))
 
+private def encodeDigest32 (label : String) (digest : Digest) :
+    Except String ByteArray := do
+  match validateDigest digest with
+  | .ok () => pure ()
+  | .error error => throw s!"near plan {label} digest is invalid: {error}"
+  unless digest.bytes.size == 32 do
+    throw s!"near plan {label} digest must contain 32 bytes"
+  pure digest.bytes
+
+private def encodeNatArray (values : Array Nat) : Except String ByteArray := do
+  let mut out ← encodeNatAsU32le values.size
+  for value in values do
+    out := out.append (← encodeNatAsU32le value)
+  pure out
+
+private def encodeInvariantErasureDecisionV1
+    (decision : InvariantErasureDecisionV1) : Except String ByteArray := do
+  let mut out ← encodeString invariantErasurePlanExtensionTagV1
+  out := out.append (← encodeString decision.version)
+  out := out.append (← encodeDigest32 "source" decision.sourceDigest)
+  out := out.append (← encodeDigest32 "semantic" decision.semanticDigest)
+  out := out.append
+    (← encodeDigest32 "proof-certification" decision.proofCertificationDigest)
+  out := out.append (← encodeNatAsU32le decision.semanticCallableCount)
+  out := out.append (← encodeNatAsU32le decision.retainedInitializerCallableId)
+  out := out.append (← encodeNatArray decision.retainedMethodCallableIds)
+  out := out.append (← encodeNatArray decision.retainedPureFnCallableIds)
+  out := out.append (← encodeNatArray decision.erasedInvariantCallableIds)
+  pure out
+
 /-- Canonical encode of NEAR Plan for engineering planDigest (T9d). -/
 def encodeEngineeringNearPlanBytesV1 (plan : Plan) : Except String ByteArray := do
   let mut out := ByteArray.empty
@@ -323,6 +356,12 @@ def encodeEngineeringNearPlanBytesV1 (plan : Plan) : Except String ByteArray := 
   out := out.append (← encodeMethod plan.initializer)
   out := out.append (← encodeNatAsU32le plan.entries.size)
   for m in plan.entries do out := out.append (← encodeMethod m)
+  -- Backward-compatible extension discipline: historical/no-invariant Plans
+  -- append zero bytes; proof-bearing Plans append one fixed tagged decision.
+  match plan.invariantErasure? with
+  | none => pure ()
+  | some decision =>
+      out := out.append (← encodeInvariantErasureDecisionV1 decision)
   pure out
 
 def engineeringNearPlanDigestV1 (plan : Plan) : Except String Digest := do

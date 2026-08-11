@@ -110,6 +110,36 @@ class NearClient:
             raise NearRpcError(f"view_account {account_id}: {res['error']}")
         return int(res["amount"])
 
+    def view_state_values(self, account_id: str | None = None) -> dict[bytes, bytes]:
+        """Return the complete raw key/value state for one sandbox account.
+
+        Runtime suites use this only for engineering observations of the
+        product-owned storage layout. It is not a ReferenceMachine proof or a
+        target-refinement claim.
+        """
+        target = account_id or self.account_id
+        res = self.rpc_call(
+            "query",
+            {
+                "request_type": "view_state",
+                "finality": "optimistic",
+                "account_id": target,
+                "prefix_base64": "",
+                "include_proof": False,
+            },
+        )
+        values: dict[bytes, bytes] = {}
+        for item in res.get("values", []):
+            try:
+                key = base64.b64decode(item["key"], validate=True)
+                value = base64.b64decode(item["value"], validate=True)
+            except (KeyError, TypeError, ValueError) as error:
+                raise NearRpcError(
+                    f"view_state {target}: malformed key/value row {item!r}"
+                ) from error
+            values[key] = value
+        return values
+
     def create_subaccount(self, sub_id: str, initial_balance: int) -> dict[str, Any]:
         """Create `sub_id` under the master account with an initial balance."""
         return self.sign_and_send(

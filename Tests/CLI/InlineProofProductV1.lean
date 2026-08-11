@@ -20,6 +20,10 @@
         (5) repeat check → same proofCertificationDigest
         (6) certified + legal target → materializer nonempty-invariant fail closed,
             no destination/staging
+    * VerifiedVaultPF certified + `--target near` opens only the proof-bearing
+      capability path; when the locked wat2wasm is present, build emits the
+      four business exports and no invariant export (otherwise the product
+      must fail only as PF-TOOLCHAIN-MISSING with zero destination)
       Hard-fails when check is not certified (no soft skip / EXPECTED-RED).
       Product binary is required; absence fails the suite (not skipped).
 
@@ -559,6 +563,55 @@ private def testVerifiedVaultPFProductCli : IO Unit := do
   expect (hasSubstr stdoutJ "\"proofCertificationDigest\":\"sha256:")
     "VerifiedVaultPF JSON certification digest"
   expect (stderrJ == "") s!"VerifiedVaultPF JSON stderr: {stderrJ}"
+
+  -- Targeted check exercises the CLI's proof-bearing capability mint without
+  -- requiring a materializer tool. Other targets keep ordinary capabilities
+  -- and must not reject a valid certificate merely because NEAR owns erasure.
+  let (ecNearCheck, stdoutNearCheck, stderrNearCheck) ← runCli
+    (args ++ #["--target", "near"])
+  expect (ecNearCheck == 0)
+    s!"VerifiedVaultPF NEAR check: {ecNearCheck}\n{stderrNearCheck}\n{stdoutNearCheck}"
+  expect (hasSubstr stdoutNearCheck "proofStatus=certified")
+    "VerifiedVaultPF NEAR check must retain certified status"
+  let (ecSolanaCheck, stdoutSolanaCheck, stderrSolanaCheck) ← runCli
+    (args ++ #["--target", "solana"])
+  expect (ecSolanaCheck == 0)
+    s!"VerifiedVaultPF Solana check: {ecSolanaCheck}\n{stderrSolanaCheck}\n{stdoutSolanaCheck}"
+  expect (hasSubstr stdoutSolanaCheck "proofStatus=certified")
+    "VerifiedVaultPF non-NEAR check must retain certified status"
+
+  -- The regular target shard does not provision Tool Lock assets. Accept the
+  -- precise missing-tool terminal there; when the locked asset is available,
+  -- require the real product artifact and exact erased export surface.
+  let outDir := FilePath.mk "build/v2/inline-proof-verified-vault-near"
+  if ← outDir.pathExists then IO.FS.removeDirAll outDir
+  let (ecBuild, stdoutBuild, stderrBuild) ← runCli #[
+    "build", "Examples/VerifiedVaultPF.lean",
+    "--module", "Examples.VerifiedVaultPF",
+    "--target", "near",
+    "-o", outDir.toString
+  ]
+  if ecBuild == 0 then
+    expect (hasSubstr stdoutBuild "built target=near")
+      s!"VerifiedVaultPF NEAR build success line: {stdoutBuild}"
+    expect (stderrBuild == "")
+      s!"VerifiedVaultPF NEAR build success stderr: {stderrBuild}"
+    let wasm := outDir / FilePath.mk "VerifiedVaultPF.wasm"
+    let abi := outDir / FilePath.mk "VerifiedVaultPF.near-abi.json"
+    expect (← wasm.pathExists) "VerifiedVaultPF NEAR build must emit Wasm"
+    expect (← abi.pathExists) "VerifiedVaultPF NEAR build must emit ABI"
+    let abiText ← IO.FS.readFile abi
+    expect (hasSubstr abiText "\"name\":\"init\"") "VerifiedVaultPF ABI init export"
+    expect (hasSubstr abiText "\"name\":\"deposit\"") "VerifiedVaultPF ABI deposit export"
+    expect (hasSubstr abiText "\"name\":\"withdraw\"") "VerifiedVaultPF ABI withdraw export"
+    expect (hasSubstr abiText "\"name\":\"status\"") "VerifiedVaultPF ABI status export"
+    expect (!hasSubstr abiText "\"name\":\"solvent\"")
+      "VerifiedVaultPF invariant root must not be a runtime ABI export"
+  else
+    expect (ecBuild == 1 && hasSubstr stderrBuild "PF-TOOLCHAIN-MISSING")
+      s!"VerifiedVaultPF NEAR build may fail only for missing locked tool; exit={ecBuild}\n{stderrBuild}\n{stdoutBuild}"
+    expect (!(← outDir.pathExists))
+      "missing-tool VerifiedVaultPF build must publish no destination"
 
   let nearMiss := fixtureHeader ++
     "program VerifiedVaultPFNearMiss where\n" ++

@@ -7,12 +7,14 @@ Suites:
   arrayret    — fixtures/ArrayRet: anonymous Array UInt64 2 return (N×8 LE)
   optionret   — fixtures/OptionRet: anonymous Option UInt64 none/some (2×8 LE)
   optionstate — fixtures/OptionState: Option UInt64 state tag+payload (BL-30)
+  verifiedvault — Examples/VerifiedVaultPF: proof-bearing invariant-root
+                  erasure + deposit/withdraw/rollback storage observations
 
 Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_RPC          e.g. http://127.0.0.1:PORT
   PF_NEAR_HOME         near-sandbox --home directory (validator_key.json)
   PF_NEAR_WASM         path to product .wasm for the suite
-  PF_NEAR_SUITE        state_cell | pairret | arrayret | optionret | optionstate | tipjarasync | tokenjarasync | envreadjar | callercheck | single
+  PF_NEAR_SUITE        state_cell | pairret | arrayret | optionret | optionstate | verifiedvault | tipjarasync | tokenjarasync | envreadjar | callercheck | single
 
 Honesty: engineering sandbox differential only — not testnet/mainnet,
 not formal Stage-0 / hermetic / Reference↔sandbox closure.
@@ -80,6 +82,100 @@ def suite_state_cell(client: NearClient, wasm: Path) -> None:
         raise AssertionError(f"after post-overflow increment(1): get() expected 13, got {got}")
     print("state_cell: post-overflow increment(1) → get()==13 ok")
     print("suite StateCell: PASS")
+
+
+def suite_verifiedvault(client: NearClient, wasm: Path) -> None:
+    """Proof-bearing VerifiedVault engineering runtime observation.
+
+    The Lean kernel certifies preservation over the authoritative
+    SemanticProgramV1/ReferenceMachineV1 subject before materialization. This
+    suite separately observes the emitted NEAR artifact's two concrete storage
+    slots and rollback behavior; it does not claim formal target refinement.
+    """
+    print("=== suite: VerifiedVaultPF (proof-bearing NEAR runtime observation) ===")
+    client.deploy(wasm)
+
+    reserves_key = b"pf:v1:state:0"
+    shares_key = b"pf:v1:state:1"
+
+    def assert_vault_state(expected: int, label: str) -> None:
+        status = client.view_u64("status")
+        if status != expected:
+            raise AssertionError(
+                f"{label}: status expected {expected}, got {status}"
+            )
+        state = client.view_state_values()
+        missing = [
+            key.decode()
+            for key in (reserves_key, shares_key)
+            if key not in state
+        ]
+        if missing:
+            raise AssertionError(f"{label}: missing vault storage keys {missing}")
+        reserves_raw = state[reserves_key]
+        shares_raw = state[shares_key]
+        if len(reserves_raw) != 8 or len(shares_raw) != 8:
+            raise AssertionError(
+                f"{label}: vault slots must be exact u64-le bytes; "
+                f"sizes=({len(reserves_raw)},{len(shares_raw)})"
+            )
+        reserves = NearClient.decode_u64_le(reserves_raw)
+        shares = NearClient.decode_u64_le(shares_raw)
+        if reserves != expected or shares != expected:
+            raise AssertionError(
+                f"{label}: expected reserves==shares=={expected}, "
+                f"got reserves={reserves}, shares={shares}"
+            )
+        print(
+            f"verifiedvault: {label} → status={status}, "
+            f"reserves==shares=={expected} ok"
+        )
+
+    client.call("init", b"")
+    assert_vault_state(0, "init")
+
+    deposit = client.call("deposit", NearClient.encode_u64_le(10))
+    deposit_value = NearClient.success_value_bytes(deposit)
+    if deposit_value is None or len(deposit_value) < 8:
+        raise AssertionError(
+            f"deposit SuccessValue expected ≥8 LE bytes, got {deposit_value!r}"
+        )
+    if NearClient.decode_u64_le(deposit_value) != 10:
+        raise AssertionError("deposit(10) SuccessValue expected 10")
+    assert_vault_state(10, "deposit(10)")
+
+    withdraw = client.call("withdraw", NearClient.encode_u64_le(4))
+    withdraw_value = NearClient.success_value_bytes(withdraw)
+    if withdraw_value not in (None, b""):
+        raise AssertionError(
+            f"Unit withdraw must return no payload, got {withdraw_value!r}"
+        )
+    assert_vault_state(6, "withdraw(4)")
+
+    # Both checked guards reject an overdraw, and NEAR rolls back both stores.
+    client.call(
+        "withdraw", NearClient.encode_u64_le(7), expect_success=False
+    )
+    assert_vault_state(6, "failed withdraw(7) rollback")
+
+    # The first checked addition overflows; neither concrete slot may advance.
+    client.call(
+        "deposit",
+        NearClient.encode_u64_le((1 << 64) - 1),
+        expect_success=False,
+    )
+    assert_vault_state(6, "failed overflowing deposit rollback")
+
+    # The compile-time invariant root must not be callable in the Wasm runtime.
+    missing_export = client.call("solvent", b"", expect_success=False)
+    missing_export_failure = repr(missing_export)
+    if "MethodNotFound" not in missing_export_failure or "solvent" not in missing_export_failure:
+        raise AssertionError(
+            "solvent must fail specifically at NEAR method resolution; "
+            f"got {missing_export_failure}"
+        )
+    assert_vault_state(6, "missing invariant export")
+    print("suite VerifiedVaultPF: PASS")
 
 
 def suite_pairret(client: NearClient, wasm: Path) -> None:
@@ -683,6 +779,9 @@ def main(argv: list[str]) -> int:
         elif suite == "optionstate":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_OPTIONSTATE_WASM"))
             suite_optionstate(client, wasm)
+        elif suite == "verifiedvault":
+            wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_VERIFIEDVAULT_WASM"))
+            suite_verifiedvault(client, wasm)
         elif suite == "tipjarasync":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_TIPJARASYNC_WASM"))
             suite_tipjarasync(client, wasm)

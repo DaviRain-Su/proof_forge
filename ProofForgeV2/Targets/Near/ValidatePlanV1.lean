@@ -10,6 +10,7 @@ namespace ProofForgeV2.Targets.Near
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
@@ -473,10 +474,17 @@ private partial def checkMethodReturnFormsV1
     match s with
     | .returnValue _ =>
         match resultKind with
+        | .unit =>
+            throw <| .planInvariant .near
+              s!"method '{methodName}' unit resultKind must use returnNone, not returnValue"
         | .aggregate _ =>
             throw <| .planInvariant .near
               s!"method '{methodName}' aggregate resultKind must use returnAggregate, not returnValue"
         | _ => pure ()
+    | .returnNone =>
+        unless resultKind == .unit do
+          throw <| .planInvariant .near
+            s!"method '{methodName}' returnNone requires unit resultKind"
     | .returnAggregate leaves leafIsInt =>
         match resultKind with
         | .aggregate expected =>
@@ -518,17 +526,17 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
   else if method.mode == .initialize then
     throw <| .planInvariant .near "entry method cannot use initialize mode"
   else
-    let resultKindOk :=
+    let resultKindOk : Bool :=
       match method.resultKind with
       | .uint64 | .bool | .int64 | .uint8 | .uint16 | .uint32
       | .uint128 | .uint256 | .int8 | .int16 | .int32 => true
       | .aggregate leaves =>
           leaves.size > 0 && leaves.size ≤ 8 &&
             leaves.all (fun l => l.byteWidth == 8)
-      | .unit => false
+      | .unit => method.mode == MethodMode.mutate
     unless resultKindOk do
       throw <| .planInvariant .near
-        s!"method '{method.name}' result kind must be UInt8/16/32/64/128/256, Int8/16/32/64, Bool, or aggregate (named Struct/Enum or anonymous Array/Option; 1..8 × 8-byte leaves)"
+        s!"method '{method.name}' result kind must be mutate-Unit, UInt8/16/32/64/128/256, Int8/16/32/64, Bool, or aggregate (named Struct/Enum or anonymous Array/Option; 1..8 × 8-byte leaves)"
   -- ADR-0029 C2: allowAttached is legal only for mutate entries whose body
   -- contains at least one nativeDeposit; views stay queryOnly; others
   -- requireZero (including init).
@@ -545,7 +553,8 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
   if method.body.size > limits.maxBodyStatements || (!isInitializer && method.body.isEmpty) then
     throw <| .planInvariant .near s!"method '{method.name}' has an invalid body size"
   let (total, _, closed) ← checkMethodStatementsV1
-    limits layout isInitializer (method.mode == .view) false isInitializer
+    limits layout isInitializer (method.mode == .view) false
+      (isInitializer || method.resultKind == .unit)
     events.size (events.map (·.fieldCount)) errors.size (errors.map (·.fieldCount))
     method.params fns method.body baseNodes 0
   unless closed do
@@ -571,6 +580,56 @@ private def validateFnBinding (limits : ResourceLimits) (layout : StorageLayout)
       s!"pureFn '{fn.name}' does not terminate on all paths"
   return total
 
+private def strictlyIncreasingNatListV1 : List Nat → Bool
+  | [] | [_] => true
+  | first :: second :: rest =>
+      first < second && strictlyIncreasingNatListV1 (second :: rest)
+
+private def strictlyIncreasingNatArrayV1 (values : Array Nat) : Bool :=
+  strictlyIncreasingNatListV1 values.toList
+
+private def validateErasureDigestV1 (label : String) (digest : Digest) :
+    CompileResult Unit :=
+  match validateDigest digest with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| .planInvariant .near
+        s!"NEAR invariant-erasure {label} digest is invalid: {error}"
+
+/-- Validate the appended proof-bound callable partition. Semantic kinds and
+    exact InvariantDecl roots were checked while deriving this decision from the
+    retained semantic carrier; this is the target Plan tamper/canonicity gate. -/
+private def validateInvariantErasureDecisionV1
+    (plan : Plan) (decision : InvariantErasureDecisionV1) : CompileResult Unit := do
+  unless decision.version == invariantErasurePlanVersionV1 do
+    throw <| .planInvariant .near
+      "NEAR invariant-erasure Plan version is not canonical"
+  validateErasureDigestV1 "source" decision.sourceDigest
+  validateErasureDigestV1 "semantic" decision.semanticDigest
+  validateErasureDigestV1 "proof-certification" decision.proofCertificationDigest
+  unless decision.semanticCallableCount > 0 &&
+        !decision.erasedInvariantCallableIds.isEmpty do
+    throw <| .planInvariant .near
+      "NEAR invariant-erasure decision requires a nonempty callable table and erased root set"
+  unless decision.retainedMethodCallableIds.size == plan.entries.size &&
+        decision.retainedPureFnCallableIds.size == plan.fns.size do
+    throw <| .planInvariant .near
+      "NEAR invariant-erasure callable partition does not match Plan handlers"
+  unless strictlyIncreasingNatArrayV1 decision.retainedMethodCallableIds &&
+        strictlyIncreasingNatArrayV1 decision.retainedPureFnCallableIds &&
+        strictlyIncreasingNatArrayV1 decision.erasedInvariantCallableIds do
+    throw <| .planInvariant .near
+      "NEAR invariant-erasure callable id lists must be strictly increasing"
+  let allIds := #[decision.retainedInitializerCallableId] ++
+    decision.retainedMethodCallableIds ++ decision.retainedPureFnCallableIds ++
+    decision.erasedInvariantCallableIds
+  unless allIds.size == decision.semanticCallableCount &&
+        allIds.all (fun callableId => callableId < decision.semanticCallableCount) &&
+        (List.range decision.semanticCallableCount).all
+          (fun callableId => allIds.contains callableId) do
+    throw <| .planInvariant .near
+      "NEAR invariant-erasure callable ids must form the exact dense semantic partition"
+
 /-- Whether any statement tree contains a schedule→promise lowering. -/
 def validatePlan (plan : Plan) : CompileResult Unit := do
   let expectedImports := hostImportsFor (planUsesSchedulePromiseV1 plan)
@@ -592,6 +651,12 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   if plan.programName.toUTF8.size > plan.resourceLimits.maxArtifactStemBytes then
     throw <| .planInvariant .near
       s!"program name exceeds artifact-stem limit {plan.resourceLimits.maxArtifactStemBytes} bytes"
+  unless Plan.hasValidInvariantErasureBindingV1 plan do
+    throw <| .planInvariant .near
+      "NEAR invariant-erasure decision is missing or diverges from its capability-derived Plan binding"
+  match plan.invariantErasure? with
+  | none => pure ()
+  | some decision => validateInvariantErasureDecisionV1 plan decision
   validateStorageLayout plan.resourceLimits plan.storage
   if plan.entries.isEmpty || plan.entries.size > plan.resourceLimits.maxEntries then
     throw <| .planInvariant .near "entry count is outside the profile limits"

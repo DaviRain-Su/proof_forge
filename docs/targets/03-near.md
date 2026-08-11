@@ -3,7 +3,7 @@ id: TARGET-NEAR
 title: NEAR target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-06
+updated: 2026-08-11
 normative: true
 ---
 
@@ -34,7 +34,19 @@ Phase 1：实现
 - WAT 发射 + locked `wat2wasm` 结构编译；`NearWasmAcceptance` 另需 host-optional
   `wasm-interp`/`wasmtime`/`wasmer` 之一做 runtime load；locked near-sandbox 2.13.0 的
   `runtime-tests/near` 已覆盖 Counter init/mutate/view、overflow state-hold+recovery、PairRet、
-  ArrayRet、OptionRet 与 OptionState 的工程路径。
+  ArrayRet、OptionRet 与 OptionState；proof-bearing `VerifiedVaultPF` corpus 已接线，但本次
+  GLIBC 2.36 host 不能运行要求 GLIBC 2.38/2.39 的 locked near-sandbox binary，尚待兼容 runner
+  执行。
+- **Proof-bearing invariant-root erasure（ADR-0042）**：普通 capability + nonempty invariants
+  仍 fail closed；只有 private audited `CertifiedInlineProofV1` 在 source/semantic digest exact
+  match、每个 invariant 有完整 preserving coverage 时可 mint NEAR-only authorization。
+  version `proof-forge.near.invariant-root-erasure.v1` 的 Plan attestation 绑定 proof digest 与
+  exact callable partition；只擦除 invariant roots，initializer/entry/view/pureFn 与原 callable id
+  保留。`VerifiedVaultPF` 的真实 ABI/Wasm build 只导出 init/deposit/withdraw/status；sandbox
+  suite 将直接观察 reserves/shares 两个 KV slots 相等及 overflow/guard failure rollback，但
+  当前 host ABI 阻塞尚未执行。当前可声明 **Reference-verified + NEAR artifact built**；只有
+  compatible runner 通过后才升级为 **NEAR engineering runtime observed**。二者都不是 formal
+  target refinement。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -89,8 +101,10 @@ Phase 1：实现
   state 保持，正确 caller 推进 state。该门验证 receipt/predecessor 绑定，不是
   Reference↔sandbox formal 差分或 testnet/mainnet 证据。
 
-**明确未闭合**：near-sandbox 门不是 Reference↔Wasm/sandbox formal 差分，仍不覆盖 corrupt
-storage、bad input 或 gas/profile；Option params、非 UInt64/nested Option、Map/Bytes/nested aggregate
+**明确未闭合**：near-sandbox 门不是 Reference↔Wasm/sandbox formal 差分；VerifiedVaultPF
+exact slots 与 overflow/guard rollback corpus 已接线，但本次 host ABI 阻塞，尚未形成 runtime
+observation。通用 corpus 也仍不完整覆盖 corrupt storage、bad input 或 gas/profile；Option
+params、非 UInt64/nested Option、Map/Bytes/nested aggregate
 return 仍 fail-closed；ContextRead 已开放 `unixTimeSeconds`、view-safe `blockHeight` 与
 init/entry `caller`，但 view caller、其他键及 blockHeight 的专门 sandbox runtime 仍缺；formal
 identity/OutputSet / D6 milestone 未完成。不得写成 formal runtime-validated。
@@ -134,6 +148,12 @@ literal/param/state/checked-add/sub/store/return、init、entry 和 view。`Near
 每个 `StateId` 的 KV binding、初始化 marker、host imports、method mode/body、trap/deposit policy 和
 receipt-local commit assumption；不得保留整个 `SemanticProgram`，renderer 也不得重新推导
 业务逻辑。
+
+当 ADR-0042 authorization 存在时，`NearPlan` 还必须携 versioned
+`InvariantErasureDecisionV1`：source/semantic/proof digests 与 initializer/method/pureFn/erased-root
+dense callable partition 都由 validated semantics 推导并进入 canonical Plan digest。没有
+authorization、coverage 不完整、digest mismatch 或 public Plan partition mutation 一律 fail closed；
+historical no-invariant Plan canonical bytes 保持不变。
 
 后续 Promise slice 仍须在 Plan 中明确每个 dependency、callback result index、gas/deposit 和
 receipt commit boundary。不能把 Promise 串编码成通用 effect 字符串，也不能把它塞进本切片

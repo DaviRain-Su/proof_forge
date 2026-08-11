@@ -1,6 +1,11 @@
 import Lean.Elab.Frontend
 import Lean.Parser.Module
-import ProofForgeV2.Language.ProgramElaborationV1
+
+/- The product `ProductParserSessionV1` loads the locked
+   `ProofForgeV2.Language.ProgramElaborationV1.olean` into the supplied base
+   Environment. This module deliberately does not import that command module
+   statically: doing so would leak the DSL's command keywords into every
+   downstream consumer of the certificate carrier. -/
 
 /-!
 # InlineProofElaborationV1

@@ -169,8 +169,10 @@ ProofForge 目标
 6. [`Examples/MiniAmmL1.lean`](../../Examples/MiniAmmL1.lean) 当前只有 executable
    `emptyPool` invariant 与 Normalize/Reference admission 正例，没有同文件 proof binding 和完整
    `PreservationTheoremV1`；`MiniAmmEmptyPoolV1` 又只是缩小的 closed instance，不能冒充完整 vault。
-7. 多数 target 仍对 nonempty invariants fail closed；proof-bearing program 还不能自然地
-   `check` 后继续 deploy artifact。
+7. 多数 target 仍对 nonempty invariants fail closed；NEAR 已按 ADR-0042 首切开放
+   proof-bearing invariant-root erasure，要求 private certificate、exact source/semantic binding、
+   complete preserving coverage 与 versioned Plan partition。普通 capability 与其他 target 仍
+   fail closed。
 8. 尚无 Reference→target artifact 的完整 refinement theorem，故当前最多声明
    “Reference semantics 上已认证”，不能声明 emitted Wasm/EVM/SBPF 已形式化验证。
 
@@ -592,10 +594,13 @@ certification elaboration 阶段 fail closed。
   deposit + 双 guard checked-sub Unit withdraw + read-only status + equality invariant 已完成；
   exact subject、positive Reference admission、sole Reference execution、五 callable preservation、
   same-file theorem、product certifier 与真实 CLI `check` 已闭环。
-- **Phase 6B — proof-bearing target build/runtime**：当前 ADR-0034 与各 target contract 明确保持
-  nonempty invariant materialization fail closed。本 draft 不能覆盖该规则。进入 6B 代码前，必须
-  先提交并批准独立 ADR/target-spec amendment，冻结 versioned proof-only invariant erasure Plan；
-  在该变更获批前，proof-bearing target build 继续 fail closed。
+- **Phase 6B — proof-bearing target build/runtime**：ADR-0042 与 NEAR target amendment 已落库，
+  并按 private certificate authority、exact digest/coverage binding、derived callable partition、
+  canonical Plan attestation 与 ordinary-path fail-closed 实现。`VerifiedVaultPF build --target near`
+  已用 locked `wat2wasm` 产出 deployable Wasm/ABI；runtime corpus 已接入 exact KV slots、Unit
+  withdraw、overflow/guard rollback 与 missing invariant export。当前 orb 的 locked
+  near-sandbox 2.13.0 要求 GLIBC 2.38/2.39，而 host 是 GLIBC 2.36，故本次尚未执行 sandbox
+  assertions；在兼容 runner 上通过之前，6B 不标记完成，也不声明 runtime observed。
 
 6A/6B 最终共同交付一个真实单文件样例，不使用缩小 golden 替代完整业务程序：
 
@@ -627,7 +632,8 @@ certification elaboration 阶段 fail closed。
 - `check`：同文件 proof certified；
 - `build --target near`：证明门先通过，artifact 来源仍是 exact compiled semantic；
 - locked NEAR runtime/differential 覆盖 init/deposit/withdraw/status、overflow/underflow rollback；
-- 声明仍是 “Reference-verified + NEAR engineering runtime observed”，不是 target-refined formal。
+- 兼容 runner 实际通过前只声明 “Reference-verified + NEAR artifact engineering built”；通过后
+  才能升级为 runtime-observed engineering evidence，两者都不是 target-refined formal。
 
 ### Phase 7 — Reference → target refinement（独立长期轨道）
 
@@ -732,7 +738,7 @@ certification elaboration 阶段 fail closed。
 | 4 | Generic preservation composition | **进行中（VerifiedVault 五 callable narrow family 已闭环）** | composer、finite-row assembler、typed returned lift、UInt64 参数投影及 literal-true 程序级闭环已有；除 `sync(amount)` 外，双槽位同参数 checked-add deposit 与双 guard checked-sub Unit withdraw 已经沿唯一 Reference step 证明 returned post-state两字段相等，assert/overflow/revert/trap 由唯一事务语义保持 exact pre，并由 name-parameterized production validation/admission family、initializer base 与五个 exact rows 组装成最终 `PreservationTheoremV1`。arbitrary contract coverage 仍待补 |
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
-| 6B | authority amendment + NEAR build/runtime | 未开始 | 先批准 versioned invariant-erasure contract，再完成 proof-bearing build + runtime differential；诚实标注 Reference-level + engineering observed |
+| 6B | authority amendment + NEAR build/runtime | **进行中（ADR/Plan/build 已闭环；sandbox host ABI 阻塞）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 与 runtime corpus 已接线；当前 GLIBC 2.36 不能运行要求 2.38/2.39 的 locked near-sandbox 2.13.0，须在兼容 runner 通过 exact slots/rollback suite 后才能标记 engineering observed |
 | 7 | Per-target refinement | 未开始 | target-specific refinement evidence逐个关闭 |
 
 ### 首个代码切片进展
@@ -1028,10 +1034,14 @@ expression translator：
     正例同样 certified。除既有 deposit near miss 外，漏掉 withdraw 第二个 sub/store、读取错误
     subtraction 源/槽位、漏掉或反转 assert、用覆盖赋值替代 subtraction、改变 withdraw result
     shape 或 callable order 的 typed-valid near miss 都在 certification elaboration fail closed；
-15. Phase 6A 的完整 Vault 业务窄切片已经达到 `reference-certified`，但 proof-bearing target build
-    仍受 invariant-erasure authority gate 阻止，arbitrary callable/expression family 也尚未完成。
-    因此不能把这一条 exact family 宣传成“任意业务合约都已自动可证”，更不能声称 emitted
-    target artifact 已形式化验证；Phase 6B 与 Phase 7 的边界保持不变。
+15. Phase 6A 的完整 Vault 业务窄切片已经达到 `reference-certified`。Phase 6B 已按 ADR-0042
+    让 sole ordinary capability mint 经 private certificate authorization transition 获得 NEAR-only
+    invariant-root erasure authority；Plan digest 绑定 exact proof digest/callable partition，真实
+    CLI build 已产出只导出 init/deposit/withdraw/status 的 Wasm/ABI，`solvent` 仍只属于 compile-time
+    proof subject。near-sandbox exact slots/rollback corpus 已接线，但本次 orb 的 GLIBC 2.36 无法
+    启动要求 GLIBC 2.38/2.39 的 locked binary，因此尚不能声明 runtime observed。此外，
+    arbitrary callable/expression family 与 formal target refinement 也仍未完成；不能把这一条
+    exact family 宣传成“任意业务合约都已自动可证”，更不能声称 emitted target artifact 已形式化验证。
 
 ---
 

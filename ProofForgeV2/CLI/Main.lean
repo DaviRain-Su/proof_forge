@@ -200,6 +200,21 @@ private def failInlineProofV1
     (stableContext := some "inline-proof-certifier")
   failBundle (mkFailureBundleV1 #[diagnostic])
 
+/-- Held proof gate for the remainder of one product command. Unlike the
+    display-only ProductProofStatusV1, the certified branch retains the private
+    certifier capability until target capability mint. -/
+private inductive ProductInlineProofGateV1 where
+  | notRequired
+  | certified (certificate : CertifiedInlineProofV1)
+
+private def ProductInlineProofGateV1.status : ProductInlineProofGateV1 →
+    ProductProofStatusV1
+  | .notRequired => .notRequired
+  | .certified certificate =>
+      .certified
+        (CertifiedInlineProofV1.theoremCount certificate)
+        (CertifiedInlineProofV1.proofCertificationDigest certificate)
+
 /-- Run the product inline certifier on the held raw source + compile carrier.
     `.failed` → stable PF-SRC-INVALID exit 3.
     `.noProof` → explicit ProductProofStatusV1.notRequired (never forged certified).
@@ -214,17 +229,14 @@ private unsafe def certifyProductInlineProofV1
     (sourcePath : ProjectRelativePath)
     (moduleSelector : String)
     (programSelector : Option String) :
-    IO ProductProofStatusV1 := do
+    IO ProductInlineProofGateV1 := do
   let outcome ← certifyInlineProofV1
     productSession rawSource sourceProgram origins theorems compiled
     sourcePath moduleSelector programSelector
   match outcome with
   | .failed phase detail => failInlineProofV1 sourcePath phase detail
-  | .noProof => pure ProductProofStatusV1.notRequired
-  | .certified certified =>
-      pure (ProductProofStatusV1.certified
-        (CertifiedInlineProofV1.theoremCount certified)
-        (CertifiedInlineProofV1.proofCertificationDigest certified))
+  | .noProof => pure .notRequired
+  | .certified certified => pure (.certified certified)
 
 private def liftCompileResult (result : Except CompileError α) : IO α :=
   match result with
@@ -308,15 +320,23 @@ private unsafe def buildSource (options : BuildOptions) : IO Unit := do
   | .ok compiled =>
       -- Inline certifier owns product proof gating (private capability only).
       -- Structural ambient ProofBundle join remains deleted.
-      let _proofStatus ← certifyProductInlineProofV1
+      let proofGate ← certifyProductInlineProofV1
         productSession rawSource sourceProgram origins theorems compiled
         sourcePath moduleName options.programName
       let selection ← resolveBuildSelectionForCli options
       -- Product phase: capability → emit/finalize/disk closure.
       -- Selected codegen profile is bound by selection and flows into the
       -- capability / OutputSet `codegenProfile` field.
-      let capability ← liftCompileResult
+      let ordinaryCapability ← liftCompileResult
         (Targets.resolveEngineeringRequirementsV1 selection compiled)
+      let capability ← liftCompileResult <| match proofGate with
+        | .certified certificate =>
+            if ResolvedBuildSelectionV1.kindOf selection == .near then
+              Targets.authorizeCertifiedNearInvariantErasureV1
+                ordinaryCapability certificate
+            else
+              pure ordinaryCapability
+        | .notRequired => pure ordinaryCapability
       let requestedOutput := FilePath.mk (options.output.getD "build/v2")
       let outputPath :=
         if requestedOutput.isAbsolute then requestedOutput else root / requestedOutput
@@ -367,16 +387,25 @@ private unsafe def checkSource (options : BuildOptions) : IO Unit := do
   match Compiler.compileProgramProductV1 sourceProgram origins with
   | .error bundle => failBundle bundle
   | .ok compiled =>
-      let proofStatus ← certifyProductInlineProofV1
+      let proofGate ← certifyProductInlineProofV1
         productSession rawSource sourceProgram origins theorems compiled
         sourcePath moduleName options.programName
+      let proofStatus := proofGate.status
       let selection? ← resolveOptionalSelectionForCheck options
       let target? := selection?.map ResolvedBuildSelectionV1.targetIdOf
       let profile? := selection?.map ResolvedBuildSelectionV1.codegenProfileOf
       match selection? with
       | some selection =>
-          let _capability ← liftCompileResult
+          let ordinaryCapability ← liftCompileResult
             (Targets.resolveEngineeringRequirementsV1 selection compiled)
+          let _capability ← liftCompileResult <| match proofGate with
+            | .certified certificate =>
+                if ResolvedBuildSelectionV1.kindOf selection == .near then
+                  Targets.authorizeCertifiedNearInvariantErasureV1
+                    ordinaryCapability certificate
+                else
+                  pure ordinaryCapability
+            | .notRequired => pure ordinaryCapability
           pure ()
       | none => pure ()
       enforceWallBudgetV1 options startedMs

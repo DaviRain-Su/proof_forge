@@ -328,9 +328,10 @@ structure LeafAbiType where
   byteWidth : Nat
   deriving BEq, Inhabited, Repr
 
-/-- Result kind of a NEAR method export. Init is always unit; entry/view may be
-UInt{8,16,32,64}/Bool/Int64 (T9a). UInt64/Int64/Bool wire as 8-byte little-endian
-i64 (Bool is 0/1); UInt{8,16,32} wire as 1/2/4-byte LE payloads. ABI JSON
+/-- Result kind of a NEAR method export. Init and admitted effect-only entries
+may be unit; other entry/view methods may be UInt{8,16,32,64}/Bool/Int64
+(T9a). UInt64/Int64/Bool wire as 8-byte little-endian i64 (Bool is 0/1);
+UInt{8,16,32} wire as 1/2/4-byte LE payloads. ABI JSON
 `returns` distinguishes the declared type. B-RET-ABI adds `.aggregate` for
 named Struct/Enum and admitted anonymous Array/Option entry/view returns:
 consecutive 8-byte LE leaves in preorder flatten order (1..8 leaves); ABI JSON
@@ -382,6 +383,34 @@ structure InterfaceBinding where
   fieldCount : Nat
   deriving BEq, Inhabited, Repr
 
+/-- Versioned policy for the first proof-bearing NEAR materialization slice. -/
+def invariantErasurePlanVersionV1 : String :=
+  "proof-forge.near.invariant-root-erasure.v1"
+
+/-- Explicit Plan attestation that compile-time invariant roots were removed
+    only after an exact audited preserving certificate. Callable-id arrays are
+    derived from the validated semantic table and form a dense partition. -/
+structure InvariantErasureDecisionV1 where
+  version : String
+  sourceDigest : ProofForgeV2.Core.Common.Digest
+  semanticDigest : ProofForgeV2.Core.Common.Digest
+  proofCertificationDigest : ProofForgeV2.Core.Common.Digest
+  semanticCallableCount : Nat
+  retainedInitializerCallableId : Nat
+  retainedMethodCallableIds : Array Nat
+  retainedPureFnCallableIds : Array Nat
+  erasedInvariantCallableIds : Array Nat
+  deriving BEq, Repr
+
+/-- Private tamper seal over the complete erasure-bearing Plan value. It is not
+    part of canonical Plan bytes; those already encode the public decision.
+    The seal prevents callers holding a valid Plan from replacing/dropping the
+    derived decision or replaying it onto a different Plan before validation. -/
+structure InvariantErasurePlanSealV1 where
+  private mk ::
+  private planDigest_ : ProofForgeV2.Core.Common.Digest
+  deriving BEq, Repr
+
 /-- The NEAR-owned KV, raw ABI, method, and error policy for the supported
 UInt64 (+ Bool result) fragment. It deliberately retains no SemanticProgram. -/
 structure Plan where
@@ -402,8 +431,37 @@ structure Plan where
   fns : Array FnBinding
   initializer : Method
   entries : Array Method
+  /-- `none` preserves the historical Plan bytes. `some` is the versioned,
+      proof-bound invariant-root erasure decision and is encoded as an appended
+      Plan extension. -/
+  invariantErasure? : Option InvariantErasureDecisionV1 := none
+  /-- Private capability-derived binding over this full Plan with the seal
+      cleared. Historical/non-erasure Plans keep `none`. -/
+  private invariantErasureSeal_ : Option InvariantErasurePlanSealV1 := none
   -- No Inhabited: Plan embeds TargetDescriptor (opaque TargetId/profile).
   deriving BEq, Repr
+
+namespace Plan
+
+private def invariantErasureBindingDigestV1 (plan : Plan) :
+    ProofForgeV2.Core.Common.Digest :=
+  ProofForgeV2.Core.Common.sha256Bytes
+    (reprStr { plan with invariantErasureSeal_ := none }).toUTF8
+
+private def withInvariantErasureSealV1 (plan : Plan) : Plan :=
+  { plan with invariantErasureSeal_ := some ⟨invariantErasureBindingDigestV1 plan⟩ }
+
+/-- Structural Plan mutation gate for proof-bearing erasure. Only capability
+    lowering can mint the private seal; every public Plan field, including the
+    callable partition and handler bodies, is covered by its digest. -/
+def hasValidInvariantErasureBindingV1 (plan : Plan) : Bool :=
+  match plan.invariantErasure?, plan.invariantErasureSeal_ with
+  | none, none => true
+  | some _, some binding =>
+      binding.planDigest_ == invariantErasureBindingDigestV1 plan
+  | _, _ => false
+
+end Plan
 
 structure RegisterLayout where
   input : Nat
@@ -3829,7 +3887,9 @@ private def makeEntryV1
   -- Map/Bytes/nested/narrow-element anonymous returns fail closed in
   -- aggregateResultKindOfV1 with precise messages.
   let (resultKind, expectedReturn) ←
-    if isAggregateResultCandidateV1 typeDecls types callable.result.typeId then
+    if types.unitTypeId == some callable.result.typeId && callable.kind == .entry then
+      pure (MethodResultKind.unit, ExpectedReturnV1.none_)
+    else if isAggregateResultCandidateV1 typeDecls types callable.result.typeId then
       let kind ← aggregateResultKindOfV1 typeDecls types s!"entry '{name}'"
         callable.result.typeId
       match kind with
@@ -4282,10 +4342,30 @@ private def buildNearFnEnvV1
 /-- NEAR-private retained SemanticProgramV1 data → target-owned Plan pilot. -/
 
 private def makePlanFromSemanticDataV1
-    (source : SemanticProgramDataV1) : CompileResult Plan := do
-  if !source.constants.isEmpty || !source.invariants.isEmpty then
+    (source : SemanticProgramDataV1)
+    (erasureAuthorization? : Option NearInvariantErasureAuthorizationV1) :
+    CompileResult Plan := do
+  if !source.constants.isEmpty then
     throw <| .planInvariant .near
-      "unsupported NEAR semantic shape: constants/invariants are outside the current UInt64 pilot"
+      "unsupported NEAR semantic shape: constants are outside the current UInt64 pilot"
+  let erasureAuthorization? ←
+    if source.invariants.isEmpty then
+      match erasureAuthorization? with
+      | none => pure none
+      | some _ =>
+          throw <| .planInvariant .near
+            "proof-only invariant erasure authorization requires nonempty invariants"
+    else
+      match erasureAuthorization? with
+      | none =>
+          throw <| .planInvariant .near
+            "nonempty invariants require proof-bearing NEAR invariant-root erasure authorization"
+      | some authorization =>
+          unless NearInvariantErasureAuthorizationV1.invariantCount authorization ==
+                source.invariants.size do
+            throw <| .planInvariant .near
+              "proof-bearing invariant count does not bind the validated semantic table"
+          pure (some authorization)
   -- init + entries + pureFns share the profile budget (maxEntries each class,
   -- plus one initializer); total still fails closed above 2·maxEntries + 1.
   if source.callables.size > maxEntries + maxEntries + 1 then
@@ -4308,28 +4388,62 @@ private def makePlanFromSemanticDataV1
   let programName := components.back!
   let fnEnv ← buildNearFnEnvV1 types source.callables
   let mut initializer : Option Method := none
+  let mut initializerCallableId : Option Nat := none
   let mut entries : Array Method := #[]
+  let mut retainedMethodCallableIds : Array Nat := #[]
   let mut fns : Array FnBinding := #[]
+  let mut retainedPureFnCallableIds : Array Nat := #[]
+  let mut erasedInvariantCallableIds : Array Nat := #[]
   for callable in source.callables do
     match callable.kind with
     | .initializer =>
         if initializer.isSome then
           throw <| .planInvariant .near "semantic program has multiple initializers"
         initializer := some (← makeInitializerV1 types typeDecls storage fnEnv callable)
+        initializerCallableId := some callable.id.toNat
     | .entry | .view =>
         if entries.size >= maxEntries then
           throw <| .planInvariant .near s!"entry count exceeds profile limit {maxEntries}"
         entries := entries.push (← makeEntryV1 types typeDecls storage fnEnv callable)
+        retainedMethodCallableIds := retainedMethodCallableIds.push callable.id.toNat
     | .pureFn =>
         if fns.size >= maxEntries then
           throw <| .planInvariant .near s!"pureFn count exceeds profile limit {maxEntries}"
         fns := fns.push (← makePureFnV1 types typeDecls storage fnEnv callable)
+        retainedPureFnCallableIds := retainedPureFnCallableIds.push callable.id.toNat
     | .invariant =>
-        throw <| .planInvariant .near
-          "unsupported NEAR semantic shape: invariants are outside the current UInt64 pilot"
+        erasedInvariantCallableIds := erasedInvariantCallableIds.push callable.id.toNat
   let resolvedInitializer ← match initializer with
     | some value => pure value
     | none => throw <| .planInvariant .near "KV-state programs require an initializer"
+  let resolvedInitializerCallableId ← match initializerCallableId with
+    | some value => pure value
+    | none => throw <| .planInvariant .near "KV-state programs require an initializer CallableId"
+  let invariantErasure? ← match erasureAuthorization? with
+    | none =>
+        unless erasedInvariantCallableIds.isEmpty do
+          throw <| .planInvariant .near
+            "invariant roots cannot be erased without proof-bearing authorization"
+        pure none
+    | some authorization => do
+        let declaredInvariantCallableIds :=
+          source.invariants.map (fun invariant => invariant.callableId.toNat)
+        unless !erasedInvariantCallableIds.isEmpty &&
+              erasedInvariantCallableIds == declaredInvariantCallableIds do
+          throw <| .planInvariant .near
+            "erased invariant roots do not exactly match the validated InvariantDecl table"
+        pure (some {
+          version := invariantErasurePlanVersionV1
+          sourceDigest := NearInvariantErasureAuthorizationV1.sourceDigest authorization
+          semanticDigest := NearInvariantErasureAuthorizationV1.semanticDigest authorization
+          proofCertificationDigest :=
+            NearInvariantErasureAuthorizationV1.proofCertificationDigest authorization
+          semanticCallableCount := source.callables.size
+          retainedInitializerCallableId := resolvedInitializerCallableId
+          retainedMethodCallableIds
+          retainedPureFnCallableIds
+          erasedInvariantCallableIds
+        })
   let usesSchedulePromise :=
     statementsUseSchedulePromiseV1 resolvedInitializer.body ||
       entries.any (fun m => statementsUseSchedulePromiseV1 m.body) ||
@@ -4378,11 +4492,16 @@ private def makePlanFromSemanticDataV1
     fns
     initializer := resolvedInitializer
     entries
+    invariantErasure?
   }
-  pure plan
+  pure <| match invariantErasure? with
+    | none => plan
+    | some _ => Plan.withInvariantErasureSealV1 plan
 
 private def makePlanFromSemanticV1
-    (source : SemanticProgramV1) : CompileResult Plan := do
+    (source : SemanticProgramV1)
+    (erasureAuthorization? : Option NearInvariantErasureAuthorizationV1) :
+    CompileResult Plan := do
   -- Semantic structure was validated once at the capability mint
   -- (resolveEngineeringRequirementsV1 → validateSemanticProgramV1); the
   -- carrier is private-ctor so re-validation here is redundant. Transport
@@ -4391,7 +4510,7 @@ private def makePlanFromSemanticV1
     | .ok value => pure value
     | .error _ =>
         throw <| .invalidProgram "NEAR received an invalid SemanticProgramV1 carrier"
-  makePlanFromSemanticDataV1 data
+  makePlanFromSemanticDataV1 data erasureAuthorization?
 
 /-- Internal Near family phase entry: capability → Plan (pre-canonicity). -/
 def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : CompileResult Plan := do
@@ -4400,5 +4519,6 @@ def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : 
   let source := CompiledSemanticV1.semanticV1Of
     (ResolvedEngineeringBuildV1.compiledOf capability)
   makePlanFromSemanticV1 source
+    (ResolvedEngineeringBuildV1.nearInvariantErasureAuthorization? capability)
 
 end ProofForgeV2.Targets.Near
