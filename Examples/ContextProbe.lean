@@ -41,6 +41,11 @@ program ContextProbe where
     last := h
     return h
 
+  entry snapSessionRoot() : UInt64 do
+    let r : UInt64 := call pf.context.sessionProofTreeRoot()
+    last := r
+    return r
+
   view get() : UInt64 do
     return last
 end Examples

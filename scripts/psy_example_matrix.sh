@@ -108,17 +108,18 @@ for entry in "${mods[@]}"; do
           ;;
         ContextProbe)
           python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" --json \
-            --call initialize --call snapUser --call snapCheckpoint --call snapUserPk --call get \
+            --call initialize --call snapUser --call snapCheckpoint --call snapUserPk --call snapSessionRoot --call get \
             >/tmp/psy-mat-session-$name.json \
-            && python3 -I -S -c "import json;d=json.load(open('/tmp/psy-mat-session-ContextProbe.json'));assert d['calls'][1]['outputs']==[1] and d['calls'][2]['outputs']==[100] and d['calls'][3]['outputs']==[0]" \
-            && echo "  OK session context ids+pk" || { echo "  FAIL session context"; fail=$((fail+1)); continue; }
+            && python3 -I -S -c "import json;d=json.load(open('/tmp/psy-mat-session-ContextProbe.json'));assert d['calls'][1]['outputs']==[1] and d['calls'][2]['outputs']==[100] and d['calls'][3]['outputs']==[0] and d['calls'][4]['outputs']==[0]" \
+            && echo "  OK session context ids+pk+root" || { echo "  FAIL session context"; fail=$((fail+1)); continue; }
           ;;
         ImtProbe)
           python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" --json \
-            --call initialize --call put:7,42 --call get:7 --call has:7 --call get:9 \
+            --call initialize --call put:7,42 --call get:7 --call has:7 \
+            --call getExt:1,7 --call getOther:1,1,7 --call hasOther:1,1,7 --call get:9 \
             >/tmp/psy-mat-session-$name.json \
-            && python3 -I -S -c "import json;d=json.load(open('/tmp/psy-mat-session-ImtProbe.json'));assert d['calls'][1]['outputs']==[42] and d['calls'][2]['outputs']==[42] and d['calls'][3]['outputs']==[1] and d['calls'][4]['outputs']==[0]" \
-            && echo "  OK session IMT put/get/has" || { echo "  FAIL session IMT"; fail=$((fail+1)); continue; }
+            && python3 -I -S -c "import json;d=json.load(open('/tmp/psy-mat-session-ImtProbe.json'));assert d['calls'][1]['outputs']==[42] and d['calls'][2]['outputs']==[42] and d['calls'][3]['outputs']==[1] and d['calls'][4]['outputs']==[42] and d['calls'][5]['outputs']==[42] and d['calls'][6]['outputs']==[1] and d['calls'][7]['outputs']==[0]" \
+            && echo "  OK session IMT self+ext+other" || { echo "  FAIL session IMT"; fail=$((fail+1)); continue; }
           ;;
       esac
       ok=$((ok+1))

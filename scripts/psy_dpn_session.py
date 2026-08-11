@@ -335,7 +335,15 @@ class Executor:
             elif op == 49:  # getNonce
                 self.put(dt, idx, 0)
             elif op == 50:  # getUserPublicKeyHash (first limb; simulate default 0)
+                if dt == DT_HASH:
+                    self.hash_vals[idx] = [0, 0, 0, 0]
                 self.put(dt, idx, 0)
+            elif op == 80:  # getSessionProofTreeRoot (HashOut; default [0;4])
+                if dt == DT_HASH:
+                    self.hash_vals[idx] = [0, 0, 0, 0]
+                    self.put(dt, idx, 0)
+                else:
+                    self.put(dt, idx, 0)
             elif op == 79:  # getCallerContractId
                 self.put(dt, idx, 0)
             elif op in (53, 54, 55):
@@ -610,6 +618,60 @@ class Executor:
                 {
                     "command_index": i,
                     "command_type": ctype,
+                    "key": key,
+                    "value": [exists],
+                }
+            )
+        elif ctype == "GetSelfUserExternalIMTContractStateValue":
+            cid = self.g(int(cmd.get("contract_id", 0)))
+            key = [self.g(int(x)) for x in (cmd.get("key") or [0, 0, 0, 0])]
+            while len(key) < 4:
+                key.append(0)
+            val = self.s.imt_get(self.user_id, cid, key)
+            self.cmd_res[i] = list(val)
+            self.reads.append(
+                {
+                    "command_index": i,
+                    "command_type": ctype,
+                    "user_id": self.user_id,
+                    "contract_id": cid,
+                    "key": key,
+                    "value": list(val),
+                }
+            )
+        elif ctype == "GetOtherUserIMTContractStateValue":
+            uid = self.g(int(cmd.get("user_id", 0)))
+            cid = self.g(int(cmd.get("contract_id", 0)))
+            key = [self.g(int(x)) for x in (cmd.get("key") or [0, 0, 0, 0])]
+            while len(key) < 4:
+                key.append(0)
+            val = self.s.imt_get(uid, cid, key)
+            self.cmd_res[i] = list(val)
+            self.reads.append(
+                {
+                    "command_index": i,
+                    "command_type": ctype,
+                    "user_id": uid,
+                    "contract_id": cid,
+                    "key": key,
+                    "value": list(val),
+                }
+            )
+        elif ctype == "ContainsOtherUserIMTContractStateValue":
+            uid = self.g(int(cmd.get("user_id", 0)))
+            cid = self.g(int(cmd.get("contract_id", 0)))
+            key = [self.g(int(x)) for x in (cmd.get("key") or [0, 0, 0, 0])]
+            while len(key) < 4:
+                key.append(0)
+            val = self.s.imt_get(uid, cid, key)
+            exists = 0 if val == [0, 0, 0, 0] else 1
+            self.cmd_res[i] = [exists]
+            self.reads.append(
+                {
+                    "command_index": i,
+                    "command_type": ctype,
+                    "user_id": uid,
+                    "contract_id": cid,
                     "key": key,
                     "value": [exists],
                 }

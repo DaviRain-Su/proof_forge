@@ -253,7 +253,7 @@ def main() -> int:
             },
             {
                 "id": "IMT-state-cmds",
-                "status": "self-current open: Set/Get/Contains via pf.imt.set|get|contains (ImtProbe); external/other-user IMT + CalculateMerkleRoot still FC",
+                "status": "self+external+other-user open via pf.imt.* (ImtProbe); CalculateMerkleRoot still FC (official todo!)",
             },
             {
                 "id": "external-call-result",
@@ -269,7 +269,7 @@ def main() -> int:
             },
             {
                 "id": "ContextRead-Commit",
-                "status": "EVM context.* FC; pf.context.userId|contractId|checkpointId|nonce|callerContractId|userPublicKeyHash open (ContextProbe); sessionProofTreeRoot/merkle FC",
+                "status": "EVM context.* FC; pf.context.* ids+userPublicKeyHash+sessionProofTreeRoot(limb0) open (ContextProbe); Commit/merkle FC",
             },
             {
                 "id": "wide-u128-u256",

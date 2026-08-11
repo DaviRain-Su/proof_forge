@@ -237,6 +237,18 @@ inductive StateCmdV1 where
       (baseOffset capacity : UInt64) (key : Array UInt64)
   | containsSelfUserCurrentIMTContractStateValue
       (baseOffset capacity : UInt64) (key : Array UInt64)
+  /-- Self-user external-contract IMT read. `contractStateTreeHeight` is a
+      static u8 (circuit param); software simulate ignores it for storage. -/
+  | getSelfUserExternalIMTContractStateValue
+      (contractId baseOffset capacity : UInt64)
+      (key : Array UInt64) (contractStateTreeHeight : UInt8)
+  /-- Other-user IMT read (cross-user). -/
+  | getOtherUserIMTContractStateValue
+      (userId contractId baseOffset capacity : UInt64)
+      (key : Array UInt64) (contractStateTreeHeight : UInt8)
+  | containsOtherUserIMTContractStateValue
+      (userId contractId baseOffset capacity : UInt64)
+      (key : Array UInt64) (contractStateTreeHeight : UInt8)
   deriving DecidableEq, Repr
 
 structure FunctionCircuitDefV1 where

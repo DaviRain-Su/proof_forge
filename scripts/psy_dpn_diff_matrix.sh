@@ -357,7 +357,7 @@ info "OK session hash gadgets fail-closed"
 
 # --- ContextProbe (P3 partial: DPN ExecutionContext ids) ---
 dpn_x=$(build_ex ContextProbe Examples.ContextProbe)
-for pair in "ctx-user:snapUser:1" "ctx-contract:snapContract:1" "ctx-cp:snapCheckpoint:100" "ctx-nonce:snapNonce:0" "ctx-caller:snapCallerContract:0" "ctx-pk:snapUserPk:0"; do
+for pair in "ctx-user:snapUser:1" "ctx-contract:snapContract:1" "ctx-cp:snapCheckpoint:100" "ctx-nonce:snapNonce:0" "ctx-caller:snapCallerContract:0" "ctx-pk:snapUserPk:0" "ctx-root:snapSessionRoot:0"; do
   tag="${pair%%:*}"; rest="${pair#*:}"; method="${rest%%:*}"; want="${rest##*:}"
   diff_pair "$tag" "$dpn_x" "$method"
   python3 -I -S - "$out/off-${tag}.json" "$want" <<'PYC'
@@ -371,7 +371,7 @@ PYC
 done
 info "session continuity ContextProbe snaps"
 python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_x" --json \
-  --call initialize --call snapUser --call snapCheckpoint --call snapUserPk --call get \
+  --call initialize --call snapUser --call snapCheckpoint --call snapUserPk --call snapSessionRoot --call get \
   >"$out/session-ctx.json"
 python3 -I -S - "$out/session-ctx.json" <<'PYC'
 import json,sys
@@ -380,35 +380,50 @@ assert d["calls"][1]["outputs"]==[1]
 assert d["calls"][2]["outputs"]==[100]
 assert d["calls"][3]["outputs"]==[0]
 assert d["calls"][4]["outputs"]==[0]
-print("OK session context continuity (incl userPublicKeyHash=0)")
+assert d["calls"][5]["outputs"]==[0]
+print("OK session context continuity (pk+sessionRoot=0)")
 PYC
 
-# --- ImtProbe (IMT self-current subset) ---
+# --- ImtProbe (IMT self-current + external/other-user) ---
 dpn_i=$(build_ex ImtProbe Examples.ImtProbe)
-info "official ImtProbe put/get/has"
+info "official ImtProbe put/get/has/ext"
 diff_pair "imt-put" "$dpn_i" put --inputs 7 --inputs 42
 diff_pair "imt-get-empty" "$dpn_i" get --inputs 7
-python3 -I -S - "$out/off-imt-put.json" "$out/off-imt-get-empty.json" <<'PYI'
+diff_pair "imt-getext-empty" "$dpn_i" getExt --inputs 2 --inputs 7
+diff_pair "imt-getother-empty" "$dpn_i" getOther --inputs 9 --inputs 2 --inputs 7
+python3 -I -S - "$out/off-imt-put.json" "$out/off-imt-get-empty.json" \
+  "$out/off-imt-getext-empty.json" "$out/off-imt-getother-empty.json" <<'PYI'
 import json,sys
 put=json.load(open(sys.argv[1])); get=json.load(open(sys.argv[2]))
-assert put.get("success") is True and get.get("success") is True
+ext=json.load(open(sys.argv[3])); oth=json.load(open(sys.argv[4]))
+for d in (put,get,ext,oth):
+    assert d.get("success") is True, d
 assert [int(x) for x in (put.get("outputs") or [])]==[42], put.get("outputs")
-# fresh simulate has empty IMT → get miss returns 0
 assert [int(x) for x in (get.get("outputs") or [])]==[0], get.get("outputs")
-print("OK official put=42 get-empty=0")
+assert [int(x) for x in (ext.get("outputs") or [])]==[0], ext.get("outputs")
+assert [int(x) for x in (oth.get("outputs") or [])]==[0], oth.get("outputs")
+print("OK official put=42 get/ext/other empty=0")
 PYI
-info "session continuity ImtProbe put/get/has"
+info "session continuity ImtProbe put/get/has + external/other"
 python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_i" --json \
-  --call initialize --call put:7,42 --call get:7 --call has:7 --call get:9 \
+  --call initialize --call put:7,42 --call get:7 --call has:7 \
+  --call getExt:1,7 --call getOther:1,1,7 --call hasOther:1,1,7 \
+  --call getOther:9,2,7 --call get:9 \
   >"$out/session-imt.json"
 python3 -I -S - "$out/session-imt.json" <<'PYI'
 import json,sys
 d=json.load(open(sys.argv[1]))
+# 0 init, 1 put, 2 get, 3 has, 4 getExt(1,7), 5 getOther(1,1,7), 6 hasOther(1,1,7), 7 getOther miss, 8 get miss
 assert d["calls"][1]["outputs"]==[42]
 assert d["calls"][2]["outputs"]==[42]
 assert d["calls"][3]["outputs"]==[1]
-assert d["calls"][4]["outputs"]==[0]
-print("OK session IMT continuity put7→42 get7→42 has7→1 get9→0")
+# same user+contract via external/other APIs still hit same IMT store
+assert d["calls"][4]["outputs"]==[42], d["calls"][4]
+assert d["calls"][5]["outputs"]==[42], d["calls"][5]
+assert d["calls"][6]["outputs"]==[1], d["calls"][6]
+assert d["calls"][7]["outputs"]==[0]
+assert d["calls"][8]["outputs"]==[0]
+print("OK session IMT self+external+other continuity")
 PYI
 
 # coverage report from built artifacts

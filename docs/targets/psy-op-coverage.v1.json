@@ -6,7 +6,7 @@
     "schemaOpCount": 73,
     "emitterReachableCount": 29,
     "sessionImplementedCount": 48,
-    "artifactOpKinds": 35,
+    "artifactOpKinds": 36,
     "artifactFiles": 11,
     "p0EmitterWithoutSession": [],
     "featureBacklog": [
@@ -23,7 +23,7 @@
       },
       {
         "id": "IMT-state-cmds",
-        "status": "self-current open: Set/Get/Contains via pf.imt.set|get|contains (ImtProbe); external/other-user IMT + CalculateMerkleRoot still FC"
+        "status": "self+external+other-user open via pf.imt.* (ImtProbe); CalculateMerkleRoot still FC (official todo!)"
       },
       {
         "id": "external-call-result",
@@ -39,7 +39,7 @@
       },
       {
         "id": "ContextRead-Commit",
-        "status": "EVM context.* FC; pf.context.userId|contractId|checkpointId|nonce|callerContractId|userPublicKeyHash open (ContextProbe); sessionProofTreeRoot/merkle FC"
+        "status": "EVM context.* FC; pf.context.* ids+userPublicKeyHash+sessionProofTreeRoot(limb0) open (ContextProbe); Commit/merkle FC"
       },
       {
         "id": "wide-u128-u256",
@@ -61,7 +61,7 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 73,
+      "artifactCount": 81,
       "examples": [
         "Accumulator",
         "CallProbe",
@@ -83,7 +83,7 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 2774,
+      "artifactCount": 2781,
       "examples": [
         "Accumulator",
         "CallProbe",
@@ -106,7 +106,7 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 46,
+      "artifactCount": 50,
       "examples": [
         "Accumulator",
         "CallProbe",
@@ -360,8 +360,9 @@
       "pfEmitter": "not-reachable",
       "session": "unsupported",
       "seenInArtifacts": true,
-      "artifactCount": 1,
+      "artifactCount": 5,
       "examples": [
+        "ContextProbe",
         "ImtProbe"
       ],
       "status": "schema-only-not-emitted"
@@ -746,7 +747,7 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 1,
+      "artifactCount": 3,
       "examples": [
         "ImtProbe"
       ],
@@ -759,7 +760,7 @@
       "pfEmitter": "reachable",
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 811,
+      "artifactCount": 812,
       "examples": [
         "Accumulator",
         "CallProbe",
@@ -974,9 +975,11 @@
       "officialSchema": true,
       "pfEmitter": "not-reachable",
       "session": "unsupported",
-      "seenInArtifacts": false,
-      "artifactCount": 0,
-      "examples": [],
+      "seenInArtifacts": true,
+      "artifactCount": 2,
+      "examples": [
+        "ContextProbe"
+      ],
       "status": "schema-only-not-emitted"
     },
     {
@@ -1006,7 +1009,7 @@
       "pfSchema": true,
       "session": "implemented",
       "seenInArtifacts": true,
-      "artifactCount": 131
+      "artifactCount": 135
     },
     {
       "name": "GetSelfUserCurrentContractStateSlotHash",
@@ -1183,9 +1186,9 @@
     }
   ],
   "artifactOps": {
-    "0": 73,
-    "1": 2774,
-    "2": 46,
+    "0": 81,
+    "1": 2781,
+    "2": 50,
     "3": 2,
     "4": 2371,
     "5": 2317,
@@ -1198,7 +1201,7 @@
     "15": 295,
     "16": 768,
     "17": 1387,
-    "20": 1,
+    "20": 5,
     "21": 2,
     "22": 2,
     "23": 5649,
@@ -1212,19 +1215,23 @@
     "48": 3,
     "49": 2,
     "50": 2,
-    "53": 1,
-    "54": 811,
+    "53": 3,
+    "54": 812,
     "72": 20,
     "78": 2,
     "79": 2,
+    "80": 2,
     "81": 2
   },
   "artifactStateCmds": {
     "GetSelfUserCurrentContractStateSlotSingle": 815,
-    "SetContractStateSlotSingle": 131,
+    "SetContractStateSlotSingle": 135,
     "InvokeExternalContractFunctionSync": 1,
     "GetSelfUserCurrentIMTContractStateValue": 1,
+    "GetSelfUserExternalIMTContractStateValue": 1,
+    "GetOtherUserIMTContractStateValue": 1,
     "ContainsSelfUserCurrentIMTContractStateValue": 1,
+    "ContainsOtherUserIMTContractStateValue": 1,
     "SetIMTContractStateValue": 1
   }
 }

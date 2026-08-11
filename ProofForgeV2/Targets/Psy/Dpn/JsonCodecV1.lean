@@ -33,6 +33,11 @@ private def jsonAsUInt32? (j : Json) : Option UInt32 :=
   | some n => if n < UInt32.size then some (UInt32.ofNat n) else none
   | none => none
 
+private def jsonAsUInt8? (j : Json) : Option UInt8 :=
+  match jsonAsNat? j with
+  | some n => if n < 256 then some (UInt8.ofNat n) else none
+  | none => none
+
 private def jsonAsString? : Json → Option String
   | .str s => some s
   | _ => none
@@ -114,6 +119,35 @@ def encodeStateCmd : StateCmdV1 → Json
         ("base_offset", u64ToJson base),
         ("capacity", u64ToJson cap),
         ("key", Json.arr (key.map u64ToJson))
+      ]
+  | .getSelfUserExternalIMTContractStateValue cid base cap key h =>
+      Json.mkObj [
+        ("type", Json.str "GetSelfUserExternalIMTContractStateValue"),
+        ("contract_id", u64ToJson cid),
+        ("base_offset", u64ToJson base),
+        ("capacity", u64ToJson cap),
+        ("key", Json.arr (key.map u64ToJson)),
+        ("contract_state_tree_height", natToJson h.toNat)
+      ]
+  | .getOtherUserIMTContractStateValue uid cid base cap key h =>
+      Json.mkObj [
+        ("type", Json.str "GetOtherUserIMTContractStateValue"),
+        ("user_id", u64ToJson uid),
+        ("contract_id", u64ToJson cid),
+        ("base_offset", u64ToJson base),
+        ("capacity", u64ToJson cap),
+        ("key", Json.arr (key.map u64ToJson)),
+        ("contract_state_tree_height", natToJson h.toNat)
+      ]
+  | .containsOtherUserIMTContractStateValue uid cid base cap key h =>
+      Json.mkObj [
+        ("type", Json.str "ContainsOtherUserIMTContractStateValue"),
+        ("user_id", u64ToJson uid),
+        ("contract_id", u64ToJson cid),
+        ("base_offset", u64ToJson base),
+        ("capacity", u64ToJson cap),
+        ("key", Json.arr (key.map u64ToJson)),
+        ("contract_state_tree_height", natToJson h.toNat)
       ]
 
 def encodeEvent (e : EventRecordV1) : Json :=
@@ -207,6 +241,32 @@ private def decodeStateCmd? (j : Json) : Option StateCmdV1 := do
         (← jsonAsUInt64? (← field? j "base_offset"))
         (← jsonAsUInt64? (← field? j "capacity"))
         (← keyJ.mapM jsonAsUInt64?))
+  | "GetSelfUserExternalIMTContractStateValue" =>
+      let keyJ ← arr? (← field? j "key")
+      pure (.getSelfUserExternalIMTContractStateValue
+        (← jsonAsUInt64? (← field? j "contract_id"))
+        (← jsonAsUInt64? (← field? j "base_offset"))
+        (← jsonAsUInt64? (← field? j "capacity"))
+        (← keyJ.mapM jsonAsUInt64?)
+        (← jsonAsUInt8? (← field? j "contract_state_tree_height")))
+  | "GetOtherUserIMTContractStateValue" =>
+      let keyJ ← arr? (← field? j "key")
+      pure (.getOtherUserIMTContractStateValue
+        (← jsonAsUInt64? (← field? j "user_id"))
+        (← jsonAsUInt64? (← field? j "contract_id"))
+        (← jsonAsUInt64? (← field? j "base_offset"))
+        (← jsonAsUInt64? (← field? j "capacity"))
+        (← keyJ.mapM jsonAsUInt64?)
+        (← jsonAsUInt8? (← field? j "contract_state_tree_height")))
+  | "ContainsOtherUserIMTContractStateValue" =>
+      let keyJ ← arr? (← field? j "key")
+      pure (.containsOtherUserIMTContractStateValue
+        (← jsonAsUInt64? (← field? j "user_id"))
+        (← jsonAsUInt64? (← field? j "contract_id"))
+        (← jsonAsUInt64? (← field? j "base_offset"))
+        (← jsonAsUInt64? (← field? j "capacity"))
+        (← keyJ.mapM jsonAsUInt64?)
+        (← jsonAsUInt8? (← field? j "contract_state_tree_height")))
   | _ => none
 
 private def decodeEvent? (j : Json) : Option EventRecordV1 := do

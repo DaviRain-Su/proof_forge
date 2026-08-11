@@ -26,6 +26,24 @@ program ImtProbe where
     last := c
     return c
 
+  -- External-contract IMT read (same user, other contract_id).
+  -- Software simulate is key-addressed; tree_height is circuit metadata only.
+  entry getExt(cid : UInt64, k : UInt64) : UInt64 do
+    let v : UInt64 := call pf.imt.getExternal(cid, k)
+    last := v
+    return v
+
+  -- Other-user IMT read / contains.
+  entry getOther(uid : UInt64, cid : UInt64, k : UInt64) : UInt64 do
+    let v : UInt64 := call pf.imt.getOther(uid, cid, k)
+    last := v
+    return v
+
+  entry hasOther(uid : UInt64, cid : UInt64, k : UInt64) : UInt64 do
+    let c : UInt64 := call pf.imt.containsOther(uid, cid, k)
+    last := c
+    return c
+
   view peek() : UInt64 do
     return last
 end Examples

@@ -270,11 +270,18 @@ inductive Expr where
   /-- P3: DPN GetUserPublicKeyHash (op 50) first HashOut limb product ABI.
       Official simulate default is 0 (cli injects [0;4]). -/
   | ctxUserPublicKeyHash
+  /-- P3: DPN GetSessionProofTreeRoot (op 80) first HashOut limb.
+      Official simulate default is 0 (no session root injection). -/
+  | ctxSessionProofTreeRoot
   /-- IMT self-current pilot: UInt64 key/value packed as 256-bit limbs
       (limb0 = scalar, limbs 1..3 = 0). Not dense Map state. -/
   | imtGet (key : Expr)
   | imtContains (key : Expr)
   | imtSet (key value : Expr)
+  /-- IMT external / other-user reads (software simulate key-addressed). -/
+  | imtGetExternal (contractId key : Expr)
+  | imtGetOther (userId contractId key : Expr)
+  | imtContainsOther (userId contractId key : Expr)
   /-- Target-internal exact limb arithmetic. Operands are range-bounded
       UInt32 Felt limbs/intermediates, so these raw Felt operations cannot wrap
       Goldilocks in the admitted UInt128 add/sub construction. -/
@@ -2246,6 +2253,11 @@ private partial def lowerRegion
                 planError "unsupported Psy semantic shape: pf.context.userPublicKeyHash() takes no args"
               admitScalarResult
               env := envInsert env valueDef.valueId .ctxUserPublicKeyHash
+            else if qn == "pf.context.sessionProofTreeRoot" then
+              unless comps.size == 3 && args.size == 0 do
+                planError "unsupported Psy semantic shape: pf.context.sessionProofTreeRoot() takes no args"
+              admitScalarResult
+              env := envInsert env valueDef.valueId .ctxSessionProofTreeRoot
             else if qn == "pf.imt.get" then
               unless comps.size == 3 && args.size == 1 do
                 planError "unsupported Psy semantic shape: pf.imt.get(key) takes exactly one UInt64 key"
@@ -2272,9 +2284,43 @@ private partial def lowerRegion
               let some v := argExprs[1]? |
                 planError "unsupported Psy semantic shape: pf.imt.set missing value"
               env := envInsert env valueDef.valueId (.imtSet k v)
+            else if qn == "pf.imt.getExternal" then
+              unless comps.size == 3 && args.size == 2 do
+                planError "unsupported Psy semantic shape: pf.imt.getExternal(contractId, key) takes two UInt64 args"
+              admitScalarResult
+              let argExprs ← lookupArgs env args "imtGetExternal" true
+              let some c := argExprs[0]? |
+                planError "unsupported Psy semantic shape: pf.imt.getExternal missing contractId"
+              let some k := argExprs[1]? |
+                planError "unsupported Psy semantic shape: pf.imt.getExternal missing key"
+              env := envInsert env valueDef.valueId (.imtGetExternal c k)
+            else if qn == "pf.imt.getOther" then
+              unless comps.size == 3 && args.size == 3 do
+                planError "unsupported Psy semantic shape: pf.imt.getOther(userId, contractId, key) takes three UInt64 args"
+              admitScalarResult
+              let argExprs ← lookupArgs env args "imtGetOther" true
+              let some u := argExprs[0]? |
+                planError "unsupported Psy semantic shape: pf.imt.getOther missing userId"
+              let some c := argExprs[1]? |
+                planError "unsupported Psy semantic shape: pf.imt.getOther missing contractId"
+              let some k := argExprs[2]? |
+                planError "unsupported Psy semantic shape: pf.imt.getOther missing key"
+              env := envInsert env valueDef.valueId (.imtGetOther u c k)
+            else if qn == "pf.imt.containsOther" then
+              unless comps.size == 3 && args.size == 3 do
+                planError "unsupported Psy semantic shape: pf.imt.containsOther(userId, contractId, key) takes three UInt64 args"
+              admitScalarResult
+              let argExprs ← lookupArgs env args "imtContainsOther" true
+              let some u := argExprs[0]? |
+                planError "unsupported Psy semantic shape: pf.imt.containsOther missing userId"
+              let some c := argExprs[1]? |
+                planError "unsupported Psy semantic shape: pf.imt.containsOther missing contractId"
+              let some k := argExprs[2]? |
+                planError "unsupported Psy semantic shape: pf.imt.containsOther missing key"
+              env := envInsert env valueDef.valueId (.imtContainsOther u c k)
             else
               planError
-                "unsupported Psy semantic shape: result-bearing external call is not admitted. Admitted: pf.crypto.hash*|keccak256; pf.context.* (incl userPublicKeyHash); pf.imt.get|contains|set"
+                "unsupported Psy semantic shape: result-bearing external call is not admitted. Admitted: pf.crypto.hash*|keccak256; pf.context.*; pf.imt.get|contains|set|getExternal|getOther|containsOther"
         | none =>
             unless comps.size ≥ 2 do
               planError "unsupported Psy semantic shape: external callee must have at least two components"

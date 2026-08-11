@@ -463,6 +463,43 @@ private def emitImtBaseCap (b : BuilderV1) : BuilderV1 × Nat × Nat :=
   let (b1, capW) := pushTarget b .constant #[UInt64.ofNat 1048576]
   (b1, baseIdx, capW.rawIndex)
 
+/-- Static circuit-side tree height for external/other-user IMT cmds.
+    Software simulate ignores this field for key-addressed storage; product
+    uses 20 to match common dargo fixtures. -/
+private def imtDefaultTreeHeightV1 : UInt8 := 20
+
+/-- Allocate a HashOut valueless context op and return TargetAt limb0. -/
+private def emitHashOutLimb0 (b : BuilderV1) (op : OpTypeV1) :
+    BuilderV1 × WireV1 :=
+  let hashIdx :=
+    (b.defs.filter (fun d => d.dataType == .hashOut)).size
+  let hashDef : IndexedVarDefV1 := {
+    dataType := .hashOut
+    index := hashIdx
+    opType := op
+    inputs := #[0]
+  }
+  let b1 := { b with defs := b.defs.push hashDef }
+  let hashEnc := encodeIndexedId .hashOut hashIdx
+  pushTarget b1 .targetAt #[hashEnc, UInt64.ofNat b1.zeroTarget]
+
+/-- Push GetStateCommandResultHash + TargetAt limb0 for an IMT get cmd. -/
+private def emitImtHashResultLimb0 (b : BuilderV1) (cmdIdx : Nat) :
+    BuilderV1 × WireV1 :=
+  let hashIdx :=
+    (b.defs.filter (fun d => d.dataType == .hashOut)).size
+  let hashDef : IndexedVarDefV1 := {
+    dataType := .hashOut
+    index := hashIdx
+    opType := .getStateCommandResultHash
+    inputs := #[UInt64.ofNat cmdIdx]
+  }
+  let b1 := { b with defs := b.defs.push hashDef }
+  let getDefStep := b1.defs.size - 1
+  let b2 := { b1 with res := b1.res.push getDefStep }
+  let hashEnc := encodeIndexedId .hashOut hashIdx
+  pushTarget b2 .targetAt #[hashEnc, UInt64.ofNat b2.zeroTarget]
+
 /-- Pack UInt64 scalar as 4-limb IMT key/value: [scalar, 0, 0, 0] wire indices. -/
 private def emitImtU64As4 (b : BuilderV1) (scalar : WireV1) :
     CompileResult (BuilderV1 × Array UInt64) := do
@@ -496,22 +533,81 @@ private def emitImtGet (b : BuilderV1) (keyW : WireV1) :
           (.getSelfUserCurrentIMTContractStateValue
             (UInt64.ofNat baseIdx) (UInt64.ofNat capIdx) key4)
     }
-    -- HashOut result: data_type=hashOut, op=getStateCommandResultHash
-    let hashIdx :=
-      (b2.defs.filter (fun d => d.dataType == .hashOut)).size
-    let hashDef : IndexedVarDefV1 := {
-      dataType := .hashOut
-      index := hashIdx
-      opType := .getStateCommandResultHash
-      inputs := #[UInt64.ofNat cmdIdx]
+    let (b3, w) := emitImtHashResultLimb0 b2 cmdIdx
+    pure (pushImtMemo b3 0 kIdx 0 w, w)
+
+/-- IMT getExternal(contractId, key) → GetSelfUserExternalIMT… -/
+private def emitImtGetExternal (b : BuilderV1) (cidW keyW : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let cIdx ← asTargetIndex cidW
+  let kIdx ← asTargetIndex keyW
+  -- kind 3 = external get; memo key = contractIdx in valIdx slot
+  if let some w := lookupImtMemo b 3 kIdx cIdx then
+    pure (b, w)
+  else
+    let (b0, key4) ← emitImtU64As4 b keyW
+    let (b1, baseIdx, capIdx) := emitImtBaseCap b0
+    let cmdIdx := b1.cmds.size
+    let b2 := {
+      b1 with
+        cmds := b1.cmds.push
+          (.getSelfUserExternalIMTContractStateValue
+            (UInt64.ofNat cIdx) (UInt64.ofNat baseIdx) (UInt64.ofNat capIdx)
+            key4 imtDefaultTreeHeightV1)
     }
-    let b3 := { b2 with defs := b2.defs.push hashDef }
+    let (b3, w) := emitImtHashResultLimb0 b2 cmdIdx
+    pure (pushImtMemo b3 3 kIdx cIdx w, w)
+
+/-- IMT getOther(userId, contractId, key). -/
+private def emitImtGetOther (b : BuilderV1) (uidW cidW keyW : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let uIdx ← asTargetIndex uidW
+  let cIdx ← asTargetIndex cidW
+  let kIdx ← asTargetIndex keyW
+  -- kind 4; fold user into memo via xor-ish packing in valIdx
+  let memoVal := uIdx * 65537 + cIdx
+  if let some w := lookupImtMemo b 4 kIdx memoVal then
+    pure (b, w)
+  else
+    let (b0, key4) ← emitImtU64As4 b keyW
+    let (b1, baseIdx, capIdx) := emitImtBaseCap b0
+    let cmdIdx := b1.cmds.size
+    let b2 := {
+      b1 with
+        cmds := b1.cmds.push
+          (.getOtherUserIMTContractStateValue
+            (UInt64.ofNat uIdx) (UInt64.ofNat cIdx)
+            (UInt64.ofNat baseIdx) (UInt64.ofNat capIdx)
+            key4 imtDefaultTreeHeightV1)
+    }
+    let (b3, w) := emitImtHashResultLimb0 b2 cmdIdx
+    pure (pushImtMemo b3 4 kIdx memoVal w, w)
+
+/-- IMT containsOther(userId, contractId, key). -/
+private def emitImtContainsOther (b : BuilderV1) (uidW cidW keyW : WireV1) :
+    CompileResult (BuilderV1 × WireV1) := do
+  let uIdx ← asTargetIndex uidW
+  let cIdx ← asTargetIndex cidW
+  let kIdx ← asTargetIndex keyW
+  let memoVal := uIdx * 65537 + cIdx
+  if let some w := lookupImtMemo b 5 kIdx memoVal then
+    pure (b, w)
+  else
+    let (b0, key4) ← emitImtU64As4 b keyW
+    let (b1, baseIdx, capIdx) := emitImtBaseCap b0
+    let cmdIdx := b1.cmds.size
+    let b2 := {
+      b1 with
+        cmds := b1.cmds.push
+          (.containsOtherUserIMTContractStateValue
+            (UInt64.ofNat uIdx) (UInt64.ofNat cIdx)
+            (UInt64.ofNat baseIdx) (UInt64.ofNat capIdx)
+            key4 imtDefaultTreeHeightV1)
+    }
+    let (b3, w) := pushTarget b2 .getStateCommandResultSingle #[UInt64.ofNat cmdIdx]
     let getDefStep := b3.defs.size - 1
     let b4 := { b3 with res := b3.res.push getDefStep }
-    -- targetAt(hashEnc, limbIndexWire): limb 0 uses shared zero Target.
-    let hashEnc := encodeIndexedId .hashOut hashIdx
-    let (b5, w) := pushTarget b4 .targetAt #[hashEnc, UInt64.ofNat b4.zeroTarget]
-    pure (pushImtMemo b5 0 kIdx 0 w, w)
+    pure (pushImtMemo b4 5 kIdx memoVal w, w)
 
 /-- IMT contains → ContainsSelfUserCurrentIMT + GetStateCommandResultSingle. -/
 private def emitImtContains (b : BuilderV1) (keyW : WireV1) :
@@ -1648,6 +1744,9 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
       -- Official executor Target path returns limb0 of user_public_key_hash.
       -- Simulate default injects [0;4] → product 0.
       pure (pushValuelessTarget b .getUserPublicKeyHash)
+  | .ctxSessionProofTreeRoot =>
+      -- Must be HashOut-typed; Target-only path panics in official software eval.
+      pure (emitHashOutLimb0 b .getSessionProofTreeRoot)
   | .imtGet k => do
       if b.inlineDepth > 0 then
         planError "PSY-DPN: pureFn/localCall inline cannot use pf.imt.* (effectful)"
@@ -1664,6 +1763,26 @@ partial def lowerExprV1 (b : BuilderV1) (params : Array WireV1) (viewPath : Bool
       let (b1, kw) ← lowerExprV1 b params viewPath k
       let (b2, vw) ← lowerExprV1 b1 params viewPath v
       emitImtSet b2 kw vw
+  | .imtGetExternal c k => do
+      if b.inlineDepth > 0 then
+        planError "PSY-DPN: pureFn/localCall inline cannot use pf.imt.* (effectful)"
+      let (b1, cw) ← lowerExprV1 b params viewPath c
+      let (b2, kw) ← lowerExprV1 b1 params viewPath k
+      emitImtGetExternal b2 cw kw
+  | .imtGetOther u c k => do
+      if b.inlineDepth > 0 then
+        planError "PSY-DPN: pureFn/localCall inline cannot use pf.imt.* (effectful)"
+      let (b1, uw) ← lowerExprV1 b params viewPath u
+      let (b2, cw) ← lowerExprV1 b1 params viewPath c
+      let (b3, kw) ← lowerExprV1 b2 params viewPath k
+      emitImtGetOther b3 uw cw kw
+  | .imtContainsOther u c k => do
+      if b.inlineDepth > 0 then
+        planError "PSY-DPN: pureFn/localCall inline cannot use pf.imt.* (effectful)"
+      let (b1, uw) ← lowerExprV1 b params viewPath u
+      let (b2, cw) ← lowerExprV1 b1 params viewPath c
+      let (b3, kw) ← lowerExprV1 b2 params viewPath k
+      emitImtContainsOther b3 uw cw kw
   | .callFn name args => do
       -- R-PURE: inline pureHelper body into caller definitions (preferred over
       -- separate DPN method). Expression-level pure-body walker (no mutual
