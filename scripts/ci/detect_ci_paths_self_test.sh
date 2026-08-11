@@ -12,7 +12,7 @@ run() {
   export GITHUB_OUTPUT="$out"
   bash scripts/ci/detect_ci_paths.sh >/dev/null
   local got
-  got="$(grep -E '^(lean_product|target_smoke|solana_runtime|docs_only)=' "$out" | tr '\n' ' ')"
+  got="$(grep -E '^(lean_product|target_smoke|solana_runtime|near_runtime|cosmwasm_runtime|docs_only)=' "$out" | tr '\n' ' ')"
   rm -f "$out"
   unset PF_CI_PATH_LIST
   for part in "$@"; do
@@ -24,19 +24,23 @@ run() {
   done
   echo "ok $name"
 }
-run docs_only $'docs/targets/01-evm.md\nREADME.md' lean_product=false target_smoke=false solana_runtime=false docs_only=true
+run docs_only $'docs/targets/01-evm.md\nREADME.md' lean_product=false target_smoke=false solana_runtime=false near_runtime=false cosmwasm_runtime=false docs_only=true
 run mcp_only $'clients/pf-mcp/src/index.ts' lean_product=false docs_only=true
 run lean_core $'ProofForgeV2/Compiler/Pipeline.lean' lean_product=true target_smoke=true
-run solana_rt $'runtime-tests/solana/tests/artifacts.rs' solana_runtime=true target_smoke=true lean_product=false
+run solana_rt $'runtime-tests/solana/tests/tokens.rs' solana_runtime=true target_smoke=true lean_product=false
 run solana_lean $'ProofForgeV2/Targets/Solana/FinalizeV1.lean' solana_runtime=true lean_product=true
-run ci_self $'.github/workflows/ci.yml' lean_product=true target_smoke=true solana_runtime=true
+run near_rt $'runtime-tests/near/run_tests.py' near_runtime=true target_smoke=true lean_product=false
+run near_lean $'ProofForgeV2/Targets/Near/LowerSemanticV1.lean' near_runtime=true lean_product=true
+run cw_rt $'runtime-tests/cosmwasm/tests/state_cell.rs' cosmwasm_runtime=true target_smoke=true lean_product=false
+run cw_lean $'ProofForgeV2/Targets/CosmWasm/LowerSemanticV1.lean' cosmwasm_runtime=true lean_product=true
+run ci_self $'.github/workflows/ci.yml' lean_product=true target_smoke=true solana_runtime=true near_runtime=true cosmwasm_runtime=true
 out="$(mktemp)"
 export GITHUB_EVENT_NAME=push GITHUB_REF_NAME=main GITHUB_OUTPUT="$out"
 unset PF_CI_PATH_LIST || true
 bash scripts/ci/detect_ci_paths.sh >/dev/null
-got="$(grep -E '^(lean_product|target_smoke|solana_runtime)=' "$out" | tr '\n' ' ')"
+got="$(grep -E '^(lean_product|target_smoke|solana_runtime|near_runtime|cosmwasm_runtime)=' "$out" | tr '\n' ' ')"
 rm -f "$out"
-for part in lean_product=true target_smoke=true solana_runtime=true; do
+for part in lean_product=true target_smoke=true solana_runtime=true near_runtime=true cosmwasm_runtime=true; do
   if ! grep -q "$part" <<<"$got"; then
     echo "FAIL force_main: missing $part (got: $got)" >&2
     fail=1

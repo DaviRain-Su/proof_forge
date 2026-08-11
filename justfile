@@ -1353,6 +1353,18 @@ evm-corpus-runtime: build
 solana-runtime:
     bash scripts/solana_runtime_test.sh
 
+# NEAR near-sandbox engineering corpus (host-heavy; Tool Lock near-sandbox + python deps).
+# Ordinary CI: `.github/workflows/ci.yml` job `near-runtime` (path-filtered).
+# Not formal / not testnet / Promise=async / sync call FC.
+near-runtime:
+    bash scripts/near_runtime_test.sh
+
+# CosmWasm cosmwasm-vm 3.0.9 mock corpus (host-heavy; cargo + wat2wasm).
+# Ordinary CI: `.github/workflows/ci.yml` job `cosmwasm-runtime` (path-filtered).
+# Not formal / not wasmd mainnet / sync call FC / schedule=SubMsg never.
+cosmwasm-runtime:
+    bash scripts/cosmwasm_runtime_test.sh
+
 
 # Engineering CLI dist (REL-CLI-1). Not formal Stage-0.
 # Authority: docs/product/05-distribution-and-packages.md

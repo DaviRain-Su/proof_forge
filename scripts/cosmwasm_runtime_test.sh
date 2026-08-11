@@ -32,6 +32,9 @@ missing() {
 
 skip_clean() {
   echo "cosmwasm-runtime-test: skipped: $*" >&2
+  if [[ "${PF_COSMWASM_RUNTIME_REQUIRED:-0}" == "1" ]]; then
+    exit 2
+  fi
   exit 0
 }
 
@@ -80,7 +83,7 @@ if ! wat2wasm="$(resolve_tool wat2wasm)"; then
   skip_clean "wat2wasm unavailable (set PROOF_FORGE_TOOL_ROOT or install wabt)"
 fi
 
-cli="$root/.lake/build/bin/proof-forge-next"
+cli="${PROOF_FORGE_CLI:-$root/.lake/build/bin/proof-forge-next}"
 out_dir="${PROOF_FORGE_RUNTIME_OUT:-$root/build/v2/cosmwasm-runtime}"
 crate_dir="$root/runtime-tests/cosmwasm"
 fixtures_src="$root/runtime-tests/cosmwasm/fixtures"
@@ -109,10 +112,19 @@ programs=(
   "Examples/PoseTransform.lean:Examples.PoseTransform:PoseTransform"
 )
 
-echo "cosmwasm-runtime-test: building proof-forge-next (lake build proof_forge_next)"
-# Lean exe target is `proof_forge_next`; on-disk name is `proof-forge-next`.
-lake build proof_forge_next || die "lake build proof_forge_next failed"
-[[ -x "$cli" ]] || die "CLI missing after build: $cli"
+if [[ -n "${PROOF_FORGE_CLI:-}" && -x "$PROOF_FORGE_CLI" ]]; then
+  cli="$PROOF_FORGE_CLI"
+  echo "cosmwasm-runtime-test: using PROOF_FORGE_CLI=$cli (skip lake build)"
+elif [[ -x "$cli" && "${PROOF_FORGE_SKIP_LAKE_BUILD:-}" == "1" ]]; then
+  echo "cosmwasm-runtime-test: using prebuilt CLI $cli (PROOF_FORGE_SKIP_LAKE_BUILD=1)"
+else
+  echo "cosmwasm-runtime-test: building proof-forge-next (lake build proof_forge_next)"
+  # Lean exe target is `proof_forge_next`; on-disk name is `proof-forge-next`.
+  lake build proof_forge_next || die "lake build proof_forge_next failed"
+  cli="$root/.lake/build/bin/proof-forge-next"
+fi
+export PROOF_FORGE_CLI="$cli"
+[[ -x "$cli" ]] || die "CLI missing: $cli"
 
 echo "cosmwasm-runtime-test: tool root=$PROOF_FORGE_TOOL_ROOT"
 echo "cosmwasm-runtime-test: wat2wasm=$wat2wasm ($("$wat2wasm" --version 2>&1 | head -1 || true))"

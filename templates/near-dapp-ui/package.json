@@ -1,0 +1,24 @@
+{
+  "name": "proof-forge-near-dapp-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Minimal NEAR React dApp skeleton: near-api-js + PF StateCell-shaped Wasm (local near-sandbox / testnet catalog-only)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "near-api-js": "^5.0.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11"
+  }
+}

@@ -1,0 +1,18 @@
+:root {
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  color: #0f172a;
+  background: #f8fafc;
+}
+body { margin: 0; }
+.page { max-width: 42rem; margin: 2rem auto; padding: 0 1rem; }
+label { display: block; margin: 0.75rem 0; font-weight: 600; }
+input, select {
+  display: block; width: 100%; margin-top: 0.35rem;
+  padding: 0.5rem 0.6rem; border: 1px solid #cbd5e1; border-radius: 0.4rem;
+}
+.muted { color: #64748b; font-size: 0.95rem; }
+.note {
+  background: #0f172a; color: #e2e8f0; padding: 1rem; border-radius: 0.5rem;
+  white-space: pre-wrap; font-size: 0.85rem;
+}
+code { font-family: ui-monospace, monospace; }

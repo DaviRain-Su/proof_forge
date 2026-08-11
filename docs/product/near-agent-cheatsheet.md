@@ -30,16 +30,23 @@ proof-forge-next build Examples/PoseTransform.lean \
 # 3) Runtime gate — product CLI (preferred)
 pf test -t near
 # auto: if out/ has *.wasm → ONE suite against that wasm (fast; no lake rebuild)
-# full 15-suite corpus:
+# full corpus / monorepo:
 #   PF_NEAR_TEST_MODE=corpus pf test -t near
+#   just near-runtime          # ordinary CI job near-runtime (path-filtered)
 # product local (same script):
 #   proof-forge-next local --target near --mode runtime
-# monorepo:
-#   scripts/near_runtime_test.sh
+
+# 3b) One-shot sandbox call/view (engineering; not testnet)
+pf run -t near -- init 7
+pf run -t near -- increment 5
+pf run -t near -- get
 
 # 4) Deploy packaging (save-only; --broadcast refused)
 pf deploy -t near --network local
 # → <artifact>/tx/<Program>.deployment.package.json
+
+# 5) Frontend skeleton (ecosystem near-api-js; no wallet keys in PF)
+pf scaffold-ui --template near-dapp
 
 # Single-suite debug (after a full script build left wasm under build/v2/near-runtime):
 #   PF_NEAR_SUITE=posetransform PF_NEAR_WASM=... python3 runtime-tests/near/run_tests.py

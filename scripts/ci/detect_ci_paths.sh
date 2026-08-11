@@ -2,10 +2,12 @@
 # Emit GitHub Actions outputs selecting which heavy CI lanes must run.
 #
 # Outputs (true/false):
-#   lean_product   - nine non-target shards + product/deletion gates
-#   target_smoke   - serial targets shard + target CLI smoke
-#   solana_runtime - Mollusk / solana-runtime-test
-#   docs_only      - advisory: only docs/markdown/catalog-ish paths changed
+#   lean_product      - nine non-target shards + product/deletion gates
+#   target_smoke      - serial targets shard + target CLI smoke
+#   solana_runtime    - Mollusk / solana-runtime-test
+#   near_runtime      - near-sandbox / near-runtime-test
+#   cosmwasm_runtime  - cosmwasm-vm mock / cosmwasm-runtime-test
+#   docs_only         - advisory: only docs/markdown/catalog-ish paths changed
 #
 # Policy (conservative — prefer running over missing regressions):
 #   * workflow_dispatch / schedule → all heavy lanes
@@ -25,6 +27,8 @@ force_all() {
   out lean_product true
   out target_smoke true
   out solana_runtime true
+  out near_runtime true
+  out cosmwasm_runtime true
   out docs_only false
   exit 0
 }
@@ -141,8 +145,34 @@ is_solana_runtime_core() {
   return 1
 }
 
-# Paths that change the product CLI binary used by solana-runtime-test.
-is_solana_cli_dep() {
+is_near_runtime_core() {
+  local f="$1"
+  case "${f}" in
+    ProofForgeV2/Targets/Near/*|runtime-tests/near/*)
+      return 0 ;;
+    scripts/near_*|scripts/*near*|scripts/pf_near_*)
+      return 0 ;;
+    Examples/ConstAnswer.lean|Examples/UnixTimeCheck.lean|Examples/PoseTransform.lean|Examples/BlockHeightCheck.lean)
+      return 0 ;;
+  esac
+  return 1
+}
+
+is_cosmwasm_runtime_core() {
+  local f="$1"
+  case "${f}" in
+    ProofForgeV2/Targets/CosmWasm/*|runtime-tests/cosmwasm/*)
+      return 0 ;;
+    scripts/cosmwasm_*|scripts/*cosmwasm*|scripts/pf_cosmwasm_*)
+      return 0 ;;
+    Examples/ConstAnswer.lean|Examples/UnixTimeCheck.lean|Examples/PoseTransform.lean|Examples/BlockHeightCheck.lean|Examples/TipJar.lean|Examples/TokenJar.lean)
+      return 0 ;;
+  esac
+  return 1
+}
+
+# Paths that change the product CLI binary used by host runtime tests.
+is_runtime_cli_dep() {
   local f="$1"
   case "${f}" in
     justfile|lakefile.lean|lean-toolchain|lake-manifest.json|ProofForgeV2.lean)
@@ -157,9 +187,30 @@ is_solana_cli_dep() {
   return 1
 }
 
+# Back-compat alias used by Solana classification.
+is_solana_cli_dep() {
+  is_runtime_cli_dep "$1"
+}
+
 is_solana_runtime() {
   local f="$1"
-  if is_solana_runtime_core "${f}" || is_solana_cli_dep "${f}"; then
+  if is_solana_runtime_core "${f}" || is_runtime_cli_dep "${f}"; then
+    return 0
+  fi
+  return 1
+}
+
+is_near_runtime() {
+  local f="$1"
+  if is_near_runtime_core "${f}" || is_runtime_cli_dep "${f}"; then
+    return 0
+  fi
+  return 1
+}
+
+is_cosmwasm_runtime() {
+  local f="$1"
+  if is_cosmwasm_runtime_core "${f}" || is_runtime_cli_dep "${f}"; then
     return 0
   fi
   return 1
@@ -204,8 +255,8 @@ is_lean_product() {
       *) return 1 ;;
     esac
   fi
-  # Pure Solana Mollusk/Rust fixture edits: covered by solana-runtime + targets-solana
-  # via target_smoke when Solana Lean changes; skip lean-product for runtime-tests only.
+  # Pure host-runtime fixture/script edits: covered by *-runtime jobs +
+  # target-smoke when lowering Lean changes; skip lean-product for runtime-tests only.
   if is_solana_runtime_core "${f}"; then
     case "${f}" in
       ProofForgeV2/Targets/Solana/*)
@@ -215,6 +266,22 @@ is_lean_product() {
       scripts/solana_*|scripts/*solana*|scripts/pf_solana_*)
         return 1 ;;
       supply-chain/solana*|supply-chain/solana-cpi-assets/*)
+        return 1 ;;
+    esac
+  fi
+  if is_near_runtime_core "${f}"; then
+    case "${f}" in
+      ProofForgeV2/Targets/Near/*|Examples/*)
+        return 0 ;;
+      runtime-tests/near/*|scripts/near_*|scripts/*near*|scripts/pf_near_*)
+        return 1 ;;
+    esac
+  fi
+  if is_cosmwasm_runtime_core "${f}"; then
+    case "${f}" in
+      ProofForgeV2/Targets/CosmWasm/*|Examples/*)
+        return 0 ;;
+      runtime-tests/cosmwasm/*|scripts/cosmwasm_*|scripts/*cosmwasm*|scripts/pf_cosmwasm_*)
         return 1 ;;
     esac
   fi
@@ -235,6 +302,8 @@ is_lean_product() {
 lean_product=false
 target_smoke=false
 solana_runtime=false
+near_runtime=false
+cosmwasm_runtime=false
 all_docs_or_mcp=true
 
 for f in "${files[@]}"; do
@@ -250,6 +319,12 @@ for f in "${files[@]}"; do
   if is_solana_runtime "${f}"; then
     solana_runtime=true
   fi
+  if is_near_runtime "${f}"; then
+    near_runtime=true
+  fi
+  if is_cosmwasm_runtime "${f}"; then
+    cosmwasm_runtime=true
+  fi
 done
 
 # Target smoke implies we already pay for a lake build; keep lean gates when
@@ -258,6 +333,8 @@ if [[ "${all_docs_or_mcp}" == "true" ]]; then
   lean_product=false
   target_smoke=false
   solana_runtime=false
+  near_runtime=false
+  cosmwasm_runtime=false
 fi
 
 # Changing CI path logic itself must exercise all lanes once.
@@ -267,14 +344,22 @@ for f in "${files[@]}"; do
       lean_product=true
       target_smoke=true
       solana_runtime=true
+      near_runtime=true
+      cosmwasm_runtime=true
       all_docs_or_mcp=false
       ;;
   esac
 done
 
-# If only Solana runtime-tests/scripts changed (no Lean product), still run
-# target-smoke (Solana Lean pins) + solana-runtime, but lean-product may stay off.
+# If only host runtime-tests/scripts changed (no Lean product), still run
+# target-smoke + the matching *-runtime job, but lean-product may stay off.
 if [[ "${solana_runtime}" == "true" && "${lean_product}" == "false" ]]; then
+  target_smoke=true
+fi
+if [[ "${near_runtime}" == "true" && "${lean_product}" == "false" ]]; then
+  target_smoke=true
+fi
+if [[ "${cosmwasm_runtime}" == "true" && "${lean_product}" == "false" ]]; then
   target_smoke=true
 fi
 docs_only=false
@@ -285,4 +370,6 @@ fi
 out lean_product "${lean_product}"
 out target_smoke "${target_smoke}"
 out solana_runtime "${solana_runtime}"
+out near_runtime "${near_runtime}"
+out cosmwasm_runtime "${cosmwasm_runtime}"
 out docs_only "${docs_only}"

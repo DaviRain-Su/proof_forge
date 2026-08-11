@@ -100,6 +100,8 @@ fix: pf scaffold-ui --template {template_id} --force\n\
         "solana-dapp" => "solana",
         "aleo-dapp" => "aleo",
         "psy-dapp" => "psy",
+        "near-dapp" => "near",
+        "cosmwasm-dapp" => "cosmwasm",
         _ => "unknown",
     }.into());
     ok.saved = Some(saved.clone());
@@ -141,10 +143,12 @@ fn normalize_template(raw: &str) -> PfResult<&'static str> {
         "solana" | "solana-dapp" | "solana-dapp-ui" => Ok("solana-dapp"),
         "aleo" | "aleo-dapp" | "aleo-dapp-ui" => Ok("aleo-dapp"),
         "psy" | "psy-dapp" | "psy-dapp-ui" => Ok("psy-dapp"),
+        "near" | "near-dapp" | "near-dapp-ui" => Ok("near-dapp"),
+        "cosmwasm" | "cw" | "cosmwasm-dapp" | "cosmwasm-dapp-ui" => Ok("cosmwasm-dapp"),
         other => Err(PfError::Usage(format!(
             "unknown UI template '{other}'\n\
-want: evm-dapp | solana-dapp | aleo-dapp | psy-dapp\n\
-fix: pf scaffold-ui --template evm-dapp"
+want: evm-dapp | solana-dapp | aleo-dapp | psy-dapp | near-dapp | cosmwasm-dapp\n\
+fix: pf scaffold-ui --template near-dapp"
         ))),
     }
 }
@@ -155,6 +159,8 @@ fn template_folder_name(id: &str) -> &'static str {
         "solana-dapp" => "solana-dapp-ui",
         "aleo-dapp" => "aleo-dapp-ui",
         "psy-dapp" => "psy-dapp-ui",
+        "near-dapp" => "near-dapp-ui",
+        "cosmwasm-dapp" => "cosmwasm-dapp-ui",
         _ => "evm-dapp-ui",
     }
 }

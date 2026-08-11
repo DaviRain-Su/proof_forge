@@ -3,11 +3,13 @@ name: CI
 # ProofForge V2 portable CI (Linux).
 #
 # Required lanes for branch protection (BUILD-4 independent fail isolation):
-#   docs             - always
-#   lean-product     - nine non-target shards + product/deletion gates
-#   target-smoke     - parallel targets-evm / targets-solana / targets-host-fast + CLI
-#   solana-runtime   - Mollusk (reuses CLI artifact when present)
-#   target-host-slow - CosmWasmPlan + NoirAcir (main / workflow_dispatch only)
+#   docs              - always
+#   lean-product      - nine non-target shards + product/deletion gates
+#   target-smoke      - parallel targets-evm / targets-solana / targets-host-fast + CLI
+#   solana-runtime    - Mollusk (reuses CLI artifact when present)
+#   near-runtime      - near-sandbox corpus (path-filtered; reuses CLI)
+#   cosmwasm-runtime  - cosmwasm-vm mock corpus (path-filtered; reuses CLI)
+#   target-host-slow  - CosmWasmPlan + NoirAcir (main / workflow_dispatch only)
 #
 # Nightly full matrix: .github/workflows/ci-nightly.yml
 #
@@ -31,6 +33,8 @@ jobs:
       lean_product: ${{ steps.detect.outputs.lean_product }}
       target_smoke: ${{ steps.detect.outputs.target_smoke }}
       solana_runtime: ${{ steps.detect.outputs.solana_runtime }}
+      near_runtime: ${{ steps.detect.outputs.near_runtime }}
+      cosmwasm_runtime: ${{ steps.detect.outputs.cosmwasm_runtime }}
       docs_only: ${{ steps.detect.outputs.docs_only }}
     steps:
       - name: Checkout
@@ -258,6 +262,192 @@ jobs:
 
       - name: Solana Mollusk runtime differential (S3a)
         run: just solana-runtime
+
+  near-runtime:
+    name: near-runtime
+    needs: [changes, lean-product, target-smoke]
+    if: >
+      always() &&
+      needs.changes.result == 'success' &&
+      needs.changes.outputs.near_runtime == 'true' &&
+      needs.lean-product.result != 'failure' &&
+      needs.lean-product.result != 'cancelled' &&
+      needs.target-smoke.result != 'failure' &&
+      needs.target-smoke.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Setup Lean + tool root
+        uses: ./.github/actions/setup-lean-toolroot
+        with:
+          tool-root: ${{ runner.temp }}/proof-forge-v2/tool-root/linux-x86_64
+          cache-key-suffix: ""
+
+      - name: Download CLI from lean-product
+        if: needs.lean-product.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: proof-forge-next-cli
+          path: .lake/build/bin
+
+      - name: Download CLI from target-smoke
+        if: needs.lean-product.result != 'success' && needs.target-smoke.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: proof-forge-next-cli-from-targets
+          path: .lake/build/bin
+
+      - name: Prepare prebuilt CLI
+        id: cli
+        run: |
+          mkdir -p .lake/build/bin
+          cli=".lake/build/bin/proof-forge-next"
+          if [[ -f "$cli" ]]; then
+            chmod +x "$cli"
+          fi
+          if [[ -x "$cli" ]]; then
+            echo "prebuilt=true" >> "$GITHUB_OUTPUT"
+            echo "PROOF_FORGE_CLI=$PWD/$cli" >> "$GITHUB_ENV"
+            echo "PROOF_FORGE_SKIP_LAKE_BUILD=1" >> "$GITHUB_ENV"
+            echo "Using prebuilt CLI: $PWD/$cli"
+          else
+            echo "prebuilt=false" >> "$GITHUB_OUTPUT"
+            echo "No prebuilt CLI; near-runtime-test will lake build"
+          fi
+
+      - name: Cache Lake build products
+        if: steps.cli.outputs.prebuilt != 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: |
+            .lake/build
+            .lake/packages
+          key: ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-near-runtime
+          restore-keys: |
+            ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-
+            ${{ runner.os }}-lake-v2-
+
+      - name: Prune stale olean artifacts
+        if: steps.cli.outputs.prebuilt != 'true'
+        run: /usr/bin/python3 -I -S scripts/ci/prune_stale_oleans.py
+
+      - name: Install Python deps for near-sandbox harness
+        run: |
+          python3 -m pip install --user -q -r runtime-tests/near/requirements.txt
+          python3 - <<'PY'
+          from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+          import base58
+          print("near-python-deps-ok")
+          PY
+
+      - name: NEAR near-sandbox runtime differential
+        run: just near-runtime
+        env:
+          # Host-heavy: fail the job if tools missing (do not skip-clean as green).
+          PF_NEAR_RUNTIME_REQUIRED: "1"
+
+  cosmwasm-runtime:
+    name: cosmwasm-runtime
+    needs: [changes, lean-product, target-smoke]
+    if: >
+      always() &&
+      needs.changes.result == 'success' &&
+      needs.changes.outputs.cosmwasm_runtime == 'true' &&
+      needs.lean-product.result != 'failure' &&
+      needs.lean-product.result != 'cancelled' &&
+      needs.target-smoke.result != 'failure' &&
+      needs.target-smoke.result != 'cancelled'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Setup Lean + tool root
+        uses: ./.github/actions/setup-lean-toolroot
+        with:
+          tool-root: ${{ runner.temp }}/proof-forge-v2/tool-root/linux-x86_64
+          cache-key-suffix: ""
+
+      - name: Download CLI from lean-product
+        if: needs.lean-product.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: proof-forge-next-cli
+          path: .lake/build/bin
+
+      - name: Download CLI from target-smoke
+        if: needs.lean-product.result != 'success' && needs.target-smoke.result == 'success'
+        continue-on-error: true
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: proof-forge-next-cli-from-targets
+          path: .lake/build/bin
+
+      - name: Prepare prebuilt CLI
+        id: cli
+        run: |
+          mkdir -p .lake/build/bin
+          cli=".lake/build/bin/proof-forge-next"
+          if [[ -f "$cli" ]]; then
+            chmod +x "$cli"
+          fi
+          if [[ -x "$cli" ]]; then
+            echo "prebuilt=true" >> "$GITHUB_OUTPUT"
+            echo "PROOF_FORGE_CLI=$PWD/$cli" >> "$GITHUB_ENV"
+            echo "PROOF_FORGE_SKIP_LAKE_BUILD=1" >> "$GITHUB_ENV"
+            echo "Using prebuilt CLI: $PWD/$cli"
+          else
+            echo "prebuilt=false" >> "$GITHUB_OUTPUT"
+            echo "No prebuilt CLI; cosmwasm-runtime-test will lake build"
+          fi
+
+      - name: Cache Lake build products
+        if: steps.cli.outputs.prebuilt != 'true'
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: |
+            .lake/build
+            .lake/packages
+          key: ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-cosmwasm-runtime
+          restore-keys: |
+            ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-
+            ${{ runner.os }}-lake-v2-
+
+      - name: Prune stale olean artifacts
+        if: steps.cli.outputs.prebuilt != 'true'
+        run: /usr/bin/python3 -I -S scripts/ci/prune_stale_oleans.py
+
+      - name: Cache Cargo (CosmWasm runtime tests)
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            runtime-tests/cosmwasm/target
+          key: ${{ runner.os }}-cargo-cosmwasm-${{ hashFiles('runtime-tests/cosmwasm/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-cosmwasm-
+
+      - name: Install Rust toolchain
+        run: |
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          rustc --version
+          cargo --version
+
+      - name: CosmWasm cosmwasm-vm runtime differential
+        run: just cosmwasm-runtime
+        env:
+          PF_COSMWASM_RUNTIME_REQUIRED: "1"
 
   linux-tool-root:
     name: linux-tool-root (manual audit)

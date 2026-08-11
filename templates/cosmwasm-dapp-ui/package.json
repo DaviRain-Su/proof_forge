@@ -1,0 +1,25 @@
+{
+  "name": "proof-forge-cosmwasm-dapp-ui",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Minimal CosmWasm React dApp skeleton: cosmjs notes + PF StateCell-shaped Wasm (local mock / catalog-only)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@cosmjs/cosmwasm-stargate": "^0.33.0",
+    "@cosmjs/stargate": "^0.33.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11"
+  }
+}

@@ -123,3 +123,93 @@ jobs:
 
       - name: Solana Mollusk runtime differential
         run: just solana-runtime
+
+  nightly-near-runtime:
+    name: nightly-near-runtime
+    needs: [nightly-lean-product]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Setup Lean + tool root
+        uses: ./.github/actions/setup-lean-toolroot
+        with:
+          tool-root: ${{ runner.temp }}/proof-forge-v2/tool-root/linux-x86_64
+          cache-key-suffix: ""
+
+      - name: Download CLI
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: nightly-proof-forge-next-cli
+          path: .lake/build/bin
+
+      - name: Prepare CLI env
+        run: |
+          mkdir -p .lake/build/bin
+          chmod +x .lake/build/bin/proof-forge-next
+          echo "PROOF_FORGE_CLI=$PWD/.lake/build/bin/proof-forge-next" >> "$GITHUB_ENV"
+          echo "PROOF_FORGE_SKIP_LAKE_BUILD=1" >> "$GITHUB_ENV"
+
+      - name: Install Python deps for near-sandbox harness
+        run: |
+          python3 -m pip install --user -q -r runtime-tests/near/requirements.txt
+
+      - name: NEAR near-sandbox runtime differential
+        run: just near-runtime
+        env:
+          PF_NEAR_RUNTIME_REQUIRED: "1"
+
+  nightly-cosmwasm-runtime:
+    name: nightly-cosmwasm-runtime
+    needs: [nightly-lean-product]
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Setup Lean + tool root
+        uses: ./.github/actions/setup-lean-toolroot
+        with:
+          tool-root: ${{ runner.temp }}/proof-forge-v2/tool-root/linux-x86_64
+          cache-key-suffix: ""
+
+      - name: Download CLI
+        uses: actions/download-artifact@fa0a91b85d4f404e444e00e005971372dc801d16  # v4.1.8
+        with:
+          name: nightly-proof-forge-next-cli
+          path: .lake/build/bin
+
+      - name: Prepare CLI env
+        run: |
+          mkdir -p .lake/build/bin
+          chmod +x .lake/build/bin/proof-forge-next
+          echo "PROOF_FORGE_CLI=$PWD/.lake/build/bin/proof-forge-next" >> "$GITHUB_ENV"
+          echo "PROOF_FORGE_SKIP_LAKE_BUILD=1" >> "$GITHUB_ENV"
+
+      - name: Cache Cargo
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            runtime-tests/cosmwasm/target
+          key: ${{ runner.os }}-cargo-cosmwasm-${{ hashFiles('runtime-tests/cosmwasm/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-cosmwasm-
+
+      - name: Install Rust toolchain
+        run: |
+          if ! command -v cargo >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain stable --profile minimal
+            echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          fi
+          rustc --version
+          cargo --version
+
+      - name: CosmWasm cosmwasm-vm runtime differential
+        run: just cosmwasm-runtime
+        env:
+          PF_COSMWASM_RUNTIME_REQUIRED: "1"

@@ -30,16 +30,18 @@ proof-forge-next build Examples/StateCell.lean \
 pf test -t cosmwasm
 # force full corpus rebuild:
 #   PF_COSMWASM_TEST_MODE=corpus pf test -t cosmwasm
+#   just cosmwasm-runtime     # ordinary CI job cosmwasm-runtime (path-filtered)
 # product local:
 #   proof-forge-next local --target cosmwasm --mode runtime
-# monorepo full corpus:
-#   scripts/cosmwasm_runtime_test.sh
 # optional wasmd Docker rung:
 #   scripts/cosmwasm_wasmd_test.sh
 
 # 4) Deploy packaging (save-only; --broadcast refused)
 pf deploy -t cosmwasm --network local
 # → <artifact>/tx/<Program>.deployment.package.json
+
+# 5) Frontend skeleton (ecosystem cosmjs; no keys in PF)
+pf scaffold-ui --template cosmwasm-dapp
 ```
 
 ## Recommended Examples / fixtures

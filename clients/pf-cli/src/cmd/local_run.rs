@@ -34,16 +34,35 @@ pub fn run(
         ));
     }
     if tid == targets::TargetId::Near {
-        return Err(PfError::NotImplemented(
-            "near: use `pf test -t near` (artifact fast-path or corpus) or `proof-forge-next local --target near`; \
-             `pf run` is Aleo/Psy in v0; Promise/cross-contract is async (sync call FC)"
-                .into(),
-        ));
+        let dir = project.resolve_artifact_dir(&target, artifact_cli, None);
+        let outcome = targets::near::local_run::run_local(&dir, call_args)?;
+        let mut ok = PfOk::new("run");
+        ok.target = Some(target.clone());
+        ok.artifact_dir = Some(dir.display().to_string());
+        ok.extra = Some(serde_json::json!({
+            "lane": "near-sandbox-oneshot",
+            "method": call_args.first(),
+            "stdout": outcome.stdout.trim(),
+            "skipped": outcome.skipped,
+            "script": outcome.script_path.display().to_string(),
+            "note": "engineering near-sandbox only; not testnet; Promise/sync call FC",
+        }));
+        return emit(ok, json, || {
+            if outcome.skipped {
+                println!("near run skipped (tools missing):\n{}", outcome.stderr);
+            } else {
+                print!("{}", outcome.stdout);
+                if verbose {
+                    eprint!("{}", outcome.stderr);
+                }
+            }
+        });
     }
     if tid == targets::TargetId::Cosmwasm {
         return Err(PfError::NotImplemented(
-            "cosmwasm: use `pf test -t cosmwasm` or `proof-forge-next local --target cosmwasm`; \
-             `pf run` is Aleo/Psy in v0; sync call FC; schedule=SubMsg never"
+            "cosmwasm: use `pf test -t cosmwasm` (artifact fast-path or corpus); \
+             interactive `pf run` for CosmWasm is not in v0 (JSON ABI + cosmwasm-vm mock via pf test). \
+             sync call FC; schedule=SubMsg never"
                 .into(),
         ));
     }

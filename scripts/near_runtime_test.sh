@@ -165,7 +165,6 @@ PY
   fi
 fi
 
-cli="$root/.lake/build/bin/proof-forge-next"
 out_dir="${PROOF_FORGE_RUNTIME_OUT:-$root/build/v2/near-runtime}"
 crate_dir="$root/runtime-tests/near"
 
@@ -188,9 +187,19 @@ programs=(
 )
 
 echo "near-runtime-test: engineering near-sandbox differential (not formal/testnet)"
-echo "near-runtime-test: building proof-forge-next (lake build proof_forge_next)"
-lake build proof_forge_next || die "lake build proof_forge_next failed"
-[[ -x "$cli" ]] || die "CLI missing after build: $cli"
+cli="${PROOF_FORGE_CLI:-$root/.lake/build/bin/proof-forge-next}"
+if [[ -n "${PROOF_FORGE_CLI:-}" && -x "$PROOF_FORGE_CLI" ]]; then
+  cli="$PROOF_FORGE_CLI"
+  echo "near-runtime-test: using PROOF_FORGE_CLI=$cli (skip lake build)"
+elif [[ -x "$cli" && "${PROOF_FORGE_SKIP_LAKE_BUILD:-}" == "1" ]]; then
+  echo "near-runtime-test: using prebuilt CLI $cli (PROOF_FORGE_SKIP_LAKE_BUILD=1)"
+else
+  echo "near-runtime-test: building proof-forge-next (lake build proof_forge_next)"
+  lake build proof_forge_next || die "lake build proof_forge_next failed"
+  cli="$root/.lake/build/bin/proof-forge-next"
+fi
+export PROOF_FORGE_CLI="$cli"
+[[ -x "$cli" ]] || die "CLI missing: $cli"
 
 echo "near-runtime-test: tool root=$PROOF_FORGE_TOOL_ROOT"
 echo "near-runtime-test: near-sandbox=$sandbox"

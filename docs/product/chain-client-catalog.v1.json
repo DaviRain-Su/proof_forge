@@ -12,7 +12,9 @@
     "EVM frontend detail: docs/product/08-evm-dapp-frontend.md + templates/evm-dapp-ui (viem/local Anvil + X Layer presets).",
     "EVM public networks (X Layer testnet/mainnet, …): docs/product/networks.v1.json + docs/product/13-xlayer-onchainos.md; MCP pf_network_info / pf_onchainos_guide.",
     "OKX OnchainOS: official DEX MCP at https://web3.okx.com/api/v1/onchainos-mcp — dual-MCP with PF; do not reimplement DEX inside PF.",
-    "Solana contracts: ProofForge ProgramV1 + pf CLI; frontend templates/solana-dapp-ui; PF MCP summarizes ix codec (not external Anchor MCP)."
+    "Solana contracts: ProofForge ProgramV1 + pf CLI; frontend templates/solana-dapp-ui; PF MCP summarizes ix codec (not external Anchor MCP).",
+    "NEAR frontend skeleton: templates/near-dapp-ui (near-api-js ecosystem; not shipped wallet).",
+    "CosmWasm frontend skeleton: templates/cosmwasm-dapp-ui (cosmjs ecosystem)."
   ],
   "networksRef": {
     "schema": "proof-forge.network-catalog.v1",
@@ -288,7 +290,7 @@
         "localModes": [
           "runtime"
         ],
-        "test": "pf test -t near → scripts/pf_near_test.sh (near-sandbox corpus; skip-clean if tools missing)",
+        "test": "pf test -t near → scripts/pf_near_test.sh (artifact fast-path when *.wasm; else corpus; skip-clean if tools missing)",
         "deploy": "pf deploy -t near save-only; --broadcast refused",
         "network": "catalog-only (near.local.sandbox / near.testnet); no product broadcast",
         "mcpTools": [
@@ -299,14 +301,16 @@
           "pf_artifacts",
           "pf_local",
           "pf_chain_catalog"
-        ]
+        ],
+        "run": "pf run -t near -- <method> [u64…] → one-shot near-sandbox (engineering)"
       },
       "frontendClients": [
         {
           "name": "near-api-js (ecosystem)",
           "kind": "js-ts",
           "purpose": "account, call, view",
-          "shippedByProofForge": false
+          "shippedByProofForge": false,
+          "template": "templates/near-dapp-ui"
         }
       ],
       "localDev": {
@@ -317,7 +321,8 @@
         "Engineering Wasm + near-sandbox only — not formal Reference↔sandbox",
         "Sync call / sync native·token transfer permanent fail-closed (Promise async)",
         "Public testnet/mainnet broadcast not a product path",
-        "Proof-bearing vault (ADR-0042) is Reference-verified + runtime observed, not formal target refinement"
+        "Proof-bearing vault (ADR-0042) is Reference-verified + runtime observed, not formal target refinement",
+        "CI: ordinary near-runtime job (path-filtered; Tool Lock near-sandbox)"
       ],
       "agentGuide": "docs/product/near-agent-cheatsheet.md",
       "syncAsyncGuide": "docs/product/near-sync-async-api.md",
@@ -329,7 +334,8 @@
         "Examples/ConstAnswer.lean",
         "Examples/StateCell.lean",
         "Examples/VerifiedVaultPF.lean"
-      ]
+      ],
+      "frontendTemplate": "templates/near-dapp-ui"
     },
     {
       "id": "noir",
@@ -490,7 +496,7 @@
         "localModes": [
           "runtime"
         ],
-        "test": "pf test -t cosmwasm → scripts/pf_cosmwasm_test.sh (artifact fast-path when *.wasm present; else corpus; skip-clean if tools missing)",
+        "test": "pf test -t cosmwasm → scripts/pf_cosmwasm_test.sh (artifact fast-path when *.wasm; else corpus)",
         "deploy": "pf deploy -t cosmwasm save-only; --broadcast refused",
         "network": "catalog-only (cosmwasm.local.mock); no product broadcast",
         "mcpTools": [
@@ -508,7 +514,8 @@
           "name": "cosmjs (ecosystem)",
           "kind": "js-ts",
           "purpose": "Cosmos LCD/RPC, signing",
-          "shippedByProofForge": false
+          "shippedByProofForge": false,
+          "template": "templates/cosmwasm-dapp-ui"
         }
       ],
       "localDev": {
@@ -520,7 +527,8 @@
         "Generic sync call permanent fail-closed; pf.assets bank/CW20 use SubMsg reply_on=never (error-propagating)",
         "schedule = same-tx SubMsg never (not cross-tx async)",
         "Public chain broadcast refused in pf v0",
-        "Scalar const + Bytes N state/return open; Map return and invariants remain fail-closed"
+        "Scalar const + Bytes N state/return open; Map return and invariants remain fail-closed",
+        "CI: ordinary cosmwasm-runtime job (path-filtered; cosmwasm-vm mock)"
       ],
       "agentGuide": "docs/product/cosmwasm-agent-cheatsheet.md",
       "demoExamples": [
@@ -533,7 +541,8 @@
         "runtime-tests/cosmwasm/fixtures/CallerGate.lean",
         "Examples/UnixTimeCheck.lean",
         "Examples/PoseTransform.lean"
-      ]
+      ],
+      "frontendTemplate": "templates/cosmwasm-dapp-ui"
     },
     {
       "id": "ton",

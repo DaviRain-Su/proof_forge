@@ -77,12 +77,17 @@ jobs:
           bash -n scripts/external_author_dist_smoke.sh
           bash -n scripts/pf_evm_test.sh
           bash -n scripts/pf_solana_test.sh
+          bash -n scripts/pf_near_test.sh
+          bash -n scripts/pf_cosmwasm_test.sh
+          bash -n scripts/pf_near_run.sh
 
       - name: bundle packager requires EA scripts + templates
         run: |
           set -euo pipefail
           rg -n 'required_scripts=\(' -A30 scripts/package_bundle_dist.sh | rg -q 'pf_evm_test\.sh'
           rg -n 'required_scripts=\(' -A30 scripts/package_bundle_dist.sh | rg -q 'pf_solana_test\.sh'
+          rg -n 'required_scripts=\(' -A30 scripts/package_bundle_dist.sh | rg -q 'pf_near_test\.sh'
+          rg -n 'required_scripts=\(' -A30 scripts/package_bundle_dist.sh | rg -q 'pf_cosmwasm_test\.sh'
           rg -n 'templates/' scripts/package_bundle_dist.sh | head -1
           test -f docs/adr/0040-external-author-host-mode-and-bundle.md
           test -f docs/product/16-external-author-cheatsheet.md
@@ -135,6 +140,9 @@ jobs:
           bash -n scripts/install.sh
           bash -n scripts/pf_evm_test.sh
           bash -n scripts/pf_solana_test.sh
+          bash -n scripts/pf_near_test.sh
+          bash -n scripts/pf_cosmwasm_test.sh
+          bash -n scripts/pf_near_run.sh
           bash -n scripts/package_bundle_dist.sh
           V="$(tr -d '[:space:]' < VERSION)"
           C="$(awk -F'"' '/^version = / { print $2; exit }' clients/pf-cli/Cargo.toml)"

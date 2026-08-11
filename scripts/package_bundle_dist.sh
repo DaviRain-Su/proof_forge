@@ -187,10 +187,15 @@ required_scripts=(
   toolchain_assets.py
   pf_evm_test.sh
   pf_solana_test.sh
+  pf_near_test.sh
+  pf_cosmwasm_test.sh
 )
 optional_scripts=(
   solana_runtime_test.sh
   evm_anvil_differential.sh
+  near_runtime_test.sh
+  cosmwasm_runtime_test.sh
+  pf_near_run.sh
 )
 for f in "${required_scripts[@]}"; do
   [[ -f "$root/scripts/$f" ]] || bad "missing required package script scripts/$f"
