@@ -15,6 +15,11 @@ __pycache__/
 # Riptide artifacts (cloud-synced)
 .humanlayer/tasks/
 
+# ProofShip hackathon build outputs
+/proofship/**/out-*/
+/proofship/**/studio-inbox/
+/proofship/cloud-spike/context/
+
 # Rust engineering/runtime client build outputs
 /runtime-tests/solana/target/
 /runtime-tests/**/target/
