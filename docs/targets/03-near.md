@@ -35,9 +35,12 @@ Phase 1：实现
   `wasm-interp`/`wasmtime`/`wasmer` 之一做 runtime load；locked near-sandbox 2.13.0 的
   `runtime-tests/near` 已覆盖 StateCell init/mutate/view、overflow state-hold+recovery、PairRet、
   ArrayRet、OptionRet、OptionState、proof-bearing `VerifiedVaultPF`、TipJarAsync、TokenJarAsync、
-  EnvReadJar 与 CallerCheck。2026-08-11 required run 以 userspace GLIBC 2.39 loader 在 GLIBC 2.36
-  host 启动原始 locked executable，十套 corpus 全部 PASS；该 loader 尚非 Tool Lock 资产，因此
-  不是 hermetic release evidence。
+  EnvReadJar、CallerCheck、低集成 `PoseTransform`（translate/rotate90/scale + Int64 overflow
+  state-hold）与 `BlockHeightCheck`（`context.blockHeight` ↔ sandbox
+  `status.sync_info.latest_block_height`）。2026-08-11 required run 以 userspace GLIBC 2.39
+  loader 在 GLIBC 2.36 host 启动原始 locked executable，原十套 corpus 全部 PASS；后续
+  PoseTransform + BlockHeightCheck 扩为十二套 engineering 门。该 loader 尚非 Tool Lock 资产，
+  因此不是 hermetic release evidence。产品推进见 `docs/plan/near-parity-roadmap.md`。
 - **Proof-bearing invariant-root erasure（ADR-0042）**：普通 capability + nonempty invariants
   仍 fail closed；只有 private audited `CertifiedInlineProofV1` 在 source/semantic digest exact
   match、每个 invariant 有完整 preserving coverage 时可 mint NEAR-only authorization。
@@ -65,7 +68,9 @@ Phase 1：实现
   按 exact account-id UTF-8 bytes 物化 `u32le(len)||body` Principal（len 2..64、
   lowercase account-id grammar）；view/pureFn/invariant caller 保持 FC。predecessor register id
   由 `RegisterLayout.predecessor` sole-own，emitter 不再局部硬编码；未知键 FC。
-  blockHeight 当前有 Plan/IR/emitter + NearHostModel 钉测，尚无专门 near-sandbox runtime fixture。
+  blockHeight 有 Plan/IR/emitter + NearHostModel 钉测，且 `Examples/BlockHeightCheck.lean`
+  已进 `scripts/near_runtime_test.sh` suite `blockheightcheck`（view `height()` 钉
+  `latest_block_height`，entry `stamp()` 钉 receipt 高度区间）。
 - **`pf.assets` 半绑定（ADR-0029 Phase C2，2026-08-05）**：resolver advertise exact
   `extension.pf-assets` + `effect.synchronous-call`（后者仅覆盖 pf.assets catalog；
   generic 非 catalog sync call 在 Plan 层继续 fail closed）。`pf.assets.native.deposit`
@@ -119,8 +124,8 @@ lowering graph seam，尚无 concrete Plan graph proof或 target transition。�
 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
 覆盖 corrupt storage、bad input 或 gas/profile；Option
 params、非 UInt64/nested Option、Map/Bytes/nested aggregate
-return 仍 fail-closed；ContextRead 已开放 `unixTimeSeconds`、view-safe `blockHeight` 与
-init/entry `caller`，但 view caller、其他键及 blockHeight 的专门 sandbox runtime 仍缺；formal
+return 仍 fail-closed；ContextRead 已开放 `unixTimeSeconds`、view-safe `blockHeight`（含
+sandbox runtime 门）与 init/entry `caller`，但 view caller 与其他键仍缺；formal
 identity/OutputSet / D6 milestone 未完成。不得写成 formal runtime-validated。
 
 ## 1. 身份与来源

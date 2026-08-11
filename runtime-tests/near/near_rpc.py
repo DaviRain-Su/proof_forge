@@ -66,6 +66,15 @@ class NearClient:
         return struct.pack("<Q", int(n) & ((1 << 64) - 1))
 
     @staticmethod
+    def encode_i64_le(n: int) -> bytes:
+        """Two's-complement Int64 little-endian (NEAR product scalar wire)."""
+        return struct.pack("<q", int(n))
+
+    @staticmethod
+    def decode_i64_le(b: bytes, offset: int = 0) -> int:
+        return struct.unpack_from("<q", b, offset)[0]
+
+    @staticmethod
     def encode_principal_account_id(account_id: str) -> bytes:
         """ADR-0029 C2: Principal as 9×u64 LE leaves (len + 8 body words).
 
@@ -84,6 +93,15 @@ class NearClient:
     @staticmethod
     def decode_u64_le(b: bytes, offset: int = 0) -> int:
         return struct.unpack_from("<Q", b, offset)[0]
+
+    def latest_block_height(self) -> int:
+        """neard status.sync_info.latest_block_height (engineering pin only)."""
+        st = self.status()
+        sync = st.get("sync_info") or {}
+        h = sync.get("latest_block_height")
+        if h is None:
+            raise NearRpcError(f"status missing sync_info.latest_block_height: {st!r}")
+        return int(h)
 
     # --- RPC ----------------------------------------------------------
 
@@ -367,6 +385,15 @@ class NearClient:
                 f"view {account_id}.{method}: expected ≥8 LE bytes, got {raw!r}"
             )
         return self.decode_u64_le(raw, 0)
+
+    def view_i64_pair(self, method: str, args: bytes = b"") -> tuple[int, int]:
+        """Decode first 16 bytes as two little-endian Int64 leaves."""
+        raw = self.view(method, args)
+        if len(raw) < 16:
+            raise NearRpcError(
+                f"view {method}: expected ≥16 LE bytes for i64 pair, got {raw!r}"
+            )
+        return self.decode_i64_le(raw, 0), self.decode_i64_le(raw, 8)
 
     def view_u64_pair(self, method: str, args: bytes = b"") -> tuple[int, int]:
         raw = self.view(method, args)

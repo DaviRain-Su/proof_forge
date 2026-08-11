@@ -4,11 +4,11 @@ namespace Examples
 
 open ProofForgeV2.Language
 
--- ADR-0031 S2 / ADR-0030 E3: EVM context.blockHeight Plan open fixture.
--- Returns `context.blockHeight` (EVM NUMBER / Yul `number()` → UInt64) as a
--- view, and stamps it into state via an entry for receipt-block correlation.
--- Anvil gate: scripts/evm_blockheight_anvil_smoke.sh
--- Not imported by Examples.lean (target-specific, like CallerCheck).
+-- ADR-0031 S2 / ADR-0030 E3: context.blockHeight Plan open fixture.
+-- Returns `context.blockHeight` as a view and stamps it via entry:
+--   EVM  → NUMBER / Yul `number()`  (Anvil: scripts/evm_blockheight_anvil_smoke.sh)
+--   NEAR → host `block_index()`     (sandbox: scripts/near_runtime_test.sh suite blockheightcheck)
+-- Not imported by Examples.lean (target-runtime fixture, like CallerCheck).
 program BlockHeightCheck where
   state pad : UInt64
 

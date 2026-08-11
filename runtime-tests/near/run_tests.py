@@ -9,12 +9,16 @@ Suites:
   optionstate — fixtures/OptionState: Option UInt64 state tag+payload (BL-30)
   verifiedvault — Examples/VerifiedVaultPF: proof-bearing invariant-root
                   erasure + deposit/withdraw/rollback storage observations
+  posetransform — Examples/PoseTransform: translate / rotate90 / scale + overflow hold
+  blockheightcheck — Examples/BlockHeightCheck: context.blockHeight ↔ sandbox height
 
 Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_RPC          e.g. http://127.0.0.1:PORT
   PF_NEAR_HOME         near-sandbox --home directory (validator_key.json)
   PF_NEAR_WASM         path to product .wasm for the suite
-  PF_NEAR_SUITE        state_cell | pairret | arrayret | optionret | optionstate | verifiedvault | tipjarasync | tokenjarasync | envreadjar | callercheck | single
+  PF_NEAR_SUITE        state_cell | pairret | arrayret | optionret | optionstate |
+                       verifiedvault | tipjarasync | tokenjarasync | envreadjar |
+                       callercheck | posetransform | blockheightcheck | single
 
 Honesty: engineering sandbox differential only — not testnet/mainnet,
 not formal Stage-0 / hermetic / Reference↔sandbox closure.
@@ -669,6 +673,151 @@ def suite_envreadjar(client: NearClient, wasm: Path) -> None:
     print("suite EnvReadJar: PASS")
 
 
+def suite_posetransform(client: NearClient, wasm: Path) -> None:
+    """Parity Phase 1: PoseTransform translate / rotate90 / scale.
+
+    Int64 two's-complement LE pair ABI (named Struct Pose). Overflow on
+    scale must fail closed and hold prior state (receipt-local rollback).
+    Engineering only — not formal Reference↔sandbox.
+    """
+    print("=== suite: PoseTransform (translate / rotate90 / scale) ===")
+    client.deploy(wasm)
+
+    def pose_args(x: int, y: int) -> bytes:
+        return NearClient.encode_i64_le(x) + NearClient.encode_i64_le(y)
+
+    def expect_pose(label: str, expected: tuple[int, int]) -> None:
+        got = client.view_i64_pair("getPose")
+        if got != expected:
+            raise AssertionError(f"{label}: getPose expected {expected}, got {got}")
+        print(f"posetransform: {label} → getPose()=={expected} ok")
+
+    def expect_call_pose(method: str, args: bytes, expected: tuple[int, int]) -> None:
+        res = client.call(method, args)
+        sv = NearClient.success_value_bytes(res)
+        if sv is None or len(sv) < 16:
+            raise AssertionError(
+                f"{method} SuccessValue expected ≥16 LE bytes, got {sv!r}"
+            )
+        got = (
+            NearClient.decode_i64_le(sv, 0),
+            NearClient.decode_i64_le(sv, 8),
+        )
+        if got != expected:
+            raise AssertionError(f"{method} SuccessValue expected {expected}, got {got}")
+        print(f"posetransform: {method} SuccessValue=={got} ok")
+
+    # init(3, 4)
+    client.call("init", pose_args(3, 4))
+    expect_pose("after init(3,4)", (3, 4))
+
+    # translate(1, -2) → (4, 2)
+    expect_call_pose("translate", pose_args(1, -2), (4, 2))
+    expect_pose("after translate(1,-2)", (4, 2))
+
+    # rotate90 CW: (x,y)=(4,2) → (y,-x)=(2,-4)
+    expect_call_pose("rotate90", b"", (2, -4))
+    expect_pose("after rotate90", (2, -4))
+
+    # scale(3): (2,-4) → (6,-12)
+    expect_call_pose("scale", NearClient.encode_i64_le(3), (6, -12))
+    expect_pose("after scale(3)", (6, -12))
+
+    # Overflow scale: Int64.min * 2 must trap; state holds.
+    int64_min = -(1 << 63)
+    client.call("setPose", pose_args(int64_min, 1))
+    expect_pose("after setPose(Int64.min,1)", (int64_min, 1))
+    client.call(
+        "scale",
+        NearClient.encode_i64_le(2),
+        expect_success=False,
+    )
+    expect_pose("after overflow scale(2) state-hold", (int64_min, 1))
+
+    # Recovery path still works.
+    expect_call_pose("setPose", pose_args(1, 1), (1, 1))
+    expect_call_pose("scale", NearClient.encode_i64_le(5), (5, 5))
+    expect_pose("after recovery scale(5)", (5, 5))
+    print("suite PoseTransform: PASS")
+
+
+def suite_blockheightcheck(client: NearClient, wasm: Path) -> None:
+    """ADR-0031 S2 NEAR: context.blockHeight → host block_index().
+
+    Pins height()/stamp() against near-sandbox status.sync_info.latest_block_height.
+    View is free (no mine); stamp is a FunctionCall that advances chain height.
+    Engineering only — not formal Reference↔sandbox.
+    """
+    print("=== suite: BlockHeightCheck (context.blockHeight / block_index) ===")
+    client.deploy(wasm)
+
+    client.call("init", NearClient.encode_u64_le(0))
+    got = client.view_u64("get")
+    if got != 0:
+        raise AssertionError(f"after init(0): get() expected 0, got {got}")
+    print("blockheightcheck: init(0) → get()==0 ok")
+
+    def pin_height_view() -> tuple[int, int]:
+        """Return (rpc_height, view_height) under a quiet sole-client window."""
+        h0 = client.latest_block_height()
+        view_h = client.view_u64("height")
+        h1 = client.latest_block_height()
+        if h0 != h1:
+            # Chain advanced under us (unlikely sole-client); one retry.
+            h0 = h1
+            view_h = client.view_u64("height")
+            h1 = client.latest_block_height()
+            if h0 != h1:
+                raise AssertionError(
+                    f"block height still advancing under sole-client view "
+                    f"(h0={h0}, h1={h1})"
+                )
+        return h0, view_h
+
+    rpc_h, view_h = pin_height_view()
+    if view_h != rpc_h:
+        raise AssertionError(
+            f"height() must equal status.latest_block_height ({rpc_h}), got {view_h}"
+        )
+    print(f"blockheightcheck: height() == latest_block_height ({rpc_h}) ok")
+
+    # stamp() stores block_index at execute time; receipt mines ≥1 block.
+    before = client.latest_block_height()
+    res = client.call("stamp", b"")
+    after = client.latest_block_height()
+    sv = NearClient.success_value_bytes(res)
+    if sv is None or len(sv) < 8:
+        raise AssertionError(f"stamp SuccessValue expected ≥8 LE bytes, got {sv!r}")
+    stamped = NearClient.decode_u64_le(sv, 0)
+    stored = client.view_u64("get")
+    if stored != stamped:
+        raise AssertionError(
+            f"get() after stamp must equal SuccessValue ({stamped}), got {stored}"
+        )
+    # stamp executes in some block B with before < B ≤ after (usually after == before+1
+    # on idle sandbox, but allow headroom if the node batches).
+    if not (before < stamped <= after):
+        raise AssertionError(
+            f"stamp height {stamped} not in (before={before}, after={after}]"
+        )
+    print(
+        f"blockheightcheck: stamp() → get()=={stamped} "
+        f"(before={before}, after={after}) ok"
+    )
+
+    rpc_h2, view_h2 = pin_height_view()
+    if view_h2 != rpc_h2:
+        raise AssertionError(
+            f"post-stamp height() must equal latest_block_height ({rpc_h2}), got {view_h2}"
+        )
+    if view_h2 < stamped:
+        raise AssertionError(
+            f"post-stamp height() ({view_h2}) < stamped receipt height ({stamped})"
+        )
+    print(f"blockheightcheck: post-stamp height() == latest_block_height ({rpc_h2}) ok")
+    print("suite BlockHeightCheck: PASS")
+
+
 def suite_callercheck(client: NearClient, wasm: Path) -> None:
     """ADR-0031 S1 NEAR: context.caller → predecessor_account_id Principal.
 
@@ -799,6 +948,14 @@ def main(argv: list[str]) -> int:
         elif suite == "callercheck":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_CALLERCHECK_WASM"))
             suite_callercheck(client, wasm)
+        elif suite == "posetransform":
+            wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_POSETRANSFORM_WASM"))
+            suite_posetransform(client, wasm)
+        elif suite == "blockheightcheck":
+            wasm = Path(
+                os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_BLOCKHEIGHTCHECK_WASM")
+            )
+            suite_blockheightcheck(client, wasm)
         elif suite == "all":
             # Same sandbox / same account: run suites only if
             # caller redeploys after a fresh home (script boots once per suite).

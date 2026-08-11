@@ -12,6 +12,8 @@
 #   OptionState: Option UInt64 state tag+payload (none default / some / clear zero)
 #   VerifiedVaultPF: proof-bearing invariant-root erasure, exact concrete
 #     reserves/shares equality, Unit withdraw, and failure rollback
+#   PoseTransform: translate / rotate90 / scale + Int64 overflow state-hold
+#   BlockHeightCheck: context.blockHeight ↔ sandbox latest_block_height
 #
 # Not testnet, not mainnet, not formal Stage-0 / hermetic release evidence /
 # Reference↔sandbox formal differential (main agent decides just recipe wiring).
@@ -175,6 +177,8 @@ programs=(
   "runtime-tests/near/fixtures/TokenJarAsync.lean:Examples.TokenJarAsync:TokenJarAsync"
   "runtime-tests/near/fixtures/EnvReadJar.lean:Examples.EnvReadJar:EnvReadJar"
   "runtime-tests/near/fixtures/CallerCheck.lean:Examples.CallerCheck:CallerCheck"
+  "Examples/PoseTransform.lean:Examples.PoseTransform:PoseTransform"
+  "Examples/BlockHeightCheck.lean:Examples.BlockHeightCheck:BlockHeightCheck"
 )
 
 echo "near-runtime-test: engineering near-sandbox differential (not formal/testnet)"
@@ -269,6 +273,8 @@ tipjarasync_wasm="$out_dir/TipJarAsync/TipJarAsync.wasm"
 tokenjarasync_wasm="$out_dir/TokenJarAsync/TokenJarAsync.wasm"
 envreadjar_wasm="$out_dir/EnvReadJar/EnvReadJar.wasm"
 callercheck_wasm="$out_dir/CallerCheck/CallerCheck.wasm"
+posetransform_wasm="$out_dir/PoseTransform/PoseTransform.wasm"
+blockheightcheck_wasm="$out_dir/BlockHeightCheck/BlockHeightCheck.wasm"
 [[ -f "$state_cell_wasm" ]] || die "missing $state_cell_wasm"
 [[ -f "$pairret_wasm" ]] || die "missing $pairret_wasm"
 [[ -f "$arrayret_wasm" ]] || die "missing $arrayret_wasm"
@@ -279,6 +285,8 @@ callercheck_wasm="$out_dir/CallerCheck/CallerCheck.wasm"
 [[ -f "$tokenjarasync_wasm" ]] || die "missing $tokenjarasync_wasm"
 [[ -f "$envreadjar_wasm" ]] || die "missing $envreadjar_wasm"
 [[ -f "$callercheck_wasm" ]] || die "missing $callercheck_wasm"
+[[ -f "$posetransform_wasm" ]] || die "missing $posetransform_wasm"
+[[ -f "$blockheightcheck_wasm" ]] || die "missing $blockheightcheck_wasm"
 
 # --- sandbox helpers --------------------------------------------------------
 
@@ -436,5 +444,11 @@ run_suite envreadjar "$envreadjar_wasm" || die "EnvReadJar suite failed"
 echo "near-runtime-test: running CallerCheck suite against near-sandbox"
 run_suite callercheck "$callercheck_wasm" || die "CallerCheck suite failed"
 
-echo "near-runtime-test: PASS (StateCell + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + CallerCheck engineering sandbox differential)"
+echo "near-runtime-test: running PoseTransform suite against near-sandbox"
+run_suite posetransform "$posetransform_wasm" || die "PoseTransform suite failed"
+
+echo "near-runtime-test: running BlockHeightCheck suite against near-sandbox"
+run_suite blockheightcheck "$blockheightcheck_wasm" || die "BlockHeightCheck suite failed"
+
+echo "near-runtime-test: PASS (StateCell + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + CallerCheck + PoseTransform + BlockHeightCheck engineering sandbox differential)"
 exit 0

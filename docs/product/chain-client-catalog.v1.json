@@ -285,7 +285,7 @@
       "role": "backend-contracts",
       "pfSurface": {
         "build": true,
-        "localModes": [],
+        "localModes": ["near-sandbox-engineering"],
         "network": "none-product",
         "mcpTools": [
           "pf_list_targets",
@@ -306,9 +306,22 @@
       ],
       "localDev": {
         "offlineInterpret": null,
-        "chainLike": "near-sandbox engineering (host-heavy)"
+        "chainLike": "near-sandbox engineering (host-heavy); scripts/near_runtime_test.sh twelve suites"
       },
-      "honesty": []
+      "honesty": [
+        "Engineering Wasm + near-sandbox only — not formal Reference↔sandbox",
+        "Sync call / sync native·token transfer permanent fail-closed (Promise async)",
+        "Public testnet/mainnet broadcast not a product path",
+        "Proof-bearing vault (ADR-0042) is Reference-verified + runtime observed, not formal target refinement"
+      ],
+      "agentGuide": "docs/product/near-agent-cheatsheet.md",
+      "parityRoadmap": "docs/plan/near-parity-roadmap.md",
+      "demoExamples": [
+        "Examples/PoseTransform.lean",
+        "Examples/BlockHeightCheck.lean",
+        "Examples/StateCell.lean",
+        "Examples/VerifiedVaultPF.lean"
+      ]
     },
     {
       "id": "noir",
