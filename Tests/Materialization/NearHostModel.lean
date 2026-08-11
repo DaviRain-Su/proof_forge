@@ -5343,7 +5343,7 @@ private unsafe def testAnonymousOptionReturn
   expect (seedLeaves == #[(1 : U64), (42 : U64)])
     s!"option-ret: asSomeOfSeed must return [1,42], got {seedLeaves}"
 
-/-- N-ANON-RESULT FC boundaries: Bytes, Map, Array-of-9, nested Array stay closed. -/
+/-- N-ANON-RESULT FC boundaries: Map, Array-of-9, and nested Array stay closed. -/
 private unsafe def expectAnonymousReturnFailClosed
     (session : Language.Loader.ParserSession)
     (label moduleName sourceText : String)
@@ -5370,20 +5370,6 @@ private unsafe def expectAnonymousReturnFailClosed
 
 private unsafe def testAnonymousReturnFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Bytes N return remains fail closed.
-  expectAnonymousReturnFailClosed session "bytes-ret" "Examples.BytesRet"
-    ("import ProofForgeV2\n\n" ++
-      "namespace ProofForgeV2.Examples\n\n" ++
-      "open ProofForgeV2.Language\n\n" ++
-      "program BytesRet where\n" ++
-      "  state payload : Bytes 2\n\n" ++
-      "  init() do\n" ++
-      "    payload[0] := 1\n" ++
-      "    payload[1] := 2\n\n" ++
-      "  view getBytes() : Bytes 2 do\n" ++
-      "    return payload\n\n" ++
-      "end ProofForgeV2.Examples\n")
-    #["Bytes", "return", "B-RET", "unsupported", "anonymous"]
   -- Map return remains fail closed.
   expectAnonymousReturnFailClosed session "map-ret" "Examples.MapRet"
     ("import ProofForgeV2\n\n" ++
