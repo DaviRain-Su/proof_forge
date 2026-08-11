@@ -16,6 +16,7 @@
 #   BlockHeightCheck: context.blockHeight ↔ sandbox latest_block_height
 #   ConstAnswer: scalar const table (ANSWER=42) via Op.Constant
 #   UnixTimeCheck: context.unixTimeSeconds ↔ block_timestamp ns÷10^9
+#   BytesRet: anonymous Bytes 4 return (4×u8 tight value_return)
 #
 # Not testnet, not mainnet, not formal Stage-0 / hermetic release evidence /
 # Reference↔sandbox formal differential (main agent decides just recipe wiring).
@@ -183,6 +184,7 @@ programs=(
   "Examples/BlockHeightCheck.lean:Examples.BlockHeightCheck:BlockHeightCheck"
   "Examples/ConstAnswer.lean:Examples.ConstAnswer:ConstAnswer"
   "Examples/UnixTimeCheck.lean:Examples.UnixTimeCheck:UnixTimeCheck"
+  "runtime-tests/near/fixtures/BytesRet.lean:Examples.BytesRet:BytesRet"
 )
 
 echo "near-runtime-test: engineering near-sandbox differential (not formal/testnet)"
@@ -281,6 +283,7 @@ posetransform_wasm="$out_dir/PoseTransform/PoseTransform.wasm"
 blockheightcheck_wasm="$out_dir/BlockHeightCheck/BlockHeightCheck.wasm"
 constanswer_wasm="$out_dir/ConstAnswer/ConstAnswer.wasm"
 unixtimecheck_wasm="$out_dir/UnixTimeCheck/UnixTimeCheck.wasm"
+bytesret_wasm="$out_dir/BytesRet/BytesRet.wasm"
 [[ -f "$state_cell_wasm" ]] || die "missing $state_cell_wasm"
 [[ -f "$pairret_wasm" ]] || die "missing $pairret_wasm"
 [[ -f "$arrayret_wasm" ]] || die "missing $arrayret_wasm"
@@ -295,6 +298,7 @@ unixtimecheck_wasm="$out_dir/UnixTimeCheck/UnixTimeCheck.wasm"
 [[ -f "$blockheightcheck_wasm" ]] || die "missing $blockheightcheck_wasm"
 [[ -f "$constanswer_wasm" ]] || die "missing $constanswer_wasm"
 [[ -f "$unixtimecheck_wasm" ]] || die "missing $unixtimecheck_wasm"
+[[ -f "$bytesret_wasm" ]] || die "missing $bytesret_wasm"
 
 # --- sandbox helpers --------------------------------------------------------
 
@@ -464,5 +468,8 @@ run_suite constanswer "$constanswer_wasm" || die "ConstAnswer suite failed"
 echo "near-runtime-test: running UnixTimeCheck suite against near-sandbox"
 run_suite unixtimecheck "$unixtimecheck_wasm" || die "UnixTimeCheck suite failed"
 
-echo "near-runtime-test: PASS (StateCell + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + CallerCheck + PoseTransform + BlockHeightCheck + ConstAnswer + UnixTimeCheck engineering sandbox differential)"
+echo "near-runtime-test: running BytesRet suite against near-sandbox"
+run_suite bytesret "$bytesret_wasm" || die "BytesRet suite failed"
+
+echo "near-runtime-test: PASS (StateCell + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + CallerCheck + PoseTransform + BlockHeightCheck + ConstAnswer + UnixTimeCheck + BytesRet engineering sandbox differential)"
 exit 0

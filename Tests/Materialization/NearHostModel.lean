@@ -800,8 +800,9 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       else
         let value ← readTemp machine source
         pure { machine with returned := some value, returnedLeaves := #[value] }
-  | .setReturnDataLeaves temps => do
-      -- B-RET-ABI: N×8-byte preorder leaves from arbitrary temps.
+  | .setReturnDataLeaves temps _leafByteWidths => do
+      -- B-RET-ABI: preorder leaves from arbitrary temps (widths unused in host
+      -- model — values stay full i64 words; Bytes packing is WAT-level).
       if machine.returned.isSome then
         modelError "return data was already set"
       unless temps.size > 0 && temps.size ≤ 8 do
@@ -1183,7 +1184,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .narrowStoreState _ _ _ => "narrowStoreState"
     | .setLayout _ _ => "setLayout"
     | .setReturnData _ _ => "setReturnData"
-    | .setReturnDataLeaves _ => "setReturnDataLeaves"
+    | .setReturnDataLeaves _ _ => "setReturnDataLeaves"
     | .compare _ _ _ op =>
         match op with
         | .eq => "compare.eq"

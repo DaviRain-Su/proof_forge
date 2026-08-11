@@ -65,9 +65,11 @@ inductive Operation where
   /-- Host `value_return` payload: `byteLen` ∈ {1,2,4,8,16,32} from MethodResultKind
   (scalar/multiword consecutive temps starting at `value`). -/
   | setReturnData (byteLen value : Nat)
-  /-- B-RET-ABI: host `value_return` of N×8-byte leaves from arbitrary temps
-  (preorder flatten). Total payload length is `8 * temps.size` (1..8). -/
-  | setReturnDataLeaves (temps : Array Nat)
+  /-- B-RET-ABI: host `value_return` of preorder leaves from arbitrary temps.
+  When `leafByteWidths` is empty, each leaf is packed as 8-byte LE (historical
+  Struct/Array/Option path). Otherwise `leafByteWidths.size == temps.size` and
+  each temp is stored with the given width (Bytes N uses all-1 widths). -/
+  | setReturnDataLeaves (temps : Array Nat) (leafByteWidths : Array Nat := #[])
   | compare (destination lhs rhs : Nat) (op : ComparisonOp)
   /-- Multiword unsigned compare (T9e): lhs/rhs bases of bitWidth/64 limbs. -/
   | wideCompare (bitWidth destination lhs rhs : Nat) (op : ComparisonOp)
@@ -730,13 +732,16 @@ private partial def lowerBodyOps
     | .returnAggregate leaves _leafIsInt =>
         -- B-RET-ABI: lower each preorder leaf independently, then pack via
         -- setReturnDataLeaves (temps need not be consecutive).
+        -- leaf widths come from Method.resultKind at lowerMethod (passed via
+        -- returnByteLen sentinel unused); pack widths are attached when the
+        -- resultKind is known — see lowerMethodAggregateReturn.
         let mut leafTemps : Array Nat := #[]
         for leaf in leaves do
           let lowered := lowerExpr keys next fnMode localEnv leaf
           operations := operations ++ lowered.operations
           leafTemps := leafTemps.push lowered.value
           next := lowered.next
-        operations := operations.push (.setReturnDataLeaves leafTemps)
+        operations := operations.push (.setReturnDataLeaves leafTemps #[])
     | .returnNone =>
         -- Valid only inside region arms (validated); the initializer's own
         -- final marker is stripped by lowerMethod before lowering.
@@ -873,7 +878,38 @@ private def methodResultByteLen : MethodResultKind → Nat
   | .uint256 => 32
   -- Aggregate return uses setReturnDataLeaves (byteLen derived from temps);
   -- returnByteLen is unused for that path but kept defined for lowerMethod.
-  | .aggregate leaves => 8 * leaves.size
+  | .aggregate leaves =>
+      -- Prefer sum of declared leaf widths (Bytes N = N; Array N = 8N).
+      leaves.foldl (init := 0) (fun acc l => acc + l.byteWidth)
+
+/-- Attach `Method.resultKind` leaf widths onto every `setReturnDataLeaves`,
+    including nested if/switch/for arms. Empty widths keep historical N×8
+    packing; Bytes N supplies all-1s. -/
+private partial def attachAggregateLeafWidthsOps (widths : Array Nat)
+    (ops : Array Operation) : Array Operation :=
+  ops.map fun op =>
+    match op with
+    | .setReturnDataLeaves temps _ => .setReturnDataLeaves temps widths
+    | .ifRegion c t e =>
+        .ifRegion c (attachAggregateLeafWidthsOps widths t)
+          (attachAggregateLeafWidthsOps widths e)
+    | .switchRegion s cases d =>
+        .switchRegion s
+          (cases.map fun (k, body) => (k, attachAggregateLeafWidthsOps widths body))
+          (attachAggregateLeafWidthsOps widths d)
+    | .forRegion v init counter maxI condOps condTemp bodyOps updOps updTemp =>
+        .forRegion v init counter maxI
+          (attachAggregateLeafWidthsOps widths condOps) condTemp
+          (attachAggregateLeafWidthsOps widths bodyOps)
+          (attachAggregateLeafWidthsOps widths updOps) updTemp
+    | other => other
+
+private def attachAggregateLeafWidths (resultKind : MethodResultKind)
+    (ops : Array Operation) : Array Operation :=
+  match resultKind with
+  | .aggregate leaves =>
+      attachAggregateLeafWidthsOps (leaves.map (·.byteWidth)) ops
+  | _ => ops
 
 private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     (method : Method) : MethodIR := Id.run do
@@ -902,7 +938,8 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     method.body.pop
   else
     method.body
-  let (bodyOps, next) := lowerBodyOps keys 0 body false #[] (methodResultByteLen method.resultKind)
+  let (bodyOps0, next) := lowerBodyOps keys 0 body false #[] (methodResultByteLen method.resultKind)
+  let bodyOps := attachAggregateLeafWidths method.resultKind bodyOps0
   operations := operations ++ bodyOps
   if method.mode == .initialize then
     operations := operations.push (.setLayout marker plan.storage.markerValue)
@@ -961,7 +998,7 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .zeroState _ | .narrowZeroState _ _
   | .loadState _ _ | .narrowLoadState _ _ _
   | .storeState _ _ | .narrowStoreState _ _ _
-  | .setLayout _ _ | .setReturnData _ _ | .setReturnDataLeaves _
+  | .setLayout _ _ | .setReturnData _ _ | .setReturnDataLeaves _ _
   | .loadParam _ _ | .narrowLoadParam _ _ _
   | .blockTimestampSeconds _ | .blockIndex _ | .accountBalance _
   | .callerPrincipalLen _ | .callerPrincipalWord _ _ => true
@@ -2093,15 +2130,39 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
           s!"{indent}(call $pf_value_return (i64.const {byteLen}) (i64.const {memory.valueOffset}))
 "
 
-  | .setReturnDataLeaves temps =>
+  | .setReturnDataLeaves temps leafByteWidths =>
       Id.run do
-        let byteLen := 8 * temps.size
+        -- Empty widths → historical N×8 LE packing (Struct/Array/Option).
+        let widths : Array Nat :=
+          if leafByteWidths.isEmpty then
+            Array.replicate temps.size 8
+          else
+            leafByteWidths
+        let mut byteLen := 0
+        for w in widths do
+          byteLen := byteLen + w
         let mut out := ""
+        let mut offset := memory.valueOffset
         for i in [:temps.size] do
           let t := temps[i]!
-          out := out ++
-            s!"{indent}(i64.store (i32.const {memory.valueOffset + i * 8}) (local.get $t{t}))
+          let w := match widths[i]? with | some x => x | none => 8
+          if w == 1 then
+            out := out ++
+              s!"{indent}(i32.store8 (i32.const {offset}) (i32.wrap_i64 (local.get $t{t})))
 "
+          else if w == 2 then
+            out := out ++
+              s!"{indent}(i32.store16 (i32.const {offset}) (i32.wrap_i64 (local.get $t{t})))
+"
+          else if w == 4 then
+            out := out ++
+              s!"{indent}(i32.store (i32.const {offset}) (i32.wrap_i64 (local.get $t{t})))
+"
+          else
+            out := out ++
+              s!"{indent}(i64.store (i32.const {offset}) (local.get $t{t}))
+"
+          offset := offset + w
         out := out ++
           s!"{indent}(call $pf_value_return (i64.const {byteLen}) (i64.const {memory.valueOffset}))
 "

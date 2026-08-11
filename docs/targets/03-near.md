@@ -38,14 +38,19 @@ Phase 1：实现
   EnvReadJar、CallerCheck、低集成 `PoseTransform`（translate/rotate90/scale + Int64 overflow
   state-hold）、`BlockHeightCheck`（`context.blockHeight` ↔ sandbox
   `status.sync_info.latest_block_height`）、`ConstAnswer`（scalar `const` 表 / `Op.Constant`）
-  与 `UnixTimeCheck`（`context.unixTimeSeconds` ↔ `block_timestamp` ns÷10^9）。
+  与 `UnixTimeCheck`（`context.unixTimeSeconds` ↔ `block_timestamp` ns÷10^9）、
+  `BytesRet`（anonymous `Bytes 4` → 4×u8 tight `value_return`）。
   2026-08-11 required run 以 userspace GLIBC 2.39 loader 在 GLIBC 2.36 host 启动原始 locked
-  executable，原十套 corpus 全部 PASS；后续扩为十四套 engineering 门。该 loader 尚非 Tool Lock
+  executable，原十套 corpus 全部 PASS；后续扩为十五套 engineering 门。该 loader 尚非 Tool Lock
   资产，因此不是 hermetic release evidence。产品推进见 `docs/plan/near-parity-roadmap.md`。
 - **Scalar constants table**：source `const` / body `Op.Constant` 对
   UInt{8,16,32,64} / Int{8,16,32,64} / Bool 开放，预解码进 `StorageLayout` 后按 inline
   plan literal 发射；UInt128/256、aggregate、Principal const 仍 FC。空表保持 historical
   Plan bytes。
+- **Bytes N (1..8) entry/view return**：B-RET-ABI 扩 admit；`value_return` 紧凑 N×u8 打包
+  （与 Array/Option 的 N×8 LE 路径分流）。dense Map return 仍 FC（cap-8 展开超过 8 叶上限）。
+- **`pf deploy -t near`**：save-only `proof-forge.pf.near-deploy-package.v1` 包
+  （wasm sha + near-abi 指针）；`--broadcast` 在 v0 一律拒绝（含 local）。
 - **Proof-bearing invariant-root erasure（ADR-0042）**：普通 capability + nonempty invariants
   仍 fail closed；只有 private audited `CertifiedInlineProofV1` 在 source/semantic digest exact
   match、每个 invariant 有完整 preserving coverage 时可 mint NEAR-only authorization。
@@ -128,10 +133,10 @@ runtime observation；`StaticAlignmentV1` 也只有 passive relation、exact sta
 lowering graph seam，尚无 concrete Plan graph proof或 target transition。当前仍没有
 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
 覆盖 corrupt storage、bad input 或 gas/profile；Option
-params、非 UInt64/nested Option、Map/Bytes/nested aggregate
-return 仍 fail-closed；ContextRead 已开放 `unixTimeSeconds`、view-safe `blockHeight`（含
-sandbox runtime 门）与 init/entry `caller`，但 view caller 与其他键仍缺；formal
-identity/OutputSet / D6 milestone 未完成。不得写成 formal runtime-validated。
+params、非 UInt64/nested Option、Map/nested aggregate return 仍 fail-closed
+（`Bytes N` 1..8 return 已开放）；ContextRead 已开放 `unixTimeSeconds`、view-safe
+`blockHeight`（含 sandbox runtime 门）与 init/entry `caller`，但 view caller 与其他键仍缺；
+formal identity/OutputSet / D6 milestone 未完成。不得写成 formal runtime-validated。
 
 ## 1. 身份与来源
 

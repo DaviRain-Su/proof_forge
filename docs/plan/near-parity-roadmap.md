@@ -91,6 +91,8 @@ scaffold parity with EVM.
 - Scalar `const` / `Op.Constant` on NEAR (UInt/Int/Bool) + `ConstAnswer` sandbox
 - `UnixTimeCheck` sandbox for `context.unixTimeSeconds`
 - Network catalog: `near.local.sandbox` + `near.testnet` (broadcast refused)
+- `Bytes N` (1..8) anonymous return + `BytesRet` sandbox (tight u8 pack)
+- `pf deploy -t near` save-only package (`--broadcast` refused)
 
 **Still deferred (do not start without a decision):**
 
@@ -98,7 +100,7 @@ scaffold parity with EVM.
 - Sync call or sync transfer wrappers
 - Full NEP-141 ledger / mainnet
 - view `context.caller` (host-forbidden; keep FC)
-- Map/Bytes return ABI expansion
+- Map return ABI (dense expand >8 leaves — needs a different encoding story)
 - Replacing monorepo contributor path (still valid for compiler dev)
 
 ## Suggested execution order

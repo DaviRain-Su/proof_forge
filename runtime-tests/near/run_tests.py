@@ -13,6 +13,7 @@ Suites:
   blockheightcheck — Examples/BlockHeightCheck: context.blockHeight ↔ sandbox height
   constanswer — Examples/ConstAnswer: scalar const table (ANSWER=42)
   unixtimecheck — Examples/UnixTimeCheck: context.unixTimeSeconds ↔ block_timestamp
+  bytesret — fixtures/BytesRet: anonymous Bytes 4 return (4×u8 tight)
 
 Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_RPC          e.g. http://127.0.0.1:PORT
@@ -21,7 +22,7 @@ Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_SUITE        state_cell | pairret | arrayret | optionret | optionstate |
                        verifiedvault | tipjarasync | tokenjarasync | envreadjar |
                        callercheck | posetransform | blockheightcheck |
-                       constanswer | unixtimecheck | single
+                       constanswer | unixtimecheck | bytesret | single
 
 Honesty: engineering sandbox differential only — not testnet/mainnet,
 not formal Stage-0 / hermetic / Reference↔sandbox closure.
@@ -744,6 +745,42 @@ def suite_posetransform(client: NearClient, wasm: Path) -> None:
     print("suite PoseTransform: PASS")
 
 
+def suite_bytesret(client: NearClient, wasm: Path) -> None:
+    """Anonymous Bytes 4 return → exact 4-byte tight payload (u8 leaves).
+
+    NEAR ABI packs each UInt8 param into an 8-byte LE slot (exactInputLen=32);
+    the value_return payload is tightly packed 4×u8.
+    """
+    print("=== suite: BytesRet (anonymous Bytes 4 → 4×u8 tight) ===")
+    client.deploy(wasm)
+
+    def pack4(a: int, b: int, c: int, d: int) -> bytes:
+        return bytes([a & 0xFF, b & 0xFF, c & 0xFF, d & 0xFF])
+
+    def args4(a: int, b: int, c: int, d: int) -> bytes:
+        return b"".join(NearClient.encode_u64_le(x) for x in (a, b, c, d))
+
+    client.call("init", args4(1, 2, 3, 4))
+    raw = client.view("getBuf")
+    if raw[:4] != pack4(1, 2, 3, 4):
+        raise AssertionError(f"after init: getBuf expected 01020304, got {raw[:8]!r}")
+    print("bytesret: init → getBuf()==01 02 03 04 ok")
+
+    res = client.call("setBuf", args4(10, 20, 30, 40))
+    sv = NearClient.success_value_bytes(res)
+    if sv is None or sv[:4] != pack4(10, 20, 30, 40):
+        raise AssertionError(f"setBuf SuccessValue expected 0a141e28, got {sv!r}")
+    if len(sv) < 4:
+        raise AssertionError(f"setBuf SuccessValue too short: {len(sv)}")
+    print("bytesret: setBuf SuccessValue==0a 14 1e 28 ok")
+
+    raw = client.view("getBuf")
+    if raw[:4] != pack4(10, 20, 30, 40):
+        raise AssertionError(f"after setBuf: getBuf expected 0a141e28, got {raw[:8]!r}")
+    print("bytesret: getBuf() raw 4 bytes ok")
+    print("suite BytesRet: PASS")
+
+
 def suite_constanswer(client: NearClient, wasm: Path) -> None:
     """Scalar const-table product path: const ANSWER := 42.
 
@@ -1067,6 +1104,9 @@ def main(argv: list[str]) -> int:
         elif suite == "unixtimecheck":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_UNIXTIMECHECK_WASM"))
             suite_unixtimecheck(client, wasm)
+        elif suite == "bytesret":
+            wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_BYTESRET_WASM"))
+            suite_bytesret(client, wasm)
         elif suite == "all":
             # Same sandbox / same account: run suites only if
             # caller redeploys after a fresh home (script boots once per suite).

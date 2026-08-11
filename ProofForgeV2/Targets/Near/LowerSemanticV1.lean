@@ -327,8 +327,9 @@ inductive Statement where
       (amount : Expr)
   deriving BEq, Inhabited, Repr
 
-/-- ABI type of one aggregate return leaf. B-RET-ABI pilot: leaves are
-UInt64/Int64 8-byte LE words (`isInt` selects `i64-le` vs `u64-le`). -/
+/-- ABI type of one aggregate return leaf. Named Struct/Enum and Array/Option
+UInt64 use 8-byte LE words (`isInt` selects `i64-le` vs `u64-le`). Bytes N
+returns use 1-byte `u8-le` leaves packed tightly into the value_return buffer. -/
 structure LeafAbiType where
   isInt : Bool
   byteWidth : Nat
@@ -339,10 +340,9 @@ may be unit; other entry/view methods may be UInt{8,16,32,64}/Bool/Int64
 (T9a). UInt64/Int64/Bool wire as 8-byte little-endian i64 (Bool is 0/1);
 UInt{8,16,32} wire as 1/2/4-byte LE payloads. ABI JSON
 `returns` distinguishes the declared type. B-RET-ABI adds `.aggregate` for
-named Struct/Enum and admitted anonymous Array/Option entry/view returns:
-consecutive 8-byte LE leaves in preorder flatten order (1..8 leaves); ABI JSON
-emits a leaf-type array. Map/Bytes/nested/narrow-element anonymous returns stay
-fail closed. -/
+named Struct/Enum and admitted anonymous Array/Option/Bytes entry/view returns:
+preorder flatten leaves (1..8); 8-byte leaves pack as N×8 LE, Bytes N packs as
+N×u8 tightly. Map/nested/narrow-element anonymous returns stay fail closed. -/
 inductive MethodResultKind where
   | unit
   | uint64
@@ -358,9 +358,9 @@ inductive MethodResultKind where
   | uint128
   | uint256
   /-- B-RET-ABI: named Struct/Enum or admitted anonymous Array UInt64 N /
-  Option UInt64 aggregate return. `leaves` carries the per-leaf ABI type in
-  preorder flatten order (1..8 leaves). Map/Bytes/nested containers and
-  non-UInt64 elements stay fail-closed at the result-kind resolution boundary. -/
+  Option UInt64 / Bytes N (1..8) aggregate return. `leaves` carries the
+  per-leaf ABI type in preorder flatten order (1..8 leaves). Map/nested
+  containers and non-admitted elements stay fail-closed. -/
   | aggregate (leaves : Array LeafAbiType)
   deriving BEq, Inhabited, Repr
 
@@ -739,7 +739,7 @@ private def nearPlanErr (message : String) : CompileError :=
     Option of non-UInt64, nested Option, Option params, Map/Bytes Option stay FC.
     **N-ANON-RESULT (NEAR ABI)**: anonymous `Array UInt64 N` (1..8) and
     `Option UInt64` entry/view returns reuse the same N×8 LE value_return path;
-    Map/Bytes/nested/narrow-element anonymous returns stay fail closed. -/
+    Map stays FC on return (dense expand >8 leaves); Bytes N (1..8) return admitted. -/
 private def validateNearTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NearTypeClosureV1 :=
   validatePilotTypeClosure nearPlanErr nearTypeClosureWording types
@@ -1027,7 +1027,8 @@ private def requireOptionUInt64StateV1
 
 /-- N-ANON-RESULT (NEAR ABI): anonymous result leaf layout for admitted
 container returns. `Array UInt64 N` → N×u64-le leaves; `Option UInt64` →
-tag+payload (none=(0,0), some v=(1,v)). Map/Bytes throw for precise FC. -/
+tag+payload (none=(0,0), some v=(1,v)); `Bytes N` (1..8) → N×u8-le leaves
+packed tightly. Map stays FC (dense cap-8 expands past the 8-leaf B-RET cap). -/
 private def anonymousReturnLeafAbiV1
     (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option (Array LeafAbiType)) := do
@@ -1046,13 +1047,17 @@ private def anonymousReturnLeafAbiV1
         throw <| .planInvariant .near
           "unsupported NEAR semantic shape: anonymous Option return requires UInt64 payload"
       pure (some #[{ isInt := false, byteWidth := 8 }, { isInt := false, byteWidth := 8 }])
+  | some { shape := .bytes len, name := none, .. } =>
+      let n := len.toNat
+      unless n ≥ 1 && n ≤ 8 do
+        throw <| .planInvariant .near
+          s!"unsupported NEAR semantic shape: anonymous Bytes return length must be in 1..8, got {n}"
+      pure (some (Array.replicate n { isInt := false, byteWidth := 1 }))
   | some { shape := .map .., name := none, .. } =>
       throw <| .planInvariant .near
-        "unsupported NEAR semantic shape: anonymous Map return is outside the NEAR B-RET ABI"
-  | some { shape := .bytes .., name := none, .. } =>
-      throw <| .planInvariant .near
-        "unsupported NEAR semantic shape: anonymous Bytes return is outside the NEAR B-RET ABI"
-  | some { shape := .array .., .. } | some { shape := .option .., .. } =>
+        "unsupported NEAR semantic shape: anonymous Map return is outside the NEAR B-RET ABI (dense Map expands past the 8-leaf cap)"
+  | some { shape := .array .., .. } | some { shape := .option .., .. }
+  | some { shape := .bytes .., .. } =>
       pure none
   | _ => pure none
 
@@ -1071,9 +1076,9 @@ private def isAggregateResultCandidateV1
     | some { shape := .bytes .., name := none, .. } => true
     | _ => false
 
-/-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous Array/Option
+/-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous Array/Option/Bytes
 result TypeId into an aggregate `MethodResultKind`. Enforces 1..8 leaves.
-Map/Bytes/nested/narrow-element anonymous containers fail closed. -/
+Map/nested/narrow-element anonymous containers fail closed. -/
 private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult MethodResultKind := do
@@ -1085,7 +1090,7 @@ private def aggregateResultKindOfV1
       | some ls => pure ls
       | none =>
           throw <| .planInvariant .near
-            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option aggregate"
+            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option/Bytes aggregate"
   let n := leaves.size
   unless n > 0 do
     throw <| .planInvariant .near

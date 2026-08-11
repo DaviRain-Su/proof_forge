@@ -306,7 +306,7 @@
       ],
       "localDev": {
         "offlineInterpret": null,
-        "chainLike": "near-sandbox engineering (host-heavy); scripts/near_runtime_test.sh fourteen suites"
+        "chainLike": "near-sandbox engineering (host-heavy); scripts/near_runtime_test.sh fifteen suites; pf deploy save-only"
       },
       "honesty": [
         "Engineering Wasm + near-sandbox only — not formal Reference↔sandbox",

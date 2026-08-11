@@ -2,6 +2,7 @@
 
 pub mod aleo;
 pub mod evm;
+pub mod near;
 pub mod psy;
 pub mod solana;
 
@@ -13,6 +14,7 @@ pub enum TargetId {
     Evm,
     Solana,
     Psy,
+    Near,
     Other,
 }
 
@@ -23,6 +25,7 @@ impl TargetId {
             "evm" => Self::Evm,
             "solana" => Self::Solana,
             "psy" => Self::Psy,
+            "near" => Self::Near,
             _ => Self::Other,
         }
     }
@@ -50,6 +53,9 @@ pub fn capability_note(target: &str) -> &'static str {
         TargetId::Psy => {
             "build DPN + `pf test` (session) + `pf run` (simulate) + `pf deploy` wraps psy_user_cli deploy-contract"
         }
+        TargetId::Near => {
+            "build Wasm + `pf deploy` (save-only package; --broadcast refused) + near-sandbox runtime scripts"
+        }
         TargetId::Other => "unsupported developer operation in pf v0 (fail closed)",
     }
 }
@@ -63,6 +69,7 @@ mod tests {
         assert!(capability_note("evm").contains("pf test"));
         assert!(capability_note("solana").contains("pf verify"));
         assert!(capability_note("psy").contains("psy_user_cli"));
-        assert!(capability_note("near").contains("fail closed"));
+        assert!(capability_note("near").contains("save-only"));
+        assert!(capability_note("near").contains("broadcast refused"));
     }
 }

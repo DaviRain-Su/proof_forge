@@ -273,6 +273,11 @@ fn run_one(target: &str, dir: &Path) -> PfResult<TargetReport> {
             aleo_smoke(dir)
         }
         targets::TargetId::Psy => psy_smoke(dir),
+        targets::TargetId::Near => Err(PfError::Usage(
+            "near: use scripts/near_runtime_test.sh (locked near-sandbox); \
+             `pf test -t near` is not wired in v0"
+                .into(),
+        )),
         targets::TargetId::Other => Err(PfError::NotImplemented(format!(
             "target '{target}': {}",
             targets::capability_note(target)

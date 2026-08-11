@@ -36,6 +36,13 @@ pub fn run(
                     .into(),
             ));
         }
+        targets::TargetId::Near => {
+            return Err(PfError::Usage(
+                "near: use `pf deploy -t near` (save-only package) and scripts/near_runtime_test.sh \
+                 for locked near-sandbox evidence; no solana-style offline verify client"
+                    .into(),
+            ));
+        }
         targets::TargetId::Other => {
             return Err(PfError::NotImplemented(format!(
                 "target '{target}': {}",

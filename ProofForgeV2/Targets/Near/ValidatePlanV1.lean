@@ -531,12 +531,15 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
       | .uint64 | .bool | .int64 | .uint8 | .uint16 | .uint32
       | .uint128 | .uint256 | .int8 | .int16 | .int32 => true
       | .aggregate leaves =>
+          -- Homogeneous pack: all 8-byte (Struct/Array/Option) or all 1-byte
+          -- (Bytes N). Mixed widths stay FC.
           leaves.size > 0 && leaves.size ≤ 8 &&
-            leaves.all (fun l => l.byteWidth == 8)
+            (leaves.all (fun l => l.byteWidth == 8) ||
+              leaves.all (fun l => l.byteWidth == 1))
       | .unit => method.mode == MethodMode.mutate
     unless resultKindOk do
       throw <| .planInvariant .near
-        s!"method '{method.name}' result kind must be mutate-Unit, UInt8/16/32/64/128/256, Int8/16/32/64, Bool, or aggregate (named Struct/Enum or anonymous Array/Option; 1..8 × 8-byte leaves)"
+        s!"method '{method.name}' result kind must be mutate-Unit, UInt8/16/32/64/128/256, Int8/16/32/64, Bool, or aggregate (named Struct/Enum, anonymous Array/Option ×8-byte leaves, or Bytes N ×1-byte leaves; 1..8 leaves)"
   -- ADR-0029 C2: allowAttached is legal only for mutate entries whose body
   -- contains at least one nativeDeposit; views stay queryOnly; others
   -- requireZero (including init).

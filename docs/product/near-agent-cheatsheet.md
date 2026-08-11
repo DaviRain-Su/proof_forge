@@ -27,8 +27,12 @@ pf setup --target near --with-runtime -y   # when bootstrap path is available
 proof-forge-next build Examples/PoseTransform.lean \
   --module Examples.PoseTransform --target near -o build/v2/near-pose
 
-# 3) Runtime gate (all twelve engineering suites, skip-clean if tools missing)
+# 3) Runtime gate (fifteen engineering suites, skip-clean if tools missing)
 scripts/near_runtime_test.sh
+
+# 4) Deploy packaging (save-only; --broadcast refused)
+pf deploy -t near --network local
+# → <artifact>/tx/<Program>.deployment.package.json
 
 # Single-suite debug (after a full script build left wasm under build/v2/near-runtime):
 #   PF_NEAR_SUITE=posetransform PF_NEAR_WASM=... python3 runtime-tests/near/run_tests.py
@@ -42,6 +46,7 @@ scripts/near_runtime_test.sh
 | `Examples/BlockHeightCheck.lean` | `context.blockHeight` → `block_index` |
 | `Examples/UnixTimeCheck.lean` | `context.unixTimeSeconds` → `block_timestamp` ns÷10^9 |
 | `Examples/ConstAnswer.lean` | scalar `const` table (`Op.Constant`) |
+| `runtime-tests/near/fixtures/BytesRet.lean` | anonymous `Bytes 4` return (4×u8 tight) |
 | `Examples/StateCell.lean` | minimal state machine |
 | `Examples/VerifiedVaultPF.lean` | proof-bearing invariant-root erasure (ADR-0042); **not formal** |
 
@@ -59,8 +64,8 @@ pf network list --family near
 - `pf.assets.token` balance-of (async view call)
 - view-path `context.caller` (NEAR host forbids predecessor in view)
 - UInt128/256 / aggregate / Principal **const** rows (scalar UInt/Int/Bool ok)
-- Map / Bytes / nested aggregate **returns**
-- Public testnet/mainnet `pf deploy --broadcast`
+- Map / nested aggregate **returns** (Bytes N 1..8 return admitted)
+- Public testnet/mainnet `pf deploy --broadcast` (NEAR broadcast refused even for local)
 
 ## Roadmap
 
