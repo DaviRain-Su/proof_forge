@@ -11,6 +11,9 @@ open ProofForgeV2.Targets.Near
 private def data : SemanticProgramDataV1 :=
   Examples.VerifiedVaultPF.Proof.subjectDataV1
 
+private def subjectProgram : SemanticProgramV1 :=
+  Examples.VerifiedVaultPF.Proof.subjectProgramV1
+
 private def reservesKey : String := "pf:test:vault:reserves"
 private def sharesKey : String := "pf:test:vault:shares"
 
@@ -214,6 +217,64 @@ private def statusCallable : CallableV1 := {
   invariantSteps := none
 }
 
+private theorem verifiedVaultStatusReady
+    (hemptyContext :
+      emptyInvocationContextAcceptedV1 data statusCallable = true) :
+    ∃ admitted : AdmittedReferenceSliceV1,
+      admitReferenceProgramSliceV1 subjectProgram = .ok admitted ∧
+        admitted.data = data ∧
+          gateInvocation admitted logicalTen {
+            callableId := 3
+            args := #[]
+            context := #[]
+          } = .ready statusCallable #[tenBytes, tenBytes] #[] false := by
+  have hvalidate : validateSemanticProgramV1 subjectProgram = .ok data := by
+    exact Examples.VerifiedVaultPF.Proof.subjectValidationOkV1
+  have hadmission : validateReferenceProgramDataAdmissionV1 data = .ok () := by
+    change validateReferenceProgramDataAdmissionV1
+      (ProofForgeV2.Semantic.InitializerDepositWithdrawViewEqualitySubjectV1.subjectDataV1
+        Examples.VerifiedVaultPF.Proof.subjectDataV1.qualifiedName
+        "reserves" "shares" "deposit" "amount" "withdraw" "amount"
+        "status" "solvent") = .ok ()
+    exact
+      ProofForgeV2.Semantic.InitializerDepositWithdrawViewEqualitySubjectV1.referenceAdmissionV1
+        Examples.VerifiedVaultPF.Proof.subjectDataV1.qualifiedName
+        "reserves" "shares" "deposit" "amount" "withdraw" "amount"
+        "status" "solvent"
+  obtain ⟨admitted, hadmit⟩ :=
+    admitReferenceProgramSliceV1_exists_of_checks subjectProgram data hvalidate
+      hadmission
+  have hadmitted :=
+    admitReferenceProgramSliceV1_ok_implies subjectProgram data admitted hvalidate
+      hadmit
+  have hinitial :=
+    initialLogicalStateV1_double_uint64_eq_ok subjectProgram data reservesDecl
+      sharesDecl uint64Type true hvalidate (by rfl) (by rfl) (by rfl)
+      (by rfl)
+      (by
+        simp [data, Examples.VerifiedVaultPF.Proof.subjectDataV1]
+        exact Or.inl rfl)
+      (by rfl) (by rfl)
+  have hconforms : StateConformsV1 subjectProgram logicalTen :=
+    stateConformsV1_intro_of_validate_eq_ok subjectProgram data logicalTen
+      #[tenBytes, tenBytes] hvalidate rfl logicalTen_decoded
+  have hlookup :
+      admitted.data.callables[statusCallable.id.toNat]? =
+        some statusCallable := by
+    rw [hadmitted.2]
+    rfl
+  have hcontext :
+      emptyInvocationContextAcceptedV1 admitted.data statusCallable = true := by
+    rw [hadmitted.2]
+    exact hemptyContext
+  refine ⟨admitted, hadmit, hadmitted.2, ?_⟩
+  simpa [statusCallable] using
+    gateInvocation_ready_nullary_view_of_checksV1 admitted logicalTen
+      statusCallable #[tenBytes, tenBytes] _ hlookup (by rfl) (by rfl)
+      hcontext (by simpa [hadmitted.1] using hinitial) rfl
+      (by simpa [StateConformsV1, hadmitted.1] using hconforms)
+      (by simpa [hadmitted.2] using logicalTen_decoded)
+
 private def statusIR : MethodIR := {
   name := "status"
   params := #[]
@@ -361,33 +422,30 @@ example
   · exact hstep
 
 example
-    (admitted : AdmittedReferenceSliceV1)
     (vault : ReferenceVaultSeedV1)
-    (context : Array ContextInputV1)
-    (hadmittedData : admitted.data = data)
-    (hgate :
-      gateInvocation admitted logicalTen {
-        callableId := 3
-        args := #[]
-        context := #[]
-      } = .ready statusCallable #[tenBytes, tenBytes] context false) :
-    NullaryUInt64ViewStaticAlignmentV1 data storage reservesBinding "status"
-        statusMethod markerRegion reservesRegion statusIR ∧
-      InitializedUInt64StorageRelV1 data storage reservesBinding logicalTen
-        #[tenBytes, tenBytes] tenBytes successfulObservation.preStorage ∧
-      NullaryUInt64ViewInputRelV1 3 {
-        callableId := 3
-        args := #[]
-        context := #[]
-      } statusMethod successfulObservation ∧
-      UInt64ReturnedObservationRelV1 data 0 logicalTen
-        (stepReferenceSliceV1 admitted logicalTen {
+    (hemptyContext :
+      emptyInvocationContextAcceptedV1 data statusCallable = true) :
+    ∃ admitted : AdmittedReferenceSliceV1,
+      admitReferenceProgramSliceV1 subjectProgram = .ok admitted ∧
+        NullaryUInt64ViewStaticAlignmentV1 data storage reservesBinding "status"
+          statusMethod markerRegion reservesRegion statusIR ∧
+        InitializedUInt64StorageRelV1 data storage reservesBinding logicalTen
+          #[tenBytes, tenBytes] tenBytes successfulObservation.preStorage ∧
+        NullaryUInt64ViewInputRelV1 3 {
           callableId := 3
           args := #[]
           context := #[]
-        } #[] vault)
-        tenBytes successfulObservation := by
-  refine ⟨?_, ?_, ?_, ?_⟩
+        } statusMethod successfulObservation ∧
+        UInt64ReturnedObservationRelV1 data 0 logicalTen
+          (stepReferenceSliceV1 admitted logicalTen {
+            callableId := 3
+            args := #[]
+            context := #[]
+          } #[] vault)
+          tenBytes successfulObservation := by
+  obtain ⟨admitted, hadmit, hadmittedData, hgate⟩ :=
+    verifiedVaultStatusReady hemptyContext
+  refine ⟨admitted, hadmit, ?_, ?_, ?_, ?_⟩
   · simp [NullaryUInt64ViewStaticAlignmentV1, UInt64StateBindingRelV1, data,
       Examples.VerifiedVaultPF.Proof.subjectDataV1,
       storage, reservesBinding, statusMethod, markerRegion, reservesRegion,
@@ -403,7 +461,7 @@ example
           args := #[]
           context := #[]
         } data #[tenBytes, tenBytes] tenBytes 0 0 "reserves" 3
-          (some "status") context #[] vault hadmittedData (by rfl) (by rfl)
+          (some "status") #[] #[] vault hadmittedData (by rfl) (by rfl)
           (by rfl) (by rfl) (by simpa [statusCallable] using hgate)
     rw [hstep]
     exact
@@ -496,7 +554,10 @@ example :
 
 /-- Compile-time theorem fixtures above are the test; `run` registers the file
     in aggregate/sharded target suites without introducing a second evaluator. -/
-def run : IO Unit :=
+def run : IO Unit := do
+  unless emptyInvocationContextAcceptedV1 data statusCallable do
+    throw <| IO.userError
+      "VerifiedVault.status production context gate rejected empty context"
   IO.println "near-static-alignment-v1: ok"
 
 end Tests.Materialization.NearStaticAlignmentV1

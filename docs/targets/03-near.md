@@ -86,6 +86,17 @@ Phase 1：实现
   Method/MethodIR recipe 合并检查。这里的 observation 仍由外部边界提供；没有定义 target
   transition，也没有从 observation 推出 NEAR runtime、Wasm 或 `Operation` 执行正确性，因此
   仍不是 execution refinement，assurance 不变。
+- **VerifiedVault `status` production ready-gate composition（Phase 7 第五切）**：
+  `emptyInvocationContextAcceptedV1` 只投影 sole private production context validator 是否接受
+  supplied empty snapshot；对应 bridge 恢复 exact `some #[]`，nullary-view constructor theorem
+  再组合原 `gateInvocation` 的 callable lookup、arity、initial state、initialized conformance 与
+  logical-state decode。真实 generated VerifiedVault subject 因此已闭合 validation、Reference
+  admission、admitted data identity、两槽 initialized decode、status row lookup 与 exact ready
+  gate，调用方不再提供整个 ready equality。唯一残留 kernel premise 是该 production empty-context
+  projection 为 true；target shard 执行同一 projection 已观察通过，但这只是 engineering runtime
+  check，不是 kernel proof。当前没有复制/公开 private bounded context traversal；删除最后 premise
+  需要后续 stable total characterization seam。该切片不定义 target transition，也不改变
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined** 边界。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`

@@ -4002,6 +4002,30 @@ private def validateInvocationContext
         | _, _ => return none
       pure (some supplied)
 
+/-- Executable success projection of the production invocation-context gate
+    for a supplied empty snapshot. This does not collect or validate context a
+    second time; it only exposes whether the sole private gate accepted the
+    empty snapshot unchanged. -/
+def emptyInvocationContextAcceptedV1
+    (data : SemanticProgramDataV1) (root : CallableV1) : Bool :=
+  match validateInvocationContext data root #[] with
+  | some context => context.isEmpty
+  | none => false
+
+/-- Recover the exact production context-gate result from its empty-snapshot
+    success projection. -/
+private theorem validateInvocationContext_empty_eq_some_of_acceptedV1
+    (data : SemanticProgramDataV1) (root : CallableV1)
+    (haccepted : emptyInvocationContextAcceptedV1 data root = true) :
+    validateInvocationContext data root #[] = some #[] := by
+  unfold emptyInvocationContextAcceptedV1 at haccepted
+  cases hcontext : validateInvocationContext data root #[] with
+  | none => simp [hcontext] at haccepted
+  | some context =>
+      have hempty : context = #[] := by
+        exact Array.isEmpty_iff.mp (by simpa [hcontext] using haccepted)
+      simpa [hempty] using hcontext
+
 /-- Sole production invocation gate (shape + lifecycle + decode overlay).
     Shape checks → invalidInvocation; lifecycle halt → lifecycle candidate;
     success → ready. Public for L1 preservation step packing. -/
@@ -4052,6 +4076,55 @@ def gateInvocation
                       .lifecycle (.reverted (.standard .uninitialized))
                     else
                       .invalidInvocation
+
+/-- Construct the exact ready gate for a nullary view whose production context
+    collector accepts the supplied empty snapshot. Every premise is a
+    projection or input to the sole `gateInvocation`; this theorem introduces
+    no alternative invocation gate or transition relation. -/
+theorem gateInvocation_ready_nullary_view_of_checksV1
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (callable : CallableV1)
+    (overlay : Array ByteArray)
+    (initial : LogicalStateV1)
+    (hlookup :
+      admitted.data.callables[callable.id.toNat]? = some callable)
+    (hkind : callable.kind = .view)
+    (hparams : callable.params = #[])
+    (hcontext :
+      emptyInvocationContextAcceptedV1 admitted.data callable = true)
+    (hinitial : initialLogicalStateV1 admitted.program = .ok initial)
+    (hinitialized : pre.initialized = true)
+    (hconforms : stateConformsBoolV1 admitted.program pre = true)
+    (hdecode : decodeLogicalStateValuesV1 admitted.data pre = .ok overlay) :
+    gateInvocation admitted pre {
+      callableId := callable.id
+      args := #[]
+      context := #[]
+    } = .ready callable overlay #[] false := by
+  have harguments : invocationArgumentsCanonicalV1 admitted.data callable {
+      callableId := callable.id
+      args := #[]
+      context := #[]
+    } = true := by
+    simp [invocationArgumentsCanonicalV1, hparams]
+  have hcontextExact :
+      validateInvocationContext admitted.data callable #[] = some #[] :=
+    validateInvocationContext_empty_eq_some_of_acceptedV1 admitted.data
+      callable hcontext
+  have hviewNotInitializer :
+      (CallableKindV1.view == CallableKindV1.initializer) = false := by
+    decide
+  have hviewNotEntry :
+      (CallableKindV1.view == CallableKindV1.entry) = false := by
+    decide
+  have hviewIsView :
+      (CallableKindV1.view == CallableKindV1.view) = true := by
+    decide
+  unfold gateInvocation
+  simp [hlookup, hkind, hparams, harguments, hcontextExact, hinitial,
+    hinitialized, hconforms, hdecode, hviewNotInitializer, hviewNotEntry,
+    hviewIsView]
 
 /-- Lifecycle / terminal candidates with cursor==0: any trailing responses
     override to invalidExternalResponse (same finalizer rule as body halt). -/

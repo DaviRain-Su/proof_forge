@@ -14791,3 +14791,31 @@ normative: false
 - 已执行 focused Lean build、`just test-shard targets-host-fast`、`just docs-check`、
   `just sbom-package-files-check`（277 files）、`just alpha-deletion-gate`、`git diff --check`
   与完整 `just ci`，均 exit 0；缺失的 optional host tools 继续按既有门禁明确 skip。
+
+## 2026-08-11 — Phase 7 NEAR `status` production ready-gate composition
+
+- `ReferenceMachineV1` 新增 `emptyInvocationContextAcceptedV1`：它只把 sole private production
+  context validator 对 supplied empty snapshot 的 exact success 投影成 Bool；恢复 theorem 从
+  `true` 得到原 validator 的 `some #[]`，没有第二次遍历 call graph 或复制 ContextRead 规则。
+- `gateInvocation_ready_nullary_view_of_checksV1` 组合原 production gate 的 callable lookup、
+  nullary view shape、empty-context acceptance、initial-state success、initialized conformance 与
+  logical-state decode，构造 exact `.ready callable overlay #[] false`。它不是另一个 gate、step
+  或 evaluator。
+- `NearStaticAlignmentV1` 的真实 generated VerifiedVault fixture 现在经
+  `subjectValidationOkV1`、name-parameterized Reference admission、sole admission API、admitted
+  program/data identity、two-UInt64 initial-state theorem、`StateConformsV1` 与 exact status row
+  lookup 得到 ready equality；最终 static/KV/ABI/Reference/observation composition 不再要求外部
+  提供 admitted witness、data identity 或整个 `hgate`。
+- 当前唯一残留 kernel premise 是
+  `emptyInvocationContextAcceptedV1 data statusCallable = true`。target shard 的 `run` 直接执行
+  同一个 production projection并观察通过；这只是 engineering runtime check，不冒充 kernel
+  theorem。曾尝试从 generic single-stateLoad body 展开 private bounded `while` collector，但
+  kernel proof 无法在不公开实现或复制 traversal 的情况下稳定归约，因此该尝试已删除并保持
+  fail closed；后续需设计 stable total public characterization seam。
+- 边界不变：没有新增 State/Effect/transition、target `Operation` evaluator、IR/Wasm/NEAR
+  simulation、rollback implementation refinement 或 artifact identity theorem；仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+- 已执行 focused production/test build、`just test-shard targets-host-fast`、`just docs-check`、
+  `just sbom-package-files-refresh`/`just sbom-package-files-check`（277 files）、
+  `just alpha-deletion-gate`、`git diff --check` 与完整 `just ci`，均 exit 0；ordinary CI 中
+  缺失的 optional host tools 继续按既有门禁明确 skip。

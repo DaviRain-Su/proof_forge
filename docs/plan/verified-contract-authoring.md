@@ -666,7 +666,20 @@ certification elaboration 阶段 fail closed。
   recognizer，把动态 production 值恢复成 exact nullary UInt64 view 与四操作 static recipe。
   production relation 同时保留 capability 内 semantic carrier 的 validated-data 等式、UInt64
   semantic/storage binding、canonical key lookup 与 Plan→IR provenance，因此不是依赖另一份
-  test golden literal。它只刻画本次 production output，不是一般 private lowering correctness。
+  test golden literal。它只刻画本次 production output，不是一般 private lowering correctness；
+- 第五静态切把 invocation readiness 的公开证明边界收窄到 sole production context gate：
+  `emptyInvocationContextAcceptedV1` 只是 private context validator 对 supplied empty snapshot 的
+  success projection，bridge 从 `true` 恢复原 validator 的 exact `some #[]`，随后
+  `gateInvocation_ready_nullary_view_of_checksV1` 只组合 production callable lookup、view/arity、
+  initial-state constructor、`StateConformsV1`、logical-state decoder 与该 context 结果，推出原
+  `gateInvocation = .ready ...`；它没有第二次收集 context，也没有新增 invocation evaluator。
+  VerifiedVault fixture 现从真实 generated subject 闭合 validation、Reference admission、admitted
+  data identity、initializer presence、initialized state conformance、两槽 decode、status row lookup
+  和 exact ready gate，不再要求调用者直接提供整个 `hgate`。目前唯一残留的 kernel premise 是
+  `emptyInvocationContextAcceptedV1 data statusCallable = true`；target shard 会直接执行同一个
+  production projection并观察为 true，但 runtime Bool 观察不是 kernel theorem。为了不复制或
+  公开 private bounded context traversal，本切片保持 fail closed；下一切需要一个稳定、total、
+  非重复的 public context-closure characterization 后，才能删除这最后一个 premise。
 
 这仍然只是 **static alignment/refinement foundation**：Reference outcome 已精确闭合且
 production Plan/key/IR provenance 已连接，但 target observation 仍是外部提供的 passive carrier；
@@ -775,7 +788,7 @@ artifact/toolchain identity theorem。`NearHostModel` 继续是 private test-onl
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR status production 静态命题已闭合）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation、Reference state-stutter实例，以及 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR graph → status Method/MethodIR proof-producing syntax recognition → complete static-alignment proposition；尚无一般 lowering theorem、target execution semantics、simulation 或 artifact identity evidence |
+| 7 | Per-target refinement | **进行中（NEAR status production 静态命题与条件化 exact gate composition 已闭合）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation、exact Reference outcome，以及 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR graph → status Method/MethodIR proof-producing syntax recognition → complete static-alignment proposition；真实 generated subject 的 admission/initialized decode/status ready gate 现只剩 sole production empty-context acceptance premise，engineering shard 已执行观察为 true，但尚缺其稳定 kernel characterization，也尚无一般 lowering theorem、target execution semantics、simulation 或 artifact identity evidence |
 
 ### 首个代码切片进展
 
