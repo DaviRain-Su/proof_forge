@@ -2,6 +2,7 @@ mod artifact;
 mod cmd;
 mod compiler;
 mod error;
+mod networks;
 mod project;
 mod result_json;
 mod safety;
@@ -117,6 +118,43 @@ enum Commands {
     Execute(ExecuteArgs),
     Version,
     ListTargets,
+    /// Network catalog (metadata; does not broadcast)
+    Network {
+        #[command(subcommand)]
+        command: NetworkCommands,
+    },
+    /// Write EVM UI attachment JSON (abi/bin ± address) for templates/evm-dapp-ui
+    WriteUiJson {
+        #[arg(long, short = 't')]
+        target: Option<String>,
+        #[arg(long)]
+        artifact: Option<PathBuf>,
+        /// Output path (default: <artifact>/ui-deployment.json)
+        #[arg(long, short = 'o')]
+        output: Option<PathBuf>,
+        /// Optional contract address (0x…) for attach-only UI
+        #[arg(long)]
+        address: Option<String>,
+        /// Network catalog id (default: evm.local.anvil)
+        #[arg(long)]
+        network_id: Option<String>,
+        /// Constructor uint64 initial (StateCell-shaped)
+        #[arg(long, default_value_t = 7)]
+        constructor_initial: u64,
+    },
+}
+
+#[derive(Subcommand)]
+enum NetworkCommands {
+    /// List catalog rows
+    List {
+        #[arg(long)]
+        family: Option<String>,
+    },
+    /// Show one network id as JSON
+    Show { id: String },
+    /// Print export lines for RPC/chain (no keys, no broadcast)
+    Use { id: String },
 }
 
 #[derive(Args)]
@@ -233,6 +271,8 @@ fn command_name(command: &Commands) -> &'static str {
         Commands::Execute(_) => "execute",
         Commands::Version => "version",
         Commands::ListTargets => "list-targets",
+        Commands::Network { .. } => "network",
+        Commands::WriteUiJson { .. } => "write-ui-json",
     }
 }
 
@@ -343,5 +383,28 @@ fn dispatch(cli: Cli) -> PfResult<()> {
         ),
         Commands::Version => cmd::version::run(json),
         Commands::ListTargets => cmd::list_targets::run(json),
+        Commands::Network { command } => match command {
+            NetworkCommands::List { family } => {
+                cmd::network::list(family.as_deref(), json)
+            }
+            NetworkCommands::Show { id } => cmd::network::show(&id, json),
+            NetworkCommands::Use { id } => cmd::network::use_network(&id, json),
+        },
+        Commands::WriteUiJson {
+            target,
+            artifact,
+            output,
+            address,
+            network_id,
+            constructor_initial,
+        } => cmd::write_ui_json::run(cmd::write_ui_json::WriteUiOpts {
+            target: target.as_deref(),
+            artifact: artifact.as_deref(),
+            output: output.as_deref(),
+            address: address.as_deref(),
+            network_id: network_id.as_deref(),
+            constructor_initial,
+            json,
+        }),
     }
 }

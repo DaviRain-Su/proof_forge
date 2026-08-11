@@ -196,17 +196,77 @@ pub fn deploy(req: DeployRequest<'_>) -> PfResult<DeployOutcome> {
 
     let _ = cleanup_anvil(&mut child);
 
+    // P1-2: UI attachment JSON next to deploy package (templates/evm-dapp-ui schema).
+    let mut saved = vec![package_path, receipt_path];
+    if let Ok(ui_path) = write_ui_attachment(
+        req.artifact_dir,
+        req.save_dir,
+        &program,
+        &bytecode,
+        &addr,
+        req.constructor_initial,
+        &endpoint,
+    ) {
+        saved.push(ui_path);
+    }
+
     Ok(DeployOutcome {
         network: "local".into(),
         endpoint: Some(endpoint),
         broadcast: true,
-        saved: vec![package_path, receipt_path],
+        saved,
         contract_address: Some(addr),
         notes: vec![
             "local Anvil/RPC broadcast".into(),
             "not mainnet / not public chain".into(),
+            "ui-deployment.json written for templates/evm-dapp-ui".into(),
         ],
     })
+}
+
+/// Best-effort write of `proof-forge.pf.evm-local-deployment.v1` for the UI template.
+fn write_ui_attachment(
+    artifact_dir: &Path,
+    save_dir: &Path,
+    program: &str,
+    bytecode: &str,
+    address: &str,
+    constructor_initial: u64,
+    rpc_url: &str,
+) -> PfResult<PathBuf> {
+    let abi_path = artifact_dir.join(format!("{program}.abi.json"));
+    let abi: Value = if abi_path.is_file() {
+        let text = fs::read_to_string(&abi_path)?;
+        serde_json::from_str(&text).unwrap_or(json!([]))
+    } else {
+        json!([])
+    };
+    let body = json!({
+        "schema": "proof-forge.pf.evm-local-deployment.v1",
+        "target": "evm",
+        "network": "evm.local.anvil",
+        "rpcUrl": rpc_url,
+        "chainId": 31337,
+        "contractAddress": address,
+        "program": program,
+        "constructorInitial": constructor_initial,
+        "abi": abi,
+        "bytecode": format!("0x{bytecode}"),
+        "notes": [
+            "written by pf deploy --broadcast --network local",
+            "copy to templates/evm-dapp-ui/public/deployment.json",
+            "not formal / not mainnet",
+        ],
+    });
+    let path = save_dir.join("ui-deployment.json");
+    fs::write(&path, serde_json::to_string_pretty(&body).expect("ui json"))?;
+    // Also at artifact root for convenience.
+    let root_copy = artifact_dir.join("ui-deployment.json");
+    let _ = fs::write(
+        &root_copy,
+        serde_json::to_string_pretty(&body).expect("ui json"),
+    );
+    Ok(path)
 }
 
 fn find_primary_bin(dir: &Path) -> PfResult<PathBuf> {

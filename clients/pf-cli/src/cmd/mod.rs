@@ -8,10 +8,12 @@ pub mod execute;
 pub mod inspect;
 pub mod list_targets;
 pub mod local_run;
+pub mod network;
 pub mod new;
 pub mod test;
 pub mod verify;
 pub mod version;
+pub mod write_ui_json;
 
 use crate::error::{PfError, PfResult};
 use crate::result_json::{print_ok, PfOk};

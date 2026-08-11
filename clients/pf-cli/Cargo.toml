@@ -15,6 +15,7 @@ categories = ["command-line-utilities", "development-tools"]
 publish = true
 include = [
   "src/**",
+  "data/**",
   "Cargo.toml",
   "Cargo.lock",
   "README.md",

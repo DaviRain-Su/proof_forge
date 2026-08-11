@@ -35,7 +35,7 @@ Psy DPN 物化：[`targets/10-psy.md`](targets/10-psy.md) · [`targets/10-psy-dp
 Psy agent / 前端 / demo：[`product/11-psy-agent-playbook.md`](product/11-psy-agent-playbook.md) · [`product/12-psy-dapp-frontend.md`](product/12-psy-dapp-frontend.md) · [`demos/psy-dpn-walkthrough.md`](demos/psy-dpn-walkthrough.md) · 模板 [`templates/psy-dapp-ui/`](../templates/psy-dapp-ui/)（`window.psy` + DPN ABI）。
 Aleo Instructions IR 物化规划：[`targets/09-aleo-instructions-lowering.md`](targets/09-aleo-instructions-lowering.md)（idle residual；OPTION-COMPARE done）。
 外部 ProgramV1 工程（`--root` + Aleo direct Instructions）：[`product/02-external-program-v1.md`](product/02-external-program-v1.md)。
-Hello dApp Agent 剧本：[`product/03-hello-dapp-agent-playbook.md`](product/03-hello-dapp-agent-playbook.md)。
+Hello dApp Agent 剧本（**默认 bundle 路径**）：[`product/03-hello-dapp-agent-playbook.md`](product/03-hello-dapp-agent-playbook.md) · `pf network` · `pf write-ui-json`。
 Aleo dApp 前端 / Wallet SDK（FCCP 补全）：[`product/07-aleo-dapp-frontend-wallet.md`](product/07-aleo-dapp-frontend-wallet.md) · 模板 [`templates/aleo-dapp-ui/`](../templates/aleo-dapp-ui/)。
 EVM dApp 前端（viem / 本地 Anvil + X Layer 预设）：[`product/08-evm-dapp-frontend.md`](product/08-evm-dapp-frontend.md) · 模板 [`templates/evm-dapp-ui/`](../templates/evm-dapp-ui/) · demo [`demos/evm-local-walkthrough.md`](demos/evm-local-walkthrough.md)。
 X Layer 网络 + OKX OnchainOS（P0–P2）：[`product/13-xlayer-onchainos.md`](product/13-xlayer-onchainos.md) / [`product/networks.v1.json`](product/networks.v1.json)（MCP `pf_network_info` · `pf_onchainos_guide`；DEX 用官方 onchainos-mcp）。

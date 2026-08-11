@@ -204,6 +204,15 @@ chmod a+x "$STAGE/scripts"/*.sh 2>/dev/null || true
 
 [[ -f "$root/host-profiles.lock.json" ]] || bad "missing host-profiles.lock.json"
 cp -a "$root/host-profiles.lock.json" "$STAGE/host-profiles.lock.json"
+
+# Network catalog for `pf network` (metadata only).
+if [[ -f "$root/docs/product/networks.v1.json" ]]; then
+  mkdir -p "$STAGE/docs/product"
+  cp -a "$root/docs/product/networks.v1.json" "$STAGE/docs/product/networks.v1.json"
+elif [[ -f "$root/clients/pf-cli/data/networks.v1.json" ]]; then
+  mkdir -p "$STAGE/docs/product"
+  cp -a "$root/clients/pf-cli/data/networks.v1.json" "$STAGE/docs/product/networks.v1.json"
+fi
 shopt -s nullglob
 lock_files=("$root"/toolchains*.lock.json)
 shopt -u nullglob

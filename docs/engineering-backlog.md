@@ -411,14 +411,16 @@ D1–D4 = 0/27 done。
 | **EA-P0-1** | Release bundle：`pf` + `proof-forge-next` 同包 + install.sh / `pf bootstrap` | **done engineering** | `scripts/package_bundle_dist.sh` + release upload；crates.io 仍仅 orchestrator |
 | **EA-P0-2** | `HostMode=dev`：engineering build 不 pin 他机 `host:stat`；只严校 Tool Root | **done engineering** | `LockedToolchainV1.resolveHostMode` 默认 dev |
 | **EA-P0-3** | `pf setup -t <target> -y` 真装齐（`proof-forge-next install`） | **done engineering** | 有 compiler 即 spawn install；缺 compiler → bootstrap 提示 |
-| **EA-P0-4** | Agent 双轨诚实：stdio MCP spawn 本机 CLI；edge 不装 compile | **partial** | README 两轨已改；playbook/MCP 全文仍待 |
+| **EA-P0-4** | Agent 双轨诚实：stdio MCP spawn 本机 CLI；edge 不装 compile | **done engineering** | README + `03-hello-dapp-agent-playbook` 默认 bundle；edge 仍不 compile |
 | **EA-P0-5** | 外部路径永不 lake；预编译 next 为 sole 冷启动 | **done engineering** | INSTALL/setup/README 主路径 = bundle |
 | **EA-P0-6** | 错误 → 可执行修复（fix: 行） | **done engineering** | Diagnostic.render + pf compiler wrapper + mismatch fixup |
 | **EA-CI-1** | `install-dist-smoke` / external-author-dist-smoke | **done engineering** | release job + `external-author-smoke.yml` |
 | **EA-CI-2** | `host-dev-mode-smoke`：非 lock 原生 distro build 不改 lock | **partial** | dev 默认即覆盖；专用 Debian 矩阵仍可加 |
 | **EA-CI-3** | `agent-path-smoke`：仅 env + pf 子命令；禁 lake / 手改 lock | **partial** | EA smoke 断言 compiler 路径不含 `.lake` |
 | **EA-P1-1** | `pf test -t evm` 不依赖 monorepo 路径 | **done engineering** | 解析 bundle `scripts/pf_evm_test.sh`；setup EVM 带 `--with-runtime` |
-| **EA-P1-*** | deploy/network/UI 脱钩；catalog CLI；多发行版矩阵 | **pending** | P1-1 后；见 14 §4.2 |
+| **EA-P1-2** | EVM UI 产物契约 `write-ui-json` / deploy 写 deployment | **done engineering** | schema 对齐 templates/evm-dapp-ui |
+| **EA-P1-4** | `pf network list/show/use` | **done engineering** | embedded + docs/product/networks.v1.json |
+| **EA-P1-*** | scaffold-ui 一键、多发行版矩阵、Solana test 脱钩 | **pending** | 见 14 §4.2 residual |
 | **EA-MVP-SLICE** | 最小五切片一轮：bundle + bootstrap + host dev + Ubuntu E2E + fix-up 错误 | **done engineering** | Wave A/B 续：README 两轨 + EA CI + standalone test |
 
 **最小 DoD（EVM-first）**：
