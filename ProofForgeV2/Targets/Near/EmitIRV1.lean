@@ -2584,6 +2584,60 @@ private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
     }
   ]
 
+/-- Exact successful graph of the sole production IR emitter. This is pure
+    emission provenance: it neither exposes another renderer nor claims that
+    the emitted WAT implements the IR or that a finalized Wasm executes it. -/
+def IREmissionV1 (ir : IR) (files : Array OutputFile) : Prop :=
+  emitFromIR ir = .ok files
+
+/-- Successful production emission determines one exact ordered base-file
+    array, including both content strings. -/
+theorem irEmissionV1_unique
+    (ir : IR) (left right : Array OutputFile)
+    (hleft : IREmissionV1 ir left)
+    (hright : IREmissionV1 ir right) :
+    left = right := by
+  exact Except.ok.inj (hleft.symm.trans hright)
+
+/-- Emission success retains the production IR validation gate. -/
+theorem irEmissionV1_validateIR
+    (ir : IR) (files : Array OutputFile)
+    (hemission : IREmissionV1 ir files) :
+    validateIR ir = .ok () := by
+  cases hvalidate : validateIR ir with
+  | error error =>
+      simp [IREmissionV1, emitFromIR, hvalidate, Bind.bind, Except.bind] at hemission
+  | ok unit =>
+      cases unit
+      rfl
+
+/-- Derived public envelope of the private-backed emission graph. Content
+    strings remain existential so the private WAT/ABI renderers are not exposed
+    or duplicated; `IREmissionV1` still binds their exact values. -/
+theorem irEmissionV1_output_shape
+    (ir : IR) (files : Array OutputFile)
+    (hemission : IREmissionV1 ir files) :
+    ∃ watText abiJson,
+      files = #[
+        {
+          path := s!"{ir.name}.wat"
+          mediaType := "application/wasm-text"
+          contents := watText
+        },
+        {
+          path := s!"{ir.name}.near-abi.json"
+          mediaType := "application/json"
+          contents := abiJson
+        }
+      ] := by
+  cases hvalidate : validateIR ir with
+  | error error =>
+      simp [IREmissionV1, emitFromIR, hvalidate, Bind.bind, Except.bind] at hemission
+  | ok unit =>
+      refine ⟨renderWat ir, renderAbi ir.sourcePlan, ?_⟩
+      simpa [IREmissionV1, emitFromIR, hvalidate, Bind.bind, Except.bind,
+        Pure.pure, Except.pure] using hemission.symm
+
 /-- Replace methods on an existing IR (private `mk`; for validateIR characterization). -/
 def withMethods (ir : IR) (methods : Array MethodIR) : IR :=
   { ir with methods }
@@ -2626,5 +2680,28 @@ def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
     CompileResult (Array OutputFile) := do
   let ir ← irFromCapability capability
   emitFromIR ir
+
+/-- Every successful capability-gated NEAR base build comes from one exact
+    production Plan, the private validated Plan→IR lowering, and the sole
+    private IR emitter. This stops at in-memory WAT/ABI content strings; it does
+    not cover staging writes, `wat2wasm`, finalized Wasm, or execution. -/
+theorem buildFromCapability_eq_ok_graphsV1
+    (capability : ResolvedEngineeringBuildV1)
+    (files : Array OutputFile)
+    (hbuild : buildFromCapability capability = .ok files) :
+    ∃ plan ir,
+      materializePlanFromCapabilityV1 capability = .ok plan ∧
+      irFromCapability capability = .ok ir ∧
+      PlanIRLoweringV1 plan ir ∧
+      IREmissionV1 ir files := by
+  cases hir : irFromCapability capability with
+  | error error =>
+      simp [buildFromCapability, hir, Bind.bind, Except.bind] at hbuild
+  | ok ir =>
+      obtain ⟨plan, hplan, hlowering⟩ :=
+        irFromCapability_eq_ok_graphsV1 capability ir hir
+      refine ⟨plan, ir, hplan, rfl, hlowering, ?_⟩
+      simpa [buildFromCapability, hir, IREmissionV1, Bind.bind,
+        Except.bind] using hbuild
 
 end ProofForgeV2.Targets.Near

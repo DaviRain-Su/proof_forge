@@ -72,6 +72,14 @@ private def liftResultWithProof (result : CompileResult α) :
   | .ok value => pure ⟨value, rfl⟩
   | .error error => throw <| IO.userError error.render
 
+/-- Preserve an exact successful optional lookup without using unchecked array
+    indexing in production-provenance fixtures. -/
+private def liftOptionWithProof (result : Option α) (message : String) :
+    IO { value : α // result = some value } :=
+  match result with
+  | some value => pure ⟨value, rfl⟩
+  | none => throw <| IO.userError message
+
 private theorem stateDeclV1_eq_of_fields
     (decl : StateDeclV1)
     (hid : decl.id = 0)
@@ -616,14 +624,139 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
 
       -- Continue through the same capability-gated production path. The
       -- equations retained above and below instantiate the proposition-only
-      -- full-Plan graph; no test Plan, key constructor, or lowering is used.
+      -- full-Plan graph; no test Plan, key constructor, lowering, or renderer
+      -- is used.
       let irResult := ProofForgeV2.Targets.Near.irFromCapability capability
       let ⟨ir, hirResult⟩ ← liftResultWithProof irResult
+      have hplanCapability :
+          ProofForgeV2.Targets.Near.planFromCapability capability = .ok plan := by
+        simpa [planResult] using hplanResult
+      have hirCapability :
+          ProofForgeV2.Targets.Near.irFromCapability capability = .ok ir := by
+        simpa [irResult] using hirResult
       have hgraphs :=
         ProofForgeV2.Targets.Near.planAndIRFromCapability_eq_ok_graphsV1
-          capability plan ir
-          (by simpa [planResult] using hplanResult)
-          (by simpa [irResult] using hirResult)
+          capability plan ir hplanCapability hirCapability
+      let filesResult :=
+        ProofForgeV2.Targets.Near.buildFromCapability capability
+      let ⟨baseFiles, hfilesResult⟩ ← liftResultWithProof filesResult
+      have hbuildCapability :
+          ProofForgeV2.Targets.Near.buildFromCapability capability =
+            .ok baseFiles := by
+        simpa [filesResult] using hfilesResult
+      have hemissions :
+          ProofForgeV2.Targets.Near.IREmissionV1 ir baseFiles := by
+        rcases ProofForgeV2.Targets.Near.buildFromCapability_eq_ok_graphsV1
+            capability baseFiles hbuildCapability with
+          ⟨emittedPlan, emittedIR, _, hemittedIR, hemittedLowering, hemissions⟩
+        have hemittedIREq : emittedIR = ir :=
+          Except.ok.inj (hemittedIR.symm.trans hirCapability)
+        subst emittedIR
+        have hemittedPlanEq : emittedPlan = plan :=
+          (ProofForgeV2.Targets.Near.planIRLoweringV1_sourcePlan
+            emittedPlan ir hemittedLowering).symm.trans hgraphs.1
+        subst emittedPlan
+        exact hemissions
+      have _ : ProofForgeV2.Targets.Near.validateIR ir = .ok () :=
+        ProofForgeV2.Targets.Near.irEmissionV1_validateIR
+          ir baseFiles hemissions
+      let ⟨watFile, hwatFile⟩ ← liftOptionWithProof baseFiles[0]?
+        "VerifiedVaultPF production emission is missing its WAT file"
+      let ⟨abiFile, habiFile⟩ ← liftOptionWithProof baseFiles[1]?
+        "VerifiedVaultPF production emission is missing its ABI file"
+      have hbaseSize : baseFiles.size = 2 := by
+        rcases ProofForgeV2.Targets.Near.irEmissionV1_output_shape
+            ir baseFiles hemissions with ⟨watText, abiJson, hbaseFiles⟩
+        simp [hbaseFiles]
+      have hwatMediaType :
+          OutputFile.mediaType watFile = "application/wasm-text" := by
+        rcases ProofForgeV2.Targets.Near.irEmissionV1_output_shape
+            ir baseFiles hemissions with ⟨watText, abiJson, hbaseFiles⟩
+        rw [hbaseFiles] at hwatFile
+        simpa using congrArg (fun file : OutputFile => file.mediaType)
+          (Option.some.inj (by simpa using hwatFile)).symm
+      have habiMediaType :
+          OutputFile.mediaType abiFile = "application/json" := by
+        rcases ProofForgeV2.Targets.Near.irEmissionV1_output_shape
+            ir baseFiles hemissions with ⟨watText, abiJson, hbaseFiles⟩
+        rw [hbaseFiles] at habiFile
+        simpa using congrArg (fun file : OutputFile => file.mediaType)
+          (Option.some.inj (by simpa using habiFile)).symm
+      have hfilesDistinct : watFile ≠ abiFile := by
+        intro heq
+        have hmedia := congrArg (fun file : OutputFile => file.mediaType) heq
+        rw [hwatMediaType, habiMediaType] at hmedia
+        simp at hmedia
+      expect (baseFiles.size == 2 &&
+          watFile.path == "VerifiedVaultPF.wat" &&
+          watFile.mediaType == "application/wasm-text" &&
+          abiFile.path == "VerifiedVaultPF.near-abi.json" &&
+          abiFile.mediaType == "application/json")
+        "VerifiedVaultPF production emission must have the exact WAT/ABI envelope"
+      have rejectDifferent
+          (candidate : Array OutputFile)
+          (hne : candidate ≠ baseFiles) :
+          ¬ ProofForgeV2.Targets.Near.IREmissionV1 ir candidate := by
+        intro hcandidate
+        exact hne (ProofForgeV2.Targets.Near.irEmissionV1_unique
+          ir candidate baseFiles hcandidate hemissions)
+      let forgedMediaFiles : Array OutputFile := #[
+        {
+          path := s!"{ir.name}.wat"
+          mediaType := "text/plain"
+          contents := watFile.contents
+        },
+        {
+          path := s!"{ir.name}.near-abi.json"
+          mediaType := "application/json"
+          contents := abiFile.contents
+        }
+      ]
+      have _ : ¬ ProofForgeV2.Targets.Near.IREmissionV1 ir forgedMediaFiles := by
+        apply rejectDifferent
+        intro heq
+        have hfirst := congrArg (fun files : Array OutputFile => files[0]?) heq
+        have hfile : ({
+            path := s!"{ir.name}.wat"
+            mediaType := "text/plain"
+            contents := watFile.contents
+          } : OutputFile) = watFile :=
+          Option.some.inj (by simpa [forgedMediaFiles, hwatFile] using hfirst)
+        have hmedia := congrArg (fun file : OutputFile => file.mediaType) hfile
+        rw [hwatMediaType] at hmedia
+        simp at hmedia
+      let missingFiles : Array OutputFile := #[watFile]
+      have _ : ¬ ProofForgeV2.Targets.Near.IREmissionV1 ir missingFiles := by
+        apply rejectDifferent
+        intro heq
+        have hsize := congrArg Array.size heq
+        simp [missingFiles, hbaseSize] at hsize
+      let reorderedFiles : Array OutputFile := #[abiFile, watFile]
+      have _ : ¬ ProofForgeV2.Targets.Near.IREmissionV1 ir reorderedFiles := by
+        apply rejectDifferent
+        intro heq
+        have hfirst := congrArg (fun files : Array OutputFile => files[0]?) heq
+        have habiEqWat : abiFile = watFile :=
+          Option.some.inj (by simpa [reorderedFiles, hwatFile] using hfirst)
+        exact hfilesDistinct habiEqWat.symm
+      let duplicateFiles : Array OutputFile := #[watFile, watFile]
+      have _ : ¬ ProofForgeV2.Targets.Near.IREmissionV1 ir duplicateFiles := by
+        apply rejectDifferent
+        intro heq
+        have hsecond := congrArg (fun files : Array OutputFile => files[1]?) heq
+        have hwatEqAbi : watFile = abiFile :=
+          Option.some.inj (by simpa [duplicateFiles, habiFile] using hsecond)
+        exact hfilesDistinct hwatEqAbi
+      let extraFiles := baseFiles.push {
+        path := "forged.extra"
+        mediaType := "application/octet-stream"
+        contents := "forged"
+      }
+      have _ : ¬ ProofForgeV2.Targets.Near.IREmissionV1 ir extraFiles := by
+        apply rejectDifferent
+        intro heq
+        have hsize := congrArg Array.size heq
+        simp [extraFiles, hbaseSize] at hsize
       expect (ir.sourcePlan == plan)
         "VerifiedVaultPF IR must retain the exact production Plan"
       expect (ir.keys.size == 3 && plan.storage.fields.size == 2 &&

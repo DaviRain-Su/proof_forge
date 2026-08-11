@@ -103,6 +103,17 @@ Phase 1：实现
   因而 lookup + certificate 已在 kernel 中推出 empty-context acceptance，ready 与 exact Reference
   outcome composition 不再带调用方 context premise。该切片仍不定义 target transition，也不改变
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined** 边界。
+- **VerifiedVault production IR emission provenance（Phase 7 第七切）**：
+  `IREmissionV1` 是 sole private `emitFromIR` 的 proposition-only exact successful graph；它不公开
+  或复制 WAT/ABI renderer，也不建立另一套 emitter authority。capability build recovery theorem
+  把一次 success 还原为同一 capability-derived Plan、既有 private validated Plan→IR graph、同一
+  IR 与 exact in-memory `OutputFile` array。由 graph 派生的 envelope 固定按顺序输出
+  `<name>.wat`（`application/wasm-text`）和 `<name>.near-abi.json`（`application/json`）；exact graph
+  还绑定 private renderer 实际生成的 content strings。真实 VerifiedVault same-file fixture 沿同一
+  capability/Plan/IR/build result 把 status MethodIR provenance 接到该 base output，并以安全
+  optional lookup 固定 missing、reordered、duplicate、extra file 与 forged media type 均不能满足
+  emission graph。这里仍未证明 renderer correctness、WAT/Wasm semantics、locked `wat2wasm`、
+  finalized Wasm bytes、磁盘写入或 NEAR execution refinement，故 assurance 声明不变。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -162,11 +173,12 @@ Phase 1：实现
 **明确未闭合**：near-sandbox 门不是 Reference↔Wasm/sandbox formal 差分；VerifiedVaultPF
 exact slots、Unit withdraw、overflow/guard rollback 与 missing-export corpus 已形成 engineering
 runtime observation；`StaticAlignmentV1` 的 passive relation 与 exact status recipe 已连接到
-production validated semantic data、Plan/key/IR successful graph；production Method/MethodIR 的
-exact syntax 已由 proof-producing recognizer 纳入 kernel proposition，真实 status 的
-validation/admission/initial state/lookup/empty-context ready/exact Reference outcome 也已无外部
-context premise闭合，但尚无 target transition，也没有一般 lowering correctness theorem。当前仍没有
-Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
+production validated semantic data、Plan/key/IR successful graph与 sole private emitter 的 exact
+in-memory WAT/ABI output graph；production Method/MethodIR 的 exact syntax 已由 proof-producing
+recognizer 纳入 kernel proposition，真实 status 的 validation/admission/initial state/lookup/
+empty-context ready/exact Reference outcome 也已无外部 context premise闭合，但尚无 target
+transition，也没有一般 lowering 或 renderer correctness theorem。当前仍没有 finalized Wasm/disk
+identity 或 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
 覆盖 corrupt storage、bad input 或 gas/profile；Option
 params、非 UInt64/nested Option、Map/nested aggregate return 仍 fail-closed
 （`Bytes N` 1..8 return 已开放）；ContextRead 已开放 `unixTimeSeconds`、view-safe

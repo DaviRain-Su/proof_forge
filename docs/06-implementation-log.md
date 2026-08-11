@@ -14846,3 +14846,23 @@ normative: false
   `just docs-check`、`just sbom-package-files-refresh`/`check`（277 files）、
   `just alpha-deletion-gate`、`git diff --check` 与完整 `just ci`，均 exit 0；独立高风险复核
   未发现 collector equivalence、authoritative-row identity、fallback 或 theorem strength 问题。
+
+## 2026-08-11 — Phase 7 NEAR production IR emission provenance
+
+- 在 sole private `emitFromIR` 上增加 proposition-only exact success graph `IREmissionV1`；它只记录
+  production function equation，不公开或复制 private WAT/ABI renderer，也不建立第二套 emitter
+  relation。uniqueness、IR validation 与 ordered two-file envelope 都从该函数图派生。
+- `buildFromCapability_eq_ok_graphsV1` 从一次 capability-gated build success 恢复 exact production
+  Plan、同一 `irFromCapability` result、既有 private validated `PlanIRLoweringV1` 及该 IR 到 exact
+  in-memory `OutputFile` array 的 `IREmissionV1`。边界停在 WAT/ABI content strings，不跨入 staging、
+  external `wat2wasm`、finalized Wasm 或磁盘 artifact。
+- 真实 `VerifiedVaultPF` same-file certifier fixture 继续使用 audited certificate mint 与同一
+  capability 的 `planFromCapability` / `irFromCapability` / `buildFromCapability`；由函数图唯一性把
+  build 恢复出的 Plan/IR 对齐到已有 status MethodIR provenance，并固定 exact ordered WAT/ABI
+  envelope。安全 optional lookup 取代 unchecked indexing；missing、reordered、duplicate、extra
+  file 和 forged media type 均被证明不能满足该 emission graph；没有 test-only lowering、
+  emitter 或 renderer。
+- 边界不变：没有证明 WAT renderer 实现 IR、WAT/Wasm/NEAR execution semantics、locked
+  `wat2wasm` correctness、finalized Wasm bytes/disk identity、simulation 或 rollback implementation
+  refinement。该切片只是 production emission provenance closure，仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
