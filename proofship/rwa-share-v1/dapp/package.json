@@ -1,0 +1,25 @@
+{
+  "name": "proofship-rwa-share-dapp",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "ProofShip rwa-share-v1: AI-drafted, machine-gated share registry on X Layer (viem + React)",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview",
+    "bridge": "node ../studio-bridge/server.mjs"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "viem": "^2.23.2"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.18",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.3",
+    "vite": "^6.0.11"
+  }
+}

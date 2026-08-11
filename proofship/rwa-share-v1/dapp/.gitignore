@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.DS_Store
+*.local
+.env
+.env.*
+!.env.example
+tsconfig.tsbuildinfo
+public/artifacts/*.bin
+public/deployment.json
