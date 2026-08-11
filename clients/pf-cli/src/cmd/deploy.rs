@@ -251,6 +251,10 @@ pub fn run(
                 }
             })
         }
+        targets::TargetId::Cosmwasm | targets::TargetId::Ton => Err(PfError::NotImplemented(format!(
+            "target '{target}': {}",
+            targets::capability_note(&target)
+        ))),
         targets::TargetId::Other => Err(PfError::NotImplemented(format!(
             "target '{target}': {}",
             targets::capability_note(&target)

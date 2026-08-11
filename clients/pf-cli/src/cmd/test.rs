@@ -10,7 +10,7 @@ use crate::cmd::emit;
 use crate::error::{PfError, PfResult};
 use crate::project::Project;
 use crate::result_json::PfOk;
-use crate::targets::{self, evm, near, psy, solana};
+use crate::targets::{self, cosmwasm, evm, near, psy, solana, ton};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -280,7 +280,7 @@ fn run_one(target: &str, dir: &Path) -> PfResult<TargetReport> {
                     target: target.into(),
                     status: "skipped",
                     artifact_dir: Some(dir.display().to_string()),
-                    lane: Some("near-sandbox-corpus".into()),
+                    lane: Some("near-sandbox-artifact-or-corpus".into()),
                     message: outcome
                         .skip_reason
                         .unwrap_or_else(|| "host tools missing".into()),
@@ -294,15 +294,87 @@ fn run_one(target: &str, dir: &Path) -> PfResult<TargetReport> {
                 .find(|l| l.contains("pf-near-test: ok") || l.contains("near-runtime-test: PASS"))
                 .unwrap_or("pf-near-test: ok")
                 .to_string();
+            let lane = if summary.contains("artifact suite=") {
+                "near-sandbox-artifact"
+            } else {
+                "near-sandbox-corpus"
+            };
             Ok(TargetReport {
                 target: target.into(),
                 status: "ok",
                 artifact_dir: Some(dir.display().to_string()),
-                lane: Some("near-sandbox-corpus".into()),
+                lane: Some(lane.into()),
                 message: summary,
                 detail: Some(json!({
                     "script": outcome.script_path.display().to_string(),
                     "honesty": "engineering sandbox only; Promise=async; sync call FC; not formal/testnet",
+                    "modes": "auto: artifact fast-path when *.wasm present; PF_NEAR_TEST_MODE=corpus for full suite",
+                })),
+            })
+        }
+        targets::TargetId::Cosmwasm => {
+            let outcome = cosmwasm::test::run_mock_runtime_test(dir)?;
+            if outcome.skipped {
+                return Ok(TargetReport {
+                    target: target.into(),
+                    status: "skipped",
+                    artifact_dir: Some(dir.display().to_string()),
+                    lane: Some("cosmwasm-vm-mock".into()),
+                    message: outcome
+                        .skip_reason
+                        .unwrap_or_else(|| "host tools missing".into()),
+                    detail: None,
+                });
+            }
+            let summary = outcome
+                .stdout
+                .lines()
+                .chain(outcome.stderr.lines())
+                .find(|l| l.contains("pf-cosmwasm-test: ok"))
+                .unwrap_or("pf-cosmwasm-test: ok")
+                .to_string();
+            Ok(TargetReport {
+                target: target.into(),
+                status: "ok",
+                artifact_dir: Some(dir.display().to_string()),
+                lane: Some("cosmwasm-vm-mock".into()),
+                message: summary,
+                detail: Some(json!({
+                    "script": outcome.script_path.display().to_string(),
+                    "honesty": "engineering only; sync call FC; schedule=SubMsg reply_on=never; not formal/mainnet",
+                })),
+            })
+        }
+        targets::TargetId::Ton => {
+            let outcome = ton::test::run_sandbox_test(dir)?;
+            if outcome.skipped {
+                return Ok(TargetReport {
+                    target: target.into(),
+                    status: "skipped",
+                    artifact_dir: Some(dir.display().to_string()),
+                    lane: Some("ton-sandbox".into()),
+                    message: outcome
+                        .skip_reason
+                        .unwrap_or_else(|| "host tools missing".into()),
+                    detail: None,
+                });
+            }
+            let summary = outcome
+                .stdout
+                .lines()
+                .chain(outcome.stderr.lines())
+                .find(|l| l.contains("pf-ton-test: ok"))
+                .unwrap_or("pf-ton-test: ok")
+                .to_string();
+            Ok(TargetReport {
+                target: target.into(),
+                status: "ok",
+                artifact_dir: Some(dir.display().to_string()),
+                lane: Some("ton-sandbox".into()),
+                message: summary,
+                detail: Some(json!({
+                    "script": outcome.script_path.display().to_string(),
+                    "honesty": "engineering only; sync call FC; schedule=createMessage; pf.assets frozen; not formal/mainnet",
                 })),
             })
         }

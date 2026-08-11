@@ -38,9 +38,20 @@ pub fn run(
         }
         targets::TargetId::Near => {
             return Err(PfError::Usage(
-                "near: use `pf deploy -t near` (save-only package) and scripts/near_runtime_test.sh \
-                 for locked near-sandbox evidence; no solana-style offline verify client"
+                "near: use `pf test -t near` / `pf deploy -t near` (save-only); \
+                 no solana-style offline verify client"
                     .into(),
+            ));
+        }
+        targets::TargetId::Cosmwasm => {
+            return Err(PfError::Usage(
+                "cosmwasm: use `pf test -t cosmwasm` (cosmwasm-vm mock); no offline verify client"
+                    .into(),
+            ));
+        }
+        targets::TargetId::Ton => {
+            return Err(PfError::Usage(
+                "ton: use `pf test -t ton` (@ton/sandbox); no offline verify client".into(),
             ));
         }
         targets::TargetId::Other => {

@@ -1,10 +1,12 @@
 //! Per-chain developer adapters.
 
 pub mod aleo;
+pub mod cosmwasm;
 pub mod evm;
 pub mod near;
 pub mod psy;
 pub mod solana;
+pub mod ton;
 
 use crate::error::{PfError, PfResult};
 
@@ -15,6 +17,8 @@ pub enum TargetId {
     Solana,
     Psy,
     Near,
+    Cosmwasm,
+    Ton,
     Other,
 }
 
@@ -26,6 +30,8 @@ impl TargetId {
             "solana" => Self::Solana,
             "psy" => Self::Psy,
             "near" => Self::Near,
+            "cosmwasm" | "cw" => Self::Cosmwasm,
+            "ton" => Self::Ton,
             _ => Self::Other,
         }
     }
@@ -54,7 +60,13 @@ pub fn capability_note(target: &str) -> &'static str {
             "build DPN + `pf test` (session) + `pf run` (simulate) + `pf deploy` wraps psy_user_cli deploy-contract"
         }
         TargetId::Near => {
-            "build Wasm + `pf test` (near-sandbox corpus) + `pf deploy` (save-only; --broadcast refused)"
+            "build Wasm + `pf test` (near-sandbox; artifact fast-path or full corpus) + `pf deploy` (save-only; --broadcast refused)"
+        }
+        TargetId::Cosmwasm => {
+            "build Wasm + `pf test` (cosmwasm-vm mock corpus; skip-clean if tools missing); deploy/broadcast not product"
+        }
+        TargetId::Ton => {
+            "build Tolk/BoC + `pf test` (@ton/sandbox corpus; skip-clean if tools missing); deploy/broadcast not product"
         }
         TargetId::Other => "unsupported developer operation in pf v0 (fail closed)",
     }
@@ -72,5 +84,7 @@ mod tests {
         assert!(capability_note("near").contains("save-only"));
         assert!(capability_note("near").contains("broadcast refused"));
         assert!(capability_note("near").contains("pf test"));
+        assert!(capability_note("cosmwasm").contains("pf test"));
+        assert!(capability_note("ton").contains("pf test"));
     }
 }

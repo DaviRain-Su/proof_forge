@@ -29,10 +29,13 @@ proof-forge-next build Examples/PoseTransform.lean \
 
 # 3) Runtime gate — product CLI (preferred)
 pf test -t near
-# same corpus via product local:
-# proof-forge-next local --target near --mode runtime
-# monorepo equivalent:
-# scripts/near_runtime_test.sh   # or scripts/pf_near_test.sh
+# auto: if out/ has *.wasm → ONE suite against that wasm (fast; no lake rebuild)
+# full 15-suite corpus:
+#   PF_NEAR_TEST_MODE=corpus pf test -t near
+# product local (same script):
+#   proof-forge-next local --target near --mode runtime
+# monorepo:
+#   scripts/near_runtime_test.sh
 
 # 4) Deploy packaging (save-only; --broadcast refused)
 pf deploy -t near --network local

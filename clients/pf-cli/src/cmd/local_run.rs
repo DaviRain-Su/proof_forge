@@ -35,8 +35,22 @@ pub fn run(
     }
     if tid == targets::TargetId::Near {
         return Err(PfError::NotImplemented(
-            "near: use `pf test -t near` (near-sandbox corpus) or `proof-forge-next local --target near`; \
+            "near: use `pf test -t near` (artifact fast-path or corpus) or `proof-forge-next local --target near`; \
              `pf run` is Aleo/Psy in v0; Promise/cross-contract is async (sync call FC)"
+                .into(),
+        ));
+    }
+    if tid == targets::TargetId::Cosmwasm {
+        return Err(PfError::NotImplemented(
+            "cosmwasm: use `pf test -t cosmwasm` or `proof-forge-next local --target cosmwasm`; \
+             `pf run` is Aleo/Psy in v0; sync call FC; schedule=SubMsg never"
+                .into(),
+        ));
+    }
+    if tid == targets::TargetId::Ton {
+        return Err(PfError::NotImplemented(
+            "ton: use `pf test -t ton` or `proof-forge-next local --target ton`; \
+             `pf run` is Aleo/Psy in v0; sync call FC; schedule=createMessage"
                 .into(),
         ));
     }

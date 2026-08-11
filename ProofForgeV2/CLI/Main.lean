@@ -61,8 +61,9 @@ private def usage : String :=
   "  install is non-interactive: requires --yes (or --dry-run); no PATH fallback; design-only targets rejected.\n" ++
   "  local wraps package scripts with inherited PROOF_FORGE_TOOL_ROOT (no PATH fallback tools);\n" ++
   "    host-heavy; not ordinary ci; not formal.\n" ++
-  "  local modes: solana/evm/near runtime (scripts/solana_runtime_test.sh,\n" ++
-  "    scripts/evm_anvil_differential.sh, scripts/pf_near_test.sh; other targets fail closed).\n" ++
+  "  local modes: solana/evm/near/cosmwasm/ton runtime (scripts/solana_runtime_test.sh,\n" ++
+  "    scripts/evm_anvil_differential.sh, scripts/pf_near_test.sh,\n" ++
+  "    scripts/pf_cosmwasm_test.sh, scripts/pf_ton_test.sh; other targets fail closed).\n" ++
   "  Host-heavy JSON redacts key/record argv values and child stream echoes.\n" ++
   "  inspect <arg> prefers a registered target id when ambiguous; use --output-dir to force a path.\n" ++
   "  inspect output-dir validates proof-forge.output.v1 artifact-content + exact disk closure.\n" ++
@@ -562,13 +563,29 @@ private def resolveLocalScriptV1 (target mode : String) :
       match m with
       | "runtime" =>
           pure (m, "scripts/pf_near_test.sh",
-            "host-heavy near-sandbox engineering corpus (scripts/near_runtime_test.sh); Promise=async; sync call FC; not ordinary ci; not formal")
+            "host-heavy near-sandbox; artifact fast-path when PF_NEAR_ARTIFACT_DIR has *.wasm, else full corpus; Promise=async; sync call FC; not ordinary ci; not formal")
       | _ =>
           throw s!"unsupported local mode '{m}' for target near (want runtime)"
+  | "cosmwasm" =>
+      let m := if mode.isEmpty then "runtime" else mode
+      match m with
+      | "runtime" =>
+          pure (m, "scripts/pf_cosmwasm_test.sh",
+            "host-heavy cosmwasm-vm mock corpus; sync call FC; schedule=SubMsg reply_on=never; not ordinary ci; not formal")
+      | _ =>
+          throw s!"unsupported local mode '{m}' for target cosmwasm (want runtime)"
+  | "ton" =>
+      let m := if mode.isEmpty then "runtime" else mode
+      match m with
+      | "runtime" =>
+          pure (m, "scripts/pf_ton_test.sh",
+            "host-heavy @ton/sandbox corpus; sync call FC; schedule=createMessage; pf.assets frozen; not ordinary ci; not formal")
+      | _ =>
+          throw s!"unsupported local mode '{m}' for target ton (want runtime)"
   | "soroban" | "icp" | "openvm" =>
       throw s!"target '{target}' is design-only (unsupported; not installable/local)"
   | other =>
-      throw s!"local has no package-script path for target '{other}' (solana/evm/near runtime)"
+      throw s!"local has no package-script path for target '{other}' (solana/evm/near/cosmwasm/ton runtime)"
 
 
 private def renderHostHeavyJsonV1

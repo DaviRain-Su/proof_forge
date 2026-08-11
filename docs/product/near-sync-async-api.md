@@ -64,9 +64,9 @@ cursor is exposed in the expression language.
 |--------|---------------------|----------------|--------------|
 | **EVM** | native payable + CALL (sync) | `schedule` fire-and-forget same-tx | Anvil + `pf test -t evm` |
 | **Solana** | System/Token CPI (sync in ix) | no Promise model | Mollusk + `pf test -t solana` |
-| **CosmWasm** | Bank/Wasm execute as SubMsg | `reply_on: never` same-tx SubMsg | engineering mock; sync call FC |
-| **TON** | — | `createMessage` async subset | TON frozen for pf.assets (owner) |
-| **NEAR** | deposit / balanceOfSelf / context | Promise transfer / ft_transfer / schedule | this doc |
+| **CosmWasm** | Bank send as SubMsg (sync-ish same-tx) | `schedule` → SubMsg `reply_on:never` | `pf test -t cosmwasm`; sync call FC |
+| **TON** | — | `createMessage` async subset | `pf test -t ton`; pf.assets frozen |
+| **NEAR** | deposit / balanceOfSelf / context | Promise transfer / ft_transfer / schedule | this doc; `pf test -t near` |
 
 Agents must not unify “transfer” across chains into one sync API.
 
@@ -75,7 +75,7 @@ Agents must not unify “transfer” across chains into one sync API.
 | Surface | NEAR command | Notes |
 |---------|--------------|-------|
 | Build | `pf build -t near` / `proof-forge-next build … --target near` | Wasm + near-abi + wat |
-| Test | **`pf test -t near`** | spawns `scripts/pf_near_test.sh` → near-sandbox corpus; skip-clean if tools missing |
+| Test | **`pf test -t near`** | `scripts/pf_near_test.sh`: **artifact fast-path** when `*.wasm` present (one suite, no full rebuild); `PF_NEAR_TEST_MODE=corpus` for all 15; skip-clean if tools missing |
 | Local | **`proof-forge-next local --target near`** | same script path as product local JSON |
 | Deploy | **`pf deploy -t near`** | save-only package; **`--broadcast` refused** (all nets) |
 | Network catalog | `pf network list --family near` | `near.local.sandbox`, `near.testnet` (catalog only) |

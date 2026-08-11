@@ -185,7 +185,9 @@ proof-forge-next local --target evm [--mode runtime] [--json] [--] [script-args.
 |---|---|---|---|
 | `solana` | `runtime`（默认） | `scripts/solana_runtime_test.sh` | `just solana-runtime` |
 | `evm` | `runtime`（默认） | `scripts/evm_anvil_differential.sh` | Anvil engineering smokes |
-| `near` | `runtime`（默认） | `scripts/pf_near_test.sh` → `near_runtime_test.sh` | near-sandbox engineering corpus；Promise=async；sync call FC |
+| `near` | `runtime`（默认） | `scripts/pf_near_test.sh`（artifact 快路径或 full corpus） | near-sandbox；Promise=async；sync call FC |
+| `cosmwasm` | `runtime`（默认） | `scripts/pf_cosmwasm_test.sh` | cosmwasm-vm mock；sync call FC；SubMsg never |
+| `ton` | `runtime`（默认） | `scripts/pf_ton_test.sh` | @ton/sandbox；sync call FC；createMessage |
 | 其它 implemented | — | fail closed（无产品 script path） | 见 target dossier |
 | design-only | — | fail closed `unsupported` | 不可 install/local |
 
