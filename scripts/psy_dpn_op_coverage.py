@@ -249,7 +249,7 @@ def main() -> int:
             {
                 "id": "hash-gadgets",
                 "ops": ["hashNoPad", "hashPad", "hashTwoToOne", "keccak256", "calculateMerkleRoot"],
-                "status": "hashNoPad open (pf.crypto.hashNoPad, first limb); pad/two-to-one/keccak/merkle still closed (ADR-0039)",
+                "status": "hashNoPad+hashTwoToOne+keccak256 open (first limb); hashPad emit-only (official software eval no-op); merkle still closed",
             },
             {
                 "id": "IMT-state-cmds",

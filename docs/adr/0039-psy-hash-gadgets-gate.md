@@ -1,10 +1,8 @@
 ---
 id: ADR-0039
 title: Psy hash gadgets — design gate (not yet emitted)
-status: proposed
-owner: architecture
-updated: 2026-08-10
-normative: true
+status: accepted-partial
+date: 2026-08-10
 ---
 
 # ADR-0039: Psy hash gadgets design gate
@@ -68,13 +66,15 @@ Claiming hash coverage without a language entry would be dishonest.
 
 | Item | Status |
 |------|--------|
-| Language entry | `call pf.crypto.hashNoPad(...)` (expr position) |
-| Plan | `Expr.hashNoPad` |
-| DPN | `OpTypeV1.hashNoPad` |
+| Language entry | `call pf.crypto.hashNoPad|hashPad|hashTwoToOne|keccak256(...)` |
+| Plan | `Expr.hashNoPad` / `hashPad` / `hashTwoToOne` / `keccak256` |
+| DPN | ops 21 / 22 / 78 / 81 |
 | Probe | `Examples/HashProbe.lean` |
-| Official differential | `psy-dpn-diff` / example matrix |
+| Official differential | hashNoPad, hashTwoToOne, keccak256 (nonzero + hash_ops) |
+| hashPad official software eval | **gap**: `psy_user_cli simulate` currently returns 0 / hash_ops=0 (emit still correct) |
 | Session | fail-closed with ADR-0039 message |
 
 ## Still closed
 
-`hashPad`, `hashTwoToOne`, `keccak256`, `calculateMerkleRoot`, full HashOut multi-limb returns, IMT.
+`calculateMerkleRoot`, full HashOut multi-limb returns, IMT.
+

@@ -189,12 +189,15 @@ Result-bearing `call` / `schedule` remain Plan fail-closed.
 
 ## 11. HashNoPad (ADR-0039 partial)
 
-Language: `let x : UInt64 := call pf.crypto.hashNoPad(a0, …, aN)` with `N ∈ 1..8`.
+Language (expression position):
 
-Lowering:
+| QN | arity | DPN op | product result |
+|----|------:|-------:|----------------|
+| `pf.crypto.hashNoPad` | 1..8 | 21 | first HashOut limb |
+| `pf.crypto.hashPad` | 1..8 | 22 | first limb (official software eval may no-op) |
+| `pf.crypto.hashTwoToOne` | 8 | 78 | first HashOut limb |
+| `pf.crypto.keccak256` | 1..16 | 81 | first u32 limb as UInt64 |
 
-1. Semantic result-bearing externalCall with QN `pf.crypto.hashNoPad` → `Expr.hashNoPad`;
-2. DPN `OpTypeV1.hashNoPad` (wire 21) over Target inputs;
-3. Product result = first Poseidon HashOut limb (matches `psy_user_cli simulate`).
+Lowering: result-bearing externalCall QN → Plan Expr → DPN op. Session does **not**
+reimplement crypto; use official simulate for execution authority.
 
-Session harness does **not** reimplement Poseidon; use official simulate.

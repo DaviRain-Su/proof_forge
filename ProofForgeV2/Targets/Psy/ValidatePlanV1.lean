@@ -60,7 +60,7 @@ private def validateExprNodes (expr : Expr) : Option Nat :=
         let da ← validateExprNodes arg
         total := total + da
       if total > maxExprDepth then none else some total
-  | .hashNoPad args => do
+  | .hashNoPad args | .hashPad args | .hashTwoToOne args | .keccak256 args => do
       let mut total : Nat := 1
       for arg in args do
         let da ← validateExprNodes arg
@@ -220,7 +220,7 @@ private partial def validateWideExpr
   | .callFn _ args =>
       for arg in args do
         validateWideExpr defined arg
-  | .hashNoPad args =>
+  | .hashNoPad args | .hashPad args | .hashTwoToOne args | .keccak256 args =>
       for arg in args do
         validateWideExpr defined arg
 

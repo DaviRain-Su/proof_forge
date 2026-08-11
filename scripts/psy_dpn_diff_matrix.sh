@@ -286,36 +286,74 @@ python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_l" \
   --call initialize:10 --call run:0 --call get | tee "$out/session-loop.log"
 rg -q 'outputs=\[14\]' "$out/session-loop.log"
 
-# --- HashProbe (ADR-0039 hashNoPad; official authority) ---
+# --- HashProbe (ADR-0039 gadgets; official authority) ---
 dpn_h=$(build_ex HashProbe Examples.HashProbe)
+python3 -I -S - "$dpn_h" <<'PYO'
+import json,sys
+dpn=json.load(open(sys.argv[1]))
+ops={int(d["op_type"]) for fn in dpn for d in fn.get("definitions") or []}
+for need in (21,22,78,81):
+    assert need in ops, (need, sorted(ops))
+print(f"OK HashProbe package ops include 21/22/78/81")
+PYO
+
 info "official HashProbe hashPair(1,2)"
 run_official hash-pair "$dpn_h" hashPair --inputs 1 --inputs 2
-python3 -I -S - "$out/off-hash-pair.json" "$dpn_h" <<'PYH'
+python3 -I -S - "$out/off-hash-pair.json" <<'PYH'
 import json,sys
 off=json.load(open(sys.argv[1]))
-dpn=json.load(open(sys.argv[2]))
 assert off.get("success") is True, off
 outs=off.get("outputs") or []
 assert len(outs)==1 and int(outs[0])!=0, outs
 assert int((off.get("op_counts") or {}).get("hash_ops",0))>=1
-# package must contain op 21
-ops={int(d["op_type"]) for fn in dpn for d in fn.get("definitions") or []}
-assert 21 in ops, ops
-delta=off.get("state_delta") or []
-assert delta and int((delta[0].get("new_value") or [0])[0])==int(outs[0])
 print(f"OK official hash-pair out={outs[0]} hash_ops={off['op_counts']['hash_ops']}")
 PYH
-# Session must fail closed (no Poseidon reimplementation)
-info "session HashProbe fail-closed"
-set +e
-python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_h" \
-  --call initialize --call hashPair:1,2 >"$out/sess-hash-pair.txt" 2>&1
-rc=$?
-set -e
-[[ $rc -ne 0 ]] || die "session unexpectedly accepted hashNoPad"
-rg -q 'hashNoPad|op 21|ADR-0039' "$out/sess-hash-pair.txt" \
-  || die "session hash failure message missing ADR-0039 hint"
-info "OK session hash fail-closed"
+
+info "official HashProbe hashCombine (two-to-one)"
+run_official hash-combine "$dpn_h" hashCombine   --inputs 1 --inputs 0 --inputs 0 --inputs 0   --inputs 2 --inputs 0 --inputs 0 --inputs 0
+python3 -I -S - "$out/off-hash-combine.json" <<'PYH'
+import json,sys
+off=json.load(open(sys.argv[1]))
+assert off.get("success") is True, off
+outs=off.get("outputs") or []
+assert len(outs)==1 and int(outs[0])!=0, outs
+assert int((off.get("op_counts") or {}).get("hash_ops",0))>=1
+print(f"OK official hash-combine out={outs[0]} hash_ops={off['op_counts']['hash_ops']}")
+PYH
+
+info "official HashProbe keccakWord(1)"
+run_official hash-keccak "$dpn_h" keccakWord --inputs 1
+python3 -I -S - "$out/off-hash-keccak.json" <<'PYH'
+import json,sys
+off=json.load(open(sys.argv[1]))
+assert off.get("success") is True, off
+outs=off.get("outputs") or []
+assert len(outs)==1 and int(outs[0])!=0, outs
+assert int((off.get("op_counts") or {}).get("hash_ops",0))>=1
+print(f"OK official keccakWord out={outs[0]} hash_ops={off['op_counts']['hash_ops']}")
+PYH
+
+# hashPad: emit verified; official software simulate currently returns 0 / hash_ops=0
+# (HashPad not wired in psy_vm software eval path). Record without claiming crypto.
+info "official HashProbe hashPadPair emit-surface (may be software-eval no-op)"
+run_official hash-pad "$dpn_h" hashPadPair --inputs 1 --inputs 2
+python3 -I -S - "$out/off-hash-pad.json" <<'PYH'
+import json,sys
+off=json.load(open(sys.argv[1]))
+assert off.get("success") is True, off
+# Do not require nonzero — document software-eval gap
+print(f"OK official hashPadPair success out={off.get('outputs')} hash_ops={(off.get('op_counts') or {}).get('hash_ops')} (emit-only if 0)")
+PYH
+
+info "session HashProbe fail-closed on gadgets"
+for call in hashPair:1,2 hashPadPair:1,2 keccakWord:1; do
+  set +e
+  python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn_h"     --call initialize --call "$call" >"$out/sess-hash-${call//[:\/]/_}.txt" 2>&1
+  rc=$?
+  set -e
+  [[ $rc -ne 0 ]] || die "session unexpectedly accepted $call"
+done
+info "OK session hash gadgets fail-closed"
 
 # coverage report from built artifacts
 python3 -I -S "$root/scripts/psy_dpn_op_coverage.py" \

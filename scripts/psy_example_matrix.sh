@@ -78,19 +78,30 @@ for entry in "${mods[@]}"; do
             && echo "  OK session void call" || { echo "  FAIL session"; fail=$((fail+1)); continue; }
           ;;
         HashProbe)
-          # build-only + official optional; session must fail-closed on op 21
           if command -v psy_user_cli >/dev/null 2>&1; then
-            psy_user_cli simulate --circuit-defs-path "$dpn" --method hashPair --inputs 1 --inputs 2 --format json \
-              >/tmp/psy-mat-hash-off.json 2>/tmp/psy-mat-hash-off.err \
-              && python3 -I -S -c "import json;t=open('/tmp/psy-mat-hash-off.json').read();i,j=t.find('{'),t.rfind('}');d=json.loads(t[i:j+1]);assert d['success'] and d['outputs']" \
-              && echo "  OK official hashPair" || { echo "  FAIL official hash"; fail=$((fail+1)); continue; }
+            okh=1
+            for spec in "hashPair:1 2" "hashCombine:1 0 0 0 2 0 0 0" "keccakWord:1"; do
+              m="${spec%%:*}"; args="${spec#*:}"
+              # shellcheck disable=SC2086
+              set -- $args
+              inargs=()
+              for a in "$@"; do inargs+=(--inputs "$a"); done
+              if ! psy_user_cli simulate --circuit-defs-path "$dpn" --method "$m" --format json \
+                  "${inargs[@]}" >/tmp/psy-mat-hash-$m.json 2>/tmp/psy-mat-hash-$m.err; then
+                okh=0; echo "  FAIL official $m"; break
+              fi
+              if ! python3 -I -S -c "import json;t=open('/tmp/psy-mat-hash-$m.json').read();i,j=t.find('{'),t.rfind('}');d=json.loads(t[i:j+1]);assert d.get('success') and int((d.get('outputs') or [0])[0])!=0"; then
+                okh=0; echo "  FAIL official $m nonzero"; break
+              fi
+            done
+            [[ $okh -eq 1 ]] && echo "  OK official hashNoPad/twoToOne/keccak" || { fail=$((fail+1)); continue; }
           else
             echo "  SKIP official hash (no psy_user_cli)"
           fi
           if python3 -I -S "$root/scripts/psy_dpn_session.py" --dpn "$dpn" --call initialize --call hashPair:1,2 >/tmp/psy-mat-hash-sess.txt 2>&1; then
-            echo "  FAIL session should reject hashNoPad"; fail=$((fail+1)); continue
+            echo "  FAIL session should reject hash gadgets"; fail=$((fail+1)); continue
           fi
-          rg -q 'hashNoPad|op 21|ADR-0039' /tmp/psy-mat-hash-sess.txt \
+          rg -q 'hashNoPad|op 21|ADR-0039|hash/merkle' /tmp/psy-mat-hash-sess.txt \
             && echo "  OK session hash fail-closed" || { echo "  FAIL session hash msg"; fail=$((fail+1)); continue; }
           ;;
       esac

@@ -255,6 +255,12 @@ inductive Expr where
   /-- ADR-0039: Poseidon `hashNoPad` over 1..8 Felt/UInt64 args.
       Product returns the first HashOut limb (official simulate scalar result). -/
   | hashNoPad (args : Array Expr)
+  /-- ADR-0039: Poseidon `hashPad` over 1..8 Felt/UInt64 args (first limb). -/
+  | hashPad (args : Array Expr)
+  /-- ADR-0039: Poseidon `hashTwoToOne` — exactly 8 Felt limbs (left||right HashOut). -/
+  | hashTwoToOne (args : Array Expr)
+  /-- ADR-0039: `keccak256` over 1..16 UInt64 words (first u32-limb as UInt64). -/
+  | keccak256 (args : Array Expr)
   /-- Target-internal exact limb arithmetic. Operands are range-bounded
       UInt32 Felt limbs/intermediates, so these raw Felt operations cannot wrap
       Goldilocks in the admitted UInt128 add/sub construction. -/
@@ -2155,26 +2161,50 @@ private partial def lowerRegion
         let comps := callee.components.toArray
         let qn := String.intercalate "." comps.toList
         match instr.result with
-        | some valueDef =>
+        | some valueDef => do
+            -- ADR-0039 crypto gadgets (value-producing; first limb product ABI).
+            let admitScalarResult : CompileResult Unit := do
+              match uintWidthOfType data valueDef.typeId with
+              | some 64 | none => pure ()
+              | some w =>
+                  if isNarrowUintWidth w || w == 128 || w == 256 then
+                    planError s!"unsupported Psy semantic shape: pf.crypto hash gadget result must be UInt64/Felt, got width {w}"
+                  else pure ()
             if qn == "pf.crypto.hashNoPad" then
               unless comps.size == 3 do
                 planError "unsupported Psy semantic shape: pf.crypto.hashNoPad callee must be exactly three components"
               unless args.size ≥ 1 && args.size ≤ 8 do
                 planError s!"unsupported Psy semantic shape: pf.crypto.hashNoPad arity must be 1..8, got {args.size}"
-              -- Result must be scalar UInt64 / Felt (first HashOut limb product ABI).
-              match uintWidthOfType data valueDef.typeId with
-              | some 64 | none => pure ()
-              | some w =>
-                  if isNarrowUintWidth w then
-                    planError s!"unsupported Psy semantic shape: pf.crypto.hashNoPad result must be UInt64/Felt, got UInt{w}"
-                  else if w == 128 || w == 256 then
-                    planError "unsupported Psy semantic shape: pf.crypto.hashNoPad does not return wide UInt"
-                  else pure ()
+              admitScalarResult
               let argExprs ← lookupArgs env args "hashNoPad" true
               env := envInsert env valueDef.valueId (.hashNoPad argExprs)
+            else if qn == "pf.crypto.hashPad" then
+              unless comps.size == 3 do
+                planError "unsupported Psy semantic shape: pf.crypto.hashPad callee must be exactly three components"
+              unless args.size ≥ 1 && args.size ≤ 8 do
+                planError s!"unsupported Psy semantic shape: pf.crypto.hashPad arity must be 1..8, got {args.size}"
+              admitScalarResult
+              let argExprs ← lookupArgs env args "hashPad" true
+              env := envInsert env valueDef.valueId (.hashPad argExprs)
+            else if qn == "pf.crypto.hashTwoToOne" then
+              unless comps.size == 3 do
+                planError "unsupported Psy semantic shape: pf.crypto.hashTwoToOne callee must be exactly three components"
+              unless args.size == 8 do
+                planError s!"unsupported Psy semantic shape: pf.crypto.hashTwoToOne requires exactly 8 limbs (left||right HashOut), got {args.size}"
+              admitScalarResult
+              let argExprs ← lookupArgs env args "hashTwoToOne" true
+              env := envInsert env valueDef.valueId (.hashTwoToOne argExprs)
+            else if qn == "pf.crypto.keccak256" then
+              unless comps.size == 3 do
+                planError "unsupported Psy semantic shape: pf.crypto.keccak256 callee must be exactly three components"
+              unless args.size ≥ 1 && args.size ≤ 16 do
+                planError s!"unsupported Psy semantic shape: pf.crypto.keccak256 arity must be 1..16 words, got {args.size}"
+              admitScalarResult
+              let argExprs ← lookupArgs env args "keccak256" true
+              env := envInsert env valueDef.valueId (.keccak256 argExprs)
             else
               planError
-                "unsupported Psy semantic shape: result-bearing external call is not admitted (no DPN response-binding / return-value ABI; PSY-CALL-EVENT FC). Admitted: pf.crypto.hashNoPad (ADR-0039)"
+                "unsupported Psy semantic shape: result-bearing external call is not admitted (no DPN response-binding / return-value ABI; PSY-CALL-EVENT FC). Admitted ADR-0039: pf.crypto.hashNoPad|hashPad|hashTwoToOne|keccak256"
         | none =>
             unless comps.size ≥ 2 do
               planError "unsupported Psy semantic shape: external callee must have at least two components"
@@ -2182,8 +2212,9 @@ private partial def lowerRegion
             -- sync invoke would falsely imply native value movement.
             if isPfAssetsCatalogQnV1 qn then
               planError s!"unsupported Psy semantic shape: {unboundCatalogDiagV1 qn}"
-            if qn == "pf.crypto.hashNoPad" then
-              planError "unsupported Psy semantic shape: pf.crypto.hashNoPad is value-producing (use in expression position, not void call)"
+            if qn == "pf.crypto.hashNoPad" || qn == "pf.crypto.hashPad"
+                || qn == "pf.crypto.hashTwoToOne" || qn == "pf.crypto.keccak256" then
+              planError s!"unsupported Psy semantic shape: {qn} is value-producing (use in expression position, not void call)"
             let argExprs ← lookupArgs env args "externalCall"
             ls := { ls with stmts := ls.stmts.push (.externalCall comps argExprs) }
     | .schedule _effectId callee args => do
