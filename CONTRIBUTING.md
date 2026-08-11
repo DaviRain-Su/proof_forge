@@ -15,40 +15,60 @@ no legacy `ProofForge.*` imports, and no v1 fallbacks.
 4. Keep maturity claims precise: source-only, plan-only, artifact-validated,
    runtime-validated, or release-qualified are different statements.
 
-## Local gates
+## Local gates (what to run — do **not** default to `just ci`)
+
+Hosted CI wall-clock is ~30 minutes with three heavy Lean jobs. Locally, match
+the change to the smallest command. **Prefer `test-fast` / `test-shard` /
+`docs-check` over `just ci`.**
+
+| You changed… | Run locally (typical) | Hosted CI lanes |
+|---|---|---|
+| `docs/**`, `*.md`, product markdown | `just docs-check` && `git diff --check` | `docs` only (heavy jobs skipped on PR) |
+| One Lean test area | `just test-shard core` (or `typed` / `language*` / `targets` / …) | path filter → relevant heavy jobs |
+| Daily product smoke | `just test-fast` or `just dev-check` | full on `main` push |
+| EVM/Solana/NEAR/Noir materialize tests | `just test-targets` | `target-smoke` |
+| Solana Mollusk / CPI runtime | `just solana-runtime` (slow) | `solana-runtime` |
+| Full ordinary-host gate | `just ci` (slow; last resort) | all heavy jobs |
 
 ```bash
-just dev-check          # fast daily product loop (docs + build + test-fast + gates)
+just docs-check         # docs control plane only (~seconds)
 just test-fast          # core product tests only (daily feedback)
-just test               # all memory-bounded shards (bounded parallel)
-just ci                 # full product tests on an ordinary host
-
-# Focused (after `just build` deps via the recipe):
-just test-shard core    # one shard: core|typed|language-b|…|targets
+just dev-check          # docs + build + test-fast + light gates
+just test-shard targets # one shard: core|typed|language*|aggregate|source*|targets
 just test-targets       # targets materialization suite only
+just test-nontarget     # nine non-target shards (CI lean-product half)
+just solana-runtime     # Mollusk differential (heavy; needs tool root + Rust)
+just test               # all shards, bounded parallel (still long)
+just ci                 # full product tests — avoid for routine local loops
 
-# Parallelism for `just test` shard *execution* (not lake build):
-# PROOF_FORGE_TEST_JOBS=1   # serial (low-memory CI)
+# Parallelism for shard *execution* (not lake build):
+# PROOF_FORGE_TEST_JOBS=1   # serial (low-memory)
 # PROOF_FORGE_TEST_JOBS=4   # default
-PROOF_FORGE_TEST_JOBS=2 just test
-
-# Lake module builds already parallelize (no lake -j on Lake 5).
-# PROOF_FORGE_GATE_JOBS=1 just run-deletion-gates   # serial deletion gates
+PROOF_FORGE_TEST_JOBS=6 just test-nontarget
 
 # Frontend worker is not on default build / test-fast / dev-check (in-process Loader).
-just build-frontend-worker   # only the worker exe
-just test-frontend-worker    # worker exe + WorkerV1 shard
+just build-frontend-worker
+just test-frontend-worker
 
 # Historical control-plane names are currently NOT registered in justfile:
 # just governance-check
 # just release-check
-# Do not claim governance/release execution until explicit recipes are restored.
 ```
 
-GitHub runs the lightweight `docs` lane and the product `source-core` lane
-(`just ci`). A green hosted CI does **not** mean hermetic or formal release
-evidence. Conversely, an ineligible release host must not block ordinary
-product development.
+### Hosted CI map (`.github/workflows/ci.yml`)
+
+| Job | What | Approx. wall (warm cache) |
+|---|---|---|
+| `docs` | `just docs-check` + whitespace | ~10s |
+| `lean-product` | nine non-target shards + `ci-lean-gates` | ~25–30 min |
+| `target-smoke` | serial targets shard + CLI smoke | ~25–30 min |
+| `solana-runtime` | `lake build` CLI + Mollusk | ~25–30 min |
+
+Jobs run **in parallel**; total wall ≈ slowest job. Path filter
+(`scripts/ci/detect_ci_paths.sh`) skips heavy jobs on docs/MCP/template-only
+PRs. **Pushes to `main` always run all heavy jobs.** `workflow_dispatch` also
+forces all lanes. A green hosted CI does **not** mean hermetic or formal
+release evidence.
 
 ## Style and docs
 

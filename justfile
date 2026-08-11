@@ -776,6 +776,10 @@ test-host-isolation: build
 docs-check:
     /usr/bin/python3 -I -S scripts/docs_check.py
 
+# CI path-filter self-test (no network / no lake). Used by hosted docs job.
+ci-path-detect-self-test:
+    bash scripts/ci/detect_ci_paths_self_test.sh
+
 # TASK-D0-08: re-pin the lean package file-set after any ProofForgeV2 source
 # change (the manifest is a committed TST-SBOM-002 input).
 sbom-package-files-refresh:

@@ -3,10 +3,16 @@ name: CI
 # ProofForge V2 portable CI (Linux).
 #
 # Required lanes for branch protection (BUILD-4 independent fail isolation):
-#   docs            - documentation control-plane check
+#   docs            - documentation control-plane check (always)
 #   lean-product    - nine non-target test shards, product-negative, deletion gates
 #   target-smoke    - serial target shard + target CLI positive/negative checks
 #   solana-runtime  - Mollusk runtime differential
+#
+# Path filter (scripts/ci/detect_ci_paths.sh):
+#   * push to main/master, workflow_dispatch → all heavy lanes
+#   * PR / feature push → skip heavy lanes when only docs/templates/MCP content
+#     changed; Solana-only paths can skip lean-product when safe, etc.
+#   * Filter is fail-closed: unknown paths still run lean-product.
 #
 # Manual audit lane:
 #   linux-tool-root - explicit toolchain lock/provision/materialize inspection.
@@ -26,6 +32,24 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    name: changes
+    runs-on: ubuntu-latest
+    outputs:
+      lean_product: ${{ steps.detect.outputs.lean_product }}
+      target_smoke: ${{ steps.detect.outputs.target_smoke }}
+      solana_runtime: ${{ steps.detect.outputs.solana_runtime }}
+      docs_only: ${{ steps.detect.outputs.docs_only }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Detect CI path classes
+        id: detect
+        run: bash scripts/ci/detect_ci_paths.sh
+
   docs:
     name: docs
     runs-on: ubuntu-latest
@@ -41,13 +65,19 @@ jobs:
       - name: Documentation control plane
         run: just docs-check
 
+      - name: CI path-filter self-test
+        run: just ci-path-detect-self-test
+
       - name: Whitespace / conflict markers
         run: git diff --check
 
   # Shared Lean/tool setup is duplicated across lean-product / target-smoke /
-  # solana-runtime so each job can fail independently (BUILD-4).
+  # solana-runtime so each job can fail independently (BUILD-4). Cache restore
+  # keys share the lake-v2 prefix so cold starts still hit sibling job artifacts.
   lean-product:
     name: lean-product
+    needs: changes
+    if: needs.changes.outputs.lean_product == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -92,8 +122,9 @@ jobs:
           path: |
             .lake/build
             .lake/packages
-          key: ${{ runner.os }}-lake-v2-lean-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}
+          key: ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-lean-product
           restore-keys: |
+            ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-
             ${{ runner.os }}-lake-v2-
 
       - name: Prune stale olean artifacts
@@ -109,6 +140,8 @@ jobs:
 
   target-smoke:
     name: target-smoke
+    needs: changes
+    if: needs.changes.outputs.target_smoke == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -145,8 +178,9 @@ jobs:
           path: |
             .lake/build
             .lake/packages
-          key: ${{ runner.os }}-lake-v2-target-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}
+          key: ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-target-smoke
           restore-keys: |
+            ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-
             ${{ runner.os }}-lake-v2-
 
       - name: Prune stale olean artifacts
@@ -162,8 +196,9 @@ jobs:
   # surface without waiting on Rust, and Solana failures do not hide Lean green.
   solana-runtime:
     name: solana-runtime
+    needs: changes
+    if: needs.changes.outputs.solana_runtime == 'true'
     runs-on: ubuntu-latest
-    needs: []
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
@@ -196,8 +231,9 @@ jobs:
           path: |
             .lake/build
             .lake/packages
-          key: ${{ runner.os }}-lake-v2-solana-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}
+          key: ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-solana-runtime
           restore-keys: |
+            ${{ runner.os }}-lake-v2-${{ hashFiles('lean-toolchain', 'lake-manifest.json', 'lakefile.lean') }}-
             ${{ runner.os }}-lake-v2-
 
       - name: Prune stale olean artifacts
