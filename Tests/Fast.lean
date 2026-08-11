@@ -110,6 +110,7 @@ import Tests.Materialization.SolanaProductSynthesizeV1
 
 import Tests.Materialization.Targets
 import Tests.Materialization.NearHostModel
+import Tests.Materialization.NearStaticAlignmentV1
 import Tests.Materialization.NoirRelationModel
 import Tests.Materialization.TargetRegistryV1
 import Tests.Materialization.RequirementResolverV1
@@ -252,5 +253,6 @@ unsafe def main : IO Unit := do
   -- full lifecycle models remain in the ordinary aggregate.
   Tests.Materialization.runSemanticPlanLeafFast
   Tests.Materialization.NearHostModel.runCheckedSubFast
+  Tests.Materialization.NearStaticAlignmentV1.run
   Tests.Materialization.NoirRelationModel.runCheckedSubFast
   IO.println "proof-forge-next-fast-tests: ok"

@@ -914,6 +914,27 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     operations
   }
 
+/-- Proposition-only graph of the production method lowering. This exposes no
+    second Plan→IR constructor: the right-hand side is the existing private
+    `lowerMethod`, and callers can only carry evidence about its exact result. -/
+def MethodIRLoweringV1 (plan : Plan) (keys : Array KeyRegion)
+    (method : Method) (methodIR : MethodIR) : Prop :=
+  methodIR = lowerMethod plan keys method
+
+/-- The production method lowering graph is inhabited for every input. -/
+theorem methodIRLoweringV1_exists (plan : Plan) (keys : Array KeyRegion)
+    (method : Method) :
+    ∃ methodIR, MethodIRLoweringV1 plan keys method methodIR :=
+  ⟨lowerMethod plan keys method, rfl⟩
+
+/-- The proposition-only lowering graph determines one exact recipe. -/
+theorem methodIRLoweringV1_unique (plan : Plan) (keys : Array KeyRegion)
+    (method : Method) (left right : MethodIR)
+    (hleft : MethodIRLoweringV1 plan keys method left)
+    (hright : MethodIRLoweringV1 plan keys method right) :
+    left = right := by
+  exact hleft.trans hright.symm
+
 private def lowerFn (keys : Array KeyRegion) (fn : FnBinding) : FnIR :=
   let paramCount := fn.params.size
   -- Temps `0..paramCount-1` are the Wasm parameters; body lowering starts after.

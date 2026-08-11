@@ -6,6 +6,7 @@ import ProofForgeV2.Targets.Near.LowerSemanticV1
 import ProofForgeV2.Targets.Near.ValidatePlanV1
 import ProofForgeV2.Targets.Near.PlanSchemaV1
 import ProofForgeV2.Targets.Near.EmitIRV1
+import ProofForgeV2.Targets.Near.StaticAlignmentV1
 
 /-!
 # ProofForgeV2.Targets.Near — public façade

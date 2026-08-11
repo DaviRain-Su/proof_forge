@@ -951,14 +951,14 @@
       "sha256": "92f86077650a44b0fbf122a483d8647f29e74360ffc50f9b0da1576ac19e1ea0"
     },
     {
-      "bytes": 1383,
+      "bytes": 1434,
       "path": "ProofForgeV2/Targets/Near.lean",
-      "sha256": "325f6b698bb97bb840c88ee9ff7fbb5db16755b35c63d9dfccb680da5f536ee5"
+      "sha256": "e5765136437b5d4800783b5445c95f3c5bd09c370f0a3eb2827ff9665c92e7c6"
     },
     {
-      "bytes": 125711,
+      "bytes": 126749,
       "path": "ProofForgeV2/Targets/Near/EmitIRV1.lean",
-      "sha256": "06d96a16678b7ea7f8f3959582bf64d3da893f14377557f768bdf87561da9764"
+      "sha256": "ac3f56fadf9d9c82749f2e1e90234e063f539afedf49615d7d3fd2cdd22c5c6f"
     },
     {
       "bytes": 2931,
@@ -979,6 +979,11 @@
       "bytes": 19174,
       "path": "ProofForgeV2/Targets/Near/PlanSchemaV1.lean",
       "sha256": "86214dc8f0841e75707781ccee89ce6675cb918f57194e3283c3865c608365ab"
+    },
+    {
+      "bytes": 8529,
+      "path": "ProofForgeV2/Targets/Near/StaticAlignmentV1.lean",
+      "sha256": "97dfe2eb313cb42e8825879697f77c076bb0939c27fc2884eb36f9349b75198f"
     },
     {
       "bytes": 36145,

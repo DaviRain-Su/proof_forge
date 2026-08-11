@@ -144,6 +144,7 @@ import Tests.Materialization.EvmSmoke
 import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.NearWasmAcceptance
 import Tests.Materialization.NearHostModel
+import Tests.Materialization.NearStaticAlignmentV1
 
 import Tests.Materialization.NoirRelationModel
 import Tests.Materialization.SolanaPlanV1
@@ -234,6 +235,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Materialization.EvmSolcAcceptance.run
   Tests.Materialization.NearWasmAcceptance.run
   Tests.Materialization.NearHostModel.run
+  Tests.Materialization.NearStaticAlignmentV1.run
   Tests.Materialization.NoirRelationModel.run
   Tests.Materialization.SolanaPlanV1.run
   Tests.Materialization.SolanaCpiPlanV1.run

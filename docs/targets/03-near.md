@@ -47,6 +47,17 @@ Phase 1：实现
   suite 已直接观察 reserves/shares 两个 KV slots 相等、Unit withdraw、overflow/guard failure
   rollback 与 erased `solvent` 的 `MethodNotFound`。当前可声明
   **Reference-verified + NEAR engineering runtime observed**，但这不是 formal target refinement。
+- **VerifiedVault `status` static alignment foundation（Phase 7 首切）**：
+  `StaticAlignmentV1` 新增 passive storage/call observation carrier，以及 public UInt64 semantic
+  state ↔ initialized marker/physical KV/8-byte LE value、nullary empty-input ABI、successful
+  returned observation与 failure/no-commit observation 的 proposition-only relation；独立构造的
+  candidate `stateLoad; return` Method/MethodIR shape满足 exact relation并拒绝追加 store，但尚未
+  连接 materialized VerifiedVault Plan、canonical key regions 或 emitted IR。production private
+  `lowerMethod` 对 supplied raw inputs 仅以 `MethodIRLoweringV1` 命题图开放
+  existence/uniqueness seam，不存在第二个 lowering。
+  exact VerifiedVault subject 测试复用 production state codec 与 Reference view-stutter theorem。
+  该切片不执行 `Operation`，也未证明 concrete Plan graph、IR/Wasm execution 或 simulation，
+  因而只是 static alignment/refinement foundation，不改变上述 assurance 声明。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -103,7 +114,9 @@ Phase 1：实现
 
 **明确未闭合**：near-sandbox 门不是 Reference↔Wasm/sandbox formal 差分；VerifiedVaultPF
 exact slots、Unit withdraw、overflow/guard rollback 与 missing-export corpus 已形成 engineering
-runtime observation，但没有 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
+runtime observation；`StaticAlignmentV1` 也只有 passive relation、exact status recipe 与 production
+lowering graph seam，尚无 concrete Plan graph proof或 target transition。当前仍没有
+Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
 覆盖 corrupt storage、bad input 或 gas/profile；Option
 params、非 UInt64/nested Option、Map/Bytes/nested aggregate
 return 仍 fail-closed；ContextRead 已开放 `unixTimeSeconds`、view-safe `blockHeight` 与

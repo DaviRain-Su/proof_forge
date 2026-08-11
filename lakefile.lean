@@ -247,6 +247,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.CosmWasmPlanV1,
     `Tests.Materialization.TonPlanV1,
     `Tests.Materialization.NearHostModel,
+    `Tests.Materialization.NearStaticAlignmentV1,
     `Tests.Materialization.NoirRelationModel,
     `Tests.Materialization.NoirCompileAcceptance,
     `Tests.Materialization.NoirAcirV1,
