@@ -118,7 +118,7 @@ Wave 1  D1 ProgramV1 CLI source path + DiagnosticV1 product cutover
         现 sole 产品源路径 = 进程内 selectProgramV1ProductWithTheoremInventory +
         certifyInlineProofV1（ProofBundle 产品 flag 已删）
   → Wave 2  [done] freeze S1 Semantic + EVM/Solana/NEAR/Noir V1 Plan leaf + single carrier
-           → [current] expand sole Normalize/Reference/target beyond S1
+           → engineering expansion beyond S1
              （多宽/控制流/fn/for/call/部分聚合已接线；完整语言面未闭合；inline proof wiring
               + simple-closure/ordinal-0 kernel cert + literal-true/public-Bool-view same-file
               ordinary theorem product check positive 已完成 engineering 验证；formal/target
@@ -137,11 +137,14 @@ materialize）→ capability Plan/publish。历史上的 B9–B12 监督层与 s
 `Frontend/ProtocolV1` 与 `WorkerV1` 不是产品 CLI 源权威。D1-04 shared IntegerLiteral 与
 ProgramV1 command/export/v2 仍为 sole 源表面。
 
-**当前 wave = Wave 2 / D2 扩面**：九个 materializer Plan body 已直连 retained `SemanticProgramV1`；
-`CompiledSemanticV1` + `ProgramRequirementsV1` sole freeze + engineering resolver/capability
-已接线；alpha Core 与产品 consumer 已删。sole Normalize 已超出最初 StateCell-like S1（多宽 UInt/Int、
-比较/assert、if/match、revert/emit、fn、let/for、shift/bitwise、call/schedule、部分聚合/Field 等），
-完整 ProgramV1→Semantic 表面与 Reference 全 op 仍未闭合。**不是** D4–D7 formal 完成。
+**当前执行指针 = EVM-first lighthouse engineering drain through LH-12（Sem002/003 OutcomeWire corpus pin）**：
+产品路径仍为进程内单次 read → `Loader` → `Normalize` → `compile` → `certifyInlineProofV1`
+→ capability；九个 materializer Plan body 已直连 retained `SemanticProgramV1`，`CompiledSemanticV1`
++ `ProgramRequirementsV1` sole freeze + engineering resolver/capability 已接线。LH-1…9
+engineering packaging/corpus pin 已完成，LH-10/11 已完成测试，LH-12 控制面诚实化已完成；
+完整 ProgramV1→Semantic 表面与 Reference 全 op 仍未闭合。formal D1–D4 仍为 0/27；
+C-3 / Anvil↛OutcomeWire lossless 仍 blocked/fail closed；ADR-0036 仍 proposed。
+**不是** D4–D7 formal 完成。
 
 并发规则：`main` 是唯一集成权威。允许从 exact clean `main` 创建临时隔离 worktree 推进接口已冻结、文件 allowlist 完全不重叠的 leaf lanes；worker 不编辑 `AGENTS.md`、`RECOVERY.md`、`MIGRATION_MATRIX.md`、实现日志、umbrella、suite注册、`lakefile.lean`、justfile或SBOM pin。主代理只读审查并串行集成，聚合门禁通过后立即删除临时 worktree/branch。shared-core cutover、文档、package pin与提交始终串行。
 

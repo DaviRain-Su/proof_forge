@@ -459,9 +459,9 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
        · LH-5：OwnableLike OutcomeWire mint（caller + assertionFailed；`sidecars=28`）
        · LH-6：`Tests.Semantic.Sem002ShapeV1` Counter reference-trace *shape* pin
        · LH-7：`Tests.Semantic.Sem003ShapeV1` overflow/revert/assert rollback *shape* pin
-     · **LH-8 engineering done**：Sem003 fault + response-precedence OutcomeWire pin
+     · **LH-8 engineering done**（`ee14a0788`）：Sem003 fault + response-precedence OutcomeWire pin
        （`Tests/Semantic/Sem003ShapeV1.lean`）；**不**关闭 TST-SEM-003
-     · **LH-9 engineering done**：Sem002 external-response returned/reverted +
+     · **LH-9 engineering done**（`3dedfea2a`）：Sem002 external-response returned/reverted +
        context extra/dup pin（`Tests/Semantic/Sem002ShapeV1.lean`）；**不**关闭 TST-SEM-002
      · **LH-10 engineering done**（`ee14a0788`）：Sem003 剩余 standard revert codes
        （invalidShift / castOutOfRange / indexOutOfBounds / uninitialized / alreadyInitialized）
@@ -469,9 +469,9 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
      · **LH-11 engineering done**（`7cdca0e85`）：Sem002 wrong kind / wrong arg type /
        response duplicate+reordered / noncanonical arg bytes pin
        （`Tests/Semantic/Sem002ShapeV1.lean`）；**不**关闭 TST-SEM-002
-     · **LH-12 pending**：`AGENTS.md` 控制面诚实化（Current/Next 与 lighthouse 指针对齐；
-       不代签 formal）
-     ——仍非 formal；Anvil ↛ OutcomeWire lossless 保持 fail-closed；**C-3 仍 blocked**
+     · **LH-12 engineering done**（`f48a90f79`）：`AGENTS.md` 控制面诚实化（Current/Next 与
+       lighthouse / `.grok/next-wave-queue.md` 指针对齐；不代签 formal）；**不**关闭 formal TASK/TST
+     ——仍非 formal；LH-1…12 engineering-done；Anvil ↛ OutcomeWire lossless 保持 fail-closed；**C-3 仍 blocked**
    - 然后 identity-bound Reference↔Anvil formal differential（**C-3 仍 blocked**；
      engineering identity/projection 已落地，formal 轨道仍 pending；Anvil lossless FC）
    - 不得用其他 target 或业务合约 engineering positives 代签
@@ -548,6 +548,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **EVM formal lighthouse LH-8/LH-9 engineering done + 登记 LH-10…12**：LH-8（Sem003 fault + response-precedence）与 LH-9（Sem002 external-response returned/reverted + context extra/dup）标 **engineering done**（reviewer P1 已修：Sem003 top-level main 删除；`lake build proof_forge_next_fast_tests` exit 0）；**不**关闭 TST-SEM-002/003。新增 **LH-10 pending**（Sem003 剩余 standard revert codes：invalidShift/castOutOfRange/indexOutOfBounds/uninitialized/alreadyInitialized）、**LH-11 pending**（Sem002 wrong kind / wrong arg type / response duplicate+reordered / noncanonical arg bytes）、**LH-12 pending**（`AGENTS.md` 控制面诚实化）。C-3 / Anvil lossless 仍 blocked/FC。**不**声称 formal 完成 |
 | 2026-08-13 | **EVM formal lighthouse LH-10 engineering done**：Sem003 剩余 standard revert codes（invalidShift/castOutOfRange/indexOutOfBounds/uninitialized/alreadyInitialized）OutcomeWire pin（`ee14a0788`；focused Sem003 run 通过）；**不**关闭 TST-SEM-003。C-3 / Anvil lossless 仍 blocked/FC |
 | 2026-08-13 | **EVM formal lighthouse LH-11 engineering done**：Sem002 wrong kind / wrong arg type / response duplicate+reordered / noncanonical arg bytes OutcomeWire pin（`7cdca0e85`；focused Sem002 run 通过）；**不**关闭 TST-SEM-002。C-3 / Anvil lossless 仍 blocked/FC |
+| 2026-08-13 | **EVM formal lighthouse LH-12 engineering done（LH-14 backlog 对齐）**：`AGENTS.md` 控制面诚实化与 `.grok/next-wave-queue.md` / commit `f48a90f79` 对齐；同节复核 LH-8=`ee14a0788`、LH-9=`3dedfea2a`、LH-10=`ee14a0788`、LH-11=`7cdca0e85`。LH-1…12 engineering-done；**不**关闭 TST-SEM-002/003 或 formal TASK；C-3 / Anvil lossless 仍 blocked/FC |
 
 ---
 

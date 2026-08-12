@@ -35,9 +35,11 @@ Engineering packaging toward TASK-D2-07 / TST-SEM-002/003 / C-3.
 | LH-10 | done | Remaining standard revert codes via public `step` + OutcomeWire; allowlist only `Tests/Semantic/Sem003ShapeV1.lean`. Focused `#eval run` ok. **Not** formal TST-SEM-003 |
 | LH-11 | done | Sem002 negatives: wrong kind / wrong arg type / response duplicate+reordered / noncanonical arg bytes; allowlist only `Tests/Semantic/Sem002ShapeV1.lean`. Focused `#eval run` ok. **Not** formal TST-SEM-002 |
 | LH-12 | done | AGENTS.md honesty only; formal TASK/TST status unchanged |
+| LH-13 | pending | Sem003 trap + unconsumed response → unique invalidExternalResponse; allowlist only `Tests/Semantic/Sem003ShapeV1.lean` |
+| LH-14 | done | backlog: mark LH-12 engineering done to match queue/`f48a90f79` |
+| LH-15 | done | RECOVERY.md current-wave pointer: lighthouse drain through LH-12, formal still 0/27 |
 
-Track A packaging LH-1…9 is **engineering-done**. LH-10 and LH-11 may run in parallel on distinct files. LH-12 is docs-only on `AGENTS.md`.
-This is engineering corpus-completeness continuation only. Formal closeout remains **excluded**; C-3 stays `formal-blocked`.
+Track A LH-1…12 is **engineering-done**. LH-13/14/15 are file-isolated and may run in parallel. Formal closeout remains **excluded**; C-3 stays `formal-blocked`.
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 
