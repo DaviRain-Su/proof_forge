@@ -88,6 +88,142 @@ def nullaryUInt64ViewWATV1
     loadUInt64StateWATV1 registers memory 0 field ++
     returnUInt64WATV1 memory 0
 
+/-- Fail-closed static errors for the bounded typed-WAT subset. This validates
+    renderability and the local/key/memory envelope owned by this syntax; it is
+    not a validator for arbitrary textual WAT or Wasm modules. -/
+inductive ReadOnlyWATValidationErrorV1 where
+  | i64ConstantOutOfRange
+  | localOutOfBounds
+  | keyRegionNotBound
+  | memoryOutOfBounds
+  | unsupportedReturnWidth
+  deriving BEq, Repr
+
+private def validateReadOnlyWATMemoryAccessV1
+    (memory : MemoryLayout)
+    (offset : Nat) : Except ReadOnlyWATValidationErrorV1 Unit :=
+  if offset + 8 ≤ memory.minPages * wasmPageBytes then .ok ()
+  else .error .memoryOutOfBounds
+
+/-- Exact fieldwise equality for proof-relevant production data regions. -/
+def readOnlyWATKeyRegionEqV1 (left right : KeyRegion) : Bool :=
+  left.key == right.key && left.offset == right.offset &&
+    left.length == right.length
+
+/-- An exact production key-table lookup is sufficient for the bounded
+    validator's region-membership check. -/
+theorem readOnlyWATKeyRegionBoundV1_of_getElem?_eq_some
+    (keys : Array KeyRegion)
+    (index : Nat)
+    (region : KeyRegion)
+    (hlookup : keys[index]? = some region) :
+    keys.any (fun candidate => readOnlyWATKeyRegionEqV1 candidate region) =
+      true := by
+  rw [Array.getElem?_eq_some_iff] at hlookup
+  obtain ⟨hindex, hregion⟩ := hlookup
+  rw [Array.any_eq_true]
+  refine ⟨index, hindex, ?_⟩
+  rw [hregion]
+  simp [readOnlyWATKeyRegionEqV1]
+
+/-- Validate one typed i64 expression against the selected method locals,
+    production key table, and bounded memory layout. -/
+def validateReadOnlyWATI64ExprV1
+    (keys : Array KeyRegion)
+    (memory : MemoryLayout)
+    (localCount : Nat) :
+    ReadOnlyWATI64ExprV1 → Except ReadOnlyWATValidationErrorV1 Unit
+  | .i64Const value =>
+      if value < UInt64.size then .ok ()
+      else .error .i64ConstantOutOfRange
+  | .localGet index =>
+      if index < localCount then .ok ()
+      else .error .localOutOfBounds
+  | .i64Load offset => validateReadOnlyWATMemoryAccessV1 memory offset
+  | .registerLen _ => .ok ()
+  | .storageRead field _ =>
+      if keys.any fun candidate => readOnlyWATKeyRegionEqV1 candidate field then
+        .ok ()
+      else .error .keyRegionNotBound
+
+/-- Validate one instruction in the bounded typed-WAT subset. Host-call
+    signatures are already fixed by the constructors; this checks their
+    embedded expressions, local indices, 8-byte scratch accesses, key-region
+    binding, and the execution subset's exact return width. -/
+def validateReadOnlyWATInstructionV1
+    (keys : Array KeyRegion)
+    (memory : MemoryLayout)
+    (localCount : Nat) :
+    ReadOnlyWATInstructionV1 → Except ReadOnlyWATValidationErrorV1 Unit
+  | .input _ => .ok ()
+  | .trapIfI64Ne left right => do
+      validateReadOnlyWATI64ExprV1 keys memory localCount left
+      validateReadOnlyWATI64ExprV1 keys memory localCount right
+  | .readRegister _ offset => validateReadOnlyWATMemoryAccessV1 memory offset
+  | .localSet index value => do
+      if index < localCount then pure ()
+      else throw .localOutOfBounds
+      validateReadOnlyWATI64ExprV1 keys memory localCount value
+  | .i64Store offset value => do
+      validateReadOnlyWATMemoryAccessV1 memory offset
+      validateReadOnlyWATI64ExprV1 keys memory localCount value
+  | .valueReturn byteLen offset => do
+      if byteLen = 8 then pure ()
+      else throw .unsupportedReturnWidth
+      validateReadOnlyWATMemoryAccessV1 memory offset
+
+/-- Source-order validator for a bounded typed-WAT instruction list. -/
+def validateReadOnlyWATInstructionsListV1
+    (keys : Array KeyRegion)
+    (memory : MemoryLayout)
+    (localCount : Nat) :
+    List ReadOnlyWATInstructionV1 → Except ReadOnlyWATValidationErrorV1 Unit
+  | [] => .ok ()
+  | instruction :: remaining => do
+      validateReadOnlyWATInstructionV1 keys memory localCount instruction
+      validateReadOnlyWATInstructionsListV1 keys memory localCount remaining
+
+/-- Public validator for one method body represented by the bounded typed-WAT
+    syntax. -/
+def validateReadOnlyWATMethodV1
+    (keys : Array KeyRegion)
+    (memory : MemoryLayout)
+    (localCount : Nat)
+    (instructions : Array ReadOnlyWATInstructionV1) :
+    Except ReadOnlyWATValidationErrorV1 Unit :=
+  validateReadOnlyWATInstructionsListV1 keys memory localCount
+    instructions.toList
+
+/-- The exact nullary UInt64 view recipe validates whenever both data-segment
+    regions are bound to the selected production key table and its single
+    scratch block fits the declared memory. -/
+theorem validateReadOnlyWATMethodV1_nullaryUInt64View
+    (keys : Array KeyRegion)
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field : KeyRegion)
+    (markerValue : UInt64)
+    (hmarker :
+      keys.any (fun candidate => readOnlyWATKeyRegionEqV1 candidate marker) =
+        true)
+    (hfield :
+      keys.any (fun candidate => readOnlyWATKeyRegionEqV1 candidate field) =
+        true)
+    (hmemory :
+      memory.valueOffset + 8 ≤ memory.minPages * wasmPageBytes) :
+    validateReadOnlyWATMethodV1 keys memory 1
+      (nullaryUInt64ViewWATV1 registers memory marker markerValue field) =
+        .ok () := by
+  have hone : (1 : Nat) < UInt64.size := by decide
+  have height : (8 : Nat) < UInt64.size := by decide
+  simp [validateReadOnlyWATMethodV1, nullaryUInt64ViewWATV1,
+    checkEmptyInputWATV1, requireLayoutWATV1, loadUInt64StateWATV1,
+    returnUInt64WATV1, validateReadOnlyWATInstructionsListV1,
+    validateReadOnlyWATInstructionV1, validateReadOnlyWATI64ExprV1,
+    validateReadOnlyWATMemoryAccessV1, hmarker, hfield, hmemory,
+    markerValue.toNat_lt, hone, height, Bind.bind, Except.bind, Pure.pure,
+    Except.pure]
+
 /-- Sole text renderer for the bounded typed i64 expression syntax. -/
 def renderReadOnlyWATI64ExprV1 : ReadOnlyWATI64ExprV1 → String
   | .i64Const value => s!"(i64.const {value})"

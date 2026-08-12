@@ -956,9 +956,9 @@
       "sha256": "eefa5223502e18d253b043f3b46f6c69230968ce79bff34fe312e0cf4fe6e06e"
     },
     {
-      "bytes": 12088,
+      "bytes": 14076,
       "path": "ProofForgeV2/Targets/Near.lean",
-      "sha256": "80098f5cb3685f42229a2266ce620193136d5a77beb96d6fe588c446250b3a49"
+      "sha256": "b4acd23772844478f9f466aab8b60e225bc92d2e6d066cba3eb0b670e6e22bd1"
     },
     {
       "bytes": 162625,
@@ -991,9 +991,9 @@
       "sha256": "e80ffac5847b1b2fe290d800897139fce29aa4937b8a0c6c914eb9967686a04c"
     },
     {
-      "bytes": 5663,
+      "bytes": 11361,
       "path": "ProofForgeV2/Targets/Near/ReadOnlyWATV1.lean",
-      "sha256": "13a2b9f645c0a9e6c0c2dacfc84245f34b60271b34a1f26a17a4c9f139cb1cdc"
+      "sha256": "585dcab35c6909c569ea0ffd1144f449cc98648908d20b5ec8a7cd71c27ee1af"
     },
     {
       "bytes": 20079,

@@ -1038,6 +1038,19 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                                               hmarkerCanonical.2 rfl
                                               hfieldCanonical hrecognizedMethod
                                               hrecognizedMethodIR
+                                          let memoryBoundWithProof : IO {
+                                              token : Unit //
+                                                ir.memory.valueOffset + 8 ≤
+                                                  ir.memory.minPages * wasmPageBytes
+                                            } :=
+                                            if hmemory :
+                                                ir.memory.valueOffset + 8 ≤
+                                                  ir.memory.minPages * wasmPageBytes then
+                                              pure ⟨(), hmemory⟩
+                                            else
+                                              throw <| IO.userError
+                                                "VerifiedVaultPF production value scratch exceeds declared memory"
+                                          let ⟨_, hmemory⟩ ← memoryBoundWithProof
                                           have _ :
                                               ∃ watMethodText abiMethodText,
                                                 CapabilityEntryStaticEmissionV1
@@ -1051,7 +1064,13 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                                                   (nullaryUInt64ViewWATV1 ir.registers
                                                     ir.memory alignedMarkerRegion
                                                     plan.storage.markerValue
-                                                    alignedReservesRegion) := by
+                                                    alignedReservesRegion) ∧
+                                                validateReadOnlyWATMethodV1 ir.keys ir.memory
+                                                    statusIR.tempCount
+                                                    (nullaryUInt64ViewWATV1 ir.registers
+                                                      ir.memory alignedMarkerRegion
+                                                      plan.storage.markerValue
+                                                      alignedReservesRegion) = .ok () := by
                                             obtain ⟨watMethodText, abiMethodText,
                                                 hstatusCapabilityChain⟩ :=
                                               capabilityEntryStaticEmissionV1_of_graphs
@@ -1078,12 +1097,21 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                                                   ir.registers ir.memory
                                                   alignedMarkerRegion alignedReservesRegion
                                                   plan.storage.markerValue
+                                            have hstatusTypedValidation :=
+                                              capabilityEntryStaticEmissionV1_validateReadOnlyWATMethodV1
+                                                capability semantic semanticData plan ir
+                                                baseFiles 2 statusBinding "status"
+                                                statusMethod alignedMarkerRegion
+                                                alignedReservesRegion statusIR watFile
+                                                abiFile watMethodText abiMethodText
+                                                hstatusCapabilityChain hmemory
                                             exact ⟨watMethodText, abiMethodText,
                                               hstatusCapabilityChain,
                                               readOnlyMethodWATEmissionV1_of_methodWATEmissionV1
                                                 ir 3 statusIR watFile.contents watMethodText _
                                                 hstatusCapabilityChain.baseEmission.watMethodEmission
-                                                hstatusTypedLowering⟩
+                                                hstatusTypedLowering,
+                                              hstatusTypedValidation⟩
                                           have _ :
                                               ∀ watMethodText abiMethodText,
                                                 ¬ CapabilityEntryStaticEmissionV1

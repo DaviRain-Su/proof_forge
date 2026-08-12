@@ -409,6 +409,54 @@ example :
   statusTypedWATLowering
 
 example :
+    validateReadOnlyWATMethodV1 #[markerRegion, reservesRegion] statusMemory 1
+      statusTypedWAT = .ok () := by
+  exact validateReadOnlyWATMethodV1_nullaryUInt64View
+    #[markerRegion, reservesRegion] canonicalRegisters statusMemory markerRegion
+      reservesRegion storage.markerValue
+        (by simp [readOnlyWATKeyRegionEqV1])
+        (by simp [readOnlyWATKeyRegionEqV1]) (by decide)
+
+example :
+    validateReadOnlyWATMethodV1 #[] statusMemory 1
+      #[.localSet 1 (.i64Const 0)] = .error .localOutOfBounds := by
+  rfl
+
+example :
+    validateReadOnlyWATMethodV1 #[] statusMemory 1
+      #[.localSet 0 (.localGet 1)] = .error .localOutOfBounds := by
+  rfl
+
+example :
+    validateReadOnlyWATMethodV1 #[markerRegion, reservesRegion] statusMemory 1
+      #[.trapIfI64Ne
+        (.storageRead { key := "unbound", offset := 0, length := 7 }
+          canonicalRegisters.storage)
+        (.i64Const 1)] = .error .keyRegionNotBound := by
+  simp [validateReadOnlyWATMethodV1, validateReadOnlyWATInstructionsListV1,
+    validateReadOnlyWATInstructionV1, validateReadOnlyWATI64ExprV1,
+    readOnlyWATKeyRegionEqV1, markerRegion, reservesRegion, reservesKey,
+    layoutMarkerKey, Bind.bind, Except.bind]
+
+example :
+    validateReadOnlyWATMethodV1 #[] { statusMemory with minPages := 0 } 1
+      #[.i64Store 0 (.i64Const 0)] =
+        .error .memoryOutOfBounds := by
+  rfl
+
+example :
+    validateReadOnlyWATMethodV1 #[] statusMemory 1
+      #[.valueReturn 4 statusMemory.valueOffset] =
+        .error .unsupportedReturnWidth := by
+  rfl
+
+example :
+    validateReadOnlyWATMethodV1 #[] statusMemory 1
+      #[.trapIfI64Ne (.i64Const UInt64.size) (.i64Const 0)] =
+        .error .i64ConstantOutOfRange := by
+  rfl
+
+example :
     executeReadOnlyWATV1 1 statusTypedWAT ByteArray.empty observedStorage =
       .returned (some tenBytes) :=
   statusTypedWATExecution

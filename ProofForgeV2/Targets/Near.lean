@@ -163,6 +163,48 @@ theorem capabilityEntryStaticEmissionV1_of_graphs
     baseEmission := hbase
   }⟩
 
+/-- The bounded typed-WAT fragment selected by a production capability chain
+    passes its own static validator when the production scratch block is in
+    bounds. The validator checks only this typed subset's locals, exact key
+    annotations, memory accesses, constants, and return width; it is not a
+    textual WAT or general Wasm validation theorem. -/
+theorem capabilityEntryStaticEmissionV1_validateReadOnlyWATMethodV1
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (binding : UInt64StateBindingV1)
+    (viewName : String)
+    (method : Method)
+    (markerRegion fieldRegion : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (hchain :
+      CapabilityEntryStaticEmissionV1 capability program data plan ir files
+        entryIndex binding viewName method markerRegion fieldRegion methodIR
+          watFile abiFile watMethodText abiMethodText)
+    (hmemory :
+      ir.memory.valueOffset + 8 ≤
+        ir.memory.minPages * wasmPageBytes) :
+    validateReadOnlyWATMethodV1 ir.keys ir.memory methodIR.tempCount
+      (nullaryUInt64ViewWATV1 ir.registers ir.memory markerRegion
+        plan.storage.markerValue fieldRegion) = .ok () := by
+  rcases hchain.staticAlignment with
+    ⟨_, _, hmarkerLookup, hfieldLookup, _, halignment⟩
+  rcases halignment with ⟨_, _, _, _, _, _, hmethodIR⟩
+  rw [hmethodIR]
+  exact validateReadOnlyWATMethodV1_nullaryUInt64View ir.keys ir.registers
+    ir.memory markerRegion fieldRegion plan.storage.markerValue
+      (readOnlyWATKeyRegionBoundV1_of_getElem?_eq_some ir.keys 0 markerRegion
+        hmarkerLookup)
+      (readOnlyWATKeyRegionBoundV1_of_getElem?_eq_some ir.keys
+        (binding.physicalFieldIndex + 1) fieldRegion hfieldLookup)
+      hmemory
+
 /-- A capability-scoped production entry executes in the first target recipe
     semantics whenever its logical/KV representation relation holds. This
     theorem connects the exact production Plan/IR/build chain to target

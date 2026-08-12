@@ -15141,3 +15141,19 @@ normative: false
 - 验收：`just test-fast`、targets-evm shard、`just evm-corpus-schema` /
   `just evm-corpus-static`、`just docs-check`、SBOM pin 全绿。**不**关闭
   formal TASK-D2-07 / TST-SEM-002/003 / C-3。
+
+## 2026-08-12 — Phase 7 NEAR bounded typed-WAT static validator
+
+- `ReadOnlyWATV1` 在既有 typed syntax上新增 **bounded typed-WAT static validator**，fail closed检查
+  i64 constant小于 `UInt64.size`、expression/destination local index小于 `tempCount`、proof-relevant
+  `KeyRegion` 的 key/offset/length完整匹配 production key table、8-byte scratch memory access位于
+  declared pages内，以及 `valueReturn` width恰为 8。host-call arity继续由 typed constructor封闭。
+- exact nullary UInt64 view theorem从两个 production key lookups与 scratch bound推出完整 typed
+  sequence验证成功；public capability façade把它接到既有 static alignment与同一次 production
+  WAT/ABI emission chain。真实 VerifiedVault certifier witness同时固定 typed emission relation与
+  validator `.ok ()`；materialization fixture覆盖 destination/expression local越界、unbound region、
+  memory越界、错误 return width与 i64 constant越界。
+- 该 validator不解析 textual WAT、不验证一般 Wasm module，也不建立 text→typed identity、locked
+  `wat2wasm` correctness、Wasm binary execution或完整 NEAR host simulation。它没有新增 DSL
+  State/Effect/evaluator/step；准确边界仍是 **bounded typed-WAT-refined slice**，整体 assurance仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

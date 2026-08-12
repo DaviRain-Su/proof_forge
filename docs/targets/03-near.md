@@ -217,7 +217,12 @@ Phase 1：实现
   typed-WAT-derived observation 的 returned relation。fixture固定 exact lowering/execution/observation、
   non-empty input trap、missing field/register trap、forged MethodIR suffix lowering拒绝。该语义把 scratch memory建模为
   recipe触及 offset 上的 exact byte block，`storageRead` 的 `KeyRegion` 是 production data-segment
-  proof annotation；尚未建模 arbitrary overlapping linear memory或完整 host ABI。因此本切只能称
+  proof annotation。`ReadOnlyWATV1` 另有 **bounded typed-WAT static validator**：它在该 syntax
+  边界 fail closed 检查 i64 constant范围、local index、完整 `KeyRegion` 对 production key table 的
+  exact binding、scratch memory access及 8-byte return width；production capability chain theorem与
+  真实 VerifiedVault `status` certifier fixture均证明 exact typed sequence通过该 validator，越界
+  local/constant/memory、unbound region与错误 return width均有负例。它仍未建模 arbitrary
+  overlapping linear memory或完整 host ABI。因此本切只能称
   **bounded typed-WAT-refined slice**，不能称 textual WAT、Wasm binary或 NEAR artifact 已 refinement。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
@@ -293,8 +298,9 @@ width 与 exact Reference outcome 现由 generic theorem 自动推出；真实 s
 target success/return/log/promise/storage facts已由 strict adapter按同字段工程契约采集和检查。
 `MethodSemanticsV1` 已对 status exact 四操作建立 kernel target recipe execution；随后 bounded typed-WAT
 子集已由 production renderer直接消费，并把 exact typed lowering/emission/execution 与 sole Reference
-step连接。该结果仍不是一般 Operation/WAT semantics：尚无 generic WAT parser/validator、text→typed
-identity theorem、arbitrary linear memory、完整 NEAR host ABI、locked `wat2wasm` correctness、Wasm binary
+step连接；该 exact typed sequence也已通过 bounded typed-WAT static validator。该结果仍不是一般
+Operation/WAT semantics：尚无 textual WAT parser/general validator、text→typed identity theorem、
+arbitrary linear memory、完整 NEAR host ABI、locked `wat2wasm` correctness、Wasm binary
 execution、IR→Wasm/NEAR simulation 或 WAT↔ABI consistency theorem。
 当前仍没有 finalized Wasm/disk identity 或 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
 覆盖 corrupt storage 或 gas/profile 的通用 corpus 仍不完整；StateCell
