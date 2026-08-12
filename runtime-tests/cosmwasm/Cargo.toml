@@ -6,7 +6,8 @@ publish = false
 description = "cosmwasm-vm mock-runtime differentials for ProofForge CosmWasm WASM products (engineering only; not wasmd/formal)"
 license = "MIT"
 
-[dev-dependencies]
+# Shared by integration tests and `cw_oneshot` (pf run -t cosmwasm).
+[dependencies]
 # Prefer cosmwasm-vm over cw-multi-test: mock Backend/Storage/Api/Querier
 # exercises the same host import surface (db_*, abort) the product WAT binds,
 # without App-level bank/wasm modules. Still not wasmd / real chain.
@@ -14,3 +15,7 @@ cosmwasm-std = "=3.0.9"
 cosmwasm-vm = { version = "=3.0.9", default-features = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+
+[[bin]]
+name = "cw_oneshot"
+path = "src/bin/cw_oneshot.rs"

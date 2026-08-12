@@ -59,12 +59,29 @@ pub fn run(
         });
     }
     if tid == targets::TargetId::Cosmwasm {
-        return Err(PfError::NotImplemented(
-            "cosmwasm: use `pf test -t cosmwasm` (artifact fast-path or corpus); \
-             interactive `pf run` for CosmWasm is not in v0 (JSON ABI + cosmwasm-vm mock via pf test). \
-             sync call FC; schedule=SubMsg never"
-                .into(),
-        ));
+        let dir = project.resolve_artifact_dir(&target, artifact_cli, None);
+        let outcome = targets::cosmwasm::local_run::run_local(&dir, call_args)?;
+        let mut ok = PfOk::new("run");
+        ok.target = Some(target.clone());
+        ok.artifact_dir = Some(dir.display().to_string());
+        ok.extra = Some(serde_json::json!({
+            "lane": "cosmwasm-vm-oneshot",
+            "method": call_args.first(),
+            "stdout": outcome.stdout.trim(),
+            "skipped": outcome.skipped,
+            "script": outcome.script_path.display().to_string(),
+            "note": "engineering cosmwasm-vm mock only; not wasmd/mainnet; sync call FC; schedule=SubMsg never",
+        }));
+        return emit(ok, json, || {
+            if outcome.skipped {
+                println!("cosmwasm run skipped (tools missing):\n{}", outcome.stderr);
+            } else {
+                print!("{}", outcome.stdout);
+                if verbose {
+                    eprint!("{}", outcome.stderr);
+                }
+            }
+        });
     }
     if tid == targets::TargetId::Ton {
         return Err(PfError::NotImplemented(

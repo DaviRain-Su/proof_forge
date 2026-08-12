@@ -545,17 +545,37 @@ fn collect_deps(target: &str) -> Vec<Dep> {
                     path: None,
                 }),
             }
+            match crate::targets::cosmwasm::local_run::resolve_cosmwasm_run_script() {
+                Ok(p) => deps.push(Dep {
+                    id: "cosmwasm-run-script",
+                    status: "ok",
+                    summary: "pf_cosmwasm_run.sh for pf run -t cosmwasm one-shot mock".into(),
+                    install: vec![],
+                    path: Some(p.display().to_string()),
+                }),
+                Err(_) => deps.push(Dep {
+                    id: "cosmwasm-run-script",
+                    status: "info",
+                    summary: "pf run -t cosmwasm needs scripts/pf_cosmwasm_run.sh (bundle/monorepo)"
+                        .into(),
+                    install: vec![
+                        "# monorepo: scripts/pf_cosmwasm_run.sh".into(),
+                        "# or use: pf test -t cosmwasm".into(),
+                    ],
+                    path: None,
+                }),
+            }
             let cargo_ok = which::which("cargo").is_ok();
             deps.push(Dep {
                 id: "cosmwasm-vm-harness",
                 status: if cargo_ok { "info" } else { "need" },
-                summary: "full pf test needs cargo + runtime-tests/cosmwasm (cosmwasm-vm 3.0.9); else skip-clean"
+                summary: "full pf test / pf run need cargo + runtime-tests/cosmwasm (cosmwasm-vm 3.0.9); else skip-clean"
                     .into(),
                 install: vec![
                     "# monorepo:".into(),
                     "just cosmwasm-runtime".into(),
                     "# or: PF_COSMWASM_ARTIFACT_DIR=out pf test -t cosmwasm".into(),
-                    "# interactive pf run for CosmWasm is not in v0 — use pf test".into(),
+                    "# pf run -t cosmwasm -- get   # builds cw_oneshot once".into(),
                 ],
                 path: None,
             });
@@ -877,10 +897,10 @@ fn next_commands(target: &str) -> Vec<String> {
             "pf new cell --target cosmwasm && cd cell".into(),
             "pf build                        # → *.wasm + cosmwasm-abi.json".into(),
             "pf test                         # artifact fast-path or cosmwasm-vm corpus".into(),
+            "pf run -- get                   # one-shot cosmwasm-vm mock (after build)".into(),
             "pf deploy                       # save-only; --broadcast refused".into(),
             "pf scaffold-ui --template cosmwasm-dapp".into(),
             "# monorepo full corpus: just cosmwasm-runtime".into(),
-            "# no interactive pf run in v0 — use pf test (JSON ABI mock)".into(),
         ],
         "psy" => vec![
             "pf setup --target psy".into(),

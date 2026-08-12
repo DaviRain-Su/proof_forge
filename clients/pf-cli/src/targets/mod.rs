@@ -69,7 +69,7 @@ pub fn capability_note(target: &str) -> &'static str {
             "build Wasm + `pf test` (near-sandbox; artifact fast-path or corpus) + `pf run` (one-shot sandbox) + `pf deploy` (save-only; --broadcast refused) + `pf scaffold-ui --template near-dapp`"
         }
         TargetId::Cosmwasm => {
-            "build Wasm + `pf test` (cosmwasm-vm mock; artifact fast-path or corpus) + `pf deploy` (save-only; --broadcast refused) + `pf scaffold-ui --template cosmwasm-dapp` (no interactive pf run in v0)"
+            "build Wasm + `pf test` (cosmwasm-vm mock; artifact fast-path or corpus) + `pf run` (one-shot cosmwasm-vm mock) + `pf deploy` (save-only; --broadcast refused) + `pf scaffold-ui --template cosmwasm-dapp`"
         }
         TargetId::Ton => {
             "build Tolk/BoC + `pf test` (@ton/sandbox corpus; skip-clean if tools missing) + `pf deploy` (save-only; --broadcast refused)"

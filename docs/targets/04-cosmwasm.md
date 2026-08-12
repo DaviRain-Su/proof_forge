@@ -50,6 +50,12 @@ Map **return** 单独走 24×i64 ret-leaf 路径（cap-8），不占用 upsert C
 另有 `scripts/cosmwasm_wasmd_test.sh` 的 wasmd v0.70.3 Docker 工程 rung，覆盖 Counter
 与 ScheduleFlow 子消息失败导致 whole-tx abort。两者都不是主网、formal 或 hermetic evidence。
 
+**`pf run -t cosmwasm -- <method> [u64…]`**：one-shot cosmwasm-vm mock
+（`scripts/pf_cosmwasm_run.sh` → `cw_oneshot`）。export mode 优先读
+`*.cosmwasm-abi.json`（instantiate/execute/query）；缺 ABI 时回退名字启发式。
+execute/query 前自动空 `instantiate {}`。engineering only，非 wasmd/mainnet；
+generic sync call 仍在编译器 fail closed；schedule=SubMsg reply_on=never。
+
 **产品面（2026-08-11）**：`pf test -t cosmwasm` / `proof-forge-next local --target cosmwasm`
 → `scripts/pf_cosmwasm_test.sh`；`pf deploy -t cosmwasm` save-only
 `proof-forge.pf.cosmwasm-deploy-package.v1`（`--broadcast` 拒绝）；agent cheatsheet
