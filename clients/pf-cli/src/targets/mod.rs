@@ -4,7 +4,9 @@ pub mod aleo;
 pub mod cosmwasm;
 pub mod evm;
 pub mod near;
+pub mod noir;
 pub mod psy;
+pub mod quint;
 pub mod solana;
 pub mod ton;
 
@@ -19,6 +21,8 @@ pub enum TargetId {
     Near,
     Cosmwasm,
     Ton,
+    Noir,
+    Quint,
     Other,
 }
 
@@ -32,6 +36,8 @@ impl TargetId {
             "near" => Self::Near,
             "cosmwasm" | "cw" => Self::Cosmwasm,
             "ton" => Self::Ton,
+            "noir" => Self::Noir,
+            "quint" => Self::Quint,
             _ => Self::Other,
         }
     }
@@ -66,7 +72,13 @@ pub fn capability_note(target: &str) -> &'static str {
             "build Wasm + `pf test` (cosmwasm-vm mock; artifact fast-path or corpus) + `pf deploy` (save-only; --broadcast refused) + `pf scaffold-ui --template cosmwasm-dapp` (no interactive pf run in v0)"
         }
         TargetId::Ton => {
-            "build Tolk/BoC + `pf test` (@ton/sandbox corpus; skip-clean if tools missing); deploy/broadcast not product"
+            "build Tolk/BoC + `pf test` (@ton/sandbox corpus; skip-clean if tools missing) + `pf deploy` (save-only; --broadcast refused)"
+        }
+        TargetId::Noir => {
+            "build Noir relations/ACIR + `pf test` (artifact smoke; no nargo re-run) + `pf deploy` (save-only circuit package; --broadcast refused)"
+        }
+        TargetId::Quint => {
+            "build source-only `.qnt` + `pf test` (artifact smoke; no Quint CLI) + `pf deploy` (save-only model package; --broadcast refused; ADR-0026)"
         }
         TargetId::Other => "unsupported developer operation in pf v0 (fail closed)",
     }
@@ -89,5 +101,10 @@ mod tests {
         assert!(capability_note("cosmwasm").contains("pf test"));
         assert!(capability_note("cosmwasm").contains("cosmwasm-dapp"));
         assert!(capability_note("ton").contains("pf test"));
+        assert!(capability_note("ton").contains("save-only"));
+        assert!(capability_note("noir").contains("pf test"));
+        assert!(capability_note("noir").contains("broadcast refused"));
+        assert!(capability_note("quint").contains("pf test"));
+        assert!(capability_note("quint").contains("ADR-0026"));
     }
 }

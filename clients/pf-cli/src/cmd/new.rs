@@ -70,6 +70,21 @@ pub fn run(name: &str, target: Option<&str>, path: Option<&PathBuf>, json: bool)
                 println!("  # pf deploy --network testnet --broadcast --private-key-env PF_PSY_KEY");
                 println!("  # pf execute --network testnet --broadcast --private-key-env PF_PSY_KEY -- initialize 7");
             }
+            "ton" => {
+                println!("  pf setup --target ton");
+                println!("  pf test              # @ton/sandbox corpus; skip-clean if tools missing");
+                println!("  pf deploy            # save-only; --broadcast refused");
+            }
+            "noir" => {
+                println!("  pf setup --target noir");
+                println!("  pf test              # artifact smoke (relations/ACIR)");
+                println!("  pf deploy            # save-only circuit package; --broadcast refused");
+            }
+            "quint" => {
+                println!("  pf setup --target quint");
+                println!("  pf test              # source-only .qnt smoke (no Quint CLI)");
+                println!("  pf deploy            # save-only model package; --broadcast refused");
+            }
             _ => {
                 println!("  pf build -t <target>");
             }

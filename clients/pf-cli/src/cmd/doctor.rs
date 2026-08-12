@@ -634,6 +634,59 @@ fn collect_deps(target: &str) -> Vec<Dep> {
                 path: None,
             });
         }
+        "noir" => {
+            deps.push(Dep {
+                id: "noir-product-path",
+                status: "info",
+                summary: "default build is source-relations (no nargo); ACIR finalize is opt-in host-heavy".into(),
+                install: vec![
+                    "pf build -t noir".into(),
+                    "pf test -t noir   # artifact smoke".into(),
+                    "pf deploy -t noir # save-only circuit package".into(),
+                    "# optional ACIR: install nargo and use ACIR codegen profile".into(),
+                ],
+                path: None,
+            });
+            deps.push(Dep {
+                id: "noir-broadcast",
+                status: "info",
+                summary: "circuits are not chain-deployed by pf; --broadcast refused".into(),
+                install: vec!["# use external nargo/prover tooling outside product path".into()],
+                path: None,
+            });
+        }
+        "quint" => {
+            deps.push(Dep {
+                id: "quint-zero-tool",
+                status: "ok",
+                summary: "source-only `.qnt` finalize (ADR-0026); no Quint CLI required".into(),
+                install: vec![
+                    "pf build -t quint".into(),
+                    "pf test -t quint".into(),
+                    "pf deploy -t quint # save-only model package".into(),
+                ],
+                path: None,
+            });
+            deps.push(Dep {
+                id: "quint-broadcast",
+                status: "info",
+                summary: "model surface — --broadcast refused".into(),
+                install: vec!["# external Apalache/TLC outside product path".into()],
+                path: None,
+            });
+        }
+        "ton" => {
+            deps.push(Dep {
+                id: "ton-broadcast",
+                status: "info",
+                summary: "pf deploy is save-only; --broadcast refused in v0".into(),
+                install: vec![
+                    "pf deploy -t ton".into(),
+                    "pf test -t ton   # @ton/sandbox corpus when tools present".into(),
+                ],
+                path: None,
+            });
+        }
         _ => {}
     }
 
@@ -839,6 +892,28 @@ fn next_commands(target: &str) -> Vec<String> {
             "pf execute -t psy --network testnet --broadcast --private-key-env KEY -- initialize 7".into(),
             "# call needs L2 balance (GUTA/DA fees); fund via https://app.psy-protocol.xyz if insufficient balance".into(),
             "bash scripts/psy_local_chain_status.sh".into(),
+        ],
+        "ton" => vec![
+            "pf setup --target ton           # checklist: node + @ton/sandbox scripts".into(),
+            "pf new cell --target ton && cd cell".into(),
+            "pf build                        # → Tolk/BoC + manifest".into(),
+            "pf test                         # @ton/sandbox corpus; skip-clean if tools missing".into(),
+            "pf deploy                       # save-only; --broadcast refused".into(),
+        ],
+        "noir" => vec![
+            "pf setup --target noir          # optional nargo for ACIR finalize".into(),
+            "pf new cell --target noir && cd cell".into(),
+            "pf build                        # → *.noir-relations.json + relations/".into(),
+            "pf test                         # artifact smoke (no nargo re-run)".into(),
+            "pf deploy                       # save-only circuit package; --broadcast refused".into(),
+            "# ACIR finalize is host-heavy opt-in; default is source-relations".into(),
+        ],
+        "quint" => vec![
+            "pf setup --target quint         # no Quint CLI required (ADR-0026)".into(),
+            "pf new cell --target quint && cd cell".into(),
+            "pf build                        # → *.qnt source-only".into(),
+            "pf test                         # artifact smoke (no Quint CLI)".into(),
+            "pf deploy                       # save-only model package; --broadcast refused".into(),
         ],
         _ => vec![
             format!("pf setup --target {target}"),

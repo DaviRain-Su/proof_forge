@@ -54,6 +54,18 @@ pub fn run(
                 "ton: use `pf test -t ton` (@ton/sandbox); no offline verify client".into(),
             ));
         }
+        targets::TargetId::Noir => {
+            return Err(PfError::Usage(
+                "noir: use `pf test -t noir` (artifact smoke); no solana-style offline verify client"
+                    .into(),
+            ));
+        }
+        targets::TargetId::Quint => {
+            return Err(PfError::Usage(
+                "quint: use `pf test -t quint` (source smoke); no offline verify client (ADR-0026)"
+                    .into(),
+            ));
+        }
         targets::TargetId::Other => {
             return Err(PfError::NotImplemented(format!(
                 "target '{target}': {}",

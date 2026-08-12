@@ -10,7 +10,7 @@ use crate::cmd::emit;
 use crate::error::{PfError, PfResult};
 use crate::project::Project;
 use crate::result_json::PfOk;
-use crate::targets::{self, cosmwasm, evm, near, psy, solana, ton};
+use crate::targets::{self, cosmwasm, evm, near, noir, psy, quint, solana, ton};
 use serde_json::{json, Value};
 use std::path::Path;
 
@@ -375,6 +375,32 @@ fn run_one(target: &str, dir: &Path) -> PfResult<TargetReport> {
                 detail: Some(json!({
                     "script": outcome.script_path.display().to_string(),
                     "honesty": "engineering only; sync call FC; schedule=createMessage; pf.assets frozen; not formal/mainnet",
+                })),
+            })
+        }
+        targets::TargetId::Noir => {
+            let outcome = noir::test::run_artifact_smoke(dir)?;
+            Ok(TargetReport {
+                target: target.into(),
+                status: "ok",
+                artifact_dir: Some(dir.display().to_string()),
+                lane: Some("noir-artifact-smoke".into()),
+                message: outcome.summary,
+                detail: Some(json!({
+                    "evidence": outcome.evidence,
+                })),
+            })
+        }
+        targets::TargetId::Quint => {
+            let outcome = quint::test::run_artifact_smoke(dir)?;
+            Ok(TargetReport {
+                target: target.into(),
+                status: "ok",
+                artifact_dir: Some(dir.display().to_string()),
+                lane: Some("quint-artifact-smoke".into()),
+                message: outcome.summary,
+                detail: Some(json!({
+                    "evidence": outcome.evidence,
                 })),
             })
         }

@@ -73,6 +73,18 @@ pub fn run(
                 .into(),
         ));
     }
+    if tid == targets::TargetId::Noir {
+        return Err(PfError::NotImplemented(
+            "noir: use `pf test -t noir` (artifact smoke); interactive `pf run` is Aleo/Psy in v0"
+                .into(),
+        ));
+    }
+    if tid == targets::TargetId::Quint {
+        return Err(PfError::NotImplemented(
+            "quint: use `pf test -t quint` (source smoke); no interactive run (ADR-0026 zero-tool)"
+                .into(),
+        ));
+    }
     let dir = project.resolve_artifact_dir(&target, artifact_cli, None);
     if !dir.is_dir() {
         return Err(PfError::Artifact(format!(

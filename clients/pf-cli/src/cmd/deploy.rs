@@ -4,7 +4,7 @@ use crate::error::{PfError, PfResult};
 use crate::project::Project;
 use crate::result_json::PfOk;
 use crate::safety::NetworkKind;
-use crate::targets::{self, aleo, cosmwasm, evm, near, psy, solana};
+use crate::targets::{self, aleo, cosmwasm, evm, near, noir, psy, quint, solana, ton};
 use std::path::Path;
 
 pub fn run(
@@ -287,10 +287,102 @@ pub fn run(
                 }
             })
         }
-        targets::TargetId::Ton => Err(PfError::NotImplemented(format!(
-            "target '{target}': {}",
-            targets::capability_note(&target)
-        ))),
+        targets::TargetId::Ton => {
+            let net_s = network_cli.unwrap_or("local");
+            let network = NetworkKind::parse(net_s)?;
+            let save_default = dir.join("tx");
+            let save_dir = save.unwrap_or(save_default.as_path());
+            let out = ton::deploy::deploy(ton::deploy::DeployRequest {
+                artifact_dir: &dir,
+                network,
+                endpoint,
+                broadcast,
+                private_key_env: key_env,
+                save_dir,
+            })?;
+            let saved: Vec<String> = out.saved.iter().map(|p| p.display().to_string()).collect();
+            let mut ok = PfOk::new("deploy");
+            ok.target = Some(target);
+            ok.network = Some(out.network.clone());
+            ok.broadcast = Some(out.broadcast);
+            ok.artifact_dir = Some(dir.display().to_string());
+            ok.saved = Some(saved.clone());
+            ok.notes = Some(out.notes.clone());
+            emit(ok, json, || {
+                println!(
+                    "    Finished `deploy` ton (broadcast={}) → {}",
+                    out.broadcast,
+                    saved.join(", ")
+                );
+                for n in &out.notes {
+                    println!("      note: {n}");
+                }
+            })
+        }
+        targets::TargetId::Noir => {
+            let net_s = network_cli.unwrap_or("local");
+            let network = NetworkKind::parse(net_s)?;
+            let save_default = dir.join("tx");
+            let save_dir = save.unwrap_or(save_default.as_path());
+            let out = noir::deploy::deploy(noir::deploy::DeployRequest {
+                artifact_dir: &dir,
+                network,
+                endpoint,
+                broadcast,
+                private_key_env: key_env,
+                save_dir,
+            })?;
+            let saved: Vec<String> = out.saved.iter().map(|p| p.display().to_string()).collect();
+            let mut ok = PfOk::new("deploy");
+            ok.target = Some(target);
+            ok.network = Some(out.network.clone());
+            ok.broadcast = Some(out.broadcast);
+            ok.artifact_dir = Some(dir.display().to_string());
+            ok.saved = Some(saved.clone());
+            ok.notes = Some(out.notes.clone());
+            emit(ok, json, || {
+                println!(
+                    "    Finished `deploy` noir (broadcast={}) → {}",
+                    out.broadcast,
+                    saved.join(", ")
+                );
+                for n in &out.notes {
+                    println!("      note: {n}");
+                }
+            })
+        }
+        targets::TargetId::Quint => {
+            let net_s = network_cli.unwrap_or("local");
+            let network = NetworkKind::parse(net_s)?;
+            let save_default = dir.join("tx");
+            let save_dir = save.unwrap_or(save_default.as_path());
+            let out = quint::deploy::deploy(quint::deploy::DeployRequest {
+                artifact_dir: &dir,
+                network,
+                endpoint,
+                broadcast,
+                private_key_env: key_env,
+                save_dir,
+            })?;
+            let saved: Vec<String> = out.saved.iter().map(|p| p.display().to_string()).collect();
+            let mut ok = PfOk::new("deploy");
+            ok.target = Some(target);
+            ok.network = Some(out.network.clone());
+            ok.broadcast = Some(out.broadcast);
+            ok.artifact_dir = Some(dir.display().to_string());
+            ok.saved = Some(saved.clone());
+            ok.notes = Some(out.notes.clone());
+            emit(ok, json, || {
+                println!(
+                    "    Finished `deploy` quint (broadcast={}) → {}",
+                    out.broadcast,
+                    saved.join(", ")
+                );
+                for n in &out.notes {
+                    println!("      note: {n}");
+                }
+            })
+        }
         targets::TargetId::Other => Err(PfError::NotImplemented(format!(
             "target '{target}': {}",
             targets::capability_note(&target)

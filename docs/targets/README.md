@@ -73,3 +73,11 @@ normative: true
 maturity。正式 evaluator 必须按 SPEC-REG-001 验证 exact
 `AcceptanceProfileRef`、candidate/target/codegen/gate binding、freshness 和 revocation；无法验证时停在
 上一连续阶段。snapshot 不进入 static registry hash，也不授权 build/deploy。
+
+## CLI parity notes (2026-08-12)
+
+- **Noir / Quint / TON** are first-class `pf` `TargetId`s:
+  - `pf test` artifact smoke (Noir relations/ACIR JSON; Quint `*.qnt`; TON sandbox corpus when tools present)
+  - `pf deploy` **save-only** packages under `build/<target>/tx/`
+  - `--broadcast` **refused** (circuits/model surfaces / TON v0 policy)
+- Interactive `pf run` remains Aleo/Psy (+ NEAR one-shot sandbox); Noir/Quint/TON point at `pf test`.
