@@ -48,10 +48,34 @@ artifact_dir="$(cd "$artifact_dir" && pwd)"
 [[ -n "$method" ]] || die "PF_NEAR_METHOD required"
 
 if [[ -z "$mode" ]]; then
-  case "$method" in
-    get*|view*|seconds|height|getPose|getBuf|getArr|getPair|getOpt) mode="view" ;;
-    *) mode="call" ;;
-  esac
+  # Prefer exact export mode from *.near-abi.json when present.
+  abi="$(find "$artifact_dir" -maxdepth 2 -type f -name '*.near-abi.json' | sort | head -n 1 || true)"
+  if [[ -n "$abi" && -f "$abi" ]]; then
+    mode="$(PF_NEAR_ABI_PATH="$abi" PF_NEAR_ABI_METHOD="$method" python3 - <<'PY'
+import json, os
+abi_path = os.environ["PF_NEAR_ABI_PATH"]
+method = os.environ["PF_NEAR_ABI_METHOD"]
+try:
+    data = json.loads(open(abi_path, encoding="utf-8").read())
+except Exception:
+    print("")
+    raise SystemExit(0)
+for ex in data.get("exports") or []:
+    if ex.get("name") == method:
+        m = ex.get("mode") or ""
+        print("view" if m == "view" else "call")
+        raise SystemExit(0)
+print("")
+PY
+)"
+  fi
+  if [[ -z "$mode" ]]; then
+    case "$method" in
+      get*|view*|native*|seconds|height|getPose|getBuf|getArr|getPair|getOpt|dump|*Balance|*BalanceU128|selfIsContract|callerIsContract)
+        mode="view" ;;
+      *) mode="call" ;;
+    esac
+  fi
 fi
 
 if [[ -f "$artifact_dir/StateCell.wasm" ]]; then

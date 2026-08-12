@@ -32,17 +32,19 @@ Struct/Enum state、`Array UInt64 N` state 与 dense `Map UInt64 UInt64` **cap-4
 UInt64/Int64 leaf 的 named entry/view aggregate return，以及 anonymous `Array UInt64 N`
 （1..8）/`Option UInt64`/`Bytes N`（1..8，JSON 十进制数组、字节零扩展）entry/view return 已开；
 **Bytes N state**（1-byte KV leaves）与 **scalar `const` / `Op.Constant`**（UInt{8,16,32,64}/
-Int64/Bool 表）已开。Map return、nested/非 UInt64 元素、aggregate param/pureFn、invariants
-仍 fail closed。
+Int64/Bool 表）已开。**dense Map return**（`Map UInt64 UInt64` cap-8 → 24-leaf occ/key/val
+JSON decimals；`Examples/MapDump` + `map_dump.rs`）已开。nested/非 UInt64 元素、aggregate
+param/pureFn、invariants 仍 fail closed。
 
 **runtime rungs**：`runtime-tests/cosmwasm` 的 cosmwasm-vm 3.0.9 mock 覆盖
 Counter/Accumulator/EventFlow、hardening、ScheduleFlow、NarrowCounter、PairRet、
 ArrayRet、OptionRet、OptionState、pf.assets、env-read、CallerGate、
 **BlockHeightCheck**（ADR-0031 S2：`context.blockHeight` ↔ `Env.block.height`）、
 **ConstAnswer**（scalar Op.Constant）、**BytesRet**（anonymous Bytes 4 return）、
-**UnixTimeCheck**（`context.unixTimeSeconds`）、**PoseTransform**（named Struct Int64 pose）、**MapMini**（dense Map cap-4）。
-Dense `Map UInt64` **cap-4 + emit CSE** 已过 cosmwasm-vm MAX_LOCALS=100（MapMini runtime）。
-Cap-8 在纯表达式 upsert 下 CSE 后仍 ~197 temps，故 CosmWasm pilot 钉 cap-4。
+**UnixTimeCheck**（`context.unixTimeSeconds`）、**PoseTransform**（named Struct Int64 pose）、**MapMini**（dense Map cap-4 state）、
+**MapDump**（dense Map cap-8 **return** as 24-leaf JSON）。
+Dense `Map UInt64` **state** 钉 **cap-4 + emit CSE**（cosmwasm-vm MAX_LOCALS=100；MapMini）。
+Map **return** 单独走 24×i64 ret-leaf 路径（cap-8），不占用 upsert CSE 预算。
 多 Map 更新体（`Examples/Token` mint/transfer）在 IR validate 层 **fail closed**
 （host MAX_LOCALS=100）；loop lowering 前勿当 deployable。
 另有 `scripts/cosmwasm_wasmd_test.sh` 的 wasmd v0.70.3 Docker 工程 rung，覆盖 Counter
@@ -121,13 +123,13 @@ instantiate/execute/query 均从 Env Region 的 bare-u64 JSON 字段 `"height"` 
 `CosmWasmPlanV1` 钉测已有；`runtime-tests/cosmwasm/tests/block_height.rs` 对
 `Examples/BlockHeightCheck.lean` 固定 query `height()` 跟踪 Env height、`stamp()` 写入 pad。
 
-**仍 fail closed / 未闭合**：iterator、IBC、migrate、reply entry、Map return、
+**仍 fail closed / 未闭合**：iterator、IBC、migrate、reply entry、
 Field/Principal/String interface、除 execute/init `context.caller` 与 Env-backed
 `context.blockHeight`（含 cw-vm runtime 门）外的 ContextRead、Commit、nonempty
 **invariants**（scalar constants 已开）、UInt128/256 ABI state/param/result（body multiword 已开）、
-narrow Int、JSON 全集与 gas model。Option UInt64 state 与 Bytes N state/return 已开。
-wasmd smart query 当前仍非 Binary，rung-1 harness 使用 raw state。不得写成 formal
-runtime-validated。
+narrow Int、JSON 全集与 gas model。Option UInt64 state、Bytes N state/return、dense Map
+return（cap-8）已开。wasmd smart query 当前仍非 Binary，rung-1 harness 使用 raw state。
+不得写成 formal runtime-validated。
 
 ## 0.1 A0→隔离→修复/design-exit 过程记录（2026-08-03）
 

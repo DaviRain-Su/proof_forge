@@ -35,7 +35,8 @@ Phase 1：实现
   `wasm-interp`/`wasmtime`/`wasmer` 之一做 runtime load；locked near-sandbox 2.13.0 的
   `runtime-tests/near` 已覆盖 StateCell init/mutate/view、overflow state-hold+recovery、PairRet、
   ArrayRet、OptionRet、OptionState、proof-bearing `VerifiedVaultPF`、TipJarAsync、TokenJarAsync、
-  EnvReadJar、CallerCheck、低集成 `PoseTransform`（translate/rotate90/scale + Int64 overflow
+  EnvReadJar、**EnvReadBalanceU128**（`pf.assets@1.2.0` full-width u128 ↔ RPC amount）、
+  CallerCheck、低集成 `PoseTransform`（translate/rotate90/scale + Int64 overflow
   state-hold）、`BlockHeightCheck`（`context.blockHeight` ↔ sandbox
   `status.sync_info.latest_block_height`）、`ConstAnswer`（scalar `const` 表 / `Op.Constant`）
   与 `UnixTimeCheck`（`context.unixTimeSeconds` ↔ `block_timestamp` ns÷10^9）、
@@ -52,6 +53,10 @@ Phase 1：实现
   24×u64 LE `value_return`（occ/key/val 扁平；与 CosmWasm B-RET-MAP 同形）。
 - **`pf deploy -t near`**：save-only `proof-forge.pf.near-deploy-package.v1` 包
   （wasm sha + near-abi 指针）；`--broadcast` 在 v0 一律拒绝（含 local）。
+- **`pf run -t near -- <method> [u64…]`**：one-shot locked near-sandbox call/view
+  （`scripts/pf_near_run.sh`）。export mode 优先读 `*.near-abi.json`（含
+  `nativeBalanceU128` 等非 `get*` view）；缺 ABI 时回退名字启发式。engineering only，
+  非 testnet/mainnet；Promise / sync transfer 仍在编译器 fail closed。
 - **Proof-bearing invariant-root erasure（ADR-0042）**：普通 capability + nonempty invariants
   仍 fail closed；只有 private audited `CertifiedInlineProofV1` 在 source/semantic digest exact
   match、每个 invariant 有完整 preserving coverage 时可 mint NEAR-only authorization。

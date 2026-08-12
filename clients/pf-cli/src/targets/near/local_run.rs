@@ -58,6 +58,38 @@ pub fn resolve_near_run_script() -> PfResult<PathBuf> {
     ))
 }
 
+/// Read `mode` for `method` from the first `*.near-abi.json` under `dir`.
+fn abi_export_mode(dir: &Path, method: &str) -> Option<&'static str> {
+    use std::fs;
+    let entries = fs::read_dir(dir).ok()?;
+    let mut abi_path: Option<PathBuf> = None;
+    for ent in entries.flatten() {
+        let p = ent.path();
+        let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        if name.ends_with(".near-abi.json") {
+            abi_path = Some(p);
+            break;
+        }
+    }
+    let path = abi_path?;
+    let text = fs::read_to_string(path).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    let exports = v.get("exports")?.as_array()?;
+    for ex in exports {
+        let name = ex.get("name")?.as_str()?;
+        if name != method {
+            continue;
+        }
+        let mode = ex.get("mode")?.as_str()?;
+        // near-abi: initialize | entry | view (query-only).
+        return Some(match mode {
+            "view" => "view",
+            _ => "call",
+        });
+    }
+    None
+}
+
 /// Parse `call_args` as `<method> [u64…]`.
 pub fn run_local(artifact_dir: &Path, call_args: &[String]) -> PfResult<LocalRunOutcome> {
     if call_args.is_empty() {
@@ -88,16 +120,34 @@ pub fn run_local(artifact_dir: &Path, call_args: &[String]) -> PfResult<LocalRun
         u64_args.push(cleaned);
     }
 
-    let mode = if method.starts_with("get")
-        || method.starts_with("view")
-        || matches!(
-            method.as_str(),
-            "seconds" | "height" | "getPose" | "getBuf" | "getArr" | "getPair" | "getOpt"
-        ) {
-        "view"
-    } else {
-        "call"
-    };
+    // Prefer exact export mode from *.near-abi.json (covers nativeBalanceU128,
+    // height, seconds, dump, etc.). Fall back to name heuristics only when ABI
+    // is missing or the method is absent.
+    let mode = abi_export_mode(artifact_dir, method).unwrap_or_else(|| {
+        if method.starts_with("get")
+            || method.starts_with("view")
+            || method.starts_with("native")
+            || method.ends_with("Balance")
+            || method.ends_with("BalanceU128")
+            || matches!(
+                method.as_str(),
+                "seconds"
+                    | "height"
+                    | "getPose"
+                    | "getBuf"
+                    | "getArr"
+                    | "getPair"
+                    | "getOpt"
+                    | "dump"
+                    | "selfIsContract"
+                    | "callerIsContract"
+            )
+        {
+            "view"
+        } else {
+            "call"
+        }
+    });
 
     let script = resolve_near_run_script()?;
     let mut cmd = Command::new("bash");
@@ -133,4 +183,36 @@ pub fn run_local(artifact_dir: &Path, call_args: &[String]) -> PfResult<LocalRun
         script_path: script,
         skipped,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    #[test]
+    fn abi_export_mode_reads_view_and_entry() {
+        let dir = std::env::temp_dir().join(format!(
+            "pf-near-abi-mode-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(
+            dir.join("Hello.near-abi.json"),
+            r#"{
+              "exports": [
+                {"name":"init","mode":"initialize"},
+                {"name":"nativeBalanceU128","mode":"view"},
+                {"name":"set","mode":"entry"}
+              ]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(abi_export_mode(&dir, "nativeBalanceU128"), Some("view"));
+        assert_eq!(abi_export_mode(&dir, "set"), Some("call"));
+        assert_eq!(abi_export_mode(&dir, "init"), Some("call"));
+        assert_eq!(abi_export_mode(&dir, "missing"), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
 }
