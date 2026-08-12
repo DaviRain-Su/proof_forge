@@ -697,6 +697,15 @@ certification elaboration 阶段 fail closed。
   使用同一个 capability、Plan、IR 与 build result，以安全 optional lookup 拒绝 missing、
   reordered、duplicate、extra file 和 forged media type，并把已有 status MethodIR provenance
   接到该 exact production base output；没有 test-only lowering、emitter 或 renderer。
+- 第八静态切把 successful passive observation relation 的 **Reference 侧义务**收成可复用 theorem：
+  `uint64ReturnedObservationRelV1_of_readyViewLoad` 只从 sole production ready gate、admitted-data
+  identity、UInt64/state row 与 overlay lookup 推出 production decoder 已接受返回 bytes、exact
+  8-byte width，以及唯一 `stepReferenceSliceV1` 的 state-stutter / empty-effect returned outcome。
+  theorem 不接受调用方提供 `hstep`、canonicality 或 size；target success、return bytes、logs、
+  promises 与 storage snapshot equality 仍逐项作为 externally supplied passive-observation premises。
+  真实 VerifiedVault fixture 通过该 API 组合原 static/KV/ABI 关系，错误 target return bytes 明确
+  不能满足 relation；没有从 MethodIR/WAT/emission provenance 推导这些 target facts，也没有新增
+  target transition、evaluator、State、Effect 或 step。
 
 这仍然只是 **static alignment/refinement foundation**：Reference outcome 已精确闭合且
 production Plan/key/IR/in-memory WAT+ABI emission provenance 已连接，但 target observation 仍是
@@ -806,7 +815,7 @@ test-only engineering model，不能作为 formal target semantics。当前声�
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR status 静态命题、exact Reference composition 与 production base-emission provenance 已闭合）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation、exact Reference outcome，以及 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR graph → status Method/MethodIR proof-producing syntax recognition → sole private emitter → exact ordered in-memory WAT/ABI base files；真实 generated subject 的 validation/admission/initialized decode/status lookup/empty-context gate/ready/outcome 已由 kernel 无外部 context premise组合，direct-free fast path 仍由 sole production collector消费 authoritative row。尚无一般 lowering/renderer theorem、target execution semantics、simulation、locked `wat2wasm` correctness、finalized Wasm 或 disk artifact identity evidence |
+| 7 | Per-target refinement | **进行中（NEAR status 静态命题、passive relation 的 Reference 侧与 production base-emission provenance 已闭合）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation，以及 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR graph → status Method/MethodIR proof-producing syntax recognition → sole private emitter → exact ordered in-memory WAT/ABI base files；真实 generated subject 的 validation/admission/initialized decode/status lookup/empty-context gate/ready 已由 kernel 无外部 context premise组合，通用 theorem 从该 ready gate 自动推出 canonical 8-byte 与 exact Reference state-stutter/empty-effect outcome，只留下 target success/return/log/promise/storage 被动观测 premises；direct-free fast path 仍由 sole production collector消费 authoritative row。尚无一般 lowering/renderer theorem、target execution semantics、simulation、locked `wat2wasm` correctness、finalized Wasm 或 disk artifact identity evidence |
 
 ### 首个代码切片进展
 

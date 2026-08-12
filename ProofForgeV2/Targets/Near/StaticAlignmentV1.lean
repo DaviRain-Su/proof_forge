@@ -150,6 +150,130 @@ def UInt64ReturnedObservationRelV1
   observed.promises = #[] ∧
   observed.postStorage = observed.preStorage
 
+/-- A production-ready nullary UInt64 state-load view discharges the complete
+    Reference side of `UInt64ReturnedObservationRelV1`. Target success, return,
+    log, promise, and storage facts remain explicit passive-observation
+    hypotheses. This theorem does not execute MethodIR, WAT, Wasm, or NEAR. -/
+theorem uint64ReturnedObservationRelV1_of_readyViewLoad
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : LogicalStateV1)
+    (invocation : InvocationV1)
+    (data : SemanticProgramDataV1)
+    (overlay : Array ByteArray)
+    (loadedBytes : ByteArray)
+    (uint64TypeId : TypeIdV1)
+    (stateId : StateIdV1)
+    (stateName : String)
+    (callableId : CallableIdV1)
+    (viewName : Option String)
+    (context : Array ContextInputV1)
+    (vault : ReferenceVaultSeedV1)
+    (observed : CallObservationV1)
+    (hadmittedData : admitted.data = data)
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId
+      name := none
+      shape := .uint 64
+    })
+    (hstate : data.logicalState[stateId.toNat]? = some {
+      id := stateId
+      name := stateName
+      typeId := uint64TypeId
+      visibility := .public_
+    })
+    (hloaded : overlay[stateId.toNat]? = some loadedBytes)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready {
+          id := callableId
+          kind := .view
+          name := viewName
+          params := #[]
+          result := {
+            typeId := uint64TypeId
+            visibility := .public_
+          }
+          entryBlock := 0
+          blocks := #[{
+            id := 0
+            params := #[]
+            instructions := #[{
+              result := some {
+                valueId := 0
+                typeId := uint64TypeId
+              }
+              op := .stateLoad stateId
+            }]
+            terminator := .return_ (some 0)
+          }]
+          loopBounds := #[]
+          invariantSteps := none
+        } overlay context false)
+    (hfailure : observed.failureObserved = false)
+    (hreturn : observed.returnData = some loadedBytes)
+    (hlogs : observed.logs = #[])
+    (hpromises : observed.promises = #[])
+    (hstorage : observed.postStorage = observed.preStorage) :
+    UInt64ReturnedObservationRelV1 data uint64TypeId pre
+      (stepReferenceSliceV1 admitted pre invocation #[] vault)
+      loadedBytes observed := by
+  let callable : CallableV1 := {
+    id := callableId
+    kind := .view
+    name := viewName
+    params := #[]
+    result := {
+      typeId := uint64TypeId
+      visibility := .public_
+    }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := some {
+          valueId := 0
+          typeId := uint64TypeId
+        }
+        op := .stateLoad stateId
+      }]
+      terminator := .return_ (some 0)
+    }]
+    loopBounds := #[]
+    invariantSteps := none
+  }
+  have hdecodeAdmitted :
+      decodeLogicalStateValuesV1 admitted.data pre = .ok overlay :=
+    gateInvocation_ready_decodeV1 admitted pre invocation callable overlay
+      context false (by simpa [callable] using hgate)
+  have hdecode : decodeLogicalStateValuesV1 data pre = .ok overlay := by
+    simpa [hadmittedData] using hdecodeAdmitted
+  have hcanonical :
+      validateValueBytesV1 data.types uint64TypeId loadedBytes = .ok () :=
+    validateValueBytesV1_of_decodeLogicalStateValuesV1_getElem data pre
+      overlay hdecode stateId.toNat
+      {
+        id := stateId
+        name := stateName
+        typeId := uint64TypeId
+        visibility := .public_
+      }
+      loadedBytes hstate hloaded
+  have hsize : loadedBytes.size = 8 :=
+    validateValueBytesV1_uint64_size data.types uint64TypeId
+      {
+        id := uint64TypeId
+        name := none
+        shape := .uint 64
+      }
+      loadedBytes htypeU rfl hcanonical
+  have hstep :=
+    stepReferenceSliceV1_ready_viewLoad_returned_exact admitted pre invocation
+      data overlay loadedBytes uint64TypeId stateId stateName callableId
+      viewName context #[] vault hadmittedData htypeU hstate hloaded rfl hgate
+  refine ⟨hcanonical, hsize, ?_, hfailure, hreturn, hlogs, hpromises, hstorage⟩
+  simpa using hstep
+
 /-- Failure/no-commit relation for an externally observed failed call. It
     accepts only Reference revert/trap outcomes that carry the exact pre-state,
     and requires the passive target snapshots to be identical. -/

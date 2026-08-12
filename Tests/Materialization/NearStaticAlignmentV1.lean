@@ -314,6 +314,10 @@ private def successfulObservation : CallObservationV1 := {
   postStorage := observedStorage
 }
 
+private def wrongReturnObservation : CallObservationV1 := {
+  successfulObservation with returnData := some (encodeU64le 11)
+}
+
 private def failedObservation : CallObservationV1 := {
   exportName := "withdraw"
   input := encodeU64le 11
@@ -456,17 +460,36 @@ example
     · simp [successfulObservation, observedStorage, reservesBinding, reservesKey,
         layoutMarkerKey]
   · simp [NullaryUInt64ViewInputRelV1, statusMethod, successfulObservation]
-  · have hstep :=
-      stepReferenceSliceV1_ready_viewLoad_returned_exact admitted logicalTen {
+  · exact
+      uint64ReturnedObservationRelV1_of_readyViewLoad admitted logicalTen {
           callableId := 3
           args := #[]
           context := #[]
         } data #[tenBytes, tenBytes] tenBytes 0 0 "reserves" 3
-          (some "status") #[] #[] vault hadmittedData (by rfl) (by rfl)
-          (by rfl) (by rfl) (by simpa [statusCallable] using hgate)
-    rw [hstep]
-    exact
-      ⟨tenBytes_canonical, tenBytes_size, rfl, rfl, rfl, rfl, rfl, rfl⟩
+          (some "status") #[] vault successfulObservation hadmittedData
+          (by rfl) (by rfl) (by rfl)
+          (by simpa [statusCallable] using hgate)
+          (by rfl) (by rfl) (by rfl) (by rfl) (by rfl)
+
+example
+    (vault : ReferenceVaultSeedV1) :
+    ∃ admitted : AdmittedReferenceSliceV1,
+      admitReferenceProgramSliceV1 subjectProgram = .ok admitted ∧
+        ¬ UInt64ReturnedObservationRelV1 data 0 logicalTen
+          (stepReferenceSliceV1 admitted logicalTen {
+            callableId := 3
+            args := #[]
+            context := #[]
+          } #[] vault)
+          tenBytes wrongReturnObservation := by
+  obtain ⟨admitted, hadmit, _, _⟩ := verifiedVaultStatusReady
+  refine ⟨admitted, hadmit, ?_⟩
+  intro hrelation
+  rcases hrelation with ⟨_, _, _, _, hreturn, _, _, _⟩
+  have hbytes : encodeU64le 11 = tenBytes :=
+    Option.some.inj (by simpa [wrongReturnObservation] using hreturn)
+  have hnats := congrArg leBytesToNatV1 hbytes
+  simp [tenBytes, leBytesToNatV1_encodeU64le] at hnats
 
 example :
     FailureNoCommitObservationRelV1 logicalTen

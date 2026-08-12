@@ -114,6 +114,14 @@ Phase 1：实现
   optional lookup 固定 missing、reordered、duplicate、extra file 与 forged media type 均不能满足
   emission graph。这里仍未证明 renderer correctness、WAT/Wasm semantics、locked `wat2wasm`、
   finalized Wasm bytes、磁盘写入或 NEAR execution refinement，故 assurance 声明不变。
+- **`status` successful observation 的 Reference-side discharge（Phase 7 第八切）**：
+  generic `uint64ReturnedObservationRelV1_of_readyViewLoad` 从 sole production ready gate 恢复
+  production logical-state decode，并由 exact state/type/overlay row 推出返回 bytes canonical、宽度
+  恰为 8，以及唯一 Reference step 的 pre-state 不变、同值返回、ordered effects 为空。调用方不再
+  提供 `hstep`、canonicality 或 size；真实 VerifiedVault fixture 直接使用该 theorem，错误 target
+  return bytes 被 relation 拒绝。target success、return、logs、promises 与 pre/post storage equality
+  仍是外部 passive observation premises，不能由 MethodIR、WAT 或 emission graph 推出；本切片没有
+  新增 target transition/evaluator/step，故仍不构成 NEAR execution refinement。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -176,9 +184,11 @@ runtime observation；`StaticAlignmentV1` 的 passive relation 与 exact status 
 production validated semantic data、Plan/key/IR successful graph与 sole private emitter 的 exact
 in-memory WAT/ABI output graph；production Method/MethodIR 的 exact syntax 已由 proof-producing
 recognizer 纳入 kernel proposition，真实 status 的 validation/admission/initial state/lookup/
-empty-context ready/exact Reference outcome 也已无外部 context premise闭合，但尚无 target
-transition，也没有一般 lowering 或 renderer correctness theorem。当前仍没有 finalized Wasm/disk
-identity 或 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
+empty-context ready 已无外部 context premise闭合；successful passive relation 的 canonical bytes、
+width 与 exact Reference outcome 现由 generic theorem 自动推出，但 target success/return/log/
+promise/storage facts仍由外部提供。尚无 target transition，也没有一般 lowering 或 renderer
+correctness theorem。当前仍没有 finalized Wasm/disk identity 或 Reference→Wasm/NEAR simulation
+theorem。通用 corpus 也仍不完整
 覆盖 corrupt storage、bad input 或 gas/profile；Option
 params、非 UInt64/nested Option、Map/nested aggregate return 仍 fail-closed
 （`Bytes N` 1..8 return 已开放）；ContextRead 已开放 `unixTimeSeconds`、view-safe

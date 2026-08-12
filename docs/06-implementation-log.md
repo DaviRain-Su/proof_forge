@@ -14866,3 +14866,22 @@ normative: false
   `wat2wasm` correctness、finalized Wasm bytes/disk identity、simulation 或 rollback implementation
   refinement。该切片只是 production emission provenance closure，仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR successful-observation Reference discharge
+
+- `StaticAlignmentV1` 新增 generic
+  `uint64ReturnedObservationRelV1_of_readyViewLoad`：从 sole production `gateInvocation` 的 exact
+  ready equality恢复同一次 production logical-state decode，经 exact UInt64 type/state/overlay row
+  推出 returned bytes 已通过 canonical validation且宽度为 8，再复用唯一
+  `stepReferenceSliceV1_ready_viewLoad_returned_exact` 证明 state-stutter、同值返回与 ordered
+  effects 为空。API 不接受调用方提供 `hstep`、canonicality 或 size。
+- target success flag、return bytes、empty logs/promises 与 pre/post storage equality 仍逐项是外部
+  passive-observation premises；theorem 只 discharge Reference half，不从 MethodIR、WAT、Wasm 或
+  emission provenance虚构 target execution facts。
+- 真实 `VerifiedVault.status` fixture 已用该 generic theorem 替换手工 outcome composition，并固定
+  wrong-return observation 不能满足同一 actual Reference step 的 relation；static Method/MethodIR、
+  initialized-KV 与 nullary ABI 仍保持独立可组合关系。
+- 没有新增 target State、Effect、transition、evaluator 或 step；`NearHostModel` 继续仅为 test-only
+  engineering model。没有 renderer correctness、WAT/Wasm/NEAR simulation、locked `wat2wasm`
+  correctness、finalized artifact identity 或 rollback implementation refinement，assurance 仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
