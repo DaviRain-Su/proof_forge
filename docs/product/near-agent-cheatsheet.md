@@ -83,7 +83,12 @@ pf network list --family near
 - UInt128/256 / aggregate / Principal **const** rows (scalar UInt/Int/Bool ok)
 - nested aggregate returns beyond admitted Map/Bytes surface
 - Public testnet/mainnet `pf deploy --broadcast` (NEAR broadcast refused even for local)
-- Old Linux GLIBC vs locked near-sandbox (compat loader not yet Tool Lock hermetic pin)
+- Old Linux GLIBC vs locked near-sandbox: on linux-x86_64 run
+  `scripts/near_sandbox_glibc_materialize.sh` (writes Tool Root
+  `near-sandbox-glibc/`; auto-used by pf test/run). Engineering only — not
+  hermetic Tool Lock pin until digests admitted (see
+  `supply-chain/near-sandbox-glibc-linux-x86_64.v1.json`). Env override:
+  `PF_NEAR_SANDBOX_LOADER` + `PF_NEAR_SANDBOX_LIBRARY_PATH`.
 
 ## Sync vs async (read this before calling)
 

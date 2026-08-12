@@ -193,7 +193,7 @@ pf deploy -t noir|quint              # save-only; --broadcast refused
 | Solana test/run skipped | expected without monorepo harness; use `pf verify` |
 | NEAR run skipped | install near-sandbox under Tool Root; `pf setup --target near --with-runtime` |
 | CosmWasm run skipped | need cargo + `runtime-tests/cosmwasm` (monorepo) or bundle with scripts |
-| GLIBC / near-sandbox won't start on old Linux | host GLIBC too old for locked binary; see NEAR dossier / Tool Lock (compat loader not yet hermetic pin) |
+| GLIBC / near-sandbox won't start on old Linux | `scripts/near_sandbox_glibc_materialize.sh` → Tool Root `near-sandbox-glibc/` (auto-launch); or set `PF_NEAR_SANDBOX_LOADER`+`LIBRARY_PATH`. Engineering pack — not hermetic lock pin yet |
 
 ## Related
 

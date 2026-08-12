@@ -71,8 +71,12 @@ Gaps vs EVM / Solana (engineering, not formal):
    `scripts/near_runtime_test.sh`. Optional later: PoseTransform bad-input
    scale overflow (already folded into Pose suite overflow hold).
 
-Not in Phase 2: GLIBC loader → Tool Lock (product decision), view-caller,
-constants table, Map return, formal identity.
+Not in Phase 2 formal sense: full hermetic GLIBC digests in toolchains lock
+(still open). Engineering GLIBC pack path is landed:
+`scripts/near_sandbox_glibc_materialize.sh` + `scripts/lib/near_sandbox_launch.sh`
++ `supply-chain/near-sandbox-glibc-linux-x86_64.v1.json` (auto-discover; not
+hermetic pin). Also deferred: view-caller, Map return encoding story, formal
+identity.
 
 ### Phase 3 — Product surface (lite)
 

@@ -46,8 +46,14 @@ Phase 1：实现
   与 `UnixTimeCheck`（`context.unixTimeSeconds` ↔ `block_timestamp` ns÷10^9）、
   `BytesRet`（anonymous `Bytes 4` → 4×u8 tight `value_return`）。
   2026-08-11 required run 以 userspace GLIBC 2.39 loader 在 GLIBC 2.36 host 启动原始 locked
-  executable，原十套 corpus 全部 PASS；后续扩为十五套 engineering 门。该 loader 尚非 Tool Lock
-  资产，因此不是 hermetic release evidence。产品推进见 `docs/plan/near-parity-roadmap.md`。
+  executable，原十套 corpus 全部 PASS；后续扩为十五套+ engineering 门（含
+  `negative_corpus`）。**GLIBC 兼容启动（engineering）**：
+  `scripts/lib/near_sandbox_launch.sh` 统一 direct → Tool Root
+  `near-sandbox-glibc/` pack → env `PF_NEAR_SANDBOX_*`；pack 由
+  `scripts/near_sandbox_glibc_materialize.sh` 从 Ubuntu noble libc6 抽出，recipe 见
+  `supply-chain/near-sandbox-glibc-linux-x86_64.v1.json`。**不**替换 Tool Lock
+  near-sandbox 字节；digests 尚未 lock-pin，**仍不是** hermetic release evidence。
+  产品推进见 `docs/plan/near-parity-roadmap.md`。
 - **Scalar constants table**：source `const` / body `Op.Constant` 对
   UInt{8,16,32,64} / Int{8,16,32,64} / Bool 开放，预解码进 `StorageLayout` 后按 inline
   plan literal 发射；UInt128/256、aggregate、Principal const 仍 FC。空表保持 historical
@@ -328,10 +334,13 @@ digest/version probe（Darwin near-sandbox 另闭合 xz/liblzma runtime）；`wa
 load engine。missing、PATH shadow、version/hash mismatch、unknown host import/export 或结构失败
 必须 fail closed。WABT 编译不能替代 NEAR host semantics；near-sandbox acceptance 也只是外置
 Counter receipt happy path，不能替代完整 protocol profile、Reference differential 或 formal
-Stage-0 evidence。`scripts/near_runtime_test.sh` 可在 Linux 显式同时设置
-`PF_NEAR_SANDBOX_LOADER` 与 `PF_NEAR_SANDBOX_LIBRARY_PATH`，只改变原始 locked executable 的
-启动方式；它不会用 wrapper 替换 Tool Lock 路径。该外部 compatibility environment 本身未锁定
-时，只能作为 engineering runner evidence，不能升级为 hermetic release evidence。
+Stage-0 evidence。Linux GLIBC 兼容启动由 `scripts/lib/near_sandbox_launch.sh` 统一：
+direct exec → Tool Root `near-sandbox-glibc/`（`near_sandbox_glibc_materialize.sh`）→
+env `PF_NEAR_SANDBOX_LOADER` + `PF_NEAR_SANDBOX_LIBRARY_PATH`。只改变原始 locked
+executable 的启动方式；**不会**用 wrapper 替换 Tool Lock 路径。pack digests 尚未
+进入 `toolchains-linux-x86_64.lock.json` 时，只能作为 engineering runner evidence，
+不能升级为 hermetic release evidence（recipe：
+`supply-chain/near-sandbox-glibc-linux-x86_64.v1.json`）。
 
 ## 7. 部署/证明流程
 

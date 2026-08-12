@@ -1,0 +1,52 @@
+{
+  "schema": "proof-forge.near-sandbox-glibc-pack-recipe.v1",
+  "platform": "linux-x86_64",
+  "status": "engineering-observed",
+  "purpose": "Userspace GLIBC loader pack so locked near-sandbox 2.13.0 can run on hosts with older system GLIBC (e.g. Debian 12 / 2.36) without replacing Tool Lock near-sandbox bytes.",
+  "honesty": [
+    "Not hermetic Tool Lock pin yet — digests are recorded by scripts/near_sandbox_glibc_materialize.sh into MANIFEST.json at materialize time.",
+    "Runner evidence only; does not upgrade near-sandbox runtime to hermetic release evidence.",
+    "Does not claim formal Stage-0 / Reference↔sandbox closure.",
+    "Extra host libs (libssl, libgcc_s, …) may still come from the system; pack is libc6-centric."
+  ],
+  "toolRootLayout": {
+    "root": "near-sandbox-glibc/",
+    "loader": "near-sandbox-glibc/ld-linux-x86-64.so.2",
+    "libraryPath": "near-sandbox-glibc/lib/",
+    "manifest": "near-sandbox-glibc/MANIFEST.json"
+  },
+  "launchOrder": [
+    "direct exec of locked near-sandbox when host GLIBC is sufficient",
+    "Tool Root near-sandbox-glibc pack via ld-linux --library-path",
+    "env PF_NEAR_SANDBOX_LOADER + PF_NEAR_SANDBOX_LIBRARY_PATH"
+  ],
+  "sourcePackage": {
+    "name": "libc6",
+    "distro": "ubuntu",
+    "suite": "noble",
+    "versionIntent": "2.39-0ubuntu8.8",
+    "urlTemplate": "http://archive.ubuntu.com/ubuntu/pool/main/g/glibc/libc6_${version}_amd64.deb",
+    "licenseSpdx": "LGPL-2.1-or-later AND GPL-2.0-or-later",
+    "note": "Version/url match the 2026-08-11 engineering required corpus run documented in ADR-0042 / near dossier. Exact deb sha256 is filled into MANIFEST at materialize; optional PF_NEAR_GLIBC_DEB_SHA256 enforces pin."
+  },
+  "scripts": {
+    "materialize": "scripts/near_sandbox_glibc_materialize.sh",
+    "launchHelper": "scripts/lib/near_sandbox_launch.sh",
+    "consumers": [
+      "scripts/near_runtime_test.sh",
+      "scripts/pf_near_test.sh",
+      "scripts/pf_near_run.sh"
+    ]
+  },
+  "admissionPathToHermetic": [
+    "CI on Debian 12: materialize pack with PF_NEAR_GLIBC_DEB_SHA256 pin",
+    "Record MANIFEST file digests into this recipe or toolchains-linux-x86_64.lock.json companion asset",
+    "proof_forge_install.py optional step for near --with-runtime on Linux when direct exec fails",
+    "Only then claim hermetic release evidence for near-sandbox on old-GLIBC hosts"
+  ],
+  "related": [
+    "docs/targets/03-near.md",
+    "docs/adr/0042-proof-bearing-near-invariant-root-erasure.md",
+    "docs/plan/near-parity-roadmap.md"
+  ]
+}

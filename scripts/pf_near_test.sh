@@ -19,6 +19,9 @@
 #   PROOF_FORGE_ROOT         — monorepo or bundle root (auto from script parent)
 #   PROOF_FORGE_TOOL_ROOT    — Tool Lock root (near-sandbox, wat2wasm)
 #   PF_NEAR_RUNTIME_REQUIRED — set 1 to hard-fail when tools missing
+#   PF_NEAR_SANDBOX_LOADER + PF_NEAR_SANDBOX_LIBRARY_PATH — optional Linux
+#     GLIBC compat (or Tool Root near-sandbox-glibc/ auto-discover; see
+#     scripts/lib/near_sandbox_launch.sh)
 #
 # Honesty: engineering sandbox differential only — not formal, not testnet,
 # not public broadcast. Cross-contract on NEAR is async (Promise); sync call /
@@ -157,12 +160,14 @@ run_artifact_suite() {
   magic="$(head -c 4 "$wasm" | od -An -tx1 | tr -d ' \n')"
   [[ "$magic" == "0061736d" ]] || die "bad Wasm magic for $wasm ($magic)"
 
-  if ! sandbox="$(resolve_tool near-sandbox)"; then
-    skip_clean "near-sandbox not found under $PROOF_FORGE_TOOL_ROOT"
+  # shellcheck source=scripts/lib/near_sandbox_launch.sh
+  # shellcheck disable=SC1091
+  source "$root/scripts/lib/near_sandbox_launch.sh"
+  if ! near_sandbox_resolve; then
+    skip_clean "near-sandbox not runnable: $near_sandbox_compat_note"
   fi
-  if ! "$sandbox" --version >/dev/null 2>&1; then
-    skip_clean "near-sandbox not runnable on this host"
-  fi
+  sandbox="$near_sandbox_bin"
+  sandbox_command=("${near_sandbox_command[@]}")
   if ! command -v python3 >/dev/null 2>&1; then
     skip_clean "python3 not on PATH"
   fi
@@ -219,8 +224,9 @@ PY
   home="$workdir/home"
   mkdir -p "$home"
   echo "pf-near-test: [$suite] artifact=$wasm" >&2
+  echo "pf-near-test: sandbox launch=$near_sandbox_compat ($near_sandbox_compat_note)" >&2
   echo "pf-near-test: near-sandbox init --home $home" >&2
-  "$sandbox" --home "$home" init >/dev/null
+  "${sandbox_command[@]}" --home "$home" init >/dev/null
 
   rpc_port="$(pick_port)"
   net_port="$(pick_port)"
@@ -235,7 +241,7 @@ Path("$home/config.json").write_text(json.dumps(cfg, indent=2) + "\n")
 PY
 
   echo "pf-near-test: starting node rpc=127.0.0.1:${rpc_port}" >&2
-  "$sandbox" --home "$home" run >"$workdir/node.log" 2>&1 &
+  "${sandbox_command[@]}" --home "$home" run >"$workdir/node.log" 2>&1 &
   sandbox_pid=$!
   rpc="http://127.0.0.1:${rpc_port}"
   ready=0

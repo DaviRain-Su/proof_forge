@@ -499,6 +499,43 @@ fn collect_deps(target: &str) -> Vec<Dep> {
                 ],
                 path: None,
             });
+            // Linux GLIBC compat pack (engineering; not hermetic lock pin).
+            {
+                let pack = tr.as_ref().map(|t| t.join("near-sandbox-glibc"));
+                let pack_ok = pack.as_ref().is_some_and(|p| {
+                    p.join("ld-linux-x86-64.so.2").is_file() && p.join("lib").is_dir()
+                });
+                let on_linux = cfg!(target_os = "linux");
+                if pack_ok {
+                    deps.push(Dep {
+                        id: "near-sandbox-glibc",
+                        status: "ok",
+                        summary: "engineering GLIBC pack under Tool Root (auto-launch; not hermetic pin)".into(),
+                        install: vec![],
+                        path: pack.map(|p| p.display().to_string()),
+                    });
+                } else if on_linux {
+                    deps.push(Dep {
+                        id: "near-sandbox-glibc",
+                        status: "info",
+                        summary: "optional userspace GLIBC pack if locked near-sandbox needs newer GLIBC than host".into(),
+                        install: vec![
+                            "scripts/near_sandbox_glibc_materialize.sh".into(),
+                            "# or: PF_NEAR_SANDBOX_LOADER=… PF_NEAR_SANDBOX_LIBRARY_PATH=…".into(),
+                            "# see supply-chain/near-sandbox-glibc-linux-x86_64.v1.json".into(),
+                        ],
+                        path: None,
+                    });
+                } else {
+                    deps.push(Dep {
+                        id: "near-sandbox-glibc",
+                        status: "info",
+                        summary: "GLIBC compat pack is linux-x86_64 only (this host uses direct near-sandbox)".into(),
+                        install: vec![],
+                        path: None,
+                    });
+                }
+            }
             deps.push(Dep {
                 id: "near-broadcast",
                 status: "info",

@@ -7,6 +7,8 @@
 #   PF_NEAR_ARGS           — space-separated u64 decimals (optional)
 #   PF_NEAR_MODE           — call | view  (default: auto from method name)
 #   PROOF_FORGE_TOOL_ROOT  — Tool Lock root (near-sandbox)
+#   PF_NEAR_SANDBOX_LOADER + PF_NEAR_SANDBOX_LIBRARY_PATH — optional Linux
+#     GLIBC compat; or Tool Root near-sandbox-glibc/ (see near_sandbox_launch.sh)
 #
 # Honesty: engineering sandbox only — not testnet/mainnet, not formal.
 # Sync call / transfer stay FC at the compiler; this only drives one contract method.
@@ -85,9 +87,14 @@ else
 fi
 [[ -n "$wasm" && -f "$wasm" ]] || die "no *.wasm under $artifact_dir"
 
-if ! sandbox="$(resolve_tool near-sandbox)"; then
-  skip_clean "near-sandbox not found under $PROOF_FORGE_TOOL_ROOT"
+# shellcheck source=scripts/lib/near_sandbox_launch.sh
+# shellcheck disable=SC1091
+source "$root/scripts/lib/near_sandbox_launch.sh"
+if ! near_sandbox_resolve; then
+  skip_clean "near-sandbox not runnable: $near_sandbox_compat_note"
 fi
+sandbox="$near_sandbox_bin"
+sandbox_command=("${near_sandbox_command[@]}")
 if ! command -v python3 >/dev/null 2>&1; then
   skip_clean "python3 not on PATH"
 fi
@@ -133,7 +140,8 @@ trap cleanup EXIT
 
 home="$workdir/home"
 mkdir -p "$home"
-"$sandbox" --home "$home" init >/dev/null
+echo "pf-near-run: sandbox launch=$near_sandbox_compat ($near_sandbox_compat_note)" >&2
+"${sandbox_command[@]}" --home "$home" init >/dev/null
 rpc_port="$(pick_port)"
 net_port="$(pick_port)"
 python3 - <<PY
@@ -146,7 +154,7 @@ cfg.setdefault("network", {})["boot_nodes"] = ""
 Path("$home/config.json").write_text(json.dumps(cfg, indent=2) + "\n")
 PY
 
-"$sandbox" --home "$home" run >"$workdir/node.log" 2>&1 &
+"${sandbox_command[@]}" --home "$home" run >"$workdir/node.log" 2>&1 &
 sandbox_pid=$!
 rpc="http://127.0.0.1:${rpc_port}"
 ready=0
