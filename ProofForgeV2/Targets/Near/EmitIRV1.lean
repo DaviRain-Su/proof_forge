@@ -1217,6 +1217,56 @@ def validateWATModuleHostImportsV1 (ir : IR) : CompileResult Unit := do
 def WATModuleHostImportsSafeV1 (ir : IR) : Prop :=
   validateWATModuleHostImportsV1 ir = .ok ()
 
+/-- Every internal `callFn` rendered by one typed Operation resolves to the
+    indexed production FnIR row with its exact Wasm parameter arity. -/
+private partial def operationFnReferencesValidV1
+    (fns : Array FnIR) : Operation → Bool
+  | .callFn fnIndex _ args =>
+      match fns[fnIndex]? with
+      | some fn => args.size == fn.paramCount
+      | none => false
+  | .ifRegion _ thenOps elseOps =>
+      thenOps.all (operationFnReferencesValidV1 fns) &&
+        elseOps.all (operationFnReferencesValidV1 fns)
+  | .switchRegion _ cases defaultOps =>
+      cases.all (fun (_, caseOps) =>
+        caseOps.all (operationFnReferencesValidV1 fns)) &&
+        defaultOps.all (operationFnReferencesValidV1 fns)
+  | .forRegion _ _ _ _ condOps _ bodyOps updateOps _ =>
+      condOps.all (operationFnReferencesValidV1 fns) &&
+        bodyOps.all (operationFnReferencesValidV1 fns) &&
+        updateOps.all (operationFnReferencesValidV1 fns)
+  | _ => true
+
+private def fnRowsBoundToPlanV1 (ir : IR) : Bool :=
+  ir.fns.size == ir.sourcePlan.fns.size &&
+    (ir.fns.zip ir.sourcePlan.fns).all (fun pair =>
+      pair.1.name == pair.2.name &&
+        pair.1.paramCount == pair.2.params.size &&
+        pair.1.resultIsBool == pair.2.resultIsBool &&
+        pair.1.paramCount <= pair.1.tempCount)
+
+/-- Fail-closed complete-module pureFn reference consistency. The canonical
+    Plan owns source-order function identities/signatures; every FnIR row keeps
+    that index binding and every recursively nested call resolves with exact
+    arity. Therefore the production renderer's `$fn_<name>` lookup cannot take
+    its invalid-IR `unknown` fallback after successful validation. -/
+def validateWATModuleFnReferencesV1 (ir : IR) : CompileResult Unit := do
+  validatePlan ir.sourcePlan
+  unless fnRowsBoundToPlanV1 ir do
+    throw <| .planInvariant .near
+      "typed NEAR IR WAT pureFn table is not exactly bound to source Plan signatures"
+  unless ir.methods.all (fun method =>
+        method.operations.all (operationFnReferencesValidV1 ir.fns)) &&
+      ir.fns.all (fun fn =>
+        fn.operations.all (operationFnReferencesValidV1 ir.fns)) do
+    throw <| .planInvariant .near
+      "typed NEAR IR WAT pureFn call has a dangling index or wrong arity"
+
+/-- Proof-relevant successful pureFn table/reference validation. -/
+def WATModuleFnReferencesSafeV1 (ir : IR) : Prop :=
+  validateWATModuleFnReferencesV1 ir = .ok ()
+
 /-- First-seen order of schedule receiver/method strings across the IR. The
     renderer and module-memory validator share this sole collection path. -/
 private partial def collectPromiseStringsFromOps
@@ -1544,6 +1594,7 @@ private def validateIRCore (ir : IR) : CompileResult Unit := do
 def validateIR (ir : IR) : CompileResult Unit := do
   validateIRCore ir
   validateWATModuleHostImportsV1 ir
+  validateWATModuleFnReferencesV1 ir
   validateWATModuleMemoryV1 ir
 
 /-- Successful production IR validation exposes the canonical host-import and
@@ -1565,6 +1616,30 @@ theorem validateIR_watModuleHostImportsSafeV1
           cases result
           exact himports
 
+/-- Successful production IR validation exposes the source-order pureFn table
+    and recursive internal-call reference certificate. -/
+theorem validateIR_watModuleFnReferencesSafeV1
+    (ir : IR)
+    (hvalidate : validateIR ir = .ok ()) :
+    WATModuleFnReferencesSafeV1 ir := by
+  unfold validateIR at hvalidate
+  cases hcore : validateIRCore ir with
+  | error error =>
+      simp [hcore, Bind.bind, Except.bind] at hvalidate
+  | ok result =>
+      cases result
+      cases himports : validateWATModuleHostImportsV1 ir with
+      | error error =>
+          simp [hcore, himports, Bind.bind, Except.bind] at hvalidate
+      | ok result =>
+          cases result
+          cases hfns : validateWATModuleFnReferencesV1 ir with
+          | error error =>
+              simp [hcore, himports, hfns, Bind.bind, Except.bind] at hvalidate
+          | ok result =>
+              cases result
+              exact hfns
+
 /-- Successful production IR validation exposes the complete generated-module
     memory/data certificate without replaying a second validator. -/
 theorem validateIR_watModuleMemorySafeV1
@@ -1582,8 +1657,13 @@ theorem validateIR_watModuleMemorySafeV1
           simp [hcore, himports, Bind.bind, Except.bind] at hvalidate
       | ok result =>
           cases result
-          simpa [WATModuleMemorySafeV1, hcore, himports, Bind.bind,
-            Except.bind] using hvalidate
+          cases hfns : validateWATModuleFnReferencesV1 ir with
+          | error error =>
+              simp [hcore, himports, hfns, Bind.bind, Except.bind] at hvalidate
+          | ok result =>
+              cases result
+              simpa [WATModuleMemorySafeV1, hcore, himports, hfns, Bind.bind,
+                Except.bind] using hvalidate
 
 private def makeIR (plan : Plan) : IR :=
   let keys := makeKeyRegions plan
@@ -3210,6 +3290,7 @@ structure ValidatedReadOnlyWATModuleEmissionV1
   moduleEmission : WATModuleEmissionV1 ir watText
   irValidation : validateIR ir = .ok ()
   moduleHostImportsSafety : WATModuleHostImportsSafeV1 ir
+  moduleFnReferencesSafety : WATModuleFnReferencesSafeV1 ir
   moduleMemorySafety : WATModuleMemorySafeV1 ir
   methodEmission :
     ValidatedReadOnlyMethodWATEmissionV1 ir methodIndex method watText
@@ -3655,6 +3736,8 @@ theorem validatedReadOnlyWATModuleEmissionV1_of_irEmissionV1
         methodText hmethodEmission.1.1
     irValidation := irEmissionV1_validateIR ir files hirEmission
     moduleHostImportsSafety := validateIR_watModuleHostImportsSafeV1 ir <|
+      irEmissionV1_validateIR ir files hirEmission
+    moduleFnReferencesSafety := validateIR_watModuleFnReferencesSafeV1 ir <|
       irEmissionV1_validateIR ir files hirEmission
     moduleMemorySafety := validateIR_watModuleMemorySafeV1 ir <|
       irEmissionV1_validateIR ir files hirEmission

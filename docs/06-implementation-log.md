@@ -15217,3 +15217,20 @@ normative: false
   WAT重新提取 call，也不证明 imported host函数的执行语义、`wat2wasm`、Wasm binary或 NEAR runtime
   refinement；整体 assurance仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR internal pureFn reference consistency
+
+- `validateWATModuleFnReferencesV1` 对 complete generated typed IR执行 fail-closed internal-call检查：
+  pureFn table必须按 source Plan顺序保留 exact name/parameter arity/result-kind binding，且 methods与
+  pureFns中每个 `callFn`（含 nested `if`/`switch`/`for`）的 index必须解析到真实 `FnIR` row、实参数量
+  必须等于该 row的 Wasm parameter arity。成功后 production renderer的 `$fn_unknown` malformed-IR
+  fallback不可达。
+- production `validateIR` 已组合该 gate；成功验证可投影为
+  `WATModuleFnReferencesSafeV1` kernel witness并由 complete-module emission carrier保留。真实
+  pureFn production IR正例，以及 forged source signature、nested dangling index、wrong arity和完整
+  `validateIR` rejection负例已固定。Plan→IR operations exact binding仍由既有唯一
+  `validateIRCore` / `expectedFns` 路径负责，没有新增 lowering、renderer或 validator authority。
+- 该 slice只证明 generated typed module的内部函数表/调用依赖一致性，不解释 pureFn执行，也不从
+  textual WAT提取 symbol/call；它不证明 WAT parser/consumer、locked `wat2wasm`、Wasm binary或 NEAR
+  runtime refinement。没有新增 DSL State/Effect/evaluator/step；整体 assurance仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

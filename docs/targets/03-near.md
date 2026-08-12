@@ -265,6 +265,15 @@ Phase 1：实现
   schedule IR正例，以及 undeclared promise/nested timestamp import负例已固定。该 gate验证 typed IR
   dependency coverage，不解析 textual WAT、不重新实现 renderer，也不证明 host implementation、Wasm
   或 NEAR execution semantics。
+- **internal pureFn reference consistency（Phase 7 第二十切）**：
+  `validateWATModuleFnReferencesV1` 要求 production FnIR table与 canonical source Plan按 source order
+  保持 exact name/parameter arity/result-kind binding，并递归检查 methods/pureFns内所有
+  `callFn`（包括 nested `if`/`switch`/`for`）都解析到真实 row且实参数量等于该 row的 Wasm parameter
+  arity。production `validateIR` 已组合该 gate；成功验证投影为
+  `WATModuleFnReferencesSafeV1` kernel witness并由 complete-module carrier保留，因此 renderer的
+  `$fn_unknown` malformed-IR fallback在 validated IR上不可达。真实 production IR与 forged
+  signature/dangling index/wrong arity负例已固定。该 gate不解释 pureFn、不解析 textual WAT，也不
+  证明 `wat2wasm`、Wasm binary或 NEAR execution semantics。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -341,7 +350,9 @@ target success/return/log/promise/storage facts已由 strict adapter按同字段
 子集已由 production renderer直接消费，并把 exact typed lowering/emission/execution 与 sole Reference
 step连接；该 exact typed sequence也已通过 bounded typed-WAT static validator，且 complete production
 WAT现有选中 method fragment的 direct exact-render identity；完整 generated WAT也已由同一 validated
-IR拥有 exact module opener/imports/memory/data/pureFn/method/closing framing identity。该结果仍不是一般
+IR拥有 exact module opener/imports/memory/data/pureFn/method/closing framing identity；module-level
+memory footprint、canonical host-import dependencies与 nested internal pureFn references也已有
+proof-relevant validation witness。该结果仍不是一般
 Operation/WAT semantics：尚无 textual WAT parser/general module validator、surrounding function body
 通用 typed semantics、arbitrary linear memory、完整 NEAR host ABI、locked `wat2wasm`
 correctness、Wasm binary

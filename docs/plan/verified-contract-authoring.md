@@ -1201,8 +1201,11 @@ expression translator：
     进入同一 validation chain：feature-derived Plan imports、IR exact binding，以及 methods/pureFns中
     所有 nested typed Operation 的 renderer host-call requirements必须一致，证书由 complete-module
     carrier保留。它仍不是 textual WAT parser、call extraction或 host/linear-memory execution semantics。
-    下一顺序是 pureFn call dependency/reference、method/export ordering等 module-level typed consistency，
-    再进入 locked `wat2wasm`可信 identity边界、Wasm binary execution与完整 NEAR host simulation。
+    internal pureFn reference consistency也已进入该 chain：source-order FnIR signature binding以及
+    methods/pureFns中所有 nested `callFn` 的 resolvable index/exact arity必须成立，成功 validation的
+    kernel witness由 complete-module carrier保留，使 renderer的 unknown-function fallback在 validated
+    IR上不可达。下一顺序是显式收束 method/export name、identity与 ordering证书，再进入 locked
+    `wat2wasm`可信 identity边界、Wasm binary execution与完整 NEAR host simulation。
     上述各层未闭合前，完整 WAT文本、Wasm binary和最终 NEAR artifact仍不得标记为 target-refined或
     artifact verified。
 

@@ -1029,6 +1029,48 @@ private unsafe def testFnLocalCallSemanticPlans : IO Unit := do
       nearIR.methods[1]!.operations.any (fun
       | .callFn .. => true | _ => false))
     "NEAR recipe IR must carry fn bodies and callFn ops"
+  match Targets.Near.validateWATModuleFnReferencesV1 nearIR with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError
+        s!"production NEAR pureFn references must validate: {error.render}"
+  let wrongNearFnSignature := {
+    nearIR.fns[0]! with paramCount := nearIR.fns[0]!.paramCount + 1
+  }
+  match Targets.Near.validateWATModuleFnReferencesV1
+      (Targets.Near.withFns nearIR (nearIR.fns.set! 0 wrongNearFnSignature)) with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR WAT module validation must reject a forged pureFn signature"
+  let danglingNestedNearCall := {
+    nearIR.methods[1]! with
+    operations := #[.ifRegion 0 #[.callFn nearIR.fns.size 0 #[]] #[]]
+  }
+  let danglingNestedNearIR :=
+    Targets.Near.withMethods nearIR
+      (nearIR.methods.set! 1 danglingNestedNearCall)
+  match Targets.Near.validateWATModuleFnReferencesV1
+      danglingNestedNearIR with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR WAT module validation must reject a nested dangling pureFn call"
+  match Targets.Near.validateIR danglingNestedNearIR with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "production NEAR IR validation must reject a nested dangling pureFn call"
+  let wrongArityNearCall := {
+    nearIR.methods[1]! with operations := #[.callFn 0 0 #[]]
+  }
+  match Targets.Near.validateWATModuleFnReferencesV1
+      (Targets.Near.withMethods nearIR
+        (nearIR.methods.set! 1 wrongArityNearCall)) with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR WAT module validation must reject a wrong-arity pureFn call"
 
   let evmOutput ← liftResult <| materializeSelected TargetId.evm compiled
   let solanaOutput ← liftResult <| materializeSelected TargetId.solana compiled
