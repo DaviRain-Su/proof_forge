@@ -109,9 +109,8 @@ structure TokenTransferLoweringContractV1 where
     `account_balance` is u128 yoctoNEAR. Shared pf.assets env-read result is
     UInt64 across all targets, so NEAR keeps the hi64-zero trap (no truncation).
     Ordinary funded accounts often hold ≫ 2^64 yoctoNEAR and will trap.
-    A future catalog method (e.g. UInt128 raw balance or explicit milliNEAR
-    downscale with stated rounding) requires an extension version bump — do
-    not widen this method in place. -/
+    Full-width path: `pf.assets.native.balanceOfSelfU128` under `pf.assets@1.2.0`
+    returns UInt128 with no hi64 trap. Do not widen this UInt64 method in place. -/
 structure EnvReadLoweringContractV1 where
   /-- Native balance: host `account_balance(balance_ptr)` writes u128 LE
       (same ABI shape as `attached_deposit`: one pointer param, void return). -/
@@ -197,6 +196,10 @@ def envReadBindingsV1 : Array EnvReadBindingV1 :=
     { qn := "pf.assets.native.balanceOfSelf"
       packageId := nativeValuePackageIdV1
       loweringContract := envReadLoweringContractV1
+      admittedForMaterialization := true },
+    { qn := "pf.assets.native.balanceOfSelfU128"
+      packageId := nativeValuePackageIdV1
+      loweringContract := envReadLoweringContractV1
       admittedForMaterialization := true }
   ]
 
@@ -207,7 +210,8 @@ def isNearAdmittedPfAssetsQnV1 (qn : String) : Bool :=
   qn == "pf.assets.native.deposit" ||
     qn == "pf.assets.native.transferAsync" ||
     qn == "pf.assets.token.transferAsync" ||
-    qn == "pf.assets.native.balanceOfSelf"
+    qn == "pf.assets.native.balanceOfSelf" ||
+    qn == "pf.assets.native.balanceOfSelfU128"
 
 /-- Full catalog membership (five QNs); non-admitted members fail closed at Plan. -/
 def isPfAssetsCatalogQnV1 (qn : String) : Bool :=

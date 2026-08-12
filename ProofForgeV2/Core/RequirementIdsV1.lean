@@ -174,6 +174,18 @@ def pfAssetsExtensionVersionV1_1 : String := "1.1.0"
 def pfAssetsExtensionDigestV1_1 : String :=
   "sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
 
+/-- Frozen canonical SemVer spelling for the `pf.assets@1.2.0` extension
+    declaration (NEAR native full-width balance). Adds
+    `pf.assets.native.balanceOfSelfU128` (result UInt128). Additive: 1.1.0
+    programs keep working; the U128 QN requires the 1.2.0 declaration. -/
+def pfAssetsExtensionVersionV1_2 : String := "1.2.0"
+
+/-- Frozen domain-separated digest of the exact `pf.assets@1.2.0` extension JCS
+    (`SHA-256("pf.extension-semantics.v1" || NUL || extensionJcs)` over
+    `docs/specs/pf-assets-extension-v1.2.json`). -/
+def pfAssetsExtensionDigestV1_2 : String :=
+  "sha256:48a7b7b49a5dae57c503dbdb72257882801420a74239ec4874c15f566ae85945"
+
 /-- Wire exact-row id for the `pf.assets` extension declaration
     (domain `pf.extension-semantics.v1`). Shared by both accepted versions;
     the wire row carries the declared version/digest. -/
@@ -195,7 +207,8 @@ def pfAssetsCatalogQualifiedNamesV1 : Array String :=
     They REQUIRE the 1.1.0 declaration; v1.0.0 programs using them fail
     closed. `typedCallReturn` is `env-read-family-only`. -/
 def pfAssetsEnvReadQualifiedNamesV1 : Array String :=
-  #["pf.assets.native.balanceOfSelf", "pf.assets.token.balanceOfSelf"]
+  #["pf.assets.native.balanceOfSelf", "pf.assets.token.balanceOfSelf",
+    "pf.assets.native.balanceOfSelfU128"]
 
 /-- True when the qualified-name string is one of the two env-read catalog
     QNs (ADR-0030 E2). -/
@@ -208,18 +221,21 @@ def isPfAssetsEnvReadQnV1 (qn : String) : Bool :=
 inductive PfAssetsEnvReadFamilyV1 where
   | nativeBalance
   | tokenBalance
+  /-- Full-width native vault balance (UInt128 result). -/
+  | nativeBalanceU128
   deriving BEq, Repr, Inhabited
 
 /-- Resolve a qualified-name string to its env-read family tag, if any. -/
 def pfAssetsEnvReadFamilyOfV1 (qn : String) : Option PfAssetsEnvReadFamilyV1 :=
   if qn == "pf.assets.native.balanceOfSelf" then some .nativeBalance
   else if qn == "pf.assets.token.balanceOfSelf" then some .tokenBalance
+  else if qn == "pf.assets.native.balanceOfSelfU128" then some .nativeBalanceU128
   else none
 
 /-- Expected argument count for an env-read family member. -/
 def pfAssetsEnvReadArityV1 (family : PfAssetsEnvReadFamilyV1) : Nat :=
   match family with
-  | .nativeBalance => 0
+  | .nativeBalance | .nativeBalanceU128 => 0
   | .tokenBalance => 1
 
 /-- Closed engineering extension identity: source triple + wire row id. -/
@@ -254,15 +270,24 @@ def pfAssetsExtensionIdentityV1_1 : EngineeringExtensionIdentityV1 :=
     digest := pfAssetsExtensionDigestV1_1
     wireRequirementId := wireExtensionPfAssetsIdV1 }
 
+/-- Portable assets extension identity v1.2.0 (adds balanceOfSelfU128).
+    Same wire row id; requirement row carries the declared version/digest. -/
+def pfAssetsExtensionIdentityV1_2 : EngineeringExtensionIdentityV1 :=
+  { sourceId := pfAssetsExtensionSourceIdV1
+    version := pfAssetsExtensionVersionV1_2
+    digest := pfAssetsExtensionDigestV1_2
+    wireRequirementId := wireExtensionPfAssetsIdV1 }
+
 /-- Sole closed table of admitted engineering extension identities.
     Order is stable for diagnostics (first-known for expected values); membership
     is exact source-id lookup. Dual distinct ids in one program are legal.
-    ADR-0030 E2 cutover: `pf.assets@1.1.0` is the sole accepted pf.assets
-    triple (the v1.0.0 declaration fails closed); the wire row id stays
-    `extension.pf-assets` and the requirement row carries the 1.1.0
-    version/digest. -/
+    ADR-0030 E2 + U128 cutover: `pf.assets@1.1.0` and `pf.assets@1.2.0` are
+    the accepted pf.assets triples (v1.0.0 fails closed). Wire row id stays
+    `extension.pf-assets`; the requirement row carries the declared
+    version/digest (1.1.0 default seed; 1.2.0 when U128 balance is used). -/
 def engineeringExtensionIdentitiesV1 : Array EngineeringExtensionIdentityV1 :=
-  #[solanaCpiAccountsExtensionIdentityV1, pfAssetsExtensionIdentityV1_1]
+  #[solanaCpiAccountsExtensionIdentityV1, pfAssetsExtensionIdentityV1_1,
+    pfAssetsExtensionIdentityV1_2]
 
 /-- Look up a closed engineering extension by exact source declaration id.
     Returns the first matching identity (stable for diagnostics). When a

@@ -462,16 +462,22 @@ def validateCommitRequirementsV1 (data : SemanticProgramDataV1) :
     commitmentDisclosureRequirementIdV1
     commitmentDisclosureRequirementV1
 
-/-- Bind every used env-read op (ADR-0030 E2 pf.assets balanceOfSelf family)
-    to the one exact extension.pf-assets requirement row. Generic requirement
-    structure/order is validated first. -/
+/-- Bind every used env-read op (ADR-0030 E2 / 1.2 U128 balanceOfSelf family)
+    to exactly one closed extension.pf-assets requirement row (1.1.0 or 1.2.0).
+    Generic requirement structure/order is validated first. -/
 def validateEnvReadRequirementsV1 (data : SemanticProgramDataV1) :
-    Except SemanticWireErrorV1 Unit :=
-  bindUsedOpToExactRequirementRow data
-    (fun
+    Except SemanticWireErrorV1 Unit := do
+  unless anyUsedOpV1 data (fun
       | .envRead _ _ => true
-      | _ => false)
-    pfAssetsExtensionRequirementIdV1
-    pfAssetsExtensionRequirementV1
+      | _ => false) do return
+  -- Prefer matching the program's retained row against either closed seed.
+  let mut found := false
+  for item in data.requirements.items do
+    if item.id == pfAssetsExtensionRequirementIdV1 then
+      unless isExactPfAssetsExtensionRequirementV1 item do
+        return ← err .badRequirement
+      if found then return ← err .badRequirement
+      found := true
+  unless found do return ← err .badRequirement
 
 end ProofForgeV2.Semantic.WireV1

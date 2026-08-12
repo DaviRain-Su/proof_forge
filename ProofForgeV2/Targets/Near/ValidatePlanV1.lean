@@ -63,6 +63,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .blockTimestampSeconds => some 1
     | .blockIndex => some 1
     | .accountBalance => some 1
+    | .accountBalanceU128 => some 1
     -- ADR-0031 S1: context.caller Principal leaves (len + wordIndex ∈ 0..7).
     | .callerPrincipalLen => some 1
     | .callerPrincipalWord wordIndex =>

@@ -2262,6 +2262,7 @@ def encodeUnaryOpV1 : UnaryOpV1 → Except SemanticWireErrorV1 ByteArray
 def encodeEnvReadKeyV1 : EnvReadKeyV1 → Except SemanticWireErrorV1 ByteArray
   | .nativeVaultBalance => encodeNullary "EnvRead.NativeVaultBalance"
   | .tokenVaultBalance => encodeNullary "EnvRead.TokenVaultBalance"
+  | .nativeVaultBalanceU128 => encodeNullary "EnvRead.NativeVaultBalanceU128"
 
 def decodeEnvReadKeyV1 : Decoder EnvReadKeyV1 := withTaggedNesting fun c => do
   let (tag, c) ← decodeTag c
@@ -2269,6 +2270,7 @@ def decodeEnvReadKeyV1 : Decoder EnvReadKeyV1 := withTaggedNesting fun c => do
   match tag with
   | "EnvRead.NativeVaultBalance" => pure (.nativeVaultBalance, c)
   | "EnvRead.TokenVaultBalance" => pure (.tokenVaultBalance, c)
+  | "EnvRead.NativeVaultBalanceU128" => pure (.nativeVaultBalanceU128, c)
   | _ => err .badTag
 
 def decodeUnaryOpV1 : Decoder UnaryOpV1 := withTaggedNesting fun c => do

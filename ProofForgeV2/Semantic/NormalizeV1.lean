@@ -2294,23 +2294,35 @@ private partial def lowerExpr
       let ctorQn := sourceQualifiedNameStringV1 ctor
       -- ADR-0030 E2: env-read catalog QNs (pf.assets.*.balanceOfSelf) lower to
       -- Op.envRead. These are the first non-Unit catalog members
-      -- (expression-position only, result UInt64, effect-free, view-callable).
+      -- (expression-position only, result UInt64/UInt128, effect-free, view-callable).
       match pfAssetsEnvReadFamilyOfV1 ctorQn with
       | some family => do
-          -- Result is always UInt64; the enclosing expected type must match.
-          let (iU64, u64Tid) := internShape st.interner (.uint 64)
-          let st0 := { st with interner := iU64 }
-          unless u64Tid == expectedTid do
+          -- Result width depends on family: UInt64 for the original pair,
+          -- UInt128 for balanceOfSelfU128. Enclosing expected type must match.
+          let resultWidth : UInt16 :=
+            match family with
+            | .nativeBalanceU128 => 128
+            | .nativeBalance | .tokenBalance => 64
+          let (iRes, resTid) := internShape st.interner (.uint resultWidth)
+          let st0 := { st with interner := iRes }
+          unless resTid == expectedTid do
             return ← failUnsupported
-              "S1 env-read catalog call result type must be UInt64"
+              s!"S1 env-read catalog call result type must be UInt{resultWidth.toNat}"
           match family with
           | .nativeBalance => do
               unless args.isEmpty do
                 return ← failUnsupported
                   "S1 pf.assets.native.balanceOfSelf takes no arguments"
-              let (st1, vid) := emitValue st0 u64Tid
+              let (st1, vid) := emitValue st0 resTid
                 (.envRead .nativeVaultBalance #[])
-              pure (vid, u64Tid, st1)
+              pure (vid, resTid, st1)
+          | .nativeBalanceU128 => do
+              unless args.isEmpty do
+                return ← failUnsupported
+                  "S1 pf.assets.native.balanceOfSelfU128 takes no arguments"
+              let (st1, vid) := emitValue st0 resTid
+                (.envRead .nativeVaultBalanceU128 #[])
+              pure (vid, resTid, st1)
           | .tokenBalance => do
               unless args.size == 1 do
                 return ← failUnsupported
@@ -2325,9 +2337,9 @@ private partial def lowerExpr
                 unless mintTid == pTid do
                   return ← failUnsupported
                     "S1 pf.assets.token.balanceOfSelf mint argument must be a Principal"
-                let (st3, vid) := emitValue st2 u64Tid
+                let (st3, vid) := emitValue st2 resTid
                   (.envRead .tokenVaultBalance #[mintVid])
-                pure (vid, u64Tid, st3)
+                pure (vid, resTid, st3)
               else
                 failUnsupported
                   "S1 pf.assets.token.balanceOfSelf mint argument missing"
@@ -3683,7 +3695,8 @@ private def insertRequirementSortedV1
 private def mergeWireOwnedRequirementsV1
     (s2 : ProgramRequirementsV1)
     (usedUnixTime usedCaller usedBlockHeight usedChainId usedSelf usedCommit
-      usedSolanaCpiExtension usedPfAssetsExtension : Bool) :
+      usedSolanaCpiExtension : Bool)
+    (pfAssetsDeclaredVersion? : Option String) :
     Except NormalizeErrorV1 ProgramRequirementsV1 := do
   let mut items := s2.items
   if usedUnixTime then
@@ -3714,10 +3727,13 @@ private def mergeWireOwnedRequirementsV1
     match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => items := insertRequirementSortedV1 items row
     | .error e => return ← failUnsupported s!"Solana CPI extension requirement row: {e}"
-  if usedPfAssetsExtension then
-    match pfAssetsExtensionRequirementV1 with
-    | .ok row => items := insertRequirementSortedV1 items row
-    | .error e => return ← failUnsupported s!"pf.assets extension requirement row: {e}"
+  -- Mint the exact declared pf.assets version (1.1.0 or 1.2.0).
+  match pfAssetsDeclaredVersion? with
+  | some ver =>
+      match pfAssetsExtensionRequirementForVersionV1 ver with
+      | .ok row => items := insertRequirementSortedV1 items row
+      | .error e => return ← failUnsupported s!"pf.assets extension requirement row: {e}"
+  | none => pure ()
   pure { items }
 
 /-- Compile-time constant evaluator for `const` declarations (engineering
@@ -3929,7 +3945,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   let mut usedContextSelf := false
   let mut usedCommit := false
   let mut usedSolanaCpiExtension := false
-  let mut usedPfAssetsExtension := false
+  let mut pfAssetsDeclaredVersion? : Option String := none
   for item in program.items do
     match item with
     | .state _ => pure ()
@@ -4062,13 +4078,20 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
     | .extensionReq declaration =>
         unless isExactEngineeringExtensionV1 declaration do
           return ← failUnsupported
-            "S1 normalizer admits only exact closed engineering extension contracts (solana.cpi.accounts@1.0.0, pf.assets@1.1.0)"
+            "S1 normalizer admits only exact closed engineering extension contracts (solana.cpi.accounts@1.0.0, pf.assets@1.1.0|1.2.0)"
         match wireIdOfExactEngineeringExtensionV1 declaration with
         | some wid =>
             if wid == wireExtensionSolanaCpiAccountsIdV1 then
               usedSolanaCpiExtension := true
             else if wid == wireExtensionPfAssetsIdV1 then
-              usedPfAssetsExtension := true
+              -- At most one pf.assets declaration per program (structure already
+              -- rejects dual same-id rows); capture version for exact mint.
+              match pfAssetsDeclaredVersion? with
+              | some prev =>
+                  return ← failUnsupported
+                    s!"S1 normalizer rejects dual pf.assets declarations ({prev} and {declaration.version})"
+              | none =>
+                  pfAssetsDeclaredVersion? := some declaration.version
             else
               return ← failUnsupported
                 s!"S1 normalizer closed extension wire id not wired for mint: {wid}"
@@ -4102,7 +4125,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   -- call. Sort by UTF-8 id so the structure gate order holds.
   let requirements ← mergeWireOwnedRequirementsV1 s2Reqs usedContextUnixTime
     usedContextCaller usedContextBlockHeight usedContextChainId usedContextSelf
-    usedCommit usedSolanaCpiExtension usedPfAssetsExtension
+    usedCommit usedSolanaCpiExtension pfAssetsDeclaredVersion?
   pure {
     qualifiedName := qn
     types := interner.types

@@ -1227,9 +1227,6 @@ private def validateIdentity (c : SolanaCpiPlanCandidateV1) : CompileResult Unit
   unless digestsEqual c.calleeCatalogDigest expectedCatalog do
     planFail "calleeCatalogDigest must equal frozen pf.solana.callee-catalog.v1 digest"
   let expectedExt ← mapExcept expectedExtensionRequirementV1 "extensionRequirement"
-  let expectedPf ← match pfAssetsExtensionRequirementV1 with
-    | .ok r => pure r
-    | .error e => planFail s!"pf.assets extension seed: {e}"
   let expectedCaller ← match callerContextRequirementV1 with
     | .ok r => pure r
     | .error e => planFail s!"context.caller requirement seed: {e}"
@@ -1241,10 +1238,7 @@ private def validateIdentity (c : SolanaCpiPlanCandidateV1) : CompileResult Unit
       c.extensionRequirement.version == expectedExt.version &&
       digestsEqual c.extensionRequirement.digest expectedExt.digest &&
       c.extensionRequirement.predicates == expectedExt.predicates) ||
-    (c.extensionRequirement.id == expectedPf.id &&
-      c.extensionRequirement.version == expectedPf.version &&
-      digestsEqual c.extensionRequirement.digest expectedPf.digest &&
-      c.extensionRequirement.predicates == expectedPf.predicates) ||
+    isExactPfAssetsExtensionRequirementV1 c.extensionRequirement ||
     (c.extensionRequirement.id == expectedCaller.id &&
       c.extensionRequirement.version == expectedCaller.version &&
       digestsEqual c.extensionRequirement.digest expectedCaller.digest &&
@@ -1905,6 +1899,7 @@ private def validateEnvReadSites (c : SolanaCpiPlanCandidateV1) :
         -- but we don't enforce 0 to keep the structure uniform; the IR/emitter
         -- ignore them. The key constraint is vault role only.
         pure ()
+
     | .tokenVaultBalance =>
         -- Token: vaultAta must be .vaultAta, mint must be .accountParameter,
         -- program roles must be .fixedProgram with exact package ids.
@@ -2080,9 +2075,6 @@ private def validateProductIdentity
   unless digestsEqual c.calleeCatalogDigest expectedCatalog do
     planFail "product calleeCatalogDigest must equal active catalog digest"
   let expectedExt ← mapExcept expectedExtensionRequirementV1 "extensionRequirement"
-  let expectedPf ← match pfAssetsExtensionRequirementV1 with
-    | .ok r => pure r
-    | .error e => planFail s!"pf.assets extension seed: {e}"
   let expectedCaller ← match callerContextRequirementV1 with
     | .ok r => pure r
     | .error e => planFail s!"context.caller requirement seed: {e}"
@@ -2094,10 +2086,7 @@ private def validateProductIdentity
       c.extensionRequirement.version == expectedExt.version &&
       digestsEqual c.extensionRequirement.digest expectedExt.digest &&
       c.extensionRequirement.predicates == expectedExt.predicates) ||
-    (c.extensionRequirement.id == expectedPf.id &&
-      c.extensionRequirement.version == expectedPf.version &&
-      digestsEqual c.extensionRequirement.digest expectedPf.digest &&
-      c.extensionRequirement.predicates == expectedPf.predicates) ||
+    isExactPfAssetsExtensionRequirementV1 c.extensionRequirement ||
     (c.extensionRequirement.id == expectedCaller.id &&
       c.extensionRequirement.version == expectedCaller.version &&
       digestsEqual c.extensionRequirement.digest expectedCaller.digest &&

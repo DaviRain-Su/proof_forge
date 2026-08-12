@@ -467,9 +467,10 @@ private def fixedProgramLocal
   pure handle.localIndex
 
 /-- Convert Semantic EnvReadKeyV1 to Plan EnvReadKindV1. -/
-private def envReadKindOfKey : EnvReadKeyV1 → EnvReadKindV1
-  | .nativeVaultBalance => .nativeVaultBalance
-  | .tokenVaultBalance => .tokenVaultBalance
+private def envReadKindOfKey : EnvReadKeyV1 → Option EnvReadKindV1
+  | .nativeVaultBalance => some .nativeVaultBalance
+  | .tokenVaultBalance => some .tokenVaultBalance
+  | .nativeVaultBalanceU128 => none
 
 private def renderEnvReadKind : EnvReadKindV1 → String
   | .nativeVaultBalance => "nativeVaultBalance"
@@ -1594,13 +1595,17 @@ private def projectEscrowHandler
         | none =>
             tFail
               s!"envRead at instr {instrIdx} has no matching envRead site anchor"
-        unless envSite.kind == envReadKindOfKey key do
+        let some kind := envReadKindOfKey key |
+          tFail "nativeVaultBalanceU128 / unknown envRead key is not admitted on Solana CPI"
+        unless envSite.kind == kind do
           tFail "envRead site kind diverges from Semantic envRead key"
         -- Verify arg join
         match key with
         | .nativeVaultBalance =>
             unless args.isEmpty do
               tFail "nativeVaultBalance envRead takes zero args"
+        | .nativeVaultBalanceU128 =>
+            tFail "nativeVaultBalanceU128 is NEAR-only"
         | .tokenVaultBalance =>
             unless args.size == 1 do
               tFail "tokenVaultBalance envRead takes exactly one arg"
@@ -1614,7 +1619,7 @@ private def projectEscrowHandler
         let (t, tempOf', next') := allocTemp tempOf nextTemp vd.valueId.toNat
         tempOf := tempOf'
         nextTemp := next'
-        body := body.push (.envReadVaultBalance t (envReadKindOfKey key) vaultLocal
+        body := body.push (.envReadVaultBalance t kind vaultLocal
           vaultAtaLocal mintLocal systemLocal tokenLocal ataLocal)
     | .externalCall effectId callee args =>
         let qnComps ← mapExcept (renderQualifiedNameComponents callee) "callee QN"

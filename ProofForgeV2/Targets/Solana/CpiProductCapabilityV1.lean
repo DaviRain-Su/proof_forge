@@ -168,7 +168,8 @@ def resolveSolanaCpiProductCapabilityV1
         productCapFail s!"Solana CPI product: context.caller requirement seed failed: {e}"
 
   let hasSolanaExt := requestExact requested.items solanaExtReq
-  let hasPfAssets := requestExact requested.items pfAssetsReq
+  -- pf.assets@1.1.0 or @1.2.0 both admit (exact closed seeds).
+  let hasPfAssets := requested.items.any isExactPfAssetsExtensionRequirementV1
   let hasCallerContext := requestExact requested.items callerReq
   let hasSyncCall := requestExact requested.items syncReq
   let hasAsync :=
@@ -210,7 +211,8 @@ def resolveSolanaCpiProductCapabilityV1
       productCapFail
         s!"Solana CPI product SupportClaim must include exact '{solanaExtReq.id}'"
   if hasPfAssets then
-    unless requestExact supported pfAssetsReq do
+    -- SupportClaim carries the default 1.1 seed; either program row is ok.
+    unless supported.any (fun s => s.id == pfAssetsReq.id) do
       productCapFail
         s!"Solana CPI product SupportClaim must include exact '{pfAssetsReq.id}'"
   -- context.caller is wire-owned / target-independent: not required on SupportClaim.

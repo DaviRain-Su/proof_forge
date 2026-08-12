@@ -726,13 +726,16 @@ private partial def lowerInstructions
         unless idx.pfAssetsDeclared do
           planError
             "unsupported Quint semantic shape: pf.assets env-read requires extension.pf-assets declaration"
-        unless isUInt64Type types result.typeId do
-          planError "unsupported Quint semantic shape: envRead result must be UInt64"
         unless allowStateRead do
           planError
             "unsupported Quint semantic shape: pureFn cannot use envRead (host/model vault read is not pure)"
         match key with
+        | .nativeVaultBalanceU128 =>
+            throw <| .planInvariant .quint
+              "unsupported Quint semantic shape: nativeVaultBalanceU128 is not admitted"
         | .nativeVaultBalance =>
+            unless isUInt64Type types result.typeId do
+              planError "unsupported Quint semantic shape: envRead result must be UInt64"
             unless args.isEmpty do
               planError
                 "unsupported Quint semantic shape: nativeVaultBalance takes no arguments"

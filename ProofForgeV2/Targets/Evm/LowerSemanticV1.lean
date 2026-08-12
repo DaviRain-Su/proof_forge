@@ -3994,20 +3994,24 @@ private def lowerBlockInstructionsV1
     | .envRead key args, some result =>
         -- ADR-0030 E2-3: read-only self-vault observation (value-producing,
         -- view-callable, effect-free). Requires exact extension.pf-assets
-        -- (same gate as the catalog QNs). Result must be UInt64.
+        -- (same gate as the catalog QNs). UInt64 keys require UInt64 result;
+        -- nativeVaultBalanceU128 is NEAR-only and fails closed here.
         unless layout.pfAssetsDeclared do
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: pf.assets env-read requires extension.pf-assets declaration"
-        unless result.typeId == types.uint64TypeId do
-          throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: envRead result must be UInt64"
         -- pureFn/invariant contexts stay fail closed (envRead is a host read,
         -- not a pure expression; invariant closures forbid host reads).
         if mode == .pureFn then
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: pureFn cannot use envRead (host read is not pure)"
         match key with
+        | .nativeVaultBalanceU128 =>
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: nativeVaultBalanceU128 is NEAR-only (EVM SELFBALANCE stays UInt64 balanceOfSelf)"
         | .nativeVaultBalance =>
+            unless result.typeId == types.uint64TypeId do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: envRead result must be UInt64"
             -- SELFBALANCE opcode: zero args, view/entry-callable.
             unless args.isEmpty do
               throw <| .planInvariant .evm
@@ -4015,6 +4019,9 @@ private def lowerBlockInstructionsV1
             values := ← appendResultValueV1 result.typeId values result
               (mkScalarValueV1 .selfBalance #[] false false 64 1 1)
         | .tokenVaultBalance =>
+            unless result.typeId == types.uint64TypeId do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: envRead result must be UInt64"
             -- STATICCALL to mint address: one Principal arg (the mint).
             unless args.size == 1 do
               throw <| .planInvariant .evm

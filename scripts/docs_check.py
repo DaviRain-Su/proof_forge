@@ -150,6 +150,14 @@ PF_ASSETS_EXTENSION_V1_1_RAW_SHA256 = (
 PF_ASSETS_EXTENSION_V1_1_DOMAIN_DIGEST = (
     "59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9"
 )
+# Full-width native balance QN (UInt128). Exact superset of v1.1.0 + one API.
+PF_ASSETS_EXTENSION_V1_2_REL = "docs/specs/pf-assets-extension-v1.2.json"
+PF_ASSETS_EXTENSION_V1_2_RAW_SHA256 = (
+    "b17dc62f6bccf12843654896312010d2f9878891b2fff99393ce4d1024ff3a4b"
+)
+PF_ASSETS_EXTENSION_V1_2_DOMAIN_DIGEST = (
+    "48a7b7b49a5dae57c503dbdb72257882801420a74239ec4874c15f566ae85945"
+)
 UNRESOLVED_MARKER_RE = re.compile(
     r"\b(?:TODO|TBD)\b|待补充|待决定|待锁",
     re.IGNORECASE,
@@ -1031,6 +1039,127 @@ def validate_pf_assets_extension_v1_1_contract(
         and restrictions.get("schedule") is False
         and restrictions.get("targetImportsInFrontendOrSemantic") is False,
         relative_path, "sourceRestrictions are not exact")
+
+
+
+def validate_pf_assets_extension_v1_2_contract(
+        root: Path,
+        json_values: dict[str, Any],
+) -> None:
+    """Recompute raw SHA-256 + domain digest for pf.assets@1.2.0 payload.
+
+    Exact superset of v1.1.0 (seven API rows byte-identical) plus one
+    `balanceOfSelfU128` row (result UInt128). Same domain formula.
+    """
+    relative_path = PF_ASSETS_EXTENSION_V1_2_REL
+    value = json_values.get(relative_path)
+    _expect_pf_assets(value is not None, relative_path, "frozen payload is missing")
+    raw = read_repository_regular_bytes(root, root / relative_path, relative_path)
+    canonical = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8", errors="strict")
+    _expect_pf_assets(
+        raw == canonical, relative_path,
+        "payload is not exact canonical JCS or has a BOM/trailing newline")
+    raw_digest = hashlib.sha256(raw).hexdigest()
+    domain_digest = hashlib.sha256(PF_ASSETS_EXTENSION_DOMAIN + raw).hexdigest()
+    _expect_pf_assets(
+        raw_digest == PF_ASSETS_EXTENSION_V1_2_RAW_SHA256, relative_path,
+        f"raw SHA-256 {raw_digest} does not match pinned constant")
+    _expect_pf_assets(
+        domain_digest == PF_ASSETS_EXTENSION_V1_2_DOMAIN_DIGEST, relative_path,
+        f"domain digest {domain_digest} does not match pinned constant")
+
+    _expect_pf_assets(type(value) is dict, relative_path, "root must be an object")
+    _expect_pf_assets(
+        value.get("schema") == "proof-forge.pf-assets-extension.v1"
+        and value.get("extensionId") == "pf.assets"
+        and value.get("version") == "1.2.0",
+        relative_path, "extension root identity is not exact")
+    requirement = value.get("requirementContract")
+    _expect_pf_assets(
+        type(requirement) is dict
+        and requirement.get("id") == "extension.pf-assets"
+        and requirement.get("version") == "1.2.0"
+        and requirement.get("predicates") == []
+        and requirement.get("digestDomain") == "pf.extension-semantics.v1",
+        relative_path, "extension requirement contract is not exact")
+
+    v11_value = json_values.get(PF_ASSETS_EXTENSION_V1_1_REL)
+    _expect_pf_assets(
+        type(v11_value) is dict, relative_path,
+        "v1.1.0 payload must be present for the superset join")
+    apis = value.get("apis")
+    _expect_pf_assets(
+        type(apis) is list and len(apis) == 8, relative_path,
+        "apis must be exactly eight portable L1 rows")
+    expected_qns = [
+        "pf.assets.native.deposit",
+        "pf.assets.native.transfer",
+        "pf.assets.native.transferAsync",
+        "pf.assets.token.transfer",
+        "pf.assets.token.transferAsync",
+        "pf.assets.native.balanceOfSelf",
+        "pf.assets.token.balanceOfSelf",
+        "pf.assets.native.balanceOfSelfU128",
+    ]
+    expected_results = [
+        "Unit", "Unit", "Unit", "Unit", "Unit", "UInt64", "UInt64", "UInt128",
+    ]
+    for index, api in enumerate(apis):
+        _expect_pf_assets(type(api) is dict, relative_path, f"api[{index}] must be an object")
+        _expect_pf_assets(
+            api.get("qn") == expected_qns[index]
+            and api.get("result") == expected_results[index],
+            relative_path, f"api[{index}] qn/result is not exact")
+        for arg in api.get("args") or []:
+            _expect_pf_assets(
+                type(arg) is dict
+                and arg.get("source") == "typed-expression"
+                and arg.get("type") in ("UInt64", "Principal", "UInt128"),
+                relative_path, f"api[{index}] arg source/type is not portable")
+    _expect_pf_assets(
+        apis[:7] == v11_value.get("apis"), relative_path,
+        "first seven api rows are not the exact v1.1.0 superset")
+    semantics = apis[7].get("semantics")
+    _expect_pf_assets(
+        type(semantics) is dict
+        and semantics.get("effect") == "none"
+        and semantics.get("observation") == "read-only-self-vault-full-width"
+        and semantics.get("snapshot") == "execution-point"
+        and semantics.get("syncMode") == "synchronous"
+        and semantics.get("view") == "callable-from-view"
+        and semantics.get("width") == "uint128-no-truncation",
+        relative_path, "api[7] U128 env-read semantics are not exact")
+
+    restrictions = value.get("sourceRestrictions")
+    _expect_pf_assets(
+        type(restrictions) is dict
+        and restrictions.get("typedCallReturn") == "env-read-family-only"
+        and restrictions.get("schedule") is False
+        and restrictions.get("targetImportsInFrontendOrSemantic") is False,
+        relative_path, "sourceRestrictions are not exact")
+
+    lean_rel = "ProofForgeV2/Core/RequirementIdsV1.lean"
+    lean_path = root / lean_rel
+    lean_text = read_repository_text(root, lean_path, lean_rel, encoding_code="PF-DOC-CHECK")
+    lean_digest = _lean_string_def(lean_text, "pfAssetsExtensionDigestV1_2")
+    lean_ver = _lean_string_def(lean_text, "pfAssetsExtensionVersionV1_2")
+    lean_qns = _lean_string_array_def(lean_text, "pfAssetsEnvReadQualifiedNamesV1")
+    _expect_pf_assets(
+        lean_ver == "1.2.0", lean_rel, "pfAssetsExtensionVersionV1_2 must be 1.2.0")
+    _expect_pf_assets(
+        lean_digest == f"sha256:{PF_ASSETS_EXTENSION_V1_2_DOMAIN_DIGEST}",
+        lean_rel, "pfAssetsExtensionDigestV1_2 must triangle with domain digest")
+    _expect_pf_assets(
+        lean_qns is not None
+        and "pf.assets.native.balanceOfSelfU128" in lean_qns,
+        lean_rel, "pfAssetsEnvReadQualifiedNamesV1 must include balanceOfSelfU128")
+
 
 
 def _sol_cpi_adr_digest_pair(
@@ -5056,6 +5185,7 @@ def check(root: Path, profile: str = "development") -> None:
     validate_solana_cpi_epic_checkpoint(root)
     validate_pf_assets_extension_contract(root, json_values)
     validate_pf_assets_extension_v1_1_contract(root, json_values)
+    validate_pf_assets_extension_v1_2_contract(root, json_values)
     check_links(root, docs_root, documents, by_id)
 
 

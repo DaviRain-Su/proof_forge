@@ -330,6 +330,8 @@ inductive UnaryOpV1 where
 inductive EnvReadKeyV1 where
   | nativeVaultBalance
   | tokenVaultBalance
+  /-- Full-width native vault balance (UInt128; no hi64 trap). -/
+  | nativeVaultBalanceU128
   deriving BEq, Repr, DecidableEq
 
 inductive BinaryOpV1 where
@@ -550,15 +552,11 @@ def solanaCpiAccountsExtensionRequirementV1 :
     predicates := #[]
   }
 
-/-- Exact requirement row for the ADR-0029/0030 `pf.assets` extension
-    declaration. Digest is the frozen domain digest of
-    `pf-assets-extension-v1.1.json` (E2 cutover: 1.1.0 is the sole accepted
-    payload), not `SHA-256(id)`. Recognition alone does not advertise
-    call/schedule support or permit artifact minting. -/
-def pfAssetsExtensionRequirementV1 :
+/-- Exact requirement row for `pf.assets@1.1.0` (ADR-0030 E2 env-read pair).
+    Digest is the frozen domain digest of `pf-assets-extension-v1.1.json`.
+    Recognition alone does not advertise call/schedule support. -/
+def pfAssetsExtensionRequirementV1_1 :
     Except String RequirementRequestV1 := do
-  -- ADR-0030 E2 cutover: the sole accepted pf.assets declaration is the
-  -- 1.1.0 triple (two env-read QNs added); the row carries it exactly.
   let version ← parseSemVer ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionVersionV1_1
   let digest ← parseDigest ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionDigestV1_1
   pure {
@@ -567,6 +565,45 @@ def pfAssetsExtensionRequirementV1 :
     digest
     predicates := #[]
   }
+
+/-- Exact requirement row for `pf.assets@1.2.0` (full-width balanceOfSelfU128).
+    Digest is the frozen domain digest of `pf-assets-extension-v1.2.json`.
+    Additive superset of 1.1.0; UInt128 env-read requires this row. -/
+def pfAssetsExtensionRequirementV1_2 :
+    Except String RequirementRequestV1 := do
+  let version ← parseSemVer ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionVersionV1_2
+  let digest ← parseDigest ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionDigestV1_2
+  pure {
+    id := pfAssetsExtensionRequirementIdV1
+    version
+    digest
+    predicates := #[]
+  }
+
+/-- Backward-compatible alias: default/seed support row is still 1.1.0.
+    Programs that declare 1.2.0 mint `pfAssetsExtensionRequirementV1_2`
+    instead; resolver/gate accept either exact row. -/
+def pfAssetsExtensionRequirementV1 :
+    Except String RequirementRequestV1 :=
+  pfAssetsExtensionRequirementV1_1
+
+/-- True when `row` is exactly one of the closed pf.assets requirement rows
+    (1.1.0 or 1.2.0). -/
+def isExactPfAssetsExtensionRequirementV1 (row : RequirementRequestV1) : Bool :=
+  match pfAssetsExtensionRequirementV1_1, pfAssetsExtensionRequirementV1_2 with
+  | .ok r11, .ok r12 => row == r11 || row == r12
+  | _, _ => false
+
+/-- Mint the exact pf.assets requirement row for a closed source declaration
+    version spelling. Unknown versions fail closed. -/
+def pfAssetsExtensionRequirementForVersionV1 (version : String) :
+    Except String RequirementRequestV1 :=
+  if version == ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionVersionV1_1 then
+    pfAssetsExtensionRequirementV1_1
+  else if version == ProofForgeV2.Core.RequirementIdsV1.pfAssetsExtensionVersionV1_2 then
+    pfAssetsExtensionRequirementV1_2
+  else
+    .error s!"unknown pf.assets extension version '{version}'"
 
 inductive SemanticEntityRefV1 where
   | typeRef (id : TypeIdV1)

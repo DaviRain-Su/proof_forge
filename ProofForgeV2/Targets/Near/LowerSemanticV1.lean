@@ -247,6 +247,9 @@ inductive Expr where
       high 64 bits are nonzero (UInt64 range guard). Read-only,
       view/entry-callable, effect-free. -/
   | accountBalance
+  /-- Full-width host `account_balance` u128 LE → two UInt64 limbs (lo, hi).
+      Carries env-read `nativeVaultBalanceU128` / UInt128 result. No hi64 trap. -/
+  | accountBalanceU128
   /-- ADR-0031 S1: length leaf of `context.caller` Principal
       (`u32le(L)||account-id-utf8` wire → leaf0 = L). Materialized from host
       `predecessor_account_id` register length. Init/entry only (view FC). -/
@@ -3455,14 +3458,15 @@ private def lowerBlockInstructionsV1
         unless layout.pfAssetsDeclared do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: pf.assets env-read requires extension.pf-assets declaration"
-        unless result.typeId == types.uint64TypeId do
-          throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: envRead result must be UInt64"
         if mode == .pureFn then
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: pureFn cannot use envRead (host read is not pure)"
+        -- Result width checked per key (UInt64 vs UInt128).
         match key with
         | .nativeVaultBalance =>
+            unless result.typeId == types.uint64TypeId do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: nativeVaultBalance result must be UInt64"
             unless args.isEmpty do
               throw <| .planInvariant .near
                 "unsupported NEAR semantic shape: nativeVaultBalance takes no arguments"
@@ -3473,7 +3477,27 @@ private def lowerBlockInstructionsV1
               expandedNodes := 1
               dependencies := #[]
             }
+        | .nativeVaultBalanceU128 =>
+            unless args.isEmpty do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: nativeVaultBalanceU128 takes no arguments"
+            -- Result must be the unique UInt128 TypeId (two LE limbs).
+            let u128Tid ← match types.uintWidthOf result.typeId with
+              | some 128 => pure result.typeId
+              | _ =>
+                  throw <| .planInvariant .near
+                    "unsupported NEAR semantic shape: nativeVaultBalanceU128 result must be UInt128"
+            values := ← appendResultValueV1 u128Tid values result {
+              expr := .accountBalanceU128
+              kind := .uint128
+              depth := 1
+              expandedNodes := 1
+              dependencies := #[]
+            }
         | .tokenVaultBalance =>
+            unless result.typeId == types.uint64TypeId do
+              throw <| .planInvariant .near
+                "unsupported NEAR semantic shape: tokenVaultBalance result must be UInt64"
             -- Permanently fail closed: NEP-141 `ft_balance_of` is a
             -- cross-contract view call; NEAR's async promise model cannot
             -- complete it synchronously inside an expression (honesty
@@ -4149,6 +4173,7 @@ partial def exprUsesTimestampV1 (expr : Expr) : Bool :=
   | .blockTimestampSeconds => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _ | .accountBalance
+  | .accountBalanceU128
   | .blockIndex | .callerPrincipalLen | .callerPrincipalWord _
   | .selfPrincipalLen | .selfPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
@@ -4172,7 +4197,7 @@ partial def exprUsesBlockIndexV1 (expr : Expr) : Bool :=
   | .blockIndex => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
-  | .blockTimestampSeconds | .accountBalance
+  | .blockTimestampSeconds | .accountBalance | .accountBalanceU128
   | .callerPrincipalLen | .callerPrincipalWord _
   | .selfPrincipalLen | .selfPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
@@ -4193,7 +4218,7 @@ partial def exprUsesBlockIndexV1 (expr : Expr) : Bool :=
     Conservative structural scan driving the `account_balance` host import. -/
 partial def exprUsesAccountBalanceV1 (expr : Expr) : Bool :=
   match expr with
-  | .accountBalance => true
+  | .accountBalance | .accountBalanceU128 => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex
@@ -4221,7 +4246,7 @@ partial def exprUsesCallerV1 (expr : Expr) : Bool :=
   | .callerPrincipalLen | .callerPrincipalWord _ => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
-  | .blockTimestampSeconds | .blockIndex | .accountBalance
+  | .blockTimestampSeconds | .blockIndex | .accountBalance | .accountBalanceU128
   | .selfPrincipalLen | .selfPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
@@ -4386,7 +4411,7 @@ partial def exprUsesSelfV1 (expr : Expr) : Bool :=
   | .selfPrincipalLen | .selfPrincipalWord _ => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
-  | .blockTimestampSeconds | .blockIndex | .accountBalance
+  | .blockTimestampSeconds | .blockIndex | .accountBalance | .accountBalanceU128
   | .callerPrincipalLen | .callerPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r

@@ -21,7 +21,7 @@ Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_HOME         near-sandbox --home directory (validator_key.json)
   PF_NEAR_WASM         path to product .wasm for the suite
   PF_NEAR_SUITE        state_cell | pairret | arrayret | optionret | optionstate |
-                       verifiedvault | tipjarasync | tokenjarasync | envreadjar |
+                       verifiedvault | tipjarasync | tokenjarasync | envreadjar | envreadbalanceu128 |
                        callercheck | posetransform | blockheightcheck | selfidentitycheck |
                        constanswer | unixtimecheck | bytesret | single
 
@@ -1107,6 +1107,39 @@ def suite_selfidentitycheck(client: NearClient, wasm: Path) -> None:
     print("suite SelfIdentityCheck: PASS")
 
 
+
+def suite_envreadbalanceu128(client: NearClient, wasm: Path) -> None:
+    """Full-width native balance: pf.assets.native.balanceOfSelfU128 → u128 LE.
+
+    Unlike EnvReadJar (UInt64 hi64 trap), this path must succeed for ordinary
+    funded accounts and equal RPC view_account amount exactly.
+    """
+    print("=== suite: EnvReadBalanceU128 (balanceOfSelfU128 / account_balance u128) ===")
+    jar = f"envu128.{client.account_id}"
+    client.create_subaccount_with_key(jar, 10**24)
+    client.deploy_to(jar, wasm)
+    print(f"envu128: jar={jar}")
+
+    client.call_on(jar, "init", NearClient.encode_u64_le(0))
+    got = client.view_u64_on(jar, "get")
+    if got != 0:
+        raise AssertionError(f"after init(0): get() expected 0, got {got}")
+
+    base = client.view_account_balance(jar)
+    raw = client.view_on(jar, "nativeBalanceU128", b"")
+    if len(raw) < 16:
+        raise AssertionError(f"nativeBalanceU128 return too short: {raw!r} (need 16 LE bytes)")
+    lo = NearClient.decode_u64_le(raw, 0)
+    hi = NearClient.decode_u64_le(raw, 8)
+    bal = lo + (hi << 64)
+    if bal != base:
+        raise AssertionError(
+            f"nativeBalanceU128 expected RPC balance {base}, got {bal} (lo={lo} hi={hi})"
+        )
+    print(f"envu128: nativeBalanceU128()=={bal} matches RPC ok")
+    print("suite EnvReadBalanceU128: PASS")
+
+
 def main(argv: list[str]) -> int:
     suite = os.environ.get("PF_NEAR_SUITE", "single").strip().lower()
     rpc = _require_env("PF_NEAR_RPC")
@@ -1151,6 +1184,11 @@ def main(argv: list[str]) -> int:
         elif suite == "envreadjar":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_ENVREADJAR_WASM"))
             suite_envreadjar(client, wasm)
+        elif suite == "envreadbalanceu128":
+            wasm = Path(
+                os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_ENVREADBALANCEU128_WASM")
+            )
+            suite_envreadbalanceu128(client, wasm)
         elif suite == "callercheck":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_CALLERCHECK_WASM"))
             suite_callercheck(client, wasm)

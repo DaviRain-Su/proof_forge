@@ -649,10 +649,25 @@ def inspectResolveRequestsV1
           s!"requirement '{item.id}' is not the exact wire-owned row"
       pure ()
     else if let some permit := extensionPermits.find? (·.rowId == item.id) then
-      unless item == permit.expected do
+      -- pf.assets admits dual exact seeds (1.1.0 default advertise + 1.2.0
+      -- full-width U128). Support matrix still carries the 1.1.0 seed; accept
+      -- either closed program row when the profile advertises the wire id.
+      let exactOk :=
+        if item.id == pfAssetsExtensionRequirementIdV1 then
+          isExactPfAssetsExtensionRequirementV1 item
+        else
+          item == permit.expected
+      unless exactOk do
         throw <| .unsupportedRequirementV1
           s!"requirement '{item.id}' is not the exact wire-owned extension row"
-      unless requestSupportedExact supported item do
+      let supportOk :=
+        if item.id == pfAssetsExtensionRequirementIdV1 then
+          -- Profile advertises extension.pf-assets (1.1 seed on support row).
+          supported.any (fun s => s.id == item.id) &&
+            isExactPfAssetsExtensionRequirementV1 item
+        else
+          requestSupportedExact supported item
+      unless supportOk do
         throw <| .unsupportedRequirementV1
           s!"no exact engineering support for requirement '{item.id}'"
     else do

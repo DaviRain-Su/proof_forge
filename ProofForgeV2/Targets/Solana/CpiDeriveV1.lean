@@ -788,6 +788,9 @@ private def collectRawEnvReadSites
                   kind := .nativeVaultBalance
                   mintParamOrdinal := none
                 }
+            | .nativeVaultBalanceU128 =>
+                deriveFail
+                  "CPI derive: nativeVaultBalanceU128 is NEAR-only (use UInt64 balanceOfSelf)"
             | .tokenVaultBalance =>
                 unless args.size == 1 do
                   deriveFail
@@ -1352,9 +1355,14 @@ def deriveSolanaCpiPlanCandidateCoreV1
     if hasSolanaCpiExtensionRow data then
       mapExcept expectedExtensionRequirementV1 "extension requirement"
     else if hasPfAssetsExtensionRow data then
-      match pfAssetsExtensionRequirementV1 with
-      | .ok r => pure r
-      | .error e => deriveFail s!"pf.assets extension seed: {e}"
+      -- Carry the program's retained exact pf.assets row (1.1.0 or 1.2.0).
+      match data.requirements.items.find? (·.id == wireExtensionPfAssetsIdV1) with
+      | some r =>
+          unless isExactPfAssetsExtensionRequirementV1 r do
+            deriveFail "CPI derive: retained extension.pf-assets is not a closed seed"
+          pure r
+      | none =>
+          deriveFail "CPI derive: pf.assets extension row missing after presence check"
     else if rawContextReadSites.size > 0 then
       match callerContextRequirementV1 with
       | .ok r => pure r

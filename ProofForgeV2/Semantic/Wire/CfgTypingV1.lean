@@ -109,6 +109,13 @@ def uint64TypeId (types : Array TypeDeclV1) : Option TypeIdV1 :=
     | .uint 64 => true
     | _ => false
 
+/-- The unique TypeId whose shape is `.uint 128`, if exactly one exists.
+    Used by env-read `nativeVaultBalanceU128` (ADR-0030 E2 follow-on). -/
+def uint128TypeId (types : Array TypeDeclV1) : Option TypeIdV1 :=
+  uniqueShapeTypeId types fun
+    | .uint 128 => true
+    | _ => false
+
 /-! ### Shared per-callable op/terminator typing environment
 
     Built once after `collectValueTypeDefs` inside `validateCallableCfgShape`
@@ -132,6 +139,7 @@ structure OpTypingEnv where
   u8T : Option TypeIdV1
   /-- Unique UInt64 TypeId, if exactly one exists (env-read results). -/
   u64T : Option TypeIdV1
+  u128T : Option TypeIdV1
 
 /-- Mint the per-callable typing environment once after step h's defTypes. -/
 private def mkOpTypingEnv (defTypes : Array (ValueIdV1 × TypeIdV1))
@@ -145,6 +153,7 @@ private def mkOpTypingEnv (defTypes : Array (ValueIdV1 × TypeIdV1))
     u32T := uint32TypeId types
     u8T := uint8TypeId types
     u64T := uint64TypeId types
+    u128T := uint128TypeId types
   }
 
 /-- Bounded ValueId→TypeId lookup (defTypes is exactly-once by step f). -/
@@ -825,20 +834,30 @@ def checkOpTyping (instr : InstructionV1) (env : OpTypingEnv) :
   --   Principal arg (the mint). The result is always the unique UInt64
   --   TypeId. Value-producing: result must be present. All failures `.badCfg`.
   | .envRead key args =>
-      match env.u64T with
-      | none => err .badCfg
-      | some u64 =>
-          match key with
-          | .nativeVaultBalance =>
+      match key with
+      | .nativeVaultBalanceU128 =>
+          match env.u128T with
+          | none => err .badCfg
+          | some u128 =>
               unless args.isEmpty do
                 return ← err .badCfg
-          | .tokenVaultBalance =>
-              unless args.size == 1 do
-                return ← err .badCfg
-              let mintT ← requireOperand env args[0]!
-              unless env.shapeOf mintT == some .principal do
-                return ← err .badCfg
-          requireResultEq instr.result u64
+              requireResultEq instr.result u128
+      | .nativeVaultBalance | .tokenVaultBalance =>
+          match env.u64T with
+          | none => err .badCfg
+          | some u64 =>
+              match key with
+              | .nativeVaultBalance =>
+                  unless args.isEmpty do
+                    return ← err .badCfg
+              | .tokenVaultBalance =>
+                  unless args.size == 1 do
+                    return ← err .badCfg
+                  let mintT ← requireOperand env args[0]!
+                  unless env.shapeOf mintT == some .principal do
+                    return ← err .badCfg
+              | .nativeVaultBalanceU128 => pure ()
+              requireResultEq instr.result u64
 
 /-- Production callable-CFG steps a–d. Returns the exact reachability table
     consumed by the later dominance phase. -/

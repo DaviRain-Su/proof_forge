@@ -232,6 +232,8 @@ private def quoteEnvReadKey (k : EnvReadKeyV1) : MacroM (TSyntax `term) :=
   match k with
   | .nativeVaultBalance =>
       `(ProofForgeV2.Semantic.WireV1.EnvReadKeyV1.nativeVaultBalance)
+  | .nativeVaultBalanceU128 =>
+      `(ProofForgeV2.Semantic.WireV1.EnvReadKeyV1.nativeVaultBalanceU128)
   | .tokenVaultBalance =>
       `(ProofForgeV2.Semantic.WireV1.EnvReadKeyV1.tokenVaultBalance)
 

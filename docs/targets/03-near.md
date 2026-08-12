@@ -349,11 +349,11 @@ host/unsupported sync-call 负例全部通过。
 - `context.contractId` (wire key context.self) → host `current_account_id` UTF-8 Principal leaves (view-safe).
 - `context.chainId` → **fail closed** (no exact numeric host chain-id counterpart).
 
-### pf.assets.native.balanceOfSelf denomination tension
+### pf.assets.native.balanceOfSelf denomination
 
-Host `account_balance` returns **u128 yoctoNEAR**. Shared `pf.assets` env-read
-result type is **UInt64** on every target, so NEAR materialization traps when
-the high 64 bits are nonzero (no silent truncation). Real accounts often hold
-far more than 2^64 yoctoNEAR — the API is honest but often unusable for
-production balances until a catalog bump adds UInt128 raw balance and/or an
-explicit denomination downscale with frozen rounding rules.
+Host `account_balance` returns **u128 yoctoNEAR**.
+
+- `pf.assets.native.balanceOfSelf()` → **UInt64** with hi64-zero trap
+  (`pf.assets@1.1.0` or `@1.2.0`). Honest; traps on ordinary funded accounts.
+- `pf.assets.native.balanceOfSelfU128()` → **UInt128** full width, no trap
+  (`pf.assets@1.2.0` only). Preferred for NEAR production balances.

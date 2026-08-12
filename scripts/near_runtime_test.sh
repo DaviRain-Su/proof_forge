@@ -178,6 +178,7 @@ programs=(
   "Examples/TipJarAsync.lean:Examples.TipJarAsync:TipJarAsync"
   "runtime-tests/near/fixtures/TokenJarAsync.lean:Examples.TokenJarAsync:TokenJarAsync"
   "runtime-tests/near/fixtures/EnvReadJar.lean:Examples.EnvReadJar:EnvReadJar"
+  "Examples/EnvReadBalanceU128.lean:Examples.EnvReadBalanceU128:EnvReadBalanceU128"
   "runtime-tests/near/fixtures/CallerCheck.lean:Examples.CallerCheck:CallerCheck"
   "Examples/PoseTransform.lean:Examples.PoseTransform:PoseTransform"
   "Examples/BlockHeightCheck.lean:Examples.BlockHeightCheck:BlockHeightCheck"
@@ -288,6 +289,7 @@ verifiedvault_wasm="$out_dir/VerifiedVaultPF/VerifiedVaultPF.wasm"
 tipjarasync_wasm="$out_dir/TipJarAsync/TipJarAsync.wasm"
 tokenjarasync_wasm="$out_dir/TokenJarAsync/TokenJarAsync.wasm"
 envreadjar_wasm="$out_dir/EnvReadJar/EnvReadJar.wasm"
+envreadbalanceu128_wasm="$out_dir/EnvReadBalanceU128/EnvReadBalanceU128.wasm"
 callercheck_wasm="$out_dir/CallerCheck/CallerCheck.wasm"
 posetransform_wasm="$out_dir/PoseTransform/PoseTransform.wasm"
 blockheightcheck_wasm="$out_dir/BlockHeightCheck/BlockHeightCheck.wasm"
@@ -304,6 +306,7 @@ bytesret_wasm="$out_dir/BytesRet/BytesRet.wasm"
 [[ -f "$tipjarasync_wasm" ]] || die "missing $tipjarasync_wasm"
 [[ -f "$tokenjarasync_wasm" ]] || die "missing $tokenjarasync_wasm"
 [[ -f "$envreadjar_wasm" ]] || die "missing $envreadjar_wasm"
+[[ -f "$envreadbalanceu128_wasm" ]] || die "missing $envreadbalanceu128_wasm"
 [[ -f "$callercheck_wasm" ]] || die "missing $callercheck_wasm"
 [[ -f "$posetransform_wasm" ]] || die "missing $posetransform_wasm"
 [[ -f "$blockheightcheck_wasm" ]] || die "missing $blockheightcheck_wasm"
@@ -465,6 +468,9 @@ run_suite tokenjarasync "$tokenjarasync_wasm" || die "TokenJarAsync suite failed
 echo "near-runtime-test: running EnvReadJar suite against near-sandbox"
 run_suite envreadjar "$envreadjar_wasm" || die "EnvReadJar suite failed"
 
+echo "near-runtime-test: running EnvReadBalanceU128 suite against near-sandbox"
+run_suite envreadbalanceu128 "$envreadbalanceu128_wasm" || die "EnvReadBalanceU128 suite failed"
+
 echo "near-runtime-test: running CallerCheck suite against near-sandbox"
 run_suite callercheck "$callercheck_wasm" || die "CallerCheck suite failed"
 
@@ -486,5 +492,5 @@ run_suite unixtimecheck "$unixtimecheck_wasm" || die "UnixTimeCheck suite failed
 echo "near-runtime-test: running BytesRet suite against near-sandbox"
 run_suite bytesret "$bytesret_wasm" || die "BytesRet suite failed"
 
-echo "near-runtime-test: PASS (StateCell + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + CallerCheck + PoseTransform + BlockHeightCheck + SelfIdentityCheck + ConstAnswer + UnixTimeCheck + BytesRet engineering sandbox differential)"
+echo "near-runtime-test: PASS (StateCell + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + EnvReadBalanceU128 + CallerCheck + PoseTransform + BlockHeightCheck + SelfIdentityCheck + ConstAnswer + UnixTimeCheck + BytesRet engineering sandbox differential)"
 exit 0

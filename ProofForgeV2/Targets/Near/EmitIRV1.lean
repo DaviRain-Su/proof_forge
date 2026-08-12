@@ -30,6 +30,8 @@ inductive Operation where
   /-- ADR-0030 E2-NEAR: host `account_balance` → u128 LE scratch; trap if
       high 64 bits nonzero; low 64 bits → destination (UInt64 range guard). -/
   | accountBalance (destination : Nat)
+  /-- Full-width account_balance u128 LE → destination (lo) and destination+1 (hi). -/
+  | accountBalanceU128 (destination : Nat)
   /-- ADR-0031 S1: host `predecessor_account_id` → register length → destination
       (Principal length leaf; trap if length ∉ 1..64). -/
   | callerPrincipalLen (destination : Nat)
@@ -309,6 +311,12 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
       { operations := #[.accountBalance next]
         value := next
         next := next + 1
+      }
+  | .accountBalanceU128 =>
+      -- Two consecutive temps: lo at `next`, hi at `next+1`.
+      { operations := #[.accountBalanceU128 next]
+        value := next
+        next := next + 2
       }
   | .callerPrincipalLen =>
       { operations := #[.callerPrincipalLen next]
@@ -1032,7 +1040,7 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .storeState _ _ | .narrowStoreState _ _ _
   | .setLayout _ _ | .setReturnData _ _ | .setReturnDataLeaves _ _
   | .loadParam _ _ | .narrowLoadParam _ _ _
-  | .blockTimestampSeconds _ | .blockIndex _ | .accountBalance _
+  | .blockTimestampSeconds _ | .blockIndex _ | .accountBalance _ | .accountBalanceU128 _
   | .callerPrincipalLen _ | .callerPrincipalWord _ _
   | .selfPrincipalLen _ | .selfPrincipalWord _ _ => true
   | .ifRegion _ thenOps elseOps =>
@@ -1652,6 +1660,11 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
       s!"{indent}(call $pf_account_balance (i64.const {memory.depositOffset}))\n" ++
         s!"{indent}(if (i64.ne (i64.load (i32.const {memory.depositOffset + 8})) (i64.const 0)) (then unreachable))\n" ++
         s!"{indent}(local.set $t{destination} (i64.load (i32.const {memory.depositOffset})))\n"
+  | .accountBalanceU128 destination =>
+      -- Full-width u128 LE: lo → t{destination}, hi → t{destination+1}. No trap.
+      s!"{indent}(call $pf_account_balance (i64.const {memory.depositOffset}))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.load (i32.const {memory.depositOffset})))\n" ++
+        s!"{indent}(local.set $t{destination + 1} (i64.load (i32.const {memory.depositOffset + 8})))\n"
   | .callerPrincipalLen destination =>
       -- ADR-0031 S1: predecessor_account_id → layout.predecessor → length leaf.
       -- Canonical Principal wire = u32le(L)||account-id-utf8; leaf0 = L.

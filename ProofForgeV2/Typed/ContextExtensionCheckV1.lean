@@ -10,8 +10,8 @@
     fail-closed with `reqPrecondition`.
   * Engineering extensions are admitted only from the closed Core table
     `engineeringExtensionIdentitiesV1` (currently ADR-0028
-    `solana.cpi.accounts@1.0.0` and ADR-0030 `pf.assets@1.1.0`; the ADR-0029
-    `pf.assets@1.0.0` triple failed closed at the E2 acceptance cutover).
+    `solana.cpi.accounts@1.0.0` and ADR-0030 `pf.assets@1.1.0`/`@1.2.0`; the
+    ADR-0029 `pf.assets@1.0.0` triple failed closed at the E2 acceptance cutover).
     Unknown ids fail with `ext001`; a known id with the wrong version/digest
     fails with `extensionVersion`. Distinct ids may coexist in one program.
     Admission only carries the declaration into Semantic; it does not
@@ -121,7 +121,7 @@ def checkContextExtensionDraftsV1
       -- Closed engineering extension identities (ADR-0028/0029/0030). Target-
       -- neutral: exact source triple only; no TargetId or Targets/* import.
       -- Resolver/profile support remains separate. Dual distinct ids are
-      -- legal. `pf.assets` accepts exactly the v1.1.0 triple (E2 cutover;
+      -- legal. `pf.assets` accepts the v1.1.0 and v1.2.0 triples (E2 cutover;
       -- the v1.0.0 triple fails closed here).
       for (item, itemIndex) in program.items.zipIdx do
         match item with

@@ -2223,6 +2223,13 @@ private def execInstruction (m : MachineV1) (instr : InstructionV1) : ExecResult
                     valueBytes := natToLeBytes m.vaultNative.toNat 8 }
               else
                 .done m (.trapped .invalidCore)
+          | .nativeVaultBalanceU128 =>
+              if args.isEmpty then
+                storeResult m vd.valueId
+                  { typeId := vd.typeId
+                    valueBytes := natToLeBytes m.vaultNative.toNat 16 }
+              else
+                .done m (.trapped .invalidCore)
           | .tokenVaultBalance =>
               match lookupArgs m.env args with
               | some #[mintV] =>
@@ -2700,6 +2707,13 @@ private theorem execInstruction_preserves_data
                       valueBytes := natToLeBytes m.vaultNative.toNat 8 }
                 else
                   .done m (.trapped .invalidCore)
+            | .nativeVaultBalanceU128 =>
+                if args.isEmpty then
+                  storeResult m resultDef.valueId
+                    { typeId := resultDef.typeId
+                      valueBytes := natToLeBytes m.vaultNative.toNat 16 }
+                else
+                  .done m (.trapped .invalidCore)
             | .tokenVaultBalance =>
                 match lookupArgs m.env args with
                 | some #[mintValue] =>
@@ -2721,6 +2735,19 @@ private theorem execInstruction_preserves_data
                   storeResult m resultDef.valueId
                     { typeId := resultDef.typeId
                       valueBytes := natToLeBytes m.vaultNative.toNat 8 }
+                else
+                  .done m (.trapped .invalidCore))
+              by_cases hisEmpty : args.isEmpty
+              · rw [if_pos hisEmpty]
+                exact storeResult_preserves_data m resultDef.valueId _
+              · rw [if_neg hisEmpty]
+                rfl
+          | nativeVaultBalanceU128 =>
+              change ExecResultPreservesDataV1 m.data
+                (if args.isEmpty then
+                  storeResult m resultDef.valueId
+                    { typeId := resultDef.typeId
+                      valueBytes := natToLeBytes m.vaultNative.toNat 16 }
                 else
                   .done m (.trapped .invalidCore))
               by_cases hisEmpty : args.isEmpty
@@ -2824,6 +2851,13 @@ private theorem execInstruction_preserves_initializer
                       valueBytes := natToLeBytes m.vaultNative.toNat 8 }
                 else
                   .done m (.trapped .invalidCore)
+            | .nativeVaultBalanceU128 =>
+                if args.isEmpty then
+                  storeResult m resultDef.valueId
+                    { typeId := resultDef.typeId
+                      valueBytes := natToLeBytes m.vaultNative.toNat 16 }
+                else
+                  .done m (.trapped .invalidCore)
             | .tokenVaultBalance =>
                 match lookupArgs m.env args with
                 | some #[mintValue] =>
@@ -2846,6 +2880,19 @@ private theorem execInstruction_preserves_initializer
                   storeResult m resultDef.valueId
                     { typeId := resultDef.typeId
                       valueBytes := natToLeBytes m.vaultNative.toNat 8 }
+                else
+                  .done m (.trapped .invalidCore))
+              by_cases hisEmpty : args.isEmpty
+              · rw [if_pos hisEmpty]
+                exact storeResult_preserves_initializer m resultDef.valueId _
+              · rw [if_neg hisEmpty]
+                rfl
+          | nativeVaultBalanceU128 =>
+              change ExecResultPreservesInitializerV1 m.isInitializer
+                (if args.isEmpty then
+                  storeResult m resultDef.valueId
+                    { typeId := resultDef.typeId
+                      valueBytes := natToLeBytes m.vaultNative.toNat 16 }
                 else
                   .done m (.trapped .invalidCore))
               by_cases hisEmpty : args.isEmpty
@@ -2955,6 +3002,13 @@ private theorem execInstruction_preserves_callStackFailure
                       valueBytes := natToLeBytes m.vaultNative.toNat 8 }
                 else
                   .done m (.trapped .invalidCore)
+            | .nativeVaultBalanceU128 =>
+                if args.isEmpty then
+                  storeResult m resultDef.valueId
+                    { typeId := resultDef.typeId
+                      valueBytes := natToLeBytes m.vaultNative.toNat 16 }
+                else
+                  .done m (.trapped .invalidCore)
             | .tokenVaultBalance =>
                 match lookupArgs m.env args with
                 | some #[mintValue] =>
@@ -2976,6 +3030,20 @@ private theorem execInstruction_preserves_callStackFailure
                   storeResult m resultDef.valueId
                     { typeId := resultDef.typeId
                       valueBytes := natToLeBytes m.vaultNative.toNat 8 }
+                else
+                  .done m (.trapped .invalidCore))
+              by_cases hisEmpty : args.isEmpty
+              · rw [if_pos hisEmpty]
+                exact storeResult_preserves_callStackFailure
+                  m resultDef.valueId _
+              · rw [if_neg hisEmpty]
+                trivial
+          | nativeVaultBalanceU128 =>
+              change ExecResultPreservesCallStackFailureV1 m.callable m.frames
+                (if args.isEmpty then
+                  storeResult m resultDef.valueId
+                    { typeId := resultDef.typeId
+                      valueBytes := natToLeBytes m.vaultNative.toNat 16 }
                 else
                   .done m (.trapped .invalidCore))
               by_cases hisEmpty : args.isEmpty

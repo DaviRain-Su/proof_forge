@@ -512,15 +512,29 @@ private def tryMapEmptyConstructor
         else none
   | _, _ => none
 
-/-- True when the program declares the `pf.assets@1.1.0` extension triple
-    (required for env-read catalog QNs). ADR-0030 E2: env-read QNs require the
-    1.1.0 declaration; v1.0.0-only programs using env-read fail closed. -/
-def hasPfAssetsV1_1DeclarationV1 (tables : TypedDeclTablesV1) : Bool :=
+/-- True when the program declares `pf.assets@1.1.0` or `@1.2.0`
+    (UInt64 env-read QNs). v1.0.0-only programs fail closed. -/
+def hasPfAssetsEnvReadDeclarationV1 (tables : TypedDeclTablesV1) : Bool :=
   tables.extensionReq.entries.any fun (_, _, decl) =>
     let id := sourceQualifiedNameV1ToString decl.id
     id == pfAssetsExtensionSourceIdV1 &&
-      decl.version == pfAssetsExtensionVersionV1_1 &&
-      decl.digest == pfAssetsExtensionDigestV1_1
+      ((decl.version == pfAssetsExtensionVersionV1_1 &&
+          decl.digest == pfAssetsExtensionDigestV1_1) ||
+        (decl.version == pfAssetsExtensionVersionV1_2 &&
+          decl.digest == pfAssetsExtensionDigestV1_2))
+
+/-- True when the program declares `pf.assets@1.2.0` (required for UInt128
+    balanceOfSelfU128). -/
+def hasPfAssetsV1_2DeclarationV1 (tables : TypedDeclTablesV1) : Bool :=
+  tables.extensionReq.entries.any fun (_, _, decl) =>
+    let id := sourceQualifiedNameV1ToString decl.id
+    id == pfAssetsExtensionSourceIdV1 &&
+      decl.version == pfAssetsExtensionVersionV1_2 &&
+      decl.digest == pfAssetsExtensionDigestV1_2
+
+/-- Backward-compatible alias: UInt64 env-read admission (1.1.0 or 1.2.0). -/
+def hasPfAssetsV1_1DeclarationV1 (tables : TypedDeclTablesV1) : Bool :=
+  hasPfAssetsEnvReadDeclarationV1 tables
 
 /-- Resolve a constructor path to its result type and expected argument types.
     Mirrors `NameResolutionV1.resolveConstructorName`. Optional `expected?` unlocks
@@ -1171,20 +1185,37 @@ mutual
         -- `ident(args)`). Intercept before the normal struct/enum path.
         match pfAssetsEnvReadFamilyOfV1 ctorQn with
         | some family =>
+          let resultTy : TypeV1 :=
+            match family with
+            | .nativeBalanceU128 => .uint 128
+            | .nativeBalance | .tokenBalance => .uint 64
           let envDrafts : Array TypedDiagnosticDraftV1 :=
             Id.run do
               let mut drafts : Array TypedDiagnosticDraftV1 := #[]
-              -- Require the pf.assets@1.1.0 declaration.
-              unless hasPfAssetsV1_1DeclarationV1 tables do
-                drafts := drafts.push <| locateDraft
-                  (make .extensionVersion
-                    s!"env-read catalog call '{ctorQn}' requires the pf.assets@1.1.0 extension declaration"
-                    (expected := some (.object #[
-                      ("digest", .string pfAssetsExtensionDigestV1_1),
-                      ("version", .string pfAssetsExtensionVersionV1_1)]))
-                    (actual := some (.string "no pf.assets@1.1.0 declaration"))
-                    (stableContext := some "extension.pf-assets.env-read.requires-v1.1.0"))
-                  exprPath?
+              -- UInt64 env-reads: 1.1.0 or 1.2.0. UInt128: 1.2.0 only.
+              match family with
+              | .nativeBalanceU128 =>
+                unless hasPfAssetsV1_2DeclarationV1 tables do
+                  drafts := drafts.push <| locateDraft
+                    (make .extensionVersion
+                      s!"env-read catalog call '{ctorQn}' requires the pf.assets@1.2.0 extension declaration"
+                      (expected := some (.object #[
+                        ("digest", .string pfAssetsExtensionDigestV1_2),
+                        ("version", .string pfAssetsExtensionVersionV1_2)]))
+                      (actual := some (.string "no pf.assets@1.2.0 declaration"))
+                      (stableContext := some "extension.pf-assets.env-read.requires-v1.2.0"))
+                    exprPath?
+              | .nativeBalance | .tokenBalance =>
+                unless hasPfAssetsEnvReadDeclarationV1 tables do
+                  drafts := drafts.push <| locateDraft
+                    (make .extensionVersion
+                      s!"env-read catalog call '{ctorQn}' requires pf.assets@1.1.0 or @1.2.0"
+                      (expected := some (.object #[
+                        ("digest", .string pfAssetsExtensionDigestV1_1),
+                        ("version", .string pfAssetsExtensionVersionV1_1)]))
+                      (actual := some (.string "no pf.assets env-read declaration"))
+                      (stableContext := some "extension.pf-assets.env-read.requires-v1.1.0"))
+                    exprPath?
               -- Exact arg shape check.
               let expectedArity := pfAssetsEnvReadArityV1 family
               unless args.size == expectedArity do
@@ -1209,10 +1240,10 @@ mutual
                     exprPath? #[]]
                 (ar.drafts ++ typeDiag, pd)
               | _ => (#[], #[])
-            | .nativeBalance => (#[], #[])
+            | .nativeBalance | .nativeBalanceU128 => (#[], #[])
           let drafts := envDrafts ++ pathDs ++ argDrafts
           let (type_, drafts) :=
-            checkExpectedDraft (.uint 64) expected? exprPath? expectedRelated drafts
+            checkExpectedDraft resultTy expected? exprPath? expectedRelated drafts
           resultDraft type_ drafts
         | none =>
           let isMapOf := match ctor.components.toArray with

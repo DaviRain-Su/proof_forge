@@ -3284,21 +3284,24 @@ private def lowerBlockInstructionsV1
         values := ← appendResultValueV1 result.typeId values result value
     | .envRead key args, some result =>
         -- ADR-0030 E2-4-CW: read-only self-vault observation (value-producing,
-        -- view-callable, effect-free). Requires exact extension.pf-assets
-        -- (same gate as the catalog QNs). Result must be UInt64.
+        -- view-callable, effect-free). Requires exact extension.pf-assets.
+        -- UInt64 keys require UInt64 result; U128 is NEAR-only.
         unless layout.pfAssetsDeclared do
           throw <| .planInvariant .cosmwasm
             "unsupported CosmWasm semantic shape: pf.assets env-read requires extension.pf-assets declaration"
-        unless result.typeId == types.uint64TypeId do
-          throw <| .planInvariant .cosmwasm
-            "unsupported CosmWasm semantic shape: envRead result must be UInt64"
         -- pureFn/invariant contexts stay fail closed (envRead is a host read,
         -- not a pure expression; invariant closures forbid host reads).
         if mode == .pureFn then
           throw <| .planInvariant .cosmwasm
             "unsupported CosmWasm semantic shape: pureFn cannot use envRead (host read is not pure)"
         match key with
+        | .nativeVaultBalanceU128 =>
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: nativeVaultBalanceU128 is NEAR-only (CW bank query stays UInt64 balanceOfSelf)"
         | .nativeVaultBalance =>
+            unless result.typeId == types.uint64TypeId do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: envRead result must be UInt64"
             -- query_chain bank balance of env.contract.address (frozen denom).
             -- Zero args; value-producing Expr (like blockTimeSeconds).
             unless args.isEmpty do
@@ -3312,6 +3315,9 @@ private def lowerBlockInstructionsV1
               dependencies := #[]
             }
         | .tokenVaultBalance =>
+            unless result.typeId == types.uint64TypeId do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: envRead result must be UInt64"
             -- query_chain CW20 smart-query balanceOf(mint, self).
             -- One Principal arg (the mint); value-producing Statement that
             -- binds a resultTemp (the query needs to assemble a Region with

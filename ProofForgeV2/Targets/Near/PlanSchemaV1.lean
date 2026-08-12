@@ -178,6 +178,8 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .blockTimestampSeconds => pure (encodeU8 41)
   -- ADR-0030 E2-NEAR: account_balance env-read (tag 42).
   | .accountBalance => pure (encodeU8 42)
+  -- Full-width native balance env-read (tag 48; 43-47 are caller/self/block).
+  | .accountBalanceU128 => pure (encodeU8 48)
   -- ADR-0031 S1: context.caller Principal leaves (tags 43/44).
   | .callerPrincipalLen => pure (encodeU8 43)
   | .callerPrincipalWord wordIndex =>
