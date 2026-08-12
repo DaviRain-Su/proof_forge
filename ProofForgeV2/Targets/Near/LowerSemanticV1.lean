@@ -1053,9 +1053,14 @@ private def anonymousReturnLeafAbiV1
         throw <| .planInvariant .near
           s!"unsupported NEAR semantic shape: anonymous Bytes return length must be in 1..8, got {n}"
       pure (some (Array.replicate n { isInt := false, byteWidth := 1 }))
-  | some { shape := .map .., name := none, .. } =>
-      throw <| .planInvariant .near
-        "unsupported NEAR semantic shape: anonymous Map return is outside the NEAR B-RET ABI (dense Map expands past the 8-leaf cap)"
+  | some { shape := .map keyTid valTid, name := none, .. } =>
+      -- Dense Map return: flat occ/key/val × capacity as LE u64 words
+      -- (same packing class as Array UInt64 N). Cap-8 → 24 leaves (B-RET-MAP).
+      unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+        throw <| .planInvariant .near
+          "unsupported NEAR semantic shape: anonymous Map return requires Map UInt64 UInt64"
+      let n := nearMapPilotLeafCountV1
+      pure (some (Array.replicate n { isInt := false, byteWidth := 8 }))
   | some { shape := .array .., .. } | some { shape := .option .., .. }
   | some { shape := .bytes .., .. } =>
       pure none
@@ -1076,9 +1081,13 @@ private def isAggregateResultCandidateV1
     | some { shape := .bytes .., name := none, .. } => true
     | _ => false
 
-/-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous Array/Option/Bytes
-result TypeId into an aggregate `MethodResultKind`. Enforces 1..8 leaves.
-Map/nested/narrow-element anonymous containers fail closed. -/
+/-- B-RET-ABI leaf cap: 8 for Struct/Enum/Array/Option/Bytes; Map pilot uses
+    capacity×3 (cap-8 → 24). Host `value_return` packs consecutive LE leaves. -/
+private def maxAggregateReturnLeavesV1 : Nat := 24
+
+/-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous
+Array/Option/Bytes/Map result TypeId into an aggregate `MethodResultKind`.
+Enforces 1..maxAggregateReturnLeavesV1 leaves. -/
 private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult MethodResultKind := do
@@ -1090,14 +1099,14 @@ private def aggregateResultKindOfV1
       | some ls => pure ls
       | none =>
           throw <| .planInvariant .near
-            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option/Bytes aggregate"
+            s!"{owner} does not return a named Struct/Enum or admitted anonymous Array/Option/Bytes/Map aggregate"
   let n := leaves.size
   unless n > 0 do
     throw <| .planInvariant .near
       s!"{owner} aggregate return must have at least one leaf"
-  unless n ≤ 8 do
+  unless n ≤ maxAggregateReturnLeavesV1 do
     throw <| .planInvariant .near
-      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of 8"
+      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of {maxAggregateReturnLeavesV1}"
   pure (.aggregate leaves)
 
 /-- Expected return shape for region emission (scalar vs B-RET aggregate). -/
@@ -4020,7 +4029,7 @@ private def makeEntryV1
       | some 256 => pure (MethodResultKind.uint256, ExpectedReturnV1.scalar .uint256)
       | some _ =>
           throw <| .planInvariant .near
-            s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, named Struct/Enum, or admitted anonymous Array/Option"
+            s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int64, Bool, named Struct/Enum, or admitted anonymous Array/Option/Bytes/Map"
       | none =>
           match types.intWidthOf callable.result.typeId with
           | some 8 => pure (MethodResultKind.int8, ExpectedReturnV1.scalar .int64)
@@ -4035,7 +4044,7 @@ private def makeEntryV1
               pure (MethodResultKind.bool, ExpectedReturnV1.scalar .bool)
             else
               throw <| .planInvariant .near
-                s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, named Struct/Enum, or admitted anonymous Array/Option"
+                s!"entry '{name}' does not return public UInt8/16/32/64/128/256, Int8/16/32/64, Bool, named Struct/Enum, or admitted anonymous Array/Option/Bytes/Map"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view

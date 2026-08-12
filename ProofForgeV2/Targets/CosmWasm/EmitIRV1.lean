@@ -2356,6 +2356,103 @@ private def multiwordScratchLocals : String :=
 private def multiwordScratchLocalsIfNeeded (ops : Array Operation) : String :=
   if ops.any opNeedsMultiwordScratch then multiwordScratchLocals else ""
 
+/-- Multiword logical left shift on consecutive i64 LE limbs.
+    Count ≥ bitWidth traps. Whole-limb moves + residual bit shift with
+    carry between limbs; high-limb overflow (bits shifted out) traps
+    (checked-shl honesty, same as UInt64). Scratch: $t_mw_a/b/carry/0..3. -/
+private def renderMultiwordShl (indent : String) (dest lhs rhs nLimbs bitWidth : Nat) :
+    String :=
+  Id.run do
+    -- rhs is a single UInt32 temp (not multi-limb).
+    let mut out :=
+      s!"{indent};; multiword shl nLimbs={nLimbs} bitWidth={bitWidth}\n" ++
+      s!"{indent}(if (i64.ge_u (local.get $t{rhs}) (i64.const {bitWidth})) (then unreachable))\n" ++
+      -- Copy lhs → dest first (may alias; use mw scratch for source snapshot).
+      ""
+    for i in [:nLimbs] do
+      out := out ++
+        s!"{indent}(local.set $t_mw_{i} (local.get $t{lhs + i}))\n"
+    -- Whole-limb shift amount: count / 64
+    out := out ++
+      s!"{indent}(local.set $t_mw_a (i64.div_u (local.get $t{rhs}) (i64.const 64)))\n" ++
+      s!"{indent}(local.set $t_mw_b (i64.rem_u (local.get $t{rhs}) (i64.const 64)))\n"
+    -- Zero dest
+    for i in [:nLimbs] do
+      out := out ++ s!"{indent}(local.set $t{dest + i} (i64.const 0))\n"
+    -- Place limbs: dest[i + whole] = src[i]  (for i+whole < nLimbs)
+    -- Implemented as nested if on whole-limb count 0..nLimbs-1
+    for whole in [:nLimbs] do
+      out := out ++
+        s!"{indent}(if (i64.eq (local.get $t_mw_a) (i64.const {whole}))\n" ++
+        s!"{indent}  (then\n"
+      for i in [:nLimbs - whole] do
+        out := out ++
+          s!"{indent}    (local.set $t{dest + i + whole} (local.get $t_mw_{i}))\n"
+      -- High limbs that would be shifted out must have been zero (checked shl).
+      for i in [nLimbs - whole:nLimbs] do
+        if whole > 0 then
+          out := out ++
+            s!"{indent}    (if (i64.ne (local.get $t_mw_{i}) (i64.const 0)) (then unreachable))\n"
+      out := out ++ s!"{indent}  )\n{indent})\n"
+    -- Residual bit shift with carry (if bitCount > 0)
+    out := out ++
+      s!"{indent}(if (i64.ne (local.get $t_mw_b) (i64.const 0))\n" ++
+      s!"{indent}  (then\n" ++
+      s!"{indent}    (local.set $t_mw_carry (i64.const 0))\n"
+    for i in [:nLimbs] do
+      -- new = (limb << bits) | carry_in; carry_out = limb >> (64-bits)
+      out := out ++
+        s!"{indent}    (local.set $t_mw_a (local.get $t{dest + i}))\n" ++
+        s!"{indent}    (local.set $t{dest + i} (i64.or (i64.shl (local.get $t_mw_a) (local.get $t_mw_b)) (local.get $t_mw_carry)))\n" ++
+        s!"{indent}    (local.set $t_mw_carry (i64.shr_u (local.get $t_mw_a) (i64.sub (i64.const 64) (local.get $t_mw_b))))\n"
+    -- Final carry out of high limb must be 0 (overflow).
+    out := out ++
+      s!"{indent}    (if (i64.ne (local.get $t_mw_carry) (i64.const 0)) (then unreachable))\n" ++
+      s!"{indent}  )\n" ++
+      s!"{indent})\n"
+    pure out
+
+/-- Multiword logical right shift on consecutive i64 LE limbs.
+    Count ≥ bitWidth traps. No overflow check (logical shr). -/
+private def renderMultiwordShr (indent : String) (dest lhs rhs nLimbs bitWidth : Nat) :
+    String :=
+  Id.run do
+    let mut out :=
+      s!"{indent};; multiword shr nLimbs={nLimbs} bitWidth={bitWidth}\n" ++
+      s!"{indent}(if (i64.ge_u (local.get $t{rhs}) (i64.const {bitWidth})) (then unreachable))\n"
+    for i in [:nLimbs] do
+      out := out ++
+        s!"{indent}(local.set $t_mw_{i} (local.get $t{lhs + i}))\n"
+    out := out ++
+      s!"{indent}(local.set $t_mw_a (i64.div_u (local.get $t{rhs}) (i64.const 64)))\n" ++
+      s!"{indent}(local.set $t_mw_b (i64.rem_u (local.get $t{rhs}) (i64.const 64)))\n"
+    for i in [:nLimbs] do
+      out := out ++ s!"{indent}(local.set $t{dest + i} (i64.const 0))\n"
+    for whole in [:nLimbs] do
+      out := out ++
+        s!"{indent}(if (i64.eq (local.get $t_mw_a) (i64.const {whole}))\n" ++
+        s!"{indent}  (then\n"
+      for i in [:nLimbs - whole] do
+        out := out ++
+          s!"{indent}    (local.set $t{dest + i} (local.get $t_mw_{i + whole}))\n"
+      out := out ++ s!"{indent}  )\n{indent})\n"
+    out := out ++
+      s!"{indent}(if (i64.ne (local.get $t_mw_b) (i64.const 0))\n" ++
+      s!"{indent}  (then\n" ++
+      s!"{indent}    (local.set $t_mw_carry (i64.const 0))\n"
+    -- High-to-low for shr so carry flows correctly
+    let mut i := nLimbs
+    while i > 0 do
+      i := i - 1
+      out := out ++
+        s!"{indent}    (local.set $t_mw_a (local.get $t{dest + i}))\n" ++
+        s!"{indent}    (local.set $t{dest + i} (i64.or (i64.shr_u (local.get $t_mw_a) (local.get $t_mw_b)) (local.get $t_mw_carry)))\n" ++
+        s!"{indent}    (local.set $t_mw_carry (i64.shl (local.get $t_mw_a) (i64.sub (i64.const 64) (local.get $t_mw_b))))\n"
+    out := out ++
+      s!"{indent}  )\n" ++
+      s!"{indent})\n"
+    pure out
+
 /-- Fixed scratch for Map loop IR (`mapLookup` / `mapUpsert`). Kept separate
     from multiword scratch so pure Map methods do not pay the 20-local mw tax. -/
 private def mapLoopScratchLocals : String :=
@@ -2837,8 +2934,8 @@ private partial def renderOperation (memory : MemoryLayout)
         s!"{indent}(local.set $t{destination} (i64.and (i64.xor (local.get $t{source}) (i64.const -1)) (i64.const {mask})))\n"
   | .narrowShl bitWidth destination lhs rhs =>
       if bitWidth > 64 then
-        -- Multiword shift fail-closed at Plan; defensive trap only.
-        s!"{indent};; multiword shift fail-closed at lowering (defensive trap)\n{indent}(unreachable)\n"
+        renderMultiwordShl indent destination lhs rhs
+          (limbCountOfBitWidth bitWidth) bitWidth
       else
         -- Count ≥ 64 trap; shl; high bits above bitWidth must be 0.
         s!"{indent}(if (i64.ge_u (local.get $t{rhs}) (i64.const 64)) (then unreachable))\n" ++
@@ -2846,7 +2943,8 @@ private partial def renderOperation (memory : MemoryLayout)
           s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
   | .narrowShr bitWidth destination lhs rhs =>
       if bitWidth > 64 then
-        s!"{indent};; multiword shift fail-closed at lowering (defensive trap)\n{indent}(unreachable)\n"
+        renderMultiwordShr indent destination lhs rhs
+          (limbCountOfBitWidth bitWidth) bitWidth
       else
         s!"{indent}(if (i64.ge_u (local.get $t{rhs}) (i64.const 64)) (then unreachable))\n" ++
           s!"{indent}(local.set $t{destination} (i64.shr_u (local.get $t{lhs}) (local.get $t{rhs})))\n"

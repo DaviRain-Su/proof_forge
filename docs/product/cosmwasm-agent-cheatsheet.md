@@ -65,6 +65,7 @@ pf setup --target cosmwasm
 | `Examples/MapMini.lean` | dense Map UInt64 **cap-8** (loop IR) |
 | `Examples/Token.lean` | Map balances + supply (mint/transfer under MAX_LOCALS) |
 | `Examples/MapDump.lean` | Map **return** as 24×u64 JSON decimals (occ/key/val) |
+| `Examples/WideShiftProbe.lean` | body-only UInt128 multiword `<<` / `>>` |
 | `runtime-tests/cosmwasm/fixtures/CallerGate.lean` | context.caller / MessageInfo.sender |
 | `runtime-tests/cosmwasm/fixtures/ScheduleFlow.lean` | schedule → SubMsg reply_on=never |
 | `runtime-tests/cosmwasm/tests/negative_corpus.rs` | bad JSON / corrupt storage / gas pins |
@@ -95,8 +96,9 @@ See also cross-chain table in `docs/product/near-sync-async-api.md`.
 
 ## Open / known product tension
 
-- `context.chainId` / contract self address not yet on shared catalog keys
-- multiword (UInt128/256) **wide shift** body ops still FC at multiword path
+- `context.chainId` / contract self address not yet on shared Wire catalog keys
+  (needs SchemaId + Normalize + RequirementsGate + per-target Env parse)
+- UInt128/256 are **body-only** on CosmWasm (no ABI state/param/result)
 - NEAR `balanceOfSelf` UInt64 yocto vs real balances ≫ 2^64 (see `docs/targets/03-near.md`)
 
 ## Related

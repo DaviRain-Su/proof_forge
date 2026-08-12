@@ -48,7 +48,8 @@ Phase 1：实现
   plan literal 发射；UInt128/256、aggregate、Principal const 仍 FC。空表保持 historical
   Plan bytes。
 - **Bytes N (1..8) entry/view return**：B-RET-ABI 扩 admit；`value_return` 紧凑 N×u8 打包
-  （与 Array/Option 的 N×8 LE 路径分流）。dense Map return 仍 FC（cap-8 展开超过 8 叶上限）。
+  （与 Array/Option 的 N×8 LE 路径分流）。dense Map return 已 open：cap-8 →
+  24×u64 LE `value_return`（occ/key/val 扁平；与 CosmWasm B-RET-MAP 同形）。
 - **`pf deploy -t near`**：save-only `proof-forge.pf.near-deploy-package.v1` 包
   （wasm sha + near-abi 指针）；`--broadcast` 在 v0 一律拒绝（含 local）。
 - **Proof-bearing invariant-root erasure（ADR-0042）**：普通 capability + nonempty invariants

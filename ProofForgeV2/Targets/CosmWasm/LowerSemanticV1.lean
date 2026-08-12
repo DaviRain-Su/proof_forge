@@ -2319,13 +2319,9 @@ private def lowerBlockInstructionsV1
             unless kind == lhs.kind do
               throw <| .planInvariant .cosmwasm
                 "unsupported CosmWasm semantic shape: shift result width mismatch"
-            -- Cross-limb shift is not implemented: the multiword surface is
-            -- add/sub/mul/div/mod/compare/bitwise. Wide shifts fail closed
-            -- explicitly (a single-limb WAT shift would silently corrupt high
-            -- limbs).
-            if bitWidth > 64 then
-              throw <| .planInvariant .cosmwasm
-                "unsupported CosmWasm semantic shape: multiword shift is fail-closed on CosmWasm (shift counts < 64 only; wide shift not implemented)"
+            -- Multiword shift (UInt128/256): Emit renders limb-wise WAT with
+            -- count ≥ bitWidth trap and checked-shl overflow on the high limb
+            -- (same honesty class as single-limb UInt64 shl).
             let value ←
               if op == .shl then makeShlValueV1 kind bitWidth lhsId rhsId lhs rhs
               else makeShrValueV1 kind bitWidth lhsId rhsId lhs rhs

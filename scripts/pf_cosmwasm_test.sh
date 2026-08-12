@@ -117,6 +117,7 @@ map_program_to_suite() {
     MapMini|mapmini) echo "map_mini" ;;
     Token|token) echo "token" ;;
     MapDump|mapdump) echo "map_dump" ;;
+    WideShiftProbe|wideshiftprobe) echo "wide_shift" ;;
     *) echo "" ;;
   esac
 }
@@ -132,7 +133,7 @@ run_artifact_suite() {
   known: StateCell, Accumulator, PairRet, ArrayRet, OptionRet, OptionState,
          NarrowStateCell, EventFlow, ScheduleFlow, TipJar, TokenJar, EnvReadJar,
          CallerGate, BlockHeightCheck, ConstAnswer, BytesRet,
-         UnixTimeCheck, PoseTransform, MapMini, Token, MapDump
+         UnixTimeCheck, PoseTransform, MapMini, Token, MapDump, WideShiftProbe
   force suite: PF_COSMWASM_SUITE=state_cell
   full corpus: PF_COSMWASM_TEST_MODE=corpus"
   fi

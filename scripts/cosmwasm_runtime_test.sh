@@ -113,6 +113,7 @@ programs=(
   "Examples/MapMini.lean:Examples.MapMini:MapMini"
   "Examples/Token.lean:Examples.Token:Token"
   "Examples/MapDump.lean:Examples.MapDump:MapDump"
+  "Examples/WideShiftProbe.lean:Examples.WideShiftProbe:WideShiftProbe"
 )
 
 if [[ -n "${PROOF_FORGE_CLI:-}" && -x "$PROOF_FORGE_CLI" ]]; then

@@ -225,6 +225,9 @@ private def makeMemoryLayout (plan : Plan) (keys : Array KeyRegion) : MemoryLayo
     inputOffset
     inputCapacity
     depositOffset
+    -- valueOffset holds host value_return packing (Map return up to 24×u64
+    -- = 192B, sequential with pf.assets scratch which starts at +16 after
+    -- any prior host op completes — return is terminal).
     valueOffset := depositOffset + 16
   }
 
