@@ -55,6 +55,10 @@ deploy 默认 ctor `0` 或 `PF_EVM_INIT_ARGS`，再 view/mutate；`init`/`constr
 - Yul + digest-pinned `solc --strict-assembly --optimize` bytecode（与 Solidity `--optimize` 同源 Yul 优化器）；**EvmSolc** 验收门（工具缺席干净跳过）；
 - engineering planDigest 可绑 BuildIdentity/OutputSet；G4 `evm_anvil_differential.sh` 从产品 CLI
   制品运行 Counter/Accumulator/ArithOps/EventFlow，固定 overflow state-hold 与 emit 日志。
+  `scripts/pf_evm_test.sh`（`pf test -t evm`）另 pin StateCell-shaped **negative corpus**：
+  empty/short calldata、unknown selector、selector-only / short-arg increment → revert；
+  oversized trailing ABI bytes honesty pin（classic decoder may ignore）；tx-path unknown
+  selector + state-hold + recovery。local Anvil only — not formal / not mainnet。
 - **双 profile（EVMOZ-001）**：默认 `evm-yul-solc-0.8.34-v1`（**hashed Map**，evidence
   `map-storage=hashed`）；显式 `evm-yul-solc-0.8.34-cancun-v1` 在 Finalize 加
   `solc --evm-version cancun` + 同 hashed Map，runtime 经 `PF_EVM_PROFILE=…cancun-v1`

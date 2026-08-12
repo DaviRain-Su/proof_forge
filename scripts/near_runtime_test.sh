@@ -425,6 +425,9 @@ PY
 echo "near-runtime-test: running StateCell suite against near-sandbox"
 run_suite state_cell "$state_cell_wasm" || die "StateCell suite failed"
 
+echo "near-runtime-test: running negative_corpus suite against near-sandbox"
+run_suite negative_corpus "$state_cell_wasm" || die "negative_corpus suite failed"
+
 echo "near-runtime-test: running PairRet suite against near-sandbox"
 run_suite pairret "$pairret_wasm" || die "PairRet suite failed"
 

@@ -142,17 +142,71 @@ after="$("$cast" call --rpc-url "$rpc" "$addr" 'get()(uint64)')"
 require_uint_equal "$after" "12" "$program_name increment state"
 
 # Minimal overflow hold (optional strength): deploy max, increment reverts, state holds
-uint64_max="18446744073709551615"
-enc_max="$("$cast" abi-encode 'constructor(uint64)' "$uint64_max")"
-receipt_max="$("$cast" send --json --rpc-url "$rpc" --private-key "$private_key" \
-  --create "0x${bytecode}${enc_max#0x}")"
-addr_max="$(/usr/bin/python3 -I -S -c 'import json,sys; print(json.load(sys.stdin)["contractAddress"])' <<<"$receipt_max")"
-if "$cast" send --rpc-url "$rpc" --private-key "$private_key" \
-    "$addr_max" 'increment(uint64)' 1 >/dev/null 2>&1; then
-  die "$program_name overflow increment unexpectedly succeeded"
-fi
-hold="$("$cast" call --rpc-url "$rpc" "$addr_max" 'get()(uint64)')"
-require_uint_equal "$hold" "$uint64_max" "$program_name overflow changed state"
+  uint64_max="18446744073709551615"
+  enc_max="$("$cast" abi-encode 'constructor(uint64)' "$uint64_max")"
+  receipt_max="$("$cast" send --json --rpc-url "$rpc" --private-key "$private_key" \
+    --create "0x${bytecode}${enc_max#0x}")"
+  addr_max="$(/usr/bin/python3 -I -S -c 'import json,sys; print(json.load(sys.stdin)["contractAddress"])' <<<"$receipt_max")"
+  if "$cast" send --rpc-url "$rpc" --private-key "$private_key" \
+      "$addr_max" 'increment(uint64)' 1 >/dev/null 2>&1; then
+    die "$program_name overflow increment unexpectedly succeeded"
+  fi
+  hold="$("$cast" call --rpc-url "$rpc" "$addr_max" 'get()(uint64)')"
+  require_uint_equal "$hold" "$uint64_max" "$program_name overflow changed state"
 
-echo "pf-evm-test: ok program=$program_name addr=$addr path=init7+inc5+overflow-hold artifact=$artifact_dir"
-echo "pf-evm-test: notes=local-anvil-only;not-formal;not-mainnet;not-full-differential"
+  # --- Negative corpus (bad calldata / unknown selector / state hold) ---
+  # Use eth_call with raw --data so ABI encoder cannot "fix" short/unknown inputs.
+  # Engineering only; not formal / not mainnet.
+  expect_call_reverts() {
+    local label="$1" data="$2"
+    if "$cast" call --rpc-url "$rpc" "$addr" --data "$data" >/dev/null 2>&1; then
+      die "$program_name negative: $label unexpectedly succeeded (data=$data)"
+    fi
+  }
+
+  # Short calldata (<4 bytes) — no selector
+  expect_call_reverts "empty-calldata" "0x"
+  expect_call_reverts "short-calldata-2b" "0xabcd"
+
+  # Unknown 4-byte selector
+  expect_call_reverts "unknown-selector" "0xdeadbeef"
+
+  # Correct increment selector + short / empty arg tail (not full uint64 ABI word)
+  inc_sel="$("$cast" sig 'increment(uint64)')"
+  expect_call_reverts "increment-selector-only" "$inc_sel"
+  expect_call_reverts "increment-short-arg" "${inc_sel}00000001"
+
+  # Oversized tail after valid ABI uint64: classic EVM ABI decoders ignore trailing
+  # bytes (honesty pin — not a fail-closed claim). eth_call must still not commit.
+  good_inc="$("$cast" calldata 'increment(uint64)' 1)"
+  oversized="${good_inc}deadbeefcafebabe0123456789abcdef"
+  if ! oversized_ret="$("$cast" call --rpc-url "$rpc" "$addr" --data "$oversized" 2>/dev/null)"; then
+    # Some backends may reject; either revert or decode-and-return is honest.
+    echo "pf-evm-test: note oversized-tail reverted (acceptable honesty variant)"
+  else
+    # If accepted, return must match bare increment(1) sim on state 12 → 13
+    require_uint_equal "$oversized_ret" "13" \
+      "$program_name oversized-tail accepted but wrong return (honesty pin)"
+    echo "pf-evm-test: note oversized-tail accepted+ignored (EVM ABI honesty pin)"
+  fi
+
+  # State must still be 12 after all negative eth_calls (no commit path used)
+  hold_neg="$("$cast" call --rpc-url "$rpc" "$addr" 'get()(uint64)')"
+  require_uint_equal "$hold_neg" "12" "$program_name negative eth_call changed state"
+
+  # Unknown selector via send (tx path) must also fail; state holds
+  if "$cast" send --rpc-url "$rpc" --private-key "$private_key" \
+      "$addr" --data "0xdeadbeef" >/dev/null 2>&1; then
+    die "$program_name negative: unknown-selector send unexpectedly succeeded"
+  fi
+  hold_tx="$("$cast" call --rpc-url "$rpc" "$addr" 'get()(uint64)')"
+  require_uint_equal "$hold_tx" "12" "$program_name negative send changed state"
+
+  # Recovery: valid increment still works after negatives
+  "$cast" send --rpc-url "$rpc" --private-key "$private_key" \
+    "$addr" 'increment(uint64)' 1 >/dev/null
+  recovery="$("$cast" call --rpc-url "$rpc" "$addr" 'get()(uint64)')"
+  require_uint_equal "$recovery" "13" "$program_name post-negative recovery increment"
+
+  echo "pf-evm-test: ok program=$program_name addr=$addr path=init7+inc5+overflow-hold+neg-corpus artifact=$artifact_dir"
+  echo "pf-evm-test: notes=local-anvil-only;not-formal;not-mainnet;neg-calldata+unknown-selector+state-hold"

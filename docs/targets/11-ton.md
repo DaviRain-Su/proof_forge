@@ -43,9 +43,12 @@ Field/Principal/String、ContextRead/Commit、nonempty invariants/constants、ma
 extra currencies仍 FC。
 
 **maturity**：`source-only`（registry 标签不变）；BoC 已产且 `runtime-tests/ton`
-`@ton/sandbox@0.44.0` 工程差分当前为 **10/10**：Counter 3 + EventFlowTon 4 +
-ScheduleFlow 3，覆盖 init/mutate/get、overflow state-hold、emit/revert 五阶段区分，以及
-schedule 单 out-message/父状态更新与 Counter 无多余消息回归。非主网/formal/hermetic。
+`@ton/sandbox@0.44.0` 工程差分含 StateCell happy+overflow、`negative_corpus`
+（unknown op **ignore** / sub-header body early-return bounce-safe honesty；
+known-op truncated param abort + state-hold；overflow exit 100）、EventFlowTon、
+ScheduleFlow：覆盖 init/mutate/get、overflow state-hold、bad-input honesty pins、
+emit/revert 五阶段区分，以及 schedule 单 out-message/父状态更新与 Counter 无多余消息
+回归。非主网/formal/hermetic。
 callback/promise_then 仍由用户第二 entry 编排，不升 Reference schema。Static dossier ceiling
 保持 `research`（工程 MVP ≠ formal maturity 升格）。
 

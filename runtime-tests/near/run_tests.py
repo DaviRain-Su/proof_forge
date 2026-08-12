@@ -3,6 +3,7 @@
 
 Suites:
   state_cell  — Examples/StateCell: init / increment / get + overflow state-hold
+  negative_corpus — StateCell bad input / unknown method / arity fail-closed
   pairret     — fixtures/PairRet: named Struct aggregate return (N×8 LE)
   arrayret    — fixtures/ArrayRet: anonymous Array UInt64 2 return (N×8 LE)
   optionret   — fixtures/OptionRet: anonymous Option UInt64 none/some (2×8 LE)
@@ -22,8 +23,8 @@ Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_WASM         path to product .wasm for the suite
   PF_NEAR_SUITE        state_cell | pairret | arrayret | optionret | optionstate |
                        verifiedvault | tipjarasync | tokenjarasync | envreadjar | envreadbalanceu128 | wideshiftprobe |
-                       callercheck | posetransform | blockheightcheck | selfidentitycheck |
-                       constanswer | unixtimecheck | bytesret | single
+                       negative_corpus | callercheck | posetransform | blockheightcheck |
+                       selfidentitycheck | constanswer | unixtimecheck | bytesret | single
 
 Honesty: engineering sandbox differential only — not testnet/mainnet,
 not formal Stage-0 / hermetic / Reference↔sandbox closure.
@@ -1140,6 +1141,56 @@ def suite_envreadbalanceu128(client: NearClient, wasm: Path) -> None:
     print("suite EnvReadBalanceU128: PASS")
 
 
+def suite_negative_corpus(client: NearClient, wasm: Path) -> None:
+    """Bad-input / unknown-method fail-closed pins for StateCell-shaped Wasm.
+
+    Complements happy-path + overflow in suite_state_cell with ABI honesty:
+    unknown export, wrong arg length, empty body on arity-1 entry, and state
+    hold after each failure. Engineering only — not formal.
+    """
+    print("=== suite: negative_corpus (bad input / unknown method) ===")
+    client.deploy(wasm)
+    client.call("init", NearClient.encode_u64_le(7))
+    if client.view_u64("get") != 7:
+        raise AssertionError("negative_corpus: setup init(7) failed")
+
+    # Unknown method name → receipt failure; state holds.
+    client.call("notARealMethod", NearClient.encode_u64_le(1), expect_success=False)
+    if client.view_u64("get") != 7:
+        raise AssertionError("negative_corpus: unknown method must not mutate state")
+    print("negative_corpus: unknown method fails + state hold ok")
+
+    # increment expects 8-byte u64; empty args fail closed.
+    client.call("increment", b"", expect_success=False)
+    if client.view_u64("get") != 7:
+        raise AssertionError("negative_corpus: empty increment args must not mutate")
+    print("negative_corpus: empty increment args fail + state hold ok")
+
+    # Too-short payload (4 bytes) for u64 param.
+    client.call("increment", NearClient.encode_u32_le(5), expect_success=False)
+    if client.view_u64("get") != 7:
+        raise AssertionError("negative_corpus: short increment args must not mutate")
+    print("negative_corpus: short increment args fail + state hold ok")
+
+    # Too-long payload (16 bytes) — exactInputLen gate or trap.
+    client.call(
+        "increment",
+        NearClient.encode_u64_le(1) + NearClient.encode_u64_le(2),
+        expect_success=False,
+    )
+    if client.view_u64("get") != 7:
+        raise AssertionError("negative_corpus: long increment args must not mutate")
+    print("negative_corpus: long increment args fail + state hold ok")
+
+    # Recovery: valid increment still works.
+    client.call("increment", NearClient.encode_u64_le(3))
+    got = client.view_u64("get")
+    if got != 10:
+        raise AssertionError(f"negative_corpus: post-fail increment(3) expected 10, got {got}")
+    print("negative_corpus: recovery increment(3) → 10 ok")
+    print("suite negative_corpus: PASS")
+
+
 def suite_wideshiftprobe(client: NearClient, wasm: Path) -> None:
     """Body-only UInt128 multiword << / >> (mirrors CosmWasm WideShiftProbe).
 
@@ -1219,6 +1270,11 @@ def main(argv: list[str]) -> int:
         if suite in ("state_cell", "single"):
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_STATE_CELL_WASM"))
             suite_state_cell(client, wasm)
+        elif suite == "negative_corpus":
+            wasm = Path(
+                os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_STATE_CELL_WASM")
+            )
+            suite_negative_corpus(client, wasm)
         elif suite == "pairret":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_PAIRRET_WASM"))
             suite_pairret(client, wasm)

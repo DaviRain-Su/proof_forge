@@ -66,8 +66,10 @@ Gaps vs EVM / Solana (engineering, not formal):
    (already multi-target Plan-open); assert `height()` / `stamp()` against
    near-sandbox `status.sync_info.latest_block_height`.
 2. Dossier residual line for blockHeight runtime → closed (engineering).
-3. Optional later (same phase budget if cheap): one bad-input negative on
-   PoseTransform (overflow scale holds state) — folded into Pose suite.
+3. StateCell `negative_corpus` suite (unknown method / empty·short·long
+   increment args + state-hold + recovery) wired into
+   `scripts/near_runtime_test.sh`. Optional later: PoseTransform bad-input
+   scale overflow (already folded into Pose suite overflow hold).
 
 Not in Phase 2: GLIBC loader → Tool Lock (product decision), view-caller,
 constants table, Map return, formal identity.

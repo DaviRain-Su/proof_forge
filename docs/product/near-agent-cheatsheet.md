@@ -35,6 +35,7 @@ pf build
 pf test -t near
 # auto: if out/ has *.wasm → ONE suite (fast; no lake rebuild)
 # full corpus: PF_NEAR_TEST_MODE=corpus pf test -t near | just near-runtime
+# corpus includes StateCell negative_corpus (unknown method / bad arg lens + state-hold)
 
 # 4) One-shot sandbox call/view (engineering; not testnet)
 pf run -t near -- init 7

@@ -36,7 +36,8 @@ Phase 1：实现
 - **Principal 9×KV leaf 存储（T12）**（wire identity 原样；**非** account-id）；
 - WAT 发射 + locked `wat2wasm` 结构编译；`NearWasmAcceptance` 另需 host-optional
   `wasm-interp`/`wasmtime`/`wasmer` 之一做 runtime load；locked near-sandbox 2.13.0 的
-  `runtime-tests/near` 已覆盖 StateCell init/mutate/view、overflow state-hold+recovery、PairRet、
+  `runtime-tests/near` 已覆盖 StateCell init/mutate/view、overflow state-hold+recovery、
+  `negative_corpus`（unknown method / empty·short·long increment args + state-hold + recovery）、PairRet、
   ArrayRet、OptionRet、OptionState、proof-bearing `VerifiedVaultPF`、TipJarAsync、TokenJarAsync、
   EnvReadJar、**EnvReadBalanceU128**（`pf.assets@1.2.0` full-width u128 ↔ RPC amount）、
   CallerCheck、低集成 `PoseTransform`（translate/rotate90/scale + Int64 overflow
@@ -234,11 +235,13 @@ width 与 exact Reference outcome 现由 generic theorem 自动推出，但 targ
 promise/storage facts仍由外部提供。尚无 target transition，也没有一般 lowering、renderer
 correctness、JSON/WAT semantics 或 WAT↔ABI consistency theorem。当前仍没有 finalized Wasm/disk identity 或
 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
-覆盖 corrupt storage、bad input 或 gas/profile；Option
-params、非 UInt64/nested Option、非 UInt64 Map/nested aggregate return 仍 fail-closed
-（`Bytes N` 1..8 return 已开放）；ContextRead 已开放 `unixTimeSeconds`、view-safe
-`blockHeight`（含 sandbox runtime 门）与 init/entry `caller`，但 view caller 与其他键仍缺；
-formal identity/OutputSet / D6 milestone 未完成。不得写成 formal runtime-validated。
+覆盖 corrupt storage 或 gas/profile 的通用 corpus 仍不完整；StateCell
+`negative_corpus` 已 pin unknown method / exactInputLen 类 bad args + state-hold
+（engineering sandbox only）。Option params、非 UInt64/nested Option、非 UInt64
+Map/nested aggregate return 仍 fail-closed（`Bytes N` 1..8 return 已开放）；ContextRead
+已开放 `unixTimeSeconds`、view-safe `blockHeight`（含 sandbox runtime 门）与 init/entry
+`caller`，但 view caller 与其他键仍缺；formal identity/OutputSet / D6 milestone 未完成。
+不得写成 formal runtime-validated。
 
 ## 1. 身份与来源
 
