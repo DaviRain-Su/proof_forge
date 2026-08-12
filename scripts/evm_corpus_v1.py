@@ -25,6 +25,25 @@ from typing import Callable, NoReturn
 SCHEMA_CASE = "proof-forge.evm-corpus-case.v1"
 SCHEMA_OBS = "proof-forge.evm-observation.v1"
 SCHEMA_MANIFEST = "proof-forge.evm-corpus-manifest.v1"
+SCHEMA_OUTCOME_PROJECTION = "proof-forge.evm-outcome-projection.v1"
+
+# Observation → OutcomeWire residual gaps (engineering; not formal C-3).
+# Shared/evidence observations lack these OutcomeV1 leaves; Anvil cannot mint
+# pf.reference-outcome.v1 without inventing reason/fault/typed bytes.
+OUTCOME_LOSSLESS_GAPS = (
+    "canonical-logical-state-bytes",
+    "typed-return-value",
+    "semantic-revert-reason",
+    "semantic-fault",
+    "effect-occurrence-pairs",
+    "declared-error-args",
+)
+
+# Primitive cases where Reference mints OutcomeWire sidecars (StateCell/Accumulator).
+OUTCOME_DIGEST_CASE_STEPS: dict[str, int] = {
+    "pf.primitive.statecell.overflow-hold.v1": 6,
+    "pf.primitive.accumulator.overflow-hold.v1": 6,
+}
 
 MAX_MANIFEST_BYTES = 256 * 1024
 MAX_MANIFEST_FILES = 256
@@ -1208,6 +1227,171 @@ def dumps_canonical(value: object) -> bytes:
 
 
 # ---------------------------------------------------------------------------
+# Outcome projection (engineering EVM→OutcomeV1 adapter subset; not formal)
+# ---------------------------------------------------------------------------
+
+
+def project_outcome_from_shared(shared: object, where: str = "$.shared") -> dict[str, object]:
+    """Map shared observation fields to an Outcome-shaped projection.
+
+    Lossless OutcomeWire mint from observation is impossible (see
+    OUTCOME_LOSSLESS_GAPS). This projects the maximum honest subset:
+    constructor kind + simplified logicalState/returnValue/effectsEmpty/
+    rollbackEqual. Fail closed on blocked status or revert/trap with a
+    non-null returnValue (would silently invent a returned value).
+    """
+    if not isinstance(shared, dict):
+        fail("PF-CORPUS-SCHEMA", f"{where} must be an object")
+    status = require_enum(shared.get("status"), SHARED_STATUS, _where(where, "status"))
+    if status == "blocked":
+        fail(
+            "PF-CORPUS-OUTCOME",
+            f"{where}.status=blocked cannot project to OutcomeV1 constructor "
+            "(blocked is corpus-only, not returned/reverted/trapped)",
+        )
+    kind = {
+        "success": "returned",
+        "revert": "reverted",
+        "trap": "trapped",
+    }[status]
+    if "returnValue" not in shared:
+        fail("PF-CORPUS-SCHEMA", f"{where}.returnValue required for projection")
+    if "logicalState" not in shared:
+        fail("PF-CORPUS-SCHEMA", f"{where}.logicalState required for projection")
+    if "effects" not in shared:
+        fail("PF-CORPUS-SCHEMA", f"{where}.effects required for projection")
+    if "rollbackEqual" not in shared:
+        fail("PF-CORPUS-SCHEMA", f"{where}.rollbackEqual required for projection")
+    ret = shared["returnValue"]
+    if kind != "returned" and ret is not None:
+        fail(
+            "PF-CORPUS-OUTCOME",
+            f"{where}: {kind} projection forbids non-null returnValue "
+            "(would invent returned value on revert/trap)",
+        )
+    effects = shared["effects"]
+    if not isinstance(effects, list):
+        fail("PF-CORPUS-SCHEMA", f"{where}.effects must be an array")
+    require_bool(shared["rollbackEqual"], _where(where, "rollbackEqual"))
+    if not isinstance(shared["logicalState"], dict):
+        fail("PF-CORPUS-SCHEMA", f"{where}.logicalState must be an object")
+    return {
+        "schema": SCHEMA_OUTCOME_PROJECTION,
+        "kind": kind,
+        "logicalState": shared["logicalState"],
+        "returnValue": ret if kind == "returned" else None,
+        "effectsEmpty": len(effects) == 0,
+        "rollbackEqual": shared["rollbackEqual"],
+        "losslessGaps": list(OUTCOME_LOSSLESS_GAPS),
+    }
+
+
+def outcome_projection_compare_key(proj: dict[str, object]) -> dict[str, object]:
+    """Fields compared across legs; losslessGaps are constant residuals."""
+    return {
+        "kind": proj["kind"],
+        "logicalState": proj["logicalState"],
+        "returnValue": proj["returnValue"],
+        "effectsEmpty": proj["effectsEmpty"],
+        "rollbackEqual": proj["rollbackEqual"],
+    }
+
+
+def try_mint_outcome_wire_from_observation(obs: object) -> NoReturn:
+    """Fail closed: evidence/observation JSON cannot mint OutcomeWire.
+
+    Callers that need retained Outcome digests must use Lean Reference
+    `mintReferenceOutcomeArtifactV1`, not observation reconstruction.
+    """
+    # Validate shape first so missing-identity still surfaces as schema.
+    validate_observation(obs)
+    gaps = ",".join(OUTCOME_LOSSLESS_GAPS)
+    fail(
+        "PF-CORPUS-OUTCOME",
+        "observation cannot losslessly encode OutcomeV1 / "
+        f"pf.reference-outcome.v1 ({gaps})",
+    )
+
+
+def _sha256_hex(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def validate_reference_outcome_sidecar(
+    case_dir: Path, step_index: int
+) -> dict[str, object]:
+    """Validate Lean-minted OutcomeWire sidecar pair (digest + bin.hex).
+
+    Does not re-decode the tagged Lean codec in Python; checks exact SHA-256
+    join between envelope bytes and digest file (engineering integrity).
+    """
+    digest_path = case_dir / f"reference-outcome-{step_index}.digest"
+    hex_path = case_dir / f"reference-outcome-{step_index}.bin.hex"
+    if not digest_path.is_file():
+        fail(
+            "PF-CORPUS-OUTCOME",
+            f"missing Outcome digest sidecar: {digest_path}",
+        )
+    if not hex_path.is_file():
+        fail(
+            "PF-CORPUS-OUTCOME",
+            f"missing Outcome envelope sidecar: {hex_path}",
+        )
+    digest_text = digest_path.read_text(encoding="utf-8").strip()
+    hex_text = hex_path.read_text(encoding="utf-8").strip()
+    require_sha256(digest_text, str(digest_path))
+    if not re.fullmatch(r"[0-9a-f]*", hex_text) or len(hex_text) % 2 != 0:
+        fail(
+            "PF-CORPUS-OUTCOME",
+            f"malformed Outcome envelope hex: {hex_path}",
+        )
+    if len(hex_text) < 2:
+        fail(
+            "PF-CORPUS-OUTCOME",
+            f"empty Outcome envelope hex: {hex_path}",
+        )
+    envelope = bytes.fromhex(hex_text)
+    actual = _sha256_hex(envelope)
+    if actual != digest_text:
+        fail(
+            "PF-CORPUS-OUTCOME",
+            f"Outcome digest mismatch for step {step_index}: "
+            f"file={digest_text} sha256(envelope)={actual}",
+        )
+    # Magic prefix UTF-8 length-framed check is Lean-owned; require the ASCII
+    # magic substring so we refuse empty/random blobs that happen to hash.
+    if b"pf.reference-outcome.v1" not in envelope:
+        fail(
+            "PF-CORPUS-OUTCOME",
+            f"Outcome envelope missing magic pf.reference-outcome.v1: {hex_path}",
+        )
+    return {
+        "stepIndex": step_index,
+        "digest": digest_text,
+        "envelopeBytes": len(envelope),
+    }
+
+
+def validate_outcome_digest_tree(obs_root: Path) -> dict[str, object]:
+    """Require OutcomeWire sidecars for StateCell/Accumulator Reference legs."""
+    checked: list[dict[str, object]] = []
+    for case_id, steps in sorted(OUTCOME_DIGEST_CASE_STEPS.items()):
+        case_dir = obs_root / case_id
+        if not case_dir.is_dir():
+            fail(
+                "PF-CORPUS-OUTCOME",
+                f"missing Outcome digest case dir: {case_dir}",
+            )
+        for idx in range(steps):
+            checked.append(validate_reference_outcome_sidecar(case_dir, idx))
+    return {
+        "cases": sorted(OUTCOME_DIGEST_CASE_STEPS),
+        "sidecars": len(checked),
+        "result": "pass",
+    }
+
+
+# ---------------------------------------------------------------------------
 # Case-level exact closure (engineering corpus; not formal C-3)
 # ---------------------------------------------------------------------------
 
@@ -1389,6 +1573,32 @@ def close_case(
                             "PF-CORPUS-INVARIANT",
                             f"primitive step={idx} shared mismatch across required legs",
                         )
+
+    # Outcome projection equality when both required legs pass the same step.
+    # Observations are not OutcomeWire; this compares the honest subset only.
+    # Missing identity already failed above; malformed projection → PF-CORPUS-OUTCOME.
+    for step in steps:
+        idx = int(step["index"])  # type: ignore[arg-type]
+        pass_projs: list[tuple[str, dict[str, object]]] = []
+        for leg in required_legs:
+            o = index[(leg, idx)]
+            if o["verdict"] != "pass":
+                continue
+            proj = project_outcome_from_shared(
+                o["shared"], f"leg={leg} step={idx}.shared"
+            )
+            pass_projs.append((leg, proj))
+        if len(pass_projs) >= 2:
+            base_leg, base_proj = pass_projs[0]
+            base_key = outcome_projection_compare_key(base_proj)
+            for other_leg, other_proj in pass_projs[1:]:
+                other_key = outcome_projection_compare_key(other_proj)
+                if other_key != base_key:
+                    fail(
+                        "PF-CORPUS-OUTCOME",
+                        f"step={idx} Outcome projection mismatch "
+                        f"{base_leg} vs {other_leg}",
+                    )
 
     # Whole-case result:
     # - required legs all pass (enforced above)
@@ -2651,10 +2861,115 @@ def run_self_tests() -> None:
     _run_storage_word_tests()
     _run_forbidden_early_order_test()
     _run_close_case_negative_tests()
+    _run_outcome_adapter_tests()
     _run_tool_lock_and_obs_root_tests()
     _run_manifest_self_tests()
 
     print("evm-corpus-v1: self-test ok")
+
+
+def _run_outcome_adapter_tests() -> None:
+    """Engineering Outcome projection / FC mint negatives (slice-2b)."""
+    shared_ok = {
+        "status": "success",
+        "returnValue": "12",
+        "logicalState": {"count": "12"},
+        "effects": [],
+        "rollbackEqual": True,
+    }
+    proj = project_outcome_from_shared(shared_ok)
+    if proj["kind"] != "returned" or proj["effectsEmpty"] is not True:
+        raise AssertionError(f"projection returned shape: {proj}")
+    if proj["losslessGaps"] != list(OUTCOME_LOSSLESS_GAPS):
+        raise AssertionError("projection must list exact lossless gaps")
+
+    shared_rev = {
+        "status": "revert",
+        "returnValue": None,
+        "logicalState": {"count": "18446744073709551615"},
+        "effects": [],
+        "rollbackEqual": True,
+    }
+    proj_r = project_outcome_from_shared(shared_rev)
+    if proj_r["kind"] != "reverted" or proj_r["returnValue"] is not None:
+        raise AssertionError(f"projection reverted shape: {proj_r}")
+
+    def bad_blocked() -> None:
+        project_outcome_from_shared(
+            {
+                "status": "blocked",
+                "returnValue": None,
+                "logicalState": {},
+                "effects": [],
+                "rollbackEqual": True,
+            }
+        )
+
+    _expect_error("outcome-blocked-status", "PF-CORPUS-OUTCOME", bad_blocked)
+
+    def bad_revert_ret() -> None:
+        project_outcome_from_shared(
+            {
+                "status": "revert",
+                "returnValue": "1",
+                "logicalState": {"count": "0"},
+                "effects": [],
+                "rollbackEqual": True,
+            }
+        )
+
+    _expect_error("outcome-revert-return", "PF-CORPUS-OUTCOME", bad_revert_ret)
+
+    obs = make_reference_observation()
+
+    def mint_from_obs() -> None:
+        try_mint_outcome_wire_from_observation(obs)
+
+    _expect_error("outcome-wire-from-obs", "PF-CORPUS-OUTCOME", mint_from_obs)
+
+    # Missing identity still fails as schema (before Outcome mint attempt).
+    def missing_identity() -> None:
+        bad = dict(obs)
+        del bad["identity"]
+        try_mint_outcome_wire_from_observation(bad)
+
+    _expect_error("outcome-missing-identity", "PF-CORPUS-SCHEMA", missing_identity)
+
+    # Malformed Outcome sidecar: digest≠sha256(envelope).
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        case_dir = Path(tmp) / "pf.primitive.statecell.overflow-hold.v1"
+        case_dir.mkdir()
+        (case_dir / "reference-outcome-0.bin.hex").write_text(
+            "7066", encoding="utf-8"
+        )  # "pf"
+        (case_dir / "reference-outcome-0.digest").write_text(
+            "0" * 64 + "\n", encoding="utf-8"
+        )
+
+        def bad_sidecar() -> None:
+            validate_reference_outcome_sidecar(case_dir, 0)
+
+        _expect_error("outcome-sidecar-digest", "PF-CORPUS-OUTCOME", bad_sidecar)
+
+    # Projection mismatch across legs in close_case.
+    # Use identical revert+non-null returnValue so projection fail-closes
+    # (shared equality would pass; Outcome projection must not).
+    case = make_primitive_case()
+    case["skipPolicy"] = _skip(optional=[], tools=["anvil", "solc"])
+    case["steps"] = [_step(0, entry="inc", status="revert")]
+    case_id = str(case["id"])
+    poison = {"returnValue": "1"}
+    bad_pair = [
+        _mk_pass_obs(case_id, "reference", 0, status="revert", shared_extra=poison),
+        _mk_pass_obs(case_id, "pf-anvil", 0, status="revert", shared_extra=poison),
+    ]
+
+    def bad_proj_close() -> None:
+        close_case(case, bad_pair)
+
+    _expect_error("outcome-proj-revert-return", "PF-CORPUS-OUTCOME", bad_proj_close)
 
 
 def _mk_pass_obs(
@@ -3956,6 +4271,15 @@ def _cmd_close_case(case_path: Path, obs_dir: Path) -> None:
         fail("PF-CORPUS-INVARIANT", f"unexpected close result {result!r}")
 
 
+def _cmd_validate_outcome_digests(obs_root: Path) -> None:
+    result = validate_outcome_digest_tree(obs_root)
+    print(
+        "corpus-outcome-digests-validated "
+        f"sidecars={result['sidecars']} "
+        "(engineering Reference OutcomeWire; not formal TST-SEM/C-3)"
+    )
+
+
 def _cmd_safe_obs_root(repo: Path, obs: Path) -> None:
     # Sole stdout line: resolved path (spaces-safe; no banner prefix).
     print(require_safe_obs_root(obs, repo))
@@ -3987,6 +4311,9 @@ def main(argv: list[str] | None = None) -> None:
     if len(args) == 3 and args[0] == "close-case":
         _cmd_close_case(Path(args[1]), Path(args[2]))
         return
+    if len(args) == 2 and args[0] == "validate-outcome-digests":
+        _cmd_validate_outcome_digests(Path(args[1]))
+        return
     if len(args) == 3 and args[0] == "safe-obs-root":
         _cmd_safe_obs_root(Path(args[1]), Path(args[2]))
         return
@@ -4005,6 +4332,7 @@ def main(argv: list[str] | None = None) -> None:
         " | validate-observation PATH"
         " | validate-manifest PATH"
         " | close-case CASE.json OBS_DIR"
+        " | validate-outcome-digests OBS_DIR"
         " | safe-obs-root REPO OBS"
         " | tool-lock-digest LOCK.json"
         " | list-runnable-cases CASES_DIR",

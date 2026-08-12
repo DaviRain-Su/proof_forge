@@ -449,8 +449,8 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 ```text
 1. EVM formal lighthouse（ADR-0036 Next task，串行主轴）：
    - shared D2/D3 formal 前置：TASK-D2-07 / TST-SEM-002/003（Reference step / corpus）
-     · **2026-08-12**：engineering retained Outcome wire 已落地
-       （`OutcomeWireV1` / `pf.reference-outcome.v1`；Counter digest 钉测）——仍非 formal
+     · **2026-08-12**：Outcome wire + public `step` façade + EVM Outcome
+       projection/digests 已落地——仍非 formal；Anvil lossless Outcome 仍 FC
    - 然后 identity-bound Reference↔Anvil formal differential（C-3 解 blocked；
      engineering identity binding 已于 2026-08-12 落地，formal 轨道仍 pending）
    - 不得用其他 target 或业务合约 engineering positives 代签
@@ -512,6 +512,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-12 | **全面审查后刷新**：`pf run` one-shot 五链（EVM/Solana/NEAR/CW/TON）、Solana registry label `runtime-validated-alpha`、NEAR parity Phase 0–4（lite）闭合（Map return cap-8 / UInt128 balance env-read / multiword shift / negative corpus）、CW Map loop cap-8 + Map return + wide shift、context chainId/self（S3）三链 runtime、NEAR/EVM/TON 负例语料、ProofShip 迁出独立仓库；推荐击杀顺序按 EVM→Solana→NEAR→CW 优先序重排 |
 | 2026-08-12 | **晚批双 lane**：Solana `context.blockHeight` 开到 sole product profile（CpiDerive admit + Mollusk `block_height.rs` 双 warp-slot 门；`unixTimeSeconds` 仍 FC；23 binaries / 414 active）；EVM corpus observation 硬性 identity binding（`identity{sourceHash,semanticHash}` 全 leg 全 verdict；Reference 取 Loader→Normalize、Anvil 取 deployed manifest、close-case 对 case pin exact join；顺修 StateCell staging 目录回归）。engineering only，非 formal C-3/TST/Stage-0 |
 | 2026-08-12 | **EVM formal lighthouse 切片-1**：engineering retained Outcome wire（`OutcomeWireV1` / `pf.reference-outcome.v1`；re-encode identity + digest；Counter Reference corpus 钉测）。关闭 packaging 缺口的工程半步；**不**关闭 TASK-D2-07 / TST-SEM-002/003；下一切片 = target→Outcome adapter 或 formal `step` façade |
+| 2026-08-12 | **EVM formal lighthouse 切片-2**：public engineering `step` façade（admit→machine；invalidCore on admit fail）+ EVM Outcome adapter（Reference OutcomeWire digests + shared observation projection；Anvil lossless 仍 FC）。仍非 formal TASK/TST/C-3 |
 
 ---
 

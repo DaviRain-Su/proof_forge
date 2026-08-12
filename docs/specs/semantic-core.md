@@ -3,7 +3,7 @@ id: SPEC-SEM-001
 title: 目标中立语义核心
 status: proposed
 owner: semantics
-updated: 2026-08-07
+updated: 2026-08-12
 normative: true
 ---
 
@@ -117,6 +117,10 @@ def step
   (invocation : InvocationV1)
   (responses : ExternalResponsesV1) : OutcomeV1
 ```
+
+工程包装：`ProofForgeV2.Semantic.ReferenceV1.step` 现以该签名提供 thin façade
+（admit 失败 → `.trapped(.invalidCore, pre)`；成功 → 既有 `stepReferenceSliceV1`）。
+**不是** formal TASK-D2-07 / TST-SEM-002/003 完成。
 
 `ReferenceValueV1.valueBytes` 必须被其 `typeId` 的 SPEC-SEM-WIRE-001 canonical value decoder 完整
 消费并 re-encode 相等。invocation args 保持 parameter order；`context` 按 key UTF-8 唯一升序，且

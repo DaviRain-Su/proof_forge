@@ -76,7 +76,10 @@ import ProofForgeV2.Semantic.WireV1
       empty context array.
 
   No `partial` / `unsafe` / `IO`. Does not import alpha Core.Semantics /
-  SemanticIR or the upper InvariantABI façade. Does not export formal `step`.
+  SemanticIR or the upper InvariantABI façade. Does not export formal `step`;
+  the engineering SPEC-shaped public `step` façade lives in ReferenceV1.lean
+  and only packages `admitReferenceProgramSliceV1` + this machine (not
+  TASK-D2-07 / TST-SEM-002/003).
 -/
 
 namespace ProofForgeV2.Semantic.ReferenceV1

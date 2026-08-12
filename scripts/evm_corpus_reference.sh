@@ -104,4 +104,7 @@ print(
 )
 PY
 
+# StateCell + Accumulator: exact 12 OutcomeWire sidecars (6 steps × 2 cases).
+/usr/bin/python3 -I -S "$validator" validate-outcome-digests "$obs_root"
+
 echo "evm-corpus-reference: ok" >&2

@@ -51,6 +51,7 @@ import Tests.Targets.SolanaAsmV1
 import Tests.Targets.SolanaElfV1
 import Tests.Targets.EvmCancunV1
 import Tests.Materialization.EvmCorpusBlockedV1
+import Tests.Materialization.EvmOutcomeAdapterV1
 import Tests.Materialization.PsyPfAssetsV1
 import Tests.Materialization.PsyDpnV1
 import Tests.Materialization.QuintSourceV1
@@ -145,6 +146,8 @@ unsafe def main : IO Unit := do
   Tests.Targets.EvmCancunV1.run
   IO.eprintln "CP run"
   Tests.Materialization.EvmCorpusBlockedV1.run
+  IO.eprintln "CP run"
+  Tests.Materialization.EvmOutcomeAdapterV1.run
   IO.eprintln "CP run"
   Tests.CLI.Emit.run
   IO.eprintln "CP run"

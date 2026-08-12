@@ -12,12 +12,18 @@
   stepReferenceSliceV1. Writes intermediate shared JSON (not PF-JCS); Python
   `scripts/evm_corpus_reference.sh` canonicalizes into proof-forge.evm-observation.v1.
 
+  For StateCell / Accumulator overflow-hold steps, also mints retained
+  `pf.reference-outcome.v1` envelope bytes + SHA-256 digest sidecars
+  (engineering OutcomeWireV1; not observation→Outcome lossless, not formal
+  TST-SEM-002/003 / C-3).
+
   Not formal Reference↔Anvil / C-3 / OZ credit.
 -/
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Language.Loader
 import ProofForgeV2.Semantic.InvariantABI
 import ProofForgeV2.Semantic.NormalizeV1
+import ProofForgeV2.Semantic.OutcomeWireV1
 import ProofForgeV2.Semantic.ReferenceV1
 import ProofForgeV2.Semantic.WireV1
 import ProofForgeV2.Source.ValidatedSourceV1
@@ -30,6 +36,7 @@ open ProofForgeV2
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Semantic.InvariantABI
 open ProofForgeV2.Semantic.NormalizeV1
+open ProofForgeV2.Semantic.OutcomeWireV1
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.ValidatedSourceV1
@@ -210,6 +217,33 @@ private def writeSharedStep
     "}"
   IO.FS.writeFile path body
 
+/-- Mint retained OutcomeWire envelope + digest for a Reference step.
+    Only used on StateCell/Accumulator (honest Outcome-bearing differential
+    subset). Observation JSON alone cannot reconstruct these bytes. -/
+private def writeOutcomeArtifact
+    (outDir : System.FilePath) (caseId : String) (stepIndex : Nat)
+    (outcome : OutcomeV1) : IO Unit := do
+  let artifact ←
+    match mintReferenceOutcomeArtifactV1 outcome with
+    | .ok a => pure a
+    | .error e =>
+        throw <| IO.userError s!"{caseId} step{stepIndex}: outcome mint: {repr e}"
+  -- Carrier re-encode identity (same gate as OutcomeWire suite).
+  match decodeReferenceOutcomeArtifactV1 artifact.canonicalBytes with
+  | .ok again =>
+      expect (again.canonicalBytes == artifact.canonicalBytes)
+        s!"{caseId} step{stepIndex}: outcome carrier identity"
+  | .error e =>
+      throw <| IO.userError
+        s!"{caseId} step{stepIndex}: outcome carrier decode: {repr e}"
+  let digestHexStr ← digestHex (referenceOutcomeDigestV1 artifact)
+  let dir := outDir / caseId
+  IO.FS.createDirAll dir
+  IO.FS.writeFile (dir / s!"reference-outcome-{stepIndex}.digest")
+    (digestHexStr ++ "\n")
+  IO.FS.writeFile (dir / s!"reference-outcome-{stepIndex}.bin.hex")
+    (hexLower artifact.canonicalBytes ++ "\n")
+
 private def effectsEmpty : String := "[]"
 
 private def effectsMoved (src dst : Nat) : String :=
@@ -339,6 +373,7 @@ private unsafe def runStateCell
   let v0 ← decodeSoleU64 post0
   expect (v0 == 7) "state cell step0 state"
   writeSharedStep outDir caseId 0 srcHash semHash st0 ret0 "count" v0 eff0 rb0
+  writeOutcomeArtifact outDir caseId 0 o0
   -- step 1: increment 5 → 12
   let o1 := stepOnce admitted post0 incId #[5] u64
   let (st1, ret1, post1, eff1, rb1) ← outcomeShared o1 post0
@@ -346,12 +381,14 @@ private unsafe def runStateCell
   let v1 ← decodeSoleU64 post1
   expect (v1 == 12) "state cell step1 state"
   writeSharedStep outDir caseId 1 srcHash semHash st1 ret1 "count" v1 eff1 rb1
+  writeOutcomeArtifact outDir caseId 1 o1
   -- step 2: view get
   let o2 := stepOnce admitted post1 getId #[] u64
   let (st2, ret2, post2, eff2, rb2) ← outcomeShared o2 post1
   expect (st2 == "success") "state cell step2 status"
   let v2 ← decodeSoleU64 post2
   writeSharedStep outDir caseId 2 srcHash semHash st2 ret2 "count" v2 eff2 rb2
+  writeOutcomeArtifact outDir caseId 2 o2
   -- step 3: redeploy max (fresh initial)
   let maxN : Nat := (2 ^ 64) - 1
   let o3 := stepOnce admitted initial initId #[maxN] u64
@@ -360,6 +397,7 @@ private unsafe def runStateCell
   let v3 ← decodeSoleU64 post3
   expect (v3 == maxN) "state cell step3 state"
   writeSharedStep outDir caseId 3 srcHash semHash st3 ret3 "count" v3 eff3 rb3
+  writeOutcomeArtifact outDir caseId 3 o3
   -- step 4: overflow increment → revert
   let o4 := stepOnce admitted post3 incId #[1] u64
   let (st4, ret4, post4, eff4, rb4) ← outcomeShared o4 post3
@@ -367,12 +405,14 @@ private unsafe def runStateCell
   let v4 ← decodeSoleU64 post4
   expect (v4 == maxN) "state cell step4 rollback"
   writeSharedStep outDir caseId 4 srcHash semHash st4 ret4 "count" v4 eff4 rb4
+  writeOutcomeArtifact outDir caseId 4 o4
   -- step 5: view get still max
   let o5 := stepOnce admitted post4 getId #[] u64
   let (st5, ret5, post5, eff5, rb5) ← outcomeShared o5 post4
   expect (st5 == "success") "state cell step5 status"
   let v5 ← decodeSoleU64 post5
   writeSharedStep outDir caseId 5 srcHash semHash st5 ret5 "count" v5 eff5 rb5
+  writeOutcomeArtifact outDir caseId 5 o5
   IO.println s!"reference-leg ok {caseId}"
 
 private unsafe def runAccumulator
@@ -401,29 +441,35 @@ private unsafe def runAccumulator
   let (st0, ret0, post0, eff0, rb0) ← outcomeShared o0 initial
   let v0 ← decodeSoleU64 post0
   writeSharedStep outDir caseId 0 srcHash semHash st0 ret0 "total" v0 eff0 rb0
+  writeOutcomeArtifact outDir caseId 0 o0
   let o1 := stepOnce admitted post0 addId #[5] u64
   let (st1, ret1, post1, eff1, rb1) ← outcomeShared o1 post0
   let v1 ← decodeSoleU64 post1
   expect (v1 == 12) "accumulator step1"
   writeSharedStep outDir caseId 1 srcHash semHash st1 ret1 "total" v1 eff1 rb1
+  writeOutcomeArtifact outDir caseId 1 o1
   let o2 := stepOnce admitted post1 curId #[] u64
   let (st2, ret2, post2, eff2, rb2) ← outcomeShared o2 post1
   let v2 ← decodeSoleU64 post2
   writeSharedStep outDir caseId 2 srcHash semHash st2 ret2 "total" v2 eff2 rb2
+  writeOutcomeArtifact outDir caseId 2 o2
   let maxN : Nat := (2 ^ 64) - 1
   let o3 := stepOnce admitted initial initId #[maxN] u64
   let (st3, ret3, post3, eff3, rb3) ← outcomeShared o3 initial
   let v3 ← decodeSoleU64 post3
   writeSharedStep outDir caseId 3 srcHash semHash st3 ret3 "total" v3 eff3 rb3
+  writeOutcomeArtifact outDir caseId 3 o3
   let o4 := stepOnce admitted post3 addId #[1] u64
   let (st4, ret4, post4, eff4, rb4) ← outcomeShared o4 post3
   expect (st4 == "revert") "accumulator overflow"
   let v4 ← decodeSoleU64 post4
   writeSharedStep outDir caseId 4 srcHash semHash st4 ret4 "total" v4 eff4 rb4
+  writeOutcomeArtifact outDir caseId 4 o4
   let o5 := stepOnce admitted post4 curId #[] u64
   let (st5, ret5, post5, eff5, rb5) ← outcomeShared o5 post4
   let v5 ← decodeSoleU64 post5
   writeSharedStep outDir caseId 5 srcHash semHash st5 ret5 "total" v5 eff5 rb5
+  writeOutcomeArtifact outDir caseId 5 o5
   IO.println s!"reference-leg ok {caseId}"
 
 private unsafe def runArithOps

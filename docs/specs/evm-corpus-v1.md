@@ -500,7 +500,7 @@ component）、hardlink（`nlink != 1`）、非 regular。stable read 使用
 - 失败：stderr `PF-CORPUS-...: ...` 且 exit 1。
 - 输入必须已是 canonical PF-JCS bytes；validator 不做 publish canonicalize。
 
-### 已实现工程边界（EVMOZ-002..006）
+### 已实现工程边界（EVMOZ-002..006 + lighthouse slice-2b）
 
 | 层 | 状态 |
 |---|---|
@@ -508,10 +508,23 @@ component）、hardlink（`nlink != 1`）、非 regular。stable read 使用
 | business cases：5 primitive（含 OwnableLike caller）+ 1 Token adapter；无 active blocked business case | 已实现 |
 | closed manifest inventory | 已实现（EVMOZ-006；50 entries / 13 runners） |
 | Reference leg（28 obs）+ pin join | 已实现 |
+| **OutcomeWire sidecars（StateCell/Accumulator）+ shared→Outcome projection gate** | **已实现（engineering；见 [`evm-outcome-adapter-v1.md`](evm-outcome-adapter-v1.md)）** |
 | Ownable caller Lean suite（历史文件名 `EvmCorpusBlockedV1`；Loader/Normalize/Reference + EVM Plan/Yul admit） | 已实现并注册 |
 | PF-Anvil Cancun full runtime harness | 手动 `evm-corpus-runtime`；Token 仅可因显式、已验证的可选工具/部署上限原因 skip，不得 pass 冒充 |
 | Token build regression policy | 产品 build/solc（含 StackTooDeep）一律 hard fail；只有 build 成功后的 deployment/initcode limit 可作为该 optional adapter leg 的 explicit skip |
 | OZ leg / family·ABI·standard credit | **未**实现；Exact 0 / Partial 0 / Blocked 20 不变 |
+
+### Outcome projection residual（slice-2b）
+
+`proof-forge.evm-observation.v1` **不是** `OutcomeV1` / `pf.reference-outcome.v1`。
+Cross-leg `close-case` 对 pass legs 比较 honest projection（kind + simplified
+logicalState/returnValue/`effectsEmpty`/rollbackEqual）。Observation **不能**
+lossless mint OutcomeWire（缺 canonical LogicalState bytes、typed return、
+SemanticRevert/Fault、effect occurrence、declared error args）——
+`try_mint_outcome_wire_from_observation` 固定 `PF-CORPUS-OUTCOME`。
+Reference 对 StateCell/Accumulator 另写 OutcomeWire digest sidecars；Anvil 侧只
+走 projection equality，**不**伪造 retained Outcome bytes。详见
+[`evm-outcome-adapter-v1.md`](evm-outcome-adapter-v1.md)。
 
 ### 错误码
 
@@ -526,11 +539,14 @@ component）、hardlink（`nlink != 1`）、非 regular。stable read 使用
 | `PF-CORPUS-PATH` | 路径 traversal / 非 NFC / 非相对 / symlink / hardlink / 非 regular |
 | `PF-CORPUS-LIMIT` | 资源上限 |
 | `PF-CORPUS-CANONICAL` | 输入 bytes ≠ canonical re-encode |
+| `PF-CORPUS-OUTCOME` | Outcome projection / OutcomeWire sidecar / observation→Outcome FC |
 
 ## 非声明
 
 - schema-tests / manifest / Reference 通过 **不** 表示 OZ 兼容、Reference↔Anvil formal
   closure、Cancun=OZ hardfork 对齐，或 maturity / formal TASK 提升。
+- OutcomeWire sidecars / projection equality **不** 表示 formal TST-SEM-002/003 /
+  TASK-D2-07 / C-3，也不表示 Anvil 可 lossless 编码 OutcomeV1。
 - 不绑定 `proof-forge.output.v1` product publisher；manifest **不是** formal evidence。
 - CosmWasm / 其他 target 不在本 schema 范围。
 - Ownable F01 保持 **Blocked**；无 EVM `context.caller` Plan/ABI lowering。

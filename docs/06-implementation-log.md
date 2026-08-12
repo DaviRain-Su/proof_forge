@@ -15123,3 +15123,21 @@ normative: false
 - **文档**：`docs/specs/reference-outcome-v1.md`；`semantic-core.md` 指向该工程 envelope；
   backlog / 本日志同步。**不**关闭 formal TASK-D2-07 / TST-SEM-002/003；无 EV binding、
   无 target adapter、无 formal `step` 导出。
+
+## 2026-08-12 — EVM formal lighthouse 切片-2：step façade + Outcome adapter
+
+- **切片-2a（shared）**：`ProofForgeV2.Semantic.ReferenceV1.step` 为 SPEC 形
+  engineering 薄封装——`admitReferenceProgramSliceV1` 失败（wire/unsupported）→
+  `.trapped .invalidCore pre`；成功 → sole `stepReferenceSliceV1`（默认 vault）。
+  定理 `step_eq_stepReferenceSliceV1_of_admit` /
+  `step_trapped_invalidCore_of_admit_error`。测试
+  `Tests/Semantic/StepFacadeV1`（Counter 与 machine 一致 + garbage→invalidCore）。
+- **切片-2b（EVM）**：engineering Outcome 适配——Lean
+  `Tests/Materialization/EvmOutcomeAdapterV1` mint `pf.reference-outcome.v1`
+  digests；Python `project_outcome_from_shared` /
+  `proof-forge.evm-outcome-projection.v1` 对 shared observation 做诚实子集投影；
+  Reference sidecars `reference-outcome-*.digest` 经 `close-case`/static 校验；
+  Anvil 全 Outcome 无损映射仍 FC（见 `docs/specs/evm-outcome-adapter-v1.md`）。
+- 验收：`just test-fast`、targets-evm shard、`just evm-corpus-schema` /
+  `just evm-corpus-static`、`just docs-check`、SBOM pin 全绿。**不**关闭
+  formal TASK-D2-07 / TST-SEM-002/003 / C-3。

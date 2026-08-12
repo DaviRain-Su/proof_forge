@@ -22,6 +22,7 @@ import Tests.Materialization.EngineeringDiskClosureV1
 import Tests.Materialization.Targets
 import Tests.Targets.EvmCancunV1
 import Tests.Materialization.EvmCorpusBlockedV1
+import Tests.Materialization.EvmOutcomeAdapterV1
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
 import Tests.CLI.DiagnosticsV1
@@ -61,6 +62,8 @@ unsafe def main : IO Unit := do
   Tests.Targets.EvmCancunV1.run
   IO.eprintln "CP run"
   Tests.Materialization.EvmCorpusBlockedV1.run
+  IO.eprintln "CP run"
+  Tests.Materialization.EvmOutcomeAdapterV1.run
   IO.eprintln "CP run"
   Tests.CLI.Emit.run
   IO.eprintln "CP run"
