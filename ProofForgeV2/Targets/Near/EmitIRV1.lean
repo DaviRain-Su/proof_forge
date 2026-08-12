@@ -122,9 +122,11 @@ inductive Operation where
   | narrowBitOr (bitWidth destination lhs rhs : Nat)
   | narrowBitXor (bitWidth destination lhs rhs : Nat)
   | narrowBitNot (bitWidth destination source : Nat)
-  /-- Count ≥ 64 trap; shl; high bits above bitWidth must be 0. -/
+  /-- UInt8/16/32/128/256 checked left shift. Scalar count ≥ 64 traps;
+      multiword count ≥ bitWidth traps. Shifted-out high bits trap. -/
   | narrowShl (bitWidth destination lhs rhs : Nat)
-  /-- Count ≥ 64 trap; shr_u. -/
+  /-- UInt8/16/32/128/256 logical right shift. Scalar count ≥ 64 traps;
+      multiword count ≥ bitWidth traps. -/
   | narrowShr (bitWidth destination lhs rhs : Nat)
   | boolNot (destination source : Nat)
   /-- Strict Bool AND: i64.and on 0/1 words. -/

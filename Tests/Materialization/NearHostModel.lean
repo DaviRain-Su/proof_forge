@@ -698,31 +698,56 @@ private partial def step (input : ByteArray) (deposit : Deposit)
         let mask := UInt64.ofNat ((Nat.pow 2 bitWidth) - 1)
         writeTemp machine destination ((value ^^^ UInt64.ofNat 18446744073709551615) &&& mask)
   | .narrowShl bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
-        modelError s!"narrowShl bitWidth {bitWidth} is not admitted"
-      let left ← readTemp machine lhs
-      let right ← readTemp machine rhs
-      let shift := right.toNat
-      if shift ≥ 64 then
-        modelError "invalid shift"
-      else
-        let shifted := Nat.shiftLeft left.toNat shift
-        let limit := Nat.pow 2 bitWidth
-        if shifted ≥ limit then
-          modelError s!"UInt{bitWidth} shift overflow"
+      if bitWidth == 128 || bitWidth == 256 then
+        let nLimbs := bitWidth / 64
+        let left ← readMultiword machine lhs nLimbs
+        let right ← readTemp machine rhs
+        let shift := right.toNat
+        if shift ≥ bitWidth then
+          modelError "invalid shift"
         else
-          writeTemp machine destination (UInt64.ofNat shifted)
-  | .narrowShr bitWidth destination lhs rhs => do
-      unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
-        modelError s!"narrowShr bitWidth {bitWidth} is not admitted"
-      let left ← readTemp machine lhs
-      let right ← readTemp machine rhs
-      let shift := right.toNat
-      if shift ≥ 64 then
-        modelError "invalid shift"
+          let shifted := Nat.shiftLeft left shift
+          let limit := Nat.pow 2 bitWidth
+          if shifted ≥ limit then
+            modelError s!"UInt{bitWidth} shift overflow"
+          else
+            writeMultiword machine destination nLimbs shifted
       else
-        writeTemp machine destination
-          (UInt64.ofNat (Nat.shiftRight left.toNat shift))
+        unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+          modelError s!"narrowShl bitWidth {bitWidth} is not admitted"
+        let left ← readTemp machine lhs
+        let right ← readTemp machine rhs
+        let shift := right.toNat
+        if shift ≥ 64 then
+          modelError "invalid shift"
+        else
+          let shifted := Nat.shiftLeft left.toNat shift
+          let limit := Nat.pow 2 bitWidth
+          if shifted ≥ limit then
+            modelError s!"UInt{bitWidth} shift overflow"
+          else
+            writeTemp machine destination (UInt64.ofNat shifted)
+  | .narrowShr bitWidth destination lhs rhs => do
+      if bitWidth == 128 || bitWidth == 256 then
+        let nLimbs := bitWidth / 64
+        let left ← readMultiword machine lhs nLimbs
+        let right ← readTemp machine rhs
+        let shift := right.toNat
+        if shift ≥ bitWidth then
+          modelError "invalid shift"
+        else
+          writeMultiword machine destination nLimbs (Nat.shiftRight left shift)
+      else
+        unless bitWidth == 8 || bitWidth == 16 || bitWidth == 32 do
+          modelError s!"narrowShr bitWidth {bitWidth} is not admitted"
+        let left ← readTemp machine lhs
+        let right ← readTemp machine rhs
+        let shift := right.toNat
+        if shift ≥ 64 then
+          modelError "invalid shift"
+        else
+          writeTemp machine destination
+            (UInt64.ofNat (Nat.shiftRight left.toNat shift))
   | .boolNot destination source => do
       let value ← readTemp machine source
       writeTemp machine destination (if value == 0 then 1 else 0)
@@ -3697,8 +3722,7 @@ private unsafe def testWideUintProduct (session : Language.Loader.ParserSession)
     mul lowers to `.narrowCheckedMul 128/256`; the WAT renders an exact
     base-2^32 schoolbook product (verified against exact literal
     expectations in the host model, plus wide state round-trips). Wide
-    div/mod use binary long division (see `testWideDivModProductPath`);
-    wide shift stays fail-closed (see `testWideShiftFailClosed`).
+    div/mod use binary long division (see `testWideDivModProductPath`).
     Not formal D2/D4. -/
 private unsafe def testWideMulProductPath (session : Language.Loader.ParserSession) :
     IO Unit := do
@@ -3958,37 +3982,124 @@ private unsafe def testWideDivModProductPath (session : Language.Loader.ParserSe
         s!"wide-divmod: expected division by zero on mod, got {reason}"
   | .success .. => throw <| IO.userError "wide-divmod: modZero128 must trap"
 
-/-- Wide shift stays fail-closed at the NEAR Plan: cross-limb shift is not
-    implemented (multiword add/sub/mul/div/mod/compare/bitwise only). -/
-private unsafe def testWideShiftFailClosed (session : Language.Loader.ParserSession) :
+/-- T9e-lane (engineering): production Plan/IR/WAT plus deterministic HostModel
+    coverage for UInt128/256 multiword shifts. Left shift is checked: count at
+    least the bit width and high bits shifted out both trap with exact storage
+    rollback. Right shift is logical. This is not formal D2/D4 or a target
+    execution/refinement proof. -/
+private unsafe def testWideShiftProductPath (session : Language.Loader.ParserSession) :
     IO Unit := do
-  let checkFailClosed (label : String) (body : String) : IO Unit := do
-    let text :=
-      "import ProofForgeV2\n\n" ++
-      "namespace ProofForgeV2.Examples\n\n" ++
-      "open ProofForgeV2.Language\n\n" ++
-      "program " ++ label ++ " where\n" ++
-      "  state p : UInt128\n\n" ++
-      "  init() do\n" ++
-      "    p := 0\n\n" ++
-      "  entry run(x : UInt128, y : UInt128) : UInt128 do\n" ++
-      "    " ++ body ++ "\n" ++
-      "    return p\n\n" ++
-      "end ProofForgeV2.Examples\n"
-    let source ← liftResult (← session.selectProgramV1
-      text s!"<near-{label}>" s!"Examples.{label}" none)
-    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
-    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
-    let capability ← liftResult <|
-      Targets.resolveEngineeringRequirementsV1 selection compiled
-    match Targets.Near.planFromCapability capability with
-    | .error e =>
-        expect (e.render.contains "fail-closed" || e.render.contains "outside the NEAR pilot")
-          s!"{label}: wide shift must fail closed with a multiword limitation message, got {e.render}"
-    | .ok _ =>
-        throw <| IO.userError s!"{label}: wide shift must fail closed at the NEAR plan"
-  checkFailClosed "WideShl" "p := x << 1"
-  checkFailClosed "WideShr" "p := x >> 1"
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program WideShiftHost where\n" ++
+    "  state p : UInt128\n" ++
+    "  state q : UInt256\n\n" ++
+    "  init() do\n" ++
+    "    p := 0\n" ++
+    "    q := 0\n\n" ++
+    "  entry shl128(x : UInt128, count : UInt32) : UInt128 do\n" ++
+    "    p := x << count\n" ++
+    "    return p\n\n" ++
+    "  entry shr128(x : UInt128, count : UInt32) : UInt128 do\n" ++
+    "    p := x >> count\n" ++
+    "    return p\n\n" ++
+    "  entry shl256(x : UInt256, count : UInt32) : UInt256 do\n" ++
+    "    q := x << count\n" ++
+    "    return q\n\n" ++
+    "  entry shr256(x : UInt256, count : UInt32) : UInt256 do\n" ++
+    "    q := x >> count\n" ++
+    "    return q\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    text "<near-wide-shift-host>" "Examples.WideShiftHost" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let some shl128 := plan.entries.find? (·.name == "shl128") |
+    throw <| IO.userError "wide-shift: missing shl128"
+  expect (shl128.body.any fun statement => match statement with
+      | .store { value := .narrowShl 128 .., .. } => true
+      | _ => false)
+    "wide-shift: shl128 must store a narrowShl 128 tree"
+  let some shr256 := plan.entries.find? (·.name == "shr256") |
+    throw <| IO.userError "wide-shift: missing shr256"
+  expect (shr256.body.any fun statement => match statement with
+      | .store { value := .narrowShr 256 .., .. } => true
+      | _ => false)
+    "wide-shift: shr256 must store a narrowShr 256 tree"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initIR ← findMethod ir "init"
+  let shl128IR ← findMethod ir "shl128"
+  let shr128IR ← findMethod ir "shr128"
+  let shl256IR ← findMethod ir "shl256"
+  let shr256IR ← findMethod ir "shr256"
+  let shlKinds := operationKinds shl128IR.operations
+  let shrKinds := operationKinds shr256IR.operations
+  expect (shlKinds.contains "narrowShl")
+    s!"wide-shift: shl128 IR must contain narrowShl, got {shlKinds}"
+  expect (shrKinds.contains "narrowShr")
+    s!"wide-shift: shr256 IR must contain narrowShr, got {shrKinds}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun file => file.path.endsWith ".wat") |
+    throw <| IO.userError "wide-shift: missing .wat artifact"
+  expectContains wat.contents "multiword shl nLimbs=2 bitWidth=128"
+    "wide-shift WAT UInt128 shl"
+  expectContains wat.contents "multiword shr nLimbs=2 bitWidth=128"
+    "wide-shift WAT UInt128 shr"
+  expectContains wat.contents "multiword shl nLimbs=4 bitWidth=256"
+    "wide-shift WAT UInt256 shl"
+  expectContains wat.contents "multiword shr nLimbs=4 bitWidth=256"
+    "wide-shift WAT UInt256 shr"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let encode128 (lo hi : U64) : ByteArray :=
+    encodeUInt64LE lo ++ encodeUInt64LE hi
+  let encode256 (a b c d : U64) : ByteArray :=
+    encodeUInt64LE a ++ encodeUInt64LE b ++ encodeUInt64LE c ++ encodeUInt64LE d
+  let (storage0, _, _) ← requireSuccess "wide-shift init"
+    (execute initIR empty ByteArray.empty zero)
+  let (storage1, shl128Leaves, _) ← requireSuccessLeaves "wide-shift shl128(1,64)"
+    (execute shl128IR storage0
+      (encode128 1 0 ++ encodeUInt64LE 64) zero)
+  expect (shl128Leaves == #[0, 1])
+    s!"wide-shift: UInt128 1 << 64 must cross into limb 1, got {shl128Leaves}"
+  let (storage2, shr128Leaves, _) ← requireSuccessLeaves "wide-shift shr128(2^64,64)"
+    (execute shr128IR storage1
+      (encode128 0 1 ++ encodeUInt64LE 64) zero)
+  expect (shr128Leaves == #[1, 0])
+    s!"wide-shift: UInt128 2^64 >> 64 must cross into limb 0, got {shr128Leaves}"
+  let (storage3, shl256Leaves, _) ← requireSuccessLeaves "wide-shift shl256(1,192)"
+    (execute shl256IR storage2
+      (encode256 1 0 0 0 ++ encodeUInt64LE 192) zero)
+  expect (shl256Leaves == #[0, 0, 0, 1])
+    s!"wide-shift: UInt256 1 << 192 must cross into limb 3, got {shl256Leaves}"
+  let (storage4, shr256Leaves, _) ← requireSuccessLeaves "wide-shift shr256(2^192,192)"
+    (execute shr256IR storage3
+      (encode256 0 0 0 1 ++ encodeUInt64LE 192) zero)
+  expect (shr256Leaves == #[1, 0, 0, 0])
+    s!"wide-shift: UInt256 2^192 >> 192 must cross into limb 0, got {shr256Leaves}"
+  match execute shl128IR storage4
+      (encode128 1 0 ++ encodeUInt64LE 128) zero with
+  | .trapped restored reason =>
+      expect (restored == storage4)
+        "wide-shift: count trap must roll back exact storage"
+      expect (reason.contains "invalid shift")
+        s!"wide-shift: count 128 must be invalid for UInt128, got {reason}"
+  | .success .. =>
+      throw <| IO.userError "wide-shift: UInt128 count 128 must trap"
+  match execute shl128IR storage4
+      (encode128 0 (0x8000000000000000 : U64) ++ encodeUInt64LE 1) zero with
+  | .trapped restored reason =>
+      expect (restored == storage4)
+        "wide-shift: checked-shl overflow must roll back exact storage"
+      expect (reason.contains "UInt128 shift overflow")
+        s!"wide-shift: expected UInt128 shift overflow, got {reason}"
+  | .success .. =>
+      throw <| IO.userError "wide-shift: UInt128 high bit << 1 must trap"
 
 /-- Bytes N state/param: flatten to N×UInt8 KV leaves (state, byteWidth 1)
     and N×UInt8 input words (param, cumulative 8-byte pitch, read-only).
@@ -5614,7 +5725,7 @@ unsafe def run : IO Unit := do
   testWideUintProduct session
   testWideMulProductPath session
   testWideDivModProductPath session
-  testWideShiftFailClosed session
+  testWideShiftProductPath session
   testBytesStateParamProductPath session
   testBytesNegativesFailClosed session
   testInt8ParamAdmitted session

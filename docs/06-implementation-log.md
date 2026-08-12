@@ -14922,3 +14922,15 @@ normative: false
   finalized artifact identity、simulation 或 target refinement；没有新增 State、Effect、
   transition、evaluator 或 step。assurance 仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — NEAR multiword shift HostModel alignment
+
+- 远端 production NEAR Plan/IR/WAT 已开放 UInt128/256 `<<` / `>>` 后，删除过时的
+  “wide shift 必须在 Plan fail closed”测试，并让 deterministic `NearHostModel` 的既有
+  `.narrowShl` / `.narrowShr` operation 分支覆盖 128/256 consecutive LE limbs。
+- 工程模型固定 UInt128/256 whole-limb success、logical right shift、count≥bitWidth trap、
+  checked-left high-bit overflow及 exact storage rollback；同时从同一次 capability 固定
+  production Plan tree、IR operation 与 WAT multiword marker。
+- 这只是 test-only HostModel 对齐，不新增 target State/Effect/evaluator/step，不证明 WAT、Wasm
+  或 NEAR execution/refinement；assurance 仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
