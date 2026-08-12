@@ -349,9 +349,9 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
       | some (_, irTemp) =>
           { operations := #[], value := irTemp, next := next }
       | none =>
-          -- Unresolved local: allocate a sink temp so validation still binds;
-          -- well-formed plans always resolve induction locals via forLoop.
-          { operations := #[.literal next 0], value := next, next := next + 1 }
+          -- `validatePlan` proves every product-path localTemp is lexically
+          -- bound before recipe lowering; never change its meaning to zero.
+          unreachable!
   | .blockTimestampSeconds =>
       { operations := #[.blockTimestampSeconds next]
         value := next
@@ -785,7 +785,6 @@ private partial def lowerBodyOps
     Array Operation × Nat := Id.run do
   let mut operations : Array Operation := #[]
   let mut next := next
-  let mut localEnv := localEnv
   for statement in statements do
     match statement with
     | .store store =>
@@ -959,7 +958,6 @@ private partial def lowerBodyOps
         operations := operations.push
           (.forRegion irVar initL.value counterTemp maxIterations
             condOps condTemp bodyOps updateOps updateTemp)
-        localEnv := localEnv'
   pure (operations, next)
 
 
@@ -1240,6 +1238,132 @@ def validateWATModuleMethodExportsV1 (ir : IR) : CompileResult Unit := do
 /-- Proof-relevant successful method/export table validation. -/
 def WATModuleMethodExportsSafeV1 (ir : IR) : Prop :=
   validateWATModuleMethodExportsV1 ir = .ok ()
+
+/-- Whether the consecutive local range beginning at `base` is declared by a
+    function whose complete numeric local namespace is `0..<tempCount`. -/
+private def tempSpanDeclaredV1 (tempCount base count : Nat) : Bool :=
+  count > 0 && base + count <= tempCount
+
+/-- Every numeric `$t<n>` local referenced by one rendered operation is within
+    the enclosing method/pureFn declaration. Multiword operations validate the
+    complete consecutive limb spans, and structured regions recurse over the
+    same operation tree consumed by the sole production renderer. -/
+private partial def operationLocalReferencesValidV1
+    (tempCount : Nat) : Operation → Bool
+  | .checkInputLen _ | .requireZeroAttachedDeposit | .requireLayoutAbsent _
+  | .requireLayout .. | .zeroState _ | .narrowZeroState .. | .setLayout ..
+  | .returnNone => true
+  | .requireExactAttachedDeposit amount => amount < tempCount
+  | .blockTimestampSeconds destination | .blockIndex destination
+  | .accountBalance destination | .callerPrincipalLen destination
+  | .callerPrincipalWord destination _ | .selfPrincipalLen destination
+  | .selfPrincipalWord destination _ | .literal destination _
+  | .loadParam destination _ | .loadState destination _ =>
+      destination < tempCount
+  | .accountBalanceU128 destination =>
+      tempSpanDeclaredV1 tempCount destination 2
+  | .narrowLoadParam bitWidth destination _
+  | .narrowLoadState bitWidth destination _ =>
+      tempSpanDeclaredV1 tempCount destination
+        (limbCountOfBitWidth bitWidth)
+  | .checkedAdd destination lhs rhs | .checkedSub destination lhs rhs
+  | .signedCheckedAdd destination lhs rhs
+  | .signedCheckedSub destination lhs rhs
+  | .signedCheckedMul destination lhs rhs
+  | .signedCheckedDiv destination lhs rhs
+  | .signedCheckedMod destination lhs rhs | .sar destination lhs rhs
+  | .checkedMul destination lhs rhs | .checkedDiv destination lhs rhs
+  | .checkedMod destination lhs rhs | .bitAnd destination lhs rhs
+  | .bitOr destination lhs rhs | .bitXor destination lhs rhs
+  | .shl destination lhs rhs | .shr destination lhs rhs
+  | .boolAnd destination lhs rhs | .boolOr destination lhs rhs
+  | .signedCompare destination lhs rhs _
+  | .compare destination lhs rhs _ =>
+      destination < tempCount && lhs < tempCount && rhs < tempCount
+  | .checkedNeg destination source | .bitNot destination source
+  | .boolNot destination source =>
+      destination < tempCount && source < tempCount
+  | .storeState _ value => value < tempCount
+  | .narrowStoreState bitWidth _ value =>
+      tempSpanDeclaredV1 tempCount value (limbCountOfBitWidth bitWidth)
+  | .setReturnData byteLen value =>
+      let count := if byteLen > 8 then byteLen / 8 else 1
+      tempSpanDeclaredV1 tempCount value count
+  | .setReturnDataLeaves temps _ => temps.all (· < tempCount)
+  | .wideCompare bitWidth destination lhs rhs _ =>
+      let count := limbCountOfBitWidth bitWidth
+      destination < tempCount &&
+        tempSpanDeclaredV1 tempCount lhs count &&
+        tempSpanDeclaredV1 tempCount rhs count
+  | .assert condition => condition < tempCount
+  | .emitEvent _ args | .revertError _ args
+  | .promiseAccount _ _ args => args.all (· < tempCount)
+  | .ifRegion condition thenOps elseOps =>
+      condition < tempCount &&
+        thenOps.all (operationLocalReferencesValidV1 tempCount) &&
+        elseOps.all (operationLocalReferencesValidV1 tempCount)
+  | .switchRegion scrutinee cases defaultOps =>
+      scrutinee < tempCount &&
+        cases.all (fun (_, caseOps) =>
+          caseOps.all (operationLocalReferencesValidV1 tempCount)) &&
+        defaultOps.all (operationLocalReferencesValidV1 tempCount)
+  | .forRegion varTemp initial counterTemp _ condOps condition bodyOps
+      updateOps updateValue =>
+      varTemp < tempCount && initial < tempCount &&
+        counterTemp < tempCount && condition < tempCount &&
+        updateValue < tempCount &&
+        condOps.all (operationLocalReferencesValidV1 tempCount) &&
+        bodyOps.all (operationLocalReferencesValidV1 tempCount) &&
+        updateOps.all (operationLocalReferencesValidV1 tempCount)
+  | .callFn _ destination args =>
+      destination < tempCount && args.all (· < tempCount)
+  | .returnValue value => value < tempCount
+  | .narrowCheckedAdd bitWidth destination lhs rhs
+  | .narrowCheckedSub bitWidth destination lhs rhs
+  | .narrowCheckedMul bitWidth destination lhs rhs
+  | .narrowCheckedDiv bitWidth destination lhs rhs
+  | .narrowCheckedMod bitWidth destination lhs rhs
+  | .narrowBitAnd bitWidth destination lhs rhs
+  | .narrowBitOr bitWidth destination lhs rhs
+  | .narrowBitXor bitWidth destination lhs rhs =>
+      let count := limbCountOfBitWidth bitWidth
+      tempSpanDeclaredV1 tempCount destination count &&
+        tempSpanDeclaredV1 tempCount lhs count &&
+        tempSpanDeclaredV1 tempCount rhs count
+  | .narrowBitNot bitWidth destination source =>
+      let count := limbCountOfBitWidth bitWidth
+      tempSpanDeclaredV1 tempCount destination count &&
+        tempSpanDeclaredV1 tempCount source count
+  | .narrowShl bitWidth destination lhs rhs
+  | .narrowShr bitWidth destination lhs rhs =>
+      let count := limbCountOfBitWidth bitWidth
+      tempSpanDeclaredV1 tempCount destination count &&
+        tempSpanDeclaredV1 tempCount lhs count && rhs < tempCount
+  | .promiseTransfer dstLen dstWords amount =>
+      dstLen < tempCount && amount < tempCount &&
+        dstWords.all (· < tempCount)
+  | .promiseTokenTransfer mintLen mintWords dstLen dstWords amount =>
+      mintLen < tempCount && dstLen < tempCount && amount < tempCount &&
+        mintWords.all (· < tempCount) && dstWords.all (· < tempCount)
+
+/-- Fail-closed generated-module numeric-local consistency. Successful
+    validation guarantees that every `$t<n>` emitted in any method or pureFn,
+    including nested control flow and multiword limb spans, has a matching
+    parameter/local declaration in that enclosing function. -/
+def validateWATModuleLocalReferencesV1 (ir : IR) : CompileResult Unit := do
+  unless ir.methods.all (fun method =>
+        method.operations.all
+          (operationLocalReferencesValidV1 method.tempCount)) &&
+      ir.fns.all (fun fn =>
+        fn.paramCount <= fn.tempCount &&
+          fn.operations.all
+            (operationLocalReferencesValidV1 fn.tempCount)) do
+    throw <| .planInvariant .near
+      "typed NEAR IR WAT operation references an undeclared numeric local"
+
+/-- Proof-relevant successful generated-module numeric-local validation. -/
+def WATModuleLocalReferencesSafeV1 (ir : IR) : Prop :=
+  validateWATModuleLocalReferencesV1 ir = .ok ()
 
 /-- Every internal `callFn` rendered by one typed Operation resolves to the
     indexed production FnIR row with its exact Wasm parameter arity. -/
@@ -1614,12 +1738,14 @@ private def validateIRCore (ir : IR) : CompileResult Unit := do
       "typed NEAR IR pureFn operations are not the exact lowering of their source Plan"
 
 /-- Validate the typed host-call recipe, bind it exactly to its source Plan,
-    and close the generated WAT module's linear-memory/data envelope. -/
+    and close the generated WAT module's import/export, function-call,
+    numeric-local, and linear-memory/data envelopes. -/
 def validateIR (ir : IR) : CompileResult Unit := do
   validateIRCore ir
   validateWATModuleHostImportsV1 ir
   validateWATModuleMethodExportsV1 ir
   validateWATModuleFnReferencesV1 ir
+  validateWATModuleLocalReferencesV1 ir
   validateWATModuleMemoryV1 ir
 
 /-- Successful production IR validation exposes the canonical host-import and
@@ -1695,6 +1821,42 @@ theorem validateIR_watModuleFnReferencesSafeV1
                   cases result
                   exact hfns
 
+/-- Successful production IR validation exposes the recursive numeric-local
+    declaration/reference certificate. -/
+theorem validateIR_watModuleLocalReferencesSafeV1
+    (ir : IR)
+    (hvalidate : validateIR ir = .ok ()) :
+    WATModuleLocalReferencesSafeV1 ir := by
+  unfold validateIR at hvalidate
+  cases hcore : validateIRCore ir with
+  | error error =>
+      simp [hcore, Bind.bind, Except.bind] at hvalidate
+  | ok result =>
+      cases result
+      cases himports : validateWATModuleHostImportsV1 ir with
+      | error error =>
+          simp [hcore, himports, Bind.bind, Except.bind] at hvalidate
+      | ok result =>
+          cases result
+          cases hexports : validateWATModuleMethodExportsV1 ir with
+          | error error =>
+              simp [hcore, himports, hexports, Bind.bind, Except.bind] at hvalidate
+          | ok result =>
+              cases result
+              cases hfns : validateWATModuleFnReferencesV1 ir with
+              | error error =>
+                  simp [hcore, himports, hexports, hfns, Bind.bind,
+                    Except.bind] at hvalidate
+              | ok result =>
+                  cases result
+                  cases hlocals : validateWATModuleLocalReferencesV1 ir with
+                  | error error =>
+                      simp [hcore, himports, hexports, hfns, hlocals,
+                        Bind.bind, Except.bind] at hvalidate
+                  | ok result =>
+                      cases result
+                      exact hlocals
+
 /-- Successful production IR validation exposes the complete generated-module
     memory/data certificate without replaying a second validator. -/
 theorem validateIR_watModuleMemorySafeV1
@@ -1723,8 +1885,14 @@ theorem validateIR_watModuleMemorySafeV1
                     Except.bind] at hvalidate
               | ok result =>
                   cases result
-                  simpa [WATModuleMemorySafeV1, hcore, himports, hexports,
-                    hfns, Bind.bind, Except.bind] using hvalidate
+                  cases hlocals : validateWATModuleLocalReferencesV1 ir with
+                  | error error =>
+                      simp [hcore, himports, hexports, hfns, hlocals,
+                        Bind.bind, Except.bind] at hvalidate
+                  | ok result =>
+                      cases result
+                      simpa [WATModuleMemorySafeV1, hcore, himports, hexports,
+                        hfns, hlocals, Bind.bind, Except.bind] using hvalidate
 
 private def makeIR (plan : Plan) : IR :=
   let keys := makeKeyRegions plan
@@ -3383,6 +3551,7 @@ structure ValidatedReadOnlyWATModuleEmissionV1
   moduleHostImportsSafety : WATModuleHostImportsSafeV1 ir
   moduleMethodExportsSafety : WATModuleMethodExportsSafeV1 ir
   moduleFnReferencesSafety : WATModuleFnReferencesSafeV1 ir
+  moduleLocalReferencesSafety : WATModuleLocalReferencesSafeV1 ir
   moduleMemorySafety : WATModuleMemorySafeV1 ir
   methodEmission :
     ValidatedReadOnlyMethodWATEmissionV1 ir methodIndex method watText
@@ -3833,6 +4002,9 @@ theorem validatedReadOnlyWATModuleEmissionV1_of_irEmissionV1
       irEmissionV1_validateIR ir files hirEmission
     moduleFnReferencesSafety := validateIR_watModuleFnReferencesSafeV1 ir <|
       irEmissionV1_validateIR ir files hirEmission
+    moduleLocalReferencesSafety :=
+      validateIR_watModuleLocalReferencesSafeV1 ir <|
+        irEmissionV1_validateIR ir files hirEmission
     moduleMemorySafety := validateIR_watModuleMemorySafeV1 ir <|
       irEmissionV1_validateIR ir files hirEmission
     methodEmission := hmethodEmission

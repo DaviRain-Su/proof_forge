@@ -34,23 +34,25 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | _ => true
 
 private partial def planExprNodes? (layout : StorageLayout) (params : Array Param)
-    (fns : Array FnBinding) (depthLeft nodeBudget : Nat) (expr : Expr) : Option Nat :=
+    (fns : Array FnBinding) (depthLeft nodeBudget : Nat) (expr : Expr)
+    (localScope : Array Nat := #[]) : Option Nat :=
   if depthLeft == 0 || nodeBudget == 0 then
     none
   else
     let binaryNodes (lhs rhs : Expr) : Option Nat :=
       let childDepth := depthLeft - 1
       let available := nodeBudget - 1
-      match planExprNodes? layout params fns childDepth available lhs with
+      match planExprNodes? layout params fns childDepth available lhs localScope with
       | none => none
       | some lhsNodes =>
-          match planExprNodes? layout params fns childDepth (available - lhsNodes) rhs with
+          match planExprNodes? layout params fns childDepth
+              (available - lhsNodes) rhs localScope with
           | none => none
           | some rhsNodes => some (1 + lhsNodes + rhsNodes)
     let unaryNodes (operand : Expr) : Option Nat :=
       let childDepth := depthLeft - 1
       let available := nodeBudget - 1
-      match planExprNodes? layout params fns childDepth available operand with
+      match planExprNodes? layout params fns childDepth available operand localScope with
       | none => none
       | some nodes => some (1 + nodes)
     match expr with
@@ -59,7 +61,8 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
         if params.any (·.inputOffset == inputOffset) then some 1 else none
     | .stateLoad fieldIndex | .narrowStateLoad _ fieldIndex =>
         if fieldIndex < layout.fields.size then some 1 else none
-    | .localTemp _ => some 1
+    | .localTemp index =>
+        if localScope.contains index then some 1 else none
     | .blockTimestampSeconds => some 1
     | .blockIndex => some 1
     | .accountBalance => some 1
@@ -112,7 +115,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
               for arg in args do
                 unless exprIsUInt64CompatibleV1 fns arg do
                   ok := false
-                match planExprNodes? layout params fns childDepth available arg with
+                match planExprNodes? layout params fns childDepth available arg localScope with
                 | none => ok := false
                 | some n =>
                     totalNodes := totalNodes + n
@@ -120,26 +123,28 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
               pure (if ok then some totalNodes else none)
 
 private def addPlanExprNodes (limits : ResourceLimits) (layout : StorageLayout)
-    (params : Array Param) (fns : Array FnBinding) (total : Nat) (expr : Expr) :
+    (params : Array Param) (fns : Array FnBinding) (total : Nat) (expr : Expr)
+    (localScope : Array Nat := #[]) :
     CompileResult Nat := do
   if total >= limits.maxPlanNodes then
     throw <| .planInvariant .near
       s!"plan exceeds aggregate node limit {limits.maxPlanNodes}"
   match planExprNodes? layout params fns limits.maxExprDepth
-      (limits.maxPlanNodes - total) expr with
+      (limits.maxPlanNodes - total) expr localScope with
   | some nodes => pure (total + nodes)
   | none =>
       throw <| .planInvariant .near
         s!"plan expression has a dangling reference or exceeds depth {limits.maxExprDepth}/node limit {limits.maxPlanNodes}"
 
 private def addMethodExprTemps (limits : ResourceLimits) (layout : StorageLayout)
-    (params : Array Param) (fns : Array FnBinding) (total : Nat) (expr : Expr) :
+    (params : Array Param) (fns : Array FnBinding) (total : Nat) (expr : Expr)
+    (localScope : Array Nat := #[]) :
     CompileResult Nat := do
   if total >= limits.maxMethodLocals then
     throw <| .planInvariant .near
       s!"method expression exceeds local limit {limits.maxMethodLocals}"
   match planExprNodes? layout params fns limits.maxExprDepth
-      (limits.maxMethodLocals - total) expr with
+      (limits.maxMethodLocals - total) expr localScope with
   | some nodes => pure (total + nodes)
   | none =>
       throw <| .planInvariant .near
@@ -204,6 +209,7 @@ private partial def checkMethodStatementsV1
     (eventCount : Nat) (eventFieldCounts : Array Nat)
     (errorCount : Nat) (errorFieldCounts : Array Nat)
     (params : Array Param) (fns : Array FnBinding)
+    (localScope : Array Nat)
     (statements : Array Statement)
     (total : Nat) (methodTemps : Nat) :
     CompileResult (Nat × Nat × Bool) := do
@@ -225,8 +231,9 @@ private partial def checkMethodStatementsV1
         unless store.byteWidth == field.byteWidth do
           throw <| .planInvariant .near
             "method store byteWidth does not match state field layout"
-        total ← addPlanExprNodes limits layout params fns total store.value
-        methodTemps ← addMethodExprTemps limits layout params fns methodTemps store.value
+        total ← addPlanExprNodes limits layout params fns total store.value localScope
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps
+          store.value localScope
     | .storeAtomic leaves =>
         if isView then
           throw <| .planInvariant .near s!"view method writes state"
@@ -248,14 +255,15 @@ private partial def checkMethodStatementsV1
           unless store.byteWidth == field.byteWidth do
             throw <| .planInvariant .near
               "method store byteWidth does not match state field layout"
-          total ← addPlanExprNodes limits layout params fns total store.value
-          methodTemps ← addMethodExprTemps limits layout params fns methodTemps store.value
+          total ← addPlanExprNodes limits layout params fns total store.value localScope
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps
+            store.value localScope
         total := total + 1
     | .returnValue value =>
         if isInitializer then
           throw <| .planInvariant .near "initializer cannot return a value"
-        total ← addPlanExprNodes limits layout params fns total value
-        methodTemps ← addMethodExprTemps limits layout params fns methodTemps value
+        total ← addPlanExprNodes limits layout params fns total value localScope
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps value localScope
         closed := true
     | .returnAggregate leaves leafIsInt =>
         if isInitializer then
@@ -269,8 +277,8 @@ private partial def checkMethodStatementsV1
           throw <| .planInvariant .near
             "returnAggregate leafIsInt length must match leaves"
         for leaf in leaves do
-          total ← addPlanExprNodes limits layout params fns total leaf
-          methodTemps ← addMethodExprTemps limits layout params fns methodTemps leaf
+          total ← addPlanExprNodes limits layout params fns total leaf localScope
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps leaf localScope
         total := total + 1
         closed := true
     | .returnNone =>
@@ -290,8 +298,8 @@ private partial def checkMethodStatementsV1
         for arg in args do
           unless exprIsUInt64CompatibleV1 fns arg do
             throw <| .planInvariant .near "method event arguments must be UInt64 expressions"
-          total ← addPlanExprNodes limits layout params fns total arg
-          methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg
+          total ← addPlanExprNodes limits layout params fns total arg localScope
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg localScope
         total := total + 1
     | .promiseAccount receiver method args =>
         if isView then
@@ -308,8 +316,8 @@ private partial def checkMethodStatementsV1
         for arg in args do
           unless exprIsUInt64CompatibleV1 fns arg do
             throw <| .planInvariant .near "method schedule arguments must be UInt64 expressions"
-          total ← addPlanExprNodes limits layout params fns total arg
-          methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg
+          total ← addPlanExprNodes limits layout params fns total arg localScope
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg localScope
         total := total + 1
     | .nativeDeposit amount =>
         if isView then
@@ -324,8 +332,8 @@ private partial def checkMethodStatementsV1
         unless exprIsUInt64CompatibleV1 fns amount do
           throw <| .planInvariant .near
             "method deposit amount must be a UInt64 expression"
-        total ← addPlanExprNodes limits layout params fns total amount
-        methodTemps ← addMethodExprTemps limits layout params fns methodTemps amount
+        total ← addPlanExprNodes limits layout params fns total amount localScope
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps amount localScope
         total := total + 1
     | .promiseTransfer dstLen dstWords amount =>
         if isView then
@@ -343,19 +351,19 @@ private partial def checkMethodStatementsV1
         unless exprIsUInt64CompatibleV1 fns dstLen do
           throw <| .planInvariant .near
             "transferAsync dst len must be a UInt64 expression"
-        total ← addPlanExprNodes limits layout params fns total dstLen
-        methodTemps ← addMethodExprTemps limits layout params fns methodTemps dstLen
+        total ← addPlanExprNodes limits layout params fns total dstLen localScope
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps dstLen localScope
         for w in dstWords do
           unless exprIsUInt64CompatibleV1 fns w do
             throw <| .planInvariant .near
               "transferAsync dst body words must be UInt64 expressions"
-          total ← addPlanExprNodes limits layout params fns total w
-          methodTemps ← addMethodExprTemps limits layout params fns methodTemps w
+          total ← addPlanExprNodes limits layout params fns total w localScope
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps w localScope
         unless exprIsUInt64CompatibleV1 fns amount do
           throw <| .planInvariant .near
             "transferAsync amount must be a UInt64 expression"
-        total ← addPlanExprNodes limits layout params fns total amount
-        methodTemps ← addMethodExprTemps limits layout params fns methodTemps amount
+        total ← addPlanExprNodes limits layout params fns total amount localScope
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps amount localScope
         total := total + 1
     | .promiseTokenTransfer mintLen mintWords dstLen dstWords amount =>
         if isView then
@@ -373,33 +381,33 @@ private partial def checkMethodStatementsV1
         unless exprIsUInt64CompatibleV1 fns mintLen do
           throw <| .planInvariant .near
             "token transferAsync mint len must be a UInt64 expression"
-        total ← addPlanExprNodes limits layout params fns total mintLen
-        methodTemps ← addMethodExprTemps limits layout params fns methodTemps mintLen
+        total ← addPlanExprNodes limits layout params fns total mintLen localScope
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps mintLen localScope
         for w in mintWords do
           unless exprIsUInt64CompatibleV1 fns w do
             throw <| .planInvariant .near
               "token transferAsync mint body words must be UInt64 expressions"
-          total ← addPlanExprNodes limits layout params fns total w
-          methodTemps ← addMethodExprTemps limits layout params fns methodTemps w
+          total ← addPlanExprNodes limits layout params fns total w localScope
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps w localScope
         unless dstWords.size == nearPrincipalDataWordCountV1 do
           throw <| .planInvariant .near
             "token transferAsync dst Principal body word count must be 8"
         unless exprIsUInt64CompatibleV1 fns dstLen do
           throw <| .planInvariant .near
             "token transferAsync dst len must be a UInt64 expression"
-        total ← addPlanExprNodes limits layout params fns total dstLen
-        methodTemps ← addMethodExprTemps limits layout params fns methodTemps dstLen
+        total ← addPlanExprNodes limits layout params fns total dstLen localScope
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps dstLen localScope
         for w in dstWords do
           unless exprIsUInt64CompatibleV1 fns w do
             throw <| .planInvariant .near
               "token transferAsync dst body words must be UInt64 expressions"
-          total ← addPlanExprNodes limits layout params fns total w
-          methodTemps ← addMethodExprTemps limits layout params fns methodTemps w
+          total ← addPlanExprNodes limits layout params fns total w localScope
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps w localScope
         unless exprIsUInt64CompatibleV1 fns amount do
           throw <| .planInvariant .near
             "token transferAsync amount must be a UInt64 expression"
-        total ← addPlanExprNodes limits layout params fns total amount
-        methodTemps ← addMethodExprTemps limits layout params fns methodTemps amount
+        total ← addPlanExprNodes limits layout params fns total amount localScope
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps amount localScope
         total := total + 1
     | .revertError errorIndex args =>
         unless errorIndex < errorCount do
@@ -409,31 +417,31 @@ private partial def checkMethodStatementsV1
         for arg in args do
           unless exprIsUInt64CompatibleV1 fns arg do
             throw <| .planInvariant .near "method error arguments must be UInt64 expressions"
-          total ← addPlanExprNodes limits layout params fns total arg
-          methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg
+          total ← addPlanExprNodes limits layout params fns total arg localScope
+          methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg localScope
         total := total + 1
         closed := true
     | .assert condition =>
-        total ← addPlanExprNodes limits layout params fns total condition
-        methodTemps ← addMethodExprTemps limits layout params fns methodTemps condition
+        total ← addPlanExprNodes limits layout params fns total condition localScope
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps condition localScope
     | .ifThenElse condition thenBody elseBody =>
-        total ← addPlanExprNodes limits layout params fns total condition
-        methodTemps ← addMethodExprTemps limits layout params fns methodTemps condition
+        total ← addPlanExprNodes limits layout params fns total condition localScope
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps condition localScope
         total := total + 1
         let (t1, m1, c1) ← checkMethodStatementsV1
           limits layout isInitializer isView isPureFn false
           eventCount eventFieldCounts errorCount errorFieldCounts
-          params fns thenBody total methodTemps
+          params fns localScope thenBody total methodTemps
         let (t2, m2, c2) ← checkMethodStatementsV1
           limits layout isInitializer isView isPureFn false
           eventCount eventFieldCounts errorCount errorFieldCounts
-          params fns elseBody t1 m1
+          params fns localScope elseBody t1 m1
         total := t2
         methodTemps := m2
         closed := c1 && c2 && !elseBody.isEmpty
     | .switchOn scrutinee cases defaultBody =>
-        total ← addPlanExprNodes limits layout params fns total scrutinee
-        methodTemps ← addMethodExprTemps limits layout params fns methodTemps scrutinee
+        total ← addPlanExprNodes limits layout params fns total scrutinee localScope
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps scrutinee localScope
         total := total + 1
         let mut allClosed := !defaultBody.isEmpty
         for (_caseValue, caseBody) in cases do
@@ -441,29 +449,35 @@ private partial def checkMethodStatementsV1
           let (t, m, c) ← checkMethodStatementsV1
             limits layout isInitializer isView isPureFn false
             eventCount eventFieldCounts errorCount errorFieldCounts
-            params fns caseBody total methodTemps
+            params fns localScope caseBody total methodTemps
           total := t
           methodTemps := m
           allClosed := allClosed && c
         let (td, md, cd) ← checkMethodStatementsV1
           limits layout isInitializer isView isPureFn false
           eventCount eventFieldCounts errorCount errorFieldCounts
-          params fns defaultBody total methodTemps
+          params fns localScope defaultBody total methodTemps
         total := td
         methodTemps := md
         closed := allClosed && cd
-    | .forLoop _varTemp initial condition update _maxIterations body =>
-        total ← addPlanExprNodes limits layout params fns total initial
-        methodTemps ← addMethodExprTemps limits layout params fns methodTemps initial
-        total ← addPlanExprNodes limits layout params fns total condition
-        methodTemps ← addMethodExprTemps limits layout params fns methodTemps condition
-        total ← addPlanExprNodes limits layout params fns total update
-        methodTemps ← addMethodExprTemps limits layout params fns methodTemps update
+    | .forLoop varTemp initial condition update _maxIterations body =>
+        if localScope.contains varTemp then
+          throw <| .planInvariant .near
+            "nested NEAR for-loop induction locals must not shadow an enclosing binding"
+        total ← addPlanExprNodes limits layout params fns total initial localScope
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps
+          initial localScope
+        let loopScope := localScope.push varTemp
+        total ← addPlanExprNodes limits layout params fns total condition loopScope
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps
+          condition loopScope
+        total ← addPlanExprNodes limits layout params fns total update loopScope
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps update loopScope
         total := total + 1
         let (tb, mb, _cb) ← checkMethodStatementsV1
           limits layout isInitializer isView isPureFn false
           eventCount eventFieldCounts errorCount errorFieldCounts
-          params fns body total methodTemps
+          params fns loopScope body total methodTemps
         total := tb
         methodTemps := mb
         -- A for-loop itself does not close the enclosing method.
@@ -563,7 +577,7 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
     limits layout isInitializer (method.mode == .view) false
       (isInitializer || method.resultKind == .unit)
     events.size (events.map (·.fieldCount)) errors.size (errors.map (·.fieldCount))
-    method.params fns method.body baseNodes 0
+    method.params fns #[] method.body baseNodes 0
   unless closed do
     throw <| .planInvariant .near
       s!"method '{method.name}' does not terminate on all paths"
@@ -581,7 +595,7 @@ private def validateFnBinding (limits : ResourceLimits) (layout : StorageLayout)
   let (total, _, closed) ← checkMethodStatementsV1
     limits layout false false true false
     events.size (events.map (·.fieldCount)) errors.size (errors.map (·.fieldCount))
-    fn.params fns fn.body baseNodes 0
+    fn.params fns #[] fn.body baseNodes 0
   unless closed do
     throw <| .planInvariant .near
       s!"pureFn '{fn.name}' does not terminate on all paths"

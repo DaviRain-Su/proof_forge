@@ -295,6 +295,29 @@ Phase 1：实现
   `wat2wasm`接受。该切片修复已知 generated textual-WAT malformed-local/type风险，但不解析任意
   WAT、不证明声明/use/type的一般 parser-level well-formedness；locked工具通过只是工程观测，
   不证明 `wat2wasm` correctness、Wasm binary或 NEAR execution refinement。
+- **generated-WAT numeric-local reference consistency（Phase 7 第二十三切）**：
+  `validateWATModuleLocalReferencesV1` 对每个 method/pureFn 的 enclosing `tempCount` 声明空间检查
+  sole renderer 会发出的全部 numeric `$t<n>` 引用；标量 source/destination、`callFn` args/result、
+  event/error/promise参数及 `if`/`switch`/`for` nested operation tree均 fail closed。UInt128/256
+  load/store/arithmetic/compare/shift/return会检查完整连续 limb span，pureFn另要求
+  `paramCount ≤ tempCount`，从而对应 renderer的 parameter+local声明方式。production `validateIR`
+  已组合该 gate；`validateIR_watModuleLocalReferencesSafeV1` 将成功验证投影为
+  `WATModuleLocalReferencesSafeV1` kernel witness，complete-module carrier显式保留证书。真实
+  production IR正例与 top-level越界、nested越界、pureFn multiword末 limb越界负例已固定。
+  该 gate审计的是 generated typed IR与唯一 renderer之间的 declaration/reference consistency，
+  不解析 arbitrary textual WAT，也不证明 local value typing、def-before-use、renderer correctness、
+  `wat2wasm`、Wasm binary或 NEAR runtime refinement。Plan层 unresolved `.localTemp` 的合法性是
+  独立 binding/canonicity义务，不由本 numeric-local gate代签。
+- **Plan induction-local lexical binding（Phase 7 第二十四切）**：
+  `validatePlan` 对每个 method/pureFn从空 scope开始，递归要求 `.localTemp`只引用当前 enclosing
+  for-loop binding。loop `initial`在外围 scope验证；`condition`、`body`、`update`在加入 induction
+  local后验证；loop后的 sibling恢复外围 scope。nested loop可引用 outer/inner local，但拒绝同名
+  shadowing以匹配 sole lowering的 lookup规则。表达式、call参数、branch/switch、state/return、
+  event/error/promise位置共享同一 scope-aware gate；Plan→IR lowering也不再向 loop后泄漏 binding。
+  method/pureFn unbound、self-referential initial、scope escape、shadowing负例及 nested正例均已固定。
+  unresolved fallback不再生成 literal zero，而会立即不可达；successful production Plan path不会
+  触发它。该检查不解析 textual WAT，也不证明 Wasm binary、`wat2wasm` correctness或 NEAR runtime
+  refinement。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -373,7 +396,9 @@ step连接；该 exact typed sequence也已通过 bounded typed-WAT static valid
 WAT现有选中 method fragment的 direct exact-render identity；完整 generated WAT也已由同一 validated
 IR拥有 exact module opener/imports/memory/data/pureFn/method/closing framing identity；module-level
 memory footprint、canonical host-import dependencies、nested internal pureFn references，以及 ordered
-method/export identity/signature metadata也已有 proof-relevant validation witness；sole renderer还会
+method/export identity/signature metadata、Plan induction-local lexical binding与全部 numeric `$t<n>`
+declaration/reference一致性也已有
+proof-relevant validation witness；sole renderer还会
 从完整 nested Operation tree归集每个 function实际需要的 scratch locals，并将 structured `if` 的
 semantic Bool i64显式归一化为 Wasm i32 predicate，避免已知的 undeclared-local与 condition-type
 malformed module；production nested-wide fixture已被 locked `wat2wasm`工程验收接受。该结果仍不是一般

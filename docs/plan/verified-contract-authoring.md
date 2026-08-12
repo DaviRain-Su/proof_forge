@@ -1212,8 +1212,17 @@ expression translator：
     使用未声明 `$t_mw_*` / `$t_pf_*` 的 generated malformed WAT。真实 locked `wat2wasm`验收还暴露并
     修复了 `if` 把 semantic Bool i64直接用于 Wasm i32 condition的问题；sole renderer现发射
     `i64.ne value 0`，同一 nested-wide fixture经 production CLI与 locked WABT 1.0.41接受。该观测不是
-    textual parser、一般 declaration/use/type theorem或 `wat2wasm` correctness proof。下一步
-    进入 textual WAT consumer的可信边界（canonical parse/re-render identity或 locked `wat2wasm`
+    textual parser、一般 declaration/use/type theorem或 `wat2wasm` correctness proof。generated numeric
+    local reference gate也已进入同一 production validation chain：每个 method/pureFn 的标量与连续
+    multiword `$t<n>` span、call/event/error/promise参数及 nested `if/switch/for` 引用必须落在 enclosing
+    declaration namespace内；成功证书由 complete-module carrier保留，top-level/nested/pureFn wide
+    越界均有负例。这仍不证明 value typing、def-before-use或 arbitrary textual WAT。Plan
+    `.localTemp` binding/canonicity也已独立闭合：loop initial只能引用外围 binding，condition/body/update
+    可引用新增 induction local，loop后 sibling不可引用已退出 local，nested shadowing fail closed；
+    method/pureFn顶层未绑定 local同样拒绝，sole lowering不再把 loop binding泄漏到后续 sibling。
+    unresolved fallback也不再静默生成 literal zero，而会立即不可达；成功 production validation路径
+    不会触发它。下一步进入
+    textual WAT consumer的可信边界（canonical parse/re-render identity或 locked `wat2wasm`
     identity/correctness），随后才是 Wasm binary execution与完整 NEAR host simulation。
     上述各层未闭合前，完整 WAT文本、Wasm binary和最终 NEAR artifact仍不得标记为 target-refined或
     artifact verified。

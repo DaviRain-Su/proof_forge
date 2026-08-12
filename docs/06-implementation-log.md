@@ -15275,3 +15275,37 @@ normative: false
   `wat2wasm`、Wasm binary或 NEAR runtime refinement。没有新增 DSL State/Effect/evaluator/step；
   assurance仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR generated-WAT numeric-local reference consistency
+
+- `validateWATModuleLocalReferencesV1` 现递归检查 methods/pureFns 中 sole renderer会发出的全部
+  numeric `$t<n>` reference均属于 enclosing function声明的 `0..<tempCount`；pureFn同时要求
+  `paramCount ≤ tempCount`。标量 source/destination、`callFn`、event/error/promise参数以及
+  `ifRegion`/`switchRegion`/`forRegion`均覆盖；UInt128/256 load/store/arithmetic/compare/shift/return
+  检查完整连续 limb span，而不是只检查 base temp。
+- production `validateIR` 已组合该 gate；成功 validation可经
+  `validateIR_watModuleLocalReferencesSafeV1` 投影为 proof-relevant
+  `WATModuleLocalReferencesSafeV1`，`ValidatedReadOnlyWATModuleEmissionV1` 显式保留同一证书。
+  回归固定真实 production IR正例，以及 method top-level越界、nested operation越界和 pureFn
+  multiword末 limb越界负例。
+- 该切片只证明 generated typed IR与唯一 renderer的 numeric-local declaration/reference一致性，
+  不解析 arbitrary textual WAT，不证明 value typing、def-before-use、renderer/parser/`wat2wasm`
+  correctness、Wasm binary或 NEAR runtime refinement。Plan unresolved `.localTemp` 的合法性仍是下一
+  独立 binding/canonicity切片；整体 assurance仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR Plan induction-local lexical binding
+
+- production `validatePlan` 现把 for-loop induction local作为词法绑定处理，而不再接受任意
+  `.localTemp`。loop `initial` 只在 enclosing scope验证；`condition`、`body`与`update`在加入本轮
+  `varTemp`后的 scope验证；离开 loop 后 sibling恢复 enclosing scope。nested loop可引用外层与自身
+  binding，但同名 shadowing fail closed，从而与 sole Plan→IR lowering的 local lookup规则一致。
+- method与pureFn都从空 local scope开始；表达式递归、`callFn`参数、branch/switch arm、event/error、
+  promise与state/return位置全部复用同一 scope-aware node/temp validator。sole lowering也不再把
+  loop binding泄漏给 loop后的 sibling；unresolved fallback不再生成 literal zero，而是在任何绕过
+  validation的内部调用上立即不可达，在成功 `validatePlan` product path上不会触发。
+- 回归固定 method/pureFn顶层 unbound local、self-referential loop initial、post-loop escape与nested
+  shadowing负例，并固定 condition/body/update、自身与外层 nested binding正例。该 gate闭合的是
+  canonical Plan→IR入口的 lexical binding，不是 textual WAT parser、Wasm binary或 NEAR runtime
+  refinement；整体 assurance仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

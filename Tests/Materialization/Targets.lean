@@ -1009,6 +1009,16 @@ private unsafe def testFnLocalCallSemanticPlans : IO Unit := do
         .checkedAdd (.callFn 1 #[.param 0, .literal 10]) (.callFn 0 #[.stateLoad 0]) },
       .returnValue (.stateLoad 0)])
     "NEAR bump must add check(delta,10) and double(count)"
+  let forgedUnboundNearFn := {
+    near.fns[0]! with body := #[.returnValue (.localTemp 0)]
+  }
+  match Targets.Near.validatePlan {
+      near with fns := near.fns.set! 0 forgedUnboundNearFn
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR Plan validation must reject an unbound pureFn localTemp"
   expect (noir.relations.map (·.name) == #["init", "bump", "get"])
     "Noir relations must stay init/entry/view only (fns inline, no fn relations)"
   let noirBump := noir.relations[1]!
@@ -2524,6 +2534,77 @@ unsafe def run : IO Unit := do
   | .error (.planInvariant .near _) => pure ()
   | _ => throw <| IO.userError "NearPlan must reject a mutable method without zero-deposit policy"
   let nearAdd := nearPlan.entries[0]!
+  let unboundNearLocal := {
+    nearAdd with body := #[.returnValue (.localTemp 0)]
+  }
+  match Targets.Near.validatePlan {
+      nearPlan with entries := nearPlan.entries.set! 0 unboundNearLocal
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR Plan validation must reject a method localTemp without a for-loop binder"
+  let validNearLoop : Targets.Near.Statement :=
+    .forLoop 0 (.literal 0)
+      (.compare .lt (.localTemp 0) (.literal 1))
+      (.checkedAdd (.localTemp 0) (.literal 1)) 1 #[]
+  let validNestedNearLoop : Targets.Near.Statement :=
+    .forLoop 0 (.literal 0)
+      (.compare .lt (.localTemp 0) (.literal 1))
+      (.checkedAdd (.localTemp 0) (.literal 1)) 1 #[
+        .forLoop 1 (.localTemp 0)
+          (.compare .le (.localTemp 1) (.localTemp 0))
+          (.checkedAdd (.localTemp 1) (.literal 1)) 1 #[
+            .assert (.compare .le (.localTemp 0) (.localTemp 1))],
+        .assert (.compare .le (.localTemp 0) (.literal 1))]
+  let validNestedNearLoopMethod := {
+    nearAdd with body := #[validNestedNearLoop, .returnValue (.literal 0)]
+  }
+  match Targets.Near.validatePlan {
+      nearPlan with entries := nearPlan.entries.set! 0 validNestedNearLoopMethod
+    } with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError
+        s!"NEAR Plan validation must accept lexically bound nested loop locals: {error.render}"
+  let unboundNearLoopInitial := {
+    nearAdd with body := #[
+      .forLoop 0 (.localTemp 0)
+        (.compare .lt (.localTemp 0) (.literal 1))
+        (.checkedAdd (.localTemp 0) (.literal 1)) 1 #[],
+      .returnValue (.literal 0)]
+  }
+  match Targets.Near.validatePlan {
+      nearPlan with entries := nearPlan.entries.set! 0 unboundNearLoopInitial
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR Plan validation must reject a for-loop binder in its own initial expression"
+  let escapedNearLoopLocal := {
+    nearAdd with body := #[validNearLoop, .returnValue (.localTemp 0)]
+  }
+  match Targets.Near.validatePlan {
+      nearPlan with entries := nearPlan.entries.set! 0 escapedNearLoopLocal
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR Plan validation must reject a for-loop local after its lexical scope"
+  let shadowedNearLoopLocal := {
+    nearAdd with body := #[
+      .forLoop 0 (.literal 0)
+        (.compare .lt (.localTemp 0) (.literal 1))
+        (.checkedAdd (.localTemp 0) (.literal 1)) 1 #[validNearLoop],
+      .returnValue (.literal 0)]
+  }
+  match Targets.Near.validatePlan {
+      nearPlan with entries := nearPlan.entries.set! 0 shadowedNearLoopLocal
+    } with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR Plan validation must reject nested induction-local shadowing"
   let nearDepth256 := nearPlan.entries.set! 0 {
     nearAdd with body := #[.returnValue (nestedNearPlanExpr 255)]
   }
@@ -2644,6 +2725,48 @@ unsafe def run : IO Unit := do
   | _ =>
       throw <| IO.userError
         "NEAR WAT module validation must reject a forged method mode"
+  match Targets.Near.validateWATModuleLocalReferencesV1 nearIR with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError
+        s!"production NEAR IR must pass numeric-local reference validation: {error.render}"
+  let outOfRangeNearLocal := nearIR.methods[2]!.tempCount
+  let forgedNearLocalMethod := {
+    nearIR.methods[2]! with
+    operations := #[.setReturnData 8 outOfRangeNearLocal]
+  }
+  match Targets.Near.validateWATModuleLocalReferencesV1
+      (Targets.Near.withMethods nearIR
+        (nearIR.methods.set! 2 forgedNearLocalMethod)) with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR WAT module validation must reject a top-level undeclared numeric local"
+  let forgedNestedNearLocalMethod := {
+    nearIR.methods[2]! with
+    operations := #[.ifRegion 0
+      #[.literal outOfRangeNearLocal 1] #[]]
+  }
+  match Targets.Near.validateWATModuleLocalReferencesV1
+      (Targets.Near.withMethods nearIR
+        (nearIR.methods.set! 2 forgedNestedNearLocalMethod)) with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR WAT module validation must inspect nested numeric-local references"
+  let forgedWideLocalFn : Targets.Near.FnIR := {
+    name := "forgedWideLocal"
+    paramCount := 0
+    resultIsBool := false
+    tempCount := 4
+    operations := #[.narrowBitNot 128 3 0]
+  }
+  match Targets.Near.validateWATModuleLocalReferencesV1
+      (Targets.Near.withFns nearIR #[forgedWideLocalFn]) with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR WAT module validation must reject an undeclared pureFn multiword limb"
   match Targets.Near.validateWATModuleHostImportsV1 nearIR with
   | .ok () => pure ()
   | .error error =>
