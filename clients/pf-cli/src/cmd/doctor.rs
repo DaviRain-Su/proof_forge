@@ -356,6 +356,220 @@ fn collect_deps(target: &str) -> Vec<Dep> {
                 });
             }
         }
+        "near" => {
+            let tr = tool_root();
+            let sandbox_ok = tr.as_ref().is_some_and(|t| t.join("near-sandbox").is_file())
+                || which::which("near-sandbox").is_ok();
+            let wat_ok = tr.as_ref().is_some_and(|t| t.join("wat2wasm").is_file())
+                || which::which("wat2wasm").is_ok();
+            if sandbox_ok {
+                deps.push(Dep {
+                    id: "near-sandbox",
+                    status: "ok",
+                    summary: "Tool Lock / PATH near-sandbox for pf test/run".into(),
+                    install: vec![],
+                    path: tr
+                        .as_ref()
+                        .map(|p| p.join("near-sandbox").display().to_string())
+                        .or_else(|| {
+                            which::which("near-sandbox")
+                                .ok()
+                                .map(|p| p.display().to_string())
+                        }),
+                });
+            } else {
+                deps.push(Dep {
+                    id: "near-sandbox",
+                    status: "need",
+                    summary: "locked near-sandbox for pf test -t near / pf run -t near".into(),
+                    install: vec![
+                        "# Tool Lock (preferred):".into(),
+                        "export PROOF_FORGE_TOOL_ROOT=$HOME/.cache/proof-forge-v2/tool-root/$(uname -s | tr A-Z a-z | sed 's/darwin/darwin/')-$(uname -m | sed 's/x86_64/x86_64/;s/arm64/arm64/')".into(),
+                        "# monorepo: python3 -I -S scripts/toolchain_assets.py provision-external".into(),
+                        "# then: just near-runtime   # ordinary CI job near-runtime".into(),
+                    ],
+                    path: None,
+                });
+            }
+            if wat_ok {
+                deps.push(Dep {
+                    id: "wat2wasm",
+                    status: "ok",
+                    summary: "wabt wat2wasm for NEAR Wasm finalize".into(),
+                    install: vec![],
+                    path: tr.as_ref().map(|p| p.display().to_string()),
+                });
+            } else {
+                deps.push(Dep {
+                    id: "wat2wasm",
+                    status: "need",
+                    summary: "wat2wasm required for pf build finalize / runtime corpus".into(),
+                    install: vec![
+                        "export PROOF_FORGE_TOOL_ROOT=$HOME/.cache/proof-forge-v2/tool-root/…".into(),
+                        "# or: brew install wabt".into(),
+                    ],
+                    path: None,
+                });
+            }
+            match crate::targets::near::test::resolve_near_test_script() {
+                Ok(p) => deps.push(Dep {
+                    id: "near-test-script",
+                    status: "ok",
+                    summary: "pf_near_test.sh (artifact fast-path or near-sandbox corpus)".into(),
+                    install: vec![],
+                    path: Some(p.display().to_string()),
+                }),
+                Err(_) => deps.push(Dep {
+                    id: "near-test-script",
+                    status: "info",
+                    summary: "pf test -t near needs scripts/pf_near_test.sh from bundle".into(),
+                    install: vec![
+                        "pf bootstrap --from proof-forge-bundle-*.tar.gz".into(),
+                        "export PROOF_FORGE_ROOT=$HOME/.local/proof-forge/current".into(),
+                    ],
+                    path: None,
+                }),
+            }
+            match crate::targets::near::local_run::resolve_near_run_script() {
+                Ok(p) => deps.push(Dep {
+                    id: "near-run-script",
+                    status: "ok",
+                    summary: "pf_near_run.sh for pf run -t near one-shot sandbox".into(),
+                    install: vec![],
+                    path: Some(p.display().to_string()),
+                }),
+                Err(_) => deps.push(Dep {
+                    id: "near-run-script",
+                    status: "info",
+                    summary: "pf run -t near needs scripts/pf_near_run.sh (bundle/monorepo)".into(),
+                    install: vec![
+                        "# monorepo: scripts/pf_near_run.sh".into(),
+                        "# or use: pf test -t near".into(),
+                    ],
+                    path: None,
+                }),
+            }
+            deps.push(Dep {
+                id: "near-python-deps",
+                status: "info",
+                summary: "python3 + cryptography + base58 for near-sandbox harness".into(),
+                install: vec![
+                    "python3 -m pip install --user -r runtime-tests/near/requirements.txt".into(),
+                    "# or: pip install cryptography base58".into(),
+                ],
+                path: None,
+            });
+            deps.push(Dep {
+                id: "near-broadcast",
+                status: "info",
+                summary: "public testnet/mainnet broadcast refused in pf v0 (save-only deploy)".into(),
+                install: vec![
+                    "pf deploy -t near                 # save-only package".into(),
+                    "# --broadcast always refused for near".into(),
+                ],
+                path: None,
+            });
+        }
+        "cosmwasm" | "cw" => {
+            let tr = tool_root();
+            let wat_ok = tr.as_ref().is_some_and(|t| t.join("wat2wasm").is_file())
+                || which::which("wat2wasm").is_ok();
+            let check_ok = tr.as_ref().is_some_and(|t| t.join("cosmwasm-check").is_file())
+                || which::which("cosmwasm-check").is_ok();
+            if wat_ok {
+                deps.push(Dep {
+                    id: "wat2wasm",
+                    status: "ok",
+                    summary: "wabt wat2wasm for CosmWasm Wasm finalize".into(),
+                    install: vec![],
+                    path: tr.as_ref().map(|p| p.display().to_string()),
+                });
+            } else {
+                deps.push(Dep {
+                    id: "wat2wasm",
+                    status: "need",
+                    summary: "wat2wasm required for pf build finalize / runtime corpus".into(),
+                    install: vec![
+                        "export PROOF_FORGE_TOOL_ROOT=$HOME/.cache/proof-forge-v2/tool-root/…".into(),
+                        "# or: brew install wabt".into(),
+                    ],
+                    path: None,
+                });
+            }
+            if check_ok {
+                deps.push(Dep {
+                    id: "cosmwasm-check",
+                    status: "ok",
+                    summary: "locked cosmwasm-check for static Wasm ABI gate".into(),
+                    install: vec![],
+                    path: tr
+                        .as_ref()
+                        .map(|p| p.join("cosmwasm-check").display().to_string())
+                        .or_else(|| {
+                            which::which("cosmwasm-check")
+                                .ok()
+                                .map(|p| p.display().to_string())
+                        }),
+                });
+            } else {
+                deps.push(Dep {
+                    id: "cosmwasm-check",
+                    status: "info",
+                    summary: "optional static check; product build may still finalize via wat2wasm"
+                        .into(),
+                    install: vec![
+                        "# Tool Lock pin cosmwasm-check 3.0.9 when available".into(),
+                        "export PROOF_FORGE_TOOL_ROOT=$HOME/.cache/proof-forge-v2/tool-root/…".into(),
+                    ],
+                    path: None,
+                });
+            }
+            match crate::targets::cosmwasm::test::resolve_cosmwasm_test_script() {
+                Ok(p) => deps.push(Dep {
+                    id: "cosmwasm-test-script",
+                    status: "ok",
+                    summary: "pf_cosmwasm_test.sh (artifact fast-path or cosmwasm-vm corpus)"
+                        .into(),
+                    install: vec![],
+                    path: Some(p.display().to_string()),
+                }),
+                Err(_) => deps.push(Dep {
+                    id: "cosmwasm-test-script",
+                    status: "info",
+                    summary: "pf test -t cosmwasm needs scripts/pf_cosmwasm_test.sh from bundle"
+                        .into(),
+                    install: vec![
+                        "pf bootstrap --from proof-forge-bundle-*.tar.gz".into(),
+                        "export PROOF_FORGE_ROOT=$HOME/.local/proof-forge/current".into(),
+                    ],
+                    path: None,
+                }),
+            }
+            let cargo_ok = which::which("cargo").is_ok();
+            deps.push(Dep {
+                id: "cosmwasm-vm-harness",
+                status: if cargo_ok { "info" } else { "need" },
+                summary: "full pf test needs cargo + runtime-tests/cosmwasm (cosmwasm-vm 3.0.9); else skip-clean"
+                    .into(),
+                install: vec![
+                    "# monorepo:".into(),
+                    "just cosmwasm-runtime".into(),
+                    "# or: PF_COSMWASM_ARTIFACT_DIR=out pf test -t cosmwasm".into(),
+                    "# interactive pf run for CosmWasm is not in v0 — use pf test".into(),
+                ],
+                path: None,
+            });
+            deps.push(Dep {
+                id: "cosmwasm-broadcast",
+                status: "info",
+                summary: "public chain broadcast refused in pf v0 (save-only deploy)".into(),
+                install: vec![
+                    "pf deploy -t cosmwasm             # save-only package".into(),
+                    "# --broadcast always refused for cosmwasm".into(),
+                ],
+                path: None,
+            });
+        }
         "psy" => {
             match crate::targets::psy::simulate::resolve_psy_user_cli() {
                 Ok(p) => deps.push(Dep {
@@ -593,6 +807,27 @@ fn next_commands(target: &str) -> Vec<String> {
             "pf new cell --target evm && cd cell".into(),
             "pf build && pf deploy           # save-only always works with compiler".into(),
             "pf test                         # Anvil smoke via bundle scripts/pf_evm_test.sh".into(),
+        ],
+        "near" => vec![
+            "pf setup --target near          # checklist: near-sandbox + wat2wasm + scripts".into(),
+            "pf new cell --target near && cd cell".into(),
+            "pf build                        # → *.wasm + abi + manifest".into(),
+            "pf test                         # artifact fast-path or near-sandbox corpus".into(),
+            "pf run -- init 7                # one-shot near-sandbox call (engineering)".into(),
+            "pf run -- get                   # view path".into(),
+            "pf deploy                       # save-only; --broadcast refused".into(),
+            "pf scaffold-ui --template near-dapp".into(),
+            "# monorepo full corpus: just near-runtime".into(),
+        ],
+        "cosmwasm" | "cw" => vec![
+            "pf setup --target cosmwasm      # checklist: wat2wasm + cosmwasm-check + scripts".into(),
+            "pf new cell --target cosmwasm && cd cell".into(),
+            "pf build                        # → *.wasm + cosmwasm-abi.json".into(),
+            "pf test                         # artifact fast-path or cosmwasm-vm corpus".into(),
+            "pf deploy                       # save-only; --broadcast refused".into(),
+            "pf scaffold-ui --template cosmwasm-dapp".into(),
+            "# monorepo full corpus: just cosmwasm-runtime".into(),
+            "# no interactive pf run in v0 — use pf test (JSON ABI mock)".into(),
         ],
         "psy" => vec![
             "pf setup --target psy".into(),

@@ -14,7 +14,9 @@
     "OKX OnchainOS: official DEX MCP at https://web3.okx.com/api/v1/onchainos-mcp — dual-MCP with PF; do not reimplement DEX inside PF.",
     "Solana contracts: ProofForge ProgramV1 + pf CLI; frontend templates/solana-dapp-ui; PF MCP summarizes ix codec (not external Anchor MCP).",
     "NEAR frontend skeleton: templates/near-dapp-ui (near-api-js ecosystem; not shipped wallet).",
-    "CosmWasm frontend skeleton: templates/cosmwasm-dapp-ui (cosmjs ecosystem)."
+    "CosmWasm frontend skeleton: templates/cosmwasm-dapp-ui (cosmjs ecosystem).",
+    "NEAR frontend: docs/product/18-near-dapp-frontend.md + templates/near-dapp-ui.",
+    "CosmWasm frontend: docs/product/17-cosmwasm-dapp-frontend.md + templates/cosmwasm-dapp-ui."
   ],
   "networksRef": {
     "schema": "proof-forge.network-catalog.v1",
@@ -300,9 +302,12 @@
           "pf_build",
           "pf_artifacts",
           "pf_local",
-          "pf_chain_catalog"
+          "pf_chain_catalog",
+          "pf_network_info"
         ],
-        "run": "pf run -t near -- <method> [u64…] → one-shot near-sandbox (engineering)"
+        "run": "pf run -t near -- <method> [u64…] → one-shot near-sandbox (engineering)",
+        "doctor": "pf setup --target near (near-sandbox, wat2wasm, pf_near_test/run scripts)",
+        "scaffoldUi": "pf scaffold-ui --template near-dapp"
       },
       "frontendClients": [
         {
@@ -335,7 +340,8 @@
         "Examples/StateCell.lean",
         "Examples/VerifiedVaultPF.lean"
       ],
-      "frontendTemplate": "templates/near-dapp-ui"
+      "frontendTemplate": "templates/near-dapp-ui",
+      "frontendGuide": "docs/product/18-near-dapp-frontend.md"
     },
     {
       "id": "noir",
@@ -506,8 +512,12 @@
           "pf_build",
           "pf_artifacts",
           "pf_local",
-          "pf_chain_catalog"
-        ]
+          "pf_chain_catalog",
+          "pf_network_info"
+        ],
+        "doctor": "pf setup --target cosmwasm (wat2wasm, cosmwasm-check, pf_cosmwasm_test)",
+        "scaffoldUi": "pf scaffold-ui --template cosmwasm-dapp",
+        "run": "not in v0 — use pf test -t cosmwasm (JSON ABI + cosmwasm-vm mock)"
       },
       "frontendClients": [
         {
@@ -542,7 +552,8 @@
         "Examples/UnixTimeCheck.lean",
         "Examples/PoseTransform.lean"
       ],
-      "frontendTemplate": "templates/cosmwasm-dapp-ui"
+      "frontendTemplate": "templates/cosmwasm-dapp-ui",
+      "frontendGuide": "docs/product/17-cosmwasm-dapp-frontend.md"
     },
     {
       "id": "ton",

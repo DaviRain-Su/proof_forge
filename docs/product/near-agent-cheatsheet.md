@@ -47,6 +47,11 @@ pf deploy -t near --network local
 
 # 5) Frontend skeleton (ecosystem near-api-js; no wallet keys in PF)
 pf scaffold-ui --template near-dapp
+# detail: docs/product/18-near-dapp-frontend.md
+
+# 0) Doctor / setup (parity with EVM/Solana)
+pf setup --target near
+# NEED: near-sandbox + wat2wasm under PROOF_FORGE_TOOL_ROOT; scripts/pf_near_*.sh
 
 # Single-suite debug (after a full script build left wasm under build/v2/near-runtime):
 #   PF_NEAR_SUITE=posetransform PF_NEAR_WASM=... python3 runtime-tests/near/run_tests.py

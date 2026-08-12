@@ -60,10 +60,10 @@ pub fn capability_note(target: &str) -> &'static str {
             "build DPN + `pf test` (session) + `pf run` (simulate) + `pf deploy` wraps psy_user_cli deploy-contract"
         }
         TargetId::Near => {
-            "build Wasm + `pf test` (near-sandbox; artifact fast-path or full corpus) + `pf deploy` (save-only; --broadcast refused)"
+            "build Wasm + `pf test` (near-sandbox; artifact fast-path or corpus) + `pf run` (one-shot sandbox) + `pf deploy` (save-only; --broadcast refused) + `pf scaffold-ui --template near-dapp`"
         }
         TargetId::Cosmwasm => {
-            "build Wasm + `pf test` (cosmwasm-vm mock) + `pf deploy` (save-only; --broadcast refused)"
+            "build Wasm + `pf test` (cosmwasm-vm mock; artifact fast-path or corpus) + `pf deploy` (save-only; --broadcast refused) + `pf scaffold-ui --template cosmwasm-dapp` (no interactive pf run in v0)"
         }
         TargetId::Ton => {
             "build Tolk/BoC + `pf test` (@ton/sandbox corpus; skip-clean if tools missing); deploy/broadcast not product"
@@ -84,7 +84,10 @@ mod tests {
         assert!(capability_note("near").contains("save-only"));
         assert!(capability_note("near").contains("broadcast refused"));
         assert!(capability_note("near").contains("pf test"));
+        assert!(capability_note("near").contains("pf run"));
+        assert!(capability_note("near").contains("near-dapp"));
         assert!(capability_note("cosmwasm").contains("pf test"));
+        assert!(capability_note("cosmwasm").contains("cosmwasm-dapp"));
         assert!(capability_note("ton").contains("pf test"));
     }
 }

@@ -752,6 +752,60 @@ class ProofForgeClient:
             argv.extend(tail)
         return self.run(argv, timeout=timeout)
 
+    def test(
+        self,
+        *,
+        target: str,
+        artifact_dir: Optional[PathLike] = None,
+        timeout: Optional[float] = None,
+    ) -> CliResult:
+        """Product ``pf test -t <target>`` (host-heavy; skip-clean when tools missing).
+
+        NEAR → near-sandbox (artifact fast-path when ``*.wasm`` present).
+        CosmWasm → cosmwasm-vm mock (artifact fast-path). EVM → Anvil.
+        Solana → Mollusk. Never broadcasts.
+        """
+        if target in DESIGN_ONLY_TARGETS:
+            return CliResult(
+                ok=False,
+                exit_code=2,
+                command=[],
+                stderr=f"target '{target}' is design-only (unsupported for test)",
+                error="usage",
+            )
+        argv: List[str] = ["test", "--target", str(target), "--json"]
+        if artifact_dir is not None:
+            argv.extend(["--artifact", str(artifact_dir)])
+        return self.run(argv, timeout=timeout)
+
+    def deploy(
+        self,
+        *,
+        target: str,
+        artifact_dir: Optional[PathLike] = None,
+        network: Optional[str] = None,
+        timeout: Optional[float] = None,
+    ) -> CliResult:
+        """Product ``pf deploy -t <target>`` **save-only** packaging.
+
+        Always omits ``--broadcast``. NEAR/CosmWasm refuse public broadcast in
+        pf v0 even if a caller tries outside this SDK helper.
+        """
+        if target in DESIGN_ONLY_TARGETS:
+            return CliResult(
+                ok=False,
+                exit_code=2,
+                command=[],
+                stderr=f"target '{target}' is design-only (unsupported for deploy)",
+                error="usage",
+            )
+        argv: List[str] = ["deploy", "--target", str(target), "--json"]
+        if artifact_dir is not None:
+            argv.extend(["--artifact", str(artifact_dir)])
+        if network is not None:
+            argv.extend(["--network", str(network)])
+        return self.run(argv, timeout=timeout)
+
     def load_output_manifest(self, output_dir: PathLike) -> Dict[str, Any]:
         """Parse engineering ``proof-forge.output.v1`` without re-running inspect."""
         return load_output_manifest(output_dir)

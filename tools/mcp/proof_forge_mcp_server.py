@@ -1001,6 +1001,7 @@ def tool_definitions() -> List[Dict[str, Any]]:
                 "Run product local host-heavy scripts. "
                 "Runtime: evm (Anvil), solana (Mollusk), near (near-sandbox), "
                 "cosmwasm (cosmwasm-vm mock), ton (@ton/sandbox). "
+                "NEAR also supports product pf run (one-shot sandbox); CosmWasm uses pf test only. "
                 "Aleo sandbox: pass source + module + optional runs (no default program). "
                 "Does NOT broadcast network or accept private keys. "
                 "Maps to: proof-forge-next local --target … [--mode runtime|sandbox] …"
@@ -1015,7 +1016,7 @@ def tool_definitions() -> List[Dict[str, Any]]:
                     },
                     "mode": {
                         "type": "string",
-                        "description": "Local mode (evm/solana/near: runtime; aleo: sandbox|devnet).",
+                        "description": "Local mode (evm/solana/near/cosmwasm/ton: runtime; aleo: sandbox|devnet).",
                     },
                     "source": {
                         "type": "string",

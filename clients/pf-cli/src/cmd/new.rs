@@ -46,6 +46,21 @@ pub fn run(name: &str, target: Option<&str>, path: Option<&PathBuf>, json: bool)
                     "  # pf deploy --broadcast --network local --endpoint http://127.0.0.1:8899"
                 );
             }
+            "near" => {
+                println!("  pf setup --target near");
+                println!("  pf test              # near-sandbox (artifact fast-path if *.wasm)");
+                println!("  pf run -- init 7     # one-shot sandbox call");
+                println!("  pf run -- get");
+                println!("  pf deploy            # save-only; --broadcast refused");
+                println!("  pf scaffold-ui --template near-dapp");
+            }
+            "cosmwasm" | "cw" => {
+                println!("  pf setup --target cosmwasm");
+                println!("  pf test              # cosmwasm-vm mock (artifact fast-path if *.wasm)");
+                println!("  pf deploy            # save-only; --broadcast refused");
+                println!("  pf scaffold-ui --template cosmwasm-dapp");
+                println!("  # no pf run in v0 — JSON ABI exercised via pf test");
+            }
             "psy" => {
                 println!("  pf setup --target psy");
                 println!("  pf test              # multi-step DPN session (7+5=12)");

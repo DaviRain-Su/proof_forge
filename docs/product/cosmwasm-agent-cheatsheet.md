@@ -42,6 +42,11 @@ pf deploy -t cosmwasm --network local
 
 # 5) Frontend skeleton (ecosystem cosmjs; no keys in PF)
 pf scaffold-ui --template cosmwasm-dapp
+# detail: docs/product/17-cosmwasm-dapp-frontend.md
+
+# 0) Doctor / setup (parity with EVM/Solana)
+pf setup --target cosmwasm
+# NEED: wat2wasm (+ optional cosmwasm-check); cargo for full cosmwasm-vm corpus
 ```
 
 ## Recommended Examples / fixtures
