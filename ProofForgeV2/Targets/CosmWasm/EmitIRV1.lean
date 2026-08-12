@@ -221,6 +221,9 @@ private structure LoweredExpr where
   operations : Array Operation
   value : Nat
   next : Nat
+  /-- Emit-time CSE: Plan `Expr` → IR temp. Dense Map upsert/lookup DAGs share
+      huge subtrees; without CSE a Map `put` exceeds cosmwasm-vm MAX_LOCALS=100. -/
+  cache : Array (Expr × Nat) := #[]
   deriving Inhabited
 
 private def fieldRegion (keys : Array KeyRegion) (fieldIndex : Nat) : KeyRegion :=
@@ -239,10 +242,24 @@ private def natToLimbsLE (n : Nat) (count : Nat) : Array UInt64 := Id.run do
     v := v / UInt64.size
   pure out
 
+mutual
 private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
-    (paramAsTemp : Bool) (localEnv : Array (Nat × Nat)) : Expr → LoweredExpr
+    (paramAsTemp : Bool) (localEnv : Array (Nat × Nat))
+    (cache : Array (Expr × Nat)) : Expr → LoweredExpr
+  | expr =>
+      match cache.find? (fun p => p.1 == expr) with
+      | some (_, temp) =>
+          { operations := #[], value := temp, next, cache }
+      | none =>
+          let r := lowerExprUncached keys next paramAsTemp localEnv cache expr
+          { r with cache := r.cache.push (expr, r.value) }
+
+/-- Core lowering; recursive calls go through `lowerExpr` (CSE). -/
+private partial def lowerExprUncached (keys : Array KeyRegion) (next : Nat)
+    (paramAsTemp : Bool) (localEnv : Array (Nat × Nat))
+    (cache : Array (Expr × Nat)) : Expr → LoweredExpr
   | .literal value =>
-      { operations := #[.literal next value], value := next, next := next + 1 }
+      { operations := #[.literal next value], value := next, next := next + 1, cache }
   | .bigLiteral bitWidth value =>
       Id.run do
         let nLimbs := limbCountOfBitWidth bitWidth
@@ -250,275 +267,280 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
         let mut ops : Array Operation := #[]
         for i in [:nLimbs] do
           ops := ops.push (.literal (next + i) (limbs[i]!))
-        pure { operations := ops, value := next, next := next + nLimbs }
+        pure { operations := ops, value := next, next := next + nLimbs, cache }
   | .blockTimeSeconds =>
-      { operations := #[.blockTimeSeconds next], value := next, next := next + 1 }
+      { operations := #[.blockTimeSeconds next], value := next, next := next + 1, cache }
   | .blockHeight =>
-      { operations := #[.blockHeight next], value := next, next := next + 1 }
+      { operations := #[.blockHeight next], value := next, next := next + 1, cache }
   | .nativeVaultBalance =>
-      { operations := #[.nativeVaultBalance next], value := next, next := next + 1 }
+      { operations := #[.nativeVaultBalance next], value := next, next := next + 1, cache }
   | .callerPrincipalLen =>
-      { operations := #[.callerPrincipalLen next], value := next, next := next + 1 }
+      { operations := #[.callerPrincipalLen next], value := next, next := next + 1, cache }
   | .callerPrincipalWord wordIndex =>
-      { operations := #[.callerPrincipalWord wordIndex next], value := next, next := next + 1 }
+      { operations := #[.callerPrincipalWord wordIndex next], value := next, next := next + 1, cache }
   | .param inputOffset =>
       if paramAsTemp then
-        { operations := #[], value := inputOffset / 8, next := next }
+        { operations := #[], value := inputOffset / 8, next := next, cache }
       else
-        { operations := #[.loadParam next inputOffset], value := next, next := next + 1 }
+        { operations := #[.loadParam next inputOffset], value := next, next := next + 1, cache }
   | .narrowParam bitWidth inputOffset =>
       if paramAsTemp then
-        { operations := #[], value := inputOffset / 8, next := next }
+        { operations := #[], value := inputOffset / 8, next := next, cache }
       else
         { operations := #[.narrowLoadParam bitWidth next inputOffset]
-          value := next, next := next + 1 }
+          value := next, next := next + 1, cache }
   | .localTemp index =>
       match localEnv.find? (fun p => p.1 == index) with
       | some (_, irTemp) =>
-          { operations := #[], value := irTemp, next := next }
+          { operations := #[], value := irTemp, next := next, cache }
       | none =>
-          { operations := #[.literal next 0], value := next, next := next + 1 }
+          { operations := #[.literal next 0], value := next, next := next + 1, cache }
   | .stateLoad fieldIndex =>
       {
         operations := #[.loadState next (fieldRegion keys fieldIndex)]
         value := next
         next := next + 1
+        cache
       }
   | .narrowStateLoad bitWidth fieldIndex =>
       {
         operations := #[.narrowLoadState bitWidth next (fieldRegion keys fieldIndex)]
         value := next
         next := next + 1
+        cache
       }
   | .checkedAdd lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.checkedAdd rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .checkedSub lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.checkedSub rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .checkedMul lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.checkedMul rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .checkedDiv lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.checkedDiv rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .checkedMod lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.checkedMod rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .signedCheckedAdd lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.signedCheckedAdd rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .signedCheckedSub lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.signedCheckedSub rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .signedCheckedMul lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.signedCheckedMul rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .signedCheckedDiv lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.signedCheckedDiv rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .signedCheckedMod lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.signedCheckedMod rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .signedCompare op lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.signedCompare rhs.next lhs.value rhs.value op]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .checkedNeg operand =>
-      let op := lowerExpr keys next paramAsTemp localEnv operand
+      let op := lowerExpr keys next paramAsTemp localEnv cache operand
       { operations := op.operations ++ #[.checkedNeg op.next op.value]
-        value := op.next, next := op.next + 1 }
+        value := op.next, next := op.next + 1, cache := op.cache }
   | .bitAnd lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.bitAnd rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .bitOr lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.bitOr rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .bitXor lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.bitXor rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .shl lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.shl rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .shr lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.shr rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .sar lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.sar rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .bitNot operand =>
-      let op := lowerExpr keys next paramAsTemp localEnv operand
+      let op := lowerExpr keys next paramAsTemp localEnv cache operand
       { operations := op.operations ++ #[.bitNot op.next op.value]
-        value := op.next, next := op.next + 1 }
+        value := op.next, next := op.next + 1, cache := op.cache }
   | .narrowCheckedAdd bitWidth lhs rhs =>
       let nLimbs := limbCountOfBitWidth bitWidth
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowCheckedAdd bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + nLimbs }
+        value := rhs.next, next := rhs.next + nLimbs, cache := rhs.cache }
   | .narrowCheckedSub bitWidth lhs rhs =>
       let nLimbs := limbCountOfBitWidth bitWidth
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowCheckedSub bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + nLimbs }
+        value := rhs.next, next := rhs.next + nLimbs, cache := rhs.cache }
   | .narrowCheckedMul bitWidth lhs rhs =>
       -- Multiword mul uses dest..dest+2n-1 as product workspace; result is
       -- the low n limbs. Advance next by 2·nLimbs so high product limbs are
       -- declared locals (not clobbered by a subsequent allocation).
       let nLimbs := limbCountOfBitWidth bitWidth
       let destSpan := if bitWidth > 64 then 2 * nLimbs else nLimbs
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowCheckedMul bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + destSpan }
+        value := rhs.next, next := rhs.next + destSpan, cache := rhs.cache }
   | .narrowCheckedDiv bitWidth lhs rhs =>
       let nLimbs := limbCountOfBitWidth bitWidth
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowCheckedDiv bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + nLimbs }
+        value := rhs.next, next := rhs.next + nLimbs, cache := rhs.cache }
   | .narrowCheckedMod bitWidth lhs rhs =>
       let nLimbs := limbCountOfBitWidth bitWidth
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowCheckedMod bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + nLimbs }
+        value := rhs.next, next := rhs.next + nLimbs, cache := rhs.cache }
   | .narrowBitAnd bitWidth lhs rhs =>
       let nLimbs := limbCountOfBitWidth bitWidth
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowBitAnd bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + nLimbs }
+        value := rhs.next, next := rhs.next + nLimbs, cache := rhs.cache }
   | .narrowBitOr bitWidth lhs rhs =>
       let nLimbs := limbCountOfBitWidth bitWidth
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowBitOr bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + nLimbs }
+        value := rhs.next, next := rhs.next + nLimbs, cache := rhs.cache }
   | .narrowBitXor bitWidth lhs rhs =>
       let nLimbs := limbCountOfBitWidth bitWidth
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowBitXor bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + nLimbs }
+        value := rhs.next, next := rhs.next + nLimbs, cache := rhs.cache }
   | .narrowBitNot bitWidth operand =>
       let nLimbs := limbCountOfBitWidth bitWidth
-      let op := lowerExpr keys next paramAsTemp localEnv operand
+      let op := lowerExpr keys next paramAsTemp localEnv cache operand
       { operations := op.operations ++ #[.narrowBitNot bitWidth op.next op.value]
-        value := op.next, next := op.next + nLimbs }
+        value := op.next, next := op.next + nLimbs, cache := op.cache }
   | .narrowShl bitWidth lhs rhs =>
       let nLimbs := limbCountOfBitWidth bitWidth
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowShl bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + nLimbs }
+        value := rhs.next, next := rhs.next + nLimbs, cache := rhs.cache }
   | .narrowShr bitWidth lhs rhs =>
       let nLimbs := limbCountOfBitWidth bitWidth
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowShr bitWidth rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + nLimbs }
+        value := rhs.next, next := rhs.next + nLimbs, cache := rhs.cache }
   | .boolNot operand =>
-      let op := lowerExpr keys next paramAsTemp localEnv operand
+      let op := lowerExpr keys next paramAsTemp localEnv cache operand
       { operations := op.operations ++ #[.boolNot op.next op.value]
-        value := op.next, next := op.next + 1 }
+        value := op.next, next := op.next + 1, cache := op.cache }
   | .boolAnd lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.boolAnd rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .boolOr lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.boolOr rhs.next lhs.value rhs.value]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .compare op lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.compare rhs.next lhs.value rhs.value op]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .wideCompare bitWidth op lhs rhs =>
-      let lhs := lowerExpr keys next paramAsTemp localEnv lhs
-      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv rhs
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.wideCompare bitWidth rhs.next lhs.value rhs.value op]
-        value := rhs.next, next := rhs.next + 1 }
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .callFn fnIndex args =>
       Id.run do
         let mut ops : Array Operation := #[]
         let mut cur := next
+        let mut cacheC := cache
         let mut argTemps : Array Nat := #[]
         for arg in args do
-          let lowered := lowerExpr keys cur paramAsTemp localEnv arg
+          let lowered := lowerExpr keys cur paramAsTemp localEnv cacheC arg
           ops := ops ++ lowered.operations
           argTemps := argTemps.push lowered.value
           cur := lowered.next
+          cacheC := lowered.cache
         ops := ops.push (.callFn fnIndex cur argTemps)
-        pure { operations := ops, value := cur, next := cur + 1 }
+        pure { operations := ops, value := cur, next := cur + 1, cache := cacheC }
+end
 
 private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
     (body : Array Statement) (fnMode : Bool) (localEnv : Array (Nat × Nat))
@@ -526,39 +548,44 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
   let mut operations : Array Operation := #[]
   let mut next := next
   let mut localEnv := localEnv
+  let mut cache : Array (Expr × Nat) := #[]
   for stmt in body do
     match stmt with
     | .store op =>
-        let value := lowerExpr keys next fnMode localEnv op.value
+        let value := lowerExpr keys next fnMode localEnv cache op.value
         operations := operations ++ value.operations
         operations := operations.push (.storeState (fieldRegion keys op.fieldIndex) value.value)
         next := value.next
+        cache := value.cache
     | .storeAtomic leaves =>
         -- Evaluate all leaf exprs first, then write (pre-store snapshot).
         let mut vals : Array (Nat × Nat) := #[]  -- (fieldIndex, temp)
         for leaf in leaves do
-          let value := lowerExpr keys next fnMode localEnv leaf.value
+          let value := lowerExpr keys next fnMode localEnv cache leaf.value
           operations := operations ++ value.operations
           vals := vals.push (leaf.fieldIndex, value.value)
           next := value.next
+          cache := value.cache
         for (fieldIndex, temp) in vals do
           operations := operations.push (.storeState (fieldRegion keys fieldIndex) temp)
     | .returnValue value =>
-        let value := lowerExpr keys next fnMode localEnv value
+        let value := lowerExpr keys next fnMode localEnv cache value
         operations := operations ++ value.operations
         if fnMode then
           operations := operations.push (.returnValue value.value)
         else
           operations := operations.push (.setReturnData value.value)
         next := value.next
+        cache := value.cache
     | .returnAggregate leaves _leafIsInt =>
         -- B-RET-ABI: lower each leaf expr, then one multi-word setReturnDataMulti.
         let mut temps : Array Nat := #[]
         for leaf in leaves do
-          let value := lowerExpr keys next fnMode localEnv leaf
+          let value := lowerExpr keys next fnMode localEnv cache leaf
           operations := operations ++ value.operations
           temps := temps.push value.value
           next := value.next
+          cache := value.cache
         if fnMode then
           -- pureFn must not emit aggregate return (validated); fall closed.
           operations := operations.push (.returnValue (temps[0]?.getD 0))
@@ -567,107 +594,122 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
     | .returnNone =>
         operations := operations.push .returnNone
     | .assert condition =>
-        let value := lowerExpr keys next fnMode localEnv condition
+        let value := lowerExpr keys next fnMode localEnv cache condition
         operations := operations ++ value.operations ++ #[.assert value.value]
         next := value.next
+        cache := value.cache
     | .emitEvent eventIndex args =>
         let mut argTemps : Array Nat := #[]
         for arg in args do
-          let value := lowerExpr keys next fnMode localEnv arg
+          let value := lowerExpr keys next fnMode localEnv cache arg
           operations := operations ++ value.operations
           argTemps := argTemps.push value.value
           next := value.next
+          cache := value.cache
         operations := operations.push (.emitEvent eventIndex argTemps)
     | .revertError errorIndex args =>
         let mut argTemps : Array Nat := #[]
         for arg in args do
-          let value := lowerExpr keys next fnMode localEnv arg
+          let value := lowerExpr keys next fnMode localEnv cache arg
           operations := operations ++ value.operations
           argTemps := argTemps.push value.value
           next := value.next
+          cache := value.cache
         operations := operations.push (.revertError errorIndex argTemps)
     | .promiseAccount receiver method args =>
         let mut argTemps : Array Nat := #[]
         for arg in args do
-          let value := lowerExpr keys next fnMode localEnv arg
+          let value := lowerExpr keys next fnMode localEnv cache arg
           operations := operations ++ value.operations
           argTemps := argTemps.push value.value
           next := value.next
+          cache := value.cache
         operations := operations.push (.promiseAccount receiver method argTemps)
     | .nativeDeposit amount =>
-        let value := lowerExpr keys next fnMode localEnv amount
+        let value := lowerExpr keys next fnMode localEnv cache amount
         operations := operations ++ value.operations
         operations := operations.push (.nativeDeposit value.value)
         next := value.next
+        cache := value.cache
     | .nativeTransfer dstLen dstBodyWords amount =>
-        let lenL := lowerExpr keys next fnMode localEnv dstLen
+        let lenL := lowerExpr keys next fnMode localEnv cache dstLen
         operations := operations ++ lenL.operations
         next := lenL.next
+        cache := lenL.cache
         let mut wordTemps : Array Nat := #[]
         for w in dstBodyWords do
-          let wl := lowerExpr keys next fnMode localEnv w
+          let wl := lowerExpr keys next fnMode localEnv cache w
           operations := operations ++ wl.operations
           wordTemps := wordTemps.push wl.value
           next := wl.next
-        let amountL := lowerExpr keys next fnMode localEnv amount
+          cache := wl.cache
+        let amountL := lowerExpr keys next fnMode localEnv cache amount
         operations := operations ++ amountL.operations
         operations := operations.push
           (.nativeTransfer lenL.value wordTemps amountL.value)
         next := amountL.next
+        cache := amountL.cache
     | .tokenTransfer mintLen mintBodyWords dstLen dstBodyWords amount =>
-        let mintLenL := lowerExpr keys next fnMode localEnv mintLen
+        let mintLenL := lowerExpr keys next fnMode localEnv cache mintLen
         operations := operations ++ mintLenL.operations
         next := mintLenL.next
+        cache := mintLenL.cache
         let mut mintWordTemps : Array Nat := #[]
         for w in mintBodyWords do
-          let wl := lowerExpr keys next fnMode localEnv w
+          let wl := lowerExpr keys next fnMode localEnv cache w
           operations := operations ++ wl.operations
           mintWordTemps := mintWordTemps.push wl.value
           next := wl.next
-        let dstLenL := lowerExpr keys next fnMode localEnv dstLen
+          cache := wl.cache
+        let dstLenL := lowerExpr keys next fnMode localEnv cache dstLen
         operations := operations ++ dstLenL.operations
         next := dstLenL.next
+        cache := dstLenL.cache
         let mut dstWordTemps : Array Nat := #[]
         for w in dstBodyWords do
-          let wl := lowerExpr keys next fnMode localEnv w
+          let wl := lowerExpr keys next fnMode localEnv cache w
           operations := operations ++ wl.operations
           dstWordTemps := dstWordTemps.push wl.value
           next := wl.next
-        let amountL := lowerExpr keys next fnMode localEnv amount
+          cache := wl.cache
+        let amountL := lowerExpr keys next fnMode localEnv cache amount
         operations := operations ++ amountL.operations
         operations := operations.push
           (.tokenTransfer mintLenL.value mintWordTemps dstLenL.value dstWordTemps
             amountL.value)
         next := amountL.next
+        cache := amountL.cache
     | .tokenVaultBalance mintLen mintBodyWords resultTemp =>
         -- Plan `resultTemp` is a Semantic ValueId (like forLoop `varTemp`).
         -- Allocate a fresh IR temp for the query result and bind it into
         -- localEnv so subsequent `.localTemp resultTemp` (e.g. return) resolve
         -- to the real balance — not the unmapped-localTemp fallback of
         -- literal 0.
-        let mintLenL := lowerExpr keys next fnMode localEnv mintLen
+        let mintLenL := lowerExpr keys next fnMode localEnv cache mintLen
         operations := operations ++ mintLenL.operations
         next := mintLenL.next
+        cache := mintLenL.cache
         let mut mintWordTemps : Array Nat := #[]
         for w in mintBodyWords do
-          let wl := lowerExpr keys next fnMode localEnv w
+          let wl := lowerExpr keys next fnMode localEnv cache w
           operations := operations ++ wl.operations
           mintWordTemps := mintWordTemps.push wl.value
           next := wl.next
+          cache := wl.cache
         let irDest := next
         next := next + 1
         operations := operations.push
           (.tokenVaultBalance mintLenL.value mintWordTemps irDest)
         localEnv := localEnv.push (resultTemp, irDest)
     | .ifThenElse condition thenBody elseBody =>
-        let value := lowerExpr keys next fnMode localEnv condition
+        let value := lowerExpr keys next fnMode localEnv cache condition
         operations := operations ++ value.operations
         let (thenOps, next1) := lowerBodyOps keys value.next thenBody fnMode localEnv _returnByteLen
         let (elseOps, next2) := lowerBodyOps keys next1 elseBody fnMode localEnv _returnByteLen
         operations := operations.push (.ifRegion value.value thenOps elseOps)
         next := next2
     | .switchOn scrutinee cases defaultBody =>
-        let value := lowerExpr keys next fnMode localEnv scrutinee
+        let value := lowerExpr keys next fnMode localEnv cache scrutinee
         operations := operations ++ value.operations
         let mut caseOps : Array (UInt64 × Array Operation) := #[]
         let mut nextC := value.next
@@ -679,22 +721,24 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
         operations := operations.push (.switchRegion value.value caseOps defaultOps)
         next := nextD
     | .forLoop varTemp initial condition update maxIterations body =>
-        let initL := lowerExpr keys next fnMode localEnv initial
+        let initL := lowerExpr keys next fnMode localEnv cache initial
         operations := operations ++ initL.operations
         let irVar := initL.next
         let counterTemp := initL.next + 1
         next := initL.next + 2
         let localEnv' := localEnv.push (varTemp, irVar)
-        let condL := lowerExpr keys next fnMode localEnv' condition
+        let condL := lowerExpr keys next fnMode localEnv' cache condition
         let condOps := condL.operations
         let condTemp := condL.value
         next := condL.next
+        cache := condL.cache
         let (bodyOps, nextB) := lowerBodyOps keys next body fnMode localEnv' _returnByteLen
         next := nextB
-        let updateL := lowerExpr keys next fnMode localEnv' update
+        let updateL := lowerExpr keys next fnMode localEnv' cache update
         let updateOps := updateL.operations
         let updateTemp := updateL.value
         next := updateL.next
+        cache := updateL.cache
         operations := operations.push
           (.forRegion irVar initL.value counterTemp maxIterations
             condOps condTemp bodyOps updateOps updateTemp)
@@ -1913,6 +1957,31 @@ private def multiwordScratchLocals : String :=
   " (local $t_mw_quot0 i64) (local $t_mw_quot1 i64) (local $t_mw_quot2 i64)" ++
   " (local $t_mw_quot3 i64)"
 
+/-- True when a method/fn body uses multiword ops that need `$t_mw_*` scratch.
+    Declaring them on every method wastes 20 locals and blows cosmwasm-vm
+    MAX_LOCALS=100 on dense Map put (cap-4 + CSE ≈ 93 temps + 20 scratch). -/
+private partial def opNeedsMultiwordScratch : Operation → Bool
+  | .wideCompare bitWidth .. => bitWidth > 64
+  | .narrowCheckedAdd bitWidth .. | .narrowCheckedSub bitWidth ..
+  | .narrowCheckedMul bitWidth .. | .narrowCheckedDiv bitWidth ..
+  | .narrowCheckedMod bitWidth .. | .narrowBitAnd bitWidth ..
+  | .narrowBitOr bitWidth .. | .narrowBitXor bitWidth ..
+  | .narrowBitNot bitWidth .. | .narrowShl bitWidth ..
+  | .narrowShr bitWidth .. => bitWidth > 64
+  | .ifRegion _ thenOps elseOps =>
+      thenOps.any opNeedsMultiwordScratch || elseOps.any opNeedsMultiwordScratch
+  | .switchRegion _ cases defaultOps =>
+      defaultOps.any opNeedsMultiwordScratch ||
+        cases.any (fun p => p.2.any opNeedsMultiwordScratch)
+  | .forRegion _ _ _ _ condOps _ bodyOps updateOps _ =>
+      condOps.any opNeedsMultiwordScratch ||
+        bodyOps.any opNeedsMultiwordScratch ||
+        updateOps.any opNeedsMultiwordScratch
+  | _ => false
+
+private def multiwordScratchLocalsIfNeeded (ops : Array Operation) : String :=
+  if ops.any opNeedsMultiwordScratch then multiwordScratchLocals else ""
+
 /-- Multiword checked add on consecutive i64 temps (LE limbs); final carry → trap. -/
 private def renderMultiwordCheckedAdd (indent : String) (dest lhs rhs nLimbs : Nat) : String :=
   Id.run do
@@ -2678,7 +2747,7 @@ private def renderFn (ir : IR) (fn : FnIR) : String :=
           s!" (local $t{fn.paramCount + i} i64)"
   let operations := String.intercalate "" <| fn.operations.toList.map
     (renderOperation ir.memory ir.sourcePlan.events ir.sourcePlan.errors fnNames "    ")
-  s!"  (func $fn_{fn.name}{params} (result i64){extraLocals}{multiwordScratchLocals}\n" ++
+  s!"  (func $fn_{fn.name}{params} (result i64){extraLocals}{multiwordScratchLocalsIfNeeded fn.operations}\n" ++
     operations ++ "  )\n"
 
 /-- Render method body as an internal func `$m_<name>` used by entry dispatch.
@@ -2702,7 +2771,7 @@ private def renderMethodBody (ir : IR) (method : MethodIR) : String :=
         "      (else (call $pf_query_ok (global.get $ret_val)))))\n"
     | .initialize | .mutate =>
         "    (return (call $pf_ok_result))\n"
-  s!"  (func $m_{method.name}{paramLocals} (result i32){temps}{multiwordScratchLocals}\n" ++
+  s!"  (func $m_{method.name}{paramLocals} (result i32){temps}{multiwordScratchLocalsIfNeeded method.operations}\n" ++
     "    (call $pf_reset_result)\n" ++
     operations ++ epilogue ++ "  )\n"
 

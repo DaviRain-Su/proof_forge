@@ -61,6 +61,7 @@ pf setup --target cosmwasm
 | `runtime-tests/cosmwasm/fixtures/BytesRet.lean` | Bytes 4 state + anonymous return |
 | `Examples/UnixTimeCheck.lean` | `context.unixTimeSeconds` → Env.block.time |
 | `Examples/PoseTransform.lean` | named Struct Int64 pose ops |
+| `Examples/MapMini.lean` | dense Map UInt64 cap-4 (emit CSE) |
 | `runtime-tests/cosmwasm/fixtures/CallerGate.lean` | context.caller / MessageInfo.sender |
 | `runtime-tests/cosmwasm/fixtures/ScheduleFlow.lean` | schedule → SubMsg reply_on=never |
 
@@ -83,7 +84,7 @@ See also cross-chain table in `docs/product/near-sync-async-api.md`.
 - Generic sync `call` (non-catalog)
 - query/view `context.caller`
 - Map return (named/Array/Option/**Bytes N** return open)
-- dense Map **runtime** under cosmwasm-vm (compiles; exceeds 100-locals static gate)
+- dense Map **cap-4** runtime open (cap-8 still exceeds cosmwasm-vm MAX_LOCALS without loop lowering)
 - nonempty source **invariants** (scalar constants open)
 - public `pf deploy --broadcast`
 - IBC / migrate / reply entry (not in MVP)

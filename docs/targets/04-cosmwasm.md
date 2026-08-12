@@ -28,7 +28,7 @@ target-owned Plan/IR/WAT emitter（KV state→`env.db_*`、init/entry/view →
 **后续工程扩面**：UInt8/16/32 state/param/result 与 body narrow guards 已开（物理 KV 仍为
 8-byte LE 并检查高位；**UInt128/256 body multiword** add/sub/mul/div/mod 已开 restoring
 binary long division，ABI state/param/result 与 narrow Int、multiword shift 仍 FC）；named
-Struct/Enum state、`Array UInt64 N` state 与 dense `Map UInt64 UInt64` cap-8 state 已开；≤8 个
+Struct/Enum state、`Array UInt64 N` state 与 dense `Map UInt64 UInt64` **cap-4** state 已开（cosmwasm-vm MAX_LOCALS；emit CSE）；≤8 个
 UInt64/Int64 leaf 的 named entry/view aggregate return，以及 anonymous `Array UInt64 N`
 （1..8）/`Option UInt64`/`Bytes N`（1..8，JSON 十进制数组、字节零扩展）entry/view return 已开；
 **Bytes N state**（1-byte KV leaves）与 **scalar `const` / `Op.Constant`**（UInt{8,16,32,64}/
@@ -40,10 +40,10 @@ Counter/Accumulator/EventFlow、hardening、ScheduleFlow、NarrowCounter、PairR
 ArrayRet、OptionRet、OptionState、pf.assets、env-read、CallerGate、
 **BlockHeightCheck**（ADR-0031 S2：`context.blockHeight` ↔ `Env.block.height`）、
 **ConstAnswer**（scalar Op.Constant）、**BytesRet**（anonymous Bytes 4 return）、
-**UnixTimeCheck**（`context.unixTimeSeconds`）、**PoseTransform**（named Struct Int64 pose）。
-Dense `Map UInt64` **compiles** but pure-expr expansion exceeds cosmwasm-vm
-`MAX_LOCALS=100`（MapMini ~3k locals）— runtime gate deferred until Map emit
-uses scratch/loop lowering rather than fully unrolled temps。
+**UnixTimeCheck**（`context.unixTimeSeconds`）、**PoseTransform**（named Struct Int64 pose）、**MapMini**（dense Map cap-4）。
+Dense `Map UInt64` **cap-4 + emit CSE** 已过 cosmwasm-vm MAX_LOCALS=100（MapMini runtime）。
+Cap-8 在纯表达式 upsert 下 CSE 后仍 ~197 temps，故 CosmWasm pilot 钉 cap-4；
+cap-8/loop lowering 为后续。
 另有 `scripts/cosmwasm_wasmd_test.sh` 的 wasmd v0.70.3 Docker 工程 rung，覆盖 Counter
 与 ScheduleFlow 子消息失败导致 whole-tx abort。两者都不是主网、formal 或 hermetic evidence。
 

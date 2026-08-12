@@ -697,7 +697,7 @@ private def cosmwasmPlanErr (message : String) : CompileError :=
     (`isAbiUintWidth` / makeEntry FC) — UInt128/256 are body-internal (let
     temps + multiword arith including true binary long division div/mod).
     Array + Map container state via `pilotContainerStatePolicyArrayMap`
-    (Array → N×UInt64 leaves; Map → capacity-8×(occ,key,val); Option admitted
+    (Array → N×UInt64 leaves; Map → capacity-4×(occ,key,val); Option admitted
     as Map IndexGet intermediate / N-ANON-RESULT return shape — never pushed to
     `containerTypeIds`). **B-OPT-STATE / BL-33**: anonymous `Option UInt64`
     **state** admitted as Enum-shaped tag+payload KV leaves (`name_tag`/
@@ -838,17 +838,21 @@ private def mkStateLoadExpr (bitWidth : Nat) (fieldIndex : Nat) : Expr :=
   if bitWidth == 64 then .stateLoad fieldIndex
   else .narrowStateLoad bitWidth fieldIndex
 
-/-- Dense Map pilot capacity (aligned with EVM/Solana Token pilot). -/
-private def nearMapPilotCapacityV1 : Nat := 8
+/-- Dense Map pilot capacity for CosmWasm.
+    Cap-4 (not EVM/Solana's 8): even with emit-time CSE, pure-expr Map upsert
+    at capacity-8 still exceeds cosmwasm-vm MAX_LOCALS=100 (~197 temps). Cap-4
+    keeps MapMini/Token-shaped programs under the host static gate while CSE
+    remains mandatory. -/
+private def nearMapPilotCapacityV1 : Nat := 4
 private def nearMapSlotsPerEntryV1 : Nat := 3
 private def nearMapPilotLeafCountV1 : Nat :=
   nearMapPilotCapacityV1 * nearMapSlotsPerEntryV1
 
 /-- Container leaf layout for CosmWasm KV flattening: `(leafCount, leafByteWidth)`.
     Array: fixed `Array UInt64 N` → N×8-byte UInt64 leaves. Map: dense
-    capacity-8 occ/key/val → 24×8-byte leaves. Bytes: fixed `Bytes N` →
-    N×1-byte UInt8 leaves (byte-exact KV identity; element-wise IndexGet/
-    IndexSet). -/
+    capacity-4 occ/key/val → 12×8-byte leaves (cosmwasm-vm locals gate).
+    Bytes: fixed `Bytes N` → N×1-byte UInt8 leaves (byte-exact KV identity;
+    element-wise IndexGet/IndexSet). -/
 private def containerLeafLayoutV1
     (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option (Nat × Nat)) := do
@@ -1331,7 +1335,7 @@ private structure LoweredValueV1 where
   depth : Nat
   expandedNodes : Nat
   dependencies : Array ValueIdV1
-  /-- Multi-leaf carrier: Principal (len+8 words), Array UInt64 N, Map capacity-8
+  /-- Multi-leaf carrier: Principal (len+8 words), Array UInt64 N, Map capacity-4
       occ/key/val, Bytes N (1-byte UInt8 leaves), named Struct/Enum (preorder
       UInt64/Int64 leaves), or Option `[tag,payload]` (Map IndexGet intermediate
       or B-OPT-STATE Option UInt64 state / construct).

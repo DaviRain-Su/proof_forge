@@ -110,6 +110,7 @@ programs=(
   "runtime-tests/cosmwasm/fixtures/BytesRet.lean:Examples.BytesRet:BytesRet"
   "Examples/UnixTimeCheck.lean:Examples.UnixTimeCheck:UnixTimeCheck"
   "Examples/PoseTransform.lean:Examples.PoseTransform:PoseTransform"
+  "Examples/MapMini.lean:Examples.MapMini:MapMini"
 )
 
 if [[ -n "${PROOF_FORGE_CLI:-}" && -x "$PROOF_FORGE_CLI" ]]; then
