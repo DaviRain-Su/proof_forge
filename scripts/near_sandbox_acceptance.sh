@@ -70,10 +70,18 @@ resolve_tool() {
   return 1
 }
 
-if ! sandbox="$(resolve_tool near-sandbox)"; then
-  echo "skipped: near-sandbox unavailable"
+# Use the shared launcher so the acceptance lane observes the same direct /
+# userspace-loader policy as the broader NEAR runtime suite.
+# shellcheck source=scripts/lib/near_sandbox_launch.sh
+# shellcheck disable=SC1091
+export PROOF_FORGE_TOOL_ROOT="${PROOF_FORGE_TOOL_ROOT:-${HOME}/.cache/proof-forge-v2/tool-root/$(platform_id)}"
+source "$root/scripts/lib/near_sandbox_launch.sh"
+if ! near_sandbox_resolve; then
+  echo "skipped: near-sandbox not runnable: $near_sandbox_compat_note"
   exit 0
 fi
+sandbox="$near_sandbox_bin"
+sandbox_command=("${near_sandbox_command[@]}")
 
 if ! python3 - <<'PY' >/dev/null 2>&1
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
@@ -85,7 +93,8 @@ then
 fi
 
 echo "near-sandbox-acceptance: near-sandbox=$sandbox"
-"$sandbox" --version 2>&1 | head -1 || true
+echo "near-sandbox-acceptance: sandbox launch=$near_sandbox_compat ($near_sandbox_compat_note)"
+"${sandbox_command[@]}" --version 2>&1 | head -1 || true
 
 find_wasm() {
   local target="$1"
@@ -174,7 +183,7 @@ trap cleanup EXIT
 
 home="$workdir/home"
 mkdir -p "$home"
-"$sandbox" --home "$home" init >/dev/null
+"${sandbox_command[@]}" --home "$home" init >/dev/null
 
 # Bind ephemeral RPC/network ports to avoid collisions.
 rpc_port="$(python3 - <<'PY'
@@ -200,7 +209,7 @@ cfg_path.write_text(json.dumps(cfg, indent=2) + "\n")
 PY
 
 echo "near-sandbox-acceptance: starting node rpc=127.0.0.1:${rpc_port}"
-"$sandbox" --home "$home" run >"$workdir/node.log" 2>&1 &
+"${sandbox_command[@]}" --home "$home" run >"$workdir/node.log" 2>&1 &
 sandbox_pid=$!
 
 rpc="http://127.0.0.1:${rpc_port}"

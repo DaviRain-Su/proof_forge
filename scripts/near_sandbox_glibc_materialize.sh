@@ -124,9 +124,16 @@ mkdir -p "$extract_dir"
 # Locate loader + multiarch lib dir inside the deb.
 loader_src=""
 lib_src=""
-if [[ -f "$extract_dir/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2" ]]; then
+if [[ -f "$extract_dir/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2" ]]; then
+  loader_src="$extract_dir/usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
+  lib_src="$extract_dir/usr/lib/x86_64-linux-gnu"
+elif [[ -f "$extract_dir/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2" ]]; then
   loader_src="$extract_dir/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2"
   lib_src="$extract_dir/lib/x86_64-linux-gnu"
+elif [[ -f "$extract_dir/usr/lib64/ld-linux-x86-64.so.2" ]]; then
+  loader_src="$extract_dir/usr/lib64/ld-linux-x86-64.so.2"
+  lib_src="$extract_dir/usr/lib/x86_64-linux-gnu"
+  [[ -d "$lib_src" ]] || lib_src="$extract_dir/usr/lib64"
 elif [[ -f "$extract_dir/lib64/ld-linux-x86-64.so.2" ]]; then
   loader_src="$extract_dir/lib64/ld-linux-x86-64.so.2"
   lib_src="$extract_dir/lib/x86_64-linux-gnu"

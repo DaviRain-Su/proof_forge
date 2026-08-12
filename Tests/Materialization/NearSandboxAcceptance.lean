@@ -84,9 +84,7 @@ unsafe def run : IO Unit := do
       IO.println "skipped: near-sandbox unavailable"
       IO.println "Tests.Materialization.NearSandboxAcceptance: ok (skipped)"
   | some sandbox => do
-      let ver ← IO.Process.output { cmd := sandbox, args := #["--version"] }
       IO.println s!"near-sandbox: {sandbox}"
-      IO.println s!"{ver.stdout.trimAscii.copy}"
       let some wat2wasm ← resolveTool "wat2wasm" |
         IO.println "skipped: wat2wasm unavailable (needed to build StateCell.wasm)"
         IO.println "Tests.Materialization.NearSandboxAcceptance: ok (skipped)"
