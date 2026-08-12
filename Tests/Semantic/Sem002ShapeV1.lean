@@ -6,7 +6,8 @@
     * Counter-shaped initializer default (initialized=false → init)
     * context key/type/exact membership (missing / wrong / extra / duplicate / exact)
     * synchronous external-call returned/reverted response + exact occurrence
-    * wrong callable arity → invalidInvocation
+    * duplicate/reordered external responses → invalidExternalResponse
+    * wrong callable kind/arity/type/noncanonical arg → invalidInvocation
     * emit effect occurrence 0 + normalized UInt64 result bytes
 
   Does **not** close formal TASK-D2-07 / TST-SEM-002. Does **not** edit
@@ -90,6 +91,12 @@ private def findU64 (data : SemanticProgramDataV1) : IO TypeIdV1 :=
   | some i => pure (UInt32.ofNat i)
   | none => throw <| IO.userError "missing anonymous UInt64"
 
+private def findBool (data : SemanticProgramDataV1) : IO TypeIdV1 :=
+  match data.types.findIdx? fun t =>
+      t.name.isNone && match t.shape with | .bool => true | _ => false with
+  | some i => pure (UInt32.ofNat i)
+  | none => throw <| IO.userError "missing anonymous Bool"
+
 private def findCallable (data : SemanticProgramDataV1) (name : Option String) :
     IO CallableIdV1 := do
   let mut i : Nat := 0
@@ -139,6 +146,15 @@ private def expectTrappedInvocation
       expect (unchanged == pre) s!"{label}: exact pre-state"
   | other =>
       throw <| IO.userError s!"{label}: expected invalidInvocation, got {repr other}"
+
+private def expectTrappedExternalResponse
+    (label : String) (outcome : OutcomeV1) (pre : LogicalStateV1) : IO Unit := do
+  match outcome with
+  | .trapped .invalidExternalResponse unchanged =>
+      expect (unchanged == pre) s!"{label}: exact pre-state"
+  | other =>
+      throw <| IO.userError
+        s!"{label}: expected invalidExternalResponse, got {repr other}"
 
 /-- Counter-shaped no-initializer program (Examples/Counter business surface
     without the same-file Lean theorem, which is outside the portable DSL). -/
@@ -279,10 +295,19 @@ private unsafe def testExternalResponsesAndInvocationShape
   let source := wrap "Sem002External" <|
     "  entry relay(value : UInt64) : UInt64 do\n" ++
     "    call Oracle.feed(value)\n" ++
+    "    return value\n" ++
+    "  entry relayTwice(value : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(value)\n" ++
+    "    call Oracle.audit(value)\n" ++
+    "    return value\n" ++
+    "  fn flag(value : Bool) : Bool do\n" ++
     "    return value\n"
   let (carrier, data, u64) ←
     loadNormalize session "Tests/Semantic/Sem002ShapeV1.lean" "Sem002External" source
+  let bool ← findBool data
   let relayId ← findCallable data (some "relay")
+  let relayTwiceId ← findCallable data (some "relayTwice")
+  let flagId ← findCallable data (some "flag")
   let initial ←
     match initialLogicalStateV1 carrier with
     | .ok s => pure s
@@ -336,6 +361,82 @@ private unsafe def testExternalResponsesAndInvocationShape
   let wrongArity := step carrier initial (inv relayId #[]) #[]
   expectTrappedInvocation "invocation/wrong-arity" wrongArity initial
   let _ ← mintDigest "invocation/wrong-arity" wrongArity
+
+  let boolTrue : ReferenceValueV1 :=
+    { typeId := bool, valueBytes := ByteArray.mk #[1] }
+  expect (bool != u64) "invocation: Bool and UInt64 TypeIds differ"
+  match validateValueBytesV1 data.types bool boolTrue.valueBytes with
+  | .ok () => pure ()
+  | .error e =>
+      throw <| IO.userError s!"invocation: canonical Bool rejected: {repr e}"
+
+  -- Root pureFn is not an invocable public callable kind. Its argument is
+  -- otherwise exact, isolating the kind gate from arity/type/value encoding.
+  let wrongKind := step carrier initial (inv flagId #[boolTrue]) #[]
+  expectTrappedInvocation "invocation/wrong-kind-pure-fn" wrongKind initial
+  let _ ← mintDigest "invocation/wrong-kind-pure-fn" wrongKind
+
+  -- Canonical Bool supplied where relay requires UInt64: exact TypeId mismatch.
+  let wrongType := step carrier initial (inv relayId #[boolTrue]) #[]
+  expectTrappedInvocation "invocation/wrong-arg-type" wrongType initial
+  let _ ← mintDigest "invocation/wrong-arg-type" wrongType
+
+  -- Correct UInt64 TypeId with a one-byte payload is noncanonical UInt64.
+  let malformedU64 := ByteArray.mk #[1]
+  match validateValueBytesV1 data.types u64 malformedU64 with
+  | .error _ => pure ()
+  | .ok () =>
+      throw <| IO.userError "invocation: short UInt64 unexpectedly canonical"
+  let noncanonical := step carrier initial
+    (inv relayId #[{ typeId := u64, valueBytes := malformedU64 }]) #[]
+  expectTrappedInvocation "invocation/noncanonical-arg-bytes" noncanonical initial
+  let _ ← mintDigest "invocation/noncanonical-arg-bytes" noncanonical
+
+  -- Establish the two-call fixture's exact cursor order before its negatives.
+  let occurrenceSecond : EffectOccurrenceV1 := { effectId := 1, occurrence := 0 }
+  let orderedResponses : ExternalResponsesV1 := #[
+    { occurrence, disposition := .returned, returnValue? := none },
+    { occurrence := occurrenceSecond, disposition := .returned, returnValue? := none }
+  ]
+  let orderedOut :=
+    step carrier initial (inv relayTwiceId #[refU64 u64 7]) orderedResponses
+  match orderedOut with
+  | .returned unchanged (some value) effects =>
+      expect (unchanged == initial) "responses/ordered: exact no-state post"
+      expect (value == refU64 u64 7) "responses/ordered: exact return value"
+      match effects.toList with
+      | [first, second] =>
+          expect (first.occurrence == occurrence)
+            "responses/ordered: first occurrence"
+          expect (second.occurrence == occurrenceSecond)
+            "responses/ordered: second occurrence"
+      | _ =>
+          throw <| IO.userError
+            s!"responses/ordered: expected two effects, got {effects.size}"
+  | other =>
+      throw <| IO.userError s!"responses/ordered: unexpected outcome {repr other}"
+  let _ ← mintDigest "responses/ordered-control" orderedOut
+
+  -- Duplicate and swapped response rows now exercise cursor order exactly.
+  let duplicateResponses : ExternalResponsesV1 := #[
+    { occurrence, disposition := .returned, returnValue? := none },
+    { occurrence, disposition := .returned, returnValue? := none }
+  ]
+  let duplicateOut :=
+    step carrier initial (inv relayTwiceId #[refU64 u64 7]) duplicateResponses
+  expectTrappedExternalResponse "responses/duplicate-occurrence" duplicateOut initial
+  let duplicateDigest ← mintDigest "responses/duplicate-occurrence" duplicateOut
+
+  let reorderedResponses : ExternalResponsesV1 := #[
+    { occurrence := occurrenceSecond, disposition := .returned, returnValue? := none },
+    { occurrence, disposition := .returned, returnValue? := none }
+  ]
+  let reorderedOut :=
+    step carrier initial (inv relayTwiceId #[refU64 u64 7]) reorderedResponses
+  expectTrappedExternalResponse "responses/reordered-occurrence" reorderedOut initial
+  let reorderedDigest ← mintDigest "responses/reordered-occurrence" reorderedOut
+  expect (duplicateDigest == reorderedDigest)
+    "responses: duplicate/reordered encode the same exact trapped Outcome"
 
 /-- emit Tick: effect occurrence 0 and normalized result. -/
 private unsafe def testEffectOccurrence
