@@ -3,7 +3,7 @@ id: SPEC-EVM-OUTCOME-ADAPTER-001
 title: EVM → OutcomeV1 engineering adapter (slice-5)
 status: draft
 owner: semantic
-updated: 2026-08-12
+updated: 2026-08-13
 normative: false
 ---
 
@@ -95,6 +95,12 @@ Observation / Anvil lack:
 `try_mint_outcome_wire_from_observation` always returns `PF-CORPUS-OUTCOME`.
 Do **not** silently drop declared error args, fault constructors, or effect
 occurrence pairs to force equality. Anvil **↛** OutcomeWire lossless encoding.
+
+`EmitIRV1` still emits `revert(0, 0)` for most checked, assertion, dispatch,
+and external-call failure paths; only a declared `.revertError` arm emits ABI
+revert data for its declared error. Therefore current Yul empty revert makes
+Anvil observation unable to recover `standardRevertCode`, `fault`, typed bytes,
+or effect occurrence. Keep Anvil **↛** OutcomeWire fail closed.
 
 `status=blocked` is corpus-only and cannot project to an Outcome constructor.
 

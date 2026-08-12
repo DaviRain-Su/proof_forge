@@ -3,7 +3,7 @@ id: ENG-BACKLOG
 title: 工程业务 Backlog（文档↔实现差异 + 构建加速）
 status: draft
 owner: engineering
-updated: 2026-08-12
+updated: 2026-08-13
 normative: false
 ---
 
@@ -451,15 +451,29 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 ```text
 1. EVM formal lighthouse（ADR-0036 Next task，串行主轴）：
    - shared D2/D3 formal 前置：TASK-D2-07 / TST-SEM-002/003（Reference step / corpus）
-     · **2026-08-12**：Outcome wire + `step` façade + EVM Outcome adapter +
-       **切片-3**（ArithOps OutcomeWire + digest-case 投影硬门，`sidecars=18`）
-       · **2026-08-12 LH-4**：EventFlow OutcomeWire mint + `OUTCOME_DIGEST_CASE_STEPS` 5 步；
-         `just evm-corpus-reference` → `sidecars=23`
-       · **2026-08-12 LH-5**：OwnableLike OutcomeWire mint（caller + assertionFailed）；
-         `sidecars=28`；Anvil lossless 仍 FC
-       ——仍非 formal
-   - 然后 identity-bound Reference↔Anvil formal differential（C-3 解 blocked；
-     engineering identity/projection 已落地，formal 轨道仍 pending）
+     · **LH-1…LH-7 packaging done**（engineering only；**不**关闭 formal TASK/TST）：
+       · LH-1：OutcomeWireV1 / `pf.reference-outcome.v1`
+       · LH-2：public `step` façade + EVM Outcome adapter；Anvil lossless 仍 FC
+       · LH-3：ArithOps OutcomeWire + digest-case 投影硬门（`sidecars=18`）
+       · LH-4：EventFlow OutcomeWire mint + `OUTCOME_DIGEST_CASE_STEPS` 5 步（`sidecars=23`）
+       · LH-5：OwnableLike OutcomeWire mint（caller + assertionFailed；`sidecars=28`）
+       · LH-6：`Tests.Semantic.Sem002ShapeV1` Counter reference-trace *shape* pin
+       · LH-7：`Tests.Semantic.Sem003ShapeV1` overflow/revert/assert rollback *shape* pin
+     · **LH-8 engineering done**：Sem003 fault + response-precedence OutcomeWire pin
+       （`Tests/Semantic/Sem003ShapeV1.lean`）；**不**关闭 TST-SEM-003
+     · **LH-9 engineering done**：Sem002 external-response returned/reverted +
+       context extra/dup pin（`Tests/Semantic/Sem002ShapeV1.lean`）；**不**关闭 TST-SEM-002
+     · **LH-10 pending**（engineering）：Sem003 剩余 standard revert codes
+       （invalidShift / castOutOfRange / indexOutOfBounds / uninitialized / alreadyInitialized）
+       OutcomeWire pin（`Tests/Semantic/Sem003ShapeV1.lean`）；**不**关闭 TST-SEM-003
+     · **LH-11 pending**（engineering）：Sem002 wrong kind / wrong arg type /
+       response duplicate+reordered / noncanonical arg bytes pin
+       （`Tests/Semantic/Sem002ShapeV1.lean`）；**不**关闭 TST-SEM-002
+     · **LH-12 pending**：`AGENTS.md` 控制面诚实化（Current/Next 与 lighthouse 指针对齐；
+       不代签 formal）
+     ——仍非 formal；Anvil ↛ OutcomeWire lossless 保持 fail-closed；**C-3 仍 blocked**
+   - 然后 identity-bound Reference↔Anvil formal differential（**C-3 仍 blocked**；
+     engineering identity/projection 已落地，formal 轨道仍 pending；Anvil lossless FC）
    - 不得用其他 target 或业务合约 engineering positives 代签
 2. B-CALL-SEM 产品决策 + EVM 残差（并行于 1 的 leaf）：
    - EVM static-QN callee 仍是 hashed-address stub → 真实 deployment-address binding
@@ -530,6 +544,8 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **SYS-S4-EVM**：`context.attachedValue` → EVM `CALLVALUE` / Yul `callvalue()` (tag 75, UInt64 range guard); entry that reads the key is payable; view stays view (STATICCALL ⇒ 0); constructor FC; Anvil companion `evm_attachedvalue_anvil_smoke.sh`. NEAR/CW/other Plans remain FC. Not formal C-3 |
 | 2026-08-13 | **SYS-S4-NEAR**：`context.attachedValue` → host `attached_deposit` u128 with hi==0 UInt64 guard; init/entry `allowAttached`; **view/pureFn FC**; HostModel + near-sandbox suite (`collect` 42/0/2^64). CW/other Plans remain FC. Not formal |
 | 2026-08-13 | **SYS-S4-CW**：`context.attachedValue` → MessageInfo.funds single-denom `stake` (empty=0; multi-coin/wrong denom trap); execute/init `allowFunds`; **query/view FC**; cw-vm mock 3/3. Other Plans remain FC. Not wasmd/formal |
+| 2026-08-13 | **EVM formal lighthouse 登记 LH-8/LH-9**：推荐击杀序标 LH-1…7 packaging done；新增 LH-8 pending（Sem003 fault + response-precedence OutcomeWire pin，`Tests/Semantic/Sem003ShapeV1.lean`）与 LH-9 pending（Sem002 external-response returned/reverted + context extra/dup pin，`Tests/Semantic/Sem002ShapeV1.lean`）；明确 engineering-only，**不**关闭 TST-SEM-002/003；C-3 / Anvil lossless 仍 blocked/FC。**不**声称实现已完成 |
+| 2026-08-13 | **EVM formal lighthouse LH-8/LH-9 engineering done + 登记 LH-10…12**：LH-8（Sem003 fault + response-precedence）与 LH-9（Sem002 external-response returned/reverted + context extra/dup）标 **engineering done**（reviewer P1 已修：Sem003 top-level main 删除；`lake build proof_forge_next_fast_tests` exit 0）；**不**关闭 TST-SEM-002/003。新增 **LH-10 pending**（Sem003 剩余 standard revert codes：invalidShift/castOutOfRange/indexOutOfBounds/uninitialized/alreadyInitialized）、**LH-11 pending**（Sem002 wrong kind / wrong arg type / response duplicate+reordered / noncanonical arg bytes）、**LH-12 pending**（`AGENTS.md` 控制面诚实化）。C-3 / Anvil lossless 仍 blocked/FC。**不**声称 formal 完成 |
 
 ---
 

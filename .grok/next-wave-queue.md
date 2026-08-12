@@ -1,7 +1,7 @@
 # Next-wave drain queue (2026-08-12)
 
 **Authority:** `docs/engineering-backlog.md` 推荐击杀顺序 · ADR-0036 · AGENTS Next task  
-**Live status:** this file. Backlog wins on conflict; this file wins on *order*.  
+**Live status:** Track A packaging LH-1…7 done; LH-8/LH-9 are corpus-completeness engineering continuation only. Backlog wins on conflict; this file wins on *order*.
 **Mode:** Goal drain *or* one-slice workflow. Do **not** wait for chat “继续”.  
 **Sole L1 step:** `SemanticProgramV1 → admitReferenceProgramSliceV1 → stepReferenceSliceV1`  
 **Forbidden:** close formal TASK/TST/EV · Anvil lossless OutcomeWire (spec-FC) · invent TASK-* · push · `git add -A` · `git reset --hard` · supersede ADR-0027 · silent accepted-PRD expansion
@@ -30,8 +30,14 @@ Engineering packaging toward TASK-D2-07 / TST-SEM-002/003 / C-3.
 | LH-5 | done | OwnableLike Reference OutcomeWire mint (caller context + assertionFailed); `sidecars=28` |
 | LH-6 | done | Engineering Counter reference-trace pin in TST-SEM-002 *shape* (`Tests.Semantic.Sem002ShapeV1`); formal TASK/TST still pending |
 | LH-7 | done | Engineering overflow/revert rollback pin in TST-SEM-003 *shape* (`Tests.Semantic.Sem003ShapeV1`); formal TASK/TST still pending |
+| LH-8 | done | Sem003 fault + response-precedence OutcomeWire pin; allowlist only `Tests/Semantic/Sem003ShapeV1.lean`. Reviewer FIX P1 (`top-level main`) removed; `lake build proof_forge_next_fast_tests` exit 0. **Not** formal TST-SEM-003 |
+| LH-9 | done | Sem002 external-response returned/reverted + context extra/dup + wrong-arity pin; allowlist only `Tests/Semantic/Sem002ShapeV1.lean`. **Not** formal TST-SEM-002 |
+| LH-10 | pending | Remaining standard revert codes via public `step` + OutcomeWire; allowlist only `Tests/Semantic/Sem003ShapeV1.lean` |
+| LH-11 | pending | Sem002 negatives: wrong kind / wrong arg type / response duplicate+reordered / noncanonical arg bytes; allowlist only `Tests/Semantic/Sem002ShapeV1.lean` |
+| LH-12 | pending | AGENTS.md honesty only; do **not** change formal TASK/TST status |
 
-After LH-7, Track A is **drain-complete**. Next formal closeout is **excluded**.
+Track A packaging LH-1…9 is **engineering-done**. LH-10 and LH-11 may run in parallel on distinct files. LH-12 is docs-only on `AGENTS.md`.
+This is engineering corpus-completeness continuation only. Formal closeout remains **excluded**; C-3 stays `formal-blocked`.
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 
