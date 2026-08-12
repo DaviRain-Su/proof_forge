@@ -41,11 +41,19 @@ use {
 /// CosmWasm gas budget high enough for StateCell-style bodies + JSON builders.
 pub const GAS_LIMIT: u64 = 2_000_000_000;
 
+/// Tiny gas budget for intentional out-of-gas traps (negative corpus).
+pub const GAS_LIMIT_TINY: u64 = 50_000;
+
 /// Layout marker key written by CosmWasm LowerSemanticV1 (`layoutMarkerKey`).
 pub const LAYOUT_MARKER_KEY: &str = "pf:cw:v1:layout";
 
 /// State key for field sourceId 0 (`stateKey 0`).
 pub const STATE_KEY_0: &str = "pf:cw:v1:state:0";
+
+/// State key for field sourceId `n` (`pf:cw:v1:state:n`).
+pub fn state_key(n: usize) -> String {
+    format!("pf:cw:v1:state:{n}")
+}
 
 pub type CwInstance = Instance<MockApi, MockStorage, MockQuerier>;
 
@@ -106,6 +114,12 @@ pub fn make_instance(name: &str) -> CwInstance {
     mock_instance_with_gas_limit(&wasm, GAS_LIMIT)
 }
 
+/// Fresh mock instance with an explicit gas limit (negative corpus / gas traps).
+pub fn make_instance_with_gas(name: &str, gas_limit: u64) -> CwInstance {
+    let wasm = load_wasm(name);
+    mock_instance_with_gas_limit(&wasm, gas_limit)
+}
+
 pub fn creator_info() -> cosmwasm_std::MessageInfo {
     mock_info("creator", &[])
 }
@@ -152,6 +166,19 @@ pub fn execute_trap(instance: &mut CwInstance, msg: &[u8]) -> VmError {
     match call_execute::<_, _, _, Empty>(instance, &mock_env(), &creator_info(), msg) {
         Err(e) => e,
         Ok(cr) => panic!("expected Wasm trap VmError, got ContractResult {cr:?}"),
+    }
+}
+
+/// Fail-closed execute: either Wasm `VmError` trap **or** `ContractResult::Err`
+/// (product JSON dispatch sometimes returns empty Err for bad envelopes instead
+/// of `unreachable`). Panics only on `ContractResult::Ok`.
+pub fn execute_fail_closed(instance: &mut CwInstance, msg: &[u8]) {
+    match call_execute::<_, _, _, Empty>(instance, &mock_env(), &creator_info(), msg) {
+        Err(_vm) => {}
+        Ok(ContractResult::Err(_e)) => {}
+        Ok(ContractResult::Ok(r)) => {
+            panic!("expected fail-closed execute, got Ok({r:?})")
+        }
     }
 }
 
@@ -269,6 +296,56 @@ pub fn has_layout_marker(instance: &mut CwInstance) -> bool {
             Ok(val.is_some())
         })
         .expect("with_storage")
+}
+
+/// Read raw layout marker bytes (for corrupt-storage assertions).
+pub fn read_layout_marker_bytes(instance: &mut CwInstance) -> Option<Vec<u8>> {
+    instance
+        .with_storage(|store| {
+            let (val, _gas) = store.get(LAYOUT_MARKER_KEY.as_bytes());
+            let val = val.map_err(VmError::from)?;
+            Ok(val)
+        })
+        .expect("with_storage")
+}
+
+/// Overwrite / insert a raw storage value (corrupt-storage negative corpus).
+/// Does **not** go through contract Wasm — host MockStorage only.
+pub fn write_storage_raw(instance: &mut CwInstance, key: &str, value: &[u8]) {
+    instance
+        .with_storage(|store| {
+            let (res, _gas) = store.set(key.as_bytes(), value);
+            res.map_err(VmError::from)?;
+            Ok(())
+        })
+        .expect("with_storage set");
+}
+
+/// Remove a storage key (missing-marker / missing-leaf negative corpus).
+pub fn remove_storage_key(instance: &mut CwInstance, key: &str) {
+    instance
+        .with_storage(|store| {
+            let (res, _gas) = store.remove(key.as_bytes());
+            res.map_err(VmError::from)?;
+            Ok(())
+        })
+        .expect("with_storage remove");
+}
+
+/// Read raw storage bytes for a key (exact length preserved).
+pub fn read_storage_raw(instance: &mut CwInstance, key: &str) -> Option<Vec<u8>> {
+    instance
+        .with_storage(|store| {
+            let (val, _gas) = store.get(key.as_bytes());
+            let val = val.map_err(VmError::from)?;
+            Ok(val)
+        })
+        .expect("with_storage")
+}
+
+/// Write an 8-byte LE u64 under a state key (host-side, not contract path).
+pub fn write_state_u64_named(instance: &mut CwInstance, key: &str, value: u64) {
+    write_storage_raw(instance, key, &value.to_le_bytes());
 }
 
 /// Ensure a path is a file (debug helper).
