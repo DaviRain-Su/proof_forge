@@ -110,14 +110,14 @@ private unsafe def testBadContextSurface (session : ParserSession) : IO Unit := 
   expect (d.code == .reqPrecondition)
     s!"ctx-bad: code must be reqPrecondition, got {d.code.wire}"
   expect (d.message ==
-      "unsupported context surface (only context.caller, context.unixTimeSeconds and context.blockHeight are admitted)")
+      "unsupported context surface (only context.caller, context.unixTimeSeconds, context.blockHeight, context.chainId and context.contractId are admitted)")
     s!"ctx-bad: exact message, got {d.message}"
   let composed := checkProgramTypedResultV1 v
   expect (!composed.ok) "ctx-bad: CheckV1 composition must fail"
   expect (composed.diagnostics.any fun x =>
       x.code == .reqPrecondition &&
         x.message ==
-          "unsupported context surface (only context.caller, context.unixTimeSeconds and context.blockHeight are admitted)")
+          "unsupported context surface (only context.caller, context.unixTimeSeconds, context.blockHeight, context.chainId and context.contractId are admitted)")
     "ctx-bad: CheckV1 must surface the same ContextExtension gate"
 
 private def solanaCpiDigest : String :=
@@ -353,13 +353,15 @@ private unsafe def testPfAssetsV1_1ExtensionOk (session : ParserSession) : IO Un
     "exact pf.assets@1.1.0 extension triple must pass ContextExtension Check"
   expect (checkProgramTypedResultV1 v).ok
     "exact pf.assets@1.1.0 extension triple must pass CheckV1 composition"
-  -- env-read catalog QNs are two, distinct from the five statement QNs.
-  expect (pfAssetsEnvReadQualifiedNamesV1.size == 2)
-    "pf.assets env-read catalog must expose two QNs"
+  -- Env-read catalog QNs are three, distinct from the five statement QNs.
+  expect (pfAssetsEnvReadQualifiedNamesV1.size == 3)
+    "pf.assets env-read catalog must expose three QNs"
   expect (pfAssetsEnvReadQualifiedNamesV1[0]! == "pf.assets.native.balanceOfSelf")
     "pf.assets env-read catalog QN0"
   expect (pfAssetsEnvReadQualifiedNamesV1[1]! == "pf.assets.token.balanceOfSelf")
     "pf.assets env-read catalog QN1"
+  expect (pfAssetsEnvReadQualifiedNamesV1[2]! == "pf.assets.native.balanceOfSelfU128")
+    "pf.assets env-read catalog QN2"
 
 /-- ADR-0030 E2: env-read `native.balanceOfSelf()` in a view passes CheckV1
     with the 1.1.0 declaration; the legacy v1.0.0 triple fails closed

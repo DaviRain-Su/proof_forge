@@ -54,6 +54,10 @@ private structure Machine where
   /-- ADR-0031 S3: deterministic HostModel current account-id
       (sandbox supplies the real current_account_id). -/
   currentAccountId : String := "vault.test.near"
+  /-- Deterministic low limb supplied by the HostModel `account_balance` read. -/
+  accountBalanceLowWord : U64 := 1000000
+  /-- Deterministic high limb supplied by the HostModel `account_balance` read. -/
+  accountBalanceHighWord : U64 := 0
 
 private inductive Outcome where
   | success (storage : HostStorage) (returned : Option U64) (logs : Array String)
@@ -256,9 +260,15 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       -- ADR-0031 S2: deterministic HostModel block height (sandbox supplies real).
       writeTemp machine destination (UInt64.ofNat 42)
   | .accountBalance destination =>
-      -- ADR-0030 E2-NEAR: deterministic HostModel native balance (fits UInt64).
-      -- The sandbox supplies the real account_balance u128.
-      writeTemp machine destination (UInt64.ofNat 1000000)
+      -- ADR-0030 E2-NEAR: UInt64 projection of the host account_balance u128.
+      if machine.accountBalanceHighWord == 0 then
+        writeTemp machine destination machine.accountBalanceLowWord
+      else
+        modelError "account balance exceeds UInt64"
+  | .accountBalanceU128 destination => do
+      -- Full-width host account_balance u128, split into consecutive LE limbs.
+      let machine ← writeTemp machine destination machine.accountBalanceLowWord
+      writeTemp machine (destination + 1) machine.accountBalanceHighWord
   | .callerPrincipalLen destination => do
       -- ADR-0031 S1: length leaf = UTF-8 byte length of predecessor account-id.
       let bytes := machine.predecessorAccountId.toUTF8
@@ -1092,6 +1102,39 @@ private def testCheckedSubModel : IO Unit := do
         s!"checked-sub model must classify underflow, got {reason}"
   | .ok _ => throw <| IO.userError "checked-sub model accepted 5 - 7"
 
+private def testAccountBalanceModel : IO Unit := do
+  let deposit : Deposit := { lowWord := 0, highWord := 0 }
+  let low : U64 := UInt64.ofNat 37
+  let high : U64 := UInt64.ofNat 9
+  let wideMachine : Machine := {
+    storage := #[]
+    temps := #[none, none]
+    accountBalanceLowWord := low
+    accountBalanceHighWord := high
+  }
+  let wide ← match step ByteArray.empty deposit wideMachine (.accountBalanceU128 0) with
+    | .ok value => pure value
+    | .error reason => throw <| IO.userError s!"account-balance-u128 model: {reason}"
+  expect (wide.temps == #[some low, some high])
+    "account-balance-u128 model must preserve both little-endian UInt64 limbs"
+  match step ByteArray.empty deposit wideMachine (.accountBalance 0) with
+  | .error reason =>
+      expect (reason.contains "exceeds UInt64")
+        s!"account-balance UInt64 projection must classify nonzero high limb, got {reason}"
+  | .ok _ =>
+      throw <| IO.userError
+        "account-balance UInt64 projection accepted a nonzero high limb"
+  let narrowMachine : Machine := {
+    storage := #[]
+    temps := #[none]
+    accountBalanceLowWord := low
+  }
+  let narrow ← match step ByteArray.empty deposit narrowMachine (.accountBalance 0) with
+    | .ok value => pure value
+    | .error reason => throw <| IO.userError s!"account-balance-u64 model: {reason}"
+  expect (narrow.temps == #[some low])
+    "account-balance UInt64 projection must preserve the low limb when high is zero"
+
 private def testCompareAssertModel : IO Unit := do
   let deposit : Deposit := { lowWord := 0, highWord := 0 }
   let machine : Machine := {
@@ -1131,6 +1174,7 @@ private def testCompareAssertModel : IO Unit := do
 
 def runCheckedSubFast : IO Unit := do
   testCheckedSubModel
+  testAccountBalanceModel
   testCompareAssertModel
   IO.println "Tests.Materialization.NearHostModel.checkedSub: ok"
 
@@ -1166,6 +1210,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .blockTimestampSeconds _ => "blockTimestampSeconds"
     | .blockIndex _ => "blockIndex"
     | .accountBalance _ => "accountBalance"
+    | .accountBalanceU128 _ => "accountBalanceU128"
     | .callerPrincipalLen _ => "callerPrincipalLen"
     | .callerPrincipalWord _ _ => "callerPrincipalWord"
     | .selfPrincipalLen _ => "selfPrincipalLen"
