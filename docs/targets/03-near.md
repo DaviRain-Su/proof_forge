@@ -244,6 +244,17 @@ Phase 1：实现
   证明的是**由唯一 renderer 生成的完整 module framing identity**，不是任意 WAT parser/general
   validator；它也没有给 surrounding pureFn/其他 method body通用 typed-WAT semantics。因此完整
   textual WAT module仍不能称 target-refined。
+- **generated complete-module static memory consistency（Phase 7 第十八切）**：
+  production `validateIR` 现组合 `validateWATModuleMemoryV1`，对 sole typed IR/render path 检查 key
+  data regions 的 exact UTF-8连续布局、key/input/deposit/value/promise区域分离、每个 Operation（含
+  nested if/switch/for）的最高 exclusive linear-memory access，以及 first-seen promise data segments
+  均位于 `memory.minPages × 64 KiB` 内。promise string收集和布局已提升为 validator/renderer共享的
+  唯一路径；`validateIR_watModuleMemorySafeV1` 将成功 production validation投影为
+  `WATModuleMemorySafeV1` kernel witness，complete-module emission carrier显式保留该证书。真实
+  production IR正例与 oversized promise data、scratch/promise overlap、malformed aggregate-return
+  store footprint负例均已固定。该检查审计的是 generated typed IR的 renderer-owned footprint，
+  **不是** textual WAT parser、一般 linear-memory semantics或 WAT consumer correctness；也不证明
+  `wat2wasm`、Wasm binary执行或 NEAR host execution refinement。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`

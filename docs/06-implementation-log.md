@@ -15186,3 +15186,19 @@ normative: false
   任意 textual WAT，也没有给 surrounding pureFn/其他 method body、Wasm binary或 NEAR host execution
   通用语义。没有新增 DSL State/Effect/evaluator/step；完整 textual WAT仍不得称 target-refined，整体
   assurance仍为 **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR generated complete-module static memory consistency
+
+- `validateWATModuleMemoryV1` 对 sole production typed IR/render footprint执行 fail-closed module-level
+  检查：key data exact UTF-8连续布局、key/input/deposit/value/promise区域分离、methods/pureFns中所有
+  nested Operation 的最高 exclusive memory address，以及共享 first-seen promise-string data布局都必须
+  位于 declared Wasm pages内。aggregate return同时覆盖 host读取长度与每个实际 store（含 malformed
+  width-array default store），避免静态上界低估。
+- production `validateIR` 组合该 gate；`validateIR_watModuleMemorySafeV1` 将成功验证投影成
+  `WATModuleMemorySafeV1`，`ValidatedReadOnlyWATModuleEmissionV1` 显式携带同一证书。真实 production
+  IR正例与 oversized promise data、scratch/promise overlap、malformed return-leaf footprint负例已固定；
+  promise collector/layout由 validator与 sole renderer共享，没有第二套 emitter/renderer。
+- 该 slice只证明 generated typed module的静态内存/数据布局一致性，不解析 arbitrary textual WAT，
+  不证明 WAT consumer、locked `wat2wasm`、Wasm binary execution或完整 NEAR host semantics。没有新增
+  DSL State/Effect/evaluator/step；整体 assurance仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

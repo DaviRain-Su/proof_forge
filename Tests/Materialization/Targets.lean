@@ -2548,6 +2548,53 @@ unsafe def run : IO Unit := do
       (Targets.Near.withMethods nearIR (nearIR.methods.set! 2 forgedNearMethod)) with
   | .error (.planInvariant .near _) => pure ()
   | _ => throw <| IO.userError "typed NEAR recipe must remain exactly bound to its source Plan"
+  match Targets.Near.validateWATModuleMemoryV1 nearIR with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError
+        s!"production NEAR IR must pass complete WAT module memory validation: {error.render}"
+  let oversizedPromiseString :=
+    String.ofList (List.replicate Targets.Near.wasmPageBytes 'a')
+  let oversizedPromiseDataFn : Targets.Near.FnIR := {
+    name := "forgedPromiseData"
+    paramCount := 0
+    resultIsBool := false
+    tempCount := 0
+    operations := #[.promiseAccount oversizedPromiseString "call" #[]]
+  }
+  match Targets.Near.validateWATModuleMemoryV1
+      (Targets.Near.withFns nearIR #[oversizedPromiseDataFn]) with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR WAT module validation must reject promise data beyond declared memory"
+  let oversizedPromiseScratchFn : Targets.Near.FnIR := {
+    name := "forgedPromiseScratch"
+    paramCount := 0
+    resultIsBool := false
+    tempCount := 1
+    operations := #[.promiseAccount "aa" "call"
+      (Array.replicate 129 0)]
+  }
+  match Targets.Near.validateWATModuleMemoryV1
+      (Targets.Near.withFns nearIR #[oversizedPromiseScratchFn]) with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR WAT module validation must reject operation scratch overlapping promise data"
+  let malformedReturnLeavesFn : Targets.Near.FnIR := {
+    name := "forgedReturnLeaves"
+    paramCount := 0
+    resultIsBool := false
+    tempCount := 129
+    operations := #[.setReturnDataLeaves (Array.replicate 129 0) #[1]]
+  }
+  match Targets.Near.validateWATModuleMemoryV1
+      (Targets.Near.withFns nearIR #[malformedReturnLeavesFn]) with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR WAT module validation must account for every rendered return-leaf store"
   -- The fast S1 seam pins multi-field retained-V1 Plan ordering. The exact WAT
   -- golden below remains the capability Accumulator materialization (complete
   -- bytes rather than a multi-field substring oracle).

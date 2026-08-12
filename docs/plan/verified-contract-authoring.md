@@ -1194,10 +1194,14 @@ expression translator：
     byte-for-byte exact-render identity，连接同一个 validated typed sequence；这不是 parser，也未
     typed-model surrounding function body。complete generated WAT framing现也 exact绑定同一个 validated
     production IR：module opener、imports、memory、key/promise data、pureFns、ordered methods与closing
-    delimiter都由 sole renderer graph拥有。下一顺序是 surrounding function body的通用 typed syntax/
-    module static validation、locked `wat2wasm`可信 identity边界、Wasm binary execution与完整 NEAR
-    host simulation。上述各层未闭合前，完整 WAT文本、Wasm binary和最终 NEAR artifact仍不得标记为
-    target-refined或 artifact verified。
+    delimiter都由 sole renderer graph拥有。其上新增的 **complete-module static memory consistency**
+    已进入 production `validateIR`：key/promise data segments、fixed scratch区域与所有 nested typed
+    Operation 的 renderer-owned memory footprint都必须落在 declared pages内；成功 validation可投影为
+    kernel witness并由 complete-module carrier保留。它仍不是 textual WAT parser或 linear-memory
+    execution semantics。下一顺序是 canonical host import requirements、pureFn/operation dependencies、
+    method/export ordering等 module-level typed consistency，再进入 locked `wat2wasm`可信 identity边界、
+    Wasm binary execution与完整 NEAR host simulation。上述各层未闭合前，完整 WAT文本、Wasm binary
+    和最终 NEAR artifact仍不得标记为 target-refined或 artifact verified。
 
 ---
 

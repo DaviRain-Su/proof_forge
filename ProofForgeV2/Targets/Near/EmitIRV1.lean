@@ -1131,8 +1131,280 @@ private partial def opIsFnReturnValueV1 : Operation → Bool
         updateOps.any opIsFnReturnValueV1
   | _ => false
 
-/-- Validate the typed host-call recipe and bind it exactly to its source Plan. -/
-def validateIR (ir : IR) : CompileResult Unit := do
+/-- First-seen order of schedule receiver/method strings across the IR. The
+    renderer and module-memory validator share this sole collection path. -/
+private partial def collectPromiseStringsFromOps
+    (ops : Array Operation) : Array String :=
+  ops.foldl (fun acc op =>
+    match op with
+    | .promiseAccount receiver method _ =>
+        let acc := if acc.contains receiver then acc else acc.push receiver
+        if acc.contains method then acc else acc.push method
+    | .promiseTokenTransfer .. =>
+        if acc.contains "ft_transfer" then acc else acc.push "ft_transfer"
+    | .ifRegion _ thenOps elseOps =>
+        acc ++ collectPromiseStringsFromOps thenOps ++
+          collectPromiseStringsFromOps elseOps
+    | .switchRegion _ cases defaultOps =>
+        cases.foldl
+          (fun current (_, caseOps) =>
+            current ++ collectPromiseStringsFromOps caseOps)
+          (acc ++ collectPromiseStringsFromOps defaultOps)
+    | .forRegion _ _ _ _ condOps _ bodyOps updateOps _ =>
+        acc ++ collectPromiseStringsFromOps condOps ++
+          collectPromiseStringsFromOps bodyOps ++
+          collectPromiseStringsFromOps updateOps
+    | _ => acc) #[]
+
+private def collectPromiseStrings (ir : IR) : Array String :=
+  ir.methods.foldl
+      (fun acc method =>
+        acc ++ collectPromiseStringsFromOps method.operations) #[] ++
+    ir.fns.foldl
+      (fun acc fn => acc ++ collectPromiseStringsFromOps fn.operations) #[]
+
+/-- The production promise-data region starts after the complete transient
+    value scratch envelope. -/
+private def promiseDataOffsetV1 (memory : MemoryLayout) : Nat :=
+  memory.valueOffset + 1024
+
+/-- Sole production placement for promise strings. Keeping this before both
+    validation and rendering prevents an unchecked parallel layout. -/
+private def layoutPromiseStrings (memory : MemoryLayout)
+    (strings : Array String) : Array (String × Nat) := Id.run do
+  let mut offset := promiseDataOffsetV1 memory
+  let mut table : Array (String × Nat) := #[]
+  for string in strings do
+    unless table.any (fun pair => pair.1 == string) do
+      table := table.push (string, offset)
+      offset := offset + string.toUTF8.size
+  pure table
+
+private def promiseStringOffset (table : Array (String × Nat))
+    (string : String) : Nat :=
+  match table.find? (fun pair => pair.1 == string) with
+  | some (_, offset) => offset
+  | none => 0
+
+private def maxMemoryEndV1 (left right : Option Nat) : Option Nat :=
+  match left, right with
+  | some left, some right => some (max left right)
+  | _, _ => none
+
+private def keyRegionMemoryEndV1 (region : KeyRegion) : Nat :=
+  region.offset + region.key.toUTF8.size
+
+private def keyRegionsContiguousFromV1 : Nat → List KeyRegion → Bool
+  | _, [] => true
+  | expectedOffset, region :: remaining =>
+      let byteLength := region.key.toUTF8.size
+      region.offset == expectedOffset && region.length == byteLength &&
+        keyRegionsContiguousFromV1 (expectedOffset + byteLength) remaining
+
+private def interfaceMessageMemoryEndV1
+    (memory : MemoryLayout)
+    (tag : String)
+    (bindings : Array InterfaceBinding)
+    (bindingIndex argCount : Nat) : Option Nat :=
+  match bindings[bindingIndex]? with
+  | none => none
+  | some binding =>
+      let prefixLength := s!"pf-{tag}:{binding.name}".toUTF8.size
+      let payloadLength :=
+        if argCount = 0 then prefixLength
+        else prefixLength + 1 + 16 * argCount + (argCount - 1)
+      some (memory.valueOffset + 8 + payloadLength)
+
+/-- Cover both the host-visible return span and every concrete store emitted
+    for aggregate leaves. Missing widths default to an 8-byte store in the
+    renderer, so malformed typed IR must not make this bound smaller. -/
+private def returnDataLeavesMemoryEndV1
+    (memory : MemoryLayout)
+    (temps leafByteWidths : Array Nat) : Nat := Id.run do
+  let widths :=
+    if leafByteWidths.isEmpty then Array.replicate temps.size 8
+    else leafByteWidths
+  let returnLength := widths.foldl (fun total width => total + width) 0
+  let mut offset := memory.valueOffset
+  let mut storeEnd := offset
+  for index in [:temps.size] do
+    let width := match widths[index]? with | some width => width | none => 8
+    let storeWidth :=
+      match width with
+      | 1 => 1
+      | 2 => 2
+      | 4 => 4
+      | _ => 8
+    storeEnd := max storeEnd (offset + storeWidth)
+    offset := offset + width
+  return max storeEnd (memory.valueOffset + returnLength)
+
+/-- Highest exclusive linear-memory address touched by one production
+    Operation. `none` rejects a dangling interface reference. This typed IR
+    footprint is shared by the complete-module validator; it is not a WAT text
+    parser or an execution semantics. -/
+private partial def operationMemoryEndV1 (ir : IR) : Operation → Option Nat
+  | .checkInputLen bytes => some (ir.memory.inputOffset + bytes)
+  | .requireZeroAttachedDeposit | .requireExactAttachedDeposit _ =>
+      some (ir.memory.depositOffset + 16)
+  | .accountBalance _ | .accountBalanceU128 _ =>
+      some (ir.memory.depositOffset + 16)
+  | .requireLayoutAbsent marker => some (keyRegionMemoryEndV1 marker)
+  | .requireLayout marker _ =>
+      some (max (keyRegionMemoryEndV1 marker) (ir.memory.valueOffset + 8))
+  | .zeroState field =>
+      some (max (keyRegionMemoryEndV1 field) (ir.memory.valueOffset + 8))
+  | .narrowZeroState bitWidth field =>
+      some (max (keyRegionMemoryEndV1 field)
+        (ir.memory.valueOffset + bitWidth / 8))
+  | .callerPrincipalWord _ wordIndex | .selfPrincipalWord _ wordIndex =>
+      some (ir.memory.valueOffset + 16 + max 64 (8 * (wordIndex + 1)))
+  | .loadParam _ inputOffset =>
+      some (ir.memory.inputOffset + inputOffset + 8)
+  | .narrowLoadParam bitWidth _ inputOffset =>
+      some (ir.memory.inputOffset + inputOffset + bitWidth / 8)
+  | .loadState _ field =>
+      some (max (keyRegionMemoryEndV1 field) (ir.memory.valueOffset + 8))
+  | .narrowLoadState bitWidth _ field =>
+      some (max (keyRegionMemoryEndV1 field)
+        (ir.memory.valueOffset + bitWidth / 8))
+  | .storeState field _ =>
+      some (max (keyRegionMemoryEndV1 field) (ir.memory.valueOffset + 8))
+  | .narrowStoreState bitWidth field _ =>
+      some (max (keyRegionMemoryEndV1 field)
+        (ir.memory.valueOffset + bitWidth / 8))
+  | .setLayout marker _ =>
+      some (max (keyRegionMemoryEndV1 marker) (ir.memory.valueOffset + 8))
+  | .setReturnData byteLength _ =>
+      some (ir.memory.valueOffset + max 8 byteLength)
+  | .setReturnDataLeaves temps leafByteWidths =>
+      some (returnDataLeavesMemoryEndV1 ir.memory temps leafByteWidths)
+  | .emitEvent eventIndex args =>
+      interfaceMessageMemoryEndV1 ir.memory "event" ir.sourcePlan.events
+        eventIndex args.size
+  | .revertError errorIndex args =>
+      interfaceMessageMemoryEndV1 ir.memory "error" ir.sourcePlan.errors
+        errorIndex args.size
+  | .promiseAccount _ _ args =>
+      some (max (ir.memory.valueOffset + 16)
+        (ir.memory.valueOffset + 8 + 8 * args.size))
+  | .promiseTransfer _ dstWords _ =>
+      some (max (ir.memory.valueOffset + 96)
+        (ir.memory.valueOffset + 16 + 8 * dstWords.size))
+  | .promiseTokenTransfer _ mintWords _ dstWords _ =>
+      let jsonLength := "{\"receiver_id\":\"".toUTF8.size + 64 +
+        "\",\"amount\":\"".toUTF8.size + 20 + 1
+      -- Decimal conversion first writes at `decBuf + 20`; include that byte.
+      some (max (ir.memory.valueOffset + 301)
+        (max (ir.memory.valueOffset + 16 + 8 * mintWords.size)
+          (max (ir.memory.valueOffset + 80 + 8 * dstWords.size)
+            (ir.memory.valueOffset + 144 + jsonLength))))
+  | .ifRegion _ thenOps elseOps =>
+      maxMemoryEndV1
+        (thenOps.foldl
+          (fun current operation =>
+            maxMemoryEndV1 current (operationMemoryEndV1 ir operation))
+          (some 0))
+        (elseOps.foldl
+          (fun current operation =>
+            maxMemoryEndV1 current (operationMemoryEndV1 ir operation))
+          (some 0))
+  | .switchRegion _ cases defaultOps =>
+      cases.foldl
+        (fun current (_, caseOps) =>
+          maxMemoryEndV1 current <|
+            caseOps.foldl
+              (fun caseCurrent operation =>
+                maxMemoryEndV1 caseCurrent
+                  (operationMemoryEndV1 ir operation))
+              (some 0))
+        (defaultOps.foldl
+          (fun current operation =>
+            maxMemoryEndV1 current (operationMemoryEndV1 ir operation))
+          (some 0))
+  | .forRegion _ _ _ _ condOps _ bodyOps updateOps _ =>
+      maxMemoryEndV1
+        (condOps.foldl
+          (fun current operation =>
+            maxMemoryEndV1 current (operationMemoryEndV1 ir operation))
+          (some 0)) <|
+        maxMemoryEndV1
+          (bodyOps.foldl
+            (fun current operation =>
+              maxMemoryEndV1 current (operationMemoryEndV1 ir operation))
+            (some 0))
+          (updateOps.foldl
+            (fun current operation =>
+              maxMemoryEndV1 current (operationMemoryEndV1 ir operation))
+            (some 0))
+  | .literal .. | .blockTimestampSeconds _ | .blockIndex _
+  | .callerPrincipalLen _ | .selfPrincipalLen _
+  | .checkedAdd .. | .checkedSub .. | .signedCheckedAdd ..
+  | .signedCheckedSub .. | .signedCheckedMul .. | .signedCheckedDiv ..
+  | .signedCheckedMod .. | .signedCompare .. | .checkedNeg .. | .sar ..
+  | .compare .. | .wideCompare .. | .assert _ | .returnNone
+  | .callFn .. | .returnValue _ | .checkedMul .. | .checkedDiv ..
+  | .checkedMod .. | .bitAnd .. | .bitOr .. | .bitXor .. | .shl ..
+  | .shr .. | .bitNot .. | .narrowCheckedAdd .. | .narrowCheckedSub ..
+  | .narrowCheckedMul .. | .narrowCheckedDiv .. | .narrowCheckedMod ..
+  | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
+  | .narrowBitNot .. | .narrowShl .. | .narrowShr .. | .boolNot ..
+  | .boolAnd .. | .boolOr .. => some 0
+
+private def moduleOperationMemoryEndV1 (ir : IR) : Option Nat :=
+  let methodEnd := ir.methods.foldl
+    (fun current method =>
+      method.operations.foldl
+        (fun methodCurrent operation =>
+          maxMemoryEndV1 methodCurrent (operationMemoryEndV1 ir operation))
+        current) (some 0)
+  ir.fns.foldl
+    (fun current fn =>
+      fn.operations.foldl
+        (fun fnCurrent operation =>
+          maxMemoryEndV1 fnCurrent (operationMemoryEndV1 ir operation))
+        current) methodEnd
+
+/-- Static memory/data-segment gate for a complete generated production WAT
+    module. It checks contiguous key bytes, canonical region separation, every
+    typed Operation's highest memory access, and the sole promise-string data
+    layout against declared linear memory. This validates typed IR metadata,
+    not arbitrary textual WAT or Wasm binaries. -/
+def validateWATModuleMemoryV1 (ir : IR) : CompileResult Unit := do
+  let memoryLimit := ir.memory.minPages * wasmPageBytes
+  unless keyRegionsContiguousFromV1 0 ir.keys.toList do
+    throw <| .planInvariant .near
+      "typed NEAR IR WAT key data regions are not contiguous exact UTF-8 bytes"
+  let keyDataEnd := ir.keys.foldl
+    (fun current region => max current (keyRegionMemoryEndV1 region)) 0
+  unless keyDataEnd <= ir.memory.inputOffset &&
+      ir.memory.inputOffset + ir.memory.inputCapacity <=
+        ir.memory.depositOffset &&
+      ir.memory.depositOffset + 16 <= ir.memory.valueOffset do
+    throw <| .planInvariant .near
+      "typed NEAR IR WAT key/input/deposit/value memory regions overlap"
+  let some operationEnd := moduleOperationMemoryEndV1 ir
+    | throw <| .planInvariant .near
+        "typed NEAR IR WAT operation has a dangling interface binding"
+  let promiseDataOffset := promiseDataOffsetV1 ir.memory
+  unless operationEnd <= promiseDataOffset && promiseDataOffset <= memoryLimit do
+    throw <| .planInvariant .near
+      "typed NEAR IR WAT operation scratch exceeds its reserved memory region"
+  let promiseStrings := collectPromiseStrings ir
+  let promiseTable := layoutPromiseStrings ir.memory promiseStrings
+  let promiseDataEnd := promiseTable.foldl
+    (fun current pair => max current (pair.2 + pair.1.toUTF8.size))
+    promiseDataOffset
+  unless promiseDataEnd <= memoryLimit do
+    throw <| .planInvariant .near
+      "typed NEAR IR WAT promise data exceeds declared linear memory"
+
+/-- Proof-relevant successful complete-module memory/data validation. -/
+def WATModuleMemorySafeV1 (ir : IR) : Prop :=
+  validateWATModuleMemoryV1 ir = .ok ()
+
+/-- Core typed host-call recipe validation and exact source-Plan binding. -/
+private def validateIRCore (ir : IR) : CompileResult Unit := do
   validatePlan ir.sourcePlan
   unless ir.name == ir.sourcePlan.programName do
     throw <| .planInvariant .near "typed NEAR IR identity is not bound to its source Plan"
@@ -1180,6 +1452,27 @@ def validateIR (ir : IR) : CompileResult Unit := do
   unless ir.fns == expectedFnIR do
     throw <| .planInvariant .near
       "typed NEAR IR pureFn operations are not the exact lowering of their source Plan"
+
+/-- Validate the typed host-call recipe, bind it exactly to its source Plan,
+    and close the generated WAT module's linear-memory/data envelope. -/
+def validateIR (ir : IR) : CompileResult Unit := do
+  validateIRCore ir
+  validateWATModuleMemoryV1 ir
+
+/-- Successful production IR validation exposes the complete generated-module
+    memory/data certificate without replaying a second validator. -/
+theorem validateIR_watModuleMemorySafeV1
+    (ir : IR)
+    (hvalidate : validateIR ir = .ok ()) :
+    WATModuleMemorySafeV1 ir := by
+  unfold validateIR at hvalidate
+  cases hcore : validateIRCore ir with
+  | error error =>
+      simp [hcore, Bind.bind, Except.bind] at hvalidate
+  | ok result =>
+      cases result
+      simpa [WATModuleMemorySafeV1, hcore, Bind.bind, Except.bind] using
+        hvalidate
 
 private def makeIR (plan : Plan) : IR :=
   let keys := makeKeyRegions plan
@@ -1716,54 +2009,6 @@ private def renderInterfaceMessage (registers : RegisterLayout) (memory : Memory
   output := output ++
     s!"{indent}(call ${hostCall} (i64.const {cursor - offset}) (i64.const {offset}))\n"
   return output
-
-/-- First-seen order of schedule receiver/method strings across the IR, used to
-    pin account-id/method bytes as `(data ...)` segments so the WAT artifact
-    contains the literal strings (not only store8 immediates). -/
-private partial def collectPromiseStringsFromOps (ops : Array Operation) : Array String :=
-  ops.foldl (fun acc op =>
-    match op with
-    | .promiseAccount receiver method _ =>
-        let acc := if acc.contains receiver then acc else acc.push receiver
-        if acc.contains method then acc else acc.push method
-    | .promiseTokenTransfer .. =>
-        -- "ft_transfer" is a frozen constant method name pinned as a (data ...)
-        -- segment by the WAT renderer; no receiver string (mint is runtime).
-        if acc.contains "ft_transfer" then acc else acc.push "ft_transfer"
-    | .ifRegion _ thenOps elseOps =>
-        acc ++ collectPromiseStringsFromOps thenOps ++ collectPromiseStringsFromOps elseOps
-    | .switchRegion _ cases defaultOps =>
-        cases.foldl (fun a (_, caseOps) => a ++ collectPromiseStringsFromOps caseOps)
-          (acc ++ collectPromiseStringsFromOps defaultOps)
-    | .forRegion _ _ _ _ condOps _ bodyOps updateOps _ =>
-        acc ++ collectPromiseStringsFromOps condOps ++
-          collectPromiseStringsFromOps bodyOps ++
-          collectPromiseStringsFromOps updateOps
-    | _ => acc) #[]
-
-private def collectPromiseStrings (ir : IR) : Array String :=
-  ir.methods.foldl (fun acc m => acc ++ collectPromiseStringsFromOps m.operations) #[] ++
-    ir.fns.foldl (fun acc f => acc ++ collectPromiseStringsFromOps f.operations) #[]
-
-/-- Place promise strings in a fixed free region after the value/scratch area so
-    they never collide with KV key data, input packing, or deposit cells.
-    Returns (string → offset) pairs in first-seen order. -/
-private def layoutPromiseStrings (memory : MemoryLayout) (strings : Array String) :
-    Array (String × Nat) := Id.run do
-  -- valueOffset+8 is the interface-message scratch; leave 1 KiB for event/
-  -- error/arg payloads, then pin schedule account/method bytes.
-  let mut offset := memory.valueOffset + 1024
-  let mut table : Array (String × Nat) := #[]
-  for s in strings do
-    unless table.any (fun p => p.1 == s) do
-      table := table.push (s, offset)
-      offset := offset + s.toUTF8.size
-  pure table
-
-private def promiseStringOffset (table : Array (String × Nat)) (s : String) : Nat :=
-  match table.find? (fun p => p.1 == s) with
-  | some (_, off) => off
-  | none => 0
 
 private partial def renderOperation (registers : RegisterLayout) (memory : MemoryLayout)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
@@ -2853,6 +3098,7 @@ structure ValidatedReadOnlyWATModuleEmissionV1
     (instructions : Array ReadOnlyWATInstructionV1) : Prop where
   moduleEmission : WATModuleEmissionV1 ir watText
   irValidation : validateIR ir = .ok ()
+  moduleMemorySafety : WATModuleMemorySafeV1 ir
   methodEmission :
     ValidatedReadOnlyMethodWATEmissionV1 ir methodIndex method watText
       methodText instructions
@@ -3296,6 +3542,8 @@ theorem validatedReadOnlyWATModuleEmissionV1_of_irEmissionV1
       methodWATEmissionV1_watModuleEmissionV1 ir methodIndex method watText
         methodText hmethodEmission.1.1
     irValidation := irEmissionV1_validateIR ir files hirEmission
+    moduleMemorySafety := validateIR_watModuleMemorySafeV1 ir <|
+      irEmissionV1_validateIR ir files hirEmission
     methodEmission := hmethodEmission
   }
 
