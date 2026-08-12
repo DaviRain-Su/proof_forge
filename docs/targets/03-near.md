@@ -30,8 +30,9 @@ Phase 1：实现
   flatten-to-KV；聚合 `StateStore` 使用 `storeAtomic` 两阶段 IR（先求值全部叶、再写 KV），HostModel
   已固定 empty Map upsert、连续 Map StateStore、PointBox/EnumBox，以及 Option tag/payload 的
   none/some/reset（reset 清零 stale payload）；Option params、非 UInt64 payload与 nested Option 仍 FC；
-- **≤8 叶聚合返回**：named Struct/Enum 与 anonymous Array/Option UInt64 经单次 `value_return`
-  发 N×8-byte LE；Map/Bytes/nested/非 UInt64元素返回仍 fail-closed；
+- **聚合返回**：named Struct/Enum 与 anonymous Array/Option UInt64 保持 ≤8 叶，经单次
+  `value_return` 发 N×8-byte LE；dense Map UInt64 UInt64 使用固定 24 叶特例，Bytes 见下；
+  nested/非 UInt64 元素返回仍 fail-closed；
 - **Principal 9×KV leaf 存储（T12）**（wire identity 原样；**非** account-id）；
 - WAT 发射 + locked `wat2wasm` 结构编译；`NearWasmAcceptance` 另需 host-optional
   `wasm-interp`/`wasmtime`/`wasmer` 之一做 runtime load；locked near-sandbox 2.13.0 的
@@ -222,7 +223,7 @@ promise/storage facts仍由外部提供。尚无 target transition，也没有�
 correctness、JSON/WAT semantics 或 WAT↔ABI consistency theorem。当前仍没有 finalized Wasm/disk identity 或
 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
 覆盖 corrupt storage、bad input 或 gas/profile；Option
-params、非 UInt64/nested Option、Map/nested aggregate return 仍 fail-closed
+params、非 UInt64/nested Option、非 UInt64 Map/nested aggregate return 仍 fail-closed
 （`Bytes N` 1..8 return 已开放）；ContextRead 已开放 `unixTimeSeconds`、view-safe
 `blockHeight`（含 sandbox runtime 门）与 init/entry `caller`，但 view caller 与其他键仍缺；
 formal identity/OutputSet / D6 milestone 未完成。不得写成 formal runtime-validated。

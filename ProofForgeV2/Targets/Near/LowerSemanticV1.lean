@@ -352,9 +352,10 @@ may be unit; other entry/view methods may be UInt{8,16,32,64}/Bool/Int64
 (T9a). UInt64/Int64/Bool wire as 8-byte little-endian i64 (Bool is 0/1);
 UInt{8,16,32} wire as 1/2/4-byte LE payloads. ABI JSON
 `returns` distinguishes the declared type. B-RET-ABI adds `.aggregate` for
-named Struct/Enum and admitted anonymous Array/Option/Bytes entry/view returns:
-preorder flatten leaves (1..8); 8-byte leaves pack as N×8 LE, Bytes N packs as
-N×u8 tightly. Map/nested/narrow-element anonymous returns stay fail closed. -/
+named Struct/Enum and admitted anonymous Array/Option/Bytes/Map entry/view returns:
+preorder flatten leaves (1..8, except dense Map cap-8 = 24 leaves); 8-byte leaves
+pack as N×8 LE, Bytes N packs as N×u8 tightly. Nested/narrow-element anonymous
+returns stay fail closed. -/
 inductive MethodResultKind where
   | unit
   | uint64
@@ -757,9 +758,10 @@ private def nearPlanErr (message : String) : CompileError :=
     Enum-shaped tag+payload KV leaves (`name_tag`/`name_p0`; none default =
     zero fields; storeAtomic on assign; match via VariantTag/VariantPayload).
     Option of non-UInt64, nested Option, Option params, Map/Bytes Option stay FC.
-    **N-ANON-RESULT (NEAR ABI)**: anonymous `Array UInt64 N` (1..8) and
-    `Option UInt64` entry/view returns reuse the same N×8 LE value_return path;
-    Map stays FC on return (dense expand >8 leaves); Bytes N (1..8) return admitted. -/
+    **N-ANON-RESULT (NEAR ABI)**: anonymous `Array UInt64 N` (1..8),
+    `Option UInt64`, and dense `Map UInt64 UInt64` (8 entries × 3 leaves)
+    entry/view returns reuse the same N×8 LE value_return path; Bytes N (1..8)
+    return admitted. -/
 private def validateNearTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult NearTypeClosureV1 :=
   validatePilotTypeClosure nearPlanErr nearTypeClosureWording types
@@ -1101,13 +1103,10 @@ private def isAggregateResultCandidateV1
     | some { shape := .bytes .., name := none, .. } => true
     | _ => false
 
-/-- B-RET-ABI leaf cap: 8 for Struct/Enum/Array/Option/Bytes; Map pilot uses
-    capacity×3 (cap-8 → 24). Host `value_return` packs consecutive LE leaves. -/
-private def maxAggregateReturnLeavesV1 : Nat := 24
-
 /-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous
 Array/Option/Bytes/Map result TypeId into an aggregate `MethodResultKind`.
-Enforces 1..maxAggregateReturnLeavesV1 leaves. -/
+Enforces 1..8 leaves except for the dense Map pilot, whose eight entries use
+three leaves each. -/
 private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : NearTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult MethodResultKind := do
@@ -1124,9 +1123,13 @@ private def aggregateResultKindOfV1
   unless n > 0 do
     throw <| .planInvariant .near
       s!"{owner} aggregate return must have at least one leaf"
-  unless n ≤ maxAggregateReturnLeavesV1 do
+  let maxLeaves :=
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .map _ _, name := none, .. } => nearMapPilotLeafCountV1
+    | _ => 8
+  unless n ≤ maxLeaves do
     throw <| .planInvariant .near
-      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of {maxAggregateReturnLeavesV1}"
+      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of {maxLeaves}"
   pure (.aggregate leaves)
 
 /-- Expected return shape for region emission (scalar vs B-RET aggregate). -/
@@ -4062,9 +4065,9 @@ private def makeEntryV1
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .near s!"entry '{name}' does not return a public result"
   -- B-RET-ABI: named Struct/Enum + admitted anonymous Array UInt64 N /
-  -- Option UInt64 entry/view returns via preorder leaf flatten (≤8 leaves).
-  -- Map/Bytes/nested/narrow-element anonymous returns fail closed in
-  -- aggregateResultKindOfV1 with precise messages.
+  -- Option UInt64 / Bytes N entry/view returns use ≤8 preorder leaves;
+  -- dense Map UInt64 UInt64 uses 24 leaves. Nested/narrow-element anonymous
+  -- returns fail closed in aggregateResultKindOfV1 with precise messages.
   let (resultKind, expectedReturn) ←
     if types.unitTypeId == some callable.result.typeId && callable.kind == .entry then
       pure (MethodResultKind.unit, ExpectedReturnV1.none_)

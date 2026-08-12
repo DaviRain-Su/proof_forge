@@ -51,6 +51,9 @@ private structure Machine where
   /-- ADR-0031 S1: deterministic HostModel predecessor account-id
       (sandbox supplies the real predecessor_account_id). -/
   predecessorAccountId : String := "alice.test.near"
+  /-- ADR-0031 S3: deterministic HostModel current account-id
+      (sandbox supplies the real current_account_id). -/
+  currentAccountId : String := "vault.test.near"
 
 private inductive Outcome where
   | success (storage : HostStorage) (returned : Option U64) (logs : Array String)
@@ -273,6 +276,32 @@ private partial def step (input : ByteArray) (deposit : Deposit)
         let len := bytes.size
         if !(1 ≤ len && len ≤ 64) then
           modelError s!"predecessor account-id length {len} outside 1..64"
+        else
+          let mut word : Nat := 0
+          let mut place : Nat := 1
+          for b in [0:8] do
+            let idx := wordIndex * 8 + b
+            let byte := if idx < bytes.size then (bytes.get! idx).toNat else 0
+            word := word + byte * place
+            place := place * 256
+          writeTemp machine destination (UInt64.ofNat word)
+  | .selfPrincipalLen destination => do
+      -- ADR-0031 S3: length leaf = UTF-8 byte length of current account-id.
+      let bytes := machine.currentAccountId.toUTF8
+      let len := bytes.size
+      if !(1 ≤ len && len ≤ 64) then
+        modelError s!"current account-id length {len} outside 1..64"
+      else
+        writeTemp machine destination (UInt64.ofNat len)
+  | .selfPrincipalWord destination wordIndex => do
+      -- ADR-0031 S3: body word from account-id UTF-8, zero-padded to 64 bytes.
+      if wordIndex ≥ 8 then
+        modelError s!"selfPrincipalWord index {wordIndex} out of range"
+      else
+        let bytes := machine.currentAccountId.toUTF8
+        let len := bytes.size
+        if !(1 ≤ len && len ≤ 64) then
+          modelError s!"current account-id length {len} outside 1..64"
         else
           let mut word : Nat := 0
           let mut place : Nat := 1
@@ -803,10 +832,11 @@ private partial def step (input : ByteArray) (deposit : Deposit)
   | .setReturnDataLeaves temps _leafByteWidths => do
       -- B-RET-ABI: preorder leaves from arbitrary temps (widths unused in host
       -- model — values stay full i64 words; Bytes packing is WAT-level).
+      -- Production Plan validation admits up to 24 leaves for dense Map.
       if machine.returned.isSome then
         modelError "return data was already set"
-      unless temps.size > 0 && temps.size ≤ 8 do
-        modelError s!"setReturnDataLeaves leaf count {temps.size} outside 1..8"
+      unless temps.size > 0 && temps.size ≤ 24 do
+        modelError s!"setReturnDataLeaves leaf count {temps.size} outside 1..24"
       let mut words : Array U64 := #[]
       for t in temps do
         words := words.push (← readTemp machine t)
@@ -1138,6 +1168,8 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .accountBalance _ => "accountBalance"
     | .callerPrincipalLen _ => "callerPrincipalLen"
     | .callerPrincipalWord _ _ => "callerPrincipalWord"
+    | .selfPrincipalLen _ => "selfPrincipalLen"
+    | .selfPrincipalWord _ _ => "selfPrincipalWord"
     | .requireLayoutAbsent _ => "requireLayoutAbsent"
     | .requireLayout _ _ => "requireLayout"
     | .zeroState _ => "zeroState"
@@ -5343,7 +5375,74 @@ private unsafe def testAnonymousOptionReturn
   expect (seedLeaves == #[(1 : U64), (42 : U64)])
     s!"option-ret: asSomeOfSeed must return [1,42], got {seedLeaves}"
 
-/-- N-ANON-RESULT FC boundaries: Map, Array-of-9, and nested Array stay closed. -/
+/-- B-RET-MAP: anonymous Map UInt64 UInt64 returns its canonical dense
+    8 × (occupied,key,value) representation as 24 u64-le leaves. -/
+private unsafe def testAnonymousMapReturn
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapRet where\n" ++
+    "  state table : Map UInt64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    table[0] := 1\n\n" ++
+    "  view getMap() : Map UInt64 UInt64 do\n" ++
+    "    return table\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-map-ret>" "Examples.MapRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  let some getMap := plan.entries.find? (·.name == "getMap") |
+    throw <| IO.userError "map-ret: missing getMap"
+  match getMap.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 24)
+        s!"map-ret: getMap must have 24 leaves, got {leaves.size}"
+      expect (leaves.all fun leaf => !leaf.isInt && leaf.byteWidth == 8)
+        "map-ret: all leaves must be unsigned u64-le"
+  | other =>
+      throw <| IO.userError
+        s!"map-ret: getMap resultKind must be .aggregate, got {repr other}"
+  match getMap.body[0]! with
+  | .returnAggregate leaves leafIsInt =>
+      expect (leaves.size == 24) "map-ret: returnAggregate must have 24 leaves"
+      expect (leafIsInt.size == 24 && leafIsInt.all (· == false))
+        "map-ret: returnAggregate leaves must all be unsigned"
+  | _ =>
+      throw <| IO.userError "map-ret: getMap body must be .returnAggregate"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let initIR ← findMethod ir "init"
+  let getMapIR ← findMethod ir "getMap"
+  let kinds := operationKinds getMapIR.operations
+  expect (kinds.contains "setReturnDataLeaves")
+    s!"map-ret: getMap IR must emit setReturnDataLeaves, got {kinds}"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "map-ret: missing .wat"
+  expectContains wat.contents "(call $pf_value_return (i64.const 192)"
+    "map-ret WAT return length 192 (24×8)"
+  let some abi := files.find? (fun f => f.path.endsWith ".near-abi.json") |
+    throw <| IO.userError "map-ret: missing near-abi.json"
+  let returnTypes := String.intercalate "," (List.replicate 24 "\"u64-le\"")
+  expectContains abi.contents s!"\"returns\":[{returnTypes}]"
+    "map-ret ABI leaf array [u64-le × 24]"
+  let empty : HostStorage := #[]
+  let zero : Deposit := { lowWord := 0, highWord := 0 }
+  let (storage0, _, _) ← requireSuccess "map-ret init"
+    (execute initIR empty ByteArray.empty zero)
+  let (_, leaves, _) ← requireSuccessLeaves "map-ret getMap"
+    (execute getMapIR storage0 ByteArray.empty zero)
+  let expected := #[(1 : U64), (0 : U64), (1 : U64)] ++
+    Array.replicate 21 (0 : U64)
+  expect (leaves == expected)
+    s!"map-ret: getMap must return canonical slot0 plus seven empty slots, got {leaves}"
+
+/-- N-ANON-RESULT FC boundaries: Array-of-9 and nested Array stay closed. -/
 private unsafe def expectAnonymousReturnFailClosed
     (session : Language.Loader.ParserSession)
     (label moduleName sourceText : String)
@@ -5370,19 +5469,6 @@ private unsafe def expectAnonymousReturnFailClosed
 
 private unsafe def testAnonymousReturnFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Map return remains fail closed.
-  expectAnonymousReturnFailClosed session "map-ret" "Examples.MapRet"
-    ("import ProofForgeV2\n\n" ++
-      "namespace ProofForgeV2.Examples\n\n" ++
-      "open ProofForgeV2.Language\n\n" ++
-      "program MapRet where\n" ++
-      "  state table : Map UInt64 UInt64\n\n" ++
-      "  init() do\n" ++
-      "    table[0] := 1\n\n" ++
-      "  view getMap() : Map UInt64 UInt64 do\n" ++
-      "    return table\n\n" ++
-      "end ProofForgeV2.Examples\n")
-    #["Map", "return", "B-RET", "unsupported", "anonymous"]
   -- Array UInt64 9 exceeds leaf cap-8.
   expectAnonymousReturnFailClosed session "array9-ret" "Examples.Array9Ret"
     ("import ProofForgeV2\n\n" ++
@@ -5500,6 +5586,7 @@ unsafe def run : IO Unit := do
   testNamedEnumAggregateReturn session
   testAnonymousArrayReturn session
   testAnonymousOptionReturn session
+  testAnonymousMapReturn session
   testAnonymousReturnFailClosed session
   testAggregateLeafCapFailClosed session
   let source ← liftResult (← session.selectProgramV1
