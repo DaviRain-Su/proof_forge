@@ -32,9 +32,9 @@ Engineering packaging toward TASK-D2-07 / TST-SEM-002/003 / C-3.
 | LH-7 | done | Engineering overflow/revert rollback pin in TST-SEM-003 *shape* (`Tests.Semantic.Sem003ShapeV1`); formal TASK/TST still pending |
 | LH-8 | done | Sem003 fault + response-precedence OutcomeWire pin; allowlist only `Tests/Semantic/Sem003ShapeV1.lean`. Reviewer FIX P1 (`top-level main`) removed; `lake build proof_forge_next_fast_tests` exit 0. **Not** formal TST-SEM-003 |
 | LH-9 | done | Sem002 external-response returned/reverted + context extra/dup + wrong-arity pin; allowlist only `Tests/Semantic/Sem002ShapeV1.lean`. **Not** formal TST-SEM-002 |
-| LH-10 | pending | Remaining standard revert codes via public `step` + OutcomeWire; allowlist only `Tests/Semantic/Sem003ShapeV1.lean` |
-| LH-11 | pending | Sem002 negatives: wrong kind / wrong arg type / response duplicate+reordered / noncanonical arg bytes; allowlist only `Tests/Semantic/Sem002ShapeV1.lean` |
-| LH-12 | pending | AGENTS.md honesty only; do **not** change formal TASK/TST status |
+| LH-10 | done | Remaining standard revert codes via public `step` + OutcomeWire; allowlist only `Tests/Semantic/Sem003ShapeV1.lean`. Focused `#eval run` ok. **Not** formal TST-SEM-003 |
+| LH-11 | done | Sem002 negatives: wrong kind / wrong arg type / response duplicate+reordered / noncanonical arg bytes; allowlist only `Tests/Semantic/Sem002ShapeV1.lean`. Focused `#eval run` ok. **Not** formal TST-SEM-002 |
+| LH-12 | done | AGENTS.md honesty only; formal TASK/TST status unchanged |
 
 Track A packaging LH-1…9 is **engineering-done**. LH-10 and LH-11 may run in parallel on distinct files. LH-12 is docs-only on `AGENTS.md`.
 This is engineering corpus-completeness continuation only. Formal closeout remains **excluded**; C-3 stays `formal-blocked`.

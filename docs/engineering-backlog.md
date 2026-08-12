@@ -463,10 +463,10 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
        （`Tests/Semantic/Sem003ShapeV1.lean`）；**不**关闭 TST-SEM-003
      · **LH-9 engineering done**：Sem002 external-response returned/reverted +
        context extra/dup pin（`Tests/Semantic/Sem002ShapeV1.lean`）；**不**关闭 TST-SEM-002
-     · **LH-10 pending**（engineering）：Sem003 剩余 standard revert codes
+     · **LH-10 engineering done**（`ee14a0788`）：Sem003 剩余 standard revert codes
        （invalidShift / castOutOfRange / indexOutOfBounds / uninitialized / alreadyInitialized）
        OutcomeWire pin（`Tests/Semantic/Sem003ShapeV1.lean`）；**不**关闭 TST-SEM-003
-     · **LH-11 pending**（engineering）：Sem002 wrong kind / wrong arg type /
+     · **LH-11 engineering done**（`7cdca0e85`）：Sem002 wrong kind / wrong arg type /
        response duplicate+reordered / noncanonical arg bytes pin
        （`Tests/Semantic/Sem002ShapeV1.lean`）；**不**关闭 TST-SEM-002
      · **LH-12 pending**：`AGENTS.md` 控制面诚实化（Current/Next 与 lighthouse 指针对齐；
@@ -546,6 +546,8 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **SYS-S4-CW**：`context.attachedValue` → MessageInfo.funds single-denom `stake` (empty=0; multi-coin/wrong denom trap); execute/init `allowFunds`; **query/view FC**; cw-vm mock 3/3. Other Plans remain FC. Not wasmd/formal |
 | 2026-08-13 | **EVM formal lighthouse 登记 LH-8/LH-9**：推荐击杀序标 LH-1…7 packaging done；新增 LH-8 pending（Sem003 fault + response-precedence OutcomeWire pin，`Tests/Semantic/Sem003ShapeV1.lean`）与 LH-9 pending（Sem002 external-response returned/reverted + context extra/dup pin，`Tests/Semantic/Sem002ShapeV1.lean`）；明确 engineering-only，**不**关闭 TST-SEM-002/003；C-3 / Anvil lossless 仍 blocked/FC。**不**声称实现已完成 |
 | 2026-08-13 | **EVM formal lighthouse LH-8/LH-9 engineering done + 登记 LH-10…12**：LH-8（Sem003 fault + response-precedence）与 LH-9（Sem002 external-response returned/reverted + context extra/dup）标 **engineering done**（reviewer P1 已修：Sem003 top-level main 删除；`lake build proof_forge_next_fast_tests` exit 0）；**不**关闭 TST-SEM-002/003。新增 **LH-10 pending**（Sem003 剩余 standard revert codes：invalidShift/castOutOfRange/indexOutOfBounds/uninitialized/alreadyInitialized）、**LH-11 pending**（Sem002 wrong kind / wrong arg type / response duplicate+reordered / noncanonical arg bytes）、**LH-12 pending**（`AGENTS.md` 控制面诚实化）。C-3 / Anvil lossless 仍 blocked/FC。**不**声称 formal 完成 |
+| 2026-08-13 | **EVM formal lighthouse LH-10 engineering done**：Sem003 剩余 standard revert codes（invalidShift/castOutOfRange/indexOutOfBounds/uninitialized/alreadyInitialized）OutcomeWire pin（`ee14a0788`；focused Sem003 run 通过）；**不**关闭 TST-SEM-003。C-3 / Anvil lossless 仍 blocked/FC |
+| 2026-08-13 | **EVM formal lighthouse LH-11 engineering done**：Sem002 wrong kind / wrong arg type / response duplicate+reordered / noncanonical arg bytes OutcomeWire pin（`7cdca0e85`；focused Sem002 run 通过）；**不**关闭 TST-SEM-002。C-3 / Anvil lossless 仍 blocked/FC |
 
 ---
 
