@@ -814,10 +814,14 @@ private def collectRawEnvReadSites
     (AccountInfo.key + is_signer), not a tx.origin concept. Admitted in
     entry and view only (read-only account metadata; view-safe). pureFn /
     invariant / initializer fail closed.
-    ADR-0031 S2: `context.blockHeight` (`Clock.slot` via `sol_get_clock_sysvar`)
-    is admitted on ordinary `solana-sbpf-plan-v1` / `solana-sbpf-elf-v1` only;
-    this CPI product profile stays fail closed (no Clock role / product IR leaf
-    yet). `unixTimeSeconds` and unknown keys stay fail closed. -/
+    ADR-0031 S2 residual: `context.blockHeight` (`Clock.slot` via
+    `sol_get_clock_sysvar`; physical ≈400ms slot, **not** logical block
+    number) is admitted on this sole product profile. Clock is a syscall —
+    no account role, no context site row, no `pf_caller` demand; the body
+    op lowers through the existing full-body `Expr.clockSlot` path
+    (LowerSemanticV1 → EmitIRV1 → EmitSbpfAsmV1). Normalize already fails
+    closed on ContextRead outside init/entry/view. `unixTimeSeconds`
+    (2026-08-04 product decision) and unknown keys stay fail closed. -/
 private def collectRawContextReadSites
     (data : SemanticProgramDataV1) :
     CompileResult (Array RawContextReadSiteV1) := do
@@ -842,8 +846,9 @@ private def collectRawContextReadSites
                 instructionIndex := instrIdx
               }
             else if key == blockHeightContextKeyV1 then
-              deriveFail
-                "CPI derive: context.blockHeight is not admitted on solana-sbpf-cpi-elf-v1 (Clock.slot via sol_get_clock_sysvar is ordinary solana-sbpf-elf-v1/plan-v1 path)"
+              -- Admitted: syscall read (no role/site). Body lowering owns the
+              -- UInt64 result check and `Expr.clockSlot` emission.
+              pure ()
             else if key == unixTimeSecondsContextKeyV1 then
               deriveFail
                 "CPI derive: context.unixTimeSeconds is not admitted on solana-sbpf-cpi-elf-v1 (Clock sysvar binding deferred)"

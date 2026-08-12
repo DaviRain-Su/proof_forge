@@ -1151,9 +1151,9 @@
       "sha256": "1bd9e3824fe8d59bc29abf58ceb1224fc827e2130bd8964b459ec51b3bddc10f"
     },
     {
-      "bytes": 64363,
+      "bytes": 64604,
       "path": "ProofForgeV2/Targets/Solana/CpiDeriveV1.lean",
-      "sha256": "86349e8ef7374e707eb73f34dd9bbc8b01c75537b375f3dc8b052562b7d2c16c"
+      "sha256": "5c9297319bba09130b7116c03d35ad0a06bdb28bf9b6d1e2cf3b57eac0101755"
     },
     {
       "bytes": 152154,

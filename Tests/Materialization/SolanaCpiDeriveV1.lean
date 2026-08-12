@@ -10,6 +10,7 @@ import ProofForgeV2.Targets.Solana.CpiIdlV1
 import ProofForgeV2.Targets.Solana.CpiPreflightCapabilityV1
 import ProofForgeV2.Targets.Solana.CpiDeriveV1
 import ProofForgeV2.Targets.Solana.CpiProductV1
+import ProofForgeV2.Targets.Solana.ProductSynthesizeV1
 import ProofForgeV2.Targets.Solana.LowerSemanticV1
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.EngineeringBuildV1
@@ -183,6 +184,32 @@ private def scheduleSource : String :=
     "  entry run(account: Principal, delta: UInt64) : UInt64 do\n" ++
     "    schedule solana.companion.invoke(account, delta)\n" ++
     "    return 0\n"
+
+/-- ADR-0031 S2 residual: body-only program reading `context.blockHeight`
+    (no extension declaration; Clock.slot is a syscall, no account role). -/
+private def blockHeightSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program CpiBlockHeight where\n" ++
+  "  state pad : UInt64\n" ++
+  "  init() do\n" ++
+  "    pad := 0\n" ++
+  "  entry stamp() : UInt64 do\n" ++
+  "    pad := context.blockHeight\n" ++
+  "    return pad\n" ++
+  "  view height() : UInt64 do\n" ++
+  "    return context.blockHeight\n"
+
+/-- context.unixTimeSeconds stays fail closed on the product profile. -/
+private def unixTimeSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program CpiUnixTime where\n" ++
+  "  state pad : UInt64\n" ++
+  "  init() do\n" ++
+  "    pad := 0\n" ++
+  "  view now() : UInt64 do\n" ++
+  "    return context.unixTimeSeconds\n"
 
 private unsafe def compileSource
     (session : Language.Loader.ParserSession)
@@ -527,6 +554,53 @@ private unsafe def testScheduleRejected
                 "PF-PLAN-INVARIANT" "schedule"
                 "schedule rejected at derive"
 
+/-- ADR-0031 S2 residual: `context.blockHeight` is admitted on the sole product
+    profile `solana-sbpf-cpi-elf-v1` via the existing `Clock.slot` lowering
+    (`sol_get_clock_sysvar`; physical ≈400ms slot, **not** logical block
+    number). Body-only Plan: zero CPI sites, zero caller context sites, no
+    `pf_caller` role demanded (Clock is a syscall, not an account meta). -/
+private unsafe def testContextBlockHeightProductOpen
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let compiled ← compileSource session blockHeightSource
+    "Tests.CpiBlockHeight" "<cpi-block-height>"
+  let selection ← cpiSelection
+  let capability ← expectCompileOk
+    (resolveEngineeringRequirementsV1 selection compiled)
+    "resolver admits context.blockHeight wire-owned row"
+  let plan ← expectCompileOk (productPlanFromCapabilityV1 capability)
+    "product Plan admits context.blockHeight"
+  let c := SolanaCpiProductPlanV1.candidateOf plan
+  expect c.cpiSites.isEmpty "blockHeight: zero CPI sites"
+  expect c.contextReadSites.isEmpty
+    "blockHeight: no caller context site (syscall read, no signer role)"
+  expect (!c.accountRoles.any fun r =>
+      match r.keyPolicy with | .handlerCaller => true | _ => false)
+    "blockHeight: no pf_caller role demanded"
+  let files ← expectCompileOk (buildFromCapability capability)
+    "blockHeight buildFromCapability"
+  let some asm := files.find? (·.path == "CpiBlockHeight.s") |
+    throw <| IO.userError "missing CpiBlockHeight.s"
+  expect ((asm.contents.splitOn "call sol_get_clock_sysvar").length > 1)
+    "blockHeight asm must call sol_get_clock_sysvar"
+  expect ((asm.contents.splitOn "clock_slot").length > 1)
+    "blockHeight asm must annotate clock_slot"
+
+/-- 2026-08-04 product decision: `context.unixTimeSeconds` stays fail closed
+    on `solana-sbpf-cpi-elf-v1` (exact diagnostic pinned). -/
+private unsafe def testContextUnixTimeSecondsStillClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let compiled ← compileSource session unixTimeSource
+    "Tests.CpiUnixTime" "<cpi-unix-time>"
+  let selection ← cpiSelection
+  let capability ← expectCompileOk
+    (resolveEngineeringRequirementsV1 selection compiled)
+    "resolver admits unix-time wire-owned row (target-independent)"
+  expectCompileErrorContains
+    (productPlanFromCapabilityV1 capability)
+    "PF-PLAN-INVARIANT"
+    "CPI derive: context.unixTimeSeconds is not admitted on solana-sbpf-cpi-elf-v1 (Clock sysvar binding deferred)"
+    "unixTimeSeconds stays fail closed on the product profile"
+
 /-- ADR-0032 U1: retired plan/elf profile ids are not registry members. -/
 private unsafe def testWrongProfileRejected
     (_session : Language.Loader.ParserSession) : IO Unit := do
@@ -552,6 +626,8 @@ unsafe def run : IO Unit := do
   testWrongArgType session
   testContextCallerPrincipal session
   testScheduleRejected session
+  testContextBlockHeightProductOpen session
+  testContextUnixTimeSecondsStillClosed session
   testWrongProfileRejected session
   IO.println "Tests.Materialization.SolanaCpiDeriveV1: ok"
 
