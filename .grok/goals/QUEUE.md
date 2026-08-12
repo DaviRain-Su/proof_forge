@@ -1,6 +1,8 @@
-# Goal slice queue (engineering only)
+# Goal slice queue (engineering only) — **HISTORICAL seed**
+> Live drain is now `.grok/next-wave-queue.md` + `/goal @.grok/goals/prompt-next-wave.md`.
+> This file is navigation-only for the 2026-08-02 master drain. Do not resume it from BUILD-1.
 > Generated for `/goal` + workflows. Formal F-*/Q-*/C-3 excluded.
-> Master goal: `.grok/goals/prompt-master-queue.md`
+> Master goal (retired): `.grok/goals/prompt-master-queue.md`
 > **Current resume (2026-08-02):** engineering drain complete through RES-1; C-5 ongoing (ArraySlots); formal C-3 blocked; NS-* language-gated
 >
 > Status seed is **not** live authority — always re-read `docs/engineering-backlog.md`.

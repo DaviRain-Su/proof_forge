@@ -3,111 +3,79 @@ id: GROK-GOALS
 title: Goal + workflow 全队列操作手册（ProofForge）
 status: draft
 owner: engineering
-updated: 2026-08-02
+updated: 2026-08-12
 normative: false
 ---
 
 # Goal + workflow：整仓工程队列
 
-## 当前优先：业务逻辑形式化（track 1）drain
+## 当前优先：下一波可执行工程（EVM lighthouse + S4）
 
-EvenCounter L1 preserving product 已 GREEN。后续 packaging / 非 pin / 文档：
+旧 master 队列（2026-08-02）里的 N-*/BUILD-*/D3-E* 工程项已 drain。
+业务形式化 wave-3′ 已 drain。
+**现在不要再开 `prompt-master-queue` 从头扫。**
 
 ```text
-/goal @.grok/goals/prompt-business-formalization.md --budget 8000000
+/goal @.grok/goals/prompt-next-wave.md --budget 8000000
 ```
 
-队列：`.grok/business-formalization-queue.md`
-Workflow（可重复 fire）：`business-formalization-runner`
+队列：`.grok/next-wave-queue.md`
+单切片 workflow：`next-wave-runner`
 **默认 drain**：Goal 内连续消项，不要回聊天说「继续」。
 
-## 你要的「全部任务」怎么跑
+单切片（不 drain）：
 
 ```text
-/goal @.grok/goals/prompt-master-queue.md --budget 8000000
+/workflow next-wave-runner
 ```
 
-**若 skeptic 缺口仍 open（矩阵未真扫 / DONE_IDS 漏项 / BUILD-5 脏日志）先：**
+只看下一项、不改树：
 
 ```text
-/goal @.grok/goals/prompt-skeptic-recovery.md --budget 4000000
+/workflow next-wave-runner {"mode":"status"}
 ```
 
-## 当前主轴（2026-08-02）
+## 不能用 Goal 自动做完的东西
 
-Live status authority = [`docs/engineering-backlog.md`](../../docs/engineering-backlog.md)
-（QUEUE seed **不是** 真值）。
-
-| 状态 | 说明 |
+| 轴 | 为什么 Goal 不能“持续跑到完成” |
 |---|---|
-| **已 commit 过的主轴** | N-*、R-1…R-3、B-*、C-1/C-2/C-4、T-3、D3-E1…E3、SKEPTIC-1、DOC-* 等见 backlog `done` |
-| **NEXT** | **EMPTY** (drain done; C-5 ongoing / NS-1 when language product path) proof reference product path（见 backlog） |
-| **ongoing** | **C-5** Mollusk fixtures — inventory only; expand when Solana LOWERED grows |
+| Formal D1–D4 0/27 | 要独立 TST/EV/资格仪式；`TASK-D1-01` 仍 blocked |
+| C-3 / Anvil lossless Outcome | spec 明确 fail closed；不是缺人写 adapter |
+| B-CALL-SEM / B-COMMIT-ZK / QUINT-2 / D3-E8 | 产品决策，不是实现债 |
+| `just release-check` | 当前无 recipe（DOC-JUST-CONTROL） |
 
-**从 T-1 续 drain：**
+Goal **成功** = Track A+B 工程 pending 清空。Formal 仍保持 pending。
 
-```text
-/goal @.grok/goals/prompt-master-queue.md starting at INV-1 --budget 8000000
-```
+## 历史入口（勿当当前主轴）
 
-**禁止**在普通聊天回合里把切片实现到「半绿 + backlog 假 done」；实现、检查、commit、backlog 回写都必须发生在 **Goal** 内。
-
-**默认模式是 `drain`**：Goal **在内部连续消项**，直到：
-
-- 工程 pending **清空**，或
-- **预算硬尽** / **硬阻塞**（无关脏 tree、决策缺失等）
-
-**不会**因为「做完 3 项 / 进度 10%」就正常结束。
-若预算用尽，报告 `NEXT=` 后 **再开同一 Goal 从 NEXT 续跑**。
-Skeptic / 切片修复也必须在 **Goal 内 commit**，不要在聊天侧手工交差后假装队列前进。
+| 文件 | 状态 |
+|---|---|
+| `prompt-master-queue.md` + `QUEUE.md` | 历史工程 drain；seed 过期；backlog 才是事实 |
+| `prompt-business-formalization.md` | wave-3′ **drained**；无新 pending 不得发明切片 |
+| `prompt-skeptic-recovery.md` | 已 closed |
+| `proof-forge-engineering-slice` | 仍可用：任意单切片全流程 |
+| `proof-forge-one-slice` | 仍可用：实现后只读 review |
 
 ## 与 workflow
 
 | Workflow | 作用 |
 |---|---|
-| `proof-forge-engineering-slice` | 单切片全流程 + local commit |
+| **`next-wave-runner`** | **当前** 下一波单切片 + local commit |
+| `proof-forge-engineering-slice` | 通用单切片（需手传 args） |
 | `proof-forge-one-slice` | 实现后只读 review |
+| `business-formalization-runner` | 历史；队列已空则 `program_complete` |
 
 **不** push；**不** formal release。
-
-## 目录
-
-```text
-.grok/goals/
-  prompt-master-queue.md       ← ★ 主 Goal（drain 全队列）
-  prompt-c-2-finish.md         ← 收口 C-2 WIP → commit → 续 drain
-  prompt-skeptic-recovery.md   ← skeptic 三缺口优先入口（已 closed 可跳过）
-  prompt-n-2-finish.md         ← 历史 N-2 收口（N-2 已 done，勿重做）
-  QUEUE.md / slices/           ← 顺序与每项契约
-  prompt-build-1-2.md / prompt-n-a2.md  ← 细案
-```
-
-## 单开一项
-
-```text
-/goal @.grok/goals/slices/C-2.md --budget 1500000
-/goal @.grok/goals/prompt-c-2-finish.md --budget 4000000
-/goal @.grok/goals/slices/C-4.md --budget 2000000
-```
-
-## pilot（可选限流）
-
-仅当显式需要短试跑时：
-
-```text
-/goal @.grok/goals/prompt-master-queue.md pilot max_slices=3 --budget 2000000
-```
-
-未写 `pilot` / `max_slices` → **一律 drain**。
 
 ## 预算
 
 | 意图 | `--budget` |
 |---|---|
-| 续跑一长段 | 8M+ |
-| 小 pilot | 1–2M + 显式 max_slices |
+| 续跑一长段 drain | 8M+ |
+| 小 pilot | 1–2M + 显式 `max_slices=N` |
 
 ## 禁止
 
 不 push、不 formal 仪式、不并行改 Normalize 共享核。
 不在聊天里 drain backlog 并假 done。
+不重做已存在的 NEAR/CW `blockHeight` runtime harness。
