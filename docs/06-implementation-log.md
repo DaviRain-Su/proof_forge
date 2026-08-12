@@ -15202,3 +15202,18 @@ normative: false
   不证明 WAT consumer、locked `wat2wasm`、Wasm binary execution或完整 NEAR host semantics。没有新增
   DSL State/Effect/evaluator/step；整体 assurance仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR canonical host-import dependency consistency
+
+- `validateWATModuleHostImportsV1` 现组合 sole production `validatePlan` 的 feature-derived canonical
+  import table、IR→source Plan exact import binding，以及 methods/pureFns 中所有 typed Operation 的
+  renderer host-call requirements；`if`/`switch`/`for` 内的 operations 递归检查。input/register、KV、
+  return、log/panic、context 与三类 promise action依赖均 fail closed，缺少任一 import即拒绝。
+- production `validateIR` 已组合该 gate；`validateIR_watModuleHostImportsSafeV1` 将成功验证投影成
+  `WATModuleHostImportsSafeV1` kernel witness，complete-module emission carrier显式保留该证书。基础
+  production IR、真实 schedule/promise IR正例，以及 undeclared promise import与 nested timestamp
+  import负例已固定。没有新增 renderer、WAT parser或 DSL State/Effect/evaluator/step。
+- 该 slice证明的是 typed Operation 对 canonical module import table 的静态依赖覆盖，不从 textual
+  WAT重新提取 call，也不证明 imported host函数的执行语义、`wat2wasm`、Wasm binary或 NEAR runtime
+  refinement；整体 assurance仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

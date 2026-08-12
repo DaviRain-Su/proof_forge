@@ -1131,6 +1131,92 @@ private partial def opIsFnReturnValueV1 : Operation → Bool
         updateOps.any opIsFnReturnValueV1
   | _ => false
 
+/-- Whether the module import table covers every host function rendered by one
+    typed Operation. Recursive regions are checked in source order. This is an
+    import dependency contract for the production typed IR, not a WAT parser. -/
+private partial def operationHostImportsCoveredV1
+    (imports : Array HostImport) : Operation → Bool
+  | .checkInputLen bytes =>
+      imports.contains .input && imports.contains .registerLen &&
+        (bytes == 0 || imports.contains .readRegister)
+  | .requireZeroAttachedDeposit | .requireExactAttachedDeposit _ =>
+      imports.contains .attachedDeposit
+  | .blockTimestampSeconds _ => imports.contains .blockTimestamp
+  | .blockIndex _ => imports.contains .blockIndex
+  | .accountBalance _ | .accountBalanceU128 _ =>
+      imports.contains .accountBalance
+  | .callerPrincipalLen _ =>
+      imports.contains .predecessorAccountId && imports.contains .registerLen
+  | .callerPrincipalWord .. =>
+      imports.contains .predecessorAccountId &&
+        imports.contains .registerLen && imports.contains .readRegister
+  | .selfPrincipalLen _ =>
+      imports.contains .currentAccountId && imports.contains .registerLen
+  | .selfPrincipalWord .. =>
+      imports.contains .currentAccountId && imports.contains .registerLen &&
+        imports.contains .readRegister
+  | .requireLayoutAbsent _ => imports.contains .storageRead
+  | .requireLayout .. | .loadState .. | .narrowLoadState .. =>
+      imports.contains .storageRead && imports.contains .registerLen &&
+        imports.contains .readRegister
+  | .zeroState _ | .narrowZeroState .. | .setLayout .. =>
+      imports.contains .storageWrite
+  | .storeState .. | .narrowStoreState .. =>
+      imports.contains .storageWrite && imports.contains .registerLen
+  | .setReturnData .. | .setReturnDataLeaves .. =>
+      imports.contains .valueReturn
+  | .emitEvent .. => imports.contains .logUtf8
+  | .revertError .. => imports.contains .panicUtf8
+  | .promiseAccount .. | .promiseTokenTransfer .. =>
+      imports.contains .promiseBatchCreate &&
+        imports.contains .promiseBatchActionFunctionCall
+  | .promiseTransfer .. =>
+      imports.contains .promiseBatchCreate &&
+        imports.contains .promiseBatchActionTransfer
+  | .ifRegion _ thenOps elseOps =>
+      thenOps.all (operationHostImportsCoveredV1 imports) &&
+        elseOps.all (operationHostImportsCoveredV1 imports)
+  | .switchRegion _ cases defaultOps =>
+      cases.all (fun (_, caseOps) =>
+        caseOps.all (operationHostImportsCoveredV1 imports)) &&
+        defaultOps.all (operationHostImportsCoveredV1 imports)
+  | .forRegion _ _ _ _ condOps _ bodyOps updateOps _ =>
+      condOps.all (operationHostImportsCoveredV1 imports) &&
+        bodyOps.all (operationHostImportsCoveredV1 imports) &&
+        updateOps.all (operationHostImportsCoveredV1 imports)
+  | .literal .. | .loadParam .. | .narrowLoadParam ..
+  | .checkedAdd .. | .checkedSub .. | .signedCheckedAdd ..
+  | .signedCheckedSub .. | .signedCheckedMul .. | .signedCheckedDiv ..
+  | .signedCheckedMod .. | .signedCompare .. | .checkedNeg .. | .sar ..
+  | .compare .. | .wideCompare .. | .assert _ | .returnNone
+  | .callFn .. | .returnValue _ | .checkedMul .. | .checkedDiv ..
+  | .checkedMod .. | .bitAnd .. | .bitOr .. | .bitXor .. | .shl ..
+  | .shr .. | .bitNot .. | .narrowCheckedAdd .. | .narrowCheckedSub ..
+  | .narrowCheckedMul .. | .narrowCheckedDiv .. | .narrowCheckedMod ..
+  | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
+  | .narrowBitNot .. | .narrowShl .. | .narrowShr .. | .boolNot ..
+  | .boolAnd .. | .boolOr .. => true
+
+/-- Fail-closed complete-module host-import consistency. The source Plan must
+    own the canonical feature-derived import table, the IR must retain it
+    exactly, and every recursively nested typed Operation must have all imports
+    used by its production renderer. -/
+def validateWATModuleHostImportsV1 (ir : IR) : CompileResult Unit := do
+  validatePlan ir.sourcePlan
+  unless ir.imports == ir.sourcePlan.hostImports do
+    throw <| .planInvariant .near
+      "typed NEAR IR WAT imports are not exactly bound to the canonical source Plan"
+  unless ir.methods.all (fun method =>
+        method.operations.all (operationHostImportsCoveredV1 ir.imports)) &&
+      ir.fns.all (fun fn =>
+        fn.operations.all (operationHostImportsCoveredV1 ir.imports)) do
+    throw <| .planInvariant .near
+      "typed NEAR IR WAT operation requires an undeclared host import"
+
+/-- Proof-relevant successful canonical host-import/dependency validation. -/
+def WATModuleHostImportsSafeV1 (ir : IR) : Prop :=
+  validateWATModuleHostImportsV1 ir = .ok ()
+
 /-- First-seen order of schedule receiver/method strings across the IR. The
     renderer and module-memory validator share this sole collection path. -/
 private partial def collectPromiseStringsFromOps
@@ -1457,7 +1543,27 @@ private def validateIRCore (ir : IR) : CompileResult Unit := do
     and close the generated WAT module's linear-memory/data envelope. -/
 def validateIR (ir : IR) : CompileResult Unit := do
   validateIRCore ir
+  validateWATModuleHostImportsV1 ir
   validateWATModuleMemoryV1 ir
+
+/-- Successful production IR validation exposes the canonical host-import and
+    recursive operation-dependency certificate. -/
+theorem validateIR_watModuleHostImportsSafeV1
+    (ir : IR)
+    (hvalidate : validateIR ir = .ok ()) :
+    WATModuleHostImportsSafeV1 ir := by
+  unfold validateIR at hvalidate
+  cases hcore : validateIRCore ir with
+  | error error =>
+      simp [hcore, Bind.bind, Except.bind] at hvalidate
+  | ok result =>
+      cases result
+      cases himports : validateWATModuleHostImportsV1 ir with
+      | error error =>
+          simp [hcore, himports, Bind.bind, Except.bind] at hvalidate
+      | ok result =>
+          cases result
+          exact himports
 
 /-- Successful production IR validation exposes the complete generated-module
     memory/data certificate without replaying a second validator. -/
@@ -1471,8 +1577,13 @@ theorem validateIR_watModuleMemorySafeV1
       simp [hcore, Bind.bind, Except.bind] at hvalidate
   | ok result =>
       cases result
-      simpa [WATModuleMemorySafeV1, hcore, Bind.bind, Except.bind] using
-        hvalidate
+      cases himports : validateWATModuleHostImportsV1 ir with
+      | error error =>
+          simp [hcore, himports, Bind.bind, Except.bind] at hvalidate
+      | ok result =>
+          cases result
+          simpa [WATModuleMemorySafeV1, hcore, himports, Bind.bind,
+            Except.bind] using hvalidate
 
 private def makeIR (plan : Plan) : IR :=
   let keys := makeKeyRegions plan
@@ -3098,6 +3209,7 @@ structure ValidatedReadOnlyWATModuleEmissionV1
     (instructions : Array ReadOnlyWATInstructionV1) : Prop where
   moduleEmission : WATModuleEmissionV1 ir watText
   irValidation : validateIR ir = .ok ()
+  moduleHostImportsSafety : WATModuleHostImportsSafeV1 ir
   moduleMemorySafety : WATModuleMemorySafeV1 ir
   methodEmission :
     ValidatedReadOnlyMethodWATEmissionV1 ir methodIndex method watText
@@ -3542,6 +3654,8 @@ theorem validatedReadOnlyWATModuleEmissionV1_of_irEmissionV1
       methodWATEmissionV1_watModuleEmissionV1 ir methodIndex method watText
         methodText hmethodEmission.1.1
     irValidation := irEmissionV1_validateIR ir files hirEmission
+    moduleHostImportsSafety := validateIR_watModuleHostImportsSafeV1 ir <|
+      irEmissionV1_validateIR ir files hirEmission
     moduleMemorySafety := validateIR_watModuleMemorySafeV1 ir <|
       irEmissionV1_validateIR ir files hirEmission
     methodEmission := hmethodEmission

@@ -1197,11 +1197,14 @@ expression translator：
     delimiter都由 sole renderer graph拥有。其上新增的 **complete-module static memory consistency**
     已进入 production `validateIR`：key/promise data segments、fixed scratch区域与所有 nested typed
     Operation 的 renderer-owned memory footprint都必须落在 declared pages内；成功 validation可投影为
-    kernel witness并由 complete-module carrier保留。它仍不是 textual WAT parser或 linear-memory
-    execution semantics。下一顺序是 canonical host import requirements、pureFn/operation dependencies、
-    method/export ordering等 module-level typed consistency，再进入 locked `wat2wasm`可信 identity边界、
-    Wasm binary execution与完整 NEAR host simulation。上述各层未闭合前，完整 WAT文本、Wasm binary
-    和最终 NEAR artifact仍不得标记为 target-refined或 artifact verified。
+    kernel witness并由 complete-module carrier保留。canonical host-import dependency consistency也已
+    进入同一 validation chain：feature-derived Plan imports、IR exact binding，以及 methods/pureFns中
+    所有 nested typed Operation 的 renderer host-call requirements必须一致，证书由 complete-module
+    carrier保留。它仍不是 textual WAT parser、call extraction或 host/linear-memory execution semantics。
+    下一顺序是 pureFn call dependency/reference、method/export ordering等 module-level typed consistency，
+    再进入 locked `wat2wasm`可信 identity边界、Wasm binary execution与完整 NEAR host simulation。
+    上述各层未闭合前，完整 WAT文本、Wasm binary和最终 NEAR artifact仍不得标记为 target-refined或
+    artifact verified。
 
 ---
 

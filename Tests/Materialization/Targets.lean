@@ -1897,6 +1897,12 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
       | .promiseAccount "ledger.daily" "daily" #[.stateLoad 0] => pure ()
       | _ => throw <| IO.userError "NEAR later must lower the promise account form"
   | none => throw <| IO.userError "NEAR later body is too short"
+  let nearLaterIR ← liftResult <| Targets.Near.irFromCapability nearCapability
+  match Targets.Near.validateWATModuleHostImportsV1 nearLaterIR with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError
+        s!"production schedule NEAR IR must retain its promise host imports: {error.render}"
   let nearOutput ← liftResult <| materializeSelected TargetId.near laterCompiled
   let some wat := nearOutput.files.find? (·.path == "LaterFlow.wat") |
     throw <| IO.userError "call-schedule: missing LaterFlow.wat"
@@ -2548,6 +2554,37 @@ unsafe def run : IO Unit := do
       (Targets.Near.withMethods nearIR (nearIR.methods.set! 2 forgedNearMethod)) with
   | .error (.planInvariant .near _) => pure ()
   | _ => throw <| IO.userError "typed NEAR recipe must remain exactly bound to its source Plan"
+  match Targets.Near.validateWATModuleHostImportsV1 nearIR with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError
+        s!"production NEAR IR must pass canonical host-import validation: {error.render}"
+  let undeclaredPromiseImportFn : Targets.Near.FnIR := {
+    name := "forgedPromiseImport"
+    paramCount := 0
+    resultIsBool := false
+    tempCount := 0
+    operations := #[.promiseAccount "aa" "call" #[]]
+  }
+  match Targets.Near.validateWATModuleHostImportsV1
+      (Targets.Near.withFns nearIR #[undeclaredPromiseImportFn]) with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR WAT module validation must reject an undeclared promise host dependency"
+  let undeclaredNestedImportFn : Targets.Near.FnIR := {
+    name := "forgedNestedImport"
+    paramCount := 0
+    resultIsBool := false
+    tempCount := 1
+    operations := #[.ifRegion 0 #[.blockTimestampSeconds 0] #[]]
+  }
+  match Targets.Near.validateWATModuleHostImportsV1
+      (Targets.Near.withFns nearIR #[undeclaredNestedImportFn]) with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR WAT module validation must inspect nested operation host dependencies"
   match Targets.Near.validateWATModuleMemoryV1 nearIR with
   | .ok () => pure ()
   | .error error =>

@@ -255,6 +255,16 @@ Phase 1：实现
   store footprint负例均已固定。该检查审计的是 generated typed IR的 renderer-owned footprint，
   **不是** textual WAT parser、一般 linear-memory semantics或 WAT consumer correctness；也不证明
   `wat2wasm`、Wasm binary执行或 NEAR host execution refinement。
+- **canonical host-import dependency consistency（Phase 7 第十九切）**：
+  `validateWATModuleHostImportsV1` 复用 production `validatePlan` 的 feature-derived canonical host
+  import authority，要求 IR imports 与 source Plan exact相等，并逐个检查 methods/pureFns 的 typed
+  Operation 所需 renderer host calls；nested `if`/`switch`/`for` 同样递归检查。input/register、KV、
+  return、log/panic、timestamp/block/account/principal context以及 promise create/function-call/transfer
+  action依赖均 fail closed。production `validateIR` 已组合该 gate；成功验证可投影为
+  `WATModuleHostImportsSafeV1` kernel witness并由 complete-module emission carrier保留。基础 IR与真实
+  schedule IR正例，以及 undeclared promise/nested timestamp import负例已固定。该 gate验证 typed IR
+  dependency coverage，不解析 textual WAT、不重新实现 renderer，也不证明 host implementation、Wasm
+  或 NEAR execution semantics。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
