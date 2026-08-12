@@ -706,10 +706,21 @@ certification elaboration 阶段 fail closed。
   真实 VerifiedVault fixture 通过该 API 组合原 static/KV/ABI 关系，错误 target return bytes 明确
   不能满足 relation；没有从 MethodIR/WAT/emission provenance 推导这些 target facts，也没有新增
   target transition、evaluator、State、Effect 或 step。
+- 第九静态切把 exact status MethodIR 进一步定位到 sole production renderer 的有序 WAT methods
+  block：`MethodWATEmissionV1` 同时绑定 `ir.methods[methodIndex]?`、private `renderMethod` 的 exact
+  method text、按 `take/drop` 得到的 index-specific methods block 分解、private `renderWat` 的
+  complete WAT text，以及该完整 methods block 在 exact WAT 中的嵌入。它不是任意全局 substring
+  断言；即使不同 method 渲染成相同 text，归属仍来自有序 methods block 的 exact index split。
+  `irEmissionV1_methodWATEmissionV1` 只从 `IREmissionV1`、exact `files[0]?` 与 method lookup 派生
+  该关系。真实 VerifiedVault capability/build fixture 已把 method 3 的 production `statusIR` 接到
+  同一次 build 的 WAT `OutputFile`，并证明在完整 WAT 后追加 forged suffix 后不存在任何
+  method-text witness。renderer framing 由 `renderWat` 与证明共同复用同一 private helper，没有
+  复制 renderer 或建立第二套 emitter。
 
 这仍然只是 **static alignment/refinement foundation**：Reference outcome 已精确闭合且
-production Plan/key/IR/in-memory WAT+ABI emission provenance 已连接，但 target observation 仍是
-外部提供的 passive carrier；没有证明 WAT renderer 实现 IR、没有 NEAR `Operation` execution
+production Plan/key/IR/in-memory WAT+ABI emission provenance 与 status 的 exact method-scoped WAT
+text provenance 已连接，但 target observation 仍是外部提供的 passive carrier；没有证明 WAT
+renderer 实现 IR、没有 WAT parser/typechecker semantics、没有 NEAR `Operation` execution
 semantics、IR/Wasm step、simulation theorem、一般 lowering characterization、locked `wat2wasm`
 正确性、finalized Wasm bytes 或磁盘 artifact identity theorem。`NearHostModel` 继续是 private
 test-only engineering model，不能作为 formal target semantics。当前声明仍是
@@ -815,7 +826,7 @@ test-only engineering model，不能作为 formal target semantics。当前声�
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR status 静态命题、passive relation 的 Reference 侧与 production base-emission provenance 已闭合）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation，以及 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR graph → status Method/MethodIR proof-producing syntax recognition → sole private emitter → exact ordered in-memory WAT/ABI base files；真实 generated subject 的 validation/admission/initialized decode/status lookup/empty-context gate/ready 已由 kernel 无外部 context premise组合，通用 theorem 从该 ready gate 自动推出 canonical 8-byte 与 exact Reference state-stutter/empty-effect outcome，只留下 target success/return/log/promise/storage 被动观测 premises；direct-free fast path 仍由 sole production collector消费 authoritative row。尚无一般 lowering/renderer theorem、target execution semantics、simulation、locked `wat2wasm` correctness、finalized Wasm 或 disk artifact identity evidence |
+| 7 | Per-target refinement | **进行中（NEAR status 静态命题、Reference 侧与 method-scoped production WAT text provenance 已闭合）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation，以及 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR graph → status Method/MethodIR proof-producing syntax recognition → sole private emitter → exact ordered in-memory WAT/ABI base files；method 3 的 statusIR 已经 exact index split 定位到 sole renderer 的完整 methods block 与同一次 production WAT file，而非任意 substring。真实 generated subject 的 validation/admission/initialized decode/status lookup/empty-context gate/ready 已由 kernel 无外部 context premise组合，通用 theorem 从该 ready gate自动推出 canonical 8-byte 与 exact Reference state-stutter/empty-effect outcome，只留下 target success/return/log/promise/storage 被动观测 premises；direct-free fast path 仍由 sole production collector消费 authoritative row。尚无一般 lowering/renderer correctness theorem、WAT/target execution semantics、simulation、locked `wat2wasm` correctness、finalized Wasm 或 disk artifact identity evidence |
 
 ### 首个代码切片进展
 

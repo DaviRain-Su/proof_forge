@@ -790,6 +790,29 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
           | none =>
               throw <| IO.userError "VerifiedVaultPF production IR is missing status at method 3"
           | some statusIR =>
+              have hstatusMethodWAT :
+                  ∃ methodText,
+                    ProofForgeV2.Targets.Near.MethodWATEmissionV1
+                      ir 3 statusIR watFile.contents methodText :=
+                ProofForgeV2.Targets.Near.irEmissionV1_methodWATEmissionV1
+                  ir baseFiles watFile 3 statusIR hemissions hwatFile hstatusIR
+              have _ :
+                  ∀ methodText,
+                    ¬ ProofForgeV2.Targets.Near.MethodWATEmissionV1
+                      ir 3 statusIR (watFile.contents ++ "\n;; forged")
+                        methodText := by
+                intro methodText
+                intro hforged
+                rcases hstatusMethodWAT with ⟨_, hstatusMethodWAT⟩
+                rcases hstatusMethodWAT with
+                  ⟨_, _, hwatTextExact, _, _⟩
+                rcases hforged with
+                  ⟨_, _, hforgedTextExact, _, _⟩
+                have hsame :
+                    watFile.contents ++ "\n;; forged" = watFile.contents :=
+                  hforgedTextExact.trans hwatTextExact.symm
+                have hlength := congrArg String.length hsame
+                simp at hlength
               have hstatusLowering :
                   ProofForgeV2.Targets.Near.MethodIRLoweringV1
                     plan ir.keys statusMethod statusIR :=

@@ -122,6 +122,17 @@ Phase 1：实现
   return bytes 被 relation 拒绝。target success、return、logs、promises 与 pre/post storage equality
   仍是外部 passive observation premises，不能由 MethodIR、WAT 或 emission graph 推出；本切片没有
   新增 target transition/evaluator/step，故仍不构成 NEAR execution refinement。
+- **`status` method-scoped production WAT provenance（Phase 7 第九切）**：
+  `MethodWATEmissionV1` 把 exact `ir.methods[index]?` lookup、sole private `renderMethod` 产生的
+  method text、按 `take/drop` 得到的 index-specific ordered methods block、sole private
+  `renderWat` 的 complete text，以及该完整 methods block 在 exact WAT 中的嵌入组成一个命题。
+  因此它不是从任意全局 substring 猜 method 归属；duplicate method text 也仍由 method array 的
+  exact index split 区分。`irEmissionV1_methodWATEmissionV1` 只从 successful `IREmissionV1`、
+  `files[0]?` 和 method lookup 恢复该命题。真实 VerifiedVault capability/build fixture 已将 method 3
+  的 statusIR 接到同一次 production WAT file，并证明 appended forged suffix 对任何 method-text
+  witness 都不能满足关系。`renderWat` 与证明共同使用同一 private pre-method framing helper，
+  没有复制 renderer 或新增 emitter。该命题只证明 text provenance；不证明 WAT parse/typecheck、
+  renderer implements IR、Wasm/NEAR execution 或 target refinement，assurance 不变。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -182,13 +193,15 @@ Phase 1：实现
 exact slots、Unit withdraw、overflow/guard rollback 与 missing-export corpus 已形成 engineering
 runtime observation；`StaticAlignmentV1` 的 passive relation 与 exact status recipe 已连接到
 production validated semantic data、Plan/key/IR successful graph与 sole private emitter 的 exact
-in-memory WAT/ABI output graph；production Method/MethodIR 的 exact syntax 已由 proof-producing
-recognizer 纳入 kernel proposition，真实 status 的 validation/admission/initial state/lookup/
+in-memory WAT/ABI output graph；status MethodIR 还以 method 3 exact index split 连接到 sole renderer
+的 ordered methods block 和同一次 production WAT complete text。production Method/MethodIR 的
+exact syntax 已由 proof-producing recognizer 纳入 kernel proposition，真实 status 的
+validation/admission/initial state/lookup/
 empty-context ready 已无外部 context premise闭合；successful passive relation 的 canonical bytes、
 width 与 exact Reference outcome 现由 generic theorem 自动推出，但 target success/return/log/
-promise/storage facts仍由外部提供。尚无 target transition，也没有一般 lowering 或 renderer
-correctness theorem。当前仍没有 finalized Wasm/disk identity 或 Reference→Wasm/NEAR simulation
-theorem。通用 corpus 也仍不完整
+promise/storage facts仍由外部提供。尚无 target transition，也没有一般 lowering、renderer
+correctness 或 WAT semantics theorem。当前仍没有 finalized Wasm/disk identity 或
+Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
 覆盖 corrupt storage、bad input 或 gas/profile；Option
 params、非 UInt64/nested Option、Map/nested aggregate return 仍 fail-closed
 （`Bytes N` 1..8 return 已开放）；ContextRead 已开放 `unixTimeSeconds`、view-safe

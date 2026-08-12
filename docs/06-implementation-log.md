@@ -14885,3 +14885,21 @@ normative: false
   engineering model。没有 renderer correctness、WAT/Wasm/NEAR simulation、locked `wat2wasm`
   correctness、finalized artifact identity 或 rollback implementation refinement，assurance 仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR method-scoped production WAT provenance
+
+- `EmitIRV1` 新增 syntax-only `MethodWATEmissionV1`：它同时保留 exact IR method-index lookup、
+  sole private `renderMethod` 的 method text、以 `take/drop` 得到的 index-specific ordered methods
+  block 分解、sole private `renderWat` 的 complete WAT text，以及该完整 methods block 在 WAT 中
+  的嵌入。归属不依赖任意全局 substring；duplicate rendered text 仍由 exact method index区分。
+- `irEmissionV1_methodWATEmissionV1` 从 exact `IREmissionV1`、`files[0]?` 与 method lookup 派生
+  该关系。`renderWat` 被行为保持地拆为同一 private pre-method framing helper + methods block；
+  production renderer 与证明共同复用该 helper，未公开或复制 renderer，也没有第二套 emitter。
+- 真实 `VerifiedVaultPF` same-file certification fixture 使用同一次 capability-gated production
+  Plan/IR/build，实例化 method 3 的 `statusIR` 到 exact WAT `OutputFile` 的命题；negative regression
+  证明在完整 WAT 后追加 forged suffix 后，对任意 method-text witness 关系均不可成立。
+- 边界不变：这只证明 method-scoped text provenance，不证明 renderer implements IR、WAT
+  parse/typecheck 或 semantics、locked `wat2wasm` correctness、finalized Wasm/disk identity、
+  Wasm/NEAR execution、simulation 或 target refinement；没有新增 State、Effect、transition、
+  evaluator 或 step。assurance 仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

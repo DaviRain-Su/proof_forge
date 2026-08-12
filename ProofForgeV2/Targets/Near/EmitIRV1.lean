@@ -2473,9 +2473,9 @@ private def renderFn (ir : IR) (promiseStr : Array (String × Nat)) (fn : FnIR) 
   s!"  (func $fn_{fn.name}{params} (result i64){extraLocals}\n" ++
     operations ++ "  )\n"
 
-private def renderWat (ir : IR) : String :=
+private def renderWatBeforeMethods
+    (ir : IR) (promiseStr : Array (String × Nat)) : String :=
   let imports := String.intercalate "" <| ir.imports.toList.map renderImport
-  let promiseStr := layoutPromiseStrings ir.memory (collectPromiseStrings ir)
   let keyData := String.intercalate "" <| ir.keys.toList.map fun key =>
     s!"  (data (i32.const {key.offset}) \"{key.key}\")\n"
   -- Escape is unnecessary: account-id grammar and identifier method names are
@@ -2483,10 +2483,70 @@ private def renderWat (ir : IR) : String :=
   let promiseData := String.intercalate "" <| promiseStr.toList.map fun (s, off) =>
     s!"  (data (i32.const {off}) \"{s}\")\n"
   let fns := String.intercalate "" <| ir.fns.toList.map (renderFn ir promiseStr)
-  let methods := String.intercalate "" <| ir.methods.toList.map (renderMethod ir promiseStr)
   "(module\n" ++ imports ++
     s!"  (memory (export \"memory\") {ir.memory.minPages})\n" ++
-    keyData ++ promiseData ++ fns ++ methods ++ ")\n"
+    keyData ++ promiseData ++ fns
+
+private def renderWat (ir : IR) : String :=
+  let promiseStr := layoutPromiseStrings ir.memory (collectPromiseStrings ir)
+  let methods := String.intercalate "" <|
+    ir.methods.toList.map (renderMethod ir promiseStr)
+  renderWatBeforeMethods ir promiseStr ++ methods ++ ")\n"
+
+private theorem intercalateEmpty_eq_join (values : List String) :
+    String.intercalate "" values = String.join values := by
+  induction values with
+  | nil => simp
+  | cons head tail ih =>
+      cases tail with
+      | nil => simp
+      | cons next rest => simp [ih]
+
+private theorem intercalateMapEmpty_split_of_getElem?_eq_some
+    {α : Type} (values : List α) (render : α → String)
+    (index : Nat) (value : α)
+    (hlookup : values[index]? = some value) :
+    String.intercalate "" (values.map render) =
+      String.intercalate "" ((values.take index).map render) ++
+        render value ++
+        String.intercalate "" ((values.drop (index + 1)).map render) := by
+  rw [List.getElem?_eq_some_iff] at hlookup
+  obtain ⟨hindex, hvalue⟩ := hlookup
+  have hdrop := List.drop_eq_getElem_cons hindex
+  rw [hvalue] at hdrop
+  have hsplit := List.take_append_drop index values
+  rw [hdrop] at hsplit
+  simp only [intercalateEmpty_eq_join]
+  calc
+    String.join (values.map render) =
+        String.join ((values.take index ++
+          value :: values.drop (index + 1)).map render) := by
+      exact congrArg (fun items => String.join (items.map render)) hsplit.symm
+    _ = String.join ((values.take index).map render) ++ render value ++
+        String.join ((values.drop (index + 1)).map render) := by
+      simp [String.append_assoc]
+
+/-- Exact method-scoped graph of the sole production WAT renderer. The method
+    lookup ties `methodText` to one authoritative IR row, while the split ties
+    that exact rendering to the complete production WAT text. This is syntax
+    provenance, not a WAT parser, evaluator, or execution relation. -/
+def MethodWATEmissionV1
+    (ir : IR)
+    (methodIndex : Nat)
+    (method : MethodIR)
+    (watText methodText : String) : Prop :=
+  let promiseStr := layoutPromiseStrings ir.memory (collectPromiseStrings ir)
+  let render := renderMethod ir promiseStr
+  let methodsText := String.intercalate "" (ir.methods.toList.map render)
+  ir.methods[methodIndex]? = some method ∧
+  methodText = render method ∧
+  watText = renderWat ir ∧
+  methodsText =
+    String.intercalate "" ((ir.methods.toList.take methodIndex).map render) ++
+      methodText ++
+      String.intercalate ""
+        ((ir.methods.toList.drop (methodIndex + 1)).map render) ∧
+  ∃ before after, watText = before ++ methodsText ++ after
 
 private def renderMode : MethodMode → String
   | .initialize => "initialize"
@@ -2589,6 +2649,69 @@ private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
     the emitted WAT implements the IR or that a finalized Wasm executes it. -/
 def IREmissionV1 (ir : IR) (files : Array OutputFile) : Prop :=
   emitFromIR ir = .ok files
+
+/-- An exact method lookup in a successfully emitted IR determines one
+    production-rendered method fragment inside the exact WAT base file. The
+    result remains text provenance only: no WAT parsing or execution is
+    inferred from the fragment. -/
+theorem irEmissionV1_methodWATEmissionV1
+    (ir : IR)
+    (files : Array OutputFile)
+    (watFile : OutputFile)
+    (methodIndex : Nat)
+    (method : MethodIR)
+    (hemission : IREmissionV1 ir files)
+    (hwatFile : files[0]? = some watFile)
+    (hmethod : ir.methods[methodIndex]? = some method) :
+    ∃ methodText,
+      MethodWATEmissionV1 ir methodIndex method watFile.contents methodText := by
+  cases hvalidate : validateIR ir with
+  | error error =>
+      simp [IREmissionV1, emitFromIR, hvalidate, Bind.bind, Except.bind] at hemission
+  | ok _ =>
+      have hfiles : files = #[
+          {
+            path := s!"{ir.name}.wat"
+            mediaType := "application/wasm-text"
+            contents := renderWat ir
+          },
+          {
+            path := s!"{ir.name}.near-abi.json"
+            mediaType := "application/json"
+            contents := renderAbi ir.sourcePlan
+          }
+        ] := by
+        simpa [IREmissionV1, emitFromIR, hvalidate, Bind.bind, Except.bind,
+          Pure.pure, Except.pure] using hemission.symm
+      have hwatFileEq : watFile = {
+          path := s!"{ir.name}.wat"
+          mediaType := "application/wasm-text"
+          contents := renderWat ir
+        } := by
+        rw [hfiles] at hwatFile
+        simpa using hwatFile.symm
+      let promiseStr :=
+        layoutPromiseStrings ir.memory (collectPromiseStrings ir)
+      have hmethodList : ir.methods.toList[methodIndex]? = some method := by
+        simpa using hmethod
+      let methodBefore := String.intercalate "" <|
+        (ir.methods.toList.take methodIndex).map (renderMethod ir promiseStr)
+      let methodAfter := String.intercalate "" <|
+        (ir.methods.toList.drop (methodIndex + 1)).map
+          (renderMethod ir promiseStr)
+      have hrenderedMethods :
+          String.intercalate ""
+              (ir.methods.toList.map (renderMethod ir promiseStr)) =
+            methodBefore ++ renderMethod ir promiseStr method ++ methodAfter := by
+        exact intercalateMapEmpty_split_of_getElem?_eq_some
+          ir.methods.toList (renderMethod ir promiseStr) methodIndex method
+          hmethodList
+      refine ⟨renderMethod ir promiseStr method, hmethod, rfl, ?_, ?_, ?_⟩
+      · rw [hwatFileEq]
+      · exact hrenderedMethods
+      refine ⟨renderWatBeforeMethods ir promiseStr, ")\n", ?_⟩
+      rw [hwatFileEq]
+      rfl
 
 /-- Successful production emission determines one exact ordered base-file
     array, including both content strings. -/
