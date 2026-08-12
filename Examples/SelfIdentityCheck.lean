@@ -4,10 +4,11 @@ namespace Examples
 
 open ProofForgeV2.Language
 
--- ADR-0031 S3: context.self Plan open fixture.
--- Compares `context.self` to a Principal parameter and returns Bool.
--- Multi-word Principal entry/view return remains fail closed on EVM ABI;
--- leaf-wise `==` against a 9-word Principal param is the honest product shape.
+-- ADR-0031 S3: context.contractId Plan open fixture.
+-- Wire key remains `proof-forge.context.self.v1` (ADR-0031 S3b).
+-- Source spelling is `contractId` because Lean treats bare `self`/`this` as
+-- keywords and escaped identifiers are excluded from exact ContextRead match.
+-- Compares `context.contractId` to a Principal parameter and returns Bool.
 --   EVM      → ADDRESS / `address()` → u32le(20)||addr20
 --   NEAR     → current_account_id UTF-8 Principal leaves (view-safe)
 --   CosmWasm → Env.contract.address UTF-8 Principal leaves (view-safe)
@@ -19,10 +20,10 @@ program SelfIdentityCheck where
     pad := initial
 
   entry isSelf(a : Principal) : Bool do
-    return context.self == a
+    return context.contractId == a
 
   view isSelfView(a : Principal) : Bool do
-    return context.self == a
+    return context.contractId == a
 
   view get() : UInt64 do
     return pad

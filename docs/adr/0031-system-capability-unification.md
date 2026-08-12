@@ -95,9 +95,9 @@ T12 ix data 且强制 `len∈1..64`/高尾清零，两个 legacy profile 纵深 
 `MessageInfo.sender`，复用 lowercase `[a-z0-9]`/len/tail 门，query/view 保持 FC。
 这些均为工程 local-runtime 门，不是 formal、hermetic 或主网等价声明。
 
-**S3/S3b 工程事实（2026-08-12）**：`context.chainId` / `context.self` 进入 closed
+**S3/S3b 工程事实（2026-08-12）**：`context.chainId` / `context.contractId` (wire key context.self) 进入 closed
 ContextRead catalog（anonymous UInt64 / Principal）。Normalize 将
-`context.chainId` / `context.self` 降为 wire-owned ContextRead，并合并 exact
+`context.chainId` / `context.contractId` (wire key context.self) 降为 wire-owned ContextRead，并合并 exact
 requirement 行。EVM 以 `chainid()` + UInt64 range guard 物化 chainId，以
 `address()` 按 ADR-0025 装配 self Principal；NEAR 以 `current_account_id` 物化
 self（view-safe），chainId FC；CosmWasm 以 `Env.contract.address` 物化 self

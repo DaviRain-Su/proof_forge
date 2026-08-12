@@ -346,7 +346,7 @@ host/unsupported sync-call 负例全部通过。
 
 ### context.chainId / context.self (ADR-0031 S3)
 
-- `context.self` → host `current_account_id` UTF-8 Principal leaves (view-safe).
+- `context.contractId` (wire key context.self) → host `current_account_id` UTF-8 Principal leaves (view-safe).
 - `context.chainId` → **fail closed** (no exact numeric host chain-id counterpart).
 
 ### pf.assets.native.balanceOfSelf denomination tension

@@ -233,5 +233,5 @@ Binary/base64，但 `contract_addr` 仍为静态 QN stub；smart-query Binary兼
 
 ### context.chainId / context.self (ADR-0031 S3)
 
-- `context.self` → `Env.contract.address` UTF-8 Principal leaves (view-safe on instantiate/execute/query).
+- `context.contractId` (wire key context.self) → `Env.contract.address` UTF-8 Principal leaves (view-safe on instantiate/execute/query).
 - `context.chainId` → **fail closed** (`Env.block.chain_id` is a String; no frozen UInt64 digest schema).

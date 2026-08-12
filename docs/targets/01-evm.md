@@ -200,4 +200,4 @@ Phase 1 不支持 arbitrary assembly、delegatecall、create、proxy upgrade 和
 ### context.chainId / context.self (ADR-0031 S3)
 
 - `context.chainId` → Yul `chainid()` with UInt64 range guard (no truncation).
-- `context.self` → Principal `u32le(20)||addr20` from `address()` (same packing as caller from `caller()`).
+- `context.contractId` (wire key context.self) → Principal `u32le(20)||addr20` from `address()` (same packing as caller from `caller()`).

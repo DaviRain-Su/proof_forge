@@ -15,7 +15,7 @@
     * ContextRead chain id (ADR-0031 S3): place chain `context.chainId`
       → Semantic `Op.ContextRead proof-forge.context.chain-id.v1`
       → result type anonymous UInt64
-    * ContextRead self: place chain `context.self`
+    * ContextRead self: place chain `context.contractId`
       → Semantic `Op.ContextRead proof-forge.context.self.v1`
       → result type anonymous Principal
     * Commit: bare local-call shape `commit(expr)` when no user `fn commit`
@@ -62,10 +62,12 @@ def isContextChainIdPlaceV1 : PlaceV1 → Bool
       exactRaw root "context" && exactRaw field "chainId"
   | _ => false
 
-/-- True when `place` is the ContextRead surface `context.self`. -/
+/-- True when `place` is the ContextRead surface `context.contractId`
+    (wire key remains `proof-forge.context.self.v1`; source avoids Lean `self`
+    keyword / escaped-ident non-match). -/
 def isContextSelfPlaceV1 : PlaceV1 → Bool
   | .field (.name root) field =>
-      exactRaw root "context" && exactRaw field "self"
+      exactRaw root "context" && exactRaw field "contractId"
   | _ => false
 
 /-- True when `place` is any admitted ContextRead surface. -/
@@ -97,7 +99,7 @@ def contextBlockHeightSpellingV1 : String := "context.blockHeight"
 
 def contextChainIdSpellingV1 : String := "context.chainId"
 
-def contextSelfSpellingV1 : String := "context.self"
+def contextSelfSpellingV1 : String := "context.contractId"
 
 /-- Sole admitted Commit source spelling for diagnostics. -/
 def commitSpellingV1 : String := "commit(_)"

@@ -181,6 +181,7 @@ programs=(
   "runtime-tests/near/fixtures/CallerCheck.lean:Examples.CallerCheck:CallerCheck"
   "Examples/PoseTransform.lean:Examples.PoseTransform:PoseTransform"
   "Examples/BlockHeightCheck.lean:Examples.BlockHeightCheck:BlockHeightCheck"
+  "Examples/SelfIdentityCheck.lean:Examples.SelfIdentityCheck:SelfIdentityCheck"
   "Examples/ConstAnswer.lean:Examples.ConstAnswer:ConstAnswer"
   "Examples/UnixTimeCheck.lean:Examples.UnixTimeCheck:UnixTimeCheck"
   "runtime-tests/near/fixtures/BytesRet.lean:Examples.BytesRet:BytesRet"
@@ -290,6 +291,7 @@ envreadjar_wasm="$out_dir/EnvReadJar/EnvReadJar.wasm"
 callercheck_wasm="$out_dir/CallerCheck/CallerCheck.wasm"
 posetransform_wasm="$out_dir/PoseTransform/PoseTransform.wasm"
 blockheightcheck_wasm="$out_dir/BlockHeightCheck/BlockHeightCheck.wasm"
+selfidentitycheck_wasm="$out_dir/SelfIdentityCheck/SelfIdentityCheck.wasm"
 constanswer_wasm="$out_dir/ConstAnswer/ConstAnswer.wasm"
 unixtimecheck_wasm="$out_dir/UnixTimeCheck/UnixTimeCheck.wasm"
 bytesret_wasm="$out_dir/BytesRet/BytesRet.wasm"
@@ -305,6 +307,7 @@ bytesret_wasm="$out_dir/BytesRet/BytesRet.wasm"
 [[ -f "$callercheck_wasm" ]] || die "missing $callercheck_wasm"
 [[ -f "$posetransform_wasm" ]] || die "missing $posetransform_wasm"
 [[ -f "$blockheightcheck_wasm" ]] || die "missing $blockheightcheck_wasm"
+[[ -f "$selfidentitycheck_wasm" ]] || die "missing $selfidentitycheck_wasm"
 [[ -f "$constanswer_wasm" ]] || die "missing $constanswer_wasm"
 [[ -f "$unixtimecheck_wasm" ]] || die "missing $unixtimecheck_wasm"
 [[ -f "$bytesret_wasm" ]] || die "missing $bytesret_wasm"
@@ -471,6 +474,9 @@ run_suite posetransform "$posetransform_wasm" || die "PoseTransform suite failed
 echo "near-runtime-test: running BlockHeightCheck suite against near-sandbox"
 run_suite blockheightcheck "$blockheightcheck_wasm" || die "BlockHeightCheck suite failed"
 
+echo "near-runtime-test: running SelfIdentityCheck suite against near-sandbox"
+run_suite selfidentitycheck "$selfidentitycheck_wasm" || die "SelfIdentityCheck suite failed"
+
 echo "near-runtime-test: running ConstAnswer suite against near-sandbox"
 run_suite constanswer "$constanswer_wasm" || die "ConstAnswer suite failed"
 
@@ -480,5 +486,5 @@ run_suite unixtimecheck "$unixtimecheck_wasm" || die "UnixTimeCheck suite failed
 echo "near-runtime-test: running BytesRet suite against near-sandbox"
 run_suite bytesret "$bytesret_wasm" || die "BytesRet suite failed"
 
-echo "near-runtime-test: PASS (StateCell + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + CallerCheck + PoseTransform + BlockHeightCheck + ConstAnswer + UnixTimeCheck + BytesRet engineering sandbox differential)"
+echo "near-runtime-test: PASS (StateCell + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + CallerCheck + PoseTransform + BlockHeightCheck + SelfIdentityCheck + ConstAnswer + UnixTimeCheck + BytesRet engineering sandbox differential)"
 exit 0

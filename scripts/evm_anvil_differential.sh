@@ -406,6 +406,38 @@ else
   echo "evm-anvil-differential: note: BlockHeightCheck companion script missing (skip leg)" >&2
 fi
 
+# ChainIdCheck: ADR-0031 S3 context.chainId → Yul chainid() / CHAINID.
+# Product build/solc failures are hard; tool/script skip is handled inside
+# the companion (exit 0). Engineering Anvil pin only — not formal.
+if [[ -x "$root/scripts/evm_chainid_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: companion ChainIdCheck context.chainId smoke (build hard-fail; profile=$expected_profile_wire)" >&2
+  PF_EVM_PROFILE="$evm_profile" bash "$root/scripts/evm_chainid_anvil_smoke.sh" || {
+    echo "evm-anvil-differential: ChainIdCheck smoke failed (hard)" >&2
+    exit 1
+  }
+elif [[ -f "$root/scripts/evm_chainid_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: ChainIdCheck smoke present but not executable (hard)" >&2
+  exit 1
+else
+  echo "evm-anvil-differential: note: ChainIdCheck companion script missing (skip leg)" >&2
+fi
+
+# SelfIdentityCheck: ADR-0031 S3 context.self Principal (ADDRESS →
+# u32le(20)||addr20). Product build/solc failures are hard; tool/script skip
+# is handled inside the companion (exit 0).
+if [[ -x "$root/scripts/evm_self_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: companion SelfIdentityCheck context.self smoke (build hard-fail; profile=$expected_profile_wire)" >&2
+  PF_EVM_PROFILE="$evm_profile" bash "$root/scripts/evm_self_anvil_smoke.sh" || {
+    echo "evm-anvil-differential: SelfIdentityCheck smoke failed (hard)" >&2
+    exit 1
+  }
+elif [[ -f "$root/scripts/evm_self_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: SelfIdentityCheck smoke present but not executable (hard)" >&2
+  exit 1
+else
+  echo "evm-anvil-differential: note: SelfIdentityCheck companion script missing (skip leg)" >&2
+fi
+
 # MiniAmm: ADR-0030 E4 vault-internal constant-product + Principal-keyed LP Map.
 # Product build/solc failures are hard; tool skip and engineering code-size
 # override (not mainnet/EIP-3860 claim) are handled inside the companion.

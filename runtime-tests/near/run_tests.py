@@ -11,6 +11,7 @@ Suites:
                   erasure + deposit/withdraw/rollback storage observations
   posetransform — Examples/PoseTransform: translate / rotate90 / scale + overflow hold
   blockheightcheck — Examples/BlockHeightCheck: context.blockHeight ↔ sandbox height
+  selfidentitycheck — Examples/SelfIdentityCheck: context.self ↔ current_account_id
   constanswer — Examples/ConstAnswer: scalar const table (ANSWER=42)
   unixtimecheck — Examples/UnixTimeCheck: context.unixTimeSeconds ↔ block_timestamp
   bytesret — fixtures/BytesRet: anonymous Bytes 4 return (4×u8 tight)
@@ -21,7 +22,7 @@ Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_WASM         path to product .wasm for the suite
   PF_NEAR_SUITE        state_cell | pairret | arrayret | optionret | optionstate |
                        verifiedvault | tipjarasync | tokenjarasync | envreadjar |
-                       callercheck | posetransform | blockheightcheck |
+                       callercheck | posetransform | blockheightcheck | selfidentitycheck |
                        constanswer | unixtimecheck | bytesret | single
 
 Honesty: engineering sandbox differential only — not testnet/mainnet,
@@ -1043,6 +1044,69 @@ def suite_callercheck(client: NearClient, wasm: Path) -> None:
     print("suite CallerCheck: PASS")
 
 
+
+def suite_selfidentitycheck(client: NearClient, wasm: Path) -> None:
+    """ADR-0031 S3 NEAR: context.self → current_account_id Principal (view-safe).
+
+    Deploys the jar on a key-carrying subaccount and proves:
+      1. view isSelfView(jar_principal) == true
+      2. view isSelfView(other_principal) == false
+      3. entry isSelf(jar_principal) == true
+      4. entry isSelf(other_principal) == false
+    """
+    print("=== suite: SelfIdentityCheck (context.self / current_account_id) ===")
+    jar = f"selfid.{client.account_id}"
+    other = f"other.{client.account_id}"
+    client.create_subaccount_with_key(jar, 10**24)
+    client.create_subaccount_with_key(other, 10**24)
+    client.deploy_to(jar, wasm)
+    print(f"selfid: jar={jar} other={other}")
+
+    client.call_on(jar, "init", NearClient.encode_u64_le(3))
+    got = client.view_u64_on(jar, "get")
+    if got != 3:
+        raise AssertionError(f"after init(3): get() expected 3, got {got}")
+    print("selfid: init(3) → get()==3 ok")
+
+    jar_p = NearClient.encode_principal_account_id(jar)
+    other_p = NearClient.encode_principal_account_id(other)
+
+    def decode_bool_bytes(raw: bytes, label: str) -> int:
+        if len(raw) < 8:
+            raise AssertionError(f"{label} expected ≥8 LE bytes, got {raw!r}")
+        return NearClient.decode_u64_le(raw, 0)
+
+    # view isSelfView — host current_account_id is the jar account.
+    ret = decode_bool_bytes(client.view_on(jar, "isSelfView", jar_p), "isSelfView(jar)")
+    if ret != 1:
+        raise AssertionError(f"isSelfView(jar) expected 1, got {ret}")
+    print("selfid: isSelfView(jar)==true ok")
+
+    ret = decode_bool_bytes(client.view_on(jar, "isSelfView", other_p), "isSelfView(other)")
+    if ret != 0:
+        raise AssertionError(f"isSelfView(other) expected 0, got {ret}")
+    print("selfid: isSelfView(other)==false ok")
+
+    res = client.call_on(jar, "isSelf", jar_p)
+    sv = NearClient.success_value_bytes(res)
+    if sv is None:
+        raise AssertionError("isSelf(jar) missing SuccessValue")
+    ret = decode_bool_bytes(sv, "isSelf(jar)")
+    if ret != 1:
+        raise AssertionError(f"isSelf(jar) expected 1, got {ret}")
+    print("selfid: isSelf(jar)==true ok")
+
+    res = client.call_on(jar, "isSelf", other_p)
+    sv = NearClient.success_value_bytes(res)
+    if sv is None:
+        raise AssertionError("isSelf(other) missing SuccessValue")
+    ret = decode_bool_bytes(sv, "isSelf(other)")
+    if ret != 0:
+        raise AssertionError(f"isSelf(other) expected 0, got {ret}")
+    print("selfid: isSelf(other)==false ok")
+    print("suite SelfIdentityCheck: PASS")
+
+
 def main(argv: list[str]) -> int:
     suite = os.environ.get("PF_NEAR_SUITE", "single").strip().lower()
     rpc = _require_env("PF_NEAR_RPC")
@@ -1107,6 +1171,11 @@ def main(argv: list[str]) -> int:
         elif suite == "bytesret":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_BYTESRET_WASM"))
             suite_bytesret(client, wasm)
+        elif suite == "selfidentitycheck":
+            wasm = Path(
+                os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_SELFIDENTITYCHECK_WASM")
+            )
+            suite_selfidentitycheck(client, wasm)
         elif suite == "all":
             # Same sandbox / same account: run suites only if
             # caller redeploys after a fresh home (script boots once per suite).

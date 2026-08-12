@@ -1185,7 +1185,7 @@ private partial def synthPlaceTypeV1
               | none =>
                   if key == "context" then
                     failUnsupported
-                      "S1 context place must be context.unixTimeSeconds, context.caller, context.blockHeight, context.chainId or context.self (field chain)"
+                      "S1 context place must be context.unixTimeSeconds, context.caller, context.blockHeight, context.chainId or context.contractId (field chain)"
                   else
                     failUnsupported
                       s!"S1 bare place '{key}' is neither param, state, nor const"
@@ -1198,6 +1198,13 @@ private partial def synthPlaceTypeV1
             pure (internShape interner .principal)
           else if raw root == "context" && raw fieldName == "blockHeight" then
             pure (internShape interner (.uint 64))
+          else if raw root == "context" && raw fieldName == "chainId" then
+            pure (internShape interner (.uint 64))
+          else if raw root == "context" && raw fieldName == "contractId" then
+            pure (internShape interner .principal)
+          else if raw root == "context" then
+            failUnsupported
+              s!"S1 unsupported context field '{raw fieldName}' (admitted: unixTimeSeconds, caller, blockHeight, chainId, contractId)"
           else do
             let (interner, baseTid) ←
               synthPlaceTypeV1 base interner env states constants
@@ -1808,7 +1815,7 @@ private partial def lowerPlace
               | none =>
                   if key == "context" then
                     failUnsupported
-                      "S1 context place must be context.unixTimeSeconds, context.caller, context.blockHeight, context.chainId or context.self (field chain)"
+                      "S1 context place must be context.unixTimeSeconds, context.caller, context.blockHeight, context.chainId or context.contractId (field chain)"
                   else
                     failUnsupported
                       s!"S1 bare place '{key}' is neither param, state, nor const"
@@ -1854,7 +1861,7 @@ private partial def lowerPlace
             let (st1, vid) :=
               emitValue st0 cTid (.contextRead chainIdContextKeyV1)
             pure (vid, cTid, st1)
-          else if raw root == "context" && raw fieldName == "self" then
+          else if raw root == "context" && raw fieldName == "contractId" then
             unless st.allowContextCommit do
               return ← failUnsupported
                 "S1 ContextRead is not admitted in pureFn (init/entry/view only)"
@@ -1865,7 +1872,7 @@ private partial def lowerPlace
             pure (vid, sTid, st1)
           else if raw root == "context" then
             failUnsupported
-              s!"S1 unsupported context field '{raw fieldName}' (admitted: unixTimeSeconds, caller, blockHeight, chainId, self)"
+              s!"S1 unsupported context field '{raw fieldName}' (admitted: unixTimeSeconds, caller, blockHeight, chainId, contractId)"
           else do
             let (baseVid, baseTid, st1) ← lowerPlace base st states fns
             match shapeOf? st1.interner.types baseTid with

@@ -86,6 +86,8 @@ private def commitmentState := contribution inferDisclosureCommitmentStateIdV1
 private def contextUnixTime := contribution wireContextUnixTimeSecondsIdV1
 private def contextCaller := contribution wireContextCallerIdV1
 private def contextBlockHeight := contribution wireContextBlockHeightIdV1
+private def contextChainId := contribution wireContextChainIdIdV1
+private def contextSelf := contribution wireContextSelfIdV1
 private def commitOp := contribution wireCommitmentDisclosureIdV1
 
 /-- ADR-0030 E2: env-read catalog call sites require the `extension.pf-assets`
@@ -135,14 +137,17 @@ mutual
   private partial def placeContributions : PlaceV1 → Array RequirementContributionV1
     | .name _ => #[]
     | .field base field =>
-        -- T-3/ADR-0031-S2: exact ContextRead surfaces (context.unixTimeSeconds /
-        -- context.caller / context.blockHeight).
+        -- T-3/ADR-0031-S2/S3: exact ContextRead surfaces.
         if isContextUnixTimeSecondsPlaceV1 (.field base field) then
           #[contextUnixTime]
         else if isContextCallerPlaceV1 (.field base field) then
           #[contextCaller]
         else if isContextBlockHeightPlaceV1 (.field base field) then
           #[contextBlockHeight]
+        else if isContextChainIdPlaceV1 (.field base field) then
+          #[contextChainId]
+        else if isContextSelfPlaceV1 (.field base field) then
+          #[contextSelf]
         else
           placeContributions base
     | .index base index => placeContributions base ++ exprContributions index

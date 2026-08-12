@@ -4,8 +4,9 @@
   Threads closed ContextRead surfaces and extension-requirement presence into
   CheckV1 composition (after T-1 authority/custody):
 
-  * Only `context.caller` and `context.unixTimeSeconds` are admitted ContextRead
-    surfaces (Source.ContextCommitSurfaceV1). Any other `context.*` place is
+  * Admitted ContextRead surfaces are the closed Source.ContextCommitSurfaceV1
+    set (caller, unixTimeSeconds, blockHeight, chainId, self). Any other
+    `context.*` place is
     fail-closed with `reqPrecondition`.
   * Engineering extensions are admitted only from the closed Core table
     `engineeringExtensionIdentitiesV1` (currently ADR-0028
@@ -179,7 +180,7 @@ def checkContextExtensionDraftsV1
           | _ => false
         if bad then
           let d := DiagnosticV1.make .reqPrecondition
-            "unsupported context surface (only context.caller, context.unixTimeSeconds and context.blockHeight are admitted)"
+            "unsupported context surface (only context.caller, context.unixTimeSeconds, context.blockHeight, context.chainId and context.contractId are admitted)"
           drafts := drafts.push { diagnostic := d, location := none }
       pure {
         drafts := drafts
