@@ -5,7 +5,7 @@
   CheckV1 composition (after T-1 authority/custody):
 
   * Admitted ContextRead surfaces are the closed Source.ContextCommitSurfaceV1
-    set (caller, unixTimeSeconds, blockHeight, chainId, self). Any other
+    set (caller, unixTimeSeconds, blockHeight, chainId, self, attachedValue). Any other
     `context.*` place is
     fail-closed with `reqPrecondition`.
   * Engineering extensions are admitted only from the closed Core table
@@ -180,7 +180,7 @@ def checkContextExtensionDraftsV1
           | _ => false
         if bad then
           let d := DiagnosticV1.make .reqPrecondition
-            "unsupported context surface (only context.caller, context.unixTimeSeconds, context.blockHeight, context.chainId and context.contractId are admitted)"
+            "unsupported context surface (only context.caller, context.unixTimeSeconds, context.blockHeight, context.chainId, context.contractId and context.attachedValue are admitted)"
           drafts := drafts.push { diagnostic := d, location := none }
       pure {
         drafts := drafts

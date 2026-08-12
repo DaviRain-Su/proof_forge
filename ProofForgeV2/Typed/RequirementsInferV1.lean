@@ -88,6 +88,7 @@ private def contextCaller := contribution wireContextCallerIdV1
 private def contextBlockHeight := contribution wireContextBlockHeightIdV1
 private def contextChainId := contribution wireContextChainIdIdV1
 private def contextSelf := contribution wireContextSelfIdV1
+private def contextAttachedValue := contribution wireContextAttachedValueIdV1
 private def commitOp := contribution wireCommitmentDisclosureIdV1
 
 /-- ADR-0030 E2: env-read catalog call sites require the `extension.pf-assets`
@@ -148,6 +149,8 @@ mutual
           #[contextChainId]
         else if isContextSelfPlaceV1 (.field base field) then
           #[contextSelf]
+        else if isContextAttachedValuePlaceV1 (.field base field) then
+          #[contextAttachedValue]
         else
           placeContributions base
     | .index base index => placeContributions base ++ exprContributions index

@@ -18,6 +18,9 @@
     * ContextRead self: place chain `context.contractId`
       → Semantic `Op.ContextRead proof-forge.context.self.v1`
       → result type anonymous Principal
+    * ContextRead attached value (ADR-0031 S4): place chain `context.attachedValue`
+      → Semantic `Op.ContextRead proof-forge.context.attached-value.v1`
+      → result type anonymous UInt64
     * Commit: bare local-call shape `commit(expr)` when no user `fn commit`
       → Semantic `Op.Commit` (label-only identity; TypeId/valueBytes preserved)
 
@@ -70,11 +73,18 @@ def isContextSelfPlaceV1 : PlaceV1 → Bool
       exactRaw root "context" && exactRaw field "contractId"
   | _ => false
 
+/-- True when `place` is the ContextRead surface `context.attachedValue`
+    (ADR-0031 S4). -/
+def isContextAttachedValuePlaceV1 : PlaceV1 → Bool
+  | .field (.name root) field =>
+      exactRaw root "context" && exactRaw field "attachedValue"
+  | _ => false
+
 /-- True when `place` is any admitted ContextRead surface. -/
 def isContextReadPlaceV1 (p : PlaceV1) : Bool :=
   isContextUnixTimeSecondsPlaceV1 p || isContextCallerPlaceV1 p ||
     isContextBlockHeightPlaceV1 p || isContextChainIdPlaceV1 p ||
-    isContextSelfPlaceV1 p
+    isContextSelfPlaceV1 p || isContextAttachedValuePlaceV1 p
 
 /-- True when a bare local-call callee spelling is the intrinsic Commit operator.
     Callers must still ensure no user `fn commit` shadows the intrinsic. -/
@@ -100,6 +110,8 @@ def contextBlockHeightSpellingV1 : String := "context.blockHeight"
 def contextChainIdSpellingV1 : String := "context.chainId"
 
 def contextSelfSpellingV1 : String := "context.contractId"
+
+def contextAttachedValueSpellingV1 : String := "context.attachedValue"
 
 /-- Sole admitted Commit source spelling for diagnostics. -/
 def commitSpellingV1 : String := "commit(_)"

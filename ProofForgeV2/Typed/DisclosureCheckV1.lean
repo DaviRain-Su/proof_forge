@@ -513,6 +513,7 @@ mutual
         if isContextUnixTimeSecondsPlaceV1 (.field base field) ||
             isContextBlockHeightPlaceV1 (.field base field) ||
             isContextChainIdPlaceV1 (.field base field) ||
+            isContextAttachedValuePlaceV1 (.field base field) ||
             isContextCallerPlaceV1 (.field base field) ||
             isContextSelfPlaceV1 (.field base field) then
           pure publicEvidence

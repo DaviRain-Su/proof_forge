@@ -944,6 +944,8 @@ structure BodyStateV1 where
   usedContextChainId : Bool := false
   /-- Op.ContextRead self (contract/program id) used (wire requirement merge). -/
   usedContextSelf : Bool := false
+  /-- ADR-0031 S4: Op.ContextRead attached-value used (wire requirement merge). -/
+  usedContextAttachedValue : Bool := false
   /-- N5: any Op.Commit emitted in this program (for wire requirement merge). -/
   usedCommit : Bool := false
 
@@ -1870,9 +1872,18 @@ private partial def lowerPlace
             let (st1, vid) :=
               emitValue st0 sTid (.contextRead selfContextKeyV1)
             pure (vid, sTid, st1)
+          else if raw root == "context" && raw fieldName == "attachedValue" then
+            unless st.allowContextCommit do
+              return ← failUnsupported
+                "S1 ContextRead is not admitted in pureFn (init/entry/view only)"
+            let (iA, aTid) := internShape st.interner (.uint 64)
+            let st0 := { st with interner := iA, usedContextAttachedValue := true }
+            let (st1, vid) :=
+              emitValue st0 aTid (.contextRead attachedValueContextKeyV1)
+            pure (vid, aTid, st1)
           else if raw root == "context" then
             failUnsupported
-              s!"S1 unsupported context field '{raw fieldName}' (admitted: unixTimeSeconds, caller, blockHeight, chainId, contractId)"
+              s!"S1 unsupported context field '{raw fieldName}' (admitted: unixTimeSeconds, caller, blockHeight, chainId, contractId, attachedValue)"
           else do
             let (baseVid, baseTid, st1) ← lowerPlace base st states fns
             match shapeOf? st1.interner.types baseTid with
@@ -3487,10 +3498,10 @@ private def lowerBlock
     (events : EventTableV1) (errors : ErrorTableV1) (fns : FnTableV1)
     (allowImplicitReturnNone : Bool)
     (allowContextCommit : Bool)
-    (usedUnix0 usedCaller0 usedHeight0 usedChain0 usedSelf0 usedCommit0 : Bool) :
+    (usedUnix0 usedCaller0 usedHeight0 usedChain0 usedSelf0 usedAttached0 usedCommit0 : Bool) :
     Except NormalizeErrorV1
       (Array BlockV1 × Array LoopBoundV1 × TypeInternerV1 ×
-        Bool × Bool × Bool × Bool × Bool × Bool) := do
+        Bool × Bool × Bool × Bool × Bool × Bool × Bool) := do
   let mut env := emptyEnv
   let mut paramNames : Array String := #[]
   for p in params do
@@ -3518,6 +3529,7 @@ private def lowerBlock
     usedContextBlockHeight := usedHeight0
     usedContextChainId := usedChain0
     usedContextSelf := usedSelf0
+    usedContextAttachedValue := usedAttached0
     usedCommit := usedCommit0
   }
   let (st', status) ← lowerStmts body.statements resultTid st states events errors fns
@@ -3532,6 +3544,7 @@ private def lowerBlock
       stF.usedContextBlockHeight,
       stF.usedContextChainId,
       stF.usedContextSelf,
+      stF.usedContextAttachedValue,
       stF.usedCommit)
   match status with
   | .closed =>
@@ -3622,7 +3635,7 @@ private def lowerInvariantPredicate
   -- Invariant roots must not emit ContextRead/Commit (structure + product).
   if st1.usedContextUnixTime || st1.usedContextCaller ||
       st1.usedContextBlockHeight || st1.usedContextChainId ||
-      st1.usedContextSelf || st1.usedCommit then
+      st1.usedContextSelf || st1.usedContextAttachedValue || st1.usedCommit then
     return ← failUnsupported
       "S1 invariant predicate must not use ContextRead or Commit"
   -- Seal whatever block is open after the predicate (join block for match,
@@ -3694,7 +3707,8 @@ private def insertRequirementSortedV1
     digest domains. -/
 private def mergeWireOwnedRequirementsV1
     (s2 : ProgramRequirementsV1)
-    (usedUnixTime usedCaller usedBlockHeight usedChainId usedSelf usedCommit
+    (usedUnixTime usedCaller usedBlockHeight usedChainId usedSelf
+      usedAttachedValue usedCommit
       usedSolanaCpiExtension : Bool)
     (pfAssetsDeclaredVersion? : Option String) :
     Except NormalizeErrorV1 ProgramRequirementsV1 := do
@@ -3719,6 +3733,10 @@ private def mergeWireOwnedRequirementsV1
     match selfContextRequirementV1 with
     | .ok row => items := insertRequirementSortedV1 items row
     | .error e => return ← failUnsupported s!"ContextRead self requirement row: {e}"
+  if usedAttachedValue then
+    match attachedValueContextRequirementV1 with
+    | .ok row => items := insertRequirementSortedV1 items row
+    | .error e => return ← failUnsupported s!"ContextRead attached-value requirement row: {e}"
   if usedCommit then
     match commitmentDisclosureRequirementV1 with
     | .ok row => items := insertRequirementSortedV1 items row
@@ -3943,6 +3961,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   let mut usedContextBlockHeight := false
   let mut usedContextChainId := false
   let mut usedContextSelf := false
+  let mut usedContextAttachedValue := false
   let mut usedCommit := false
   let mut usedSolanaCpiExtension := false
   let mut pfAssetsDeclaredVersion? : Option String := none
@@ -3954,17 +3973,18 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         interner := interner'
         let (interner'', unitTid) := internShape interner .unit
         interner := interner''
-        let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, cm) ←
+        let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, uav, cm) ←
           lowerBlock d.body params unitTid interner stateTable constantTable
             eventTable errorTable fnTable
             true true usedContextUnixTime usedContextCaller usedContextBlockHeight
-              usedContextChainId usedContextSelf usedCommit
+              usedContextChainId usedContextSelf usedContextAttachedValue usedCommit
         interner := interner'''
         usedContextUnixTime := ux
         usedContextCaller := uc
         usedContextBlockHeight := uh
         usedContextChainId := uch
         usedContextSelf := usf
+        usedContextAttachedValue := uav
         usedCommit := cm
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .initializer none params
@@ -3980,17 +4000,19 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
           match anonShapeOf? interner.types resultTid with
           | some .unit => true
           | _ => false
-        let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, cm) ←
+        let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, uav, cm) ←
           lowerBlock e.body params resultTid interner stateTable constantTable
             eventTable errorTable fnTable
             allowImplicitReturnNone true usedContextUnixTime usedContextCaller
-              usedContextBlockHeight usedContextChainId usedContextSelf usedCommit
+              usedContextBlockHeight usedContextChainId usedContextSelf
+              usedContextAttachedValue usedCommit
         interner := interner'''
         usedContextUnixTime := ux
         usedContextCaller := uc
         usedContextBlockHeight := uh
         usedContextChainId := uch
         usedContextSelf := usf
+        usedContextAttachedValue := uav
         usedCommit := cm
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .entry (some (raw e.name)) params
@@ -4002,17 +4024,18 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         let (interner'', resultTid) ← internSourceType interner v.result
         interner := interner''
         requireCallableResultTypeId interner.types resultTid s!"view '{raw v.name}' result"
-        let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, cm) ←
+        let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, uav, cm) ←
           lowerBlock v.body params resultTid interner stateTable constantTable
             eventTable errorTable fnTable
             false true usedContextUnixTime usedContextCaller usedContextBlockHeight
-              usedContextChainId usedContextSelf usedCommit
+              usedContextChainId usedContextSelf usedContextAttachedValue usedCommit
         interner := interner'''
         usedContextUnixTime := ux
         usedContextCaller := uc
         usedContextBlockHeight := uh
         usedContextChainId := uch
         usedContextSelf := usf
+        usedContextAttachedValue := uav
         usedCommit := cm
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .view (some (raw v.name)) params
@@ -4034,20 +4057,21 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         -- Constants remain visible (compile-time values, not state).
         -- N5: ContextRead/Commit also fail closed (allowContextCommit=false).
         let emptyStates : StateTableV1 := ⟨#[]⟩
-        let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, cm) ←
+        let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, uav, cm) ←
           lowerBlock d.body params resultTid interner emptyStates constantTable
             eventTable errorTable fnTable
             false false usedContextUnixTime usedContextCaller usedContextBlockHeight
-              usedContextChainId usedContextSelf usedCommit
+              usedContextChainId usedContextSelf usedContextAttachedValue usedCommit
         interner := interner'''
         usedContextUnixTime := ux
         usedContextCaller := uc
         usedContextBlockHeight := uh
         usedContextChainId := uch
         usedContextSelf := usf
+        usedContextAttachedValue := uav
         usedCommit := cm
         -- pureFn must not read Context / Commit (N5).
-        if ux || uc || uh || uch || usf || cm then
+        if ux || uc || uh || uch || usf || uav || cm then
           return ← failUnsupported
             s!"fn '{raw d.name}' must not use ContextRead or Commit"
         callables := callables.push (mkCallable
@@ -4125,7 +4149,8 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   -- call. Sort by UTF-8 id so the structure gate order holds.
   let requirements ← mergeWireOwnedRequirementsV1 s2Reqs usedContextUnixTime
     usedContextCaller usedContextBlockHeight usedContextChainId usedContextSelf
-    usedCommit usedSolanaCpiExtension pfAssetsDeclaredVersion?
+    usedContextAttachedValue usedCommit usedSolanaCpiExtension
+    pfAssetsDeclaredVersion?
   pure {
     qualifiedName := qn
     types := interner.types

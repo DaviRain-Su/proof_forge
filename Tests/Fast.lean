@@ -36,6 +36,7 @@ import Tests.Semantic.OutcomeWireV1
 import Tests.Semantic.StepFacadeV1
 import Tests.Semantic.Sem002ShapeV1
 import Tests.Semantic.Sem003ShapeV1
+import Tests.Semantic.AttachedValueContextV1
 import Tests.Materialization.EvmOutcomeAdapterV1
 import Tests.Semantic.MiniAmmVectorsV1
 import Tests.Semantic.ProofBundleV1
@@ -168,6 +169,7 @@ unsafe def main : IO Unit := do
   Tests.Semantic.StepFacadeV1.run
   Tests.Semantic.Sem002ShapeV1.run
   Tests.Semantic.Sem003ShapeV1.run
+  Tests.Semantic.AttachedValueContextV1.run
   Tests.Materialization.EvmOutcomeAdapterV1.run
   Tests.Semantic.MiniAmmVectorsV1.run
   Tests.Semantic.ProofBundleV1.run

@@ -91,6 +91,14 @@ def chainIdContextKeyV1 : SchemaId :=
 def selfContextKeyV1 : SchemaId :=
   { value := "proof-forge.context.self.v1" }
 
+/-- Closed v1 ContextRead key: native value attached to this invocation
+    (ADR-0031 S4). Result shape is anonymous UInt64. Target materialization
+    is exact-counterpart only (EVM CALLVALUE / NEAR attached_deposit /
+    CW MessageInfo.funds single-denom). Solana has no direct analogue and
+    stays fail closed. Recognition here does not open any target Plan. -/
+def attachedValueContextKeyV1 : SchemaId :=
+  { value := "proof-forge.context.attached-value.v1" }
+
 /-- Requirement identity bound to the unix-time ContextRead key.
     Thin alias of `ProofForgeV2.Core.RequirementIdsV1.wireContextUnixTimeSecondsIdV1`
     (domain `pf.context-read-requirement.v1`). -/
@@ -111,6 +119,9 @@ def chainIdContextRequirementIdV1 : String :=
 
 def selfContextRequirementIdV1 : String :=
   ProofForgeV2.Core.RequirementIdsV1.wireContextSelfIdV1
+
+def attachedValueContextRequirementIdV1 : String :=
+  ProofForgeV2.Core.RequirementIdsV1.wireContextAttachedValueIdV1
 
 /-- Exact requirement identity contributed by every v1 Commit operation.
     Thin alias of `ProofForgeV2.Core.RequirementIdsV1.wireCommitmentDisclosureIdV1`
@@ -520,6 +531,17 @@ def selfContextRequirementV1 : Except String RequirementRequestV1 := do
     selfContextRequirementIdV1.toUTF8
   pure {
     id := selfContextRequirementIdV1
+    version := { major := 1, minor := 0, patch := 0 }
+    digest
+    predicates := #[]
+  }
+
+/-- Exact requirement row for ContextRead `context.attachedValue` (ADR-0031 S4). -/
+def attachedValueContextRequirementV1 : Except String RequirementRequestV1 := do
+  let digest ← domainSeparatedSha256 "pf.context-read-requirement.v1"
+    attachedValueContextRequirementIdV1.toUTF8
+  pure {
+    id := attachedValueContextRequirementIdV1
     version := { major := 1, minor := 0, patch := 0 }
     digest
     predicates := #[]

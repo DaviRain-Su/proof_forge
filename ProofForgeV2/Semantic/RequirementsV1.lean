@@ -238,6 +238,7 @@ private def isSkippedWireOwnedIdV1 (id : String) : Bool :=
   id == wireContextBlockHeightIdV1 ||
   id == wireContextChainIdIdV1 ||
   id == wireContextSelfIdV1 ||
+  id == wireContextAttachedValueIdV1 ||
   id == wireCommitmentDisclosureIdV1 ||
   id == wireExtensionSolanaCpiAccountsIdV1 ||
   id == wireExtensionPfAssetsIdV1

@@ -110,14 +110,14 @@ private unsafe def testBadContextSurface (session : ParserSession) : IO Unit := 
   expect (d.code == .reqPrecondition)
     s!"ctx-bad: code must be reqPrecondition, got {d.code.wire}"
   expect (d.message ==
-      "unsupported context surface (only context.caller, context.unixTimeSeconds, context.blockHeight, context.chainId and context.contractId are admitted)")
+      "unsupported context surface (only context.caller, context.unixTimeSeconds, context.blockHeight, context.chainId, context.contractId and context.attachedValue are admitted)")
     s!"ctx-bad: exact message, got {d.message}"
   let composed := checkProgramTypedResultV1 v
   expect (!composed.ok) "ctx-bad: CheckV1 composition must fail"
   expect (composed.diagnostics.any fun x =>
       x.code == .reqPrecondition &&
         x.message ==
-          "unsupported context surface (only context.caller, context.unixTimeSeconds, context.blockHeight, context.chainId and context.contractId are admitted)")
+          "unsupported context surface (only context.caller, context.unixTimeSeconds, context.blockHeight, context.chainId, context.contractId and context.attachedValue are admitted)")
     "ctx-bad: CheckV1 must surface the same ContextExtension gate"
 
 private def solanaCpiDigest : String :=

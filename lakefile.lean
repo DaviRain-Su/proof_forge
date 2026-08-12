@@ -134,6 +134,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Semantic.StepFacadeV1,
     `Tests.Semantic.Sem002ShapeV1,
     `Tests.Semantic.Sem003ShapeV1,
+    `Tests.Semantic.AttachedValueContextV1,
     `Tests.Materialization.EvmOutcomeAdapterV1,
     `Tests.Semantic.MiniAmmL1Admit,
     `Tests.Semantic.MiniAmmVectorsV1,

@@ -402,6 +402,7 @@ def validateContextReadRequirementsV1 (data : SemanticProgramDataV1) :
   let mut usedBlockHeight := false
   let mut usedChainId := false
   let mut usedSelf := false
+  let mut usedAttached := false
   for callable in data.callables do
     for block in callable.blocks do
       for instr in block.instructions do
@@ -412,6 +413,7 @@ def validateContextReadRequirementsV1 (data : SemanticProgramDataV1) :
             else if key == blockHeightContextKeyV1 then usedBlockHeight := true
             else if key == chainIdContextKeyV1 then usedChainId := true
             else if key == selfContextKeyV1 then usedSelf := true
+            else if key == attachedValueContextKeyV1 then usedAttached := true
             else pure ()
         | _ => pure ()
   if usedUnix then
@@ -449,6 +451,13 @@ def validateContextReadRequirementsV1 (data : SemanticProgramDataV1) :
         | _ => false)
       selfContextRequirementIdV1
       selfContextRequirementV1
+  if usedAttached then
+    bindUsedOpToExactRequirementRow data
+      (fun
+        | .contextRead k => k == attachedValueContextKeyV1
+        | _ => false)
+      attachedValueContextRequirementIdV1
+      attachedValueContextRequirementV1
   pure ()
 
 /-- Bind every used Commit operation to the one exact disclosure.commitment
