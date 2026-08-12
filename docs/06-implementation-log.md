@@ -15016,3 +15016,29 @@ normative: false
   semantics、IR→Wasm/NEAR simulation、locked `wat2wasm` correctness 或 finalized artifact identity，
   因而整体 assurance 仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR bounded typed-WAT refinement
+
+- 新增 `Targets/Near/ReadOnlyWATV1.lean`：定义 production `status` 四操作实际发射所需的 typed
+  i64 expression/host-call/instruction 子集、exact组合 recipe与 sole text renderer。`EmitIRV1` 的
+  production `renderOperation` 对 exact empty-input/layout/UInt64-load/8-byte-return直接消费 typed
+  syntax；完整可 lower的方法由 typed method renderer生成，unsupported Operation仍走既有 private
+  renderer，不复制等价 string implementation。
+- 新增 `ReadOnlyMethodWATEmissionV1`，把 exact MethodIR lookup、typed lowering与 renderer result接到
+  已有 complete production WAT graph。真实 VerifiedVault capability/Plan/IR/build fixture已证明 combined
+  method index 3 的 `status` production text来自该 exact typed sequence。
+- 新增 `Targets/Near/WATSemanticsV1.lean`：有限 fail-closed machine建模 input、storage、locals、NEAR
+  registers、recipe scratch byte blocks与 return data；证明 exact nullary UInt64 view返回原 8-byte
+  field、MethodIR/typed-WAT返回一致、static alignment + initialized storage可执行，以及 sole Reference
+  ready/step到 typed-WAT-derived observation 的 returned relation。public façade进一步把 typed emission与
+  execution接回同一 capability-scoped production chain。
+- `NearStaticAlignmentV1` 固定 exact lowering、return、derived observation、Reference→typed-WAT relation、
+  non-empty input trap、missing-field/register trap与 forged MethodIR lowering拒绝；
+  `InlineProofCertifierV1` 固定真实 production status typed-WAT emission relation。聚焦
+  `lake build ProofForgeV2.Targets.Near`、`lake build Tests.Materialization.NearStaticAlignmentV1`、
+  `lake build Tests.Compiler.InlineProofCertifierV1` 均已通过。
+- 本 machine不建模 arbitrary overlapping linear memory、generic WAT parser/validator、text→typed identity、
+  locked `wat2wasm`、Wasm binary或完整 NEAR host ABI；`storageRead`保留 proof-relevant `KeyRegion`
+  annotation。因此只称 **bounded typed-WAT-refined slice**，不声称 textual WAT、Wasm binary或最终
+  NEAR artifact 已 target-refined。没有新增 DSL State/Effect/evaluator/step；业务语义仍唯一是
+  `SemanticProgramV1 + ReferenceMachineV1`。

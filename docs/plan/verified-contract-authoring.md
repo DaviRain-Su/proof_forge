@@ -1179,7 +1179,18 @@ expression translator：
     rollback 与 missing invariant export 均真实观察通过，Phase 6B 达到 engineering observed。
     兼容 loader 未入 Tool Lock，故不是 hermetic release evidence；arbitrary callable/expression
     family 与 formal target refinement 也仍未完成。不能把这一条 exact family 宣传成“任意业务
-    合约都已自动可证”，更不能声称 emitted target artifact 已形式化验证。
+    合约都已自动可证”，更不能声称 emitted target artifact 已形式化验证；
+16. Phase 7 已从 static provenance推进到两级有限 target refinement：production `status` exact
+    `MethodIR` 四操作已有 fail-closed execution semantics与 Reference composition；随后 production
+    renderer直接消费 `ReadOnlyWATV1` typed instruction子集，kernel theorem把 exact MethodIR lowering、
+    method-scoped production WAT emission、typed-WAT execution与 Reference returned observation连接。
+    这没有恢复第二套业务 `State/Effect/step`：两台有限 machine只解释 production target IR/WAT，
+    业务真值仍唯一来自 `SemanticProgramV1 + ReferenceMachineV1`。当前准确称谓是
+    `MethodIR-refined` 加 **bounded typed-WAT-refined slice**；typed syntax仍以 proof-relevant
+    `KeyRegion` 注解连接 data segment，scratch memory尚不是一般线性内存。下一顺序是 generic typed
+    validator、production textual WAT↔typed syntax identity、locked `wat2wasm`可信边界、Wasm binary
+    execution与完整 NEAR host simulation。上述各层未闭合前，WAT文本、Wasm binary和最终 NEAR
+    artifact仍不得标记为 target-refined或 artifact verified。
 
 ---
 

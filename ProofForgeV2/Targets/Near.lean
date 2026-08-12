@@ -8,6 +8,7 @@ import ProofForgeV2.Targets.Near.PlanSchemaV1
 import ProofForgeV2.Targets.Near.EmitIRV1
 import ProofForgeV2.Targets.Near.StaticAlignmentV1
 import ProofForgeV2.Targets.Near.MethodSemanticsV1
+import ProofForgeV2.Targets.Near.WATSemanticsV1
 
 /-!
 # ProofForgeV2.Targets.Near — public façade
@@ -17,8 +18,9 @@ Plan types and Semantic→Plan lowering live in `LowerSemanticV1`
 `semanticV1Of` / `validateSemanticProgramV1` comments on the carrier path).
 Plan canonicity lives in `ValidatePlanV1`. IR emission and
 `irFromCapability`/`buildFromCapability` live in `EmitIRV1`.
-The first bounded target recipe execution semantics lives in
-`MethodSemanticsV1`; it is not WAT/Wasm/NEAR protocol semantics.
+The first bounded target recipe and typed-WAT execution semantics live in
+`MethodSemanticsV1` and `WATSemanticsV1`; they are not Wasm binary or complete
+NEAR protocol semantics.
 `FinalizeV1` remains a separate submodule.
 -/
 
@@ -199,6 +201,66 @@ theorem capabilityEntryStaticEmissionV1_executeReadOnlyMethodV1
     executeReadOnlyMethodV1_of_nullaryUInt64ViewStaticAlignment data
       plan.storage binding viewName method markerRegion fieldRegion methodIR
       logical decodedValues valueBytes storage halignment hstorage hvalueSize
+
+/-- The selected production method fragment is rendered from the exact typed
+    WAT sequence whose bounded execution returns the represented UInt64 bytes.
+    The full base WAT remains tied to the sole production emitter. This stops
+    before generic WAT validation, Wasm binary translation, or NEAR runtime
+    semantics. -/
+theorem capabilityEntryStaticEmissionV1_executeReadOnlyWATV1
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (binding : UInt64StateBindingV1)
+    (viewName : String)
+    (method : Method)
+    (markerRegion fieldRegion : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (logical : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (decodedValues : Array ByteArray)
+    (valueBytes : ByteArray)
+    (storage : StorageObservationV1)
+    (hchain :
+      CapabilityEntryStaticEmissionV1 capability program data plan ir files
+        entryIndex binding viewName method markerRegion fieldRegion methodIR
+          watFile abiFile watMethodText abiMethodText)
+    (hstorage :
+      InitializedUInt64StorageRelV1 data plan.storage binding logical
+        decodedValues valueBytes storage)
+    (hvalueSize : valueBytes.size = 8) :
+    ReadOnlyMethodWATEmissionV1 ir (entryIndex + 1) methodIR
+      watFile.contents watMethodText
+      (nullaryUInt64ViewWATV1 ir.registers ir.memory markerRegion
+        plan.storage.markerValue fieldRegion) ∧
+    executeReadOnlyWATV1 1
+      (nullaryUInt64ViewWATV1 ir.registers ir.memory markerRegion
+        plan.storage.markerValue fieldRegion)
+      ByteArray.empty storage = .returned (some valueBytes) := by
+  rcases hchain.staticAlignment with ⟨_, _, _, _, _, halignment⟩
+  have hlower :
+      lowerReadOnlyWATOperationsV1 ir.registers ir.memory
+          methodIR.operations =
+        some (nullaryUInt64ViewWATV1 ir.registers ir.memory markerRegion
+          plan.storage.markerValue fieldRegion) := by
+    rw [halignment.2.2.2.2.2.2]
+    exact lowerReadOnlyWATOperationsV1_nullaryUInt64View ir.registers
+      ir.memory markerRegion fieldRegion plan.storage.markerValue
+  refine ⟨
+    readOnlyMethodWATEmissionV1_of_methodWATEmissionV1 ir (entryIndex + 1)
+      methodIR watFile.contents watMethodText _
+      hchain.baseEmission.watMethodEmission hlower,
+    ?_
+  ⟩
+  exact executeReadOnlyWATV1_of_nullaryUInt64ViewStaticAlignment data
+    plan.storage binding viewName method markerRegion fieldRegion methodIR
+    ir.registers ir.memory logical decodedValues valueBytes storage halignment
+    hstorage hvalueSize
 
 instance : Materializer .near where
   Plan := Plan

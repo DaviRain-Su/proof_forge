@@ -1,5 +1,5 @@
 import Examples.VerifiedVaultPF
-import ProofForgeV2.Targets.Near.MethodSemanticsV1
+import ProofForgeV2.Targets.Near.WATSemanticsV1
 
 namespace Tests.Materialization.NearStaticAlignmentV1
 
@@ -175,6 +175,12 @@ private def observedStorage : StorageObservationV1 := {
     else none
 }
 
+private def markerOnlyStorage : StorageObservationV1 := {
+  lookup := fun key =>
+    if key == layoutMarkerKey then some (encodeU64le storage.markerValue)
+    else none
+}
+
 private def markerRegion : KeyRegion := {
   key := layoutMarkerKey
   offset := 0
@@ -291,6 +297,23 @@ private def statusIR : MethodIR := {
   ]
 }
 
+private def statusMemory : MemoryLayout := {
+  minPages := 1
+  inputOffset := 1024
+  inputCapacity := 1024
+  depositOffset := 2048
+  valueOffset := 4096
+}
+
+private def statusTypedWAT : Array ReadOnlyWATInstructionV1 :=
+  nullaryUInt64ViewWATV1 canonicalRegisters statusMemory markerRegion
+    storage.markerValue reservesRegion
+
+private theorem statusTypedWATLowering :
+    lowerReadOnlyWATOperationsV1 canonicalRegisters statusMemory
+      statusIR.operations = some statusTypedWAT := by
+  rfl
+
 private def statusMethodShape : NullaryUInt64ViewMethodShapeV1 := {
   viewName := "status"
   physicalFieldIndex := 0
@@ -357,6 +380,14 @@ private theorem statusTargetExecution :
     logicalTen #[tenBytes, tenBytes] tenBytes observedStorage statusAlignment
     statusStorageRel tenBytes_size
 
+private theorem statusTypedWATExecution :
+    executeReadOnlyWATV1 1 statusTypedWAT ByteArray.empty observedStorage =
+      .returned (some tenBytes) :=
+  executeReadOnlyWATV1_of_nullaryUInt64ViewStaticAlignment data storage
+    reservesBinding "status" statusMethod markerRegion reservesRegion statusIR
+    canonicalRegisters statusMemory logicalTen #[tenBytes, tenBytes] tenBytes
+    observedStorage statusAlignment statusStorageRel tenBytes_size
+
 example : UInt64StateBindingRelV1 data storage reservesBinding :=
   reservesBinding_rel
 
@@ -370,6 +401,39 @@ example :
       successfulObservation := by
   unfold observeReadOnlyMethodV1
   rw [statusTargetExecution]
+  rfl
+
+example :
+    lowerReadOnlyWATOperationsV1 canonicalRegisters statusMemory
+      statusIR.operations = some statusTypedWAT :=
+  statusTypedWATLowering
+
+example :
+    executeReadOnlyWATV1 1 statusTypedWAT ByteArray.empty observedStorage =
+      .returned (some tenBytes) :=
+  statusTypedWATExecution
+
+example :
+    observeReadOnlyWATV1 "status" 1 statusTypedWAT ByteArray.empty
+      observedStorage = successfulObservation := by
+  unfold observeReadOnlyWATV1
+  rw [statusTypedWATExecution]
+  rfl
+
+example :
+    executeReadOnlyWATV1 1 statusTypedWAT (encodeU64le 1) observedStorage =
+      .trapped .trap := by
+  rfl
+
+example :
+    executeReadOnlyWATV1 1 statusTypedWAT ByteArray.empty markerOnlyStorage =
+      .trapped .trap := by
+  rfl
+
+example :
+    executeReadOnlyWATV1 0
+      #[.readRegister canonicalRegisters.storage statusMemory.valueOffset]
+      ByteArray.empty observedStorage = .trapped .registerMissing := by
   rfl
 
 example :
@@ -540,6 +604,34 @@ example
     (vault : ReferenceVaultSeedV1) :
     ∃ admitted : AdmittedReferenceSliceV1,
       admitReferenceProgramSliceV1 subjectProgram = .ok admitted ∧
+        UInt64ReturnedObservationRelV1 data 0 logicalTen
+          (stepReferenceSliceV1 admitted logicalTen {
+            callableId := 3
+            args := #[]
+            context := #[]
+          } #[] vault)
+          tenBytes
+          (observeReadOnlyWATV1 "status" 1 statusTypedWAT ByteArray.empty
+            observedStorage) := by
+  obtain ⟨admitted, hadmit, hadmittedData, hgate⟩ :=
+    verifiedVaultStatusReady
+  refine ⟨admitted, hadmit, ?_⟩
+  exact
+    uint64ReturnedObservationRelV1_of_readyViewLoad_and_WATExecution
+      admitted logicalTen {
+        callableId := 3
+        args := #[]
+        context := #[]
+      } data #[tenBytes, tenBytes] tenBytes 0 0 "reserves" 3 "status" #[]
+      vault storage reservesBinding statusMethod markerRegion reservesRegion
+      statusIR canonicalRegisters statusMemory observedStorage (by rfl) (by rfl)
+      (by rfl) hadmittedData (by rfl) (by rfl) (by rfl)
+      (by simpa [statusCallable] using hgate) statusAlignment statusStorageRel
+
+example
+    (vault : ReferenceVaultSeedV1) :
+    ∃ admitted : AdmittedReferenceSliceV1,
+      admitReferenceProgramSliceV1 subjectProgram = .ok admitted ∧
         ¬ UInt64ReturnedObservationRelV1 data 0 logicalTen
           (stepReferenceSliceV1 admitted logicalTen {
             callableId := 3
@@ -649,6 +741,11 @@ private def forgedStatusIR : MethodIR := {
 }
 
 example : recognizeNullaryUInt64ViewMethodIRV1 forgedStatusIR = none := by
+  rfl
+
+example :
+    lowerReadOnlyWATOperationsV1 canonicalRegisters statusMemory
+      forgedStatusIR.operations = none := by
   rfl
 
 example :

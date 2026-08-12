@@ -1045,16 +1045,45 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                                                   baseFiles 2 statusBinding "status"
                                                   statusMethod alignedMarkerRegion
                                                   alignedReservesRegion statusIR watFile
-                                                  abiFile watMethodText abiMethodText :=
-                                            capabilityEntryStaticEmissionV1_of_graphs
-                                              capability semantic semanticData plan ir
-                                              baseFiles 2 statusBinding "status"
-                                              statusMethod alignedMarkerRegion
-                                              alignedReservesRegion statusIR watFile
-                                              abiFile (by rfl) hplanCapability
-                                              hirCapability hbuildCapability
-                                              hstatusStaticAlignment hstatus hstatusIR
-                                              hwatFile habiFile
+                                                  abiFile watMethodText abiMethodText ∧
+                                                ReadOnlyMethodWATEmissionV1 ir 3 statusIR
+                                                  watFile.contents watMethodText
+                                                  (nullaryUInt64ViewWATV1 ir.registers
+                                                    ir.memory alignedMarkerRegion
+                                                    plan.storage.markerValue
+                                                    alignedReservesRegion) := by
+                                            obtain ⟨watMethodText, abiMethodText,
+                                                hstatusCapabilityChain⟩ :=
+                                              capabilityEntryStaticEmissionV1_of_graphs
+                                                capability semantic semanticData plan ir
+                                                baseFiles 2 statusBinding "status"
+                                                statusMethod alignedMarkerRegion
+                                                alignedReservesRegion statusIR watFile
+                                                abiFile (by rfl) hplanCapability
+                                                hirCapability hbuildCapability
+                                                hstatusStaticAlignment hstatus hstatusIR
+                                                hwatFile habiFile
+                                            have hstatusTypedLowering :
+                                                lowerReadOnlyWATOperationsV1 ir.registers
+                                                    ir.memory statusIR.operations =
+                                                  some (nullaryUInt64ViewWATV1 ir.registers
+                                                    ir.memory alignedMarkerRegion
+                                                    plan.storage.markerValue
+                                                    alignedReservesRegion) := by
+                                              have halignment :=
+                                                hstatusStaticAlignment.2.2.2.2.2
+                                              rw [halignment.2.2.2.2.2.2]
+                                              exact
+                                                lowerReadOnlyWATOperationsV1_nullaryUInt64View
+                                                  ir.registers ir.memory
+                                                  alignedMarkerRegion alignedReservesRegion
+                                                  plan.storage.markerValue
+                                            exact ⟨watMethodText, abiMethodText,
+                                              hstatusCapabilityChain,
+                                              readOnlyMethodWATEmissionV1_of_methodWATEmissionV1
+                                                ir 3 statusIR watFile.contents watMethodText _
+                                                hstatusCapabilityChain.baseEmission.watMethodEmission
+                                                hstatusTypedLowering⟩
                                           have _ :
                                               ∀ watMethodText abiMethodText,
                                                 ¬ CapabilityEntryStaticEmissionV1

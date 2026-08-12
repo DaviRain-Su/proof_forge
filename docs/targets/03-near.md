@@ -205,6 +205,20 @@ Phase 1：实现
   wrong-input trap、store unsupported 与 Reference→MethodIR relation。该 machine解释 target IR，
   不重建 DSL callable/arithmetic/effect规则，因而不是第二套业务 semantics；本切只称
   **MethodIR-refined**，不证明 renderer/WAT/Wasm/NEAR。
+- **`status` bounded typed-WAT refinement（Phase 7 第十五切）**：
+  `ReadOnlyWATV1` 定义 status recipe所需的 typed i64 expression/host-call/instruction 子集及其
+  sole text renderer；production `renderOperation` 对 exact `checkInputLen 0`、`requireLayout`、
+  UInt64 `loadState`、8-byte `setReturnData` 直接消费该 typed syntax，完整命中该子集的方法则由
+  `renderReadOnlyWATMethodV1` 生成。unsupported Operation仍走原 production renderer，不存在第二份
+  等价 string renderer。`ReadOnlyMethodWATEmissionV1` 把 typed lowering、exact method text与已有
+  complete production WAT graph绑定；真实 VerifiedVault production method index 3 已实例化该关系。
+  `WATSemanticsV1` 为这个有限子集定义 fail-closed machine，并证明 initialized marker/KV 下 exact
+  typed sequence返回原 UInt64 bytes、与 MethodIR返回一致，以及 sole Reference ready/step到
+  typed-WAT-derived observation 的 returned relation。fixture固定 exact lowering/execution/observation、
+  non-empty input trap、missing field/register trap、forged MethodIR suffix lowering拒绝。该语义把 scratch memory建模为
+  recipe触及 offset 上的 exact byte block，`storageRead` 的 `KeyRegion` 是 production data-segment
+  proof annotation；尚未建模 arbitrary overlapping linear memory或完整 host ABI。因此本切只能称
+  **bounded typed-WAT-refined slice**，不能称 textual WAT、Wasm binary或 NEAR artifact 已 refinement。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -277,9 +291,11 @@ validation/admission/initial state/lookup/
 empty-context ready 已无外部 context premise闭合；successful passive relation 的 canonical bytes、
 width 与 exact Reference outcome 现由 generic theorem 自动推出；真实 sandbox query 的剩余
 target success/return/log/promise/storage facts已由 strict adapter按同字段工程契约采集和检查。
-`MethodSemanticsV1` 已对 status exact 四操作建立 kernel target recipe execution，并把 target-derived
-observation 与 sole Reference step连接；但它尚未证明 renderer实现 IR，也没有一般 lowering、一般
-Operation semantics、JSON/WAT semantics、IR→Wasm/NEAR simulation 或 WAT↔ABI consistency theorem。
+`MethodSemanticsV1` 已对 status exact 四操作建立 kernel target recipe execution；随后 bounded typed-WAT
+子集已由 production renderer直接消费，并把 exact typed lowering/emission/execution 与 sole Reference
+step连接。该结果仍不是一般 Operation/WAT semantics：尚无 generic WAT parser/validator、text→typed
+identity theorem、arbitrary linear memory、完整 NEAR host ABI、locked `wat2wasm` correctness、Wasm binary
+execution、IR→Wasm/NEAR simulation 或 WAT↔ABI consistency theorem。
 当前仍没有 finalized Wasm/disk identity 或 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
 覆盖 corrupt storage 或 gas/profile 的通用 corpus 仍不完整；StateCell
 `negative_corpus` 已 pin unknown method / exactInputLen 类 bad args + state-hold

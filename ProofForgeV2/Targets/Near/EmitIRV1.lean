@@ -1,5 +1,6 @@
 import ProofForgeV2.Targets.Near.ValidatePlanV1
 import ProofForgeV2.Targets.Near.PfAssetsCatalogV1
+import ProofForgeV2.Targets.Near.ReadOnlyWATV1
 
 /-!
 # Near EmitIRV1 — Plan → IR emission
@@ -165,6 +166,58 @@ structure MethodIR where
   tempCount : Nat
   operations : Array Operation
   deriving BEq, Inhabited, Repr
+
+/-- Lower exactly the operations covered by the first typed WAT slice. This is
+    consumed by the production renderer below; unsupported operations return
+    `none` rather than acquiring a parallel rendering path. -/
+def lowerReadOnlyWATOperationV1
+    (registers : RegisterLayout)
+    (memory : MemoryLayout) :
+    Operation → Option (Array ReadOnlyWATInstructionV1)
+  | .checkInputLen 0 => some (checkEmptyInputWATV1 registers)
+  | .requireLayout marker value =>
+      some (requireLayoutWATV1 registers memory marker value)
+  | .loadState destination field =>
+      some (loadUInt64StateWATV1 registers memory destination field)
+  | .setReturnData 8 source => some (returnUInt64WATV1 memory source)
+  | _ => none
+
+/-- Source-order lowering for a method wholly covered by the bounded typed WAT
+    subset. -/
+def lowerReadOnlyWATOperationsListV1
+    (registers : RegisterLayout)
+    (memory : MemoryLayout) :
+    List Operation → Option (List ReadOnlyWATInstructionV1)
+  | [] => some []
+  | operation :: remaining => do
+      let head ← lowerReadOnlyWATOperationV1 registers memory operation
+      let tail ← lowerReadOnlyWATOperationsListV1 registers memory remaining
+      return head.toList ++ tail
+
+/-- Array wrapper used by the production method renderer and refinement
+    theorems. -/
+def lowerReadOnlyWATOperationsV1
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (operations : Array Operation) :
+    Option (Array ReadOnlyWATInstructionV1) :=
+  (lowerReadOnlyWATOperationsListV1 registers memory operations.toList).map
+    List.toArray
+
+/-- The exact four-operation MethodIR recipe lowers to the typed WAT sequence
+    used by the production renderer. -/
+theorem lowerReadOnlyWATOperationsV1_nullaryUInt64View
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field : KeyRegion)
+    (markerValue : UInt64) :
+    lowerReadOnlyWATOperationsV1 registers memory #[
+      .checkInputLen 0,
+      .requireLayout marker markerValue,
+      .loadState 0 field,
+      .setReturnData 8 0
+    ] = some (nullaryUInt64ViewWATV1 registers memory marker markerValue field) := by
+  rfl
 
 /-- Pure-function recipe: params occupy temps `0..paramCount-1`; body ops use
     `returnValue` (Wasm `return`) rather than host `value_return`. -/
@@ -1717,10 +1770,12 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
     (fnNames : Array String) (promiseStr : Array (String × Nat))
     (indent : String) : Operation → String
   | .checkInputLen bytes =>
-      s!"{indent}(call $pf_input (i64.const {registers.input}))\n" ++
-        s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.input})) (i64.const {bytes})) (then unreachable))\n" ++
-        (if bytes == 0 then "" else
-          s!"{indent}(call $pf_read_register (i64.const {registers.input}) (i64.const {memory.inputOffset}))\n")
+      if bytes = 0 then
+        renderReadOnlyWATInstructionsV1 indent (checkEmptyInputWATV1 registers)
+      else
+        s!"{indent}(call $pf_input (i64.const {registers.input}))\n" ++
+          s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.input})) (i64.const {bytes})) (then unreachable))\n" ++
+          s!"{indent}(call $pf_read_register (i64.const {registers.input}) (i64.const {memory.inputOffset}))\n"
   | .requireZeroAttachedDeposit =>
       s!"{indent}(call $pf_attached_deposit (i64.const {memory.depositOffset}))\n" ++
         s!"{indent}(if (i64.ne (i64.load (i32.const {memory.depositOffset})) (i64.const 0)) (then unreachable))\n" ++
@@ -1734,10 +1789,8 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
   | .requireLayoutAbsent marker =>
       s!"{indent}(if (i64.ne (call $pf_storage_read (i64.const {marker.length}) (i64.const {marker.offset}) (i64.const {registers.storage})) (i64.const 0)) (then unreachable))\n"
   | .requireLayout marker value =>
-      s!"{indent}(if (i64.ne (call $pf_storage_read (i64.const {marker.length}) (i64.const {marker.offset}) (i64.const {registers.storage})) (i64.const 1)) (then unreachable))\n" ++
-        s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.storage})) (i64.const 8)) (then unreachable))\n" ++
-        s!"{indent}(call $pf_read_register (i64.const {registers.storage}) (i64.const {memory.valueOffset}))\n" ++
-        s!"{indent}(if (i64.ne (i64.load (i32.const {memory.valueOffset})) (i64.const {value.toNat})) (then unreachable))\n"
+      renderReadOnlyWATInstructionsV1 indent
+        (requireLayoutWATV1 registers memory marker value)
   | .zeroState field =>
       renderZeroLe indent memory.valueOffset 8 ++
         s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {field.length}) (i64.const {field.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 0)) (then unreachable))\n"
@@ -1842,7 +1895,8 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
       else
         renderLoadLeToI64 indent destination (memory.inputOffset + inputOffset) (bitWidth / 8)
   | .loadState destination field =>
-      renderReadKey registers memory indent destination field 8
+      renderReadOnlyWATInstructionsV1 indent
+        (loadUInt64StateWATV1 registers memory destination field)
   | .narrowLoadState bitWidth destination field =>
       renderReadKey registers memory indent destination field (bitWidth / 8)
   | .checkedAdd destination lhs rhs =>
@@ -2376,7 +2430,10 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
       s!"{indent}(i64.store (i32.const {memory.valueOffset}) (i64.const {value.toNat}))\n" ++
         s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {marker.length}) (i64.const {marker.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 0)) (then unreachable))\n"
   | .setReturnData byteLen value =>
-      if byteLen > 8 then
+      if byteLen = 8 then
+        renderReadOnlyWATInstructionsV1 indent
+          (returnUInt64WATV1 memory value)
+      else if byteLen > 8 then
         Id.run do
           let nLimbs := byteLen / 8
           let mut out := ""
@@ -2595,7 +2652,11 @@ private def renderMethod (ir : IR) (promiseStr : Array (String × Nat))
   let operations := String.intercalate "" <| method.operations.toList.map
     (renderOperation ir.registers ir.memory
       ir.sourcePlan.events ir.sourcePlan.errors fnNames promiseStr "    ")
-  s!"  (func (export \"{method.name}\"){locals}\n" ++ operations ++ "  )\n"
+  match lowerReadOnlyWATOperationsV1 ir.registers ir.memory method.operations with
+  | some instructions =>
+      renderReadOnlyWATMethodV1 method.name method.tempCount instructions
+  | none =>
+      s!"  (func (export \"{method.name}\"){locals}\n" ++ operations ++ "  )\n"
 
 /-- PureFn WAT: params occupy the first local indices (`$t0..`), extra temps
     follow, and the body ends with Wasm `return` of the result value.
@@ -2717,6 +2778,45 @@ def MethodWATEmissionV1
       String.intercalate ""
         ((ir.methods.toList.drop (methodIndex + 1)).map render) ∧
   ∃ before after, watText = before ++ methodsText ++ after
+
+/-- Production WAT emission whose selected method is wholly rendered from the
+    bounded typed WAT subset. The complete base WAT remains tied to the sole
+    private emitter through `MethodWATEmissionV1`. -/
+def ReadOnlyMethodWATEmissionV1
+    (ir : IR)
+    (methodIndex : Nat)
+    (method : MethodIR)
+    (watText methodText : String)
+    (instructions : Array ReadOnlyWATInstructionV1) : Prop :=
+  MethodWATEmissionV1 ir methodIndex method watText methodText ∧
+  lowerReadOnlyWATOperationsV1 ir.registers ir.memory method.operations =
+    some instructions ∧
+  methodText =
+    renderReadOnlyWATMethodV1 method.name method.tempCount instructions
+
+/-- A successful bounded lowering upgrades the existing exact production text
+    graph to typed WAT emission. -/
+theorem readOnlyMethodWATEmissionV1_of_methodWATEmissionV1
+    (ir : IR)
+    (methodIndex : Nat)
+    (method : MethodIR)
+    (watText methodText : String)
+    (instructions : Array ReadOnlyWATInstructionV1)
+    (hemission :
+      MethodWATEmissionV1 ir methodIndex method watText methodText)
+    (hlower :
+      lowerReadOnlyWATOperationsV1 ir.registers ir.memory method.operations =
+        some instructions) :
+    ReadOnlyMethodWATEmissionV1 ir methodIndex method watText methodText
+      instructions := by
+  refine ⟨hemission, hlower, ?_⟩
+  calc
+    methodText =
+        renderMethod ir
+          (layoutPromiseStrings ir.memory (collectPromiseStrings ir)) method :=
+      hemission.2.1
+    _ = renderReadOnlyWATMethodV1 method.name method.tempCount instructions := by
+      simp [renderMethod, hlower]
 
 private def renderMode : MethodMode → String
   | .initialize => "initialize"
