@@ -736,6 +736,25 @@ fn collect_deps(target: &str) -> Vec<Dep> {
             });
         }
         "ton" => {
+            match crate::targets::ton::local_run::resolve_ton_run_script() {
+                Ok(p) => deps.push(Dep {
+                    id: "ton-run-script",
+                    status: "ok",
+                    summary: "pf_ton_run.sh for pf run -t ton one-shot @ton/sandbox".into(),
+                    install: vec![],
+                    path: Some(p.display().to_string()),
+                }),
+                Err(_) => deps.push(Dep {
+                    id: "ton-run-script",
+                    status: "info",
+                    summary: "pf run -t ton needs scripts/pf_ton_run.sh (bundle/monorepo)".into(),
+                    install: vec![
+                        "# monorepo: scripts/pf_ton_run.sh".into(),
+                        "# or use: pf test -t ton".into(),
+                    ],
+                    path: None,
+                }),
+            }
             deps.push(Dep {
                 id: "ton-broadcast",
                 status: "info",
@@ -743,6 +762,7 @@ fn collect_deps(target: &str) -> Vec<Dep> {
                 install: vec![
                     "pf deploy -t ton".into(),
                     "pf test -t ton   # @ton/sandbox corpus when tools present".into(),
+                    "pf run -t ton -- get  # one-shot sandbox".into(),
                 ],
                 path: None,
             });
@@ -962,6 +982,8 @@ fn next_commands(target: &str) -> Vec<String> {
             "pf new cell --target ton && cd cell".into(),
             "pf build                        # → Tolk/BoC + manifest".into(),
             "pf test                         # @ton/sandbox corpus; skip-clean if tools missing".into(),
+            "pf run -- get                   # one-shot @ton/sandbox (after build)".into(),
+            "pf run -- increment 5           # mutate path".into(),
             "pf deploy                       # save-only; --broadcast refused".into(),
         ],
         "noir" => vec![

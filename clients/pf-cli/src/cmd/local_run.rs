@@ -124,11 +124,29 @@ pub fn run(
         });
     }
     if tid == targets::TargetId::Ton {
-        return Err(PfError::NotImplemented(
-            "ton: use `pf test -t ton` or `proof-forge-next local --target ton`; \
-             `pf run` is Aleo/Psy in v0; sync call FC; schedule=createMessage"
-                .into(),
-        ));
+        let dir = project.resolve_artifact_dir(&target, artifact_cli, None);
+        let outcome = targets::ton::local_run::run_local(&dir, call_args)?;
+        let mut ok = PfOk::new("run");
+        ok.target = Some(target.clone());
+        ok.artifact_dir = Some(dir.display().to_string());
+        ok.extra = Some(serde_json::json!({
+            "lane": "ton-sandbox-oneshot",
+            "method": call_args.first(),
+            "stdout": outcome.stdout.trim(),
+            "skipped": outcome.skipped,
+            "script": outcome.script_path.display().to_string(),
+            "note": "engineering @ton/sandbox only; not mainnet; sync call FC; schedule=createMessage",
+        }));
+        return emit(ok, json, || {
+            if outcome.skipped {
+                println!("ton run skipped (tools missing):\n{}", outcome.stderr);
+            } else {
+                print!("{}", outcome.stdout);
+                if verbose {
+                    eprint!("{}", outcome.stderr);
+                }
+            }
+        });
     }
     if tid == targets::TargetId::Noir {
         return Err(PfError::NotImplemented(

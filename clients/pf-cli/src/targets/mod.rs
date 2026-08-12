@@ -72,7 +72,7 @@ pub fn capability_note(target: &str) -> &'static str {
             "build Wasm + `pf test` (cosmwasm-vm mock; artifact fast-path or corpus) + `pf run` (one-shot cosmwasm-vm mock) + `pf deploy` (save-only; --broadcast refused) + `pf scaffold-ui --template cosmwasm-dapp`"
         }
         TargetId::Ton => {
-            "build Tolk/BoC + `pf test` (@ton/sandbox corpus; skip-clean if tools missing) + `pf deploy` (save-only; --broadcast refused)"
+            "build Tolk/BoC + `pf test` (@ton/sandbox corpus) + `pf run` (one-shot sandbox) + `pf deploy` (save-only; --broadcast refused)"
         }
         TargetId::Noir => {
             "build Noir relations/ACIR + `pf test` (artifact smoke; no nargo re-run) + `pf deploy` (save-only circuit package; --broadcast refused)"
@@ -103,6 +103,7 @@ mod tests {
         assert!(capability_note("cosmwasm").contains("pf test"));
         assert!(capability_note("cosmwasm").contains("cosmwasm-dapp"));
         assert!(capability_note("ton").contains("pf test"));
+        assert!(capability_note("ton").contains("pf run"));
         assert!(capability_note("ton").contains("save-only"));
         assert!(capability_note("noir").contains("pf test"));
         assert!(capability_note("noir").contains("broadcast refused"));

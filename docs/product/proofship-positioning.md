@@ -9,6 +9,9 @@ normative: false
 
 # ProofShip — 定位与品牌层级
 
+> **应用代码仓库**：[`https://github.com/DaviRain-Su/proofship`](https://github.com/DaviRain-Su/proofship)  
+> 本文件仍在 **proof_forge** monorepo 的 `docs/product/`，作为品牌/定位权威；实现不在本树。
+
 > **性质**：黑客松/赛期产品定位卡（`normative: false`）。  
 > **不**改写 accepted PRD / Architecture / Technical Spec；**不**关闭 formal TASK；  
 > **不**声称 hermetic / Stage-0 / 链上字节码已形式证明。  

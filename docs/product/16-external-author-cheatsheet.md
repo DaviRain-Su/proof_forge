@@ -148,12 +148,26 @@ Playbooks: [03-hello-dapp-agent-playbook.md](03-hello-dapp-agent-playbook.md) ·
 
 ---
 
-## TON / Noir / Quint (no interactive `pf run` yet)
+## TON
 
 ```bash
-pf build -t ton|noir|quint
-pf test -t ton|noir|quint            # sandbox / artifact smoke
-pf deploy -t ton|noir|quint          # save-only; --broadcast refused
+pf -y setup --target ton
+pf new cell --target ton && cd cell
+pf build
+pf test                              # @ton/sandbox corpus; skip-clean if tools missing
+pf run -- get                        # one-shot sandbox (auto-init 0)
+pf run -- increment 5
+pf deploy                            # save-only; --broadcast refused
+```
+
+Needs monorepo `runtime-tests/ton` + node ≥18 + `npm install` (first run).
+
+## Noir / Quint (no interactive `pf run` yet)
+
+```bash
+pf build -t noir|quint
+pf test -t noir|quint                # artifact / source smoke
+pf deploy -t noir|quint              # save-only; --broadcast refused
 # pf run → NotImplemented; use pf test
 ```
 
