@@ -321,6 +321,7 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
   | .timestamp => "timestamp()"
   | .blockNumber => "number()"
   | .chainId => "chainid()"
+  | .callValue => "callvalue()"
   | .selfBalance => "selfbalance()"
   | .callerPrincipalWord wordIndex =>
       -- Nested form: assemble one LE body word of ADR-0025
@@ -548,6 +549,13 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       -- range guard (no silent truncation of values > 2^64-1).
       let name := s!"expr{next}"
       { code := s!"{indent}let {name} := chainid()\n" ++
+          s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
+        value := name, next := next + 1 }
+  | .callValue =>
+      -- ADR-0031 S4: attached value via CALLVALUE / Yul `callvalue()`.
+      -- Wei is UInt256; reject values above UInt64 (no silent truncation).
+      let name := s!"expr{next}"
+      { code := s!"{indent}let {name} := callvalue()\n" ++
           s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
         value := name, next := next + 1 }
   | .selfBalance =>

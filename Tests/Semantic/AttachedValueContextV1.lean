@@ -2,9 +2,10 @@
   Tests.Semantic.AttachedValueContextV1 — ADR-0031 S4 shared-core pin.
 
   Source `context.attachedValue` → UInt64 ContextRead through Normalize +
-  public `step` + OutcomeWire. Target Plans stay fail closed (not opened).
+  public `step` + OutcomeWire. Shared-core pin only; EVM Plan/Yul is
+  SYS-S4-EVM (`Tests.Materialization.EvmSmoke`). Other targets stay FC.
 
-  Not formal / not CALLVALUE materialization.
+  Not formal / not Anvil.
 -/
 import ProofForgeV2.Core.RequirementIdsV1
 import ProofForgeV2.Language.Loader

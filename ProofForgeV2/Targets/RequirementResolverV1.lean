@@ -606,6 +606,7 @@ def inspectResolveRequestsV1
         item.id == blockHeightContextRequirementIdV1 ||
         item.id == chainIdContextRequirementIdV1 ||
         item.id == selfContextRequirementIdV1 ||
+        item.id == attachedValueContextRequirementIdV1 ||
         item.id == commitmentDisclosureRequirementIdV1 then
       let expected ←
         if item.id == unixTimeSecondsContextRequirementIdV1 then
@@ -638,6 +639,12 @@ def inspectResolveRequestsV1
           | .error e =>
               throw <| .unsupportedRequirementV1
                 s!"ContextRead self requirement row unavailable: {e}"
+        else if item.id == attachedValueContextRequirementIdV1 then
+          match attachedValueContextRequirementV1 with
+          | .ok r => pure r
+          | .error e =>
+              throw <| .unsupportedRequirementV1
+                s!"ContextRead attached-value requirement row unavailable: {e}"
         else
           match commitmentDisclosureRequirementV1 with
           | .ok r => pure r

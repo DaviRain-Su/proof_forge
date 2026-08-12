@@ -3323,6 +3323,44 @@ private unsafe def testContextReadFailClosedBoundary : IO Unit := do
         "EVM blockHeight ContextRead must lower to the blockNumber expression"
   | .error e =>
       throw <| IO.userError s!"EVM blockHeight ContextRead must admit (ADR-0031 S2), got {e.render}"
+  -- ADR-0031 S4: attachedValue → callValue; entry becomes payable.
+  let valueSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CtxValue where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry collect() : UInt64 do\n" ++
+    "    return context.attachedValue\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return context.attachedValue\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return pad\n"
+  let valueSrc ← liftResult "load CtxValue" (← session.selectProgramV1
+    valueSource "<evm-ctx-value>" "Tests.EvmCtxValue" none)
+  let valueCompiled ← liftResult "compile CtxValue" <|
+    Compiler.compileValidatedSourceV1 valueSrc
+  match planEvm valueCompiled with
+  | .ok p =>
+      expect (p.entries.any fun e =>
+        e.name == "collect" && e.mutability == .payable &&
+          e.body.any fun s =>
+            match s with
+            | .returnValue .callValue => true
+            | _ => false)
+        "EVM attachedValue entry must be payable and lower to callValue"
+      expect (p.entries.any fun e =>
+        e.name == "peek" && e.mutability == .view &&
+          e.body.any fun s =>
+            match s with
+            | .returnValue .callValue => true
+            | _ => false)
+        "EVM attachedValue view must stay view and lower to callValue"
+      expect (p.entries.any fun e => e.name == "get" && e.mutability == .view)
+        "EVM get() that does not read attachedValue stays view"
+  | .error e =>
+      throw <| IO.userError s!"EVM attachedValue ContextRead must admit (ADR-0031 S4), got {e.render}"
   -- context.caller → Principal aggregate (ADR-0025); compare returns Bool.
   let callerSource :=
     "import ProofForgeV2\n" ++
@@ -4008,6 +4046,62 @@ private unsafe def testContextReadTimestampEvm : IO Unit := do
       | .ok _ =>
           throw <| IO.userError
             "EVM multi-word Principal return of context.caller must fail closed"
+  -- ADR-0031 S4: attachedValue → callvalue() + payable collect + view peek.
+  let vSrcText :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ValueBox where\n" ++
+    "  state paid : UInt64\n" ++
+    "  init() do\n" ++
+    "    paid := 0\n" ++
+    "  entry collect() : UInt64 do\n" ++
+    "    paid := context.attachedValue\n" ++
+    "    return paid\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return context.attachedValue\n" ++
+    "  view last() : UInt64 do\n" ++
+    "    return paid\n"
+  let vSrc ← match ← session.selectProgramV1
+      vSrcText "<evm-ctx-value-box>" "Tests.EvmCtxValueBox" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"CtxValueBox select: {e.render}"
+  let vCompiled ← match Compiler.compileValidatedSourceV1 vSrc with
+    | .error e => throw <| IO.userError s!"CtxValueBox must compile: {e.render}"
+    | .ok c => pure c
+  let vPlan ← match planEvm vCompiled with
+    | .error e => throw <| IO.userError s!"CtxValueBox must produce a plan, got {e.render}"
+    | .ok p => pure p
+  expect (vPlan.entries.any fun e => e.name == "collect" && e.mutability == .payable)
+    "ValueBox.collect must be payable"
+  expect (vPlan.entries.any fun e => e.name == "peek" && e.mutability == .view)
+    "ValueBox.peek must stay view"
+  let hasCallValueStore := vPlan.entries.any fun e =>
+    e.body.any fun s =>
+      match s with
+      | .store op =>
+          match op.value with
+          | .callValue => true
+          | _ => false
+      | _ => false
+  expect hasCallValueStore "ValueBox: plan must contain a callValue store"
+  let vOut ← liftResult "materialize ValueBox" <|
+    materializeSelected TargetId.evm vCompiled
+  let some vYul := (MaterializedArtifactsV1.filesOf vOut).find?
+      (·.path == "ValueBox.yul") |
+    throw <| IO.userError "ValueBox: missing ValueBox.yul"
+  expect (vYul.contents.contains "callvalue()")
+    "ValueBox Yul must contain the callvalue() opcode"
+  expect (vYul.contents.contains "0xffffffffffffffff")
+    "ValueBox Yul must keep the UInt64 range guard"
+  let some vAbi := (MaterializedArtifactsV1.filesOf vOut).find?
+      (·.path == "ValueBox.abi.json") |
+    throw <| IO.userError "ValueBox: missing ValueBox.abi.json"
+  expect (vAbi.contents.contains "\"name\":\"collect\"" &&
+      vAbi.contents.contains "\"stateMutability\":\"payable\"")
+    "ValueBox ABI collect must be payable"
+  expect (vAbi.contents.contains "\"name\":\"peek\"" &&
+      vAbi.contents.contains "\"stateMutability\":\"view\"")
+    "ValueBox ABI peek must stay view"
 
 /-- BL-18: Bytes / Map / Array UInt64 9 / nested Array stay fail-closed. -/
 private unsafe def testAnonymousReturnFailClosedBoundaries : IO Unit := do

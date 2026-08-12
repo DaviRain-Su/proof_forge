@@ -228,6 +228,11 @@ inductive Expr where
       `context.chainId` ContextRead; UInt64-typed with the same range
       guard as `timestamp`/`number` (no silent truncation of >UInt64). -/
   | chainId
+  /-- ADR-0031 S4: attached native value (EVM `callvalue()` / CALLVALUE).
+      Carries `context.attachedValue` ContextRead; UInt64-typed with the
+      same range guard as `timestamp`/`number`/`chainid`. Entries that
+      read this key become payable; views stay view (STATICCALL ⇒ 0). -/
+  | callValue
   /-- ADR-0031 S3 / ADR-0025: one body word of the `context.self` Principal
       wire identity assembled from EVM `ADDRESS`. Same packing as
       `callerPrincipalWord` but from `address()`: `u32le(20)||addr20`.
@@ -3952,6 +3957,12 @@ private def lowerBlockInstructionsV1
               "unsupported EVM semantic shape: ContextRead context.chainId result must be UInt64"
           values := ← appendResultValueV1 result.typeId values result
             (mkScalarValueV1 .chainId #[] false false 64 1 1)
+        else if key == attachedValueContextKeyV1 then
+          unless result.typeId == types.uint64TypeId do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: ContextRead context.attachedValue result must be UInt64"
+          values := ← appendResultValueV1 result.typeId values result
+            (mkScalarValueV1 .callValue #[] false false 64 1 1)
         else
           throw <| .planInvariant .evm
             s!"unsupported EVM semantic shape: unknown ContextRead key '{key.value}'"
@@ -4753,6 +4764,14 @@ private def lowerCallableV1
   let entryStores := if mode == .constructor then constructorStores else #[]
   pure { params, stores := entryStores, body := entryBody }
 
+/-- True when a callable body reads `context.attachedValue`. -/
+private def callableReadsAttachedValueV1 (callable : CallableV1) : Bool :=
+  callable.blocks.any fun b =>
+    b.instructions.any fun instr =>
+      match instr.op with
+      | .contextRead key => key == attachedValueContextKeyV1
+      | _ => false
+
 private def makeConstructorV1
     (types : EvmTypeClosureV1)
     (layout : EvmLowerLayoutV1)
@@ -4769,6 +4788,11 @@ private def makeConstructorV1
   unless callable.result.typeId == unitTypeId do
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: initializer result is not Unit"
+  -- Constructor ABI is frozen nonpayable; attachedValue would be CALLVALUE
+  -- at create-time. S4 opens entry/view only.
+  if callableReadsAttachedValueV1 callable then
+    throw <| .planInvariant .evm
+      "unsupported EVM semantic shape: constructor cannot read context.attachedValue"
   let lowered ← lowerCallableV1 "constructor" .constructor types layout
     fnIndexByCallableId fns callable none
   pure {
@@ -4847,11 +4871,13 @@ private def makeEntryV1
         "unsupported EVM semantic shape: callable is not an entry or view")
   let lowered ← lowerCallableV1 s!"entry '{name}'" mode types layout
     fnIndexByCallableId fns callable (some resultKind)
-  -- ADR-0029 B2: any nativeDeposit in the entry body ⇒ payable; views stay view.
+  -- ADR-0029 B2 / ADR-0031 S4: nativeDeposit or attachedValue read ⇒ payable.
+  -- Views stay view (STATICCALL ⇒ callvalue 0).
   let mutability : Mutability := match mode with
     | .view => .view
     | .entry =>
-        if statementsContainNativeDepositV1 lowered.body then .payable
+        if statementsContainNativeDepositV1 lowered.body ||
+            callableReadsAttachedValueV1 callable then .payable
         else .nonpayable
     | .constructor | .pureFn => .nonpayable
   pure {

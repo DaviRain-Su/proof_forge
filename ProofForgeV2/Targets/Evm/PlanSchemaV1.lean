@@ -230,6 +230,8 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .blockNumber => pure (encodeU8 62)
   -- ADR-0031 S3: chain id / CHAINID (tag 66; tags 63-65 are M2 map ops).
   | .chainId => pure (encodeU8 66)
+  -- ADR-0031 S4: attached value / CALLVALUE (tag 75; 63-74 are map/self ops).
+  | .callValue => pure (encodeU8 75)
   -- ADR-0031 S3: context.self Principal body word (tag 67 + u32le index).
   | .selfPrincipalWord wordIndex =>
       pure ((encodeU8 67).append (← encodeNatAsU32le wordIndex))

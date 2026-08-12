@@ -30,6 +30,7 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
     | .timestamp => some 1
     | .blockNumber => some 1
     | .chainId => some 1
+    | .callValue => some 1
     | .selfBalance => some 1
     | .callerPrincipalWord wordIndex =>
         -- ADR-0031 S1: body word of CALLER→Principal; 8 LE words only.

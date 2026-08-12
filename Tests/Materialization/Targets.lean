@@ -3724,6 +3724,38 @@ unsafe def run : IO Unit := do
             (e.render).contains "pilot")
           s!"N5 context {target} message must cite ContextRead boundary, got {e.render}"
 
+  -- ADR-0031 S4: context.attachedValue. EVM admits CALLVALUE; other
+  -- implemented targets stay Plan-fail-closed until their S4 leaves.
+  let attachedSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CtxAttached where\n" ++
+    "  state public pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry collect() : UInt64 do\n" ++
+    "    return context.attachedValue\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let attachedV1 ← match ← session.selectProgramV1 attachedSource
+      "<targets-s4-attached>" "Examples.CtxAttached" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"S4 attached select: {e.render}"
+  let attachedCompiled ← liftResult <| Compiler.compileValidatedSourceV1 attachedV1
+  let _ ← liftResult <| materializeSelected TargetId.evm attachedCompiled
+  for target in [TargetId.near, TargetId.cosmwasm, TargetId.ton,
+      TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo] do
+    match materializeSelected target attachedCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"S4 attached: {target} must decline ContextRead attachedValue"
+    | .error e =>
+        expect ((e.render).contains "ContextRead" ||
+            (e.render).contains "context" ||
+            (e.render).contains "attached" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot")
+          s!"S4 attached {target} message must cite ContextRead/attached boundary, got {e.render}"
+
   -- ADR-0031 S1 / ADR-0030 E3: context.caller Principal ContextRead.
   -- EVM admits ADR-0025 encoding (CALLER → u32le(20)||addr20 leaves;
   -- Bool compare fixture). NEAR admits predecessor_account_id →

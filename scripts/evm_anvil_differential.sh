@@ -408,6 +408,22 @@ else
   echo "evm-anvil-differential: note: BlockHeightCheck companion script missing (skip leg)" >&2
 fi
 
+# AttachedValueCheck: ADR-0031 S4 context.attachedValue → Yul callvalue() / CALLVALUE.
+# Product build/solc failures are hard; tool/script skip is handled inside
+# the companion (exit 0). Engineering Anvil pin only — not formal.
+if [[ -x "$root/scripts/evm_attachedvalue_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: companion AttachedValueCheck context.attachedValue smoke (build hard-fail; profile=$expected_profile_wire)" >&2
+  PF_EVM_PROFILE="$evm_profile" bash "$root/scripts/evm_attachedvalue_anvil_smoke.sh" || {
+    echo "evm-anvil-differential: AttachedValueCheck smoke failed (hard)" >&2
+    exit 1
+  }
+elif [[ -f "$root/scripts/evm_attachedvalue_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: AttachedValueCheck smoke present but not executable (hard)" >&2
+  exit 1
+else
+  echo "evm-anvil-differential: note: AttachedValueCheck companion script missing (skip leg)" >&2
+fi
+
 # ChainIdCheck: ADR-0031 S3 context.chainId → Yul chainid() / CHAINID.
 # Product build/solc failures are hard; tool/script skip is handled inside
 # the companion (exit 0). Engineering Anvil pin only — not formal.
