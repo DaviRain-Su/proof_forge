@@ -3,7 +3,7 @@ id: PLAN-NEAR-PARITY
 title: NEAR parity roadmap (vs EVM / Solana engineering surface)
 status: draft
 owner: architecture
-updated: 2026-08-11
+updated: 2026-08-12
 normative: false
 ---
 
@@ -75,8 +75,9 @@ Not in Phase 2 formal sense: full hermetic GLIBC digests in toolchains lock
 (still open). Engineering GLIBC pack path is landed:
 `scripts/near_sandbox_glibc_materialize.sh` + `scripts/lib/near_sandbox_launch.sh`
 + `supply-chain/near-sandbox-glibc-linux-x86_64.v1.json` (auto-discover; not
-hermetic pin). Also deferred: view-caller, Map return encoding story, formal
-identity.
+hermetic pin). Also deferred: view-caller and formal identity. Dense Map
+return cap-8 (24×u64 LE `value_return`) landed 2026-08-12; only the >8-leaf
+encoding story stays deferred (see Phase 4).
 
 ### Phase 3 — Product surface (lite)
 

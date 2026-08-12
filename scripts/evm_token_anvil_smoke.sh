@@ -21,25 +21,36 @@ case_id="pf.adapter.token.conservation.v1"
 
 write_token_skip_obs() {
   # Explicit optional-leg skip for all 9 case steps (never pass).
+  # No artifact is deployed on this path; the subject-program identity is
+  # bound from the committed case pins (sole identity authority per case).
   local reason="$1"
   [[ -n "$corpus_obs_dir" ]] || return 0
   mkdir -p "$corpus_obs_dir/$case_id"
+  local case_file="$root/testdata/evm-corpus/v1/cases/$case_id.json"
   CORPUS_VALIDATOR="$root/scripts/evm_corpus_v1.py" \
-  /usr/bin/python3 -I -S - "$corpus_obs_dir/$case_id" "$case_id" "$reason" <<'PY'
+  /usr/bin/python3 -I -S - "$corpus_obs_dir/$case_id" "$case_id" "$reason" "$case_file" <<'PY'
 import importlib.util, os, sys
 from pathlib import Path
 out_dir, case_id, reason = Path(sys.argv[1]), sys.argv[2], sys.argv[3]
+case_file = Path(sys.argv[4])
 if len(reason.encode()) > 128:
     reason = reason[:120] + "..."
 spec = importlib.util.spec_from_file_location("evm_corpus_v1", os.environ["CORPUS_VALIDATOR"])
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
+case = mod.load_and_validate_case(case_file)
+pins = case["pins"]
+identity = {
+    "sourceHash": pins["sourceHash"],
+    "semanticHash": pins["semanticHash"],
+}
 for step in range(9):
     obs = {
         "schema": mod.SCHEMA_OBS,
         "caseId": case_id,
         "leg": "pf-anvil",
         "stepIndex": step,
+        "identity": dict(identity),
         "verdict": "skip",
         "skipReason": reason,
         "shared": {
@@ -345,16 +356,37 @@ if [[ "$bal1d" != "60" || "$bal2d" != "40" ]]; then
 fi
 
 # Adapter corpus observations — all 9 steps (pass path; decimal-string UInts).
+# Identity is bound from the product proof-forge.output.v1 manifest of the
+# Token tree that was actually deployed above (fail closed when missing).
 if [[ -n "$corpus_obs_dir" ]]; then
   mkdir -p "$corpus_obs_dir/$case_id"
+  token_manifest="$(dirname "$token_bin")/manifest.json"
+  [[ -f "$token_manifest" ]] || {
+    echo "evm-token-anvil: missing product manifest $token_manifest (identity binding; hard)" >&2
+    exit 1
+  }
   CORPUS_VALIDATOR="$root/scripts/evm_corpus_v1.py" \
-  /usr/bin/python3 -I -S - "$corpus_obs_dir/$case_id" "$case_id" <<'PY'
-import importlib.util, os, sys
+  /usr/bin/python3 -I -S - "$corpus_obs_dir/$case_id" "$case_id" "$token_manifest" <<'PY'
+import importlib.util, json, os, re, sys
 from pathlib import Path
 obs_dir, case_id = Path(sys.argv[1]), sys.argv[2]
+manifest_path = Path(sys.argv[3])
 spec = importlib.util.spec_from_file_location("evm_corpus_v1", os.environ["CORPUS_VALIDATOR"])
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
+
+with open(manifest_path, encoding="utf-8") as fh:
+    manifest = json.load(fh)
+if manifest.get("schemaVersion") != "proof-forge.output.v1":
+    raise SystemExit("unexpected manifest schemaVersion: %r" % (manifest.get("schemaVersion"),))
+pat = re.compile(r"[0-9a-f]{64}\Z")
+identity = {
+    "sourceHash": manifest.get("sourceHash"),
+    "semanticHash": manifest.get("semanticHash"),
+}
+for key, value in identity.items():
+    if not (isinstance(value, str) and pat.fullmatch(value)):
+        raise SystemExit("manifest %s invalid: %r" % (key, value))
 
 def write(step, status, logical, ret, rollback):
     obs = {
@@ -362,6 +394,7 @@ def write(step, status, logical, ret, rollback):
         "caseId": case_id,
         "leg": "pf-anvil",
         "stepIndex": step,
+        "identity": dict(identity),
         "verdict": "pass",
         "skipReason": None,
         "shared": {

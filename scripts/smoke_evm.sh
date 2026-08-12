@@ -138,12 +138,47 @@ storage_word32_from_uint() {
   /usr/bin/python3 -I -S -c "print('0x' + format(int('$n'), '064x'))"
 }
 
+# Identity binding for corpus observations: read exact sourceHash/semanticHash
+# from the product proof-forge.output.v1 manifest of the artifact tree that is
+# actually deployed in the following section. Fail closed when OBS emission is
+# requested but the manifest (or either digest) is missing. Not formal C-3.
+corpus_identity_source_hash=""
+corpus_identity_semantic_hash=""
+bind_corpus_identity() {
+  [[ -n "$corpus_obs_dir" ]] || return 0
+  local logical_dir="$1"
+  local manifest="$(artifact_dir "$logical_dir")/manifest.json"
+  [[ -f "$manifest" ]] || die "corpus identity: missing product manifest $manifest"
+  local joined
+  joined="$(/usr/bin/python3 -I -S -c '
+import json, re, sys
+with open(sys.argv[1], encoding="utf-8") as fh:
+    data = json.load(fh)
+if data.get("schemaVersion") != "proof-forge.output.v1":
+    raise SystemExit("unexpected manifest schemaVersion: %r" % (data.get("schemaVersion"),))
+src = data.get("sourceHash")
+sem = data.get("semanticHash")
+pat = re.compile(r"[0-9a-f]{64}\Z")
+if not (isinstance(src, str) and pat.fullmatch(src)):
+    raise SystemExit("manifest sourceHash invalid: %r" % (src,))
+if not (isinstance(sem, str) and pat.fullmatch(sem)):
+    raise SystemExit("manifest semanticHash invalid: %r" % (sem,))
+print(src + " " + sem)
+' "$manifest")" || die "corpus identity: cannot read digests from $manifest"
+  corpus_identity_source_hash="${joined%% *}"
+  corpus_identity_semantic_hash="${joined##* }"
+  echo "evm-smoke: corpus identity bound ($logical_dir sourceHash=$corpus_identity_source_hash semanticHash=$corpus_identity_semantic_hash)" >&2
+}
+
 # Emit one proof-forge.evm-observation.v1 (canonical) when OBS dir is set.
 # Shared face must match Reference (decimal-string UInt, ordered effects).
+# Requires bind_corpus_identity for the deployed artifact tree beforehand.
 # Args: caseId step status returnJson logicalJson effectsJson rollback
 #       slotWord valueWord [logsJson] [revertData]
 emit_corpus_obs() {
   [[ -n "$corpus_obs_dir" ]] || return 0
+  [[ -n "$corpus_identity_source_hash" && -n "$corpus_identity_semantic_hash" ]] \
+    || die "emit_corpus_obs called without bound corpus identity (fail closed)"
   local case_id="$1"
   local step_index="$2"
   local status="$3"
@@ -179,6 +214,7 @@ print(json.dumps({
   /usr/bin/python3 -I -S "$root/scripts/evm_corpus_obs_write.py" \
     "$corpus_obs_dir" "$case_id" "pf-anvil" "$step_index" \
     "$status" "$return_json" "$logical_json" "$effects_json" "$rollback_equal" \
+    "$corpus_identity_source_hash" "$corpus_identity_semantic_hash" \
     "$evm_json"
 }
 
@@ -311,6 +347,7 @@ deploy() {
 [[ -f "$(artifact_dir evm)/StateCell.bin" ]] \
   || die "missing StateCell artifact (required by differential matrix) at $(artifact_dir evm)/StateCell.bin"
 
+bind_corpus_identity evm
 state_cell="$(deploy evm 7)"
 before="$($cast call --rpc-url "$rpc" "$state_cell" 'get()(uint64)')"
 require_uint_equal "$before" "7" "StateCell constructor state mismatch (view)"
@@ -379,6 +416,7 @@ emit_corpus_obs "pf.primitive.statecell.overflow-hold.v1" 5 "success" \
 [[ -f "$(artifact_dir evm-accumulator)/Accumulator.bin" ]] \
   || die "missing Accumulator artifact at $(artifact_dir evm-accumulator)/Accumulator.bin"
 
+bind_corpus_identity evm-accumulator
 accumulator="$(deploy evm-accumulator 7)"
 accumulator_before="$($cast call --rpc-url "$rpc" "$accumulator" 'current()(uint64)')"
 require_uint_equal "$accumulator_before" "7" "Accumulator constructor state mismatch (view)"
@@ -426,6 +464,7 @@ emit_corpus_obs "pf.primitive.accumulator.overflow-hold.v1" 5 "success" \
 if [[ -f "$(artifact_dir evm-arithops)/ArithOps.bin" ]]; then
   # ArithOps differential: masked bitNot (`~x = 2^64-1-x`) and checkedMul
   # overflow (scale with count = UInt64.max and factor = 2 must revert).
+  bind_corpus_identity evm-arithops
   arith="$(deploy evm-arithops 7)"
   slot0_7_ar="$(storage_word32_from_uint 7)"
   emit_corpus_obs "pf.primitive.arithops.bitnot-scale.v1" 0 "success" \
@@ -472,6 +511,7 @@ fi
 if [[ -f "$(artifact_dir evm-eventflow)/EventFlow.bin" ]]; then
   # EventFlow: emit Moved(src,dst) as log1; Cap(limit) ABI custom-error revert.
   # Deploy with count=0 so bump(5) takes the success arm (count > delta is false).
+  bind_corpus_identity evm-eventflow
   eventflow="$(deploy evm-eventflow 0)"
   require_storage_uint "$eventflow" 0 "0" "EventFlow constructor storage"
   slot0_0="$(storage_word32_from_uint 0)"
@@ -561,6 +601,7 @@ fi
 # Storage layout: owner Principal slots 0..8, value UInt64 slot 9.
 # ---------------------------------------------------------------------------
 if [[ -f "$(artifact_dir evm-ownablelike)/OwnableLike.bin" ]]; then
+  bind_corpus_identity evm-ownablelike
   ownable_bin="$(artifact_dir evm-ownablelike)/OwnableLike.bin"
   bytecode="$(tr -d '\n\r ' < "$ownable_bin")"
   receipt="$("$cast" send --json --rpc-url "$rpc" --private-key "$private_key" --create "0x${bytecode}")"

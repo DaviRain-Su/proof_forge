@@ -3,7 +3,7 @@ id: SPEC-EVM-CORPUS-001
 title: EVM corpus case and observation schema v1
 status: proposed
 owner: quality
-updated: 2026-08-06
+updated: 2026-08-12
 normative: false
 ---
 
@@ -317,12 +317,33 @@ schema 形状自检 fixture（如 `case-oos-shape.json`）仅证明结构可解�
   "caseId": case-id,
   "leg": "reference" | "pf-anvil" | "oz-anvil",
   "stepIndex": 0..31,
+  "identity": {
+    "sourceHash": sha256,          // canonical ProgramV1 source digest（小写 64-hex）
+    "semanticHash": sha256         // retained SemanticProgramV1 digest（小写 64-hex）
+  },
   "verdict": "pass" | "fail" | "skip" | "tool-blocked" | "proposal",
   "skipReason": string | null,
   "shared": SharedObservation,
   "evm": EvmObservation | null
 }
 ```
+
+### `identity`（所有 leg / 所有 verdict 必填；identity-bound differential）
+
+每个 observation **必须**携带 subject program 的精确身份（无 optional/lenient
+路径、无 identity-less minting）：
+
+- Reference leg：Lean runner 从真实 Loader→Normalize 链取 `sourceHashV1` /
+  `semanticHashV1` 写入 raw step，canonicalizer 原样绑定。
+- pf-anvil leg：从**实际部署** artifact 的 `proof-forge.output.v1` manifest 读取
+  `sourceHash` / `semanticHash`；adapter optional-leg 的 explicit skip（无部署）
+  从 committed case `pins` 读取。
+- `close-case` 对每个 observation 做 exact join：`identity` 必须逐字节等于该 case
+  `pins.sourceHash` / `pins.semanticHash`（由此保证跨 leg byte-identical）；缺失 →
+  `PF-CORPUS-SCHEMA`，不匹配 → `PF-CORPUS-INVARIANT`。
+
+这是工程 identity binding（EVM-first lighthouse 方向的一步），**不是** formal C-3 /
+TST closure、target refinement 或 evidence envelope。
 
 ### Verdict 代数（不得混同）
 
@@ -433,8 +454,9 @@ Sole canonical path：`testdata/evm-corpus/v1/manifest.json`。
    - `Tests/Materialization/EvmCorpusPrimitiveV1.lean`
    - `Tests/Materialization/EvmCorpusBlockedV1.lean`
 
-当前 closed inventory 合计 **50** 条目（corpus authority 除 manifest 自身 + case
-`sourcePath` + 上表 13 runners）。
+当前 closed inventory 合计 **52** 条目（corpus authority 除 manifest 自身 + case
+`sourcePath` + 上表 13 runners；含 identity 负例 fixtures
+`obs-missing-identity.json` / `obs-identity-bad-digest.json`）。
 
 ### 角色与 join
 

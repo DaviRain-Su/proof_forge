@@ -3,7 +3,7 @@ id: ENG-BACKLOG
 title: 工程业务 Backlog（文档↔实现差异 + 构建加速）
 status: draft
 owner: engineering
-updated: 2026-08-10
+updated: 2026-08-12
 normative: false
 ---
 
@@ -240,7 +240,7 @@ D1–D4 = 0/27 done。
 | **N-MAP-CONSTRUCT** | 非空 Map 构造 / wire multi-arg Construct | 共享核 | `Map.of(k0, v0, ...)` 变长构造器（NameResolution/TypeCheck/Normalize 已接线；expected Map 类型必需、偶数 kv 参数、positional K/V 精确）→ 单个 `Op.Construct`（flattened kv 对，source order）；Wire step-j 开偶数对（奇数/位置错/result 错/ctor≠0 → `.badCfg`）；Reference 为空 Map + 顺序 upsert（duplicate key last-wins 与 IndexSet 一致、canonical 值保持排序、允许运行期 key）；EVM/Noir 既有显式 FC，Solana/NEAR/Aleo/CosmWasm/TON 已补显式 nonempty-Map-construct FC（消除 Array 路径 arity 碰撞隐患），Psy 经 container 门 FC | **done**（2026-08-03；shared-only，target materialization 仍 FC，非 formal D2/D4） |
 | **B-RET-ABI** | 原六 target aggregate ABI 返回（named struct/enum） | target leaf | N-4 done 的剩余；EVM+Noir LOWERED（≤8 UInt64/Int64 叶 preorder flatten；EVM tuple ABI + Noir per-leaf verifier inputs）；**Solana/NEAR 亦 LOWERED**（2026-08-03：Solana `ResultKind.aggregate`/`setReturnDataMulti` 单条 `sol_set_return_data` N×8 LE + IDL 叶数组；NEAR `MethodResultKind.aggregate`/`setReturnDataLeaves` 单次 `value_return` N×8 LE + near-abi 叶数组 + HostModel e2e）；**Aleo 非 Final entry LOWERED**（2026-08-03：Leo 原生 tuple 返回；Final 函数评叶后 drop 同 scalar 模型；multi-leaf view-over-state 经 computed-view 门保持 FC）；**Psy entry/view LOWERED**（2026-08-03：`[Felt; N]` 固定长 Felt 数组为诚实多叶源形式，psyup 真实验收 PairRet；叶继承既有 Goldilocks 文档模型）；anonymous Array/Option entry/view 已由 N-ANON-RESULT target lanes 开放；Map/Bytes返回、aggregate 参数与 target pureFn aggregate仍 FC | **done**（EVM/Noir：pre-Wave-1 L3 lane `b059778fa`；Solana：`5aeee9c17`；NEAR：`a82ec3fce`；Aleo：`e42d2e2e1`；Psy：`cc99484b3`） |
 | **B-SOL-MAP-ELF** | Solana Map ELF 帧预算友好化 + MapMini Mollusk 升级 | target leaf | IR temp recycling + aggregate-store structural CSE；MapMini/Token 均 deployable ELF，Map put 峰值 177 temp≈1424B≤4096；MapMini 4/4 Mollusk active；**未提预算上限** | **done**（L2 + B-SOL-MAP-UPSERT；`put_into_empty` 已解除 ignore） |
-| **B-CTX-OPEN** | ContextRead 各 target Plan 开放（unixTime/caller/blockHeight） | target leaf | **unixTimeSeconds**：EVM `timestamp()`（tag 59）+ NEAR `block_timestamp` ns÷10^9（tag 41）+ CW Env JSON time + TON `blockchain.now()` 已开；**Solana/Noir/Psy/Aleo/Quint 保持 FC**（电路域决策 2026-08-04）。**caller / ADR-0031 S1 已闭合（2026-08-06）**：EVM ADR-0025 `u32le(20)\|\|CALLER` + CallerCheck/Ownable Anvil；Solana 仅 exact CPI profile 的 `pf_caller` signer→32B Principal，ordinary Principal ix canonical gate + Mollusk 8/8，legacy profiles FC；NEAR `predecessor_account_id` init/entry + sandbox，view FC；CW `MessageInfo.sender` instantiate/execute + branch-local loader/charset gate + cw-vm，query/view FC。**blockHeight / ADR-0031 S2**：EVM `number()`（tag 62）、NEAR view-safe `block_index()`、CW Env JSON bare-u64 `height`（tag 55）、Solana ordinary-elf `Clock.slot` via `sol_get_clock_sysvar`（Plan tag 51；CPI product FC）Plan/IR/emitter leaves 均已开；EVM 已有 host-optional Anvil `BlockHeightCheck` 门；NEAR/CW/Solana 专门 runtime 门仍 residual | **in_progress**（caller S1 done；blockHeight 四 leaf + EVM Anvil 工程门 done，他链 runtime residual） |
+| **B-CTX-OPEN** | ContextRead 各 target Plan 开放（unixTime/caller/blockHeight） | target leaf | **unixTimeSeconds**：EVM `timestamp()`（tag 59）+ NEAR `block_timestamp` ns÷10^9（tag 41）+ CW Env JSON time + TON `blockchain.now()` 已开；**Solana/Noir/Psy/Aleo/Quint 保持 FC**（电路域决策 2026-08-04）。**caller / ADR-0031 S1 已闭合（2026-08-06）**：EVM ADR-0025 `u32le(20)\|\|CALLER` + CallerCheck/Ownable Anvil；Solana 仅 exact CPI profile 的 `pf_caller` signer→32B Principal，ordinary Principal ix canonical gate + Mollusk 8/8，legacy profiles FC；NEAR `predecessor_account_id` init/entry + sandbox，view FC；CW `MessageInfo.sender` instantiate/execute + branch-local loader/charset gate + cw-vm，query/view FC。**blockHeight / ADR-0031 S2**：EVM `number()`（tag 62）、NEAR view-safe `block_index()`、CW Env JSON bare-u64 `height`（tag 55）、Solana `Clock.slot` via `sol_get_clock_sysvar`（Plan tag 51）Plan/IR/emitter leaves 均已开；**Solana sole product profile `solana-sbpf-cpi-elf-v1` 已于 2026-08-12 admit blockHeight**（syscall 读、零 role/site/`pf_caller` 需求；`unixTimeSeconds` 保持 FC）并接 Mollusk runtime 门（`block_height.rs`：双 warp slot 证非常量 + view/entry/state-hold）；EVM 已有 host-optional Anvil `BlockHeightCheck` 门；NEAR/CW 专门 runtime 门仍 residual | **in_progress**（caller S1 done；blockHeight 四 leaf + EVM Anvil 门 + Solana product admit/Mollusk 门 done，NEAR/CW runtime residual） |
 | **B-OPT-STATE** | 九 materializer Option state Plan | target leaf | N-A4 只开 Normalize admit。**NEAR 已开**（2026-08-04 `95289615e`：`Option UInt64` state 复用 Enum 双叶布局（tag+payload 8B KV），none 默认零初始化、none 赋值清零 payload（HostModel+sandbox 双钉），match 走既有 VariantTag/VariantPayload 路径；Option params/非 UInt64 payload 仍 FC）；**EVM 已开**（2026-08-04 `0a46e54d8`：同构 2-slot 布局 + storeAtomic 沿用 B-EVM-MAP-STACK memory-spill 惯例，none 双叶清零，solc strict-assembly 验收 + Token 栈预算不变；Option params 不扩展）；**Solana 已开**（2026-08-04 `42c863d0c`：同构 `slot_tag`/`slot_p0` u64-le 布局 + 多叶原子 store，stale-payload clear 钉死，6 项 Mollusk 测试）；**Aleo 已开**（2026-08-04 `68d7c0a7f`：同构 tag+payload mapping 双叶（flatten-to-mapping），none 默认 get_or_use(0) 零初始化、payload 清零钉死，entry-surface match（multi-leaf view-over-state 仍 FC），OptionState 过真实 leo build）；**CosmWasm 已开**（2026-08-04 `da2f9ffe7`：同构 8B KV 双叶 + storeAtomic，none 清零 runtime 钉死，3 项 cosmwasm-vm 测试）；**Psy 已开**（2026-08-04 `a2755c6c9`：同构 Felt 双叶；顺带两修——VariantTag 窄 32 化使 Enum/Option match 可解、return-only 臂改 dargo expression-if；psyup 验收 10 fixture 全绿）；**Noir 已开**（2026-08-04 `27fa56c83`：同构双叶 + EmitIR brace-escape 共修（`}} else {` 非法输出），nargo 验收）；**TON 已开**（2026-08-04 `ac13b9b09`：同构 tag/payload c4 双叶 + storeAtomic，match 走 VariantTag/VariantPayload，Tolk 1.4 合法性共修（switchRegion 去 do-while/break、view 每臂早退 return），locked tolk→.fif 验收；Option params 仍 FC）；Quint 仍 FC（无 admit 路径） | done（8/9 materializer；Quint FC） |
 | **B-COMMIT-ZK** | Commit × Noir/Psy | target leaf | EVM/Solana/NEAR/Aleo 身份透传已开；Noir/Psy FC。Psy 在开放 identity 前必须先冻结 proof/public-input/commitment binding；仅把 operand 作为普通 Felt 透传会过度声明密码学承诺能力 | pending |
 | **B-CALL-SEM** | call/schedule capability 与真实平台语义对齐 | 产品决策 + target leaf | **#111 Solana legacy honesty 已接线**：两 legacy profile 删除 sync/async support claim，Plan/IR/SBPF 纵深 fail closed（过渡空 AccountMeta CPI / log stub 不可达）。EVM 仍保留真实 `CALL`/returndata（BL-28）与 same-tx fire-and-forget schedule；NEAR/TON/CW/Noir/Psy/Aleo/Quint 纪律保持 main 现状。真实 Solana CPI 见 epic #110 versioned profile。不得把 resolver 支持键写成跨平台 call 完成 | **open**（Solana legacy 已诚实；产品 CPI 与他链缺口仍 open） |
@@ -256,7 +256,7 @@ D1–D4 = 0/27 done。
 | **NFR-REPEAT** | NFR-001 决定性 repeat gate（连续构建 hash 相同） | NFR | `scripts/nfr_repeat_gate.py` 同机同 binary 连续构建 Counter：Solana 默认 `solana-sbpf-plan-v1` ×2 + Noir 默认 profile ×2；每树独立重验 exact closure/descriptors/evidence，再要求 `manifest.json`/`evidence.json` exact bytes；no-tool mutation self-test；`just nfr-repeat` 进入 ordinary `ci-target-smoke` | **done**（2026-08-03；仅 engineering subset，非 hermetic/clean-room/multi-host/full-target/formal NFR-001/TST） |
 | **DOC-CODE-1** | **T14 Field catalog v2 文档↔代码矛盾** | 文档/代码决策 | commit 30df771f2 声称「Wire ModelV1 扩 bls12377/goldilocks FieldSpec + Aleo/Psy Field 接线」，实际 diff 只有 NEAR/Solana 文件+docs；**代码 catalog 仍 sole bn254**（EnvelopeV1/WireV1）。AGENTS.md 已先行修正为 fail-closed 叙述。需要产品决策：(a) 按 commit message 真做 T14（共享核 Wire 变更）；(b) 把 30df771f2 的 commit message 记录为错误声明并关闭 | **done**（2026-08-02：选 (a) 真做 T14，已由 B-FIELD-CATALOG 闭合；见 T14 lane 0f4d9e294） |
 | **SYS-CAP-SURVEY** | 多链系统能力全景调研（host function / runtime API / 官方链上 program） | 调研 | RPT-020（2026-08-05）：平台分**状态类**（EVM/Solana/NEAR/CW/TON/Soroban/ICP 直接读链）vs **电路类**（Noir/OpenVM/Psy 只能 input/witness/oracle 注入 + 电路约束；混合 Aleo finalize 可读链）；时间戳/区块高度/调用者/自身余额/附加价值/链 ID 六维在状态类平台高度同构；随机数有偏不可靠、质押/治理/IBC 属业务能力，均不宜进 ContextRead；**系统能力分两层**——L1 内建运行时（host/syscall/opcode/stdlib）+ L2 官方链上 program（builtin/system contract/precompile/management canister/链模块），同一能力在不同链形态不同（sha256：EVM precompile vs Solana sol_sha256 vs NEAR host vs TON string_hash），统一抽象=能力与形态解耦 | **done**（2026-08-05 调研落盘：RPT-020 `docs/research/20-host-function-survey.md` + `system-capabilities-evm-solana.md`；RPT-021 `21-system-programs-survey.md` 官方 program 层；research README 已登记） |
-| **SYS-CAP-UNIFY** | 系统能力统一抽象（L1 ContextRead/EnvRead catalog 扩键 + L2 官方 program 能力 catalog） | 共享核 + leaf | ADR-0031 已冻结两层 catalog、view-safety 与 L2 强制等级。L1 依 E2 纪律逐行推进：S1 `context.caller` **engineering done**（EVM CALLER、Solana exact-CPI signer role、NEAR predecessor、CW MessageInfo；各自 runtime 门与诚实 FC 边界已闭合）；S2 `context.blockHeight` shared + EVM `NUMBER` / NEAR `block_index` / CW `Env.block.height` / Solana ordinary `Clock.slot` leaves 已完成（CPI product 仍 FC Clock）；S2 target runtime 门待接；S3 chainId、S4 attachedValue、S5 `pf.crypto.sha256` 后续。L2 将 Solana official programs、EVM precompile/系统合约、TON/ICP/Aleo/CW 官方能力逐行 exact catalog + per-target 物化；无对应物与电路锚定值继续 FC | **in_progress**（S0 design + S1 done；S2 leaf 4/4 ordinary、runtime residual；不声称 formal/跨链完整） |
+| **SYS-CAP-UNIFY** | 系统能力统一抽象（L1 ContextRead/EnvRead catalog 扩键 + L2 官方 program 能力 catalog） | 共享核 + leaf | ADR-0031 已冻结两层 catalog、view-safety 与 L2 强制等级。L1 依 E2 纪律逐行推进：S1 `context.caller` **engineering done**（EVM CALLER、Solana exact-CPI signer role、NEAR predecessor、CW MessageInfo；各自 runtime 门与诚实 FC 边界已闭合）；S2 `context.blockHeight` shared + EVM `NUMBER` / NEAR `block_index` / CW `Env.block.height` / Solana `Clock.slot` leaves 已完成（**2026-08-12 Solana sole product profile 已 admit + Mollusk 门**；`unixTimeSeconds` 在 Solana 仍 FC）；S2 剩 NEAR/CW runtime 门；S3 chainId 已于 2026-08-12 开 EVM/NEAR/CW（见实现日志），S4 attachedValue、S5 `pf.crypto.sha256` 后续。L2 将 Solana official programs、EVM precompile/系统合约、TON/ICP/Aleo/CW 官方能力逐行 exact catalog + per-target 物化；无对应物与电路锚定值继续 FC | **in_progress**（S0 design + S1 done；S2 leaf 4/4 ordinary、runtime residual；不声称 formal/跨链完整） |
 
 ### 复核结论存档（2026-08-02）
 
@@ -320,7 +320,7 @@ D1–D4 = 0/27 done。
 |---|---|---|
 | **C-1** | NEAR Wasm 工具链 load + sandbox 工程子集 | **done**（2026-08-02：`672e6115d` NearWasmAcceptance = locked `wat2wasm` + host-optional `wasm-interp`/`wasmtime`/`wasmer` load，工具缺席 skip；2026-08-03 C-6 另加 locked near-sandbox Counter happy path；均非 formal Reference differential） |
 | **C-2** | Aleo/Psy native artifact boundary | **done（2026-08-10）**：Aleo 仅生成 Aleo Instructions，Psy 仅生成 DPN；二者 zero-tool、non-deployable。旧 source compiler/local runtime/network lanes 删除，不再属于产品或验收面；无 VM/proof/UPS/network/formal 结论 |
-| **C-3** | EVM Reference↔Anvil **formal** 差分 | blocked（formal 轨道；G4 产品 CLI→Anvil 工程差分已覆盖四程序，但未绑定正式 Reference corpus/identity） |
+| **C-3** | EVM Reference↔Anvil **formal** 差分 | blocked（formal 轨道；G4 产品 CLI→Anvil 工程差分已覆盖四程序；**2026-08-12 engineering identity binding 已落**：corpus observation 硬性携带 `identity{sourceHash,semanticHash}`，Reference leg 取自 Loader→Normalize、Anvil leg 取自 deployed `proof-forge.output.v1` manifest，close-case 对 case pin exact join——仍非 formal C-3/TST closure） |
 | **C-4** | Noir 真实电路证明/prove 路径（若工具链锁定可行） | **done（研究决定仍有效）**：2026-08-03 G123 已锁定 nargo 1.0.0-beta.26 并接 `NoirCompileAcceptance` compile-only 门（C-7），supersede 原“无 nargo pin”观察；Barretenberg/backend、CRS/security profile、witness/prove/verify 与 proof binding 仍无，因此不升格 prove/verify、保持 source-only；见 `16-noir-prove-path.md` |
 | **C-5** | Solana 已有 Mollusk；扩 fixture 跟 Normalize 新面 | **ongoing**（Counter + 18 fixtures = 19 programs；#111 移除 CpiCaller；**#113** V1 单账户安全负例矩阵；OptionState 与聚合返回保留；manifest-bound artifact 读取已接线） |
 | **C-6** | NEAR near-sandbox receipt 工程门（G123） | **done**（2026-08-03：near-sandbox 2.13.0 入 `tools[]`（darwin+linux，Darwin 捆绑 xz/liblzma）；`scripts/near_sandbox_acceptance.sh` deploy/init/mutate/view 真实通过；`NearSandboxAcceptance` 注册 shard-targets；非 formal Reference↔sandbox / Stage-0） |
@@ -441,19 +441,33 @@ D1–D4 = 0/27 done。
 
 ---
 
-## 推荐击杀顺序（产品开发）
+## 推荐击杀顺序（产品开发；2026-08-12 全面审查后刷新）
+
+优先序遵循产品判断：**EVM（最完善，formal lighthouse）→ Solana → NEAR → CosmWasm/Wasm**；
+Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 
 ```text
-0. ~~既有 DOC/T8–T14/Normalize 主轴~~（已完成；formal 状态不变）
-1. ~~2026-08-02 P0 审计修复批~~：
-   - BUILD-10：六个 ordinary-CI 漏注册 suite 接入 Typed/Targets shard
-   - proposed current-path 文档：删除 B12 现状误述，保留 accepted ADR 决策债
-   - B-SOL-MAP-UPSERT：EVM/Solana/NEAR/Noir/Aleo 五个 target-local snapshot 修复；Solana 真实 Mollusk 转绿
-2. **必须先决策**：B-CALL-SEM（降 support 或实现真实 call/schedule）；scope/frontend/formal lighthouse 已由 ADR-0036 固定为 accepted 4、engineering 9+3、retired frontend、EVM-first；~~CW-ABI-FREEZE / CW-A1~~ 已闭合（见 CW-1/CW-5）
-3. ~~N-INVARIANT-IR（消除 invariant 静默丢弃）~~已完成；~~D3-E7（artifact 内容 hash/inspect closure）~~与~~D3-E9（descriptor axes exact join）~~已完成；identity residual 仅余 D3-E8，且需先冻结 evidence-grade 语义
-4. ~~N-CONST-REF~~、~~N-STR-EVENT~~、~~N-FOR-INT~~、~~N-ANON-RESULT~~、~~N-NEST-IDX~~、~~N-MAP-CONSTRUCT~~与~~N-CALL-RET~~已完成；**剩余串行语言面**：无（语言面切完；真实 returndata/CPI lowering 属 B-CALL-SEM target 工程）
-5. **可并行 target leaf（接口冻结后）**：B-COMMIT-ZK / B-CTX-OPEN residual（S1 caller 已于 2026-08-06 在 EVM/Solana-exact-CPI/NEAR/CW 闭合；S2 `blockHeight` 四 leaf 已开；residual 为 S2 runtime gates、Solana CPI-profile Clock、S3/S4 keys；TON 仅 unixTime，电路类/Quint 继续 FC）。E4 前置中的 Solana Principal-key Map 与 UInt128/256 div/mod Mollusk 已闭合；residual 为 Solana MiniAMM 产品镜像/Mollusk 应用门、真实 asset movement/remove-liquidity，以及 EVM 无 code-size override 的正常部署闭环
-6. **NFR / identity residual**：D3-E8 → RES-1B memory/process/protocol/stderr residual（published-bytes output-only 已完成）；~~D3-E9~~与~~NFR-REPEAT~~已完成（后者为同机双 target 工程子集）
+1. EVM formal lighthouse（ADR-0036 Next task，串行主轴）：
+   - shared D2/D3 formal 前置：TASK-D2-07 / TST-SEM-002/003（Reference step / corpus）
+   - 然后 identity-bound Reference↔Anvil formal differential（C-3 解 blocked；
+     engineering identity binding 已于 2026-08-12 落地，formal 轨道仍 pending）
+   - 不得用其他 target 或业务合约 engineering positives 代签
+2. B-CALL-SEM 产品决策 + EVM 残差（并行于 1 的 leaf）：
+   - EVM static-QN callee 仍是 hashed-address stub → 真实 deployment-address binding
+   - result-bearing 宽于 UInt64 的 returndata 路径
+3. Solana 残差：
+   - B-CALL-SEM Solana 侧：product CPI callee identity / 外层账户 ABI
+   - ~~S2 blockHeight runtime 门~~（2026-08-12 done：product profile admit + Mollusk `block_height.rs`）
+   - C-5 fixture 随 Normalize 新面持续扩（ongoing）
+4. NEAR 残差（roadmap Phase 4 之外需先决策）：
+   - GLIBC loader digests → Tool Lock hermetic pin（产品决策）
+   - Map return >8 叶 encoding story；view-caller 保持 FC（诚实边界）
+   - Phase 7 formal spine 继续按既有节奏（provenance closure，不冒充 target refinement）
+5. CosmWasm/Wasm 残差：
+   - SubMsg contract_addr QN stub → 真实地址 binding（挂 B-CALL-SEM）
+   - wasmd rung-2（若产品需要；rung-1 已闭）
+6. 横切 residual：D3-E8（evidence grade 语义冻结）→ RES-1B memory/process/protocol/stderr
+   → B-COMMIT-ZK（Psy 须先冻结 commitment binding）→ QUINT-2 → DOC-JUST-CONTROL（产品决策）
 7. 语言面够用后：NS-2 / EXT-CRYPTO（仍 language-gated）
 ```
 
@@ -493,6 +507,8 @@ D1–D4 = 0/27 done。
 | 2026-08-10 | **ALEO-LOAD-B**：PF Instructions 本地 VM interpret（Leo runner + imports 字节钉扎）；`just aleo-instructions-interpret`；非 proof/Devnet |
 | 2026-08-10 | **ALEO-LOAD-C**：testnet deploy/execute **tx save**（默认无 broadcast）；PF↔Leo twin exact bytecode；mainnet 拒绝；broadcast 显式 opt-in |
 | 2026-08-10 | **External Author MVP**：登记 §11 + [`product/14-external-author-mvp.md`](product/14-external-author-mvp.md)（bundle 分发 / host dev / setup 真装齐 / CI 三绿线）；诊断：慢在工具链交付与宿主门禁，非 program Hello 语义 |
+| 2026-08-12 | **全面审查后刷新**：`pf run` one-shot 五链（EVM/Solana/NEAR/CW/TON）、Solana registry label `runtime-validated-alpha`、NEAR parity Phase 0–4（lite）闭合（Map return cap-8 / UInt128 balance env-read / multiword shift / negative corpus）、CW Map loop cap-8 + Map return + wide shift、context chainId/self（S3）三链 runtime、NEAR/EVM/TON 负例语料、ProofShip 迁出独立仓库；推荐击杀顺序按 EVM→Solana→NEAR→CW 优先序重排 |
+| 2026-08-12 | **晚批双 lane**：Solana `context.blockHeight` 开到 sole product profile（CpiDerive admit + Mollusk `block_height.rs` 双 warp-slot 门；`unixTimeSeconds` 仍 FC；23 binaries / 414 active）；EVM corpus observation 硬性 identity binding（`identity{sourceHash,semanticHash}` 全 leg 全 verdict；Reference 取 Loader→Normalize、Anvil 取 deployed manifest、close-case 对 case pin exact join；顺修 StateCell staging 目录回归）。engineering only，非 formal C-3/TST/Stage-0 |
 
 ---
 

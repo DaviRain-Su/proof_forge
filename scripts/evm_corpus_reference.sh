@@ -57,6 +57,8 @@ for raw_path in raws:
         case_id=case_id,
         leg="reference",
         step_index=step,
+        source_hash=data["sourceHash"],
+        semantic_hash=data["semanticHash"],
         status=data["status"],
         return_value=data["returnValue"],
         logical_state=data["logicalState"],

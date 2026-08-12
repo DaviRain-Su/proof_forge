@@ -244,7 +244,9 @@ ensure_build() {
 }
 
 # Required programs for the differential matrix (profile-keyed dirs).
-ensure_build Examples/StateCell.lean Examples.StateCell evm-state-cell StateCell.bin
+# Logical dir must stay `evm`: smoke_evm.sh reads StateCell from
+# "$(artifact_dir evm)" (= build/v2/evm${suffix}); no other lane owns that tree.
+ensure_build Examples/StateCell.lean Examples.StateCell evm StateCell.bin
 ensure_build Examples/Accumulator.lean Examples.Accumulator evm-accumulator Accumulator.bin
 
 # OwnableLike corpus case (pf.primitive.ownablelike.caller-admit.v1): committed

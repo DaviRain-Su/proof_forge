@@ -131,6 +131,8 @@ NEGATIVE_FIXTURE_CODES: dict[str, str] = {
     "case-path-traversal.json": "PF-CORPUS-PATH",
     "case-skip-as-pass.json": "PF-CORPUS-INVARIANT",
     "case-unknown-field.json": "PF-CORPUS-SCHEMA",
+    "obs-identity-bad-digest.json": "PF-CORPUS-SCHEMA",
+    "obs-missing-identity.json": "PF-CORPUS-SCHEMA",
     "obs-reference-with-evm.json": "PF-CORPUS-INVARIANT",
     "obs-skip-as-pass.json": "PF-CORPUS-INVARIANT",
     "obs-storage-slot-wrong-width.json": "PF-CORPUS-SCHEMA",
@@ -1093,6 +1095,20 @@ def _validate_evm_observation(value: object, where: str) -> dict[str, object]:
     return obj
 
 
+def _validate_identity(value: object, where: str) -> dict[str, object]:
+    """Exact subject-program identity binding (canonical ProgramV1 digests).
+
+    Engineering identity binding for the Reference↔Anvil differential; both
+    digests are lowercase 64-hex SHA-256 renderings (sourceHash = canonical
+    ProgramV1 source digest; semanticHash = retained SemanticProgramV1 digest).
+    No optional/lenient acceptance: every observation must carry it.
+    """
+    obj = require_keys(value, {"sourceHash", "semanticHash"}, where)
+    require_sha256(obj["sourceHash"], _where(where, "sourceHash"))
+    require_sha256(obj["semanticHash"], _where(where, "semanticHash"))
+    return obj
+
+
 def _validate_shared_observation(value: object) -> dict[str, object]:
     where = "$.shared"
     obj = require_keys(
@@ -1123,6 +1139,7 @@ def validate_observation(value: object) -> dict[str, object]:
             "caseId",
             "leg",
             "stepIndex",
+            "identity",
             "verdict",
             "skipReason",
             "shared",
@@ -1136,6 +1153,7 @@ def validate_observation(value: object) -> dict[str, object]:
     require_case_id(root["caseId"], "$.caseId")
     leg = require_enum(root["leg"], LEGS, "$.leg")
     require_int(root["stepIndex"], "$.stepIndex", maximum=MAX_STEPS - 1)
+    _validate_identity(root["identity"], "$.identity")
     verdict = require_enum(root["verdict"], VERDICTS, "$.verdict")
     skip_reason = root["skipReason"]
     if verdict == "pass":
@@ -1239,6 +1257,15 @@ def close_case(
         for step in steps:
             expected_keys.add((leg, int(step["index"])))  # type: ignore[arg-type]
 
+    # Identity-bound differential: every observation (all legs, all verdicts)
+    # must carry the exact subject-program identity pinned by the case. This
+    # implies byte-identical identity across reference / pf-anvil / oz-anvil.
+    pins = case["pins"]  # type: ignore[index]
+    expected_identity = {
+        "sourceHash": pins["sourceHash"],  # type: ignore[index]
+        "semanticHash": pins["semanticHash"],  # type: ignore[index]
+    }
+
     index: dict[tuple[str, int], dict[str, object]] = {}
     for obs in observations:
         o = validate_observation(obs)
@@ -1246,6 +1273,13 @@ def close_case(
             fail(
                 "PF-CORPUS-INVARIANT",
                 f"observation caseId {o['caseId']!r} != case id {case_id!r}",
+            )
+        if o["identity"] != expected_identity:
+            fail(
+                "PF-CORPUS-INVARIANT",
+                f"observation identity {o['identity']!r} != case pins identity "
+                f"{expected_identity!r} for leg={o['leg']} step={o['stepIndex']} "
+                "(cross-leg identity must be byte-identical and equal the case pin)",
             )
         key = (str(o["leg"]), int(o["stepIndex"]))  # type: ignore[arg-type]
         if key in index:
@@ -1588,6 +1622,8 @@ def mint_observation_from_shared(
     case_id: str,
     leg: str,
     step_index: int,
+    source_hash: str,
+    semantic_hash: str,
     status: str,
     return_value: object,
     logical_state: dict[str, object],
@@ -1597,12 +1633,20 @@ def mint_observation_from_shared(
     verdict: str = "pass",
     skip_reason: object = None,
 ) -> bytes:
-    """Build canonical observation bytes (shared authority for harness emitters)."""
+    """Build canonical observation bytes (shared authority for harness emitters).
+
+    source_hash / semantic_hash are mandatory: every observation is bound to
+    the exact subject-program identity (no identity-less minting path).
+    """
     obs = {
         "schema": SCHEMA_OBS,
         "caseId": case_id,
         "leg": leg,
         "stepIndex": step_index,
+        "identity": {
+            "sourceHash": source_hash,
+            "semanticHash": semantic_hash,
+        },
         "verdict": verdict,
         "skipReason": skip_reason,
         "shared": {
@@ -1874,12 +1918,19 @@ def make_oos_case() -> dict[str, object]:
     }
 
 
+def _fixture_identity() -> dict[str, object]:
+    # Matches _base_pins sourceHash/semanticHash so close_case identity join
+    # holds on self-test cases.
+    return {"sourceHash": _sha(1), "semanticHash": _sha(2)}
+
+
 def make_reference_observation() -> dict[str, object]:
     return {
         "schema": SCHEMA_OBS,
         "caseId": "pf.primitive.statecell.overflow-hold.v1",
         "leg": "reference",
         "stepIndex": 0,
+        "identity": _fixture_identity(),
         "verdict": "pass",
         "skipReason": None,
         "shared": {
@@ -1899,6 +1950,7 @@ def make_pf_anvil_observation() -> dict[str, object]:
         "caseId": "pf.primitive.statecell.overflow-hold.v1",
         "leg": "pf-anvil",
         "stepIndex": 0,
+        "identity": _fixture_identity(),
         "verdict": "pass",
         "skipReason": None,
         "shared": {
@@ -2486,6 +2538,31 @@ def run_self_tests() -> None:
         lambda: validate_case(_mutate(make_primitive_case(), skip_as_pass)),
     )
 
+    def drop_identity(o: dict[str, object]) -> None:
+        del o["identity"]
+
+    _expect_error(
+        "obs-missing-identity",
+        "PF-CORPUS-SCHEMA",
+        lambda: validate_observation(
+            _mutate(make_reference_observation(), drop_identity)
+        ),
+    )
+
+    def uppercase_identity(o: dict[str, object]) -> None:
+        ident = dict(o["identity"])  # type: ignore[arg-type]
+        # Uppercase 64-hex: rejected (digests are lowercase-only).
+        ident["sourceHash"] = "A" * 64
+        o["identity"] = ident
+
+    _expect_error(
+        "obs-identity-uppercase-digest",
+        "PF-CORPUS-SCHEMA",
+        lambda: validate_observation(
+            _mutate(make_reference_observation(), uppercase_identity)
+        ),
+    )
+
     def pass_with_skip(o: dict[str, object]) -> None:
         o["skipReason"] = "optional tool missing"
 
@@ -2587,6 +2664,7 @@ def _mk_pass_obs(
     *,
     status: str = "success",
     shared_extra: dict[str, object] | None = None,
+    identity: dict[str, object] | None = None,
 ) -> dict[str, object]:
     shared: dict[str, object] = {
         "status": status,
@@ -2615,6 +2693,7 @@ def _mk_pass_obs(
         "caseId": case_id,
         "leg": leg,
         "stepIndex": step,
+        "identity": identity if identity is not None else _fixture_identity(),
         "verdict": "pass",
         "skipReason": None,
         "shared": shared,
@@ -2688,6 +2767,21 @@ def _run_close_case_negative_tests() -> None:
         _mk_pass_obs(case_id, "pf-anvil", 0, shared_extra={"logicalState": {"count": "2"}}),
     ]
     expect_close_fail("shared-mismatch", bad_shared)
+
+    # Cross-leg identity mismatch: pf-anvil leg bound to a different program.
+    foreign_identity = {"sourceHash": _sha(7), "semanticHash": _sha(8)}
+    identity_mismatch = [
+        _mk_pass_obs(case_id, "reference", 0),
+        _mk_pass_obs(case_id, "pf-anvil", 0, identity=foreign_identity),
+    ]
+    expect_close_fail("cross-leg-identity-mismatch", identity_mismatch)
+
+    # Both legs agree with each other but not with the case pin → still fail.
+    identity_off_pin = [
+        _mk_pass_obs(case_id, "reference", 0, identity=foreign_identity),
+        _mk_pass_obs(case_id, "pf-anvil", 0, identity=foreign_identity),
+    ]
+    expect_close_fail("identity-off-case-pin", identity_off_pin)
 
     # Required leg skip cannot pass.
     skip_obs = [

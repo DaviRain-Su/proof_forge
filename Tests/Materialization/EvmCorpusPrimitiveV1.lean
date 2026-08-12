@@ -177,9 +177,13 @@ private def jsonStr (s : String) : String := jsonEscape s
 
 private def jsonNat (n : Nat) : String := toString n
 
-/-- Intermediate shared observation (Python mints PF-JCS). -/
+/-- Intermediate shared observation (Python mints PF-JCS). Carries the exact
+    subject-program identity (canonical ProgramV1 sourceHash + retained
+    semanticHash, lowercase 64-hex) so the minted observation is
+    identity-bound (engineering; not formal C-3). -/
 private def writeSharedStep
     (outDir : System.FilePath) (caseId : String) (stepIndex : Nat)
+    (sourceHash semanticHash : String)
     (status : String) (returnValue : Option String)
     (stateKey : String) (stateVal : Nat)
     (effectsJson : String) (rollbackEqual : Bool) : IO Unit := do
@@ -196,6 +200,8 @@ private def writeSharedStep
     "\"caseId\":" ++ jsonStr caseId ++ "," ++
     "\"leg\":\"reference\"," ++
     "\"stepIndex\":" ++ jsonNat stepIndex ++ "," ++
+    "\"sourceHash\":" ++ jsonStr sourceHash ++ "," ++
+    "\"semanticHash\":" ++ jsonStr semanticHash ++ "," ++
     "\"status\":" ++ jsonStr status ++ "," ++
     "\"returnValue\":" ++ ret ++ "," ++
     "\"logicalState\":{" ++ jsonStr stateKey ++ ":" ++ jsonStr (toString stateVal) ++ "}," ++
@@ -318,7 +324,7 @@ private unsafe def runStateCell
     expectedSemanticHash :=
       "a081c8b1da02d07fdc3aff3184ff77a34f72fae06b0d74e65c3394c7834fa22f"
   }
-  let (carrier, data, admitted, u64, _, _) ← loadNormalizeAdmit session repoRoot spec
+  let (carrier, data, admitted, u64, srcHash, semHash) ← loadNormalizeAdmit session repoRoot spec
   let initId ← findCallableId data none
   let incId ← findCallableId data (some "increment")
   let getId ← findCallableId data (some "get")
@@ -332,20 +338,20 @@ private unsafe def runStateCell
   expect (st0 == "success") "state cell step0 status"
   let v0 ← decodeSoleU64 post0
   expect (v0 == 7) "state cell step0 state"
-  writeSharedStep outDir caseId 0 st0 ret0 "count" v0 eff0 rb0
+  writeSharedStep outDir caseId 0 srcHash semHash st0 ret0 "count" v0 eff0 rb0
   -- step 1: increment 5 → 12
   let o1 := stepOnce admitted post0 incId #[5] u64
   let (st1, ret1, post1, eff1, rb1) ← outcomeShared o1 post0
   expect (st1 == "success") "state cell step1 status"
   let v1 ← decodeSoleU64 post1
   expect (v1 == 12) "state cell step1 state"
-  writeSharedStep outDir caseId 1 st1 ret1 "count" v1 eff1 rb1
+  writeSharedStep outDir caseId 1 srcHash semHash st1 ret1 "count" v1 eff1 rb1
   -- step 2: view get
   let o2 := stepOnce admitted post1 getId #[] u64
   let (st2, ret2, post2, eff2, rb2) ← outcomeShared o2 post1
   expect (st2 == "success") "state cell step2 status"
   let v2 ← decodeSoleU64 post2
-  writeSharedStep outDir caseId 2 st2 ret2 "count" v2 eff2 rb2
+  writeSharedStep outDir caseId 2 srcHash semHash st2 ret2 "count" v2 eff2 rb2
   -- step 3: redeploy max (fresh initial)
   let maxN : Nat := (2 ^ 64) - 1
   let o3 := stepOnce admitted initial initId #[maxN] u64
@@ -353,20 +359,20 @@ private unsafe def runStateCell
   expect (st3 == "success") "state cell step3 status"
   let v3 ← decodeSoleU64 post3
   expect (v3 == maxN) "state cell step3 state"
-  writeSharedStep outDir caseId 3 st3 ret3 "count" v3 eff3 rb3
+  writeSharedStep outDir caseId 3 srcHash semHash st3 ret3 "count" v3 eff3 rb3
   -- step 4: overflow increment → revert
   let o4 := stepOnce admitted post3 incId #[1] u64
   let (st4, ret4, post4, eff4, rb4) ← outcomeShared o4 post3
   expect (st4 == "revert") "state cell step4 status"
   let v4 ← decodeSoleU64 post4
   expect (v4 == maxN) "state cell step4 rollback"
-  writeSharedStep outDir caseId 4 st4 ret4 "count" v4 eff4 rb4
+  writeSharedStep outDir caseId 4 srcHash semHash st4 ret4 "count" v4 eff4 rb4
   -- step 5: view get still max
   let o5 := stepOnce admitted post4 getId #[] u64
   let (st5, ret5, post5, eff5, rb5) ← outcomeShared o5 post4
   expect (st5 == "success") "state cell step5 status"
   let v5 ← decodeSoleU64 post5
-  writeSharedStep outDir caseId 5 st5 ret5 "count" v5 eff5 rb5
+  writeSharedStep outDir caseId 5 srcHash semHash st5 ret5 "count" v5 eff5 rb5
   IO.println s!"reference-leg ok {caseId}"
 
 private unsafe def runAccumulator
@@ -383,7 +389,7 @@ private unsafe def runAccumulator
     expectedSemanticHash :=
       "c9c62dfe57d9f09f2b47f4dbb78d99c07edff7663036acc4df439e7311b7902a"
   }
-  let (carrier, data, admitted, u64, _, _) ← loadNormalizeAdmit session repoRoot spec
+  let (carrier, data, admitted, u64, srcHash, semHash) ← loadNormalizeAdmit session repoRoot spec
   let initId ← findCallableId data none
   let addId ← findCallableId data (some "add")
   let curId ← findCallableId data (some "current")
@@ -394,30 +400,30 @@ private unsafe def runAccumulator
   let o0 := stepOnce admitted initial initId #[7] u64
   let (st0, ret0, post0, eff0, rb0) ← outcomeShared o0 initial
   let v0 ← decodeSoleU64 post0
-  writeSharedStep outDir caseId 0 st0 ret0 "total" v0 eff0 rb0
+  writeSharedStep outDir caseId 0 srcHash semHash st0 ret0 "total" v0 eff0 rb0
   let o1 := stepOnce admitted post0 addId #[5] u64
   let (st1, ret1, post1, eff1, rb1) ← outcomeShared o1 post0
   let v1 ← decodeSoleU64 post1
   expect (v1 == 12) "accumulator step1"
-  writeSharedStep outDir caseId 1 st1 ret1 "total" v1 eff1 rb1
+  writeSharedStep outDir caseId 1 srcHash semHash st1 ret1 "total" v1 eff1 rb1
   let o2 := stepOnce admitted post1 curId #[] u64
   let (st2, ret2, post2, eff2, rb2) ← outcomeShared o2 post1
   let v2 ← decodeSoleU64 post2
-  writeSharedStep outDir caseId 2 st2 ret2 "total" v2 eff2 rb2
+  writeSharedStep outDir caseId 2 srcHash semHash st2 ret2 "total" v2 eff2 rb2
   let maxN : Nat := (2 ^ 64) - 1
   let o3 := stepOnce admitted initial initId #[maxN] u64
   let (st3, ret3, post3, eff3, rb3) ← outcomeShared o3 initial
   let v3 ← decodeSoleU64 post3
-  writeSharedStep outDir caseId 3 st3 ret3 "total" v3 eff3 rb3
+  writeSharedStep outDir caseId 3 srcHash semHash st3 ret3 "total" v3 eff3 rb3
   let o4 := stepOnce admitted post3 addId #[1] u64
   let (st4, ret4, post4, eff4, rb4) ← outcomeShared o4 post3
   expect (st4 == "revert") "accumulator overflow"
   let v4 ← decodeSoleU64 post4
-  writeSharedStep outDir caseId 4 st4 ret4 "total" v4 eff4 rb4
+  writeSharedStep outDir caseId 4 srcHash semHash st4 ret4 "total" v4 eff4 rb4
   let o5 := stepOnce admitted post4 curId #[] u64
   let (st5, ret5, post5, eff5, rb5) ← outcomeShared o5 post4
   let v5 ← decodeSoleU64 post5
-  writeSharedStep outDir caseId 5 st5 ret5 "total" v5 eff5 rb5
+  writeSharedStep outDir caseId 5 srcHash semHash st5 ret5 "total" v5 eff5 rb5
   IO.println s!"reference-leg ok {caseId}"
 
 private unsafe def runArithOps
@@ -434,7 +440,7 @@ private unsafe def runArithOps
     expectedSemanticHash :=
       "9a275ab1c9bc09a6571280ca41a52d4dfb8c9d31ba36af5b0562bf06f816b0cb"
   }
-  let (carrier, data, admitted, u64, _, _) ← loadNormalizeAdmit session repoRoot spec
+  let (carrier, data, admitted, u64, srcHash, semHash) ← loadNormalizeAdmit session repoRoot spec
   let initId ← findCallableId data none
   let scaleId ← findCallableId data (some "scale")
   let bitsId ← findCallableId data (some "bits")
@@ -446,7 +452,7 @@ private unsafe def runArithOps
   let o0 := stepOnce admitted initial initId #[7] u64
   let (st0, ret0, post0, eff0, rb0) ← outcomeShared o0 initial
   let v0 ← decodeSoleU64 post0
-  writeSharedStep outDir caseId 0 st0 ret0 "count" v0 eff0 rb0
+  writeSharedStep outDir caseId 0 srcHash semHash st0 ret0 "count" v0 eff0 rb0
   -- bits(0) → max; does not write storage
   let o1 := stepOnce admitted post0 bitsId #[0] u64
   let (st1, ret1, post1, eff1, rb1) ← outcomeShared o1 post0
@@ -454,27 +460,27 @@ private unsafe def runArithOps
   expect (ret1 == some (toString maxN)) "bits0 return"
   let v1 ← decodeSoleU64 post1
   expect (v1 == 7) "bits does not store"
-  writeSharedStep outDir caseId 1 st1 ret1 "count" v1 eff1 rb1
+  writeSharedStep outDir caseId 1 srcHash semHash st1 ret1 "count" v1 eff1 rb1
   let o2 := stepOnce admitted post1 bitsId #[5] u64
   let (st2, ret2, post2, eff2, rb2) ← outcomeShared o2 post1
   expect (ret2 == some (toString (maxN - 5))) "bits5 return"
   let v2 ← decodeSoleU64 post2
-  writeSharedStep outDir caseId 2 st2 ret2 "count" v2 eff2 rb2
+  writeSharedStep outDir caseId 2 srcHash semHash st2 ret2 "count" v2 eff2 rb2
   -- scale(3,2): count := 7*3/2 + 7%2 = 10 + 1 = 11
   let o3 := stepOnce admitted post2 scaleId #[3, 2] u64
   let (st3, ret3, post3, eff3, rb3) ← outcomeShared o3 post2
   let v3 ← decodeSoleU64 post3
   expect (v3 == 11) "scale state"
-  writeSharedStep outDir caseId 3 st3 ret3 "count" v3 eff3 rb3
+  writeSharedStep outDir caseId 3 srcHash semHash st3 ret3 "count" v3 eff3 rb3
   let o4 := stepOnce admitted initial initId #[maxN] u64
   let (st4, ret4, post4, eff4, rb4) ← outcomeShared o4 initial
   let v4 ← decodeSoleU64 post4
-  writeSharedStep outDir caseId 4 st4 ret4 "count" v4 eff4 rb4
+  writeSharedStep outDir caseId 4 srcHash semHash st4 ret4 "count" v4 eff4 rb4
   let o5 := stepOnce admitted post4 scaleId #[2, 1] u64
   let (st5, ret5, post5, eff5, rb5) ← outcomeShared o5 post4
   expect (st5 == "revert") "scale overflow"
   let v5 ← decodeSoleU64 post5
-  writeSharedStep outDir caseId 5 st5 ret5 "count" v5 eff5 rb5
+  writeSharedStep outDir caseId 5 srcHash semHash st5 ret5 "count" v5 eff5 rb5
   IO.println s!"reference-leg ok {caseId}"
 
 private unsafe def runEventFlow
@@ -491,7 +497,7 @@ private unsafe def runEventFlow
     expectedSemanticHash :=
       "3332b207ff7c04c815f8ad6e17c30b21680ce1bb18c88df46d753f3c049232d6"
   }
-  let (carrier, data, admitted, u64, _, _) ← loadNormalizeAdmit session repoRoot spec
+  let (carrier, data, admitted, u64, srcHash, semHash) ← loadNormalizeAdmit session repoRoot spec
   let initId ← findCallableId data none
   let bumpId ← findCallableId data (some "bump")
   let getId ← findCallableId data (some "get")
@@ -503,7 +509,7 @@ private unsafe def runEventFlow
   let (st0, ret0, post0, eff0, rb0) ← outcomeShared o0 initial
   let v0 ← decodeSoleU64 post0
   expect (v0 == 0) "eventflow deploy0"
-  writeSharedStep outDir caseId 0 st0 ret0 "count" v0 eff0 rb0
+  writeSharedStep outDir caseId 0 srcHash semHash st0 ret0 "count" v0 eff0 rb0
   -- bump(5): emit Moved(0,5), count := 5
   let o1 := stepOnce admitted post0 bumpId #[5] u64
   let (st1, ret1, post1, eff1, rb1) ← outcomeShared o1 post0
@@ -511,11 +517,11 @@ private unsafe def runEventFlow
   let v1 ← decodeSoleU64 post1
   expect (v1 == 5) "eventflow count after bump"
   expect (eff1 != effectsEmpty) "eventflow must carry Moved effect"
-  writeSharedStep outDir caseId 1 st1 ret1 "count" v1 eff1 rb1
+  writeSharedStep outDir caseId 1 srcHash semHash st1 ret1 "count" v1 eff1 rb1
   let o2 := stepOnce admitted post1 getId #[] u64
   let (st2, ret2, post2, eff2, rb2) ← outcomeShared o2 post1
   let v2 ← decodeSoleU64 post2
-  writeSharedStep outDir caseId 2 st2 ret2 "count" v2 eff2 rb2
+  writeSharedStep outDir caseId 2 srcHash semHash st2 ret2 "count" v2 eff2 rb2
   -- bump(3) with count=5 → Cap revert; effects empty; state holds 5
   let o3 := stepOnce admitted post2 bumpId #[3] u64
   let (st3, ret3, post3, eff3, rb3) ← outcomeShared o3 post2
@@ -523,11 +529,11 @@ private unsafe def runEventFlow
   expect (eff3 == effectsEmpty) "eventflow revert discards emit"
   let v3 ← decodeSoleU64 post3
   expect (v3 == 5) "eventflow Cap holds state"
-  writeSharedStep outDir caseId 3 st3 ret3 "count" v3 eff3 rb3
+  writeSharedStep outDir caseId 3 srcHash semHash st3 ret3 "count" v3 eff3 rb3
   let o4 := stepOnce admitted post3 getId #[] u64
   let (st4, ret4, post4, eff4, rb4) ← outcomeShared o4 post3
   let v4 ← decodeSoleU64 post4
-  writeSharedStep outDir caseId 4 st4 ret4 "count" v4 eff4 rb4
+  writeSharedStep outDir caseId 4 srcHash semHash st4 ret4 "count" v4 eff4 rb4
   IO.println s!"reference-leg ok {caseId}"
 
 /-- ADR-0031 S1: OwnableLike caller-admit reference legs. init records
@@ -547,7 +553,7 @@ private unsafe def runOwnableLike
     expectedSemanticHash :=
       "4874d5f6e5b589a26f3175920fee6aa06d59009be8d8c38a45bdc3bd8c14dd75"
   }
-  let (carrier, data, admitted, u64, _, _) ← loadNormalizeAdmit session repoRoot spec
+  let (carrier, data, admitted, u64, srcHash, semHash) ← loadNormalizeAdmit session repoRoot spec
   let initId ← findCallableId data none
   let setId ← findCallableId data (some "setValue")
   let getId ← findCallableId data (some "getValue")
@@ -572,7 +578,7 @@ private unsafe def runOwnableLike
   expect (st0 == "success") "ownablelike step0 status"
   let v0 ← decodeSecondSlotU64 post0
   expect (v0 == 0) "ownablelike step0 state"
-  writeSharedStep outDir caseId 0 st0 ret0 "value" v0 eff0 rb0
+  writeSharedStep outDir caseId 0 srcHash semHash st0 ret0 "value" v0 eff0 rb0
   -- step 1: authorized setValue(42) as owner → 42
   let o1 := stepReferenceSliceV1 admitted post0
     (invCtx setId #[refU64 u64 42] ownerCtx) emptyResponses
@@ -580,7 +586,7 @@ private unsafe def runOwnableLike
   expect (st1 == "success") "ownablelike step1 status"
   let v1 ← decodeSecondSlotU64 post1
   expect (v1 == 42) "ownablelike step1 state"
-  writeSharedStep outDir caseId 1 st1 ret1 "value" v1 eff1 rb1
+  writeSharedStep outDir caseId 1 srcHash semHash st1 ret1 "value" v1 eff1 rb1
   -- step 2: view getValue → 42
   let o2 := stepReferenceSliceV1 admitted post1
     (invCtx getId #[] #[]) emptyResponses
@@ -588,7 +594,7 @@ private unsafe def runOwnableLike
   expect (st2 == "success") "ownablelike step2 status"
   let v2 ← decodeSecondSlotU64 post2
   expect (v2 == 42) "ownablelike step2 state"
-  writeSharedStep outDir caseId 2 st2 ret2 "value" v2 eff2 rb2
+  writeSharedStep outDir caseId 2 srcHash semHash st2 ret2 "value" v2 eff2 rb2
   -- step 3: unauthorized setValue(7) as stranger → revert, state holds 42
   let o3 := stepReferenceSliceV1 admitted post2
     (invCtx setId #[refU64 u64 7] strangerCtx) emptyResponses
@@ -596,7 +602,7 @@ private unsafe def runOwnableLike
   expect (st3 == "revert") "ownablelike step3 status"
   let v3 ← decodeSecondSlotU64 post3
   expect (v3 == 42) "ownablelike step3 rollback"
-  writeSharedStep outDir caseId 3 st3 ret3 "value" v3 eff3 rb3
+  writeSharedStep outDir caseId 3 srcHash semHash st3 ret3 "value" v3 eff3 rb3
   -- step 4: view getValue still 42
   let o4 := stepReferenceSliceV1 admitted post3
     (invCtx getId #[] #[]) emptyResponses
@@ -604,7 +610,7 @@ private unsafe def runOwnableLike
   expect (st4 == "success") "ownablelike step4 status"
   let v4 ← decodeSecondSlotU64 post4
   expect (v4 == 42) "ownablelike step4 state"
-  writeSharedStep outDir caseId 4 st4 ret4 "value" v4 eff4 rb4
+  writeSharedStep outDir caseId 4 srcHash semHash st4 ret4 "value" v4 eff4 rb4
   IO.println s!"reference-leg ok {caseId}"
 
 /-- Adapter Token pin recheck only (no Reference observations for Map adapter).

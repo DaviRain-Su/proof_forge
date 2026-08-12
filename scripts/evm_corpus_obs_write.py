@@ -4,9 +4,12 @@
 Usage:
   python3 -I -S scripts/evm_corpus_obs_write.py OUT_DIR CASE_ID LEG STEP \\
     STATUS RETURN_JSON LOGICAL_JSON EFFECTS_JSON ROLLBACK \\
-    [EVM_JSON_OR_null]
+    SOURCE_HASH SEMANTIC_HASH [EVM_JSON_OR_null]
 
-RETURN/LOGICAL/EFFECTS are JSON text. EVM is JSON object or the token null.
+RETURN/LOGICAL/EFFECTS are JSON text. SOURCE_HASH / SEMANTIC_HASH are the
+mandatory lowercase 64-hex subject-program identity digests (identity-bound
+observation; no identity-less writing path). EVM is JSON object or the token
+null.
 """
 from __future__ import annotations
 
@@ -17,8 +20,12 @@ from pathlib import Path
 
 
 def main(argv: list[str]) -> int:
-    if len(argv) < 10:
-        print("usage: evm_corpus_obs_write.py OUT CASE LEG STEP STATUS RET LOGIC EFF RB [EVM]", file=sys.stderr)
+    if len(argv) < 12:
+        print(
+            "usage: evm_corpus_obs_write.py OUT CASE LEG STEP STATUS RET LOGIC "
+            "EFF RB SRC_HASH SEM_HASH [EVM]",
+            file=sys.stderr,
+        )
         return 2
     out_dir = Path(argv[1])
     case_id = argv[2]
@@ -29,9 +36,11 @@ def main(argv: list[str]) -> int:
     logical = json.loads(argv[7])
     effects = json.loads(argv[8])
     rb = argv[9].lower() == "true"
+    source_hash = argv[10]
+    semantic_hash = argv[11]
     evm = None
-    if len(argv) > 10 and argv[10] != "null":
-        evm = json.loads(argv[10])
+    if len(argv) > 12 and argv[12] != "null":
+        evm = json.loads(argv[12])
 
     root = Path(__file__).resolve().parents[1]
     spec = importlib.util.spec_from_file_location(
@@ -49,6 +58,8 @@ def main(argv: list[str]) -> int:
         case_id=case_id,
         leg=leg,
         step_index=step,
+        source_hash=source_hash,
+        semantic_hash=semantic_hash,
         status=status,
         return_value=ret,
         logical_state=logical,

@@ -360,15 +360,15 @@ unsafe def testEnvReadPureFnFailClosed : IO Unit := do
 
 unsafe def testEnvReadNoExtFailClosed : IO Unit := do
   -- E2-2a typed-layer gate: env-read without the extension declaration fails
-  -- at compile (before any target plan) with the exact 1.1.0 declaration
-  -- requirement message.
+  -- at compile (before any target plan) with the exact pf.assets declaration
+  -- requirement message (1.1.0 or 1.2.0 admits the catalog since 2026-08-12).
   let session ← Tests.Language.ParserSession.shared
   let parsed ← liftResult (← session.selectProgramV1 envReadNoExtSource
     "<cw-envread-noext>" "Tests.CwEnvReadNoExt" none)
   match Compiler.compileValidatedSourceV1 parsed with
   | .error e =>
-      expect (e.render.contains "requires the pf.assets@1.1.0 extension declaration")
-        s!"no-extension envRead must cite the 1.1.0 declaration gate, got: {e.render}"
+      expect (e.render.contains "requires pf.assets@1.1.0 or @1.2.0")
+        s!"no-extension envRead must cite the pf.assets declaration gate, got: {e.render}"
   | .ok _ =>
       throw <| IO.userError "envRead without extension must fail at compile"
 

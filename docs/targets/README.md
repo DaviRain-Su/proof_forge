@@ -3,14 +3,14 @@ id: TARGET-INDEX
 title: Target 研究与实现档案
 status: proposed
 owner: architecture
-updated: 2026-08-10
+updated: 2026-08-12
 normative: true
 ---
 
 # Target 研究与实现档案
 
 状态：`proposed`
-更新日期：2026-08-10
+更新日期：2026-08-12
 
 本目录按执行语义而不是文件后缀组织目标。`family` 是阅读视图，编译器实际依据多轴 `TargetDescriptor` 和 exact `SupportClaim` 决策。
 
@@ -30,7 +30,7 @@ normative: true
 | Target | 视图 | 本阶段 | Static dossier ceiling | 当前证据与限制（工程观察，非 formal binding） | Dossier |
 |---|---|---|---|---|---|
 | `evm` | contract VM | accepted Phase 1 implement | `specified` | retained-V1 Plan + Yul/locked-solc bytecode + EvmSolc + G4 Anvil 工程差分；**非** formal maturity / Reference↔Anvil 闭包 | [EVM](01-evm.md) |
-| `solana` | explicit-account SVM | accepted Phase 1 implement | `specified` | retained-V1 Plan + SBPF asm → ELF `.so` + Mollusk runtime 差分；**非** formal Stage-0/hermetic | [Solana](02-solana.md) |
+| `solana` | explicit-account SVM | accepted Phase 1 implement | `specified` | retained-V1 Plan + SBPF asm → ELF `.so` + Mollusk runtime 差分；registry label `runtime-validated-alpha`（2026-08-12）；**非** formal Stage-0/hermetic | [Solana](02-solana.md) |
 | `near` | Wasm host | accepted Phase 1 implement | `specified` | retained-V1 Plan + locked `wat2wasm` 结构编译 / host-optional runtime load + locked near-sandbox 2.13.0 deploy/init/mutate/view receipt 工程门与 deterministic HostModel；**非** formal Reference↔sandbox / Stage-0 | [NEAR](03-near.md) |
 | `cosmwasm` | Wasm host | engineering implemented (scope ADR open) | `research` | retained-V1 Plan/IR → WAT + locked `wat2wasm`/`cosmwasm-check` 3.0.9；UInt8/16/32、named state、bounded aggregate/Array/Option return；**sync call FC**、async→Binary `SubMsg{reply_on:never}`（same-tx、QN stub）；cosmwasm-vm 28-test mock + wasmd v0.70.3 Docker rung-1；registry label `wasm-validated-alpha`；**非** 主网/formal；**非** accepted Phase 1 范围 | [CosmWasm](04-cosmwasm.md) |
 | `soroban` | Wasm host | design only | `research` | design-only；无产品 backend | [Soroban](05-soroban.md) |
@@ -80,4 +80,9 @@ maturity。正式 evaluator 必须按 SPEC-REG-001 验证 exact
   - `pf test` artifact smoke (Noir relations/ACIR JSON; Quint `*.qnt`; TON sandbox corpus when tools present)
   - `pf deploy` **save-only** packages under `build/<target>/tx/`
   - `--broadcast` **refused** (circuits/model surfaces / TON v0 policy)
-- Interactive `pf run` remains Aleo/Psy (+ NEAR one-shot sandbox); Noir/Quint/TON point at `pf test`.
+- **`pf run` one-shot local execution now covers five chains** (2026-08-12 afternoon):
+  EVM (local Anvil, `scripts/pf_evm_run.sh`) · Solana (Mollusk `sol_oneshot`) ·
+  NEAR (locked near-sandbox, ABI-driven view mode) · CosmWasm (cosmwasm-vm mock
+  `cw_oneshot`) · TON (`@ton/sandbox` one-shot). Aleo/Psy keep the interactive
+  `pf run` surface; Noir/Quint point at `pf test`. All engineering local only —
+  not testnet/mainnet/formal.

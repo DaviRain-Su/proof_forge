@@ -14954,6 +14954,68 @@ normative: false
   refinement。没有新增 target State、Effect、transition、evaluator 或 step；assurance 仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
 
+## 2026-08-12 — 下午批：四链 `pf run` one-shot、CW/NEAR Map return、context chainId/self、负例语料与 ProofShip 迁出
+
+- **CosmWasm 扩面**：Map loop IR cap-8（`Token` 收进 wasmtime `MAX_LOCALS` 之下）；
+  Map return 降为 24-leaf B-RET JSON（occ/key/val 扁平，`MapDump` cosmwasm-vm runtime 门）；
+  multiword UInt128/256 `<<`/`>>`（`wide_shift.rs`）；bad-JSON / corrupt-storage / gas
+  negative corpus（`negative_corpus.rs`）。cheatsheet 同步 Map return 诚实边界。
+- **NEAR 扩面**：dense Map return cap-8 → 24×u64 LE 单次 `value_return`（与 CW 同形）；
+  `pf.assets@1.2.0` full-width UInt128 native balance env-read（`EnvReadBalanceU128` sandbox）；
+  multiword UInt128/256 `<<`/`>>` 开放（`Examples/WideShiftProbe` + HostModel 对齐 +
+  sandbox suite）；`suite_negative_corpus`（unknown method / empty·short·long increment
+  args + state-hold + recovery）接入 `scripts/near_runtime_test.sh`。
+- **context.chainId / context.self（ADR-0031 S3）**：typed admit + EVM（`chainid()` range
+  guard / `address()` Principal 打包）、NEAR、CosmWasm runtime 开放；`ChainIdCheck` /
+  `SelfIdentityCheck` fixtures；电路类与未接线 target 继续 fail closed。
+- **`pf` CLI parity 与 one-shot 执行面**：Noir/Quint/TON 成为一等 `TargetId`
+  （`pf test` artifact smoke + `pf deploy` save-only，`--broadcast` 拒绝）；`pf run`
+  one-shot 本地执行开放五链——EVM（local Anvil，`scripts/pf_evm_run.sh`：deploy 默认
+  ctor `0` 或 `PF_EVM_INIT_ARGS`，再 view/mutate）、Solana（Mollusk
+  `runtime-tests/solana/src/bin/sol_oneshot.rs`）、NEAR（locked near-sandbox，export mode
+  优先读 `*.near-abi.json` 的 ABI-driven view 判定）、CosmWasm（cosmwasm-vm mock
+  `cw_oneshot`）、TON（`@ton/sandbox` `runtime-tests/ton/oneshot.mjs`）。`pf doctor`
+  对应 runtime 依赖检测同步。engineering local only，非 testnet/mainnet。
+- **Solana registry label**：maturity label 升 `runtime-validated-alpha`（Mollusk 差分
+  证据支撑的 registry 文案；不改变 formal Stage-0/hermetic pending）。
+- **负例语料扩充**：EVM `scripts/pf_evm_test.sh` 增 bad calldata / unknown selector /
+  short args revert、oversized trailing ABI honesty pin、tx-path state-hold + recovery；
+  TON `runtime-tests/ton/test/negative_corpus.test.js`（unknown-op ignore、sub-header
+  early-return bounce-safe、truncated param abort、overflow exit 100）。
+- **ProofShip 迁出**：in-tree `proofship/` 应用（studio/relay/rwa-share-v1/cloud-spike）
+  物理删除，迁至独立仓库 `github.com/DaviRain-Su/proofship`；monorepo 仅保留
+  定位/计划文档，`docs/index.md` 与 cheatsheet 指针同步。
+- 以上全部为 engineering local 观察与产品面工程扩面；**不**改变 formal D1–D4 0/27、
+  EVM-first formal lighthouse（ADR-0036）、hermetic/release pending 状态。
+
+## 2026-08-12 — 晚批：Solana blockHeight product/Mollusk 门 + EVM corpus identity binding
+
+- **Solana `context.blockHeight` 开到 sole product profile**（ADR-0031 S2 residual）：
+  `CpiDeriveV1.collectRawContextReadSites` 对 `blockHeightContextKeyV1` 由 deriveFail
+  改为 admit（Clock 是 syscall，零 account role / context site / `pf_caller` 需求；body
+  经既有 `Expr.clockSlot` → `sol_get_clock_sysvar` lowering）；`unixTimeSeconds` 与未知
+  key 保持 fail closed。Lean 钉测 `testContextBlockHeightProductOpen` /
+  `testContextUnixTimeSecondsStillClosed`；新增 `runtime-tests/solana/fixtures/BlockHeight.lean`
+  + `tests/block_height.rs` Mollusk 门（两个不同 warp slot 证明返回值跟随运行时
+  Clock 而非常量；view/entry/state-hold 全断言）。诚实边界：`Clock.slot` 是物理
+  ≈400ms slot，**不是**逻辑 block number。Solana runtime 面现为 **23 integration
+  binaries / 414 active tests**。
+- **EVM corpus observation identity binding**（EVM-first lighthouse 工程步）：
+  `proof-forge.evm-observation.v1` 硬性要求顶层 `identity{sourceHash,semanticHash}`
+  （lowercase 64-hex；无可选/宽松路径）。权威来源：Reference leg 取 Lean runner 内
+  Loader→Normalize 真实 digests（`EvmCorpusPrimitiveV1.loadNormalizeAdmit`）；Anvil leg
+  取实际部署树的 `proof-forge.output.v1` manifest（`smoke_evm.sh
+  bind_corpus_identity`，fail closed）；token adapter skip 路径取 case 已提交 pins。
+  `close-case` 对 case pin exact join（`PF-CORPUS-INVARIANT`），蕴含跨 leg byte-identical。
+  新增负例 `obs-missing-identity` / `obs-identity-bad-digest`；28 个 reference
+  observation identity-bound 重铸；manifest 再生。顺修 pre-existing 回归：
+  `evm_anvil_differential.sh` StateCell 逻辑目录 `evm-state-cell` → `evm`
+  （`smoke_evm.sh` 读 `build/v2/evm-cancun/StateCell.bin`；150bd05a9 引入）。
+  `just evm-corpus-schema/static/reference/runtime` 全绿（runtime 真跑本机 locked
+  anvil/cast/solc）。
+- 验收：两 lane diff 独立审计（admit 最小化、FC 边界保持、identity 无宽松路径）；
+  `just docs-check` + `git diff --check` 通过；`just dev-check` / ordinary `just ci`
+  见本批收口。**不**改变 formal C-3/TST-SEM/TASK-D2-07、Stage-0/hermetic pending。
 ## 2026-08-12 — Phase 7 NEAR capability-scoped static emission composition
 
 - `Targets/Near.lean` 新增 proposition-only `CapabilityEntryStaticEmissionV1`，把 exact retained
