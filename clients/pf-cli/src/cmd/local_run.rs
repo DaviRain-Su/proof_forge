@@ -24,9 +24,29 @@ pub fn run(
     let target = project.resolve_target(target_cli);
     let tid = targets::TargetId::parse(&target);
     if tid == targets::TargetId::Evm {
-        return Err(PfError::NotImplemented(
-            "evm: use `pf test -t evm` (local Anvil); `pf run` is Aleo/Psy in v0".into(),
-        ));
+        let dir = project.resolve_artifact_dir(&target, artifact_cli, None);
+        let outcome = targets::evm::local_run::run_local(&dir, call_args)?;
+        let mut ok = PfOk::new("run");
+        ok.target = Some(target.clone());
+        ok.artifact_dir = Some(dir.display().to_string());
+        ok.extra = Some(serde_json::json!({
+            "lane": "evm-anvil-oneshot",
+            "method": call_args.first(),
+            "stdout": outcome.stdout.trim(),
+            "skipped": outcome.skipped,
+            "script": outcome.script_path.display().to_string(),
+            "note": "engineering local Anvil only; not mainnet; pf deploy --broadcast still refused by default",
+        }));
+        return emit(ok, json, || {
+            if outcome.skipped {
+                println!("evm run skipped (tools missing):\n{}", outcome.stderr);
+            } else {
+                print!("{}", outcome.stdout);
+                if verbose {
+                    eprint!("{}", outcome.stderr);
+                }
+            }
+        });
     }
     if tid == targets::TargetId::Solana {
         return Err(PfError::NotImplemented(

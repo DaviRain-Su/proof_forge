@@ -57,7 +57,7 @@ pub fn capability_note(target: &str) -> &'static str {
     match TargetId::parse(target) {
         TargetId::Aleo => "build, local run, deploy, and execute supported",
         TargetId::Evm => {
-            "build + `pf test` (Anvil) + `pf deploy` (save-only; --broadcast local only)"
+            "build + `pf test` (Anvil) + `pf run` (one-shot Anvil) + `pf deploy` (save-only; --broadcast local only)"
         }
         TargetId::Solana => {
             "build + `pf test` (Mollusk) + `pf verify` + `pf deploy` (save-only; --broadcast local only)"
@@ -91,6 +91,7 @@ mod tests {
     #[test]
     fn capability_notes_are_target_specific() {
         assert!(capability_note("evm").contains("pf test"));
+        assert!(capability_note("evm").contains("pf run"));
         assert!(capability_note("solana").contains("pf verify"));
         assert!(capability_note("psy").contains("psy_user_cli"));
         assert!(capability_note("near").contains("save-only"));

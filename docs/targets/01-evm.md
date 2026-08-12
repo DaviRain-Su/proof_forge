@@ -18,6 +18,12 @@ Phase 1：实现
 `planFromCapability` 直接读取 `CompiledSemanticV1.semanticV1Of`，structure-gate 后 private
 lowering 构造 target-owned `EvmPlan`；module 内无 `alphaResidualOf` / `makePlanFromAlpha`。
 
+**产品面（CLI）**：`pf test -t evm` → Anvil smoke（`scripts/pf_evm_test.sh`）；
+`pf run -t evm -- <method> [u64…]` → one-shot local Anvil（`scripts/pf_evm_run.sh`：
+deploy 默认 ctor `0` 或 `PF_EVM_INIT_ARGS`，再 view/mutate；`init`/`constructor` 仅 deploy）；
+`pf deploy -t evm` save-only（`--broadcast` 仅 local Anvil opt-in）。engineering only，
+非 formal / 非 mainnet。
+
 **工程已接线（摘）**：
 
 - multi-width UInt/Int 与 body 窄宽、UInt128/256（EVM-only）ABI/body 子集；Field(bn254) mod-p 通道；

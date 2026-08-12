@@ -264,6 +264,25 @@ fn collect_deps(target: &str) -> Vec<Dep> {
                     path: None,
                 }),
             }
+            match crate::targets::evm::local_run::resolve_evm_run_script() {
+                Ok(p) => deps.push(Dep {
+                    id: "evm-run-script",
+                    status: "ok",
+                    summary: "pf_evm_run.sh for pf run -t evm one-shot Anvil".into(),
+                    install: vec![],
+                    path: Some(p.display().to_string()),
+                }),
+                Err(_) => deps.push(Dep {
+                    id: "evm-run-script",
+                    status: "info",
+                    summary: "pf run -t evm needs scripts/pf_evm_run.sh (bundle/monorepo)".into(),
+                    install: vec![
+                        "# monorepo: scripts/pf_evm_run.sh".into(),
+                        "# or use: pf test -t evm".into(),
+                    ],
+                    path: None,
+                }),
+            }
         }
         "solana" => {
             match crate::targets::solana::verify::resolve_solana_client() {
@@ -880,6 +899,8 @@ fn next_commands(target: &str) -> Vec<String> {
             "pf new cell --target evm && cd cell".into(),
             "pf build && pf deploy           # save-only always works with compiler".into(),
             "pf test                         # Anvil smoke via bundle scripts/pf_evm_test.sh".into(),
+            "pf run -- get                   # one-shot Anvil view (after build)".into(),
+            "pf run -- increment 5           # one-shot Anvil mutate".into(),
         ],
         "near" => vec![
             "pf setup --target near          # checklist: near-sandbox + wat2wasm + scripts".into(),
