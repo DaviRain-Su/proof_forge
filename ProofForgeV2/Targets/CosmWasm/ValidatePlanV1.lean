@@ -295,9 +295,9 @@ private partial def checkMethodStatementsV1
         if isPureFn then
           throw <| .planInvariant .cosmwasm
             "pureFn cannot returnAggregate (B-RET-ABI: pureFn aggregate returns stay fail closed)"
-        unless leaves.size > 0 && leaves.size ≤ 8 do
+        unless leaves.size > 0 && leaves.size ≤ 24 do
           throw <| .planInvariant .cosmwasm
-            "method returnAggregate leaf count must be in 1..8 (B-RET-ABI)"
+            "method returnAggregate leaf count must be in 1..24 (B-RET-ABI; Map cap-8 = 24)"
         unless leafIsInt.size == leaves.size do
           throw <| .planInvariant .cosmwasm
             "method returnAggregate leafIsInt length must match leaves"
@@ -542,12 +542,12 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
       | .uint64 | .bool | .int64 | .uint8 | .uint16 | .uint32
       | .uint128 | .uint256 | .int8 | .int16 | .int32 => true
       | .aggregate leaves =>
-          leaves.size > 0 && leaves.size ≤ 8 &&
+          leaves.size > 0 && leaves.size ≤ 24 &&
             leaves.all (fun l => l.byteWidth == 8)
       | .unit => false
     unless resultKindOk do
       throw <| .planInvariant .cosmwasm
-        s!"method '{method.name}' result kind must be UInt8/16/32/64/128/256, Int64, Bool, or aggregate (named Struct/Enum or anonymous Array/Option; 1..8 × 8-byte leaves)"
+        s!"method '{method.name}' result kind must be UInt8/16/32/64/128/256, Int64, Bool, or aggregate (named Struct/Enum or anonymous Array/Option/Bytes/Map; 1..24 × 8-byte leaves)"
   -- Deposit policy must match body deposit markers (ADR-0029 C1).
   let depositCount := statementsNativeDepositCountV1 method.body
   let expectedDeposit : DepositPolicy :=

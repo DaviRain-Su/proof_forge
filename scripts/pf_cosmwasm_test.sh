@@ -116,6 +116,7 @@ map_program_to_suite() {
     PoseTransform|posetransform) echo "pose_transform" ;;
     MapMini|mapmini) echo "map_mini" ;;
     Token|token) echo "token" ;;
+    MapDump|mapdump) echo "map_dump" ;;
     *) echo "" ;;
   esac
 }
@@ -131,7 +132,7 @@ run_artifact_suite() {
   known: StateCell, Accumulator, PairRet, ArrayRet, OptionRet, OptionState,
          NarrowStateCell, EventFlow, ScheduleFlow, TipJar, TokenJar, EnvReadJar,
          CallerGate, BlockHeightCheck, ConstAnswer, BytesRet,
-         UnixTimeCheck, PoseTransform, MapMini, Token
+         UnixTimeCheck, PoseTransform, MapMini, Token, MapDump
   force suite: PF_COSMWASM_SUITE=state_cell
   full corpus: PF_COSMWASM_TEST_MODE=corpus"
   fi

@@ -1298,8 +1298,9 @@ private def renderImport : HostImport → String
     JSON ok/error result builders, minimal JSON integer field scan. -/
 private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   -- Bump heap starts after fixed scratch/attr/msg/value band. valueOffset holds
-  -- ret leaves (64B) plus Principal/name scratch (~128B); reserve 256B.
-  let heapInit := memory.valueOffset + 256
+  -- ret leaves (24×i64 = 192B for Map return) plus Principal/name/dst scratch
+  -- (mint 64 + dst 64 + headroom); reserve 384B total from valueOffset.
+  let heapInit := memory.valueOffset + 384
   let scratch := memory.inputOffset
   let attrBase := memory.depositOffset
   let msgBase := msgBufferBase memory
@@ -1312,7 +1313,7 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"  (global $inner_len (mut i32) (i32.const 0))\n" ++
   s!"  (global $ret_kind (mut i32) (i32.const 0))\n" ++  -- 0=none 1=scalar 4=aggregate
   s!"  (global $ret_val (mut i64) (i64.const 0))\n" ++
-  s!"  (global $ret_count (mut i32) (i32.const 0))\n" ++  -- B-RET-ABI leaf count (1..8)
+  s!"  (global $ret_count (mut i32) (i32.const 0))\n" ++  -- B-RET-ABI leaf count (1..24)
   -- B-CTX-OPEN: whole-second block time from Env JSON (set at entry when used).
   s!"  (global $pf_block_time_secs (mut i64) (i64.const 0))\n" ++
   -- ADR-0031 S2: block height from Env JSON (set at entry; init/execute/query).
@@ -1333,7 +1334,7 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   "  (global $pf_caller_w5 (mut i64) (i64.const 0))\n" ++
   "  (global $pf_caller_w6 (mut i64) (i64.const 0))\n" ++
   "  (global $pf_caller_w7 (mut i64) (i64.const 0))\n" ++
-  -- ret_leaves live at valueCell (8×i64 = 64B); capacity-guarded by ret_count≤8
+  -- ret_leaves live at valueCell (up to 24×i64 = 192B); capacity-guarded by ret_count≤24
   -- allocate(size) -> region_ptr: Region{offset=data, capacity=size, length=size}
   "  (func $pf_allocate (param $size i32) (result i32)\n" ++
   "    (local $region i32) (local $data i32) (local $h i32)\n" ++
@@ -1840,9 +1841,10 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   -- B-RET-ABI query ok: {"ok":"[d0,d1,...]"} — ok value is a JSON-array-as-string
   -- (same shape class as scalar {"ok":"<decimal>"}; multi-leaf generalized).
   -- Cap: 8×20-digit + commas + framing ≤ 256B allocated.
+  -- B-RET-MAP: up to 24×20-digit + commas + framing; 768B is ample.
   s!"  (func $pf_query_ok_agg (result i32)\n" ++
   s!"    (local $region i32) (local $data i32) (local $p i32) (local $n i32) (local $i i32)\n" ++
-  s!"    (local.set $region (call $pf_allocate (i32.const 256)))\n" ++
+  s!"    (local.set $region (call $pf_allocate (i32.const 768)))\n" ++
   s!"    (local.set $data (i32.load (local.get $region)))\n" ++
   s!"    (i32.store8 (local.get $data) (i32.const 123))\n" ++
   s!"    (i32.store8 offset=1 (local.get $data) (i32.const 34))\n" ++
@@ -2632,11 +2634,11 @@ private partial def renderOperation (memory : MemoryLayout)
         s!"{indent}(global.set $ret_val (local.get $t{value}))\n"
   | .setReturnDataMulti values =>
       -- B-RET-ABI: store N leaf temps into valueCell (8B each), ret_kind=4.
-      -- Capacity guard: N must be 1..8 (Plan validate); trap if >8.
+      -- Capacity guard: N must be 1..24 (Plan validate; Map cap-8 = 24).
       Id.run do
         let n := values.size
         let mut out :=
-          s!"{indent}(if (i32.gt_u (i32.const {n}) (i32.const 8)) (then unreachable))\n" ++
+          s!"{indent}(if (i32.gt_u (i32.const {n}) (i32.const 24)) (then unreachable))\n" ++
           s!"{indent}(global.set $ret_kind (i32.const 4))\n" ++
           s!"{indent}(global.set $ret_count (i32.const {n}))\n"
         for i in [0:n] do
@@ -2870,7 +2872,8 @@ private partial def renderOperation (memory : MemoryLayout)
           let nameBytes := binding.name.toUTF8
           let mut out := s!"{indent};; emit event {binding.name}\n"
           -- write event name to a fixed scratch slot at valueOffset+16
-          let nameOff := memory.valueOffset + 16
+          -- After ret leaves (24×8=192B) so Map return does not clobber.
+          let nameOff := memory.valueOffset + 192
           for i in [0:nameBytes.size] do
             out := out ++
               s!"{indent}(i32.store8 (i32.const {nameOff + i}) (i32.const {nameBytes[i]!.toNat}))\n"
@@ -2958,7 +2961,8 @@ private partial def renderOperation (memory : MemoryLayout)
         let _ := events
         let _ := errors
         let _ := fnNames
-        let dstBuf := memory.valueOffset + 16
+        -- After ret leaves (24×8=192B).
+        let dstBuf := memory.valueOffset + 192
         let mut out :=
           s!"{indent};; pf.assets.native.transfer → BankMsg::Send reply_on=never\n"
         -- materialize 8 body words into a contiguous 64-byte dst buffer
@@ -3001,8 +3005,9 @@ private partial def renderOperation (memory : MemoryLayout)
         let _ := errors
         let _ := fnNames
         let scratch := memory.inputOffset
-        let mintBuf := memory.valueOffset + 16
-        let dstBuf := memory.valueOffset + 16 + 64
+        -- After ret leaves (24×8=192B); mint then dst 64B each.
+        let mintBuf := memory.valueOffset + 192
+        let dstBuf := memory.valueOffset + 192 + 64
         let mut out :=
           s!"{indent};; pf.assets.token.transfer → WasmMsg::Execute reply_on=never\n"
         -- materialize 8 mint body words into a contiguous 64-byte mint buffer
@@ -3056,7 +3061,7 @@ private partial def renderOperation (memory : MemoryLayout)
       let binding := errors[errorIndex]!
       let nameBytes := binding.name.toUTF8
       Id.run do
-        let nameOff := memory.valueOffset + 16
+        let nameOff := memory.valueOffset + 192
         let mut out := s!"{indent};; revert {binding.name}\n"
         for i in [0:nameBytes.size] do
           out := out ++
