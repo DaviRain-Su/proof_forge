@@ -813,6 +813,37 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                   hforgedTextExact.trans hwatTextExact.symm
                 have hlength := congrArg String.length hsame
                 simp at hlength
+              have hstatusABIIndex :
+                  (#[ir.sourcePlan.initializer] ++
+                    ir.sourcePlan.entries)[3]? = some statusMethod := by
+                rw [hgraphs.1]
+                rw [Array.getElem?_append_right (by simp)]
+                simpa using hstatus
+              have hstatusMethodABI :
+                  ∃ methodText,
+                    ProofForgeV2.Targets.Near.MethodABIEmissionV1
+                      ir 3 statusMethod abiFile.contents methodText :=
+                ProofForgeV2.Targets.Near.irEmissionV1_methodABIEmissionV1
+                  ir baseFiles abiFile 3 statusMethod hemissions habiFile
+                    hstatusABIIndex
+              have _ :
+                  ∀ methodText,
+                    ¬ ProofForgeV2.Targets.Near.MethodABIEmissionV1
+                      ir 3 statusMethod (abiFile.contents ++ "\n{\"forged\":true}")
+                        methodText := by
+                intro methodText
+                intro hforged
+                rcases hstatusMethodABI with ⟨_, hstatusMethodABI⟩
+                rcases hstatusMethodABI with
+                  ⟨_, _, habiTextExact, _, _⟩
+                rcases hforged with
+                  ⟨_, _, hforgedTextExact, _, _⟩
+                have hsame :
+                    abiFile.contents ++ "\n{\"forged\":true}" =
+                      abiFile.contents :=
+                  hforgedTextExact.trans habiTextExact.symm
+                have hlength := congrArg String.length hsame
+                simp at hlength
               have hstatusLowering :
                   ProofForgeV2.Targets.Near.MethodIRLoweringV1
                     plan ir.keys statusMethod statusIR :=

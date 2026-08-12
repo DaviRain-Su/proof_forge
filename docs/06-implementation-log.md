@@ -14903,3 +14903,22 @@ normative: false
   Wasm/NEAR execution、simulation 或 target refinement；没有新增 State、Effect、transition、
   evaluator 或 step。assurance 仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR method-scoped production ABI provenance
+
+- `EmitIRV1` 新增 syntax-only `MethodABIEmissionV1`：它同时保留 initializer+entries 的 exact
+  Plan-method index lookup、sole private `renderMethodJson` 的 method fragment、以 `take/drop`
+  得到的 index-specific ordered rendered-method list、sole private `renderAbi` 的 complete JSON
+  text，以及完整 exports text 在 ABI 中的嵌入。归属不依赖任意全局 substring。
+- `irEmissionV1_methodABIEmissionV1` 从 exact `IREmissionV1`、`files[1]?` 与 method lookup 派生
+  该关系。`renderAbi` 被行为保持地拆为同一 private pre-exports framing helper + exports block；
+  production renderer 与证明共同复用该 helper，未公开或复制 renderer。
+- 真实 `VerifiedVaultPF` same-file certification fixture 使用同一次 capability-gated production
+  Plan/IR/build，实例化 entry 2 / combined method index 3 的 `status` Method 到 exact ABI
+  `OutputFile`；negative regression 证明在完整 ABI 后追加 forged JSON suffix 后，对任意
+  method-text witness 关系均不可成立。
+- 边界不变：这只证明 method-scoped JSON text provenance，不证明 JSON parsing/consumer behavior、
+  WAT↔ABI consistency、renderer correctness、WAT/Wasm/NEAR semantics、locked `wat2wasm`、
+  finalized artifact identity、simulation 或 target refinement；没有新增 State、Effect、
+  transition、evaluator 或 step。assurance 仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

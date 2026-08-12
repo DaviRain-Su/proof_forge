@@ -2767,10 +2767,8 @@ private def renderMethodJson (method : Method) : String :=
     s!"\"args\":[{renderParamsJson method.params}],\"returns\":{returns}" ++
     "}"
 
-private def renderAbi (plan : Plan) : String :=
+private def renderAbiBeforeExports (plan : Plan) : String :=
   let fields := String.intercalate "," (plan.storage.fields.toList.map renderFieldJson)
-  let methods := #[plan.initializer] ++ plan.entries
-  let exports := String.intercalate ",\n    " (methods.toList.map renderMethodJson)
   "{\n" ++
     "  \"schema\": \"proof-forge-near-abi/v1alpha1\",\n" ++
     s!"  \"program\": \"{Targets.escapeJson plan.programName}\",\n" ++
@@ -2783,8 +2781,33 @@ private def renderAbi (plan : Plan) : String :=
     "\"initializerPayloadPolicy\":\"zero-all-fields\"," ++
     s!"\"fields\":[{fields}]" ++
     "},\n" ++
-    "  \"exports\": [\n    " ++ exports ++ "\n  ]\n" ++
-    "}\n"
+    "  \"exports\": [\n    "
+
+private def renderAbi (plan : Plan) : String :=
+  let methods := #[plan.initializer] ++ plan.entries
+  let exports := String.intercalate ",\n    " (methods.toList.map renderMethodJson)
+  renderAbiBeforeExports plan ++ exports ++ "\n  ]\n}\n"
+
+/-- Exact method-scoped graph of the sole production NEAR ABI renderer. The
+    Plan lookup and rendered-list split retain the method's ordered export
+    ownership; the complete exports text is then embedded in the exact ABI
+    output. This is JSON text provenance, not parsing or consumer semantics. -/
+def MethodABIEmissionV1
+    (ir : IR)
+    (methodIndex : Nat)
+    (method : Method)
+    (abiText methodText : String) : Prop :=
+  let methods := (#[ir.sourcePlan.initializer] ++ ir.sourcePlan.entries).toList
+  let renderedMethods := methods.map renderMethodJson
+  let exportsText := String.intercalate ",\n    " renderedMethods
+  (#[ir.sourcePlan.initializer] ++ ir.sourcePlan.entries)[methodIndex]? =
+      some method ∧
+  methodText = renderMethodJson method ∧
+  abiText = renderAbi ir.sourcePlan ∧
+  renderedMethods =
+    (methods.take methodIndex).map renderMethodJson ++
+      methodText :: (methods.drop (methodIndex + 1)).map renderMethodJson ∧
+  ∃ before after, abiText = before ++ exportsText ++ after
 
 private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
   validateIR ir
@@ -2807,6 +2830,28 @@ private def emitFromIR (ir : IR) : CompileResult (Array OutputFile) := do
 def IREmissionV1 (ir : IR) (files : Array OutputFile) : Prop :=
   emitFromIR ir = .ok files
 
+private theorem irEmissionV1_eq_files
+    (ir : IR) (files : Array OutputFile)
+    (hemission : IREmissionV1 ir files) :
+    files = #[
+      {
+        path := s!"{ir.name}.wat"
+        mediaType := "application/wasm-text"
+        contents := renderWat ir
+      },
+      {
+        path := s!"{ir.name}.near-abi.json"
+        mediaType := "application/json"
+        contents := renderAbi ir.sourcePlan
+      }
+    ] := by
+  cases hvalidate : validateIR ir with
+  | error error =>
+      simp [IREmissionV1, emitFromIR, hvalidate, Bind.bind, Except.bind] at hemission
+  | ok _ =>
+      simpa [IREmissionV1, emitFromIR, hvalidate, Bind.bind, Except.bind,
+        Pure.pure, Except.pure] using hemission.symm
+
 /-- An exact method lookup in a successfully emitted IR determines one
     production-rendered method fragment inside the exact WAT base file. The
     result remains text provenance only: no WAT parsing or execution is
@@ -2822,53 +2867,98 @@ theorem irEmissionV1_methodWATEmissionV1
     (hmethod : ir.methods[methodIndex]? = some method) :
     ∃ methodText,
       MethodWATEmissionV1 ir methodIndex method watFile.contents methodText := by
-  cases hvalidate : validateIR ir with
-  | error error =>
-      simp [IREmissionV1, emitFromIR, hvalidate, Bind.bind, Except.bind] at hemission
-  | ok _ =>
-      have hfiles : files = #[
-          {
-            path := s!"{ir.name}.wat"
-            mediaType := "application/wasm-text"
-            contents := renderWat ir
-          },
-          {
-            path := s!"{ir.name}.near-abi.json"
-            mediaType := "application/json"
-            contents := renderAbi ir.sourcePlan
-          }
-        ] := by
-        simpa [IREmissionV1, emitFromIR, hvalidate, Bind.bind, Except.bind,
-          Pure.pure, Except.pure] using hemission.symm
-      have hwatFileEq : watFile = {
-          path := s!"{ir.name}.wat"
-          mediaType := "application/wasm-text"
-          contents := renderWat ir
-        } := by
-        rw [hfiles] at hwatFile
-        simpa using hwatFile.symm
-      let promiseStr :=
-        layoutPromiseStrings ir.memory (collectPromiseStrings ir)
-      have hmethodList : ir.methods.toList[methodIndex]? = some method := by
-        simpa using hmethod
-      let methodBefore := String.intercalate "" <|
-        (ir.methods.toList.take methodIndex).map (renderMethod ir promiseStr)
-      let methodAfter := String.intercalate "" <|
-        (ir.methods.toList.drop (methodIndex + 1)).map
-          (renderMethod ir promiseStr)
-      have hrenderedMethods :
-          String.intercalate ""
-              (ir.methods.toList.map (renderMethod ir promiseStr)) =
-            methodBefore ++ renderMethod ir promiseStr method ++ methodAfter := by
-        exact intercalateMapEmpty_split_of_getElem?_eq_some
-          ir.methods.toList (renderMethod ir promiseStr) methodIndex method
-          hmethodList
-      refine ⟨renderMethod ir promiseStr method, hmethod, rfl, ?_, ?_, ?_⟩
-      · rw [hwatFileEq]
-      · exact hrenderedMethods
-      refine ⟨renderWatBeforeMethods ir promiseStr, ")\n", ?_⟩
-      rw [hwatFileEq]
-      rfl
+  have hfiles := irEmissionV1_eq_files ir files hemission
+  have hwatFileEq : watFile = {
+      path := s!"{ir.name}.wat"
+      mediaType := "application/wasm-text"
+      contents := renderWat ir
+    } := by
+    rw [hfiles] at hwatFile
+    simpa using hwatFile.symm
+  let promiseStr :=
+    layoutPromiseStrings ir.memory (collectPromiseStrings ir)
+  have hmethodList : ir.methods.toList[methodIndex]? = some method := by
+    simpa using hmethod
+  let methodBefore := String.intercalate "" <|
+    (ir.methods.toList.take methodIndex).map (renderMethod ir promiseStr)
+  let methodAfter := String.intercalate "" <|
+    (ir.methods.toList.drop (methodIndex + 1)).map
+      (renderMethod ir promiseStr)
+  have hrenderedMethods :
+      String.intercalate ""
+          (ir.methods.toList.map (renderMethod ir promiseStr)) =
+        methodBefore ++ renderMethod ir promiseStr method ++ methodAfter := by
+    exact intercalateMapEmpty_split_of_getElem?_eq_some
+      ir.methods.toList (renderMethod ir promiseStr) methodIndex method
+      hmethodList
+  refine ⟨renderMethod ir promiseStr method, hmethod, rfl, ?_, ?_, ?_⟩
+  · rw [hwatFileEq]
+  · exact hrenderedMethods
+  refine ⟨renderWatBeforeMethods ir promiseStr, ")\n", ?_⟩
+  rw [hwatFileEq]
+  rfl
+
+/-- An exact Plan-method lookup in a successfully emitted IR determines one
+    production-rendered export fragment in the exact ABI base file. The result
+    is ordered JSON text provenance only; it does not infer parsing, WAT/ABI
+    consistency, or target behavior. -/
+theorem irEmissionV1_methodABIEmissionV1
+    (ir : IR)
+    (files : Array OutputFile)
+    (abiFile : OutputFile)
+    (methodIndex : Nat)
+    (method : Method)
+    (hemission : IREmissionV1 ir files)
+    (habiFile : files[1]? = some abiFile)
+    (hmethod :
+      (#[ir.sourcePlan.initializer] ++ ir.sourcePlan.entries)[methodIndex]? =
+        some method) :
+    ∃ methodText,
+      MethodABIEmissionV1 ir methodIndex method abiFile.contents methodText := by
+  have hfiles := irEmissionV1_eq_files ir files hemission
+  have habiFileEq : abiFile = {
+      path := s!"{ir.name}.near-abi.json"
+      mediaType := "application/json"
+      contents := renderAbi ir.sourcePlan
+    } := by
+    rw [hfiles] at habiFile
+    simpa using habiFile.symm
+  let methods :=
+    (#[ir.sourcePlan.initializer] ++ ir.sourcePlan.entries).toList
+  have hmethodCombinedList :
+      (#[ir.sourcePlan.initializer] ++
+        ir.sourcePlan.entries).toList[methodIndex]? = some method := by
+    rw [Array.getElem?_toList]
+    exact hmethod
+  have hmethodList : methods[methodIndex]? = some method := by
+    exact hmethodCombinedList
+  rw [List.getElem?_eq_some_iff] at hmethodList
+  obtain ⟨hindex, hvalue⟩ := hmethodList
+  have hdrop := List.drop_eq_getElem_cons hindex
+  rw [hvalue] at hdrop
+  have hsplit := List.take_append_drop methodIndex methods
+  rw [hdrop] at hsplit
+  have hrenderedMethods :
+      methods.map renderMethodJson =
+        (methods.take methodIndex).map renderMethodJson ++
+          renderMethodJson method ::
+            (methods.drop (methodIndex + 1)).map renderMethodJson := by
+    calc
+      methods.map renderMethodJson =
+          ((methods.take methodIndex ++
+            method :: methods.drop (methodIndex + 1)).map
+              renderMethodJson) := by
+        exact congrArg (List.map renderMethodJson) hsplit.symm
+      _ = (methods.take methodIndex).map renderMethodJson ++
+          renderMethodJson method ::
+            (methods.drop (methodIndex + 1)).map renderMethodJson := by
+        simp
+  refine ⟨renderMethodJson method, hmethod, rfl, ?_, ?_, ?_⟩
+  · rw [habiFileEq]
+  · exact hrenderedMethods
+  refine ⟨renderAbiBeforeExports ir.sourcePlan, "\n  ]\n}\n", ?_⟩
+  rw [habiFileEq]
+  rfl
 
 /-- Successful production emission determines one exact ordered base-file
     array, including both content strings. -/

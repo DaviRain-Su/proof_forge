@@ -141,6 +141,16 @@ Phase 1：实现
   witness 都不能满足关系。`renderWat` 与证明共同使用同一 private pre-method framing helper，
   没有复制 renderer 或新增 emitter。该命题只证明 text provenance；不证明 WAT parse/typecheck、
   renderer implements IR、Wasm/NEAR execution 或 target refinement，assurance 不变。
+- **`status` method-scoped production ABI provenance（Phase 7 第十切）**：
+  `MethodABIEmissionV1` 把 initializer+entries 的 exact combined Plan-method index、sole private
+  `renderMethodJson` 生成的 method fragment、按 `take/drop` 得到的 ordered rendered-method list、
+  sole private `renderAbi` 的 complete JSON text，以及完整 exports text 在 exact ABI 中的嵌入组成
+  一个命题。`irEmissionV1_methodABIEmissionV1` 只从 successful `IREmissionV1`、`files[1]?` 与
+  method lookup恢复该关系。真实 VerifiedVault fixture 将 entry 2 / combined index 3 的 status
+  Method 接到同一次 production ABI file；appended forged JSON suffix 对任意 method-text witness
+  均不能满足关系。production renderer 与证明共享 private pre-exports framing helper，没有复制
+  ABI renderer。该命题不证明 JSON parsing/consumer behavior、WAT↔ABI consistency、Wasm/NEAR
+  execution 或 target refinement，assurance 不变。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -201,14 +211,15 @@ Phase 1：实现
 exact slots、Unit withdraw、overflow/guard rollback 与 missing-export corpus 已形成 engineering
 runtime observation；`StaticAlignmentV1` 的 passive relation 与 exact status recipe 已连接到
 production validated semantic data、Plan/key/IR successful graph与 sole private emitter 的 exact
-in-memory WAT/ABI output graph；status MethodIR 还以 method 3 exact index split 连接到 sole renderer
-的 ordered methods block 和同一次 production WAT complete text。production Method/MethodIR 的
+in-memory WAT/ABI output graph；status 还以 combined method index 3 exact split 分别连接到 sole
+WAT renderer 的 ordered methods block、sole ABI renderer 的 ordered exports block，以及同一次
+production WAT/ABI complete text。production Method/MethodIR 的
 exact syntax 已由 proof-producing recognizer 纳入 kernel proposition，真实 status 的
 validation/admission/initial state/lookup/
 empty-context ready 已无外部 context premise闭合；successful passive relation 的 canonical bytes、
 width 与 exact Reference outcome 现由 generic theorem 自动推出，但 target success/return/log/
 promise/storage facts仍由外部提供。尚无 target transition，也没有一般 lowering、renderer
-correctness 或 WAT semantics theorem。当前仍没有 finalized Wasm/disk identity 或
+correctness、JSON/WAT semantics 或 WAT↔ABI consistency theorem。当前仍没有 finalized Wasm/disk identity 或
 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
 覆盖 corrupt storage、bad input 或 gas/profile；Option
 params、非 UInt64/nested Option、Map/nested aggregate return 仍 fail-closed
