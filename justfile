@@ -1142,10 +1142,10 @@ product-negative: build
 target-cli-positive: build
 	mkdir -p build
 	lake env .lake/build/bin/proof-forge-next list-targets > build/list-targets.stdout
-	printf '%b' 'aleo\tinstructions-only\ncosmwasm\twasm-validated-alpha\nevm\truntime-validated-alpha\nnear\twasm-validated-alpha\nnoir\tsource-only\npsy\tdpn-only\nquint\tsource-only\nsolana\tplan-only\nton\tsource-only\n' > build/list-targets.expected
+	printf '%b' 'aleo\tinstructions-only\ncosmwasm\twasm-validated-alpha\nevm\truntime-validated-alpha\nnear\twasm-validated-alpha\nnoir\tsource-only\npsy\tdpn-only\nquint\tsource-only\nsolana\truntime-validated-alpha\nton\tsource-only\n' > build/list-targets.expected
 	cmp -s build/list-targets.expected build/list-targets.stdout
 	lake env .lake/build/bin/proof-forge-next list-targets --all > build/list-targets-all.stdout
-	printf '%b' 'aleo\tinstructions-only\ncosmwasm\twasm-validated-alpha\nevm\truntime-validated-alpha\nicp\tresearch-only\nnear\twasm-validated-alpha\nnoir\tsource-only\nopenvm\tresearch-only\npsy\tdpn-only\nquint\tsource-only\nsolana\tplan-only\nsoroban\tresearch-only\nton\tsource-only\n' > build/list-targets-all.expected
+	printf '%b' 'aleo\tinstructions-only\ncosmwasm\twasm-validated-alpha\nevm\truntime-validated-alpha\nicp\tresearch-only\nnear\twasm-validated-alpha\nnoir\tsource-only\nopenvm\tresearch-only\npsy\tdpn-only\nquint\tsource-only\nsolana\truntime-validated-alpha\nsoroban\tresearch-only\nton\tsource-only\n' > build/list-targets-all.expected
 	cmp -s build/list-targets-all.expected build/list-targets-all.stdout
 	lake env .lake/build/bin/proof-forge-next inspect evm > build/inspect-evm.stdout
 	rg -q '^target=evm$' build/inspect-evm.stdout

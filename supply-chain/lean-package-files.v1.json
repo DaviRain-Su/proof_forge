@@ -1291,9 +1291,9 @@
       "sha256": "0c2ef1db0efea01981317694a262d79399825da8d6638da61364e71899977aca"
     },
     {
-      "bytes": 23430,
+      "bytes": 23444,
       "path": "ProofForgeV2/Targets/TargetRegistryV1.lean",
-      "sha256": "485fe64dbf443437f69666c985d72143ca6f8198847cfee37aa2b3ebcc52ee4c"
+      "sha256": "5c400f994cec993616e6c0dfee36d324258bba9a07cdaa31c5ddc703b0fec086"
     },
     {
       "bytes": 1375,

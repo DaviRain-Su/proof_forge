@@ -45,7 +45,7 @@ normative: false
 | `docs/05-test-spec.md` | **~4.8k 行** | formal TST 权威；工程队列不展开每条 TST |
 | `docs/06-implementation-log.md` | **~12.6k 行** | 已执行事实账本；只抽样检索，非全文回放 |
 | `docs/04-task-breakdown.md` | formal 任务树 | 恢复期不新增 TASK；不驱动日常切片 |
-| `docs/targets/*.md` + family | 多数 `proposed`/`draft` | 工程状态段**常落后于代码**（如 Solana 仍写 plan-only） |
+| `docs/targets/*.md` + family | 多数 `proposed`/`draft` | 工程状态段**常落后于代码**（历史示例：Solana 曾滞后写 plan-only，registry label 已于 2026-08-12 修正为 runtime-validated-alpha） |
 | `docs/modules/*` | 除 source-frontend 外多为短 stub | 边界意图在，细节未当 checklist |
 | `docs/adr/*` | 24 ADR | 决策约束已知；未逐 ADR 生成任务 |
 | `docs/research/01–09` + claim/source register | 早期设计研究 | 已被 ADR/SPEC 吸收；**不单独开任务** |

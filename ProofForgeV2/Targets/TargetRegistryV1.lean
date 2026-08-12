@@ -268,7 +268,7 @@ def expectedImplementedOfKindV1 : TargetKind → Bool
 /-- Closed kind → exact list/describe maturity label. -/
 def expectedMaturityLabelOfKindV1 : TargetKind → String
   | .evm => "runtime-validated-alpha"
-  | .solana => "plan-only"
+  | .solana => "runtime-validated-alpha"
   | .near => "wasm-validated-alpha"
   | .noir => "source-only"
   | .aleo => "instructions-only"

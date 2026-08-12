@@ -128,7 +128,9 @@ module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemantic
 完整 Normalize 表面；active CPI profile 之外的任意动态 program address/remaining accounts 与更广
 callee catalog。legacy profiles 对 call/schedule 继续 fail closed；只有 opt-in
 `solana-sbpf-cpi-elf-v1` 可按 exact catalog/program identity 物化多账户 CPI，不能把它泛化为任意
-static-QN 或动态地址支持。registry 历史标签可能仍显示 `plan-only` 字符串——**工程事实以本段与
+static-QN 或动态地址支持。registry maturityLabel 已为 `runtime-validated-alpha`（真实 `.so` ELF +
+Mollusk runtime 差分与 Surfpool 本地链工程门；Mollusk/Surfpool 属独立门禁，不并入 ordinary `just ci`）；
+该 label 仅为 engineering 成熟度声明，**非** formal/hermetic/mainnet——**工程事实以本段与
 coverage matrix 为准**。
 
 ## 1. 身份与来源

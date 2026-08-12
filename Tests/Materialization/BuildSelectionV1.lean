@@ -144,7 +144,7 @@ private def mkSolanaReg
   implemented := true
   displayName := "Solana"
   acceptanceProfileId := "phase1.solana-u64.v1"
-  maturityLabel := "plan-only"
+  maturityLabel := "runtime-validated-alpha"
   semantics := {
     targetId := TargetId.solana
     executionHost := .svm
@@ -554,7 +554,7 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   expect (defaultList.size == 9) "default list-targets is implemented-only"
   expect (defaultList == #["aleo\tinstructions-only", "cosmwasm\twasm-validated-alpha",
       "evm\truntime-validated-alpha", "near\twasm-validated-alpha", "noir\tsource-only",
-      "psy\tdpn-only", "quint\tsource-only", "solana\tplan-only", "ton\tsource-only"])
+      "psy\tdpn-only", "quint\tsource-only", "solana\truntime-validated-alpha", "ton\tsource-only"])
     s!"default list-targets exact lines, got {defaultList}"
   let allList ← liftResult <| ProofForgeV2.CLI.listTargetLines true
   expect (allList == #[
@@ -567,7 +567,7 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       "openvm\tresearch-only",
       "psy\tdpn-only",
       "quint\tsource-only",
-      "solana\tplan-only",
+      "solana\truntime-validated-alpha",
       "soroban\tresearch-only",
       "ton\tsource-only"])
     s!"list-targets --all canonical TargetId order, got {allList}"
