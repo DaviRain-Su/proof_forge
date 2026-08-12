@@ -13761,9 +13761,9 @@ private theorem runMachine_store_parameter_two_return
   simpa [hoverlay2Eq, mk] using hrun
 
 /-- Invert a successful sole Reference step for the exact unary synchronization
-    CFG. The conclusion is the production logical-state encoder result for the
-    duplicated accepted argument; no caller supplies an expected post-state. -/
-theorem stepReferenceSliceV1_ready_add_parameter_two_returned_post_encode
+    CFG. The conclusion exposes the exact checked-add bytes encoded into both
+    logical rows; no caller supplies an expected post-state. -/
+theorem stepReferenceSliceV1_ready_add_parameter_two_returned_exact_post_encode
     (admitted : AdmittedReferenceSliceV1) (pre post : LogicalStateV1)
     (data : SemanticProgramDataV1) (beforeBytes argumentBytes : ByteArray)
     (uint64TypeId : TypeIdV1) (state0Name state1Name parameterName : String)
@@ -13811,7 +13811,12 @@ theorem stepReferenceSliceV1_ready_add_parameter_two_returned_post_encode
     (hstep : stepReferenceSliceV1 admitted pre {
       callableId, args := #[{ typeId := uint64TypeId, valueBytes := argumentBytes }],
       context := invocationContext } responses vault = .returned post value effects) :
-    ∃ sumBytes, encodeLogicalStateValuesV1 data true #[sumBytes, sumBytes] = .ok post := by
+    encodeLogicalStateValuesV1 data true #[
+      natToLeBytesV1
+        (leBytesToNatV1 beforeBytes + leBytesToNatV1 argumentBytes) 8,
+      natToLeBytesV1
+        (leBytesToNatV1 beforeBytes + leBytesToNatV1 argumentBytes) 8
+    ] = .ok post := by
   let addCallable : CallableV1 := {
     id := callableId
     kind := .entry
@@ -13931,8 +13936,75 @@ theorem stepReferenceSliceV1_ready_add_parameter_two_returned_post_encode
       pre post value effects hstep'
     have hinitialized := (gateInvocation_ready_noninit_decode admitted pre invocation
       addCallable #[beforeBytes, beforeBytes] context hgate').2.1
-    refine ⟨sumBytes, ?_⟩
-    simpa [finalMachine, hinitialized] using hencode
+    simpa [sumBytes, finalMachine, hinitialized] using hencode
+
+/-- Compatibility projection of the exact post-encoding theorem. Callers that
+    only need equality of the two rows may keep the existential view. -/
+theorem stepReferenceSliceV1_ready_add_parameter_two_returned_post_encode
+    (admitted : AdmittedReferenceSliceV1) (pre post : LogicalStateV1)
+    (data : SemanticProgramDataV1) (beforeBytes argumentBytes : ByteArray)
+    (uint64TypeId : TypeIdV1) (state0Name state1Name parameterName : String)
+    (callableId : CallableIdV1) (entryName : Option String)
+    (invocationContext context : Array ContextInputV1)
+    (responses : ExternalResponsesV1) (vault : ReferenceVaultSeedV1)
+    (value : Option ReferenceValueV1) (effects : Array OrderedEffectV1)
+    (hadmittedData : admitted.data = data)
+    (htypeU : data.types[uint64TypeId.toNat]? = some {
+      id := uint64TypeId, name := none, shape := .uint 64 })
+    (hstate0 : data.logicalState[0]? = some {
+      id := 0, name := state0Name, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hstate1 : data.logicalState[1]? = some {
+      id := 1, name := state1Name, typeId := uint64TypeId,
+      visibility := .public_ })
+    (hcanonical :
+      validateValueBytesV1 data.types uint64TypeId argumentBytes = .ok ())
+    (hgate : gateInvocation admitted pre {
+      callableId, args := #[{
+        typeId := uint64TypeId
+        valueBytes := argumentBytes
+      }]
+      context := invocationContext } = .ready {
+        id := callableId
+        kind := .entry
+        name := entryName
+        params := #[{
+          valueId := 0
+          name := parameterName
+          typeId := uint64TypeId
+          visibility := .public_ }]
+        result := { typeId := uint64TypeId, visibility := .public_ }
+        entryBlock := 0
+        blocks := #[{
+          id := 0
+          params := #[]
+          instructions := #[
+          { result := some { valueId := 1, typeId := uint64TypeId }, op := .stateLoad 0 },
+          { result := some { valueId := 2, typeId := uint64TypeId }, op := .binary .add 1 0 },
+          { result := none, op := .stateStore 0 2 },
+          { result := some { valueId := 3, typeId := uint64TypeId }, op := .stateLoad 1 },
+          { result := some { valueId := 4, typeId := uint64TypeId }, op := .binary .add 3 0 },
+          { result := none, op := .stateStore 1 4 },
+          { result := some { valueId := 5, typeId := uint64TypeId }, op := .stateLoad 1 }]
+          terminator := .return_ (some 5) }]
+        loopBounds := #[], invariantSteps := none }
+      #[beforeBytes, beforeBytes] context false)
+    (hstep : stepReferenceSliceV1 admitted pre {
+      callableId, args := #[{
+        typeId := uint64TypeId
+        valueBytes := argumentBytes
+      }]
+      context := invocationContext } responses vault =
+        .returned post value effects) :
+    ∃ sumBytes,
+      encodeLogicalStateValuesV1 data true #[sumBytes, sumBytes] = .ok post := by
+  refine ⟨natToLeBytesV1
+    (leBytesToNatV1 beforeBytes + leBytesToNatV1 argumentBytes) 8, ?_⟩
+  exact stepReferenceSliceV1_ready_add_parameter_two_returned_exact_post_encode
+    admitted pre post data beforeBytes argumentBytes uint64TypeId state0Name
+      state1Name parameterName callableId entryName invocationContext context
+      responses vault value effects hadmittedData htypeU hstate0 hstate1
+      hcanonical hgate hstep
 
 /-- Invert a successful sole Reference step for the exact unary guarded
     checked-sub Unit CFG on an equal two-slot pre-overlay. A false guard cannot

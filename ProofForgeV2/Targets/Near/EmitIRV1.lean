@@ -177,6 +177,7 @@ def lowerMethodWATOperationV1
     (memory : MemoryLayout) :
     Operation → Option (Array MethodWATInstructionV1)
   | .checkInputLen 0 => some (checkEmptyInputWATV1 registers)
+  | .checkInputLen 8 => some (checkUInt64InputWATV1 registers memory)
   | .requireZeroAttachedDeposit =>
       some (requireZeroAttachedDepositWATV1 memory)
   | .requireLayoutAbsent marker =>
@@ -187,8 +188,12 @@ def lowerMethodWATOperationV1
       some (zeroUInt64StateWATV1 registers memory field)
   | .literal destination value =>
       some (uint64LiteralWATV1 destination value)
+  | .loadParam destination inputOffset =>
+      some (loadUInt64ParamWATV1 memory destination inputOffset)
   | .loadState destination field =>
       some (loadUInt64StateWATV1 registers memory destination field)
+  | .checkedAdd destination lhs rhs =>
+      some (checkedAddUInt64WATV1 destination lhs rhs)
   | .storeState field source =>
       some (storeUInt64StateWATV1 registers memory field source)
   | .setLayout marker value =>
@@ -259,6 +264,31 @@ theorem lowerMethodWATOperationsV1_nullaryZeroTwoUInt64Initializer
       .setLayout marker markerValue
     ] = some (nullaryZeroTwoUInt64InitializerWATV1 registers memory marker
       field0 field1 markerValue) := by
+  rfl
+
+/-- The exact production unary deposit recipe lowers to the typed-WAT sequence
+    consumed by the same production method renderer. -/
+theorem lowerMethodWATOperationsV1_unaryAddTwoUInt64Deposit
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64) :
+    lowerMethodWATOperationsV1 registers memory #[
+      .checkInputLen 8,
+      .requireZeroAttachedDeposit,
+      .requireLayout marker markerValue,
+      .loadState 0 field0,
+      .loadParam 1 0,
+      .checkedAdd 2 0 1,
+      .storeState field0 2,
+      .loadState 3 field1,
+      .loadParam 4 0,
+      .checkedAdd 5 3 4,
+      .storeState field1 5,
+      .loadState 6 field1,
+      .setReturnData 8 6
+    ] = some (unaryAddTwoUInt64DepositWATV1 registers memory marker field0
+      field1 markerValue) := by
   rfl
 
 /-- Pure-function recipe: params occupy temps `0..paramCount-1`; body ops use

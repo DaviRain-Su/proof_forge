@@ -23,6 +23,7 @@ inductive ReadOnlyWATI64ExprV1 where
   | i64Const (value : Nat)
   | localGet (index : Nat)
   | i64Load (offset : Nat)
+  | i64Add (left right : ReadOnlyWATI64ExprV1)
   | registerLen (register : Nat)
   | storageRead (field : KeyRegion) (register : Nat)
   /-- Exact 8-byte `storage_write` expression. It returns 1 when the key was
@@ -37,6 +38,7 @@ inductive ReadOnlyWATInstructionV1 where
   /-- `attached_deposit` writes two little-endian UInt64 limbs at `offset`. -/
   | attachedDeposit (offset : Nat)
   | trapIfI64Ne (left right : ReadOnlyWATI64ExprV1)
+  | trapIfI64LtU (left right : ReadOnlyWATI64ExprV1)
   | readRegister (register offset : Nat)
   | localSet (index : Nat) (value : ReadOnlyWATI64ExprV1)
   | i64Store (offset : Nat) (value : ReadOnlyWATI64ExprV1)
@@ -61,6 +63,15 @@ def checkEmptyInputWATV1 (registers : RegisterLayout) :
     Array ReadOnlyWATInstructionV1 := #[
   .input registers.input,
   .trapIfI64Ne (.registerLen registers.input) (.i64Const 0)
+]
+
+/-- Typed WAT for the production exact 8-byte UInt64 input operation. -/
+def checkUInt64InputWATV1
+    (registers : RegisterLayout)
+    (memory : MemoryLayout) : Array MethodWATInstructionV1 := #[
+  .input registers.input,
+  .trapIfI64Ne (.registerLen registers.input) (.i64Const 8),
+  .readRegister registers.input memory.inputOffset
 ]
 
 /-- Typed WAT for the production layout-marker guard. -/
@@ -143,6 +154,21 @@ def uint64LiteralWATV1
   .localSet destination (.i64Const value.toNat)
 ]
 
+/-- Typed WAT for loading one exact 8-byte ABI parameter. -/
+def loadUInt64ParamWATV1
+    (memory : MemoryLayout)
+    (destination inputOffset : Nat) : Array MethodWATInstructionV1 := #[
+  .localSet destination (.i64Load (memory.inputOffset + inputOffset))
+]
+
+/-- Typed WAT for checked UInt64 addition. Wasm addition wraps first; the
+    unsigned result-less-than-left guard traps exactly on carry. -/
+def checkedAddUInt64WATV1
+    (destination lhs rhs : Nat) : Array MethodWATInstructionV1 := #[
+  .localSet destination (.i64Add (.localGet lhs) (.localGet rhs)),
+  .trapIfI64LtU (.localGet destination) (.localGet lhs)
+]
+
 /-- Typed WAT for overwriting one existing UInt64 state field from a local. -/
 def storeUInt64StateWATV1
     (registers : RegisterLayout)
@@ -186,6 +212,30 @@ def nullaryZeroTwoUInt64InitializerWATV1
     uint64LiteralWATV1 1 0,
     storeUInt64StateWATV1 registers memory field1 1,
     setLayoutWATV1 registers memory marker markerValue
+  ]
+
+/-- Complete typed WAT sequence for the selected unary deposit entry. It
+    requires zero attached deposit, checked-adds the same input parameter into
+    both UInt64 fields, and returns the second updated field. -/
+def unaryAddTwoUInt64DepositWATV1
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64) : Array MethodWATInstructionV1 :=
+  concatMethodWATRecipesV1 [
+    checkUInt64InputWATV1 registers memory,
+    requireZeroAttachedDepositWATV1 memory,
+    requireLayoutWATV1 registers memory marker markerValue,
+    loadUInt64StateWATV1 registers memory 0 field0,
+    loadUInt64ParamWATV1 memory 1 0,
+    checkedAddUInt64WATV1 2 0 1,
+    storeUInt64StateWATV1 registers memory field0 2,
+    loadUInt64StateWATV1 registers memory 3 field1,
+    loadUInt64ParamWATV1 memory 4 0,
+    checkedAddUInt64WATV1 5 3 4,
+    storeUInt64StateWATV1 registers memory field1 5,
+    loadUInt64StateWATV1 registers memory 6 field1,
+    returnUInt64WATV1 memory 6
   ]
 
 /-- Fail-closed static errors for the bounded typed-WAT subset. This validates
@@ -243,6 +293,9 @@ def validateReadOnlyWATI64ExprV1
       if index < localCount then .ok ()
       else .error .localOutOfBounds
   | .i64Load offset => validateReadOnlyWATMemoryAccessV1 memory offset
+  | .i64Add left right => do
+      validateReadOnlyWATI64ExprV1 keys memory localCount left
+      validateReadOnlyWATI64ExprV1 keys memory localCount right
   | .registerLen _ => .ok ()
   | .storageRead field _ =>
       if keys.any fun candidate => readOnlyWATKeyRegionEqV1 candidate field then
@@ -270,6 +323,9 @@ def validateReadOnlyWATInstructionV1
       validateReadOnlyWATMemoryAccessV1 memory offset
       validateReadOnlyWATMemoryAccessV1 memory (offset + 8)
   | .trapIfI64Ne left right => do
+      validateReadOnlyWATI64ExprV1 keys memory localCount left
+      validateReadOnlyWATI64ExprV1 keys memory localCount right
+  | .trapIfI64LtU left right => do
       validateReadOnlyWATI64ExprV1 keys memory localCount left
       validateReadOnlyWATI64ExprV1 keys memory localCount right
   | .readRegister _ offset => validateReadOnlyWATMemoryAccessV1 memory offset
@@ -378,6 +434,48 @@ theorem validateReadOnlyWATMethodV1_nullaryZeroTwoUInt64Initializer
     hdeposit, hdepositLow, hvalue, markerValue.toNat_lt, hzero, hone,
     height, Bind.bind, Except.bind, Pure.pure, Except.pure]
 
+/-- The selected unary deposit recipe validates when all canonical key regions
+    are bound and its input/deposit/value scratch regions fit. -/
+theorem validateMethodWATV1_unaryAddTwoUInt64Deposit
+    (keys : Array KeyRegion)
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64)
+    (hmarker :
+      keys.any (fun candidate => readOnlyWATKeyRegionEqV1 candidate marker) =
+        true)
+    (hfield0 :
+      keys.any (fun candidate => readOnlyWATKeyRegionEqV1 candidate field0) =
+        true)
+    (hfield1 :
+      keys.any (fun candidate => readOnlyWATKeyRegionEqV1 candidate field1) =
+        true)
+    (hinput :
+      memory.inputOffset + 8 ≤ memory.minPages * wasmPageBytes)
+    (hdeposit :
+      memory.depositOffset + 16 ≤ memory.minPages * wasmPageBytes)
+    (hvalue :
+      memory.valueOffset + 8 ≤ memory.minPages * wasmPageBytes) :
+    validateReadOnlyWATMethodV1 keys memory 7
+      (unaryAddTwoUInt64DepositWATV1 registers memory marker field0 field1
+        markerValue) = .ok () := by
+  have hzero : (0 : Nat) < UInt64.size := by decide
+  have hone : (1 : Nat) < UInt64.size := by decide
+  have height : (8 : Nat) < UInt64.size := by decide
+  have hdepositLow :
+      memory.depositOffset + 8 ≤ memory.minPages * wasmPageBytes := by omega
+  simp [validateReadOnlyWATMethodV1, unaryAddTwoUInt64DepositWATV1,
+    concatMethodWATRecipesV1, checkUInt64InputWATV1,
+    requireZeroAttachedDepositWATV1, requireLayoutWATV1,
+    loadUInt64StateWATV1, loadUInt64ParamWATV1, checkedAddUInt64WATV1,
+    storeUInt64StateWATV1, returnUInt64WATV1,
+    validateReadOnlyWATInstructionsListV1,
+    validateReadOnlyWATInstructionV1, validateReadOnlyWATI64ExprV1,
+    validateReadOnlyWATMemoryAccessV1, hmarker, hfield0, hfield1,
+    hinput, hdeposit, hdepositLow, hvalue, markerValue.toNat_lt,
+    hzero, hone, height, Bind.bind, Except.bind, Pure.pure, Except.pure]
+
 /-- Canonical aliases for the one bounded method-WAT validator. -/
 abbrev validateMethodWATI64ExprV1 := validateReadOnlyWATI64ExprV1
 abbrev validateMethodWATInstructionV1 := validateReadOnlyWATInstructionV1
@@ -390,6 +488,9 @@ def renderReadOnlyWATI64ExprV1 : ReadOnlyWATI64ExprV1 → String
   | .i64Const value => s!"(i64.const {value})"
   | .localGet index => s!"(local.get $t{index})"
   | .i64Load offset => s!"(i64.load (i32.const {offset}))"
+  | .i64Add left right =>
+      s!"(i64.add {renderReadOnlyWATI64ExprV1 left} " ++
+        s!"{renderReadOnlyWATI64ExprV1 right})"
   | .registerLen register =>
       s!"(call $pf_register_len (i64.const {register}))"
   | .storageRead field register =>
@@ -409,6 +510,9 @@ def renderReadOnlyWATInstructionV1
       s!"{indent}(call $pf_attached_deposit (i64.const {offset}))\n"
   | .trapIfI64Ne left right =>
       s!"{indent}(if (i64.ne {renderReadOnlyWATI64ExprV1 left} " ++
+        s!"{renderReadOnlyWATI64ExprV1 right}) (then unreachable))\n"
+  | .trapIfI64LtU left right =>
+      s!"{indent}(if (i64.lt_u {renderReadOnlyWATI64ExprV1 left} " ++
         s!"{renderReadOnlyWATI64ExprV1 right}) (then unreachable))\n"
   | .readRegister register offset =>
       s!"{indent}(call $pf_read_register (i64.const {register}) " ++

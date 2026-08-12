@@ -889,6 +889,438 @@ theorem productionNullaryZeroTwoUInt64InitializerStaticAlignmentV1_of_recognized
   · exact recognizeNullaryZeroTwoUInt64InitializerMethodIRV1_sound methodIR _
       hmethodIRShape
 
+/-! ## Selected unary checked-add two-UInt64 entry alignment -/
+
+/-- Public-syntax witness for the exact unary checked-add entry used by the
+    selected Vault deposit slice. The names and field indices are recovered
+    from production syntax rather than fixed by this recognizer. -/
+structure UnaryAddTwoUInt64DepositMethodShapeV1 where
+  entryName : String
+  parameterSourceId : Nat
+  parameterName : String
+  field0Index : Nat
+  load0Index : Nat
+  field1Index : Nat
+  load1Index : Nat
+  returnIndex : Nat
+  deriving Repr
+
+/-- Recognize one UInt64 parameter added, with checked arithmetic, to exactly
+    two state fields before returning the second updated field. -/
+def recognizeUnaryAddTwoUInt64DepositMethodV1
+    (method : Method) : Option UnaryAddTwoUInt64DepositMethodShapeV1 :=
+  match method.params.toList, method.exactInputLen, method.mode,
+      method.depositPolicy, method.resultKind, method.body.toList with
+  | [{
+      sourceId := parameterSourceId
+      name := parameterName
+      inputOffset := 0
+      byteWidth := 8
+      endianness := .little
+    }], 8, .mutate, .requireZero, .uint64, [
+      .store {
+        fieldIndex := field0Index
+        value := .checkedAdd (.stateLoad load0Index) (.param 0)
+        byteWidth := 8
+      },
+      .store {
+        fieldIndex := field1Index
+        value := .checkedAdd (.stateLoad load1Index) (.param 0)
+        byteWidth := 8
+      },
+      .returnValue (.stateLoad returnIndex)
+    ] => some {
+      entryName := method.name
+      parameterSourceId
+      parameterName
+      field0Index
+      load0Index
+      field1Index
+      load1Index
+      returnIndex
+    }
+  | _, _, _, _, _, _ => none
+
+/-- Successful source-Method recognition gives the complete exact entry. -/
+theorem recognizeUnaryAddTwoUInt64DepositMethodV1_sound
+    (method : Method)
+    (shape : UnaryAddTwoUInt64DepositMethodShapeV1)
+    (hrecognize :
+      recognizeUnaryAddTwoUInt64DepositMethodV1 method = some shape) :
+    method = {
+      name := shape.entryName
+      params := #[{
+        sourceId := shape.parameterSourceId
+        name := shape.parameterName
+        inputOffset := 0
+        byteWidth := 8
+        endianness := .little
+      }]
+      exactInputLen := 8
+      mode := .mutate
+      depositPolicy := .requireZero
+      resultKind := .uint64
+      body := #[
+        .store {
+          fieldIndex := shape.field0Index
+          value := .checkedAdd (.stateLoad shape.load0Index) (.param 0)
+          byteWidth := 8
+        },
+        .store {
+          fieldIndex := shape.field1Index
+          value := .checkedAdd (.stateLoad shape.load1Index) (.param 0)
+          byteWidth := 8
+        },
+        .returnValue (.stateLoad shape.returnIndex)
+      ]
+    } := by
+  rcases method with ⟨name, params, exactInputLen, mode, depositPolicy,
+    resultKind, body⟩
+  simp only [recognizeUnaryAddTwoUInt64DepositMethodV1] at hrecognize
+  split at hrecognize
+  · cases hrecognize
+    have hparams : params = #[{
+        sourceId := _
+        name := _
+        inputOffset := 0
+        byteWidth := 8
+        endianness := .little
+      }] := Array.toList_inj.mp (by assumption)
+    have hbody : body = #[
+        .store {
+          fieldIndex := _
+          value := .checkedAdd (.stateLoad _) (.param 0)
+          byteWidth := 8
+        },
+        .store {
+          fieldIndex := _
+          value := .checkedAdd (.stateLoad _) (.param 0)
+          byteWidth := 8
+        },
+        .returnValue (.stateLoad _)
+      ] := Array.toList_inj.mp (by assumption)
+    cases hparams
+    cases hbody
+    rfl
+  · contradiction
+
+/-- Public-syntax witness for the exact thirteen-operation production
+    MethodIR recipe. Repeated regions remain separate until the production
+    bridge proves that every occurrence is canonical. -/
+structure UnaryAddTwoUInt64DepositMethodIRShapeV1 where
+  entryName : String
+  parameterSourceId : Nat
+  parameterName : String
+  markerRegion : KeyRegion
+  load0Region : KeyRegion
+  store0Region : KeyRegion
+  load1Region : KeyRegion
+  store1Region : KeyRegion
+  returnRegion : KeyRegion
+  markerValue : UInt64
+  deriving Repr
+
+/-- Recognize the exact production MethodIR sequence for the selected unary
+    two-field checked-add entry. -/
+def recognizeUnaryAddTwoUInt64DepositMethodIRV1
+    (methodIR : MethodIR) :
+    Option UnaryAddTwoUInt64DepositMethodIRShapeV1 :=
+  match methodIR.params.toList, methodIR.mode, methodIR.tempCount,
+      methodIR.operations.toList with
+  | [{
+      sourceId := parameterSourceId
+      name := parameterName
+      inputOffset := 0
+      byteWidth := 8
+      endianness := .little
+    }], .mutate, 7, [
+      .checkInputLen 8,
+      .requireZeroAttachedDeposit,
+      .requireLayout markerRegion markerValue,
+      .loadState 0 load0Region,
+      .loadParam 1 0,
+      .checkedAdd 2 0 1,
+      .storeState store0Region 2,
+      .loadState 3 load1Region,
+      .loadParam 4 0,
+      .checkedAdd 5 3 4,
+      .storeState store1Region 5,
+      .loadState 6 returnRegion,
+      .setReturnData 8 6
+    ] => some {
+      entryName := methodIR.name
+      parameterSourceId
+      parameterName
+      markerRegion
+      load0Region
+      store0Region
+      load1Region
+      store1Region
+      returnRegion
+      markerValue
+    }
+  | _, _, _, _ => none
+
+/-- Successful MethodIR recognition gives the complete exact recipe. -/
+theorem recognizeUnaryAddTwoUInt64DepositMethodIRV1_sound
+    (methodIR : MethodIR)
+    (shape : UnaryAddTwoUInt64DepositMethodIRShapeV1)
+    (hrecognize :
+      recognizeUnaryAddTwoUInt64DepositMethodIRV1 methodIR = some shape) :
+    methodIR = {
+      name := shape.entryName
+      params := #[{
+        sourceId := shape.parameterSourceId
+        name := shape.parameterName
+        inputOffset := 0
+        byteWidth := 8
+        endianness := .little
+      }]
+      mode := .mutate
+      tempCount := 7
+      operations := #[
+        .checkInputLen 8,
+        .requireZeroAttachedDeposit,
+        .requireLayout shape.markerRegion shape.markerValue,
+        .loadState 0 shape.load0Region,
+        .loadParam 1 0,
+        .checkedAdd 2 0 1,
+        .storeState shape.store0Region 2,
+        .loadState 3 shape.load1Region,
+        .loadParam 4 0,
+        .checkedAdd 5 3 4,
+        .storeState shape.store1Region 5,
+        .loadState 6 shape.returnRegion,
+        .setReturnData 8 6
+      ]
+    } := by
+  rcases methodIR with ⟨name, params, mode, tempCount, operations⟩
+  simp only [recognizeUnaryAddTwoUInt64DepositMethodIRV1] at hrecognize
+  split at hrecognize
+  · cases hrecognize
+    have hparams : params = #[{
+        sourceId := _
+        name := _
+        inputOffset := 0
+        byteWidth := 8
+        endianness := .little
+      }] := Array.toList_inj.mp (by assumption)
+    have hoperations : operations = #[
+        .checkInputLen 8,
+        .requireZeroAttachedDeposit,
+        .requireLayout _ _,
+        .loadState 0 _,
+        .loadParam 1 0,
+        .checkedAdd 2 0 1,
+        .storeState _ 2,
+        .loadState 3 _,
+        .loadParam 4 0,
+        .checkedAdd 5 3 4,
+        .storeState _ 5,
+        .loadState 6 _,
+        .setReturnData 8 6
+      ] := Array.toList_inj.mp (by assumption)
+    cases hparams
+    cases hoperations
+    rfl
+  · contradiction
+
+/-- Exact semantic/storage/MethodIR alignment for the selected checked-add
+    entry. Complete equalities reject extra, missing, reordered, or
+    non-canonical repeated region uses. -/
+structure UnaryAddTwoUInt64DepositStaticAlignmentV1
+    (data : SemanticProgramDataV1)
+    (storage : StorageLayout)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR) : Prop where
+  binding0Rel : UInt64StateBindingRelV1 data storage binding0
+  binding1Rel : UInt64StateBindingRelV1 data storage binding1
+  binding0State : binding0.semanticStateId = 0
+  binding1State : binding1.semanticStateId = 1
+  bindingTypes : binding0.semanticTypeId = binding1.semanticTypeId
+  distinctFields : binding0.physicalFieldIndex ≠ binding1.physicalFieldIndex
+  markerKey : markerRegion.key = storage.markerKey
+  markerLength : markerRegion.length = storage.markerKey.toUTF8.size
+  field0Key : field0Region.key = binding0.physicalKey
+  field0Length : field0Region.length = binding0.physicalKey.toUTF8.size
+  field1Key : field1Region.key = binding1.physicalKey
+  field1Length : field1Region.length = binding1.physicalKey.toUTF8.size
+  methodExact : method = {
+    name := entryName
+    params := #[{
+      sourceId := parameterSourceId
+      name := parameterName
+      inputOffset := 0
+      byteWidth := 8
+      endianness := .little
+    }]
+    exactInputLen := 8
+    mode := .mutate
+    depositPolicy := .requireZero
+    resultKind := .uint64
+    body := #[
+      .store {
+        fieldIndex := binding0.physicalFieldIndex
+        value := .checkedAdd
+          (.stateLoad binding0.physicalFieldIndex) (.param 0)
+        byteWidth := 8
+      },
+      .store {
+        fieldIndex := binding1.physicalFieldIndex
+        value := .checkedAdd
+          (.stateLoad binding1.physicalFieldIndex) (.param 0)
+        byteWidth := 8
+      },
+      .returnValue (.stateLoad binding1.physicalFieldIndex)
+    ]
+  }
+  methodIRExact : methodIR = {
+    name := entryName
+    params := #[{
+      sourceId := parameterSourceId
+      name := parameterName
+      inputOffset := 0
+      byteWidth := 8
+      endianness := .little
+    }]
+    mode := .mutate
+    tempCount := 7
+    operations := #[
+      .checkInputLen 8,
+      .requireZeroAttachedDeposit,
+      .requireLayout markerRegion storage.markerValue,
+      .loadState 0 field0Region,
+      .loadParam 1 0,
+      .checkedAdd 2 0 1,
+      .storeState field0Region 2,
+      .loadState 3 field1Region,
+      .loadParam 4 0,
+      .checkedAdd 5 3 4,
+      .storeState field1Region 5,
+      .loadState 6 field1Region,
+      .setReturnData 8 6
+    ]
+  }
+
+/-- Production provenance for the selected deposit entry. -/
+structure ProductionUnaryAddTwoUInt64DepositStaticAlignmentV1
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (keys : Array KeyRegion)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR) : Prop where
+  semanticValidation : validateSemanticProgramV1 program = .ok data
+  keyRegions : KeyRegionsV1 plan keys
+  markerLookup : keys[0]? = some markerRegion
+  field0Lookup : keys[binding0.physicalFieldIndex + 1]? = some field0Region
+  field1Lookup : keys[binding1.physicalFieldIndex + 1]? = some field1Region
+  methodLowering : MethodIRLoweringV1 plan keys method methodIR
+  staticAlignment :
+    UnaryAddTwoUInt64DepositStaticAlignmentV1 data plan.storage binding0
+      binding1 entryName parameterName parameterSourceId method markerRegion
+        field0Region field1Region methodIR
+
+/-- Structural recognition plus existing production provenance constructs the
+    selected deposit alignment without another Plan→IR lowering. -/
+theorem productionUnaryAddTwoUInt64DepositStaticAlignmentV1_of_recognized
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (keys : Array KeyRegion)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hkeys : KeyRegionsV1 plan keys)
+    (hmarkerLookup : keys[0]? = some markerRegion)
+    (hfield0Lookup :
+      keys[binding0.physicalFieldIndex + 1]? = some field0Region)
+    (hfield1Lookup :
+      keys[binding1.physicalFieldIndex + 1]? = some field1Region)
+    (hlowering : MethodIRLoweringV1 plan keys method methodIR)
+    (hbinding0 : UInt64StateBindingRelV1 data plan.storage binding0)
+    (hbinding1 : UInt64StateBindingRelV1 data plan.storage binding1)
+    (hbinding0State : binding0.semanticStateId = 0)
+    (hbinding1State : binding1.semanticStateId = 1)
+    (hbindingTypes : binding0.semanticTypeId = binding1.semanticTypeId)
+    (hdistinctFields :
+      binding0.physicalFieldIndex ≠ binding1.physicalFieldIndex)
+    (hmarkerKey : markerRegion.key = plan.storage.markerKey)
+    (hmarkerLength :
+      markerRegion.length = plan.storage.markerKey.toUTF8.size)
+    (hfield0Key : field0Region.key = binding0.physicalKey)
+    (hfield0Length :
+      field0Region.length = binding0.physicalKey.toUTF8.size)
+    (hfield1Key : field1Region.key = binding1.physicalKey)
+    (hfield1Length :
+      field1Region.length = binding1.physicalKey.toUTF8.size)
+    (hmethodShape :
+      recognizeUnaryAddTwoUInt64DepositMethodV1 method = some {
+        entryName
+        parameterSourceId
+        parameterName
+        field0Index := binding0.physicalFieldIndex
+        load0Index := binding0.physicalFieldIndex
+        field1Index := binding1.physicalFieldIndex
+        load1Index := binding1.physicalFieldIndex
+        returnIndex := binding1.physicalFieldIndex
+      })
+    (hmethodIRShape :
+      recognizeUnaryAddTwoUInt64DepositMethodIRV1 methodIR = some {
+        entryName
+        parameterSourceId
+        parameterName
+        markerRegion
+        load0Region := field0Region
+        store0Region := field0Region
+        load1Region := field1Region
+        store1Region := field1Region
+        returnRegion := field1Region
+        markerValue := plan.storage.markerValue
+      }) :
+    ProductionUnaryAddTwoUInt64DepositStaticAlignmentV1 program data plan keys
+      binding0 binding1 entryName parameterName parameterSourceId method
+        markerRegion field0Region field1Region methodIR := by
+  refine {
+    semanticValidation := hvalidate
+    keyRegions := hkeys
+    markerLookup := hmarkerLookup
+    field0Lookup := hfield0Lookup
+    field1Lookup := hfield1Lookup
+    methodLowering := hlowering
+    staticAlignment := {
+      binding0Rel := hbinding0
+      binding1Rel := hbinding1
+      binding0State := hbinding0State
+      binding1State := hbinding1State
+      bindingTypes := hbindingTypes
+      distinctFields := hdistinctFields
+      markerKey := hmarkerKey
+      markerLength := hmarkerLength
+      field0Key := hfield0Key
+      field0Length := hfield0Length
+      field1Key := hfield1Key
+      field1Length := hfield1Length
+      methodExact := ?_
+      methodIRExact := ?_
+    }
+  }
+  · exact recognizeUnaryAddTwoUInt64DepositMethodV1_sound method _ hmethodShape
+  · exact recognizeUnaryAddTwoUInt64DepositMethodIRV1_sound methodIR _
+      hmethodIRShape
+
 /-- Logical decoding and the three owned KV rows agree after successful
     initialization. This relation consumes target post-storage observations; it
     does not define another target transition. -/
