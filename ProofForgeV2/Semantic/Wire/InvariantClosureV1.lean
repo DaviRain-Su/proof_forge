@@ -1039,6 +1039,14 @@ private def validateContextReadCatalogV1
                     match types[rdef.typeId.toNat]? with
                     | some { name := none, shape := .uint 64, .. } => true
                     | _ => false
+                  else if key == chainIdContextKeyV1 then
+                    match types[rdef.typeId.toNat]? with
+                    | some { name := none, shape := .uint 64, .. } => true
+                    | _ => false
+                  else if key == selfContextKeyV1 then
+                    match types[rdef.typeId.toNat]? with
+                    | some { name := none, shape := .principal, .. } => true
+                    | _ => false
                   else false
                 unless shapeOk do return ← err .badCfg
                 match seen.get? key.value with

@@ -54,7 +54,11 @@ inductive Operation where
   | callerPrincipalLen (destination : Nat)
   /-- ADR-0031 S1: load one LE body word of context.caller Principal
       (global `$pf_caller_w{i}`, `wordIndex ∈ 0..7`). -/
-  | callerPrincipalWord (wordIndex destination : Nat)
+    | callerPrincipalWord (wordIndex destination : Nat)
+  /-- ADR-0031 S3: Env.contract.address length leaf (pre-parsed at entry when used). -/
+  | selfPrincipalLen (destination : Nat)
+  /-- ADR-0031 S3: one LE body word of self Principal (pre-parsed at entry). -/
+  | selfPrincipalWord (wordIndex destination : Nat)
   | loadParam (destination inputOffset : Nat)
   /-- Narrow ABI param copy (`bitWidth ∈ {8,16,32}`); params already
       range-checked at JSON entry (see `renderParamRangeGuard`). -/
@@ -296,6 +300,10 @@ private partial def lowerExprUncached (keys : Array KeyRegion) (next : Nat)
       { operations := #[.callerPrincipalLen next], value := next, next := next + 1, cache }
   | .callerPrincipalWord wordIndex =>
       { operations := #[.callerPrincipalWord wordIndex next], value := next, next := next + 1, cache }
+  | .selfPrincipalLen =>
+      { operations := #[.selfPrincipalLen next], value := next, next := next + 1, cache }
+  | .selfPrincipalWord wordIndex =>
+      { operations := #[.selfPrincipalWord wordIndex next], value := next, next := next + 1, cache }
   | .param inputOffset =>
       if paramAsTemp then
         { operations := #[], value := inputOffset / 8, next := next, cache }
@@ -1137,7 +1145,8 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .setLayout _ _ | .setReturnData _ | .setReturnDataMulti _
   | .loadParam _ _ | .narrowLoadParam _ _ _
   | .nativeVaultBalance _ | .tokenVaultBalance _ _ _
-  | .callerPrincipalLen _ | .callerPrincipalWord _ _ => true
+  | .callerPrincipalLen _ | .callerPrincipalWord _ _
+  | .selfPrincipalLen _ | .selfPrincipalWord _ _ => true
   | .ifRegion _ thenOps elseOps =>
       thenOps.any opIsMethodOnlyV1 || elseOps.any opIsMethodOnlyV1
   | .switchRegion _ cases defaultOps =>
@@ -1334,6 +1343,17 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   "  (global $pf_caller_w5 (mut i64) (i64.const 0))\n" ++
   "  (global $pf_caller_w6 (mut i64) (i64.const 0))\n" ++
   "  (global $pf_caller_w7 (mut i64) (i64.const 0))\n" ++
+  -- ADR-0031 S3: Env.contract.address Principal leaves (len + 8 LE body words).
+  -- Filled by $pf_load_self_principal when methodUsesSelfPrincipalV1.
+  "  (global $pf_self_len (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_self_w0 (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_self_w1 (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_self_w2 (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_self_w3 (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_self_w4 (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_self_w5 (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_self_w6 (mut i64) (i64.const 0))\n" ++
+  "  (global $pf_self_w7 (mut i64) (i64.const 0))\n" ++
   -- ret_leaves live at valueCell (up to 24×i64 = 192B); capacity-guarded by ret_count≤24
   -- allocate(size) -> region_ptr: Region{offset=data, capacity=size, length=size}
   "  (func $pf_allocate (param $size i32) (result i32)\n" ++
@@ -2154,6 +2174,45 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"    (global.set $pf_caller_w6 (i64.load offset=48 (local.get $buf)))\n" ++
   s!"    (global.set $pf_caller_w7 (i64.load offset=56 (local.get $buf)))\n" ++
   "  )\n" ++
+  -- ADR-0031 S3: Env.contract.address → pilot Principal leaves (view-safe).
+  -- Reuses $pf_env_contract_addr then packs len + 8 LE words with the same
+  -- bech32 charset gate as caller ($pf_dst_check). Invoked from any method
+  -- mode that uses context.self (init/entry/view).
+  s!"  (func $pf_load_self_principal (param $env_ptr i32)\n" ++
+  s!"    (local $region i32) (local $off i32) (local $len i32) (local $buf i32) (local $n i32) (local $i i32)\n" ++
+  s!"    (local.set $region (call $pf_env_contract_addr (local.get $env_ptr)))\n" ++
+  s!"    (local.set $off (call $pf_region_off (local.get $region)))\n" ++
+  s!"    (local.set $len (call $pf_region_len (local.get $region)))\n" ++
+  s!"    (if (i32.eqz (local.get $len)) (then unreachable))\n" ++
+  s!"    (if (i32.gt_u (local.get $len) (i32.const 64)) (then unreachable))\n" ++
+  s!"    (local.set $buf (i32.load (call $pf_allocate (i32.const 64))))\n" ++
+  s!"    (i64.store (local.get $buf) (i64.const 0))\n" ++
+  s!"    (i64.store offset=8 (local.get $buf) (i64.const 0))\n" ++
+  s!"    (i64.store offset=16 (local.get $buf) (i64.const 0))\n" ++
+  s!"    (i64.store offset=24 (local.get $buf) (i64.const 0))\n" ++
+  s!"    (i64.store offset=32 (local.get $buf) (i64.const 0))\n" ++
+  s!"    (i64.store offset=40 (local.get $buf) (i64.const 0))\n" ++
+  s!"    (i64.store offset=48 (local.get $buf) (i64.const 0))\n" ++
+  s!"    (i64.store offset=56 (local.get $buf) (i64.const 0))\n" ++
+  s!"    (local.set $i (i32.const 0))\n" ++
+  s!"    (block $copy_done\n" ++
+  s!"      (loop $copy\n" ++
+  s!"        (br_if $copy_done (i32.ge_u (local.get $i) (local.get $len)))\n" ++
+  s!"        (i32.store8 (i32.add (local.get $buf) (local.get $i))\n" ++
+  s!"          (i32.load8_u (i32.add (local.get $off) (local.get $i))))\n" ++
+  s!"        (local.set $i (i32.add (local.get $i) (i32.const 1)))\n" ++
+  s!"        (br $copy)))\n" ++
+  s!"    (if (i32.eqz (call $pf_dst_check (i64.extend_i32_u (local.get $len)) (local.get $buf))) (then unreachable))\n" ++
+  s!"    (global.set $pf_self_len (i64.extend_i32_u (local.get $len)))\n" ++
+  s!"    (global.set $pf_self_w0 (i64.load (local.get $buf)))\n" ++
+  s!"    (global.set $pf_self_w1 (i64.load offset=8 (local.get $buf)))\n" ++
+  s!"    (global.set $pf_self_w2 (i64.load offset=16 (local.get $buf)))\n" ++
+  s!"    (global.set $pf_self_w3 (i64.load offset=24 (local.get $buf)))\n" ++
+  s!"    (global.set $pf_self_w4 (i64.load offset=32 (local.get $buf)))\n" ++
+  s!"    (global.set $pf_self_w5 (i64.load offset=40 (local.get $buf)))\n" ++
+  s!"    (global.set $pf_self_w6 (i64.load offset=48 (local.get $buf)))\n" ++
+  s!"    (global.set $pf_self_w7 (i64.load offset=56 (local.get $buf)))\n" ++
+  "  )\n" ++
   -- nativeTransfer/tokenTransfer dst+mint: len ∈ 1..64, zero padding beyond
   -- len in the 64B body, and body bytes restricted to the lowercase bech32
   -- charset [a-z0-9]. The charset gate is what makes raw JSON embedding of
@@ -2693,6 +2752,18 @@ private partial def renderOperation (memory : MemoryLayout)
         | 3 => "$pf_caller_w3" | 4 => "$pf_caller_w4" | 5 => "$pf_caller_w5"
         | 6 => "$pf_caller_w6" | 7 => "$pf_caller_w7"
         | _ => "$pf_caller_w0"  -- validatePlan rejects wordIndex ≥ 8
+      s!"{indent}(local.set $t{destination} (global.get {g}))\n"
+  | .selfPrincipalLen destination =>
+      -- ADR-0031 S3: Env.contract.address length leaf (pre-parsed at entry).
+      s!"{indent}(local.set $t{destination} (global.get $pf_self_len))\n"
+  | .selfPrincipalWord wordIndex destination =>
+      -- ADR-0031 S3: one LE body word of self Principal (pre-parsed at entry).
+      let g :=
+        match wordIndex with
+        | 0 => "$pf_self_w0" | 1 => "$pf_self_w1" | 2 => "$pf_self_w2"
+        | 3 => "$pf_self_w3" | 4 => "$pf_self_w4" | 5 => "$pf_self_w5"
+        | 6 => "$pf_self_w6" | 7 => "$pf_self_w7"
+        | _ => "$pf_self_w0"
       s!"{indent}(local.set $t{destination} (global.get {g}))\n"
   | .nativeVaultBalance destination =>
       -- ADR-0030 E2-4-CW: query_chain bank balance of env.contract.address.
@@ -3635,6 +3706,14 @@ private def renderLoadCallerPrincipal (indent : String) : String :=
 private def renderLoadCallerPrincipalIfUsed (indent : String) (method : Method) : String :=
   if methodUsesCallerPrincipalV1 method then renderLoadCallerPrincipal indent else ""
 
+/-- ADR-0031 S3: parse Env.contract.address into Principal leaf globals.
+    Emitted when the method body uses `context.self` (init/entry/view). -/
+private def renderLoadSelfPrincipal (indent : String) : String :=
+  s!"{indent}(call $pf_load_self_principal (local.get $env_ptr))\n"
+
+private def renderLoadSelfPrincipalIfUsed (indent : String) (method : Method) : String :=
+  if methodUsesSelfPrincipalV1 method then renderLoadSelfPrincipal indent else ""
+
 private def renderInstantiate (ir : IR) (paramNeedles : Array (String × Nat × Nat)) : String :=
   Id.run do
     let init := ir.methods[0]!  -- initializer is always first
@@ -3662,6 +3741,7 @@ private def renderInstantiate (ir : IR) (paramNeedles : Array (String × Nat × 
         renderLoadBlockTime "    " ++
         renderLoadBlockHeight "    " ++
         renderLoadCallerPrincipalIfUsed "    " initPlan ++
+        renderLoadSelfPrincipalIfUsed "    " initPlan ++
         parse ++
         s!"    (return (call $m_{init.name} {args}))\n" ++
         "  )\n"
@@ -3704,6 +3784,7 @@ private def renderExecute (ir : IR) (methodNeedles paramNeedles : Array (String 
       dispatch := dispatch ++
         s!"    (if (i32.ne (call $pf_find (local.get $msg_off) (local.get $msg_len) (i32.const {mOff}) (i32.const {mLen})) (i32.const -1)) (then\n" ++
         renderLoadCallerPrincipalIfUsed "        " planMethod ++
+        renderLoadSelfPrincipalIfUsed "        " planMethod ++
         parse ++
         s!"        (return (call $m_{method.name} {args}))\n" ++
         "      ))\n"
@@ -3729,6 +3810,7 @@ private def renderQuery (ir : IR) (methodNeedles paramNeedles : Array (String ×
     let views := ir.methods[1:].toArray.filter (fun m => m.mode == .view)
     let mut dispatch := ""
     for method in views do
+      let planMethod := planMethodBodyOf ir method.name
       let (mOff, mLen) := findNeedle methodNeedles method.name
       let mut parse := ""
       for i in [0:method.params.size] do
@@ -3741,6 +3823,7 @@ private def renderQuery (ir : IR) (methodNeedles paramNeedles : Array (String ×
         s!"(local.get $p{i})"
       dispatch := dispatch ++
         s!"    (if (i32.ne (call $pf_find (local.get $msg_off) (local.get $msg_len) (i32.const {mOff}) (i32.const {mLen})) (i32.const -1)) (then\n" ++
+        renderLoadSelfPrincipalIfUsed "        " planMethod ++
         parse ++
         s!"        (return (call $m_{method.name} {args}))\n" ++
         "      ))\n"

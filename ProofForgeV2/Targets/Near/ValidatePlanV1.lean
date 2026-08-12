@@ -67,6 +67,9 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .callerPrincipalLen => some 1
     | .callerPrincipalWord wordIndex =>
         if wordIndex < 8 then some 1 else none
+    | .selfPrincipalLen => some 1
+    | .selfPrincipalWord wordIndex =>
+        if wordIndex < 8 then some 1 else none
     | .checkedAdd lhs rhs => binaryNodes lhs rhs
     | .checkedSub lhs rhs => binaryNodes lhs rhs
     | .checkedMul lhs rhs => binaryNodes lhs rhs
@@ -639,6 +642,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     (planUsesTransferPromiseV1 plan) (planUsesTokenTransferPromiseV1 plan)
     (planUsesTimestampV1 plan) (planUsesBlockIndexV1 plan)
     (planUsesAccountBalanceV1 plan) (planUsesCallerV1 plan)
+    (planUsesSelfV1 plan)
   unless plan.targetDescriptor == descriptor &&
       plan.semanticSchemaVersion == semanticProgramSchemaVersionV1 &&
       plan.codegenProfile == descriptor.codegenProfile.toString &&

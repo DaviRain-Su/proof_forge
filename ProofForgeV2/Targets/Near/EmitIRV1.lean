@@ -36,6 +36,12 @@ inductive Operation where
   /-- ADR-0031 S1: host `predecessor_account_id` → zero-padded 64B body buffer
       → LE UInt64 body word at `wordIndex` (0..7). -/
   | callerPrincipalWord (destination wordIndex : Nat)
+  /-- ADR-0031 S3: host `current_account_id` → register length → destination
+      (Principal length leaf; trap if length ∉ 1..64). View-safe. -/
+  | selfPrincipalLen (destination : Nat)
+  /-- ADR-0031 S3: host `current_account_id` → zero-padded 64B body buffer
+      → LE UInt64 body word at `wordIndex` (0..7). -/
+  | selfPrincipalWord (destination wordIndex : Nat)
   | requireLayoutAbsent (marker : KeyRegion)
   | requireLayout (marker : KeyRegion) (value : UInt64)
   | zeroState (field : KeyRegion)
@@ -311,6 +317,16 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
       }
   | .callerPrincipalWord wordIndex =>
       { operations := #[.callerPrincipalWord next wordIndex]
+        value := next
+        next := next + 1
+      }
+  | .selfPrincipalLen =>
+      { operations := #[.selfPrincipalLen next]
+        value := next
+        next := next + 1
+      }
+  | .selfPrincipalWord wordIndex =>
+      { operations := #[.selfPrincipalWord next wordIndex]
         value := next
         next := next + 1
       }
@@ -1017,7 +1033,8 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .setLayout _ _ | .setReturnData _ _ | .setReturnDataLeaves _ _
   | .loadParam _ _ | .narrowLoadParam _ _ _
   | .blockTimestampSeconds _ | .blockIndex _ | .accountBalance _
-  | .callerPrincipalLen _ | .callerPrincipalWord _ _ => true
+  | .callerPrincipalLen _ | .callerPrincipalWord _ _
+  | .selfPrincipalLen _ | .selfPrincipalWord _ _ => true
   | .ifRegion _ thenOps elseOps =>
       thenOps.any opIsMethodOnlyV1 || elseOps.any opIsMethodOnlyV1
   | .switchRegion _ cases defaultOps =>
@@ -1228,6 +1245,10 @@ private def renderImport : HostImport → String
       -- register_id (void). View contexts forbid this host call at runtime;
       -- Plan already fail-closes view ContextRead caller.
       "  (import \"env\" \"predecessor_account_id\" (func $pf_predecessor_account_id (param i64)))\n"
+  | .currentAccountId =>
+      -- ADR-0031 S3: current_account_id writes UTF-8 account-id into
+      -- a register (view-safe). Used by context.self Principal leaves.
+      "  (import \"env\" \"current_account_id\" (func $pf_current_account_id (param i64)))\n"
   | .promiseBatchCreate =>
       -- account_id_len, account_id_ptr → promise_index
       "  (import \"env\" \"promise_batch_create\" (func $pf_promise_batch_create (param i64 i64) (result i64)))\n"
@@ -1660,6 +1681,37 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
             s!"{indent}(i64.store (i32.const {bodyBuf + 8 * j}) (i64.const 0))\n"
         out := out ++
           s!"{indent}(call $pf_read_register (i64.const {registers.predecessor}) (i64.const {bodyBuf}))\n" ++
+          s!"{indent}(local.set $t{destination} (i64.load (i32.const {bodyBuf + 8 * wordIndex})))\n"
+        pure out
+  | .selfPrincipalLen destination =>
+      -- ADR-0031 S3: current_account_id → layout.current → length leaf.
+      -- Canonical Principal wire = u32le(L)||account-id-utf8; leaf0 = L.
+      -- Bound L ∈ 1..64 (pilot Principal body max; NEAR account-id ≤ 64).
+      -- Register id is sole-owned by `registers.current` (canonical = 4).
+      s!"{indent}(call $pf_current_account_id (i64.const {registers.current}))\n" ++
+        s!"{indent}(local.set $t{destination} (call $pf_register_len (i64.const {registers.current})))\n" ++
+        s!"{indent}(if (i64.lt_u (local.get $t{destination}) (i64.const 1)) (then unreachable))\n" ++
+        s!"{indent}(if (i64.gt_u (local.get $t{destination}) (i64.const 64)) (then unreachable))\n"
+  | .selfPrincipalWord destination wordIndex =>
+      -- ADR-0031 S3: current → zero-pad 64B body buffer → LE word.
+      -- Scratch at valueOffset+16 (64 bytes); not live across other host ops
+      -- in the same leaf eval. Unused tail bytes forced 0 so Principal leaf
+      -- equality is length-exact (trailing pad must match).
+      -- Register id is sole-owned by `registers.current` (canonical = 4).
+      let bodyBuf := memory.valueOffset + 16
+      Id.run do
+        let mut out :=
+          s!"{indent}(call $pf_current_account_id (i64.const {registers.current}))\n" ++
+          s!"{indent}(local.set $t_pf_i (call $pf_register_len (i64.const {registers.current})))\n" ++
+          s!"{indent}(if (i64.lt_u (local.get $t_pf_i) (i64.const 1)) (then unreachable))\n" ++
+          s!"{indent}(if (i64.gt_u (local.get $t_pf_i) (i64.const 64)) (then unreachable))\n"
+        -- Zero the full 64-byte body buffer before read_register (host only
+        -- writes `len` bytes; pad must be 0 for Principal leaf identity).
+        for j in [0:8] do
+          out := out ++
+            s!"{indent}(i64.store (i32.const {bodyBuf + 8 * j}) (i64.const 0))\n"
+        out := out ++
+          s!"{indent}(call $pf_read_register (i64.const {registers.current}) (i64.const {bodyBuf}))\n" ++
           s!"{indent}(local.set $t{destination} (i64.load (i32.const {bodyBuf + 8 * wordIndex})))\n"
         pure out
   | .loadParam destination inputOffset =>
@@ -2397,7 +2449,7 @@ private def renderMethod (ir : IR) (promiseStr : Array (String × Nat))
   -- ADR-0031 S1: callerPrincipalWord uses $t_pf_i for register_len scratch.
   let needsCallerScratch := method.operations.any fun op =>
     match op with
-    | .callerPrincipalWord .. => true
+    | .callerPrincipalWord .. | .selfPrincipalWord .. => true
     | _ => false
   let locals :=
     if needsMwScratch then

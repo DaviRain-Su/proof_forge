@@ -196,3 +196,8 @@ EVM 输出是 `deployable-contract`：生成 init code，模拟 constructor，�
 ## 10. 不支持、风险与成熟度退出
 
 Phase 1 不支持 arbitrary assembly、delegatecall、create、proxy upgrade 和动态链接。实现退出条件：Counter 全流程、negative requirements、artifact reproducibility、Anvil runtime evidence、无 fallback。完整平台覆盖按扩展逐项增加，不以“能生成 bytecode”宣称完成。
+
+### context.chainId / context.self (ADR-0031 S3)
+
+- `context.chainId` → Yul `chainid()` with UInt64 range guard (no truncation).
+- `context.self` → Principal `u32le(20)||addr20` from `address()` (same packing as caller from `caller()`).

@@ -228,6 +228,11 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   -- ADR-0031 S2: block height / NUMBER (tag 62 appended; prior tags
   -- byte-identical).
   | .blockNumber => pure (encodeU8 62)
+  -- ADR-0031 S3: chain id / CHAINID (tag 66; tags 63-65 are M2 map ops).
+  | .chainId => pure (encodeU8 66)
+  -- ADR-0031 S3: context.self Principal body word (tag 67 + u32le index).
+  | .selfPrincipalWord wordIndex =>
+      pure ((encodeU8 67).append (← encodeNatAsU32le wordIndex))
   -- M2 compact Principal Map lookup tag (tag 63 appended).
   | .mapPrincipalLookupTag mapBaseSlot keyLeaves => do
       let mut out := (encodeU8 63).append (← encodeNatAsU32le mapBaseSlot)

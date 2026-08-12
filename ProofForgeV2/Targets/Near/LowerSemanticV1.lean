@@ -118,6 +118,9 @@ inductive HostImport where
       `context.caller` ContextRead. View/query contexts forbid this host call,
       so view callables stay Plan-fail-closed. -/
   | predecessorAccountId
+  /-- ADR-0031 S3: host `current_account_id` (writes UTF-8 account-id into
+      a register; view-safe). Used by `context.self` Principal leaves. -/
+  | currentAccountId
   deriving BEq, Inhabited, Repr
 
 structure ResourceLimits where
@@ -252,6 +255,12 @@ inductive Expr where
       `wordIndex ∈ 0..7` indexes the 8×UInt64 LE body leaves packing the
       account-id UTF-8 bytes (unused tail bytes forced 0). Init/entry only. -/
   | callerPrincipalWord (wordIndex : Nat)
+  /-- ADR-0031 S3: host `current_account_id` register length. View-safe
+      (unlike predecessor). Carries `context.self` length leaf. -/
+  | selfPrincipalLen
+  /-- ADR-0031 S3: one LE body word of the current-account Principal wire
+      (`wordIndex ∈ 0..7`). Same packing as callerPrincipalWord. -/
+  | selfPrincipalWord (wordIndex : Nat)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -478,6 +487,9 @@ structure RegisterLayout where
       Sole authority for caller WAT emission; validateIR joins IR.registers
       to `canonicalRegisters` exactly. -/
   predecessor : Nat
+  /-- ADR-0031 S3: host `current_account_id` register id for `context.self`
+      Principal leaves. Distinct from predecessor/input/storage/evicted. -/
+  current : Nat
   deriving BEq, Inhabited, Repr
 
 structure KeyRegion where
@@ -550,7 +562,7 @@ private def canonicalImports : Array HostImport := #[
     `account_balance` and `predecessor_account_id` are independent. -/
 def hostImportsFor (usesSchedulePromise usesTransferPromise
     usesTokenTransferPromise usesTimestamp usesBlockIndex usesAccountBalance
-    usesCaller : Bool) :
+    usesCaller usesSelf : Bool) :
     Array HostImport :=
   Id.run do
     let mut base := canonicalImports
@@ -568,6 +580,8 @@ def hostImportsFor (usesSchedulePromise usesTransferPromise
       base := base.push .accountBalance
     if usesCaller then
       base := base.push .predecessorAccountId
+    if usesSelf then
+      base := base.push .currentAccountId
     pure base
 
 def canonicalRegisters : RegisterLayout := {
@@ -577,6 +591,9 @@ def canonicalRegisters : RegisterLayout := {
   -- Distinct from input/storage/evicted; callerPrincipalLen/Word WAT
   -- emission reads only `registers.predecessor` (no local hardcode).
   predecessor := 3
+  -- Distinct from predecessor; selfPrincipalLen/Word reads only
+  -- `registers.current`.
+  current := 4
 }
 
 /-- Thin adapter: binds NEAR's `maxIdentifierBytes` (240) to the shared grammar. -/
@@ -3408,6 +3425,25 @@ private def lowerBlockInstructionsV1
             expandedNodes := 1
             dependencies := #[]
           }
+        else if key == chainIdContextKeyV1 then
+          -- No exact numeric host chain-id counterpart on NEAR VM ABI.
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: ContextRead context.chainId has no exact host counterpart (fail closed)"
+        else if key == selfContextKeyV1 then
+          if mode == .pureFn then
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: pureFn cannot use ContextRead context.self (host read is not pure)"
+          unless types.isPrincipal result.typeId do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: ContextRead context.self result must be Principal"
+          let mut leaves : Array Expr := #[.selfPrincipalLen]
+          for i in [0:nearPrincipalDataWordCountV1] do
+            leaves := leaves.push (.selfPrincipalWord i)
+          unless leaves.size == 1 + nearPrincipalDataWordCountV1 do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: context.self Principal leaf count mismatch"
+          let value := mkAggregateValueV1 leaves #[] 1 leaves.size
+          values := ← appendResultValueV1 result.typeId values result value
         else
           throw <| .planInvariant .near
             s!"unsupported NEAR semantic shape: unknown ContextRead key '{key.value}'"
@@ -4113,7 +4149,8 @@ partial def exprUsesTimestampV1 (expr : Expr) : Bool :=
   | .blockTimestampSeconds => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _ | .accountBalance
-  | .blockIndex | .callerPrincipalLen | .callerPrincipalWord _ => false
+  | .blockIndex | .callerPrincipalLen | .callerPrincipalWord _
+  | .selfPrincipalLen | .selfPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4136,7 +4173,8 @@ partial def exprUsesBlockIndexV1 (expr : Expr) : Bool :=
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .accountBalance
-  | .callerPrincipalLen | .callerPrincipalWord _ => false
+  | .callerPrincipalLen | .callerPrincipalWord _
+  | .selfPrincipalLen | .selfPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4159,7 +4197,8 @@ partial def exprUsesAccountBalanceV1 (expr : Expr) : Bool :=
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex
-  | .callerPrincipalLen | .callerPrincipalWord _ => false
+  | .callerPrincipalLen | .callerPrincipalWord _
+  | .selfPrincipalLen | .selfPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4182,7 +4221,8 @@ partial def exprUsesCallerV1 (expr : Expr) : Bool :=
   | .callerPrincipalLen | .callerPrincipalWord _ => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
-  | .blockTimestampSeconds | .blockIndex | .accountBalance => false
+  | .blockTimestampSeconds | .blockIndex | .accountBalance
+  | .selfPrincipalLen | .selfPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4338,10 +4378,70 @@ partial def statementsUseCallerV1 (statements : Array Statement) : Bool :=
           exprUsesCallerV1 update || statementsUseCallerV1 body
     | .returnNone => false
 
+
+/-- ADR-0031 S3: does an expression tree reference context.self?
+    Conservative structural scan driving the `current_account_id` host import. -/
+partial def exprUsesSelfV1 (expr : Expr) : Bool :=
+  match expr with
+  | .selfPrincipalLen | .selfPrincipalWord _ => true
+  | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
+  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .blockTimestampSeconds | .blockIndex | .accountBalance
+  | .callerPrincipalLen | .callerPrincipalWord _ => false
+  | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
+  | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
+  | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
+  | .signedCheckedMul l r | .signedCheckedDiv l r | .signedCheckedMod l r
+  | .signedCompare _ l r | .sar l r | .boolAnd l r | .boolOr l r
+  | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
+  | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
+  | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+      exprUsesSelfV1 l || exprUsesSelfV1 r
+  | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
+      exprUsesSelfV1 e
+  | .callFn _ args => args.any exprUsesSelfV1
+
+partial def statementsUseSelfV1 (statements : Array Statement) : Bool :=
+  statements.any fun statement =>
+    match statement with
+    | .store op => exprUsesSelfV1 op.value
+    | .storeAtomic leaves => leaves.any fun leaf => exprUsesSelfV1 leaf.value
+    | .returnValue value => exprUsesSelfV1 value
+    | .returnAggregate leaves _ => leaves.any exprUsesSelfV1
+    | .assert condition => exprUsesSelfV1 condition
+    | .emitEvent _ args => args.any exprUsesSelfV1
+    | .revertError _ args => args.any exprUsesSelfV1
+    | .promiseAccount _ _ args => args.any exprUsesSelfV1
+    | .nativeDeposit amount => exprUsesSelfV1 amount
+    | .promiseTransfer dstLen dstWords amount =>
+        exprUsesSelfV1 dstLen || dstWords.any exprUsesSelfV1 ||
+          exprUsesSelfV1 amount
+    | .promiseTokenTransfer mintLen mintWords dstLen dstWords amount =>
+        exprUsesSelfV1 mintLen || mintWords.any exprUsesSelfV1 ||
+          exprUsesSelfV1 dstLen || dstWords.any exprUsesSelfV1 ||
+          exprUsesSelfV1 amount
+    | .ifThenElse condition thenBody elseBody =>
+        exprUsesSelfV1 condition ||
+          statementsUseSelfV1 thenBody || statementsUseSelfV1 elseBody
+    | .switchOn scrutinee cases defaultBody =>
+        exprUsesSelfV1 scrutinee || statementsUseSelfV1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUseSelfV1 caseBody
+    | .forLoop _ initial cond update _ body =>
+        exprUsesSelfV1 initial || exprUsesSelfV1 cond ||
+          exprUsesSelfV1 update || statementsUseSelfV1 body
+    | .returnNone => false
+
+
 def planUsesCallerV1 (plan : Plan) : Bool :=
   statementsUseCallerV1 plan.initializer.body ||
     plan.entries.any (fun m => statementsUseCallerV1 m.body) ||
     plan.fns.any (fun f => statementsUseCallerV1 f.body)
+
+def planUsesSelfV1 (plan : Plan) : Bool :=
+  statementsUseSelfV1 plan.initializer.body ||
+    plan.entries.any (fun m => statementsUseSelfV1 m.body) ||
+    plan.fns.any (fun f => statementsUseSelfV1 f.body)
 
 /-- Schedule → function-call promise (not transferAsync). -/
 partial def statementsUseSchedulePromiseV1 (statements : Array Statement) : Bool :=
@@ -4602,6 +4702,10 @@ private def makePlanFromSemanticDataV1
     statementsUseCallerV1 resolvedInitializer.body ||
       entries.any (fun m => statementsUseCallerV1 m.body) ||
       fns.any (fun f => statementsUseCallerV1 f.body)
+  let usesSelf :=
+    statementsUseSelfV1 resolvedInitializer.body ||
+      entries.any (fun m => statementsUseSelfV1 m.body) ||
+      fns.any (fun f => statementsUseSelfV1 f.body)
   let plan : Plan := {
     targetDescriptor := descriptor
     semanticSchemaVersion := semanticProgramSchemaVersionV1
@@ -4611,7 +4715,7 @@ private def makePlanFromSemanticDataV1
     layoutDomain := stateLayoutDomain
     hostImports := hostImportsFor usesSchedulePromise usesTransferPromise
       usesTokenTransferPromise usesTimestamp usesBlockIndex usesAccountBalance
-      usesCaller
+      usesCaller usesSelf
     failurePolicy := canonicalFailurePolicy
     commitPolicy := .rollbackOnTrap
     resourceLimits := canonicalResourceLimits

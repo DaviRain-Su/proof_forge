@@ -393,13 +393,15 @@ private def bindUsedOpToExactRequirementRow
   unless found do return ← err .badRequirement
 
 /-- Bind every used wire-owned ContextRead key to its exact requirement row.
-    Closed v1 catalog: unix-time-seconds and caller (N-2). Generic requirement
-    structure/order is validated first. -/
+    Closed v1 catalog: unix-time-seconds, caller, block-height, chain-id, self.
+    Generic requirement structure/order is validated first. -/
 def validateContextReadRequirementsV1 (data : SemanticProgramDataV1) :
     Except SemanticWireErrorV1 Unit := do
   let mut usedUnix := false
   let mut usedCaller := false
   let mut usedBlockHeight := false
+  let mut usedChainId := false
+  let mut usedSelf := false
   for callable in data.callables do
     for block in callable.blocks do
       for instr in block.instructions do
@@ -408,6 +410,8 @@ def validateContextReadRequirementsV1 (data : SemanticProgramDataV1) :
             if key == unixTimeSecondsContextKeyV1 then usedUnix := true
             else if key == callerContextKeyV1 then usedCaller := true
             else if key == blockHeightContextKeyV1 then usedBlockHeight := true
+            else if key == chainIdContextKeyV1 then usedChainId := true
+            else if key == selfContextKeyV1 then usedSelf := true
             else pure ()
         | _ => pure ()
   if usedUnix then
@@ -431,6 +435,20 @@ def validateContextReadRequirementsV1 (data : SemanticProgramDataV1) :
         | _ => false)
       blockHeightContextRequirementIdV1
       blockHeightContextRequirementV1
+  if usedChainId then
+    bindUsedOpToExactRequirementRow data
+      (fun
+        | .contextRead k => k == chainIdContextKeyV1
+        | _ => false)
+      chainIdContextRequirementIdV1
+      chainIdContextRequirementV1
+  if usedSelf then
+    bindUsedOpToExactRequirementRow data
+      (fun
+        | .contextRead k => k == selfContextKeyV1
+        | _ => false)
+      selfContextRequirementIdV1
+      selfContextRequirementV1
   pure ()
 
 /-- Bind every used Commit operation to the one exact disclosure.commitment

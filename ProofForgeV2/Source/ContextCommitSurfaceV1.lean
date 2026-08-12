@@ -12,6 +12,12 @@
     * ContextRead block height (ADR-0031 S2): place chain `context.blockHeight`
       → Semantic `Op.ContextRead proof-forge.context.block-height.v1`
       → result type anonymous UInt64
+    * ContextRead chain id (ADR-0031 S3): place chain `context.chainId`
+      → Semantic `Op.ContextRead proof-forge.context.chain-id.v1`
+      → result type anonymous UInt64
+    * ContextRead self: place chain `context.self`
+      → Semantic `Op.ContextRead proof-forge.context.self.v1`
+      → result type anonymous Principal
     * Commit: bare local-call shape `commit(expr)` when no user `fn commit`
       → Semantic `Op.Commit` (label-only identity; TypeId/valueBytes preserved)
 
@@ -49,10 +55,24 @@ def isContextBlockHeightPlaceV1 : PlaceV1 → Bool
       exactRaw root "context" && exactRaw field "blockHeight"
   | _ => false
 
+/-- True when `place` is the ContextRead surface `context.chainId`
+    (ADR-0031 S3). -/
+def isContextChainIdPlaceV1 : PlaceV1 → Bool
+  | .field (.name root) field =>
+      exactRaw root "context" && exactRaw field "chainId"
+  | _ => false
+
+/-- True when `place` is the ContextRead surface `context.self`. -/
+def isContextSelfPlaceV1 : PlaceV1 → Bool
+  | .field (.name root) field =>
+      exactRaw root "context" && exactRaw field "self"
+  | _ => false
+
 /-- True when `place` is any admitted ContextRead surface. -/
 def isContextReadPlaceV1 (p : PlaceV1) : Bool :=
   isContextUnixTimeSecondsPlaceV1 p || isContextCallerPlaceV1 p ||
-    isContextBlockHeightPlaceV1 p
+    isContextBlockHeightPlaceV1 p || isContextChainIdPlaceV1 p ||
+    isContextSelfPlaceV1 p
 
 /-- True when a bare local-call callee spelling is the intrinsic Commit operator.
     Callers must still ensure no user `fn commit` shadows the intrinsic. -/
@@ -74,6 +94,10 @@ def contextCallerSpellingV1 : String := "context.caller"
 /-- Admitted ContextRead block-height source spelling for diagnostics
     (ADR-0031 S2). -/
 def contextBlockHeightSpellingV1 : String := "context.blockHeight"
+
+def contextChainIdSpellingV1 : String := "context.chainId"
+
+def contextSelfSpellingV1 : String := "context.self"
 
 /-- Sole admitted Commit source spelling for diagnostics. -/
 def commitSpellingV1 : String := "commit(_)"

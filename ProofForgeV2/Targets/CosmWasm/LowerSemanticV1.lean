@@ -249,6 +249,13 @@ inductive Expr where
       into 8×UInt64 with high bytes zero beyond `len`. See
       `callerPrincipalLen`. -/
   | callerPrincipalWord (wordIndex : Nat)
+  /-- ADR-0031 S3: length leaf of `context.self` Principal from
+      `Env.contract.address` UTF-8 (view-safe; Env always present).
+      Same pilot packing as caller: len + 8×UInt64 LE body. -/
+  | selfPrincipalLen
+  /-- ADR-0031 S3: one LE body word of `context.self` Principal
+      (`wordIndex ∈ 0..7`). -/
+  | selfPrincipalWord (wordIndex : Nat)
   /-- Dense Map IndexGet → Option tag leaf (`part = 0`) or payload (`part = 1`).
       IR lowers once per unique `(baseLeaves, key)` pack to a Wasm loop over
       capacity slots (fixed scratch locals), not a pure-Expr DAG. Sibling parts
@@ -3408,6 +3415,25 @@ private def lowerBlockInstructionsV1
             expandedNodes := 1
             dependencies := #[]
           }
+        else if key == chainIdContextKeyV1 then
+          -- Env.block.chain_id is a String; no frozen UInt64 digest schema yet.
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: ContextRead context.chainId has no exact UInt64 host counterpart (string chain_id fail closed)"
+        else if key == selfContextKeyV1 then
+          if mode == .pureFn then
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: pureFn cannot use ContextRead context.self"
+          unless types.isPrincipal result.typeId do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: ContextRead context.self result must be Principal"
+          let mut leaves : Array Expr := #[.selfPrincipalLen]
+          for i in [0:nearPrincipalDataWordCountV1] do
+            leaves := leaves.push (.selfPrincipalWord i)
+          unless leaves.size == 1 + nearPrincipalDataWordCountV1 do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: context.self Principal leaf count mismatch"
+          let value := mkAggregateValueV1 leaves #[] 1 leaves.size
+          values := ← appendResultValueV1 result.typeId values result value
         else
           throw <| .planInvariant .cosmwasm
             s!"unsupported CosmWasm semantic shape: unknown ContextRead key '{key.value}'"
@@ -4122,7 +4148,8 @@ partial def exprUsesCallerPrincipalV1 (expr : Expr) : Bool :=
   | .callerPrincipalLen | .callerPrincipalWord _ => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
-  | .blockTimeSeconds | .blockHeight | .nativeVaultBalance => false
+  | .blockTimeSeconds | .blockHeight | .nativeVaultBalance
+  | .selfPrincipalLen | .selfPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4189,6 +4216,80 @@ partial def statementsUseCallerPrincipalV1 (statements : Array Statement) : Bool
     View bodies that reach this predicate are already Plan-FC on caller. -/
 def methodUsesCallerPrincipalV1 (method : Method) : Bool :=
   statementsUseCallerPrincipalV1 method.body
+
+
+/-- ADR-0031 S3: does an expression tree read `context.self` Principal leaves? -/
+partial def exprUsesSelfPrincipalV1 (expr : Expr) : Bool :=
+  match expr with
+  | .selfPrincipalLen | .selfPrincipalWord _ => true
+  | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
+  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .blockTimeSeconds | .blockHeight | .nativeVaultBalance
+  | .callerPrincipalLen | .callerPrincipalWord _ => false
+  | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
+  | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
+  | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
+  | .signedCheckedMul l r | .signedCheckedDiv l r | .signedCheckedMod l r
+  | .signedCompare _ l r | .sar l r | .boolAnd l r | .boolOr l r
+  | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
+  | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
+  | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+      exprUsesSelfPrincipalV1 l || exprUsesSelfPrincipalV1 r
+  | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
+      exprUsesSelfPrincipalV1 e
+  | .callFn _ args => args.any exprUsesSelfPrincipalV1
+  | .mapLookupPart _ leaves key =>
+      leaves.any exprUsesSelfPrincipalV1 || exprUsesSelfPrincipalV1 key
+  | .mapUpsertLeaf _ leaves key value =>
+      leaves.any exprUsesSelfPrincipalV1 ||
+        exprUsesSelfPrincipalV1 key || exprUsesSelfPrincipalV1 value
+  | .mapUpsertOk leaves key value =>
+      leaves.any exprUsesSelfPrincipalV1 ||
+        exprUsesSelfPrincipalV1 key || exprUsesSelfPrincipalV1 value
+
+partial def statementsUseSelfPrincipalV1 (statements : Array Statement) : Bool :=
+  statements.any fun statement =>
+    match statement with
+    | .store op => exprUsesSelfPrincipalV1 op.value
+    | .storeAtomic leaves =>
+        leaves.any fun leaf => exprUsesSelfPrincipalV1 leaf.value
+    | .returnValue value => exprUsesSelfPrincipalV1 value
+    | .returnAggregate leaves _ => leaves.any exprUsesSelfPrincipalV1
+    | .assert condition => exprUsesSelfPrincipalV1 condition
+    | .emitEvent _ args => args.any exprUsesSelfPrincipalV1
+    | .revertError _ args => args.any exprUsesSelfPrincipalV1
+    | .promiseAccount _ _ args => args.any exprUsesSelfPrincipalV1
+    | .nativeDeposit amount => exprUsesSelfPrincipalV1 amount
+    | .nativeTransfer dstLen dstWords amount =>
+        exprUsesSelfPrincipalV1 dstLen ||
+          dstWords.any exprUsesSelfPrincipalV1 ||
+          exprUsesSelfPrincipalV1 amount
+    | .tokenTransfer mintLen mintWords dstLen dstWords amount =>
+        exprUsesSelfPrincipalV1 mintLen ||
+          mintWords.any exprUsesSelfPrincipalV1 ||
+          exprUsesSelfPrincipalV1 dstLen ||
+          dstWords.any exprUsesSelfPrincipalV1 ||
+          exprUsesSelfPrincipalV1 amount
+    | .tokenVaultBalance mintLen mintWords _ =>
+        exprUsesSelfPrincipalV1 mintLen ||
+          mintWords.any exprUsesSelfPrincipalV1
+    | .ifThenElse condition thenBody elseBody =>
+        exprUsesSelfPrincipalV1 condition ||
+          statementsUseSelfPrincipalV1 thenBody ||
+          statementsUseSelfPrincipalV1 elseBody
+    | .switchOn scrutinee cases defaultBody =>
+        exprUsesSelfPrincipalV1 scrutinee ||
+          statementsUseSelfPrincipalV1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUseSelfPrincipalV1 caseBody
+    | .forLoop _ initial cond update _ body =>
+        exprUsesSelfPrincipalV1 initial || exprUsesSelfPrincipalV1 cond ||
+          exprUsesSelfPrincipalV1 update || statementsUseSelfPrincipalV1 body
+    | .returnNone => false
+
+def methodUsesSelfPrincipalV1 (method : Method) : Bool :=
+  statementsUseSelfPrincipalV1 method.body
+
 
 private def makeInterfaceBindingV1 (label : String) (name : String)
     (fields : Array InterfaceFieldV1) (uint64TypeId : TypeIdV1) :

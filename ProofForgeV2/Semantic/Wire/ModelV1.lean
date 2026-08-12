@@ -72,6 +72,25 @@ def callerContextKeyV1 : SchemaId :=
 def blockHeightContextKeyV1 : SchemaId :=
   { value := "proof-forge.context.block-height.v1" }
 
+/-- Closed v1 ContextRead key: chain identity (ADR-0031 S3).
+    Result shape is anonymous UInt64. Per-target materialization is exact-
+    counterpart only: EVM `CHAINID` (with UInt64 range guard, no truncation).
+    Ecosystems whose host chain identity is a string (CosmWasm
+    `Env.block.chain_id`) or has no numeric host counterpart (NEAR / Solana /
+    TON / …) fail closed until a frozen domain-separated digest schema is
+    productized. Do not silently hash strings to UInt64. -/
+def chainIdContextKeyV1 : SchemaId :=
+  { value := "proof-forge.context.chain-id.v1" }
+
+/-- Closed v1 ContextRead key: this contract / program identity.
+    Result shape is anonymous Principal. Per-target exact counterparts:
+    EVM `ADDRESS` → `u32le(20)||addr20`; CosmWasm `Env.contract.address`
+    UTF-8 Principal pilot leaves; NEAR `current_account_id` UTF-8 Principal
+    pilot leaves; Solana program-id binding deferred (FC until profile
+    admits an exact source). -/
+def selfContextKeyV1 : SchemaId :=
+  { value := "proof-forge.context.self.v1" }
+
 /-- Requirement identity bound to the unix-time ContextRead key.
     Thin alias of `ProofForgeV2.Core.RequirementIdsV1.wireContextUnixTimeSecondsIdV1`
     (domain `pf.context-read-requirement.v1`). -/
@@ -86,6 +105,12 @@ def callerContextRequirementIdV1 : String :=
     (ADR-0031 S2; domain `pf.context-read-requirement.v1`). -/
 def blockHeightContextRequirementIdV1 : String :=
   ProofForgeV2.Core.RequirementIdsV1.wireContextBlockHeightIdV1
+
+def chainIdContextRequirementIdV1 : String :=
+  ProofForgeV2.Core.RequirementIdsV1.wireContextChainIdIdV1
+
+def selfContextRequirementIdV1 : String :=
+  ProofForgeV2.Core.RequirementIdsV1.wireContextSelfIdV1
 
 /-- Exact requirement identity contributed by every v1 Commit operation.
     Thin alias of `ProofForgeV2.Core.RequirementIdsV1.wireCommitmentDisclosureIdV1`
@@ -471,6 +496,28 @@ def blockHeightContextRequirementV1 : Except String RequirementRequestV1 := do
     blockHeightContextRequirementIdV1.toUTF8
   pure {
     id := blockHeightContextRequirementIdV1
+    version := { major := 1, minor := 0, patch := 0 }
+    digest
+    predicates := #[]
+  }
+
+/-- Exact requirement row for ContextRead `context.chainId` (ADR-0031 S3). -/
+def chainIdContextRequirementV1 : Except String RequirementRequestV1 := do
+  let digest ← domainSeparatedSha256 "pf.context-read-requirement.v1"
+    chainIdContextRequirementIdV1.toUTF8
+  pure {
+    id := chainIdContextRequirementIdV1
+    version := { major := 1, minor := 0, patch := 0 }
+    digest
+    predicates := #[]
+  }
+
+/-- Exact requirement row for ContextRead `context.self`. -/
+def selfContextRequirementV1 : Except String RequirementRequestV1 := do
+  let digest ← domainSeparatedSha256 "pf.context-read-requirement.v1"
+    selfContextRequirementIdV1.toUTF8
+  pure {
+    id := selfContextRequirementIdV1
     version := { major := 1, minor := 0, patch := 0 }
     digest
     predicates := #[]

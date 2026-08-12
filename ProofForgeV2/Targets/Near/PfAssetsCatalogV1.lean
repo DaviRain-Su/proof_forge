@@ -103,14 +103,23 @@ structure TokenTransferLoweringContractV1 where
     (ADR-0030 E2-NEAR). Decisions are product-pinned; changes require a
     catalog/version bump. Read-only, view/entry-callable, effect-free.
     Token balanceOfSelf stays permanently fail closed (NEP-141 cross-contract
-    view cannot complete synchronously). -/
+    view cannot complete synchronously).
+
+    **Denomination tension (known product pin, not a silent bug):** host
+    `account_balance` is u128 yoctoNEAR. Shared pf.assets env-read result is
+    UInt64 across all targets, so NEAR keeps the hi64-zero trap (no truncation).
+    Ordinary funded accounts often hold ≫ 2^64 yoctoNEAR and will trap.
+    A future catalog method (e.g. UInt128 raw balance or explicit milliNEAR
+    downscale with stated rounding) requires an extension version bump — do
+    not widen this method in place. -/
 structure EnvReadLoweringContractV1 where
   /-- Native balance: host `account_balance(balance_ptr)` writes u128 LE
       (same ABI shape as `attached_deposit`: one pointer param, void return). -/
   nativeHost : String := "account_balance"
   /-- Host ABI: `account_balance<[balance_ptr: u64] -> []>` (near-vm-runner). -/
   nativeHostAbi : String := "balance_ptr-u64-writes-u128-le"
-  /-- UInt64 range guard: high 64 bits of the u128 must be zero else trap. -/
+  /-- UInt64 range guard: high 64 bits of the u128 must be zero else trap.
+      Ordinary accounts with balance ≥ 2^64 yoctoNEAR trap by design. -/
   nativeRangeGuard : String := "hi64-zero-else-trap"
   /-- Native balance is view-callable (read-only host observation). -/
   nativeViewCallable : String := "view-and-entry-callable"

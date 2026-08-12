@@ -224,6 +224,15 @@ inductive Expr where
       `context.blockHeight` ContextRead; UInt64-typed with the same range
       guard discipline as `timestamp`. -/
   | blockNumber
+  /-- ADR-0031 S3: chain id (EVM `chainid()` / CHAINID opcode). Carries
+      `context.chainId` ContextRead; UInt64-typed with the same range
+      guard as `timestamp`/`number` (no silent truncation of >UInt64). -/
+  | chainId
+  /-- ADR-0031 S3 / ADR-0025: one body word of the `context.self` Principal
+      wire identity assembled from EVM `ADDRESS`. Same packing as
+      `callerPrincipalWord` but from `address()`: `u32le(20)||addr20`.
+      `wordIndex ∈ 0..7`. Length leaf is literal 20. View-safe. -/
+  | selfPrincipalWord (wordIndex : Nat)
   /-- ADR-0030 E2-3: `pf.assets.native.balanceOfSelf()` → EVM `SELFBALANCE`
       opcode (0x47) in Yul (`selfbalance()`). Read-only, view/entry-callable,
       effect-free; result is UInt64. -/
@@ -3887,12 +3896,15 @@ private def lowerBlockInstructionsV1
         -- B-CTX-OPEN / ADR-0031 (EVM):
         --   * `context.unixTimeSeconds` → `timestamp()` (UInt64, tag 59)
         --   * `context.blockHeight` → `number()` (UInt64, tag 62; S2)
+        --   * `context.chainId` → `chainid()` (UInt64, tag 66; S3)
         --   * `context.caller` → Principal aggregate `u32le(20)||addr20`
         --     from `CALLER` (ADR-0025 sole realization; ADR-0031 S1 /
         --     ADR-0030 E3). Length leaf is literal 20; body words are
         --     `callerPrincipalWord i` (tag 61). B-3 PrincipalAddr pin
         --     remains: this is wire-identity assembly, not Principal→CALL
         --     target mapping.
+        --   * `context.self` → Principal aggregate `u32le(20)||addr20`
+        --     from `ADDRESS` / `address()` (tag 67 body words).
         if key == callerContextKeyV1 then
           unless types.isPrincipal result.typeId do
             throw <| .planInvariant .evm
@@ -3908,6 +3920,20 @@ private def lowerBlockInstructionsV1
               "unsupported EVM semantic shape: context.caller Principal leaf count mismatch"
           let value := mkAggregateValueV1 leaves leafIsInt #[] 1 leaves.size
           values := ← appendResultValueV1 result.typeId values result value
+        else if key == selfContextKeyV1 then
+          unless types.isPrincipal result.typeId do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: ContextRead context.self result must be Principal"
+          let mut leaves : Array Expr := #[.literal 20]
+          let mut leafIsInt : Array Bool := #[false]
+          for i in [0:evmPrincipalDataWordCountV1] do
+            leaves := leaves.push (.selfPrincipalWord i)
+            leafIsInt := leafIsInt.push false
+          unless leaves.size == 1 + evmPrincipalDataWordCountV1 do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: context.self Principal leaf count mismatch"
+          let value := mkAggregateValueV1 leaves leafIsInt #[] 1 leaves.size
+          values := ← appendResultValueV1 result.typeId values result value
         else if key == unixTimeSecondsContextKeyV1 then
           unless result.typeId == types.uint64TypeId do
             throw <| .planInvariant .evm
@@ -3920,6 +3946,12 @@ private def lowerBlockInstructionsV1
               "unsupported EVM semantic shape: ContextRead context.blockHeight result must be UInt64"
           values := ← appendResultValueV1 result.typeId values result
             (mkScalarValueV1 .blockNumber #[] false false 64 1 1)
+        else if key == chainIdContextKeyV1 then
+          unless result.typeId == types.uint64TypeId do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: ContextRead context.chainId result must be UInt64"
+          values := ← appendResultValueV1 result.typeId values result
+            (mkScalarValueV1 .chainId #[] false false 64 1 1)
         else
           throw <| .planInvariant .evm
             s!"unsupported EVM semantic shape: unknown ContextRead key '{key.value}'"

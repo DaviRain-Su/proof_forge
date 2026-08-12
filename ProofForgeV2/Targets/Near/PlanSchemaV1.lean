@@ -184,6 +184,10 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
       pure ((encodeU8 44).append (← encodeNatAsU32le wordIndex))
   -- ADR-0031 S2: block height / host block_index (tag 45 appended).
   | .blockIndex => pure (encodeU8 45)
+  -- ADR-0031 S3: context.self Principal leaves (tags 46/47).
+  | .selfPrincipalLen => pure (encodeU8 46)
+  | .selfPrincipalWord wordIndex =>
+      pure ((encodeU8 47).append (← encodeNatAsU32le wordIndex))
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

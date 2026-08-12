@@ -75,6 +75,19 @@ private def yulCallerPrincipalWordNested (wordIndex : Nat) : String :=
         acc := s!"or({acc}, shl({8 * k}, byte({12 + base + k}, caller())))"
       acc
 
+/-- Same packing as `yulCallerPrincipalWordNested` but from `address()`. -/
+private def yulSelfPrincipalWordNested (wordIndex : Nat) : String :=
+  if wordIndex ≥ 3 then
+    "0"
+  else
+    let base : Nat := wordIndex * 8
+    let nBytes : Nat := if wordIndex == 2 then 4 else 8
+    Id.run do
+      let mut acc := s!"byte({12 + base}, address())"
+      for k in [1:nBytes] do
+        acc := s!"or({acc}, shl({8 * k}, byte({12 + base + k}, address())))"
+      acc
+
 /-- M2 key/value scratch above `storeAtomic` spill (`0x10000..`).
     Layout: 9 key words at `base+32*i`, value at `base+32*9`. -/
 private def mapPrincipalKeyMemBaseV1 : Nat := 0x20000
@@ -307,11 +320,14 @@ private partial def renderExprNested (paramPrefix : String) : Expr → String
   | .temp tempIndex => s!"t{tempIndex}"
   | .timestamp => "timestamp()"
   | .blockNumber => "number()"
+  | .chainId => "chainid()"
   | .selfBalance => "selfbalance()"
   | .callerPrincipalWord wordIndex =>
       -- Nested form: assemble one LE body word of ADR-0025
       -- `u32le(20)||addr20` from `caller()`. wordIndex ≥ 3 → 0.
       yulCallerPrincipalWordNested wordIndex
+  | .selfPrincipalWord wordIndex =>
+      yulSelfPrincipalWordNested wordIndex
   -- M2/M2b compact map ops are statement-form only (helpers need lets).
   | .mapPrincipalLookupTag .. | .mapPrincipalLookupPayload ..
   | .mapPrincipalUpsertLeaf ..
@@ -527,6 +543,13 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       { code := s!"{indent}let {name} := number()\n" ++
           s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
         value := name, next := next + 1 }
+  | .chainId =>
+      -- ADR-0031 S3: chain id via CHAINID / Yul `chainid()` with UInt64
+      -- range guard (no silent truncation of values > 2^64-1).
+      let name := s!"expr{next}"
+      { code := s!"{indent}let {name} := chainid()\n" ++
+          s!"{indent}if gt({name}, 0xffffffffffffffff) \{ revert(0, 0) }\n",
+        value := name, next := next + 1 }
   | .selfBalance =>
       -- ADR-0030 E2-3: SELFBALANCE opcode with the UInt64 range guard.
       -- `selfbalance()` returns the contract's ETH balance; for a freshly
@@ -541,6 +564,12 @@ private partial def renderExpr (indent paramPrefix : String) (next : Nat) : Expr
       -- is `.literal 20` elsewhere; this tag only covers body words 0..7.
       let name := s!"expr{next}"
       let rhs := yulCallerPrincipalWordNested wordIndex
+      { code := s!"{indent}let {name} := {rhs}\n",
+        value := name, next := next + 1 }
+  | .selfPrincipalWord wordIndex =>
+      -- ADR-0031 S3: one LE body word of self Principal from `address()`.
+      let name := s!"expr{next}"
+      let rhs := yulSelfPrincipalWordNested wordIndex
       { code := s!"{indent}let {name} := {rhs}\n",
         value := name, next := next + 1 }
   | .mapPrincipalLookupTag mapBaseSlot keyLeaves => Id.run do

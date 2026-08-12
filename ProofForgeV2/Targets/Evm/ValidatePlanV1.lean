@@ -29,9 +29,13 @@ private partial def planExprNodes? (slots : Array Nat) (paramCount depthLeft nod
     | .temp _ => some 1
     | .timestamp => some 1
     | .blockNumber => some 1
+    | .chainId => some 1
     | .selfBalance => some 1
     | .callerPrincipalWord wordIndex =>
         -- ADR-0031 S1: body word of CALLER→Principal; 8 LE words only.
+        if wordIndex < 8 then some 1 else none
+    | .selfPrincipalWord wordIndex =>
+        -- ADR-0031 S3: body word of ADDRESS→Principal; 8 LE words only.
         if wordIndex < 8 then some 1 else none
     | .storageLoad slot | .fieldStorageLoad slot =>
         if slots.contains slot then some 1 else none

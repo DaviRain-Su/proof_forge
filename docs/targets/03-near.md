@@ -343,3 +343,17 @@ differential 取得 Accumulator mutate/view、corrupt storage、bad input 和 ov
 unchanged-state negatives 之前，不得声称完整 runtime validated、rollback validated 或 JSON
 compatible。退出条件仍是合法 Wasm、完整 sandbox 状态/rollback、artifact repeatability、unknown
 host/unsupported sync-call 负例全部通过。
+
+### context.chainId / context.self (ADR-0031 S3)
+
+- `context.self` → host `current_account_id` UTF-8 Principal leaves (view-safe).
+- `context.chainId` → **fail closed** (no exact numeric host chain-id counterpart).
+
+### pf.assets.native.balanceOfSelf denomination tension
+
+Host `account_balance` returns **u128 yoctoNEAR**. Shared `pf.assets` env-read
+result type is **UInt64** on every target, so NEAR materialization traps when
+the high 64 bits are nonzero (no silent truncation). Real accounts often hold
+far more than 2^64 yoctoNEAR — the API is honest but often unusable for
+production balances until a catalog bump adds UInt128 raw balance and/or an
+explicit denomination downscale with frozen rounding rules.

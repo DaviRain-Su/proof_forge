@@ -65,6 +65,9 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .callerPrincipalLen => some 1
     | .callerPrincipalWord wordIndex =>
         if wordIndex < 8 then some 1 else none
+    | .selfPrincipalLen => some 1
+    | .selfPrincipalWord wordIndex =>
+        if wordIndex < 8 then some 1 else none
     | .checkedAdd lhs rhs => binaryNodes lhs rhs
     | .checkedSub lhs rhs => binaryNodes lhs rhs
     | .checkedMul lhs rhs => binaryNodes lhs rhs
