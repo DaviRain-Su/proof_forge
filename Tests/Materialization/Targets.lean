@@ -3724,8 +3724,9 @@ unsafe def run : IO Unit := do
             (e.render).contains "pilot")
           s!"N5 context {target} message must cite ContextRead boundary, got {e.render}"
 
-  -- ADR-0031 S4: context.attachedValue. EVM admits CALLVALUE; other
-  -- implemented targets stay Plan-fail-closed until their S4 leaves.
+  -- ADR-0031 S4: context.attachedValue. EVM admits CALLVALUE; NEAR admits
+  -- attached_deposit (entry/init; view FC). Other implemented targets stay
+  -- Plan-fail-closed until their S4 leaves.
   let attachedSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3743,7 +3744,8 @@ unsafe def run : IO Unit := do
     | .error e => throw <| IO.userError s!"S4 attached select: {e.render}"
   let attachedCompiled ← liftResult <| Compiler.compileValidatedSourceV1 attachedV1
   let _ ← liftResult <| materializeSelected TargetId.evm attachedCompiled
-  for target in [TargetId.near, TargetId.cosmwasm, TargetId.ton,
+  let _ ← liftResult <| materializeSelected TargetId.near attachedCompiled
+  for target in [TargetId.cosmwasm, TargetId.ton,
       TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo] do
     match materializeSelected target attachedCompiled with
     | .ok _ =>

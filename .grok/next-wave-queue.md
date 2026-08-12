@@ -41,7 +41,7 @@ Do **not** start these while an LH slice is `in_progress`. Shared-core first.
 |---|---|---|
 | SYS-S4-SHARED | done | ADR-0031 S4 shared: `context.attachedValue` → UInt64 ContextRead + wire requirement; target Plans remain FC |
 | SYS-S4-EVM | done | EVM `CALLVALUE` Plan/IR/Yul + Anvil engineering gate; view/non-payable exact-zero discipline |
-| SYS-S4-NEAR | pending | NEAR `attached_deposit` init/entry; **view FC**; sandbox gate |
+| SYS-S4-NEAR | done | NEAR `attached_deposit` init/entry; **view FC**; sandbox gate |
 | SYS-S4-CW | pending | CW `MessageInfo.funds` single-denom (`stake` C1); query/view FC; cw-vm mock gate |
 
 S5 `pf.crypto.sha256` is an independent payload wave — **not** in this drain.

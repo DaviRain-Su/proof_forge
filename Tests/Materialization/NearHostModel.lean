@@ -269,6 +269,12 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       -- Full-width host account_balance u128, split into consecutive LE limbs.
       let machine ← writeTemp machine destination machine.accountBalanceLowWord
       writeTemp machine (destination + 1) machine.accountBalanceHighWord
+  | .attachedDepositValue destination =>
+      -- ADR-0031 S4: UInt64 projection of the invocation attached_deposit.
+      if deposit.highWord == 0 then
+        writeTemp machine destination deposit.lowWord
+      else
+        modelError "attached deposit exceeds UInt64"
   | .callerPrincipalLen destination => do
       -- ADR-0031 S1: length leaf = UTF-8 byte length of predecessor account-id.
       let bytes := machine.predecessorAccountId.toUTF8
@@ -1236,6 +1242,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .blockIndex _ => "blockIndex"
     | .accountBalance _ => "accountBalance"
     | .accountBalanceU128 _ => "accountBalanceU128"
+    | .attachedDepositValue _ => "attachedDepositValue"
     | .callerPrincipalLen _ => "callerPrincipalLen"
     | .callerPrincipalWord _ _ => "callerPrincipalWord"
     | .selfPrincipalLen _ => "selfPrincipalLen"
@@ -4678,6 +4685,92 @@ private unsafe def testContextReadBlockHeightNear (session : Language.Loader.Par
   expectContains wat.contents "(call $pf_block_index)"
     "height-box WAT block_index call"
 
+/-- ADR-0031 S4: `context.attachedValue` lowers on NEAR to host
+    `attached_deposit` with a UInt64 hi==0 guard. View/pureFn fail closed. -/
+private unsafe def testContextReadAttachedValueNear (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ValueBox where\n" ++
+    "  state paid : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    paid := 0\n\n" ++
+    "  entry collect() : UInt64 do\n" ++
+    "    paid := context.attachedValue\n" ++
+    "    return paid\n\n" ++
+    "  view last() : UInt64 do\n" ++
+    "    return paid\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-value-box>" "Examples.ValueBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.hostImports.contains .attachedDeposit)
+    "value-box: plan must import attached_deposit"
+  let some collect := plan.entries.find? (·.name == "collect") |
+    throw <| IO.userError "value-box: missing collect"
+  expect (collect.depositPolicy == .allowAttached)
+    "value-box: collect must be allowAttached"
+  let hasDep := collect.body.any fun s =>
+    match s with
+    | .store op =>
+        match op.value with
+        | .attachedDepositValue => true
+        | _ => false
+    | _ => false
+  expect hasDep "value-box: collect must store attachedDepositValue"
+  let some last := plan.entries.find? (·.name == "last") |
+    throw <| IO.userError "value-box: missing last"
+  expect (last.depositPolicy == .queryOnly)
+    "value-box: last view stays queryOnly"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let some collectM := ir.methods.find? (·.name == "collect") |
+    throw <| IO.userError "value-box: IR missing collect"
+  expect (collectM.operations.any fun op =>
+      match op with | .attachedDepositValue _ => true | _ => false)
+    "value-box: IR collect must contain attachedDepositValue op"
+  expect (!collectM.operations.any fun op =>
+      match op with | .requireZeroAttachedDeposit => true | _ => false)
+    "value-box: IR collect must not zero-check attached_deposit"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "value-box: missing .wat artifact"
+  expectContains wat.contents
+    "\"attached_deposit\" (func $pf_attached_deposit (param i64))"
+    "value-box WAT attached_deposit import"
+  expectContains wat.contents "(call $pf_attached_deposit"
+    "value-box WAT attached_deposit call"
+  -- View that reads attachedValue must fail closed.
+  let viewSrc :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ValuePeek where\n" ++
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return context.attachedValue\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let vSource ← liftResult (← session.selectProgramV1
+    viewSrc "<near-value-peek>" "Examples.ValuePeek" none)
+  let vCompiled ← liftResult <| Compiler.compileValidatedSourceV1 vSource
+  let vCapability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection vCompiled
+  match Targets.Near.planFromCapability vCapability with
+  | .ok _ =>
+      throw <| IO.userError
+        "value-peek: NEAR view context.attachedValue must fail closed"
+  | .error e =>
+      expect (e.render.contains "attachedValue" || e.render.contains "view" ||
+          e.render.contains "attached_deposit")
+        s!"value-peek FC must cite view/attachedValue, got {e.render}"
+
 /-- Encode Principal param leaves as 9×u64 LE (len + 8 body words) from a
     NEAR account-id string — matches `near_rpc.encode_principal_account_id`
     and ADR-0031 S1 caller wire identity. -/
@@ -5819,6 +5912,7 @@ unsafe def run : IO Unit := do
   testNamedStructProductPath session
   testContextReadTimestampNear session
   testContextReadBlockHeightNear session
+  testContextReadAttachedValueNear session
   testContextReadCallerNear session
   testNamedEnumProductPath session
   testOptionStateProductPath session

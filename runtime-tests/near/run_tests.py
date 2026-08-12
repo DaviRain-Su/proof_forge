@@ -12,6 +12,7 @@ Suites:
                   erasure + deposit/withdraw/rollback storage observations
   posetransform — Examples/PoseTransform: translate / rotate90 / scale + overflow hold
   blockheightcheck — Examples/BlockHeightCheck: context.blockHeight ↔ sandbox height
+  attachedvaluecheck — fixtures/AttachedValueCheck: context.attachedValue ↔ attached_deposit
   selfidentitycheck — Examples/SelfIdentityCheck: context.self ↔ current_account_id
   constanswer — Examples/ConstAnswer: scalar const table (ANSWER=42)
   unixtimecheck — Examples/UnixTimeCheck: context.unixTimeSeconds ↔ block_timestamp
@@ -963,6 +964,53 @@ def suite_blockheightcheck(client: NearClient, wasm: Path) -> None:
     print("suite BlockHeightCheck: PASS")
 
 
+def suite_attachedvaluecheck(client: NearClient, wasm: Path) -> None:
+    """ADR-0031 S4 NEAR: context.attachedValue → host attached_deposit.
+
+    Pins collect(--deposit N) SuccessValue and get() == N; zero deposit
+    stores 0; 2^64 deposit must fail (UInt64 hi-word guard) and hold state.
+    Engineering only — not formal Reference↔sandbox.
+    """
+    print("=== suite: AttachedValueCheck (context.attachedValue / attached_deposit) ===")
+    client.deploy(wasm)
+
+    client.call("init", NearClient.encode_u64_le(0))
+    got = client.view_u64("get")
+    if got != 0:
+        raise AssertionError(f"after init(0): get() expected 0, got {got}")
+    print("attachedvaluecheck: init(0) → get()==0 ok")
+
+    res = client.call("collect", b"", deposit=42)
+    sv = NearClient.success_value_bytes(res)
+    if sv is None or len(sv) < 8:
+        raise AssertionError(f"collect(42) SuccessValue expected ≥8 LE bytes, got {sv!r}")
+    stamped = NearClient.decode_u64_le(sv, 0)
+    if stamped != 42:
+        raise AssertionError(f"collect(42) SuccessValue expected 42, got {stamped}")
+    stored = client.view_u64("get")
+    if stored != 42:
+        raise AssertionError(f"get() after collect(42) expected 42, got {stored}")
+    print("attachedvaluecheck: collect(deposit=42) → get()==42 ok")
+
+    res0 = client.call("collect", b"", deposit=0)
+    sv0 = NearClient.success_value_bytes(res0)
+    if sv0 is None or len(sv0) < 8:
+        raise AssertionError(f"collect(0) SuccessValue expected ≥8 LE bytes, got {sv0!r}")
+    if NearClient.decode_u64_le(sv0, 0) != 0:
+        raise AssertionError("collect(0) SuccessValue expected 0")
+    stored0 = client.view_u64("get")
+    if stored0 != 0:
+        raise AssertionError(f"get() after collect(0) expected 0, got {stored0}")
+    print("attachedvaluecheck: collect(deposit=0) → get()==0 ok")
+
+    client.call("collect", b"", deposit=1 << 64, expect_success=False)
+    held = client.view_u64("get")
+    if held != 0:
+        raise AssertionError(f"get() after overflowing collect must hold 0, got {held}")
+    print("attachedvaluecheck: collect(deposit=2^64) fails + state holds ok")
+    print("suite AttachedValueCheck: PASS")
+
+
 def suite_callercheck(client: NearClient, wasm: Path) -> None:
     """ADR-0031 S1 NEAR: context.caller → predecessor_account_id Principal.
 
@@ -1326,6 +1374,11 @@ def main(argv: list[str]) -> int:
                 os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_BLOCKHEIGHTCHECK_WASM")
             )
             suite_blockheightcheck(client, wasm)
+        elif suite == "attachedvaluecheck":
+            wasm = Path(
+                os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_ATTACHEDVALUECHECK_WASM")
+            )
+            suite_attachedvaluecheck(client, wasm)
         elif suite == "constanswer":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_CONSTANSWER_WASM"))
             suite_constanswer(client, wasm)

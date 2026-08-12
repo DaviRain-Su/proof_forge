@@ -33,6 +33,8 @@ inductive Operation where
   | accountBalance (destination : Nat)
   /-- Full-width account_balance u128 LE → destination (lo) and destination+1 (hi). -/
   | accountBalanceU128 (destination : Nat)
+  /-- ADR-0031 S4: host attached_deposit u128 → UInt64 lo, trap if hi ≠ 0. -/
+  | attachedDepositValue (destination : Nat)
   /-- ADR-0031 S1: host `predecessor_account_id` → register length → destination
       (Principal length leaf; trap if length ∉ 1..64). -/
   | callerPrincipalLen (destination : Nat)
@@ -412,6 +414,11 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
       { operations := #[.accountBalanceU128 next]
         value := next
         next := next + 2
+      }
+  | .attachedDepositValue =>
+      { operations := #[.attachedDepositValue next]
+        value := next
+        next := next + 1
       }
   | .callerPrincipalLen =>
       { operations := #[.callerPrincipalLen next]
@@ -1145,6 +1152,7 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .setLayout _ _ | .setReturnData _ _ | .setReturnDataLeaves _ _
   | .loadParam _ _ | .narrowLoadParam _ _ _
   | .blockTimestampSeconds _ | .blockIndex _ | .accountBalance _ | .accountBalanceU128 _
+  | .attachedDepositValue _
   | .callerPrincipalLen _ | .callerPrincipalWord _ _
   | .selfPrincipalLen _ | .selfPrincipalWord _ _ => true
   | .ifRegion _ thenOps elseOps =>
@@ -2543,6 +2551,13 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
       s!"{indent}(call $pf_account_balance (i64.const {memory.depositOffset}))\n" ++
         s!"{indent}(local.set $t{destination} (i64.load (i32.const {memory.depositOffset})))\n" ++
         s!"{indent}(local.set $t{destination + 1} (i64.load (i32.const {memory.depositOffset + 8})))\n"
+  | .attachedDepositValue destination =>
+      -- ADR-0031 S4: host attached_deposit → u128 LE at depositOffset.
+      -- High 64 bits must be zero (UInt64 range guard); low 64 bits are
+      -- the result. Shared scratch with account_balance / exact-deposit.
+      s!"{indent}(call $pf_attached_deposit (i64.const {memory.depositOffset}))\n" ++
+        s!"{indent}(if (i64.ne (i64.load (i32.const {memory.depositOffset + 8})) (i64.const 0)) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.load (i32.const {memory.depositOffset})))\n"
   | .callerPrincipalLen destination =>
       -- ADR-0031 S1: predecessor_account_id → layout.predecessor → length leaf.
       -- Canonical Principal wire = u32le(L)||account-id-utf8; leaf0 = L.

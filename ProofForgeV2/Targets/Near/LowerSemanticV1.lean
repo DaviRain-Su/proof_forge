@@ -250,6 +250,11 @@ inductive Expr where
   /-- Full-width host `account_balance` u128 LE → two UInt64 limbs (lo, hi).
       Carries env-read `nativeVaultBalanceU128` / UInt128 result. No hi64 trap. -/
   | accountBalanceU128
+  /-- ADR-0031 S4: `context.attachedValue` → host `attached_deposit` u128 LE.
+      IR loads the low 64 bits and traps if the high 64 bits are nonzero
+      (UInt64 range guard, same as accountBalance). Init/entry only —
+      NEAR ViewFunction forbids `attached_deposit`. -/
+  | attachedDepositValue
   /-- ADR-0031 S1: length leaf of `context.caller` Principal
       (`u32le(L)||account-id-utf8` wire → leaf0 = L). Materialized from host
       `predecessor_account_id` register length. Init/entry only (view FC). -/
@@ -3428,6 +3433,23 @@ private def lowerBlockInstructionsV1
             expandedNodes := 1
             dependencies := #[]
           }
+        else if key == attachedValueContextKeyV1 then
+          if mode == .view then
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: ContextRead context.attachedValue is forbidden in view (attached_deposit is view-forbidden)"
+          if mode == .pureFn then
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: pureFn cannot use ContextRead context.attachedValue (host read is not pure)"
+          unless result.typeId == types.uint64TypeId do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: ContextRead context.attachedValue result must be UInt64"
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := .attachedDepositValue
+            kind := .uint64
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
         else if key == chainIdContextKeyV1 then
           -- No exact numeric host chain-id counterpart on NEAR VM ABI.
           throw <| .planInvariant .near
@@ -4006,6 +4028,14 @@ private def lowerCallableV1
     throw <| .planInvariant .near s!"{owner} body exceeds profile limit {maxBodyStatements}"
   pure { params, body }
 
+/-- True when a callable body reads `context.attachedValue`. -/
+private def callableReadsAttachedValueV1 (callable : CallableV1) : Bool :=
+  callable.blocks.any fun b =>
+    b.instructions.any fun instr =>
+      match instr.op with
+      | .contextRead key => key == attachedValueContextKeyV1
+      | _ => false
+
 private def makeInitializerV1
     (types : NearTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
@@ -4029,7 +4059,9 @@ private def makeInitializerV1
     params := lowered.params
     exactInputLen := exactInputLenOfParams lowered.params
     mode := .initialize
-    depositPolicy := .requireZero
+    depositPolicy :=
+      if callableReadsAttachedValueV1 callable then .allowAttached
+      else .requireZero
     resultKind := .unit
     body := lowered.body
   }
@@ -4049,6 +4081,67 @@ partial def statementsUseNativeDepositV1 (statements : Array Statement) : Bool :
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
     | .returnNone | .assert _ | .emitEvent .. | .revertError ..
     | .promiseAccount .. | .promiseTransfer .. | .promiseTokenTransfer .. => false
+
+/-- ADR-0031 S4: body contains `attachedDepositValue` (ContextRead). -/
+partial def exprUsesAttachedDepositValueV1 (expr : Expr) : Bool :=
+  match expr with
+  | .attachedDepositValue => true
+  | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
+  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .blockTimestampSeconds | .blockIndex | .accountBalance | .accountBalanceU128
+  | .callerPrincipalLen | .callerPrincipalWord _
+  | .selfPrincipalLen | .selfPrincipalWord _ => false
+  | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
+  | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
+  | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
+  | .signedCheckedMul l r | .signedCheckedDiv l r | .signedCheckedMod l r
+  | .signedCompare _ l r | .sar l r | .boolAnd l r | .boolOr l r
+  | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
+  | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
+  | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+      exprUsesAttachedDepositValueV1 l || exprUsesAttachedDepositValueV1 r
+  | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
+      exprUsesAttachedDepositValueV1 e
+  | .callFn _ args => args.any exprUsesAttachedDepositValueV1
+
+partial def statementsUseAttachedDepositValueV1 (statements : Array Statement) : Bool :=
+  statements.any fun statement =>
+    match statement with
+    | .store op => exprUsesAttachedDepositValueV1 op.value
+    | .storeAtomic leaves =>
+        leaves.any fun leaf => exprUsesAttachedDepositValueV1 leaf.value
+    | .returnValue value => exprUsesAttachedDepositValueV1 value
+    | .returnAggregate leaves _ => leaves.any exprUsesAttachedDepositValueV1
+    | .assert condition => exprUsesAttachedDepositValueV1 condition
+    | .emitEvent _ args => args.any exprUsesAttachedDepositValueV1
+    | .revertError _ args => args.any exprUsesAttachedDepositValueV1
+    | .promiseAccount _ _ args => args.any exprUsesAttachedDepositValueV1
+    | .nativeDeposit amount => exprUsesAttachedDepositValueV1 amount
+    | .promiseTransfer dstLen dstWords amount =>
+        exprUsesAttachedDepositValueV1 dstLen ||
+          dstWords.any exprUsesAttachedDepositValueV1 ||
+          exprUsesAttachedDepositValueV1 amount
+    | .promiseTokenTransfer mintLen mintWords dstLen dstWords amount =>
+        exprUsesAttachedDepositValueV1 mintLen ||
+          mintWords.any exprUsesAttachedDepositValueV1 ||
+          exprUsesAttachedDepositValueV1 dstLen ||
+          dstWords.any exprUsesAttachedDepositValueV1 ||
+          exprUsesAttachedDepositValueV1 amount
+    | .ifThenElse condition thenBody elseBody =>
+        exprUsesAttachedDepositValueV1 condition ||
+          statementsUseAttachedDepositValueV1 thenBody ||
+          statementsUseAttachedDepositValueV1 elseBody
+    | .switchOn scrutinee cases defaultBody =>
+        exprUsesAttachedDepositValueV1 scrutinee ||
+          statementsUseAttachedDepositValueV1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUseAttachedDepositValueV1 caseBody
+    | .forLoop _ initial cond update _ body =>
+        exprUsesAttachedDepositValueV1 initial ||
+          exprUsesAttachedDepositValueV1 cond ||
+          exprUsesAttachedDepositValueV1 update ||
+          statementsUseAttachedDepositValueV1 body
+    | .returnNone => false
 
 private def makeEntryV1
     (types : NearTypeClosureV1)
@@ -4118,11 +4211,13 @@ private def makeEntryV1
   let lowered ←
     lowerCallableV1 s!"entry '{name}'" semanticMode expectedReturn types typeDecls layout fnEnv
       callable
-  -- ADR-0029 C2: entries with nativeDeposit use allowAttached (body exact-check
-  -- is sole deposit authority); non-deposit entries keep historical requireZero.
+  -- ADR-0029 C2 / ADR-0031 S4: nativeDeposit exact-check or attachedValue
+  -- read uses allowAttached (skip prologue zero-deposit); views stay
+  -- queryOnly; others keep historical requireZero.
   let depositPolicy :=
     if mode == .view then DepositPolicy.queryOnly
-    else if statementsUseNativeDepositV1 lowered.body then DepositPolicy.allowAttached
+    else if statementsUseNativeDepositV1 lowered.body ||
+        callableReadsAttachedValueV1 callable then DepositPolicy.allowAttached
     else DepositPolicy.requireZero
   pure {
     name
@@ -4173,7 +4268,7 @@ partial def exprUsesTimestampV1 (expr : Expr) : Bool :=
   | .blockTimestampSeconds => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _ | .accountBalance
-  | .accountBalanceU128
+  | .accountBalanceU128 | .attachedDepositValue
   | .blockIndex | .callerPrincipalLen | .callerPrincipalWord _
   | .selfPrincipalLen | .selfPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
@@ -4198,6 +4293,7 @@ partial def exprUsesBlockIndexV1 (expr : Expr) : Bool :=
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .accountBalance | .accountBalanceU128
+  | .attachedDepositValue
   | .callerPrincipalLen | .callerPrincipalWord _
   | .selfPrincipalLen | .selfPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
@@ -4221,7 +4317,7 @@ partial def exprUsesAccountBalanceV1 (expr : Expr) : Bool :=
   | .accountBalance | .accountBalanceU128 => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
-  | .blockTimestampSeconds | .blockIndex
+  | .blockTimestampSeconds | .blockIndex | .attachedDepositValue
   | .callerPrincipalLen | .callerPrincipalWord _
   | .selfPrincipalLen | .selfPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
@@ -4247,6 +4343,7 @@ partial def exprUsesCallerV1 (expr : Expr) : Bool :=
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex | .accountBalance | .accountBalanceU128
+  | .attachedDepositValue
   | .selfPrincipalLen | .selfPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
@@ -4412,6 +4509,7 @@ partial def exprUsesSelfV1 (expr : Expr) : Bool :=
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex | .accountBalance | .accountBalanceU128
+  | .attachedDepositValue
   | .callerPrincipalLen | .callerPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r

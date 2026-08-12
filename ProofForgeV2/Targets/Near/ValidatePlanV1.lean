@@ -67,6 +67,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .blockIndex => some 1
     | .accountBalance => some 1
     | .accountBalanceU128 => some 1
+    | .attachedDepositValue => some 1
     -- ADR-0031 S1: context.caller Principal leaves (len + wordIndex ∈ 0..7).
     | .callerPrincipalLen => some 1
     | .callerPrincipalWord wordIndex =>
@@ -558,12 +559,14 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
     unless resultKindOk do
       throw <| .planInvariant .near
         s!"method '{method.name}' result kind must be mutate-Unit, UInt8/16/32/64/128/256, Int8/16/32/64, Bool, or aggregate (named Struct/Enum, anonymous Array/Option/Map ×8-byte leaves, or Bytes N ×1-byte leaves; 1..24 leaves)"
-  -- ADR-0029 C2: allowAttached is legal only for mutate entries whose body
-  -- contains at least one nativeDeposit; views stay queryOnly; others
-  -- requireZero (including init).
+  -- ADR-0029 C2 / ADR-0031 S4: allowAttached for mutate nativeDeposit or
+  -- init/entry attachedValue reads; views stay queryOnly; others requireZero.
   let expectedDeposit : DepositPolicy :=
     if method.mode == .view then .queryOnly
     else if method.mode == .mutate && statementsUseNativeDepositV1 method.body then
+      .allowAttached
+    else if (method.mode == .mutate || method.mode == .initialize) &&
+        statementsUseAttachedDepositValueV1 method.body then
       .allowAttached
     else .requireZero
   unless method.depositPolicy == expectedDeposit do
