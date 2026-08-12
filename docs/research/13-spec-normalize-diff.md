@@ -36,7 +36,7 @@ normative: false
 | 层 | SPEC 意图 | 工程事实 | 差距归属 |
 |---|---|---|---|
 | ProgramV1 grammar | 完整 EBNF 表面 | Loader/Syntax 大子集已产品化 | L1 ≈ 闭；formal D1 独立 |
-| CheckV1 | type/effect/bound/disclosure | **六相位**产品门禁（structure→type→effect→bound→disclosure→authority） | full commit check 仍缺 |
+| CheckV1 | type/effect/bound/disclosure | **七相位**产品门禁（structure→type→effect→bound→disclosure→authority/custody→context/extension） | full commit check 仍缺 |
 | **NormalizeV1** | ProgramV1 → SemanticProgramV1 | **子集 lowering**；其余 `.unsupported` | **主瓶颈**（本文重点） |
 | WireV1 structure | 完整 op/CFG 契约 | structure gate 宽于 Normalize | 可装更多；Normalize 未降 |
 | ReferenceV1 | admitted `step` 子集 | 工程 admitted；非 formal step | R-1.. |

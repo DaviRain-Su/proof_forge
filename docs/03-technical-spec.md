@@ -22,7 +22,7 @@ Phase 3 模块规格，不能只引用系统架构。
 ```text
 SourceFile (single in-memory snapshot)
 → Lean Parser → per-program bounded Syntax preflight → ProgramV1 decode
-→ CheckV1 (structure→type→effect→bound→disclosure)
+→ CheckV1 (structure→type→effect→bound→disclosure→authority/custody→context/extension)
 → normalize → SemanticProgramV1 + SemanticProvenanceV1（ProgramRequirements 嵌入前者）
 → CompiledSemanticV1 sole product carrier
 → optional inline same-file proof gate (ADR-0027 base + ADR-0034 kind extension)
