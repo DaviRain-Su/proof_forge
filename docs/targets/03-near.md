@@ -326,6 +326,14 @@ Phase 1：实现
   两端 exact content digest。真实产品正例与 divergent staging WAT零输出负例已固定。pre-run read
   不持有 FD，因此不是 race-free/TOCTOU closure；该切片是工程 provenance，不是 arbitrary WAT
   parser、`wat2wasm` correctness、Wasm semantics或 NEAR runtime refinement。
+- **capability canonical re-render consumer（Phase 7 第二十六切）**：
+  `CapabilityCanonicalWATConsumptionV1`把 exact capability、production Plan/IR graph与 complete
+  `WATModuleEmissionV1`组成 kernel relation；pure validator成功定理保证 candidate text等于 sole
+  private renderer结果。finalizer在 staging/tool IO前以该 validator重算 materialized WAT，并记录
+  `canonicalRerenderIdentity=true`；foreign same-target capability/WAT pair与 staging divergence均在
+  `wat2wasm`前 fail closed。它证明 canonical generated-text identity，不解析 arbitrary WAT、不证明
+  WAT/Wasm execution semantics、translator correctness、retained-FD/TOCTOU closure或 NEAR runtime
+  refinement。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`

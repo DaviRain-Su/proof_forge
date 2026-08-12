@@ -15324,3 +15324,21 @@ normative: false
   retained-FD/race-free/TOCTOU closure、`wat2wasm` correctness proof、Wasm binary semantics或 NEAR
   runtime refinement。整体 assurance仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR capability-scoped canonical WAT consumer
+
+- `CapabilityCanonicalWATConsumptionV1`现在把 exact engineering capability、唯一
+  `materializePlanFromCapabilityV1`、validated `irFromCapability`/`PlanIRLoweringV1`与 complete
+  `WATModuleEmissionV1`绑定成一个 kernel-checkable graph；
+  `validateCanonicalWATFromCapabilityV1_eq_ok_graphsV1`证明 consumer成功时 candidate text就是该
+  capability的 sole private production renderer结果。该 consumer直接复用现有 lowering/renderer，
+  没有新增 parser、renderer、WAT AST或业务 evaluator。
+- NEAR finalizer现在先用该 pure consumer重算并核对 materialized WAT，再核对 staging regular-file
+  bytes，全部成功后才 resolve/run locked `wat2wasm`；same-target foreign capability/WAT pair与
+  divergent staging bytes都有 pre-tool零 Wasm负例。成功 evidence记录
+  `canonicalRerenderIdentity=true`，并继续绑定 input/output digest与 locked tool identity。
+- 该切片闭合的是 capability→canonical generated text→materialized/staging consumer的 exact
+  re-render provenance，不是 arbitrary textual-WAT parser/typechecker、WAT execution semantics、
+  retained-FD/race-free/TOCTOU closure、`wat2wasm` correctness、Wasm binary semantics或 NEAR runtime
+  refinement。整体 assurance仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

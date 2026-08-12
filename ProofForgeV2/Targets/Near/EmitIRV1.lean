@@ -4074,6 +4074,53 @@ theorem irFromCapability_eq_ok_graphsV1
           simpa [irFromCapability, hplan, hvalidate, PlanIRLoweringV1,
             Bind.bind, Except.bind] using hir
 
+/-- Exact capability-scoped canonical-WAT consumer graph. The candidate text
+    must equal the sole private production renderer for the same validated
+    Plan→IR graph. This is re-render identity, not textual WAT parsing,
+    execution semantics, or a claim about `wat2wasm`. -/
+def CapabilityCanonicalWATConsumptionV1
+    (capability : ResolvedEngineeringBuildV1)
+    (watText : String) : Prop :=
+  ∃ plan ir,
+    materializePlanFromCapabilityV1 capability = .ok plan ∧
+    irFromCapability capability = .ok ir ∧
+    PlanIRLoweringV1 plan ir ∧
+    WATModuleEmissionV1 ir watText
+
+/-- Fail-closed consumer for a candidate complete WAT module at the public
+    capability boundary. It reuses the sole production lowering and renderer;
+    it does not recognize arbitrary WAT or construct a second representation. -/
+def validateCanonicalWATFromCapabilityV1
+    (capability : ResolvedEngineeringBuildV1)
+    (watText : String) : CompileResult Unit := do
+  let ir ← irFromCapability capability
+  if watText = renderWat ir then
+    pure ()
+  else
+    throw <| .planInvariant .near
+      "candidate WAT diverges from the sole capability-derived renderer"
+
+/-- Successful canonical-WAT consumption exposes the exact validated
+    capability→Plan→IR→text graph checked by the kernel. -/
+theorem validateCanonicalWATFromCapabilityV1_eq_ok_graphsV1
+    (capability : ResolvedEngineeringBuildV1)
+    (watText : String)
+    (hvalidate :
+      validateCanonicalWATFromCapabilityV1 capability watText = .ok ()) :
+    CapabilityCanonicalWATConsumptionV1 capability watText := by
+  cases hir : irFromCapability capability with
+  | error error =>
+      simp [validateCanonicalWATFromCapabilityV1, hir, Bind.bind,
+        Except.bind] at hvalidate
+  | ok ir =>
+      obtain ⟨plan, hplan, hlowering⟩ :=
+        irFromCapability_eq_ok_graphsV1 capability ir hir
+      by_cases hwat : watText = renderWat ir
+      · refine ⟨plan, ir, hplan, hir, hlowering, ?_⟩
+        simpa [WATModuleEmissionV1, renderWat] using hwat
+      · simp [validateCanonicalWATFromCapabilityV1, hir, hwat, Bind.bind,
+          Except.bind] at hvalidate
+
 /-- Capability-gated public materialize entry (S6). -/
 def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
     CompileResult (Array OutputFile) := do

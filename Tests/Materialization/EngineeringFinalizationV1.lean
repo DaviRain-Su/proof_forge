@@ -240,8 +240,8 @@ private unsafe def testPreIoBindBeforeTools : IO Unit := do
     expect (!(← (staging / "StateCell.bin").pathExists))
       "pre-IO bind failure must not write .bin extra"
 
-/-- NEAR finalization must bind its exact staging WAT input to the
-    materialized carrier before resolving or running wat2wasm. -/
+/-- NEAR finalization must bind its materialized WAT to the exact capability
+    re-render and then bind staging bytes before resolving/running wat2wasm. -/
 private unsafe def testNearFinalizerInputBinding : IO Unit := do
   let compiled ← compileStateCell
   let selection ← liftResult "select near input binding"
@@ -254,6 +254,17 @@ private unsafe def testNearFinalizerInputBinding : IO Unit := do
   IO.FS.createDirAll staging
   for file in MaterializedArtifactsV1.filesOf artifacts do
     IO.FS.writeFile (staging / file.path) file.contents
+  let accumulator ← compileAccumulator
+  let accumulatorSelection ← liftResult "select near canonical mismatch"
+    (resolveBuildSelectionV1 TargetId.near none)
+  let accumulatorCapability ← liftResult "resolve near canonical mismatch"
+    (Targets.resolveEngineeringRequirementsV1 accumulatorSelection accumulator)
+  expectIoErrorContains "near capability WAT mismatch"
+      "materialized WAT input 'StateCell.wat' is not canonical for capability" do
+    let _ ← Targets.Near.FinalizeV1.finalize accumulatorCapability artifacts staging
+    pure ()
+  expect (!(← (staging / "StateCell.wasm").pathExists))
+    "noncanonical capability/WAT pair must fail before wat2wasm writes an output"
   IO.FS.writeFile (staging / "StateCell.wat") "(module)\n"
   expectIoErrorContains "near divergent staging WAT"
       "staging WAT input 'StateCell.wat' diverges from materialized bytes" do
@@ -449,8 +460,9 @@ private unsafe def testFourTargetFinalization : IO Unit := do
         (evidence.splitOn "argv=StateCell.wat,-o,StateCell.wasm").length > 1)
       "near evidence must identify the locked consumer and exact argv"
     expect ((evidence.splitOn s!"inputPath=StateCell.wat inputSha256={watSha256}").length > 1 &&
+        (evidence.splitOn "canonicalRerenderIdentity=true").length > 1 &&
         (evidence.splitOn s!"outputPath=StateCell.wasm outputSha256={wasmSha256}").length > 1)
-      "near evidence must bind exact observed WAT input and Wasm output bytes"
+      "near evidence must bind canonical WAT input and observed Wasm output bytes"
     expect ((evidence.splitOn "validWasmHeader=true").length > 1 &&
         (evidence.splitOn "translator correctness and runtime remain separate").length > 1)
       "near evidence must preserve the consumer-provenance assurance boundary"

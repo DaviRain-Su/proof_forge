@@ -1224,11 +1224,15 @@ expression translator：
     不会触发它。textual WAT consumer边界的首个 provenance切片也已进入 production finalizer：
     locked `wat2wasm`运行前，staging WAT必须与 materialized carrier的 exact bytes相等；成功观测把
     tool id/version/executable pin、exact argv、WAT/Wasm SHA-256与有效 header gate绑定进 output
-    evidence，manifest同时 inventory两端 exact content digest。该结果只证明“哪一份文本被哪一个
-    pinned工具在一次稳定工程观测中消费并观察到哪一份输出”；pre-run read不持有 FD，非
-    race-free/TOCTOU closure，也不证明工具翻译正确。下一步仍需 canonical verified WAT consumer
-    （parse/re-render identity或可证明 encoder/translator），随后才是 Wasm binary execution与完整
-    NEAR host simulation。
+    evidence，manifest同时 inventory两端 exact content digest。其后 canonical re-render consumer也已
+    接入：pure kernel theorem把 candidate WAT绑定到 exact capability→validated Plan/IR→sole private
+    renderer graph，finalizer在工具 IO前用同一 consumer重算并要求 materialized/staging bytes一致，
+    same-target foreign capability与 staging divergence均 fail closed。该结果只证明“这份文本就是该
+    capability的唯一生成文本，并由哪一个 pinned工具在一次稳定工程观测中消费、观察到哪一份
+    输出”；它不解析或赋予 WAT语义，pre-run read也不持有 FD，非 race-free/TOCTOU closure，更不
+    证明工具翻译正确。下一步需 semantics-bearing verified WAT/Wasm consumer（扩展 sole typed-WAT
+    execution覆盖或可证明 encoder/translator），随后才是 Wasm binary execution与完整 NEAR host
+    simulation。
     上述各层未闭合前，完整 WAT文本、Wasm binary和最终 NEAR artifact仍不得标记为 target-refined或
     artifact verified。
 

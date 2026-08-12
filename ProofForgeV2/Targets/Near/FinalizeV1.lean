@@ -1,9 +1,9 @@
 /-
   NEAR engineering finalization adapter (D3/S7b).
 
-  Exact locked-wat2wasm path formerly in CLI.Emit.finalizeNear:
-  resolve `wat2wasm`, run `#[source,'-o',target]`, existence/file-type/Wasm
-  header checks, notes/errors unchanged.
+  Exact locked-wat2wasm path formerly in CLI.Emit.finalizeNear, preceded by a
+  capability-scoped canonical WAT re-render join: resolve `wat2wasm`, run
+  `#[source,'-o',target]`, then existence/file-type/Wasm header checks.
 
   Separate from pure `Targets.Near` Plan/IR core (no tool runner in Near.lean).
   Not formal ToolchainIdentity / OutputSetV1.
@@ -12,6 +12,7 @@ import ProofForgeV2.Materialization.LockedToolchainV1
 import ProofForgeV2.Materialization.MaterializedArtifactsV1
 import ProofForgeV2.Materialization.EngineeringFinalizationV1
 import ProofForgeV2.Targets.EngineeringBuildV1
+import ProofForgeV2.Targets.Near.EmitIRV1
 
 namespace ProofForgeV2.Targets.Near.FinalizeV1
 
@@ -21,6 +22,7 @@ open ProofForgeV2.Materialization.LockedToolchainV1
 open System
 
 private def requireExactStagingWATInputV1
+    (capability : ResolvedEngineeringBuildV1)
     (artifacts : MaterializedArtifactsV1)
     (stagingDir : FilePath)
     (source : String) : IO ByteArray := do
@@ -31,6 +33,11 @@ private def requireExactStagingWATInputV1
   unless sourceFile.mediaType == "application/wasm-text" do
     throw <| IO.userError
       s!"PF-ARTIFACT-NONDEPLOYABLE: materialized WAT input '{source}' has an unexpected media type"
+  match Near.validateCanonicalWATFromCapabilityV1 capability sourceFile.contents with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError
+        s!"PF-ARTIFACT-NONDEPLOYABLE: materialized WAT input '{source}' is not canonical for capability ({error.render})"
   let sourcePath := stagingDir / source
   unless ← sourcePath.pathExists do
     throw <| IO.userError
@@ -72,19 +79,21 @@ def requireDeployableWasmArtifact (targetPath : FilePath) : IO Unit := do
   pure ()
 
 /-- Exact NEAR wat2wasm finalization: produce `{programName}.wasm` under stagingDir.
-    Requires base `{programName}.wat` already present. Preserves tool args, header
-    checks, notes, and error ordering. -/
+    Requires a capability-canonical base `{programName}.wat` already present,
+    then preserves the locked tool argv and Wasm-header deployability gate. -/
 def finalize
-    (_capability : ResolvedEngineeringBuildV1)
+    (capability : ResolvedEngineeringBuildV1)
     (artifacts : MaterializedArtifactsV1)
     (stagingDir : FilePath) : IO EngineeringFinalizationDraftV1 := do
   let programName := MaterializedArtifactsV1.artifactProgramNameOf artifacts
   let source := s!"{programName}.wat"
   let target := s!"{programName}.wasm"
   -- Bind the finalizer's exact consumer input to the in-memory materialized
-  -- WAT before tool resolution or execution. This is byte provenance, not a
-  -- claim that wat2wasm preserves the typed IR semantics.
-  let sourceBytes ← requireExactStagingWATInputV1 artifacts stagingDir source
+  -- WAT and its capability-derived canonical re-render before tool resolution
+  -- or execution. This is byte provenance, not a claim that wat2wasm preserves
+  -- the typed IR semantics.
+  let sourceBytes ←
+    requireExactStagingWATInputV1 capability artifacts stagingDir source
   let wat2wasm ← resolve "wat2wasm"
   let args := #[source, "-o", target]
   let process ← wat2wasm.run args (some stagingDir)
@@ -97,7 +106,8 @@ def finalize
         s!"near-wat2wasm-observation-v1 tool={wat2wasm.id} " ++
         s!"version={wat2wasm.version} executableSha256={wat2wasm.executableSha256} " ++
         s!"argv={source},-o,{target} inputPath={source} " ++
-        s!"inputSha256={sha256Hex sourceBytes} outputPath={target} " ++
+        s!"inputSha256={sha256Hex sourceBytes} canonicalRerenderIdentity=true " ++
+        s!"outputPath={target} " ++
         s!"outputSha256={sha256Hex wasmBytes} validWasmHeader=true; " ++
         "translator correctness and runtime remain separate"
     }
