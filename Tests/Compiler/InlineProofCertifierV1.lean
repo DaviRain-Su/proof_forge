@@ -1018,7 +1018,7 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                                               validateSemanticProgramV1 semantic =
                                                 .ok semanticData := by
                                             simpa [semanticDataResult] using hsemanticData
-                                          have _ :
+                                          have hstatusStaticAlignment :
                                               ProductionNullaryUInt64ViewStaticAlignmentV1
                                                 semantic semanticData plan ir.keys
                                                 statusBinding "status" statusMethod
@@ -1038,6 +1038,37 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                                               hmarkerCanonical.2 rfl
                                               hfieldCanonical hrecognizedMethod
                                               hrecognizedMethodIR
+                                          have _ :
+                                              ∃ watMethodText abiMethodText,
+                                                CapabilityEntryStaticEmissionV1
+                                                  capability semantic semanticData plan ir
+                                                  baseFiles 2 statusBinding "status"
+                                                  statusMethod alignedMarkerRegion
+                                                  alignedReservesRegion statusIR watFile
+                                                  abiFile watMethodText abiMethodText :=
+                                            capabilityEntryStaticEmissionV1_of_graphs
+                                              capability semantic semanticData plan ir
+                                              baseFiles 2 statusBinding "status"
+                                              statusMethod alignedMarkerRegion
+                                              alignedReservesRegion statusIR watFile
+                                              abiFile (by rfl) hplanCapability
+                                              hirCapability hbuildCapability
+                                              hstatusStaticAlignment hstatus hstatusIR
+                                              hwatFile habiFile
+                                          have _ :
+                                              ∀ watMethodText abiMethodText,
+                                                ¬ CapabilityEntryStaticEmissionV1
+                                                  capability semantic semanticData plan ir
+                                                  forgedStatusBaseFiles 2 statusBinding
+                                                  "status" statusMethod alignedMarkerRegion
+                                                  alignedReservesRegion statusIR watFile
+                                                  forgedAbiFile watMethodText
+                                                  abiMethodText := by
+                                            intro watMethodText abiMethodText hforged
+                                            exact hforgedStatusBaseFilesDifferent <|
+                                              Except.ok.inj
+                                                (hforged.buildResult.symm.trans
+                                                  hbuildCapability)
                                           pure ()
                                         else
                                           throw <| IO.userError

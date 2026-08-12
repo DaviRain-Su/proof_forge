@@ -169,6 +169,20 @@ Phase 1：实现
   emission；若给 ABI content 追加 forged suffix 并替换 base-file array，则 combined witness
   fail closed。该关系只证明同源 provenance，不证明 WAT↔ABI parser、consumer 或 semantic
   consistency，不证明 Wasm/NEAR execution refinement，assurance 不变。
+- **`status` capability-scoped static emission chain（Phase 7 第十二切）**：
+  `CapabilityEntryStaticEmissionV1` 把 capability 中 exact retained `SemanticProgramV1`、validated
+  semantic data、同一个 public Plan/IR/build success、既有
+  `ProductionNullaryUInt64ViewStaticAlignmentV1` 与 source-entry scoped
+  `EntryBaseEmissionV1` 收束为一个 proposition-only carrier。因此 kernel 中已有单链
+  `validated SemanticProgram → capability-gated production Plan/IR → status static alignment →
+  exact same-emission WAT + ABI`。constructor theorem 仅组合 sole production graph，不引入第二套
+  Plan constructor、lowering、renderer、emitter、State、Effect、transition、evaluator 或 step。
+  真实 VerifiedVault fixture 已为 source entry 2 的 `status` 构造该 carrier；只修改 ABI base
+  output并替换 files array 时，对任意 WAT/ABI method-text witness 都 fail closed。该 carrier 仍不
+  证明 renderer correctness、WAT/JSON parsing/typechecking、WAT↔ABI consumer semantic consistency、
+  locked `wat2wasm`、finalized Wasm identity、Wasm/NEAR execution 或 Reference simulation；
+  assurance 仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -232,7 +246,9 @@ production validated semantic data、Plan/key/IR successful graph与 sole privat
 in-memory WAT/ABI output graph；status 还以 combined method index 3 exact split 分别连接到 sole
 WAT renderer 的 ordered methods block、sole ABI renderer 的 ordered exports block，以及同一次
 production WAT/ABI complete text；entry-scoped combined carrier 进一步固定两侧属于 source entry 2、
-private-lowered MethodIR 3 与同一个 `IREmissionV1`，但不声称 WAT↔ABI consumer consistency。
+private-lowered MethodIR 3 与同一个 `IREmissionV1`；capability-scoped carrier 又把该 entry witness
+与 exact retained semantic、validated data、同一 capability 的 public Plan/IR/build success及
+status static alignment 收在一条 kernel chain 中，但不声称 WAT↔ABI consumer consistency。
 production Method/MethodIR 的
 exact syntax 已由 proof-producing recognizer 纳入 kernel proposition，真实 status 的
 validation/admission/initial state/lookup/

@@ -14953,3 +14953,22 @@ normative: false
   correctness、locked `wat2wasm`、finalized Wasm/disk identity、Wasm/NEAR execution 或 target
   refinement。没有新增 target State、Effect、transition、evaluator 或 step；assurance 仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR capability-scoped static emission composition
+
+- `Targets/Near.lean` 新增 proposition-only `CapabilityEntryStaticEmissionV1`，把 exact retained
+  `SemanticProgramV1`、validated semantic data、同一 capability 的 public Plan/IR/build success、
+  `ProductionNullaryUInt64ViewStaticAlignmentV1` 与 source-entry scoped
+  `EntryBaseEmissionV1` 绑定为一个 kernel carrier。
+- `capabilityEntryStaticEmissionV1_of_graphs` 只组合已有 capability recovery、private validated
+  Plan→IR lowering、sole production emission 与 method-scoped WAT/ABI graph；不解析 emitted text，
+  不调用替代 constructor/lowering/renderer/emitter，也没有新增 State、Effect、transition、
+  evaluator 或 step。
+- 真实 `VerifiedVaultPF` same-file fixture 由同一 audited capability 为 source entry 2 / combined
+  method index 3 的 `status` 构造完整 chain：validated SemanticProgram → capability-gated production
+  Plan/IR → status static alignment → exact same-emission WAT + ABI。只给 ABI content 追加 forged
+  suffix并替换 base-file array 时，对任意 method-text witnesses 整个 carrier 都 fail closed。
+- 边界不变：这仍是静态 provenance composition，不证明 renderer correctness、WAT/JSON
+  parse/typecheck、WAT↔ABI consumer semantic consistency、locked `wat2wasm` correctness、finalized
+  Wasm/disk identity、Wasm/NEAR execution、rollback 或 Reference simulation。因此 assurance 仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
