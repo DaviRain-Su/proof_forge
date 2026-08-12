@@ -1,11 +1,12 @@
 /-
   Tests.Materialization.EvmOutcomeAdapterV1 — engineering EVM-first lighthouse
-  slice-3a: Reference OutcomeWire mint + honest shared-observation projection
-  for StateCell / Accumulator / ArithOps.
+  slice-4: Reference OutcomeWire mint + honest shared-observation projection
+  for StateCell / Accumulator / ArithOps / EventFlow.
 
   Proves:
     * stepReferenceSliceV1 Outcomes mint `pf.reference-outcome.v1` digests
-    * returned / standard-overflow reverted constructors are retained
+    * returned / standard-overflow / declared-Cap reverted constructors are retained
+    * EventFlow emit is a returned Outcome with a nonempty event effect
     * remint is digest-stable; distinct Outcomes differ
     * evidence-style shared observations are NOT Outcome wire (documented;
       projection helpers live in scripts/evm_corpus_v1.py)
@@ -116,6 +117,31 @@ private def expectStandardOverflow (label : String) (outcome : OutcomeV1) : IO U
   | .reverted (.standard .arithmeticOverflow) _ => pure ()
   | .reverted reason _ =>
       throw <| IO.userError s!"{label}: expected arithmeticOverflow, got {repr reason}"
+  | .returned _ _ _ => throw <| IO.userError s!"{label}: expected reverted"
+  | .trapped _ _ => throw <| IO.userError s!"{label}: expected reverted"
+
+private def expectReturnedWithEvent (label : String) (outcome : OutcomeV1) : IO Unit :=
+  match outcome with
+  | .returned _ _ effects =>
+      match effects.toList with
+      | [] => throw <| IO.userError s!"{label}: expected nonempty event effects"
+      | e :: _ =>
+          match e.payload with
+          | .event _ _ => pure ()
+          | .externalCall _ _ =>
+              throw <| IO.userError s!"{label}: expected event payload"
+          | .schedule _ _ =>
+              throw <| IO.userError s!"{label}: expected event payload"
+  | .reverted _ _ => throw <| IO.userError s!"{label}: expected returned"
+  | .trapped _ _ => throw <| IO.userError s!"{label}: expected returned"
+
+private def expectDeclaredRevert (label : String) (outcome : OutcomeV1) : IO Unit :=
+  match outcome with
+  | .reverted (.declared _ args) _ =>
+      unless args.size == 1 do
+        throw <| IO.userError s!"{label}: declared Cap arity, got {args.size}"
+  | .reverted reason _ =>
+      throw <| IO.userError s!"{label}: expected declared revert, got {repr reason}"
   | .returned _ _ _ => throw <| IO.userError s!"{label}: expected reverted"
   | .trapped _ _ => throw <| IO.userError s!"{label}: expected reverted"
 
@@ -283,11 +309,52 @@ private unsafe def testArithOpsOutcomeDigests
   expect (dOverflow != dBits)
     "ArithOps: overflow digest ≠ returned bits digest"
 
+private unsafe def testEventFlowOutcomeDigests
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let (carrier, data, admitted, u64) ←
+    loadAdmit session "testdata/evm-corpus/v1/programs/EventFlow.lean"
+      "EventFlow" "EventFlow"
+  let initId ← findCallableId data none
+  let bumpId ← findCallableId data (some "bump")
+  let getId ← findCallableId data (some "get")
+  let initial ←
+    match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"EventFlow initial: {repr e}"
+  let step (pre : LogicalStateV1) (cid : CallableIdV1) (args : Array Nat) :
+      OutcomeV1 :=
+    let refArgs := args.map (fun n => refU64 u64 n)
+    stepReferenceSliceV1 admitted pre (inv cid refArgs) emptyResponses
+
+  let o0 := step initial initId #[0]
+  expectReturned "EventFlow/deploy" o0
+  let d0 ← expectRemintStable "EventFlow/deploy" o0
+  let post0 := postState o0
+
+  let o1 := step post0 bumpId #[5]
+  expectReturnedWithEvent "EventFlow/bump-emit" o1
+  let d1 ← expectRemintStable "EventFlow/bump-emit" o1
+  expect (d0 != d1) "EventFlow: emit digest ≠ deploy digest"
+
+  let post1 := postState o1
+  let o2 := step post1 getId #[]
+  expectReturned "EventFlow/get" o2
+  let d2 ← expectRemintStable "EventFlow/get" o2
+  expect (d2 != d1) "EventFlow: view digest ≠ emit digest"
+
+  let post2 := postState o2
+  let o3 := step post2 bumpId #[3]
+  expectDeclaredRevert "EventFlow/cap" o3
+  let d3 ← expectRemintStable "EventFlow/cap" o3
+  expect (d3 != d1) "EventFlow: declared Cap digest ≠ emit digest"
+  expect (d3 != d0) "EventFlow: declared Cap digest ≠ deploy digest"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testStateCellOutcomeDigests session
   testAccumulatorOutcomeDigests session
   testArithOpsOutcomeDigests session
+  testEventFlowOutcomeDigests session
   IO.println "EvmOutcomeAdapterV1: ok (engineering; not formal TST-SEM/C-3)"
 
 end Tests.Materialization.EvmOutcomeAdapterV1

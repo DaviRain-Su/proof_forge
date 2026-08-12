@@ -12,10 +12,10 @@
   stepReferenceSliceV1. Writes intermediate shared JSON (not PF-JCS); Python
   `scripts/evm_corpus_reference.sh` canonicalizes into proof-forge.evm-observation.v1.
 
-  For StateCell / Accumulator / ArithOps steps, also mints retained
+  For StateCell / Accumulator / ArithOps / EventFlow steps, also mints retained
   `pf.reference-outcome.v1` envelope bytes + SHA-256 digest sidecars
   (engineering OutcomeWireV1; not observation→Outcome lossless, not formal
-  TST-SEM-002/003 / C-3).
+  TST-SEM-002/003 / C-3). OwnableLike remains observation-only until LH-5.
 
   Not formal Reference↔Anvil / C-3 / OZ credit.
 -/
@@ -218,8 +218,8 @@ private def writeSharedStep
   IO.FS.writeFile path body
 
 /-- Mint retained OutcomeWire envelope + digest for a Reference step.
-    Used on StateCell/Accumulator/ArithOps (honest Outcome-bearing subset).
-    Observation JSON alone cannot reconstruct these bytes. -/
+    Used on StateCell/Accumulator/ArithOps/EventFlow (honest Outcome-bearing
+    subset). Observation JSON alone cannot reconstruct these bytes. -/
 private def writeOutcomeArtifact
     (outDir : System.FilePath) (caseId : String) (stepIndex : Nat)
     (outcome : OutcomeV1) : IO Unit := do
@@ -562,6 +562,7 @@ private unsafe def runEventFlow
   let v0 ← decodeSoleU64 post0
   expect (v0 == 0) "eventflow deploy0"
   writeSharedStep outDir caseId 0 srcHash semHash st0 ret0 "count" v0 eff0 rb0
+  writeOutcomeArtifact outDir caseId 0 o0
   -- bump(5): emit Moved(0,5), count := 5
   let o1 := stepOnce admitted post0 bumpId #[5] u64
   let (st1, ret1, post1, eff1, rb1) ← outcomeShared o1 post0
@@ -570,10 +571,12 @@ private unsafe def runEventFlow
   expect (v1 == 5) "eventflow count after bump"
   expect (eff1 != effectsEmpty) "eventflow must carry Moved effect"
   writeSharedStep outDir caseId 1 srcHash semHash st1 ret1 "count" v1 eff1 rb1
+  writeOutcomeArtifact outDir caseId 1 o1
   let o2 := stepOnce admitted post1 getId #[] u64
   let (st2, ret2, post2, eff2, rb2) ← outcomeShared o2 post1
   let v2 ← decodeSoleU64 post2
   writeSharedStep outDir caseId 2 srcHash semHash st2 ret2 "count" v2 eff2 rb2
+  writeOutcomeArtifact outDir caseId 2 o2
   -- bump(3) with count=5 → Cap revert; effects empty; state holds 5
   let o3 := stepOnce admitted post2 bumpId #[3] u64
   let (st3, ret3, post3, eff3, rb3) ← outcomeShared o3 post2
@@ -582,10 +585,12 @@ private unsafe def runEventFlow
   let v3 ← decodeSoleU64 post3
   expect (v3 == 5) "eventflow Cap holds state"
   writeSharedStep outDir caseId 3 srcHash semHash st3 ret3 "count" v3 eff3 rb3
+  writeOutcomeArtifact outDir caseId 3 o3
   let o4 := stepOnce admitted post3 getId #[] u64
   let (st4, ret4, post4, eff4, rb4) ← outcomeShared o4 post3
   let v4 ← decodeSoleU64 post4
   writeSharedStep outDir caseId 4 srcHash semHash st4 ret4 "count" v4 eff4 rb4
+  writeOutcomeArtifact outDir caseId 4 o4
   IO.println s!"reference-leg ok {caseId}"
 
 /-- ADR-0031 S1: OwnableLike caller-admit reference legs. init records

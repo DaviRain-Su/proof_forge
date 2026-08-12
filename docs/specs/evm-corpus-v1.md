@@ -508,7 +508,7 @@ component）、hardlink（`nlink != 1`）、非 regular。stable read 使用
 | business cases：5 primitive（含 OwnableLike caller）+ 1 Token adapter；无 active blocked business case | 已实现 |
 | closed manifest inventory | 已实现（EVMOZ-006；50 entries / 13 runners） |
 | Reference leg（28 obs）+ pin join | 已实现 |
-| **OutcomeWire sidecars（StateCell/Accumulator + ArithOps when listed）+ mandatory shared→Outcome projection on digest-listed pass closure** | **engineering slice-3；见 [`evm-outcome-adapter-v1.md`](evm-outcome-adapter-v1.md)** |
+| **OutcomeWire sidecars（StateCell/Accumulator/ArithOps/EventFlow when listed）+ mandatory shared→Outcome projection on digest-listed pass closure** | **engineering slice-4；见 [`evm-outcome-adapter-v1.md`](evm-outcome-adapter-v1.md)** |
 | Ownable caller Lean suite（历史文件名 `EvmCorpusBlockedV1`；Loader/Normalize/Reference + EVM Plan/Yul admit） | 已实现并注册 |
 | PF-Anvil Cancun full runtime harness | 手动 `evm-corpus-runtime`；Token 仅可因显式、已验证的可选工具/部署上限原因 skip，不得 pass 冒充 |
 | Token build regression policy | 产品 build/solc（含 StackTooDeep）一律 hard fail；只有 build 成功后的 deployment/initcode limit 可作为该 optional adapter leg 的 explicit skip |

@@ -446,12 +446,16 @@ D1–D4 = 0/27 done。
 优先序遵循产品判断：**EVM（最完善，formal lighthouse）→ Solana → NEAR → CosmWasm/Wasm**；
 Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 
+**Goal/workflow 入口（2026-08-12）**：可执行下一波 = [`.grok/next-wave-queue.md`](../.grok/next-wave-queue.md)，drain = `/goal @.grok/goals/prompt-next-wave.md`，单切片 = `/workflow next-wave-runner`。旧 `prompt-master-queue` 不再从头扫。Formal / 产品决策项仍不进 drain。
+
 ```text
 1. EVM formal lighthouse（ADR-0036 Next task，串行主轴）：
    - shared D2/D3 formal 前置：TASK-D2-07 / TST-SEM-002/003（Reference step / corpus）
      · **2026-08-12**：Outcome wire + `step` façade + EVM Outcome adapter +
        **切片-3**（ArithOps OutcomeWire + digest-case 投影硬门，`sidecars=18`）
-       ——仍非 formal；Anvil lossless Outcome 仍 FC
+       · **2026-08-12 LH-4**：EventFlow OutcomeWire mint + `OUTCOME_DIGEST_CASE_STEPS` 5 步；
+         `just evm-corpus-reference` → `sidecars=23`；Anvil lossless 仍 FC
+       ——仍非 formal
    - 然后 identity-bound Reference↔Anvil formal differential（C-3 解 blocked；
      engineering identity/projection 已落地，formal 轨道仍 pending）
    - 不得用其他 target 或业务合约 engineering positives 代签
@@ -515,6 +519,8 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-12 | **EVM formal lighthouse 切片-1**：engineering retained Outcome wire（`OutcomeWireV1` / `pf.reference-outcome.v1`；re-encode identity + digest；Counter Reference corpus 钉测）。关闭 packaging 缺口的工程半步；**不**关闭 TASK-D2-07 / TST-SEM-002/003；下一切片 = target→Outcome adapter 或 formal `step` façade |
 | 2026-08-12 | **EVM formal lighthouse 切片-2**：public engineering `step` façade（admit→machine；invalidCore on admit fail）+ EVM Outcome adapter（Reference OutcomeWire digests + shared observation projection；Anvil lossless 仍 FC）。仍非 formal TASK/TST/C-3 |
 | 2026-08-12 | **EVM formal lighthouse 切片-3**：ArithOps OutcomeWire mint；digest 案 `sidecars=18`；`close-case` digest 硬门（双 leg required + 投影键相等 + sidecar 校验）；Anvil emit 诚实守卫。仍非 formal C-3/Anvil→OutcomeWire |
+| 2026-08-12 | **Next-wave Goal+workflow**：登记 `.grok/next-wave-queue.md` + `prompt-next-wave.md` + `next-wave-runner`（LH-4…7 然后 SYS-S4）；旧 master/business-formalization 队列标历史；不代签 formal/产品决策 |
+| 2026-08-12 | **EVM formal lighthouse LH-4**：EventFlow Reference OutcomeWire mint（emit + declared Cap）+ digest list 5 步；`just evm-corpus-reference` `sidecars=23`；observation mint 仍 FC；OwnableLike 仍 observation-only。仍非 formal C-3/TST |
 
 ---
 

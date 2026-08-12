@@ -68,5 +68,5 @@ valueBytes validation remains the caller's responsibility
   cannot reconstruct reason/fault/typed valueBytes). Engineering projection +
   Reference-only OutcomeWire mint is documented in
   [`evm-outcome-adapter-v1.md`](evm-outcome-adapter-v1.md); the EVM corpus
-  consumes digests for StateCell/Accumulator/ArithOps (engineering).
+  consumes digests for StateCell/Accumulator/ArithOps/EventFlow (engineering).
 - Not a replacement for evidence v1 observation projections.

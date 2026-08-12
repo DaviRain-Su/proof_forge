@@ -40,11 +40,13 @@ OUTCOME_LOSSLESS_GAPS = (
 )
 
 # Primitive cases where Reference mints OutcomeWire sidecars
-# (StateCell/Accumulator/ArithOps).
+# (StateCell/Accumulator/ArithOps/EventFlow). OwnableLike stays off this
+# list until an LH-5 admit/step surface can mint without invention.
 OUTCOME_DIGEST_CASE_STEPS: dict[str, int] = {
     "pf.primitive.statecell.overflow-hold.v1": 6,
     "pf.primitive.accumulator.overflow-hold.v1": 6,
     "pf.primitive.arithops.bitnot-scale.v1": 6,
+    "pf.primitive.eventflow.emit-cap.v1": 5,
 }
 
 MAX_MANIFEST_BYTES = 256 * 1024
@@ -1375,7 +1377,7 @@ def validate_reference_outcome_sidecar(
 
 
 def validate_outcome_digest_tree(obs_root: Path) -> dict[str, object]:
-    """Require OutcomeWire sidecars for StateCell/Accumulator/ArithOps Reference legs."""
+    """Require OutcomeWire sidecars for every OUTCOME_DIGEST_CASE_STEPS case."""
     checked: list[dict[str, object]] = []
     for case_id, steps in sorted(OUTCOME_DIGEST_CASE_STEPS.items()):
         case_dir = obs_root / case_id

@@ -104,7 +104,8 @@ print(
 )
 PY
 
-# StateCell + Accumulator: exact 12 OutcomeWire sidecars (6 steps × 2 cases).
+# Digest-listed Reference OutcomeWire sidecars (StateCell/Accumulator/ArithOps
+# ×6 + EventFlow ×5). Observation cannot mint these bytes.
 /usr/bin/python3 -I -S "$validator" validate-outcome-digests "$obs_root"
 
 echo "evm-corpus-reference: ok" >&2
