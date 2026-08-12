@@ -20,6 +20,7 @@ from typing import Any
 
 import base58
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+from observation_v1 import CallObservationV1, call_observation_from_view_response_v1
 
 
 class NearRpcError(RuntimeError):
@@ -194,15 +195,30 @@ class NearClient:
                 "include_proof": False,
             },
         )
+        if type(res) is not dict:
+            raise NearRpcError(f"view_state {target}: response must be an object")
+        if "error" in res:
+            raise NearRpcError(f"view_state {target}: {res['error']}")
+        rows = res.get("values")
+        if type(rows) is not list:
+            raise NearRpcError(f"view_state {target}: values must be an array")
         values: dict[bytes, bytes] = {}
-        for item in res.get("values", []):
+        for item in rows:
             try:
+                if type(item) is not dict:
+                    raise TypeError("row must be an object")
+                if type(item.get("key")) is not str or type(item.get("value")) is not str:
+                    raise TypeError("row key/value must be strings")
                 key = base64.b64decode(item["key"], validate=True)
                 value = base64.b64decode(item["value"], validate=True)
             except (KeyError, TypeError, ValueError) as error:
                 raise NearRpcError(
                     f"view_state {target}: malformed key/value row {item!r}"
                 ) from error
+            if key in values:
+                raise NearRpcError(
+                    f"view_state {target}: duplicate key {item['key']!r}"
+                )
             values[key] = value
         return values
 
@@ -408,7 +424,9 @@ class NearClient:
     def view(self, method: str, args: bytes = b"") -> bytes:
         return self.view_on(self.account_id, method, args)
 
-    def view_on(self, account_id: str, method: str, args: bytes = b"") -> bytes:
+    def view_response_on(
+        self, account_id: str, method: str, args: bytes = b""
+    ) -> dict[str, Any]:
         res = self.rpc_call(
             "query",
             {
@@ -419,9 +437,42 @@ class NearClient:
                 "args_base64": base64.b64encode(args).decode(),
             },
         )
+        if type(res) is not dict:
+            raise NearRpcError(
+                f"view {account_id}.{method}: response must be an object"
+            )
         if res.get("error"):
             raise NearRpcError(f"view {account_id}.{method}: {res['error']}")
-        return bytes(res["result"])
+        return res
+
+    def view_on(self, account_id: str, method: str, args: bytes = b"") -> bytes:
+        res = self.view_response_on(account_id, method, args)
+        try:
+            return bytes(res["result"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise NearRpcError(
+                f"view {account_id}.{method}: malformed result bytes"
+            ) from error
+
+    def observe_view(
+        self, method: str, args: bytes = b""
+    ) -> CallObservationV1:
+        """Capture a successful query and full pre/post KV snapshots.
+
+        This feeds the engineering observation adapter only. It does not turn
+        near-sandbox into a formal target semantics or refinement checker.
+        """
+        pre_storage = self.view_state_values()
+        response = self.view_response_on(self.account_id, method, args)
+        post_storage = self.view_state_values()
+        try:
+            return call_observation_from_view_response_v1(
+                method, args, response, pre_storage, post_storage
+            )
+        except ValueError as error:
+            raise NearRpcError(
+                f"view {self.account_id}.{method}: invalid observation: {error}"
+            ) from error
 
     def view_u64(self, method: str, args: bytes = b"") -> int:
         return self.view_u64_on(self.account_id, method, args)

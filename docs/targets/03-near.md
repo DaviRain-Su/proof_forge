@@ -183,6 +183,15 @@ Phase 1：实现
   locked `wat2wasm`、finalized Wasm identity、Wasm/NEAR execution 或 Reference simulation；
   assurance 仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+- **`status` strict sandbox observation adapter（Phase 7 第十三切）**：
+  runtime harness 新增与 Lean `CallObservationV1` 同字段的有限工程 carrier，并由
+  `NearClient.observe_view` 对真实 `call_function` query 抓取 exact export/input/raw return、logs及
+  query 前后完整 KV snapshot。view 边界拒绝任何 receipt-shaped response 字段并固定 promises 为空；
+  VerifiedVault 每次 `status` 检查都要求 success、exact 8-byte LE expected value、empty
+  logs/promises 与 pre/post storage byte-for-byte 相同。no-tool self-test逐项 mutation错误 response
+  编码、返回宽度/值、failure、log、promise、receipt 与 storage；Lean relation同步固定
+  failure/log/promise negatives。这里没有 RPC→Lean proof import、target transition、Wasm evaluator 或
+  simulation theorem；adapter 只是把此前的外部 premise变成结构化工程回归，assurance 不变。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -253,8 +262,9 @@ production Method/MethodIR 的
 exact syntax 已由 proof-producing recognizer 纳入 kernel proposition，真实 status 的
 validation/admission/initial state/lookup/
 empty-context ready 已无外部 context premise闭合；successful passive relation 的 canonical bytes、
-width 与 exact Reference outcome 现由 generic theorem 自动推出，但 target success/return/log/
-promise/storage facts仍由外部提供。尚无 target transition，也没有一般 lowering、renderer
+width 与 exact Reference outcome 现由 generic theorem 自动推出；真实 sandbox query 的剩余
+target success/return/log/promise/storage facts已由 strict adapter按同字段工程契约采集和检查，但仍是
+外部 observation，不是 kernel target semantics。尚无 target transition，也没有一般 lowering、renderer
 correctness、JSON/WAT semantics 或 WAT↔ABI consistency theorem。当前仍没有 finalized Wasm/disk identity 或
 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
 覆盖 corrupt storage 或 gas/profile 的通用 corpus 仍不完整；StateCell

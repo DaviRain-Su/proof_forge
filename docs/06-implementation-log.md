@@ -14972,3 +14972,25 @@ normative: false
   parse/typecheck、WAT↔ABI consumer semantic consistency、locked `wat2wasm` correctness、finalized
   Wasm/disk identity、Wasm/NEAR execution、rollback 或 Reference simulation。因此 assurance 仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR strict sandbox observation bridge
+
+- `runtime-tests/near/observation_v1.py` 新增与 passive Lean `CallObservationV1` 字段对齐的
+  engineering-only carrier/adapter；它严格解析真实 NEAR view response 的 raw result/logs，拒绝
+  failure/error、receipt-shaped fields 与非 byte/list 编码，并携带 exact export/input、empty promise
+  boundary及完整 pre/post KV snapshots。
+- `NearClient.observe_view` 在同一 `call_function` query 前后抓取完整 account state；
+  VerifiedVault runtime suite 的每次 `status` 观察改为要求 exact 8-byte LE expected value、empty
+  input/logs/promises、success 与 storage byte-for-byte stutter，而不是先把 response 压成整数。
+- no-tool adapter self-test覆盖 valid mapping，并逐项拒绝 malformed result/log、wrong width/value、
+  failure、extra log/promise/receipt、wrong export/input 与 storage mutation；runtime driver在任何
+  tool discovery前执行该 mutation gate。Lean static-alignment suite另固定 failure/log/promise
+  observation不能满足 successful Reference relation；既有 wrong-return/storage negatives保留。
+- `PF_NEAR_RUNTIME_REQUIRED=1 just near-runtime` 使用 Tool Root 外的临时 GLIBC 2.39 loader启动
+  原始 locked near-sandbox 2.13.0，并跑通完整 19-suite driver；VerifiedVault 六次 strict `status`
+  observation（init、deposit、withdraw、两项 failure rollback、missing invariant export）均满足
+  exact return/log/promise/storage-stutter 检查。临时 loader随后已删除，未改 Tool Lock。
+- 边界不变：这是 structured runtime-observed engineering evidence，不是 WAT/Wasm/NEAR execution
+  semantics，不证明 renderer、`wat2wasm`、final artifact identity、rollback implementation 或
+  Reference simulation；没有新增 State、Effect、transition、evaluator 或 step。assurance 仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

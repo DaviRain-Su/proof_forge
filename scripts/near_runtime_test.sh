@@ -45,6 +45,9 @@ set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$root"
 
+echo "near-runtime-test: strict observation adapter self-test"
+/usr/bin/python3 -I -S runtime-tests/near/observation_v1.py self-test
+
 die() {
   echo "near-runtime-test: $*" >&2
   exit 1
@@ -482,5 +485,5 @@ run_suite unixtimecheck "$unixtimecheck_wasm" || die "UnixTimeCheck suite failed
 echo "near-runtime-test: running BytesRet suite against near-sandbox"
 run_suite bytesret "$bytesret_wasm" || die "BytesRet suite failed"
 
-echo "near-runtime-test: PASS (StateCell + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + EnvReadBalanceU128 + CallerCheck + PoseTransform + BlockHeightCheck + SelfIdentityCheck + ConstAnswer + UnixTimeCheck + BytesRet engineering sandbox differential)"
+echo "near-runtime-test: PASS (StateCell + negative corpus + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + EnvReadBalanceU128 + WideShiftProbe + CallerCheck + PoseTransform + BlockHeightCheck + SelfIdentityCheck + ConstAnswer + UnixTimeCheck + BytesRet engineering sandbox differential)"
 exit 0

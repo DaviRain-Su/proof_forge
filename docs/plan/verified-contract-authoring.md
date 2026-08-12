@@ -742,11 +742,19 @@ certification elaboration 阶段 fail closed。
   constructor、lowering、renderer 或 emitter，也不解析 WAT/JSON。真实 VerifiedVault fixture 已从
   同一 capability 为 `status` 构造该 witness；把 ABI content 追加 forged suffix并替换 base-file
   array 后，对任意 WAT/ABI method-text witness 都不能构造整个 capability-scoped carrier。
+- 第十三切把真实 near-sandbox `status` query 接到此前故意保留的 passive-observation 边界：
+  `runtime-tests/near/observation_v1.py` 严格映射 export name、exact empty input、raw result bytes、
+  success flag、UTF-8 logs、empty promise/receipt boundary 与调用前后完整 KV snapshot；
+  `NearClient.observe_view` 在同一 query 前后抓取 storage，VerifiedVault runtime suite 用 exact
+  8-byte LE expected value执行 relation-side字段检查。错误宽度/值、failure、额外 log/promise/receipt
+  与任意 storage mutation 均由 no-tool mutation self-test fail closed；Lean relation另固定
+  failure/log/promise negatives。该 adapter 只把外部 RPC observation 结构化，不运行 Reference step，
+  不定义 target transition，也不把 near-sandbox 提升为 formal semantics。
 
 这仍然只是 **static alignment/refinement foundation**：Reference outcome 已精确闭合且
 validated SemanticProgram → capability-gated production Plan/IR → status static alignment → exact
-same-emission WAT+ABI 的 provenance 已由一个 capability-scoped carrier 连接，但 target observation
-仍是外部提供的 passive carrier；没有证明
+same-emission WAT+ABI 的 provenance 已由一个 capability-scoped carrier 连接；sandbox observation
+现在可严格映射到同字段工程契约，但仍是外部提供的 passive carrier。没有证明
 WAT renderer 实现 IR、没有 JSON/WAT parser/typechecker semantics、没有 WAT↔ABI consistency、
 没有 NEAR `Operation` execution
 semantics、IR/Wasm step、simulation theorem、一般 lowering characterization、locked `wat2wasm`
@@ -854,7 +862,7 @@ test-only engineering model，不能作为 formal target semantics。当前声�
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR status Reference 侧与 capability-scoped production static emission chain 已闭合）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation，以及 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR graph → status Method/MethodIR proof-producing syntax recognition → sole private emitter → exact ordered in-memory WAT/ABI base files；`CapabilityEntryStaticEmissionV1` 现把 exact retained SemanticProgram、同一 capability 的 Plan/IR/build success、status static alignment 与 source entry 2 / combined method index 3 的同次 WAT/ABI renderer graph 绑定为一个 kernel carrier，而非分散 witness、任意 substring 或两个独立 build witness。真实 generated subject 的 validation/admission/initialized decode/status lookup/empty-context gate/ready 已由 kernel 无外部 context premise组合，通用 theorem 从该 ready gate自动推出 canonical 8-byte 与 exact Reference state-stutter/empty-effect outcome，只留下 target success/return/log/promise/storage 被动观测 premises；direct-free fast path 仍由 sole production collector消费 authoritative row。尚无一般 lowering/renderer correctness theorem、JSON/WAT/target execution semantics、WAT↔ABI consumer consistency、simulation、locked `wat2wasm` correctness、finalized Wasm 或 disk artifact identity evidence |
+| 7 | Per-target refinement | **进行中（NEAR status Reference、static emission chain 与 strict sandbox observation adapter 已接通）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation，以及 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR graph → status Method/MethodIR proof-producing syntax recognition → sole private emitter → exact ordered in-memory WAT/ABI base files；`CapabilityEntryStaticEmissionV1` 现把 exact retained SemanticProgram、同一 capability 的 Plan/IR/build success、status static alignment 与 source entry 2 / combined method index 3 的同次 WAT/ABI renderer graph 绑定为一个 kernel carrier。真实 generated subject 的 validation/admission/initialized decode/status lookup/empty-context gate/ready 已由 kernel 无外部 context premise组合，通用 theorem 自动推出 canonical 8-byte 与 exact Reference state-stutter/empty-effect outcome；strict runtime adapter现从真实 query + pre/post full KV snapshot映射并检查剩余 target success/return/log/promise/storage 字段，mutation corpus fail closed。该 adapter 仍是 external engineering evidence，不是 Wasm/NEAR semantics。尚无一般 lowering/renderer correctness theorem、JSON/WAT/target execution semantics、WAT↔ABI consumer consistency、simulation、locked `wat2wasm` correctness、finalized Wasm 或 disk artifact identity evidence |
 
 ### 首个代码切片进展
 

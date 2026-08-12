@@ -492,6 +492,24 @@ example
   simp [tenBytes, leBytesToNatV1_encodeU64le] at hnats
 
 example :
+    ¬ UInt64ReturnedObservationRelV1 data 0 logicalTen
+      (.returned logicalTen (some { typeId := 0, valueBytes := tenBytes }) #[])
+      tenBytes { successfulObservation with failureObserved := true } := by
+  simp [UInt64ReturnedObservationRelV1, successfulObservation]
+
+example :
+    ¬ UInt64ReturnedObservationRelV1 data 0 logicalTen
+      (.returned logicalTen (some { typeId := 0, valueBytes := tenBytes }) #[])
+      tenBytes { successfulObservation with logs := #["unexpected".toUTF8] } := by
+  simp [UInt64ReturnedObservationRelV1, successfulObservation]
+
+example :
+    ¬ UInt64ReturnedObservationRelV1 data 0 logicalTen
+      (.returned logicalTen (some { typeId := 0, valueBytes := tenBytes }) #[])
+      tenBytes { successfulObservation with promises := #["p0".toUTF8] } := by
+  simp [UInt64ReturnedObservationRelV1, successfulObservation]
+
+example :
     FailureNoCommitObservationRelV1 logicalTen
       (.reverted (.standard .assertionFailed) logicalTen)
       failedObservation := by

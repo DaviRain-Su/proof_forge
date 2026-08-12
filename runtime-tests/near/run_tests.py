@@ -38,6 +38,7 @@ import sys
 from pathlib import Path
 
 from near_rpc import NearClient, NearRpcError
+from observation_v1 import ObservationError, require_nullary_uint64_view_observation_v1
 
 
 def _require_env(name: str) -> str:
@@ -109,12 +110,12 @@ def suite_verifiedvault(client: NearClient, wasm: Path) -> None:
     shares_key = b"pf:v1:state:1"
 
     def assert_vault_state(expected: int, label: str) -> None:
-        status = client.view_u64("status")
-        if status != expected:
-            raise AssertionError(
-                f"{label}: status expected {expected}, got {status}"
-            )
-        state = client.view_state_values()
+        expected_bytes = NearClient.encode_u64_le(expected)
+        observation = client.observe_view("status")
+        status = require_nullary_uint64_view_observation_v1(
+            observation, "status", expected_bytes
+        )
+        state = observation.post_storage
         missing = [
             key.decode()
             for key in (reserves_key, shares_key)
@@ -1348,7 +1349,7 @@ def main(argv: list[str]) -> int:
             )
         else:
             raise SystemExit(f"near-runtime: unknown PF_NEAR_SUITE={suite!r}")
-    except (NearRpcError, AssertionError, OSError) as e:
+    except (NearRpcError, ObservationError, AssertionError, OSError) as e:
         print(f"near-runtime: FAIL: {e}", file=sys.stderr)
         return 1
 
