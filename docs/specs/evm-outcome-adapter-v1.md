@@ -1,6 +1,6 @@
 ---
 id: SPEC-EVM-OUTCOME-ADAPTER-001
-title: EVM → OutcomeV1 engineering adapter (slice-4)
+title: EVM → OutcomeV1 engineering adapter (slice-5)
 status: draft
 owner: semantic
 updated: 2026-08-12
@@ -9,7 +9,7 @@ normative: false
 
 # EVM → OutcomeV1 engineering adapter v1
 
-> **Engineering lighthouse slice-4.** Does **not** close formal TASK-D2-07 /
+> **Engineering lighthouse slice-5.** Does **not** close formal TASK-D2-07 /
 > TST-SEM-002/003 / C-3, Anvil target refinement, or EV retained-artifact binding.
 
 ## Purpose
@@ -33,7 +33,7 @@ primitive cases the Reference corpus runner mints:
 - `reference-outcome-{step}.bin.hex` — exact `pf.reference-outcome.v1` envelope
 - `reference-outcome-{step}.digest` — `SHA-256(envelope)` (64 lowercase hex)
 
-**Digest-listed cases (slice-4):**
+**Digest-listed cases (slice-5):**
 
 | Case id | Steps | Notes |
 |---|---|---|
@@ -41,14 +41,12 @@ primitive cases the Reference corpus runner mints:
 | `pf.primitive.accumulator.overflow-hold.v1` | 6 | slice-2b |
 | `pf.primitive.arithops.bitnot-scale.v1` | 6 | slice-3 |
 | `pf.primitive.eventflow.emit-cap.v1` | 5 | slice-4 (emit + declared Cap rollback) |
+| `pf.primitive.ownablelike.caller-admit.v1` | 5 | slice-5 (caller context + assertionFailed) |
 
 Carrier re-encode identity is checked in Lean before write. Python
 `validate-outcome-digests` / `validate_outcome_digest_tree` joins digest↔bytes
 + magic presence for every listed case/step. Missing digest or envelope for a
 listed case → `PF-CORPUS-OUTCOME`.
-
-OwnableLike Reference steps remain shared-observation-only (no OutcomeWire
-sidecars) until an admit/step surface can mint without invention.
 
 ### Honest projection subset (both legs)
 
@@ -118,7 +116,7 @@ coverage; Outcome sidecar / projection gates are harness self-tests +
 ## Wiring
 
 - Lean: `Tests/Materialization/EvmCorpusPrimitiveV1.lean`
-  (StateCell/Accumulator/ArithOps/EventFlow sidecars) +
+  (StateCell/Accumulator/ArithOps/EventFlow/OwnableLike sidecars) +
   `Tests/Materialization/EvmOutcomeAdapterV1.lean` (focused mint)
 - Python: `scripts/evm_corpus_v1.py` — `OUTCOME_DIGEST_CASE_STEPS`, projection /
   FC mint / sidecar gate / `close-case` projection equality
@@ -130,4 +128,4 @@ coverage; Outcome sidecar / projection gates are harness self-tests +
 - Not Anvil→OutcomeWire lossless encoding.
 - Not a second Outcome schema (reuses `OutcomeWireV1` only).
 - Not formal C-3 Reference↔Anvil identity-bound differential.
-- OwnableLike remains without OutcomeWire sidecars in this slice.
+- All five primitive business cases now mint Reference OutcomeWire sidecars.

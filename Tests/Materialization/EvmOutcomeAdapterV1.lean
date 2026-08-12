@@ -1,12 +1,13 @@
 /-
   Tests.Materialization.EvmOutcomeAdapterV1 — engineering EVM-first lighthouse
-  slice-4: Reference OutcomeWire mint + honest shared-observation projection
-  for StateCell / Accumulator / ArithOps / EventFlow.
+  slice-5: Reference OutcomeWire mint + honest shared-observation projection
+  for StateCell / Accumulator / ArithOps / EventFlow / OwnableLike.
 
   Proves:
     * stepReferenceSliceV1 Outcomes mint `pf.reference-outcome.v1` digests
     * returned / standard-overflow / declared-Cap reverted constructors are retained
     * EventFlow emit is a returned Outcome with a nonempty event effect
+    * OwnableLike unauthorized assert is a standard assertionFailed revert
     * remint is digest-stable; distinct Outcomes differ
     * evidence-style shared observations are NOT Outcome wire (documented;
       projection helpers live in scripts/evm_corpus_v1.py)
@@ -56,6 +57,21 @@ private def refU64 (typeId : TypeIdV1) (n : Nat) : ReferenceValueV1 :=
 private def inv (callableId : CallableIdV1) (args : Array ReferenceValueV1) :
     InvocationV1 :=
   { callableId, args, context := #[] }
+
+private def invCtx (callableId : CallableIdV1) (args : Array ReferenceValueV1)
+    (context : Array ContextInputV1) : InvocationV1 :=
+  { callableId, args, context }
+
+/-- ADR-0025 EVM caller Principal valueBytes: `u32le(20) || address20`. -/
+private def principalCaller20 (fill : UInt8) : ByteArray :=
+  let body := ByteArray.mk (Array.replicate 20 fill)
+  (encodeU32le 20).append body
+
+private def findPrincipalTypeId (data : SemanticProgramDataV1) : IO TypeIdV1 :=
+  match data.types.findIdx? fun t =>
+      t.name.isNone && match t.shape with | .principal => true | _ => false with
+  | some i => pure (UInt32.ofNat i)
+  | none => throw <| IO.userError "missing anonymous Principal TypeId"
 
 private def emptyResponses : ExternalResponsesV1 := #[]
 
@@ -142,6 +158,14 @@ private def expectDeclaredRevert (label : String) (outcome : OutcomeV1) : IO Uni
         throw <| IO.userError s!"{label}: declared Cap arity, got {args.size}"
   | .reverted reason _ =>
       throw <| IO.userError s!"{label}: expected declared revert, got {repr reason}"
+  | .returned _ _ _ => throw <| IO.userError s!"{label}: expected reverted"
+  | .trapped _ _ => throw <| IO.userError s!"{label}: expected reverted"
+
+private def expectAssertionFailed (label : String) (outcome : OutcomeV1) : IO Unit :=
+  match outcome with
+  | .reverted (.standard .assertionFailed) _ => pure ()
+  | .reverted reason _ =>
+      throw <| IO.userError s!"{label}: expected assertionFailed, got {repr reason}"
   | .returned _ _ _ => throw <| IO.userError s!"{label}: expected reverted"
   | .trapped _ _ => throw <| IO.userError s!"{label}: expected reverted"
 
@@ -349,12 +373,54 @@ private unsafe def testEventFlowOutcomeDigests
   expect (d3 != d1) "EventFlow: declared Cap digest ≠ emit digest"
   expect (d3 != d0) "EventFlow: declared Cap digest ≠ deploy digest"
 
+private unsafe def testOwnableLikeOutcomeDigests
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let (carrier, data, admitted, u64) ←
+    loadAdmit session "testdata/evm-corpus/v1/programs/OwnableLike.lean"
+      "Tests.EvmCorpus.OwnableLike" "OwnableLike"
+  let initId ← findCallableId data none
+  let setId ← findCallableId data (some "setValue")
+  let getId ← findCallableId data (some "getValue")
+  let pTid ← findPrincipalTypeId data
+  let ownerVal : ReferenceValueV1 :=
+    { typeId := pTid, valueBytes := principalCaller20 0x11 }
+  let strangerVal : ReferenceValueV1 :=
+    { typeId := pTid, valueBytes := principalCaller20 0x22 }
+  let key := callerContextKeyV1
+  let ownerCtx : Array ContextInputV1 := #[{ key, value := ownerVal }]
+  let strangerCtx : Array ContextInputV1 := #[{ key, value := strangerVal }]
+  let initial ←
+    match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"OwnableLike initial: {repr e}"
+  let o0 := stepReferenceSliceV1 admitted initial
+    (invCtx initId #[] ownerCtx) emptyResponses
+  expectReturned "OwnableLike/deploy" o0
+  let d0 ← expectRemintStable "OwnableLike/deploy" o0
+  let post0 := postState o0
+  let o1 := stepReferenceSliceV1 admitted post0
+    (invCtx setId #[refU64 u64 42] ownerCtx) emptyResponses
+  expectReturned "OwnableLike/set-owner" o1
+  let d1 ← expectRemintStable "OwnableLike/set-owner" o1
+  expect (d0 != d1) "OwnableLike: owner-set digest ≠ deploy digest"
+  let post1 := postState o1
+  let o2 := stepReferenceSliceV1 admitted post1
+    (invCtx getId #[] #[]) emptyResponses
+  expectReturned "OwnableLike/get" o2
+  let _ ← expectRemintStable "OwnableLike/get" o2
+  let o3 := stepReferenceSliceV1 admitted (postState o2)
+    (invCtx setId #[refU64 u64 7] strangerCtx) emptyResponses
+  expectAssertionFailed "OwnableLike/stranger" o3
+  let d3 ← expectRemintStable "OwnableLike/stranger" o3
+  expect (d3 != d1) "OwnableLike: assertionFailed digest ≠ owner-set digest"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testStateCellOutcomeDigests session
   testAccumulatorOutcomeDigests session
   testArithOpsOutcomeDigests session
   testEventFlowOutcomeDigests session
+  testOwnableLikeOutcomeDigests session
   IO.println "EvmOutcomeAdapterV1: ok (engineering; not formal TST-SEM/C-3)"
 
 end Tests.Materialization.EvmOutcomeAdapterV1

@@ -39,14 +39,13 @@ OUTCOME_LOSSLESS_GAPS = (
     "declared-error-args",
 )
 
-# Primitive cases where Reference mints OutcomeWire sidecars
-# (StateCell/Accumulator/ArithOps/EventFlow). OwnableLike stays off this
-# list until an LH-5 admit/step surface can mint without invention.
+# Primitive cases where Reference mints OutcomeWire sidecars.
 OUTCOME_DIGEST_CASE_STEPS: dict[str, int] = {
     "pf.primitive.statecell.overflow-hold.v1": 6,
     "pf.primitive.accumulator.overflow-hold.v1": 6,
     "pf.primitive.arithops.bitnot-scale.v1": 6,
     "pf.primitive.eventflow.emit-cap.v1": 5,
+    "pf.primitive.ownablelike.caller-admit.v1": 5,
 }
 
 MAX_MANIFEST_BYTES = 256 * 1024

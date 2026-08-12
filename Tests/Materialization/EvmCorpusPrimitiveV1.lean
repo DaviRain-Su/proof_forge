@@ -12,10 +12,10 @@
   stepReferenceSliceV1. Writes intermediate shared JSON (not PF-JCS); Python
   `scripts/evm_corpus_reference.sh` canonicalizes into proof-forge.evm-observation.v1.
 
-  For StateCell / Accumulator / ArithOps / EventFlow steps, also mints retained
-  `pf.reference-outcome.v1` envelope bytes + SHA-256 digest sidecars
-  (engineering OutcomeWireV1; not observation→Outcome lossless, not formal
-  TST-SEM-002/003 / C-3). OwnableLike remains observation-only until LH-5.
+  For StateCell / Accumulator / ArithOps / EventFlow / OwnableLike steps, also
+  mints retained `pf.reference-outcome.v1` envelope bytes + SHA-256 digest
+  sidecars (engineering OutcomeWireV1; not observation→Outcome lossless, not
+  formal TST-SEM-002/003 / C-3).
 
   Not formal Reference↔Anvil / C-3 / OZ credit.
 -/
@@ -218,8 +218,9 @@ private def writeSharedStep
   IO.FS.writeFile path body
 
 /-- Mint retained OutcomeWire envelope + digest for a Reference step.
-    Used on StateCell/Accumulator/ArithOps/EventFlow (honest Outcome-bearing
-    subset). Observation JSON alone cannot reconstruct these bytes. -/
+    Used on StateCell/Accumulator/ArithOps/EventFlow/OwnableLike (honest
+    Outcome-bearing subset). Observation JSON alone cannot reconstruct these
+    bytes. -/
 private def writeOutcomeArtifact
     (outDir : System.FilePath) (caseId : String) (stepIndex : Nat)
     (outcome : OutcomeV1) : IO Unit := do
@@ -636,6 +637,7 @@ private unsafe def runOwnableLike
   let v0 ← decodeSecondSlotU64 post0
   expect (v0 == 0) "ownablelike step0 state"
   writeSharedStep outDir caseId 0 srcHash semHash st0 ret0 "value" v0 eff0 rb0
+  writeOutcomeArtifact outDir caseId 0 o0
   -- step 1: authorized setValue(42) as owner → 42
   let o1 := stepReferenceSliceV1 admitted post0
     (invCtx setId #[refU64 u64 42] ownerCtx) emptyResponses
@@ -644,6 +646,7 @@ private unsafe def runOwnableLike
   let v1 ← decodeSecondSlotU64 post1
   expect (v1 == 42) "ownablelike step1 state"
   writeSharedStep outDir caseId 1 srcHash semHash st1 ret1 "value" v1 eff1 rb1
+  writeOutcomeArtifact outDir caseId 1 o1
   -- step 2: view getValue → 42
   let o2 := stepReferenceSliceV1 admitted post1
     (invCtx getId #[] #[]) emptyResponses
@@ -652,6 +655,7 @@ private unsafe def runOwnableLike
   let v2 ← decodeSecondSlotU64 post2
   expect (v2 == 42) "ownablelike step2 state"
   writeSharedStep outDir caseId 2 srcHash semHash st2 ret2 "value" v2 eff2 rb2
+  writeOutcomeArtifact outDir caseId 2 o2
   -- step 3: unauthorized setValue(7) as stranger → revert, state holds 42
   let o3 := stepReferenceSliceV1 admitted post2
     (invCtx setId #[refU64 u64 7] strangerCtx) emptyResponses
@@ -660,6 +664,7 @@ private unsafe def runOwnableLike
   let v3 ← decodeSecondSlotU64 post3
   expect (v3 == 42) "ownablelike step3 rollback"
   writeSharedStep outDir caseId 3 srcHash semHash st3 ret3 "value" v3 eff3 rb3
+  writeOutcomeArtifact outDir caseId 3 o3
   -- step 4: view getValue still 42
   let o4 := stepReferenceSliceV1 admitted post3
     (invCtx getId #[] #[]) emptyResponses
@@ -668,6 +673,7 @@ private unsafe def runOwnableLike
   let v4 ← decodeSecondSlotU64 post4
   expect (v4 == 42) "ownablelike step4 state"
   writeSharedStep outDir caseId 4 srcHash semHash st4 ret4 "value" v4 eff4 rb4
+  writeOutcomeArtifact outDir caseId 4 o4
   IO.println s!"reference-leg ok {caseId}"
 
 /-- Adapter Token pin recheck only (no Reference observations for Map adapter).

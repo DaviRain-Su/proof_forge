@@ -454,7 +454,9 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
      · **2026-08-12**：Outcome wire + `step` façade + EVM Outcome adapter +
        **切片-3**（ArithOps OutcomeWire + digest-case 投影硬门，`sidecars=18`）
        · **2026-08-12 LH-4**：EventFlow OutcomeWire mint + `OUTCOME_DIGEST_CASE_STEPS` 5 步；
-         `just evm-corpus-reference` → `sidecars=23`；Anvil lossless 仍 FC
+         `just evm-corpus-reference` → `sidecars=23`
+       · **2026-08-12 LH-5**：OwnableLike OutcomeWire mint（caller + assertionFailed）；
+         `sidecars=28`；Anvil lossless 仍 FC
        ——仍非 formal
    - 然后 identity-bound Reference↔Anvil formal differential（C-3 解 blocked；
      engineering identity/projection 已落地，formal 轨道仍 pending）
@@ -521,6 +523,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-12 | **EVM formal lighthouse 切片-3**：ArithOps OutcomeWire mint；digest 案 `sidecars=18`；`close-case` digest 硬门（双 leg required + 投影键相等 + sidecar 校验）；Anvil emit 诚实守卫。仍非 formal C-3/Anvil→OutcomeWire |
 | 2026-08-12 | **Next-wave Goal+workflow**：登记 `.grok/next-wave-queue.md` + `prompt-next-wave.md` + `next-wave-runner`（LH-4…7 然后 SYS-S4）；旧 master/business-formalization 队列标历史；不代签 formal/产品决策 |
 | 2026-08-12 | **EVM formal lighthouse LH-4**：EventFlow Reference OutcomeWire mint（emit + declared Cap）+ digest list 5 步；`just evm-corpus-reference` `sidecars=23`；observation mint 仍 FC；OwnableLike 仍 observation-only。仍非 formal C-3/TST |
+| 2026-08-12 | **EVM formal lighthouse LH-5**：OwnableLike admit/step already yields Outcome；mint 5 OutcomeWire sidecars + assertionFailed constructor pin；`sidecars=28`。仍非 formal C-3/TST |
 
 ---
 

@@ -27,7 +27,7 @@ Engineering packaging toward TASK-D2-07 / TST-SEM-002/003 / C-3.
 | LH-2 | done | public `step` façade + EVM Outcome adapter; Anvil lossless FC |
 | LH-3 | done | ArithOps OutcomeWire + digest-case close-case 硬门 (`sidecars=18`) |
 | LH-4 | done | EventFlow Reference OutcomeWire mint + digest list + close-case join; keep Anvil↛wire FC (`sidecars=23`) |
-| LH-5 | pending | OwnableLike Reference OutcomeWire mint **only if** admitted surface already yields typed Outcome; else mark `blocked` with exact admit gap (do not invent) |
+| LH-5 | done | OwnableLike Reference OutcomeWire mint (caller context + assertionFailed); `sidecars=28` |
 | LH-6 | pending | Engineering Counter reference-trace pin in TST-SEM-002 *shape* (init/default/context/effects/result); **do not** close TASK-D2-07 / TST-SEM-002 |
 | LH-7 | pending | Engineering overflow/revert rollback pin in TST-SEM-003 *shape*; **do not** close TASK/TST |
 
