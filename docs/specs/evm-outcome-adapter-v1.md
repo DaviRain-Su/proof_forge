@@ -1,6 +1,6 @@
 ---
 id: SPEC-EVM-OUTCOME-ADAPTER-001
-title: EVM → OutcomeV1 engineering adapter (slice-2b)
+title: EVM → OutcomeV1 engineering adapter (slice-3)
 status: draft
 owner: semantic
 updated: 2026-08-12
@@ -9,7 +9,7 @@ normative: false
 
 # EVM → OutcomeV1 engineering adapter v1
 
-> **Engineering lighthouse slice-2b.** Does **not** close formal TASK-D2-07 /
+> **Engineering lighthouse slice-3.** Does **not** close formal TASK-D2-07 /
 > TST-SEM-002/003 / C-3, Anvil target refinement, or EV retained-artifact binding.
 
 ## Purpose
@@ -25,16 +25,29 @@ pretending `proof-forge.evm-observation.v1` is Outcome wire.
 
 ## Lossless vs fail-closed
 
-### Lossless (Reference-only)
+### Lossless (Reference-only OutcomeWire)
 
-Lean `stepReferenceSliceV1` yields in-process `OutcomeV1`. For StateCell and
-Accumulator overflow-hold steps the Reference corpus runner mints:
+Lean `stepReferenceSliceV1` yields in-process `OutcomeV1`. For digest-listed
+primitive cases the Reference corpus runner mints:
 
 - `reference-outcome-{step}.bin.hex` — exact `pf.reference-outcome.v1` envelope
 - `reference-outcome-{step}.digest` — `SHA-256(envelope)` (64 lowercase hex)
 
-Carrier re-encode identity is checked in Lean before write. Python validates
-digest↔bytes join + magic presence (`validate-outcome-digests`).
+**Digest-listed cases (slice-3):**
+
+| Case id | Steps | Notes |
+|---|---|---|
+| `pf.primitive.statecell.overflow-hold.v1` | 6 | slice-2b |
+| `pf.primitive.accumulator.overflow-hold.v1` | 6 | slice-2b |
+| `pf.primitive.arithops.bitnot-scale.v1` | 6 | slice-3 (when Lean mint + `OUTCOME_DIGEST_CASE_STEPS` entry are present) |
+
+Carrier re-encode identity is checked in Lean before write. Python
+`validate-outcome-digests` / `validate_outcome_digest_tree` joins digest↔bytes
++ magic presence for every listed case/step. Missing digest or envelope for a
+listed case → `PF-CORPUS-OUTCOME`.
+
+EventFlow / OwnableLike Reference steps remain shared-observation-only (no
+OutcomeWire sidecars) in this slice.
 
 ### Honest projection subset (both legs)
 
@@ -48,11 +61,30 @@ From observation `shared` only:
 | `effects` | collapsed to `effectsEmpty` bool |
 | `rollbackEqual` | as-is |
 
-Compared across required pass legs inside `close_case`.
+Do **not** invent `standardRevertCode`, declared error args, fault constructors,
+typed valueBytes, or effect occurrence pairs from Anvil/observation.
 
-### Fail closed (cannot invent OutcomeWire from observation)
+### Mandatory projection equality (pass closure, slice-3)
 
-Observation lacks:
+For **every** required pass-leg pair on the same step, `close_case` compares
+`outcome_projection_compare_key` across legs. Mismatch → `PF-CORPUS-OUTCOME`.
+
+On digest-listed cases, pass closure additionally requires:
+
+1. Reference OutcomeWire sidecars present and digest-validated for all listed steps
+2. Every required pass-leg step successfully projects (malformed shared →
+   `PF-CORPUS-OUTCOME`)
+3. Projection equality reference↔`pf-anvil` is **mandatory** (not soft / not
+   skippable when both legs pass)
+
+Shared exact equality for `primitive` class remains a separate
+`PF-CORPUS-INVARIANT` gate; Outcome projection is the honest subset compare and
+may fail closed even when shared JSON would otherwise match (e.g. revert with
+non-null `returnValue`).
+
+### Fail closed (still cannot invent OutcomeWire from observation)
+
+Observation / Anvil lack:
 
 1. `canonical-logical-state-bytes`
 2. `typed-return-value` (`typeId` + `valueBytes`)
@@ -62,17 +94,33 @@ Observation lacks:
 6. `declared-error-args`
 
 `try_mint_outcome_wire_from_observation` always returns `PF-CORPUS-OUTCOME`.
-Do **not** silently drop declared error args or fault constructors to force
-equality.
+Do **not** silently drop declared error args, fault constructors, or effect
+occurrence pairs to force equality. Anvil **↛** OutcomeWire lossless encoding.
 
 `status=blocked` is corpus-only and cannot project to an Outcome constructor.
 
+## Expected engineering negatives
+
+| Failure | Stable code | Owner surface |
+|---|---|---|
+| Missing `reference-outcome-{i}.digest` / `.bin.hex` for digest-listed case | `PF-CORPUS-OUTCOME` | `validate-outcome-digests` / sidecar helpers |
+| Digest ≠ `SHA-256(envelope)` or missing magic | `PF-CORPUS-OUTCOME` | same |
+| Projection kind / compare-key mismatch across pass legs | `PF-CORPUS-OUTCOME` | `close_case` |
+| Revert/trap with non-null `returnValue` | `PF-CORPUS-OUTCOME` | `project_outcome_from_shared` |
+| Observation→OutcomeWire mint attempt | `PF-CORPUS-OUTCOME` | `try_mint_outcome_wire_from_observation` |
+| `status=blocked` projection | `PF-CORPUS-OUTCOME` | projection |
+
+Disk JSON under `schema-tests/negative/` remains case/observation schema shape
+coverage; Outcome sidecar / projection gates are harness self-tests +
+`validate-outcome-digests` (not a second JSON schema authority).
+
 ## Wiring
 
-- Lean: `Tests/Materialization/EvmCorpusPrimitiveV1.lean` (StateCell/Accumulator
-  sidecars) + `Tests/Materialization/EvmOutcomeAdapterV1.lean` (focused mint)
-- Python: `scripts/evm_corpus_v1.py` projection / FC mint / sidecar gate /
-  `close-case` projection equality
+- Lean: `Tests/Materialization/EvmCorpusPrimitiveV1.lean`
+  (StateCell/Accumulator/ArithOps sidecars) +
+  `Tests/Materialization/EvmOutcomeAdapterV1.lean` (focused mint)
+- Python: `scripts/evm_corpus_v1.py` — `OUTCOME_DIGEST_CASE_STEPS`, projection /
+  FC mint / sidecar gate / `close-case` projection equality
 - Reference recipe: `scripts/evm_corpus_reference.sh` → `validate-outcome-digests`
 
 ## Non-claims
@@ -80,5 +128,5 @@ equality.
 - Not formal TST-SEM-002/003 or TASK-D2-07.
 - Not Anvil→OutcomeWire lossless encoding.
 - Not a second Outcome schema (reuses `OutcomeWireV1` only).
-- EventFlow / OwnableLike / ArithOps Reference steps still emit shared
-  observations without OutcomeWire sidecars in this slice (residual).
+- Not formal C-3 Reference↔Anvil identity-bound differential.
+- EventFlow / OwnableLike remain without OutcomeWire sidecars in this slice.

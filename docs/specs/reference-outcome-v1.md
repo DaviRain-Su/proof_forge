@@ -66,6 +66,7 @@ valueBytes validation remains the caller's responsibility
 - Not EV catalog retained-artifact digest binding.
 - Not a full EVM/Solana/NEAR/… → OutcomeV1 lossless adapter (Anvil/observation
   cannot reconstruct reason/fault/typed valueBytes). Engineering projection +
-  Reference-only OutcomeWire mint for StateCell/Accumulator is documented in
-  [`evm-outcome-adapter-v1.md`](evm-outcome-adapter-v1.md).
+  Reference-only OutcomeWire mint is documented in
+  [`evm-outcome-adapter-v1.md`](evm-outcome-adapter-v1.md); the EVM corpus
+  consumes digests for StateCell/Accumulator/ArithOps (engineering).
 - Not a replacement for evidence v1 observation projections.

@@ -10,6 +10,10 @@ RETURN/LOGICAL/EFFECTS are JSON text. SOURCE_HASH / SEMANTIC_HASH are the
 mandatory lowercase 64-hex subject-program identity digests (identity-bound
 observation; no identity-less writing path). EVM is JSON object or the token
 null.
+
+Shared fields must stay Outcome-projection-honest: status/logicalState/effects/
+rollbackEqual present; returnValue null on revert/trap. Do not invent
+standardRevertCode or OutcomeWire leaves absent from Anvil observation.
 """
 from __future__ import annotations
 

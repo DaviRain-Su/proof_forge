@@ -12,7 +12,7 @@
   stepReferenceSliceV1. Writes intermediate shared JSON (not PF-JCS); Python
   `scripts/evm_corpus_reference.sh` canonicalizes into proof-forge.evm-observation.v1.
 
-  For StateCell / Accumulator overflow-hold steps, also mints retained
+  For StateCell / Accumulator / ArithOps steps, also mints retained
   `pf.reference-outcome.v1` envelope bytes + SHA-256 digest sidecars
   (engineering OutcomeWireV1; not observation→Outcome lossless, not formal
   TST-SEM-002/003 / C-3).
@@ -218,8 +218,8 @@ private def writeSharedStep
   IO.FS.writeFile path body
 
 /-- Mint retained OutcomeWire envelope + digest for a Reference step.
-    Only used on StateCell/Accumulator (honest Outcome-bearing differential
-    subset). Observation JSON alone cannot reconstruct these bytes. -/
+    Used on StateCell/Accumulator/ArithOps (honest Outcome-bearing subset).
+    Observation JSON alone cannot reconstruct these bytes. -/
 private def writeOutcomeArtifact
     (outDir : System.FilePath) (caseId : String) (stepIndex : Nat)
     (outcome : OutcomeV1) : IO Unit := do
@@ -499,6 +499,7 @@ private unsafe def runArithOps
   let (st0, ret0, post0, eff0, rb0) ← outcomeShared o0 initial
   let v0 ← decodeSoleU64 post0
   writeSharedStep outDir caseId 0 srcHash semHash st0 ret0 "count" v0 eff0 rb0
+  writeOutcomeArtifact outDir caseId 0 o0
   -- bits(0) → max; does not write storage
   let o1 := stepOnce admitted post0 bitsId #[0] u64
   let (st1, ret1, post1, eff1, rb1) ← outcomeShared o1 post0
@@ -507,26 +508,31 @@ private unsafe def runArithOps
   let v1 ← decodeSoleU64 post1
   expect (v1 == 7) "bits does not store"
   writeSharedStep outDir caseId 1 srcHash semHash st1 ret1 "count" v1 eff1 rb1
+  writeOutcomeArtifact outDir caseId 1 o1
   let o2 := stepOnce admitted post1 bitsId #[5] u64
   let (st2, ret2, post2, eff2, rb2) ← outcomeShared o2 post1
   expect (ret2 == some (toString (maxN - 5))) "bits5 return"
   let v2 ← decodeSoleU64 post2
   writeSharedStep outDir caseId 2 srcHash semHash st2 ret2 "count" v2 eff2 rb2
+  writeOutcomeArtifact outDir caseId 2 o2
   -- scale(3,2): count := 7*3/2 + 7%2 = 10 + 1 = 11
   let o3 := stepOnce admitted post2 scaleId #[3, 2] u64
   let (st3, ret3, post3, eff3, rb3) ← outcomeShared o3 post2
   let v3 ← decodeSoleU64 post3
   expect (v3 == 11) "scale state"
   writeSharedStep outDir caseId 3 srcHash semHash st3 ret3 "count" v3 eff3 rb3
+  writeOutcomeArtifact outDir caseId 3 o3
   let o4 := stepOnce admitted initial initId #[maxN] u64
   let (st4, ret4, post4, eff4, rb4) ← outcomeShared o4 initial
   let v4 ← decodeSoleU64 post4
   writeSharedStep outDir caseId 4 srcHash semHash st4 ret4 "count" v4 eff4 rb4
+  writeOutcomeArtifact outDir caseId 4 o4
   let o5 := stepOnce admitted post4 scaleId #[2, 1] u64
   let (st5, ret5, post5, eff5, rb5) ← outcomeShared o5 post4
   expect (st5 == "revert") "scale overflow"
   let v5 ← decodeSoleU64 post5
   writeSharedStep outDir caseId 5 srcHash semHash st5 ret5 "count" v5 eff5 rb5
+  writeOutcomeArtifact outDir caseId 5 o5
   IO.println s!"reference-leg ok {caseId}"
 
 private unsafe def runEventFlow

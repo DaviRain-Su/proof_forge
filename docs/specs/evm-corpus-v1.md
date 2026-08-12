@@ -500,7 +500,7 @@ component）、hardlink（`nlink != 1`）、非 regular。stable read 使用
 - 失败：stderr `PF-CORPUS-...: ...` 且 exit 1。
 - 输入必须已是 canonical PF-JCS bytes；validator 不做 publish canonicalize。
 
-### 已实现工程边界（EVMOZ-002..006 + lighthouse slice-2b）
+### 已实现工程边界（EVMOZ-002..006 + lighthouse slice-3）
 
 | 层 | 状态 |
 |---|---|
@@ -508,22 +508,22 @@ component）、hardlink（`nlink != 1`）、非 regular。stable read 使用
 | business cases：5 primitive（含 OwnableLike caller）+ 1 Token adapter；无 active blocked business case | 已实现 |
 | closed manifest inventory | 已实现（EVMOZ-006；50 entries / 13 runners） |
 | Reference leg（28 obs）+ pin join | 已实现 |
-| **OutcomeWire sidecars（StateCell/Accumulator）+ shared→Outcome projection gate** | **已实现（engineering；见 [`evm-outcome-adapter-v1.md`](evm-outcome-adapter-v1.md)）** |
+| **OutcomeWire sidecars（StateCell/Accumulator + ArithOps when listed）+ mandatory shared→Outcome projection on digest-listed pass closure** | **engineering slice-3；见 [`evm-outcome-adapter-v1.md`](evm-outcome-adapter-v1.md)** |
 | Ownable caller Lean suite（历史文件名 `EvmCorpusBlockedV1`；Loader/Normalize/Reference + EVM Plan/Yul admit） | 已实现并注册 |
 | PF-Anvil Cancun full runtime harness | 手动 `evm-corpus-runtime`；Token 仅可因显式、已验证的可选工具/部署上限原因 skip，不得 pass 冒充 |
 | Token build regression policy | 产品 build/solc（含 StackTooDeep）一律 hard fail；只有 build 成功后的 deployment/initcode limit 可作为该 optional adapter leg 的 explicit skip |
 | OZ leg / family·ABI·standard credit | **未**实现；Exact 0 / Partial 0 / Blocked 20 不变 |
 
-### Outcome projection residual（slice-2b）
+### Outcome projection / sidecar rules（slice-3）
 
 `proof-forge.evm-observation.v1` **不是** `OutcomeV1` / `pf.reference-outcome.v1`。
-Cross-leg `close-case` 对 pass legs 比较 honest projection（kind + simplified
-logicalState/returnValue/`effectsEmpty`/rollbackEqual）。Observation **不能**
-lossless mint OutcomeWire（缺 canonical LogicalState bytes、typed return、
-SemanticRevert/Fault、effect occurrence、declared error args）——
-`try_mint_outcome_wire_from_observation` 固定 `PF-CORPUS-OUTCOME`。
-Reference 对 StateCell/Accumulator 另写 OutcomeWire digest sidecars；Anvil 侧只
-走 projection equality，**不**伪造 retained Outcome bytes。详见
+Digest-listed Reference cases mint OutcomeWire sidecars；`validate-outcome-digests`
+对 listed steps fail closed。Cross-leg `close-case` 对 pass legs **强制** honest
+projection equality（kind + simplified logicalState/returnValue/`effectsEmpty`/
+rollbackEqual）——digest-listed pass 不可跳过。Observation **不能** lossless mint
+OutcomeWire（缺 canonical LogicalState bytes、typed return、SemanticRevert/Fault、
+effect occurrence、declared error args）——`try_mint_outcome_wire_from_observation`
+固定 `PF-CORPUS-OUTCOME`；Anvil **↛** OutcomeWire。完整契约与负例表见
 [`evm-outcome-adapter-v1.md`](evm-outcome-adapter-v1.md)。
 
 ### 错误码

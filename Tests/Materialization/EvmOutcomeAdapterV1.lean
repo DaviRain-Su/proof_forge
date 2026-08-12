@@ -1,11 +1,12 @@
 /-
   Tests.Materialization.EvmOutcomeAdapterV1 — engineering EVM-first lighthouse
-  slice-2b: Reference OutcomeWire mint + honest shared-observation projection
-  contract for StateCell overflow-hold.
+  slice-3a: Reference OutcomeWire mint + honest shared-observation projection
+  for StateCell / Accumulator / ArithOps.
 
   Proves:
     * stepReferenceSliceV1 Outcomes mint `pf.reference-outcome.v1` digests
     * returned / standard-overflow reverted constructors are retained
+    * remint is digest-stable; distinct Outcomes differ
     * evidence-style shared observations are NOT Outcome wire (documented;
       projection helpers live in scripts/evm_corpus_v1.py)
 
@@ -95,6 +96,14 @@ private def mintDigest (label : String) (outcome : OutcomeV1) : IO String := do
       throw <| IO.userError s!"{label}: carrier decode: {repr e}"
   digestHex (referenceOutcomeDigestV1 artifact)
 
+/-- Remint the same Outcome twice; digests must be byte-identical. -/
+private def expectRemintStable (label : String) (outcome : OutcomeV1) : IO String := do
+  let d1 ← mintDigest s!"{label}/a" outcome
+  let d2 ← mintDigest s!"{label}/b" outcome
+  expect (d1 == d2) s!"{label}: remint digests differ"
+  expect (d1.length == 64) s!"{label}: digest hex length"
+  pure d1
+
 /-- Structural tag check without claiming observation can rebuild reason/value. -/
 private def expectReturned (label : String) (outcome : OutcomeV1) : IO Unit :=
   match outcome with
@@ -110,28 +119,42 @@ private def expectStandardOverflow (label : String) (outcome : OutcomeV1) : IO U
   | .returned _ _ _ => throw <| IO.userError s!"{label}: expected reverted"
   | .trapped _ _ => throw <| IO.userError s!"{label}: expected reverted"
 
-private unsafe def testStateCellOutcomeDigests
-    (session : Language.Loader.ParserSession) : IO Unit := do
-  let absPath := System.FilePath.mk "Examples/StateCell.lean"
+private def postState (outcome : OutcomeV1) : LogicalStateV1 :=
+  match outcome with
+  | .returned s _ _ => s
+  | .reverted _ s => s
+  | .trapped _ s => s
+
+private unsafe def loadAdmit
+    (session : Language.Loader.ParserSession)
+    (relPath moduleName label : String) :
+    IO (SemanticProgramV1 × SemanticProgramDataV1 × AdmittedReferenceSliceV1 ×
+        TypeIdV1) := do
+  let absPath := System.FilePath.mk relPath
   let src ← IO.FS.readFile absPath
   let validated ←
-    match ← session.selectProgramV1 src "Examples/StateCell.lean"
-        "Examples.StateCell" none with
+    match ← session.selectProgramV1 src relPath moduleName none with
     | .ok v => pure v
-    | .error e => throw <| IO.userError s!"StateCell load: {e.render}"
+    | .error e => throw <| IO.userError s!"{label} load: {e.render}"
   let carrier ←
     match normalizeProgramV1 validated with
     | .ok c => pure c
-    | .error e => throw <| IO.userError s!"StateCell normalize: {repr e}"
+    | .error e => throw <| IO.userError s!"{label} normalize: {repr e}"
   let data ←
     match validateSemanticProgramV1 carrier with
     | .ok d => pure d
-    | .error e => throw <| IO.userError s!"StateCell validate: {repr e}"
+    | .error e => throw <| IO.userError s!"{label} validate: {repr e}"
   let admitted ←
     match admitReferenceProgramSliceV1 carrier with
     | .ok a => pure a
-    | .error e => throw <| IO.userError s!"StateCell admit: {repr e}"
+    | .error e => throw <| IO.userError s!"{label} admit: {repr e}"
   let u64 ← findU64TypeId data
+  pure (carrier, data, admitted, u64)
+
+private unsafe def testStateCellOutcomeDigests
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let (carrier, data, admitted, u64) ←
+    loadAdmit session "Examples/StateCell.lean" "Examples.StateCell" "StateCell"
   let initId ← findCallableId data none
   let incId ← findCallableId data (some "increment")
   let getId ← findCallableId data (some "get")
@@ -145,45 +168,126 @@ private unsafe def testStateCellOutcomeDigests
     stepReferenceSliceV1 admitted pre (inv cid refArgs) emptyResponses
 
   let o0 := step initial initId #[7]
-  expectReturned "deploy" o0
-  let d0 ← mintDigest "deploy" o0
-  expect (d0.length == 64) "deploy digest hex length"
+  expectReturned "StateCell/deploy" o0
+  let d0 ← expectRemintStable "StateCell/deploy" o0
 
-  let post0 :=
-    match o0 with
-    | .returned s _ _ => s
-    | _ => initial
+  let post0 := postState o0
   let o1 := step post0 incId #[5]
-  expectReturned "inc" o1
-  let d1 ← mintDigest "inc" o1
-  expect (d0 != d1) "distinct digests for distinct Outcomes"
+  expectReturned "StateCell/inc" o1
+  let d1 ← expectRemintStable "StateCell/inc" o1
+  expect (d0 != d1) "StateCell: distinct digests for distinct Outcomes"
 
-  let post1 :=
-    match o1 with
-    | .returned s _ _ => s
-    | _ => post0
+  let post1 := postState o1
   let o2 := step post1 getId #[]
-  expectReturned "get" o2
-  let _ ← mintDigest "get" o2
+  expectReturned "StateCell/get" o2
+  let _ ← expectRemintStable "StateCell/get" o2
 
   let maxN : Nat := (2 ^ 64) - 1
   let o3 := step initial initId #[maxN]
-  expectReturned "deploy-max" o3
-  let post3 :=
-    match o3 with
-    | .returned s _ _ => s
-    | _ => initial
+  expectReturned "StateCell/deploy-max" o3
+  let d3 ← expectRemintStable "StateCell/deploy-max" o3
+  let post3 := postState o3
   let o4 := step post3 incId #[1]
-  expectStandardOverflow "overflow" o4
-  let d4 ← mintDigest "overflow" o4
-  expect (d4.length == 64) "overflow digest hex length"
-  -- Reverted Outcome digest must differ from the successful deploy-max digest.
-  let d3 ← mintDigest "deploy-max" o3
-  expect (d3 != d4) "overflow digest ≠ deploy-max digest"
+  expectStandardOverflow "StateCell/overflow" o4
+  let d4 ← expectRemintStable "StateCell/overflow" o4
+  expect (d3 != d4) "StateCell: overflow digest ≠ deploy-max digest"
+
+private unsafe def testAccumulatorOutcomeDigests
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let (carrier, data, admitted, u64) ←
+    loadAdmit session "Examples/Accumulator.lean" "Examples.Accumulator"
+      "Accumulator"
+  let initId ← findCallableId data none
+  let addId ← findCallableId data (some "add")
+  let curId ← findCallableId data (some "current")
+  let initial ←
+    match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"Accumulator initial: {repr e}"
+  let step (pre : LogicalStateV1) (cid : CallableIdV1) (args : Array Nat) :
+      OutcomeV1 :=
+    let refArgs := args.map (fun n => refU64 u64 n)
+    stepReferenceSliceV1 admitted pre (inv cid refArgs) emptyResponses
+
+  let o0 := step initial initId #[7]
+  expectReturned "Accumulator/deploy" o0
+  let d0 ← expectRemintStable "Accumulator/deploy" o0
+
+  let post0 := postState o0
+  let o1 := step post0 addId #[5]
+  expectReturned "Accumulator/add" o1
+  let d1 ← expectRemintStable "Accumulator/add" o1
+  expect (d0 != d1) "Accumulator: distinct digests for distinct Outcomes"
+
+  let post1 := postState o1
+  let o2 := step post1 curId #[]
+  expectReturned "Accumulator/current" o2
+  let _ ← expectRemintStable "Accumulator/current" o2
+
+  let maxN : Nat := (2 ^ 64) - 1
+  let o3 := step initial initId #[maxN]
+  expectReturned "Accumulator/deploy-max" o3
+  let d3 ← expectRemintStable "Accumulator/deploy-max" o3
+  let post3 := postState o3
+  let o4 := step post3 addId #[1]
+  expectStandardOverflow "Accumulator/overflow" o4
+  let d4 ← expectRemintStable "Accumulator/overflow" o4
+  expect (d3 != d4) "Accumulator: overflow digest ≠ deploy-max digest"
+
+private unsafe def testArithOpsOutcomeDigests
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let (carrier, data, admitted, u64) ←
+    loadAdmit session "testdata/valid/ArithOps.lean" "ArithOps" "ArithOps"
+  let initId ← findCallableId data none
+  let scaleId ← findCallableId data (some "scale")
+  let bitsId ← findCallableId data (some "bits")
+  let initial ←
+    match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"ArithOps initial: {repr e}"
+  let step (pre : LogicalStateV1) (cid : CallableIdV1) (args : Array Nat) :
+      OutcomeV1 :=
+    let refArgs := args.map (fun n => refU64 u64 n)
+    stepReferenceSliceV1 admitted pre (inv cid refArgs) emptyResponses
+
+  let o0 := step initial initId #[7]
+  expectReturned "ArithOps/deploy" o0
+  let post0 := postState o0
+
+  -- Returned success with a non-Unit return value (bits).
+  let o1 := step post0 bitsId #[0]
+  expectReturned "ArithOps/bits0" o1
+  let dBits ← expectRemintStable "ArithOps/bits0" o1
+
+  let post1 := postState o1
+  let o2 := step post1 bitsId #[5]
+  expectReturned "ArithOps/bits5" o2
+  let dBits5 ← expectRemintStable "ArithOps/bits5" o2
+  expect (dBits != dBits5) "ArithOps: distinct returned digests differ"
+
+  let post2 := postState o2
+  let o3 := step post2 scaleId #[3, 2]
+  expectReturned "ArithOps/scale" o3
+  let dScale ← expectRemintStable "ArithOps/scale" o3
+  expect (dScale != dBits) "ArithOps: scale digest ≠ bits digest"
+
+  let maxN : Nat := (2 ^ 64) - 1
+  let o4 := step initial initId #[maxN]
+  expectReturned "ArithOps/deploy-max" o4
+  let post4 := postState o4
+  let o5 := step post4 scaleId #[2, 1]
+  expectStandardOverflow "ArithOps/scale-overflow" o5
+  let dOverflow ← expectRemintStable "ArithOps/scale-overflow" o5
+  expect (dOverflow != dScale)
+    "ArithOps: overflow digest ≠ successful scale digest"
+  expect (dOverflow != dBits)
+    "ArithOps: overflow digest ≠ returned bits digest"
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testStateCellOutcomeDigests session
+  testAccumulatorOutcomeDigests session
+  testArithOpsOutcomeDigests session
   IO.println "EvmOutcomeAdapterV1: ok (engineering; not formal TST-SEM/C-3)"
 
 end Tests.Materialization.EvmOutcomeAdapterV1

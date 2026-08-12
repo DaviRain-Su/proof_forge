@@ -15362,3 +15362,14 @@ normative: false
   尚未 target-refined。没有 arbitrary textual-WAT parser、`wat2wasm` correctness、Wasm binary
   semantics或 NEAR runtime simulation，整体准确口径仍是
   **Reference-verified + engineering runtime observed ≠ fully target-refined**。
+## 2026-08-12 — EVM formal lighthouse 切片-3：Outcome 扩面 + 投影硬门
+
+- **Lean**：Reference OutcomeWire mint 扩到 ArithOps 六步（含 scale overflow）；
+  `EvmOutcomeAdapterV1` 钉 StateCell / Accumulator / ArithOps remint+digest；
+  digest 门合计 **sidecars=18**（三案×6）。EventFlow/OwnableLike 仍 observation-only。
+- **Python/Anvil**：`OUTCOME_DIGEST_CASE_STEPS` 上 `close-case` 硬门——digest 案 pass
+  要求 reference+pf-anvil 均 required、逐步投影且 reference↔anvil 投影键相等、
+  obs 树校验 OutcomeWire sidecar；`smoke_evm.sh` 拒 revert/trap 非空 returnValue 等
+  不诚实 emit。投影仍为诚实子集；Anvil↛OutcomeWire 仍 FC。
+- **文档**：`evm-outcome-adapter-v1` / corpus / `01-evm` / `reference-outcome-v1` 同步
+  slice-3 边界。工程 only；**不**关闭 formal C-3 / TST-SEM / TASK-D2-07。

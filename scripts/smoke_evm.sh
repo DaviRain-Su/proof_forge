@@ -175,6 +175,10 @@ print(src + " " + sem)
 # Requires bind_corpus_identity for the deployed artifact tree beforehand.
 # Args: caseId step status returnJson logicalJson effectsJson rollback
 #       slotWord valueWord [logsJson] [revertData]
+#
+# Shared face must be projectable to proof-forge.evm-outcome-projection.v1:
+# status/logicalState/effects/rollbackEqual present; returnValue null on
+# revert/trap (do not invent returned values). No standardRevertCode invention.
 emit_corpus_obs() {
   [[ -n "$corpus_obs_dir" ]] || return 0
   [[ -n "$corpus_identity_source_hash" && -n "$corpus_identity_semantic_hash" ]] \
@@ -190,6 +194,20 @@ emit_corpus_obs() {
   local value_word="${9:-}"
   local logs_json="${10:-[]}"
   local revert_data="${11:-null}"
+  if [[ "$status" == "revert" || "$status" == "trap" ]]; then
+    if [[ "$return_json" != "null" ]]; then
+      die "emit_corpus_obs: status=$status requires returnValue null (Outcome projection honesty)"
+    fi
+  fi
+  if [[ -z "$logical_json" || "$logical_json" == "null" ]]; then
+    die "emit_corpus_obs: logicalState JSON required for Outcome projection"
+  fi
+  if [[ -z "$effects_json" ]]; then
+    die "emit_corpus_obs: effects JSON required for Outcome projection"
+  fi
+  if [[ "$rollback_equal" != "true" && "$rollback_equal" != "false" ]]; then
+    die "emit_corpus_obs: rollbackEqual must be true|false"
+  fi
   local storage_json="[]"
   if [[ -n "$slot_word" && -n "$value_word" ]]; then
     storage_json="[{\"slot\":\"$slot_word\",\"value\":\"$value_word\"}]"

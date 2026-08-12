@@ -39,10 +39,12 @@ OUTCOME_LOSSLESS_GAPS = (
     "declared-error-args",
 )
 
-# Primitive cases where Reference mints OutcomeWire sidecars (StateCell/Accumulator).
+# Primitive cases where Reference mints OutcomeWire sidecars
+# (StateCell/Accumulator/ArithOps).
 OUTCOME_DIGEST_CASE_STEPS: dict[str, int] = {
     "pf.primitive.statecell.overflow-hold.v1": 6,
     "pf.primitive.accumulator.overflow-hold.v1": 6,
+    "pf.primitive.arithops.bitnot-scale.v1": 6,
 }
 
 MAX_MANIFEST_BYTES = 256 * 1024
@@ -1373,7 +1375,7 @@ def validate_reference_outcome_sidecar(
 
 
 def validate_outcome_digest_tree(obs_root: Path) -> dict[str, object]:
-    """Require OutcomeWire sidecars for StateCell/Accumulator Reference legs."""
+    """Require OutcomeWire sidecars for StateCell/Accumulator/ArithOps Reference legs."""
     checked: list[dict[str, object]] = []
     for case_id, steps in sorted(OUTCOME_DIGEST_CASE_STEPS.items()):
         case_dir = obs_root / case_id
@@ -1416,15 +1418,75 @@ def _log_matches_expectation(actual: dict[str, object], exp: dict[str, object]) 
     return True
 
 
+def _close_outcome_digest_gate(
+    case_id: str,
+    required_legs: list[str],
+    steps: list[dict[str, object]],
+    index: dict[tuple[str, int], dict[str, object]],
+    obs_case_dir: Path | None,
+) -> None:
+    """Hard OutcomeWire + projection gate for OUTCOME_DIGEST_CASE_STEPS.
+
+    Soft ≥2-leg projection compare is insufficient for digest cases: a pass
+    must have both ``reference`` and ``pf-anvil`` as required legs, every
+    step must project, and reference↔pf-anvil projection keys must match
+    (``PF-CORPUS-OUTCOME`` on mismatch). When ``obs_case_dir`` is set (CLI
+    close-case always sets it), also require Lean OutcomeWire sidecars and
+    exact digest step cardinality. Does not invent OutcomeWire from Anvil.
+    """
+    expected = OUTCOME_DIGEST_CASE_STEPS[case_id]
+    for need in ("reference", "pf-anvil"):
+        if need not in required_legs:
+            fail(
+                "PF-CORPUS-OUTCOME",
+                f"Outcome-digest case {case_id} requires required leg {need!r} "
+                "(cannot pass with Anvil/reference optional or absent)",
+            )
+    for step in steps:
+        idx = int(step["index"])  # type: ignore[arg-type]
+        ref_o = index[("reference", idx)]
+        anvil_o = index[("pf-anvil", idx)]
+        ref_proj = project_outcome_from_shared(
+            ref_o["shared"], f"leg=reference step={idx}.shared"
+        )
+        anvil_proj = project_outcome_from_shared(
+            anvil_o["shared"], f"leg=pf-anvil step={idx}.shared"
+        )
+        ref_key = outcome_projection_compare_key(ref_proj)
+        anvil_key = outcome_projection_compare_key(anvil_proj)
+        if ref_key != anvil_key:
+            fail(
+                "PF-CORPUS-OUTCOME",
+                f"step={idx} Outcome projection mismatch "
+                "reference vs pf-anvil (digest-case mandatory)",
+            )
+    if obs_case_dir is None:
+        return
+    if len(steps) != expected:
+        fail(
+            "PF-CORPUS-OUTCOME",
+            f"Outcome-digest case {case_id} step count {len(steps)} "
+            f"!= digest sidecar count {expected}",
+        )
+    for idx in range(expected):
+        validate_reference_outcome_sidecar(obs_case_dir, idx)
+
+
 def close_case(
     case: dict[str, object],
     observations: list[dict[str, object]],
+    *,
+    obs_case_dir: Path | None = None,
 ) -> dict[str, object]:
     """Exact case-level observation closure.
 
     Rejects duplicate/extra/missing (leg, stepIndex), required-leg non-pass,
     primitive shared inequality, status/log mismatches. Success message only
     after full closure.
+
+    For ``OUTCOME_DIGEST_CASE_STEPS`` cases, pass also requires mandatory
+    reference↔pf-anvil Outcome projection equality and (when ``obs_case_dir``
+    is provided) validated Reference OutcomeWire sidecars.
     """
     case = validate_case(case)
     case_id = case["id"]  # type: ignore[index]
@@ -1574,7 +1636,7 @@ def close_case(
                             f"primitive step={idx} shared mismatch across required legs",
                         )
 
-    # Outcome projection equality when both required legs pass the same step.
+    # Outcome projection equality when ≥2 required legs pass the same step.
     # Observations are not OutcomeWire; this compares the honest subset only.
     # Missing identity already failed above; malformed projection → PF-CORPUS-OUTCOME.
     for step in steps:
@@ -1611,6 +1673,17 @@ def close_case(
             "result": "skip",
             "reason": "optional-leg-skip",
         }
+
+    # Digest-listed cases: pass requires mandatory reference↔pf-anvil projection
+    # equality + (when obs_case_dir set) OutcomeWire sidecar validation.
+    if str(case_id) in OUTCOME_DIGEST_CASE_STEPS:
+        _close_outcome_digest_gate(
+            case_id=str(case_id),
+            required_legs=required_legs,
+            steps=steps,
+            index=index,
+            obs_case_dir=obs_case_dir,
+        )
 
     return {
         "caseId": case_id,
@@ -2971,6 +3044,105 @@ def _run_outcome_adapter_tests() -> None:
 
     _expect_error("outcome-proj-revert-return", "PF-CORPUS-OUTCOME", bad_proj_close)
 
+    # Projection key mismatch on non-primitive (shared exact equality skipped):
+    # different logicalState → PF-CORPUS-OUTCOME (not INVARIANT).
+    adapter = make_adapter_case()
+    adapter["skipPolicy"] = _skip(optional=[], tools=["anvil"])
+    adapter["steps"] = [_step(0, actor="alice", entry="transfer")]
+    adapter_id = str(adapter["id"])
+    adapter_pins = adapter["pins"]  # type: ignore[index]
+    adapter_identity = {
+        "sourceHash": adapter_pins["sourceHash"],
+        "semanticHash": adapter_pins["semanticHash"],
+    }
+    mismatch_pair = [
+        _mk_pass_obs(
+            adapter_id,
+            "pf-anvil",
+            0,
+            shared_extra={"logicalState": {"balance": "1"}},
+            identity=adapter_identity,  # type: ignore[arg-type]
+        ),
+        _mk_pass_obs(
+            adapter_id,
+            "oz-anvil",
+            0,
+            shared_extra={"logicalState": {"balance": "2"}},
+            identity=adapter_identity,  # type: ignore[arg-type]
+        ),
+    ]
+
+    def bad_proj_keys() -> None:
+        close_case(adapter, mismatch_pair)
+
+    _expect_error("outcome-proj-key-mismatch", "PF-CORPUS-OUTCOME", bad_proj_keys)
+
+    # Digest case cannot pass with pf-anvil optional (soft projection skip refused).
+    soft = make_primitive_case()
+    soft["skipPolicy"] = _skip(optional=["pf-anvil"], tools=["anvil", "solc"])
+    soft["steps"] = [_step(0, entry="inc")]
+    soft_id = str(soft["id"])
+    soft_obs = [
+        _mk_pass_obs(soft_id, "reference", 0),
+        _mk_pass_obs(soft_id, "pf-anvil", 0),
+    ]
+
+    def soft_digest_close() -> None:
+        close_case(soft, soft_obs)
+
+    _expect_error("outcome-digest-optional-anvil", "PF-CORPUS-OUTCOME", soft_digest_close)
+
+    # Missing OutcomeWire sidecar on validate-outcome-digests path.
+    with tempfile.TemporaryDirectory() as tmp:
+        empty_root = Path(tmp)
+
+        def missing_digest_tree() -> None:
+            validate_outcome_digest_tree(empty_root)
+
+        _expect_error(
+            "outcome-digest-tree-missing",
+            "PF-CORPUS-OUTCOME",
+            missing_digest_tree,
+        )
+
+        # Case dir present but sidecars absent → still PF-CORPUS-OUTCOME.
+        for cid in OUTCOME_DIGEST_CASE_STEPS:
+            (empty_root / cid).mkdir()
+
+        def missing_digest_sidecars() -> None:
+            validate_outcome_digest_tree(empty_root)
+
+        _expect_error(
+            "outcome-digest-sidecar-missing",
+            "PF-CORPUS-OUTCOME",
+            missing_digest_sidecars,
+        )
+
+    # Digest close-case with obs_case_dir but no OutcomeWire sidecars.
+    with tempfile.TemporaryDirectory() as tmp:
+        digest_case = make_primitive_case()
+        digest_case["skipPolicy"] = _skip(optional=[], tools=["anvil", "solc"])
+        n_steps = OUTCOME_DIGEST_CASE_STEPS[str(digest_case["id"])]
+        digest_case["steps"] = [
+            _step(i, entry="inc" if i % 2 else "get") for i in range(n_steps)
+        ]
+        digest_id = str(digest_case["id"])
+        case_dir = Path(tmp) / digest_id
+        case_dir.mkdir()
+        digest_obs: list[dict[str, object]] = []
+        for i in range(n_steps):
+            digest_obs.append(_mk_pass_obs(digest_id, "reference", i))
+            digest_obs.append(_mk_pass_obs(digest_id, "pf-anvil", i))
+
+        def missing_sidecar_close() -> None:
+            close_case(digest_case, digest_obs, obs_case_dir=case_dir)
+
+        _expect_error(
+            "outcome-digest-close-missing-sidecar",
+            "PF-CORPUS-OUTCOME",
+            missing_sidecar_close,
+        )
+
 
 def _mk_pass_obs(
     case_id: str,
@@ -4255,7 +4427,12 @@ def _cmd_close_case(case_path: Path, obs_dir: Path) -> None:
     case = load_and_validate_case(case_path)
     case_id = str(case["id"])
     observations = load_observations_dir(obs_dir, case_id)
-    result = close_case(case, observations)
+    # Digest-listed cases validate OutcomeWire sidecars under obs_dir/case_id.
+    result = close_case(
+        case,
+        observations,
+        obs_case_dir=obs_dir / case_id,
+    )
     # Success wording only after exact closure.
     if result.get("result") == "pass":
         print(
