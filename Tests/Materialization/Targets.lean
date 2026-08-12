@@ -2596,6 +2596,54 @@ unsafe def run : IO Unit := do
       (Targets.Near.withMethods nearIR (nearIR.methods.set! 2 forgedNearMethod)) with
   | .error (.planInvariant .near _) => pure ()
   | _ => throw <| IO.userError "typed NEAR recipe must remain exactly bound to its source Plan"
+  match Targets.Near.validateWATModuleMethodExportsV1 nearIR with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError
+        s!"production NEAR IR must pass method/export validation: {error.render}"
+  let renamedNearMethod := {
+    nearIR.methods[2]! with name := "forgedCurrent"
+  }
+  match Targets.Near.validateWATModuleMethodExportsV1
+      (Targets.Near.withMethods nearIR
+        (nearIR.methods.set! 2 renamedNearMethod)) with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR WAT module validation must reject a forged method export name"
+  let reorderedNearMethods :=
+    (nearIR.methods.set! 1 nearIR.methods[2]!).set! 2 nearIR.methods[1]!
+  let reorderedNearIR := Targets.Near.withMethods nearIR reorderedNearMethods
+  match Targets.Near.validateWATModuleMethodExportsV1 reorderedNearIR with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR WAT module validation must reject reordered method exports"
+  match Targets.Near.validateIR reorderedNearIR with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "production NEAR IR validation must reject reordered method exports"
+  let forgedNearMethodSignature := {
+    nearIR.methods[0]! with params := #[]
+  }
+  match Targets.Near.validateWATModuleMethodExportsV1
+      (Targets.Near.withMethods nearIR
+        (nearIR.methods.set! 0 forgedNearMethodSignature)) with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR WAT module validation must reject forged method ABI metadata"
+  let forgedNearMethodMode := {
+    nearIR.methods[2]! with mode := Targets.Near.MethodMode.mutate
+  }
+  match Targets.Near.validateWATModuleMethodExportsV1
+      (Targets.Near.withMethods nearIR
+        (nearIR.methods.set! 2 forgedNearMethodMode)) with
+  | .error (.planInvariant .near _) => pure ()
+  | _ =>
+      throw <| IO.userError
+        "NEAR WAT module validation must reject a forged method mode"
   match Targets.Near.validateWATModuleHostImportsV1 nearIR with
   | .ok () => pure ()
   | .error error =>

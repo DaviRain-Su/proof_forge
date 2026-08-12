@@ -274,6 +274,15 @@ Phase 1：实现
   `$fn_unknown` malformed-IR fallback在 validated IR上不可达。真实 production IR与 forged
   signature/dangling index/wrong arity负例已固定。该 gate不解释 pureFn、不解析 textual WAT，也不
   证明 `wat2wasm`、Wasm binary或 NEAR execution semantics。
+- **ordered method/export identity consistency（Phase 7 第二十一切）**：
+  `validateWATModuleMethodExportsV1` 要求 MethodIR rows按 source order exact对应
+  `#[initializer] ++ entries`，并保留每个 method的 name、raw ABI parameter metadata与 mode；
+  canonical `validatePlan` 继续唯一负责 safe identifier、export name uniqueness与固定 `memory`
+  export collision gate。production `validateIR` 已组合该检查，成功验证可投影为
+  `WATModuleMethodExportsSafeV1` kernel witness并由 complete-module carrier保留。真实 production IR
+  与 forged name、reordered rows、forged ABI metadata负例已固定。该 gate只连接 sole WAT/ABI
+  renderers共用的 typed source identity/order，不证明 JSON/WAT consumer、method execution、
+  `wat2wasm`、Wasm binary或 NEAR semantics。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -351,8 +360,8 @@ target success/return/log/promise/storage facts已由 strict adapter按同字段
 step连接；该 exact typed sequence也已通过 bounded typed-WAT static validator，且 complete production
 WAT现有选中 method fragment的 direct exact-render identity；完整 generated WAT也已由同一 validated
 IR拥有 exact module opener/imports/memory/data/pureFn/method/closing framing identity；module-level
-memory footprint、canonical host-import dependencies与 nested internal pureFn references也已有
-proof-relevant validation witness。该结果仍不是一般
+memory footprint、canonical host-import dependencies、nested internal pureFn references，以及 ordered
+method/export identity/signature metadata也已有 proof-relevant validation witness。该结果仍不是一般
 Operation/WAT semantics：尚无 textual WAT parser/general module validator、surrounding function body
 通用 typed semantics、arbitrary linear memory、完整 NEAR host ABI、locked `wat2wasm`
 correctness、Wasm binary

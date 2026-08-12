@@ -1217,6 +1217,30 @@ def validateWATModuleHostImportsV1 (ir : IR) : CompileResult Unit := do
 def WATModuleHostImportsSafeV1 (ir : IR) : Prop :=
   validateWATModuleHostImportsV1 ir = .ok ()
 
+/-- The production method table retains the exact source Plan method identity
+    and order consumed by WAT export emission, plus the parameter/mode metadata
+    rendered from that same Plan authority by the ABI emitter. -/
+private def methodRowsBoundToPlanV1 (ir : IR) : Bool :=
+  let sourceMethods := #[ir.sourcePlan.initializer] ++ ir.sourcePlan.entries
+  ir.methods.size == sourceMethods.size &&
+    (ir.methods.zip sourceMethods).all (fun pair =>
+      pair.1.name == pair.2.name &&
+        pair.1.params == pair.2.params &&
+        pair.1.mode == pair.2.mode)
+
+/-- Fail-closed generated-module method/export consistency. The canonical Plan
+    validates safe, unique names distinct from the fixed `memory` export; this
+    gate binds the typed method rows to that exact ordered source table. -/
+def validateWATModuleMethodExportsV1 (ir : IR) : CompileResult Unit := do
+  validatePlan ir.sourcePlan
+  unless methodRowsBoundToPlanV1 ir do
+    throw <| .planInvariant .near
+      "typed NEAR IR WAT method exports are not exactly bound to source Plan order and signatures"
+
+/-- Proof-relevant successful method/export table validation. -/
+def WATModuleMethodExportsSafeV1 (ir : IR) : Prop :=
+  validateWATModuleMethodExportsV1 ir = .ok ()
+
 /-- Every internal `callFn` rendered by one typed Operation resolves to the
     indexed production FnIR row with its exact Wasm parameter arity. -/
 private partial def operationFnReferencesValidV1
@@ -1594,6 +1618,7 @@ private def validateIRCore (ir : IR) : CompileResult Unit := do
 def validateIR (ir : IR) : CompileResult Unit := do
   validateIRCore ir
   validateWATModuleHostImportsV1 ir
+  validateWATModuleMethodExportsV1 ir
   validateWATModuleFnReferencesV1 ir
   validateWATModuleMemoryV1 ir
 
@@ -1616,6 +1641,30 @@ theorem validateIR_watModuleHostImportsSafeV1
           cases result
           exact himports
 
+/-- Successful production IR validation exposes the ordered method/export
+    identity and signature certificate. -/
+theorem validateIR_watModuleMethodExportsSafeV1
+    (ir : IR)
+    (hvalidate : validateIR ir = .ok ()) :
+    WATModuleMethodExportsSafeV1 ir := by
+  unfold validateIR at hvalidate
+  cases hcore : validateIRCore ir with
+  | error error =>
+      simp [hcore, Bind.bind, Except.bind] at hvalidate
+  | ok result =>
+      cases result
+      cases himports : validateWATModuleHostImportsV1 ir with
+      | error error =>
+          simp [hcore, himports, Bind.bind, Except.bind] at hvalidate
+      | ok result =>
+          cases result
+          cases hexports : validateWATModuleMethodExportsV1 ir with
+          | error error =>
+              simp [hcore, himports, hexports, Bind.bind, Except.bind] at hvalidate
+          | ok result =>
+              cases result
+              exact hexports
+
 /-- Successful production IR validation exposes the source-order pureFn table
     and recursive internal-call reference certificate. -/
 theorem validateIR_watModuleFnReferencesSafeV1
@@ -1633,12 +1682,18 @@ theorem validateIR_watModuleFnReferencesSafeV1
           simp [hcore, himports, Bind.bind, Except.bind] at hvalidate
       | ok result =>
           cases result
-          cases hfns : validateWATModuleFnReferencesV1 ir with
+          cases hexports : validateWATModuleMethodExportsV1 ir with
           | error error =>
-              simp [hcore, himports, hfns, Bind.bind, Except.bind] at hvalidate
+              simp [hcore, himports, hexports, Bind.bind, Except.bind] at hvalidate
           | ok result =>
               cases result
-              exact hfns
+              cases hfns : validateWATModuleFnReferencesV1 ir with
+              | error error =>
+                  simp [hcore, himports, hexports, hfns, Bind.bind,
+                    Except.bind] at hvalidate
+              | ok result =>
+                  cases result
+                  exact hfns
 
 /-- Successful production IR validation exposes the complete generated-module
     memory/data certificate without replaying a second validator. -/
@@ -1657,13 +1712,19 @@ theorem validateIR_watModuleMemorySafeV1
           simp [hcore, himports, Bind.bind, Except.bind] at hvalidate
       | ok result =>
           cases result
-          cases hfns : validateWATModuleFnReferencesV1 ir with
+          cases hexports : validateWATModuleMethodExportsV1 ir with
           | error error =>
-              simp [hcore, himports, hfns, Bind.bind, Except.bind] at hvalidate
+              simp [hcore, himports, hexports, Bind.bind, Except.bind] at hvalidate
           | ok result =>
               cases result
-              simpa [WATModuleMemorySafeV1, hcore, himports, hfns, Bind.bind,
-                Except.bind] using hvalidate
+              cases hfns : validateWATModuleFnReferencesV1 ir with
+              | error error =>
+                  simp [hcore, himports, hexports, hfns, Bind.bind,
+                    Except.bind] at hvalidate
+              | ok result =>
+                  cases result
+                  simpa [WATModuleMemorySafeV1, hcore, himports, hexports,
+                    hfns, Bind.bind, Except.bind] using hvalidate
 
 private def makeIR (plan : Plan) : IR :=
   let keys := makeKeyRegions plan
@@ -3290,6 +3351,7 @@ structure ValidatedReadOnlyWATModuleEmissionV1
   moduleEmission : WATModuleEmissionV1 ir watText
   irValidation : validateIR ir = .ok ()
   moduleHostImportsSafety : WATModuleHostImportsSafeV1 ir
+  moduleMethodExportsSafety : WATModuleMethodExportsSafeV1 ir
   moduleFnReferencesSafety : WATModuleFnReferencesSafeV1 ir
   moduleMemorySafety : WATModuleMemorySafeV1 ir
   methodEmission :
@@ -3736,6 +3798,8 @@ theorem validatedReadOnlyWATModuleEmissionV1_of_irEmissionV1
         methodText hmethodEmission.1.1
     irValidation := irEmissionV1_validateIR ir files hirEmission
     moduleHostImportsSafety := validateIR_watModuleHostImportsSafeV1 ir <|
+      irEmissionV1_validateIR ir files hirEmission
+    moduleMethodExportsSafety := validateIR_watModuleMethodExportsSafeV1 ir <|
       irEmissionV1_validateIR ir files hirEmission
     moduleFnReferencesSafety := validateIR_watModuleFnReferencesSafeV1 ir <|
       irEmissionV1_validateIR ir files hirEmission

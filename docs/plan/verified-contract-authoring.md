@@ -1204,8 +1204,11 @@ expression translator：
     internal pureFn reference consistency也已进入该 chain：source-order FnIR signature binding以及
     methods/pureFns中所有 nested `callFn` 的 resolvable index/exact arity必须成立，成功 validation的
     kernel witness由 complete-module carrier保留，使 renderer的 unknown-function fallback在 validated
-    IR上不可达。下一顺序是显式收束 method/export name、identity与 ordering证书，再进入 locked
-    `wat2wasm`可信 identity边界、Wasm binary execution与完整 NEAR host simulation。
+    IR上不可达。method/export consistency也已显式闭合：ordered MethodIR rows必须与 source
+    initializer+entries的 name、raw ABI parameter metadata及 mode exact一致，safe/unique/non-memory
+    export约束继续来自 canonical Plan validation；证书同样由 complete-module carrier保留。下一步
+    进入 textual WAT consumer的可信边界（canonical parse/re-render identity或 locked `wat2wasm`
+    identity/correctness），随后才是 Wasm binary execution与完整 NEAR host simulation。
     上述各层未闭合前，完整 WAT文本、Wasm binary和最终 NEAR artifact仍不得标记为 target-refined或
     artifact verified。
 

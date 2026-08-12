@@ -15234,3 +15234,20 @@ normative: false
   textual WAT提取 symbol/call；它不证明 WAT parser/consumer、locked `wat2wasm`、Wasm binary或 NEAR
   runtime refinement。没有新增 DSL State/Effect/evaluator/step；整体 assurance仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR ordered method/export identity consistency
+
+- `validateWATModuleMethodExportsV1` 将 production MethodIR table按 source order绑定到 canonical
+  `#[initializer] ++ entries`：每一行必须保留 exact method name、raw ABI parameter metadata与 method
+  mode。source Plan的既有唯一 validator继续负责 identifier safety、export uniqueness及与固定
+  `memory` export不冲突；sole WAT renderer与 sole ABI renderer因此共享同一个 validated method
+  identity/order authority。
+- production `validateIR` 已组合该 gate；成功验证投影为
+  `WATModuleMethodExportsSafeV1` kernel witness并由 complete-module emission carrier保留。真实
+  production IR正例，以及 forged export name、reordered rows、forged ABI metadata和完整
+  `validateIR` rejection负例已固定。method operations的 exact Plan→IR binding仍由既有
+  `validateIRCore` / `expectedMethods` 路径负责，没有新增 lowering、WAT/ABI renderer或 parser。
+- 该 slice证明 generated typed module的 method/export identity、signature metadata与 ordering一致性，
+  不证明 JSON/WAT consumer consistency，也不解释 method body；locked `wat2wasm`、Wasm binary与
+  NEAR runtime simulation仍未闭合。没有新增 DSL State/Effect/evaluator/step；整体 assurance仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
