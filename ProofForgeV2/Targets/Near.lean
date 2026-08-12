@@ -254,6 +254,43 @@ theorem capabilityEntryStaticEmissionV1_validatedReadOnlyMethodWATEmissionV1
       hmemory
   ⟩
 
+/-- The same capability chain owns the complete validated-IR production module
+    framing around the selected validated typed-WAT method. This still does not
+    parse or generally validate textual WAT, Wasm binaries, or NEAR execution. -/
+theorem capabilityEntryStaticEmissionV1_validatedReadOnlyWATModuleEmissionV1
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (binding : UInt64StateBindingV1)
+    (viewName : String)
+    (method : Method)
+    (markerRegion fieldRegion : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (hchain :
+      CapabilityEntryStaticEmissionV1 capability program data plan ir files
+        entryIndex binding viewName method markerRegion fieldRegion methodIR
+          watFile abiFile watMethodText abiMethodText)
+    (hmemory :
+      ir.memory.valueOffset + 8 ≤
+        ir.memory.minPages * wasmPageBytes) :
+    ValidatedReadOnlyWATModuleEmissionV1 ir (entryIndex + 1) methodIR
+      watFile.contents watMethodText
+      (nullaryUInt64ViewWATV1 ir.registers ir.memory markerRegion
+        plan.storage.markerValue fieldRegion) := by
+  exact validatedReadOnlyWATModuleEmissionV1_of_irEmissionV1 ir files
+    (entryIndex + 1) methodIR watFile.contents watMethodText _
+    hchain.baseEmission.irEmission
+    (capabilityEntryStaticEmissionV1_validatedReadOnlyMethodWATEmissionV1
+      capability program data plan ir files entryIndex binding viewName method
+      markerRegion fieldRegion methodIR watFile abiFile watMethodText
+      abiMethodText hchain hmemory)
+
 /-- A capability-scoped production entry executes in the first target recipe
     semantics whenever its logical/KV representation relation holds. This
     theorem connects the exact production Plan/IR/build chain to target

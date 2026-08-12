@@ -15172,3 +15172,17 @@ normative: false
   execution。没有新增 DSL State/Effect/evaluator/step；完整 textual WAT与最终 artifact仍不得称为
   target-refined，整体 assurance仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR generated complete-module framing identity
+
+- `WATModuleEmissionV1` 将 complete production WAT精确分解为 sole renderer拥有的 module opener、
+  imports、memory declaration、key/promise data segments、pureFns、ordered methods与 closing delimiter；
+  uniqueness theorem使任何 prefix/suffix篡改都不能继续满足同一 IR 的 module graph。
+- `ValidatedReadOnlyWATModuleEmissionV1` 将 complete generated-module graph、production
+  `validateIR = .ok ()` 与选中 method 的 validated bounded typed-WAT emission合并；public capability
+  theorem从同一个 status static-alignment/base-emission chain构造它。真实 VerifiedVault fixture固定
+  combined method index 3 witness，并证明 forged complete-WAT suffix无法满足 module relation。
+- 该关系只证明 generated complete-module **framing identity**与 typed IR validation，不解析或一般验证
+  任意 textual WAT，也没有给 surrounding pureFn/其他 method body、Wasm binary或 NEAR host execution
+  通用语义。没有新增 DSL State/Effect/evaluator/step；完整 textual WAT仍不得称 target-refined，整体
+  assurance仍为 **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

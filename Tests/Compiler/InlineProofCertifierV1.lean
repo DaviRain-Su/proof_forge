@@ -835,6 +835,21 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                 by
                   obtain ⟨watMethodText, _, hbase⟩ := hstatusBaseEmission
                   exact ⟨watMethodText, hbase.watMethodEmission⟩
+              have hstatusModuleWAT :
+                  ProofForgeV2.Targets.Near.WATModuleEmissionV1
+                    ir watFile.contents := by
+                obtain ⟨methodText, hemission⟩ := hstatusMethodWAT
+                exact methodWATEmissionV1_watModuleEmissionV1 ir 3 statusIR
+                  watFile.contents methodText hemission
+              have hforgedStatusModuleWAT :
+                  ¬ ProofForgeV2.Targets.Near.WATModuleEmissionV1 ir
+                    (watFile.contents ++ "\n;; forged") := by
+                intro hforged
+                have hsame :
+                    watFile.contents ++ "\n;; forged" = watFile.contents :=
+                  watModuleEmissionV1_unique ir _ _ hforged hstatusModuleWAT
+                have hlength := congrArg String.length hsame
+                simp at hlength
               have hforgedStatusMethodWAT :
                   ∀ methodText,
                     ¬ ProofForgeV2.Targets.Near.MethodWATEmissionV1
@@ -1059,7 +1074,7 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                                                   statusMethod alignedMarkerRegion
                                                   alignedReservesRegion statusIR watFile
                                                   abiFile watMethodText abiMethodText ∧
-                                                ValidatedReadOnlyMethodWATEmissionV1 ir 3 statusIR
+                                                ValidatedReadOnlyWATModuleEmissionV1 ir 3 statusIR
                                                   watFile.contents watMethodText
                                                   (nullaryUInt64ViewWATV1 ir.registers
                                                     ir.memory alignedMarkerRegion
@@ -1084,8 +1099,8 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                                                 hirCapability hbuildCapability
                                                 hstatusStaticAlignment hstatus hstatusIR
                                                 hwatFile habiFile
-                                            have hstatusValidatedEmission :=
-                                              capabilityEntryStaticEmissionV1_validatedReadOnlyMethodWATEmissionV1
+                                            have hstatusValidatedModuleEmission :=
+                                              capabilityEntryStaticEmissionV1_validatedReadOnlyWATModuleEmissionV1
                                                 capability semantic semanticData plan ir
                                                 baseFiles 2 statusBinding "status"
                                                 statusMethod alignedMarkerRegion
@@ -1095,20 +1110,20 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                                             have hstatusTextIdentity :=
                                               validatedReadOnlyMethodWATEmissionV1_textIdentity
                                                 ir 3 statusIR watFile.contents watMethodText _
-                                                hstatusValidatedEmission
+                                                hstatusValidatedModuleEmission.methodEmission
                                             exact ⟨watMethodText, abiMethodText,
                                               hstatusCapabilityChain,
-                                              hstatusValidatedEmission,
+                                              hstatusValidatedModuleEmission,
                                               hstatusTextIdentity.2⟩
                                           have _ :
                                               ∀ methodText instructions,
-                                                ¬ ValidatedReadOnlyMethodWATEmissionV1
+                                                ¬ ValidatedReadOnlyWATModuleEmissionV1
                                                   ir 3 statusIR
                                                   (watFile.contents ++ "\n;; forged")
                                                   methodText instructions := by
                                             intro methodText instructions hforged
-                                            exact hforgedStatusMethodWAT methodText
-                                              hforged.1.1
+                                            exact hforgedStatusModuleWAT
+                                              hforged.moduleEmission
                                           have _ :
                                               ∀ watMethodText abiMethodText,
                                                 ¬ CapabilityEntryStaticEmissionV1

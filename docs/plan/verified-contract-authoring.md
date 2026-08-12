@@ -1192,10 +1192,12 @@ expression translator：
     scratch memory access与 8-byte return width；真实 production `status` capability chain已实例化通过，
     并有逐类 fail-closed负例。complete production WAT中选中 `status` method fragment现又有 direct
     byte-for-byte exact-render identity，连接同一个 validated typed sequence；这不是 parser，也未
-    typed-model surrounding module framing。下一顺序是 complete typed WAT/Wasm module framing与
-    general module validation、locked `wat2wasm`可信 identity边界、Wasm binary execution与完整
-    NEAR host simulation。上述各层未闭合前，完整 WAT文本、Wasm binary和最终 NEAR artifact仍
-    不得标记为 target-refined或 artifact verified。
+    typed-model surrounding function body。complete generated WAT framing现也 exact绑定同一个 validated
+    production IR：module opener、imports、memory、key/promise data、pureFns、ordered methods与closing
+    delimiter都由 sole renderer graph拥有。下一顺序是 surrounding function body的通用 typed syntax/
+    module static validation、locked `wat2wasm`可信 identity边界、Wasm binary execution与完整 NEAR
+    host simulation。上述各层未闭合前，完整 WAT文本、Wasm binary和最终 NEAR artifact仍不得标记为
+    target-refined或 artifact verified。
 
 ---
 

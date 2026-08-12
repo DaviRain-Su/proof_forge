@@ -2724,6 +2724,26 @@ private def renderWat (ir : IR) : String :=
     ir.methods.toList.map (renderMethod ir promiseStr)
   renderWatBeforeMethods ir promiseStr ++ methods ++ ")\n"
 
+/-- Exact complete-module framing graph of the sole production WAT renderer.
+    `renderWatBeforeMethods` owns the module opener, imports, memory, key and
+    promise data segments, and pure functions; the ordered method renderer and
+    closing delimiter follow exactly. This is generated-text ownership from a
+    typed IR, not a parser or validator for arbitrary textual WAT. -/
+def WATModuleEmissionV1 (ir : IR) (watText : String) : Prop :=
+  let promiseStr := layoutPromiseStrings ir.memory (collectPromiseStrings ir)
+  let methods := String.intercalate "" <|
+    ir.methods.toList.map (renderMethod ir promiseStr)
+  watText = renderWatBeforeMethods ir promiseStr ++ methods ++ ")\n"
+
+/-- One production IR owns at most one complete WAT module text. -/
+theorem watModuleEmissionV1_unique
+    (ir : IR)
+    (left right : String)
+    (hleft : WATModuleEmissionV1 ir left)
+    (hright : WATModuleEmissionV1 ir right) :
+    left = right := by
+  exact hleft.trans hright.symm
+
 private theorem intercalateEmpty_eq_join (values : List String) :
     String.intercalate "" values = String.join values := by
   induction values with
@@ -2779,6 +2799,18 @@ def MethodWATEmissionV1
         ((ir.methods.toList.drop (methodIndex + 1)).map render) ∧
   ∃ before after, watText = before ++ methodsText ++ after
 
+/-- Every method-scoped production graph retains ownership of the complete
+    surrounding module framing from the same sole renderer. -/
+theorem methodWATEmissionV1_watModuleEmissionV1
+    (ir : IR)
+    (methodIndex : Nat)
+    (method : MethodIR)
+    (watText methodText : String)
+    (hemission :
+      MethodWATEmissionV1 ir methodIndex method watText methodText) :
+    WATModuleEmissionV1 ir watText := by
+  simpa [WATModuleEmissionV1, renderWat] using hemission.2.2.1
+
 /-- Production WAT emission whose selected method is wholly rendered from the
     bounded typed WAT subset. The complete base WAT remains tied to the sole
     private emitter through `MethodWATEmissionV1`. -/
@@ -2808,6 +2840,22 @@ def ValidatedReadOnlyMethodWATEmissionV1
     instructions ∧
   validateReadOnlyWATMethodV1 ir.keys ir.memory method.tempCount instructions =
     .ok ()
+
+/-- A validated production IR owns the complete generated WAT module framing,
+    while one selected method is exactly rendered from and validated against
+    the bounded typed-WAT subset. This validates the typed IR and selected
+    method syntax only; it is not general textual-WAT module validation. -/
+structure ValidatedReadOnlyWATModuleEmissionV1
+    (ir : IR)
+    (methodIndex : Nat)
+    (method : MethodIR)
+    (watText methodText : String)
+    (instructions : Array ReadOnlyWATInstructionV1) : Prop where
+  moduleEmission : WATModuleEmissionV1 ir watText
+  irValidation : validateIR ir = .ok ()
+  methodEmission :
+    ValidatedReadOnlyMethodWATEmissionV1 ir methodIndex method watText
+      methodText instructions
 
 /-- A successful bounded lowering upgrades the existing exact production text
     graph to typed WAT emission. -/
@@ -3227,6 +3275,29 @@ theorem irEmissionV1_validateIR
   | ok unit =>
       cases unit
       rfl
+
+/-- Successful sole production emission plus one validated bounded method
+    closes the validated generated-module relation without another renderer. -/
+theorem validatedReadOnlyWATModuleEmissionV1_of_irEmissionV1
+    (ir : IR)
+    (files : Array OutputFile)
+    (methodIndex : Nat)
+    (method : MethodIR)
+    (watText methodText : String)
+    (instructions : Array ReadOnlyWATInstructionV1)
+    (hirEmission : IREmissionV1 ir files)
+    (hmethodEmission :
+      ValidatedReadOnlyMethodWATEmissionV1 ir methodIndex method watText
+        methodText instructions) :
+    ValidatedReadOnlyWATModuleEmissionV1 ir methodIndex method watText
+      methodText instructions := by
+  exact {
+    moduleEmission :=
+      methodWATEmissionV1_watModuleEmissionV1 ir methodIndex method watText
+        methodText hmethodEmission.1.1
+    irValidation := irEmissionV1_validateIR ir files hirEmission
+    methodEmission := hmethodEmission
+  }
 
 /-- Derived public envelope of the private-backed emission graph. Content
     strings remain existential so the private WAT/ABI renderers are not exposed

@@ -234,6 +234,16 @@ Phase 1：实现
   substring搜索猜测归属，index ownership仍来自 ordered method graph；但它也**不是 parser**，不
   覆盖 surrounding imports/memory/data/fn/module framing，更不验证任意 textual WAT。因此只能称
   generated method-fragment exact-render identity，不能称完整 textual WAT module 已 target-refined。
+- **generated complete-module framing identity（Phase 7 第十七切）**：
+  `WATModuleEmissionV1` 直接复用 sole private production renderer 的 exact decomposition：module
+  opener之后依次为 typed IR拥有的 imports、memory declaration、key/promise data segments、pureFns、
+  ordered methods和唯一 closing delimiter。`ValidatedReadOnlyWATModuleEmissionV1` 又将这个 complete
+  generated-text graph、production `validateIR = .ok ()` 与选中 `status` 的 validated bounded
+  typed-WAT emission收束为一个 proposition；public capability façade和真实 VerifiedVault certifier
+  fixture均构造该 witness，追加 forged module suffix会因 complete-text uniqueness被拒绝。该关系
+  证明的是**由唯一 renderer 生成的完整 module framing identity**，不是任意 WAT parser/general
+  validator；它也没有给 surrounding pureFn/其他 method body通用 typed-WAT semantics。因此完整
+  textual WAT module仍不能称 target-refined。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -309,9 +319,10 @@ target success/return/log/promise/storage facts已由 strict adapter按同字段
 `MethodSemanticsV1` 已对 status exact 四操作建立 kernel target recipe execution；随后 bounded typed-WAT
 子集已由 production renderer直接消费，并把 exact typed lowering/emission/execution 与 sole Reference
 step连接；该 exact typed sequence也已通过 bounded typed-WAT static validator，且 complete production
-WAT现有选中 method fragment的 direct exact-render identity。该结果仍不是一般 Operation/WAT
-semantics：尚无 complete typed module framing、textual WAT parser/general module validator、
-surrounding module text identity、arbitrary linear memory、完整 NEAR host ABI、locked `wat2wasm`
+WAT现有选中 method fragment的 direct exact-render identity；完整 generated WAT也已由同一 validated
+IR拥有 exact module opener/imports/memory/data/pureFn/method/closing framing identity。该结果仍不是一般
+Operation/WAT semantics：尚无 textual WAT parser/general module validator、surrounding function body
+通用 typed semantics、arbitrary linear memory、完整 NEAR host ABI、locked `wat2wasm`
 correctness、Wasm binary
 execution、IR→Wasm/NEAR simulation 或 WAT↔ABI consistency theorem。
 当前仍没有 finalized Wasm/disk identity 或 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
