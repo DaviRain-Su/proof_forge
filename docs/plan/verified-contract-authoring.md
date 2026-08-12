@@ -1190,9 +1190,12 @@ expression translator：
     `KeyRegion` 注解连接 data segment，scratch memory尚不是一般线性内存。该 syntax现已有
     **bounded typed-WAT static validator**，检查 i64 constant/local、exact production key annotation、
     scratch memory access与 8-byte return width；真实 production `status` capability chain已实例化通过，
-    并有逐类 fail-closed负例。下一顺序是 production textual WAT↔typed syntax identity、locked
-    `wat2wasm`可信边界、Wasm binary execution与完整 NEAR host simulation。上述各层未闭合前，
-    WAT文本、Wasm binary和最终 NEAR artifact仍不得标记为 target-refined或 artifact verified。
+    并有逐类 fail-closed负例。complete production WAT中选中 `status` method fragment现又有 direct
+    byte-for-byte exact-render identity，连接同一个 validated typed sequence；这不是 parser，也未
+    typed-model surrounding module framing。下一顺序是 complete typed WAT/Wasm module framing与
+    general module validation、locked `wat2wasm`可信 identity边界、Wasm binary execution与完整
+    NEAR host simulation。上述各层未闭合前，完整 WAT文本、Wasm binary和最终 NEAR artifact仍
+    不得标记为 target-refined或 artifact verified。
 
 ---
 

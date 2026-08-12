@@ -205,6 +205,55 @@ theorem capabilityEntryStaticEmissionV1_validateReadOnlyWATMethodV1
         (binding.physicalFieldIndex + 1) fieldRegion hfieldLookup)
       hmemory
 
+/-- The selected production method is byte-for-byte rendered from the exact
+    bounded typed-WAT sequence and that sequence passes its static validator.
+    This closes a generated method-fragment identity boundary only; it does not
+    parse or validate arbitrary textual WAT or the complete Wasm module. -/
+theorem capabilityEntryStaticEmissionV1_validatedReadOnlyMethodWATEmissionV1
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (binding : UInt64StateBindingV1)
+    (viewName : String)
+    (method : Method)
+    (markerRegion fieldRegion : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (hchain :
+      CapabilityEntryStaticEmissionV1 capability program data plan ir files
+        entryIndex binding viewName method markerRegion fieldRegion methodIR
+          watFile abiFile watMethodText abiMethodText)
+    (hmemory :
+      ir.memory.valueOffset + 8 ≤
+        ir.memory.minPages * wasmPageBytes) :
+    ValidatedReadOnlyMethodWATEmissionV1 ir (entryIndex + 1) methodIR
+      watFile.contents watMethodText
+      (nullaryUInt64ViewWATV1 ir.registers ir.memory markerRegion
+        plan.storage.markerValue fieldRegion) := by
+  rcases hchain.staticAlignment with ⟨_, _, _, _, _, halignment⟩
+  have hlower :
+      lowerReadOnlyWATOperationsV1 ir.registers ir.memory
+          methodIR.operations =
+        some (nullaryUInt64ViewWATV1 ir.registers ir.memory markerRegion
+          plan.storage.markerValue fieldRegion) := by
+    rw [halignment.2.2.2.2.2.2]
+    exact lowerReadOnlyWATOperationsV1_nullaryUInt64View ir.registers
+      ir.memory markerRegion fieldRegion plan.storage.markerValue
+  exact ⟨
+    readOnlyMethodWATEmissionV1_of_methodWATEmissionV1 ir (entryIndex + 1)
+      methodIR watFile.contents watMethodText _
+      hchain.baseEmission.watMethodEmission hlower,
+    capabilityEntryStaticEmissionV1_validateReadOnlyWATMethodV1 capability
+      program data plan ir files entryIndex binding viewName method markerRegion
+      fieldRegion methodIR watFile abiFile watMethodText abiMethodText hchain
+      hmemory
+  ⟩
+
 /-- A capability-scoped production entry executes in the first target recipe
     semantics whenever its logical/KV representation relation holds. This
     theorem connects the exact production Plan/IR/build chain to target

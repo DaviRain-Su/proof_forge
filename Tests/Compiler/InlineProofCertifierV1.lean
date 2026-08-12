@@ -835,7 +835,7 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                 by
                   obtain ⟨watMethodText, _, hbase⟩ := hstatusBaseEmission
                   exact ⟨watMethodText, hbase.watMethodEmission⟩
-              have _ :
+              have hforgedStatusMethodWAT :
                   ∀ methodText,
                     ¬ ProofForgeV2.Targets.Near.MethodWATEmissionV1
                       ir 3 statusIR (watFile.contents ++ "\n;; forged")
@@ -1059,18 +1059,20 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                                                   statusMethod alignedMarkerRegion
                                                   alignedReservesRegion statusIR watFile
                                                   abiFile watMethodText abiMethodText ∧
-                                                ReadOnlyMethodWATEmissionV1 ir 3 statusIR
+                                                ValidatedReadOnlyMethodWATEmissionV1 ir 3 statusIR
                                                   watFile.contents watMethodText
                                                   (nullaryUInt64ViewWATV1 ir.registers
                                                     ir.memory alignedMarkerRegion
                                                     plan.storage.markerValue
                                                     alignedReservesRegion) ∧
-                                                validateReadOnlyWATMethodV1 ir.keys ir.memory
-                                                    statusIR.tempCount
-                                                    (nullaryUInt64ViewWATV1 ir.registers
-                                                      ir.memory alignedMarkerRegion
-                                                      plan.storage.markerValue
-                                                      alignedReservesRegion) = .ok () := by
+                                                ∃ before after,
+                                                  watFile.contents = before ++
+                                                    renderReadOnlyWATMethodV1 statusIR.name
+                                                      statusIR.tempCount
+                                                      (nullaryUInt64ViewWATV1 ir.registers
+                                                        ir.memory alignedMarkerRegion
+                                                        plan.storage.markerValue
+                                                        alignedReservesRegion) ++ after := by
                                             obtain ⟨watMethodText, abiMethodText,
                                                 hstatusCapabilityChain⟩ :=
                                               capabilityEntryStaticEmissionV1_of_graphs
@@ -1082,36 +1084,31 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                                                 hirCapability hbuildCapability
                                                 hstatusStaticAlignment hstatus hstatusIR
                                                 hwatFile habiFile
-                                            have hstatusTypedLowering :
-                                                lowerReadOnlyWATOperationsV1 ir.registers
-                                                    ir.memory statusIR.operations =
-                                                  some (nullaryUInt64ViewWATV1 ir.registers
-                                                    ir.memory alignedMarkerRegion
-                                                    plan.storage.markerValue
-                                                    alignedReservesRegion) := by
-                                              have halignment :=
-                                                hstatusStaticAlignment.2.2.2.2.2
-                                              rw [halignment.2.2.2.2.2.2]
-                                              exact
-                                                lowerReadOnlyWATOperationsV1_nullaryUInt64View
-                                                  ir.registers ir.memory
-                                                  alignedMarkerRegion alignedReservesRegion
-                                                  plan.storage.markerValue
-                                            have hstatusTypedValidation :=
-                                              capabilityEntryStaticEmissionV1_validateReadOnlyWATMethodV1
+                                            have hstatusValidatedEmission :=
+                                              capabilityEntryStaticEmissionV1_validatedReadOnlyMethodWATEmissionV1
                                                 capability semantic semanticData plan ir
                                                 baseFiles 2 statusBinding "status"
                                                 statusMethod alignedMarkerRegion
                                                 alignedReservesRegion statusIR watFile
                                                 abiFile watMethodText abiMethodText
                                                 hstatusCapabilityChain hmemory
+                                            have hstatusTextIdentity :=
+                                              validatedReadOnlyMethodWATEmissionV1_textIdentity
+                                                ir 3 statusIR watFile.contents watMethodText _
+                                                hstatusValidatedEmission
                                             exact ⟨watMethodText, abiMethodText,
                                               hstatusCapabilityChain,
-                                              readOnlyMethodWATEmissionV1_of_methodWATEmissionV1
-                                                ir 3 statusIR watFile.contents watMethodText _
-                                                hstatusCapabilityChain.baseEmission.watMethodEmission
-                                                hstatusTypedLowering,
-                                              hstatusTypedValidation⟩
+                                              hstatusValidatedEmission,
+                                              hstatusTextIdentity.2⟩
+                                          have _ :
+                                              ∀ methodText instructions,
+                                                ¬ ValidatedReadOnlyMethodWATEmissionV1
+                                                  ir 3 statusIR
+                                                  (watFile.contents ++ "\n;; forged")
+                                                  methodText instructions := by
+                                            intro methodText instructions hforged
+                                            exact hforgedStatusMethodWAT methodText
+                                              hforged.1.1
                                           have _ :
                                               ∀ watMethodText abiMethodText,
                                                 ¬ CapabilityEntryStaticEmissionV1

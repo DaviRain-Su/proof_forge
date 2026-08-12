@@ -15157,3 +15157,18 @@ normative: false
   `wat2wasm` correctness、Wasm binary execution或完整 NEAR host simulation。它没有新增 DSL
   State/Effect/evaluator/step；准确边界仍是 **bounded typed-WAT-refined slice**，整体 assurance仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR generated method-fragment text identity
+
+- `ValidatedReadOnlyMethodWATEmissionV1` 将 existing exact production WAT graph、bounded typed-WAT
+  lowering、sole method renderer identity与 static validator `.ok ()` 合并；direct theorem从 ordered
+  method-index split和 complete production WAT framing推出 byte-for-byte分解，选中 fragment恰为
+  `renderReadOnlyWATMethodV1 method.name method.tempCount instructions`，不是全局 substring猜测。
+- public capability theorem从 exact retained semantic、production Plan/IR/build、`status` static
+  alignment、same-emission WAT/ABI carrier及 scratch bound构造 validated emission。真实
+  VerifiedVault certifier fixture固定 method index 3 的 complete WAT含 exact validated typed fragment。
+- 该 identity仅覆盖 generated method fragment；它不解析任意 textual WAT，不 typed-model或验证
+  imports/memory/data/pureFn/module framing，也不证明 locked `wat2wasm`、Wasm binary或 NEAR host
+  execution。没有新增 DSL State/Effect/evaluator/step；完整 textual WAT与最终 artifact仍不得称为
+  target-refined，整体 assurance仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

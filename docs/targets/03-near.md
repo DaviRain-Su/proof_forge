@@ -224,6 +224,16 @@ Phase 1：实现
   local/constant/memory、unbound region与错误 return width均有负例。它仍未建模 arbitrary
   overlapping linear memory或完整 host ABI。因此本切只能称
   **bounded typed-WAT-refined slice**，不能称 textual WAT、Wasm binary或 NEAR artifact 已 refinement。
+- **`status` generated method-fragment text identity（Phase 7 第十六切）**：
+  `ValidatedReadOnlyMethodWATEmissionV1` 将 bounded typed-WAT lowering、static validator `.ok ()`、
+  sole production method renderer与既有 complete WAT emission graph收束在同一个 proposition；
+  direct identity theorem进一步给出完整 production WAT 的 byte-for-byte 分解，其中选中片段恰为
+  `renderReadOnlyWATMethodV1 name tempCount instructions`。public capability façade从同一
+  VerifiedVault `status` static-alignment/emission chain构造该 witness，真实 certifier fixture固定
+  combined method index 3 的完整 WAT确实包含该 exact validated typed fragment。这里没有通过
+  substring搜索猜测归属，index ownership仍来自 ordered method graph；但它也**不是 parser**，不
+  覆盖 surrounding imports/memory/data/fn/module framing，更不验证任意 textual WAT。因此只能称
+  generated method-fragment exact-render identity，不能称完整 textual WAT module 已 target-refined。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -298,9 +308,11 @@ width 与 exact Reference outcome 现由 generic theorem 自动推出；真实 s
 target success/return/log/promise/storage facts已由 strict adapter按同字段工程契约采集和检查。
 `MethodSemanticsV1` 已对 status exact 四操作建立 kernel target recipe execution；随后 bounded typed-WAT
 子集已由 production renderer直接消费，并把 exact typed lowering/emission/execution 与 sole Reference
-step连接；该 exact typed sequence也已通过 bounded typed-WAT static validator。该结果仍不是一般
-Operation/WAT semantics：尚无 textual WAT parser/general validator、text→typed identity theorem、
-arbitrary linear memory、完整 NEAR host ABI、locked `wat2wasm` correctness、Wasm binary
+step连接；该 exact typed sequence也已通过 bounded typed-WAT static validator，且 complete production
+WAT现有选中 method fragment的 direct exact-render identity。该结果仍不是一般 Operation/WAT
+semantics：尚无 complete typed module framing、textual WAT parser/general module validator、
+surrounding module text identity、arbitrary linear memory、完整 NEAR host ABI、locked `wat2wasm`
+correctness、Wasm binary
 execution、IR→Wasm/NEAR simulation 或 WAT↔ABI consistency theorem。
 当前仍没有 finalized Wasm/disk identity 或 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
 覆盖 corrupt storage 或 gas/profile 的通用 corpus 仍不完整；StateCell

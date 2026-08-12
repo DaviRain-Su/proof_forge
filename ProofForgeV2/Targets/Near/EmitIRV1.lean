@@ -2794,6 +2794,21 @@ def ReadOnlyMethodWATEmissionV1
   methodText =
     renderReadOnlyWATMethodV1 method.name method.tempCount instructions
 
+/-- Exact production text identity plus successful static validation for one
+    method represented by the bounded typed-WAT subset. This relation does not
+    parse arbitrary WAT: it binds the sole production renderer's exact method
+    fragment to its typed source and validator result. -/
+def ValidatedReadOnlyMethodWATEmissionV1
+    (ir : IR)
+    (methodIndex : Nat)
+    (method : MethodIR)
+    (watText methodText : String)
+    (instructions : Array ReadOnlyWATInstructionV1) : Prop :=
+  ReadOnlyMethodWATEmissionV1 ir methodIndex method watText methodText
+    instructions ∧
+  validateReadOnlyWATMethodV1 ir.keys ir.memory method.tempCount instructions =
+    .ok ()
+
 /-- A successful bounded lowering upgrades the existing exact production text
     graph to typed WAT emission. -/
 theorem readOnlyMethodWATEmissionV1_of_methodWATEmissionV1
@@ -2817,6 +2832,41 @@ theorem readOnlyMethodWATEmissionV1_of_methodWATEmissionV1
       hemission.2.1
     _ = renderReadOnlyWATMethodV1 method.name method.tempCount instructions := by
       simp [renderMethod, hlower]
+
+/-- A validated bounded emission gives a direct byte-for-byte decomposition of
+    the complete production WAT around the exact typed method rendering. This
+    is the generated method-fragment text identity boundary, not a parser or a
+    statement about the surrounding module framing. -/
+theorem validatedReadOnlyMethodWATEmissionV1_textIdentity
+    (ir : IR)
+    (methodIndex : Nat)
+    (method : MethodIR)
+    (watText methodText : String)
+    (instructions : Array ReadOnlyWATInstructionV1)
+    (hemission :
+      ValidatedReadOnlyMethodWATEmissionV1 ir methodIndex method watText
+        methodText instructions) :
+    methodText =
+        renderReadOnlyWATMethodV1 method.name method.tempCount instructions ∧
+      ∃ before after,
+        watText = before ++
+          renderReadOnlyWATMethodV1 method.name method.tempCount instructions ++
+            after := by
+  rcases hemission.1 with ⟨hmethod, _, hmethodText⟩
+  rcases hmethod with
+    ⟨_, _, _, hmethodsText, outerBefore, outerAfter, hwatText⟩
+  refine ⟨hmethodText, ?_⟩
+  refine ⟨outerBefore ++ String.intercalate ""
+      ((ir.methods.toList.take methodIndex).map
+        (renderMethod ir
+          (layoutPromiseStrings ir.memory (collectPromiseStrings ir)))),
+    String.intercalate ""
+        ((ir.methods.toList.drop (methodIndex + 1)).map
+          (renderMethod ir
+            (layoutPromiseStrings ir.memory (collectPromiseStrings ir)))) ++
+      outerAfter, ?_⟩
+  rw [hwatText, hmethodsText, hmethodText]
+  simp [String.append_assoc]
 
 private def renderMode : MethodMode → String
   | .initialize => "initialize"
