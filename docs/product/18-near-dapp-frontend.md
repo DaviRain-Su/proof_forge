@@ -53,3 +53,15 @@ Source: `templates/near-dapp-ui`.
 - Agent cheatsheet: `docs/product/near-agent-cheatsheet.md`
 - Sync/async: `docs/product/near-sync-async-api.md`
 - Catalog: `docs/product/chain-client-catalog.v1.json`
+
+## UI deployment JSON
+
+```bash
+pf build -t near
+pf deploy -t near   # optional save-only package under tx/
+pf write-ui-json -t near --address <contract-or-account>
+# → build/<target>/ui-deployment.json  (copy to template public/deployment.json)
+```
+
+Schema: `proof-forge.pf.near-ui-deployment.v1` (wasm sha, catalog network, optional contractId). Broadcast remains refused.
+

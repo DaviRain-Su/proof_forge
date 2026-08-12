@@ -137,7 +137,7 @@ enum Commands {
         /// Optional contract address for deployment.json
         #[arg(long)]
         address: Option<String>,
-        /// Network catalog id for deployment.json (default: evm.local.anvil)
+        /// Network catalog id for deployment.json (default depends on target)
         #[arg(long)]
         network_id: Option<String>,
         #[arg(long, default_value_t = 7)]
@@ -149,7 +149,7 @@ enum Commands {
         #[arg(long)]
         no_sync_artifacts: bool,
     },
-    /// Write EVM UI attachment JSON (abi/bin ± address) for templates/evm-dapp-ui
+    /// Write UI attachment JSON (evm abi/bin; near/cosmwasm wasm package ± contractId)
     WriteUiJson {
         #[arg(long, short = 't')]
         target: Option<String>,
@@ -158,7 +158,7 @@ enum Commands {
         /// Output path (default: <artifact>/ui-deployment.json)
         #[arg(long, short = 'o')]
         output: Option<PathBuf>,
-        /// Optional contract address (0x…) for attach-only UI
+        /// Optional contract address / account id for attach-only UI
         #[arg(long)]
         address: Option<String>,
         /// Network catalog id (default: evm.local.anvil)

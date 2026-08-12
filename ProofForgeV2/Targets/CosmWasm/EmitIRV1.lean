@@ -825,6 +825,12 @@ private partial def opIsFnReturnValueV1 : Operation → Bool
         updateOps.any opIsFnReturnValueV1
   | _ => false
 
+/-- cosmwasm-vm 3.x MAX_LOCALS gate for `$m_*` body temps (mw scratch counted
+    separately only when multiword ops are present — see renderMethodBody).
+    Dense Map put at cap-4 + CSE stays under this; multi-Map entries (Token.transfer)
+    fail closed until loop lowering. -/
+private def maxHostMethodLocalsV1 : Nat := 100
+
 def validateIR (ir : IR) : CompileResult Unit := do
   validatePlan ir.sourcePlan
   unless ir.name == ir.sourcePlan.programName do
@@ -846,6 +852,9 @@ def validateIR (ir : IR) : CompileResult Unit := do
     if method.tempCount > ir.sourcePlan.resourceLimits.maxMethodLocals then
       throw <| .planInvariant .cosmwasm
         s!"typed CosmWasm IR method '{method.name}' exceeds local limit {ir.sourcePlan.resourceLimits.maxMethodLocals}"
+    if method.tempCount > maxHostMethodLocalsV1 then
+      throw <| .planInvariant .cosmwasm
+        s!"typed CosmWasm IR method '{method.name}' needs {method.tempCount} Wasm temps; cosmwasm-vm MAX_LOCALS={maxHostMethodLocalsV1} — reduce Map ops per entry (pilot Map cap-4; multi-Map bodies like Token.transfer stay fail-closed until loop lowering)"
     if method.operations.any opIsFnReturnValueV1 then
       throw <| .planInvariant .cosmwasm
         s!"typed CosmWasm IR method '{method.name}' must not use pureFn returnValue ops"
@@ -853,6 +862,9 @@ def validateIR (ir : IR) : CompileResult Unit := do
     if fn.tempCount > ir.sourcePlan.resourceLimits.maxMethodLocals then
       throw <| .planInvariant .cosmwasm
         s!"typed CosmWasm IR pureFn '{fn.name}' exceeds local limit {ir.sourcePlan.resourceLimits.maxMethodLocals}"
+    if fn.tempCount > maxHostMethodLocalsV1 then
+      throw <| .planInvariant .cosmwasm
+        s!"typed CosmWasm IR pureFn '{fn.name}' needs {fn.tempCount} Wasm temps; cosmwasm-vm MAX_LOCALS={maxHostMethodLocalsV1}"
     if fn.operations.any opIsMethodOnlyV1 then
       throw <| .planInvariant .cosmwasm
         s!"typed CosmWasm IR pureFn '{fn.name}' must not use method-only host ops"

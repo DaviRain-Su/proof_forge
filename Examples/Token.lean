@@ -8,11 +8,13 @@ open ProofForgeV2.Language
 -- Account keys are UInt64 ids (not Principal — shared admits Map Principal UInt64
 -- but every materializer still only lowers Map UInt64 UInt64; T10/T12 Principal
 -- is scalar storage only). Transfer/mint use Map IndexGet/Set.
--- Dense Map UInt64→UInt64 pilot (capacity-8 occ/key/val, pure-expr expansion)
--- on EVM + Solana + NEAR + Noir:
+-- Dense Map UInt64→UInt64 pilot (capacity-8 occ/key/val on EVM/Solana/NEAR;
+-- CosmWasm pilot is **cap-4** + emit CSE for cosmwasm-vm MAX_LOCALS=100):
 --   * EVM: locked-solc finalization (creation bytecode may exceed EIP-3860)
 --   * Solana: default plan profile; MapMini opt-in ELF + Mollusk available
 --   * NEAR: deployable WAT/Wasm (wat2wasm when present)
+--   * CosmWasm: MapMini OK; multi-Map bodies (mint/transfer) fail closed at IR
+--     validate until loop lowering (host MAX_LOCALS gate)
 --   * Noir: source relations + multi-leaf public inputs (source-only maturity)
 -- Engineering runtime smokes (not formal): scripts/evm_token_anvil_smoke.sh,
 -- scripts/near_token_wasm_smoke.sh, runtime-tests/solana/fixtures/MapMini.lean.

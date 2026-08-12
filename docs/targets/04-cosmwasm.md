@@ -42,8 +42,9 @@ ArrayRet、OptionRet、OptionState、pf.assets、env-read、CallerGate、
 **ConstAnswer**（scalar Op.Constant）、**BytesRet**（anonymous Bytes 4 return）、
 **UnixTimeCheck**（`context.unixTimeSeconds`）、**PoseTransform**（named Struct Int64 pose）、**MapMini**（dense Map cap-4）。
 Dense `Map UInt64` **cap-4 + emit CSE** 已过 cosmwasm-vm MAX_LOCALS=100（MapMini runtime）。
-Cap-8 在纯表达式 upsert 下 CSE 后仍 ~197 temps，故 CosmWasm pilot 钉 cap-4；
-cap-8/loop lowering 为后续。
+Cap-8 在纯表达式 upsert 下 CSE 后仍 ~197 temps，故 CosmWasm pilot 钉 cap-4。
+多 Map 更新体（`Examples/Token` mint/transfer）在 IR validate 层 **fail closed**
+（host MAX_LOCALS=100）；loop lowering 前勿当 deployable。
 另有 `scripts/cosmwasm_wasmd_test.sh` 的 wasmd v0.70.3 Docker 工程 rung，覆盖 Counter
 与 ScheduleFlow 子消息失败导致 whole-tx abort。两者都不是主网、formal 或 hermetic evidence。
 

@@ -53,3 +53,15 @@ Sidecar: `<Program>.cosmwasm-abi.json` (`proof-forge-cosmwasm-abi/v1alpha1`).
 - Agent cheatsheet: `docs/product/cosmwasm-agent-cheatsheet.md`
 - Dossier: `docs/targets/04-cosmwasm.md`
 - Catalog: `docs/product/chain-client-catalog.v1.json`
+
+## UI deployment JSON
+
+```bash
+pf build -t cosmwasm
+pf deploy -t cosmwasm   # optional save-only package under tx/
+pf write-ui-json -t cosmwasm --address <contract-or-account>
+# → build/<target>/ui-deployment.json  (copy to template public/deployment.json)
+```
+
+Schema: `proof-forge.pf.cosmwasm-ui-deployment.v1` (wasm sha, catalog network, optional contractId). Broadcast remains refused.
+

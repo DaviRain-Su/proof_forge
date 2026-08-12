@@ -1,9 +1,17 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DEFAULT_NETWORK, NETWORKS, type CwNetwork } from "./config";
+import { loadDeployment, type CwUiDeployment } from "./deployment";
 
 export function App() {
   const [network, setNetwork] = useState<CwNetwork>(DEFAULT_NETWORK);
   const [contract, setContract] = useState("pf1…");
+  const [dep, setDep] = useState<CwUiDeployment | null>(null);
+  useEffect(() => {
+    void loadDeployment().then((d) => {
+      setDep(d);
+      if (d?.contractId) setContract(d.contractId);
+    });
+  }, []);
   const note = useMemo(
     () =>
       `Build: pf build -t cosmwasm\n` +
@@ -44,6 +52,14 @@ export function App() {
         <input value={contract} onChange={(e) => setContract(e.target.value)} />
       </label>
 
+      {dep && (
+        <pre className="note">
+          loaded deployment.json{"\n"}
+          program={dep.program ?? "?"} network={dep.network ?? "?"}{"\n"}
+          contractId={dep.contractId ?? "(none)"}{"\n"}
+          wasmSha256={dep.wasmSha256 ?? "?"}
+        </pre>
+      )}
       <pre className="note">{note}</pre>
       <p className="muted">
         Wire <code>@cosmjs/cosmwasm-stargate</code> query/execute against the

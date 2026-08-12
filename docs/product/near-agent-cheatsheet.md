@@ -46,6 +46,7 @@ pf deploy -t near --network local
 # → <artifact>/tx/<Program>.deployment.package.json
 
 # 5) Frontend skeleton (ecosystem near-api-js; no wallet keys in PF)
+pf write-ui-json -t near --address <id>
 pf scaffold-ui --template near-dapp
 # detail: docs/product/18-near-dapp-frontend.md
 

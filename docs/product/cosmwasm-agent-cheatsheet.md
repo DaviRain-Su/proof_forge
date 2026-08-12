@@ -41,6 +41,7 @@ pf deploy -t cosmwasm --network local
 # → <artifact>/tx/<Program>.deployment.package.json
 
 # 5) Frontend skeleton (ecosystem cosmjs; no keys in PF)
+pf write-ui-json -t cosmwasm --address <id>
 pf scaffold-ui --template cosmwasm-dapp
 # detail: docs/product/17-cosmwasm-dapp-frontend.md
 
@@ -84,7 +85,8 @@ See also cross-chain table in `docs/product/near-sync-async-api.md`.
 - Generic sync `call` (non-catalog)
 - query/view `context.caller`
 - Map return (named/Array/Option/**Bytes N** return open)
-- dense Map **cap-4** runtime open (cap-8 still exceeds cosmwasm-vm MAX_LOCALS without loop lowering)
+- dense Map **cap-4** runtime open (MapMini); multi-Map entries (Token mint/transfer) FC at IR (MAX_LOCALS=100)
+- Map cap-8 / loop lowering not yet
 - nonempty source **invariants** (scalar constants open)
 - public `pf deploy --broadcast`
 - IBC / migrate / reply entry (not in MVP)

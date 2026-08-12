@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DEFAULT_NETWORK, NETWORKS, type NearNetwork } from "./config";
+import { loadDeployment, type NearUiDeployment } from "./deployment";
 
 /**
  * Skeleton UI: paste contract account + optional view helper notes.
@@ -10,6 +11,10 @@ export function App() {
   const [network, setNetwork] = useState<NearNetwork>(DEFAULT_NETWORK);
   const [accountId, setAccountId] = useState("test.near");
   const [method, setMethod] = useState("get");
+  const [dep, setDep] = useState<NearUiDeployment | null>(null);
+  useEffect(() => {
+    void loadDeployment().then(setDep);
+  }, []);
   const note = useMemo(
     () =>
       `Build: pf build -t near && pf deploy -t near (save-only package).\n` +
@@ -54,6 +59,14 @@ export function App() {
         <input value={method} onChange={(e) => setMethod(e.target.value)} />
       </label>
 
+      {dep && (
+        <pre className="note">
+          loaded deployment.json{"\n"}
+          program={dep.program ?? "?"} network={dep.network ?? "?"}{"\n"}
+          contractId={dep.contractId ?? "(none)"}{"\n"}
+          wasmSha256={dep.wasmSha256 ?? "?"}
+        </pre>
+      )}
       <pre className="note">{note}</pre>
       <p className="muted">
         Wire near-api-js <code>Contract</code> / wallet-selector yourself against{" "}
