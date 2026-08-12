@@ -18,6 +18,12 @@ Phase 1：实现
 `planFromCapability` 读取 retained `SemanticProgramV1`，structure-gate 后 private lowering；
 module 内无 alpha residual Plan route。carrier/identity 为 `CompiledSemanticV1` + canonical Digests。
 
+**产品面（CLI）**：`pf test -t solana` → Mollusk（`scripts/pf_solana_test.sh`；bundle 无 harness
+时 skip-clean）；`pf run -t solana -- <method> [u64…]` → one-shot Mollusk
+（`scripts/pf_solana_run.sh` → `sol_oneshot`；**body-only StateCell-shaped**；
+auto-init 默认 0；CPI multi-role 仍走 `pf test`）；`pf verify -t solana` offline joins；
+`pf deploy` save-only（`--broadcast` 仅 local）。engineering only，非 formal / 非 mainnet。
+
 **工程已接线（摘）**：
 
 - Normalize 当前可 lower 的控制流/算术/fn/for/shift/bitwise/revert/emit 等子集（非完整 Semantic 面）；

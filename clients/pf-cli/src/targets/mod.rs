@@ -60,7 +60,7 @@ pub fn capability_note(target: &str) -> &'static str {
             "build + `pf test` (Anvil) + `pf run` (one-shot Anvil) + `pf deploy` (save-only; --broadcast local only)"
         }
         TargetId::Solana => {
-            "build + `pf test` (Mollusk) + `pf verify` + `pf deploy` (save-only; --broadcast local only)"
+            "build + `pf test` (Mollusk) + `pf run` (one-shot Mollusk, body-only) + `pf verify` + `pf deploy` (save-only; --broadcast local only)"
         }
         TargetId::Psy => {
             "build DPN + `pf test` (session) + `pf run` (simulate) + `pf deploy` wraps psy_user_cli deploy-contract"
@@ -93,6 +93,7 @@ mod tests {
         assert!(capability_note("evm").contains("pf test"));
         assert!(capability_note("evm").contains("pf run"));
         assert!(capability_note("solana").contains("pf verify"));
+        assert!(capability_note("solana").contains("pf run"));
         assert!(capability_note("psy").contains("psy_user_cli"));
         assert!(capability_note("near").contains("save-only"));
         assert!(capability_note("near").contains("broadcast refused"));

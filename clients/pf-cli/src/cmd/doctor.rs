@@ -350,15 +350,36 @@ fn collect_deps(target: &str) -> Vec<Dep> {
                     path: None,
                 }),
             }
+            match crate::targets::solana::local_run::resolve_solana_run_script() {
+                Ok(p) => deps.push(Dep {
+                    id: "solana-run-script",
+                    status: "ok",
+                    summary: "pf_solana_run.sh for pf run -t solana one-shot Mollusk".into(),
+                    install: vec![],
+                    path: Some(p.display().to_string()),
+                }),
+                Err(_) => deps.push(Dep {
+                    id: "solana-run-script",
+                    status: "info",
+                    summary: "pf run -t solana needs scripts/pf_solana_run.sh (bundle/monorepo)"
+                        .into(),
+                    install: vec![
+                        "# monorepo: scripts/pf_solana_run.sh".into(),
+                        "# or use: pf test -t solana / pf verify -t solana".into(),
+                    ],
+                    path: None,
+                }),
+            }
             deps.push(Dep {
                 id: "solana-mollusk-harness",
                 status: "info",
-                summary: "full pf test Mollusk needs monorepo runtime-tests/solana + cargo; else skip-clean"
+                summary: "full pf test / pf run Mollusk needs monorepo runtime-tests/solana + cargo; else skip-clean"
                     .into(),
                 install: vec![
                     "# offline joins without Mollusk (external authors):".into(),
                     "pf verify -t solana".into(),
                     "# full Mollusk: monorepo checkout with runtime-tests/solana".into(),
+                    "# pf run -t solana -- get   # body-only oneshot".into(),
                 ],
                 path: None,
             });
@@ -892,6 +913,8 @@ fn next_commands(target: &str) -> Vec<String> {
             "pf new counter --target solana && cd counter".into(),
             "pf build && pf verify           # verify needs solana-client".into(),
             "pf test                         # Mollusk if monorepo harness; else skip-clean".into(),
+            "pf run -- get                   # one-shot Mollusk (body-only; monorepo)".into(),
+            "pf run -- increment 5           # mutate path".into(),
             "pf scaffold-ui --template solana-dapp".into(),
         ],
         "evm" => vec![

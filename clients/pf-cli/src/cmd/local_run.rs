@@ -49,9 +49,29 @@ pub fn run(
         });
     }
     if tid == targets::TargetId::Solana {
-        return Err(PfError::NotImplemented(
-            "solana: use `pf verify -t solana` (offline) or `pf test -t solana` (Mollusk)".into(),
-        ));
+        let dir = project.resolve_artifact_dir(&target, artifact_cli, None);
+        let outcome = targets::solana::local_run::run_local(&dir, call_args)?;
+        let mut ok = PfOk::new("run");
+        ok.target = Some(target.clone());
+        ok.artifact_dir = Some(dir.display().to_string());
+        ok.extra = Some(serde_json::json!({
+            "lane": "solana-mollusk-oneshot",
+            "method": call_args.first(),
+            "stdout": outcome.stdout.trim(),
+            "skipped": outcome.skipped,
+            "script": outcome.script_path.display().to_string(),
+            "note": "engineering Mollusk only; body-only StateCell-shaped; not mainnet; CPI → pf test",
+        }));
+        return emit(ok, json, || {
+            if outcome.skipped {
+                println!("solana run skipped (tools missing):\n{}", outcome.stderr);
+            } else {
+                print!("{}", outcome.stdout);
+                if verbose {
+                    eprint!("{}", outcome.stderr);
+                }
+            }
+        });
     }
     if tid == targets::TargetId::Near {
         let dir = project.resolve_artifact_dir(&target, artifact_cli, None);
