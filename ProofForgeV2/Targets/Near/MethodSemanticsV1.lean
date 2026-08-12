@@ -3,14 +3,15 @@ import ProofForgeV2.Targets.Near.StaticAlignmentV1
 /-!
 # NEAR MethodSemanticsV1
 
-Target-level execution semantics for the first, deliberately small NEAR
-`MethodIR` refinement slice.
+Target-level execution semantics for the deliberately bounded NEAR `MethodIR`
+refinement slice.
 
 Unlike the Reference machine, this module does not interpret a ProofForge
-business program. It executes the public target recipe operations emitted for
-one nullary UInt64 view. Every operation outside that exact read-only subset is
-rejected. The resulting theorems therefore connect production `MethodIR` to
-Reference observations without creating a second contract semantics.
+business program. It executes the public target recipe operations admitted by
+the selected view and initializer slices. Every operation outside that bounded
+subset is rejected. The resulting theorems therefore connect production
+`MethodIR` to Reference observations without creating a second contract
+semantics.
 
 This is not WAT, Wasm, or NEAR protocol semantics. Correctness of
 `renderOperation`, locked `wat2wasm`, finalized bytes, and the NEAR host remains
@@ -23,10 +24,12 @@ open ProofForgeV2.Semantic.InvariantABI
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
 
-/-- Fail-closed errors for the first target recipe execution subset. -/
+/-- Fail-closed errors for the bounded target recipe execution subset. -/
 inductive ReadOnlyMethodErrorV1 where
   | inputLengthMismatch
+  | attachedDepositNotZero
   | storageMissing
+  | storageAlreadyPresent
   | storageWidthMismatch
   | layoutMismatch
   | temporaryOutOfBounds
@@ -34,11 +37,13 @@ inductive ReadOnlyMethodErrorV1 where
   | unsupportedOperation
   deriving BEq, Repr
 
-/-- Machine state for the read-only `MethodIR` subset. Storage and input are
-    immutable observations; only Wasm-like UInt64 locals and return data
-    evolve. -/
+/-- Machine state for the sole bounded `MethodIR` subset. Input and attached
+    deposit are immutable host observations; storage, Wasm-like UInt64 locals,
+    and return data evolve. -/
 structure ReadOnlyMethodMachineV1 where
   input : ByteArray
+  attachedDepositLow : UInt64
+  attachedDepositHigh : UInt64
   storage : StorageObservationV1
   tempCount : Nat
   temps : Nat → Option UInt64
@@ -47,13 +52,32 @@ structure ReadOnlyMethodMachineV1 where
 private def initialReadOnlyMethodMachineV1
     (method : MethodIR)
     (input : ByteArray)
+    (attachedDepositLow attachedDepositHigh : UInt64)
     (storage : StorageObservationV1) : ReadOnlyMethodMachineV1 := {
   input
+  attachedDepositLow
+  attachedDepositHigh
   storage
   tempCount := method.tempCount
   temps := fun _ => none
   returnData := none
 }
+
+/-- Functional update of one observed NEAR KV row. This is the sole physical
+    storage update primitive shared by MethodIR and typed-WAT execution. -/
+def writeStorageObservationV1
+    (storage : StorageObservationV1)
+    (key : String)
+    (value : ByteArray) : StorageObservationV1 := {
+  lookup := fun candidate =>
+    if candidate = key then some value else storage.lookup candidate
+}
+
+private def writeReadOnlyMethodStorageV1
+    (machine : ReadOnlyMethodMachineV1)
+    (key : String)
+    (value : ByteArray) : ReadOnlyMethodMachineV1 :=
+  { machine with storage := writeStorageObservationV1 machine.storage key value }
 
 private def writeReadOnlyTempV1
     (machine : ReadOnlyMethodMachineV1)
@@ -76,14 +100,22 @@ private def readReadOnlyTempV1
   else
     .error .temporaryOutOfBounds
 
-/-- One target recipe step. The only admitted instructions are the four used
-    by the production nullary UInt64 view recipe. -/
+/-- One target recipe step for the sole bounded MethodIR semantics. -/
 def stepReadOnlyMethodOperationV1
     (machine : ReadOnlyMethodMachineV1) :
     Operation → Except ReadOnlyMethodErrorV1 ReadOnlyMethodMachineV1
   | .checkInputLen expected =>
       if machine.input.size = expected then .ok machine
       else .error .inputLengthMismatch
+  | .requireZeroAttachedDeposit =>
+      if machine.attachedDepositLow = 0 ∧ machine.attachedDepositHigh = 0 then
+        .ok machine
+      else
+        .error .attachedDepositNotZero
+  | .requireLayoutAbsent marker =>
+      match machine.storage.lookup marker.key with
+      | none => .ok machine
+      | some _ => .error .storageAlreadyPresent
   | .requireLayout marker expected =>
       match machine.storage.lookup marker.key with
       | none => .error .storageMissing
@@ -93,6 +125,13 @@ def stepReadOnlyMethodOperationV1
             else .error .layoutMismatch
           else
             .error .storageWidthMismatch
+  | .zeroState field =>
+      match machine.storage.lookup field.key with
+      | none =>
+          .ok (writeReadOnlyMethodStorageV1 machine field.key (encodeU64le 0))
+      | some _ => .error .storageAlreadyPresent
+  | .literal destination value =>
+      writeReadOnlyTempV1 machine destination value
   | .loadState destination field =>
       match machine.storage.lookup field.key with
       | none => .error .storageMissing
@@ -102,6 +141,24 @@ def stepReadOnlyMethodOperationV1
               (UInt64.ofNat (leBytesToNatV1 bytes))
           else
             .error .storageWidthMismatch
+  | .storeState field source =>
+      match machine.storage.lookup field.key with
+      | none => .error .storageMissing
+      | some oldBytes =>
+          if oldBytes.size = 8 then
+            match readReadOnlyTempV1 machine source with
+            | .ok value =>
+                .ok (writeReadOnlyMethodStorageV1 machine field.key
+                  (encodeU64le value))
+            | .error error => .error error
+          else
+            .error .storageWidthMismatch
+  | .setLayout marker value =>
+      match machine.storage.lookup marker.key with
+      | none =>
+          .ok (writeReadOnlyMethodStorageV1 machine marker.key
+            (encodeU64le value))
+      | some _ => .error .storageAlreadyPresent
   | .setReturnData byteLen source =>
       if byteLen = 8 then
         match readReadOnlyTempV1 machine source with
@@ -126,15 +183,63 @@ inductive ReadOnlyMethodOutcomeV1 where
   | trapped (error : ReadOnlyMethodErrorV1)
   deriving BEq, Repr
 
-/-- Execute one production `MethodIR` in the first target semantics slice. -/
+/-- Successful bounded MethodIR execution includes the post-storage snapshot.
+    Failure omits machine state, so callers necessarily observe transactional
+    rollback to the supplied pre-storage snapshot. -/
+inductive MethodExecutionOutcomeV1 where
+  | returned (returnData : Option ByteArray) (postStorage : StorageObservationV1)
+  | trapped (error : ReadOnlyMethodErrorV1)
+
+/-- Execute one production `MethodIR` in the sole bounded target semantics. -/
+def executeMethodV1
+    (method : MethodIR)
+    (input : ByteArray)
+    (attachedDepositLow attachedDepositHigh : UInt64)
+    (storage : StorageObservationV1) : MethodExecutionOutcomeV1 :=
+  match runReadOnlyMethodOperationsV1 method.operations.toList
+      (initialReadOnlyMethodMachineV1 method input attachedDepositLow
+        attachedDepositHigh storage) with
+  | .ok machine => .returned machine.returnData machine.storage
+  | .error error => .trapped error
+
+/-- Historical read-only projection. It uses a zero attached deposit and drops
+    post-storage only after the shared evaluator has completed. -/
 def executeReadOnlyMethodV1
     (method : MethodIR)
     (input : ByteArray)
     (storage : StorageObservationV1) : ReadOnlyMethodOutcomeV1 :=
-  match runReadOnlyMethodOperationsV1 method.operations.toList
-      (initialReadOnlyMethodMachineV1 method input storage) with
-  | .ok machine => .returned machine.returnData
-  | .error error => .trapped error
+  match executeMethodV1 method input 0 0 storage with
+  | .returned returnData _ => .returned returnData
+  | .trapped error => .trapped error
+
+/-- Canonical call observation derived from bounded MethodIR execution. -/
+def observeMethodV1
+    (method : MethodIR)
+    (input : ByteArray)
+    (attachedDepositLow attachedDepositHigh : UInt64)
+    (storage : StorageObservationV1) : CallObservationV1 :=
+  match executeMethodV1 method input attachedDepositLow attachedDepositHigh
+      storage with
+  | .returned returnData postStorage => {
+      exportName := method.name
+      input
+      returnData
+      failureObserved := false
+      logs := #[]
+      promises := #[]
+      preStorage := storage
+      postStorage
+    }
+  | .trapped _ => {
+      exportName := method.name
+      input
+      returnData := none
+      failureObserved := true
+      logs := #[]
+      promises := #[]
+      preStorage := storage
+      postStorage := storage
+    }
 
 /-- Canonical call observation derived from target recipe execution. Storage
     is unchanged by construction and this subset has no logs or promises. -/
@@ -192,10 +297,312 @@ theorem executeReadOnlyMethodV1_nullaryUInt64View
   have hroundtrip :
       encodeU64le (UInt64.ofNat (leBytesToNatV1 fieldBytes)) = fieldBytes :=
     encodeU64le_uint64OfLeBytesToNatV1_of_size fieldBytes hfieldSize
-  simp [executeReadOnlyMethodV1, runReadOnlyMethodOperationsV1,
+  simp [executeReadOnlyMethodV1, executeMethodV1,
+    runReadOnlyMethodOperationsV1,
     initialReadOnlyMethodMachineV1, stepReadOnlyMethodOperationV1,
     writeReadOnlyTempV1, readReadOnlyTempV1, hmarker, hfield, hfieldSize,
     hroundtrip, encodeU64le_size, Bind.bind, Except.bind]
+
+/-- Exact post-storage produced by the selected two-UInt64 initializer recipe.
+    The repeated field writes are retained because they correspond exactly to
+    the production zero-state prologue followed by the initializer body. -/
+def zeroTwoUInt64InitializerPostStorageV1
+    (storage : StorageObservationV1)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64) : StorageObservationV1 :=
+  writeStorageObservationV1
+    (writeStorageObservationV1
+      (writeStorageObservationV1
+        (writeStorageObservationV1
+          (writeStorageObservationV1 storage field0.key (encodeU64le 0))
+          field1.key (encodeU64le 0))
+        field0.key (encodeU64le 0))
+      field1.key (encodeU64le 0))
+    marker.key (encodeU64le markerValue)
+
+/-- Exact execution of the production MethodIR recipe for the selected
+    nullary, two-UInt64 zero initializer. -/
+theorem executeMethodV1_nullaryZeroTwoUInt64Initializer
+    (initializerName : String)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64)
+    (storage : StorageObservationV1)
+    (hmarker : storage.lookup marker.key = none)
+    (hfield0 : storage.lookup field0.key = none)
+    (hfield1 : storage.lookup field1.key = none)
+    (hfield10 : field1.key ≠ field0.key)
+    (hmarker0 : marker.key ≠ field0.key)
+    (hmarker1 : marker.key ≠ field1.key) :
+    executeMethodV1 {
+      name := initializerName
+      params := #[]
+      mode := .initialize
+      tempCount := 2
+      operations := #[
+        .checkInputLen 0,
+        .requireZeroAttachedDeposit,
+        .requireLayoutAbsent marker,
+        .zeroState field0,
+        .zeroState field1,
+        .literal 0 0,
+        .storeState field0 0,
+        .literal 1 0,
+        .storeState field1 1,
+        .setLayout marker markerValue
+      ]
+    } ByteArray.empty 0 0 storage =
+      .returned none
+        (zeroTwoUInt64InitializerPostStorageV1 storage marker field0 field1
+          markerValue) := by
+  simp [executeMethodV1, runReadOnlyMethodOperationsV1,
+    initialReadOnlyMethodMachineV1, stepReadOnlyMethodOperationV1,
+    writeReadOnlyTempV1, readReadOnlyTempV1, writeReadOnlyMethodStorageV1,
+    writeStorageObservationV1, zeroTwoUInt64InitializerPostStorageV1,
+    hmarker, hfield0, hfield1, hfield10, hmarker0, hmarker1,
+    encodeU64le_size, Bind.bind, Except.bind]
+
+/-- Nonempty ABI input rejects initialization before deposit or storage is
+    inspected. -/
+theorem executeMethodV1_nullaryZeroTwoUInt64Initializer_nonempty_input
+    (initializerName : String)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64)
+    (input : ByteArray)
+    (storage : StorageObservationV1)
+    (hinput : input.size ≠ 0) :
+    executeMethodV1 {
+      name := initializerName
+      params := #[]
+      mode := .initialize
+      tempCount := 2
+      operations := #[
+        .checkInputLen 0,
+        .requireZeroAttachedDeposit,
+        .requireLayoutAbsent marker,
+        .zeroState field0,
+        .zeroState field1,
+        .literal 0 0,
+        .storeState field0 0,
+        .literal 1 0,
+        .storeState field1 1,
+        .setLayout marker markerValue
+      ]
+    } input 0 0 storage = .trapped .inputLengthMismatch := by
+  simp [executeMethodV1, runReadOnlyMethodOperationsV1,
+    initialReadOnlyMethodMachineV1, stepReadOnlyMethodOperationV1, hinput,
+    Bind.bind, Except.bind]
+
+/-- An existing layout marker rejects re-initialization before any write. -/
+theorem executeMethodV1_nullaryZeroTwoUInt64Initializer_double_init
+    (initializerName : String)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64)
+    (markerBytes : ByteArray)
+    (storage : StorageObservationV1)
+    (hmarker : storage.lookup marker.key = some markerBytes) :
+    executeMethodV1 {
+      name := initializerName
+      params := #[]
+      mode := .initialize
+      tempCount := 2
+      operations := #[
+        .checkInputLen 0,
+        .requireZeroAttachedDeposit,
+        .requireLayoutAbsent marker,
+        .zeroState field0,
+        .zeroState field1,
+        .literal 0 0,
+        .storeState field0 0,
+        .literal 1 0,
+        .storeState field1 1,
+        .setLayout marker markerValue
+      ]
+    } ByteArray.empty 0 0 storage = .trapped .storageAlreadyPresent := by
+  simp [executeMethodV1, runReadOnlyMethodOperationsV1,
+    initialReadOnlyMethodMachineV1, stepReadOnlyMethodOperationV1, hmarker,
+    Bind.bind, Except.bind]
+
+/-- A nonzero low attached-deposit limb rejects initialization before storage
+    is inspected or changed. -/
+theorem executeMethodV1_nullaryZeroTwoUInt64Initializer_nonzero_deposit
+    (initializerName : String)
+    (marker field0 field1 : KeyRegion)
+    (markerValue depositLow : UInt64)
+    (storage : StorageObservationV1)
+    (hdeposit : depositLow ≠ 0) :
+    executeMethodV1 {
+      name := initializerName
+      params := #[]
+      mode := .initialize
+      tempCount := 2
+      operations := #[
+        .checkInputLen 0,
+        .requireZeroAttachedDeposit,
+        .requireLayoutAbsent marker,
+        .zeroState field0,
+        .zeroState field1,
+        .literal 0 0,
+        .storeState field0 0,
+        .literal 1 0,
+        .storeState field1 1,
+        .setLayout marker markerValue
+      ]
+    } ByteArray.empty depositLow 0 storage =
+      .trapped .attachedDepositNotZero := by
+  simp [executeMethodV1, runReadOnlyMethodOperationsV1,
+    initialReadOnlyMethodMachineV1, stepReadOnlyMethodOperationV1, hdeposit,
+    Bind.bind, Except.bind]
+
+/-- A nonzero high attached-deposit limb is rejected by the same u128 deposit
+    gate before storage is inspected or changed. -/
+theorem executeMethodV1_nullaryZeroTwoUInt64Initializer_nonzero_deposit_high
+    (initializerName : String)
+    (marker field0 field1 : KeyRegion)
+    (markerValue depositHigh : UInt64)
+    (storage : StorageObservationV1)
+    (hdeposit : depositHigh ≠ 0) :
+    executeMethodV1 {
+      name := initializerName
+      params := #[]
+      mode := .initialize
+      tempCount := 2
+      operations := #[
+        .checkInputLen 0,
+        .requireZeroAttachedDeposit,
+        .requireLayoutAbsent marker,
+        .zeroState field0,
+        .zeroState field1,
+        .literal 0 0,
+        .storeState field0 0,
+        .literal 1 0,
+        .storeState field1 1,
+        .setLayout marker markerValue
+      ]
+    } ByteArray.empty 0 depositHigh storage =
+      .trapped .attachedDepositNotZero := by
+  simp [executeMethodV1, runReadOnlyMethodOperationsV1,
+    initialReadOnlyMethodMachineV1, stepReadOnlyMethodOperationV1, hdeposit,
+    Bind.bind, Except.bind]
+
+/-- The selected initializer's final marker row is canonical. -/
+theorem zeroTwoUInt64InitializerPostStorageV1_lookup_marker
+    (storage : StorageObservationV1)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64) :
+    (zeroTwoUInt64InitializerPostStorageV1 storage marker field0 field1
+      markerValue).lookup marker.key = some (encodeU64le markerValue) := by
+  simp [zeroTwoUInt64InitializerPostStorageV1, writeStorageObservationV1]
+
+/-- The selected initializer's first field row is canonical UInt64 zero. -/
+theorem zeroTwoUInt64InitializerPostStorageV1_lookup_field0
+    (storage : StorageObservationV1)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64)
+    (hfield10 : field1.key ≠ field0.key)
+    (hmarker0 : marker.key ≠ field0.key) :
+    (zeroTwoUInt64InitializerPostStorageV1 storage marker field0 field1
+      markerValue).lookup field0.key = some (encodeU64le 0) := by
+  simp [zeroTwoUInt64InitializerPostStorageV1, writeStorageObservationV1,
+    hfield10.symm, hmarker0.symm]
+
+/-- The selected initializer's second field row is canonical UInt64 zero. -/
+theorem zeroTwoUInt64InitializerPostStorageV1_lookup_field1
+    (storage : StorageObservationV1)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64)
+    (hmarker1 : marker.key ≠ field1.key) :
+    (zeroTwoUInt64InitializerPostStorageV1 storage marker field0 field1
+      markerValue).lookup field1.key = some (encodeU64le 0) := by
+  simp [zeroTwoUInt64InitializerPostStorageV1, writeStorageObservationV1,
+    hmarker1.symm]
+
+/-- Static alignment specializes the shared MethodIR evaluator to the exact
+    production initializer recipe. -/
+theorem executeMethodV1_of_nullaryZeroTwoUInt64InitializerStaticAlignment
+    (data : SemanticProgramDataV1)
+    (storageLayout : StorageLayout)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (initializerName : String)
+    (method : Method)
+    (marker field0 field1 : KeyRegion)
+    (methodIR : MethodIR)
+    (storage : StorageObservationV1)
+    (halignment :
+      NullaryZeroTwoUInt64InitializerStaticAlignmentV1 data storageLayout
+        binding0 binding1 initializerName method marker field0 field1 methodIR)
+    (hmarker : storage.lookup marker.key = none)
+    (hfield0 : storage.lookup field0.key = none)
+    (hfield1 : storage.lookup field1.key = none)
+    (hfield10 : field1.key ≠ field0.key)
+    (hmarker0 : marker.key ≠ field0.key)
+    (hmarker1 : marker.key ≠ field1.key) :
+    executeMethodV1 methodIR ByteArray.empty 0 0 storage =
+      .returned none
+        (zeroTwoUInt64InitializerPostStorageV1 storage marker field0 field1
+          storageLayout.markerValue) := by
+  rw [halignment.methodIRExact]
+  exact executeMethodV1_nullaryZeroTwoUInt64Initializer initializerName marker
+    field0 field1 storageLayout.markerValue storage hmarker hfield0 hfield1
+    hfield10 hmarker0 hmarker1
+
+/-- Join a Reference-produced canonical initializer post-state with exact
+    production MethodIR execution and physical KV representation. The
+    `hpostEncode` premise is discharged directly by
+    `postEncode_of_readyInitializerStoreZeroTwoV1` for the selected Reference
+    initializer; no target-local business transition is introduced. -/
+theorem initializedZeroTwoUInt64StorageRelV1_of_postEncode_and_methodExecution
+    (data : SemanticProgramDataV1)
+    (storageLayout : StorageLayout)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (initializerName : String)
+    (method : Method)
+    (marker field0 field1 : KeyRegion)
+    (methodIR : MethodIR)
+    (preStorage : StorageObservationV1)
+    (post : LogicalStateV1)
+    (halignment :
+      NullaryZeroTwoUInt64InitializerStaticAlignmentV1 data storageLayout
+        binding0 binding1 initializerName method marker field0 field1 methodIR)
+    (hpostEncode :
+      encodeLogicalStateValuesV1 data true
+        #[encodeU64le 0, encodeU64le 0] = .ok post)
+    (hmarker : preStorage.lookup marker.key = none)
+    (hfield0 : preStorage.lookup field0.key = none)
+    (hfield1 : preStorage.lookup field1.key = none)
+    (hfield10 : field1.key ≠ field0.key)
+    (hmarker0 : marker.key ≠ field0.key)
+    (hmarker1 : marker.key ≠ field1.key) :
+    executeMethodV1 methodIR ByteArray.empty 0 0 preStorage =
+        .returned none
+          (zeroTwoUInt64InitializerPostStorageV1 preStorage marker field0 field1
+            storageLayout.markerValue) ∧
+      InitializedZeroTwoUInt64StorageRelV1 data storageLayout binding0 binding1
+        post
+        (zeroTwoUInt64InitializerPostStorageV1 preStorage marker field0 field1
+          storageLayout.markerValue) := by
+  refine ⟨
+    executeMethodV1_of_nullaryZeroTwoUInt64InitializerStaticAlignment data
+      storageLayout binding0 binding1 initializerName method marker field0
+        field1 methodIR preStorage halignment hmarker hfield0 hfield1 hfield10
+          hmarker0 hmarker1,
+    halignment.binding0Rel,
+    halignment.binding1Rel,
+    halignment.binding0State,
+    halignment.binding1State,
+    post.initialized_of_encodeLogicalStateValuesV1 data true _ hpostEncode,
+    decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1 data true _ post
+      hpostEncode,
+    ?_, ?_, ?_
+  ⟩
+  · simpa [halignment.markerKey] using
+      zeroTwoUInt64InitializerPostStorageV1_lookup_marker preStorage marker
+        field0 field1 storageLayout.markerValue
+  · simpa [halignment.field0Key] using
+      zeroTwoUInt64InitializerPostStorageV1_lookup_field0 preStorage marker
+        field0 field1 storageLayout.markerValue hfield10 hmarker0
+  · simpa [halignment.field1Key] using
+      zeroTwoUInt64InitializerPostStorageV1_lookup_field1 preStorage marker
+        field0 field1 storageLayout.markerValue hmarker1
 
 /-- Static alignment plus initialized storage representation is sufficient to
     execute the selected production MethodIR successfully. -/

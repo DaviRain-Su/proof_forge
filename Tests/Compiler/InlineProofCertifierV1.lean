@@ -80,46 +80,65 @@ private def liftOptionWithProof (result : Option α) (message : String) :
   | some value => pure ⟨value, rfl⟩
   | none => throw <| IO.userError message
 
-private theorem stateDeclV1_eq_of_fields
+/-- Turn a decidable runtime check into proof data for a production graph
+    fixture; failure remains explicit rather than becoming a test assumption. -/
+private def requireProof (proposition : Prop) [Decidable proposition]
+    (message : String) : IO (Subtype fun _ : Unit => proposition) :=
+  if h : proposition then pure ⟨(), h⟩
+  else throw <| IO.userError message
+
+/-- KeyRegion intentionally exposes only `BEq`; compare its public fields and
+    return propositional equality for production graph instantiation. -/
+private def checkKeyRegionEqual (left right : KeyRegion) (message : String) :
+    IO (Subtype fun _ : Unit => left = right) := do
+  let ⟨_, hfields⟩ ← requireProof
+    (left.key = right.key ∧ left.offset = right.offset ∧
+      left.length = right.length) message
+  pure ⟨(), keyRegion_eq_of_fields left right hfields.1 hfields.2.1
+    hfields.2.2⟩
+
+private theorem stateDeclV1_eq_binding_of_fields
     (decl : StateDeclV1)
-    (hid : decl.id = 0)
-    (hname : decl.name = "reserves")
-    (htype : decl.typeId = 0)
+    (binding : UInt64StateBindingV1)
+    (hid : decl.id = binding.semanticStateId)
+    (hname : decl.name = binding.semanticName)
+    (htype : decl.typeId = binding.semanticTypeId)
     (hvisibility : decl.visibility = .public_) :
     decl = {
-      id := 0
-      name := "reserves"
-      typeId := 0
+      id := binding.semanticStateId
+      name := binding.semanticName
+      typeId := binding.semanticTypeId
       visibility := .public_
     } := by
   cases decl
   simp_all
 
-private theorem typeDeclV1_eq_uint64_of_fields
+private theorem typeDeclV1_eq_uint64_binding_of_fields
     (decl : TypeDeclV1)
-    (hid : decl.id = 0)
+    (binding : UInt64StateBindingV1)
+    (hid : decl.id = binding.semanticTypeId)
     (hname : decl.name = none)
     (hshape : decl.shape = .uint 64) :
     decl = {
-      id := 0
+      id := binding.semanticTypeId
       name := none
       shape := .uint 64
     } := by
   cases decl
   simp_all
 
-private theorem storageField_eq_reserves_of_fields
+private theorem storageField_eq_binding_of_fields
     (field : StorageField)
-    (key : String)
-    (hsource : field.sourceId = 0)
-    (hname : field.name = "reserves")
-    (hkey : field.key = key)
+    (binding : UInt64StateBindingV1)
+    (hsource : field.sourceId = binding.physicalFieldIndex)
+    (hname : field.name = binding.semanticName)
+    (hkey : field.key = binding.physicalKey)
     (hwidth : field.byteWidth = 8)
     (hendianness : field.endianness = .little) :
     field = {
-      sourceId := 0
-      name := "reserves"
-      key := key
+      sourceId := binding.physicalFieldIndex
+      name := binding.semanticName
+      key := binding.physicalKey
       byteWidth := 8
       endianness := .little
     } := by
@@ -140,63 +159,83 @@ private def productionReservesBinding (physicalKey : String) :
   physicalKey
 }
 
+/-- The second VerifiedVault state/storage row uses the same canonical scalar
+    binding contract as reserves. -/
+private def productionSharesBinding (physicalKey : String) :
+    UInt64StateBindingV1 := {
+  semanticStateId := 1
+  semanticTypeId := 0
+  semanticName := "shares"
+  physicalFieldIndex := 1
+  physicalKey
+}
+
 /-- Turn public scalar/lookup checks on the dynamically decoded production
     values into the exact proposition consumed by static alignment. -/
-private def checkProductionReservesBinding
+private def checkProductionUInt64Binding
     (data : SemanticProgramDataV1)
     (storage : StorageLayout)
-    (physicalKey : String) :
+    (binding : UInt64StateBindingV1) :
     IO (Subtype fun _ : Unit =>
-      UInt64StateBindingRelV1 data storage
-        (productionReservesBinding physicalKey)) := do
-  match hstate : data.logicalState[0]? with
+      UInt64StateBindingRelV1 data storage binding) := do
+  match hstate : data.logicalState[binding.semanticStateId.toNat]? with
   | none =>
       throw <| IO.userError
-        "VerifiedVaultPF production semantic data is missing state 0"
+        "VerifiedVaultPF production semantic data is missing a UInt64 state"
   | some stateDecl =>
       if hstateFields :
-          stateDecl.id = 0 ∧ stateDecl.name = "reserves" ∧
-          stateDecl.typeId = 0 ∧ stateDecl.visibility = .public_ then
-        match htype : data.types[0]? with
+          stateDecl.id = binding.semanticStateId ∧
+          stateDecl.name = binding.semanticName ∧
+          stateDecl.typeId = binding.semanticTypeId ∧
+          stateDecl.visibility = .public_ then
+        match htype : data.types[binding.semanticTypeId.toNat]? with
         | none =>
             throw <| IO.userError
-              "VerifiedVaultPF production semantic data is missing type 0"
+              "VerifiedVaultPF production semantic data is missing the UInt64 type"
         | some typeDecl =>
             match hshape : typeDecl.shape with
             | .uint width =>
                 if htypeFields :
-                    typeDecl.id = 0 ∧ typeDecl.name = none ∧ width = 64 then
-                  match hleaves : storage.stateLeaves[0]? with
+                    typeDecl.id = binding.semanticTypeId ∧
+                    typeDecl.name = none ∧ width = 64 then
+                  match hleaves :
+                      storage.stateLeaves[binding.semanticStateId.toNat]? with
                   | none =>
                       throw <| IO.userError
-                        "VerifiedVaultPF production storage is missing state leaves 0"
+                        "VerifiedVaultPF production storage is missing state leaves"
                   | some leaves =>
-                      if hleavesExact : leaves = #[0] then
-                        match hfield : storage.fields[0]? with
+                      if hleavesExact :
+                          leaves = #[binding.physicalFieldIndex] then
+                        match hfield :
+                            storage.fields[binding.physicalFieldIndex]? with
                         | none =>
                             throw <| IO.userError
-                              "VerifiedVaultPF production storage is missing field 0"
+                              "VerifiedVaultPF production storage is missing a field"
                         | some field =>
                             if hfieldFields :
-                                field.sourceId = 0 ∧
-                                field.name = "reserves" ∧
-                                field.key = physicalKey ∧
+                                field.sourceId = binding.physicalFieldIndex ∧
+                                field.name = binding.semanticName ∧
+                                field.key = binding.physicalKey ∧
                                 field.byteWidth = 8 then
-                              have hstateExact := stateDeclV1_eq_of_fields stateDecl
-                                hstateFields.1 hstateFields.2.1
-                                hstateFields.2.2.1 hstateFields.2.2.2
-                              have hshapeExact : typeDecl.shape = .uint 64 := by
+                              have hstateExact :=
+                                stateDeclV1_eq_binding_of_fields stateDecl binding
+                                  hstateFields.1 hstateFields.2.1
+                                  hstateFields.2.2.1 hstateFields.2.2.2
+                              have hshapeExact :
+                                  typeDecl.shape = .uint 64 := by
                                 rw [hshape, htypeFields.2.2]
-                              have htypeExact := typeDeclV1_eq_uint64_of_fields
-                                typeDecl htypeFields.1 htypeFields.2.1 hshapeExact
+                              have htypeExact :=
+                                typeDeclV1_eq_uint64_binding_of_fields
+                                  typeDecl binding htypeFields.1
+                                    htypeFields.2.1 hshapeExact
                               have hendianness :
-                                  StorageField.endianness field = .little :=
-                                nearEndianness_eq_little
-                                  (StorageField.endianness field)
-                              have hfieldExact := storageField_eq_reserves_of_fields
-                                field physicalKey hfieldFields.1
-                                hfieldFields.2.1 hfieldFields.2.2.1
-                                hfieldFields.2.2.2 hendianness
+                                  field.endianness = .little :=
+                                nearEndianness_eq_little field.endianness
+                              have hfieldExact :=
+                                storageField_eq_binding_of_fields field binding
+                                  hfieldFields.1 hfieldFields.2.1
+                                  hfieldFields.2.2.1 hfieldFields.2.2.2
+                                  hendianness
                               pure ⟨(), by
                                 refine ⟨?_, ?_, ?_, ?_⟩
                                 · exact hstate.trans (congrArg some hstateExact)
@@ -205,20 +244,20 @@ private def checkProductionReservesBinding
                                 · exact hfield.trans (congrArg some hfieldExact)
                               ⟩
                             else
-                                throw <| IO.userError
-                                  "VerifiedVaultPF production reserves field is not canonical"
+                              throw <| IO.userError
+                                "VerifiedVaultPF production UInt64 field is not canonical"
                       else
                         throw <| IO.userError
-                          "VerifiedVaultPF production reserves leaves are not singleton field 0"
+                          "VerifiedVaultPF production state leaves are not canonical"
                 else
                   throw <| IO.userError
-                    "VerifiedVaultPF production type 0 is not canonical UInt64"
+                    "VerifiedVaultPF production type is not canonical UInt64"
             | _ =>
                 throw <| IO.userError
-                  "VerifiedVaultPF production type 0 is not UInt64"
+                  "VerifiedVaultPF production type is not UInt64"
       else
         throw <| IO.userError
-          "VerifiedVaultPF production state 0 is not public UInt64 reserves"
+          "VerifiedVaultPF production state is not a canonical public UInt64"
 
 private def expectNearPlanRejected
     (label : String) (plan : ProofForgeV2.Targets.Near.Plan) : IO Unit :=
@@ -489,6 +528,7 @@ private unsafe def testSameFileStatefulEqualityPreservingProductPositive
       throw <| IO.userError
         s!"StatefulEquality requires .certified; got phase={repr phase} detail={repr detail}"
 
+set_option maxRecDepth 2000 in
 /-- Strict product certification of the first initializer/view business slice. -/
 private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
     (session : ProductParserSessionV1) : IO Unit := do
@@ -782,6 +822,185 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
           sharesRegion.offset == markerRegion.length + reservesRegion.length &&
           sharesRegion.length == plan.storage.fields[1]!.key.toUTF8.size)
         "VerifiedVaultPF IR keys must be the canonical production regions"
+
+      -- Close the initializer against the dynamically obtained production
+      -- capability/Plan/IR/build values. The recognizers classify exact public
+      -- syntax; the bridge supplies canonical semantic/storage provenance.
+      let initializerMethod := plan.initializer
+      let ⟨initializerIR, hinitializerIR⟩ ← liftOptionWithProof ir.methods[0]?
+        "VerifiedVaultPF production IR is missing its initializer"
+      let ⟨alignedMarkerRegion, hmarkerLookup⟩ ←
+        liftOptionWithProof ir.keys[0]?
+          "VerifiedVaultPF production IR is missing its initializer marker region"
+      let ⟨alignedReservesRegion, hreservesLookup⟩ ←
+        liftOptionWithProof ir.keys[1]?
+          "VerifiedVaultPF production IR is missing its initializer reserves region"
+      let ⟨alignedSharesRegion, hsharesLookup⟩ ←
+        liftOptionWithProof ir.keys[2]?
+          "VerifiedVaultPF production IR is missing its initializer shares region"
+      let reservesBinding :=
+        productionReservesBinding alignedReservesRegion.key
+      let sharesBinding := productionSharesBinding alignedSharesRegion.key
+      let ⟨_, hreservesBinding⟩ ← checkProductionUInt64Binding
+        semanticData plan.storage reservesBinding
+      let ⟨_, hsharesBinding⟩ ← checkProductionUInt64Binding
+        semanticData plan.storage sharesBinding
+      let ⟨_, hmarkerCanonical⟩ ← requireProof
+        (alignedMarkerRegion.key = plan.storage.markerKey ∧
+          alignedMarkerRegion.length = plan.storage.markerKey.toUTF8.size)
+        "VerifiedVaultPF initializer marker region is not canonical"
+      let ⟨_, hreservesCanonical⟩ ← requireProof
+        (alignedReservesRegion.length =
+          alignedReservesRegion.key.toUTF8.size)
+        "VerifiedVaultPF initializer reserves region is not canonical"
+      let ⟨_, hsharesCanonical⟩ ← requireProof
+        (alignedSharesRegion.length = alignedSharesRegion.key.toUTF8.size)
+        "VerifiedVaultPF initializer shares region is not canonical"
+      let ⟨methodShape, hmethodRecognize⟩ ← liftOptionWithProof
+        (recognizeNullaryZeroTwoUInt64InitializerMethodV1 initializerMethod)
+        "VerifiedVaultPF production initializer Method was not structurally recognized"
+      let ⟨_, hmethodFields⟩ ← requireProof
+        (methodShape.initializerName = "init" ∧
+          methodShape.field0Index = 0 ∧ methodShape.field1Index = 1)
+        "VerifiedVaultPF production initializer Method has wrong fields"
+      have hmethodShapeExact : methodShape = {
+          initializerName := "init"
+          field0Index := reservesBinding.physicalFieldIndex
+          field1Index := sharesBinding.physicalFieldIndex
+        } := by
+        cases methodShape
+        simp_all [reservesBinding, sharesBinding, productionReservesBinding,
+          productionSharesBinding]
+      have hrecognizedMethod :
+          recognizeNullaryZeroTwoUInt64InitializerMethodV1 initializerMethod =
+            some {
+              initializerName := "init"
+              field0Index := reservesBinding.physicalFieldIndex
+              field1Index := sharesBinding.physicalFieldIndex
+            } :=
+        hmethodRecognize.trans (congrArg some hmethodShapeExact)
+      let ⟨methodIRShape, hmethodIRRecognize⟩ ← liftOptionWithProof
+        (recognizeNullaryZeroTwoUInt64InitializerMethodIRV1 initializerIR)
+        "VerifiedVaultPF production initializer MethodIR was not structurally recognized"
+      let ⟨_, hirScalars⟩ ← requireProof
+        (methodIRShape.initializerName = "init" ∧
+          methodIRShape.markerValue = plan.storage.markerValue)
+        "VerifiedVaultPF production initializer MethodIR has wrong scalars"
+      let ⟨_, hirMarker⟩ ← checkKeyRegionEqual
+        methodIRShape.markerRegion alignedMarkerRegion
+        "VerifiedVaultPF initializer marker check region diverges from production keys"
+      let ⟨_, hirField0⟩ ← checkKeyRegionEqual
+        methodIRShape.field0Region alignedReservesRegion
+        "VerifiedVaultPF initializer first zero region diverges from production keys"
+      let ⟨_, hirField1⟩ ← checkKeyRegionEqual
+        methodIRShape.field1Region alignedSharesRegion
+        "VerifiedVaultPF initializer second zero region diverges from production keys"
+      let ⟨_, hirStore0⟩ ← checkKeyRegionEqual
+        methodIRShape.store0Region alignedReservesRegion
+        "VerifiedVaultPF initializer first store region diverges from production keys"
+      let ⟨_, hirStore1⟩ ← checkKeyRegionEqual
+        methodIRShape.store1Region alignedSharesRegion
+        "VerifiedVaultPF initializer second store region diverges from production keys"
+      let ⟨_, hirSetMarker⟩ ← checkKeyRegionEqual
+        methodIRShape.setMarkerRegion alignedMarkerRegion
+        "VerifiedVaultPF initializer marker store region diverges from production keys"
+      have hmethodIRShapeExact : methodIRShape = {
+          initializerName := "init"
+          markerRegion := alignedMarkerRegion
+          field0Region := alignedReservesRegion
+          field1Region := alignedSharesRegion
+          store0Region := alignedReservesRegion
+          store1Region := alignedSharesRegion
+          setMarkerRegion := alignedMarkerRegion
+          markerValue := plan.storage.markerValue
+        } := by
+        cases methodIRShape
+        simp_all
+      have hrecognizedMethodIR :
+          recognizeNullaryZeroTwoUInt64InitializerMethodIRV1 initializerIR =
+            some {
+              initializerName := "init"
+              markerRegion := alignedMarkerRegion
+              field0Region := alignedReservesRegion
+              field1Region := alignedSharesRegion
+              store0Region := alignedReservesRegion
+              store1Region := alignedSharesRegion
+              setMarkerRegion := alignedMarkerRegion
+              markerValue := plan.storage.markerValue
+            } :=
+        hmethodIRRecognize.trans (congrArg some hmethodIRShapeExact)
+      have hvalidate : validateSemanticProgramV1 semantic = .ok semanticData := by
+        simpa [semanticDataResult] using hsemanticData
+      have hinitializerLowering : MethodIRLoweringV1 plan ir.keys
+          initializerMethod initializerIR :=
+        planIRLoweringV1_initializer_lookup_eq_some plan ir initializerMethod
+          initializerIR hgraphs.2.2 rfl hinitializerIR
+      have hinitializerStatic :
+          ProductionNullaryZeroTwoUInt64InitializerStaticAlignmentV1
+            semantic semanticData plan ir.keys reservesBinding sharesBinding
+              "init" initializerMethod alignedMarkerRegion alignedReservesRegion
+                alignedSharesRegion initializerIR :=
+        productionNullaryZeroTwoUInt64InitializerStaticAlignmentV1_of_recognized
+          semantic semanticData plan ir.keys reservesBinding sharesBinding
+            "init" initializerMethod alignedMarkerRegion alignedReservesRegion
+              alignedSharesRegion initializerIR hvalidate hgraphs.2.1
+              hmarkerLookup
+              (by simpa [reservesBinding, productionReservesBinding] using
+                hreservesLookup)
+              (by simpa [sharesBinding, productionSharesBinding] using
+                hsharesLookup)
+              hinitializerLowering hreservesBinding hsharesBinding rfl rfl rfl
+              (by simp [reservesBinding, sharesBinding,
+                productionReservesBinding, productionSharesBinding])
+              hmarkerCanonical.1 hmarkerCanonical.2 rfl
+              hreservesCanonical rfl hsharesCanonical hrecognizedMethod
+              hrecognizedMethodIR
+      let ⟨_, hdepositMemory⟩ ← requireProof
+        (ir.memory.depositOffset + 16 ≤ ir.memory.minPages * wasmPageBytes)
+        "VerifiedVaultPF initializer deposit scratch exceeds declared memory"
+      let ⟨_, hvalueMemory⟩ ← requireProof
+        (ir.memory.valueOffset + 8 ≤ ir.memory.minPages * wasmPageBytes)
+        "VerifiedVaultPF initializer value scratch exceeds declared memory"
+      have _ :
+          ∃ initializerWATText initializerABIText,
+            CapabilityInitializerStaticEmissionV1 capability semantic
+                semanticData plan ir baseFiles reservesBinding sharesBinding
+                "init" initializerMethod alignedMarkerRegion
+                alignedReservesRegion alignedSharesRegion initializerIR watFile
+                abiFile initializerWATText initializerABIText ∧
+              ValidatedReadOnlyMethodWATEmissionV1 ir 0 initializerIR
+                watFile.contents initializerWATText
+                (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory
+                  alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+                  plan.storage.markerValue) ∧
+              ∃ before after,
+                watFile.contents = before ++
+                  renderReadOnlyWATMethodV1 initializerIR.name
+                    initializerIR.tempCount
+                    (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory
+                      alignedMarkerRegion alignedReservesRegion
+                      alignedSharesRegion plan.storage.markerValue) ++ after := by
+        obtain ⟨initializerWATText, initializerABIText,
+            hinitializerCapability⟩ :=
+          capabilityInitializerStaticEmissionV1_of_graphs capability semantic
+            semanticData plan ir baseFiles reservesBinding sharesBinding "init"
+            initializerMethod alignedMarkerRegion alignedReservesRegion
+            alignedSharesRegion initializerIR watFile abiFile (by rfl)
+            hplanCapability hirCapability hbuildCapability hinitializerStatic rfl
+            hinitializerIR hwatFile habiFile
+        have hinitializerValidated :=
+          capabilityInitializerStaticEmissionV1_validatedMethodWATEmissionV1
+            capability semantic semanticData plan ir baseFiles reservesBinding
+            sharesBinding "init" initializerMethod alignedMarkerRegion
+            alignedReservesRegion alignedSharesRegion initializerIR watFile
+            abiFile initializerWATText initializerABIText hinitializerCapability
+            hdepositMemory hvalueMemory
+        have htext := validatedReadOnlyMethodWATEmissionV1_textIdentity ir 0
+          initializerIR watFile.contents initializerWATText _
+            hinitializerValidated
+        exact ⟨initializerWATText, initializerABIText, hinitializerCapability,
+          hinitializerValidated, htext.2⟩
+
       match hstatus : plan.entries[2]? with
       | none =>
           throw <| IO.userError "VerifiedVaultPF production Plan is missing status at entry 2"
@@ -945,8 +1164,8 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                   | some alignedReservesRegion =>
                       let statusBinding :=
                         productionReservesBinding alignedReservesRegion.key
-                      let ⟨_, hbinding⟩ ← checkProductionReservesBinding
-                        semanticData plan.storage alignedReservesRegion.key
+                      let ⟨_, hbinding⟩ ← checkProductionUInt64Binding
+                        semanticData plan.storage statusBinding
                       if hmarkerCanonical :
                           alignedMarkerRegion.key = plan.storage.markerKey ∧
                           alignedMarkerRegion.length =

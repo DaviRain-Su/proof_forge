@@ -1,9 +1,11 @@
 import Examples.VerifiedVaultPF
+import ProofForgeV2.Semantic.PreservationShapeV1
 import ProofForgeV2.Targets.Near.WATSemanticsV1
 
 namespace Tests.Materialization.NearStaticAlignmentV1
 
 open ProofForgeV2.Semantic.InvariantABI
+open ProofForgeV2.Semantic.PreservationShapeV1
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.Near
@@ -46,6 +48,14 @@ private def reservesBinding : UInt64StateBindingV1 := {
   semanticName := "reserves"
   physicalFieldIndex := 0
   physicalKey := reservesKey
+}
+
+private def sharesBinding : UInt64StateBindingV1 := {
+  semanticStateId := 1
+  semanticTypeId := 0
+  semanticName := "shares"
+  physicalFieldIndex := 1
+  physicalKey := sharesKey
 }
 
 private def nonCoincidentData : SemanticProgramDataV1 := {
@@ -124,6 +134,13 @@ private def logicalTen : LogicalStateV1 := {
       ((encodeU32le 8).append tenBytes)
 }
 
+private def logicalZero : LogicalStateV1 := {
+  initialized := true
+  canonicalValues :=
+    ((encodeU32le 8).append (encodeU64le 0)).append
+      ((encodeU32le 8).append (encodeU64le 0))
+}
+
 private def uint64Type : TypeDeclV1 := {
   id := 0
   name := none
@@ -167,6 +184,18 @@ private theorem logicalTen_decoded :
   exact decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1
     data true #[tenBytes, tenBytes] logicalTen logicalTen_encoded
 
+private theorem logicalZero_encoded :
+    encodeLogicalStateValuesV1 data true #[encodeU64le 0, encodeU64le 0] =
+      .ok logicalZero := by
+  have hcanonical :
+      validateValueBytesV1 data.types 0 (encodeU64le 0) = .ok () :=
+    validateValueBytesV1_uint64_of_size data.types 0 uint64Type
+      (encodeU64le 0) (by rfl) (by rfl) (encodeU64le_size 0)
+  simpa [logicalZero, doubleUint64CanonicalV1, ByteArray.append_assoc] using
+    (encodeLogicalStateValuesV1_double_uint64_eq_ok data reservesDecl sharesDecl
+      (encodeU64le 0) (encodeU64le 0) true (by rfl) hcanonical hcanonical
+      (encodeU64le_size 0) (encodeU64le_size 0))
+
 private def observedStorage : StorageObservationV1 := {
   lookup := fun key =>
     if key == layoutMarkerKey then some (encodeU64le storage.markerValue)
@@ -181,6 +210,10 @@ private def markerOnlyStorage : StorageObservationV1 := {
     else none
 }
 
+private def emptyStorage : StorageObservationV1 := {
+  lookup := fun _ => none
+}
+
 private def markerRegion : KeyRegion := {
   key := layoutMarkerKey
   offset := 0
@@ -192,6 +225,78 @@ private def reservesRegion : KeyRegion := {
   offset := markerRegion.length
   length := reservesKey.toUTF8.size
 }
+
+private def sharesRegion : KeyRegion := {
+  key := sharesKey
+  offset := markerRegion.length + reservesRegion.length
+  length := sharesKey.toUTF8.size
+}
+
+private def statusMemory : MemoryLayout := {
+  minPages := 1
+  inputOffset := 1024
+  inputCapacity := 1024
+  depositOffset := 2048
+  valueOffset := 4096
+}
+
+private def initMethod : Method := {
+  name := "init"
+  params := #[]
+  exactInputLen := 0
+  mode := .initialize
+  depositPolicy := .requireZero
+  resultKind := .unit
+  body := #[
+    .store { fieldIndex := 0, value := .literal 0, byteWidth := 8 },
+    .store { fieldIndex := 1, value := .literal 0, byteWidth := 8 },
+    .returnNone
+  ]
+}
+
+private def initIR : MethodIR := {
+  name := "init"
+  params := #[]
+  mode := .initialize
+  tempCount := 2
+  operations := #[
+    .checkInputLen 0,
+    .requireZeroAttachedDeposit,
+    .requireLayoutAbsent markerRegion,
+    .zeroState reservesRegion,
+    .zeroState sharesRegion,
+    .literal 0 0,
+    .storeState reservesRegion 0,
+    .literal 1 0,
+    .storeState sharesRegion 1,
+    .setLayout markerRegion storage.markerValue
+  ]
+}
+
+private def initTypedWAT : Array MethodWATInstructionV1 :=
+  nullaryZeroTwoUInt64InitializerWATV1 canonicalRegisters statusMemory
+    markerRegion reservesRegion sharesRegion storage.markerValue
+
+private def initializedZeroStorage : StorageObservationV1 :=
+  zeroTwoUInt64InitializerPostStorageV1 emptyStorage markerRegion reservesRegion
+    sharesRegion storage.markerValue
+
+private theorem initAlignment :
+    NullaryZeroTwoUInt64InitializerStaticAlignmentV1 data storage reservesBinding
+      sharesBinding "init" initMethod markerRegion reservesRegion sharesRegion
+        initIR := by
+  constructor <;>
+    simp [UInt64StateBindingRelV1, data,
+      Examples.VerifiedVaultPF.Proof.subjectDataV1, storage, reservesBinding,
+      sharesBinding, initMethod, initIR, markerRegion, reservesRegion,
+      sharesRegion, reservesKey, sharesKey]
+
+private theorem initTypedWATLowering :
+    lowerMethodWATOperationsV1 canonicalRegisters statusMemory
+      initIR.operations = some initTypedWAT := by
+  exact lowerMethodWATOperationsV1_nullaryZeroTwoUInt64Initializer
+    canonicalRegisters statusMemory markerRegion reservesRegion sharesRegion
+      storage.markerValue
 
 private def statusMethod : Method := {
   name := "status"
@@ -295,14 +400,6 @@ private def statusIR : MethodIR := {
     .loadState 0 reservesRegion,
     .setReturnData 8 0
   ]
-}
-
-private def statusMemory : MemoryLayout := {
-  minPages := 1
-  inputOffset := 1024
-  inputCapacity := 1024
-  depositOffset := 2048
-  valueOffset := 4096
 }
 
 private def statusTypedWAT : Array ReadOnlyWATInstructionV1 :=
@@ -490,7 +587,7 @@ example :
   rfl
 
 example (machine : ReadOnlyMethodMachineV1) :
-    stepReadOnlyMethodOperationV1 machine (.storeState reservesRegion 0) =
+    stepReadOnlyMethodOperationV1 machine (.assert 0) =
       .error .unsupportedOperation := by
   rfl
 
@@ -731,6 +828,197 @@ example :
   have hkey := congrArg (fun snapshot => snapshot.lookup reservesKey) hstorage
   simp [failedObservation, observedStorage, reservesKey, layoutMarkerKey] at hkey
 
+/-! Selected VerifiedVault `init()` target-refinement fixtures. -/
+
+example :
+    NullaryZeroTwoUInt64InitializerStaticAlignmentV1 data storage reservesBinding
+      sharesBinding "init" initMethod markerRegion reservesRegion sharesRegion
+        initIR :=
+  initAlignment
+
+example :
+    lowerMethodWATOperationsV1 canonicalRegisters statusMemory
+      initIR.operations = some initTypedWAT :=
+  initTypedWATLowering
+
+example :
+    validateMethodWATV1 #[markerRegion, reservesRegion, sharesRegion]
+      statusMemory 2 initTypedWAT = .ok () := by
+  exact validateReadOnlyWATMethodV1_nullaryZeroTwoUInt64Initializer
+    #[markerRegion, reservesRegion, sharesRegion] canonicalRegisters statusMemory
+      markerRegion reservesRegion sharesRegion storage.markerValue
+      (by simp [readOnlyWATKeyRegionEqV1])
+      (by simp [readOnlyWATKeyRegionEqV1])
+      (by simp [readOnlyWATKeyRegionEqV1])
+      (by decide) (by decide)
+
+example :
+    executeMethodV1 initIR ByteArray.empty 0 0 emptyStorage =
+      .returned none initializedZeroStorage := by
+  apply executeMethodV1_of_nullaryZeroTwoUInt64InitializerStaticAlignment data
+    storage reservesBinding sharesBinding "init" initMethod markerRegion
+      reservesRegion sharesRegion initIR emptyStorage initAlignment
+  all_goals simp [emptyStorage, markerRegion, reservesRegion, sharesRegion,
+    reservesKey, sharesKey, layoutMarkerKey]
+
+example :
+    executeMethodV1 initIR ByteArray.empty 0 0 emptyStorage =
+        .returned none initializedZeroStorage ∧
+      InitializedZeroTwoUInt64StorageRelV1 data storage reservesBinding
+        sharesBinding logicalZero initializedZeroStorage := by
+  apply initializedZeroTwoUInt64StorageRelV1_of_postEncode_and_methodExecution
+    data storage reservesBinding sharesBinding "init" initMethod markerRegion
+      reservesRegion sharesRegion initIR emptyStorage logicalZero initAlignment
+        logicalZero_encoded
+  all_goals simp [emptyStorage, markerRegion, reservesRegion, sharesRegion,
+    reservesKey, sharesKey, layoutMarkerKey]
+
+/-- The join consumes an actual returned Reference-machine initializer step.
+    Its logical encoding premise comes from the generic Reference theorem, not
+    from the hand-authored `logicalZero` fixture above. -/
+example
+    (admitted : AdmittedReferenceSliceV1)
+    (pre post : LogicalStateV1)
+    (invocation : InvocationV1)
+    (before0 before1 : ByteArray)
+    (context : Array ContextInputV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hadmit : admitReferenceProgramSliceV1 subjectProgram = .ok admitted)
+    (hgate :
+      gateInvocation admitted pre invocation =
+        .ready (initializerStoreZeroTwoCallableV1 0 0 1)
+          #[before0, before1] context true)
+    (hstep :
+      stepReferenceSliceV1 admitted pre invocation responses vault =
+        .returned post value effects) :
+    executeMethodV1 initIR ByteArray.empty 0 0 emptyStorage =
+        .returned none initializedZeroStorage ∧
+      InitializedZeroTwoUInt64StorageRelV1 data storage reservesBinding
+        sharesBinding post initializedZeroStorage := by
+  have hadmittedData : admitted.data = data :=
+    (admitReferenceProgramSliceV1_ok_implies subjectProgram data admitted
+      Examples.VerifiedVaultPF.Proof.subjectValidationOkV1 hadmit).2
+  have hpostEncode :
+      encodeLogicalStateValuesV1 data true
+        #[encodeU64le 0, encodeU64le 0] = .ok post := by
+    apply postEncode_of_readyInitializerStoreZeroTwoV1 admitted pre post
+      invocation data before0 before1 0 1 "reserves" "shares" 0 context
+      responses vault value effects hadmittedData
+    · rfl
+    · rfl
+    · rfl
+    · rfl
+    · rfl
+    · exact hgate
+    · exact hstep
+  apply initializedZeroTwoUInt64StorageRelV1_of_postEncode_and_methodExecution
+    data storage reservesBinding sharesBinding "init" initMethod markerRegion
+      reservesRegion sharesRegion initIR emptyStorage post initAlignment
+        hpostEncode
+  all_goals simp [emptyStorage, markerRegion, reservesRegion, sharesRegion,
+    reservesKey, sharesKey, layoutMarkerKey]
+
+example :
+    executeMethodWATV1 2 initTypedWAT ByteArray.empty 0 0 emptyStorage =
+      .returned none initializedZeroStorage := by
+  exact executeMethodWATV1_nullaryZeroTwoUInt64Initializer canonicalRegisters
+    statusMemory markerRegion reservesRegion sharesRegion storage.markerValue
+      emptyStorage
+      (by simp [emptyStorage])
+      (by simp [emptyStorage])
+      (by simp [emptyStorage])
+      (by simp [markerRegion, reservesRegion, sharesRegion, reservesKey,
+        sharesKey])
+      (by simp [markerRegion, reservesRegion, reservesKey, layoutMarkerKey])
+      (by simp [markerRegion, sharesRegion, sharesKey, layoutMarkerKey])
+
+example :
+    executeMethodV1 initIR ⟨#[1]⟩ 0 0 emptyStorage =
+      .trapped .inputLengthMismatch := by
+  exact executeMethodV1_nullaryZeroTwoUInt64Initializer_nonempty_input "init"
+    markerRegion reservesRegion sharesRegion storage.markerValue ⟨#[1]⟩
+      emptyStorage (by decide)
+
+example :
+    executeMethodWATV1 2 initTypedWAT ⟨#[1]⟩ 0 0 emptyStorage =
+      .trapped .trap := by
+  exact executeMethodWATV1_nullaryZeroTwoUInt64Initializer_nonempty_input
+    canonicalRegisters statusMemory markerRegion reservesRegion sharesRegion
+      storage.markerValue ⟨#[1]⟩ emptyStorage (by decide)
+
+example : initializedZeroStorage.lookup layoutMarkerKey =
+    some (encodeU64le storage.markerValue) := by
+  exact zeroTwoUInt64InitializerPostStorageV1_lookup_marker emptyStorage
+    markerRegion reservesRegion sharesRegion storage.markerValue
+
+example : initializedZeroStorage.lookup reservesKey = some (encodeU64le 0) := by
+  exact zeroTwoUInt64InitializerPostStorageV1_lookup_field0 emptyStorage
+    markerRegion reservesRegion sharesRegion storage.markerValue
+      (by simp [reservesRegion, sharesRegion, reservesKey, sharesKey])
+      (by simp [markerRegion, reservesRegion, reservesKey, layoutMarkerKey])
+
+example : initializedZeroStorage.lookup sharesKey = some (encodeU64le 0) := by
+  exact zeroTwoUInt64InitializerPostStorageV1_lookup_field1 emptyStorage
+    markerRegion reservesRegion sharesRegion storage.markerValue
+      (by simp [markerRegion, sharesRegion, sharesKey, layoutMarkerKey])
+
+example :
+    executeMethodV1 initIR ByteArray.empty 0 0 markerOnlyStorage =
+      .trapped .storageAlreadyPresent := by
+  exact executeMethodV1_nullaryZeroTwoUInt64Initializer_double_init "init"
+    markerRegion reservesRegion sharesRegion storage.markerValue
+      (encodeU64le storage.markerValue) markerOnlyStorage
+      (by simp [markerOnlyStorage, markerRegion, storage])
+
+example :
+    executeMethodWATV1 2 initTypedWAT ByteArray.empty 0 0 markerOnlyStorage =
+      .trapped .trap := by
+  exact executeMethodWATV1_nullaryZeroTwoUInt64Initializer_double_init
+    canonicalRegisters statusMemory markerRegion reservesRegion sharesRegion
+      storage.markerValue (encodeU64le storage.markerValue) markerOnlyStorage
+      (by simp [markerOnlyStorage, markerRegion, storage])
+
+example :
+    executeMethodV1 initIR ByteArray.empty 1 0 emptyStorage =
+      .trapped .attachedDepositNotZero := by
+  exact executeMethodV1_nullaryZeroTwoUInt64Initializer_nonzero_deposit "init"
+    markerRegion reservesRegion sharesRegion storage.markerValue 1 emptyStorage
+      (by decide)
+
+example :
+    executeMethodWATV1 2 initTypedWAT ByteArray.empty 1 0 emptyStorage =
+      .trapped .trap := by
+  exact executeMethodWATV1_nullaryZeroTwoUInt64Initializer_nonzero_deposit
+    canonicalRegisters statusMemory markerRegion reservesRegion sharesRegion
+      storage.markerValue 1 emptyStorage (by decide)
+
+example :
+    executeMethodV1 initIR ByteArray.empty 0 1 emptyStorage =
+      .trapped .attachedDepositNotZero := by
+  exact executeMethodV1_nullaryZeroTwoUInt64Initializer_nonzero_deposit_high
+    "init" markerRegion reservesRegion sharesRegion storage.markerValue 1
+      emptyStorage (by decide)
+
+example :
+    executeMethodWATV1 2 initTypedWAT ByteArray.empty 0 1 emptyStorage =
+      .trapped .trap := by
+  exact
+    executeMethodWATV1_nullaryZeroTwoUInt64Initializer_nonzero_deposit_high
+      canonicalRegisters statusMemory markerRegion reservesRegion sharesRegion
+        storage.markerValue 1 emptyStorage (by decide)
+
+example :
+    ¬ NullaryZeroTwoUInt64InitializerStaticAlignmentV1 data storage
+      reservesBinding sharesBinding "init" initMethod markerRegion
+        reservesRegion sharesRegion
+        { initIR with operations := initIR.operations.eraseIdx 4 } := by
+  intro halignment
+  have hir := halignment.methodIRExact
+  simp [initIR] at hir
+
 example :
     NullaryUInt64ViewStaticAlignmentV1 data storage reservesBinding "status"
       statusMethod markerRegion reservesRegion statusIR := by
@@ -785,7 +1073,7 @@ example :
 
 private def forgedStatusIR : MethodIR := {
   statusIR with
-  operations := statusIR.operations.push (.storeState reservesRegion 0)
+  operations := statusIR.operations.push (.assert 0)
 }
 
 example : recognizeNullaryUInt64ViewMethodIRV1 forgedStatusIR = none := by

@@ -163,6 +163,155 @@ theorem capabilityEntryStaticEmissionV1_of_graphs
     baseEmission := hbase
   }⟩
 
+/-- Capability-scoped production chain for the selected two-UInt64 initializer.
+    It binds retained semantic data, Plan/IR/build results, exact initializer
+    alignment, and the sole WAT/ABI renderer graphs at method index zero. -/
+structure CapabilityInitializerStaticEmissionV1
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (initializerName : String)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String) : Prop where
+  retainedProgram :
+    CompiledSemanticV1.semanticV1Of
+      (ResolvedEngineeringBuildV1.compiledOf capability) = program
+  planResult : planFromCapability capability = .ok plan
+  irResult : irFromCapability capability = .ok ir
+  buildResult : buildFromCapability capability = .ok files
+  staticAlignment :
+    ProductionNullaryZeroTwoUInt64InitializerStaticAlignmentV1 program data plan
+      ir.keys binding0 binding1 initializerName method markerRegion field0Region
+        field1Region methodIR
+  baseEmission :
+    InitializerBaseEmissionV1 plan ir files method methodIR watFile abiFile
+      watMethodText abiMethodText
+
+/-- Combine the existing capability, production lowering, exact initializer
+    alignment, and renderer graphs. No alternate constructor or emitter is
+    introduced. -/
+theorem capabilityInitializerStaticEmissionV1_of_graphs
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (initializerName : String)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (hretained :
+      CompiledSemanticV1.semanticV1Of
+        (ResolvedEngineeringBuildV1.compiledOf capability) = program)
+    (hplan : planFromCapability capability = .ok plan)
+    (hir : irFromCapability capability = .ok ir)
+    (hbuild : buildFromCapability capability = .ok files)
+    (hstatic :
+      ProductionNullaryZeroTwoUInt64InitializerStaticAlignmentV1 program data
+        plan ir.keys binding0 binding1 initializerName method markerRegion
+          field0Region field1Region methodIR)
+    (hinitializer : plan.initializer = method)
+    (hmethodIR : ir.methods[0]? = some methodIR)
+    (hwatFile : files[0]? = some watFile)
+    (habiFile : files[1]? = some abiFile) :
+    ∃ watMethodText abiMethodText,
+      CapabilityInitializerStaticEmissionV1 capability program data plan ir
+        files binding0 binding1 initializerName method markerRegion field0Region
+          field1Region methodIR watFile abiFile watMethodText abiMethodText := by
+  have hgraphs :=
+    planAndIRFromCapability_eq_ok_graphsV1 capability plan ir hplan hir
+  have hemissions : IREmissionV1 ir files := by
+    obtain ⟨emittedPlan, emittedIR, _, hemittedIR, hemittedLowering,
+        hemissions⟩ :=
+      buildFromCapability_eq_ok_graphsV1 capability files hbuild
+    have hemittedIREq : emittedIR = ir :=
+      Except.ok.inj (hemittedIR.symm.trans hir)
+    subst emittedIR
+    have hemittedPlanEq : emittedPlan = plan :=
+      (planIRLoweringV1_sourcePlan emittedPlan ir hemittedLowering).symm.trans
+        hgraphs.1
+    subst emittedPlan
+    exact hemissions
+  obtain ⟨watMethodText, abiMethodText, hbase⟩ :=
+    irEmissionV1_initializerBaseEmissionV1 plan ir files method methodIR watFile
+      abiFile hgraphs.2.2 hemissions hwatFile habiFile hinitializer hmethodIR
+  exact ⟨watMethodText, abiMethodText, {
+    retainedProgram := hretained
+    planResult := hplan
+    irResult := hir
+    buildResult := hbuild
+    staticAlignment := hstatic
+    baseEmission := hbase
+  }⟩
+
+/-- The capability-selected initializer is byte-for-byte rendered from its
+    validated typed-WAT sequence by the sole production renderer. -/
+theorem capabilityInitializerStaticEmissionV1_validatedMethodWATEmissionV1
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (initializerName : String)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (hchain :
+      CapabilityInitializerStaticEmissionV1 capability program data plan ir
+        files binding0 binding1 initializerName method markerRegion field0Region
+          field1Region methodIR watFile abiFile watMethodText abiMethodText)
+    (hdeposit :
+      ir.memory.depositOffset + 16 ≤
+        ir.memory.minPages * wasmPageBytes)
+    (hvalue :
+      ir.memory.valueOffset + 8 ≤
+        ir.memory.minPages * wasmPageBytes) :
+    ValidatedReadOnlyMethodWATEmissionV1 ir 0 methodIR watFile.contents
+      watMethodText
+      (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory markerRegion
+        field0Region field1Region plan.storage.markerValue) := by
+  have halignment := hchain.staticAlignment.staticAlignment
+  have hlower :
+      lowerMethodWATOperationsV1 ir.registers ir.memory methodIR.operations =
+        some (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory
+          markerRegion field0Region field1Region plan.storage.markerValue) := by
+    rw [halignment.methodIRExact]
+    exact lowerMethodWATOperationsV1_nullaryZeroTwoUInt64Initializer ir.registers
+      ir.memory markerRegion field0Region field1Region plan.storage.markerValue
+  refine ⟨
+    readOnlyMethodWATEmissionV1_of_methodWATEmissionV1 ir 0 methodIR
+      watFile.contents watMethodText _ hchain.baseEmission.watMethodEmission
+        hlower,
+    ?_
+  ⟩
+  rw [halignment.methodIRExact]
+  exact validateReadOnlyWATMethodV1_nullaryZeroTwoUInt64Initializer ir.keys
+    ir.registers ir.memory markerRegion field0Region field1Region
+      plan.storage.markerValue
+      (readOnlyWATKeyRegionBoundV1_of_getElem?_eq_some ir.keys 0 markerRegion
+        hchain.staticAlignment.markerLookup)
+      (readOnlyWATKeyRegionBoundV1_of_getElem?_eq_some ir.keys
+        (binding0.physicalFieldIndex + 1) field0Region
+          hchain.staticAlignment.field0Lookup)
+      (readOnlyWATKeyRegionBoundV1_of_getElem?_eq_some ir.keys
+        (binding1.physicalFieldIndex + 1) field1Region
+          hchain.staticAlignment.field1Lookup)
+      hdeposit hvalue
+
 /-- The bounded typed-WAT fragment selected by a production capability chain
     passes its own static validator when the production scratch block is in
     bounds. The validator checks only this typed subset's locals, exact key

@@ -956,14 +956,14 @@
       "sha256": "eefa5223502e18d253b043f3b46f6c69230968ce79bff34fe312e0cf4fe6e06e"
     },
     {
-      "bytes": 18187,
+      "bytes": 25039,
       "path": "ProofForgeV2/Targets/Near.lean",
-      "sha256": "10312cb818f05447c56009325f182c53863de91eeb355a842a484ae15bea78b3"
+      "sha256": "f0a5bac85a7fdbdf736026463c7a684c541225612328f3a78bc88ee09931c727"
     },
     {
-      "bytes": 203533,
+      "bytes": 208991,
       "path": "ProofForgeV2/Targets/Near/EmitIRV1.lean",
-      "sha256": "88cefe6f860a9e42f598739792d166a67bee893cf77ac739fe19af5cb04f9aa6"
+      "sha256": "0a05aea81fa458077b96ac1c0f4ffb312b5de9cf7ea4ae4478deb21c07182812"
     },
     {
       "bytes": 5485,
@@ -976,9 +976,9 @@
       "sha256": "cf9d2c792984feeef50b1ecd8db757e8d2a7e64751b0a33b0c95723b716f658b"
     },
     {
-      "bytes": 12805,
+      "bytes": 28968,
       "path": "ProofForgeV2/Targets/Near/MethodSemanticsV1.lean",
-      "sha256": "a9ac63b0e49e03e2dca08854339e684f80acce4eb87ebe9d4dc6d040c12341a7"
+      "sha256": "62eb991683309caeba0b662278050ee36b5f8486685e8352c40097e618401106"
     },
     {
       "bytes": 11086,
@@ -991,14 +991,14 @@
       "sha256": "e80ffac5847b1b2fe290d800897139fce29aa4937b8a0c6c914eb9967686a04c"
     },
     {
-      "bytes": 11361,
+      "bytes": 18904,
       "path": "ProofForgeV2/Targets/Near/ReadOnlyWATV1.lean",
-      "sha256": "585dcab35c6909c569ea0ffd1144f449cc98648908d20b5ec8a7cd71c27ee1af"
+      "sha256": "3cc3d31fa1037aff5f689fbd2cee4370beebcda42f4c09dfe4bb24ef87204887"
     },
     {
-      "bytes": 20079,
+      "bytes": 33831,
       "path": "ProofForgeV2/Targets/Near/StaticAlignmentV1.lean",
-      "sha256": "2e210f096d35c0cdd41c34b5a448249220052743f6c9cde6c18593dbe238b9a6"
+      "sha256": "b1b2c6f1a6f644c0513e8c6444386211855a471e89a926720fc6f0f2f5f3738c"
     },
     {
       "bytes": 37669,
@@ -1006,9 +1006,9 @@
       "sha256": "3fe07929bdf729272be449ffb4daedf0833923203fead55071059e65e101bd77"
     },
     {
-      "bytes": 16926,
+      "bytes": 27908,
       "path": "ProofForgeV2/Targets/Near/WATSemanticsV1.lean",
-      "sha256": "eae0be7e198db30815c0e22fe421bc34767dd6ee4f67b8dc77c0619c9ae8c3ec"
+      "sha256": "fafeaa7c8041ec50de8e817ffea963f0a9ffbcd37c74b26df3fd8e2d05faea95"
     },
     {
       "bytes": 1925,

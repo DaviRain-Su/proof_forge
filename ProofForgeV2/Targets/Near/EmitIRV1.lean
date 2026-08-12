@@ -167,42 +167,60 @@ structure MethodIR where
   operations : Array Operation
   deriving BEq, Inhabited, Repr
 
-/-- Lower exactly the operations covered by the first typed WAT slice. This is
-    consumed by the production renderer below; unsupported operations return
-    `none` rather than acquiring a parallel rendering path. -/
-def lowerReadOnlyWATOperationV1
+/-- Lower exactly the operations covered by the bounded typed-WAT refinement
+    slice. This is consumed by the production renderer below; unsupported
+    operations return `none` rather than acquiring a parallel rendering path. -/
+def lowerMethodWATOperationV1
     (registers : RegisterLayout)
     (memory : MemoryLayout) :
-    Operation → Option (Array ReadOnlyWATInstructionV1)
+    Operation → Option (Array MethodWATInstructionV1)
   | .checkInputLen 0 => some (checkEmptyInputWATV1 registers)
+  | .requireZeroAttachedDeposit =>
+      some (requireZeroAttachedDepositWATV1 memory)
+  | .requireLayoutAbsent marker =>
+      some (requireLayoutAbsentWATV1 registers marker)
   | .requireLayout marker value =>
       some (requireLayoutWATV1 registers memory marker value)
+  | .zeroState field =>
+      some (zeroUInt64StateWATV1 registers memory field)
+  | .literal destination value =>
+      some (uint64LiteralWATV1 destination value)
   | .loadState destination field =>
       some (loadUInt64StateWATV1 registers memory destination field)
+  | .storeState field source =>
+      some (storeUInt64StateWATV1 registers memory field source)
+  | .setLayout marker value =>
+      some (setLayoutWATV1 registers memory marker value)
   | .setReturnData 8 source => some (returnUInt64WATV1 memory source)
   | _ => none
 
 /-- Source-order lowering for a method wholly covered by the bounded typed WAT
     subset. -/
-def lowerReadOnlyWATOperationsListV1
+def lowerMethodWATOperationsListV1
     (registers : RegisterLayout)
     (memory : MemoryLayout) :
-    List Operation → Option (List ReadOnlyWATInstructionV1)
+    List Operation → Option (List (Array MethodWATInstructionV1))
   | [] => some []
   | operation :: remaining => do
-      let head ← lowerReadOnlyWATOperationV1 registers memory operation
-      let tail ← lowerReadOnlyWATOperationsListV1 registers memory remaining
-      return head.toList ++ tail
+      let head ← lowerMethodWATOperationV1 registers memory operation
+      let tail ← lowerMethodWATOperationsListV1 registers memory remaining
+      return head :: tail
 
 /-- Array wrapper used by the production method renderer and refinement
     theorems. -/
-def lowerReadOnlyWATOperationsV1
+def lowerMethodWATOperationsV1
     (registers : RegisterLayout)
     (memory : MemoryLayout)
     (operations : Array Operation) :
-    Option (Array ReadOnlyWATInstructionV1) :=
-  (lowerReadOnlyWATOperationsListV1 registers memory operations.toList).map
-    List.toArray
+    Option (Array MethodWATInstructionV1) :=
+  (lowerMethodWATOperationsListV1 registers memory operations.toList).map
+    concatMethodWATRecipesV1
+
+/-- Historical read-only names now point to the same sole bounded method-WAT
+    lowering. They are aliases, not an alternate lowering. -/
+abbrev lowerReadOnlyWATOperationV1 := lowerMethodWATOperationV1
+abbrev lowerReadOnlyWATOperationsListV1 := lowerMethodWATOperationsListV1
+abbrev lowerReadOnlyWATOperationsV1 := lowerMethodWATOperationsV1
 
 /-- The exact four-operation MethodIR recipe lowers to the typed WAT sequence
     used by the production renderer. -/
@@ -217,6 +235,28 @@ theorem lowerReadOnlyWATOperationsV1_nullaryUInt64View
       .loadState 0 field,
       .setReturnData 8 0
     ] = some (nullaryUInt64ViewWATV1 registers memory marker markerValue field) := by
+  rfl
+
+/-- The exact production two-UInt64 zero initializer recipe lowers to the same
+    typed-WAT sequence consumed by the sole method renderer. -/
+theorem lowerMethodWATOperationsV1_nullaryZeroTwoUInt64Initializer
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64) :
+    lowerMethodWATOperationsV1 registers memory #[
+      .checkInputLen 0,
+      .requireZeroAttachedDeposit,
+      .requireLayoutAbsent marker,
+      .zeroState field0,
+      .zeroState field1,
+      .literal 0 0,
+      .storeState field0 0,
+      .literal 1 0,
+      .storeState field1 1,
+      .setLayout marker markerValue
+    ] = some (nullaryZeroTwoUInt64InitializerWATV1 registers memory marker
+      field0 field1 markerValue) := by
   rfl
 
 /-- Pure-function recipe: params occupy temps `0..paramCount-1`; body ops use
@@ -1995,6 +2035,25 @@ theorem planIRLoweringV1_entry_lookup_eq_some
     Option.some.inj (hlowered.symm.trans hmethodIR)
   simpa [this] using hgraphMethod
 
+/-- IR method zero is the sole production lowering of the Plan initializer. -/
+theorem planIRLoweringV1_initializer_lookup_eq_some
+    (plan : Plan) (ir : IR) (method : Method) (methodIR : MethodIR)
+    (hgraph : PlanIRLoweringV1 plan ir)
+    (hinitializer : plan.initializer = method)
+    (hmethodIR : ir.methods[0]? = some methodIR) :
+    MethodIRLoweringV1 plan ir.keys method methodIR := by
+  have hmethods := planIRLoweringV1_methods plan ir hgraph
+  have hlowered :
+      ir.methods[0]? = some (lowerMethod plan ir.keys plan.initializer) := by
+    rw [hmethods]
+    unfold expectedMethods
+    rw [Array.getElem?_append_left (by simp)]
+    rfl
+  have heq : lowerMethod plan ir.keys plan.initializer = methodIR :=
+    Option.some.inj (hlowered.symm.trans hmethodIR)
+  subst method
+  simp [MethodIRLoweringV1, heq]
+
 private def uint64Hex (value : UInt64) : String :=
   let raw := String.ofList (Nat.toDigits 16 value.toNat)
   let raw := if raw.isEmpty then "0" else raw
@@ -2436,7 +2495,7 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
     (indent : String) : Operation → String
   | .checkInputLen bytes =>
       if bytes = 0 then
-        renderReadOnlyWATInstructionsV1 indent (checkEmptyInputWATV1 registers)
+        renderMethodWATInstructionsV1 indent (checkEmptyInputWATV1 registers)
       else
         s!"{indent}(call $pf_input (i64.const {registers.input}))\n" ++
           s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.input})) (i64.const {bytes})) (then unreachable))\n" ++
@@ -2454,7 +2513,7 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
   | .requireLayoutAbsent marker =>
       s!"{indent}(if (i64.ne (call $pf_storage_read (i64.const {marker.length}) (i64.const {marker.offset}) (i64.const {registers.storage})) (i64.const 0)) (then unreachable))\n"
   | .requireLayout marker value =>
-      renderReadOnlyWATInstructionsV1 indent
+      renderMethodWATInstructionsV1 indent
         (requireLayoutWATV1 registers memory marker value)
   | .zeroState field =>
       renderZeroLe indent memory.valueOffset 8 ++
@@ -2560,7 +2619,7 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
       else
         renderLoadLeToI64 indent destination (memory.inputOffset + inputOffset) (bitWidth / 8)
   | .loadState destination field =>
-      renderReadOnlyWATInstructionsV1 indent
+      renderMethodWATInstructionsV1 indent
         (loadUInt64StateWATV1 registers memory destination field)
   | .narrowLoadState bitWidth destination field =>
       renderReadKey registers memory indent destination field (bitWidth / 8)
@@ -3096,7 +3155,7 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
         s!"{indent}(if (i64.ne (call $pf_storage_write (i64.const {marker.length}) (i64.const {marker.offset}) (i64.const 8) (i64.const {memory.valueOffset}) (i64.const {registers.evicted})) (i64.const 0)) (then unreachable))\n"
   | .setReturnData byteLen value =>
       if byteLen = 8 then
-        renderReadOnlyWATInstructionsV1 indent
+        renderMethodWATInstructionsV1 indent
           (returnUInt64WATV1 memory value)
       else if byteLen > 8 then
         Id.run do
@@ -3370,9 +3429,9 @@ private def renderMethod (ir : IR) (promiseStr : Array (String × Nat))
   let operations := String.intercalate "" <| method.operations.toList.map
     (renderOperation ir.registers ir.memory
       ir.sourcePlan.events ir.sourcePlan.errors fnNames promiseStr "    ")
-  match lowerReadOnlyWATOperationsV1 ir.registers ir.memory method.operations with
+  match lowerMethodWATOperationsV1 ir.registers ir.memory method.operations with
   | some instructions =>
-      renderReadOnlyWATMethodV1 method.name method.tempCount instructions
+      renderMethodWATV1 method.name method.tempCount instructions
   | none =>
       s!"  (func (export \"{method.name}\"){locals}\n" ++ operations ++ "  )\n"
 
@@ -3948,6 +4007,78 @@ theorem irEmissionV1_entryBaseEmissionV1
     watFileLookup := hwatFile
     abiFileLookup := habiFile
     planEntryLookup := hentry
+    irMethodLookup := hmethodIR
+    methodIRLowering := hmethodIRLowering
+    methodName := hmethodName
+    watMethodEmission := hwatMethodEmission
+    abiMethodEmission := habiMethodEmission
+  }⟩
+
+/-- Exact initializer provenance across the two in-memory production base
+    outputs. The initializer occupies canonical combined method index zero. -/
+structure InitializerBaseEmissionV1
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (method : Method)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String) : Prop where
+  sourcePlan : ir.sourcePlan = plan
+  planIRLowering : PlanIRLoweringV1 plan ir
+  irEmission : IREmissionV1 ir files
+  watFileLookup : files[0]? = some watFile
+  abiFileLookup : files[1]? = some abiFile
+  planInitializer : plan.initializer = method
+  irMethodLookup : ir.methods[0]? = some methodIR
+  methodIRLowering : MethodIRLoweringV1 plan ir.keys method methodIR
+  methodName : methodIR.name = method.name
+  watMethodEmission :
+    MethodWATEmissionV1 ir 0 methodIR watFile.contents watMethodText
+  abiMethodEmission :
+    MethodABIEmissionV1 ir 0 method abiFile.contents abiMethodText
+
+/-- Production Plan→IR and emission graphs close the initializer across both
+    ordered base files without another lowering or renderer. -/
+theorem irEmissionV1_initializerBaseEmissionV1
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (method : Method)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (hplanIR : PlanIRLoweringV1 plan ir)
+    (hemission : IREmissionV1 ir files)
+    (hwatFile : files[0]? = some watFile)
+    (habiFile : files[1]? = some abiFile)
+    (hinitializer : plan.initializer = method)
+    (hmethodIR : ir.methods[0]? = some methodIR) :
+    ∃ watMethodText abiMethodText,
+      InitializerBaseEmissionV1 plan ir files method methodIR watFile abiFile
+        watMethodText abiMethodText := by
+  have hsourcePlan := planIRLoweringV1_sourcePlan plan ir hplanIR
+  have hmethodIRLowering :=
+    planIRLoweringV1_initializer_lookup_eq_some plan ir method methodIR hplanIR
+      hinitializer hmethodIR
+  have hmethodName := methodIRLoweringV1_name plan ir.keys method methodIR
+    hmethodIRLowering
+  obtain ⟨watMethodText, hwatMethodEmission⟩ :=
+    irEmissionV1_methodWATEmissionV1 ir files watFile 0 methodIR hemission
+      hwatFile hmethodIR
+  have habiMethodLookup :
+      (#[ir.sourcePlan.initializer] ++ ir.sourcePlan.entries)[0]? = some method := by
+    rw [Array.getElem?_append_left (by simp)]
+    simpa [hsourcePlan] using congrArg some hinitializer
+  obtain ⟨abiMethodText, habiMethodEmission⟩ :=
+    irEmissionV1_methodABIEmissionV1 ir files abiFile 0 method hemission
+      habiFile habiMethodLookup
+  exact ⟨watMethodText, abiMethodText, {
+    sourcePlan := hsourcePlan
+    planIRLowering := hplanIR
+    irEmission := hemission
+    watFileLookup := hwatFile
+    abiFileLookup := habiFile
+    planInitializer := hinitializer
     irMethodLookup := hmethodIR
     methodIRLowering := hmethodIRLowering
     methodName := hmethodName

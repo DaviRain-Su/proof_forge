@@ -15342,3 +15342,23 @@ normative: false
   retained-FD/race-free/TOCTOU closure、`wat2wasm` correctness、Wasm binary semantics或 NEAR runtime
   refinement。整体 assurance仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR VerifiedVault initializer bounded refinement
+
+- sole bounded MethodIR/typed-WAT target authority已扩展到 selected `VerifiedVaultPF.init()` exact
+  recipe：empty input、zero attached deposit、layout absent、two UInt64 zero writes及 marker-final
+  commit。两级 evaluator均给出 exact post-storage，并固定 double-init与 nonzero-deposit在写入前
+  fail closed；typed-WAT static validator继续检查 canonical key binding、locals与 scratch bounds。
+- production same-file certification fixture不再手写 initializer golden：它从真实
+  `VerifiedVaultPF` capability动态恢复 retained semantic、Plan、IR、canonical key regions、build
+  outputs、initializer Method/MethodIR及 method-index-0 WAT/ABI renderer graph；proof-producing
+  recognizer与 exact alignment bridge要求完整 operation order和 repeated canonical regions。
+- materialization fixture直接消费 sole `stepReferenceSliceV1` 与
+  `postEncode_of_readyInitializerStoreZeroTwoV1`，再由
+  `initializedZeroTwoUInt64StorageRelV1_of_postEncode_and_methodExecution` 把真实 Reference logical
+  initialized zero/zero post-state连接到 target marker+two-field physical KV observation。没有新增
+  DSL State/Effect/evaluator/step。
+- 当前 `status()` 与 `init()` 具有 bounded MethodIR/typed-WAT refinement；`deposit()` / `withdraw()`
+  尚未 target-refined。没有 arbitrary textual-WAT parser、`wat2wasm` correctness、Wasm binary
+  semantics或 NEAR runtime simulation，整体准确口径仍是
+  **Reference-verified + engineering runtime observed ≠ fully target-refined**。

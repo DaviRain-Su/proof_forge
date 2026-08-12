@@ -4,7 +4,7 @@ import ProofForgeV2.Targets.Near.MethodSemanticsV1
 # NEAR WATSemanticsV1
 
 Execution semantics for the typed WAT instruction subset that the production
-renderer now uses for the nullary UInt64 view recipe.
+renderer uses for the selected nullary UInt64 view and initializer recipes.
 
 This is intentionally bounded. Scratch memory is modeled as exact byte blocks
 at the offsets touched by this recipe, while `storageRead` retains the
@@ -26,14 +26,17 @@ inductive ReadOnlyWATErrorV1 where
   | registerMissing
   | memoryMissing
   | memoryWidthMismatch
+  | unsupportedStorageWidth
   | unsupportedReturnWidth
   deriving BEq, Repr
 
-/-- Machine state for the typed read-only WAT subset. Registers and scratch
-    memory are target-level host/Wasm state; input and storage are immutable
-    environment observations. -/
+/-- Machine state for the sole bounded typed-WAT subset. Registers, scratch
+    memory, and storage are target-level host/Wasm state; input and attached
+    deposit limbs are immutable environment observations. -/
 structure ReadOnlyWATMachineV1 where
   input : ByteArray
+  attachedDepositLow : UInt64
+  attachedDepositHigh : UInt64
   storage : StorageObservationV1
   localCount : Nat
   locals : Nat → Option UInt64
@@ -44,8 +47,11 @@ structure ReadOnlyWATMachineV1 where
 private def initialReadOnlyWATMachineV1
     (localCount : Nat)
     (input : ByteArray)
+    (attachedDepositLow attachedDepositHigh : UInt64)
     (storage : StorageObservationV1) : ReadOnlyWATMachineV1 := {
   input
+  attachedDepositLow
+  attachedDepositHigh
   storage
   localCount
   locals := fun _ => none
@@ -53,6 +59,12 @@ private def initialReadOnlyWATMachineV1
   memory := fun _ => none
   returnData := none
 }
+
+private def writeReadOnlyWATStorageV1
+    (machine : ReadOnlyWATMachineV1)
+    (key : String)
+    (value : ByteArray) : ReadOnlyWATMachineV1 :=
+  { machine with storage := writeStorageObservationV1 machine.storage key value }
 
 private def setReadOnlyWATRegisterV1
     (machine : ReadOnlyWATMachineV1)
@@ -116,6 +128,20 @@ def evalReadOnlyWATI64ExprV1
           .ok (setReadOnlyWATRegisterV1 machine register (some bytes), 1)
       | none =>
           .ok (setReadOnlyWATRegisterV1 machine register none, 0)
+  | .storageWrite field byteLen offset register =>
+      if byteLen = 8 then
+        match machine.memory offset with
+        | none => .error .memoryMissing
+        | some bytes =>
+            if bytes.size = 8 then
+              let oldBytes := machine.storage.lookup field.key
+              let machine := setReadOnlyWATRegisterV1 machine register oldBytes
+              let machine := writeReadOnlyWATStorageV1 machine field.key bytes
+              .ok (machine, if oldBytes.isSome then 1 else 0)
+            else
+              .error .memoryWidthMismatch
+      else
+        .error .unsupportedStorageWidth
 
 /-- Execute one typed instruction from the bounded WAT subset. -/
 def stepReadOnlyWATInstructionV1
@@ -124,6 +150,11 @@ def stepReadOnlyWATInstructionV1
       Except ReadOnlyWATErrorV1 ReadOnlyWATMachineV1
   | .input register =>
       .ok (setReadOnlyWATRegisterV1 machine register (some machine.input))
+  | .attachedDeposit offset =>
+      .ok (setReadOnlyWATMemoryV1
+        (setReadOnlyWATMemoryV1 machine offset
+          (encodeU64le machine.attachedDepositLow))
+        (offset + 8) (encodeU64le machine.attachedDepositHigh))
   | .trapIfI64Ne left right => do
       let (machine, leftValue) ← evalReadOnlyWATI64ExprV1 machine left
       let (machine, rightValue) ← evalReadOnlyWATI64ExprV1 machine right
@@ -159,22 +190,111 @@ def runReadOnlyWATInstructionsV1 :
       let machine ← stepReadOnlyWATInstructionV1 machine instruction
       runReadOnlyWATInstructionsV1 remaining machine
 
+/-- Sequencing law for the sole typed-WAT runner. -/
+theorem runReadOnlyWATInstructionsV1_append
+    (left right : List ReadOnlyWATInstructionV1)
+    (machine : ReadOnlyWATMachineV1) :
+    runReadOnlyWATInstructionsV1 (left ++ right) machine = (do
+      let machine ← runReadOnlyWATInstructionsV1 left machine
+      runReadOnlyWATInstructionsV1 right machine) := by
+  induction left generalizing machine with
+  | nil => rfl
+  | cons instruction remaining ih =>
+      simp only [List.cons_append, runReadOnlyWATInstructionsV1]
+      cases hstep : stepReadOnlyWATInstructionV1 machine instruction with
+      | error error => simp [Bind.bind, Except.bind]
+      | ok next => simp [ih, Bind.bind, Except.bind]
+
+/-- Execute operation-sized typed-WAT recipes in source order. This is a proof
+    view of the existing instruction runner, not another instruction step. -/
+def runMethodWATRecipesV1 :
+    List (Array MethodWATInstructionV1) → ReadOnlyWATMachineV1 →
+      Except ReadOnlyWATErrorV1 ReadOnlyWATMachineV1
+  | [], machine => .ok machine
+  | recipe :: remaining, machine => do
+      let machine ← runReadOnlyWATInstructionsV1 recipe.toList machine
+      runMethodWATRecipesV1 remaining machine
+
+/-- Flattening operation-sized recipes and running instructions is exactly
+    recipe-by-recipe execution through the same step relation. -/
+theorem runReadOnlyWATInstructionsV1_concatMethodWATRecipesV1
+    (recipes : List (Array MethodWATInstructionV1))
+    (machine : ReadOnlyWATMachineV1) :
+    runReadOnlyWATInstructionsV1
+      (concatMethodWATRecipesV1 recipes).toList machine =
+      runMethodWATRecipesV1 recipes machine := by
+  induction recipes generalizing machine with
+  | nil => rfl
+  | cons recipe remaining ih =>
+      simp [concatMethodWATRecipesV1, Array.toList_append,
+        runReadOnlyWATInstructionsV1_append, runMethodWATRecipesV1, ih,
+        Bind.bind, Except.bind]
+
 /-- Observable result of the bounded typed WAT machine. -/
 inductive ReadOnlyWATOutcomeV1 where
   | returned (returnData : Option ByteArray)
   | trapped (error : ReadOnlyWATErrorV1)
   deriving BEq, Repr
 
-/-- Execute one bounded typed WAT method body. -/
+/-- Successful bounded typed-WAT execution includes post-storage. A trap omits
+    machine state, enforcing rollback at the observation boundary. -/
+inductive MethodWATExecutionOutcomeV1 where
+  | returned (returnData : Option ByteArray) (postStorage : StorageObservationV1)
+  | trapped (error : ReadOnlyWATErrorV1)
+
+/-- Execute one bounded typed-WAT method body with explicit u128 deposit limbs. -/
+def executeMethodWATV1
+    (localCount : Nat)
+    (instructions : Array MethodWATInstructionV1)
+    (input : ByteArray)
+    (attachedDepositLow attachedDepositHigh : UInt64)
+    (storage : StorageObservationV1) : MethodWATExecutionOutcomeV1 :=
+  match runReadOnlyWATInstructionsV1 instructions.toList
+      (initialReadOnlyWATMachineV1 localCount input attachedDepositLow
+        attachedDepositHigh storage) with
+  | .ok machine => .returned machine.returnData machine.storage
+  | .error error => .trapped error
+
+/-- Historical read-only projection over the same evaluator. -/
 def executeReadOnlyWATV1
     (localCount : Nat)
     (instructions : Array ReadOnlyWATInstructionV1)
     (input : ByteArray)
     (storage : StorageObservationV1) : ReadOnlyWATOutcomeV1 :=
-  match runReadOnlyWATInstructionsV1 instructions.toList
-      (initialReadOnlyWATMachineV1 localCount input storage) with
-  | .ok machine => .returned machine.returnData
-  | .error error => .trapped error
+  match executeMethodWATV1 localCount instructions input 0 0 storage with
+  | .returned returnData _ => .returned returnData
+  | .trapped error => .trapped error
+
+/-- Canonical call observation derived from bounded typed-WAT execution. -/
+def observeMethodWATV1
+    (exportName : String)
+    (localCount : Nat)
+    (instructions : Array MethodWATInstructionV1)
+    (input : ByteArray)
+    (attachedDepositLow attachedDepositHigh : UInt64)
+    (storage : StorageObservationV1) : CallObservationV1 :=
+  match executeMethodWATV1 localCount instructions input attachedDepositLow
+      attachedDepositHigh storage with
+  | .returned returnData postStorage => {
+      exportName
+      input
+      returnData
+      failureObserved := false
+      logs := #[]
+      promises := #[]
+      preStorage := storage
+      postStorage
+    }
+  | .trapped _ => {
+      exportName
+      input
+      returnData := none
+      failureObserved := true
+      logs := #[]
+      promises := #[]
+      preStorage := storage
+      postStorage := storage
+    }
 
 /-- Canonical call observation derived from bounded typed WAT execution. -/
 def observeReadOnlyWATV1
@@ -226,7 +346,8 @@ theorem executeReadOnlyWATV1_nullaryUInt64View
   have hroundtrip :
       encodeU64le (UInt64.ofNat (leBytesToNatV1 fieldBytes)) = fieldBytes :=
     encodeU64le_uint64OfLeBytesToNatV1_of_size fieldBytes hfieldSize
-  simp [executeReadOnlyWATV1, nullaryUInt64ViewWATV1,
+  simp [executeReadOnlyWATV1, executeMethodWATV1,
+    nullaryUInt64ViewWATV1, concatMethodWATRecipesV1,
     checkEmptyInputWATV1, requireLayoutWATV1, loadUInt64StateWATV1,
     returnUInt64WATV1, runReadOnlyWATInstructionsV1,
     initialReadOnlyWATMachineV1, stepReadOnlyWATInstructionV1,
@@ -234,6 +355,134 @@ theorem executeReadOnlyWATV1_nullaryUInt64View
     setReadOnlyWATMemoryV1, setReadOnlyWATLocalV1, hmarker, hfield,
     hfieldSize, hmarkerRoundtrip, hroundtrip, encodeU64le_size, Bind.bind,
     Except.bind]
+
+/-- Exact execution of the typed-WAT sequence selected by production lowering
+    for the two-UInt64 zero initializer. -/
+theorem executeMethodWATV1_nullaryZeroTwoUInt64Initializer
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64)
+    (storage : StorageObservationV1)
+    (hmarker : storage.lookup marker.key = none)
+    (hfield0 : storage.lookup field0.key = none)
+    (hfield1 : storage.lookup field1.key = none)
+    (hfield10 : field1.key ≠ field0.key)
+    (hmarker0 : marker.key ≠ field0.key)
+    (hmarker1 : marker.key ≠ field1.key) :
+    executeMethodWATV1 2
+      (nullaryZeroTwoUInt64InitializerWATV1 registers memory marker field0
+        field1 markerValue)
+      ByteArray.empty 0 0 storage =
+      .returned none
+        (zeroTwoUInt64InitializerPostStorageV1 storage marker field0 field1
+          markerValue) := by
+  unfold executeMethodWATV1
+  simp only [nullaryZeroTwoUInt64InitializerWATV1]
+  rw [runReadOnlyWATInstructionsV1_concatMethodWATRecipesV1]
+  simp [runMethodWATRecipesV1, checkEmptyInputWATV1,
+    requireZeroAttachedDepositWATV1, requireLayoutAbsentWATV1,
+    zeroUInt64StateWATV1, uint64LiteralWATV1, storeUInt64StateWATV1,
+    setLayoutWATV1, runReadOnlyWATInstructionsV1,
+    initialReadOnlyWATMachineV1, stepReadOnlyWATInstructionV1,
+    evalReadOnlyWATI64ExprV1, setReadOnlyWATRegisterV1,
+    setReadOnlyWATMemoryV1, setReadOnlyWATLocalV1,
+    writeReadOnlyWATStorageV1, writeStorageObservationV1,
+    zeroTwoUInt64InitializerPostStorageV1, hmarker, hfield0, hfield1,
+    hfield10, hmarker0, hmarker1, encodeU64le_size,
+    leBytesToNatV1_encodeU64le, Bind.bind, Except.bind]
+
+/-- Nonempty ABI input traps in typed WAT before deposit or storage is
+    inspected. -/
+theorem executeMethodWATV1_nullaryZeroTwoUInt64Initializer_nonempty_input
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64)
+    (input : ByteArray)
+    (storage : StorageObservationV1)
+    (hinput : UInt64.ofNat input.size ≠ 0) :
+    executeMethodWATV1 2
+      (nullaryZeroTwoUInt64InitializerWATV1 registers memory marker field0
+        field1 markerValue)
+      input 0 0 storage = .trapped .trap := by
+  unfold executeMethodWATV1
+  simp only [nullaryZeroTwoUInt64InitializerWATV1]
+  rw [runReadOnlyWATInstructionsV1_concatMethodWATRecipesV1]
+  simp [runMethodWATRecipesV1, checkEmptyInputWATV1,
+    runReadOnlyWATInstructionsV1, initialReadOnlyWATMachineV1,
+    stepReadOnlyWATInstructionV1, evalReadOnlyWATI64ExprV1,
+    setReadOnlyWATRegisterV1, hinput, Bind.bind, Except.bind]
+
+/-- Existing layout storage rejects the typed-WAT initializer before any
+    storage write can commit. -/
+theorem executeMethodWATV1_nullaryZeroTwoUInt64Initializer_double_init
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64)
+    (markerBytes : ByteArray)
+    (storage : StorageObservationV1)
+    (hmarker : storage.lookup marker.key = some markerBytes) :
+    executeMethodWATV1 2
+      (nullaryZeroTwoUInt64InitializerWATV1 registers memory marker field0
+        field1 markerValue)
+      ByteArray.empty 0 0 storage = .trapped .trap := by
+  unfold executeMethodWATV1
+  simp only [nullaryZeroTwoUInt64InitializerWATV1]
+  rw [runReadOnlyWATInstructionsV1_concatMethodWATRecipesV1]
+  simp [runMethodWATRecipesV1, checkEmptyInputWATV1,
+    requireZeroAttachedDepositWATV1, requireLayoutAbsentWATV1,
+    runReadOnlyWATInstructionsV1, initialReadOnlyWATMachineV1,
+    stepReadOnlyWATInstructionV1, evalReadOnlyWATI64ExprV1,
+    setReadOnlyWATRegisterV1, setReadOnlyWATMemoryV1, hmarker,
+    encodeU64le_size, leBytesToNatV1_encodeU64le, Bind.bind, Except.bind]
+
+/-- A nonzero low attached-deposit limb traps in typed WAT before storage is
+    inspected or changed. -/
+theorem executeMethodWATV1_nullaryZeroTwoUInt64Initializer_nonzero_deposit
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue depositLow : UInt64)
+    (storage : StorageObservationV1)
+    (hdeposit : depositLow ≠ 0) :
+    executeMethodWATV1 2
+      (nullaryZeroTwoUInt64InitializerWATV1 registers memory marker field0
+        field1 markerValue)
+      ByteArray.empty depositLow 0 storage = .trapped .trap := by
+  unfold executeMethodWATV1
+  simp only [nullaryZeroTwoUInt64InitializerWATV1]
+  rw [runReadOnlyWATInstructionsV1_concatMethodWATRecipesV1]
+  simp [runMethodWATRecipesV1, checkEmptyInputWATV1,
+    requireZeroAttachedDepositWATV1, runReadOnlyWATInstructionsV1,
+    initialReadOnlyWATMachineV1, stepReadOnlyWATInstructionV1,
+    evalReadOnlyWATI64ExprV1, setReadOnlyWATRegisterV1,
+    setReadOnlyWATMemoryV1, hdeposit, encodeU64le_size,
+    leBytesToNatV1_encodeU64le, Bind.bind, Except.bind]
+
+/-- A nonzero high attached-deposit limb traps at the second typed-WAT u128
+    deposit check before storage is inspected or changed. -/
+theorem executeMethodWATV1_nullaryZeroTwoUInt64Initializer_nonzero_deposit_high
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue depositHigh : UInt64)
+    (storage : StorageObservationV1)
+    (hdeposit : depositHigh ≠ 0) :
+    executeMethodWATV1 2
+      (nullaryZeroTwoUInt64InitializerWATV1 registers memory marker field0
+        field1 markerValue)
+      ByteArray.empty 0 depositHigh storage = .trapped .trap := by
+  unfold executeMethodWATV1
+  simp only [nullaryZeroTwoUInt64InitializerWATV1]
+  rw [runReadOnlyWATInstructionsV1_concatMethodWATRecipesV1]
+  simp [runMethodWATRecipesV1, checkEmptyInputWATV1,
+    requireZeroAttachedDepositWATV1, runReadOnlyWATInstructionsV1,
+    initialReadOnlyWATMachineV1, stepReadOnlyWATInstructionV1,
+    evalReadOnlyWATI64ExprV1, setReadOnlyWATRegisterV1,
+    setReadOnlyWATMemoryV1, hdeposit, encodeU64le_size,
+    leBytesToNatV1_encodeU64le, Bind.bind, Except.bind]
 
 /-- The exact production MethodIR recipe and its typed WAT lowering return the
     same bytes under the same target storage observation. -/

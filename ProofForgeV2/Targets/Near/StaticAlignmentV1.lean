@@ -533,4 +533,380 @@ theorem productionNullaryUInt64ViewStaticAlignmentV1_of_recognized
   · exact recognizeNullaryUInt64ViewMethodV1_sound method _ hmethodShape
   · exact recognizeNullaryUInt64ViewMethodIRV1_sound methodIR _ hmethodIRShape
 
+/-! ## Selected two-UInt64 initializer alignment -/
+
+/-- Public-syntax witness for the exact nullary initializer Method admitted by
+    this slice. The two physical field indices are recovered from the Method;
+    this witness does not assert that they are canonical storage fields. -/
+structure NullaryZeroTwoUInt64InitializerMethodShapeV1 where
+  initializerName : String
+  field0Index : Nat
+  field1Index : Nat
+  deriving Repr
+
+/-- Proof-producing syntax recognizer for a nullary, zero-deposit initializer
+    that writes UInt64 zero to exactly two fields and returns Unit. -/
+def recognizeNullaryZeroTwoUInt64InitializerMethodV1
+    (method : Method) :
+    Option NullaryZeroTwoUInt64InitializerMethodShapeV1 :=
+  match method.params.toList, method.exactInputLen, method.mode,
+      method.depositPolicy, method.resultKind, method.body.toList with
+  | [], 0, .initialize, .requireZero, .unit, [
+      .store {
+        fieldIndex := field0Index
+        value := .literal 0
+        byteWidth := 8
+      },
+      .store {
+        fieldIndex := field1Index
+        value := .literal 0
+        byteWidth := 8
+      },
+      .returnNone
+    ] =>
+    some { initializerName := method.name, field0Index, field1Index }
+  | _, _, _, _, _, _ => none
+
+/-- A successful initializer Method recognizer is an exact structural
+    equality, including operation count and order. -/
+theorem recognizeNullaryZeroTwoUInt64InitializerMethodV1_sound
+    (method : Method)
+    (shape : NullaryZeroTwoUInt64InitializerMethodShapeV1)
+    (hrecognize :
+      recognizeNullaryZeroTwoUInt64InitializerMethodV1 method = some shape) :
+    method = {
+      name := shape.initializerName
+      params := #[]
+      exactInputLen := 0
+      mode := .initialize
+      depositPolicy := .requireZero
+      resultKind := .unit
+      body := #[
+        .store {
+          fieldIndex := shape.field0Index
+          value := .literal 0
+          byteWidth := 8
+        },
+        .store {
+          fieldIndex := shape.field1Index
+          value := .literal 0
+          byteWidth := 8
+        },
+        .returnNone
+      ]
+    } := by
+  rcases method with ⟨name, params, exactInputLen, mode, depositPolicy,
+    resultKind, body⟩
+  simp only [recognizeNullaryZeroTwoUInt64InitializerMethodV1] at hrecognize
+  split at hrecognize
+  · cases hrecognize
+    have hparams : params = #[] :=
+      Array.toList_inj.mp (by assumption)
+    have hbody : body = #[
+        .store {
+          fieldIndex := _
+          value := .literal 0
+          byteWidth := 8
+        },
+        .store {
+          fieldIndex := _
+          value := .literal 0
+          byteWidth := 8
+        },
+        .returnNone
+      ] := Array.toList_inj.mp (by assumption)
+    cases hparams
+    cases hbody
+    rfl
+  · contradiction
+
+/-- Public-syntax witness for the exact initializer MethodIR recipe. Regions
+    and marker value are recovered from IR syntax and are related to canonical
+    Plan data separately. -/
+structure NullaryZeroTwoUInt64InitializerMethodIRShapeV1 where
+  initializerName : String
+  markerRegion : KeyRegion
+  field0Region : KeyRegion
+  field1Region : KeyRegion
+  store0Region : KeyRegion
+  store1Region : KeyRegion
+  setMarkerRegion : KeyRegion
+  markerValue : UInt64
+  deriving Repr
+
+/-- Proof-producing syntax recognizer for the exact ten-operation initializer
+    recipe emitted by the production lowering. -/
+def recognizeNullaryZeroTwoUInt64InitializerMethodIRV1
+    (methodIR : MethodIR) :
+    Option NullaryZeroTwoUInt64InitializerMethodIRShapeV1 :=
+  match methodIR.params.toList, methodIR.mode, methodIR.tempCount,
+      methodIR.operations.toList with
+  | [], .initialize, 2, [
+      .checkInputLen 0,
+      .requireZeroAttachedDeposit,
+      .requireLayoutAbsent markerRegion,
+      .zeroState field0Region,
+      .zeroState field1Region,
+      .literal 0 0,
+      .storeState store0Region 0,
+      .literal 1 0,
+      .storeState store1Region 1,
+      .setLayout setMarkerRegion markerValue
+    ] =>
+    some {
+      initializerName := methodIR.name
+      markerRegion
+      field0Region
+      field1Region
+      store0Region
+      store1Region
+      setMarkerRegion
+      markerValue
+    }
+  | _, _, _, _ => none
+
+/-- A successful initializer MethodIR recognizer is an exact structural
+    equality, including every region occurrence, operation count, and order.
+    The production bridge below additionally requires repeated regions to be
+    identical to their canonical load/check regions. -/
+theorem recognizeNullaryZeroTwoUInt64InitializerMethodIRV1_sound
+    (methodIR : MethodIR)
+    (shape : NullaryZeroTwoUInt64InitializerMethodIRShapeV1)
+    (hrecognize :
+      recognizeNullaryZeroTwoUInt64InitializerMethodIRV1 methodIR =
+        some shape) :
+    methodIR = {
+      name := shape.initializerName
+      params := #[]
+      mode := .initialize
+      tempCount := 2
+      operations := #[
+        .checkInputLen 0,
+        .requireZeroAttachedDeposit,
+        .requireLayoutAbsent shape.markerRegion,
+        .zeroState shape.field0Region,
+        .zeroState shape.field1Region,
+        .literal 0 0,
+        .storeState shape.store0Region 0,
+        .literal 1 0,
+        .storeState shape.store1Region 1,
+        .setLayout shape.setMarkerRegion shape.markerValue
+      ]
+    } := by
+  rcases methodIR with ⟨name, params, mode, tempCount, operations⟩
+  simp only [recognizeNullaryZeroTwoUInt64InitializerMethodIRV1] at hrecognize
+  split at hrecognize
+  · cases hrecognize
+    have hparams : params = #[] :=
+      Array.toList_inj.mp (by assumption)
+    have hoperations : operations = #[
+        .checkInputLen 0,
+        .requireZeroAttachedDeposit,
+        .requireLayoutAbsent _,
+        .zeroState _,
+        .zeroState _,
+        .literal 0 0,
+        .storeState _ 0,
+        .literal 1 0,
+        .storeState _ 1,
+        .setLayout _ _
+      ] := Array.toList_inj.mp (by assumption)
+    cases hparams
+    cases hoperations
+    rfl
+  · contradiction
+
+/-- Exact static alignment for the selected nullary initializer that writes
+    zero to semantic state slots 0 and 1. Complete Method/MethodIR equalities
+    make extra, missing, or reordered operations fail closed. -/
+structure NullaryZeroTwoUInt64InitializerStaticAlignmentV1
+    (data : SemanticProgramDataV1)
+    (storage : StorageLayout)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (initializerName : String)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR) : Prop where
+  binding0Rel : UInt64StateBindingRelV1 data storage binding0
+  binding1Rel : UInt64StateBindingRelV1 data storage binding1
+  binding0State : binding0.semanticStateId = 0
+  binding1State : binding1.semanticStateId = 1
+  bindingTypes : binding0.semanticTypeId = binding1.semanticTypeId
+  distinctFields : binding0.physicalFieldIndex ≠ binding1.physicalFieldIndex
+  markerKey : markerRegion.key = storage.markerKey
+  markerLength : markerRegion.length = storage.markerKey.toUTF8.size
+  field0Key : field0Region.key = binding0.physicalKey
+  field0Length : field0Region.length = binding0.physicalKey.toUTF8.size
+  field1Key : field1Region.key = binding1.physicalKey
+  field1Length : field1Region.length = binding1.physicalKey.toUTF8.size
+  methodExact : method = {
+    name := initializerName
+    params := #[]
+    exactInputLen := 0
+    mode := .initialize
+    depositPolicy := .requireZero
+    resultKind := .unit
+    body := #[
+      .store {
+        fieldIndex := binding0.physicalFieldIndex
+        value := .literal 0
+        byteWidth := 8
+      },
+      .store {
+        fieldIndex := binding1.physicalFieldIndex
+        value := .literal 0
+        byteWidth := 8
+      },
+      .returnNone
+    ]
+  }
+  methodIRExact : methodIR = {
+    name := initializerName
+    params := #[]
+    mode := .initialize
+    tempCount := 2
+    operations := #[
+      .checkInputLen 0,
+      .requireZeroAttachedDeposit,
+      .requireLayoutAbsent markerRegion,
+      .zeroState field0Region,
+      .zeroState field1Region,
+      .literal 0 0,
+      .storeState field0Region 0,
+      .literal 1 0,
+      .storeState field1Region 1,
+      .setLayout markerRegion storage.markerValue
+    ]
+  }
+
+/-- Production provenance for the selected initializer: validated semantic
+    data, canonical key construction, actual production lowering, and the exact
+    passive alignment are carried together. -/
+structure ProductionNullaryZeroTwoUInt64InitializerStaticAlignmentV1
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (keys : Array KeyRegion)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (initializerName : String)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR) : Prop where
+  semanticValidation : validateSemanticProgramV1 program = .ok data
+  keyRegions : KeyRegionsV1 plan keys
+  markerLookup : keys[0]? = some markerRegion
+  field0Lookup : keys[binding0.physicalFieldIndex + 1]? = some field0Region
+  field1Lookup : keys[binding1.physicalFieldIndex + 1]? = some field1Region
+  methodLowering : MethodIRLoweringV1 plan keys method methodIR
+  staticAlignment :
+    NullaryZeroTwoUInt64InitializerStaticAlignmentV1 data plan.storage binding0
+      binding1 initializerName method markerRegion field0Region field1Region
+        methodIR
+
+/-- Successful structural recognition bridges existing production provenance
+    to the complete selected initializer alignment. The semantic/storage
+    bindings and canonical key facts remain explicit hypotheses. -/
+theorem productionNullaryZeroTwoUInt64InitializerStaticAlignmentV1_of_recognized
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (keys : Array KeyRegion)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (initializerName : String)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hkeys : KeyRegionsV1 plan keys)
+    (hmarkerLookup : keys[0]? = some markerRegion)
+    (hfield0Lookup :
+      keys[binding0.physicalFieldIndex + 1]? = some field0Region)
+    (hfield1Lookup :
+      keys[binding1.physicalFieldIndex + 1]? = some field1Region)
+    (hlowering : MethodIRLoweringV1 plan keys method methodIR)
+    (hbinding0 : UInt64StateBindingRelV1 data plan.storage binding0)
+    (hbinding1 : UInt64StateBindingRelV1 data plan.storage binding1)
+    (hbinding0State : binding0.semanticStateId = 0)
+    (hbinding1State : binding1.semanticStateId = 1)
+    (hbindingTypes : binding0.semanticTypeId = binding1.semanticTypeId)
+    (hdistinctFields :
+      binding0.physicalFieldIndex ≠ binding1.physicalFieldIndex)
+    (hmarkerKey : markerRegion.key = plan.storage.markerKey)
+    (hmarkerLength :
+      markerRegion.length = plan.storage.markerKey.toUTF8.size)
+    (hfield0Key : field0Region.key = binding0.physicalKey)
+    (hfield0Length :
+      field0Region.length = binding0.physicalKey.toUTF8.size)
+    (hfield1Key : field1Region.key = binding1.physicalKey)
+    (hfield1Length :
+      field1Region.length = binding1.physicalKey.toUTF8.size)
+    (hmethodShape :
+      recognizeNullaryZeroTwoUInt64InitializerMethodV1 method = some {
+        initializerName
+        field0Index := binding0.physicalFieldIndex
+        field1Index := binding1.physicalFieldIndex
+      })
+    (hmethodIRShape :
+      recognizeNullaryZeroTwoUInt64InitializerMethodIRV1 methodIR = some {
+        initializerName
+        markerRegion
+        field0Region
+        field1Region
+        store0Region := field0Region
+        store1Region := field1Region
+        setMarkerRegion := markerRegion
+        markerValue := plan.storage.markerValue
+      }) :
+    ProductionNullaryZeroTwoUInt64InitializerStaticAlignmentV1 program data plan
+      keys binding0 binding1 initializerName method markerRegion field0Region
+        field1Region methodIR := by
+  refine {
+    semanticValidation := hvalidate
+    keyRegions := hkeys
+    markerLookup := hmarkerLookup
+    field0Lookup := hfield0Lookup
+    field1Lookup := hfield1Lookup
+    methodLowering := hlowering
+    staticAlignment := {
+      binding0Rel := hbinding0
+      binding1Rel := hbinding1
+      binding0State := hbinding0State
+      binding1State := hbinding1State
+      bindingTypes := hbindingTypes
+      distinctFields := hdistinctFields
+      markerKey := hmarkerKey
+      markerLength := hmarkerLength
+      field0Key := hfield0Key
+      field0Length := hfield0Length
+      field1Key := hfield1Key
+      field1Length := hfield1Length
+      methodExact := ?_
+      methodIRExact := ?_
+    }
+  }
+  · exact recognizeNullaryZeroTwoUInt64InitializerMethodV1_sound method _
+      hmethodShape
+  · exact recognizeNullaryZeroTwoUInt64InitializerMethodIRV1_sound methodIR _
+      hmethodIRShape
+
+/-- Logical decoding and the three owned KV rows agree after successful
+    initialization. This relation consumes target post-storage observations; it
+    does not define another target transition. -/
+def InitializedZeroTwoUInt64StorageRelV1
+    (data : SemanticProgramDataV1)
+    (storage : StorageLayout)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (logical : LogicalStateV1)
+    (observed : StorageObservationV1) : Prop :=
+  UInt64StateBindingRelV1 data storage binding0 ∧
+  UInt64StateBindingRelV1 data storage binding1 ∧
+  binding0.semanticStateId = 0 ∧
+  binding1.semanticStateId = 1 ∧
+  logical.initialized = true ∧
+  decodeLogicalStateValuesV1 data logical =
+    .ok #[encodeU64le 0, encodeU64le 0] ∧
+  observed.lookup storage.markerKey = some (encodeU64le storage.markerValue) ∧
+  observed.lookup binding0.physicalKey = some (encodeU64le 0) ∧
+  observed.lookup binding1.physicalKey = some (encodeU64le 0)
+
 end ProofForgeV2.Targets.Near

@@ -334,6 +334,19 @@ Phase 1：实现
   `wat2wasm`前 fail closed。它证明 canonical generated-text identity，不解析 arbitrary WAT、不证明
   WAT/Wasm execution semantics、translator correctness、retained-FD/TOCTOU closure或 NEAR runtime
   refinement。
+- **VerifiedVault `init()` bounded target refinement（Phase 7 第二十七切）**：现有唯一
+  MethodIR/typed-WAT lowering、validator、renderer与 evaluator扩展到 exact nullary initializer：
+  empty input、zero attached deposit、layout absent、两个 UInt64 state fields写零、marker最后写入。
+  `CapabilityInitializerStaticEmissionV1`从真实 same-file certified capability动态连接 retained
+  semantic、production Plan/IR、canonical marker/two-field key regions、initializer Method/MethodIR与
+  同一次 WAT/ABI output；proof-producing recognizer及 bridge要求 exact operation order和 repeated
+  canonical regions。MethodIR与typed-WAT theorem固定成功 post-storage、double-init trap及 nonzero
+  deposit trap；storage relation又直接消费 sole Reference initializer step与
+  `postEncode_of_readyInitializerStoreZeroTwoV1`，连接 logical initialized zero/zero state和 marker+
+  two-field physical KV。没有第二套业务 State/Effect/step/evaluator。该结果只覆盖 selected
+  `init()` recipe；`deposit()` / `withdraw()` 尚未 target-refined，也不证明 arbitrary textual WAT、
+  `wat2wasm` correctness、Wasm binary semantics或 NEAR runtime simulation。整体仍是
+  **Reference-verified + engineering runtime observed ≠ fully target-refined**。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -422,8 +435,12 @@ Operation/WAT semantics：尚无 textual WAT parser/general module validator、s
 通用 typed semantics、arbitrary linear memory、完整 NEAR host ABI、locked `wat2wasm`
 correctness、Wasm binary
 execution、IR→Wasm/NEAR simulation 或 WAT↔ABI consistency theorem。
-当前仍没有 finalized Wasm/disk identity 或 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
-覆盖 corrupt storage 或 gas/profile 的通用 corpus 仍不完整；StateCell
+同一 target authority现也覆盖 selected `init()`：真实 production initializer Method/MethodIR、
+canonical key regions与 WAT/ABI emission 已动态闭合，bounded MethodIR/typed-WAT execution固定成功
+post-storage及 double-init/nonzero-deposit trap，真实 Reference initializer postEncode theorem连接逻辑
+zero/zero state与三条物理 KV row。`deposit()` / `withdraw()` 尚未 target-refined。当前仍没有 finalized
+Wasm/disk identity 或 Reference→Wasm/NEAR simulation theorem。通用 corpus 对 corrupt storage 或
+gas/profile 的覆盖仍不完整；StateCell
 `negative_corpus` 已 pin unknown method / exactInputLen 类 bad args + state-hold
 （engineering sandbox only）。Option params、非 UInt64/nested Option、非 UInt64
 Map/nested aggregate return 仍 fail-closed（`Bytes N` 1..8 return 已开放）；ContextRead
