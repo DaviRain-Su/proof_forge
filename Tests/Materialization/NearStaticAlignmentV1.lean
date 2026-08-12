@@ -1,5 +1,5 @@
 import Examples.VerifiedVaultPF
-import ProofForgeV2.Targets.Near.StaticAlignmentV1
+import ProofForgeV2.Targets.Near.MethodSemanticsV1
 
 namespace Tests.Materialization.NearStaticAlignmentV1
 
@@ -334,15 +334,53 @@ private theorem reservesBinding_rel :
   simp [UInt64StateBindingRelV1, data,
     Examples.VerifiedVaultPF.Proof.subjectDataV1, storage, reservesBinding]
 
+private theorem statusAlignment :
+    NullaryUInt64ViewStaticAlignmentV1 data storage reservesBinding "status"
+      statusMethod markerRegion reservesRegion statusIR := by
+  simp [NullaryUInt64ViewStaticAlignmentV1, UInt64StateBindingRelV1, data,
+    Examples.VerifiedVaultPF.Proof.subjectDataV1,
+    storage, reservesBinding, statusMethod, markerRegion, reservesRegion,
+    statusIR]
+
+private theorem statusStorageRel :
+    InitializedUInt64StorageRelV1 data storage reservesBinding logicalTen
+      #[tenBytes, tenBytes] tenBytes observedStorage := by
+  refine ⟨reservesBinding_rel, rfl, logicalTen_decoded, rfl, ?_, ?_⟩
+  · simp [observedStorage, storage, layoutMarkerKey]
+  · simp [observedStorage, reservesBinding, reservesKey, layoutMarkerKey]
+
+private theorem statusTargetExecution :
+    executeReadOnlyMethodV1 statusIR ByteArray.empty observedStorage =
+      .returned (some tenBytes) :=
+  executeReadOnlyMethodV1_of_nullaryUInt64ViewStaticAlignment data storage
+    reservesBinding "status" statusMethod markerRegion reservesRegion statusIR
+    logicalTen #[tenBytes, tenBytes] tenBytes observedStorage statusAlignment
+    statusStorageRel tenBytes_size
+
 example : UInt64StateBindingRelV1 data storage reservesBinding :=
   reservesBinding_rel
 
 example :
     InitializedUInt64StorageRelV1 data storage reservesBinding logicalTen
       #[tenBytes, tenBytes] tenBytes observedStorage := by
-  refine ⟨reservesBinding_rel, rfl, logicalTen_decoded, rfl, ?_, ?_⟩
-  · simp [observedStorage, storage, layoutMarkerKey]
-  · simp [observedStorage, reservesBinding, reservesKey, layoutMarkerKey]
+  exact statusStorageRel
+
+example :
+    observeReadOnlyMethodV1 statusIR ByteArray.empty observedStorage =
+      successfulObservation := by
+  unfold observeReadOnlyMethodV1
+  rw [statusTargetExecution]
+  rfl
+
+example :
+    executeReadOnlyMethodV1 statusIR (encodeU64le 1) observedStorage =
+      .trapped .inputLengthMismatch := by
+  rfl
+
+example (machine : ReadOnlyMethodMachineV1) :
+    stepReadOnlyMethodOperationV1 machine (.storeState reservesRegion 0) =
+      .error .unsupportedOperation := by
+  rfl
 
 example :
     ¬ UInt64StateBindingRelV1 data storage
@@ -475,6 +513,33 @@ example
     (vault : ReferenceVaultSeedV1) :
     ∃ admitted : AdmittedReferenceSliceV1,
       admitReferenceProgramSliceV1 subjectProgram = .ok admitted ∧
+        UInt64ReturnedObservationRelV1 data 0 logicalTen
+          (stepReferenceSliceV1 admitted logicalTen {
+            callableId := 3
+            args := #[]
+            context := #[]
+          } #[] vault)
+          tenBytes
+          (observeReadOnlyMethodV1 statusIR ByteArray.empty observedStorage) := by
+  obtain ⟨admitted, hadmit, hadmittedData, hgate⟩ :=
+    verifiedVaultStatusReady
+  refine ⟨admitted, hadmit, ?_⟩
+  exact
+    uint64ReturnedObservationRelV1_of_readyViewLoad_and_methodExecution
+      admitted logicalTen {
+        callableId := 3
+        args := #[]
+        context := #[]
+      } data #[tenBytes, tenBytes] tenBytes 0 0 "reserves" 3 "status" #[]
+      vault storage reservesBinding statusMethod markerRegion reservesRegion
+      statusIR observedStorage (by rfl) (by rfl) (by rfl) hadmittedData
+      (by rfl) (by rfl) (by rfl)
+      (by simpa [statusCallable] using hgate) statusAlignment statusStorageRel
+
+example
+    (vault : ReferenceVaultSeedV1) :
+    ∃ admitted : AdmittedReferenceSliceV1,
+      admitReferenceProgramSliceV1 subjectProgram = .ok admitted ∧
         ¬ UInt64ReturnedObservationRelV1 data 0 logicalTen
           (stepReferenceSliceV1 admitted logicalTen {
             callableId := 3
@@ -529,10 +594,7 @@ example :
 example :
     NullaryUInt64ViewStaticAlignmentV1 data storage reservesBinding "status"
       statusMethod markerRegion reservesRegion statusIR := by
-  simp [NullaryUInt64ViewStaticAlignmentV1, UInt64StateBindingRelV1, data,
-    Examples.VerifiedVaultPF.Proof.subjectDataV1,
-    storage, reservesBinding, statusMethod, markerRegion, reservesRegion,
-    statusIR]
+  exact statusAlignment
 
 example :
     recognizeNullaryUInt64ViewMethodV1 statusMethod =

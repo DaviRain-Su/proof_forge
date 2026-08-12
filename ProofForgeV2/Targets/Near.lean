@@ -7,6 +7,7 @@ import ProofForgeV2.Targets.Near.ValidatePlanV1
 import ProofForgeV2.Targets.Near.PlanSchemaV1
 import ProofForgeV2.Targets.Near.EmitIRV1
 import ProofForgeV2.Targets.Near.StaticAlignmentV1
+import ProofForgeV2.Targets.Near.MethodSemanticsV1
 
 /-!
 # ProofForgeV2.Targets.Near — public façade
@@ -16,6 +17,8 @@ Plan types and Semantic→Plan lowering live in `LowerSemanticV1`
 `semanticV1Of` / `validateSemanticProgramV1` comments on the carrier path).
 Plan canonicity lives in `ValidatePlanV1`. IR emission and
 `irFromCapability`/`buildFromCapability` live in `EmitIRV1`.
+The first bounded target recipe execution semantics lives in
+`MethodSemanticsV1`; it is not WAT/Wasm/NEAR protocol semantics.
 `FinalizeV1` remains a separate submodule.
 -/
 
@@ -157,6 +160,45 @@ theorem capabilityEntryStaticEmissionV1_of_graphs
     staticAlignment := hstatic
     baseEmission := hbase
   }⟩
+
+/-- A capability-scoped production entry executes in the first target recipe
+    semantics whenever its logical/KV representation relation holds. This
+    theorem connects the exact production Plan/IR/build chain to target
+    execution; WAT/Wasm/NEAR correctness remains a later refinement boundary. -/
+theorem capabilityEntryStaticEmissionV1_executeReadOnlyMethodV1
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (binding : UInt64StateBindingV1)
+    (viewName : String)
+    (method : Method)
+    (markerRegion fieldRegion : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (logical : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (decodedValues : Array ByteArray)
+    (valueBytes : ByteArray)
+    (storage : StorageObservationV1)
+    (hchain :
+      CapabilityEntryStaticEmissionV1 capability program data plan ir files
+        entryIndex binding viewName method markerRegion fieldRegion methodIR
+          watFile abiFile watMethodText abiMethodText)
+    (hstorage :
+      InitializedUInt64StorageRelV1 data plan.storage binding logical
+        decodedValues valueBytes storage)
+    (hvalueSize : valueBytes.size = 8) :
+    executeReadOnlyMethodV1 methodIR ByteArray.empty storage =
+      .returned (some valueBytes) := by
+  rcases hchain.staticAlignment with ⟨_, _, _, _, _, halignment⟩
+  exact
+    executeReadOnlyMethodV1_of_nullaryUInt64ViewStaticAlignment data
+      plan.storage binding viewName method markerRegion fieldRegion methodIR
+      logical decodedValues valueBytes storage halignment hstorage hvalueSize
 
 instance : Materializer .near where
   Plan := Plan

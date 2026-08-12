@@ -14994,3 +14994,25 @@ normative: false
   semantics，不证明 renderer、`wat2wasm`、final artifact identity、rollback implementation 或
   Reference simulation；没有新增 State、Effect、transition、evaluator 或 step。assurance 仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR bounded MethodIR execution refinement
+
+- 新增 `Targets/Near/MethodSemanticsV1.lean`：第一块 formal target recipe machine只解释
+  VerifiedVault `status` production recipe 的 `checkInputLen`、`requireLayout`、`loadState`、
+  `setReturnData`；input/storage不可变、UInt64 local受 `tempCount` 限制，其他 Operation 统一
+  `.unsupportedOperation`，没有复制 DSL callable、业务 arithmetic、effect 或 Reference step。
+- exact execution theorem复用 shared `encodeU64le_uint64OfLeBytesToNatV1_of_size`，证明
+  initialized marker + 8-byte field storage 下四操作 recipe返回原 bytes；static alignment bridge将
+  任意 recognized aligned MethodIR 接到该执行。target-derived `CallObservationV1` 固定 empty
+  logs/promises 与 storage stutter。
+- `uint64ReturnedObservationRelV1_of_readyViewLoad_and_methodExecution` 首次同时消费 sole Reference
+  ready/step与 formal target execution，自动关闭 target success/return/log/promise/storage义务；
+  `capabilityEntryStaticEmissionV1_executeReadOnlyMethodV1` 又把执行结论接回 exact retained semantic、
+  production Plan/IR/build/emission chain。
+- VerifiedVault fixture固定 exact target return/derived observation、wrong-input trap、store unsupported
+  与完整 Reference→MethodIR returned relation。`lake build ProofForgeV2.Targets.Near` 和
+  `lake build Tests.Materialization.NearStaticAlignmentV1` 通过。
+- 本切可称 `VerifiedVault.status` **MethodIR-refined**；尚无 renderer correctness、WAT/Wasm/NEAR
+  semantics、IR→Wasm/NEAR simulation、locked `wat2wasm` correctness 或 finalized artifact identity，
+  因而整体 assurance 仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

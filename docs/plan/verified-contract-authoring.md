@@ -750,16 +750,29 @@ certification elaboration 阶段 fail closed。
   与任意 storage mutation 均由 no-tool mutation self-test fail closed；Lean relation另固定
   failure/log/promise negatives。该 adapter 只把外部 RPC observation 结构化，不运行 Reference step，
   不定义 target transition，也不把 near-sandbox 提升为 formal semantics。
+- 第十四切首次越过静态边界，但只覆盖 `status` 的 exact MethodIR 子集：
+  `MethodSemanticsV1` 定义独立于业务 DSL 的 target recipe machine，执行
+  `checkInputLen`、`requireLayout`、`loadState`、`setReturnData`，其余 Operation 一律
+  `.unsupportedOperation` fail closed；machine 的 storage/input不可变，只允许 bounded UInt64
+  locals 与 return data演进。generic execution theorem从现有 static alignment + initialized KV
+  representation推出 exact 8-byte return，使用 shared canonical LE codec roundtrip，而非另造 target
+  scalar format；Reference→MethodIR composition theorem再从 sole Reference ready/step 与该真实 target
+  execution共同推出 `UInt64ReturnedObservationRelV1`，target success/return/log/promise/storage
+  facts不再是调用方提供的 passive premise。capability-scoped theorem还把这一 execution结论接回
+  exact retained semantic → production Plan/IR/build/emission carrier。真实 VerifiedVault fixture固定
+  `statusIR` execution、derived observation、wrong-input trap、store unsupported 与完整 Reference
+  composition。这里新增的是 target refinement object，**不是**第二套 DSL/business semantics。
 
-这仍然只是 **static alignment/refinement foundation**：Reference outcome 已精确闭合且
+现在已经得到第一个 **bounded MethodIR-level refinement slice**：Reference outcome 已精确闭合且
 validated SemanticProgram → capability-gated production Plan/IR → status static alignment → exact
 same-emission WAT+ABI 的 provenance 已由一个 capability-scoped carrier 连接；sandbox observation
-现在可严格映射到同字段工程契约，但仍是外部提供的 passive carrier。没有证明
+可严格映射到同字段工程契约；`status` 四操作 recipe 的 target execution及其与 Reference
+observation relation 已由 kernel theorem连接。仍没有证明
 WAT renderer 实现 IR、没有 JSON/WAT parser/typechecker semantics、没有 WAT↔ABI consistency、
-没有 NEAR `Operation` execution
-semantics、IR/Wasm step、simulation theorem、一般 lowering characterization、locked `wat2wasm`
-正确性、finalized Wasm bytes 或磁盘 artifact identity theorem。`NearHostModel` 继续是 private
-test-only engineering model，不能作为 formal target semantics。当前声明仍是
+没有一般 `Operation` execution semantics、IR→WAT/Wasm simulation、NEAR host semantics、一般
+lowering characterization、locked `wat2wasm` 正确性、finalized Wasm bytes 或磁盘 artifact
+identity theorem。`NearHostModel` 继续是 private test-only engineering model，不是本次 formal
+target recipe semantics。当前 slice 只能称 `status` **MethodIR-refined**，整体 artifact 声明仍是
 **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
 
 每个 target 至少需要：
@@ -862,7 +875,7 @@ test-only engineering model，不能作为 formal target semantics。当前声�
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR status Reference、static emission chain 与 strict sandbox observation adapter 已接通）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation，以及 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR graph → status Method/MethodIR proof-producing syntax recognition → sole private emitter → exact ordered in-memory WAT/ABI base files；`CapabilityEntryStaticEmissionV1` 现把 exact retained SemanticProgram、同一 capability 的 Plan/IR/build success、status static alignment 与 source entry 2 / combined method index 3 的同次 WAT/ABI renderer graph 绑定为一个 kernel carrier。真实 generated subject 的 validation/admission/initialized decode/status lookup/empty-context gate/ready 已由 kernel 无外部 context premise组合，通用 theorem 自动推出 canonical 8-byte 与 exact Reference state-stutter/empty-effect outcome；strict runtime adapter现从真实 query + pre/post full KV snapshot映射并检查剩余 target success/return/log/promise/storage 字段，mutation corpus fail closed。该 adapter 仍是 external engineering evidence，不是 Wasm/NEAR semantics。尚无一般 lowering/renderer correctness theorem、JSON/WAT/target execution semantics、WAT↔ABI consumer consistency、simulation、locked `wat2wasm` correctness、finalized Wasm 或 disk artifact identity evidence |
+| 7 | Per-target refinement | **进行中（NEAR status 已闭合首个 bounded MethodIR refinement）** | 已有 passive observation、scalar initialized-KV/ABI/return/failure relation，以及 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR graph → status Method/MethodIR proof-producing syntax recognition → sole private emitter → exact ordered in-memory WAT/ABI base files；`CapabilityEntryStaticEmissionV1` 把 exact retained SemanticProgram、同一 capability 的 Plan/IR/build success、status static alignment 与 source entry 2 / combined method index 3 的同次 WAT/ABI renderer graph 绑定为一个 kernel carrier。`MethodSemanticsV1` 现对 exact 四操作 read-only recipe给出 fail-closed target machine，并证明 initialized KV 下 exact return、capability-scoped production MethodIR execution，以及 sole Reference step→target-derived observation relation；真实 generated subject固定成功、wrong-input trap与 unsupported store。strict runtime adapter继续从真实 query检查同字段。该成果是 `status` MethodIR-level refinement，不是 WAT/Wasm/NEAR artifact refinement；尚无一般 lowering/renderer correctness、JSON/WAT semantics、IR→Wasm/NEAR simulation、WAT↔ABI consistency、locked `wat2wasm` correctness、finalized Wasm 或 disk artifact identity evidence |
 
 ### 首个代码切片进展
 

@@ -192,6 +192,19 @@ Phase 1：实现
   编码、返回宽度/值、failure、log、promise、receipt 与 storage；Lean relation同步固定
   failure/log/promise negatives。这里没有 RPC→Lean proof import、target transition、Wasm evaluator 或
   simulation theorem；adapter 只是把此前的外部 premise变成结构化工程回归，assurance 不变。
+- **`status` bounded MethodIR execution refinement（Phase 7 第十四切）**：
+  `MethodSemanticsV1` 新增第一套 formal target recipe machine，只解释 production status 的
+  `checkInputLen` / `requireLayout` / `loadState` / `setReturnData` 四操作；input/storage不可变，
+  locals有 exact `tempCount` bound，所有其他 Operation fail closed。exact recipe theorem使用 shared
+  UInt64 LE codec law证明 initialized marker/KV snapshot 必然返回原 8-byte field；static-alignment
+  theorem把该执行接到既有 semantic/storage relation，Reference composition theorem则从 sole
+  `stepReferenceSliceV1` ready view与 target execution导出的 observation共同推出 returned relation，
+  不再要求调用方提供 target success/return/log/promise/storage premises。
+  `capabilityEntryStaticEmissionV1_executeReadOnlyMethodV1` 进一步把 execution接回 exact production
+  capability/Plan/IR/build/emission carrier。真实 VerifiedVault fixture固定 exact return observation、
+  wrong-input trap、store unsupported 与 Reference→MethodIR relation。该 machine解释 target IR，
+  不重建 DSL callable/arithmetic/effect规则，因而不是第二套业务 semantics；本切只称
+  **MethodIR-refined**，不证明 renderer/WAT/Wasm/NEAR。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -263,10 +276,11 @@ exact syntax 已由 proof-producing recognizer 纳入 kernel proposition，真�
 validation/admission/initial state/lookup/
 empty-context ready 已无外部 context premise闭合；successful passive relation 的 canonical bytes、
 width 与 exact Reference outcome 现由 generic theorem 自动推出；真实 sandbox query 的剩余
-target success/return/log/promise/storage facts已由 strict adapter按同字段工程契约采集和检查，但仍是
-外部 observation，不是 kernel target semantics。尚无 target transition，也没有一般 lowering、renderer
-correctness、JSON/WAT semantics 或 WAT↔ABI consistency theorem。当前仍没有 finalized Wasm/disk identity 或
-Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
+target success/return/log/promise/storage facts已由 strict adapter按同字段工程契约采集和检查。
+`MethodSemanticsV1` 已对 status exact 四操作建立 kernel target recipe execution，并把 target-derived
+observation 与 sole Reference step连接；但它尚未证明 renderer实现 IR，也没有一般 lowering、一般
+Operation semantics、JSON/WAT semantics、IR→Wasm/NEAR simulation 或 WAT↔ABI consistency theorem。
+当前仍没有 finalized Wasm/disk identity 或 Reference→Wasm/NEAR simulation theorem。通用 corpus 也仍不完整
 覆盖 corrupt storage 或 gas/profile 的通用 corpus 仍不完整；StateCell
 `negative_corpus` 已 pin unknown method / exactInputLen 类 bad args + state-hold
 （engineering sandbox only）。Option params、非 UInt64/nested Option、非 UInt64

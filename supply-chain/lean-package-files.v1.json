@@ -951,9 +951,9 @@
       "sha256": "eefa5223502e18d253b043f3b46f6c69230968ce79bff34fe312e0cf4fe6e06e"
     },
     {
-      "bytes": 7210,
+      "bytes": 9210,
       "path": "ProofForgeV2/Targets/Near.lean",
-      "sha256": "bf2c9e157dcbf343b4c58122c70484e734b5235bd0480dfe1121479533630a03"
+      "sha256": "691f5e4aba3b3dabec44cdcb62b25de1eeb7172744685652e3fffd7745cef708"
     },
     {
       "bytes": 158863,
@@ -969,6 +969,11 @@
       "bytes": 238216,
       "path": "ProofForgeV2/Targets/Near/LowerSemanticV1.lean",
       "sha256": "cf9d2c792984feeef50b1ecd8db757e8d2a7e64751b0a33b0c95723b716f658b"
+    },
+    {
+      "bytes": 12805,
+      "path": "ProofForgeV2/Targets/Near/MethodSemanticsV1.lean",
+      "sha256": "a9ac63b0e49e03e2dca08854339e684f80acce4eb87ebe9d4dc6d040c12341a7"
     },
     {
       "bytes": 11086,
