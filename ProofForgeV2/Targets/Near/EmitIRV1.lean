@@ -1648,7 +1648,7 @@ private partial def operationMemoryEndV1 (ir : IR) : Operation → Option Nat
   | .requireZeroAttachedDeposit | .requireExactAttachedDeposit _
   | .attachedDepositValue _ =>
       some (ir.memory.depositOffset + 16)
-  | .accountBalance _ | .accountBalanceU128 _ =>
+  | .accountBalance _ | .accountBalanceU128 _ | .attachedDepositValue _ =>
       some (ir.memory.depositOffset + 16)
   | .requireLayoutAbsent marker => some (keyRegionMemoryEndV1 marker)
   | .requireLayout marker _ =>
