@@ -4,7 +4,9 @@
   Uses the public `step` façade + retained OutcomeWire. Pins:
     * Examples/Counter no-initializer default state (initialized=true)
     * Counter-shaped initializer default (initialized=false → init)
-    * context key/type (unixTime missing / wrong type / exact)
+    * context key/type/exact membership (missing / wrong / extra / duplicate / exact)
+    * synchronous external-call returned/reverted response + exact occurrence
+    * wrong callable arity → invalidInvocation
     * emit effect occurrence 0 + normalized UInt64 result bytes
 
   Does **not** close formal TASK-D2-07 / TST-SEM-002. Does **not** edit
@@ -65,9 +67,14 @@ private def mintDigest (label : String) (outcome : OutcomeV1) : IO String := do
     | .ok a => pure a
     | .error e => throw <| IO.userError s!"{label}: mint: {repr e}"
   match decodeReferenceOutcomeArtifactV1 artifact.canonicalBytes with
-  | .ok again =>
+  | .ok again => do
       expect (again.canonicalBytes == artifact.canonicalBytes)
         s!"{label}: carrier identity"
+      match outcomeOfArtifactV1 again with
+      | .ok decoded =>
+          expect (decoded == outcome) s!"{label}: structural outcome identity"
+      | .error e =>
+          throw <| IO.userError s!"{label}: outcome decode: {repr e}"
   | .error e =>
       throw <| IO.userError s!"{label}: decode: {repr e}"
   match renderDigest (referenceOutcomeDigestV1 artifact) with
@@ -125,10 +132,11 @@ private def expectReturnedValue
   | .reverted _ _ => throw <| IO.userError s!"{label}: expected returned"
   | .trapped f _ => throw <| IO.userError s!"{label}: trapped {repr f}"
 
-private def expectTrappedInvocation (label : String) (outcome : OutcomeV1) : IO Unit := do
+private def expectTrappedInvocation
+    (label : String) (outcome : OutcomeV1) (pre : LogicalStateV1) : IO Unit := do
   match outcome with
-  | .trapped .invalidInvocation _ =>
-      pure ()
+  | .trapped .invalidInvocation unchanged =>
+      expect (unchanged == pre) s!"{label}: exact pre-state"
   | other =>
       throw <| IO.userError s!"{label}: expected invalidInvocation, got {repr other}"
 
@@ -236,18 +244,98 @@ private unsafe def testContextKeyType
     | .returned s _ _ => pure s
     | other => throw <| IO.userError s!"ctx init failed: {repr other}"
   let missing := step carrier post (inv stampId #[]) #[]
-  expectTrappedInvocation "ctx/missing" missing
+  expectTrappedInvocation "ctx/missing" missing post
   let _ ← mintDigest "ctx/missing" missing
   let wrong : Array ContextInputV1 :=
     #[{ key := unixTimeSecondsContextKeyV1,
         value := { typeId := u64, valueBytes := ByteArray.empty } }]
   let badType := step carrier post (inv stampId #[] wrong) #[]
-  expectTrappedInvocation "ctx/wrong-bytes" badType
-  let clock : Array ContextInputV1 :=
-    #[{ key := unixTimeSecondsContextKeyV1, value := refU64 u64 99 }]
+  expectTrappedInvocation "ctx/wrong-bytes" badType post
+  let clockRow : ContextInputV1 :=
+    { key := unixTimeSecondsContextKeyV1, value := refU64 u64 99 }
+  -- Canonically sorted, but contains one non-required UInt64 key. This isolates
+  -- exact membership/cardinality rather than ordering or value-type rejection.
+  let extra : Array ContextInputV1 := #[
+    { key := blockHeightContextKeyV1, value := refU64 u64 1 },
+    clockRow
+  ]
+  let extraOut := step carrier post (inv stampId #[] extra) #[]
+  expectTrappedInvocation "ctx/extra" extraOut post
+  let _ ← mintDigest "ctx/extra" extraOut
+  let duplicate : Array ContextInputV1 := #[clockRow, clockRow]
+  let duplicateOut := step carrier post (inv stampId #[] duplicate) #[]
+  expectTrappedInvocation "ctx/duplicate" duplicateOut post
+  let _ ← mintDigest "ctx/duplicate" duplicateOut
+  let clock : Array ContextInputV1 := #[clockRow]
   let ok := step carrier post (inv stampId #[] clock) #[]
   expectReturnedValue "ctx/stamp" ok u64 99
   let _ ← mintDigest "ctx/stamp" ok
+
+/-- Source `call` with exact returned/reverted responses through the public
+    façade. Returned commits the call effect; reverted preserves the exact
+    pre-state and has no committed-effects field. -/
+private unsafe def testExternalResponsesAndInvocationShape
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "Sem002External" <|
+    "  entry relay(value : UInt64) : UInt64 do\n" ++
+    "    call Oracle.feed(value)\n" ++
+    "    return value\n"
+  let (carrier, data, u64) ←
+    loadNormalize session "Tests/Semantic/Sem002ShapeV1.lean" "Sem002External" source
+  let relayId ← findCallable data (some "relay")
+  let initial ←
+    match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e => throw <| IO.userError s!"Sem002External initial: {repr e}"
+  expect initial.initialized "external: no-init program starts initialized"
+  expect initial.canonicalValues.isEmpty "external: no logical state slots"
+  let occurrence : EffectOccurrenceV1 := { effectId := 0, occurrence := 0 }
+  let returnedResponses : ExternalResponsesV1 := #[{
+    occurrence
+    disposition := .returned
+    returnValue? := none
+  }]
+  let returnedOut :=
+    step carrier initial (inv relayId #[refU64 u64 7]) returnedResponses
+  match returnedOut with
+  | .returned post (some value) effects =>
+      expect (post == initial) "external/returned: unchanged no-state post"
+      expect (value == refU64 u64 7) "external/returned: normalized result"
+      match effects.toList with
+      | [effect] =>
+          expect (effect.occurrence == occurrence)
+            "external/returned: exact effect occurrence"
+          match effect.payload with
+          | .externalCall _ args =>
+              expect (args == #[refU64 u64 7])
+                "external/returned: exact call arguments"
+          | _ => throw <| IO.userError "external/returned: expected externalCall effect"
+      | _ =>
+          throw <| IO.userError s!"external/returned: expected one effect, got {effects.size}"
+  | other =>
+      throw <| IO.userError s!"external/returned: unexpected outcome {repr other}"
+  let returnedDigest ← mintDigest "external/returned" returnedOut
+
+  let revertedResponses : ExternalResponsesV1 := #[{
+    occurrence
+    disposition := .reverted
+    returnValue? := none
+  }]
+  let revertedOut :=
+    step carrier initial (inv relayId #[refU64 u64 7]) revertedResponses
+  match revertedOut with
+  | .reverted (.externalCallReverted got) unchanged =>
+      expect (got == occurrence) "external/reverted: exact response occurrence"
+      expect (unchanged == initial) "external/reverted: exact pre-state"
+  | other =>
+      throw <| IO.userError s!"external/reverted: unexpected outcome {repr other}"
+  let revertedDigest ← mintDigest "external/reverted" revertedOut
+  expect (returnedDigest != revertedDigest)
+    "external: returned/reverted OutcomeWire digests must differ"
+
+  let wrongArity := step carrier initial (inv relayId #[]) #[]
+  expectTrappedInvocation "invocation/wrong-arity" wrongArity initial
+  let _ ← mintDigest "invocation/wrong-arity" wrongArity
 
 /-- emit Tick: effect occurrence 0 and normalized result. -/
 private unsafe def testEffectOccurrence
@@ -303,6 +391,7 @@ unsafe def run : IO Unit := do
   testNoInitProductCounter session
   testInitDefaultCounter session
   testContextKeyType session
+  testExternalResponsesAndInvocationShape session
   testEffectOccurrence session
   IO.println "Tests.Semantic.Sem002ShapeV1: ok (engineering; not formal TST-SEM-002)"
 
