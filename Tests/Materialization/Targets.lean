@@ -3725,8 +3725,8 @@ unsafe def run : IO Unit := do
           s!"N5 context {target} message must cite ContextRead boundary, got {e.render}"
 
   -- ADR-0031 S4: context.attachedValue. EVM admits CALLVALUE; NEAR admits
-  -- attached_deposit (entry/init; view FC). Other implemented targets stay
-  -- Plan-fail-closed until their S4 leaves.
+  -- attached_deposit (entry/init; view FC); CosmWasm admits MessageInfo.funds
+  -- (execute/init; query FC). Other implemented targets stay Plan-fail-closed.
   let attachedSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3745,7 +3745,8 @@ unsafe def run : IO Unit := do
   let attachedCompiled ← liftResult <| Compiler.compileValidatedSourceV1 attachedV1
   let _ ← liftResult <| materializeSelected TargetId.evm attachedCompiled
   let _ ← liftResult <| materializeSelected TargetId.near attachedCompiled
-  for target in [TargetId.cosmwasm, TargetId.ton,
+  let _ ← liftResult <| materializeSelected TargetId.cosmwasm attachedCompiled
+  for target in [TargetId.ton,
       TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo] do
     match materializeSelected target attachedCompiled with
     | .ok _ =>

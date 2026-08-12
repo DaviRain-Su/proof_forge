@@ -55,6 +55,7 @@ private def encodeMethodMode : MethodMode → UInt8
 
 private def encodeDepositPolicy : DepositPolicy → UInt8
   | .requireZero => 0 | .queryOnly => 1 | .requireExactNative => 2
+  | .allowFunds => 3
 
 /-- B-RET-ABI: scalar kinds use a single tag byte (0..11). Aggregate uses tag 12
 followed by u32le leaf count + per-leaf (isInt, byteWidth). Tags appended only. -/
@@ -177,6 +178,8 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
       pure ((encodeU8 54).append (← encodeNatAsU32le wordIndex))
   -- ADR-0031 S2: Env.block.height (tag 55 appended; prior tags byte-identical).
   | .blockHeight => pure (encodeU8 55)
+  -- ADR-0031 S4: MessageInfo.funds amount (tag 61; 56-60 are map/self).
+  | .attachedFundsAmount => pure (encodeU8 61)
   -- ADR-0031 S3: context.self Principal leaves (tags 59/60).
   -- Tags 56–58 are Map loop IR packs.
   | .selfPrincipalLen => pure (encodeU8 59)

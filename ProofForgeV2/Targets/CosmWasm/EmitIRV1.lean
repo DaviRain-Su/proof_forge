@@ -111,6 +111,8 @@ inductive Operation where
       `query_chain` bank balance of `env.contract.address` (frozen `stake`
       denom); result `.amount` parsed as UInt64. Value-producing temp. -/
   | nativeVaultBalance (destination : Nat)
+  /-- ADR-0031 S4: parse MessageInfo.funds single-stake amount as UInt64. -/
+  | attachedFundsAmount (destination : Nat)
   /-- ADR-0030 E2-4-CW: `pf.assets.token.balanceOfSelf(mint)` — read-only
       `query_chain` CW20 smart-query `{"balance":{"address":<self>}}` at
       `mint`; `BalanceResponse.balance` (Uint128 decimal) parsed as UInt64
@@ -296,6 +298,8 @@ private partial def lowerExprUncached (keys : Array KeyRegion) (next : Nat)
       { operations := #[.blockHeight next], value := next, next := next + 1, cache }
   | .nativeVaultBalance =>
       { operations := #[.nativeVaultBalance next], value := next, next := next + 1, cache }
+  | .attachedFundsAmount =>
+      { operations := #[.attachedFundsAmount next], value := next, next := next + 1, cache }
   | .callerPrincipalLen =>
       { operations := #[.callerPrincipalLen next], value := next, next := next + 1, cache }
   | .callerPrincipalWord wordIndex =>
@@ -1145,6 +1149,7 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .setLayout _ _ | .setReturnData _ | .setReturnDataMulti _
   | .loadParam _ _ | .narrowLoadParam _ _ _
   | .nativeVaultBalance _ | .tokenVaultBalance _ _ _
+  | .attachedFundsAmount _
   | .callerPrincipalLen _ | .callerPrincipalWord _ _
   | .selfPrincipalLen _ | .selfPrincipalWord _ _ => true
   | .ifRegion _ thenOps elseOps =>
@@ -2115,6 +2120,36 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"    (if (i32.ne (i32.load8_u (i32.add (local.get $p) (i32.const 2))) (i32.const 93)) (then (return (i32.const 0))))\n" ++
   s!"    (i32.const 1)\n" ++
   "  )\n" ++
+  -- ADR-0031 S4: attachedValue read. Empty `"funds":[]` → 0; else exactly
+  -- one `{denom:"stake", amount}` coin (same needle as $pf_funds_exact);
+  -- overflow / missing / multi-coin / wrong denom → unreachable.
+  s!"  (func $pf_funds_amount (result i64)\n" ++
+  s!"    (local $idx i32) (local $p i32) (local $end i32) (local $c i32) (local $v i64) (local $any i32)\n" ++
+  s!"    (if (call $pf_funds_empty) (then (return (i64.const 0))))\n" ++
+  s!"    (local.set $idx (call $pf_find (global.get $info_off) (global.get $info_len) (i32.const 3018) (i32.const 36)))\n" ++
+  s!"    (if (i32.eq (local.get $idx) (i32.const -1)) (then unreachable))\n" ++
+  s!"    (local.set $p (i32.add (i32.add (global.get $info_off) (local.get $idx)) (i32.const 36)))\n" ++
+  s!"    (local.set $end (i32.add (global.get $info_off) (global.get $info_len)))\n" ++
+  s!"    (local.set $v (i64.const 0))\n" ++
+  s!"    (local.set $any (i32.const 0))\n" ++
+  s!"    (block $num_done\n" ++
+  s!"      (loop $num\n" ++
+  s!"        (if (i32.ge_u (local.get $p) (local.get $end)) (then (br $num_done)))\n" ++
+  s!"        (local.set $c (i32.load8_u (local.get $p)))\n" ++
+  s!"        (br_if $num_done (i32.or (i32.lt_u (local.get $c) (i32.const 48)) (i32.gt_u (local.get $c) (i32.const 57))))\n" ++
+  s!"        (if (i64.gt_u (local.get $v) (i64.const 1844674407370955161)) (then unreachable))\n" ++
+  s!"        (if (i64.eq (local.get $v) (i64.const 1844674407370955161)) (then (if (i32.gt_u (i32.sub (local.get $c) (i32.const 48)) (i32.const 5)) (then unreachable))))\n" ++
+  s!"        (local.set $v (i64.add (i64.mul (local.get $v) (i64.const 10)) (i64.extend_i32_u (i32.sub (local.get $c) (i32.const 48)))))\n" ++
+  s!"        (local.set $any (i32.const 1))\n" ++
+  s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))\n" ++
+  s!"        (br $num)))\n" ++
+  s!"    (if (i32.eqz (local.get $any)) (then unreachable))\n" ++
+  s!"    (if (i32.gt_u (i32.add (local.get $p) (i32.const 3)) (local.get $end)) (then unreachable))\n" ++
+  s!"    (if (i32.ne (i32.load8_u (local.get $p)) (i32.const 34)) (then unreachable))\n" ++
+  s!"    (if (i32.ne (i32.load8_u (i32.add (local.get $p) (i32.const 1))) (i32.const 125)) (then unreachable))\n" ++
+  s!"    (if (i32.ne (i32.load8_u (i32.add (local.get $p) (i32.const 2))) (i32.const 93)) (then unreachable))\n" ++
+  s!"    (local.get $v)\n" ++
+  "  )\n" ++
   -- ADR-0031 S1: MessageInfo.sender → pilot Principal leaves.
   -- Needle `"sender":"` is fixed at offset 3241 length 10 (see renderDataSectionV2).
   -- CosmWasm-std serializes MessageInfo as `{"sender":"<addr>","funds":[...]}`
@@ -2768,6 +2803,9 @@ private partial def renderOperation (memory : MemoryLayout)
   | .nativeVaultBalance destination =>
       -- ADR-0030 E2-4-CW: query_chain bank balance of env.contract.address.
       s!"{indent}(local.set $t{destination} (call $pf_native_balance (global.get $pf_env_ptr)))\n"
+  | .attachedFundsAmount destination =>
+      -- ADR-0031 S4: MessageInfo.funds amount (empty → 0; else one stake coin).
+      s!"{indent}(local.set $t{destination} (call $pf_funds_amount))\n"
   | .tokenVaultBalance mintLen mintBodyWords resultTemp =>
       -- ADR-0030 E2-4-CW: query_chain CW20 smart-query balanceOf(mint, self).
       -- Reconstruct the mint bech32 address from Principal leaves (len + 8 LE

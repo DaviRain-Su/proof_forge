@@ -106,6 +106,7 @@ programs=(
   "runtime-tests/cosmwasm/fixtures/EnvReadJar.lean:Examples.EnvReadJar:EnvReadJar"
   "runtime-tests/cosmwasm/fixtures/CallerGate.lean:Examples.CallerGate:CallerGate"
   "Examples/BlockHeightCheck.lean:Examples.BlockHeightCheck:BlockHeightCheck"
+  "runtime-tests/cosmwasm/fixtures/AttachedValueCheck.lean:Examples.AttachedValueCheck:AttachedValueCheck"
   "Examples/SelfIdentityCheck.lean:Examples.SelfIdentityCheck:SelfIdentityCheck"
   "Examples/ConstAnswer.lean:Examples.ConstAnswer:ConstAnswer"
   "runtime-tests/cosmwasm/fixtures/BytesRet.lean:Examples.BytesRet:BytesRet"

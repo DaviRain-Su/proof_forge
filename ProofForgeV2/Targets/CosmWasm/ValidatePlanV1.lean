@@ -62,6 +62,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .blockTimeSeconds => some 1
     | .blockHeight => some 1
     | .nativeVaultBalance => some 1
+    | .attachedFundsAmount => some 1
     | .callerPrincipalLen => some 1
     | .callerPrincipalWord wordIndex =>
         if wordIndex < 8 then some 1 else none
@@ -534,8 +535,12 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
   unless isIdentifier method.name && method.name != "memory" do
     throw <| .planInvariant .cosmwasm s!"method '{method.name}' is not a safe export name"
   if isInitializer then
+    let initDepositOk :=
+      method.depositPolicy == .requireZero ||
+        (method.depositPolicy == .allowFunds &&
+          statementsUseAttachedFundsAmountV1 method.body)
     unless method.name == "init" && method.mode == .initialize &&
-        method.depositPolicy == .requireZero && method.resultKind == .unit do
+        initDepositOk && method.resultKind == .unit do
       throw <| .planInvariant .cosmwasm "initializer export identity is not canonical"
   else if method.mode == .initialize then
     throw <| .planInvariant .cosmwasm "entry method cannot use initialize mode"
@@ -556,6 +561,7 @@ private def validateMethod (limits : ResourceLimits) (layout : StorageLayout)
   let expectedDeposit : DepositPolicy :=
     if method.mode == .view then .queryOnly
     else if depositCount == 1 then .requireExactNative
+    else if statementsUseAttachedFundsAmountV1 method.body then .allowFunds
     else .requireZero
   unless method.depositPolicy == expectedDeposit do
     throw <| .planInvariant .cosmwasm s!"method '{method.name}' deposit policy is not canonical"

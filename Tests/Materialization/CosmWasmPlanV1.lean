@@ -167,7 +167,7 @@ private unsafe def testStateCellIRAndWat
   let abi ← findFile files "StateCell.cosmwasm-abi.json"
   -- Module shape
   expect (wat.contains "(module") "WAT module"
-  expect (wat.contains "(memory (export \"memory\") 1)") "single memory min=1 no max"
+  expect (wat.contains "(memory (export \"memory\") 2)") "single memory min=2 no max"
   -- CosmWasm ABI exports
   for exp in #["allocate", "deallocate", "interface_version_8",
       "instantiate", "execute", "query"] do
@@ -1422,6 +1422,50 @@ private unsafe def testContextReadBlockHeight
   -- is covered by non-unixTime/non-caller/non-height ContextRead path.
   IO.println "  ✓ ContextRead context.blockHeight admit (ADR-0031 S2)"
 
+/-- ADR-0031 S4: `context.attachedValue` → MessageInfo.funds single-stake
+    amount. Execute/init admit; view/query fail closed. -/
+private unsafe def testContextReadAttachedValue
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ValueBox" <|
+    "  state paid : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    paid := 0\n\n" ++
+    "  entry collect() : UInt64 do\n" ++
+    "    paid := context.attachedValue\n" ++
+    "    return paid\n\n" ++
+    "  view last() : UInt64 do\n" ++
+    "    return paid\n"
+  let compiled ← compileSource session src "Examples.ValueBox" "<cw-value-box>"
+  let plan ← liftResult <| planCw compiled
+  let some collect := plan.entries.find? (·.name == "collect") |
+    throw <| IO.userError "value-box: missing collect"
+  expect (collect.depositPolicy == .allowFunds)
+    "value-box: collect must be allowFunds"
+  let hasFunds := collect.body.any fun s =>
+    match s with
+    | .store op =>
+        match op.value with
+        | .attachedFundsAmount => true
+        | _ => false
+    | _ => false
+  expect hasFunds "value-box: collect must store attachedFundsAmount"
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "ValueBox.wat"
+  expect (wat.contains "$pf_funds_amount")
+    "value-box: WAT must contain pf_funds_amount helper"
+  expect (wat.contains "(call $pf_funds_amount)")
+    "value-box: WAT must call pf_funds_amount"
+  let viewSrc := wrapProgram "ValuePeek" <|
+    "  state pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return context.attachedValue\n"
+  let vCompiled ← compileSource session viewSrc "Examples.ValuePeek" "<cw-value-peek>"
+  expectPlanErrorContaining "value-peek view FC" "attachedValue"
+    (planCw vCompiled)
+  IO.println "  ✓ ContextRead context.attachedValue execute admit + view FC (ADR-0031 S4)"
+
 /-- ADR-0031 S1: `context.caller` on CosmWasm binds MessageInfo.sender
     (execute/init only) as Principal leaves `callerPrincipalLen` +
     `callerPrincipalWord 0..7` (len + 8×UInt64 LE, zero-padded). View/query
@@ -1588,6 +1632,7 @@ unsafe def run : IO Unit := do
   testContextReadUnixTime session
   testContextReadBlockHeight session
   testContextReadCaller session
+  testContextReadAttachedValue session
   IO.println "CosmWasmPlanV1: all checks passed"
 
 end Tests.Materialization.CosmWasmPlanV1

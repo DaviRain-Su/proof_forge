@@ -91,6 +91,9 @@ inductive DepositPolicy where
       exact one-coin `info.funds` of the frozen native denom equal to the
       deposit amount expression. At most one deposit per method. -/
   | requireExactNative
+  /-- ADR-0031 S4: body reads `context.attachedValue`; skip empty-funds
+      prologue so MessageInfo.funds may be observed. View stays queryOnly. -/
+  | allowFunds
   deriving BEq, Inhabited, Repr
 
 /-- CosmWasm MVP host imports (cosmwasm-std / wasmd env).
@@ -228,6 +231,10 @@ inductive Expr where
       u64; `pf_parse_u64_field` traps only on digit overflow past 2^64−1).
       Available on instantiate/execute/**query** (Env always present). -/
   | blockHeight
+  /-- ADR-0031 S4: `context.attachedValue` → MessageInfo.funds single-denom
+      `stake` (C1) amount as UInt64. Empty funds = 0; multi-coin / wrong
+      denom / overflow trap. Init/entry only — query has no MessageInfo. -/
+  | attachedFundsAmount
   /-- ADR-0030 E2-4-CW: `pf.assets.native.balanceOfSelf()` — read-only host
       query via `env.query_chain` (bank balance of `env.contract.address` in
       the frozen `stake` denom). Zero args; result UInt64. View/entry-callable,
@@ -3421,6 +3428,23 @@ private def lowerBlockInstructionsV1
             expandedNodes := 1
             dependencies := #[]
           }
+        else if key == attachedValueContextKeyV1 then
+          if mode == .view then
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: ContextRead context.attachedValue is not available in view/query (MessageInfo.funds absent)"
+          if mode == .pureFn then
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: pureFn cannot use ContextRead context.attachedValue"
+          unless result.typeId == types.uint64TypeId do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: ContextRead context.attachedValue result must be UInt64"
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := .attachedFundsAmount
+            kind := .uint64
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
         else if key == chainIdContextKeyV1 then
           -- Env.block.chain_id is a String; no frozen UInt64 digest schema yet.
           throw <| .planInvariant .cosmwasm
@@ -3959,6 +3983,14 @@ private def lowerCallableV1
     throw <| .planInvariant .cosmwasm s!"{owner} body exceeds profile limit {maxBodyStatements}"
   pure { params, body }
 
+/-- True when a callable body reads `context.attachedValue`. -/
+private def callableReadsAttachedValueV1 (callable : CallableV1) : Bool :=
+  callable.blocks.any fun b =>
+    b.instructions.any fun instr =>
+      match instr.op with
+      | .contextRead key => key == attachedValueContextKeyV1
+      | _ => false
+
 private def makeInitializerV1
     (types : CosmWasmTypeClosureV1)
     (typeDecls : Array TypeDeclV1)
@@ -3982,7 +4014,9 @@ private def makeInitializerV1
     params := lowered.params
     exactInputLen := exactInputLenOfParams lowered.params
     mode := .initialize
-    depositPolicy := .requireZero
+    depositPolicy :=
+      if callableReadsAttachedValueV1 callable then .allowFunds
+      else .requireZero
     resultKind := .unit
     body := lowered.body
   }
@@ -4001,6 +4035,78 @@ partial def statementsNativeDepositCountV1 (statements : Array Statement) : Nat 
             a + statementsNativeDepositCountV1 caseBody
     | .forLoop _ _ _ _ _ body => acc + statementsNativeDepositCountV1 body
     | _ => acc
+
+partial def exprUsesAttachedFundsAmountV1 (expr : Expr) : Bool :=
+  match expr with
+  | .attachedFundsAmount => true
+  | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
+  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .blockTimeSeconds | .blockHeight | .nativeVaultBalance
+  | .callerPrincipalLen | .callerPrincipalWord _
+  | .selfPrincipalLen | .selfPrincipalWord _ => false
+  | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
+  | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
+  | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
+  | .signedCheckedMul l r | .signedCheckedDiv l r | .signedCheckedMod l r
+  | .signedCompare _ l r | .sar l r | .boolAnd l r | .boolOr l r
+  | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
+  | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
+  | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+      exprUsesAttachedFundsAmountV1 l || exprUsesAttachedFundsAmountV1 r
+  | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
+      exprUsesAttachedFundsAmountV1 e
+  | .callFn _ args => args.any exprUsesAttachedFundsAmountV1
+  | .mapLookupPart _ leaves key =>
+      leaves.any exprUsesAttachedFundsAmountV1 || exprUsesAttachedFundsAmountV1 key
+  | .mapUpsertLeaf _ leaves key value =>
+      leaves.any exprUsesAttachedFundsAmountV1 ||
+        exprUsesAttachedFundsAmountV1 key || exprUsesAttachedFundsAmountV1 value
+  | .mapUpsertOk leaves key value =>
+      leaves.any exprUsesAttachedFundsAmountV1 ||
+        exprUsesAttachedFundsAmountV1 key || exprUsesAttachedFundsAmountV1 value
+
+/-- ADR-0031 S4: body contains `attachedFundsAmount`. -/
+partial def statementsUseAttachedFundsAmountV1 (statements : Array Statement) : Bool :=
+  statements.any fun statement =>
+    match statement with
+    | .store op => exprUsesAttachedFundsAmountV1 op.value
+    | .storeAtomic leaves =>
+        leaves.any fun leaf => exprUsesAttachedFundsAmountV1 leaf.value
+    | .returnValue value => exprUsesAttachedFundsAmountV1 value
+    | .returnAggregate leaves _ => leaves.any exprUsesAttachedFundsAmountV1
+    | .assert condition => exprUsesAttachedFundsAmountV1 condition
+    | .emitEvent _ args => args.any exprUsesAttachedFundsAmountV1
+    | .revertError _ args => args.any exprUsesAttachedFundsAmountV1
+    | .promiseAccount _ _ args => args.any exprUsesAttachedFundsAmountV1
+    | .nativeDeposit amount => exprUsesAttachedFundsAmountV1 amount
+    | .nativeTransfer dstLen dstWords amount =>
+        exprUsesAttachedFundsAmountV1 dstLen ||
+          dstWords.any exprUsesAttachedFundsAmountV1 ||
+          exprUsesAttachedFundsAmountV1 amount
+    | .tokenTransfer mintLen mintWords dstLen dstWords amount =>
+        exprUsesAttachedFundsAmountV1 mintLen ||
+          mintWords.any exprUsesAttachedFundsAmountV1 ||
+          exprUsesAttachedFundsAmountV1 dstLen ||
+          dstWords.any exprUsesAttachedFundsAmountV1 ||
+          exprUsesAttachedFundsAmountV1 amount
+    | .tokenVaultBalance mintLen mintWords _ =>
+        exprUsesAttachedFundsAmountV1 mintLen ||
+          mintWords.any exprUsesAttachedFundsAmountV1
+    | .ifThenElse condition thenBody elseBody =>
+        exprUsesAttachedFundsAmountV1 condition ||
+          statementsUseAttachedFundsAmountV1 thenBody ||
+          statementsUseAttachedFundsAmountV1 elseBody
+    | .switchOn scrutinee cases defaultBody =>
+        exprUsesAttachedFundsAmountV1 scrutinee ||
+          statementsUseAttachedFundsAmountV1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUseAttachedFundsAmountV1 caseBody
+    | .forLoop _ initial cond update _ body =>
+        exprUsesAttachedFundsAmountV1 initial ||
+          exprUsesAttachedFundsAmountV1 cond ||
+          exprUsesAttachedFundsAmountV1 update ||
+          statementsUseAttachedFundsAmountV1 body
+    | .returnNone => false
 
 private def makeEntryV1
     (types : CosmWasmTypeClosureV1)
@@ -4075,6 +4181,7 @@ private def makeEntryV1
   let depositPolicy : DepositPolicy :=
     if mode == .view then .queryOnly
     else if depositCount == 1 then .requireExactNative
+    else if callableReadsAttachedValueV1 callable then .allowFunds
     else .requireZero
   pure {
     name
@@ -4155,6 +4262,7 @@ partial def exprUsesCallerPrincipalV1 (expr : Expr) : Bool :=
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimeSeconds | .blockHeight | .nativeVaultBalance
+  | .attachedFundsAmount
   | .selfPrincipalLen | .selfPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
@@ -4231,6 +4339,7 @@ partial def exprUsesSelfPrincipalV1 (expr : Expr) : Bool :=
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimeSeconds | .blockHeight | .nativeVaultBalance
+  | .attachedFundsAmount
   | .callerPrincipalLen | .callerPrincipalWord _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
