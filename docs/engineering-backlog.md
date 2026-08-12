@@ -525,6 +525,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-12 | **EVM formal lighthouse LH-4**：EventFlow Reference OutcomeWire mint（emit + declared Cap）+ digest list 5 步；`just evm-corpus-reference` `sidecars=23`；observation mint 仍 FC；OwnableLike 仍 observation-only。仍非 formal C-3/TST |
 | 2026-08-12 | **EVM formal lighthouse LH-5**：OwnableLike admit/step already yields Outcome；mint 5 OutcomeWire sidecars + assertionFailed constructor pin；`sidecars=28`。仍非 formal C-3/TST |
 | 2026-08-12 | **EVM formal lighthouse LH-6**：`Tests.Semantic.Sem002ShapeV1` pins no-init/init default, unixTime context key/type, emit occurrence 0, and exact UInt64 result via public `step` + OutcomeWire. Does **not** close TASK-D2-07 / TST-SEM-002 |
+| 2026-08-12 | **EVM formal lighthouse LH-7**：`Tests.Semantic.Sem003ShapeV1` pins overflow / declared Cap / assert rollback (exact reason, unchanged pre-state, zero committed effects) via `step` + OutcomeWire. Does **not** close TST-SEM-003 |
 
 ---
 
