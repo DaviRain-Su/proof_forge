@@ -177,6 +177,26 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
       pure ((encodeU8 54).append (← encodeNatAsU32le wordIndex))
   -- ADR-0031 S2: Env.block.height (tag 55 appended; prior tags byte-identical).
   | .blockHeight => pure (encodeU8 55)
+  -- Map loop IR packs (tags 56–58 appended; prior tags byte-identical).
+  | .mapLookupPart part baseLeaves key => do
+      let mut out := (encodeU8 56).append (← encodeNatAsU32le part)
+      out := out.append (← encodeNatAsU32le baseLeaves.size)
+      for leaf in baseLeaves do out := out.append (← encodeExpr leaf)
+      out := out.append (← encodeExpr key)
+      pure out
+  | .mapUpsertLeaf leafIndex baseLeaves key value => do
+      let mut out := (encodeU8 57).append (← encodeNatAsU32le leafIndex)
+      out := out.append (← encodeNatAsU32le baseLeaves.size)
+      for leaf in baseLeaves do out := out.append (← encodeExpr leaf)
+      out := out.append (← encodeExpr key)
+      out := out.append (← encodeExpr value)
+      pure out
+  | .mapUpsertOk baseLeaves key value => do
+      let mut out := (encodeU8 58).append (← encodeNatAsU32le baseLeaves.size)
+      for leaf in baseLeaves do out := out.append (← encodeExpr leaf)
+      out := out.append (← encodeExpr key)
+      out := out.append (← encodeExpr value)
+      pure out
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with

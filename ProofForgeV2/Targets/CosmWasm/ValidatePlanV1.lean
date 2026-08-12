@@ -112,6 +112,42 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
                     totalNodes := totalNodes + n
                     available := available - n
               pure (if ok then some totalNodes else none)
+    | .mapLookupPart _ baseLeaves key => Id.run do
+        let childDepth := depthLeft - 1
+        let mut available := nodeBudget - 1
+        let mut totalNodes : Nat := 1
+        let mut ok := true
+        for leaf in baseLeaves do
+          match planExprNodes? layout params fns childDepth available leaf with
+          | none => ok := false
+          | some n =>
+              totalNodes := totalNodes + n
+              available := available - n
+        match planExprNodes? layout params fns childDepth available key with
+        | none => ok := false
+        | some n => totalNodes := totalNodes + n
+        pure (if ok then some totalNodes else none)
+    | .mapUpsertLeaf _ baseLeaves key value
+    | .mapUpsertOk baseLeaves key value => Id.run do
+        let childDepth := depthLeft - 1
+        let mut available := nodeBudget - 1
+        let mut totalNodes : Nat := 1
+        let mut ok := true
+        for leaf in baseLeaves do
+          match planExprNodes? layout params fns childDepth available leaf with
+          | none => ok := false
+          | some n =>
+              totalNodes := totalNodes + n
+              available := available - n
+        match planExprNodes? layout params fns childDepth available key with
+        | none => ok := false
+        | some n =>
+            totalNodes := totalNodes + n
+            available := available - n
+        match planExprNodes? layout params fns childDepth available value with
+        | none => ok := false
+        | some n => totalNodes := totalNodes + n
+        pure (if ok then some totalNodes else none)
 
 private def addPlanExprNodes (limits : ResourceLimits) (layout : StorageLayout)
     (params : Array Param) (fns : Array FnBinding) (total : Nat) (expr : Expr) :

@@ -249,6 +249,17 @@ inductive Expr where
       into 8×UInt64 with high bytes zero beyond `len`. See
       `callerPrincipalLen`. -/
   | callerPrincipalWord (wordIndex : Nat)
+  /-- Dense Map IndexGet → Option tag leaf (`part = 0`) or payload (`part = 1`).
+      IR lowers once per unique `(baseLeaves, key)` pack to a Wasm loop over
+      capacity slots (fixed scratch locals), not a pure-Expr DAG. Sibling parts
+      share the pack via emit-time CSE on `part = 0`. -/
+  | mapLookupPart (part : Nat) (baseLeaves : Array Expr) (key : Expr)
+  /-- Dense Map IndexSet upsert → one output leaf (`leafIndex < capacity*3`).
+      Pack is shared with `mapUpsertOk` for the full-table gate. -/
+  | mapUpsertLeaf (leafIndex : Nat) (baseLeaves : Array Expr) (key value : Expr)
+  /-- Dense Map IndexSet success flag (1 = update-or-insert ok, 0 = full).
+      Used as `1 / ok` trap gate, same surface as the legacy pure-expr pilot. -/
+  | mapUpsertOk (baseLeaves : Array Expr) (key value : Expr)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -527,7 +538,9 @@ def canonicalResourceLimits : ResourceLimits := {
   maxPlanNodes
   maxRecipeNodes
   maxMethodLocals
-  wasmMemoryPages := 1
+  -- Two pages: scratch/attr/msg/value live at 4096+ (after needles); bump heap
+  -- and multi-key Map store traffic need headroom beyond a single 64KiB page.
+  wasmMemoryPages := 2
 }
 
 /-- Fixed CosmWasm MVP host import set. Schedule → SubMsg is pure Response JSON
@@ -838,19 +851,18 @@ private def mkStateLoadExpr (bitWidth : Nat) (fieldIndex : Nat) : Expr :=
   if bitWidth == 64 then .stateLoad fieldIndex
   else .narrowStateLoad bitWidth fieldIndex
 
-/-- Dense Map pilot capacity for CosmWasm.
-    Cap-4 (not EVM/Solana's 8): even with emit-time CSE, pure-expr Map upsert
-    at capacity-8 still exceeds cosmwasm-vm MAX_LOCALS=100 (~197 temps). Cap-4
-    keeps MapMini/Token-shaped programs under the host static gate while CSE
-    remains mandatory. -/
-private def nearMapPilotCapacityV1 : Nat := 4
+/-- Dense Map pilot capacity for CosmWasm (aligned with EVM/Solana/NEAR cap-8).
+    IndexGet/IndexSet lower to loop IR (`mapLookupPart` / `mapUpsertLeaf`) with
+    fixed scratch locals so multi-Map bodies (Token.mint/transfer) stay under
+    cosmwasm-vm MAX_LOCALS=100. Legacy pure-expr DAG expansion is gone. -/
+private def nearMapPilotCapacityV1 : Nat := 8
 private def nearMapSlotsPerEntryV1 : Nat := 3
 private def nearMapPilotLeafCountV1 : Nat :=
   nearMapPilotCapacityV1 * nearMapSlotsPerEntryV1
 
 /-- Container leaf layout for CosmWasm KV flattening: `(leafCount, leafByteWidth)`.
     Array: fixed `Array UInt64 N` → N×8-byte UInt64 leaves. Map: dense
-    capacity-4 occ/key/val → 12×8-byte leaves (cosmwasm-vm locals gate).
+    capacity-8 occ/key/val → 24×8-byte leaves (loop IR, not pure-expr temps).
     Bytes: fixed `Bytes N` → N×1-byte UInt8 leaves (byte-exact KV identity;
     element-wise IndexGet/IndexSet). -/
 private def containerLeafLayoutV1
@@ -1116,78 +1128,28 @@ private def scalarKindOfNamedLeafResultV1
     throw <| .planInvariant .cosmwasm
       "unsupported CosmWasm semantic shape: named-aggregate scalar leaf must be UInt64 or Int64"
 
-/-- Dense Map IndexGet → Option UInt64 as `[tag, payload]`. -/
+/-- Dense Map IndexGet → Option tag+payload via loop IR pack. -/
 private def mapLookupOptionLeavesV1
     (mapLeaves : Array Expr) (key : Expr) : CompileResult (Array Expr) := do
   unless mapLeaves.size == nearMapPilotLeafCountV1 do
     throw <| .planInvariant .cosmwasm
       "unsupported CosmWasm semantic shape: Map leaf count must match pilot capacity"
-  let mut found : Expr := .literal 0
-  let mut payload : Expr := .literal 0
-  for e in [0:nearMapPilotCapacityV1] do
-    let base := e * nearMapSlotsPerEntryV1
-    let some occ := mapLeaves[base]? |
-      throw <| .planInvariant .cosmwasm "Map lookup occ leaf missing"
-    let some k := mapLeaves[base + 1]? |
-      throw <| .planInvariant .cosmwasm "Map lookup key leaf missing"
-    let some v := mapLeaves[base + 2]? |
-      throw <| .planInvariant .cosmwasm "Map lookup val leaf missing"
-    let hit := Expr.checkedMul occ (Expr.compare .eq k key)
-    let miss := Expr.boolNot hit
-    found := Expr.boolOr found hit
-    payload :=
-      Expr.checkedAdd (Expr.checkedMul hit v) (Expr.checkedMul miss payload)
-  pure #[Expr.checkedAdd found (.literal 0), payload]
+  pure #[
+    .mapLookupPart 0 mapLeaves key,
+    .mapLookupPart 1 mapLeaves key
+  ]
 
-/-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert). -/
+/-- Dense Map IndexSet upsert via loop IR. Returns (newLeaves, okInsert). -/
 private def mapUpsertLeavesV1
     (mapLeaves : Array Expr) (key value : Expr) :
     CompileResult (Array Expr × Expr) := do
   unless mapLeaves.size == nearMapPilotLeafCountV1 do
     throw <| .planInvariant .cosmwasm
       "unsupported CosmWasm semantic shape: Map leaf count must match pilot capacity"
-  let mut anyMatch : Expr := .literal 0
-  for e in [0:nearMapPilotCapacityV1] do
-    let base := e * nearMapSlotsPerEntryV1
-    let some occ := mapLeaves[base]? |
-      throw <| .planInvariant .cosmwasm "Map upsert occ leaf missing"
-    let some k := mapLeaves[base + 1]? |
-      throw <| .planInvariant .cosmwasm "Map upsert key leaf missing"
-    let hit := Expr.checkedMul occ (Expr.compare .eq k key)
-    anyMatch := Expr.boolOr anyMatch hit
-  let mut seenEmpty : Expr := .literal 0
-  let mut isFirstEmpty : Array Expr := #[]
-  for e in [0:nearMapPilotCapacityV1] do
-    let base := e * nearMapSlotsPerEntryV1
-    let some occ := mapLeaves[base]? |
-      throw <| .planInvariant .cosmwasm "Map upsert empty-scan occ missing"
-    let empty := Expr.boolNot occ
-    let first := Expr.checkedMul empty (Expr.boolNot seenEmpty)
-    isFirstEmpty := isFirstEmpty.push first
-    seenEmpty := Expr.boolOr seenEmpty empty
-  let okInsert := Expr.boolOr anyMatch seenEmpty
   let mut out : Array Expr := #[]
-  for e in [0:nearMapPilotCapacityV1] do
-    let base := e * nearMapSlotsPerEntryV1
-    let some occ := mapLeaves[base]? |
-      throw <| .planInvariant .cosmwasm "Map upsert rebuild occ missing"
-    let some k := mapLeaves[base + 1]? |
-      throw <| .planInvariant .cosmwasm "Map upsert rebuild key missing"
-    let some v := mapLeaves[base + 2]? |
-      throw <| .planInvariant .cosmwasm "Map upsert rebuild val missing"
-    let matchHit := Expr.checkedMul occ (Expr.compare .eq k key)
-    let some firstE := isFirstEmpty[e]? |
-      throw <| .planInvariant .cosmwasm "Map upsert firstEmpty missing"
-    let insertHere := Expr.checkedMul firstE (Expr.boolNot anyMatch)
-    let write := Expr.boolOr matchHit insertHere
-    let miss := Expr.boolNot write
-    let occ' := Expr.checkedAdd (Expr.boolOr occ write) (.literal 0)
-    let k' :=
-      Expr.checkedAdd (Expr.checkedMul write key) (Expr.checkedMul miss k)
-    let v' :=
-      Expr.checkedAdd (Expr.checkedMul write value) (Expr.checkedMul miss v)
-    out := out.push occ' |>.push k' |>.push v'
-  pure (out, okInsert)
+  for i in [0:nearMapPilotLeafCountV1] do
+    out := out.push (.mapUpsertLeaf i mapLeaves key value)
+  pure (out, .mapUpsertOk mapLeaves key value)
 
 private def makeStorageLayoutV1
     (types : CosmWasmTypeClosureV1)
@@ -4168,6 +4130,14 @@ partial def exprUsesCallerPrincipalV1 (expr : Expr) : Bool :=
   | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
       exprUsesCallerPrincipalV1 e
   | .callFn _ args => args.any exprUsesCallerPrincipalV1
+  | .mapLookupPart _ leaves key =>
+      leaves.any exprUsesCallerPrincipalV1 || exprUsesCallerPrincipalV1 key
+  | .mapUpsertLeaf _ leaves key value =>
+      leaves.any exprUsesCallerPrincipalV1 ||
+        exprUsesCallerPrincipalV1 key || exprUsesCallerPrincipalV1 value
+  | .mapUpsertOk leaves key value =>
+      leaves.any exprUsesCallerPrincipalV1 ||
+        exprUsesCallerPrincipalV1 key || exprUsesCallerPrincipalV1 value
 
 /-- Recursive statement-tree scan for `context.caller` Principal leaves. -/
 partial def statementsUseCallerPrincipalV1 (statements : Array Statement) : Bool :=

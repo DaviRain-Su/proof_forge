@@ -111,6 +111,7 @@ programs=(
   "Examples/UnixTimeCheck.lean:Examples.UnixTimeCheck:UnixTimeCheck"
   "Examples/PoseTransform.lean:Examples.PoseTransform:PoseTransform"
   "Examples/MapMini.lean:Examples.MapMini:MapMini"
+  "Examples/Token.lean:Examples.Token:Token"
 )
 
 if [[ -n "${PROOF_FORGE_CLI:-}" && -x "$PROOF_FORGE_CLI" ]]; then

@@ -147,6 +147,15 @@ inductive Operation where
   | boolNot (destination source : Nat)
   | boolAnd (destination lhs rhs : Nat)
   | boolOr (destination lhs rhs : Nat)
+  /-- Dense Map lookup loop: scan `baseTemps` (cap×3 leaves) for `keyTemp`.
+      Writes tag→`foundTemp`, payload→`payloadTemp`. Fixed O(capacity) scratch. -/
+  | mapLookup
+      (baseTemps : Array Nat) (keyTemp foundTemp payloadTemp : Nat)
+  /-- Dense Map upsert: writes post-upsert leaves into `outTemps` (same length
+      as `baseTemps`, which stay immutable so dual IndexSet from one snapshot
+      and CSE on stateLoad temps stay correct). `okTemp` is 1 on success. -/
+  | mapUpsert
+      (baseTemps outTemps : Array Nat) (keyTemp valueTemp okTemp : Nat)
   deriving BEq, Inhabited, Repr
 
 structure MethodIR where
@@ -198,15 +207,24 @@ private def makeKeyRegions (plan : Plan) : Array KeyRegion := Id.run do
     offset := offset + length
   return regions
 
-/-- CosmWasm memory: one page min, no maximum (exported). Static key data in low
-    memory; bump heap starts at 4096; JSON/result scratch after keys.
-    Layout: [scratch 1536 | attr 512 | msg 1536 | value cell …]. -/
+/-- CosmWasm memory: one page min, no maximum (exported).
+    Layout (low → high):
+      * static KV key strings from offset 64 (must end ≤ needle base 3000)
+      * JSON method/param needles in `[3000, 4096)` (helpers hard-code bases)
+      * fixed scratch/attr/msg/value buffers from 4096
+      * bump heap starts after the value cell
+
+    Dense Map cap-8 is 24 leaves (~400B keys). Putting scratch *before* needles
+    used to shove valueCell into the needle/heap band (OOB after multi-key put).
+    Scratch now lives after needles so Map/Token state growth stays hermetic. -/
 private def makeMemoryLayout (plan : Plan) (keys : Array KeyRegion) : MemoryLayout :=
   let keysEnd := keys.foldl (fun current key => max current (key.offset + key.length)) 64
-  let scratchOffset := align8 (max keysEnd 256)
+  -- Needles occupy [3000, 4096); scratch starts at the historical bump base.
+  let _ := keysEnd  -- keysEnd gated at data emission (≤ 3000)
+  let scratchOffset := 4096
   {
     minPages := plan.resourceLimits.wasmMemoryPages
-    inputOffset := scratchOffset          -- reused as JSON/result scratch base
+    inputOffset := scratchOffset          -- JSON/result scratch base
     inputCapacity := 1536
     depositOffset := scratchOffset + 1536 -- attribute buffer base (512 bytes)
     -- value cell sits after attribute (512) + messages (1536) buffers
@@ -540,26 +558,321 @@ private partial def lowerExprUncached (keys : Array KeyRegion) (next : Nat)
           cacheC := lowered.cache
         ops := ops.push (.callFn fnIndex cur argTemps)
         pure { operations := ops, value := cur, next := cur + 1, cache := cacheC }
+  -- Map lookup pack owner is always `mapLookupPart 0`; part 1 reuses
+  -- found/payload temps (contiguous).
+  | .mapLookupPart part baseLeaves key =>
+      Id.run do
+        let packOwner := Expr.mapLookupPart 0 baseLeaves key
+        match cache.find? (fun p => p.1 == packOwner) with
+        | some (_, foundTemp) =>
+            let resultTemp := if part == 0 then foundTemp else foundTemp + 1
+            pure { operations := #[], value := resultTemp, next, cache }
+        | none =>
+            let mut ops : Array Operation := #[]
+            let mut cur := next
+            let mut cacheC := cache
+            let mut baseTemps : Array Nat := #[]
+            for leaf in baseLeaves do
+              let lowered := lowerExpr keys cur paramAsTemp localEnv cacheC leaf
+              ops := ops ++ lowered.operations
+              baseTemps := baseTemps.push lowered.value
+              cur := lowered.next
+              cacheC := lowered.cache
+            let keyL := lowerExpr keys cur paramAsTemp localEnv cacheC key
+            ops := ops ++ keyL.operations
+            cur := keyL.next
+            cacheC := keyL.cache
+            let foundTemp := cur
+            let payloadTemp := cur + 1
+            ops := ops.push (.mapLookup baseTemps keyL.value foundTemp payloadTemp)
+            cur := cur + 2
+            -- Seed pack-owner cache so part 1 / duplicate part 0 reuse temps.
+            cacheC := cacheC.push (packOwner, foundTemp)
+            let resultTemp := if part == 0 then foundTemp else payloadTemp
+            pure { operations := ops, value := resultTemp, next := cur, cache := cacheC }
+  -- Fallback when body-level buffer reuse is not in play (assert/emit/etc.).
+  | .mapUpsertLeaf leafIndex baseLeaves key value =>
+      Id.run do
+        let thisExpr := Expr.mapUpsertLeaf leafIndex baseLeaves key value
+        match cache.find? (fun p => p.1 == thisExpr) with
+        | some (_, temp) =>
+            pure { operations := #[], value := temp, next, cache }
+        | none =>
+            let mut ops : Array Operation := #[]
+            let mut cur := next
+            let mut cacheC := cache
+            let mut baseTemps : Array Nat := #[]
+            for leaf in baseLeaves do
+              let lowered := lowerExpr keys cur paramAsTemp localEnv cacheC leaf
+              ops := ops ++ lowered.operations
+              baseTemps := baseTemps.push lowered.value
+              cur := lowered.next
+              cacheC := lowered.cache
+            let keyL := lowerExpr keys cur paramAsTemp localEnv cacheC key
+            ops := ops ++ keyL.operations
+            cur := keyL.next
+            cacheC := keyL.cache
+            let valL := lowerExpr keys cur paramAsTemp localEnv cacheC value
+            ops := ops ++ valL.operations
+            cur := valL.next
+            cacheC := valL.cache
+            let nLeaves := baseTemps.size
+            let out0 := cur
+            let mut outTemps : Array Nat := #[]
+            for i in [0:nLeaves] do
+              outTemps := outTemps.push (out0 + i)
+            let okTemp := out0 + nLeaves
+            cur := out0 + nLeaves + 1
+            ops := ops.push
+              (.mapUpsert baseTemps outTemps keyL.value valL.value okTemp)
+            for i in [0:nLeaves] do
+              cacheC := cacheC.push
+                (Expr.mapUpsertLeaf i baseLeaves key value, out0 + i)
+            cacheC := cacheC.push
+              (Expr.mapUpsertOk baseLeaves key value, okTemp)
+            pure {
+              operations := ops
+              value := out0 + leafIndex
+              next := cur
+              cache := cacheC
+            }
+  | .mapUpsertOk baseLeaves key value =>
+      Id.run do
+        let okOwner := Expr.mapUpsertOk baseLeaves key value
+        match cache.find? (fun p => p.1 == okOwner) with
+        | some (_, okTemp) =>
+            pure { operations := #[], value := okTemp, next, cache }
+        | none =>
+            let forced := lowerExpr keys next paramAsTemp localEnv cache
+              (.mapUpsertLeaf 0 baseLeaves key value)
+            match forced.cache.find? (fun p => p.1 == okOwner) with
+            | some (_, okTemp) =>
+                pure {
+                  operations := forced.operations
+                  value := okTemp
+                  next := forced.next
+                  cache := forced.cache
+                }
+            | none =>
+                pure {
+                  operations := forced.operations
+                  value := forced.next
+                  next := forced.next + 1
+                  cache := forced.cache
+                }
 end
 
-private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
+/-- Shared Map upsert out-buffer + ok temp reused across sequential upserts
+    in one method (Token.transfer pays 25 out temps once, not per IndexSet). -/
+structure MapUpsertBuf where
+  out0 : Nat
+  nLeaves : Nat
+  okTemp : Nat
+  deriving BEq, Inhabited, Repr
+
+/-- Lower Map upsert pack, optionally reusing a method-level out buffer.
+    Returns (ops, resultTemp for this expr, next, cache, updated buf?). -/
+private def lowerMapUpsertPack
+    (keys : Array KeyRegion) (next : Nat) (paramAsTemp : Bool)
+    (localEnv : Array (Nat × Nat)) (cache : Array (Expr × Nat))
+    (leafIndex : Nat) (baseLeaves : Array Expr) (key value : Expr)
+    (buf? : Option MapUpsertBuf) :
+    Array Operation × Nat × Nat × Array (Expr × Nat) × Option MapUpsertBuf :=
+  Id.run do
+    let thisExpr := Expr.mapUpsertLeaf leafIndex baseLeaves key value
+    match cache.find? (fun p => p.1 == thisExpr) with
+    | some (_, temp) =>
+        pure (#[], temp, next, cache, buf?)
+    | none =>
+        let mut ops : Array Operation := #[]
+        let mut cur := next
+        let mut cacheC := cache
+        let mut baseTemps : Array Nat := #[]
+        for leaf in baseLeaves do
+          let lowered := lowerExpr keys cur paramAsTemp localEnv cacheC leaf
+          ops := ops ++ lowered.operations
+          baseTemps := baseTemps.push lowered.value
+          cur := lowered.next
+          cacheC := lowered.cache
+        let keyL := lowerExpr keys cur paramAsTemp localEnv cacheC key
+        ops := ops ++ keyL.operations
+        cur := keyL.next
+        cacheC := keyL.cache
+        let valL := lowerExpr keys cur paramAsTemp localEnv cacheC value
+        ops := ops ++ valL.operations
+        cur := valL.next
+        cacheC := valL.cache
+        let nLeaves := baseTemps.size
+        let (out0, okTemp, cur2, buf2) :=
+          match buf? with
+          | some b =>
+              if b.nLeaves == nLeaves then
+                (b.out0, b.okTemp, cur, some b)
+              else
+                let o := cur
+                (o, o + nLeaves, cur + nLeaves + 1,
+                  some { out0 := o, nLeaves, okTemp := o + nLeaves })
+          | none =>
+              let o := cur
+              (o, o + nLeaves, cur + nLeaves + 1,
+                some { out0 := o, nLeaves, okTemp := o + nLeaves })
+        cur := cur2
+        let mut outTemps : Array Nat := #[]
+        for i in [0:nLeaves] do
+          outTemps := outTemps.push (out0 + i)
+        ops := ops.push
+          (.mapUpsert baseTemps outTemps keyL.value valL.value okTemp)
+        for i in [0:nLeaves] do
+          cacheC := cacheC.push
+            (Expr.mapUpsertLeaf i baseLeaves key value, out0 + i)
+        cacheC := cacheC.push
+          (Expr.mapUpsertOk baseLeaves key value, okTemp)
+        pure (ops, out0 + leafIndex, cur, cacheC, buf2)
+
+private def lowerMapUpsertOk
+    (keys : Array KeyRegion) (next : Nat) (paramAsTemp : Bool)
+    (localEnv : Array (Nat × Nat)) (cache : Array (Expr × Nat))
+    (baseLeaves : Array Expr) (key value : Expr)
+    (buf? : Option MapUpsertBuf) :
+    Array Operation × Nat × Nat × Array (Expr × Nat) × Option MapUpsertBuf :=
+  Id.run do
+    let okOwner := Expr.mapUpsertOk baseLeaves key value
+    match cache.find? (fun p => p.1 == okOwner) with
+    | some (_, okTemp) =>
+        pure (#[], okTemp, next, cache, buf?)
+    | none =>
+        let (ops, _, next2, cache2, buf2) :=
+          lowerMapUpsertPack keys next paramAsTemp localEnv cache
+            0 baseLeaves key value buf?
+        match cache2.find? (fun p => p.1 == okOwner) with
+        | some (_, okTemp) => pure (ops, okTemp, next2, cache2, buf2)
+        | none => pure (ops, next2, next2 + 1, cache2, buf2)
+
+/-- Collect unique Map upsert packs `(baseLeaves, key, value)` nested in an expr.
+    Used to pre-seed the shared out buffer before lowering gate-wrapped leaves
+    (`checkedAdd (mapUpsertLeaf 0) (mul (div 1 ok) 0)`). -/
+private partial def collectMapUpsertPacksV1 (expr : Expr) :
+    Array (Array Expr × Expr × Expr) :=
+  match expr with
+  | .mapUpsertLeaf _ baseLeaves key value
+  | .mapUpsertOk baseLeaves key value =>
+      #[(baseLeaves, key, value)]
+  | .mapLookupPart _ leaves key =>
+      leaves.foldl (fun acc e => acc ++ collectMapUpsertPacksV1 e) (collectMapUpsertPacksV1 key)
+  | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
+  | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
+  | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
+  | .signedCheckedMul l r | .signedCheckedDiv l r | .signedCheckedMod l r
+  | .signedCompare _ l r | .sar l r | .boolAnd l r | .boolOr l r
+  | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
+  | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
+  | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+      collectMapUpsertPacksV1 l ++ collectMapUpsertPacksV1 r
+  | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
+      collectMapUpsertPacksV1 e
+  | .callFn _ args =>
+      args.foldl (fun acc a => acc ++ collectMapUpsertPacksV1 a) #[]
+  | _ => #[]
+
+/-- True when `expr` (transitively) reads the given physical state field. -/
+private partial def exprMentionsStateFieldV1 (fieldIndex : Nat) : Expr → Bool
+  | .stateLoad fi => fi == fieldIndex
+  | .narrowStateLoad _ fi => fi == fieldIndex
+  | .mapLookupPart _ leaves key =>
+      leaves.any (exprMentionsStateFieldV1 fieldIndex) ||
+        exprMentionsStateFieldV1 fieldIndex key
+  | .mapUpsertLeaf _ leaves key value
+  | .mapUpsertOk leaves key value =>
+      leaves.any (exprMentionsStateFieldV1 fieldIndex) ||
+        exprMentionsStateFieldV1 fieldIndex key ||
+        exprMentionsStateFieldV1 fieldIndex value
+  | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
+  | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
+  | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
+  | .signedCheckedMul l r | .signedCheckedDiv l r | .signedCheckedMod l r
+  | .signedCompare _ l r | .sar l r | .boolAnd l r | .boolOr l r
+  | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
+  | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
+  | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+      exprMentionsStateFieldV1 fieldIndex l || exprMentionsStateFieldV1 fieldIndex r
+  | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
+      exprMentionsStateFieldV1 fieldIndex e
+  | .callFn _ args => args.any (exprMentionsStateFieldV1 fieldIndex)
+  | _ => false
+
+/-- Drop CSE entries that depend on a just-written state field. -/
+private def invalidateStateFieldCacheV1 (cache : Array (Expr × Nat)) (fieldIndex : Nat) :
+    Array (Expr × Nat) :=
+  cache.filter fun (e, _) => !exprMentionsStateFieldV1 fieldIndex e
+
+/-- Body lowering with optional inherited CSE cache + Map out-buffer.
+    If-arms share the parent cache so Map stateLoad temps (24 leaves) are not
+    re-allocated per arm (Token.transfer). Returns (ops, next, cache, mapBuf). -/
+private partial def lowerBodyOpsFull (keys : Array KeyRegion) (next : Nat)
     (body : Array Statement) (fnMode : Bool) (localEnv : Array (Nat × Nat))
-    (_returnByteLen : Nat) : Array Operation × Nat := Id.run do
+    (_returnByteLen : Nat) (cache0 : Array (Expr × Nat))
+    (mapBuf0 : Option MapUpsertBuf) :
+    Array Operation × Nat × Array (Expr × Nat) × Option MapUpsertBuf := Id.run do
   let mut operations : Array Operation := #[]
   let mut next := next
   let mut localEnv := localEnv
-  let mut cache : Array (Expr × Nat) := #[]
+  let mut cache : Array (Expr × Nat) := cache0
+  let mut mapBuf : Option MapUpsertBuf := mapBuf0
   for stmt in body do
     match stmt with
     | .store op =>
-        let value := lowerExpr keys next fnMode localEnv cache op.value
-        operations := operations ++ value.operations
-        operations := operations.push (.storeState (fieldRegion keys op.fieldIndex) value.value)
-        next := value.next
-        cache := value.cache
+        let mut storedTemp : Nat := 0
+        match op.value with
+        | .mapUpsertLeaf leafIndex baseLeaves key value =>
+            let (ops, val, next1, cache1, buf1) :=
+              lowerMapUpsertPack keys next fnMode localEnv cache
+                leafIndex baseLeaves key value mapBuf
+            mapBuf := buf1
+            operations := operations ++ ops
+            operations := operations.push
+              (.storeState (fieldRegion keys op.fieldIndex) val)
+            next := next1
+            cache := cache1
+            storedTemp := val
+        | .mapUpsertOk baseLeaves key value =>
+            let (ops, val, next1, cache1, buf1) :=
+              lowerMapUpsertOk keys next fnMode localEnv cache
+                baseLeaves key value mapBuf
+            mapBuf := buf1
+            operations := operations ++ ops
+            operations := operations.push
+              (.storeState (fieldRegion keys op.fieldIndex) val)
+            next := next1
+            cache := cache1
+            storedTemp := val
+        | other =>
+            let value := lowerExpr keys next fnMode localEnv cache other
+            operations := operations ++ value.operations
+            operations := operations.push
+              (.storeState (fieldRegion keys op.fieldIndex) value.value)
+            next := value.next
+            cache := value.cache
+            storedTemp := value.value
+        -- Drop CSE for the written field, then seed the new temp so a later
+        -- load of the same field (Token `return supply`) reuses it.
+        cache := invalidateStateFieldCacheV1 cache op.fieldIndex
+        cache := cache.push (.stateLoad op.fieldIndex, storedTemp)
     | .storeAtomic leaves =>
-        -- Evaluate all leaf exprs first, then write (pre-store snapshot).
-        let mut vals : Array (Nat × Nat) := #[]  -- (fieldIndex, temp)
+        for leaf in leaves do
+          let packs := collectMapUpsertPacksV1 leaf.value
+          for (baseLeaves, key, value) in packs do
+            let okOwner := Expr.mapUpsertOk baseLeaves key value
+            unless (cache.find? (fun p => p.1 == okOwner)).isSome do
+              let (ops, _, next1, cache1, buf1) :=
+                lowerMapUpsertPack keys next fnMode localEnv cache
+                  0 baseLeaves key value mapBuf
+              mapBuf := buf1
+              operations := operations ++ ops
+              next := next1
+              cache := cache1
+        let mut vals : Array (Nat × Nat) := #[]
         for leaf in leaves do
           let value := lowerExpr keys next fnMode localEnv cache leaf.value
           operations := operations ++ value.operations
@@ -568,6 +881,14 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
           cache := value.cache
         for (fieldIndex, temp) in vals do
           operations := operations.push (.storeState (fieldRegion keys fieldIndex) temp)
+        -- Drop packs/lookups that depended on pre-store leaves, then seed the
+        -- just-written temps as the new stateLoad CSE entries so a later Map
+        -- IndexSet/Get in the same method (Token.transfer dual store) reuses
+        -- them instead of re-loading 24 leaves past MAX_LOCALS.
+        for (fieldIndex, _) in vals do
+          cache := invalidateStateFieldCacheV1 cache fieldIndex
+        for (fieldIndex, temp) in vals do
+          cache := cache.push (.stateLoad fieldIndex, temp)
     | .returnValue value =>
         let value := lowerExpr keys next fnMode localEnv cache value
         operations := operations ++ value.operations
@@ -578,7 +899,6 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
         next := value.next
         cache := value.cache
     | .returnAggregate leaves _leafIsInt =>
-        -- B-RET-ABI: lower each leaf expr, then one multi-word setReturnDataMulti.
         let mut temps : Array Nat := #[]
         for leaf in leaves do
           let value := lowerExpr keys next fnMode localEnv cache leaf
@@ -587,7 +907,6 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
           next := value.next
           cache := value.cache
         if fnMode then
-          -- pureFn must not emit aggregate return (validated); fall closed.
           operations := operations.push (.returnValue (temps[0]?.getD 0))
         else
           operations := operations.push (.setReturnDataMulti temps)
@@ -680,11 +999,6 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
         next := amountL.next
         cache := amountL.cache
     | .tokenVaultBalance mintLen mintBodyWords resultTemp =>
-        -- Plan `resultTemp` is a Semantic ValueId (like forLoop `varTemp`).
-        -- Allocate a fresh IR temp for the query result and bind it into
-        -- localEnv so subsequent `.localTemp resultTemp` (e.g. return) resolve
-        -- to the real balance — not the unmapped-localTemp fallback of
-        -- literal 0.
         let mintLenL := lowerExpr keys next fnMode localEnv cache mintLen
         operations := operations ++ mintLenL.operations
         next := mintLenL.next
@@ -704,22 +1018,35 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
     | .ifThenElse condition thenBody elseBody =>
         let value := lowerExpr keys next fnMode localEnv cache condition
         operations := operations ++ value.operations
-        let (thenOps, next1) := lowerBodyOps keys value.next thenBody fnMode localEnv _returnByteLen
-        let (elseOps, next2) := lowerBodyOps keys next1 elseBody fnMode localEnv _returnByteLen
+        next := value.next
+        cache := value.cache
+        -- Mutually exclusive arms: same watermark + shared CSE/mapBuf so Map
+        -- stateLoad temps are not re-paid per arm. Keep max(next).
+        let armStart := next
+        let (thenOps, next1, _, _) :=
+          lowerBodyOpsFull keys armStart thenBody fnMode localEnv _returnByteLen cache mapBuf
+        let (elseOps, next2, _, _) :=
+          lowerBodyOpsFull keys armStart elseBody fnMode localEnv _returnByteLen cache mapBuf
         operations := operations.push (.ifRegion value.value thenOps elseOps)
-        next := next2
+        next := Nat.max next1 next2
+        -- Do not merge arm caches (arm-local temps / mapUpsert packs diverge).
     | .switchOn scrutinee cases defaultBody =>
         let value := lowerExpr keys next fnMode localEnv cache scrutinee
         operations := operations ++ value.operations
+        next := value.next
+        cache := value.cache
         let mut caseOps : Array (UInt64 × Array Operation) := #[]
-        let mut nextC := value.next
+        let armStart := next
+        let mut nextMax := armStart
         for (caseValue, caseBody) in cases do
-          let (ops, next1) := lowerBodyOps keys nextC caseBody fnMode localEnv _returnByteLen
+          let (ops, next1, _, _) :=
+            lowerBodyOpsFull keys armStart caseBody fnMode localEnv _returnByteLen cache mapBuf
           caseOps := caseOps.push (caseValue, ops)
-          nextC := next1
-        let (defaultOps, nextD) := lowerBodyOps keys nextC defaultBody fnMode localEnv _returnByteLen
+          nextMax := Nat.max nextMax next1
+        let (defaultOps, nextD, _, _) :=
+          lowerBodyOpsFull keys armStart defaultBody fnMode localEnv _returnByteLen cache mapBuf
         operations := operations.push (.switchRegion value.value caseOps defaultOps)
-        next := nextD
+        next := Nat.max nextMax nextD
     | .forLoop varTemp initial condition update maxIterations body =>
         let initL := lowerExpr keys next fnMode localEnv cache initial
         operations := operations ++ initL.operations
@@ -732,7 +1059,8 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
         let condTemp := condL.value
         next := condL.next
         cache := condL.cache
-        let (bodyOps, nextB) := lowerBodyOps keys next body fnMode localEnv' _returnByteLen
+        let (bodyOps, nextB, _, _) :=
+          lowerBodyOpsFull keys next body fnMode localEnv' _returnByteLen cache mapBuf
         next := nextB
         let updateL := lowerExpr keys next fnMode localEnv' cache update
         let updateOps := updateL.operations
@@ -743,7 +1071,14 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
           (.forRegion irVar initL.value counterTemp maxIterations
             condOps condTemp bodyOps updateOps updateTemp)
         localEnv := localEnv'
-  pure (operations, next)
+  pure (operations, next, cache, mapBuf)
+
+private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
+    (body : Array Statement) (fnMode : Bool) (localEnv : Array (Nat × Nat))
+    (_returnByteLen : Nat) : Array Operation × Nat :=
+  let (ops, next', _, _) :=
+    lowerBodyOpsFull keys next body fnMode localEnv _returnByteLen #[] none
+  (ops, next')
 
 private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     (method : Method) : MethodIR := Id.run do
@@ -811,6 +1146,7 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .forRegion _ _ _ _ condOps _ bodyOps updateOps _ =>
       condOps.any opIsMethodOnlyV1 || bodyOps.any opIsMethodOnlyV1 ||
         updateOps.any opIsMethodOnlyV1
+  | .mapLookup .. | .mapUpsert .. => false
   | _ => false
 
 private partial def opIsFnReturnValueV1 : Operation → Bool
@@ -823,13 +1159,48 @@ private partial def opIsFnReturnValueV1 : Operation → Bool
   | .forRegion _ _ _ _ condOps _ bodyOps updateOps _ =>
       condOps.any opIsFnReturnValueV1 || bodyOps.any opIsFnReturnValueV1 ||
         updateOps.any opIsFnReturnValueV1
+  | .mapLookup .. | .mapUpsert .. => false
   | _ => false
 
-/-- cosmwasm-vm 3.x MAX_LOCALS gate for `$m_*` body temps (mw scratch counted
-    separately only when multiword ops are present — see renderMethodBody).
-    Dense Map put at cap-4 + CSE stays under this; multi-Map entries (Token.transfer)
-    fail closed until loop lowering. -/
+/-- cosmwasm-vm 3.x MAX_LOCALS gate for `$m_*` body temps (mw/map scratch
+    counted separately only when those ops are present — see renderMethodBody).
+    Dense Map uses loop IR (cap-8); multi-Map bodies (Token) stay under this. -/
 private def maxHostMethodLocalsV1 : Nat := 100
+
+/-- True when a method/fn body uses multiword ops that need `$t_mw_*` scratch. -/
+private partial def opNeedsMultiwordScratch : Operation → Bool
+  | .wideCompare bitWidth .. => bitWidth > 64
+  | .narrowCheckedAdd bitWidth .. | .narrowCheckedSub bitWidth ..
+  | .narrowCheckedMul bitWidth .. | .narrowCheckedDiv bitWidth ..
+  | .narrowCheckedMod bitWidth .. | .narrowBitAnd bitWidth ..
+  | .narrowBitOr bitWidth .. | .narrowBitXor bitWidth ..
+  | .narrowBitNot bitWidth .. | .narrowShl bitWidth ..
+  | .narrowShr bitWidth .. => bitWidth > 64
+  | .ifRegion _ thenOps elseOps =>
+      thenOps.any opNeedsMultiwordScratch || elseOps.any opNeedsMultiwordScratch
+  | .switchRegion _ cases defaultOps =>
+      defaultOps.any opNeedsMultiwordScratch ||
+        cases.any (fun p => p.2.any opNeedsMultiwordScratch)
+  | .forRegion _ _ _ _ condOps _ bodyOps updateOps _ =>
+      condOps.any opNeedsMultiwordScratch ||
+        bodyOps.any opNeedsMultiwordScratch ||
+        updateOps.any opNeedsMultiwordScratch
+  | .mapLookup .. | .mapUpsert .. => false
+  | _ => false
+
+/-- True when a method/fn body uses Map loop IR needing `$t_map_*` scratch. -/
+private partial def opNeedsMapLoopScratch : Operation → Bool
+  | .mapLookup .. | .mapUpsert .. => true
+  | .ifRegion _ thenOps elseOps =>
+      thenOps.any opNeedsMapLoopScratch || elseOps.any opNeedsMapLoopScratch
+  | .switchRegion _ cases defaultOps =>
+      defaultOps.any opNeedsMapLoopScratch ||
+        cases.any (fun p => p.2.any opNeedsMapLoopScratch)
+  | .forRegion _ _ _ _ condOps _ bodyOps updateOps _ =>
+      condOps.any opNeedsMapLoopScratch ||
+        bodyOps.any opNeedsMapLoopScratch ||
+        updateOps.any opNeedsMapLoopScratch
+  | _ => false
 
 def validateIR (ir : IR) : CompileResult Unit := do
   validatePlan ir.sourcePlan
@@ -852,9 +1223,14 @@ def validateIR (ir : IR) : CompileResult Unit := do
     if method.tempCount > ir.sourcePlan.resourceLimits.maxMethodLocals then
       throw <| .planInvariant .cosmwasm
         s!"typed CosmWasm IR method '{method.name}' exceeds local limit {ir.sourcePlan.resourceLimits.maxMethodLocals}"
-    if method.tempCount > maxHostMethodLocalsV1 then
+    -- Host MAX_LOCALS counts declared params+temps+optional scratch locals.
+    let hostLocals :=
+      method.tempCount +
+        (if method.operations.any opNeedsMultiwordScratch then 20 else 0) +
+        (if method.operations.any opNeedsMapLoopScratch then 9 else 0)
+    if hostLocals > maxHostMethodLocalsV1 then
       throw <| .planInvariant .cosmwasm
-        s!"typed CosmWasm IR method '{method.name}' needs {method.tempCount} Wasm temps; cosmwasm-vm MAX_LOCALS={maxHostMethodLocalsV1} — reduce Map ops per entry (pilot Map cap-4; multi-Map bodies like Token.transfer stay fail-closed until loop lowering)"
+        s!"typed CosmWasm IR method '{method.name}' needs ~{hostLocals} Wasm locals (temps={method.tempCount}); cosmwasm-vm MAX_LOCALS={maxHostMethodLocalsV1} (Map loop IR + CSE; reduce Map ops / state leaves if over budget)"
     if method.operations.any opIsFnReturnValueV1 then
       throw <| .planInvariant .cosmwasm
         s!"typed CosmWasm IR method '{method.name}' must not use pureFn returnValue ops"
@@ -862,9 +1238,13 @@ def validateIR (ir : IR) : CompileResult Unit := do
     if fn.tempCount > ir.sourcePlan.resourceLimits.maxMethodLocals then
       throw <| .planInvariant .cosmwasm
         s!"typed CosmWasm IR pureFn '{fn.name}' exceeds local limit {ir.sourcePlan.resourceLimits.maxMethodLocals}"
-    if fn.tempCount > maxHostMethodLocalsV1 then
+    let hostLocals :=
+      fn.tempCount +
+        (if fn.operations.any opNeedsMultiwordScratch then 20 else 0) +
+        (if fn.operations.any opNeedsMapLoopScratch then 9 else 0)
+    if hostLocals > maxHostMethodLocalsV1 then
       throw <| .planInvariant .cosmwasm
-        s!"typed CosmWasm IR pureFn '{fn.name}' needs {fn.tempCount} Wasm temps; cosmwasm-vm MAX_LOCALS={maxHostMethodLocalsV1}"
+        s!"typed CosmWasm IR pureFn '{fn.name}' needs ~{hostLocals} Wasm locals; cosmwasm-vm MAX_LOCALS={maxHostMethodLocalsV1}"
     if fn.operations.any opIsMethodOnlyV1 then
       throw <| .planInvariant .cosmwasm
         s!"typed CosmWasm IR pureFn '{fn.name}' must not use method-only host ops"
@@ -917,7 +1297,9 @@ private def renderImport : HostImport → String
 /-- Shared runtime helpers: bump allocate, Region builders, db load/store U64,
     JSON ok/error result builders, minimal JSON integer field scan. -/
 private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
-  let heapInit := 4096
+  -- Bump heap starts after fixed scratch/attr/msg/value band. valueOffset holds
+  -- ret leaves (64B) plus Principal/name scratch (~128B); reserve 256B.
+  let heapInit := memory.valueOffset + 256
   let scratch := memory.inputOffset
   let attrBase := memory.depositOffset
   let msgBase := msgBufferBase memory
@@ -1969,30 +2351,21 @@ private def multiwordScratchLocals : String :=
   " (local $t_mw_quot0 i64) (local $t_mw_quot1 i64) (local $t_mw_quot2 i64)" ++
   " (local $t_mw_quot3 i64)"
 
-/-- True when a method/fn body uses multiword ops that need `$t_mw_*` scratch.
-    Declaring them on every method wastes 20 locals and blows cosmwasm-vm
-    MAX_LOCALS=100 on dense Map put (cap-4 + CSE ≈ 93 temps + 20 scratch). -/
-private partial def opNeedsMultiwordScratch : Operation → Bool
-  | .wideCompare bitWidth .. => bitWidth > 64
-  | .narrowCheckedAdd bitWidth .. | .narrowCheckedSub bitWidth ..
-  | .narrowCheckedMul bitWidth .. | .narrowCheckedDiv bitWidth ..
-  | .narrowCheckedMod bitWidth .. | .narrowBitAnd bitWidth ..
-  | .narrowBitOr bitWidth .. | .narrowBitXor bitWidth ..
-  | .narrowBitNot bitWidth .. | .narrowShl bitWidth ..
-  | .narrowShr bitWidth .. => bitWidth > 64
-  | .ifRegion _ thenOps elseOps =>
-      thenOps.any opNeedsMultiwordScratch || elseOps.any opNeedsMultiwordScratch
-  | .switchRegion _ cases defaultOps =>
-      defaultOps.any opNeedsMultiwordScratch ||
-        cases.any (fun p => p.2.any opNeedsMultiwordScratch)
-  | .forRegion _ _ _ _ condOps _ bodyOps updateOps _ =>
-      condOps.any opNeedsMultiwordScratch ||
-        bodyOps.any opNeedsMultiwordScratch ||
-        updateOps.any opNeedsMultiwordScratch
-  | _ => false
-
 private def multiwordScratchLocalsIfNeeded (ops : Array Operation) : String :=
   if ops.any opNeedsMultiwordScratch then multiwordScratchLocals else ""
+
+/-- Fixed scratch for Map loop IR (`mapLookup` / `mapUpsert`). Kept separate
+    from multiword scratch so pure Map methods do not pay the 20-local mw tax. -/
+private def mapLoopScratchLocals : String :=
+  " (local $t_map_i i64) (local $t_map_base i64) (local $t_map_occ i64)" ++
+  " (local $t_map_k i64) (local $t_map_v i64) (local $t_map_hit i64)" ++
+  " (local $t_map_any i64) (local $t_map_empty_i i64) (local $t_map_tmp i64)"
+
+private def mapLoopScratchLocalsIfNeeded (ops : Array Operation) : String :=
+  if ops.any opNeedsMapLoopScratch then mapLoopScratchLocals else ""
+
+private def methodExtraScratchLocals (ops : Array Operation) : String :=
+  multiwordScratchLocalsIfNeeded ops ++ mapLoopScratchLocalsIfNeeded ops
 
 /-- Multiword checked add on consecutive i64 temps (LE limbs); final carry → trap. -/
 private def renderMultiwordCheckedAdd (indent : String) (dest lhs rhs nLimbs : Nat) : String :=
@@ -2746,6 +3119,126 @@ private partial def renderOperation (memory : MemoryLayout)
         s!"{indent}    (br $for_loop_{varTemp})\n" ++
         s!"{indent}  )\n" ++
         s!"{indent})\n"
+  | .mapLookup baseTemps keyTemp foundTemp payloadTemp =>
+      -- Dense Map lookup: scan occ/key/val triples; first hit wins.
+      Id.run do
+        let cap := baseTemps.size / 3
+        let mut out :=
+          s!"{indent};; mapLookup capacity={cap} key=$t{keyTemp} → $t{foundTemp}/$t{payloadTemp}\n" ++
+          s!"{indent}(local.set $t{foundTemp} (i64.const 0))\n" ++
+          s!"{indent}(local.set $t{payloadTemp} (i64.const 0))\n" ++
+          s!"{indent}(local.set $t_map_i (i64.const 0))\n" ++
+          s!"{indent}(block $map_lk_break_{foundTemp}\n" ++
+          s!"{indent}  (loop $map_lk_loop_{foundTemp}\n" ++
+          s!"{indent}    (br_if $map_lk_break_{foundTemp} (i64.ge_u (local.get $t_map_i) (i64.const {cap})))\n"
+        for e in [0:cap] do
+          let occ := baseTemps[e * 3]!
+          let k := baseTemps[e * 3 + 1]!
+          let v := baseTemps[e * 3 + 2]!
+          out := out ++
+            s!"{indent}    (if (i64.eq (local.get $t_map_i) (i64.const {e}))\n" ++
+            s!"{indent}      (then\n" ++
+            s!"{indent}        (local.set $t_map_occ (local.get $t{occ}))\n" ++
+            s!"{indent}        (local.set $t_map_k (local.get $t{k}))\n" ++
+            s!"{indent}        (local.set $t_map_v (local.get $t{v}))\n" ++
+            s!"{indent}      )\n" ++
+            s!"{indent}    )\n"
+        out := out ++
+          s!"{indent}    (local.set $t_map_hit (i64.and (local.get $t_map_occ)\n" ++
+          s!"{indent}      (i64.extend_i32_u (i64.eq (local.get $t_map_k) (local.get $t{keyTemp})))))\n" ++
+          s!"{indent}    (if (i64.ne (local.get $t_map_hit) (i64.const 0))\n" ++
+          s!"{indent}      (then\n" ++
+          s!"{indent}        (local.set $t{foundTemp} (i64.const 1))\n" ++
+          s!"{indent}        (local.set $t{payloadTemp} (local.get $t_map_v))\n" ++
+          s!"{indent}        (br $map_lk_break_{foundTemp})\n" ++
+          s!"{indent}      )\n" ++
+          s!"{indent}    )\n" ++
+          s!"{indent}    (local.set $t_map_i (i64.add (local.get $t_map_i) (i64.const 1)))\n" ++
+          s!"{indent}    (br $map_lk_loop_{foundTemp})\n" ++
+          s!"{indent}  )\n" ++
+          s!"{indent})\n"
+        pure out
+  | .mapUpsert baseTemps outTemps keyTemp valueTemp okTemp =>
+      -- Two-pass upsert into outTemps (baseTemps immutable).
+      Id.run do
+        let cap := baseTemps.size / 3
+        let mut out :=
+          s!"{indent};; mapUpsert capacity={cap} key=$t{keyTemp} val=$t{valueTemp} ok=$t{okTemp}\n" ++
+          s!"{indent}(local.set $t_map_any (i64.const 0))\n" ++
+          s!"{indent}(local.set $t_map_empty_i (i64.const {cap}))\n" ++
+          s!"{indent}(local.set $t_map_i (i64.const 0))\n" ++
+          s!"{indent}(block $map_up_scan_{okTemp}\n" ++
+          s!"{indent}  (loop $map_up_scan_loop_{okTemp}\n" ++
+          s!"{indent}    (br_if $map_up_scan_{okTemp} (i64.ge_u (local.get $t_map_i) (i64.const {cap})))\n"
+        for e in [0:cap] do
+          let occ := baseTemps[e * 3]!
+          let k := baseTemps[e * 3 + 1]!
+          out := out ++
+            s!"{indent}    (if (i64.eq (local.get $t_map_i) (i64.const {e}))\n" ++
+            s!"{indent}      (then\n" ++
+            s!"{indent}        (local.set $t_map_occ (local.get $t{occ}))\n" ++
+            s!"{indent}        (local.set $t_map_k (local.get $t{k}))\n" ++
+            s!"{indent}      )\n" ++
+            s!"{indent}    )\n"
+        out := out ++
+          s!"{indent}    (local.set $t_map_hit (i64.and (local.get $t_map_occ)\n" ++
+          s!"{indent}      (i64.extend_i32_u (i64.eq (local.get $t_map_k) (local.get $t{keyTemp})))))\n" ++
+          s!"{indent}    (local.set $t_map_any (i64.or (local.get $t_map_any) (local.get $t_map_hit)))\n" ++
+          s!"{indent}    (if (i64.eqz (local.get $t_map_occ))\n" ++
+          s!"{indent}      (then\n" ++
+          s!"{indent}        (if (i64.eq (local.get $t_map_empty_i) (i64.const {cap}))\n" ++
+          s!"{indent}          (then (local.set $t_map_empty_i (local.get $t_map_i))))\n" ++
+          s!"{indent}      )\n" ++
+          s!"{indent}    )\n" ++
+          s!"{indent}    (local.set $t_map_i (i64.add (local.get $t_map_i) (i64.const 1)))\n" ++
+          s!"{indent}    (br $map_up_scan_loop_{okTemp})\n" ++
+          s!"{indent}  )\n" ++
+          s!"{indent})\n" ++
+          s!"{indent}(local.set $t{okTemp} (i64.or (local.get $t_map_any)\n" ++
+          s!"{indent}  (i64.extend_i32_u (i64.lt_u (local.get $t_map_empty_i) (i64.const {cap})))))\n" ++
+          s!"{indent}(local.set $t_map_i (i64.const 0))\n" ++
+          s!"{indent}(block $map_up_write_{okTemp}\n" ++
+          s!"{indent}  (loop $map_up_write_loop_{okTemp}\n" ++
+          s!"{indent}    (br_if $map_up_write_{okTemp} (i64.ge_u (local.get $t_map_i) (i64.const {cap})))\n"
+        for e in [0:cap] do
+          let occ := baseTemps[e * 3]!
+          let k := baseTemps[e * 3 + 1]!
+          let v := baseTemps[e * 3 + 2]!
+          let oOcc := outTemps[e * 3]!
+          let oK := outTemps[e * 3 + 1]!
+          let oV := outTemps[e * 3 + 2]!
+          out := out ++
+            s!"{indent}    (if (i64.eq (local.get $t_map_i) (i64.const {e}))\n" ++
+            s!"{indent}      (then\n" ++
+            s!"{indent}        (local.set $t_map_occ (local.get $t{occ}))\n" ++
+            s!"{indent}        (local.set $t_map_k (local.get $t{k}))\n" ++
+            s!"{indent}        (local.set $t_map_v (local.get $t{v}))\n" ++
+            s!"{indent}        (local.set $t_map_hit (i64.and (local.get $t_map_occ)\n" ++
+            s!"{indent}          (i64.extend_i32_u (i64.eq (local.get $t_map_k) (local.get $t{keyTemp})))))\n" ++
+            s!"{indent}        (local.set $t_map_tmp (i64.and\n" ++
+            s!"{indent}          (i64.extend_i32_u (i64.eqz (local.get $t_map_any)))\n" ++
+            s!"{indent}          (i64.extend_i32_u (i64.eq (local.get $t_map_i) (local.get $t_map_empty_i)))))\n" ++
+            s!"{indent}        (local.set $t_map_tmp (i64.or (local.get $t_map_hit) (local.get $t_map_tmp)))\n" ++
+            s!"{indent}        (if (i64.ne (local.get $t_map_tmp) (i64.const 0))\n" ++
+            s!"{indent}          (then\n" ++
+            s!"{indent}            (local.set $t{oOcc} (i64.const 1))\n" ++
+            s!"{indent}            (local.set $t{oK} (local.get $t{keyTemp}))\n" ++
+            s!"{indent}            (local.set $t{oV} (local.get $t{valueTemp}))\n" ++
+            s!"{indent}          )\n" ++
+            s!"{indent}          (else\n" ++
+            s!"{indent}            (local.set $t{oOcc} (local.get $t_map_occ))\n" ++
+            s!"{indent}            (local.set $t{oK} (local.get $t_map_k))\n" ++
+            s!"{indent}            (local.set $t{oV} (local.get $t_map_v))\n" ++
+            s!"{indent}          )\n" ++
+            s!"{indent}        )\n" ++
+            s!"{indent}      )\n" ++
+            s!"{indent}    )\n"
+        out := out ++
+          s!"{indent}    (local.set $t_map_i (i64.add (local.get $t_map_i) (i64.const 1)))\n" ++
+          s!"{indent}    (br $map_up_write_loop_{okTemp})\n" ++
+          s!"{indent}  )\n" ++
+          s!"{indent})\n"
+        pure out
 
 private def renderFn (ir : IR) (fn : FnIR) : String :=
   let fnNames := ir.fns.map (·.name)
@@ -2759,7 +3252,7 @@ private def renderFn (ir : IR) (fn : FnIR) : String :=
           s!" (local $t{fn.paramCount + i} i64)"
   let operations := String.intercalate "" <| fn.operations.toList.map
     (renderOperation ir.memory ir.sourcePlan.events ir.sourcePlan.errors fnNames "    ")
-  s!"  (func $fn_{fn.name}{params} (result i64){extraLocals}{multiwordScratchLocalsIfNeeded fn.operations}\n" ++
+  s!"  (func $fn_{fn.name}{params} (result i64){extraLocals}{methodExtraScratchLocals fn.operations}\n" ++
     operations ++ "  )\n"
 
 /-- Render method body as an internal func `$m_<name>` used by entry dispatch.
@@ -2783,7 +3276,7 @@ private def renderMethodBody (ir : IR) (method : MethodIR) : String :=
         "      (else (call $pf_query_ok (global.get $ret_val)))))\n"
     | .initialize | .mutate =>
         "    (return (call $pf_ok_result))\n"
-  s!"  (func $m_{method.name}{paramLocals} (result i32){temps}{multiwordScratchLocalsIfNeeded method.operations}\n" ++
+  s!"  (func $m_{method.name}{paramLocals} (result i32){temps}{methodExtraScratchLocals method.operations}\n" ++
     "    (call $pf_reset_result)\n" ++
     operations ++ epilogue ++ "  )\n"
 
@@ -3183,7 +3676,7 @@ private def renderWat (ir : IR) : Except CompileError String := do
     "    (i32.const 8)\n" ++
     "  )\n"
   pure ("(module\n" ++ imports ++
-    "  (memory (export \"memory\") 1)\n" ++
+    s!"  (memory (export \"memory\") {ir.memory.minPages})\n" ++
     dataSec ++
     helpers ++
     allocateExport ++ deallocateExport ++ versionExport ++
