@@ -934,8 +934,8 @@ private unsafe def testBranchingSemanticPlans : IO Unit := do
     "branching s must render the if diamond, two literal cases, and default fallthrough"
   let some wat := nearOutput.files.find? (·.path == "BranchFlow.wat") |
     throw <| IO.userError "branching: missing BranchFlow.wat"
-  expect (wat.contents.contains "(if (local.get $t")
-    "branching WAT must render region conditions"
+  expect (wat.contents.contains "(if (i64.ne (local.get $t")
+    "branching WAT must render i64 region conditions as Wasm i32 predicates"
   let some bumpNr := noirOutput.files.find?
       (·.path == "relations/r1-bump/src/main.nr") |
     throw <| IO.userError "branching: missing Noir bump relation"

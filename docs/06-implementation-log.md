@@ -15251,3 +15251,27 @@ normative: false
   不证明 JSON/WAT consumer consistency，也不解释 method body；locked `wat2wasm`、Wasm binary与
   NEAR runtime simulation仍未闭合。没有新增 DSL State/Effect/evaluator/step；整体 assurance仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR recursive generated-WAT dependency/type consistency
+
+- sole production WAT renderer原先只扫描 method/pureFn顶层 operations决定 scratch-local声明，但
+  `renderOperation` 会递归渲染 `ifRegion`、`switchRegion`、`forRegion`；nested wide arithmetic、
+  principal/native transfer或 token transfer因此可能使用未声明的 `$t_mw_*` / `$t_pf_*` locals。
+- renderer现从完整 Operation tree递归归集四类需求：基础 multiword、wide div/mod quotient/remainder、
+  principal/native transfer及 NEP-141 token transfer；method与pureFn共享同一 collector和唯一 local
+  declaration renderer，删除两处重复 shallow predicates。wide div/mod同时蕴含基础 multiword locals，
+  token transfer同时蕴含 principal/transfer locals。
+- production-path回归构造仅在 if/switch/for内部出现的 UInt128 div/mod，并检查各 enclosing export的
+  `$t_mw_a`、`$t_mw_r0`、`$t_mw_q0`声明；另构造仅在 if内部出现的
+  `pf.assets.token.transferAsync`，检查全部 `$t_pf_i/b/n/d/j/k`声明。两项测试均消费
+  `buildFromCapability`的唯一 production WAT，不新增 renderer/parser。
+- 对上述 fixture执行真实 production CLI + locked WABT 1.0.41时又发现 structured `if` 曾把
+  semantic Bool 的 i64 temp直接交给 Wasm i32 condition位置；sole renderer现显式生成
+  `i64.ne value 0`，并由现有 branching与NEAR HostModel回归固定。修复后同一 nested-wide fixture
+  已由 production CLI生成且被 locked `wat2wasm`接受。这是工程验收观测，不是 correctness theorem。
+- 该切片关闭已知 generated textual-WAT malformed-local及 i64-condition type风险，但不解析
+  arbitrary textual WAT，
+  不建立一般 declaration/use well-formedness或 consumer correctness theorem，也不证明 locked
+  `wat2wasm`、Wasm binary或 NEAR runtime refinement。没有新增 DSL State/Effect/evaluator/step；
+  assurance仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

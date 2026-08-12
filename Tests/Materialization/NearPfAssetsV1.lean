@@ -324,6 +324,53 @@ unsafe def testTokenTransferAsyncIR : IO Unit := do
   expect (tip.depositPolicy == .requireZero)
     "token transferAsync entry must be requireZero (1 yocto comes from contract balance)"
 
+/-- A token transfer rendered only inside an if-region still requires every
+    `$t_pf_*` local on the enclosing exported function. This checks the sole
+    production WAT output; it does not add a second renderer or claim Wasm/NEAR
+    execution refinement. -/
+unsafe def testNestedTokenTransferScratchIR : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program NestedTokenTransfer where\n" ++
+    pfAssetsRequiresBlock ++
+    "  state tips : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    tips := initial\n" ++
+    "  entry tipToken(mint : Principal, dst : Principal, amount : UInt64) : UInt64 do\n" ++
+    "    if amount > 0 then\n" ++
+    "      call pf.assets.token.transferAsync(mint, dst, amount)\n" ++
+    "    return amount\n"
+  let compiled ← compileSource "<near-pf-assets-nested-token-ir>"
+    "Tests.NearPfAssetsNestedTokenIR" source
+  let selection ← liftResult <|
+    Targets.BuildSelectionV1.resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let some tip := ir.methods.find? (·.name == "tipToken") |
+    throw <| IO.userError "nested token transfer IR must contain tipToken"
+  expect (tip.operations.any fun operation => match operation with
+      | .ifRegion _ thenOps _ =>
+          thenOps.any (fun nested => match nested with
+            | .promiseTokenTransfer .. => true | _ => false)
+      | _ => false)
+    "nested token transfer must remain inside the production ifRegion"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun file => file.path.endsWith ".wat") |
+    throw <| IO.userError "nested token transfer build must produce WAT"
+  let declaration ← match wat.contents.splitOn "(func (export \"tipToken\")" with
+    | [_before, methodAndFollowing] =>
+        match methodAndFollowing.splitOn "\n" with
+        | line :: _ => pure line
+        | [] => throw <| IO.userError "tipToken WAT declaration line is missing"
+    | parts =>
+        throw <| IO.userError
+          s!"expected one tipToken WAT export, found {parts.length - 1}"
+  for localName in #["$t_pf_i", "$t_pf_b", "$t_pf_n", "$t_pf_d", "$t_pf_j", "$t_pf_k"] do
+    expect (declaration.contains s!"(local {localName} i64)")
+      s!"nested token transfer WAT must declare {localName}"
+
 private def envReadJarSource : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
@@ -453,6 +500,7 @@ unsafe def run : IO Unit := do
   testSyncTokenTransferPermanentlyFailClosed
   testNonCatalogSyncFailClosed
   testTokenTransferAsyncIR
+  testNestedTokenTransferScratchIR
   testNativeBalanceOfSelfPlan
   testTokenBalanceOfSelfPermanentlyFailClosed
   testEnvReadPureFnFailClosed

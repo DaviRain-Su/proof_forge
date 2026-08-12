@@ -3010,7 +3010,7 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
         else
           let elseBody := if elseText.isEmpty then s!"{indent}    nop\n" else elseText
           s!"{indent}  (else\n" ++ elseBody ++ s!"{indent}  )\n"
-      s!"{indent}(if (local.get $t{condition})\n{indent}  (then\n" ++ thenBody ++
+      s!"{indent}(if (i64.ne (local.get $t{condition}) (i64.const 0))\n{indent}  (then\n" ++ thenBody ++
         s!"{indent}  )\n" ++ elseClause ++
         s!"{indent})\n"
   | .forRegion varTemp initial counterTemp maxIterations
@@ -3088,64 +3088,117 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
             s!"{indent}  )\n" ++
             s!"{indent})\n"
 
+private structure WATScratchRequirementsV1 where
+  multiword : Bool := false
+  multiwordDivMod : Bool := false
+  principalOrTransfer : Bool := false
+  tokenTransfer : Bool := false
+  deriving Inhabited
+
+private def mergeWATScratchRequirementsV1
+    (left right : WATScratchRequirementsV1) : WATScratchRequirementsV1 := {
+  multiword := left.multiword || right.multiword
+  multiwordDivMod := left.multiwordDivMod || right.multiwordDivMod
+  principalOrTransfer := left.principalOrTransfer || right.principalOrTransfer
+  tokenTransfer := left.tokenTransfer || right.tokenTransfer
+}
+
+/-- Recursive scratch-local dependency analysis for the sole WAT renderer.
+    Control-flow regions render their nested operations recursively, so local
+    declarations must use the same complete operation tree rather than only
+    the callable's top-level rows. -/
+private partial def operationWATScratchRequirementsV1 :
+    Operation → WATScratchRequirementsV1
+  | .narrowCheckedDiv bitWidth .. | .narrowCheckedMod bitWidth .. =>
+      if bitWidth > 64 then
+        { multiword := true, multiwordDivMod := true }
+      else {}
+  | .narrowCheckedAdd bitWidth .. | .narrowCheckedSub bitWidth ..
+  | .narrowCheckedMul bitWidth .. | .narrowShl bitWidth ..
+  | .narrowShr bitWidth .. =>
+      if bitWidth > 64 then { multiword := true } else {}
+  | .wideCompare .. => { multiword := true }
+  | .callerPrincipalWord .. | .selfPrincipalWord .. | .promiseTransfer .. =>
+      { principalOrTransfer := true }
+  | .promiseTokenTransfer .. =>
+      { principalOrTransfer := true, tokenTransfer := true }
+  | .ifRegion _ thenOps elseOps =>
+      let thenRequirements := thenOps.foldl
+        (fun requirements operation =>
+          mergeWATScratchRequirementsV1 requirements
+            (operationWATScratchRequirementsV1 operation)) {}
+      elseOps.foldl
+        (fun requirements operation =>
+          mergeWATScratchRequirementsV1 requirements
+            (operationWATScratchRequirementsV1 operation)) thenRequirements
+  | .switchRegion _ cases defaultOps =>
+      let caseRequirements := cases.foldl
+        (fun requirements (_, caseOps) =>
+          caseOps.foldl
+            (fun current operation =>
+              mergeWATScratchRequirementsV1 current
+                (operationWATScratchRequirementsV1 operation)) requirements) {}
+      defaultOps.foldl
+        (fun requirements operation =>
+          mergeWATScratchRequirementsV1 requirements
+            (operationWATScratchRequirementsV1 operation)) caseRequirements
+  | .forRegion _ _ _ _ condOps _ bodyOps updateOps _ =>
+      let condRequirements := condOps.foldl
+        (fun requirements operation =>
+          mergeWATScratchRequirementsV1 requirements
+            (operationWATScratchRequirementsV1 operation)) {}
+      let bodyRequirements := bodyOps.foldl
+        (fun requirements operation =>
+          mergeWATScratchRequirementsV1 requirements
+            (operationWATScratchRequirementsV1 operation)) condRequirements
+      updateOps.foldl
+        (fun requirements operation =>
+          mergeWATScratchRequirementsV1 requirements
+            (operationWATScratchRequirementsV1 operation)) bodyRequirements
+  | _ => {}
+
+private def operationsWATScratchRequirementsV1
+    (operations : Array Operation) : WATScratchRequirementsV1 :=
+  operations.foldl
+    (fun requirements operation =>
+      mergeWATScratchRequirementsV1 requirements
+        (operationWATScratchRequirementsV1 operation)) {}
+
+private def renderWATScratchLocalsV1
+    (requirements : WATScratchRequirementsV1) : String := Id.run do
+  let mut locals := ""
+  if requirements.multiword then
+    -- Shared scratch: add/sub use a/b/carry; schoolbook mul uses a..7;
+    -- binary long division reuses a/b/carry for ge/borrow;
+    -- multiword shl/shr use a/b/carry + mw_0.. for limb snapshots.
+    locals := locals ++
+      " (local $t_mw_a i64) (local $t_mw_b i64) (local $t_mw_carry i64)" ++
+      " (local $t_mw_0 i64) (local $t_mw_1 i64) (local $t_mw_2 i64) (local $t_mw_3 i64)" ++
+      " (local $t_mw_4 i64) (local $t_mw_5 i64) (local $t_mw_6 i64) (local $t_mw_7 i64)"
+  if requirements.multiwordDivMod then
+    -- rem[0..4] (nLimbs+1 max for UInt256) + quot[0..3] for long division.
+    locals := locals ++
+      " (local $t_mw_r0 i64) (local $t_mw_r1 i64) (local $t_mw_r2 i64)" ++
+      " (local $t_mw_r3 i64) (local $t_mw_r4 i64)" ++
+      " (local $t_mw_q0 i64) (local $t_mw_q1 i64) (local $t_mw_q2 i64) (local $t_mw_q3 i64)"
+  if requirements.principalOrTransfer then
+    locals := locals ++ " (local $t_pf_i i64) (local $t_pf_b i64)"
+  if requirements.tokenTransfer then
+    -- Extra scratch for decimal conversion + JSON assembly:
+    -- $t_pf_n = remaining value, $t_pf_d = current digit,
+    -- $t_pf_j = JSON write cursor, $t_pf_k = decimal digit count.
+    locals := locals ++
+      " (local $t_pf_n i64) (local $t_pf_d i64) (local $t_pf_j i64) (local $t_pf_k i64)"
+  return locals
+
 private def renderMethod (ir : IR) (promiseStr : Array (String × Nat))
     (method : MethodIR) : String :=
   let fnNames := ir.fns.map (·.name)
-  let locals := String.intercalate "" <| (Array.range method.tempCount).toList.map fun index =>
-    s!" (local $t{index} i64)"
-  let needsMwScratch := method.operations.any fun op =>
-    match op with
-    | .narrowCheckedAdd bitWidth .. | .narrowCheckedSub bitWidth ..
-    | .narrowCheckedMul bitWidth .. | .narrowCheckedDiv bitWidth ..
-    | .narrowCheckedMod bitWidth .. | .narrowShl bitWidth ..
-    | .narrowShr bitWidth .. => bitWidth > 64
-    | .wideCompare .. => true
-    | _ => false
-  let needsMwDivScratch := method.operations.any fun op =>
-    match op with
-    | .narrowCheckedDiv bitWidth .. | .narrowCheckedMod bitWidth .. => bitWidth > 64
-    | _ => false
-  let needsPfScratch := method.operations.any fun op =>
-    match op with
-    | .promiseTransfer .. => true
-    | _ => false
-  let needsTokenScratch := method.operations.any fun op =>
-    match op with
-    | .promiseTokenTransfer .. => true
-    | _ => false
-  -- ADR-0031 S1: callerPrincipalWord uses $t_pf_i for register_len scratch.
-  let needsCallerScratch := method.operations.any fun op =>
-    match op with
-    | .callerPrincipalWord .. | .selfPrincipalWord .. => true
-    | _ => false
+  let requirements := operationsWATScratchRequirementsV1 method.operations
   let locals :=
-    if needsMwScratch then
-      -- Shared scratch: add/sub use a/b/carry; schoolbook mul uses a..7;
-      -- binary long division reuses a/b/carry for ge/borrow;
-      -- multiword shl/shr use a/b/carry + mw_0.. for limb snapshots.
-      locals ++ " (local $t_mw_a i64) (local $t_mw_b i64) (local $t_mw_carry i64)" ++
-        " (local $t_mw_0 i64) (local $t_mw_1 i64) (local $t_mw_2 i64) (local $t_mw_3 i64)" ++
-        " (local $t_mw_4 i64) (local $t_mw_5 i64) (local $t_mw_6 i64) (local $t_mw_7 i64)"
-    else locals
-  let locals :=
-    if needsMwDivScratch then
-      -- rem[0..4] (nLimbs+1 max for UInt256) + quot[0..3] for long division.
-      locals ++
-        " (local $t_mw_r0 i64) (local $t_mw_r1 i64) (local $t_mw_r2 i64)" ++
-        " (local $t_mw_r3 i64) (local $t_mw_r4 i64)" ++
-        " (local $t_mw_q0 i64) (local $t_mw_q1 i64) (local $t_mw_q2 i64) (local $t_mw_q3 i64)"
-    else locals
-  let locals :=
-    if needsPfScratch || needsTokenScratch || needsCallerScratch then
-      locals ++ " (local $t_pf_i i64) (local $t_pf_b i64)"
-    else locals
-  let locals :=
-    if needsTokenScratch then
-      -- Extra scratch for decimal conversion + JSON assembly:
-      -- $t_pf_n = remaining value, $t_pf_d = current digit,
-      -- $t_pf_j = JSON write cursor, $t_pf_k = decimal digit count.
-      locals ++ " (local $t_pf_n i64) (local $t_pf_d i64) (local $t_pf_j i64) (local $t_pf_k i64)"
-    else locals
+    String.intercalate "" ((Array.range method.tempCount).toList.map fun index =>
+      s!" (local $t{index} i64)") ++
+      renderWATScratchLocalsV1 requirements
   let operations := String.intercalate "" <| method.operations.toList.map
     (renderOperation ir.registers ir.memory
       ir.sourcePlan.events ir.sourcePlan.errors fnNames promiseStr "    ")
@@ -3164,37 +3217,14 @@ private def renderFn (ir : IR) (promiseStr : Array (String × Nat)) (fn : FnIR) 
   let fnNames := ir.fns.map (·.name)
   let params := String.intercalate "" <| (Array.range fn.paramCount).toList.map fun index =>
     s!" (param $t{index} i64)"
-  let extraLocals :=
+  let tempLocals :=
     if fn.tempCount <= fn.paramCount then ""
     else
       String.intercalate "" <|
         (List.range (fn.tempCount - fn.paramCount)).map fun i =>
           s!" (local $t{fn.paramCount + i} i64)"
-  let needsMwScratch := fn.operations.any fun op =>
-    match op with
-    | .narrowCheckedAdd bitWidth .. | .narrowCheckedSub bitWidth ..
-    | .narrowCheckedMul bitWidth .. | .narrowCheckedDiv bitWidth ..
-    | .narrowCheckedMod bitWidth .. | .narrowShl bitWidth ..
-    | .narrowShr bitWidth .. => bitWidth > 64
-    | .wideCompare .. => true
-    | _ => false
-  let needsMwDivScratch := fn.operations.any fun op =>
-    match op with
-    | .narrowCheckedDiv bitWidth .. | .narrowCheckedMod bitWidth .. => bitWidth > 64
-    | _ => false
-  let extraLocals :=
-    if needsMwScratch then
-      extraLocals ++ " (local $t_mw_a i64) (local $t_mw_b i64) (local $t_mw_carry i64)" ++
-        " (local $t_mw_0 i64) (local $t_mw_1 i64) (local $t_mw_2 i64) (local $t_mw_3 i64)" ++
-        " (local $t_mw_4 i64) (local $t_mw_5 i64) (local $t_mw_6 i64) (local $t_mw_7 i64)"
-    else extraLocals
-  let extraLocals :=
-    if needsMwDivScratch then
-      extraLocals ++
-        " (local $t_mw_r0 i64) (local $t_mw_r1 i64) (local $t_mw_r2 i64)" ++
-        " (local $t_mw_r3 i64) (local $t_mw_r4 i64)" ++
-        " (local $t_mw_q0 i64) (local $t_mw_q1 i64) (local $t_mw_q2 i64) (local $t_mw_q3 i64)"
-    else extraLocals
+  let requirements := operationsWATScratchRequirementsV1 fn.operations
+  let extraLocals := tempLocals ++ renderWATScratchLocalsV1 requirements
   let operations := String.intercalate "" <| fn.operations.toList.map
     (renderOperation ir.registers ir.memory
       ir.sourcePlan.events ir.sourcePlan.errors fnNames promiseStr "    ")

@@ -1313,6 +1313,16 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
 private def expectContains (haystack needle label : String) : IO Unit :=
   expect (haystack.contains needle) s!"{label}: missing WAT substring {needle}"
 
+private def watExportDeclarationLine (wat exportName : String) : IO String :=
+  match wat.splitOn s!"(func (export \"{exportName}\")" with
+  | [_before, methodAndFollowing] =>
+      match methodAndFollowing.splitOn "\n" with
+      | declarationLine :: _ => pure declarationLine
+      | [] => throw <| IO.userError s!"WAT export {exportName} has no declaration line"
+  | parts =>
+      throw <| IO.userError
+        s!"expected one WAT export {exportName}, found {parts.length - 1}"
+
 /-- If/else multi-block program for the NEAR region lanes. -/
 private def ifFlowSourceText : String :=
   "import ProofForgeV2\n\n" ++
@@ -1375,11 +1385,11 @@ private unsafe def testIfFlowProductPath
   let (_, retGet, _) ← requireSuccess "if-flow get"
     (execute get storage2 ByteArray.empty { lowWord := 0, highWord := 0 })
   expect (retGet == some 5) "if-flow view must return 5"
-  -- WAT: nested if with i64 condition.
+  -- WAT: nested if converts the i64 Bool temp to Wasm's i32 condition type.
   let files ← liftResult <| Targets.Near.buildFromCapability capability
   let some wat := files.find? (fun f => f.path.endsWith ".wat") |
     throw <| IO.userError "if-flow: missing .wat artifact"
-  expectContains wat.contents "(if (local.get $t" "if-flow WAT if condition"
+  expectContains wat.contents "(if (i64.ne (local.get $t" "if-flow WAT if condition"
   expectContains wat.contents "(else" "if-flow WAT else"
   expectContains wat.contents "(i64.gt_u" "if-flow WAT gt comparison"
   expectContains wat.contents "(i64.add" "if-flow WAT then add"
@@ -3982,6 +3992,80 @@ private unsafe def testWideDivModProductPath (session : Language.Loader.ParserSe
         s!"wide-divmod: expected division by zero on mod, got {reason}"
   | .success .. => throw <| IO.userError "wide-divmod: modZero128 must trap"
 
+/-- Production WAT declarations must account for scratch-using operations at
+    every structured-control depth. These three methods put UInt128 division
+    or modulo only inside if, switch, and for regions; a top-level-only scan
+    emits `$t_mw_*` uses without declarations and produces malformed WAT. This
+    pins the sole production renderer, not an independent WAT renderer/parser
+    or a Wasm/NEAR execution refinement theorem. -/
+private unsafe def testNestedWATScratchDeclarations
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program NestedScratch where\n" ++
+    "  state value : UInt128\n\n" ++
+    "  init() do\n" ++
+    "    value := 0\n\n" ++
+    "  entry branch(choice : UInt64, x : UInt128, y : UInt128) : UInt128 do\n" ++
+    "    if choice > 0 then\n" ++
+    "      value := x / y\n" ++
+    "    else\n" ++
+    "      value := x + y\n" ++
+    "    return value\n\n" ++
+    "  entry select(choice : UInt64, x : UInt128, y : UInt128) : UInt128 do\n" ++
+    "    match choice with\n" ++
+    "    | 0 => do\n" ++
+    "      value := x % y\n" ++
+    "    | _ => do\n" ++
+    "      value := x + y\n" ++
+    "    return value\n\n" ++
+    "  entry loopWide(limit : UInt64, x : UInt128, y : UInt128) : UInt128 do\n" ++
+    "    for i in limit ..< limit bounded 2 do\n" ++
+    "      value := x / y\n" ++
+    "    return value\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-nested-scratch>" "Examples.NestedScratch" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  let branch ← findMethod ir "branch"
+  let select ← findMethod ir "select"
+  let loopWide ← findMethod ir "loopWide"
+  expect (branch.operations.any fun operation => match operation with
+      | .ifRegion _ thenOps elseOps =>
+          thenOps.any (fun nested => match nested with
+            | .narrowCheckedDiv 128 .. => true | _ => false) &&
+          elseOps.any (fun nested => match nested with
+            | .narrowCheckedAdd 128 .. => true | _ => false)
+      | _ => false)
+    "nested-scratch: branch must retain wide arithmetic inside ifRegion"
+  expect (select.operations.any fun operation => match operation with
+      | .switchRegion _ cases _ =>
+          cases.any (fun (_, operations) => operations.any fun nested =>
+            match nested with | .narrowCheckedMod 128 .. => true | _ => false)
+      | _ => false)
+    "nested-scratch: select must retain wide modulo inside switchRegion"
+  expect (loopWide.operations.any fun operation => match operation with
+      | .forRegion _ _ _ _ _ _ bodyOps _ _ =>
+          bodyOps.any (fun nested => match nested with
+            | .narrowCheckedDiv 128 .. => true | _ => false)
+      | _ => false)
+    "nested-scratch: loopWide must retain wide division inside forRegion"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun file => file.path.endsWith ".wat") |
+    throw <| IO.userError "nested-scratch: missing .wat artifact"
+  for methodName in #["branch", "select", "loopWide"] do
+    let declaration ← watExportDeclarationLine wat.contents methodName
+    expect (declaration.contains "(local $t_mw_a i64)" &&
+        declaration.contains "(local $t_mw_r0 i64)" &&
+        declaration.contains "(local $t_mw_q0 i64)")
+      s!"nested-scratch: {methodName} must declare recursive multiword div/mod scratch"
+
 /-- T9e-lane (engineering): production Plan/IR/WAT plus deterministic HostModel
     coverage for UInt128/256 multiword shifts. Left shift is checked: count at
     least the bit width and high bits shifted out both trap with exact storage
@@ -5725,6 +5809,7 @@ unsafe def run : IO Unit := do
   testWideUintProduct session
   testWideMulProductPath session
   testWideDivModProductPath session
+  testNestedWATScratchDeclarations session
   testWideShiftProductPath session
   testBytesStateParamProductPath session
   testBytesNegativesFailClosed session

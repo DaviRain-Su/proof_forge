@@ -283,6 +283,18 @@ Phase 1：实现
   与 forged name、reordered rows、forged ABI metadata负例已固定。该 gate只连接 sole WAT/ABI
   renderers共用的 typed source identity/order，不证明 JSON/WAT consumer、method execution、
   `wat2wasm`、Wasm binary或 NEAR semantics。
+- **recursive generated-WAT dependency/type consistency（Phase 7 第二十二切）**：
+  sole production WAT renderer现从每个 method/pureFn的完整 Operation tree递归归集 scratch-local
+  依赖；`ifRegion`、`switchRegion`、`forRegion` 的 nested operations与实际递归 rendering使用同一
+  tree authority。UInt128/256 arithmetic/div-mod、principal/native transfer及 NEP-141 token transfer
+  因此都会在 enclosing function declaration中获得各自实际使用的 `$t_mw_*` / `$t_pf_*` locals，
+  不再由 top-level shallow predicates漏掉 nested use。production回归固定 if/switch/for内的 wide
+  div/mod和 if内 token transfer均由唯一 renderer生成完整声明。真实 production CLI + locked WABT
+  1.0.41验收还暴露并修复 structured `if` 的 type错误：semantic Bool保存在 i64 temp中，renderer
+  现在用 `i64.ne value 0`生成 Wasm要求的 i32 condition；同一 nested-wide fixture随后被 locked
+  `wat2wasm`接受。该切片修复已知 generated textual-WAT malformed-local/type风险，但不解析任意
+  WAT、不证明声明/use/type的一般 parser-level well-formedness；locked工具通过只是工程观测，
+  不证明 `wat2wasm` correctness、Wasm binary或 NEAR execution refinement。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -361,7 +373,10 @@ step连接；该 exact typed sequence也已通过 bounded typed-WAT static valid
 WAT现有选中 method fragment的 direct exact-render identity；完整 generated WAT也已由同一 validated
 IR拥有 exact module opener/imports/memory/data/pureFn/method/closing framing identity；module-level
 memory footprint、canonical host-import dependencies、nested internal pureFn references，以及 ordered
-method/export identity/signature metadata也已有 proof-relevant validation witness。该结果仍不是一般
+method/export identity/signature metadata也已有 proof-relevant validation witness；sole renderer还会
+从完整 nested Operation tree归集每个 function实际需要的 scratch locals，并将 structured `if` 的
+semantic Bool i64显式归一化为 Wasm i32 predicate，避免已知的 undeclared-local与 condition-type
+malformed module；production nested-wide fixture已被 locked `wat2wasm`工程验收接受。该结果仍不是一般
 Operation/WAT semantics：尚无 textual WAT parser/general module validator、surrounding function body
 通用 typed semantics、arbitrary linear memory、完整 NEAR host ABI、locked `wat2wasm`
 correctness、Wasm binary
