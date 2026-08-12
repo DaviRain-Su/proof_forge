@@ -790,12 +790,51 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
           | none =>
               throw <| IO.userError "VerifiedVaultPF production IR is missing status at method 3"
           | some statusIR =>
+              have hstatusBaseEmission :
+                  ∃ watMethodText abiMethodText,
+                    ProofForgeV2.Targets.Near.EntryBaseEmissionV1
+                      plan ir baseFiles 2 statusMethod statusIR watFile abiFile
+                        watMethodText abiMethodText :=
+                ProofForgeV2.Targets.Near.irEmissionV1_entryBaseEmissionV1
+                  plan ir baseFiles 2 statusMethod statusIR watFile abiFile
+                    hgraphs.2.2 hemissions hwatFile habiFile hstatus hstatusIR
+              let forgedAbiFile : OutputFile := {
+                abiFile with
+                contents := abiFile.contents ++ "\n{\"forged\":true}"
+              }
+              let forgedStatusBaseFiles : Array OutputFile :=
+                #[watFile, forgedAbiFile]
+              have hforgedStatusBaseFilesDifferent :
+                  forgedStatusBaseFiles ≠ baseFiles := by
+                intro heq
+                have hsecond :=
+                  congrArg (fun files : Array OutputFile => files[1]?) heq
+                have hforgedAbiEq : forgedAbiFile = abiFile :=
+                  Option.some.inj
+                    (by simpa [forgedStatusBaseFiles, habiFile] using hsecond)
+                have hcontents := congrArg
+                  (fun file : OutputFile => file.contents) hforgedAbiEq
+                have hlength := congrArg String.length hcontents
+                simp [forgedAbiFile] at hlength
+              have hforgedStatusBaseNoEmission :
+                  ¬ ProofForgeV2.Targets.Near.IREmissionV1
+                    ir forgedStatusBaseFiles :=
+                rejectDifferent forgedStatusBaseFiles
+                  hforgedStatusBaseFilesDifferent
+              have _ :
+                  ∀ watMethodText abiMethodText,
+                    ¬ ProofForgeV2.Targets.Near.EntryBaseEmissionV1
+                      plan ir forgedStatusBaseFiles 2 statusMethod statusIR
+                        watFile forgedAbiFile watMethodText abiMethodText := by
+                intro watMethodText abiMethodText hforged
+                exact hforgedStatusBaseNoEmission hforged.irEmission
               have hstatusMethodWAT :
                   ∃ methodText,
                     ProofForgeV2.Targets.Near.MethodWATEmissionV1
                       ir 3 statusIR watFile.contents methodText :=
-                ProofForgeV2.Targets.Near.irEmissionV1_methodWATEmissionV1
-                  ir baseFiles watFile 3 statusIR hemissions hwatFile hstatusIR
+                by
+                  obtain ⟨watMethodText, _, hbase⟩ := hstatusBaseEmission
+                  exact ⟨watMethodText, hbase.watMethodEmission⟩
               have _ :
                   ∀ methodText,
                     ¬ ProofForgeV2.Targets.Near.MethodWATEmissionV1
@@ -813,19 +852,13 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                   hforgedTextExact.trans hwatTextExact.symm
                 have hlength := congrArg String.length hsame
                 simp at hlength
-              have hstatusABIIndex :
-                  (#[ir.sourcePlan.initializer] ++
-                    ir.sourcePlan.entries)[3]? = some statusMethod := by
-                rw [hgraphs.1]
-                rw [Array.getElem?_append_right (by simp)]
-                simpa using hstatus
               have hstatusMethodABI :
                   ∃ methodText,
                     ProofForgeV2.Targets.Near.MethodABIEmissionV1
                       ir 3 statusMethod abiFile.contents methodText :=
-                ProofForgeV2.Targets.Near.irEmissionV1_methodABIEmissionV1
-                  ir baseFiles abiFile 3 statusMethod hemissions habiFile
-                    hstatusABIIndex
+                by
+                  obtain ⟨_, abiMethodText, hbase⟩ := hstatusBaseEmission
+                  exact ⟨abiMethodText, hbase.abiMethodEmission⟩
               have _ :
                   ∀ methodText,
                     ¬ ProofForgeV2.Targets.Near.MethodABIEmissionV1
@@ -847,8 +880,23 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
               have hstatusLowering :
                   ProofForgeV2.Targets.Near.MethodIRLoweringV1
                     plan ir.keys statusMethod statusIR :=
-                ProofForgeV2.Targets.Near.planIRLoweringV1_entry_lookup_eq_some
-                  plan ir 2 statusMethod statusIR hgraphs.2.2 hstatus hstatusIR
+                by
+                  obtain ⟨_, _, hbase⟩ := hstatusBaseEmission
+                  exact hbase.methodIRLowering
+              have _ : statusIR.name = statusMethod.name :=
+                by
+                  obtain ⟨_, _, hbase⟩ := hstatusBaseEmission
+                  exact hbase.methodName
+              have _ :
+                  ∀ watMethodText abiMethodText,
+                    ¬ ProofForgeV2.Targets.Near.EntryBaseEmissionV1
+                      plan ir baseFiles 2 statusMethod statusIR abiFile abiFile
+                        watMethodText abiMethodText := by
+                intro watMethodText abiMethodText hwrong
+                have habiEqWat : abiFile = watFile :=
+                  Option.some.inj
+                    (hwrong.watFileLookup.symm.trans hwatFile)
+                exact hfilesDistinct habiEqWat.symm
               expect (statusMethod.name == "status" &&
                   statusMethod.params.isEmpty &&
                   statusMethod.exactInputLen == 0 &&

@@ -152,6 +152,16 @@ Phase 1：实现
   均不能满足关系。production renderer 与证明共享 private pre-exports framing helper，没有复制
   ABI renderer。该命题不证明 JSON parsing/consumer behavior、WAT↔ABI consistency、Wasm/NEAR
   execution 或 target refinement，assurance 不变。
+- **`status` entry-scoped cross-base-output provenance（Phase 7 第十一切）**：
+  `EntryBaseEmissionV1` 把 exact source Plan entry、既有 private lowering graph 的 MethodIR、
+  `entryIndex + 1` combined index、同一次 `IREmissionV1` 的 exact WAT/ABI file lookup，以及该
+  index 上的 `MethodWATEmissionV1` / `MethodABIEmissionV1` 组成一个 carrier；initializer 仍占
+  combined index 0。`irEmissionV1_entryBaseEmissionV1` 仅组合现有 production graph，并由
+  `MethodIRLoweringV1` 证明方法名保持，不解析或复制 WAT/ABI renderer。真实 VerifiedVault
+  fixture 已把 source entry 2 / combined index 3 的 `status` 连接到同一次 in-memory production
+  emission；若给 ABI content 追加 forged suffix 并替换 base-file array，则 combined witness
+  fail closed。该关系只证明同源 provenance，不证明 WAT↔ABI parser、consumer 或 semantic
+  consistency，不证明 Wasm/NEAR execution refinement，assurance 不变。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -214,7 +224,9 @@ runtime observation；`StaticAlignmentV1` 的 passive relation 与 exact status 
 production validated semantic data、Plan/key/IR successful graph与 sole private emitter 的 exact
 in-memory WAT/ABI output graph；status 还以 combined method index 3 exact split 分别连接到 sole
 WAT renderer 的 ordered methods block、sole ABI renderer 的 ordered exports block，以及同一次
-production WAT/ABI complete text。production Method/MethodIR 的
+production WAT/ABI complete text；entry-scoped combined carrier 进一步固定两侧属于 source entry 2、
+private-lowered MethodIR 3 与同一个 `IREmissionV1`，但不声称 WAT↔ABI consumer consistency。
+production Method/MethodIR 的
 exact syntax 已由 proof-producing recognizer 纳入 kernel proposition，真实 status 的
 validation/admission/initial state/lookup/
 empty-context ready 已无外部 context premise闭合；successful passive relation 的 canonical bytes、

@@ -14934,3 +14934,22 @@ normative: false
 - 这只是 test-only HostModel 对齐，不新增 target State/Effect/evaluator/step，不证明 WAT、Wasm
   或 NEAR execution/refinement；assurance 仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR entry-scoped WAT/ABI base-output provenance
+
+- `EmitIRV1` 新增 `EntryBaseEmissionV1`，把一个 exact source Plan entry、它由 sole private
+  `lowerMethod` 得到的 MethodIR、source `entryIndex` 到 combined `entryIndex + 1` 的 index join、
+  方法名保持、同一次 `IREmissionV1` 的 exact WAT/ABI file lookup，以及既有
+  `MethodWATEmissionV1` / `MethodABIEmissionV1` method graph 绑定在一个 proposition-only carrier。
+- `irEmissionV1_entryBaseEmissionV1` 只组合 `PlanIRLoweringV1`、`MethodIRLoweringV1`、
+  `IREmissionV1` 与两项 method-scoped production graph；新增的 name theorem直接展开既有 private
+  lowering，不引入第二个 constructor、lowering、renderer 或 emitter，也不解析 emitted text。
+- 真实 `VerifiedVaultPF` same-file fixture 从同一次 capability-gated production build 构造 source
+  entry 2 / combined index 3 的 `status` witness，并从 combined carrier投影原 WAT/ABI method
+  provenance。若只给 ABI base output 追加 forged suffix并替换 exact files array，则
+  `IREmissionV1` 与整个 combined witness 都 fail closed；WAT/ABI file 混用同样被 exact lookup拒绝。
+- 该 carrier证明 WAT 与 ABI method graph 共享 source entry、private-lowered MethodIR index与同一次
+  in-memory production emission；不证明 WAT↔ABI parser/consumer/semantic consistency、renderer
+  correctness、locked `wat2wasm`、finalized Wasm/disk identity、Wasm/NEAR execution 或 target
+  refinement。没有新增 target State、Effect、transition、evaluator 或 step；assurance 仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

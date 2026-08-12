@@ -1014,6 +1014,17 @@ theorem methodIRLoweringV1_unique (plan : Plan) (keys : Array KeyRegion)
     left = right := by
   exact hleft.trans hright.symm
 
+/-- The production method lowering preserves the source method name. -/
+theorem methodIRLoweringV1_name (plan : Plan) (keys : Array KeyRegion)
+    (method : Method) (methodIR : MethodIR)
+    (hgraph : MethodIRLoweringV1 plan keys method methodIR) :
+    methodIR.name = method.name := by
+  rw [hgraph]
+  cases hmode : method.mode <;>
+    cases hdeposit : method.depositPolicy <;>
+    simp [lowerMethod, hmode, hdeposit, Id.run, Bind.bind, Pure.pure] <;>
+    repeat' split <;> rfl
+
 private def lowerFn (keys : Array KeyRegion) (fn : FnBinding) : FnIR :=
   let paramCount := fn.params.size
   -- Temps `0..paramCount-1` are the Wasm parameters; body lowering starts after.
@@ -2961,6 +2972,90 @@ theorem irEmissionV1_methodABIEmissionV1
   refine ⟨renderAbiBeforeExports ir.sourcePlan, "\n  ]\n}\n", ?_⟩
   rw [habiFileEq]
   rfl
+
+/-- Exact source-entry provenance across the two in-memory production base
+    outputs. One Plan entry, its private-lowered IR row, and their shared name
+    own the corresponding method-scoped WAT and ABI renderer graphs at the
+    canonical combined index `entryIndex + 1` (initializer occupies index 0).
+    This packages existing production graphs only: it does not parse either
+    text, prove WAT/ABI consumer consistency, or describe target execution. -/
+structure EntryBaseEmissionV1
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (method : Method)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String) : Prop where
+  sourcePlan : ir.sourcePlan = plan
+  planIRLowering : PlanIRLoweringV1 plan ir
+  irEmission : IREmissionV1 ir files
+  watFileLookup : files[0]? = some watFile
+  abiFileLookup : files[1]? = some abiFile
+  planEntryLookup : plan.entries[entryIndex]? = some method
+  irMethodLookup : ir.methods[entryIndex + 1]? = some methodIR
+  methodIRLowering : MethodIRLoweringV1 plan ir.keys method methodIR
+  methodName : methodIR.name = method.name
+  watMethodEmission :
+    MethodWATEmissionV1 ir (entryIndex + 1) methodIR
+      watFile.contents watMethodText
+  abiMethodEmission :
+    MethodABIEmissionV1 ir (entryIndex + 1) method
+      abiFile.contents abiMethodText
+
+/-- A successful production Plan→IR graph and emission graph close one exact
+    entry across both ordered base files. The theorem reuses the private-backed
+    lowering and renderer relations; it does not inspect or duplicate emitted
+    text. -/
+theorem irEmissionV1_entryBaseEmissionV1
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (method : Method)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (hplanIR : PlanIRLoweringV1 plan ir)
+    (hemission : IREmissionV1 ir files)
+    (hwatFile : files[0]? = some watFile)
+    (habiFile : files[1]? = some abiFile)
+    (hentry : plan.entries[entryIndex]? = some method)
+    (hmethodIR : ir.methods[entryIndex + 1]? = some methodIR) :
+    ∃ watMethodText abiMethodText,
+      EntryBaseEmissionV1 plan ir files entryIndex method methodIR
+        watFile abiFile watMethodText abiMethodText := by
+  have hsourcePlan := planIRLoweringV1_sourcePlan plan ir hplanIR
+  have hmethodIRLowering :=
+    planIRLoweringV1_entry_lookup_eq_some plan ir entryIndex method methodIR
+      hplanIR hentry hmethodIR
+  have hmethodName := methodIRLoweringV1_name plan ir.keys method methodIR
+    hmethodIRLowering
+  obtain ⟨watMethodText, hwatMethodEmission⟩ :=
+    irEmissionV1_methodWATEmissionV1 ir files watFile (entryIndex + 1)
+      methodIR hemission hwatFile hmethodIR
+  have habiMethodLookup :
+      (#[ir.sourcePlan.initializer] ++
+        ir.sourcePlan.entries)[entryIndex + 1]? = some method := by
+    rw [hsourcePlan]
+    rw [Array.getElem?_append_right (by simp)]
+    simpa using hentry
+  obtain ⟨abiMethodText, habiMethodEmission⟩ :=
+    irEmissionV1_methodABIEmissionV1 ir files abiFile (entryIndex + 1)
+      method hemission habiFile habiMethodLookup
+  exact ⟨watMethodText, abiMethodText, {
+    sourcePlan := hsourcePlan
+    planIRLowering := hplanIR
+    irEmission := hemission
+    watFileLookup := hwatFile
+    abiFileLookup := habiFile
+    planEntryLookup := hentry
+    irMethodLookup := hmethodIR
+    methodIRLowering := hmethodIRLowering
+    methodName := hmethodName
+    watMethodEmission := hwatMethodEmission
+    abiMethodEmission := habiMethodEmission
+  }⟩
 
 /-- Successful production emission determines one exact ordered base-file
     array, including both content strings. -/
