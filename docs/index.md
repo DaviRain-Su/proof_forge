@@ -95,7 +95,9 @@ per-target refinement；不得把 typed proof view 实现成第二解释器。
   [`specs/source-program-wire.md`](specs/source-program-wire.md)、
   [`specs/type-effect-system.md`](specs/type-effect-system.md)、
   [`specs/semantic-core.md`](specs/semantic-core.md)、
-  [`specs/semantic-program-wire.md`](specs/semantic-program-wire.md)。
+  [`specs/semantic-program-wire.md`](specs/semantic-program-wire.md)、
+  [`specs/reference-outcome-v1.md`](specs/reference-outcome-v1.md)
+  （engineering retained Outcome envelope；非 formal）。
 - 目标求解：[`specs/capabilities-extensions.md`](specs/capabilities-extensions.md)、
   [`specs/target-registry.md`](specs/target-registry.md)、
   [`specs/target-aleo.md`](specs/target-aleo.md)、

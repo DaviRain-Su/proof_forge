@@ -160,9 +160,12 @@ adapter 必须保留 exact OutcomeV1 status/reason/state/value/effect sequence�
 
 这些 carriers 是 in-memory executable model，不是持久化 artifact schema；equality 是所有 constructor/
 field 的 structural equality。当前 `proof-forge.evidence.v1 observations` 只是 verdict/diagnostic projection，
-不是 OutcomeV1 wire，不能持久化证明该 structural equality。若 evidence/output 需要该证明，必须先另立
-versioned exact tagged outcome artifact 并由 EV retained artifact digest 绑定；在它实现前，target adapter
-structural differential 只能作为进程内/model development assertion，不能形成 formal evidence。不得用
+不是 OutcomeV1 wire，不能持久化证明该 structural equality。工程 retained envelope 现由
+[`docs/specs/reference-outcome-v1.md`](reference-outcome-v1.md) /
+`ProofForgeV2.Semantic.OutcomeWireV1` 提供（`pf.reference-outcome.v1` magic、re-encode identity、
+SHA-256 digest；**engineering only**）。若 evidence/output 需要 formal 证明，仍须另立 EV retained
+artifact digest 绑定与 target adapter；在它们实现前，target adapter structural differential 只能作为
+进程内/model development assertion，不能形成 formal evidence。不得用
 target JSON、pretty text、`errorClass` 或自由字符串充当 OutcomeV1。
 
 ## 初始化与调用

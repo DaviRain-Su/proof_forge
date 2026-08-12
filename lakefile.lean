@@ -130,6 +130,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Semantic.SimpleClosureDecodeComposeV1,
     `Tests.Semantic.ProofedClosedCertV1,
     `Tests.Semantic.ReferenceV1,
+    `Tests.Semantic.OutcomeWireV1,
     `Tests.Semantic.MiniAmmL1Admit,
     `Tests.Semantic.MiniAmmVectorsV1,
     `Tests.Semantic.NormalizeConst,

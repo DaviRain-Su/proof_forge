@@ -320,7 +320,7 @@ D1–D4 = 0/27 done。
 |---|---|---|
 | **C-1** | NEAR Wasm 工具链 load + sandbox 工程子集 | **done**（2026-08-02：`672e6115d` NearWasmAcceptance = locked `wat2wasm` + host-optional `wasm-interp`/`wasmtime`/`wasmer` load，工具缺席 skip；2026-08-03 C-6 另加 locked near-sandbox Counter happy path；均非 formal Reference differential） |
 | **C-2** | Aleo/Psy native artifact boundary | **done（2026-08-10）**：Aleo 仅生成 Aleo Instructions，Psy 仅生成 DPN；二者 zero-tool、non-deployable。旧 source compiler/local runtime/network lanes 删除，不再属于产品或验收面；无 VM/proof/UPS/network/formal 结论 |
-| **C-3** | EVM Reference↔Anvil **formal** 差分 | blocked（formal 轨道；G4 产品 CLI→Anvil 工程差分已覆盖四程序；**2026-08-12 engineering identity binding 已落**：corpus observation 硬性携带 `identity{sourceHash,semanticHash}`，Reference leg 取自 Loader→Normalize、Anvil leg 取自 deployed `proof-forge.output.v1` manifest，close-case 对 case pin exact join——仍非 formal C-3/TST closure） |
+| **C-3** | EVM Reference↔Anvil **formal** 差分 | blocked（formal 轨道；G4 产品 CLI→Anvil 工程差分已覆盖四程序；**2026-08-12 engineering identity binding 已落**；**同日 engineering retained Outcome wire 已落**（`OutcomeWireV1`）——仍非 formal C-3/TST closure / EV binding / target adapter） |
 | **C-4** | Noir 真实电路证明/prove 路径（若工具链锁定可行） | **done（研究决定仍有效）**：2026-08-03 G123 已锁定 nargo 1.0.0-beta.26 并接 `NoirCompileAcceptance` compile-only 门（C-7），supersede 原“无 nargo pin”观察；Barretenberg/backend、CRS/security profile、witness/prove/verify 与 proof binding 仍无，因此不升格 prove/verify、保持 source-only；见 `16-noir-prove-path.md` |
 | **C-5** | Solana 已有 Mollusk；扩 fixture 跟 Normalize 新面 | **ongoing**（Counter + 18 fixtures = 19 programs；#111 移除 CpiCaller；**#113** V1 单账户安全负例矩阵；OptionState 与聚合返回保留；manifest-bound artifact 读取已接线） |
 | **C-6** | NEAR near-sandbox receipt 工程门（G123） | **done**（2026-08-03：near-sandbox 2.13.0 入 `tools[]`（darwin+linux，Darwin 捆绑 xz/liblzma）；`scripts/near_sandbox_acceptance.sh` deploy/init/mutate/view 真实通过；`NearSandboxAcceptance` 注册 shard-targets；非 formal Reference↔sandbox / Stage-0） |
@@ -449,6 +449,8 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 ```text
 1. EVM formal lighthouse（ADR-0036 Next task，串行主轴）：
    - shared D2/D3 formal 前置：TASK-D2-07 / TST-SEM-002/003（Reference step / corpus）
+     · **2026-08-12**：engineering retained Outcome wire 已落地
+       （`OutcomeWireV1` / `pf.reference-outcome.v1`；Counter digest 钉测）——仍非 formal
    - 然后 identity-bound Reference↔Anvil formal differential（C-3 解 blocked；
      engineering identity binding 已于 2026-08-12 落地，formal 轨道仍 pending）
    - 不得用其他 target 或业务合约 engineering positives 代签
@@ -509,6 +511,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-10 | **External Author MVP**：登记 §11 + [`product/14-external-author-mvp.md`](product/14-external-author-mvp.md)（bundle 分发 / host dev / setup 真装齐 / CI 三绿线）；诊断：慢在工具链交付与宿主门禁，非 program Hello 语义 |
 | 2026-08-12 | **全面审查后刷新**：`pf run` one-shot 五链（EVM/Solana/NEAR/CW/TON）、Solana registry label `runtime-validated-alpha`、NEAR parity Phase 0–4（lite）闭合（Map return cap-8 / UInt128 balance env-read / multiword shift / negative corpus）、CW Map loop cap-8 + Map return + wide shift、context chainId/self（S3）三链 runtime、NEAR/EVM/TON 负例语料、ProofShip 迁出独立仓库；推荐击杀顺序按 EVM→Solana→NEAR→CW 优先序重排 |
 | 2026-08-12 | **晚批双 lane**：Solana `context.blockHeight` 开到 sole product profile（CpiDerive admit + Mollusk `block_height.rs` 双 warp-slot 门；`unixTimeSeconds` 仍 FC；23 binaries / 414 active）；EVM corpus observation 硬性 identity binding（`identity{sourceHash,semanticHash}` 全 leg 全 verdict；Reference 取 Loader→Normalize、Anvil 取 deployed manifest、close-case 对 case pin exact join；顺修 StateCell staging 目录回归）。engineering only，非 formal C-3/TST/Stage-0 |
+| 2026-08-12 | **EVM formal lighthouse 切片-1**：engineering retained Outcome wire（`OutcomeWireV1` / `pf.reference-outcome.v1`；re-encode identity + digest；Counter Reference corpus 钉测）。关闭 packaging 缺口的工程半步；**不**关闭 TASK-D2-07 / TST-SEM-002/003；下一切片 = target→Outcome adapter 或 formal `step` façade |
 
 ---
 

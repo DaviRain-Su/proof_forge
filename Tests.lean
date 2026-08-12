@@ -46,6 +46,7 @@ import Tests.Semantic.SimpleClosureCertV1
 import Tests.Semantic.AuthorWireCertV1
 import Tests.Semantic.ProofedClosedCertV1
 import Tests.Semantic.ReferenceV1
+import Tests.Semantic.OutcomeWireV1
 import Tests.Semantic.MiniAmmL1Admit
 import Tests.Semantic.MiniAmmVectorsV1
 import Tests.Semantic.ProofBundleV1
@@ -210,6 +211,7 @@ private unsafe def runSemanticTests : IO Unit := do
   Tests.Semantic.SubjectDataBridgeV1.run
   Tests.Semantic.CodecInvertV1.run
   Tests.Semantic.ReferenceV1.run
+  Tests.Semantic.OutcomeWireV1.run
   Tests.Semantic.MiniAmmL1Admit.run
   Tests.Semantic.MiniAmmVectorsV1.run
   Tests.Semantic.ProofBundleV1.run

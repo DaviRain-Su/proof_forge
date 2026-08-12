@@ -15104,3 +15104,22 @@ normative: false
   annotation。因此只称 **bounded typed-WAT-refined slice**，不声称 textual WAT、Wasm binary或最终
   NEAR artifact 已 target-refined。没有新增 DSL State/Effect/evaluator/step；业务语义仍唯一是
   `SemanticProgramV1 + ReferenceMachineV1`。
+
+## 2026-08-12 — EVM formal lighthouse 切片-1：retained Outcome wire（engineering）
+
+- **动机**：SPEC-SEM-001 / TST-SEM-002/003 / MIGRATION_MATRIX 明确指出：在 versioned
+  tagged retained Outcome artifact 落地前，target/reference structural differential
+  不能升格为 formal persisted evidence。今晚 identity-bound corpus 之后，本切片关闭
+  packaging 缺口的工程半步。
+- **交付**：`ProofForgeV2/Semantic/OutcomeWireV1.lean`
+  - schema `proof-forge.reference-outcome.v1` / magic `pf.reference-outcome.v1`
+  - `mintReferenceOutcomeArtifactV1` / `decodeReferenceOutcomeArtifactV1`
+    （transport → re-encode identity）/ `referenceOutcomeDigestV1`
+  - closed leaf tags：returned/reverted/trapped + logicalState/value/effect/
+    occurrence/reason/fault/standard
+- **测试**：`Tests/Semantic/OutcomeWireV1.lean`（leaf round-trip、trailing/magic/tamper
+  fail closed、Counter Normalize→admit→step→mint digest 钉测；inc/view 同 Outcome
+  时 digest 相等）。已注册 lakefile / Tests.lean / Tests.Fast；`just test-fast` 绿。
+- **文档**：`docs/specs/reference-outcome-v1.md`；`semantic-core.md` 指向该工程 envelope；
+  backlog / 本日志同步。**不**关闭 formal TASK-D2-07 / TST-SEM-002/003；无 EV binding、
+  无 target adapter、无 formal `step` 导出。

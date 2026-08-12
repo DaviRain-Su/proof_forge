@@ -83,6 +83,7 @@ import ProofForgeV2.Semantic.SimpleClosureEncodeFieldsV1
 import ProofForgeV2.Semantic.SimpleClosureDecodeV1
 import ProofForgeV2.Semantic.SimpleClosureDecodeComposeV1
 import ProofForgeV2.Semantic.ReferenceV1
+import ProofForgeV2.Semantic.OutcomeWireV1
 import ProofForgeV2.Semantic.StateModelV1
 import ProofForgeV2.Semantic.PreservationABI
 import ProofForgeV2.Semantic.PreservationPackagingV1
