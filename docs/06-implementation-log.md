@@ -15309,3 +15309,18 @@ normative: false
   canonical Plan→IR入口的 lexical binding，不是 textual WAT parser、Wasm binary或 NEAR runtime
   refinement；整体 assurance仍为
   **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。
+
+## 2026-08-12 — Phase 7 NEAR textual-WAT consumer provenance
+
+- NEAR finalizer现在在 resolve/run locked `wat2wasm`之前，先从 private materialized carrier定位 exact
+  `{program}.wat` base row，检查 media type、staging regular-file shape，并要求 staging bytes与
+  materialized UTF-8 bytes逐字节相等；missing/non-file/divergent input均以
+  `PF-ARTIFACT-NONDEPLOYABLE` fail closed，且不产生 Wasm extra。
+- 成功 finalization的 evidence note使用 `near-wat2wasm-observation-v1`，绑定 locked tool id/version/
+  executable SHA-256、exact argv、input/output path与 observed SHA-256，以及 Wasm magic/version header
+  gate。output manifest原有 content inventory同时保留 WAT base与 Wasm finalized-extra的 exact digest；
+  回归固定 divergent staging WAT pre-tool负例及真实产品路径的 input/output digest join。
+- 这是 generated textual WAT到 locked consumer调用的**工程 provenance observation**，不是 WAT parser、
+  retained-FD/race-free/TOCTOU closure、`wat2wasm` correctness proof、Wasm binary semantics或 NEAR
+  runtime refinement。整体 assurance仍为
+  **Reference-verified + NEAR engineering runtime observed ≠ formally target-refined**。

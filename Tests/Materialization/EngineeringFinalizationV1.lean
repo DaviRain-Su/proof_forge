@@ -240,6 +240,28 @@ private unsafe def testPreIoBindBeforeTools : IO Unit := do
     expect (!(← (staging / "StateCell.bin").pathExists))
       "pre-IO bind failure must not write .bin extra"
 
+/-- NEAR finalization must bind its exact staging WAT input to the
+    materialized carrier before resolving or running wat2wasm. -/
+private unsafe def testNearFinalizerInputBinding : IO Unit := do
+  let compiled ← compileStateCell
+  let selection ← liftResult "select near input binding"
+    (resolveBuildSelectionV1 TargetId.near none)
+  let capability ← liftResult "resolve near input binding"
+    (Targets.resolveEngineeringRequirementsV1 selection compiled)
+  let artifacts ← materializeOk "materialize near input binding" capability
+  let staging := FilePath.mk "build/v2/finalization-near-input-binding"
+  if ← staging.pathExists then IO.FS.removeDirAll staging
+  IO.FS.createDirAll staging
+  for file in MaterializedArtifactsV1.filesOf artifacts do
+    IO.FS.writeFile (staging / file.path) file.contents
+  IO.FS.writeFile (staging / "StateCell.wat") "(module)\n"
+  expectIoErrorContains "near divergent staging WAT"
+      "staging WAT input 'StateCell.wat' diverges from materialized bytes" do
+    let _ ← Targets.Near.FinalizeV1.finalize capability artifacts staging
+    pure ()
+  expect (!(← (staging / "StateCell.wasm").pathExists))
+    "divergent NEAR WAT input must fail before wat2wasm writes an output"
+
 /-- Hermetic PF-ARTIFACT-NONDEPLOYABLE gates (empty solc bytecode + bad Wasm). -/
 private unsafe def testNonDeployablePhases : IO Unit := do
   -- Empty solc bytecode presence gate.
@@ -419,12 +441,24 @@ private unsafe def testFourTargetFinalization : IO Unit := do
         wasm[2]! == 0x73 && wasm[3]! == 0x6d && wasm[4]! == 0x01 &&
         wasm[5]! == 0x00 && wasm[6]! == 0x00 && wasm[7]! == 0x00)
       "near wasm magic/version header"
+    let watSha256 := Crypto.sha256Hex baseFiles[0]!.contents.toUTF8
+    let wasmSha256 := Crypto.sha256Hex wasm
     let evidence ← IO.FS.readFile (outDir / "evidence.json")
-    expect ((evidence.splitOn "wat2wasm ").length > 1) "near evidence wat2wasm note"
-    expect ((evidence.splitOn "runtime remains separate").length > 1)
-      "near evidence runtime phrase"
+    expect ((evidence.splitOn "near-wat2wasm-observation-v1").length > 1 &&
+        (evidence.splitOn "tool=wat2wasm").length > 1 &&
+        (evidence.splitOn "argv=StateCell.wat,-o,StateCell.wasm").length > 1)
+      "near evidence must identify the locked consumer and exact argv"
+    expect ((evidence.splitOn s!"inputPath=StateCell.wat inputSha256={watSha256}").length > 1 &&
+        (evidence.splitOn s!"outputPath=StateCell.wasm outputSha256={wasmSha256}").length > 1)
+      "near evidence must bind exact observed WAT input and Wasm output bytes"
+    expect ((evidence.splitOn "validWasmHeader=true").length > 1 &&
+        (evidence.splitOn "translator correctness and runtime remain separate").length > 1)
+      "near evidence must preserve the consumer-provenance assurance boundary"
     let manifest ← IO.FS.readFile (outDir / "manifest.json")
-    expect ((manifest.splitOn "StateCell.wasm").length > 1) "near manifest includes .wasm"
+    expect ((manifest.splitOn "StateCell.wasm").length > 1 &&
+        (manifest.splitOn watSha256).length > 1 &&
+        (manifest.splitOn wasmSha256).length > 1)
+      "near manifest must inventory both exact WAT and Wasm content digests"
 
 /-- Spawn product CLI with an isolated tool-root override (no process-global setEnv). -/
 private def runProductCliWithToolRoot (toolRoot : String) (args : Array String) :
@@ -548,6 +582,7 @@ run_cmd do
 unsafe def run : IO Unit := do
   testSoleMintBinding
   testPreIoBindBeforeTools
+  testNearFinalizerInputBinding
   testNonDeployablePhases
   testFourTargetFinalization
   testToolFailureZeroPublish
@@ -556,4 +591,3 @@ unsafe def run : IO Unit := do
   IO.println "Tests.Materialization.EngineeringFinalizationV1: ok"
 
 end Tests.Materialization.EngineeringFinalizationV1
-

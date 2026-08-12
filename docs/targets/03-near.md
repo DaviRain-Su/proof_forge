@@ -318,6 +318,14 @@ Phase 1：实现
   unresolved fallback不再生成 literal zero，而会立即不可达；successful production Plan path不会
   触发它。该检查不解析 textual WAT，也不证明 Wasm binary、`wat2wasm` correctness或 NEAR runtime
   refinement。
+- **textual-WAT consumer provenance（Phase 7 第二十五切）**：NEAR finalizer在 resolve/run locked
+  `wat2wasm`前，要求 staging `{program}.wat`是 regular file且 bytes与 private materialized carrier的
+  WAT OutputFile exact相等；因此 publisher→consumer之间的输入替换会在 tool IO前 fail closed。成功
+  evidence以 `near-wat2wasm-observation-v1`绑定 tool id/version/executable SHA-256、exact argv、WAT
+  input与 Wasm output的 path/SHA-256及 magic/version header observation；output manifest同时 inventory
+  两端 exact content digest。真实产品正例与 divergent staging WAT零输出负例已固定。pre-run read
+  不持有 FD，因此不是 race-free/TOCTOU closure；该切片是工程 provenance，不是 arbitrary WAT
+  parser、`wat2wasm` correctness、Wasm semantics或 NEAR runtime refinement。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
