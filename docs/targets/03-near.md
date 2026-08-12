@@ -22,7 +22,9 @@ Phase 1：实现
 
 - Normalize 当前子集：算术/比较/assert、控制流、fn、let/for、shift/bitwise、revert/emit 等；
 - state/param **UInt8/16/32/64 与窄 Int** ABI/body 子集；**UInt128/256 软件多字（T9e）**：
-  add/sub/mul 与 **div/mod restoring binary long division**（HostModel 钉测；wide shift 仍 FC）；
+  add/sub/mul、**div/mod restoring binary long division**，以及 **multiword << / >>**
+  （count≥bitWidth trap；checked-shl 高 limb overflow trap；`Examples/WideShiftProbe` +
+  near-sandbox suite，与 CosmWasm 同形）；
   schedule → 原生 promise；sync call 在 capability 矩阵上 fail-closed；
 - **Array + dense Map UInt64 cap-8 + fixed Bytes N + named Struct/Enum + Option UInt64 state**
   flatten-to-KV；聚合 `StateStore` 使用 `storeAtomic` 两阶段 IR（先求值全部叶、再写 KV），HostModel

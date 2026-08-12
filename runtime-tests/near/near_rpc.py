@@ -66,6 +66,11 @@ class NearClient:
         return struct.pack("<Q", int(n) & ((1 << 64) - 1))
 
     @staticmethod
+    def encode_u32_le(n: int) -> bytes:
+        """UInt32 LE wire for NEAR packed-raw params (exactInputLen=4)."""
+        return struct.pack("<I", int(n) & 0xFFFFFFFF)
+
+    @staticmethod
     def encode_i64_le(n: int) -> bytes:
         """Two's-complement Int64 little-endian (NEAR product scalar wire)."""
         return struct.pack("<q", int(n))

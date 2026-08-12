@@ -2,9 +2,10 @@ import ProofForgeV2
 namespace Examples
 open ProofForgeV2.Language
 
--- CosmWasm body-only UInt128 multiword shift probe (T9e).
+-- Body-only UInt128 multiword shift probe (T9e).
 -- ABI surface stays UInt64/UInt32 params; UInt128 lives only in lets.
 -- Pins that Plan admits `<<` / `>>` on UInt128 (Emit multiword path).
+-- CosmWasm + NEAR (near-sandbox WideShiftProbe suite).
 program WideShiftProbe where
   state pad : UInt64
 

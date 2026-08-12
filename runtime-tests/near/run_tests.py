@@ -21,7 +21,7 @@ Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_HOME         near-sandbox --home directory (validator_key.json)
   PF_NEAR_WASM         path to product .wasm for the suite
   PF_NEAR_SUITE        state_cell | pairret | arrayret | optionret | optionstate |
-                       verifiedvault | tipjarasync | tokenjarasync | envreadjar | envreadbalanceu128 |
+                       verifiedvault | tipjarasync | tokenjarasync | envreadjar | envreadbalanceu128 | wideshiftprobe |
                        callercheck | posetransform | blockheightcheck | selfidentitycheck |
                        constanswer | unixtimecheck | bytesret | single
 
@@ -1140,6 +1140,70 @@ def suite_envreadbalanceu128(client: NearClient, wasm: Path) -> None:
     print("suite EnvReadBalanceU128: PASS")
 
 
+def suite_wideshiftprobe(client: NearClient, wasm: Path) -> None:
+    """Body-only UInt128 multiword << / >> (mirrors CosmWasm WideShiftProbe).
+
+    ABI surface stays UInt64/UInt32; UInt128 lives only in lets. Pins count≥128
+    traps and whole-limb (64) left-shift path.
+    """
+    print("=== suite: WideShiftProbe (UInt128 multiword shl/shr) ===")
+    client.deploy(wasm)
+    client.call("init", NearClient.encode_u64_le(0))
+    got = client.view_u64("get")
+    if got != 0:
+        raise AssertionError(f"after init(0): get() expected 0, got {got}")
+
+    # NEAR packed-raw: UInt32 params occupy an 8-byte slot (exactInputLen=8).
+    def u32_slot(n: int) -> bytes:
+        return NearClient.encode_u64_le(int(n) & 0xFFFFFFFF)
+
+    # 1 << 3 → assert y>0; pad := 1
+    r = client.call("shiftOneLeft", u32_slot(3))
+    sv = NearClient.success_value_bytes(r)
+    if sv is None or len(sv) < 8:
+        raise AssertionError(f"shiftOneLeft(3) missing SuccessValue: {sv!r}")
+    ret = NearClient.decode_u64_le(sv, 0)
+    if ret != 1:
+        raise AssertionError(f"shiftOneLeft(3) expected pad=1, got {ret}")
+    print("wideshift: shiftOneLeft(3) → 1 ok")
+
+    # 1024 >> 5 → y>0; pad := 2
+    r = client.call("shiftOneRight", u32_slot(5))
+    sv = NearClient.success_value_bytes(r)
+    ret = NearClient.decode_u64_le(sv, 0) if sv and len(sv) >= 8 else None
+    if ret != 2:
+        raise AssertionError(f"shiftOneRight(5) expected pad=2, got {ret}")
+    print("wideshift: shiftOneRight(5) → 2 ok")
+
+    # 1 << 127 ok; pad := 3
+    r = client.call("shiftMaxBit", b"")
+    sv = NearClient.success_value_bytes(r)
+    ret = NearClient.decode_u64_le(sv, 0) if sv and len(sv) >= 8 else None
+    if ret != 3:
+        raise AssertionError(f"shiftMaxBit expected pad=3, got {ret}")
+    print("wideshift: shiftMaxBit → 3 ok")
+
+    # whole-limb: 1 << 64 ok (moves lo→hi); pad := 4
+    r = client.call("shiftOneLeft", u32_slot(64))
+    sv = NearClient.success_value_bytes(r)
+    ret = NearClient.decode_u64_le(sv, 0) if sv and len(sv) >= 8 else None
+    if ret != 4:
+        raise AssertionError(f"shiftOneLeft(64) expected pad=4, got {ret}")
+    print("wideshift: shiftOneLeft(64) whole-limb → 4 ok")
+
+    # count ≥ bitWidth traps; state holds at 4
+    client.call(
+        "shiftOneLeft",
+        u32_slot(128),
+        expect_success=False,
+    )
+    got = client.view_u64("get")
+    if got != 4:
+        raise AssertionError(f"after shiftOneLeft(128) trap: get() expected 4, got {got}")
+    print("wideshift: shiftOneLeft(128) traps + state-hold ok")
+    print("suite WideShiftProbe: PASS")
+
+
 def main(argv: list[str]) -> int:
     suite = os.environ.get("PF_NEAR_SUITE", "single").strip().lower()
     rpc = _require_env("PF_NEAR_RPC")
@@ -1189,6 +1253,11 @@ def main(argv: list[str]) -> int:
                 os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_ENVREADBALANCEU128_WASM")
             )
             suite_envreadbalanceu128(client, wasm)
+        elif suite == "wideshiftprobe":
+            wasm = Path(
+                os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_WIDESHIFTPROBE_WASM")
+            )
+            suite_wideshiftprobe(client, wasm)
         elif suite == "callercheck":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_CALLERCHECK_WASM"))
             suite_callercheck(client, wasm)

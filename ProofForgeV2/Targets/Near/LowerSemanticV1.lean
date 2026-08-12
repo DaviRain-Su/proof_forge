@@ -2400,12 +2400,9 @@ private def lowerBlockInstructionsV1
             unless kind == lhs.kind do
               throw <| .planInvariant .near
                 "unsupported NEAR semantic shape: shift result width mismatch"
-            -- Cross-limb shift is not implemented: the multiword surface is
-            -- add/sub/mul/compare/bitwise. Wide shifts fail closed explicitly
-            -- (a single-limb WAT shift would silently corrupt high limbs).
-            if bitWidth > 64 then
-              throw <| .planInvariant .near
-                "unsupported NEAR semantic shape: multiword shift is fail-closed on NEAR (shift counts < 64 only; wide shift not implemented)"
+            -- UInt8/16/32/64 single-limb + UInt128/256 multiword LE limbs
+            -- (Emit renderMultiwordShl/Shr; count ≥ bitWidth traps; checked-shl
+            -- high-limb overflow traps — same honesty as CosmWasm WideShiftProbe).
             let value ←
               if op == .shl then makeShlValueV1 kind bitWidth lhsId rhsId lhs rhs
               else makeShrValueV1 kind bitWidth lhsId rhsId lhs rhs
