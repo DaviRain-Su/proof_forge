@@ -9,6 +9,8 @@
     * arithmeticUnderflow / divisionByZero / boundExceeded (LH-8)
     * invalidShift / castOutOfRange / indexOutOfBounds /
       uninitialized / alreadyInitialized (LH-10)
+    * Core/resource Term.Trap + unconsumed response → unique
+      invalidExternalResponse (LH-13; Reference precedence)
 
   Does **not** close formal TASK-D2-07 / TST-SEM-003.
 -/
@@ -399,6 +401,11 @@ private unsafe def testAllSemanticFaults
 
   -- resourceExhausted / unreachable / internalInvariant (hand-built Term.Trap;
   -- product source cannot reliably emit these as sole entry).
+  -- LH-13: nonempty unconsumed responses override the trap fault to unique
+  -- invalidExternalResponse with exact pre (docs/05-test-spec.md precedence).
+  let trailing : ExternalResponsesV1 := #[
+    { occurrence := { effectId := 0, occurrence := 0 }, disposition := .returned }
+  ]
   let runTrap (label : String) (code : SemanticTrapCodeV1)
       (fault : SemanticFaultV1) : IO Unit := do
     let carrier ← encodeTrapEntryCarrier ("Sem003" ++ label) label code
@@ -406,9 +413,12 @@ private unsafe def testAllSemanticFaults
       match initialLogicalStateV1 carrier with
       | .ok s => pure s
       | .error e => throw <| IO.userError s!"{label} initial: {repr e}"
-    let out := step carrier pre (inv 0 #[]) #[]
-    expectTrapped label out fault pre
-    mintOk label out
+    let clean := step carrier pre (inv 0 #[]) #[]
+    expectTrapped label clean fault pre
+    mintOk label clean
+    let trail := step carrier pre (inv 0 #[]) trailing
+    expectTrapped (label ++ "+trail") trail .invalidExternalResponse pre
+    mintOk (label ++ "+trail") trail
   runTrap "TrapResource" .resourceExhausted .resourceExhausted
   runTrap "TrapUnreachable" .unreachable .unreachable
   runTrap "TrapInternal" .internalInvariant .internalInvariant
