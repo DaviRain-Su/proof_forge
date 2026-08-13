@@ -49,8 +49,11 @@ Engineering packaging toward TASK-D2-07 / TST-SEM-002/003 / C-3.
 | LH-23 | done | StepFacadeV1 pin façade==machine for declared revert + invalidExternalResponse + invalidInvocation (`885d2c048`). **Not** formal |
 | LH-24 | done | OutcomeWireV1 decode negatives: truncated envelope + OOR outcome/revert tags (`9650c5358`). **Not** formal |
 | LH-25 | done | `Examples/AttachedValueCheck.lean` comment honesty after S4 leaves (`10c280f07`) |
+| LH-26 | done | blockHeight/chainId/self cross-target admit-decline matrix in `Tests/Materialization/Targets.lean`. **Not** formal |
+| LH-27 | done | invariant-body `context.attachedValue` Normalize fail-closed pin in `Tests/Semantic/AttachedValueContextV1.lean`. **Not** formal |
+| LH-28 | done | `docs/specs/semantic-program-wire.md` ContextRead six-key catalog + wire≠target support. **Not** formal |
 
-Track A LH-1…13 + LH-16…25 is **engineering-done**. Formal closeout remains **excluded**; C-3 stays `formal-blocked`.
+Track A LH-1…13 + LH-16…28 is **engineering-done**. Formal closeout remains **excluded**; C-3 stays `formal-blocked`.
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 

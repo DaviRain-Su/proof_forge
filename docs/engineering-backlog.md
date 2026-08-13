@@ -489,7 +489,9 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
        （truncated envelope + OOR outcome/revert tags）；**不**关闭 formal
      · **LH-25 engineering done**（`10c280f07`）：`Examples/AttachedValueCheck.lean` comment
        honesty after S4 leaves
-     ——仍非 formal；LH-1…13 + 16…25 engineering-done；Anvil ↛ OutcomeWire lossless 保持 fail-closed；**C-3 仍 blocked**
+     · **LH-26…28 engineering done**：`blockHeight`/`chainId`/`self` 跨 target 矩阵；
+       invariant `attachedValue` Normalize FC；ContextRead 六键 catalog 诚实化
+     ——仍非 formal；LH-1…13 + 16…28 engineering-done；Anvil ↛ OutcomeWire lossless 保持 fail-closed；**C-3 仍 blocked**
    - 然后 identity-bound Reference↔Anvil formal differential（**C-3 仍 blocked**；
      engineering identity/projection 已落地，formal 轨道仍 pending；Anvil lossless FC）
    - 不得用其他 target 或业务合约 engineering positives 代签
@@ -571,6 +573,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **LH-17/18/19 engineering done**：`MIGRATION_MATRIX.md` 事实日期 `2026-08-13`（`f093262eb`）；`docs/index.md` live Goal 改 next-wave（`ea0f19078`）；`RECOVERY.md` 指针 LH-13 + `document-status` 日期（`ed0ab1cd4`）。**不**关闭 formal TASK/TST；C-3 / Anvil lossless 仍 blocked/FC |
 | 2026-08-13 | **EVM formal lighthouse LH-16 engineering done**：`EvmOutcomeAdapterV1` 28-step shared-status pin（`dfbb4532a`；`Tests/Materialization/EvmOutcomeAdapterV1.lean`）；**不**关闭 C-3 / TST-SEM-002/003；Anvil lossless 仍 FC。顺带刷新 INV-2：wave-3′ generic-first 已闭，合约专属 pin 已删 |
 | 2026-08-13 | **EVM formal lighthouse LH-20…25 engineering done**：LH-20 Quint attachedValue outside-Q0 FC（`88da32e57`）；LH-21 INV-2/LH-16 backlog（`25520ecea`）；LH-22 AGENTS Solana 23/414 Mollusk-only（`fdfb24dbe`）；LH-23 StepFacade revert/trap pin（`885d2c048`）；LH-24 OutcomeWire decode negatives（`9650c5358`）；LH-25 AttachedValueCheck comment（`10c280f07`）。**不**关闭 formal TASK/TST；C-3 / Anvil lossless 仍 blocked/FC |
+| 2026-08-13 | **EVM formal lighthouse LH-26…28 engineering done**：`Tests/Materialization/Targets.lean` blockHeight/chainId/self admit-decline 矩阵；`AttachedValueContextV1` invariant Normalize FC；`semantic-program-wire.md` 六键 ContextRead catalog + wire≠target 支持。**不**关闭 formal TASK/TST；C-3 / Anvil lossless 仍 blocked/FC |
 
 ---
 

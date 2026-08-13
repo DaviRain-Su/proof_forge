@@ -754,12 +754,47 @@ interning 保证 Bool、UInt8、UInt32 和 `Option V` 各有唯一 TypeId。每�
 表中 “declared resultType” 仍必须是 `Instruction.result` 的实际 TypeId；不存在由 host 推断的 hidden type。
 同一 program 内所有 `Op.ContextRead` 的相同 key 必须使用同一 result TypeId；不同 callable/branch 对
 同 key 声明不同 type 是 invalid Core，不能由 Invocation 或 target adapter 任选其一。
-提议中的 v1 wire-owned closed catalog 仅接纳 key
-`proof-forge.context.unix-time-seconds.v1`，其结果语义形状必须是程序中唯一匿名
-`TypeShapeV1.uint 64`。使用该 key 时 requirements 必须包含且只能包含一个 id 为
-`context.unix-time-seconds` 的 exact row：SemVer `1.0.0`、空 predicates、digest 为
-`domainSeparatedSha256("pf.context-read-requirement.v1", UTF-8(id))`。Reference runtime按
-SPEC-SEM-CORE-001 exact invocation context执行；target support catalog仍未接纳ContextRead。
+v1 wire-owned closed ContextRead catalog 恰好接纳以下六个 key（id 权威见
+`ProofForgeV2/Core/RequirementIdsV1.lean`；Op key 拼写见
+`ProofForgeV2/Semantic/Wire/ModelV1.lean`）。未知 key 为 invalid Core；不在此表之外发明
+capability。每个被使用的 key 在 requirements 中必须恰好出现一个对应 exact row：SemVer
+`1.0.0`、空 predicates、digest 为
+`domainSeparatedSha256("pf.context-read-requirement.v1", UTF-8(id))`。同一 program 对同一
+key 不得声明多个 row。结果 TypeId 必须是程序中与下表绑定的唯一匿名形状：
+
+| Op key (`SchemaId`) | requirement id | result shape |
+|---|---|---|
+| `proof-forge.context.unix-time-seconds.v1` | `context.unix-time-seconds` | anonymous `TypeShapeV1.uint 64` |
+| `proof-forge.context.caller.v1` | `context.caller` | anonymous Principal |
+| `proof-forge.context.block-height.v1` | `context.block-height` | anonymous `TypeShapeV1.uint 64` |
+| `proof-forge.context.chain-id.v1` | `context.chain-id` | anonymous `TypeShapeV1.uint 64` |
+| `proof-forge.context.self.v1` | `context.self` | anonymous Principal |
+| `proof-forge.context.attached-value.v1` | `context.attached-value` | anonymous `TypeShapeV1.uint 64` |
+
+Source place 拼写（`context.unixTimeSeconds` / `context.caller` /
+`context.blockHeight` / `context.chainId` / `context.contractId` → wire self /
+`context.attachedValue`）由 `ContextCommitSurfaceV1` 识别；wire 只承认上表 Op key。
+Reference runtime 按 SPEC-SEM-CORE-001 从 exact invocation context 读取已绑定 key；缺键或
+type 不符为 invalid Core / invalid invocation，不得由 target adapter 补造。
+
+**Wire 识别 ≠ target 支持。** 上表只冻结 Semantic/Wire requirement 绑定；各 materializer
+对 ContextRead 的 Plan/IR 开放是非均匀、fail-closed 的，且不因本表自动扩面。工程现状指针
+（非 formal 完成声明；细节以 `docs/research/12-target-coverage-matrix.md` 的
+`contextRead` 行与 ADR-0031 / backlog `B-CTX-OPEN`/`SYS-CAP-UNIFY` 为准）：
+
+- **EVM**：unixTime / blockHeight / caller / chainId / self / attachedValue 已有 Plan 路径
+  （encoding 约束如 ADR-0025 caller、CALLVALUE UInt64 guard 等仍适用）。
+- **Solana**：exact CPI `caller`；sole product profile `blockHeight`（Clock.slot）；
+  unixTime / attachedValue / 未 admit 的 self·chainId 等保持 FC。
+- **NEAR**：unixTime / blockHeight；caller 与 attachedValue 仅 init/entry（view FC）；
+  其余未开放键 FC。
+- **CosmWasm**：unixTime / blockHeight；caller 与 attachedValue 仅 instantiate/execute
+  （query/view FC）；其余未开放键 FC。
+- **TON**：unixTime；其余 ContextRead 键 FC。
+- **Noir / Psy / Aleo / Quint**：ContextRead Plan 保持 FC（电路/模型域无对应宿主锚或
+  Q0 子集外拒绝）。
+
+不得把 resolver 支持键、engineering runtime 门或 corpus pin 写成 formal TST/TASK done。
 `Op.Commit` 是 target-neutral 的 label-only disclosure boundary：其逻辑结果保持 operand 的
 exact TypeId 与 canonical value bytes，不在 Semantic 层执行hash、加盐或改变值表示。每个含
 Commit 的program必须包含且只能包含一个id为`disclosure.commitment`的exact row：SemVer

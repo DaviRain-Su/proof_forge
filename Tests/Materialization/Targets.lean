@@ -42,6 +42,28 @@ private def materializeSelected (target : TargetId) (compiled : CompiledSemantic
   let capability ← Targets.resolveEngineeringRequirementsV1 selection compiled
   Targets.materializeResult capability
 
+private def expectContextMatrixAdmit
+    (label : String) (target : TargetId) (compiled : CompiledSemanticV1) : IO Unit := do
+  match materializeSelected target compiled with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError s!"{label}: {target} must admit, got {e.render}"
+
+private def expectContextMatrixFailClosed
+    (label : String) (target : TargetId) (kind : TargetKind)
+    (expectedMessage : String) (compiled : CompiledSemanticV1) : IO Unit := do
+  match materializeSelected target compiled with
+  | .error (.planInvariant gotKind message) =>
+      expect (gotKind == kind)
+        s!"{label}: expected planInvariant target {kind}, got {gotKind}"
+      expect (message == expectedMessage)
+        s!"{label}: exact planInvariant message mismatch; got '{message}'"
+  | .error e =>
+      throw <| IO.userError
+        s!"{label}: expected planInvariant {kind}, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError s!"{label}: {target} must fail closed"
+
 /-- Capability-gated plan for the single retained-semantic compiled carrier. -/
 private def planEvm (compiled : CompiledSemanticV1) : CompileResult Targets.Evm.Plan := do
   let selection ← resolveBuildSelectionV1 TargetId.evm none
@@ -3796,6 +3818,142 @@ unsafe def run : IO Unit := do
             (e.render).contains "pilot" ||
             (e.render).contains "Principal")
           s!"B-ctx caller {target} message must cite ContextRead/caller boundary, got {e.render}"
+
+  -- ADR-0031 S2/S3: exact cross-target dispatch for blockHeight, chainId,
+  -- and self. These pins follow each target-owned LowerSemanticV1 dispatcher;
+  -- every decline must remain a target-specific PF-PLAN-INVARIANT.
+  let blockHeightSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CtxBlockHeightMatrix where\n" ++
+    "  state public pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry read() : UInt64 do\n" ++
+    "    return context.blockHeight\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let blockHeightV1 ← match ← session.selectProgramV1 blockHeightSource
+      "<targets-context-block-height-matrix>" "Examples.CtxBlockHeightMatrix" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"context.blockHeight matrix select: {e.render}"
+  let blockHeightCompiled ← liftResult <|
+    Compiler.compileValidatedSourceV1 blockHeightV1
+  for target in [TargetId.evm, TargetId.near, TargetId.cosmwasm, TargetId.solana] do
+    expectContextMatrixAdmit "context.blockHeight" target blockHeightCompiled
+  expectContextMatrixFailClosed "context.blockHeight/ton"
+    TargetId.ton .ton
+    "unsupported Ton semantic shape: ContextRead (context.blockHeight) is not admitted (no honest TON block-height binding in pilot)"
+    blockHeightCompiled
+  expectContextMatrixFailClosed "context.blockHeight/noir"
+    TargetId.noir .noir
+    s!"unsupported Noir semantic shape: unknown ContextRead key '{blockHeightContextKeyV1.value}'"
+    blockHeightCompiled
+  expectContextMatrixFailClosed "context.blockHeight/aleo"
+    TargetId.aleo .aleo
+    s!"unsupported Aleo semantic shape: unknown ContextRead key '{blockHeightContextKeyV1.value}'"
+    blockHeightCompiled
+  expectContextMatrixFailClosed "context.blockHeight/psy"
+    TargetId.psy .psy
+    "unsupported Psy semantic shape: context.blockHeight has no DPN height binding (FC). Use call pf.context.checkpointId() for checkpoint identity"
+    blockHeightCompiled
+  expectContextMatrixFailClosed "context.blockHeight/quint"
+    TargetId.quint .quint
+    "unsupported Quint semantic shape: op is outside Q0"
+    blockHeightCompiled
+
+  let chainIdSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CtxChainIdMatrix where\n" ++
+    "  state public pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry read() : UInt64 do\n" ++
+    "    return context.chainId\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let chainIdV1 ← match ← session.selectProgramV1 chainIdSource
+      "<targets-context-chain-id-matrix>" "Examples.CtxChainIdMatrix" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"context.chainId matrix select: {e.render}"
+  let chainIdCompiled ← liftResult <| Compiler.compileValidatedSourceV1 chainIdV1
+  expectContextMatrixAdmit "context.chainId" TargetId.evm chainIdCompiled
+  expectContextMatrixFailClosed "context.chainId/near"
+    TargetId.near .near
+    "unsupported NEAR semantic shape: ContextRead context.chainId has no exact host counterpart (fail closed)"
+    chainIdCompiled
+  expectContextMatrixFailClosed "context.chainId/cosmwasm"
+    TargetId.cosmwasm .cosmwasm
+    "unsupported CosmWasm semantic shape: ContextRead context.chainId has no exact UInt64 host counterpart (string chain_id fail closed)"
+    chainIdCompiled
+  expectContextMatrixFailClosed "context.chainId/solana"
+    TargetId.solana .solana
+    s!"unsupported Solana semantic shape: unknown ContextRead key '{chainIdContextKeyV1.value}'"
+    chainIdCompiled
+  expectContextMatrixFailClosed "context.chainId/ton"
+    TargetId.ton .ton
+    s!"unsupported Ton semantic shape: unknown ContextRead key '{chainIdContextKeyV1.value}'"
+    chainIdCompiled
+  expectContextMatrixFailClosed "context.chainId/noir"
+    TargetId.noir .noir
+    s!"unsupported Noir semantic shape: unknown ContextRead key '{chainIdContextKeyV1.value}'"
+    chainIdCompiled
+  expectContextMatrixFailClosed "context.chainId/aleo"
+    TargetId.aleo .aleo
+    s!"unsupported Aleo semantic shape: unknown ContextRead key '{chainIdContextKeyV1.value}'"
+    chainIdCompiled
+  expectContextMatrixFailClosed "context.chainId/psy"
+    TargetId.psy .psy
+    s!"unsupported Psy semantic shape: unknown ContextRead key '{chainIdContextKeyV1.value}' is not admitted by pilot context policy"
+    chainIdCompiled
+  expectContextMatrixFailClosed "context.chainId/quint"
+    TargetId.quint .quint
+    "unsupported Quint semantic shape: op is outside Q0"
+    chainIdCompiled
+
+  let selfSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CtxSelfMatrix where\n" ++
+    "  state public pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry same() : Bool do\n" ++
+    "    return context.self == context.self\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let selfV1 ← match ← session.selectProgramV1 selfSource
+      "<targets-context-self-matrix>" "Examples.CtxSelfMatrix" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"context.self matrix select: {e.render}"
+  let selfCompiled ← liftResult <| Compiler.compileValidatedSourceV1 selfV1
+  for target in [TargetId.evm, TargetId.near, TargetId.cosmwasm] do
+    expectContextMatrixAdmit "context.self" target selfCompiled
+  expectContextMatrixFailClosed "context.self/solana"
+    TargetId.solana .solana
+    s!"unsupported Solana semantic shape: unknown ContextRead key '{selfContextKeyV1.value}'"
+    selfCompiled
+  expectContextMatrixFailClosed "context.self/ton"
+    TargetId.ton .ton
+    s!"unsupported Ton semantic shape: unknown ContextRead key '{selfContextKeyV1.value}'"
+    selfCompiled
+  expectContextMatrixFailClosed "context.self/noir"
+    TargetId.noir .noir
+    s!"unsupported Noir semantic shape: unknown ContextRead key '{selfContextKeyV1.value}'"
+    selfCompiled
+  expectContextMatrixFailClosed "context.self/aleo"
+    TargetId.aleo .aleo
+    s!"unsupported Aleo semantic shape: unknown ContextRead key '{selfContextKeyV1.value}'"
+    selfCompiled
+  expectContextMatrixFailClosed "context.self/psy"
+    TargetId.psy .psy
+    s!"unsupported Psy semantic shape: unknown ContextRead key '{selfContextKeyV1.value}' is not admitted by pilot context policy"
+    selfCompiled
+  expectContextMatrixFailClosed "context.self/quint"
+    TargetId.quint .quint
+    "unsupported Quint semantic shape: op is outside Q0"
+    selfCompiled
 
   -- B-RET-ABI: named Struct view return. EVM + Noir + Solana + NEAR + Psy +
   -- CosmWasm + TON admit (multi-leaf ABI: EVM tuple / Noir leaves /
