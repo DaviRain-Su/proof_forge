@@ -281,6 +281,12 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       for a in args do out := out.append (← encodeExpr a)
       out := out.append (← encodeNatAsU32le resultTemp)
       pure out
+  -- ADR-0031 SYS-S5-SOLANA: dedicated sha256 syscall binding (tag 15).
+  -- Existing tags 0..14 remain byte-identical.
+  | .sha256Precompile input resultTemp => do
+      let mut out := (encodeU8 15).append (← encodeExpr input)
+      out := out.append (← encodeNatAsU32le resultTemp)
+      pure out
   -- Atomic aggregate multi-leaf store (tag 11): count + N × store payload.
   | .storeAggregate leaves => do
       let mut out := (encodeU8 11).append (← encodeNatAsU32le leaves.size)

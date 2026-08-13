@@ -109,6 +109,21 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .stateLoad .. | .narrowStateLoad ..
   | .temp _ | .clockSlot | .callerPrincipalLeaf .. => true
 
+/-- UInt256 expression shapes admitted as input to the dedicated sha256
+    syscall node. `.temp` is needed for a prior sha256 result; the semantic
+    lowerer is the sole mint and pins that binding to UInt256. -/
+private def exprIsUInt256CompatibleV1 : Expr → Bool
+  | .bigLiteral 256 _ | .narrowParam 256 _ | .narrowStateLoad 256 ..
+  | .narrowCheckedAdd 256 .. | .narrowCheckedSub 256 ..
+  | .narrowCheckedMul 256 .. | .narrowCheckedDiv 256 ..
+  | .narrowCheckedMod 256 .. | .narrowBitAnd 256 ..
+  | .narrowBitOr 256 .. | .narrowBitXor 256 .. | .narrowBitNot 256 ..
+  | .narrowShl 256 .. | .narrowShr 256 .. | .temp _ => true
+  | _ => false
+
+private def isPfCryptoCalleeV1 (callee : Array String) : Bool :=
+  callee[0]? == some "pf" && callee[1]? == some "crypto"
+
 /-- Bool-compatible plan expression (compare/boolNot/boolAnd/boolOr and
     Bool-returning callFn). -/
 private def exprIsBoolCompatibleV1 (fns : Array FnBinding) : Expr → Bool
@@ -385,6 +400,9 @@ private partial def checkHandlerStatementsV1
         unless callee.size ≥ 2 do
           throw <| .planInvariant .solana
             "product ExternalCall callee must have ≥2 QualifiedName components"
+        if isPfCryptoCalleeV1 callee then
+          throw <| .planInvariant .solana
+            "unsupported Solana plan: pf.crypto must use its dedicated sha256 syscall binding"
         if isView then
           throw <| .planInvariant .solana
             "unsupported Solana plan shape: view handler must not external-call"
@@ -397,6 +415,18 @@ private partial def checkHandlerStatementsV1
     | .externalCallResult .. =>
         throw <| .planInvariant .solana
           "product full-body does not yet admit result-bearing ExternalCall (P3-d+)"
+    | .sha256Precompile input _resultTemp =>
+        unless account.admitProductExternalCall do
+          throw <| .planInvariant .solana
+            "legacy Solana profiles do not support pf.crypto.sha256"
+        if isView then
+          throw <| .planInvariant .solana
+            "unsupported Solana plan shape: view/pureFn must not call pf.crypto.sha256"
+        unless exprIsUInt256CompatibleV1 input do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: pf.crypto.sha256 input must be UInt256"
+        total ← addPlanExprNodes account params fns total input
+        total := total + 1
     | .schedule .. =>
         throw <| .planInvariant .solana
           "legacy Solana profiles do not support scheduled workflows"

@@ -140,6 +140,9 @@ inductive Operation where
   | narrowBitNot (bitWidth destination source : Nat)
   | narrowCheckedShl (bitWidth destination lhs rhs shiftError overflowError : Nat)
   | narrowCheckedShr (bitWidth destination lhs rhs shiftError : Nat)
+  /-- ADR-0031 SYS-S5-SOLANA: hash one UInt256 value (four LE u64 limbs)
+      through `sol_sha256`; write the 32-byte digest to four result limbs. -/
+  | sha256Syscall (destination input : Nat)
   /-- ADR-0031 S2: load `Clock.slot` via host `sol_get_clock_sysvar` into
       `destination`. Physical ≈400ms slot (not logical block number). Emitter
       allocates a 40-byte stack buffer; no Clock account meta. -/
@@ -877,7 +880,8 @@ private partial def statementListClosesV1 : List Statement → Bool
       | .store _ | .storeAggregate _ | .denseMapPrincipalUpsert ..
       | .denseMapPrincipalLookup ..
       | .assert _ | .emitEvent .. | .externalCall ..
-      | .externalCallResult .. | .schedule .. | .forLoop .. => false
+      | .externalCallResult .. | .sha256Precompile .. | .schedule ..
+      | .forLoop .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Append the hard exit after a closed region arm, unless the arm already
@@ -916,7 +920,8 @@ private def tempDestination? : Operation → Option Nat
       .narrowBitXor _ destination .. | .narrowBitNot _ destination _ |
       .narrowCheckedShl _ destination .. | .narrowCheckedShr _ destination .. |
       .compare destination .. | .wideCompare _ destination .. |
-      .callFn _ destination _ | .clockSlot destination
+      .callFn _ destination _ | .sha256Syscall destination _ |
+      .clockSlot destination
       | .callerPrincipalLeaf destination _ _ => some destination
   | .mapPrincipalUpsert _ _ _ outTemps _ =>
       match outTemps[0]? with | some d => some d | none => none
@@ -936,6 +941,7 @@ private partial def opsPeakTemp (ops : Array Operation) : Nat :=
           let n :=
             match op with
             | .mapPrincipalUpsert .. => mapPrincipalLeafCountV1 + 1
+            | .sha256Syscall .. => 4
             | _ => 1
           Nat.max acc (d + n)
       | none =>
@@ -963,11 +969,11 @@ private partial def lowerBodyOps
   let mut operations : Array Operation := #[]
   -- `nextBase` is the sequence entry point. Each Statement lowers an
   -- independent Expr tree; no cross-statement temp reference exists outside
-  -- forLoop bodies and result-bearing externalCall (where `.temp` binds a
-  -- plan temp below or at the live range). After a consuming statement
+  -- forLoop bodies and result-bearing external effects (where `.temp` binds
+  -- a plan temp below or at the live range). After a consuming statement
   -- (store/return/emit/revert/void-call/schedule/assert) temps for that
   -- statement's Expr(s) are dead, so we recycle `next` back to `nextBase`
-  -- — except result-bearing externalCall, which keeps its result temp live.
+  -- — except result-bearing external effects, which keep result temps live.
   -- Critical for the dense Map cap-8 pilot (frame budget). The IR validator
   -- applies the same recycling rule so canonical numbering stays consistent.
   let mut nextBase := next
@@ -1165,6 +1171,16 @@ private partial def lowerBodyOps
         -- Result-bearing still fail-closed at validatePlan; sentinel if bypassed.
         operations := operations.push (.externalCall callee "" #[] none)
         next := nextBase
+    | .sha256Precompile input resultPlanTemp =>
+        -- SYS-S5-SOLANA: evaluate the UInt256 input, then keep the four-limb
+        -- digest live under the Semantic result ValueId for later `.temp` use.
+        let value := lowerExpr overflowError tempMap next input
+        operations := operations ++ value.operations
+        let resultBase := value.next
+        operations := operations.push (.sha256Syscall resultBase value.value)
+        tempMap := (resultPlanTemp, resultBase) :: tempMap
+        nextBase := resultBase + 4
+        next := nextBase
     | .schedule callee _ =>
         -- Unreachable after validatePlan; scheduling has no legacy lowering.
         operations := operations.push (.schedule callee "" #[])
@@ -1299,7 +1315,8 @@ private def opResultLimbCount : Operation → Nat
   | .bitAnd .. | .bitOr .. | .bitXor .. | .checkedShl .. | .checkedShr ..
   | .bitNot .. | .boolNot .. | .boolAnd .. | .boolOr ..
   | .compare .. | .wideCompare .. | .callFn .. | .clockSlot ..
-  | .callerPrincipalLeaf ..
+  | .callerPrincipalLeaf .. => 1
+  | .sha256Syscall .. => 4
   | .externalCall _ _ _ (some _) => 1
   | .mapPrincipalUpsert .. => mapPrincipalLeafCountV1 + 1
   | _ => 0
@@ -1350,9 +1367,10 @@ private partial def validateOperationSequence
         throw <| .planInvariant .solana "typed Solana IR temporary numbering is not canonical"
       let limbs := opResultLimbCount operation
       next := next + (if limbs == 0 then 1 else limbs)
-      -- Result-bearing externalCall raises the recycle floor (BL-27).
+      -- Result-bearing externalCall and sha256 raise the recycle floor.
       match operation with
       | .externalCall _ _ _ (some _) => nextBase := next
+      | .sha256Syscall .. => nextBase := next
       | _ => pure ()
     match operation with
     | .returnNone =>
@@ -1374,7 +1392,8 @@ private partial def validateOperationSequence
     | .narrowCheckedDiv .. | .narrowCheckedMod ..
     | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor .. | .narrowBitNot ..
     | .narrowCheckedShl .. | .narrowCheckedShr ..
-    | .compare .. | .wideCompare .. | .clockSlot .. | .callerPrincipalLeaf ..
+    | .compare .. | .wideCompare .. | .sha256Syscall ..
+    | .clockSlot .. | .callerPrincipalLeaf ..
     | .mapPrincipalLookup .. | .mapPrincipalUpsert ..
     | .assert .. | .zeroState .. | .narrowZeroState ..
     | .storeState .. | .narrowStoreState .. | .storeStateMulti ..
@@ -1507,6 +1526,11 @@ private partial def validateOperationSequence
         unless (bitWidth == 128 || bitWidth == 256) &&
             lhs + nLimbs ≤ next - 1 && rhs + nLimbs ≤ next - 1 do
           throw <| .planInvariant .solana "typed Solana IR wideCompare operands are invalid"
+    | .sha256Syscall _destination input =>
+        unless account.admitProductExternalCall && handler.mode != .view &&
+            input + 4 ≤ destBound do
+          throw <| .planInvariant .solana
+            "typed Solana IR sha256 syscall requires product mode and a UInt256 input"
     | .clockSlot _destination =>
         -- Host Clock.slot leaf: no operands; destination numbering already
         -- checked above via tempDestination?.
@@ -1768,8 +1792,8 @@ private partial def validateOperationSequence
           throw <| .planInvariant .solana "typed Solana IR for-region update is invalid"
         next := if recycle then nextBase else next
     -- Recycle temps after consuming operations (matching lowerBodyOps).
-    -- Void externalCall/schedule recycle; result-bearing externalCall keeps
-    -- its resultDest live for subsequent `.temp` uses (BL-27).
+    -- Void externalCall/schedule recycle; result-bearing externalCall and
+    -- sha256 keep their result temps live for subsequent `.temp` uses.
     -- Disabled when recycle=false (fixed dense sequences like bound-checks).
     if recycle then
       match operation with
@@ -1847,7 +1871,7 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
     | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
     | .storeStateMulti .. | .mapPrincipalUpsert .. | .mapPrincipalLookup ..
     | .zeroState .. | .narrowZeroState .. | .setHeader ..
-    | .emitEvent .. | .externalCall .. | .schedule ..
+    | .emitEvent .. | .externalCall .. | .sha256Syscall .. | .schedule ..
     -- Host sysvar / caller-role reads are not pure.
     | .clockSlot .. | .callerPrincipalLeaf .. =>
         throw <| .planInvariant .solana
@@ -1857,7 +1881,7 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
           match nested with
           | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
           | .storeStateMulti ..
-          | .emitEvent .. | .externalCall .. | .schedule .. =>
+          | .emitEvent .. | .externalCall .. | .sha256Syscall .. | .schedule .. =>
               throw <| .planInvariant .solana
                 s!"fn IR '{fn.name}' contains a non-pure nested operation"
           | _ => pure ()
@@ -1867,7 +1891,7 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
           match nested with
           | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
           | .storeStateMulti ..
-          | .emitEvent .. | .externalCall .. | .schedule .. =>
+          | .emitEvent .. | .externalCall .. | .sha256Syscall .. | .schedule .. =>
               throw <| .planInvariant .solana
                 s!"fn IR '{fn.name}' contains a non-pure nested operation"
           | _ => pure ()
@@ -1876,7 +1900,7 @@ private def validateFnIR (plan : Plan) (fn : FnIR) : CompileResult Unit := do
           match nested with
           | .loadState .. | .narrowLoadState .. | .storeState .. | .narrowStoreState ..
           | .storeStateMulti ..
-          | .emitEvent .. | .externalCall .. | .schedule .. =>
+          | .emitEvent .. | .externalCall .. | .sha256Syscall .. | .schedule .. =>
               throw <| .planInvariant .solana
                 s!"fn IR '{fn.name}' contains a non-pure nested operation"
           | _ => pure ()
@@ -2103,6 +2127,8 @@ private partial def renderOperation (indent : String)
       s!"{indent}%{destination} = cmp_{renderComparisonOp op}_u64 %{lhs}, %{rhs}\n"
   | .wideCompare bitWidth destination lhs rhs op =>
       s!"{indent}%{destination} = cmp_{renderComparisonOp op}_u{bitWidth} %{lhs}, %{rhs}\n"
+  | .sha256Syscall destination input =>
+      s!"{indent}%{destination}..%{destination + 3} = sol_sha256 %{input}..%{input + 3}\n"
   | .clockSlot destination =>
       -- ADR-0031 S2: Clock.slot (physical ≈400ms slot, not logical block number).
       s!"{indent}%{destination} = clock_slot  ; sol_get_clock_sysvar → Clock.slot\n"

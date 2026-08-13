@@ -1620,6 +1620,100 @@ private unsafe def testExternalCallFailClosed
   expectPlanError "forged legacy call SBPF" (emitSbpfAsmV1 forgedCallIr)
   expectPlanError "forged legacy schedule SBPF" (emitSbpfAsmV1 forgedScheduleIr)
 
+/-- SYS-S5-SOLANA: `call pf.crypto.sha256` UInt256→UInt256 via `sol_sha256`
+    on sole product profile `solana-sbpf-cpi-elf-v1`. Dedicated Plan statement
+    (not hashed/`externalCallResult`); other widths/QNs and schedule stay FC. -/
+private unsafe def testCryptoSha256Solana
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "Sha256Sol" <|
+    "  state last : UInt256\n\n" ++
+    "  init() do\n" ++
+    "    last := 0\n\n" ++
+    "  entry probe(x : UInt256) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256(x)\n" ++
+    "    last := h\n" ++
+    "    return h\n"
+  let compiled ← compileSource session src
+    "Examples.Sha256Sol" "<solana-sha256>"
+  let plan ← liftResult <| planSolana compiled
+  let mut hasDedicated := false
+  let mut hasHashedResultCall := false
+  for e in plan.entries do
+    for s in e.body do
+      match s with
+      | .sha256Precompile _ _ => hasDedicated := true
+      | .externalCallResult callee _ _ =>
+          if callee == #["pf", "crypto", "sha256"] then
+            hasHashedResultCall := true
+      | .externalCall callee _ =>
+          if callee == #["pf", "crypto", "sha256"] then
+            hasHashedResultCall := true
+      | _ => pure ()
+  expect hasDedicated
+    "Sha256Sol: plan must contain dedicated sha256Precompile statement"
+  expect (!hasHashedResultCall)
+    "Sha256Sol: must not lower to externalCall(Result) for pf.crypto.sha256"
+  let ir ← liftResult <| irSolana compiled
+  let asm ← liftResult <| emitSbpfAsmV1 ir
+  expect (asm.contains "sol_sha256")
+    "Sha256Sol: SBPF must call sol_sha256"
+
+  let expectPlanFc (programName pathLabel moduleName body needle : String) :
+      IO Unit := do
+    let negSrc := wrapProgram programName body
+    let negCompiled ← compileSource session negSrc moduleName pathLabel
+    match planSolana negCompiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{programName} must Plan fail closed (no empty-meta / hashed fallback)"
+
+  -- UInt64 arg/result outside the UInt256↔UInt256 admit set.
+  expectPlanFc "Sha256SolU64" "<solana-sha256-u64>" "Examples.Sha256SolU64"
+    ("  state last : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt64) : UInt64 do\n" ++
+      "    let h : UInt64 := call pf.crypto.sha256(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n")
+    "pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+  -- schedule of sha256 is not admitted.
+  expectPlanFc "Sha256SolSched" "<solana-sha256-sched>" "Examples.Sha256SolSched"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    schedule pf.crypto.sha256(x)\n" ++
+      "    last := x\n" ++
+      "    return x\n")
+    "asynchronous-workflow"
+  -- Unknown sibling QN must not fall through to empty-meta invoke.
+  expectPlanFc "Sha256SolHashNoPad" "<solana-sha256-hashnopad>"
+    "Examples.Sha256SolHashNoPad"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.hashNoPad(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n")
+    "outside admitted Solana scope"
+  -- Generic result-bearing Oracle.feed stays FC (no scope leak from sha256).
+  expectPlanFc "OracleFeedRet" "<solana-oracle-feed-ret>" "Examples.OracleFeedRet"
+    ("  state count : UInt64\n\n" ++
+      "  init(i : UInt64) do\n" ++
+      "    count := i\n\n" ++
+      "  entry bump(k : UInt64) : UInt64 do\n" ++
+      "    let x : UInt64 := call Oracle.feed(k)\n" ++
+      "    count := x\n" ++
+      "    return count\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return count\n")
+    "result-bearing ExternalCall"
+
 private unsafe def testVoidEntryRejected
     (session : Language.Loader.ParserSession) : IO Unit := do
   let text := wrapProgram "VoidEntry" <|
@@ -3445,6 +3539,7 @@ unsafe def run : IO Unit := do
   testForLoop session
   testShiftBitwiseLogical session
   testExternalCallFailClosed session
+  testCryptoSha256Solana session
   testVoidEntryRejected session
   testMultipleEvents session
   testIsolatedModZero session

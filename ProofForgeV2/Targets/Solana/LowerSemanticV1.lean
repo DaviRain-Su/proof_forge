@@ -131,8 +131,10 @@ structure StateAccount where
   /-- ADR-0032 U1: when true, body may lower `context.caller` from account[1]
       pf_caller key (threaded via this carrier so region recursion stays pure). -/
   admitCallerRole : Bool := false
-  /-- ADR-0032 P3-d: product full-body Plan may lower void ExternalCall markers
-      (EmitSbpfAsm empty-meta partial CPI). Independent of admitCallerRole. -/
+  /-- ADR-0032 P3-d / ADR-0031 S5: product full-body Plan may lower void
+      ExternalCall markers (EmitSbpfAsm empty-meta partial CPI) and the exact
+      `pf.crypto.sha256(UInt256) -> UInt256` host-syscall leaf. Independent of
+      admitCallerRole. -/
   admitProductExternalCall : Bool := false
   /-- P3-e / M4b multi-role: when >0, EmitSbpfAsm walks this many outer accounts
       into the role table and uses multi-role AccountMetas. 0 = off. -/
@@ -345,6 +347,10 @@ inductive Statement where
   | externalCall (callee : Array String) (args : Array Expr)
   /-- Reserved legacy node (N-CALL-RET). Rejected for shipped legacy profiles. -/
   | externalCallResult (callee : Array String) (args : Array Expr) (resultTemp : Nat)
+  /-- ADR-0031 SYS-S5-SOLANA: exact
+      `pf.crypto.sha256(UInt256) -> UInt256` binding to `sol_sha256`.
+      Dedicated node: it never enters the hashed/empty-meta CPI path. -/
+  | sha256Precompile (input : Expr) (resultTemp : Nat)
   /-- Reserved legacy node. Solana scheduling remains unsupported (async FC on
       all profiles including CPI product). -/
   | schedule (callee : Array String) (args : Array Expr)
@@ -1541,6 +1547,14 @@ private def currentValueWithArmsV1
 private def isSolanaBodyUintWidth (w : Nat) : Bool :=
   EnvelopeV1.isSolanaBodyUintWidth w
 
+/-- Reserve the complete `pf.crypto` namespace from generic hashed/empty-meta
+    CPI lowering. SYS-S5-SOLANA admits only the exact sha256 leaf below. -/
+private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
+  components[0]? == some "pf" && components[1]? == some "crypto"
+
+private def isPfCryptoSha256CalleeV1 (components : Array String) : Bool :=
+  components == #["pf", "crypto", "sha256"]
+
 /-- Shared bounded SSA-tree cost for binary Expr constructors. Operands must
     be non-Bool and share `bitWidth` (+ signedness for non-Bool results).
     Comparison results are Bool (`bitWidth=1`). -/
@@ -2727,6 +2741,10 @@ private def lowerBlockInstructionsV1
         unless account.admitProductExternalCall do
           throw <| .planInvariant .solana
             "legacy Solana Plan lowering does not admit external calls; use the exact CPI product profile"
+        let components := callee.components.toArray
+        if isPfCryptoCalleeV1 components then
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: pf.crypto calls require result-bearing pf.crypto.sha256(UInt256) -> UInt256"
         let mut argExprs : Array Expr := #[]
         for argId in argIds do
           let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
@@ -2740,7 +2758,6 @@ private def lowerBlockInstructionsV1
             throw <| .planInvariant .solana
               "unsupported Solana semantic shape: product ExternalCall body args must be UInt64 or account-bound Principal"
         let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
-        let components := callee.components.toArray
         body := body.push (.externalCall components argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
@@ -2748,12 +2765,46 @@ private def lowerBlockInstructionsV1
         unless account.admitProductExternalCall do
           throw <| .planInvariant .solana
             "legacy Solana Plan lowering does not admit result-bearing external calls; use the exact CPI product profile"
-        -- Result-bearing sync still deferred for multi-role product (P3-d+).
-        let _ := result
-        let _ := callee
-        let _ := argIds
-        throw <| .planInvariant .solana
-          "product full-body does not yet admit result-bearing ExternalCall (P3-d+)"
+        if mode == .view then
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: view callable makes an external call"
+        let components := callee.components.toArray
+        if isPfCryptoCalleeV1 components then
+          let qn := String.intercalate "." components.toList
+          unless isPfCryptoSha256CalleeV1 components do
+            throw <| .planInvariant .solana
+              s!"unsupported Solana semantic shape: pf.crypto QN '{qn}' is outside admitted Solana scope"
+          unless argIds.size == 1 && types.uintWidthOf result.typeId == some 256 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+          let some argId := argIds[0]? |
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: pf.crypto.sha256 UInt256 argument is missing"
+          let root ← currentValueWithArmsV1
+            values blockEntry segmentStart armReadables argId
+          unless !root.isBool && !root.isInt && !root.isAggregate &&
+              root.bitWidth == 256 do
+            throw <| .planInvariant .solana
+              "unsupported Solana semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+          let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+          let resultTemp := result.valueId.toNat
+          body := body.push (.sha256Precompile root.expr resultTemp)
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := .temp resultTemp
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+            isBool := false
+            isUInt32 := false
+            isInt := false
+            bitWidth := 256
+          }
+          armReadables := promoteDominatingPureV1 blockEntry values armReadables
+          segmentStart := values.size
+        else
+          -- Generic result-bearing CPI remains outside P3-d+.
+          throw <| .planInvariant .solana
+            "product full-body does not yet admit result-bearing ExternalCall (P3-d+)"
     | .schedule _ _ _, _ =>
         throw <| .planInvariant .solana
           "legacy Solana profiles do not support scheduled workflows"
@@ -4138,9 +4189,10 @@ def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : 
   makePlanFromSemanticV1 source false false
 
 /-- ADR-0032 U1 / P3-d product full-body: lower full Semantic→Plan for product
-    profile with optional `context.caller` (account[1] pf_caller) and product
-    ExternalCall markers (void only). Used for zero-site full body and for
-    hasSites∧needsFullBody empty-meta partial synthesis. -/
+    profile with optional `context.caller` (account[1] pf_caller), product void
+    ExternalCall markers, and the exact SYS-S5-SOLANA sha256 host-syscall leaf.
+    Used for zero-site full body and for hasSites∧needsFullBody empty-meta
+    partial synthesis. -/
 def materializeFullBodyPlanForProductV1
     (capability : ResolvedEngineeringBuildV1)
     (admitCallerRole : Bool) : CompileResult Plan := do
