@@ -11,6 +11,7 @@ import ProofForgeV2.Targets.Near.MethodSemanticsV1
 import ProofForgeV2.Targets.Near.WATSemanticsV1
 import ProofForgeV2.Targets.Near.WasmBinaryV1
 import ProofForgeV2.Targets.Near.WasmCertProviderV1
+import ProofForgeV2.Targets.Near.WasmCertWireV1
 
 /-!
 # ProofForgeV2.Targets.Near — public façade
@@ -27,6 +28,8 @@ NEAR protocol semantics.
 does not give section payloads execution semantics or prove translation.
 `WasmCertProviderV1` pins the selected external semantics source and protocol
 boundary, but remains deliberately unprovisioned and cannot mint evidence.
+`WasmCertWireV1` supplies canonical closed-schema record interchange; decoding
+one of those records still does not establish execution or provider identity.
 `FinalizeV1` remains a separate submodule.
 -/
 

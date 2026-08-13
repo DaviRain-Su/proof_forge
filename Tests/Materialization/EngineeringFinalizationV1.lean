@@ -42,6 +42,11 @@ private def liftResult (label : String) (result : CompileResult α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError s!"{label}: {error.render}"
 
+private def liftStringExcept (label : String) (result : Except String α) : IO α :=
+  match result with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError s!"{label}: {error}"
+
 private def materializeOk (label : String) (capability : Targets.ResolvedEngineeringBuildV1) :
     IO MaterializedArtifactsV1 :=
   liftResult label (Targets.materializeResult capability)
@@ -359,6 +364,109 @@ private def testNearWasmCertProviderBoundary : IO Unit := do
   | .ok _ =>
       throw <| IO.userError
         "WasmCert provider must not activate without a Tool Lock executable digest"
+
+/-- Canonical provider interchange is strict record plumbing only: request and
+    result identity/status join can succeed, while noncanonical/unknown fields,
+    digest drift, rejected stages, and SIMD fail closed. -/
+private def testNearWasmCertProviderWire : IO Unit := do
+  let inputDigest := sha256Bytes "wasm-input".toUTF8
+  let invocationDigest := sha256Bytes "invocation".toUTF8
+  let request : Targets.Near.WasmCertProviderRequestV1 := {
+    schema := Targets.Near.wasmCertProviderRequestSchemaV1
+    providerRevision := Targets.Near.wasmCertCoqRevisionV1
+    inputWasmPath := "work/VerifiedVaultPF.wasm"
+    inputWasmSha256 := inputDigest
+    invocationPath := "work/invocation.pf-jcs.json"
+    invocationSha256 := invocationDigest
+    fuel := 100000
+  }
+  let requestText ← liftStringExcept "encode WasmCert request"
+    (Targets.Near.encodeWasmCertProviderRequestV1 request)
+  let decodedRequest ← liftStringExcept "decode WasmCert request"
+    (Targets.Near.decodeWasmCertProviderRequestV1 requestText.toUTF8)
+  expect (decodedRequest == request) "WasmCert request canonical roundtrip"
+  let zeroFuel := { request with fuel := 0 }
+  match Targets.Near.validateWasmCertProviderRequestV1 zeroFuel with
+  | .error _ => pure ()
+  | .ok () => throw <| IO.userError "zero WasmCert fuel must fail closed"
+  let excessiveFuel := {
+    request with fuel := Targets.Near.wasmCertProviderMaxFuelV1 + 1
+  }
+  match Targets.Near.validateWasmCertProviderRequestV1 excessiveFuel with
+  | .error _ => pure ()
+  | .ok () => throw <| IO.userError "excessive WasmCert fuel must fail closed"
+  match Targets.Near.decodeWasmCertProviderRequestV1 (requestText ++ "\n").toUTF8 with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "noncanonical WasmCert request must fail closed"
+  let unknownFieldText := "{\"extra\":0," ++ (requestText.drop 1).copy
+  match Targets.Near.decodeWasmCertProviderRequestV1 unknownFieldText.toUTF8 with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "unknown WasmCert request field must fail closed"
+  let requestPath := "work/request.pf-jcs.json"
+  let resultPath := "work/result.pf-jcs.json"
+  let record : Targets.Near.WasmCertProviderResultRecordV1 := {
+    schema := Targets.Near.wasmCertProviderResultSchemaV1
+    providerRevision := Targets.Near.wasmCertCoqRevisionV1
+    executableSha256 := sha256Bytes "provider".toUTF8
+    argv := Targets.Near.wasmCertProviderArgvV1 requestPath resultPath
+    inputWasmSha256 := inputDigest
+    invocationSha256 := invocationDigest
+    parserStatus := .parsedUnverified
+    checkerStatus := .acceptedProvedSound
+    instantiationStatus := .acceptedProvedSound
+    executionStatus := .returned
+    hostProfile := Targets.Near.wasmCertProviderHostProfileV1
+    hostTraceSha256 := sha256Bytes "trace".toUTF8
+    observationSha256 := sha256Bytes "observation".toUTF8
+    simdUsed := false
+  }
+  let resultText ← liftStringExcept "encode WasmCert result"
+    (Targets.Near.encodeWasmCertProviderResultRecordV1 record)
+  let decodedRecord ← liftStringExcept "decode WasmCert result"
+    (Targets.Near.decodeWasmCertProviderResultRecordV1 resultText.toUTF8)
+  expect (decodedRecord == record) "WasmCert result canonical roundtrip"
+  match Targets.Near.decodeWasmCertProviderResultRecordV1
+      (resultText ++ "\n").toUTF8 with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "noncanonical WasmCert result must fail closed"
+  let unknownResultFieldText := "{\"extra\":0," ++ (resultText.drop 1).copy
+  match Targets.Near.decodeWasmCertProviderResultRecordV1
+      unknownResultFieldText.toUTF8 with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "unknown WasmCert result field must fail closed"
+  let _ ← liftStringExcept "join WasmCert request/result candidate"
+    (Targets.Near.validateWasmCertProviderResultForRequestV1
+      request requestPath resultPath record)
+  let wrongInput := { record with inputWasmSha256 := sha256Bytes "wrong".toUTF8 }
+  match Targets.Near.validateWasmCertProviderResultForRequestV1
+      request requestPath resultPath wrongInput with
+  | .error _ => pure ()
+  | .ok () => throw <| IO.userError "WasmCert input digest drift must fail closed"
+  let rejected := { record with checkerStatus := .rejected }
+  match Targets.Near.validateWasmCertProviderResultForRequestV1
+      request requestPath resultPath rejected with
+  | .error _ => pure ()
+  | .ok () => throw <| IO.userError "WasmCert checker rejection must fail join"
+  let parserRejected := { record with parserStatus := .rejected }
+  match Targets.Near.validateWasmCertProviderResultForRequestV1
+      request requestPath resultPath parserRejected with
+  | .error _ => pure ()
+  | .ok () => throw <| IO.userError "WasmCert parser rejection must fail join"
+  let instantiationRejected := { record with instantiationStatus := .rejected }
+  match Targets.Near.validateWasmCertProviderResultForRequestV1
+      request requestPath resultPath instantiationRejected with
+  | .error _ => pure ()
+  | .ok () => throw <| IO.userError "WasmCert instantiation rejection must fail join"
+  let exhausted := { record with executionStatus := .exhausted }
+  match Targets.Near.validateWasmCertProviderResultForRequestV1
+      request requestPath resultPath exhausted with
+  | .error _ => pure ()
+  | .ok () => throw <| IO.userError "WasmCert exhaustion must fail join"
+  let simd := { record with simdUsed := true }
+  match Targets.Near.validateWasmCertProviderResultForRequestV1
+      request requestPath resultPath simd with
+  | .error _ => pure ()
+  | .ok () => throw <| IO.userError "WasmCert strict profile must reject SIMD"
 
 /-- Hermetic PF-ARTIFACT-NONDEPLOYABLE gates (empty solc bytecode + bad Wasm). -/
 private unsafe def testNonDeployablePhases : IO Unit := do
@@ -690,6 +798,7 @@ unsafe def run : IO Unit := do
   testNearFinalizerInputBinding
   testNearWasmBinaryEnvelope
   testNearWasmCertProviderBoundary
+  testNearWasmCertProviderWire
   testNonDeployablePhases
   testFourTargetFinalization
   testToolFailureZeroPublish

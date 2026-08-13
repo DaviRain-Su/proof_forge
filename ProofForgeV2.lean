@@ -130,3 +130,4 @@ import ProofForgeV2.Targets.DescriptorDataV1
 import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.CLI.Emit
+import ProofForgeV2.Targets.Near.WasmCertWireV1

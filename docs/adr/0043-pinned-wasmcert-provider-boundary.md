@@ -88,6 +88,13 @@ result 是 **provider record，不是 certificate**。consumer 必须重算 requ
 检查 tool/executable/argv/input/invocation identity，并独立打开 host trace 与 observation artifact；
 仅仅能 parse result 不得 mint `target-refined` evidence。
 
+`Targets/Near/WasmCertWireV1.lean` 已实现上述 request/result 的 canonical PF-JCS codec 与
+identity/status candidate join：非 canonical JSON、unknown/duplicate/missing field、非法相对路径、
+digest 漂移、非 bounded fuel、parser/checker/instantiation拒绝、非 terminal execution和 SIMD 都
+fail closed。该 join 故意不把任意 `executableSha256`升级为 Tool Lock identity；product consumer
+仍必须先通过 `requireWasmCertProviderProvisionedV1`，而该 gate 当前必定失败。因此 codec round-trip
+或 candidate join成功都只证明严格 record plumbing，不证明 wrapper存在、WasmCert运行或 record为真。
+
 ### D3 — mechanization status 必须逐层保留
 
 固定 revision 的边界为：
@@ -155,7 +162,8 @@ LGPL-2.1-or-later；不能只复制 opam 的简化 MIT 字段。
 
 - 当前 NEAR assurance **不升级**：仍是四个 bounded MethodIR/typed-WAT recipe + finalized Wasm
   structural boundary，整体不是 fully target-refined。
-- source pin 与 closed protocol可以先审计；不存在真实 executable 时 product仍机械 fail closed。
+- source pin、closed protocol和 canonical wire/identity candidate join可以先审计；不存在真实
+  executable 时 product仍机械 fail closed。
 - 后续工作先实现/锁定 structured wrapper，再实现 bounded NEAR host 与四 recipe trace join；在这个
   NEAR阶段出口前不继续 Solana扩面。
 - WasmCert parser、wrapper glue、OCaml compiler/runtime和 purpose-built host仍属于明确列出的 TCB/

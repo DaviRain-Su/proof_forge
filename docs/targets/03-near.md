@@ -397,6 +397,15 @@ Phase 1：实现
   SHA-256，故 activation API机械返回 `executableUnprovisioned`，source pin不能替代 executable
   identity。该切片只是可审计且 fail-closed 的接入合同，尚未运行 WasmCert、解析 section payload、
   生成 host trace或连接 Reference observation，因此 assurance等级不变。
+- **WasmCert canonical wire / candidate join（Phase 7 第三十二切）**：
+  `WasmCertWireV1`实现 request/result closed schema 的 canonical PF-JCS encode/decode、exact
+  source revision/host profile、project-relative path、digest与 bounded fuel validation，以及
+  exact argv/input/invocation/status/SIMD candidate join。noncanonical JSON、unknown/duplicate/missing
+  field、digest drift、parser/checker/instantiation拒绝、exhausted/provider-error和 SIMD 均 fail
+  closed。成功 decode/join仍只是严格 record plumbing：它不运行 WasmCert、不验证 record claims、
+  不把 arbitrary executable digest变成 Tool Lock identity，也不读取/比较 host trace或 observation
+  内容。`requireWasmCertProviderProvisionedV1`仍机械返回 `executableUnprovisioned`，故 product
+  acceptance与 assurance等级均不变。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`

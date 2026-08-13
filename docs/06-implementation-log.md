@@ -15549,3 +15549,19 @@ normative: false
 - Psy Plan fail-closes exact `pf.crypto.sha256` with a dedicated diagnostic
   (Poseidon/keccak gadgets are not a SHA-2 host).
 - Not formal, not Bytes ABI, and not EXT-CRYPTO.
+
+## 2026-08-13 — NEAR WasmCert canonical wire and candidate join
+
+- 新增 `Targets/Near/WasmCertWireV1.lean`并由 NEAR/public umbrella导出：实现 frozen request/result
+  closed schemas的 canonical PF-JCS codec，严格验证 exact source revision、host profile、
+  project-relative paths、SHA-256 digests与 `1..10000000` bounded fuel。
+- 新增 request/result candidate join，绑定 exact wrapper argv、input/invocation digests、
+  parser=`parsed-unverified`、checker/instantiation=`accepted-proved-sound`、terminal returned/trapped
+  execution与 `simdUsed=false`。noncanonical JSON、unknown/duplicate/missing fields、digest drift、
+  rejected/exhausted/provider-error status和 SIMD均 fail closed。
+- focused regression覆盖 canonical round-trip、unknown/noncanonical request、input digest drift、
+  rejected checker与 SIMD。成功 join仍只表示 strict record plumbing：没有运行 provider、验证
+  record claims、读取 trace/observation内容或建立 Tool Lock executable identity。
+- `requireWasmCertProviderProvisionedV1`继续机械返回 `executableUnprovisioned`，所以 product
+  acceptance和 NEAR assurance均不升级；下一切仍是可重现 wrapper artifact/runtime closure与
+  per-platform Tool Lock provisioning，而不是切到 Solana。

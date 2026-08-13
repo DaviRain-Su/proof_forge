@@ -37,6 +37,9 @@ revision `9ab0f87f03fff5507749efc273ec662fe27e6d14` 作为 NEAR 外部 Wasm sema
 不得把 source revision、未锁定 opam build或 PATH 上的 upstream `wasm_coq_interpreter`当成
 Tool Lock identity。真实激活需要 ProofForge structured wrapper、可 provision asset、exact binary/
 runtime closure和 version probe；加入时按本规格升级 lock retained-file digest与 package pin。
+`Targets/Near/WasmCertWireV1.lean`已实现 canonical request/result record与 candidate identity/status
+join，但它不 provision工具，也不把 record内自报的 `executableSha256`当作 lock authority；因此
+该实现不改变本节 unprovisioned状态。
 
 两平台 lock 文件共享 schema 名 `proof-forge.toolchains.v4`，由 `platform` 与 policy 键区分：
 
