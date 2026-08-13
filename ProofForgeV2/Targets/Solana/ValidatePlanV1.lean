@@ -402,7 +402,7 @@ private partial def checkHandlerStatementsV1
             "product ExternalCall callee must have ≥2 QualifiedName components"
         if isPfCryptoCalleeV1 callee then
           throw <| .planInvariant .solana
-            "unsupported Solana plan: pf.crypto must use its dedicated sha256 syscall binding"
+            "unsupported Solana plan: pf.crypto must use its dedicated sha256/keccak256 syscall binding"
         if isView then
           throw <| .planInvariant .solana
             "unsupported Solana plan shape: view handler must not external-call"
@@ -425,6 +425,18 @@ private partial def checkHandlerStatementsV1
         unless exprIsUInt256CompatibleV1 input do
           throw <| .planInvariant .solana
             "unsupported Solana semantic shape: pf.crypto.sha256 input must be UInt256"
+        total ← addPlanExprNodes account params fns total input
+        total := total + 1
+    | .keccak256Syscall input _resultTemp =>
+        unless account.admitProductExternalCall do
+          throw <| .planInvariant .solana
+            "legacy Solana profiles do not support pf.crypto.keccak256"
+        if isView then
+          throw <| .planInvariant .solana
+            "unsupported Solana plan shape: view/pureFn must not call pf.crypto.keccak256"
+        unless exprIsUInt256CompatibleV1 input do
+          throw <| .planInvariant .solana
+            "unsupported Solana semantic shape: pf.crypto.keccak256 input must be UInt256"
         total ← addPlanExprNodes account params fns total input
         total := total + 1
     | .schedule .. =>

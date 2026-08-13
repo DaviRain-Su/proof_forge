@@ -133,8 +133,8 @@ structure StateAccount where
   admitCallerRole : Bool := false
   /-- ADR-0032 P3-d / ADR-0031 S5: product full-body Plan may lower void
       ExternalCall markers (EmitSbpfAsm empty-meta partial CPI) and the exact
-      `pf.crypto.sha256(UInt256) -> UInt256` host-syscall leaf. Independent of
-      admitCallerRole. -/
+      `pf.crypto.sha256|keccak256(UInt256) -> UInt256` host-syscall leaves.
+      Independent of admitCallerRole. -/
   admitProductExternalCall : Bool := false
   /-- P3-e / M4b multi-role: when >0, EmitSbpfAsm walks this many outer accounts
       into the role table and uses multi-role AccountMetas. 0 = off. -/
@@ -351,6 +351,10 @@ inductive Statement where
       `pf.crypto.sha256(UInt256) -> UInt256` binding to `sol_sha256`.
       Dedicated node: it never enters the hashed/empty-meta CPI path. -/
   | sha256Precompile (input : Expr) (resultTemp : Nat)
+  /-- ADR-0031 SYS-S5-SOLANA: exact
+      `pf.crypto.keccak256(UInt256) -> UInt256` binding to `sol_keccak256`.
+      Dedicated node: it never enters the hashed/empty-meta CPI path. -/
+  | keccak256Syscall (input : Expr) (resultTemp : Nat)
   /-- Reserved legacy node. Solana scheduling remains unsupported (async FC on
       all profiles including CPI product). -/
   | schedule (callee : Array String) (args : Array Expr)
@@ -1548,12 +1552,16 @@ private def isSolanaBodyUintWidth (w : Nat) : Bool :=
   EnvelopeV1.isSolanaBodyUintWidth w
 
 /-- Reserve the complete `pf.crypto` namespace from generic hashed/empty-meta
-    CPI lowering. SYS-S5-SOLANA admits only the exact sha256 leaf below. -/
+    CPI lowering. SYS-S5-SOLANA admits only the exact sha256 and keccak256
+    leaves below. -/
 private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
   components[0]? == some "pf" && components[1]? == some "crypto"
 
 private def isPfCryptoSha256CalleeV1 (components : Array String) : Bool :=
   components == #["pf", "crypto", "sha256"]
+
+private def isPfCryptoKeccak256CalleeV1 (components : Array String) : Bool :=
+  components == #["pf", "crypto", "keccak256"]
 
 /-- Shared bounded SSA-tree cost for binary Expr constructors. Operands must
     be non-Bool and share `bitWidth` (+ signedness for non-Bool results).
@@ -2744,7 +2752,7 @@ private def lowerBlockInstructionsV1
         let components := callee.components.toArray
         if isPfCryptoCalleeV1 components then
           throw <| .planInvariant .solana
-            "unsupported Solana semantic shape: pf.crypto calls require result-bearing pf.crypto.sha256(UInt256) -> UInt256"
+            "unsupported Solana semantic shape: pf.crypto calls require result-bearing pf.crypto.sha256|keccak256(UInt256) -> UInt256"
         let mut argExprs : Array Expr := #[]
         for argId in argIds do
           let root ← currentValueWithArmsV1 values blockEntry segmentStart armReadables argId
@@ -2771,24 +2779,30 @@ private def lowerBlockInstructionsV1
         let components := callee.components.toArray
         if isPfCryptoCalleeV1 components then
           let qn := String.intercalate "." components.toList
-          unless isPfCryptoSha256CalleeV1 components do
+          unless isPfCryptoSha256CalleeV1 components ||
+              isPfCryptoKeccak256CalleeV1 components do
             throw <| .planInvariant .solana
               s!"unsupported Solana semantic shape: pf.crypto QN '{qn}' is outside admitted Solana scope"
+          let leafName :=
+            if isPfCryptoSha256CalleeV1 components then "sha256" else "keccak256"
           unless argIds.size == 1 && types.uintWidthOf result.typeId == some 256 do
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+              s!"unsupported Solana semantic shape: pf.crypto.{leafName} requires exactly one UInt256 argument and UInt256 result"
           let some argId := argIds[0]? |
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: pf.crypto.sha256 UInt256 argument is missing"
+              s!"unsupported Solana semantic shape: pf.crypto.{leafName} UInt256 argument is missing"
           let root ← currentValueWithArmsV1
             values blockEntry segmentStart armReadables argId
           unless !root.isBool && !root.isInt && !root.isAggregate &&
               root.bitWidth == 256 do
             throw <| .planInvariant .solana
-              "unsupported Solana semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+              s!"unsupported Solana semantic shape: pf.crypto.{leafName} requires exactly one UInt256 argument and UInt256 result"
           let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
           let resultTemp := result.valueId.toNat
-          body := body.push (.sha256Precompile root.expr resultTemp)
+          if isPfCryptoSha256CalleeV1 components then
+            body := body.push (.sha256Precompile root.expr resultTemp)
+          else
+            body := body.push (.keccak256Syscall root.expr resultTemp)
           values := ← appendResultValueV1 result.typeId values result {
             expr := .temp resultTemp
             depth := 1

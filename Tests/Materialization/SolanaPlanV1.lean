@@ -1714,7 +1714,99 @@ private unsafe def testCryptoSha256Solana
       "    return count\n")
     "result-bearing ExternalCall"
 
+/-- SYS-S5-SOLANA: `call pf.crypto.keccak256` UInt256→UInt256 via
+    `sol_keccak256` on sole product profile `solana-sbpf-cpi-elf-v1`. Dedicated
+    Plan statement (not hashed/`externalCallResult`); other widths/QNs and
+    schedule stay FC. -/
+private unsafe def testCryptoKeccak256Solana
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "Keccak256Sol" <|
+    "  state last : UInt256\n\n" ++
+    "  init() do\n" ++
+    "    last := 0\n\n" ++
+    "  entry probe(x : UInt256) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.keccak256(x)\n" ++
+    "    last := h\n" ++
+    "    return h\n"
+  let compiled ← compileSource session src
+    "Examples.Keccak256Sol" "<solana-keccak256>"
+  let plan ← liftResult <| planSolana compiled
+  let mut hasDedicated := false
+  let mut hasHashedResultCall := false
+  for e in plan.entries do
+    for s in e.body do
+      match s with
+      | .keccak256Syscall _ _ => hasDedicated := true
+      | .externalCallResult callee _ _ =>
+          if callee == #["pf", "crypto", "keccak256"] then
+            hasHashedResultCall := true
+      | .externalCall callee _ =>
+          if callee == #["pf", "crypto", "keccak256"] then
+            hasHashedResultCall := true
+      | _ => pure ()
+  expect hasDedicated
+    "Keccak256Sol: plan must contain dedicated keccak256Syscall statement"
+  expect (!hasHashedResultCall)
+    "Keccak256Sol: must not lower to externalCall(Result) for pf.crypto.keccak256"
+  let ir ← liftResult <| irSolana compiled
+  let mut hasIrDedicated := false
+  for h in ir.handlers do
+    for op in h.operations do
+      match op with
+      | .keccak256Syscall .. => hasIrDedicated := true
+      | _ => pure ()
+  expect hasIrDedicated
+    "Keccak256Sol: IR must contain dedicated keccak256Syscall"
+  let asm ← liftResult <| emitSbpfAsmV1 ir
+  expect (asm.contains "sol_keccak256")
+    "Keccak256Sol: SBPF must call sol_keccak256"
+  expect (asm.contains "call sol_keccak256")
+    "Keccak256Sol: SBPF must emit call sol_keccak256"
+
+  let expectPlanFc (programName pathLabel moduleName body needle : String) :
+      IO Unit := do
+    let negSrc := wrapProgram programName body
+    let negCompiled ← compileSource session negSrc moduleName pathLabel
+    match planSolana negCompiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{programName} must Plan fail closed (no empty-meta / hashed fallback)"
+
+  expectPlanFc "Keccak256SolU64" "<solana-keccak256-u64>" "Examples.Keccak256SolU64"
+    ("  state last : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt64) : UInt64 do\n" ++
+      "    let h : UInt64 := call pf.crypto.keccak256(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n")
+    "pf.crypto.keccak256 requires exactly one UInt256 argument and UInt256 result"
+  expectPlanFc "Keccak256SolSched" "<solana-keccak256-sched>"
+    "Examples.Keccak256SolSched"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    schedule pf.crypto.keccak256(x)\n" ++
+      "    last := x\n" ++
+      "    return x\n")
+    "asynchronous-workflow"
+  expectPlanFc "Keccak256SolHashNoPad" "<solana-keccak256-hashnopad>"
+    "Examples.Keccak256SolHashNoPad"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.hashNoPad(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n")
+    "outside admitted Solana scope"
+
 private unsafe def testVoidEntryRejected
+
     (session : Language.Loader.ParserSession) : IO Unit := do
   let text := wrapProgram "VoidEntry" <|
     "  state count : UInt64\n\n" ++
@@ -3540,6 +3632,7 @@ unsafe def run : IO Unit := do
   testShiftBitwiseLogical session
   testExternalCallFailClosed session
   testCryptoSha256Solana session
+  testCryptoKeccak256Solana session
   testVoidEntryRejected session
   testMultipleEvents session
   testIsolatedModZero session

@@ -63,10 +63,12 @@ def isFullBodyHybridIrTextV1 (irText : String) : Bool :=
   (irText.splitOn ("\"schema\":\"" ++ fullBodyHybridIrSchemaV1 ++ "\"")).length > 1 ||
     (irText.splitOn ("\"schema\": \"" ++ fullBodyHybridIrSchemaV1 ++ "\"")).length > 1
 
-/-- Exact SYS-S5 host syscall QN. It is not a CPI site, but its dedicated
-    Plan/IR/SBPF lowering requires the full-body product route. -/
-private def isSha256HostSyscallCalleeV1 (callee : QualifiedName) : Bool :=
-  callee.components.toArray == #["pf", "crypto", "sha256"]
+/-- Exact SYS-S5 host syscall QNs. They are not CPI sites, but their
+    dedicated Plan/IR/SBPF lowering requires the full-body product route. -/
+private def isCryptoHostSyscallCalleeV1 (callee : QualifiedName) : Bool :=
+  let comps := callee.components.toArray
+  comps == #["pf", "crypto", "sha256"] ||
+    comps == #["pf", "crypto", "keccak256"]
 
 /-- Multi-block CFG, aggregate Index*/construct, or a Solana host syscall needs
     the full LowerSemantic body. -/
@@ -78,7 +80,7 @@ def semanticNeedsFullBodyV1 (data : SemanticProgramDataV1) : Bool :=
           match instr.op with
           | .indexGet .. | .indexSet .. | .construct .. | .fieldGet ..
           | .fieldSet .. | .variantTag .. | .variantPayload .. => true
-          | .externalCall _ callee _ => isSha256HostSyscallCalleeV1 callee
+          | .externalCall _ callee _ => isCryptoHostSyscallCalleeV1 callee
           | _ => false
 
 def semanticUsesContextCallerV1 (data : SemanticProgramDataV1) : Bool :=

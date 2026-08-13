@@ -15565,3 +15565,17 @@ normative: false
 - `requireWasmCertProviderProvisionedV1`继续机械返回 `executableUnprovisioned`，所以 product
   acceptance和 NEAR assurance均不升级；下一切仍是可重现 wrapper artifact/runtime closure与
   per-platform Tool Lock provisioning，而不是切到 Solana。
+
+## 2026-08-13 — SYS-S5 Solana keccak256 host syscall
+
+- Sole product profile `solana-sbpf-cpi-elf-v1` now binds exact
+  `pf.crypto.keccak256(UInt256) -> UInt256` to `sol_keccak256` (Plan tag 16,
+  dedicated IR/SBPF). Slice ABI matches `sol_sha256`; non-zero syscall status
+  is `program_error(1)`.
+- CpiDerive / ProductSynthesize treat exact `pf.crypto.sha256|keccak256` as
+  full-body host syscalls, not CPI RawSites. UInt64 / sibling QN / schedule
+  stay fail closed.
+- Pre-existing: `productPlanFromCapabilityV1` still rejects a host-only
+  sha256/keccak256 program as neither extension/caller nor body-only
+  (`PF-REQ-UNSUPPORTED`). This wave does not widen CPI product capability.
+- Not formal, not Bytes ABI, not EXT-CRYPTO, and not a Mollusk runtime claim.

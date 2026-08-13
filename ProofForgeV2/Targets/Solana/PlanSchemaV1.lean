@@ -287,6 +287,11 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       let mut out := (encodeU8 15).append (← encodeExpr input)
       out := out.append (← encodeNatAsU32le resultTemp)
       pure out
+  | .keccak256Syscall input resultTemp => do
+      -- Tag 16 (ADR-0031 S5): exact UInt256 → UInt256 sol_keccak256.
+      let mut out := (encodeU8 16).append (← encodeExpr input)
+      out := out.append (← encodeNatAsU32le resultTemp)
+      pure out
   -- Atomic aggregate multi-leaf store (tag 11): count + N × store payload.
   | .storeAggregate leaves => do
       let mut out := (encodeU8 11).append (← encodeNatAsU32le leaves.size)

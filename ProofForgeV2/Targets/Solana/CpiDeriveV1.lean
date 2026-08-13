@@ -121,10 +121,11 @@ private def qnDotted (qn : QualifiedName) : CompileResult String := do
   let comps ← mapExcept (renderQualifiedNameComponents qn) "callee qualified name"
   pure (String.intercalate "." comps.toList)
 
-/-- Exact SYS-S5 Solana host syscall binding. This semantic ExternalCall is
-    lowered by the full-body Plan/IR path and must never become a CPI RawSite. -/
-private def isSha256HostSyscallQnV1 (qn : String) : Bool :=
-  qn == "pf.crypto.sha256"
+/-- Exact SYS-S5 Solana host syscall bindings. These semantic ExternalCalls
+    are lowered by the full-body Plan/IR path and must never become CPI
+    RawSites. -/
+private def isCryptoHostSyscallQnV1 (qn : String) : Bool :=
+  qn == "pf.crypto.sha256" || qn == "pf.crypto.keccak256"
 
 private def anonUintWidth?
     (types : Array TypeDeclV1) (typeId : TypeIdV1) : Option Nat :=
@@ -375,7 +376,7 @@ private def collectRawSites
             let mode ← handlerModeOf callable.kind
             let hname ← handlerNameOf callable
             let qn ← qnDotted callee
-            unless isSha256HostSyscallQnV1 qn do
+            unless isCryptoHostSyscallQnV1 qn do
               let api ← match findFrozenApi? qn with
                 | some a => pure a
                 | none =>
@@ -680,8 +681,9 @@ structure DerivePlanSnapshotV1 where
   /-- When `true`, reject companion and non-approved product APIs. -/
   productApiFilter : Bool
 
-/-- Collect raw ExternalCall sites. Exact `pf.crypto.sha256` is a full-body
-    host syscall and is skipped rather than classified as a CPI site. When
+/-- Collect raw ExternalCall sites. Exact `pf.crypto.sha256|keccak256` are
+    full-body host syscalls and are skipped rather than classified as CPI
+    sites. When
     `productApiFilter`, companion and all other non-approved QNs fail closed at
     discovery.
 
@@ -716,7 +718,7 @@ private def collectRawSitesFiltered
             let mode ← handlerModeOf callable.kind
             let hname ← handlerNameOf callable
             let qn ← qnDotted callee
-            unless isSha256HostSyscallQnV1 qn do
+            unless isCryptoHostSyscallQnV1 qn do
               if isPfAssetsCatalogQnV1 qn then
                 unless pfAssetsDeclared do
                   deriveFail
