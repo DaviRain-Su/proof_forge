@@ -1384,6 +1384,11 @@ expression translator：
     GNU `sha256sum`依赖，统一由 isolated Python SHA-256计算；`--repeat-check`在两个独立 clean
     export/build目录构建并要求 executable byte-identical后才发布。该步骤只建立 Darwin candidate
     生成入口，尚未取得 Darwin bytes/hash、runtime closure或 Tool Lock activation。
+27. 已加入手动 Ubuntu/macOS 14 candidate矩阵与 non-activating packager：每个平台从 exact source与
+    package-version lock构建，记录 full installed package/repository observation、tool versions、build
+    input hashes和 native loader policy。Linux拒绝 system roots外依赖；Darwin递归收集非系统 dylib。
+    candidate manifest固定`toolLockAdmitted=false`/`productActivated=false`，只有实际 workflow产物经
+    审查后才可进入下一次 Tool Lock admission变更。
 
 ---
 

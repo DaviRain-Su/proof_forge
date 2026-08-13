@@ -1,0 +1,153 @@
+name: WasmCert provider candidates
+
+# Manual, non-activating build observation for the pinned ProofForge provider.
+# The uploaded candidates are NOT Tool Lock assets and do not activate product
+# execution. Admission remains a separate reviewed change after both platform
+# runtime closures and hashes have been inspected.
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: wasmcert-provider-candidates-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  candidate:
+    name: candidate (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux-x86_64
+            runner: ubuntu-latest
+          - platform: darwin-arm64
+            runner: macos-14
+    env:
+      OPAMROOT: ${{ runner.temp }}/proof-forge-wasmcert-opam
+      WASMCERT_OPAM_SWITCH: pf-wasmcert
+      WASMCERT_REVISION: 9ab0f87f03fff5507749efc273ec662fe27e6d14
+    steps:
+      - name: Checkout ProofForge
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Install native build prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          case "${{ matrix.platform }}" in
+            linux-x86_64)
+              sudo apt-get update
+              sudo apt-get install -y libgmp-dev opam pkg-config
+              ;;
+            darwin-arm64)
+              export HOMEBREW_NO_AUTO_UPDATE=1
+              brew install gmp opam pkg-config
+              ;;
+            *) exit 2 ;;
+          esac
+          opam --version
+          python3 --version
+
+      - name: Create exact OCaml package switch
+        shell: bash
+        run: |
+          set -euo pipefail
+          opam init --bare --disable-sandboxing --no-setup --yes
+          opam repository add rocq-released https://rocq-prover.org/opam/released \
+            --set-default --yes
+          opam switch create "$WASMCERT_OPAM_SWITCH" ocaml-base-compiler.4.14.2 --yes --jobs=2 \
+            --repositories=rocq-released,default
+          packages=()
+          while read -r package version; do
+            packages+=("$package.$version")
+          done < <(
+            awk '!/^#/ && NF == 2 { print $1, $2 }' \
+              tools/wasmcert-provider/opam-packages.v1.lock
+          )
+          opam install --switch "$WASMCERT_OPAM_SWITCH" --yes --jobs=2 "${packages[@]}"
+          opam list --switch "$WASMCERT_OPAM_SWITCH" --installed --short --columns=name,version \
+            > "$RUNNER_TEMP/wasmcert-installed-packages.txt"
+          {
+            opam repository list --all
+            printf '\nrepository-archive-sha256:\n'
+            python3 -I -S - "$OPAMROOT" <<'PY'
+          import hashlib
+          import pathlib
+          import sys
+
+          root = pathlib.Path(sys.argv[1]) / "repo"
+          for path in sorted(root.glob("*.tar.gz")):
+              print(f"{path.name} {hashlib.sha256(path.read_bytes()).hexdigest()}")
+          PY
+          } > "$RUNNER_TEMP/wasmcert-opam-repositories.txt"
+
+      - name: Fetch exact WasmCert source
+        shell: bash
+        run: |
+          set -euo pipefail
+          source_dir="$RUNNER_TEMP/WasmCert-Coq"
+          git init "$source_dir"
+          git -C "$source_dir" remote add origin https://github.com/WasmCert/WasmCert-Coq
+          git -C "$source_dir" fetch --depth=1 origin "$WASMCERT_REVISION"
+          git -C "$source_dir" checkout --detach FETCH_HEAD
+          test "$(git -C "$source_dir" rev-parse HEAD)" = "$WASMCERT_REVISION"
+          test -z "$(git -C "$source_dir" status --short)"
+
+      - name: Build twice and require identical executable bytes
+        shell: bash
+        run: |
+          set -euo pipefail
+          scripts/build_wasmcert_provider_v1.sh \
+            --source "$RUNNER_TEMP/WasmCert-Coq" \
+            --opam-root "$OPAMROOT" \
+            --switch "$WASMCERT_OPAM_SWITCH" \
+            --output "$RUNNER_TEMP/proof-forge-wasmcert-provider-v1" \
+            --repeat-check | tee "$RUNNER_TEMP/wasmcert-repeat-build.txt"
+
+      - name: Package non-activating candidate and runtime closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build/wasmcert-candidates
+          proof_forge_revision="$(git rev-parse HEAD)"
+          opam_version="$(opam --version)"
+          ocaml_version="$(opam exec --switch "$WASMCERT_OPAM_SWITCH" -- ocamlc -version)"
+          dune_version="$(opam exec --switch "$WASMCERT_OPAM_SWITCH" -- dune --version)"
+          candidate="build/wasmcert-candidates/proof-forge-wasmcert-provider-v1-${{ matrix.platform }}"
+          python3 -I -S scripts/package_wasmcert_provider_candidate_v1.py \
+            --provider "$RUNNER_TEMP/proof-forge-wasmcert-provider-v1" \
+            --platform "${{ matrix.platform }}" \
+            --proof-forge-revision "$proof_forge_revision" \
+            --installed-packages "$RUNNER_TEMP/wasmcert-installed-packages.txt" \
+            --opam-repositories "$RUNNER_TEMP/wasmcert-opam-repositories.txt" \
+            --repeat-build-report "$RUNNER_TEMP/wasmcert-repeat-build.txt" \
+            --opam-version "$opam_version" \
+            --ocaml-version "$ocaml_version" \
+            --dune-version "$dune_version" \
+            --output "$candidate"
+          COPYFILE_DISABLE=1 tar -czf "$candidate.tar.gz" \
+            -C "$(dirname "$candidate")" "$(basename "$candidate")"
+          python3 -I -S - "$candidate.tar.gz" > "$candidate.tar.gz.sha256" <<'PY'
+          import hashlib
+          import pathlib
+          import sys
+
+          path = pathlib.Path(sys.argv[1])
+          print(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}")
+          PY
+
+      - name: Upload candidate observation
+        uses: actions/upload-artifact@65c4c4a1ddee5b72f698fdd19549f0f0fb45cf08  # v4.6.0
+        with:
+          name: wasmcert-provider-candidate-${{ matrix.platform }}
+          path: |
+            build/wasmcert-candidates/*.tar.gz
+            build/wasmcert-candidates/*.tar.gz.sha256
+          if-no-files-found: error
+          retention-days: 14

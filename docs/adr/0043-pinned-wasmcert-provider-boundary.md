@@ -119,6 +119,13 @@ GNU `sha256sum`，并提供 `--repeat-check`：从两个独立 clean export/buil
 逐字节相等才原子发布。该改动只解除 Darwin candidate build的脚本阻塞；尚未产生或授权 Darwin
 artifact，也不自动发现或批准 runtime closure。
 
+手动 workflow `.github/workflows/wasmcert-provider-candidates.yml` 使用 Ubuntu/macOS 14 native矩阵，
+从 exact source revision和 package-version lock建立 OCaml switch，并对每个平台执行上述双构建门。
+`package_wasmcert_provider_candidate_v1.py` 随后记录完整 installed package/repository observation、
+version probes与 build-input hashes；Linux以 `readelf`+`ldd`拒绝非 system-root依赖，Darwin以
+`otool`递归收集所有非系统 dylib到 candidate closure。上传的 archive明确携带
+`toolLockAdmitted=false`与`productActivated=false`；它只是后续人工审查/lock admission的输入。
+
 Lean consumer 又在 artifact structural validation 后确定性 replay register/storage/read/write/
 return/log/panic host trace，并把 replay结果与 call-boundary observation连接。真实 finalized
 `VerifiedVaultPF.wasm` 已在本地 provider 上执行 `init/deposit/withdraw/status/withdraw-overdraw`

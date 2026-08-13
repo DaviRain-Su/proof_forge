@@ -15695,3 +15695,16 @@ normative: false
 - 该切片只解除 Darwin candidate build recipe阻塞。当前仍没有 Darwin artifact/hash/runtime
   closure，双平台 activation row仍为`none`，不修改 Tool Lock、不提升 NEAR assurance，也不开始
   Solana扩面。
+
+## 2026-08-13 — NEAR WasmCert candidate build matrix
+
+- 新增 manual-only `.github/workflows/wasmcert-provider-candidates.yml`：Ubuntu latest与macOS 14各自从
+  exact WasmCert revision、OCaml 4.14.2及 locked package versions建立 native switch，执行两次 clean
+  byte-identical build；workflow不修改仓库或 Tool Lock。
+- 新增 `scripts/package_wasmcert_provider_candidate_v1.py`：版本探针、build-input hash、full installed
+  package/repository observation与 runtime loader policy写入 canonical candidate manifest。Linux
+  `readelf`/`ldd`只允许既有 system roots；Darwin `otool`递归复制所有非系统 dylib并固定 install-name
+  edge。candidate archive明确`toolLockAdmitted=false`和`productActivated=false`。
+- 本地 Linux packager已在真实 provider上通过，得到 executable SHA-256
+  `3c6af34d068e08cd34ea6bf627ec1c1e597f5577f163d89f5f63f462303b0ad4`、无 RUNPATH、仅
+  `libc.so.6`/`libgmp.so.10`/`libm.so.6` system NEEDED。Darwin结果必须等待实际 matrix运行，不预填。
