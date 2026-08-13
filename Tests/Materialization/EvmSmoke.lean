@@ -3990,6 +3990,113 @@ private unsafe def testCallReturnWideEvm : IO Unit := do
   expect (!yul256.contains "shr(128")
     "CallRetU256Evm: must not apply the UInt128 high-half guard"
 
+/-- Result-bearing CALL admits UInt128/UInt256 arguments: plan+materialize,
+    and the embedded callee selector must use uint128/uint256 ABI types
+    (not all-uint64). Bool arguments stay fail closed. -/
+private unsafe def testCallArgWideEvm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- UInt128 arg: selector must be get(uint128), not get(uint64).
+  let src128 :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallArgU128Evm where\n" ++
+    "  entry probe(k : UInt128) : UInt64 do\n" ++
+    "    let x : UInt64 := call ledger.get(k)\n" ++
+    "    return x\n"
+  let c128 ← match ← session.selectProgramV1
+      src128 "<evm-call-arg-u128>" "Tests.EvmCallArgU128" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"CallArgU128Evm select: {e.render}"
+  let compiled128 ← match Compiler.compileValidatedSourceV1 c128 with
+    | .error _ => throw <| IO.userError "CallArgU128Evm must compile through located Normalize"
+    | .ok c => pure c
+  let plan128 ← match planEvm compiled128 with
+    | .error e =>
+        throw <| IO.userError
+          s!"CallArgU128Evm must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let hasResultCall128 := plan128.entries.any fun e =>
+    e.body.any fun s =>
+      match s with
+      | .externalCallResult _ _ _ => true
+      | _ => false
+  expect hasResultCall128 "CallArgU128Evm: plan must contain externalCallResult"
+  let files128 ← match materializeSelected TargetId.evm compiled128 with
+    | .error e => throw <| IO.userError s!"CallArgU128Evm materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yul128File := files128.find? (·.path == "CallArgU128Evm.yul") |
+    throw <| IO.userError "CallArgU128Evm: missing .yul"
+  let yul128 := yul128File.contents
+  let sel128 := Targets.Evm.Keccak.selector "get" #["uint128"]
+  let sel64 := Targets.Evm.Keccak.selector "get" #["uint64"]
+  expect (yul128.contains sel128)
+    s!"CallArgU128Evm: Yul selector must be get(uint128)={sel128}"
+  expect (!yul128.contains sel64)
+    s!"CallArgU128Evm: Yul selector must not remain all-uint64 get(uint64)={sel64}"
+
+  -- UInt256 arg: selector must be get(uint256), not get(uint64).
+  let src256 :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallArgU256Evm where\n" ++
+    "  entry probe(k : UInt256) : UInt64 do\n" ++
+    "    let x : UInt64 := call ledger.get(k)\n" ++
+    "    return x\n"
+  let c256 ← match ← session.selectProgramV1
+      src256 "<evm-call-arg-u256>" "Tests.EvmCallArgU256" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"CallArgU256Evm select: {e.render}"
+  let compiled256 ← match Compiler.compileValidatedSourceV1 c256 with
+    | .error _ => throw <| IO.userError "CallArgU256Evm must compile through located Normalize"
+    | .ok c => pure c
+  let plan256 ← match planEvm compiled256 with
+    | .error e =>
+        throw <| IO.userError
+          s!"CallArgU256Evm must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let hasResultCall256 := plan256.entries.any fun e =>
+    e.body.any fun s =>
+      match s with
+      | .externalCallResult _ _ _ => true
+      | _ => false
+  expect hasResultCall256 "CallArgU256Evm: plan must contain externalCallResult"
+  let files256 ← match materializeSelected TargetId.evm compiled256 with
+    | .error e => throw <| IO.userError s!"CallArgU256Evm materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yul256File := files256.find? (·.path == "CallArgU256Evm.yul") |
+    throw <| IO.userError "CallArgU256Evm: missing .yul"
+  let yul256 := yul256File.contents
+  let sel256 := Targets.Evm.Keccak.selector "get" #["uint256"]
+  expect (yul256.contains sel256)
+    s!"CallArgU256Evm: Yul selector must be get(uint256)={sel256}"
+  expect (!yul256.contains sel64)
+    s!"CallArgU256Evm: Yul selector must not remain all-uint64 get(uint64)={sel64}"
+
+  -- Narrow UInt8 argument compiles but stays Plan fail-closed.
+  let u8Src :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallArgU8Evm where\n" ++
+    "  entry probe(k : UInt8) : UInt64 do\n" ++
+    "    let x : UInt64 := call ledger.get(k)\n" ++
+    "    return x\n"
+  let u8v ← match ← session.selectProgramV1
+      u8Src "<evm-call-arg-u8>" "Tests.EvmCallArgU8" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"CallArgU8Evm select: {e.render}"
+  match Compiler.compileValidatedSourceV1 u8v with
+  | .error e => throw <| IO.userError s!"CallArgU8Evm must compile, got {e.render}"
+  | .ok compiled =>
+      match planEvm compiled with
+      | .error e =>
+          expect
+            (e.render.contains
+              "arguments must be UInt64, UInt128, or UInt256")
+            s!"UInt8 arg FC must cite UInt64/128/256 admit set, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "EVM UInt8 arg call must fail closed (not in UInt64/128/256 admit set)"
+
 /-- B-CTX-OPEN / ADR-0031 S1+S2: `context.unixTimeSeconds` → `timestamp()`;
     `context.blockHeight` → `number()`; `context.caller` → Principal from
     `caller()` (ADR-0025). Direct Principal return stays fail closed
@@ -4551,6 +4658,7 @@ unsafe def run : IO Unit := do
   testOptionUInt64State
   testCallReturnEvm
   testCallReturnWideEvm
+  testCallArgWideEvm
   testContextReadTimestampEvm
   testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed

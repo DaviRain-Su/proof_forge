@@ -349,12 +349,17 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       for s in body do out := out.append (← encodeStatement s)
       pure out
   -- AddressBearing: static QualifiedName external call / schedule (tags 9/10).
-  | .externalCall callee args => do
-      let mut out := encodeU8 9
+  | .externalCall callee args argBitWidths => do
+      -- Tag 9 remains the byte-identical all-UInt64 form. Tag 18 appends the
+      -- exact parallel width vector for calls containing UInt128/256 args.
+      let mut out := encodeU8 (if argBitWidths.isEmpty then 9 else 18)
       out := out.append (← encodeNatAsU32le callee.size)
       for c in callee do out := out.append (← encodeString c)
       out := out.append (← encodeNatAsU32le args.size)
       for arg in args do out := out.append (← encodeExpr arg)
+      if !argBitWidths.isEmpty then
+        out := out.append (← encodeNatAsU32le argBitWidths.size)
+        for width in argBitWidths do out := out.append (← encodeNatAsU32le width)
       pure out
   | .schedule callee args => do
       let mut out := encodeU8 10
@@ -372,17 +377,25 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
         out := out.append (← encodeNatAsU32le operation.byteWidth)
         out := out.append (← encodeExpr operation.value)
       pure out
-  -- Tag 12 remains the byte-identical UInt64 result-bearing CALL. Tag 17 is
-  -- the appended wide-result shape and binds its exact UInt128/256 width.
+  -- Tags 12/17 remain byte-identical for all-UInt64 args. Tag 19 binds the
+  -- result width plus the exact argument width vector when any arg is wide.
   | .externalCallResult callee args result => do
-      let mut out := encodeU8 (if result.bitWidth == 64 then 12 else 17)
+      let tag :=
+        if !result.argBitWidths.isEmpty then 19
+        else if result.bitWidth == 64 then 12
+        else 17
+      let mut out := encodeU8 tag
       out := out.append (← encodeNatAsU32le callee.size)
       for c in callee do out := out.append (← encodeString c)
       out := out.append (← encodeNatAsU32le args.size)
       for arg in args do out := out.append (← encodeExpr arg)
       out := out.append (← encodeNatAsU32le result.resultTemp)
-      if result.bitWidth != 64 then
+      if result.bitWidth != 64 || !result.argBitWidths.isEmpty then
         out := out.append (← encodeNatAsU32le result.bitWidth)
+      if !result.argBitWidths.isEmpty then
+        out := out.append (← encodeNatAsU32le result.argBitWidths.size)
+        for width in result.argBitWidths do
+          out := out.append (← encodeNatAsU32le width)
       pure out
   -- Tag 13 (ADR-0029 B2): pf.assets.native.deposit(amount).
   | .nativeDeposit amount => do

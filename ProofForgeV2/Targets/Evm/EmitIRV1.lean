@@ -34,6 +34,17 @@ private def yulUintMask (bitWidth : Nat) : String :=
   | 256 => "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
   | _ => "0xffffffffffffffff"
 
+private def externalCallAbiTypesV1
+    (args : Array Expr) (argBitWidths : Array Nat) : Array String :=
+  if argBitWidths.isEmpty then
+    Array.replicate args.size "uint64"
+  else
+    argBitWidths.map fun width =>
+      match width with
+      | 128 => "uint128"
+      | 256 => "uint256"
+      | _ => "uint64"
+
 /-- Exact bn254 Fr modulus as a Yul hex literal (SPEC `bn254FrModulusBEV1`). -/
 private def bn254FrModulusYulV1 : String :=
   "0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001"
@@ -1626,18 +1637,18 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           output := output ++ s!"{indent}mstore({4 + 32 * index}, {rendered.value})\n"
         output := output ++ s!"{indent}mstore(0, 0x{padded})\n"
         output := output ++ s!"{indent}revert(0, {4 + 32 * args.size})\n"
-    | .externalCall callee args =>
+    | .externalCall callee args argBitWidths =>
         -- Static QualifiedName → fixed CALL address + selector (AddressBearing).
         -- Target path = all but last component (joined by "."); method = last.
         -- Address = last 20 bytes of keccak256(UTF-8 target path).
-        -- Selector = first 4 bytes of keccak256("method(uint64,...)").
+        -- Selector = first 4 bytes of the exact per-argument UInt ABI signature.
         let method := callee[callee.size - 1]!
         let targetParts := callee.extract 0 (callee.size - 1)
         let targetPath := String.intercalate "." targetParts.toList
         -- Address = last 20 bytes of keccak256(UTF-8 target path) as hex.
         let addrHex := Keccak.keccak256Hex targetPath.toUTF8
         let addr20 := addrHex.drop 24
-        let sel := Keccak.selector method (Array.replicate args.size "uint64")
+        let sel := Keccak.selector method (externalCallAbiTypesV1 args argBitWidths)
         let padded := sel ++ String.ofList (List.replicate 56 '0')
         for index in [0:args.size] do
           let rendered := renderExpr indent paramPrefix next args[index]!
@@ -1661,7 +1672,8 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         let targetPath := String.intercalate "." targetParts.toList
         let addrHex := Keccak.keccak256Hex targetPath.toUTF8
         let addr20 := addrHex.drop 24
-        let sel := Keccak.selector method (Array.replicate args.size "uint64")
+        let sel := Keccak.selector method
+          (externalCallAbiTypesV1 args result.argBitWidths)
         let padded := sel ++ String.ofList (List.replicate 56 '0')
         for index in [0:args.size] do
           let rendered := renderExpr indent paramPrefix next args[index]!
@@ -2259,7 +2271,7 @@ private partial def statementHelperNeedsV1 : Statement → PhaseHelperNeedsV1
   | .assert c => exprHelperNeedsV1 c
   | .emitEvent _ args | .revertError _ args =>
       args.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
-  | .externalCall _ args | .schedule _ args | .externalCallResult _ args _ =>
+  | .externalCall _ args _ | .schedule _ args | .externalCallResult _ args _ =>
       args.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
   | .nativeDeposit a => exprHelperNeedsV1 a
   | .nativeTransfer dl dw a =>

@@ -304,6 +304,9 @@ structure ExternalCallResultBinding where
   /-- Width of the single ABI returndata word admitted by this binding.
       Validation restricts this to 64, 128, or 256. -/
   bitWidth : Nat := 64
+  /-- Parallel ABI UInt widths for call arguments. Empty is the canonical
+      all-UInt64 encoding; otherwise every argument width is present. -/
+  argBitWidths : Array Nat := #[]
   deriving BEq, Inhabited, Repr
 
 inductive Statement where
@@ -328,9 +331,11 @@ inductive Statement where
   /-- Sync external call (void). `callee` is the static QualifiedName component
       array (≥2); Yul derives a fixed 20-byte CALL address as the last 20 bytes
       of `keccak256(UTF-8 of target path)` and a 4-byte selector from the method
-      name + `uint64` ABI. Not a dynamic address ValueId (B-3 Principal remains
-      fail-closed). Failure reverts the caller. -/
+      name + the exact per-argument `uint64`/`uint128`/`uint256` ABI. Empty
+      `argBitWidths` is the canonical all-UInt64 form. Not a dynamic address
+      ValueId (B-3 Principal remains fail-closed). Failure reverts the caller. -/
   | externalCall (callee : Array String) (args : Array Expr)
+      (argBitWidths : Array Nat := #[])
   /-- N-CALL-RET/B-CALL-SEM: result-bearing sync call. Same static-callee
       CALL as `externalCall`, then RETURNDATASIZE guard (≥32) + first-word
       read. UInt64 and UInt128 reject nonzero high bits; UInt256 retains the
@@ -613,6 +618,9 @@ private def abiByteWidthOfTypeV1
               "unsupported EVM semantic shape: ABI type must be UInt8/16/32/64/128/256, Int8/16/32/64, or Field"
 
 private structure LoweredValueV1 where
+  /-- Exact retained semantic type. This prevents same-width non-UInt values
+      (notably Field/Int256-shaped words) from entering UInt-only CALL ABI. -/
+  typeId : TypeIdV1 := 0
   expr : Expr
   depth : Nat
   expandedNodes : Nat
@@ -1607,7 +1615,10 @@ private def makeParamsV1 (owner : String) (types : EvmTypeClosureV1)
         leafExprs := leafExprs.push (.param nextWord)
         leafIsInt := leafIsInt.push isInt
         nextWord := nextWord + 1
-      values := values.push (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size)
+      values := values.push {
+        (mkAggregateValueV1 leafExprs leafIsInt #[] 1 leafExprs.size) with
+        typeId := param.typeId
+      }
     else
       requirePublicEvmUintAbiOrInt64OrFieldParam
         evmPlanErr types owner param (allowNonPublic := true)
@@ -1624,6 +1635,7 @@ private def makeParamsV1 (owner : String) (types : EvmTypeClosureV1)
       }
       planned := planned.push binding
       values := values.push {
+        typeId := param.typeId
         -- Field and UInt64/Int64 share `.param` (full ABI word); narrow UInt
         -- uses `narrowParam`. Field load range is full 256-bit (no UInt64 gate).
         expr := if isField then .param binding.wordIndex
@@ -1771,6 +1783,25 @@ private def currentValueWithArmsV1
     throw <| .planInvariant .evm
       "unsupported EVM semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
+
+private def externalCallArgWidthV1
+    (types : EvmTypeClosureV1) (value : LoweredValueV1) : CompileResult Nat := do
+  match types.uintWidthOf value.typeId with
+  | some width =>
+      unless !value.isBool && !value.isInt && !value.isField &&
+          !value.isAggregate && value.bitWidth == width &&
+          (width == 64 || width == 128 || width == 256) do
+        throw <| .planInvariant .evm
+          "unsupported EVM semantic shape: external call arguments must be UInt64, UInt128, or UInt256"
+      pure width
+  | none =>
+      throw <| .planInvariant .evm
+        "unsupported EVM semantic shape: external call arguments must be UInt64, UInt128, or UInt256"
+
+/-- Empty is the sole all-UInt64 Plan encoding. Once any wide argument occurs,
+    retain every per-position width so selector construction is unambiguous. -/
+private def canonicalExternalCallArgWidthsV1 (widths : Array Nat) : Array Nat :=
+  if widths.all (· == 64) then #[] else widths
 
 /-- Admitted body UInt widths for EVM Yul (same set as ABI after T8b). -/
 private def isEvmBodyUintWidth (w : Nat) : Bool :=
@@ -2540,7 +2571,7 @@ private def appendResultValueV1
       "unsupported EVM semantic shape: result ValueId/type is not canonical for the expected type"
   if values.size >= maxPlanNodes then
     throw <| .planInvariant .evm s!"EVM value table exceeds node limit {maxPlanNodes}"
-  pure (values.push value)
+  pure (values.push { value with typeId := expectedTypeId })
 
 private inductive SemanticCallableModeV1 where
   | constructor
@@ -3261,14 +3292,15 @@ private def lowerBlockInstructionsV1
         else
           -- Non-catalog: existing static-QN CALL (AddressBearing).
           let mut argExprs : Array Expr := #[]
+          let mut argBitWidths : Array Nat := #[]
           for argId in argIds do
             let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-            unless !root.isBool && root.bitWidth == 64 do
-              throw <| .planInvariant .evm
-                "unsupported EVM semantic shape: external call arguments must be UInt64"
+            let width ← externalCallArgWidthV1 types root
             argExprs := argExprs.push root.expr
+            argBitWidths := argBitWidths.push width
           let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
-          body := body.push (.externalCall components argExprs)
+          body := body.push (.externalCall components argExprs
+            (canonicalExternalCallArgWidthsV1 argBitWidths))
           hasAssert := true
           armReadables := promoteDominatingPureV1 paramCount values armReadables
           segmentStart := values.size
@@ -4001,16 +4033,18 @@ private def lowerBlockInstructionsV1
               throw <| .planInvariant .evm
                 "unsupported EVM semantic shape: result-bearing external call result must be UInt64, UInt128, or UInt256"
         let mut argExprs : Array Expr := #[]
+        let mut argBitWidths : Array Nat := #[]
         for argId in argIds do
           let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-          unless !root.isBool && root.bitWidth == 64 do
-            throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: external call arguments must be UInt64"
+          let width ← externalCallArgWidthV1 types root
           argExprs := argExprs.push root.expr
+          argBitWidths := argBitWidths.push width
         let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
         let resultTemp := result.valueId.toNat
         body := body.push (.externalCallResult components argExprs
-          { resultTemp, bitWidth := resultBitWidth })
+          { resultTemp
+            bitWidth := resultBitWidth
+            argBitWidths := canonicalExternalCallArgWidthsV1 argBitWidths })
         values := ← appendResultValueV1 result.typeId values result
           (mkScalarValueV1 (.temp resultTemp) #[] false false resultBitWidth 1 1)
         hasAssert := true
@@ -4218,6 +4252,7 @@ private partial def emitJobV1
         throw <| .planInvariant .evm
           "unsupported EVM semantic shape: induction ValueId is not pre-allocated"
       let mut values := values0.set! varTemp {
+        typeId := headerParam.typeId
         expr := .temp varTemp
         depth := 1
         expandedNodes := 1
@@ -4713,6 +4748,7 @@ private def lowerCallableV1
           "unsupported EVM semantic shape: block parameter must be anonymous UInt64"
       -- Placeholder; overwrite with `.temp` when the loop is materialised.
       values := values.push {
+        typeId := p.typeId
         expr := .literal 0
         depth := 1
         expandedNodes := 1
