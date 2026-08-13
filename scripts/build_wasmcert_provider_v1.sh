@@ -7,11 +7,13 @@ usage: scripts/build_wasmcert_provider_v1.sh \
   --source <clean-wasmcert-checkout> \
   --opam-root <opam-root> \
   --switch <opam-switch> \
-  --output <provider-executable>
+  --output <provider-executable> \
+  [--repeat-check]
 
 Builds the unprovisioned ProofForge WasmCert provider overlay from the exact
 WasmCert-Coq source revision. This command does not edit Tool Lock or activate
-the provider for product evidence.
+the provider for product evidence. --repeat-check performs two independent
+clean builds and publishes only when their executable bytes are identical.
 EOF
   exit 64
 }
@@ -20,12 +22,14 @@ source_dir=""
 opam_root=""
 opam_switch=""
 output=""
+repeat_check=false
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --source) [[ $# -ge 2 ]] || usage; source_dir="$2"; shift 2 ;;
     --opam-root) [[ $# -ge 2 ]] || usage; opam_root="$2"; shift 2 ;;
     --switch) [[ $# -ge 2 ]] || usage; opam_switch="$2"; shift 2 ;;
     --output) [[ $# -ge 2 ]] || usage; output="$2"; shift 2 ;;
+    --repeat-check) repeat_check=true; shift ;;
     *) usage ;;
   esac
 done
@@ -46,12 +50,35 @@ provider_source="$repo_root/tools/wasmcert-provider/proof_forge_wasmcert_provide
 dune_overlay="$repo_root/tools/wasmcert-provider/dune.v1"
 package_lock="$repo_root/tools/wasmcert-provider/opam-packages.v1.lock"
 
-for command in git opam python3 sha256sum tar; do
+for command in cmp git install opam python3 tar uname; do
   command -v "$command" >/dev/null 2>&1 || {
     echo "build-wasmcert-provider: missing required command: $command" >&2
     exit 2
   }
 done
+
+case "$(uname -s):$(uname -m)" in
+  Linux:x86_64) platform="linux-x86_64" ;;
+  Darwin:arm64) platform="darwin-arm64" ;;
+  *)
+    echo "build-wasmcert-provider: unsupported build platform $(uname -s)-$(uname -m)" >&2
+    exit 2
+    ;;
+esac
+
+sha256_file() {
+  python3 -I -S - "$1" <<'PY'
+import hashlib
+import pathlib
+import sys
+
+digest = hashlib.sha256()
+with pathlib.Path(sys.argv[1]).open("rb") as handle:
+    for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+        digest.update(chunk)
+print(digest.hexdigest())
+PY
+}
 
 [[ "$(git -C "$source_dir" rev-parse HEAD)" == "$revision" ]] || {
   echo "build-wasmcert-provider: source HEAD does not match $revision" >&2
@@ -63,7 +90,7 @@ git -C "$source_dir" diff --cached --quiet --exit-code
   echo "build-wasmcert-provider: source checkout must not contain untracked files" >&2
   exit 2
 }
-[[ "$(sha256sum "$source_dir/src/dune" | cut -d' ' -f1)" == "$upstream_dune_sha256" ]] || {
+[[ "$(sha256_file "$source_dir/src/dune")" == "$upstream_dune_sha256" ]] || {
   echo "build-wasmcert-provider: pinned upstream src/dune bytes differ" >&2
   exit 2
 }
@@ -99,35 +126,62 @@ for number, line in enumerate(lock_path.read_text(encoding="utf-8").splitlines()
         )
 PY
 
-staging="$(mktemp -d "${TMPDIR:-/tmp}/proof-forge-wasmcert-provider-v1.XXXXXX")"
-cleanup() { rm -rf "$staging"; }
+staging_root="$(mktemp -d "${TMPDIR:-/tmp}/proof-forge-wasmcert-provider-v1.XXXXXX")"
+cleanup() { rm -rf "$staging_root"; }
 trap cleanup EXIT
 
-git -C "$source_dir" archive --format=tar "$revision" | tar -xf - -C "$staging"
-install -m 0644 "$provider_source" "$staging/src/proof_forge_wasmcert_provider_v1.ml"
-install -m 0644 "$dune_overlay" "$staging/src/dune"
+build_once() {
+  local staging="$1"
+  mkdir -p "$staging"
+  git -C "$source_dir" archive --format=tar "$revision" | tar -xf - -C "$staging"
+  install -m 0644 "$provider_source" "$staging/src/proof_forge_wasmcert_provider_v1.ml"
+  install -m 0644 "$dune_overlay" "$staging/src/dune"
 
-OPAMROOT="$opam_root" opam exec --switch "$opam_switch" -- \
-  dune build src/proof_forge_wasmcert_provider_v1.exe --profile=release -j 1 \
-  --root "$staging"
+  OPAMROOT="$opam_root" opam exec --switch "$opam_switch" -- \
+    dune build src/proof_forge_wasmcert_provider_v1.exe --profile=release -j 1 \
+    --root "$staging"
 
-built="$staging/_build/default/src/proof_forge_wasmcert_provider_v1.exe"
-[[ -f "$built" && -x "$built" ]] || {
-  echo "build-wasmcert-provider: Dune did not produce the provider executable" >&2
-  exit 2
+  local built="$staging/_build/default/src/proof_forge_wasmcert_provider_v1.exe"
+  [[ -f "$built" && -x "$built" ]] || {
+    echo "build-wasmcert-provider: Dune did not produce the provider executable" >&2
+    exit 2
+  }
+  local expected_version="proof-forge-wasmcert-provider-v1 1.0.0 $revision"
+  local observed_version
+  observed_version="$($built --version)"
+  [[ "$observed_version" == "$expected_version" ]] || {
+    echo "build-wasmcert-provider: version probe mismatch: $observed_version" >&2
+    exit 2
+  }
 }
-expected_version="proof-forge-wasmcert-provider-v1 1.0.0 $revision"
-observed_version="$($built --version)"
-[[ "$observed_version" == "$expected_version" ]] || {
-  echo "build-wasmcert-provider: version probe mismatch: $observed_version" >&2
-  exit 2
-}
+
+first_staging="$staging_root/build-1"
+build_once "$first_staging"
+first_built="$first_staging/_build/default/src/proof_forge_wasmcert_provider_v1.exe"
+
+if [[ "$repeat_check" == true ]]; then
+  second_staging="$staging_root/build-2"
+  build_once "$second_staging"
+  second_built="$second_staging/_build/default/src/proof_forge_wasmcert_provider_v1.exe"
+  if ! cmp -s "$first_built" "$second_built"; then
+    echo "build-wasmcert-provider: repeat build executable bytes differ" >&2
+    echo "build-wasmcert-provider: build-1-sha256=$(sha256_file "$first_built")" >&2
+    echo "build-wasmcert-provider: build-2-sha256=$(sha256_file "$second_built")" >&2
+    exit 2
+  fi
+fi
 
 temporary_output="$output.tmp.$$"
 rm -f "$temporary_output"
-install -m 0555 "$built" "$temporary_output"
+install -m 0555 "$first_built" "$temporary_output"
 mv -f "$temporary_output" "$output"
 
+echo "build-wasmcert-provider: platform=$platform"
 echo "build-wasmcert-provider: output=$output"
-echo "build-wasmcert-provider: sha256=$(sha256sum "$output" | cut -d' ' -f1)"
+echo "build-wasmcert-provider: sha256=$(sha256_file "$output")"
+if [[ "$repeat_check" == true ]]; then
+  echo "build-wasmcert-provider: repeat-check=2/2-byte-identical"
+else
+  echo "build-wasmcert-provider: repeat-check=not-requested"
+fi
 echo "build-wasmcert-provider: provider remains unprovisioned and product activation stays fail closed"

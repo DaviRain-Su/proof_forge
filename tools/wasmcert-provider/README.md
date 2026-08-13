@@ -31,12 +31,18 @@ scripts/build_wasmcert_provider_v1.sh \
   --source /path/to/WasmCert-Coq \
   --opam-root /path/to/opam-root \
   --switch pf-wasmcert \
-  --output build/tools/proof-forge-wasmcert-provider-v1
+  --output build/tools/proof-forge-wasmcert-provider-v1 \
+  --repeat-check
 ```
 
 The script exports the exact upstream tree to a temporary directory, overlays
 `proof_forge_wasmcert_provider_v1.ml` and `dune.v1`, builds with one release
 worker, probes `--version`, and atomically publishes the local executable.
+It accepts only native Linux x86_64 or Darwin arm64, uses the same Python
+SHA-256 implementation on both platforms, and `--repeat-check` requires two
+independent clean builds to be byte-identical before publication. This makes
+the Darwin candidate build runnable without GNU `sha256sum`; it does not claim
+that a Darwin candidate has already been produced or admitted to Tool Lock.
 
 Given an already-finalized VerifiedVaultPF Wasm, run the executable acceptance
 and the repository's Lean canonical content joins with:

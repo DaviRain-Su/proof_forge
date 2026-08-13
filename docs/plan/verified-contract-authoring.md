@@ -1380,6 +1380,10 @@ expression translator：
     在 staging read前 `PF-TOOLCHAIN-MISSING`；Linux系统动态库不伪装为 runtime bundle，Darwin artifact
     缺失仍是 NEAR阶段出口阻塞项。activation digest按 Darwin/Linux独立 row保持 `none`，不允许
     单 digest跨平台授权。
+26. provider build recipe已改为 native Linux x86_64/Darwin arm64双平台可执行：移除 Darwin不存在的
+    GNU `sha256sum`依赖，统一由 isolated Python SHA-256计算；`--repeat-check`在两个独立 clean
+    export/build目录构建并要求 executable byte-identical后才发布。该步骤只建立 Darwin candidate
+    生成入口，尚未取得 Darwin bytes/hash、runtime closure或 Tool Lock activation。
 
 ---
 

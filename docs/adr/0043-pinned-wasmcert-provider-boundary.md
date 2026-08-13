@@ -114,6 +114,11 @@ view write及资源越界。当前 Linux orb 中两次 clean same-host build exa
 `3c6af34d068e08cd34ea6bf627ec1c1e597f5577f163d89f5f63f462303b0ad4`；该值只是一项本地
 reproducibility observation，**没有**进入 Tool Lock，也不能激活产品 consumer。
 
+build recipe现只接受 native `linux-x86_64`/`darwin-arm64`，以 Python SHA-256替代 Darwin缺失的
+GNU `sha256sum`，并提供 `--repeat-check`：从两个独立 clean export/build目录构建，只有 executable
+逐字节相等才原子发布。该改动只解除 Darwin candidate build的脚本阻塞；尚未产生或授权 Darwin
+artifact，也不自动发现或批准 runtime closure。
+
 Lean consumer 又在 artifact structural validation 后确定性 replay register/storage/read/write/
 return/log/panic host trace，并把 replay结果与 call-boundary observation连接。真实 finalized
 `VerifiedVaultPF.wasm` 已在本地 provider 上执行 `init/deposit/withdraw/status/withdraw-overdraw`

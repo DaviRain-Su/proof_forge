@@ -15684,3 +15684,14 @@ normative: false
   未复制 Linux hash；activation digest改为 Darwin/Linux独立 row且当前均为 `none`，也未提升
   assurance。NEAR阶段出口剩余项是双平台真实 provisioning与 activated
   consumer回归；在此之前不继续 Solana扩面。
+
+## 2026-08-13 — NEAR WasmCert dual-platform repeat-build entry
+
+- `scripts/build_wasmcert_provider_v1.sh` 不再依赖 Darwin缺失的 GNU `sha256sum`，而以
+  `python3 -I -S`流式计算 SHA-256；构建主机只接受 native `linux-x86_64`或`darwin-arm64`。
+- 新增 `--repeat-check`：相同 clean source/opam input在两个独立 export/build目录分别构建，version
+  probe后要求 executable逐字节相等，之后才原子发布单一 output；失败会报告两个候选 hash并拒绝
+  发布。
+- 该切片只解除 Darwin candidate build recipe阻塞。当前仍没有 Darwin artifact/hash/runtime
+  closure，双平台 activation row仍为`none`，不修改 Tool Lock、不提升 NEAR assurance，也不开始
+  Solana扩面。
