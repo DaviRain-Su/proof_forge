@@ -211,6 +211,21 @@ private def unixTimeSource : String :=
   "  view now() : UInt64 do\n" ++
   "    return context.unixTimeSeconds\n"
 
+/-- SYS-S5-SOLANA product route: stateful UInt256↔UInt256 `pf.crypto.sha256`
+    (same shape as SolanaPlanV1 Sha256Sol). Must skip CpiDerive non-approved
+    API reject and lower via full-body `sol_sha256`, not empty-meta invoke. -/
+private def sha256ProductSource : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n" ++
+  "program CpiSha256 where\n" ++
+  "  state last : UInt256\n" ++
+  "  init() do\n" ++
+  "    last := 0\n" ++
+  "  entry probe(x : UInt256) : UInt256 do\n" ++
+  "    let h : UInt256 := call pf.crypto.sha256(x)\n" ++
+  "    last := h\n" ++
+  "    return h\n"
+
 private unsafe def compileSource
     (session : Language.Loader.ParserSession)
     (source moduleName path : String) : IO CompiledSemanticV1 := do
@@ -601,6 +616,43 @@ private unsafe def testContextUnixTimeSecondsStillClosed
     "CPI derive: context.unixTimeSeconds is not admitted on solana-sbpf-cpi-elf-v1 (Clock sysvar binding deferred)"
     "unixTimeSeconds stays fail closed on the product profile"
 
+/-- SYS-S5-SOLANA: product capability materialize admits `pf.crypto.sha256`
+    after CpiDerive skips the host-syscall leaf (not "non-approved API").
+    Full-body emit must contain `sol_sha256`; must not fall through to hashed
+    empty-meta `sol_invoke` for pf.crypto. -/
+private unsafe def testCryptoSha256ProductRoute
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let compiled ← compileSource session sha256ProductSource
+    "Tests.CpiSha256" "<cpi-sha256>"
+  let selection ← cpiSelection
+  let capability ← expectCompileOk
+    (resolveEngineeringRequirementsV1 selection compiled)
+    "resolver admits sha256 program on solana-sbpf-cpi-elf-v1"
+  let plan ← match productPlanFromCapabilityV1 capability with
+    | .ok p => pure p
+    | .error e =>
+        throw <| IO.userError
+          s!"CpiSha256 product Plan must succeed (not non-approved API), got {e.render}"
+  let c := SolanaCpiProductPlanV1.candidateOf plan
+  expect c.cpiSites.isEmpty
+    "CpiSha256: zero CPI sites (sol_sha256 is a host syscall, not AccountMeta CPI)"
+  let files ← match buildFromCapability capability with
+    | .ok fs => pure fs
+    | .error e =>
+        throw <| IO.userError
+          s!"CpiSha256 buildFromCapability must succeed (product route), got {e.render}"
+  let some asm := files.find? (·.path == "CpiSha256.s") |
+    throw <| IO.userError "missing CpiSha256.s"
+  expect ((asm.contents.splitOn "sol_sha256").length > 1)
+    "CpiSha256 asm/plan emit must contain sol_sha256"
+  expect ((asm.contents.splitOn "call sol_sha256").length > 1)
+    "CpiSha256 asm must call sol_sha256"
+  -- Honesty: pf.crypto.sha256 must not degrade to empty-meta hashed invoke.
+  expect ((asm.contents.splitOn "product_external_call").length == 1)
+    "CpiSha256 must not emit product_external_call empty-meta path for pf.crypto"
+  expect ((asm.contents.splitOn "empty AccountMeta").length == 1)
+    "CpiSha256 must not emit empty AccountMeta invoke for pf.crypto"
+
 /-- ADR-0032 U1: retired plan/elf profile ids are not registry members. -/
 private unsafe def testWrongProfileRejected
     (_session : Language.Loader.ParserSession) : IO Unit := do
@@ -628,6 +680,7 @@ unsafe def run : IO Unit := do
   testScheduleRejected session
   testContextBlockHeightProductOpen session
   testContextUnixTimeSecondsStillClosed session
+  testCryptoSha256ProductRoute session
   testWrongProfileRejected session
   IO.println "Tests.Materialization.SolanaCpiDeriveV1: ok"
 

@@ -63,7 +63,13 @@ def isFullBodyHybridIrTextV1 (irText : String) : Bool :=
   (irText.splitOn ("\"schema\":\"" ++ fullBodyHybridIrSchemaV1 ++ "\"")).length > 1 ||
     (irText.splitOn ("\"schema\": \"" ++ fullBodyHybridIrSchemaV1 ++ "\"")).length > 1
 
-/-- Multi-block CFG or aggregate Index*/construct needs full LowerSemantic body. -/
+/-- Exact SYS-S5 host syscall QN. It is not a CPI site, but its dedicated
+    Plan/IR/SBPF lowering requires the full-body product route. -/
+private def isSha256HostSyscallCalleeV1 (callee : QualifiedName) : Bool :=
+  callee.components.toArray == #["pf", "crypto", "sha256"]
+
+/-- Multi-block CFG, aggregate Index*/construct, or a Solana host syscall needs
+    the full LowerSemantic body. -/
 def semanticNeedsFullBodyV1 (data : SemanticProgramDataV1) : Bool :=
   data.callables.any fun c =>
     c.blocks.size > 1 ||
@@ -72,6 +78,7 @@ def semanticNeedsFullBodyV1 (data : SemanticProgramDataV1) : Bool :=
           match instr.op with
           | .indexGet .. | .indexSet .. | .construct .. | .fieldGet ..
           | .fieldSet .. | .variantTag .. | .variantPayload .. => true
+          | .externalCall _ callee _ => isSha256HostSyscallCalleeV1 callee
           | _ => false
 
 def semanticUsesContextCallerV1 (data : SemanticProgramDataV1) : Bool :=
@@ -333,8 +340,9 @@ def buildFromCapability (capability : ResolvedEngineeringBuildV1) :
     -- Empty logical state (view-only programs such as CallerIsMe): full-body
     -- LowerSemantic Plan requires nonempty state + initializer, so stay on the
     -- CPI product Plan/IDL/ELF path (stateSchemas=[], pf_caller-only roles).
-    -- Nonempty state + zero CPI sites → full-body synthesize. Escrow composite
-    -- only for straight-line non-empty sites without multi-block/aggregate body.
+    -- Nonempty state + zero CPI sites → full-body synthesize. Host syscalls
+    -- also force full-body when real CPI sites coexist; escrow composite is
+    -- only for straight-line non-empty sites without full-body operations.
     if data.logicalState.isEmpty then
       productBaseFilesFromCapabilityV1 capability
     else if !hasSites || needsBody then

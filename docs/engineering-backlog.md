@@ -582,7 +582,8 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **EVM CALL/schedule/returndata UInt8/16/32**：无符号 ABI family 工程接线闭合为 UInt8/16/32/64/128/256；Bool/Int/Bytes 仍 fail closed。**不**关闭 B-CALL-SEM / C-3 / Anvil lossless |
 | 2026-08-13 | **SYS-S5-EVM first leaf**：`pf.crypto.sha256` UInt256→UInt256 绑定 EVM SHA-256 precompile `0x02` `STATICCALL`；其它 `pf.crypto.*` 在 EVM fail closed，Bytes ABI、其它 target 与 extension catalog 留待后续。**不**关闭 EXT-CRYPTO / B-CALL-SEM / formal / Anvil lossless |
 | 2026-08-13 | **SYS-S5-EVM Anvil known-vector companion**：真实产品 `Sha256Check.yul/.bin` 部署到 Anvil，以 32-byte word `0`/`1` 钉 `pf.crypto.sha256` precompile `0x02` known vectors 与状态回读；host-optional，不进入 ordinary `just ci`。**不**关闭 formal C-3 / EXT-CRYPTO / Anvil lossless |
-| 2026-08-13 | **SYS-S5-SOLANA first leaf**：sole `solana-sbpf-cpi-elf-v1` 将 `pf.crypto.sha256` UInt256→UInt256 绑定 `sol_sha256`（dedicated Plan/IR/SBPF，非 generic result-bearing CPI）；full-body 检验路径已钉，`CpiDerive` 产品制品路由仍拒非 approved API（后续切片）。其它 `pf.crypto.*` / Bytes / 非 product profile 仍 fail closed。EVM+Solana leaves 仅 engineering **in_progress**；**不**关闭 S5 / EXT-CRYPTO / formal，Mollusk 非 ordinary CI |
+| 2026-08-13 | **SYS-S5-SOLANA first leaf**：sole `solana-sbpf-cpi-elf-v1` 将 `pf.crypto.sha256` UInt256→UInt256 绑定 `sol_sha256`（dedicated Plan/IR/SBPF，非 generic result-bearing CPI）。其它 `pf.crypto.*` / Bytes / 非 product profile 仍 fail closed。EVM+Solana leaves 仅 engineering **in_progress**；产品路由见下一行；**不**关闭 S5 / EXT-CRYPTO / formal，Mollusk 非 ordinary CI |
+| 2026-08-13 | **SYS-S5-SOLANA product route**：`CpiDeriveV1` 将 exact `pf.crypto.sha256` 识别为 host syscall 并跳过 CPI `RawSite` / approved-API 门禁，`ProductSynthesizeV1` 仍强制走 full-body Plan/IR/SBPF；与真实 CPI 共存时 site list 仅保留真实 CPI。其它 `pf.crypto.*` 继续 fail closed；**不**关闭 EXT-CRYPTO / formal，未声称 Mollusk runtime |
 
 ---
 

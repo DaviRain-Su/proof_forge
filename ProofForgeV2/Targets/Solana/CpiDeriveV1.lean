@@ -121,6 +121,11 @@ private def qnDotted (qn : QualifiedName) : CompileResult String := do
   let comps ← mapExcept (renderQualifiedNameComponents qn) "callee qualified name"
   pure (String.intercalate "." comps.toList)
 
+/-- Exact SYS-S5 Solana host syscall binding. This semantic ExternalCall is
+    lowered by the full-body Plan/IR path and must never become a CPI RawSite. -/
+private def isSha256HostSyscallQnV1 (qn : String) : Bool :=
+  qn == "pf.crypto.sha256"
+
 private def anonUintWidth?
     (types : Array TypeDeclV1) (typeId : TypeIdV1) : Option Nat :=
   match types[typeId.toNat]? with
@@ -370,23 +375,24 @@ private def collectRawSites
             let mode ← handlerModeOf callable.kind
             let hname ← handlerNameOf callable
             let qn ← qnDotted callee
-            let api ← match findFrozenApi? qn with
-              | some a => pure a
-              | none =>
-                  deriveFail s!"CPI derive rejects unknown callee QN '{qn}'"
-            let principals ← validateArgSources data.types callable api args
-            out := out.push {
-              callableId
-              handlerMode := mode
-              handlerName := hname
-              blockId := blk.id.toNat
-              instructionIndex := instrIdx
-              effectId := effectId.toNat
-              qn
-              api
-              argValueIds := args
-              principalParams := principals
-            }
+            unless isSha256HostSyscallQnV1 qn do
+              let api ← match findFrozenApi? qn with
+                | some a => pure a
+                | none =>
+                    deriveFail s!"CPI derive rejects unknown callee QN '{qn}'"
+              let principals ← validateArgSources data.types callable api args
+              out := out.push {
+                callableId
+                handlerMode := mode
+                handlerName := hname
+                blockId := blk.id.toNat
+                instructionIndex := instrIdx
+                effectId := effectId.toNat
+                qn
+                api
+                argValueIds := args
+                principalParams := principals
+              }
         | _ => pure ()
   pure out
 
@@ -674,8 +680,10 @@ structure DerivePlanSnapshotV1 where
   /-- When `true`, reject companion and non-approved product APIs. -/
   productApiFilter : Bool
 
-/-- Collect raw ExternalCall sites. When `productApiFilter`, companion and
-    non-approved QNs fail closed at discovery.
+/-- Collect raw ExternalCall sites. Exact `pf.crypto.sha256` is a full-body
+    host syscall and is skipped rather than classified as a CPI site. When
+    `productApiFilter`, companion and all other non-approved QNs fail closed at
+    discovery.
 
     ADR-0029 Phase B1 QN gate:
     * catalog pf.assets QN ⇒ retained freeze must carry exact `extension.pf-assets`
@@ -708,37 +716,38 @@ private def collectRawSitesFiltered
             let mode ← handlerModeOf callable.kind
             let hname ← handlerNameOf callable
             let qn ← qnDotted callee
-            if isPfAssetsCatalogQnV1 qn then
-              unless pfAssetsDeclared do
-                deriveFail
-                  s!"CPI derive: pf.assets catalog call '{qn}' requires extension.pf-assets declaration"
-              unless isPfAssetsSolanaProductApiV1 qn do
-                deriveFail
-                  s!"CPI derive: pf.assets QN '{qn}' is outside Phase B Solana native vault scope (async/token fail closed)"
-            if productApiFilter then
-              if isCompanionApiV1 qn then
-                deriveFail
-                  s!"CPI product derive rejects companion API '{qn}'"
-              unless isApprovedProductApiV1 qn do
-                deriveFail
-                  s!"CPI product derive rejects non-approved API '{qn}'"
-            let api ← match findFrozenApi? qn with
-              | some a => pure a
-              | none =>
-                  deriveFail s!"CPI derive rejects unknown callee QN '{qn}'"
-            let principals ← validateArgSources data.types callable api args
-            out := out.push {
-              callableId
-              handlerMode := mode
-              handlerName := hname
-              blockId := blk.id.toNat
-              instructionIndex := instrIdx
-              effectId := effectId.toNat
-              qn
-              api
-              argValueIds := args
-              principalParams := principals
-            }
+            unless isSha256HostSyscallQnV1 qn do
+              if isPfAssetsCatalogQnV1 qn then
+                unless pfAssetsDeclared do
+                  deriveFail
+                    s!"CPI derive: pf.assets catalog call '{qn}' requires extension.pf-assets declaration"
+                unless isPfAssetsSolanaProductApiV1 qn do
+                  deriveFail
+                    s!"CPI derive: pf.assets QN '{qn}' is outside Phase B Solana native vault scope (async/token fail closed)"
+              if productApiFilter then
+                if isCompanionApiV1 qn then
+                  deriveFail
+                    s!"CPI product derive rejects companion API '{qn}'"
+                unless isApprovedProductApiV1 qn do
+                  deriveFail
+                    s!"CPI product derive rejects non-approved API '{qn}'"
+              let api ← match findFrozenApi? qn with
+                | some a => pure a
+                | none =>
+                    deriveFail s!"CPI derive rejects unknown callee QN '{qn}'"
+              let principals ← validateArgSources data.types callable api args
+              out := out.push {
+                callableId
+                handlerMode := mode
+                handlerName := hname
+                blockId := blk.id.toNat
+                instructionIndex := instrIdx
+                effectId := effectId.toNat
+                qn
+                api
+                argValueIds := args
+                principalParams := principals
+              }
         | _ => pure ()
   pure out
 
