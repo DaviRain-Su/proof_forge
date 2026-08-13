@@ -28,6 +28,7 @@ namespace ProofForgeV2.Targets.Near
 
 open ProofForgeV2
 open ProofForgeV2.Compiler
+open ProofForgeV2.Semantic.WireV1
 
 /-- Capability-gated public plan entry. Plan semantics consume retained V1 only.
     Authority chain: semanticV1Of → makePlanFromSemanticV1 → validatePlan
@@ -311,6 +312,250 @@ theorem capabilityInitializerStaticEmissionV1_validatedMethodWATEmissionV1
         (binding1.physicalFieldIndex + 1) field1Region
           hchain.staticAlignment.field1Lookup)
       hdeposit hvalue
+
+/-- Capability-scoped production chain for the bounded unary checked-add
+    entry. It binds one retained semantic program, Plan/IR/build results, the
+    exact two-UInt64 deposit alignment, and the sole WAT/ABI renderer graphs.
+    This is reusable target provenance, not a contract-specific evaluator. -/
+structure CapabilityUnaryAddTwoUInt64DepositStaticEmissionV1
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String) : Prop where
+  retainedProgram :
+    CompiledSemanticV1.semanticV1Of
+      (ResolvedEngineeringBuildV1.compiledOf capability) = program
+  planResult : planFromCapability capability = .ok plan
+  irResult : irFromCapability capability = .ok ir
+  buildResult : buildFromCapability capability = .ok files
+  staticAlignment :
+    ProductionUnaryAddTwoUInt64DepositStaticAlignmentV1 program data plan
+      ir.keys binding0 binding1 entryName parameterName parameterSourceId method
+        markerRegion field0Region field1Region methodIR
+  baseEmission :
+    EntryBaseEmissionV1 plan ir files entryIndex method methodIR watFile abiFile
+      watMethodText abiMethodText
+
+/-- Combine the existing capability, production lowering, deposit alignment,
+    and renderer graphs. No alternate Plan, MethodIR, or renderer is minted. -/
+theorem capabilityUnaryAddTwoUInt64DepositStaticEmissionV1_of_graphs
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (hretained :
+      CompiledSemanticV1.semanticV1Of
+        (ResolvedEngineeringBuildV1.compiledOf capability) = program)
+    (hplan : planFromCapability capability = .ok plan)
+    (hir : irFromCapability capability = .ok ir)
+    (hbuild : buildFromCapability capability = .ok files)
+    (hstatic :
+      ProductionUnaryAddTwoUInt64DepositStaticAlignmentV1 program data plan
+        ir.keys binding0 binding1 entryName parameterName parameterSourceId
+          method markerRegion field0Region field1Region methodIR)
+    (hentry : plan.entries[entryIndex]? = some method)
+    (hmethodIR : ir.methods[entryIndex + 1]? = some methodIR)
+    (hwatFile : files[0]? = some watFile)
+    (habiFile : files[1]? = some abiFile) :
+    ∃ watMethodText abiMethodText,
+      CapabilityUnaryAddTwoUInt64DepositStaticEmissionV1 capability program data
+        plan ir files entryIndex binding0 binding1 entryName parameterName
+          parameterSourceId method markerRegion field0Region field1Region
+            methodIR watFile abiFile watMethodText abiMethodText := by
+  have hgraphs :=
+    planAndIRFromCapability_eq_ok_graphsV1 capability plan ir hplan hir
+  have hemissions : IREmissionV1 ir files := by
+    obtain ⟨emittedPlan, emittedIR, _, hemittedIR, hemittedLowering,
+        hemissions⟩ :=
+      buildFromCapability_eq_ok_graphsV1 capability files hbuild
+    have hemittedIREq : emittedIR = ir :=
+      Except.ok.inj (hemittedIR.symm.trans hir)
+    subst emittedIR
+    have hemittedPlanEq : emittedPlan = plan :=
+      (planIRLoweringV1_sourcePlan emittedPlan ir hemittedLowering).symm.trans
+        hgraphs.1
+    subst emittedPlan
+    exact hemissions
+  obtain ⟨watMethodText, abiMethodText, hbase⟩ :=
+    irEmissionV1_entryBaseEmissionV1 plan ir files entryIndex method methodIR
+      watFile abiFile hgraphs.2.2 hemissions hwatFile habiFile hentry hmethodIR
+  exact ⟨watMethodText, abiMethodText, {
+    retainedProgram := hretained
+    planResult := hplan
+    irResult := hir
+    buildResult := hbuild
+    staticAlignment := hstatic
+    baseEmission := hbase
+  }⟩
+
+/-- The selected production deposit method is byte-for-byte rendered from its
+    exact typed-WAT lowering and validated within the complete production
+    module framing. This stops before Wasm binary and NEAR runtime semantics. -/
+theorem capabilityUnaryAddTwoUInt64DepositStaticEmissionV1_validatedWATModule
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (hchain :
+      CapabilityUnaryAddTwoUInt64DepositStaticEmissionV1 capability program data
+        plan ir files entryIndex binding0 binding1 entryName parameterName
+          parameterSourceId method markerRegion field0Region field1Region
+            methodIR watFile abiFile watMethodText abiMethodText)
+    (hinput :
+      ir.memory.inputOffset + 8 ≤ ir.memory.minPages * wasmPageBytes)
+    (hdeposit :
+      ir.memory.depositOffset + 16 ≤ ir.memory.minPages * wasmPageBytes)
+    (hvalue :
+      ir.memory.valueOffset + 8 ≤ ir.memory.minPages * wasmPageBytes) :
+    ValidatedReadOnlyWATModuleEmissionV1 ir (entryIndex + 1) methodIR
+      watFile.contents watMethodText
+      (unaryAddTwoUInt64DepositWATV1 ir.registers ir.memory markerRegion
+        field0Region field1Region plan.storage.markerValue) := by
+  have halignment := hchain.staticAlignment.staticAlignment
+  have hlower :
+      lowerMethodWATOperationsV1 ir.registers ir.memory methodIR.operations =
+        some (unaryAddTwoUInt64DepositWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue) := by
+    rw [halignment.methodIRExact]
+    exact lowerMethodWATOperationsV1_unaryAddTwoUInt64Deposit ir.registers
+      ir.memory markerRegion field0Region field1Region plan.storage.markerValue
+  have hvalidated :
+      ValidatedReadOnlyMethodWATEmissionV1 ir (entryIndex + 1) methodIR
+        watFile.contents watMethodText
+        (unaryAddTwoUInt64DepositWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue) := by
+    refine ⟨
+      readOnlyMethodWATEmissionV1_of_methodWATEmissionV1 ir (entryIndex + 1)
+        methodIR watFile.contents watMethodText _
+          hchain.baseEmission.watMethodEmission hlower,
+      ?_
+    ⟩
+    rw [halignment.methodIRExact]
+    exact validateMethodWATV1_unaryAddTwoUInt64Deposit ir.keys ir.registers
+      ir.memory markerRegion field0Region field1Region plan.storage.markerValue
+      (readOnlyWATKeyRegionBoundV1_of_getElem?_eq_some ir.keys 0 markerRegion
+        hchain.staticAlignment.markerLookup)
+      (readOnlyWATKeyRegionBoundV1_of_getElem?_eq_some ir.keys
+        (binding0.physicalFieldIndex + 1) field0Region
+          hchain.staticAlignment.field0Lookup)
+      (readOnlyWATKeyRegionBoundV1_of_getElem?_eq_some ir.keys
+        (binding1.physicalFieldIndex + 1) field1Region
+          hchain.staticAlignment.field1Lookup)
+      hinput hdeposit hvalue
+  exact validatedReadOnlyWATModuleEmissionV1_of_irEmissionV1 ir files
+    (entryIndex + 1) methodIR watFile.contents watMethodText _
+      hchain.baseEmission.irEmission hvalidated
+
+/-- Under one shared storage observation, the capability-selected production
+    MethodIR and its exact typed-WAT fragment return the same checked-add bytes
+    and the same two-row post-storage. -/
+theorem capabilityUnaryAddTwoUInt64DepositStaticEmissionV1_execute
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (before0 before1 amount : UInt64)
+    (storage : StorageObservationV1)
+    (hchain :
+      CapabilityUnaryAddTwoUInt64DepositStaticEmissionV1 capability program data
+        plan ir files entryIndex binding0 binding1 entryName parameterName
+          parameterSourceId method markerRegion field0Region field1Region
+            methodIR watFile abiFile watMethodText abiMethodText)
+    (hmarker :
+      storage.lookup markerRegion.key =
+        some (encodeU64le plan.storage.markerValue))
+    (hfield0 :
+      storage.lookup field0Region.key = some (encodeU64le before0))
+    (hfield1 :
+      storage.lookup field1Region.key = some (encodeU64le before1))
+    (hfield10 : field1Region.key ≠ field0Region.key)
+    (hinputValue : ir.memory.inputOffset ≠ ir.memory.valueOffset)
+    (hinputDepositLow : ir.memory.inputOffset ≠ ir.memory.depositOffset)
+    (hinputDepositHigh :
+      ir.memory.inputOffset ≠ ir.memory.depositOffset + 8)
+    (hadd0 : before0.toNat + amount.toNat < 2 ^ 64)
+    (hadd1 : before1.toNat + amount.toNat < 2 ^ 64) :
+    ReadOnlyMethodWATEmissionV1 ir (entryIndex + 1) methodIR
+        watFile.contents watMethodText
+        (unaryAddTwoUInt64DepositWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue) ∧
+      executeMethodV1 methodIR (encodeU64le amount) 0 0 storage =
+        .returned (some (checkedAddUInt64BytesV1 before1 amount))
+          (unaryAddTwoUInt64DepositPostStorageV1 storage field0Region
+            field1Region before0 before1 amount) ∧
+      executeMethodWATV1 7
+        (unaryAddTwoUInt64DepositWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue)
+        (encodeU64le amount) 0 0 storage =
+          .returned (some (checkedAddUInt64BytesV1 before1 amount))
+            (unaryAddTwoUInt64DepositPostStorageV1 storage field0Region
+              field1Region before0 before1 amount) := by
+  have halignment := hchain.staticAlignment.staticAlignment
+  have hlower :
+      lowerMethodWATOperationsV1 ir.registers ir.memory methodIR.operations =
+        some (unaryAddTwoUInt64DepositWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue) := by
+    rw [halignment.methodIRExact]
+    exact lowerMethodWATOperationsV1_unaryAddTwoUInt64Deposit ir.registers
+      ir.memory markerRegion field0Region field1Region plan.storage.markerValue
+  refine ⟨
+    readOnlyMethodWATEmissionV1_of_methodWATEmissionV1 ir (entryIndex + 1)
+      methodIR watFile.contents watMethodText _
+        hchain.baseEmission.watMethodEmission hlower,
+    ?_,
+    ?_
+  ⟩
+  · exact executeMethodV1_of_unaryAddTwoUInt64DepositStaticAlignment data
+      plan.storage binding0 binding1 entryName parameterName parameterSourceId
+      method markerRegion field0Region field1Region methodIR before0 before1
+      amount storage halignment hmarker hfield0 hfield1 hfield10 hadd0 hadd1
+  · exact executeMethodWATV1_unaryAddTwoUInt64Deposit ir.registers ir.memory
+      markerRegion field0Region field1Region plan.storage.markerValue before0
+      before1 amount storage hmarker hfield0 hfield1 hfield10 hinputValue
+      hinputDepositLow hinputDepositHigh hadd0 hadd1
 
 /-- The bounded typed-WAT fragment selected by a production capability chain
     passes its own static validator when the production scratch block is in

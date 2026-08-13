@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-09
+updated: 2026-08-12
 normative: false
 ---
 
@@ -15373,3 +15373,28 @@ normative: false
   不诚实 emit。投影仍为诚实子集；Anvil↛OutcomeWire 仍 FC。
 - **文档**：`evm-outcome-adapter-v1` / corpus / `01-evm` / `reference-outcome-v1` 同步
   slice-3 边界。工程 only；**不**关闭 formal C-3 / TST-SEM / TASK-D2-07。
+
+## 2026-08-12 — Phase 7 NEAR VerifiedVault deposit bounded refinement
+
+- sole bounded MethodIR/typed-WAT target authority已连接 selected `VerifiedVaultPF.deposit(amount)`
+  的真实 product chain。新增 proposition-only
+  `CapabilityUnaryAddTwoUInt64DepositStaticEmissionV1`，绑定 exact retained semantic、same-file
+  certified capability、production Plan entry 0 / IR method 1、canonical marker/reserves/shares key
+  regions及同一次 WAT/ABI emission；constructor只组合既有 production Plan/IR/build/lowering/renderer
+  graph，没有新增第二套 authority。
+- production certifier fixture动态识别 exact UInt64 amount ABI、zero-deposit policy、两次同参数 checked
+  add/store及 shares return，并构造 capability carrier、complete generated-WAT validation witness；同一
+  carrier在 MethodIR与typed-WAT evaluator上返回相同 checked-add bytes和 two-row post-storage。
+- materialization fixture直接消费 sole Reference
+  `stepReferenceSliceV1_ready_add_parameter_two_returned_exact_post_encode`；shared codec bridge
+  `checkedAddUInt64BytesV1_eq_natToLeBytesV1`把 target checked-add bytes与 Reference exact logical
+  post-state encoding连接。wrong ABI width、nonzero deposit、missing layout、first overflow与 second
+  overflow均 fail closed；late second overflow发生在第一条 evaluator-local store之后，但
+  `observeMethodV1` / `observeMethodWATV1`仍暴露 exact pre-storage，固定 no-commit rollback。
+- 补齐既有 `.attachedDepositValue` Operation在 host-import、numeric-local及 memory-footprint三项
+  production validation中的穷举覆盖；没有改变其 lowering或执行语义。focused Near target、
+  materialization与 product certifier Lean builds均通过。
+- 当前 `status()`、`init()`、`deposit()`具有 bounded MethodIR/typed-WAT refinement；`withdraw()`
+  尚未 target-refined。没有 arbitrary textual-WAT parser、`wat2wasm` correctness、Wasm binary
+  semantics或 NEAR runtime simulation；整体仍为
+  **Reference-verified + engineering runtime observed ≠ fully target-refined**。

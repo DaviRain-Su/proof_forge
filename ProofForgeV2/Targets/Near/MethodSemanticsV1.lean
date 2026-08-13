@@ -1042,6 +1042,22 @@ theorem initializedZeroTwoUInt64StorageRelV1_of_postEncode_and_methodExecution
 def checkedAddUInt64BytesV1 (left right : UInt64) : ByteArray :=
   encodeU64le (UInt64.ofNat (left.toNat + right.toNat))
 
+/-- The target checked-add encoding is exactly the byte string used by the
+    Reference machine for an in-range UInt64 sum. This is a codec bridge, not
+    a second arithmetic or contract semantics. -/
+theorem checkedAddUInt64BytesV1_eq_natToLeBytesV1
+    (left right : UInt64)
+    (hadd : left.toNat + right.toNat < 2 ^ 64) :
+    checkedAddUInt64BytesV1 left right =
+      natToLeBytesV1 (left.toNat + right.toNat) 8 := by
+  calc
+    checkedAddUInt64BytesV1 left right =
+        natToLeBytesV1
+          (UInt64.ofNat (left.toNat + right.toNat)).toNat 8 := by
+      exact (natToLeBytesV1_uint64_eq_encodeU64le _).symm
+    _ = natToLeBytesV1 (left.toNat + right.toNat) 8 := by
+      rw [UInt64.toNat_ofNat', Nat.mod_eq_of_lt hadd]
+
 /-- Exact physical post-storage for the selected deposit recipe. -/
 def unaryAddTwoUInt64DepositPostStorageV1
     (storage : StorageObservationV1)

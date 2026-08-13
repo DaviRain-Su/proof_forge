@@ -3,7 +3,7 @@ id: PLAN-VERIFIED-CONTRACT-AUTHORING
 title: ProofForge VerifiedVault 风格形式化验证作者体验实施规划
 status: draft
 owner: engineering
-updated: 2026-08-11
+updated: 2026-08-12
 normative: false
 ---
 
@@ -771,18 +771,29 @@ certification elaboration 阶段 fail closed。
   MethodIR与typed-WAT execution theorem同时固定成功 post-storage、double-init trap与 nonzero-deposit
   trap；storage join直接消费唯一 Reference step的真实 `postEncode` theorem，把 initialized logical
   zero/zero state与 marker+两条 physical KV row连接。该 slice仍不证明 textual WAT parser、
-  `wat2wasm`、Wasm binary或 NEAR runtime simulation；`deposit()` / `withdraw()` 尚未 target-refined。
+  `wat2wasm`、Wasm binary或 NEAR runtime simulation。
+- `VerifiedVaultPF.deposit(amount)` 现成为第三个 bounded target slice：
+  `CapabilityUnaryAddTwoUInt64DepositStaticEmissionV1` 将真实 same-file certified capability中的
+  retained semantic、production `plan.entries[0]` / `ir.methods[1]`、canonical marker/two-field key
+  regions及同一次 WAT/ABI emission绑定为单一 proposition。exact recognizer要求一个 8-byte UInt64
+  参数、zero-deposit policy、两次 `state + amount` checked add/store及返回更新后的 shares；唯一
+  MethodIR/typed-WAT evaluator在同一 storage observation上给出相同 return bytes和两字段 post-state。
+  Reference join直接消费既有 returned exact-post theorem，并由 shared UInt64 codec bridge证明
+  target checked-add bytes就是 Reference `natToLeBytesV1` bytes。ABI width、nonzero deposit、missing
+  layout、first overflow及 second overflow均 fail closed；尤其 second overflow发生在第一条 machine
+  store之后，`observeMethodV1` / `observeMethodWATV1`仍只暴露 exact pre-storage，固定 transaction
+  rollback边界。没有新增 DSL/business State、Effect、step、lowering、renderer或 evaluator。
 
-现在已经得到两个 **bounded MethodIR/typed-WAT target slices**：`status()` 的 read-only outcome及
-`init()` 的 initialized zero/zero post-storage均已精确闭合；validated SemanticProgram →
+现在已经得到三个 **bounded MethodIR/typed-WAT target slices**：`status()` 的 read-only outcome、
+`init()` 的 initialized zero/zero post-storage及 `deposit()` 的 checked two-field update均已精确闭合；validated SemanticProgram →
 capability-gated production Plan/IR → selected-method static alignment → exact same-emission WAT+ABI
 provenance均由 capability-scoped carrier连接。sandbox observation仍只是工程契约；kernel theorem目前
-只覆盖这两个 selected recipes，`deposit()` / `withdraw()` 尚未 target-refined。仍没有证明
+只覆盖这三个 selected recipes，`withdraw()` 尚未 target-refined。仍没有证明
 WAT renderer 实现 IR、没有 JSON/WAT parser/typechecker semantics、没有 WAT↔ABI consistency、
 没有一般 `Operation` execution semantics、IR→WAT/Wasm simulation、NEAR host semantics、一般
 lowering characterization、locked `wat2wasm` 正确性、finalized Wasm bytes 或磁盘 artifact
 identity theorem。`NearHostModel` 继续是 private test-only engineering model，不是本次 formal target
-recipe semantics。当前只能称 `status()` 与 `init()` 具有 bounded MethodIR/typed-WAT refinement；整体
+recipe semantics。当前只能称 `status()`、`init()` 与 `deposit()` 具有 bounded MethodIR/typed-WAT refinement；整体
 artifact 声明仍是 **Reference-verified + NEAR engineering runtime observed ≠ fully target-refined**。
 
 每个 target 至少需要：
@@ -885,7 +896,7 @@ artifact 声明仍是 **Reference-verified + NEAR engineering runtime observed �
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR `status()` + `init()` bounded MethodIR/typed-WAT slices 已闭合）** | `status()` 已有 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR → exact WAT/ABI emission → bounded target execution → sole Reference returned observation 的 kernel chain。`init()` 现复用同一 lowering/renderer/evaluator，动态恢复真实 capability的 initializer Method/MethodIR与 canonical marker/two-field regions，证明成功 post-storage、double-init/nonzero-deposit trap，并用真实 Reference initializer step/postEncode theorem连接 logical initialized zero/zero state与三条 physical KV rows。complete-module validation继续覆盖 memory/import/internal-call/method-export consistency，locked `wat2wasm`仅有工程验收。`deposit()` / `withdraw()` 尚未 target-refined；没有一般 lowering/renderer correctness、JSON/WAT semantics、IR→Wasm/NEAR simulation、WAT↔ABI consistency、`wat2wasm` correctness、finalized Wasm或disk artifact identity evidence，整体仍是 **Reference-verified + engineering runtime observed ≠ fully target-refined** |
+| 7 | Per-target refinement | **进行中（NEAR `status()` + `init()` + `deposit()` bounded MethodIR/typed-WAT slices 已闭合）** | `status()` 已有 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR → exact WAT/ABI emission → bounded target execution → sole Reference returned observation 的 kernel chain。`init()` 复用同一 lowering/renderer/evaluator，证明成功 post-storage、double-init/nonzero-deposit trap，并用真实 Reference initializer step/postEncode theorem连接 logical initialized zero/zero state与三条 physical KV rows。`deposit()` 已将真实 production entry 0 / MethodIR 1及同次 WAT/ABI carrier接入两级 bounded evaluator；成功路径与 Reference exact post-state按 shared codec join，ABI/deposit/layout/两次 overflow failure及 late second-overflow rollback均已固定。complete-module validation继续覆盖 memory/import/internal-call/method-export consistency，locked `wat2wasm`仅有工程验收。`withdraw()` 尚未 target-refined；没有一般 lowering/renderer correctness、JSON/WAT semantics、IR→Wasm/NEAR simulation、WAT↔ABI consistency、`wat2wasm` correctness、finalized Wasm或disk artifact identity evidence，整体仍是 **Reference-verified + engineering runtime observed ≠ fully target-refined** |
 
 ### 首个代码切片进展
 
@@ -1245,8 +1256,14 @@ expression translator：
     capability/Plan/IR fixture动态提供 initializer Method/MethodIR、canonical key regions及同次 WAT/ABI
     output；MethodIR与typed-WAT machine证明 exact zero/zero+marker post-storage和 double-init/
     nonzero-deposit trap；真实 Reference initializer step的 postEncode theorem再把逻辑 post-state与
-    target storage join。下一步按同一纪律推进 `deposit()`，再处理 `withdraw()`；二者涉及 checked
-    arithmetic、guard、两字段 store与 rollback，不能由 init/status切片代签。之后仍需
+    target storage join；
+18. selected `VerifiedVaultPF.deposit(amount)` 已沿同一 authority完成 bounded refinement：真实
+    production entry 0 / MethodIR 1、exact WAT/ABI emission与 capability carrier已闭合；两级 evaluator
+    对成功 checked add给出相同 return和两字段 post-storage，并与 sole Reference returned exact-post
+    theorem及 shared codec law join。wrong-width/deposit/layout/first-overflow和 late second-overflow
+    failure均固定 no-commit observation，后者明确覆盖第一条 machine store已发生但不可逃逸的 rollback。
+    下一步按同一纪律处理 `withdraw()`；其双 guard、checked subtraction、Unit return与 rollback不能由
+    init/status/deposit切片代签。之后仍需
     semantics-bearing verified WAT/Wasm consumer（继续扩展 sole typed-WAT execution或引入可证明
     encoder/translator），再到 Wasm binary execution与完整 NEAR host simulation。
     上述各层未闭合前，完整 WAT文本、Wasm binary和最终 NEAR artifact仍不得标记为 target-refined或

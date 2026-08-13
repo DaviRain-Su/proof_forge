@@ -1215,7 +1215,8 @@ private partial def operationHostImportsCoveredV1
   | .checkInputLen bytes =>
       imports.contains .input && imports.contains .registerLen &&
         (bytes == 0 || imports.contains .readRegister)
-  | .requireZeroAttachedDeposit | .requireExactAttachedDeposit _ =>
+  | .requireZeroAttachedDeposit | .requireExactAttachedDeposit _
+  | .attachedDepositValue _ =>
       imports.contains .attachedDeposit
   | .blockTimestampSeconds _ => imports.contains .blockTimestamp
   | .blockIndex _ => imports.contains .blockIndex
@@ -1333,7 +1334,8 @@ private partial def operationLocalReferencesValidV1
   | .returnNone => true
   | .requireExactAttachedDeposit amount => amount < tempCount
   | .blockTimestampSeconds destination | .blockIndex destination
-  | .accountBalance destination | .callerPrincipalLen destination
+  | .accountBalance destination | .attachedDepositValue destination
+  | .callerPrincipalLen destination
   | .callerPrincipalWord destination _ | .selfPrincipalLen destination
   | .selfPrincipalWord destination _ | .literal destination _
   | .loadParam destination _ | .loadState destination _ =>
@@ -1607,7 +1609,8 @@ private def returnDataLeavesMemoryEndV1
     parser or an execution semantics. -/
 private partial def operationMemoryEndV1 (ir : IR) : Operation → Option Nat
   | .checkInputLen bytes => some (ir.memory.inputOffset + bytes)
-  | .requireZeroAttachedDeposit | .requireExactAttachedDeposit _ =>
+  | .requireZeroAttachedDeposit | .requireExactAttachedDeposit _
+  | .attachedDepositValue _ =>
       some (ir.memory.depositOffset + 16)
   | .accountBalance _ | .accountBalanceU128 _ =>
       some (ir.memory.depositOffset + 16)

@@ -1001,6 +1001,218 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
         exact ⟨initializerWATText, initializerABIText, hinitializerCapability,
           hinitializerValidated, htext.2⟩
 
+      -- Close `deposit(amount)` against the same retained semantic carrier,
+      -- production Plan/IR, and WAT/ABI emission graph. Entry zero lowers to
+      -- MethodIR one because MethodIR zero is the initializer.
+      let ⟨depositMethod, hdepositMethod⟩ ← liftOptionWithProof plan.entries[0]?
+        "VerifiedVaultPF production Plan is missing deposit at entry 0"
+      let ⟨depositIR, hdepositIR⟩ ← liftOptionWithProof ir.methods[1]?
+        "VerifiedVaultPF production IR is missing deposit at method 1"
+      let ⟨depositMethodShape, hdepositMethodRecognize⟩ ← liftOptionWithProof
+        (recognizeUnaryAddTwoUInt64DepositMethodV1 depositMethod)
+        "VerifiedVaultPF production deposit Method was not structurally recognized"
+      let ⟨_, hdepositMethodFields⟩ ← requireProof
+        (depositMethodShape.entryName = "deposit" ∧
+          depositMethodShape.parameterSourceId = 0 ∧
+          depositMethodShape.parameterName = "amount" ∧
+          depositMethodShape.field0Index = 0 ∧
+          depositMethodShape.load0Index = 0 ∧
+          depositMethodShape.field1Index = 1 ∧
+          depositMethodShape.load1Index = 1 ∧
+          depositMethodShape.returnIndex = 1)
+        "VerifiedVaultPF production deposit Method has wrong fields"
+      have hdepositMethodShapeExact : depositMethodShape = {
+          entryName := "deposit"
+          parameterSourceId := 0
+          parameterName := "amount"
+          field0Index := reservesBinding.physicalFieldIndex
+          load0Index := reservesBinding.physicalFieldIndex
+          field1Index := sharesBinding.physicalFieldIndex
+          load1Index := sharesBinding.physicalFieldIndex
+          returnIndex := sharesBinding.physicalFieldIndex
+        } := by
+        cases depositMethodShape
+        simp_all [reservesBinding, sharesBinding, productionReservesBinding,
+          productionSharesBinding]
+      have hdepositMethodRecognized :
+          recognizeUnaryAddTwoUInt64DepositMethodV1 depositMethod = some {
+            entryName := "deposit"
+            parameterSourceId := 0
+            parameterName := "amount"
+            field0Index := reservesBinding.physicalFieldIndex
+            load0Index := reservesBinding.physicalFieldIndex
+            field1Index := sharesBinding.physicalFieldIndex
+            load1Index := sharesBinding.physicalFieldIndex
+            returnIndex := sharesBinding.physicalFieldIndex
+          } :=
+        hdepositMethodRecognize.trans (congrArg some hdepositMethodShapeExact)
+      let ⟨depositIRShape, hdepositIRRecognize⟩ ← liftOptionWithProof
+        (recognizeUnaryAddTwoUInt64DepositMethodIRV1 depositIR)
+        "VerifiedVaultPF production deposit MethodIR was not structurally recognized"
+      let ⟨_, hdepositIRScalars⟩ ← requireProof
+        (depositIRShape.entryName = "deposit" ∧
+          depositIRShape.parameterSourceId = 0 ∧
+          depositIRShape.parameterName = "amount" ∧
+          depositIRShape.markerValue = plan.storage.markerValue)
+        "VerifiedVaultPF production deposit MethodIR has wrong scalars"
+      let ⟨_, hdepositIRMarker⟩ ← checkKeyRegionEqual
+        depositIRShape.markerRegion alignedMarkerRegion
+        "VerifiedVaultPF deposit marker region diverges from production keys"
+      let ⟨_, hdepositIRLoad0⟩ ← checkKeyRegionEqual
+        depositIRShape.load0Region alignedReservesRegion
+        "VerifiedVaultPF deposit first load diverges from production keys"
+      let ⟨_, hdepositIRStore0⟩ ← checkKeyRegionEqual
+        depositIRShape.store0Region alignedReservesRegion
+        "VerifiedVaultPF deposit first store diverges from production keys"
+      let ⟨_, hdepositIRLoad1⟩ ← checkKeyRegionEqual
+        depositIRShape.load1Region alignedSharesRegion
+        "VerifiedVaultPF deposit second load diverges from production keys"
+      let ⟨_, hdepositIRStore1⟩ ← checkKeyRegionEqual
+        depositIRShape.store1Region alignedSharesRegion
+        "VerifiedVaultPF deposit second store diverges from production keys"
+      let ⟨_, hdepositIRReturn⟩ ← checkKeyRegionEqual
+        depositIRShape.returnRegion alignedSharesRegion
+        "VerifiedVaultPF deposit return load diverges from production keys"
+      have hdepositIRShapeExact : depositIRShape = {
+          entryName := "deposit"
+          parameterSourceId := 0
+          parameterName := "amount"
+          markerRegion := alignedMarkerRegion
+          load0Region := alignedReservesRegion
+          store0Region := alignedReservesRegion
+          load1Region := alignedSharesRegion
+          store1Region := alignedSharesRegion
+          returnRegion := alignedSharesRegion
+          markerValue := plan.storage.markerValue
+        } := by
+        cases depositIRShape
+        simp_all
+      have hdepositIRRecognized :
+          recognizeUnaryAddTwoUInt64DepositMethodIRV1 depositIR = some {
+            entryName := "deposit"
+            parameterSourceId := 0
+            parameterName := "amount"
+            markerRegion := alignedMarkerRegion
+            load0Region := alignedReservesRegion
+            store0Region := alignedReservesRegion
+            load1Region := alignedSharesRegion
+            store1Region := alignedSharesRegion
+            returnRegion := alignedSharesRegion
+            markerValue := plan.storage.markerValue
+          } :=
+        hdepositIRRecognize.trans (congrArg some hdepositIRShapeExact)
+      have hdepositLowering :
+          MethodIRLoweringV1 plan ir.keys depositMethod depositIR :=
+        planIRLoweringV1_entry_lookup_eq_some plan ir 0 depositMethod depositIR
+          hgraphs.2.2 hdepositMethod hdepositIR
+      have hdepositStatic :
+          ProductionUnaryAddTwoUInt64DepositStaticAlignmentV1 semantic
+            semanticData plan ir.keys reservesBinding sharesBinding "deposit"
+              "amount" 0 depositMethod alignedMarkerRegion
+                alignedReservesRegion alignedSharesRegion depositIR :=
+        productionUnaryAddTwoUInt64DepositStaticAlignmentV1_of_recognized
+          semantic semanticData plan ir.keys reservesBinding sharesBinding
+            "deposit" "amount" 0 depositMethod alignedMarkerRegion
+              alignedReservesRegion alignedSharesRegion depositIR hvalidate
+              hgraphs.2.1 hmarkerLookup
+              (by simpa [reservesBinding, productionReservesBinding] using
+                hreservesLookup)
+              (by simpa [sharesBinding, productionSharesBinding] using
+                hsharesLookup)
+              hdepositLowering hreservesBinding hsharesBinding rfl rfl rfl
+              (by simp [reservesBinding, sharesBinding,
+                productionReservesBinding, productionSharesBinding])
+              hmarkerCanonical.1 hmarkerCanonical.2 rfl hreservesCanonical rfl
+              hsharesCanonical hdepositMethodRecognized hdepositIRRecognized
+      let ⟨_, hinputMemory⟩ ← requireProof
+        (ir.memory.inputOffset + 8 ≤ ir.memory.minPages * wasmPageBytes)
+        "VerifiedVaultPF deposit input scratch exceeds declared memory"
+      let productionDepositStorage : StorageObservationV1 := {
+        lookup := fun key =>
+          if key == alignedMarkerRegion.key then
+            some (encodeU64le plan.storage.markerValue)
+          else if key == alignedReservesRegion.key then some (encodeU64le 10)
+          else if key == alignedSharesRegion.key then some (encodeU64le 10)
+          else none
+      }
+      let ⟨_, hreservesMarkerDistinct⟩ ← requireProof
+        (alignedReservesRegion.key ≠ alignedMarkerRegion.key)
+        "VerifiedVaultPF deposit reserves key aliases the layout marker"
+      let ⟨_, hsharesMarkerDistinct⟩ ← requireProof
+        (alignedSharesRegion.key ≠ alignedMarkerRegion.key)
+        "VerifiedVaultPF deposit shares key aliases the layout marker"
+      let ⟨_, hsharesReservesDistinct⟩ ← requireProof
+        (alignedSharesRegion.key ≠ alignedReservesRegion.key)
+        "VerifiedVaultPF deposit state keys alias"
+      let ⟨_, hinputValueDistinct⟩ ← requireProof
+        (ir.memory.inputOffset ≠ ir.memory.valueOffset)
+        "VerifiedVaultPF deposit input/value scratch aliases"
+      let ⟨_, hinputDepositLowDistinct⟩ ← requireProof
+        (ir.memory.inputOffset ≠ ir.memory.depositOffset)
+        "VerifiedVaultPF deposit input/deposit-low scratch aliases"
+      let ⟨_, hinputDepositHighDistinct⟩ ← requireProof
+        (ir.memory.inputOffset ≠ ir.memory.depositOffset + 8)
+        "VerifiedVaultPF deposit input/deposit-high scratch aliases"
+      have _ :
+          ∃ depositWATText depositABIText,
+            CapabilityUnaryAddTwoUInt64DepositStaticEmissionV1 capability
+                semantic semanticData plan ir baseFiles 0 reservesBinding
+                sharesBinding "deposit" "amount" 0 depositMethod
+                alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+                depositIR watFile abiFile depositWATText depositABIText ∧
+              ValidatedReadOnlyWATModuleEmissionV1 ir 1 depositIR
+                watFile.contents depositWATText
+                (unaryAddTwoUInt64DepositWATV1 ir.registers ir.memory
+                  alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+                  plan.storage.markerValue) ∧
+              executeMethodV1 depositIR (encodeU64le 2) 0 0
+                  productionDepositStorage =
+                .returned (some (checkedAddUInt64BytesV1 10 2))
+                  (unaryAddTwoUInt64DepositPostStorageV1
+                    productionDepositStorage alignedReservesRegion
+                    alignedSharesRegion 10 10 2) ∧
+              executeMethodWATV1 7
+                  (unaryAddTwoUInt64DepositWATV1 ir.registers ir.memory
+                    alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+                    plan.storage.markerValue)
+                  (encodeU64le 2) 0 0 productionDepositStorage =
+                .returned (some (checkedAddUInt64BytesV1 10 2))
+                  (unaryAddTwoUInt64DepositPostStorageV1
+                    productionDepositStorage alignedReservesRegion
+                    alignedSharesRegion 10 10 2) := by
+        obtain ⟨depositWATText, depositABIText, hdepositCapability⟩ :=
+          capabilityUnaryAddTwoUInt64DepositStaticEmissionV1_of_graphs capability
+            semantic semanticData plan ir baseFiles 0 reservesBinding
+            sharesBinding "deposit" "amount" 0 depositMethod
+            alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+            depositIR watFile abiFile (by rfl) hplanCapability hirCapability
+            hbuildCapability hdepositStatic hdepositMethod hdepositIR hwatFile
+            habiFile
+        have hdepositValidatedModule :=
+          capabilityUnaryAddTwoUInt64DepositStaticEmissionV1_validatedWATModule
+            capability semantic semanticData plan ir baseFiles 0 reservesBinding
+            sharesBinding "deposit" "amount" 0 depositMethod
+            alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+            depositIR watFile abiFile depositWATText depositABIText
+            hdepositCapability hinputMemory hdepositMemory hvalueMemory
+        have hproductionDepositExecution :=
+          capabilityUnaryAddTwoUInt64DepositStaticEmissionV1_execute capability
+            semantic semanticData plan ir baseFiles 0 reservesBinding
+            sharesBinding "deposit" "amount" 0 depositMethod
+            alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+            depositIR watFile abiFile depositWATText depositABIText 10 10 2
+            productionDepositStorage hdepositCapability
+            (by simp [productionDepositStorage])
+            (by simp [productionDepositStorage, hreservesMarkerDistinct])
+            (by simp [productionDepositStorage, hsharesMarkerDistinct,
+              hsharesReservesDistinct])
+            hsharesReservesDistinct hinputValueDistinct
+            hinputDepositLowDistinct hinputDepositHighDistinct (by decide)
+            (by decide)
+        exact ⟨depositWATText, depositABIText, hdepositCapability,
+          hdepositValidatedModule, hproductionDepositExecution.2.1,
+          hproductionDepositExecution.2.2⟩
+
       match hstatus : plan.entries[2]? with
       | none =>
           throw <| IO.userError "VerifiedVaultPF production Plan is missing status at entry 2"

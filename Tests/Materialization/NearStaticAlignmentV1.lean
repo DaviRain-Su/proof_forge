@@ -298,6 +298,123 @@ private theorem initTypedWATLowering :
     canonicalRegisters statusMemory markerRegion reservesRegion sharesRegion
       storage.markerValue
 
+private def depositMethod : Method := {
+  name := "deposit"
+  params := #[{
+    sourceId := 0
+    name := "amount"
+    inputOffset := 0
+    byteWidth := 8
+    endianness := .little
+  }]
+  exactInputLen := 8
+  mode := .mutate
+  depositPolicy := .requireZero
+  resultKind := .uint64
+  body := #[
+    .store {
+      fieldIndex := 0
+      value := .checkedAdd (.stateLoad 0) (.param 0)
+      byteWidth := 8
+    },
+    .store {
+      fieldIndex := 1
+      value := .checkedAdd (.stateLoad 1) (.param 0)
+      byteWidth := 8
+    },
+    .returnValue (.stateLoad 1)
+  ]
+}
+
+private def depositIR : MethodIR := {
+  name := "deposit"
+  params := #[{
+    sourceId := 0
+    name := "amount"
+    inputOffset := 0
+    byteWidth := 8
+    endianness := .little
+  }]
+  mode := .mutate
+  tempCount := 7
+  operations := #[
+    .checkInputLen 8,
+    .requireZeroAttachedDeposit,
+    .requireLayout markerRegion storage.markerValue,
+    .loadState 0 reservesRegion,
+    .loadParam 1 0,
+    .checkedAdd 2 0 1,
+    .storeState reservesRegion 2,
+    .loadState 3 sharesRegion,
+    .loadParam 4 0,
+    .checkedAdd 5 3 4,
+    .storeState sharesRegion 5,
+    .loadState 6 sharesRegion,
+    .setReturnData 8 6
+  ]
+}
+
+private def depositTypedWAT : Array MethodWATInstructionV1 :=
+  unaryAddTwoUInt64DepositWATV1 canonicalRegisters statusMemory markerRegion
+    reservesRegion sharesRegion storage.markerValue
+
+private theorem depositAlignment :
+    UnaryAddTwoUInt64DepositStaticAlignmentV1 data storage reservesBinding
+      sharesBinding "deposit" "amount" 0 depositMethod markerRegion
+        reservesRegion sharesRegion depositIR := by
+  constructor <;>
+    simp [UInt64StateBindingRelV1, data,
+      Examples.VerifiedVaultPF.Proof.subjectDataV1, storage, reservesBinding,
+      sharesBinding, depositMethod, depositIR, markerRegion, reservesRegion,
+      sharesRegion, reservesKey, sharesKey]
+
+private theorem depositTypedWATLowering :
+    lowerMethodWATOperationsV1 canonicalRegisters statusMemory
+      depositIR.operations = some depositTypedWAT := by
+  exact lowerMethodWATOperationsV1_unaryAddTwoUInt64Deposit canonicalRegisters
+    statusMemory markerRegion reservesRegion sharesRegion storage.markerValue
+
+private theorem depositTargetExecution (amount : UInt64)
+    (hadd : (10 : UInt64).toNat + amount.toNat < 2 ^ 64) :
+    executeMethodV1 depositIR (encodeU64le amount) 0 0 observedStorage =
+      .returned (some (checkedAddUInt64BytesV1 10 amount))
+        (unaryAddTwoUInt64DepositPostStorageV1 observedStorage reservesRegion
+          sharesRegion 10 10 amount) := by
+  apply executeMethodV1_of_unaryAddTwoUInt64DepositStaticAlignment data storage
+    reservesBinding sharesBinding "deposit" "amount" 0 depositMethod
+      markerRegion reservesRegion sharesRegion depositIR 10 10 amount
+      observedStorage depositAlignment
+  · simp [observedStorage, markerRegion, storage, layoutMarkerKey]
+  · simp [observedStorage, reservesRegion, reservesKey, layoutMarkerKey,
+      tenBytes]
+  · simp [observedStorage, sharesRegion, sharesKey, reservesKey,
+      layoutMarkerKey, tenBytes]
+  · simp [reservesRegion, sharesRegion, reservesKey, sharesKey]
+  · exact hadd
+  · exact hadd
+
+private theorem depositTypedWATExecution (amount : UInt64)
+    (hadd : (10 : UInt64).toNat + amount.toNat < 2 ^ 64) :
+    executeMethodWATV1 7 depositTypedWAT (encodeU64le amount) 0 0
+      observedStorage =
+        .returned (some (checkedAddUInt64BytesV1 10 amount))
+          (unaryAddTwoUInt64DepositPostStorageV1 observedStorage reservesRegion
+            sharesRegion 10 10 amount) := by
+  apply executeMethodWATV1_unaryAddTwoUInt64Deposit canonicalRegisters
+    statusMemory markerRegion reservesRegion sharesRegion storage.markerValue
+      10 10 amount observedStorage
+  · simp [observedStorage, markerRegion, storage, layoutMarkerKey]
+  · simp [observedStorage, reservesRegion, reservesKey, layoutMarkerKey,
+      tenBytes]
+  · simp [observedStorage, sharesRegion, sharesKey, reservesKey,
+      layoutMarkerKey, tenBytes]
+  · simp [reservesRegion, sharesRegion, reservesKey, sharesKey]
+  · decide
+  · decide
+  · decide
+  · exact hadd
+  · exact hadd
+
 private def statusMethod : Method := {
   name := "status"
   params := #[]
@@ -827,6 +944,271 @@ example :
   rcases h with ⟨_, _, _, _, _, hstorage⟩
   have hkey := congrArg (fun snapshot => snapshot.lookup reservesKey) hstorage
   simp [failedObservation, observedStorage, reservesKey, layoutMarkerKey] at hkey
+
+/-! Selected VerifiedVault `deposit(amount)` target-refinement fixtures. -/
+
+example :
+    UnaryAddTwoUInt64DepositStaticAlignmentV1 data storage reservesBinding
+      sharesBinding "deposit" "amount" 0 depositMethod markerRegion
+        reservesRegion sharesRegion depositIR :=
+  depositAlignment
+
+example :
+    lowerMethodWATOperationsV1 canonicalRegisters statusMemory
+      depositIR.operations = some depositTypedWAT :=
+  depositTypedWATLowering
+
+example :
+    validateMethodWATV1 #[markerRegion, reservesRegion, sharesRegion]
+      statusMemory 7 depositTypedWAT = .ok () := by
+  exact validateMethodWATV1_unaryAddTwoUInt64Deposit
+    #[markerRegion, reservesRegion, sharesRegion] canonicalRegisters statusMemory
+      markerRegion reservesRegion sharesRegion storage.markerValue
+      (by simp [readOnlyWATKeyRegionEqV1])
+      (by simp [readOnlyWATKeyRegionEqV1])
+      (by simp [readOnlyWATKeyRegionEqV1])
+      (by decide) (by decide) (by decide)
+
+example :
+    executeMethodV1 depositIR (encodeU64le 2) 0 0 observedStorage =
+      .returned (some (checkedAddUInt64BytesV1 10 2))
+        (unaryAddTwoUInt64DepositPostStorageV1 observedStorage reservesRegion
+          sharesRegion 10 10 2) := by
+  exact depositTargetExecution 2 (by decide)
+
+example :
+    executeMethodWATV1 7 depositTypedWAT (encodeU64le 2) 0 0
+      observedStorage =
+        .returned (some (checkedAddUInt64BytesV1 10 2))
+          (unaryAddTwoUInt64DepositPostStorageV1 observedStorage reservesRegion
+            sharesRegion 10 10 2) := by
+  exact depositTypedWATExecution 2 (by decide)
+
+/-- A successful Reference deposit and both bounded target evaluators agree on
+    the exact checked-add bytes. The Reference theorem supplies `post`; this
+    fixture does not choose a target-local logical post-state. -/
+example
+    (admitted : AdmittedReferenceSliceV1)
+    (post : LogicalStateV1)
+    (amount : UInt64)
+    (context : Array ContextInputV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hadmit : admitReferenceProgramSliceV1 subjectProgram = .ok admitted)
+    (hgate :
+      gateInvocation admitted logicalTen {
+        callableId := 1
+        args := #[{ typeId := 0, valueBytes := encodeU64le amount }]
+        context := #[]
+      } = .ready
+        (addParameterTwoReturnCallableV1 1 (some "deposit") "amount" 0 0 1
+          .public_)
+        #[tenBytes, tenBytes] context false)
+    (hstep :
+      stepReferenceSliceV1 admitted logicalTen {
+        callableId := 1
+        args := #[{ typeId := 0, valueBytes := encodeU64le amount }]
+        context := #[]
+      } responses vault = .returned post value effects)
+    (hadd : (10 : UInt64).toNat + amount.toNat < 2 ^ 64) :
+    executeMethodV1 depositIR (encodeU64le amount) 0 0 observedStorage =
+        .returned (some (checkedAddUInt64BytesV1 10 amount))
+          (unaryAddTwoUInt64DepositPostStorageV1 observedStorage reservesRegion
+            sharesRegion 10 10 amount) ∧
+      executeMethodWATV1 7 depositTypedWAT (encodeU64le amount) 0 0
+        observedStorage =
+          .returned (some (checkedAddUInt64BytesV1 10 amount))
+            (unaryAddTwoUInt64DepositPostStorageV1 observedStorage
+              reservesRegion sharesRegion 10 10 amount) ∧
+      encodeLogicalStateValuesV1 data true #[
+        checkedAddUInt64BytesV1 10 amount,
+        checkedAddUInt64BytesV1 10 amount
+      ] = .ok post := by
+  have hadmittedData : admitted.data = data :=
+    (admitReferenceProgramSliceV1_ok_implies subjectProgram data admitted
+      Examples.VerifiedVaultPF.Proof.subjectValidationOkV1 hadmit).2
+  have hcanonical :
+      validateValueBytesV1 data.types 0 (encodeU64le amount) = .ok () :=
+    validateValueBytesV1_uint64_of_size data.types 0 uint64Type
+      (encodeU64le amount) (by rfl) (by rfl) (encodeU64le_size amount)
+  have hpostEncode :=
+    stepReferenceSliceV1_ready_add_parameter_two_returned_exact_post_encode
+      admitted logicalTen post data tenBytes (encodeU64le amount) 0 "reserves"
+        "shares" "amount" 1 (some "deposit") #[] context responses vault
+        value effects hadmittedData (by rfl) (by rfl) (by rfl) hcanonical
+        hgate hstep
+  have hbridge := checkedAddUInt64BytesV1_eq_natToLeBytesV1 10 amount hadd
+  have hpostExact :
+      encodeLogicalStateValuesV1 data true #[
+        checkedAddUInt64BytesV1 10 amount,
+        checkedAddUInt64BytesV1 10 amount
+      ] = .ok post := by
+    simpa [tenBytes, leBytesToNatV1_encodeU64le, hbridge] using hpostEncode
+  exact ⟨depositTargetExecution amount hadd,
+    depositTypedWATExecution amount hadd, hpostExact⟩
+
+example :
+    executeMethodV1 depositIR ByteArray.empty 0 0 observedStorage =
+      .trapped .inputLengthMismatch := by
+  rw [depositAlignment.methodIRExact]
+  exact executeMethodV1_unaryAddTwoUInt64Deposit_wrong_input "deposit" "amount"
+    0 markerRegion reservesRegion sharesRegion storage.markerValue
+      ByteArray.empty observedStorage (by decide)
+
+example :
+    executeMethodWATV1 7 depositTypedWAT ByteArray.empty 0 0
+      observedStorage = .trapped .trap := by
+  exact executeMethodWATV1_unaryAddTwoUInt64Deposit_wrong_input
+    canonicalRegisters statusMemory markerRegion reservesRegion sharesRegion
+      storage.markerValue ByteArray.empty observedStorage (by decide)
+
+example :
+    executeMethodV1 depositIR (encodeU64le 1) 1 0 observedStorage =
+      .trapped .attachedDepositNotZero := by
+  rw [depositAlignment.methodIRExact]
+  exact executeMethodV1_unaryAddTwoUInt64Deposit_nonzero_deposit "deposit"
+    "amount" 0 markerRegion reservesRegion sharesRegion storage.markerValue 1 1
+      observedStorage (by decide)
+
+example :
+    executeMethodWATV1 7 depositTypedWAT (encodeU64le 1) 1 0
+      observedStorage = .trapped .trap := by
+  exact executeMethodWATV1_unaryAddTwoUInt64Deposit_nonzero_deposit
+    canonicalRegisters statusMemory markerRegion reservesRegion sharesRegion
+      storage.markerValue 1 1 observedStorage (by decide)
+
+private theorem depositMissingLayoutMethod :
+    executeMethodV1 depositIR (encodeU64le 1) 0 0 emptyStorage =
+      .trapped .storageMissing := by
+  rw [depositAlignment.methodIRExact]
+  exact executeMethodV1_unaryAddTwoUInt64Deposit_marker_missing "deposit"
+    "amount" 0 markerRegion reservesRegion sharesRegion storage.markerValue 1
+      emptyStorage (by simp [emptyStorage])
+
+private theorem depositMissingLayoutWAT :
+    executeMethodWATV1 7 depositTypedWAT (encodeU64le 1) 0 0 emptyStorage =
+      .trapped .trap := by
+  exact executeMethodWATV1_unaryAddTwoUInt64Deposit_marker_missing
+    canonicalRegisters statusMemory markerRegion reservesRegion sharesRegion
+      storage.markerValue 1 emptyStorage (by simp [emptyStorage])
+
+example :
+    let methodObserved :=
+      observeMethodV1 depositIR (encodeU64le 1) 0 0 emptyStorage
+    let watObserved :=
+      observeMethodWATV1 "deposit" 7 depositTypedWAT (encodeU64le 1) 0 0
+        emptyStorage
+    methodObserved.failureObserved = true ∧
+      methodObserved.postStorage = emptyStorage ∧
+      watObserved.failureObserved = true ∧
+      watObserved.postStorage = emptyStorage := by
+  simp [observeMethodV1, observeMethodWATV1, depositMissingLayoutMethod,
+    depositMissingLayoutWAT]
+
+private def firstOverflowStorage : StorageObservationV1 := {
+  lookup := fun key =>
+    if key == layoutMarkerKey then some (encodeU64le storage.markerValue)
+    else if key == reservesKey then
+      some (encodeU64le (UInt64.ofNat 18446744073709551615))
+    else if key == sharesKey then some (encodeU64le 0)
+    else none
+}
+
+private theorem depositFirstOverflowMethod :
+    executeMethodV1 depositIR (encodeU64le 1) 0 0 firstOverflowStorage =
+      .trapped .arithmeticOverflow := by
+  rw [depositAlignment.methodIRExact]
+  apply executeMethodV1_unaryAddTwoUInt64Deposit_first_overflow "deposit"
+    "amount" 0 markerRegion reservesRegion sharesRegion storage.markerValue
+      (UInt64.ofNat 18446744073709551615) 1 firstOverflowStorage
+  · simp [firstOverflowStorage, markerRegion, storage, layoutMarkerKey]
+  · simp [firstOverflowStorage, reservesRegion, reservesKey, layoutMarkerKey]
+  · decide
+
+private theorem depositFirstOverflowWAT :
+    executeMethodWATV1 7 depositTypedWAT (encodeU64le 1) 0 0
+      firstOverflowStorage = .trapped .trap := by
+  apply executeMethodWATV1_unaryAddTwoUInt64Deposit_first_overflow
+    canonicalRegisters statusMemory markerRegion reservesRegion sharesRegion
+      storage.markerValue (UInt64.ofNat 18446744073709551615) 1
+        firstOverflowStorage
+  · simp [firstOverflowStorage, markerRegion, storage, layoutMarkerKey]
+  · simp [firstOverflowStorage, reservesRegion, reservesKey, layoutMarkerKey]
+  · decide
+  · decide
+  · decide
+  · decide
+
+example :
+    let methodObserved :=
+      observeMethodV1 depositIR (encodeU64le 1) 0 0 firstOverflowStorage
+    let watObserved :=
+      observeMethodWATV1 "deposit" 7 depositTypedWAT (encodeU64le 1) 0 0
+        firstOverflowStorage
+    methodObserved.failureObserved = true ∧
+      methodObserved.postStorage = firstOverflowStorage ∧
+      watObserved.failureObserved = true ∧
+      watObserved.postStorage = firstOverflowStorage := by
+  simp [observeMethodV1, observeMethodWATV1, depositFirstOverflowMethod,
+    depositFirstOverflowWAT]
+
+private def secondOverflowStorage : StorageObservationV1 := {
+  lookup := fun key =>
+    if key == layoutMarkerKey then some (encodeU64le storage.markerValue)
+    else if key == reservesKey then some (encodeU64le 0)
+    else if key == sharesKey then
+      some (encodeU64le (UInt64.ofNat 18446744073709551615))
+    else none
+}
+
+private theorem depositSecondOverflowMethod :
+    executeMethodV1 depositIR (encodeU64le 1) 0 0 secondOverflowStorage =
+      .trapped .arithmeticOverflow := by
+  rw [depositAlignment.methodIRExact]
+  apply executeMethodV1_unaryAddTwoUInt64Deposit_second_overflow "deposit"
+    "amount" 0 markerRegion reservesRegion sharesRegion storage.markerValue 0
+      (UInt64.ofNat 18446744073709551615) 1 secondOverflowStorage
+  · simp [secondOverflowStorage, markerRegion, storage, layoutMarkerKey]
+  · simp [secondOverflowStorage, reservesRegion, reservesKey, layoutMarkerKey]
+  · simp [secondOverflowStorage, sharesRegion, sharesKey, reservesKey,
+      layoutMarkerKey]
+  · simp [reservesRegion, sharesRegion, reservesKey, sharesKey]
+  · decide
+  · decide
+
+private theorem depositSecondOverflowWAT :
+    executeMethodWATV1 7 depositTypedWAT (encodeU64le 1) 0 0
+      secondOverflowStorage = .trapped .trap := by
+  apply executeMethodWATV1_unaryAddTwoUInt64Deposit_second_overflow
+    canonicalRegisters statusMemory markerRegion reservesRegion sharesRegion
+      storage.markerValue 0 (UInt64.ofNat 18446744073709551615) 1
+        secondOverflowStorage
+  · simp [secondOverflowStorage, markerRegion, storage, layoutMarkerKey]
+  · simp [secondOverflowStorage, reservesRegion, reservesKey, layoutMarkerKey]
+  · simp [secondOverflowStorage, sharesRegion, sharesKey, reservesKey,
+      layoutMarkerKey]
+  · simp [reservesRegion, sharesRegion, reservesKey, sharesKey]
+  · decide
+  · decide
+  · decide
+  · decide
+  · decide
+
+/-- Even the late second-add trap exposes the original storage through both
+    observation boundaries; the first in-machine write cannot escape. -/
+example :
+    (observeMethodV1 depositIR (encodeU64le 1) 0 0 secondOverflowStorage
+        ).failureObserved = true ∧
+      (observeMethodV1 depositIR (encodeU64le 1) 0 0 secondOverflowStorage
+        ).postStorage = secondOverflowStorage ∧
+      (observeMethodWATV1 "deposit" 7 depositTypedWAT (encodeU64le 1) 0 0
+          secondOverflowStorage).failureObserved = true ∧
+      (observeMethodWATV1 "deposit" 7 depositTypedWAT (encodeU64le 1) 0 0
+          secondOverflowStorage).postStorage = secondOverflowStorage := by
+  simp [observeMethodV1, observeMethodWATV1, depositSecondOverflowMethod,
+    depositSecondOverflowWAT]
 
 /-! Selected VerifiedVault `init()` target-refinement fixtures. -/
 

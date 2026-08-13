@@ -344,8 +344,22 @@ Phase 1：实现
   deposit trap；storage relation又直接消费 sole Reference initializer step与
   `postEncode_of_readyInitializerStoreZeroTwoV1`，连接 logical initialized zero/zero state和 marker+
   two-field physical KV。没有第二套业务 State/Effect/step/evaluator。该结果只覆盖 selected
-  `init()` recipe；`deposit()` / `withdraw()` 尚未 target-refined，也不证明 arbitrary textual WAT、
+  `init()` recipe，也不证明 arbitrary textual WAT、
   `wat2wasm` correctness、Wasm binary semantics或 NEAR runtime simulation。整体仍是
+  **Reference-verified + engineering runtime observed ≠ fully target-refined**。
+- **VerifiedVault `deposit(amount)` bounded target refinement（Phase 7 第二十八切）**：现有唯一
+  checked-add MethodIR/typed-WAT evaluator与 static validator现已连接真实 product chain，而不再只停在
+  generic recipe。`CapabilityUnaryAddTwoUInt64DepositStaticEmissionV1`绑定 same-file certified
+  capability、exact retained semantic、production Plan entry 0 / IR method 1、canonical marker/reserves/
+  shares regions及同一次 WAT/ABI renderer graph；proof-producing recognizer要求 exact UInt64 amount
+  ABI、zero-deposit policy、两次 checked add/store与 shares return。成功 execution在 MethodIR和
+  typed-WAT两级产生相同 checked-add return bytes及相同 two-row post-storage；shared codec theorem再把
+  这些 bytes与 sole Reference exact-post theorem的 `natToLeBytesV1`连接。wrong ABI width、nonzero
+  deposit、missing layout、first overflow与 second overflow均 fail closed；第二次 overflow发生在第一条
+  evaluator-local store之后，但两种 `observe*` boundary仍只暴露 exact pre-storage，固定 late-failure
+  transaction rollback。没有新增业务 State/Effect/step、Plan/lowering、renderer或 evaluator。
+  `withdraw()` 尚未 target-refined；也仍不证明 arbitrary textual WAT、`wat2wasm` correctness、Wasm
+  binary semantics或 NEAR runtime simulation。整体仍是
   **Reference-verified + engineering runtime observed ≠ fully target-refined**。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
@@ -438,7 +452,10 @@ execution、IR→Wasm/NEAR simulation 或 WAT↔ABI consistency theorem。
 同一 target authority现也覆盖 selected `init()`：真实 production initializer Method/MethodIR、
 canonical key regions与 WAT/ABI emission 已动态闭合，bounded MethodIR/typed-WAT execution固定成功
 post-storage及 double-init/nonzero-deposit trap，真实 Reference initializer postEncode theorem连接逻辑
-zero/zero state与三条物理 KV row。`deposit()` / `withdraw()` 尚未 target-refined。当前仍没有 finalized
+zero/zero state与三条物理 KV row。selected `deposit()`也已由真实 production entry 0 / MethodIR 1
+capability chain连接 exact WAT/ABI emission、两级 checked-add execution与 Reference exact post-state；
+ABI/deposit/layout/first-overflow/late-second-overflow均有 no-commit边界。`withdraw()`尚未
+target-refined。当前仍没有 finalized
 Wasm/disk identity 或 Reference→Wasm/NEAR simulation theorem。通用 corpus 对 corrupt storage 或
 gas/profile 的覆盖仍不完整；StateCell
 `negative_corpus` 已 pin unknown method / exactInputLen 类 bad args + state-hold
