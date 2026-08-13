@@ -3899,11 +3899,11 @@ private unsafe def testCallReturnEvm : IO Unit := do
       | .error e =>
           expect
             (e.render.contains
-              "result must be UInt64, UInt128, or UInt256")
-            s!"Bool result FC must cite UInt64/128/256 admit set, got: {e.render}"
+              "result must be UInt8, UInt16, UInt32, UInt64, UInt128, or UInt256")
+            s!"Bool result FC must cite unsigned UInt admit set, got: {e.render}"
       | .ok _ =>
           throw <| IO.userError
-            "EVM Bool result call must fail closed (not in UInt64/128/256 admit set)"
+            "EVM Bool result call must fail closed (not in unsigned UInt admit set)"
 
 /-- Result-bearing CALL admits UInt128 (high-128 zero) and UInt256
     (full 32B word, no UInt64 truncate). Bool remains FC above. -/
@@ -3990,9 +3990,63 @@ private unsafe def testCallReturnWideEvm : IO Unit := do
   expect (!yul256.contains "shr(128")
     "CallRetU256Evm: must not apply the UInt128 high-half guard"
 
+/-- Result-bearing CALL admits UInt8/16/32 returndata: plan+materialize with
+    exact width masks (not UInt64 / UInt128 guards). -/
+private unsafe def testCallReturnNarrowEvm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let runOne (typeName programName pathLabel moduleName mask : String) : IO Unit := do
+    let src :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {programName} where\n" ++
+      s!"  entry probe(k : UInt64) : {typeName} do\n" ++
+      s!"    let x : {typeName} := call ledger.get(k)\n" ++
+      "    return x\n"
+    let cSrc ← match ← session.selectProgramV1
+        src pathLabel moduleName none with
+      | .ok v => pure v
+      | .error e => throw <| IO.userError s!"{programName} select: {e.render}"
+    let compiled ← match Compiler.compileValidatedSourceV1 cSrc with
+      | .error _ => throw <| IO.userError s!"{programName} must compile through located Normalize"
+      | .ok c => pure c
+    let plan ← match planEvm compiled with
+      | .error e =>
+          throw <| IO.userError s!"{programName} must produce a plan, got {e.render}"
+      | .ok p => pure p
+    let mut resultTemp : Option Nat := none
+    let mut hasResultCall := false
+    for e in plan.entries do
+      for s in e.body do
+        match s with
+        | .externalCallResult _ _ binding =>
+            hasResultCall := true
+            resultTemp := some binding.resultTemp
+        | _ => pure ()
+    expect hasResultCall s!"{programName}: plan must contain externalCallResult"
+    let some temp := resultTemp |
+      throw <| IO.userError s!"{programName}: missing resultTemp binding"
+    let files ← match materializeSelected TargetId.evm compiled with
+      | .error e => throw <| IO.userError s!"{programName} materialize: {e.render}"
+      | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+    let some yulFile := files.find? (·.path == s!"{programName}.yul") |
+      throw <| IO.userError s!"{programName}: missing .yul"
+    let yul := yulFile.contents
+    expect (yul.contains "returndatasize()")
+      s!"{programName}: Yul must guard returndatasize"
+    let guard := s!"gt(t{temp}, {mask})"
+    expect (yul.contains guard)
+      s!"{programName}: Yul must emit exact result guard {guard}"
+    expect (!yul.contains "shr(128")
+      s!"{programName}: must not apply the UInt128 high-half guard"
+    expect (!yul.contains s!"gt(t{temp}, 0xffffffffffffffff)")
+      s!"{programName}: result temp must not use the UInt64 mask"
+  runOne "UInt8" "CallRetU8Evm" "<evm-call-ret-u8>" "Tests.EvmCallRetU8" "0xff"
+  runOne "UInt16" "CallRetU16Evm" "<evm-call-ret-u16>" "Tests.EvmCallRetU16" "0xffff"
+  runOne "UInt32" "CallRetU32Evm" "<evm-call-ret-u32>" "Tests.EvmCallRetU32" "0xffffffff"
+
 /-- Result-bearing CALL admits UInt128/UInt256 arguments: plan+materialize,
     and the embedded callee selector must use uint128/uint256 ABI types
-    (not all-uint64). Bool arguments stay fail closed. -/
+    (not all-uint64). -/
 private unsafe def testCallArgWideEvm : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   -- UInt128 arg: selector must be get(uint128), not get(uint64).
@@ -4072,34 +4126,53 @@ private unsafe def testCallArgWideEvm : IO Unit := do
   expect (!yul256.contains sel64)
     s!"CallArgU256Evm: Yul selector must not remain all-uint64 get(uint64)={sel64}"
 
-  -- Narrow UInt8 argument compiles but stays Plan fail-closed.
-  let u8Src :=
-    "import ProofForgeV2\n" ++
-    "open ProofForgeV2.Language\n" ++
-    "program CallArgU8Evm where\n" ++
-    "  entry probe(k : UInt8) : UInt64 do\n" ++
-    "    let x : UInt64 := call ledger.get(k)\n" ++
-    "    return x\n"
-  let u8v ← match ← session.selectProgramV1
-      u8Src "<evm-call-arg-u8>" "Tests.EvmCallArgU8" none with
-    | .ok v => pure v
-    | .error e => throw <| IO.userError s!"CallArgU8Evm select: {e.render}"
-  match Compiler.compileValidatedSourceV1 u8v with
-  | .error e => throw <| IO.userError s!"CallArgU8Evm must compile, got {e.render}"
-  | .ok compiled =>
-      match planEvm compiled with
+/-- CALL arguments admit UInt8/16/32: selector get(uint8/16/32), not get(uint64). -/
+private unsafe def testCallArgNarrowEvm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let runOne (typeName abiType programName pathLabel moduleName : String) : IO Unit := do
+    let src :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {programName} where\n" ++
+      s!"  entry probe(k : {typeName}) : UInt64 do\n" ++
+      "    let x : UInt64 := call ledger.get(k)\n" ++
+      "    return x\n"
+    let cSrc ← match ← session.selectProgramV1
+        src pathLabel moduleName none with
+      | .ok v => pure v
+      | .error e => throw <| IO.userError s!"{programName} select: {e.render}"
+    let compiled ← match Compiler.compileValidatedSourceV1 cSrc with
+      | .error _ => throw <| IO.userError s!"{programName} must compile through located Normalize"
+      | .ok c => pure c
+    let plan ← match planEvm compiled with
       | .error e =>
-          expect
-            (e.render.contains
-              "arguments must be UInt64, UInt128, or UInt256")
-            s!"UInt8 arg FC must cite UInt64/128/256 admit set, got: {e.render}"
-      | .ok _ =>
-          throw <| IO.userError
-            "EVM UInt8 arg call must fail closed (not in UInt64/128/256 admit set)"
+          throw <| IO.userError s!"{programName} must produce a plan, got {e.render}"
+      | .ok p => pure p
+    let hasResultCall := plan.entries.any fun e =>
+      e.body.any fun s =>
+        match s with
+        | .externalCallResult _ _ _ => true
+        | _ => false
+    expect hasResultCall s!"{programName}: plan must contain externalCallResult"
+    let files ← match materializeSelected TargetId.evm compiled with
+      | .error e => throw <| IO.userError s!"{programName} materialize: {e.render}"
+      | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+    let some yulFile := files.find? (·.path == s!"{programName}.yul") |
+      throw <| IO.userError s!"{programName}: missing .yul"
+    let yul := yulFile.contents
+    let selNarrow := Targets.Evm.Keccak.selector "get" #[abiType]
+    let sel64 := Targets.Evm.Keccak.selector "get" #["uint64"]
+    expect (yul.contains selNarrow)
+      s!"{programName}: Yul selector must be get({abiType})={selNarrow}"
+    expect (!yul.contains sel64)
+      s!"{programName}: Yul selector must not remain all-uint64 get(uint64)={sel64}"
+  runOne "UInt8" "uint8" "CallArgU8Evm" "<evm-call-arg-u8>" "Tests.EvmCallArgU8"
+  runOne "UInt16" "uint16" "CallArgU16Evm" "<evm-call-arg-u16>" "Tests.EvmCallArgU16"
+  runOne "UInt32" "uint32" "CallArgU32Evm" "<evm-call-arg-u32>" "Tests.EvmCallArgU32"
 
 /-- Schedule admits UInt128/UInt256 arguments: plan+materialize, and the
     embedded callee selector must use note(uint128)/note(uint256) (not
-    all-uint64). UInt8 schedule args stay Plan fail closed. -/
+    all-uint64). -/
 private unsafe def testScheduleArgWideEvm : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   -- UInt128 arg: selector must be note(uint128), not note(uint64).
@@ -4179,30 +4252,55 @@ private unsafe def testScheduleArgWideEvm : IO Unit := do
   expect (!yul256.contains sel64)
     s!"SchedArgU256Evm: Yul selector must not remain all-uint64 note(uint64)={sel64}"
 
-  -- Narrow UInt8 schedule argument compiles but stays Plan fail-closed.
-  let u8Src :=
-    "import ProofForgeV2\n" ++
-    "open ProofForgeV2.Language\n" ++
-    "program SchedArgU8Evm where\n" ++
-    "  entry probe(k : UInt8) : UInt64 do\n" ++
-    "    schedule ledger.note(k)\n" ++
-    "    return 0\n"
-  let u8v ← match ← session.selectProgramV1
-      u8Src "<evm-sched-arg-u8>" "Tests.EvmSchedArgU8" none with
-    | .ok v => pure v
-    | .error e => throw <| IO.userError s!"SchedArgU8Evm select: {e.render}"
-  match Compiler.compileValidatedSourceV1 u8v with
-  | .error e => throw <| IO.userError s!"SchedArgU8Evm must compile, got {e.render}"
-  | .ok compiled =>
-      match planEvm compiled with
+/-- Schedule arguments admit UInt8/16/32: note(uint8/16/32) selectors;
+    fire-and-forget CALL+pop retained. -/
+private unsafe def testScheduleArgNarrowEvm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let runOne (typeName abiType programName pathLabel moduleName : String) : IO Unit := do
+    let src :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {programName} where\n" ++
+      s!"  entry later(k : {typeName}) : UInt64 do\n" ++
+      "    schedule ledger.note(k)\n" ++
+      -- UIntN→UInt64 return is not legal; keep schedule-focused with literal 0.
+      "    return 0\n"
+    let cSrc ← match ← session.selectProgramV1
+        src pathLabel moduleName none with
+      | .ok v => pure v
+      | .error e => throw <| IO.userError s!"{programName} select: {e.render}"
+    let compiled ← match Compiler.compileValidatedSourceV1 cSrc with
+      | .error _ => throw <| IO.userError s!"{programName} must compile through located Normalize"
+      | .ok c => pure c
+    let plan ← match planEvm compiled with
       | .error e =>
-          expect
-            (e.render.contains
-              "schedule arguments must be UInt64, UInt128, or UInt256")
-            s!"UInt8 schedule arg FC must cite admit set, got: {e.render}"
-      | .ok _ =>
-          throw <| IO.userError
-            "EVM UInt8 schedule arg must fail closed (not in UInt64/128/256 admit set)"
+          throw <| IO.userError s!"{programName} must produce a plan, got {e.render}"
+      | .ok p => pure p
+    let hasSchedule := plan.entries.any fun e =>
+      e.body.any fun s =>
+        match s with
+        | .schedule _ _ _ => true
+        | _ => false
+    expect hasSchedule s!"{programName}: plan must contain schedule"
+    let files ← match materializeSelected TargetId.evm compiled with
+      | .error e => throw <| IO.userError s!"{programName} materialize: {e.render}"
+      | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+    let some yulFile := files.find? (·.path == s!"{programName}.yul") |
+      throw <| IO.userError s!"{programName}: missing .yul"
+    let yul := yulFile.contents
+    expect (yul.contains "call(gas()")
+      s!"{programName}: Yul must emit CALL"
+    expect (yul.contains "pop(")
+      s!"{programName}: Yul must pop schedule CALL success"
+    let selNarrow := Targets.Evm.Keccak.selector "note" #[abiType]
+    let sel64 := Targets.Evm.Keccak.selector "note" #["uint64"]
+    expect (yul.contains selNarrow)
+      s!"{programName}: Yul selector must be note({abiType})={selNarrow}"
+    expect (!yul.contains sel64)
+      s!"{programName}: Yul selector must not remain all-uint64 note(uint64)={sel64}"
+  runOne "UInt8" "uint8" "SchedArgU8Evm" "<evm-sched-arg-u8>" "Tests.EvmSchedArgU8"
+  runOne "UInt16" "uint16" "SchedArgU16Evm" "<evm-sched-arg-u16>" "Tests.EvmSchedArgU16"
+  runOne "UInt32" "uint32" "SchedArgU32Evm" "<evm-sched-arg-u32>" "Tests.EvmSchedArgU32"
 
 /-- B-CTX-OPEN / ADR-0031 S1+S2: `context.unixTimeSeconds` → `timestamp()`;
     `context.blockHeight` → `number()`; `context.caller` → Principal from
@@ -4765,8 +4863,11 @@ unsafe def run : IO Unit := do
   testOptionUInt64State
   testCallReturnEvm
   testCallReturnWideEvm
+  testCallReturnNarrowEvm
   testCallArgWideEvm
+  testCallArgNarrowEvm
   testScheduleArgWideEvm
+  testScheduleArgNarrowEvm
   testContextReadTimestampEvm
   testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed

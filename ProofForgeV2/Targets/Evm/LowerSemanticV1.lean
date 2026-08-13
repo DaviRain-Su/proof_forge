@@ -302,7 +302,7 @@ structure Store where
 structure ExternalCallResultBinding where
   resultTemp : Nat
   /-- Width of the single ABI returndata word admitted by this binding.
-      Validation restricts this to 64, 128, or 256. -/
+      Validation restricts this to 8, 16, 32, 64, 128, or 256. -/
   bitWidth : Nat := 64
   /-- Parallel ABI UInt widths for call arguments. Empty is the canonical
       all-UInt64 encoding; otherwise every argument width is present. -/
@@ -331,16 +331,17 @@ inductive Statement where
   /-- Sync external call (void). `callee` is the static QualifiedName component
       array (≥2); Yul derives a fixed 20-byte CALL address as the last 20 bytes
       of `keccak256(UTF-8 of target path)` and a 4-byte selector from the method
-      name + the exact per-argument `uint64`/`uint128`/`uint256` ABI. Empty
+      name + the exact per-argument `uint8`/`uint16`/`uint32`/`uint64`/
+      `uint128`/`uint256` ABI. Empty
       `argBitWidths` is the canonical all-UInt64 form. Not a dynamic address
       ValueId (B-3 Principal remains fail-closed). Failure reverts the caller. -/
   | externalCall (callee : Array String) (args : Array Expr)
       (argBitWidths : Array Nat := #[])
   /-- N-CALL-RET/B-CALL-SEM: result-bearing sync call. Same static-callee
       CALL as `externalCall`, then RETURNDATASIZE guard (≥32) + first-word
-      read. UInt64 and UInt128 reject nonzero high bits; UInt256 retains the
-      complete word. Short or out-of-range data reverts with the EVM-bare
-      `revert(0,0)` convention. Failure reverts the caller. -/
+      read. UInt8/16/32/64/128 reject values above their declared width;
+      UInt256 retains the complete word. Short or out-of-range data reverts
+      with the EVM-bare `revert(0,0)` convention. Failure reverts the caller. -/
   | externalCallResult (callee : Array String) (args : Array Expr)
       (result : ExternalCallResultBinding)
   /-- Async fire-and-forget schedule (void). Same static-callee address/selector
@@ -1793,7 +1794,7 @@ private def externalUIntArgWidthV1
   | some width =>
       unless !value.isBool && !value.isInt && !value.isField &&
           !value.isAggregate && value.bitWidth == width &&
-          (width == 64 || width == 128 || width == 256) do
+          isEvmAbiUintWidth width do
         throw <| .planInvariant .evm errorMessage
       pure width
   | none =>
@@ -1802,15 +1803,16 @@ private def externalUIntArgWidthV1
 private def externalCallArgWidthV1
     (types : EvmTypeClosureV1) (value : LoweredValueV1) : CompileResult Nat :=
   externalUIntArgWidthV1 types value
-    "unsupported EVM semantic shape: external call arguments must be UInt64, UInt128, or UInt256"
+    "unsupported EVM semantic shape: external call arguments must be UInt8, UInt16, UInt32, UInt64, UInt128, or UInt256"
 
 private def scheduleArgWidthV1
     (types : EvmTypeClosureV1) (value : LoweredValueV1) : CompileResult Nat :=
   externalUIntArgWidthV1 types value
-    "unsupported EVM semantic shape: schedule arguments must be UInt64, UInt128, or UInt256"
+    "unsupported EVM semantic shape: schedule arguments must be UInt8, UInt16, UInt32, UInt64, UInt128, or UInt256"
 
-/-- Empty is the sole all-UInt64 Plan encoding. Once any wide argument occurs,
-    retain every per-position width so selector construction is unambiguous. -/
+/-- Empty is the sole all-UInt64 Plan encoding. Once any non-UInt64 argument
+    occurs, retain every per-position width so selector construction is
+    unambiguous. -/
 private def canonicalExternalUIntArgWidthsV1 (widths : Array Nat) : Array Nat :=
   if widths.all (· == 64) then #[] else widths
 
@@ -1892,7 +1894,7 @@ private def makeLogicalTreeValueV1
   }
 
 /-- Admit a wire result TypeId for UInt-width arithmetic/bitwise and return
-    `(typeId, bitWidth)`. UInt8/16/32/64 only; UInt128/256 fail closed. -/
+    `(typeId, bitWidth)` for every EVM ABI UInt width. -/
 private def admitUIntWidthResultTypeV1
     (types : EvmTypeClosureV1) (resultTypeId : TypeIdV1) :
     CompileResult (TypeIdV1 × Nat) := do
@@ -4037,13 +4039,13 @@ private def lowerBlockInstructionsV1
               s!"unsupported EVM semantic shape: external call callee component '{c}' is not a safe identifier"
         let resultBitWidth ← match types.uintWidthOf result.typeId with
           | some width =>
-              unless width == 64 || width == 128 || width == 256 do
+              unless isEvmAbiUintWidth width do
                 throw <| .planInvariant .evm
-                  "unsupported EVM semantic shape: result-bearing external call result must be UInt64, UInt128, or UInt256"
+                  "unsupported EVM semantic shape: result-bearing external call result must be UInt8, UInt16, UInt32, UInt64, UInt128, or UInt256"
               pure width
           | none =>
               throw <| .planInvariant .evm
-                "unsupported EVM semantic shape: result-bearing external call result must be UInt64, UInt128, or UInt256"
+                "unsupported EVM semantic shape: result-bearing external call result must be UInt8, UInt16, UInt32, UInt64, UInt128, or UInt256"
         let mut argExprs : Array Expr := #[]
         let mut argBitWidths : Array Nat := #[]
         for argId in argIds do

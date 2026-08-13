@@ -41,6 +41,9 @@ private def externalUIntAbiTypesV1
   else
     argBitWidths.map fun width =>
       match width with
+      | 8 => "uint8"
+      | 16 => "uint16"
+      | 32 => "uint32"
       | 128 => "uint128"
       | 256 => "uint256"
       | _ => "uint64"
@@ -1663,8 +1666,8 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n"
     | .externalCallResult callee args result =>
         -- N-CALL-RET/B-CALL-SEM: real CALL with 32-byte returndata capture,
-        -- RETURNDATASIZE guard, and first-word read. UInt64 keeps its
-        -- historical max guard; UInt128 requires a zero high half; UInt256
+        -- RETURNDATASIZE guard, and first-word read. UInt8/16/32/64 use exact
+        -- maximum-value guards; UInt128 requires a zero high half; UInt256
         -- retains the complete word. Same static address/selector derivation
         -- and failure-revert discipline as the void path.
         let method := callee[callee.size - 1]!
@@ -1686,6 +1689,12 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         let resultName := s!"t{result.resultTemp}"
         let widthGuard :=
           match result.bitWidth with
+          | 8 =>
+              s!"{indent}if gt({resultName}, 0xff) \{ revert(0, 0) }\n"
+          | 16 =>
+              s!"{indent}if gt({resultName}, 0xffff) \{ revert(0, 0) }\n"
+          | 32 =>
+              s!"{indent}if gt({resultName}, 0xffffffff) \{ revert(0, 0) }\n"
           | 64 =>
               s!"{indent}if gt({resultName}, 0xffffffffffffffff) \{ revert(0, 0) }\n"
           | 128 =>

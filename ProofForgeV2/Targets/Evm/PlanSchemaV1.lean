@@ -351,7 +351,7 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
   -- AddressBearing: static QualifiedName external call / schedule (tags 9/10).
   | .externalCall callee args argBitWidths => do
       -- Tag 9 remains the byte-identical all-UInt64 form. Tag 18 appends the
-      -- exact parallel width vector for calls containing UInt128/256 args.
+      -- exact parallel width vector for calls containing any non-UInt64 arg.
       let mut out := encodeU8 (if argBitWidths.isEmpty then 9 else 18)
       out := out.append (← encodeNatAsU32le callee.size)
       for c in callee do out := out.append (← encodeString c)
@@ -363,7 +363,7 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       pure out
   | .schedule callee args argBitWidths => do
       -- Tag 10 remains byte-identical for all-UInt64 schedule args. Tag 20
-      -- appends the exact parallel width vector when any arg is UInt128/256.
+      -- appends the exact parallel width vector when any arg is non-UInt64.
       let mut out := encodeU8 (if argBitWidths.isEmpty then 10 else 20)
       out := out.append (← encodeNatAsU32le callee.size)
       for c in callee do out := out.append (← encodeString c)
@@ -382,8 +382,9 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
         out := out.append (← encodeNatAsU32le operation.byteWidth)
         out := out.append (← encodeExpr operation.value)
       pure out
-  -- Tags 12/17 remain byte-identical for all-UInt64 args. Tag 19 binds the
-  -- result width plus the exact argument width vector when any arg is wide.
+  -- Tag 12 remains byte-identical for UInt64 result + all-UInt64 args. Tag 17
+  -- binds any non-UInt64 result + all-UInt64 args. Tag 19 binds the result
+  -- width plus the exact argument width vector when any arg is non-UInt64.
   | .externalCallResult callee args result => do
       let tag :=
         if !result.argBitWidths.isEmpty then 19
