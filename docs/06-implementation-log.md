@@ -15531,3 +15531,12 @@ normative: false
   (no circuit-stdlib / ExtFlow oracle fallback). Product `planFromCapability`
   is the pin path because Noir already admits generic sync call.
 - Not formal and not EXT-CRYPTO.
+
+## 2026-08-13 — SYS-S5 Aleo/Quint honesty
+
+- Aleo and Quint Plan now fail-close exact `pf.crypto.*` with a dedicated
+  diagnostic. Aleo does not pretend BHP/Pedersen/Poseidon is sha256; Quint
+  does not swallow the QN into the pf.assets catch-all.
+- Aleo product resolve still declines sync-call; the engineering Plan path
+  exists only to pin the diagnostic. SBOM lean-package-files refreshed to 285.
+  Not formal and not EXT-CRYPTO.

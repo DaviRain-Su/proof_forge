@@ -35,6 +35,12 @@ def planFromCapability (capability : ResolvedEngineeringBuildV1) : CompileResult
   validatePlan plan
   return plan
 
+/-- Engineering Plan from retained Semantic. Not product. -/
+def engineeringPlanFromCompiled (compiled : CompiledSemanticV1) : CompileResult Plan := do
+  let plan ← engineeringPlanFromSemanticV1 compiled
+  validatePlan plan
+  return plan
+
 instance : Materializer .aleo where
   Plan := Plan
   TargetIR := IR

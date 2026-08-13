@@ -15,6 +15,7 @@
 -/
 import ProofForgeV2
 import ProofForgeV2.Core.RequirementIdsV1
+import ProofForgeV2.Targets.Aleo
 import ProofForgeV2.Targets.Aleo.PfAssetsDispositionV1
 import Tests.Language.ParserSession
 import Tests.Compiler.ValidatedSourceV1Pipeline
@@ -141,11 +142,52 @@ unsafe def testNonCatalogCallStillDeclined : IO Unit := do
   | .ok _ =>
       throw <| IO.userError "Aleo must not open sync-call for non-catalog callees"
 
+/-- SYS-S5: Aleo has no sha256 host. Exact `pf.crypto.*` stays Plan fail
+    closed (no BHP/Pedersen/Poseidon fallback). Product resolve still
+    declines sync-call first, so this pin uses the engineering Plan path. -/
+unsafe def testCryptoSha256StayFailClosed : IO Unit := do
+  let expectPlanFc (label body needle : String) : IO Unit := do
+    let source :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {label} where\n" ++ body
+    let compiled ← compileSource s!"<aleo-{label}>" s!"Tests.Aleo{label}" source
+    match Targets.Aleo.engineeringPlanFromCompiled compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{label} must Plan fail closed (no Aleo sha256 host)"
+  expectPlanFc "Sha256Aleo"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    call pf.crypto.sha256(w)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Aleo host binding"
+  expectPlanFc "Sha256AleoHashNoPad"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    let h : UInt64 := call pf.crypto.hashNoPad(w)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Aleo host binding"
+
 unsafe def run : IO Unit := do
   testDispositionHelpers
   testExtensionDeclinedAtResolve
   testFiveCatalogQnsFailAtResolve
   testNonCatalogCallStillDeclined
+  testCryptoSha256StayFailClosed
   IO.println "Tests.Materialization.AleoPfAssetsV1: ok"
 
 end Tests.Materialization.AleoPfAssetsV1

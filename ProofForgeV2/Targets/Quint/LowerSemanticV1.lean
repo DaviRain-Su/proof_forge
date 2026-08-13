@@ -26,7 +26,9 @@ ADR-0029 Phase A5: void `Op.ExternalCall` whose callee is in the closed
 Async (`*.transferAsync`) and token (`token.*`) QNs fail closed (no fake
 native alias; token needs mint-keyed Map beyond Q0 Int vault). Non-catalog
 QNs fail closed at Plan lowering (resolver may admit `effect.synchronous-call`
-for them). Whole-entry atomic: any failure stutters business state and vault.
+for them). `pf.crypto.*` is a dedicated honesty class: Quint has no sha256
+host, so those QNs stay fail closed instead of the generic pf.assets
+catch-all. Whole-entry atomic: any failure stutters business state and vault.
 
 Failure codes (evaluation order, first failure wins at emission):
   overflow=1, underflow=2, division-by-zero=3, assertion=4,
@@ -289,6 +291,11 @@ private def hasPfAssetsExtensionRow (data : SemanticProgramDataV1) : Bool :=
 
 private def isPfAssetsCatalogQn (qn : String) : Bool :=
   pfAssetsCatalogQualifiedNamesV1.contains qn
+
+/-- ADR-0031 S5: Quint has no sha256 host. Any `pf.crypto.*` QN stays
+    fail closed instead of the generic pf.assets catch-all. -/
+private def isPfCryptoCalleeV1 (qn : String) : Bool :=
+  qn.startsWith "pf.crypto."
 
 -- ---------------------------------------------------------------------------
 -- Lowering helpers
@@ -700,6 +707,12 @@ private partial def lowerInstructions
         acc ← pushCheck acc { kind := .assertion, condition := c }
     | .externalCall _calleeId callee argIds => do
         -- Void-only; result-bearing externalCall stays fail closed.
+        -- SYS-S5: pf.crypto.* is a dedicated honesty class even when the
+        -- call is result-bearing (before the generic Q0 catch-all).
+        let qn := qnJoined callee
+        if isPfCryptoCalleeV1 qn then
+          planError
+            s!"unsupported Quint semantic shape: pf.crypto QN '{qn}' has no Quint host binding (sha256 and siblings stay fail closed)"
         match instr.result with
         | some _ =>
             planError "unsupported Quint semantic shape: result-bearing externalCall is outside Q0"
@@ -707,7 +720,6 @@ private partial def lowerInstructions
         unless allowStateWrite do
           planError
             "unsupported Quint semantic shape: externalCall is only legal in entry (not pureFn/view/invariant)"
-        let qn := qnJoined callee
         if isPfAssetsCatalogQn qn then
           unless idx.pfAssetsDeclared do
             planError

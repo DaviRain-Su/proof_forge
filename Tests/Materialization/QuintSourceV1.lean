@@ -875,6 +875,44 @@ unsafe def testNonCatalogExternalCallFailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant, got {e.render}"
   | .ok _ => throw <| IO.userError "Oracle.feed must fail closed at Quint Plan"
 
+/-- SYS-S5: Quint has no sha256 host. Exact `pf.crypto.*` stays Plan fail
+    closed instead of the generic pf.assets catch-all. -/
+unsafe def testCryptoSha256StayFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let expectPlanFc (label body needle : String) : IO Unit := do
+    let source :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {label} where\n" ++ body
+    let parsed ← liftResult (← session.selectProgramV1
+      source s!"<quint-{label}>" s!"Tests.Quint{label}" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+    match Targets.Quint.planFromCompiledSemanticV1 compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{label} must Plan fail closed (no Quint sha256 host)"
+  expectPlanFc "Sha256Quint"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    call pf.crypto.sha256(w)\n" ++
+      "    return pad\n")
+    "has no Quint host binding"
+  expectPlanFc "Sha256QuintHashNoPad"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    let h : UInt64 := call pf.crypto.hashNoPad(w)\n" ++
+      "    return pad\n")
+    "has no Quint host binding"
+
 /-- A5: async / token pf.assets QNs fail closed (no fake modeling). -/
 unsafe def testPfAssetsAsyncAndTokenFailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1085,6 +1123,7 @@ unsafe def run : IO Unit := do
   testPfAssetsVaultDepositTransfer
   testPfAssetsRequiresDeclaration
   testNonCatalogExternalCallFailClosed
+  testCryptoSha256StayFailClosed
   testPfAssetsAsyncAndTokenFailClosed
   testDualExtensionResolveFailClosed
   testEnvReadNativeBalanceOfSelf

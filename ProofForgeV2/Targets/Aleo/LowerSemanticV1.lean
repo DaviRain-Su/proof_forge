@@ -70,6 +70,10 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
   * **ContextRead** — no target-owned context input binding in this subset.
   * **emit / externalCall / schedule / revert-with-args** — no admitted
     Instructions contract (resolver also declines event/sync/async keys).
+  * **SYS-S5 `pf.crypto.*`** — no Aleo host binding. Native BHP/Pedersen/
+    Poseidon gadgets are not a frozen UInt256→UInt256 sha256 host, so the
+    namespace stays fail closed on void and result-bearing ExternalCall
+    and on schedule. Product resolve still declines sync-call first.
   * **ADR-0029 Phase D `pf.assets`** — **zero binding**. Record custody ≠
     account-balance vault; `credits.aleo` is not self-vault (see
     `PfAssetsDispositionV1`). Catalog QNs get an explicit unbound Plan
@@ -389,6 +393,12 @@ private def maxStateLeafFields : Nat := 256
 
 private def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
+
+/-- ADR-0031 S5: Aleo has no sha256 host. Any `pf.crypto.*` QN stays
+    fail closed (void, result-bearing, and schedule). Native hash
+    gadgets are not a host binding. -/
+private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
+  components[0]? == some "pf" && components[1]? == some "crypto"
 
 private abbrev AleoTypeClosureV1 := PilotTypeClosureV1
 
@@ -1414,16 +1424,22 @@ private partial def lowerRegion
         planError "Aleo does not support emit: the Instructions subset has no event-log contract"
     | .externalCall _effectId callee _args => do
         -- ADR-0029 Phase D: distinguish unbound catalog QNs from non-catalog.
+        -- SYS-S5: pf.crypto.* is a dedicated honesty class, not generic
+        -- "no external calls" and not a BHP/Pedersen/Poseidon fallback.
         let comps := callee.components.toArray
         let qn := String.intercalate "." comps.toList
-        if isPfAssetsCatalogQnV1 qn then
+        if isPfCryptoCalleeV1 comps then
+          planError s!"unsupported Aleo semantic shape: pf.crypto QN '{qn}' has no Aleo host binding (sha256 and siblings stay fail closed; native hash gadgets are not a host)"
+        else if isPfAssetsCatalogQnV1 qn then
           planError s!"Aleo does not support external calls: {unboundCatalogDiagV1 qn}"
         else
           planError "Aleo does not support external calls"
     | .schedule _effectId callee _args => do
         let comps := callee.components.toArray
         let qn := String.intercalate "." comps.toList
-        if isPfAssetsCatalogQnV1 qn then
+        if isPfCryptoCalleeV1 comps then
+          planError s!"unsupported Aleo semantic shape: pf.crypto QN '{qn}' cannot be scheduled on Aleo"
+        else if isPfAssetsCatalogQnV1 qn then
           planError s!"Aleo does not support scheduled workflows: {unboundCatalogDiagV1 qn}"
         else
           planError "Aleo does not support scheduled workflows"
@@ -2465,6 +2481,17 @@ def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : 
     throw <| .planInvariant .aleo
       s!"Aleo materialize rejects unknown codegen profile '{profile}'"
   let compiled := ResolvedEngineeringBuildV1.compiledOf capability
+  let source := CompiledSemanticV1.semanticV1Of compiled
+  let name := CompiledSemanticV1.artifactProgramNameOf compiled
+  let sourceHash ← digestHex "Aleo source" (CompiledSemanticV1.sourceDigestOf compiled)
+  let semanticHash ← digestHex "Aleo semantic" (CompiledSemanticV1.semanticDigestOf compiled)
+  makePlanFromSemanticV1 source name sourceHash semanticHash
+
+/-- Engineering Plan from retained Semantic. Not product.
+
+    Used to pin SYS-S5 `pf.crypto.*` fail-closed diagnostics while the Aleo
+    resolver still declines `effect.synchronous-call`. -/
+def engineeringPlanFromSemanticV1 (compiled : CompiledSemanticV1) : CompileResult Plan := do
   let source := CompiledSemanticV1.semanticV1Of compiled
   let name := CompiledSemanticV1.artifactProgramNameOf compiled
   let sourceHash ← digestHex "Aleo source" (CompiledSemanticV1.sourceDigestOf compiled)

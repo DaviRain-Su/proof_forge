@@ -588,6 +588,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **SYS-S5 triad tighten**：NEAR host result 允许 store-then-return；Solana Mollusk `sha256_check` 4 测 + NEAR sandbox `Sha256Check` known-vector 门；CosmWasm 无 sha256 host，Plan 对 `pf.crypto.*` 精确 fail closed。EVM Anvil 门保持。Solana runtime inventory **24/418**。**不**关闭 EXT-CRYPTO / formal / Anvil lossless |
 | 2026-08-13 | **SYS-S5-TON honesty**：TON 无 sha256 host；Plan 对 `pf.crypto.*` 精确 fail closed（无 `string_hash` 伪装）。SBOM lean-package-files 刷新为 284。**不**关闭 EXT-CRYPTO / formal |
 | 2026-08-13 | **SYS-S5-NOIR honesty**：Noir 无 sha256 host；Plan 对 `pf.crypto.*` 精确 fail closed（不把 circuit `sha256_compression` / generic ExtFlow oracle 伪装成 host）。**不**关闭 EXT-CRYPTO / formal |
+| 2026-08-13 | **SYS-S5-ALEO/QUINT honesty**：Aleo/Quint 无 sha256 host；Plan 对 `pf.crypto.*` 精确 fail closed（不把 BHP/Pedersen/Poseidon 或 pf.assets catch-all 伪装成 host）。Aleo 产品路径仍先拒 sync-call。SBOM lean-package-files 刷新为 285。**不**关闭 EXT-CRYPTO / formal |
 
 ---
 
