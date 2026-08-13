@@ -158,7 +158,7 @@ unsafe def testCryptoSha256StayFailClosed : IO Unit := do
           s!"{label} Plan FC must contain '{needle}', got: {e.render}"
     | .ok _ =>
         throw <| IO.userError
-          s!"{label} must Plan fail closed (no Aleo sha256 host)"
+          s!"{label} must Plan fail closed (no Aleo crypto host)"
   expectPlanFc "Sha256Aleo"
     ("  state pad : UInt64\n" ++
       "  init() do\n" ++
@@ -177,6 +177,17 @@ unsafe def testCryptoSha256StayFailClosed : IO Unit := do
       "  entry probe() : UInt64 do\n" ++
       "    let w : UInt64 := 0\n" ++
       "    let h : UInt64 := call pf.crypto.hashNoPad(w)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Aleo host binding"
+  expectPlanFc "Keccak256Aleo"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    call pf.crypto.keccak256(w)\n" ++
       "    return pad\n" ++
       "  view get() : UInt64 do\n" ++
       "    return pad\n")

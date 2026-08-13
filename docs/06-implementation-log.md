@@ -15597,3 +15597,11 @@ normative: false
   diagnostic now names both leaves, and Plan pins exact `keccak256` fail-closed
   beside sha256 / hashNoPad.
 - Not formal, not Bytes ABI, and not EXT-CRYPTO.
+
+## 2026-08-13 — SYS-S5 TON/Noir/Aleo/Quint keccak256 honesty
+
+- TON, Noir, Aleo, and Quint still have no keccak256 host. Dedicated
+  `pf.crypto.*` diagnostics now name both sha256 and keccak256, and each Plan
+  pins exact `keccak256` fail-closed beside sha256 / hashNoPad.
+- Not a `string_hash` / `keccakf1600` / BHP-Pedersen-Poseidon / pf.assets
+  catch-all fallback. Not formal, not Bytes ABI, and not EXT-CRYPTO.

@@ -596,6 +596,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **SYS-S5-SOLANA keccak256**：sole `solana-sbpf-cpi-elf-v1` 将 `pf.crypto.keccak256` UInt256→UInt256 绑定 `sol_keccak256`（dedicated Plan/IR/SBPF，非 hashed/`externalCallResult`）。CpiDerive 将 exact sha256/keccak256 一并跳过 CPI RawSite。其它 `pf.crypto.*` / Bytes / 非 product profile 仍 fail closed。CPI product capability 对 host-only syscall 的 body-only 准入仍是预存失败，本刀不扩 capability。**不**关闭 S5 / EXT-CRYPTO / formal，未声称 Mollusk runtime |
 | 2026-08-13 | **SYS-S5-NEAR keccak256**：exact `pf.crypto.keccak256` UInt256→UInt256 绑定 NEAR host `keccak256`（dedicated Plan/IR/WAT、按使用条件导入，非 Promise / generic result-bearing call），并以 exact 32-byte register 门禁回读 UInt256 LE limbs。其它 `pf.crypto.*` / Bytes 仍 fail closed。**不**关闭 S5 / EXT-CRYPTO / formal，未声称 sandbox runtime |
 | 2026-08-13 | **SYS-S5-CW keccak256 honesty**：CosmWasm 无 sha256/keccak256 host；Plan 对 exact `pf.crypto.keccak256` 与 sibling QN 精确 fail closed（诊断点名 sha256/keccak256，无 hashed / stdlib 伪装）。**不**关闭 EXT-CRYPTO / formal |
+| 2026-08-13 | **SYS-S5 TON/Noir/Aleo/Quint keccak256 honesty**：四 target 无 keccak256 host；Plan 对 exact `pf.crypto.keccak256` 精确 fail closed（诊断点名 sha256/keccak256；不把 `string_hash` / `keccakf1600` / BHP-Pedersen-Poseidon / pf.assets catch-all 伪装成 host）。**不**关闭 EXT-CRYPTO / formal |
 | 2026-08-13 | **剩余 target 版图 RPT-025**：登记 §10.1（TGT-SOROBAN/ICP/OPENVM-MVP、Move dossier、第二 zkVM、比特币脚本族钉死默认不实现）；不扩 accepted PRD；不新开平行 gap 清单 |
 
 ---

@@ -2248,7 +2248,7 @@ private unsafe def checkCryptoSha256StayFailClosed : IO Unit := do
           s!"{label} Plan FC must contain '{needle}', got: {e.render}"
     | .ok _ =>
         throw <| IO.userError
-          s!"{label} must Plan fail closed (no Noir sha256 host)"
+          s!"{label} must Plan fail closed (no Noir crypto host)"
   -- Keep ABI on UInt64 so the needle is the crypto QN, not a type gate.
   -- Void call would otherwise bind as a generic ExtFlow oracle.
   expectPlanFc "Sha256Noir" "Examples.Sha256Noir"
@@ -2273,7 +2273,18 @@ private unsafe def checkCryptoSha256StayFailClosed : IO Unit := do
       "  view get() : UInt64 do\n" ++
       "    return pad\n")
     "has no Noir host binding"
-  IO.println "  ✓ pf.crypto.sha256 stay fail closed (no Noir host)"
+  expectPlanFc "Keccak256Noir" "Examples.Keccak256Noir"
+    ("  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    call pf.crypto.keccak256(w)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Noir host binding"
+  IO.println "  ✓ pf.crypto.sha256/keccak256 stay fail closed (no Noir host)"
 
 /-- Two declared events, both emitted: pins event-slot inputs and .nr surface. -/
 private def multiEventSourceText : String :=

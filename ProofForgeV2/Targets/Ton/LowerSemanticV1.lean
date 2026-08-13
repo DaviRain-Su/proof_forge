@@ -10,8 +10,8 @@ import ProofForgeV2.Compiler.Pipeline
 Owns the TON/TVM Plan surface (c4 cell storage, internal-message op dispatch,
 get-methods) and Semantic→Plan body for the public-UInt64 state-cell pilot.
 
-`pf.crypto.*` (including `sha256`) has no TON host binding and stays fail
-closed on both void and result-bearing ExternalCall.
+`pf.crypto.*` (including `sha256` and `keccak256`) has no TON host binding
+and stays fail closed on both void and result-bearing ExternalCall.
 -/
 
 namespace ProofForgeV2.Targets.Ton
@@ -434,7 +434,7 @@ def canonicalRegisters : RegisterLayout := {
 def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
 
-/-- ADR-0031 S5: TON has no sha256 host. Any `pf.crypto.*` QN stays
+/-- ADR-0031 S5: TON has no sha256 or keccak256 host. Any `pf.crypto.*` QN stays
     fail closed (void and result-bearing). -/
 private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
   components[0]? == some "pf" && components[1]? == some "crypto"
@@ -2510,13 +2510,13 @@ private def lowerBlockInstructionsV1
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
     | .externalCall _effectId callee _argIds, some _result =>
-        -- SYS-S5: TON has no host sha256. Pin the dedicated diagnostic
+        -- SYS-S5: TON has no host sha256/keccak256. Pin the dedicated diagnostic
         -- instead of falling through the UInt64-pilot catch-all.
         let components := callee.components.toArray
         let qn := String.intercalate "." components.toList
         if isPfCryptoCalleeV1 components then
           throw <| .planInvariant .ton
-            s!"unsupported Ton semantic shape: pf.crypto QN '{qn}' has no Ton host binding (sha256 and siblings stay fail closed)"
+            s!"unsupported Ton semantic shape: pf.crypto QN '{qn}' has no Ton host binding (sha256/keccak256 and siblings stay fail closed)"
         throw <| .planInvariant .ton
           "unsupported Ton semantic shape: result-bearing ExternalCall is outside the Ton envelope"
     | .externalCall _effectId callee _argIds, none =>
@@ -2526,7 +2526,7 @@ private def lowerBlockInstructionsV1
         let qn := String.intercalate "." components.toList
         if isPfCryptoCalleeV1 components then
           throw <| .planInvariant .ton
-            s!"unsupported Ton semantic shape: pf.crypto QN '{qn}' has no Ton host binding (sha256 and siblings stay fail closed)"
+            s!"unsupported Ton semantic shape: pf.crypto QN '{qn}' has no Ton host binding (sha256/keccak256 and siblings stay fail closed)"
         throw <| .planInvariant .ton
           "call/sync external call is outside the Ton MVP envelope (TON has no synchronous cross-contract return; use schedule/callback)"
     | .schedule _effectId callee argIds, none =>

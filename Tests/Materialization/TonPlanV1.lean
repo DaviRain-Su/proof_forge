@@ -238,7 +238,7 @@ private unsafe def testCryptoSha256StayFailClosed
           s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
     | .ok _ =>
         throw <| IO.userError
-          s!"{programName} must Plan fail closed (no Ton sha256 host)"
+          s!"{programName} must Plan fail closed (no Ton crypto host)"
   -- TON type policy rejects UInt256 before ExternalCall, so keep the
   -- fixture on admitted UInt64. The needle is still the crypto QN —
   -- not a hashed / string_hash fallback and not the generic call FC.
@@ -265,7 +265,18 @@ private unsafe def testCryptoSha256StayFailClosed
       "  view get() : UInt64 do\n" ++
       "    return pad\n")
     "has no Ton host binding"
-  IO.println "  ✓ pf.crypto.sha256 stay fail closed (no Ton host)"
+  expectPlanFc "Keccak256Ton" "<ton-keccak256>" "Examples.Keccak256Ton"
+    ("  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    let h : UInt64 := call pf.crypto.keccak256(w)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Ton host binding"
+  IO.println "  ✓ pf.crypto.sha256/keccak256 stay fail closed (no Ton host)"
 
 /-- Schedule → Plan/IR/Tolk createMessage pins (destination hash stub, bounce,
     send mode, value=0, op encoding). Sync call remains FC (above). -/

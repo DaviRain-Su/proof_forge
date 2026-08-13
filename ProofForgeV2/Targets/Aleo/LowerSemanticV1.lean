@@ -71,7 +71,7 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
   * **emit / externalCall / schedule / revert-with-args** — no admitted
     Instructions contract (resolver also declines event/sync/async keys).
   * **SYS-S5 `pf.crypto.*`** — no Aleo host binding. Native BHP/Pedersen/
-    Poseidon gadgets are not a frozen UInt256→UInt256 sha256 host, so the
+    Poseidon gadgets are not a frozen UInt256→UInt256 sha256/keccak256 host, so the
     namespace stays fail closed on void and result-bearing ExternalCall
     and on schedule. Product resolve still declines sync-call first.
   * **ADR-0029 Phase D `pf.assets`** — **zero binding**. Record custody ≠
@@ -394,7 +394,7 @@ private def maxStateLeafFields : Nat := 256
 private def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
 
-/-- ADR-0031 S5: Aleo has no sha256 host. Any `pf.crypto.*` QN stays
+/-- ADR-0031 S5: Aleo has no sha256 or keccak256 host. Any `pf.crypto.*` QN stays
     fail closed (void, result-bearing, and schedule). Native hash
     gadgets are not a host binding. -/
 private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
@@ -1429,7 +1429,7 @@ private partial def lowerRegion
         let comps := callee.components.toArray
         let qn := String.intercalate "." comps.toList
         if isPfCryptoCalleeV1 comps then
-          planError s!"unsupported Aleo semantic shape: pf.crypto QN '{qn}' has no Aleo host binding (sha256 and siblings stay fail closed; native hash gadgets are not a host)"
+          planError s!"unsupported Aleo semantic shape: pf.crypto QN '{qn}' has no Aleo host binding (sha256/keccak256 and siblings stay fail closed; native hash gadgets are not a host)"
         else if isPfAssetsCatalogQnV1 qn then
           planError s!"Aleo does not support external calls: {unboundCatalogDiagV1 qn}"
         else

@@ -22,9 +22,9 @@ some=(1,v); payload zeroed on none assign). Reads go through the existing
 VariantTag/VariantPayload path. Option of non-UInt64, nested Option, and
 Option params stay fail-closed (state-only; do not extend Enum param admit).
 
-`pf.crypto.*` (including `sha256`) has no Noir host binding. Circuit
-stdlib gadgets such as `sha256_compression` are not a frozen
-UInt256→UInt256 host, so the namespace stays fail closed on void and
+`pf.crypto.*` (including `sha256` and `keccak256`) has no Noir host binding.
+Circuit stdlib gadgets such as `sha256_compression` / `keccakf1600` are not a
+frozen UInt256→UInt256 host, so the namespace stays fail closed on void and
 result-bearing ExternalCall and on schedule.
 -/
 
@@ -369,7 +369,7 @@ def canonicalLimits : ResourceLimits := {
 def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
 
-/-- ADR-0031 S5: Noir has no sha256 host. Any `pf.crypto.*` QN stays
+/-- ADR-0031 S5: Noir has no sha256 or keccak256 host. Any `pf.crypto.*` QN stays
     fail closed (void, result-bearing, and schedule). Circuit stdlib
     is not a host binding. -/
 private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
@@ -2212,13 +2212,13 @@ private def lowerBlockInstructionsV1
         unless qname.components.toArray.size ≥ 2 do
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: external call callee must have at least two components"
-        -- SYS-S5: Noir has no host sha256. Do not bind pf.crypto.* as a
+        -- SYS-S5: Noir has no host sha256/keccak256. Do not bind pf.crypto.* as a
         -- generic oracle ExternalCall (ExtFlow witness-binding path).
         let components := qname.components.toArray
         let qn := String.intercalate "." components.toList
         if isPfCryptoCalleeV1 components then
           throw <| .planInvariant .noir
-            s!"unsupported Noir semantic shape: pf.crypto QN '{qn}' has no Noir host binding (sha256 and siblings stay fail closed; circuit stdlib is not a host)"
+            s!"unsupported Noir semantic shape: pf.crypto QN '{qn}' has no Noir host binding (sha256/keccak256 and siblings stay fail closed; circuit stdlib is not a host)"
         let mut argExprs : Array Expr := #[]
         for argId in argIds do
           let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
@@ -2835,7 +2835,7 @@ private def lowerBlockInstructionsV1
         let qn := String.intercalate "." components.toList
         if isPfCryptoCalleeV1 components then
           throw <| .planInvariant .noir
-            s!"unsupported Noir semantic shape: pf.crypto QN '{qn}' has no Noir host binding (sha256 and siblings stay fail closed; circuit stdlib is not a host)"
+            s!"unsupported Noir semantic shape: pf.crypto QN '{qn}' has no Noir host binding (sha256/keccak256 and siblings stay fail closed; circuit stdlib is not a host)"
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: result-bearing external call is outside the current Noir pilot (N-CALL-RET shared schema; Noir return-value relation lowering is a later slice)"
     | _, _ =>
