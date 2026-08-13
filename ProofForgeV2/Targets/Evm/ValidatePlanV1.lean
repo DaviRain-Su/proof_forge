@@ -411,6 +411,11 @@ private def validExternalUIntArgWidthsV1
       argBitWidths.any (· != 64) &&
       argBitWidths.all isEvmAbiUintWidth
 
+/-- `pf.crypto` is a controlled system-capability namespace. Generic
+    AddressBearing CALL/schedule Plan nodes must never carry this prefix. -/
+private def isPfCryptoCalleeV1 (callee : Array String) : Bool :=
+  callee[0]? == some "pf" && callee[1]? == some "crypto"
+
 /-- Recursive statement-tree validator: kind gates, view-write ban (including
     inside branches), node accounting, and per-level return ordering. Returns
     the updated node total and whether execution of this statement list always
@@ -543,6 +548,9 @@ private partial def checkPlanStatementsV1
     | .externalCall callee args argBitWidths =>
         if isView then
           throw <| .planInvariant .evm s!"{owner} makes an external call in a view context"
+        if isPfCryptoCalleeV1 callee then
+          throw <| .planInvariant .evm
+            "unsupported EVM plan: pf.crypto must use its dedicated precompile binding"
         unless validExternalUIntArgWidthsV1 args argBitWidths do
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: external call arguments must be UInt8, UInt16, UInt32, UInt64, UInt128, or UInt256"
@@ -562,6 +570,9 @@ private partial def checkPlanStatementsV1
     | .externalCallResult callee args result =>
         if isView then
           throw <| .planInvariant .evm s!"{owner} makes an external call in a view context"
+        if isPfCryptoCalleeV1 callee then
+          throw <| .planInvariant .evm
+            "unsupported EVM plan: pf.crypto must use its dedicated precompile binding"
         unless isEvmAbiUintWidth result.bitWidth do
           throw <| .planInvariant .evm
             s!"{owner} result-bearing external call width must be UInt8, UInt16, UInt32, UInt64, UInt128, or UInt256"
@@ -581,9 +592,24 @@ private partial def checkPlanStatementsV1
               "unsupported EVM semantic shape: external call arguments must be UInt8, UInt16, UInt32, UInt64, UInt128, or UInt256"
           total ← addPlanExprNodes slots paramCount total fns arg
         total := total + 1
+    | .sha256Precompile input _resultTemp =>
+        if isView then
+          throw <| .planInvariant .evm
+            s!"{owner} calls pf.crypto.sha256 in a view/pureFn context"
+        if isConstructor then
+          throw <| .planInvariant .evm
+            "constructor cannot call pf.crypto.sha256"
+        unless exprIsExternalUIntCompatibleV1 fns input do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: pf.crypto.sha256 input must be UInt256"
+        total ← addPlanExprNodes slots paramCount total fns input
+        total := total + 1
     | .schedule callee args argBitWidths =>
         if isView then
           throw <| .planInvariant .evm s!"{owner} schedules a workflow in a view context"
+        if isPfCryptoCalleeV1 callee then
+          throw <| .planInvariant .evm
+            "unsupported EVM plan: pf.crypto cannot use the generic schedule binding"
         unless validExternalUIntArgWidthsV1 args argBitWidths do
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: schedule arguments must be UInt8, UInt16, UInt32, UInt64, UInt128, or UInt256"

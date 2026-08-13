@@ -4302,6 +4302,113 @@ private unsafe def testScheduleArgNarrowEvm : IO Unit := do
   runOne "UInt16" "uint16" "SchedArgU16Evm" "<evm-sched-arg-u16>" "Tests.EvmSchedArgU16"
   runOne "UInt32" "uint32" "SchedArgU32Evm" "<evm-sched-arg-u32>" "Tests.EvmSchedArgU32"
 
+/-- S5-EVM: `call pf.crypto.sha256` → SHA-256 precompile `0x02` via STATICCALL.
+    UInt256→UInt256 only; dedicated Plan statement (not hashed AddressBearing). -/
+private unsafe def testCryptoSha256Evm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let hashedPfCrypto :=
+    (Targets.Evm.Keccak.keccak256Hex "pf.crypto".toUTF8).drop 24
+  -- Positive: UInt256 → UInt256.
+  let src :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Sha256Evm where\n" ++
+    "  entry probe(x : UInt256) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256(x)\n" ++
+    "    return h\n"
+  let cSrc ← match ← session.selectProgramV1
+      src "<evm-sha256>" "Tests.EvmSha256" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"Sha256Evm select: {e.render}"
+  let compiled ← match Compiler.compileValidatedSourceV1 cSrc with
+    | .error e => throw <| IO.userError s!"Sha256Evm must compile, got {e.render}"
+    | .ok c => pure c
+  let plan ← match planEvm compiled with
+    | .error e =>
+        throw <| IO.userError s!"Sha256Evm must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let mut hasDedicated := false
+  let mut hasHashedResultCall := false
+  for e in plan.entries do
+    for s in e.body do
+      match s with
+      | .sha256Precompile _ _ => hasDedicated := true
+      | .externalCallResult callee _ _ =>
+          if callee == #["pf", "crypto", "sha256"] then
+            hasHashedResultCall := true
+      | .externalCall callee _ _ =>
+          if callee == #["pf", "crypto", "sha256"] then
+            hasHashedResultCall := true
+      | _ => pure ()
+  expect hasDedicated
+    "Sha256Evm: plan must contain dedicated sha256Precompile statement"
+  expect (!hasHashedResultCall)
+    "Sha256Evm: must not lower to hashed AddressBearing externalCall(Result)"
+  let files ← match materializeSelected TargetId.evm compiled with
+    | .error e => throw <| IO.userError s!"Sha256Evm materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yulFile := files.find? (·.path == "Sha256Evm.yul") |
+    throw <| IO.userError "Sha256Evm: missing .yul"
+  let yul := yulFile.contents
+  expect (yul.contains "staticcall")
+    "Sha256Evm: Yul must emit STATICCALL to the precompile"
+  expect (yul.contains "staticcall(gas(), 0x2")
+    "Sha256Evm: Yul must target SHA-256 precompile address 0x2"
+  expect (yul.contains "returndatasize()")
+    "Sha256Evm: Yul must guard returndatasize"
+  expect (!yul.contains hashedPfCrypto)
+    s!"Sha256Evm: Yul must not contain hashed pf.crypto address {hashedPfCrypto}"
+
+  -- Negatives: compile ok, Plan fail closed.
+  let expectPlanFc (programName pathLabel moduleName body needle : String) : IO Unit := do
+    let negSrc :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {programName} where\n" ++
+      body
+    let neg ← match ← session.selectProgramV1
+        negSrc pathLabel moduleName none with
+      | .ok v => pure v
+      | .error e => throw <| IO.userError s!"{programName} select: {e.render}"
+    match Compiler.compileValidatedSourceV1 neg with
+    | .error e => throw <| IO.userError s!"{programName} must compile, got {e.render}"
+    | .ok compiledNeg =>
+        match planEvm compiledNeg with
+        | .error e =>
+            expect (e.render.contains needle)
+              s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+        | .ok _ =>
+            throw <| IO.userError
+              s!"{programName} must Plan fail closed (no hashed CALL fallback)"
+
+  -- UInt64 arg / UInt64 result stay outside the UInt256↔UInt256 admit set.
+  expectPlanFc "Sha256U64Evm" "<evm-sha256-u64>" "Tests.EvmSha256U64"
+    ("  entry probe(x : UInt64) : UInt64 do\n" ++
+      "    let h : UInt64 := call pf.crypto.sha256(x)\n" ++
+      "    return h\n")
+    "pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+  -- schedule of sha256 is not admitted (sync precompile only).
+  expectPlanFc "Sha256SchedEvm" "<evm-sha256-sched>" "Tests.EvmSha256Sched"
+    ("  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    schedule pf.crypto.sha256(x)\n" ++
+      "    return x\n")
+    "pf.crypto calls cannot be scheduled"
+  -- Unknown sibling QN must not fall through to hashed AddressBearing CALL.
+  expectPlanFc "Sha256HashNoPadEvm" "<evm-sha256-hashnopad>" "Tests.EvmSha256HashNoPad"
+    ("  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.hashNoPad(x)\n" ++
+      "    return h\n")
+    "outside admitted EVM scope"
+  -- Bool result stays fail closed.
+  expectPlanFc "Sha256BoolEvm" "<evm-sha256-bool>" "Tests.EvmSha256Bool"
+    ("  entry probe(x : UInt256) : UInt64 do\n" ++
+      "    let h : Bool := call pf.crypto.sha256(x)\n" ++
+      "    if h then\n" ++
+      "      return 1\n" ++
+      "    else\n" ++
+      "      return 0\n")
+    "pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+
 /-- B-CTX-OPEN / ADR-0031 S1+S2: `context.unixTimeSeconds` → `timestamp()`;
     `context.blockHeight` → `number()`; `context.caller` → Principal from
     `caller()` (ADR-0025). Direct Principal return stays fail closed
@@ -4868,6 +4975,7 @@ unsafe def run : IO Unit := do
   testCallArgNarrowEvm
   testScheduleArgWideEvm
   testScheduleArgNarrowEvm
+  testCryptoSha256Evm
   testContextReadTimestampEvm
   testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed

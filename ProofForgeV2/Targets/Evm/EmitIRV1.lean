@@ -1709,6 +1709,21 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n" ++
           s!"{indent}if lt(returndatasize(), 32) \{ revert(0, 0) }\n" ++
           s!"{indent}let {resultName} := mload(0)\n" ++ widthGuard
+    | .sha256Precompile input resultTemp =>
+        -- ADR-0031 SYS-S5-EVM: exact one-word SHA-256 precompile binding.
+        -- Scratch word 0 is input; word 32 is output. No selector, hashed
+        -- AddressBearing target, Bytes ABI, or UInt256 range guard is involved.
+        let rendered := renderExpr indent paramPrefix next input
+        output := output ++ rendered.code
+        next := rendered.next
+        let okName := s!"sha256Ok{next}"
+        next := next + 1
+        output := output ++
+          s!"{indent}mstore(0, {rendered.value})\n" ++
+          s!"{indent}let {okName} := staticcall(gas(), 0x2, 0, 32, 32, 32)\n" ++
+          s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n" ++
+          s!"{indent}if lt(returndatasize(), 32) \{ revert(0, 0) }\n" ++
+          s!"{indent}let t{resultTemp} := mload(32)\n"
     | .schedule callee args argBitWidths =>
         -- Fire-and-forget: same static address/selector, CALL success ignored.
         let method := callee[callee.size - 1]!
@@ -2282,6 +2297,7 @@ private partial def statementHelperNeedsV1 : Statement → PhaseHelperNeedsV1
       args.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
   | .externalCall _ args _ | .schedule _ args _ | .externalCallResult _ args _ =>
       args.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
+  | .sha256Precompile input _ => exprHelperNeedsV1 input
   | .nativeDeposit a => exprHelperNeedsV1 a
   | .nativeTransfer dl dw a =>
       mergeHelperNeeds (exprHelperNeedsV1 dl)

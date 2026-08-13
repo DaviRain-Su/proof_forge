@@ -580,6 +580,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **EVM CALL args UInt128/256**：每参独立宽度；selector 按 `uint64`/`uint128`/`uint256`；全 UInt64 保持旧 tag；UInt8 等仍 FC。**不**关闭 B-CALL-SEM / C-3 / Anvil lossless |
 | 2026-08-13 | **EVM schedule args UInt128/256**：与 CALL 同纪律；旧 tag 10 保留；宽参新 tag 20；fire-and-forget 不变。**不**关闭 B-CALL-SEM / C-3 / Anvil lossless |
 | 2026-08-13 | **EVM CALL/schedule/returndata UInt8/16/32**：无符号 ABI family 工程接线闭合为 UInt8/16/32/64/128/256；Bool/Int/Bytes 仍 fail closed。**不**关闭 B-CALL-SEM / C-3 / Anvil lossless |
+| 2026-08-13 | **SYS-S5-EVM first leaf**：`pf.crypto.sha256` UInt256→UInt256 绑定 EVM SHA-256 precompile `0x02` `STATICCALL`；其它 `pf.crypto.*` 在 EVM fail closed，Bytes ABI、其它 target 与 extension catalog 留待后续。**不**关闭 EXT-CRYPTO / B-CALL-SEM / formal / Anvil lossless |
 
 ---
 

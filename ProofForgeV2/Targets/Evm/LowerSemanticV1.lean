@@ -344,6 +344,11 @@ inductive Statement where
       with the EVM-bare `revert(0,0)` convention. Failure reverts the caller. -/
   | externalCallResult (callee : Array String) (args : Array Expr)
       (result : ExternalCallResultBinding)
+  /-- ADR-0031 SYS-S5-EVM first leaf: exact
+      `pf.crypto.sha256(UInt256) -> UInt256` binding to the EVM SHA-256
+      precompile at address 0x02. The input and digest are each one 32-byte
+      word; this is not the generic AddressBearing CALL path or a Bytes ABI. -/
+  | sha256Precompile (input : Expr) (resultTemp : Nat)
   /-- Async fire-and-forget schedule (void). Same static-callee address/selector
       derivation and per-argument UInt ABI widths as `externalCall`, but CALL
       success is ignored (no response channel — matches Reference schedule
@@ -1787,6 +1792,14 @@ private def currentValueWithArmsV1
       "unsupported EVM semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
 
+/-- Reserve the complete `pf.crypto` namespace from generic hashed-QN CALL
+    lowering. SYS-S5-EVM admits only the exact sha256 leaf below. -/
+private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
+  components[0]? == some "pf" && components[1]? == some "crypto"
+
+private def isPfCryptoSha256CalleeV1 (components : Array String) : Bool :=
+  components == #["pf", "crypto", "sha256"]
+
 private def externalUIntArgWidthV1
     (types : EvmTypeClosureV1) (value : LoweredValueV1)
     (errorMessage : String) : CompileResult Nat := do
@@ -3177,7 +3190,10 @@ private def lowerBlockInstructionsV1
             throw <| .planInvariant .evm
               s!"unsupported EVM semantic shape: external call callee component '{c}' is not a safe identifier"
         let qn := String.intercalate "." components.toList
-        if isPfAssetsCatalogQnV1 qn then
+        if isPfCryptoCalleeV1 components then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: pf.crypto calls require result-bearing pf.crypto.sha256(UInt256) -> UInt256"
+        else if isPfAssetsCatalogQnV1 qn then
           -- ADR-0029 B2 QN gate: catalog QN requires exact extension.pf-assets.
           unless layout.pfAssetsDeclared do
             throw <| .planInvariant .evm
@@ -3332,6 +3348,9 @@ private def lowerBlockInstructionsV1
           unless isIdentifier c do
             throw <| .planInvariant .evm
               s!"unsupported EVM semantic shape: schedule callee component '{c}' is not a safe identifier"
+        if isPfCryptoCalleeV1 components then
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: pf.crypto calls cannot be scheduled"
         let mut argExprs : Array Expr := #[]
         let mut argBitWidths : Array Nat := #[]
         for argId in argIds do
@@ -4021,8 +4040,9 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .evm
             s!"unsupported EVM semantic shape: unknown ContextRead key '{key.value}'"
     | .externalCall _effectId callee argIds, some result =>
-        -- N-CALL-RET/B-CALL-SEM: result-bearing sync call → real CALL +
-        -- one-word returndata read (see Statement.externalCallResult).
+        -- N-CALL-RET/B-CALL-SEM: result-bearing sync call. The exact
+        -- pf.crypto.sha256 leaf is routed to the SHA-256 precompile; all
+        -- remaining callees use the existing AddressBearing CALL path.
         if mode == .view then
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: view callable makes an external call"
@@ -4037,33 +4057,62 @@ private def lowerBlockInstructionsV1
           unless isIdentifier c do
             throw <| .planInvariant .evm
               s!"unsupported EVM semantic shape: external call callee component '{c}' is not a safe identifier"
-        let resultBitWidth ← match types.uintWidthOf result.typeId with
-          | some width =>
-              unless isEvmAbiUintWidth width do
+        let qn := String.intercalate "." components.toList
+        if isPfCryptoCalleeV1 components then
+          unless isPfCryptoSha256CalleeV1 components do
+            throw <| .planInvariant .evm
+              s!"unsupported EVM semantic shape: pf.crypto QN '{qn}' is outside admitted EVM scope"
+          if mode == .constructor then
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: constructor cannot call pf.crypto.sha256"
+          unless argIds.size == 1 && types.uintWidthOf result.typeId == some 256 do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+          let some argId := argIds[0]? |
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: pf.crypto.sha256 UInt256 argument is missing"
+          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+          unless types.uintWidthOf root.typeId == some 256 &&
+              !root.isBool && !root.isInt && !root.isField &&
+              !root.isAggregate && root.bitWidth == 256 do
+            throw <| .planInvariant .evm
+              "unsupported EVM semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+          let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+          let resultTemp := result.valueId.toNat
+          body := body.push (.sha256Precompile root.expr resultTemp)
+          values := ← appendResultValueV1 result.typeId values result
+            (mkScalarValueV1 (.temp resultTemp) #[] false false 256 1 1)
+          hasAssert := true
+          armReadables := promoteDominatingPureV1 paramCount values armReadables
+          segmentStart := values.size
+        else
+          let resultBitWidth ← match types.uintWidthOf result.typeId with
+            | some width =>
+                unless isEvmAbiUintWidth width do
+                  throw <| .planInvariant .evm
+                    "unsupported EVM semantic shape: result-bearing external call result must be UInt8, UInt16, UInt32, UInt64, UInt128, or UInt256"
+                pure width
+            | none =>
                 throw <| .planInvariant .evm
                   "unsupported EVM semantic shape: result-bearing external call result must be UInt8, UInt16, UInt32, UInt64, UInt128, or UInt256"
-              pure width
-          | none =>
-              throw <| .planInvariant .evm
-                "unsupported EVM semantic shape: result-bearing external call result must be UInt8, UInt16, UInt32, UInt64, UInt128, or UInt256"
-        let mut argExprs : Array Expr := #[]
-        let mut argBitWidths : Array Nat := #[]
-        for argId in argIds do
-          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-          let width ← externalCallArgWidthV1 types root
-          argExprs := argExprs.push root.expr
-          argBitWidths := argBitWidths.push width
-        let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
-        let resultTemp := result.valueId.toNat
-        body := body.push (.externalCallResult components argExprs
-          { resultTemp
-            bitWidth := resultBitWidth
-            argBitWidths := canonicalExternalUIntArgWidthsV1 argBitWidths })
-        values := ← appendResultValueV1 result.typeId values result
-          (mkScalarValueV1 (.temp resultTemp) #[] false false resultBitWidth 1 1)
-        hasAssert := true
-        armReadables := promoteDominatingPureV1 paramCount values armReadables
-        segmentStart := values.size
+          let mut argExprs : Array Expr := #[]
+          let mut argBitWidths : Array Nat := #[]
+          for argId in argIds do
+            let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+            let width ← externalCallArgWidthV1 types root
+            argExprs := argExprs.push root.expr
+            argBitWidths := argBitWidths.push width
+          let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+          let resultTemp := result.valueId.toNat
+          body := body.push (.externalCallResult components argExprs
+            { resultTemp
+              bitWidth := resultBitWidth
+              argBitWidths := canonicalExternalUIntArgWidthsV1 argBitWidths })
+          values := ← appendResultValueV1 result.typeId values result
+            (mkScalarValueV1 (.temp resultTemp) #[] false false resultBitWidth 1 1)
+          hasAssert := true
+          armReadables := promoteDominatingPureV1 paramCount values armReadables
+          segmentStart := values.size
     | .envRead key args, some result =>
         -- ADR-0030 E2-3: read-only self-vault observation (value-producing,
         -- view-callable, effect-free). Requires exact extension.pf-assets

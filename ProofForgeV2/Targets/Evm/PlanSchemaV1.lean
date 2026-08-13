@@ -403,6 +403,13 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
         for width in result.argBitWidths do
           out := out.append (← encodeNatAsU32le width)
       pure out
+  -- Tag 21 (ADR-0031 SYS-S5-EVM): exact
+  -- pf.crypto.sha256(UInt256) -> UInt256 precompile binding. Tags 9/10/12 and
+  -- 17–20 remain unchanged; this node carries no generic callee or ABI shape.
+  | .sha256Precompile input resultTemp => do
+      let mut out := (encodeU8 21).append (← encodeExpr input)
+      out := out.append (← encodeNatAsU32le resultTemp)
+      pure out
   -- Tag 13 (ADR-0029 B2): pf.assets.native.deposit(amount).
   | .nativeDeposit amount => do
       pure ((encodeU8 13).append (← encodeExpr amount))
