@@ -3,14 +3,14 @@ id: RPT-004
 title: 目标分类研究
 status: draft
 owner: research
-updated: 2026-07-15
+updated: 2026-08-13
 normative: false
 ---
 
 # 目标分类研究
 
 状态：`draft`
-研究日期：2026-07-15
+研究日期：2026-07-15（2026-08-13 增补剩余版图指针）
 
 ## 问题
 
@@ -86,3 +86,9 @@ NEAR、CosmWasm、Soroban、ICP 都接收 Wasm，但 Wasm 只回答“机器指�
 - 网络 fork/profile 如何影响已有 artifact 的可部署性。
 - extension 的 semantics digest 如何发布和撤销。
 - 跨 target 的等价性证据分级：静态、解释器、runtime、network/proof。
+
+## 剩余版图（2026-08-13）
+
+工程已实现 9 leaf + 3 design-only；ADR-0017 另有 Move/Cairo/RISC Zero/SP1 研究桶；
+比特币 Script/Tapscript/Miniscript 属 UTXO **谓词**模型，默认不进近期 materializer 队列。
+完整分桶与波次见 [`25-remaining-target-landscape.md`](25-remaining-target-landscape.md)。

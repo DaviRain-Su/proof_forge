@@ -19,6 +19,9 @@ normative: false
 
 状态只允许：`pending` / `in_progress` / `done` / `blocked` / `wontfix`。
 
+**剩余 target 波次**（Soroban/ICP/OpenVM + Move/比特币边界）：见 §10.1 与
+[`research/25-remaining-target-landscape.md`](research/25-remaining-target-landscape.md)。
+
 ## 诚实范围声明（2026-08-01 二次汇总）
 
 ### 已作为主输入深度使用（工程队列真源）
@@ -589,6 +592,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **SYS-S5-TON honesty**：TON 无 sha256 host；Plan 对 `pf.crypto.*` 精确 fail closed（无 `string_hash` 伪装）。SBOM lean-package-files 刷新为 284。**不**关闭 EXT-CRYPTO / formal |
 | 2026-08-13 | **SYS-S5-NOIR honesty**：Noir 无 sha256 host；Plan 对 `pf.crypto.*` 精确 fail closed（不把 circuit `sha256_compression` / generic ExtFlow oracle 伪装成 host）。**不**关闭 EXT-CRYPTO / formal |
 | 2026-08-13 | **SYS-S5-ALEO/QUINT honesty**：Aleo/Quint 无 sha256 host；Plan 对 `pf.crypto.*` 精确 fail closed（不把 BHP/Pedersen/Poseidon 或 pf.assets catch-all 伪装成 host）。Aleo 产品路径仍先拒 sync-call。SBOM lean-package-files 刷新为 285。**不**关闭 EXT-CRYPTO / formal |
+| 2026-08-13 | **剩余 target 版图 RPT-025**：登记 §10.1（TGT-SOROBAN/ICP/OPENVM-MVP、Move dossier、第二 zkVM、比特币脚本族钉死默认不实现）；不扩 accepted PRD；不新开平行 gap 清单 |
 
 ---
 
@@ -618,6 +622,23 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | **CW-9** | wasmd tx 级 runtime 差分 rung-1（docker） | **done**（2026-08-04；`1f8317cc1`：`scripts/cosmwasm_wasmd_test.sh` + in-container 断言；digest-pinned 官方镜像 `cosmwasm/wasmd:v0.70.3` 本地链；Counter init/increment/query 与 overflow `deliver_code=29` state-hold；**SRC-CW-002 真链验证**：ScheduleFlow `later{}` 的 SubMsg dest 为 QN stub（非 bech32），dispatcher validation 失败，`reply_on=never` 下**整 tx abort、父状态回滚**（deliver_code=1）；产品 query 返回 UTF-8 非 Binary 已记录（harness 走 raw state query）；skip-clean 无 docker；engineering differential，非主网/formal Stage-0） |
 | **ALEO-2** | Aleo 多宽 UInt8/16/32（T8 on Aleo） | **done**（2026-08-03；`5be4b02fc`：Leo 4.0.2 spike 实证原生 uN 算术 const/runtime 均 trap overflow（add/sub/mul/shl + cast 越界表），匹配 DSL checked 语义 → 原生 Leo u8/u16/u32 发射，无 widen 脚手架；Plan ABI `uintWidth`（state/param/result）；body width-tracked `narrowChecked*`/`narrowBit*`/`narrowShl|Shr` + shift count<width 断言；switch case literal 按 scrutinee 宽度；shift result 随 lhs 宽；验收 U8Ctr/MultiW 过真实 leo build（13 fixture 全绿）；UInt128/256、Int8/16/32、Field 变体、聚合窄叶仍 FC） |
 | **PSY-2** | Psy 多宽 UInt8/16/32（T8 on Psy，系列收尾） | **done**（2026-08-03；`4f92e66cb`：Psy Felt=Goldilocks wrap mod p 且原生 uN 不忠实 Reference（overflow 内部 trap、shift wrap）→ 拒绝原生 uN，采用 Felt 承载 + 显式宽度守卫（add/mul/shl 结果<2^w、sub l>=r、div/mod r≠0、bitNot xor mask、param 入场 range check）；w∈{8,16,32} 时 (2^32−1)²<p 故窄运算不可能 wrap mod p，UInt64 保持 field-wrap 惯用法；Plan `uintWidth` 覆盖 state/param/result；验收 U8Ctr 过真实 psyup（6 fixture 全绿）；UInt128/256、Int8/16/32、bn254 Field、Map/Bytes/Option/Principal 窄组合与窄 loop 归纳仍 FC；`psyTypeClosureWording` 文案已同步多宽集合） |
+
+### 10.1 剩余 target 落地（2026-08-13；版图 RPT-025）
+
+权威分析：[`research/25-remaining-target-landscape.md`](research/25-remaining-target-landscape.md)。
+**不**扩 accepted Phase-1 四目标；formal 仍 EVM-first（ADR-0036）。比特币 Script 族默认不实现。
+
+| ID | 项 | 波次 | 状态 |
+|---|---|---|---|
+| **TGT-DOC-025** | 剩余 target 版图研究 + README/targets/taxonomy/backlog 挂钩 | T0 | **done**（2026-08-13：RPT-025） |
+| **TGT-BTC-SCRIPT-PIN** | 比特币 Script/Tapscript/Miniscript/Liquid/BitVM：UTXO 谓词 ≠ 账户 Semantic；默认 `wontfix-until` 独立 predicate ADR | T6 gate | **done**（2026-08-13：钉在 RPT-025 §2 档 D；无 TargetId） |
+| **TGT-SOROBAN-MVP** | `soroban` design-only → target-owned Plan/IR/materializer MVP（XDR/auth/TTL 诚实 FC 子集） | T1 | **pending** |
+| **TGT-ICP-MVP** | `icp` design-only → Plan/IR/materializer MVP（Candid + 单 message 优先；跨 canister 默认 FC/async） | T2 | **pending** |
+| **TGT-OPENVM-MVP** | `openvm` design-only → guest/VmExe MVP（prove 可 FC；无假链上合约） | T3 | **pending** |
+| **TGT-MOVE-DOSSIER** | 补齐 `aptos`/`sui` dossier + Move family（ADR-0017；**不**占用 `12-quint` 编号） | T4 | **pending** |
+| **TGT-ZKVM-SECOND** | OpenVM 稳定后于 cairo/risc0/sp1 **择一**第二 zkVM leaf | T5 | **pending**（blocked-on TGT-OPENVM-MVP） |
+
+优先序：**TGT-SOROBAN-MVP → TGT-ICP-MVP → TGT-OPENVM-MVP**；Move dossier 可与 T1 文档并行，materializer 不得抢先于独立实现 ADR。
 
 
 > **Solana CPI epic #111–#125 engineering closed** (#110 engineering epic complete): legacy profiles fail closed on call/schedule; exact `solana-sbpf-cpi-elf-v1` advertises sync+extension (async still FC); CpiEscrowIRV1 composite escrow remains test-preactivation history; product activation is ordinary-resolver product capability (not formal TASK-D5).

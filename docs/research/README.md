@@ -3,14 +3,14 @@ id: RESEARCH-INDEX
 title: 调研证据索引
 status: draft
 owner: research
-updated: 2026-08-07
+updated: 2026-08-13
 normative: false
 ---
 
 # 调研证据索引
 
 状态：`draft`
-更新日期：2026-08-07
+更新日期：2026-08-13
 
 本目录保存 ProofForge V2 的非规范性研究材料。研究结论不能越过已接受的 ADR、PRD、架构和技术规格；它们的作用是说明“为什么这样设计”，而不是暗中改变产品语义。
 
@@ -47,6 +47,7 @@ normative: false
 26. [`22-portable-surface-vs-chain-reality.md`](22-portable-surface-vs-chain-reality.md)：**可移植表面 vs 链上现实**——跨合约 / 资产 / 原子性总表（12-target）；解释为何一份 `program` 不能诚实直出「各链失败语义相同」的制品（NEAR Promise vs EVM/Solana CPI vs CW SubMsg；Wasm 不是原因）（RPT-022；2026-08-07）。
 27. [`23-miniamm-formalization-ladder.md`](23-miniamm-formalization-ladder.md)：**通用程序形式化栈** L0/L1/L2；业务 track 1（EvenCounter preserving product positive GREEN）与工具 track 2 分账；第二实例 deferred；product Reference step 唯一，MiniAmm 为后续普通实例；D/L2 formal 最后（RPT-023；2026-08-08）。
 28. [`24-aleo-local-proof-finalize.md`](24-aleo-local-proof-finalize.md)：locked Leo 4.0.2 的 package/build/execute/proof/finalize/query 实证冻结；offline build 三产物确定性已由 ALEO-I4 productize 为 opt-in non-deployable compile profile，network/proof/deploy 阶段仍阻塞（RPT-024；2026-08-07）。
+29. [`25-remaining-target-landscape.md`](25-remaining-target-landscape.md)：**剩余 target 版图**——用户「四大类」vs 多轴 taxonomy、registry 9+3、ADR-0017 研究桶、比特币脚本族（UTXO predicate）诚实边界，以及 Soroban→ICP→OpenVM→Move→第二 zkVM 的工程波次；执行勾选只进 `engineering-backlog`（RPT-025；2026-08-13）。
 
 ## 证据等级
 

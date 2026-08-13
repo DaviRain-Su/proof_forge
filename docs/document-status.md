@@ -34,7 +34,9 @@ zero-tool finalize 的 source-only `.qnt` executable-model target；CosmWasm
 语义。以上均为工程观察，**非** formal/hermetic。
 **Accepted PRD Phase 1 范围仍为四目标**（EVM/Solana/NEAR/Noir）；后五个 engineering
 leaves 的边界由 **ADR-0036** 固定为非 accepted 扩面，formal lighthouse 为 EVM-first。
-日常缺口队列见 [`engineering-backlog.md`](engineering-backlog.md)。**ADR-0027**
+日常缺口队列见 [`engineering-backlog.md`](engineering-backlog.md)。剩余 target / 比特币脚本族版图见
+[`research/25-remaining-target-landscape.md`](research/25-remaining-target-landscape.md)
+（§10.1：Soroban→ICP→OpenVM；不扩 accepted PRD）。**ADR-0027**
 （`proposed`）仍冻结 inline same-file gate 的 single-snapshot/audit/axiom/proof-first 基线；
 **ADR-0034**（`proposed`）的 Preservation ABI、`ProofKindV1`/三字段 wire、
 `(inv,kind)` inventory、双 alias 与 kind-bound certifier 已接线。2026-08-09

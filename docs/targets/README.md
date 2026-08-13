@@ -3,19 +3,21 @@ id: TARGET-INDEX
 title: Target 研究与实现档案
 status: proposed
 owner: architecture
-updated: 2026-08-12
+updated: 2026-08-13
 normative: true
 ---
 
 # Target 研究与实现档案
 
 状态：`proposed`
-更新日期：2026-08-12
+更新日期：2026-08-13
 
 本目录按执行语义而不是文件后缀组织目标。`family` 是阅读视图，编译器实际依据多轴 `TargetDescriptor` 和 exact `SupportClaim` 决策。
 
 工程缺口队列：[`../engineering-backlog.md`](../engineering-backlog.md)；op×target 格子：
 [`../research/12-target-coverage-matrix.md`](../research/12-target-coverage-matrix.md)。
+**剩余 target / 比特币脚本族 / 落地波次**：[`../research/25-remaining-target-landscape.md`](../research/25-remaining-target-landscape.md)
+（非 accepted 扩面；design-only 优先 Soroban→ICP→OpenVM）。
 
 ## 成熟度
 
