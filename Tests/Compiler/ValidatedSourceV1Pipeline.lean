@@ -684,6 +684,16 @@ def run : IO Unit := do
       #[param seed])]
   expectInvalid "call arguments" "S1 call argument requires anonymous UInt/Int/Principal type"
     (Compiler.compileValidatedSourceV1 callArgs)
+  -- SYS-S5: Bytes is not a crypto ABI. Shared compile rejects Bytes as a
+  -- call argument before any target can invent a host digest over Bytes.
+  let crypto ← q #["pf", "crypto", "sha256"]
+  let blob ← n "blob"
+  let bytesArg ← validated moduleName identity demo #[.entry (entry runN
+    (block #[.return_ (some (.externalCall { callee := crypto, args := #[var blob] }))])
+      #[param blob (.bytes 32)])]
+  expectInvalid "crypto Bytes argument"
+    "S1 call argument requires anonymous UInt/Int type"
+    (Compiler.compileValidatedSourceV1 bytesArg)
 
   -- Phase-order priority under CheckV1-first product gate (via Normalize typedNotOk).
   let priority : Array (String × Array ProgramItemV1 × String) := #[

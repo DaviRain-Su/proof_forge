@@ -599,6 +599,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **SYS-S5 TON/Noir/Aleo/Quint keccak256 honesty**：四 target 无 keccak256 host；Plan 对 exact `pf.crypto.keccak256` 精确 fail closed（诊断点名 sha256/keccak256；不把 `string_hash` / `keccakf1600` / BHP-Pedersen-Poseidon / pf.assets catch-all 伪装成 host）。**不**关闭 EXT-CRYPTO / formal |
 | 2026-08-13 | **SYS-S5 Psy keccak gadget + EVM Anvil keccak + Solana product hole pin**：Psy `keccak256` 钉为 ADR-0039 电路 gadget（UInt64 first-limb 仍开；UInt256 host 形状 FC）。EVM 增 `Keccak256Check` fixture + host-optional Anvil companion（本机实际 pass `hashWord(0|1)`，非 lossless）。Solana host-only sha256/keccak256 产品 capability 预存 FC 改为诚实钉测，不扩 admission。**不**关闭 EXT-CRYPTO / formal / Anvil lossless |
 | 2026-08-13 | **SYS-S5 NEAR keccak companion + Psy remaining gadgets**：NEAR sandbox 增 `Keccak256Check` LE known-vector companion（本机实际 pass `hashWord(0|1)`，非 lossless）。Psy `hashPad`/`hashTwoToOne` UInt256 host 与 keccak/hashPad Array4 HashOut 精确 FC；first-limb gadget 仍开。Solana host-only keccak 仍产品 FC，不扩 capability / 不声称 Mollusk pass。**不**关闭 EXT-CRYPTO / formal |
+| 2026-08-13 | **SYS-S5 sibling QN + Bytes ABI pin**：shared compile 钉 Bytes 不能当 `pf.crypto` 参数。EVM/Solana/NEAR 钉 `hashPad`/`hashTwoToOne` 与 Bytes-result FC。Noir 另钉 `sha256_compression`/`keccakf1600` 不是 host。**不**关闭 EXT-CRYPTO / formal / Bytes ABI |
 | 2026-08-13 | **剩余 target 版图 RPT-025**：登记 §10.1（TGT-SOROBAN/ICP/OPENVM-MVP、Move dossier、第二 zkVM、比特币脚本族钉死默认不实现）；不扩 accepted PRD；不新开平行 gap 清单 |
 
 ---

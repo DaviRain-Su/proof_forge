@@ -15631,3 +15631,13 @@ normative: false
 - Solana product capability still rejects host-only keccak256. A fixture
   shape is recorded, but it is not a Mollusk product-runtime pass.
 - Not formal, not Bytes ABI, and not EXT-CRYPTO.
+
+## 2026-08-13 — SYS-S5 sibling QN matrix + Bytes ABI pin
+
+- Shared compile rejects Bytes as a `pf.crypto` argument
+  (`S1 call argument requires anonymous UInt/Int type`).
+- EVM/Solana/NEAR pin `hashPad`/`hashTwoToOne` and Bytes-result shapes as
+  fail-closed; they do not invent a Bytes digest ABI.
+- Noir additionally pins `pf.crypto.sha256_compression` and
+  `pf.crypto.keccakf1600` as host-absent. Circuit stdlib is not a host.
+- Not formal, not Bytes ABI, and not EXT-CRYPTO.

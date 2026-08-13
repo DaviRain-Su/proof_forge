@@ -4400,6 +4400,22 @@ private unsafe def testCryptoSha256Evm : IO Unit := do
       "    return h\n")
     "outside admitted EVM scope"
   -- Bool result stays fail closed.
+  expectPlanFc "Sha256HashPadEvm" "<evm-sha256-hashpad>" "Tests.EvmSha256HashPad"
+    ("  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.hashPad(x)\n" ++
+      "    return h\n")
+    "outside admitted EVM scope"
+  expectPlanFc "Sha256HashTwoToOneEvm" "<evm-sha256-hashtwo>" "Tests.EvmSha256HashTwoToOne"
+    ("  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.hashTwoToOne(x)\n" ++
+      "    return h\n")
+    "outside admitted EVM scope"
+  expectPlanFc "Sha256BytesResEvm" "<evm-sha256-bytes-res>" "Tests.EvmSha256BytesRes"
+    ("  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : Bytes 32 := call pf.crypto.sha256(x)\n" ++
+      "    return x\n")
+    "pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+
   expectPlanFc "Sha256BoolEvm" "<evm-sha256-bool>" "Tests.EvmSha256Bool"
     ("  entry probe(x : UInt256) : UInt64 do\n" ++
       "    let h : Bool := call pf.crypto.sha256(x)\n" ++
@@ -4499,6 +4515,16 @@ private unsafe def testCryptoKeccak256Evm : IO Unit := do
       "    schedule pf.crypto.keccak256(x)\n" ++
       "    return x\n")
     "pf.crypto calls cannot be scheduled"
+  expectPlanFc "Keccak256HashNoPadEvm" "<evm-keccak256-hashnopad>" "Tests.EvmKeccak256HashNoPad"
+    ("  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.hashNoPad(x)\n" ++
+      "    return h\n")
+    "outside admitted EVM scope"
+  expectPlanFc "Keccak256BytesResEvm" "<evm-keccak256-bytes-res>" "Tests.EvmKeccak256BytesRes"
+    ("  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : Bytes 32 := call pf.crypto.keccak256(x)\n" ++
+      "    return x\n")
+    "pf.crypto.keccak256 requires exactly one UInt256 argument and UInt256 result"
 
 /-- SYS-S5-EVM Anvil companion fixture pin: inline twin of Examples/Sha256Check.lean
     (not imported by Examples.lean). Plan `.sha256Precompile` + STATICCALL 0x2;

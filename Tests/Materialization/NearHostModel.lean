@@ -4683,6 +4683,26 @@ private unsafe def testCryptoSha256Near (session : Language.Loader.ParserSession
       "    last := h\n" ++
       "    return h\n\n")
     "outside admitted NEAR scope"
+  expectPlanFc "Sha256NearHashPad" "<near-sha256-hashpad>"
+    "Examples.Sha256NearHashPad"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.hashPad(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n\n")
+    "outside admitted NEAR scope"
+  expectPlanFc "Sha256NearBytesRes" "<near-sha256-bytes-res>"
+    "Examples.Sha256NearBytesRes"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : Bytes 32 := call pf.crypto.sha256(x)\n" ++
+      "    last := x\n" ++
+      "    return last\n\n")
+    "pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
   expectPlanFc "OracleFeedSync" "<near-oracle-feed-sync>" "Examples.OracleFeedSync"
     ("  state count : UInt64\n\n" ++
       "  init(i : UInt64) do\n" ++
@@ -4810,6 +4830,26 @@ private unsafe def testCryptoKeccak256Near (session : Language.Loader.ParserSess
       "    last := h\n" ++
       "    return h\n\n")
     "outside admitted NEAR scope"
+  expectPlanFc "Keccak256NearHashPad" "<near-keccak256-hashpad>"
+    "Examples.Keccak256NearHashPad"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.hashPad(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n\n")
+    "outside admitted NEAR scope"
+  expectPlanFc "Keccak256NearBytesRes" "<near-keccak256-bytes-res>"
+    "Examples.Keccak256NearBytesRes"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : Bytes 32 := call pf.crypto.keccak256(x)\n" ++
+      "    last := x\n" ++
+      "    return last\n\n")
+    "pf.crypto.keccak256 requires exactly one UInt256 argument and UInt256 result"
 
   let accSource ← liftResult (← session.selectProgramV1
     accumulatorSourceText "<near-keccak256-acc-baseline>"

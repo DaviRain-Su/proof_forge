@@ -2284,6 +2284,39 @@ private unsafe def checkCryptoSha256StayFailClosed : IO Unit := do
       "  view get() : UInt64 do\n" ++
       "    return pad\n")
     "has no Noir host binding"
+  expectPlanFc "Sha256NoirHashPad" "Examples.Sha256NoirHashPad"
+    ("  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    let h : UInt64 := call pf.crypto.hashPad(w)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Noir host binding"
+  expectPlanFc "Sha256NoirCompression" "Examples.Sha256NoirCompression"
+    ("  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    call pf.crypto.sha256_compression(w)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Noir host binding"
+  expectPlanFc "Keccak256NoirF1600" "Examples.Keccak256NoirF1600"
+    ("  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    call pf.crypto.keccakf1600(w)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Noir host binding"
   IO.println "  ✓ pf.crypto.sha256/keccak256 stay fail closed (no Noir host)"
 
 /-- Two declared events, both emitted: pins event-slot inputs and .nr surface. -/

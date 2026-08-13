@@ -1702,6 +1702,27 @@ private unsafe def testCryptoSha256Solana
       "    return h\n")
     "outside admitted Solana scope"
   -- Generic result-bearing Oracle.feed stays FC (no scope leak from sha256).
+  expectPlanFc "Sha256SolHashPad" "<solana-sha256-hashpad>"
+    "Examples.Sha256SolHashPad"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.hashPad(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n")
+    "outside admitted Solana scope"
+  expectPlanFc "Sha256SolBytesRes" "<solana-sha256-bytes-res>"
+    "Examples.Sha256SolBytesRes"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : Bytes 32 := call pf.crypto.sha256(x)\n" ++
+      "    last := x\n" ++
+      "    return last\n")
+    "pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+
   expectPlanFc "OracleFeedRet" "<solana-oracle-feed-ret>" "Examples.OracleFeedRet"
     ("  state count : UInt64\n\n" ++
       "  init(i : UInt64) do\n" ++
@@ -1804,9 +1825,28 @@ private unsafe def testCryptoKeccak256Solana
       "    last := h\n" ++
       "    return h\n")
     "outside admitted Solana scope"
+  expectPlanFc "Keccak256SolHashPad" "<solana-keccak256-hashpad>"
+    "Examples.Keccak256SolHashPad"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.hashPad(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n")
+    "outside admitted Solana scope"
+  expectPlanFc "Keccak256SolBytesRes" "<solana-keccak256-bytes-res>"
+    "Examples.Keccak256SolBytesRes"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : Bytes 32 := call pf.crypto.keccak256(x)\n" ++
+      "    last := x\n" ++
+      "    return last\n")
+    "pf.crypto.keccak256 requires exactly one UInt256 argument and UInt256 result"
 
 private unsafe def testVoidEntryRejected
-
     (session : Language.Loader.ParserSession) : IO Unit := do
   let text := wrapProgram "VoidEntry" <|
     "  state count : UInt64\n\n" ++
