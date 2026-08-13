@@ -1,0 +1,47 @@
+{
+  "schema": "proof-forge.wasmcert-coq-authority.v1",
+  "schemaVersion": 1,
+  "role": "external-wasm-semantics-source-authority",
+  "repository": "https://github.com/WasmCert/WasmCert-Coq",
+  "release": "2.2.1",
+  "revision": "9ab0f87f03fff5507749efc273ec662fe27e6d14",
+  "upstreamExecutable": "wasm_coq_interpreter",
+  "licenses": [
+    {
+      "scope": "repository except src/Parray and compcert",
+      "spdx": "MIT"
+    },
+    {
+      "scope": "src/Parray and compcert",
+      "spdx": "LGPL-2.1-or-later"
+    }
+  ],
+  "provedOnSuccess": [
+    "module_type_checker_sound",
+    "b_e_type_checker_reflects_typing",
+    "interp_alloc_sound",
+    "interp_instantiate_imp_instantiate"
+  ],
+  "interpreterCore": [
+    "run_one_step_ctx",
+    "t_progress_interp_ctx"
+  ],
+  "unverifiedOrAssumed": [
+    "binary parser",
+    "host application assumptions",
+    "experimental OCaml host",
+    "SIMD extraction overrides"
+  ],
+  "leanPin": "ProofForgeV2.Targets.Near.wasmCertCoqSourceAuthorityV1",
+  "planning": "docs/adr/0043-pinned-wasmcert-provider-boundary.md",
+  "toolLock": {
+    "toolId": "wasmcert-coq-provider",
+    "entryPresent": false,
+    "executableSha256": null
+  },
+  "notes": [
+    "Source/schema authority only; this record is not executable identity or target-refinement evidence.",
+    "Fail closed until a structured ProofForge wrapper and its exact per-platform executable closure are present in Tool Lock v4.",
+    "Do not scrape the upstream human/ANSI CLI as a machine certificate protocol."
+  ]
+}

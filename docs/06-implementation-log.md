@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-12
+updated: 2026-08-13
 normative: false
 ---
 
@@ -15481,3 +15481,20 @@ normative: false
   `wat2wasm` translation correctness或 NEAR host/runtime refinement。它只是 finalized binary的
   fail-closed结构边界；四个 VerifiedVault recipe仍只可称 bounded MethodIR/typed-WAT refinement，
   Solana继续暂停在 `StateCell.get()`首切。
+
+## 2026-08-13 — NEAR WasmCert-Coq provider boundary
+
+- 新增 ADR-0043 与 `Targets/Near/WasmCertProviderV1.lean`，固定 WasmCert-Coq 2.2.1 exact source
+  revision `9ab0f87f03fff5507749efc273ec662fe27e6d14`、upstream executable名称和许可证边界；
+  `supply-chain/wasmcert-coq-authority.v1.json`明确它只是 source/schema authority，不是 executable
+  identity或 target-refinement evidence。
+- ProofForge future structured wrapper的 request/result schema、closed field set与 exact argv已冻结；
+  upstream human/ANSI CLI stdout/stderr明确不得作为 machine evidence。result逐层保留 binary
+  parser=`unverified`、checker/instantiation=`provedSoundOnSuccess`、interpreter core和 host
+  assumptions，并要求首个 strict profile排除 SIMD及默认实验 OCaml host。
+- 当前没有可 provision wrapper asset、Tool Lock row或 executable SHA-256；public activation gate
+  因此机械返回 `executableUnprovisioned`。回归固定 exact source pin、revision tamper、argv/field set、
+  mechanization status与 unprovisioned fail-closed行为。
+- 本切没有运行 WasmCert、解析 Wasm payload、实现 NEAR host或 mint evidence，故 assurance不升级。
+  下一步仍在 NEAR：实现并锁定 structured provider，再接四个 VerifiedVault recipes的 host trace与
+  sole `ReferenceMachineV1` observation；Solana继续暂停。

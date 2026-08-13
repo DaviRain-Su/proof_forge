@@ -326,6 +326,40 @@ private def testNearWasmBinaryEnvelope : IO Unit := do
   expectWasmDecodeError (header ++ ByteArray.mk #[0x00]) .truncated
     "Wasm envelope must not ignore trailing bytes"
 
+/-- The external Wasm semantics source pin is exact, while product activation
+    remains fail closed until a structured wrapper executable has a Tool Lock
+    digest. Source authority must never substitute for executable identity. -/
+private def testNearWasmCertProviderBoundary : IO Unit := do
+  match Targets.Near.validateWasmCertCoqSourceAuthorityV1
+      Targets.Near.wasmCertCoqSourceAuthorityV1 with
+  | .ok () => pure ()
+  | .error error =>
+      throw <| IO.userError s!"valid WasmCert source authority rejected: {error}"
+  let altered : Targets.Near.WasmCertCoqSourceAuthorityV1 := {
+    Targets.Near.wasmCertCoqSourceAuthorityV1 with
+    revision := "0ab0f87f03fff5507749efc273ec662fe27e6d14"
+  }
+  match Targets.Near.validateWasmCertCoqSourceAuthorityV1 altered with
+  | .error _ => pure ()
+  | .ok () => throw <| IO.userError "altered WasmCert revision must fail closed"
+  expect (Targets.Near.wasmCertProviderArgvV1 "request.json" "result.json" == #[
+      "check-execute", "--request", "request.json", "--result", "result.json"])
+    "WasmCert structured provider argv must remain exact"
+  expect (Targets.Near.wasmCertProviderRequestFieldsV1.size == 7 &&
+      Targets.Near.wasmCertProviderResultFieldsV1.size == 14)
+    "WasmCert request/result protocols must retain their closed field sets"
+  expect (Targets.Near.wasmCertBinaryParserStatusV1 == .unverified &&
+      Targets.Near.wasmCertModuleCheckerStatusV1 == .provedSoundOnSuccess &&
+      Targets.Near.wasmCertInstantiationStatusV1 == .provedSoundOnSuccess &&
+      Targets.Near.wasmCertExecutionStatusV1 == .provedInterpreterCore &&
+      Targets.Near.wasmCertHostStatusV1 == .hostAssumptions)
+    "WasmCert mechanization boundary must remain explicit"
+  match Targets.Near.requireWasmCertProviderProvisionedV1 with
+  | .error .executableUnprovisioned => pure ()
+  | .ok _ =>
+      throw <| IO.userError
+        "WasmCert provider must not activate without a Tool Lock executable digest"
+
 /-- Hermetic PF-ARTIFACT-NONDEPLOYABLE gates (empty solc bytecode + bad Wasm). -/
 private unsafe def testNonDeployablePhases : IO Unit := do
   -- Empty solc bytecode presence gate.
@@ -655,6 +689,7 @@ unsafe def run : IO Unit := do
   testPreIoBindBeforeTools
   testNearFinalizerInputBinding
   testNearWasmBinaryEnvelope
+  testNearWasmCertProviderBoundary
   testNonDeployablePhases
   testFourTargetFinalization
   testToolFailureZeroPublish

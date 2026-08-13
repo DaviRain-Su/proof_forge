@@ -3,7 +3,7 @@ id: TARGET-NEAR
 title: NEAR target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-12
+updated: 2026-08-13
 normative: true
 ---
 
@@ -387,6 +387,16 @@ Phase 1：实现
   消费 section envelope，不解析 payload、不验证 module typing/import/export/code、不执行 Wasm，也不
   证明 `wat2wasm` translation或 NEAR host/runtime refinement；因此不是 Wasm semantics，也不升级
   artifact claim。
+- **WasmCert-Coq provider trust boundary（Phase 7 第三十一切）**：
+  [ADR-0043](../adr/0043-pinned-wasmcert-provider-boundary.md) 固定 WasmCert-Coq 2.2.1 source
+  revision `9ab0f87f03fff5507749efc273ec662fe27e6d14`，并由
+  `WasmCertProviderV1` sole-own future structured wrapper的 request/result schema、closed field set、
+  exact argv及逐层 mechanization status。binary parser明确保留 `unverified`；module checker与
+  instantiation只称 `provedSoundOnSuccess`，interpreter core与 host assumptions分开记录；默认实验
+  OCaml host和 SIMD override不进入首个 strict profile。当前 Tool Lock尚无 provider executable或
+  SHA-256，故 activation API机械返回 `executableUnprovisioned`，source pin不能替代 executable
+  identity。该切片只是可审计且 fail-closed 的接入合同，尚未运行 WasmCert、解析 section payload、
+  生成 host trace或连接 Reference observation，因此 assurance等级不变。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`

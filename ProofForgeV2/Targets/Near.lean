@@ -10,6 +10,7 @@ import ProofForgeV2.Targets.Near.StaticAlignmentV1
 import ProofForgeV2.Targets.Near.MethodSemanticsV1
 import ProofForgeV2.Targets.Near.WATSemanticsV1
 import ProofForgeV2.Targets.Near.WasmBinaryV1
+import ProofForgeV2.Targets.Near.WasmCertProviderV1
 
 /-!
 # ProofForgeV2.Targets.Near — public façade
@@ -24,6 +25,8 @@ The first bounded target recipe and typed-WAT execution semantics live in
 NEAR protocol semantics.
 `WasmBinaryV1` only validates the finalized core-Wasm section envelope; it
 does not give section payloads execution semantics or prove translation.
+`WasmCertProviderV1` pins the selected external semantics source and protocol
+boundary, but remains deliberately unprovisioned and cannot mint evidence.
 `FinalizeV1` remains a separate submodule.
 -/
 

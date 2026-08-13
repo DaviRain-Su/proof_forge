@@ -3,7 +3,7 @@ id: SPEC-TOOL-001
 title: 工具链锁定规格
 status: proposed
 owner: build
-updated: 2026-08-10
+updated: 2026-08-13
 normative: true
 ---
 
@@ -27,6 +27,16 @@ development-only；它不能关闭 `TASK-D0-03/04`。linux profile 的 eligibili
 弱化声明见 Host Profile v2 节；任一谓词观察不到即 ineligible，formal 入口 fail closed。
 
 ## Tool Lock v4（当前权威；两平台）
+
+### 尚未 provision 的 WasmCert-Coq provider
+
+[ADR-0043](../adr/0043-pinned-wasmcert-provider-boundary.md) 已固定 WasmCert-Coq 2.2.1
+revision `9ab0f87f03fff5507749efc273ec662fe27e6d14` 作为 NEAR 外部 Wasm semantics 的
+**source authority**。它当前不在任一 per-platform Tool Lock v4 的 `assets[]`/`tools[]` 中，
+也没有 executable SHA-256；因此 `wasmcert-coq-provider` 必须保持 unprovisioned/fail-closed。
+不得把 source revision、未锁定 opam build或 PATH 上的 upstream `wasm_coq_interpreter`当成
+Tool Lock identity。真实激活需要 ProofForge structured wrapper、可 provision asset、exact binary/
+runtime closure和 version probe；加入时按本规格升级 lock retained-file digest与 package pin。
 
 两平台 lock 文件共享 schema 名 `proof-forge.toolchains.v4`，由 `platform` 与 policy 键区分：
 

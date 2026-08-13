@@ -819,6 +819,15 @@ consumption；finalizer仅在该 gate成功后记录 `canonicalSectionEnvelope=t
 code，不执行 Wasm，也不证明 WAT→Wasm translation或 NEAR host/runtime refinement。因此它只是
 finalized binary的结构边界，不改变上述整体 assurance等级。
 
+同日已按 [ADR-0043](../adr/0043-pinned-wasmcert-provider-boundary.md) 选定并固定
+WasmCert-Coq 2.2.1 revision `9ab0f87f03fff5507749efc273ec662fe27e6d14`，作为下一层
+semantics provider 的 source authority。ProofForge-owned request/result closed schema、exact wrapper
+argv以及 parser=`unverified`、checker/instantiation=`provedSoundOnSuccess`、interpreter core与 host
+assumptions分层状态已落入 `WasmCertProviderV1`。当前没有可重现 wrapper artifact、Tool Lock row或
+executable SHA-256，所以 activation gate必定 `executableUnprovisioned`；source pin不会被误当成
+执行证书。本切没有运行 WasmCert或升级 assurance。下一步仍是实现并锁定 structured wrapper，
+再接 purpose-built bounded NEAR host、host trace与四个既有 Reference outcome joins。
+
 2026-08-13 已开始 Solana 的第一个 bounded target slice，当前只覆盖真实 production
 `StateCell.get() : UInt64`：
 
@@ -947,7 +956,7 @@ ProofForge内自造完整 EVM opcode、Wasm binary、sBPF或 Solana runtime sema
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR 四个 capability-scoped bounded recipes + finalized Wasm结构边界；Solana `StateCell.get()` 首切后暂停）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices；`init` 已补 complete-module carrier及 failure rollback；finalizer又以 canonical LEB/section envelope consumer检查 exact output bytes，但尚无 payload semantics、WAT→Wasm translation或 host refinement。Solana 已有 retained UInt64 state → production single-account Plan/HandlerIR → bounded evaluator → sole Reference view observation，但在 NEAR 阶段出口前不继续扩面。两者均尚不得升级为完整 artifact target-refined |
+| 7 | Per-target refinement | **进行中（NEAR 四个 bounded recipes + Wasm结构门 + WasmCert provider合同；Solana `StateCell.get()` 首切后暂停）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices；finalized bytes已有 canonical section envelope。ADR-0043又固定 WasmCert-Coq source、structured wrapper协议与逐层 trust status，但 executable尚未进入 Tool Lock，activation机械 fail closed；payload semantics、真实 wrapper执行、purpose-built NEAR host与 trace→Reference join仍待完成。Solana已有首个 Plan/HandlerIR slice，但在 NEAR阶段出口前不扩面；两者均尚不得升级为完整 artifact target-refined |
 
 ### 首个代码切片进展
 
@@ -1329,7 +1338,12 @@ expression translator：
     finalizer在 locked `wat2wasm`成功后强制该 gate，并把结果与既有 output SHA-256 provenance一起
     记录。它不解析任何 section payload，不给 instruction/import/export/code语义，不执行 Wasm，
     也不证明 translator或 NEAR host正确性；因此只是上述 semantics-bearing consumer路线之前的
-    fail-closed binary envelope，不升级 target或artifact claim。
+    fail-closed binary envelope，不升级 target或artifact claim；
+21. WasmCert-Coq provider边界已固定：source revision、许可证例外、ProofForge structured wrapper的
+    request/result closed fields与 exact argv、binary parser未验证边界、checker/instantiation成功
+    soundness、interpreter core和 host assumptions分别记录。当前没有 provider executable Tool Lock
+    identity，`requireWasmCertProviderProvisionedV1`机械 fail closed；这防止 source pin或 human CLI
+    exit 0被误当 evidence，但尚不是 Wasm execution或 NEAR host refinement。
 
 ---
 
