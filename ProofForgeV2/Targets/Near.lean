@@ -557,6 +557,392 @@ theorem capabilityUnaryAddTwoUInt64DepositStaticEmissionV1_execute
       before1 amount storage hmarker hfield0 hfield1 hfield10 hinputValue
       hinputDepositLow hinputDepositHigh hadd0 hadd1
 
+/-- Capability-scoped production chain for the bounded guarded checked-sub
+    entry. It binds the retained semantic program, production Plan/IR/build,
+    exact withdraw alignment, and the sole WAT/ABI renderer graphs. -/
+structure CapabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String) : Prop where
+  retainedProgram :
+    CompiledSemanticV1.semanticV1Of
+      (ResolvedEngineeringBuildV1.compiledOf capability) = program
+  planResult : planFromCapability capability = .ok plan
+  irResult : irFromCapability capability = .ok ir
+  buildResult : buildFromCapability capability = .ok files
+  staticAlignment :
+    ProductionGuardedSubTwoUInt64WithdrawStaticAlignmentV1 program data plan
+      ir.keys binding0 binding1 entryName parameterName parameterSourceId method
+        markerRegion field0Region field1Region methodIR
+  baseEmission :
+    EntryBaseEmissionV1 plan ir files entryIndex method methodIR watFile abiFile
+      watMethodText abiMethodText
+
+/-- Combine the existing production graphs and exact withdraw alignment without
+    constructing another Plan, MethodIR, lowering, or renderer. -/
+theorem capabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1_of_graphs
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (hretained :
+      CompiledSemanticV1.semanticV1Of
+        (ResolvedEngineeringBuildV1.compiledOf capability) = program)
+    (hplan : planFromCapability capability = .ok plan)
+    (hir : irFromCapability capability = .ok ir)
+    (hbuild : buildFromCapability capability = .ok files)
+    (hstatic :
+      ProductionGuardedSubTwoUInt64WithdrawStaticAlignmentV1 program data plan
+        ir.keys binding0 binding1 entryName parameterName parameterSourceId
+          method markerRegion field0Region field1Region methodIR)
+    (hentry : plan.entries[entryIndex]? = some method)
+    (hmethodIR : ir.methods[entryIndex + 1]? = some methodIR)
+    (hwatFile : files[0]? = some watFile)
+    (habiFile : files[1]? = some abiFile) :
+    ∃ watMethodText abiMethodText,
+      CapabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1 capability program
+        data plan ir files entryIndex binding0 binding1 entryName parameterName
+          parameterSourceId method markerRegion field0Region field1Region
+            methodIR watFile abiFile watMethodText abiMethodText := by
+  have hgraphs :=
+    planAndIRFromCapability_eq_ok_graphsV1 capability plan ir hplan hir
+  have hemissions : IREmissionV1 ir files := by
+    obtain ⟨emittedPlan, emittedIR, _, hemittedIR, hemittedLowering,
+        hemissions⟩ :=
+      buildFromCapability_eq_ok_graphsV1 capability files hbuild
+    have hemittedIREq : emittedIR = ir :=
+      Except.ok.inj (hemittedIR.symm.trans hir)
+    subst emittedIR
+    have hemittedPlanEq : emittedPlan = plan :=
+      (planIRLoweringV1_sourcePlan emittedPlan ir hemittedLowering).symm.trans
+        hgraphs.1
+    subst emittedPlan
+    exact hemissions
+  obtain ⟨watMethodText, abiMethodText, hbase⟩ :=
+    irEmissionV1_entryBaseEmissionV1 plan ir files entryIndex method methodIR
+      watFile abiFile hgraphs.2.2 hemissions hwatFile habiFile hentry hmethodIR
+  exact ⟨watMethodText, abiMethodText, {
+    retainedProgram := hretained
+    planResult := hplan
+    irResult := hir
+    buildResult := hbuild
+    staticAlignment := hstatic
+    baseEmission := hbase
+  }⟩
+
+/-- The selected production withdraw is rendered from its exact typed-WAT
+    lowering and validated inside the complete production module framing. -/
+theorem capabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1_validatedWATModule
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (hchain :
+      CapabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1 capability program
+        data plan ir files entryIndex binding0 binding1 entryName parameterName
+          parameterSourceId method markerRegion field0Region field1Region
+            methodIR watFile abiFile watMethodText abiMethodText)
+    (hinput :
+      ir.memory.inputOffset + 8 ≤ ir.memory.minPages * wasmPageBytes)
+    (hdeposit :
+      ir.memory.depositOffset + 16 ≤ ir.memory.minPages * wasmPageBytes)
+    (hvalue :
+      ir.memory.valueOffset + 8 ≤ ir.memory.minPages * wasmPageBytes) :
+    ValidatedReadOnlyWATModuleEmissionV1 ir (entryIndex + 1) methodIR
+      watFile.contents watMethodText
+      (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory markerRegion
+        field0Region field1Region plan.storage.markerValue) := by
+  have halignment := hchain.staticAlignment.staticAlignment
+  have hlower :
+      lowerMethodWATOperationsV1 ir.registers ir.memory methodIR.operations =
+        some (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory
+          markerRegion field0Region field1Region plan.storage.markerValue) := by
+    rw [halignment.methodIRExact]
+    exact lowerMethodWATOperationsV1_guardedSubTwoUInt64Withdraw ir.registers
+      ir.memory markerRegion field0Region field1Region plan.storage.markerValue
+  have hvalidated :
+      ValidatedReadOnlyMethodWATEmissionV1 ir (entryIndex + 1) methodIR
+        watFile.contents watMethodText
+        (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue) := by
+    refine ⟨
+      readOnlyMethodWATEmissionV1_of_methodWATEmissionV1 ir (entryIndex + 1)
+        methodIR watFile.contents watMethodText _
+          hchain.baseEmission.watMethodEmission hlower,
+      ?_
+    ⟩
+    rw [halignment.methodIRExact]
+    exact validateMethodWATV1_guardedSubTwoUInt64Withdraw ir.keys ir.registers
+      ir.memory markerRegion field0Region field1Region plan.storage.markerValue
+      (readOnlyWATKeyRegionBoundV1_of_getElem?_eq_some ir.keys 0 markerRegion
+        hchain.staticAlignment.markerLookup)
+      (readOnlyWATKeyRegionBoundV1_of_getElem?_eq_some ir.keys
+        (binding0.physicalFieldIndex + 1) field0Region
+          hchain.staticAlignment.field0Lookup)
+      (readOnlyWATKeyRegionBoundV1_of_getElem?_eq_some ir.keys
+        (binding1.physicalFieldIndex + 1) field1Region
+          hchain.staticAlignment.field1Lookup)
+      hinput hdeposit hvalue
+  exact validatedReadOnlyWATModuleEmissionV1_of_irEmissionV1 ir files
+    (entryIndex + 1) methodIR watFile.contents watMethodText _
+      hchain.baseEmission.irEmission hvalidated
+
+/-- Under one shared storage observation, the capability-selected production
+    MethodIR and exact typed-WAT withdraw both return Unit and the same checked
+    subtraction post-storage. -/
+theorem capabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1_execute
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (before0 before1 amount : UInt64)
+    (storage : StorageObservationV1)
+    (hchain :
+      CapabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1 capability program
+        data plan ir files entryIndex binding0 binding1 entryName parameterName
+          parameterSourceId method markerRegion field0Region field1Region
+            methodIR watFile abiFile watMethodText abiMethodText)
+    (hmarker :
+      storage.lookup markerRegion.key =
+        some (encodeU64le plan.storage.markerValue))
+    (hfield0 :
+      storage.lookup field0Region.key = some (encodeU64le before0))
+    (hfield1 :
+      storage.lookup field1Region.key = some (encodeU64le before1))
+    (hfield10 : field1Region.key ≠ field0Region.key)
+    (hinputValue : ir.memory.inputOffset ≠ ir.memory.valueOffset)
+    (hinputDepositLow : ir.memory.inputOffset ≠ ir.memory.depositOffset)
+    (hinputDepositHigh :
+      ir.memory.inputOffset ≠ ir.memory.depositOffset + 8)
+    (hguard0 : amount.toNat ≤ before0.toNat)
+    (hguard1 : amount.toNat ≤ before1.toNat) :
+    ReadOnlyMethodWATEmissionV1 ir (entryIndex + 1) methodIR
+        watFile.contents watMethodText
+        (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue) ∧
+      executeMethodV1 methodIR (encodeU64le amount) 0 0 storage =
+        .returned none
+          (guardedSubTwoUInt64WithdrawPostStorageV1 storage field0Region
+            field1Region before0 before1 amount) ∧
+      executeMethodWATV1 12
+        (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue)
+        (encodeU64le amount) 0 0 storage =
+          .returned none
+            (guardedSubTwoUInt64WithdrawPostStorageV1 storage field0Region
+              field1Region before0 before1 amount) := by
+  have halignment := hchain.staticAlignment.staticAlignment
+  have hlower :
+      lowerMethodWATOperationsV1 ir.registers ir.memory methodIR.operations =
+        some (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory
+          markerRegion field0Region field1Region plan.storage.markerValue) := by
+    rw [halignment.methodIRExact]
+    exact lowerMethodWATOperationsV1_guardedSubTwoUInt64Withdraw ir.registers
+      ir.memory markerRegion field0Region field1Region plan.storage.markerValue
+  refine ⟨
+    readOnlyMethodWATEmissionV1_of_methodWATEmissionV1 ir (entryIndex + 1)
+      methodIR watFile.contents watMethodText _
+        hchain.baseEmission.watMethodEmission hlower,
+    ?_,
+    ?_
+  ⟩
+  · exact executeMethodV1_of_guardedSubTwoUInt64WithdrawStaticAlignment data
+      plan.storage binding0 binding1 entryName parameterName parameterSourceId
+      method markerRegion field0Region field1Region methodIR before0 before1
+      amount storage halignment hmarker hfield0 hfield1 hfield10 hguard0 hguard1
+  · exact executeMethodWATV1_guardedSubTwoUInt64Withdraw ir.registers ir.memory
+      markerRegion field0Region field1Region plan.storage.markerValue before0
+      before1 amount storage hmarker hfield0 hfield1 hfield10 hinputValue
+      hinputDepositLow hinputDepositHigh hguard0 hguard1
+
+/-- The capability-selected production withdraw traps in both bounded target
+    semantics when its first guard fails. Although the evaluator-specific trap
+    codes differ, their canonical observations agree and roll storage back to
+    the supplied pre-state. -/
+theorem capabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1_firstGuardFailure
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (before0 amount : UInt64)
+    (storage : StorageObservationV1)
+    (hchain :
+      CapabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1 capability program
+        data plan ir files entryIndex binding0 binding1 entryName parameterName
+          parameterSourceId method markerRegion field0Region field1Region
+            methodIR watFile abiFile watMethodText abiMethodText)
+    (hmarker :
+      storage.lookup markerRegion.key =
+        some (encodeU64le plan.storage.markerValue))
+    (hfield0 :
+      storage.lookup field0Region.key = some (encodeU64le before0))
+    (hinputValue : ir.memory.inputOffset ≠ ir.memory.valueOffset)
+    (hinputDepositLow : ir.memory.inputOffset ≠ ir.memory.depositOffset)
+    (hinputDepositHigh :
+      ir.memory.inputOffset ≠ ir.memory.depositOffset + 8)
+    (hguard0 : ¬ amount.toNat ≤ before0.toNat) :
+    executeMethodV1 methodIR (encodeU64le amount) 0 0 storage =
+        .trapped .assertionFailed ∧
+      executeMethodWATV1 12
+        (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue)
+        (encodeU64le amount) 0 0 storage = .trapped .trap ∧
+      observeMethodV1 methodIR (encodeU64le amount) 0 0 storage =
+        observeMethodWATV1 entryName 12
+          (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory markerRegion
+            field0Region field1Region plan.storage.markerValue)
+          (encodeU64le amount) 0 0 storage := by
+  have halignment := hchain.staticAlignment.staticAlignment
+  have hmethod :
+      executeMethodV1 methodIR (encodeU64le amount) 0 0 storage =
+        .trapped .assertionFailed := by
+    rw [halignment.methodIRExact]
+    exact executeMethodV1_guardedSubTwoUInt64Withdraw_first_guard_failure
+      entryName parameterName parameterSourceId markerRegion field0Region
+        field1Region plan.storage.markerValue before0 amount storage hmarker
+          hfield0 hguard0
+  have hwat :
+      executeMethodWATV1 12
+        (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue)
+        (encodeU64le amount) 0 0 storage = .trapped .trap :=
+    executeMethodWATV1_guardedSubTwoUInt64Withdraw_first_guard_failure
+      ir.registers ir.memory markerRegion field0Region field1Region
+        plan.storage.markerValue before0 amount storage hmarker hfield0
+          hinputValue hinputDepositLow hinputDepositHigh hguard0
+  have hname : methodIR.name = entryName :=
+    congrArg MethodIR.name halignment.methodIRExact
+  refine ⟨hmethod, hwat, ?_⟩
+  simp [observeMethodV1, observeMethodWATV1, hmethod, hwat, hname]
+
+/-- The second withdraw guard has the same capability-scoped failure agreement:
+    both bounded target semantics trap before either storage write and their
+    canonical observations expose the original storage snapshot. -/
+theorem capabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1_secondGuardFailure
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (entryIndex : Nat)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (before0 before1 amount : UInt64)
+    (storage : StorageObservationV1)
+    (hchain :
+      CapabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1 capability program
+        data plan ir files entryIndex binding0 binding1 entryName parameterName
+          parameterSourceId method markerRegion field0Region field1Region
+            methodIR watFile abiFile watMethodText abiMethodText)
+    (hmarker :
+      storage.lookup markerRegion.key =
+        some (encodeU64le plan.storage.markerValue))
+    (hfield0 :
+      storage.lookup field0Region.key = some (encodeU64le before0))
+    (hfield1 :
+      storage.lookup field1Region.key = some (encodeU64le before1))
+    (hinputValue : ir.memory.inputOffset ≠ ir.memory.valueOffset)
+    (hinputDepositLow : ir.memory.inputOffset ≠ ir.memory.depositOffset)
+    (hinputDepositHigh :
+      ir.memory.inputOffset ≠ ir.memory.depositOffset + 8)
+    (hguard0 : amount.toNat ≤ before0.toNat)
+    (hguard1 : ¬ amount.toNat ≤ before1.toNat) :
+    executeMethodV1 methodIR (encodeU64le amount) 0 0 storage =
+        .trapped .assertionFailed ∧
+      executeMethodWATV1 12
+        (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue)
+        (encodeU64le amount) 0 0 storage = .trapped .trap ∧
+      observeMethodV1 methodIR (encodeU64le amount) 0 0 storage =
+        observeMethodWATV1 entryName 12
+          (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory markerRegion
+            field0Region field1Region plan.storage.markerValue)
+          (encodeU64le amount) 0 0 storage := by
+  have halignment := hchain.staticAlignment.staticAlignment
+  have hmethod :
+      executeMethodV1 methodIR (encodeU64le amount) 0 0 storage =
+        .trapped .assertionFailed := by
+    rw [halignment.methodIRExact]
+    exact executeMethodV1_guardedSubTwoUInt64Withdraw_second_guard_failure
+      entryName parameterName parameterSourceId markerRegion field0Region
+        field1Region plan.storage.markerValue before0 before1 amount storage
+          hmarker hfield0 hfield1 hguard0 hguard1
+  have hwat :
+      executeMethodWATV1 12
+        (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue)
+        (encodeU64le amount) 0 0 storage = .trapped .trap :=
+    executeMethodWATV1_guardedSubTwoUInt64Withdraw_second_guard_failure
+      ir.registers ir.memory markerRegion field0Region field1Region
+        plan.storage.markerValue before0 before1 amount storage hmarker hfield0
+          hfield1 hinputValue hinputDepositLow hinputDepositHigh hguard0 hguard1
+  have hname : methodIR.name = entryName :=
+    congrArg MethodIR.name halignment.methodIRExact
+  refine ⟨hmethod, hwat, ?_⟩
+  simp [observeMethodV1, observeMethodWATV1, hmethod, hwat, hname]
+
 /-- The bounded typed-WAT fragment selected by a production capability chain
     passes its own static validator when the production scratch block is in
     bounds. The validator checks only this typed subset's locals, exact key

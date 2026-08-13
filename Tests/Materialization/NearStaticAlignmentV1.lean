@@ -415,6 +415,132 @@ private theorem depositTypedWATExecution (amount : UInt64)
   · exact hadd
   · exact hadd
 
+private def withdrawMethod : Method := {
+  name := "withdraw"
+  params := #[{
+    sourceId := 0
+    name := "amount"
+    inputOffset := 0
+    byteWidth := 8
+    endianness := .little
+  }]
+  exactInputLen := 8
+  mode := .mutate
+  depositPolicy := .requireZero
+  resultKind := .unit
+  body := #[
+    .assert (.compare .le (.param 0) (.stateLoad 0)),
+    .assert (.compare .le (.param 0) (.stateLoad 1)),
+    .store {
+      fieldIndex := 0
+      value := .checkedSub (.stateLoad 0) (.param 0)
+      byteWidth := 8
+    },
+    .store {
+      fieldIndex := 1
+      value := .checkedSub (.stateLoad 1) (.param 0)
+      byteWidth := 8
+    },
+    .returnNone
+  ]
+}
+
+private def withdrawIR : MethodIR := {
+  name := "withdraw"
+  params := #[{
+    sourceId := 0
+    name := "amount"
+    inputOffset := 0
+    byteWidth := 8
+    endianness := .little
+  }]
+  mode := .mutate
+  tempCount := 12
+  operations := #[
+    .checkInputLen 8,
+    .requireZeroAttachedDeposit,
+    .requireLayout markerRegion storage.markerValue,
+    .loadParam 0 0,
+    .loadState 1 reservesRegion,
+    .compare 2 0 1 .le,
+    .assert 2,
+    .loadParam 3 0,
+    .loadState 4 sharesRegion,
+    .compare 5 3 4 .le,
+    .assert 5,
+    .loadState 6 reservesRegion,
+    .loadParam 7 0,
+    .checkedSub 8 6 7,
+    .storeState reservesRegion 8,
+    .loadState 9 sharesRegion,
+    .loadParam 10 0,
+    .checkedSub 11 9 10,
+    .storeState sharesRegion 11
+  ]
+}
+
+private def withdrawTypedWAT : Array MethodWATInstructionV1 :=
+  guardedSubTwoUInt64WithdrawWATV1 canonicalRegisters statusMemory markerRegion
+    reservesRegion sharesRegion storage.markerValue
+
+private theorem withdrawAlignment :
+    GuardedSubTwoUInt64WithdrawStaticAlignmentV1 data storage reservesBinding
+      sharesBinding "withdraw" "amount" 0 withdrawMethod markerRegion
+        reservesRegion sharesRegion withdrawIR := by
+  constructor <;>
+    simp [UInt64StateBindingRelV1, data,
+      Examples.VerifiedVaultPF.Proof.subjectDataV1, storage, reservesBinding,
+      sharesBinding, withdrawMethod, withdrawIR, markerRegion, reservesRegion,
+      sharesRegion, reservesKey, sharesKey]
+
+private theorem withdrawTypedWATLowering :
+    lowerMethodWATOperationsV1 canonicalRegisters statusMemory
+      withdrawIR.operations = some withdrawTypedWAT := by
+  exact lowerMethodWATOperationsV1_guardedSubTwoUInt64Withdraw
+    canonicalRegisters statusMemory markerRegion reservesRegion sharesRegion
+      storage.markerValue
+
+private theorem withdrawTargetExecution (amount : UInt64)
+    (hguard : amount.toNat ≤ (10 : UInt64).toNat) :
+    executeMethodV1 withdrawIR (encodeU64le amount) 0 0 observedStorage =
+      .returned none
+        (guardedSubTwoUInt64WithdrawPostStorageV1 observedStorage reservesRegion
+          sharesRegion 10 10 amount) := by
+  apply executeMethodV1_of_guardedSubTwoUInt64WithdrawStaticAlignment data
+    storage reservesBinding sharesBinding "withdraw" "amount" 0 withdrawMethod
+      markerRegion reservesRegion sharesRegion withdrawIR 10 10 amount
+      observedStorage withdrawAlignment
+  · simp [observedStorage, markerRegion, storage, layoutMarkerKey]
+  · simp [observedStorage, reservesRegion, reservesKey, layoutMarkerKey,
+      tenBytes]
+  · simp [observedStorage, sharesRegion, sharesKey, reservesKey,
+      layoutMarkerKey, tenBytes]
+  · simp [reservesRegion, sharesRegion, reservesKey, sharesKey]
+  · exact hguard
+  · exact hguard
+
+private theorem withdrawTypedWATExecution (amount : UInt64)
+    (hguard : amount.toNat ≤ (10 : UInt64).toNat) :
+    executeMethodWATV1 12 withdrawTypedWAT (encodeU64le amount) 0 0
+      observedStorage =
+        .returned none
+          (guardedSubTwoUInt64WithdrawPostStorageV1 observedStorage
+            reservesRegion sharesRegion 10 10 amount) := by
+  apply executeMethodWATV1_guardedSubTwoUInt64Withdraw canonicalRegisters
+    statusMemory markerRegion reservesRegion sharesRegion storage.markerValue
+      10 10 amount observedStorage
+  · simp [observedStorage, markerRegion, storage, layoutMarkerKey]
+  · simp [observedStorage, reservesRegion, reservesKey, layoutMarkerKey,
+      tenBytes]
+  · simp [observedStorage, sharesRegion, sharesKey, reservesKey,
+      layoutMarkerKey, tenBytes]
+  · simp [reservesRegion, sharesRegion, reservesKey, sharesKey]
+  · decide
+  · decide
+  · decide
+  · exact hguard
+  · exact hguard
+
 private def statusMethod : Method := {
   name := "status"
   params := #[]
@@ -704,7 +830,7 @@ example :
   rfl
 
 example (machine : ReadOnlyMethodMachineV1) :
-    stepReadOnlyMethodOperationV1 machine (.assert 0) =
+    stepReadOnlyMethodOperationV1 machine .returnNone =
       .error .unsupportedOperation := by
   rfl
 
@@ -1210,6 +1336,199 @@ example :
   simp [observeMethodV1, observeMethodWATV1, depositSecondOverflowMethod,
     depositSecondOverflowWAT]
 
+/-! Selected VerifiedVault `withdraw(amount)` target-refinement fixtures. -/
+
+example :
+    GuardedSubTwoUInt64WithdrawStaticAlignmentV1 data storage reservesBinding
+      sharesBinding "withdraw" "amount" 0 withdrawMethod markerRegion
+        reservesRegion sharesRegion withdrawIR :=
+  withdrawAlignment
+
+example :
+    lowerMethodWATOperationsV1 canonicalRegisters statusMemory
+      withdrawIR.operations = some withdrawTypedWAT :=
+  withdrawTypedWATLowering
+
+example :
+    validateMethodWATV1 #[markerRegion, reservesRegion, sharesRegion]
+      statusMemory 12 withdrawTypedWAT = .ok () := by
+  exact validateMethodWATV1_guardedSubTwoUInt64Withdraw
+    #[markerRegion, reservesRegion, sharesRegion] canonicalRegisters statusMemory
+      markerRegion reservesRegion sharesRegion storage.markerValue
+      (by simp [readOnlyWATKeyRegionEqV1])
+      (by simp [readOnlyWATKeyRegionEqV1])
+      (by simp [readOnlyWATKeyRegionEqV1])
+      (by decide) (by decide) (by decide)
+
+example :
+    executeMethodV1 withdrawIR (encodeU64le 2) 0 0 observedStorage =
+      .returned none
+        (guardedSubTwoUInt64WithdrawPostStorageV1 observedStorage reservesRegion
+          sharesRegion 10 10 2) :=
+  withdrawTargetExecution 2 (by decide)
+
+example :
+    executeMethodWATV1 12 withdrawTypedWAT (encodeU64le 2) 0 0
+      observedStorage =
+        .returned none
+          (guardedSubTwoUInt64WithdrawPostStorageV1 observedStorage
+            reservesRegion sharesRegion 10 10 2) :=
+  withdrawTypedWATExecution 2 (by decide)
+
+/-- A successful sole Reference withdraw and both bounded target evaluators
+    agree on Unit return and the exact checked-sub logical bytes. -/
+example
+    (admitted : AdmittedReferenceSliceV1)
+    (post : LogicalStateV1)
+    (amount : UInt64)
+    (context : Array ContextInputV1)
+    (responses : ExternalResponsesV1)
+    (vault : ReferenceVaultSeedV1)
+    (value : Option ReferenceValueV1)
+    (effects : Array OrderedEffectV1)
+    (hadmit : admitReferenceProgramSliceV1 subjectProgram = .ok admitted)
+    (hgate :
+      gateInvocation admitted logicalTen {
+        callableId := 2
+        args := #[{ typeId := 0, valueBytes := encodeU64le amount }]
+        context := #[]
+      } = .ready
+        (guardedSubParameterTwoUnitCallableV1 2 (some "withdraw") "amount"
+          0 2 1 0 1 .public_)
+        #[tenBytes, tenBytes] context false)
+    (hstep :
+      stepReferenceSliceV1 admitted logicalTen {
+        callableId := 2
+        args := #[{ typeId := 0, valueBytes := encodeU64le amount }]
+        context := #[]
+      } responses vault = .returned post value effects)
+    (hguard : amount.toNat ≤ (10 : UInt64).toNat) :
+    executeMethodV1 withdrawIR (encodeU64le amount) 0 0 observedStorage =
+        .returned none
+          (guardedSubTwoUInt64WithdrawPostStorageV1 observedStorage
+            reservesRegion sharesRegion 10 10 amount) ∧
+      executeMethodWATV1 12 withdrawTypedWAT (encodeU64le amount) 0 0
+        observedStorage =
+          .returned none
+            (guardedSubTwoUInt64WithdrawPostStorageV1 observedStorage
+              reservesRegion sharesRegion 10 10 amount) ∧
+      encodeLogicalStateValuesV1 data true #[
+        checkedSubUInt64BytesV1 10 amount,
+        checkedSubUInt64BytesV1 10 amount
+      ] = .ok post := by
+  have hadmittedData : admitted.data = data :=
+    (admitReferenceProgramSliceV1_ok_implies subjectProgram data admitted
+      Examples.VerifiedVaultPF.Proof.subjectValidationOkV1 hadmit).2
+  have hcanonical :
+      validateValueBytesV1 data.types 0 (encodeU64le amount) = .ok () :=
+    validateValueBytesV1_uint64_of_size data.types 0 uint64Type
+      (encodeU64le amount) (by rfl) (by rfl) (encodeU64le_size amount)
+  have hpostEncode :=
+    stepReferenceSliceV1_ready_guarded_sub_parameter_two_unit_returned_post_encode
+      admitted logicalTen post data tenBytes (encodeU64le amount) 0 2 1
+        "reserves" "shares" "amount" 2 (some "withdraw") #[] context
+        responses vault value effects hadmittedData (by rfl) (by rfl) (by rfl)
+        (by rfl) (by rfl) hcanonical hgate hstep
+  have hbridge := checkedSubUInt64BytesV1_eq_natToLeBytesV1 10 amount
+  have hpostExact :
+      encodeLogicalStateValuesV1 data true #[
+        checkedSubUInt64BytesV1 10 amount,
+        checkedSubUInt64BytesV1 10 amount
+      ] = .ok post := by
+    simpa [tenBytes, leBytesToNatV1_encodeU64le, hbridge] using hpostEncode
+  exact ⟨withdrawTargetExecution amount hguard,
+    withdrawTypedWATExecution amount hguard, hpostExact⟩
+
+private theorem withdrawFirstGuardMethod :
+    executeMethodV1 withdrawIR (encodeU64le 11) 0 0 observedStorage =
+      .trapped .assertionFailed := by
+  rw [withdrawAlignment.methodIRExact]
+  apply executeMethodV1_guardedSubTwoUInt64Withdraw_first_guard_failure
+    "withdraw" "amount" 0 markerRegion reservesRegion sharesRegion
+      storage.markerValue 10 11 observedStorage
+  · simp [observedStorage, markerRegion, storage, layoutMarkerKey]
+  · simp [observedStorage, reservesRegion, reservesKey, layoutMarkerKey,
+      tenBytes]
+  · decide
+
+private theorem withdrawFirstGuardWAT :
+    executeMethodWATV1 12 withdrawTypedWAT (encodeU64le 11) 0 0
+      observedStorage = .trapped .trap := by
+  apply executeMethodWATV1_guardedSubTwoUInt64Withdraw_first_guard_failure
+    canonicalRegisters statusMemory markerRegion reservesRegion sharesRegion
+      storage.markerValue 10 11 observedStorage
+  · simp [observedStorage, markerRegion, storage, layoutMarkerKey]
+  · simp [observedStorage, reservesRegion, reservesKey, layoutMarkerKey,
+      tenBytes]
+  · decide
+  · decide
+  · decide
+  · decide
+
+example :
+    (observeMethodV1 withdrawIR (encodeU64le 11) 0 0 observedStorage
+        ).failureObserved = true ∧
+      (observeMethodV1 withdrawIR (encodeU64le 11) 0 0 observedStorage
+        ).postStorage = observedStorage ∧
+      (observeMethodWATV1 "withdraw" 12 withdrawTypedWAT (encodeU64le 11) 0 0
+          observedStorage).failureObserved = true ∧
+      (observeMethodWATV1 "withdraw" 12 withdrawTypedWAT (encodeU64le 11) 0 0
+          observedStorage).postStorage = observedStorage := by
+  simp [observeMethodV1, observeMethodWATV1, withdrawFirstGuardMethod,
+    withdrawFirstGuardWAT]
+
+private def secondGuardFailureStorage : StorageObservationV1 := {
+  lookup := fun key =>
+    if key == layoutMarkerKey then some (encodeU64le storage.markerValue)
+    else if key == reservesKey then some (encodeU64le 10)
+    else if key == sharesKey then some (encodeU64le 4)
+    else none
+}
+
+private theorem withdrawSecondGuardMethod :
+    executeMethodV1 withdrawIR (encodeU64le 5) 0 0 secondGuardFailureStorage =
+      .trapped .assertionFailed := by
+  rw [withdrawAlignment.methodIRExact]
+  apply executeMethodV1_guardedSubTwoUInt64Withdraw_second_guard_failure
+    "withdraw" "amount" 0 markerRegion reservesRegion sharesRegion
+      storage.markerValue 10 4 5 secondGuardFailureStorage
+  · simp [secondGuardFailureStorage, markerRegion, storage, layoutMarkerKey]
+  · simp [secondGuardFailureStorage, reservesRegion, reservesKey,
+      layoutMarkerKey]
+  · simp [secondGuardFailureStorage, sharesRegion, sharesKey, reservesKey,
+      layoutMarkerKey]
+  · decide
+  · decide
+
+private theorem withdrawSecondGuardWAT :
+    executeMethodWATV1 12 withdrawTypedWAT (encodeU64le 5) 0 0
+      secondGuardFailureStorage = .trapped .trap := by
+  apply executeMethodWATV1_guardedSubTwoUInt64Withdraw_second_guard_failure
+    canonicalRegisters statusMemory markerRegion reservesRegion sharesRegion
+      storage.markerValue 10 4 5 secondGuardFailureStorage
+  · simp [secondGuardFailureStorage, markerRegion, storage, layoutMarkerKey]
+  · simp [secondGuardFailureStorage, reservesRegion, reservesKey,
+      layoutMarkerKey]
+  · simp [secondGuardFailureStorage, sharesRegion, sharesKey, reservesKey,
+      layoutMarkerKey]
+  · decide
+  · decide
+  · decide
+  · decide
+  · decide
+
+example :
+    (observeMethodV1 withdrawIR (encodeU64le 5) 0 0 secondGuardFailureStorage
+        ).failureObserved = true ∧
+      (observeMethodV1 withdrawIR (encodeU64le 5) 0 0 secondGuardFailureStorage
+        ).postStorage = secondGuardFailureStorage ∧
+      (observeMethodWATV1 "withdraw" 12 withdrawTypedWAT (encodeU64le 5) 0 0
+          secondGuardFailureStorage).failureObserved = true ∧
+      (observeMethodWATV1 "withdraw" 12 withdrawTypedWAT (encodeU64le 5) 0 0
+          secondGuardFailureStorage).postStorage = secondGuardFailureStorage := by
+  simp [observeMethodV1, observeMethodWATV1, withdrawSecondGuardMethod,
+    withdrawSecondGuardWAT]
+
 /-! Selected VerifiedVault `init()` target-refinement fixtures. -/
 
 example :
@@ -1455,7 +1774,7 @@ example :
 
 private def forgedStatusIR : MethodIR := {
   statusIR with
-  operations := statusIR.operations.push (.assert 0)
+  operations := statusIR.operations.push .returnNone
 }
 
 example : recognizeNullaryUInt64ViewMethodIRV1 forgedStatusIR = none := by

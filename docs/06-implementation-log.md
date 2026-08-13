@@ -15398,3 +15398,29 @@ normative: false
   尚未 target-refined。没有 arbitrary textual-WAT parser、`wat2wasm` correctness、Wasm binary
   semantics或 NEAR runtime simulation；整体仍为
   **Reference-verified + engineering runtime observed ≠ fully target-refined**。
+
+## 2026-08-13 — Phase 7 NEAR VerifiedVault withdraw bounded refinement
+
+- sole target authority扩展 checked subtraction与 guard trap：typed-WAT新增 `i64.sub`、unsigned
+  `i64.le_u`和 `trapIfI64Eqz`，production lowering覆盖 `.checkedSub`、`.compare .le`与 `.assert`；
+  MethodIR/typed-WAT evaluator均保持 bounded、unsupported-op fail closed，没有新增 DSL业务
+  State/Effect/step、Plan、lowering或 renderer。
+- proof-producing recognizer与 static alignment固定 production withdraw 的 exact形状：真实
+  `plan.entries[1]` / `ir.methods[2]`、一个 8-byte UInt64 `amount`、zero attached deposit、19 operations、
+  `tempCount=12`、两个 unsigned guard全部先于两次 checked subtraction/store，以及 Unit natural
+  fall-through。`CapabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1`把 same-file certified
+  retained semantic、production Plan/IR、canonical marker/reserves/shares regions及同次 WAT/ABI
+  emission收束成一条 public kernel chain。
+- 成功执行在 MethodIR与typed-WAT产生相同 `returnData=none`和 exact two-row subtraction
+  post-storage。sole Reference theorem
+  `stepReferenceSliceV1_ready_guarded_sub_parameter_two_unit_returned_post_encode`已从 existential
+  difference bytes收紧到两行 canonical `natToLeBytesV1 (before - amount) 8`，materialization fixture
+  由 shared checked-sub codec law直接 join target post-state与 Reference logical encoding。
+- first guard failure与 first-pass/second-fail均有 evaluator exact trap theorem；public capability
+  theorems进一步证明两级 canonical observations exact相等，固定 failure、empty return/logs/promises
+  及 supplied pre-storage rollback。真实 compiler fixture动态消费 production capability并覆盖 success、
+  complete generated-WAT validation及两个 guard failure agreement，而非手写 parallel golden。
+- 当前仅 `status()`、`init()`、`deposit()`、`withdraw()` 四个 selected VerifiedVault recipes具有
+  bounded MethodIR/typed-WAT refinement。没有 arbitrary textual-WAT parser、一般 lowering/renderer
+  correctness、`wat2wasm` correctness、Wasm binary execution或完整 NEAR host simulation；整体仍为
+  **Reference-verified + engineering runtime observed ≠ fully target-refined**。

@@ -194,6 +194,11 @@ def lowerMethodWATOperationV1
       some (loadUInt64StateWATV1 registers memory destination field)
   | .checkedAdd destination lhs rhs =>
       some (checkedAddUInt64WATV1 destination lhs rhs)
+  | .checkedSub destination lhs rhs =>
+      some (checkedSubUInt64WATV1 destination lhs rhs)
+  | .compare destination lhs rhs .le =>
+      some (compareUInt64LeWATV1 destination lhs rhs)
+  | .assert condition => some (assertUInt64BoolWATV1 condition)
   | .storeState field source =>
       some (storeUInt64StateWATV1 registers memory field source)
   | .setLayout marker value =>
@@ -288,6 +293,37 @@ theorem lowerMethodWATOperationsV1_unaryAddTwoUInt64Deposit
       .loadState 6 field1,
       .setReturnData 8 6
     ] = some (unaryAddTwoUInt64DepositWATV1 registers memory marker field0
+      field1 markerValue) := by
+  rfl
+
+/-- The exact production guarded withdraw recipe lowers to the typed-WAT
+    sequence consumed by the sole production renderer. -/
+theorem lowerMethodWATOperationsV1_guardedSubTwoUInt64Withdraw
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64) :
+    lowerMethodWATOperationsV1 registers memory #[
+      .checkInputLen 8,
+      .requireZeroAttachedDeposit,
+      .requireLayout marker markerValue,
+      .loadParam 0 0,
+      .loadState 1 field0,
+      .compare 2 0 1 .le,
+      .assert 2,
+      .loadParam 3 0,
+      .loadState 4 field1,
+      .compare 5 3 4 .le,
+      .assert 5,
+      .loadState 6 field0,
+      .loadParam 7 0,
+      .checkedSub 8 6 7,
+      .storeState field0 8,
+      .loadState 9 field1,
+      .loadParam 10 0,
+      .checkedSub 11 9 10,
+      .storeState field1 11
+    ] = some (guardedSubTwoUInt64WithdrawWATV1 registers memory marker field0
       field1 markerValue) := by
   rfl
 

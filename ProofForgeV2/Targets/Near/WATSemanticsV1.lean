@@ -122,6 +122,14 @@ def evalReadOnlyWATI64ExprV1
       let (machine, leftValue) ← evalReadOnlyWATI64ExprV1 machine left
       let (machine, rightValue) ← evalReadOnlyWATI64ExprV1 machine right
       .ok (machine, UInt64.ofNat (leftValue.toNat + rightValue.toNat))
+  | .i64Sub left right => do
+      let (machine, leftValue) ← evalReadOnlyWATI64ExprV1 machine left
+      let (machine, rightValue) ← evalReadOnlyWATI64ExprV1 machine right
+      .ok (machine, UInt64.ofNat (leftValue.toNat - rightValue.toNat))
+  | .i64LeU left right => do
+      let (machine, leftValue) ← evalReadOnlyWATI64ExprV1 machine left
+      let (machine, rightValue) ← evalReadOnlyWATI64ExprV1 machine right
+      .ok (machine, if leftValue.toNat ≤ rightValue.toNat then 1 else 0)
   | .registerLen register =>
       match machine.registers register with
       | some bytes => .ok (machine, UInt64.ofNat bytes.size)
@@ -167,6 +175,9 @@ def stepReadOnlyWATInstructionV1
       let (machine, leftValue) ← evalReadOnlyWATI64ExprV1 machine left
       let (machine, rightValue) ← evalReadOnlyWATI64ExprV1 machine right
       if leftValue.toNat < rightValue.toNat then .error .trap else .ok machine
+  | .trapIfI64Eqz value => do
+      let (machine, value) ← evalReadOnlyWATI64ExprV1 machine value
+      if value = 0 then .error .trap else .ok machine
   | .readRegister register offset =>
       match machine.registers register with
       | some bytes => .ok (setReadOnlyWATMemoryV1 machine offset bytes)
@@ -985,6 +996,122 @@ theorem executeMethodWATV1_unaryAddTwoUInt64Deposit_second_overflow
     encodeU64le_size, leBytesToNatV1_encodeU64le, UInt64.ofNat_toNat,
     Bind.bind, Except.bind]
 
+/-! ## Selected guarded checked-sub two-UInt64 entry execution -/
+
+/-- Exact typed-WAT execution for the selected production withdraw recipe.
+    Both unsigned guards complete before storage writes, the checked
+    subtractions update both rows, and Unit falls through with no return data. -/
+theorem executeMethodWATV1_guardedSubTwoUInt64Withdraw
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue before0 before1 amount : UInt64)
+    (storage : StorageObservationV1)
+    (hmarker :
+      storage.lookup marker.key = some (encodeU64le markerValue))
+    (hfield0 : storage.lookup field0.key = some (encodeU64le before0))
+    (hfield1 : storage.lookup field1.key = some (encodeU64le before1))
+    (hfield10 : field1.key ≠ field0.key)
+    (hinputValue : memory.inputOffset ≠ memory.valueOffset)
+    (hinputDepositLow : memory.inputOffset ≠ memory.depositOffset)
+    (hinputDepositHigh : memory.inputOffset ≠ memory.depositOffset + 8)
+    (hguard0 : amount.toNat ≤ before0.toNat)
+    (hguard1 : amount.toNat ≤ before1.toNat) :
+    executeMethodWATV1 12
+      (guardedSubTwoUInt64WithdrawWATV1 registers memory marker field0 field1
+        markerValue)
+      (encodeU64le amount) 0 0 storage =
+      .returned none
+        (guardedSubTwoUInt64WithdrawPostStorageV1 storage field0 field1 before0
+          before1 amount) := by
+  have hnotUnderflow0 : ¬ before0.toNat < amount.toNat := by omega
+  have hnotUnderflow1 : ¬ before1.toNat < amount.toNat := by omega
+  unfold executeMethodWATV1
+  simp only [guardedSubTwoUInt64WithdrawWATV1]
+  rw [runReadOnlyWATInstructionsV1_concatMethodWATRecipesV1]
+  simp [runMethodWATRecipesV1, checkUInt64InputWATV1,
+    requireZeroAttachedDepositWATV1, requireLayoutWATV1,
+    loadUInt64StateWATV1, loadUInt64ParamWATV1, compareUInt64LeWATV1,
+    assertUInt64BoolWATV1, checkedSubUInt64WATV1,
+    storeUInt64StateWATV1, runReadOnlyWATInstructionsV1,
+    initialReadOnlyWATMachineV1, stepReadOnlyWATInstructionV1,
+    evalReadOnlyWATI64ExprV1, setReadOnlyWATRegisterV1,
+    setReadOnlyWATMemoryV1, setReadOnlyWATLocalV1,
+    writeReadOnlyWATStorageV1, writeStorageObservationV1,
+    checkedSubUInt64BytesV1, guardedSubTwoUInt64WithdrawPostStorageV1,
+    hmarker, hfield0, hfield1, hfield10, hinputValue,
+    hinputDepositLow, hinputDepositHigh, hguard0, hguard1,
+    hnotUnderflow0, hnotUnderflow1, encodeU64le_size,
+    leBytesToNatV1_encodeU64le, UInt64.ofNat_toNat, Bind.bind, Except.bind]
+
+/-- A false first withdraw guard traps in typed WAT before either storage
+    write recipe is reached. -/
+theorem executeMethodWATV1_guardedSubTwoUInt64Withdraw_first_guard_failure
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue before0 amount : UInt64)
+    (storage : StorageObservationV1)
+    (hmarker :
+      storage.lookup marker.key = some (encodeU64le markerValue))
+    (hfield0 : storage.lookup field0.key = some (encodeU64le before0))
+    (hinputValue : memory.inputOffset ≠ memory.valueOffset)
+    (hinputDepositLow : memory.inputOffset ≠ memory.depositOffset)
+    (hinputDepositHigh : memory.inputOffset ≠ memory.depositOffset + 8)
+    (hguard0 : ¬ amount.toNat ≤ before0.toNat) :
+    executeMethodWATV1 12
+      (guardedSubTwoUInt64WithdrawWATV1 registers memory marker field0 field1
+        markerValue)
+      (encodeU64le amount) 0 0 storage = .trapped .trap := by
+  unfold executeMethodWATV1
+  simp only [guardedSubTwoUInt64WithdrawWATV1]
+  rw [runReadOnlyWATInstructionsV1_concatMethodWATRecipesV1]
+  simp [runMethodWATRecipesV1, checkUInt64InputWATV1,
+    requireZeroAttachedDepositWATV1, requireLayoutWATV1,
+    loadUInt64StateWATV1, loadUInt64ParamWATV1, compareUInt64LeWATV1,
+    assertUInt64BoolWATV1, runReadOnlyWATInstructionsV1,
+    initialReadOnlyWATMachineV1, stepReadOnlyWATInstructionV1,
+    evalReadOnlyWATI64ExprV1, setReadOnlyWATRegisterV1,
+    setReadOnlyWATMemoryV1, setReadOnlyWATLocalV1,
+    hmarker, hfield0, hinputValue, hinputDepositLow, hinputDepositHigh,
+    hguard0, encodeU64le_size, leBytesToNatV1_encodeU64le,
+    UInt64.ofNat_toNat, Bind.bind, Except.bind]
+
+/-- A false second withdraw guard also traps before either typed-WAT storage
+    write recipe is reached. -/
+theorem executeMethodWATV1_guardedSubTwoUInt64Withdraw_second_guard_failure
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue before0 before1 amount : UInt64)
+    (storage : StorageObservationV1)
+    (hmarker :
+      storage.lookup marker.key = some (encodeU64le markerValue))
+    (hfield0 : storage.lookup field0.key = some (encodeU64le before0))
+    (hfield1 : storage.lookup field1.key = some (encodeU64le before1))
+    (hinputValue : memory.inputOffset ≠ memory.valueOffset)
+    (hinputDepositLow : memory.inputOffset ≠ memory.depositOffset)
+    (hinputDepositHigh : memory.inputOffset ≠ memory.depositOffset + 8)
+    (hguard0 : amount.toNat ≤ before0.toNat)
+    (hguard1 : ¬ amount.toNat ≤ before1.toNat) :
+    executeMethodWATV1 12
+      (guardedSubTwoUInt64WithdrawWATV1 registers memory marker field0 field1
+        markerValue)
+      (encodeU64le amount) 0 0 storage = .trapped .trap := by
+  unfold executeMethodWATV1
+  simp only [guardedSubTwoUInt64WithdrawWATV1]
+  rw [runReadOnlyWATInstructionsV1_concatMethodWATRecipesV1]
+  simp [runMethodWATRecipesV1, checkUInt64InputWATV1,
+    requireZeroAttachedDepositWATV1, requireLayoutWATV1,
+    loadUInt64StateWATV1, loadUInt64ParamWATV1, compareUInt64LeWATV1,
+    assertUInt64BoolWATV1, runReadOnlyWATInstructionsV1,
+    initialReadOnlyWATMachineV1, stepReadOnlyWATInstructionV1,
+    evalReadOnlyWATI64ExprV1, setReadOnlyWATRegisterV1,
+    setReadOnlyWATMemoryV1, setReadOnlyWATLocalV1,
+    hmarker, hfield0, hfield1, hinputValue, hinputDepositLow,
+    hinputDepositHigh, hguard0, hguard1, encodeU64le_size,
+    leBytesToNatV1_encodeU64le, UInt64.ofNat_toNat, Bind.bind, Except.bind]
+
 /-- MethodIR and its exact production typed-WAT lowering agree on successful
     deposit return bytes and post-storage. -/
 theorem methodIR_and_WAT_unaryAddTwoUInt64Deposit_return_same
@@ -1041,6 +1168,67 @@ theorem methodIR_and_WAT_unaryAddTwoUInt64Deposit_return_same
     executeMethodWATV1_unaryAddTwoUInt64Deposit registers memory marker field0
       field1 markerValue before0 before1 amount storage hmarker hfield0 hfield1
         hfield10 hinputValue hinputDepositLow hinputDepositHigh hadd0 hadd1
+  ⟩
+
+/-- MethodIR and its exact production typed-WAT lowering agree on successful
+    withdraw return data and post-storage. -/
+theorem methodIR_and_WAT_guardedSubTwoUInt64Withdraw_return_same
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue before0 before1 amount : UInt64)
+    (storage : StorageObservationV1)
+    (hmarker :
+      storage.lookup marker.key = some (encodeU64le markerValue))
+    (hfield0 : storage.lookup field0.key = some (encodeU64le before0))
+    (hfield1 : storage.lookup field1.key = some (encodeU64le before1))
+    (hfield10 : field1.key ≠ field0.key)
+    (hinputValue : memory.inputOffset ≠ memory.valueOffset)
+    (hinputDepositLow : memory.inputOffset ≠ memory.depositOffset)
+    (hinputDepositHigh : memory.inputOffset ≠ memory.depositOffset + 8)
+    (hguard0 : amount.toNat ≤ before0.toNat)
+    (hguard1 : amount.toNat ≤ before1.toNat) :
+    executeMethodV1 {
+      name := entryName
+      params := #[{
+        sourceId := parameterSourceId
+        name := parameterName
+        inputOffset := 0
+        byteWidth := 8
+        endianness := .little
+      }]
+      mode := .mutate
+      tempCount := 12
+      operations := #[
+        .checkInputLen 8, .requireZeroAttachedDeposit,
+        .requireLayout marker markerValue, .loadParam 0 0,
+        .loadState 1 field0, .compare 2 0 1 .le, .assert 2,
+        .loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le,
+        .assert 5, .loadState 6 field0, .loadParam 7 0,
+        .checkedSub 8 6 7, .storeState field0 8, .loadState 9 field1,
+        .loadParam 10 0, .checkedSub 11 9 10, .storeState field1 11
+      ]
+    } (encodeU64le amount) 0 0 storage =
+        .returned none
+          (guardedSubTwoUInt64WithdrawPostStorageV1 storage field0 field1
+            before0 before1 amount) ∧
+      executeMethodWATV1 12
+        (guardedSubTwoUInt64WithdrawWATV1 registers memory marker field0 field1
+          markerValue)
+        (encodeU64le amount) 0 0 storage =
+          .returned none
+            (guardedSubTwoUInt64WithdrawPostStorageV1 storage field0 field1
+              before0 before1 amount) := by
+  exact ⟨
+    executeMethodV1_guardedSubTwoUInt64Withdraw entryName parameterName
+      parameterSourceId marker field0 field1 markerValue before0 before1 amount
+        storage hmarker hfield0 hfield1 hfield10 hguard0 hguard1,
+    executeMethodWATV1_guardedSubTwoUInt64Withdraw registers memory marker
+      field0 field1 markerValue before0 before1 amount storage hmarker hfield0
+        hfield1 hfield10 hinputValue hinputDepositLow hinputDepositHigh hguard0
+        hguard1
   ⟩
 
 /-- The exact production MethodIR recipe and its typed WAT lowering return the

@@ -1321,6 +1321,464 @@ theorem productionUnaryAddTwoUInt64DepositStaticAlignmentV1_of_recognized
   · exact recognizeUnaryAddTwoUInt64DepositMethodIRV1_sound methodIR _
       hmethodIRShape
 
+/-! ## Selected guarded checked-sub two-UInt64 entry alignment -/
+
+/-- Public syntax recovered from the selected withdraw Method. Repeated field
+    uses remain explicit until the production bridge proves they all select
+    the canonical two state bindings. -/
+structure GuardedSubTwoUInt64WithdrawMethodShapeV1 where
+  entryName : String
+  parameterSourceId : Nat
+  parameterName : String
+  guard0Index : Nat
+  guard1Index : Nat
+  store0Index : Nat
+  load0Index : Nat
+  store1Index : Nat
+  load1Index : Nat
+  deriving Repr
+
+/-- Recognize exactly two `amount ≤ state` assertions followed by checked
+    subtraction from both fields and a Unit return. -/
+def recognizeGuardedSubTwoUInt64WithdrawMethodV1
+    (method : Method) : Option GuardedSubTwoUInt64WithdrawMethodShapeV1 :=
+  match method.params.toList, method.exactInputLen, method.mode,
+      method.depositPolicy, method.resultKind, method.body.toList with
+  | [{
+      sourceId := parameterSourceId
+      name := parameterName
+      inputOffset := 0
+      byteWidth := 8
+      endianness := .little
+    }], 8, .mutate, .requireZero, .unit, [
+      .assert (.compare .le (.param 0) (.stateLoad guard0Index)),
+      .assert (.compare .le (.param 0) (.stateLoad guard1Index)),
+      .store {
+        fieldIndex := store0Index
+        value := .checkedSub (.stateLoad load0Index) (.param 0)
+        byteWidth := 8
+      },
+      .store {
+        fieldIndex := store1Index
+        value := .checkedSub (.stateLoad load1Index) (.param 0)
+        byteWidth := 8
+      },
+      .returnNone
+    ] => some {
+      entryName := method.name
+      parameterSourceId
+      parameterName
+      guard0Index
+      guard1Index
+      store0Index
+      load0Index
+      store1Index
+      load1Index
+    }
+  | _, _, _, _, _, _ => none
+
+/-- Successful source recognition determines the complete Method. -/
+theorem recognizeGuardedSubTwoUInt64WithdrawMethodV1_sound
+    (method : Method)
+    (shape : GuardedSubTwoUInt64WithdrawMethodShapeV1)
+    (hrecognize :
+      recognizeGuardedSubTwoUInt64WithdrawMethodV1 method = some shape) :
+    method = {
+      name := shape.entryName
+      params := #[{
+        sourceId := shape.parameterSourceId
+        name := shape.parameterName
+        inputOffset := 0
+        byteWidth := 8
+        endianness := .little
+      }]
+      exactInputLen := 8
+      mode := .mutate
+      depositPolicy := .requireZero
+      resultKind := .unit
+      body := #[
+        .assert (.compare .le (.param 0) (.stateLoad shape.guard0Index)),
+        .assert (.compare .le (.param 0) (.stateLoad shape.guard1Index)),
+        .store {
+          fieldIndex := shape.store0Index
+          value := .checkedSub (.stateLoad shape.load0Index) (.param 0)
+          byteWidth := 8
+        },
+        .store {
+          fieldIndex := shape.store1Index
+          value := .checkedSub (.stateLoad shape.load1Index) (.param 0)
+          byteWidth := 8
+        },
+        .returnNone
+      ]
+    } := by
+  rcases method with ⟨name, params, exactInputLen, mode, depositPolicy,
+    resultKind, body⟩
+  simp only [recognizeGuardedSubTwoUInt64WithdrawMethodV1] at hrecognize
+  split at hrecognize
+  · cases hrecognize
+    have hparams : params = #[{
+        sourceId := _
+        name := _
+        inputOffset := 0
+        byteWidth := 8
+        endianness := .little
+      }] := Array.toList_inj.mp (by assumption)
+    have hbody : body = #[
+        .assert (.compare .le (.param 0) (.stateLoad _)),
+        .assert (.compare .le (.param 0) (.stateLoad _)),
+        .store {
+          fieldIndex := _
+          value := .checkedSub (.stateLoad _) (.param 0)
+          byteWidth := 8
+        },
+        .store {
+          fieldIndex := _
+          value := .checkedSub (.stateLoad _) (.param 0)
+          byteWidth := 8
+        },
+        .returnNone
+      ] := Array.toList_inj.mp (by assumption)
+    cases hparams
+    cases hbody
+    rfl
+  · contradiction
+
+/-- Public syntax recovered from the exact 19-operation production MethodIR. -/
+structure GuardedSubTwoUInt64WithdrawMethodIRShapeV1 where
+  entryName : String
+  parameterSourceId : Nat
+  parameterName : String
+  markerRegion : KeyRegion
+  guard0Region : KeyRegion
+  guard1Region : KeyRegion
+  load0Region : KeyRegion
+  store0Region : KeyRegion
+  load1Region : KeyRegion
+  store1Region : KeyRegion
+  markerValue : UInt64
+  deriving Repr
+
+/-- Recognize the exact production sequence, including guard-before-write
+    order, local indices, checked subtraction, and natural Unit fall-through. -/
+def recognizeGuardedSubTwoUInt64WithdrawMethodIRV1
+    (methodIR : MethodIR) :
+    Option GuardedSubTwoUInt64WithdrawMethodIRShapeV1 :=
+  match methodIR.params.toList, methodIR.mode, methodIR.tempCount,
+      methodIR.operations.toList with
+  | [{
+      sourceId := parameterSourceId
+      name := parameterName
+      inputOffset := 0
+      byteWidth := 8
+      endianness := .little
+    }], .mutate, 12, [
+      .checkInputLen 8,
+      .requireZeroAttachedDeposit,
+      .requireLayout markerRegion markerValue,
+      .loadParam 0 0,
+      .loadState 1 guard0Region,
+      .compare 2 0 1 .le,
+      .assert 2,
+      .loadParam 3 0,
+      .loadState 4 guard1Region,
+      .compare 5 3 4 .le,
+      .assert 5,
+      .loadState 6 load0Region,
+      .loadParam 7 0,
+      .checkedSub 8 6 7,
+      .storeState store0Region 8,
+      .loadState 9 load1Region,
+      .loadParam 10 0,
+      .checkedSub 11 9 10,
+      .storeState store1Region 11
+    ] => some {
+      entryName := methodIR.name
+      parameterSourceId
+      parameterName
+      markerRegion
+      guard0Region
+      guard1Region
+      load0Region
+      store0Region
+      load1Region
+      store1Region
+      markerValue
+    }
+  | _, _, _, _ => none
+
+/-- Successful MethodIR recognition determines every operation and temp. -/
+theorem recognizeGuardedSubTwoUInt64WithdrawMethodIRV1_sound
+    (methodIR : MethodIR)
+    (shape : GuardedSubTwoUInt64WithdrawMethodIRShapeV1)
+    (hrecognize :
+      recognizeGuardedSubTwoUInt64WithdrawMethodIRV1 methodIR = some shape) :
+    methodIR = {
+      name := shape.entryName
+      params := #[{
+        sourceId := shape.parameterSourceId
+        name := shape.parameterName
+        inputOffset := 0
+        byteWidth := 8
+        endianness := .little
+      }]
+      mode := .mutate
+      tempCount := 12
+      operations := #[
+        .checkInputLen 8,
+        .requireZeroAttachedDeposit,
+        .requireLayout shape.markerRegion shape.markerValue,
+        .loadParam 0 0,
+        .loadState 1 shape.guard0Region,
+        .compare 2 0 1 .le,
+        .assert 2,
+        .loadParam 3 0,
+        .loadState 4 shape.guard1Region,
+        .compare 5 3 4 .le,
+        .assert 5,
+        .loadState 6 shape.load0Region,
+        .loadParam 7 0,
+        .checkedSub 8 6 7,
+        .storeState shape.store0Region 8,
+        .loadState 9 shape.load1Region,
+        .loadParam 10 0,
+        .checkedSub 11 9 10,
+        .storeState shape.store1Region 11
+      ]
+    } := by
+  rcases methodIR with ⟨name, params, mode, tempCount, operations⟩
+  simp only [recognizeGuardedSubTwoUInt64WithdrawMethodIRV1] at hrecognize
+  split at hrecognize
+  · cases hrecognize
+    have hparams : params = #[{
+        sourceId := _
+        name := _
+        inputOffset := 0
+        byteWidth := 8
+        endianness := .little
+      }] := Array.toList_inj.mp (by assumption)
+    have hoperations : operations = #[
+        .checkInputLen 8, .requireZeroAttachedDeposit, .requireLayout _ _,
+        .loadParam 0 0, .loadState 1 _, .compare 2 0 1 .le, .assert 2,
+        .loadParam 3 0, .loadState 4 _, .compare 5 3 4 .le, .assert 5,
+        .loadState 6 _, .loadParam 7 0, .checkedSub 8 6 7,
+        .storeState _ 8, .loadState 9 _, .loadParam 10 0,
+        .checkedSub 11 9 10, .storeState _ 11
+      ] := Array.toList_inj.mp (by assumption)
+    cases hparams
+    cases hoperations
+    rfl
+  · contradiction
+
+/-- Exact semantic/storage/MethodIR alignment for the selected withdraw entry.
+    Complete equalities reject reordered guards, early writes, unchecked
+    subtraction, noncanonical fields, or a non-Unit result. -/
+structure GuardedSubTwoUInt64WithdrawStaticAlignmentV1
+    (data : SemanticProgramDataV1)
+    (storage : StorageLayout)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR) : Prop where
+  binding0Rel : UInt64StateBindingRelV1 data storage binding0
+  binding1Rel : UInt64StateBindingRelV1 data storage binding1
+  binding0State : binding0.semanticStateId = 0
+  binding1State : binding1.semanticStateId = 1
+  bindingTypes : binding0.semanticTypeId = binding1.semanticTypeId
+  distinctFields : binding0.physicalFieldIndex ≠ binding1.physicalFieldIndex
+  markerKey : markerRegion.key = storage.markerKey
+  markerLength : markerRegion.length = storage.markerKey.toUTF8.size
+  field0Key : field0Region.key = binding0.physicalKey
+  field0Length : field0Region.length = binding0.physicalKey.toUTF8.size
+  field1Key : field1Region.key = binding1.physicalKey
+  field1Length : field1Region.length = binding1.physicalKey.toUTF8.size
+  methodExact : method = {
+    name := entryName
+    params := #[{
+      sourceId := parameterSourceId
+      name := parameterName
+      inputOffset := 0
+      byteWidth := 8
+      endianness := .little
+    }]
+    exactInputLen := 8
+    mode := .mutate
+    depositPolicy := .requireZero
+    resultKind := .unit
+    body := #[
+      .assert (.compare .le (.param 0)
+        (.stateLoad binding0.physicalFieldIndex)),
+      .assert (.compare .le (.param 0)
+        (.stateLoad binding1.physicalFieldIndex)),
+      .store {
+        fieldIndex := binding0.physicalFieldIndex
+        value := .checkedSub
+          (.stateLoad binding0.physicalFieldIndex) (.param 0)
+        byteWidth := 8
+      },
+      .store {
+        fieldIndex := binding1.physicalFieldIndex
+        value := .checkedSub
+          (.stateLoad binding1.physicalFieldIndex) (.param 0)
+        byteWidth := 8
+      },
+      .returnNone
+    ]
+  }
+  methodIRExact : methodIR = {
+    name := entryName
+    params := #[{
+      sourceId := parameterSourceId
+      name := parameterName
+      inputOffset := 0
+      byteWidth := 8
+      endianness := .little
+    }]
+    mode := .mutate
+    tempCount := 12
+    operations := #[
+      .checkInputLen 8,
+      .requireZeroAttachedDeposit,
+      .requireLayout markerRegion storage.markerValue,
+      .loadParam 0 0,
+      .loadState 1 field0Region,
+      .compare 2 0 1 .le,
+      .assert 2,
+      .loadParam 3 0,
+      .loadState 4 field1Region,
+      .compare 5 3 4 .le,
+      .assert 5,
+      .loadState 6 field0Region,
+      .loadParam 7 0,
+      .checkedSub 8 6 7,
+      .storeState field0Region 8,
+      .loadState 9 field1Region,
+      .loadParam 10 0,
+      .checkedSub 11 9 10,
+      .storeState field1Region 11
+    ]
+  }
+
+/-- Production provenance for the selected withdraw entry. -/
+structure ProductionGuardedSubTwoUInt64WithdrawStaticAlignmentV1
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (keys : Array KeyRegion)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR) : Prop where
+  semanticValidation : validateSemanticProgramV1 program = .ok data
+  keyRegions : KeyRegionsV1 plan keys
+  markerLookup : keys[0]? = some markerRegion
+  field0Lookup : keys[binding0.physicalFieldIndex + 1]? = some field0Region
+  field1Lookup : keys[binding1.physicalFieldIndex + 1]? = some field1Region
+  methodLowering : MethodIRLoweringV1 plan keys method methodIR
+  staticAlignment :
+    GuardedSubTwoUInt64WithdrawStaticAlignmentV1 data plan.storage binding0
+      binding1 entryName parameterName parameterSourceId method markerRegion
+        field0Region field1Region methodIR
+
+/-- Structural recognition plus the existing production graph constructs the
+    exact withdraw alignment without another Plan→IR lowering. -/
+theorem productionGuardedSubTwoUInt64WithdrawStaticAlignmentV1_of_recognized
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (keys : Array KeyRegion)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (hvalidate : validateSemanticProgramV1 program = .ok data)
+    (hkeys : KeyRegionsV1 plan keys)
+    (hmarkerLookup : keys[0]? = some markerRegion)
+    (hfield0Lookup :
+      keys[binding0.physicalFieldIndex + 1]? = some field0Region)
+    (hfield1Lookup :
+      keys[binding1.physicalFieldIndex + 1]? = some field1Region)
+    (hlowering : MethodIRLoweringV1 plan keys method methodIR)
+    (hbinding0 : UInt64StateBindingRelV1 data plan.storage binding0)
+    (hbinding1 : UInt64StateBindingRelV1 data plan.storage binding1)
+    (hbinding0State : binding0.semanticStateId = 0)
+    (hbinding1State : binding1.semanticStateId = 1)
+    (hbindingTypes : binding0.semanticTypeId = binding1.semanticTypeId)
+    (hdistinctFields :
+      binding0.physicalFieldIndex ≠ binding1.physicalFieldIndex)
+    (hmarkerKey : markerRegion.key = plan.storage.markerKey)
+    (hmarkerLength :
+      markerRegion.length = plan.storage.markerKey.toUTF8.size)
+    (hfield0Key : field0Region.key = binding0.physicalKey)
+    (hfield0Length :
+      field0Region.length = binding0.physicalKey.toUTF8.size)
+    (hfield1Key : field1Region.key = binding1.physicalKey)
+    (hfield1Length :
+      field1Region.length = binding1.physicalKey.toUTF8.size)
+    (hmethodShape :
+      recognizeGuardedSubTwoUInt64WithdrawMethodV1 method = some {
+        entryName
+        parameterSourceId
+        parameterName
+        guard0Index := binding0.physicalFieldIndex
+        guard1Index := binding1.physicalFieldIndex
+        store0Index := binding0.physicalFieldIndex
+        load0Index := binding0.physicalFieldIndex
+        store1Index := binding1.physicalFieldIndex
+        load1Index := binding1.physicalFieldIndex
+      })
+    (hmethodIRShape :
+      recognizeGuardedSubTwoUInt64WithdrawMethodIRV1 methodIR = some {
+        entryName
+        parameterSourceId
+        parameterName
+        markerRegion
+        guard0Region := field0Region
+        guard1Region := field1Region
+        load0Region := field0Region
+        store0Region := field0Region
+        load1Region := field1Region
+        store1Region := field1Region
+        markerValue := plan.storage.markerValue
+      }) :
+    ProductionGuardedSubTwoUInt64WithdrawStaticAlignmentV1 program data plan keys
+      binding0 binding1 entryName parameterName parameterSourceId method
+        markerRegion field0Region field1Region methodIR := by
+  refine {
+    semanticValidation := hvalidate
+    keyRegions := hkeys
+    markerLookup := hmarkerLookup
+    field0Lookup := hfield0Lookup
+    field1Lookup := hfield1Lookup
+    methodLowering := hlowering
+    staticAlignment := {
+      binding0Rel := hbinding0
+      binding1Rel := hbinding1
+      binding0State := hbinding0State
+      binding1State := hbinding1State
+      bindingTypes := hbindingTypes
+      distinctFields := hdistinctFields
+      markerKey := hmarkerKey
+      markerLength := hmarkerLength
+      field0Key := hfield0Key
+      field0Length := hfield0Length
+      field1Key := hfield1Key
+      field1Length := hfield1Length
+      methodExact := ?_
+      methodIRExact := ?_
+    }
+  }
+  · exact recognizeGuardedSubTwoUInt64WithdrawMethodV1_sound method _
+      hmethodShape
+  · exact recognizeGuardedSubTwoUInt64WithdrawMethodIRV1_sound methodIR _
+      hmethodIRShape
+
 /-- Logical decoding and the three owned KV rows agree after successful
     initialization. This relation consumes target post-storage observations; it
     does not define another target transition. -/

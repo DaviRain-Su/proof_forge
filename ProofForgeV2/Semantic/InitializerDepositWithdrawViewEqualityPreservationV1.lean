@@ -432,16 +432,23 @@ theorem preservationTheorem_of_subjectBodyV1
         · rfl
         · rfl
         · exact encodeU64le_size argument
-      obtain ⟨differenceBytes, hpostEncode⟩ :=
-        stepReferenceSliceV1_ready_guarded_sub_parameter_two_unit_returned_post_encode
-          admitted pre post data before0 (encodeU64le argument) 0 2 1 state0Name state1Name
-          withdrawParameterName 2 (some withdrawName) invocation.context context responses vault value
-          effects hadmittedData rfl rfl rfl rfl rfl hcanonical (by
-            change gateInvocation admitted pre invocation = .ready
-              (guardedSubParameterTwoUnitCallableV1 2 (some withdrawName) withdrawParameterName 0 2 1 0 1 .public_)
-                overlay context isInitializer at hgate
-            rw [hinvocation, hoverlayEq, hisInitializer] at hgate
-            exact hgate) (by rw [hinvocation] at hstep; exact hstep)
+      let differenceBytes := natToLeBytesV1
+        (leBytesToNatV1 before0 - leBytesToNatV1 (encodeU64le argument)) 8
+      have hpostEncode :
+          encodeLogicalStateValuesV1 data true #[differenceBytes, differenceBytes] =
+            .ok post := by
+        simpa [differenceBytes] using
+          stepReferenceSliceV1_ready_guarded_sub_parameter_two_unit_returned_post_encode
+            admitted pre post data before0 (encodeU64le argument) 0 2 1 state0Name
+            state1Name withdrawParameterName 2 (some withdrawName)
+            invocation.context context responses vault value effects hadmittedData
+            rfl rfl rfl rfl rfl hcanonical (by
+              change gateInvocation admitted pre invocation = .ready
+                (guardedSubParameterTwoUnitCallableV1 2 (some withdrawName)
+                  withdrawParameterName 0 2 1 0 1 .public_)
+                  overlay context isInitializer at hgate
+              rw [hinvocation, hoverlayEq, hisInitializer] at hgate
+              exact hgate) (by rw [hinvocation] at hstep; exact hstep)
       have hdecodePost := decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1 data true
         #[differenceBytes, differenceBytes] post hpostEncode
       have hpostInitialized : post.initialized = true :=

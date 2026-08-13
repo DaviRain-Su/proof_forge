@@ -29,6 +29,8 @@ inductive ReadOnlyMethodErrorV1 where
   | inputLengthMismatch
   | attachedDepositNotZero
   | arithmeticOverflow
+  | arithmeticUnderflow
+  | assertionFailed
   | storageMissing
   | storageAlreadyPresent
   | storageWidthMismatch
@@ -173,6 +175,28 @@ def stepReadOnlyMethodOperationV1
             .error .arithmeticOverflow
       | .error error, _ => .error error
       | _, .error error => .error error
+  | .checkedSub destination lhs rhs =>
+      match readReadOnlyTempV1 machine lhs, readReadOnlyTempV1 machine rhs with
+      | .ok left, .ok right =>
+          if right.toNat ≤ left.toNat then
+            writeReadOnlyTempV1 machine destination
+              (UInt64.ofNat (left.toNat - right.toNat))
+          else
+            .error .arithmeticUnderflow
+      | .error error, _ => .error error
+      | _, .error error => .error error
+  | .compare destination lhs rhs .le =>
+      match readReadOnlyTempV1 machine lhs, readReadOnlyTempV1 machine rhs with
+      | .ok left, .ok right =>
+          writeReadOnlyTempV1 machine destination
+            (if left.toNat ≤ right.toNat then 1 else 0)
+      | .error error, _ => .error error
+      | _, .error error => .error error
+  | .assert condition =>
+      match readReadOnlyTempV1 machine condition with
+      | .ok value =>
+          if value = 0 then .error .assertionFailed else .ok machine
+      | .error error => .error error
   | .storeState field source =>
       match machine.storage.lookup field.key with
       | none => .error .storageMissing
@@ -398,6 +422,50 @@ private theorem stepReadOnlyMethodOperationV1_checkedAdd_overflow
       .error .arithmeticOverflow := by
   simp [stepReadOnlyMethodOperationV1, hleft, hright, hoverflow]
 
+private theorem stepReadOnlyMethodOperationV1_checkedSub
+    (machine : ReadOnlyMethodMachineV1)
+    (destination lhs rhs : Nat)
+    (left right : UInt64)
+    (hleft : readReadOnlyTempV1 machine lhs = .ok left)
+    (hright : readReadOnlyTempV1 machine rhs = .ok right)
+    (hsub : right.toNat ≤ left.toNat)
+    (hbound : destination < machine.tempCount) :
+    stepReadOnlyMethodOperationV1 machine (.checkedSub destination lhs rhs) =
+      .ok (setReadOnlyTempValueV1 machine destination
+        (UInt64.ofNat (left.toNat - right.toNat))) := by
+  simp [stepReadOnlyMethodOperationV1, hleft, hright, hsub,
+    writeReadOnlyTempV1, hbound]
+
+private theorem stepReadOnlyMethodOperationV1_compare_le
+    (machine : ReadOnlyMethodMachineV1)
+    (destination lhs rhs : Nat)
+    (left right : UInt64)
+    (hleft : readReadOnlyTempV1 machine lhs = .ok left)
+    (hright : readReadOnlyTempV1 machine rhs = .ok right)
+    (hbound : destination < machine.tempCount) :
+    stepReadOnlyMethodOperationV1 machine (.compare destination lhs rhs .le) =
+      .ok (setReadOnlyTempValueV1 machine destination
+        (if left.toNat ≤ right.toNat then 1 else 0)) := by
+  simp [stepReadOnlyMethodOperationV1, hleft, hright,
+    writeReadOnlyTempV1, hbound]
+
+private theorem stepReadOnlyMethodOperationV1_assert_nonzero
+    (machine : ReadOnlyMethodMachineV1)
+    (condition : Nat)
+    (value : UInt64)
+    (hcondition : readReadOnlyTempV1 machine condition = .ok value)
+    (hnonzero : value ≠ 0) :
+    stepReadOnlyMethodOperationV1 machine (.assert condition) = .ok machine := by
+  simp [stepReadOnlyMethodOperationV1, hcondition, hnonzero]
+
+private theorem stepReadOnlyMethodOperationV1_assert_zero
+    (machine : ReadOnlyMethodMachineV1)
+    (condition : Nat)
+    (hcondition : readReadOnlyTempV1 machine condition = .ok 0) :
+    stepReadOnlyMethodOperationV1 machine (.assert condition) =
+      .error .assertionFailed := by
+  simp [stepReadOnlyMethodOperationV1, hcondition]
+
 private theorem stepReadOnlyMethodOperationV1_storeState_encode
     (machine : ReadOnlyMethodMachineV1)
     (field : KeyRegion)
@@ -442,6 +510,97 @@ private theorem runReadOnlyMethodOperationsV1_append
       cases hstep : stepReadOnlyMethodOperationV1 machine operation with
       | error error => simp [Bind.bind, Except.bind]
       | ok next => simp [ih, Bind.bind, Except.bind]
+
+private theorem runReadOnlyMethodOperationsV1_fiveSegments
+    (first second third fourth fifth : List Operation)
+    (machine0 machine1 machine2 machine3 machine4 machine5 :
+      ReadOnlyMethodMachineV1)
+    (hfirst : runReadOnlyMethodOperationsV1 first machine0 = .ok machine1)
+    (hsecond : runReadOnlyMethodOperationsV1 second machine1 = .ok machine2)
+    (hthird : runReadOnlyMethodOperationsV1 third machine2 = .ok machine3)
+    (hfourth : runReadOnlyMethodOperationsV1 fourth machine3 = .ok machine4)
+    (hfifth : runReadOnlyMethodOperationsV1 fifth machine4 = .ok machine5) :
+    runReadOnlyMethodOperationsV1
+      (first ++ (second ++ (third ++ (fourth ++ fifth)))) machine0 =
+        .ok machine5 := by
+  calc
+    _ = (do
+        let machine ← runReadOnlyMethodOperationsV1 first machine0
+        runReadOnlyMethodOperationsV1
+          (second ++ (third ++ (fourth ++ fifth))) machine) :=
+      runReadOnlyMethodOperationsV1_append first
+        (second ++ (third ++ (fourth ++ fifth))) machine0
+    _ = runReadOnlyMethodOperationsV1
+        (second ++ (third ++ (fourth ++ fifth))) machine1 := by
+      simp only [hfirst, Bind.bind, Except.bind]
+    _ = (do
+        let machine ← runReadOnlyMethodOperationsV1 second machine1
+        runReadOnlyMethodOperationsV1 (third ++ (fourth ++ fifth)) machine) :=
+      runReadOnlyMethodOperationsV1_append second
+        (third ++ (fourth ++ fifth)) machine1
+    _ = runReadOnlyMethodOperationsV1 (third ++ (fourth ++ fifth)) machine2 := by
+      simp only [hsecond, Bind.bind, Except.bind]
+    _ = (do
+        let machine ← runReadOnlyMethodOperationsV1 third machine2
+        runReadOnlyMethodOperationsV1 (fourth ++ fifth) machine) :=
+      runReadOnlyMethodOperationsV1_append third (fourth ++ fifth) machine2
+    _ = runReadOnlyMethodOperationsV1 (fourth ++ fifth) machine3 := by
+      simp only [hthird, Bind.bind, Except.bind]
+    _ = (do
+        let machine ← runReadOnlyMethodOperationsV1 fourth machine3
+        runReadOnlyMethodOperationsV1 fifth machine) :=
+      runReadOnlyMethodOperationsV1_append fourth fifth machine3
+    _ = runReadOnlyMethodOperationsV1 fifth machine4 := by
+      simp only [hfourth, Bind.bind, Except.bind]
+    _ = .ok machine5 := hfifth
+
+private theorem runReadOnlyMethodOperationsV1_successThenError
+    (successful failing remaining : List Operation)
+    (machine0 machine1 : ReadOnlyMethodMachineV1)
+    (error : ReadOnlyMethodErrorV1)
+    (hsuccessful :
+      runReadOnlyMethodOperationsV1 successful machine0 = .ok machine1)
+    (hfailing :
+      runReadOnlyMethodOperationsV1 failing machine1 = .error error) :
+    runReadOnlyMethodOperationsV1
+      (successful ++ (failing ++ remaining)) machine0 = .error error := by
+  calc
+    _ = (do
+        let machine ← runReadOnlyMethodOperationsV1 successful machine0
+        runReadOnlyMethodOperationsV1 (failing ++ remaining) machine) :=
+      runReadOnlyMethodOperationsV1_append successful (failing ++ remaining)
+        machine0
+    _ = runReadOnlyMethodOperationsV1 (failing ++ remaining) machine1 := by
+      simp only [hsuccessful, Bind.bind, Except.bind]
+    _ = (do
+        let machine ← runReadOnlyMethodOperationsV1 failing machine1
+        runReadOnlyMethodOperationsV1 remaining machine) :=
+      runReadOnlyMethodOperationsV1_append failing remaining machine1
+    _ = .error error := by
+      simp only [hfailing, Bind.bind, Except.bind]
+
+private theorem runReadOnlyMethodOperationsV1_twoSuccessThenError
+    (first second failing remaining : List Operation)
+    (machine0 machine1 machine2 : ReadOnlyMethodMachineV1)
+    (error : ReadOnlyMethodErrorV1)
+    (hfirst : runReadOnlyMethodOperationsV1 first machine0 = .ok machine1)
+    (hsecond : runReadOnlyMethodOperationsV1 second machine1 = .ok machine2)
+    (hfailing :
+      runReadOnlyMethodOperationsV1 failing machine2 = .error error) :
+    runReadOnlyMethodOperationsV1
+      (first ++ (second ++ (failing ++ remaining))) machine0 = .error error := by
+  calc
+    _ = (do
+        let machine ← runReadOnlyMethodOperationsV1 first machine0
+        runReadOnlyMethodOperationsV1 (second ++ (failing ++ remaining)) machine) :=
+      runReadOnlyMethodOperationsV1_append first
+        (second ++ (failing ++ remaining)) machine0
+    _ = runReadOnlyMethodOperationsV1
+        (second ++ (failing ++ remaining)) machine1 := by
+      simp only [hfirst, Bind.bind, Except.bind]
+    _ = .error error :=
+      runReadOnlyMethodOperationsV1_successThenError second failing remaining
+        machine1 machine2 error hsecond hfailing
 
 private def checkedAddStoreMethodMachineV1
     (machine : ReadOnlyMethodMachineV1)
@@ -553,6 +712,191 @@ private theorem runReadOnlyMethodOperationsV1_checkedAddOverflow
         hreadParameter hoverflow
   simp only [runReadOnlyMethodOperationsV1, step0, step1, step2, Bind.bind,
     Except.bind]
+
+private def guardLeMethodMachineV1
+    (machine : ReadOnlyMethodMachineV1)
+    (before amount : UInt64)
+    (parameterDestination loadDestination conditionDestination : Nat)
+    (condition : UInt64) : ReadOnlyMethodMachineV1 :=
+  setReadOnlyTempValueV1
+    (setReadOnlyTempValueV1
+      (setReadOnlyTempValueV1 machine parameterDestination amount)
+      loadDestination before)
+    conditionDestination condition
+
+private theorem runReadOnlyMethodOperationsV1_guardLe_success
+    (machine : ReadOnlyMethodMachineV1)
+    (field : KeyRegion)
+    (before amount : UInt64)
+    (parameterDestination loadDestination conditionDestination : Nat)
+    (hfield : machine.storage.lookup field.key = some (encodeU64le before))
+    (hinput : machine.input = encodeU64le amount)
+    (hparameterBound : parameterDestination < machine.tempCount)
+    (hloadBound : loadDestination < machine.tempCount)
+    (hconditionBound : conditionDestination < machine.tempCount)
+    (hparameterLoad : parameterDestination ≠ loadDestination)
+    (hguard : amount.toNat ≤ before.toNat) :
+    runReadOnlyMethodOperationsV1 [
+      .loadParam parameterDestination 0,
+      .loadState loadDestination field,
+      .compare conditionDestination parameterDestination loadDestination .le,
+      .assert conditionDestination
+    ] machine = .ok (guardLeMethodMachineV1 machine before amount
+      parameterDestination loadDestination conditionDestination 1) := by
+  let m1 := setReadOnlyTempValueV1 machine parameterDestination amount
+  let m2 := setReadOnlyTempValueV1 m1 loadDestination before
+  let m3 := setReadOnlyTempValueV1 m2 conditionDestination 1
+  have step0 : stepReadOnlyMethodOperationV1 machine
+      (.loadParam parameterDestination 0) = .ok m1 := by
+    simpa [m1] using stepReadOnlyMethodOperationV1_loadParam_zero_encode machine
+      parameterDestination amount hinput hparameterBound
+  have step1 : stepReadOnlyMethodOperationV1 m1
+      (.loadState loadDestination field) = .ok m2 := by
+    simpa [m2] using stepReadOnlyMethodOperationV1_loadState_encode m1
+      loadDestination field before (by simpa [m1] using hfield)
+        (by simpa [m1] using hloadBound)
+  have hreadParameter :
+      readReadOnlyTempV1 m2 parameterDestination = .ok amount := by
+    simp [m2, m1, hparameterLoad, hparameterBound]
+  have hreadLoad : readReadOnlyTempV1 m2 loadDestination = .ok before := by
+    simp [m2, m1, hloadBound]
+  have step2 : stepReadOnlyMethodOperationV1 m2
+      (.compare conditionDestination parameterDestination loadDestination .le) =
+      .ok m3 := by
+    simpa [m3, hguard] using stepReadOnlyMethodOperationV1_compare_le m2
+      conditionDestination parameterDestination loadDestination amount before
+        hreadParameter hreadLoad (by simpa [m2, m1] using hconditionBound)
+  have hreadCondition :
+      readReadOnlyTempV1 m3 conditionDestination = .ok 1 := by
+    simp [m3, m2, m1, hconditionBound]
+  have step3 : stepReadOnlyMethodOperationV1 m3
+      (.assert conditionDestination) = .ok m3 :=
+    stepReadOnlyMethodOperationV1_assert_nonzero m3 conditionDestination 1
+      hreadCondition (by decide)
+  simp only [runReadOnlyMethodOperationsV1, step0, step1, step2, step3,
+    Bind.bind, Except.bind]
+  rfl
+
+private theorem runReadOnlyMethodOperationsV1_guardLe_failure
+    (machine : ReadOnlyMethodMachineV1)
+    (field : KeyRegion)
+    (before amount : UInt64)
+    (parameterDestination loadDestination conditionDestination : Nat)
+    (hfield : machine.storage.lookup field.key = some (encodeU64le before))
+    (hinput : machine.input = encodeU64le amount)
+    (hparameterBound : parameterDestination < machine.tempCount)
+    (hloadBound : loadDestination < machine.tempCount)
+    (hconditionBound : conditionDestination < machine.tempCount)
+    (hparameterLoad : parameterDestination ≠ loadDestination)
+    (hguard : ¬ amount.toNat ≤ before.toNat) :
+    runReadOnlyMethodOperationsV1 [
+      .loadParam parameterDestination 0,
+      .loadState loadDestination field,
+      .compare conditionDestination parameterDestination loadDestination .le,
+      .assert conditionDestination
+    ] machine = .error .assertionFailed := by
+  let m1 := setReadOnlyTempValueV1 machine parameterDestination amount
+  let m2 := setReadOnlyTempValueV1 m1 loadDestination before
+  let m3 := setReadOnlyTempValueV1 m2 conditionDestination 0
+  have step0 : stepReadOnlyMethodOperationV1 machine
+      (.loadParam parameterDestination 0) = .ok m1 := by
+    simpa [m1] using stepReadOnlyMethodOperationV1_loadParam_zero_encode machine
+      parameterDestination amount hinput hparameterBound
+  have step1 : stepReadOnlyMethodOperationV1 m1
+      (.loadState loadDestination field) = .ok m2 := by
+    simpa [m2] using stepReadOnlyMethodOperationV1_loadState_encode m1
+      loadDestination field before (by simpa [m1] using hfield)
+        (by simpa [m1] using hloadBound)
+  have hreadParameter :
+      readReadOnlyTempV1 m2 parameterDestination = .ok amount := by
+    simp [m2, m1, hparameterLoad, hparameterBound]
+  have hreadLoad : readReadOnlyTempV1 m2 loadDestination = .ok before := by
+    simp [m2, m1, hloadBound]
+  have step2 : stepReadOnlyMethodOperationV1 m2
+      (.compare conditionDestination parameterDestination loadDestination .le) =
+      .ok m3 := by
+    simpa [m3, hguard] using stepReadOnlyMethodOperationV1_compare_le m2
+      conditionDestination parameterDestination loadDestination amount before
+        hreadParameter hreadLoad (by simpa [m2, m1] using hconditionBound)
+  have hreadCondition :
+      readReadOnlyTempV1 m3 conditionDestination = .ok 0 := by
+    simp [m3, m2, m1, hconditionBound]
+  have step3 : stepReadOnlyMethodOperationV1 m3
+      (.assert conditionDestination) = .error .assertionFailed :=
+    stepReadOnlyMethodOperationV1_assert_zero m3 conditionDestination
+      hreadCondition
+  simp only [runReadOnlyMethodOperationsV1, step0, step1, step2, step3,
+    Bind.bind, Except.bind]
+
+private def checkedSubStoreMethodMachineV1
+    (machine : ReadOnlyMethodMachineV1)
+    (field : KeyRegion)
+    (before amount : UInt64)
+    (loadDestination parameterDestination differenceDestination : Nat) :
+    ReadOnlyMethodMachineV1 :=
+  let loaded := setReadOnlyTempValueV1 machine loadDestination before
+  let parameter := setReadOnlyTempValueV1 loaded parameterDestination amount
+  let difference := UInt64.ofNat (before.toNat - amount.toNat)
+  let subtracted :=
+    setReadOnlyTempValueV1 parameter differenceDestination difference
+  writeReadOnlyMethodStorageV1 subtracted field.key (encodeU64le difference)
+
+private theorem runReadOnlyMethodOperationsV1_checkedSubStore
+    (machine : ReadOnlyMethodMachineV1)
+    (field : KeyRegion)
+    (before amount : UInt64)
+    (loadDestination parameterDestination differenceDestination : Nat)
+    (hfield : machine.storage.lookup field.key = some (encodeU64le before))
+    (hinput : machine.input = encodeU64le amount)
+    (hloadBound : loadDestination < machine.tempCount)
+    (hparameterBound : parameterDestination < machine.tempCount)
+    (hdifferenceBound : differenceDestination < machine.tempCount)
+    (hloadParameter : loadDestination ≠ parameterDestination)
+    (hsub : amount.toNat ≤ before.toNat) :
+    runReadOnlyMethodOperationsV1 [
+      .loadState loadDestination field,
+      .loadParam parameterDestination 0,
+      .checkedSub differenceDestination loadDestination parameterDestination,
+      .storeState field differenceDestination
+    ] machine = .ok (checkedSubStoreMethodMachineV1 machine field before amount
+      loadDestination parameterDestination differenceDestination) := by
+  let difference := UInt64.ofNat (before.toNat - amount.toNat)
+  let m1 := setReadOnlyTempValueV1 machine loadDestination before
+  let m2 := setReadOnlyTempValueV1 m1 parameterDestination amount
+  let m3 := setReadOnlyTempValueV1 m2 differenceDestination difference
+  let m4 := writeReadOnlyMethodStorageV1 m3 field.key (encodeU64le difference)
+  have step0 : stepReadOnlyMethodOperationV1 machine
+      (.loadState loadDestination field) = .ok m1 := by
+    simpa [m1] using stepReadOnlyMethodOperationV1_loadState_encode machine
+      loadDestination field before hfield hloadBound
+  have step1 : stepReadOnlyMethodOperationV1 m1
+      (.loadParam parameterDestination 0) = .ok m2 := by
+    simpa [m2] using stepReadOnlyMethodOperationV1_loadParam_zero_encode m1
+      parameterDestination amount (by simpa [m1] using hinput)
+        (by simpa [m1] using hparameterBound)
+  have hreadLoad : readReadOnlyTempV1 m2 loadDestination = .ok before := by
+    simp [m2, m1, hloadParameter, hloadBound]
+  have hreadParameter :
+      readReadOnlyTempV1 m2 parameterDestination = .ok amount := by
+    simp [m2, m1, hparameterBound]
+  have step2 : stepReadOnlyMethodOperationV1 m2
+      (.checkedSub differenceDestination loadDestination parameterDestination) =
+      .ok m3 := by
+    simpa [m3, difference] using stepReadOnlyMethodOperationV1_checkedSub m2
+      differenceDestination loadDestination parameterDestination before amount
+        hreadLoad hreadParameter hsub
+          (by simpa [m2, m1] using hdifferenceBound)
+  have hreadDifference :
+      readReadOnlyTempV1 m3 differenceDestination = .ok difference := by
+    simp [m3, m2, m1, hdifferenceBound]
+  have step3 : stepReadOnlyMethodOperationV1 m3
+      (.storeState field differenceDestination) = .ok m4 := by
+    simpa [m4] using stepReadOnlyMethodOperationV1_storeState_encode m3 field
+      differenceDestination before difference (by simpa [m3, m2, m1] using hfield)
+        hreadDifference
+  simp only [runReadOnlyMethodOperationsV1, step0, step1, step2, step3,
+    Bind.bind, Except.bind]
+  rfl
 
 private theorem runReadOnlyMethodOperationsV1_depositGuards
     (machine : ReadOnlyMethodMachineV1)
@@ -2022,6 +2366,527 @@ theorem executeMethodV1_of_unaryAddTwoUInt64DepositStaticAlignment
   exact executeMethodV1_unaryAddTwoUInt64Deposit entryName parameterName
     parameterSourceId marker field0 field1 storageLayout.markerValue before0
       before1 amount storage hmarker hfield0 hfield1 hfield10 hadd0 hadd1
+
+/-! ## Selected guarded checked-sub two-UInt64 entry execution -/
+
+/-- Canonical bytes produced by one successful checked UInt64 subtraction. -/
+def checkedSubUInt64BytesV1 (left right : UInt64) : ByteArray :=
+  encodeU64le (UInt64.ofNat (left.toNat - right.toNat))
+
+/-- The target subtraction encoding is exactly the Reference machine's
+    canonical eight-byte difference. -/
+theorem checkedSubUInt64BytesV1_eq_natToLeBytesV1
+    (left right : UInt64) :
+    checkedSubUInt64BytesV1 left right =
+      natToLeBytesV1 (left.toNat - right.toNat) 8 := by
+  have hdifference : left.toNat - right.toNat < 2 ^ 64 :=
+    Nat.lt_of_le_of_lt (Nat.sub_le left.toNat right.toNat) left.toNat_lt
+  calc
+    checkedSubUInt64BytesV1 left right =
+        natToLeBytesV1
+          (UInt64.ofNat (left.toNat - right.toNat)).toNat 8 := by
+      exact (natToLeBytesV1_uint64_eq_encodeU64le _).symm
+    _ = natToLeBytesV1 (left.toNat - right.toNat) 8 := by
+      rw [UInt64.toNat_ofNat', Nat.mod_eq_of_lt hdifference]
+
+/-- Exact physical post-storage for the selected withdraw recipe. -/
+def guardedSubTwoUInt64WithdrawPostStorageV1
+    (storage : StorageObservationV1)
+    (field0 field1 : KeyRegion)
+    (before0 before1 amount : UInt64) : StorageObservationV1 :=
+  writeStorageObservationV1
+    (writeStorageObservationV1 storage field0.key
+      (checkedSubUInt64BytesV1 before0 amount))
+    field1.key (checkedSubUInt64BytesV1 before1 amount)
+
+/-- Exact successful MethodIR execution for the selected guarded withdraw.
+    Both assertions run before either write, and Unit is represented by absent
+    return data. -/
+theorem executeMethodV1_guardedSubTwoUInt64Withdraw
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (marker field0 field1 : KeyRegion)
+    (markerValue before0 before1 amount : UInt64)
+    (storage : StorageObservationV1)
+    (hmarker :
+      storage.lookup marker.key = some (encodeU64le markerValue))
+    (hfield0 : storage.lookup field0.key = some (encodeU64le before0))
+    (hfield1 : storage.lookup field1.key = some (encodeU64le before1))
+    (hfield10 : field1.key ≠ field0.key)
+    (hguard0 : amount.toNat ≤ before0.toNat)
+    (hguard1 : amount.toNat ≤ before1.toNat) :
+    executeMethodV1 {
+      name := entryName
+      params := #[{
+        sourceId := parameterSourceId
+        name := parameterName
+        inputOffset := 0
+        byteWidth := 8
+        endianness := .little
+      }]
+      mode := .mutate
+      tempCount := 12
+      operations := #[
+        .checkInputLen 8,
+        .requireZeroAttachedDeposit,
+        .requireLayout marker markerValue,
+        .loadParam 0 0,
+        .loadState 1 field0,
+        .compare 2 0 1 .le,
+        .assert 2,
+        .loadParam 3 0,
+        .loadState 4 field1,
+        .compare 5 3 4 .le,
+        .assert 5,
+        .loadState 6 field0,
+        .loadParam 7 0,
+        .checkedSub 8 6 7,
+        .storeState field0 8,
+        .loadState 9 field1,
+        .loadParam 10 0,
+        .checkedSub 11 9 10,
+        .storeState field1 11
+      ]
+    } (encodeU64le amount) 0 0 storage =
+      .returned none
+        (guardedSubTwoUInt64WithdrawPostStorageV1 storage field0 field1 before0
+          before1 amount) := by
+  let methodIR : MethodIR := {
+    name := entryName
+    params := #[{
+      sourceId := parameterSourceId
+      name := parameterName
+      inputOffset := 0
+      byteWidth := 8
+      endianness := .little
+    }]
+    mode := .mutate
+    tempCount := 12
+    operations := #[
+      .checkInputLen 8, .requireZeroAttachedDeposit,
+      .requireLayout marker markerValue,
+      .loadParam 0 0, .loadState 1 field0, .compare 2 0 1 .le, .assert 2,
+      .loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le, .assert 5,
+      .loadState 6 field0, .loadParam 7 0, .checkedSub 8 6 7,
+      .storeState field0 8, .loadState 9 field1, .loadParam 10 0,
+      .checkedSub 11 9 10, .storeState field1 11
+    ]
+  }
+  let m0 := initialReadOnlyMethodMachineV1 methodIR (encodeU64le amount) 0 0
+    storage
+  let m4 := guardLeMethodMachineV1 m0 before0 amount 0 1 2 1
+  let m8 := guardLeMethodMachineV1 m4 before1 amount 3 4 5 1
+  let m12 := checkedSubStoreMethodMachineV1 m8 field0 before0 amount 6 7 8
+  let m16 := checkedSubStoreMethodMachineV1 m12 field1 before1 amount 9 10 11
+  have hguards : runReadOnlyMethodOperationsV1 [
+      .checkInputLen 8, .requireZeroAttachedDeposit,
+      .requireLayout marker markerValue
+    ] m0 = .ok m0 := by
+    apply runReadOnlyMethodOperationsV1_depositGuards
+    · simp [m0, initialReadOnlyMethodMachineV1, encodeU64le_size]
+    · rfl
+    · rfl
+    · simpa [m0, initialReadOnlyMethodMachineV1] using hmarker
+  have hguardFirst : runReadOnlyMethodOperationsV1 [
+      .loadParam 0 0, .loadState 1 field0, .compare 2 0 1 .le, .assert 2
+    ] m0 = .ok m4 := by
+    simpa [m4] using runReadOnlyMethodOperationsV1_guardLe_success m0 field0
+      before0 amount 0 1 2
+        (by simpa [m0, initialReadOnlyMethodMachineV1] using hfield0)
+        (by rfl)
+        (by simp [m0, initialReadOnlyMethodMachineV1, methodIR])
+        (by simp [m0, initialReadOnlyMethodMachineV1, methodIR])
+        (by simp [m0, initialReadOnlyMethodMachineV1, methodIR])
+        (by decide) hguard0
+  have hfield1M4 :
+      m4.storage.lookup field1.key = some (encodeU64le before1) := by
+    simpa [m4, guardLeMethodMachineV1, m0,
+      initialReadOnlyMethodMachineV1] using hfield1
+  have hguardSecond : runReadOnlyMethodOperationsV1 [
+      .loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le, .assert 5
+    ] m4 = .ok m8 := by
+    simpa [m8] using runReadOnlyMethodOperationsV1_guardLe_success m4 field1
+      before1 amount 3 4 5 hfield1M4
+        (by simp [m4, guardLeMethodMachineV1, m0,
+          initialReadOnlyMethodMachineV1])
+        (by simp [m4, guardLeMethodMachineV1, m0,
+          initialReadOnlyMethodMachineV1, methodIR])
+        (by simp [m4, guardLeMethodMachineV1, m0,
+          initialReadOnlyMethodMachineV1, methodIR])
+        (by simp [m4, guardLeMethodMachineV1, m0,
+          initialReadOnlyMethodMachineV1, methodIR])
+        (by decide) hguard1
+  have hfield0M8 :
+      m8.storage.lookup field0.key = some (encodeU64le before0) := by
+    simpa [m8, guardLeMethodMachineV1, m4, m0,
+      initialReadOnlyMethodMachineV1] using hfield0
+  have hsubFirst : runReadOnlyMethodOperationsV1 [
+      .loadState 6 field0, .loadParam 7 0, .checkedSub 8 6 7,
+      .storeState field0 8
+    ] m8 = .ok m12 := by
+    simpa [m12] using runReadOnlyMethodOperationsV1_checkedSubStore m8 field0
+      before0 amount 6 7 8 hfield0M8
+        (by simp [m8, m4, guardLeMethodMachineV1, m0,
+          initialReadOnlyMethodMachineV1])
+        (by simp [m8, m4, guardLeMethodMachineV1, m0,
+          initialReadOnlyMethodMachineV1, methodIR])
+        (by simp [m8, m4, guardLeMethodMachineV1, m0,
+          initialReadOnlyMethodMachineV1, methodIR])
+        (by simp [m8, m4, guardLeMethodMachineV1, m0,
+          initialReadOnlyMethodMachineV1, methodIR])
+        (by decide) hguard0
+  have hfield1M12 :
+      m12.storage.lookup field1.key = some (encodeU64le before1) := by
+    simp [m12, checkedSubStoreMethodMachineV1, m8, m4,
+      guardLeMethodMachineV1, m0, initialReadOnlyMethodMachineV1,
+      writeStorageObservationV1, hfield10, hfield1]
+  have hsubSecond : runReadOnlyMethodOperationsV1 [
+      .loadState 9 field1, .loadParam 10 0, .checkedSub 11 9 10,
+      .storeState field1 11
+    ] m12 = .ok m16 := by
+    simpa [m16] using runReadOnlyMethodOperationsV1_checkedSubStore m12 field1
+      before1 amount 9 10 11 hfield1M12
+        (by simp [m12, checkedSubStoreMethodMachineV1, m8, m4,
+          guardLeMethodMachineV1, m0, initialReadOnlyMethodMachineV1])
+        (by simp [m12, checkedSubStoreMethodMachineV1, m8, m4,
+          guardLeMethodMachineV1, m0, initialReadOnlyMethodMachineV1,
+          methodIR])
+        (by simp [m12, checkedSubStoreMethodMachineV1, m8, m4,
+          guardLeMethodMachineV1, m0, initialReadOnlyMethodMachineV1,
+          methodIR])
+        (by simp [m12, checkedSubStoreMethodMachineV1, m8, m4,
+          guardLeMethodMachineV1, m0, initialReadOnlyMethodMachineV1,
+          methodIR])
+        (by decide) hguard1
+  have hrun : runReadOnlyMethodOperationsV1 methodIR.operations.toList m0 =
+      .ok m16 := by
+    have hoperations : methodIR.operations.toList =
+        ([.checkInputLen 8, .requireZeroAttachedDeposit,
+            .requireLayout marker markerValue] : List Operation) ++
+          ([.loadParam 0 0, .loadState 1 field0, .compare 2 0 1 .le,
+              .assert 2] ++
+            ([.loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le,
+                .assert 5] ++
+              ([.loadState 6 field0, .loadParam 7 0, .checkedSub 8 6 7,
+                  .storeState field0 8] ++
+                [.loadState 9 field1, .loadParam 10 0, .checkedSub 11 9 10,
+                  .storeState field1 11]))) := by
+      rfl
+    calc
+      _ = runReadOnlyMethodOperationsV1
+          (([.checkInputLen 8, .requireZeroAttachedDeposit,
+              .requireLayout marker markerValue] : List Operation) ++
+            ([.loadParam 0 0, .loadState 1 field0, .compare 2 0 1 .le,
+                .assert 2] ++
+              ([.loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le,
+                  .assert 5] ++
+                ([.loadState 6 field0, .loadParam 7 0, .checkedSub 8 6 7,
+                    .storeState field0 8] ++
+                  [.loadState 9 field1, .loadParam 10 0,
+                    .checkedSub 11 9 10, .storeState field1 11])))) m0 :=
+        congrArg (fun operations => runReadOnlyMethodOperationsV1 operations m0)
+          hoperations
+      _ = .ok m16 :=
+        runReadOnlyMethodOperationsV1_fiveSegments
+          [.checkInputLen 8, .requireZeroAttachedDeposit,
+            .requireLayout marker markerValue]
+          [.loadParam 0 0, .loadState 1 field0, .compare 2 0 1 .le, .assert 2]
+          [.loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le, .assert 5]
+          [.loadState 6 field0, .loadParam 7 0, .checkedSub 8 6 7,
+            .storeState field0 8]
+          [.loadState 9 field1, .loadParam 10 0, .checkedSub 11 9 10,
+            .storeState field1 11]
+          m0 m0 m4 m8 m12 m16 hguards hguardFirst hguardSecond hsubFirst
+            hsubSecond
+  have hstorage : m16.storage =
+      guardedSubTwoUInt64WithdrawPostStorageV1 storage field0 field1 before0
+        before1 amount := by
+    rfl
+  change executeMethodV1 methodIR (encodeU64le amount) 0 0 storage = _
+  unfold executeMethodV1
+  rw [hrun]
+  change MethodExecutionOutcomeV1.returned m16.returnData m16.storage = _
+  rw [hstorage]
+  rfl
+
+/-- A false first guard traps before any target storage write. -/
+theorem executeMethodV1_guardedSubTwoUInt64Withdraw_first_guard_failure
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (marker field0 field1 : KeyRegion)
+    (markerValue before0 amount : UInt64)
+    (storage : StorageObservationV1)
+    (hmarker :
+      storage.lookup marker.key = some (encodeU64le markerValue))
+    (hfield0 : storage.lookup field0.key = some (encodeU64le before0))
+    (hguard0 : ¬ amount.toNat ≤ before0.toNat) :
+    executeMethodV1 {
+      name := entryName
+      params := #[{
+        sourceId := parameterSourceId
+        name := parameterName
+        inputOffset := 0
+        byteWidth := 8
+        endianness := .little
+      }]
+      mode := .mutate
+      tempCount := 12
+      operations := #[
+        .checkInputLen 8, .requireZeroAttachedDeposit,
+        .requireLayout marker markerValue, .loadParam 0 0,
+        .loadState 1 field0, .compare 2 0 1 .le, .assert 2,
+        .loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le,
+        .assert 5, .loadState 6 field0, .loadParam 7 0,
+        .checkedSub 8 6 7, .storeState field0 8, .loadState 9 field1,
+        .loadParam 10 0, .checkedSub 11 9 10, .storeState field1 11
+      ]
+    } (encodeU64le amount) 0 0 storage = .trapped .assertionFailed := by
+  let methodIR : MethodIR := {
+    name := entryName
+    params := #[{
+      sourceId := parameterSourceId, name := parameterName, inputOffset := 0,
+      byteWidth := 8, endianness := .little
+    }]
+    mode := .mutate
+    tempCount := 12
+    operations := #[
+      .checkInputLen 8, .requireZeroAttachedDeposit,
+      .requireLayout marker markerValue,
+      .loadParam 0 0, .loadState 1 field0, .compare 2 0 1 .le, .assert 2,
+      .loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le, .assert 5,
+      .loadState 6 field0, .loadParam 7 0, .checkedSub 8 6 7,
+      .storeState field0 8, .loadState 9 field1, .loadParam 10 0,
+      .checkedSub 11 9 10, .storeState field1 11
+    ]
+  }
+  let m0 := initialReadOnlyMethodMachineV1 methodIR (encodeU64le amount) 0 0
+    storage
+  have hguards : runReadOnlyMethodOperationsV1 [
+      .checkInputLen 8, .requireZeroAttachedDeposit,
+      .requireLayout marker markerValue
+    ] m0 = .ok m0 := by
+    apply runReadOnlyMethodOperationsV1_depositGuards
+    · simp [m0, initialReadOnlyMethodMachineV1, encodeU64le_size]
+    · rfl
+    · rfl
+    · simpa [m0, initialReadOnlyMethodMachineV1] using hmarker
+  have hfailure : runReadOnlyMethodOperationsV1 [
+      .loadParam 0 0, .loadState 1 field0, .compare 2 0 1 .le, .assert 2
+    ] m0 = .error .assertionFailed := by
+    exact runReadOnlyMethodOperationsV1_guardLe_failure m0 field0 before0
+      amount 0 1 2 (by simpa [m0, initialReadOnlyMethodMachineV1] using hfield0)
+        (by rfl)
+        (by simp [m0, initialReadOnlyMethodMachineV1, methodIR])
+        (by simp [m0, initialReadOnlyMethodMachineV1, methodIR])
+        (by simp [m0, initialReadOnlyMethodMachineV1, methodIR])
+        (by decide) hguard0
+  have hrun : runReadOnlyMethodOperationsV1 methodIR.operations.toList m0 =
+      .error .assertionFailed := by
+    have hoperations : methodIR.operations.toList =
+        ([.checkInputLen 8, .requireZeroAttachedDeposit,
+            .requireLayout marker markerValue] : List Operation) ++
+          ([.loadParam 0 0, .loadState 1 field0, .compare 2 0 1 .le,
+              .assert 2] ++
+            [.loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le,
+              .assert 5, .loadState 6 field0, .loadParam 7 0,
+              .checkedSub 8 6 7, .storeState field0 8, .loadState 9 field1,
+              .loadParam 10 0, .checkedSub 11 9 10,
+              .storeState field1 11]) := by
+      rfl
+    calc
+      _ = runReadOnlyMethodOperationsV1
+          (([.checkInputLen 8, .requireZeroAttachedDeposit,
+              .requireLayout marker markerValue] : List Operation) ++
+            ([.loadParam 0 0, .loadState 1 field0, .compare 2 0 1 .le,
+                .assert 2] ++
+              [.loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le,
+                .assert 5, .loadState 6 field0, .loadParam 7 0,
+                .checkedSub 8 6 7, .storeState field0 8,
+                .loadState 9 field1, .loadParam 10 0,
+                .checkedSub 11 9 10, .storeState field1 11])) m0 :=
+        congrArg (fun operations => runReadOnlyMethodOperationsV1 operations m0)
+          hoperations
+      _ = .error .assertionFailed :=
+        runReadOnlyMethodOperationsV1_successThenError
+          [.checkInputLen 8, .requireZeroAttachedDeposit,
+            .requireLayout marker markerValue]
+          [.loadParam 0 0, .loadState 1 field0, .compare 2 0 1 .le, .assert 2]
+          [.loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le,
+            .assert 5, .loadState 6 field0, .loadParam 7 0,
+            .checkedSub 8 6 7, .storeState field0 8, .loadState 9 field1,
+            .loadParam 10 0, .checkedSub 11 9 10, .storeState field1 11]
+          m0 m0 .assertionFailed hguards hfailure
+  change executeMethodV1 methodIR (encodeU64le amount) 0 0 storage = _
+  unfold executeMethodV1
+  rw [hrun]
+
+/-- A false second guard also traps before either target storage write. -/
+theorem executeMethodV1_guardedSubTwoUInt64Withdraw_second_guard_failure
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (marker field0 field1 : KeyRegion)
+    (markerValue before0 before1 amount : UInt64)
+    (storage : StorageObservationV1)
+    (hmarker :
+      storage.lookup marker.key = some (encodeU64le markerValue))
+    (hfield0 : storage.lookup field0.key = some (encodeU64le before0))
+    (hfield1 : storage.lookup field1.key = some (encodeU64le before1))
+    (hguard0 : amount.toNat ≤ before0.toNat)
+    (hguard1 : ¬ amount.toNat ≤ before1.toNat) :
+    executeMethodV1 {
+      name := entryName
+      params := #[{
+        sourceId := parameterSourceId
+        name := parameterName
+        inputOffset := 0
+        byteWidth := 8
+        endianness := .little
+      }]
+      mode := .mutate
+      tempCount := 12
+      operations := #[
+        .checkInputLen 8, .requireZeroAttachedDeposit,
+        .requireLayout marker markerValue, .loadParam 0 0,
+        .loadState 1 field0, .compare 2 0 1 .le, .assert 2,
+        .loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le,
+        .assert 5, .loadState 6 field0, .loadParam 7 0,
+        .checkedSub 8 6 7, .storeState field0 8, .loadState 9 field1,
+        .loadParam 10 0, .checkedSub 11 9 10, .storeState field1 11
+      ]
+    } (encodeU64le amount) 0 0 storage = .trapped .assertionFailed := by
+  let methodIR : MethodIR := {
+    name := entryName
+    params := #[{
+      sourceId := parameterSourceId, name := parameterName, inputOffset := 0,
+      byteWidth := 8, endianness := .little
+    }]
+    mode := .mutate
+    tempCount := 12
+    operations := #[
+      .checkInputLen 8, .requireZeroAttachedDeposit,
+      .requireLayout marker markerValue,
+      .loadParam 0 0, .loadState 1 field0, .compare 2 0 1 .le, .assert 2,
+      .loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le, .assert 5,
+      .loadState 6 field0, .loadParam 7 0, .checkedSub 8 6 7,
+      .storeState field0 8, .loadState 9 field1, .loadParam 10 0,
+      .checkedSub 11 9 10, .storeState field1 11
+    ]
+  }
+  let m0 := initialReadOnlyMethodMachineV1 methodIR (encodeU64le amount) 0 0
+    storage
+  let m4 := guardLeMethodMachineV1 m0 before0 amount 0 1 2 1
+  have hguards : runReadOnlyMethodOperationsV1 [
+      .checkInputLen 8, .requireZeroAttachedDeposit,
+      .requireLayout marker markerValue
+    ] m0 = .ok m0 := by
+    apply runReadOnlyMethodOperationsV1_depositGuards
+    · simp [m0, initialReadOnlyMethodMachineV1, encodeU64le_size]
+    · rfl
+    · rfl
+    · simpa [m0, initialReadOnlyMethodMachineV1] using hmarker
+  have hguardFirst : runReadOnlyMethodOperationsV1 [
+      .loadParam 0 0, .loadState 1 field0, .compare 2 0 1 .le, .assert 2
+    ] m0 = .ok m4 := by
+    simpa [m4] using runReadOnlyMethodOperationsV1_guardLe_success m0 field0
+      before0 amount 0 1 2
+        (by simpa [m0, initialReadOnlyMethodMachineV1] using hfield0)
+        (by rfl)
+        (by simp [m0, initialReadOnlyMethodMachineV1, methodIR])
+        (by simp [m0, initialReadOnlyMethodMachineV1, methodIR])
+        (by simp [m0, initialReadOnlyMethodMachineV1, methodIR])
+        (by decide) hguard0
+  have hfield1M4 :
+      m4.storage.lookup field1.key = some (encodeU64le before1) := by
+    simpa [m4, guardLeMethodMachineV1, m0,
+      initialReadOnlyMethodMachineV1] using hfield1
+  have hfailure : runReadOnlyMethodOperationsV1 [
+      .loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le, .assert 5
+    ] m4 = .error .assertionFailed := by
+    exact runReadOnlyMethodOperationsV1_guardLe_failure m4 field1 before1
+      amount 3 4 5 hfield1M4
+        (by simp [m4, guardLeMethodMachineV1, m0,
+          initialReadOnlyMethodMachineV1])
+        (by simp [m4, guardLeMethodMachineV1, m0,
+          initialReadOnlyMethodMachineV1, methodIR])
+        (by simp [m4, guardLeMethodMachineV1, m0,
+          initialReadOnlyMethodMachineV1, methodIR])
+        (by simp [m4, guardLeMethodMachineV1, m0,
+          initialReadOnlyMethodMachineV1, methodIR])
+        (by decide) hguard1
+  have hrun : runReadOnlyMethodOperationsV1 methodIR.operations.toList m0 =
+      .error .assertionFailed := by
+    have hoperations : methodIR.operations.toList =
+        ([.checkInputLen 8, .requireZeroAttachedDeposit,
+            .requireLayout marker markerValue] : List Operation) ++
+          ([.loadParam 0 0, .loadState 1 field0, .compare 2 0 1 .le,
+              .assert 2] ++
+            ([.loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le,
+                .assert 5] ++
+              [.loadState 6 field0, .loadParam 7 0, .checkedSub 8 6 7,
+                .storeState field0 8, .loadState 9 field1, .loadParam 10 0,
+                .checkedSub 11 9 10, .storeState field1 11])) := by
+      rfl
+    calc
+      _ = runReadOnlyMethodOperationsV1
+          (([.checkInputLen 8, .requireZeroAttachedDeposit,
+              .requireLayout marker markerValue] : List Operation) ++
+            ([.loadParam 0 0, .loadState 1 field0, .compare 2 0 1 .le,
+                .assert 2] ++
+              ([.loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le,
+                  .assert 5] ++
+                [.loadState 6 field0, .loadParam 7 0, .checkedSub 8 6 7,
+                  .storeState field0 8, .loadState 9 field1,
+                  .loadParam 10 0, .checkedSub 11 9 10,
+                  .storeState field1 11]))) m0 :=
+        congrArg (fun operations => runReadOnlyMethodOperationsV1 operations m0)
+          hoperations
+      _ = .error .assertionFailed :=
+        runReadOnlyMethodOperationsV1_twoSuccessThenError
+          [.checkInputLen 8, .requireZeroAttachedDeposit,
+            .requireLayout marker markerValue]
+          [.loadParam 0 0, .loadState 1 field0, .compare 2 0 1 .le, .assert 2]
+          [.loadParam 3 0, .loadState 4 field1, .compare 5 3 4 .le, .assert 5]
+          [.loadState 6 field0, .loadParam 7 0, .checkedSub 8 6 7,
+            .storeState field0 8, .loadState 9 field1, .loadParam 10 0,
+            .checkedSub 11 9 10, .storeState field1 11]
+          m0 m0 m4 .assertionFailed hguards hguardFirst hfailure
+  change executeMethodV1 methodIR (encodeU64le amount) 0 0 storage = _
+  unfold executeMethodV1
+  rw [hrun]
+
+/-- Static alignment specializes the sole MethodIR evaluator to the production
+    withdraw recipe. -/
+theorem executeMethodV1_of_guardedSubTwoUInt64WithdrawStaticAlignment
+    (data : SemanticProgramDataV1)
+    (storageLayout : StorageLayout)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (entryName parameterName : String)
+    (parameterSourceId : Nat)
+    (method : Method)
+    (marker field0 field1 : KeyRegion)
+    (methodIR : MethodIR)
+    (before0 before1 amount : UInt64)
+    (storage : StorageObservationV1)
+    (halignment :
+      GuardedSubTwoUInt64WithdrawStaticAlignmentV1 data storageLayout binding0
+        binding1 entryName parameterName parameterSourceId method marker field0
+          field1 methodIR)
+    (hmarker :
+      storage.lookup marker.key =
+        some (encodeU64le storageLayout.markerValue))
+    (hfield0 : storage.lookup field0.key = some (encodeU64le before0))
+    (hfield1 : storage.lookup field1.key = some (encodeU64le before1))
+    (hfield10 : field1.key ≠ field0.key)
+    (hguard0 : amount.toNat ≤ before0.toNat)
+    (hguard1 : amount.toNat ≤ before1.toNat) :
+    executeMethodV1 methodIR (encodeU64le amount) 0 0 storage =
+      .returned none
+        (guardedSubTwoUInt64WithdrawPostStorageV1 storage field0 field1 before0
+          before1 amount) := by
+  rw [halignment.methodIRExact]
+  exact executeMethodV1_guardedSubTwoUInt64Withdraw entryName parameterName
+    parameterSourceId marker field0 field1 storageLayout.markerValue before0
+      before1 amount storage hmarker hfield0 hfield1 hfield10 hguard0 hguard1
 
 /-- Static alignment plus initialized storage representation is sufficient to
     execute the selected production MethodIR successfully. -/

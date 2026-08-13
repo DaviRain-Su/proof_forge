@@ -14066,8 +14066,12 @@ theorem stepReferenceSliceV1_ready_guarded_sub_parameter_two_unit_returned_post_
       callableId
       args := #[{ typeId := uint64TypeId, valueBytes := argumentBytes }]
       context := invocationContext } responses vault = .returned post value effects) :
-    ∃ differenceBytes,
-      encodeLogicalStateValuesV1 data true #[differenceBytes, differenceBytes] = .ok post := by
+    encodeLogicalStateValuesV1 data true #[
+      natToLeBytesV1
+        (leBytesToNatV1 beforeBytes - leBytesToNatV1 argumentBytes) 8,
+      natToLeBytesV1
+        (leBytesToNatV1 beforeBytes - leBytesToNatV1 argumentBytes) 8
+    ] = .ok post := by
   let guardedSubCallable : CallableV1 := {
     id := callableId, kind := .entry, name := entryName
     params := #[{
@@ -14180,8 +14184,7 @@ theorem stepReferenceSliceV1_ready_guarded_sub_parameter_two_unit_returned_post_
       (.returned none) pre post value effects hstep'
     have hinitialized := (gateInvocation_ready_noninit_decode admitted pre invocation
       guardedSubCallable #[beforeBytes, beforeBytes] context hgate').2.1
-    refine ⟨differenceBytes, ?_⟩
-    simpa [finalMachine, hinitialized] using hencode
+    simpa [finalMachine, differenceBytes, hinitialized] using hencode
   · have hleFalse := evalBinary_le_uint64_failure data uint64TypeId boolTypeId
       argumentBytes beforeBytes htypeU htypeB hcanonical hcanBefore hguard
     obtain ⟨failureEnv, hrun⟩ :=

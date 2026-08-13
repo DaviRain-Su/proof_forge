@@ -1213,6 +1213,247 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
           hdepositValidatedModule, hproductionDepositExecution.2.1,
           hproductionDepositExecution.2.2⟩
 
+      -- Close `withdraw(amount)` against production entry one / MethodIR two.
+      -- Exact recognizers retain guard-before-write order, checked subtraction,
+      -- and natural Unit fall-through from the same production carrier.
+      let ⟨withdrawMethod, hwithdrawMethod⟩ ← liftOptionWithProof plan.entries[1]?
+        "VerifiedVaultPF production Plan is missing withdraw at entry 1"
+      let ⟨withdrawIR, hwithdrawIR⟩ ← liftOptionWithProof ir.methods[2]?
+        "VerifiedVaultPF production IR is missing withdraw at method 2"
+      let ⟨withdrawMethodShape, hwithdrawMethodRecognize⟩ ← liftOptionWithProof
+        (recognizeGuardedSubTwoUInt64WithdrawMethodV1 withdrawMethod)
+        "VerifiedVaultPF production withdraw Method was not structurally recognized"
+      let ⟨_, hwithdrawMethodFields⟩ ← requireProof
+        (withdrawMethodShape.entryName = "withdraw" ∧
+          withdrawMethodShape.parameterSourceId = 0 ∧
+          withdrawMethodShape.parameterName = "amount" ∧
+          withdrawMethodShape.guard0Index = 0 ∧
+          withdrawMethodShape.guard1Index = 1 ∧
+          withdrawMethodShape.store0Index = 0 ∧
+          withdrawMethodShape.load0Index = 0 ∧
+          withdrawMethodShape.store1Index = 1 ∧
+          withdrawMethodShape.load1Index = 1)
+        "VerifiedVaultPF production withdraw Method has wrong fields"
+      have hwithdrawMethodShapeExact : withdrawMethodShape = {
+          entryName := "withdraw"
+          parameterSourceId := 0
+          parameterName := "amount"
+          guard0Index := reservesBinding.physicalFieldIndex
+          guard1Index := sharesBinding.physicalFieldIndex
+          store0Index := reservesBinding.physicalFieldIndex
+          load0Index := reservesBinding.physicalFieldIndex
+          store1Index := sharesBinding.physicalFieldIndex
+          load1Index := sharesBinding.physicalFieldIndex
+        } := by
+        cases withdrawMethodShape
+        simp_all [reservesBinding, sharesBinding, productionReservesBinding,
+          productionSharesBinding]
+      have hwithdrawMethodRecognized :
+          recognizeGuardedSubTwoUInt64WithdrawMethodV1 withdrawMethod = some {
+            entryName := "withdraw"
+            parameterSourceId := 0
+            parameterName := "amount"
+            guard0Index := reservesBinding.physicalFieldIndex
+            guard1Index := sharesBinding.physicalFieldIndex
+            store0Index := reservesBinding.physicalFieldIndex
+            load0Index := reservesBinding.physicalFieldIndex
+            store1Index := sharesBinding.physicalFieldIndex
+            load1Index := sharesBinding.physicalFieldIndex
+          } :=
+        hwithdrawMethodRecognize.trans (congrArg some hwithdrawMethodShapeExact)
+      let ⟨withdrawIRShape, hwithdrawIRRecognize⟩ ← liftOptionWithProof
+        (recognizeGuardedSubTwoUInt64WithdrawMethodIRV1 withdrawIR)
+        "VerifiedVaultPF production withdraw MethodIR was not structurally recognized"
+      let ⟨_, hwithdrawIRScalars⟩ ← requireProof
+        (withdrawIRShape.entryName = "withdraw" ∧
+          withdrawIRShape.parameterSourceId = 0 ∧
+          withdrawIRShape.parameterName = "amount" ∧
+          withdrawIRShape.markerValue = plan.storage.markerValue)
+        "VerifiedVaultPF production withdraw MethodIR has wrong scalars"
+      let ⟨_, hwithdrawIRMarker⟩ ← checkKeyRegionEqual
+        withdrawIRShape.markerRegion alignedMarkerRegion
+        "VerifiedVaultPF withdraw marker region diverges from production keys"
+      let ⟨_, hwithdrawIRGuard0⟩ ← checkKeyRegionEqual
+        withdrawIRShape.guard0Region alignedReservesRegion
+        "VerifiedVaultPF withdraw first guard diverges from production keys"
+      let ⟨_, hwithdrawIRGuard1⟩ ← checkKeyRegionEqual
+        withdrawIRShape.guard1Region alignedSharesRegion
+        "VerifiedVaultPF withdraw second guard diverges from production keys"
+      let ⟨_, hwithdrawIRLoad0⟩ ← checkKeyRegionEqual
+        withdrawIRShape.load0Region alignedReservesRegion
+        "VerifiedVaultPF withdraw first subtraction load diverges from production keys"
+      let ⟨_, hwithdrawIRStore0⟩ ← checkKeyRegionEqual
+        withdrawIRShape.store0Region alignedReservesRegion
+        "VerifiedVaultPF withdraw first store diverges from production keys"
+      let ⟨_, hwithdrawIRLoad1⟩ ← checkKeyRegionEqual
+        withdrawIRShape.load1Region alignedSharesRegion
+        "VerifiedVaultPF withdraw second subtraction load diverges from production keys"
+      let ⟨_, hwithdrawIRStore1⟩ ← checkKeyRegionEqual
+        withdrawIRShape.store1Region alignedSharesRegion
+        "VerifiedVaultPF withdraw second store diverges from production keys"
+      have hwithdrawIRShapeExact : withdrawIRShape = {
+          entryName := "withdraw"
+          parameterSourceId := 0
+          parameterName := "amount"
+          markerRegion := alignedMarkerRegion
+          guard0Region := alignedReservesRegion
+          guard1Region := alignedSharesRegion
+          load0Region := alignedReservesRegion
+          store0Region := alignedReservesRegion
+          load1Region := alignedSharesRegion
+          store1Region := alignedSharesRegion
+          markerValue := plan.storage.markerValue
+        } := by
+        cases withdrawIRShape
+        simp_all
+      have hwithdrawIRRecognized :
+          recognizeGuardedSubTwoUInt64WithdrawMethodIRV1 withdrawIR = some {
+            entryName := "withdraw"
+            parameterSourceId := 0
+            parameterName := "amount"
+            markerRegion := alignedMarkerRegion
+            guard0Region := alignedReservesRegion
+            guard1Region := alignedSharesRegion
+            load0Region := alignedReservesRegion
+            store0Region := alignedReservesRegion
+            load1Region := alignedSharesRegion
+            store1Region := alignedSharesRegion
+            markerValue := plan.storage.markerValue
+          } :=
+        hwithdrawIRRecognize.trans (congrArg some hwithdrawIRShapeExact)
+      have hwithdrawLowering :
+          MethodIRLoweringV1 plan ir.keys withdrawMethod withdrawIR :=
+        planIRLoweringV1_entry_lookup_eq_some plan ir 1 withdrawMethod withdrawIR
+          hgraphs.2.2 hwithdrawMethod hwithdrawIR
+      have hwithdrawStatic :
+          ProductionGuardedSubTwoUInt64WithdrawStaticAlignmentV1 semantic
+            semanticData plan ir.keys reservesBinding sharesBinding "withdraw"
+              "amount" 0 withdrawMethod alignedMarkerRegion
+                alignedReservesRegion alignedSharesRegion withdrawIR :=
+        productionGuardedSubTwoUInt64WithdrawStaticAlignmentV1_of_recognized
+          semantic semanticData plan ir.keys reservesBinding sharesBinding
+            "withdraw" "amount" 0 withdrawMethod alignedMarkerRegion
+              alignedReservesRegion alignedSharesRegion withdrawIR hvalidate
+              hgraphs.2.1 hmarkerLookup
+              (by simpa [reservesBinding, productionReservesBinding] using
+                hreservesLookup)
+              (by simpa [sharesBinding, productionSharesBinding] using
+                hsharesLookup)
+              hwithdrawLowering hreservesBinding hsharesBinding rfl rfl rfl
+              (by simp [reservesBinding, sharesBinding,
+                productionReservesBinding, productionSharesBinding])
+              hmarkerCanonical.1 hmarkerCanonical.2 rfl hreservesCanonical rfl
+              hsharesCanonical hwithdrawMethodRecognized hwithdrawIRRecognized
+      let productionWithdrawSecondGuardStorage : StorageObservationV1 := {
+        lookup := fun key =>
+          if key == alignedMarkerRegion.key then
+            some (encodeU64le plan.storage.markerValue)
+          else if key == alignedReservesRegion.key then some (encodeU64le 10)
+          else if key == alignedSharesRegion.key then some (encodeU64le 4)
+          else none
+      }
+      have _ :
+          ∃ withdrawWATText withdrawABIText,
+            CapabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1 capability
+                semantic semanticData plan ir baseFiles 1 reservesBinding
+                sharesBinding "withdraw" "amount" 0 withdrawMethod
+                alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+                withdrawIR watFile abiFile withdrawWATText withdrawABIText ∧
+              ValidatedReadOnlyWATModuleEmissionV1 ir 2 withdrawIR
+                watFile.contents withdrawWATText
+                (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory
+                  alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+                  plan.storage.markerValue) ∧
+              executeMethodV1 withdrawIR (encodeU64le 2) 0 0
+                  productionDepositStorage =
+                .returned none
+                  (guardedSubTwoUInt64WithdrawPostStorageV1
+                    productionDepositStorage alignedReservesRegion
+                    alignedSharesRegion 10 10 2) ∧
+              executeMethodWATV1 12
+                  (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory
+                    alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+                    plan.storage.markerValue)
+                  (encodeU64le 2) 0 0 productionDepositStorage =
+                .returned none
+                  (guardedSubTwoUInt64WithdrawPostStorageV1
+                    productionDepositStorage alignedReservesRegion
+                    alignedSharesRegion 10 10 2) ∧
+              observeMethodV1 withdrawIR (encodeU64le 11) 0 0
+                  productionDepositStorage =
+                observeMethodWATV1 "withdraw" 12
+                  (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory
+                    alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+                    plan.storage.markerValue)
+                  (encodeU64le 11) 0 0 productionDepositStorage ∧
+              observeMethodV1 withdrawIR (encodeU64le 5) 0 0
+                  productionWithdrawSecondGuardStorage =
+                observeMethodWATV1 "withdraw" 12
+                  (guardedSubTwoUInt64WithdrawWATV1 ir.registers ir.memory
+                    alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+                    plan.storage.markerValue)
+                  (encodeU64le 5) 0 0
+                    productionWithdrawSecondGuardStorage := by
+        obtain ⟨withdrawWATText, withdrawABIText, hwithdrawCapability⟩ :=
+          capabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1_of_graphs
+            capability semantic semanticData plan ir baseFiles 1 reservesBinding
+            sharesBinding "withdraw" "amount" 0 withdrawMethod
+            alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+            withdrawIR watFile abiFile (by rfl) hplanCapability hirCapability
+            hbuildCapability hwithdrawStatic hwithdrawMethod hwithdrawIR hwatFile
+            habiFile
+        have hwithdrawValidatedModule :=
+          capabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1_validatedWATModule
+            capability semantic semanticData plan ir baseFiles 1 reservesBinding
+            sharesBinding "withdraw" "amount" 0 withdrawMethod
+            alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+            withdrawIR watFile abiFile withdrawWATText withdrawABIText
+            hwithdrawCapability hinputMemory hdepositMemory hvalueMemory
+        have hproductionWithdrawExecution :=
+          capabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1_execute
+            capability semantic semanticData plan ir baseFiles 1 reservesBinding
+            sharesBinding "withdraw" "amount" 0 withdrawMethod
+            alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+            withdrawIR watFile abiFile withdrawWATText withdrawABIText 10 10 2
+            productionDepositStorage hwithdrawCapability
+            (by simp [productionDepositStorage])
+            (by simp [productionDepositStorage, hreservesMarkerDistinct])
+            (by simp [productionDepositStorage, hsharesMarkerDistinct,
+              hsharesReservesDistinct])
+            hsharesReservesDistinct hinputValueDistinct
+            hinputDepositLowDistinct hinputDepositHighDistinct (by decide)
+            (by decide)
+        have hproductionWithdrawFirstGuardFailure :=
+          capabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1_firstGuardFailure
+            capability semantic semanticData plan ir baseFiles 1 reservesBinding
+            sharesBinding "withdraw" "amount" 0 withdrawMethod
+            alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+            withdrawIR watFile abiFile withdrawWATText withdrawABIText 10 11
+            productionDepositStorage hwithdrawCapability
+            (by simp [productionDepositStorage])
+            (by simp [productionDepositStorage, hreservesMarkerDistinct])
+            hinputValueDistinct hinputDepositLowDistinct
+            hinputDepositHighDistinct (by decide)
+        have hproductionWithdrawSecondGuardFailure :=
+          capabilityGuardedSubTwoUInt64WithdrawStaticEmissionV1_secondGuardFailure
+            capability semantic semanticData plan ir baseFiles 1 reservesBinding
+            sharesBinding "withdraw" "amount" 0 withdrawMethod
+            alignedMarkerRegion alignedReservesRegion alignedSharesRegion
+            withdrawIR watFile abiFile withdrawWATText withdrawABIText 10 4 5
+            productionWithdrawSecondGuardStorage hwithdrawCapability
+            (by simp [productionWithdrawSecondGuardStorage])
+            (by simp [productionWithdrawSecondGuardStorage,
+              hreservesMarkerDistinct])
+            (by simp [productionWithdrawSecondGuardStorage,
+              hsharesMarkerDistinct, hsharesReservesDistinct])
+            hinputValueDistinct hinputDepositLowDistinct
+            hinputDepositHighDistinct (by decide) (by decide)
+        exact ⟨withdrawWATText, withdrawABIText, hwithdrawCapability,
+          hwithdrawValidatedModule, hproductionWithdrawExecution.2.1,
+          hproductionWithdrawExecution.2.2,
+          hproductionWithdrawFirstGuardFailure.2.2,
+          hproductionWithdrawSecondGuardFailure.2.2⟩
+
       match hstatus : plan.entries[2]? with
       | none =>
           throw <| IO.userError "VerifiedVaultPF production Plan is missing status at entry 2"

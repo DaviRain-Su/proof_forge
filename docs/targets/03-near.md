@@ -358,8 +358,23 @@ Phase 1：实现
   deposit、missing layout、first overflow与 second overflow均 fail closed；第二次 overflow发生在第一条
   evaluator-local store之后，但两种 `observe*` boundary仍只暴露 exact pre-storage，固定 late-failure
   transaction rollback。没有新增业务 State/Effect/step、Plan/lowering、renderer或 evaluator。
-  `withdraw()` 尚未 target-refined；也仍不证明 arbitrary textual WAT、`wat2wasm` correctness、Wasm
-  binary semantics或 NEAR runtime simulation。整体仍是
+  本切完成时 `withdraw()` 尚未 target-refined（已由下一切闭合）；该切也不证明 arbitrary textual
+  WAT、`wat2wasm` correctness、Wasm binary semantics或 NEAR runtime simulation。整体仍是
+  **Reference-verified + engineering runtime observed ≠ fully target-refined**。
+- **VerifiedVault `withdraw(amount)` bounded target refinement（Phase 7 第二十九切）**：sole
+  production lowering、typed-WAT renderer/validator与两级 bounded evaluator已扩展 unsigned
+  checked subtraction和 assert trap，而没有新建 Plan、IR、renderer或业务语义。真实 same-file
+  certified capability动态连接 production Plan entry 1 / IR method 2、canonical marker/reserves/shares
+  regions、exact 19-operation MethodIR及同次 WAT/ABI output；recognizer固定两个
+  `amount ≤ state` guard均先于任何 store、随后两次 checked sub/store并以 Unit fall-through结束。
+  成功路径在 MethodIR和typed-WAT返回相同 `none`与 two-row checked-sub post-storage；sole Reference
+  returned theorem已收紧到 exact `natToLeBytesV1 (before - amount) 8` 两行 encoding，使 logical
+  post-state与 target bytes直接 join。first guard failure及 first-pass/second-fail均在 public
+  capability chain上导出 MethodIR assertion trap、typed-WAT trap与 exact canonical observation
+  agreement；两种 observation都固定 failure、empty return/logs/promises及 supplied pre-storage
+  rollback。当前仅 `status()`、`init()`、`deposit()`、`withdraw()` 四个 selected recipes具有
+  bounded MethodIR/typed-WAT refinement；仍不证明 arbitrary textual WAT、`wat2wasm` correctness、
+  Wasm binary semantics或 NEAR runtime simulation。整体仍是
   **Reference-verified + engineering runtime observed ≠ fully target-refined**。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
@@ -454,8 +469,10 @@ canonical key regions与 WAT/ABI emission 已动态闭合，bounded MethodIR/typ
 post-storage及 double-init/nonzero-deposit trap，真实 Reference initializer postEncode theorem连接逻辑
 zero/zero state与三条物理 KV row。selected `deposit()`也已由真实 production entry 0 / MethodIR 1
 capability chain连接 exact WAT/ABI emission、两级 checked-add execution与 Reference exact post-state；
-ABI/deposit/layout/first-overflow/late-second-overflow均有 no-commit边界。`withdraw()`尚未
-target-refined。当前仍没有 finalized
+ABI/deposit/layout/first-overflow/late-second-overflow均有 no-commit边界。selected `withdraw()`也已
+由真实 production entry 1 / MethodIR 2 capability chain连接双 guard-before-write、两级 checked-sub
+success、Unit fall-through、Reference exact post-state及 first/second guard canonical observation
+rollback。当前仍没有 finalized
 Wasm/disk identity 或 Reference→Wasm/NEAR simulation theorem。通用 corpus 对 corrupt storage 或
 gas/profile 的覆盖仍不完整；StateCell
 `negative_corpus` 已 pin unknown method / exactInputLen 类 bad args + state-hold

@@ -24,6 +24,10 @@ inductive ReadOnlyWATI64ExprV1 where
   | localGet (index : Nat)
   | i64Load (offset : Nat)
   | i64Add (left right : ReadOnlyWATI64ExprV1)
+  | i64Sub (left right : ReadOnlyWATI64ExprV1)
+  /-- Unsigned comparison widened back to the i64 Bool representation used by
+      production locals. -/
+  | i64LeU (left right : ReadOnlyWATI64ExprV1)
   | registerLen (register : Nat)
   | storageRead (field : KeyRegion) (register : Nat)
   /-- Exact 8-byte `storage_write` expression. It returns 1 when the key was
@@ -39,6 +43,7 @@ inductive ReadOnlyWATInstructionV1 where
   | attachedDeposit (offset : Nat)
   | trapIfI64Ne (left right : ReadOnlyWATI64ExprV1)
   | trapIfI64LtU (left right : ReadOnlyWATI64ExprV1)
+  | trapIfI64Eqz (value : ReadOnlyWATI64ExprV1)
   | readRegister (register offset : Nat)
   | localSet (index : Nat) (value : ReadOnlyWATI64ExprV1)
   | i64Store (offset : Nat) (value : ReadOnlyWATI64ExprV1)
@@ -169,6 +174,28 @@ def checkedAddUInt64WATV1
   .trapIfI64LtU (.localGet destination) (.localGet lhs)
 ]
 
+/-- Typed WAT for checked UInt64 subtraction. The unsigned underflow guard is
+    emitted before the subtraction, exactly as in the production renderer. -/
+def checkedSubUInt64WATV1
+    (destination lhs rhs : Nat) : Array MethodWATInstructionV1 := #[
+  .trapIfI64LtU (.localGet lhs) (.localGet rhs),
+  .localSet destination (.i64Sub (.localGet lhs) (.localGet rhs))
+]
+
+/-- Typed WAT for the UInt64 `≤` comparison used by the selected withdraw
+    guards. The i32 Wasm predicate is represented after production's explicit
+    zero-extension to the i64 temporary domain. -/
+def compareUInt64LeWATV1
+    (destination lhs rhs : Nat) : Array MethodWATInstructionV1 := #[
+  .localSet destination (.i64LeU (.localGet lhs) (.localGet rhs))
+]
+
+/-- Typed WAT for a standard assertion over a Bool local. -/
+def assertUInt64BoolWATV1
+    (condition : Nat) : Array MethodWATInstructionV1 := #[
+  .trapIfI64Eqz (.localGet condition)
+]
+
 /-- Typed WAT for overwriting one existing UInt64 state field from a local. -/
 def storeUInt64StateWATV1
     (registers : RegisterLayout)
@@ -238,6 +265,36 @@ def unaryAddTwoUInt64DepositWATV1
     returnUInt64WATV1 memory 6
   ]
 
+/-- Complete typed WAT sequence for the selected guarded withdraw entry. Both
+    guards run before either write; successful execution checked-subtracts the
+    same UInt64 parameter from both fields and returns Unit by fall-through. -/
+def guardedSubTwoUInt64WithdrawWATV1
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64) : Array MethodWATInstructionV1 :=
+  concatMethodWATRecipesV1 [
+    checkUInt64InputWATV1 registers memory,
+    requireZeroAttachedDepositWATV1 memory,
+    requireLayoutWATV1 registers memory marker markerValue,
+    loadUInt64ParamWATV1 memory 0 0,
+    loadUInt64StateWATV1 registers memory 1 field0,
+    compareUInt64LeWATV1 2 0 1,
+    assertUInt64BoolWATV1 2,
+    loadUInt64ParamWATV1 memory 3 0,
+    loadUInt64StateWATV1 registers memory 4 field1,
+    compareUInt64LeWATV1 5 3 4,
+    assertUInt64BoolWATV1 5,
+    loadUInt64StateWATV1 registers memory 6 field0,
+    loadUInt64ParamWATV1 memory 7 0,
+    checkedSubUInt64WATV1 8 6 7,
+    storeUInt64StateWATV1 registers memory field0 8,
+    loadUInt64StateWATV1 registers memory 9 field1,
+    loadUInt64ParamWATV1 memory 10 0,
+    checkedSubUInt64WATV1 11 9 10,
+    storeUInt64StateWATV1 registers memory field1 11
+  ]
+
 /-- Fail-closed static errors for the bounded typed-WAT subset. This validates
     renderability and the local/key/memory envelope owned by this syntax; it is
     not a validator for arbitrary textual WAT or Wasm modules. -/
@@ -296,6 +353,9 @@ def validateReadOnlyWATI64ExprV1
   | .i64Add left right => do
       validateReadOnlyWATI64ExprV1 keys memory localCount left
       validateReadOnlyWATI64ExprV1 keys memory localCount right
+  | .i64Sub left right | .i64LeU left right => do
+      validateReadOnlyWATI64ExprV1 keys memory localCount left
+      validateReadOnlyWATI64ExprV1 keys memory localCount right
   | .registerLen _ => .ok ()
   | .storageRead field _ =>
       if keys.any fun candidate => readOnlyWATKeyRegionEqV1 candidate field then
@@ -328,6 +388,8 @@ def validateReadOnlyWATInstructionV1
   | .trapIfI64LtU left right => do
       validateReadOnlyWATI64ExprV1 keys memory localCount left
       validateReadOnlyWATI64ExprV1 keys memory localCount right
+  | .trapIfI64Eqz value =>
+      validateReadOnlyWATI64ExprV1 keys memory localCount value
   | .readRegister _ offset => validateReadOnlyWATMemoryAccessV1 memory offset
   | .localSet index value => do
       if index < localCount then pure ()
@@ -476,6 +538,48 @@ theorem validateMethodWATV1_unaryAddTwoUInt64Deposit
     hinput, hdeposit, hdepositLow, hvalue, markerValue.toNat_lt,
     hzero, hone, height, Bind.bind, Except.bind, Pure.pure, Except.pure]
 
+/-- The selected guarded withdraw recipe validates against the same canonical
+    key and scratch-memory envelope as the production MethodIR. -/
+theorem validateMethodWATV1_guardedSubTwoUInt64Withdraw
+    (keys : Array KeyRegion)
+    (registers : RegisterLayout)
+    (memory : MemoryLayout)
+    (marker field0 field1 : KeyRegion)
+    (markerValue : UInt64)
+    (hmarker :
+      keys.any (fun candidate => readOnlyWATKeyRegionEqV1 candidate marker) =
+        true)
+    (hfield0 :
+      keys.any (fun candidate => readOnlyWATKeyRegionEqV1 candidate field0) =
+        true)
+    (hfield1 :
+      keys.any (fun candidate => readOnlyWATKeyRegionEqV1 candidate field1) =
+        true)
+    (hinput :
+      memory.inputOffset + 8 ≤ memory.minPages * wasmPageBytes)
+    (hdeposit :
+      memory.depositOffset + 16 ≤ memory.minPages * wasmPageBytes)
+    (hvalue :
+      memory.valueOffset + 8 ≤ memory.minPages * wasmPageBytes) :
+    validateReadOnlyWATMethodV1 keys memory 12
+      (guardedSubTwoUInt64WithdrawWATV1 registers memory marker field0 field1
+        markerValue) = .ok () := by
+  have hzero : (0 : Nat) < UInt64.size := by decide
+  have hone : (1 : Nat) < UInt64.size := by decide
+  have height : (8 : Nat) < UInt64.size := by decide
+  have hdepositLow :
+      memory.depositOffset + 8 ≤ memory.minPages * wasmPageBytes := by omega
+  simp [validateReadOnlyWATMethodV1, guardedSubTwoUInt64WithdrawWATV1,
+    concatMethodWATRecipesV1, checkUInt64InputWATV1,
+    requireZeroAttachedDepositWATV1, requireLayoutWATV1,
+    loadUInt64StateWATV1, loadUInt64ParamWATV1, compareUInt64LeWATV1,
+    assertUInt64BoolWATV1, checkedSubUInt64WATV1,
+    storeUInt64StateWATV1, validateReadOnlyWATInstructionsListV1,
+    validateReadOnlyWATInstructionV1, validateReadOnlyWATI64ExprV1,
+    validateReadOnlyWATMemoryAccessV1, hmarker, hfield0, hfield1,
+    hinput, hdeposit, hdepositLow, hvalue, markerValue.toNat_lt,
+    hzero, hone, height, Bind.bind, Except.bind, Pure.pure, Except.pure]
+
 /-- Canonical aliases for the one bounded method-WAT validator. -/
 abbrev validateMethodWATI64ExprV1 := validateReadOnlyWATI64ExprV1
 abbrev validateMethodWATInstructionV1 := validateReadOnlyWATInstructionV1
@@ -491,6 +595,12 @@ def renderReadOnlyWATI64ExprV1 : ReadOnlyWATI64ExprV1 → String
   | .i64Add left right =>
       s!"(i64.add {renderReadOnlyWATI64ExprV1 left} " ++
         s!"{renderReadOnlyWATI64ExprV1 right})"
+  | .i64Sub left right =>
+      s!"(i64.sub {renderReadOnlyWATI64ExprV1 left} " ++
+        s!"{renderReadOnlyWATI64ExprV1 right})"
+  | .i64LeU left right =>
+      s!"(i64.extend_i32_u (i64.le_u {renderReadOnlyWATI64ExprV1 left} " ++
+        s!"{renderReadOnlyWATI64ExprV1 right}))"
   | .registerLen register =>
       s!"(call $pf_register_len (i64.const {register}))"
   | .storageRead field register =>
@@ -514,6 +624,9 @@ def renderReadOnlyWATInstructionV1
   | .trapIfI64LtU left right =>
       s!"{indent}(if (i64.lt_u {renderReadOnlyWATI64ExprV1 left} " ++
         s!"{renderReadOnlyWATI64ExprV1 right}) (then unreachable))\n"
+  | .trapIfI64Eqz value =>
+      s!"{indent}(if (i64.eqz {renderReadOnlyWATI64ExprV1 value}) " ++
+        "(then unreachable))\n"
   | .readRegister register offset =>
       s!"{indent}(call $pf_read_register (i64.const {register}) " ++
         s!"(i64.const {offset}))\n"
