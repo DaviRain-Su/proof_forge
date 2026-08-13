@@ -101,6 +101,7 @@ import Tests.Materialization.EvmCorpusBlockedV1
 import Tests.Materialization.NearWasmAcceptance
 import Tests.Materialization.QuintSourceV1
 import Tests.Materialization.SolanaPlanV1
+import Tests.Materialization.SolanaStaticAlignmentV1
 import Tests.Materialization.SolanaCpiPlanV1
 import Tests.Materialization.SolanaCpiDeriveV1
 import Tests.Materialization.SolanaCpiPreflightV1
@@ -136,6 +137,9 @@ import Tests.CLI.InlineProofProductV1
 -- Tests.Semantic.NormalizeV1 and invoked from Tests.Typed.CheckV1.run (ordinary
 -- CI + fast path both hit that root).
 
+-- The aggregate's long `do` chain exceeds Lean's default elaboration recursion
+-- depth as target fixtures are added. Keep the larger budget local to this runner.
+set_option maxRecDepth 4096 in
 unsafe def main : IO Unit := do
   Tests.Compiler.ValidatedSourceV1Pipeline.run
   Tests.Compiler.CheckV1ProductGate.run
@@ -232,6 +236,7 @@ unsafe def main : IO Unit := do
   Tests.Materialization.NearWasmAcceptance.run
   Tests.Materialization.QuintSourceV1.run
   Tests.Materialization.SolanaPlanV1.run
+  Tests.Materialization.SolanaStaticAlignmentV1.run
   Tests.Materialization.SolanaCpiPlanV1.run
   Tests.Materialization.SolanaCpiDeriveV1.run
   Tests.Materialization.SolanaCpiPreflightV1.run

@@ -37,6 +37,7 @@ import Tests.Materialization.NoirRelationModel
 import Tests.Materialization.NoirCompileAcceptance
 import Tests.Materialization.NoirAcirV1
 import Tests.Materialization.SolanaPlanV1
+import Tests.Materialization.SolanaStaticAlignmentV1
 import Tests.Materialization.SolanaCpiPlanV1
 import Tests.Materialization.SolanaCpiDeriveV1
 import Tests.Materialization.SolanaCpiPreflightV1
@@ -117,6 +118,7 @@ unsafe def main : IO Unit := do
   Tests.Materialization.NoirRelationModel.run
   IO.eprintln "CP run"
   Tests.Materialization.SolanaPlanV1.run
+  Tests.Materialization.SolanaStaticAlignmentV1.run
   IO.eprintln "CP run"
   Tests.Materialization.SolanaCpiPlanV1.run
   IO.eprintln "CP run"

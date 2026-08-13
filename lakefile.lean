@@ -258,6 +258,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.NoirCompileAcceptance,
     `Tests.Materialization.NoirAcirV1,
     `Tests.Materialization.SolanaPlanV1,
+    `Tests.Materialization.SolanaStaticAlignmentV1,
     `Tests.Materialization.SolanaCpiPlanV1,
     `Tests.Materialization.SolanaCpiDeriveV1,
     `Tests.Materialization.SolanaCpiPreflightV1,

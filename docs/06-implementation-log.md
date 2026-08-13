@@ -15424,3 +15424,26 @@ normative: false
   bounded MethodIR/typed-WAT refinement。没有 arbitrary textual-WAT parser、一般 lowering/renderer
   correctness、`wat2wasm` correctness、Wasm binary execution或完整 NEAR host simulation；整体仍为
   **Reference-verified + engineering runtime observed ≠ fully target-refined**。
+
+## 2026-08-13 — Solana `StateCell.get()` bounded Plan/HandlerIR refinement
+
+- 新增 `Targets/Solana/StaticAlignmentV1.lean`：将 retained Semantic 的单个 public UInt64 state row
+  与 production single-state-account Plan 的 exact field/index、current-program owner、8-byte header、
+  initialized marker和little-endian offset绑定；proof-producing recognizer只接受 nullary read-only
+  UInt64 `Handler` / `HandlerIR` 的完整 production checks与 load/return recipe，任何额外、缺失或
+  reordered syntax fail closed。Reference bridge直接复用 sole
+  `stepReferenceSliceV1_ready_viewLoad_returned_exact`，没有新增 DSL State/Effect/step。
+- 新增 `Targets/Solana/HandlerSemanticsV1.lean`：bounded evaluator只消费 production HandlerIR、
+  instruction bytes与immutable account observations；执行 discriminator、exact account count、
+  duplicate marker、owner、input/data length、initialized header、UInt64 load与8-byte return。
+  unsupported checks/operations及 discriminator/owner/header mismatch trap；read-only execution不修改
+  account observations，scalar bytes复用 production `encodeU64le`与 Reference LE decoder theorem。
+- 新增 `Tests/Materialization/SolanaStaticAlignmentV1.lean`并接入 aggregate/fast/Solana shard：
+  compile-time fixture实例化 exact alignment与 success/failure theorems；runtime fixture从真实
+  `ProofForgeV2.Examples.StateCell` source走 compiler → capability → production Plan → HandlerIR，
+  固定 exact recipe、UInt64 return及 discriminator/duplicate/owner/header negatives。
+- 边界：当前只可称 **`StateCell.get()` bounded production Plan/HandlerIR target refinement**。
+  没有 HandlerIR→assembly/sBPF/ELF/loader/runtime correctness、finalized artifact identity或完整
+  Solana formal milestone。未来外部 `SbpfSemantics.Api` 应接在当前 relation下方，而不是复制唯一
+  `SemanticProgramV1 + ReferenceMachineV1` 业务语义；整体仍为
+  **Reference-verified + engineering runtime observed ≠ fully target-refined**。

@@ -3,7 +3,7 @@ id: TARGET-SOLANA
 title: Solana target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-12
+updated: 2026-08-13
 normative: true
 ---
 
@@ -142,6 +142,28 @@ static-QN 或动态地址支持。registry maturityLabel 已为 `runtime-validat
 Mollusk runtime 差分与 Surfpool 本地链工程门；Mollusk/Surfpool 属独立门禁，不并入 ordinary `just ci`）；
 该 label 仅为 engineering 成熟度声明，**非** formal/hermetic/mainnet——**工程事实以本段与
 coverage matrix 为准**。
+
+### 当前 formal refinement 首切（2026-08-13）
+
+当前只有一个 bounded、kernel-checkable 的 Solana target slice：production
+`StateCell.get() : UInt64`。
+
+- `StaticAlignmentV1` 把 retained Semantic public UInt64 state row绑定到 production Plan 的
+  single-account field/index/header/8-byte little-endian layout，并精确识别 production
+  nullary view `Handler` 与 `HandlerIR` check/load/return recipe；
+- `HandlerSemanticsV1` 只解释该 `HandlerIR` 子集，检查 8-byte discriminator、exact one account、
+  non-duplicate marker、current-program owner、exact data length、initialized header，然后读取
+  UInt64 field并返回 exact `encodeU64le`；unsupported shape与错误 discriminator/owner/header
+  全部 fail closed，account observation在 read-only success前后 exact不变；
+- Reference 侧复用唯一 `ReferenceMachineV1` 的 exact `viewLoad` theorem。测试既实例化手写 exact
+  relation，也从真实 StateCell source经 compiler/capability恢复 production Plan/HandlerIR并执行
+  success与 discriminator/duplicate/owner/header negatives。
+
+这不是 sBPF ISA、assembly emitter、ELF、loader或 Solana runtime correctness proof，也没有把
+工程 Mollusk observation升级为 formal evidence。准确声明仅为：
+**`StateCell.get()` bounded production Plan/HandlerIR target refinement**。
+未来可在这一层之下接外部 `SbpfSemantics.Api`，形成
+`HandlerIR → sBPF semantics → runtime observation`；不得另造第二套 DSL/business semantics。
 
 ## 1. 身份与来源
 

@@ -154,6 +154,7 @@ import Tests.Materialization.NearStaticAlignmentV1
 
 import Tests.Materialization.NoirRelationModel
 import Tests.Materialization.SolanaPlanV1
+import Tests.Materialization.SolanaStaticAlignmentV1
 import Tests.Materialization.SolanaCpiPlanV1
 import Tests.Materialization.SolanaCpiDeriveV1
 import Tests.Materialization.SolanaCpiPreflightV1
@@ -250,6 +251,7 @@ private unsafe def runMaterializationAndProductTests : IO Unit := do
   Tests.Materialization.NearStaticAlignmentV1.run
   Tests.Materialization.NoirRelationModel.run
   Tests.Materialization.SolanaPlanV1.run
+  Tests.Materialization.SolanaStaticAlignmentV1.run
   Tests.Materialization.SolanaCpiPlanV1.run
   Tests.Materialization.SolanaCpiDeriveV1.run
   Tests.Materialization.SolanaCpiPreflightV1.run

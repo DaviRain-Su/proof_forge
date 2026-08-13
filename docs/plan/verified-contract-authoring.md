@@ -3,7 +3,7 @@ id: PLAN-VERIFIED-CONTRACT-AUTHORING
 title: ProofForge VerifiedVault 风格形式化验证作者体验实施规划
 status: draft
 owner: engineering
-updated: 2026-08-12
+updated: 2026-08-13
 normative: false
 ---
 
@@ -809,6 +809,30 @@ recipe semantics。当前只能称 `status()`、`init()`、`deposit()` 与 `with
 MethodIR/typed-WAT refinement；整体
 artifact 声明仍是 **Reference-verified + NEAR engineering runtime observed ≠ fully target-refined**。
 
+2026-08-13 已开始 Solana 的第一个 bounded target slice，当前只覆盖真实 production
+`StateCell.get() : UInt64`：
+
+- `StaticAlignmentV1` 将 retained Semantic 中一个 public UInt64 state row，精确绑定到
+  production single-account Plan 的 account index、8-byte initialized header 与 little-endian
+  field offset；proof-producing recognizer只接受 nullary/read-only/UInt64 的 exact `Handler` 和
+  `HandlerIR` check/load/return recipe，额外、缺失或重排 syntax 一律 fail closed；
+- `HandlerSemanticsV1` 只消费 production `HandlerIR`、instruction bytes 与 immutable account
+  observations，不读取 DSL callable/body，也不定义 DSL `State / Effect / step`。bounded evaluator
+  执行 discriminator、account count/non-duplicate、owner、exact data length、initialized header、
+  UInt64 field load 与 exact 8-byte return；unsupported operation、错误 discriminator/owner/header
+  均 trap，read-only account observation保持 exact不变；
+- Reference bridge直接复用 sole `stepReferenceSliceV1_ready_viewLoad_returned_exact`，把 aligned
+  semantic state row接回唯一业务语义。回归同时覆盖 hand-written exact theorem fixture，以及真实
+  `ProofForgeV2.Examples.StateCell` 经 compiler → capability → production Plan → HandlerIR 的路径；
+- 该 slice停在 `Reference → production Plan/HandlerIR → bounded account/ABI/return observation`。
+  它不证明 assembly emitter、sBPF instruction、ELF、Solana loader/runtime或 finalized artifact
+  identity。未来若采用外部 `SbpfSemantics.Api`，应在当前 HandlerIR relation **之下**继续证明
+  `HandlerIR → sBPF semantics → runtime observation`，不能复制 Reference business semantics。
+
+因此当前只能称 **`StateCell.get()` bounded production Plan/HandlerIR target refinement**；不能把
+Solana target整体或最终 `.so` 称为 formally target-refined，整体边界仍是
+**Reference-verified + engineering runtime observed ≠ fully target-refined**。
+
 每个 target 至少需要：
 
 1. state representation relation：logical state ↔ storage/account/KV/witness；
@@ -820,8 +844,10 @@ artifact 声明仍是 **Reference-verified + NEAR engineering runtime observed �
 7. executable differential corpus 作为工程回归；
 8. kernel-checkable refinement theorem或正式验证证据，才能升级 artifact claim。
 
-优先顺序：NEAR VerifiedVault slice → EVM → Solana → 其他 target；每个 target 独立关闭，
-不能用一个 target 的 refinement 为其他 target 背书。
+当前顺序：NEAR VerifiedVault bounded recipes → Solana 首个 bounded recipe → EVM 外部
+Yul/EVM/bytecode semantics 边界评估 → 各 target 扩面。每个 target 独立关闭，不能用一个 target
+的 refinement 为其他 target 背书；也不在 ProofForge 内自造完整 EVM opcode、Wasm binary、sBPF
+或 Solana runtime semantics。
 
 ---
 
@@ -909,7 +935,7 @@ artifact 声明仍是 **Reference-verified + NEAR engineering runtime observed �
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR `status()` + `init()` + `deposit()` + `withdraw()` bounded MethodIR/typed-WAT slices 已闭合）** | `status()` 已有 certified capability → validated semantic data → production Plan/canonical keys → Plan→IR → exact WAT/ABI emission → bounded target execution → sole Reference returned observation 的 kernel chain。`init()` 证明成功 post-storage、double-init/nonzero-deposit trap并连接 logical zero/zero与 physical KV。`deposit()` 闭合真实 production entry 0 / MethodIR 1的 checked-add success、exact Reference post-state及 early/late overflow rollback。`withdraw()` 闭合真实 production entry 1 / MethodIR 2的双 unsigned guard、两次 checked subtraction、Unit fall-through、exact Reference post-state，以及 first/second guard trap的 MethodIR↔typed-WAT canonical observation agreement与 rollback。complete-module validation继续覆盖 memory/import/internal-call/method-export consistency，locked `wat2wasm`仅有工程验收。没有一般 lowering/renderer correctness、JSON/WAT semantics、IR→Wasm/NEAR simulation、WAT↔ABI consistency、`wat2wasm` correctness、finalized Wasm或disk artifact identity evidence，整体仍是 **Reference-verified + engineering runtime observed ≠ fully target-refined** |
+| 7 | Per-target refinement | **进行中（NEAR 四个 bounded recipes；Solana `StateCell.get()` 首切）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices。Solana 新增 retained UInt64 state → production single-account Plan/HandlerIR → bounded discriminator/account/header/load/return evaluator → sole Reference view observation；真实 StateCell compiler/capability/Plan/IR 路径已回归。Solana 尚无 HandlerIR→assembly/sBPF/ELF/runtime correctness，NEAR 也尚无一般 lowering/renderer、Wasm/runtime correctness；两者均不得升级为完整 artifact target-refined |
 
 ### 首个代码切片进展
 

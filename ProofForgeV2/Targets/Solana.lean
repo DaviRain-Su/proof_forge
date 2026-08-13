@@ -6,6 +6,8 @@ import ProofForgeV2.Targets.Solana.LowerSemanticV1
 import ProofForgeV2.Targets.Solana.ValidatePlanV1
 import ProofForgeV2.Targets.Solana.PlanSchemaV1
 import ProofForgeV2.Targets.Solana.EmitIRV1
+import ProofForgeV2.Targets.Solana.StaticAlignmentV1
+import ProofForgeV2.Targets.Solana.HandlerSemanticsV1
 import ProofForgeV2.Targets.Solana.MaterializationV1
 import ProofForgeV2.Targets.Solana.EmitSbpfAsmV1
 import ProofForgeV2.Targets.Solana.ProductFrameV1
