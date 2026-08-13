@@ -299,6 +299,13 @@ structure Store where
   byteWidth : Nat := 8
   deriving BEq, Inhabited, Repr
 
+structure ExternalCallResultBinding where
+  resultTemp : Nat
+  /-- Width of the single ABI returndata word admitted by this binding.
+      Validation restricts this to 64, 128, or 256. -/
+  bitWidth : Nat := 64
+  deriving BEq, Inhabited, Repr
+
 inductive Statement where
   | store (operation : Store)
   /-- Atomic multi-leaf aggregate storage write from a single StateStore.
@@ -326,10 +333,11 @@ inductive Statement where
   | externalCall (callee : Array String) (args : Array Expr)
   /-- N-CALL-RET/B-CALL-SEM: result-bearing sync call. Same static-callee
       CALL as `externalCall`, then RETURNDATASIZE guard (≥32) + first-word
-      read + UInt64 range check (short data or out-of-range revert with the
-      EVM-bare `revert(0,0)` convention). Failure reverts the caller.
-      `resultTemp` is the ValueId-canonical temp bound to the returned word. -/
-  | externalCallResult (callee : Array String) (args : Array Expr) (resultTemp : Nat)
+      read. UInt64 and UInt128 reject nonzero high bits; UInt256 retains the
+      complete word. Short or out-of-range data reverts with the EVM-bare
+      `revert(0,0)` convention. Failure reverts the caller. -/
+  | externalCallResult (callee : Array String) (args : Array Expr)
+      (result : ExternalCallResultBinding)
   /-- Async fire-and-forget schedule (void). Same static-callee address/selector
       derivation as `externalCall`, but CALL success is ignored (no response
       channel — matches Reference schedule semantics). -/
@@ -3968,8 +3976,7 @@ private def lowerBlockInstructionsV1
             s!"unsupported EVM semantic shape: unknown ContextRead key '{key.value}'"
     | .externalCall _effectId callee argIds, some result =>
         -- N-CALL-RET/B-CALL-SEM: result-bearing sync call → real CALL +
-        -- returndata read (see Statement.externalCallResult). Pilot admits
-        -- UInt64 results only; other scalar widths stay fail closed.
+        -- one-word returndata read (see Statement.externalCallResult).
         if mode == .view then
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: view callable makes an external call"
@@ -3984,9 +3991,15 @@ private def lowerBlockInstructionsV1
           unless isIdentifier c do
             throw <| .planInvariant .evm
               s!"unsupported EVM semantic shape: external call callee component '{c}' is not a safe identifier"
-        unless result.typeId == types.uint64TypeId do
-          throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: result-bearing external call result must be UInt64 (other widths are outside the EVM pilot)"
+        let resultBitWidth ← match types.uintWidthOf result.typeId with
+          | some width =>
+              unless width == 64 || width == 128 || width == 256 do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: result-bearing external call result must be UInt64, UInt128, or UInt256"
+              pure width
+          | none =>
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: result-bearing external call result must be UInt64, UInt128, or UInt256"
         let mut argExprs : Array Expr := #[]
         for argId in argIds do
           let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
@@ -3996,9 +4009,10 @@ private def lowerBlockInstructionsV1
           argExprs := argExprs.push root.expr
         let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
         let resultTemp := result.valueId.toNat
-        body := body.push (.externalCallResult components argExprs resultTemp)
+        body := body.push (.externalCallResult components argExprs
+          { resultTemp, bitWidth := resultBitWidth })
         values := ← appendResultValueV1 result.typeId values result
-          (mkScalarValueV1 (.temp resultTemp) #[] false false 64 1 1)
+          (mkScalarValueV1 (.temp resultTemp) #[] false false resultBitWidth 1 1)
         hasAssert := true
         armReadables := promoteDominatingPureV1 paramCount values armReadables
         segmentStart := values.size

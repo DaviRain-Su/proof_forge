@@ -3841,8 +3841,8 @@ private unsafe def testOptionUInt64State : IO Unit := do
         s!"Option param FC must cite parameter/Option boundary, got: {e.render}"
 
 /-- BL-28: result-bearing external call lowers on EVM to real CALL +
-    returndata read (iszero/returndatasize/UInt64 range guards); non-UInt64
-    scalar results stay fail closed. -/
+    returndata read (iszero/returndatasize/UInt64 range guards). UInt64
+    positive retained; Bool result stays fail closed (wide admit). -/
 private unsafe def testCallReturnEvm : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let src :=
@@ -3877,7 +3877,7 @@ private unsafe def testCallReturnEvm : IO Unit := do
   expect (yul.contains "returndatasize()") "CallRetEvm: Yul must guard returndatasize"
   expect (yul.contains "let t") "CallRetEvm: Yul must bind the returned word"
   expect (yul.contains "0xffffffffffffffff") "CallRetEvm: Yul must range-check UInt64"
-  -- Non-UInt64 scalar result stays fail closed (Bool result in the pilot).
+  -- Bool result stays fail closed (wide admit does not open Bool).
   let boolSrc :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
@@ -3897,11 +3897,98 @@ private unsafe def testCallReturnEvm : IO Unit := do
   | .ok compiled =>
       match planEvm compiled with
       | .error e =>
-          expect (e.render.contains "result must be UInt64")
-            s!"Bool result FC must cite UInt64-only pilot, got: {e.render}"
+          expect
+            (e.render.contains
+              "result must be UInt64, UInt128, or UInt256")
+            s!"Bool result FC must cite UInt64/128/256 admit set, got: {e.render}"
       | .ok _ =>
           throw <| IO.userError
-            "EVM Bool result call must fail closed in the UInt64 pilot"
+            "EVM Bool result call must fail closed (not in UInt64/128/256 admit set)"
+
+/-- Result-bearing CALL admits UInt128 (high-128 zero) and UInt256
+    (full 32B word, no UInt64 truncate). Bool remains FC above. -/
+private unsafe def testCallReturnWideEvm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- UInt128: plan + materialize; returndatasize; high 128 bits zero (not UInt64 mask).
+  let src128 :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallRetU128Evm where\n" ++
+    "  entry probe(k : UInt64) : UInt128 do\n" ++
+    "    let x : UInt128 := call ledger.get(k)\n" ++
+    "    return x\n"
+  let c128 ← match ← session.selectProgramV1
+      src128 "<evm-call-ret-u128>" "Tests.EvmCallRetU128" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"CallRetU128Evm select: {e.render}"
+  let compiled128 ← match Compiler.compileValidatedSourceV1 c128 with
+    | .error _ => throw <| IO.userError "CallRetU128Evm must compile through located Normalize"
+    | .ok c => pure c
+  let plan128 ← match planEvm compiled128 with
+    | .error e =>
+        throw <| IO.userError
+          s!"CallRetU128Evm must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let hasResultCall128 := plan128.entries.any fun e =>
+    e.body.any fun s =>
+      match s with
+      | .externalCallResult _ _ _ => true
+      | _ => false
+  expect hasResultCall128 "CallRetU128Evm: plan must contain externalCallResult"
+  let files128 ← match materializeSelected TargetId.evm compiled128 with
+    | .error e => throw <| IO.userError s!"CallRetU128Evm materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yul128File := files128.find? (·.path == "CallRetU128Evm.yul") |
+    throw <| IO.userError "CallRetU128Evm: missing .yul"
+  let yul128 := yul128File.contents
+  expect (yul128.contains "returndatasize()")
+    "CallRetU128Evm: Yul must guard returndatasize"
+  -- High 128 bits zero on the returndata temp (not the UInt64 arg gate).
+  expect (yul128.contains "shr(128")
+    "CallRetU128Evm: Yul must zero-check high 128 bits"
+  expect (!yul128.contains "gt(t")
+    "CallRetU128Evm: result temp must not use UInt64 gt range check"
+
+  -- UInt256: full 32B word; must not UInt64-truncate returndata.
+  let src256 :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallRetU256Evm where\n" ++
+    "  entry probe(k : UInt64) : UInt256 do\n" ++
+    "    let x : UInt256 := call ledger.get(k)\n" ++
+    "    return x\n"
+  let c256 ← match ← session.selectProgramV1
+      src256 "<evm-call-ret-u256>" "Tests.EvmCallRetU256" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"CallRetU256Evm select: {e.render}"
+  let compiled256 ← match Compiler.compileValidatedSourceV1 c256 with
+    | .error _ => throw <| IO.userError "CallRetU256Evm must compile through located Normalize"
+    | .ok c => pure c
+  let plan256 ← match planEvm compiled256 with
+    | .error e =>
+        throw <| IO.userError
+          s!"CallRetU256Evm must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let hasResultCall256 := plan256.entries.any fun e =>
+    e.body.any fun s =>
+      match s with
+      | .externalCallResult _ _ _ => true
+      | _ => false
+  expect hasResultCall256 "CallRetU256Evm: plan must contain externalCallResult"
+  let files256 ← match materializeSelected TargetId.evm compiled256 with
+    | .error e => throw <| IO.userError s!"CallRetU256Evm materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yul256File := files256.find? (·.path == "CallRetU256Evm.yul") |
+    throw <| IO.userError "CallRetU256Evm: missing .yul"
+  let yul256 := yul256File.contents
+  expect (yul256.contains "returndatasize()")
+    "CallRetU256Evm: Yul must guard returndatasize"
+  expect (yul256.contains "mload(0)")
+    "CallRetU256Evm: Yul must read the full 32B returndata word"
+  expect (!yul256.contains "gt(t")
+    "CallRetU256Evm: result temp must not UInt64-truncate returndata"
+  expect (!yul256.contains "shr(128")
+    "CallRetU256Evm: must not apply the UInt128 high-half guard"
 
 /-- B-CTX-OPEN / ADR-0031 S1+S2: `context.unixTimeSeconds` → `timestamp()`;
     `context.blockHeight` → `number()`; `context.caller` → Principal from
@@ -4463,6 +4550,7 @@ unsafe def run : IO Unit := do
   testAnonymousOptionUInt64Return
   testOptionUInt64State
   testCallReturnEvm
+  testCallReturnWideEvm
   testContextReadTimestampEvm
   testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed

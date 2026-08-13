@@ -372,14 +372,17 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
         out := out.append (← encodeNatAsU32le operation.byteWidth)
         out := out.append (← encodeExpr operation.value)
       pure out
-  -- Tag 12 (N-CALL-RET): result-bearing external call (returndata → temp).
-  | .externalCallResult callee args resultTemp => do
-      let mut out := encodeU8 12
+  -- Tag 12 remains the byte-identical UInt64 result-bearing CALL. Tag 17 is
+  -- the appended wide-result shape and binds its exact UInt128/256 width.
+  | .externalCallResult callee args result => do
+      let mut out := encodeU8 (if result.bitWidth == 64 then 12 else 17)
       out := out.append (← encodeNatAsU32le callee.size)
       for c in callee do out := out.append (← encodeString c)
       out := out.append (← encodeNatAsU32le args.size)
       for arg in args do out := out.append (← encodeExpr arg)
-      out := out.append (← encodeNatAsU32le resultTemp)
+      out := out.append (← encodeNatAsU32le result.resultTemp)
+      if result.bitWidth != 64 then
+        out := out.append (← encodeNatAsU32le result.bitWidth)
       pure out
   -- Tag 13 (ADR-0029 B2): pf.assets.native.deposit(amount).
   | .nativeDeposit amount => do

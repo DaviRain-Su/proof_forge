@@ -1650,11 +1650,12 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         output := output ++
           s!"{indent}let {okName} := call(gas(), 0x{addr20}, 0, 0, {4 + 32 * args.size}, 0, 0)\n" ++
           s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n"
-    | .externalCallResult callee args resultTemp =>
+    | .externalCallResult callee args result =>
         -- N-CALL-RET/B-CALL-SEM: real CALL with 32-byte returndata capture,
-        -- RETURNDATASIZE guard, first-word read, UInt64 range check. Same
-        -- static address/selector derivation and failure-revert discipline
-        -- as the void path.
+        -- RETURNDATASIZE guard, and first-word read. UInt64 keeps its
+        -- historical max guard; UInt128 requires a zero high half; UInt256
+        -- retains the complete word. Same static address/selector derivation
+        -- and failure-revert discipline as the void path.
         let method := callee[callee.size - 1]!
         let targetParts := callee.extract 0 (callee.size - 1)
         let targetPath := String.intercalate "." targetParts.toList
@@ -1670,12 +1671,23 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         output := output ++ s!"{indent}mstore(0, 0x{padded})\n"
         let okName := s!"callOk{next}"
         next := next + 1
+        let resultName := s!"t{result.resultTemp}"
+        let widthGuard :=
+          match result.bitWidth with
+          | 64 =>
+              s!"{indent}if gt({resultName}, 0xffffffffffffffff) \{ revert(0, 0) }\n"
+          | 128 =>
+              s!"{indent}if shr(128, {resultName}) \{ revert(0, 0) }\n"
+          | 256 => ""
+          | _ =>
+              -- `validatePlan` rejects this branch; retain a fail-closed
+              -- rendering fallback for defense in depth.
+              s!"{indent}revert(0, 0)\n"
         output := output ++
           s!"{indent}let {okName} := call(gas(), 0x{addr20}, 0, 0, {4 + 32 * args.size}, 0, 32)\n" ++
           s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n" ++
           s!"{indent}if lt(returndatasize(), 32) \{ revert(0, 0) }\n" ++
-          s!"{indent}let t{resultTemp} := mload(0)\n" ++
-          s!"{indent}if gt(t{resultTemp}, 0xffffffffffffffff) \{ revert(0, 0) }\n"
+          s!"{indent}let {resultName} := mload(0)\n" ++ widthGuard
     | .schedule callee args =>
         -- Fire-and-forget: same static address/selector, CALL success ignored.
         let method := callee[callee.size - 1]!

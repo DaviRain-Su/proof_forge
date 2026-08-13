@@ -525,9 +525,12 @@ private partial def checkPlanStatementsV1
               s!"{owner} external call arguments must be UInt64 expressions"
           total ← addPlanExprNodes slots paramCount total fns arg
         total := total + 1
-    | .externalCallResult callee args _resultTemp =>
+    | .externalCallResult callee args result =>
         if isView then
           throw <| .planInvariant .evm s!"{owner} makes an external call in a view context"
+        unless result.bitWidth == 64 || result.bitWidth == 128 || result.bitWidth == 256 do
+          throw <| .planInvariant .evm
+            s!"{owner} result-bearing external call width must be UInt64, UInt128, or UInt256"
         unless callee.size ≥ 2 do
           throw <| .planInvariant .evm
             s!"{owner} external call callee must have at least two components"
