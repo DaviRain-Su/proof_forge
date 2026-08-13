@@ -15,6 +15,12 @@ open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.DescriptorDataV1
 open ProofForgeV2.Targets.EnvelopeV1
 
+private def loopBindingKeyV1 (index : Nat) : Nat :=
+  2 * index
+
+private def sha256BindingKeyV1 (index : Nat) : Nat :=
+  2 * index + 1
+
 private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .compare .. | .wideCompare .. => false
   | .signedCompare .. => false
@@ -30,8 +36,20 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .narrowCheckedAdd .. | .narrowCheckedSub .. | .narrowCheckedMul ..
   | .narrowCheckedDiv .. | .narrowCheckedMod .. | .narrowBitNot ..
   | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
-  | .narrowShl .. | .narrowShr .. => false
+  | .narrowShl .. | .narrowShr .. | .sha256Result _ => false
   | _ => true
+
+/-- Exact expression family accepted as the one-word (four LE limbs) input to
+    the dedicated NEAR SHA-256 host leaf. No UInt64, Bool, Int, aggregate, or
+    pureFn expression is widened implicitly. -/
+private def exprIsUInt256CompatibleV1 : Expr → Bool
+  | .bigLiteral 256 _ | .narrowParam 256 _ | .narrowStateLoad 256 _
+  | .narrowCheckedAdd 256 .. | .narrowCheckedSub 256 ..
+  | .narrowCheckedMul 256 .. | .narrowCheckedDiv 256 ..
+  | .narrowCheckedMod 256 .. | .narrowBitAnd 256 ..
+  | .narrowBitOr 256 .. | .narrowBitXor 256 .. | .narrowBitNot 256 _
+  | .narrowShl 256 .. | .narrowShr 256 .. | .sha256Result _ => true
+  | _ => false
 
 private partial def planExprNodes? (layout : StorageLayout) (params : Array Param)
     (fns : Array FnBinding) (depthLeft nodeBudget : Nat) (expr : Expr)
@@ -62,7 +80,9 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .stateLoad fieldIndex | .narrowStateLoad _ fieldIndex =>
         if fieldIndex < layout.fields.size then some 1 else none
     | .localTemp index =>
-        if localScope.contains index then some 1 else none
+        if localScope.contains (loopBindingKeyV1 index) then some 1 else none
+    | .sha256Result resultTemp =>
+        if localScope.contains (sha256BindingKeyV1 resultTemp) then some 1 else none
     | .blockTimestampSeconds => some 1
     | .blockIndex => some 1
     | .accountBalance => some 1
@@ -217,6 +237,7 @@ private partial def checkMethodStatementsV1
   let mut total := total
   let mut methodTemps := methodTemps
   let mut closed := false
+  let mut localScope := localScope
   for statement in statements do
     if closed then
       throw <| .planInvariant .near s!"method has a statement after return"
@@ -320,6 +341,31 @@ private partial def checkMethodStatementsV1
           total ← addPlanExprNodes limits layout params fns total arg localScope
           methodTemps ← addMethodExprTemps limits layout params fns methodTemps arg localScope
         total := total + 1
+    | .sha256Precompile input resultTemp =>
+        if isView then
+          throw <| .planInvariant .near
+            "view method cannot invoke pf.crypto.sha256"
+        if isPureFn then
+          throw <| .planInvariant .near
+            "pureFn body cannot invoke pf.crypto.sha256"
+        if isInitializer then
+          throw <| .planInvariant .near
+            "initializer cannot invoke pf.crypto.sha256"
+        unless exprIsUInt256CompatibleV1 input do
+          throw <| .planInvariant .near
+            "pf.crypto.sha256 Plan input must be a UInt256 expression"
+        let resultKey := sha256BindingKeyV1 resultTemp
+        if localScope.contains resultKey then
+          throw <| .planInvariant .near
+            "pf.crypto.sha256 Plan result binding must be unique in its lexical scope"
+        total ← addPlanExprNodes limits layout params fns total input localScope
+        methodTemps ← addMethodExprTemps limits layout params fns methodTemps input localScope
+        total := total + 1
+        if methodTemps + 4 > limits.maxMethodLocals then
+          throw <| .planInvariant .near
+            s!"method expression exceeds local limit {limits.maxMethodLocals}"
+        methodTemps := methodTemps + 4
+        localScope := localScope.push resultKey
     | .nativeDeposit amount =>
         if isView then
           throw <| .planInvariant .near
@@ -462,13 +508,14 @@ private partial def checkMethodStatementsV1
         methodTemps := md
         closed := allClosed && cd
     | .forLoop varTemp initial condition update _maxIterations body =>
-        if localScope.contains varTemp then
+        let loopKey := loopBindingKeyV1 varTemp
+        if localScope.contains loopKey then
           throw <| .planInvariant .near
             "nested NEAR for-loop induction locals must not shadow an enclosing binding"
         total ← addPlanExprNodes limits layout params fns total initial localScope
         methodTemps ← addMethodExprTemps limits layout params fns methodTemps
           initial localScope
-        let loopScope := localScope.push varTemp
+        let loopScope := localScope.push loopKey
         total ← addPlanExprNodes limits layout params fns total condition loopScope
         methodTemps ← addMethodExprTemps limits layout params fns methodTemps
           condition loopScope
@@ -660,7 +707,7 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     (planUsesTransferPromiseV1 plan) (planUsesTokenTransferPromiseV1 plan)
     (planUsesTimestampV1 plan) (planUsesBlockIndexV1 plan)
     (planUsesAccountBalanceV1 plan) (planUsesCallerV1 plan)
-    (planUsesSelfV1 plan)
+    (planUsesSelfV1 plan) (planUsesSha256V1 plan)
   unless plan.targetDescriptor == descriptor &&
       plan.semanticSchemaVersion == semanticProgramSchemaVersionV1 &&
       plan.codegenProfile == descriptor.codegenProfile.toString &&

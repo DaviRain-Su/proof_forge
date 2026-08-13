@@ -192,6 +192,10 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .selfPrincipalLen => pure (encodeU8 46)
   | .selfPrincipalWord wordIndex =>
       pure ((encodeU8 47).append (← encodeNatAsU32le wordIndex))
+  -- ADR-0031 S5: handle for a preceding dedicated SHA-256 statement. Tag 51
+  -- is appended so every existing expression encoding remains byte-identical.
+  | .sha256Result resultTemp =>
+      pure ((encodeU8 51).append (← encodeNatAsU32le resultTemp))
 
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with
@@ -279,6 +283,10 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       for w in dstWords do out := out.append (← encodeExpr w)
       out := out.append (← encodeExpr amount)
       pure out
+  | .sha256Precompile input resultTemp =>
+      -- Tag 14 (ADR-0031 S5): exact UInt256 → UInt256 NEAR host SHA-256.
+      pure (((encodeU8 14).append (← encodeExpr input)).append
+        (← encodeNatAsU32le resultTemp))
 
 private def encodeParam (p : Param) : Except String ByteArray := do
   pure (((((← encodeNatAsU32le p.sourceId).append (← encodeString p.name)).append

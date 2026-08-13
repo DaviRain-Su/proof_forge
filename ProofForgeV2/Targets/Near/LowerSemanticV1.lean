@@ -121,6 +121,11 @@ inductive HostImport where
   /-- ADR-0031 S3: host `current_account_id` (writes UTF-8 account-id into
       a register; view-safe). Used by `context.self` Principal leaves. -/
   | currentAccountId
+  /-- ADR-0031 S5: host `sha256(value_len, value_ptr, register_id)`.
+      Present only when an entry lowers the exact
+      `pf.crypto.sha256(UInt256) -> UInt256` leaf. This is a host syscall, not
+      a promise or synchronous cross-contract call. -/
+  | sha256
   deriving BEq, Inhabited, Repr
 
 structure ResourceLimits where
@@ -269,6 +274,10 @@ inductive Expr where
   /-- ADR-0031 S3: one LE body word of the current-account Principal wire
       (`wordIndex ∈ 0..7`). Same packing as callerPrincipalWord. -/
   | selfPrincipalWord (wordIndex : Nat)
+  /-- Result handle for a preceding dedicated `.sha256Precompile` statement.
+      `resultTemp` is the semantic result ValueId and denotes four consecutive
+      little-endian UInt64 limbs after Plan→IR lowering. -/
+  | sha256Result (resultTemp : Nat)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -342,6 +351,10 @@ inductive Statement where
       (mintLen : Expr) (mintWords : Array Expr)
       (dstLen : Expr) (dstWords : Array Expr)
       (amount : Expr)
+  /-- ADR-0031 S5: exact `pf.crypto.sha256(UInt256) -> UInt256` host syscall.
+      `input` is a four-limb UInt256 expression; `resultTemp` binds the
+      `.sha256Result` handle used by subsequent statements. -/
+  | sha256Precompile (input : Expr) (resultTemp : Nat)
   deriving BEq, Inhabited, Repr
 
 /-- ABI type of one aggregate return leaf. Named Struct/Enum and Array/Option
@@ -562,16 +575,17 @@ private def canonicalImports : Array HostImport := #[
 
 /-- Host import set driven by schedule and/or transferAsync and/or token
     transferAsync and/or timestamp and/or block height and/or accountBalance
-    env-read and/or context.caller predecessor read.
+    env-read and/or context.caller/context.self reads and/or the dedicated
+    SHA-256 host leaf.
     `promise_batch_create` is shared; function-call vs transfer action imports
     are independent so no-schedule Plans stay free of transfer host when only
     schedule is absent, and vice versa. Token transferAsync uses function-call
     action (like schedule) plus promise_batch_create, so it shares the
     function-call import with schedule. `block_timestamp`, `block_index`,
-    `account_balance` and `predecessor_account_id` are independent. -/
+    `account_balance`, Principal identity reads, and `sha256` are independent. -/
 def hostImportsFor (usesSchedulePromise usesTransferPromise
     usesTokenTransferPromise usesTimestamp usesBlockIndex usesAccountBalance
-    usesCaller usesSelf : Bool) :
+    usesCaller usesSelf usesSha256 : Bool) :
     Array HostImport :=
   Id.run do
     let mut base := canonicalImports
@@ -591,6 +605,8 @@ def hostImportsFor (usesSchedulePromise usesTransferPromise
       base := base.push .predecessorAccountId
     if usesSelf then
       base := base.push .currentAccountId
+    if usesSha256 then
+      base := base.push .sha256
     pure base
 
 def canonicalRegisters : RegisterLayout := {
@@ -608,6 +624,14 @@ def canonicalRegisters : RegisterLayout := {
 /-- Thin adapter: binds NEAR's `maxIdentifierBytes` (240) to the shared grammar. -/
 def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
+
+/-- Reserve the complete `pf.crypto` namespace from generic NEAR promise or
+    cross-contract lowering. SYS-S5 admits only the exact host leaf below. -/
+private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
+  components[0]? == some "pf" && components[1]? == some "crypto"
+
+private def isPfCryptoSha256CalleeV1 (components : Array String) : Bool :=
+  components == #["pf", "crypto", "sha256"]
 
 /-- NEAR account-id grammar for schedule receivers (pilot): lowercase ASCII
     letters, digits, `_`, `-`, `.`; UTF-8 length 2..64; no leading or trailing
@@ -2748,6 +2772,60 @@ private def lowerBlockInstructionsV1
         body := body.push (.emitEvent eventId.toNat argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
+    | .externalCall _effectId callee argIds, some result =>
+        -- SYS-S5-NEAR: exact pf.crypto.sha256 is a synchronous host syscall,
+        -- not a synchronous cross-contract call or Promise. All other
+        -- result-bearing ExternalCall shapes remain fail closed.
+        if mode == .view then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: view callable makes an external call"
+        if mode == .pureFn then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: pureFn cannot make external calls"
+        if mode == .initialize then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: initializer cannot make external calls"
+        let components := callee.components.toArray
+        unless components.size ≥ 2 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: external call callee must have at least two components"
+        for c in components do
+          unless isIdentifier c do
+            throw <| .planInvariant .near
+              s!"unsupported NEAR semantic shape: external call callee component '{c}' is not a safe identifier"
+        let qn := String.intercalate "." components.toList
+        unless isPfCryptoSha256CalleeV1 components do
+          if isPfCryptoCalleeV1 components then
+            throw <| .planInvariant .near
+              s!"unsupported NEAR semantic shape: pf.crypto QN '{qn}' is outside admitted NEAR scope"
+          else
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: result-bearing ExternalCall is outside the NEAR envelope"
+        unless argIds.size == 1 && types.uintWidthOf result.typeId == some 256 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+        let some inputId := argIds[0]? |
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: pf.crypto.sha256 UInt256 argument is missing"
+        let inputRoot ← currentValueWithArmsV1 values blockEntry segmentStart
+          armReadables inputId
+        unless !inputRoot.isAggregate && inputRoot.kind == .uint256 do
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+        let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
+        let resultTemp := result.valueId.toNat
+        body := body.push (.sha256Precompile inputRoot.expr resultTemp)
+        values := ← appendResultValueV1 result.typeId values result {
+          expr := .sha256Result resultTemp
+          kind := .uint256
+          depth := 1
+          expandedNodes := 1
+          dependencies := #[]
+        }
+        -- The effect result is the root of the new segment. Its handle remains
+        -- consumable by the next state/return sink, while every input value
+        -- below this index is sealed by the advanced boundary.
+        segmentStart := resultTemp
     | .externalCall _effectId callee argIds, none =>
         -- ADR-0029 C2: pf.assets catalog QNs admitted under extension.pf-assets;
         -- non-catalog sync external calls remain permanently fail closed
@@ -2770,7 +2848,14 @@ private def lowerBlockInstructionsV1
             throw <| .planInvariant .near
               s!"unsupported NEAR semantic shape: external call callee component '{c}' is not a safe identifier"
         let qn := String.intercalate "." components.toList
-        if isPfAssetsCatalogQnV1 qn then
+        if isPfCryptoCalleeV1 components then
+          if isPfCryptoSha256CalleeV1 components then
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+          else
+            throw <| .planInvariant .near
+              s!"unsupported NEAR semantic shape: pf.crypto QN '{qn}' is outside admitted NEAR scope"
+        else if isPfAssetsCatalogQnV1 qn then
           unless layout.pfAssetsDeclared do
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: pf.assets catalog call requires extension.pf-assets declaration"
@@ -2903,6 +2988,9 @@ private def lowerBlockInstructionsV1
         unless components.size ≥ 2 do
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: schedule callee must have at least two components"
+        if isPfCryptoCalleeV1 components then
+          throw <| .planInvariant .near
+            "unsupported NEAR semantic shape: pf.crypto calls cannot be scheduled on NEAR"
         let receiver := String.intercalate "." components.toList
         unless isNearAccountId receiver do
           throw <| .planInvariant .near (nearAccountIdError receiver)
@@ -4080,7 +4168,8 @@ partial def statementsUseNativeDepositV1 (statements : Array Statement) : Bool :
     | .forLoop _ _ _ _ _ body => statementsUseNativeDepositV1 body
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
     | .returnNone | .assert _ | .emitEvent .. | .revertError ..
-    | .promiseAccount .. | .promiseTransfer .. | .promiseTokenTransfer .. => false
+    | .promiseAccount .. | .promiseTransfer .. | .promiseTokenTransfer ..
+    | .sha256Precompile .. => false
 
 /-- ADR-0031 S4: body contains `attachedDepositValue` (ContextRead). -/
 partial def exprUsesAttachedDepositValueV1 (expr : Expr) : Bool :=
@@ -4090,7 +4179,7 @@ partial def exprUsesAttachedDepositValueV1 (expr : Expr) : Bool :=
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex | .accountBalance | .accountBalanceU128
   | .callerPrincipalLen | .callerPrincipalWord _
-  | .selfPrincipalLen | .selfPrincipalWord _ => false
+  | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4117,6 +4206,7 @@ partial def statementsUseAttachedDepositValueV1 (statements : Array Statement) :
     | .emitEvent _ args => args.any exprUsesAttachedDepositValueV1
     | .revertError _ args => args.any exprUsesAttachedDepositValueV1
     | .promiseAccount _ _ args => args.any exprUsesAttachedDepositValueV1
+    | .sha256Precompile input _ => exprUsesAttachedDepositValueV1 input
     | .nativeDeposit amount => exprUsesAttachedDepositValueV1 amount
     | .promiseTransfer dstLen dstWords amount =>
         exprUsesAttachedDepositValueV1 dstLen ||
@@ -4270,7 +4360,7 @@ partial def exprUsesTimestampV1 (expr : Expr) : Bool :=
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _ | .accountBalance
   | .accountBalanceU128 | .attachedDepositValue
   | .blockIndex | .callerPrincipalLen | .callerPrincipalWord _
-  | .selfPrincipalLen | .selfPrincipalWord _ => false
+  | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4295,7 +4385,7 @@ partial def exprUsesBlockIndexV1 (expr : Expr) : Bool :=
   | .blockTimestampSeconds | .accountBalance | .accountBalanceU128
   | .attachedDepositValue
   | .callerPrincipalLen | .callerPrincipalWord _
-  | .selfPrincipalLen | .selfPrincipalWord _ => false
+  | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4319,7 +4409,7 @@ partial def exprUsesAccountBalanceV1 (expr : Expr) : Bool :=
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex | .attachedDepositValue
   | .callerPrincipalLen | .callerPrincipalWord _
-  | .selfPrincipalLen | .selfPrincipalWord _ => false
+  | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4344,7 +4434,7 @@ partial def exprUsesCallerV1 (expr : Expr) : Bool :=
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex | .accountBalance | .accountBalanceU128
   | .attachedDepositValue
-  | .selfPrincipalLen | .selfPrincipalWord _ => false
+  | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4371,6 +4461,7 @@ partial def statementsUseTimestampV1 (statements : Array Statement) : Bool :=
     | .emitEvent _ args => args.any exprUsesTimestampV1
     | .revertError _ args => args.any exprUsesTimestampV1
     | .promiseAccount _ _ args => args.any exprUsesTimestampV1
+    | .sha256Precompile input _ => exprUsesTimestampV1 input
     | .nativeDeposit amount => exprUsesTimestampV1 amount
     | .promiseTransfer dstLen dstWords amount =>
         exprUsesTimestampV1 dstLen || dstWords.any exprUsesTimestampV1 ||
@@ -4407,6 +4498,7 @@ partial def statementsUseBlockIndexV1 (statements : Array Statement) : Bool :=
     | .emitEvent _ args => args.any exprUsesBlockIndexV1
     | .revertError _ args => args.any exprUsesBlockIndexV1
     | .promiseAccount _ _ args => args.any exprUsesBlockIndexV1
+    | .sha256Precompile input _ => exprUsesBlockIndexV1 input
     | .nativeDeposit amount => exprUsesBlockIndexV1 amount
     | .promiseTransfer dstLen dstWords amount =>
         exprUsesBlockIndexV1 dstLen || dstWords.any exprUsesBlockIndexV1 ||
@@ -4443,6 +4535,7 @@ partial def statementsUseAccountBalanceV1 (statements : Array Statement) : Bool 
     | .emitEvent _ args => args.any exprUsesAccountBalanceV1
     | .revertError _ args => args.any exprUsesAccountBalanceV1
     | .promiseAccount _ _ args => args.any exprUsesAccountBalanceV1
+    | .sha256Precompile input _ => exprUsesAccountBalanceV1 input
     | .nativeDeposit amount => exprUsesAccountBalanceV1 amount
     | .promiseTransfer dstLen dstWords amount =>
         exprUsesAccountBalanceV1 dstLen || dstWords.any exprUsesAccountBalanceV1 ||
@@ -4481,6 +4574,7 @@ partial def statementsUseCallerV1 (statements : Array Statement) : Bool :=
     | .emitEvent _ args => args.any exprUsesCallerV1
     | .revertError _ args => args.any exprUsesCallerV1
     | .promiseAccount _ _ args => args.any exprUsesCallerV1
+    | .sha256Precompile input _ => exprUsesCallerV1 input
     | .nativeDeposit amount => exprUsesCallerV1 amount
     | .promiseTransfer dstLen dstWords amount =>
         exprUsesCallerV1 dstLen || dstWords.any exprUsesCallerV1 ||
@@ -4510,7 +4604,7 @@ partial def exprUsesSelfV1 (expr : Expr) : Bool :=
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex | .accountBalance | .accountBalanceU128
   | .attachedDepositValue
-  | .callerPrincipalLen | .callerPrincipalWord _ => false
+  | .callerPrincipalLen | .callerPrincipalWord _ | .sha256Result _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4536,6 +4630,7 @@ partial def statementsUseSelfV1 (statements : Array Statement) : Bool :=
     | .emitEvent _ args => args.any exprUsesSelfV1
     | .revertError _ args => args.any exprUsesSelfV1
     | .promiseAccount _ _ args => args.any exprUsesSelfV1
+    | .sha256Precompile input _ => exprUsesSelfV1 input
     | .nativeDeposit amount => exprUsesSelfV1 amount
     | .promiseTransfer dstLen dstWords amount =>
         exprUsesSelfV1 dstLen || dstWords.any exprUsesSelfV1 ||
@@ -4566,6 +4661,25 @@ def planUsesSelfV1 (plan : Plan) : Bool :=
     plan.entries.any (fun m => statementsUseSelfV1 m.body) ||
     plan.fns.any (fun f => statementsUseSelfV1 f.body)
 
+/-- ADR-0031 S5: exact use predicate for the dedicated host SHA-256 leaf.
+    It is deliberately independent of the NEAR promise predicates. -/
+partial def statementsUseSha256V1 (statements : Array Statement) : Bool :=
+  statements.any fun statement =>
+    match statement with
+    | .sha256Precompile .. => true
+    | .ifThenElse _ thenBody elseBody =>
+        statementsUseSha256V1 thenBody || statementsUseSha256V1 elseBody
+    | .switchOn _ cases defaultBody =>
+        statementsUseSha256V1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUseSha256V1 caseBody
+    | .forLoop _ _ _ _ _ body => statementsUseSha256V1 body
+    | _ => false
+
+def planUsesSha256V1 (plan : Plan) : Bool :=
+  statementsUseSha256V1 plan.initializer.body ||
+    plan.entries.any (fun m => statementsUseSha256V1 m.body) ||
+    plan.fns.any (fun f => statementsUseSha256V1 f.body)
+
 /-- Schedule → function-call promise (not transferAsync). -/
 partial def statementsUseSchedulePromiseV1 (statements : Array Statement) : Bool :=
   statements.any fun statement =>
@@ -4580,6 +4694,7 @@ partial def statementsUseSchedulePromiseV1 (statements : Array Statement) : Bool
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
     | .returnNone | .assert _ | .emitEvent .. | .revertError ..
     | .nativeDeposit _ | .promiseTransfer .. | .promiseTokenTransfer .. => false
+    | .sha256Precompile .. => false
 
 /-- ADR-0029 C2: transferAsync → Transfer promise. -/
 partial def statementsUseTransferPromiseV1 (statements : Array Statement) : Bool :=
@@ -4595,6 +4710,7 @@ partial def statementsUseTransferPromiseV1 (statements : Array Statement) : Bool
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
     | .returnNone | .assert _ | .emitEvent .. | .revertError ..
     | .nativeDeposit _ | .promiseAccount .. | .promiseTokenTransfer .. => false
+    | .sha256Precompile .. => false
 
 /-- ADR-0030 E1-NEAR: token transferAsync → function-call promise. -/
 partial def statementsUseTokenTransferPromiseV1 (statements : Array Statement) : Bool :=
@@ -4611,6 +4727,7 @@ partial def statementsUseTokenTransferPromiseV1 (statements : Array Statement) :
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
     | .returnNone | .assert _ | .emitEvent .. | .revertError ..
     | .nativeDeposit _ | .promiseAccount .. | .promiseTransfer .. => false
+    | .sha256Precompile .. => false
 
 /-- Any promise family (schedule or transferAsync). Kept for host-import
     consumers that only need a boolean. -/
@@ -4829,6 +4946,10 @@ private def makePlanFromSemanticDataV1
     statementsUseSelfV1 resolvedInitializer.body ||
       entries.any (fun m => statementsUseSelfV1 m.body) ||
       fns.any (fun f => statementsUseSelfV1 f.body)
+  let usesSha256 :=
+    statementsUseSha256V1 resolvedInitializer.body ||
+      entries.any (fun m => statementsUseSha256V1 m.body) ||
+      fns.any (fun f => statementsUseSha256V1 f.body)
   let plan : Plan := {
     targetDescriptor := descriptor
     semanticSchemaVersion := semanticProgramSchemaVersionV1
@@ -4838,7 +4959,7 @@ private def makePlanFromSemanticDataV1
     layoutDomain := stateLayoutDomain
     hostImports := hostImportsFor usesSchedulePromise usesTransferPromise
       usesTokenTransferPromise usesTimestamp usesBlockIndex usesAccountBalance
-      usesCaller usesSelf
+      usesCaller usesSelf usesSha256
     failurePolicy := canonicalFailurePolicy
     commitPolicy := .rollbackOnTrap
     resourceLimits := canonicalResourceLimits

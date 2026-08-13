@@ -996,6 +996,10 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       pure { machine with
         logs := machine.logs.push
           s!"pf-token-transfer:{mintId}:{dstId}:{amountV}" }
+  | .sha256Host _destination _input =>
+      -- SYS-S5-NEAR: Plan/IR/WAT pins cover env.sha256; this interpreter does
+      -- not execute the register-based host syscall (sandbox owns runtime).
+      modelError "sha256Host is outside the NearHostModel interpreter"
   | .revertError errorIndex args => do
       let some name := machine.errorNames[errorIndex]? |
         modelError s!"error index {errorIndex} is outside the declared table"
@@ -1309,6 +1313,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .requireExactAttachedDeposit _ => "requireExactAttachedDeposit"
     | .promiseTransfer .. => "promiseTransfer"
     | .promiseTokenTransfer .. => "promiseTokenTransfer"
+    | .sha256Host .. => "sha256Host"
     | .revertError .. => "revertError"
     | .returnNone => "returnNone"
     | .ifRegion .. => "ifRegion"
@@ -4574,6 +4579,133 @@ private unsafe def testMapTokenDualStoreVisibility
   expect (balSrc == some 60) s!"token-dual: balanceOf(src)=60, got {balSrc}"
   expect (balDst == some 40) s!"token-dual: balanceOf(dst)=40, got {balDst}"
 
+/-- SYS-S5-NEAR: `call pf.crypto.sha256` UInt256→UInt256 via host `env.sha256`
+    (not a promise / sync cross-contract CALL). Dedicated Plan statement +
+    host import; other widths/QNs and generic Oracle.feed stay Plan FC.
+    No-sha256 Accumulator WAT import set must stay free of sha256. -/
+private unsafe def testCryptoSha256Near (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program Sha256Near where\n" ++
+    "  state last : UInt256\n\n" ++
+    "  init() do\n" ++
+    "    last := 0\n\n" ++
+    "  entry probe(x : UInt256) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256(x)\n" ++
+    "    return h\n\n" ++
+    "  view get() : UInt256 do\n" ++
+    "    return last\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-sha256>" "Examples.Sha256Near" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.hostImports.contains .sha256)
+    "sha256-near: plan must import env.sha256"
+  expect (!plan.hostImports.contains .promiseBatchCreate)
+    "sha256-near: must not invent a promise batch (not async)"
+  let some probe := plan.entries.find? (·.name == "probe") |
+    throw <| IO.userError "sha256-near: missing probe"
+  let mut hasDedicated := false
+  for s in probe.body do
+    match s with
+    | .sha256Precompile _ _ => hasDedicated := true
+    | _ => pure ()
+  expect hasDedicated
+    "sha256-near: plan must contain dedicated sha256Precompile statement"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  expect (ir.imports.contains .sha256)
+    "sha256-near: IR must import sha256"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "sha256-near: missing .wat artifact"
+  expectContains wat.contents "\"sha256\"" "sha256-near WAT env sha256 import name"
+  expectContains wat.contents "(import \"env\" \"sha256\""
+    "sha256-near WAT must import env.sha256"
+  expectContains wat.contents "(call $pf_sha256"
+    "sha256-near WAT must call pf_sha256"
+  -- Honesty: must not invent a sync cross-contract CALL / empty promise path.
+  expect ((wat.contents.splitOn "promise_batch_create").length == 1)
+    "sha256-near WAT must not invent promise_batch_create"
+  expect ((wat.contents.splitOn "Oracle").length == 1)
+    "sha256-near WAT must not invent Oracle callee path"
+
+  let expectPlanFc (programName pathLabel moduleName body needle : String) :
+      IO Unit := do
+    let negText :=
+      "import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      s!"program {programName} where\n" ++
+      body ++
+      "end ProofForgeV2.Examples\n"
+    let negSource ← liftResult (← session.selectProgramV1
+      negText pathLabel moduleName none)
+    let negCompiled ← liftResult <| Compiler.compileValidatedSourceV1 negSource
+    let negCap ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection negCompiled
+    match Targets.Near.planFromCapability negCap with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{programName} must Plan fail closed (no sync CALL / hashed fallback)"
+
+  expectPlanFc "Sha256NearU64" "<near-sha256-u64>" "Examples.Sha256NearU64"
+    ("  state last : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt64) : UInt64 do\n" ++
+      "    let h : UInt64 := call pf.crypto.sha256(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n\n")
+    "pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+  expectPlanFc "Sha256NearHashNoPad" "<near-sha256-hashnopad>"
+    "Examples.Sha256NearHashNoPad"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.hashNoPad(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n\n")
+    "outside admitted NEAR scope"
+  expectPlanFc "OracleFeedSync" "<near-oracle-feed-sync>" "Examples.OracleFeedSync"
+    ("  state count : UInt64\n\n" ++
+      "  init(i : UInt64) do\n" ++
+      "    count := i\n\n" ++
+      "  entry poke(n : UInt64) : UInt64 do\n" ++
+      "    call Oracle.feed(count)\n" ++
+      "    return n\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return count\n\n")
+    "synchronous external calls are outside the NEAR envelope"
+
+  -- Import-set identity: no-sha256 Accumulator must stay free of sha256.
+  let accSource ← liftResult (← session.selectProgramV1
+    accumulatorSourceText "<near-sha256-acc-baseline>"
+    accumulatorModuleNameV1 none)
+  let accCompiled ← liftResult <| Compiler.compileValidatedSourceV1 accSource
+  let accCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection accCompiled
+  let accPlan ← liftResult <| Targets.Near.planFromCapability accCap
+  expect (!accPlan.hostImports.contains .sha256)
+    "accumulator: plan hostImports must stay free of sha256"
+  let accFiles ← liftResult <| Targets.Near.buildFromCapability accCap
+  let some accWat := accFiles.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "accumulator baseline: missing .wat"
+  expect ((accWat.contents.splitOn "\"sha256\"").length == 1)
+    "accumulator WAT must stay free of env sha256 import"
+  expect ((accWat.contents.splitOn "pf_sha256").length == 1)
+    "accumulator WAT must stay free of pf_sha256 call"
+
 /-- B-CTX-OPEN: `context.unixTimeSeconds` lowers on NEAR to host
     `block_timestamp()` with the /10^9 second conversion; the import is
     present iff the plan uses it. -/
@@ -5910,6 +6042,7 @@ unsafe def run : IO Unit := do
   testMapEmptyPutAtomicStore session
   testMapTokenDualStoreVisibility session
   testNamedStructProductPath session
+  testCryptoSha256Near session
   testContextReadTimestampNear session
   testContextReadBlockHeightNear session
   testContextReadAttachedValueNear session
