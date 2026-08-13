@@ -15515,3 +15515,12 @@ normative: false
   with a dedicated diagnostic instead of the UInt64-pilot catch-all.
 - EVM Anvil companion remains host-optional. **Not** EXT-CRYPTO / formal /
   Anvil lossless / C-3.
+
+## 2026-08-13 — SYS-S5 TON honesty + SBOM 284
+
+- TON Plan now fail-closes exact `pf.crypto.*` with a dedicated diagnostic
+  (no `string_hash` / hashed fallback). Engineering Plan bypass exists only
+  to pin that diagnostic while the resolver still declines
+  `effect.synchronous-call`.
+- `supply-chain/lean-package-files.v1.json` refreshed to 284 files after the
+  rebase onto origin/main. AGENTS checkpoint path count updated. Not formal.

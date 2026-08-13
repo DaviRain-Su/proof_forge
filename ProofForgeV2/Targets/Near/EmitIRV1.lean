@@ -1678,8 +1678,6 @@ private def returnDataLeavesMemoryEndV1
 private partial def operationMemoryEndV1 (ir : IR) : Operation → Option Nat
   | .checkInputLen bytes => some (ir.memory.inputOffset + bytes)
   | .requireZeroAttachedDeposit | .requireExactAttachedDeposit _
-  | .attachedDepositValue _ =>
-      some (ir.memory.depositOffset + 16)
   | .accountBalance _ | .accountBalanceU128 _ | .attachedDepositValue _ =>
       some (ir.memory.depositOffset + 16)
   | .sha256Host .. => some (ir.memory.valueOffset + 32)

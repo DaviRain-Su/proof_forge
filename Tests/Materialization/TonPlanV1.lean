@@ -222,6 +222,51 @@ private unsafe def testCallSyncFc
           expectPlanErrorContaining "call plan" "call" (planFromCapability capability)
   IO.println "  ✓ call/sync fail closed"
 
+/-- SYS-S5: TON has no sha256 host. Exact `pf.crypto.sha256` and sibling
+    QNs stay Plan fail closed (no hashed / string_hash fallback). -/
+private unsafe def testCryptoSha256StayFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let expectPlanFc (programName pathLabel moduleName body needle : String) :
+      IO Unit := do
+    let src := wrapProgram programName body
+    let compiled ← compileSource session src moduleName pathLabel
+    -- Engineering path: pin the Plan diagnostic even if the product
+    -- resolver declines effect.synchronous-call first.
+    match engineeringPlanFromCompiled compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{programName} must Plan fail closed (no Ton sha256 host)"
+  -- TON type policy rejects UInt256 before ExternalCall, so keep the
+  -- fixture on admitted UInt64. The needle is still the crypto QN —
+  -- not a hashed / string_hash fallback and not the generic call FC.
+  expectPlanFc "Sha256Ton" "<ton-sha256>" "Examples.Sha256Ton"
+    ("  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    let h : UInt64 := call pf.crypto.sha256(w)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Ton host binding"
+  expectPlanFc "Sha256TonHashNoPad" "<ton-sha256-hashnopad>"
+    "Examples.Sha256TonHashNoPad"
+    ("  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    let h : UInt64 := call pf.crypto.hashNoPad(w)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Ton host binding"
+  IO.println "  ✓ pf.crypto.sha256 stay fail closed (no Ton host)"
+
 /-- Schedule → Plan/IR/Tolk createMessage pins (destination hash stub, bounce,
     send mode, value=0, op encoding). Sync call remains FC (above). -/
 private unsafe def testSchedulePlanAndTolk
@@ -1460,6 +1505,7 @@ unsafe def run : IO Unit := do
   testStateCellIRAndTolk session
   testMultiField session
   testCallSyncFc session
+  testCryptoSha256StayFailClosed session
   testSchedulePlanAndTolk session
   testNarrowUInt8 session
   testNarrowUInt16UInt32 session

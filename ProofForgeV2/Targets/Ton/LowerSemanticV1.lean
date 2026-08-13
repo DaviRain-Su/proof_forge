@@ -9,6 +9,9 @@ import ProofForgeV2.Compiler.Pipeline
 
 Owns the TON/TVM Plan surface (c4 cell storage, internal-message op dispatch,
 get-methods) and Semantic→Plan body for the public-UInt64 state-cell pilot.
+
+`pf.crypto.*` (including `sha256`) has no TON host binding and stays fail
+closed on both void and result-bearing ExternalCall.
 -/
 
 namespace ProofForgeV2.Targets.Ton
@@ -430,6 +433,11 @@ def canonicalRegisters : RegisterLayout := {
 /-- Thin adapter: binds Ton's `maxIdentifierBytes` (240) to the shared grammar. -/
 def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
+
+/-- ADR-0031 S5: TON has no sha256 host. Any `pf.crypto.*` QN stays
+    fail closed (void and result-bearing). -/
+private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
+  components[0]? == some "pf" && components[1]? == some "crypto"
 
 /-- Schedule **receiver stub** grammar (pilot): lowercase ASCII letters, digits,
     `_`, `-`, `.`; UTF-8 length 2..64; no leading or trailing `.`. Uppercase is
@@ -2501,9 +2509,24 @@ private def lowerBlockInstructionsV1
         body := body.push (.emitEvent eventId.toNat argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
-    | .externalCall _effectId _callee _argIds, none =>
+    | .externalCall _effectId callee _argIds, some _result =>
+        -- SYS-S5: TON has no host sha256. Pin the dedicated diagnostic
+        -- instead of falling through the UInt64-pilot catch-all.
+        let components := callee.components.toArray
+        let qn := String.intercalate "." components.toList
+        if isPfCryptoCalleeV1 components then
+          throw <| .planInvariant .ton
+            s!"unsupported Ton semantic shape: pf.crypto QN '{qn}' has no Ton host binding (sha256 and siblings stay fail closed)"
+        throw <| .planInvariant .ton
+          "unsupported Ton semantic shape: result-bearing ExternalCall is outside the Ton envelope"
+    | .externalCall _effectId callee _argIds, none =>
         -- Ton has no synchronous cross-contract calls. The S2 resolver already
         -- declines effect.synchronous-call; this is the defensive plan gate.
+        let components := callee.components.toArray
+        let qn := String.intercalate "." components.toList
+        if isPfCryptoCalleeV1 components then
+          throw <| .planInvariant .ton
+            s!"unsupported Ton semantic shape: pf.crypto QN '{qn}' has no Ton host binding (sha256 and siblings stay fail closed)"
         throw <| .planInvariant .ton
           "call/sync external call is outside the Ton MVP envelope (TON has no synchronous cross-contract return; use schedule/callback)"
     | .schedule _effectId callee argIds, none =>
@@ -3835,6 +3858,13 @@ def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : 
     throw <| .planInvariant .ton "engineering capability kind is not Ton"
   let source := CompiledSemanticV1.semanticV1Of
     (ResolvedEngineeringBuildV1.compiledOf capability)
+  makePlanFromSemanticV1 source
+
+/-- Engineering Plan-layer entry that bypasses capability resolve.
+
+    Used to pin SYS-S5 `pf.crypto.*` fail-closed diagnostics while the Ton
+    resolver still declines `effect.synchronous-call`. **Not** a product path. -/
+def engineeringPlanFromSemanticV1 (source : SemanticProgramV1) : CompileResult Plan :=
   makePlanFromSemanticV1 source
 
 end ProofForgeV2.Targets.Ton
