@@ -222,6 +222,54 @@ unsafe def testCryptoSha256StayFailClosed : IO Unit := do
       "    return pad\n")
     "has no Psy host binding"
 
+/-- SYS-S5: Psy `pf.crypto.keccak256` is an ADR-0039 circuit gadget
+    (UInt64 first-limb ABI), not the unified UInt256→UInt256 host leaf.
+    Exact UInt256 host shape stays fail closed. -/
+unsafe def testCryptoKeccak256IsGadgetNotHost : IO Unit := do
+  let expectPlanFc (label body needle : String) : IO Unit := do
+    let source :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {label} where\n" ++ body
+    let compiled ← compileSource s!"<psy-{label}>" s!"Tests.Psy{label}" source
+    match planPsyOf compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{label} must Plan fail closed (Psy keccak256 is not a UInt256 host)"
+  -- Unified-host shape: UInt256→UInt256 is not admitted on Psy.
+  expectPlanFc "Keccak256PsyU256"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt256 := 0\n" ++
+      "    let h : UInt256 := call pf.crypto.keccak256(w)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "pf.crypto/context scalar result must be UInt64/Felt"
+  -- Circuit gadget still admits the historical UInt64 first-limb ABI.
+  let gadgetSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Keccak256PsyGadget where\n" ++
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry probe() : UInt64 do\n" ++
+    "    let w : UInt64 := 0\n" ++
+    "    let h : UInt64 := call pf.crypto.keccak256(w)\n" ++
+    "    pad := h\n" ++
+    "    return pad\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return pad\n"
+  let compiled ← compileSource "<psy-keccak-gadget>" "Tests.PsyKeccak256Gadget" gadgetSrc
+  let plan ← liftResult <| planPsyOf compiled
+  liftResult <| Targets.Psy.validatePlan plan
+
 unsafe def run : IO Unit := do
   testDispositionHelpers
   testFiveCatalogQnsFailAtResolve
@@ -231,6 +279,7 @@ unsafe def run : IO Unit := do
   testTokenTransferAsyncUnboundAtPlan
   testNonCatalogCallStillLowers
   testCryptoSha256StayFailClosed
+  testCryptoKeccak256IsGadgetNotHost
   IO.println "Tests.Materialization.PsyPfAssetsV1: ok"
 
 end Tests.Materialization.PsyPfAssetsV1

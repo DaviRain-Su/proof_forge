@@ -120,7 +120,7 @@ profile 明确 residual FC）。诚实差异：Solana 为物理 slot 而非逻�
 
 | 期 | 行 | 内容 | 状态 |
 |---|---|---|---|
-| **S5** | `pf.crypto` v1 | 密码学逐能力 catalog，首行 `sha256`：EVM precompile `0x02`（STATICCALL）/ Solana `sol_sha256` / NEAR host `sha256` / Noir 电路内 `sha256_compression`（**纯函数、无可信输入问题**，电路类可诚实绑定的例外候选——S5 冻结时决策）/ CW 无内建 FC / Aleo 无 SHA-2 FC / TON 冻结 / Quint FC | **in_progress**（2026-08-13 EVM `0x02` + Solana sole-product `sol_sha256` + NEAR host `sha256` UInt256→UInt256 leaves 已工程接线；EVM/Solana/NEAR 另开 `keccak256` native/`sol_keccak256`/`env.keccak256` leaf；CW/TON/Noir/Aleo/Quint 对 sha256/keccak256 已诚实 FC；Psy 对 sha256 已诚实 FC（其 keccak256 是电路 gadget，不是统一 host）；Bytes ABI、extension catalog 仍 pending，S5 未完成） |
+| **S5** | `pf.crypto` v1 | 密码学逐能力 catalog，首行 `sha256`：EVM precompile `0x02`（STATICCALL）/ Solana `sol_sha256` / NEAR host `sha256` / Noir 电路内 `sha256_compression`（**纯函数、无可信输入问题**，电路类可诚实绑定的例外候选——S5 冻结时决策）/ CW 无内建 FC / Aleo 无 SHA-2 FC / TON 冻结 / Quint FC | **in_progress**（2026-08-13 EVM `0x02` + Solana sole-product `sol_sha256` + NEAR host `sha256` UInt256→UInt256 leaves 已工程接线；EVM/Solana/NEAR 另开 `keccak256` native/`sol_keccak256`/`env.keccak256` leaf；CW/TON/Noir/Aleo/Quint 对 sha256/keccak256 已诚实 FC；Psy 对 sha256 已诚实 FC，其 keccak256 已钉为 ADR-0039 电路 gadget（UInt64 first-limb，不是统一 UInt256 host）；Solana host-only sha256/keccak256 product capability 仍预存 FC；Bytes ABI、extension catalog 仍 pending，S5 未完成） |
 | **S6+** | per-chain 官方 program | EVM 系统合约（EIP-4788/2935/7002/7251）、Solana Stake/ComputeBudget、Aleo `credits.aleo`、CW staking/gov、ICP management（design-only target） | deferred（每行独立设计波；质押/治理属业务能力走 `pf.*` extension 纪律） |
 
 ## 验证

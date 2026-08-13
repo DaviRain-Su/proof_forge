@@ -4549,6 +4549,64 @@ private unsafe def testSha256CheckFixtureEvm : IO Unit := do
   expect (!yul.contains hashedPfCrypto)
     s!"Sha256Check: Yul must not contain hashed pf.crypto address {hashedPfCrypto}"
 
+/-- SYS-S5-EVM Anvil companion fixture pin: inline twin of
+    Examples/Keccak256Check.lean. Plan `.keccak256Opcode` + native
+    `keccak256(0, 32)`; not the SHA-256 precompile. -/
+private unsafe def testKeccak256CheckFixtureEvm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let hashedPfCrypto :=
+    (Targets.Evm.Keccak.keccak256Hex "pf.crypto".toUTF8).drop 24
+  let src :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Keccak256Check where\n" ++
+    "  state last : UInt256\n" ++
+    "  init() do\n" ++
+    "    last := 0\n" ++
+    "  entry hashWord(x : UInt256) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.keccak256(x)\n" ++
+    "    last := h\n" ++
+    "    return h\n" ++
+    "  view get() : UInt256 do\n" ++
+    "    return last\n"
+  let cSrc ← match ← session.selectProgramV1
+      src "<evm-keccak256-check>" "Examples.Keccak256Check" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"Keccak256Check select: {e.render}"
+  let compiled ← match Compiler.compileValidatedSourceV1 cSrc with
+    | .error e => throw <| IO.userError s!"Keccak256Check must compile, got {e.render}"
+    | .ok c => pure c
+  let plan ← match planEvm compiled with
+    | .error e =>
+        throw <| IO.userError s!"Keccak256Check must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let hasDedicated := plan.entries.any fun e =>
+    e.body.any fun s =>
+      match s with
+      | .keccak256Opcode _ _ => true
+      | _ => false
+  expect hasDedicated
+    "Keccak256Check: plan must contain .keccak256Opcode"
+  let hasSha256 := plan.entries.any fun e =>
+    e.body.any fun s =>
+      match s with
+      | .sha256Precompile _ _ => true
+      | _ => false
+  expect (!hasSha256)
+    "Keccak256Check: must not lower keccak256 to the SHA-256 precompile"
+  let files ← match materializeSelected TargetId.evm compiled with
+    | .error e => throw <| IO.userError s!"Keccak256Check materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yulFile := files.find? (·.path == "Keccak256Check.yul") |
+    throw <| IO.userError "Keccak256Check: missing .yul"
+  let yul := yulFile.contents
+  expect (yul.contains "keccak256(0, 32)")
+    "Keccak256Check: Yul must emit native keccak256(0, 32)"
+  expect (!yul.contains "staticcall(gas(), 0x2")
+    "Keccak256Check: Yul must not emit SHA-256 precompile STATICCALL"
+  expect (!yul.contains hashedPfCrypto)
+    s!"Keccak256Check: Yul must not contain hashed pf.crypto address {hashedPfCrypto}"
+
 /-- B-CTX-OPEN / ADR-0031 S1+S2: `context.unixTimeSeconds` → `timestamp()`;
     `context.blockHeight` → `number()`; `context.caller` → Principal from
     `caller()` (ADR-0025). Direct Principal return stays fail closed
@@ -5118,6 +5176,7 @@ unsafe def run : IO Unit := do
   testCryptoSha256Evm
   testCryptoKeccak256Evm
   testSha256CheckFixtureEvm
+  testKeccak256CheckFixtureEvm
   testContextReadTimestampEvm
   testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed

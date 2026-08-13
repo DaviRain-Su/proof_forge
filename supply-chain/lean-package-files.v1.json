@@ -821,9 +821,9 @@
       "sha256": "0d434202f07551293b8cb97c78e326d142279183239a039fb31f1c989e4b7df4"
     },
     {
-      "bytes": 126087,
+      "bytes": 126120,
       "path": "ProofForgeV2/Targets/Aleo/LowerSemanticV1.lean",
-      "sha256": "931ce997ed5d4223e25a29c12eaccfda845a1de91dc99965a42cac3a70221062"
+      "sha256": "a23cbb439c9659bc8c3e5f0847b675bcab4fd4d38ca39da1683c3a919bd68559"
     },
     {
       "bytes": 5113,
@@ -871,9 +871,9 @@
       "sha256": "d1bfb25f2f3de18d287051f139f5db232bb4918177b77411ffbcc8cba0b8bf40"
     },
     {
-      "bytes": 233965,
+      "bytes": 234024,
       "path": "ProofForgeV2/Targets/CosmWasm/LowerSemanticV1.lean",
-      "sha256": "cc24045aa6214e68ea0de5e81b7aba6384a3af0f417d6708fdc3399e08e2416f"
+      "sha256": "d3b63937cdd7763747b97cb55968a30c550b74239c206ae68a6b270aa3fb4bdd"
     },
     {
       "bytes": 15206,
@@ -1056,9 +1056,9 @@
       "sha256": "0bf666ab738783ce4103f21a1a25c915a77c99c72b28f56a97f0f1b85291b2cc"
     },
     {
-      "bytes": 170756,
+      "bytes": 170831,
       "path": "ProofForgeV2/Targets/Noir/LowerSemanticV1.lean",
-      "sha256": "c4296099b4f0f6ab2b6e61d4af136c6056e9fa9f2f8b00e1890e3e330a013e4f"
+      "sha256": "700ab95d72d07f731a14178c4de722b56d82ff15d124c1fdb7fe079866f165c3"
     },
     {
       "bytes": 1672,
@@ -1131,9 +1131,9 @@
       "sha256": "08a21f926084e3ec75b8a26ef757e512117883fc362b9a7b4cd72631c00ac8a5"
     },
     {
-      "bytes": 52583,
+      "bytes": 52616,
       "path": "ProofForgeV2/Targets/Quint/LowerSemanticV1.lean",
-      "sha256": "747aae4c3ea690efbb3e23a1b125dfe68e6edce5b753262f6c664fad0d5dabe2"
+      "sha256": "b41a2bc6f2c139d41199a121a8f290c02290645f9560433ad191473070ba7550"
     },
     {
       "bytes": 1609,
@@ -1361,9 +1361,9 @@
       "sha256": "c350f35bc461b4bee5ac0c2451bc3c6474b5b1e09bb9dba6580238a836028229"
     },
     {
-      "bytes": 187918,
+      "bytes": 187977,
       "path": "ProofForgeV2/Targets/Ton/LowerSemanticV1.lean",
-      "sha256": "96623678d50fadb1e6ef4562fe7b68cb4217cea85d9c8fbe7a2ed0b996e9b7c6"
+      "sha256": "41ef054ef534e01866747036e2fb983f667a7a23c2ce183ee0d356715e059034"
     },
     {
       "bytes": 15876,

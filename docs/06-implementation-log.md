@@ -15605,3 +15605,16 @@ normative: false
   pins exact `keccak256` fail-closed beside sha256 / hashNoPad.
 - Not a `string_hash` / `keccakf1600` / BHP-Pedersen-Poseidon / pf.assets
   catch-all fallback. Not formal, not Bytes ABI, and not EXT-CRYPTO.
+
+## 2026-08-13 — SYS-S5 Psy gadget pin + EVM keccak companion + Solana hole
+
+- Psy `pf.crypto.keccak256` stays an ADR-0039 circuit gadget (UInt64
+  first-limb ABI). The unified UInt256→UInt256 host shape is fail-closed.
+- EVM adds `Examples/Keccak256Check.lean` and a host-optional Anvil companion
+  that pins native `keccak256(0, 32)` known vectors. Not the SHA-256
+  precompile. This host ran the companion to pass (`hashWord(0)` /
+  `hashWord(1)` known vectors). Not Anvil lossless.
+- Solana host-only `pf.crypto.sha256|keccak256` product capability remains
+  closed (`PF-REQ-UNSUPPORTED` / body-only admission). The suite now pins
+  both failures instead of claiming the product route is open.
+- Not formal, not Bytes ABI, and not EXT-CRYPTO.
