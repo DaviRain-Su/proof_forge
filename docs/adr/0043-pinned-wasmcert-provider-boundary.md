@@ -122,6 +122,20 @@ semantic subject，并比较返回值、两字段 production storage与 failure 
 手写业务 post-state oracle；业务期望只来自 `ReferenceMachineV1`。这是 executable engineering
 join及篡改负例，不是 kernel 中的一般 Wasm simulation theorem。
 
+`Targets/Near/WasmCertProductV1.lean` 现已实现 locked product consumer，但仍位于上述 activation
+gate 之后。consumer只接受 capability-bound `FinalizedArtifactsV1` 与 exact NEAR Wasm closure；在
+读取 staging artifact 之前先要求显式 activation、Tool Lock resolve/rehash与 exact version probe，
+随后 sole disk scanner要求 finalized base+Wasm构成 exact regular-file closure，并逐个把 base bytes
+接回 materialized carrier；Wasm digest在二次 stable read后仍须等于 closure observation。然后才在
+exclusive temporary directory和 clean environment中以 frozen argv运行 provider。成功输出
+必须形成 input/invocation/request/result/trace/observation 六个 single-link regular file的 exact
+bounded closure，三个输入逐字节保持不变，三个输出通过 canonical decode、digest join和 host replay。
+最终 private execution observation绑定 active Tool Lock platform/digest、provider id/version/executable
+digest、source/semantic/finalized-Wasm、fuel以及全部 request/result/trace/observation digests。该对象是
+identity-bound engineering execution observation，不是通用 target-refinement theorem，也不直接复制
+Reference business semantics。当前 provider仍未进入两平台 Tool Lock，因此该路径会在任何 artifact
+IO或 provider执行前以 `PF-TOOLCHAIN-MISSING` fail closed。
+
 ### D3 — mechanization status 必须逐层保留
 
 固定 revision 的边界为：
@@ -191,8 +205,15 @@ LGPL-2.1-or-later；不能只复制 opam 的简化 MIT 字段。
   finalized Wasm structural boundary与本地 WasmCert executable/host/Reference join已经贯通，但
   provider仍未 provision，parser仍未验证，且没有一般 IR/WAT→Wasm simulation theorem。
 - source pin、closed protocol、canonical artifacts、provider overlay、host replay和五 case join均可
-  审计；product activation仍机械 fail closed，same-host binary hash不能替代 per-platform Tool Lock。
-- NEAR阶段出口的剩余工作是锁定 provider executable/runtime closure、实现 isolated product
-  consumer及 evidence identity，并明确 translation/parser/host assumptions；完成前不继续 Solana扩面。
+  审计；isolated locked consumer与 identity schema也已落地，但 product activation仍机械 fail closed，
+  same-host binary hash不能替代 per-platform Tool Lock。
+- Linux provider当前仅动态依赖系统 `libgmp`、`libm`、`libc`与 loader；它们均落在 Tool Lock既有
+  `/lib/`、`/lib64/`、`/usr/lib/`系统依赖边界内，不应伪装成 bundle runtime files。Darwin arm64
+  尚无真实 provider artifact/hash，因而不能把 Linux hash复制到双平台 lock，也不能先行激活。
+- activation digest API现按 `darwin-arm64`/`linux-x86_64`分别持有独立 row，两个 row当前均为
+  `none`；未来必须各自与对应 platform lock executable pin相等后才能打开，不能用单值跨平台。
+- NEAR阶段出口的剩余工作收窄为真实两平台 provider executable provisioning、Tool Lock retained-file
+  identity更新及 activated consumer回归；translation、unverified parser与 host assumptions必须继续
+  明示。完成前不继续 Solana扩面。
 - WasmCert parser、wrapper glue、OCaml compiler/runtime和 purpose-built host仍属于明确列出的 TCB/
   assumption边界；文档和 UI 不得用单一 `verified=true` 抹平这些差异。

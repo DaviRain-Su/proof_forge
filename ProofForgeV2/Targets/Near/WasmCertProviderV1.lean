@@ -1,4 +1,5 @@
 import ProofForgeV2.Core.Common
+import ProofForgeV2.Core.ToolLockV4
 
 /-
   Pinned source and fail-closed activation contract for the future
@@ -14,6 +15,7 @@ import ProofForgeV2.Core.Common
 namespace ProofForgeV2.Targets.Near
 
 open ProofForgeV2.Core.Common
+open ProofForgeV2.Core.ToolLockV4
 
 /-- Source/schema annotation carried by
     `supply-chain/wasmcert-coq-authority.v1.json`. This is not executable
@@ -155,20 +157,27 @@ def wasmCertHostStatusV1 : WasmCertMechanizationStatusV1 :=
     only when the structured wrapper exists. -/
 inductive WasmCertProviderActivationErrorV1 where
   | executableUnprovisioned
+  | unsupportedPlatform
   deriving BEq, Repr
 
-/-- There is deliberately no executable digest until a reproducible wrapper
-    artifact is added to the per-platform Tool Lock v4 closure. The upstream
-    source revision is not an executable hash. -/
-def wasmCertProviderExecutableSha256V1 : Option Digest := none
+/-- There is deliberately no executable digest for either supported platform
+    until each real wrapper artifact is added to its Tool Lock v4 closure. The
+    two rows must be provisioned independently; a Linux hash cannot activate
+    Darwin, and the upstream source revision is not an executable hash. -/
+def wasmCertProviderExecutableSha256V1 : ToolLockPlatformV4 → Option Digest
+  | .darwinArm64 => none
+  | .linuxX86_64 => none
 
 /-- Mandatory product activation gate. It remains impossible to accept a
     provider result merely because source identity and protocol constants are
     present in this module. -/
 def requireWasmCertProviderProvisionedV1 :
     Except WasmCertProviderActivationErrorV1 Digest :=
-  match wasmCertProviderExecutableSha256V1 with
-  | some digest => .ok digest
-  | none => .error .executableUnprovisioned
+  match activeToolLockPlatformV4 with
+  | .error _ => .error .unsupportedPlatform
+  | .ok platform =>
+      match wasmCertProviderExecutableSha256V1 platform with
+      | some digest => .ok digest
+      | none => .error .executableUnprovisioned
 
 end ProofForgeV2.Targets.Near

@@ -15663,3 +15663,24 @@ normative: false
 - 该结果是 local executable engineering join，不是一般 IR/WAT→Wasm simulation theorem、
   per-platform Tool Lock evidence、formal target refinement或 artifact verified。NEAR阶段下一步仍是
   provider executable/runtime closure、isolated product consumer及 evidence identity；Solana继续暂停。
+
+## 2026-08-13 — NEAR isolated locked WasmCert product consumer
+
+- 新增 `Targets/Near/WasmCertProductV1.lean`：只消费 capability-bound finalized NEAR Wasm；exact
+  target/profile/deployable/extra closure后，provider activation、Tool Lock resolve/rehash与 exact
+  version probe全部先于 staging artifact read。provider缺锁时固定 `PF-TOOLCHAIN-MISSING`，PATH与
+  `build/tools` 本地产物不能回退。
+- activation后的执行路径使用 locked clean environment与 exclusive temp directory；输入/request和
+  result/trace/observation须组成 exact bounded六文件 single-link regular closure。执行前 finalized
+  staging还必须通过 base+Wasm exact disk closure，base bytes逐个回接 materialized carrier且Wasm
+  二次 stable read digest不漂移；三个 provider输入逐字节不变，三个 canonical输出复用既有 digest
+  join、host replay与 call-observation validation。
+- private execution identity绑定 active Tool Lock platform/digest、provider id/version/executable hash、
+  source/semantic/finalized-Wasm、fuel及 invocation/request/result/trace/observation hash。该 carrier只
+  表示 identity-bound engineering execution observation，不 mint通用 target-refinement theorem，
+  也没有新增 DSL/business step。
+- Linux provider动态依赖 `libgmp/libm/libc/loader`，均属于 lock既有 system dependency roots；无需
+  伪装为 bundle runtime files。Darwin arm64真实 provider artifact仍缺，因此未修改任一平台 lock、
+  未复制 Linux hash；activation digest改为 Darwin/Linux独立 row且当前均为 `none`，也未提升
+  assurance。NEAR阶段出口剩余项是双平台真实 provisioning与 activated
+  consumer回归；在此之前不继续 Solana扩面。

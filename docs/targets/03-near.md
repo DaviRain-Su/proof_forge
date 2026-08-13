@@ -436,6 +436,20 @@ Phase 1：实现
   return/post-state或 failure rollback。Python harness只编排 artifact，不再手写业务 post-state
   evaluator；terminal/post-storage篡改负例由 Reference join拒绝。这是本地 executable engineering
   refinement join，不是一般 Wasm simulation theorem、Tool Lock evidence或 formal target completion。
+- **isolated locked WasmCert product consumer（Phase 7 第三十六切）**：
+  `WasmCertProductV1` 只接受 capability-bound `FinalizedArtifactsV1`，先检查 exact NEAR profile、
+  deployable flag与单一 finalized `.wasm` closure，再在任何 artifact read前要求 provider activation、
+  Tool Lock resolve/rehash及 exact version probe。激活后，sole disk scanner先要求 base+Wasm exact
+  closure、base bytes回接 materialized carrier且Wasm二次 stable read digest不漂移；然后才在
+  exclusive temp directory与 clean environment中运行 frozen argv；六文件工作集必须是
+  exact、bounded、single-link regular-file
+  closure，三个输入不得被修改，result/trace/observation必须 canonical并通过 digest join与 host
+  replay。private execution identity绑定 active Tool Lock platform/digest、provider executable、
+  source/semantic/finalized-Wasm及全部 protocol artifact digests；它不 mint formal refinement claim，
+  也不包含第二套业务 step。当前两平台 lock都没有 provider，因此回归固定在 artifact IO前
+  `PF-TOOLCHAIN-MISSING`，无 PATH或 local-build fallback。Linux executable的 `libgmp/libm/libc/loader`
+  属既有 system dependency roots；Darwin arm64 artifact仍缺，禁止复制 Linux hash激活双平台。
+  activation digest本身也按 Darwin/Linux两个独立 row保持 `none`，不存在单 digest跨平台授权。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`

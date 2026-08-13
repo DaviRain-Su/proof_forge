@@ -40,6 +40,12 @@ def run : IO Unit := do
   | .error _ => pure ()
   | .ok _ => throw <| IO.userError "unknown locked tool unexpectedly resolved"
 
+  match requiredBundlePaths "wasmcert-coq-provider" with
+  | .error _ => pure ()
+  | .ok _ =>
+      throw <| IO.userError
+        "WasmCert provider unexpectedly resolved in the active per-platform Tool Lock"
+
   -- S2b sourceBuild tool: empty content-addressed bundle closure.
   match requiredBundlePaths "sbpf" with
   | .error error =>

@@ -837,8 +837,9 @@ return/log/panic host trace并与 call-boundary observation exact连接。真实
 return/post-state或 rollback。Python smoke已经删除手写业务 post-state oracle，且 Reference terminal/
 storage tamper负例 fail closed。该结果把 NEAR纵链推进到本地 executable refinement join，但仍不是
 kernel中的一般 IR/WAT→Wasm simulation theorem，也不是 Tool Lock/product evidence。下一步仍留在
-NEAR：完成 provider per-platform executable/runtime closure、isolated product consumer与 evidence
-identity，明确 parser/translation/host assumptions后再恢复 Solana。
+NEAR：isolated locked product consumer与 evidence identity已实现，但 activation仍机械 fail closed；
+剩余阶段出口是取得真实 Linux/Darwin provider artifacts、写入 per-platform executable closure并跑通
+activated consumer。parser/translation/host assumptions继续明示，完成该出口后才恢复 Solana。
 
 2026-08-13 已开始 Solana 的第一个 bounded target slice，当前只覆盖真实 production
 `StateCell.get() : UInt64`：
@@ -968,7 +969,7 @@ ProofForge内自造完整 EVM opcode、Wasm binary、sBPF或 Solana runtime sema
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR 本地 WasmCert executable/host/Reference join已贯通；Solana `StateCell.get()` 首切后暂停）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；structured provider、bounded nine-import host、trace replay及真实 VerifiedVault五路径 sole Reference join已通过，same-host clean build byte-identical。但 provider仍未进入 per-platform Tool Lock，activation机械 fail closed，且无一般 IR/WAT→Wasm simulation theorem；因此只算 engineering executable join。Solana已有首个 Plan/HandlerIR slice，但在 NEAR provider identity/consumer阶段出口前不扩面 |
+| 7 | Per-target refinement | **进行中（NEAR 本地 WasmCert executable/host/Reference join及 locked consumer已贯通；Solana `StateCell.get()` 首切后暂停）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；structured provider、bounded nine-import host、trace replay及真实 VerifiedVault五路径 sole Reference join已通过，same-host clean build byte-identical。isolated product consumer现绑定 active Tool Lock/executable及全部 protocol digests，并在 unprovisioned状态于 artifact IO前 fail closed。但真实 Darwin artifact与双平台 Tool Lock closure仍缺，且无一般 IR/WAT→Wasm simulation theorem；因此只算 engineering executable join。Solana已有首个 Plan/HandlerIR slice，但在 NEAR真实双平台 provisioning/activated-consumer阶段出口前不扩面 |
 
 ### 首个代码切片进展
 
@@ -1369,6 +1370,16 @@ expression translator：
     比较 return/post-state/rollback。Python harness不含第二套业务 post-state evaluator。该结果仍是
     local engineering executable join：parser未验证、WAT→Wasm translation与一般 simulation theorem
     未闭合、provider未 provision，故不能升级为完整 target-refined或 artifact verified。
+25. isolated locked product consumer已落地：只接受 capability-bound finalized NEAR Wasm，activation、
+    Tool Lock resolve/rehash与 exact version probe先于 artifact IO；provider在 clean env/exclusive temp
+    directory运行前，sole disk scanner要求 base+Wasm exact closure、base bytes回接 materialized
+    carrier且Wasm digest二次 stable read不漂移；provider六文件工作集须 exact bounded single-link
+    closure，输入不可变，canonical输出经
+    digest join与 host replay后才产生 private execution observation。identity绑定 active platform lock、
+    executable、source/semantic/Wasm与所有 protocol artifacts。当前双平台 lock仍无 provider，测试固定
+    在 staging read前 `PF-TOOLCHAIN-MISSING`；Linux系统动态库不伪装为 runtime bundle，Darwin artifact
+    缺失仍是 NEAR阶段出口阻塞项。activation digest按 Darwin/Linux独立 row保持 `none`，不允许
+    单 digest跨平台授权。
 
 ---
 

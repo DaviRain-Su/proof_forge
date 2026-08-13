@@ -42,7 +42,20 @@ cross-host reproducibility，也不是可 provision asset identity。真实激�
 binary/runtime closure进入 Tool Lock；加入时按本规格升级 lock retained-file digest与 package pin。
 `Targets/Near/WasmCertWireV1.lean`已实现 canonical request/result record与 candidate identity/status
 join，但它不 provision工具，也不把 record内自报的 `executableSha256`当作 lock authority；因此
-该实现不改变本节 unprovisioned状态。
+该实现不改变本节 unprovisioned状态。`Targets/Near/WasmCertProductV1.lean` 现已补齐 activation后的
+isolated consumer：Tool Lock resolve/rehash与 version probe先于 artifact IO，执行采用 clean env与
+exclusive temp directory；finalized staging先经 exact base+Wasm disk closure扫描并把 base bytes回接
+materialized carrier，provider工作目录再要求 exact bounded六文件 closure，全部 input/output digest
+最终绑定 active platform lock identity。它当前仍由 unprovisioned gate拒绝，不能从 PATH或本地
+build回退。
+
+Linux观测到的 provider动态依赖只有 `libgmp`、`libm`、`libc`与 ELF loader；路径均属于本规格
+允许的 `/lib/`、`/lib64/`、`/usr/lib/` system dependency roots，所以无需伪造为 bundle
+`runtimeFiles`。Darwin arm64尚未产出真实 provider artifact及 hash；在该产物可重建、检查并进入
+Darwin lock前，不得把 Linux executable/hash复制到另一平台，也不得只更新 Linux lock造成产品
+能力不对称。
+Lean activation pin采用 Darwin/Linux两个独立 digest row，当前均为 `none`；provision时每个平台
+row必须分别等于对应 lock executable SHA-256，不得用一个 digest给两平台授权。
 
 两平台 lock 文件共享 schema 名 `proof-forge.toolchains.v4`，由 `platform` 与 policy 键区分：
 

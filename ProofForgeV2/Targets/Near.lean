@@ -13,6 +13,7 @@ import ProofForgeV2.Targets.Near.WasmBinaryV1
 import ProofForgeV2.Targets.Near.WasmCertProviderV1
 import ProofForgeV2.Targets.Near.WasmCertWireV1
 import ProofForgeV2.Targets.Near.WasmCertArtifactsV1
+import ProofForgeV2.Targets.Near.WasmCertProductV1
 
 /-!
 # ProofForgeV2.Targets.Near — public façade
@@ -33,6 +34,8 @@ boundary, but remains deliberately unprovisioned and cannot mint evidence.
 one of those records still does not establish execution or provider identity.
 `WasmCertArtifactsV1` supplies bounded invocation, host-trace, and observation
 carriers plus content-level candidate joins; it is not a second business step.
+`WasmCertProductV1` is the isolated locked consumer for finalized Wasm; while
+the provider is absent from Tool Lock, it fails before artifact IO or execution.
 `FinalizeV1` remains a separate submodule.
 -/
 

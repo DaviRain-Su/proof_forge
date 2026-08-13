@@ -247,7 +247,7 @@ private unsafe def testPreIoBindBeforeTools : IO Unit := do
 
 /-- NEAR finalization must bind its materialized WAT to the exact capability
     re-render and then bind staging bytes before resolving/running wat2wasm. -/
-private unsafe def testNearFinalizerInputBinding : IO Unit := do
+private unsafe def testNearFinalizerInputBinding : IO FinalizedArtifactsV1 := do
   let compiled ← compileStateCell
   let selection ← liftResult "select near input binding"
     (resolveBuildSelectionV1 TargetId.near none)
@@ -277,6 +277,12 @@ private unsafe def testNearFinalizerInputBinding : IO Unit := do
     pure ()
   expect (!(← (staging / "StateCell.wasm").pathExists))
     "divergent NEAR WAT input must fail before wat2wasm writes an output"
+  liftResult "mint near WasmCert activation carrier"
+    (mintFinalizedArtifactsV1 capability artifacts {
+      deployable := true
+      extraFiles := #["StateCell.wasm"]
+      evidenceNote := "test-only locked WasmCert activation boundary"
+    })
 
 /-- The bounded core-Wasm consumer must consume every section, enforce
     canonical u32 LEB lengths, and reject duplicate/out-of-order sections. -/
@@ -367,11 +373,62 @@ private def testNearWasmCertProviderBoundary : IO Unit := do
       Targets.Near.wasmCertExecutionStatusV1 == .provedInterpreterCore &&
       Targets.Near.wasmCertHostStatusV1 == .hostAssumptions)
     "WasmCert mechanization boundary must remain explicit"
+  expect ((Targets.Near.wasmCertProviderExecutableSha256V1
+      .darwinArm64).isNone &&
+      (Targets.Near.wasmCertProviderExecutableSha256V1
+        .linuxX86_64).isNone)
+    "WasmCert provider activation must remain independently closed on both platforms"
   match Targets.Near.requireWasmCertProviderProvisionedV1 with
   | .error .executableUnprovisioned => pure ()
+  | .error .unsupportedPlatform =>
+      throw <| IO.userError "test target unexpectedly lacks a supported Tool Lock platform"
   | .ok _ =>
       throw <| IO.userError
         "WasmCert provider must not activate without a Tool Lock executable digest"
+
+/-- The isolated product consumer accepts only a capability-bound finalized
+    NEAR Wasm closure and then fails at provider activation before reading the
+    staging artifact. A local provider binary and PATH cannot bypass this gate. -/
+private def testNearWasmCertProductActivationBoundary
+    (finalized : FinalizedArtifactsV1) : IO Unit := do
+  expect (Targets.Near.wasmCertLockedExecutionIdentitySchemaV1 ==
+      "proof-forge.near.wasmcert-locked-execution.v1")
+    "WasmCert locked execution identity schema must remain exact"
+  let zero16 := ByteArray.mk (Array.replicate 16 (0 : UInt8))
+  let invocation : Targets.Near.WasmCertInvocationArtifactV1 := {
+    schema := Targets.Near.wasmCertInvocationArtifactSchemaV1
+    hostProfile := Targets.Near.wasmCertProviderHostProfileV1
+    observationPolicy := Targets.Near.wasmCertObservationPolicyV1
+    exportName := "init"
+    input := ByteArray.empty
+    context := {
+      currentAccountId := "state-cell.test.near"
+      signerAccountId := "alice.test.near"
+      signerAccountPk := ByteArray.mk (Array.replicate 33 (1 : UInt8))
+      predecessorAccountId := "alice.test.near"
+      blockHeight := 42
+      blockTimestampNanos := 1700000000000000000
+      epochHeight := 7
+      accountBalance := zero16
+      accountLockedBalance := zero16
+      storageUsage := 0
+      attachedDeposit := zero16
+      prepaidGas := 300000000000000
+      randomSeed := ByteArray.mk (Array.replicate 32 (2 : UInt8))
+      isView := false
+      outputDataReceivers := #[]
+      promiseResults := #[]
+    }
+    preStorage := #[]
+  }
+  let absentStaging := FilePath.mk "build/v2/wasmcert-product-must-not-read"
+  if ← absentStaging.pathExists then IO.FS.removeDirAll absentStaging
+  expectIoErrorContains "locked WasmCert activation" "PF-TOOLCHAIN-MISSING" do
+    let _ ← Targets.Near.executeLockedWasmCertV1
+      finalized absentStaging invocation 100000
+    pure ()
+  expect (!(← absentStaging.pathExists))
+    "unprovisioned WasmCert product consumer must not create or read staging"
 
 /-- Canonical provider interchange is strict record plumbing only: request and
     result identity/status join can succeed, while noncanonical/unknown fields,
@@ -993,9 +1050,10 @@ run_cmd do
 unsafe def run : IO Unit := do
   testSoleMintBinding
   testPreIoBindBeforeTools
-  testNearFinalizerInputBinding
+  let nearFinalized ← testNearFinalizerInputBinding
   testNearWasmBinaryEnvelope
   testNearWasmCertProviderBoundary
+  testNearWasmCertProductActivationBoundary nearFinalized
   testNearWasmCertProviderWire
   testNearWasmCertArtifacts
   testNonDeployablePhases
