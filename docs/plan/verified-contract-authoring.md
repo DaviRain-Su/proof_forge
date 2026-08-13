@@ -768,9 +768,11 @@ certification elaboration 阶段 fail closed。
   golden Plan/IR，而是从真实 same-file certified capability动态恢复 retained semantic、Plan、IR、
   canonical key regions、initializer Method/MethodIR以及同一次 WAT/ABI emission；proof-producing
   recognizer与 exact bridge使 missing/reordered/extra op或非 canonical重复 key use fail closed。
-  MethodIR与typed-WAT execution theorem同时固定成功 post-storage、double-init trap与 nonzero-deposit
-  trap；storage join直接消费唯一 Reference step的真实 `postEncode` theorem，把 initialized logical
-  zero/zero state与 marker+两条 physical KV row连接。该 slice仍不证明 textual WAT parser、
+  capability façade现同时携完整 production module validation和 exact method-fragment identity；
+  MethodIR与typed-WAT execution theorem固定成功 post-storage，并在 nonempty input、double-init、
+  u128 attached-deposit low/high limb非零四类失败上证明 exact trap与 canonical no-write observation
+  agreement。storage join直接消费唯一 Reference step的真实 `postEncode` theorem，把 initialized
+  logical zero/zero state与 marker+两条 physical KV row连接。该 slice仍不证明 textual WAT parser、
   `wat2wasm`、Wasm binary或 NEAR runtime simulation。
 - `VerifiedVaultPF.deposit(amount)` 现成为第三个 bounded target slice：
   `CapabilityUnaryAddTwoUInt64DepositStaticEmissionV1` 将真实 same-file certified capability中的
@@ -844,10 +846,12 @@ Solana target整体或最终 `.so` 称为 formally target-refined，整体边界
 7. executable differential corpus 作为工程回归；
 8. kernel-checkable refinement theorem或正式验证证据，才能升级 artifact claim。
 
-当前顺序：NEAR VerifiedVault bounded recipes → Solana 首个 bounded recipe → EVM 外部
-Yul/EVM/bytecode semantics 边界评估 → 各 target 扩面。每个 target 独立关闭，不能用一个 target
-的 refinement 为其他 target 背书；也不在 ProofForge 内自造完整 EVM opcode、Wasm binary、sBPF
-或 Solana runtime semantics。
+当前顺序固定为：先在 NEAR 上从已闭合的四个 VerifiedVault bounded recipes继续推进
+semantics-bearing WAT/Wasm consumer与 NEAR host边界；Solana暂停在已经落下的
+`StateCell.get()` Plan/HandlerIR首切，待 NEAR 到达明确的 Wasm/host阶段出口后再继续
+`StateCell.init/increment`及 HandlerIR→sBPF；随后评估外部 Yul/EVM/bytecode semantics，再扩其他
+target。每个 target独立关闭，不能用一个 target的 refinement为其他 target背书；也不在
+ProofForge内自造完整 EVM opcode、Wasm binary、sBPF或 Solana runtime semantics。
 
 ---
 
@@ -935,7 +939,7 @@ Yul/EVM/bytecode semantics 边界评估 → 各 target 扩面。每个 target �
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR 四个 bounded recipes；Solana `StateCell.get()` 首切）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices。Solana 新增 retained UInt64 state → production single-account Plan/HandlerIR → bounded discriminator/account/header/load/return evaluator → sole Reference view observation；真实 StateCell compiler/capability/Plan/IR 路径已回归。Solana 尚无 HandlerIR→assembly/sBPF/ELF/runtime correctness，NEAR 也尚无一般 lowering/renderer、Wasm/runtime correctness；两者均不得升级为完整 artifact target-refined |
+| 7 | Per-target refinement | **进行中（NEAR 四个 capability-scoped bounded recipes；Solana `StateCell.get()` 首切后暂停）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices；`init` 已补 complete-module carrier及 nonempty input/double-init/u128 deposit low/high failure rollback。下一步先闭合 semantics-bearing WAT/Wasm consumer与 host边界。Solana 已有 retained UInt64 state → production single-account Plan/HandlerIR → bounded evaluator → sole Reference view observation，但在 NEAR 阶段出口前不继续扩面。两者均尚不得升级为完整 artifact target-refined |
 
 ### 首个代码切片进展
 
@@ -1293,9 +1297,10 @@ expression translator：
     证明工具翻译正确；
 17. selected `VerifiedVaultPF.init()` 已沿现有唯一 target authority完成 bounded refinement：真实
     capability/Plan/IR fixture动态提供 initializer Method/MethodIR、canonical key regions及同次 WAT/ABI
-    output；MethodIR与typed-WAT machine证明 exact zero/zero+marker post-storage和 double-init/
-    nonzero-deposit trap；真实 Reference initializer step的 postEncode theorem再把逻辑 post-state与
-    target storage join；
+    output，并由 complete-module carrier保留 exact validated method fragment；MethodIR与typed-WAT
+    machine证明 exact zero/zero+marker post-storage，以及 nonempty input、double-init、u128 deposit
+    low/high limb非零的 trap与 canonical rollback；真实 Reference initializer step的 postEncode
+    theorem再把逻辑 post-state与 target storage join；
 18. selected `VerifiedVaultPF.deposit(amount)` 已沿同一 authority完成 bounded refinement：真实
     production entry 0 / MethodIR 1、exact WAT/ABI emission与 capability carrier已闭合；两级 evaluator
     对成功 checked add给出相同 return和两字段 post-storage，并与 sole Reference returned exact-post

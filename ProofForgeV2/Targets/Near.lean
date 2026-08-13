@@ -313,6 +313,330 @@ theorem capabilityInitializerStaticEmissionV1_validatedMethodWATEmissionV1
           hchain.staticAlignment.field1Lookup)
       hdeposit hvalue
 
+/-- The same initializer witness owns the complete validated production module
+    surrounding its exact typed-WAT fragment. This closes the capability-level
+    framing asymmetry with the selected entry recipes; it still stops before
+    `wat2wasm`, Wasm binary execution, and NEAR host semantics. -/
+theorem capabilityInitializerStaticEmissionV1_validatedWATModule
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (initializerName : String)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (hchain :
+      CapabilityInitializerStaticEmissionV1 capability program data plan ir
+        files binding0 binding1 initializerName method markerRegion field0Region
+          field1Region methodIR watFile abiFile watMethodText abiMethodText)
+    (hdeposit :
+      ir.memory.depositOffset + 16 ≤ ir.memory.minPages * wasmPageBytes)
+    (hvalue :
+      ir.memory.valueOffset + 8 ≤ ir.memory.minPages * wasmPageBytes) :
+    ValidatedReadOnlyWATModuleEmissionV1 ir 0 methodIR watFile.contents
+      watMethodText
+      (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory markerRegion
+        field0Region field1Region plan.storage.markerValue) := by
+  exact validatedReadOnlyWATModuleEmissionV1_of_irEmissionV1 ir files 0 methodIR
+    watFile.contents watMethodText _ hchain.baseEmission.irEmission
+      (capabilityInitializerStaticEmissionV1_validatedMethodWATEmissionV1
+        capability program data plan ir files binding0 binding1 initializerName
+        method markerRegion field0Region field1Region methodIR watFile abiFile
+        watMethodText abiMethodText hchain hdeposit hvalue)
+
+/-- Under one pre-storage observation, the capability-selected production
+    initializer MethodIR and its exact typed-WAT fragment commit the same two
+    UInt64 zero rows and final initialized marker. -/
+theorem capabilityInitializerStaticEmissionV1_execute
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (initializerName : String)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (storage : StorageObservationV1)
+    (hchain :
+      CapabilityInitializerStaticEmissionV1 capability program data plan ir
+        files binding0 binding1 initializerName method markerRegion field0Region
+          field1Region methodIR watFile abiFile watMethodText abiMethodText)
+    (hmarker : storage.lookup markerRegion.key = none)
+    (hfield0 : storage.lookup field0Region.key = none)
+    (hfield1 : storage.lookup field1Region.key = none)
+    (hfield10 : field1Region.key ≠ field0Region.key)
+    (hmarker0 : markerRegion.key ≠ field0Region.key)
+    (hmarker1 : markerRegion.key ≠ field1Region.key) :
+    ReadOnlyMethodWATEmissionV1 ir 0 methodIR watFile.contents watMethodText
+        (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue) ∧
+      executeMethodV1 methodIR ByteArray.empty 0 0 storage =
+        .returned none
+          (zeroTwoUInt64InitializerPostStorageV1 storage markerRegion
+            field0Region field1Region plan.storage.markerValue) ∧
+      executeMethodWATV1 2
+        (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue)
+        ByteArray.empty 0 0 storage =
+          .returned none
+            (zeroTwoUInt64InitializerPostStorageV1 storage markerRegion
+              field0Region field1Region plan.storage.markerValue) := by
+  have halignment := hchain.staticAlignment.staticAlignment
+  have hlower :
+      lowerMethodWATOperationsV1 ir.registers ir.memory methodIR.operations =
+        some (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory
+          markerRegion field0Region field1Region plan.storage.markerValue) := by
+    rw [halignment.methodIRExact]
+    exact lowerMethodWATOperationsV1_nullaryZeroTwoUInt64Initializer ir.registers
+      ir.memory markerRegion field0Region field1Region plan.storage.markerValue
+  refine ⟨
+    readOnlyMethodWATEmissionV1_of_methodWATEmissionV1 ir 0 methodIR
+      watFile.contents watMethodText _ hchain.baseEmission.watMethodEmission
+        hlower,
+    ?_,
+    ?_
+  ⟩
+  · exact executeMethodV1_of_nullaryZeroTwoUInt64InitializerStaticAlignment data
+      plan.storage binding0 binding1 initializerName method markerRegion
+      field0Region field1Region methodIR storage halignment hmarker hfield0
+      hfield1 hfield10 hmarker0 hmarker1
+  · exact executeMethodWATV1_nullaryZeroTwoUInt64Initializer ir.registers
+      ir.memory markerRegion field0Region field1Region plan.storage.markerValue
+      storage hmarker hfield0 hfield1 hfield10 hmarker0 hmarker1
+
+/-- Nonempty initializer input fails before either bounded target evaluator can
+    inspect or change storage; their canonical observations agree on rollback. -/
+theorem capabilityInitializerStaticEmissionV1_nonemptyInputFailure
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (initializerName : String)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (input : ByteArray)
+    (storage : StorageObservationV1)
+    (hchain :
+      CapabilityInitializerStaticEmissionV1 capability program data plan ir
+        files binding0 binding1 initializerName method markerRegion field0Region
+          field1Region methodIR watFile abiFile watMethodText abiMethodText)
+    (hinput : UInt64.ofNat input.size ≠ 0) :
+    executeMethodV1 methodIR input 0 0 storage =
+        .trapped .inputLengthMismatch ∧
+      executeMethodWATV1 2
+        (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue)
+        input 0 0 storage = .trapped .trap ∧
+      observeMethodV1 methodIR input 0 0 storage =
+        observeMethodWATV1 initializerName 2
+          (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory
+            markerRegion field0Region field1Region plan.storage.markerValue)
+          input 0 0 storage := by
+  have halignment := hchain.staticAlignment.staticAlignment
+  have hmethod :
+      executeMethodV1 methodIR input 0 0 storage =
+        .trapped .inputLengthMismatch := by
+    rw [halignment.methodIRExact]
+    exact executeMethodV1_nullaryZeroTwoUInt64Initializer_nonempty_input
+      initializerName markerRegion field0Region field1Region
+      plan.storage.markerValue input storage (by
+        intro hsize
+        simp [hsize] at hinput)
+  have hwat :
+      executeMethodWATV1 2
+        (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue)
+        input 0 0 storage = .trapped .trap :=
+    executeMethodWATV1_nullaryZeroTwoUInt64Initializer_nonempty_input
+      ir.registers ir.memory markerRegion field0Region field1Region
+      plan.storage.markerValue input storage hinput
+  have hname : methodIR.name = initializerName :=
+    congrArg MethodIR.name halignment.methodIRExact
+  refine ⟨hmethod, hwat, ?_⟩
+  simp [observeMethodV1, observeMethodWATV1, hmethod, hwat, hname]
+
+/-- Re-initialization traps in both bounded target semantics before any write;
+    their canonical observations expose the original storage snapshot. -/
+theorem capabilityInitializerStaticEmissionV1_doubleInitFailure
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (initializerName : String)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (markerBytes : ByteArray)
+    (storage : StorageObservationV1)
+    (hchain :
+      CapabilityInitializerStaticEmissionV1 capability program data plan ir
+        files binding0 binding1 initializerName method markerRegion field0Region
+          field1Region methodIR watFile abiFile watMethodText abiMethodText)
+    (hmarker : storage.lookup markerRegion.key = some markerBytes) :
+    executeMethodV1 methodIR ByteArray.empty 0 0 storage =
+        .trapped .storageAlreadyPresent ∧
+      executeMethodWATV1 2
+        (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue)
+        ByteArray.empty 0 0 storage = .trapped .trap ∧
+      observeMethodV1 methodIR ByteArray.empty 0 0 storage =
+        observeMethodWATV1 initializerName 2
+          (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory
+            markerRegion field0Region field1Region plan.storage.markerValue)
+          ByteArray.empty 0 0 storage := by
+  have halignment := hchain.staticAlignment.staticAlignment
+  have hmethod :
+      executeMethodV1 methodIR ByteArray.empty 0 0 storage =
+        .trapped .storageAlreadyPresent := by
+    rw [halignment.methodIRExact]
+    exact executeMethodV1_nullaryZeroTwoUInt64Initializer_double_init
+      initializerName markerRegion field0Region field1Region
+      plan.storage.markerValue markerBytes storage hmarker
+  have hwat :
+      executeMethodWATV1 2
+        (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue)
+        ByteArray.empty 0 0 storage = .trapped .trap :=
+    executeMethodWATV1_nullaryZeroTwoUInt64Initializer_double_init ir.registers
+      ir.memory markerRegion field0Region field1Region plan.storage.markerValue
+      markerBytes storage hmarker
+  have hname : methodIR.name = initializerName :=
+    congrArg MethodIR.name halignment.methodIRExact
+  refine ⟨hmethod, hwat, ?_⟩
+  simp [observeMethodV1, observeMethodWATV1, hmethod, hwat, hname]
+
+/-- A nonzero low attached-deposit limb fails before either bounded evaluator
+    can inspect or change storage, with the same canonical rollback view. -/
+theorem capabilityInitializerStaticEmissionV1_nonzeroDepositFailure
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (initializerName : String)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (depositLow : UInt64)
+    (storage : StorageObservationV1)
+    (hchain :
+      CapabilityInitializerStaticEmissionV1 capability program data plan ir
+        files binding0 binding1 initializerName method markerRegion field0Region
+          field1Region methodIR watFile abiFile watMethodText abiMethodText)
+    (hdeposit : depositLow ≠ 0) :
+    executeMethodV1 methodIR ByteArray.empty depositLow 0 storage =
+        .trapped .attachedDepositNotZero ∧
+      executeMethodWATV1 2
+        (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue)
+        ByteArray.empty depositLow 0 storage = .trapped .trap ∧
+      observeMethodV1 methodIR ByteArray.empty depositLow 0 storage =
+        observeMethodWATV1 initializerName 2
+          (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory
+            markerRegion field0Region field1Region plan.storage.markerValue)
+          ByteArray.empty depositLow 0 storage := by
+  have halignment := hchain.staticAlignment.staticAlignment
+  have hmethod :
+      executeMethodV1 methodIR ByteArray.empty depositLow 0 storage =
+        .trapped .attachedDepositNotZero := by
+    rw [halignment.methodIRExact]
+    exact executeMethodV1_nullaryZeroTwoUInt64Initializer_nonzero_deposit
+      initializerName markerRegion field0Region field1Region
+      plan.storage.markerValue depositLow storage hdeposit
+  have hwat :
+      executeMethodWATV1 2
+        (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue)
+        ByteArray.empty depositLow 0 storage = .trapped .trap :=
+    executeMethodWATV1_nullaryZeroTwoUInt64Initializer_nonzero_deposit
+      ir.registers ir.memory markerRegion field0Region field1Region
+      plan.storage.markerValue depositLow storage hdeposit
+  have hname : methodIR.name = initializerName :=
+    congrArg MethodIR.name halignment.methodIRExact
+  refine ⟨hmethod, hwat, ?_⟩
+  simp [observeMethodV1, observeMethodWATV1, hmethod, hwat, hname]
+
+/-- A nonzero high attached-deposit limb is rejected at the second u128 check
+    and has the same no-write observation in both bounded target semantics. -/
+theorem capabilityInitializerStaticEmissionV1_nonzeroDepositHighFailure
+    (capability : ResolvedEngineeringBuildV1)
+    (program : ProofForgeV2.Semantic.WireV1.SemanticProgramV1)
+    (data : ProofForgeV2.Semantic.WireV1.SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (files : Array OutputFile)
+    (binding0 binding1 : UInt64StateBindingV1)
+    (initializerName : String)
+    (method : Method)
+    (markerRegion field0Region field1Region : KeyRegion)
+    (methodIR : MethodIR)
+    (watFile abiFile : OutputFile)
+    (watMethodText abiMethodText : String)
+    (depositHigh : UInt64)
+    (storage : StorageObservationV1)
+    (hchain :
+      CapabilityInitializerStaticEmissionV1 capability program data plan ir
+        files binding0 binding1 initializerName method markerRegion field0Region
+          field1Region methodIR watFile abiFile watMethodText abiMethodText)
+    (hdeposit : depositHigh ≠ 0) :
+    executeMethodV1 methodIR ByteArray.empty 0 depositHigh storage =
+        .trapped .attachedDepositNotZero ∧
+      executeMethodWATV1 2
+        (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue)
+        ByteArray.empty 0 depositHigh storage = .trapped .trap ∧
+      observeMethodV1 methodIR ByteArray.empty 0 depositHigh storage =
+        observeMethodWATV1 initializerName 2
+          (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory
+            markerRegion field0Region field1Region plan.storage.markerValue)
+          ByteArray.empty 0 depositHigh storage := by
+  have halignment := hchain.staticAlignment.staticAlignment
+  have hmethod :
+      executeMethodV1 methodIR ByteArray.empty 0 depositHigh storage =
+        .trapped .attachedDepositNotZero := by
+    rw [halignment.methodIRExact]
+    exact executeMethodV1_nullaryZeroTwoUInt64Initializer_nonzero_deposit_high
+      initializerName markerRegion field0Region field1Region
+      plan.storage.markerValue depositHigh storage hdeposit
+  have hwat :
+      executeMethodWATV1 2
+        (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory markerRegion
+          field0Region field1Region plan.storage.markerValue)
+        ByteArray.empty 0 depositHigh storage = .trapped .trap :=
+    executeMethodWATV1_nullaryZeroTwoUInt64Initializer_nonzero_deposit_high
+      ir.registers ir.memory markerRegion field0Region field1Region
+      plan.storage.markerValue depositHigh storage hdeposit
+  have hname : methodIR.name = initializerName :=
+    congrArg MethodIR.name halignment.methodIRExact
+  refine ⟨hmethod, hwat, ?_⟩
+  simp [observeMethodV1, observeMethodWATV1, hmethod, hwat, hname]
+
 /-- Capability-scoped production chain for the bounded unary checked-add
     entry. It binds one retained semantic program, Plan/IR/build results, the
     exact two-UInt64 deposit alignment, and the sole WAT/ABI renderer graphs.

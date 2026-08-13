@@ -961,6 +961,25 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
       let ⟨_, hvalueMemory⟩ ← requireProof
         (ir.memory.valueOffset + 8 ≤ ir.memory.minPages * wasmPageBytes)
         "VerifiedVaultPF initializer value scratch exceeds declared memory"
+      let ⟨_, hinitFieldDistinct⟩ ← requireProof
+        (alignedSharesRegion.key ≠ alignedReservesRegion.key)
+        "VerifiedVaultPF initializer state keys alias"
+      let ⟨_, hinitMarkerField0Distinct⟩ ← requireProof
+        (alignedMarkerRegion.key ≠ alignedReservesRegion.key)
+        "VerifiedVaultPF initializer marker aliases reserves"
+      let ⟨_, hinitMarkerField1Distinct⟩ ← requireProof
+        (alignedMarkerRegion.key ≠ alignedSharesRegion.key)
+        "VerifiedVaultPF initializer marker aliases shares"
+      let productionInitializerStorage : StorageObservationV1 := {
+        lookup := fun _ => none
+      }
+      let invalidInitializerInput : ByteArray := ByteArray.mk #[1]
+      let productionInitializedStorage : StorageObservationV1 := {
+        lookup := fun key =>
+          if key == alignedMarkerRegion.key then
+            some (encodeU64le plan.storage.markerValue)
+          else none
+      }
       have _ :
           ∃ initializerWATText initializerABIText,
             CapabilityInitializerStaticEmissionV1 capability semantic
@@ -968,11 +987,56 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
                 "init" initializerMethod alignedMarkerRegion
                 alignedReservesRegion alignedSharesRegion initializerIR watFile
                 abiFile initializerWATText initializerABIText ∧
-              ValidatedReadOnlyMethodWATEmissionV1 ir 0 initializerIR
+              ValidatedReadOnlyWATModuleEmissionV1 ir 0 initializerIR
                 watFile.contents initializerWATText
                 (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory
                   alignedMarkerRegion alignedReservesRegion alignedSharesRegion
                   plan.storage.markerValue) ∧
+              executeMethodV1 initializerIR ByteArray.empty 0 0
+                  productionInitializerStorage =
+                .returned none
+                  (zeroTwoUInt64InitializerPostStorageV1
+                    productionInitializerStorage alignedMarkerRegion
+                    alignedReservesRegion alignedSharesRegion
+                    plan.storage.markerValue) ∧
+              executeMethodWATV1 2
+                  (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory
+                    alignedMarkerRegion alignedReservesRegion
+                    alignedSharesRegion plan.storage.markerValue)
+                  ByteArray.empty 0 0 productionInitializerStorage =
+                .returned none
+                  (zeroTwoUInt64InitializerPostStorageV1
+                    productionInitializerStorage alignedMarkerRegion
+                    alignedReservesRegion alignedSharesRegion
+                    plan.storage.markerValue) ∧
+              observeMethodV1 initializerIR invalidInitializerInput 0 0
+                  productionInitializerStorage =
+                observeMethodWATV1 "init" 2
+                  (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory
+                    alignedMarkerRegion alignedReservesRegion
+                    alignedSharesRegion plan.storage.markerValue)
+                  invalidInitializerInput 0 0 productionInitializerStorage ∧
+              observeMethodV1 initializerIR ByteArray.empty 1 0
+                  productionInitializerStorage =
+                observeMethodWATV1 "init" 2
+                  (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory
+                    alignedMarkerRegion alignedReservesRegion
+                    alignedSharesRegion plan.storage.markerValue)
+                  ByteArray.empty 1 0 productionInitializerStorage ∧
+              observeMethodV1 initializerIR ByteArray.empty 0 1
+                  productionInitializerStorage =
+                observeMethodWATV1 "init" 2
+                  (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory
+                    alignedMarkerRegion alignedReservesRegion
+                    alignedSharesRegion plan.storage.markerValue)
+                  ByteArray.empty 0 1 productionInitializerStorage ∧
+              observeMethodV1 initializerIR ByteArray.empty 0 0
+                  productionInitializedStorage =
+                observeMethodWATV1 "init" 2
+                  (nullaryZeroTwoUInt64InitializerWATV1 ir.registers ir.memory
+                    alignedMarkerRegion alignedReservesRegion
+                    alignedSharesRegion plan.storage.markerValue)
+                  ByteArray.empty 0 0 productionInitializedStorage ∧
               ∃ before after,
                 watFile.contents = before ++
                   renderReadOnlyWATMethodV1 initializerIR.name
@@ -988,18 +1052,65 @@ private unsafe def testSameFileVerifiedVaultPFPreservingProductPositive
             alignedSharesRegion initializerIR watFile abiFile (by rfl)
             hplanCapability hirCapability hbuildCapability hinitializerStatic rfl
             hinitializerIR hwatFile habiFile
-        have hinitializerValidated :=
-          capabilityInitializerStaticEmissionV1_validatedMethodWATEmissionV1
+        have hinitializerValidatedModule :=
+          capabilityInitializerStaticEmissionV1_validatedWATModule
             capability semantic semanticData plan ir baseFiles reservesBinding
             sharesBinding "init" initializerMethod alignedMarkerRegion
             alignedReservesRegion alignedSharesRegion initializerIR watFile
             abiFile initializerWATText initializerABIText hinitializerCapability
             hdepositMemory hvalueMemory
+        have hinitializerExecution :=
+          capabilityInitializerStaticEmissionV1_execute capability semantic
+            semanticData plan ir baseFiles reservesBinding sharesBinding "init"
+            initializerMethod alignedMarkerRegion alignedReservesRegion
+            alignedSharesRegion initializerIR watFile abiFile initializerWATText
+            initializerABIText productionInitializerStorage
+            hinitializerCapability
+            (by simp [productionInitializerStorage])
+            (by simp [productionInitializerStorage])
+            (by simp [productionInitializerStorage]) hinitFieldDistinct
+            hinitMarkerField0Distinct hinitMarkerField1Distinct
+        have hinitializerDoubleInit :=
+          capabilityInitializerStaticEmissionV1_doubleInitFailure capability
+            semantic semanticData plan ir baseFiles reservesBinding sharesBinding
+            "init" initializerMethod alignedMarkerRegion alignedReservesRegion
+            alignedSharesRegion initializerIR watFile abiFile initializerWATText
+            initializerABIText (encodeU64le plan.storage.markerValue)
+            productionInitializedStorage hinitializerCapability
+            (by simp [productionInitializedStorage])
+        have hinitializerNonemptyInput :=
+          capabilityInitializerStaticEmissionV1_nonemptyInputFailure capability
+            semantic semanticData plan ir baseFiles reservesBinding sharesBinding
+            "init" initializerMethod alignedMarkerRegion alignedReservesRegion
+            alignedSharesRegion initializerIR watFile abiFile initializerWATText
+            initializerABIText invalidInitializerInput
+            productionInitializerStorage hinitializerCapability
+            (by decide)
+        have hinitializerNonzeroDeposit :=
+          capabilityInitializerStaticEmissionV1_nonzeroDepositFailure capability
+            semantic semanticData plan ir baseFiles reservesBinding sharesBinding
+            "init" initializerMethod alignedMarkerRegion alignedReservesRegion
+            alignedSharesRegion initializerIR watFile abiFile initializerWATText
+            initializerABIText 1 productionInitializerStorage
+            hinitializerCapability (by decide)
+        have hinitializerNonzeroDepositHigh :=
+          capabilityInitializerStaticEmissionV1_nonzeroDepositHighFailure
+            capability semantic semanticData plan ir baseFiles reservesBinding
+            sharesBinding "init" initializerMethod alignedMarkerRegion
+            alignedReservesRegion alignedSharesRegion initializerIR watFile
+            abiFile initializerWATText initializerABIText 1
+            productionInitializerStorage hinitializerCapability (by decide)
+        have hinitializerValidated :=
+          hinitializerValidatedModule.methodEmission
         have htext := validatedReadOnlyMethodWATEmissionV1_textIdentity ir 0
           initializerIR watFile.contents initializerWATText _
             hinitializerValidated
         exact ⟨initializerWATText, initializerABIText, hinitializerCapability,
-          hinitializerValidated, htext.2⟩
+          hinitializerValidatedModule, hinitializerExecution.2.1,
+          hinitializerExecution.2.2, hinitializerNonemptyInput.2.2,
+          hinitializerNonzeroDeposit.2.2,
+          hinitializerNonzeroDepositHigh.2.2, hinitializerDoubleInit.2.2,
+          htext.2⟩
 
       -- Close `deposit(amount)` against the same retained semantic carrier,
       -- production Plan/IR, and WAT/ABI emission graph. Entry zero lowers to

@@ -340,8 +340,10 @@ Phase 1：实现
   `CapabilityInitializerStaticEmissionV1`从真实 same-file certified capability动态连接 retained
   semantic、production Plan/IR、canonical marker/two-field key regions、initializer Method/MethodIR与
   同一次 WAT/ABI output；proof-producing recognizer及 bridge要求 exact operation order和 repeated
-  canonical regions。MethodIR与typed-WAT theorem固定成功 post-storage、double-init trap及 nonzero
-  deposit trap；storage relation又直接消费 sole Reference initializer step与
+  canonical regions。capability façade现保留 complete production module validation与 exact method
+  fragment identity；MethodIR与typed-WAT theorem固定成功 post-storage，并在 nonempty input、
+  double-init、u128 deposit low/high limb非零四类失败上导出 exact trap及 canonical no-write
+  observation agreement；storage relation又直接消费 sole Reference initializer step与
   `postEncode_of_readyInitializerStoreZeroTwoV1`，连接 logical initialized zero/zero state和 marker+
   two-field physical KV。没有第二套业务 State/Effect/step/evaluator。该结果只覆盖 selected
   `init()` recipe，也不证明 arbitrary textual WAT、

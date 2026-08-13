@@ -15447,3 +15447,21 @@ normative: false
   Solana formal milestone。未来外部 `SbpfSemantics.Api` 应接在当前 relation下方，而不是复制唯一
   `SemanticProgramV1 + ReferenceMachineV1` 业务语义；整体仍为
   **Reference-verified + engineering runtime observed ≠ fully target-refined**。
+
+## 2026-08-13 — NEAR VerifiedVault initializer capability closure
+
+- 回到尚未完全对称的 NEAR initializer纵链：
+  `capabilityInitializerStaticEmissionV1_validatedWATModule`现在从同一个
+  `CapabilityInitializerStaticEmissionV1`构造 complete production module carrier，不再只停在
+  method-fragment validation；它同时保留 exact capability、retained semantic、Plan/IR、WAT/ABI
+  emission与 initializer method identity。
+- capability-level execution固定真实 production initializer在 MethodIR与typed-WAT上的 exact
+  zero/zero+marker post-storage；失败矩阵补齐 nonempty input、already initialized、u128 attached
+  deposit low limb非零和 high limb非零。每类失败均给出 evaluator-specific exact trap，并证明两级
+  canonical call observation相等、post-storage回滚为 supplied pre-storage。
+- `InlineProofCertifierV1` 的真实 same-file `VerifiedVaultPF` fixture从 audited capability动态实例化
+  complete module、成功 execution与四类失败，而不是手写另一份 Plan/IR/WAT golden。没有新增 DSL
+  State/Effect/step、Plan/lowering、renderer或 target evaluator。
+- 边界仍止于 bounded MethodIR/typed-WAT。该切片不证明 arbitrary textual WAT、`wat2wasm`
+  correctness、Wasm binary execution或 NEAR host semantics；下一步固定先推进 semantics-bearing
+  WAT/Wasm consumer和 host边界，Solana暂停在 `StateCell.get()`首切。
