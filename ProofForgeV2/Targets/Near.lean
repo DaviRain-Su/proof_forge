@@ -9,6 +9,7 @@ import ProofForgeV2.Targets.Near.EmitIRV1
 import ProofForgeV2.Targets.Near.StaticAlignmentV1
 import ProofForgeV2.Targets.Near.MethodSemanticsV1
 import ProofForgeV2.Targets.Near.WATSemanticsV1
+import ProofForgeV2.Targets.Near.WasmBinaryV1
 
 /-!
 # ProofForgeV2.Targets.Near — public façade
@@ -21,6 +22,8 @@ Plan canonicity lives in `ValidatePlanV1`. IR emission and
 The first bounded target recipe and typed-WAT execution semantics live in
 `MethodSemanticsV1` and `WATSemanticsV1`; they are not Wasm binary or complete
 NEAR protocol semantics.
+`WasmBinaryV1` only validates the finalized core-Wasm section envelope; it
+does not give section payloads execution semantics or prove translation.
 `FinalizeV1` remains a separate submodule.
 -/
 

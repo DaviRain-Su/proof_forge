@@ -273,6 +273,59 @@ private unsafe def testNearFinalizerInputBinding : IO Unit := do
   expect (!(← (staging / "StateCell.wasm").pathExists))
     "divergent NEAR WAT input must fail before wat2wasm writes an output"
 
+/-- The bounded core-Wasm consumer must consume every section, enforce
+    canonical u32 LEB lengths, and reject duplicate/out-of-order sections. -/
+private def expectWasmDecodeError
+    (bytes : ByteArray)
+    (expected : Targets.Near.WasmBinaryErrorV1)
+    (message : String) : IO Unit :=
+  match Targets.Near.decodeWasmBinaryModuleV1 bytes with
+  | .error actual =>
+    expect (actual == expected) s!"{message}: got {repr actual}"
+  | .ok sections =>
+    throw <| IO.userError s!"{message}: unexpectedly decoded {repr sections}"
+
+private def testNearWasmBinaryEnvelope : IO Unit := do
+  let header := ByteArray.mk
+    #[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
+  let valid := header ++ ByteArray.mk
+    #[0x01, 0x01, 0xaa, 0x00, 0x00, 0x03, 0x00, 0x0c, 0x00, 0x0a, 0x00, 0x0b, 0x00]
+  match Targets.Near.decodeWasmBinaryModuleV1 valid with
+  | .ok sections =>
+    expect (sections.map (·.id) == #[1, 0, 3, 12, 10, 11])
+      "Wasm envelope must preserve exact section order"
+    expect (sections[0]!.payloadOffset == 10 && sections[0]!.payloadSize == 1)
+      "Wasm envelope must retain exact payload extent"
+  | .error error =>
+    throw <| IO.userError s!"valid Wasm envelope rejected: {repr error}"
+  expectWasmDecodeError
+    (ByteArray.mk #[0x01, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]) .invalidMagic
+    "Wasm envelope must reject invalid magic"
+  expectWasmDecodeError
+    (ByteArray.mk #[0x00, 0x61, 0x73, 0x6d, 0x02, 0x00, 0x00, 0x00])
+    .unsupportedVersion
+    "Wasm envelope must reject unsupported versions"
+  expectWasmDecodeError
+    (header ++ ByteArray.mk #[0x01, 0x80, 0x00]) .noncanonicalLeb
+    "Wasm envelope must reject nonminimal u32 LEB"
+  expectWasmDecodeError
+    (header ++ ByteArray.mk #[0x01, 0xff, 0xff, 0xff, 0xff, 0x10]) .lebOverflow
+    "Wasm envelope must reject u32 LEB overflow"
+  expectWasmDecodeError
+    (header ++ ByteArray.mk #[0x01, 0x00, 0x01, 0x00]) (.sectionOrder 1)
+    "Wasm envelope must reject duplicate core sections"
+  expectWasmDecodeError
+    (header ++ ByteArray.mk #[0x02, 0x00, 0x01, 0x00]) (.sectionOrder 1)
+    "Wasm envelope must reject out-of-order core sections"
+  expectWasmDecodeError
+    (header ++ ByteArray.mk #[0x0d, 0x00]) (.invalidSectionId 13)
+    "Wasm envelope must fail closed on unsupported section ids"
+  expectWasmDecodeError
+    (header ++ ByteArray.mk #[0x01, 0x02, 0xaa]) .sectionPayloadOutOfBounds
+    "Wasm envelope must reject truncated section payloads"
+  expectWasmDecodeError (header ++ ByteArray.mk #[0x00]) .truncated
+    "Wasm envelope must not ignore trailing bytes"
+
 /-- Hermetic PF-ARTIFACT-NONDEPLOYABLE gates (empty solc bytecode + bad Wasm). -/
 private unsafe def testNonDeployablePhases : IO Unit := do
   -- Empty solc bytecode presence gate.
@@ -297,9 +350,14 @@ private unsafe def testNonDeployablePhases : IO Unit := do
     Targets.Near.FinalizeV1.requireDeployableWasmArtifact (staging / "StateCell.wasm")
   expectIoErrorContains "bad wasm magic bytes" "PF-ARTIFACT-NONDEPLOYABLE" do
     Targets.Near.FinalizeV1.requireValidWasmHeader (ByteArray.mk #[0x00, 0x61, 0x73, 0x6d])
+  expectIoErrorContains "noncanonical Wasm section length" "invalid Wasm binary envelope" do
+    Targets.Near.FinalizeV1.requireValidWasmBinaryEnvelope
+      (ByteArray.mk #[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00,
+        0x01, 0x80, 0x00])
   -- Valid minimal header accepts.
   let validHeader := ByteArray.mk #[0x00, 0x61, 0x73, 0x6d, 0x01, 0x00, 0x00, 0x00]
   Targets.Near.FinalizeV1.requireValidWasmHeader validHeader
+  Targets.Near.FinalizeV1.requireValidWasmBinaryEnvelope validHeader
   IO.FS.writeBinFile (staging / "StateCell.wasm") validHeader
   Targets.Near.FinalizeV1.requireDeployableWasmArtifact (staging / "StateCell.wasm")
 
@@ -464,6 +522,7 @@ private unsafe def testFourTargetFinalization : IO Unit := do
         (evidence.splitOn s!"outputPath=StateCell.wasm outputSha256={wasmSha256}").length > 1)
       "near evidence must bind canonical WAT input and observed Wasm output bytes"
     expect ((evidence.splitOn "validWasmHeader=true").length > 1 &&
+        (evidence.splitOn "canonicalSectionEnvelope=true").length > 1 &&
         (evidence.splitOn "translator correctness and runtime remain separate").length > 1)
       "near evidence must preserve the consumer-provenance assurance boundary"
     let manifest ← IO.FS.readFile (outDir / "manifest.json")
@@ -595,6 +654,7 @@ unsafe def run : IO Unit := do
   testSoleMintBinding
   testPreIoBindBeforeTools
   testNearFinalizerInputBinding
+  testNearWasmBinaryEnvelope
   testNonDeployablePhases
   testFourTargetFinalization
   testToolFailureZeroPublish

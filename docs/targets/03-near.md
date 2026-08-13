@@ -378,6 +378,15 @@ Phase 1：实现
   bounded MethodIR/typed-WAT refinement；仍不证明 arbitrary textual WAT、`wat2wasm` correctness、
   Wasm binary semantics或 NEAR runtime simulation。整体仍是
   **Reference-verified + engineering runtime observed ≠ fully target-refined**。
+- **finalized core-Wasm structural envelope（Phase 7 第三十切）**：
+  `WasmBinaryV1`新增 bounded pure decoder，检查 8-byte magic/version、minimal unsigned u32 LEB
+  section length、payload extent、standard section unique/order（DataCount在Code之前）、custom section
+  可插入性及 exact end-of-input；truncated、overflow、noncanonical LEB、unknown section id、duplicate/
+  reordered section均 fail closed。production finalizer在 locked `wat2wasm`成功后强制该 gate，成功
+  evidence增加 `canonicalSectionEnvelope=true`，并沿用 output SHA-256绑定 exact bytes。该 decoder只
+  消费 section envelope，不解析 payload、不验证 module typing/import/export/code、不执行 Wasm，也不
+  证明 `wat2wasm` translation或 NEAR host/runtime refinement；因此不是 Wasm semantics，也不升级
+  artifact claim。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -474,8 +483,9 @@ capability chain连接 exact WAT/ABI emission、两级 checked-add execution与 
 ABI/deposit/layout/first-overflow/late-second-overflow均有 no-commit边界。selected `withdraw()`也已
 由真实 production entry 1 / MethodIR 2 capability chain连接双 guard-before-write、两级 checked-sub
 success、Unit fall-through、Reference exact post-state及 first/second guard canonical observation
-rollback。当前仍没有 finalized
-Wasm/disk identity 或 Reference→Wasm/NEAR simulation theorem。通用 corpus 对 corrupt storage 或
+rollback。finalized Wasm现有 exact digest provenance与 bounded section-envelope gate，但仍没有
+section payload semantics、WAT→Wasm translation、kernel-bound disk artifact identity或
+Reference→Wasm/NEAR simulation theorem。通用 corpus 对 corrupt storage 或
 gas/profile 的覆盖仍不完整；StateCell
 `negative_corpus` 已 pin unknown method / exactInputLen 类 bad args + state-hold
 （engineering sandbox only）。Option params、非 UInt64/nested Option、非 UInt64

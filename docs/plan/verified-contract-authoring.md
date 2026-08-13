@@ -811,6 +811,14 @@ recipe semantics。当前只能称 `status()`、`init()`、`deposit()` 与 `with
 MethodIR/typed-WAT refinement；整体
 artifact 声明仍是 **Reference-verified + NEAR engineering runtime observed ≠ fully target-refined**。
 
+2026-08-13 又在 locked `wat2wasm` 输出侧加入 bounded core-Wasm binary envelope consumer：
+`decodeWasmBinaryModuleV1` fail closed 检查 magic/version、canonical unsigned u32 LEB section
+length、payload extent、standard section unique/order（含 DataCount-before-Code）及 exact byte
+consumption；finalizer仅在该 gate成功后记录 `canonicalSectionEnvelope=true`，exact output bytes仍由
+既有 SHA-256 provenance绑定。该 consumer不解析 section payload，不验证 module typing/import/export/
+code，不执行 Wasm，也不证明 WAT→Wasm translation或 NEAR host/runtime refinement。因此它只是
+finalized binary的结构边界，不改变上述整体 assurance等级。
+
 2026-08-13 已开始 Solana 的第一个 bounded target slice，当前只覆盖真实 production
 `StateCell.get() : UInt64`：
 
@@ -939,7 +947,7 @@ ProofForge内自造完整 EVM opcode、Wasm binary、sBPF或 Solana runtime sema
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR 四个 capability-scoped bounded recipes；Solana `StateCell.get()` 首切后暂停）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices；`init` 已补 complete-module carrier及 nonempty input/double-init/u128 deposit low/high failure rollback。下一步先闭合 semantics-bearing WAT/Wasm consumer与 host边界。Solana 已有 retained UInt64 state → production single-account Plan/HandlerIR → bounded evaluator → sole Reference view observation，但在 NEAR 阶段出口前不继续扩面。两者均尚不得升级为完整 artifact target-refined |
+| 7 | Per-target refinement | **进行中（NEAR 四个 capability-scoped bounded recipes + finalized Wasm结构边界；Solana `StateCell.get()` 首切后暂停）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices；`init` 已补 complete-module carrier及 failure rollback；finalizer又以 canonical LEB/section envelope consumer检查 exact output bytes，但尚无 payload semantics、WAT→Wasm translation或 host refinement。Solana 已有 retained UInt64 state → production single-account Plan/HandlerIR → bounded evaluator → sole Reference view observation，但在 NEAR 阶段出口前不继续扩面。两者均尚不得升级为完整 artifact target-refined |
 
 ### 首个代码切片进展
 
@@ -1315,7 +1323,13 @@ expression translator：
     semantics-bearing verified WAT/Wasm consumer（继续扩展 sole typed-WAT execution或引入可证明
     encoder/translator），再到 Wasm binary execution与完整 NEAR host simulation。
     上述各层未闭合前，完整 WAT文本、Wasm binary和最终 NEAR artifact仍不得标记为 target-refined或
-    artifact verified。
+    artifact verified；
+20. finalized Wasm输出已有 bounded structural consumer：pure decoder验证 core header、canonical
+    u32 LEB section lengths、payload bounds、standard section order/uniqueness及全字节消费；production
+    finalizer在 locked `wat2wasm`成功后强制该 gate，并把结果与既有 output SHA-256 provenance一起
+    记录。它不解析任何 section payload，不给 instruction/import/export/code语义，不执行 Wasm，
+    也不证明 translator或 NEAR host正确性；因此只是上述 semantics-bearing consumer路线之前的
+    fail-closed binary envelope，不升级 target或artifact claim。
 
 ---
 

@@ -13,6 +13,7 @@ import ProofForgeV2.Materialization.MaterializedArtifactsV1
 import ProofForgeV2.Materialization.EngineeringFinalizationV1
 import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Targets.Near.EmitIRV1
+import ProofForgeV2.Targets.Near.WasmBinaryV1
 
 namespace ProofForgeV2.Targets.Near.FinalizeV1
 
@@ -61,6 +62,18 @@ def requireValidWasmHeader (wasm : ByteArray) : IO Unit := do
     throw <| IO.userError
       "PF-ARTIFACT-NONDEPLOYABLE: wat2wasm output has an invalid Wasm header/version"
 
+/-- Pure bounded binary-envelope gate after the historical header check. It
+    consumes every section and rejects malformed/noncanonical u32 LEB lengths,
+    duplicate/out-of-order core sections, unknown section ids, and truncation.
+    It does not interpret section payloads or prove translator correctness. -/
+def requireValidWasmBinaryEnvelope (wasm : ByteArray) : IO Unit := do
+  requireValidWasmHeader wasm
+  match decodeWasmBinaryModuleV1 wasm with
+  | .ok _ => pure ()
+  | .error error =>
+    throw <| IO.userError
+      s!"PF-ARTIFACT-NONDEPLOYABLE: wat2wasm output has an invalid Wasm binary envelope ({repr error})"
+
 private def readDeployableWasmArtifactV1
     (targetPath : FilePath) : IO ByteArray := do
   unless ← targetPath.pathExists do
@@ -69,18 +82,19 @@ private def readDeployableWasmArtifactV1
   unless metadata.type == .file do
     throw <| IO.userError "PF-ARTIFACT-NONDEPLOYABLE: wat2wasm output is not a regular file"
   let wasm ← IO.FS.readBinFile targetPath
-  requireValidWasmHeader wasm
+  requireValidWasmBinaryEnvelope wasm
   pure wasm
 
-/-- Post-wat2wasm deployability gate: exists + regular file + Wasm header.
-    Package-visible for hermetic fixtures (missing / non-file / bad header). -/
+/-- Post-wat2wasm deployability gate: exists + regular file + bounded core-Wasm
+    header/section envelope. Package-visible for hermetic malformed-output
+    fixtures. -/
 def requireDeployableWasmArtifact (targetPath : FilePath) : IO Unit := do
   let _ ← readDeployableWasmArtifactV1 targetPath
   pure ()
 
 /-- Exact NEAR wat2wasm finalization: produce `{programName}.wasm` under stagingDir.
     Requires a capability-canonical base `{programName}.wat` already present,
-    then preserves the locked tool argv and Wasm-header deployability gate. -/
+    then preserves the locked tool argv and bounded Wasm-envelope gate. -/
 def finalize
     (capability : ResolvedEngineeringBuildV1)
     (artifacts : MaterializedArtifactsV1)
@@ -108,7 +122,8 @@ def finalize
         s!"argv={source},-o,{target} inputPath={source} " ++
         s!"inputSha256={sha256Hex sourceBytes} canonicalRerenderIdentity=true " ++
         s!"outputPath={target} " ++
-        s!"outputSha256={sha256Hex wasmBytes} validWasmHeader=true; " ++
+        s!"outputSha256={sha256Hex wasmBytes} validWasmHeader=true " ++
+        "canonicalSectionEnvelope=true; " ++
         "translator correctness and runtime remain separate"
     }
   else

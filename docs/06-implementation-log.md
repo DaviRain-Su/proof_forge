@@ -15465,3 +15465,19 @@ normative: false
 - 边界仍止于 bounded MethodIR/typed-WAT。该切片不证明 arbitrary textual WAT、`wat2wasm`
   correctness、Wasm binary execution或 NEAR host semantics；下一步固定先推进 semantics-bearing
   WAT/Wasm consumer和 host边界，Solana暂停在 `StateCell.get()`首切。
+
+## 2026-08-13 — NEAR finalized core-Wasm structural envelope
+
+- 新增 `Targets/Near/WasmBinaryV1.lean` bounded pure consumer：只解析 core-Wasm 8-byte
+  magic/version与 section envelope，要求 canonical unsigned u32 LEB length、payload不越界、standard
+  section唯一且按规范排序（DataCount在Code之前），custom section可插入，并消费全部 bytes。
+  truncated、LEB overflow/noncanonical encoding、unknown section id、duplicate/reordered section及
+  truncated payload均 fail closed。
+- production NEAR finalizer在 locked `wat2wasm`成功后，以该 consumer取代仅 header gate；成功
+  evidence新增 `canonicalSectionEnvelope=true`，继续由既有 input/output SHA-256与 locked tool
+  provenance绑定 exact bytes。focused fixture覆盖合法 section序列、offset/extent及逐类 malformed
+  binary，并把 noncanonical LEB接入 post-tool deployability负例。
+- 该切片不解析 section payload，不验证 module typing/import/export/code，不执行 Wasm，不证明
+  `wat2wasm` translation correctness或 NEAR host/runtime refinement。它只是 finalized binary的
+  fail-closed结构边界；四个 VerifiedVault recipe仍只可称 bounded MethodIR/typed-WAT refinement，
+  Solana继续暂停在 `StateCell.get()`首切。
