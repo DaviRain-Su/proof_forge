@@ -51,7 +51,7 @@ Lean 常量位于 `Targets/Near/WasmCertProviderV1.lean`，供应链注解位于
 
 ### D2 — 只接结构化 wrapper，不 scrape 上游 CLI
 
-未来 wrapper executable 固定名 `proof-forge-wasmcert-provider-v1`，调用形状为：
+wrapper executable 固定名 `proof-forge-wasmcert-provider-v1`，调用形状为：
 
 ```text
 proof-forge-wasmcert-provider-v1 \
@@ -104,6 +104,23 @@ aggregate资源上限、32 MiB wire上限；storage key必须按 raw bytes严格
 candidate join会重算三个 exact-byte SHA-256，连接 request/result identity，校验 input和
 `attached_deposit` trace payload，并固定 trap rollback与view no-write/no-promise policy。它只把结果投影
 到既有 passive `CallObservationV1`，不定义另一套 invocation→outcome step，也仍不证明 provider运行。
+
+ProofForge-owned overlay 现位于 `tools/wasmcert-provider/`，由
+`scripts/build_wasmcert_provider_v1.sh` 导出 exact upstream revision、替换单一 Dune/source overlay，
+并直接调用 extracted `run_parse_module_str`、`module_type_checker`、
+`interp_instantiate_wrapper`、`run_one_step`，不解析 human CLI。首个 strict host只实现上述九个
+imports，拒绝其他 import/type、SIMD、table/global/start、`memory.grow`、非单一 bounded memory、
+view write及资源越界。当前 Linux orb 中两次 clean same-host build exact-byte相等，SHA-256 为
+`3c6af34d068e08cd34ea6bf627ec1c1e597f5577f163d89f5f63f462303b0ad4`；该值只是一项本地
+reproducibility observation，**没有**进入 Tool Lock，也不能激活产品 consumer。
+
+Lean consumer 又在 artifact structural validation 后确定性 replay register/storage/read/write/
+return/log/panic host trace，并把 replay结果与 call-boundary observation连接。真实 finalized
+`VerifiedVaultPF.wasm` 已在本地 provider 上执行 `init/deposit/withdraw/status/withdraw-overdraw`
+五个 case；每个 validated observation随后只由 sole `stepReferenceSliceV1`重新执行同一 exact
+semantic subject，并比较返回值、两字段 production storage与 failure rollback。Python smoke不再
+手写业务 post-state oracle；业务期望只来自 `ReferenceMachineV1`。这是 executable engineering
+join及篡改负例，不是 kernel 中的一般 Wasm simulation theorem。
 
 ### D3 — mechanization status 必须逐层保留
 
@@ -170,11 +187,12 @@ LGPL-2.1-or-later；不能只复制 opam 的简化 MIT 字段。
 
 ## Consequences
 
-- 当前 NEAR assurance **不升级**：仍是四个 bounded MethodIR/typed-WAT recipe + finalized Wasm
-  structural boundary，整体不是 fully target-refined。
-- source pin、closed protocol、canonical invocation/trace/observation与 content-level candidate join
-  可以先审计；不存在真实 executable 时 product仍机械 fail closed。
-- 后续工作先实现/锁定 structured wrapper，再实现 bounded NEAR host 与四 recipe trace join；在这个
-  NEAR阶段出口前不继续 Solana扩面。
+- 当前 NEAR assurance **不升级为 formal target-refined**：四个 bounded MethodIR/typed-WAT recipe、
+  finalized Wasm structural boundary与本地 WasmCert executable/host/Reference join已经贯通，但
+  provider仍未 provision，parser仍未验证，且没有一般 IR/WAT→Wasm simulation theorem。
+- source pin、closed protocol、canonical artifacts、provider overlay、host replay和五 case join均可
+  审计；product activation仍机械 fail closed，same-host binary hash不能替代 per-platform Tool Lock。
+- NEAR阶段出口的剩余工作是锁定 provider executable/runtime closure、实现 isolated product
+  consumer及 evidence identity，并明确 translation/parser/host assumptions；完成前不继续 Solana扩面。
 - WasmCert parser、wrapper glue、OCaml compiler/runtime和 purpose-built host仍属于明确列出的 TCB/
   assumption边界；文档和 UI 不得用单一 `verified=true` 抹平这些差异。

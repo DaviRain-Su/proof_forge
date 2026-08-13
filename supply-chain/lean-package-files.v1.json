@@ -1016,14 +1016,14 @@
       "sha256": "758efa846d12c0489f235f5152ac7f4803d7df38681e1f0bc5f9c8062267cdce"
     },
     {
-      "bytes": 44562,
+      "bytes": 53001,
       "path": "ProofForgeV2/Targets/Near/WasmCertArtifactsV1.lean",
-      "sha256": "f37259ae9395479cfcd1efc9cb18b1a162fa957e0dbb19bb577dd92df8daec45"
+      "sha256": "e155f1268169563849d1f5d50bb96fc0f07b61cf6e082174cfc17c1f12032fae"
     },
     {
-      "bytes": 5512,
+      "bytes": 6262,
       "path": "ProofForgeV2/Targets/Near/WasmCertProviderV1.lean",
-      "sha256": "64bb636cb2a677f16448d9e9ba2594ea7ebe9685e8845bab8c43e7bc42c9a34a"
+      "sha256": "de038575786e6894b4455247922a85c1304429aceb06c81f85e69c3c592e9e14"
     },
     {
       "bytes": 15247,

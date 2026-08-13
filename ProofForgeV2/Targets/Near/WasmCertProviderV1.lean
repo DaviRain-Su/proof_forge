@@ -69,6 +69,22 @@ def wasmCertProviderToolIdV1 : String := "wasmcert-coq-provider"
 def wasmCertProviderExecutableV1 : String :=
   "proof-forge-wasmcert-provider-v1"
 
+def wasmCertProviderVersionV1 : String := "1.0.0"
+
+/-- Exact output of the wrapper's future Tool Lock version probe. Presence of
+    this string does not provision an executable. -/
+def wasmCertProviderExpectedVersionV1 : String :=
+  s!"{wasmCertProviderExecutableV1} {wasmCertProviderVersionV1} {wasmCertCoqRevisionV1}"
+
+/-- The closed CLI has no extra output-path arguments. Its two canonical
+    auxiliary artifacts are derived mechanically from the explicit result
+    path, never discovered from the environment. -/
+def wasmCertProviderHostTracePathV1 (resultPath : String) : String :=
+  resultPath ++ ".host-trace.pf-jcs.json"
+
+def wasmCertProviderObservationPathV1 (resultPath : String) : String :=
+  resultPath ++ ".observation.pf-jcs.json"
+
 /-- Closed request field set, recorded here so a future sidecar cannot silently
     widen the semantics-bearing input. `invocationSha256` binds a separate
     canonical invocation/context/pre-state artifact. -/

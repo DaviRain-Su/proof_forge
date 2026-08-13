@@ -1,0 +1,20 @@
+# Exact package versions used by the first Linux x86_64 provider build recipe.
+# Extra packages may be installed in the switch; every listed build input must
+# match exactly. This is not a Tool Lock executable identity.
+coq 9.1.1
+coq-ext-lib 0.13.1
+coq-flocq 4.2.2
+coq-mathcomp-ssreflect 2.4.0
+digestif 1.3.1
+dune 3.23.1
+elpi 3.7.2
+eqaf 0.10
+ocaml 4.14.2
+rocq-elpi 3.5.0
+rocq-hierarchy-builder 1.10.3
+rocq-mathcomp-ssreflect 2.4.0
+rocq-parseque 0.3.1
+rocq-stdlib 9.0.0
+wasm 2.0.2
+yojson 3.0.0
+zarith 1.14

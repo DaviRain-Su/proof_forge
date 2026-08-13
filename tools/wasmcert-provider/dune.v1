@@ -1,0 +1,29 @@
+; Exact ProofForge overlay for WasmCert-Coq 2.2.1 revision
+; 9ab0f87f03fff5507749efc273ec662fe27e6d14.
+(coq.extraction
+  (prelude extraction)
+  (extracted_modules extract)
+  (theories Wasm Stdlib compcert Flocq mathcomp ExtLib elpi elpi_elpi HB parseque)
+  (flags -w "-extraction-reserved-identifier")
+)
+
+
+(executables
+  (names wasm_coq_interpreter proof_forge_wasmcert_provider_v1)
+  (libraries cmdliner digestif wasm unix parray yojson zarith)
+  (modes (best exe))
+  (public_names wasm_coq_interpreter proof-forge-wasmcert-provider-v1)
+  (promote (into ../))
+)
+
+(env (dev (flags (:standard -warn-error -A -w -39 -w -50)))
+  (release  ;; <- notice the change here
+      (flags (:standard -w -50-32-27-9-69-34-37-33))
+      (ocamlopt_flags (:standard -unsafe -noassert -inline 100))))
+; Removing the following warnings:
+; - 50: unattached documentation comment, as it doesn’t fit the way we document our code.
+; - 39: unused rec flag, as Coq generates a lot of these in its extraction.
+; We could also remove the following, as Coq generates a lot of these in its extraction, but these are useful to track issues in the shim:
+; - 20: this argument will not be used by the function.
+; - 34: unused type
+; - 32: unused value.

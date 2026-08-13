@@ -823,13 +823,22 @@ finalized binary的结构边界，不改变上述整体 assurance等级。
 WasmCert-Coq 2.2.1 revision `9ab0f87f03fff5507749efc273ec662fe27e6d14`，作为下一层
 semantics provider 的 source authority。ProofForge-owned request/result closed schema、exact wrapper
 argv以及 parser=`unverified`、checker/instantiation=`provedSoundOnSuccess`、interpreter core与 host
-assumptions分层状态已落入 `WasmCertProviderV1`。当前没有可重现 wrapper artifact、Tool Lock row或
-executable SHA-256，所以 activation gate必定 `executableUnprovisioned`；source pin不会被误当成
-执行证书。`WasmCertWireV1`现已补上 canonical PF-JCS request/result codec与 strict candidate join，
-对 noncanonical/unknown fields、identity/status drift、非 bounded fuel和 SIMD fail closed；成功
-decode/join仍不证明 provider运行或结果真实，也不能越过 unprovisioned gate。本切没有运行
-WasmCert或升级 assurance。下一步仍是实现并锁定 structured wrapper，
-再接 purpose-built bounded NEAR host、host trace与四个既有 Reference outcome joins。
+assumptions分层状态已落入 `WasmCertProviderV1`。随后已经实现 ProofForge-owned structured overlay：
+它编译进 exact upstream source tree，直接调用 extracted parser/checker/instantiator/interpreter；
+purpose-built bounded host只开放首批九个 NEAR imports。当前 Linux orb两次 clean same-host build
+byte-identical（SHA-256 `3c6af34d068e08cd34ea6bf627ec1c1e597f5577f163d89f5f63f462303b0ad4`），
+但该 executable/runtime closure没有进入 Tool Lock，所以 activation gate仍必定
+`executableUnprovisioned`，本地 hash不能冒充产品 identity。
+
+`WasmCertArtifactsV1` 现不只做 structural carrier join，还会确定性 replay register/storage/
+return/log/panic host trace并与 call-boundary observation exact连接。真实 finalized
+`VerifiedVaultPF.wasm` 已执行 init/deposit/withdraw/status/overdraw 五条路径；Lean runtime consumer
+从 production storage恢复 logical pre-state，调用 sole `stepReferenceSliceV1`，并比较 exact
+return/post-state或 rollback。Python smoke已经删除手写业务 post-state oracle，且 Reference terminal/
+storage tamper负例 fail closed。该结果把 NEAR纵链推进到本地 executable refinement join，但仍不是
+kernel中的一般 IR/WAT→Wasm simulation theorem，也不是 Tool Lock/product evidence。下一步仍留在
+NEAR：完成 provider per-platform executable/runtime closure、isolated product consumer与 evidence
+identity，明确 parser/translation/host assumptions后再恢复 Solana。
 
 2026-08-13 已开始 Solana 的第一个 bounded target slice，当前只覆盖真实 production
 `StateCell.get() : UInt64`：
@@ -959,7 +968,7 @@ ProofForge内自造完整 EVM opcode、Wasm binary、sBPF或 Solana runtime sema
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR 四个 bounded recipes + Wasm结构门 + WasmCert provider合同/canonical wire；Solana `StateCell.get()` 首切后暂停）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices；finalized bytes已有 canonical section envelope。ADR-0043固定 WasmCert-Coq source、structured wrapper协议与逐层 trust status，`WasmCertWireV1`已实现 strict canonical record plumbing和candidate join；但 executable尚未进入 Tool Lock，activation机械 fail closed。payload semantics、真实 wrapper执行、purpose-built NEAR host与 trace→Reference join仍待完成。Solana已有首个 Plan/HandlerIR slice，但在 NEAR阶段出口前不扩面；两者均尚不得升级为完整 artifact target-refined |
+| 7 | Per-target refinement | **进行中（NEAR 本地 WasmCert executable/host/Reference join已贯通；Solana `StateCell.get()` 首切后暂停）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；structured provider、bounded nine-import host、trace replay及真实 VerifiedVault五路径 sole Reference join已通过，same-host clean build byte-identical。但 provider仍未进入 per-platform Tool Lock，activation机械 fail closed，且无一般 IR/WAT→Wasm simulation theorem；因此只算 engineering executable join。Solana已有首个 Plan/HandlerIR slice，但在 NEAR provider identity/consumer阶段出口前不扩面 |
 
 ### 首个代码切片进展
 
@@ -1344,13 +1353,22 @@ expression translator：
     fail-closed binary envelope，不升级 target或artifact claim；
 21. WasmCert-Coq provider边界已固定：source revision、许可证例外、ProofForge structured wrapper的
     request/result closed fields与 exact argv、binary parser未验证边界、checker/instantiation成功
-    soundness、interpreter core和 host assumptions分别记录。当前没有 provider executable Tool Lock
-    identity，`requireWasmCertProviderProvisionedV1`机械 fail closed；这防止 source pin或 human CLI
-    exit 0被误当 evidence，但尚不是 Wasm execution或 NEAR host refinement；
+    soundness、interpreter core和 host assumptions分别记录。structured overlay、exact source export
+    build recipe、bounded nine-import host及 version probe已实现；当前 orb两次 clean same-host build
+    byte-identical，但仍没有 provider executable Tool Lock identity，
+    `requireWasmCertProviderProvisionedV1`机械 fail closed；这防止本地 binary或 human CLI exit 0被误当
+    product evidence；
 22. provider canonical wire已实现：request/result必须经过 exact PF-JCS round-trip与 closed field
     validation，candidate join绑定 source revision、argv、input/invocation digests、逐层 success status、
-    terminal execution与 no-SIMD profile。该 join不接受或激活 arbitrary executable identity，且不
-    检验 host trace/observation内容；所以仍不能替代真实 wrapper、Tool Lock或 Reference refinement。
+    terminal execution与 no-SIMD profile。该 join不接受或激活 arbitrary executable identity；
+23. invocation/trace/observation已由 Lean consumer做 deterministic host replay：register、storage
+    read/write result、overwrite value、return、log、deposit、panic与 call-boundary rollback逐项连接，
+    forged payload/status/storage均 fail closed；
+24. 真实 finalized `VerifiedVaultPF.wasm` 已由 provider跑通 init/deposit/withdraw/status/overdraw，
+    每个 canonical observation再由 sole Reference machine从 exact production logical pre-state执行并
+    比较 return/post-state/rollback。Python harness不含第二套业务 post-state evaluator。该结果仍是
+    local engineering executable join：parser未验证、WAT→Wasm translation与一般 simulation theorem
+    未闭合、provider未 provision，故不能升级为完整 target-refined或 artifact verified。
 
 ---
 

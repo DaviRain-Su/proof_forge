@@ -1,5 +1,6 @@
 import ProofForgeV2.Targets.Near.StaticAlignmentV1
 import ProofForgeV2.Targets.Near.WasmCertWireV1
+import Std.Data.HashMap
 
 /-!
 # NEAR WasmCert invocation, trace, and observation artifacts
@@ -943,6 +944,172 @@ def validateWasmCertObservationForInvocationV1
     unless observation.promises.isEmpty do
       throw "WasmCert view observation must not expose promises"
 
+/-- Deterministic state recovered by replaying the closed host-trace protocol.
+    This is NEAR host-ABI validation, not a ProofForge contract evaluator. -/
+structure WasmCertHostReplayV1 where
+  storage : Array WasmCertStorageRowV1
+  returnData : Option ByteArray
+  logs : Array ByteArray
+  hostTrapped : Bool
+  deriving BEq, DecidableEq, Repr
+
+private def storageValueOfRowsV1
+    (rows : Array WasmCertStorageRowV1) (key : ByteArray) : Option ByteArray :=
+  (rows.find? fun row => row.key == key).map (·.value)
+
+private def upsertStorageRowV1
+    (rows : Array WasmCertStorageRowV1) (key value : ByteArray) :
+    Array WasmCertStorageRowV1 :=
+  match rows.findIdx? fun row => row.key == key with
+  | some index => rows.set! index { key, value }
+  | none =>
+      (rows.push { key, value }).qsort fun left right =>
+        compareByteArraysV1 left.key right.key = .lt
+
+private def expectTraceResultV1
+    (event : WasmCertHostTraceEventV1) (expected : UInt64) : Except String Unit :=
+  unless event.result = some expected do
+    throw s!"WasmCert trace event {event.index} has a forged host result"
+
+private def expectTracePayloadV1
+    (event : WasmCertHostTraceEventV1) (index : Nat) (expected : ByteArray) :
+    Except String Unit :=
+  unless event.payloads[index]? = some expected do
+    throw s!"WasmCert trace event {event.index} has a forged host payload"
+
+/-- Replay the bounded trace against the explicit invocation state. Registers,
+    storage read/write results, return data, logs, deposit payload, and panic
+    termination are checked exactly. Memory addresses remain interpreter-side;
+    the trace carries the bytes observed at those addresses. -/
+def replayWasmCertHostTraceV1
+    (invocationDigest : Digest)
+    (invocation : WasmCertInvocationArtifactV1)
+    (trace : WasmCertHostTraceArtifactV1) : Except String WasmCertHostReplayV1 := do
+  validateWasmCertHostTraceForInvocationV1 invocationDigest invocation trace
+  let mut registers : Std.HashMap UInt64 ByteArray :=
+    Std.HashMap.emptyWithCapacity 16
+  let mut storage := invocation.preStorage
+  let mut returnData : Option ByteArray := none
+  let mut logs := #[]
+  let mut hostTrapped := false
+  for event in trace.events do
+    if hostTrapped then
+      throw "WasmCert host trace contains an event after a host trap"
+    match event.importName, event.arguments.toList with
+    | "env.input", [registerId] =>
+        expectTracePayloadV1 event 0 invocation.input
+        registers := registers.insert registerId invocation.input
+    | "env.register_len", [registerId] =>
+        let expected := match registers.get? registerId with
+          | some payload => UInt64.ofNat payload.size
+          | none => UInt64.ofNat 18446744073709551615
+        expectTraceResultV1 event expected
+    | "env.read_register", [registerId, _] =>
+        let payload ← match registers.get? registerId with
+          | some payload => pure payload
+          | none => throw s!"WasmCert trace event {event.index} reads a missing register"
+        expectTracePayloadV1 event 0 payload
+    | "env.storage_read", [keyLength, _, registerId] =>
+        let key ← match event.payloads[0]? with
+          | some key => pure key
+          | none => throw s!"WasmCert trace event {event.index} has no storage key"
+        unless keyLength.toNat = key.size do
+          throw s!"WasmCert trace event {event.index} has a forged storage key length"
+        match storageValueOfRowsV1 storage key with
+        | none =>
+            expectTraceResultV1 event 0
+            unless event.payloads.size = 1 do
+              throw s!"WasmCert trace event {event.index} invents a missing storage value"
+        | some value =>
+            expectTraceResultV1 event 1
+            unless event.payloads.size = 2 do
+              throw s!"WasmCert trace event {event.index} omits a present storage value"
+            expectTracePayloadV1 event 1 value
+            registers := registers.insert registerId value
+    | "env.storage_write", [keyLength, _, valueLength, _, registerId] =>
+        if invocation.context.isView then
+          throw "WasmCert view trace contains a successful storage write"
+        let key ← match event.payloads[0]? with
+          | some key => pure key
+          | none => throw s!"WasmCert trace event {event.index} has no storage key"
+        let value ← match event.payloads[1]? with
+          | some value => pure value
+          | none => throw s!"WasmCert trace event {event.index} has no storage value"
+        unless keyLength.toNat = key.size && valueLength.toNat = value.size do
+          throw s!"WasmCert trace event {event.index} has a forged storage payload length"
+        match storageValueOfRowsV1 storage key with
+        | none =>
+            expectTraceResultV1 event 0
+            unless event.payloads.size = 2 do
+              throw s!"WasmCert trace event {event.index} invents an overwritten value"
+        | some previous =>
+            expectTraceResultV1 event 1
+            unless event.payloads.size = 3 do
+              throw s!"WasmCert trace event {event.index} omits the overwritten value"
+            expectTracePayloadV1 event 2 previous
+            registers := registers.insert registerId previous
+        storage := upsertStorageRowV1 storage key value
+    | "env.value_return", [length, _] =>
+        let payload ← match event.payloads[0]? with
+          | some payload => pure payload
+          | none => throw s!"WasmCert trace event {event.index} has no return payload"
+        unless length.toNat = payload.size do
+          throw s!"WasmCert trace event {event.index} has a forged return length"
+        unless returnData.isNone do
+          throw "WasmCert host trace returns data more than once"
+        returnData := some payload
+    | "env.attached_deposit", [_] =>
+        expectTracePayloadV1 event 0 invocation.context.attachedDeposit
+    | "env.log_utf8", [length, _] =>
+        let payload ← match event.payloads[0]? with
+          | some payload => pure payload
+          | none => throw s!"WasmCert trace event {event.index} has no log payload"
+        unless length.toNat = payload.size do
+          throw s!"WasmCert trace event {event.index} has a forged log length"
+        logs := logs.push payload
+    | "env.panic_utf8", [length, _] =>
+        let payload ← match event.payloads[0]? with
+          | some payload => pure payload
+          | none => throw s!"WasmCert trace event {event.index} has no panic payload"
+        unless length.toNat = payload.size do
+          throw s!"WasmCert trace event {event.index} has a forged panic length"
+        hostTrapped := true
+    | _, _ =>
+        throw s!"WasmCert trace event {event.index} escaped its validated ABI shape"
+  pure { storage, returnData, logs, hostTrapped }
+
+/-- Join a replayed host trace to the call-boundary observation. Host traps are
+    accepted only when the trace exposes a terminal `panic_utf8`; other
+    unobservable host failures stay fail closed. Wasm traps retain rollback at
+    the separately validated call boundary. -/
+def validateWasmCertHostReplayForObservationV1
+    (invocationDigest : Digest)
+    (invocation : WasmCertInvocationArtifactV1)
+    (trace : WasmCertHostTraceArtifactV1)
+    (observation : WasmCertObservationArtifactV1) : Except String Unit := do
+  validateWasmCertObservationForInvocationV1 invocationDigest invocation observation
+  let replay ← replayWasmCertHostTraceV1 invocationDigest invocation trace
+  unless observation.promises.isEmpty do
+    throw "WasmCert strict host replay does not implement promises"
+  unless observation.logs = replay.logs do
+    throw "WasmCert observation logs do not match host-trace replay"
+  match observation.status, observation.trapKind with
+  | .returned, none =>
+      if replay.hostTrapped then
+        throw "WasmCert returned observation follows a host trap"
+      unless observation.returnData = replay.returnData do
+        throw "WasmCert observation return data does not match host-trace replay"
+      unless observation.postStorage = replay.storage do
+        throw "WasmCert observation storage does not match host-trace replay"
+  | .trapped, some .host =>
+      unless replay.hostTrapped do
+        throw "WasmCert host trap is not exposed by the replayable host trace"
+  | .trapped, some .wasm =>
+      if replay.hostTrapped then
+        throw "WasmCert Wasm trap observation follows a host trap"
+  | _, _ =>
+      throw "WasmCert observation terminal shape escaped structural validation"
+
 /-- Decode and join the three canonical artifacts to one provider result
     candidate. Exact-byte hashes are recomputed here. This still does not run
     the provider, rehash its executable against Tool Lock, or activate it. -/
@@ -966,8 +1133,7 @@ def validateWasmCertProviderArtifactsForRequestV1
     throw "WasmCert observation artifact digest does not match the result"
   unless trace.events.size ≤ request.fuel.toNat do
     throw "WasmCert host trace event count exceeds request fuel"
-  validateWasmCertHostTraceForInvocationV1 invocationDigest invocation trace
-  validateWasmCertObservationForInvocationV1 invocationDigest invocation observation
+  validateWasmCertHostReplayForObservationV1 invocationDigest invocation trace observation
   unless (record.executionStatus = .returned && observation.status = .returned) ||
       (record.executionStatus = .trapped && observation.status = .trapped) do
     throw "WasmCert result and observation terminal statuses differ"

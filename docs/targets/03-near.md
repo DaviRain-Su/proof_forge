@@ -417,6 +417,25 @@ Phase 1：实现
   no-promise，并只投影到既有 passive `CallObservationV1`。该切没有provider executable、没有运行
   WasmCert、没有storage host replay或Reference outcome theorem，因此仍是严格carrier plumbing，
   assurance与未provision activation状态不变。
+- **WasmCert structured provider + bounded NEAR host（Phase 7 第三十四切）**：
+  `tools/wasmcert-provider/` 是编译进 exact WasmCert-Coq revision 的 ProofForge overlay；它直接调用
+  extracted binary parser、proved-on-success module checker/instantiator及 `run_one_step` interpreter，
+  不 scrape upstream human CLI。strict module profile拒绝 SIMD、unknown/wrong-type import、
+  table/global/start、`memory.grow`、非单一 bounded memory；purpose-built host只实现上述九个
+  register/storage/return/log/panic/deposit imports，并限制 fuel、trace、payload、storage与日志。
+  exact source export + locked opam package versions的两次 clean same-host build byte-identical，当前
+  Linux orb SHA-256为 `3c6af34d068e08cd34ea6bf627ec1c1e597f5577f163d89f5f63f462303b0ad4`。
+  该 hash未进入 Tool Lock，product activation仍返回 `executableUnprovisioned`；parser、wrapper、
+  OCaml/runtime与 host assumptions继续显式属于 trust boundary。
+- **WasmCert host replay + sole Reference execution join（Phase 7 第三十五切）**：
+  `replayWasmCertHostTraceV1` 从 invocation pre-storage确定性 replay register、storage read/write、
+  return、log、deposit与 panic，逐事件校验 result/payload/overwrite值，并与 rollback-aware observation
+  exact join；伪造 return payload等负例 fail closed。真实 finalized `VerifiedVaultPF.wasm` 随后由
+  provider执行 `init/deposit/withdraw/status/withdraw-overdraw` 五条路径，Lean consumer从 production
+  storage codec恢复唯一 logical pre-state，仅调用 `stepReferenceSliceV1`，比较 exact Reference
+  return/post-state或 failure rollback。Python harness只编排 artifact，不再手写业务 post-state
+  evaluator；terminal/post-storage篡改负例由 Reference join拒绝。这是本地 executable engineering
+  refinement join，不是一般 Wasm simulation theorem、Tool Lock evidence或 formal target completion。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -513,9 +532,13 @@ capability chain连接 exact WAT/ABI emission、两级 checked-add execution与 
 ABI/deposit/layout/first-overflow/late-second-overflow均有 no-commit边界。selected `withdraw()`也已
 由真实 production entry 1 / MethodIR 2 capability chain连接双 guard-before-write、两级 checked-sub
 success、Unit fall-through、Reference exact post-state及 first/second guard canonical observation
-rollback。finalized Wasm现有 exact digest provenance与 bounded section-envelope gate，但仍没有
-section payload semantics、WAT→Wasm translation、kernel-bound disk artifact identity或
-Reference→Wasm/NEAR simulation theorem。通用 corpus 对 corrupt storage 或
+rollback。finalized Wasm现有 exact digest provenance与 bounded section-envelope gate，并已由本地
+unprovisioned structured WasmCert provider解析、typecheck、instantiate和执行 selected VerifiedVault
+fixture；host trace replay与 sole ReferenceMachine五条调用 exact join已通过。但仍没有 WAT→Wasm
+translation theorem、kernel-bound disk artifact identity、一般 IR/WAT→Wasm simulation theorem或
+per-platform Tool Lock provider closure；binary parser与 purpose-built host assumptions也未消失。
+因此这项 executable join仍是 engineering evidence，不能标成完整 Reference→Wasm/NEAR formal
+refinement。通用 corpus 对 corrupt storage 或
 gas/profile 的覆盖仍不完整；StateCell
 `negative_corpus` 已 pin unknown method / exactInputLen 类 bad args + state-hold
 （engineering sandbox only）。Option params、非 UInt64/nested Option、非 UInt64

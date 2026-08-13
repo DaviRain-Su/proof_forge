@@ -15641,3 +15641,25 @@ normative: false
 - Noir additionally pins `pf.crypto.sha256_compression` and
   `pf.crypto.keccakf1600` as host-absent. Circuit stdlib is not a host.
 - Not formal, not Bytes ABI, and not EXT-CRYPTO.
+
+## 2026-08-13 — NEAR WasmCert provider, host replay, and Reference join
+
+- 新增 `tools/wasmcert-provider/` 与 `scripts/build_wasmcert_provider_v1.sh`：从 exact
+  WasmCert-Coq 2.2.1 revision导出 clean source tree并编译 ProofForge structured overlay；overlay直接
+  调用 extracted parser、proved-on-success checker/instantiator与 `run_one_step`，不 scrape human CLI。
+- strict first profile实现九个 NEAR register/storage/return/log/panic/deposit imports，拒绝其他
+  import/type、SIMD、unbounded/unsupported module-memory shape、view write及 fuel/trace/payload/storage
+  资源越界。当前 Linux orb两次 clean same-host build exact-byte相等，SHA-256
+  `3c6af34d068e08cd34ea6bf627ec1c1e597f5577f163d89f5f63f462303b0ad4`；未写入 Tool Lock，
+  product activation仍机械 `executableUnprovisioned`。
+- `WasmCertArtifactsV1` 新增 deterministic host replay：逐事件验证 register、storage read/write
+  result与 overwrite值、return/log/deposit/panic，并与 rollback-aware observation exact join；forged
+  return trace负例 fail closed。
+- `WasmCertProviderRuntimeV1` 与 smoke在真实 finalized `VerifiedVaultPF.wasm` 上跑通
+  init/deposit/withdraw/status/withdraw-overdraw 5/5。Lean consumer从 production storage codec恢复
+  logical pre-state，仅调用 sole `stepReferenceSliceV1`并比较 return/post-state/rollback；terminal与
+  post-storage tamper负例拒绝。Python harness已移除手写业务 post-state/return oracle，未新增第二套
+  DSL/business evaluator。
+- 该结果是 local executable engineering join，不是一般 IR/WAT→Wasm simulation theorem、
+  per-platform Tool Lock evidence、formal target refinement或 artifact verified。NEAR阶段下一步仍是
+  provider executable/runtime closure、isolated product consumer及 evidence identity；Solana继续暂停。

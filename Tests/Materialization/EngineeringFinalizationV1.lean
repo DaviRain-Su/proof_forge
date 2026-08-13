@@ -350,6 +350,14 @@ private def testNearWasmCertProviderBoundary : IO Unit := do
   expect (Targets.Near.wasmCertProviderArgvV1 "request.json" "result.json" == #[
       "check-execute", "--request", "request.json", "--result", "result.json"])
     "WasmCert structured provider argv must remain exact"
+  expect (Targets.Near.wasmCertProviderExpectedVersionV1 ==
+      "proof-forge-wasmcert-provider-v1 1.0.0 9ab0f87f03fff5507749efc273ec662fe27e6d14")
+    "WasmCert structured provider version probe must remain exact"
+  expect (Targets.Near.wasmCertProviderHostTracePathV1 "result.json" ==
+      "result.json.host-trace.pf-jcs.json" &&
+      Targets.Near.wasmCertProviderObservationPathV1 "result.json" ==
+        "result.json.observation.pf-jcs.json")
+    "WasmCert provider auxiliary artifact paths must remain deterministic"
   expect (Targets.Near.wasmCertProviderRequestFieldsV1.size == 7 &&
       Targets.Near.wasmCertProviderResultFieldsV1.size == 14)
     "WasmCert request/result protocols must retain their closed field sets"
@@ -526,6 +534,7 @@ private def testNearWasmCertArtifacts : IO Unit := do
       throw <| IO.userError "WasmCert invocation storage keys must be unique and ordered"
 
   let invocationDigest := sha256Bytes invocationBytes
+  let returnBytes := ByteArray.mk #[10, 0, 0, 0, 0, 0, 0, 0]
   let inputEvent : Targets.Near.WasmCertHostTraceEventV1 := {
     index := 0
     importName := "env.input"
@@ -533,11 +542,18 @@ private def testNearWasmCertArtifacts : IO Unit := do
     result := none
     payloads := #[ByteArray.empty]
   }
+  let returnEvent : Targets.Near.WasmCertHostTraceEventV1 := {
+    index := 1
+    importName := "env.value_return"
+    arguments := #[8, 0]
+    result := none
+    payloads := #[returnBytes]
+  }
   let trace : Targets.Near.WasmCertHostTraceArtifactV1 := {
     schema := Targets.Near.wasmCertHostTraceArtifactSchemaV1
     hostProfile := Targets.Near.wasmCertProviderHostProfileV1
     invocationSha256 := invocationDigest
-    events := #[inputEvent]
+    events := #[inputEvent, returnEvent]
   }
   let traceText ← liftStringExcept "encode WasmCert host trace artifact"
     (Targets.Near.encodeWasmCertHostTraceArtifactV1 trace)
@@ -556,7 +572,6 @@ private def testNearWasmCertArtifacts : IO Unit := do
   | .error _ => pure ()
   | .ok () => throw <| IO.userError "WasmCert host trace indices must be dense"
 
-  let returnBytes := ByteArray.mk #[10, 0, 0, 0, 0, 0, 0, 0]
   let observation : Targets.Near.WasmCertObservationArtifactV1 := {
     schema := Targets.Near.wasmCertObservationArtifactSchemaV1
     hostProfile := Targets.Near.wasmCertProviderHostProfileV1
@@ -625,6 +640,17 @@ private def testNearWasmCertArtifacts : IO Unit := do
   let _ ← liftStringExcept "join WasmCert artifact candidate content"
     (Targets.Near.validateWasmCertProviderArtifactsForRequestV1 request
       requestPath resultPath record invocationBytes traceBytes observationBytes)
+  let forgedReturnTrace := {
+    trace with events := #[inputEvent, {
+      returnEvent with payloads := #[ByteArray.mk #[11, 0, 0, 0, 0, 0, 0, 0]]
+    }]
+  }
+  match Targets.Near.validateWasmCertHostReplayForObservationV1
+      invocationDigest invocation forgedReturnTrace observation with
+  | .error _ => pure ()
+  | .ok () =>
+      throw <| IO.userError
+        "WasmCert observation return data must be justified by host-trace replay"
   let wrongObservationRecord := {
     record with observationSha256 := sha256Bytes "wrong-observation".toUTF8
   }

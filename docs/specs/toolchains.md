@@ -35,8 +35,11 @@ revision `9ab0f87f03fff5507749efc273ec662fe27e6d14` 作为 NEAR 外部 Wasm sema
 **source authority**。它当前不在任一 per-platform Tool Lock v4 的 `assets[]`/`tools[]` 中，
 也没有 executable SHA-256；因此 `wasmcert-coq-provider` 必须保持 unprovisioned/fail-closed。
 不得把 source revision、未锁定 opam build或 PATH 上的 upstream `wasm_coq_interpreter`当成
-Tool Lock identity。真实激活需要 ProofForge structured wrapper、可 provision asset、exact binary/
-runtime closure和 version probe；加入时按本规格升级 lock retained-file digest与 package pin。
+Tool Lock identity。ProofForge structured wrapper overlay、exact source export build recipe、version
+probe、bounded NEAR host及本地五 case smoke现已存在；当前 orb两次 clean same-host build得到相同
+SHA-256 `3c6af34d068e08cd34ea6bf627ec1c1e597f5577f163d89f5f63f462303b0ad4`。该观测不证明
+cross-host reproducibility，也不是可 provision asset identity。真实激活仍需要 exact per-platform
+binary/runtime closure进入 Tool Lock；加入时按本规格升级 lock retained-file digest与 package pin。
 `Targets/Near/WasmCertWireV1.lean`已实现 canonical request/result record与 candidate identity/status
 join，但它不 provision工具，也不把 record内自报的 `executableSha256`当作 lock authority；因此
 该实现不改变本节 unprovisioned状态。

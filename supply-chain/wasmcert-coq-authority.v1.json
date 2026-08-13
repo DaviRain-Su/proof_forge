@@ -41,7 +41,7 @@
   },
   "notes": [
     "Source/schema authority only; this record is not executable identity or target-refinement evidence.",
-    "Fail closed until a structured ProofForge wrapper and its exact per-platform executable closure are present in Tool Lock v4.",
+    "A ProofForge wrapper source/build overlay and local same-host reproducibility observation exist, but no per-platform executable closure is present in Tool Lock v4; product activation remains fail closed.",
     "Do not scrape the upstream human/ANSI CLI as a machine certificate protocol."
   ]
 }
