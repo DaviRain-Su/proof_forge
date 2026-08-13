@@ -9,7 +9,7 @@
 #   4. Token dense-Map companion via scripts/evm_token_anvil_smoke.sh:
 #      product build/solc failures are hard; only post-build deployment/initcode
 #      limits may explicit-skip the optional adapter leg.
-#   5. TipJar / TokenJar / EnvReadJar / CallerCheck / BlockHeightCheck companions
+#   5. TipJar / TokenJar / EnvReadJar / CallerCheck / BlockHeightCheck / Sha256Check companions
 #      (each host-optional smoke script; product build hard when tools present).
 #   6. MiniAmm vault-internal AMM companion via scripts/evm_mini_amm_anvil_smoke.sh
 #      (ADR-0030 E4 M0; product build hard; EIP-3860 → engineering code-size override;
@@ -422,6 +422,22 @@ elif [[ -f "$root/scripts/evm_attachedvalue_anvil_smoke.sh" ]]; then
   exit 1
 else
   echo "evm-anvil-differential: note: AttachedValueCheck companion script missing (skip leg)" >&2
+fi
+
+# Sha256Check: ADR-0031 SYS-S5-EVM pf.crypto.sha256 → precompile 0x02.
+# Product build/runtime assertions are hard; missing locked tools are handled
+# inside the host-optional companion (exit 0). Not formal C-3 / EXT-CRYPTO done.
+if [[ -x "$root/scripts/evm_sha256_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: companion Sha256Check pf.crypto.sha256 smoke (build hard-fail; profile=$expected_profile_wire)" >&2
+  PF_EVM_PROFILE="$evm_profile" bash "$root/scripts/evm_sha256_anvil_smoke.sh" || {
+    echo "evm-anvil-differential: Sha256Check smoke failed (hard)" >&2
+    exit 1
+  }
+elif [[ -f "$root/scripts/evm_sha256_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: Sha256Check smoke present but not executable (hard)" >&2
+  exit 1
+else
+  echo "evm-anvil-differential: note: Sha256Check companion script missing (skip leg)" >&2
 fi
 
 # ChainIdCheck: ADR-0031 S3 context.chainId → Yul chainid() / CHAINID.

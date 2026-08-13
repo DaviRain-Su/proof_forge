@@ -4409,6 +4409,55 @@ private unsafe def testCryptoSha256Evm : IO Unit := do
       "      return 0\n")
     "pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
 
+/-- SYS-S5-EVM Anvil companion fixture pin: inline twin of Examples/Sha256Check.lean
+    (not imported by Examples.lean). Plan `.sha256Precompile` + STATICCALL 0x2;
+    hashed `pf.crypto` address absent. -/
+private unsafe def testSha256CheckFixtureEvm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let hashedPfCrypto :=
+    (Targets.Evm.Keccak.keccak256Hex "pf.crypto".toUTF8).drop 24
+  let src :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Sha256Check where\n" ++
+    "  state last : UInt256\n" ++
+    "  init() do\n" ++
+    "    last := 0\n" ++
+    "  entry hashWord(x : UInt256) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256(x)\n" ++
+    "    last := h\n" ++
+    "    return h\n" ++
+    "  view get() : UInt256 do\n" ++
+    "    return last\n"
+  let cSrc ← match ← session.selectProgramV1
+      src "<evm-sha256-check>" "Examples.Sha256Check" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"Sha256Check select: {e.render}"
+  let compiled ← match Compiler.compileValidatedSourceV1 cSrc with
+    | .error e => throw <| IO.userError s!"Sha256Check must compile, got {e.render}"
+    | .ok c => pure c
+  let plan ← match planEvm compiled with
+    | .error e =>
+        throw <| IO.userError s!"Sha256Check must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let hasDedicated := plan.entries.any fun e =>
+    e.body.any fun s =>
+      match s with
+      | .sha256Precompile _ _ => true
+      | _ => false
+  expect hasDedicated
+    "Sha256Check: plan must contain .sha256Precompile"
+  let files ← match materializeSelected TargetId.evm compiled with
+    | .error e => throw <| IO.userError s!"Sha256Check materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yulFile := files.find? (·.path == "Sha256Check.yul") |
+    throw <| IO.userError "Sha256Check: missing .yul"
+  let yul := yulFile.contents
+  expect (yul.contains "staticcall(gas(), 0x2")
+    "Sha256Check: Yul must emit staticcall(gas(), 0x2"
+  expect (!yul.contains hashedPfCrypto)
+    s!"Sha256Check: Yul must not contain hashed pf.crypto address {hashedPfCrypto}"
+
 /-- B-CTX-OPEN / ADR-0031 S1+S2: `context.unixTimeSeconds` → `timestamp()`;
     `context.blockHeight` → `number()`; `context.caller` → Principal from
     `caller()` (ADR-0025). Direct Principal return stays fail closed
@@ -4976,6 +5025,7 @@ unsafe def run : IO Unit := do
   testScheduleArgWideEvm
   testScheduleArgNarrowEvm
   testCryptoSha256Evm
+  testSha256CheckFixtureEvm
   testContextReadTimestampEvm
   testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed
