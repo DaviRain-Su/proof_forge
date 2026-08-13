@@ -12,6 +12,7 @@ import ProofForgeV2.Targets.Near.WATSemanticsV1
 import ProofForgeV2.Targets.Near.WasmBinaryV1
 import ProofForgeV2.Targets.Near.WasmCertProviderV1
 import ProofForgeV2.Targets.Near.WasmCertWireV1
+import ProofForgeV2.Targets.Near.WasmCertArtifactsV1
 
 /-!
 # ProofForgeV2.Targets.Near — public façade
@@ -30,6 +31,8 @@ does not give section payloads execution semantics or prove translation.
 boundary, but remains deliberately unprovisioned and cannot mint evidence.
 `WasmCertWireV1` supplies canonical closed-schema record interchange; decoding
 one of those records still does not establish execution or provider identity.
+`WasmCertArtifactsV1` supplies bounded invocation, host-trace, and observation
+carriers plus content-level candidate joins; it is not a second business step.
 `FinalizeV1` remains a separate submodule.
 -/
 

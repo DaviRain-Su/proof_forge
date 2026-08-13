@@ -406,6 +406,17 @@ Phase 1：实现
   不把 arbitrary executable digest变成 Tool Lock identity，也不读取/比较 host trace或 observation
   内容。`requireWasmCertProviderProvisionedV1`仍机械返回 `executableUnprovisioned`，故 product
   acceptance与 assurance等级均不变。
+- **WasmCert invocation/trace/observation content join（Phase 7 第三十三切）**：
+  `WasmCertArtifactsV1`实现三个 closed、bounded canonical PF-JCS artifact。invocation显式携带
+  export/raw input、strict-profile完整 NEAR context、byte-lexicographic unique pre-storage与唯一
+  observation policy；host trace只允许 VerifiedVault首批九个 `env.*` import，固定 dense event
+  index、raw i64 arguments/result、payload与ABI arity/length shape；observation固定 terminal status、
+  trap kind、return/log/promise/post-storage。所有 bytes用lowercase hex，逐项、aggregate和32 MiB wire
+  上限均fail closed。content candidate join重算 invocation/trace/observation exact-byte SHA-256，连接
+  request/result identity，检查 `input`/`attached_deposit` payload、trap rollback与view no-write/
+  no-promise，并只投影到既有 passive `CallObservationV1`。该切没有provider executable、没有运行
+  WasmCert、没有storage host replay或Reference outcome theorem，因此仍是严格carrier plumbing，
+  assurance与未provision activation状态不变。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`

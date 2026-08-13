@@ -95,6 +95,16 @@ fail closed。该 join 故意不把任意 `executableSha256`升级为 Tool Lock 
 仍必须先通过 `requireWasmCertProviderProvisionedV1`，而该 gate 当前必定失败。因此 codec round-trip
 或 candidate join成功都只证明严格 record plumbing，不证明 wrapper存在、WasmCert运行或 record为真。
 
+`Targets/Near/WasmCertArtifactsV1.lean` 现进一步实现 invocation、host trace 与 observation 三种
+canonical artifact。invocation逐字段携带 export/raw input、完整 strict-profile NEAR context、
+canonical pre-storage 与 observation policy；trace只允许首批九个 NEAR imports，并固定 dense event
+index、host i64 arguments/result、逐调用 raw payload及 ABI arity/length shape；observation固定 terminal
+status、trap分类、return/log/promise/post-storage。三者均有 closed nested schema、lowercase hex、逐项与
+aggregate资源上限、32 MiB wire上限；storage key必须按 raw bytes严格递增且唯一。content-level
+candidate join会重算三个 exact-byte SHA-256，连接 request/result identity，校验 input和
+`attached_deposit` trace payload，并固定 trap rollback与view no-write/no-promise policy。它只把结果投影
+到既有 passive `CallObservationV1`，不定义另一套 invocation→outcome step，也仍不证明 provider运行。
+
 ### D3 — mechanization status 必须逐层保留
 
 固定 revision 的边界为：
@@ -162,8 +172,8 @@ LGPL-2.1-or-later；不能只复制 opam 的简化 MIT 字段。
 
 - 当前 NEAR assurance **不升级**：仍是四个 bounded MethodIR/typed-WAT recipe + finalized Wasm
   structural boundary，整体不是 fully target-refined。
-- source pin、closed protocol和 canonical wire/identity candidate join可以先审计；不存在真实
-  executable 时 product仍机械 fail closed。
+- source pin、closed protocol、canonical invocation/trace/observation与 content-level candidate join
+  可以先审计；不存在真实 executable 时 product仍机械 fail closed。
 - 后续工作先实现/锁定 structured wrapper，再实现 bounded NEAR host 与四 recipe trace join；在这个
   NEAR阶段出口前不继续 Solana扩面。
 - WasmCert parser、wrapper glue、OCaml compiler/runtime和 purpose-built host仍属于明确列出的 TCB/

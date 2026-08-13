@@ -468,6 +468,178 @@ private def testNearWasmCertProviderWire : IO Unit := do
   | .error _ => pure ()
   | .ok () => throw <| IO.userError "WasmCert strict profile must reject SIMD"
 
+/-- Canonical invocation/trace/observation artifacts bind actual content, keep
+    the strict host ABI closed, enforce rollback/view policy, and project only
+    into the existing passive observation carrier. They still do not activate
+    or execute the unprovisioned provider. -/
+private def testNearWasmCertArtifacts : IO Unit := do
+  let zero16 := ByteArray.mk (Array.replicate 16 (0 : UInt8))
+  let layoutRow : Targets.Near.WasmCertStorageRowV1 := {
+    key := "pf:v1:layout".toUTF8
+    value := ByteArray.mk #[1, 0, 0, 0, 0, 0, 0, 0]
+  }
+  let stateRow : Targets.Near.WasmCertStorageRowV1 := {
+    key := "pf:v1:state:0".toUTF8
+    value := ByteArray.mk #[10, 0, 0, 0, 0, 0, 0, 0]
+  }
+  let context : Targets.Near.WasmCertNearContextV1 := {
+    currentAccountId := "vault.test.near"
+    signerAccountId := "alice.test.near"
+    signerAccountPk := ByteArray.mk (Array.replicate 33 (1 : UInt8))
+    predecessorAccountId := "alice.test.near"
+    blockHeight := 42
+    blockTimestampNanos := 1700000000000000000
+    epochHeight := 7
+    accountBalance := zero16
+    accountLockedBalance := zero16
+    storageUsage := 128
+    attachedDeposit := zero16
+    prepaidGas := 300000000000000
+    randomSeed := ByteArray.mk (Array.replicate 32 (2 : UInt8))
+    isView := true
+    outputDataReceivers := #[]
+    promiseResults := #[]
+  }
+  let invocation : Targets.Near.WasmCertInvocationArtifactV1 := {
+    schema := Targets.Near.wasmCertInvocationArtifactSchemaV1
+    hostProfile := Targets.Near.wasmCertProviderHostProfileV1
+    observationPolicy := Targets.Near.wasmCertObservationPolicyV1
+    exportName := "status"
+    input := ByteArray.empty
+    context
+    preStorage := #[layoutRow, stateRow]
+  }
+  let invocationText ← liftStringExcept "encode WasmCert invocation artifact"
+    (Targets.Near.encodeWasmCertInvocationArtifactV1 invocation)
+  let invocationBytes := invocationText.toUTF8
+  let decodedInvocation ← liftStringExcept "decode WasmCert invocation artifact"
+    (Targets.Near.decodeWasmCertInvocationArtifactV1 invocationBytes)
+  expect (decodedInvocation == invocation)
+    "WasmCert invocation artifact canonical roundtrip"
+  match Targets.Near.decodeWasmCertHexV1 "AA" 1 "uppercase" with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "WasmCert raw bytes must use lowercase hex"
+  let duplicateStorage := { invocation with preStorage := #[layoutRow, layoutRow] }
+  match Targets.Near.validateWasmCertInvocationArtifactV1 duplicateStorage with
+  | .error _ => pure ()
+  | .ok () =>
+      throw <| IO.userError "WasmCert invocation storage keys must be unique and ordered"
+
+  let invocationDigest := sha256Bytes invocationBytes
+  let inputEvent : Targets.Near.WasmCertHostTraceEventV1 := {
+    index := 0
+    importName := "env.input"
+    arguments := #[0]
+    result := none
+    payloads := #[ByteArray.empty]
+  }
+  let trace : Targets.Near.WasmCertHostTraceArtifactV1 := {
+    schema := Targets.Near.wasmCertHostTraceArtifactSchemaV1
+    hostProfile := Targets.Near.wasmCertProviderHostProfileV1
+    invocationSha256 := invocationDigest
+    events := #[inputEvent]
+  }
+  let traceText ← liftStringExcept "encode WasmCert host trace artifact"
+    (Targets.Near.encodeWasmCertHostTraceArtifactV1 trace)
+  let traceBytes := traceText.toUTF8
+  let decodedTrace ← liftStringExcept "decode WasmCert host trace artifact"
+    (Targets.Near.decodeWasmCertHostTraceArtifactV1 traceBytes)
+  expect (decodedTrace == trace) "WasmCert host trace canonical roundtrip"
+  let unknownImport := {
+    trace with events := #[{ inputEvent with importName := "env.unknown" }]
+  }
+  match Targets.Near.validateWasmCertHostTraceArtifactV1 unknownImport with
+  | .error _ => pure ()
+  | .ok () => throw <| IO.userError "WasmCert host imports must fail closed"
+  let nonDenseTrace := { trace with events := #[{ inputEvent with index := 1 }] }
+  match Targets.Near.validateWasmCertHostTraceArtifactV1 nonDenseTrace with
+  | .error _ => pure ()
+  | .ok () => throw <| IO.userError "WasmCert host trace indices must be dense"
+
+  let returnBytes := ByteArray.mk #[10, 0, 0, 0, 0, 0, 0, 0]
+  let observation : Targets.Near.WasmCertObservationArtifactV1 := {
+    schema := Targets.Near.wasmCertObservationArtifactSchemaV1
+    hostProfile := Targets.Near.wasmCertProviderHostProfileV1
+    invocationSha256 := invocationDigest
+    status := .returned
+    trapKind := none
+    returnData := some returnBytes
+    postStorage := invocation.preStorage
+    logs := #[]
+    promises := #[]
+  }
+  let observationText ← liftStringExcept "encode WasmCert observation artifact"
+    (Targets.Near.encodeWasmCertObservationArtifactV1 observation)
+  let observationBytes := observationText.toUTF8
+  let decodedObservation ← liftStringExcept "decode WasmCert observation artifact"
+    (Targets.Near.decodeWasmCertObservationArtifactV1 observationBytes)
+  expect (decodedObservation == observation)
+    "WasmCert observation artifact canonical roundtrip"
+  let trappedWithoutRollback := {
+    observation with
+    status := .trapped
+    trapKind := some .host
+    returnData := none
+    postStorage := #[layoutRow]
+  }
+  match Targets.Near.validateWasmCertObservationForInvocationV1
+      invocationDigest invocation trappedWithoutRollback with
+  | .error _ => pure ()
+  | .ok () =>
+      throw <| IO.userError "WasmCert trapped observation must roll storage back"
+  let driftedInputTrace := {
+    trace with events := #[{ inputEvent with payloads := #[ByteArray.mk #[1]] }]
+  }
+  match Targets.Near.validateWasmCertHostTraceForInvocationV1
+      invocationDigest invocation driftedInputTrace with
+  | .error _ => pure ()
+  | .ok () => throw <| IO.userError "WasmCert env.input trace must bind invocation input"
+
+  let requestPath := "work/request.pf-jcs.json"
+  let resultPath := "work/result.pf-jcs.json"
+  let request : Targets.Near.WasmCertProviderRequestV1 := {
+    schema := Targets.Near.wasmCertProviderRequestSchemaV1
+    providerRevision := Targets.Near.wasmCertCoqRevisionV1
+    inputWasmPath := "work/VerifiedVaultPF.wasm"
+    inputWasmSha256 := sha256Bytes "wasm-input".toUTF8
+    invocationPath := "work/invocation.pf-jcs.json"
+    invocationSha256 := invocationDigest
+    fuel := 100
+  }
+  let record : Targets.Near.WasmCertProviderResultRecordV1 := {
+    schema := Targets.Near.wasmCertProviderResultSchemaV1
+    providerRevision := Targets.Near.wasmCertCoqRevisionV1
+    executableSha256 := sha256Bytes "unactivated-provider-candidate".toUTF8
+    argv := Targets.Near.wasmCertProviderArgvV1 requestPath resultPath
+    inputWasmSha256 := request.inputWasmSha256
+    invocationSha256 := invocationDigest
+    parserStatus := .parsedUnverified
+    checkerStatus := .acceptedProvedSound
+    instantiationStatus := .acceptedProvedSound
+    executionStatus := .returned
+    hostProfile := Targets.Near.wasmCertProviderHostProfileV1
+    hostTraceSha256 := sha256Bytes traceBytes
+    observationSha256 := sha256Bytes observationBytes
+    simdUsed := false
+  }
+  let _ ← liftStringExcept "join WasmCert artifact candidate content"
+    (Targets.Near.validateWasmCertProviderArtifactsForRequestV1 request
+      requestPath resultPath record invocationBytes traceBytes observationBytes)
+  let wrongObservationRecord := {
+    record with observationSha256 := sha256Bytes "wrong-observation".toUTF8
+  }
+  match Targets.Near.validateWasmCertProviderArtifactsForRequestV1 request
+      requestPath resultPath wrongObservationRecord invocationBytes traceBytes
+      observationBytes with
+  | .error _ => pure ()
+  | .ok _ => throw <| IO.userError "WasmCert artifact content digest drift must fail closed"
+  let passive :=
+    Targets.Near.callObservationOfWasmCertArtifactsV1 invocation observation
+  expect (passive.exportName == "status" && passive.failureObserved == false &&
+      passive.returnData == some returnBytes &&
+      passive.preStorage.lookup "pf:v1:state:0" == some stateRow.value)
+    "WasmCert artifacts must project into the existing passive observation carrier"
+
 /-- Hermetic PF-ARTIFACT-NONDEPLOYABLE gates (empty solc bytecode + bad Wasm). -/
 private unsafe def testNonDeployablePhases : IO Unit := do
   -- Empty solc bytecode presence gate.
@@ -799,6 +971,7 @@ unsafe def run : IO Unit := do
   testNearWasmBinaryEnvelope
   testNearWasmCertProviderBoundary
   testNearWasmCertProviderWire
+  testNearWasmCertArtifacts
   testNonDeployablePhases
   testFourTargetFinalization
   testToolFailureZeroPublish
