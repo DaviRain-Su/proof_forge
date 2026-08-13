@@ -15579,3 +15579,14 @@ normative: false
   sha256/keccak256 program as neither extension/caller nor body-only
   (`PF-REQ-UNSUPPORTED`). This wave does not widen CPI product capability.
 - Not formal, not Bytes ABI, not EXT-CRYPTO, and not a Mollusk runtime claim.
+
+## 2026-08-13 — SYS-S5 NEAR keccak256 host syscall
+
+- Exact `pf.crypto.keccak256(UInt256) -> UInt256` now binds to host
+  `keccak256` (Plan tag 15 / Expr tag 52, dedicated IR/WAT `$pf_keccak256`).
+  ABI matches sha256: `(value_len, value_ptr, register_id)` plus exact 32-byte
+  register length before `read_register`.
+- Import is use-conditional and independent of `sha256`. UInt64 / sibling QN /
+  schedule stay fail closed. NearHostModel still refuses to interpret the
+  register syscall.
+- Not formal, not Bytes ABI, not EXT-CRYPTO, and not a sandbox runtime claim.

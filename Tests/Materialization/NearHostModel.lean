@@ -1000,6 +1000,10 @@ private partial def step (input : ByteArray) (deposit : Deposit)
       -- SYS-S5-NEAR: Plan/IR/WAT pins cover env.sha256; this interpreter does
       -- not execute the register-based host syscall (sandbox owns runtime).
       modelError "sha256Host is outside the NearHostModel interpreter"
+  | .keccak256Host _destination _input =>
+      -- SYS-S5-NEAR: Plan/IR/WAT pins cover env.keccak256; this interpreter
+      -- does not execute the register-based host syscall.
+      modelError "keccak256Host is outside the NearHostModel interpreter"
   | .revertError errorIndex args => do
       let some name := machine.errorNames[errorIndex]? |
         modelError s!"error index {errorIndex} is outside the declared table"
@@ -1314,6 +1318,7 @@ private def operationKinds (operations : Array Targets.Near.Operation) :
     | .promiseTransfer .. => "promiseTransfer"
     | .promiseTokenTransfer .. => "promiseTokenTransfer"
     | .sha256Host .. => "sha256Host"
+    | .keccak256Host .. => "keccak256Host"
     | .revertError .. => "revertError"
     | .returnNone => "returnNone"
     | .ifRegion .. => "ifRegion"
@@ -4707,6 +4712,122 @@ private unsafe def testCryptoSha256Near (session : Language.Loader.ParserSession
   expect ((accWat.contents.splitOn "pf_sha256").length == 1)
     "accumulator WAT must stay free of pf_sha256 call"
 
+/-- SYS-S5-NEAR: `call pf.crypto.keccak256` UInt256→UInt256 via host
+    `keccak256`. Dedicated Plan/IR/WAT; other widths/QNs stay FC. -/
+private unsafe def testCryptoKeccak256Near (session : Language.Loader.ParserSession) :
+    IO Unit := do
+  let sourceText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program Keccak256Near where\n" ++
+    "  state last : UInt256\n\n" ++
+    "  init() do\n" ++
+    "    last := 0\n\n" ++
+    "  entry probe(x : UInt256) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.keccak256(x)\n" ++
+    "    last := h\n" ++
+    "    return h\n\n" ++
+    "  view get() : UInt256 do\n" ++
+    "    return last\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let source ← liftResult (← session.selectProgramV1
+    sourceText "<near-keccak256>" "Examples.Keccak256Near" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.near none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let plan ← liftResult <| Targets.Near.planFromCapability capability
+  expect (plan.hostImports.contains .keccak256)
+    "keccak256-near: plan must import env.keccak256"
+  expect (!plan.hostImports.contains .sha256)
+    "keccak256-near: must not invent env.sha256"
+  expect (!plan.hostImports.contains .promiseBatchCreate)
+    "keccak256-near: must not invent a promise batch (not async)"
+  let some probe := plan.entries.find? (·.name == "probe") |
+    throw <| IO.userError "keccak256-near: missing probe"
+  let mut hasDedicated := false
+  for s in probe.body do
+    match s with
+    | .keccak256Host _ _ => hasDedicated := true
+    | _ => pure ()
+  expect hasDedicated
+    "keccak256-near: plan must contain dedicated keccak256Host statement"
+  let ir ← liftResult <| Targets.Near.irFromCapability capability
+  expect (ir.imports.contains .keccak256)
+    "keccak256-near: IR must import keccak256"
+  let files ← liftResult <| Targets.Near.buildFromCapability capability
+  let some wat := files.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "keccak256-near: missing .wat artifact"
+  expectContains wat.contents "\"keccak256\"" "keccak256-near WAT env keccak256 import name"
+  expectContains wat.contents "(import \"env\" \"keccak256\""
+    "keccak256-near WAT must import env.keccak256"
+  expectContains wat.contents "(call $pf_keccak256"
+    "keccak256-near WAT must call pf_keccak256"
+  expect ((wat.contents.splitOn "promise_batch_create").length == 1)
+    "keccak256-near WAT must not invent promise_batch_create"
+  expect ((wat.contents.splitOn "Oracle").length == 1)
+    "keccak256-near WAT must not invent Oracle callee path"
+
+  let expectPlanFc (programName pathLabel moduleName body needle : String) :
+      IO Unit := do
+    let negText :=
+      "import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      s!"program {programName} where\n" ++
+      body ++
+      "end ProofForgeV2.Examples\n"
+    let negSource ← liftResult (← session.selectProgramV1
+      negText pathLabel moduleName none)
+    let negCompiled ← liftResult <| Compiler.compileValidatedSourceV1 negSource
+    let negCap ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection negCompiled
+    match Targets.Near.planFromCapability negCap with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{programName} must Plan fail closed (no sync CALL / hashed fallback)"
+
+  expectPlanFc "Keccak256NearU64" "<near-keccak256-u64>" "Examples.Keccak256NearU64"
+    ("  state last : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt64) : UInt64 do\n" ++
+      "    let h : UInt64 := call pf.crypto.keccak256(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n\n")
+    "pf.crypto.keccak256 requires exactly one UInt256 argument and UInt256 result"
+  expectPlanFc "Keccak256NearHashNoPad" "<near-keccak256-hashnopad>"
+    "Examples.Keccak256NearHashNoPad"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    let h : UInt256 := call pf.crypto.hashNoPad(x)\n" ++
+      "    last := h\n" ++
+      "    return h\n\n")
+    "outside admitted NEAR scope"
+
+  let accSource ← liftResult (← session.selectProgramV1
+    accumulatorSourceText "<near-keccak256-acc-baseline>"
+    accumulatorModuleNameV1 none)
+  let accCompiled ← liftResult <| Compiler.compileValidatedSourceV1 accSource
+  let accCap ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection accCompiled
+  let accPlan ← liftResult <| Targets.Near.planFromCapability accCap
+  expect (!accPlan.hostImports.contains .keccak256)
+    "accumulator: plan hostImports must stay free of keccak256"
+  let accFiles ← liftResult <| Targets.Near.buildFromCapability accCap
+  let some accWat := accFiles.find? (fun f => f.path.endsWith ".wat") |
+    throw <| IO.userError "accumulator baseline: missing .wat"
+  expect ((accWat.contents.splitOn "\"keccak256\"").length == 1)
+    "accumulator WAT must stay free of env keccak256 import"
+  expect ((accWat.contents.splitOn "pf_keccak256").length == 1)
+    "accumulator WAT must stay free of pf_keccak256 call"
+
 /-- B-CTX-OPEN: `context.unixTimeSeconds` lowers on NEAR to host
     `block_timestamp()` with the /10^9 second conversion; the import is
     present iff the plan uses it. -/
@@ -6044,6 +6165,7 @@ unsafe def run : IO Unit := do
   testMapTokenDualStoreVisibility session
   testNamedStructProductPath session
   testCryptoSha256Near session
+  testCryptoKeccak256Near session
   testContextReadTimestampNear session
   testContextReadBlockHeightNear session
   testContextReadAttachedValueNear session

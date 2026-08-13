@@ -38,6 +38,9 @@ inductive Operation where
   /-- ADR-0031 S5: exact host `sha256` over one 32-byte UInt256 word.
       `input` and `destination` each name four consecutive LE UInt64 limbs. -/
   | sha256Host (destination input : Nat)
+  /-- ADR-0031 S5: exact host `keccak256` over one 32-byte UInt256 word.
+      Same four-limb ABI as `sha256Host`. -/
+  | keccak256Host (destination input : Nat)
   /-- ADR-0031 S1: host `predecessor_account_id` → register length → destination
       (Principal length leaf; trap if length ∉ 1..64). -/
   | callerPrincipalLen (destination : Nat)
@@ -433,6 +436,9 @@ private def loopEnvKeyV1 (index : Nat) : Nat :=
 private def sha256EnvKeyV1 (index : Nat) : Nat :=
   2 * index + 1
 
+private def keccak256EnvKeyV1 (index : Nat) : Nat :=
+  2 * index + 3
+
 /-- `paramAsTemp`: pureFn bodies bind params to temps `0..n-1` (Wasm params),
     so `.param` is a direct temp reference rather than a host input load.
     `localEnv` maps disjointly tagged Plan loop-induction and SHA-result ids to
@@ -477,6 +483,14 @@ private partial def lowerExpr (keys : Array KeyRegion) (next : Nat)
       | none =>
           -- `validatePlan` proves the result handle is bound by a preceding
           -- dedicated SHA-256 statement in the same lexical statement list.
+          unreachable!
+  | .keccak256Result resultTemp =>
+      match localEnv.find? (fun p => p.1 == keccak256EnvKeyV1 resultTemp) with
+      | some (_, irTemp) =>
+          { operations := #[], value := irTemp, next := next }
+      | none =>
+          -- `validatePlan` proves the result handle is bound by a preceding
+          -- dedicated keccak256 statement in the same lexical statement list.
           unreachable!
   | .blockTimestampSeconds =>
       { operations := #[.blockTimestampSeconds next]
@@ -890,7 +904,7 @@ private partial def statementListClosesV1 : List Statement → Bool
             cases.all fun (_, caseBody) => statementListClosesV1 caseBody.toList
       | .store _ | .storeAtomic _ | .assert _ | .emitEvent .. | .forLoop ..
       | .promiseAccount .. | .nativeDeposit _ | .promiseTransfer ..
-      | .promiseTokenTransfer .. | .sha256Precompile .. => false
+      | .promiseTokenTransfer .. | .sha256Precompile .. | .keccak256Host .. => false
   | _ :: _ :: rest => statementListClosesV1 rest
 
 /-- Append the hard return after a closed region arm, unless the arm already
@@ -994,6 +1008,13 @@ private partial def lowerBodyOps
         let resultBase := inputL.next
         operations := operations.push (.sha256Host resultBase inputL.value)
         localEnv := localEnv.push (sha256EnvKeyV1 resultTemp, resultBase)
+        next := resultBase + 4
+    | .keccak256Host input resultTemp =>
+        let inputL := lowerExpr keys next fnMode localEnv input
+        operations := operations ++ inputL.operations
+        let resultBase := inputL.next
+        operations := operations.push (.keccak256Host resultBase inputL.value)
+        localEnv := localEnv.push (keccak256EnvKeyV1 resultTemp, resultBase)
         next := resultBase + 4
     | .nativeDeposit amount =>
         let value := lowerExpr keys next fnMode localEnv amount
@@ -1244,7 +1265,7 @@ private partial def opIsMethodOnlyV1 : Operation → Bool
   | .setLayout _ _ | .setReturnData _ _ | .setReturnDataLeaves _ _
   | .loadParam _ _ | .narrowLoadParam _ _ _
   | .blockTimestampSeconds _ | .blockIndex _ | .accountBalance _ | .accountBalanceU128 _
-  | .attachedDepositValue _ | .sha256Host ..
+  | .attachedDepositValue _ | .sha256Host .. | .keccak256Host ..
   | .callerPrincipalLen _ | .callerPrincipalWord _ _
   | .selfPrincipalLen _ | .selfPrincipalWord _ _ => true
   | .ifRegion _ thenOps elseOps =>
@@ -1282,6 +1303,9 @@ private partial def operationHostImportsCoveredV1
       imports.contains .attachedDeposit
   | .sha256Host .. =>
       imports.contains .sha256 && imports.contains .registerLen &&
+        imports.contains .readRegister
+  | .keccak256Host .. =>
+      imports.contains .keccak256 && imports.contains .registerLen &&
         imports.contains .readRegister
   | .blockTimestampSeconds _ => imports.contains .blockTimestamp
   | .blockIndex _ => imports.contains .blockIndex
@@ -1407,7 +1431,7 @@ private partial def operationLocalReferencesValidV1
       destination < tempCount
   | .accountBalanceU128 destination =>
       tempSpanDeclaredV1 tempCount destination 2
-  | .sha256Host destination input =>
+  | .sha256Host destination input | .keccak256Host destination input =>
       tempSpanDeclaredV1 tempCount destination 4 &&
         tempSpanDeclaredV1 tempCount input 4
   | .narrowLoadParam bitWidth destination _
@@ -1680,7 +1704,7 @@ private partial def operationMemoryEndV1 (ir : IR) : Operation → Option Nat
   | .requireZeroAttachedDeposit | .requireExactAttachedDeposit _
   | .accountBalance _ | .accountBalanceU128 _ | .attachedDepositValue _ =>
       some (ir.memory.depositOffset + 16)
-  | .sha256Host .. => some (ir.memory.valueOffset + 32)
+  | .sha256Host .. | .keccak256Host .. => some (ir.memory.valueOffset + 32)
   | .requireLayoutAbsent marker => some (keyRegionMemoryEndV1 marker)
   | .requireLayout marker _ =>
       some (max (keyRegionMemoryEndV1 marker) (ir.memory.valueOffset + 8))
@@ -2208,6 +2232,10 @@ private def renderImport : HostImport → String
       -- failure; the operation renderer additionally requires exactly 32
       -- returned bytes before reading the digest register.
       "  (import \"env\" \"sha256\" (func $pf_sha256 (param i64 i64 i64)))\n"
+  | .keccak256 =>
+      -- ADR-0031 S5: same ABI as sha256. Host traps on failure; renderer
+      -- requires exactly 32 returned bytes before read_register.
+      "  (import \"env\" \"keccak256\" (func $pf_keccak256 (param i64 i64 i64)))\n"
   | .promiseBatchCreate =>
       -- account_id_len, account_id_ptr → promise_index
       "  (import \"env\" \"promise_batch_create\" (func $pf_promise_batch_create (param i64 i64) (result i64)))\n"
@@ -2676,6 +2704,24 @@ private partial def renderOperation (registers : RegisterLayout) (memory : Memor
             s!"{indent}(i64.store (i32.const {buffer + 8 * i}) (local.get $t{input + i}))\n"
         out := out ++
           s!"{indent}(call $pf_sha256 (i64.const 32) (i64.const {buffer}) (i64.const {registers.evicted}))\n" ++
+          s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.evicted})) (i64.const 32)) (then unreachable))\n" ++
+          s!"{indent}(call $pf_read_register (i64.const {registers.evicted}) (i64.const {buffer}))\n"
+        for i in [:4] do
+          out := out ++
+            s!"{indent}(local.set $t{destination + i} (i64.load (i32.const {buffer + 8 * i})))\n"
+        pure out
+  | .keccak256Host destination input =>
+      -- ADR-0031 S5: same UInt256 LE packing as sha256Host. `keccak256`
+      -- traps on host failure; exact register length rejects missing, short,
+      -- and unexpectedly long results before read_register.
+      Id.run do
+        let buffer := memory.valueOffset
+        let mut out := ""
+        for i in [:4] do
+          out := out ++
+            s!"{indent}(i64.store (i32.const {buffer + 8 * i}) (local.get $t{input + i}))\n"
+        out := out ++
+          s!"{indent}(call $pf_keccak256 (i64.const 32) (i64.const {buffer}) (i64.const {registers.evicted}))\n" ++
           s!"{indent}(if (i64.ne (call $pf_register_len (i64.const {registers.evicted})) (i64.const 32)) (then unreachable))\n" ++
           s!"{indent}(call $pf_read_register (i64.const {registers.evicted}) (i64.const {buffer}))\n"
         for i in [:4] do

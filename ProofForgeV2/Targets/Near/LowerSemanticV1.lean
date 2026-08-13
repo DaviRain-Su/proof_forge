@@ -126,6 +126,11 @@ inductive HostImport where
       `pf.crypto.sha256(UInt256) -> UInt256` leaf. This is a host syscall, not
       a promise or synchronous cross-contract call. -/
   | sha256
+  /-- ADR-0031 S5: host `keccak256(value_len, value_ptr, register_id)`.
+      Present only when an entry lowers the exact
+      `pf.crypto.keccak256(UInt256) -> UInt256` leaf. Same ABI as `sha256`;
+      not a promise or synchronous cross-contract call. -/
+  | keccak256
   deriving BEq, Inhabited, Repr
 
 structure ResourceLimits where
@@ -278,6 +283,9 @@ inductive Expr where
       `resultTemp` is the semantic result ValueId and denotes four consecutive
       little-endian UInt64 limbs after Plan→IR lowering. -/
   | sha256Result (resultTemp : Nat)
+  /-- Result handle for a preceding dedicated `.keccak256Host` statement.
+      Same four-limb UInt256 layout as `.sha256Result`. -/
+  | keccak256Result (resultTemp : Nat)
   deriving BEq, Inhabited, Repr
 
 structure Store where
@@ -355,6 +363,9 @@ inductive Statement where
       `input` is a four-limb UInt256 expression; `resultTemp` binds the
       `.sha256Result` handle used by subsequent statements. -/
   | sha256Precompile (input : Expr) (resultTemp : Nat)
+  /-- ADR-0031 S5: exact `pf.crypto.keccak256(UInt256) -> UInt256` host
+      syscall. Same ABI as sha256; `resultTemp` binds `.keccak256Result`. -/
+  | keccak256Host (input : Expr) (resultTemp : Nat)
   deriving BEq, Inhabited, Repr
 
 /-- ABI type of one aggregate return leaf. Named Struct/Enum and Array/Option
@@ -582,10 +593,11 @@ private def canonicalImports : Array HostImport := #[
     schedule is absent, and vice versa. Token transferAsync uses function-call
     action (like schedule) plus promise_batch_create, so it shares the
     function-call import with schedule. `block_timestamp`, `block_index`,
-    `account_balance`, Principal identity reads, and `sha256` are independent. -/
+    `account_balance`, Principal identity reads, and `sha256`/`keccak256`
+    are independent. -/
 def hostImportsFor (usesSchedulePromise usesTransferPromise
     usesTokenTransferPromise usesTimestamp usesBlockIndex usesAccountBalance
-    usesCaller usesSelf usesSha256 : Bool) :
+    usesCaller usesSelf usesSha256 usesKeccak256 : Bool) :
     Array HostImport :=
   Id.run do
     let mut base := canonicalImports
@@ -607,6 +619,8 @@ def hostImportsFor (usesSchedulePromise usesTransferPromise
       base := base.push .currentAccountId
     if usesSha256 then
       base := base.push .sha256
+    if usesKeccak256 then
+      base := base.push .keccak256
     pure base
 
 def canonicalRegisters : RegisterLayout := {
@@ -626,12 +640,15 @@ def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
 
 /-- Reserve the complete `pf.crypto` namespace from generic NEAR promise or
-    cross-contract lowering. SYS-S5 admits only the exact host leaf below. -/
+    cross-contract lowering. SYS-S5 admits only the exact host leaves below. -/
 private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
   components[0]? == some "pf" && components[1]? == some "crypto"
 
 private def isPfCryptoSha256CalleeV1 (components : Array String) : Bool :=
   components == #["pf", "crypto", "sha256"]
+
+private def isPfCryptoKeccak256CalleeV1 (components : Array String) : Bool :=
+  components == #["pf", "crypto", "keccak256"]
 
 /-- NEAR account-id grammar for schedule receivers (pilot): lowercase ASCII
     letters, digits, `_`, `-`, `.`; UTF-8 length 2..64; no leading or trailing
@@ -1980,7 +1997,7 @@ private def consumeCurrentSegmentV1
     if root.toNat >= blockEntry && root.toNat < segmentStart then
       let value ← findValueV1 values root
       match value.expr with
-      | .sha256Result _ =>
+      | .sha256Result _ | .keccak256Result _ =>
           -- A host-call result is an immutable SSA value and may feed more
           -- than one later effect (for example store, then return). It is the
           -- only value-producing effect admitted by this NEAR leaf. Require
@@ -2788,9 +2805,9 @@ private def lowerBlockInstructionsV1
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
     | .externalCall _effectId callee argIds, some result =>
-        -- SYS-S5-NEAR: exact pf.crypto.sha256 is a synchronous host syscall,
-        -- not a synchronous cross-contract call or Promise. All other
-        -- result-bearing ExternalCall shapes remain fail closed.
+        -- SYS-S5-NEAR: exact pf.crypto.sha256|keccak256 are synchronous host
+        -- syscalls, not a synchronous cross-contract call or Promise. All
+        -- other result-bearing ExternalCall shapes remain fail closed.
         if mode == .view then
           throw <| .planInvariant .near
             "unsupported NEAR semantic shape: view callable makes an external call"
@@ -2809,34 +2826,47 @@ private def lowerBlockInstructionsV1
             throw <| .planInvariant .near
               s!"unsupported NEAR semantic shape: external call callee component '{c}' is not a safe identifier"
         let qn := String.intercalate "." components.toList
-        unless isPfCryptoSha256CalleeV1 components do
+        unless isPfCryptoSha256CalleeV1 components ||
+            isPfCryptoKeccak256CalleeV1 components do
           if isPfCryptoCalleeV1 components then
             throw <| .planInvariant .near
               s!"unsupported NEAR semantic shape: pf.crypto QN '{qn}' is outside admitted NEAR scope"
           else
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: result-bearing ExternalCall is outside the NEAR envelope"
+        let leafName :=
+          if isPfCryptoSha256CalleeV1 components then "sha256" else "keccak256"
         unless argIds.size == 1 && types.uintWidthOf result.typeId == some 256 do
           throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+            s!"unsupported NEAR semantic shape: pf.crypto.{leafName} requires exactly one UInt256 argument and UInt256 result"
         let some inputId := argIds[0]? |
           throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: pf.crypto.sha256 UInt256 argument is missing"
+            s!"unsupported NEAR semantic shape: pf.crypto.{leafName} UInt256 argument is missing"
         let inputRoot ← currentValueWithArmsV1 values blockEntry segmentStart
           armReadables inputId
         unless !inputRoot.isAggregate && inputRoot.kind == .uint256 do
           throw <| .planInvariant .near
-            "unsupported NEAR semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+            s!"unsupported NEAR semantic shape: pf.crypto.{leafName} requires exactly one UInt256 argument and UInt256 result"
         let _ ← consumeSegmentRootsV1 values blockEntry segmentStart argIds
         let resultTemp := result.valueId.toNat
-        body := body.push (.sha256Precompile inputRoot.expr resultTemp)
-        values := ← appendResultValueV1 result.typeId values result {
-          expr := .sha256Result resultTemp
-          kind := .uint256
-          depth := 1
-          expandedNodes := 1
-          dependencies := #[]
-        }
+        if isPfCryptoSha256CalleeV1 components then
+          body := body.push (.sha256Precompile inputRoot.expr resultTemp)
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := .sha256Result resultTemp
+            kind := .uint256
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
+        else
+          body := body.push (.keccak256Host inputRoot.expr resultTemp)
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := .keccak256Result resultTemp
+            kind := .uint256
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
         -- The effect result is the root of the new segment. Its handle remains
         -- consumable by the next state/return sink, while every input value
         -- below this index is sealed by the advanced boundary.
@@ -2867,6 +2897,9 @@ private def lowerBlockInstructionsV1
           if isPfCryptoSha256CalleeV1 components then
             throw <| .planInvariant .near
               "unsupported NEAR semantic shape: pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
+          else if isPfCryptoKeccak256CalleeV1 components then
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: pf.crypto.keccak256 requires exactly one UInt256 argument and UInt256 result"
           else
             throw <| .planInvariant .near
               s!"unsupported NEAR semantic shape: pf.crypto QN '{qn}' is outside admitted NEAR scope"
@@ -4184,7 +4217,7 @@ partial def statementsUseNativeDepositV1 (statements : Array Statement) : Bool :
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
     | .returnNone | .assert _ | .emitEvent .. | .revertError ..
     | .promiseAccount .. | .promiseTransfer .. | .promiseTokenTransfer ..
-    | .sha256Precompile .. => false
+    | .sha256Precompile .. | .keccak256Host .. => false
 
 /-- ADR-0031 S4: body contains `attachedDepositValue` (ContextRead). -/
 partial def exprUsesAttachedDepositValueV1 (expr : Expr) : Bool :=
@@ -4194,7 +4227,7 @@ partial def exprUsesAttachedDepositValueV1 (expr : Expr) : Bool :=
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex | .accountBalance | .accountBalanceU128
   | .callerPrincipalLen | .callerPrincipalWord _
-  | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ => false
+  | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ | .keccak256Result _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4221,7 +4254,7 @@ partial def statementsUseAttachedDepositValueV1 (statements : Array Statement) :
     | .emitEvent _ args => args.any exprUsesAttachedDepositValueV1
     | .revertError _ args => args.any exprUsesAttachedDepositValueV1
     | .promiseAccount _ _ args => args.any exprUsesAttachedDepositValueV1
-    | .sha256Precompile input _ => exprUsesAttachedDepositValueV1 input
+    | .sha256Precompile input _ | .keccak256Host input _ => exprUsesAttachedDepositValueV1 input
     | .nativeDeposit amount => exprUsesAttachedDepositValueV1 amount
     | .promiseTransfer dstLen dstWords amount =>
         exprUsesAttachedDepositValueV1 dstLen ||
@@ -4375,7 +4408,7 @@ partial def exprUsesTimestampV1 (expr : Expr) : Bool :=
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _ | .accountBalance
   | .accountBalanceU128 | .attachedDepositValue
   | .blockIndex | .callerPrincipalLen | .callerPrincipalWord _
-  | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ => false
+  | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ | .keccak256Result _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4400,7 +4433,7 @@ partial def exprUsesBlockIndexV1 (expr : Expr) : Bool :=
   | .blockTimestampSeconds | .accountBalance | .accountBalanceU128
   | .attachedDepositValue
   | .callerPrincipalLen | .callerPrincipalWord _
-  | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ => false
+  | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ | .keccak256Result _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4424,7 +4457,7 @@ partial def exprUsesAccountBalanceV1 (expr : Expr) : Bool :=
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex | .attachedDepositValue
   | .callerPrincipalLen | .callerPrincipalWord _
-  | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ => false
+  | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ | .keccak256Result _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4449,7 +4482,7 @@ partial def exprUsesCallerV1 (expr : Expr) : Bool :=
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex | .accountBalance | .accountBalanceU128
   | .attachedDepositValue
-  | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ => false
+  | .selfPrincipalLen | .selfPrincipalWord _ | .sha256Result _ | .keccak256Result _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4476,7 +4509,7 @@ partial def statementsUseTimestampV1 (statements : Array Statement) : Bool :=
     | .emitEvent _ args => args.any exprUsesTimestampV1
     | .revertError _ args => args.any exprUsesTimestampV1
     | .promiseAccount _ _ args => args.any exprUsesTimestampV1
-    | .sha256Precompile input _ => exprUsesTimestampV1 input
+    | .sha256Precompile input _ | .keccak256Host input _ => exprUsesTimestampV1 input
     | .nativeDeposit amount => exprUsesTimestampV1 amount
     | .promiseTransfer dstLen dstWords amount =>
         exprUsesTimestampV1 dstLen || dstWords.any exprUsesTimestampV1 ||
@@ -4513,7 +4546,7 @@ partial def statementsUseBlockIndexV1 (statements : Array Statement) : Bool :=
     | .emitEvent _ args => args.any exprUsesBlockIndexV1
     | .revertError _ args => args.any exprUsesBlockIndexV1
     | .promiseAccount _ _ args => args.any exprUsesBlockIndexV1
-    | .sha256Precompile input _ => exprUsesBlockIndexV1 input
+    | .sha256Precompile input _ | .keccak256Host input _ => exprUsesBlockIndexV1 input
     | .nativeDeposit amount => exprUsesBlockIndexV1 amount
     | .promiseTransfer dstLen dstWords amount =>
         exprUsesBlockIndexV1 dstLen || dstWords.any exprUsesBlockIndexV1 ||
@@ -4550,7 +4583,7 @@ partial def statementsUseAccountBalanceV1 (statements : Array Statement) : Bool 
     | .emitEvent _ args => args.any exprUsesAccountBalanceV1
     | .revertError _ args => args.any exprUsesAccountBalanceV1
     | .promiseAccount _ _ args => args.any exprUsesAccountBalanceV1
-    | .sha256Precompile input _ => exprUsesAccountBalanceV1 input
+    | .sha256Precompile input _ | .keccak256Host input _ => exprUsesAccountBalanceV1 input
     | .nativeDeposit amount => exprUsesAccountBalanceV1 amount
     | .promiseTransfer dstLen dstWords amount =>
         exprUsesAccountBalanceV1 dstLen || dstWords.any exprUsesAccountBalanceV1 ||
@@ -4589,7 +4622,7 @@ partial def statementsUseCallerV1 (statements : Array Statement) : Bool :=
     | .emitEvent _ args => args.any exprUsesCallerV1
     | .revertError _ args => args.any exprUsesCallerV1
     | .promiseAccount _ _ args => args.any exprUsesCallerV1
-    | .sha256Precompile input _ => exprUsesCallerV1 input
+    | .sha256Precompile input _ | .keccak256Host input _ => exprUsesCallerV1 input
     | .nativeDeposit amount => exprUsesCallerV1 amount
     | .promiseTransfer dstLen dstWords amount =>
         exprUsesCallerV1 dstLen || dstWords.any exprUsesCallerV1 ||
@@ -4619,7 +4652,7 @@ partial def exprUsesSelfV1 (expr : Expr) : Bool :=
   | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
   | .blockTimestampSeconds | .blockIndex | .accountBalance | .accountBalanceU128
   | .attachedDepositValue
-  | .callerPrincipalLen | .callerPrincipalWord _ | .sha256Result _ => false
+  | .callerPrincipalLen | .callerPrincipalWord _ | .sha256Result _ | .keccak256Result _ => false
   | .checkedAdd l r | .checkedSub l r | .checkedMul l r | .checkedDiv l r
   | .checkedMod l r | .bitAnd l r | .bitOr l r | .bitXor l r | .shl l r
   | .shr l r | .signedCheckedAdd l r | .signedCheckedSub l r
@@ -4645,7 +4678,7 @@ partial def statementsUseSelfV1 (statements : Array Statement) : Bool :=
     | .emitEvent _ args => args.any exprUsesSelfV1
     | .revertError _ args => args.any exprUsesSelfV1
     | .promiseAccount _ _ args => args.any exprUsesSelfV1
-    | .sha256Precompile input _ => exprUsesSelfV1 input
+    | .sha256Precompile input _ | .keccak256Host input _ => exprUsesSelfV1 input
     | .nativeDeposit amount => exprUsesSelfV1 amount
     | .promiseTransfer dstLen dstWords amount =>
         exprUsesSelfV1 dstLen || dstWords.any exprUsesSelfV1 ||
@@ -4695,6 +4728,24 @@ def planUsesSha256V1 (plan : Plan) : Bool :=
     plan.entries.any (fun m => statementsUseSha256V1 m.body) ||
     plan.fns.any (fun f => statementsUseSha256V1 f.body)
 
+/-- ADR-0031 S5: exact use predicate for the dedicated host keccak256 leaf. -/
+partial def statementsUseKeccak256V1 (statements : Array Statement) : Bool :=
+  statements.any fun statement =>
+    match statement with
+    | .keccak256Host .. => true
+    | .ifThenElse _ thenBody elseBody =>
+        statementsUseKeccak256V1 thenBody || statementsUseKeccak256V1 elseBody
+    | .switchOn _ cases defaultBody =>
+        statementsUseKeccak256V1 defaultBody ||
+          cases.any fun (_, caseBody) => statementsUseKeccak256V1 caseBody
+    | .forLoop _ _ _ _ _ body => statementsUseKeccak256V1 body
+    | _ => false
+
+def planUsesKeccak256V1 (plan : Plan) : Bool :=
+  statementsUseKeccak256V1 plan.initializer.body ||
+    plan.entries.any (fun m => statementsUseKeccak256V1 m.body) ||
+    plan.fns.any (fun f => statementsUseKeccak256V1 f.body)
+
 /-- Schedule → function-call promise (not transferAsync). -/
 partial def statementsUseSchedulePromiseV1 (statements : Array Statement) : Bool :=
   statements.any fun statement =>
@@ -4709,7 +4760,7 @@ partial def statementsUseSchedulePromiseV1 (statements : Array Statement) : Bool
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
     | .returnNone | .assert _ | .emitEvent .. | .revertError ..
     | .nativeDeposit _ | .promiseTransfer .. | .promiseTokenTransfer .. => false
-    | .sha256Precompile .. => false
+    | .sha256Precompile .. | .keccak256Host .. => false
 
 /-- ADR-0029 C2: transferAsync → Transfer promise. -/
 partial def statementsUseTransferPromiseV1 (statements : Array Statement) : Bool :=
@@ -4725,7 +4776,7 @@ partial def statementsUseTransferPromiseV1 (statements : Array Statement) : Bool
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
     | .returnNone | .assert _ | .emitEvent .. | .revertError ..
     | .nativeDeposit _ | .promiseAccount .. | .promiseTokenTransfer .. => false
-    | .sha256Precompile .. => false
+    | .sha256Precompile .. | .keccak256Host .. => false
 
 /-- ADR-0030 E1-NEAR: token transferAsync → function-call promise. -/
 partial def statementsUseTokenTransferPromiseV1 (statements : Array Statement) : Bool :=
@@ -4742,7 +4793,7 @@ partial def statementsUseTokenTransferPromiseV1 (statements : Array Statement) :
     | .store _ | .storeAtomic _ | .returnValue _ | .returnAggregate ..
     | .returnNone | .assert _ | .emitEvent .. | .revertError ..
     | .nativeDeposit _ | .promiseAccount .. | .promiseTransfer .. => false
-    | .sha256Precompile .. => false
+    | .sha256Precompile .. | .keccak256Host .. => false
 
 /-- Any promise family (schedule or transferAsync). Kept for host-import
     consumers that only need a boolean. -/
@@ -4965,6 +5016,10 @@ private def makePlanFromSemanticDataV1
     statementsUseSha256V1 resolvedInitializer.body ||
       entries.any (fun m => statementsUseSha256V1 m.body) ||
       fns.any (fun f => statementsUseSha256V1 f.body)
+  let usesKeccak256 :=
+    statementsUseKeccak256V1 resolvedInitializer.body ||
+      entries.any (fun m => statementsUseKeccak256V1 m.body) ||
+      fns.any (fun f => statementsUseKeccak256V1 f.body)
   let plan : Plan := {
     targetDescriptor := descriptor
     semanticSchemaVersion := semanticProgramSchemaVersionV1
@@ -4974,7 +5029,7 @@ private def makePlanFromSemanticDataV1
     layoutDomain := stateLayoutDomain
     hostImports := hostImportsFor usesSchedulePromise usesTransferPromise
       usesTokenTransferPromise usesTimestamp usesBlockIndex usesAccountBalance
-      usesCaller usesSelf usesSha256
+      usesCaller usesSelf usesSha256 usesKeccak256
     failurePolicy := canonicalFailurePolicy
     commitPolicy := .rollbackOnTrap
     resourceLimits := canonicalResourceLimits
