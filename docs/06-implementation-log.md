@@ -15618,3 +15618,16 @@ normative: false
   closed (`PF-REQ-UNSUPPORTED` / body-only admission). The suite now pins
   both failures instead of claiming the product route is open.
 - Not formal, not Bytes ABI, and not EXT-CRYPTO.
+
+## 2026-08-13 — SYS-S5 NEAR keccak companion + Psy gadget shapes
+
+- NEAR adds a host-optional sandbox companion for `Examples/Keccak256Check.lean`
+  (`env.keccak256` over the UInt256 LE word). This host ran the companion to
+  pass (`hashWord(0|1)` LE known vectors). Not the EVM big-endian
+  `hashWord(1)` vector, and not sandbox lossless.
+- Psy remaining ADR-0039 gadgets stay first-limb: `hashPad`/`hashTwoToOne`
+  reject the unified UInt256 host shape; keccak/hashPad reject Array4 HashOut.
+  Official software eval is not treated as a filled host digest.
+- Solana product capability still rejects host-only keccak256. A fixture
+  shape is recorded, but it is not a Mollusk product-runtime pass.
+- Not formal, not Bytes ABI, and not EXT-CRYPTO.

@@ -270,6 +270,88 @@ unsafe def testCryptoKeccak256IsGadgetNotHost : IO Unit := do
   let plan ← liftResult <| planPsyOf compiled
   liftResult <| Targets.Psy.validatePlan plan
 
+/-- SYS-S5: remaining Psy ADR-0039 gadgets stay first-limb / HashOut
+    shapes. Official software eval does not fill keccak/hashPad as a
+    unified UInt256 host; Array4 HashOut is only hashNoPad|hashTwoToOne. -/
+unsafe def testCryptoGadgetShapesStayHonest : IO Unit := do
+  let expectPlanFc (label body needle : String) : IO Unit := do
+    let source :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {label} where\n" ++ body
+    let compiled ← compileSource s!"<psy-{label}>" s!"Tests.Psy{label}" source
+    match planPsyOf compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{label} must Plan fail closed (Psy gadget ABI is not a UInt256 host)"
+  expectPlanFc "HashPadPsyU256"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt256 := 0\n" ++
+      "    let h : UInt256 := call pf.crypto.hashPad(w)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "pf.crypto/context scalar result must be UInt64/Felt"
+  expectPlanFc "HashTwoToOnePsyU256"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt256 := 0\n" ++
+      "    let h : UInt256 := call pf.crypto.hashTwoToOne(w)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "pf.crypto.hashTwoToOne requires exactly 8 limbs"
+  expectPlanFc "Keccak256PsyArray4"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    let h : Array UInt64 4 := call pf.crypto.keccak256(w)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "Array UInt64 4 HashOut full ABI is only admitted for pf.crypto.hashNoPad|hashTwoToOne"
+  expectPlanFc "HashPadPsyArray4"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    let h : Array UInt64 4 := call pf.crypto.hashPad(w)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "Array UInt64 4 HashOut full ABI is only admitted for pf.crypto.hashNoPad|hashTwoToOne"
+  let admitScalar (label qn : String) : IO Unit := do
+    let src :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {label} where\n" ++
+      "  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      s!"    let h : UInt64 := call {qn}(w)\n" ++
+      "    pad := h\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n"
+    let compiled ← compileSource s!"<psy-{label}>" s!"Tests.Psy{label}" src
+    let plan ← liftResult <| planPsyOf compiled
+    liftResult <| Targets.Psy.validatePlan plan
+  admitScalar "HashPadPsyGadget" "pf.crypto.hashPad"
+  admitScalar "HashNoPadPsyGadget" "pf.crypto.hashNoPad"
+
 unsafe def run : IO Unit := do
   testDispositionHelpers
   testFiveCatalogQnsFailAtResolve
@@ -280,6 +362,7 @@ unsafe def run : IO Unit := do
   testNonCatalogCallStillLowers
   testCryptoSha256StayFailClosed
   testCryptoKeccak256IsGadgetNotHost
+  testCryptoGadgetShapesStayHonest
   IO.println "Tests.Materialization.PsyPfAssetsV1: ok"
 
 end Tests.Materialization.PsyPfAssetsV1

@@ -18,6 +18,7 @@ Suites:
   unixtimecheck — Examples/UnixTimeCheck: context.unixTimeSeconds ↔ block_timestamp
   bytesret — fixtures/BytesRet: anonymous Bytes 4 return (4×u8 tight)
   sha256check — Examples/Sha256Check: pf.crypto.sha256 ↔ env.sha256 known vectors
+  keccak256check — Examples/Keccak256Check: pf.crypto.keccak256 ↔ env.keccak256 known vectors
 
 Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_RPC          e.g. http://127.0.0.1:PORT
@@ -27,7 +28,7 @@ Env (set by scripts/near_runtime_test.sh):
                        verifiedvault | tipjarasync | tokenjarasync | envreadjar | envreadbalanceu128 | wideshiftprobe |
                        negative_corpus | callercheck | posetransform | blockheightcheck |
                        selfidentitycheck | constanswer | unixtimecheck | bytesret |
-                       sha256check | single
+                       sha256check | keccak256check | single
 
 Honesty: engineering sandbox differential only — not testnet/mainnet,
 not formal Stage-0 / hermetic / Reference↔sandbox closure.
@@ -942,6 +943,59 @@ def suite_sha256check(client: NearClient, wasm: Path) -> None:
     print("suite Sha256Check: PASS")
 
 
+def suite_keccak256check(client: NearClient, wasm: Path) -> None:
+    """ADR-0031 SYS-S5-NEAR: pf.crypto.keccak256 → env.keccak256 known vectors.
+
+    Hashes the UInt256 little-endian 32-byte word. Zero matches the EVM
+    native keccak256 vector; one does not (EVM hashes the big-endian word).
+    """
+    print("=== suite: Keccak256Check (pf.crypto.keccak256 / env.keccak256) ===")
+    client.deploy(wasm)
+    client.call("init", b"")
+    got = client.view("get")
+    if len(got) < 32 or NearClient.decode_u256_le(got) != 0:
+        raise AssertionError(f"after init(): get() expected 0, got {got!r}")
+    print("keccak256check: init() → get()==0 ok")
+
+    expected_zero = int.from_bytes(
+        bytes.fromhex(
+            "290decd9548b62a8d60345a988386fc84ba6bc95484008f6362f93160ef3e563"
+        ),
+        "little",
+    )
+    expected_one = int.from_bytes(
+        bytes.fromhex(
+            "48078cfed56339ea54962e72c37c7f588fc4f8e5bc173827ba75cb10a63a96a5"
+        ),
+        "little",
+    )
+
+    res = client.call("hashWord", NearClient.encode_u256_le(0))
+    sv = NearClient.success_value_bytes(res)
+    if sv is None or len(sv) < 32:
+        raise AssertionError(f"hashWord(0) SuccessValue expected 32 LE bytes, got {sv!r}")
+    ret = NearClient.decode_u256_le(sv)
+    if ret != expected_zero:
+        raise AssertionError(f"hashWord(0) expected {expected_zero:#x}, got {ret:#x}")
+    stored = NearClient.decode_u256_le(client.view("get"))
+    if stored != expected_zero:
+        raise AssertionError(f"get() after hashWord(0) expected {expected_zero:#x}, got {stored:#x}")
+    print("keccak256check: hashWord(0) known vector + store ok")
+
+    res = client.call("hashWord", NearClient.encode_u256_le(1))
+    sv = NearClient.success_value_bytes(res)
+    if sv is None or len(sv) < 32:
+        raise AssertionError(f"hashWord(1) SuccessValue expected 32 LE bytes, got {sv!r}")
+    ret = NearClient.decode_u256_le(sv)
+    if ret != expected_one:
+        raise AssertionError(f"hashWord(1) expected {expected_one:#x}, got {ret:#x}")
+    stored = NearClient.decode_u256_le(client.view("get"))
+    if stored != expected_one:
+        raise AssertionError(f"get() after hashWord(1) expected {expected_one:#x}, got {stored:#x}")
+    print("keccak256check: hashWord(1) LE known vector + store ok")
+    print("suite Keccak256Check: PASS")
+
+
 def suite_blockheightcheck(client: NearClient, wasm: Path) -> None:
     """ADR-0031 S2 NEAR: context.blockHeight → host block_index().
 
@@ -1446,6 +1500,9 @@ def main(argv: list[str]) -> int:
         elif suite == "sha256check":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_SHA256CHECK_WASM"))
             suite_sha256check(client, wasm)
+        elif suite == "keccak256check":
+            wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_KECCAK256CHECK_WASM"))
+            suite_keccak256check(client, wasm)
         elif suite == "selfidentitycheck":
             wasm = Path(
                 os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_SELFIDENTITYCHECK_WASM")

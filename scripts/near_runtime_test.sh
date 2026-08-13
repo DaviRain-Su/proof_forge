@@ -175,7 +175,8 @@ programs=(
   "Examples/UnixTimeCheck.lean:Examples.UnixTimeCheck:UnixTimeCheck"
   "runtime-tests/near/fixtures/BytesRet.lean:Examples.BytesRet:BytesRet"
   "Examples/Sha256Check.lean:Examples.Sha256Check:Sha256Check"
-)
+  "Examples/Keccak256Check.lean:Examples.Keccak256Check:Keccak256Check"
+  )
 
 echo "near-runtime-test: engineering near-sandbox differential (not formal/testnet)"
 cli="${PROOF_FORGE_CLI:-$root/.lake/build/bin/proof-forge-next}"
@@ -287,6 +288,7 @@ constanswer_wasm="$out_dir/ConstAnswer/ConstAnswer.wasm"
 unixtimecheck_wasm="$out_dir/UnixTimeCheck/UnixTimeCheck.wasm"
 bytesret_wasm="$out_dir/BytesRet/BytesRet.wasm"
 sha256check_wasm="$out_dir/Sha256Check/Sha256Check.wasm"
+keccak256check_wasm="$out_dir/Keccak256Check/Keccak256Check.wasm"
 [[ -f "$state_cell_wasm" ]] || die "missing $state_cell_wasm"
 [[ -f "$pairret_wasm" ]] || die "missing $pairret_wasm"
 [[ -f "$arrayret_wasm" ]] || die "missing $arrayret_wasm"
@@ -307,6 +309,7 @@ sha256check_wasm="$out_dir/Sha256Check/Sha256Check.wasm"
 [[ -f "$unixtimecheck_wasm" ]] || die "missing $unixtimecheck_wasm"
 [[ -f "$bytesret_wasm" ]] || die "missing $bytesret_wasm"
 [[ -f "$sha256check_wasm" ]] || die "missing $sha256check_wasm"
+[[ -f "$keccak256check_wasm" ]] || die "missing $keccak256check_wasm"
 
 # --- sandbox helpers --------------------------------------------------------
 
@@ -497,5 +500,8 @@ run_suite bytesret "$bytesret_wasm" || die "BytesRet suite failed"
 echo "near-runtime-test: running Sha256Check suite against near-sandbox"
 run_suite sha256check "$sha256check_wasm" || die "Sha256Check suite failed"
 
-echo "near-runtime-test: PASS (StateCell + negative corpus + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + EnvReadBalanceU128 + WideShiftProbe + CallerCheck + PoseTransform + BlockHeightCheck + AttachedValueCheck + SelfIdentityCheck + ConstAnswer + UnixTimeCheck + BytesRet + Sha256Check engineering sandbox differential)"
+echo "near-runtime-test: running Keccak256Check suite against near-sandbox"
+run_suite keccak256check "$keccak256check_wasm" || die "Keccak256Check suite failed"
+
+echo "near-runtime-test: PASS (StateCell + negative corpus + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + EnvReadBalanceU128 + WideShiftProbe + CallerCheck + PoseTransform + BlockHeightCheck + AttachedValueCheck + SelfIdentityCheck + ConstAnswer + UnixTimeCheck + BytesRet + Sha256Check + Keccak256Check engineering sandbox differential)"
 exit 0
