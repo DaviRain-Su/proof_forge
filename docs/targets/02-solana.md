@@ -113,8 +113,8 @@ auto-init 默认 0；CPI multi-role 仍走 `pf test`）；`pf verify -t solana` 
   `extension.pf-assets`/sync-call ticket；Plan/IR/assembly 明示 caller≠tx.origin，两个
   legacy profile 纵深 FC。Mollusk `caller_isme` **8/8** 覆盖 true/false、non-signer、
   len 0/65 与 nonzero high-tail 的 `Custom(1)` + exact snapshot；当前 tracked runtime
-  inventory 为 **23 integration test binaries / 414 active tests**（2026-08-12 增
-  `block_height` 4 测）。**非** formal/mainnet parity，且不把
+  inventory 为 **24 integration test binaries / 418 active tests**（2026-08-13 增
+  `sha256_check` 4 测；`block_height` 4 测仍在）。**非** formal/mainnet parity，且不把
   wire Principal 全局等同 Solana pubkey。
 - **`context.blockHeight`（ADR-0031 S2 residual，2026-08-12 已开 sole profile）**：
   `context.blockHeight` 现于 sole product profile `solana-sbpf-cpi-elf-v1` admitted，复用既有

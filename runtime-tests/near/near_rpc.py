@@ -67,6 +67,22 @@ class NearClient:
         return struct.pack("<Q", int(n) & ((1 << 64) - 1))
 
     @staticmethod
+    def encode_u256_le(n: int) -> bytes:
+        """UInt256 little-endian 32-byte word (NEAR packed-raw / value_return)."""
+        value = int(n)
+        if value < 0 or value >= 1 << 256:
+            raise ValueError(f"UInt256 out of range: {value}")
+        return value.to_bytes(32, "little")
+
+    @staticmethod
+    def decode_u256_le(b: bytes, offset: int = 0) -> int:
+        if offset + 32 > len(b):
+            raise ValueError(
+                f"UInt256 decode needs 32 bytes at {offset}, got {len(b)}"
+            )
+        return int.from_bytes(b[offset : offset + 32], "little")
+
+    @staticmethod
     def encode_u32_le(n: int) -> bytes:
         """UInt32 LE wire for NEAR packed-raw params (exactInputLen=4)."""
         return struct.pack("<I", int(n) & 0xFFFFFFFF)

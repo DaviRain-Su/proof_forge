@@ -585,6 +585,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **SYS-S5-SOLANA first leaf**：sole `solana-sbpf-cpi-elf-v1` 将 `pf.crypto.sha256` UInt256→UInt256 绑定 `sol_sha256`（dedicated Plan/IR/SBPF，非 generic result-bearing CPI）。其它 `pf.crypto.*` / Bytes / 非 product profile 仍 fail closed。EVM+Solana leaves 仅 engineering **in_progress**；产品路由见下一行；**不**关闭 S5 / EXT-CRYPTO / formal，Mollusk 非 ordinary CI |
 | 2026-08-13 | **SYS-S5-SOLANA product route**：`CpiDeriveV1` 将 exact `pf.crypto.sha256` 识别为 host syscall 并跳过 CPI `RawSite` / approved-API 门禁，`ProductSynthesizeV1` 仍强制走 full-body Plan/IR/SBPF；与真实 CPI 共存时 site list 仅保留真实 CPI。其它 `pf.crypto.*` 继续 fail closed；**不**关闭 EXT-CRYPTO / formal，未声称 Mollusk runtime |
 | 2026-08-13 | **SYS-S5-NEAR first leaf**：exact `pf.crypto.sha256` UInt256→UInt256 绑定 NEAR host `sha256`（dedicated Plan/IR/WAT、按使用条件导入，非 Promise / generic result-bearing call），并以 exact 32-byte register 门禁回读 UInt256 LE limbs；其它 `pf.crypto.*` / Bytes / 其它 target 继续 fail closed。EVM+Solana+NEAR leaves 仅 engineering **in_progress**；**不**关闭 S5 / EXT-CRYPTO / formal，未声称 runtime gate |
+| 2026-08-13 | **SYS-S5 triad tighten**：NEAR host result 允许 store-then-return；Solana Mollusk `sha256_check` 4 测 + NEAR sandbox `Sha256Check` known-vector 门；CosmWasm 无 sha256 host，Plan 对 `pf.crypto.*` 精确 fail closed。EVM Anvil 门保持。Solana runtime inventory **24/418**。**不**关闭 EXT-CRYPTO / formal / Anvil lossless |
 
 ---
 

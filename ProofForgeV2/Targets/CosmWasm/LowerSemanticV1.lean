@@ -32,6 +32,8 @@ and only for the Phase C bank subset:
   family only). Entry stays non-payable (no `info.funds` movement).
 
 Token/async catalog QNs and non-catalog sync call stay fail closed.
+`pf.crypto.*` (including `sha256`) has no CosmWasm host binding and stays
+fail closed on both void and result-bearing ExternalCall.
 -/
 
 namespace ProofForgeV2.Targets.CosmWasm
@@ -578,6 +580,11 @@ def canonicalRegisters : RegisterLayout := {
 /-- Thin adapter: binds CosmWasm's `maxIdentifierBytes` (240) to the shared grammar. -/
 def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
+
+/-- ADR-0031 S5: CosmWasm has no sha256 host. Any `pf.crypto.*` QN stays
+    fail closed (void and result-bearing). -/
+private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
+  components[0]? == some "pf" && components[1]? == some "crypto"
 
 /-- CosmWasm schedule **receiver stub** grammar (pilot): lowercase ASCII
     letters, digits, `_`, `-`, `.`; UTF-8 length 2..64; no leading or trailing
@@ -2674,6 +2681,25 @@ private def lowerBlockInstructionsV1
         body := body.push (.emitEvent eventId.toNat argExprs)
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
+    | .externalCall _effectId callee _argIds, some _result =>
+        -- SYS-S5: CosmWasm has no host sha256. Pin the dedicated diagnostic
+        -- instead of falling through the UInt64-pilot catch-all.
+        if mode == .view then
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: view callable makes an external call"
+        if mode == .pureFn then
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: pureFn cannot make external calls"
+        let components := callee.components.toArray
+        unless components.size ≥ 2 do
+          throw <| .planInvariant .cosmwasm
+            "unsupported CosmWasm semantic shape: external call callee must have at least two components"
+        let qn := String.intercalate "." components.toList
+        if isPfCryptoCalleeV1 components then
+          throw <| .planInvariant .cosmwasm
+            s!"unsupported CosmWasm semantic shape: pf.crypto QN '{qn}' has no CosmWasm host binding (sha256 and siblings stay fail closed)"
+        throw <| .planInvariant .cosmwasm
+          "unsupported CosmWasm semantic shape: result-bearing ExternalCall is outside the CosmWasm envelope"
     | .externalCall _effectId callee argIds, none =>
         -- Non-catalog sync call remains fail closed (WasmMsg::Execute is SubMsg
         -- savepoint, not EVM CALL). ADR-0029 C1 opens catalog pf.assets native
@@ -2689,6 +2715,9 @@ private def lowerBlockInstructionsV1
           throw <| .planInvariant .cosmwasm
             "unsupported CosmWasm semantic shape: external call callee must have at least two components"
         let qn := String.intercalate "." components.toList
+        if isPfCryptoCalleeV1 components then
+          throw <| .planInvariant .cosmwasm
+            s!"unsupported CosmWasm semantic shape: pf.crypto QN '{qn}' has no CosmWasm host binding (sha256 and siblings stay fail closed)"
         if isPfAssetsCatalogQnV1 qn then
           unless layout.pfAssetsDeclared do
             throw <| .planInvariant .cosmwasm

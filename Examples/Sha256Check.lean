@@ -4,10 +4,11 @@ namespace Examples
 
 open ProofForgeV2.Language
 
--- ADR-0031 SYS-S5-EVM first runtime fixture. The mutating entry uses the exact
--- UInt256→UInt256 pf.crypto.sha256 precompile leaf and stores its digest;
--- the view only reads state and does not perform an ExternalCall.
--- Not imported by Examples.lean (host-optional Anvil companion fixture).
+-- ADR-0031 SYS-S5 runtime fixture. The mutating entry uses the exact
+-- UInt256→UInt256 pf.crypto.sha256 leaf and stores its digest; the view
+-- only reads state and does not perform an ExternalCall.
+-- EVM: SHA-256 precompile 0x02 (BE word). NEAR: env.sha256 (LE word).
+-- Not imported by Examples.lean (host-optional companion fixture).
 program Sha256Check where
   state last : UInt256
 

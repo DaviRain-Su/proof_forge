@@ -15498,3 +15498,20 @@ normative: false
 - 本切没有运行 WasmCert、解析 Wasm payload、实现 NEAR host或 mint evidence，故 assurance不升级。
   下一步仍在 NEAR：实现并锁定 structured provider，再接四个 VerifiedVault recipes的 host trace与
   sole `ReferenceMachineV1` observation；Solana继续暂停。
+
+## 2026-08-13 — SYS-S5 triad tighten (EVM/Solana/NEAR + CosmWasm honesty)
+
+- **NEAR store-then-return**: `sha256Result` is an immutable SSA host value and
+  may feed both a subsequent `StateStore` and the return sink. The live
+  segment must still be empty so no unrelated value is hidden.
+- **Solana Mollusk**: fixture `Sha256Check` + `sha256_check.rs` pins
+  `sol_sha256` on UInt256 LE words `0`/`1` (known vectors + store/get +
+  assembly honesty). Runtime inventory **24 integration binaries / 418 active
+  tests**. Not ordinary `just ci`.
+- **NEAR sandbox**: `Examples/Sha256Check` is now a near-sandbox suite
+  (`env.sha256`, LE word). Zero matches the EVM precompile vector; one does
+  not (EVM hashes the big-endian word).
+- **CosmWasm honesty**: no sha256 host. Plan fail-closes exact `pf.crypto.*`
+  with a dedicated diagnostic instead of the UInt64-pilot catch-all.
+- EVM Anvil companion remains host-optional. **Not** EXT-CRYPTO / formal /
+  Anvil lossless / C-3.

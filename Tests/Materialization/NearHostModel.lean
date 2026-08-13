@@ -4595,6 +4595,7 @@ private unsafe def testCryptoSha256Near (session : Language.Loader.ParserSession
     "    last := 0\n\n" ++
     "  entry probe(x : UInt256) : UInt256 do\n" ++
     "    let h : UInt256 := call pf.crypto.sha256(x)\n" ++
+    "    last := h\n" ++
     "    return h\n\n" ++
     "  view get() : UInt256 do\n" ++
     "    return last\n\n" ++

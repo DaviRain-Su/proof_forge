@@ -174,6 +174,7 @@ programs=(
   "Examples/ConstAnswer.lean:Examples.ConstAnswer:ConstAnswer"
   "Examples/UnixTimeCheck.lean:Examples.UnixTimeCheck:UnixTimeCheck"
   "runtime-tests/near/fixtures/BytesRet.lean:Examples.BytesRet:BytesRet"
+  "Examples/Sha256Check.lean:Examples.Sha256Check:Sha256Check"
 )
 
 echo "near-runtime-test: engineering near-sandbox differential (not formal/testnet)"
@@ -285,6 +286,7 @@ selfidentitycheck_wasm="$out_dir/SelfIdentityCheck/SelfIdentityCheck.wasm"
 constanswer_wasm="$out_dir/ConstAnswer/ConstAnswer.wasm"
 unixtimecheck_wasm="$out_dir/UnixTimeCheck/UnixTimeCheck.wasm"
 bytesret_wasm="$out_dir/BytesRet/BytesRet.wasm"
+sha256check_wasm="$out_dir/Sha256Check/Sha256Check.wasm"
 [[ -f "$state_cell_wasm" ]] || die "missing $state_cell_wasm"
 [[ -f "$pairret_wasm" ]] || die "missing $pairret_wasm"
 [[ -f "$arrayret_wasm" ]] || die "missing $arrayret_wasm"
@@ -304,6 +306,7 @@ bytesret_wasm="$out_dir/BytesRet/BytesRet.wasm"
 [[ -f "$constanswer_wasm" ]] || die "missing $constanswer_wasm"
 [[ -f "$unixtimecheck_wasm" ]] || die "missing $unixtimecheck_wasm"
 [[ -f "$bytesret_wasm" ]] || die "missing $bytesret_wasm"
+[[ -f "$sha256check_wasm" ]] || die "missing $sha256check_wasm"
 
 # --- sandbox helpers --------------------------------------------------------
 
@@ -491,5 +494,8 @@ run_suite unixtimecheck "$unixtimecheck_wasm" || die "UnixTimeCheck suite failed
 echo "near-runtime-test: running BytesRet suite against near-sandbox"
 run_suite bytesret "$bytesret_wasm" || die "BytesRet suite failed"
 
-echo "near-runtime-test: PASS (StateCell + negative corpus + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + EnvReadBalanceU128 + WideShiftProbe + CallerCheck + PoseTransform + BlockHeightCheck + AttachedValueCheck + SelfIdentityCheck + ConstAnswer + UnixTimeCheck + BytesRet engineering sandbox differential)"
+echo "near-runtime-test: running Sha256Check suite against near-sandbox"
+run_suite sha256check "$sha256check_wasm" || die "Sha256Check suite failed"
+
+echo "near-runtime-test: PASS (StateCell + negative corpus + PairRet + ArrayRet + OptionRet + OptionState + VerifiedVaultPF + TipJarAsync + TokenJarAsync + EnvReadJar + EnvReadBalanceU128 + WideShiftProbe + CallerCheck + PoseTransform + BlockHeightCheck + AttachedValueCheck + SelfIdentityCheck + ConstAnswer + UnixTimeCheck + BytesRet + Sha256Check engineering sandbox differential)"
 exit 0

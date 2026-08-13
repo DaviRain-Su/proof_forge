@@ -17,6 +17,7 @@ Suites:
   constanswer — Examples/ConstAnswer: scalar const table (ANSWER=42)
   unixtimecheck — Examples/UnixTimeCheck: context.unixTimeSeconds ↔ block_timestamp
   bytesret — fixtures/BytesRet: anonymous Bytes 4 return (4×u8 tight)
+  sha256check — Examples/Sha256Check: pf.crypto.sha256 ↔ env.sha256 known vectors
 
 Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_RPC          e.g. http://127.0.0.1:PORT
@@ -25,7 +26,8 @@ Env (set by scripts/near_runtime_test.sh):
   PF_NEAR_SUITE        state_cell | pairret | arrayret | optionret | optionstate |
                        verifiedvault | tipjarasync | tokenjarasync | envreadjar | envreadbalanceu128 | wideshiftprobe |
                        negative_corpus | callercheck | posetransform | blockheightcheck |
-                       selfidentitycheck | constanswer | unixtimecheck | bytesret | single
+                       selfidentitycheck | constanswer | unixtimecheck | bytesret |
+                       sha256check | single
 
 Honesty: engineering sandbox differential only — not testnet/mainnet,
 not formal Stage-0 / hermetic / Reference↔sandbox closure.
@@ -887,6 +889,59 @@ def suite_unixtimecheck(client: NearClient, wasm: Path) -> None:
     print("suite UnixTimeCheck: PASS")
 
 
+def suite_sha256check(client: NearClient, wasm: Path) -> None:
+    """ADR-0031 SYS-S5-NEAR: pf.crypto.sha256 → env.sha256 known vectors.
+
+    Hashes the UInt256 little-endian 32-byte word. Zero matches the EVM
+    precompile vector; one does not (EVM hashes the big-endian word).
+    """
+    print("=== suite: Sha256Check (pf.crypto.sha256 / env.sha256) ===")
+    client.deploy(wasm)
+    client.call("init", b"")
+    got = client.view("get")
+    if len(got) < 32 or NearClient.decode_u256_le(got) != 0:
+        raise AssertionError(f"after init(): get() expected 0, got {got!r}")
+    print("sha256check: init() → get()==0 ok")
+
+    expected_zero = int.from_bytes(
+        bytes.fromhex(
+            "66687aadf862bd776c8fc18b8e9f8e20089714856ee233b3902a591d0d5f2925"
+        ),
+        "big",
+    )
+    expected_one = int.from_bytes(
+        bytes.fromhex(
+            "01d0fabd251fcbbe2b93b4b927b26ad2a1a99077152e45ded1e678afa45dbec5"
+        ),
+        "big",
+    )
+
+    res = client.call("hashWord", NearClient.encode_u256_le(0))
+    sv = NearClient.success_value_bytes(res)
+    if sv is None or len(sv) < 32:
+        raise AssertionError(f"hashWord(0) SuccessValue expected 32 LE bytes, got {sv!r}")
+    ret = NearClient.decode_u256_le(sv)
+    if ret != expected_zero:
+        raise AssertionError(f"hashWord(0) expected {expected_zero:#x}, got {ret:#x}")
+    stored = NearClient.decode_u256_le(client.view("get"))
+    if stored != expected_zero:
+        raise AssertionError(f"get() after hashWord(0) expected {expected_zero:#x}, got {stored:#x}")
+    print("sha256check: hashWord(0) known vector + store ok")
+
+    res = client.call("hashWord", NearClient.encode_u256_le(1))
+    sv = NearClient.success_value_bytes(res)
+    if sv is None or len(sv) < 32:
+        raise AssertionError(f"hashWord(1) SuccessValue expected 32 LE bytes, got {sv!r}")
+    ret = NearClient.decode_u256_le(sv)
+    if ret != expected_one:
+        raise AssertionError(f"hashWord(1) expected {expected_one:#x}, got {ret:#x}")
+    stored = NearClient.decode_u256_le(client.view("get"))
+    if stored != expected_one:
+        raise AssertionError(f"get() after hashWord(1) expected {expected_one:#x}, got {stored:#x}")
+    print("sha256check: hashWord(1) LE known vector + store ok")
+    print("suite Sha256Check: PASS")
+
+
 def suite_blockheightcheck(client: NearClient, wasm: Path) -> None:
     """ADR-0031 S2 NEAR: context.blockHeight → host block_index().
 
@@ -1388,6 +1443,9 @@ def main(argv: list[str]) -> int:
         elif suite == "bytesret":
             wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_BYTESRET_WASM"))
             suite_bytesret(client, wasm)
+        elif suite == "sha256check":
+            wasm = Path(os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_SHA256CHECK_WASM"))
+            suite_sha256check(client, wasm)
         elif suite == "selfidentitycheck":
             wasm = Path(
                 os.environ.get("PF_NEAR_WASM") or _require_env("PF_NEAR_SELFIDENTITYCHECK_WASM")

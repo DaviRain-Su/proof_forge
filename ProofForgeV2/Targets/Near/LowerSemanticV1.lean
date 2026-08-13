@@ -1976,7 +1976,22 @@ private def consumeCurrentSegmentV1
     (values : Array LoweredValueV1)
     (blockEntry segmentStart : Nat)
     (root : ValueIdV1) : CompileResult Expr := do
-  let rootValue ← currentValueV1 values blockEntry segmentStart root
+  let rootValue ←
+    if root.toNat >= blockEntry && root.toNat < segmentStart then
+      let value ← findValueV1 values root
+      match value.expr with
+      | .sha256Result _ =>
+          -- A host-call result is an immutable SSA value and may feed more
+          -- than one later effect (for example store, then return). It is the
+          -- only value-producing effect admitted by this NEAR leaf. Require
+          -- the live segment to be empty so no unrelated value is hidden.
+          unless segmentStart == values.size do
+            throw <| .planInvariant .near
+              "unsupported NEAR semantic shape: block has unconsumed values"
+          pure value
+      | _ => currentValueV1 values blockEntry segmentStart root
+    else
+      currentValueV1 values blockEntry segmentStart root
   let segmentCount := values.size - segmentStart
   let mut visited : Array Bool := Array.mk (List.replicate segmentCount false)
   let mut stack : Array Nat := #[]

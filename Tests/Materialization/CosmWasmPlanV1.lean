@@ -245,6 +245,50 @@ private unsafe def testCallStillFailClosed
         (engineeringPlanFromCompiled compiled)
   IO.println "  ✓ call/sync still fail closed"
 
+/-- SYS-S5: CosmWasm has no sha256 host. Exact `pf.crypto.sha256` and sibling
+    QNs stay Plan fail closed (no hashed / stdlib fallback). -/
+private unsafe def testCryptoSha256StayFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let expectPlanFc (programName pathLabel moduleName body needle : String) :
+      IO Unit := do
+    let src := wrapProgram programName body
+    let compiled ← compileSource session src moduleName pathLabel
+    -- Engineering path: pin the Plan diagnostic even if the product
+    -- resolver declines effect.synchronous-call first.
+    match engineeringPlanFromCompiled compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{programName} must Plan fail closed (no CosmWasm sha256 host)"
+  -- UInt256 is body-only on CosmWasm; keep ABI on UInt64 and hash a
+  -- body-local word so the fail-closed needle is the crypto QN.
+  expectPlanFc "Sha256Cw" "<cw-sha256>" "Examples.Sha256Cw"
+    ("  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt256 := 0\n" ++
+      "    let h : UInt256 := call pf.crypto.sha256(w)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no CosmWasm host binding"
+  expectPlanFc "Sha256CwHashNoPad" "<cw-sha256-hashnopad>"
+    "Examples.Sha256CwHashNoPad"
+    ("  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt256 := 0\n" ++
+      "    let h : UInt256 := call pf.crypto.hashNoPad(w)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no CosmWasm host binding"
+  IO.println "  ✓ pf.crypto.sha256 stay fail closed (no CosmWasm host)"
+
 /-- Pure RFC 4648 base64 (with `=` padding). Mirrors WAT `$pf_base64_encode`
     table-lookup algorithm for engineering pin tests — not a product export. -/
 private def cosmwasmBase64Encode (input : ByteArray) : String := Id.run do
@@ -1612,6 +1656,7 @@ unsafe def run : IO Unit := do
   testStateCellIRAndWat session
   testMultiField session
   testCallStillFailClosed session
+  testCryptoSha256StayFailClosed session
   testBase64HelperMatrix
   testScheduleSubMsg session
   testMultiWidthUInt8 session
