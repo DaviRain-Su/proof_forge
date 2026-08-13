@@ -410,6 +410,13 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       let mut out := (encodeU8 21).append (← encodeExpr input)
       out := out.append (← encodeNatAsU32le resultTemp)
       pure out
+  -- Tag 22 (ADR-0031 SYS-S5-EVM): exact
+  -- pf.crypto.keccak256(UInt256) -> UInt256 native opcode. Distinct from
+  -- tag 21 (SHA-256 precompile) and from hashed AddressBearing CALL.
+  | .keccak256Opcode input resultTemp => do
+      let mut out := (encodeU8 22).append (← encodeExpr input)
+      out := out.append (← encodeNatAsU32le resultTemp)
+      pure out
   -- Tag 13 (ADR-0029 B2): pf.assets.native.deposit(amount).
   | .nativeDeposit amount => do
       pure ((encodeU8 13).append (← encodeExpr amount))

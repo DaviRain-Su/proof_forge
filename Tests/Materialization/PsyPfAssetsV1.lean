@@ -183,6 +183,45 @@ unsafe def testNonCatalogCallStillLowers : IO Unit := do
   let plan ← liftResult <| planPsyOf compiled
   liftResult <| Targets.Psy.validatePlan plan
 
+/-- SYS-S5: Psy has no SHA-2 host. Exact `pf.crypto.sha256` stays Plan fail
+    closed (Poseidon/keccak gadgets are not a sha256 binding). -/
+unsafe def testCryptoSha256StayFailClosed : IO Unit := do
+  let expectPlanFc (label body needle : String) : IO Unit := do
+    let source :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {label} where\n" ++ body
+    let compiled ← compileSource s!"<psy-{label}>" s!"Tests.Psy{label}" source
+    match planPsyOf compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{label} must Plan fail closed (no Psy sha256 host)"
+  expectPlanFc "Sha256Psy"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    let h : UInt64 := call pf.crypto.sha256(w)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Psy host binding"
+  expectPlanFc "Sha256PsyVoid"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    call pf.crypto.sha256(w)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Psy host binding"
+
 unsafe def run : IO Unit := do
   testDispositionHelpers
   testFiveCatalogQnsFailAtResolve
@@ -191,6 +230,7 @@ unsafe def run : IO Unit := do
   testTransferAsyncUnboundAtPlan
   testTokenTransferAsyncUnboundAtPlan
   testNonCatalogCallStillLowers
+  testCryptoSha256StayFailClosed
   IO.println "Tests.Materialization.PsyPfAssetsV1: ok"
 
 end Tests.Materialization.PsyPfAssetsV1

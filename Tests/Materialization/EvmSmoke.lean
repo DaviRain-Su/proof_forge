@@ -4409,6 +4409,97 @@ private unsafe def testCryptoSha256Evm : IO Unit := do
       "      return 0\n")
     "pf.crypto.sha256 requires exactly one UInt256 argument and UInt256 result"
 
+/-- S5-EVM second leaf: `call pf.crypto.keccak256` → native `keccak256(0, 32)`.
+    UInt256→UInt256 only; dedicated Plan statement (not hashed AddressBearing,
+    not STATICCALL 0x02). -/
+private unsafe def testCryptoKeccak256Evm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let hashedPfCrypto :=
+    (Targets.Evm.Keccak.keccak256Hex "pf.crypto".toUTF8).drop 24
+  let src :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Keccak256Evm where\n" ++
+    "  entry probe(x : UInt256) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.keccak256(x)\n" ++
+    "    return h\n"
+  let cSrc ← match ← session.selectProgramV1
+      src "<evm-keccak256>" "Tests.EvmKeccak256" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"Keccak256Evm select: {e.render}"
+  let compiled ← match Compiler.compileValidatedSourceV1 cSrc with
+    | .error e => throw <| IO.userError s!"Keccak256Evm must compile, got {e.render}"
+    | .ok c => pure c
+  let plan ← match planEvm compiled with
+    | .error e =>
+        throw <| IO.userError s!"Keccak256Evm must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let mut hasDedicated := false
+  let mut hasHashedResultCall := false
+  let mut hasSha256 := false
+  for e in plan.entries do
+    for s in e.body do
+      match s with
+      | .keccak256Opcode _ _ => hasDedicated := true
+      | .sha256Precompile _ _ => hasSha256 := true
+      | .externalCallResult callee _ _ =>
+          if callee == #["pf", "crypto", "keccak256"] then
+            hasHashedResultCall := true
+      | .externalCall callee _ _ =>
+          if callee == #["pf", "crypto", "keccak256"] then
+            hasHashedResultCall := true
+      | _ => pure ()
+  expect hasDedicated
+    "Keccak256Evm: plan must contain dedicated keccak256Opcode statement"
+  expect (!hasSha256)
+    "Keccak256Evm: must not lower keccak256 to the SHA-256 precompile"
+  expect (!hasHashedResultCall)
+    "Keccak256Evm: must not lower to hashed AddressBearing externalCall(Result)"
+  let files ← match materializeSelected TargetId.evm compiled with
+    | .error e => throw <| IO.userError s!"Keccak256Evm materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yulFile := files.find? (·.path == "Keccak256Evm.yul") |
+    throw <| IO.userError "Keccak256Evm: missing .yul"
+  let yul := yulFile.contents
+  expect (yul.contains "keccak256(0, 32)")
+    "Keccak256Evm: Yul must emit native keccak256 over one 32-byte word"
+  expect (!yul.contains "staticcall(gas(), 0x2")
+    "Keccak256Evm: Yul must not target SHA-256 precompile address 0x2"
+  expect (!yul.contains hashedPfCrypto)
+    s!"Keccak256Evm: Yul must not contain hashed pf.crypto address {hashedPfCrypto}"
+
+  let expectPlanFc (programName pathLabel moduleName body needle : String) : IO Unit := do
+    let negSrc :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {programName} where\n" ++
+      body
+    let neg ← match ← session.selectProgramV1
+        negSrc pathLabel moduleName none with
+      | .ok v => pure v
+      | .error e => throw <| IO.userError s!"{programName} select: {e.render}"
+    match Compiler.compileValidatedSourceV1 neg with
+    | .error e => throw <| IO.userError s!"{programName} must compile, got {e.render}"
+    | .ok compiledNeg =>
+        match planEvm compiledNeg with
+        | .error e =>
+            expect (e.render.contains needle)
+              s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+        | .ok _ =>
+            throw <| IO.userError
+              s!"{programName} must Plan fail closed (no hashed CALL fallback)"
+
+  expectPlanFc "Keccak256U64Evm" "<evm-keccak256-u64>" "Tests.EvmKeccak256U64"
+    ("  entry probe(x : UInt64) : UInt64 do\n" ++
+      "    let h : UInt64 := call pf.crypto.keccak256(x)\n" ++
+      "    return h\n")
+    "pf.crypto.keccak256 requires exactly one UInt256 argument and UInt256 result"
+  expectPlanFc "Keccak256SchedEvm" "<evm-keccak256-sched>" "Tests.EvmKeccak256Sched"
+    ("  entry probe(x : UInt256) : UInt256 do\n" ++
+      "    schedule pf.crypto.keccak256(x)\n" ++
+      "    return x\n")
+    "pf.crypto calls cannot be scheduled"
+
 /-- SYS-S5-EVM Anvil companion fixture pin: inline twin of Examples/Sha256Check.lean
     (not imported by Examples.lean). Plan `.sha256Precompile` + STATICCALL 0x2;
     hashed `pf.crypto` address absent. -/
@@ -5025,6 +5116,7 @@ unsafe def run : IO Unit := do
   testScheduleArgWideEvm
   testScheduleArgNarrowEvm
   testCryptoSha256Evm
+  testCryptoKeccak256Evm
   testSha256CheckFixtureEvm
   testContextReadTimestampEvm
   testAnonymousReturnFailClosedBoundaries

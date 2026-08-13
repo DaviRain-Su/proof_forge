@@ -604,6 +604,18 @@ private partial def checkPlanStatementsV1
             "unsupported EVM semantic shape: pf.crypto.sha256 input must be UInt256"
         total ← addPlanExprNodes slots paramCount total fns input
         total := total + 1
+    | .keccak256Opcode input _resultTemp =>
+        if isView then
+          throw <| .planInvariant .evm
+            s!"{owner} calls pf.crypto.keccak256 in a view/pureFn context"
+        if isConstructor then
+          throw <| .planInvariant .evm
+            "constructor cannot call pf.crypto.keccak256"
+        unless exprIsExternalUIntCompatibleV1 fns input do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: pf.crypto.keccak256 input must be UInt256"
+        total ← addPlanExprNodes slots paramCount total fns input
+        total := total + 1
     | .schedule callee args argBitWidths =>
         if isView then
           throw <| .planInvariant .evm s!"{owner} schedules a workflow in a view context"

@@ -1724,6 +1724,16 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n" ++
           s!"{indent}if lt(returndatasize(), 32) \{ revert(0, 0) }\n" ++
           s!"{indent}let t{resultTemp} := mload(32)\n"
+    | .keccak256Opcode input resultTemp =>
+        -- ADR-0031 SYS-S5-EVM: exact one-word native keccak256 opcode.
+        -- Scratch word 0 is the 32-byte input; the opcode returns the digest.
+        -- Not STATICCALL 0x02 and not a hashed AddressBearing CALL.
+        let rendered := renderExpr indent paramPrefix next input
+        output := output ++ rendered.code
+        next := rendered.next
+        output := output ++
+          s!"{indent}mstore(0, {rendered.value})\n" ++
+          s!"{indent}let t{resultTemp} := keccak256(0, 32)\n"
     | .schedule callee args argBitWidths =>
         -- Fire-and-forget: same static address/selector, CALL success ignored.
         let method := callee[callee.size - 1]!
@@ -2297,7 +2307,7 @@ private partial def statementHelperNeedsV1 : Statement → PhaseHelperNeedsV1
       args.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
   | .externalCall _ args _ | .schedule _ args _ | .externalCallResult _ args _ =>
       args.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
-  | .sha256Precompile input _ => exprHelperNeedsV1 input
+  | .sha256Precompile input _ | .keccak256Opcode input _ => exprHelperNeedsV1 input
   | .nativeDeposit a => exprHelperNeedsV1 a
   | .nativeTransfer dl dw a =>
       mergeHelperNeeds (exprHelperNeedsV1 dl)

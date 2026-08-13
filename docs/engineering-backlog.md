@@ -592,6 +592,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **SYS-S5-TON honesty**：TON 无 sha256 host；Plan 对 `pf.crypto.*` 精确 fail closed（无 `string_hash` 伪装）。SBOM lean-package-files 刷新为 284。**不**关闭 EXT-CRYPTO / formal |
 | 2026-08-13 | **SYS-S5-NOIR honesty**：Noir 无 sha256 host；Plan 对 `pf.crypto.*` 精确 fail closed（不把 circuit `sha256_compression` / generic ExtFlow oracle 伪装成 host）。**不**关闭 EXT-CRYPTO / formal |
 | 2026-08-13 | **SYS-S5-ALEO/QUINT honesty**：Aleo/Quint 无 sha256 host；Plan 对 `pf.crypto.*` 精确 fail closed（不把 BHP/Pedersen/Poseidon 或 pf.assets catch-all 伪装成 host）。Aleo 产品路径仍先拒 sync-call。SBOM lean-package-files 刷新为 285。**不**关闭 EXT-CRYPTO / formal |
+| 2026-08-13 | **SYS-S5-EVM keccak256 + PSY sha256 honesty**：EVM `pf.crypto.keccak256` UInt256→UInt256 绑定 native `keccak256` opcode（非 SHA-256 precompile、非 hashed CALL）。Psy 无 SHA-2 host，`pf.crypto.sha256` 精确 fail closed。**不**关闭 EXT-CRYPTO / Bytes ABI / formal |
 | 2026-08-13 | **剩余 target 版图 RPT-025**：登记 §10.1（TGT-SOROBAN/ICP/OPENVM-MVP、Move dossier、第二 zkVM、比特币脚本族钉死默认不实现）；不扩 accepted PRD；不新开平行 gap 清单 |
 
 ---

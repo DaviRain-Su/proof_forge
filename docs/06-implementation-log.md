@@ -15540,3 +15540,12 @@ normative: false
 - Aleo product resolve still declines sync-call; the engineering Plan path
   exists only to pin the diagnostic. SBOM lean-package-files refreshed to 285.
   Not formal and not EXT-CRYPTO.
+
+## 2026-08-13 — SYS-S5 EVM keccak256 + Psy sha256 honesty
+
+- EVM Plan now binds exact `pf.crypto.keccak256(UInt256) -> UInt256` to the
+  native `keccak256` opcode over one 32-byte word (tag 22). It is not the
+  SHA-256 precompile and not a hashed AddressBearing CALL.
+- Psy Plan fail-closes exact `pf.crypto.sha256` with a dedicated diagnostic
+  (Poseidon/keccak gadgets are not a SHA-2 host).
+- Not formal, not Bytes ABI, and not EXT-CRYPTO.

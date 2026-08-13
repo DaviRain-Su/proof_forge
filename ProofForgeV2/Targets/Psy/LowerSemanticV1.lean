@@ -2221,6 +2221,9 @@ private partial def lowerRegion
               unless qn == "pf.crypto.hashNoPad" || qn == "pf.crypto.hashTwoToOne" do
                 planError
                   "unsupported Psy semantic shape: Array UInt64 4 HashOut full ABI is only admitted for pf.crypto.hashNoPad|hashTwoToOne (official simulate fills full HashOut); use UInt64 limb0 for keccak/context"
+            if qn == "pf.crypto.sha256" then
+              planError
+                "unsupported Psy semantic shape: pf.crypto QN 'pf.crypto.sha256' has no Psy host binding (sha256 stays fail closed; Poseidon/keccak gadgets are not a SHA-2 host)"
             if qn == "pf.crypto.hashNoPad" then
               unless comps.size == 3 do
                 planError "unsupported Psy semantic shape: pf.crypto.hashNoPad callee must be exactly three components"
@@ -2364,6 +2367,9 @@ private partial def lowerRegion
             -- sync invoke would falsely imply native value movement.
             if isPfAssetsCatalogQnV1 qn then
               planError s!"unsupported Psy semantic shape: {unboundCatalogDiagV1 qn}"
+            if qn == "pf.crypto.sha256" then
+              planError
+                "unsupported Psy semantic shape: pf.crypto QN 'pf.crypto.sha256' has no Psy host binding (sha256 stays fail closed; Poseidon/keccak gadgets are not a SHA-2 host)"
             if qn.startsWith "pf.crypto." || qn.startsWith "pf.context."
                 || qn.startsWith "pf.imt." then
               planError s!"unsupported Psy semantic shape: {qn} is value-producing (use in expression position, not void call)"
