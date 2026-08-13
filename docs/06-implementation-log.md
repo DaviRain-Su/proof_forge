@@ -15524,3 +15524,10 @@ normative: false
   `effect.synchronous-call`.
 - `supply-chain/lean-package-files.v1.json` refreshed to 284 files after the
   rebase onto origin/main. AGENTS checkpoint path count updated. Not formal.
+
+## 2026-08-13 — SYS-S5 Noir honesty
+
+- Noir Plan now fail-closes exact `pf.crypto.*` with a dedicated diagnostic
+  (no circuit-stdlib / ExtFlow oracle fallback). Product `planFromCapability`
+  is the pin path because Noir already admits generic sync call.
+- Not formal and not EXT-CRYPTO.

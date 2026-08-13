@@ -21,6 +21,11 @@ Enum-shaped 2-leaf public-input layout (`name_tag` + `name_p0`; none=(0,0),
 some=(1,v); payload zeroed on none assign). Reads go through the existing
 VariantTag/VariantPayload path. Option of non-UInt64, nested Option, and
 Option params stay fail-closed (state-only; do not extend Enum param admit).
+
+`pf.crypto.*` (including `sha256`) has no Noir host binding. Circuit
+stdlib gadgets such as `sha256_compression` are not a frozen
+UInt256→UInt256 host, so the namespace stays fail closed on void and
+result-bearing ExternalCall and on schedule.
 -/
 
 namespace ProofForgeV2.Targets.Noir
@@ -363,6 +368,12 @@ def canonicalLimits : ResourceLimits := {
     from EVM/Solana/NEAR's 240) to the shared ASCII grammar. -/
 def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
+
+/-- ADR-0031 S5: Noir has no sha256 host. Any `pf.crypto.*` QN stays
+    fail closed (void, result-bearing, and schedule). Circuit stdlib
+    is not a host binding. -/
+private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
+  components[0]? == some "pf" && components[1]? == some "crypto"
 
 def validDigest (value : String) : Bool :=
   value.length == 64 && value.toList.all (fun character =>
@@ -2201,6 +2212,13 @@ private def lowerBlockInstructionsV1
         unless qname.components.toArray.size ≥ 2 do
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: external call callee must have at least two components"
+        -- SYS-S5: Noir has no host sha256. Do not bind pf.crypto.* as a
+        -- generic oracle ExternalCall (ExtFlow witness-binding path).
+        let components := qname.components.toArray
+        let qn := String.intercalate "." components.toList
+        if isPfCryptoCalleeV1 components then
+          throw <| .planInvariant .noir
+            s!"unsupported Noir semantic shape: pf.crypto QN '{qn}' has no Noir host binding (sha256 and siblings stay fail closed; circuit stdlib is not a host)"
         let mut argExprs : Array Expr := #[]
         for argId in argIds do
           let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
@@ -2218,6 +2236,11 @@ private def lowerBlockInstructionsV1
         unless qname.components.toArray.size ≥ 2 do
           throw <| .planInvariant .noir
             "unsupported Noir semantic shape: schedule callee must have at least two components"
+        let components := qname.components.toArray
+        let qn := String.intercalate "." components.toList
+        if isPfCryptoCalleeV1 components then
+          throw <| .planInvariant .noir
+            s!"unsupported Noir semantic shape: pf.crypto QN '{qn}' cannot be scheduled on Noir"
         let mut argExprs : Array Expr := #[]
         for argId in argIds do
           let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
@@ -2807,7 +2830,12 @@ private def lowerBlockInstructionsV1
             s!"unsupported Noir semantic shape: unknown ContextRead key '{key.value}'"
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: ContextRead is not admitted by pilot context policy"
-    | .externalCall _ _ _, some _ =>
+    | .externalCall _ qname _, some _ =>
+        let components := qname.components.toArray
+        let qn := String.intercalate "." components.toList
+        if isPfCryptoCalleeV1 components then
+          throw <| .planInvariant .noir
+            s!"unsupported Noir semantic shape: pf.crypto QN '{qn}' has no Noir host binding (sha256 and siblings stay fail closed; circuit stdlib is not a host)"
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: result-bearing external call is outside the current Noir pilot (N-CALL-RET shared schema; Noir return-value relation lowering is a later slice)"
     | _, _ =>

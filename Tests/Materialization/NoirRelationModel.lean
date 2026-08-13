@@ -2225,6 +2225,56 @@ private unsafe def checkVoidEntryFailClosed : IO Unit := do
       throw <| IO.userError
         "void entry must fail closed at Noir plan materialize"
 
+/-- SYS-S5: Noir has no sha256 host. Exact `pf.crypto.sha256` and sibling
+    QNs stay Plan fail closed (no circuit-stdlib / oracle fallback). -/
+private unsafe def checkCryptoSha256StayFailClosed : IO Unit := do
+  let expectPlanFc (label moduleName body needle : String) : IO Unit := do
+    let src :=
+      "import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      s!"program {label} where\n" ++ body ++
+      "\nend ProofForgeV2.Examples\n"
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 src
+      s!"<noir-{label}>" moduleName none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    match Targets.Noir.planFromCapability capability with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{label} must Plan fail closed (no Noir sha256 host)"
+  -- Keep ABI on UInt64 so the needle is the crypto QN, not a type gate.
+  -- Void call would otherwise bind as a generic ExtFlow oracle.
+  expectPlanFc "Sha256Noir" "Examples.Sha256Noir"
+    ("  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    call pf.crypto.sha256(w)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Noir host binding"
+  expectPlanFc "Sha256NoirHashNoPad" "Examples.Sha256NoirHashNoPad"
+    ("  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    let h : UInt64 := call pf.crypto.hashNoPad(w)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Noir host binding"
+  IO.println "  ✓ pf.crypto.sha256 stay fail closed (no Noir host)"
+
 /-- Two declared events, both emitted: pins event-slot inputs and .nr surface. -/
 private def multiEventSourceText : String :=
   "import ProofForgeV2\n\n" ++
@@ -3916,6 +3966,7 @@ unsafe def run : IO Unit := do
   checkShiftBitwiseLogicalProduct
   checkExternalCallScheduleProduct
   checkVoidEntryFailClosed
+  checkCryptoSha256StayFailClosed
   checkMultipleEventsProduct
   checkZeroArgRevertProduct
   checkBoolResultPureFnProduct

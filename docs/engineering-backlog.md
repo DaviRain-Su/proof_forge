@@ -587,6 +587,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **SYS-S5-NEAR first leaf**：exact `pf.crypto.sha256` UInt256→UInt256 绑定 NEAR host `sha256`（dedicated Plan/IR/WAT、按使用条件导入，非 Promise / generic result-bearing call），并以 exact 32-byte register 门禁回读 UInt256 LE limbs；其它 `pf.crypto.*` / Bytes / 其它 target 继续 fail closed。EVM+Solana+NEAR leaves 仅 engineering **in_progress**；**不**关闭 S5 / EXT-CRYPTO / formal，未声称 runtime gate |
 | 2026-08-13 | **SYS-S5 triad tighten**：NEAR host result 允许 store-then-return；Solana Mollusk `sha256_check` 4 测 + NEAR sandbox `Sha256Check` known-vector 门；CosmWasm 无 sha256 host，Plan 对 `pf.crypto.*` 精确 fail closed。EVM Anvil 门保持。Solana runtime inventory **24/418**。**不**关闭 EXT-CRYPTO / formal / Anvil lossless |
 | 2026-08-13 | **SYS-S5-TON honesty**：TON 无 sha256 host；Plan 对 `pf.crypto.*` 精确 fail closed（无 `string_hash` 伪装）。SBOM lean-package-files 刷新为 284。**不**关闭 EXT-CRYPTO / formal |
+| 2026-08-13 | **SYS-S5-NOIR honesty**：Noir 无 sha256 host；Plan 对 `pf.crypto.*` 精确 fail closed（不把 circuit `sha256_compression` / generic ExtFlow oracle 伪装成 host）。**不**关闭 EXT-CRYPTO / formal |
 
 ---
 

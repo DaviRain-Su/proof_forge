@@ -1046,9 +1046,9 @@
       "sha256": "0bf666ab738783ce4103f21a1a25c915a77c99c72b28f56a97f0f1b85291b2cc"
     },
     {
-      "bytes": 169047,
+      "bytes": 170756,
       "path": "ProofForgeV2/Targets/Noir/LowerSemanticV1.lean",
-      "sha256": "8e41c17c2153da01764048b1ef2c42a7eb10ffd1e53db1e7c7561d2df011dd9b"
+      "sha256": "c4296099b4f0f6ab2b6e61d4af136c6056e9fa9f2f8b00e1890e3e330a013e4f"
     },
     {
       "bytes": 1672,
