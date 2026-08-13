@@ -1,5 +1,9 @@
 # Goal — 全工程 backlog 主队列（**drain 直到空 / 硬阻塞**）
 
+> **已退役（historical seed）。** Live drain 现以
+> [`.grok/next-wave-queue.md`](../next-wave-queue.md) 为队列，并使用
+> `/goal @.grok/goals/prompt-next-wave.md`；本文件保留作历史导航，不要从此入口恢复执行。
+
 > **这就是「用 Goal 跑完全部工程任务」的入口。**
 > 续跑必须发生在 **Goal 回合内部**，不要做完几项就当 Goal 完成、把「剩下的」丢回聊天。
 >

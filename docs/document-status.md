@@ -3,7 +3,7 @@ id: DOC-STATUS
 title: 文档生命周期与权威索引
 status: proposed
 owner: architecture
-updated: 2026-08-07
+updated: 2026-08-13
 normative: true
 ---
 

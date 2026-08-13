@@ -377,7 +377,7 @@ D1–D4 = 0/27 done。
 | **T-2** | context / extension requirements 接入 CheckV1 | **done**（2026-08-02：`ContextExtensionCheckV1` — 仅 admit context.caller/unixTimeSeconds；extension 声明工程 Check `ext001` fail-closed；CheckV1 phase 7；**非** formal extension catalog） |
 | **T-3** | RequirementsInfer：callerContext / commit 等贡献键（随 N-2/N-3） | **done**（2026-08-02：context.unixTimeSeconds/caller + commit 贡献 wire id；S2 freeze skip；Normalize 仍 sole wire-row mint） |
 | **INV-1** | 受约束 `proof` reference 产品路径（FR-002） | **superseded → ADR-0027 inline；narrow engineering closed**（2026-08-04：产品 sole path = `selectProgramV1ProductWithTheoremInventory` → `certifyInlineProofV1`；`--proof-bundle*` unknown；check 输出 proofStatus/count/digest，build 只门禁；`ProofReferenceJoinV1`/bundle 退回 library；structure+encode+decode+`ProofedProof.safe`、legal-only simple-closure encode/decode、exact ordinal-0 `InvariantTheoremV1` 与 literal-true/public-Bool-view same-file ordinary theorem 的真实 product `check` certified 正例均闭合；false theorem/inventory/audit fail closed，proof-first 且零 staging；body 不改 source/semantic hash但改变 cert digest；package-owned session 排除 ambient `LEAN_PATH`/用户 `.olean`；in-process elab ≠ sandbox；axioms 仅 Classical.choice/Quot.sound/propext；**非** formal TST-PROOF-001 / reachability / target refinement / hermetic/release；Quint Q0 对 read-only Bool invariant 已开放，其余八个 materializer 对 nonempty invariants 仍 FC） |
-| **INV-2** | ADR-0034 通用 L1 Preservation 产品实例 | **in progress**（2026-08-09：foundation + kind plumbing + **EvenCounter product GREEN** + **ZeroCounter 第二非 AMM 实例 product GREEN**（P=`count==0`；bf2-data/preserve/product；1306B product-aligned spine + ClosedSubjectPin + `InlineProofCertifierV1` exact）；**PreservationPackagingV1**（bf-pack-1/2）；**非 pin author 路径** + `Tests.Semantic.ClosedSubjectPinV1`（bf-unpin-1）；wave-2 队列 drained。业务主路径 = `PreservationTheoremV1` on product Reference，pin 仅 golden。下一步：MiniAmm wave-3 P1（emptyPool；`Examples/MiniAmmL1` surface 已开）；ADR-0027 supersession **仍独立 pending**；**不** supersede ADR-0027；非 formal/target refinement/release） |
+| **INV-2** | ADR-0034 通用 L1 Preservation 产品实例 | **engineering done（wave-3′ generic-first，2026-08-09）**：通用 Preservation API（`CodecInvertV1` / `PreservationShapeV1` / `SubjectDataBridgeV1` / `PreservationPackagingV1`）+ ordinary same-file `Counter` / `MiniAmmL1` product positives 已闭合；`ProofInstances/`、`ClosedSubjectPinV1`、ParityCounter/ZeroCounter 专属模块与重复 examples/tests **已物理删除**（合约专属 pin 路径退役）。ADR-0027 supersession **仍独立 pending**；**不** supersede ADR-0027；**不**关闭 formal TASK/TST / target refinement / hermetic/release |
 | **APP-1** | PrivateSum4 持续作为隐私边界验收向量（Phase-1 DoD） | **done**（2026-08-02：`Examples/PrivateSum4` + `Tests.Product.PrivateSum4PrivacyV1` — product compile/CLI check·build 对 private→public `PF-VIS-001` fail closed、无 manifest 泄漏；**非** Noir prove/formal TST-NOIR-006） |
 
 ---
@@ -471,7 +471,25 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
        （`Tests/Semantic/Sem002ShapeV1.lean`）；**不**关闭 TST-SEM-002
      · **LH-12 engineering done**（`f48a90f79`）：`AGENTS.md` 控制面诚实化（Current/Next 与
        lighthouse / `.grok/next-wave-queue.md` 指针对齐；不代签 formal）；**不**关闭 formal TASK/TST
-     ——仍非 formal；LH-1…12 engineering-done；Anvil ↛ OutcomeWire lossless 保持 fail-closed；**C-3 仍 blocked**
+     · **LH-13 engineering done**（`218ddc447`）：Sem003 trap + unconsumed response →
+       unique invalidExternalResponse pin（`Tests/Semantic/Sem003ShapeV1.lean`）；**不**关闭 TST-SEM-003
+     · **LH-16 engineering done**（`dfbb4532a`）：`EvmOutcomeAdapterV1` 28-step shared-status pin
+       （in-process Outcome constructor ↔ committed case `expectedSharedStatus`）；**不**关闭 C-3 /
+       TST-SEM-002/003；Anvil lossless 仍 FC
+     · **LH-17/18/19 engineering done**：矩阵头 `2026-08-13`（`f093262eb`）；master Goal 入口退役
+       （`ea0f19078`）；RECOVERY 指针 LH-13 + document-status 日期（`ed0ab1cd4`）
+     · **LH-20 engineering done**（`88da32e57`）：Quint `context.attachedValue` Plan/materialize
+       outside-Q0 FC pin（`Tests/Materialization/QuintSourceV1.lean`）；**不**关闭 formal
+     · **LH-21 engineering done**（`25520ecea`）：backlog INV-2 wave-3′ honesty + LH-16 记录
+     · **LH-22 engineering done**（`fdfb24dbe`）：`AGENTS.md` Solana 23/414 标为 Mollusk-only
+       inventory（非 ordinary CI）；docs-check checkpoint 措辞保留
+     · **LH-23 engineering done**（`885d2c048`）：`StepFacadeV1` façade==machine pin
+       （declared revert + invalidExternalResponse + invalidInvocation）；**不**关闭 formal TST
+     · **LH-24 engineering done**（`9650c5358`）：`OutcomeWireV1` decode negatives
+       （truncated envelope + OOR outcome/revert tags）；**不**关闭 formal
+     · **LH-25 engineering done**（`10c280f07`）：`Examples/AttachedValueCheck.lean` comment
+       honesty after S4 leaves
+     ——仍非 formal；LH-1…13 + 16…25 engineering-done；Anvil ↛ OutcomeWire lossless 保持 fail-closed；**C-3 仍 blocked**
    - 然后 identity-bound Reference↔Anvil formal differential（**C-3 仍 blocked**；
      engineering identity/projection 已落地，formal 轨道仍 pending；Anvil lossless FC）
    - 不得用其他 target 或业务合约 engineering positives 代签
@@ -549,6 +567,10 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **EVM formal lighthouse LH-10 engineering done**：Sem003 剩余 standard revert codes（invalidShift/castOutOfRange/indexOutOfBounds/uninitialized/alreadyInitialized）OutcomeWire pin（`ee14a0788`；focused Sem003 run 通过）；**不**关闭 TST-SEM-003。C-3 / Anvil lossless 仍 blocked/FC |
 | 2026-08-13 | **EVM formal lighthouse LH-11 engineering done**：Sem002 wrong kind / wrong arg type / response duplicate+reordered / noncanonical arg bytes OutcomeWire pin（`7cdca0e85`；focused Sem002 run 通过）；**不**关闭 TST-SEM-002。C-3 / Anvil lossless 仍 blocked/FC |
 | 2026-08-13 | **EVM formal lighthouse LH-12 engineering done（LH-14 backlog 对齐）**：`AGENTS.md` 控制面诚实化与 `.grok/next-wave-queue.md` / commit `f48a90f79` 对齐；同节复核 LH-8=`ee14a0788`、LH-9=`3dedfea2a`、LH-10=`ee14a0788`、LH-11=`7cdca0e85`。LH-1…12 engineering-done；**不**关闭 TST-SEM-002/003 或 formal TASK；C-3 / Anvil lossless 仍 blocked/FC |
+| 2026-08-13 | **EVM formal lighthouse LH-13 engineering done**：Sem003 trap + unconsumed response → unique invalidExternalResponse OutcomeWire pin（`218ddc447`；`Tests/Semantic/Sem003ShapeV1.lean`）；**不**关闭 TST-SEM-003。C-3 / Anvil lossless 仍 blocked/FC |
+| 2026-08-13 | **LH-17/18/19 engineering done**：`MIGRATION_MATRIX.md` 事实日期 `2026-08-13`（`f093262eb`）；`docs/index.md` live Goal 改 next-wave（`ea0f19078`）；`RECOVERY.md` 指针 LH-13 + `document-status` 日期（`ed0ab1cd4`）。**不**关闭 formal TASK/TST；C-3 / Anvil lossless 仍 blocked/FC |
+| 2026-08-13 | **EVM formal lighthouse LH-16 engineering done**：`EvmOutcomeAdapterV1` 28-step shared-status pin（`dfbb4532a`；`Tests/Materialization/EvmOutcomeAdapterV1.lean`）；**不**关闭 C-3 / TST-SEM-002/003；Anvil lossless 仍 FC。顺带刷新 INV-2：wave-3′ generic-first 已闭，合约专属 pin 已删 |
+| 2026-08-13 | **EVM formal lighthouse LH-20…25 engineering done**：LH-20 Quint attachedValue outside-Q0 FC（`88da32e57`）；LH-21 INV-2/LH-16 backlog（`25520ecea`）；LH-22 AGENTS Solana 23/414 Mollusk-only（`fdfb24dbe`）；LH-23 StepFacade revert/trap pin（`885d2c048`）；LH-24 OutcomeWire decode negatives（`9650c5358`）；LH-25 AttachedValueCheck comment（`10c280f07`）。**不**关闭 formal TASK/TST；C-3 / Anvil lossless 仍 blocked/FC |
 
 ---
 

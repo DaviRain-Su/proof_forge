@@ -503,6 +503,36 @@ unsafe def testFailClosedConstant : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
   | .ok _ => throw <| IO.userError "nonempty constants must fail closed at Quint plan"
 
+/-- Fail closed: context.attachedValue remains outside the Quint Q0 model. -/
+unsafe def testFailClosedContextReadAttachedValue : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CtxAttached where\n" ++
+    "  state public pad : UInt64\n\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n\n" ++
+    "  entry collect() : UInt64 do\n" ++
+    "    return context.attachedValue\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-context-attached>" "Examples.CtxAttached" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planQuint compiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "outside Q0")
+        s!"context.attachedValue Plan failure must stay in outside-Q0 family, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "context.attachedValue must fail closed at Quint plan"
+  match buildQuint compiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "outside Q0")
+        s!"context.attachedValue materialize failure must stay in outside-Q0 family, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "context.attachedValue must fail closed at Quint materialize"
+
 /-- Fail closed: events. -/
 unsafe def testFailClosedEvent : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1045,6 +1075,7 @@ unsafe def run : IO Unit := do
   testFailClosedUInt32
   testFailClosedMultiblock
   testFailClosedConstant
+  testFailClosedContextReadAttachedValue
   testFailClosedEvent
   testFailClosedUnusedPureFn
   testExpandedExpressionBudget

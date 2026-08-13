@@ -4,7 +4,14 @@
 
 - Original audit baseline date: `2026-07-26`
 - Original audit baseline commit: `8b42f7ebeb60652d1789e495f23247e5685b1e22`
-- Engineering fact updates through: `2026-08-07`（含 D3-E7/NFR-REPEAT/D3-E9/N-ANON-RESULT/B-OPT-STATE/B-CALL-SEM、ADR-0027 inline same-file theorem certification、**ADR-0034 Preservation ABI `proposed`：generic ABI foundation + ProofKind/三字段 wire/`(inv,kind)` inventory/双 alias/kind-bound protocol+certifier plumbing 已实现；EvenCounter preserving positive/第二实例/supersession pending（不 supersede 0027）**、Reference **Map Wire-envelope admission**（每个 Map 直接绑定 shared per-canonical-value/helper ceilings；无 sampled packing/派生 runtime capacity；empty state default 仍为 4B；whole-step cumulative work 仍 residual；MiniAmm `Map Principal UInt64` Normalize→admit 已通）、ADR-0031 S1 caller/S2 blockHeight leaves，以及 ADR-0030 E4 的 EVM/Solana Principal Map 与 Solana WideDiv runtime/dispatch 工程前置；**控制面同步**：12 targets / 9 implemented + 3 design-only / 9 materializers / 11 resolver rows；CosmWasm/Quint/TON capability Plan/IR/materialize/finalize；D2-07 `evalInvariantV1`/`InvariantTheoremV1` 工程已存在、formal pending；后续增量见本矩阵与 `docs/06-implementation-log.md`；原始审计基线 commit 见上）
+- Engineering fact updates through: `2026-08-13`（含 D3-E7/NFR-REPEAT/D3-E9/N-ANON-RESULT/B-OPT-STATE/B-CALL-SEM、ADR-0027 inline same-file theorem certification、**ADR-0034 Preservation ABI `proposed`：generic ABI foundation + ProofKind/三字段 wire/`(inv,kind)` inventory/双 alias/kind-bound protocol+certifier plumbing 已实现；EvenCounter preserving positive/第二实例/supersession pending（不 supersede 0027）**、Reference **Map Wire-envelope admission**（每个 Map 直接绑定 shared per-canonical-value/helper ceilings；无 sampled packing/派生 runtime capacity；empty state default 仍为 4B；whole-step cumulative work 仍 residual；MiniAmm `Map Principal UInt64` Normalize→admit 已通）、ADR-0031 S1 caller/S2 blockHeight leaves，以及 ADR-0030 E4 的 EVM/Solana Principal Map 与 Solana WideDiv runtime/dispatch 工程前置；**控制面同步**：12 targets / 9 implemented + 3 design-only / 9 materializers / 11 resolver rows；CosmWasm/Quint/TON capability Plan/IR/materialize/finalize；D2-07 `evalInvariantV1`/`InvariantTheoremV1` 工程已存在、formal pending；后续增量见本矩阵与 `docs/06-implementation-log.md`；原始审计基线 commit 见上）
+
+**Post-2026-08-07 engineering index**（增量指针 only；**不**改 formal；D1–D4 仍 **0/27** / pending）：
+- `2026-08-08` — inline same-file theorem narrow closure（engineering product `check` positive）
+- `2026-08-09` — ADR-0034 wave-3′ generic-first（见下既有注记；不 supersede ADR-0027）
+- `2026-08-10` — Aleo Instructions cutover（sole `aleo-instructions-v1`；zero-tool）
+- `2026-08-12` — SYS-CAP S3 chainId/self + EVM formal lighthouse packaging LH-1…7
+- `2026-08-13` — SYS-S4 `attachedValue` + lighthouse LH-8…13 engineering corpus pins（**不**关闭 TST-SEM-002/003；C-3 / Anvil lossless 仍 blocked/FC）
 
 > **2026-08-09 ADR-0034 generic-first cutover**：wave-3′ 已闭合。产品现在以通用
 > `CodecInvertV1`、`PreservationShapeV1`、`SubjectDataBridgeV1` 和

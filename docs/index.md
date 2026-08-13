@@ -28,7 +28,10 @@ wasmd Docker rung-1；TON：Tolk/BoC + sandbox 10/10（schedule `createMessage` 
 子集（超出最初 Counter-only S1，仍非完整语言面）。前端监督层已于 2026-08-01 移除。
 
 **日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)。
-**Goal 全队列执行**：[`.grok/goals/prompt-master-queue.md`](../.grok/goals/prompt-master-queue.md)（[`QUEUE.md`](../.grok/goals/QUEUE.md) + [`slices/`](../.grok/goals/slices/)）。
+**当前 Goal drain 入口**：[`.grok/next-wave-queue.md`](../.grok/next-wave-queue.md) +
+[`/goal @.grok/goals/prompt-next-wave.md`](../.grok/goals/prompt-next-wave.md)；旧
+[`prompt-master-queue.md`](../.grok/goals/prompt-master-queue.md) 为历史/退役队列，仅保留导航链接，
+不作为 live drain 入口。
 宽度/ABI 专项：[`roadmap-t8.md`](roadmap-t8.md)。
 Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md)。
 Psy DPN 物化：[`targets/10-psy.md`](targets/10-psy.md) · [`targets/10-psy-dpn-lowering.md`](targets/10-psy-dpn-lowering.md)（sole `psy-dpn-v1`，zero-tool，`deployable=false`）。

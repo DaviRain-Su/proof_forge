@@ -6,6 +6,9 @@
     * Counter init/increment/view/overflow via `step` matches
       `stepReferenceSliceV1` outcomes byte-for-byte
     * garbage SemanticProgram carrier → `.trapped .invalidCore` with exact pre
+    * declared Cap revert via `step` ≡ `stepReferenceSliceV1` (LH-23)
+    * trap invalidExternalResponse (trailing unconsumed response) façade eq
+    * trap invalidInvocation (wrong arity) façade eq
 -/
 
 import ProofForgeV2.Language.Loader
@@ -160,10 +163,184 @@ private def testGarbageCarrierInvalidCore : IO Unit := do
       throw <| IO.userError
         s!"step façade garbage: expected invalidCore trap, got {repr other}"
 
+/-- Declared Cap: public `step` matches admitted-slice outcome. -/
+private unsafe def testDeclaredCapStepMatchesSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "CapStepFacade" <|
+    "  state count : UInt64\n" ++
+    "  error Cap(limit : UInt64)\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > delta then\n" ++
+    "      revert Cap(delta)\n" ++
+    "    else\n" ++
+    "      count := count + delta\n" ++
+    "    return count\n"
+  let parsed ← loadSource session source
+  let carrier ← match normalizeProgramV1 parsed with
+    | .ok c => pure c
+    | .error e =>
+        throw <| IO.userError s!"step façade cap: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e =>
+        throw <| IO.userError s!"step façade cap: validate failed: {repr e}"
+  let admitted ← match admitReferenceProgramSliceV1 carrier with
+    | .ok a => pure a
+    | .error e =>
+        throw <| IO.userError s!"step façade cap: admit failed: {repr e}"
+  let u64Tid : TypeIdV1 :=
+    match data.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e =>
+        throw <| IO.userError s!"step façade cap: initial state: {repr e}"
+  let afterInitSlice :=
+    stepReferenceSliceV1 admitted initial (inv 0 #[refU64 u64Tid 5]) #[]
+  let afterInitStep :=
+    step carrier initial (inv 0 #[refU64 u64Tid 5]) #[]
+  expect (outcomeEq afterInitSlice afterInitStep)
+    "step façade cap: init outcome must match stepReferenceSliceV1"
+  let pre : LogicalStateV1 :=
+    { initialized := true, canonicalValues := logicalSlot (u64Bytes 5) }
+  let capSlice :=
+    stepReferenceSliceV1 admitted pre (inv 1 #[refU64 u64Tid 3]) #[]
+  let capStep :=
+    step carrier pre (inv 1 #[refU64 u64Tid 3]) #[]
+  expect (outcomeEq capSlice capStep)
+    "step façade cap: Cap revert must match stepReferenceSliceV1"
+  match capStep with
+  | .reverted (.declared _ args) st =>
+      expect (args.size == 1) "step façade cap: declared Cap arity 1"
+      expect (st == pre) "step façade cap: Cap must keep exact pre-state"
+  | other =>
+      throw <| IO.userError
+        s!"step façade cap: expected declared Cap revert, got {repr other}"
+
+/-- Program Cap revert + trailing unconsumed response → invalidExternalResponse. -/
+private unsafe def testTrailingResponseStepMatchesSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "CapTrailStepFacade" <|
+    "  state count : UInt64\n" ++
+    "  error Cap(limit : UInt64)\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    if count > delta then\n" ++
+    "      revert Cap(delta)\n" ++
+    "    else\n" ++
+    "      count := count + delta\n" ++
+    "    return count\n"
+  let parsed ← loadSource session source
+  let carrier ← match normalizeProgramV1 parsed with
+    | .ok c => pure c
+    | .error e =>
+        throw <| IO.userError s!"step façade trail: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e =>
+        throw <| IO.userError s!"step façade trail: validate failed: {repr e}"
+  let admitted ← match admitReferenceProgramSliceV1 carrier with
+    | .ok a => pure a
+    | .error e =>
+        throw <| IO.userError s!"step façade trail: admit failed: {repr e}"
+  let u64Tid : TypeIdV1 :=
+    match data.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e =>
+        throw <| IO.userError s!"step façade trail: initial state: {repr e}"
+  let afterInitSlice :=
+    stepReferenceSliceV1 admitted initial (inv 0 #[refU64 u64Tid 5]) #[]
+  let afterInitStep :=
+    step carrier initial (inv 0 #[refU64 u64Tid 5]) #[]
+  expect (outcomeEq afterInitSlice afterInitStep)
+    "step façade trail: init outcome must match stepReferenceSliceV1"
+  let pre : LogicalStateV1 :=
+    { initialized := true, canonicalValues := logicalSlot (u64Bytes 5) }
+  let trailing : ExternalResponsesV1 := #[
+    { occurrence := { effectId := 0, occurrence := 0 }, disposition := .returned }
+  ]
+  let trailSlice :=
+    stepReferenceSliceV1 admitted pre (inv 1 #[refU64 u64Tid 3]) trailing
+  let trailStep :=
+    step carrier pre (inv 1 #[refU64 u64Tid 3]) trailing
+  expect (outcomeEq trailSlice trailStep)
+    "step façade trail: invalidExternalResponse must match stepReferenceSliceV1"
+  match trailStep with
+  | .trapped .invalidExternalResponse st =>
+      expect (st == pre) "step façade trail: must keep exact pre-state"
+  | other =>
+      throw <| IO.userError
+        s!"step façade trail: expected invalidExternalResponse, got {repr other}"
+
+/-- Wrong entry arity → invalidInvocation; `step` ≡ `stepReferenceSliceV1`. -/
+private unsafe def testWrongArityStepMatchesSlice
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source := wrap "ArityStepFacade" <|
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry bump(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n"
+  let parsed ← loadSource session source
+  let carrier ← match normalizeProgramV1 parsed with
+    | .ok c => pure c
+    | .error e =>
+        throw <| IO.userError s!"step façade arity: normalize failed: {repr e}"
+  let data ← match validateSemanticProgramV1 carrier with
+    | .ok d => pure d
+    | .error e =>
+        throw <| IO.userError s!"step façade arity: validate failed: {repr e}"
+  let admitted ← match admitReferenceProgramSliceV1 carrier with
+    | .ok a => pure a
+    | .error e =>
+        throw <| IO.userError s!"step façade arity: admit failed: {repr e}"
+  let u64Tid : TypeIdV1 :=
+    match data.types.findIdx? fun t =>
+        t.name.isNone && match t.shape with | .uint 64 => true | _ => false with
+    | some i => UInt32.ofNat i
+    | none => 0
+  let initial ← match initialLogicalStateV1 carrier with
+    | .ok s => pure s
+    | .error e =>
+        throw <| IO.userError s!"step façade arity: initial state: {repr e}"
+  let afterInitSlice :=
+    stepReferenceSliceV1 admitted initial (inv 0 #[refU64 u64Tid 1]) #[]
+  let afterInitStep :=
+    step carrier initial (inv 0 #[refU64 u64Tid 1]) #[]
+  expect (outcomeEq afterInitSlice afterInitStep)
+    "step façade arity: init outcome must match stepReferenceSliceV1"
+  let pre : LogicalStateV1 :=
+    { initialized := true, canonicalValues := logicalSlot (u64Bytes 1) }
+  let aritySlice :=
+    stepReferenceSliceV1 admitted pre (inv 1 #[]) #[]
+  let arityStep :=
+    step carrier pre (inv 1 #[]) #[]
+  expect (outcomeEq aritySlice arityStep)
+    "step façade arity: invalidInvocation must match stepReferenceSliceV1"
+  match arityStep with
+  | .trapped .invalidInvocation st =>
+      expect (st == pre) "step façade arity: must keep exact pre-state"
+  | other =>
+      throw <| IO.userError
+        s!"step façade arity: expected invalidInvocation, got {repr other}"
+
 unsafe def run : IO Unit := do
   testGarbageCarrierInvalidCore
   let session ← Tests.Language.ParserSession.shared
   testCounterStepMatchesSlice session
+  testDeclaredCapStepMatchesSlice session
+  testTrailingResponseStepMatchesSlice session
+  testWrongArityStepMatchesSlice session
   IO.println "Tests.Semantic.StepFacadeV1: ok"
 
 end Tests.Semantic.StepFacadeV1

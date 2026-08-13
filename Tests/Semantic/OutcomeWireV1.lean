@@ -6,7 +6,7 @@
   no target adapter, no formal evidence claim. Pins:
     * encode → transport decode → re-encode identity
     * digest stability over Counter Reference steps
-    * fail-closed trailing / bad-magic / bad-fault-tag
+    * fail-closed trailing / truncated / bad-magic / bad outcome/fault/revert tags
 -/
 
 import ProofForgeV2.Semantic.OutcomeWireV1
@@ -122,6 +122,50 @@ private def testFailClosed : IO Unit := do
       throw <| IO.userError s!"fail-closed trailing: expected trailingBytes, got {repr e}"
   | .ok _ =>
       throw <| IO.userError "fail-closed trailing: unexpectedly accepted"
+  -- Truncated canonical envelope must fail at the missing tail byte, never
+  -- decode as a silently shortened logical-state payload.
+  let truncated := artifact.canonicalBytes.extract 0 (artifact.canonicalBytes.size - 1)
+  match decodeReferenceOutcomeArtifactV1 truncated with
+  | .error .truncated => pure ()
+  | .error e =>
+      throw <| IO.userError s!"fail-closed truncated: expected truncated, got {repr e}"
+  | .ok _ =>
+      throw <| IO.userError "fail-closed truncated: unexpectedly accepted"
+  -- Syntactically valid tagged framing with an unknown top-level Outcome
+  -- constructor reaches the closed semantic tag switch and returns badTag.
+  let badOutcomeBody ← match encodeTagged "outcome-constructor-oor" #[] with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"bad outcome tag fixture: {repr e}"
+  let badOutcomeTag :=
+    (encodeMagicPrefix referenceOutcomeMagicV1).append badOutcomeBody
+  match decodeReferenceOutcomeArtifactV1 badOutcomeTag with
+  | .error .badTag => pure ()
+  | .error e =>
+      throw <| IO.userError s!"fail-closed outcome tag: expected badTag, got {repr e}"
+  | .ok _ =>
+      throw <| IO.userError "fail-closed outcome tag: unexpectedly accepted"
+  -- Standard revert codes are a closed 0..9 enum; code 10 is badScalar.
+  let stateValues ← match encodeByteArray logical.canonicalValues with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"bad revert fixture values: {repr e}"
+  let stateBytes ← match encodeTagged "logicalState"
+      #[encodeBool logical.initialized, stateValues] with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"bad revert fixture state: {repr e}"
+  let reasonBytes ← match encodeTagged "standard" #[encodeU8 10] with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"bad revert fixture reason: {repr e}"
+  let badRevertBody ← match encodeTagged "reverted" #[reasonBytes, stateBytes] with
+    | .ok bytes => pure bytes
+    | .error e => throw <| IO.userError s!"bad revert fixture body: {repr e}"
+  let badRevertCode :=
+    (encodeMagicPrefix referenceOutcomeMagicV1).append badRevertBody
+  match decodeReferenceOutcomeArtifactV1 badRevertCode with
+  | .error .badScalar => pure ()
+  | .error e =>
+      throw <| IO.userError s!"fail-closed revert code: expected badScalar, got {repr e}"
+  | .ok _ =>
+      throw <| IO.userError "fail-closed revert code: unexpectedly accepted"
   -- Wrong magic.
   let wrongMagic :=
     (encodeMagicPrefix "pf.not-outcome.v1").append

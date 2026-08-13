@@ -9,7 +9,9 @@ open ProofForgeV2.Language
 -- via a payable entry:
 --   EVM → CALLVALUE / Yul `callvalue()` with UInt64 range guard
 --          (Anvil: scripts/evm_attachedvalue_anvil_smoke.sh)
---   NEAR / CosmWasm / others → Plan fail closed until their S4 leaves
+--   NEAR / CosmWasm → entry/init S4 leaves are open; this fixture's view
+--      `peek()` attachedValue read remains fail closed (NEAR view / CW query)
+--   Solana / Noir / Aleo / Psy / TON / Quint → Plan fail closed
 -- Not imported by Examples.lean (target-runtime fixture, like ChainIdCheck).
 program AttachedValueCheck where
   state paid : UInt64

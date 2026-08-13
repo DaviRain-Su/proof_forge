@@ -1,7 +1,7 @@
 /-
   Tests.Materialization.EvmOutcomeAdapterV1 — engineering EVM-first lighthouse
-  slice-5: Reference OutcomeWire mint + honest shared-observation projection
-  for StateCell / Accumulator / ArithOps / EventFlow / OwnableLike.
+  slice-5 / LH-16: Reference OutcomeWire mint + honest shared-observation
+  projection for StateCell / Accumulator / ArithOps / EventFlow / OwnableLike.
 
   Proves:
     * stepReferenceSliceV1 Outcomes mint `pf.reference-outcome.v1` digests
@@ -9,6 +9,9 @@
     * EventFlow emit is a returned Outcome with a nonempty event effect
     * OwnableLike unauthorized assert is a standard assertionFailed revert
     * remint is digest-stable; distinct Outcomes differ
+    * OutcomeV1 constructor → shared status ("success"|"revert"|"trap") equals
+      committed case `expectedSharedStatus` for all 28 Reference corpus steps
+      (in-process only; no Anvil reason/fault/typed-bytes invention)
     * evidence-style shared observations are NOT Outcome wire (documented;
       projection helpers live in scripts/evm_corpus_v1.py)
 
@@ -74,6 +77,36 @@ private def findPrincipalTypeId (data : SemanticProgramDataV1) : IO TypeIdV1 :=
   | none => throw <| IO.userError "missing anonymous Principal TypeId"
 
 private def emptyResponses : ExternalResponsesV1 := #[]
+
+/-- LH-16: project only the OutcomeV1 constructor to shared corpus status.
+    Does not invent Anvil reason/fault/typed valueBytes. -/
+private def sharedStatusOf (outcome : OutcomeV1) : String :=
+  match outcome with
+  | .returned _ _ _ => "success"
+  | .reverted _ _ => "revert"
+  | .trapped _ _ => "trap"
+
+/-- Hardcoded from testdata/evm-corpus/v1/cases/*.expectedSharedStatus (read-only). -/
+private def expectedStateCellStatuses : Array String :=
+  #["success", "success", "success", "success", "revert", "success"]
+
+private def expectedAccumulatorStatuses : Array String :=
+  #["success", "success", "success", "success", "revert", "success"]
+
+private def expectedArithOpsStatuses : Array String :=
+  #["success", "success", "success", "success", "success", "revert"]
+
+private def expectedEventFlowStatuses : Array String :=
+  #["success", "success", "success", "revert", "success"]
+
+private def expectedOwnableLikeStatuses : Array String :=
+  #["success", "success", "success", "revert", "success"]
+
+private def expectSharedStatus
+    (label : String) (outcome : OutcomeV1) (want : String) : IO Unit := do
+  let got := sharedStatusOf outcome
+  expect (got == want)
+    s!"{label}: sharedStatus want={want} got={got}"
 
 private def digestHex (d : Digest) : IO String :=
   match renderDigest d with
@@ -217,30 +250,42 @@ private unsafe def testStateCellOutcomeDigests
     let refArgs := args.map (fun n => refU64 u64 n)
     stepReferenceSliceV1 admitted pre (inv cid refArgs) emptyResponses
 
+  let want := expectedStateCellStatuses
+  expect (want.size == 6) "StateCell: expected 6 corpus statuses"
   let o0 := step initial initId #[7]
   expectReturned "StateCell/deploy" o0
+  expectSharedStatus "StateCell/0" o0 want[0]!
   let d0 ← expectRemintStable "StateCell/deploy" o0
 
   let post0 := postState o0
   let o1 := step post0 incId #[5]
   expectReturned "StateCell/inc" o1
+  expectSharedStatus "StateCell/1" o1 want[1]!
   let d1 ← expectRemintStable "StateCell/inc" o1
   expect (d0 != d1) "StateCell: distinct digests for distinct Outcomes"
 
   let post1 := postState o1
   let o2 := step post1 getId #[]
   expectReturned "StateCell/get" o2
+  expectSharedStatus "StateCell/2" o2 want[2]!
   let _ ← expectRemintStable "StateCell/get" o2
 
   let maxN : Nat := (2 ^ 64) - 1
   let o3 := step initial initId #[maxN]
   expectReturned "StateCell/deploy-max" o3
+  expectSharedStatus "StateCell/3" o3 want[3]!
   let d3 ← expectRemintStable "StateCell/deploy-max" o3
   let post3 := postState o3
   let o4 := step post3 incId #[1]
   expectStandardOverflow "StateCell/overflow" o4
+  expectSharedStatus "StateCell/4" o4 want[4]!
   let d4 ← expectRemintStable "StateCell/overflow" o4
   expect (d3 != d4) "StateCell: overflow digest ≠ deploy-max digest"
+  -- Corpus step 5: view after overflow hold (pre unchanged).
+  let o5 := step (postState o4) getId #[]
+  expectReturned "StateCell/get-after-overflow" o5
+  expectSharedStatus "StateCell/5" o5 want[5]!
+  let _ ← expectRemintStable "StateCell/get-after-overflow" o5
 
 private unsafe def testAccumulatorOutcomeDigests
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -259,30 +304,41 @@ private unsafe def testAccumulatorOutcomeDigests
     let refArgs := args.map (fun n => refU64 u64 n)
     stepReferenceSliceV1 admitted pre (inv cid refArgs) emptyResponses
 
+  let want := expectedAccumulatorStatuses
+  expect (want.size == 6) "Accumulator: expected 6 corpus statuses"
   let o0 := step initial initId #[7]
   expectReturned "Accumulator/deploy" o0
+  expectSharedStatus "Accumulator/0" o0 want[0]!
   let d0 ← expectRemintStable "Accumulator/deploy" o0
 
   let post0 := postState o0
   let o1 := step post0 addId #[5]
   expectReturned "Accumulator/add" o1
+  expectSharedStatus "Accumulator/1" o1 want[1]!
   let d1 ← expectRemintStable "Accumulator/add" o1
   expect (d0 != d1) "Accumulator: distinct digests for distinct Outcomes"
 
   let post1 := postState o1
   let o2 := step post1 curId #[]
   expectReturned "Accumulator/current" o2
+  expectSharedStatus "Accumulator/2" o2 want[2]!
   let _ ← expectRemintStable "Accumulator/current" o2
 
   let maxN : Nat := (2 ^ 64) - 1
   let o3 := step initial initId #[maxN]
   expectReturned "Accumulator/deploy-max" o3
+  expectSharedStatus "Accumulator/3" o3 want[3]!
   let d3 ← expectRemintStable "Accumulator/deploy-max" o3
   let post3 := postState o3
   let o4 := step post3 addId #[1]
   expectStandardOverflow "Accumulator/overflow" o4
+  expectSharedStatus "Accumulator/4" o4 want[4]!
   let d4 ← expectRemintStable "Accumulator/overflow" o4
   expect (d3 != d4) "Accumulator: overflow digest ≠ deploy-max digest"
+  let o5 := step (postState o4) curId #[]
+  expectReturned "Accumulator/current-after-overflow" o5
+  expectSharedStatus "Accumulator/5" o5 want[5]!
+  let _ ← expectRemintStable "Accumulator/current-after-overflow" o5
 
 private unsafe def testArithOpsOutcomeDigests
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -300,33 +356,41 @@ private unsafe def testArithOpsOutcomeDigests
     let refArgs := args.map (fun n => refU64 u64 n)
     stepReferenceSliceV1 admitted pre (inv cid refArgs) emptyResponses
 
+  let want := expectedArithOpsStatuses
+  expect (want.size == 6) "ArithOps: expected 6 corpus statuses"
   let o0 := step initial initId #[7]
   expectReturned "ArithOps/deploy" o0
+  expectSharedStatus "ArithOps/0" o0 want[0]!
   let post0 := postState o0
 
   -- Returned success with a non-Unit return value (bits).
   let o1 := step post0 bitsId #[0]
   expectReturned "ArithOps/bits0" o1
+  expectSharedStatus "ArithOps/1" o1 want[1]!
   let dBits ← expectRemintStable "ArithOps/bits0" o1
 
   let post1 := postState o1
   let o2 := step post1 bitsId #[5]
   expectReturned "ArithOps/bits5" o2
+  expectSharedStatus "ArithOps/2" o2 want[2]!
   let dBits5 ← expectRemintStable "ArithOps/bits5" o2
   expect (dBits != dBits5) "ArithOps: distinct returned digests differ"
 
   let post2 := postState o2
   let o3 := step post2 scaleId #[3, 2]
   expectReturned "ArithOps/scale" o3
+  expectSharedStatus "ArithOps/3" o3 want[3]!
   let dScale ← expectRemintStable "ArithOps/scale" o3
   expect (dScale != dBits) "ArithOps: scale digest ≠ bits digest"
 
   let maxN : Nat := (2 ^ 64) - 1
   let o4 := step initial initId #[maxN]
   expectReturned "ArithOps/deploy-max" o4
+  expectSharedStatus "ArithOps/4" o4 want[4]!
   let post4 := postState o4
   let o5 := step post4 scaleId #[2, 1]
   expectStandardOverflow "ArithOps/scale-overflow" o5
+  expectSharedStatus "ArithOps/5" o5 want[5]!
   let dOverflow ← expectRemintStable "ArithOps/scale-overflow" o5
   expect (dOverflow != dScale)
     "ArithOps: overflow digest ≠ successful scale digest"
@@ -350,28 +414,38 @@ private unsafe def testEventFlowOutcomeDigests
     let refArgs := args.map (fun n => refU64 u64 n)
     stepReferenceSliceV1 admitted pre (inv cid refArgs) emptyResponses
 
+  let want := expectedEventFlowStatuses
+  expect (want.size == 5) "EventFlow: expected 5 corpus statuses"
   let o0 := step initial initId #[0]
   expectReturned "EventFlow/deploy" o0
+  expectSharedStatus "EventFlow/0" o0 want[0]!
   let d0 ← expectRemintStable "EventFlow/deploy" o0
   let post0 := postState o0
 
   let o1 := step post0 bumpId #[5]
   expectReturnedWithEvent "EventFlow/bump-emit" o1
+  expectSharedStatus "EventFlow/1" o1 want[1]!
   let d1 ← expectRemintStable "EventFlow/bump-emit" o1
   expect (d0 != d1) "EventFlow: emit digest ≠ deploy digest"
 
   let post1 := postState o1
   let o2 := step post1 getId #[]
   expectReturned "EventFlow/get" o2
+  expectSharedStatus "EventFlow/2" o2 want[2]!
   let d2 ← expectRemintStable "EventFlow/get" o2
   expect (d2 != d1) "EventFlow: view digest ≠ emit digest"
 
   let post2 := postState o2
   let o3 := step post2 bumpId #[3]
   expectDeclaredRevert "EventFlow/cap" o3
+  expectSharedStatus "EventFlow/3" o3 want[3]!
   let d3 ← expectRemintStable "EventFlow/cap" o3
   expect (d3 != d1) "EventFlow: declared Cap digest ≠ emit digest"
   expect (d3 != d0) "EventFlow: declared Cap digest ≠ deploy digest"
+  let o4 := step (postState o3) getId #[]
+  expectReturned "EventFlow/get-after-cap" o4
+  expectSharedStatus "EventFlow/4" o4 want[4]!
+  let _ ← expectRemintStable "EventFlow/get-after-cap" o4
 
 private unsafe def testOwnableLikeOutcomeDigests
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -393,26 +467,37 @@ private unsafe def testOwnableLikeOutcomeDigests
     match initialLogicalStateV1 carrier with
     | .ok s => pure s
     | .error e => throw <| IO.userError s!"OwnableLike initial: {repr e}"
+  let want := expectedOwnableLikeStatuses
+  expect (want.size == 5) "OwnableLike: expected 5 corpus statuses"
   let o0 := stepReferenceSliceV1 admitted initial
     (invCtx initId #[] ownerCtx) emptyResponses
   expectReturned "OwnableLike/deploy" o0
+  expectSharedStatus "OwnableLike/0" o0 want[0]!
   let d0 ← expectRemintStable "OwnableLike/deploy" o0
   let post0 := postState o0
   let o1 := stepReferenceSliceV1 admitted post0
     (invCtx setId #[refU64 u64 42] ownerCtx) emptyResponses
   expectReturned "OwnableLike/set-owner" o1
+  expectSharedStatus "OwnableLike/1" o1 want[1]!
   let d1 ← expectRemintStable "OwnableLike/set-owner" o1
   expect (d0 != d1) "OwnableLike: owner-set digest ≠ deploy digest"
   let post1 := postState o1
   let o2 := stepReferenceSliceV1 admitted post1
     (invCtx getId #[] #[]) emptyResponses
   expectReturned "OwnableLike/get" o2
+  expectSharedStatus "OwnableLike/2" o2 want[2]!
   let _ ← expectRemintStable "OwnableLike/get" o2
   let o3 := stepReferenceSliceV1 admitted (postState o2)
     (invCtx setId #[refU64 u64 7] strangerCtx) emptyResponses
   expectAssertionFailed "OwnableLike/stranger" o3
+  expectSharedStatus "OwnableLike/3" o3 want[3]!
   let d3 ← expectRemintStable "OwnableLike/stranger" o3
   expect (d3 != d1) "OwnableLike: assertionFailed digest ≠ owner-set digest"
+  let o4 := stepReferenceSliceV1 admitted (postState o3)
+    (invCtx getId #[] #[]) emptyResponses
+  expectReturned "OwnableLike/get-after-stranger" o4
+  expectSharedStatus "OwnableLike/4" o4 want[4]!
+  let _ ← expectRemintStable "OwnableLike/get-after-stranger" o4
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared

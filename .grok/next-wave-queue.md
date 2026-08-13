@@ -35,11 +35,22 @@ Engineering packaging toward TASK-D2-07 / TST-SEM-002/003 / C-3.
 | LH-10 | done | Remaining standard revert codes via public `step` + OutcomeWire; allowlist only `Tests/Semantic/Sem003ShapeV1.lean`. Focused `#eval run` ok. **Not** formal TST-SEM-003 |
 | LH-11 | done | Sem002 negatives: wrong kind / wrong arg type / response duplicate+reordered / noncanonical arg bytes; allowlist only `Tests/Semantic/Sem002ShapeV1.lean`. Focused `#eval run` ok. **Not** formal TST-SEM-002 |
 | LH-12 | done | AGENTS.md honesty only; formal TASK/TST status unchanged |
-| LH-13 | pending | Sem003 trap + unconsumed response → unique invalidExternalResponse; allowlist only `Tests/Semantic/Sem003ShapeV1.lean` |
+| LH-13 | done | Sem003 trap + unconsumed response → unique invalidExternalResponse; allowlist only `Tests/Semantic/Sem003ShapeV1.lean`. Focused `#eval run` ok. **Not** formal TST-SEM-003 |
 | LH-14 | done | backlog: mark LH-12 engineering done to match queue/`f48a90f79` |
 | LH-15 | done | RECOVERY.md current-wave pointer: lighthouse drain through LH-12, formal still 0/27 |
+| LH-16 | done | EvmOutcomeAdapterV1 in-process Outcome constructor → shared-status pin vs committed case `expectedSharedStatus` (28 digest-listed steps). Allowlist only `Tests/Materialization/EvmOutcomeAdapterV1.lean`. Focused `#eval run` ok (`dfbb4532a`). **Not** Anvil lossless / C-3 / formal |
+| LH-17 | done | `MIGRATION_MATRIX.md` header date `2026-08-07` → `2026-08-13` + short increment index (`f093262eb`). Formal 0/27 unchanged |
+| LH-18 | done | Retire `prompt-master-queue.md` as live Goal entry; point `docs/index.md` at next-wave queue (`ea0f19078`) |
+| LH-19 | done | RECOVERY.md current-wave through LH-13 + `docs/document-status.md` `updated` date (`ed0ab1cd4`). Formal still 0/27 |
+| LH-20 | done | Quint `context.attachedValue` Plan/materialize outside-Q0 pin; allowlist `Tests/Materialization/QuintSourceV1.lean` (`88da32e57`). **Not** formal |
+| LH-21 | done | backlog INV-2 wave-3′ honesty + LH-16 record (`25520ecea`) |
+| LH-22 | done | AGENTS.md Solana 23/414 marked Mollusk-only, not ordinary CI (`fdfb24dbe`). docs-check checkpoint phrases preserved |
 
-Track A LH-1…12 is **engineering-done**. LH-13/14/15 are file-isolated and may run in parallel. Formal closeout remains **excluded**; C-3 stays `formal-blocked`.
+| LH-23 | done | StepFacadeV1 pin façade==machine for declared revert + invalidExternalResponse + invalidInvocation (`885d2c048`). **Not** formal |
+| LH-24 | done | OutcomeWireV1 decode negatives: truncated envelope + OOR outcome/revert tags (`9650c5358`). **Not** formal |
+| LH-25 | done | `Examples/AttachedValueCheck.lean` comment honesty after S4 leaves (`10c280f07`) |
+
+Track A LH-1…13 + LH-16…25 is **engineering-done**. Formal closeout remains **excluded**; C-3 stays `formal-blocked`.
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 
