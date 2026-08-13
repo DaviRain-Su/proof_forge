@@ -578,6 +578,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **EVM formal lighthouse LH-26…28 engineering done**：`Tests/Materialization/Targets.lean` blockHeight/chainId/self admit-decline 矩阵；`AttachedValueContextV1` invariant Normalize FC；`semantic-program-wire.md` 六键 ContextRead catalog + wire≠target 支持。**不**关闭 formal TASK/TST；C-3 / Anvil lossless 仍 blocked/FC |
 | 2026-08-13 | **EVM result-bearing CALL UInt128/256 returndata**：Plan/Yul 按宽度守卫（64/128/256）；参数仍 UInt64；Bool 仍 FC；hashed callee 不变。**不**关闭 B-CALL-SEM / C-3 / Anvil lossless |
 | 2026-08-13 | **EVM CALL args UInt128/256**：每参独立宽度；selector 按 `uint64`/`uint128`/`uint256`；全 UInt64 保持旧 tag；UInt8 等仍 FC。**不**关闭 B-CALL-SEM / C-3 / Anvil lossless |
+| 2026-08-13 | **EVM schedule args UInt128/256**：与 CALL 同纪律；旧 tag 10 保留；宽参新 tag 20；fire-and-forget 不变。**不**关闭 B-CALL-SEM / C-3 / Anvil lossless |
 
 ---
 

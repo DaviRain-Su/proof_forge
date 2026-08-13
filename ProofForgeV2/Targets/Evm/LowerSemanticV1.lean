@@ -344,9 +344,11 @@ inductive Statement where
   | externalCallResult (callee : Array String) (args : Array Expr)
       (result : ExternalCallResultBinding)
   /-- Async fire-and-forget schedule (void). Same static-callee address/selector
-      derivation as `externalCall`, but CALL success is ignored (no response
-      channel — matches Reference schedule semantics). -/
+      derivation and per-argument UInt ABI widths as `externalCall`, but CALL
+      success is ignored (no response channel — matches Reference schedule
+      semantics). Empty `argBitWidths` is the canonical all-UInt64 form. -/
   | schedule (callee : Array String) (args : Array Expr)
+      (argBitWidths : Array Nat := #[])
   /-- ADR-0029 B2: `pf.assets.native.deposit(amount)`. Yul exact
       `eq(callvalue(), amount)`; entry mutability becomes `payable`. -/
   | nativeDeposit (amount : Expr)
@@ -1784,23 +1786,32 @@ private def currentValueWithArmsV1
       "unsupported EVM semantic shape: computed ValueId crosses an effect boundary"
   findValueV1 values id
 
-private def externalCallArgWidthV1
-    (types : EvmTypeClosureV1) (value : LoweredValueV1) : CompileResult Nat := do
+private def externalUIntArgWidthV1
+    (types : EvmTypeClosureV1) (value : LoweredValueV1)
+    (errorMessage : String) : CompileResult Nat := do
   match types.uintWidthOf value.typeId with
   | some width =>
       unless !value.isBool && !value.isInt && !value.isField &&
           !value.isAggregate && value.bitWidth == width &&
           (width == 64 || width == 128 || width == 256) do
-        throw <| .planInvariant .evm
-          "unsupported EVM semantic shape: external call arguments must be UInt64, UInt128, or UInt256"
+        throw <| .planInvariant .evm errorMessage
       pure width
   | none =>
-      throw <| .planInvariant .evm
-        "unsupported EVM semantic shape: external call arguments must be UInt64, UInt128, or UInt256"
+      throw <| .planInvariant .evm errorMessage
+
+private def externalCallArgWidthV1
+    (types : EvmTypeClosureV1) (value : LoweredValueV1) : CompileResult Nat :=
+  externalUIntArgWidthV1 types value
+    "unsupported EVM semantic shape: external call arguments must be UInt64, UInt128, or UInt256"
+
+private def scheduleArgWidthV1
+    (types : EvmTypeClosureV1) (value : LoweredValueV1) : CompileResult Nat :=
+  externalUIntArgWidthV1 types value
+    "unsupported EVM semantic shape: schedule arguments must be UInt64, UInt128, or UInt256"
 
 /-- Empty is the sole all-UInt64 Plan encoding. Once any wide argument occurs,
     retain every per-position width so selector construction is unambiguous. -/
-private def canonicalExternalCallArgWidthsV1 (widths : Array Nat) : Array Nat :=
+private def canonicalExternalUIntArgWidthsV1 (widths : Array Nat) : Array Nat :=
   if widths.all (· == 64) then #[] else widths
 
 /-- Admitted body UInt widths for EVM Yul (same set as ABI after T8b). -/
@@ -3300,7 +3311,7 @@ private def lowerBlockInstructionsV1
             argBitWidths := argBitWidths.push width
           let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
           body := body.push (.externalCall components argExprs
-            (canonicalExternalCallArgWidthsV1 argBitWidths))
+            (canonicalExternalUIntArgWidthsV1 argBitWidths))
           hasAssert := true
           armReadables := promoteDominatingPureV1 paramCount values armReadables
           segmentStart := values.size
@@ -3320,14 +3331,15 @@ private def lowerBlockInstructionsV1
             throw <| .planInvariant .evm
               s!"unsupported EVM semantic shape: schedule callee component '{c}' is not a safe identifier"
         let mut argExprs : Array Expr := #[]
+        let mut argBitWidths : Array Nat := #[]
         for argId in argIds do
           let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-          unless !root.isBool && root.bitWidth == 64 do
-            throw <| .planInvariant .evm
-              "unsupported EVM semantic shape: schedule arguments must be UInt64"
+          let width ← scheduleArgWidthV1 types root
           argExprs := argExprs.push root.expr
+          argBitWidths := argBitWidths.push width
         let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
-        body := body.push (.schedule components argExprs)
+        body := body.push (.schedule components argExprs
+          (canonicalExternalUIntArgWidthsV1 argBitWidths))
         hasAssert := true
         armReadables := promoteDominatingPureV1 paramCount values armReadables
         segmentStart := values.size
@@ -4044,7 +4056,7 @@ private def lowerBlockInstructionsV1
         body := body.push (.externalCallResult components argExprs
           { resultTemp
             bitWidth := resultBitWidth
-            argBitWidths := canonicalExternalCallArgWidthsV1 argBitWidths })
+            argBitWidths := canonicalExternalUIntArgWidthsV1 argBitWidths })
         values := ← appendResultValueV1 result.typeId values result
           (mkScalarValueV1 (.temp resultTemp) #[] false false resultBitWidth 1 1)
         hasAssert := true

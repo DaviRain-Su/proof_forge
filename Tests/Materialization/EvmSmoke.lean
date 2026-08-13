@@ -4097,6 +4097,113 @@ private unsafe def testCallArgWideEvm : IO Unit := do
           throw <| IO.userError
             "EVM UInt8 arg call must fail closed (not in UInt64/128/256 admit set)"
 
+/-- Schedule admits UInt128/UInt256 arguments: plan+materialize, and the
+    embedded callee selector must use note(uint128)/note(uint256) (not
+    all-uint64). UInt8 schedule args stay Plan fail closed. -/
+private unsafe def testScheduleArgWideEvm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  -- UInt128 arg: selector must be note(uint128), not note(uint64).
+  let src128 :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program SchedArgU128Evm where\n" ++
+    "  entry probe(k : UInt128) : UInt64 do\n" ++
+    "    schedule ledger.note(k)\n" ++
+    "    return 0\n"
+  let c128 ← match ← session.selectProgramV1
+      src128 "<evm-sched-arg-u128>" "Tests.EvmSchedArgU128" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"SchedArgU128Evm select: {e.render}"
+  let compiled128 ← match Compiler.compileValidatedSourceV1 c128 with
+    | .error _ => throw <| IO.userError "SchedArgU128Evm must compile through located Normalize"
+    | .ok c => pure c
+  let plan128 ← match planEvm compiled128 with
+    | .error e =>
+        throw <| IO.userError
+          s!"SchedArgU128Evm must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let hasSchedule128 := plan128.entries.any fun e =>
+    e.body.any fun s =>
+      match s with
+      | .schedule _ _ _ => true
+      | _ => false
+  expect hasSchedule128 "SchedArgU128Evm: plan must contain schedule"
+  let files128 ← match materializeSelected TargetId.evm compiled128 with
+    | .error e => throw <| IO.userError s!"SchedArgU128Evm materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yul128File := files128.find? (·.path == "SchedArgU128Evm.yul") |
+    throw <| IO.userError "SchedArgU128Evm: missing .yul"
+  let yul128 := yul128File.contents
+  let sel128 := Targets.Evm.Keccak.selector "note" #["uint128"]
+  let sel64 := Targets.Evm.Keccak.selector "note" #["uint64"]
+  expect (yul128.contains sel128)
+    s!"SchedArgU128Evm: Yul selector must be note(uint128)={sel128}"
+  expect (!yul128.contains sel64)
+    s!"SchedArgU128Evm: Yul selector must not remain all-uint64 note(uint64)={sel64}"
+
+  -- UInt256 arg: selector must be note(uint256), not note(uint64).
+  let src256 :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program SchedArgU256Evm where\n" ++
+    "  entry probe(k : UInt256) : UInt64 do\n" ++
+    "    schedule ledger.note(k)\n" ++
+    "    return 0\n"
+  let c256 ← match ← session.selectProgramV1
+      src256 "<evm-sched-arg-u256>" "Tests.EvmSchedArgU256" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"SchedArgU256Evm select: {e.render}"
+  let compiled256 ← match Compiler.compileValidatedSourceV1 c256 with
+    | .error _ => throw <| IO.userError "SchedArgU256Evm must compile through located Normalize"
+    | .ok c => pure c
+  let plan256 ← match planEvm compiled256 with
+    | .error e =>
+        throw <| IO.userError
+          s!"SchedArgU256Evm must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let hasSchedule256 := plan256.entries.any fun e =>
+    e.body.any fun s =>
+      match s with
+      | .schedule _ _ _ => true
+      | _ => false
+  expect hasSchedule256 "SchedArgU256Evm: plan must contain schedule"
+  let files256 ← match materializeSelected TargetId.evm compiled256 with
+    | .error e => throw <| IO.userError s!"SchedArgU256Evm materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yul256File := files256.find? (·.path == "SchedArgU256Evm.yul") |
+    throw <| IO.userError "SchedArgU256Evm: missing .yul"
+  let yul256 := yul256File.contents
+  let sel256 := Targets.Evm.Keccak.selector "note" #["uint256"]
+  expect (yul256.contains sel256)
+    s!"SchedArgU256Evm: Yul selector must be note(uint256)={sel256}"
+  expect (!yul256.contains sel64)
+    s!"SchedArgU256Evm: Yul selector must not remain all-uint64 note(uint64)={sel64}"
+
+  -- Narrow UInt8 schedule argument compiles but stays Plan fail-closed.
+  let u8Src :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program SchedArgU8Evm where\n" ++
+    "  entry probe(k : UInt8) : UInt64 do\n" ++
+    "    schedule ledger.note(k)\n" ++
+    "    return 0\n"
+  let u8v ← match ← session.selectProgramV1
+      u8Src "<evm-sched-arg-u8>" "Tests.EvmSchedArgU8" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"SchedArgU8Evm select: {e.render}"
+  match Compiler.compileValidatedSourceV1 u8v with
+  | .error e => throw <| IO.userError s!"SchedArgU8Evm must compile, got {e.render}"
+  | .ok compiled =>
+      match planEvm compiled with
+      | .error e =>
+          expect
+            (e.render.contains
+              "schedule arguments must be UInt64, UInt128, or UInt256")
+            s!"UInt8 schedule arg FC must cite admit set, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "EVM UInt8 schedule arg must fail closed (not in UInt64/128/256 admit set)"
+
 /-- B-CTX-OPEN / ADR-0031 S1+S2: `context.unixTimeSeconds` → `timestamp()`;
     `context.blockHeight` → `number()`; `context.caller` → Principal from
     `caller()` (ADR-0025). Direct Principal return stays fail closed
@@ -4659,6 +4766,7 @@ unsafe def run : IO Unit := do
   testCallReturnEvm
   testCallReturnWideEvm
   testCallArgWideEvm
+  testScheduleArgWideEvm
   testContextReadTimestampEvm
   testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed

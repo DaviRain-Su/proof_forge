@@ -361,12 +361,17 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
         out := out.append (← encodeNatAsU32le argBitWidths.size)
         for width in argBitWidths do out := out.append (← encodeNatAsU32le width)
       pure out
-  | .schedule callee args => do
-      let mut out := encodeU8 10
+  | .schedule callee args argBitWidths => do
+      -- Tag 10 remains byte-identical for all-UInt64 schedule args. Tag 20
+      -- appends the exact parallel width vector when any arg is UInt128/256.
+      let mut out := encodeU8 (if argBitWidths.isEmpty then 10 else 20)
       out := out.append (← encodeNatAsU32le callee.size)
       for c in callee do out := out.append (← encodeString c)
       out := out.append (← encodeNatAsU32le args.size)
       for arg in args do out := out.append (← encodeExpr arg)
+      if !argBitWidths.isEmpty then
+        out := out.append (← encodeNatAsU32le argBitWidths.size)
+        for width in argBitWidths do out := out.append (← encodeNatAsU32le width)
       pure out
   -- Tag 11: atomic multi-leaf aggregate store (evaluate-all then sstore-all).
   | .storeAtomic operations => do

@@ -34,7 +34,7 @@ private def yulUintMask (bitWidth : Nat) : String :=
   | 256 => "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
   | _ => "0xffffffffffffffff"
 
-private def externalCallAbiTypesV1
+private def externalUIntAbiTypesV1
     (args : Array Expr) (argBitWidths : Array Nat) : Array String :=
   if argBitWidths.isEmpty then
     Array.replicate args.size "uint64"
@@ -1648,7 +1648,7 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         -- Address = last 20 bytes of keccak256(UTF-8 target path) as hex.
         let addrHex := Keccak.keccak256Hex targetPath.toUTF8
         let addr20 := addrHex.drop 24
-        let sel := Keccak.selector method (externalCallAbiTypesV1 args argBitWidths)
+        let sel := Keccak.selector method (externalUIntAbiTypesV1 args argBitWidths)
         let padded := sel ++ String.ofList (List.replicate 56 '0')
         for index in [0:args.size] do
           let rendered := renderExpr indent paramPrefix next args[index]!
@@ -1673,7 +1673,7 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         let addrHex := Keccak.keccak256Hex targetPath.toUTF8
         let addr20 := addrHex.drop 24
         let sel := Keccak.selector method
-          (externalCallAbiTypesV1 args result.argBitWidths)
+          (externalUIntAbiTypesV1 args result.argBitWidths)
         let padded := sel ++ String.ofList (List.replicate 56 '0')
         for index in [0:args.size] do
           let rendered := renderExpr indent paramPrefix next args[index]!
@@ -1700,14 +1700,14 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
           s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n" ++
           s!"{indent}if lt(returndatasize(), 32) \{ revert(0, 0) }\n" ++
           s!"{indent}let {resultName} := mload(0)\n" ++ widthGuard
-    | .schedule callee args =>
+    | .schedule callee args argBitWidths =>
         -- Fire-and-forget: same static address/selector, CALL success ignored.
         let method := callee[callee.size - 1]!
         let targetParts := callee.extract 0 (callee.size - 1)
         let targetPath := String.intercalate "." targetParts.toList
         let addrHex := Keccak.keccak256Hex targetPath.toUTF8
         let addr20 := addrHex.drop 24
-        let sel := Keccak.selector method (Array.replicate args.size "uint64")
+        let sel := Keccak.selector method (externalUIntAbiTypesV1 args argBitWidths)
         let padded := sel ++ String.ofList (List.replicate 56 '0')
         for index in [0:args.size] do
           let rendered := renderExpr indent paramPrefix next args[index]!
@@ -2271,7 +2271,7 @@ private partial def statementHelperNeedsV1 : Statement → PhaseHelperNeedsV1
   | .assert c => exprHelperNeedsV1 c
   | .emitEvent _ args | .revertError _ args =>
       args.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
-  | .externalCall _ args _ | .schedule _ args | .externalCallResult _ args _ =>
+  | .externalCall _ args _ | .schedule _ args _ | .externalCallResult _ args _ =>
       args.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
   | .nativeDeposit a => exprHelperNeedsV1 a
   | .nativeTransfer dl dw a =>

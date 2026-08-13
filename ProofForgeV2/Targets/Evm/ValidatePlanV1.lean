@@ -380,10 +380,10 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) (expr : Expr) : Boo
       | none => false
   | _ => true
 
-/-- CALL arguments are unsigned ABI words. The lowering-owned width vector is
-    authoritative for otherwise width-erased leaves such as `.temp`; reject
+/-- External CALL/schedule arguments are unsigned ABI words. The lowering-owned
+    width vector is authoritative for otherwise width-erased leaves such as `.temp`; reject
     every expression root that is intrinsically Bool, signed, or Field. -/
-private def exprIsExternalCallUIntCompatibleV1
+private def exprIsExternalUIntCompatibleV1
     (fns : Array FnBinding) (expr : Expr) : Bool :=
   match expr with
   | .compare .. | .signedCompare .. | .narrowSignedCompare ..
@@ -402,7 +402,7 @@ private def exprIsExternalCallUIntCompatibleV1
       | none => false
   | _ => true
 
-private def validExternalCallArgWidthsV1
+private def validExternalUIntArgWidthsV1
     (args : Array Expr) (argBitWidths : Array Nat) : Bool :=
   if argBitWidths.isEmpty then
     true
@@ -543,7 +543,7 @@ private partial def checkPlanStatementsV1
     | .externalCall callee args argBitWidths =>
         if isView then
           throw <| .planInvariant .evm s!"{owner} makes an external call in a view context"
-        unless validExternalCallArgWidthsV1 args argBitWidths do
+        unless validExternalUIntArgWidthsV1 args argBitWidths do
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: external call arguments must be UInt64, UInt128, or UInt256"
         unless callee.size ≥ 2 do
@@ -554,7 +554,7 @@ private partial def checkPlanStatementsV1
             throw <| .planInvariant .evm
               s!"{owner} external call callee component '{c}' is not a safe identifier"
         for arg in args do
-          unless exprIsExternalCallUIntCompatibleV1 fns arg do
+          unless exprIsExternalUIntCompatibleV1 fns arg do
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: external call arguments must be UInt64, UInt128, or UInt256"
           total ← addPlanExprNodes slots paramCount total fns arg
@@ -565,7 +565,7 @@ private partial def checkPlanStatementsV1
         unless result.bitWidth == 64 || result.bitWidth == 128 || result.bitWidth == 256 do
           throw <| .planInvariant .evm
             s!"{owner} result-bearing external call width must be UInt64, UInt128, or UInt256"
-        unless validExternalCallArgWidthsV1 args result.argBitWidths do
+        unless validExternalUIntArgWidthsV1 args result.argBitWidths do
           throw <| .planInvariant .evm
             "unsupported EVM semantic shape: external call arguments must be UInt64, UInt128, or UInt256"
         unless callee.size ≥ 2 do
@@ -576,14 +576,17 @@ private partial def checkPlanStatementsV1
             throw <| .planInvariant .evm
               s!"{owner} external call callee component '{c}' is not a safe identifier"
         for arg in args do
-          unless exprIsExternalCallUIntCompatibleV1 fns arg do
+          unless exprIsExternalUIntCompatibleV1 fns arg do
             throw <| .planInvariant .evm
               "unsupported EVM semantic shape: external call arguments must be UInt64, UInt128, or UInt256"
           total ← addPlanExprNodes slots paramCount total fns arg
         total := total + 1
-    | .schedule callee args =>
+    | .schedule callee args argBitWidths =>
         if isView then
           throw <| .planInvariant .evm s!"{owner} schedules a workflow in a view context"
+        unless validExternalUIntArgWidthsV1 args argBitWidths do
+          throw <| .planInvariant .evm
+            "unsupported EVM semantic shape: schedule arguments must be UInt64, UInt128, or UInt256"
         unless callee.size ≥ 2 do
           throw <| .planInvariant .evm
             s!"{owner} schedule callee must have at least two components"
@@ -592,9 +595,9 @@ private partial def checkPlanStatementsV1
             throw <| .planInvariant .evm
               s!"{owner} schedule callee component '{c}' is not a safe identifier"
         for arg in args do
-          unless exprIsUInt64CompatibleV1 fns arg do
+          unless exprIsExternalUIntCompatibleV1 fns arg do
             throw <| .planInvariant .evm
-              s!"{owner} schedule arguments must be UInt64 expressions"
+              "unsupported EVM semantic shape: schedule arguments must be UInt64, UInt128, or UInt256"
           total ← addPlanExprNodes slots paramCount total fns arg
         total := total + 1
     | .nativeDeposit amount =>
