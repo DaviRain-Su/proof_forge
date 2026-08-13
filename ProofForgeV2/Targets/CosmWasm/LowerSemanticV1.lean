@@ -32,8 +32,8 @@ and only for the Phase C bank subset:
   family only). Entry stays non-payable (no `info.funds` movement).
 
 Token/async catalog QNs and non-catalog sync call stay fail closed.
-`pf.crypto.*` (including `sha256`) has no CosmWasm host binding and stays
-fail closed on both void and result-bearing ExternalCall.
+`pf.crypto.*` (including `sha256` and `keccak256`) has no CosmWasm host
+binding and stays fail closed on both void and result-bearing ExternalCall.
 -/
 
 namespace ProofForgeV2.Targets.CosmWasm
@@ -581,8 +581,8 @@ def canonicalRegisters : RegisterLayout := {
 def isIdentifier (value : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes value
 
-/-- ADR-0031 S5: CosmWasm has no sha256 host. Any `pf.crypto.*` QN stays
-    fail closed (void and result-bearing). -/
+/-- ADR-0031 S5: CosmWasm has no sha256 or keccak256 host. Any `pf.crypto.*`
+    QN stays fail closed (void and result-bearing). -/
 private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
   components[0]? == some "pf" && components[1]? == some "crypto"
 
@@ -2682,8 +2682,8 @@ private def lowerBlockInstructionsV1
         armReadables := promoteDominatingPureV1 blockEntry values armReadables
         segmentStart := values.size
     | .externalCall _effectId callee _argIds, some _result =>
-        -- SYS-S5: CosmWasm has no host sha256. Pin the dedicated diagnostic
-        -- instead of falling through the UInt64-pilot catch-all.
+        -- SYS-S5: CosmWasm has no host sha256/keccak256. Pin the dedicated
+        -- diagnostic instead of falling through the UInt64-pilot catch-all.
         if mode == .view then
           throw <| .planInvariant .cosmwasm
             "unsupported CosmWasm semantic shape: view callable makes an external call"
@@ -2697,7 +2697,7 @@ private def lowerBlockInstructionsV1
         let qn := String.intercalate "." components.toList
         if isPfCryptoCalleeV1 components then
           throw <| .planInvariant .cosmwasm
-            s!"unsupported CosmWasm semantic shape: pf.crypto QN '{qn}' has no CosmWasm host binding (sha256 and siblings stay fail closed)"
+            s!"unsupported CosmWasm semantic shape: pf.crypto QN '{qn}' has no CosmWasm host binding (sha256/keccak256 and siblings stay fail closed)"
         throw <| .planInvariant .cosmwasm
           "unsupported CosmWasm semantic shape: result-bearing ExternalCall is outside the CosmWasm envelope"
     | .externalCall _effectId callee argIds, none =>
@@ -2717,7 +2717,7 @@ private def lowerBlockInstructionsV1
         let qn := String.intercalate "." components.toList
         if isPfCryptoCalleeV1 components then
           throw <| .planInvariant .cosmwasm
-            s!"unsupported CosmWasm semantic shape: pf.crypto QN '{qn}' has no CosmWasm host binding (sha256 and siblings stay fail closed)"
+            s!"unsupported CosmWasm semantic shape: pf.crypto QN '{qn}' has no CosmWasm host binding (sha256/keccak256 and siblings stay fail closed)"
         if isPfAssetsCatalogQnV1 qn then
           unless layout.pfAssetsDeclared do
             throw <| .planInvariant .cosmwasm

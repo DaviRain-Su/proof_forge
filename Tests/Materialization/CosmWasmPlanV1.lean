@@ -245,7 +245,7 @@ private unsafe def testCallStillFailClosed
         (engineeringPlanFromCompiled compiled)
   IO.println "  ✓ call/sync still fail closed"
 
-/-- SYS-S5: CosmWasm has no sha256 host. Exact `pf.crypto.sha256` and sibling
+/-- SYS-S5: CosmWasm has no sha256 or keccak256 host. Exact `pf.crypto.*`
     QNs stay Plan fail closed (no hashed / stdlib fallback). -/
 private unsafe def testCryptoSha256StayFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -261,7 +261,7 @@ private unsafe def testCryptoSha256StayFailClosed
           s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
     | .ok _ =>
         throw <| IO.userError
-          s!"{programName} must Plan fail closed (no CosmWasm sha256 host)"
+          s!"{programName} must Plan fail closed (no CosmWasm crypto host)"
   -- UInt256 is body-only on CosmWasm; keep ABI on UInt64 and hash a
   -- body-local word so the fail-closed needle is the crypto QN.
   expectPlanFc "Sha256Cw" "<cw-sha256>" "Examples.Sha256Cw"
@@ -287,7 +287,18 @@ private unsafe def testCryptoSha256StayFailClosed
       "  view get() : UInt64 do\n" ++
       "    return pad\n")
     "has no CosmWasm host binding"
-  IO.println "  ✓ pf.crypto.sha256 stay fail closed (no CosmWasm host)"
+  expectPlanFc "Keccak256Cw" "<cw-keccak256>" "Examples.Keccak256Cw"
+    ("  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt256 := 0\n" ++
+      "    let h : UInt256 := call pf.crypto.keccak256(w)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no CosmWasm host binding"
+  IO.println "  ✓ pf.crypto.sha256/keccak256 stay fail closed (no CosmWasm host)"
 
 /-- Pure RFC 4648 base64 (with `=` padding). Mirrors WAT `$pf_base64_encode`
     table-lookup algorithm for engineering pin tests — not a product export. -/

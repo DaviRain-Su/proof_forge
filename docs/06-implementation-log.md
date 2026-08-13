@@ -15590,3 +15590,10 @@ normative: false
   schedule stay fail closed. NearHostModel still refuses to interpret the
   register syscall.
 - Not formal, not Bytes ABI, not EXT-CRYPTO, and not a sandbox runtime claim.
+
+## 2026-08-13 — SYS-S5 CosmWasm keccak256 honesty
+
+- CosmWasm still has no sha256 or keccak256 host. The dedicated `pf.crypto.*`
+  diagnostic now names both leaves, and Plan pins exact `keccak256` fail-closed
+  beside sha256 / hashNoPad.
+- Not formal, not Bytes ABI, and not EXT-CRYPTO.
