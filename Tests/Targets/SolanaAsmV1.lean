@@ -1,6 +1,7 @@
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Examples.StateCell
 import ProofForgeV2.Targets.Solana
+import ProofForgeV2.Targets.Solana.SbpfStateCellProductionV1
 import ProofForgeV2.Targets.Registry
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Language.Loader
@@ -41,6 +42,11 @@ private def liftExecutionResult (result : SbpfExecutionResultV1 α) : IO α :=
   match result with
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
+
+private def liftStringResult (result : Except String α) : IO α :=
+  match result with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError error
 
 private def expectArtifactError (result : SbpfArtifactResultV1 α)
     (messagePart : String) : IO Unit :=
@@ -225,6 +231,12 @@ private unsafe def testStateCellSbpfArtifact
   let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
     "<solana-sbpf-artifact-stateCell>"
   let asm ← liftResult <| asmSolana compiled
+  let productionSubject ← liftStringResult <|
+    resolveStateCellGetProductionSubjectV1
+  expect (productionSubject.assembly == asm)
+    "sBPF artifact: pure program-export subject must reproduce parser-session production assembly"
+  expect checkStateCellGetProductionSubjectV1
+    "sBPF artifact: pure production subject certified get gate"
   let expectedSha256 := stateCellProductionSbpfSha256V1
   let boundArtifact ← liftArtifactResult <|
     resolveBoundSbpfArtifactV1 asm expectedSha256
@@ -288,14 +300,12 @@ private unsafe def testStateCellSbpfArtifact
 /-- Execute the exact production StateCell artifact in the pinned provider with
     a real Loader V3 ABIv1 single-account image. These are executable provider
     observations, not Solana runtime or Reference-refinement theorems. -/
-private unsafe def testStateCellSbpfExecution
-    (session : Language.Loader.ParserSession) : IO Unit := do
-  let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
-    "<solana-sbpf-execution-stateCell>"
-  let ir ← liftResult <| irSolana compiled
-  let asm ← liftResult <| emitSbpfAsmV1 ir
-  let boundArtifact ← liftArtifactResult <| resolveBoundSbpfArtifactV1 asm
-    stateCellProductionSbpfSha256V1
+private unsafe def testStateCellSbpfExecution : IO Unit := do
+  let productionSubject ← liftStringResult <|
+    resolveStateCellGetProductionSubjectV1
+  let ir := productionSubject.ir
+  let asm := productionSubject.assembly
+  let boundArtifact := productionSubject.boundArtifact
   let artifact := BoundResolvedSbpfArtifactV1.resolvedOf boundArtifact
   let discriminator (name : String) : IO UInt64 := do
     let handler ← match ir.handlers.find? (·.name == name) with
@@ -1437,7 +1447,7 @@ unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testStateCellAsm session
   testStateCellSbpfArtifact session
-  testStateCellSbpfExecution session
+  testStateCellSbpfExecution
   testAccountListShapeChecks session
   testProductEmitUnchanged session
   testGuardedStateCellAsm session

@@ -1421,6 +1421,11 @@
       "sha256": "9dfb1801adaff01639880001e665464b65595818c7fad4134105189e635f1920"
     },
     {
+      "bytes": 6719,
+      "path": "ProofForgeV2/Targets/Solana/SbpfStateCellProductionV1.lean",
+      "sha256": "5cf1710a486b6814d19ed3f0278ec634660d8b83b918218c124f47e7b5c6c61f"
+    },
+    {
       "bytes": 34252,
       "path": "ProofForgeV2/Targets/Solana/StaticAlignmentV1.lean",
       "sha256": "a4e2484dc18d451f5d2fe28de9fa4a43c9993f925308503d212b180676fcd633"

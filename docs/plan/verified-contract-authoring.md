@@ -918,8 +918,15 @@ contracts，真实get input通过且tamper fail closed。两个stack store现直
 与encoder projection进一步闭合真实`runBound`/`executeLoaderV3SingleAccountV1`等式。
 `SbpfHandlerJoinV1`的certified gate已检查invocation/observation relation并sound mint executed carrier，
 且提供与既有Reference→Handler proof的直接composition。仍需在具体production theorem中
-kernel-discharge该gate，所以尚无无条件完整concrete provider-backed refinement
-theorem；不能把工程`#eval`结果或直接展开10416-byte Loader image冒充kernel proof。
+kernel-discharge该gate。此前具体subject只能在IO parser session中构造；现已新增纯
+`resolveStateCellGetProductionSubjectV1`，直接消费`program StateCell`声明实际导出的canonical
+Source AST bytes，并沿同一Normalize/compiler→exact Solana profile capability→full-body HandlerIR→
+production `.s` emitter→SHA-256 bound strict parser构造private-ctor subject。回归要求这条纯链生成的
+assembly与parser-session production assembly byte-for-byte相等，并直接通过certified `get` gate；
+unsupported/missing/drift仍返回error/false。sound theorem可从任何kernel-discharge的Boolean恢复exact
+resolved subject及55步certified carrier。该进展删除了IO作为具体subject的阻塞，但尚未给出该大型
+计算的无条件kernel equality，所以仍无无条件完整concrete provider-backed refinement theorem；
+不能把工程执行结果或直接展开10416-byte Loader image冒充kernel proof。
 release source-dependency/SBOM closure也继续独立fail closed。
 整个接线不能另写proof-only codegen或第二套business semantics。
 再后评估外部Yul/EVM/bytecode semantics，
@@ -1012,7 +1019,7 @@ ProofForge内自造完整EVM opcode、Wasm binary、sBPF或Solana runtime semant
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR双平台engineering出口已关闭；Solana bounded HandlerIR join已闭合，provider `get` sparse trace 55/55步）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；rc.1 provider及Darwin GMP/Linux system closure已进入独立 Tool Lock rows。run `31781471216` 的Linux target-smoke与Darwin arm64 locked consumer均成功；结论严格限于identity-bound engineering join，不是一般IR/WAT→Wasm simulation theorem。Solana `get/initialize/increment` 已有kernel Reference→production Plan/HandlerIR join，成功post-state/return与overflow双侧exact pre-state snapshot已对齐；sBPF provider `get`已闭合完整55步sparse certificate和`runFuel` status-zero theorem，sound trace/Loader execution/certified Handler join gates已闭合，join gate可mint executed carrier并与Reference proof组合；尚需具体production theorem kernel-discharge gate，不能据此声明无条件完整provider/ELF/runtime refinement |
+| 7 | Per-target refinement | **进行中（NEAR双平台engineering出口已关闭；Solana bounded HandlerIR join已闭合，provider `get` sparse trace 55/55步）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；rc.1 provider及Darwin GMP/Linux system closure已进入独立 Tool Lock rows。run `31781471216` 的Linux target-smoke与Darwin arm64 locked consumer均成功；结论严格限于identity-bound engineering join，不是一般IR/WAT→Wasm simulation theorem。Solana `get/initialize/increment` 已有kernel Reference→production Plan/HandlerIR join，成功post-state/return与overflow双侧exact pre-state snapshot已对齐；sBPF provider `get`已闭合完整55步sparse certificate和`runFuel` status-zero theorem，sound trace/Loader execution/certified Handler join gates已闭合。具体StateCell subject现可从真实`program` export经同一production compiler/profile/HandlerIR/emitter/strict parser在纯Lean中fail-closed重建，且与parser-session assembly exact一致、gate执行成功；sound theorem可mint executed carrier并与Reference proof组合。尚需无条件kernel-discharge该大型production gate，不能据此声明完整provider/ELF/runtime refinement |
 
 ### 首个代码切片进展
 

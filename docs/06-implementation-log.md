@@ -16038,3 +16038,19 @@ normative: false
   `UInt64ReturnedHandlerObservationRelV1`，不新增business semantics。剩余工作是为具体production
   StateCell subject在kernel中discharge gate并应用已有Reference→Handler theorem；initialize/increment/
   overflow与ELF/runtime层仍继续独立。
+
+## 2026-08-14 — StateCell `get` pure production subject resolver
+
+- 新增`SbpfStateCellProductionV1`，直接消费实际`program StateCell` declaration导出的canonical
+  Source AST bytes；schema与decoder成功后只走现有`compileValidatedSourceV1`、exact Solana CPI profile
+  capability、full-body HandlerIR、`emitSbpfAsmV1`、SHA-256-bound strict artifact resolver与既有
+  certified join gate。没有复制IR/provider Program、另写HandlerIR lowering或新增business semantics。
+- `ResolvedStateCellGetProductionSubjectV1`为private-constructor，sole resolver同时绑定真实IR/assembly/
+  identity-bound artifact、`get` HandlerIR、canonical Handler/Loader invocation、return bytes与value；
+  任一source/compiler/profile/artifact/handler failure返回error，公开单一gate返回false。
+- `checkStateCellGetProductionSubjectV1_sound`不把工程执行冒充定理：调用方discharge Boolean后才可恢复
+  exact resolver equation和既有55-step `CertifiedStateCellGetExecutedHandlerSbpfJoinV1` carrier。
+- `SolanaAsmV1`回归要求纯export链与原ParserSession production assembly byte-for-byte相等，并直接执行
+  production gate；后续provider执行测试改为消费该纯subject。runner输出
+  `Tests.Targets.SolanaAsmV1: ok`。至此IO parser session不再阻塞具体production subject构造；大型gate的
+  无条件kernel equality仍未闭合，故尚不声明无条件Reference→provider/ELF/runtime refinement。
