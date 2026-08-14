@@ -45,6 +45,15 @@ private def planError (message : String) : CompileResult α :=
 private def openvmPlanErr (message : String) : CompileError :=
   .planInvariant .openvm message
 
+private def qnJoined (qn : ProofForgeV2.Core.Common.QualifiedName) : String :=
+  String.intercalate "."
+    (ProofForgeV2.Core.Common.NonEmptyArray.toArray qn.components).toList
+
+/-- ADR-0031 S5: OpenVM has no sha256 or keccak256 host. Any `pf.crypto.*`
+    QN stays fail closed instead of the generic O0 call/schedule envelope. -/
+private def isPfCryptoCalleeV1 (qn : String) : Bool :=
+  qn.startsWith "pf.crypto."
+
 -- ---------------------------------------------------------------------------
 -- Target-owned Plan surface
 -- ---------------------------------------------------------------------------
@@ -519,14 +528,24 @@ private partial def lowerInstructions
         if forbidChecks then
           planError "unsupported OpenVM semantic shape: initializer cannot contain fallible checks"
         acc ← pushCheck acc { kind := .assertion, condition := c }
-    | .externalCall .. =>
+    | .externalCall _effectId callee _args => do
+        let qn := qnJoined callee
+        if isPfCryptoCalleeV1 qn then
+          planError
+            s!"unsupported OpenVM semantic shape: pf.crypto QN '{qn}' has no OpenVM host binding (sha256/keccak256 and siblings stay fail closed)"
         planError "unsupported OpenVM semantic shape: call/schedule are outside O0"
+    | .schedule _effectId callee _args => do
+        let qn := qnJoined callee
+        if isPfCryptoCalleeV1 qn then
+          planError
+            s!"unsupported OpenVM semantic shape: pf.crypto QN '{qn}' has no OpenVM host binding (sha256/keccak256 and siblings stay fail closed)"
+        planError "unsupported OpenVM semantic shape: op is outside O0"
     | .envRead .. =>
         planError "unsupported OpenVM semantic shape: envRead is outside O0"
     | .constant .. | .construct .. | .fieldGet .. | .fieldSet ..
     | .variantTag .. | .variantPayload .. | .indexGet .. | .indexSet ..
     | .checkedCast .. | .contextRead .. | .commit ..
-    | .emit .. | .schedule .. =>
+    | .emit .. =>
         planError "unsupported OpenVM semantic shape: op is outside O0"
   -- Terminator
   match block.terminator with

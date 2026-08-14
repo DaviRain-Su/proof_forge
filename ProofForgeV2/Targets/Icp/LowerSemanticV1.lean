@@ -42,6 +42,15 @@ private def planError (message : String) : CompileResult α :=
 private def icpPlanErr (message : String) : CompileError :=
   .planInvariant .icp message
 
+private def qnJoined (qn : ProofForgeV2.Core.Common.QualifiedName) : String :=
+  String.intercalate "."
+    (ProofForgeV2.Core.Common.NonEmptyArray.toArray qn.components).toList
+
+/-- ADR-0031 S5: ICP has no sha256 or keccak256 host. Any `pf.crypto.*` QN
+    stays fail closed instead of the generic ICP-2 call/schedule envelope. -/
+private def isPfCryptoCalleeV1 (qn : String) : Bool :=
+  qn.startsWith "pf.crypto."
+
 -- ---------------------------------------------------------------------------
 -- Target-owned Plan surface
 -- ---------------------------------------------------------------------------
@@ -303,9 +312,17 @@ private partial def lowerInstructions
         planError "unsupported ICP semantic shape: Op.Commit is outside the ICP-2 envelope"
     | .emit .. =>
         planError "unsupported ICP semantic shape: emit is outside the ICP-2 envelope (no portable event bus)"
-    | .externalCall .. =>
+    | .externalCall _effectId callee _args => do
+        let qn := qnJoined callee
+        if isPfCryptoCalleeV1 qn then
+          planError
+            s!"unsupported ICP semantic shape: pf.crypto QN '{qn}' has no Icp host binding (sha256/keccak256 and siblings stay fail closed)"
         planError "unsupported ICP semantic shape: call is outside the ICP-2 envelope (ICP has no sync inter-canister call)"
-    | .schedule .. =>
+    | .schedule _effectId callee _args => do
+        let qn := qnJoined callee
+        if isPfCryptoCalleeV1 qn then
+          planError
+            s!"unsupported ICP semantic shape: pf.crypto QN '{qn}' has no Icp host binding (sha256/keccak256 and siblings stay fail closed)"
         planError "unsupported ICP semantic shape: schedule (async workflow) is advertised at the resolver only — ICP-2 Plan has no realized async shape"
     | .construct .. | .fieldGet .. | .fieldSet ..
     | .variantTag .. | .variantPayload .. | .indexGet .. | .indexSet ..

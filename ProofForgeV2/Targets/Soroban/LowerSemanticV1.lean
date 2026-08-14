@@ -39,6 +39,15 @@ private def planError (message : String) : CompileResult α :=
 private def sorobanPlanErr (message : String) : CompileError :=
   .planInvariant .soroban message
 
+private def qnJoined (qn : ProofForgeV2.Core.Common.QualifiedName) : String :=
+  String.intercalate "."
+    (ProofForgeV2.Core.Common.NonEmptyArray.toArray qn.components).toList
+
+/-- ADR-0031 S5: Soroban has no sha256 or keccak256 host. Any `pf.crypto.*`
+    QN stays fail closed instead of the generic S0 op catch-all. -/
+private def isPfCryptoCalleeV1 (qn : String) : Bool :=
+  qn.startsWith "pf.crypto."
+
 -- ---------------------------------------------------------------------------
 -- Target-owned Plan surface
 -- ---------------------------------------------------------------------------
@@ -510,10 +519,22 @@ private partial def lowerInstructions
         if forbidChecks then
           planError "unsupported Soroban semantic shape: initializer cannot contain fallible checks"
         acc ← pushCheck acc { kind := .assertion, condition := c }
+    | .externalCall _effectId callee _args => do
+        let qn := qnJoined callee
+        if isPfCryptoCalleeV1 qn then
+          planError
+            s!"unsupported Soroban semantic shape: pf.crypto QN '{qn}' has no Soroban host binding (sha256/keccak256 and siblings stay fail closed)"
+        planError "unsupported Soroban semantic shape: op is outside S0"
+    | .schedule _effectId callee _args => do
+        let qn := qnJoined callee
+        if isPfCryptoCalleeV1 qn then
+          planError
+            s!"unsupported Soroban semantic shape: pf.crypto QN '{qn}' has no Soroban host binding (sha256/keccak256 and siblings stay fail closed)"
+        planError "unsupported Soroban semantic shape: op is outside S0"
     | .constant .. | .construct .. | .fieldGet .. | .fieldSet ..
     | .variantTag .. | .variantPayload .. | .indexGet .. | .indexSet ..
     | .checkedCast .. | .contextRead .. | .commit ..
-    | .emit .. | .schedule .. | .externalCall .. | .envRead .. =>
+    | .emit .. | .envRead .. =>
         planError "unsupported Soroban semantic shape: op is outside S0"
   -- Terminator
   match block.terminator with

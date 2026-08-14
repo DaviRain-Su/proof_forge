@@ -193,16 +193,46 @@ private unsafe def testCallSyncFc
     "    return s\n\n" ++
     "  view peek() : UInt64 do\n" ++
     "    return s\n"
-  let validated ← liftResult (← session.selectProgramV1 callSrc
-    "<icp-call-fc>" "Examples.CallFc" none)
-  match Compiler.compileValidatedSourceV1 validated with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match icpCapability compiled with
-      | .error _ => pure ()  -- resolver FC on effect.synchronous-call
-      | .ok capability =>
-          expectPlanErrorContaining "call plan" "call" (planFromCapability capability)
+  let compiled ← compileSource session callSrc "Examples.CallFc" "<icp-call-fc>"
+  -- Engineering Plan path pins the envelope message even if the product
+  -- resolver declines effect.synchronous-call first.
+  expectPlanErrorContaining "call plan" "call is outside the ICP-2 envelope"
+    (planFromCompiledSemanticV1 compiled)
   IO.println "  ✓ call/sync fail closed"
+
+/-- SYS-S5: ICP has no sha256/keccak256 host. Exact `pf.crypto.*` stays
+    Plan fail closed (no host / precompile / circuit gadget). -/
+private unsafe def testCryptoSha256StayFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let expectPlanFc (programName pathLabel moduleName body needle : String) :
+      IO Unit := do
+    let src := wrapProgram programName body
+    let compiled ← compileSource session src moduleName pathLabel
+    match planFromCompiledSemanticV1 compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{programName} must Plan fail closed (no Icp crypto host)"
+  let cryptoBody (qn : String) : String :=
+    "  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    let h : UInt64 := call " ++ qn ++ "(w)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n"
+  expectPlanFc "Sha256Icp" "<icp-sha256>" "Examples.Sha256Icp"
+    (cryptoBody "pf.crypto.sha256") "has no Icp host binding"
+  expectPlanFc "Keccak256Icp" "<icp-keccak256>" "Examples.Keccak256Icp"
+    (cryptoBody "pf.crypto.keccak256") "has no Icp host binding"
+  expectPlanFc "Sha256IcpHashNoPad" "<icp-sha256-hashnopad>"
+    "Examples.Sha256IcpHashNoPad"
+    (cryptoBody "pf.crypto.hashNoPad") "has no Icp host binding"
+  IO.println "  ✓ pf.crypto.sha256/keccak256 stay fail closed (no Icp host)"
 
 private unsafe def testEmitFc
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -308,6 +338,7 @@ unsafe def run : IO Unit := do
   testStateCellPlan session
   testStateCellIRAndWat session
   testCallSyncFc session
+  testCryptoSha256StayFailClosed session
   testEmitFc session
   testInvariantFc session
   testScheduleFc session

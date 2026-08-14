@@ -620,6 +620,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-14 | **B-CTX-OPEN honesty close**：NEAR sandbox `BlockHeightCheck`（`scripts/near_runtime_test.sh` `run_suite blockheightcheck`）与 CW `runtime-tests/cosmwasm/tests/block_height.rs` 已在树；S2 runtime residual 按工程 host-optional 门闭合。`unixTimeSeconds` 在 Solana/Noir/Psy/Aleo/Quint 仍 FC。**不**声称 formal / Anvil lossless；SYS-CAP-UNIFY 剩余为 S5/L2 |
 | 2026-08-14 | **F-TYPEKEY-USAGE-GAP**：`docs/plan/evm-formal-d2-06-typekey-usage.md` 盘点 TypeKey usage/rank。unused rejection 与 decoder-side rank 会打穿 `cfgOpTypes` 等手写表，需产品决策。下一刀 = 孤立 SPEC `typeKey` 字节形 pin，不装结构门。**不**关闭 TASK-D2-06 / TST-SEM-001 |
 | 2026-08-14 | **F-TYPEKEY-BYTES**：孤立 SPEC `typeKey` 字节形 encoder + `Tests.Semantic.WireV1` pin；**不**进入 structure gate，不 reject unused，不 rank `types`。**不**关闭 TASK-D2-06 / TST-SEM-001 |
+| 2026-08-14 | **SYS-S5-NEW-TARGETS**：ICP/Soroban/OpenVM 对 `pf.crypto.*` 点名 Plan fail closed（`has no Icp/Soroban/OpenVM host binding`）；无假 host。**不**关闭 EXT-CRYPTO / formal |
 
 ---
 

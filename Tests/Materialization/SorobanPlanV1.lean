@@ -167,20 +167,55 @@ unsafe def testCallFailClosed : IO Unit := do
     "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
     source "<soroban-call>" "Tests.SorobanCall" none)
-  match Compiler.compileValidatedSourceV1 parsed with
-  | .error _ => pure ()
-  | .ok compiled =>
-      match planSoroban compiled with
-      | .error e =>
-          expect (e.code == "PF-PLAN-INVARIANT" || e.code == "PF-REQ-UNSUPPORTED")
-            s!"call must fail closed, got {e.code}"
-      | .ok _ => throw <| IO.userError "sync call must fail closed on Soroban S0"
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error e =>
+      expect (e.render.contains "op is outside S0")
+        s!"generic call Plan FC must contain 'op is outside S0', got: {e.render}"
+  | .ok _ => throw <| IO.userError "sync call must fail closed on Soroban S0"
+
+/-- SYS-S5: Soroban has no sha256/keccak256 host. Exact `pf.crypto.*` stays
+    Plan fail closed (no host / precompile / circuit gadget). -/
+unsafe def testCryptoSha256StayFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let expectPlanFc (label body needle : String) : IO Unit := do
+    let source :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {label} where\n" ++ body
+    let parsed ← liftResult (← session.selectProgramV1
+      source s!"<soroban-{label}>" s!"Tests.Soroban{label}" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+    match planSoroban compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{label} must Plan fail closed (no Soroban crypto host)"
+  let cryptoBody (qn : String) : String :=
+    "  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let w : UInt64 := 0\n" ++
+      "    let h : UInt64 := call " ++ qn ++ "(w)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n"
+  expectPlanFc "Sha256Soroban" (cryptoBody "pf.crypto.sha256")
+    "has no Soroban host binding"
+  expectPlanFc "Keccak256Soroban" (cryptoBody "pf.crypto.keccak256")
+    "has no Soroban host binding"
+  expectPlanFc "Sha256SorobanHashNoPad" (cryptoBody "pf.crypto.hashNoPad")
+    "has no Soroban host binding"
 
 unsafe def run : IO Unit := do
   testStateCellSorobanSource
   testMultiWidthFailClosed
   testInvariantFailClosed
   testCallFailClosed
+  testCryptoSha256StayFailClosed
   IO.println "Tests.Materialization.SorobanPlanV1: ok"
 
 end Tests.Materialization.SorobanPlanV1

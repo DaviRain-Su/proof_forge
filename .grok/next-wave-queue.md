@@ -72,6 +72,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | F-CTX-OPEN-CLOSE | done | Honesty-close `B-CTX-OPEN`: NEAR/CW `blockHeight` runtime gates already exist (`scripts/near_runtime_test.sh` BlockHeightCheck + `runtime-tests/cosmwasm/tests/block_height.rs`). Docs only. **Not** a re-implement. **Not** formal |
 | F-TYPEKEY-USAGE-GAP | done | Inventory-only plan [`docs/plan/evm-formal-d2-06-typekey-usage.md`](../docs/plan/evm-formal-d2-06-typekey-usage.md). Usage/rank structure gates would mass-break hand-built tables. Next pin = isolated SPEC `typeKey` byte form. **Not** formal TASK-D2-06 |
 | F-TYPEKEY-BYTES | done | Isolated SPEC `typeKey` byte-form encoder + WireV1 unit tests. Not a structure gate. Focused `Tests.Semantic.WireV1.run` ok. **Not** formal TASK-D2-06 |
+| SYS-S5-NEW-TARGETS | done | ICP/Soroban/OpenVM Plan honesty: `pf.crypto.*` fail closed with named no-host diagnostic. Focused Icp/Soroban/OpenVm suites ok. **Not** EXT-CRYPTO / formal |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 
@@ -105,7 +106,7 @@ Leave these `blocked` / `decision`. Goal must **skip**, not implement.
 
 ## Runner notes
 
-1. Track A is exhausted. Track B is exhausted. Track F through `F-TYPEKEY-BYTES` is exhausted for auto-drainable engineering. Goal must **not** auto-close formal IDs. Never Track C. Unused TypeKey rejection / decoder-side rank / SPEC-honesty ADR / EV binding / C-3 remain product/formal decisions.
+1. Track A/B/F packaging through `F-TYPEKEY-BYTES` is done. `SYS-S5-NEW-TARGETS` is done. Live drain continues on file-isolated engineering leaves. Goal must **not** auto-close formal IDs. Never Track C. Unused TypeKey rejection / decoder-side rank / SPEC-honesty ADR / EV binding / C-3 remain product/formal decisions.
 2. Mark claimed row `in_progress` only on a clean tree (or WIP wholly inside that slice allowlist).
 3. One local commit per id. Touch `ProofForgeV2/**` → `just sbom-package-files-refresh`. Docs → `just docs-check`.
 4. After commit: this file `done`, `docs/engineering-backlog.md` one honest line, AGENTS Current/Next if Track A pointer moves.
