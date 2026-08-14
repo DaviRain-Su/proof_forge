@@ -226,8 +226,8 @@ private unsafe def testCallSyncFc
     QNs stay Plan fail closed (no hashed / string_hash fallback). -/
 private unsafe def testCryptoSha256StayFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let expectPlanFc (programName pathLabel moduleName body needle : String) :
-      IO Unit := do
+  let expectPlanFc (programName pathLabel moduleName body needle : String)
+      (also : String := "") : IO Unit := do
     let src := wrapProgram programName body
     let compiled ← compileSource session src moduleName pathLabel
     -- Engineering path: pin the Plan diagnostic even if the product
@@ -236,6 +236,9 @@ private unsafe def testCryptoSha256StayFailClosed
     | .error e =>
         expect (e.render.contains needle)
           s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+        unless also.isEmpty do
+          expect (e.render.contains also)
+            s!"{programName} Plan FC must contain '{also}', got: {e.render}"
     | .ok _ =>
         throw <| IO.userError
           s!"{programName} must Plan fail closed (no Ton crypto host)"
@@ -276,6 +279,23 @@ private unsafe def testCryptoSha256StayFailClosed
       "  view get() : UInt64 do\n" ++
       "    return pad\n")
     "has no Ton host binding"
+  -- SYS-S5-ECDSA-FC-REST: keep admitted UInt64 ABI so the needle is the QN arm.
+  expectPlanFc "EcdsaRecoverTon" "<ton-ecdsa-recover>"
+    "Examples.EcdsaRecoverTon"
+    ("  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let h : UInt64 := 0\n" ++
+      "    let v : UInt64 := 0\n" ++
+      "    let r : UInt64 := 0\n" ++
+      "    let s : UInt64 := 0\n" ++
+      "    let a : UInt64 := call pf.crypto.ecdsaRecoverSecp256k1(h, v, r, s)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Ton host binding"
+    "ecdsaRecoverSecp256k1"
   IO.println "  ✓ pf.crypto.sha256/keccak256 stay fail closed (no Ton host)"
 
 /-- Schedule → Plan/IR/Tolk createMessage pins (destination hash stub, bounce,

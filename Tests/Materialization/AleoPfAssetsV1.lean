@@ -146,7 +146,8 @@ unsafe def testNonCatalogCallStillDeclined : IO Unit := do
     closed (no BHP/Pedersen/Poseidon fallback). Product resolve still
     declines sync-call first, so this pin uses the engineering Plan path. -/
 unsafe def testCryptoSha256StayFailClosed : IO Unit := do
-  let expectPlanFc (label body needle : String) : IO Unit := do
+  let expectPlanFc (label body needle : String)
+      (also : String := "") : IO Unit := do
     let source :=
       "import ProofForgeV2\n" ++
       "open ProofForgeV2.Language\n" ++
@@ -156,6 +157,9 @@ unsafe def testCryptoSha256StayFailClosed : IO Unit := do
     | .error e =>
         expect (e.render.contains needle)
           s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+        unless also.isEmpty do
+          expect (e.render.contains also)
+            s!"{label} Plan FC must contain '{also}', got: {e.render}"
     | .ok _ =>
         throw <| IO.userError
           s!"{label} must Plan fail closed (no Aleo crypto host)"
@@ -192,6 +196,22 @@ unsafe def testCryptoSha256StayFailClosed : IO Unit := do
       "  view get() : UInt64 do\n" ++
       "    return pad\n")
     "has no Aleo host binding"
+  -- SYS-S5-ECDSA-FC-REST: keep UInt64 void ABI so the needle is the QN arm.
+  expectPlanFc "EcdsaRecoverAleo"
+    ("  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let h : UInt64 := 0\n" ++
+      "    let v : UInt64 := 0\n" ++
+      "    let r : UInt64 := 0\n" ++
+      "    let s : UInt64 := 0\n" ++
+      "    call pf.crypto.ecdsaRecoverSecp256k1(h, v, r, s)\n" ++
+      "    return pad\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Aleo host binding"
+    "ecdsaRecoverSecp256k1"
 
 /-- SYS-S4: name remaining ContextRead catalog keys. unixTime stays on the
     existing generic reject (no Aleo clock). attachedValue/chainId/blockHeight

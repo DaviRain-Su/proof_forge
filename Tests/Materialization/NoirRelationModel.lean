@@ -2228,7 +2228,8 @@ private unsafe def checkVoidEntryFailClosed : IO Unit := do
 /-- SYS-S5: Noir has no sha256 host. Exact `pf.crypto.sha256` and sibling
     QNs stay Plan fail closed (no circuit-stdlib / oracle fallback). -/
 private unsafe def checkCryptoSha256StayFailClosed : IO Unit := do
-  let expectPlanFc (label moduleName body needle : String) : IO Unit := do
+  let expectPlanFc (label moduleName body needle : String)
+      (also : String := "") : IO Unit := do
     let src :=
       "import ProofForgeV2\n\n" ++
       "namespace ProofForgeV2.Examples\n\n" ++
@@ -2246,6 +2247,9 @@ private unsafe def checkCryptoSha256StayFailClosed : IO Unit := do
     | .error e =>
         expect (e.render.contains needle)
           s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+        unless also.isEmpty do
+          expect (e.render.contains also)
+            s!"{label} Plan FC must contain '{also}', got: {e.render}"
     | .ok _ =>
         throw <| IO.userError
           s!"{label} must Plan fail closed (no Noir crypto host)"
@@ -2317,6 +2321,22 @@ private unsafe def checkCryptoSha256StayFailClosed : IO Unit := do
       "  view get() : UInt64 do\n" ++
       "    return pad\n")
     "has no Noir host binding"
+  -- SYS-S5-ECDSA-FC-REST: keep UInt64 void ABI so the needle is the QN arm.
+  expectPlanFc "EcdsaRecoverNoir" "Examples.EcdsaRecoverNoir"
+    ("  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let h : UInt64 := 0\n" ++
+      "    let v : UInt64 := 0\n" ++
+      "    let r : UInt64 := 0\n" ++
+      "    let s : UInt64 := 0\n" ++
+      "    call pf.crypto.ecdsaRecoverSecp256k1(h, v, r, s)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no Noir host binding"
+    "ecdsaRecoverSecp256k1"
   IO.println "  ✓ pf.crypto.sha256/keccak256 stay fail closed (no Noir host)"
 
 /-- SYS-S4: name remaining ContextRead catalog keys. unixTime stays on the
