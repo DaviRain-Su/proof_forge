@@ -19,9 +19,9 @@ assembly emitter, strict artifact parser, and identity-bound provider path.
 They contain no copied IR/program and introduce no alternate lowering or
 business semantics.
 
-`get` retains the dedicated 55-step certified join. `initialize` uses the
-generic executed HandlerIR/provider join; a sparse initialize certificate is a
-later slice.
+`get` retains the dedicated 55-step certified join. `initialize` and successful
+`increment` use the generic executed HandlerIR/provider join; their sparse
+certificates are later slices.
 -/
 
 namespace ProofForgeV2.Targets.Solana
@@ -235,6 +235,100 @@ theorem checkStateCellInitializeProductionSubjectV1_sound
         subject.boundArtifact subject.handler subject.handlerInvocation
         subject.loaderInvocation defaultSbpfExecutionFuelV1) := by
   rcases checkExceptV1_sound resolveStateCellInitializeProductionSubjectV1
+      (fun subject =>
+        checkStateCellExecutedHandlerSbpfJoinV1
+          subject.boundArtifact subject.handler subject.handlerInvocation
+          subject.loaderInvocation)
+      checked with ⟨subject, hsubject, hchecked⟩
+  refine ⟨subject, hsubject, ?_⟩
+  exact checkStateCellExecutedHandlerSbpfJoinV1_sound
+    subject.boundArtifact subject.handler subject.handlerInvocation
+    subject.loaderInvocation defaultSbpfExecutionFuelV1 hchecked
+
+/-- Concrete values consumed by the generic StateCell `increment` success
+    HandlerIR/provider join. The selected scenario starts at `41` and adds
+    `1`; a sparse increment certificate remains a separate later slice. -/
+structure ResolvedStateCellIncrementProductionSubjectV1 where
+  private mk ::
+  sourceBinding : CanonicalSourceBindingV1
+    StateCell.Source.subjectV1 StateCell.bytes
+  ir : IR
+  assembly : String
+  boundArtifact : BoundResolvedSbpfArtifactV1
+  handler : HandlerIR
+  handlerInvocation : InvocationObservationV1
+  loaderInvocation : LoaderV3SingleAccountInvocationV1
+  before : UInt64
+  argument : UInt64
+
+/-- Reconstruct the increment-success subject from the same production source,
+    compiler, assembly emitter, identity gate, and provider artifact as `get`
+    and `initialize`. -/
+def resolveStateCellIncrementProductionSubjectV1 :
+    Except String ResolvedStateCellIncrementProductionSubjectV1 := do
+  unless StateCell.schema == Language.ProgramExport.programExportSchemaV2 do
+    throw "StateCell program export schema is not proof-forge.program-export.v2"
+  let sourceBinding ← bindElaboratedSourceToCanonicalBytesV1
+    StateCell.Source.subjectV1 StateCell.bytes
+  let source := sourceBinding.validated
+  let compiled ← compileResultV1 <|
+    compileValidatedSourceV1 source
+  let selection ← compileResultV1 <|
+    resolveBuildSelectionV1 TargetId.solana
+      (some CodegenProfileId.solanaSbpfCpiElfV1)
+  let capability ← compileResultV1 <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let ir ← compileResultV1 <|
+    fullBodyIrFromProductCapabilityV1 capability false
+  let assembly ← compileResultV1 <| emitSbpfAsmV1 ir
+  let boundArtifact ← artifactResultV1 <|
+    resolveBoundSbpfArtifactV1 assembly stateCellProductionSbpfSha256V1
+  let handler ← match ir.handlers.find? (·.name == "increment") with
+    | some value => pure value
+    | none => throw "production StateCell IR has no increment handler"
+  let discriminator ← compileResultV1 <|
+    discriminatorToLeU64V1 handler.discriminator
+  let before : UInt64 := 41
+  let argument : UInt64 := 1
+  let accountData :=
+    (SbpfSemantics.wordToLE
+      (BitVec.ofNat 64 ir.stateAccount.initializedMarker.toNat)).append
+      (SbpfSemantics.wordToLE (BitVec.ofNat 64 before.toNat))
+  let programId := Array.replicate 32 (0x42 : UInt8)
+  let loaderInvocation : LoaderV3SingleAccountInvocationV1 := {
+    accountKey := Array.replicate 32 (0x24 : UInt8)
+    owner := programId
+    programId
+    accountData
+    instructionData :=
+      (SbpfSemantics.wordToLE (BitVec.ofNat 64 discriminator.toNat)).append
+        (SbpfSemantics.wordToLE (BitVec.ofNat 64 argument.toNat))
+    isWritable := true
+  }
+  let handlerInvocation :=
+    unaryUInt64InvocationV1 ⟨accountData⟩ discriminator argument false true
+  pure <| ResolvedStateCellIncrementProductionSubjectV1.mk sourceBinding ir
+    assembly boundArtifact handler handlerInvocation loaderInvocation before
+    argument
+
+/-- Fail-closed executable agreement for the pinned increment-success subject. -/
+def checkStateCellIncrementProductionSubjectV1 : Bool :=
+  checkExceptV1 resolveStateCellIncrementProductionSubjectV1 fun subject =>
+    checkStateCellExecutedHandlerSbpfJoinV1
+      subject.boundArtifact subject.handler subject.handlerInvocation
+      subject.loaderInvocation
+
+/-- Successful increment checking recovers the exact production subject and a
+    carrier whose equations run both existing evaluators. It is not a sparse
+    provider trace certificate. -/
+theorem checkStateCellIncrementProductionSubjectV1_sound
+    (checked : checkStateCellIncrementProductionSubjectV1 = true) :
+    ∃ subject,
+      resolveStateCellIncrementProductionSubjectV1 = .ok subject ∧
+      Nonempty (StateCellExecutedHandlerSbpfJoinV1
+        subject.boundArtifact subject.handler subject.handlerInvocation
+        subject.loaderInvocation defaultSbpfExecutionFuelV1) := by
+  rcases checkExceptV1_sound resolveStateCellIncrementProductionSubjectV1
       (fun subject =>
         checkStateCellExecutedHandlerSbpfJoinV1
           subject.boundArtifact subject.handler subject.handlerInvocation

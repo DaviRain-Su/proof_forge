@@ -23,19 +23,20 @@ D4 · [`verified-contract-authoring.md`](verified-contract-authoring.md) §5.
 |---|---|---|---|
 | `get()` | yes | `resolveStateCellGetProductionSubjectV1` | 55-step + `runFuel` status-zero |
 | `initialize(initial)` | yes (Loader V3 single-account) | `resolveStateCellInitializeProductionSubjectV1` | generic executed join (no 55-step sparse cert yet) |
-| `increment(delta)` | yes | **missing** | **missing** |
+| `increment(delta)` | yes | `resolveStateCellIncrementProductionSubjectV1` | generic executed join (no sparse cert yet) |
 | increment overflow | yes (nonzero status + pre-account hold) | **missing** | **missing** |
 
 `SbpfHandlerJoinV1` already has the HandlerIR ↔ Loader invocation/observation
-relation, including overflow → nonzero status. The gap is **get-shaped
-production subject + sparse certificate** for the other three recipes.
+relation, including overflow → nonzero status. The remaining subject gap is the
+overflow recipe; sparse certificates remain open for all three mutating recipes.
 
 Code facts:
 
 - `ProofForgeV2/Targets/Solana/SbpfStateCellProductionV1.lean` contains the
-  `get` and `initialize` resolvers. Both consume the same elaborated Source AST,
-  production validator/canonical encoder binding, compiler and production `.s`;
-  only `get` currently retains a sparse provider certificate.
+  `get`, `initialize`, and increment-success resolvers. All consume the same
+  elaborated Source AST, production validator/canonical encoder binding,
+  compiler and production `.s`; only `get` currently retains a sparse provider
+  certificate.
 - Sparse certificate lives in `SbpfStateCellGetV1.lean`.
 - Authoring doc: still no unconditional kernel equality for the large
   production theorem; release SBOM/source-dependency stays fail closed.
@@ -48,7 +49,8 @@ a second codegen.
 1. **SOL-0048-INIT** — **done 2026-08-15**: production subject + generic
    executed HandlerIR/provider join + assembly identity vs `get`. Sparse
    55-step initialize certificate remains later.
-2. **SOL-0048-INC** — same generic executed join for `increment` success.
+2. **SOL-0048-INC** — **done 2026-08-15**: same generic executed join for
+   pinned `41 + 1` increment success; sparse certificate remains later.
 3. **SOL-0048-OVF** — same for increment overflow (nonzero program error +
    pre-account snapshot). Join relation already names overflow; this slice
    only adds the production-subject/certificate.

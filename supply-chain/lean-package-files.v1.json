@@ -1421,9 +1421,9 @@
       "sha256": "9dfb1801adaff01639880001e665464b65595818c7fad4134105189e635f1920"
     },
     {
-      "bytes": 11410,
+      "bytes": 15909,
       "path": "ProofForgeV2/Targets/Solana/SbpfStateCellProductionV1.lean",
-      "sha256": "dcd10ac81440e6f7307956c9d736192af72be0e57fc37bc5bee500f546b4fb3c"
+      "sha256": "2e87aec73c72c165c5f2aa627a6722e53bc895fe94a97d6a1cf43ccf2145d8fa"
     },
     {
       "bytes": 34252,

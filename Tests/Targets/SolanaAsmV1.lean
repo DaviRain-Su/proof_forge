@@ -306,12 +306,12 @@ private unsafe def testStateCellSbpfArtifact
   expectArtifactError (resolveSbpfArtifactV1 <| minimal "call unknown_syscall")
     "unsupported syscall or unresolved call target"
 
-/-- Initialize uses the same production `.s` as `get` and the generic
-    HandlerIR/provider executed join. This is not a 55-step sparse certificate. -/
-private unsafe def testStateCellInitializeProductionSubject : IO Unit := do
+/-- Mutating recipes use the same production `.s` as `get` and the generic
+    HandlerIR/provider executed join. These are not sparse provider certificates. -/
+private unsafe def testStateCellMutatingProductionSubjects : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
-    "<solana-sbpf-initialize-subject>"
+    "<solana-sbpf-mutating-subjects>"
   let asm ← liftResult <| asmSolana compiled
   let getSubject ← liftStringResult resolveStateCellGetProductionSubjectV1
   let initSubject ← liftStringResult
@@ -330,6 +330,22 @@ private unsafe def testStateCellInitializeProductionSubject : IO Unit := do
       initSubject.boundArtifact getSubject.handler
       initSubject.handlerInvocation initSubject.loaderInvocation)
     "initialize invocation must not join against the get handler"
+  let incrementSubject ← liftStringResult
+    resolveStateCellIncrementProductionSubjectV1
+  expect (incrementSubject.assembly == asm)
+    "increment subject must reproduce parser-session production assembly"
+  expect (incrementSubject.assembly == getSubject.assembly)
+    "increment and get subjects must share the same production .s"
+  expect (incrementSubject.handler.name == "increment")
+    "increment subject must select the increment handler"
+  expect (incrementSubject.before == 41 && incrementSubject.argument == 1)
+    "increment subject must pin the 41 + 1 success scenario"
+  expect checkStateCellIncrementProductionSubjectV1
+    "increment production subject generic executed join must succeed"
+  expect (!checkStateCellExecutedHandlerSbpfJoinV1
+      incrementSubject.boundArtifact initSubject.handler
+      incrementSubject.handlerInvocation incrementSubject.loaderInvocation)
+    "increment invocation must not join against the initialize handler"
 
 /-- Execute the exact production StateCell artifact in the pinned provider with
     a real Loader V3 ABIv1 single-account image. These are executable provider
@@ -1481,7 +1497,7 @@ unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testStateCellAsm session
   testStateCellSbpfArtifact session
-  testStateCellInitializeProductionSubject
+  testStateCellMutatingProductionSubjects
   testStateCellSbpfExecution
   testAccountListShapeChecks session
   testProductEmitUnchanged session

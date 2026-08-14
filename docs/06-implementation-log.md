@@ -16073,3 +16073,16 @@ normative: false
   production subject gate运行值仍为`true`，assembly digest保持
   `c93b1448aa782550b7643ccced44209c57df604a866c236552dadc5ac6a159c1`；相关source、target、language
   shards均通过。该运行结果仍不是无条件kernel equality，concrete provider-backed theorem继续待闭合。
+
+## 2026-08-15 — StateCell `increment` production subject与executed join
+
+- 新增private-constructor `ResolvedStateCellIncrementProductionSubjectV1`，从同一个elaborated source
+  binding重新走production compiler、Solana capability、HandlerIR、`.s` emitter、SHA-256 strict parser
+  与identity-bound provider；固定initialized value `41`、argument `1`、writable single-account调用。
+- `checkStateCellIncrementProductionSubjectV1`同时执行真实`observeHandlerIRV1`与provider Loader V3
+  evaluator，并检查invocation、status-zero、return bytes与最终account window一致；sound theorem只在
+  checker被kernel discharge后mint generic `StateCellExecutedHandlerSbpfJoinV1` carrier。
+- Solana回归要求increment subject与ParserSession、`get` production assembly byte-for-byte相等，handler
+  必须为`increment`，`41 + 1` gate成功，且把同一invocation错配到`initialize` handler必须fail closed。
+  这仍是generic executed join，不是increment sparse trace、无条件kernel theorem、ELF或SVM runtime
+  refinement；overflow production subject为下一独立切片。
