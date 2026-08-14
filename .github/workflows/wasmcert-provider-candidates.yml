@@ -25,7 +25,9 @@ jobs:
       matrix:
         include:
           - platform: linux-x86_64
-            runner: ubuntu-latest
+            # Build against the older supported glibc baseline; ubuntu-latest
+            # currently emits GLIBC_2.38 requirements that fail on Debian 12.
+            runner: ubuntu-22.04
           - platform: darwin-arm64
             runner: macos-14
     env:
@@ -73,19 +75,110 @@ jobs:
           opam install --switch "$WASMCERT_OPAM_SWITCH" --yes --jobs=2 "${packages[@]}"
           opam list --switch "$WASMCERT_OPAM_SWITCH" --installed --short --columns=name,version \
             > "$RUNNER_TEMP/wasmcert-installed-packages.txt"
-          {
-            opam repository list --all
-            printf '\nrepository-archive-sha256:\n'
-            python3 -I -S - "$OPAMROOT" <<'PY'
+          opam repository list --all | tee "$RUNNER_TEMP/wasmcert-opam-repository-list.txt"
+          python3 -I -S - "$OPAMROOT" \
+            "$RUNNER_TEMP/wasmcert-opam-repository-list.txt" \
+            "$RUNNER_TEMP/wasmcert-opam-repositories.json" <<'PY'
           import hashlib
+          import json
           import pathlib
+          import stat
           import sys
 
-          root = pathlib.Path(sys.argv[1]) / "repo"
-          for path in sorted(root.glob("*.tar.gz")):
-              print(f"{path.name} {hashlib.sha256(path.read_bytes()).hexdigest()}")
+          root = pathlib.Path(sys.argv[1]).resolve(strict=True)
+          repository_list = pathlib.Path(sys.argv[2])
+          output = pathlib.Path(sys.argv[3])
+          repo_root = root / "repo"
+          expected = [
+              ("default", "https://opam.ocaml.org"),
+              ("rocq-released", "https://rocq-prover.org/opam/released"),
+          ]
+
+          observed_origins = {}
+          for number, raw in enumerate(repository_list.read_text(encoding="utf-8").splitlines(), 1):
+              line = raw.strip()
+              if not line or line.startswith("#"):
+                  continue
+              fields = line.split()
+              if len(fields) < 2 or fields[0] in observed_origins:
+                  raise SystemExit(f"invalid opam repository list row {number}: {raw!r}")
+              observed_origins[fields[0]] = fields[1]
+          if observed_origins != dict(expected):
+              raise SystemExit(
+                  f"opam repository name/origin inventory differs: {observed_origins!r}"
+              )
+
+          def file_sha256(path):
+              digest = hashlib.sha256()
+              with path.open("rb") as handle:
+                  for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return digest.hexdigest()
+
+          def tree_descriptor(name, directory):
+              digest = hashlib.sha256()
+              file_count = 0
+              total_size = 0
+              for path in sorted(directory.rglob("*"), key=lambda p: p.relative_to(directory).as_posix().encode("utf-8")):
+                  metadata = path.lstat()
+                  if stat.S_ISDIR(metadata.st_mode):
+                      continue
+                  if not stat.S_ISREG(metadata.st_mode) or path.is_symlink():
+                      raise SystemExit(f"repository tree contains a non-regular leaf: {path}")
+                  relative = path.relative_to(directory).as_posix().encode("utf-8")
+                  content_sha256 = bytes.fromhex(file_sha256(path))
+                  digest.update(len(relative).to_bytes(8, "big"))
+                  digest.update(relative)
+                  digest.update(metadata.st_size.to_bytes(8, "big"))
+                  digest.update(content_sha256)
+                  file_count += 1
+                  total_size += metadata.st_size
+              if file_count == 0:
+                  raise SystemExit(f"repository tree is empty: {directory}")
+              return {
+                  "fileCount": file_count,
+                  "path": f"repo/{name}",
+                  "sha256": digest.hexdigest(),
+                  "size": total_size,
+                  "storage": "canonical-file-tree-v1",
+              }
+
+          repositories = []
+          for name, url in expected:
+              archive = repo_root / f"{name}.tar.gz"
+              directory = repo_root / name
+              if archive.is_file() and not archive.is_symlink():
+                  descriptor = {
+                      "fileCount": 1,
+                      "path": f"repo/{name}.tar.gz",
+                      "sha256": file_sha256(archive),
+                      "size": archive.stat().st_size,
+                      "storage": "archive-bytes-v1",
+                  }
+              elif directory.is_dir() and not directory.is_symlink():
+                  descriptor = tree_descriptor(name, directory)
+              else:
+                  observed = sorted(path.name for path in repo_root.iterdir())
+                  raise SystemExit(
+                      f"opam repository snapshot is absent for {name}; repo entries={observed}"
+                  )
+              descriptor.update({"name": name, "url": url})
+              repositories.append(descriptor)
+
+          config = repo_root / "repos-config"
+          if not config.is_file() or config.is_symlink():
+              raise SystemExit("opam repos-config is not a regular file")
+          observation = {
+              "canonicalTreeDigest": "sha256(u64be(pathLen)||pathUtf8||u64be(size)||sha256(content))*",
+              "reposConfigSha256": file_sha256(config),
+              "repositories": repositories,
+              "schema": "proof-forge.opam-repository-observation.v1",
+          }
+          output.write_text(
+              json.dumps(observation, ensure_ascii=False, separators=(",", ":"), sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
           PY
-          } > "$RUNNER_TEMP/wasmcert-opam-repositories.txt"
 
       - name: Fetch exact WasmCert source
         shell: bash
@@ -125,7 +218,7 @@ jobs:
             --platform "${{ matrix.platform }}" \
             --proof-forge-revision "$proof_forge_revision" \
             --installed-packages "$RUNNER_TEMP/wasmcert-installed-packages.txt" \
-            --opam-repositories "$RUNNER_TEMP/wasmcert-opam-repositories.txt" \
+            --opam-repositories "$RUNNER_TEMP/wasmcert-opam-repositories.json" \
             --repeat-build-report "$RUNNER_TEMP/wasmcert-repeat-build.txt" \
             --opam-version "$opam_version" \
             --ocaml-version "$ocaml_version" \

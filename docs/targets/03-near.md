@@ -448,8 +448,20 @@ Phase 1：实现
   source/semantic/finalized-Wasm及全部 protocol artifact digests；它不 mint formal refinement claim，
   也不包含第二套业务 step。当前两平台 lock都没有 provider，因此回归固定在 artifact IO前
   `PF-TOOLCHAIN-MISSING`，无 PATH或 local-build fallback。Linux executable的 `libgmp/libm/libc/loader`
-  属既有 system dependency roots；Darwin arm64 artifact仍缺，禁止复制 Linux hash激活双平台。
+  属既有 system dependency roots；首轮 Darwin arm64 candidate虽已生成，但因缺少 opam repository
+  snapshot digest而未 admission，禁止复制 Linux hash或用 workflow success激活双平台。
   activation digest本身也按 Darwin/Linux两个独立 row保持 `none`，不存在单 digest跨平台授权。
+- **locked WasmCert → sole Reference product carrier（Phase 7 第三十七切）**：
+  `WasmCertReferenceJoinV1` 只消费 private-constructor locked execution observation；semantic subject
+  不由调用方选择，而是从其中 exact `FinalizedArtifactsV1` capability恢复 retained
+  `SemanticProgramV1`并重新经过 `admitReferenceProgramSliceV1`。contract-specific adapter只能把
+  target ABI/context/storage表示投影为既有 `LogicalStateV1`/`InvocationV1`及把 Reference post-state
+  编码回 production rows，接口不接触也不产生 `OutcomeV1`；通用层唯一调用
+  `stepReferenceSliceV1`。strict first profile对 returned result/post-storage、failure unchanged-state/
+  rollback及 empty ordered effects/logs/promises逐项比较，成功后才 mint private engineering join
+  carrier。现有 VerifiedVault 5/5 consumer已复用该通用 comparator，terminal/post-storage/rollback
+  篡改继续 fail closed。adapter表示正确性本身仍是显式 trust boundary，且 Tool Lock未激活，所以
+  这不是 kernel target-refinement theorem或 release evidence。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`

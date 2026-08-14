@@ -1,5 +1,5 @@
 import Examples.VerifiedVaultPF
-import ProofForgeV2.Targets.Near.WasmCertArtifactsV1
+import ProofForgeV2.Targets.Near.WasmCertReferenceJoinV1
 
 /-!
 Focused external-provider acceptance consumer. It is invoked only by
@@ -113,44 +113,32 @@ private def referenceInvocation
     | _ => throw "WasmCert Reference join supports at most one parameter"
   pure { callableId := callable.id, args, context := #[] }
 
+private def verifiedVaultAdapter : WasmCertReferenceAdapterV1 := {
+  schema := wasmCertReferenceAdapterSchemaV1
+  prepare := fun _ invocation => do
+    let callable ← referenceCallable invocation
+    let preState ← referencePreState callable invocation
+    let referenceInvocation ← referenceInvocation callable invocation
+    pure { preState, invocation := referenceInvocation }
+  encodePostStorage := fun _ post => do
+    let values ← match decodeLogicalStateValuesV1 subjectData post with
+      | .ok values => pure values
+      | .error error => throw s!"Reference post-state decode failed: {repr error}"
+    referenceStorageRows values
+}
+
 /-- Execute the sole admitted Reference machine for the exact external
-    invocation and compare its result with the replay-validated Wasm
-    observation. This is a concrete refinement join, not a second contract
-    evaluator or a universal Wasm correctness theorem. -/
+    invocation. The product comparator owns terminal/result/storage agreement;
+    this fixture owns only the VerifiedVault ABI/storage representation. -/
 private def validateReferenceObservation
     (admitted : AdmittedReferenceSliceV1)
     (invocation : WasmCertInvocationArtifactV1)
     (observation : WasmCertObservationArtifactV1) : Except String Unit := do
-  let callable ← referenceCallable invocation
-  let pre ← referencePreState callable invocation
-  let referenceInvocation ← referenceInvocation callable invocation
-  let outcome := stepReferenceSliceV1 admitted pre referenceInvocation #[] {}
-  match outcome with
-  | .returned post value effects =>
-      unless observation.status = .returned do
-        throw "Wasm execution failed while the sole Reference machine returned"
-      unless effects.isEmpty do
-        throw "VerifiedVaultPF WasmCert slice does not map nonempty Reference effects"
-      unless observation.logs.isEmpty && observation.promises.isEmpty do
-        throw "effect-free Reference return produced target logs or promises"
-      unless observation.returnData = value.map (·.valueBytes) do
-        throw "Wasm return data differs from the sole Reference result"
-      let values ← match decodeLogicalStateValuesV1 subjectData post with
-        | .ok values => pure values
-        | .error error => throw s!"Reference post-state decode failed: {repr error}"
-      let expectedStorage ← referenceStorageRows values
-      unless observation.postStorage = expectedStorage do
-        throw "Wasm post-storage differs from the sole Reference post-state"
-  | .reverted _ unchanged | .trapped _ unchanged =>
-      unless unchanged == pre do
-        throw "Reference failure did not preserve the exact pre-state"
-      unless observation.status = .trapped do
-        throw "Wasm execution returned while the sole Reference machine failed"
-      unless observation.returnData.isNone && observation.logs.isEmpty &&
-          observation.promises.isEmpty do
-        throw "Wasm failure differs from the effect-free Reference failure boundary"
-      unless observation.postStorage = invocation.preStorage do
-        throw "Wasm failure did not expose exact transactional rollback"
+  let prepared ← verifiedVaultAdapter.prepare subjectData invocation
+  let outcome := stepReferenceSliceV1 admitted prepared.preState
+    prepared.invocation prepared.externalResponses prepared.vaultSeed
+  validateWasmCertEffectFreeReferenceOutcomeV1 verifiedVaultAdapter subjectData
+    prepared.preState outcome invocation observation
 
 private def checkCase
     (admitted : AdmittedReferenceSliceV1) (directory name : String) : IO Unit := do

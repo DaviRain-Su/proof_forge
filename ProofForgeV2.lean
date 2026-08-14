@@ -133,3 +133,4 @@ import ProofForgeV2.CLI.Emit
 import ProofForgeV2.Targets.Near.WasmCertWireV1
 import ProofForgeV2.Targets.Near.WasmCertArtifactsV1
 import ProofForgeV2.Targets.Near.WasmCertProductV1
+import ProofForgeV2.Targets.Near.WasmCertReferenceJoinV1

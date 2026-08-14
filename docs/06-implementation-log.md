@@ -15708,3 +15708,35 @@ normative: false
 - 本地 Linux packager已在真实 provider上通过，得到 executable SHA-256
   `3c6af34d068e08cd34ea6bf627ec1c1e597f5577f163d89f5f63f462303b0ad4`、无 RUNPATH、仅
   `libc.so.6`/`libgmp.so.10`/`libm.so.6` system NEEDED。Darwin结果必须等待实际 matrix运行，不预填。
+
+## 2026-08-14 — NEAR locked WasmCert Reference product join
+
+- 新增 `Targets/Near/WasmCertReferenceJoinV1.lean`并由 public umbrella导出。
+  `joinLockedWasmCertReferenceV1`只接受 private-constructor locked execution observation，从其中
+  finalized capability恢复 exact retained `SemanticProgramV1`并重新调用
+  `admitReferenceProgramSliceV1`；调用方不能换入另一个 semantic subject。
+- contract-specific `WasmCertReferenceAdapterV1`只准备既有 logical pre-state、Reference invocation、
+  external responses/vault seed与 post-storage representation；接口没有 `OutcomeV1` callback。
+  通用层唯一执行 `stepReferenceSliceV1`，strict first profile随后比较 exact return/post-storage，或
+  failure unchanged-state与 target rollback，并拒绝任何非空 ordered effects/logs/promises。
+- 成功结果是 private engineering join carrier，不是 arbitrary Wasm/NEAR kernel theorem；adapter
+  representation correctness仍显式属于 trust boundary。VerifiedVault runtime consumer已删除重复
+  terminal/storage comparator并复用产品函数；本地真实 provider + finalized Wasm仍为5/5，terminal、
+  post-storage与 overdraw rollback tamper保持 fail closed。
+
+## 2026-08-14 — WasmCert first candidate audit and fail-closed rebuild
+
+- manual run `31763981317` 的Linux/Darwin jobs均成功完成2/2 clean byte-identical build；Darwin
+  executable SHA-256=`73473e6cf5b78c9d95ad86839c20c7dddaa04ab1f8125744ce3c72861f521d2c`
+  并收集Homebrew `libgmp.10.dylib`，Linux executable SHA-256=
+  `387524b7ad2fa677de4df79cb5d577af6407df8bdf51f3efea4ecbb766d2ce9e`。
+- workflow success未自动 admission。artifact审查发现两个阻断：Darwin manifest的
+  `repository-archive-sha256`为空；Linux `ubuntu-latest`产物在当前Debian 12 / GLIBC 2.36实测
+  `--version`即因缺`GLIBC_2.38`失败。两平台 activation rows继续为`none`。
+- candidate workflow现对`default`与`rocq-released`逐个要求 exact snapshot：优先记录持久
+  `.tar.gz` bytes digest，否则以排序 relative path、size与content SHA-256计算 canonical tree digest；
+  snapshot缺失、空tree、symlink/nonregular、repository name/origin/field/schema/digest异常均
+  fail closed。packager再次独立解析 canonical observation，不再接受空白自由文本。
+- Linux runner固定为`ubuntu-22.04`旧GLIBC基线。packager的双repository positive与missing-row
+  negative本地回归均通过。下一步是推送后重跑matrix、下载复审，并要求新Linux candidate在当前
+  orb通过version probe及VerifiedVault 5/5 smoke后才考虑Tool Lock admission。

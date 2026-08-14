@@ -35,6 +35,13 @@ SYSTEM_ROOTS = {
     "linux-x86_64": ("/lib/", "/lib64/", "/usr/lib/"),
 }
 HEX_40 = re.compile(r"[0-9a-f]{40}")
+HEX_64 = re.compile(r"[0-9a-f]{64}")
+REPOSITORY_OBSERVATION_SCHEMA = "proof-forge.opam-repository-observation.v1"
+CANONICAL_TREE_DIGEST = "sha256(u64be(pathLen)||pathUtf8||u64be(size)||sha256(content))*"
+EXPECTED_REPOSITORIES = [
+    ("default", "https://opam.ocaml.org"),
+    ("rocq-released", "https://rocq-prover.org/opam/released"),
+]
 
 
 def fail(message: str) -> "None":
@@ -78,6 +85,59 @@ def parse_packages(path: Path) -> list[dict[str, str]]:
     if not rows:
         fail(f"{path}: package inventory is empty")
     return sorted(rows, key=lambda row: row["name"].encode("utf-8"))
+
+
+def parse_repository_observation(path: Path) -> dict[str, object]:
+    raw = path.read_text(encoding="utf-8")
+    try:
+        observation = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as error:
+        fail(f"{path}: invalid repository observation ({error})")
+    canonical = json.dumps(
+        observation, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+    ) + "\n"
+    if raw != canonical:
+        fail(f"{path}: repository observation is not canonical JSON")
+    if not isinstance(observation, dict) or set(observation) != {
+        "canonicalTreeDigest",
+        "reposConfigSha256",
+        "repositories",
+        "schema",
+    }:
+        fail(f"{path}: repository observation has an unknown or missing field")
+    if observation["schema"] != REPOSITORY_OBSERVATION_SCHEMA:
+        fail(f"{path}: repository observation schema differs")
+    if observation["canonicalTreeDigest"] != CANONICAL_TREE_DIGEST:
+        fail(f"{path}: repository tree digest algorithm differs")
+    if not isinstance(observation["reposConfigSha256"], str) or not HEX_64.fullmatch(
+        observation["reposConfigSha256"]
+    ):
+        fail(f"{path}: repos-config digest must be exact lowercase SHA-256")
+    repositories = observation["repositories"]
+    if not isinstance(repositories, list) or len(repositories) != len(EXPECTED_REPOSITORIES):
+        fail(f"{path}: repository snapshot inventory must contain both exact repositories")
+    for row, (expected_name, expected_url) in zip(repositories, EXPECTED_REPOSITORIES):
+        if not isinstance(row, dict) or set(row) != {
+            "fileCount", "name", "path", "sha256", "size", "storage", "url"
+        }:
+            fail(f"{path}: repository snapshot has an unknown or missing field")
+        if row["name"] != expected_name or row["url"] != expected_url:
+            fail(f"{path}: repository name/origin differs from the frozen inventory")
+        if not isinstance(row["sha256"], str) or not HEX_64.fullmatch(row["sha256"]):
+            fail(f"{path}: repository snapshot digest must be exact lowercase SHA-256")
+        if type(row["size"]) is not int or row["size"] <= 0:
+            fail(f"{path}: repository snapshot size must be positive")
+        if type(row["fileCount"]) is not int or row["fileCount"] <= 0:
+            fail(f"{path}: repository snapshot file count must be positive")
+        if row["storage"] == "archive-bytes-v1":
+            if row["path"] != f"repo/{expected_name}.tar.gz" or row["fileCount"] != 1:
+                fail(f"{path}: archive repository descriptor is inconsistent")
+        elif row["storage"] == "canonical-file-tree-v1":
+            if row["path"] != f"repo/{expected_name}":
+                fail(f"{path}: tree repository descriptor is inconsistent")
+        else:
+            fail(f"{path}: unsupported repository snapshot storage kind")
+    return observation
 
 
 def file_descriptor(path: Path, relative: str, mode: str) -> dict[str, object]:
@@ -297,6 +357,7 @@ def main() -> None:
         ]
         installed_packages = parse_packages(args.installed_packages)
         locked_packages = parse_packages(ROOT / "tools/wasmcert-provider/opam-packages.v1.lock")
+        repository_observation = parse_repository_observation(args.opam_repositories)
         installed_by_name = {row["name"]: row["version"] for row in installed_packages}
         for row in locked_packages:
             if installed_by_name.get(row["name"]) != row["version"]:
@@ -324,7 +385,7 @@ def main() -> None:
             },
             "installedPackages": installed_packages,
             "lockedPackages": locked_packages,
-            "opamRepositories": args.opam_repositories.read_text(encoding="utf-8"),
+            "opamRepositories": repository_observation,
             "payloadFiles": payload_files,
             "platform": args.platform,
             "proofForgeRevision": args.proof_forge_revision,

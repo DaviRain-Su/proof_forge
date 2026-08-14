@@ -835,11 +835,18 @@ return/log/panic host trace并与 call-boundary observation exact连接。真实
 `VerifiedVaultPF.wasm` 已执行 init/deposit/withdraw/status/overdraw 五条路径；Lean runtime consumer
 从 production storage恢复 logical pre-state，调用 sole `stepReferenceSliceV1`，并比较 exact
 return/post-state或 rollback。Python smoke已经删除手写业务 post-state oracle，且 Reference terminal/
-storage tamper负例 fail closed。该结果把 NEAR纵链推进到本地 executable refinement join，但仍不是
+storage tamper负例 fail closed。`WasmCertReferenceJoinV1` 又把该比较从 fixture-private代码下沉为
+locked product carrier：exact semantic subject只能从 locked observation所持 finalized capability
+恢复，representation adapter不接触 `OutcomeV1`，通用层唯一调用 `stepReferenceSliceV1`并在成功后
+mint private engineering join。该结果把 NEAR纵链推进到本地 executable refinement join，但仍不是
 kernel中的一般 IR/WAT→Wasm simulation theorem，也不是 Tool Lock/product evidence。下一步仍留在
 NEAR：isolated locked product consumer与 evidence identity已实现，但 activation仍机械 fail closed；
-剩余阶段出口是取得真实 Linux/Darwin provider artifacts、写入 per-platform executable closure并跑通
-activated consumer。parser/translation/host assumptions继续明示，完成该出口后才恢复 Solana。
+首轮双平台 candidate已构建成功但审查拒绝 admission：Darwin manifest缺两个 opam repository
+snapshot digest；Linux binary要求 GLIBC 2.38，无法在当前 Debian 12 / GLIBC 2.36执行 version probe。
+候选门现要求 archive或 canonical file-tree repository digest两行齐全，并把 Linux runner固定为
+Ubuntu 22.04旧 glibc基线。剩余阶段出口是重建并审查双平台 closure、写入 per-platform executable
+identity并跑通 activated consumer。parser/translation/host/adapter assumptions继续明示，完成该出口
+后才恢复 Solana。
 
 2026-08-13 已开始 Solana 的第一个 bounded target slice，当前只覆盖真实 production
 `StateCell.get() : UInt64`：
@@ -969,7 +976,7 @@ ProofForge内自造完整 EVM opcode、Wasm binary、sBPF或 Solana runtime sema
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR 本地 WasmCert executable/host/Reference join及 locked consumer已贯通；Solana `StateCell.get()` 首切后暂停）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；structured provider、bounded nine-import host、trace replay及真实 VerifiedVault五路径 sole Reference join已通过，same-host clean build byte-identical。isolated product consumer现绑定 active Tool Lock/executable及全部 protocol digests，并在 unprovisioned状态于 artifact IO前 fail closed。但真实 Darwin artifact与双平台 Tool Lock closure仍缺，且无一般 IR/WAT→Wasm simulation theorem；因此只算 engineering executable join。Solana已有首个 Plan/HandlerIR slice，但在 NEAR真实双平台 provisioning/activated-consumer阶段出口前不扩面 |
+| 7 | Per-target refinement | **进行中（NEAR 本地 WasmCert executable/host/Reference join及 locked consumer已贯通；Solana `StateCell.get()` 首切后暂停）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；structured provider、bounded nine-import host、trace replay及真实 VerifiedVault五路径 sole Reference join已通过，same-host clean build byte-identical。locked Reference product carrier从 finalized capability恢复 exact semantic subject，并把 representation adapter限制在 Outcome之外。首轮双平台 candidates因 Darwin repository snapshot identity缺失与Linux GLIBC_2.38不兼容而诚实拒绝，Tool Lock仍未激活；且无一般 IR/WAT→Wasm simulation theorem，因此只算 engineering executable join。Solana已有首个 Plan/HandlerIR slice，但在 NEAR真实双平台 provisioning/activated-consumer阶段出口前不扩面 |
 
 ### 首个代码切片进展
 
@@ -1384,11 +1391,22 @@ expression translator：
     GNU `sha256sum`依赖，统一由 isolated Python SHA-256计算；`--repeat-check`在两个独立 clean
     export/build目录构建并要求 executable byte-identical后才发布。该步骤只建立 Darwin candidate
     生成入口，尚未取得 Darwin bytes/hash、runtime closure或 Tool Lock activation。
-27. 已加入手动 Ubuntu/macOS 14 candidate矩阵与 non-activating packager：每个平台从 exact source与
+27. 已加入手动 Ubuntu 22.04/macOS 14 candidate矩阵与 non-activating packager：每个平台从 exact source与
     package-version lock构建，记录 full installed package/repository observation、tool versions、build
     input hashes和 native loader policy。Linux拒绝 system roots外依赖；Darwin递归收集非系统 dylib。
     candidate manifest固定`toolLockAdmitted=false`/`productActivated=false`，只有实际 workflow产物经
-    审查后才可进入下一次 Tool Lock admission变更。
+    审查后才可进入下一次 Tool Lock admission变更；
+28. locked Reference join已从 smoke fixture抽出为产品模块：输入必须是 private locked execution，
+    exact program从其 finalized capability恢复并重新 Reference-admit；adapter只准备既有
+    logical state/invocation/external response/vault carriers及编码 post-storage，不可提供 outcome。
+    strict effect-free comparator固定 return、post-state、failure unchanged-state与 rollback；成功只
+    mint engineering carrier，不隐藏 adapter表示正确性的 trust boundary；
+29. 首轮真实 matrix run `31763981317` 两平台均完成 2/2 byte-identical build：Darwin executable
+    `73473e6c…21d2c`并收集`libgmp.10.dylib`，Linux executable `387524b7…ce9e`。审查没有据此激活：
+    Darwin repository archive digest清单为空；Linux在Debian 12实测因`GLIBC_2.38`缺失连version probe
+    都失败。workflow/packager已改为两个 exact repository snapshot必须各有 archive-bytes或canonical
+    tree SHA-256，缺项直接失败；Linux构建固定Ubuntu 22.04。两平台重建、复审及当前orb smoke前，
+    activation rows继续为`none`。
 
 ---
 

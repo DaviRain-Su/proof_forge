@@ -14,6 +14,7 @@ import ProofForgeV2.Targets.Near.WasmCertProviderV1
 import ProofForgeV2.Targets.Near.WasmCertWireV1
 import ProofForgeV2.Targets.Near.WasmCertArtifactsV1
 import ProofForgeV2.Targets.Near.WasmCertProductV1
+import ProofForgeV2.Targets.Near.WasmCertReferenceJoinV1
 
 /-!
 # ProofForgeV2.Targets.Near — public façade
@@ -36,6 +37,9 @@ one of those records still does not establish execution or provider identity.
 carriers plus content-level candidate joins; it is not a second business step.
 `WasmCertProductV1` is the isolated locked consumer for finalized Wasm; while
 the provider is absent from Tool Lock, it fails before artifact IO or execution.
+`WasmCertReferenceJoinV1` recovers the exact retained semantic subject from the
+locked execution and compares the sole Reference step through a representation-
+only ABI/storage adapter; it does not define a second contract evaluator.
 `FinalizeV1` remains a separate submodule.
 -/
 
