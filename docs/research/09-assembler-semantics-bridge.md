@@ -17,10 +17,17 @@ normative: false
 
 | Field | Value |
 |-------|--------|
-| Path | sibling repo `orca/projects/assembler-semantics` (or future published git URL) |
+| Repository | [`DaviRain-Su/assembler-semantics`](https://github.com/DaviRain-Su/assembler-semantics) |
+| Audited revision | `ef6e20c20827e4158e1cb025518465aa8beb46da` |
 | Method | Lean 4 sBPF ISA semantics (yul-semantics style) |
 | Normative contract | `docs/proof-forge-interface.md` in that repo |
 | Stable import | `SbpfSemantics.Api` |
+
+2026-08-14 source audit确认该revision使用Lean 4.31.0、无transitive Lake dependency，并公开
+resolved instruction runner、memory/host dialect、observation与encode/decode。它仍不提供`.s` parser、
+label resolver、ELF reader或production Solana account serializer。候选promotion边界已写入
+[`ADR-0048`](../adr/0048-optional-solana-sbpf-semantics-provider.md)；该ADR仍为`proposed`，因此当前
+仓库**没有**新增Lake dependency，也没有provider-backed refinement claim。
 
 ## Why it matters for V2
 
@@ -50,10 +57,11 @@ import SbpfSemantics.Api   -- optional formal/trace profile
 differential vs Mollusk / sbpf VM (external evidence)
 ```
 
-Promotion path (when ready):
+Promotion path (when ADR-0048 is accepted):
 
-1. ADR: optional `formal-solana-isa` toolchain pin (exact rev + hash).
-2. Materializer profile emits L2 programs into the Api types (or a thin adapter).
+1. Add the exact ADR-0048 revision to Lake and the supply-chain closure.
+2. Refactor the production emitter to one structured instruction source; render `.s` and project
+   `SbpfSemantics.Instr` from that same source.
 3. TST-SOL-*: `Observation.controlEq` against Semantic.Program reference traces
    for Counter portable fragment.
 4. Keep product ELF path independent (sbpf toolchain); formal lane fail-closed

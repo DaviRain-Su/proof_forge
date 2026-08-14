@@ -15854,3 +15854,18 @@ normative: false
 - 准确边界提升为 **`StateCell.get/initialize/increment` bounded production Plan/HandlerIR target
   refinement**。本切仍不证明assembly emitter、sBPF ISA、ELF、loader或Solana runtime；下一层是
   HandlerIR→外部/复用sBPF semantics，不在ProofForge内复制第二套business semantics。
+
+## 2026-08-14 — Solana外部sBPF semantics provider source audit与ADR提案
+
+- 已核验公开 `DaviRain-Su/assembler-semantics` revision
+  `ef6e20c20827e4158e1cb025518465aa8beb46da`：Lean 4.31.0、MIT、无transitive Lake dependency；
+  stable `SbpfSemantics.Api`提供resolved instruction、small-step runner、flat memory、host dialect、
+  observation与encode/decode。
+- provider不提供`.s` parser、label resolver、ELF、Loader V3 account serializer、完整SVM host或Agave
+  compatibility proof。现有`CounterScenario`只是InputCell stand-in与concrete examples，不能代签
+  production StateCell account/dispatch/rollback。
+- 新增ADR-0048 proposal，规定ProofForge-owned production emitter先形成共享structured instruction
+  source，再分别render当前`.s`并投影provider `Instr`；拒绝proof-only平行HandlerIR codegen、字符串
+  substring identity与产品fallback。locked `sbpf`→ELF rail保持不变。
+- ADR当前仍为`proposed`，所以本切**没有**修改Lake manifest、没有引入provider代码，也没有产生
+  HandlerIR→sBPF theorem或提升maturity。后续接线须先完成ADR acceptance与exact supply-chain pin。
