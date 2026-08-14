@@ -28,8 +28,10 @@ resolved instruction runner、memory/host dialect、observation与encode/decode�
 label resolver、ELF reader或production Solana account serializer。候选promotion边界已写入
 [`ADR-0048`](../adr/0048-optional-solana-sbpf-semantics-provider.md)；该ADR已`accepted`并固定development
 Lake pin。ProofForge现已直接解析/resolve production StateCell `.s`为provider `Program`，并用真实
-single-account Loader V3 ABIv1 image执行bounded provider observations；尚未建立
-HandlerIR↔resolved-sBPF kernel theorem，所以仍**没有**provider-backed refinement claim。
+single-account Loader V3 ABIv1 image执行bounded provider observations。`SbpfHandlerJoinV1`已固定
+Handler invocation↔Loader invocation、success/overflow observation及Reference→Handler→provider
+组合关系，并要求真实两侧evaluator等式；但production 168条program的provider执行等式尚未由
+kernel trace certificate闭合，所以仍**没有**concrete provider-backed refinement claim。
 
 ## Why it matters for V2
 
@@ -65,14 +67,14 @@ SbpfSemantics.Api   -- optional formal/trace profile
 differential vs Mollusk / sbpf VM (external evidence)
 ```
 
-Promotion path (ADR-0048 accepted; 1–3 complete):
+Promotion path (ADR-0048 accepted; 1–3 complete, 4 in progress):
 
 1. Add the exact ADR-0048 revision to Lake and the supply-chain closure.
 2. Strictly parse and resolve the exact production `.s` artifact into `SbpfSemantics.Instr`; do not add
    a proof-only `HandlerIR → Program` code generator.
 3. Build the real Loader V3 single-account input and execute the resolved program.
-4. TST-SOL-*: `Observation.controlEq` against Semantic.Program reference traces
-   for Counter portable fragment.
+4. `SbpfHandlerJoinV1`先固定两侧invocation/outcome/account join，再以bounded sparse provider trace
+   discharge identity-bound execution equations and compose with existing Reference→Handler theorems.
 5. Keep product ELF path independent (sbpf toolchain); formal lane fail-closed
    if pin missing.
 
@@ -95,6 +97,8 @@ Contract: sibling `docs/proof-forge-interface.md`.
 - Does not replace SolanaPlan, account schema, CPI, or IDL.
 - Does not claim Agave binary compatibility.
 - Does not satisfy clean-room until pinned under V2 dependency policy.
+- Current join carrier/relations are not a proof that the 168-instruction StateCell artifact executes them;
+  that final premise still needs a kernel-checked sparse trace certificate.
 
 ## Related V1 research (parent, also research-only)
 

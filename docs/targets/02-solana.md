@@ -299,7 +299,9 @@ Phase 1 在本地 runtime/validator 创建 program 与 state accounts，发送 i
 3. Semantic interpreter 对照 sBPF emulator。
    - 候选 ISA 地基：exact revision的公开 `assembler-semantics`（`SbpfSemantics.Api` /
      `Observation`），见 [`../research/09-assembler-semantics-bridge.md`](../research/09-assembler-semantics-bridge.md)。
-     完成provider execution/theorem且release source closure闭合前，不得作为clean-room或release证据。
+     production artifact strict resolve与Loader V3 provider execution已有工程观测；
+     `SbpfHandlerJoinV1`已固定kernel组合契约，但168条StateCell program的bounded execution certificate
+     尚未闭合。完成该theorem且release source closure闭合前，不得作为clean-room或release证据。
 4. local runtime 完成 Counter 正常与 overflow rollback。
 5. 可用时增加官方 validator deployment evidence。
 

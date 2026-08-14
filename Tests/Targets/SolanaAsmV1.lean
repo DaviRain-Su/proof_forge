@@ -225,8 +225,7 @@ private unsafe def testStateCellSbpfArtifact
   let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
     "<solana-sbpf-artifact-stateCell>"
   let asm ← liftResult <| asmSolana compiled
-  let expectedSha256 :=
-    "c93b1448aa782550b7643ccced44209c57df604a866c236552dadc5ac6a159c1"
+  let expectedSha256 := stateCellProductionSbpfSha256V1
   let boundArtifact ← liftArtifactResult <|
     resolveBoundSbpfArtifactV1 asm expectedSha256
   let artifact := BoundResolvedSbpfArtifactV1.resolvedOf boundArtifact
@@ -292,7 +291,7 @@ private unsafe def testStateCellSbpfExecution
   let ir ← liftResult <| irSolana compiled
   let asm ← liftResult <| emitSbpfAsmV1 ir
   let boundArtifact ← liftArtifactResult <| resolveBoundSbpfArtifactV1 asm
-    "c93b1448aa782550b7643ccced44209c57df604a866c236552dadc5ac6a159c1"
+    stateCellProductionSbpfSha256V1
   let artifact := BoundResolvedSbpfArtifactV1.resolvedOf boundArtifact
   let discriminator (name : String) : IO UInt64 := do
     let handler ← match ir.handlers.find? (·.name == name) with

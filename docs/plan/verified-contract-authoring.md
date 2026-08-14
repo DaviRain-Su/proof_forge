@@ -902,9 +902,14 @@ constant/operand/syscall resolver和SHA-256 identity gate。production StateCell
 instructions、17个labels、12个constants；valid-text tamper、unknown/duplicate/unresolved/out-of-range/
 unsupported均有fail-closed回归。真实Loader V3 single-account ABIv1 adapter与provider execution
 observation也已闭合：identity-bound artifact执行`get/initialize/increment/overflow`，并固定return、
-account bytes、error、`.stuck`/`.outOfFuel`和malformed-input fail-closed行为。下一步是将这些bounded
-provider observations与既有production HandlerIR evaluator建立kernel-checkable join；当前尚无
-provider-backed refinement theorem，且release source-dependency/SBOM closure继续独立fail closed。
+account bytes、error、`.stuck`/`.outOfFuel`和malformed-input fail-closed行为。`SbpfHandlerJoinV1`
+现已建立kernel-checkable组合边界：canonical Handler invocation↔Loader invocation relation、
+success/overflow observation relation、同时要求真实`observeHandlerIRV1`与identity-bound
+`executeLoaderV3SingleAccountV1`等式的carrier，以及既有Reference→Handler success relation到provider
+return/account window的组合投影。当前仍缺production StateCell 168条program的provider执行等式证书，
+所以尚无concrete provider-backed refinement theorem；下一步必须用稀疏、逐步的bounded trace
+certificate闭合`get`，不能把工程`#eval`结果或直接展开10416-byte Loader image冒充kernel proof。
+release source-dependency/SBOM closure也继续独立fail closed。
 整个接线不能另写proof-only codegen或第二套business semantics。
 再后评估外部Yul/EVM/bytecode semantics，
 最后扩其他target。每个target独立关闭，不能用一个target的refinement为其他target背书；也不在

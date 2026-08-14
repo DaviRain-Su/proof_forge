@@ -15920,3 +15920,20 @@ normative: false
   也不证明ELF/linker/loader、Solana rollback/transaction atomicity、compute units、完整host或runtime。
   下一切应把这些bounded observations接回既有production HandlerIR evaluator，再与已闭合的
   Reference→HandlerIR theorem组合；不得新增第二套DSL/business semantics。
+
+## 2026-08-14 — Solana HandlerIR↔sBPF kernel join boundary
+
+- 新增`SbpfHandlerJoinV1`并由Solana public façade导出：StateCell production `.s` SHA-256成为一个
+  strict identity authority；既有artifact/execution测试改为消费该值，不再各自复制digest。
+- kernel theorem固定16-byte StateCell账户对应的Loader offsets
+  `rentEpoch=10352`、`instructionDataLen=10360`、`instructionData=10368`；canonical nullary/unary
+  Handler invocation与Loader invocation的account flags/data/instruction bytes已建立exact relation。
+- `HandlerSbpfObservationRelV1`对齐success status 0、checked-add overflow status、return data和final
+  account window；`ExecutedHandlerSbpfJoinV1`同时要求真实`observeHandlerIRV1`与identity-bound
+  `executeLoaderV3SingleAccountV1`执行等式，不能用手造observation跳过任何一侧 evaluator。
+- 既有UInt64 Reference→Handler success relation现可kernel组合到provider status/return/account
+  projection，未新增HandlerIR lowering、business step、effect semantics或proof-only sBPF program。
+- 本切只关闭**join contract与组合结构**。直接在kernel中展开完整10416-byte Loader image会产生不可接受
+  的归约内存（增长reserve占10240 bytes），因此没有把工程execution regression冒充定理。当前仍缺
+  identity-bound 168条program的bounded sparse step trace certificate；先闭合`get`，再复用到
+  initialize/increment/overflow。在该等式证书完成前仍无concrete provider-backed refinement theorem。
