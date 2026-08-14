@@ -188,7 +188,13 @@ mutual
     | .externalCall call =>
         -- N-CALL-RET: value-position sync call contributes the same
         -- synchronous-call + rollback requirements as statement call.
-        call.args.flatMap exprContributions ++ #[synchronousCall, transactionalRollback]
+        -- SYS-S5: exact `pf.crypto.sha256` is a host syscall / precompile leaf
+        -- (env-read discipline): no effect.synchronous-call contribution.
+        let child := call.args.flatMap exprContributions
+        if isPfCryptoSha256QnV1 (qnToString call.callee) then
+          child
+        else
+          child ++ #[synchronousCall, transactionalRollback]
 
   private partial def stmtContributions : StmtV1 → Array RequirementContributionV1
     | .let_ _ typeAnn? value =>
@@ -220,8 +226,11 @@ mutual
         | some value => exprContributions value
         | none => #[]
     | .call call =>
-        call.args.flatMap exprContributions ++
-          #[synchronousCall, transactionalRollback]
+        let child := call.args.flatMap exprContributions
+        if isPfCryptoSha256QnV1 (qnToString call.callee) then
+          child
+        else
+          child ++ #[synchronousCall, transactionalRollback]
     | .schedule call =>
         call.args.flatMap exprContributions ++ #[asynchronousWorkflow]
 

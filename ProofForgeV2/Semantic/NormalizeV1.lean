@@ -1187,7 +1187,7 @@ private partial def synthPlaceTypeV1
               | none =>
                   if key == "context" then
                     failUnsupported
-                      "S1 context place must be context.unixTimeSeconds, context.caller, context.blockHeight, context.chainId or context.contractId (field chain)"
+                      "S1 context place must be context.unixTimeSeconds, context.caller, context.blockHeight, context.chainId, context.contractId or context.attachedValue (field chain)"
                   else
                     failUnsupported
                       s!"S1 bare place '{key}' is neither param, state, nor const"
@@ -1204,9 +1204,11 @@ private partial def synthPlaceTypeV1
             pure (internShape interner (.uint 64))
           else if raw root == "context" && raw fieldName == "contractId" then
             pure (internShape interner .principal)
+          else if raw root == "context" && raw fieldName == "attachedValue" then
+            pure (internShape interner (.uint 64))
           else if raw root == "context" then
             failUnsupported
-              s!"S1 unsupported context field '{raw fieldName}' (admitted: unixTimeSeconds, caller, blockHeight, chainId, contractId)"
+              s!"S1 unsupported context field '{raw fieldName}' (admitted: unixTimeSeconds, caller, blockHeight, chainId, contractId, attachedValue)"
           else do
             let (interner, baseTid) ←
               synthPlaceTypeV1 base interner env states constants

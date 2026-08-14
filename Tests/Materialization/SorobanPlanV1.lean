@@ -1,0 +1,186 @@
+/-
+  Soroban S0 target leaf tests (ADR-0044): Plan/IR/emitter over retained
+  SemanticProgramV1. Uses planFromCompiledSemanticV1 / buildFromCompiledSemanticV1.
+-/
+import ProofForgeV2
+import ProofForgeV2.Targets.Soroban
+import Tests.Language.ParserSession
+import Tests.Compiler.ValidatedSourceV1Pipeline
+
+namespace Tests.Materialization.SorobanPlanV1
+
+open ProofForgeV2
+open ProofForgeV2.Compiler
+open ProofForgeV2.Targets
+
+private def expect (condition : Bool) (message : String) : IO Unit :=
+  unless condition do throw <| IO.userError message
+
+private def liftResult (result : CompileResult α) : IO α :=
+  match result with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError error.render
+
+private def planSoroban (compiled : CompiledSemanticV1) : CompileResult Targets.Soroban.Plan :=
+  Targets.Soroban.planFromCompiledSemanticV1 compiled
+
+private def buildSoroban (compiled : CompiledSemanticV1) :
+    CompileResult (Array OutputFile) :=
+  Targets.Soroban.buildFromCompiledSemanticV1 compiled
+
+/-- StateCell: plan shape + key Rust source fragments. -/
+unsafe def testStateCellSorobanSource : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StateCell where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-state-cell>" "Tests.SorobanStateCell" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  expect (plan.states.map (·.name) == #["count"])
+    "StateCell Soroban plan must carry the count state field"
+  expect (plan.entries.map (·.name) == #["increment"])
+    "StateCell Soroban plan must carry the increment entry"
+  expect (plan.views.map (·.name) == #["get"])
+    "StateCell Soroban plan must carry the get view"
+  match plan.initializer with
+  | some initFn =>
+      expect (initFn.params == #["initial"])
+        "StateCell init must carry the initial parameter"
+      expect (initFn.stores.size == 1)
+        "StateCell init must store count"
+  | none => throw <| IO.userError "StateCell must have an initializer"
+  let some inc := plan.entries[0]? |
+    throw <| IO.userError "missing increment entry"
+  let overflowOk :=
+    match inc.checks[0]? with
+    | some ck => inc.checks.size == 1 && ck.kind == .overflow
+    | none => false
+  expect overflowOk "increment must carry a single overflow check"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let d1 ← match Targets.Soroban.engineeringSorobanPlanDigestV1 plan with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError e
+  let d2 ← match Targets.Soroban.engineeringSorobanPlanDigestV1 plan with
+    | .ok d => pure d
+    | .error e => throw <| IO.userError e
+  expect (d1 == d2) "Soroban plan digest must be deterministic"
+  let files ← liftResult <| buildSoroban compiled
+  let some rsFile := files.find? (fun f => f.path == "StateCell.rs") |
+    throw <| IO.userError "soroban: missing StateCell.rs"
+  expect (rsFile.mediaType == "text/x-rust")
+    "StateCell.rs media type must be text/x-rust"
+  let rs := rsFile.contents
+  expect (rs.contains "#[contract]")
+    "Soroban source must declare #[contract]"
+  expect (rs.contains "#[contractimpl]")
+    "Soroban source must declare #[contractimpl]"
+  expect (rs.contains "pub struct StateCell")
+    "Soroban source must declare the contract struct"
+  expect (rs.contains "symbol_short!(\"count\")")
+    "Soroban source must use instance storage key for count"
+  expect (rs.contains "let st_count =")
+    "Soroban entry must snapshot state into a local before stores"
+  expect (rs.contains "st_count.checked_add(delta)")
+    "Soroban source must use checked_add on the pre-state local"
+  expect (!rs.contains "unwrap_or(0_u64).checked_add(delta).expect(\"overflow\") <= ")
+    "Soroban must not re-get storage inside overflow predicates"
+  expect (rs.contains "ProofForge Soroban S0")
+    "Soroban source must carry the S0 honesty header"
+  expect (!rs.contains "sol_invoke")
+    "Soroban source must not invent Solana CPI"
+
+/-- Multi-width UInt fails closed. -/
+unsafe def testMultiWidthFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Wide where\n" ++
+    "  state count : UInt32\n" ++
+    "  init() do\n" ++
+    "    count := 0\n" ++
+    "  entry bump() : UInt32 do\n" ++
+    "    count := count + 1\n" ++
+    "    return count\n" ++
+    "  view get() : UInt32 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-wide>" "Tests.SorobanWide" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error e =>
+      expect (e.code == "PF-PLAN-INVARIANT")
+        s!"multi-width must be planInvariant, got {e.code}"
+  | .ok _ => throw <| IO.userError "multi-width UInt32 must fail closed"
+
+/-- Nonempty invariant fails closed. -/
+unsafe def testInvariantFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program InvCell where\n" ++
+    "  state count : UInt64\n" ++
+    "  init() do\n" ++
+    "    count := 0\n" ++
+    "  entry bump() : UInt64 do\n" ++
+    "    count := count + 1\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n" ++
+    "  invariant even : count % 2 == 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-inv>" "Tests.SorobanInv" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error e =>
+      expect (e.code == "PF-PLAN-INVARIANT")
+        s!"invariant must be planInvariant, got {e.code}"
+  | .ok _ => throw <| IO.userError "nonempty invariant must fail closed"
+
+/-- Sync call fails closed (resolve or Plan). -/
+unsafe def testCallFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallCell where\n" ++
+    "  state count : UInt64\n" ++
+    "  init() do\n" ++
+    "    count := 0\n" ++
+    "  entry bump(s : UInt64) : UInt64 do\n" ++
+    "    call Other.method(s)\n" ++
+    "    count := count + 1\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-call>" "Tests.SorobanCall" none)
+  match Compiler.compileValidatedSourceV1 parsed with
+  | .error _ => pure ()
+  | .ok compiled =>
+      match planSoroban compiled with
+      | .error e =>
+          expect (e.code == "PF-PLAN-INVARIANT" || e.code == "PF-REQ-UNSUPPORTED")
+            s!"call must fail closed, got {e.code}"
+      | .ok _ => throw <| IO.userError "sync call must fail closed on Soroban S0"
+
+unsafe def run : IO Unit := do
+  testStateCellSorobanSource
+  testMultiWidthFailClosed
+  testInvariantFailClosed
+  testCallFailClosed
+  IO.println "Tests.Materialization.SorobanPlanV1: ok"
+
+end Tests.Materialization.SorobanPlanV1

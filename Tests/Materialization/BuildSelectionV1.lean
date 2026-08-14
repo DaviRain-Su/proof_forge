@@ -214,9 +214,14 @@ private def testGrammar : IO Unit := do
     "well-known Psy DPN profile constant"
   expect (CodegenProfileId.quintSourceU64ModelV1 == (← parseProfile "quint-source-u64-model-v1"))
     "well-known Quint profile constant"
+  expect (CodegenProfileId.sorobanSourceU64V1 == (← parseProfile "soroban-source-u64-v1"))
+    "well-known Soroban S0 profile constant"
   expect (TargetId.parse? "quint" == some TargetId.quint)
     "well-known Quint target constant"
+  expect (TargetId.parse? "soroban" == some TargetId.soroban)
+    "well-known Soroban target constant"
   expect (TargetId.ofKind .quint == TargetId.quint) "ofKind Quint"
+  expect (TargetId.ofKind .soroban == TargetId.soroban) "ofKind Soroban"
   expect (CodegenProfileId.parse? "A--").isNone "invalid profile parse is none"
   expect (CodegenProfileId.parse? "evm-yul-solc-0.8.34-v1" ==
       some CodegenProfileId.evmYulSolc0834V1)
@@ -227,23 +232,23 @@ private def testGrammar : IO Unit := do
 private def testRegistrySeedMembership : IO Unit := do
   let registry ← liftResult initialTargetRegistryV1Result
   let regs := TargetRegistryV1.registrationsOf registry
-  expect (regs.size == 12) "initial registry must contain 9 implemented + 3 design-only"
+  expect (regs.size == 12) "initial registry must contain 10 implemented + 2 design-only"
   match createTargetRegistryV1 initialRegistrationRowsV1 with
   | .ok rebuilt =>
       expect (rebuilt.toArray.size == 12) "rebuilt seed registry size"
   | .error e => throw <| IO.userError s!"initialRegistrationRowsV1 must validate: {e.render}"
   let impl ← liftResult implementedRegistrations
   let design ← liftResult designOnlyRegistrations
-  expect (impl.size == 9) "exactly nine implemented targets"
-  expect (design.size == 3) "exactly three design-only targets"
+  expect (impl.size == 10) "exactly ten implemented targets"
+  expect (design.size == 2) "exactly two design-only targets"
   let expectedIds :=
     #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton"]
   let ids := regs.map (·.targetId.toString)
   expect (ids == expectedIds) s!"exact closed target id set, got {ids}"
-  let expectedImpl := #["aleo", "cosmwasm", "evm", "near", "noir", "psy", "quint", "solana", "ton"]
+  let expectedImpl := #["aleo", "cosmwasm", "evm", "near", "noir", "psy", "quint", "solana", "soroban", "ton"]
   expect (impl.map (·.targetId.toString) == expectedImpl)
     s!"exact implemented set, got {impl.map (·.targetId.toString)}"
-  let expectedDesign := #["icp", "openvm", "soroban"]
+  let expectedDesign := #["icp", "openvm"]
   expect (design.map (·.targetId.toString) == expectedDesign)
     s!"exact design-only set, got {design.map (·.targetId.toString)}"
   for reg in impl do
@@ -323,6 +328,7 @@ private def testRegistrySeedMembership : IO Unit := do
         s!"Psy profiles must contain only DPN, got {reg.profiles.map (·.toString)}"
   | none => throw <| IO.userError "missing Psy registration"
   expectDefault TargetId.quint "quint-source-u64-model-v1"
+  expectDefault TargetId.soroban "soroban-source-u64-v1"
   expectErrorCode (createTargetRegistryV1 #[])
     "PF-REGISTRY-INVALID" "empty seed never succeeds"
   let sentinel : CompileResult TargetRegistryV1 :=
@@ -486,8 +492,11 @@ private def testResolve : IO ResolvedBuildSelectionV1 := do
     | some id => pure id
     | none => throw <| IO.userError "ghost-target must parse"
   expectErrorCode (resolveBuildSelectionV1 ghost none) "PF-TARGET-UNKNOWN" "unknown target"
-  expectErrorCode (resolveBuildSelectionV1 TargetId.soroban none)
+  expectErrorCode (resolveBuildSelectionV1 TargetId.openvm none)
     "PF-TARGET-NOT-IMPLEMENTED" "design-only target"
+  let sorobanDefault ← liftResult <| resolveBuildSelectionV1 TargetId.soroban none
+  expect (sorobanDefault.codegenProfile == CodegenProfileId.sorobanSourceU64V1)
+    "soroban default profile after ADR-0044 promotion"
   let cosmwasmDefault ← liftResult <| resolveBuildSelectionV1 TargetId.cosmwasm none
   expect (cosmwasmDefault.codegenProfile == CodegenProfileId.cosmwasmWasmU64V1)
     "cosmwasm default profile after promotion"
@@ -551,10 +560,11 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (msg == "duplicate --target") "success seed duplicate --target"
   | Except.ok _ => throw <| IO.userError "product preflight must reject duplicate --target"
   let defaultList ← liftResult <| ProofForgeV2.CLI.listTargetLines false
-  expect (defaultList.size == 9) "default list-targets is implemented-only"
+  expect (defaultList.size == 10) "default list-targets is implemented-only"
   expect (defaultList == #["aleo\tinstructions-only", "cosmwasm\twasm-validated-alpha",
       "evm\truntime-validated-alpha", "near\twasm-validated-alpha", "noir\tsource-only",
-      "psy\tdpn-only", "quint\tsource-only", "solana\truntime-validated-alpha", "ton\tsource-only"])
+      "psy\tdpn-only", "quint\tsource-only", "solana\truntime-validated-alpha",
+      "soroban\tsource-only", "ton\tsource-only"])
     s!"default list-targets exact lines, got {defaultList}"
   let allList ← liftResult <| ProofForgeV2.CLI.listTargetLines true
   expect (allList == #[
@@ -568,7 +578,7 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       "psy\tdpn-only",
       "quint\tsource-only",
       "solana\truntime-validated-alpha",
-      "soroban\tresearch-only",
+      "soroban\tsource-only",
       "ton\tsource-only"])
     s!"list-targets --all canonical TargetId order, got {allList}"
   match ProofForgeV2.CLI.parseCliCommandV1 ["list-targets"] with

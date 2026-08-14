@@ -54,7 +54,7 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0033](0033-miniamm-asset-transaction-model.md) | MiniAMM 真实资产事务模型冻结（pre-fund + vault credit；无 transferFrom；M0 数学面 / MiniAmmAssets 资产面分工） | proposed |
 | [ADR-0034](0034-preservation-abi.md) | Preservation ABI（proposed extension/amendment to ADR-0027；L1 step-preservation；通用 ABI + kind plumbing + **EvenCounter + ZeroCounter（P=`count==0`）preserving product positive GREEN**；业务主路径 D10 vs 工具 formal track 2；wave-2 通用性门闭合；supersession/MiniAmm P1 pending；禁止 MiniAmm 特例；ADR-0027 仍为 inline base authority） | proposed |
 | [ADR-0035](0035-direct-native-artifact-materializers.md) | Aleo Instructions + Psy DPN direct-only materializers；删除 source/compiler lanes | proposed |
-| [ADR-0036](0036-engineering-scope-and-evm-formal-lighthouse.md) | Engineering 9+3 scope、retired frontend boundary 与 EVM-first formal lighthouse | proposed |
+| [ADR-0036](0036-engineering-scope-and-evm-formal-lighthouse.md) | Engineering 10+2 scope、retired frontend boundary 与 EVM-first formal lighthouse | proposed |
 | [ADR-0037](0037-developer-cli-pf.md) | Rust Developer CLI `pf` 与 compiler CLI 权威分离；Aleo-first 安全编排 | proposed |
 | [ADR-0038](0038-evm-hashed-map-storage-profile.md) | EVM hashed-Map storage profile folded into the product default | proposed |
 | [ADR-0039](0039-psy-hash-gadgets-gate.md) | Psy hash gadgets；hashNoPad/twoToOne/keccak open；hashPad emit-only | proposed |
@@ -62,3 +62,4 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0041](0041-psy-commit-public-input-gate.md) | Psy Commit / public-input binding 保持 fail-closed 直至 official checklist | proposed |
 | [ADR-0042](0042-proof-bearing-near-invariant-root-erasure.md) | Proof-bearing NEAR invariant-root erasure（私有 certificate authority、exact digest/coverage binding、versioned Plan partition；当前 Reference-verified + artifact built，runtime observation 待兼容 runner；非 target-refined） | proposed |
 | [ADR-0043](0043-pinned-wasmcert-provider-boundary.md) | 固定 WasmCert-Coq source/protocol、逐层 mechanization status 与 purpose-built NEAR host边界；双平台 Tool Lock activation + locked VerifiedVault product/Reference join | proposed |
+| [ADR-0044](0044-soroban-source-u64-target.md) | Soroban source-only S0（`soroban-source-u64-v1` → `.rs`；zero-tool；4-key；非 Wasm/deploy） | proposed |

@@ -324,6 +324,29 @@ private unsafe def testEnvReadContribution (session : Language.Loader.ParserSess
   expect (!ids.contains "effect.synchronous-call")
     s!"env-read must NOT contribute effect.synchronous-call; got {ids}"
 
+/-- SYS-S5: exact `pf.crypto.sha256` is a host syscall / precompile leaf and
+    must NOT contribute `effect.synchronous-call` (Solana CPI product body-only
+    admission; EVM/NEAR dedicated bindings likewise). -/
+private unsafe def testCryptoSha256Contribution
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let source :=
+    "import ProofForgeV2\nopen ProofForgeV2.Language\n" ++
+    "program Sha256ReqInfer where\n" ++
+    "  state last : UInt256\n" ++
+    "  init() do\n" ++
+    "    last := 0\n" ++
+    "  entry probe(x : UInt256) : UInt256 do\n" ++
+    "    let h : UInt256 := call pf.crypto.sha256(x)\n" ++
+    "    last := h\n" ++
+    "    return h\n"
+  let validated ← loadSource session "sha256-req" source
+  let contributions := inferRequirementContributionsFromSourceV1 validated
+  let ids := contributionIds contributions
+  expect (!ids.contains "effect.synchronous-call")
+    s!"pf.crypto.sha256 must NOT contribute effect.synchronous-call; got {ids}"
+  expect (ids.contains "state.persistent")
+    s!"sha256 stateful program must still contribute state.persistent; got {ids}"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testStateCellLike session
@@ -334,6 +357,7 @@ unsafe def run : IO Unit := do
   testContextCommitContributions session
   testS2CatalogDigestParity
   testEnvReadContribution session
+  testCryptoSha256Contribution session
   IO.println "Tests.Typed.RequirementsInferV1: ok"
 
 end Tests.Typed.RequirementsInferV1

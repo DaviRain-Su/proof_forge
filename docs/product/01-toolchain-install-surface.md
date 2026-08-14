@@ -48,7 +48,7 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 - 不默认 `deployable=true` 或主网广播（无产品 N3 决策不得改写 maturity）。
 - 不在 ordinary `just ci` 里起 snarkOS / Anvil / Mollusk。
 - 不先做大而全多语言 SDK；先 CLI + 薄封装。
-- design-only target（`soroban` / `icp` / `openvm`）只展示为 `unsupported`，不提供假安装。
+- design-only target（`icp` / `openvm`）只展示为 `unsupported`，不提供假安装。
 - 不发明 Tool Lock 外的第二工具权威或 “best effort” fallback 进 Tool Root。
 
 ## 3. 阶梯切片（workflow 相位）
@@ -94,8 +94,8 @@ PROOF_FORGE_TOOL_ROOT/   # default: ~/.cache/proof-forge-v2/tool-root/<platform>
 
 ### 4.2 Target 菜单
 
-- **Implemented（可 install 编译档）**：`evm`、`solana`、`near`、`noir`、`aleo`、`psy`、`quint`、`cosmwasm`、`ton`（与 `TargetRegistryV1` 九 materializer 一致）。
-- **Design-only（`unsupported`，不可 install）**：`soroban`、`icp`、`openvm`。
+- **Implemented（可 install 编译档）**：`evm`、`solana`、`near`、`noir`、`aleo`、`psy`、`quint`、`cosmwasm`、`ton`、`soroban`（与 `TargetRegistryV1` 十 materializer 一致）。
+- **Design-only（`unsupported`，不可 install）**：`icp`、`openvm`。
 - Accepted PRD Phase 1 文案仍为四目标；engineering 九 target 扩面不自动改写 accepted 范围（ADR-0036）。
 
 ### 4.3 编译档 vs runtime 档

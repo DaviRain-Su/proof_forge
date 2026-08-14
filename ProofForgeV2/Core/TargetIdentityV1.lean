@@ -216,6 +216,9 @@ def aleoInstructionsV1 : CodegenProfileId := ⟨"aleo-instructions-v1"⟩
 def psyDpnV1 : CodegenProfileId := ⟨"psy-dpn-v1"⟩
 def cosmwasmWasmU64V1 : CodegenProfileId := ⟨"cosmwasm-wasm-u64-v1"⟩
 def quintSourceU64ModelV1 : CodegenProfileId := ⟨"quint-source-u64-model-v1"⟩
+/-- ADR-0044 sole Soroban S0 profile: target-owned Plan → Soroban Rust dialect
+    `.rs` source recipe. Zero-tool finalize; deployable=false; not Wasm. -/
+def sorobanSourceU64V1 : CodegenProfileId := ⟨"soroban-source-u64-v1"⟩
 def tonTolkBocV1 : CodegenProfileId := ⟨"ton-tolk-boc-v1"⟩
 
 end CodegenProfileId

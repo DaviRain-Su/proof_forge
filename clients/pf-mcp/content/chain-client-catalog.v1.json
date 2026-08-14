@@ -527,15 +527,19 @@
     },
     {
       "id": "soroban",
-      "implemented": false,
-      "maturityLabel": "design-only",
-      "role": "design-only",
+      "implemented": true,
+      "maturityLabel": "source-only",
+      "role": "backend-contracts",
       "pfSurface": {
-        "build": false,
+        "build": true,
         "localModes": [],
-        "network": "none",
+        "network": "none-product",
         "mcpTools": [
           "pf_list_targets",
+          "pf_doctor",
+          "pf_install",
+          "pf_build",
+          "pf_artifacts",
           "pf_chain_catalog"
         ]
       },
@@ -545,7 +549,7 @@
         "chainLike": null
       },
       "honesty": [
-        "unsupported for install/build"
+        "ADR-0044 S0: .rs recipe only; zero-tool finalize; deployable=false; no stellar-cli/Wasm/auth/TTL claim"
       ]
     },
     {

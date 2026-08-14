@@ -74,7 +74,7 @@ scripts/mcp_smoke.sh
 - Package is stdlib-only Python (no extra pip dependency).
 - `pf_install` always passes `--yes` unless `dryRun=true` (non-interactive).
 - `pf_build` rejects `broadcast` / `network` arguments.
-- Design-only targets (`soroban`, `icp`, `openvm`) remain unsupported for install.
+- Design-only targets (`icp`, `openvm`) remain unsupported for install.
 
 ## Remote MCP (Cloudflare Workers)
 

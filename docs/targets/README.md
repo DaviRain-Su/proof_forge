@@ -25,9 +25,10 @@ normative: true
 >
 > 1. **Accepted PRD Phase 1 范围**仍为 **四目标**：`evm` / `solana` / `near` / `noir`。
 > 2. **Engineering implemented leaves** 另有 `aleo` / `psy` / `cosmwasm` / `ton` /
->    `quint`（工程已可寻址并 materialize，**不**等于 accepted 产品范围已扩）。二者
+>    `quint` / `soroban`（工程已可寻址并 materialize，**不**等于 accepted 产品范围已扩）。二者
 >    边界由 **ADR-0036** 固定；不得因表格「implement」字样静默扩大
->    accepted scope。`quint` 为 ADR-0026 冻结并已接线的 source-only model surface。
+>    accepted scope。`quint` 为 ADR-0026 冻结并已接线的 source-only model surface；
+>    `soroban` 为 ADR-0044 source-only S0（`.rs` recipe，zero-tool）。
 
 | Target | 视图 | 本阶段 | Static dossier ceiling | 当前证据与限制（工程观察，非 formal binding） | Dossier |
 |---|---|---|---|---|---|
@@ -35,7 +36,7 @@ normative: true
 | `solana` | explicit-account SVM | accepted Phase 1 implement | `specified` | retained-V1 Plan + SBPF asm → ELF `.so` + Mollusk runtime 差分；registry label `runtime-validated-alpha`（2026-08-12）；**非** formal Stage-0/hermetic | [Solana](02-solana.md) |
 | `near` | Wasm host | accepted Phase 1 implement | `specified` | retained-V1 Plan + locked `wat2wasm` 结构编译 / host-optional runtime load + locked near-sandbox 2.13.0 deploy/init/mutate/view receipt 工程门与 deterministic HostModel；**非** formal Reference↔sandbox / Stage-0 | [NEAR](03-near.md) |
 | `cosmwasm` | Wasm host | engineering implemented (scope ADR open) | `research` | retained-V1 Plan/IR → WAT + locked `wat2wasm`/`cosmwasm-check` 3.0.9；UInt8/16/32、named state、bounded aggregate/Array/Option return；**sync call FC**、async→Binary `SubMsg{reply_on:never}`（same-tx、QN stub）；cosmwasm-vm 28-test mock + wasmd v0.70.3 Docker rung-1；registry label `wasm-validated-alpha`；**非** 主网/formal；**非** accepted Phase 1 范围 | [CosmWasm](04-cosmwasm.md) |
-| `soroban` | Wasm host | design only | `research` | design-only；无产品 backend | [Soroban](05-soroban.md) |
+| `soroban` | Wasm host | engineering implemented (ADR-0044 S0) | `research` | sole `soroban-source-u64-v1`；retained-V1 Plan → Soroban Rust dialect `.rs`；zero-tool finalize；`deployable=false`；4-key capability；auth/TTL/Wasm FC；**非** accepted Phase 1 / formal | [Soroban](05-soroban.md) · [ADR-0044](../adr/0044-soroban-source-u64-target.md) |
 | `icp` | Wasm actor host | design only | `research` | design-only；无产品 backend | [ICP](06-icp.md) |
 | `noir` | circuit compiler | accepted Phase 1 implement | `specified` | retained-V1 Plan + relation source packages + locked nargo 1.0.0-beta.26 compile-only 门；**无** ACIR/witness/prove/verify，仍 source-only | [Noir](07-noir.md) |
 | `openvm` | zkVM | design only | `research` | design-only；无产品 backend | [OpenVM](08-openvm.md) |
@@ -44,12 +45,12 @@ normative: true
 | `ton` | TVM Stack-Account | engineering implemented (scope ADR open) | `research` | retained-V1 Plan/IR → Tolk + real BoC；UInt8/16/32、named state、bounded view aggregate/Array/Option return；async schedule→`createMessage`（hash dest/value=0/fixed mode，PARTIAL），sync call FC；`@ton/sandbox` 10/10；registry label `source-only`；**非** 主网/formal；**非** accepted Phase 1 范围 | [TON](11-ton.md) · [family](family-tvm-stack-account.md) |
 | `quint` | executable specification / model | engineering implemented (scope ADR open) | `research` | retained-V1 Q0 Plan/IR → `.qnt` + **zero-tool** finalize；profile `quint-source-u64-model-v1`；resolver 仅 4-key；完整 UInt64 域；失败=显式 outcome+business-state stutter；zero-param Bool invariant→`val`；本机 Quint 0.32 typecheck/run 仅 host observation，非 locked gate；ITF/MBT/verify 未声称；不可部署、非 accepted Phase 1/formal D3/D4 | [Quint](12-quint.md) · [ADR-0026](../adr/0026-quint-target-integration.md) |
 
-> **Registry 计数（当前工程事实，2026-08-04）**：**12 = 9 implemented + 3
-> design-only**。九个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` /
-> `psy` / `quint` / `cosmwasm` / `ton`。三个 design-only：`soroban` / `icp` /
-> `openvm`。其中 **accepted PRD Phase 1** 仍仅前四；`aleo`/`psy`/`quint`/`cosmwasm`/
-> `ton` 为 engineering leaves；ADR-0036 明确其不自动进入 accepted 范围，formal lighthouse=EVM-first。
-> Registry maturity 标签（如 CosmWasm `wasm-validated-alpha`、TON/Quint
+> **Registry 计数（当前工程事实，2026-08-13）**：**12 = 10 implemented + 2
+> design-only**。十个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` /
+> `psy` / `quint` / `cosmwasm` / `ton` / `soroban`。两个 design-only：`icp` /
+> `openvm`。其中 **accepted PRD Phase 1** 仍仅前四；其余为 engineering leaves；ADR-0036
+> 明确其不自动进入 accepted 范围，formal lighthouse=EVM-first。
+> Registry maturity 标签（如 CosmWasm `wasm-validated-alpha`、TON/Quint/Soroban
 > `source-only`）不变；compile / mock / sandbox / 模型检查不得写成 formal 或 hermetic 完成。
 
 ## Family 视图

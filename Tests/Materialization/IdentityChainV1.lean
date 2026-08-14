@@ -30,6 +30,7 @@ import ProofForgeV2.Targets.CosmWasm.PlanSchemaV1
 import ProofForgeV2.Targets.Quint.PlanSchemaV1
 import ProofForgeV2.Targets.Ton.PlanSchemaV1
 import ProofForgeV2.Targets.Aleo.PlanSchemaV1
+import ProofForgeV2.Targets.Soroban.PlanSchemaV1
 import ProofForgeV2.Targets.RegistryRootV1
 import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Targets.SupportClaimV1
@@ -97,10 +98,10 @@ private def testClaimMintCanonicalOrder : IO Unit := do
     StaticRequirementSupportIndexV1.toArray index
   expect (claims.size == rows.size)
     s!"one claim per support row: got {claims.size} want {rows.size}"
-  -- EVM/Noir dual + sole direct profiles for the other seven implemented
-  -- targets → 11 support rows.
-  expect (claims.size == 11)
-    s!"implemented profile count is 11 (aleo/cosmwasm/evm×2/near/noir×2/psy/quint/solana/ton), got {claims.size}"
+  -- EVM/Noir dual + sole direct profiles for the other eight implemented
+  -- targets → 12 support rows (ADR-0044 Soroban S0).
+  expect (claims.size == 12)
+    s!"implemented profile count is 12 (aleo/cosmwasm/evm×2/near/noir×2/psy/quint/solana/soroban/ton), got {claims.size}"
   let root ← liftExcept "root" (engineeringRegistryRootDigestV1
     (← liftResult "registry" initialTargetRegistryV1Result))
   let mut i : Nat := 0
@@ -254,12 +255,13 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
   let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
   let root ← liftExcept "root" (engineeringRegistryRootDigestV1
     (← liftResult "registry" initialTargetRegistryV1Result))
-  -- All nine materializing targets: eight real Plan schema digests (Registry
-  -- `planDigestForCapabilityV1`, including Aleo ALEO-I1) + Psy engineering-
-  -- absent plan slot.
+  -- All ten materializing targets: nine real Plan schema digests (Registry
+  -- `planDigestForCapabilityV1`, including Aleo ALEO-I1 + Soroban ADR-0044) + Psy
+  -- engineering-absent plan slot.
   for tid in #[
       TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.cosmwasm, TargetId.quint, TargetId.ton, TargetId.aleo, TargetId.psy] do
+      TargetId.cosmwasm, TargetId.quint, TargetId.ton, TargetId.aleo,
+      TargetId.soroban, TargetId.psy] do
     let (cap, artifacts) ← materializeTarget compiled tid
     let claim := Targets.ResolvedEngineeringBuildV1.supportClaimOf cap
     expect (EngineeringSupportClaimV1.targetIdOf claim == tid)
@@ -359,6 +361,12 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
         (Targets.Aleo.engineeringAleoPlanDigestV1 plan)
       expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
         s!"{tid} planDigest matches engineeringAleoPlanDigestV1"
+    else if tid == TargetId.soroban then
+      let plan ← liftResult s!"plan {tid}" (Targets.Soroban.planFromCapability cap)
+      let expected ← liftExcept s!"soroban plan digest {tid}"
+        (Targets.Soroban.engineeringSorobanPlanDigestV1 plan)
+      expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
+        s!"{tid} planDigest matches engineeringSorobanPlanDigestV1"
     else if tid == TargetId.psy then
       let expected ← liftExcept s!"absent plan {tid}"
         (engineeringAbsentPlanDigestV1 tid

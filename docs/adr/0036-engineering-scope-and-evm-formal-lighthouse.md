@@ -3,7 +3,7 @@ id: ADR-0036
 title: Engineering target scope and EVM-first formal lighthouse
 status: proposed
 owner: architecture
-updated: 2026-08-10
+updated: 2026-08-13
 normative: true
 ---
 
@@ -16,10 +16,10 @@ normative: true
 ## Context
 
 The accepted Phase 1 PRD names four product targets: EVM, Solana, NEAR and Noir. The
-engineering registry subsequently grew to nine implemented materializers plus three design-only
-targets. That implementation fact was repeatedly routed through a scope placeholder, but no
-document owned that identifier. The placeholder therefore became a
-dangling authority reference rather than a decision.
+engineering registry subsequently grew to ten implemented materializers plus two design-only
+targets (ICP and OpenVM; Soroban promoted via ADR-0044). That implementation fact was
+repeatedly routed through a scope placeholder, but no document owned that identifier. The
+placeholder therefore became a dangling authority reference rather than a decision.
 
 At the same time, the repository accumulated two independent scope ambiguities:
 
@@ -36,10 +36,10 @@ closed.
 1. **Accepted product scope remains explicit.** The accepted Phase 1 PRD continues to name EVM,
    Solana, NEAR and Noir until a separately reviewed PRD revision changes it. Engineering
    implementation does not silently amend accepted scope.
-2. **Engineering scope remains 9 + 3.** EVM, Solana, NEAR, Noir, Aleo, Psy, Quint, CosmWasm and
-   TON remain implemented materializer leaves. Soroban, ICP and OpenVM remain design-only. An
-   implemented label means a target-owned Plan/IR/materializer exists; it is not a release,
-   network, proof or formal claim.
+2. **Engineering scope is 10 + 2.** EVM, Solana, NEAR, Noir, Aleo, Psy, Quint, CosmWasm, TON and
+   Soroban (ADR-0044 source-only S0) are implemented materializer leaves. ICP and OpenVM remain
+   design-only. An implemented label means a target-owned Plan/IR/materializer exists; it is not
+   a release, network, proof or formal claim.
 3. **The formal lighthouse is EVM-first.** Shared D2/D3 formal prerequisites are advanced in the
    order needed to close the EVM D4 identity-bound reference-to-artifact differential. Engineering
    evidence from another target does not substitute for that lane and does not promote that target
@@ -56,9 +56,9 @@ closed.
 
 ## Consequences
 
-- Current engineering users retain all nine materializers and their existing honest maturity
-  labels.
-- Formal planning has one lighthouse instead of nine competing target lanes.
+- Current engineering users retain all ten materializers and their existing honest maturity
+  labels (Soroban S0 is source-only / non-deployable per ADR-0044).
+- Formal planning has one lighthouse instead of ten competing target lanes.
 - Accepted PRD prose is not silently rewritten by an engineering registry expansion.
 - The removed frontend supervisor is no longer carried as an open scope ambiguity.
 - A future target-scope expansion, alternate formal lighthouse or containment boundary requires a
@@ -69,4 +69,5 @@ closed.
 EVM-first does not mean EVM formal tasks are complete. It does not close D1-D4, establish
 candidate-bound evidence, make any artifact deployable, or qualify a release host. The other eight
 implemented materializers remain engineering surfaces with the maturity and fail-closed limits
-stated in their target dossiers.
+stated in their target dossiers. Soroban S0 source-only evidence does not promote Soroban to
+accepted Phase 1 or formal scope.

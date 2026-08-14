@@ -43,8 +43,8 @@ private def testSoleMembershipSource : IO Unit := do
   expect (regs.size == 12) "12 registrations"
   let impl := implementedRegistrationsV1 registry
   let design := designOnlyRegistrationsV1 registry
-  expect (impl.size == 9) "9 implemented"
-  expect (design.size == 3) "3 design-only"
+  expect (impl.size == 10) "10 implemented"
+  expect (design.size == 2) "2 design-only"
   let expectedIds :=
     #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton"]
   expect (regs.map (·.targetId.toString) == expectedIds) "canonical TargetId order"

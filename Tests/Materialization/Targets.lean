@@ -3822,6 +3822,9 @@ unsafe def run : IO Unit := do
   -- ADR-0031 S2/S3: exact cross-target dispatch for blockHeight, chainId,
   -- and self. These pins follow each target-owned LowerSemanticV1 dispatcher;
   -- every decline must remain a target-specific PF-PLAN-INVARIANT.
+  -- Fresh parser session: shared elab env can lose `context` root resolution
+  -- after earlier Principal/ContextRead fixtures in this long suite.
+  let session ← Language.Loader.ParserSession.create
   let blockHeightSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3861,7 +3864,12 @@ unsafe def run : IO Unit := do
     TargetId.quint .quint
     "unsupported Quint semantic shape: op is outside Q0"
     blockHeightCompiled
+  expectContextMatrixFailClosed "context.blockHeight/soroban"
+    TargetId.soroban .soroban
+    "unsupported Soroban semantic shape: op is outside S0"
+    blockHeightCompiled
 
+  let session ← Language.Loader.ParserSession.create
   let chainIdSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3889,7 +3897,7 @@ unsafe def run : IO Unit := do
     chainIdCompiled
   expectContextMatrixFailClosed "context.chainId/solana"
     TargetId.solana .solana
-    s!"unsupported Solana semantic shape: unknown ContextRead key '{chainIdContextKeyV1.value}'"
+    s!"CPI derive: unknown ContextRead key '{chainIdContextKeyV1.value}'"
     chainIdCompiled
   expectContextMatrixFailClosed "context.chainId/ton"
     TargetId.ton .ton
@@ -3911,7 +3919,12 @@ unsafe def run : IO Unit := do
     TargetId.quint .quint
     "unsupported Quint semantic shape: op is outside Q0"
     chainIdCompiled
+  expectContextMatrixFailClosed "context.chainId/soroban"
+    TargetId.soroban .soroban
+    "unsupported Soroban semantic shape: op is outside S0"
+    chainIdCompiled
 
+  let session ← Language.Loader.ParserSession.create
   let selfSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3926,33 +3939,37 @@ unsafe def run : IO Unit := do
   let selfV1 ← match ← session.selectProgramV1 selfSource
       "<targets-context-self-matrix>" "Examples.CtxSelfMatrix" none with
     | .ok v => pure v
-    | .error e => throw <| IO.userError s!"context.self matrix select: {e.render}"
+    | .error e => throw <| IO.userError s!"context.contractId matrix select: {e.render}"
   let selfCompiled ← liftResult <| Compiler.compileValidatedSourceV1 selfV1
   for target in [TargetId.evm, TargetId.near, TargetId.cosmwasm] do
-    expectContextMatrixAdmit "context.self" target selfCompiled
-  expectContextMatrixFailClosed "context.self/solana"
+    expectContextMatrixAdmit "context.contractId" target selfCompiled
+  expectContextMatrixFailClosed "context.contractId/solana"
     TargetId.solana .solana
-    s!"unsupported Solana semantic shape: unknown ContextRead key '{selfContextKeyV1.value}'"
+    s!"CPI derive: unknown ContextRead key '{selfContextKeyV1.value}'"
     selfCompiled
-  expectContextMatrixFailClosed "context.self/ton"
+  expectContextMatrixFailClosed "context.contractId/ton"
     TargetId.ton .ton
     "unsupported Ton semantic shape: only UInt{8,16,32,64}, Int64, Unit, Bool, named Struct/Enum, and anonymous Array/Map/Bytes/Option are supported (no Field/Principal; UInt128/256 fail closed)"
     selfCompiled
-  expectContextMatrixFailClosed "context.self/noir"
+  expectContextMatrixFailClosed "context.contractId/noir"
     TargetId.noir .noir
     s!"unsupported Noir semantic shape: unknown ContextRead key '{selfContextKeyV1.value}'"
     selfCompiled
-  expectContextMatrixFailClosed "context.self/aleo"
+  expectContextMatrixFailClosed "context.contractId/aleo"
     TargetId.aleo .aleo
     "unsupported Aleo semantic shape: only UInt64, UInt32, UInt16, UInt8, Int64, Unit, Bool, Field(bls12-377-fr), named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes N, and Option UInt64 (state/return; not params) are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, exact modulus match; bn254 Fr and Goldilocks fail closed as wrong modulus; Option of non-UInt64/nested/params + Principal/String stay fail-closed; UInt128/256 and narrow Int stay fail-closed)"
     selfCompiled
-  expectContextMatrixFailClosed "context.self/psy"
+  expectContextMatrixFailClosed "context.contractId/psy"
     TargetId.psy .psy
     s!"unsupported Psy semantic shape: unknown ContextRead key '{selfContextKeyV1.value}' is not admitted by pilot context policy"
     selfCompiled
-  expectContextMatrixFailClosed "context.self/quint"
+  expectContextMatrixFailClosed "context.contractId/quint"
     TargetId.quint .quint
     "unsupported Quint semantic shape: op is outside Q0"
+    selfCompiled
+  expectContextMatrixFailClosed "context.contractId/soroban"
+    TargetId.soroban .soroban
+    "unsupported Soroban semantic shape: only anonymous UInt64, Bool, and Unit are supported (Int/Field/Principal/aggregates/containers fail closed)"
     selfCompiled
 
   -- B-RET-ABI: named Struct view return. EVM + Noir + Solana + NEAR + Psy +

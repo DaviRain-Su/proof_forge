@@ -83,7 +83,7 @@ print(client.install(targets=["quint"], dry_run=True).parsed)
 
 ## Boundaries
 
-- Target menu = `TargetRegistryV1` implemented only; design-only (`soroban` /
+- Target menu = `TargetRegistryV1` implemented only; design-only (`icp` /
   `icp` / `openvm`) stay unsupported.
 - Install never PATH-falls tools into `PROOF_FORGE_TOOL_ROOT`.
 - Aleo snarkos remains I3 honesty (not Tool Lock; `features=test_network`).

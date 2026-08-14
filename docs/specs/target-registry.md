@@ -450,14 +450,14 @@ registry digest。
 | `near` | `near-wasm-raw-u64-v1` | `phase1.near-u64.v1` | implement | `specified` | Wasm/NEAR host/KV/receipt-local commit/Promise/NEAR settlement |
 | `noir` | `noir-source-u64-relations-v1` | `phase1.noir-u64-private-sum.v1` | implement | `specified` | source relation/external state/no proof backend/external verifier |
 | `cosmwasm` | — | `research.cosmwasm.v1` | design | `research` | Wasm/CosmWasm host/KV/submessage+reply/Cosmos settlement |
-| `soroban` | — | `research.soroban.v1` | design | `research` | Wasm/Soroban host/TTL storage/auth tree/Stellar settlement |
+| `soroban` | `soroban-source-u64-v1` | `phase1.soroban-u64.v1` | implemented | `source-only` | Wasm/Soroban host S0：`.rs` recipe；zero-tool；auth/TTL/Wasm FC |
 | `icp` | — | `research.icp.v1` | design | `research` | Wasm/canister actor/stable memory/await commit/ICP settlement |
 | `openvm` | — | `research.openvm.v1` | design | `research` | RV32IM guest/zkVM proof/external verifier |
 | `aleo` | `aleo-instructions-v1` | `research.aleo.v1` | engineering leaf | `specified` | Direct canonical Aleo Instructions + query descriptor; zero-tool, non-deployable |
 | `psy` | `psy-dpn-v1` | `phase1.psy-u64.v1` | engineering leaf | `specified` | Direct versioned DPN package; zero-tool, non-deployable |
 
 > **当前工程偏离（2026-08-10；不构成本规范或 accepted scope 的升格）**：engineering
-> `TargetRegistryV1` seed 为 9 registry-implemented + 3 design-only。Aleo/Psy 分别只有
+> `TargetRegistryV1` seed 为 10 registry-implemented + 2 design-only。Aleo/Psy 分别只有
 > `aleo-instructions-v1` 与 `psy-dpn-v1` direct zero-tool profile；旧 Leo、Psy source/Dargo
 > profile 和 runtime/network lane 已删除。ADR-0036 固定 accepted Phase-1
 > 四-target 范围与 engineering 扩面的正式 reconciliation；不得据 engineering label 推断

@@ -449,6 +449,12 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   -- Phase A5: exact extension.pf-assets + effect.synchronous-call on Quint.
   let quintRequests :=
     (quintBaseRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
+  -- ADR-0044 Soroban S0: honest 4-key only (rollback/state/bool/checked-arith).
+  -- Event/sync/async/pf.assets stay declined until auth-tree/TTL Plan fields exist.
+  let sorobanRequests := catalogRequests.filter fun r =>
+    r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1 &&
+      r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
+      r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
   -- Phase B2: all EVM profiles carry full S2 seven keys + exact extension.pf-assets.
   let evmRequests :=
     (catalogRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
@@ -480,6 +486,8 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     mkImplementedRow .quint CodegenProfileId.quintSourceU64ModelV1 quintRequests,
     -- ADR-0032 U1: sole Solana product profile (shims plan/elf removed).
     mkImplementedRow .solana CodegenProfileId.solanaSbpfCpiElfV1 solanaCpiRequests,
+    -- ADR-0044: sole Soroban S0 source-only profile (ASCII: soroban < ton).
+    mkImplementedRow .soroban CodegenProfileId.sorobanSourceU64V1 sorobanRequests,
     mkImplementedRow .ton CodegenProfileId.tonTolkBocV1 withoutSync
   ]
 

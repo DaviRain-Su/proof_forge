@@ -19,7 +19,8 @@ normative: true
 `selectProgramV1ProductWithTheoremInventory` → CheckV1/Normalize →
 `CompiledSemanticV1` → **`certifyInlineProofV1`** → capability Plan/IR → 工程制品/disk
 closure（无 `--proof-bundle*`）。
-工程 registry **12 = 9 implemented + 3 design-only**；**九个 materializer**
+工程 registry **12 = 10 implemented + 2 design-only**；**十个 materializer**
+（含 ADR-0044 Soroban source-only S0）。
 （EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON）均直连 retained `SemanticProgramV1`。
 Quint：source-only `.qnt` + zero-tool finalize；CosmWasm：WAT + locked check + mock 28 tests +
 wasmd Docker rung-1；TON：Tolk/BoC + sandbox 10/10（schedule `createMessage` PARTIAL）。**Accepted PRD Phase 1 仍为四目标**

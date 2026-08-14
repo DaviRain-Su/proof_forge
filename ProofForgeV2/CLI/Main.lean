@@ -582,7 +582,9 @@ private def resolveLocalScriptV1 (target mode : String) :
             "host-heavy @ton/sandbox corpus; sync call FC; schedule=createMessage; pf.assets frozen; not ordinary ci; not formal")
       | _ =>
           throw s!"unsupported local mode '{m}' for target ton (want runtime)"
-  | "soroban" | "icp" | "openvm" =>
+  | "soroban" =>
+      throw s!"target 'soroban' is source-only (ADR-0044); no package-script local runtime lane"
+  | "icp" | "openvm" =>
       throw s!"target '{target}' is design-only (unsupported; not installable/local)"
   | other =>
       throw s!"local has no package-script path for target '{other}' (solana/evm/near/cosmwasm/ton runtime)"

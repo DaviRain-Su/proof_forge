@@ -300,8 +300,9 @@ private unsafe def testExternalResponsesAndInvocationShape
     "    call Oracle.feed(value)\n" ++
     "    call Oracle.audit(value)\n" ++
     "    return value\n" ++
-    "  fn flag(value : Bool) : Bool do\n" ++
-    "    return value\n"
+    -- Bool result intern (params remain non-Bool per Normalize declaration gate).
+    "  fn flag(x : UInt64) : Bool do\n" ++
+    "    return x == 0\n"
   let (carrier, data, u64) ←
     loadNormalize session "Tests/Semantic/Sem002ShapeV1.lean" "Sem002External" source
   let bool ← findBool data

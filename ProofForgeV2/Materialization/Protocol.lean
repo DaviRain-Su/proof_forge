@@ -14,6 +14,7 @@ inductive ArtifactEncoding where
   | aleoInstructions
   | psyDpn
   | quintSource
+  | sorobanSource
   | tolkSource
   | researchOnly
   deriving BEq, Inhabited, Repr

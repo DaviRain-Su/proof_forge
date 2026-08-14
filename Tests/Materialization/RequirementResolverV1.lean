@@ -342,8 +342,8 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
 private def testSupportTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
-  expect (rows.size == 11)
-    "exactly eleven support rows (Noir dual; EVM dual; all other targets single-profile)"
+  expect (rows.size == 12)
+    "exactly twelve support rows (Noir dual; EVM dual; Soroban S0; all other targets single-profile)"
   let expectedSolanaExtension ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError error
@@ -368,6 +368,8 @@ private def testSupportTable : IO Unit := do
     ("quint", "quint-source-u64-model-v1", 6, false, true),
     -- ADR-0032 U1: sole Solana cpi-elf row (plan/elf shims removed)
     ("solana", "solana-sbpf-cpi-elf-v1", 8, true, true),
+    -- ADR-0044 Soroban S0: honest 4-key only
+    ("soroban", "soroban-source-u64-v1", 4, false, false),
     ("ton", "ton-tolk-boc-v1", 6, false, false)
   ]
   let mut i : Nat := 0
@@ -419,6 +421,14 @@ private def testSupportTable : IO Unit := do
               !ids.contains "effect.asynchronous-workflow" &&
               !ids.contains "effect.event")
             "Quint A5 admits sync-call; still declines event/async"
+        if row.targetId == TargetId.soroban then
+          expect (ids == #["failure.atomic-rollback", "state.persistent",
+              "value.bool", "value.checked-arithmetic"])
+            "Soroban S0 support row must be exact 4-key subset"
+          expect (!ids.contains "effect.synchronous-call" &&
+              !ids.contains "effect.asynchronous-workflow" &&
+              !ids.contains "effect.event")
+            "Soroban S0 declines event/sync/async"
         for item in row.supported do
           if item.id == solanaCpiAccountsExtensionRequirementIdV1 then
             expect (item == expectedSolanaExtension)
@@ -435,7 +445,7 @@ private def testSupportTable : IO Unit := do
     | _, _ => throw <| IO.userError s!"row {i} missing"
     i := i + 1
 
-/-- Canonical 11-row (target,profile) skeleton matching the shipped index shape
+/-- Canonical 12-row (target,profile) skeleton matching the shipped index shape
     (Noir dual / EVM dual; all other targets single-profile).
     `evmSupported` replaces all EVM rows; extension-owning rows intentionally
     omit their extension seeds so presence-gate negatives can reuse this fixture. -/
@@ -454,11 +464,12 @@ private def supportRowsWithoutExtensions
     mkRow .psy CodegenProfileId.psyDpnV1 base,
     mkRow .quint CodegenProfileId.quintSourceU64ModelV1 base,
     mkRow .solana CodegenProfileId.solanaSbpfCpiElfV1 base,
+    mkRow .soroban CodegenProfileId.sorobanSourceU64V1 base,
     mkRow .ton CodegenProfileId.tonTolkBocV1 base
   ]
 
 
-/-- Same 11-row skeleton, but every closed-extension owner carries its exact
+/-- Same 12-row skeleton, but every closed-extension owner carries its exact
     seed (Quint/NEAR/CosmWasm/EVM: pf.assets; Solana CPI: both), so content
     negatives reach their intended validation phase. -/
 private def supportRowsWithExtensions
@@ -479,6 +490,7 @@ private def supportRowsWithExtensions
     mkRow .psy CodegenProfileId.psyDpnV1 base,
     mkRow .quint CodegenProfileId.quintSourceU64ModelV1 withPf,
     mkRow .solana CodegenProfileId.solanaSbpfCpiElfV1 cpiRow,
+    mkRow .soroban CodegenProfileId.sorobanSourceU64V1 base,
     mkRow .ton CodegenProfileId.tonTolkBocV1 base
   ]
 

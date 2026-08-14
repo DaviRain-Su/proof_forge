@@ -1,10 +1,10 @@
 /-
-  Shared engineering TargetDescriptor data for nine registry-implemented entries.
+  Shared engineering TargetDescriptor data for ten registry-implemented entries.
 
   Registry-owned `semanticsAxesOfKindV1` is the sole six-axis seed. This module
   adds profile/artifact-encoding metadata and exposes the exact descriptor ↔
   registration join used before capability/artifact identity and inspection.
-  All nine entries have target-owned materializers. Requirement support is
+  All ten entries have target-owned materializers. Requirement support is
   intentionally absent: the engineering resolver index remains the sole current
   authority, while formal SupportClaim is pending.
 -/
@@ -84,6 +84,11 @@ def cosmwasm : TargetDescriptor :=
 def ton : TargetDescriptor :=
   descriptorFromRegistryAxes .ton .tolkSource CodegenProfileId.tonTolkBocV1
 
+/-- Soroban S0 (ADR-0044): source-only Soroban Rust dialect `.rs`. Zero-tool
+    finalize; deployable=false. Must not reuse NEAR/CosmWasm Plan or claim Wasm. -/
+def soroban : TargetDescriptor :=
+  descriptorFromRegistryAxes .soroban .sorobanSource CodegenProfileId.sorobanSourceU64V1
+
 /-- Engineering descriptor for an implemented kind. Design-only kinds → none. -/
 def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .evm => some evm
@@ -95,6 +100,7 @@ def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .quint => some quint
   | .cosmwasm => some cosmwasm
   | .ton => some ton
+  | .soroban => some soroban
   | _ => none
 
 /-- Exact registry-owned six-axis join for an implemented descriptor.

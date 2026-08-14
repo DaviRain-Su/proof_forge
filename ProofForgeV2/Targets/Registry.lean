@@ -7,6 +7,7 @@ import ProofForgeV2.Targets.CosmWasm.PlanSchemaV1
 import ProofForgeV2.Targets.Quint.PlanSchemaV1
 import ProofForgeV2.Targets.Ton.PlanSchemaV1
 import ProofForgeV2.Targets.Aleo.PlanSchemaV1
+import ProofForgeV2.Targets.Soroban.PlanSchemaV1
 import ProofForgeV2.Targets.EngineeringBuildIdentityV1
 import ProofForgeV2.Targets.Solana
 import ProofForgeV2.Targets.Near
@@ -14,10 +15,12 @@ import ProofForgeV2.Targets.Noir
 import ProofForgeV2.Targets.CosmWasm
 import ProofForgeV2.Targets.Quint
 import ProofForgeV2.Targets.Ton
+import ProofForgeV2.Targets.Soroban
 import ProofForgeV2.Targets.Psy
 import ProofForgeV2.Targets.Psy.FinalizeV1
 import ProofForgeV2.Targets.Aleo
 import ProofForgeV2.Targets.Aleo.FinalizeV1
+import ProofForgeV2.Targets.Soroban.FinalizeV1
 import ProofForgeV2.Targets.Evm.FinalizeV1
 import ProofForgeV2.Targets.Near.FinalizeV1
 import ProofForgeV2.Targets.Solana.FinalizeV1
@@ -128,6 +131,12 @@ private def planDigestForCapabilityV1
       | .ok d => pure (d : Digest)
       | .error e =>
           throw <| .invalidProgram s!"materialize: Aleo plan digest failed: {e}"
+  | .soroban =>
+      let plan ← Soroban.planFromCapability capability
+      match Soroban.engineeringSorobanPlanDigestV1 plan with
+      | .ok d => pure (d : Digest)
+      | .error e =>
+          throw <| .invalidProgram s!"materialize: Soroban plan digest failed: {e}"
   | _ =>
       match engineeringAbsentPlanDigestV1
           selection.targetId selection.codegenProfile with
@@ -136,7 +145,7 @@ private def planDigestForCapabilityV1
           throw <| .invalidProgram s!"materialize: absent plan digest failed: {e}"
 
 /-- Aggregate materialization consumes only the private engineering capability.
-    Support was decided at `resolveEngineeringRequirementsV1`. All nine target
+    Support was decided at `resolveEngineeringRequirementsV1`. All ten target
     Plan bodies construct their plans from retained `SemanticProgramV1`;
     compiler, resolver, and artifact identity consume the same non-alpha
     `CompiledSemanticV1` source/semantic digests and program name.
@@ -177,6 +186,9 @@ def materializeResult (capability : ResolvedEngineeringBuildV1) :
   | .aleo =>
       let files ← Aleo.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Aleo.descriptor files planDigest
+  | .soroban =>
+      let files ← Soroban.buildFromCapability capability
+      mintMaterializedArtifactsV1 capability Soroban.descriptor files planDigest
   | .psy =>
       let files ← Psy.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Psy.descriptor files planDigest
@@ -232,6 +244,8 @@ def finalizeMaterializedArtifactsV1
         Ton.FinalizeV1.finalize capability artifacts stagingDir
     | .aleo =>
         Aleo.FinalizeV1.finalize capability artifacts stagingDir
+    | .soroban =>
+        Soroban.FinalizeV1.finalize capability artifacts stagingDir
     | .psy =>
         Psy.FinalizeV1.finalize capability artifacts stagingDir
     | other =>
