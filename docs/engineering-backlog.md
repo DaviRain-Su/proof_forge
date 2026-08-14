@@ -650,6 +650,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **SOL-0048-INIT**：`resolveStateCellInitializeProductionSubjectV1` + 通用 executed HandlerIR/provider join（argument=7，未初始化账户）。与 `get` 共用 production `.s`。**不是** 55 步 sparse 证书，**不**关闭 formal D5 |
 | 2026-08-15 | **SOL-0048-INC**：`resolveStateCellIncrementProductionSubjectV1`固定`41 + 1`成功场景，并经真实source binding/compiler/production `.s`与通用executed HandlerIR/provider join闭合。**不是** sparse 证书，**不**关闭 formal D5 |
 | 2026-08-15 | **SOL-0048-OVF**：overflow subject直接复用private increment production subject，固定`UInt64.max + 1`；通用join对齐Handler arithmetic trap、provider `0x1001`与exact pre-account snapshot。**不是** sparse 证书，**不**关闭 formal D5 |
+| 2026-08-15 | **EVM-CALL-ADDR-GAP**：盘点 [`docs/plan/evm-call-addr-gap.md`](plan/evm-call-addr-gap.md)。static-QN CALL 地址 = path UTF-8 的 Ethereum Keccak 后 20 字节，不是 CREATE/CREATE2。空账户 void CALL 会成功。绑定仍属 `B-CALL-SEM`。**不**改 emitter |
 | 2026-08-15 | **AGENT-NOTES-0**：引入 [`.agents/notes/`](../.agents/notes/README.md) 记 why/why-not（非 ADR、非 formal、非运行日志）。首批五篇：TypeKey 不进 structure gate、EXT-CRYPTO 不自动开、Soroban S0≠Wasm、focused `lake env lean`、Goal 不关 formal。无 format CI。 |
 | 2026-08-15 | **RPT-028 全仓诚实对账 + 活指针**：Goal-auto drain 标空；AGENTS Next 不再写成「闭合 D2-07」；SBOM 313；Solana sole CPI；ICP 与 zero-tool 拆开；击杀序删已做完的 CALL wide；RPT-014 加 superseded 横幅。**不**关闭 formal 0/27 |
 

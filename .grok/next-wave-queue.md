@@ -100,6 +100,9 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | DOC-12T-SYNC | done | Refresh RPT-025 12+0 + matrix §2 Soroban/OpenVM/ICP columns + targets README intro. **Not** accepted-PRD expansion |
 | SOL-0048-GAP | done | Inventory [`docs/plan/solana-adr-0048-next.md`](../docs/plan/solana-adr-0048-next.md): get certificate exists; init/increment/overflow still observation-only. **Not** formal D5 |
 | SOL-0048-INIT | done | StateCell initialize production subject + generic executed HandlerIR/provider join. No 55-step sparse cert yet. **Not** formal D5 |
+| SOL-0048-INC | done | StateCell increment-success production subject + generic executed HandlerIR/provider join (argument=1, initialized 41). No 55-step sparse cert yet. **Not** formal D5 |
+| SOL-0048-OVF | done | StateCell increment-overflow production subject + generic executed HandlerIR/provider join (UInt64 max prestate, argument=1). No 55-step sparse cert yet. **Not** formal D5 |
+| EVM-CALL-ADDR-GAP | done | Inventory [`docs/plan/evm-call-addr-gap.md`](../docs/plan/evm-call-addr-gap.md): static-QN CALL is last-20 keccak of path UTF-8, not CREATE/CREATE2. Next implementable = exact hex pin. Binding stays `B-CALL-SEM`. **Not** emitter change |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)

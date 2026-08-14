@@ -57,6 +57,7 @@ a second codegen.
 
 Next certificate order: initialize sparse trace first, then factor the shared
 increment dispatch/load prefix before closing success and overflow suffixes.
+Parallel accepted-four leaf: [`evm-call-addr-gap.md`](evm-call-addr-gap.md).
 
 Each slice: allowlist under `ProofForgeV2/Targets/Solana/Sbpf*` + focused
 Solana asm/provider tests + SBOM if `ProofForgeV2/**` changes.
