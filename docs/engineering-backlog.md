@@ -646,6 +646,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **CW-1A**：`CosmWasmPlanV1` 钉 locked wat2wasm Finalize（`StateCell.wasm`、`deployable=true`、evidence 含 wat2wasm + runtime remains separate、Wasm magic）与未知 profile `PF-PROFILE-UNKNOWN`。**不**关闭 wasmd/formal |
 | 2026-08-15 | **F-TYPEKEY-LEAVES**：`WireV1.testTypeKeyByteForm` 补 Int8/64、Principal、Unit、`array(uint8,4)` 字节形 pin。不进 structure gate，不 reject unused。**不**关闭 TASK-D2-06 / TST-SEM-001 |
 | 2026-08-15 | **F-TYPEKEY-FIELDS**：孤立 `typeKey` 补 BLS12-377 Fr / Goldilocks FieldSpec 字节形（bn254 已有）。不进 structure gate。**不**关闭 TASK-D2-06 / TST-SEM-001 |
+| 2026-08-15 | **DOC-12T-SYNC**：RPT-025 计数 12+0、档 B materializer 队列标 superseded；矩阵 §2 补 Soroban/OpenVM/ICP；targets README 导语补齐八 engineering leaf。**不**扩 accepted PRD |
 
 ---
 

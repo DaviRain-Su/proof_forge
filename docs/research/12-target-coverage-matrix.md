@@ -3,7 +3,7 @@ id: RESEARCH-012
 title: Target Plan/IR/Emitter 覆盖缺口矩阵（工程轨道权威清单）
 status: draft
 owner: engineering
-updated: 2026-08-14
+updated: 2026-08-15
 normative: false
 ---
 
@@ -142,12 +142,12 @@ normative: false
 
 ## 2. 验收/差分覆盖矩阵
 
-| 验收门 | EVM | Solana | NEAR | Noir | Psy | Aleo | Quint | CosmWasm | TON |
-|---|---|---|---|---|---|---|---|---|---|
-| Plan canonicity (ValidatePlan) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
-| IR 结构验证 (ValidateIR) | ✅(M4) | N/A | N/A | N/A | N/A | N/A | ✅(structured Q AST) | N/A | N/A |
-| 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ✅(NearWasmAcceptance: locked wat2wasm + host-optional wasm-interp/wasmtime/wasmer load) | ✅(NoirCompileAcceptance: nargo 1.0.0-beta.26 compile-only；G123；缺席 skip；**非** prove/verify) | ❌ zero-tool direct DPN materializer；无 Dargo/compiler/runtime lane | ❌ zero-tool direct Aleo Instructions materializer；无 Leo/compiler/runtime lane | ❌ product toolchain；⚠️ host-only exact Quint 0.32 typecheck（非 Tool Lock/finalize） | ✅(locked wat2wasm + cosmwasm-check 3.0.9；**非** wasmd) | ✅(tolk 1.4.2 → real BoC；**非** 主网) |
-| 运行时差分 (Reference↔target) | ⚠️(G4 工程 Anvil 差分：Counter/Accumulator/ArithOps/EventFlow + caller/Ownable corpus；**非** formal C-3) | ✅(Mollusk 工程门 21 integration binaries / 405 active tests，含 CallerIsMe 8/8、body_cpi_token_pay 11/11、miniamm_assets 10/10、WideDiv 8 个数值/回滚 oracle 与 WideDivDispatch 1 个长距 handler pin；**非** formal Stage-0 / Reference↔target closure) | ⚠️(WABT dummy env + near-sandbox 2.13.0 九套件，含 CallerCheck；非 Reference↔Wasm formal) | ❌ | ❌（DPN package emission only；无 local VM/proof） | ❌（Instructions emission only；无 VM/proof/network） | ⚠️(TS evaluator smoke；非 Reference differential/verify) | ⚠️(cosmwasm-vm mock 48 tests，含 CallerGate 7/7 + wasmd v0.70.3 Docker rung-1；**非** formal/主网) | ⚠️(@ton/sandbox 10/10 工程，含 ScheduleFlow；**非** formal/主网) |
+| 验收门 | EVM | Solana | NEAR | Noir | Psy | Aleo | Quint | CosmWasm | TON | Soroban | OpenVM | ICP |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| Plan canonicity (ValidatePlan) | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| IR 结构验证 (ValidateIR) | ✅(M4) | N/A | N/A | N/A | N/A | N/A | ✅(structured Q AST) | N/A | N/A | N/A | N/A | N/A |
+| 真实工具链编译验收 | ✅(EvmSolc: solc) | ✅(Mollusk runtime) | ✅(NearWasmAcceptance: locked wat2wasm + host-optional wasm-interp/wasmtime/wasmer load) | ✅(NoirCompileAcceptance: nargo 1.0.0-beta.26 compile-only；G123；缺席 skip；**非** prove/verify) | ❌ zero-tool direct DPN materializer；无 Dargo/compiler/runtime lane | ❌ zero-tool direct Aleo Instructions materializer；无 Leo/compiler/runtime lane | ❌ product toolchain；⚠️ host-only exact Quint 0.32 typecheck（非 Tool Lock/finalize） | ✅(locked wat2wasm + cosmwasm-check 3.0.9；**非** wasmd) | ✅(tolk 1.4.2 → real BoC；**非** 主网) | ❌ S0 zero-tool `.rs`；无 stellar-cli/Wasm | ⚠️ 默认 O0 zero-tool；opt-in O1 locked `cargo-openvm` ELF/VmExe（**非** prove） | ✅ locked wat2wasm `{name}.wasm`；PocketIC 不进 Finalize |
+| 运行时差分 (Reference↔target) | ⚠️(G4 工程 Anvil 差分：Counter/Accumulator/ArithOps/EventFlow + caller/Ownable corpus；**非** formal C-3) | ✅(Mollusk 工程门 + ADR-0048 bounded HandlerIR↔sBPF observation；**非** formal Stage-0 / `.so`/validator) | ⚠️(WABT dummy env + near-sandbox 2.13.0 九套件，含 CallerCheck；非 Reference↔Wasm formal) | ❌ | ❌（DPN package emission only；无 local VM/proof） | ❌（Instructions emission only；无 VM/proof/network） | ⚠️(TS evaluator smoke；非 Reference differential/verify) | ⚠️(cosmwasm-vm mock 48 tests，含 CallerGate 7/7 + wasmd v0.70.3 Docker rung-1；**非** formal/主网) | ⚠️(@ton/sandbox 10/10 工程，含 ScheduleFlow；**非** formal/主网) | ❌ 无 local invoke | ❌ 无 keygen/execute/prove | ⚠️ host-optional PocketIC；**非** replica/mainnet/formal |
 
 ## 3. 工程轨道未实现 feature 全清单（A/B/C/D 组）
 

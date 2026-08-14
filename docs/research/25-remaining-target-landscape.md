@@ -3,7 +3,7 @@ id: RESEARCH-025
 title: 剩余 Target 版图、比特币脚本族与落地波次
 status: draft
 owner: engineering
-updated: 2026-08-14
+updated: 2026-08-15
 normative: false
 ---
 
@@ -11,14 +11,16 @@ normative: false
 
 > **目的**：回答「四大类之外还能支持什么」；把**已注册已实现的 engineering leaf**、**研究期候选**、
 > **明确不适合近期实现**的平台分桶；并给出**可执行但不扩 accepted PRD** 的工程波次。
-> 2026-08-14：Soroban / ICP / OpenVM 三个 registry leaf 的 engineering MVP 已闭合（仍非 formal）。
+> 2026-08-15：registry **12 = 12 implemented + 0 design-only**。Soroban S0 / OpenVM O0+O1 /
+> ICP MVP 均已是 implemented materializer（仍非 formal / 非 accepted Phase 1）。
+> 2026-08-14：三个 leaf 的 engineering MVP 已闭合（仍非 formal）。
 > **不是** formal `TASK-*`、不是 PRD Phase-1 扩面、不是第二套 live gap 清单。  
 > 执行勾选只进 [`../engineering-backlog.md`](../engineering-backlog.md)；op 格子仍以
 > [`12-target-coverage-matrix.md`](12-target-coverage-matrix.md) 为准。  
 > 范围边界：[`ADR-0036`](../adr/0036-engineering-scope-and-evm-formal-lighthouse.md)。  
 > 分类轴：[`04-target-taxonomy.md`](04-target-taxonomy.md)。
 
-状态：`draft` / non-normative。日期：2026-08-13。
+状态：`draft` / non-normative。日期：2026-08-15。
 
 ---
 
@@ -31,9 +33,9 @@ ProofForge 的真实权威是多轴 `TargetDescriptor` + 每 target 独占 Plan/
 
 | 桶 | 内容 | 近期动作 |
 |---|---|---|
-| **已工程实现** | 9 个 materializer | 加深能力；不冒充 accepted/formal |
-| **registry design-only** | `soroban` / `icp` / `openvm` | **下一刀实现波次（优先）** |
-| **研究期已 ADR、dossier 缺口** | `aptos` / `sui` / `cairo` / `risc0` / `sp1`（ADR-0017；TON 已实现升格） | 先补 dossier + 独立实现 ADR，再进 registry |
+| **已工程实现** | **12** 个 materializer（accepted 四目标 + 八 engineering leaf） | 加深 accepted 四目标；后加八后端只做诚实天花板 + 至多一条加深 |
+| **registry design-only** | （无） | Soroban / ICP / OpenVM 已升 implemented；**不要**再当「缺 materializer」排队 |
+| **研究期已 ADR、dossier 缺口** | `cairo` / `risc0` / `sp1`（ADR-0017）；`aptos` / `sui` 已 wontfix | 不抢 EVM formal 与 12-target 诚实；第二 zkVM 另立项 |
 | **比特币脚本族等 UTXO/predicate** | Script / Tapscript / Miniscript / Liquid / BitVM 等 | **研究钉 + 默认 wontfix-until**；与现有 Semantic 状态机不匹配 |
 | **其它热门但未立项** | Fuel/Sway、Cardano/Plutus、Stylus-as-Wasm、Polkadot ink! 等 | 记录边界；不进本波实现队列 |
 
@@ -72,12 +74,12 @@ ProofForge 的真实权威是多轴 `TargetDescriptor` + 每 target 独占 Plan/
 | 轨道 | 集合 |
 |---|---|
 | Accepted PRD Phase 1 | `evm` `solana` `near` `noir` |
-| Engineering implemented | 上四 + `aleo` `psy` `quint` `cosmwasm` `ton`（共 9） |
-| Registry design-only | `soroban` `icp` `openvm`（共 3） |
-| Registry 合计 | **12** |
-| ADR-0017 研究期、尚未进 registry | `aptos` `sui` `cairo` `risc0` `sp1`（`ton` 已离开此桶） |
+| Engineering implemented | 上四 + `aleo` `psy` `quint` `cosmwasm` `ton` `soroban` `openvm` `icp`（**12**） |
+| Registry design-only | （无） |
+| Registry 合计 | **12 = 12 implemented + 0 design-only** |
+| ADR-0017 研究期、尚未进 registry | `cairo` `risc0` `sp1`（`ton` 已离开此桶；`aptos`/`sui` 产品 wontfix） |
 
-因此：**「四大类之外」在仓库里早已存在**——至少有 TON、Quint、CosmWasm、Aleo/Psy，以及三个 design-only。
+因此：**「四大类之外」在仓库里早已存在**——八个 engineering leaf 全部已有 materializer，不是「还缺三个实现波次」。
 
 ---
 
@@ -94,7 +96,14 @@ ProofForge 的真实权威是多轴 `TargetDescriptor` + 每 target 独占 Plan/
 | `aleo` / `psy` | ZK **应用链**，非电路 DSL、非通用 zkVM | zero-tool 制品；无 VM/proof/deploy |
 | `quint` | 可执行规格 / 模型面 | source-only；不可部署 |
 
-### 档 B — registry 已有、缺 materializer（**本文件主实现队列**）
+### 档 B — registry 已有、缺 materializer（**2026-08-15 superseded**）
+
+> **已闭合。** `soroban` / `icp` / `openvm` 现为 implemented materializer
+> （ADR-0044 S0 / ADR-0047 / ADR-0045+0046）。本表保留为历史入口，**不要**再当
+> 实现队列。后续只做诚实天花板或对应产品决策（SOR-1 / OpenVM prove / ICP host
+> 键），见工程 backlog 与十二后端执行路径阶段 2。
+
+### 档 B（历史）— registry 已有、缺 materializer（原主实现队列）
 
 | Target | Family | 与已实现 leaf 的关键差 | 建议 MVP 形态 |
 |---|---|---|---|

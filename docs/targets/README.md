@@ -25,10 +25,13 @@ normative: true
 >
 > 1. **Accepted PRD Phase 1 范围**仍为 **四目标**：`evm` / `solana` / `near` / `noir`。
 > 2. **Engineering implemented leaves** 另有 `aleo` / `psy` / `cosmwasm` / `ton` /
->    `quint` / `soroban`（工程已可寻址并 materialize，**不**等于 accepted 产品范围已扩）。二者
+>    `quint` / `soroban` / `openvm` / `icp`（十二个 materializer 均已可寻址并
+>    materialize，**不**等于 accepted 产品范围已扩）。二者
 >    边界由 **ADR-0036** 固定；不得因表格「implement」字样静默扩大
 >    accepted scope。`quint` 为 ADR-0026 冻结并已接线的 source-only model surface；
->    `soroban` 为 ADR-0044 source-only S0（`.rs` recipe，zero-tool）。
+>    `soroban` 为 ADR-0044 source-only S0（`.rs` recipe，zero-tool）；
+>    `openvm` 为 ADR-0045/0046 O0 guest-source + opt-in O1 ELF；
+>    `icp` 为 ADR-0047 wat2wasm + host-optional PocketIC。
 
 | Target | 视图 | 本阶段 | Static dossier ceiling | 当前证据与限制（工程观察，非 formal binding） | Dossier |
 |---|---|---|---|---|---|
