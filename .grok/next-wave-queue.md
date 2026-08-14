@@ -80,6 +80,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | SYS-S4-CIRCUIT-KEYS | done | Aleo/Noir/Psy named remaining ContextRead keys; Targets.lean matrix needles updated (incl. leftover Quint/Soroban UInt64 rows). unixTime not opened. **Not** formal |
 | SYS-S4-MATRIX-NEW | done | ICP/OpenVM added to Targets.lean ContextRead matrix (contains-loops + exact blockHeight/chainId/self). **Not** formal |
 | SYS-E2-CIRCUIT | done | Aleo/Noir/Psy: envRead nativeVaultBalance named no-host FC. Compile reached Plan. Focused suites ok. **Not** formal |
+| SYS-E2-TON | done | TON: envRead nativeVaultBalance named no-host FC. unixTime still admitted. Focused TonPlanV1 ok. **Not** formal |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 

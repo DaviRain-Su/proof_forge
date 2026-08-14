@@ -1565,6 +1565,37 @@ private unsafe def testContextReadUnixTime
                 "unknown context key must fail closed (Normalize or Plan)"
   IO.println "  ✓ B-CTX-OPEN unixTimeSeconds → blockchain.now(); caller/self/blockHeight/attachedValue/chainId/unknown FC"
 
+/-- SYS-E2: TON has no native vault host. `pf.assets.native.balanceOfSelf`
+    stays Plan fail closed. Product `planTon` still declines
+    `extension.pf-assets` at resolve, so this pin uses the same engineering
+    Plan path as the crypto pins (compile reaches Plan). unixTime
+    ContextRead remains admitted. -/
+private unsafe def testEnvReadNativeStayFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "EnvReadBalanceTon" <|
+    "  requires extension pf.assets version \"1.1.0\"\n" ++
+      "    digest \"sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9\"\n\n" ++
+      "  state count : UInt64\n\n" ++
+      "  init(initial : UInt64) do\n" ++
+      "    count := initial\n\n" ++
+      "  view nativeBalance() : UInt64 do\n" ++
+      "    return pf.assets.native.balanceOfSelf()\n\n" ++
+      "  entry setCount(newCount : UInt64) : UInt64 do\n" ++
+      "    count := newCount\n" ++
+      "    return count\n"
+  let compiled ← compileSource session src "Examples.EnvReadBalanceTon"
+    "<ton-env-read-native>"
+  match engineeringPlanFromCompiled compiled with
+  | .error e =>
+      expect (e.render.contains "has no Ton host binding")
+        s!"EnvReadBalanceTon Plan FC must contain 'has no Ton host binding', got: {e.render}"
+      expect (e.render.contains "nativeVaultBalance")
+        s!"EnvReadBalanceTon Plan FC must name nativeVaultBalance, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "EnvReadBalanceTon must Plan fail closed (no Ton vault host)"
+  IO.println "  ✓ envRead nativeVaultBalance stay fail closed (no Ton host)"
+
 unsafe def run : IO Unit := do
   IO.println "TonPlanV1"
   let session ← Tests.Language.ParserSession.shared
@@ -1585,6 +1616,7 @@ unsafe def run : IO Unit := do
   testOptionState session
   testAggregateFailClosed session
   testContextReadUnixTime session
+  testEnvReadNativeStayFailClosed session
   IO.println "TonPlanV1: all checks passed"
 
 end Tests.Materialization.TonPlanV1

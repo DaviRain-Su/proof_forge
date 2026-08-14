@@ -3060,6 +3060,15 @@ private def lowerBlockInstructionsV1
           expandedNodes := 1
           dependencies := #[]
         }
+    -- SYS-E2: name nativeVaultBalance. Do not open a TON vault host.
+    -- token/U128 stay on the generic EnvRead envelope. unixTime ContextRead
+    -- above stays admitted (`blockchain.now()`).
+    | .envRead key _, some _ =>
+        if key == .nativeVaultBalance then
+          throw <| .planInvariant .ton
+            "unsupported Ton semantic shape: envRead nativeVaultBalance has no Ton host binding (pf.assets.native.balanceOfSelf stays fail closed)"
+        throw <| .planInvariant .ton
+          "unsupported Ton semantic shape: EnvRead is not admitted by pilot context policy"
     | _, _ =>
         throw <| .planInvariant .ton
           "unsupported Ton semantic shape: instruction op/result is outside the current UInt64 pilot"
