@@ -26,14 +26,14 @@ structure AccountObservationV1 where
   isSigner : Bool
   isWritable : Bool
   data : ByteArray
-  deriving BEq, Repr
+  deriving BEq, DecidableEq, Repr
 
 /-- Complete invocation observation for the selected handler recipe. The
     discriminator is the first eight instruction-data bytes. -/
 structure InvocationObservationV1 where
   accounts : Array AccountObservationV1
   instructionData : ByteArray
-  deriving BEq, Repr
+  deriving BEq, DecidableEq, Repr
 
 inductive HandlerExecutionErrorV1 where
   | unsupportedDiscriminator
@@ -52,7 +52,7 @@ inductive HandlerExecutionErrorV1 where
   | localOutOfBounds
   | arithmeticOverflow (errorCode : Nat)
   | missingReturnData
-  deriving BEq, Repr
+  deriving BEq, DecidableEq, Repr
 
 private structure HandlerMachineV1 where
   accounts : Array AccountObservationV1
@@ -230,7 +230,7 @@ private def runOperationsV1
 inductive HandlerExecutionOutcomeV1 where
   | returned (returnData : Option ByteArray)
   | trapped (error : HandlerExecutionErrorV1)
-  deriving BEq, Repr
+  deriving BEq, DecidableEq, Repr
 
 private def executeHandlerIRWithAccountsV1
     (handlerIR : HandlerIR)
@@ -281,7 +281,7 @@ structure HandlerObservationV1 where
   invocation : InvocationObservationV1
   outcome : HandlerExecutionOutcomeV1
   postAccounts : Array AccountObservationV1
-  deriving BEq, Repr
+  deriving BEq, DecidableEq, Repr
 
 /-- Observe one bounded HandlerIR execution, including atomic post accounts. -/
 def observeHandlerIRV1

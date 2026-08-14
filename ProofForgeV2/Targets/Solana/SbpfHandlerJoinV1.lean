@@ -15,9 +15,11 @@ existing evaluators. The StateCell `get` path now has a complete 55-step sparse
 provider certificate, executable artifact/input checks, and a proof-bearing
 provider store derivation behind one sound trace gate. A second sound gate now
 projects the real encoder and `executeLoaderV3SingleAccountV1` equation. The
-remaining boundary is to discharge that gate while proving the HandlerIR/provider
-observation relation and minting this module's join carrier. Until then, an
-engineering observation is not a full refinement theorem.
+certified join gate additionally checks invocation/observation agreement and its
+soundness mints the executed carrier with provider witnesses. The remaining
+production boundary is to discharge that gate in a kernel proof and apply the
+existing Reference→Handler proof; an engineering success alone is not that
+unconditional refinement theorem.
 -/
 
 namespace ProofForgeV2.Targets.Solana
@@ -42,6 +44,25 @@ def LoaderV3SingleAccountInvocationRelV1
     }]
     instructionData := ⟨loaderInvocation.instructionData⟩
   }
+
+instance (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1) :
+    Decidable
+      (LoaderV3SingleAccountInvocationRelV1 handlerInvocation loaderInvocation) := by
+  unfold LoaderV3SingleAccountInvocationRelV1
+  infer_instance
+
+def checkLoaderV3SingleAccountInvocationRelV1
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1) : Bool :=
+  decide (LoaderV3SingleAccountInvocationRelV1 handlerInvocation loaderInvocation)
+
+theorem checkLoaderV3SingleAccountInvocationRelV1_eq_true_iff
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1) :
+    checkLoaderV3SingleAccountInvocationRelV1 handlerInvocation loaderInvocation = true ↔
+      LoaderV3SingleAccountInvocationRelV1 handlerInvocation loaderInvocation := by
+  simp [checkLoaderV3SingleAccountInvocationRelV1]
 
 /-- The production StateCell single-account layout constants. Keeping this
     calculation in the kernel avoids a second handwritten offset table in the
@@ -127,6 +148,30 @@ def HandlerSbpfObservationRelV1
       sbpf.provider.returnData = #[]
   | .trapped _ => False
 
+instance (expectedArtifactSha256 : String)
+    (handler : HandlerObservationV1)
+    (sbpf : SbpfExecutionObservationV1) :
+    Decidable
+      (HandlerSbpfObservationRelV1 expectedArtifactSha256 handler sbpf) := by
+  unfold HandlerSbpfObservationRelV1
+  cases handler.outcome with
+  | returned returnData => infer_instance
+  | trapped error => cases error <;> infer_instance
+
+def checkHandlerSbpfObservationRelV1
+    (expectedArtifactSha256 : String)
+    (handler : HandlerObservationV1)
+    (sbpf : SbpfExecutionObservationV1) : Bool :=
+  decide (HandlerSbpfObservationRelV1 expectedArtifactSha256 handler sbpf)
+
+theorem checkHandlerSbpfObservationRelV1_eq_true_iff
+    (expectedArtifactSha256 : String)
+    (handler : HandlerObservationV1)
+    (sbpf : SbpfExecutionObservationV1) :
+    checkHandlerSbpfObservationRelV1 expectedArtifactSha256 handler sbpf = true ↔
+      HandlerSbpfObservationRelV1 expectedArtifactSha256 handler sbpf := by
+  simp [checkHandlerSbpfObservationRelV1]
+
 theorem handlerSbpfObservationRelV1_returned_iff
     (expectedArtifactSha256 : String)
     (handler : HandlerObservationV1)
@@ -188,6 +233,106 @@ abbrev StateCellExecutedHandlerSbpfJoinV1
   ExecutedHandlerSbpfJoinV1 bound handlerIR handlerInvocation loaderInvocation
     fuel stateCellProductionSbpfSha256V1
 
+/-- StateCell `get` join retaining the provider certificate witnesses in
+addition to the generic executed observation join. -/
+structure CertifiedStateCellGetExecutedHandlerSbpfJoinV1
+    (bound : BoundResolvedSbpfArtifactV1)
+    (handlerIR : HandlerIR)
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1)
+    (returnBytes : Array UInt8)
+    (value : SbpfSemantics.Word) where
+  input : Array UInt8
+  machine : SbpfSemantics.Machine
+  sourceIdentity :
+    (BoundResolvedSbpfArtifactV1.resolvedOf bound).sourceSha256 =
+      stateCellProductionSbpfSha256V1
+  encodedInput :
+    encodeLoaderV3SingleAccountInputV1 bound loaderInvocation = .ok input
+  providerReturned : StateCellGetReturnedV1 input returnBytes machine
+  providerExecution :
+    executeLoaderV3SingleAccountV1 bound loaderInvocation 55 = .ok {
+      artifactSha256 :=
+        (BoundResolvedSbpfArtifactV1.resolvedOf bound).sourceSha256
+      provider := SbpfSemantics.observe machine (.halted 0)
+      finalAccountData := machine.mem.readBytes
+        (SbpfSemantics.inputStart +
+          BitVec.ofNat 64 accountDataOffsetV1) 16
+    }
+  executed :
+    StateCellExecutedHandlerSbpfJoinV1 bound handlerIR handlerInvocation
+      loaderInvocation 55
+
+/-- Executable gate for the complete StateCell `get` HandlerIR/provider join.
+    It requires the certified provider execution gate as well as exact
+    invocation and observation agreement. -/
+def checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1
+    (bound : BoundResolvedSbpfArtifactV1)
+    (handlerIR : HandlerIR)
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1)
+    (returnBytes : Array UInt8)
+    (value : SbpfSemantics.Word) : Bool :=
+  let handlerObservation := observeHandlerIRV1 handlerIR handlerInvocation
+  checkLoaderV3SingleAccountInvocationRelV1 handlerInvocation loaderInvocation &&
+    (checkStateCellGetExecutionV1 bound loaderInvocation returnBytes value &&
+      match executeLoaderV3SingleAccountV1 bound loaderInvocation 55 with
+      | .error _ => false
+      | .ok sbpfObservation =>
+          checkHandlerSbpfObservationRelV1 stateCellProductionSbpfSha256V1
+            handlerObservation sbpfObservation)
+
+/-- Soundness of the complete executed-join gate. Successful checking mints the
+generic join carrier while retaining the exact identity, encoder, and returned
+provider-machine witnesses from the 55-step certificate. -/
+theorem checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1_sound
+    (bound : BoundResolvedSbpfArtifactV1)
+    (handlerIR : HandlerIR)
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1)
+    (returnBytes : Array UInt8)
+    (value : SbpfSemantics.Word)
+    (checked : checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1 bound
+      handlerIR handlerInvocation loaderInvocation returnBytes value = true) :
+    Nonempty (CertifiedStateCellGetExecutedHandlerSbpfJoinV1 bound handlerIR
+      handlerInvocation loaderInvocation returnBytes value) := by
+  unfold checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1 at checked
+  cases hexecution :
+      executeLoaderV3SingleAccountV1 bound loaderInvocation 55 with
+  | error error => simp [hexecution] at checked
+  | ok sbpfObservation =>
+      rw [hexecution] at checked
+      simp only [Bool.and_eq_true] at checked
+      rcases checked with ⟨hinvocation, hprovider, hobservation⟩
+      have invocationRel :=
+        (checkLoaderV3SingleAccountInvocationRelV1_eq_true_iff
+          handlerInvocation loaderInvocation).mp hinvocation
+      have observationRel :=
+        (checkHandlerSbpfObservationRelV1_eq_true_iff
+          stateCellProductionSbpfSha256V1
+          (observeHandlerIRV1 handlerIR handlerInvocation) sbpfObservation).mp
+            hobservation
+      rcases checkStateCellGetExecutionV1_sound bound loaderInvocation
+          returnBytes value hprovider with
+        ⟨hidentity, input, machine, hencoded, hcertifiedExecution,
+          machineReturned⟩
+      exact ⟨{
+        input
+        machine
+        sourceIdentity := hidentity
+        encodedInput := hencoded
+        providerReturned := machineReturned
+        providerExecution := hcertifiedExecution
+        executed := {
+          invocationRel
+          handlerObservation := observeHandlerIRV1 handlerIR handlerInvocation
+          handlerExecution := rfl
+          sbpfObservation
+          sbpfExecution := hexecution
+          observationRel
+        }
+      }⟩
+
 /-- Composition boundary for the already-proved UInt64 Reference→HandlerIR
     success relation and the HandlerIR→provider observation relation. -/
 structure UInt64ReferenceHandlerSbpfJoinV1
@@ -204,6 +349,30 @@ structure UInt64ReferenceHandlerSbpfJoinV1
       valueBytes handler
   handlerSbpf :
     HandlerSbpfObservationRelV1 expectedArtifactSha256 handler sbpf
+
+/-- Compose a certified StateCell provider join with any existing UInt64
+Reference→Handler observation proof. No additional evaluator or transition is
+introduced at this boundary. -/
+theorem CertifiedStateCellGetExecutedHandlerSbpfJoinV1.referenceJoin
+    {bound : BoundResolvedSbpfArtifactV1}
+    {handlerIR : HandlerIR}
+    {handlerInvocation : InvocationObservationV1}
+    {loaderInvocation : LoaderV3SingleAccountInvocationV1}
+    {returnBytes : Array UInt8}
+    {value : SbpfSemantics.Word}
+    {data : SemanticProgramDataV1}
+    {typeId : TypeIdV1}
+    {pre : LogicalStateV1}
+    {referenceOutcome : OutcomeV1}
+    {valueBytes : ByteArray}
+    (certified : CertifiedStateCellGetExecutedHandlerSbpfJoinV1 bound handlerIR
+      handlerInvocation loaderInvocation returnBytes value)
+    (referenceHandler : UInt64ReturnedHandlerObservationRelV1 data typeId pre
+      referenceOutcome valueBytes certified.executed.handlerObservation) :
+    UInt64ReferenceHandlerSbpfJoinV1 data typeId pre referenceOutcome valueBytes
+      certified.executed.handlerObservation stateCellProductionSbpfSha256V1
+      certified.executed.sbpfObservation :=
+  ⟨referenceHandler, certified.executed.observationRel⟩
 
 /-- The two joins compose without another state/effect evaluator: the provider
     return bytes equal the sole Reference return bytes, and its final account

@@ -1361,9 +1361,9 @@
       "sha256": "c2c4ce1159b4c650a09389cf21edf09bccf03b7e46d5492cd8dde65f6a0075ff"
     },
     {
-      "bytes": 74596,
+      "bytes": 74661,
       "path": "ProofForgeV2/Targets/Solana/HandlerSemanticsV1.lean",
-      "sha256": "3e8123e833f94f900311bd78fd899da103182ad98261e15b13a8e26b66bf1416"
+      "sha256": "aa9fc2060230b6eb76d95fa174a13b5a9abfbf5c1ba258d54b5fe24d46088e49"
     },
     {
       "bytes": 210332,
@@ -1406,9 +1406,9 @@
       "sha256": "f79de80b40a11675ba879e5c38dbd870ca80bd5ec94e1d842fc021e2a5df25a1"
     },
     {
-      "bytes": 10190,
+      "bytes": 17982,
       "path": "ProofForgeV2/Targets/Solana/SbpfHandlerJoinV1.lean",
-      "sha256": "ca74374dba04066a776aa79f944fea49d9cdb24a6ba40446c4833f2591cc06ce"
+      "sha256": "084bf91e81ce9ac0520afd11be1a2a254496ba46bef0185bef77aa2de36b0cf3"
     },
     {
       "bytes": 12023,

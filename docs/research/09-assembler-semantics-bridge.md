@@ -30,12 +30,13 @@ label resolver、ELF reader或production Solana account serializer。候选promo
 Lake pin。ProofForge现已直接解析/resolve production StateCell `.s`为provider `Program`，并用真实
 single-account Loader V3 ABIv1 image执行bounded provider observations。`SbpfHandlerJoinV1`已固定
 Handler invocation↔Loader invocation、success/overflow observation及Reference→Handler→provider
-组合关系，并要求真实两侧evaluator等式；但production 168条program的provider执行等式尚未由
-identity-bound assumptions闭合。当前完整55-step `get`轨迹与provider `runFuel` status-zero等式已
+组合关系，并要求真实两侧evaluator等式；但production 168条program的无条件provider refinement
+theorem尚未闭合。当前完整55-step `get`轨迹与provider `runFuel` status-zero等式已
 证明；strict artifact identity→lookup、encoded input→read以及实际`execInstr`→proof-bearing stack
 effects均已接入单一sound checker/`runFuel` theorem；validated execution-window与encoder projection
-也已给出真实`runBound`/`executeLoaderV3SingleAccountV1`等式。剩余的是在Handler join中discharge
-production invocation gate并证明observation relation，所以仍**没有**完整concrete provider-backed
+也已给出真实`runBound`/`executeLoaderV3SingleAccountV1`等式。certified Handler join gate现检查
+invocation/observation relation并sound mint executed carrier，且可直接与既有Reference→Handler proof
+组合。剩余的是在具体production theorem中kernel-discharge该gate，所以仍**没有**无条件完整provider-backed
 refinement claim。
 
 ## Why it matters for V2
@@ -84,7 +85,7 @@ Promotion path (ADR-0048 accepted; 1–3 complete, 4 in progress):
    program lookup以及concrete encoded input reads的可执行checker与kernel soundness也已闭合。
    proof-bearing provider stack-store derivation和真实/tampered回归也已闭合，并聚合为单一sound
    trace gate；raw/encoded Loader execution equation的sound projection也已闭合。下一步在
-   `SbpfHandlerJoinV1`中discharge production gate并证明Handler/provider observation relation。
+   具体StateCell production theorem中kernel-discharge certified join gate并应用Reference proof。
 5. Keep product ELF path independent (sbpf toolchain); formal lane fail-closed
    if pin missing.
 
@@ -109,8 +110,8 @@ Contract: sibling `docs/proof-forge-interface.md`.
 - Does not satisfy clean-room until pinned under V2 dependency policy.
 - Current join carrier/relations are not a proof that the 168-instruction StateCell artifact executes them;
   all 55/55 `get` steps, exact identity→lookup binding, concrete input reads, and proof-bearing stack-store
-  derivation are behind sound trace/Loader execution gates, but those gates are not yet discharged in the
-  HandlerIR/provider join carrier.
+  derivation are behind sound trace/Loader/certified-join gates, but the final production gate has not yet
+  been discharged as an unconditional kernel theorem.
 
 ## Related V1 research (parent, also research-only)
 

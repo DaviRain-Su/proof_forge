@@ -391,6 +391,11 @@ private unsafe def testStateCellSbpfExecution
 
   let getInvocation :=
     invocation initialized (instructionData getDisc none) false false
+  let getHandler ← match ir.handlers.find? (·.name == "get") with
+    | some handler => pure handler
+    | none => throw <| IO.userError "sBPF execution: missing get HandlerIR"
+  let getHandlerInvocation :=
+    nullaryUInt64ViewInvocationV1 ⟨initialized⟩ getDisc
   let encodedGet ← liftExecutionResult <|
     encodeLoaderV3SingleAccountInputV1 boundArtifact getInvocation
   let getValue := BitVec.ofNat 64 41
@@ -412,9 +417,13 @@ private unsafe def testStateCellSbpfExecution
   expect (checkStateCellGetExecutionV1 boundArtifact getInvocation
       getReturnBytes getValue)
     "sBPF execution return: end-to-end Loader execution gate must pass"
-  expect (!checkStateCellGetTraceV1 boundArtifact encodedGet
+  expect (checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1 boundArtifact
+      getHandler getHandlerInvocation getInvocation getReturnBytes getValue)
+    "sBPF execution return: certified HandlerIR/provider join gate must pass"
+  expect (!checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1 boundArtifact
+      getHandler getHandlerInvocation getInvocation
       (getReturnBytes.set! 0 0) getValue)
-    "sBPF execution return: tampered bytes must fail the complete trace gate"
+    "sBPF execution return: tampered bytes must fail the certified join gate"
   let wordAt (offset : Nat) : SbpfSemantics.Word :=
     SbpfSemantics.wordFromLE (encodedGet.extract offset (offset + 8))
   expect (encodedGet.size == 0x28b0)

@@ -16024,3 +16024,17 @@ normative: false
 - 下一步边界已收窄为`SbpfHandlerJoinV1`：discharge production invocation gate，证明provider
   return/account observation与actual HandlerIR observation一致，再mint executed join carrier；当前仍不
   声明完整ReferenceMachine→sBPF、ELF、Solana loader/runtime/rollback/compute-unit refinement。
+
+## 2026-08-14 — StateCell `get` certified HandlerIR/provider join gate
+
+- 为Handler invocation及Handler/provider observation relations增加可执行checker与iff soundness；
+  Handler observation public carriers补齐ordinary `DecidableEq`，未新增evaluator或transition。
+- 新增`checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1`：同时消费canonical Handler↔Loader
+  invocation、完整provider execution gate和actual `observeHandlerIRV1`↔Loader observation agreement。
+- checker soundness mint `CertifiedStateCellGetExecutedHandlerSbpfJoinV1`的`Nonempty` witness，保留exact
+  source identity、encoded input、55-step returned provider machine、machine-linked Loader execution
+  equation及原有`ExecutedHandlerSbpfJoinV1` carrier。production `get(41)` join gate回归通过。
+- `CertifiedStateCellGetExecutedHandlerSbpfJoinV1.referenceJoin`可直接组合既有
+  `UInt64ReturnedHandlerObservationRelV1`，不新增business semantics。剩余工作是为具体production
+  StateCell subject在kernel中discharge gate并应用已有Reference→Handler theorem；initialize/increment/
+  overflow与ELF/runtime层仍继续独立。

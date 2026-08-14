@@ -186,8 +186,10 @@ checker直接认证concrete encoded Loader memory reads，并kernel投影为全�
 fail closed。单一`checkStateCellGetTraceV1`已把artifact、input和实际44-step prefix store derivation
 接入55-step/`runFuel` soundness定理；validated account-window投影进一步给出`runBound`等式，
 `checkStateCellGetExecutionV1_sound`再从真实encoder结果导出实际`executeLoaderV3SingleAccountV1`
-等式，production invocation回归通过该gate。尚需在`SbpfHandlerJoinV1`中discharge gate并证明
-HandlerIR/provider observation relation；因此仍没有完整provider-backed refinement claim；
+等式，production invocation回归通过该gate。`SbpfHandlerJoinV1`的certified gate现同时检查canonical
+invocation与actual Handler/provider observations，soundness mint携带identity/encoder/provider-machine
+witness的executed join carrier；Reference→Handler proof也有直接composition入口。尚需在具体production
+定理中kernel-discharge该gate并应用既有Reference proof，因此仍没有无条件完整refinement claim；
 ELF、loader、rollback、compute units与runtime也不在该观察范围内。
 
 ## 1. 身份与来源
@@ -313,7 +315,8 @@ Phase 1 在本地 runtime/validator 创建 program 与 state accounts，发送 i
      `SbpfHandlerJoinV1`已固定kernel组合契约，`get`的bounded sparse execution certificate已闭合
      完整55/55步，并导出provider `runFuel` status-zero结论；artifact lookup、Loader memory read与
      proof-bearing stack-store derivation已接入单一sound checker，且sound adapter projection已到真实
-     Loader encoder/execute等式；尚需discharge gate并闭合HandlerIR/provider observation relation。
+     Loader encoder/execute等式；certified join gate的invocation/observation checker与sound carrier mint
+     也已闭合。尚需在具体production theorem中kernel-discharge该gate并应用Reference→Handler proof。
      该边界与release source closure闭合前，不得
      作为concrete refinement、clean-room或release证据。
 4. local runtime 完成 Counter 正常与 overflow rollback。
