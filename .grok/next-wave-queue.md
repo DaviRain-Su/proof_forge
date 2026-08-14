@@ -1,7 +1,7 @@
 # Next-wave drain queue (2026-08-12)
 
 **Authority:** `docs/engineering-backlog.md` 推荐击杀顺序 · ADR-0036 · AGENTS Next task  
-**Live status:** Goal-auto drain **empty**. Track A/B/F and later honesty pins are all `done`. **Do not** launch `/goal @.grok/goals/prompt-next-wave.md` or `/workflow next-wave-runner`. Formal `TASK-D2-07` / `TST-SEM-002/003` stay pending — not a coding slice. Next work = honesty docs / product decisions (see `docs/research/28-project-wide-honesty-audit.md`). Backlog wins on conflict.
+**Live status:** Goal-auto drain **empty**. Track A/B/F and later honesty pins are all `done`. **Do not** launch `/goal @.grok/goals/prompt-next-wave.md` or `/workflow next-wave-runner`. Formal `TASK-D2-07` / `TST-SEM-002/003` stay pending — not a coding slice. Next **engineering** lane = [`docs/plan/capability-layer-tasks.md`](../docs/plan/capability-layer-tasks.md) (default **CAP-1a**). Audit = `docs/research/28-project-wide-honesty-audit.md`. Backlog wins on conflict.
 **Mode:** Retired drain. Do **not** invent new LH/F rows.  
 **Sole L1 step:** `SemanticProgramV1 → admitReferenceProgramSliceV1 → stepReferenceSliceV1`  
 **Forbidden:** close formal TASK/TST/EV · Anvil lossless OutcomeWire (spec-FC) · invent TASK-* · push · `git add -A` · `git reset --hard` · supersede ADR-0027 · silent accepted-PRD expansion
@@ -106,7 +106,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | EVM-CALL-ADDR-PIN | done | CallGate/ScheduleGate Yul pin exact keccak last-20 of `Oracle`/`Ledger`. No emitter change. Binding stays `B-CALL-SEM`. **Not** CREATE/CREATE2 |
 | NOIR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed(...)` Plan FC (existing result-bearing diagnostic). Allowlist `Tests/Materialization/NoirRelationModel.lean`. **Not** response-witness / prove |
 | EVM-CALL-INT-FC | done | Pin Int64 result-bearing CALL Plan FC beside existing Bool pin in `EvmSmoke`. **Not** opening signed ABI / B-CALL-SEM |
-| EVM-CALL-BYTES-FC | in_progress | Pin Bytes 32 result-bearing CALL Plan FC beside Bool/Int64 pins in `EvmSmoke`. **Not** Bytes ABI / B-CALL-SEM |
+| EVM-CALL-BYTES-FC | done | Pin Bytes 32 result-bearing CALL Plan FC beside Bool/Int64 pins in `EvmSmoke`. **Not** Bytes ABI / B-CALL-SEM |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |
 
