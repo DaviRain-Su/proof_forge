@@ -15831,6 +15831,9 @@ normative: false
 - `SolanaStaticAlignmentV1`回归从真实StateCell compiler→capability→Plan→HandlerIR graph取artifact，
   覆盖init/increment成功、marker/state/return、missing signer、read-only、double-init、overflow rollback
   和artifact tamper；Solana shard通过。
-- 本切停在production HandlerIR engineering execution。`get()`既有kernel Reference join不自动覆盖
-  mutate/initializer；下一步为两者建立static alignment carrier、执行定理与sole
-  `ReferenceMachineV1` join，完成后才进入HandlerIR→sBPF。
+- static alignment carrier现已精确绑定retained initializer/checked-add callable、production Plan
+  Handler与HandlerIR；对应kernel theorem从唯一target evaluator推导initializer marker/state
+  post-account、increment return/write-back，以及overflow trap与原账户快照，不以测试oracle代替证明。
+- 本切仍停在production HandlerIR execution。`get()`既有kernel Reference join不自动覆盖
+  mutate/initializer；下一步是将两条已证明的target execution接回sole `ReferenceMachineV1`，
+  完成kernel join后才进入HandlerIR→sBPF。

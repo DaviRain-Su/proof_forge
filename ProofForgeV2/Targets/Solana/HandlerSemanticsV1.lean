@@ -414,6 +414,624 @@ theorem readUInt64LEV1_oneFieldUInt64AccountDataV1_field
     · simp [encodeU64le_size]
   rw [hextract, leBytesToNatV1_encodeU64le, UInt64.ofNat_toNat]
 
+/-- The production unary invocation constructor supplies the exact
+    discriminator bytes consumed by the sole dispatcher. -/
+private theorem runDispatchV1_unaryUInt64InvocationV1
+    (handlerIR : HandlerIR)
+    (accountData : ByteArray)
+    (discriminatorValue argument : UInt64)
+    (isSigner : Bool)
+    (hdiscriminator :
+      discriminatorToLeU64V1 handlerIR.discriminator = .ok discriminatorValue) :
+    runDispatchV1 handlerIR
+      (unaryUInt64InvocationV1 accountData discriminatorValue argument isSigner
+        true) = .ok () := by
+  unfold runDispatchV1
+  rw [hdiscriminator]
+  simp only [Except.toOption, unaryUInt64InvocationV1]
+  have hread :
+      readUInt64LEV1
+          ((encodeU64le discriminatorValue).append (encodeU64le argument)) 0 =
+        some discriminatorValue := by
+    simpa [oneFieldUInt64AccountDataV1] using
+      readUInt64LEV1_oneFieldUInt64AccountDataV1_header discriminatorValue
+        argument
+  rw [hread]
+  simp
+
+private theorem readUInt64LEV1_unaryUInt64InvocationV1_argument
+    (accountData : ByteArray)
+    (discriminatorValue argument : UInt64)
+    (isSigner isWritable : Bool) :
+    readUInt64LEV1
+        (unaryUInt64InvocationV1 accountData discriminatorValue argument isSigner
+          isWritable).instructionData 8 = some argument := by
+  unfold unaryUInt64InvocationV1
+  change readUInt64LEV1
+      ((encodeU64le discriminatorValue).append (encodeU64le argument)) 8 =
+    some argument
+  simpa [oneFieldUInt64AccountDataV1] using
+    readUInt64LEV1_oneFieldUInt64AccountDataV1_field discriminatorValue argument
+
+/-- Exact successful execution and committed account observation for a
+    statically aligned production initializer. The three write equations are
+    facts about the one target representation helper, not a second state
+    transition relation. -/
+theorem observeHandlerIRV1_of_unaryUInt64InitializerStaticAlignment
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (callableId : CallableIdV1)
+    (unitTypeId : TypeIdV1)
+    (parameterValueId : ValueIdV1)
+    (parameterName discriminator : String)
+    (handler : Handler)
+    (handlerIR : HandlerIR)
+    (accountData zeroedData storedData postData : ByteArray)
+    (discriminatorValue argument : UInt64)
+    (halignment : UnaryUInt64InitializerStaticAlignmentV1 data plan binding
+      callableId unitTypeId parameterValueId parameterName discriminator
+      handler handlerIR)
+    (hdiscriminator :
+      discriminatorToLeU64V1 discriminator = .ok discriminatorValue)
+    (hdataLength : accountData.size = plan.stateAccount.exactDataLen)
+    (hheader : readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+      some 0)
+    (hzero : writeUInt64LEV1 accountData binding.byteOffset 0 =
+      some zeroedData)
+    (hstore : writeUInt64LEV1 zeroedData binding.byteOffset argument =
+      some storedData)
+    (hmarker : writeUInt64LEV1 storedData plan.stateAccount.headerOffset
+      plan.stateAccount.initializedMarker = some postData) :
+    observeHandlerIRV1 handlerIR
+      (unaryUInt64InvocationV1 accountData discriminatorValue argument true
+        true) = {
+      invocation := unaryUInt64InvocationV1 accountData discriminatorValue
+        argument true true
+      outcome := .returned none
+      postAccounts := #[{
+        isDuplicate := false
+        ownerCurrentProgram := true
+        isSigner := true
+        isWritable := true
+        data := postData
+      }]
+    } := by
+  have hsupported : isSupportedOneFieldUInt64HandlerIRV1 handlerIR = true := by
+    simp [isSupportedOneFieldUInt64HandlerIRV1,
+      isSupportedUnaryUInt64InitializerHandlerIRV1_of_alignment data plan
+        binding callableId unitTypeId parameterValueId parameterName
+        discriminator handler handlerIR halignment]
+  have hhandlerDiscriminator :
+      discriminatorToLeU64V1 handlerIR.discriminator = .ok discriminatorValue :=
+    by simpa [halignment.handlerIRExact] using hdiscriminator
+  have hchecks :
+      runChecksV1 handlerIR.checks.toList
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument true
+            true) = .ok () := by
+    rw [halignment.handlerIRExact]
+    simp [runChecksV1, runCheckV1, unaryUInt64InvocationV1, encodeU64le_size,
+      halignment.accountZero, hdataLength, hheader, Bind.bind, Except.bind]
+  have hoperations :
+      runOperationsV1 handlerIR.operations.toList
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument true
+            true)
+          { accounts :=
+              (unaryUInt64InvocationV1 accountData discriminatorValue argument
+                true true).accounts } =
+        .ok {
+          accounts := #[{
+            isDuplicate := false
+            ownerCurrentProgram := true
+            isSigner := true
+            isWritable := true
+            data := postData
+          }]
+          locals := #[argument]
+        } := by
+    rw [halignment.handlerIRExact]
+    simp only [runOperationsV1, runOperationV1, halignment.accountZero]
+    rw [readUInt64LEV1_unaryUInt64InvocationV1_argument]
+    simp [unaryUInt64InvocationV1, setLocalV1, getLocalV1,
+      writeAccountUInt64LEV1, hzero, hstore, hmarker, Pure.pure, Except.pure,
+      Bind.bind, Except.bind]
+  have houtcome :
+      executeHandlerIRV1 handlerIR
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument true
+            true) = .returned none := by
+    simp only [executeHandlerIRV1, hsupported, Bool.not_true]
+    rw [runDispatchV1_unaryUInt64InvocationV1 _ _ _ _ true
+      hhandlerDiscriminator]
+    rw [hchecks, hoperations]
+    rw [halignment.handlerIRExact]
+    rfl
+  have haccounts :
+      executeHandlerIRWithAccountsV1 handlerIR
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument true
+            true) =
+        (.returned none, #[{
+          isDuplicate := false
+          ownerCurrentProgram := true
+          isSigner := true
+          isWritable := true
+          data := postData
+        }]) := by
+    simp only [executeHandlerIRWithAccountsV1, hsupported, Bool.not_true]
+    rw [runDispatchV1_unaryUInt64InvocationV1 _ _ _ _ true
+      hhandlerDiscriminator]
+    rw [hchecks, hoperations]
+    rw [halignment.handlerIRExact]
+    rfl
+  unfold observeHandlerIRV1
+  rw [houtcome, haccounts, halignment.handlerIRExact]
+  rfl
+
+private theorem runChecksV1_of_unaryUInt64CheckedAddStaticAlignment
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (callableId : CallableIdV1)
+    (parameterValueId : ValueIdV1)
+    (entryName parameterName discriminator : String)
+    (handler : Handler)
+    (handlerIR : HandlerIR)
+    (accountData : ByteArray)
+    (discriminatorValue argument : UInt64)
+    (halignment : UnaryUInt64CheckedAddStaticAlignmentV1 data plan binding
+      callableId parameterValueId entryName parameterName discriminator handler
+      handlerIR)
+    (hdataLength : accountData.size = plan.stateAccount.exactDataLen)
+    (hheader : readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+      some plan.stateAccount.initializedMarker) :
+    runChecksV1 handlerIR.checks.toList
+        (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+          true) = .ok () := by
+  rw [halignment.handlerIRExact]
+  simp [runChecksV1, runCheckV1, unaryUInt64InvocationV1, encodeU64le_size,
+    halignment.accountZero, hdataLength, hheader, Bind.bind, Except.bind]
+
+private def checkedAddMachineV1
+    (accountData : ByteArray)
+    (locals : Array UInt64 := #[])
+    (returnData : Option ByteArray := none) : HandlerMachineV1 := {
+  accounts := #[{
+    isDuplicate := false
+    ownerCurrentProgram := true
+    isSigner := false
+    isWritable := true
+    data := accountData
+  }]
+  locals
+  returnData
+}
+
+private theorem runOperationV1_checkedAdd_loadInitialState
+    (accountData : ByteArray)
+    (discriminatorValue argument before : UInt64)
+    (accountIndex byteOffset : Nat)
+    (haccount : accountIndex = 0)
+    (hfield : readUInt64LEV1 accountData byteOffset = some before) :
+    runOperationV1
+        (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+          true)
+        (checkedAddMachineV1 accountData)
+        (.loadState 0 accountIndex byteOffset) =
+      .ok (checkedAddMachineV1 accountData #[before]) := by
+  subst accountIndex
+  simp [runOperationV1, checkedAddMachineV1, setLocalV1, hfield]
+
+private theorem runOperationV1_checkedAdd_loadArgument
+    (accountData : ByteArray)
+    (discriminatorValue before argument : UInt64) :
+    runOperationV1
+        (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+          true)
+        (checkedAddMachineV1 accountData #[before]) (.loadParam 1 8) =
+      .ok (checkedAddMachineV1 accountData #[before, argument]) := by
+  simp only [runOperationV1]
+  rw [readUInt64LEV1_unaryUInt64InvocationV1_argument]
+  simp [checkedAddMachineV1, setLocalV1]
+
+private theorem runOperationV1_checkedAdd_add
+    (invocation : InvocationObservationV1)
+    (accountData : ByteArray)
+    (before argument : UInt64)
+    (hnoOverflow : before ≤ (0xffffffffffffffff : UInt64) - argument) :
+    runOperationV1 invocation
+        (checkedAddMachineV1 accountData #[before, argument])
+        (.checkedAdd 2 0 1 arithmeticOverflowError) =
+      .ok (checkedAddMachineV1 accountData
+        #[before, argument, before + argument]) := by
+  have hgetBefore :
+      getLocalV1 (checkedAddMachineV1 accountData #[before, argument]) 0 =
+        .ok before := by rfl
+  have hgetArgument :
+      getLocalV1 (checkedAddMachineV1 accountData #[before, argument]) 1 =
+        .ok argument := by rfl
+  simp only [runOperationV1]
+  rw [hgetBefore]
+  simp only [Bind.bind, Except.bind]
+  rw [hgetArgument]
+  simp only
+  rw [if_pos hnoOverflow]
+  rfl
+
+private theorem runOperationV1_checkedAdd_overflow
+    (invocation : InvocationObservationV1)
+    (accountData : ByteArray)
+    (before argument : UInt64)
+    (hoverflow : ¬ before ≤ (0xffffffffffffffff : UInt64) - argument) :
+    runOperationV1 invocation
+        (checkedAddMachineV1 accountData #[before, argument])
+        (.checkedAdd 2 0 1 arithmeticOverflowError) =
+      .error (.arithmeticOverflow arithmeticOverflowError) := by
+  have hgetBefore :
+      getLocalV1 (checkedAddMachineV1 accountData #[before, argument]) 0 =
+        .ok before := by rfl
+  have hgetArgument :
+      getLocalV1 (checkedAddMachineV1 accountData #[before, argument]) 1 =
+        .ok argument := by rfl
+  simp only [runOperationV1]
+  rw [hgetBefore]
+  simp only [Bind.bind, Except.bind]
+  rw [hgetArgument]
+  simp only
+  rw [if_neg hoverflow]
+
+private theorem runOperationV1_checkedAdd_store
+    (invocation : InvocationObservationV1)
+    (accountData postData : ByteArray)
+    (before argument : UInt64)
+    (accountIndex byteOffset : Nat)
+    (haccount : accountIndex = 0)
+    (hstore : writeUInt64LEV1 accountData byteOffset (before + argument) =
+      some postData) :
+    runOperationV1 invocation
+        (checkedAddMachineV1 accountData
+          #[before, argument, before + argument])
+        (.storeState accountIndex byteOffset 2) =
+      .ok (checkedAddMachineV1 postData
+        #[before, argument, before + argument]) := by
+  subst accountIndex
+  simp [runOperationV1, checkedAddMachineV1, getLocalV1,
+    writeAccountUInt64LEV1, hstore, Pure.pure, Except.pure, Bind.bind,
+    Except.bind]
+
+private theorem runOperationV1_checkedAdd_loadPostState
+    (invocation : InvocationObservationV1)
+    (postData : ByteArray)
+    (before argument : UInt64)
+    (accountIndex byteOffset : Nat)
+    (haccount : accountIndex = 0)
+    (hpostField : readUInt64LEV1 postData byteOffset =
+      some (before + argument)) :
+    runOperationV1 invocation
+        (checkedAddMachineV1 postData
+          #[before, argument, before + argument])
+        (.loadState 0 accountIndex byteOffset) =
+      .ok (checkedAddMachineV1 postData
+        #[before + argument, argument, before + argument]) := by
+  subst accountIndex
+  simp [runOperationV1, checkedAddMachineV1, setLocalV1, hpostField]
+
+private theorem runOperationV1_checkedAdd_setReturnData
+    (invocation : InvocationObservationV1)
+    (postData : ByteArray)
+    (before argument : UInt64) :
+    runOperationV1 invocation
+        (checkedAddMachineV1 postData
+          #[before + argument, argument, before + argument])
+        (.setReturnData 8 0) =
+      .ok (checkedAddMachineV1 postData
+        #[before + argument, argument, before + argument]
+        (some (encodeU64le (before + argument)))) := by
+  simp [runOperationV1, checkedAddMachineV1, getLocalV1]
+
+private theorem runOperationsV1_of_unaryUInt64CheckedAddStaticAlignment
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (callableId : CallableIdV1)
+    (parameterValueId : ValueIdV1)
+    (entryName parameterName discriminator : String)
+    (handler : Handler)
+    (handlerIR : HandlerIR)
+    (accountData postData : ByteArray)
+    (discriminatorValue before argument : UInt64)
+    (halignment : UnaryUInt64CheckedAddStaticAlignmentV1 data plan binding
+      callableId parameterValueId entryName parameterName discriminator handler
+      handlerIR)
+    (hfield : readUInt64LEV1 accountData binding.byteOffset = some before)
+    (hnoOverflow : before ≤ (0xffffffffffffffff : UInt64) - argument)
+    (hstore : writeUInt64LEV1 accountData binding.byteOffset
+      (before + argument) = some postData)
+    (hpostField : readUInt64LEV1 postData binding.byteOffset =
+      some (before + argument)) :
+    runOperationsV1 handlerIR.operations.toList
+        (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+          true)
+        { accounts :=
+            (unaryUInt64InvocationV1 accountData discriminatorValue argument
+              false true).accounts } =
+      .ok {
+        accounts := #[{
+          isDuplicate := false
+          ownerCurrentProgram := true
+          isSigner := false
+          isWritable := true
+          data := postData
+        }]
+        locals := #[before + argument, argument, before + argument]
+        returnData := some (encodeU64le (before + argument))
+      } := by
+  rw [halignment.handlerIRExact]
+  change runOperationsV1
+      [.loadState 0 binding.accountIndex binding.byteOffset, .loadParam 1 8,
+        .checkedAdd 2 0 1 arithmeticOverflowError,
+        .storeState binding.accountIndex binding.byteOffset 2,
+        .loadState 0 binding.accountIndex binding.byteOffset,
+        .setReturnData 8 0]
+      (unaryUInt64InvocationV1 accountData discriminatorValue argument false true)
+      (checkedAddMachineV1 accountData) =
+    .ok (checkedAddMachineV1 postData
+      #[before + argument, argument, before + argument]
+      (some (encodeU64le (before + argument))))
+  simp only [runOperationsV1]
+  rw [runOperationV1_checkedAdd_loadInitialState _ _ _ _ _ _
+    halignment.accountZero hfield]
+  simp only [Bind.bind, Except.bind]
+  rw [runOperationV1_checkedAdd_loadArgument]
+  simp only
+  rw [runOperationV1_checkedAdd_add _ _ _ _ hnoOverflow]
+  simp only
+  rw [runOperationV1_checkedAdd_store _ _ _ _ _ _ _ halignment.accountZero
+    hstore]
+  simp only
+  rw [runOperationV1_checkedAdd_loadPostState _ _ _ _ _ _
+    halignment.accountZero hpostField]
+  simp only
+  rw [runOperationV1_checkedAdd_setReturnData]
+
+private theorem runOperationsV1_of_unaryUInt64CheckedAddStaticAlignment_overflow
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (callableId : CallableIdV1)
+    (parameterValueId : ValueIdV1)
+    (entryName parameterName discriminator : String)
+    (handler : Handler)
+    (handlerIR : HandlerIR)
+    (accountData : ByteArray)
+    (discriminatorValue before argument : UInt64)
+    (halignment : UnaryUInt64CheckedAddStaticAlignmentV1 data plan binding
+      callableId parameterValueId entryName parameterName discriminator handler
+      handlerIR)
+    (hfield : readUInt64LEV1 accountData binding.byteOffset = some before)
+    (hoverflow : ¬ before ≤ (0xffffffffffffffff : UInt64) - argument) :
+    runOperationsV1 handlerIR.operations.toList
+        (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+          true)
+        { accounts :=
+            (unaryUInt64InvocationV1 accountData discriminatorValue argument
+              false true).accounts } =
+      .error (.arithmeticOverflow arithmeticOverflowError) := by
+  rw [halignment.handlerIRExact]
+  change runOperationsV1
+      [.loadState 0 binding.accountIndex binding.byteOffset, .loadParam 1 8,
+        .checkedAdd 2 0 1 arithmeticOverflowError,
+        .storeState binding.accountIndex binding.byteOffset 2,
+        .loadState 0 binding.accountIndex binding.byteOffset,
+        .setReturnData 8 0]
+      (unaryUInt64InvocationV1 accountData discriminatorValue argument false true)
+      (checkedAddMachineV1 accountData) =
+    .error (.arithmeticOverflow arithmeticOverflowError)
+  simp only [runOperationsV1]
+  rw [runOperationV1_checkedAdd_loadInitialState _ _ _ _ _ _
+    halignment.accountZero hfield]
+  simp only [Bind.bind, Except.bind]
+  rw [runOperationV1_checkedAdd_loadArgument]
+  simp only
+  rw [runOperationV1_checkedAdd_overflow _ _ _ _ hoverflow]
+
+/-- Exact successful execution and committed account observation for a
+    statically aligned production checked-add entry. -/
+theorem observeHandlerIRV1_of_unaryUInt64CheckedAddStaticAlignment
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (callableId : CallableIdV1)
+    (parameterValueId : ValueIdV1)
+    (entryName parameterName discriminator : String)
+    (handler : Handler)
+    (handlerIR : HandlerIR)
+    (accountData postData : ByteArray)
+    (discriminatorValue before argument : UInt64)
+    (halignment : UnaryUInt64CheckedAddStaticAlignmentV1 data plan binding
+      callableId parameterValueId entryName parameterName discriminator handler
+      handlerIR)
+    (hdiscriminator :
+      discriminatorToLeU64V1 discriminator = .ok discriminatorValue)
+    (hdataLength : accountData.size = plan.stateAccount.exactDataLen)
+    (hheader : readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+      some plan.stateAccount.initializedMarker)
+    (hfield : readUInt64LEV1 accountData binding.byteOffset = some before)
+    (hnoOverflow :
+      before ≤ (0xffffffffffffffff : UInt64) - argument)
+    (hstore : writeUInt64LEV1 accountData binding.byteOffset
+      (before + argument) = some postData)
+    (hpostField : readUInt64LEV1 postData binding.byteOffset =
+      some (before + argument)) :
+    observeHandlerIRV1 handlerIR
+      (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+        true) = {
+      invocation := unaryUInt64InvocationV1 accountData discriminatorValue
+        argument false true
+      outcome := .returned (some (encodeU64le (before + argument)))
+      postAccounts := #[{
+        isDuplicate := false
+        ownerCurrentProgram := true
+        isSigner := false
+        isWritable := true
+        data := postData
+      }]
+    } := by
+  have hsupported : isSupportedOneFieldUInt64HandlerIRV1 handlerIR = true := by
+    simp [isSupportedOneFieldUInt64HandlerIRV1,
+      isSupportedUnaryUInt64CheckedAddHandlerIRV1_of_alignment data plan binding
+        callableId parameterValueId entryName parameterName discriminator
+        handler handlerIR halignment]
+  have hhandlerDiscriminator :
+      discriminatorToLeU64V1 handlerIR.discriminator = .ok discriminatorValue :=
+    by simpa [halignment.handlerIRExact] using hdiscriminator
+  have hchecks :
+      runChecksV1 handlerIR.checks.toList
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+            true) = .ok () := by
+    exact runChecksV1_of_unaryUInt64CheckedAddStaticAlignment data plan binding
+      callableId parameterValueId entryName parameterName discriminator handler
+      handlerIR accountData discriminatorValue argument halignment hdataLength
+      hheader
+  have hoperations :
+      runOperationsV1 handlerIR.operations.toList
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+            true)
+          { accounts :=
+              (unaryUInt64InvocationV1 accountData discriminatorValue argument
+                false true).accounts } =
+        .ok {
+          accounts := #[{
+            isDuplicate := false
+            ownerCurrentProgram := true
+            isSigner := false
+            isWritable := true
+            data := postData
+          }]
+          locals := #[before + argument, argument, before + argument]
+          returnData := some (encodeU64le (before + argument))
+        } := by
+    exact runOperationsV1_of_unaryUInt64CheckedAddStaticAlignment data plan
+      binding callableId parameterValueId entryName parameterName discriminator
+      handler handlerIR accountData postData discriminatorValue before argument
+      halignment hfield hnoOverflow hstore hpostField
+  have houtcome :
+      executeHandlerIRV1 handlerIR
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+            true) =
+        .returned (some (encodeU64le (before + argument))) := by
+    simp only [executeHandlerIRV1, hsupported, Bool.not_true]
+    rw [runDispatchV1_unaryUInt64InvocationV1 _ _ _ _ false
+      hhandlerDiscriminator]
+    rw [hchecks, hoperations, halignment.handlerIRExact]
+    rfl
+  have haccounts :
+      executeHandlerIRWithAccountsV1 handlerIR
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+            true) =
+        (.returned (some (encodeU64le (before + argument))), #[{
+          isDuplicate := false
+          ownerCurrentProgram := true
+          isSigner := false
+          isWritable := true
+          data := postData
+        }]) := by
+    simp only [executeHandlerIRWithAccountsV1, hsupported, Bool.not_true]
+    rw [runDispatchV1_unaryUInt64InvocationV1 _ _ _ _ false
+      hhandlerDiscriminator]
+    rw [hchecks, hoperations, halignment.handlerIRExact]
+    rfl
+  unfold observeHandlerIRV1
+  rw [houtcome, haccounts, halignment.handlerIRExact]
+  rfl
+
+/-- Checked-add overflow traps before every write and therefore exposes the
+    original account snapshot. -/
+theorem observeHandlerIRV1_of_unaryUInt64CheckedAddStaticAlignment_overflow
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (callableId : CallableIdV1)
+    (parameterValueId : ValueIdV1)
+    (entryName parameterName discriminator : String)
+    (handler : Handler)
+    (handlerIR : HandlerIR)
+    (accountData : ByteArray)
+    (discriminatorValue before argument : UInt64)
+    (halignment : UnaryUInt64CheckedAddStaticAlignmentV1 data plan binding
+      callableId parameterValueId entryName parameterName discriminator handler
+      handlerIR)
+    (hdiscriminator :
+      discriminatorToLeU64V1 discriminator = .ok discriminatorValue)
+    (hdataLength : accountData.size = plan.stateAccount.exactDataLen)
+    (hheader : readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+      some plan.stateAccount.initializedMarker)
+    (hfield : readUInt64LEV1 accountData binding.byteOffset = some before)
+    (hoverflow :
+      ¬ before ≤ (0xffffffffffffffff : UInt64) - argument) :
+    observeHandlerIRV1 handlerIR
+      (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+        true) = {
+      invocation := unaryUInt64InvocationV1 accountData discriminatorValue
+        argument false true
+      outcome := .trapped (.arithmeticOverflow arithmeticOverflowError)
+      postAccounts :=
+        (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+          true).accounts
+    } := by
+  have hsupported : isSupportedOneFieldUInt64HandlerIRV1 handlerIR = true := by
+    simp [isSupportedOneFieldUInt64HandlerIRV1,
+      isSupportedUnaryUInt64CheckedAddHandlerIRV1_of_alignment data plan binding
+        callableId parameterValueId entryName parameterName discriminator
+        handler handlerIR halignment]
+  have hhandlerDiscriminator :
+      discriminatorToLeU64V1 handlerIR.discriminator = .ok discriminatorValue :=
+    by simpa [halignment.handlerIRExact] using hdiscriminator
+  have hchecks :
+      runChecksV1 handlerIR.checks.toList
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+            true) = .ok () := by
+    exact runChecksV1_of_unaryUInt64CheckedAddStaticAlignment data plan binding
+      callableId parameterValueId entryName parameterName discriminator handler
+      handlerIR accountData discriminatorValue argument halignment hdataLength
+      hheader
+  have hoperations :
+      runOperationsV1 handlerIR.operations.toList
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+            true)
+          { accounts :=
+              (unaryUInt64InvocationV1 accountData discriminatorValue argument
+                false true).accounts } =
+        .error (.arithmeticOverflow arithmeticOverflowError) := by
+    exact
+      runOperationsV1_of_unaryUInt64CheckedAddStaticAlignment_overflow data plan
+        binding callableId parameterValueId entryName parameterName discriminator
+        handler handlerIR accountData discriminatorValue before argument
+        halignment hfield hoverflow
+  have houtcome :
+      executeHandlerIRV1 handlerIR
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+            true) =
+        .trapped (.arithmeticOverflow arithmeticOverflowError) := by
+    simp only [executeHandlerIRV1, hsupported, Bool.not_true]
+    rw [runDispatchV1_unaryUInt64InvocationV1 _ _ _ _ false
+      hhandlerDiscriminator]
+    rw [hchecks, hoperations]
+    rfl
+  have haccounts :
+      executeHandlerIRWithAccountsV1 handlerIR
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+            true) =
+        (.trapped (.arithmeticOverflow arithmeticOverflowError),
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+            true).accounts) := by
+    simp only [executeHandlerIRWithAccountsV1, hsupported, Bool.not_true]
+    rw [runDispatchV1_unaryUInt64InvocationV1 _ _ _ _ false
+      hhandlerDiscriminator]
+    rw [hchecks, hoperations]
+    rfl
+  unfold observeHandlerIRV1
+  rw [houtcome, haccounts, halignment.handlerIRExact]
+  rfl
+
 /-- Exact execution of the statically aligned production view recipe. -/
 theorem executeHandlerIRV1_of_nullaryUInt64ViewStaticAlignment
     (data : SemanticProgramDataV1)

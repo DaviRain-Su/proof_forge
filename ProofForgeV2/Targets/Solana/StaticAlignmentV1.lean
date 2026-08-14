@@ -491,6 +491,361 @@ structure ProductionNullaryUInt64ViewStaticAlignmentV1
   staticAlignment : NullaryUInt64ViewStaticAlignmentV1 data plan binding
     viewName discriminator handler handlerIR
 
+/-! ## Unary UInt64 initializer and checked-add entry alignment -/
+
+/-- Exact semantic/account/Plan/HandlerIR alignment for the production
+    one-field UInt64 initializer. This is a passive relation over existing
+    artifacts; it neither lowers the callable nor executes another state
+    machine. -/
+structure UnaryUInt64InitializerStaticAlignmentV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (callableId : CallableIdV1)
+    (unitTypeId : TypeIdV1)
+    (parameterValueId : ValueIdV1)
+    (parameterName discriminator : String)
+    (handler : Handler)
+    (handlerIR : HandlerIR) : Prop where
+  bindingRel : UInt64StateAccountBindingRelV1 data plan binding
+  stateZero : binding.semanticStateId = 0
+  unitType : data.types[unitTypeId.toNat]? = some {
+    id := unitTypeId
+    name := none
+    shape := .unit
+  }
+  callableExact : data.callables[callableId.toNat]? = some {
+    id := callableId
+    kind := .initializer
+    name := none
+    params := #[{
+      valueId := parameterValueId
+      name := parameterName
+      typeId := binding.semanticTypeId
+      visibility := .public_
+    }]
+    result := {
+      typeId := unitTypeId
+      visibility := .public_
+    }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[{
+        result := none
+        op := .stateStore binding.semanticStateId parameterValueId
+      }]
+      terminator := .return_ none
+    }]
+    loopBounds := #[]
+    invariantSteps := none
+  }
+  parameterZero : parameterValueId = 0
+  stateAccountIndex : plan.stateAccount.index = binding.accountIndex
+  accountZero : binding.accountIndex = 0
+  stateAccountOwner : plan.stateAccount.ownerPolicy = .currentProgram
+  headerWidth : plan.stateAccount.headerWidth = 8
+  headerDistinct : plan.stateAccount.headerOffset ≠ binding.byteOffset
+  handlerExact : handler = {
+    name := "initialize"
+    discriminator
+    params := #[{
+      sourceId := parameterValueId.toNat
+      name := parameterName
+      dataOffset := 8
+      byteWidth := 8
+      endianness := .little
+      isInt := false
+    }]
+    mode := .initialize
+    resultKind := .u64
+    accountAccess := {
+      accountIndex := binding.accountIndex
+      ownerPolicy := .currentProgram
+      exactDataLen := plan.stateAccount.exactDataLen
+      signerRequired := true
+      writableRequired := true
+      initialization := .mustBeUninitialized
+    }
+    body := #[
+      .store {
+        accountIndex := binding.accountIndex
+        byteOffset := binding.byteOffset
+        value := .param 8
+      },
+      .returnNone
+    ]
+  }
+  handlerIRExact : handlerIR = {
+    name := "initialize"
+    discriminator
+    params := #[{
+      sourceId := parameterValueId.toNat
+      name := parameterName
+      dataOffset := 8
+      byteWidth := 8
+      endianness := .little
+      isInt := false
+    }]
+    mode := .initialize
+    resultKind := .u64
+    accountAccess := {
+      accountIndex := binding.accountIndex
+      ownerPolicy := .currentProgram
+      exactDataLen := plan.stateAccount.exactDataLen
+      signerRequired := true
+      writableRequired := true
+      initialization := .mustBeUninitialized
+    }
+    checks := #[
+      .numAccounts 1,
+      .accountNonDuplicate binding.accountIndex,
+      .instructionDataLen 16,
+      .ownerCurrentProgram binding.accountIndex,
+      .accountDataLen binding.accountIndex plan.stateAccount.exactDataLen,
+      .signer binding.accountIndex,
+      .writable binding.accountIndex,
+      .headerEquals binding.accountIndex plan.stateAccount.headerOffset 0
+    ]
+    operations := #[
+      .zeroState binding.accountIndex binding.byteOffset,
+      .loadParam 0 8,
+      .storeState binding.accountIndex binding.byteOffset 0,
+      .setHeader binding.accountIndex plan.stateAccount.headerOffset
+        plan.stateAccount.initializedMarker
+    ]
+  }
+
+/-- Exact semantic/account/Plan/HandlerIR alignment for the production unary
+    UInt64 checked-add entry. Repeated account, field, parameter, local, and
+    overflow-code uses are all fixed by complete artifact equality. -/
+structure UnaryUInt64CheckedAddStaticAlignmentV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (callableId : CallableIdV1)
+    (parameterValueId : ValueIdV1)
+    (entryName parameterName discriminator : String)
+    (handler : Handler)
+    (handlerIR : HandlerIR) : Prop where
+  bindingRel : UInt64StateAccountBindingRelV1 data plan binding
+  stateZero : binding.semanticStateId = 0
+  callableExact : data.callables[callableId.toNat]? = some {
+    id := callableId
+    kind := .entry
+    name := some entryName
+    params := #[{
+      valueId := parameterValueId
+      name := parameterName
+      typeId := binding.semanticTypeId
+      visibility := .public_
+    }]
+    result := {
+      typeId := binding.semanticTypeId
+      visibility := .public_
+    }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[
+        {
+          result := some {
+            valueId := 1
+            typeId := binding.semanticTypeId
+          }
+          op := .stateLoad binding.semanticStateId
+        },
+        {
+          result := some {
+            valueId := 2
+            typeId := binding.semanticTypeId
+          }
+          op := .binary .add 1 parameterValueId
+        },
+        {
+          result := none
+          op := .stateStore binding.semanticStateId 2
+        },
+        {
+          result := some {
+            valueId := 3
+            typeId := binding.semanticTypeId
+          }
+          op := .stateLoad binding.semanticStateId
+        }
+      ]
+      terminator := .return_ (some 3)
+    }]
+    loopBounds := #[]
+    invariantSteps := none
+  }
+  parameterZero : parameterValueId = 0
+  stateAccountIndex : plan.stateAccount.index = binding.accountIndex
+  accountZero : binding.accountIndex = 0
+  stateAccountOwner : plan.stateAccount.ownerPolicy = .currentProgram
+  headerWidth : plan.stateAccount.headerWidth = 8
+  headerDistinct : plan.stateAccount.headerOffset ≠ binding.byteOffset
+  overflowCode : plan.arithmeticOverflowError = arithmeticOverflowError
+  handlerExact : handler = {
+    name := entryName
+    discriminator
+    params := #[{
+      sourceId := parameterValueId.toNat
+      name := parameterName
+      dataOffset := 8
+      byteWidth := 8
+      endianness := .little
+      isInt := false
+    }]
+    mode := .mutate
+    resultKind := .u64
+    accountAccess := {
+      accountIndex := binding.accountIndex
+      ownerPolicy := .currentProgram
+      exactDataLen := plan.stateAccount.exactDataLen
+      signerRequired := false
+      writableRequired := true
+      initialization := .mustBeInitialized
+    }
+    body := #[
+      .store {
+        accountIndex := binding.accountIndex
+        byteOffset := binding.byteOffset
+        value := .checkedAdd
+          (.stateLoad binding.accountIndex binding.byteOffset) (.param 8)
+      },
+      .returnValue (.stateLoad binding.accountIndex binding.byteOffset)
+    ]
+  }
+  handlerIRExact : handlerIR = {
+    name := entryName
+    discriminator
+    params := #[{
+      sourceId := parameterValueId.toNat
+      name := parameterName
+      dataOffset := 8
+      byteWidth := 8
+      endianness := .little
+      isInt := false
+    }]
+    mode := .mutate
+    resultKind := .u64
+    accountAccess := {
+      accountIndex := binding.accountIndex
+      ownerPolicy := .currentProgram
+      exactDataLen := plan.stateAccount.exactDataLen
+      signerRequired := false
+      writableRequired := true
+      initialization := .mustBeInitialized
+    }
+    checks := #[
+      .numAccounts 1,
+      .accountNonDuplicate binding.accountIndex,
+      .instructionDataLen 16,
+      .ownerCurrentProgram binding.accountIndex,
+      .accountDataLen binding.accountIndex plan.stateAccount.exactDataLen,
+      .writable binding.accountIndex,
+      .headerEquals binding.accountIndex plan.stateAccount.headerOffset
+        plan.stateAccount.initializedMarker
+    ]
+    operations := #[
+      .loadState 0 binding.accountIndex binding.byteOffset,
+      .loadParam 1 8,
+      .checkedAdd 2 0 1 arithmeticOverflowError,
+      .storeState binding.accountIndex binding.byteOffset 2,
+      .loadState 0 binding.accountIndex binding.byteOffset,
+      .setReturnData 8 0
+    ]
+  }
+
+/-- The complete initializer alignment is accepted by the evaluator's closed
+    production recipe gate. -/
+theorem isSupportedUnaryUInt64InitializerHandlerIRV1_of_alignment
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (callableId : CallableIdV1)
+    (unitTypeId : TypeIdV1)
+    (parameterValueId : ValueIdV1)
+    (parameterName discriminator : String)
+    (handler : Handler)
+    (handlerIR : HandlerIR)
+    (halignment : UnaryUInt64InitializerStaticAlignmentV1 data plan binding
+      callableId unitTypeId parameterValueId parameterName discriminator
+      handler handlerIR) :
+    isSupportedUnaryUInt64InitializerHandlerIRV1 handlerIR = true := by
+  rw [halignment.handlerIRExact]
+  have hfieldDistinct :
+      binding.byteOffset ≠ plan.stateAccount.headerOffset :=
+    Ne.symm halignment.headerDistinct
+  simp [isSupportedUnaryUInt64InitializerHandlerIRV1,
+    halignment.accountZero, hfieldDistinct]
+
+/-- The complete checked-add alignment is accepted by the evaluator's closed
+    production recipe gate. -/
+theorem isSupportedUnaryUInt64CheckedAddHandlerIRV1_of_alignment
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (callableId : CallableIdV1)
+    (parameterValueId : ValueIdV1)
+    (entryName parameterName discriminator : String)
+    (handler : Handler)
+    (handlerIR : HandlerIR)
+    (halignment : UnaryUInt64CheckedAddStaticAlignmentV1 data plan binding
+      callableId parameterValueId entryName parameterName discriminator handler
+      handlerIR) :
+    isSupportedUnaryUInt64CheckedAddHandlerIRV1 handlerIR = true := by
+  rw [halignment.handlerIRExact]
+  simp [isSupportedUnaryUInt64CheckedAddHandlerIRV1,
+    halignment.accountZero]
+
+/-- Production provenance for the selected initializer row. -/
+structure ProductionUnaryUInt64InitializerStaticAlignmentV1
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (binding : UInt64StateAccountBindingV1)
+    (callableId : CallableIdV1)
+    (unitTypeId : TypeIdV1)
+    (parameterValueId : ValueIdV1)
+    (parameterName discriminator : String)
+    (handler : Handler)
+    (handlerIR : HandlerIR) : Prop where
+  validatedProgram : validateSemanticProgramV1 program = .ok data
+  validatedIR : validateIR ir = .ok ()
+  sourcePlan : ir.sourcePlan = plan
+  sourceInitializer : plan.initializer = handler
+  loweredHandler : ir.handlers[0]? = some handlerIR
+  staticAlignment : UnaryUInt64InitializerStaticAlignmentV1 data plan binding
+    callableId unitTypeId parameterValueId parameterName discriminator handler
+    handlerIR
+
+/-- Production provenance for one selected checked-add entry row. -/
+structure ProductionUnaryUInt64CheckedAddStaticAlignmentV1
+    (program : SemanticProgramV1)
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (ir : IR)
+    (entryIndex : Nat)
+    (binding : UInt64StateAccountBindingV1)
+    (callableId : CallableIdV1)
+    (parameterValueId : ValueIdV1)
+    (entryName parameterName discriminator : String)
+    (handler : Handler)
+    (handlerIR : HandlerIR) : Prop where
+  validatedProgram : validateSemanticProgramV1 program = .ok data
+  validatedIR : validateIR ir = .ok ()
+  sourcePlan : ir.sourcePlan = plan
+  sourceEntry : plan.entries[entryIndex]? = some handler
+  loweredHandler : ir.handlers[entryIndex + 1]? = some handlerIR
+  staticAlignment : UnaryUInt64CheckedAddStaticAlignmentV1 data plan binding
+    callableId parameterValueId entryName parameterName discriminator handler
+    handlerIR
+
 /-- The unique authoritative Reference machine returns the exact retained
     state bytes selected by a statically aligned Solana view. This theorem does
     not execute Solana target IR; `HandlerSemanticsV1` composes that separate

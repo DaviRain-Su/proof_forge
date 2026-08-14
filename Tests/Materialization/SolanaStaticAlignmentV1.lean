@@ -109,6 +109,212 @@ private def getHandlerIR : HandlerIR := {
   ]
 }
 
+private def unitType : TypeDeclV1 := {
+  id := 1
+  name := none
+  shape := .unit
+}
+
+private def initialParam : Param := {
+  sourceId := 0
+  name := "initial"
+  dataOffset := 8
+  byteWidth := 8
+  endianness := .little
+}
+
+private def deltaParam : Param := {
+  sourceId := 0
+  name := "delta"
+  dataOffset := 8
+  byteWidth := 8
+  endianness := .little
+}
+
+private def initializeDiscriminator : String :=
+  instructionDiscriminator "initialize" #[initialParam]
+
+private def incrementDiscriminator : String :=
+  instructionDiscriminator "increment" #[deltaParam]
+
+private def initializeCallable : CallableV1 := {
+  id := 0
+  kind := .initializer
+  name := none
+  params := #[{
+    valueId := 0
+    name := "initial"
+    typeId := 0
+    visibility := .public_
+  }]
+  result := {
+    typeId := 1
+    visibility := .public_
+  }
+  entryBlock := 0
+  blocks := #[{
+    id := 0
+    params := #[]
+    instructions := #[{
+      result := none
+      op := .stateStore 0 0
+    }]
+    terminator := .return_ none
+  }]
+  loopBounds := #[]
+  invariantSteps := none
+}
+
+private def incrementCallable : CallableV1 := {
+  id := 1
+  kind := .entry
+  name := some "increment"
+  params := #[{
+    valueId := 0
+    name := "delta"
+    typeId := 0
+    visibility := .public_
+  }]
+  result := {
+    typeId := 0
+    visibility := .public_
+  }
+  entryBlock := 0
+  blocks := #[{
+    id := 0
+    params := #[]
+    instructions := #[
+      {
+        result := some { valueId := 1, typeId := 0 }
+        op := .stateLoad 0
+      },
+      {
+        result := some { valueId := 2, typeId := 0 }
+        op := .binary .add 1 0
+      },
+      {
+        result := none
+        op := .stateStore 0 2
+      },
+      {
+        result := some { valueId := 3, typeId := 0 }
+        op := .stateLoad 0
+      }
+    ]
+    terminator := .return_ (some 3)
+  }]
+  loopBounds := #[]
+  invariantSteps := none
+}
+
+private def alignedData : SemanticProgramDataV1 := {
+  data with
+  types := #[uint64Type, unitType]
+  callables := #[initializeCallable, incrementCallable]
+}
+
+private def initializeHandler : Handler := {
+  name := "initialize"
+  discriminator := initializeDiscriminator
+  params := #[initialParam]
+  mode := .initialize
+  resultKind := .u64
+  accountAccess := {
+    accountIndex := 0
+    ownerPolicy := .currentProgram
+    exactDataLen := 16
+    signerRequired := true
+    writableRequired := true
+    initialization := .mustBeUninitialized
+  }
+  body := #[
+    .store { accountIndex := 0, byteOffset := 8, value := .param 8 },
+    .returnNone
+  ]
+}
+
+private def incrementHandler : Handler := {
+  name := "increment"
+  discriminator := incrementDiscriminator
+  params := #[deltaParam]
+  mode := .mutate
+  resultKind := .u64
+  accountAccess := {
+    accountIndex := 0
+    ownerPolicy := .currentProgram
+    exactDataLen := 16
+    signerRequired := false
+    writableRequired := true
+    initialization := .mustBeInitialized
+  }
+  body := #[
+    .store {
+      accountIndex := 0
+      byteOffset := 8
+      value := .checkedAdd (.stateLoad 0 8) (.param 8)
+    },
+    .returnValue (.stateLoad 0 8)
+  ]
+}
+
+private def mutatingPlan : Plan := {
+  plan with
+  arithmeticOverflowError := arithmeticOverflowError
+  initializer := initializeHandler
+  entries := #[incrementHandler, getHandler]
+}
+
+private def initializeHandlerIR : HandlerIR := {
+  name := "initialize"
+  discriminator := initializeDiscriminator
+  params := #[initialParam]
+  mode := .initialize
+  resultKind := .u64
+  accountAccess := initializeHandler.accountAccess
+  checks := #[
+    .numAccounts 1,
+    .accountNonDuplicate 0,
+    .instructionDataLen 16,
+    .ownerCurrentProgram 0,
+    .accountDataLen 0 16,
+    .signer 0,
+    .writable 0,
+    .headerEquals 0 0 0
+  ]
+  operations := #[
+    .zeroState 0 8,
+    .loadParam 0 8,
+    .storeState 0 8 0,
+    .setHeader 0 0 stateAccount.initializedMarker
+  ]
+}
+
+private def incrementHandlerIR : HandlerIR := {
+  name := "increment"
+  discriminator := incrementDiscriminator
+  params := #[deltaParam]
+  mode := .mutate
+  resultKind := .u64
+  accountAccess := incrementHandler.accountAccess
+  checks := #[
+    .numAccounts 1,
+    .accountNonDuplicate 0,
+    .instructionDataLen 16,
+    .ownerCurrentProgram 0,
+    .accountDataLen 0 16,
+    .writable 0,
+    .headerEquals 0 0 stateAccount.initializedMarker
+  ]
+  operations := #[
+    .loadState 0 0 8,
+    .loadParam 1 8,
+    .checkedAdd 2 0 1 arithmeticOverflowError,
+    .storeState 0 8 2,
+    .loadState 0 0 8,
+    .setReturnData 8 0
+  ]
+}
+
 private def binding : UInt64StateAccountBindingV1 := {
   semanticStateId := 0
   semanticTypeId := 0
@@ -131,6 +337,60 @@ private theorem alignment :
   · decide
   · rfl
   · rfl
+
+private theorem initializeAlignment :
+    UnaryUInt64InitializerStaticAlignmentV1 alignedData mutatingPlan binding
+      0 1 0 "initial" initializeDiscriminator initializeHandler
+      initializeHandlerIR := by
+  refine {
+    bindingRel := ?_
+    stateZero := rfl
+    unitType := rfl
+    callableExact := rfl
+    parameterZero := rfl
+    stateAccountIndex := rfl
+    accountZero := rfl
+    stateAccountOwner := rfl
+    headerWidth := rfl
+    headerDistinct := by decide
+    handlerExact := rfl
+    handlerIRExact := rfl
+  }
+  simp [UInt64StateAccountBindingRelV1, alignedData, data, mutatingPlan,
+    plan, binding, uint64Type, countState, stateAccount, countField]
+
+private theorem incrementAlignment :
+    UnaryUInt64CheckedAddStaticAlignmentV1 alignedData mutatingPlan binding
+      1 0 "increment" "delta" incrementDiscriminator incrementHandler
+      incrementHandlerIR := by
+  refine {
+    bindingRel := ?_
+    stateZero := rfl
+    callableExact := rfl
+    parameterZero := rfl
+    stateAccountIndex := rfl
+    accountZero := rfl
+    stateAccountOwner := rfl
+    headerWidth := rfl
+    headerDistinct := by decide
+    overflowCode := rfl
+    handlerExact := rfl
+    handlerIRExact := rfl
+  }
+  simp [UInt64StateAccountBindingRelV1, alignedData, data, mutatingPlan,
+    plan, binding, uint64Type, countState, stateAccount, countField]
+
+example :
+    isSupportedUnaryUInt64InitializerHandlerIRV1 initializeHandlerIR = true :=
+  isSupportedUnaryUInt64InitializerHandlerIRV1_of_alignment alignedData
+    mutatingPlan binding 0 1 0 "initial" initializeDiscriminator
+    initializeHandler initializeHandlerIR initializeAlignment
+
+example :
+    isSupportedUnaryUInt64CheckedAddHandlerIRV1 incrementHandlerIR = true :=
+  isSupportedUnaryUInt64CheckedAddHandlerIRV1_of_alignment alignedData
+    mutatingPlan binding 1 0 "increment" "delta" incrementDiscriminator
+    incrementHandler incrementHandlerIR incrementAlignment
 
 private def accountData (value : UInt64) : ByteArray :=
   oneFieldUInt64AccountDataV1 stateAccount.initializedMarker value
@@ -227,6 +487,10 @@ private def stateCellCapability (compiled : CompiledSemanticV1) :
 private unsafe def testProductionStateCell
     (session : Language.Loader.ParserSession) : IO Unit := do
   let compiled ← compileStateCell session
+  let semanticData ←
+    match validateSemanticProgramV1 (CompiledSemanticV1.semanticV1Of compiled) with
+    | .ok value => pure value
+    | .error error => throw <| IO.userError s!"semantic validation failed: {repr error}"
   let capability ← liftResult <| stateCellCapability compiled
   let productionPlan ← liftResult <|
     materializeFullBodyPlanForProductV1 capability false
@@ -236,6 +500,10 @@ private unsafe def testProductionStateCell
   liftResult <| validateIR productionIR
   let some productionGet := productionPlan.entries.find? (·.name == "get")
     | throw <| IO.userError "StateCell production Plan has no get handler"
+  let productionInitialize := productionPlan.initializer
+  let some productionIncrement :=
+      productionPlan.entries.find? (·.name == "increment")
+    | throw <| IO.userError "StateCell production Plan has no increment handler"
   let some productionGetIR := productionIR.handlers.find? (·.name == "get")
     | throw <| IO.userError "StateCell production IR has no get handler"
   let some productionInitializeIR :=
@@ -248,8 +516,23 @@ private unsafe def testProductionStateCell
     s!"StateCell production account layout left the bounded one-field layout:\n{repr productionPlan.stateAccount}"
   expect (productionGet == getHandler)
     s!"StateCell production get Plan recipe left the bounded alignment shape:\n{repr productionGet}"
+  expect (productionInitialize == initializeHandler)
+    s!"StateCell production initialize Plan recipe left the bounded alignment shape:\n{repr productionInitialize}"
+  expect (productionIncrement == incrementHandler)
+    s!"StateCell production increment Plan recipe left the bounded alignment shape:\n{repr productionIncrement}"
   expect (productionGetIR == getHandlerIR)
     s!"StateCell production get HandlerIR left the bounded alignment shape:\n{repr productionGetIR}"
+  expect (productionInitializeIR == initializeHandlerIR)
+    s!"StateCell production initialize HandlerIR left the bounded alignment shape:\n{repr productionInitializeIR}"
+  expect (productionIncrementIR == incrementHandlerIR)
+    s!"StateCell production increment HandlerIR left the bounded alignment shape:\n{repr productionIncrementIR}"
+  expect (semanticData.types[0]? == some uint64Type &&
+      semanticData.types[1]? == some unitType)
+    "StateCell production type rows left the bounded alignment shape"
+  expect (semanticData.callables[0]? == some initializeCallable)
+    "StateCell production initializer callable left the bounded alignment shape"
+  expect (semanticData.callables[1]? == some incrementCallable)
+    "StateCell production increment callable left the bounded alignment shape"
   expect (recognizeNullaryUInt64ViewHandlerV1 productionGet).isSome
     "production StateCell.get Plan handler was not recognized"
   expect (recognizeNullaryUInt64ViewHandlerIRV1 productionGetIR).isSome
