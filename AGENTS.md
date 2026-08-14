@@ -24,6 +24,7 @@
 | Known blocker | **产品决策债**：`B-CALL-SEM`（call/schedule capability 与真实平台语义对齐）仍 open；scope 与 retired frontend 边界已由 **ADR-0036** 收口为 engineering 12+0、accepted PRD 四目标不静默扩大、formal EVM-first；**E4 residual**：MiniAmmAssets 双链 runtime（Solana Mollusk + EVM Anvil dual ERC-20，strict deploy）已闭；其余 residual 为 formal TASK-D5 / hermetic / mainnet，非工程双链门；**release qualification**：`TASK-D1-01` 的 formal TaskQualification/eligible-host 前置仍未满足，三者互不代签。 |
 | Recovery authority | [`RECOVERY.md`](RECOVERY.md) |
 | Engineering backlog | [`docs/engineering-backlog.md`](docs/engineering-backlog.md) |
+| Agent Notes | [`.agents/notes/README.md`](.agents/notes/README.md) |
 | Task authority | [`docs/04-task-breakdown.md`](docs/04-task-breakdown.md) |
 | Document authority | [`docs/document-status.md`](docs/document-status.md) |
 | Phase 1 registry targets | `evm`, `solana`, `near`, `noir`, `aleo`, `psy`, `quint`, `cosmwasm`, `ton`, `soroban`, `openvm`, `icp`（12 implemented materializer；accepted PRD 仍以四目标为 Phase-1 文案，工程扩面不自动改写 accepted 范围；formal lighthouse=EVM-first——见 ADR-0036 / OpenVM 见 ADR-0045/0046 / Soroban 见 ADR-0044 / ICP 见 ADR-0047） |

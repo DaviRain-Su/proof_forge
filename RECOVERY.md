@@ -61,6 +61,7 @@ no-follow/single-link exact disk closure并逐 descriptor 比对。legacy path-o
 formal `OutputSetV1` 或 `TASK-D3-05` 完成。
 
 **日常工程队列**（非 formal）：[`docs/engineering-backlog.md`](docs/engineering-backlog.md)。
+**Agent Notes**（why / why-not；非 ADR / 非 formal / 非运行日志）：[`.agents/notes/README.md`](.agents/notes/README.md)。
 
 ## 为什么重基线
 

@@ -648,6 +648,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **F-TYPEKEY-FIELDS**：孤立 `typeKey` 补 BLS12-377 Fr / Goldilocks FieldSpec 字节形（bn254 已有）。不进 structure gate。**不**关闭 TASK-D2-06 / TST-SEM-001 |
 | 2026-08-15 | **DOC-12T-SYNC**：RPT-025 计数 12+0、档 B materializer 队列标 superseded；矩阵 §2 补 Soroban/OpenVM/ICP；targets README 导语补齐八 engineering leaf。**不**扩 accepted PRD |
 | 2026-08-15 | **SOL-0048-GAP**：`docs/plan/solana-adr-0048-next.md` 盘点 D4。`get` production subject + 55 步证书已齐；initialize/increment/overflow 仍只有 Loader observation。下一刀 = 按 `get` 模板逐 recipe 补 resolver/证书。**不**关闭 formal D5 / 不把 provider 接进产品 build |
+| 2026-08-15 | **AGENT-NOTES-0**：引入 [`.agents/notes/`](../.agents/notes/README.md) 记 why/why-not（非 ADR、非 formal、非运行日志）。首批五篇：TypeKey 不进 structure gate、EXT-CRYPTO 不自动开、Soroban S0≠Wasm、focused `lake env lean`、Goal 不关 formal。无 format CI。 |
 
 ---
 

@@ -131,6 +131,10 @@ Leave these `blocked` / `decision`. Goal must **skip**, not implement.
 | EA-P1-5 | later | contributor incremental compile |
 | SYS-S2-NEAR-RT / SYS-S2-CW-RT | **already in tree** | `runtime-tests/near` BlockHeightCheck + `runtime-tests/cosmwasm/tests/block_height.rs` exist; do not re-implement |
 
+Standing why/why-not for those skips: [`.agents/notes/README.md`](../.agents/notes/README.md)
+(TypeKey structure gate, EXT-CRYPTO auto-open, Soroban S0≠Wasm, focused Lean
+verification, Goal↛formal).
+
 ## Runner notes
 
 1. Track A/B/F packaging through `F-COMMIT-COMMENT` is done. Live drain continues on file-isolated engineering leaves. Goal must **not** auto-close formal IDs. Never Track C. Unused TypeKey rejection / decoder-side rank / SPEC-honesty ADR / EV binding / C-3 / SOR-1 Wasm remain product/formal decisions.

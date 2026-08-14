@@ -3,7 +3,7 @@ id: DOC-INDEX
 title: ProofForge V2 文档导航
 status: proposed
 owner: architecture
-updated: 2026-08-14
+updated: 2026-08-15
 normative: true
 ---
 
@@ -40,6 +40,7 @@ Soroban S1 缺口盘点（非 normative、不实现 SOR-1）：
 Solana ADR-0048 D4 剩余证书（非 formal TASK-D5）：
 [`plan/solana-adr-0048-next.md`](plan/solana-adr-0048-next.md)。
 **日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)。
+**Agent Notes**（why / why-not，非 ADR / 非 formal）：[`.agents/notes/README.md`](../.agents/notes/README.md)。
 **当前 Goal drain 入口**：[`.grok/next-wave-queue.md`](../.grok/next-wave-queue.md) +
 [`/goal @.grok/goals/prompt-next-wave.md`](../.grok/goals/prompt-next-wave.md)；旧
 [`prompt-master-queue.md`](../.grok/goals/prompt-master-queue.md) 为历史/退役队列，仅保留导航链接，
