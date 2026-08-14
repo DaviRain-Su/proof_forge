@@ -37,6 +37,11 @@ private def liftArtifactResult (result : SbpfArtifactResultV1 α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
 
+private def liftExecutionResult (result : SbpfExecutionResultV1 α) : IO α :=
+  match result with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError error.render
+
 private def expectArtifactError (result : SbpfArtifactResultV1 α)
     (messagePart : String) : IO Unit :=
   match result with
@@ -45,6 +50,15 @@ private def expectArtifactError (result : SbpfArtifactResultV1 α)
   | .error error =>
       expect (error.render.contains messagePart)
         s!"sBPF artifact error mismatch: wanted '{messagePart}', got '{error.render}'"
+
+private def expectExecutionError (result : SbpfExecutionResultV1 α)
+    (messagePart : String) : IO Unit :=
+  match result with
+  | .ok _ =>
+      throw <| IO.userError s!"sBPF execution unexpectedly accepted; wanted '{messagePart}'"
+  | .error error =>
+      expect (error.render.contains messagePart)
+        s!"sBPF execution error mismatch: wanted '{messagePart}', got '{error.render}'"
 
 /-- Source-level deletion pin: legacy call/schedule observability tags and
     comments must not return to the SBPF emitter. `sol_log_data` remains legal
@@ -213,8 +227,9 @@ private unsafe def testStateCellSbpfArtifact
   let asm ← liftResult <| asmSolana compiled
   let expectedSha256 :=
     "c93b1448aa782550b7643ccced44209c57df604a866c236552dadc5ac6a159c1"
-  let artifact ← liftArtifactResult <|
+  let boundArtifact ← liftArtifactResult <|
     resolveBoundSbpfArtifactV1 asm expectedSha256
+  let artifact := BoundResolvedSbpfArtifactV1.resolvedOf boundArtifact
   expect (artifact.sourceSha256 == expectedSha256)
     "sBPF artifact: source digest must bind the exact production text"
   expect (artifact.global == "entrypoint")
@@ -266,6 +281,191 @@ private unsafe def testStateCellSbpfArtifact
     "signed 16-bit offset out of range"
   expectArtifactError (resolveSbpfArtifactV1 <| minimal "call unknown_syscall")
     "unsupported syscall or unresolved call target"
+
+/-- Execute the exact production StateCell artifact in the pinned provider with
+    a real Loader V3 ABIv1 single-account image. These are executable provider
+    observations, not Solana runtime or Reference-refinement theorems. -/
+private unsafe def testStateCellSbpfExecution
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
+    "<solana-sbpf-execution-stateCell>"
+  let ir ← liftResult <| irSolana compiled
+  let asm ← liftResult <| emitSbpfAsmV1 ir
+  let boundArtifact ← liftArtifactResult <| resolveBoundSbpfArtifactV1 asm
+    "c93b1448aa782550b7643ccced44209c57df604a866c236552dadc5ac6a159c1"
+  let artifact := BoundResolvedSbpfArtifactV1.resolvedOf boundArtifact
+  let discriminator (name : String) : IO UInt64 := do
+    let handler ← match ir.handlers.find? (·.name == name) with
+      | some handler => pure handler
+      | none => throw <| IO.userError s!"sBPF execution: missing handler '{name}'"
+    liftResult <| discriminatorToLeU64V1 handler.discriminator
+  let bytes (value : UInt64) : Array UInt8 :=
+    SbpfSemantics.wordToLE (BitVec.ofNat 64 value.toNat)
+  let accountData (marker value : UInt64) : Array UInt8 :=
+    (bytes marker).append (bytes value)
+  let instructionData (disc : UInt64) (argument : Option UInt64) : Array UInt8 :=
+    match argument with
+    | none => bytes disc
+    | some value => (bytes disc).append (bytes value)
+  let programId := Array.replicate 32 (0x42 : UInt8)
+  let accountKey := Array.replicate 32 (0x24 : UInt8)
+  let invocation (data ix : Array UInt8) (signer writable : Bool) :
+      LoaderV3SingleAccountInvocationV1 := {
+    accountKey
+    owner := programId
+    programId
+    accountData := data
+    instructionData := ix
+    isSigner := signer
+    isWritable := writable
+  }
+  let expectHalted (label : String) (observation : SbpfExecutionObservationV1)
+      (code : Nat) : IO Unit := do
+    expect (observation.provider.outcome ==
+        .halted (BitVec.ofNat 64 code))
+      s!"sBPF execution {label}: expected halted {code}, got {repr observation.provider.outcome}"
+    expect (observation.provider.r0.toNat == code)
+      s!"sBPF execution {label}: expected r0={code}, got {observation.provider.r0.toNat}"
+    expect (observation.artifactSha256 == artifact.sourceSha256)
+      s!"sBPF execution {label}: artifact identity drift"
+
+  let getDisc ← discriminator "get"
+  let initialized := accountData ir.stateAccount.initializedMarker 41
+  let getObservation ← liftExecutionResult <|
+    executeLoaderV3SingleAccountV1 boundArtifact
+      (invocation initialized (instructionData getDisc none) false false)
+  expectHalted "get" getObservation 0
+  expect (getObservation.provider.returnData == bytes 41)
+    s!"sBPF execution get: return data mismatch {repr getObservation.provider.returnData}"
+  expect (getObservation.finalAccountData == some initialized)
+    "sBPF execution get: read-only account bytes changed"
+
+  let initializeDisc ← discriminator "initialize"
+  let uninitialized := accountData 0 999
+  let initializeObservation ← liftExecutionResult <|
+    executeLoaderV3SingleAccountV1 boundArtifact
+      (invocation uninitialized
+        (instructionData initializeDisc (some 7)) true true)
+  expectHalted "initialize" initializeObservation 0
+  expect initializeObservation.provider.returnData.isEmpty
+    "sBPF execution initialize: return data must stay empty"
+  expect (initializeObservation.finalAccountData ==
+      some (accountData ir.stateAccount.initializedMarker 7))
+    "sBPF execution initialize: final account bytes mismatch"
+
+  let incrementDisc ← discriminator "increment"
+  let incrementObservation ← liftExecutionResult <|
+    executeLoaderV3SingleAccountV1 boundArtifact
+      (invocation initialized
+        (instructionData incrementDisc (some 1)) false true)
+  expectHalted "increment" incrementObservation 0
+  expect (incrementObservation.provider.returnData == bytes 42)
+    "sBPF execution increment: return data mismatch"
+  expect (incrementObservation.finalAccountData ==
+      some (accountData ir.stateAccount.initializedMarker 42))
+    "sBPF execution increment: final account bytes mismatch"
+
+  let maximum := accountData ir.stateAccount.initializedMarker
+    0xffffffffffffffff
+  let overflowObservation ← liftExecutionResult <|
+    executeLoaderV3SingleAccountV1 boundArtifact
+      (invocation maximum
+        (instructionData incrementDisc (some 1)) false true)
+  expectHalted "increment overflow" overflowObservation 0x1001
+  expect overflowObservation.provider.returnData.isEmpty
+    "sBPF execution increment overflow: return data must stay empty"
+  expect (overflowObservation.finalAccountData == some maximum)
+    "sBPF execution increment overflow: account bytes must remain unchanged"
+
+  let wrongOwnerObservation ← liftExecutionResult <|
+    executeLoaderV3SingleAccountV1 boundArtifact {
+      (invocation initialized (instructionData getDisc none) false false) with
+      owner := Array.replicate 32 (0x43 : UInt8)
+    }
+  expectHalted "owner mismatch" wrongOwnerObservation 1
+  expect (wrongOwnerObservation.finalAccountData == some initialized)
+    "sBPF execution owner mismatch: account bytes must remain unchanged"
+
+  let encodedGet ← liftExecutionResult <|
+    encodeLoaderV3SingleAccountInputV1 boundArtifact
+      (invocation initialized (instructionData getDisc none) false false)
+  let wordAt (offset : Nat) : SbpfSemantics.Word :=
+    SbpfSemantics.wordFromLE (encodedGet.extract offset (offset + 8))
+  expect (encodedGet.size == 0x28b0)
+    s!"sBPF execution input: expected 0x28b0 bytes, got {encodedGet.size}"
+  expect ((wordAt 0).toNat == 1)
+    "sBPF execution input: account count mismatch"
+  expect (encodedGet.extract accountHeaderOffsetV1 accountKeyOffsetV1 ==
+      #[0xff, 0, 0, 0, 0, 0, 0, 0])
+    "sBPF execution input: account header mismatch"
+  expect (encodedGet.extract accountKeyOffsetV1 accountOwnerOffsetV1 == accountKey)
+    "sBPF execution input: account key mismatch"
+  expect (encodedGet.extract accountOwnerOffsetV1 accountLamportsOffsetV1 == programId)
+    "sBPF execution input: account owner mismatch"
+  expect ((wordAt accountLamportsOffsetV1).toNat == 0)
+    "sBPF execution input: lamports mismatch"
+  expect ((wordAt accountDataLenOffsetV1).toNat == initialized.size)
+    "sBPF execution input: account data length mismatch"
+  expect (encodedGet.extract accountDataOffsetV1
+      (accountDataOffsetV1 + initialized.size) == initialized)
+    "sBPF execution input: account data mismatch"
+  expect ((wordAt 0x2870).toNat == 0xffffffffffffffff)
+    "sBPF execution input: rent epoch mismatch"
+  expect ((wordAt 0x2878).toNat == 8)
+    "sBPF execution input: instruction data length mismatch"
+  expect (encodedGet.extract 0x2880 0x2888 == bytes getDisc)
+    "sBPF execution input: instruction data mismatch"
+  expect (encodedGet.extract 0x2888 0x28a8 == programId)
+    "sBPF execution input: current program id mismatch"
+  expect ((wordAt (encodedGet.size - 8)).toNat ==
+      SbpfSemantics.inputStart.toNat + 8)
+    "sBPF execution input: account-marker pointer-table entry mismatch"
+
+  let shortObservation ← liftExecutionResult <|
+    runBoundSbpfArtifactV1 boundArtifact #[]
+  expect (shortObservation.provider.outcome == .stuck)
+    s!"sBPF execution short input: expected stuck, got {repr shortObservation.provider.outcome}"
+  expect shortObservation.finalAccountData.isNone
+    "sBPF execution short input: account window must be unavailable"
+  let fuelObservation ← liftExecutionResult <|
+    runBoundSbpfArtifactV1 boundArtifact encodedGet 1
+  expect (fuelObservation.provider.outcome == .outOfFuel)
+    s!"sBPF execution low fuel: expected outOfFuel, got {repr fuelObservation.provider.outcome}"
+  expectExecutionError (runBoundSbpfArtifactV1 boundArtifact encodedGet 0)
+    "fuel must be in"
+  expectExecutionError
+    (encodeLoaderV3SingleAccountInputV1 boundArtifact {
+      (invocation initialized (instructionData getDisc none) false false) with
+      accountKey := Array.replicate 31 0
+    }) "account key must contain exactly 32 bytes"
+  expectExecutionError
+    (encodeLoaderV3SingleAccountInputV1 boundArtifact {
+      (invocation initialized (instructionData getDisc none) false false) with
+      owner := Array.replicate 31 0
+    }) "account owner must contain exactly 32 bytes"
+  expectExecutionError
+    (encodeLoaderV3SingleAccountInputV1 boundArtifact {
+      (invocation initialized (instructionData getDisc none) false false) with
+      programId := Array.replicate 31 0
+    }) "current program id must contain exactly 32 bytes"
+  expectExecutionError
+    (encodeLoaderV3SingleAccountInputV1 boundArtifact {
+      (invocation initialized (instructionData getDisc none) false false) with
+      accountData := initialized.pop
+    }) "account data must contain exactly 16 bytes"
+  expectExecutionError
+    (encodeLoaderV3SingleAccountInputV1 boundArtifact {
+      (invocation initialized (instructionData getDisc none) false false) with
+      instructionData := Array.replicate (maxSbpfInstructionDataBytesV1 + 1) 0
+    }) "instruction data exceeds"
+  let layoutMutation := asm.replace
+    ".equ EXACT_DATA_LEN, 0x10" ".equ EXACT_DATA_LEN, 0x18"
+  let mutatedArtifact ← liftArtifactResult <| resolveBoundSbpfArtifactV1 layoutMutation
+    (ProofForgeV2.Crypto.sha256Hex layoutMutation.toUTF8)
+  expectExecutionError
+    (encodeLoaderV3SingleAccountInputV1 mutatedArtifact
+      (invocation initialized (instructionData getDisc none) false false))
+    "ACC0_RENT_EPOCH"
 
 /-- Sole-rail product emit ships hybrid CPI bases + assembly. -/
 private unsafe def testProductEmitUnchanged
@@ -1202,6 +1402,7 @@ unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testStateCellAsm session
   testStateCellSbpfArtifact session
+  testStateCellSbpfExecution session
   testAccountListShapeChecks session
   testProductEmitUnchanged session
   testGuardedStateCellAsm session

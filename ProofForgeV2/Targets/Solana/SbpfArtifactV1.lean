@@ -54,6 +54,21 @@ def ResolvedSbpfArtifactV1.label? (artifact : ResolvedSbpfArtifactV1)
   artifact.labels.findSome? fun entry =>
     if entry.1 == name then some entry.2 else none
 
+/-- A resolved artifact whose exact source bytes have passed a caller-supplied
+    production SHA-256 identity gate. Provider execution accepts only this
+    private-constructor carrier, never a merely parseable artifact. -/
+structure BoundResolvedSbpfArtifactV1 where
+  private mk ::
+  artifact : ResolvedSbpfArtifactV1
+
+namespace BoundResolvedSbpfArtifactV1
+
+/-- Recover the strictly parsed artifact after its source identity was bound. -/
+def resolvedOf (bound : BoundResolvedSbpfArtifactV1) : ResolvedSbpfArtifactV1 :=
+  bound.artifact
+
+end BoundResolvedSbpfArtifactV1
+
 private structure PendingInstructionV1 where
   line : Nat
   mnemonic : String
@@ -389,12 +404,12 @@ def resolveSbpfArtifactV1 (text : String) :
     set or other trusted producer. A syntactically valid mutation is still a
     different artifact and is rejected before parsing or execution. -/
 def resolveBoundSbpfArtifactV1 (text expectedSha256 : String) :
-    SbpfArtifactResultV1 ResolvedSbpfArtifactV1 := do
+    SbpfArtifactResultV1 BoundResolvedSbpfArtifactV1 := do
   unless isCanonicalSha256V1 expectedSha256 do
     return ← failArtifactV1 0 "expected SHA-256 must be 64 lowercase hex characters"
   let actualSha256 := ProofForgeV2.Crypto.sha256Hex text.toUTF8
   unless actualSha256 == expectedSha256 do
     return ← failArtifactV1 0 "artifact SHA-256 does not match the expected production identity"
-  resolveSbpfArtifactV1 text
+  pure ⟨← resolveSbpfArtifactV1 text⟩
 
 end ProofForgeV2.Targets.Solana

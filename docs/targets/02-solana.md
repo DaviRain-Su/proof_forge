@@ -174,8 +174,11 @@ exact-pinned外部 `SbpfSemantics.Api`，形成
 `HandlerIR → production .s → strict parse/resolve → resolved sBPF semantics observation`；产品ELF
 rail保持独立，不得另造第二套DSL/business semantics。ADR已经accepted并固定development Lake pin；
 production StateCell artifact parser/resolver与SHA-256 identity gate已经闭合，真实输出解析为168条
-provider instructions。Loader V3 input adapter、provider execution与join theorem尚未闭合，所以仍
-没有provider-backed refinement claim。
+provider instructions。真实single-account Loader V3 ABIv1 adapter已执行identity-bound production
+artifact的`get/initialize/increment/overflow`，固定return/account bytes/error，并保留`.stuck`与
+`.outOfFuel`为显式provider observations。HandlerIR↔resolved-sBPF join theorem尚未闭合，所以仍
+没有provider-backed refinement claim；ELF、loader、rollback、compute units与runtime也不在该观察
+范围内。
 
 ## 1. 身份与来源
 

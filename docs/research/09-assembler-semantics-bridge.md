@@ -27,8 +27,9 @@ normative: false
 resolved instruction runner、memory/host dialect、observation与encode/decode。它仍不提供`.s` parser、
 label resolver、ELF reader或production Solana account serializer。候选promotion边界已写入
 [`ADR-0048`](../adr/0048-optional-solana-sbpf-semantics-provider.md)；该ADR已`accepted`并固定development
-Lake pin。ProofForge现已直接解析/resolve production StateCell `.s`为provider `Program`，但尚未
-构造Loader V3 input或执行provider observation，所以仍**没有**provider-backed refinement claim。
+Lake pin。ProofForge现已直接解析/resolve production StateCell `.s`为provider `Program`，并用真实
+single-account Loader V3 ABIv1 image执行bounded provider observations；尚未建立
+HandlerIR↔resolved-sBPF kernel theorem，所以仍**没有**provider-backed refinement claim。
 
 ## Why it matters for V2
 
@@ -53,15 +54,18 @@ ProofForgeV2.Solana materializer
     │ exact production .s + expected SHA-256
     ▼
 SbpfArtifactV1 strict parse/resolve
-    │ Array Instr (resolved)
+    │ identity-bound Array Instr + artifact layout
+    ▼
+SbpfExecutionV1 Loader V3 ABIv1 adapter
+    │ bounded input image
     ▼
 SbpfSemantics.Api   -- optional formal/trace profile
-    pfRun / Observation / pfEncode
+    runFuel / Observation / final account-data window
     ▼
 differential vs Mollusk / sbpf VM (external evidence)
 ```
 
-Promotion path (ADR-0048 accepted; 1–2 complete):
+Promotion path (ADR-0048 accepted; 1–3 complete):
 
 1. Add the exact ADR-0048 revision to Lake and the supply-chain closure.
 2. Strictly parse and resolve the exact production `.s` artifact into `SbpfSemantics.Instr`; do not add

@@ -15899,3 +15899,24 @@ normative: false
 - 本切只关闭artifact bytes→resolved provider instruction bridge。尚未构造Loader V3 account input、
   执行provider machine、比较HandlerIR observation或产生kernel refinement theorem；也不证明ELF、
   linker/loader、Mollusk/Agave/runtime。release source-dependency file-set仍未闭合。
+
+## 2026-08-14 — production StateCell Loader V3→sBPF provider execution
+
+- 新增`SbpfExecutionV1`，从identity-bound production StateCell `.s` artifact构造真实single-account
+  Loader V3 ABIv1 virtual image：non-duplicate record、fixed 88-byte prefix、10240-byte growth reserve、
+  8-byte alignment、`rent_epoch=u64::MAX`、instruction data、current program id及account-marker pointer
+  table。layout offsets必须与artifact中12个`.equ`和production emitter公式exact一致，mutation在执行前
+  fail closed。
+- `resolveBoundSbpfArtifactV1`现mint private-constructor `BoundResolvedSbpfArtifactV1`；provider执行API
+  只接受该carrier，普通`resolveSbpfArtifactV1`产生的“可解析但未绑定identity”artifact不能进入执行。
+  key/owner/program-id必须exact 32 bytes，account data必须匹配artifact `EXACT_DATA_LEN`，instruction
+  data与input image有显式资源上限。
+- 回归从真实StateCell source重走compiler→Solana IR→`emitSbpfAsmV1`，以固定SHA-256绑定168条
+  instruction artifact，然后在exact-pinned provider上执行`get`、`initialize`、`increment`与increment
+  overflow；固定return data、marker/state写回、`0x1001`错误与overflow pre-account bytes保持。owner
+  mismatch、short malformed input、low fuel及adapter malformed fields分别观察为halted error、
+  provider `.stuck`、provider `.outOfFuel`或pre-execution closed error。
+- 这是**provider-backed executable observation**，尚不是HandlerIR↔resolved-sBPF kernel theorem，
+  也不证明ELF/linker/loader、Solana rollback/transaction atomicity、compute units、完整host或runtime。
+  下一切应把这些bounded observations接回既有production HandlerIR evaluator，再与已闭合的
+  Reference→HandlerIR theorem组合；不得新增第二套DSL/business semantics。
