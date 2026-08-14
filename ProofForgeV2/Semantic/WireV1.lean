@@ -208,7 +208,8 @@ import Std.Data.HashMap
     Recursive/full TypeKey closure beyond the enforced named-prefix rank,
     full anonymous
     ranking/reachability (SPEC canonical unsigned-lexicographic anonymous
-    TypeKey/ranking bytes), and usage
+    TypeKey/ranking bytes; the isolated `typeKey` byte form is pinned but
+    not consumed by the structure gate), and usage
     closure/missing/unreferenced rejection, product
     wire remain out of scope pending later slices. The complete SPEC §5
     cycle condition is now closed by `recursiveAnonymous` + `namedBodyCycle`.)

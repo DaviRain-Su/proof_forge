@@ -619,6 +619,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-14 | **F-CALL-SERIAL**：Wire step-j 闭合 ExternalCall/Schedule 参数形状（Bool / 合法 UInt/Int / Bytes / Principal；不复用 Eq/Ne `serializableType`；Unit/Field/String/aggregates `.badCfg`）。**不**关闭 TASK-D2-06 / TST-SEM-001；C-3 / Anvil lossless 仍 blocked/FC |
 | 2026-08-14 | **B-CTX-OPEN honesty close**：NEAR sandbox `BlockHeightCheck`（`scripts/near_runtime_test.sh` `run_suite blockheightcheck`）与 CW `runtime-tests/cosmwasm/tests/block_height.rs` 已在树；S2 runtime residual 按工程 host-optional 门闭合。`unixTimeSeconds` 在 Solana/Noir/Psy/Aleo/Quint 仍 FC。**不**声称 formal / Anvil lossless；SYS-CAP-UNIFY 剩余为 S5/L2 |
 | 2026-08-14 | **F-TYPEKEY-USAGE-GAP**：`docs/plan/evm-formal-d2-06-typekey-usage.md` 盘点 TypeKey usage/rank。unused rejection 与 decoder-side rank 会打穿 `cfgOpTypes` 等手写表，需产品决策。下一刀 = 孤立 SPEC `typeKey` 字节形 pin，不装结构门。**不**关闭 TASK-D2-06 / TST-SEM-001 |
+| 2026-08-14 | **F-TYPEKEY-BYTES**：孤立 SPEC `typeKey` 字节形 encoder + `Tests.Semantic.WireV1` pin；**不**进入 structure gate，不 reject unused，不 rank `types`。**不**关闭 TASK-D2-06 / TST-SEM-001 |
 
 ---
 

@@ -129,7 +129,8 @@ def validateSemanticProgramStructurePreludeV1 (data : SemanticProgramDataV1) :
     Array/Bytes bounds and Enum tag agreement, recursive/full TypeKey closure
     beyond the enforced named-prefix rank and closed cycle condition,
     full anonymous ranking/reachability (SPEC
-    canonical unsigned-lexicographic anonymous TypeKey/ranking bytes), and
+    canonical unsigned-lexicographic anonymous TypeKey/ranking bytes; the
+    isolated `typeKey` byte form is pinned but not consumed here), and
     usage closure/missing/unreferenced rejection,
     provenance inventory join, or ProgramV1 normalizer. The named-body
     Option-cycle legality rule (SPEC §5: any recursive cycle must pass

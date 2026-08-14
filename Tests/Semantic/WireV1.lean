@@ -23,7 +23,8 @@
   are covered, while anonymous
   canonical rank/order, usage closure, provenance join/normalizer/product
   wire, and the remaining full TypeKey closure remain
-  pending. Step j
+  pending. The isolated SPEC `typeKey` byte form is pinned by
+  `encodeTypeKeyBytesForTestV1` and is not a structure gate. Step j
   includes the exact CheckedCast contract (UInt/Int source and destination,
   result.typeId == toType), StateStore state lookup/value type/void-result,
   Assert Bool/error/args/void-result, Term.Revert ErrorDecl/args, Emit
@@ -4126,6 +4127,147 @@ private def testNamedBodyOptionCycleLegality : IO Unit := do
   let highFanout ← programWithTypes "NamedBodyHighFanoutEnum" highFanoutTypes
   expectCfgOk "High-fanout acyclic named Enum (1k variants) structure + encode"
     highFanout
+
+/-- Independent SPEC §5 `typeKey` frame oracle. Same formula as the spec
+    block; not the production encoder and not a structure-gate input. -/
+private def typeKeyFrameOracle (tag : String) (fields : Array ByteArray) :
+    ByteArray := Id.run do
+  let tagBytes := tag.toUTF8
+  let mut out :=
+    (encodeU16le (UInt16.ofNat tagBytes.size)).append tagBytes
+  out := out.append (encodeU32le (UInt32.ofNat fields.size))
+  for field in fields do
+    out := out.append ((encodeU32le (UInt32.ofNat field.size)).append field)
+  pure out
+
+/-- SPEC `nameBytes(name) = u32le(NFC_UTF8(name).size) || NFC_UTF8(name)`.
+    ASCII test names are already NFC. -/
+private def typeKeyNameBytesOracle (name : String) : ByteArray :=
+  let raw := name.toUTF8
+  (encodeU32le (UInt32.ofNat raw.size)).append raw
+
+private def expectTypeKeyBytes (label : String) (types : Array TypeDeclV1)
+    (typeId : TypeIdV1) (want : ByteArray) : IO Unit := do
+  let got ← expectOk label (encodeTypeKeyBytesForTestV1 types typeId)
+  unless bytesEqual got want do
+    throw <| IO.userError
+      s!"{label}: typeKey bytes mismatch (got {got.size} want {want.size})"
+
+/-- Isolated SPEC §5 `typeKey` byte-form pin. Encoder-level only: does not
+    call `validateSemanticProgramStructureV1`, does not reject unused
+    TypeDecls, and does not rank-check `types`. -/
+private def testTypeKeyByteForm : IO Unit := do
+  let boolTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bool }]
+  expectTypeKeyBytes "P bool" boolTypes 0 (typeKeyFrameOracle "bool" #[])
+  let uint8Types : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .uint 8 }]
+  expectTypeKeyBytes "P uint 8" uint8Types 0
+    (typeKeyFrameOracle "uint" #[encodeU16le 8])
+  let uint64Types : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .uint 64 }]
+  expectTypeKeyBytes "P uint 64" uint64Types 0
+    (typeKeyFrameOracle "uint" #[encodeU16le 64])
+  -- Named reserved id is `u32le` of the declaration's reserved TypeId,
+  -- not the pretty name and not an expanded struct body.
+  let namedTypes : Array TypeDeclV1 := #[
+    { id := 0, name := some "Point",
+      shape := .struct #[{ name := "x", typeId := 1 }] },
+    { id := 1, name := none, shape := .uint 8 }
+  ]
+  expectTypeKeyBytes "P named reserved id" namedTypes 0
+    (typeKeyFrameOracle "named" #[encodeU32le 0])
+  let bytesTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .bytes 16 }]
+  expectTypeKeyBytes "P bytes length framing" bytesTypes 0
+    (typeKeyFrameOracle "bytes" #[encodeU32le 16])
+  let optionTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 8 },
+    { id := 1, name := none, shape := .option 0 }
+  ]
+  let uint8Key := typeKeyFrameOracle "uint" #[encodeU16le 8]
+  expectTypeKeyBytes "P option(uint8)" optionTypes 1
+    (typeKeyFrameOracle "option" #[uint8Key])
+  let mapTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .uint 8 },
+    { id := 2, name := none, shape := .map 0 1 }
+  ]
+  expectTypeKeyBytes "P map(bool,uint8)" mapTypes 2
+    (typeKeyFrameOracle "map"
+      #[typeKeyFrameOracle "bool" #[], uint8Key])
+  -- Anonymous struct expands as `struct` + `struct-field` helpers.
+  let structTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 8 },
+    { id := 1, name := none,
+      shape := .struct #[{ name := "x", typeId := 0 }] }
+  ]
+  let structFieldKey :=
+    typeKeyFrameOracle "struct-field"
+      #[typeKeyNameBytesOracle "x", uint8Key]
+  expectTypeKeyBytes "P struct one field" structTypes 1
+    (typeKeyFrameOracle "struct" #[structFieldKey])
+  -- Anonymous enum expands as `enum` + `enum-variant` helpers. The
+  -- variant's second field is `u32le(count) || length-prefixed payloadKeys`.
+  let enumTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 8 },
+    { id := 1, name := none,
+      shape := .enum #[{ name := "V", payloadTypes := #[0] }] }
+  ]
+  let enumPayloadPacked :=
+    (encodeU32le 1).append
+      ((encodeU32le (UInt32.ofNat uint8Key.size)).append uint8Key)
+  let enumVariantKey :=
+    typeKeyFrameOracle "enum-variant"
+      #[typeKeyNameBytesOracle "V", enumPayloadPacked]
+  expectTypeKeyBytes "P enum one variant" enumTypes 1
+    (typeKeyFrameOracle "enum" #[enumVariantKey])
+  let fieldTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .field bn254FrFieldSpecV1 }]
+  expectTypeKeyBytes "P field spec bn254" fieldTypes 0
+    (typeKeyFrameOracle "field"
+      #[typeKeyNameBytesOracle bn254FrFieldIdV1, bn254FrModulusBEV1])
+  -- Pretty names are not a sort/key substitute: the Bool leaf is the
+  -- ASCII tag `bool` with zero fields, not UTF-8 "Bool", not
+  -- `named(nameBytes("Bool"))`, and not `bool` plus a pretty-name field.
+  let boolKey := typeKeyFrameOracle "bool" #[]
+  expect (boolKey != "Bool".toUTF8)
+    "pretty-name UTF-8 is not a typeKey substitute"
+  expect (boolKey != typeKeyFrameOracle "named" #[typeKeyNameBytesOracle "Bool"])
+    "pretty-name named(...) is not a typeKey substitute"
+  expect (boolKey != typeKeyFrameOracle "bool" #[typeKeyNameBytesOracle "Bool"])
+    "pretty-name is not a bool field"
+  -- TypeId must not appear in a primitive key. UInt8 at TypeId 0 and
+  -- TypeId 5 produce the same leaf bytes; those bytes equal the width
+  -- frame and are not mixed with `u32le(TypeId)`.
+  let uint8AtFive : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .bool },
+    { id := 1, name := none, shape := .principal },
+    { id := 2, name := none, shape := .unit },
+    { id := 3, name := none, shape := .bytes 1 },
+    { id := 4, name := none, shape := .int 8 },
+    { id := 5, name := none, shape := .uint 8 }
+  ]
+  expectTypeKeyBytes "N TypeId not in primitive key (id 0)" uint8Types 0
+    uint8Key
+  expectTypeKeyBytes "N TypeId not in primitive key (id 5)" uint8AtFive 5
+    uint8Key
+  expect (uint8Key != typeKeyFrameOracle "uint" #[encodeU16le 8, encodeU32le 5])
+    "TypeId must not be mixed into the uint leaf key"
+  expect (uint8Key != typeKeyFrameOracle "uint" #[encodeU32le 5, encodeU16le 8])
+    "TypeId must not precede width in the uint leaf key"
+  expectErr "N struct-field is not a legal top-level tag" .badType
+    (encodeTypeKeyFrameForTestV1 "struct-field" #[])
+  expectErr "N enum-variant is not a legal top-level tag" .badType
+    (encodeTypeKeyFrameForTestV1 "enum-variant" #[])
+  expectErr "N unknown tag rejected" .badType
+    (encodeTypeKeyFrameForTestV1 "PrettyBool" #[])
+  expectErr "N string is not a closure tag" .badType
+    (encodeTypeKeyBytesForTestV1
+      #[{ id := 0, name := none, shape := .string }] 0)
+  expectErr "N OOR child TypeId fail closed" .badReference
+    (encodeTypeKeyBytesForTestV1
+      #[{ id := 0, name := none, shape := .option 99 }] 0)
 
 /-- SPEC-SEM-WIRE-001 §6 Constant names are exact-string unique within
     the constants table. Identifier grammar/NFC and other declaration tables
@@ -11495,6 +11637,7 @@ def run : IO Unit := do
   testNamedTypeNameUniqueness
   testNamedTypePrefixRank
   testNamedBodyOptionCycleLegality
+  testTypeKeyByteForm
   testConstantNameUniqueness
   testLogicalStateNameUniqueness
   testEventNameUniqueness

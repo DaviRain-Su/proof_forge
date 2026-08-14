@@ -92,6 +92,7 @@ SPEC cite for all three: [`semantic-program-wire.md`](../specs/semantic-program-
 **One slice:** pin the SPEC `typeKey` **byte form** as an isolated encoder +
 WireV1 unit tests. Do **not** feed it into `validateSemanticProgramStructureV1`.
 Do **not** reject unused rows. Do **not** reorder or rank-check `types`.
+**Pinned 2026-08-14** (`encodeTypeKeyBytesForTestV1`; structure gate unchanged).
 
 | | |
 |---|---|

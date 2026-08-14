@@ -7,7 +7,8 @@ import Std.Data.HashMap
 /-!
   ProofForgeV2.Semantic.Wire.TypeKeyV1 — type-shape/FieldSpec/Map-key legality
   and TypeKey phases (named-prefix, primitive leaf, recursive anonymous,
-  named-body Option-cycle).
+  named-body Option-cycle). Isolated SPEC `typeKey` byte-form encoder is
+  pinned here and is not a structure gate.
 
   Public declarations live in namespace `ProofForgeV2.Semantic.WireV1`.
 -/
@@ -276,7 +277,9 @@ theorem validatePrimitiveAnonymousTypeKeyUniquenessV1_collect_three_eq_ok
 /-- Fixed-size internal structural-class signature builder (SPEC §5
     engineering subset). This is **not** the SPEC canonical unsigned-
     lexicographic anonymous TypeKey/ranking bytes; that ranking/order is a
-    separate normalizer concern and remains deferred. The signature is a
+    separate normalizer concern and remains deferred. The SPEC `typeKey`
+    byte form is pinned by the isolated encoder at the bottom of this
+    module and is not consumed here. The signature is a
     deterministic, injective, fixed-size byte encoding used only for exact
     structural-class equality and interning, so the per-TypeId state stays
     constant size regardless of recursion depth (avoiding the Θ(n²)
@@ -581,9 +584,10 @@ def validateRecursiveAnonymousTypeKeyUniquenessV1
     valueBytes / callable signature / CFG / requirements. The complete SPEC
     §5 cycle condition is closed by the combination of the earlier
     `recursiveAnonymous` anonymous-cycle gate and this `namedBodyCycle`
-    gate; the full TypeKey closure (anonymous canonical key bytes/rank/order,
-    reachability, usage closure) and normalizer/provenance/product wire
-    remain deferred. -/
+    gate; the full TypeKey closure (anonymous canonical rank/order of the
+    isolated SPEC `typeKey` bytes, reachability, usage closure) and
+    normalizer/provenance/product wire remain deferred. The byte form
+    itself is pinned separately and is not a structure gate. -/
 
 /-- Children TypeIds that a declaration contributes to the Option-removed
     induced graph. `Option` declarations return `none` (removed nodes). Any
@@ -751,5 +755,138 @@ theorem validateTypeKeyPhasesV1_eq_ok_of_phases (types : Array TypeDeclV1)
     validateTypeKeyPhasesV1 types = .ok () := by
   simp only [validateTypeKeyPhasesV1, hNamedPrefix, hPrimitive, hRecursive,
     hNamedBody, liftTypeKeyValidationPhaseV1, Bind.bind, Except.bind]
+
+/-! ### Isolated SPEC §5 `typeKey` byte form
+
+    Pins the canonical `typeKey(tag, fields)` / `nameBytes` framing from
+    SPEC-SEM-WIRE-001 §5. This encoder is **not** called from
+    `validateSemanticProgramStructureV1`, does not reject unused TypeDecls,
+    does not reorder or rank-check `types`, and does not replace the
+    fixed-size structural-class signature interning above. Pretty names,
+    hashes, locale sort, and final TypeId are not sort keys. -/
+
+/-- SPEC `typeKey` frame: `u16le(ASCII(tag).size) || ASCII(tag) ||
+    u32le(fields.size) || concat(u32le(field.size) || field)`. -/
+private def typeKeyFrameBytesV1 (tag : String) (fields : Array ByteArray) :
+    ByteArray := Id.run do
+  let tagBytes := tag.toUTF8
+  let mut out :=
+    (encodeU16le (UInt16.ofNat tagBytes.size)).append tagBytes
+  out := out.append (encodeU32le (UInt32.ofNat fields.size))
+  for field in fields do
+    out := out.append ((encodeU32le (UInt32.ofNat field.size)).append field)
+  pure out
+
+/-- Closure / top-level tags only. Nested helpers are excluded. -/
+private def isTypeKeyClosureTagV1 (tag : String) : Bool :=
+  tag == "named" || tag == "bool" || tag == "uint" || tag == "int" ||
+    tag == "principal" || tag == "unit" || tag == "bytes" ||
+    tag == "array" || tag == "map" || tag == "option" || tag == "field" ||
+    tag == "struct" || tag == "enum"
+
+/-- Nested record helpers. Legal only inside a parent `struct`/`enum` key. -/
+private def isTypeKeyNestedHelperTagV1 (tag : String) : Bool :=
+  tag == "struct-field" || tag == "enum-variant"
+
+/-- Frame a `typeKey` after the tag allowlist. `allowNestedHelper` is true
+    only for `struct-field` / `enum-variant` items emitted under a parent
+    struct/enum key. Unknown tags and nested helpers used as a closure
+    declaration tag fail closed. -/
+private def encodeTypeKeyFrameCheckedV1 (tag : String)
+    (fields : Array ByteArray) (allowNestedHelper : Bool) :
+    Except SemanticWireErrorV1 ByteArray := do
+  if isTypeKeyClosureTagV1 tag then
+    pure (typeKeyFrameBytesV1 tag fields)
+  else if allowNestedHelper && isTypeKeyNestedHelperTagV1 tag then
+    pure (typeKeyFrameBytesV1 tag fields)
+  else
+    err .badType
+
+/-- SPEC `typeKey` of one TypeId. Named Struct/Enum emit `named` + reserved
+    `u32le` id and do not expand the body. Anonymous Struct/Enum expand as
+    `struct`/`enum` with nested helpers. Child TypeIds are resolved against
+    `types` (index = TypeId); OOR fails closed. Fuel is `maxNesting` (256)
+    and is consumed on each nested TypeId. -/
+private def encodeTypeKeyFromTypeIdV1 (types : Array TypeDeclV1)
+    (typeId : TypeIdV1) : Nat → Except SemanticWireErrorV1 ByteArray
+  | 0 => err .limitExceeded
+  | fuel + 1 => do
+      match types[typeId.toNat]? with
+      | none => err .badReference
+      | some decl =>
+          match decl.name, decl.shape with
+          | some _, .struct _ =>
+              encodeTypeKeyFrameCheckedV1 "named"
+                #[encodeU32le decl.id] false
+          | some _, .enum _ =>
+              encodeTypeKeyFrameCheckedV1 "named"
+                #[encodeU32le decl.id] false
+          | _, .bool =>
+              encodeTypeKeyFrameCheckedV1 "bool" #[] false
+          | _, .uint w =>
+              encodeTypeKeyFrameCheckedV1 "uint" #[encodeU16le w] false
+          | _, .int w =>
+              encodeTypeKeyFrameCheckedV1 "int" #[encodeU16le w] false
+          | _, .principal =>
+              encodeTypeKeyFrameCheckedV1 "principal" #[] false
+          | _, .unit =>
+              encodeTypeKeyFrameCheckedV1 "unit" #[] false
+          | _, .string =>
+              err .badType
+          | _, .bytes len =>
+              encodeTypeKeyFrameCheckedV1 "bytes" #[encodeU32le len] false
+          | _, .field spec => do
+              let idB ← encodeString spec.id.value
+              encodeTypeKeyFrameCheckedV1 "field" #[idB, spec.modulusBE] false
+          | _, .array element length => do
+              let child ← encodeTypeKeyFromTypeIdV1 types element fuel
+              encodeTypeKeyFrameCheckedV1 "array"
+                #[child, encodeU32le length] false
+          | _, .map key value => do
+              let keyB ← encodeTypeKeyFromTypeIdV1 types key fuel
+              let valueB ← encodeTypeKeyFromTypeIdV1 types value fuel
+              encodeTypeKeyFrameCheckedV1 "map" #[keyB, valueB] false
+          | _, .option element => do
+              let child ← encodeTypeKeyFromTypeIdV1 types element fuel
+              encodeTypeKeyFrameCheckedV1 "option" #[child] false
+          | none, .struct fields => do
+              let mut items : Array ByteArray := #[]
+              for f in fields do
+                let nameB ← encodeString f.name
+                let child ← encodeTypeKeyFromTypeIdV1 types f.typeId fuel
+                let item ← encodeTypeKeyFrameCheckedV1 "struct-field"
+                  #[nameB, child] true
+                items := items.push item
+              encodeTypeKeyFrameCheckedV1 "struct" items false
+          | none, .enum variants => do
+              let mut items : Array ByteArray := #[]
+              for v in variants do
+                let nameB ← encodeString v.name
+                let mut packed :=
+                  encodeU32le (UInt32.ofNat v.payloadTypes.size)
+                for payload in v.payloadTypes do
+                  let payloadKey ←
+                    encodeTypeKeyFromTypeIdV1 types payload fuel
+                  packed := packed.append
+                    ((encodeU32le (UInt32.ofNat payloadKey.size)).append
+                      payloadKey)
+                let item ← encodeTypeKeyFrameCheckedV1 "enum-variant"
+                  #[nameB, packed] true
+                items := items.push item
+              encodeTypeKeyFrameCheckedV1 "enum" items false
+
+/-- Test-only SPEC `typeKey` encoder. Not a structure gate, not a rank
+    checker, and not a product API. Resolves `typeId` against `types` with
+    fuel `maxNesting`. -/
+def encodeTypeKeyBytesForTestV1 (types : Array TypeDeclV1)
+    (typeId : TypeIdV1) : Except SemanticWireErrorV1 ByteArray :=
+  encodeTypeKeyFromTypeIdV1 types typeId maxNesting
+
+/-- Test-only top-level `typeKey` tag/frame hook. Nested helpers and
+    unknown tags are rejected (`allowNestedHelper = false`). Not a
+    structure gate. -/
+def encodeTypeKeyFrameForTestV1 (tag : String) (fields : Array ByteArray) :
+    Except SemanticWireErrorV1 ByteArray :=
+  encodeTypeKeyFrameCheckedV1 tag fields false
 
 end ProofForgeV2.Semantic.WireV1
