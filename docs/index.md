@@ -3,7 +3,7 @@ id: DOC-INDEX
 title: ProofForge V2 文档导航
 status: proposed
 owner: architecture
-updated: 2026-08-13
+updated: 2026-08-14
 normative: true
 ---
 
@@ -21,12 +21,13 @@ normative: true
 closure（无 `--proof-bundle*`）。
 工程 registry **12 = 12 implemented + 0 design-only**；**十二个 materializer**
 （含 ADR-0044 Soroban source-only S0 与 ADR-0045/0046 OpenVM O0/O1）。
-（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM）均直连 retained `SemanticProgramV1`。
+（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP）均直连 retained `SemanticProgramV1`。
 Quint：source-only `.qnt` + zero-tool finalize；OpenVM O0：controlled Rust guest + catalog +
 zero-tool finalize（默认 profile；无 prove；ADR-0045）；opt-in `openvm-guest-elf-v1`（ADR-0046）可经锁定
-`cargo-openvm` 产出 ELF/`.vmexe`；CosmWasm：WAT + locked check + mock 28 tests +
+`cargo-openvm` 产出 ELF/`.vmexe`；ICP：Wasm + Candid + host-optional PocketIC（ADR-0047）；
+CosmWasm：WAT + locked check + mock 28 tests +
 wasmd Docker rung-1；TON：Tolk/BoC + sandbox 10/10（schedule `createMessage` PARTIAL）。**Accepted PRD Phase 1 仍为四目标**
-（EVM/Solana/NEAR/Noir）；其余 engineering leaves 由 **ADR-0036**（11+1）与 **ADR-0045/0046**
+（EVM/Solana/NEAR/Noir）；其余 engineering leaves 由 **ADR-0036**（12+0）与 **ADR-0044/0045/0046/0047**
 固定为非 accepted 扩面，formal lighthouse=EVM-first。Normalize 为扩展中的
 子集（超出最初 Counter-only S1，仍非完整语言面）。前端监督层已于 2026-08-01 移除。
 

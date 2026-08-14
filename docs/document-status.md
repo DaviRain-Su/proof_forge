@@ -3,7 +3,7 @@ id: DOC-STATUS
 title: 文档生命周期与权威索引
 status: proposed
 owner: architecture
-updated: 2026-08-13
+updated: 2026-08-14
 normative: true
 ---
 
@@ -24,8 +24,8 @@ normative: true
 ## 当前恢复执行指针
 
 当前产品开发由根级 [`RECOVERY.md`](../RECOVERY.md) / [`AGENTS.md`](../AGENTS.md) 驱动：
-ProgramV1 → CheckV1/Normalize → `CompiledSemanticV1` → **十个 materializer**
-（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/OpenVM）capability Plan/IR 的**工程纵切面**。
+ProgramV1 → CheckV1/Normalize → `CompiledSemanticV1` → **十二个 materializer**
+（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP）capability Plan/IR 的**工程纵切面**。
 工程 registry **12 = 12 implemented + 0 design-only**（含 Soroban ADR-0044、OpenVM ADR-0045/0046、ICP ADR-0047）。Quint 是
 zero-tool finalize 的 source-only `.qnt` executable-model target；OpenVM 默认
 `openvm-guest-source-v1` 是 zero-tool guest-source（受控 Rust 模板 + catalog；

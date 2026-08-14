@@ -3,7 +3,7 @@ id: RESEARCH-026
 title: Cairo / RISC Zero / SP1 zkVM 三机 Plan 设计（fail-closed MVP）
 status: draft
 owner: engineering
-updated: 2026-08-13
+updated: 2026-08-14
 normative: false
 ---
 
@@ -301,8 +301,8 @@ TGT-OPENVM-MVP (Z0–Z1)
 |---|---|---|
 | **TGT-ZKVM-TRIO-DESIGN** | 本设计（RPT-026） | **done**（随本文） |
 | **TGT-ZKVM-DOSSIERS** | 补 `cairo`/`risc0`/`sp1` dossier + family 刷新 | **done**（2026-08-13） |
-| **TGT-OPENVM-MVP** | 仍为同族第一实现叶 | pending（既有；他车道） |
-| **TGT-ZKVM-SECOND** | OpenVM 后择一 `risc0` **或** `sp1` | pending（blocked-on OpenVM） |
+| **TGT-OPENVM-MVP** | 同族第一实现叶 | **done**（2026-08-14：O0/O1 engineering MVP；无 prove） |
+| **TGT-ZKVM-SECOND** | OpenVM 后择一 `risc0` **或** `sp1` | pending（不抢 EVM formal 主轴） |
 | **TGT-CAIRO-MVP** | 第三 zkVM leaf | pending（blocked-on second 或显式改序） |
 
 不扩 accepted PRD；不插入 Soroban/ICP 之前，除非产品改 ADR-0036 工程优先序。

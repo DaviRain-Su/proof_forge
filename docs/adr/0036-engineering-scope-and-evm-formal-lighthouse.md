@@ -3,7 +3,7 @@ id: ADR-0036
 title: Engineering target scope and EVM-first formal lighthouse
 status: proposed
 owner: architecture
-updated: 2026-08-13
+updated: 2026-08-14
 normative: true
 ---
 
@@ -17,7 +17,7 @@ normative: true
 
 The accepted Phase 1 PRD names four product targets: EVM, Solana, NEAR and Noir. The
 engineering registry subsequently grew to twelve implemented materializers plus zero design-only
-targets (ICP only; Soroban promoted via ADR-0044; OpenVM promoted via ADR-0045/0046). That implementation fact was
+targets (Soroban via ADR-0044; OpenVM via ADR-0045/0046; ICP via ADR-0047). That implementation fact was
 repeatedly routed through a scope placeholder, but no document owned that identifier. The
 placeholder therefore became a dangling authority reference rather than a decision.
 
@@ -57,10 +57,11 @@ closed.
 
 ## Consequences
 
-- Current engineering users retain all ten materializers and their existing honest maturity
+- Current engineering users retain all twelve materializers and their existing honest maturity
   labels (Soroban S0 is source-only / non-deployable per ADR-0044; OpenVM maturity remains
-  source-only even when the opt-in elf profile emits build extras per ADR-0046).
-- Formal planning has one lighthouse instead of ten competing target lanes.
+  source-only even when the opt-in elf profile emits build extras per ADR-0046; ICP remains
+  source-only in the registry label even with host-optional PocketIC per ADR-0047).
+- Formal planning has one lighthouse instead of twelve competing target lanes.
 - Accepted PRD prose is not silently rewritten by an engineering registry expansion.
 - The removed frontend supervisor is no longer carried as an open scope ambiguity.
 - A future target-scope expansion, alternate formal lighthouse or containment boundary requires a
@@ -69,7 +70,7 @@ closed.
 ## Non-claims
 
 EVM-first does not mean EVM formal tasks are complete. It does not close D1-D4, establish
-candidate-bound evidence, make any artifact deployable, or qualify a release host. The other nine
+candidate-bound evidence, make any artifact deployable, or qualify a release host. The other eleven
 implemented materializers remain engineering surfaces with the maturity and fail-closed limits
 stated in their target dossiers. Soroban S0 source-only evidence does not promote Soroban to
 accepted Phase 1 or formal scope. OpenVM O0/O1 does not claim proof, VK, or

@@ -3,14 +3,15 @@ id: RESEARCH-025
 title: 剩余 Target 版图、比特币脚本族与落地波次
 status: draft
 owner: engineering
-updated: 2026-08-13
+updated: 2026-08-14
 normative: false
 ---
 
 # 剩余 Target 版图、比特币脚本族与落地波次
 
-> **目的**：回答「四大类之外还能支持什么」；把**已注册未实现**、**研究期候选**、
-> **明确不适合近期实现**的平台分桶；并给出**可执行但不扩 accepted PRD** 的工程波次。  
+> **目的**：回答「四大类之外还能支持什么」；把**已注册已实现的 engineering leaf**、**研究期候选**、
+> **明确不适合近期实现**的平台分桶；并给出**可执行但不扩 accepted PRD** 的工程波次。
+> 2026-08-14：Soroban / ICP / OpenVM 三个 registry leaf 的 engineering MVP 已闭合（仍非 formal）。
 > **不是** formal `TASK-*`、不是 PRD Phase-1 扩面、不是第二套 live gap 清单。  
 > 执行勾选只进 [`../engineering-backlog.md`](../engineering-backlog.md)；op 格子仍以
 > [`12-target-coverage-matrix.md`](12-target-coverage-matrix.md) 为准。  
@@ -337,11 +338,11 @@ ADR-0017 研究登记保留为历史；执行队列 `TGT-MOVE-DOSSIER=wontfix`�
 | ID | 项 | 波次 | 初态 |
 |---|---|---|---|
 | **TGT-DOC-025** | 本版图研究落地 + README/索引 | T0 | 随本文 → done |
-| **TGT-SOROBAN-MVP** | Soroban design-only → materializer MVP | T1 | pending |
-| **TGT-ICP-MVP** | ICP design-only → materializer MVP | T2 | pending |
-| **TGT-OPENVM-MVP** | OpenVM design-only → materializer MVP | T3 | pending |
-| **TGT-MOVE-DOSSIER** | Aptos/Sui dossier + family 补齐（无代码） | T4 | pending |
-| **TGT-BTC-SCRIPT-PIN** | 比特币脚本族研究钉（默认不实现） | T6 gate | pending（文档钉）→ 本文完成后可标 done |
+| **TGT-SOROBAN-MVP** | Soroban design-only → materializer MVP | T1 | done（见 backlog；S0 source-only） |
+| **TGT-ICP-MVP** | ICP design-only → materializer MVP | T2 | done（见 backlog；ADR-0047） |
+| **TGT-OPENVM-MVP** | OpenVM design-only → materializer MVP | T3 | done（见 backlog；O0/O1，无 prove） |
+| **TGT-MOVE-DOSSIER** | Aptos/Sui dossier + family 补齐（无代码） | T4 | wontfix（产品决定不做 Move） |
+| **TGT-BTC-SCRIPT-PIN** | 比特币脚本族研究钉（默认不实现） | T6 gate | done（文档钉） |
 
 扩 registry 计数时必须同步：`targets/README.md`、ADR-0036 后继 ADR、`12-target-coverage-matrix`、SPEC-REG 轴枚举（若增 ExecutionHost 等）。
 

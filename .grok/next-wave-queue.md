@@ -1,7 +1,7 @@
 # Next-wave drain queue (2026-08-12)
 
 **Authority:** `docs/engineering-backlog.md` 推荐击杀顺序 · ADR-0036 · AGENTS Next task  
-**Live status:** Track A packaging LH-1…7 done; LH-8/LH-9 are corpus-completeness engineering continuation only. Backlog wins on conflict; this file wins on *order*.
+**Live status:** Track A LH-1…28 engineering-done. Next serial axis is EVM formal closeout (`TASK-D2-07` / `TST-SEM-002/003`); Goal drain must **not** mark those formal IDs done. Backlog wins on conflict; this file wins on *order*.
 **Mode:** Goal drain *or* one-slice workflow. Do **not** wait for chat “继续”.  
 **Sole L1 step:** `SemanticProgramV1 → admitReferenceProgramSliceV1 → stepReferenceSliceV1`  
 **Forbidden:** close formal TASK/TST/EV · Anvil lossless OutcomeWire (spec-FC) · invent TASK-* · push · `git add -A` · `git reset --hard` · supersede ADR-0027 · silent accepted-PRD expansion
@@ -53,7 +53,15 @@ Engineering packaging toward TASK-D2-07 / TST-SEM-002/003 / C-3.
 | LH-27 | done | invariant-body `context.attachedValue` Normalize fail-closed pin in `Tests/Semantic/AttachedValueContextV1.lean`. **Not** formal |
 | LH-28 | done | `docs/specs/semantic-program-wire.md` ContextRead six-key catalog + wire≠target support. **Not** formal |
 
-Track A LH-1…13 + LH-16…28 is **engineering-done**. Formal closeout remains **excluded**; C-3 stays `formal-blocked`.
+Track A LH-1…13 + LH-16…28 is **engineering-done**. Formal closeout is the next **human/main-agent** axis (Track F); Goal drain still must **not** mark formal IDs `done`. C-3 stays `formal-blocked`.
+
+## Track F — EVM formal closeout (serial; not Goal-auto-done)
+
+Engineering packaging is exhausted. This track prepares / implements the first formal-prerequisite slice. **Never** flip `TASK-*` / `TST-*` to `done` in `04-task-breakdown` / `05-test-spec` from a Goal drain.
+
+| id | status | objective |
+|---|---|---|
+| F-D2-07-GAP | pending | Inventory exact remaining gap from engineering `ReferenceMachineV1` / OutcomeWire / Sem002/003 *shape* pins to formal `TASK-D2-07` + `TST-SEM-002/003` acceptance text; write the first fail-closed formal slice plan. **Not** C-3 / Anvil lossless |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 
@@ -87,7 +95,7 @@ Leave these `blocked` / `decision`. Goal must **skip**, not implement.
 
 ## Runner notes
 
-1. First `pending` row in Track A, then Track B. Never Track C.
+1. Track A is exhausted. Goal may do remaining Track B file-isolated leaves. Track F is main-agent / human serial and must not auto-close formal IDs. Never Track C.
 2. Mark claimed row `in_progress` only on a clean tree (or WIP wholly inside that slice allowlist).
 3. One local commit per id. Touch `ProofForgeV2/**` → `just sbom-package-files-refresh`. Docs → `just docs-check`.
 4. After commit: this file `done`, `docs/engineering-backlog.md` one honest line, AGENTS Current/Next if Track A pointer moves.

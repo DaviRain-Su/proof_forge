@@ -13,7 +13,7 @@ ValidatedSourceV1
 ```
 
 当前可运行的 StateCell/Accumulator（及更广 Normalize 子集）路径已由单一 `CompiledSemanticV1` 保留
-structure-valid `SemanticProgramV1`，并直接构造九个 materializer 的 target-owned Plan（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON）。产品编译、resolver 与 artifact identity 已不再持有 alpha carrier。D3 侧已有工程 `TargetRegistryV1` / requirement resolver /
+structure-valid `SemanticProgramV1`，并直接构造十二个 materializer 的 target-owned Plan（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP）。产品编译、resolver 与 artifact identity 已不再持有 alpha carrier。D3 侧已有工程 `TargetRegistryV1` / requirement resolver /
 Materialized/Finalized/content-descriptor/disk-closure 与全工程 planDigest 槽位绑定；D3-E9 后
 `TargetDescriptor` 六轴直接复用 registry V1 authority，并在 capability/artifact/inspect 前 exact join。但 formal `registryDigest` /
 formal SupportClaim / formal BuildIdentity mint / formal `OutputSetV1` 与完整 Phase-1 语言/runtime DoD
@@ -98,7 +98,7 @@ formal `OutputSetV1` 或 `TASK-D3-05` 完成。
    不再仅是 StateCell-like S1（**当前**：Normalize 已扩多宽/控制流/fn/for/call 等，完整语言面仍未闭合）。
 3. `CompiledSemanticV1` 是唯一产品编译成功 carrier；alpha Typed/Semantic lowering与 residual accessors 无产品调用。
 4. `ProgramRequirementsV1` 是唯一产品 requirement authority；target-neutral contribution engine 只向该 authority供给，不存在第二套 AST walker、alpha parity或 caller override。
-5. 九个 materializer（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON）Plan body 均直接消费 retained `SemanticProgramV1`（经 resolved capability）。
+5. 十二个 materializer（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP）Plan body 均直接消费 retained `SemanticProgramV1`（经 resolved capability）。
 6. 产品 identity/output 不再依赖 transitional parallel authority：frozen registry membership/axes、
    engineering SupportClaim/BuildIdentity/PlanDigest 与 content-bound engineering `proof-forge.output.v1`
    publish/inspect 已接线。按 D3-E1，formal-layout `registryDigest` 不进入当前产品路径；formal
@@ -137,13 +137,13 @@ materialize）→ capability Plan/publish。历史上的 B9–B12 监督层与 s
 `Frontend/ProtocolV1` 与 `WorkerV1` 不是产品 CLI 源权威。D1-04 shared IntegerLiteral 与
 ProgramV1 command/export/v2 仍为 sole 源表面。
 
-**当前执行指针 = EVM-first lighthouse engineering drain through LH-13 engineering-done（commit `218ddc447`；Sem003 trap+unconsumed；OMP SHIP）**：
+**当前执行指针 = EVM-first formal closeout（LH-1…28 engineering-done；下一步 `TASK-D2-07` / `TST-SEM-002/003`）**：
 产品路径仍为进程内单次 read → `Loader` → `Normalize` → `compile` → `certifyInlineProofV1`
-→ capability；九个 materializer Plan body 已直连 retained `SemanticProgramV1`，`CompiledSemanticV1`
-+ `ProgramRequirementsV1` sole freeze + engineering resolver/capability 已接线。LH-1…9
-engineering packaging/corpus pin 已完成，LH-10/11 已完成测试，LH-12 控制面诚实化已完成；
-LH-13 Sem003 trap+unconsumed 已 engineering-done（commit `218ddc447`；OMP SHIP）；
-完整 ProgramV1→Semantic 表面与 Reference 全 op 仍未闭合。formal D1–D4 仍为 0/27；
+→ capability；十二个 materializer Plan body 已直连 retained `SemanticProgramV1`，`CompiledSemanticV1`
++ `ProgramRequirementsV1` sole freeze + engineering resolver/capability 已接线。registry
+**12 = 12 implemented + 0 design-only**，resolver **15** rows。LH-1…28
+engineering packaging/corpus pin 已完成（含 LH-13 Sem003 trap+unconsumed `218ddc447`）；
+**不**关闭 formal TST。完整 ProgramV1→Semantic 表面与 Reference 全 op 仍未闭合。formal D1–D4 仍为 0/27；
 C-3 / Anvil lossless 仍 blocked/fail closed（FC）；ADR-0036 仍 proposed。
 **不是** D4–D7 formal 完成。
 
@@ -169,7 +169,7 @@ C-3 / Anvil lossless 仍 blocked/fail closed（FC）；ADR-0036 仍 proposed。
 - ProgramV1 expression 与 pattern integer literal 共用 sole decoder：unsigned decimal 或
   lowercase-prefix `0x` hexadecimal（hex digits 可大小写），拒绝 `0X`/binary/octal/underscore，
   范围 `0..2^256-1`；等值 spelling → 相同 AST/canonical bytes/sourceHash（D1-04 工程切片）。
-- StateCell/Accumulator 等真实 source 可经 CLI 产出九个 materializer 的工程制品；EVM 使用 digest-pinned
+- StateCell/Accumulator 等真实 source 可经 CLI 产出十二个 materializer 的工程制品；EVM 使用 digest-pinned
   `solc 0.8.34` 生成 bytecode，并有 EvmSolc 与 G4 Anvil 工程差分（**非** formal Reference↔Anvil）。
   Solana 有 SBPF→ELF + Mollusk 运行时差分工程链路；NEAR 有 locked `wat2wasm` 结构编译、
   host-optional runtime load 与 locked
@@ -180,7 +180,7 @@ C-3 / Anvil lossless 仍 blocked/fail closed（FC）；ADR-0036 仍 proposed。
   host-optional exact 0.32 typecheck/run 非 Tool Lock/formal。
   CosmWasm/TON 已 capability Plan/IR/materialize/finalize
   （CW：sync 拒、async SubMsg 子集；TON：resolver admit async、Plan schedule FC；均非 formal/wasmd/主网）。
-  九个 materializer 的 Plan body 均由 retained `SemanticProgramV1` 经 capability 构造；工程 output 已接 S7a–S7c + D3-E7
+  十二个 materializer 的 Plan body 均由 retained `SemanticProgramV1` 经 capability 构造；工程 output 已接 S7a–S7c + D3-E7
   descriptors/evidence digest/post-publish inspect closure，仍非 formal D1–D4 / formal OutputSetV1 完成。
 - Legacy Source source-reading 与 v1 export decoder 已删除；command/export 仅 ProgramV1 v2。
   `selectProgramV1ProductWithTheoremInventory` 为产品 CLI 使用的 Loader 入口；

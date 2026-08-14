@@ -3,7 +3,7 @@ id: RESEARCH-012
 title: Target Plan/IR/Emitter 覆盖缺口矩阵（工程轨道权威清单）
 status: draft
 owner: engineering
-updated: 2026-08-12
+updated: 2026-08-14
 normative: false
 ---
 
@@ -26,15 +26,15 @@ normative: false
 数据来源：产品测试（EvmSmoke/Mollusk/NoirRelationModel 等）+ LowerSemanticV1 代码扫描。
 **初版可能不精确**——每个 wave worker 须核对并修正自己 target 行的真实边界。
 
-> **Registry 计数（2026-08-03，Quint Q0 后）**：工程 registry **12 = 9
-> implemented + 3 design-only**。九个 materializer 均有 `materializeResult` dispatch：
-> EVM / Solana / NEAR / Noir / Aleo / Psy / **Quint** / **CosmWasm** / **TON**。下列
-> §1 主表保留原六 target 细格；**CosmWasm/TON 的真实 MVP 范围见 §1b，Quint 见 §1c**。
+> **Registry 计数（当前工程事实，2026-08-14）**：工程 registry **12 = 12
+> implemented + 0 design-only**。十二个 materializer 均有 `materializeResult` dispatch：
+> EVM / Solana / NEAR / Noir / Aleo / Psy / Quint / CosmWasm / TON / Soroban / OpenVM / ICP。
+> 下列 §1 主表保留原六 target 细格；**CosmWasm/TON 的真实 MVP 范围见 §1b，Quint 见 §1c**。
 > compile / mock / sandbox / host-only Quint typecheck **不是** formal 或 hermetic。
 >
 > **双轨**：accepted PRD Phase 1 范围仍为 **EVM/Solana/NEAR/Noir**；
-> Aleo/Psy/Quint/CosmWasm/TON 为 engineering leaves，**不**自动扩 accepted scope
->（ADR-0036 固定 engineering 扩面不静默改写 accepted scope，formal lighthouse=EVM-first）。
+> 其余八个为 engineering leaves，**不**自动扩 accepted scope
+>（ADR-0036 固定 engineering 12+0 不静默改写 accepted scope，formal lighthouse=EVM-first）。
 
 ## 1. 语义 op 覆盖矩阵（wire Op × target；原六 materializer 细格）
 

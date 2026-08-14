@@ -3,7 +3,7 @@ id: ENG-BACKLOG
 title: 工程业务 Backlog（文档↔实现差异 + 构建加速）
 status: draft
 owner: engineering
-updated: 2026-08-13
+updated: 2026-08-14
 normative: false
 ---
 
@@ -89,9 +89,9 @@ formal / release ──────────────────► 04/05
 **索引状态**：`research/README.md` 已登记 11/12/13 与后续 toolchain research；DOC-2 已关闭。
 
 **产品现状一句话**：CLI 进程内 `Loader → Normalize → CompiledSemanticV1 → capability Plan/IR →
-Materialized/Finalized + disk closure` 已通；sole Normalize 与**九个 materializer**（EVM/Solana/NEAR/Noir/
-Aleo/Psy/Quint/CosmWasm/TON）已覆盖非均匀的多宽算术、控制流、fn、let/for、shift/bitwise、call/schedule、
-聚合与 Field 子集；EVM/Solana/NEAR/CosmWasm/TON 有工程 runtime 门，Noir 有 compile-only 门；Aleo 为 sole `aleo-instructions-v1` zero-tool materializer，Psy 为 sole `psy-dpn-v1` zero-tool materializer；Quint 为 zero-tool `.qnt` executable-model target；Soroban 为 source-only S0（ADR-0044）；OpenVM 默认 `openvm-guest-source-v1` 为 zero-tool guest-source（ADR-0045 O0），opt-in `openvm-guest-elf-v1` 锁定 `cargo-openvm` 2.0.1 build/transpile ELF/VmExe（ADR-0046 O1）。registry = **12 targets / 11 implemented + 1 design-only / 14 resolver rows**（EVM×2、Noir×2、OpenVM×2、其余各一）；CW：sync 拒、
+Materialized/Finalized + disk closure` 已通；sole Normalize 与**十二个 materializer**（EVM/Solana/NEAR/Noir/
+Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM/ICP）已覆盖非均匀的多宽算术、控制流、fn、let/for、shift/bitwise、call/schedule、
+聚合与 Field 子集；EVM/Solana/NEAR/CosmWasm/TON 有工程 runtime 门，ICP 有 host-optional PocketIC，Noir 有 compile-only 门；Aleo 为 sole `aleo-instructions-v1` zero-tool materializer，Psy 为 sole `psy-dpn-v1` zero-tool materializer；Quint 为 zero-tool `.qnt` executable-model target；Soroban 为 source-only S0（ADR-0044）；OpenVM 默认 `openvm-guest-source-v1` 为 zero-tool guest-source（ADR-0045 O0），opt-in `openvm-guest-elf-v1` 锁定 `cargo-openvm` 2.0.1 build/transpile ELF/VmExe（ADR-0046 O1）。registry = **12 targets / 12 implemented + 0 design-only / 15 resolver rows**（EVM×2、Noir×2、OpenVM×2、其余各一）；CW：sync 拒、
 async SubMsg 子集（msg 已升 Binary/base64）；TON：resolver admit async、schedule 已降 `createMessage`
 async internal out-message（NoBounce/value=0/dest hash stub；sync 仍 FC）；**完整语言面、平台语义与 formal 资格仍未闭合**，
 D1–D4 = 0/27 done。
@@ -110,8 +110,8 @@ D1–D4 = 0/27 done。
 | FR-004 SemanticProgram + requirements | structure-gated + S2 freeze 工程子集 | N-*、D3-E* |
 | FR-005 target 不改语义 | 架构遵守；跨 target reference trace 矩阵未做满 | R-1、C-* |
 | FR-006 exact capability | engineering resolver 有；formal SupportClaim 未 | D3-E2、B-3 |
-| FR-007 typed Plan/IR | 九个 materializer 有 target-owned 类型（含 Quint/CosmWasm/TON）；formal schema/hash 不齐 | D4-E*、T9d、B-CALL-SEM |
-| FR-008 accepted 四-target + runtime/proof | accepted PRD 仍四目标；工程 registry 已 11 implemented + 1 design-only（含 Quint/CosmWasm/TON/Soroban/OpenVM materializer；ADR-0036/0044/0045/0046 固定非静默扩面并选择 EVM-first formal lighthouse）；EVM/Solana runtime 较强、NEAR/CosmWasm/TON 有工程 runtime 门、Quint/Soroban/OpenVM source-only、Noir 无 prove | C-1/C-4/C-6、ADR-0036、ADR-0044、ADR-0045、ADR-0046、PRD-DoD、B-CALL-SEM |
+| FR-007 typed Plan/IR | 十二个 materializer 有 target-owned 类型（含 Quint/CosmWasm/TON/Soroban/OpenVM/ICP）；formal schema/hash 不齐 | D4-E*、T9d、B-CALL-SEM |
+| FR-008 accepted 四-target + runtime/proof | accepted PRD 仍四目标；工程 registry 已 12 implemented + 0 design-only（含 Quint/CosmWasm/TON/Soroban/OpenVM/ICP materializer；ADR-0036/0044/0045/0046/0047 固定非静默扩面并选择 EVM-first formal lighthouse）；EVM/Solana runtime 较强、NEAR/CosmWasm/TON 有工程 runtime 门、ICP host-optional PocketIC、Quint/Soroban/OpenVM source-only、Noir 无 prove | C-1/C-4/C-6、ADR-0036、ADR-0044、ADR-0045、ADR-0046、ADR-0047、PRD-DoD、B-CALL-SEM |
 | FR-009 manifest 全 hash 链 | engineering output 部分；plan/IR/tool 不齐 | D3-E3/E4、T9d |
 | FR-010 multi-program `--program` | Loader 有 | 回归保持 |
 | FR-011 CLI JSON | 主命令有；flag 面未满 | D3-E5 |
@@ -248,9 +248,9 @@ D1–D4 = 0/27 done。
 | **B-COMMIT-ZK** | Commit × Noir/Psy | target leaf | EVM/Solana/NEAR/Aleo 身份透传已开；Noir/Psy FC。Psy 在开放 identity 前必须先冻结 proof/public-input/commitment binding；仅把 operand 作为普通 Felt 透传会过度声明密码学承诺能力 | pending |
 | **B-CALL-SEM** | call/schedule capability 与真实平台语义对齐 | 产品决策 + target leaf | **#111 Solana legacy honesty 已接线**：两 legacy profile 删除 sync/async support claim，Plan/IR/SBPF 纵深 fail closed（过渡空 AccountMeta CPI / log stub 不可达）。EVM 仍保留真实 `CALL`/returndata（BL-28）与 same-tx fire-and-forget schedule；NEAR/TON/CW/Noir/Psy/Aleo/Quint 纪律保持 main 现状。真实 Solana CPI 见 epic #110 versioned profile。不得把 resolver 支持键写成跨平台 call 完成 | **open**（Solana legacy 已诚实；产品 CPI 与他链缺口仍 open） |
 | **CW-ABI-FREEZE** | CosmWasm A1 runtime/ABI design-exit | 产品/target semantics 决策 | 已由 **CW-5** 闭合：versioned std/vm/check 3.0.9 + wasmvm 3.0.7 + wasmd v0.70.3 dispatcher 语义冻结；structural-WAT 工程先导批准；`wasm-validated-alpha` 限定 mock 子集。历史 A0/no-dispatch 叙述作废 | **done**（见 CW-5；非 formal） |
-| **ADR-0036** | accepted 范围与工程控制面 reconciliation | 文档/产品决策 | accepted PRD 仍以 EVM/Solana/NEAR/Noir 为 Phase 1；engineering 现 11 implemented + 1 design-only（Soroban ADR-0044 + OpenVM ADR-0045/0046）不静默扩 accepted scope；B11/B12 contained frontend 保持退役；formal lighthouse=EVM-first | **done（2026-08-10 owner direction；ADR-0036 proposed，accepted PRD 未静默改写；2026-08-14 计数随 OpenVM O0/O1 更新）** |
+| **ADR-0036** | accepted 范围与工程控制面 reconciliation | 文档/产品决策 | accepted PRD 仍以 EVM/Solana/NEAR/Noir 为 Phase 1；engineering 现 12 implemented + 0 design-only（Soroban ADR-0044 + OpenVM ADR-0045/0046 + ICP ADR-0047）不静默扩 accepted scope；B11/B12 contained frontend 保持退役；formal lighthouse=EVM-first | **done（2026-08-10 owner direction；ADR-0036 proposed，accepted PRD 未静默改写；2026-08-14 计数随 ICP implemented 更新为 12+0）** |
 | **ADR-0045** | OpenVM guest-source O0 engineering leaf | 文档/工程 | sole default `openvm-guest-source-v1`；受控 Rust guest + catalog；zero-tool finalize；4-key capability；无 prove | **done（2026-08-14；proposed）** |
-| **ADR-0046** | OpenVM guest-elf O1 dual-profile engineering leaf | 文档/工程 | 共享 Plan/IR 的 opt-in `openvm-guest-elf-v1`：锁定 `cargo-openvm` 2.0.1 build/transpile guest → RV32IM ELF + `.vmexe` extras；默认 `openvm-guest-source-v1` 仍 zero-tool；resolver 14 rows（Soroban 12 + OpenVM×2）；无 keygen/execute/prove/verify | **done（2026-08-14；proposed）** |
+| **ADR-0046** | OpenVM guest-elf O1 dual-profile engineering leaf | 文档/工程 | 共享 Plan/IR 的 opt-in `openvm-guest-elf-v1`：锁定 `cargo-openvm` 2.0.1 build/transpile guest → RV32IM ELF + `.vmexe` extras；默认 `openvm-guest-source-v1` 仍 zero-tool；resolver 现 15 rows（EVM×2、Noir×2、OpenVM×2、其余各一，含 ICP）；无 keygen/execute/prove/verify | **done（2026-08-14；proposed）** |
 | **DOC-JUST-CONTROL** | 文档引用不存在的 governance/release recipes | 文档/发布决策 | `AGENTS`/`RECOVERY`/README/CONTRIBUTING/qualification inventory 曾把 `just governance-check` / `just release-check` 写成当前命令，但本分支及已知 `origin/main` 的 `justfile` 均无 recipe。现已纠正当前文档为“不可执行”；若要恢复，必须显式设计 recipe、测试与资格边界，禁止临时拼装命令冒充 gate | pending（**产品/发布决策**） |
 | **B-FIELD-CATALOG** | Field 真 catalog 接通 Aleo(BLS12-377)/Psy(Goldilocks) | 共享核+leaf | DOC-CODE-1 已决策：**真做 T14**；Wire FieldSpec catalog sole bn254 → 三 spec（bn254/BLS12-377/Goldilocks，exact id+modulusBE membership，无任意 modulus）+ TypeKey allowlist + Source/TypeCheck Field id + Normalize catalog 镜像 + Aleo bls12_377_fr→Leo field + Psy goldilocks→Felt + Reference fieldModulus 参数化 | **done**（2026-08-02；T14 lane 0f4d9e294 + field-id 测试修复；typed/targets/source shard 绿） |
 | **B-SOL-MUL** | Solana UInt128/256 真多字 mul/div/mod | target leaf | SBPF `narrowCheckedMul` 128/256 使用 schoolbook 多字乘（32-bit digit split、lane-ordered carry、高肢 overflow trap）；follow-up `910835aa4` 将 div/mod 从 low64 gate 切为 exact restoring binary long division（2/4×u64 limbs，divisor-zero trap、lhs/rhs alias-safe scratch、quotient/remainder exact）。WideMul Mollusk 覆盖 mul 成功/溢出；WideDiv/WideDiv256 以独立 Rust oracle 覆盖 8 个成功/零除全账户回滚；WideDivDispatch 以近距 branch stub + BPF-to-BPF call 组合四宽 handler，并由 locked `sbpf` + Mollusk 执行最远 handler。 | **done（production arithmetic + host-optional runtime leaf）**（mul `9bb6fe1ad` + runtime `de72b46fa`；div/mod `910835aa4` + wave3 runtime；非 formal/hermetic） |
@@ -315,7 +315,7 @@ D1–D4 = 0/27 done。
 | **B-1e** | EVM Map/Bytes/Option state：同上 | Evm/** | **done**（2026-08-02：Array EvmIndex + Bytes D4-E2；**Map UInt64 dense pilot** cap-8 + Token locked-solc finalization；creation bytecode 超 EIP-3860，chain deployment 未闭合；Option-from-Map 当时仅中间值，后续 BL-31 已开 `Option UInt64` state；EVM/Solana/NEAR/Noir/Aleo Map 横向已开并闭合 aggregate snapshot hazard） |
 | **B-1f** | Noir Map multi-leaf public inputs | Noir/** | **done**（2026-08-02：Map UInt64 cap-8 occ/key/val public-input leaves + IndexGet→Option + IndexSet upsert + Token relations；Array 已开放，Bytes 随 B-1b2 开放 fixed state + literal IndexGet/Set；Option/String state 与 Bytes construct/param/动态索引仍 FC） |
 | **CW-A1** | CosmWasm target-owned Plan/IR/materializer after registry A0 | `Targets/CosmWasm*` + Registry/umbrella/tests/SBOM | **done**（见 §10 **CW-1**：`Registry.materializeResult` 已有 `.cosmwasm` dispatch；Counter 纵切 Plan/IR/WAT+Wasm；sync 拒、async SubMsg 子集见 CW-4；ABI freeze 见 CW-5；非 formal） |
-| **SOR-0** | Soroban source-only S0（ADR-0044） | `Targets/Soroban*` + registry/resolver/CLI | **done**（2026-08-13：`soroban-source-u64-v1` → `.rs`；zero-tool；4-key；auth/TTL/Wasm/call FC；engineering 10+2；**非** accepted Phase 1 / formal） |
+| **SOR-0** | Soroban source-only S0（ADR-0044） | `Targets/Soroban*` + registry/resolver/CLI | **done**（2026-08-13：`soroban-source-u64-v1` → `.rs`；zero-tool；4-key；auth/TTL/Wasm/call FC；engineering 12+0；**非** accepted Phase 1 / formal） |
 | **SOR-1** | Soroban locked Wasm Finalize + auth/TTL Plan fields | Tool Lock + Plan schema | **open**（不得在 S0 声称） |
 | **B-3** | Principal/address-bearing 与 EVM/Solana call/schedule | Envelope + EVM/Solana | **done**（2026-08-02：PrincipalAddr 固定 wire Principal ≠ EVM 20B / Solana 32B pubkey，不做 approximate 映射；AddressBearing 仍以 static QualifiedName callee 独立开放，非 dynamic address）。**ADR-0025 realization（2026-08-06）**：EVM `context.caller` 已按唯一 valueBytes `u32le(20)\|\|CALLER` 接入 Plan/IR/Yul 与 Anvil；shared TypeShape/codec 不变，T10 storage 仍为 wire-identity leaf；**不**把 Principal ValueId 变为 CALL 目标，PF Ownable primitive pass 也**不**提升 OZ F01 family/ABI credit | **#111：Solana legacy call 观测桩已 supersede 为 fail closed** |
 
@@ -456,7 +456,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 **Goal/workflow 入口（2026-08-12）**：可执行下一波 = [`.grok/next-wave-queue.md`](../.grok/next-wave-queue.md)，drain = `/goal @.grok/goals/prompt-next-wave.md`，单切片 = `/workflow next-wave-runner`。旧 `prompt-master-queue` 不再从头扫。Formal / 产品决策项仍不进 drain。
 
 ```text
-1. EVM formal lighthouse（ADR-0036 Next task，串行主轴）：
+1. EVM formal lighthouse（ADR-0036 Next task，串行主轴；LH-1…28 engineering-done，现进入 formal closeout）：
    - shared D2/D3 formal 前置：TASK-D2-07 / TST-SEM-002/003（Reference step / corpus）
      · **LH-1…LH-7 packaging done**（engineering only；**不**关闭 formal TASK/TST）：
        · LH-1：OutcomeWireV1 / `pf.reference-outcome.v1`
@@ -609,6 +609,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **TGT-ZKVM-DOSSIERS**：`13-cairo`/`14-risc0`/`15-sp1` research dossier 落地；不进 registry；避开 soroban/icp/openvm 实现车道 |
 | 2026-08-13 | **Move wontfix + EXT-CRYPTO-DESIGN**：产品决定不做 Aptos/Sui；RPT-027 钉 crypto 扩展（S5 现状/Merkle/签名/避让三车道） |
 | 2026-08-13 | **CRYPTO-D2 EVM ecrecover leaf**：`pf.crypto.ecdsaRecoverSecp256k1` 4×UInt256→UInt256 绑定 precompile `0x01`（Plan tag 23 / STATICCALL）；`Examples/EcdsaRecoverCheck` + Anvil companion；失败返回零地址字；其它 target 仍 FC。**不**关闭 EXT-CRYPTO / formal / Anvil lossless |
+| 2026-08-14 | **控制面计数对齐代码**：registry **12 = 12 implemented + 0 design-only**、resolver **15** rows、十二 materializer（含 ICP ADR-0047）；TGT-SOROBAN-MVP / TGT-OPENVM-MVP 标 done；LH-1…28 engineering-done，Next = EVM formal `TASK-D2-07` / `TST-SEM-002/003`。**不**关闭 formal TASK/TST；C-3 / Anvil lossless 仍 blocked/FC |
 
 ---
 
@@ -648,14 +649,14 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 |---|---|---|---|
 | **TGT-DOC-025** | 剩余 target 版图研究 + README/targets/taxonomy/backlog 挂钩 | T0 | **done**（2026-08-13：RPT-025） |
 | **TGT-BTC-SCRIPT-PIN** | 比特币 Script/Tapscript/Miniscript/Liquid/BitVM：UTXO 谓词 ≠ 账户 Semantic；默认 `wontfix-until` 独立 predicate ADR | T6 gate | **done**（2026-08-13：钉在 RPT-025 §2 档 D；无 TargetId） |
-| **TGT-SOROBAN-MVP** | `soroban` design-only → target-owned Plan/IR/materializer MVP（XDR/auth/TTL 诚实 FC 子集） | T1 | **pending** |
+| **TGT-SOROBAN-MVP** | `soroban` design-only → target-owned Plan/IR/materializer MVP（XDR/auth/TTL 诚实 FC 子集） | T1 | **done**（2026-08-13：ADR-0044 S0 source-only；auth/TTL/Wasm 仍 FC；**非** formal） |
 | **TGT-ICP-MVP** / **ICP-1/2/3** | `icp` implemented（ADR-0047）：sole `icp-wasm-candid-u64-v1`；Plan/IR→`.wat`+`.did`；wat2wasm finalize；PocketIC host-optional runtime；sync+event FC；async advertise-only | T2 | **done**（engineering；非 formal/mainnet） |
 | **ICP-1** | ICP capability-gated 控制面（ADR-0047） | 文档 + registry | sole profile/descriptor/resolver/list/inspect | **done** |
 | **ICP-2** | ICP target-owned Plan/IR → Wasm + `.did` | target leaf | Counter/StateCell UInt64 窄子集 | **done** |
 | **ICP-3** | ICP PocketIC 工程门 | target runtime | `just icp-runtime` / `local --target icp`；缺 POCKET_IC_BIN skip-clean | **done**（host-optional；非 formal） |
-| **TGT-OPENVM-MVP** | `openvm` design-only → guest/VmExe MVP（prove 可 FC；无假链上合约） | T3 | **pending** |
+| **TGT-OPENVM-MVP** | `openvm` design-only → guest/VmExe MVP（prove 可 FC；无假链上合约） | T3 | **done**（2026-08-14：ADR-0045 O0 guest-source + ADR-0046 O1 opt-in ELF/VmExe；无 keygen/execute/prove/verify；**非** formal） |
 | **TGT-MOVE-DOSSIER** | 补齐 `aptos`/`sui` dossier + Move family | T4 | **wontfix**（2026-08-13 产品决定：不做 Move 轴） |
-| **TGT-ZKVM-SECOND** | OpenVM 稳定后于 cairo/risc0/sp1 **择一**第二 zkVM leaf | T5 | **pending**（blocked-on TGT-OPENVM-MVP；Plan 设计见 RPT-026） |
+| **TGT-ZKVM-SECOND** | OpenVM 稳定后于 cairo/risc0/sp1 **择一**第二 zkVM leaf | T5 | **pending**（OpenVM O0/O1 engineering MVP 已闭；prove 仍 FC；Plan 设计见 RPT-026；不抢 EVM formal 主轴） |
 | **TGT-ZKVM-TRIO-DESIGN** | Cairo/RISC Zero/SP1 三机 Plan/Q0 设计（RPT-026） | T5 prep | **done**（2026-08-13） |
 | **TGT-ZKVM-DOSSIERS** | 补齐 cairo/risc0/sp1 dossier（续排编号，不占 `12-quint`） | T5 prep | **done**（2026-08-13：`13-cairo`/`14-risc0`/`15-sp1`） |
 | **TGT-CAIRO-MVP** | `cairo` materializer MVP（默认第三 zkVM leaf） | T5+ | **pending**（blocked-on TGT-ZKVM-SECOND 或显式改序） |
