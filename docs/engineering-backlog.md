@@ -634,6 +634,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-14 | **F-COMMIT-COMMENT**：`CfgTypingV1` / `InvariantClosureV1` 注释改指向已存在的 `validateCommitRequirementsV1`（`testCfgCommitCatalogRequirements`），不再写 Commit disclosure deferred。**不**关闭 formal |
 | 2026-08-14 | **ICP-1A**：`IcpPlanV1` 钉 locked wat2wasm Finalize（`StateCell.wasm`、`deployable=true`、evidence 含 wat2wasm/PocketIC 未调用、Wasm magic）与未知 profile `PF-PROFILE-UNKNOWN`。套件头不再写 ICP-2 zero-tool。**不**关闭 formal / PocketIC |
 | 2026-08-14 | **F-CALL-SERIAL-COMMENT**：`WireV1` invariant-closure ExternalCall/Schedule 注释改指向 `testCfgExternalCallArgSerializability`，不再写 argument serializability deferred。**不**关闭 formal |
+| 2026-08-14 | **DOC-MATRIX-CTRL**：`research/12` D-1 改为 12 implemented + 0 design-only 并补 §1d Soroban/OpenVM/ICP；主表/CW/TON ContextRead 对齐 S3/S3b/S4；ADR-0031 S2 改为 sole product Clock.slot（不再写 CPI residual FC）。**不**关闭 formal |
 
 ---
 

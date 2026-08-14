@@ -66,7 +66,7 @@ normative: false
 | pureCall（fn/localCall） | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED（VM profile 可展开 UInt128 args；UInt128 pureFn result FC） | LOWERED |
 | emit / revert | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | FAIL-CLOSED emit; bare revert LOWERED |
 | assertOp | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED | LOWERED |
-| contextRead | **LOWERED**(`unixTimeSeconds`→`timestamp()`；`blockHeight`→`number()` S2；`caller`→`u32le(20)\|\|CALLER` 9-leaf Principal，ADR-0031 S1；未知键 FC) | **PARTIAL**（exact CPI：`caller`→`pf_caller`；ordinary-elf：`blockHeight`→`sol_get_clock_sysvar`/`Clock.slot` tag 51，**非**逻辑块号；legacy caller/unixTime/CPI-blockHeight/未知键 FC） | **PARTIAL**（`unixTimeSeconds`→`block_timestamp` ns÷10^9；`blockHeight`→view-safe `block_index()`；`caller`→`predecessor_account_id` 仅 init/entry、view caller FC；其他键 FC） | FAIL-CLOSED（电路域无锚定时钟/caller） | FAIL-CLOSED | FAIL-CLOSED |
+| contextRead | **LOWERED**（`unixTimeSeconds`→`timestamp()`；`blockHeight`→`number()`；`caller`→`u32le(20)\|\|CALLER`；`chainId`→`chainid()` UInt64 guard；`self`→`address()` ADR-0025；`attachedValue`→`callvalue()` / payable entry，view 读得 0；未知键 FC） | **PARTIAL**（sole `solana-sbpf-cpi-elf-v1`：`caller`→`pf_caller` signer；`blockHeight`→`sol_get_clock_sysvar`/`Clock.slot`，物理 slot 非逻辑块号；`unixTimeSeconds`/`self`/`attachedValue`/`chainId` FC。legacy plan/elf 已删） | **PARTIAL**（`unixTimeSeconds`→`block_timestamp` ns÷10^9；`blockHeight`→view-safe `block_index()`；`caller`→`predecessor_account_id` 仅 init/entry、view FC；`self`→`current_account_id` view-safe；`attachedValue`→`attached_deposit` init/entry、view FC；`chainId` FC） | FAIL-CLOSED（电路域无锚定时钟/caller；named no-host） | FAIL-CLOSED（named no-host） | FAIL-CLOSED（named no-host） |
 | commit | LOWERED(身份透传) | LOWERED(身份透传) | LOWERED(身份透传) | FAIL-CLOSED | FAIL-CLOSED | LOWERED(身份透传) |
 | externalCall（sync call） | LOWERED(static QN→CALL；result-bearing UInt64 读 returndata；callee address stub，语义 PARTIAL) | LOWERED(static QN→`sol_invoke_signed_c`；result-bearing UInt64 读 `sol_get_return_data`；空 AccountMeta/外层 callee account 未闭合，语义 PARTIAL) | FAIL-CLOSED | LOWERED(relation slots；语义 PARTIAL) | PARTIAL(void call→DPN `InvokeExternal`；result-bearing call FC) | FAIL-CLOSED(resolver+plan) |
 | schedule（async） | LOWERED(static QN→同步 CALL+忽略结果；语义 stub) | LOWERED(static QN→`sol_invoke_signed_c`；空 AccountMeta/外层 callee account 未闭合，语义 PARTIAL) | LOWERED(promise；fire-and-forget) | LOWERED(relation slots；语义 PARTIAL) | FAIL-CLOSED | FAIL-CLOSED(resolver+plan) |
@@ -96,7 +96,7 @@ normative: false
 | named Struct/Enum state + entry/view return | **LOWERED** | ≤8 UInt64/Int64 leaves；execute/query JSON array；aggregate param/pureFn FC |
 | Array/Map state | **LOWERED** | Array UInt64；dense Map UInt64 cap-8；atomic KV store |
 | anonymous Array/Option result | **LOWERED** | `Array UInt64 N`(1..8) / `Option UInt64` entry+view；Map/Bytes/nested/非 UInt64 FC |
-| ContextRead | **PARTIAL** | `unixTimeSeconds` OPEN（Env JSON time ns÷10^9）；`blockHeight`→Env JSON bare-u64 `height`（instantiate/execute/query）；`caller`→`MessageInfo.sender` 仅 instantiate/execute，query/view caller FC；S2 runtime fixture/未知键 FC |
+| ContextRead | **PARTIAL** | `unixTimeSeconds` OPEN（Env JSON time）；`blockHeight`→Env JSON bare-u64 `height`；`caller`→`MessageInfo.sender` 仅 instantiate/execute，query/view FC；`self`→`Env.contract.address` view-safe；`attachedValue`→`MessageInfo.funds` 单 denom `stake` execute/init，query FC；`chainId` FC（host 为 String，不静默哈希成 UInt64） |
 | Commit · nonempty invariants · Bytes state · Field/Principal/String interface | **FAIL-CLOSED** | Option UInt64 state 已 LOWERED（B-OPT-STATE）；iterator/IBC/migrate/reply entry 未开 |
 | 制品 / 验收 | WAT + locked `wat2wasm` + `cosmwasm-check` 3.0.9 + cosmwasm-vm mock 48 tests + wasmd v0.70.3 Docker rung-1 | **非** 主网 / formal / hermetic |
 
@@ -113,7 +113,7 @@ normative: false
 | named Struct/Enum state + aggregate view return | **LOWERED** | view multi-stack tuple≤8 leaves；entry aggregate FC |
 | Array/Map/Bytes state | **LOWERED** | Array UInt64；dense Map UInt64 cap-8；fixed Bytes N；c4 flatten |
 | anonymous Array/Option view result | **LOWERED** | `Array UInt64 N`(1..8) / `Option UInt64`；entry、Map/Bytes/nested/非 UInt64 FC |
-| ContextRead | **PARTIAL** | `unixTimeSeconds` OPEN（`blockchain.now()`）；`caller`/未知键 FC |
+| ContextRead | **PARTIAL** | `unixTimeSeconds` OPEN（`blockchain.now()`）；`attachedValue`/`chainId`/`self` named no-host FC；`caller` 因 Principal 可能在 type-closure 先拒 |
 | Commit · nonempty invariants/constants · Field/Principal/String interface | **FAIL-CLOSED** | Option UInt64 state 已 LOWERED（B-OPT-STATE） |
 | 制品 / 验收 | Tolk 1.4.2 → `.fif` + real BoC + `@ton/sandbox` 10/10（含 ScheduleFlow） | **非** 主网 / formal / hermetic |
 
@@ -129,6 +129,16 @@ normative: false
 | multi-block/if/match/for、Int/Field/Principal/String/aggregates/containers | **FAIL-CLOSED** | Q0 不做语义近似 |
 | event/nonzero revert payload/call/schedule/ContextRead/Commit/constants | **FAIL-CLOSED** | zero-payload declared revert 保留 ErrorId（failure code=`256+id`）；resolver 仅 rollback/state/Bool/checked-arithmetic 四键 |
 | 制品 / 验收 | `.qnt` + zero-tool finalize；host-optional exact Quint 0.32 typecheck + TS smoke | 不可部署；非 ITF/MBT/verify/Apalache/formal |
+
+## 1d. Soroban / OpenVM / ICP 工程 MVP 真实范围
+
+> 三列均已 registry-implemented。这里只钉诚实边界，不是 formal SupportClaim。
+
+| Target | Profile | 已开 | 诚实 FC / 非声称 |
+|---|---|---|---|
+| **Soroban** | sole `soroban-source-u64-v1` | public UInt64/Bool/Unit Counter/StateCell `.rs`；4-key；zero-tool Finalize `deployable=false` | auth/TTL/Wasm/stellar-cli；UInt64 ContextRead 四键 named no-host；`pf.crypto.*` / nativeVaultBalance named no-host；Principal `self`/`caller` 在 type-closure 先拒 |
+| **OpenVM** | default `openvm-guest-source-v1`；opt-in `openvm-guest-elf-v1` | 受控 guest tree（O0 zero-tool）；O1 locked `cargo-openvm` 2.0.1 → ELF+`.vmexe` extras 仍 `deployable=false` | keygen/execute/prove/verify；UInt64 ContextRead 四键 / `pf.crypto.*` / nativeVaultBalance named no-host |
+| **ICP** | sole `icp-wasm-candid-u64-v1` | Counter/StateCell `.wat`+`.did`；locked wat2wasm `{name}.wasm` `deployable=true`；host-optional PocketIC | PocketIC 不进 Finalize；sync+event FC；async advertise-only；UInt64 ContextRead 四键 / `pf.crypto.*` / nativeVaultBalance named no-host |
 
 ## 2. 验收/差分覆盖矩阵
 
@@ -195,8 +205,8 @@ normative: false
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **D-1** | registry target 表 | **已随 OpenVM O0 刷新**：engineering seed = **10** registry-implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`/`quint`/`cosmwasm`/`ton`/`openvm`）+ **2** design-only（`soroban`/`icp`）= **12**；十 materializer 均有 Plan/IR/dispatch。ADR-0036/0043 固定 accepted Phase-1 四-target 不静默扩面，formal lighthouse=EVM-first | MatrixSync + OpenVM O0 docs |
-| **D-2** | 成熟度声明 | **已闭合并随 ADR-0035 + CW/TON MVP 刷新**：EVM locked solc + G4 Anvil 工程差分；NEAR locked `wat2wasm` + near-sandbox receipt；Solana SBPF+Mollusk；Noir locked nargo compile-only；Aleo sole `aleo-instructions-v1` zero-tool direct Instructions；Psy sole `psy-dpn-v1` zero-tool direct DPN package；**CosmWasm** WAT+wat2wasm+check+mock 28 tests + wasmd rung-1（label 仍 `wasm-validated-alpha`）；**TON** Tolk/BoC+sandbox 10/10 + schedule createMessage PARTIAL（label 仍 `source-only`）；**Quint** `.qnt` + zero-tool finalize（label `source-only`；host-only typecheck/run 非 locked gate）。Aleo/Psy 旧 compiler/runtime/network lanes 已删。以上均**非** formal/hermetic/Stage-0 maturity | MatrixSync + ADR-0035 + CW/TON MVP |
+| **D-1** | registry target 表 | **已随 ICP ADR-0047 刷新**：engineering seed = **12 implemented + 0 design-only**（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`/`quint`/`cosmwasm`/`ton`/`soroban`/`openvm`/`icp`）；十二 materializer 均有 Plan/IR/dispatch；resolver 15 rows（EVM×2、Noir×2、OpenVM×2、其余各一）。ADR-0036 固定 accepted Phase-1 四-target 不静默扩面，formal lighthouse=EVM-first | MatrixSync + ADR-0044/45/46/47 |
+| **D-2** | 成熟度声明 | **已闭合并随 ADR-0035 + 后三 target 刷新**：EVM locked solc + G4 Anvil 工程差分；NEAR locked `wat2wasm` + near-sandbox receipt；Solana SBPF+Mollusk；Noir locked nargo compile-only；Aleo sole `aleo-instructions-v1` zero-tool Instructions；Psy sole `psy-dpn-v1` zero-tool DPN；**CosmWasm** WAT+wat2wasm+check+mock + wasmd rung-1；**TON** Tolk/BoC+sandbox；**Quint** `.qnt` zero-tool；**Soroban** S0 source-only `.rs` zero-tool（auth/TTL/Wasm FC）；**OpenVM** O0 guest-source zero-tool + opt-in O1 locked `cargo-openvm` ELF/VmExe（prove FC）；**ICP** locked wat2wasm `.wasm`+`.did` + host-optional PocketIC。以上均**非** formal/hermetic/Stage-0 maturity | MatrixSync + ADR-0044/45/46/47 |
 
 ## 4. Wave 队列（按优先级 + 可并行性）
 
