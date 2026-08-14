@@ -16,7 +16,7 @@ normative: true
 ## Context
 
 The accepted Phase 1 PRD names four product targets: EVM, Solana, NEAR and Noir. The
-engineering registry subsequently grew to ten implemented materializers plus two design-only
+engineering registry subsequently grew to twelve implemented materializers plus zero design-only
 targets (ICP only; Soroban promoted via ADR-0044; OpenVM promoted via ADR-0045/0046). That implementation fact was
 repeatedly routed through a scope placeholder, but no document owned that identifier. The
 placeholder therefore became a dangling authority reference rather than a decision.
@@ -36,9 +36,7 @@ closed.
 1. **Accepted product scope remains explicit.** The accepted Phase 1 PRD continues to name EVM,
    Solana, NEAR and Noir until a separately reviewed PRD revision changes it. Engineering
    implementation does not silently amend accepted scope.
-2. **Engineering scope is 11 + 1.** EVM, Solana, NEAR, Noir, Aleo, Psy, Quint, CosmWasm, TON,
-   Soroban (ADR-0044 source-only S0) and OpenVM (ADR-0045/0046 guest-source default + opt-in
-   guest-elf) are implemented materializer leaves. ICP remains design-only.
+2. **Engineering scope is 12 + 0.** EVM, Solana, NEAR, Noir, Aleo, Psy, Quint, CosmWasm, TON, Soroban (source-only S0), OpenVM (guest-source default + opt-in guest-elf), and ICP (`icp-wasm-candid-u64-v1`) are implemented materializer leaves.
    OpenVM default profile is guest-source only (ADR-0045): zero-tool finalize, no prove; opt-in
    `openvm-guest-elf-v1` (ADR-0046) may emit ELF/VmExe via locked cargo-openvm without prove.
    An implemented label means a target-owned Plan/IR/materializer exists; it is not a release,

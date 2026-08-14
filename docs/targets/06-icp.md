@@ -3,7 +3,7 @@ id: TARGET-ICP
 title: Internet Computer target dossier
 status: proposed
 owner: architecture
-updated: 2026-07-15
+updated: 2026-08-13
 normative: true
 ---
 
@@ -11,11 +11,15 @@ normative: true
 
 状态：`proposed`
 Target ID：`icp`
-Phase 1：设计，不实现
+Phase：engineering leave（ADR-0047）；**非** accepted PRD Phase 1
 
 ## 1. 身份与来源
 
 ICP canister 是带 System API、Candid 接口、heap/stable memory、cycles 和 actor message 语义的 Wasm actor。依据 [IC Interface Specification](https://docs.internetcomputer.org/references/ic-interface-spec/)、[Message Execution Properties](https://docs.internetcomputer.org/references/message-execution-properties/)、[Candid](https://docs.internetcomputer.org/guides/canister-calls/candid/) 与 [Canisters](https://docs.internetcomputer.org/concepts/canisters/)（`SRC-ICP-001..004`，verified）。
+
+Registry 六轴（已冻结）：`icpCanister` / `awaitSegmented` / `canisterHeapStable` /
+`asynchronousActor` / `noProof` / `icpSubnet`。Sole profile：`icp-wasm-candid-u64-v1`。
+ArtifactEncoding：`icpWasmCandid`。
 
 ## 2. 执行、状态、调用、失败与资源
 
@@ -31,7 +35,7 @@ Portable 候选：Cell/Map、entry/view、checked arithmetic、Principal、messa
 
 扩展：Candid service types、update/query/lifecycle mode、stable memory layout、cycles、management canister、timers、certified data、async actor calls、upgrade hooks。
 
-## 4. `IcpPlan` schema
+## 4. `IcpPlan` schema（ICP-2）
 
 ```text
 IcpPlan {
@@ -50,7 +54,11 @@ async workflow 必须标出每个 message 的 pre/post state 和 callback contin
 
 ## 6. 工具链
 
-冻结 interface spec revision、Candid compiler/parser、local replica/dfx 或 pocket-ic profile、Wasm feature set。dfx 不是编译语义来源。
+冻结 interface spec 工程引用面（[IC Interface Specification](https://docs.internetcomputer.org/references/ic-interface-spec/)）+ Candid nat64 inline codec；
+Finalize 钉 locked `wat2wasm`（与 NEAR/CosmWasm 同 Tool Lock 供给）。
+ICP-3 工程门：PocketIC **server 15.0.0** + Rust `pocket-ic = "=15.0.0"`（`runtime-tests/icp`）；
+`just icp-runtime` / `proof-forge-next local --target icp` → `scripts/pf_icp_test.sh`（缺
+`POCKET_IC_BIN` 时 skip-clean，不算 pass）。dfx 不是编译语义来源。
 
 ## 7. 部署流程
 
@@ -64,6 +72,18 @@ local replica create/install → update/query → inter-canister call → upgrad
 
 Candid/stable schema golden → Wasm/System API validation → local replica single-message behavior → two-canister async/upgrade → subnet evidence。
 
-## 10. 不支持、风险与成熟度退出
+## 10. 当前切片状态（ADR-0047）
 
-当前不实现。准入要求：冻结 message commit 语义、stable memory versioning、Candid canonical mapping 和 local replica test matrix。复杂 async workflow、timers、HTTP outcalls 和 certified variables 后续按 extension 分片。
+| Slice | 状态 | 内容 |
+|---|---|---|
+| **ICP-1** | **done / control plane** | registry implemented、descriptor、resolver（sync+event FC；async advertise）、list/inspect |
+| **ICP-2** | **done / leaf** | target-owned Plan/IR → `.wat` + `.did`；Counter/StateCell UInt64；checked +/-；store-then-read overlay rewrite |
+| **ICP-3** | **done / host-optional** | `wat2wasm` Finalize → `.wasm`（`deployable=true`）；PocketIC 15.0.0 StateCell gate；maturity 仍 `source-only`；非 formal/mainnet |
+
+Capability（honest）：`state.persistent`、`value.checked-arithmetic`、`value.bool`、
+`failure.atomic-rollback`（message-local）、`effect.asynchronous-workflow`。
+**拒**：`effect.synchronous-call`、`effect.event`（MVP）。
+
+不得复用 Near/CosmWasm Plan。复杂 async workflow、timers、HTTP outcalls、certified
+variables、upgrade 按 extension 后续分片。formal / hermetic / release / accepted PRD
+扩面不因本 dossier 改变。

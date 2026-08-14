@@ -461,10 +461,14 @@ private def testInspectDigests : IO Unit := do
   let (ec3, stdout3, stderr3) ← runCli #["inspect", "icp"]
   expect (ec3 == 0)
     s!"inspect icp must exit 0, got {ec3}\n{stderr3}"
-  expect (containsSubstr stdout3 "status=research-only")
-    s!"inspect design-only status: {stdout3}"
-  expect (!containsSubstr stdout3 "supportClaimDigest=")
-    "design-only inspect must omit support claim"
+  expect (containsSubstr stdout3 "status=implemented")
+    s!"inspect icp status: {stdout3}"
+  expect (containsSubstr stdout3 "maturity=source-only")
+    s!"inspect icp maturity: {stdout3}"
+  expect (containsSubstr stdout3 "profile=icp-wasm-candid-u64-v1")
+    s!"inspect icp profile: {stdout3}"
+  expect (containsSubstr stdout3 "supportClaimDigest=sha256:")
+    s!"inspect icp support claim: {stdout3}"
 
 private def testJsonSurface : IO Unit := do
   let (ec, stdout, stderr) ← runCli #["list-targets", "--json"]

@@ -220,6 +220,10 @@ def quintSourceU64ModelV1 : CodegenProfileId := ⟨"quint-source-u64-model-v1"�
     `.rs` source recipe. Zero-tool finalize; deployable=false; not Wasm. -/
 def sorobanSourceU64V1 : CodegenProfileId := ⟨"soroban-source-u64-v1"⟩
 def tonTolkBocV1 : CodegenProfileId := ⟨"ton-tolk-boc-v1"⟩
+/-- Sole ICP codegen profile (ADR-0047): target-owned canister Plan lowers to
+    Wasm + Candid (`.did`). Sync inter-canister and portable `emit` stay fail
+    closed; async workflow may be advertised before concrete Plan shapes land. -/
+def icpWasmCandidU64V1 : CodegenProfileId := ⟨"icp-wasm-candid-u64-v1"⟩
 /-- Default OpenVM profile (ADR-0045 O0; ADR-0046 keeps it default): target-owned
     Plan lowers to a compilable Rust guest (shared with `openvmGuestElfV1`).
     Zero-tool finalize; no guest build/transpile/keygen/execute/prove/verify. -/

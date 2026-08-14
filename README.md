@@ -10,13 +10,13 @@
 ProofForge V2 is a **Lean 4** multi-target compiler (`proof-forge-next`): authors write a
 single `program … where` program; the compiler infers semantic **requirements**, then
 `--target` selects materialization. Engineering registry is **12 = 9 implemented + 3
-design-only**; nine targets own Plan/IR/materializer leaves today (EVM, Solana, NEAR,
+design-only**; twelve targets own Plan/IR/materializer leaves today (EVM, Solana, NEAR,
 Noir, Aleo, Psy, Quint, CosmWasm, TON). Quint is a non-deployable, source-only
 executable-model target; product finalization does not run Quint or Apalache.
 
 ProofForge V2 是用 **Lean 4** 实现的多目标编译器：作者只写统一的
 `program … where` 源码；编译器从源码推导语义需求（requirements），再由
-`--target` 选择物化方式。工程 registry **12 = 9 implemented + 3 design-only**；当前
+`--target` 选择物化方式。工程 registry **12 = 12 implemented + 0 design-only**；当前
 九个 target 各有 target-owned Plan/IR/materializer（EVM / Solana / NEAR / Noir / Aleo /
 Psy / Quint / CosmWasm / TON）。Quint 是不可部署的 source-only 可执行模型 target；产品
 finalization 不运行 Quint 或 Apalache。
@@ -165,9 +165,9 @@ Resolve → Materialize。失败 **fail closed**，禁止降级或 legacy fallba
 - **Accepted PRD Phase 1 范围（四目标）**：EVM / Solana / NEAR / Noir。工程 registry
   扩大到 Aleo / Psy / Quint / CosmWasm / TON 的范围边界由 **ADR-0036** 固定，
   **不得**把后五者静默读成 accepted Phase 1 范围扩张。
-- **Engineering registry（代码事实）**：**12 = 9 implemented + 3 design-only**。九个
-  materializer：EVM、Solana、NEAR、Noir、Aleo、Psy、Quint、CosmWasm、TON；design-only：
-  Soroban、ICP、OpenVM。Quint 只产 `.qnt` 且 zero-tool finalize；CosmWasm 工程面为 WAT +
+- **Engineering registry（代码事实）**：**12 = 12 implemented + 0 design-only**。十二个
+  materializer：EVM、Solana、NEAR、Noir、Aleo、Psy、Quint、CosmWasm、TON、Soroban、OpenVM、ICP；design-only：无。
+
   locked `wat2wasm` + `cosmwasm-check` + cosmwasm-vm mock；TON 工程面为 Tolk + real BoC +
   `@ton/sandbox`。
 
@@ -248,7 +248,7 @@ portable command，不 elaboration / 执行用户文件中的任意 Lean command
 | `quint` | executable specification / model | engineering implemented (scope ADR open) | target-owned Q0 Plan/structured IR → `.qnt`；zero-tool finalize、`deployable=false`；host Quint 0.32 仅 optional observation，**非** Tool Lock / ITF / MBT / verify / formal |
 | `cosmwasm` | Wasm host | engineering implemented (scope ADR open) | Plan/IR→WAT；UInt8/16/32、named state、bounded aggregate/Array/Option return；Binary SubMsg PARTIAL；locked check + mock 28 tests + wasmd Docker rung-1；label=`wasm-validated-alpha`；**非** 主网/formal |
 | `ton` | TVM stack-account | engineering implemented (scope ADR open) | Plan/IR→Tolk + real BoC；UInt8/16/32、named/container state、bounded view returns；schedule `createMessage` PARTIAL；sandbox 10/10；label=`source-only`；**非** 主网/formal |
-| Soroban / ICP / OpenVM | — | design only | 仅档案与路线图，**无** 产品 backend（design-only 3） |
+| Soroban / OpenVM / ICP | source-only / source-only / source-only | engineering implemented | ADR-0044 / ADR-0045–0046 / ADR-0047；非 formal/mainnet |
 
 详情：[`docs/targets/README.md`](docs/targets/README.md)。
 

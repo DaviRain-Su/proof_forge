@@ -13,6 +13,7 @@ import Tests.Materialization.NearStaticAlignmentV1
 import Tests.Materialization.CosmWasmCheckAcceptance
 import Tests.Materialization.CosmWasmPlanV1
 import Tests.Materialization.TonPlanV1
+import Tests.Materialization.IcpPlanV1
 import Tests.Materialization.NoirRelationModel
 import Tests.Materialization.NoirCompileAcceptance
 import Tests.Materialization.NoirAcirV1
@@ -39,6 +40,8 @@ unsafe def main : IO Unit := do
   Tests.Materialization.CosmWasmPlanV1.run
   IO.eprintln "CP run"
   Tests.Materialization.TonPlanV1.run
+  IO.eprintln "CP run"
+  Tests.Materialization.IcpPlanV1.run
   IO.eprintln "CP run"
   Tests.Materialization.NoirCompileAcceptance.run
   IO.eprintln "CP run"

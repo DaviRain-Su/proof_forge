@@ -8,6 +8,7 @@ import ProofForgeV2.Targets.Quint.PlanSchemaV1
 import ProofForgeV2.Targets.Ton.PlanSchemaV1
 import ProofForgeV2.Targets.Aleo.PlanSchemaV1
 import ProofForgeV2.Targets.Soroban.PlanSchemaV1
+import ProofForgeV2.Targets.Icp.PlanSchemaV1
 import ProofForgeV2.Targets.OpenVM.PlanSchemaV1
 import ProofForgeV2.Targets.EngineeringBuildIdentityV1
 import ProofForgeV2.Targets.Solana
@@ -17,11 +18,13 @@ import ProofForgeV2.Targets.CosmWasm
 import ProofForgeV2.Targets.Quint
 import ProofForgeV2.Targets.Ton
 import ProofForgeV2.Targets.Soroban
+import ProofForgeV2.Targets.Icp
 import ProofForgeV2.Targets.Psy
 import ProofForgeV2.Targets.Psy.FinalizeV1
 import ProofForgeV2.Targets.Aleo
 import ProofForgeV2.Targets.Aleo.FinalizeV1
 import ProofForgeV2.Targets.Soroban.FinalizeV1
+import ProofForgeV2.Targets.Icp.FinalizeV1
 import ProofForgeV2.Targets.OpenVM
 import ProofForgeV2.Targets.OpenVM.FinalizeV1
 import ProofForgeV2.Targets.Evm.FinalizeV1
@@ -77,9 +80,9 @@ def descriptor? (target : TargetId) : CompileResult (Option TargetDescriptor) :=
         return none
 
 /-- M4/T9d/ALEO-I1: bind engineering Plan digest into identity.
-    EVM/Solana/NEAR/Noir/CosmWasm/Quint/TON/Aleo recompute target Plan schema
-    digests from capability; Psy (and design-only targets) bind
-    `engineeringAbsentPlanDigestV1`. -/
+    EVM/Solana/NEAR/Noir/CosmWasm/Quint/TON/Aleo/Soroban/ICP/OpenVM recompute
+    target Plan schema digests from capability; Psy (and any residual
+    design-only targets) bind `engineeringAbsentPlanDigestV1`. -/
 private def planDigestForCapabilityV1
     (capability : ResolvedEngineeringBuildV1) : CompileResult Digest := do
   let selection := ResolvedEngineeringBuildV1.selectionOf capability
@@ -140,6 +143,12 @@ private def planDigestForCapabilityV1
       | .ok d => pure (d : Digest)
       | .error e =>
           throw <| .invalidProgram s!"materialize: Soroban plan digest failed: {e}"
+  | .icp =>
+      let plan ← Icp.planFromCapability capability
+      match Icp.engineeringIcpPlanDigestV1 plan with
+      | .ok d => pure (d : Digest)
+      | .error e =>
+          throw <| .invalidProgram s!"materialize: ICP plan digest failed: {e}"
   | .openvm =>
       let plan ← OpenVM.planFromCapability capability
       match OpenVM.engineeringOpenVmPlanDigestV1 plan with
@@ -154,7 +163,7 @@ private def planDigestForCapabilityV1
           throw <| .invalidProgram s!"materialize: absent plan digest failed: {e}"
 
 /-- Aggregate materialization consumes only the private engineering capability.
-    Support was decided at `resolveEngineeringRequirementsV1`. All ten target
+    Support was decided at `resolveEngineeringRequirementsV1`. All twelve target
     Plan bodies construct their plans from retained `SemanticProgramV1`;
     compiler, resolver, and artifact identity consume the same non-alpha
     `CompiledSemanticV1` source/semantic digests and program name.
@@ -198,13 +207,15 @@ def materializeResult (capability : ResolvedEngineeringBuildV1) :
   | .soroban =>
       let files ← Soroban.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Soroban.descriptor files planDigest
+  | .icp =>
+      let files ← Icp.buildFromCapability capability
+      mintMaterializedArtifactsV1 capability Icp.descriptor files planDigest
   | .psy =>
       let files ← Psy.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Psy.descriptor files planDigest
   | .openvm =>
       let files ← OpenVM.buildFromCapability capability
       mintMaterializedArtifactsV1 capability OpenVM.descriptor files planDigest
-  | other => .error <| .targetNotImplemented other
 
 /-- IO wrapper over the sole pure materializer. -/
 def materialize (capability : ResolvedEngineeringBuildV1) :
@@ -258,16 +269,12 @@ def finalizeMaterializedArtifactsV1
         Aleo.FinalizeV1.finalize capability artifacts stagingDir
     | .soroban =>
         Soroban.FinalizeV1.finalize capability artifacts stagingDir
+    | .icp =>
+        Icp.FinalizeV1.finalize capability artifacts stagingDir
     | .psy =>
         Psy.FinalizeV1.finalize capability artifacts stagingDir
     | .openvm =>
         OpenVM.FinalizeV1.finalize capability artifacts stagingDir
-    | other =>
-        pure ({
-          deployable := false
-          extraFiles := #[]
-          evidenceNote := s!"{other} is research-only and has no V2 materializer"
-        } : EngineeringFinalizationDraftV1)
   match mintFinalizedArtifactsV1 capability artifacts draft with
   | .ok finalized => pure finalized
   | .error error => throw <| IO.userError error.render

@@ -1,0 +1,18 @@
+[package]
+name = "proof-forge-icp-runtime-tests"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Engineering PocketIC gate for ProofForge ICP StateCell (not mainnet/formal)"
+
+[dependencies]
+candid = "0.10"
+# Pin matches PocketIC server 15.0.0 (dfinity/pocketic release assets).
+# Host-optional: set POCKET_IC_BIN to the downloaded server binary.
+pocket-ic = "=15.0.0"
+serde = { version = "1", features = ["derive"] }
+serde_bytes = "0.11"
+
+[[bin]]
+name = "icp_oneshot"
+path = "src/bin/icp_oneshot.rs"

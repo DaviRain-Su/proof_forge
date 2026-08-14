@@ -31,6 +31,7 @@ import ProofForgeV2.Targets.Quint.PlanSchemaV1
 import ProofForgeV2.Targets.Ton.PlanSchemaV1
 import ProofForgeV2.Targets.Aleo.PlanSchemaV1
 import ProofForgeV2.Targets.Soroban.PlanSchemaV1
+import ProofForgeV2.Targets.Icp.PlanSchemaV1
 import ProofForgeV2.Targets.RegistryRootV1
 import ProofForgeV2.Targets.RequirementResolverV1
 import ProofForgeV2.Targets.SupportClaimV1
@@ -98,10 +99,10 @@ private def testClaimMintCanonicalOrder : IO Unit := do
     StaticRequirementSupportIndexV1.toArray index
   expect (claims.size == rows.size)
     s!"one claim per support row: got {claims.size} want {rows.size}"
-  -- EVM/Noir dual + sole direct profiles for the other eight implemented
-  -- targets → 14 support rows (Soroban S0 + OpenVM dual).
-  expect (claims.size == 14)
-    s!"implemented profile count is 14 (aleo/cosmwasm/evm×2/near/noir×2/openvm×2/psy/quint/solana/soroban/ton), got {claims.size}"
+  -- EVM/Noir dual + sole direct profiles for the other implemented
+  -- targets → 15 support rows (Soroban S0 + OpenVM dual + ICP).
+  expect (claims.size == 15)
+    s!"implemented profile count is 15 (aleo/cosmwasm/evm×2/icp/near/noir×2/openvm×2/psy/quint/solana/soroban/ton), got {claims.size}"
   let root ← liftExcept "root" (engineeringRegistryRootDigestV1
     (← liftResult "registry" initialTargetRegistryV1Result))
   let mut i : Nat := 0
@@ -255,13 +256,13 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
   let semanticDigest := CompiledSemanticV1.semanticDigestOf compiled
   let root ← liftExcept "root" (engineeringRegistryRootDigestV1
     (← liftResult "registry" initialTargetRegistryV1Result))
-  -- All ten materializing targets: nine real Plan schema digests (Registry
-  -- `planDigestForCapabilityV1`, including Aleo ALEO-I1 + Soroban ADR-0044) + Psy
-  -- engineering-absent plan slot.
+  -- All eleven materializing targets with Plan/absent digests pinned here:
+  -- ten real Plan schema digests (incl. Aleo/Soroban/ICP) + Psy engineering-
+  -- absent plan slot. OpenVM is covered separately in BuildSelectionV1.
   for tid in #[
       TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.cosmwasm, TargetId.quint, TargetId.ton, TargetId.aleo,
-      TargetId.soroban, TargetId.psy] do
+      TargetId.soroban, TargetId.psy, TargetId.icp] do
     let (cap, artifacts) ← materializeTarget compiled tid
     let claim := Targets.ResolvedEngineeringBuildV1.supportClaimOf cap
     expect (EngineeringSupportClaimV1.targetIdOf claim == tid)
@@ -300,8 +301,8 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
     expect (EngineeringBuildIdentityV1.identityDigestOf identity == recomputed)
       s!"{tid} identity digest recomputes"
     -- Registry planDigestForCapabilityV1: EVM/Solana/NEAR/Noir/CosmWasm/Quint/
-    -- TON/Aleo recompute target Plan schema digests; Psy binds engineering-
-    -- absent plan slot (no Plan schema digest in identity).
+    -- TON/Aleo/Soroban/ICP recompute target Plan schema digests; Psy binds
+    -- engineering-absent plan slot (no Plan schema digest in identity).
     let selection ← liftResult s!"select {tid}"
       (resolveBuildSelectionV1 tid none)
     let cap ← liftResult s!"resolve {tid}"
@@ -367,6 +368,12 @@ private unsafe def testBuildIdentityProductPath : IO Unit := do
         (Targets.Soroban.engineeringSorobanPlanDigestV1 plan)
       expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
         s!"{tid} planDigest matches engineeringSorobanPlanDigestV1"
+    else if tid == TargetId.icp then
+      let plan ← liftResult s!"plan {tid}" (Targets.Icp.planFromCapability cap)
+      let expected ← liftExcept s!"icp plan digest {tid}"
+        (Targets.Icp.engineeringIcpPlanDigestV1 plan)
+      expect (EngineeringBuildIdentityV1.planDigestOf identity == expected)
+        s!"{tid} planDigest matches engineeringIcpPlanDigestV1"
     else if tid == TargetId.psy then
       let expected ← liftExcept s!"absent plan {tid}"
         (engineeringAbsentPlanDigestV1 tid

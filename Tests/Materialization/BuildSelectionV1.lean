@@ -216,12 +216,17 @@ private def testGrammar : IO Unit := do
     "well-known Quint profile constant"
   expect (CodegenProfileId.sorobanSourceU64V1 == (← parseProfile "soroban-source-u64-v1"))
     "well-known Soroban S0 profile constant"
+  expect (CodegenProfileId.icpWasmCandidU64V1 == (← parseProfile "icp-wasm-candid-u64-v1"))
+    "well-known ICP Wasm+Candid profile constant"
   expect (TargetId.parse? "quint" == some TargetId.quint)
     "well-known Quint target constant"
   expect (TargetId.parse? "soroban" == some TargetId.soroban)
     "well-known Soroban target constant"
+  expect (TargetId.parse? "icp" == some TargetId.icp)
+    "well-known ICP target constant"
   expect (TargetId.ofKind .quint == TargetId.quint) "ofKind Quint"
   expect (TargetId.ofKind .soroban == TargetId.soroban) "ofKind Soroban"
+  expect (TargetId.ofKind .icp == TargetId.icp) "ofKind ICP"
   expect (CodegenProfileId.parse? "A--").isNone "invalid profile parse is none"
   expect (CodegenProfileId.parse? "evm-yul-solc-0.8.34-v1" ==
       some CodegenProfileId.evmYulSolc0834V1)
@@ -232,24 +237,24 @@ private def testGrammar : IO Unit := do
 private def testRegistrySeedMembership : IO Unit := do
   let registry ← liftResult initialTargetRegistryV1Result
   let regs := TargetRegistryV1.registrationsOf registry
-  expect (regs.size == 12) "initial registry must contain 11 implemented + 1 design-only"
+  expect (regs.size == 12) "initial registry must contain 12 implemented + 0 design-only"
   match createTargetRegistryV1 initialRegistrationRowsV1 with
   | .ok rebuilt =>
       expect (rebuilt.toArray.size == 12) "rebuilt seed registry size"
   | .error e => throw <| IO.userError s!"initialRegistrationRowsV1 must validate: {e.render}"
   let impl ← liftResult implementedRegistrations
   let design ← liftResult designOnlyRegistrations
-  expect (impl.size == 11) "exactly eleven implemented targets"
-  expect (design.size == 1) "exactly one design-only target"
+  expect (impl.size == 12) "exactly twelve implemented targets"
+  expect (design.size == 0) "exactly zero design-only targets"
   let expectedIds :=
     #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton"]
   let ids := regs.map (·.targetId.toString)
   expect (ids == expectedIds) s!"exact closed target id set, got {ids}"
   let expectedImpl :=
-    #["aleo", "cosmwasm", "evm", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton"]
+    #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton"]
   expect (impl.map (·.targetId.toString) == expectedImpl)
     s!"exact implemented set, got {impl.map (·.targetId.toString)}"
-  let expectedDesign := #["icp"]
+  let expectedDesign := (#[] : Array String)
   expect (design.map (·.targetId.toString) == expectedDesign)
     s!"exact design-only set, got {design.map (·.targetId.toString)}"
   for reg in impl do
@@ -330,6 +335,7 @@ private def testRegistrySeedMembership : IO Unit := do
   | none => throw <| IO.userError "missing Psy registration"
   expectDefault TargetId.quint "quint-source-u64-model-v1"
   expectDefault TargetId.soroban "soroban-source-u64-v1"
+  expectDefault TargetId.icp "icp-wasm-candid-u64-v1"
   expectErrorCode (createTargetRegistryV1 #[])
     "PF-REGISTRY-INVALID" "empty seed never succeeds"
   let sentinel : CompileResult TargetRegistryV1 :=
@@ -493,8 +499,9 @@ private def testResolve : IO ResolvedBuildSelectionV1 := do
     | some id => pure id
     | none => throw <| IO.userError "ghost-target must parse"
   expectErrorCode (resolveBuildSelectionV1 ghost none) "PF-TARGET-UNKNOWN" "unknown target"
-  expectErrorCode (resolveBuildSelectionV1 TargetId.icp none)
-    "PF-TARGET-NOT-IMPLEMENTED" "design-only target"
+  let icpDefault ← liftResult <| resolveBuildSelectionV1 TargetId.icp none
+  expect (icpDefault.codegenProfile == CodegenProfileId.icpWasmCandidU64V1)
+    "icp default profile after ADR-0047 promotion"
   let sorobanDefault ← liftResult <| resolveBuildSelectionV1 TargetId.soroban none
   expect (sorobanDefault.codegenProfile == CodegenProfileId.sorobanSourceU64V1)
     "soroban default profile after ADR-0044 promotion"
@@ -561,10 +568,10 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (msg == "duplicate --target") "success seed duplicate --target"
   | Except.ok _ => throw <| IO.userError "product preflight must reject duplicate --target"
   let defaultList ← liftResult <| ProofForgeV2.CLI.listTargetLines false
-  expect (defaultList.size == 11) "default list-targets is implemented-only"
+  expect (defaultList.size == 12) "default list-targets is implemented-only"
   expect (defaultList == #["aleo\tinstructions-only", "cosmwasm\twasm-validated-alpha",
-      "evm\truntime-validated-alpha", "near\twasm-validated-alpha", "noir\tsource-only",
-      "openvm\tsource-only", "psy\tdpn-only", "quint\tsource-only",
+      "evm\truntime-validated-alpha", "icp\tsource-only", "near\twasm-validated-alpha",
+      "noir\tsource-only", "openvm\tsource-only", "psy\tdpn-only", "quint\tsource-only",
       "solana\truntime-validated-alpha", "soroban\tsource-only", "ton\tsource-only"])
     s!"default list-targets exact lines, got {defaultList}"
   let allList ← liftResult <| ProofForgeV2.CLI.listTargetLines true
@@ -572,7 +579,7 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       "aleo\tinstructions-only",
       "cosmwasm\twasm-validated-alpha",
       "evm\truntime-validated-alpha",
-      "icp\tresearch-only",
+      "icp\tsource-only",
       "near\twasm-validated-alpha",
       "noir\tsource-only",
       "openvm\tsource-only",
@@ -707,10 +714,11 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   | .ok (.build opts) =>
       match opts.target with
       | some tid =>
-          expectErrorCode (resolveBuildSelectionV1 tid opts.profile)
-            "PF-TARGET-NOT-IMPLEMENTED" "dispatcher design-only resolve"
-      | none => throw <| IO.userError "design-only missing target"
-  | other => throw <| IO.userError s!"parse design-only: {repr other}"
+          let sel ← liftResult <| resolveBuildSelectionV1 tid opts.profile
+          expect (sel.codegenProfile == CodegenProfileId.icpWasmCandidU64V1)
+            "dispatcher icp default resolve"
+      | none => throw <| IO.userError "icp missing target"
+  | other => throw <| IO.userError s!"parse icp: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
       ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
         "--target", "evm", "--network", "local"] with
@@ -880,10 +888,15 @@ private unsafe def testMaterializeIdentity : IO Unit := do
     "openvm must emit artifacts"
   expect (MaterializedArtifactsV1.targetIdOf openvmOutput == TargetId.openvm)
     "openvm carrier target identity"
-  match resolveBuildSelectionV1 TargetId.icp none with
-  | .error (.targetNotImplemented .icp) => pure ()
-  | .error e => throw <| IO.userError s!"expected NOT-IMPLEMENTED, got {e.render}"
-  | .ok _ => throw <| IO.userError "design-only must not resolve"
+  -- ICP (ADR-0047) is now implemented: StateCell plans + emits successfully.
+  let icpSelection ← liftResult <| resolveBuildSelectionV1 TargetId.icp none
+  let icpCapability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 icpSelection compiled
+  let icpOutput ← liftResult <| Targets.materializeResult icpCapability
+  expect (!(MaterializedArtifactsV1.filesOf icpOutput).isEmpty)
+    "icp must emit artifacts"
+  expect (MaterializedArtifactsV1.targetIdOf icpOutput == TargetId.icp)
+    "icp carrier target identity"
   let selection ← liftResult <| resolveBuildSelectionV1 TargetId.solana none
   let capability ← liftResult <|
     Targets.resolveEngineeringRequirementsV1 selection compiled

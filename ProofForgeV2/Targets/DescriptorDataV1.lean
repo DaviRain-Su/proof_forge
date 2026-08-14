@@ -1,10 +1,10 @@
 /-
-  Shared engineering TargetDescriptor data for ten registry-implemented entries.
+  Shared engineering TargetDescriptor data for twelve registry-implemented entries.
 
   Registry-owned `semanticsAxesOfKindV1` is the sole six-axis seed. This module
   adds profile/artifact-encoding metadata and exposes the exact descriptor ↔
   registration join used before capability/artifact identity and inspection.
-  All ten entries have target-owned materializers. Requirement support is
+  All twelve entries have target-owned materializers. Requirement support is
   intentionally absent: the engineering resolver index remains the sole current
   authority, while formal SupportClaim is pending.
 -/
@@ -92,13 +92,20 @@ def ton : TargetDescriptor :=
 def soroban : TargetDescriptor :=
   descriptorFromRegistryAxes .soroban .sorobanSource CodegenProfileId.sorobanSourceU64V1
 
+/-- ICP canister descriptor (ADR-0047). Sole profile `icp-wasm-candid-u64-v1`.
+    Actor/await commit semantics and Candid ABI are ICP-owned; may share only
+    deterministic Wasm encoding with other Wasm hosts (ADR-0007). Sync call and
+    portable emit stay fail closed; async is advertised at the resolver only. -/
+def icp : TargetDescriptor :=
+  descriptorFromRegistryAxes .icp .icpWasmCandid CodegenProfileId.icpWasmCandidU64V1
+
 /-- OpenVM O0/O1: controlled Rust guest source template + catalog JSON.
     Default finalize zero-tool; elf profile may build via cargo-openvm (ADR-0045/0046). -/
 def openvm : TargetDescriptor :=
   descriptorFromRegistryAxes .openvm .openvmGuestSource
     CodegenProfileId.openvmGuestSourceV1
 
-/-- Engineering descriptor for an implemented kind. Design-only kinds → none. -/
+/-- Engineering descriptor for an implemented kind. -/
 def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .evm => some evm
   | .solana => some solana
@@ -110,8 +117,8 @@ def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .cosmwasm => some cosmwasm
   | .ton => some ton
   | .soroban => some soroban
+  | .icp => some icp
   | .openvm => some openvm
-  | _ => none
 
 /-- Exact registry-owned six-axis join for an implemented descriptor.
 

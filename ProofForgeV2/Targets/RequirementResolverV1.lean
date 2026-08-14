@@ -329,11 +329,11 @@ private def mkImplementedRow
     supported
   }
 
-/-- Shipped fourteen-row seed body (canonical targetId order: aleo, cosmwasm,
-    evm×2, near, noir×2, openvm×2, psy, quint, solana, ton). Aleo and Psy each
-    expose one direct target IR profile. OpenVM (both `openvm-guest-elf-v1`
-    ADR-0046 and `openvm-guest-source-v1` ADR-0045) admits exactly
-    `state.persistent`, `failure.atomic-rollback`, `value.bool`, and
+/-- Shipped fifteen-row seed body (canonical targetId order: aleo, cosmwasm,
+    evm×2, icp, near, noir×2, openvm×2, psy, quint, solana, soroban, ton). Aleo
+    and Psy each expose one direct target IR profile. OpenVM (both
+    `openvm-guest-elf-v1` ADR-0046 and `openvm-guest-source-v1` ADR-0045) admits
+    exactly `state.persistent`, `failure.atomic-rollback`, `value.bool`, and
     `value.checked-arithmetic`; it declines every `effect.*` key
     and `extension.pf-assets` — the controlled Rust guest source/build
     surface has no call/schedule/ContextRead/Commit/event surface; the elf
@@ -396,7 +396,12 @@ private def mkImplementedRow
     internal messages, so `effect.synchronous-call` is declined outright while
     `effect.asynchronous-workflow` maps to raw async out-messages (bounce and
     value/gas attachment are materializer concerns, never a hidden sync
-    fallback). Its `effect.event` maps to external out-messages. -/
+    fallback). Its `effect.event` maps to external out-messages. ICP
+    (ADR-0047) is likewise a pure-async Wasm actor: sync call and portable
+    `effect.event` are declined; `effect.asynchronous-workflow` is advertised
+    for inter-canister continuations while concrete Plan shapes may still fail
+    closed. Message-local rollback must not be read as cross-await transaction
+    atomicity. -/
 private def initialSupportRowsResult : CompileResult (Array StaticRequirementSupportRowV1) := do
   let catalogRequests ← s2CatalogRequests
   -- Capability filters reference closed S2 id spellings from RequirementIdsV1
@@ -413,6 +418,9 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
           s!"pf.assets extension requirement seed failed: {e}"
   let withoutSync := catalogRequests.filter fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
+  -- ADR-0047: ICP declines sync call and portable emit; keeps async workflow.
+  let icpRequests := withoutSync.filter fun r =>
+    r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1
   let aleoRequests := catalogRequests.filter fun r =>
     r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1 &&
       r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
@@ -491,6 +499,7 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     -- ASCII ascending: cancun-v1 < v1.
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmRequests,
     mkImplementedRow .evm CodegenProfileId.evmYulSolc0834V1 evmRequests,
+    mkImplementedRow .icp CodegenProfileId.icpWasmCandidU64V1 icpRequests,
     mkImplementedRow .near CodegenProfileId.nearWasmRawU64V1 nearRequests,
     -- Noir dual profiles share the exact S2 catalog set; ACIR dual-write is a
     -- Finalize/profile selection (NOIR-IR-6), not a new requirement id.

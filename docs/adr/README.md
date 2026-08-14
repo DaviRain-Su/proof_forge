@@ -65,3 +65,4 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0044](0044-soroban-source-u64-target.md) | Soroban source-only S0（`soroban-source-u64-v1` → `.rs`；zero-tool；4-key；非 Wasm/deploy） | proposed |
 | [ADR-0045](0045-openvm-guest-source-o0.md) | OpenVM guest-source O0 capability-gated target 集成；11th engineering materializer；zero-tool finalize、无 guest build/prove/verify | proposed |
 | [ADR-0046](0046-openvm-guest-elf-o1.md) | OpenVM O1 guest-elf dual profile：opt-in `openvm-guest-elf-v1` 经锁定 `cargo-openvm` 2.0.1 build→ELF/VmExe；默认 source 仍 zero-tool；无 prove | proposed |
+| [ADR-0047](0047-icp-target-integration.md) | ICP（canister / Wasm actor）capability-gated target 集成（第 12 个 implemented；`icp-wasm-candid-u64-v1`；sync/event FC；async advertise；ICP-1/2/3） | proposed |

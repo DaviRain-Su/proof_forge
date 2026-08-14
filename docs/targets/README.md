@@ -17,7 +17,7 @@ normative: true
 工程缺口队列：[`../engineering-backlog.md`](../engineering-backlog.md)；op×target 格子：
 [`../research/12-target-coverage-matrix.md`](../research/12-target-coverage-matrix.md)。
 **剩余 target / 比特币脚本族 / 落地波次**：[`../research/25-remaining-target-landscape.md`](../research/25-remaining-target-landscape.md)
-（非 accepted 扩面；design-only 优先 Soroban→ICP→OpenVM）。
+（非 accepted 扩面；Soroban/OpenVM/ICP engineering leaves 均已闭合，见 ADR-0044/0045/0046/0047）。
 
 ## 成熟度
 
@@ -37,7 +37,7 @@ normative: true
 | `near` | Wasm host | accepted Phase 1 implement | `specified` | retained-V1 Plan + locked `wat2wasm` 结构编译 / host-optional runtime load + locked near-sandbox 2.13.0 deploy/init/mutate/view receipt 工程门与 deterministic HostModel；**非** formal Reference↔sandbox / Stage-0 | [NEAR](03-near.md) |
 | `cosmwasm` | Wasm host | engineering implemented (scope ADR open) | `research` | retained-V1 Plan/IR → WAT + locked `wat2wasm`/`cosmwasm-check` 3.0.9；UInt8/16/32、named state、bounded aggregate/Array/Option return；**sync call FC**、async→Binary `SubMsg{reply_on:never}`（same-tx、QN stub）；cosmwasm-vm 28-test mock + wasmd v0.70.3 Docker rung-1；registry label `wasm-validated-alpha`；**非** 主网/formal；**非** accepted Phase 1 范围 | [CosmWasm](04-cosmwasm.md) |
 | `soroban` | Wasm host | engineering implemented (ADR-0044 S0) | `research` | sole `soroban-source-u64-v1`；retained-V1 Plan → Soroban Rust dialect `.rs`；zero-tool finalize；`deployable=false`；4-key capability；auth/TTL/Wasm FC；**非** accepted Phase 1 / formal | [Soroban](05-soroban.md) · [ADR-0044](../adr/0044-soroban-source-u64-target.md) |
-| `icp` | Wasm actor host | design only | `research` | design-only；无产品 backend | [ICP](06-icp.md) |
+| `icp` | Wasm actor host | engineering implemented (ADR-0047) | `phase1` | sole `icp-wasm-candid-u64-v1`；sync+event FC；async advertise；wat2wasm finalize；PocketIC host-optional | [ICP](06-icp.md) |
 | `noir` | circuit compiler | accepted Phase 1 implement | `specified` | retained-V1 Plan + relation source packages + locked nargo 1.0.0-beta.26 compile-only 门；**无** ACIR/witness/prove/verify，仍 source-only | [Noir](07-noir.md) |
 | `openvm` | zkVM | engineering implemented (scope ADR open) | `research` | default `openvm-guest-source-v1`（zero-tool）+ opt-in `openvm-guest-elf-v1`（locked `cargo-openvm` 2.0.1 build/transpile → RV32IM ELF + `.vmexe`）；shared retained-V1 Plan → controlled Rust guest + catalog；无 keygen/execute/prove/verify；**非** accepted Phase 1 | [OpenVM](08-openvm.md) · [ADR-0045](../adr/0045-openvm-guest-source-o0.md) · [ADR-0046](../adr/0046-openvm-guest-elf-o1.md) |
 | `aleo` | ZK application chain | engineering implemented (scope ADR open) | `specified` | sole `aleo-instructions-v1`；retained-V1 Plan → canonical Aleo Instructions `.aleo` + query descriptor；zero-tool finalization；无 VM/prove/deploy/network query；**非** accepted Phase 1 范围 | [Aleo](09-aleo.md) · [ADR-0035](../adr/0035-direct-native-artifact-materializers.md) |
@@ -45,9 +45,9 @@ normative: true
 | `ton` | TVM Stack-Account | engineering implemented (scope ADR open) | `research` | retained-V1 Plan/IR → Tolk + real BoC；UInt8/16/32、named state、bounded view aggregate/Array/Option return；async schedule→`createMessage`（hash dest/value=0/fixed mode，PARTIAL），sync call FC；`@ton/sandbox` 10/10；registry label `source-only`；**非** 主网/formal；**非** accepted Phase 1 范围 | [TON](11-ton.md) · [family](family-tvm-stack-account.md) |
 | `quint` | executable specification / model | engineering implemented (scope ADR open) | `research` | retained-V1 Q0 Plan/IR → `.qnt` + **zero-tool** finalize；profile `quint-source-u64-model-v1`；resolver 仅 4-key；完整 UInt64 域；失败=显式 outcome+business-state stutter；zero-param Bool invariant→`val`；本机 Quint 0.32 typecheck/run 仅 host observation，非 locked gate；ITF/MBT/verify 未声称；不可部署、非 accepted Phase 1/formal D3/D4 | [Quint](12-quint.md) · [ADR-0026](../adr/0026-quint-target-integration.md) |
 
-> **Registry 计数（当前工程事实，2026-08-13）**：**12 = 10 implemented + 2
-> design-only**。十个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` /
-> `psy` / `quint` / `cosmwasm` / `ton` / `soroban` / `openvm`。一个 design-only：`icp`。
+> **Registry 计数（当前工程事实，2026-08-14）**：**12 = 12 implemented + 0
+> design-only**。十二个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` /
+> `psy` / `quint` / `cosmwasm` / `ton` / `soroban` / `openvm` / `icp`。
 > 其中 **accepted PRD Phase 1** 仍仅前四；其余 engineering leaves（含 Soroban S0 与
 > OpenVM O0/O1）由 ADR-0036/0044/0045/0046 固定为非 accepted 扩面，formal lighthouse=EVM-first。
 > Registry maturity 标签（如 CosmWasm `wasm-validated-alpha`、TON/Quint/Soroban/OpenVM

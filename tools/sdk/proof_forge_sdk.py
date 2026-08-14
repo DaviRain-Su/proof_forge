@@ -60,9 +60,10 @@ IMPLEMENTED_TARGETS = (
     "cosmwasm",
     "ton",
     "soroban",
+    "icp",
     "openvm",
 )
-DESIGN_ONLY_TARGETS = ("icp",)
+DESIGN_ONLY_TARGETS: tuple[str, ...] = ()
 
 PathLike = Union[str, Path]
 
@@ -681,9 +682,9 @@ class ProofForgeClient:
         """Product ``local`` wrapper (host-heavy package scripts).
 
         Supported runtime targets (product CLI): ``evm``, ``solana``, ``near``,
-        ``cosmwasm``, ``ton`` (near → near-sandbox; cosmwasm → cosmwasm-vm mock;
-        ton → @ton/sandbox; each chain keeps its sync/async honesty — see
-        ``docs/product/near-sync-async-api.md``).
+        ``cosmwasm``, ``ton``, ``icp`` (near → near-sandbox; cosmwasm → cosmwasm-vm mock;
+        ton → @ton/sandbox; icp → PocketIC host-optional; each chain keeps its
+        sync/async honesty — see ``docs/product/near-sync-async-api.md``).
 
         For Aleo sandbox, pass ``source`` + ``module`` (generic; no default
         program). Optional ``runs`` become ``--run`` lines; ``skip_run`` skips

@@ -616,25 +616,34 @@
     },
     {
       "id": "icp",
-      "implemented": false,
-      "maturityLabel": "design-only",
-      "role": "design-only",
+      "implemented": true,
+      "maturityLabel": "source-only",
+      "role": "backend-contracts",
       "pfSurface": {
-        "build": false,
-        "localModes": [],
+        "build": true,
+        "localModes": [
+          "runtime"
+        ],
         "network": "none",
+        "test": "pf test / local --target icp → scripts/pf_icp_test.sh (PocketIC 15.0.0 host-optional; skip-clean if POCKET_IC_BIN missing)",
         "mcpTools": [
           "pf_list_targets",
+          "pf_doctor",
+          "pf_install",
           "pf_chain_catalog"
         ]
       },
       "frontendClients": [],
       "localDev": {
         "offlineInterpret": null,
-        "chainLike": null
+        "chainLike": "PocketIC StateCell engineering gate (not mainnet)"
       },
       "honesty": [
-        "unsupported for install/build"
+        "ADR-0047 ICP-3: wat2wasm Finalize → .wasm; PocketIC 15.0.0 host-optional StateCell gate",
+        "sync call and portable emit fail closed; async workflow advertised only (no Plan shape yet)",
+        "heap globals only — no upgrade/stable/timers/HTTP outcalls/management canister",
+        "source-only maturity; deployable=true means Wasm artifact present, not subnet/mainnet readiness",
+        "not accepted Phase 1 / formal / hermetic / Stage-0"
       ]
     },
     {

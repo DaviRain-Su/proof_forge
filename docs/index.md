@@ -19,7 +19,7 @@ normative: true
 `selectProgramV1ProductWithTheoremInventory` → CheckV1/Normalize →
 `CompiledSemanticV1` → **`certifyInlineProofV1`** → capability Plan/IR → 工程制品/disk
 closure（无 `--proof-bundle*`）。
-工程 registry **12 = 10 implemented + 2 design-only**；**十个 materializer**
+工程 registry **12 = 12 implemented + 0 design-only**；**十二个 materializer**
 （含 ADR-0044 Soroban source-only S0 与 ADR-0045/0046 OpenVM O0/O1）。
 （EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM）均直连 retained `SemanticProgramV1`。
 Quint：source-only `.qnt` + zero-tool finalize；OpenVM O0：controlled Rust guest + catalog +

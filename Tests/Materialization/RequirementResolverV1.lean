@@ -342,8 +342,8 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
 private def testSupportTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
-  expect (rows.size == 14)
-    "exactly fourteen support rows (Noir dual; EVM dual; Soroban S0; OpenVM dual; others single-profile)"
+  expect (rows.size == 15)
+    "exactly fifteen support rows (Noir dual; EVM dual; Soroban S0; OpenVM dual; ICP; others single-profile)"
   let expectedSolanaExtension ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError error
@@ -357,6 +357,8 @@ private def testSupportTable : IO Unit := do
     -- Phase B2: EVM = 7 S2 keys + exact extension.pf-assets
     ("evm", "evm-yul-solc-0.8.34-cancun-v1", 8, false, true),
     ("evm", "evm-yul-solc-0.8.34-v1", 8, false, true),
+    -- ADR-0047: ICP = 5 S2 keys (sync+event declined; async advertised)
+    ("icp", "icp-wasm-candid-u64-v1", 5, false, false),
     -- Phase C2: NEAR = 7 S2 keys (incl sync-call for pf.assets catalog scope)
     -- + exact extension.pf-assets; sync transfer stays permanently FC at Plan.
     ("near", "near-wasm-raw-u64-v1", 8, false, true),
@@ -411,10 +413,20 @@ private def testSupportTable : IO Unit := do
         let expectAsync :=
           row.targetId == TargetId.noir || row.targetId == TargetId.near ||
             row.targetId == TargetId.evm ||
-            row.targetId == TargetId.ton || row.targetId == TargetId.cosmwasm
+            row.targetId == TargetId.ton || row.targetId == TargetId.cosmwasm ||
+            row.targetId == TargetId.icp
         expect ((ids.contains "effect.synchronous-call") == expectSync &&
             (ids.contains "effect.asynchronous-workflow") == expectAsync)
           s!"row {i} capability gate shape"
+        if row.targetId == TargetId.icp then
+          expect (ids == #["effect.asynchronous-workflow",
+              "failure.atomic-rollback", "state.persistent",
+              "value.bool", "value.checked-arithmetic"])
+            "ICP ADR-0047 support row must decline sync+event and keep async"
+          expect (!ids.contains "effect.synchronous-call" &&
+              ids.contains "effect.asynchronous-workflow" &&
+              !ids.contains "effect.event")
+            "ICP declines sync+event; advertises async"
         if row.targetId == TargetId.quint then
           -- Phase A5: five S2 keys (incl sync-call) + extension.pf-assets (ASCII).
           expect (ids == #["effect.synchronous-call",
@@ -450,8 +462,8 @@ private def testSupportTable : IO Unit := do
     | _, _ => throw <| IO.userError s!"row {i} missing"
     i := i + 1
 
-/-- Canonical 14-row (target,profile) skeleton matching the shipped index shape
-    (Noir dual / EVM dual / OpenVM dual / Soroban S0; others single-profile).
+/-- Canonical 15-row (target,profile) skeleton matching the shipped index shape
+    (Noir dual / EVM dual / OpenVM dual / Soroban S0 / ICP; others single-profile).
     `evmSupported` replaces all EVM rows; extension-owning rows intentionally
     omit their extension seeds so presence-gate negatives can reuse this fixture. -/
 private def supportRowsWithoutExtensions
@@ -463,6 +475,7 @@ private def supportRowsWithoutExtensions
     mkRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 base,
     mkRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmSupported,
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 evmSupported,
+    mkRow .icp CodegenProfileId.icpWasmCandidU64V1 base,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 base,
     mkRow .noir CodegenProfileId.noirNargoAcirV1 base,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 base,
@@ -476,7 +489,7 @@ private def supportRowsWithoutExtensions
   ]
 
 
-/-- Same 14-row skeleton, but every closed-extension owner carries its exact
+/-- Same 15-row skeleton, but every closed-extension owner carries its exact
     seed (Quint/NEAR/CosmWasm/EVM: pf.assets; Solana CPI: both), so content
     negatives reach their intended validation phase. -/
 private def supportRowsWithExtensions
@@ -491,6 +504,7 @@ private def supportRowsWithExtensions
     mkRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 withPf,
     mkRow .evm CodegenProfileId.evmYulSolc0834CancunV1 evmSupported,
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 evmSupported,
+    mkRow .icp CodegenProfileId.icpWasmCandidU64V1 base,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 withPf,
     mkRow .noir CodegenProfileId.noirNargoAcirV1 base,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 base,
@@ -549,7 +563,7 @@ private def testIndexValidationNegatives : IO Unit := do
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
     mkRow .openvm CodegenProfileId.evmYulSolc0834V1 trio
   ]
-  -- Size-extra first (14 rows vs expected product shape):
+  -- Size-extra first (15 rows vs expected product shape):
   let extra :=
     (supportRowsWithExtensions trio trio pfAssetsRow solanaExtensionRow).push
       (mkRow .aleo CodegenProfileId.evmYulSolc0834V1 trio)
@@ -897,9 +911,9 @@ private def testRequestInspectionErrors : IO Unit := do
   expectErrorCode
     (inspectResolveRequestsV1 noirSupported { items := #[solanaExtensionRow] })
     "PF-REQ-UNSUPPORTED" "Noir declines Solana CPI extension"
-  -- Non-permitted targets (ton/aleo/psy) decline pf.assets.
+  -- Non-permitted targets (ton/aleo/psy/icp) decline pf.assets.
   -- (Phase C1/C2: cosmwasm and near are now permits; covered by accept paths.)
-  for tid in #["ton", "aleo", "psy"] do
+  for tid in #["ton", "aleo", "psy", "icp"] do
     let otherSupported ← match rows.find? fun row => row.targetId.toString == tid with
       | some row => pure row.supported
       | none => throw <| IO.userError s!"missing {tid} support row"

@@ -48,7 +48,7 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 - 不默认 `deployable=true` 或主网广播（无产品 N3 决策不得改写 maturity）。
 - 不在 ordinary `just ci` 里起 snarkOS / Anvil / Mollusk。
 - 不先做大而全多语言 SDK；先 CLI + 薄封装。
-- design-only target（`icp`）只展示为 `unsupported`，不提供假安装。
+- 当前 registry **无** design-only target（ICP 已于 ADR-0047 提升为 implemented）。
   OpenVM 默认 `openvm-guest-source-v1` 仍为 engineering source-only zero-tool leaf
   （ADR-0045）；opt-in `openvm-guest-elf-v1`（ADR-0046）install 锁定 `cargo-openvm`
   2.0.1 以 build/transpile guest 为 RV32IM ELF + `.vmexe`。二者均 **不**提供
@@ -98,8 +98,8 @@ PROOF_FORGE_TOOL_ROOT/   # default: ~/.cache/proof-forge-v2/tool-root/<platform>
 
 ### 4.2 Target 菜单
 
-- **Implemented（可 install 编译档 / zero-tool leaf）**：`evm`、`solana`、`near`、`noir`、`aleo`、`psy`、`quint`、`cosmwasm`、`ton`、`soroban`、`openvm`（与 `TargetRegistryV1` 十一 materializer 一致；OpenVM 默认 profile 为零工具 guest-source，opt-in `openvm-guest-elf-v1` 锁定 `cargo-openvm`）。
-- **Design-only（`unsupported`，不可 install）**：`icp`。
+- **Implemented（可 install 编译档 / zero-tool leaf）**：`evm`、`solana`、`near`、`noir`、`aleo`、`psy`、`quint`、`cosmwasm`、`ton`、`soroban`、`openvm`、`icp`（与 `TargetRegistryV1` 十二 materializer 一致；OpenVM 默认 profile 为零工具 guest-source，opt-in `openvm-guest-elf-v1` 锁定 `cargo-openvm`；ICP Finalize 锁定 `wat2wasm`，PocketIC 为 host-optional runtime）。
+- **Design-only（`unsupported`，不可 install）**：无。
 - Accepted PRD Phase 1 文案仍为四目标；engineering 十一 target 扩面不自动改写 accepted 范围（ADR-0036 / ADR-0044 / ADR-0045 / ADR-0046）。
 
 ### 4.3 编译档 vs runtime 档
@@ -125,6 +125,7 @@ host-heavy 门（`just solana-runtime` / Anvil）**不**并入 ordinary `just ci
 | `cosmwasm` | `wat2wasm`、`cosmwasm-check` | wasmd Docker rung 等工程门，非 CLI 默认 install |
 | `ton` | `tolk` | sandbox 工程门独立 |
 | `openvm` | `cargo-openvm`（sourceBuild；仅 opt-in `openvm-guest-elf-v1` 的 build/transpile 需要） | 默认 `openvm-guest-source-v1` 仍 zero-tool；无 keygen/execute/prove/verify toolchain install |
+| `icp` | `wat2wasm`（Finalize；PocketIC 非 Tool Lock / host-optional） | sole `icp-wasm-candid-u64-v1`；sync+event FC |
 
 表中 “core” 是 doctor/install 的 **规划映射**；某 profile 的 exact `requiredByProfiles` 仍以 lock 字段为准，不得在 doctor 里发明额外工具。
 
@@ -198,7 +199,7 @@ proof-forge-next local --target evm [--mode runtime] [--json] [--] [script-args.
 | `near` | `runtime`（默认） | `scripts/pf_near_test.sh`（artifact 快路径或 full corpus） | near-sandbox；Promise=async；sync call FC |
 | `cosmwasm` | `runtime`（默认） | `scripts/pf_cosmwasm_test.sh` | cosmwasm-vm mock；sync call FC；SubMsg never |
 | `ton` | `runtime`（默认） | `scripts/pf_ton_test.sh` | @ton/sandbox；sync call FC；createMessage |
-| 其它 implemented | — | fail closed（无产品 script path） | 见 target dossier |
+| 其它 implemented（除 solana/evm/near/cosmwasm/ton/icp runtime） | — | fail closed（无产品 script path） | 见 target dossier |
 | design-only | — | fail closed `unsupported` | 不可 install/local |
 
 - local wrapper 经 `PackageRootV1` 定位 package root，以 `cwd=packageRoot` 固定执行 `/bin/bash -p`，

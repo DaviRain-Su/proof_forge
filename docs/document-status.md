@@ -26,7 +26,7 @@ normative: true
 当前产品开发由根级 [`RECOVERY.md`](../RECOVERY.md) / [`AGENTS.md`](../AGENTS.md) 驱动：
 ProgramV1 → CheckV1/Normalize → `CompiledSemanticV1` → **十个 materializer**
 （EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/OpenVM）capability Plan/IR 的**工程纵切面**。
-工程 registry **12 = 10 implemented + 2 design-only**（Soroban/ICP）。Quint 是
+工程 registry **12 = 12 implemented + 0 design-only**（含 Soroban ADR-0044、OpenVM ADR-0045/0046、ICP ADR-0047）。Quint 是
 zero-tool finalize 的 source-only `.qnt` executable-model target；OpenVM 默认
 `openvm-guest-source-v1` 是 zero-tool guest-source（受控 Rust 模板 + catalog；
 ADR-0045 O0），opt-in `openvm-guest-elf-v1` 锁定 `cargo-openvm` 2.0.1 build/transpile
@@ -36,11 +36,11 @@ ADR-0045 O0），opt-in `openvm-guest-elf-v1` 锁定 `cargo-openvm` 2.0.1 build/
 `@ton/sandbox` 10/10，schedule `createMessage` 为 hash destination/value=0 的 PARTIAL
 语义。以上均为工程观察，**非** formal/hermetic。
 **Accepted PRD Phase 1 范围仍为四目标**（EVM/Solana/NEAR/Noir）；engineering
-leaves 的边界由 **ADR-0036**（11+1：含 Soroban ADR-0044 与 OpenVM ADR-0045/0046）固定为非
+leaves 的边界由 **ADR-0036**（现 12+0：含 Soroban ADR-0044、OpenVM ADR-0045/0046、ICP ADR-0047）固定为非
 accepted 扩面，formal lighthouse 为 EVM-first。
 日常缺口队列见 [`engineering-backlog.md`](engineering-backlog.md)。剩余 target / 比特币脚本族版图见
 [`research/25-remaining-target-landscape.md`](research/25-remaining-target-landscape.md)
-（§10.1：ICP 仍为 design-only；不扩 accepted PRD）。**ADR-0027**
+（§10.1：ICP 已为 engineering implemented ADR-0047；不扩 accepted PRD）。**ADR-0027**
 （`proposed`）仍冻结 inline same-file gate 的 single-snapshot/audit/axiom/proof-first 基线；
 **ADR-0034**（`proposed`）的 Preservation ABI、`ProofKindV1`/三字段 wire、
 `(inv,kind)` inventory、双 alias 与 kind-bound certifier 已接线。2026-08-09

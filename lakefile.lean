@@ -247,6 +247,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.QuintAcceptance,
     `Tests.Materialization.SorobanPlanV1,
     `Tests.Materialization.OpenVmGuestSourceV1,
+    `Tests.Materialization.IcpPlanV1,
     `Tests.Materialization.EvmSmoke,
     `Tests.Materialization.EvmSolcAcceptance,
     `Tests.Materialization.NearWasmAcceptance,
@@ -365,6 +366,11 @@ lean_exe proof_forge_next_fast_tests where
 lean_exe aleo_instructions_v1_focus where
   exeName := "aleo-instructions-v1-focus"
   root := `Tests.Materialization.AleoInstructionsV1Focus
+  supportInterpreter := true
+
+lean_exe icp_plan_v1_focus where
+  exeName := "icp-plan-v1-focus"
+  root := `Tests.Materialization.IcpPlanV1Focus
   supportInterpreter := true
 
 -- Memory-bounded shards: the single-process aggregate keeps a high-water RSS

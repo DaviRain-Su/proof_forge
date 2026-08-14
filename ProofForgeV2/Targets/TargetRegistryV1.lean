@@ -2,7 +2,7 @@
   ProofForgeV2.Targets.TargetRegistryV1 — D3 engineering registry kernel (repair B)
 
   **Sole** opaque static membership authority for the closed twelve-target set
-  (11 implemented + 1 design-only). Product selection (`BuildSelectionV1`)
+  (12 implemented + 0 design-only). Product selection (`BuildSelectionV1`)
   consumes this seed; there is no second static index.
 
   **Not** formal TASK-D3-02:
@@ -263,8 +263,7 @@ private def containsProfile (profiles : Array CodegenProfileId) (p : CodegenProf
 /-- Closed kind → exact product implemented flag (sole membership policy). -/
 def expectedImplementedOfKindV1 : TargetKind → Bool
   | .evm | .solana | .near | .noir | .aleo | .psy | .quint | .cosmwasm | .ton
-  | .soroban | .openvm => true
-  | .icp => false
+  | .soroban | .icp | .openvm => true
 
 /-- Closed kind → exact list/describe maturity label. -/
 def expectedMaturityLabelOfKindV1 : TargetKind → String
@@ -278,8 +277,8 @@ def expectedMaturityLabelOfKindV1 : TargetKind → String
   | .cosmwasm => "wasm-validated-alpha"
   | .ton => "source-only"
   | .soroban => "source-only"
+  | .icp => "source-only"
   | .openvm => "source-only"
-  | .icp => "research-only"
 
 /-- Closed kind → exact acceptance profile id string. -/
 def expectedAcceptanceProfileIdOfKindV1 : TargetKind → String
@@ -291,7 +290,7 @@ def expectedAcceptanceProfileIdOfKindV1 : TargetKind → String
   | .cosmwasm => "phase1.cosmwasm-u64.v1"
   | .ton => "phase1.ton-u64.v1"
   | .soroban => "phase1.soroban-u64.v1"
-  | .icp => "research.icp.v1"
+  | .icp => "phase1.icp-u64.v1"
   | .openvm => "research.openvm.v1"
   | .psy => "phase1.psy-u64.v1"
   | .quint => "research.quint.v1"
@@ -558,7 +557,9 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
     row .soroban (semanticsAxesOfKindV1 .soroban)
       #[CodegenProfileId.sorobanSourceU64V1]
       (some CodegenProfileId.sorobanSourceU64V1),
-    row .icp (semanticsAxesOfKindV1 .icp) #[] none,
+    row .icp (semanticsAxesOfKindV1 .icp)
+      #[CodegenProfileId.icpWasmCandidU64V1]
+      (some CodegenProfileId.icpWasmCandidU64V1),
     -- explicit elf profile shares the Plan/guest emission; Finalize resolves
     -- locked cargo-openvm 2.0.1 to build+transpile ELF/VmExe extras
     -- (ADR-0046 O1; deployable=false; no keygen/execute/prove/verify).

@@ -83,7 +83,8 @@ print(client.install(targets=["quint"], dry_run=True).parsed)
 
 ## Boundaries
 
-- Target menu = `TargetRegistryV1` implemented only; design-only (`icp`)
+- Target menu = `TargetRegistryV1` implemented only; no design-only targets remain
+  (ICP is ADR-0047 engineering leave with wat2wasm finalize + host-optional PocketIC).
   stay unsupported. OpenVM is engineering source-only / opt-in guest-elf
   (no prove install).
 - Install never PATH-falls tools into `PROOF_FORGE_TOOL_ROOT`.

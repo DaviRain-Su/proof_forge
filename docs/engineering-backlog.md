@@ -645,12 +645,15 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | **TGT-DOC-025** | 剩余 target 版图研究 + README/targets/taxonomy/backlog 挂钩 | T0 | **done**（2026-08-13：RPT-025） |
 | **TGT-BTC-SCRIPT-PIN** | 比特币 Script/Tapscript/Miniscript/Liquid/BitVM：UTXO 谓词 ≠ 账户 Semantic；默认 `wontfix-until` 独立 predicate ADR | T6 gate | **done**（2026-08-13：钉在 RPT-025 §2 档 D；无 TargetId） |
 | **TGT-SOROBAN-MVP** | `soroban` design-only → target-owned Plan/IR/materializer MVP（XDR/auth/TTL 诚实 FC 子集） | T1 | **pending** |
-| **TGT-ICP-MVP** | `icp` design-only → Plan/IR/materializer MVP（Candid + 单 message 优先；跨 canister 默认 FC/async） | T2 | **pending** |
+| **TGT-ICP-MVP** / **ICP-1/2/3** | `icp` implemented（ADR-0047）：sole `icp-wasm-candid-u64-v1`；Plan/IR→`.wat`+`.did`；wat2wasm finalize；PocketIC host-optional runtime；sync+event FC；async advertise-only | T2 | **done**（engineering；非 formal/mainnet） |
+| **ICP-1** | ICP capability-gated 控制面（ADR-0047） | 文档 + registry | sole profile/descriptor/resolver/list/inspect | **done** |
+| **ICP-2** | ICP target-owned Plan/IR → Wasm + `.did` | target leaf | Counter/StateCell UInt64 窄子集 | **done** |
+| **ICP-3** | ICP PocketIC 工程门 | target runtime | `just icp-runtime` / `local --target icp`；缺 POCKET_IC_BIN skip-clean | **done**（host-optional；非 formal） |
 | **TGT-OPENVM-MVP** | `openvm` design-only → guest/VmExe MVP（prove 可 FC；无假链上合约） | T3 | **pending** |
 | **TGT-MOVE-DOSSIER** | 补齐 `aptos`/`sui` dossier + Move family（ADR-0017；**不**占用 `12-quint` 编号） | T4 | **pending** |
 | **TGT-ZKVM-SECOND** | OpenVM 稳定后于 cairo/risc0/sp1 **择一**第二 zkVM leaf | T5 | **pending**（blocked-on TGT-OPENVM-MVP） |
 
-优先序：**TGT-SOROBAN-MVP → TGT-ICP-MVP → TGT-OPENVM-MVP**；Move dossier 可与 T1 文档并行，materializer 不得抢先于独立实现 ADR。
+优先序（历史）：**TGT-SOROBAN-MVP → TGT-ICP-MVP → TGT-OPENVM-MVP**（三者 engineering MVP 均已闭合；不扩 accepted PRD）；Move dossier 可与 T1 文档并行，materializer 不得抢先于独立实现 ADR。
 
 
 > **Solana CPI epic #111–#125 engineering closed** (#110 engineering epic complete): legacy profiles fail closed on call/schedule; exact `solana-sbpf-cpi-elf-v1` advertises sync+extension (async still FC); CpiEscrowIRV1 composite escrow remains test-preactivation history; product activation is ordinary-resolver product capability (not formal TASK-D5).

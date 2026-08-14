@@ -451,13 +451,13 @@ registry digest。
 | `noir` | `noir-source-u64-relations-v1` | `phase1.noir-u64-private-sum.v1` | implement | `specified` | source relation/external state/no proof backend/external verifier |
 | `cosmwasm` | — | `research.cosmwasm.v1` | design | `research` | Wasm/CosmWasm host/KV/submessage+reply/Cosmos settlement |
 | `soroban` | `soroban-source-u64-v1` | `phase1.soroban-u64.v1` | implemented | `source-only` | Wasm/Soroban host S0：`.rs` recipe；zero-tool；auth/TTL/Wasm FC |
-| `icp` | — | `research.icp.v1` | design | `research` | Wasm/canister actor/stable memory/await commit/ICP settlement |
+| `icp` | `icp-wasm-candid-u64-v1` | `phase1.icp-u64.v1` | source-only | `phase1` | Wasm/canister actor; sync+event FC; async advertise; wat2wasm finalize (ADR-0047) |
 | `openvm` | `openvm-guest-source-v1` | `research.openvm.v1` | implemented | `source-only` | RV32IM guest-source O0 (default, zero-tool); engineering opt-in O1 `openvm-guest-elf-v1` builds ELF/VmExe (ADR-0046); keygen/execute/proof still deferred |
 | `aleo` | `aleo-instructions-v1` | `research.aleo.v1` | engineering leaf | `specified` | Direct canonical Aleo Instructions + query descriptor; zero-tool, non-deployable |
 | `psy` | `psy-dpn-v1` | `phase1.psy-u64.v1` | engineering leaf | `specified` | Direct versioned DPN package; zero-tool, non-deployable |
 
 > **当前工程偏离（2026-08-10；不构成本规范或 accepted scope 的升格）**：engineering
-> `TargetRegistryV1` seed 为 10 registry-implemented + 2 design-only。Aleo/Psy 分别只有
+> `TargetRegistryV1` seed 为 12 registry-implemented + 0 design-only。Aleo/Psy 分别只有
 > `aleo-instructions-v1` 与 `psy-dpn-v1` direct zero-tool profile；旧 Leo、Psy source/Dargo
 > profile 和 runtime/network lane 已删除。ADR-0036 固定 accepted Phase-1
 > 四-target 范围与 engineering 扩面的正式 reconciliation；不得据 engineering label 推断
