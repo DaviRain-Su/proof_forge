@@ -8,6 +8,9 @@
     * synchronous external-call returned/reverted response + exact occurrence
     * duplicate/reordered external responses → invalidExternalResponse
     * wrong callable kind/arity/type/noncanonical arg → invalidInvocation
+    * context same-key wrong TypeId (Bool vs UInt64) → invalidInvocation
+    * same-key different Core result TypeId → structure `.badCfg` (step unseen)
+    * response missing / extra (exhaustion) → invalidExternalResponse
     * emit effect occurrence 0 + normalized UInt64 result bytes
 
   Does **not** close formal TASK-D2-07 / TST-SEM-002. Does **not** edit
@@ -245,7 +248,10 @@ private unsafe def testContextKeyType
     "    t := 0\n" ++
     "  entry stamp() : UInt64 do\n" ++
     "    t := context.unixTimeSeconds\n" ++
-    "    return t\n"
+    "    return t\n" ++
+    -- Intern anonymous Bool so the same-key wrong-TypeId case is canonical.
+    "  fn flag(x : UInt64) : Bool do\n" ++
+    "    return x == 0\n"
   let (carrier, data, u64) ←
     loadNormalize session "Tests/Semantic/Sem002ShapeV1.lean" "Sem002Ctx" source
   let initId ← findCallable data none
@@ -278,6 +284,19 @@ private unsafe def testContextKeyType
   let extraOut := step carrier post (inv stampId #[] extra) #[]
   expectTrappedInvocation "ctx/extra" extraOut post
   let _ ← mintDigest "ctx/extra" extraOut
+  let boolTid ← findBool data
+  expect (boolTid != u64) "ctx: Bool and UInt64 TypeIds differ"
+  let boolTrue : ReferenceValueV1 :=
+    { typeId := boolTid, valueBytes := ByteArray.mk #[1] }
+  match validateValueBytesV1 data.types boolTid boolTrue.valueBytes with
+  | .ok () => pure ()
+  | .error e =>
+      throw <| IO.userError s!"ctx: canonical Bool rejected: {repr e}"
+  let wrongType : Array ContextInputV1 :=
+    #[{ key := unixTimeSecondsContextKeyV1, value := boolTrue }]
+  let wrongTypeOut := step carrier post (inv stampId #[] wrongType) #[]
+  expectTrappedInvocation "ctx/wrong-type" wrongTypeOut post
+  let _ ← mintDigest "ctx/wrong-type" wrongTypeOut
   let duplicate : Array ContextInputV1 := #[clockRow, clockRow]
   let duplicateOut := step carrier post (inv stampId #[] duplicate) #[]
   expectTrappedInvocation "ctx/duplicate" duplicateOut post
@@ -358,6 +377,25 @@ private unsafe def testExternalResponsesAndInvocationShape
   let revertedDigest ← mintDigest "external/reverted" revertedOut
   expect (returnedDigest != revertedDigest)
     "external: returned/reverted OutcomeWire digests must differ"
+
+  -- Valid invocation + empty responses: cursor missing, not invalidInvocation.
+  let missingOut :=
+    step carrier initial (inv relayId #[refU64 u64 7]) #[]
+  expectTrappedExternalResponse "responses/missing" missingOut initial
+  let missingDigest ← mintDigest "responses/missing" missingOut
+
+  -- One call + two returned rows: first pair matches, exhaustion traps extra.
+  let extraOccurrence : EffectOccurrenceV1 := { effectId := 1, occurrence := 0 }
+  let extraResponses : ExternalResponsesV1 := #[
+    { occurrence, disposition := .returned, returnValue? := none },
+    { occurrence := extraOccurrence, disposition := .returned, returnValue? := none }
+  ]
+  let extraOut :=
+    step carrier initial (inv relayId #[refU64 u64 7]) extraResponses
+  expectTrappedExternalResponse "responses/extra" extraOut initial
+  let extraDigest ← mintDigest "responses/extra" extraOut
+  expect (missingDigest == extraDigest)
+    "responses: missing/extra encode the same exact trapped Outcome"
 
   let wrongArity := step carrier initial (inv relayId #[]) #[]
   expectTrappedInvocation "invocation/wrong-arity" wrongArity initial
@@ -488,6 +526,78 @@ private unsafe def testEffectOccurrence
   | other => throw <| IO.userError s!"pulse outcome: {repr other}"
   let _ ← mintDigest "Sem002Emit/pulse" pulsed
 
+/-- Hand-built ContextRead pair on `unixTimeSeconds`. `sameType=true` is the
+    legal same-key / same Core TypeId control; `false` is the TST-SEM-002
+    leftover (UInt64 then Bool). Normalize cannot emit this mismatch. -/
+private def ctxCoreTypeIdPair (sameType : Bool) : IO SemanticProgramDataV1 := do
+  let qn ← match parseQualifiedName #["Tests", "Sem002CtxCore"] with
+    | .ok n => pure n
+    | .error e => throw <| IO.userError s!"ctx/core-type qn: {e}"
+  let req ← match unixTimeSecondsContextRequirementV1 with
+    | .ok row => pure row
+    | .error e => throw <| IO.userError s!"ctx/core-type req: {e}"
+  let boolTid : TypeIdV1 := 0
+  let u64Tid : TypeIdV1 := 1
+  let secondTid := if sameType then u64Tid else boolTid
+  let ctxRead (vid : ValueIdV1) (tid : TypeIdV1) : InstructionV1 :=
+    { result := some { valueId := vid, typeId := tid }
+      op := .contextRead unixTimeSecondsContextKeyV1 }
+  let runCallable : CallableV1 := {
+    id := 0
+    kind := .entry
+    name := some "run"
+    params := #[]
+    result := { typeId := boolTid, visibility := .public_ }
+    entryBlock := 0
+    blocks := #[{
+      id := 0
+      params := #[]
+      instructions := #[ctxRead 0 u64Tid, ctxRead 1 secondTid]
+      terminator := .return_ none
+    }]
+    loopBounds := #[]
+    invariantSteps := none
+  }
+  pure {
+    qualifiedName := qn
+    types := #[
+      { id := 0, name := none, shape := .bool },
+      { id := 1, name := none, shape := .uint 64 }]
+    constants := #[]
+    logicalState := #[]
+    events := #[]
+    errors := #[]
+    callables := #[runCallable]
+    invariants := #[]
+    requirements := { items := #[req] }
+  }
+
+/-- TST-SEM-002 leftover: same ContextRead key with two different Core result
+    TypeIds is a structure-gate `.badCfg`. Encoder fails the same way, so no
+    `SemanticProgramV1` carrier exists and `step` never sees the program.
+    Do not weaken the wire gate to surface this at the invocation layer. -/
+private def testSameKeyDifferentCoreResultTypeId : IO Unit := do
+  let ok ← ctxCoreTypeIdPair true
+  match validateSemanticProgramStructureV1 ok with
+  | .ok () => pure ()
+  | .error e =>
+      throw <| IO.userError s!"ctx/core-type control structure: {repr e}"
+  match encodeSemanticProgramDataV1 ok with
+  | .ok _ => pure ()
+  | .error e =>
+      throw <| IO.userError s!"ctx/core-type control encode: {repr e}"
+  let bad ← ctxCoreTypeIdPair false
+  match validateSemanticProgramStructureV1 bad with
+  | .error .badCfg => pure ()
+  | other =>
+      throw <| IO.userError
+        s!"ctx/core-type: expected .badCfg structure, got {repr other}"
+  match encodeSemanticProgramDataV1 bad with
+  | .error .badCfg => pure ()
+  | other =>
+      throw <| IO.userError
+        s!"ctx/core-type: expected .badCfg encode, got {repr other}"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testNoInitProductCounter session
@@ -495,6 +605,7 @@ unsafe def run : IO Unit := do
   testContextKeyType session
   testExternalResponsesAndInvocationShape session
   testEffectOccurrence session
+  testSameKeyDifferentCoreResultTypeId
   IO.println "Tests.Semantic.Sem002ShapeV1: ok (engineering; not formal TST-SEM-002)"
 
 end Tests.Semantic.Sem002ShapeV1

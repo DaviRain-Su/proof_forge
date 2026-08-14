@@ -43,6 +43,9 @@ import Tests.Semantic.ProofedEncodeCertV1
 import Tests.Semantic.ProofedDecodeCertV1
 import Tests.Semantic.ProofedClosedCertV1
 import Tests.Semantic.ReferenceV1
+import Tests.Semantic.Sem001ShapeV1
+import Tests.Semantic.Sem002ShapeV1
+import Tests.Semantic.Sem003ShapeV1
 import Tests.Semantic.MiniAmmVectorsV1
 import Tests.Semantic.NormalizeConst
 import Tests.Semantic.ProofBundleV1
@@ -87,6 +90,9 @@ unsafe def main : IO Unit := do
   Tests.Semantic.SimpleClosureDecodeCallableV1.run
   Tests.Semantic.SimpleClosureDecodeComposeV1.run
   Tests.Semantic.ReferenceV1.run
+  Tests.Semantic.Sem001ShapeV1.run
+  Tests.Semantic.Sem002ShapeV1.run
+  Tests.Semantic.Sem003ShapeV1.run
   Tests.Semantic.MiniAmmVectorsV1.run
   Tests.Semantic.NormalizeConst.run
   Tests.Semantic.ProofBundleV1.run

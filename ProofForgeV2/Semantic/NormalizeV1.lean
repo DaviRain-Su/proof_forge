@@ -4058,24 +4058,25 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
         -- table, so any state name fails closed (fn effects are revert-only).
         -- Constants remain visible (compile-time values, not state).
         -- N5: ContextRead/Commit also fail closed (allowContextCommit=false).
+        -- Usage flags start false so a prior entry/view ContextRead cannot
+        -- poison this fn's body-local purity check.
         let emptyStates : StateTableV1 := ⟨#[]⟩
         let (blocks, loopBounds, interner''', ux, uc, uh, uch, usf, uav, cm) ←
           lowerBlock d.body params resultTid interner emptyStates constantTable
             eventTable errorTable fnTable
-            false false usedContextUnixTime usedContextCaller usedContextBlockHeight
-              usedContextChainId usedContextSelf usedContextAttachedValue usedCommit
+            false false false false false false false false false
         interner := interner'''
-        usedContextUnixTime := ux
-        usedContextCaller := uc
-        usedContextBlockHeight := uh
-        usedContextChainId := uch
-        usedContextSelf := usf
-        usedContextAttachedValue := uav
-        usedCommit := cm
         -- pureFn must not read Context / Commit (N5).
         if ux || uc || uh || uch || usf || uav || cm then
           return ← failUnsupported
             s!"fn '{raw d.name}' must not use ContextRead or Commit"
+        usedContextUnixTime := usedContextUnixTime || ux
+        usedContextCaller := usedContextCaller || uc
+        usedContextBlockHeight := usedContextBlockHeight || uh
+        usedContextChainId := usedContextChainId || uch
+        usedContextSelf := usedContextSelf || usf
+        usedContextAttachedValue := usedContextAttachedValue || uav
+        usedCommit := usedCommit || cm
         callables := callables.push (mkCallable
           (UInt32.ofNat callableId) .pureFn (some (raw d.name)) params
           { typeId := resultTid, visibility := VisibilityV1.public_ } blocks loopBounds)

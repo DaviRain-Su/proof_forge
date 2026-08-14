@@ -31,6 +31,9 @@ wasmd Docker rung-1；TON：Tolk/BoC + sandbox 10/10（schedule `createMessage` 
 固定为非 accepted 扩面，formal lighthouse=EVM-first。Normalize 为扩展中的
 子集（超出最初 Counter-only S1，仍非完整语言面）。前端监督层已于 2026-08-01 移除。
 
+EVM formal 缺口盘点（非 normative、不代签 TASK/TST）：
+[`plan/evm-formal-d2-07-gap.md`](plan/evm-formal-d2-07-gap.md) ·
+[`plan/evm-formal-d2-06-gap.md`](plan/evm-formal-d2-06-gap.md)。
 **日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)。
 **当前 Goal drain 入口**：[`.grok/next-wave-queue.md`](../.grok/next-wave-queue.md) +
 [`/goal @.grok/goals/prompt-next-wave.md`](../.grok/goals/prompt-next-wave.md)；旧

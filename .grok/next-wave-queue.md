@@ -61,7 +61,12 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 
 | id | status | objective |
 |---|---|---|
-| F-D2-07-GAP | pending | Inventory exact remaining gap from engineering `ReferenceMachineV1` / OutcomeWire / Sem002/003 *shape* pins to formal `TASK-D2-07` + `TST-SEM-002/003` acceptance text; write the first fail-closed formal slice plan. **Not** C-3 / Anvil lossless |
+| F-D2-07-GAP | done | Inventory + plan [`docs/plan/evm-formal-d2-07-gap.md`](../docs/plan/evm-formal-d2-07-gap.md). Formal TASK/TST still pending. **Not** C-3 / Anvil lossless |
+| F-SEM002-HOLES | done | Sem002 isolated holes: response missing/extra + context wrong TypeId (`Tests/Semantic/Sem002ShapeV1.lean`). Focused run ok. **Not** formal TST-SEM-002 |
+| F-D2-06-GAP | done | Inventory + plan [`docs/plan/evm-formal-d2-06-gap.md`](../docs/plan/evm-formal-d2-06-gap.md). **Not** formal TST-SEM-001 |
+| F-SEM001-SHAPE | done | Sem001 path-vs-semantic / business-hash pin (`Tests/Semantic/Sem001ShapeV1.lean`). **Not** formal TST-SEM-001 |
+| F-SEM00X-SHARD | done | Sem001/002/003 registered in `Tests/Shards/Typed.lean` so ordinary `just ci` runs the shape pins. **Not** formal |
+| F-CTX-CORE-TYPEID | done | Isolated Wire `.badCfg` pin for same-key ContextRead different Core result TypeId (`Tests/Semantic/Sem002ShapeV1.lean` `ctx/core-type`; structure+encode). Normalize fn purity is now body-local so a later `fn` after an entry ContextRead is not poisoned. **Not** formal TST-SEM-002 |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 
@@ -95,7 +100,7 @@ Leave these `blocked` / `decision`. Goal must **skip**, not implement.
 
 ## Runner notes
 
-1. Track A is exhausted. Goal may do remaining Track B file-isolated leaves. Track F is main-agent / human serial and must not auto-close formal IDs. Never Track C.
+1. Track A is exhausted. Track B is exhausted. Track F engineering corpus pins are exhausted (`F-CTX-CORE-TYPEID` last). Goal must **not** auto-close formal IDs. Never Track C. Remaining Track F later-slices are product/formal decisions.
 2. Mark claimed row `in_progress` only on a clean tree (or WIP wholly inside that slice allowlist).
 3. One local commit per id. Touch `ProofForgeV2/**` → `just sbom-package-files-refresh`. Docs → `just docs-check`.
 4. After commit: this file `done`, `docs/engineering-backlog.md` one honest line, AGENTS Current/Next if Track A pointer moves.
