@@ -32,6 +32,20 @@ private def liftResult (result : CompileResult α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError error.render
 
+private def liftArtifactResult (result : SbpfArtifactResultV1 α) : IO α :=
+  match result with
+  | .ok value => pure value
+  | .error error => throw <| IO.userError error.render
+
+private def expectArtifactError (result : SbpfArtifactResultV1 α)
+    (messagePart : String) : IO Unit :=
+  match result with
+  | .ok _ =>
+      throw <| IO.userError s!"sBPF artifact unexpectedly accepted; wanted '{messagePart}'"
+  | .error error =>
+      expect (error.render.contains messagePart)
+        s!"sBPF artifact error mismatch: wanted '{messagePart}', got '{error.render}'"
+
 /-- Source-level deletion pin: legacy call/schedule observability tags and
     comments must not return to the SBPF emitter. `sol_log_data` remains legal
     only for declared events. -/
@@ -189,6 +203,69 @@ private unsafe def testStateCellAsm
   -- Deterministic rebuild
   let asm2 ← liftResult <| emitSbpfAsmV1 ir
   expect (asm == asm2) "asm: deterministic rebuild"
+
+/-- The semantics bridge consumes the exact production StateCell `.s`, not a
+    parallel HandlerIR lowering. Parser failures and identity drift are closed. -/
+private unsafe def testStateCellSbpfArtifact
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
+    "<solana-sbpf-artifact-stateCell>"
+  let asm ← liftResult <| asmSolana compiled
+  let expectedSha256 :=
+    "c93b1448aa782550b7643ccced44209c57df604a866c236552dadc5ac6a159c1"
+  let artifact ← liftArtifactResult <|
+    resolveBoundSbpfArtifactV1 asm expectedSha256
+  expect (artifact.sourceSha256 == expectedSha256)
+    "sBPF artifact: source digest must bind the exact production text"
+  expect (artifact.global == "entrypoint")
+    s!"sBPF artifact: expected global entrypoint, got {artifact.global}"
+  expect (artifact.program.size == 168)
+    s!"sBPF artifact: expected 168 instructions, got {artifact.program.size}"
+  expect (artifact.labels.size == 17)
+    s!"sBPF artifact: expected 17 labels, got {artifact.labels.size}"
+  expect (artifact.constants.size == 12)
+    s!"sBPF artifact: expected 12 constants, got {artifact.constants.size}"
+  expect (artifact.label? "entrypoint" == some 0)
+    "sBPF artifact: entrypoint must resolve to instruction zero"
+  expect (artifact.constant? "EXACT_DATA_LEN" == some 16)
+    "sBPF artifact: exact account data length must come from parsed .equ"
+  expect (artifact.constant? "INSTRUCTION_DATA" == some 0x2880)
+    "sBPF artifact: instruction-data offset must come from parsed .equ"
+
+  let validMutation := asm.replace
+    ".equ EXACT_DATA_LEN, 0x10" ".equ EXACT_DATA_LEN, 0x18"
+  let mutated ← liftArtifactResult <| resolveSbpfArtifactV1 validMutation
+  expect (mutated.constant? "EXACT_DATA_LEN" == some 24)
+    "sBPF artifact test mutation must remain syntactically valid"
+  expectArtifactError
+    (resolveBoundSbpfArtifactV1 validMutation expectedSha256)
+    "artifact SHA-256 does not match"
+  expectArtifactError
+    (resolveBoundSbpfArtifactV1 asm ("C" ++ expectedSha256.drop 1))
+    "expected SHA-256 must be 64 lowercase hex characters"
+
+  let minimal (body : String) : String :=
+    ".globl entrypoint\nentrypoint:\n" ++ body ++ "\n"
+  expectArtifactError (resolveSbpfArtifactV1 <| minimal "mystery r0, 1")
+    "unsupported instruction"
+  expectArtifactError
+    (resolveSbpfArtifactV1 ".equ X, 1\n.equ X, 2\n.globl entrypoint\nentrypoint:\nexit\n")
+    "duplicate symbol 'X'"
+  expectArtifactError
+    (resolveSbpfArtifactV1 ".globl entrypoint\nentrypoint:\nentrypoint:\nexit\n")
+    "duplicate symbol 'entrypoint'"
+  expectArtifactError (resolveSbpfArtifactV1 <| minimal "ja absent")
+    "unresolved label 'absent'"
+  expectArtifactError (resolveSbpfArtifactV1 <| minimal "mov64 r11, 0")
+    "invalid register 'r11'"
+  expectArtifactError
+    (resolveSbpfArtifactV1 <| minimal "lddw r0, 0x10000000000000000")
+    "64-bit immediate out of range"
+  expectArtifactError
+    (resolveSbpfArtifactV1 <| minimal "ldxdw r0, [r1 + 32768]")
+    "signed 16-bit offset out of range"
+  expectArtifactError (resolveSbpfArtifactV1 <| minimal "call unknown_syscall")
+    "unsupported syscall or unresolved call target"
 
 /-- Sole-rail product emit ships hybrid CPI bases + assembly. -/
 private unsafe def testProductEmitUnchanged
@@ -1124,6 +1201,7 @@ unsafe def run : IO Unit := do
   testFrameBudgetConstant
   let session ← Tests.Language.ParserSession.shared
   testStateCellAsm session
+  testStateCellSbpfArtifact session
   testAccountListShapeChecks session
   testProductEmitUnchanged session
   testGuardedStateCellAsm session

@@ -1,6 +1,16 @@
 {"version": "1.2.0",
  "packagesDir": ".lake/packages",
- "packages": [],
+ "packages":
+ [{"url": "https://github.com/DaviRain-Su/assembler-semantics.git",
+   "type": "git",
+   "subDir": null,
+   "scope": "",
+   "rev": "ef6e20c20827e4158e1cb025518465aa8beb46da",
+   "name": "«assembler-semantics»",
+   "manifestFile": "lake-manifest.json",
+   "inputRev": "ef6e20c20827e4158e1cb025518465aa8beb46da",
+   "inherited": false,
+   "configFile": "lakefile.toml"}],
  "name": "«proof-forge-next»",
  "lakeDir": ".lake",
  "fixedToolchain": false}

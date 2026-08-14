@@ -169,11 +169,13 @@ coverage matrix 为准**。
 这不是 sBPF ISA、assembly emitter、ELF、loader或 Solana runtime correctness proof，也没有把
 工程 Mollusk observation升级为 formal evidence。准确声明仅为：
 **`StateCell.get/initialize/increment` bounded production Plan/HandlerIR target refinement**。
-下一层的候选边界由 [`ADR-0048`](../adr/0048-optional-solana-sbpf-semantics-provider.md) 提议：
+下一层边界由 [`ADR-0048`](../adr/0048-optional-solana-sbpf-semantics-provider.md) 固定：
 exact-pinned外部 `SbpfSemantics.Api`，形成
-`HandlerIR → shared production lowering → resolved sBPF semantics observation`；产品`.s`/ELF rail
-保持独立，不得另造第二套 DSL/business semantics。ADR仍为`proposed`，当前没有Lake dependency或
-provider-backed refinement claim。
+`HandlerIR → production .s → strict parse/resolve → resolved sBPF semantics observation`；产品ELF
+rail保持独立，不得另造第二套DSL/business semantics。ADR已经accepted并固定development Lake pin；
+production StateCell artifact parser/resolver与SHA-256 identity gate已经闭合，真实输出解析为168条
+provider instructions。Loader V3 input adapter、provider execution与join theorem尚未闭合，所以仍
+没有provider-backed refinement claim。
 
 ## 1. 身份与来源
 
@@ -294,7 +296,7 @@ Phase 1 在本地 runtime/validator 创建 program 与 state accounts，发送 i
 3. Semantic interpreter 对照 sBPF emulator。
    - 候选 ISA 地基：exact revision的公开 `assembler-semantics`（`SbpfSemantics.Api` /
      `Observation`），见 [`../research/09-assembler-semantics-bridge.md`](../research/09-assembler-semantics-bridge.md)。
-     ADR-0048 accepted并完成same-source adapter前不得作为target refinement、clean-room或release证据。
+     完成provider execution/theorem且release source closure闭合前，不得作为clean-room或release证据。
 4. local runtime 完成 Counter 正常与 overflow rollback。
 5. 可用时增加官方 validator deployment evidence。
 

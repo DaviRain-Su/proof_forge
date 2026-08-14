@@ -26,8 +26,9 @@ normative: false
 2026-08-14 source audit确认该revision使用Lean 4.31.0、无transitive Lake dependency，并公开
 resolved instruction runner、memory/host dialect、observation与encode/decode。它仍不提供`.s` parser、
 label resolver、ELF reader或production Solana account serializer。候选promotion边界已写入
-[`ADR-0048`](../adr/0048-optional-solana-sbpf-semantics-provider.md)；该ADR仍为`proposed`，因此当前
-仓库**没有**新增Lake dependency，也没有provider-backed refinement claim。
+[`ADR-0048`](../adr/0048-optional-solana-sbpf-semantics-provider.md)；该ADR已`accepted`并固定development
+Lake pin。ProofForge现已直接解析/resolve production StateCell `.s`为provider `Program`，但尚未
+构造Loader V3 input或执行provider observation，所以仍**没有**provider-backed refinement claim。
 
 ## Why it matters for V2
 
@@ -45,26 +46,30 @@ observation surface**, not the full SVM/account model. That matches OOS-002
 - Encode/decode and redecode preservation goldens.
 - A plug-in `ExecDialect` / `hostExec` for host effects.
 
-## Proposed future wiring (not implemented here)
+## Current wiring and remaining execution seam
 
 ```text
 ProofForgeV2.Solana materializer
-    │ emits Array Instr  (resolved)
+    │ exact production .s + expected SHA-256
     ▼
-import SbpfSemantics.Api   -- optional formal/trace profile
+SbpfArtifactV1 strict parse/resolve
+    │ Array Instr (resolved)
+    ▼
+SbpfSemantics.Api   -- optional formal/trace profile
     pfRun / Observation / pfEncode
     ▼
 differential vs Mollusk / sbpf VM (external evidence)
 ```
 
-Promotion path (when ADR-0048 is accepted):
+Promotion path (ADR-0048 accepted; 1–2 complete):
 
 1. Add the exact ADR-0048 revision to Lake and the supply-chain closure.
-2. Refactor the production emitter to one structured instruction source; render `.s` and project
-   `SbpfSemantics.Instr` from that same source.
-3. TST-SOL-*: `Observation.controlEq` against Semantic.Program reference traces
+2. Strictly parse and resolve the exact production `.s` artifact into `SbpfSemantics.Instr`; do not add
+   a proof-only `HandlerIR → Program` code generator.
+3. Build the real Loader V3 single-account input and execute the resolved program.
+4. TST-SOL-*: `Observation.controlEq` against Semantic.Program reference traces
    for Counter portable fragment.
-4. Keep product ELF path independent (sbpf toolchain); formal lane fail-closed
+5. Keep product ELF path independent (sbpf toolchain); formal lane fail-closed
    if pin missing.
 
 ## Concrete integration surface (sibling Phase 1)

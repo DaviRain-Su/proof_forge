@@ -1,6 +1,10 @@
 import Lake
 open Lake DSL
 
+require «assembler-semantics» from git
+  "https://github.com/DaviRain-Su/assembler-semantics.git" @
+    "ef6e20c20827e4158e1cb025518465aa8beb46da"
+
 private def xcrunValue (args : Array String) : IO String := do
   let output ← IO.Process.output {
     cmd := "/usr/bin/xcrun"

@@ -1,0 +1,31 @@
+{
+  "schema": "proof-forge.assembler-semantics-authority.v1",
+  "schemaVersion": 1,
+  "role": "external-solana-sbpf-isa-semantics-source-authority",
+  "repository": "https://github.com/DaviRain-Su/assembler-semantics",
+  "revision": "ef6e20c20827e4158e1cb025518465aa8beb46da",
+  "tree": "20704a01dc8b78f08531e190af9828de7836c8d0",
+  "package": "assembler-semantics",
+  "version": "0.1.0",
+  "leanToolchain": "leanprover/lean4:v4.31.0",
+  "stableImport": "SbpfSemantics.Api",
+  "stableApiSha256": "6b20d08ced3d08e6141ebb46585001027f2df01ab4ea6676d17da062719d228b",
+  "interfacePath": "docs/proof-forge-interface.md",
+  "interfaceSha256": "f0f04a80e20ef48e6861c2cd4d3dc1a8a040379021fc0a253f2921be75337ce3",
+  "licenseSpdx": "Apache-2.0",
+  "licenseSha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
+  "transitiveLakePackages": [],
+  "planning": "docs/adr/0048-optional-solana-sbpf-semantics-provider.md",
+  "notCovered": [
+    "ProofForge production assembly parsing and label resolution",
+    "Loader V3 account serialization",
+    "ELF, linker, loader, Agave, Mollusk, or validator correctness",
+    "complete Solana host, CPI, compute metering, crypto, or sysvars",
+    "release candidate vendored source-dependency file-set"
+  ],
+  "notes": [
+    "Development formal/trace dependency only; the ordinary product sbpf-to-ELF rail is unchanged.",
+    "The provider contains native_decide examples and theorems. ProofForge theorem dependency closures must not depend on those declarations.",
+    "An ambient .lake/packages checkout is not release evidence and must not be treated as candidate content."
+  ]
+}

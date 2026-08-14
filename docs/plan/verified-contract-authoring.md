@@ -896,10 +896,13 @@ assembly emitter、sBPF ISA、ELF、loader或Solana runtime。
 
 当前顺序固定为：NEAR identity-bound双平台engineering出口已关闭；Solana
 `StateCell.get/initialize/increment` 的 bounded Reference→production HandlerIR kernel join已闭合，
-下一步候选为 [`ADR-0048`](../adr/0048-optional-solana-sbpf-semantics-provider.md) 的
-HandlerIR→shared production lowering→外部sBPF semantics。该ADR仍为`proposed`，因此当前只完成
-source/API audit与decision proposal，尚未授权Lake pin或provider-backed theorem。接线时必须先让
-production `.s` 与resolved instructions共享同一结构化lowering source，不能另写proof-only codegen。
+[`ADR-0048`](../adr/0048-optional-solana-sbpf-semantics-provider.md) 已accepted并完成第一接线：
+exact development Lake pin，以及 `emitSbpfAsmV1`真实`.s` artifact的bounded strict parser、label/
+constant/operand/syscall resolver和SHA-256 identity gate。production StateCell已解析为168条provider
+instructions、17个labels、12个constants；valid-text tamper、unknown/duplicate/unresolved/out-of-range/
+unsupported均有fail-closed回归。下一步是Loader V3 single-account input adapter与provider execution
+observation；当前尚无provider-backed refinement theorem，且release source-dependency/SBOM closure
+继续独立fail closed。整个接线不能另写proof-only codegen。
 再后评估外部Yul/EVM/bytecode semantics，
 最后扩其他target。每个target独立关闭，不能用一个target的refinement为其他target背书；也不在
 ProofForge内自造完整EVM opcode、Wasm binary、sBPF或Solana runtime semantics。

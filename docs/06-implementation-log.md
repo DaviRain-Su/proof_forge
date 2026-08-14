@@ -15858,7 +15858,7 @@ normative: false
 ## 2026-08-14 — Solana外部sBPF semantics provider source audit与ADR提案
 
 - 已核验公开 `DaviRain-Su/assembler-semantics` revision
-  `ef6e20c20827e4158e1cb025518465aa8beb46da`：Lean 4.31.0、MIT、无transitive Lake dependency；
+  `ef6e20c20827e4158e1cb025518465aa8beb46da`：Lean 4.31.0、Apache-2.0、无transitive Lake dependency；
   stable `SbpfSemantics.Api`提供resolved instruction、small-step runner、flat memory、host dialect、
   observation与encode/decode。
 - provider不提供`.s` parser、label resolver、ELF、Loader V3 account serializer、完整SVM host或Agave
@@ -15869,3 +15869,33 @@ normative: false
   substring identity与产品fallback。locked `sbpf`→ELF rail保持不变。
 - ADR当前仍为`proposed`，所以本切**没有**修改Lake manifest、没有引入provider代码，也没有产生
   HandlerIR→sBPF theorem或提升maturity。后续接线须先完成ADR acceptance与exact supply-chain pin。
+
+## 2026-08-14 — ADR-0048 acceptance与production-artifact seam修正
+
+- 逐行复核production `EmitSbpfAsmV1`后确认当前authority是最终`.s`字符串，并无surface assembly
+  AST。若先另建/执行render前AST，会绕过“target evaluator只执行真实production artifact”的要求。
+- ADR-0048已accepted并修正为`.s` artifact-first：strict parse `.equ`/labels/operands/syscalls、resolve
+  provider `Instr`；任何unknown/duplicate/unresolved/out-of-range/unsupported均fail closed。明确禁止
+  proof-only `HandlerIR→Program`第二codegen。
+- source audit纠正provider license为Apache-2.0；其stable API虽导入provider内部`native_decide`
+  examples/theorems，ProofForge新增theorem不得依赖这些声明，只依赖definitions/ordinary proofs。
+- Lake加入40位exact Git revision；source-authority manifest绑定repository/revision/tree/API/interface/
+  license digest。该development pin不代签SPEC-TOOL-001要求的release vendored source-dependency
+  file-set；后者未闭合前candidate-bound SBOM/clean-room qualification继续fail closed。
+
+## 2026-08-14 — production Solana `.s`→provider Program桥接
+
+- 新增`SbpfArtifactV1`，直接消费`emitSbpfAsmV1`最终字符串；bounded strict parser处理`.equ`、
+  `.globl`、labels、register/memory/immediate expressions与StateCell实际instruction/syscall vocabulary，
+  再解析relative labels为exact-pinned `SbpfSemantics.Program`。没有新增HandlerIR lowering、业务
+  evaluator或第二套ISA semantics。
+- unknown directive/mnemonic/syscall、duplicate symbol/global、unresolved label、invalid register/
+  operand count、64-bit immediate与signed-16 offset越界、provider well-formed/encodable拒绝全部
+  fail closed。identity-bound入口在解析/执行前校验64位lowercase SHA-256；因此语法仍合法的layout
+  tamper也不能冒充被选中的production artifact。
+- 真实StateCell compiler→capability→IR→`emitSbpfAsmV1`流水线固定SHA-256
+  `c93b1448aa782550b7643ccced44209c57df604a866c236552dadc5ac6a159c1`，成功解析168条instructions、
+  17个labels、12个constants；对应positive与fail-closed negatives均进入`SolanaAsmV1`回归。
+- 本切只关闭artifact bytes→resolved provider instruction bridge。尚未构造Loader V3 account input、
+  执行provider machine、比较HandlerIR observation或产生kernel refinement theorem；也不证明ELF、
+  linker/loader、Mollusk/Agave/runtime。release source-dependency file-set仍未闭合。
