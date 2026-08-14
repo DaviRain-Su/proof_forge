@@ -10,9 +10,10 @@ pinned `SbpfSemantics` provider.
 
 This module does not lower `HandlerIR` to sBPF and does not define another
 business transition. `ExecutedHandlerSbpfJoinV1` requires equations for both
-existing evaluators. The remaining StateCell work is to discharge the provider
-execution equation with a bounded sparse trace certificate; an engineering
-`#eval` observation is not such a certificate.
+existing evaluators. The StateCell `get` path now has a complete 55-step sparse
+provider certificate, but its lookup/read/store assumptions are not yet derived
+from the identity-bound artifact and encoded Loader input. Until that binding
+is closed, an engineering `#eval` observation is not an execution theorem.
 -/
 
 namespace ProofForgeV2.Targets.Solana

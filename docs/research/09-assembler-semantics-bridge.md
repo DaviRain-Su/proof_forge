@@ -31,9 +31,9 @@ Lake pin。ProofForge现已直接解析/resolve production StateCell `.s`为prov
 single-account Loader V3 ABIv1 image执行bounded provider observations。`SbpfHandlerJoinV1`已固定
 Handler invocation↔Loader invocation、success/overflow observation及Reference→Handler→provider
 组合关系，并要求真实两侧evaluator等式；但production 168条program的provider执行等式尚未由
-完整kernel trace certificate闭合。当前exact lookup/read假设下的首段已证明PC 0..7共8步到达
-PC 10并保持memory/call state；剩余47步及identity-bound parser→lookup绑定仍缺，所以仍**没有**
-concrete provider-backed refinement claim。
+identity-bound assumptions闭合。当前exact lookup/read/store-effect假设下已证明完整55-step `get`
+轨迹与provider `runFuel` status-zero等式；strict parser/encoded input→这些假设的kernel绑定仍缺，
+所以仍**没有**concrete provider-backed refinement claim。
 
 ## Why it matters for V2
 
@@ -77,8 +77,9 @@ Promotion path (ADR-0048 accepted; 1–3 complete, 4 in progress):
 3. Build the real Loader V3 single-account input and execute the resolved program.
 4. `SbpfHandlerJoinV1`先固定两侧invocation/outcome/account join，再以bounded sparse provider trace
    discharge identity-bound execution equations and compose with existing Reference→Handler theorems。
-   `get`首段8/55步已完成；继续PC 10后的47步，并单独从strict identity-bound artifact解析结果
-   推导全部执行路径lookup assumptions。
+   `get`完整55/55步与`runFuel` status-zero sparse theorem已完成；下一步从strict identity-bound
+   artifact与encoded Loader input推导全部program lookup、memory read及stack-store assumptions，
+   再关闭`executeLoaderV3SingleAccountV1` concrete equation。
 5. Keep product ELF path independent (sbpf toolchain); formal lane fail-closed
    if pin missing.
 
@@ -102,8 +103,8 @@ Contract: sibling `docs/proof-forge-interface.md`.
 - Does not claim Agave binary compatibility.
 - Does not satisfy clean-room until pinned under V2 dependency policy.
 - Current join carrier/relations are not a proof that the 168-instruction StateCell artifact executes them;
-  the first 8/55 `get` steps are certified only under lookup/read assumptions, and the remaining trace plus
-  artifact-identity binding are still required.
+  all 55/55 `get` steps are certified under sparse lookup/read/store assumptions, but strict artifact/input
+  derivation of those assumptions is still required.
 
 ## Related V1 research (parent, also research-only)
 

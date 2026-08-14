@@ -46,6 +46,34 @@ open SbpfSemantics
       (Memory.initial input rodata maxDepth).initialFp := by
   rfl
 
+@[simp] theorem setReg_halted (m : Machine) (r : Reg) (v : Word) :
+    (m.setReg r v).halted = m.halted := by rfl
+
+@[simp] theorem setReg_pc (m : Machine) (r : Reg) (v : Word) :
+    (m.setReg r v).pc = m.pc := by rfl
+
+@[simp] theorem setReg_mem (m : Machine) (r : Reg) (v : Word) :
+    (m.setReg r v).mem = m.mem := by rfl
+
+@[simp] theorem setReg_frames (m : Machine) (r : Reg) (v : Word) :
+    (m.setReg r v).frames = m.frames := by rfl
+
+@[simp] theorem setReg_maxDepth (m : Machine) (r : Reg) (v : Word) :
+    (m.setReg r v).maxDepth = m.maxDepth := by rfl
+
+@[simp] theorem setReg_returnData (m : Machine) (r : Reg) (v : Word) :
+    (m.setReg r v).returnData = m.returnData := by rfl
+
+@[simp] theorem setReg_getReg_same (m : Machine) (r : Reg) (v : Word) :
+    (m.setReg r v).getReg r = v := by
+  simp [Machine.setReg, Machine.getReg]
+
+@[simp] theorem setReg_getReg_ne (m : Machine) (r s : Reg) (v : Word)
+    (h : s ≠ r) :
+    (m.setReg r v).getReg s = m.getReg s := by
+  have hv : s.val ≠ r.val := fun heq => h (Fin.ext heq)
+  simp [Machine.setReg, Machine.getReg, Ne.symm hv]
+
 @[simp] theorem advancePc_halted (m : Machine) :
     m.advancePc.halted = m.halted := by rfl
 
@@ -87,6 +115,24 @@ open SbpfSemantics
 
 @[simp] theorem setPc_returnData (m : Machine) (pc : Nat) :
     (m.setPc pc).returnData = m.returnData := by rfl
+
+@[simp] theorem halt_pc (m : Machine) (code : Word) :
+    (m.halt code).pc = m.pc := by rfl
+
+@[simp] theorem halt_mem (m : Machine) (code : Word) :
+    (m.halt code).mem = m.mem := by rfl
+
+@[simp] theorem halt_frames (m : Machine) (code : Word) :
+    (m.halt code).frames = m.frames := by rfl
+
+@[simp] theorem halt_halted (m : Machine) (code : Word) :
+    (m.halt code).halted = some code := by rfl
+
+@[simp] theorem halt_returnData (m : Machine) (code : Word) :
+    (m.halt code).returnData = m.returnData := by rfl
+
+@[simp] theorem halt_getReg (m : Machine) (code : Word) (r : Reg) :
+    (m.halt code).getReg r = m.getReg r := by rfl
 
 @[simp] theorem put64_halted (m : Machine) (r : Reg) (v : Word) :
     (put64 m r v).halted = m.halted := by rfl
@@ -188,6 +234,23 @@ open SbpfSemantics
     (off : Word) (hhalt : m.halted = none) :
     execInstr D m (.callRel off) = execCallRel m off := by
   simp [execInstr, Instr.callRel, Opcode.opClass, hhalt]
+
+@[simp] theorem execInstrCallSyscall (D : ExecDialect) (m : Machine)
+    (name : String) (hhalt : m.halted = none) :
+    execInstr D m (.callSyscall name) = execSyscall D m name := by
+  simp [execInstr, Instr.callSyscall, Opcode.opClass, hhalt]
+
+/-- Reduce the modeled Solana return-data syscall from its exact memory read.
+This is a projection of the provider host dialect, not a new host semantic. -/
+@[simp] theorem execInstrSetReturnData (m : Machine) (data : Array UInt8)
+    (hhalt : m.halted = none)
+    (hread : m.mem.readBytes (m.getReg 1) (m.getReg 2).toNat = some data) :
+    execInstr asmDefaultHost m (.callSyscall "sol_set_return_data") =
+      some (({ m with returnData := data }).setReg 0 0).advancePc := by
+  have hnotLog : isLogSyscall "sol_set_return_data" = false := by decide
+  rw [execInstrCallSyscall asmDefaultHost m "sol_set_return_data" hhalt]
+  simp [execSyscall, asmDefaultHost, hostExec, hostSyscallFn,
+    hostSetReturnData, Machine.arg, hread, hnotLog, hhalt, word0]
 
 @[simp] theorem execInstrExit (D : ExecDialect) (m : Machine)
     (hhalt : m.halted = none) :

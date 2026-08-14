@@ -15950,3 +15950,20 @@ normative: false
   identity-bound artifact parser推导8个lookup assumptions，且完整55-step `get`仍剩47步。因此
   `executeLoaderV3SingleAccountV1` concrete equation与ReferenceMachine→sBPF refinement theorem仍未闭合；
   initialize/increment/overflow、ELF/loader/runtime/rollback/compute units也没有因此升级。
+
+## 2026-08-14 — Solana StateCell `get`完整55-step sparse provider certificate
+
+- `SbpfStateCellGetV1`现按真实production PC轨迹闭合dispatch、method discriminator、owner/program-id
+  四个UInt64 chunk、StateCell marker/value、return-data syscall、call-frame restore与dispatcher exit，
+  共55/55个exact provider `Steps`；中间carrier按PC 10/128/138/150/158/162/165/166切分，避免把
+  10416-byte Loader image或168条program复制成proof-only evaluator。
+- return epilogue以provider现有`execInstr`/host syscall/exit definitions证明；新增helper仅投影provider
+  `Machine`字段并归约`sol_set_return_data`。两个`stxdw`的exact execution equations仍显式保留为
+  certificate assumptions，因为provider未公开store operand reduction theorem；没有用`#eval`、
+  `native_decide`、axiom、`sorry`或`unsafe theorem`替代kernel proof。
+- 完整composition theorem从entry给出55步status-zero halt、空call frames、`r0=0`、返回bytes及input
+  account window不变，并由`runFuel_eq_halted_of_steps`导出provider executable `runFuel`等式。
+- 本切关闭的是**symbolic sparse trace 55/55**，不是concrete identity-bound execution equation。
+  strict parser产出的production `program[pc]?` lookups、encoded Loader input reads及两个stack-store
+  effects尚未自动推导；`SbpfHandlerJoinV1`、Reference→sBPF concrete refinement、initialize/increment/
+  overflow以及ELF/loader/runtime/rollback/compute units继续保持未升级。
