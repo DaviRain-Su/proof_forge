@@ -2225,6 +2225,37 @@ private unsafe def checkVoidEntryFailClosed : IO Unit := do
       throw <| IO.userError
         "void entry must fail closed at Noir plan materialize"
 
+/-- N-CALL-RET: value-position `call Oracle.feed` stays Plan FC. Void
+    `call Oracle.feed` is already admitted as ExtFlow witness-binding. -/
+private unsafe def checkResultBearingExternalCallFailClosed : IO Unit := do
+  let text :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CallRetNoir where\n" ++
+    "  entry probe(k : UInt64) : UInt64 do\n" ++
+    "    let x : UInt64 := call Oracle.feed(k)\n" ++
+    "    return x\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1 text
+    "<noir-call-ret>" "Examples.CallRetNoir" none)
+  let compiled ← match Compiler.compileValidatedSourceV1 source with
+    | .ok compiled => pure compiled
+    | .error err =>
+        throw <| IO.userError
+          s!"CallRetNoir must compile through compileValidatedSourceV1, got {err.render}"
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  match Targets.Noir.planFromCapability capability with
+  | .error e =>
+      expect (e.render.contains "result-bearing external call")
+        s!"CallRetNoir Plan FC must contain 'result-bearing external call', got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "CallRetNoir must Plan fail closed (result-bearing Oracle.feed)"
+
 /-- SYS-S5: Noir has no sha256 host. Exact `pf.crypto.sha256` and sibling
     QNs stay Plan fail closed (no circuit-stdlib / oracle fallback). -/
 private unsafe def checkCryptoSha256StayFailClosed : IO Unit := do
@@ -4118,6 +4149,7 @@ unsafe def run : IO Unit := do
   checkForLoopProduct
   checkShiftBitwiseLogicalProduct
   checkExternalCallScheduleProduct
+  checkResultBearingExternalCallFailClosed
   checkVoidEntryFailClosed
   checkCryptoSha256StayFailClosed
   checkContextReadStayFailClosed
