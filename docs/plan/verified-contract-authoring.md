@@ -907,12 +907,16 @@ account bytes、error、`.stuck`/`.outOfFuel`和malformed-input fail-closed行�
 success/overflow observation relation、同时要求真实`observeHandlerIRV1`与identity-bound
 `executeLoaderV3SingleAccountV1`等式的carrier，以及既有Reference→Handler success relation到provider
 return/account window的组合投影。production StateCell `get`稀疏逐步证书已经kernel闭合完整55步：
-在exact `program[pc]?`、Loader input reads与两个stack-store effect假设下，provider从entry执行到
+在exact `program[pc]?`、Loader input reads与两个stack-store effect contract下，provider从entry执行到
 status-zero halt，同时固定return data、`r0`、call frames与input account window；并已导出provider
-`runFuel`等式。该证书不复制proof-only program，但尚未从identity-bound strict parser与encoded
-Loader input推导这些假设，所以仍无concrete provider-backed refinement theorem。下一步单独完成
-artifact/input identity→lookup/read/store-effect certificate；不能把工程`#eval`结果或直接展开
-10416-byte Loader image冒充kernel proof。
+`runFuel`等式。该证书不复制proof-only program；exact production SHA-256与全部lookup现由可执行
+fail-closed checker绑定，checker success可kernel投影为certificate lookup contract，且真实artifact
+回归已通过。concrete encoded Loader input reads也已由第二个checker认证并kernel投影为全部read
+contracts，真实get input通过且tamper fail closed。两个stack store现直接执行provider `execInstr`并
+返回proof-bearing certificate，真实return stack成功且tampered bytes fail closed；单一sound checker
+已组合identity、lookup、reads、实际44-step prefix store derivation与55-step/`runFuel`。仍需在production
+artifact/input的kernel接线中discharge该gate并连接Loader execution API，所以尚无concrete provider-backed refinement
+theorem；不能把工程`#eval`结果或直接展开10416-byte Loader image冒充kernel proof。
 release source-dependency/SBOM closure也继续独立fail closed。
 整个接线不能另写proof-only codegen或第二套business semantics。
 再后评估外部Yul/EVM/bytecode semantics，
@@ -1005,7 +1009,7 @@ ProofForge内自造完整EVM opcode、Wasm binary、sBPF或Solana runtime semant
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR双平台engineering出口已关闭；Solana bounded HandlerIR join已闭合，provider `get` sparse trace 55/55步）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；rc.1 provider及Darwin GMP/Linux system closure已进入独立 Tool Lock rows。run `31781471216` 的Linux target-smoke与Darwin arm64 locked consumer均成功；结论严格限于identity-bound engineering join，不是一般IR/WAT→Wasm simulation theorem。Solana `get/initialize/increment` 已有kernel Reference→production Plan/HandlerIR join，成功post-state/return与overflow双侧exact pre-state snapshot已对齐；sBPF provider `get`已闭合完整55步sparse certificate和`runFuel` status-zero theorem，但program lookup、Loader memory read与stack-store effect尚未从identity-bound artifact/input推导，不能据此声明concrete provider/ELF/runtime refinement |
+| 7 | Per-target refinement | **进行中（NEAR双平台engineering出口已关闭；Solana bounded HandlerIR join已闭合，provider `get` sparse trace 55/55步）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；rc.1 provider及Darwin GMP/Linux system closure已进入独立 Tool Lock rows。run `31781471216` 的Linux target-smoke与Darwin arm64 locked consumer均成功；结论严格限于identity-bound engineering join，不是一般IR/WAT→Wasm simulation theorem。Solana `get/initialize/increment` 已有kernel Reference→production Plan/HandlerIR join，成功post-state/return与overflow双侧exact pre-state snapshot已对齐；sBPF provider `get`已闭合完整55步sparse certificate和`runFuel` status-zero theorem，exact artifact/input与proof-bearing provider stack-store derivation已组合为单一sound trace gate；尚需在production Loader kernel join中discharge该gate并连接execution API，不能据此声明concrete provider/ELF/runtime refinement |
 
 ### 首个代码切片进展
 

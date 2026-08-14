@@ -229,6 +229,10 @@ private unsafe def testStateCellSbpfArtifact
   let boundArtifact ← liftArtifactResult <|
     resolveBoundSbpfArtifactV1 asm expectedSha256
   let artifact := BoundResolvedSbpfArtifactV1.resolvedOf boundArtifact
+  expect (checkStateCellGetArtifactV1 boundArtifact)
+    "sBPF artifact: exact production identity and all get certificate lookups"
+  expect (!checkStateCellGetProgramLookupsV1 (artifact.program.set! 11 .exit))
+    "sBPF artifact: tampered get certificate lookup must fail closed"
   expect (artifact.sourceSha256 == expectedSha256)
     "sBPF artifact: source digest must bind the exact production text"
   expect (artifact.global == "entrypoint")
@@ -388,6 +392,25 @@ private unsafe def testStateCellSbpfExecution
   let encodedGet ← liftExecutionResult <|
     encodeLoaderV3SingleAccountInputV1 boundArtifact
       (invocation initialized (instructionData getDisc none) false false)
+  let getValue := BitVec.ofNat 64 41
+  expect (checkStateCellGetInputReadsV1 encodedGet getValue)
+    "sBPF execution input: all get certificate reads must be certified"
+  expect (!checkStateCellGetInputReadsV1
+      (encodedGet.set! (accountDataOffsetV1 + 8) 0) getValue)
+    "sBPF execution input: tampered get value must fail read certification"
+  let getEntry := SbpfSemantics.Machine.entry encodedGet
+  let getPrefix := SbpfSemantics.runFuel SbpfSemantics.asmDefaultHost
+    artifact.program 44 getEntry
+  expect (decide (getPrefix.2 = .outOfFuel))
+    "sBPF execution return: 44-step prefix must stop before the epilogue"
+  expect (getPrefix.1.pc == 158)
+    s!"sBPF execution return: expected prefix PC 158, got {getPrefix.1.pc}"
+  let getReturnBytes := SbpfSemantics.wordToLE getValue
+  expect (checkStateCellGetTraceV1 boundArtifact encodedGet getReturnBytes getValue)
+    "sBPF execution return: complete 55-step trace gate must pass"
+  expect (!checkStateCellGetTraceV1 boundArtifact encodedGet
+      (getReturnBytes.set! 0 0) getValue)
+    "sBPF execution return: tampered bytes must fail the complete trace gate"
   let wordAt (offset : Nat) : SbpfSemantics.Word :=
     SbpfSemantics.wordFromLE (encodedGet.extract offset (offset + 8))
   expect (encodedGet.size == 0x28b0)

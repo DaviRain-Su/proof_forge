@@ -1,22 +1,28 @@
 import ProofForgeV2.Targets.Solana.SbpfProviderStepV1
+import ProofForgeV2.Targets.Solana.SbpfArtifactV1
 
 /-!
 # Solana StateCell `get` provider certificate
 
 Sparse, kernel-checkable execution certificates for the complete 55-step
-production StateCell `get` path. The certificates are parameterized by exact
-provider `Program` lookups, relevant input-memory reads, and the two provider
-stack-store effects. They neither clone a proof-only program nor claim that
-those assumptions are already derived from the identity-bound production
-artifact. That artifact-to-assumption binding remains a separate obligation
-before this can discharge the provider execution equation in
-`SbpfHandlerJoinV1`.
+production StateCell `get` path. An executable, sound checker binds every
+instruction lookup used by the certificate to an exact production artifact
+identity; a second executable, sound checker binds every sparse read to a
+concrete Loader input. A proof-bearing provider evaluator derives the two stack
+store effects and fails closed when the stores or resulting reads differ. The
+module neither clones a proof-only program nor claims a complete source-to-sBPF
+refinement theorem.
 -/
 
 namespace ProofForgeV2.Targets.Solana
 
 open SbpfSemantics
 open ProviderStepV1
+
+/-- Exact current production StateCell `.s` identity. This is the sole identity
+    used by the strict artifact gate, provider certificate, and HandlerIR join. -/
+def stateCellProductionSbpfSha256V1 : String :=
+  "c93b1448aa782550b7643ccced44209c57df604a866c236552dadc5ac6a159c1"
 
 /-- Exact fetched instructions for the first production StateCell `get`
 dispatch segment. This is a sparse lookup contract, not another program. -/
@@ -29,6 +35,24 @@ structure StateCellGetDispatchPrefixProgramV1 (program : Program) : Prop where
   pc5 : program[5]? = some (.loadMem .Ldxdw 1 6 10360)
   pc6 : program[6]? = some (.jumpImm .JltImm 1 8 1)
   pc7 : program[7]? = some (.ja 2)
+
+instance (program : Program) :
+    Decidable (StateCellGetDispatchPrefixProgramV1 program) := by
+  let checks : Prop :=
+    (program[0]? = some (.binReg .Mov64Reg 6 1) ∧
+      program[1]? = some (.loadMem .Ldxdw 1 6 0) ∧
+      program[2]? = some (.jumpImm .JneImm 1 1 5) ∧
+      program[3]? = some (.loadMem .Ldxb 1 6 8) ∧
+      program[4]? = some (.jumpImm .JneImm 1 255 3) ∧
+      program[5]? = some (.loadMem .Ldxdw 1 6 10360) ∧
+      program[6]? = some (.jumpImm .JltImm 1 8 1) ∧
+      program[7]? = some (.ja 2))
+  apply decidable_of_iff checks
+  constructor
+  · rintro ⟨h0, h1, h2, h3, h4, h5, h6, h7⟩
+    exact ⟨h0, h1, h2, h3, h4, h5, h6, h7⟩
+  · intro h
+    exact ⟨h.pc0, h.pc1, h.pc2, h.pc3, h.pc4, h.pc5, h.pc6, h.pc7⟩
 
 /-- Sparse Loader V3 input reads needed by the first dispatch segment. -/
 structure StateCellGetDispatchPrefixInputV1 (input : Array UInt8) : Prop where
@@ -59,13 +83,32 @@ segment. The two preceding discriminators are rejected before the `get`
 discriminator is accepted and its relative call enters PC 128. -/
 structure StateCellGetMethodDispatchProgramV1 (program : Program) : Prop where
   pc10 : program[10]? = some (.loadMem .Ldxdw 1 6 10368)
-  pc11 : program[11]? = some (.lddw 2 7217117098932222302)
+  pc11 : program[11]? = some (.lddw 2 7217115878876727646)
   pc12 : program[12]? = some (.jumpReg .JneReg 1 2 2)
-  pc15 : program[15]? = some (.lddw 2 2467648035969329053)
+  pc15 : program[15]? = some (.lddw 2 2467651336600536989)
   pc16 : program[16]? = some (.jumpReg .JneReg 1 2 2)
   pc19 : program[19]? = some (.lddw 2 4025532893697057444)
   pc20 : program[20]? = some (.jumpReg .JneReg 1 2 2)
   pc21 : program[21]? = some (.callRel 106)
+
+instance (program : Program) :
+    Decidable (StateCellGetMethodDispatchProgramV1 program) := by
+  let checks : Prop :=
+    (program[10]? = some (.loadMem .Ldxdw 1 6 10368) ∧
+      program[11]? = some (.lddw 2 7217115878876727646) ∧
+      program[12]? = some (.jumpReg .JneReg 1 2 2) ∧
+      program[15]? = some (.lddw 2 2467651336600536989) ∧
+      program[16]? = some (.jumpReg .JneReg 1 2 2) ∧
+      program[19]? = some (.lddw 2 4025532893697057444) ∧
+      program[20]? = some (.jumpReg .JneReg 1 2 2) ∧
+      program[21]? = some (.callRel 106))
+  apply decidable_of_iff checks
+  constructor
+  · rintro ⟨h10, h11, h12, h15, h16, h19, h20, h21⟩
+    exact ⟨h10, h11, h12, h15, h16, h19, h20, h21⟩
+  · intro h
+    exact ⟨h.pc10, h.pc11, h.pc12, h.pc15, h.pc16, h.pc19, h.pc20,
+      h.pc21⟩
 
 /-- Sparse Loader V3 instruction-data read used by method dispatch. -/
 structure StateCellGetMethodDispatchInputV1 (input : Array UInt8) : Prop where
@@ -192,6 +235,27 @@ structure StateCellGetBodyPreludeProgramV1 (program : Program) : Prop where
   pc136 : program[136]? = some (.binImm .Add64Imm 2 10368)
   pc137 : program[137]? = some (.binReg .Add64Reg 2 1)
 
+instance (program : Program) :
+    Decidable (StateCellGetBodyPreludeProgramV1 program) := by
+  let checks : Prop :=
+    (program[128]? = some (.loadMem .Ldxdw 1 6 0) ∧
+      program[129]? = some (.jumpImm .JneImm 1 1 26) ∧
+      program[130]? = some (.loadMem .Ldxb 1 6 8) ∧
+      program[131]? = some (.jumpImm .JneImm 1 255 24) ∧
+      program[132]? = some (.loadMem .Ldxdw 1 6 10360) ∧
+      program[133]? = some (.jumpImm .JneImm 1 8 22) ∧
+      program[134]? = some (.loadMem .Ldxdw 1 6 10360) ∧
+      program[135]? = some (.binReg .Mov64Reg 2 6) ∧
+      program[136]? = some (.binImm .Add64Imm 2 10368) ∧
+      program[137]? = some (.binReg .Add64Reg 2 1))
+  apply decidable_of_iff checks
+  constructor
+  · rintro ⟨h128, h129, h130, h131, h132, h133, h134, h135, h136, h137⟩
+    exact ⟨h128, h129, h130, h131, h132, h133, h134, h135, h136, h137⟩
+  · intro h
+    exact ⟨h.pc128, h.pc129, h.pc130, h.pc131, h.pc132, h.pc133, h.pc134,
+      h.pc135, h.pc136, h.pc137⟩
+
 /-- Exact fetched instructions for four little-endian owner/program-id chunk
 comparisons in the production `get` body. -/
 structure StateCellGetOwnerCheckProgramV1 (program : Program) : Prop where
@@ -207,6 +271,31 @@ structure StateCellGetOwnerCheckProgramV1 (program : Program) : Prop where
   pc147 : program[147]? = some (.loadMem .Ldxdw 1 6 72)
   pc148 : program[148]? = some (.loadMem .Ldxdw 3 2 24)
   pc149 : program[149]? = some (.jumpReg .JneReg 1 3 6)
+
+instance (program : Program) :
+    Decidable (StateCellGetOwnerCheckProgramV1 program) := by
+  let checks : Prop :=
+    (program[138]? = some (.loadMem .Ldxdw 1 6 48) ∧
+      program[139]? = some (.loadMem .Ldxdw 3 2 0) ∧
+      program[140]? = some (.jumpReg .JneReg 1 3 15) ∧
+      program[141]? = some (.loadMem .Ldxdw 1 6 56) ∧
+      program[142]? = some (.loadMem .Ldxdw 3 2 8) ∧
+      program[143]? = some (.jumpReg .JneReg 1 3 12) ∧
+      program[144]? = some (.loadMem .Ldxdw 1 6 64) ∧
+      program[145]? = some (.loadMem .Ldxdw 3 2 16) ∧
+      program[146]? = some (.jumpReg .JneReg 1 3 9) ∧
+      program[147]? = some (.loadMem .Ldxdw 1 6 72) ∧
+      program[148]? = some (.loadMem .Ldxdw 3 2 24) ∧
+      program[149]? = some (.jumpReg .JneReg 1 3 6))
+  apply decidable_of_iff checks
+  constructor
+  · rintro ⟨h138, h139, h140, h141, h142, h143, h144, h145, h146, h147,
+      h148, h149⟩
+    exact ⟨h138, h139, h140, h141, h142, h143, h144, h145, h146, h147,
+      h148, h149⟩
+  · intro h
+    exact ⟨h.pc138, h.pc139, h.pc140, h.pc141, h.pc142, h.pc143, h.pc144,
+      h.pc145, h.pc146, h.pc147, h.pc148, h.pc149⟩
 
 /-- Sparse Loader V3 reads witnessing exact equality of all four 64-bit owner
 and program-id chunks. -/
@@ -234,6 +323,22 @@ structure StateCellGetStateCheckProgramV1 (program : Program) : Prop where
   pc154 : program[154]? = some (.jumpReg .JneReg 1 2 1)
   pc155 : program[155]? = some (.ja 2)
 
+instance (program : Program) :
+    Decidable (StateCellGetStateCheckProgramV1 program) := by
+  let checks : Prop :=
+    (program[150]? = some (.loadMem .Ldxdw 1 6 88) ∧
+      program[151]? = some (.jumpImm .JneImm 1 16 4) ∧
+      program[152]? = some (.loadMem .Ldxdw 1 6 96) ∧
+      program[153]? = some (.lddw 2 846264958600013564) ∧
+      program[154]? = some (.jumpReg .JneReg 1 2 1) ∧
+      program[155]? = some (.ja 2))
+  apply decidable_of_iff checks
+  constructor
+  · rintro ⟨h150, h151, h152, h153, h154, h155⟩
+    exact ⟨h150, h151, h152, h153, h154, h155⟩
+  · intro h
+    exact ⟨h.pc150, h.pc151, h.pc152, h.pc153, h.pc154, h.pc155⟩
+
 /-- Sparse account-data reads needed by StateCell layout validation. -/
 structure StateCellGetStateCheckInputV1 (input : Array UInt8) : Prop where
   accountDataLength :
@@ -257,15 +362,182 @@ structure StateCellGetReturnProgramV1 (program : Program) : Prop where
   pc167 : program[167]? = some .exit
   pc22 : program[22]? = some .exit
 
+instance (program : Program) : Decidable (StateCellGetReturnProgramV1 program) := by
+  let checks : Prop :=
+    (program[158]? = some (.loadMem .Ldxdw 1 6 104) ∧
+      program[159]? = some (.storeReg .Stxdw 10 1 (BitVec.ofInt 16 (-8))) ∧
+      program[160]? = some (.loadMem .Ldxdw 1 10 (BitVec.ofInt 16 (-8))) ∧
+      program[161]? = some (.storeReg .Stxdw 10 1 (BitVec.ofInt 16 (-16))) ∧
+      program[162]? = some (.binReg .Mov64Reg 1 10) ∧
+      program[163]? = some (.binImm .Add64Imm 1 (BitVec.ofInt 64 (-16))) ∧
+      program[164]? = some (.lddw 2 8) ∧
+      program[165]? = some (.callSyscall "sol_set_return_data") ∧
+      program[166]? = some (.lddw 0 0) ∧
+      program[167]? = some .exit ∧
+      program[22]? = some .exit)
+  apply decidable_of_iff checks
+  constructor
+  · rintro ⟨h158, h159, h160, h161, h162, h163, h164, h165, h166, h167,
+      h22⟩
+    exact ⟨h158, h159, h160, h161, h162, h163, h164, h165, h166, h167,
+      h22⟩
+  · intro h
+    exact ⟨h.pc158, h.pc159, h.pc160, h.pc161, h.pc162, h.pc163, h.pc164,
+      h.pc165, h.pc166, h.pc167, h.pc22⟩
+
+/-- All sparse production instruction lookups consumed by the complete `get`
+certificate. This aggregates predicates only; it does not define a program. -/
+structure StateCellGetProgramLookupsV1 (program : Program) : Prop where
+  dispatchPrefix : StateCellGetDispatchPrefixProgramV1 program
+  methodDispatch : StateCellGetMethodDispatchProgramV1 program
+  bodyPrelude : StateCellGetBodyPreludeProgramV1 program
+  ownerCheck : StateCellGetOwnerCheckProgramV1 program
+  stateCheck : StateCellGetStateCheckProgramV1 program
+  returnPath : StateCellGetReturnProgramV1 program
+
+instance (program : Program) : Decidable (StateCellGetProgramLookupsV1 program) := by
+  let checks : Prop :=
+    (StateCellGetDispatchPrefixProgramV1 program ∧
+      StateCellGetMethodDispatchProgramV1 program ∧
+      StateCellGetBodyPreludeProgramV1 program ∧
+      StateCellGetOwnerCheckProgramV1 program ∧
+      StateCellGetStateCheckProgramV1 program ∧
+      StateCellGetReturnProgramV1 program)
+  apply decidable_of_iff checks
+  constructor
+  · rintro ⟨dispatch, method, prelude, owner, state, returnPath⟩
+    exact ⟨dispatch, method, prelude, owner, state, returnPath⟩
+  · intro h
+    exact ⟨h.dispatchPrefix, h.methodDispatch, h.bodyPrelude, h.ownerCheck,
+      h.stateCheck, h.returnPath⟩
+
+/-- Executable fail-closed check for every production instruction lookup used
+    by the complete StateCell `get` certificate. -/
+def checkStateCellGetProgramLookupsV1 (program : Program) : Bool :=
+  decide (StateCellGetProgramLookupsV1 program)
+
+theorem checkStateCellGetProgramLookupsV1_eq_true_iff (program : Program) :
+    checkStateCellGetProgramLookupsV1 program = true ↔
+      StateCellGetProgramLookupsV1 program := by
+  simp [checkStateCellGetProgramLookupsV1]
+
+/-- The identity-bound artifact check admits only the exact production source
+    digest and a resolved provider program containing all lookups consumed by
+    the 55-step certificate. -/
+def checkStateCellGetArtifactV1 (bound : BoundResolvedSbpfArtifactV1) : Bool :=
+  let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+  decide (artifact.sourceSha256 = stateCellProductionSbpfSha256V1) &&
+    checkStateCellGetProgramLookupsV1 artifact.program
+
+theorem checkStateCellGetArtifactV1_eq_true_iff
+    (bound : BoundResolvedSbpfArtifactV1) :
+    checkStateCellGetArtifactV1 bound = true ↔
+      let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+      artifact.sourceSha256 = stateCellProductionSbpfSha256V1 ∧
+        StateCellGetProgramLookupsV1 artifact.program := by
+  simp [checkStateCellGetArtifactV1, checkStateCellGetProgramLookupsV1]
+
+/-- Kernel projection from a successful executable artifact check. Downstream
+    proofs no longer need callers to supply 55 independent lookup equations. -/
+theorem stateCellGetArtifactV1_sound
+    (bound : BoundResolvedSbpfArtifactV1)
+    (checked : checkStateCellGetArtifactV1 bound = true) :
+    let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+    artifact.sourceSha256 = stateCellProductionSbpfSha256V1 ∧
+      StateCellGetProgramLookupsV1 artifact.program :=
+  (checkStateCellGetArtifactV1_eq_true_iff bound).mp checked
+
 /-- Sparse account-data read for the UInt64 returned by `get`. -/
 structure StateCellGetReturnInputV1 (input : Array UInt8) (value : Word) : Prop where
   stateValue :
     (Machine.entry input).mem.readU64 (inputStart + 104#64) = some value
 
-/-- Provider store/read equations needed by the return epilogue. The pinned
-provider currently exposes no public store-reduction theorem, so the two exact
-`execInstr` equations remain explicit certificate assumptions rather than
-depending on its private operand decoders. -/
+/-- Raw decidable read equations behind the complete `get` input contract.
+    Owner/program-id equality is expressed without an existential so this
+    proposition remains directly executable. -/
+def StateCellGetInputReadChecksV1 (input : Array UInt8) (value : Word) : Prop :=
+  let memory := (Machine.entry input).mem
+  memory.readU64 (inputStart + 0#64) = some 1 ∧
+  memory.readU8 (inputStart + 8#64) = some 255 ∧
+  memory.readU64 (inputStart + 10360#64) = some 8 ∧
+  memory.readU64 (inputStart + 10368#64) = some 4025532893697057444 ∧
+  memory.readU64 (inputStart + 48#64) =
+    memory.readU64 (inputStart + 10376#64) ∧
+  memory.readU64 (inputStart + 48#64) ≠ none ∧
+  memory.readU64 (inputStart + 56#64) =
+    memory.readU64 (inputStart + 10384#64) ∧
+  memory.readU64 (inputStart + 56#64) ≠ none ∧
+  memory.readU64 (inputStart + 64#64) =
+    memory.readU64 (inputStart + 10392#64) ∧
+  memory.readU64 (inputStart + 64#64) ≠ none ∧
+  memory.readU64 (inputStart + 72#64) =
+    memory.readU64 (inputStart + 10400#64) ∧
+  memory.readU64 (inputStart + 72#64) ≠ none ∧
+  memory.readU64 (inputStart + 88#64) = some 16 ∧
+  memory.readU64 (inputStart + 96#64) = some 846264958600013564 ∧
+  memory.readU64 (inputStart + 104#64) = some value
+
+instance (input : Array UInt8) (value : Word) :
+    Decidable (StateCellGetInputReadChecksV1 input value) := by
+  unfold StateCellGetInputReadChecksV1
+  infer_instance
+
+/-- All Loader input reads consumed by the complete StateCell `get`
+    certificate, grouped by the certificate segment that uses them. -/
+structure StateCellGetInputReadsV1 (input : Array UInt8) (value : Word) : Prop where
+  dispatchPrefix : StateCellGetDispatchPrefixInputV1 input
+  methodDispatch : StateCellGetMethodDispatchInputV1 input
+  ownerCheck : StateCellGetOwnerCheckInputV1 input
+  stateCheck : StateCellGetStateCheckInputV1 input
+  returnValue : StateCellGetReturnInputV1 input value
+
+/-- Executable fail-closed check for every concrete Loader memory read consumed
+    by the 55-step `get` certificate. -/
+def checkStateCellGetInputReadsV1 (input : Array UInt8) (value : Word) : Bool :=
+  decide (StateCellGetInputReadChecksV1 input value)
+
+private theorem samePresentWordReadsV1
+    {left right : Option Word}
+    (same : left = right)
+    (present : left ≠ none) :
+    ∃ value, left = some value ∧ right = some value := by
+  cases hleft : left with
+  | none => exact (present hleft).elim
+  | some value =>
+      exact ⟨value, rfl, same.symm.trans hleft⟩
+
+/-- Kernel projection from a successful concrete input checker to all sparse
+    read contracts used by the provider trace. -/
+theorem stateCellGetInputReadsV1_sound
+    (input : Array UInt8)
+    (value : Word)
+    (checked : checkStateCellGetInputReadsV1 input value = true) :
+    StateCellGetInputReadsV1 input value := by
+  have hchecks : StateCellGetInputReadChecksV1 input value :=
+    of_decide_eq_true (by
+      simpa [checkStateCellGetInputReadsV1] using checked)
+  dsimp [StateCellGetInputReadChecksV1] at hchecks
+  rcases hchecks with
+    ⟨hcount, hmarker, hlength, hdiscriminator,
+      hchunk0, hchunk0Present, hchunk1, hchunk1Present,
+      hchunk2, hchunk2Present, hchunk3, hchunk3Present,
+      hdataLength, hstateMarker, hvalue⟩
+  exact {
+    dispatchPrefix := ⟨hcount, hmarker, hlength⟩
+    methodDispatch := ⟨hdiscriminator⟩
+    ownerCheck := {
+      chunk0 := samePresentWordReadsV1 hchunk0 hchunk0Present
+      chunk1 := samePresentWordReadsV1 hchunk1 hchunk1Present
+      chunk2 := samePresentWordReadsV1 hchunk2 hchunk2Present
+      chunk3 := samePresentWordReadsV1 hchunk3 hchunk3Present
+    }
+    stateCheck := ⟨hdataLength, hstateMarker⟩
+    returnValue := ⟨hvalue⟩
+  }
+
+/-- Provider store/read equations needed by the return epilogue. They are
+constructed by `deriveStateCellGetReturnEffectsV1` from actual `execInstr`
+results rather than a duplicate store semantics. -/
 structure StateCellGetReturnEffectsV1 (start : Machine) (value : Word)
     (returnBytes : Array UInt8) where
   firstMemory : Memory
@@ -289,6 +561,106 @@ structure StateCellGetReturnEffectsV1 (start : Machine) (value : Word)
     secondMemory.readBytes
       (start.getReg 10 + BitVec.ofInt 64 (-16)) 8 = some returnBytes
   inputPreserved : secondMemory.input = start.mem.input
+
+private instance : DecidableEq Memory := fun left right =>
+  decidable_of_iff
+    (left.rodata = right.rodata ∧ left.stack = right.stack ∧
+      left.heap = right.heap ∧ left.input = right.input) <| by
+    constructor
+    · rintro ⟨hrodata, hstack, hheap, hinput⟩
+      cases left
+      cases right
+      simp_all
+    · intro h
+      cases h
+      exact ⟨rfl, rfl, rfl, rfl⟩
+
+private instance : DecidableEq CallFrame := fun left right =>
+  decidable_of_iff
+    (left.returnPc = right.returnPc ∧ left.savedR6 = right.savedR6 ∧
+      left.savedR7 = right.savedR7 ∧ left.savedR8 = right.savedR8 ∧
+      left.savedR9 = right.savedR9 ∧ left.savedFp = right.savedFp) <| by
+    constructor
+    · rintro ⟨hpc, hr6, hr7, hr8, hr9, hfp⟩
+      cases left
+      cases right
+      simp_all
+    · intro h
+      cases h
+      exact ⟨rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+private instance : DecidableEq Machine := fun left right =>
+  decidable_of_iff
+    (left.regs = right.regs ∧ left.pc = right.pc ∧ left.mem = right.mem ∧
+      left.frames = right.frames ∧ left.maxDepth = right.maxDepth ∧
+      left.halted = right.halted ∧ left.returnData = right.returnData) <| by
+    constructor
+    · rintro ⟨hregs, hpc, hmem, hframes, hdepth, hhalted, hreturnData⟩
+      cases left
+      cases right
+      simp_all
+    · intro h
+      cases h
+      exact ⟨rfl, rfl, rfl, rfl, rfl, rfl, rfl⟩
+
+/-- Execute and check the two provider stack stores used by the `get` return
+    path. A successful result is itself the kernel-checkable certificate; the
+    memories and equations come from `execInstr`, rather than a duplicate
+    proof-only store semantics. -/
+def deriveStateCellGetReturnEffectsV1
+    (start : Machine) (value : Word) (returnBytes : Array UInt8) :
+    Option (StateCellGetReturnEffectsV1 start value returnBytes) :=
+  let loaded := put64 start 1 value
+  match hfirst : execInstr asmDefaultHost loaded
+      (.storeReg .Stxdw 10 1 (BitVec.ofInt 16 (-8))) with
+  | none => none
+  | some afterFirst =>
+      if hfirstShape : afterFirst = ({ loaded with mem := afterFirst.mem }.advancePc) then
+        if hfirstRead : afterFirst.mem.readU64
+            (calcAddr (start.getReg 10) (BitVec.ofInt 16 (-8))) = some value then
+          let reloaded := put64 afterFirst 1 value
+          match hsecond : execInstr asmDefaultHost reloaded
+              (.storeReg .Stxdw 10 1 (BitVec.ofInt 16 (-16))) with
+          | none => none
+          | some afterSecond =>
+              if hsecondShape :
+                  afterSecond = ({ reloaded with mem := afterSecond.mem }.advancePc) then
+                if hreturnRead : afterSecond.mem.readBytes
+                    (start.getReg 10 + BitVec.ofInt 64 (-16)) 8 =
+                    some returnBytes then
+                  if hinputPreserved : afterSecond.mem.input = start.mem.input then
+                    some {
+                      firstMemory := afterFirst.mem
+                      secondMemory := afterSecond.mem
+                      firstStore := by
+                        exact hfirst.trans (congrArg some hfirstShape)
+                      firstRead := hfirstRead
+                      secondStore := by
+                        dsimp only
+                        rw [← hfirstShape]
+                        exact hsecond.trans (congrArg some hsecondShape)
+                      returnRead := hreturnRead
+                      inputPreserved := hinputPreserved
+                    }
+                  else none
+                else none
+              else none
+        else none
+      else none
+
+/-- Single executable gate for every premise of the identity-bound 55-step
+    trace: production identity/lookups, concrete Loader reads, and the two
+    provider stack stores at the actual 44-step prefix machine. -/
+def checkStateCellGetTraceV1
+    (bound : BoundResolvedSbpfArtifactV1)
+    (input returnBytes : Array UInt8)
+    (value : Word) : Bool :=
+  checkStateCellGetArtifactV1 bound &&
+    (checkStateCellGetInputReadsV1 input value &&
+      let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+      let beforeReturn :=
+        (runFuel asmDefaultHost artifact.program 44 (Machine.entry input)).1
+      (deriveStateCellGetReturnEffectsV1 beforeReturn value returnBytes).isSome)
 
 /-- The provider executes the first eight production StateCell `get` path
 instructions and reaches PC 10 without mutating memory or call state. -/
@@ -405,12 +777,12 @@ theorem stateCellGet_methodDispatch_stepsV1
       Steps asmDefaultHost program 8 start machine ∧
       StateCellGetPc128V1 input machine := by
   let m1 := put64 start 1 4025532893697057444
-  let m2 := put64 m1 2 7217117098932222302
+  let m2 := put64 m1 2 7217115878876727646
   let m3 := condJump m2
-    (4025532893697057444 != 7217117098932222302) 2
-  let m4 := put64 m3 2 2467648035969329053
+    (4025532893697057444 != 7217115878876727646) 2
+  let m4 := put64 m3 2 2467651336600536989
   let m5 := condJump m4
-    (4025532893697057444 != 2467648035969329053) 2
+    (4025532893697057444 != 2467651336600536989) 2
   let m6 := put64 m5 2 4025532893697057444
   let m7 := condJump m6
     (4025532893697057444 != 4025532893697057444) 2
@@ -1347,9 +1719,10 @@ theorem stateCellGet_return_stepsV1
 
 /-- The complete sparse certificate composes dispatch, method validation,
 return-data publication, call-frame restoration, and the final dispatcher exit
-into the exact 55-step production `get` trace. `returnEffects` keeps the two
-provider stack-store equations explicit until they are derived from the
-identity-bound artifact and concrete stack memory. -/
+into the exact 55-step production `get` trace. This low-level composition
+theorem accepts the segmented relations directly; use
+`stateCellGet_checkedArtifact_stepsV1` to project them from the executable
+artifact/input checks and proof-bearing store derivation. -/
 theorem stateCellGet_stepsV1
     (program : Program)
     (input returnBytes : Array UInt8)
@@ -1385,6 +1758,78 @@ theorem stateCellGet_stepsV1
     (Steps_trans asmDefaultHost program 44 11 (Machine.entry input)
       beforeReturn machine hprefix hreturn)
 
+/-- Complete checked entry for the 55-step certificate. The program relations
+come from the exact identity-bound production artifact, the read relations come
+from the concrete Loader input, and each return-store witness is extracted only
+from a successful proof-bearing provider evaluation. -/
+theorem stateCellGet_checkedArtifact_stepsV1
+    (bound : BoundResolvedSbpfArtifactV1)
+    (input returnBytes : Array UInt8)
+    (value : Word)
+    (artifactChecked : checkStateCellGetArtifactV1 bound = true)
+    (inputChecked : checkStateCellGetInputReadsV1 input value = true)
+    (returnEffectsChecked :
+      let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+      let beforeReturn :=
+        (runFuel asmDefaultHost artifact.program 44 (Machine.entry input)).1
+      (deriveStateCellGetReturnEffectsV1 beforeReturn value returnBytes).isSome = true) :
+    let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+    artifact.sourceSha256 = stateCellProductionSbpfSha256V1 ∧
+      ∃ machine,
+        Steps asmDefaultHost artifact.program 55 (Machine.entry input) machine ∧
+        StateCellGetReturnedV1 input returnBytes machine := by
+  let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+  have hartifact := stateCellGetArtifactV1_sound bound artifactChecked
+  have hinput := stateCellGetInputReadsV1_sound input value inputChecked
+  rcases stateCellGet_toReturnEpilogue_stepsV1 artifact.program input
+      hartifact.2.dispatchPrefix hartifact.2.methodDispatch
+      hartifact.2.bodyPrelude hartifact.2.ownerCheck hartifact.2.stateCheck
+      hinput.dispatchPrefix hinput.methodDispatch hinput.ownerCheck
+      hinput.stateCheck with
+    ⟨beforeReturn, hprefix, beforeReturnRel⟩
+  have hrunPrefix :
+      runFuel asmDefaultHost artifact.program 44 (Machine.entry input) =
+        (beforeReturn, .outOfFuel) :=
+    steps_runFuel_outOfFuel asmDefaultHost artifact.program 44
+      (Machine.entry input) beforeReturn hprefix beforeReturnRel.halted
+  have heffectsChecked := returnEffectsChecked
+  dsimp only at heffectsChecked
+  rw [hrunPrefix] at heffectsChecked
+  let effects :=
+    (deriveStateCellGetReturnEffectsV1 beforeReturn value returnBytes).get
+      heffectsChecked
+  rcases stateCellGet_return_stepsV1 artifact.program input returnBytes value
+      beforeReturn hartifact.2.returnPath hinput.returnValue effects
+      beforeReturnRel with
+    ⟨machine, hreturn, machineRel⟩
+  refine ⟨hartifact.1, machine, ?_, machineRel⟩
+  simpa using
+    (Steps_trans asmDefaultHost artifact.program 44 11 (Machine.entry input)
+      beforeReturn machine hprefix hreturn)
+
+/-- Soundness of the single executable trace gate. A successful check projects
+the exact production identity and a kernel-checked 55-step provider trace. -/
+theorem checkStateCellGetTraceV1_sound
+    (bound : BoundResolvedSbpfArtifactV1)
+    (input returnBytes : Array UInt8)
+    (value : Word)
+    (checked : checkStateCellGetTraceV1 bound input returnBytes value = true) :
+    let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+    artifact.sourceSha256 = stateCellProductionSbpfSha256V1 ∧
+      ∃ machine,
+        Steps asmDefaultHost artifact.program 55 (Machine.entry input) machine ∧
+        StateCellGetReturnedV1 input returnBytes machine := by
+  have hparts :
+      checkStateCellGetArtifactV1 bound = true ∧
+      checkStateCellGetInputReadsV1 input value = true ∧
+      let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+      let beforeReturn :=
+        (runFuel asmDefaultHost artifact.program 44 (Machine.entry input)).1
+      (deriveStateCellGetReturnEffectsV1 beforeReturn value returnBytes).isSome = true := by
+    simpa only [checkStateCellGetTraceV1, Bool.and_eq_true] using checked
+  exact stateCellGet_checkedArtifact_stepsV1 bound input returnBytes value
+    hparts.1 hparts.2.1 hparts.2.2
+
 /-- The same 55-step certificate reduces the provider's executable `runFuel`
 to a status-zero halt while retaining the exact returned-state facts. -/
 theorem stateCellGet_runFuelV1
@@ -1416,6 +1861,51 @@ theorem stateCellGet_runFuelV1
       returnInputRel returnEffects with
     ⟨machine, hsteps, machineRel⟩
   refine ⟨machine, ?_, machineRel⟩
+  exact runFuel_eq_halted_of_steps hsteps machineRel.halted
+
+/-- Checked-artifact `runFuel` corollary. This is the provider execution
+equation consumed by the next HandlerIR/provider join step; it remains scoped
+to the exact production StateCell `get` path and concrete checked input. -/
+theorem stateCellGet_checkedArtifact_runFuelV1
+    (bound : BoundResolvedSbpfArtifactV1)
+    (input returnBytes : Array UInt8)
+    (value : Word)
+    (artifactChecked : checkStateCellGetArtifactV1 bound = true)
+    (inputChecked : checkStateCellGetInputReadsV1 input value = true)
+    (returnEffectsChecked :
+      let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+      let beforeReturn :=
+        (runFuel asmDefaultHost artifact.program 44 (Machine.entry input)).1
+      (deriveStateCellGetReturnEffectsV1 beforeReturn value returnBytes).isSome = true) :
+    let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+    artifact.sourceSha256 = stateCellProductionSbpfSha256V1 ∧
+      ∃ machine,
+        runFuel asmDefaultHost artifact.program 55 (Machine.entry input) =
+          (machine, .halted 0) ∧
+        StateCellGetReturnedV1 input returnBytes machine := by
+  let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+  rcases stateCellGet_checkedArtifact_stepsV1 bound input returnBytes value
+      artifactChecked inputChecked returnEffectsChecked with
+    ⟨hidentity, machine, hsteps, machineRel⟩
+  refine ⟨hidentity, machine, ?_, machineRel⟩
+  exact runFuel_eq_halted_of_steps hsteps machineRel.halted
+
+/-- The single executable gate also yields the exact provider `runFuel`
+equation, without exposing segmented lookup/read/store premises to callers. -/
+theorem checkStateCellGetTraceV1_runFuel_sound
+    (bound : BoundResolvedSbpfArtifactV1)
+    (input returnBytes : Array UInt8)
+    (value : Word)
+    (checked : checkStateCellGetTraceV1 bound input returnBytes value = true) :
+    let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+    artifact.sourceSha256 = stateCellProductionSbpfSha256V1 ∧
+      ∃ machine,
+        runFuel asmDefaultHost artifact.program 55 (Machine.entry input) =
+          (machine, .halted 0) ∧
+        StateCellGetReturnedV1 input returnBytes machine := by
+  rcases checkStateCellGetTraceV1_sound bound input returnBytes value checked with
+    ⟨hidentity, machine, hsteps, machineRel⟩
+  refine ⟨hidentity, machine, ?_, machineRel⟩
   exact runFuel_eq_halted_of_steps hsteps machineRel.halted
 
 end ProofForgeV2.Targets.Solana

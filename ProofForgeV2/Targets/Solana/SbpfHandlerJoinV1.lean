@@ -1,5 +1,6 @@
 import ProofForgeV2.Targets.Solana.HandlerSemanticsV1
 import ProofForgeV2.Targets.Solana.SbpfExecutionV1
+import ProofForgeV2.Targets.Solana.SbpfStateCellGetV1
 
 /-!
 # Solana SbpfHandlerJoinV1
@@ -11,9 +12,11 @@ pinned `SbpfSemantics` provider.
 This module does not lower `HandlerIR` to sBPF and does not define another
 business transition. `ExecutedHandlerSbpfJoinV1` requires equations for both
 existing evaluators. The StateCell `get` path now has a complete 55-step sparse
-provider certificate, but its lookup/read/store assumptions are not yet derived
-from the identity-bound artifact and encoded Loader input. Until that binding
-is closed, an engineering `#eval` observation is not an execution theorem.
+provider certificate, executable artifact/input checks, and a proof-bearing
+provider store derivation behind one sound trace gate. The remaining boundary is
+to discharge that gate in the production Loader kernel join and connect its
+`runFuel` equation to the Loader execution API. Until then, an engineering
+observation is not an execution theorem.
 -/
 
 namespace ProofForgeV2.Targets.Solana
@@ -21,12 +24,6 @@ namespace ProofForgeV2.Targets.Solana
 open ProofForgeV2.Semantic.InvariantABI
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
-
-/-- Exact current production StateCell `.s` identity. This value is consumed by
-    the strict source-byte identity gate; it is not an identity for a separately
-    generated proof program. -/
-def stateCellProductionSbpfSha256V1 : String :=
-  "c93b1448aa782550b7643ccced44209c57df604a866c236552dadc5ac6a159c1"
 
 /-- Exact part of the Loader V3 invocation visible to the bounded HandlerIR
     evaluator. Account key, lamports, and executable status are deliberately

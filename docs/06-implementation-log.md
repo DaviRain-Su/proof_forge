@@ -15967,3 +15967,46 @@ normative: false
   strict parser产出的production `program[pc]?` lookups、encoded Loader input reads及两个stack-store
   effects尚未自动推导；`SbpfHandlerJoinV1`、Reference→sBPF concrete refinement、initialize/increment/
   overflow以及ELF/loader/runtime/rollback/compute units继续保持未升级。
+
+## 2026-08-14 — StateCell `get` artifact identity→lookup certificate
+
+- `SbpfStateCellGetV1`为六段sparse lookup contract提供显式可计算`Decidable`，再聚合为
+  `checkStateCellGetProgramLookupsV1`；checker只比较strict parser产出的provider `Program`，没有
+  新增program、lowering、ISA evaluator或business semantics。
+- `checkStateCellGetArtifactV1`同时要求sole production SHA-256与完整lookup checker为true；
+  `stateCellGetArtifactV1_sound`把成功结果kernel投影为exact source identity及全部55步证书所需
+  program lookup equations。unsupported、missing、tampered program或identity继续fail closed。
+- StateCell SHA-256 sole authority由provider certificate拥有，`SbpfHandlerJoinV1`直接复用；真实
+  compiler→production `.s`→strict resolve回归新增checker success断言。至此artifact identity→lookup
+  binding已闭合；encoded Loader memory reads与两个stack-store effects仍是下一阶段，不据此声明
+  concrete ReferenceMachine→sBPF、ELF、loader或Solana runtime refinement。
+- checker首次接到真实artifact时准确拒绝了certificate中两个过时的decimal discriminator literals；
+  逐项比对strict parser实际PC 11/15的`0x642858a76747495e`/`0x223edbd10397c79d`后修正lookup与
+  step witness，kernel重建和真实production回归随后通过。该失败证明binding不是形式上的恒真门。
+
+## 2026-08-14 — StateCell `get` concrete Loader-read certificate
+
+- 新增`checkStateCellGetInputReadsV1`，直接消费provider `Machine.entry input`的真实memory reads，
+  覆盖account count/non-duplicate marker、instruction length/discriminator、四个owner/program-id chunks、
+  StateCell data length/marker/value；不展开10416-byte encoder，不另造input或memory semantics。
+- `stateCellGetInputReadsV1_sound`把checker success kernel投影为55-step trace消费的五组sparse input
+  contracts，包括四个present且相等的owner/program-id existential witnesses。真实Loader encoder的
+  canonical `get(41)`输入通过checker；篡改value byte回归fail closed。
+- 至此exact artifact identity→lookup与concrete encoded input→read binding均已闭合。剩余provider
+  obligation是从concrete stack memory推导两个`stxdw` effects，再接`runFuel`/execution equation；
+  当前仍不声明concrete ReferenceMachine→sBPF或Solana runtime refinement。
+
+## 2026-08-14 — StateCell `get` proof-bearing stack-store derivation
+
+- 新增`deriveStateCellGetReturnEffectsV1`，直接执行pinned provider `execInstr`的两个production
+  `stxdw`，并检查result machine shape、value/return-byte reads与input preservation；成功值本身是
+  `StateCellGetReturnEffectsV1` kernel certificate，不复制private operand decoder或另造store semantics。
+- 真实Loader `get(41)` return stack求值成功；tampered return bytes返回`none`。该回归与artifact/input
+  checker一起保持unsupported、missing、tampered路径fail closed。
+- 新增`checkStateCellGetTraceV1`及soundness theorem，把exact artifact identity/lookup、concrete input
+  reads及实际44-step prefix machine的proof-bearing store derivation统一接入55-step与`runFuel`结论，
+  不再要求调用方手写六组lookup、五组read或两个store execution equations。真实production gate
+  success与tampered return bytes failure均有回归。
+- 尚未升级为concrete HandlerIR→provider refinement：下一步仍需在production Loader kernel接线中
+  discharge该executable gate，并连接`executeLoaderV3SingleAccountV1` observation equation；
+  initialize/increment/overflow以及ELF/loader/runtime/rollback/compute units也继续独立未升级。
