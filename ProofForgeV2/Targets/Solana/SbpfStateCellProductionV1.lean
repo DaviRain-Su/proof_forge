@@ -19,9 +19,9 @@ assembly emitter, strict artifact parser, and identity-bound provider path.
 They contain no copied IR/program and introduce no alternate lowering or
 business semantics.
 
-`get` retains the dedicated 55-step certified join. `initialize` and successful
-`increment` use the generic executed HandlerIR/provider join; their sparse
-certificates are later slices.
+`get` retains the dedicated 55-step certified join. `initialize` plus successful
+and overflowing `increment` use the generic executed HandlerIR/provider join;
+their sparse certificates are later slices.
 -/
 
 namespace ProofForgeV2.Targets.Solana
@@ -338,5 +338,76 @@ theorem checkStateCellIncrementProductionSubjectV1_sound
   exact checkStateCellExecutedHandlerSbpfJoinV1_sound
     subject.boundArtifact subject.handler subject.handlerInvocation
     subject.loaderInvocation defaultSbpfExecutionFuelV1 hchecked
+
+/-- The pinned arithmetic-overflow invocation over the exact increment
+    production subject. Reusing that private subject guarantees the same source,
+    HandlerIR, assembly, and identity-bound provider artifact. -/
+structure ResolvedStateCellIncrementOverflowProductionSubjectV1 where
+  private mk ::
+  production : ResolvedStateCellIncrementProductionSubjectV1
+  handlerInvocation : InvocationObservationV1
+  loaderInvocation : LoaderV3SingleAccountInvocationV1
+  before : UInt64
+  argument : UInt64
+
+/-- Reconstruct `UInt64.max + 1` without another compiler or artifact path.
+    The existing HandlerIR evaluator must trap before its write and the provider
+    join must observe status `0x1001` with the exact pre-account snapshot. -/
+def resolveStateCellIncrementOverflowProductionSubjectV1 :
+    Except String ResolvedStateCellIncrementOverflowProductionSubjectV1 := do
+  let production ← resolveStateCellIncrementProductionSubjectV1
+  let discriminator ← compileResultV1 <|
+    discriminatorToLeU64V1 production.handler.discriminator
+  let before : UInt64 := 0xffffffffffffffff
+  let argument : UInt64 := 1
+  let accountData :=
+    (SbpfSemantics.wordToLE
+      (BitVec.ofNat 64 production.ir.stateAccount.initializedMarker.toNat)).append
+      (SbpfSemantics.wordToLE (BitVec.ofNat 64 before.toNat))
+  let programId := Array.replicate 32 (0x42 : UInt8)
+  let loaderInvocation : LoaderV3SingleAccountInvocationV1 := {
+    accountKey := Array.replicate 32 (0x24 : UInt8)
+    owner := programId
+    programId
+    accountData
+    instructionData :=
+      (SbpfSemantics.wordToLE (BitVec.ofNat 64 discriminator.toNat)).append
+        (SbpfSemantics.wordToLE (BitVec.ofNat 64 argument.toNat))
+    isWritable := true
+  }
+  let handlerInvocation :=
+    unaryUInt64InvocationV1 ⟨accountData⟩ discriminator argument false true
+  pure <| ResolvedStateCellIncrementOverflowProductionSubjectV1.mk production
+    handlerInvocation loaderInvocation before argument
+
+/-- Fail-closed executable agreement for the pinned increment-overflow subject. -/
+def checkStateCellIncrementOverflowProductionSubjectV1 : Bool :=
+  checkExceptV1 resolveStateCellIncrementOverflowProductionSubjectV1 fun subject =>
+    checkStateCellExecutedHandlerSbpfJoinV1
+      subject.production.boundArtifact subject.production.handler
+      subject.handlerInvocation subject.loaderInvocation
+
+/-- Successful checking recovers an executed carrier that binds the actual
+    Handler arithmetic trap to the identity-bound provider observation. -/
+theorem checkStateCellIncrementOverflowProductionSubjectV1_sound
+    (checked : checkStateCellIncrementOverflowProductionSubjectV1 = true) :
+    ∃ subject,
+      resolveStateCellIncrementOverflowProductionSubjectV1 = .ok subject ∧
+      Nonempty (StateCellExecutedHandlerSbpfJoinV1
+        subject.production.boundArtifact subject.production.handler
+        subject.handlerInvocation subject.loaderInvocation
+        defaultSbpfExecutionFuelV1) := by
+  rcases checkExceptV1_sound
+      resolveStateCellIncrementOverflowProductionSubjectV1
+      (fun subject =>
+        checkStateCellExecutedHandlerSbpfJoinV1
+          subject.production.boundArtifact subject.production.handler
+          subject.handlerInvocation subject.loaderInvocation)
+      checked with ⟨subject, hsubject, hchecked⟩
+  refine ⟨subject, hsubject, ?_⟩
+  exact checkStateCellExecutedHandlerSbpfJoinV1_sound
+    subject.production.boundArtifact subject.production.handler
+    subject.handlerInvocation subject.loaderInvocation
+    defaultSbpfExecutionFuelV1 hchecked
 
 end ProofForgeV2.Targets.Solana

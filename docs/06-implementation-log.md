@@ -16086,3 +16086,15 @@ normative: false
   必须为`increment`，`41 + 1` gate成功，且把同一invocation错配到`initialize` handler必须fail closed。
   这仍是generic executed join，不是increment sparse trace、无条件kernel theorem、ELF或SVM runtime
   refinement；overflow production subject为下一独立切片。
+
+## 2026-08-15 — StateCell increment overflow production executed join
+
+- `ResolvedStateCellIncrementOverflowProductionSubjectV1`直接嵌套已绑定的private increment production
+  subject，不重复source/compiler/artifact路径；仅构造`UInt64.max + 1`的canonical Handler/Loader调用。
+- 现有generic join实际运行production HandlerIR evaluator与identity-bound provider：前者观察
+  arithmetic overflow、后者观察status/r0 `0x1001`、空return data，并要求双方最终account window都是
+  exact pre-account snapshot。sound theorem仍以checker Boolean为前提，不把运行结果硬编码成定理。
+- 回归要求overflow subject保留ParserSession production assembly与`increment` handler，固定最大值加一
+  场景，gate成功，错配`initialize` handler fail closed。至此四条D4 recipe均有production subject与
+  executed observation join；`initialize`/increment success/overflow的sparse provider certificates、
+  unconditional concrete theorem及ELF/SVM runtime refinement仍未闭合。

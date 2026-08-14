@@ -346,6 +346,21 @@ private unsafe def testStateCellMutatingProductionSubjects : IO Unit := do
       incrementSubject.boundArtifact initSubject.handler
       incrementSubject.handlerInvocation incrementSubject.loaderInvocation)
     "increment invocation must not join against the initialize handler"
+  let overflowSubject ← liftStringResult
+    resolveStateCellIncrementOverflowProductionSubjectV1
+  expect (overflowSubject.production.assembly == asm)
+    "overflow subject must retain parser-session production assembly"
+  expect (overflowSubject.production.handler.name == "increment")
+    "overflow subject must retain the increment handler"
+  expect (overflowSubject.before == 0xffffffffffffffff &&
+      overflowSubject.argument == 1)
+    "overflow subject must pin the UInt64.max + 1 scenario"
+  expect checkStateCellIncrementOverflowProductionSubjectV1
+    "increment overflow HandlerIR/provider join must succeed"
+  expect (!checkStateCellExecutedHandlerSbpfJoinV1
+      overflowSubject.production.boundArtifact initSubject.handler
+      overflowSubject.handlerInvocation overflowSubject.loaderInvocation)
+    "overflow invocation must not join against the initialize handler"
 
 /-- Execute the exact production StateCell artifact in the pinned provider with
     a real Loader V3 ABIv1 single-account image. These are executable provider
