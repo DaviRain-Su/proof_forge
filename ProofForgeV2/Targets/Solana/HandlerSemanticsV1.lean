@@ -4,10 +4,10 @@ import ProofForgeV2.Targets.Solana.EmitSbpfAsmV1
 /-!
 # Solana HandlerSemanticsV1
 
-One bounded evaluator for the production nullary UInt64 view recipe. This is a
-target-IR refinement object, not a second interpreter for ProofForge DSL
-callables. It models the selected Solana account/header/input/return boundary;
-all unsupported checks and operations fail closed.
+One bounded evaluator for the production one-field UInt64 handler recipes. This
+is a target-IR refinement object, not a second interpreter for ProofForge DSL
+callables. It models the selected Solana account/header/input/state/return
+boundary; all unsupported checks and operations fail closed.
 -/
 
 namespace ProofForgeV2.Targets.Solana
@@ -37,6 +37,7 @@ structure InvocationObservationV1 where
 inductive HandlerExecutionErrorV1 where
   | unsupportedDiscriminator
   | discriminatorMismatch
+  | unsupportedHandlerShape
   | unsupportedOperation
   | accountShape
   | duplicateAccount
@@ -48,9 +49,12 @@ inductive HandlerExecutionErrorV1 where
   | headerMismatch
   | memoryBounds
   | localOutOfBounds
+  | arithmeticOverflow (errorCode : Nat)
+  | missingReturnData
   deriving BEq, Repr
 
 private structure HandlerMachineV1 where
+  accounts : Array AccountObservationV1
   locals : Array UInt64 := #[]
   returnData : Option ByteArray := none
 
@@ -61,6 +65,20 @@ def readUInt64LEV1 (bytes : ByteArray) (offset : Nat) : Option UInt64 :=
   if offset + 8 ≤ bytes.size then
     some <| UInt64.ofNat <|
       leBytesToNatV1 (bytes.extract offset (offset + 8))
+  else
+    none
+
+/-- Exact bounded little-endian store used by the selected production state
+    recipes. Bytes outside the selected word are preserved. -/
+def writeUInt64LEV1 (bytes : ByteArray) (offset : Nat) (value : UInt64) :
+    Option ByteArray :=
+  if offset + 8 ≤ bytes.size then
+    some <| Id.run do
+      let mut result := bytes
+      for index in [0:8] do
+        result := result.set! (offset + index)
+          (UInt64.shiftRight value (UInt64.ofNat (8 * index))).toUInt8
+      return result
   else
     none
 
@@ -89,6 +107,25 @@ private def setLocalV1
     .ok { machine with locals := machine.locals.push value }
   else
     .error .localOutOfBounds
+
+private def getLocalV1
+    (machine : HandlerMachineV1)
+    (index : Nat) : Except HandlerExecutionErrorV1 UInt64 :=
+  match machine.locals[index]? with
+  | some value => .ok value
+  | none => .error .localOutOfBounds
+
+private def writeAccountUInt64LEV1
+    (machine : HandlerMachineV1)
+    (accountIndex byteOffset : Nat)
+    (value : UInt64) : Except HandlerExecutionErrorV1 HandlerMachineV1 := do
+  let some account := machine.accounts[accountIndex]? | throw .accountShape
+  let some data := writeUInt64LEV1 account.data byteOffset value |
+    throw .memoryBounds
+  pure {
+    machine with
+    accounts := machine.accounts.set! accountIndex { account with data }
+  }
 
 private def runCheckV1
     (invocation : InvocationObservationV1) :
@@ -145,23 +182,41 @@ private def runOperationV1
     (invocation : InvocationObservationV1)
     (machine : HandlerMachineV1) :
     Operation → Except HandlerExecutionErrorV1 HandlerMachineV1
+  | .zeroState accountIndex byteOffset =>
+      writeAccountUInt64LEV1 machine accountIndex byteOffset 0
+  | .loadParam destination dataOffset =>
+      match readUInt64LEV1 invocation.instructionData dataOffset with
+      | some value => setLocalV1 machine destination value
+      | none => .error .memoryBounds
   | .loadState destination accountIndex byteOffset =>
-      match invocation.accounts[accountIndex]? with
+      match machine.accounts[accountIndex]? with
       | some account =>
           match readUInt64LEV1 account.data byteOffset with
           | some value => setLocalV1 machine destination value
           | none => .error .memoryBounds
       | none => .error .accountShape
+  | .checkedAdd destination lhs rhs errorCode => do
+      let lhsValue ← getLocalV1 machine lhs
+      let rhsValue ← getLocalV1 machine rhs
+      if lhsValue ≤ (0xffffffffffffffff : UInt64) - rhsValue then
+        setLocalV1 machine destination (lhsValue + rhsValue)
+      else
+        .error (.arithmeticOverflow errorCode)
+  | .storeState accountIndex byteOffset source => do
+      let value ← getLocalV1 machine source
+      writeAccountUInt64LEV1 machine accountIndex byteOffset value
+  | .setHeader accountIndex byteOffset value =>
+      writeAccountUInt64LEV1 machine accountIndex byteOffset value
   | .setReturnData 8 source =>
-      match machine.locals[source]? with
-      | some value => .ok { machine with returnData := some (encodeU64le value) }
-      | none => .error .localOutOfBounds
+      match getLocalV1 machine source with
+      | .ok value => .ok { machine with returnData := some (encodeU64le value) }
+      | .error error => .error error
   | _ => .error .unsupportedOperation
 
 private def runOperationsV1
     (operations : List Operation)
     (invocation : InvocationObservationV1)
-    (machine : HandlerMachineV1 := {}) :
+    (machine : HandlerMachineV1) :
     Except HandlerExecutionErrorV1 HandlerMachineV1 :=
   match operations with
   | [] => .ok machine
@@ -169,45 +224,74 @@ private def runOperationsV1
       let next ← runOperationV1 invocation machine operation
       runOperationsV1 rest invocation next
 
-/-- Atomic target outcome. A trapped invocation returns no mutable account
-    state because this first slice is read-only. -/
+/-- Atomic target outcome. Mutable account observations are carried separately
+    so existing return-data refinement statements remain stable. -/
 inductive HandlerExecutionOutcomeV1 where
   | returned (returnData : Option ByteArray)
   | trapped (error : HandlerExecutionErrorV1)
   deriving BEq, Repr
 
-/-- The only evaluator for this bounded Solana handler recipe. -/
+private def executeHandlerIRWithAccountsV1
+    (handlerIR : HandlerIR)
+    (invocation : InvocationObservationV1) :
+    HandlerExecutionOutcomeV1 × Array AccountObservationV1 :=
+  if !isSupportedOneFieldUInt64HandlerIRV1 handlerIR then
+    (.trapped .unsupportedHandlerShape, invocation.accounts)
+  else match runDispatchV1 handlerIR invocation with
+  | .error error => (.trapped error, invocation.accounts)
+  | .ok _ =>
+      match runChecksV1 handlerIR.checks.toList invocation with
+      | .error error => (.trapped error, invocation.accounts)
+      | .ok _ =>
+          match runOperationsV1 handlerIR.operations.toList invocation
+              { accounts := invocation.accounts } with
+          | .error error => (.trapped error, invocation.accounts)
+          | .ok machine =>
+              if handlerIR.mode != .initialize && machine.returnData.isNone then
+                (.trapped .missingReturnData, invocation.accounts)
+              else
+                (.returned machine.returnData, machine.accounts)
+
+/-- The only evaluator for these bounded Solana production handler recipes. -/
 def executeHandlerIRV1
     (handlerIR : HandlerIR)
     (invocation : InvocationObservationV1) : HandlerExecutionOutcomeV1 :=
-  match runDispatchV1 handlerIR invocation with
+  if !isSupportedOneFieldUInt64HandlerIRV1 handlerIR then
+    .trapped .unsupportedHandlerShape
+  else match runDispatchV1 handlerIR invocation with
   | .error error => .trapped error
   | .ok _ =>
       match runChecksV1 handlerIR.checks.toList invocation with
       | .error error => .trapped error
       | .ok _ =>
-          match runOperationsV1 handlerIR.operations.toList invocation with
+          match runOperationsV1 handlerIR.operations.toList invocation
+              { accounts := invocation.accounts } with
           | .error error => .trapped error
-          | .ok machine => .returned machine.returnData
+          | .ok machine =>
+              if handlerIR.mode != .initialize && machine.returnData.isNone then
+                .trapped .missingReturnData
+              else
+                .returned machine.returnData
 
-/-- Read-only target observation derived from the bounded handler evaluator.
-    `postAccounts` is explicit so the refinement relation states, rather than
-    merely assumes, that this selected view recipe cannot commit account data. -/
+/-- Target observation derived from the bounded handler evaluator. Successful
+    mutating recipes expose committed account bytes; every trap exposes the
+    original account snapshot (Solana instruction atomicity). -/
 structure HandlerObservationV1 where
   invocation : InvocationObservationV1
   outcome : HandlerExecutionOutcomeV1
   postAccounts : Array AccountObservationV1
   deriving BEq, Repr
 
-/-- Observe one bounded HandlerIR execution. The selected recipe is read-only,
-    so the only post-account observation is the supplied immutable snapshot. -/
+/-- Observe one bounded HandlerIR execution, including atomic post accounts. -/
 def observeHandlerIRV1
     (handlerIR : HandlerIR)
-    (invocation : InvocationObservationV1) : HandlerObservationV1 := {
-  invocation
-  outcome := executeHandlerIRV1 handlerIR invocation
-  postAccounts := invocation.accounts
-}
+    (invocation : InvocationObservationV1) : HandlerObservationV1 :=
+  let result := executeHandlerIRWithAccountsV1 handlerIR invocation
+  {
+    invocation
+    outcome := executeHandlerIRV1 handlerIR invocation
+    postAccounts := if handlerIR.mode == .view then invocation.accounts else result.2
+  }
 
 /-- Canonical account bytes for the production one-field UInt64 layout:
     8-byte initialized marker followed by the 8-byte state field. -/
@@ -230,6 +314,24 @@ def nullaryUInt64ViewInvocationV1
     data := accountData
   }]
   instructionData := encodeU64le discriminatorValue
+}
+
+/-- Canonical invocation observation for the selected production initializer
+    and checked-add entry recipes. -/
+def unaryUInt64InvocationV1
+    (accountData : ByteArray)
+    (discriminatorValue argument : UInt64)
+    (isSigner isWritable : Bool)
+    (ownerCurrentProgram : Bool := true)
+    (isDuplicate : Bool := false) : InvocationObservationV1 := {
+  accounts := #[{
+    isDuplicate
+    ownerCurrentProgram
+    isSigner
+    isWritable
+    data := accountData
+  }]
+  instructionData := (encodeU64le discriminatorValue).append (encodeU64le argument)
 }
 
 /-- Representation relation joining the logical-state overlay selected by the
@@ -335,10 +437,12 @@ theorem executeHandlerIRV1_of_nullaryUInt64ViewStaticAlignment
       (nullaryUInt64ViewInvocationV1 accountData discriminatorValue) =
         .returned (some (encodeU64le value)) := by
   rw [halignment.handlerIRExact]
-  simp [executeHandlerIRV1, runDispatchV1, runChecksV1, runCheckV1,
+  simp [executeHandlerIRV1, isSupportedOneFieldUInt64HandlerIRV1,
+    isSupportedNullaryUInt64ViewHandlerIRV1,
+    recognizeNullaryUInt64ViewHandlerIRV1, runDispatchV1, runChecksV1, runCheckV1,
     runOperationsV1, runOperationV1, nullaryUInt64ViewInvocationV1,
     halignment.accountZero, hdiscriminator, readUInt64LEV1_encodeU64le,
-    encodeU64le_size, hdataLength, hheader, hfield, setLocalV1,
+    encodeU64le_size, hdataLength, hheader, hfield, setLocalV1, getLocalV1,
     Except.toOption, Bind.bind, Except.bind]
 
 /-- Wrong-width instruction data traps before the account load. -/
@@ -360,8 +464,10 @@ theorem executeHandlerIRV1_of_nullaryUInt64ViewStaticAlignment_wrong_input
         instructionData := ByteArray.empty } =
         .trapped .inputLength := by
   rw [halignment.handlerIRExact]
-  simp [executeHandlerIRV1, runDispatchV1, readUInt64LEV1,
-    hdiscriminator, Except.toOption]
+  simp [executeHandlerIRV1, isSupportedOneFieldUInt64HandlerIRV1,
+    isSupportedNullaryUInt64ViewHandlerIRV1,
+    recognizeNullaryUInt64ViewHandlerIRV1, halignment.accountZero, runDispatchV1,
+    readUInt64LEV1, hdiscriminator, Except.toOption]
 
 /-- A different 8-byte discriminator fails in the dispatcher before checks
     or account-state loads. -/
@@ -383,8 +489,11 @@ theorem executeHandlerIRV1_of_nullaryUInt64ViewStaticAlignment_wrong_discriminat
       (nullaryUInt64ViewInvocationV1 accountData otherDiscriminator) =
         .trapped .discriminatorMismatch := by
   rw [halignment.handlerIRExact]
-  simp [executeHandlerIRV1, runDispatchV1, nullaryUInt64ViewInvocationV1,
-    hdiscriminator, readUInt64LEV1_encodeU64le, hne, Except.toOption]
+  simp [executeHandlerIRV1, isSupportedOneFieldUInt64HandlerIRV1,
+    isSupportedNullaryUInt64ViewHandlerIRV1,
+    recognizeNullaryUInt64ViewHandlerIRV1, halignment.accountZero, runDispatchV1,
+    nullaryUInt64ViewInvocationV1, hdiscriminator,
+    readUInt64LEV1_encodeU64le, hne, Except.toOption]
 
 /-- The Solana duplicate-account marker is checked, not approximated by array
     bounds. -/
@@ -405,7 +514,9 @@ theorem executeHandlerIRV1_of_nullaryUInt64ViewStaticAlignment_duplicate
       (nullaryUInt64ViewInvocationV1 accountData discriminatorValue true true) =
         .trapped .duplicateAccount := by
   rw [halignment.handlerIRExact]
-  simp [executeHandlerIRV1, runDispatchV1, runChecksV1, runCheckV1,
+  simp [executeHandlerIRV1, isSupportedOneFieldUInt64HandlerIRV1,
+    isSupportedNullaryUInt64ViewHandlerIRV1,
+    recognizeNullaryUInt64ViewHandlerIRV1, runDispatchV1, runChecksV1, runCheckV1,
     nullaryUInt64ViewInvocationV1, halignment.accountZero, hdiscriminator,
     readUInt64LEV1_encodeU64le, Except.toOption,
     Bind.bind, Except.bind]
@@ -428,7 +539,9 @@ theorem executeHandlerIRV1_of_nullaryUInt64ViewStaticAlignment_wrong_owner
       (nullaryUInt64ViewInvocationV1 accountData discriminatorValue false) =
         .trapped .ownerMismatch := by
   rw [halignment.handlerIRExact]
-  simp [executeHandlerIRV1, runDispatchV1, runChecksV1, runCheckV1,
+  simp [executeHandlerIRV1, isSupportedOneFieldUInt64HandlerIRV1,
+    isSupportedNullaryUInt64ViewHandlerIRV1,
+    recognizeNullaryUInt64ViewHandlerIRV1, runDispatchV1, runChecksV1, runCheckV1,
     nullaryUInt64ViewInvocationV1, halignment.accountZero, hdiscriminator,
     readUInt64LEV1_encodeU64le, encodeU64le_size, Except.toOption,
     Bind.bind, Except.bind]
@@ -528,7 +641,9 @@ theorem uint64ReturnedHandlerObservationRelV1_of_readyViewLoad_and_execution
       viewName discriminator handler handlerIR accountData discriminatorValue
       value halignment hdiscriminator haccount.2.2.1 haccount.2.2.2.1
       haccount.2.2.2.2
-  refine ⟨hcanonical, hsize, hreference, ?_, rfl⟩
+  refine ⟨hcanonical, hsize, hreference, ?_, ?_⟩
   simpa [observeHandlerIRV1, haccount.2.1] using htarget
+  rw [halignment.handlerIRExact]
+  rfl
 
 end ProofForgeV2.Targets.Solana

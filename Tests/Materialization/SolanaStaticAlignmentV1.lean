@@ -238,6 +238,12 @@ private unsafe def testProductionStateCell
     | throw <| IO.userError "StateCell production Plan has no get handler"
   let some productionGetIR := productionIR.handlers.find? (·.name == "get")
     | throw <| IO.userError "StateCell production IR has no get handler"
+  let some productionInitializeIR :=
+      productionIR.handlers.find? (·.name == "initialize")
+    | throw <| IO.userError "StateCell production IR has no initialize handler"
+  let some productionIncrementIR :=
+      productionIR.handlers.find? (·.name == "increment")
+    | throw <| IO.userError "StateCell production IR has no increment handler"
   expect (productionPlan.stateAccount == stateAccount)
     s!"StateCell production account layout left the bounded one-field layout:\n{repr productionPlan.stateAccount}"
   expect (productionGet == getHandler)
@@ -259,10 +265,10 @@ private unsafe def testProductionStateCell
     "production StateCell.get did not return the exact account UInt64"
   expect (observed.postAccounts == invocation.accounts)
     "production StateCell.get changed the read-only account observation"
-  expect (executeHandlerIRV1 productionGetIR
-      (nullaryUInt64ViewInvocationV1 bytes 0) ==
-        .trapped .discriminatorMismatch)
-    "production StateCell.get accepted a mismatched discriminator"
+  let wrongDiscriminatorOutcome := executeHandlerIRV1 productionGetIR
+    (nullaryUInt64ViewInvocationV1 bytes 0)
+  expect (wrongDiscriminatorOutcome == .trapped .discriminatorMismatch)
+    s!"production StateCell.get mismatched-discriminator outcome: {repr wrongDiscriminatorOutcome}"
   expect (executeHandlerIRV1 productionGetIR
       (nullaryUInt64ViewInvocationV1 bytes discriminatorValue false) ==
         .trapped .ownerMismatch)
@@ -276,6 +282,77 @@ private unsafe def testProductionStateCell
       (nullaryUInt64ViewInvocationV1 wrongHeader discriminatorValue) ==
         .trapped .headerMismatch)
     "production StateCell.get accepted an uninitialized account header"
+
+  let initializeDiscriminator ← liftResult <|
+    discriminatorToLeU64V1 productionInitializeIR.discriminator
+  let uninitializedBytes := oneFieldUInt64AccountDataV1 0 999
+  let initializeInvocation := unaryUInt64InvocationV1 uninitializedBytes
+    initializeDiscriminator 41 true true
+  let initialized := observeHandlerIRV1 productionInitializeIR initializeInvocation
+  expect (initialized.outcome == .returned none)
+    "production StateCell.initialize did not return successfully"
+  expect (initialized.postAccounts[0]?.map (·.data) == some
+      (oneFieldUInt64AccountDataV1
+        productionPlan.stateAccount.initializedMarker 41))
+    "production StateCell.initialize did not write the marker and initial value"
+  expect (executeHandlerIRV1 productionInitializeIR
+      (unaryUInt64InvocationV1 uninitializedBytes initializeDiscriminator 41
+        false true) == .trapped .signerRequired)
+    "production StateCell.initialize accepted a missing signer"
+  expect (executeHandlerIRV1 productionInitializeIR
+      (unaryUInt64InvocationV1 bytes initializeDiscriminator 41 true true) ==
+        .trapped .headerMismatch)
+    "production StateCell.initialize accepted an initialized account"
+
+  let incrementDiscriminator ← liftResult <|
+    discriminatorToLeU64V1 productionIncrementIR.discriminator
+  let incrementInvocation := unaryUInt64InvocationV1 bytes
+    incrementDiscriminator 8 false true
+  let incremented := observeHandlerIRV1 productionIncrementIR incrementInvocation
+  expect (incremented.outcome == .returned (some (encodeU64le 50)))
+    "production StateCell.increment did not return the checked sum"
+  expect (incremented.postAccounts[0]?.map (·.data) == some
+      (oneFieldUInt64AccountDataV1
+        productionPlan.stateAccount.initializedMarker 50))
+    "production StateCell.increment did not commit the checked sum"
+  expect (executeHandlerIRV1 productionIncrementIR
+      (unaryUInt64InvocationV1 bytes incrementDiscriminator 8 false false) ==
+        .trapped .writableRequired)
+    "production StateCell.increment accepted a read-only account"
+
+  let overflowBytes := oneFieldUInt64AccountDataV1
+    productionPlan.stateAccount.initializedMarker 0xffffffffffffffff
+  let overflowInvocation := unaryUInt64InvocationV1 overflowBytes
+    incrementDiscriminator 1 false true
+  let overflowed := observeHandlerIRV1 productionIncrementIR overflowInvocation
+  expect (overflowed.outcome ==
+      .trapped (.arithmeticOverflow arithmeticOverflowError))
+    "production StateCell.increment did not trap on UInt64 overflow"
+  expect (overflowed.postAccounts == overflowInvocation.accounts)
+    "production StateCell.increment committed state after overflow"
+
+  let missingInitializeOperation := {
+    productionInitializeIR with
+    operations := productionInitializeIR.operations.pop
+  }
+  expect (executeHandlerIRV1 missingInitializeOperation initializeInvocation ==
+      .trapped .unsupportedHandlerShape)
+    "initializer with a missing production operation did not fail closed"
+  let tamperedIncrement := {
+    productionIncrementIR with
+    operations := productionIncrementIR.operations.set! 2
+      (.checkedAdd 2 0 1 7)
+  }
+  expect (executeHandlerIRV1 tamperedIncrement incrementInvocation ==
+      .trapped .unsupportedHandlerShape)
+    "increment with a tampered overflow code did not fail closed"
+  let missingIncrementCheck := {
+    productionIncrementIR with
+    checks := productionIncrementIR.checks.pop
+  }
+  expect (executeHandlerIRV1 missingIncrementCheck incrementInvocation ==
+      .trapped .unsupportedHandlerShape)
+    "increment with a missing production check did not fail closed"
 
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared

@@ -251,6 +251,109 @@ theorem recognizeNullaryUInt64ViewHandlerIRV1_sound
     rfl
   · contradiction
 
+/-- Internal-consistency gate for the recognized nullary UInt64 view recipe.
+    Recognition alone preserves repeated account fields independently; this
+    predicate joins them and rejects a tampered production artifact. -/
+def isSupportedNullaryUInt64ViewHandlerIRV1 (handlerIR : HandlerIR) : Bool :=
+  match recognizeNullaryUInt64ViewHandlerIRV1 handlerIR with
+  | some shape =>
+      shape.accountCount == 1 && shape.accessAccountIndex == 0 &&
+        shape.nonDuplicateAccountIndex == shape.accessAccountIndex &&
+        shape.inputLen == 8 &&
+        shape.ownerAccountIndex == shape.accessAccountIndex &&
+        shape.dataLenAccountIndex == shape.accessAccountIndex &&
+        shape.checkedDataLen == shape.accessDataLen &&
+        shape.headerAccountIndex == shape.accessAccountIndex &&
+        shape.loadAccountIndex == shape.accessAccountIndex
+  | none => false
+
+/-- Exact production unary UInt64 initializer gate. It admits only the
+    generated zero/load/store/header sequence and joins every repeated account,
+    parameter, field, and header occurrence. -/
+def isSupportedUnaryUInt64InitializerHandlerIRV1
+    (handlerIR : HandlerIR) : Bool :=
+  match handlerIR.params.toList, handlerIR.mode, handlerIR.resultKind,
+      handlerIR.accountAccess.ownerPolicy,
+      handlerIR.accountAccess.signerRequired,
+      handlerIR.accountAccess.writableRequired,
+      handlerIR.accountAccess.initialization,
+      handlerIR.checks.toList, handlerIR.operations.toList with
+  | [{ dataOffset := paramOffset, byteWidth := 8, endianness := .little,
+        isInt := false, .. }],
+      .initialize, .u64, .currentProgram, true, true, .mustBeUninitialized, [
+      .numAccounts accountCount,
+      .accountNonDuplicate nonDuplicateAccountIndex,
+      .instructionDataLen inputLen,
+      .ownerCurrentProgram ownerAccountIndex,
+      .accountDataLen dataLenAccountIndex checkedDataLen,
+      .signer signerAccountIndex,
+      .writable writableAccountIndex,
+      .headerEquals headerAccountIndex headerOffset 0
+    ], [
+      .zeroState zeroAccountIndex fieldOffset,
+      .loadParam 0 loadedParamOffset,
+      .storeState storeAccountIndex storedFieldOffset 0,
+      .setHeader setHeaderAccountIndex setHeaderOffset _
+    ] =>
+      let accountIndex := handlerIR.accountAccess.accountIndex
+      accountCount == 1 && accountIndex == 0 &&
+        nonDuplicateAccountIndex == accountIndex && inputLen == 16 &&
+        ownerAccountIndex == accountIndex && dataLenAccountIndex == accountIndex &&
+        checkedDataLen == handlerIR.accountAccess.exactDataLen &&
+        signerAccountIndex == accountIndex && writableAccountIndex == accountIndex &&
+        headerAccountIndex == accountIndex && zeroAccountIndex == accountIndex &&
+        storeAccountIndex == accountIndex && setHeaderAccountIndex == accountIndex &&
+        paramOffset == 8 && loadedParamOffset == paramOffset &&
+        storedFieldOffset == fieldOffset && setHeaderOffset == headerOffset &&
+        fieldOffset != headerOffset
+  | _, _, _, _, _, _, _, _, _ => false
+
+/-- Exact production unary UInt64 checked-add gate. Unknown, missing,
+    additional, or inconsistent checks and operations are rejected. -/
+def isSupportedUnaryUInt64CheckedAddHandlerIRV1
+    (handlerIR : HandlerIR) : Bool :=
+  match handlerIR.params.toList, handlerIR.mode, handlerIR.resultKind,
+      handlerIR.accountAccess.ownerPolicy,
+      handlerIR.accountAccess.signerRequired,
+      handlerIR.accountAccess.writableRequired,
+      handlerIR.accountAccess.initialization,
+      handlerIR.checks.toList, handlerIR.operations.toList with
+  | [{ dataOffset := paramOffset, byteWidth := 8, endianness := .little,
+        isInt := false, .. }],
+      .mutate, .u64, .currentProgram, false, true, .mustBeInitialized, [
+      .numAccounts accountCount,
+      .accountNonDuplicate nonDuplicateAccountIndex,
+      .instructionDataLen inputLen,
+      .ownerCurrentProgram ownerAccountIndex,
+      .accountDataLen dataLenAccountIndex checkedDataLen,
+      .writable writableAccountIndex,
+      .headerEquals headerAccountIndex _ _
+    ], [
+      .loadState 0 loadAccountIndex fieldOffset,
+      .loadParam 1 loadedParamOffset,
+      .checkedAdd 2 0 1 errorCode,
+      .storeState storeAccountIndex storedFieldOffset 2,
+      .loadState 0 returnLoadAccountIndex returnFieldOffset,
+      .setReturnData 8 0
+    ] =>
+      let accountIndex := handlerIR.accountAccess.accountIndex
+      accountCount == 1 && accountIndex == 0 &&
+        nonDuplicateAccountIndex == accountIndex && inputLen == 16 &&
+        ownerAccountIndex == accountIndex && dataLenAccountIndex == accountIndex &&
+        checkedDataLen == handlerIR.accountAccess.exactDataLen &&
+        writableAccountIndex == accountIndex && headerAccountIndex == accountIndex &&
+        loadAccountIndex == accountIndex && storeAccountIndex == accountIndex &&
+        returnLoadAccountIndex == accountIndex && paramOffset == 8 &&
+        loadedParamOffset == paramOffset && storedFieldOffset == fieldOffset &&
+        returnFieldOffset == fieldOffset && errorCode == arithmeticOverflowError
+  | _, _, _, _, _, _, _, _, _ => false
+
+/-- Closed set of HandlerIR recipes interpreted by `HandlerSemanticsV1`. -/
+def isSupportedOneFieldUInt64HandlerIRV1 (handlerIR : HandlerIR) : Bool :=
+  isSupportedNullaryUInt64ViewHandlerIRV1 handlerIR ||
+    isSupportedUnaryUInt64InitializerHandlerIRV1 handlerIR ||
+    isSupportedUnaryUInt64CheckedAddHandlerIRV1 handlerIR
+
 /-- Exact semantic/account/Plan/IR alignment for the first bounded Solana
     target slice. It is syntax and representation only; execution is defined
     once in `HandlerSemanticsV1`. -/
