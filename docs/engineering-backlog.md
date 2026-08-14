@@ -629,6 +629,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-14 | **SYS-S4-MATRIX-NEW**：`Targets.lean` ContextRead 矩阵补 ICP/OpenVM 行（UInt64 键点名无 host；caller/self 走 Principal type-closure）。**不**关闭 formal |
 | 2026-08-14 | **SYS-E2-CIRCUIT**：Aleo/Noir/Psy 对 `envRead nativeVaultBalance` 点名 Plan fail closed；Noir 增工程 `planFromCompiledSemanticV1` 仅用于该针。无 vault host。**不**关闭 formal |
 | 2026-08-14 | **SYS-E2-TON**：TON 对 `envRead nativeVaultBalance` 点名 Plan fail closed；`unixTimeSeconds` 仍降 `blockchain.now()`。无 vault host。**不**关闭 formal |
+| 2026-08-14 | **SOR-1-GAP**：`docs/plan/soroban-s1-wasm-finalize-gap.md` 盘点 locked Wasm/auth/TTL。下一刀 = SOR-1a Finalize honesty pin，不开放 stellar-cli。**不**关闭 SOR-1 / formal |
 
 ---
 

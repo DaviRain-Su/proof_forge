@@ -81,6 +81,8 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | SYS-S4-MATRIX-NEW | done | ICP/OpenVM added to Targets.lean ContextRead matrix (contains-loops + exact blockHeight/chainId/self). **Not** formal |
 | SYS-E2-CIRCUIT | done | Aleo/Noir/Psy: envRead nativeVaultBalance named no-host FC. Compile reached Plan. Focused suites ok. **Not** formal |
 | SYS-E2-TON | done | TON: envRead nativeVaultBalance named no-host FC. unixTime still admitted. Focused TonPlanV1 ok. **Not** formal |
+| SOR-1-GAP | done | Inventory [`docs/plan/soroban-s1-wasm-finalize-gap.md`](../docs/plan/soroban-s1-wasm-finalize-gap.md). Next implementable = SOR-1a Finalize honesty pins. Opening Wasm/auth/TTL needs a product decision. **Not** formal |
+| SOR-1A | in_progress | S0 Finalize honesty + unknown Wasm-profile fail-closed pins. Tests only. No Tool Lock / auth / TTL. **Not** SOR-1 done |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 
