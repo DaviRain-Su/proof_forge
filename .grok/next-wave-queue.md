@@ -82,7 +82,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | SYS-E2-CIRCUIT | done | Aleo/Noir/Psy: envRead nativeVaultBalance named no-host FC. Compile reached Plan. Focused suites ok. **Not** formal |
 | SYS-E2-TON | done | TON: envRead nativeVaultBalance named no-host FC. unixTime still admitted. Focused TonPlanV1 ok. **Not** formal |
 | SOR-1-GAP | done | Inventory [`docs/plan/soroban-s1-wasm-finalize-gap.md`](../docs/plan/soroban-s1-wasm-finalize-gap.md). Next implementable = SOR-1a Finalize honesty pins. Opening Wasm/auth/TTL needs a product decision. **Not** formal |
-| SOR-1A | in_progress | S0 Finalize honesty + unknown Wasm-profile fail-closed pins. Tests only. No Tool Lock / auth / TTL. **Not** SOR-1 done |
+| SOR-1A | done | S0 Finalize honesty + unknown profile FC in `SorobanPlanV1`. extraFiles empty, deployable=false. **Not** SOR-1 / formal |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 

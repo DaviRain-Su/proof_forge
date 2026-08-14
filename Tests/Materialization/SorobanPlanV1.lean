@@ -1,6 +1,8 @@
 /-
   Soroban S0 target leaf tests (ADR-0044): Plan/IR/emitter over retained
   SemanticProgramV1. Uses planFromCompiledSemanticV1 / buildFromCompiledSemanticV1.
+  SOR-1a: product Finalize honesty + unknown-profile fail-closed (no Wasm
+  profile id; S0 `{name}.rs` is not a cargo package).
 -/
 import ProofForgeV2
 import ProofForgeV2.Targets.Soroban
@@ -282,6 +284,64 @@ unsafe def testEnvReadNativeStayFailClosed : IO Unit := do
       throw <| IO.userError
         "EnvReadBalanceSoroban must Plan fail closed (no Soroban vault host)"
 
+/-- SOR-1a: product capability → materialize → Finalize stays S0 zero-tool.
+    `{name}.rs` is a source recipe, not a cargo package; Finalize must not
+    invent Wasm extras or claim deployable. -/
+unsafe def testCapabilityProductPath : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program StateCell where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-capability>" "Tests.SorobanCapability" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    Targets.BuildSelectionV1.resolveBuildSelectionV1 TargetId.soroban none
+  expect (selection.codegenProfile == CodegenProfileId.sorobanSourceU64V1)
+    "Soroban selection must bind soroban-source-u64-v1"
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let artifacts ← liftResult <| Targets.materializeResult capability
+  expect (MaterializedArtifactsV1.targetIdOf artifacts == TargetId.soroban)
+    "materialized artifacts must bind TargetId.soroban"
+  let files := MaterializedArtifactsV1.filesOf artifacts
+  expect (files.size == 1 && files[0]!.path == "StateCell.rs")
+    "S0 materialize must emit exactly StateCell.rs (not a cargo package)"
+  let finalized ← Targets.finalizeMaterializedArtifactsV1
+    capability artifacts (System.FilePath.mk ".")
+  expect (!FinalizedArtifactsV1.deployableOf finalized)
+    "Soroban S0 finalization must remain non-deployable"
+  expect (FinalizedArtifactsV1.extraFilesOf finalized).isEmpty
+    "Soroban S0 zero-tool finalization must add no files"
+  let note := FinalizedArtifactsV1.evidenceNoteOf finalized
+  expect (note.contains "stellar-cli" || note.contains "Wasm toolchain")
+    s!"Soroban S0 evidence must cite stellar-cli or Wasm toolchain, got: {note}"
+
+/-- SOR-1a: grammar-valid but unregistered profile stays unknown.
+    Do not reserve a `soroban-wasm-*` CodegenProfileId. -/
+unsafe def testUnknownProfileFailClosed : IO Unit := do
+  match CodegenProfileId.parse? "not-a-real-profile-v1" with
+  | none =>
+      throw <| IO.userError "not-a-real-profile-v1 must remain grammar-valid"
+  | some unknown =>
+      match Targets.BuildSelectionV1.resolveBuildSelectionV1
+          TargetId.soroban (some unknown) with
+      | .error e =>
+          expect (e.code == "PF-PROFILE-UNKNOWN")
+            s!"unknown Soroban profile must be PF-PROFILE-UNKNOWN, got {e.code}: {e.render}"
+      | .ok sel =>
+          throw <| IO.userError
+            s!"unknown Soroban profile must fail closed, got {sel.codegenProfile}"
+
 unsafe def run : IO Unit := do
   testStateCellSorobanSource
   testMultiWidthFailClosed
@@ -290,6 +350,8 @@ unsafe def run : IO Unit := do
   testCryptoSha256StayFailClosed
   testContextReadStayFailClosed
   testEnvReadNativeStayFailClosed
+  testCapabilityProductPath
+  testUnknownProfileFailClosed
   IO.println "Tests.Materialization.SorobanPlanV1: ok"
 
 end Tests.Materialization.SorobanPlanV1

@@ -134,6 +134,9 @@ This slice is safe without a product decision. It makes the S0 non-claim
 mechanically testable (today there is no Finalize pin) and blocks a silent
 S0→Wasm cutover.
 
+**Pinned 2026-08-14** in `Tests/Materialization/SorobanPlanV1.lean`
+(`testCapabilityProductPath` / `testUnknownProfileFailClosed`).
+
 ## 5. Non-claims
 
 - Not accepted PRD Phase 1 (still EVM/Solana/NEAR/Noir; ADR-0036).
