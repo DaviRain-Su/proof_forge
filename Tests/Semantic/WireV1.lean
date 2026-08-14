@@ -4168,6 +4168,22 @@ private def testTypeKeyByteForm : IO Unit := do
     #[{ id := 0, name := none, shape := .uint 64 }]
   expectTypeKeyBytes "P uint 64" uint64Types 0
     (typeKeyFrameOracle "uint" #[encodeU16le 64])
+  let int64Types : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .int 64 }]
+  expectTypeKeyBytes "P int 64" int64Types 0
+    (typeKeyFrameOracle "int" #[encodeU16le 64])
+  let int8Types : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .int 8 }]
+  expectTypeKeyBytes "P int 8" int8Types 0
+    (typeKeyFrameOracle "int" #[encodeU16le 8])
+  let principalTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .principal }]
+  expectTypeKeyBytes "P principal" principalTypes 0
+    (typeKeyFrameOracle "principal" #[])
+  let unitTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .unit }]
+  expectTypeKeyBytes "P unit" unitTypes 0
+    (typeKeyFrameOracle "unit" #[])
   -- Named reserved id is `u32le` of the declaration's reserved TypeId,
   -- not the pretty name and not an expanded struct body.
   let namedTypes : Array TypeDeclV1 := #[
@@ -4188,6 +4204,12 @@ private def testTypeKeyByteForm : IO Unit := do
   let uint8Key := typeKeyFrameOracle "uint" #[encodeU16le 8]
   expectTypeKeyBytes "P option(uint8)" optionTypes 1
     (typeKeyFrameOracle "option" #[uint8Key])
+  let arrayTypes : Array TypeDeclV1 := #[
+    { id := 0, name := none, shape := .uint 8 },
+    { id := 1, name := none, shape := .array 0 4 }
+  ]
+  expectTypeKeyBytes "P array(uint8, 4)" arrayTypes 1
+    (typeKeyFrameOracle "array" #[uint8Key, encodeU32le 4])
   let mapTypes : Array TypeDeclV1 := #[
     { id := 0, name := none, shape := .bool },
     { id := 1, name := none, shape := .uint 8 },
