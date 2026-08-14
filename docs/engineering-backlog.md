@@ -622,6 +622,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-14 | **F-TYPEKEY-BYTES**：孤立 SPEC `typeKey` 字节形 encoder + `Tests.Semantic.WireV1` pin；**不**进入 structure gate，不 reject unused，不 rank `types`。**不**关闭 TASK-D2-06 / TST-SEM-001 |
 | 2026-08-14 | **SYS-S5-NEW-TARGETS**：ICP/Soroban/OpenVM 对 `pf.crypto.*` 点名 Plan fail closed（`has no Icp/Soroban/OpenVM host binding`）；无假 host。**不**关闭 EXT-CRYPTO / formal |
 | 2026-08-14 | **SYS-S4-NEW-TARGETS**：ICP/Soroban/OpenVM 对 UInt64 ContextRead 四键点名 Plan fail closed；caller/self 因 Principal 仍走泛化 envelope。无新 host。**不**关闭 formal |
+| 2026-08-14 | **SYS-S4-QUINT-KEYS**：Quint 对同一四键点名 Plan/materialize fail closed（`has no Quint host binding`）；attachedValue 不再只写 outside-Q0。caller/self 仍泛化。**不**关闭 formal |
 
 ---
 

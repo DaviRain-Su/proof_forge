@@ -503,35 +503,52 @@ unsafe def testFailClosedConstant : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
   | .ok _ => throw <| IO.userError "nonempty constants must fail closed at Quint plan"
 
-/-- Fail closed: context.attachedValue remains outside the Quint Q0 model. -/
+/-- SYS-S4: Quint has no unixTime/blockHeight/attachedValue/chainId host.
+    Named UInt64 ContextRead keys stay Plan fail closed. caller/self are
+    Principal and stay on the generic outside-Q0 envelope (Q0 results are
+    not Principal; no caller/self host). -/
 unsafe def testFailClosedContextReadAttachedValue : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  let source :=
-    "import ProofForgeV2\n\n" ++
-    "namespace ProofForgeV2.Examples\n\n" ++
-    "open ProofForgeV2.Language\n\n" ++
-    "program CtxAttached where\n" ++
-    "  state public pad : UInt64\n\n" ++
-    "  init() do\n" ++
-    "    pad := 0\n\n" ++
-    "  entry collect() : UInt64 do\n" ++
-    "    return context.attachedValue\n\n" ++
-    "end ProofForgeV2.Examples\n"
-  let parsed ← liftResult (← session.selectProgramV1
-    source "<quint-context-attached>" "Examples.CtxAttached" none)
-  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
-  match planQuint compiled with
-  | .error (.planInvariant .quint msg) =>
-      expect (msg.contains "outside Q0")
-        s!"context.attachedValue Plan failure must stay in outside-Q0 family, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
-  | .ok _ => throw <| IO.userError "context.attachedValue must fail closed at Quint plan"
-  match buildQuint compiled with
-  | .error (.planInvariant .quint msg) =>
-      expect (msg.contains "outside Q0")
-        s!"context.attachedValue materialize failure must stay in outside-Q0 family, got: {msg}"
-  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
-  | .ok _ => throw <| IO.userError "context.attachedValue must fail closed at Quint materialize"
+  let expectPlanFc (label place schemaId : String) : IO Unit := do
+    let source :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {label} where\n" ++
+      "  state public pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry collect() : UInt64 do\n" ++
+      s!"    return {place}\n"
+    let parsed ← liftResult (← session.selectProgramV1
+      source s!"<quint-{label}>" s!"Examples.{label}" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+    let needle := "has no Quint host binding"
+    match planQuint compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+        expect (e.render.contains s!"ContextRead '{schemaId}'")
+          s!"{label} Plan FC must name ContextRead '{schemaId}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{label} must Plan fail closed (no Quint context host)"
+    match buildQuint compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label} materialize FC must contain '{needle}', got: {e.render}"
+        expect (e.render.contains s!"ContextRead '{schemaId}'")
+          s!"{label} materialize FC must name ContextRead '{schemaId}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{label} must fail closed at Quint materialize"
+  expectPlanFc "CtxUnixTime" "context.unixTimeSeconds"
+    "proof-forge.context.unix-time-seconds.v1"
+  expectPlanFc "CtxBlockHeight" "context.blockHeight"
+    "proof-forge.context.block-height.v1"
+  expectPlanFc "CtxAttached" "context.attachedValue"
+    "proof-forge.context.attached-value.v1"
+  expectPlanFc "CtxChainId" "context.chainId"
+    "proof-forge.context.chain-id.v1"
 
 /-- Fail closed: events. -/
 unsafe def testFailClosedEvent : IO Unit := do

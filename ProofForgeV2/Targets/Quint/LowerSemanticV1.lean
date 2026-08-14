@@ -298,6 +298,20 @@ private def isPfAssetsCatalogQn (qn : String) : Bool :=
 private def isPfCryptoCalleeV1 (qn : String) : Bool :=
   qn.startsWith "pf.crypto."
 
+/-- ADR-0031 S4: Quint has no unixTime/blockHeight/attachedValue/chainId host.
+    Named UInt64 catalog keys stay fail closed with a key-named diagnostic.
+    `context.caller` / `context.self` are Principal; Q0 results are only
+    Unit/UInt64/Bool, so a Principal-result entry is rejected at
+    `resultKindOf` first. A Principal-typed ContextRead still hits the
+    generic outside-Q0 envelope below — Q0 admits Principal only as
+    pf.assets identity args, not as a caller/self host. -/
+private def isNamedUInt64ContextKey
+    (key : ProofForgeV2.Core.Common.SchemaId) : Bool :=
+  key == unixTimeSecondsContextKeyV1 ||
+    key == blockHeightContextKeyV1 ||
+    key == attachedValueContextKeyV1 ||
+    key == chainIdContextKeyV1
+
 -- ---------------------------------------------------------------------------
 -- Lowering helpers
 -- ---------------------------------------------------------------------------
@@ -764,9 +778,15 @@ private partial def lowerInstructions
         | .tokenVaultBalance =>
             planError
               "unsupported Quint semantic shape: pf.assets.token.balanceOfSelf permanently fail closed (mint-keyed token vault Map + Principal identity are outside Q0 Int vault model)"
+    | .contextRead key =>
+        if isNamedUInt64ContextKey key then
+          planError
+            s!"unsupported Quint semantic shape: ContextRead '{key.value}' has no Quint host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
+        -- caller/self remain on this generic envelope (no caller/self host).
+        planError "unsupported Quint semantic shape: op is outside Q0"
     | .constant .. | .construct .. | .fieldGet .. | .fieldSet ..
     | .variantTag .. | .variantPayload .. | .indexGet .. | .indexSet ..
-    | .checkedCast .. | .contextRead .. | .commit ..
+    | .checkedCast .. | .commit ..
     | .emit .. | .schedule .. =>
         planError "unsupported Quint semantic shape: op is outside Q0"
   -- Terminator

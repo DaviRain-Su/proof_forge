@@ -74,6 +74,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | F-TYPEKEY-BYTES | done | Isolated SPEC `typeKey` byte-form encoder + WireV1 unit tests. Not a structure gate. Focused `Tests.Semantic.WireV1.run` ok. **Not** formal TASK-D2-06 |
 | SYS-S5-NEW-TARGETS | done | ICP/Soroban/OpenVM Plan honesty: `pf.crypto.*` fail closed with named no-host diagnostic. Focused Icp/Soroban/OpenVm suites ok. **Not** EXT-CRYPTO / formal |
 | SYS-S4-NEW-TARGETS | done | ICP/Soroban/OpenVM Plan honesty: UInt64 ContextRead keys named no-host FC. caller/self stay generic (Principal). Focused suites ok. **Not** formal |
+| SYS-S4-QUINT-KEYS | done | Quint: four UInt64 ContextRead keys named no-host FC. caller/self stay generic. Focused QuintSourceV1 ok. **Not** formal |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 

@@ -1201,9 +1201,9 @@
       "sha256": "08a21f926084e3ec75b8a26ef757e512117883fc362b9a7b4cd72631c00ac8a5"
     },
     {
-      "bytes": 52616,
+      "bytes": 53743,
       "path": "ProofForgeV2/Targets/Quint/LowerSemanticV1.lean",
-      "sha256": "b41a2bc6f2c139d41199a121a8f290c02290645f9560433ad191473070ba7550"
+      "sha256": "5e376918dff1623a8bddc053cdcbecbbefa69710ddf6fa330adcd2f729ba746a"
     },
     {
       "bytes": 1609,
