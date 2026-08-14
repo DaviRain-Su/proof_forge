@@ -8,8 +8,8 @@
   fail-closed boundaries (sync call, emit, schedule, nonempty invariant,
   aggregates/multi-width).
 
-  Registered via Tests/Shards/Targets. Not a PocketIC/dfx/replica lane
-  (ICP-2 is zero-tool); not formal D4.
+  Registered via Tests/Shards/Targets. Materialize is zero-tool; Finalize
+  is locked wat2wasm (ICP-1a). Not a PocketIC/dfx/replica lane; not formal D4.
 -/
 import ProofForgeV2.Compiler.Pipeline
 import ProofForgeV2.Targets.Icp
@@ -402,6 +402,61 @@ private unsafe def testRegistryDispatch
   expect (files.any (·.path == "StateCell.did")) "registry emits .did"
   IO.println "  ✓ Registry materialize dispatch"
 
+/-- ICP-1a: product capability → materialize → locked wat2wasm Finalize.
+    Write base files into a temp staging dir first; wat2wasm runs inside
+    that dir. PocketIC/dfx/replica are not invoked. Tool Lock `wat2wasm`
+    is required — do not skip-clean if it is missing. -/
+private unsafe def testCapabilityProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let compiled ← compileSource session stateCellSourceText stateCellModuleName
+    "<icp-finalize>"
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.icp none
+  expect (selection.codegenProfile == CodegenProfileId.icpWasmCandidU64V1)
+    "ICP selection must bind icp-wasm-candid-u64-v1"
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let artifacts ← liftResult <| Targets.materializeResult capability
+  let files := MaterializedArtifactsV1.filesOf artifacts
+  IO.FS.withTempDir fun stagingDir => do
+    for f in files do
+      let path := stagingDir / f.path
+      if let some parent := path.parent then
+        IO.FS.createDirAll parent
+      IO.FS.writeFile path f.contents
+    let finalized ← Targets.finalizeMaterializedArtifactsV1
+      capability artifacts stagingDir
+    expect (FinalizedArtifactsV1.deployableOf finalized)
+      "ICP locked wat2wasm finalization must be deployable"
+    expect (FinalizedArtifactsV1.extraFilesOf finalized == #["StateCell.wasm"])
+      "ICP locked finalization must add exactly StateCell.wasm"
+    let note := FinalizedArtifactsV1.evidenceNoteOf finalized
+    expect (note.contains "wat2wasm")
+      s!"ICP Finalize evidence must cite wat2wasm, got: {note}"
+    expect (note.contains "PocketIC")
+      s!"ICP Finalize evidence must cite PocketIC (not invoked), got: {note}"
+    let wasm ← IO.FS.readBinFile (stagingDir / "StateCell.wasm")
+    expect (wasm.size >= 8 && wasm[0]! == 0x00 && wasm[1]! == 0x61 &&
+        wasm[2]! == 0x73 && wasm[3]! == 0x6d && wasm[4]! == 0x01 &&
+        wasm[5]! == 0x00 && wasm[6]! == 0x00 && wasm[7]! == 0x00)
+      "StateCell.wasm must carry Wasm magic/version 00 61 73 6d 01 00 00 00"
+  IO.println "  ✓ capability product Finalize (locked wat2wasm)"
+
+/-- ICP-1a: grammar-valid but unregistered profile stays unknown.
+    Do not invent a reserved extra ICP profile id. -/
+private unsafe def testUnknownProfileFailClosed : IO Unit := do
+  match CodegenProfileId.parse? "not-a-real-profile-v1" with
+  | none =>
+      throw <| IO.userError "not-a-real-profile-v1 must remain grammar-valid"
+  | some unknown =>
+      match resolveBuildSelectionV1 TargetId.icp (some unknown) with
+      | .error e =>
+          expect (e.code == "PF-PROFILE-UNKNOWN")
+            s!"unknown ICP profile must be PF-PROFILE-UNKNOWN, got {e.code}: {e.render}"
+      | .ok sel =>
+          throw <| IO.userError
+            s!"unknown ICP profile must fail closed, got {sel.codegenProfile}"
+  IO.println "  ✓ unknown profile fail closed"
+
 unsafe def run : IO Unit := do
   IO.println "IcpPlanV1"
   let session ← Tests.Language.ParserSession.shared
@@ -416,6 +471,8 @@ unsafe def run : IO Unit := do
   testScheduleFc session
   testAggregateFc session
   testRegistryDispatch session
+  testCapabilityProductPath session
+  testUnknownProfileFailClosed
   IO.println "IcpPlanV1: all checks passed"
 
 end Tests.Materialization.IcpPlanV1
