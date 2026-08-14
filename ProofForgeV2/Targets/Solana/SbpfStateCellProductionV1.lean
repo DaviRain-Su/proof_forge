@@ -10,12 +10,16 @@ import ProofForgeV2.Targets.Solana.SbpfHandlerJoinV1
 /-!
 # Solana StateCell production subject
 
-Pure, fail-closed reconstruction of the concrete StateCell `get` certification
-subject from the canonical Source AST bytes emitted by the actual `program
+Pure, fail-closed reconstruction of the concrete StateCell certification
+subjects from the canonical Source AST bytes emitted by the actual `program
 StateCell` declaration. The resolver follows the existing compiler, Solana
 capability, full-body HandlerIR, assembly emitter, strict artifact parser, and
 identity-bound provider path. It contains no copied IR/program and introduces
 no alternate lowering or business semantics.
+
+`get` retains the dedicated 55-step certified join. `initialize` uses the
+generic executed HandlerIR/provider join; a sparse initialize certificate is a
+later slice.
 -/
 
 namespace ProofForgeV2.Targets.Solana
@@ -145,5 +149,88 @@ theorem checkStateCellGetProductionSubjectV1_sound
   exact checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1_sound
     subject.boundArtifact subject.handler subject.handlerInvocation
     subject.loaderInvocation subject.returnBytes subject.value hchecked
+
+/-- Concrete values consumed by the generic StateCell `initialize`
+    HandlerIR/provider join. Same private-ctor discipline as `get`. -/
+structure ResolvedStateCellInitializeProductionSubjectV1 where
+  private mk ::
+  ir : IR
+  assembly : String
+  boundArtifact : BoundResolvedSbpfArtifactV1
+  handler : HandlerIR
+  handlerInvocation : InvocationObservationV1
+  loaderInvocation : LoaderV3SingleAccountInvocationV1
+  argument : UInt64
+
+/-- Reconstruct the initialize production subject from the same exported
+    StateCell source. Prestate is the uninitialized one-field account used by
+    the existing executable observation; the argument is `7`. -/
+def resolveStateCellInitializeProductionSubjectV1 :
+    Except String ResolvedStateCellInitializeProductionSubjectV1 := do
+  unless StateCell.schema == Language.ProgramExport.programExportSchemaV2 do
+    throw "StateCell program export schema is not proof-forge.program-export.v2"
+  let source ← decodeCanonicalSourceAstBytesV1 StateCell.bytes
+  let compiled ← compileResultV1 <|
+    compileValidatedSourceV1 source
+  let selection ← compileResultV1 <|
+    resolveBuildSelectionV1 TargetId.solana
+      (some CodegenProfileId.solanaSbpfCpiElfV1)
+  let capability ← compileResultV1 <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let ir ← compileResultV1 <|
+    fullBodyIrFromProductCapabilityV1 capability false
+  let assembly ← compileResultV1 <| emitSbpfAsmV1 ir
+  let boundArtifact ← artifactResultV1 <|
+    resolveBoundSbpfArtifactV1 assembly stateCellProductionSbpfSha256V1
+  let handler ← match ir.handlers.find? (·.name == "initialize") with
+    | some value => pure value
+    | none => throw "production StateCell IR has no initialize handler"
+  let discriminator ← compileResultV1 <|
+    discriminatorToLeU64V1 handler.discriminator
+  let argument : UInt64 := 7
+  let staleValue : UInt64 := 999
+  let accountData :=
+    (SbpfSemantics.wordToLE (BitVec.ofNat 64 0)).append
+      (SbpfSemantics.wordToLE (BitVec.ofNat 64 staleValue.toNat))
+  let programId := Array.replicate 32 (0x42 : UInt8)
+  let loaderInvocation : LoaderV3SingleAccountInvocationV1 := {
+    accountKey := Array.replicate 32 (0x24 : UInt8)
+    owner := programId
+    programId
+    accountData
+    instructionData :=
+      (SbpfSemantics.wordToLE (BitVec.ofNat 64 discriminator.toNat)).append
+        (SbpfSemantics.wordToLE (BitVec.ofNat 64 argument.toNat))
+    isSigner := true
+    isWritable := true
+  }
+  let handlerInvocation :=
+    unaryUInt64InvocationV1 ⟨accountData⟩ discriminator argument true true
+  pure <| ResolvedStateCellInitializeProductionSubjectV1.mk ir assembly
+    boundArtifact handler handlerInvocation loaderInvocation argument
+
+def checkStateCellInitializeProductionSubjectV1 : Bool :=
+  checkExceptV1 resolveStateCellInitializeProductionSubjectV1 fun subject =>
+    checkStateCellExecutedHandlerSbpfJoinV1
+      subject.boundArtifact subject.handler subject.handlerInvocation
+      subject.loaderInvocation
+
+theorem checkStateCellInitializeProductionSubjectV1_sound
+    (checked : checkStateCellInitializeProductionSubjectV1 = true) :
+    ∃ subject,
+      resolveStateCellInitializeProductionSubjectV1 = .ok subject ∧
+      Nonempty (StateCellExecutedHandlerSbpfJoinV1
+        subject.boundArtifact subject.handler subject.handlerInvocation
+        subject.loaderInvocation defaultSbpfExecutionFuelV1) := by
+  rcases checkExceptV1_sound resolveStateCellInitializeProductionSubjectV1
+      (fun subject =>
+        checkStateCellExecutedHandlerSbpfJoinV1
+          subject.boundArtifact subject.handler subject.handlerInvocation
+          subject.loaderInvocation)
+      checked with ⟨subject, hsubject, hchecked⟩
+  refine ⟨subject, hsubject, ?_⟩
+  exact checkStateCellExecutedHandlerSbpfJoinV1_sound
+    subject.boundArtifact subject.handler subject.handlerInvocation
+    subject.loaderInvocation defaultSbpfExecutionFuelV1 hchecked
 
 end ProofForgeV2.Targets.Solana

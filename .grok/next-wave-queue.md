@@ -1,8 +1,8 @@
 # Next-wave drain queue (2026-08-12)
 
 **Authority:** `docs/engineering-backlog.md` 推荐击杀顺序 · ADR-0036 · AGENTS Next task  
-**Live status:** Track A LH-1…28 engineering-done. Next serial axis is EVM formal closeout (`TASK-D2-07` / `TST-SEM-002/003`); Goal drain must **not** mark those formal IDs done. Backlog wins on conflict; this file wins on *order*.
-**Mode:** Goal drain *or* one-slice workflow. Do **not** wait for chat “继续”.  
+**Live status:** Goal-auto drain **empty**. Track A/B/F and later honesty pins are all `done`. **Do not** launch `/goal @.grok/goals/prompt-next-wave.md` or `/workflow next-wave-runner`. Formal `TASK-D2-07` / `TST-SEM-002/003` stay pending — not a coding slice. Next work = honesty docs / product decisions (see `docs/research/28-project-wide-honesty-audit.md`). Backlog wins on conflict.
+**Mode:** Retired drain. Do **not** invent new LH/F rows.  
 **Sole L1 step:** `SemanticProgramV1 → admitReferenceProgramSliceV1 → stepReferenceSliceV1`  
 **Forbidden:** close formal TASK/TST/EV · Anvil lossless OutcomeWire (spec-FC) · invent TASK-* · push · `git add -A` · `git reset --hard` · supersede ADR-0027 · silent accepted-PRD expansion
 
@@ -99,6 +99,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | F-TYPEKEY-FIELDS | done | Isolated SPEC `typeKey` pins for BLS12-377 Fr and Goldilocks FieldSpec (bn254 already pinned). Not a structure gate. **Not** formal |
 | DOC-12T-SYNC | done | Refresh RPT-025 12+0 + matrix §2 Soroban/OpenVM/ICP columns + targets README intro. **Not** accepted-PRD expansion |
 | SOL-0048-GAP | done | Inventory [`docs/plan/solana-adr-0048-next.md`](../docs/plan/solana-adr-0048-next.md): get certificate exists; init/increment/overflow still observation-only. **Not** formal D5 |
+| SOL-0048-INIT | done | StateCell initialize production subject + generic executed HandlerIR/provider join. No 55-step sparse cert yet. **Not** formal D5 |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
@@ -137,7 +138,7 @@ verification, Goal↛formal).
 
 ## Runner notes
 
-1. Track A/B/F packaging through `F-COMMIT-COMMENT` is done. Live drain continues on file-isolated engineering leaves. Goal must **not** auto-close formal IDs. Never Track C. Unused TypeKey rejection / decoder-side rank / SPEC-honesty ADR / EV binding / C-3 / SOR-1 Wasm remain product/formal decisions.
+1. Track A/B/F and later file-isolated honesty pins are **done**. Queue has **zero pending**. Goal must **not** auto-close formal IDs and must **not** resume at LH-4 or emit `NEXT=FORMAL_C3`. Never Track C. Unused TypeKey rejection / decoder-side rank / SPEC-honesty ADR / EV binding / C-3 / SOR-1 Wasm remain product/formal decisions.
 2. Mark claimed row `in_progress` only on a clean tree (or WIP wholly inside that slice allowlist).
 3. One local commit per id. Touch `ProofForgeV2/**` → `just sbom-package-files-refresh`. Docs → `just docs-check`.
 4. After commit: this file `done`, `docs/engineering-backlog.md` one honest line, AGENTS Current/Next if Track A pointer moves.

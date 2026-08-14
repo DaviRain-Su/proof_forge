@@ -233,6 +233,56 @@ abbrev StateCellExecutedHandlerSbpfJoinV1
   ExecutedHandlerSbpfJoinV1 bound handlerIR handlerInvocation loaderInvocation
     fuel stateCellProductionSbpfSha256V1
 
+/-- Executable gate for the generic StateCell HandlerIR/provider join.
+    This does not retain a sparse provider certificate; the `get` path keeps
+    its dedicated 55-step checker below. -/
+def checkStateCellExecutedHandlerSbpfJoinV1
+    (bound : BoundResolvedSbpfArtifactV1)
+    (handlerIR : HandlerIR)
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1)
+    (fuel : Nat := defaultSbpfExecutionFuelV1) : Bool :=
+  let handlerObservation := observeHandlerIRV1 handlerIR handlerInvocation
+  checkLoaderV3SingleAccountInvocationRelV1 handlerInvocation loaderInvocation &&
+    match executeLoaderV3SingleAccountV1 bound loaderInvocation fuel with
+    | .error _ => false
+    | .ok sbpfObservation =>
+        checkHandlerSbpfObservationRelV1 stateCellProductionSbpfSha256V1
+          handlerObservation sbpfObservation
+
+theorem checkStateCellExecutedHandlerSbpfJoinV1_sound
+    (bound : BoundResolvedSbpfArtifactV1)
+    (handlerIR : HandlerIR)
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1)
+    (fuel : Nat)
+    (checked : checkStateCellExecutedHandlerSbpfJoinV1 bound handlerIR
+      handlerInvocation loaderInvocation fuel = true) :
+    Nonempty (StateCellExecutedHandlerSbpfJoinV1 bound handlerIR
+      handlerInvocation loaderInvocation fuel) := by
+  unfold checkStateCellExecutedHandlerSbpfJoinV1 at checked
+  cases hexecution :
+      executeLoaderV3SingleAccountV1 bound loaderInvocation fuel with
+  | error error => simp [hexecution] at checked
+  | ok sbpfObservation =>
+      rw [hexecution] at checked
+      simp only [Bool.and_eq_true] at checked
+      rcases checked with ⟨hinvocation, hobservation⟩
+      exact ⟨{
+        invocationRel :=
+          (checkLoaderV3SingleAccountInvocationRelV1_eq_true_iff
+            handlerInvocation loaderInvocation).mp hinvocation
+        handlerObservation := observeHandlerIRV1 handlerIR handlerInvocation
+        handlerExecution := rfl
+        sbpfObservation
+        sbpfExecution := hexecution
+        observationRel :=
+          (checkHandlerSbpfObservationRelV1_eq_true_iff
+            stateCellProductionSbpfSha256V1
+            (observeHandlerIRV1 handlerIR handlerInvocation)
+            sbpfObservation).mp hobservation
+      }⟩
+
 /-- StateCell `get` join retaining the provider certificate witnesses in
 addition to the generic executed observation join. -/
 structure CertifiedStateCellGetExecutedHandlerSbpfJoinV1

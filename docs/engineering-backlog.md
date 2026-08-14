@@ -3,7 +3,7 @@ id: ENG-BACKLOG
 title: 工程业务 Backlog（文档↔实现差异 + 构建加速）
 status: draft
 owner: engineering
-updated: 2026-08-14
+updated: 2026-08-15
 normative: false
 ---
 
@@ -453,11 +453,11 @@ D1–D4 = 0/27 done。
 优先序遵循产品判断：**EVM（最完善，formal lighthouse）→ Solana → NEAR → CosmWasm/Wasm**；
 Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 
-**Goal/workflow 入口（2026-08-12）**：可执行下一波 = [`.grok/next-wave-queue.md`](../.grok/next-wave-queue.md)，drain = `/goal @.grok/goals/prompt-next-wave.md`，单切片 = `/workflow next-wave-runner`。旧 `prompt-master-queue` 不再从头扫。Formal / 产品决策项仍不进 drain。
+**Goal/workflow 入口（2026-08-15）**：next-wave Goal/workflow **已退役**（queue 零 pending）。**不要**再 `/goal @.grok/goals/prompt-next-wave.md` 或 `/workflow next-wave-runner`。日常下一刀见 [`research/28-project-wide-honesty-audit.md`](research/28-project-wide-honesty-audit.md) 与根 [`AGENTS.md`](../AGENTS.md) Next task。Formal / 产品决策项仍不进 drain。
 
 ```text
-1. EVM formal lighthouse（ADR-0036 Next task，串行主轴；LH-1…28 engineering-done，现进入 formal closeout）：
-   - shared D2/D3 formal 前置：TASK-D2-07 / TST-SEM-002/003（Reference step / corpus）
+1. EVM formal lighthouse（ADR-0036，仍 proposed；LH-1…28 + Track F **engineering-done**；**不要**把 TASK/TST 标 done）：
+   - shared D2/D3 formal 前置仍 pending：TASK-D2-07 / TST-SEM-002/003 —— **资格/formal 轴，不是 Goal drain**
      · **LH-1…LH-7 packaging done**（engineering only；**不**关闭 formal TASK/TST）：
        · LH-1：OutcomeWireV1 / `pf.reference-outcome.v1`
        · LH-2：public `step` façade + EVM Outcome adapter；Anvil lossless 仍 FC
@@ -502,14 +502,13 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
      · **2026-08-14 formal closeout 工程半步**：D2-07/D2-06 gap plans + Sem002 missing/extra/wrong-TypeId + Sem001 path-vs-hash pin；**不**关闭 formal TASK/TST
      · **2026-08-14 F-CTX-CORE-TYPEID**：Sem002 同 key 不同 Core result TypeId → structure `.badCfg`（`step` 不可达）；Normalize `fn` 纯度改为 body-local，不再被先前 entry ContextRead 污染；**不**关闭 TST-SEM-002
      · **2026-08-14 F-SEM001-SPAN**：同 AST leading-comment span 位移保持 `.pfsem`/`semanticHash`/`sourceHash`，仅 `.pfprov` 变；**不**关闭 TST-SEM-001
-     · **EVM CALL returndata wide admit**：result-bearing sync call 打开 UInt128/UInt256
-       （UInt64 守卫保留；参数仍 UInt64；Bool 仍 FC；hashed callee 不变）
-   - 然后 identity-bound Reference↔Anvil formal differential（**C-3 仍 blocked**；
-     engineering identity/projection 已落地，formal 轨道仍 pending；Anvil lossless FC）
+     · ~~**EVM CALL returndata wide admit**~~（2026-08-13 **done**：UInt8–256 CALL/schedule/returndata；Bool/Int/Bytes 仍 FC）
+   - identity-bound Reference↔Anvil formal differential（**C-3 仍 blocked**；
+     engineering identity/projection 已落地，formal 轨道仍 pending；Anvil lossless FC）——**不是**下一刀编码
    - 不得用其他 target 或业务合约 engineering positives 代签
-2. B-CALL-SEM 产品决策 + EVM 残差（并行于 1 的 leaf）：
+2. B-CALL-SEM 产品决策 + EVM 残差（并行于 1 的 leaf；**决策，非 Goal drain**）：
    - EVM static-QN callee 仍是 hashed-address stub → 真实 deployment-address binding
-   - result-bearing 宽于 UInt64 的 returndata 路径
+   - ~~result-bearing 宽于 UInt64 的 returndata~~（2026-08-13 **done**；Bool/Int/Bytes 仍 FC）
 3. Solana 残差：
    - B-CALL-SEM Solana 侧：product CPI callee identity / 外层账户 ABI
    - ~~S2 blockHeight runtime 门~~（2026-08-12 done：product profile admit + Mollusk `block_height.rs`）
@@ -648,7 +647,9 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **F-TYPEKEY-FIELDS**：孤立 `typeKey` 补 BLS12-377 Fr / Goldilocks FieldSpec 字节形（bn254 已有）。不进 structure gate。**不**关闭 TASK-D2-06 / TST-SEM-001 |
 | 2026-08-15 | **DOC-12T-SYNC**：RPT-025 计数 12+0、档 B materializer 队列标 superseded；矩阵 §2 补 Soroban/OpenVM/ICP；targets README 导语补齐八 engineering leaf。**不**扩 accepted PRD |
 | 2026-08-15 | **SOL-0048-GAP**：`docs/plan/solana-adr-0048-next.md` 盘点 D4。`get` production subject + 55 步证书已齐；initialize/increment/overflow 仍只有 Loader observation。下一刀 = 按 `get` 模板逐 recipe 补 resolver/证书。**不**关闭 formal D5 / 不把 provider 接进产品 build |
+| 2026-08-15 | **SOL-0048-INIT**：`resolveStateCellInitializeProductionSubjectV1` + 通用 executed HandlerIR/provider join（argument=7，未初始化账户）。与 `get` 共用 production `.s`。**不是** 55 步 sparse 证书，**不**关闭 formal D5 |
 | 2026-08-15 | **AGENT-NOTES-0**：引入 [`.agents/notes/`](../.agents/notes/README.md) 记 why/why-not（非 ADR、非 formal、非运行日志）。首批五篇：TypeKey 不进 structure gate、EXT-CRYPTO 不自动开、Soroban S0≠Wasm、focused `lake env lean`、Goal 不关 formal。无 format CI。 |
+| 2026-08-15 | **RPT-028 全仓诚实对账 + 活指针**：Goal-auto drain 标空；AGENTS Next 不再写成「闭合 D2-07」；SBOM 313；Solana sole CPI；ICP 与 zero-tool 拆开；击杀序删已做完的 CALL wide；RPT-014 加 superseded 横幅。**不**关闭 formal 0/27 |
 
 ---
 

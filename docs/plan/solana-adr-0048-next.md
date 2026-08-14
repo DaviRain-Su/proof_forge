@@ -22,7 +22,7 @@ D4 · [`verified-contract-authoring.md`](verified-contract-authoring.md) §5.
 | D4 recipe | Observation execute | Production subject resolver | Sparse kernel certificate |
 |---|---|---|---|
 | `get()` | yes | `resolveStateCellGetProductionSubjectV1` | 55-step + `runFuel` status-zero |
-| `initialize(initial)` | yes (Loader V3 single-account) | **missing** | **missing** |
+| `initialize(initial)` | yes (Loader V3 single-account) | `resolveStateCellInitializeProductionSubjectV1` | generic executed join (no 55-step sparse cert yet) |
 | `increment(delta)` | yes | **missing** | **missing** |
 | increment overflow | yes (nonzero status + pre-account hold) | **missing** | **missing** |
 
@@ -43,10 +43,10 @@ Code facts:
 Do **not** start all three in one commit. Copy the `get` pattern; do not write
 a second codegen.
 
-1. **SOL-0048-INIT** — `resolveStateCellInitializeProductionSubjectV1` +
-   identity-bound `.s` byte equality vs parser-session assembly + certified
-   gate for the initialize recipe.
-2. **SOL-0048-INC** — same for `increment` success.
+1. **SOL-0048-INIT** — **done 2026-08-15**: production subject + generic
+   executed HandlerIR/provider join + assembly identity vs `get`. Sparse
+   55-step initialize certificate remains later.
+2. **SOL-0048-INC** — same generic executed join for `increment` success.
 3. **SOL-0048-OVF** — same for increment overflow (nonzero program error +
    pre-account snapshot). Join relation already names overflow; this slice
    only adds the production-subject/certificate.

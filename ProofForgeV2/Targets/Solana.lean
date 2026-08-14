@@ -15,6 +15,7 @@ import ProofForgeV2.Targets.Solana.SbpfExecutionV1
 import ProofForgeV2.Targets.Solana.SbpfHandlerJoinV1
 import ProofForgeV2.Targets.Solana.SbpfProviderStepV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellGetV1
+import ProofForgeV2.Targets.Solana.SbpfStateCellProductionV1
 import ProofForgeV2.Targets.Solana.ProductFrameV1
 import ProofForgeV2.Targets.Solana.ProductCpiRecipesV1
 import ProofForgeV2.Targets.Solana.ProductSynthesizeV1
@@ -45,7 +46,8 @@ Plan canonicity lives in `ValidatePlanV1`. Legacy IR emission lives in
 `FinalizeV1`: plan profile zero-tool; elf + cpi-elf locked `sbpf` with CPI
 pre-IO revalidation of capability/profile/base files/planDigest.
 Legacy ExternalCall/Schedule remain unreachable and byte-stable on no-call
-programs. Default profile remains `solana-sbpf-plan-v1`.
+programs. Default / sole product profile is `solana-sbpf-cpi-elf-v1`
+(retired `plan-v1` / `elf-v1` resolve as `PF-PROFILE-UNKNOWN`).
 -/
 
 namespace ProofForgeV2.Targets.Solana

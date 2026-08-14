@@ -297,6 +297,31 @@ private unsafe def testStateCellSbpfArtifact
   expectArtifactError (resolveSbpfArtifactV1 <| minimal "call unknown_syscall")
     "unsupported syscall or unresolved call target"
 
+/-- Initialize uses the same production `.s` as `get` and the generic
+    HandlerIR/provider executed join. This is not a 55-step sparse certificate. -/
+private unsafe def testStateCellInitializeProductionSubject : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
+    "<solana-sbpf-initialize-subject>"
+  let asm ← liftResult <| asmSolana compiled
+  let getSubject ← liftStringResult resolveStateCellGetProductionSubjectV1
+  let initSubject ← liftStringResult
+    resolveStateCellInitializeProductionSubjectV1
+  expect (initSubject.assembly == asm)
+    "initialize subject must reproduce parser-session production assembly"
+  expect (initSubject.assembly == getSubject.assembly)
+    "initialize and get subjects must share the same production .s"
+  expect (initSubject.handler.name == "initialize")
+    "initialize subject must select the initialize handler"
+  expect (initSubject.argument == 7)
+    "initialize subject must use the pinned argument 7"
+  expect checkStateCellInitializeProductionSubjectV1
+    "initialize production subject generic executed join must succeed"
+  expect (!checkStateCellExecutedHandlerSbpfJoinV1
+      initSubject.boundArtifact getSubject.handler
+      initSubject.handlerInvocation initSubject.loaderInvocation)
+    "initialize invocation must not join against the get handler"
+
 /-- Execute the exact production StateCell artifact in the pinned provider with
     a real Loader V3 ABIv1 single-account image. These are executable provider
     observations, not Solana runtime or Reference-refinement theorems. -/
@@ -1447,6 +1472,7 @@ unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testStateCellAsm session
   testStateCellSbpfArtifact session
+  testStateCellInitializeProductionSubject
   testStateCellSbpfExecution
   testAccountListShapeChecks session
   testProductEmitUnchanged session
