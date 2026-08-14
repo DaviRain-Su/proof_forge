@@ -633,6 +633,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-14 | **SOR-1A**：`SorobanPlanV1` 钉 S0 Finalize `extraFiles` 空、`deployable=false`、evidence 含 stellar-cli/Wasm toolchain；未知 profile `PF-PROFILE-UNKNOWN`。**不**关闭 SOR-1 / formal |
 | 2026-08-14 | **F-COMMIT-COMMENT**：`CfgTypingV1` / `InvariantClosureV1` 注释改指向已存在的 `validateCommitRequirementsV1`（`testCfgCommitCatalogRequirements`），不再写 Commit disclosure deferred。**不**关闭 formal |
 | 2026-08-14 | **ICP-1A**：`IcpPlanV1` 钉 locked wat2wasm Finalize（`StateCell.wasm`、`deployable=true`、evidence 含 wat2wasm/PocketIC 未调用、Wasm magic）与未知 profile `PF-PROFILE-UNKNOWN`。套件头不再写 ICP-2 zero-tool。**不**关闭 formal / PocketIC |
+| 2026-08-14 | **F-CALL-SERIAL-COMMENT**：`WireV1` invariant-closure ExternalCall/Schedule 注释改指向 `testCfgExternalCallArgSerializability`，不再写 argument serializability deferred。**不**关闭 formal |
 
 ---
 

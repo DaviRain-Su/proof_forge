@@ -8280,9 +8280,10 @@ private def testInvariantClosurePureFnEmitProhibited : IO Unit := do
 
 /-- SPEC §8 forbids synchronous external calls in pureFn callables that belong
     to an invariant closure. An unreachable pureFn remains outside this
-    closure-only restriction. Generic void-result, EffectId, callee-shape, and
-    SSA validation runs before the post-CFG closure gate; argument
-    serializability remains deferred. -/
+    closure-only restriction. Generic void-result, EffectId, callee-shape,
+    SSA validation, and argument serializability
+    (`testCfgExternalCallArgSerializability`) run before the post-CFG
+    closure gate. -/
 private def testInvariantClosurePureFnExternalCallProhibited : IO Unit := do
   let callee ← match parseQualifiedName #["mod", "callee"] with
     | .ok name => pure name
@@ -8434,9 +8435,10 @@ private def testInvariantClosurePureFnExternalCallProhibited : IO Unit := do
 
 /-- SPEC §8 forbids asynchronous scheduling in pureFn callables that belong to
     an invariant closure. An unreachable pureFn remains outside this
-    closure-only restriction. Generic void-result, EffectId, callee-shape, and
-    SSA validation runs before the post-CFG closure gate; argument
-    serializability remains deferred. -/
+    closure-only restriction. Generic void-result, EffectId, callee-shape,
+    SSA validation, and argument serializability
+    (`testCfgExternalCallArgSerializability`) run before the post-CFG
+    closure gate. -/
 private def testInvariantClosurePureFnScheduleProhibited : IO Unit := do
   let callee ← match parseQualifiedName #["mod", "workflow"] with
     | .ok name => pure name

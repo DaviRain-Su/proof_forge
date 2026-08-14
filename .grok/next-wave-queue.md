@@ -85,6 +85,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | SOR-1A | done | S0 Finalize honesty + unknown profile FC in `SorobanPlanV1`. extraFiles empty, deployable=false. **Not** SOR-1 / formal |
 | F-COMMIT-COMMENT | done | Honesty: CfgTyping/InvariantClosure comments now point at `validateCommitRequirementsV1` (`testCfgCommitCatalogRequirements`). Comments only. **Not** formal |
 | ICP-1A | done | ICP Finalize honesty: locked wat2wasm extra=`StateCell.wasm` + deployable=true + PocketIC not invoked; unknown profile `PF-PROFILE-UNKNOWN`. Suite header no longer says zero-tool. **Not** PocketIC/formal |
+| F-CALL-SERIAL-COMMENT | done | Honesty: invariant-closure ExternalCall/Schedule comments no longer say arg serializability is deferred. **Not** formal |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 
