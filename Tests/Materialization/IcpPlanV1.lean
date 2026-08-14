@@ -204,14 +204,17 @@ private unsafe def testCallSyncFc
     Plan fail closed (no host / precompile / circuit gadget). -/
 private unsafe def testCryptoSha256StayFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let expectPlanFc (programName pathLabel moduleName body needle : String) :
-      IO Unit := do
+  let expectPlanFc (programName pathLabel moduleName body needle : String)
+      (also : String := "") : IO Unit := do
     let src := wrapProgram programName body
     let compiled ← compileSource session src moduleName pathLabel
     match planFromCompiledSemanticV1 compiled with
     | .error e =>
         expect (e.render.contains needle)
           s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+        unless also.isEmpty do
+          expect (e.render.contains also)
+            s!"{programName} Plan FC must contain '{also}', got: {e.render}"
     | .ok _ =>
         throw <| IO.userError
           s!"{programName} must Plan fail closed (no Icp crypto host)"
@@ -232,6 +235,10 @@ private unsafe def testCryptoSha256StayFailClosed
   expectPlanFc "Sha256IcpHashNoPad" "<icp-sha256-hashnopad>"
     "Examples.Sha256IcpHashNoPad"
     (cryptoBody "pf.crypto.hashNoPad") "has no Icp host binding"
+  expectPlanFc "EcdsaRecoverIcp" "<icp-ecdsa-recover>"
+    "Examples.EcdsaRecoverIcp"
+    (cryptoBody "pf.crypto.ecdsaRecoverSecp256k1")
+    "has no Icp host binding" "ecdsaRecoverSecp256k1"
   IO.println "  ✓ pf.crypto.sha256/keccak256 stay fail closed (no Icp host)"
 
 /-- SYS-S4: ICP has no unixTime/blockHeight/attachedValue/chainId host.

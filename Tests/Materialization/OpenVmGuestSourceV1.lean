@@ -357,7 +357,8 @@ unsafe def testFailClosedCall : IO Unit := do
     Plan fail closed (no host / precompile / circuit gadget). -/
 unsafe def testCryptoSha256StayFailClosed : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
-  let expectPlanFc (label body needle : String) : IO Unit := do
+  let expectPlanFc (label body needle : String)
+      (also : String := "") : IO Unit := do
     let source :=
       "import ProofForgeV2\n" ++
       "open ProofForgeV2.Language\n" ++
@@ -369,6 +370,9 @@ unsafe def testCryptoSha256StayFailClosed : IO Unit := do
     | .error e =>
         expect (e.render.contains needle)
           s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+        unless also.isEmpty do
+          expect (e.render.contains also)
+            s!"{label} Plan FC must contain '{also}', got: {e.render}"
     | .ok _ =>
         throw <| IO.userError
           s!"{label} must Plan fail closed (no OpenVM crypto host)"
@@ -388,6 +392,9 @@ unsafe def testCryptoSha256StayFailClosed : IO Unit := do
     "has no OpenVM host binding"
   expectPlanFc "Sha256OpenVmHashNoPad" (cryptoBody "pf.crypto.hashNoPad")
     "has no OpenVM host binding"
+  expectPlanFc "EcdsaRecoverOpenVm"
+    (cryptoBody "pf.crypto.ecdsaRecoverSecp256k1")
+    "has no OpenVM host binding" "ecdsaRecoverSecp256k1"
 
 /-- SYS-S4: OpenVM has no unixTime/blockHeight/attachedValue/chainId host.
     Named UInt64 ContextRead keys stay Plan fail closed. caller/self are
