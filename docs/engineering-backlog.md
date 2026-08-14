@@ -636,6 +636,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-14 | **F-CALL-SERIAL-COMMENT**：`WireV1` invariant-closure ExternalCall/Schedule 注释改指向 `testCfgExternalCallArgSerializability`，不再写 argument serializability deferred。**不**关闭 formal |
 | 2026-08-14 | **DOC-MATRIX-CTRL**：`research/12` D-1 改为 12 implemented + 0 design-only 并补 §1d Soroban/OpenVM/ICP；主表/CW/TON ContextRead 对齐 S3/S3b/S4；ADR-0031 S2 改为 sole product Clock.slot（不再写 CPI residual FC）。**不**关闭 formal |
 | 2026-08-14 | **OPENVM-1A**：`OpenVmGuestSourceV1` 钉未知 profile `PF-PROFILE-UNKNOWN`。不新开第三 profile。**不**关闭 prove/formal |
+| 2026-08-14 | **QUINT-1A**：`QuintSourceV1` 钉未知 profile `PF-PROFILE-UNKNOWN`。不发明 ITF/MBT/verify profile。**不**关闭 QUINT-2 / formal |
 
 ---
 

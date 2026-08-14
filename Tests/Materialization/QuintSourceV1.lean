@@ -1123,6 +1123,22 @@ unsafe def testEnvReadTokenBalanceFailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant, got {e.render}"
   | .ok _ => throw <| IO.userError "token.balanceOfSelf must fail closed on Quint"
 
+/-- QUINT-1a: grammar-valid but unregistered profile stays unknown.
+    Do not invent a Quint ITF/MBT/verify CodegenProfileId. -/
+unsafe def testUnknownProfileFailClosed : IO Unit := do
+  match CodegenProfileId.parse? "not-a-real-profile-v1" with
+  | none =>
+      throw <| IO.userError "not-a-real-profile-v1 must remain grammar-valid"
+  | some unknown =>
+      match Targets.BuildSelectionV1.resolveBuildSelectionV1
+          TargetId.quint (some unknown) with
+      | .error e =>
+          expect (e.code == "PF-PROFILE-UNKNOWN")
+            s!"unknown Quint profile must be PF-PROFILE-UNKNOWN, got {e.code}: {e.render}"
+      | .ok sel =>
+          throw <| IO.userError
+            s!"unknown Quint profile must fail closed, got {sel.codegenProfile}"
+
 unsafe def run : IO Unit := do
   testStateCellQuintSource
   testRollbackStutter
@@ -1134,6 +1150,7 @@ unsafe def run : IO Unit := do
   testFullMaxBound
   testMaterializeDeterminism
   testCapabilityProductPath
+  testUnknownProfileFailClosed
   testFailClosedPrivateState
   testFailClosedInt
   testFailClosedUInt32
