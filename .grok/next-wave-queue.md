@@ -78,6 +78,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | SYS-E2-NEW-TARGETS | done | ICP/Soroban/OpenVM: envRead nativeVaultBalance named no-host FC. token/U128 stay generic. Focused suites ok. **Not** formal |
 | SYS-S4-TON-KEYS | done | TON: named Plan FC for attachedValue/chainId/self; unixTime still `blockchain.now()`. Focused TonPlanV1 ok. **Not** formal |
 | SYS-S4-CIRCUIT-KEYS | done | Aleo/Noir/Psy named remaining ContextRead keys; Targets.lean matrix needles updated (incl. leftover Quint/Soroban UInt64 rows). unixTime not opened. **Not** formal |
+| SYS-S4-MATRIX-NEW | done | ICP/OpenVM added to Targets.lean ContextRead matrix (contains-loops + exact blockHeight/chainId/self). **Not** formal |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 

@@ -3734,7 +3734,8 @@ unsafe def run : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.near ctxCompiled
   let _ ← liftResult <| materializeSelected TargetId.cosmwasm ctxCompiled
   let _ ← liftResult <| materializeSelected TargetId.ton ctxCompiled
-  for target in [TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo] do
+  for target in [TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo,
+      TargetId.icp, TargetId.openvm] do
     match materializeSelected target ctxCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N5 context: {target} must decline ContextRead"
@@ -3769,7 +3770,8 @@ unsafe def run : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.near attachedCompiled
   let _ ← liftResult <| materializeSelected TargetId.cosmwasm attachedCompiled
   for target in [TargetId.ton,
-      TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo] do
+      TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo,
+      TargetId.icp, TargetId.openvm] do
     match materializeSelected target attachedCompiled with
     | .ok _ =>
         throw <| IO.userError s!"S4 attached: {target} must decline ContextRead attachedValue"
@@ -3806,7 +3808,7 @@ unsafe def run : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.evm callerCompiled
   let _ ← liftResult <| materializeSelected TargetId.near callerCompiled
   let _ ← liftResult <| materializeSelected TargetId.solana callerCompiled
-  for target in [TargetId.noir, TargetId.psy] do
+  for target in [TargetId.noir, TargetId.psy, TargetId.icp, TargetId.openvm] do
     match materializeSelected target callerCompiled with
     | .ok _ =>
         throw <| IO.userError s!"B-ctx caller: {target} must decline ContextRead caller"
@@ -3868,6 +3870,14 @@ unsafe def run : IO Unit := do
     TargetId.soroban .soroban
     s!"unsupported Soroban semantic shape: ContextRead '{blockHeightContextKeyV1.value}' has no Soroban host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
     blockHeightCompiled
+  expectContextMatrixFailClosed "context.blockHeight/icp"
+    TargetId.icp .icp
+    s!"unsupported ICP semantic shape: ContextRead '{blockHeightContextKeyV1.value}' has no Icp host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
+    blockHeightCompiled
+  expectContextMatrixFailClosed "context.blockHeight/openvm"
+    TargetId.openvm .openvm
+    s!"unsupported OpenVM semantic shape: ContextRead '{blockHeightContextKeyV1.value}' has no OpenVM host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
+    blockHeightCompiled
 
   let session ← Language.Loader.ParserSession.create
   let chainIdSource :=
@@ -3923,6 +3933,14 @@ unsafe def run : IO Unit := do
     TargetId.soroban .soroban
     s!"unsupported Soroban semantic shape: ContextRead '{chainIdContextKeyV1.value}' has no Soroban host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
     chainIdCompiled
+  expectContextMatrixFailClosed "context.chainId/icp"
+    TargetId.icp .icp
+    s!"unsupported ICP semantic shape: ContextRead '{chainIdContextKeyV1.value}' has no Icp host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
+    chainIdCompiled
+  expectContextMatrixFailClosed "context.chainId/openvm"
+    TargetId.openvm .openvm
+    s!"unsupported OpenVM semantic shape: ContextRead '{chainIdContextKeyV1.value}' has no OpenVM host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
+    chainIdCompiled
 
   let session ← Language.Loader.ParserSession.create
   let selfSource :=
@@ -3970,6 +3988,14 @@ unsafe def run : IO Unit := do
   expectContextMatrixFailClosed "context.contractId/soroban"
     TargetId.soroban .soroban
     "unsupported Soroban semantic shape: only anonymous UInt64, Bool, and Unit are supported (Int/Field/Principal/aggregates/containers fail closed)"
+    selfCompiled
+  expectContextMatrixFailClosed "context.contractId/icp"
+    TargetId.icp .icp
+    "unsupported ICP semantic shape: only anonymous UInt64, Bool, and Unit are supported (Int/Field/Principal/aggregates/containers/String fail closed on the ICP-2 Counter/StateCell envelope)"
+    selfCompiled
+  expectContextMatrixFailClosed "context.contractId/openvm"
+    TargetId.openvm .openvm
+    "unsupported OpenVM semantic shape: only anonymous UInt64, Bool, and Unit are supported (Int/Field/Principal/aggregates/containers fail closed)"
     selfCompiled
 
   -- B-RET-ABI: named Struct view return. EVM + Noir + Solana + NEAR + Psy +
