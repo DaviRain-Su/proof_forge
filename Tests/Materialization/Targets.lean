@@ -3921,7 +3921,7 @@ unsafe def run : IO Unit := do
     "  init() do\n" ++
     "    pad := 0\n\n" ++
     "  entry same() : Bool do\n" ++
-    "    return context.self == context.self\n\n" ++
+    "    return context.contractId == context.contractId\n\n" ++
     "end ProofForgeV2.Examples\n"
   let selfV1 ← match ← session.selectProgramV1 selfSource
       "<targets-context-self-matrix>" "Examples.CtxSelfMatrix" none with
@@ -3936,7 +3936,7 @@ unsafe def run : IO Unit := do
     selfCompiled
   expectContextMatrixFailClosed "context.self/ton"
     TargetId.ton .ton
-    s!"unsupported Ton semantic shape: unknown ContextRead key '{selfContextKeyV1.value}'"
+    "unsupported Ton semantic shape: only UInt{8,16,32,64}, Int64, Unit, Bool, named Struct/Enum, and anonymous Array/Map/Bytes/Option are supported (no Field/Principal; UInt128/256 fail closed)"
     selfCompiled
   expectContextMatrixFailClosed "context.self/noir"
     TargetId.noir .noir
@@ -3944,7 +3944,7 @@ unsafe def run : IO Unit := do
     selfCompiled
   expectContextMatrixFailClosed "context.self/aleo"
     TargetId.aleo .aleo
-    s!"unsupported Aleo semantic shape: unknown ContextRead key '{selfContextKeyV1.value}'"
+    "unsupported Aleo semantic shape: only UInt64, UInt32, UInt16, UInt8, Int64, Unit, Bool, Field(bls12-377-fr), named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes N, and Option UInt64 (state/return; not params) are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, exact modulus match; bn254 Fr and Goldilocks fail closed as wrong modulus; Option of non-UInt64/nested/params + Principal/String stay fail-closed; UInt128/256 and narrow Int stay fail-closed)"
     selfCompiled
   expectContextMatrixFailClosed "context.self/psy"
     TargetId.psy .psy

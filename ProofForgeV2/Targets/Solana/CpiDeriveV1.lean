@@ -865,7 +865,7 @@ private def collectRawContextReadSites
                 "CPI derive: context.unixTimeSeconds is not admitted on solana-sbpf-cpi-elf-v1 (Clock sysvar binding deferred)"
             else
               deriveFail
-                s!"CPI derive: unknown ContextRead key '{key.value}'"
+                s!"unsupported Solana semantic shape: unknown ContextRead key '{key.value}'"
         | _ => pure ()
   pure out
 
