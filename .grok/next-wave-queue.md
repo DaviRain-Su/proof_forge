@@ -67,6 +67,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | F-SEM001-SHAPE | done | Sem001 path-vs-semantic / business-hash pin (`Tests/Semantic/Sem001ShapeV1.lean`). **Not** formal TST-SEM-001 |
 | F-SEM00X-SHARD | done | Sem001/002/003 registered in `Tests/Shards/Typed.lean` so ordinary `just ci` runs the shape pins. **Not** formal |
 | F-CTX-CORE-TYPEID | done | Isolated Wire `.badCfg` pin for same-key ContextRead different Core result TypeId (`Tests/Semantic/Sem002ShapeV1.lean` `ctx/core-type`; structure+encode). Normalize fn purity is now body-local so a later `fn` after an entry ContextRead is not poisoned. **Not** formal TST-SEM-002 |
+| F-SEM001-SPAN | done | Isolated layout/span-only companion: same AST + leading-comment span shift keeps `.pfsem`/`semanticHash`/`sourceHash`; only `.pfprov` moves (`Tests/Semantic/Sem001ShapeV1.lean`). Focused run ok. **Not** formal TST-SEM-001 |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 

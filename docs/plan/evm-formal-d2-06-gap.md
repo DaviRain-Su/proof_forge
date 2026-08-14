@@ -47,12 +47,15 @@ registration).
 3. Business change (`+ 2` vs `+ 3`) changes `.pfsem` and `semanticHash`.
 
 **Not** formal TST-SEM-001. Sem001/002/003 are registered in Fast, `Tests.lean`,
-and `Tests/Shards/Typed.lean` (ordinary `just ci`).
+and `Tests/Shards/Typed.lean` (ordinary `just ci`). The layout/span-only
+companion is now pinned in the same suite.
 
-## Later slices (do not start here)
+## Later slices
 
-1. Isolated layout/span-only companion if a legal same-AST span delta exists
-   without failing inventory rebuild.
+1. Isolated layout/span-only companion — pinned 2026-08-14 in
+   `Sem001ShapeV1` (leading-comment span shift; inventory rebuild accepts;
+   `.pfsem`/`semanticHash`/`sourceHash` hold; `.pfprov` moves; span-swapped
+   provenance fail closed).
 2. EV binding of canonical `.pfsem` / `.pfprov` (product decision).
 3. `TST-PROOF-001` after SEM-001 formal path exists.
 

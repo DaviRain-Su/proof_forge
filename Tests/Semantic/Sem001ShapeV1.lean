@@ -9,6 +9,8 @@
       `semanticProvenanceDigestV1` change
     * business-semantic change → `semanticHash` changes
     * path-swapped provenance fails `validateSemanticProvenanceV1`
+    * layout/span-only comment shift keeps `.pfsem` / `semanticHash` /
+      `sourceHash`; only `.pfprov` and provenance digest change
     * consumers do not mix provenance fields back into `semanticHash`
 
   Does **not** close formal TASK-D2-06 / TST-SEM-001 / TST-PROOF-001.
@@ -42,6 +44,13 @@ private def expect (cond : Bool) (msg : String) : IO Unit := do
 private def wrap (name body : String) : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n\n" ++
+  "program " ++ name ++ " where\n" ++ body
+
+/-- Same ProgramV1 as `wrap`, with a leading comment that shifts every span. -/
+private def wrapCommented (name body : String) : String :=
+  "import ProofForgeV2\n" ++
+  "open ProofForgeV2.Language\n\n" ++
+  "-- layout-only span shift\n" ++
   "program " ++ name ++ " where\n" ++ body
 
 private def counterBody (delta : String) : String :=
@@ -167,10 +176,67 @@ private unsafe def testBusinessChangeMovesSemanticHash
   let s3 ← sourceHashOf v3
   expect (s2 != s3) "SEM-001 shape: business change changes sourceHash"
 
+/-- Layout-only leading comment shifts spans but not the ProgramV1 AST.
+    `.pfsem` / `semanticHash` / `sourceHash` stay identical; `.pfprov` moves.
+    Cross-applying the other snapshot's spans fails closed. -/
+private unsafe def testSpanOnlyDoesNotEnterSemanticHash
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let body := counterBody "2"
+  let src := wrap "Sem001Span" body
+  let srcShifted := wrapCommented "Sem001Span" body
+  expect (src != srcShifted) "SEM-001 span: raw source texts differ"
+  let (v0, spans0) ←
+    loadWithSpans session "tests/sem001-span.pf" "Sem001Span" src
+  let (v1, spans1) ←
+    loadWithSpans session "tests/sem001-span.pf" "Sem001Span" srcShifted
+  expect (v0.program == v1.program)
+    "SEM-001 span: comment shift keeps ProgramV1"
+  expect (spans0.size == spans1.size)
+    "SEM-001 span: comment shift keeps span count"
+  expect (spans0 != spans1) "SEM-001 span: comment shift moves spans"
+  let srcHash0 ← sourceHashOf v0
+  let srcHash1 ← sourceHashOf v1
+  expect (srcHash0 == srcHash1)
+    "SEM-001 span: comment shift keeps sourceHash"
+  let path ← parsePath "tests/sem001-span.pf"
+  let (c0, p0) ← pairAt v0 path spans0
+  let (c1, p1) ← pairAt v1 path spans1
+  expect (c0.canonicalBytes == c1.canonicalBytes)
+    "SEM-001 span: comment shift keeps .pfsem bytes"
+  let h0 ← hashOf c0
+  let h1 ← hashOf c1
+  expect (h0 == h1) "SEM-001 span: comment shift keeps semanticHash"
+  expect (p0.semanticHash == h0)
+    "SEM-001 span: provenance.semanticHash matches carrier"
+  expect (p1.semanticHash == h0)
+    "SEM-001 span: shifted provenance.semanticHash still matches"
+  expect (p0.sourceHash == srcHash0)
+    "SEM-001 span: provenance.sourceHash matches source"
+  expect (p1.sourceHash == srcHash0)
+    "SEM-001 span: comment shift keeps provenance.sourceHash"
+  let enc0 ← match encodeSemanticProvenanceV1 p0 with
+    | .ok b => pure b
+    | .error e => throw <| IO.userError s!"span prov 0 encode: {repr e}"
+  let enc1 ← match encodeSemanticProvenanceV1 p1 with
+    | .ok b => pure b
+    | .error e => throw <| IO.userError s!"span prov 1 encode: {repr e}"
+  expect (enc0 != enc1)
+    "SEM-001 span: comment shift changes .pfprov bytes"
+  let d0 ← provDigest v0 path spans0 c0 p0
+  let d1 ← provDigest v1 path spans1 c1 p1
+  expect (d0 != d1)
+    "SEM-001 span: comment shift changes provenance digest"
+  match validateSemanticProvenanceV1 v0 path spans1 c0 p0 with
+  | .error _ => pure ()
+  | .ok () =>
+      throw <| IO.userError
+        "SEM-001 span: span-swapped provenance must fail closed"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testPathDoesNotEnterSemanticHash session
   testBusinessChangeMovesSemanticHash session
+  testSpanOnlyDoesNotEnterSemanticHash session
   IO.println "Tests.Semantic.Sem001ShapeV1: ok (engineering; not formal TST-SEM-001)"
 
 end Tests.Semantic.Sem001ShapeV1

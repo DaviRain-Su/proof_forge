@@ -501,6 +501,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
      ——仍非 formal；LH-1…13 + 16…28 engineering-done；Anvil ↛ OutcomeWire lossless 保持 fail-closed；**C-3 仍 blocked**
      · **2026-08-14 formal closeout 工程半步**：D2-07/D2-06 gap plans + Sem002 missing/extra/wrong-TypeId + Sem001 path-vs-hash pin；**不**关闭 formal TASK/TST
      · **2026-08-14 F-CTX-CORE-TYPEID**：Sem002 同 key 不同 Core result TypeId → structure `.badCfg`（`step` 不可达）；Normalize `fn` 纯度改为 body-local，不再被先前 entry ContextRead 污染；**不**关闭 TST-SEM-002
+     · **2026-08-14 F-SEM001-SPAN**：同 AST leading-comment span 位移保持 `.pfsem`/`semanticHash`/`sourceHash`，仅 `.pfprov` 变；**不**关闭 TST-SEM-001
      · **EVM CALL returndata wide admit**：result-bearing sync call 打开 UInt128/UInt256
        （UInt64 守卫保留；参数仍 UInt64；Bool 仍 FC；hashed callee 不变）
    - 然后 identity-bound Reference↔Anvil formal differential（**C-3 仍 blocked**；
@@ -614,6 +615,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-14 | **控制面计数对齐代码**：registry **12 = 12 implemented + 0 design-only**、resolver **15** rows、十二 materializer（含 ICP ADR-0047）；TGT-SOROBAN-MVP / TGT-OPENVM-MVP 标 done；LH-1…28 engineering-done，Next = EVM formal `TASK-D2-07` / `TST-SEM-002/003`。**不**关闭 formal TASK/TST；C-3 / Anvil lossless 仍 blocked/FC |
 | 2026-08-14 | **EVM formal closeout 工程半步**：`PLAN-EVM-FORMAL-D2-07-GAP` + Sem002 response missing/extra + context wrong TypeId pin；`PLAN-EVM-FORMAL-D2-06-GAP` + `Tests.Semantic.Sem001ShapeV1` path-vs-semantic / business-hash pin；Sem001/002/003 进入 Typed shard。**不**关闭 TASK-D2-06/07 或 TST-SEM-001/002/003；C-3 / Anvil lossless 仍 blocked/FC |
 | 2026-08-14 | **F-CTX-CORE-TYPEID**：`Sem002ShapeV1` 钉同 key 不同 Core result TypeId 为 structure/encode `.badCfg`（`step` 不可达）；`NormalizeV1` `fn` ContextRead/Commit 纯度改为 body-local，修复 entry ContextRead 后置 `fn` 被误拒。**不**关闭 TST-SEM-002；C-3 / Anvil lossless 仍 blocked/FC |
+| 2026-08-14 | **F-SEM001-SPAN**：`Sem001ShapeV1` 钉同 AST leading-comment span 位移：`.pfsem`/`semanticHash`/`sourceHash` 不变，仅 `.pfprov`/digest 变，跨 snapshot span 校验 fail closed。**不**关闭 TST-SEM-001；C-3 / Anvil lossless 仍 blocked/FC |
 
 ---
 
