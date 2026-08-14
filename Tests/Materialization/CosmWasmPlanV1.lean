@@ -249,8 +249,8 @@ private unsafe def testCallStillFailClosed
     QNs stay Plan fail closed (no hashed / stdlib fallback). -/
 private unsafe def testCryptoSha256StayFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
-  let expectPlanFc (programName pathLabel moduleName body needle : String) :
-      IO Unit := do
+  let expectPlanFc (programName pathLabel moduleName body needle : String)
+      (also : String := "") : IO Unit := do
     let src := wrapProgram programName body
     let compiled ← compileSource session src moduleName pathLabel
     -- Engineering path: pin the Plan diagnostic even if the product
@@ -259,6 +259,9 @@ private unsafe def testCryptoSha256StayFailClosed
     | .error e =>
         expect (e.render.contains needle)
           s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+        unless also.isEmpty do
+          expect (e.render.contains also)
+            s!"{programName} Plan FC must contain '{also}', got: {e.render}"
     | .ok _ =>
         throw <| IO.userError
           s!"{programName} must Plan fail closed (no CosmWasm crypto host)"
@@ -287,6 +290,24 @@ private unsafe def testCryptoSha256StayFailClosed
       "  view get() : UInt64 do\n" ++
       "    return pad\n")
     "has no CosmWasm host binding"
+  -- SYS-S5-ECDSA-FC: EVM-admit arity stays Plan FC (no CosmWasm ecdsa host).
+  -- UInt256 remains body-local; ABI stays UInt64.
+  expectPlanFc "EcdsaRecoverCw" "<cw-ecdsa-recover>"
+    "Examples.EcdsaRecoverCw"
+    ("  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    let h : UInt256 := 0\n" ++
+      "    let v : UInt256 := 0\n" ++
+      "    let r : UInt256 := 0\n" ++
+      "    let s : UInt256 := 0\n" ++
+      "    let a : UInt256 := call pf.crypto.ecdsaRecoverSecp256k1(h, v, r, s)\n" ++
+      "    return pad\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n")
+    "has no CosmWasm host binding"
+    "ecdsaRecoverSecp256k1"
   expectPlanFc "Keccak256Cw" "<cw-keccak256>" "Examples.Keccak256Cw"
     ("  state pad : UInt64\n\n" ++
       "  init() do\n" ++

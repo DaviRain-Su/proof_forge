@@ -88,6 +88,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | F-CALL-SERIAL-COMMENT | done | Honesty: invariant-closure ExternalCall/Schedule comments no longer say arg serializability is deferred. **Not** formal |
 | OPENVM-1A | done | OpenVM unknown-profile FC: `not-a-real-profile-v1` → `PF-PROFILE-UNKNOWN`. Sole legal ids remain source+elf. **Not** prove/formal |
 | QUINT-1A | done | Quint unknown-profile FC: `not-a-real-profile-v1` → `PF-PROFILE-UNKNOWN`. No ITF/MBT id invented. **Not** QUINT-2 / formal |
+| SYS-S5-ECDSA-FC | done | Solana/NEAR/CW Plan FC for `pf.crypto.ecdsaRecoverSecp256k1` (scope/no-host + QN). EVM leaf unchanged. **Not** EXT-CRYPTO / formal |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)

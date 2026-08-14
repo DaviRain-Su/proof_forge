@@ -1658,14 +1658,17 @@ private unsafe def testCryptoSha256Solana
   expect (asm.contains "sol_sha256")
     "Sha256Sol: SBPF must call sol_sha256"
 
-  let expectPlanFc (programName pathLabel moduleName body needle : String) :
-      IO Unit := do
+  let expectPlanFc (programName pathLabel moduleName body needle : String)
+      (also : String := "") : IO Unit := do
     let negSrc := wrapProgram programName body
     let negCompiled ← compileSource session negSrc moduleName pathLabel
     match planSolana negCompiled with
     | .error e =>
         expect (e.render.contains needle)
           s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+        unless also.isEmpty do
+          expect (e.render.contains also)
+            s!"{programName} Plan FC must contain '{also}', got: {e.render}"
     | .ok _ =>
         throw <| IO.userError
           s!"{programName} must Plan fail closed (no empty-meta / hashed fallback)"
@@ -1701,6 +1704,18 @@ private unsafe def testCryptoSha256Solana
       "    last := h\n" ++
       "    return h\n")
     "outside admitted Solana scope"
+  -- SYS-S5-ECDSA-FC: EVM-admit arity stays Plan FC (no sol_secp256k1_recover).
+  expectPlanFc "EcdsaRecoverSol" "<solana-ecdsa-recover>"
+    "Examples.EcdsaRecoverSol"
+    ("  state last : UInt256\n\n" ++
+      "  init() do\n" ++
+      "    last := 0\n\n" ++
+      "  entry probe(hash : UInt256, v : UInt256, r : UInt256, s : UInt256) : UInt256 do\n" ++
+      "    let a : UInt256 := call pf.crypto.ecdsaRecoverSecp256k1(hash, v, r, s)\n" ++
+      "    last := a\n" ++
+      "    return a\n")
+    "outside admitted Solana scope"
+    "ecdsaRecoverSecp256k1"
   -- Generic result-bearing Oracle.feed stays FC (no scope leak from sha256).
   expectPlanFc "Sha256SolHashPad" "<solana-sha256-hashpad>"
     "Examples.Sha256SolHashPad"
