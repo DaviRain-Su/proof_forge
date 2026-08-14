@@ -104,6 +104,8 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | SOL-0048-OVF | done | StateCell increment-overflow production subject + generic executed HandlerIR/provider join (UInt64 max prestate, argument=1). No 55-step sparse cert yet. **Not** formal D5 |
 | EVM-CALL-ADDR-GAP | done | Inventory [`docs/plan/evm-call-addr-gap.md`](../docs/plan/evm-call-addr-gap.md): static-QN CALL is last-20 keccak of path UTF-8, not CREATE/CREATE2. Next implementable = exact hex pin. Binding stays `B-CALL-SEM`. **Not** emitter change |
 | EVM-CALL-ADDR-PIN | done | CallGate/ScheduleGate Yul pin exact keccak last-20 of `Oracle`/`Ledger`. No emitter change. Binding stays `B-CALL-SEM`. **Not** CREATE/CREATE2 |
+| NOIR-CALL-RET-FC | in_progress | Pin `let x : UInt64 := call Oracle.feed(...)` Plan FC (existing result-bearing diagnostic). Allowlist `Tests/Materialization/NoirRelationModel.lean`. **Not** response-witness / prove |
+| EVM-CALL-INT-FC | done | Pin Int64 result-bearing CALL Plan FC beside existing Bool pin in `EvmSmoke`. **Not** opening signed ABI / B-CALL-SEM |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)

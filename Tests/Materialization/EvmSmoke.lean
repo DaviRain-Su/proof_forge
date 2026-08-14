@@ -3908,6 +3908,30 @@ private unsafe def testCallReturnEvm : IO Unit := do
       | .ok _ =>
           throw <| IO.userError
             "EVM Bool result call must fail closed (not in unsigned UInt admit set)"
+  -- Signed Int result stays fail closed (wide admit is unsigned UInt only).
+  let intSrc :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallRetIntEvm where\n" ++
+    "  entry probe(k : UInt64) : UInt64 do\n" ++
+    "    let x : Int64 := call ledger.get(k)\n" ++
+    "    return k\n"
+  let iSrc ← match ← session.selectProgramV1
+      intSrc "<evm-call-ret-int>" "Tests.EvmCallRetInt" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"CallRetIntEvm select: {e.render}"
+  match Compiler.compileValidatedSourceV1 iSrc with
+  | .error _ => throw <| IO.userError "CallRetIntEvm must compile"
+  | .ok compiled =>
+      match planEvm compiled with
+      | .error e =>
+          expect
+            (e.render.contains
+              "result must be UInt8, UInt16, UInt32, UInt64, UInt128, or UInt256")
+            s!"Int64 result FC must cite unsigned UInt admit set, got: {e.render}"
+      | .ok _ =>
+          throw <| IO.userError
+            "EVM Int64 result call must fail closed (not in unsigned UInt admit set)"
 
 /-- Result-bearing CALL admits UInt128 (high-128 zero) and UInt256
     (full 32B word, no UInt64 truncate). Bool remains FC above. -/
