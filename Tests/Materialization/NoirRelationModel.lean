@@ -2319,6 +2319,59 @@ private unsafe def checkCryptoSha256StayFailClosed : IO Unit := do
     "has no Noir host binding"
   IO.println "  ✓ pf.crypto.sha256/keccak256 stay fail closed (no Noir host)"
 
+/-- SYS-S4: name remaining ContextRead catalog keys. unixTime stays on the
+    existing generic reject (circuit domain, no clock). attachedValue/
+    chainId/blockHeight are named no-host. caller/self are named Principal
+    mapping rejects (T12 admits Principal, so the ContextRead arm fires). -/
+private unsafe def checkContextReadStayFailClosed : IO Unit := do
+  let expectPlanFc (label moduleName body needle : String) : IO Unit := do
+    let src :=
+      "import ProofForgeV2\n\n" ++
+      "namespace ProofForgeV2.Examples\n\n" ++
+      "open ProofForgeV2.Language\n\n" ++
+      s!"program {label} where\n" ++ body ++
+      "\nend ProofForgeV2.Examples\n"
+    let session ← Tests.Language.ParserSession.shared
+    let source ← liftResult (← session.selectProgramV1 src
+      s!"<noir-{label}>" moduleName none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+    let selection ← liftResult <| resolveBuildSelectionV1 TargetId.noir none
+    let capability ← liftResult <|
+      Targets.resolveEngineeringRequirementsV1 selection compiled
+    match Targets.Noir.planFromCapability capability with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{label} must Plan fail closed (no Noir context host)"
+  let ctxBody (place : String) : String :=
+    "  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    return " ++ place ++ "\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n"
+  expectPlanFc "UnixTimeNoir" "Examples.UnixTimeNoir"
+    (ctxBody "context.unixTimeSeconds")
+    "ContextRead is not admitted by pilot context policy"
+  expectPlanFc "AttachedValueNoir" "Examples.AttachedValueNoir"
+    (ctxBody "context.attachedValue") "has no Noir host binding"
+  expectPlanFc "ChainIdNoir" "Examples.ChainIdNoir"
+    (ctxBody "context.chainId") "has no Noir host binding"
+  expectPlanFc "BlockHeightNoir" "Examples.BlockHeightNoir"
+    (ctxBody "context.blockHeight") "has no Noir host binding"
+  expectPlanFc "CallerNoir" "Examples.CallerNoir"
+    ("  entry who(a : Principal) : Bool do\n" ++
+      "    return context.caller == a\n")
+    "context.caller"
+  expectPlanFc "SelfNoir" "Examples.SelfNoir"
+    ("  entry same() : Bool do\n" ++
+      "    return context.contractId == context.contractId\n")
+    "context.self"
+  IO.println "  ✓ ContextRead catalog keys named FC (unixTime not opened)"
+
 /-- Two declared events, both emitted: pins event-slot inputs and .nr surface. -/
 private def multiEventSourceText : String :=
   "import ProofForgeV2\n\n" ++
@@ -4011,6 +4064,7 @@ unsafe def run : IO Unit := do
   checkExternalCallScheduleProduct
   checkVoidEntryFailClosed
   checkCryptoSha256StayFailClosed
+  checkContextReadStayFailClosed
   checkMultipleEventsProduct
   checkZeroArgRevertProduct
   checkBoolResultPureFnProduct

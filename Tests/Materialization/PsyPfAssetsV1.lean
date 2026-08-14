@@ -352,6 +352,43 @@ unsafe def testCryptoGadgetShapesStayHonest : IO Unit := do
   admitScalar "HashPadPsyGadget" "pf.crypto.hashPad"
   admitScalar "HashNoPadPsyGadget" "pf.crypto.hashNoPad"
 
+/-- SYS-S4: name remaining ContextRead catalog keys. unixTime/caller/
+    blockHeight keep their existing messages. attachedValue/chainId are
+    named no-host. self is named like caller (Principal ≠ Psy address). -/
+unsafe def testContextReadStayFailClosed : IO Unit := do
+  let expectPlanFc (label body needle : String) : IO Unit := do
+    let source :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {label} where\n" ++ body
+    let compiled ← compileSource s!"<psy-{label}>" s!"Tests.Psy{label}" source
+    match planPsyOf compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{label} must Plan fail closed (no Psy context host)"
+  let ctxBody (place : String) : String :=
+    "  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    return " ++ place ++ "\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n"
+  -- unixTime is not opened: existing DPN wall-clock reject.
+  expectPlanFc "UnixTimePsy" (ctxBody "context.unixTimeSeconds")
+    "no DPN wall-clock binding"
+  expectPlanFc "AttachedValuePsy" (ctxBody "context.attachedValue")
+    "has no Psy host binding"
+  expectPlanFc "ChainIdPsy" (ctxBody "context.chainId")
+    "has no Psy host binding"
+  expectPlanFc "SelfPsy"
+    ("  entry same() : Bool do\n" ++
+      "    return context.contractId == context.contractId\n")
+    "context.self"
+
 unsafe def run : IO Unit := do
   testDispositionHelpers
   testFiveCatalogQnsFailAtResolve
@@ -363,6 +400,7 @@ unsafe def run : IO Unit := do
   testCryptoSha256StayFailClosed
   testCryptoKeccak256IsGadgetNotHost
   testCryptoGadgetShapesStayHonest
+  testContextReadStayFailClosed
   IO.println "Tests.Materialization.PsyPfAssetsV1: ok"
 
 end Tests.Materialization.PsyPfAssetsV1

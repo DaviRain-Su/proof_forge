@@ -2825,6 +2825,24 @@ private def lowerBlockInstructionsV1
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: Commit is not admitted by pilot context policy (commitment labels are not representable as public relation slots)"
     | .contextRead key, some _ =>
+        -- SYS-S4: name remaining catalog keys. Do not open a host,
+        -- witness clock, or caller oracle. unixTime stays on the
+        -- existing generic reject (circuit domain, no clock).
+        if key == callerContextKeyV1 then
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: ContextRead (context.caller) is not admitted by pilot context policy (Principal to Noir address mapping deferred)"
+        if key == selfContextKeyV1 then
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: ContextRead (context.self) is not admitted by pilot context policy (Principal to Noir address mapping deferred)"
+        if key == blockHeightContextKeyV1 then
+          throw <| .planInvariant .noir
+            s!"unsupported Noir semantic shape: ContextRead '{key.value}' has no Noir host binding (blockHeight stays fail closed)"
+        if key == attachedValueContextKeyV1 then
+          throw <| .planInvariant .noir
+            s!"unsupported Noir semantic shape: ContextRead '{key.value}' has no Noir host binding (attachedValue stays fail closed)"
+        if key == chainIdContextKeyV1 then
+          throw <| .planInvariant .noir
+            s!"unsupported Noir semantic shape: ContextRead '{key.value}' has no Noir host binding (chainId stays fail closed)"
         unless key == unixTimeSecondsContextKeyV1 do
           throw <| .planInvariant .noir
             s!"unsupported Noir semantic shape: unknown ContextRead key '{key.value}'"

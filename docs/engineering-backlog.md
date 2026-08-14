@@ -625,6 +625,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-14 | **SYS-S4-QUINT-KEYS**：Quint 对同一四键点名 Plan/materialize fail closed（`has no Quint host binding`）；attachedValue 不再只写 outside-Q0。caller/self 仍泛化。**不**关闭 formal |
 | 2026-08-14 | **SYS-E2-NEW-TARGETS**：ICP/Soroban/OpenVM 对 `envRead nativeVaultBalance`（`pf.assets.native.balanceOfSelf`）点名 Plan fail closed；token/U128 仍泛化。无 vault host。**不**关闭 formal |
 | 2026-08-14 | **SYS-S4-TON-KEYS**：TON 为 `attachedValue`/`chainId`/`self` 点名 Plan fail closed；`unixTimeSeconds` 仍降 `blockchain.now()`。self 因 Principal 可能在 type-closure 先拒。**不**关闭 formal |
+| 2026-08-14 | **SYS-S4-CIRCUIT-KEYS**：Aleo/Noir/Psy 点名剩余 ContextRead 键；`Targets.lean` 矩阵针同步（含 Quint/Soroban UInt64 旧针）。unixTime 未开放。**不**关闭 formal |
 
 ---
 

@@ -193,12 +193,59 @@ unsafe def testCryptoSha256StayFailClosed : IO Unit := do
       "    return pad\n")
     "has no Aleo host binding"
 
+/-- SYS-S4: name remaining ContextRead catalog keys. unixTime stays on the
+    existing generic reject (no Aleo clock). attachedValue/chainId/blockHeight
+    are named no-host. caller/self are Principal — Aleo type-closure rejects
+    Principal before the ContextRead arm. -/
+unsafe def testContextReadStayFailClosed : IO Unit := do
+  let expectPlanFc (label body needle : String) : IO Unit := do
+    let source :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {label} where\n" ++ body
+    let compiled ← compileSource s!"<aleo-{label}>" s!"Tests.Aleo{label}" source
+    match Targets.Aleo.engineeringPlanFromCompiled compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{label} must Plan fail closed (no Aleo context host)"
+  let ctxBody (place : String) : String :=
+    "  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    return " ++ place ++ "\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n"
+  -- unixTime is not opened: still the generic pilot reject, not a clock host.
+  expectPlanFc "UnixTimeAleo" (ctxBody "context.unixTimeSeconds")
+    "ContextRead is not admitted by pilot context policy"
+  expectPlanFc "AttachedValueAleo" (ctxBody "context.attachedValue")
+    "has no Aleo host binding"
+  expectPlanFc "ChainIdAleo" (ctxBody "context.chainId")
+    "has no Aleo host binding"
+  expectPlanFc "BlockHeightAleo" (ctxBody "context.blockHeight")
+    "has no Aleo host binding"
+  -- Principal keys: type-closure fires first (no Principal on Aleo).
+  expectPlanFc "SelfAleo"
+    ("  entry who() : UInt64 do\n" ++
+      "    let s : Principal := context.contractId\n" ++
+      "    return 0\n")
+    "Principal"
+  expectPlanFc "CallerAleo"
+    ("  entry who(a : Principal) : Bool do\n" ++
+      "    return context.caller == a\n")
+    "Principal"
+
 unsafe def run : IO Unit := do
   testDispositionHelpers
   testExtensionDeclinedAtResolve
   testFiveCatalogQnsFailAtResolve
   testNonCatalogCallStillDeclined
   testCryptoSha256StayFailClosed
+  testContextReadStayFailClosed
   IO.println "Tests.Materialization.AleoPfAssetsV1: ok"
 
 end Tests.Materialization.AleoPfAssetsV1

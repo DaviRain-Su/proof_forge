@@ -1456,6 +1456,24 @@ private partial def lowerRegion
         | some valueDef =>
             env := envInsertVal env valueDef.valueId operand
     | .contextRead key => do
+        -- SYS-S4: name remaining catalog keys. Do not open a host or
+        -- circuit oracle. unixTime stays on the existing generic reject
+        -- (no Aleo clock).
+        if key == callerContextKeyV1 then
+          planError
+            "unsupported Aleo semantic shape: ContextRead (context.caller) is not admitted by pilot context policy (Principal to Aleo address mapping deferred)"
+        if key == selfContextKeyV1 then
+          planError
+            "unsupported Aleo semantic shape: ContextRead (context.self) is not admitted by pilot context policy (Principal to Aleo address mapping deferred)"
+        if key == blockHeightContextKeyV1 then
+          planError
+            s!"unsupported Aleo semantic shape: ContextRead '{key.value}' has no Aleo host binding (blockHeight stays fail closed)"
+        if key == attachedValueContextKeyV1 then
+          planError
+            s!"unsupported Aleo semantic shape: ContextRead '{key.value}' has no Aleo host binding (attachedValue stays fail closed)"
+        if key == chainIdContextKeyV1 then
+          planError
+            s!"unsupported Aleo semantic shape: ContextRead '{key.value}' has no Aleo host binding (chainId stays fail closed)"
         unless key == unixTimeSecondsContextKeyV1 do
           planError s!"unsupported Aleo semantic shape: unknown ContextRead key '{key.value}'"
         planError

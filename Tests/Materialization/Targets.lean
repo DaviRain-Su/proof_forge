@@ -3850,11 +3850,11 @@ unsafe def run : IO Unit := do
     blockHeightCompiled
   expectContextMatrixFailClosed "context.blockHeight/noir"
     TargetId.noir .noir
-    s!"unsupported Noir semantic shape: unknown ContextRead key '{blockHeightContextKeyV1.value}'"
+    s!"unsupported Noir semantic shape: ContextRead '{blockHeightContextKeyV1.value}' has no Noir host binding (blockHeight stays fail closed)"
     blockHeightCompiled
   expectContextMatrixFailClosed "context.blockHeight/aleo"
     TargetId.aleo .aleo
-    s!"unsupported Aleo semantic shape: unknown ContextRead key '{blockHeightContextKeyV1.value}'"
+    s!"unsupported Aleo semantic shape: ContextRead '{blockHeightContextKeyV1.value}' has no Aleo host binding (blockHeight stays fail closed)"
     blockHeightCompiled
   expectContextMatrixFailClosed "context.blockHeight/psy"
     TargetId.psy .psy
@@ -3862,11 +3862,11 @@ unsafe def run : IO Unit := do
     blockHeightCompiled
   expectContextMatrixFailClosed "context.blockHeight/quint"
     TargetId.quint .quint
-    "unsupported Quint semantic shape: op is outside Q0"
+    s!"unsupported Quint semantic shape: ContextRead '{blockHeightContextKeyV1.value}' has no Quint host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
     blockHeightCompiled
   expectContextMatrixFailClosed "context.blockHeight/soroban"
     TargetId.soroban .soroban
-    "unsupported Soroban semantic shape: op is outside S0"
+    s!"unsupported Soroban semantic shape: ContextRead '{blockHeightContextKeyV1.value}' has no Soroban host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
     blockHeightCompiled
 
   let session ← Language.Loader.ParserSession.create
@@ -3901,27 +3901,27 @@ unsafe def run : IO Unit := do
     chainIdCompiled
   expectContextMatrixFailClosed "context.chainId/ton"
     TargetId.ton .ton
-    s!"unsupported Ton semantic shape: unknown ContextRead key '{chainIdContextKeyV1.value}'"
+    s!"unsupported Ton semantic shape: ContextRead '{chainIdContextKeyV1.value}' has no Ton host binding (chainId stays fail closed)"
     chainIdCompiled
   expectContextMatrixFailClosed "context.chainId/noir"
     TargetId.noir .noir
-    s!"unsupported Noir semantic shape: unknown ContextRead key '{chainIdContextKeyV1.value}'"
+    s!"unsupported Noir semantic shape: ContextRead '{chainIdContextKeyV1.value}' has no Noir host binding (chainId stays fail closed)"
     chainIdCompiled
   expectContextMatrixFailClosed "context.chainId/aleo"
     TargetId.aleo .aleo
-    s!"unsupported Aleo semantic shape: unknown ContextRead key '{chainIdContextKeyV1.value}'"
+    s!"unsupported Aleo semantic shape: ContextRead '{chainIdContextKeyV1.value}' has no Aleo host binding (chainId stays fail closed)"
     chainIdCompiled
   expectContextMatrixFailClosed "context.chainId/psy"
     TargetId.psy .psy
-    s!"unsupported Psy semantic shape: unknown ContextRead key '{chainIdContextKeyV1.value}' is not admitted by pilot context policy"
+    s!"unsupported Psy semantic shape: ContextRead '{chainIdContextKeyV1.value}' has no Psy host binding (chainId stays fail closed)"
     chainIdCompiled
   expectContextMatrixFailClosed "context.chainId/quint"
     TargetId.quint .quint
-    "unsupported Quint semantic shape: op is outside Q0"
+    s!"unsupported Quint semantic shape: ContextRead '{chainIdContextKeyV1.value}' has no Quint host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
     chainIdCompiled
   expectContextMatrixFailClosed "context.chainId/soroban"
     TargetId.soroban .soroban
-    "unsupported Soroban semantic shape: op is outside S0"
+    s!"unsupported Soroban semantic shape: ContextRead '{chainIdContextKeyV1.value}' has no Soroban host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
     chainIdCompiled
 
   let session ← Language.Loader.ParserSession.create
@@ -3953,7 +3953,7 @@ unsafe def run : IO Unit := do
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/noir"
     TargetId.noir .noir
-    s!"unsupported Noir semantic shape: unknown ContextRead key '{selfContextKeyV1.value}'"
+    "unsupported Noir semantic shape: ContextRead (context.self) is not admitted by pilot context policy (Principal to Noir address mapping deferred)"
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/aleo"
     TargetId.aleo .aleo
@@ -3961,7 +3961,7 @@ unsafe def run : IO Unit := do
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/psy"
     TargetId.psy .psy
-    s!"unsupported Psy semantic shape: unknown ContextRead key '{selfContextKeyV1.value}' is not admitted by pilot context policy"
+    "unsupported Psy semantic shape: context.self (Principal) is not a Psy address. Use call pf.context.contractId() for DPN ExecutionContext ids"
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/quint"
     TargetId.quint .quint

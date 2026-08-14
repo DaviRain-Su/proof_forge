@@ -85,7 +85,8 @@ closed (mirrors Enum param policy).
 
 ## PSY-CONTEXT-COMMIT (evidence fail closed, 2026-08-08)
 
-ContextRead (`unixTimeSeconds` / `caller` / `blockHeight` / unknown) and
+ContextRead (`unixTimeSeconds` / `caller` / `self` / `blockHeight` /
+`attachedValue` / `chainId` / unknown) and
 Commit stay **fail closed** with key-specific diagnostics. Psy is circuit-
 domain: the DPN contract has no bound public-input/witness source for
 wall-clock, caller, or height. Unanchored injection is not chain reality.
@@ -2883,9 +2884,18 @@ private partial def lowerRegion
         else if key == callerContextKeyV1 then
           planError
             "unsupported Psy semantic shape: context.caller (Principal/msg.sender) is not a Psy address. Use call pf.context.userId() / pf.context.callerContractId() for DPN ExecutionContext ids"
+        else if key == selfContextKeyV1 then
+          planError
+            "unsupported Psy semantic shape: context.self (Principal) is not a Psy address. Use call pf.context.contractId() for DPN ExecutionContext ids"
         else if key == blockHeightContextKeyV1 then
           planError
             "unsupported Psy semantic shape: context.blockHeight has no DPN height binding (FC). Use call pf.context.checkpointId() for checkpoint identity"
+        else if key == attachedValueContextKeyV1 then
+          planError
+            s!"unsupported Psy semantic shape: ContextRead '{key.value}' has no Psy host binding (attachedValue stays fail closed)"
+        else if key == chainIdContextKeyV1 then
+          planError
+            s!"unsupported Psy semantic shape: ContextRead '{key.value}' has no Psy host binding (chainId stays fail closed)"
         else
           planError
             s!"unsupported Psy semantic shape: unknown ContextRead key '{key.value}' is not admitted by pilot context policy"
