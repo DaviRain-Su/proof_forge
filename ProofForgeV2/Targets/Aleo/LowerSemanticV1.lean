@@ -1478,9 +1478,13 @@ private partial def lowerRegion
           planError s!"unsupported Aleo semantic shape: unknown ContextRead key '{key.value}'"
         planError
           "unsupported Aleo semantic shape: ContextRead is not admitted by pilot context policy"
-    -- ADR-0030 E2: env-read (pf.assets balanceOfSelf) is fail closed on Aleo
-    -- (Psy/Aleo zero-binding disposition).
-    | .envRead .. =>
+    -- ADR-0030 E2 / SYS-E2: name nativeVaultBalance. Do not open a vault
+    -- host. token/U128 stay on the generic EnvRead envelope (Principal /
+    -- UInt128 fail first at type closure).
+    | .envRead key _args =>
+        if key == .nativeVaultBalance then
+          planError
+            "unsupported Aleo semantic shape: envRead nativeVaultBalance has no Aleo host binding (pf.assets.native.balanceOfSelf stays fail closed)"
         planError "unsupported Aleo semantic shape: EnvRead is not admitted by pilot context policy"
     | .construct typeId ctorIdx argIds => do
         match instr.result with

@@ -389,6 +389,35 @@ unsafe def testContextReadStayFailClosed : IO Unit := do
       "    return context.contractId == context.contractId\n")
     "context.self"
 
+/-- SYS-E2: Psy has no native vault host. `pf.assets.native.balanceOfSelf`
+    stays Plan fail closed. Product resolve still declines
+    `extension.pf-assets` first, so this pin uses the engineering Plan path
+    (compile reaches Plan). token/U128 stay on the generic EnvRead envelope. -/
+unsafe def testEnvReadNativeStayFailClosed : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program EnvReadBalancePsy where\n" ++
+    pfAssetsRequiresBlock ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  view nativeBalance() : UInt64 do\n" ++
+    "    return pf.assets.native.balanceOfSelf()\n" ++
+    "  entry setCount(newCount : UInt64) : UInt64 do\n" ++
+    "    count := newCount\n" ++
+    "    return count\n"
+  let compiled ← compileSource "<psy-env-read-native>" "Tests.EnvReadBalancePsy" source
+  match Targets.Psy.planFromCompiledSemanticV1 compiled with
+  | .error e =>
+      expect (e.render.contains "has no Psy host binding")
+        s!"EnvReadBalancePsy Plan FC must contain 'has no Psy host binding', got: {e.render}"
+      expect (e.render.contains "envRead" || e.render.contains "nativeVaultBalance")
+        s!"EnvReadBalancePsy Plan FC must name envRead/nativeVaultBalance, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "EnvReadBalancePsy must Plan fail closed (no Psy vault host)"
+
 unsafe def run : IO Unit := do
   testDispositionHelpers
   testFiveCatalogQnsFailAtResolve
@@ -401,6 +430,7 @@ unsafe def run : IO Unit := do
   testCryptoKeccak256IsGadgetNotHost
   testCryptoGadgetShapesStayHonest
   testContextReadStayFailClosed
+  testEnvReadNativeStayFailClosed
   IO.println "Tests.Materialization.PsyPfAssetsV1: ok"
 
 end Tests.Materialization.PsyPfAssetsV1

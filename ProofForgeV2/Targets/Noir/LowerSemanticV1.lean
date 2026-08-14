@@ -2856,6 +2856,15 @@ private def lowerBlockInstructionsV1
             s!"unsupported Noir semantic shape: pf.crypto QN '{qn}' has no Noir host binding (sha256/keccak256 and siblings stay fail closed; circuit stdlib is not a host)"
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: result-bearing external call is outside the current Noir pilot (N-CALL-RET shared schema; Noir return-value relation lowering is a later slice)"
+    -- SYS-E2: name nativeVaultBalance. Do not open a vault host.
+    -- token/U128 stay on the generic EnvRead envelope (Principal mint /
+    -- UInt128 fail first at type closure).
+    | .envRead key _, some _ =>
+        if key == .nativeVaultBalance then
+          throw <| .planInvariant .noir
+            "unsupported Noir semantic shape: envRead nativeVaultBalance has no Noir host binding (pf.assets.native.balanceOfSelf stays fail closed)"
+        throw <| .planInvariant .noir
+          "unsupported Noir semantic shape: EnvRead is not admitted by pilot context policy"
     | _, _ =>
         throw <| .planInvariant .noir
           "unsupported Noir semantic shape: instruction op/result is outside the current UInt64 pilot"
@@ -3517,6 +3526,20 @@ def materializePlanFromCapabilityV1 (capability : ResolvedEngineeringBuildV1) : 
     throw <| .planInvariant .noir
       s!"Noir materialize rejects unknown codegen profile '{profile}'"
   let compiled := ResolvedEngineeringBuildV1.compiledOf capability
+  let source := CompiledSemanticV1.semanticV1Of compiled
+  let sourceHash ← CompiledSemanticV1.artifactSourceHashHexOf compiled
+  let semanticHash ← CompiledSemanticV1.artifactSemanticHashHexOf compiled
+  makePlanFromSemanticV1
+    (CompiledSemanticV1.artifactProgramNameOf compiled)
+    sourceHash
+    semanticHash
+    source
+
+/-- Engineering Plan from retained Semantic. Not product.
+
+    Used to pin SYS-E2 `envRead nativeVaultBalance` fail-closed diagnostics
+    while the Noir resolver still declines `extension.pf-assets`. -/
+def planFromCompiledSemanticV1 (compiled : CompiledSemanticV1) : CompileResult Plan := do
   let source := CompiledSemanticV1.semanticV1Of compiled
   let sourceHash ← CompiledSemanticV1.artifactSourceHashHexOf compiled
   let semanticHash ← CompiledSemanticV1.artifactSemanticHashHexOf compiled

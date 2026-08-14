@@ -2372,6 +2372,42 @@ private unsafe def checkContextReadStayFailClosed : IO Unit := do
     "context.self"
   IO.println "  ✓ ContextRead catalog keys named FC (unixTime not opened)"
 
+/-- SYS-E2: Noir has no native vault host. `pf.assets.native.balanceOfSelf`
+    stays Plan fail closed. Product resolve still declines
+    `extension.pf-assets` first, so this pin uses the engineering Plan path
+    (compile reaches Plan). token/U128 stay on the generic EnvRead envelope. -/
+private unsafe def checkEnvReadNativeStayFailClosed : IO Unit := do
+  let src :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program EnvReadBalanceNoir where\n" ++
+    "  requires extension pf.assets version \"1.1.0\"\n" ++
+    "    digest \"sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9\"\n\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  view nativeBalance() : UInt64 do\n" ++
+    "    return pf.assets.native.balanceOfSelf()\n\n" ++
+    "  entry setCount(newCount : UInt64) : UInt64 do\n" ++
+    "    count := newCount\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let session ← Tests.Language.ParserSession.shared
+  let source ← liftResult (← session.selectProgramV1 src
+    "<noir-env-read-native>" "Examples.EnvReadBalanceNoir" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 source
+  match Targets.Noir.planFromCompiledSemanticV1 compiled with
+  | .error e =>
+      expect (e.render.contains "has no Noir host binding")
+        s!"EnvReadBalanceNoir Plan FC must contain 'has no Noir host binding', got: {e.render}"
+      expect (e.render.contains "envRead" || e.render.contains "nativeVaultBalance")
+        s!"EnvReadBalanceNoir Plan FC must name envRead/nativeVaultBalance, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "EnvReadBalanceNoir must Plan fail closed (no Noir vault host)"
+  IO.println "  ✓ envRead nativeVaultBalance stay fail closed (no Noir host)"
+
 /-- Two declared events, both emitted: pins event-slot inputs and .nr surface. -/
 private def multiEventSourceText : String :=
   "import ProofForgeV2\n\n" ++
@@ -4065,6 +4101,7 @@ unsafe def run : IO Unit := do
   checkVoidEntryFailClosed
   checkCryptoSha256StayFailClosed
   checkContextReadStayFailClosed
+  checkEnvReadNativeStayFailClosed
   checkMultipleEventsProduct
   checkZeroArgRevertProduct
   checkBoolResultPureFnProduct

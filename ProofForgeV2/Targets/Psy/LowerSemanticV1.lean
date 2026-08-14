@@ -2902,9 +2902,13 @@ private partial def lowerRegion
     | .commit .. =>
         planError
           "unsupported Psy semantic shape: Commit is not admitted (proof/public-input/commitment binding not frozen on Psy; Felt identity passthrough would overclaim cryptographic commitment; B-COMMIT-ZK FC)"
-    -- ADR-0030 E2: env-read (pf.assets balanceOfSelf) is fail closed on Psy
-    -- (Psy/Aleo zero-binding disposition).
-    | .envRead .. =>
+    -- ADR-0030 E2 / SYS-E2: name nativeVaultBalance. Do not open a vault
+    -- host. token/U128 stay on the generic EnvRead envelope (Principal /
+    -- UInt128 fail first at type closure).
+    | .envRead key _args =>
+        if key == .nativeVaultBalance then
+          planError
+            "unsupported Psy semantic shape: envRead nativeVaultBalance has no Psy host binding (pf.assets.native.balanceOfSelf stays fail closed)"
         planError
           "unsupported Psy semantic shape: EnvRead is not admitted (no native Psy balance/vault host read; ADR-0029 zero-binding FC)"
   match block.terminator with

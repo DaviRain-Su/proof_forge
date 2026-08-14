@@ -239,6 +239,35 @@ unsafe def testContextReadStayFailClosed : IO Unit := do
       "    return context.caller == a\n")
     "Principal"
 
+/-- SYS-E2: Aleo has no native vault host. `pf.assets.native.balanceOfSelf`
+    stays Plan fail closed. Product resolve still declines
+    `extension.pf-assets` first, so this pin uses the engineering Plan path
+    (compile reaches Plan). token/U128 stay on the generic EnvRead envelope. -/
+unsafe def testEnvReadNativeStayFailClosed : IO Unit := do
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program EnvReadBalanceAleo where\n" ++
+    pfAssetsRequiresBlock ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  view nativeBalance() : UInt64 do\n" ++
+    "    return pf.assets.native.balanceOfSelf()\n" ++
+    "  entry setCount(newCount : UInt64) : UInt64 do\n" ++
+    "    count := newCount\n" ++
+    "    return count\n"
+  let compiled ← compileSource "<aleo-env-read-native>" "Tests.EnvReadBalanceAleo" source
+  match Targets.Aleo.engineeringPlanFromCompiled compiled with
+  | .error e =>
+      expect (e.render.contains "has no Aleo host binding")
+        s!"EnvReadBalanceAleo Plan FC must contain 'has no Aleo host binding', got: {e.render}"
+      expect (e.render.contains "envRead" || e.render.contains "nativeVaultBalance")
+        s!"EnvReadBalanceAleo Plan FC must name envRead/nativeVaultBalance, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "EnvReadBalanceAleo must Plan fail closed (no Aleo vault host)"
+
 unsafe def run : IO Unit := do
   testDispositionHelpers
   testExtensionDeclinedAtResolve
@@ -246,6 +275,7 @@ unsafe def run : IO Unit := do
   testNonCatalogCallStillDeclined
   testCryptoSha256StayFailClosed
   testContextReadStayFailClosed
+  testEnvReadNativeStayFailClosed
   IO.println "Tests.Materialization.AleoPfAssetsV1: ok"
 
 end Tests.Materialization.AleoPfAssetsV1
