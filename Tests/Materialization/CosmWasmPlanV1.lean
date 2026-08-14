@@ -1289,6 +1289,61 @@ private unsafe def testMaterializeAggregate
     "artifact program name"
   IO.println "  ✓ Registry materializeResult cosmwasm"
 
+/-- CW-1a: product capability → materialize → locked wat2wasm Finalize.
+    Write base files into a temp staging dir first; wat2wasm runs inside
+    that dir. wasmd / cosmwasm-vm are not invoked. Tool Lock `wat2wasm`
+    is required — do not skip-clean if it is missing. -/
+private unsafe def testCapabilityProductPath
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let compiled ← compileSource session stateCellSourceText stateCellModuleName
+    "<cw-finalize>"
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.cosmwasm none
+  expect (selection.codegenProfile == CodegenProfileId.cosmwasmWasmU64V1)
+    "CosmWasm selection must bind cosmwasm-wasm-u64-v1"
+  let capability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection compiled
+  let artifacts ← liftResult <| Targets.materializeResult capability
+  let files := MaterializedArtifactsV1.filesOf artifacts
+  IO.FS.withTempDir fun stagingDir => do
+    for f in files do
+      let path := stagingDir / f.path
+      if let some parent := path.parent then
+        IO.FS.createDirAll parent
+      IO.FS.writeFile path f.contents
+    let finalized ← Targets.finalizeMaterializedArtifactsV1
+      capability artifacts stagingDir
+    expect (FinalizedArtifactsV1.deployableOf finalized)
+      "CosmWasm locked wat2wasm finalization must be deployable"
+    expect (FinalizedArtifactsV1.extraFilesOf finalized == #["StateCell.wasm"])
+      "CosmWasm locked finalization must add exactly StateCell.wasm"
+    let note := FinalizedArtifactsV1.evidenceNoteOf finalized
+    expect (note.contains "wat2wasm")
+      s!"CosmWasm Finalize evidence must cite wat2wasm, got: {note}"
+    expect (note.contains "runtime remains separate")
+      s!"CosmWasm Finalize evidence must cite runtime remains separate, got: {note}"
+    let wasm ← IO.FS.readBinFile (stagingDir / "StateCell.wasm")
+    expect (wasm.size >= 8 && wasm[0]! == 0x00 && wasm[1]! == 0x61 &&
+        wasm[2]! == 0x73 && wasm[3]! == 0x6d && wasm[4]! == 0x01 &&
+        wasm[5]! == 0x00 && wasm[6]! == 0x00 && wasm[7]! == 0x00)
+      "StateCell.wasm must carry Wasm magic/version 00 61 73 6d 01 00 00 00"
+  IO.println "  ✓ capability product Finalize (locked wat2wasm)"
+
+/-- CW-1a: grammar-valid but unregistered profile stays unknown.
+    Do not invent a reserved extra CosmWasm profile id. -/
+private unsafe def testUnknownProfileFailClosed : IO Unit := do
+  match CodegenProfileId.parse? "not-a-real-profile-v1" with
+  | none =>
+      throw <| IO.userError "not-a-real-profile-v1 must remain grammar-valid"
+  | some unknown =>
+      match resolveBuildSelectionV1 TargetId.cosmwasm (some unknown) with
+      | .error e =>
+          expect (e.code == "PF-PROFILE-UNKNOWN")
+            s!"unknown CosmWasm profile must be PF-PROFILE-UNKNOWN, got {e.code}: {e.render}"
+      | .ok sel =>
+          throw <| IO.userError
+            s!"unknown CosmWasm profile must fail closed, got {sel.codegenProfile}"
+  IO.println "  ✓ unknown profile fail closed"
+
 /-- A1-repair P0-1: static layout capacity gates must fail closed at Plan/IR
     emission (never silently overlap heap). keysEnd > 3000 via many state
     fields; needles > 4096 via many long method names. -/
@@ -1702,6 +1757,8 @@ unsafe def run : IO Unit := do
   testOptionStateFailClosed session
   testInvariantFc session
   testMaterializeAggregate session
+  testCapabilityProductPath session
+  testUnknownProfileFailClosed
   testStaticLayoutCapacityFc session
   testContextReadUnixTime session
   testContextReadBlockHeight session
