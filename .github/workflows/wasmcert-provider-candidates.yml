@@ -29,7 +29,6 @@ jobs:
           - platform: darwin-arm64
             runner: macos-14
     env:
-      OPAMROOT: ${{ runner.temp }}/proof-forge-wasmcert-opam
       WASMCERT_OPAM_SWITCH: pf-wasmcert
       WASMCERT_REVISION: 9ab0f87f03fff5507749efc273ec662fe27e6d14
     steps:
@@ -40,6 +39,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          echo "OPAMROOT=$RUNNER_TEMP/proof-forge-wasmcert-opam" >> "$GITHUB_ENV"
           case "${{ matrix.platform }}" in
             linux-x86_64)
               sudo apt-get update
