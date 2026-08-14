@@ -623,9 +623,9 @@ private unsafe def testMultiWidthFc
               expectPlanError "Int8 state" (planFromCapability capability)
   IO.println "  ✓ multi-width UInt128 ABI / Int8 fail closed"
 
-/-- Body multiword UInt128 add/mul/div/mod: true multi-limb WAT (schoolbook
-    mul; restoring binary long division for div/mod). ABI stays FC (Bool
-    result). Shift remains fail-closed. -/
+/-- Body multiword UInt128 add/mul/div/mod/shl/shr: true multi-limb WAT
+    (schoolbook mul; restoring binary long division for div/mod; limb-wise
+    shifts). ABI stays FC (Bool result). -/
 private unsafe def testMultiwordDivMod
     (session : Language.Loader.ParserSession) : IO Unit := do
   let source := wrapProgram "WideDivMod" <|
@@ -639,7 +639,10 @@ private unsafe def testMultiwordDivMod
     "    let p : UInt128 := a * b\n" ++
     "    let q : UInt128 := a / b\n" ++
     "    let r : UInt128 := a % b\n" ++
-    "    return (s > a) && (p > a) && (q > 0) && (r < b)\n"
+    "    let c : UInt32 := 65\n" ++
+    "    let sl : UInt128 := a << c\n" ++
+    "    let sr : UInt128 := a >> c\n" ++
+    "    return (s > a) && (p > a) && (q > 0) && (r < b) && (sl > 0) && (sr > 0)\n"
   let compiled ← compileSource session source
     "Examples.WideDivMod" "<cw-wide-divmod>"
   let plan ← liftResult <| planCw compiled
@@ -661,34 +664,12 @@ private unsafe def testMultiwordDivMod
     "wide-divmod: WAT must use multiword rem scratch"
   expect (wat.contains "$t_mw_quot0")
     "wide-divmod: WAT must use multiword quot scratch"
-  -- Shift still FC.
-  let shiftSrc := wrapProgram "WideShiftFc" <|
-    "  state dummy : UInt64\n\n" ++
-    "  init() do\n" ++
-    "    dummy := 0\n\n" ++
-    "  entry run() : Bool do\n" ++
-    "    let a : UInt128 := 1\n" ++
-    "    let b : UInt128 := a << 1\n" ++
-    "    return b > a\n"
-  match ← session.selectProgramV1 shiftSrc "<cw-wide-shift-fc>" "Examples.WideShiftFc" none with
-  | .error _ => pure ()
-  | .ok validated =>
-      match Compiler.compileValidatedSourceV1 validated with
-      | .error _ => pure ()
-      | .ok compiledShift =>
-          match cosmwasmCapability compiledShift with
-          | .error _ => pure ()
-          | .ok capability =>
-              match planFromCapability capability with
-              | .error (.planInvariant .cosmwasm msg) =>
-                  expect (msg.contains "multiword shift" || msg.contains "shift")
-                    s!"wide shift FC must cite multiword shift, got: {msg}"
-              | .error e =>
-                  throw <| IO.userError s!"wide shift FC: expected planInvariant, got {e.render}"
-              | .ok _ =>
-                  throw <| IO.userError "CosmWasm multiword shift must fail closed at plan"
+  expect (wat.contains "multiword shl nLimbs=2 bitWidth=128")
+    "wide-divmod: WAT must emit UInt128 multiword shl"
+  expect (wat.contains "multiword shr nLimbs=2 bitWidth=128")
+    "wide-divmod: WAT must emit UInt128 multiword shr"
   let _ := plan
-  IO.println "  ✓ multiword UInt128 body add/mul/div/mod + shift FC"
+  IO.println "  ✓ multiword UInt128 body add/mul/div/mod/shl/shr"
 
 /-- B-RET-ABI: named Struct view return flattens to 2×UInt64 leaves via
 `returnAggregate` / `setReturnDataMulti` / JSON decimal array wire. -/
@@ -1015,7 +996,7 @@ private unsafe def testAnonymousOptionReturn
     s!"OptionRet ABI leaf tuple, got: {abi}"
   IO.println "  ✓ OptionRet anonymous Option return Plan/IR/WAT/ABI pin"
 
-/-- N-ANON-RESULT FC: Map/Bytes/Array-of-9/nested Option stay fail closed. -/
+/-- N-ANON-RESULT helper for shapes that must remain fail closed. -/
 private unsafe def expectAnonymousReturnFc
     (session : Language.Loader.ParserSession)
     (label moduleName body : String)
@@ -1037,25 +1018,41 @@ private unsafe def expectAnonymousReturnFc
               throw <| IO.userError
                 s!"{label}: CosmWasm must fail closed on this anonymous return shape"
 
-private unsafe def testAnonymousReturnFc
+private unsafe def testAnonymousReturnBoundaries
     (session : Language.Loader.ParserSession) : IO Unit := do
-  -- Bytes N return remains fail closed (Bytes still outside type-closure pilot).
-  expectAnonymousReturnFc session "BytesRet" "Examples.BytesRet"
-    ("  state payload : Bytes 2\n\n" ++
+  -- Bytes N return uses one zero-extended u64 ABI leaf per byte.
+  let bytesSrc := wrapProgram "BytesRet" <|
+    "  state payload : Bytes 2\n\n" ++
       "  init() do\n" ++
       "    payload[0] := 1\n" ++
       "    payload[1] := 2\n\n" ++
       "  view getBytes() : Bytes 2 do\n" ++
-      "    return payload\n")
-    #["Bytes", "return", "B-RET", "unsupported", "anonymous", "container"]
-  -- Map return remains fail closed.
-  expectAnonymousReturnFc session "MapRet" "Examples.MapRet"
-    ("  state table : Map UInt64 UInt64\n\n" ++
+      "    return payload\n"
+  let bytesCompiled ← compileSource session bytesSrc "Examples.BytesRet" "<cw-BytesRet>"
+  let bytesPlan ← liftResult <| planCw bytesCompiled
+  let some getBytes := bytesPlan.entries.find? (·.name == "getBytes") |
+    throw <| IO.userError "BytesRet missing getBytes"
+  match getBytes.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 2 && leaves.all (·.byteWidth == 8))
+        "BytesRet must return two zero-extended u64 ABI leaves"
+  | _ => throw <| IO.userError "BytesRet resultKind must be aggregate"
+  -- Dense Map cap-8 return uses occ/key/value × 8 = 24 u64 leaves.
+  let mapSrc := wrapProgram "MapRet" <|
+    "  state table : Map UInt64 UInt64\n\n" ++
       "  init() do\n" ++
       "    table[0] := 1\n\n" ++
       "  view getMap() : Map UInt64 UInt64 do\n" ++
-      "    return table\n")
-    #["Map", "return", "B-RET", "unsupported", "anonymous"]
+      "    return table\n"
+  let mapCompiled ← compileSource session mapSrc "Examples.MapRet" "<cw-MapRet>"
+  let mapPlan ← liftResult <| planCw mapCompiled
+  let some getMap := mapPlan.entries.find? (·.name == "getMap") |
+    throw <| IO.userError "MapRet missing getMap"
+  match getMap.resultKind with
+  | .aggregate leaves =>
+      expect (leaves.size == 24 && leaves.all (·.byteWidth == 8))
+        "MapRet must return 24 u64 ABI leaves"
+  | _ => throw <| IO.userError "MapRet resultKind must be aggregate"
   -- Array UInt64 9 exceeds leaf cap-8.
   expectAnonymousReturnFc session "Array9Ret" "Examples.Array9Ret"
     ("  state slots : Array UInt64 9\n\n" ++
@@ -1080,7 +1077,7 @@ private unsafe def testAnonymousReturnFc
       "  view getNested() : Option Array UInt64 2 do\n" ++
       "    return Option.none()\n")
     #["Option", "UInt64", "payload", "return", "unsupported", "anonymous", "Array"]
-  IO.println "  ✓ anonymous return FC boundaries (Bytes / Map / Array9 / nested Option)"
+  IO.println "  ✓ anonymous Bytes/Map returns + Array9/nested Option FC boundaries"
 
 /-- B-OPT-STATE / BL-33: Option UInt64 state = Enum-shaped 2-leaf layout
     (`slot_tag` + `slot_p0`); construct none zeros payload; match read via
@@ -1679,7 +1676,7 @@ unsafe def run : IO Unit := do
   testAggregateReturnFc session
   testAnonymousArrayReturn session
   testAnonymousOptionReturn session
-  testAnonymousReturnFc session
+  testAnonymousReturnBoundaries session
   testOptionState session
   testOptionStateFailClosed session
   testInvariantFc session

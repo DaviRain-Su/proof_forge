@@ -429,8 +429,9 @@ structure LeafAbiType where
 UInt{8,16,32,64}/Bool/Int64 (T9a). UInt64/Int64/Bool wire as decimal JSON
 (execute: result attribute; query: `{"ok":"<decimal>"}`); UInt{8,16,32} as
 narrower LE payloads when admitted. B-RET-ABI: `.aggregate` packs 1..8
-UInt64/Int64 leaves as a JSON array of decimals (preorder flatten; Enum =
-tag + max-payload). ABI JSON `returns` distinguishes the declared type. -/
+UInt64/Int64 leaves for Struct/Enum/Array/Option/Bytes, or 24 leaves for the
+Map cap-8 pilot, as a JSON array of decimals (preorder flatten; Enum = tag +
+max-payload). ABI JSON `returns` distinguishes the declared type. -/
 inductive MethodResultKind where
   | unit
   | uint64
@@ -446,8 +447,8 @@ inductive MethodResultKind where
   | uint128
   | uint256
   /-- B-RET-ABI: named Struct/Enum or admitted anonymous Array/Option/Bytes/Map
-  aggregate return. `leaves` is preorder flatten order (1..24; Map cap-8 =
-  24 occ/key/val). Bytes N (1..8) wires as N×u64 JSON decimals
+  aggregate return. `leaves` is preorder flatten order (1..8 except Map cap-8
+  = 24 occ/key/val). Bytes N (1..8) wires as N×u64 JSON decimals
   (zero-extended bytes). Nested/narrow-element anonymous containers stay
   fail-closed. -/
   | aggregate (leaves : Array LeafAbiType)
@@ -732,7 +733,7 @@ private def cosmwasmPlanErr (message : String) : CompileError :=
     (`isAbiUintWidth` / makeEntry FC) — UInt128/256 are body-internal (let
     temps + multiword arith including true binary long division div/mod).
     Array + Map container state via `pilotContainerStatePolicyArrayMap`
-    (Array → N×UInt64 leaves; Map → capacity-4×(occ,key,val); Option admitted
+    (Array → N×UInt64 leaves; Map → capacity-8×(occ,key,val); Option admitted
     as Map IndexGet intermediate / N-ANON-RESULT return shape — never pushed to
     `containerTypeIds`). **B-OPT-STATE / BL-33**: anonymous `Option UInt64`
     **state** admitted as Enum-shaped tag+payload KV leaves (`name_tag`/
@@ -744,11 +745,11 @@ private def cosmwasmPlanErr (message : String) : CompileError :=
     Principal admitted as full wire-identity storage/param leaves
     (len + 8×UInt64; not bech32 AccAddress pin).
     **N-ANON-RESULT (CosmWasm ABI)**: anonymous `Array UInt64 N` (1..8),
-    `Option UInt64`, and `Bytes N` (1..8) entry/view returns reuse B-RET-ABI
-    multi-leaf JSON decimal arrays (execute `result` attr + query
-    `{"ok":"[d0,...]"}`); Map/nested/narrow-element anonymous returns stay
-    fail closed. Named aggregate params and pureFn aggregate returns stay
-    fail closed at callable lowering.
+    `Option UInt64`, `Bytes N` (1..8), and `Map UInt64 UInt64` (24 leaves for
+    capacity-8 occ/key/value) entry/view returns reuse B-RET-ABI multi-leaf
+    JSON decimal arrays (execute `result` attr + query `{"ok":"[d0,...]"}`).
+    Nested/narrow-element anonymous returns stay fail closed. Named aggregate
+    params and pureFn aggregate returns stay fail closed at callable lowering.
 
     Physical KV honesty: CosmWasm always stores scalar state as an 8-byte LE
     Region value (`pf_db_store_u64`). Narrow Plan `field.byteWidth` records the
@@ -1016,7 +1017,7 @@ private def requireOptionUInt64StateV1
 /-- N-ANON-RESULT (CosmWasm ABI): anonymous result leaf layout for admitted
  container returns. `Array UInt64 N` → N×u64 leaves; `Option UInt64` →
  tag+payload; `Bytes N` (1..8) → N×u64 leaves carrying zero-extended bytes
- (JSON decimal array wire, same as Array). Map stays FC (dense expand >8). -/
+ (JSON decimal array wire, same as Array); the Map cap-8 pilot uses 24 leaves. -/
 private def anonymousReturnLeafAbiV1
     (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option (Array LeafAbiType)) := do
@@ -1071,13 +1072,13 @@ private def isAggregateResultCandidateV1
     | some { shape := .bytes .., name := none, .. } => true
     | _ => false
 
-/-- B-RET-ABI leaf cap: 8 for Struct/Enum/Array/Option/Bytes; Map pilot uses
-    capacity×3 (cap-8 → 24). Emit valueCell holds up to 24×i64. -/
-private def maxAggregateReturnLeavesV1 : Nat := 24
+/-- B-RET-ABI leaf cap for Struct/Enum/Array/Option/Bytes. The Map pilot has
+    its own capacity×3 shape (cap-8 → 24); Emit valueCell holds up to 24×i64. -/
+private def maxAggregateReturnLeavesV1 : Nat := 8
 
 /-- B-RET-ABI: resolve a named Struct/Enum or admitted anonymous
 Array/Option/Bytes/Map result TypeId into an aggregate `MethodResultKind`.
-Enforces 1..maxAggregateReturnLeavesV1 leaves. -/
+Enforces 1..8 leaves except for the fixed 24-leaf Map cap-8 pilot. -/
 private def aggregateResultKindOfV1
     (typeDecls : Array TypeDeclV1) (types : CosmWasmTypeClosureV1)
     (owner : String) (typeId : TypeIdV1) : CompileResult MethodResultKind := do
@@ -1098,9 +1099,13 @@ private def aggregateResultKindOfV1
   unless n > 0 do
     throw <| .planInvariant .cosmwasm
       s!"{owner} aggregate return must have at least one leaf"
-  unless n ≤ maxAggregateReturnLeavesV1 do
+  let leafCap :=
+    match typeDecls[typeId.toNat]? with
+    | some { shape := .map .., name := none, .. } => nearMapPilotLeafCountV1
+    | _ => maxAggregateReturnLeavesV1
+  unless n ≤ leafCap do
     throw <| .planInvariant .cosmwasm
-      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of {maxAggregateReturnLeavesV1}"
+      s!"{owner} aggregate return has {n} leaves, exceeding the B-RET-ABI cap of {leafCap}"
   pure (.aggregate leaves)
 
 /-- Struct field leaf range (start, length) within the flattened leaf vector. -/
@@ -1328,7 +1333,7 @@ private structure LoweredValueV1 where
   depth : Nat
   expandedNodes : Nat
   dependencies : Array ValueIdV1
-  /-- Multi-leaf carrier: Principal (len+8 words), Array UInt64 N, Map capacity-4
+  /-- Multi-leaf carrier: Principal (len+8 words), Array UInt64 N, Map capacity-8
       occ/key/val, Bytes N (1-byte UInt8 leaves), named Struct/Enum (preorder
       UInt64/Int64 leaves), or Option `[tag,payload]` (Map IndexGet intermediate
       or B-OPT-STATE Option UInt64 state / construct).
@@ -4153,7 +4158,8 @@ private def makeEntryV1
     throw <| .planInvariant .cosmwasm s!"entry '{name}' does not return a public result"
   -- BL-15: scalar ABI is UInt{8,16,32,64} / Bool / Int64; B-RET-ABI admits named
   -- Struct/Enum and anonymous Array UInt64 N / Option UInt64 / Bytes N (≤8 leaves).
-  -- Map/nested/narrow-element anonymous returns, UInt128/256, narrow Int stay FC.
+  -- Map UInt64 UInt64 uses 24 leaves for capacity-8 occ/key/value. Nested and
+  -- narrow-element anonymous returns, UInt128/256, and narrow Int stay FC.
   -- JSON result wire remains decimal for all scalar UInt; multi-leaf (incl.
   -- Bytes as zero-extended u64 decimals) reuses JSON-array-of-decimals
   -- (BL-9 / N-ANON-RESULT).
