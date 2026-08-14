@@ -275,6 +275,35 @@ private unsafe def testContextReadStayFailClosed
     "proof-forge.context.chain-id.v1"
   IO.println "  ✓ context UInt64 keys stay fail closed (no Icp host)"
 
+/-- SYS-E2: ICP has no native vault host. `pf.assets.native.balanceOfSelf`
+    stays Plan fail closed. token/U128 stay on the generic envRead envelope
+    (Principal mint / UInt128 rejected first). -/
+private unsafe def testEnvReadNativeStayFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "EnvReadBalanceIcp" <|
+    "  requires extension pf.assets version \"1.1.0\"\n" ++
+      "    digest \"sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9\"\n\n" ++
+      "  state count : UInt64\n\n" ++
+      "  init(initial : UInt64) do\n" ++
+      "    count := initial\n\n" ++
+      "  view nativeBalance() : UInt64 do\n" ++
+      "    return pf.assets.native.balanceOfSelf()\n\n" ++
+      "  entry setCount(newCount : UInt64) : UInt64 do\n" ++
+      "    count := newCount\n" ++
+      "    return count\n"
+  let compiled ← compileSource session src "Examples.EnvReadBalanceIcp"
+    "<icp-env-read-native>"
+  match planFromCompiledSemanticV1 compiled with
+  | .error e =>
+      expect (e.render.contains "has no Icp host binding")
+        s!"EnvReadBalanceIcp Plan FC must contain 'has no Icp host binding', got: {e.render}"
+      expect (e.render.contains "envRead" || e.render.contains "nativeVaultBalance")
+        s!"EnvReadBalanceIcp Plan FC must name envRead/nativeVaultBalance, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "EnvReadBalanceIcp must Plan fail closed (no Icp vault host)"
+  IO.println "  ✓ envRead nativeVaultBalance stay fail closed (no Icp host)"
+
 private unsafe def testEmitFc
     (session : Language.Loader.ParserSession) : IO Unit := do
   let emitSrc := wrapProgram "EmitFc" <|
@@ -381,6 +410,7 @@ unsafe def run : IO Unit := do
   testCallSyncFc session
   testCryptoSha256StayFailClosed session
   testContextReadStayFailClosed session
+  testEnvReadNativeStayFailClosed session
   testEmitFc session
   testInvariantFc session
   testScheduleFc session

@@ -340,9 +340,16 @@ private partial def lowerInstructions
           planError
             s!"unsupported ICP semantic shape: pf.crypto QN '{qn}' has no Icp host binding (sha256/keccak256 and siblings stay fail closed)"
         planError "unsupported ICP semantic shape: schedule (async workflow) is advertised at the resolver only — ICP-2 Plan has no realized async shape"
+    | .envRead key _args =>
+        if key == .nativeVaultBalance then
+          planError
+            s!"unsupported ICP semantic shape: envRead nativeVaultBalance has no Icp host binding (pf.assets.native.balanceOfSelf stays fail closed)"
+        -- tokenVaultBalance needs a Principal mint; nativeVaultBalanceU128 is
+        -- outside ICP-2 UInt64. Both stay on the generic envRead envelope.
+        planError "unsupported ICP semantic shape: op is outside the ICP-2 Counter/StateCell envelope"
     | .construct .. | .fieldGet .. | .fieldSet ..
     | .variantTag .. | .variantPayload .. | .indexGet .. | .indexSet ..
-    | .checkedCast .. | .unary .. | .pureCall .. | .envRead .. | .assert_ .. =>
+    | .checkedCast .. | .unary .. | .pureCall .. | .assert_ .. =>
         planError "unsupported ICP semantic shape: op is outside the ICP-2 Counter/StateCell envelope"
   match block.terminator with
   | .return_ value => do

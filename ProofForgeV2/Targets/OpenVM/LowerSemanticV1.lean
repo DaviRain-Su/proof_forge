@@ -552,7 +552,12 @@ private partial def lowerInstructions
           planError
             s!"unsupported OpenVM semantic shape: pf.crypto QN '{qn}' has no OpenVM host binding (sha256/keccak256 and siblings stay fail closed)"
         planError "unsupported OpenVM semantic shape: op is outside O0"
-    | .envRead .. =>
+    | .envRead key _args =>
+        if key == .nativeVaultBalance then
+          planError
+            s!"unsupported OpenVM semantic shape: envRead nativeVaultBalance has no OpenVM host binding (pf.assets.native.balanceOfSelf stays fail closed)"
+        -- tokenVaultBalance needs a Principal mint; nativeVaultBalanceU128 is
+        -- outside O0 UInt64. Both stay on the generic envRead envelope.
         planError "unsupported OpenVM semantic shape: envRead is outside O0"
     | .contextRead key =>
         if isNamedUInt64ContextKey key then

@@ -549,10 +549,17 @@ private partial def lowerInstructions
             s!"unsupported Soroban semantic shape: ContextRead '{key.value}' has no Soroban host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
         -- caller/self remain on this generic envelope (Principal rejected first).
         planError "unsupported Soroban semantic shape: op is outside S0"
+    | .envRead key _args =>
+        if key == .nativeVaultBalance then
+          planError
+            s!"unsupported Soroban semantic shape: envRead nativeVaultBalance has no Soroban host binding (pf.assets.native.balanceOfSelf stays fail closed)"
+        -- tokenVaultBalance needs a Principal mint; nativeVaultBalanceU128 is
+        -- outside S0 UInt64. Both stay on the generic envRead envelope.
+        planError "unsupported Soroban semantic shape: op is outside S0"
     | .constant .. | .construct .. | .fieldGet .. | .fieldSet ..
     | .variantTag .. | .variantPayload .. | .indexGet .. | .indexSet ..
     | .checkedCast .. | .commit ..
-    | .emit .. | .envRead .. =>
+    | .emit .. =>
         planError "unsupported Soroban semantic shape: op is outside S0"
   -- Terminator
   match block.terminator with

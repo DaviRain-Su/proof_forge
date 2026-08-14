@@ -250,6 +250,38 @@ unsafe def testContextReadStayFailClosed : IO Unit := do
   expectPlanFc "ChainIdSoroban" (ctxBody "context.chainId")
     "has no Soroban host binding" "proof-forge.context.chain-id.v1"
 
+/-- SYS-E2: Soroban has no native vault host. `pf.assets.native.balanceOfSelf`
+    stays Plan fail closed. token/U128 stay on the generic envRead envelope
+    (Principal mint / UInt128 rejected first). -/
+unsafe def testEnvReadNativeStayFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program EnvReadBalanceSoroban where\n" ++
+    "  requires extension pf.assets version \"1.1.0\"\n" ++
+    "    digest \"sha256:59412f732e634b0256a02c9ec23a253c38478879d6b74b279e750b220879aaa9\"\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  view nativeBalance() : UInt64 do\n" ++
+    "    return pf.assets.native.balanceOfSelf()\n" ++
+    "  entry setCount(newCount : UInt64) : UInt64 do\n" ++
+    "    count := newCount\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-env-read-native>" "Tests.EnvReadBalanceSoroban" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error e =>
+      expect (e.render.contains "has no Soroban host binding")
+        s!"EnvReadBalanceSoroban Plan FC must contain 'has no Soroban host binding', got: {e.render}"
+      expect (e.render.contains "envRead" || e.render.contains "nativeVaultBalance")
+        s!"EnvReadBalanceSoroban Plan FC must name envRead/nativeVaultBalance, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "EnvReadBalanceSoroban must Plan fail closed (no Soroban vault host)"
+
 unsafe def run : IO Unit := do
   testStateCellSorobanSource
   testMultiWidthFailClosed
@@ -257,6 +289,7 @@ unsafe def run : IO Unit := do
   testCallFailClosed
   testCryptoSha256StayFailClosed
   testContextReadStayFailClosed
+  testEnvReadNativeStayFailClosed
   IO.println "Tests.Materialization.SorobanPlanV1: ok"
 
 end Tests.Materialization.SorobanPlanV1
