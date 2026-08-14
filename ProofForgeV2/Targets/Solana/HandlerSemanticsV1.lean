@@ -14,6 +14,7 @@ namespace ProofForgeV2.Targets.Solana
 
 open ProofForgeV2
 open ProofForgeV2.Semantic
+open ProofForgeV2.Semantic.InvariantABI
 open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Semantic.WireV1
 
@@ -350,6 +351,23 @@ def InitializedUInt64AccountRelV1
     some plan.stateAccount.initializedMarker ∧
   readUInt64LEV1 accountData binding.byteOffset = some value
 
+/-- Representation relation for a committed logical state and the production
+    one-account UInt64 layout. This relates encodings only; business execution
+    remains owned by `ReferenceMachineV1`. -/
+def UInt64LogicalStateAccountRelV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (logicalState : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (accountData : ByteArray)
+    (value : UInt64) : Prop :=
+  logicalState.initialized = true ∧
+  decodeLogicalStateValuesV1 data logicalState = .ok #[encodeU64le value] ∧
+  accountData.size = plan.stateAccount.exactDataLen ∧
+  readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+    some plan.stateAccount.initializedMarker ∧
+  readUInt64LEV1 accountData binding.byteOffset = some value
+
 /-- Exact successful-observation relation for the first Solana target slice.
     It exposes the sole Reference result, the target return, and unchanged
     account observations without defining another DSL state/effect machine. -/
@@ -414,6 +432,32 @@ theorem readUInt64LEV1_oneFieldUInt64AccountDataV1_field
     · simp [encodeU64le_size]
   rw [hextract, leBytesToNatV1_encodeU64le, UInt64.ofNat_toNat]
 
+/-- A successful production logical-state encoding and matching account reads
+    establish the committed representation relation. -/
+theorem uint64LogicalStateAccountRelV1_of_encode
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (logicalState : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (accountData : ByteArray)
+    (value : UInt64)
+    (hencode : encodeLogicalStateValuesV1 data true #[encodeU64le value] =
+      .ok logicalState)
+    (hdataLength : accountData.size = plan.stateAccount.exactDataLen)
+    (hheader : readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+      some plan.stateAccount.initializedMarker)
+    (hfield : readUInt64LEV1 accountData binding.byteOffset = some value) :
+    UInt64LogicalStateAccountRelV1 data plan binding logicalState accountData
+      value := by
+  refine ⟨
+    logicalState.initialized_of_encodeLogicalStateValuesV1 data true _ hencode,
+    decodeLogicalStateValuesV1_of_encodeLogicalStateValuesV1 data true _
+      logicalState hencode,
+    hdataLength,
+    hheader,
+    hfield
+  ⟩
+
 /-- The production unary invocation constructor supplies the exact
     discriminator bytes consumed by the sole dispatcher. -/
 private theorem runDispatchV1_unaryUInt64InvocationV1
@@ -452,6 +496,25 @@ private theorem readUInt64LEV1_unaryUInt64InvocationV1_argument
     some argument
   simpa [oneFieldUInt64AccountDataV1] using
     readUInt64LEV1_oneFieldUInt64AccountDataV1_field discriminatorValue argument
+
+/-- The production checked-add guard and the Reference machine's mathematical
+    UInt64 bound classify exactly the same inputs. -/
+private theorem checkedAddGuardV1_iff_toNat_sum_fits
+    (before argument : UInt64) :
+    (before ≤ (0xffffffffffffffff : UInt64) - argument) ↔
+      before.toNat + argument.toNat < 2 ^ 64 := by
+  have hmaxNat :
+      (0xffffffffffffffff : UInt64).toNat = 2 ^ 64 - 1 := by
+    decide
+  have hargumentLt := argument.toNat_lt
+  have hargumentMax :
+      argument ≤ (0xffffffffffffffff : UInt64) := by
+    rw [UInt64.le_iff_toNat_le, hmaxNat]
+    omega
+  rw [UInt64.le_iff_toNat_le,
+    UInt64.toNat_sub_of_le (0xffffffffffffffff : UInt64) argument hargumentMax,
+    hmaxNat]
+  omega
 
 /-- Exact successful execution and committed account observation for a
     statically aligned production initializer. The three write equations are
@@ -565,6 +628,142 @@ theorem observeHandlerIRV1_of_unaryUInt64InitializerStaticAlignment
   unfold observeHandlerIRV1
   rw [houtcome, haccounts, halignment.handlerIRExact]
   rfl
+
+/-- Kernel-checked Reference→Solana join for the production StateCell
+    initializer. The first conjunct is the sole Reference business step; the
+    second is exact HandlerIR execution; the third is their committed encoding
+    relation. This does not cover emitted sBPF or the Solana runtime. -/
+theorem unaryUInt64Initializer_reference_handlerIR_join
+    (admitted : AdmittedReferenceSliceV1)
+    (pre post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (callableId : CallableIdV1)
+    (unitTypeId : TypeIdV1)
+    (parameterValueId : ValueIdV1)
+    (parameterName discriminator : String)
+    (handler : Handler)
+    (handlerIR : HandlerIR)
+    (beforeBytes accountData zeroedData storedData postData : ByteArray)
+    (invocationContext context : Array ContextInputV1)
+    (vault : ReferenceVaultSeedV1)
+    (discriminatorValue argument : UInt64)
+    (halignment : UnaryUInt64InitializerStaticAlignmentV1 data plan binding
+      callableId unitTypeId parameterValueId parameterName discriminator
+      handler handlerIR)
+    (hadmittedData : admitted.data = data)
+    (hgate :
+      gateInvocation admitted pre {
+          callableId
+          args := #[{
+            typeId := binding.semanticTypeId
+            valueBytes := encodeU64le argument
+          }]
+          context := invocationContext
+        } =
+        .ready {
+          id := callableId
+          kind := .initializer
+          name := none
+          params := #[{
+            valueId := parameterValueId
+            name := parameterName
+            typeId := binding.semanticTypeId
+            visibility := .public_
+          }]
+          result := { typeId := unitTypeId, visibility := .public_ }
+          entryBlock := 0
+          blocks := #[{
+            id := 0
+            params := #[]
+            instructions := #[{
+              result := none
+              op := .stateStore binding.semanticStateId parameterValueId
+            }]
+            terminator := .return_ none
+          }]
+          loopBounds := #[]
+          invariantSteps := none
+        } #[beforeBytes] context true)
+    (hencode : encodeLogicalStateValuesV1 data true
+      #[encodeU64le argument] = .ok post)
+    (hdiscriminator :
+      discriminatorToLeU64V1 discriminator = .ok discriminatorValue)
+    (hdataLength : accountData.size = plan.stateAccount.exactDataLen)
+    (hheader : readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+      some 0)
+    (hzero : writeUInt64LEV1 accountData binding.byteOffset 0 =
+      some zeroedData)
+    (hstore : writeUInt64LEV1 zeroedData binding.byteOffset argument =
+      some storedData)
+    (hmarker : writeUInt64LEV1 storedData plan.stateAccount.headerOffset
+      plan.stateAccount.initializedMarker = some postData)
+    (hpostDataLength : postData.size = plan.stateAccount.exactDataLen)
+    (hpostHeader : readUInt64LEV1 postData plan.stateAccount.headerOffset =
+      some plan.stateAccount.initializedMarker)
+    (hpostField : readUInt64LEV1 postData binding.byteOffset = some argument) :
+    stepReferenceSliceV1 admitted pre {
+        callableId
+        args := #[{
+          typeId := binding.semanticTypeId
+          valueBytes := encodeU64le argument
+        }]
+        context := invocationContext
+      } #[] vault = .returned post none #[] ∧
+    observeHandlerIRV1 handlerIR
+      (unaryUInt64InvocationV1 accountData discriminatorValue argument true
+        true) = {
+      invocation := unaryUInt64InvocationV1 accountData discriminatorValue
+        argument true true
+      outcome := .returned none
+      postAccounts := #[{
+        isDuplicate := false
+        ownerCurrentProgram := true
+        isSigner := true
+        isWritable := true
+        data := postData
+      }]
+    } ∧
+    UInt64LogicalStateAccountRelV1 data plan binding post postData argument := by
+  have hcanonical :
+      validateValueBytesV1 data.types binding.semanticTypeId
+        (encodeU64le argument) = .ok () := by
+    apply validateValueBytesV1_uint64_of_size data.types binding.semanticTypeId
+      {
+        id := binding.semanticTypeId
+        name := none
+        shape := .uint 64
+      }
+    · exact halignment.bindingRel.1
+    · rfl
+    · exact encodeU64le_size argument
+  have hstate : data.logicalState[0]? = some {
+      id := 0
+      name := binding.stateName
+      typeId := binding.semanticTypeId
+      visibility := .public_
+    } := by
+    simpa [halignment.stateZero] using halignment.bindingRel.2.1
+  have hreference :=
+    stepReferenceSliceV1_ready_initializer_store_parameter_one_returned
+      admitted pre post data beforeBytes (encodeU64le argument)
+      binding.semanticTypeId unitTypeId binding.stateName parameterName
+      callableId invocationContext context vault hadmittedData
+      halignment.unitType hstate hcanonical hencode (by
+        simpa [halignment.stateZero, halignment.parameterZero] using hgate)
+  have htarget :=
+    observeHandlerIRV1_of_unaryUInt64InitializerStaticAlignment data plan
+      binding callableId unitTypeId parameterValueId parameterName discriminator
+      handler handlerIR accountData zeroedData storedData postData
+      discriminatorValue argument halignment hdiscriminator hdataLength hheader
+      hzero hstore hmarker
+  exact ⟨
+    hreference,
+    htarget,
+    uint64LogicalStateAccountRelV1_of_encode data plan binding post postData
+      argument hencode hpostDataLength hpostHeader hpostField
+  ⟩
 
 private theorem runChecksV1_of_unaryUInt64CheckedAddStaticAlignment
     (data : SemanticProgramDataV1)
@@ -1031,6 +1230,353 @@ theorem observeHandlerIRV1_of_unaryUInt64CheckedAddStaticAlignment_overflow
   unfold observeHandlerIRV1
   rw [houtcome, haccounts, halignment.handlerIRExact]
   rfl
+
+/-- Kernel-checked Reference→Solana join for the successful production
+    StateCell checked-add entry. Both executions consume the same retained
+    Semantic callable and the same UInt64 inputs; the final conjunct relates
+    the committed logical state to the production account bytes. This theorem
+    stops at HandlerIR and does not cover emitted sBPF or the Solana runtime. -/
+theorem unaryUInt64CheckedAdd_reference_handlerIR_join
+    (admitted : AdmittedReferenceSliceV1)
+    (pre post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (callableId : CallableIdV1)
+    (parameterValueId : ValueIdV1)
+    (entryName parameterName discriminator : String)
+    (handler : Handler)
+    (handlerIR : HandlerIR)
+    (accountData postData : ByteArray)
+    (invocationContext context : Array ContextInputV1)
+    (vault : ReferenceVaultSeedV1)
+    (discriminatorValue before argument : UInt64)
+    (halignment : UnaryUInt64CheckedAddStaticAlignmentV1 data plan binding
+      callableId parameterValueId entryName parameterName discriminator handler
+      handlerIR)
+    (hadmittedData : admitted.data = data)
+    (hgate :
+      gateInvocation admitted pre {
+          callableId
+          args := #[{
+            typeId := binding.semanticTypeId
+            valueBytes := encodeU64le argument
+          }]
+          context := invocationContext
+        } =
+        .ready {
+          id := callableId
+          kind := .entry
+          name := some entryName
+          params := #[{
+            valueId := parameterValueId
+            name := parameterName
+            typeId := binding.semanticTypeId
+            visibility := .public_
+          }]
+          result := {
+            typeId := binding.semanticTypeId
+            visibility := .public_
+          }
+          entryBlock := 0
+          blocks := #[{
+            id := 0
+            params := #[]
+            instructions := #[
+              {
+                result := some {
+                  valueId := 1
+                  typeId := binding.semanticTypeId
+                }
+                op := .stateLoad binding.semanticStateId
+              },
+              {
+                result := some {
+                  valueId := 2
+                  typeId := binding.semanticTypeId
+                }
+                op := .binary .add 1 parameterValueId
+              },
+              {
+                result := none
+                op := .stateStore binding.semanticStateId 2
+              },
+              {
+                result := some {
+                  valueId := 3
+                  typeId := binding.semanticTypeId
+                }
+                op := .stateLoad binding.semanticStateId
+              }
+            ]
+            terminator := .return_ (some 3)
+          }]
+          loopBounds := #[]
+          invariantSteps := none
+        } #[encodeU64le before] context false)
+    (haccount : UInt64LogicalStateAccountRelV1 data plan binding pre accountData
+      before)
+    (hencode : encodeLogicalStateValuesV1 data true
+      #[encodeU64le (before + argument)] = .ok post)
+    (hdiscriminator :
+      discriminatorToLeU64V1 discriminator = .ok discriminatorValue)
+    (hnoOverflow : before.toNat + argument.toNat < 2 ^ 64)
+    (hstore : writeUInt64LEV1 accountData binding.byteOffset
+      (before + argument) = some postData)
+    (hpostDataLength : postData.size = plan.stateAccount.exactDataLen)
+    (hpostHeader : readUInt64LEV1 postData plan.stateAccount.headerOffset =
+      some plan.stateAccount.initializedMarker)
+    (hpostField : readUInt64LEV1 postData binding.byteOffset =
+      some (before + argument)) :
+    stepReferenceSliceV1 admitted pre {
+        callableId
+        args := #[{
+          typeId := binding.semanticTypeId
+          valueBytes := encodeU64le argument
+        }]
+        context := invocationContext
+      } #[] vault = .returned post (some {
+        typeId := binding.semanticTypeId
+        valueBytes := encodeU64le (before + argument)
+      }) #[] ∧
+    observeHandlerIRV1 handlerIR
+      (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+        true) = {
+      invocation := unaryUInt64InvocationV1 accountData discriminatorValue
+        argument false true
+      outcome := .returned (some (encodeU64le (before + argument)))
+      postAccounts := #[{
+        isDuplicate := false
+        ownerCurrentProgram := true
+        isSigner := false
+        isWritable := true
+        data := postData
+      }]
+    } ∧
+    UInt64LogicalStateAccountRelV1 data plan binding post postData
+      (before + argument) := by
+  have hcanonicalBefore :
+      validateValueBytesV1 data.types binding.semanticTypeId
+        (encodeU64le before) = .ok () := by
+    apply validateValueBytesV1_uint64_of_size data.types binding.semanticTypeId
+      {
+        id := binding.semanticTypeId
+        name := none
+        shape := .uint 64
+      }
+    · exact halignment.bindingRel.1
+    · rfl
+    · exact encodeU64le_size before
+  have hcanonicalArgument :
+      validateValueBytesV1 data.types binding.semanticTypeId
+        (encodeU64le argument) = .ok () := by
+    apply validateValueBytesV1_uint64_of_size data.types binding.semanticTypeId
+      {
+        id := binding.semanticTypeId
+        name := none
+        shape := .uint 64
+      }
+    · exact halignment.bindingRel.1
+    · rfl
+    · exact encodeU64le_size argument
+  have hstate : data.logicalState[0]? = some {
+      id := 0
+      name := binding.stateName
+      typeId := binding.semanticTypeId
+      visibility := .public_
+    } := by
+    simpa [halignment.stateZero] using halignment.bindingRel.2.1
+  have hsumBytes :
+      natToLeBytesV1 (before.toNat + argument.toNat) 8 =
+        encodeU64le (before + argument) := by
+    rw [← natToLeBytesV1_uint64_eq_encodeU64le (before + argument),
+      UInt64.toNat_add, Nat.mod_eq_of_lt hnoOverflow]
+  have hreferenceEncode :
+      encodeLogicalStateValuesV1 data true #[natToLeBytesV1
+        (leBytesToNatV1 (encodeU64le before) +
+          leBytesToNatV1 (encodeU64le argument)) 8] = .ok post := by
+    simpa only [leBytesToNatV1_encodeU64le, hsumBytes] using hencode
+  have hreference :=
+    stepReferenceSliceV1_ready_add_parameter_one_returned admitted pre post data
+      (encodeU64le before) (encodeU64le argument) binding.semanticTypeId
+      binding.stateName parameterName callableId (some entryName)
+      invocationContext context vault hadmittedData halignment.bindingRel.1 hstate
+      hcanonicalBefore hcanonicalArgument (by
+        simpa only [leBytesToNatV1_encodeU64le] using hnoOverflow)
+      hreferenceEncode (by
+        simpa [halignment.stateZero, halignment.parameterZero] using hgate)
+  have htargetGuard :
+      before ≤ (0xffffffffffffffff : UInt64) - argument :=
+    (checkedAddGuardV1_iff_toNat_sum_fits before argument).2 hnoOverflow
+  have htarget :=
+    observeHandlerIRV1_of_unaryUInt64CheckedAddStaticAlignment data plan binding
+      callableId parameterValueId entryName parameterName discriminator handler
+      handlerIR accountData postData discriminatorValue before argument
+      halignment hdiscriminator haccount.2.2.1 haccount.2.2.2.1
+      haccount.2.2.2.2 htargetGuard hstore hpostField
+  refine ⟨?_, htarget, ?_⟩
+  · simpa only [leBytesToNatV1_encodeU64le, hsumBytes] using hreference
+  · exact uint64LogicalStateAccountRelV1_of_encode data plan binding post postData
+      (before + argument) hencode hpostDataLength hpostHeader hpostField
+
+/-- Kernel-checked Reference→Solana join for checked-add overflow. The
+    Reference outcome carries the exact pre-state, while the target observation
+    carries the exact pre-invocation account snapshot; no state write occurs on
+    either side. This theorem stops at HandlerIR. -/
+theorem unaryUInt64CheckedAddOverflow_reference_handlerIR_join
+    (admitted : AdmittedReferenceSliceV1)
+    (pre : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (callableId : CallableIdV1)
+    (parameterValueId : ValueIdV1)
+    (entryName parameterName discriminator : String)
+    (handler : Handler)
+    (handlerIR : HandlerIR)
+    (accountData : ByteArray)
+    (invocationContext context : Array ContextInputV1)
+    (vault : ReferenceVaultSeedV1)
+    (discriminatorValue before argument : UInt64)
+    (halignment : UnaryUInt64CheckedAddStaticAlignmentV1 data plan binding
+      callableId parameterValueId entryName parameterName discriminator handler
+      handlerIR)
+    (hadmittedData : admitted.data = data)
+    (hgate :
+      gateInvocation admitted pre {
+          callableId
+          args := #[{
+            typeId := binding.semanticTypeId
+            valueBytes := encodeU64le argument
+          }]
+          context := invocationContext
+        } =
+        .ready {
+          id := callableId
+          kind := .entry
+          name := some entryName
+          params := #[{
+            valueId := parameterValueId
+            name := parameterName
+            typeId := binding.semanticTypeId
+            visibility := .public_
+          }]
+          result := {
+            typeId := binding.semanticTypeId
+            visibility := .public_
+          }
+          entryBlock := 0
+          blocks := #[{
+            id := 0
+            params := #[]
+            instructions := #[
+              {
+                result := some {
+                  valueId := 1
+                  typeId := binding.semanticTypeId
+                }
+                op := .stateLoad binding.semanticStateId
+              },
+              {
+                result := some {
+                  valueId := 2
+                  typeId := binding.semanticTypeId
+                }
+                op := .binary .add 1 parameterValueId
+              },
+              {
+                result := none
+                op := .stateStore binding.semanticStateId 2
+              },
+              {
+                result := some {
+                  valueId := 3
+                  typeId := binding.semanticTypeId
+                }
+                op := .stateLoad binding.semanticStateId
+              }
+            ]
+            terminator := .return_ (some 3)
+          }]
+          loopBounds := #[]
+          invariantSteps := none
+        } #[encodeU64le before] context false)
+    (haccount : UInt64LogicalStateAccountRelV1 data plan binding pre accountData
+      before)
+    (hdiscriminator :
+      discriminatorToLeU64V1 discriminator = .ok discriminatorValue)
+    (hoverflow :
+      ¬ before.toNat + argument.toNat < 2 ^ 64) :
+    stepReferenceSliceV1 admitted pre {
+        callableId
+        args := #[{
+          typeId := binding.semanticTypeId
+          valueBytes := encodeU64le argument
+        }]
+        context := invocationContext
+      } #[] vault =
+        .reverted (.standard .arithmeticOverflow) pre ∧
+    observeHandlerIRV1 handlerIR
+      (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+        true) = {
+      invocation := unaryUInt64InvocationV1 accountData discriminatorValue
+        argument false true
+      outcome := .trapped (.arithmeticOverflow arithmeticOverflowError)
+      postAccounts :=
+        (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+          true).accounts
+    } ∧
+    UInt64LogicalStateAccountRelV1 data plan binding pre accountData before := by
+  have hcanonicalBefore :
+      validateValueBytesV1 data.types binding.semanticTypeId
+        (encodeU64le before) = .ok () := by
+    apply validateValueBytesV1_uint64_of_size data.types binding.semanticTypeId
+      {
+        id := binding.semanticTypeId
+        name := none
+        shape := .uint 64
+      }
+    · exact halignment.bindingRel.1
+    · rfl
+    · exact encodeU64le_size before
+  have hcanonicalArgument :
+      validateValueBytesV1 data.types binding.semanticTypeId
+        (encodeU64le argument) = .ok () := by
+    apply validateValueBytesV1_uint64_of_size data.types binding.semanticTypeId
+      {
+        id := binding.semanticTypeId
+        name := none
+        shape := .uint 64
+      }
+    · exact halignment.bindingRel.1
+    · rfl
+    · exact encodeU64le_size argument
+  have hstate : data.logicalState[0]? = some {
+      id := 0
+      name := binding.stateName
+      typeId := binding.semanticTypeId
+      visibility := .public_
+    } := by
+    simpa [halignment.stateZero] using halignment.bindingRel.2.1
+  have hreference :=
+    stepReferenceSliceV1_ready_add_parameter_one_overflow_reverted admitted pre
+      data (encodeU64le before) (encodeU64le argument) binding.semanticTypeId
+      binding.stateName parameterName callableId (some entryName)
+      invocationContext context vault hadmittedData halignment.bindingRel.1 hstate
+      hcanonicalBefore hcanonicalArgument (by
+        simpa only [leBytesToNatV1_encodeU64le] using hoverflow)
+      (by simpa [halignment.stateZero, halignment.parameterZero] using hgate)
+  have htargetOverflow :
+      ¬ before ≤ (0xffffffffffffffff : UInt64) - argument :=
+    (not_congr (checkedAddGuardV1_iff_toNat_sum_fits before argument)).2
+      hoverflow
+  have htarget :=
+    observeHandlerIRV1_of_unaryUInt64CheckedAddStaticAlignment_overflow data plan
+      binding callableId parameterValueId entryName parameterName discriminator
+      handler handlerIR accountData discriminatorValue before argument halignment
+      hdiscriminator haccount.2.2.1 haccount.2.2.2.1 haccount.2.2.2.2
+      htargetOverflow
+  exact ⟨hreference, htarget, haccount⟩
 
 /-- Exact execution of the statically aligned production view recipe. -/
 theorem executeHandlerIRV1_of_nullaryUInt64ViewStaticAlignment

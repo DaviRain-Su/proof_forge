@@ -15837,3 +15837,20 @@ normative: false
 - 本切仍停在production HandlerIR execution。`get()`既有kernel Reference join不自动覆盖
   mutate/initializer；下一步是将两条已证明的target execution接回sole `ReferenceMachineV1`，
   完成kernel join后才进入HandlerIR→sBPF。
+
+## 2026-08-14 — Solana StateCell initialize/increment Reference→HandlerIR join
+
+- `ReferenceMachineV1`新增single-state unary initializer与checked-add的exact执行定理，直接展开唯一
+  `runMachine`/`stepReferenceSliceV1`，没有新增target-owned DSL evaluator或business transition。
+  initializer证明参数写入与initialized post encode；checked-add分别证明成功的exact post/return，
+  以及arithmetic overflow在store前revert并携带exact pre-state。
+- `HandlerSemanticsV1`新增logical-state↔production account representation relation，并证明production
+  checked-add guard `before ≤ UInt64.max - argument`与Reference数学界
+  `before.toNat + argument.toNat < 2^64`等价。
+- 三条kernel join现覆盖initializer成功、increment成功和increment overflow：成功路径同时给出sole
+  Reference outcome、真实production HandlerIR observation及committed encoding relation；overflow路径
+  同时固定Reference exact pre-state和target exact pre-invocation account snapshot，而不是仅证明
+  “not returned”。
+- 准确边界提升为 **`StateCell.get/initialize/increment` bounded production Plan/HandlerIR target
+  refinement**。本切仍不证明assembly emitter、sBPF ISA、ELF、loader或Solana runtime；下一层是
+  HandlerIR→外部/复用sBPF semantics，不在ProofForge内复制第二套business semantics。

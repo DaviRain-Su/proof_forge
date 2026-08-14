@@ -145,9 +145,8 @@ coverage matrix 为准**。
 
 ### 当前 formal refinement 首切（2026-08-14）
 
-当前已有一个闭合的 bounded、kernel-checkable Solana target slice：production
-`StateCell.get() : UInt64`。同一 bounded evaluator 现已覆盖 production
-`StateCell.initialize(initial)` 与 `increment(delta)`，但二者的 Reference kernel join 尚未闭合。
+当前已有一个闭合的 bounded、kernel-checkable Solana target slice，覆盖 production
+`StateCell.get() : UInt64`、`StateCell.initialize(initial)` 与 `increment(delta)`。
 
 - `StaticAlignmentV1` 把 retained Semantic public UInt64 state row绑定到 production Plan 的
   single-account field/index/header/8-byte little-endian layout，并精确识别 production
@@ -156,18 +155,20 @@ coverage matrix 为准**。
   non-duplicate marker、current-program owner、exact data length、initialized header，然后读取
   UInt64 field并返回 exact `encodeU64le`；unsupported shape与错误 discriminator/owner/header
   全部 fail closed，account observation在 read-only success前后 exact不变；
-- Reference 侧复用唯一 `ReferenceMachineV1` 的 exact `viewLoad` theorem。测试既实例化手写 exact
-  relation，也从真实 StateCell source经 compiler/capability恢复 production Plan/HandlerIR并执行
-  success与 discriminator/duplicate/owner/header negatives。
+- Reference 侧复用唯一 `ReferenceMachineV1`：`get` 使用 exact `viewLoad` theorem；initializer与
+  checked-add直接执行同一 `runMachine`/`stepReferenceSliceV1`，分别证明初始化成功、递增成功与
+  arithmetic-overflow exact pre-state rollback。测试既实例化手写 exact relation，也从真实
+  StateCell source经 compiler/capability恢复 production Plan/HandlerIR并执行 success与
+  discriminator/duplicate/owner/header negatives。
 - initializer/checked-add 的 static carrier 精确绑定 retained callable、Plan Handler 与 HandlerIR；
   target execution theorem从该 carrier推导 marker/state/return post-account，overflow theorem推导
-  production trap与原账户快照。missing/reordered/tampered recipe仍在执行前fail closed；这些定理尚未
-  接回 sole `ReferenceMachineV1`，不能借用 `get()` 的 join 升级声明。
+  production trap与原账户快照。三个kernel join把Reference logical state encoding与production
+  account bytes关联；成功路径对齐post-state与return，overflow同时固定Reference pre-state和target
+  pre-invocation account snapshot。missing/reordered/tampered recipe仍在执行前fail closed。
 
 这不是 sBPF ISA、assembly emitter、ELF、loader或 Solana runtime correctness proof，也没有把
 工程 Mollusk observation升级为 formal evidence。准确声明仅为：
-**`StateCell.get()` bounded production Plan/HandlerIR target refinement**，以及
-**`StateCell.initialize/increment` bounded production HandlerIR execution**。
+**`StateCell.get/initialize/increment` bounded production Plan/HandlerIR target refinement**。
 未来可在这一层之下接外部 `SbpfSemantics.Api`，形成
 `HandlerIR → sBPF semantics → runtime observation`；不得另造第二套 DSL/business semantics。
 

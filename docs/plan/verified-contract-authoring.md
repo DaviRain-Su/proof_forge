@@ -876,9 +876,12 @@ Solana target整体或最终 `.so` 称为 formally target-refined，整体边界
 UInt64 LE参数、signer/writable/owner/header/account-length检查、state load/store、checked-add、
 return data及initializer marker；trap（包括overflow）原子回滚。`StaticAlignmentV1`拥有唯一 closed
 recipe gate，missing/reordered/tampered checks或operations fail closed；回归从真实
-compiler→capability→Plan→HandlerIR graph取artifact，而不是手造第二套业务语义。该切目前是
-**production HandlerIR engineering execution**；`initialize/increment` 的 Reference kernel join尚待
-下一切，不能沿用 `get()` 已有定理提前升级声明。
+compiler→capability→Plan→HandlerIR graph取artifact，而不是手造第二套业务语义。initializer、
+checked-add success与checked-add overflow现已分别接回sole `ReferenceMachineV1`；kernel join对齐
+logical-state/account encoding、成功return/post-state，以及overflow时Reference exact pre-state与
+target exact pre-invocation account snapshot。准确声明已提升为
+**`StateCell.get/initialize/increment` bounded production Plan/HandlerIR target refinement**，仍不覆盖
+assembly emitter、sBPF ISA、ELF、loader或Solana runtime。
 
 每个 target 至少需要：
 
@@ -891,9 +894,9 @@ compiler→capability→Plan→HandlerIR graph取artifact，而不是手造第�
 7. executable differential corpus 作为工程回归；
 8. kernel-checkable refinement theorem或正式验证证据，才能升级 artifact claim。
 
-当前顺序固定为：NEAR identity-bound双平台engineering出口已关闭；正在 Solana 上把已可执行的
-`StateCell.initialize/increment` production HandlerIR 接回 sole Reference machine并形成kernel
-join，随后才进入 HandlerIR→外部/复用的sBPF semantics。再后评估外部Yul/EVM/bytecode semantics，
+当前顺序固定为：NEAR identity-bound双平台engineering出口已关闭；Solana
+`StateCell.get/initialize/increment` 的 bounded Reference→production HandlerIR kernel join已闭合，
+下一步进入 HandlerIR→外部/复用的sBPF semantics。再后评估外部Yul/EVM/bytecode semantics，
 最后扩其他target。每个target独立关闭，不能用一个target的refinement为其他target背书；也不在
 ProofForge内自造完整EVM opcode、Wasm binary、sBPF或Solana runtime semantics。
 
@@ -983,7 +986,7 @@ ProofForge内自造完整EVM opcode、Wasm binary、sBPF或Solana runtime semant
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR双平台engineering出口已关闭；Solana HandlerIR扩展中）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；rc.1 provider及Darwin GMP/Linux system closure已进入独立 Tool Lock rows。run `31781471216` 的Linux target-smoke与Darwin arm64 locked consumer均成功；结论严格限于identity-bound engineering join，不是一般IR/WAT→Wasm simulation theorem。Solana `get()`已有kernel Plan/HandlerIR join；production `initialize/increment` evaluator、static alignment carrier、成功post-account定理与overflow原子rollback定理已完成，下一步补sole Reference kernel join，再进入HandlerIR→sBPF |
+| 7 | Per-target refinement | **进行中（NEAR双平台engineering出口已关闭；Solana bounded HandlerIR join已闭合）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；rc.1 provider及Darwin GMP/Linux system closure已进入独立 Tool Lock rows。run `31781471216` 的Linux target-smoke与Darwin arm64 locked consumer均成功；结论严格限于identity-bound engineering join，不是一般IR/WAT→Wasm simulation theorem。Solana `get/initialize/increment` 已有kernel Reference→production Plan/HandlerIR join，成功post-state/return与overflow双侧exact pre-state snapshot已对齐；下一步进入HandlerIR→sBPF，不能据此声明ELF/runtime refinement |
 
 ### 首个代码切片进展
 
