@@ -51,6 +51,18 @@ private def qnJoined (qn : ProofForgeV2.Core.Common.QualifiedName) : String :=
 private def isPfCryptoCalleeV1 (qn : String) : Bool :=
   qn.startsWith "pf.crypto."
 
+/-- ADR-0031 S4: ICP has no unixTime/blockHeight/attachedValue/chainId host.
+    Named UInt64 catalog keys stay fail closed with a key-named diagnostic.
+    `context.caller` / `context.self` are Principal; ICP-2 rejects Principal
+    params/results at type closure, so those keys stay on the generic
+    ContextRead envelope below. -/
+private def isNamedUInt64ContextKey
+    (key : ProofForgeV2.Core.Common.SchemaId) : Bool :=
+  key == unixTimeSecondsContextKeyV1 ||
+    key == blockHeightContextKeyV1 ||
+    key == attachedValueContextKeyV1 ||
+    key == chainIdContextKeyV1
+
 -- ---------------------------------------------------------------------------
 -- Target-owned Plan surface
 -- ---------------------------------------------------------------------------
@@ -306,7 +318,11 @@ private partial def lowerInstructions
         | some vd => acc := { acc with env := envInsert acc.env vd.valueId e }
     | .constant .. =>
         planError "unsupported ICP semantic shape: constants table must be empty (ICP-2 has no const lowering)"
-    | .contextRead .. =>
+    | .contextRead key =>
+        if isNamedUInt64ContextKey key then
+          planError
+            s!"unsupported ICP semantic shape: ContextRead '{key.value}' has no Icp host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
+        -- caller/self remain on this generic envelope (Principal rejected first).
         planError "unsupported ICP semantic shape: Op.ContextRead is outside the ICP-2 envelope"
     | .commit .. =>
         planError "unsupported ICP semantic shape: Op.Commit is outside the ICP-2 envelope"

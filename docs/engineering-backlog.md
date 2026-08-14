@@ -621,6 +621,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-14 | **F-TYPEKEY-USAGE-GAP**：`docs/plan/evm-formal-d2-06-typekey-usage.md` 盘点 TypeKey usage/rank。unused rejection 与 decoder-side rank 会打穿 `cfgOpTypes` 等手写表，需产品决策。下一刀 = 孤立 SPEC `typeKey` 字节形 pin，不装结构门。**不**关闭 TASK-D2-06 / TST-SEM-001 |
 | 2026-08-14 | **F-TYPEKEY-BYTES**：孤立 SPEC `typeKey` 字节形 encoder + `Tests.Semantic.WireV1` pin；**不**进入 structure gate，不 reject unused，不 rank `types`。**不**关闭 TASK-D2-06 / TST-SEM-001 |
 | 2026-08-14 | **SYS-S5-NEW-TARGETS**：ICP/Soroban/OpenVM 对 `pf.crypto.*` 点名 Plan fail closed（`has no Icp/Soroban/OpenVM host binding`）；无假 host。**不**关闭 EXT-CRYPTO / formal |
+| 2026-08-14 | **SYS-S4-NEW-TARGETS**：ICP/Soroban/OpenVM 对 UInt64 ContextRead 四键点名 Plan fail closed；caller/self 因 Principal 仍走泛化 envelope。无新 host。**不**关闭 formal |
 
 ---
 

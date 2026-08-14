@@ -210,12 +210,53 @@ unsafe def testCryptoSha256StayFailClosed : IO Unit := do
   expectPlanFc "Sha256SorobanHashNoPad" (cryptoBody "pf.crypto.hashNoPad")
     "has no Soroban host binding"
 
+/-- SYS-S4: Soroban has no unixTime/blockHeight/attachedValue/chainId host.
+    Named UInt64 ContextRead keys stay Plan fail closed. caller/self are
+    Principal and stay on the generic ContextRead envelope (S0 rejects
+    Principal at type closure first). -/
+unsafe def testContextReadStayFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let expectPlanFc (label body needle schemaId : String) : IO Unit := do
+    let source :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {label} where\n" ++ body
+    let parsed ← liftResult (← session.selectProgramV1
+      source s!"<soroban-{label}>" s!"Tests.Soroban{label}" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+    match planSoroban compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+        expect (e.render.contains schemaId)
+          s!"{label} Plan FC must name '{schemaId}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{label} must Plan fail closed (no Soroban context host)"
+  let ctxBody (place : String) : String :=
+    "  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    return " ++ place ++ "\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n"
+  expectPlanFc "UnixTimeSoroban" (ctxBody "context.unixTimeSeconds")
+    "has no Soroban host binding" "proof-forge.context.unix-time-seconds.v1"
+  expectPlanFc "BlockHeightSoroban" (ctxBody "context.blockHeight")
+    "has no Soroban host binding" "proof-forge.context.block-height.v1"
+  expectPlanFc "AttachedValueSoroban" (ctxBody "context.attachedValue")
+    "has no Soroban host binding" "proof-forge.context.attached-value.v1"
+  expectPlanFc "ChainIdSoroban" (ctxBody "context.chainId")
+    "has no Soroban host binding" "proof-forge.context.chain-id.v1"
+
 unsafe def run : IO Unit := do
   testStateCellSorobanSource
   testMultiWidthFailClosed
   testInvariantFailClosed
   testCallFailClosed
   testCryptoSha256StayFailClosed
+  testContextReadStayFailClosed
   IO.println "Tests.Materialization.SorobanPlanV1: ok"
 
 end Tests.Materialization.SorobanPlanV1

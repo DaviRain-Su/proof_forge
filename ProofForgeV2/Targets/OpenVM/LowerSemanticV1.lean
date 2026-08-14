@@ -54,6 +54,18 @@ private def qnJoined (qn : ProofForgeV2.Core.Common.QualifiedName) : String :=
 private def isPfCryptoCalleeV1 (qn : String) : Bool :=
   qn.startsWith "pf.crypto."
 
+/-- ADR-0031 S4: OpenVM has no unixTime/blockHeight/attachedValue/chainId
+    host. Named UInt64 catalog keys stay fail closed with a key-named
+    diagnostic. `context.caller` / `context.self` are Principal; O0 rejects
+    Principal at type closure, so those keys stay on the generic ContextRead
+    envelope below. -/
+private def isNamedUInt64ContextKey
+    (key : ProofForgeV2.Core.Common.SchemaId) : Bool :=
+  key == unixTimeSecondsContextKeyV1 ||
+    key == blockHeightContextKeyV1 ||
+    key == attachedValueContextKeyV1 ||
+    key == chainIdContextKeyV1
+
 -- ---------------------------------------------------------------------------
 -- Target-owned Plan surface
 -- ---------------------------------------------------------------------------
@@ -542,9 +554,15 @@ private partial def lowerInstructions
         planError "unsupported OpenVM semantic shape: op is outside O0"
     | .envRead .. =>
         planError "unsupported OpenVM semantic shape: envRead is outside O0"
+    | .contextRead key =>
+        if isNamedUInt64ContextKey key then
+          planError
+            s!"unsupported OpenVM semantic shape: ContextRead '{key.value}' has no OpenVM host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
+        -- caller/self remain on this generic envelope (Principal rejected first).
+        planError "unsupported OpenVM semantic shape: op is outside O0"
     | .constant .. | .construct .. | .fieldGet .. | .fieldSet ..
     | .variantTag .. | .variantPayload .. | .indexGet .. | .indexSet ..
-    | .checkedCast .. | .contextRead .. | .commit ..
+    | .checkedCast .. | .commit ..
     | .emit .. =>
         planError "unsupported OpenVM semantic shape: op is outside O0"
   -- Terminator

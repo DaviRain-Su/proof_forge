@@ -234,6 +234,47 @@ private unsafe def testCryptoSha256StayFailClosed
     (cryptoBody "pf.crypto.hashNoPad") "has no Icp host binding"
   IO.println "  ✓ pf.crypto.sha256/keccak256 stay fail closed (no Icp host)"
 
+/-- SYS-S4: ICP has no unixTime/blockHeight/attachedValue/chainId host.
+    Named UInt64 ContextRead keys stay Plan fail closed. caller/self are
+    Principal and stay on the generic ContextRead envelope (ICP-2 rejects
+    Principal at type closure first). -/
+private unsafe def testContextReadStayFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let expectPlanFc (programName pathLabel moduleName body needle schemaId : String) :
+      IO Unit := do
+    let src := wrapProgram programName body
+    let compiled ← compileSource session src moduleName pathLabel
+    match planFromCompiledSemanticV1 compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+        expect (e.render.contains schemaId)
+          s!"{programName} Plan FC must name '{schemaId}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{programName} must Plan fail closed (no Icp context host)"
+  let ctxBody (place : String) : String :=
+    "  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    return " ++ place ++ "\n\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n"
+  expectPlanFc "UnixTimeIcp" "<icp-unix-time>" "Examples.UnixTimeIcp"
+    (ctxBody "context.unixTimeSeconds") "has no Icp host binding"
+    "proof-forge.context.unix-time-seconds.v1"
+  expectPlanFc "BlockHeightIcp" "<icp-block-height>" "Examples.BlockHeightIcp"
+    (ctxBody "context.blockHeight") "has no Icp host binding"
+    "proof-forge.context.block-height.v1"
+  expectPlanFc "AttachedValueIcp" "<icp-attached-value>" "Examples.AttachedValueIcp"
+    (ctxBody "context.attachedValue") "has no Icp host binding"
+    "proof-forge.context.attached-value.v1"
+  expectPlanFc "ChainIdIcp" "<icp-chain-id>" "Examples.ChainIdIcp"
+    (ctxBody "context.chainId") "has no Icp host binding"
+    "proof-forge.context.chain-id.v1"
+  IO.println "  ✓ context UInt64 keys stay fail closed (no Icp host)"
+
 private unsafe def testEmitFc
     (session : Language.Loader.ParserSession) : IO Unit := do
   let emitSrc := wrapProgram "EmitFc" <|
@@ -339,6 +380,7 @@ unsafe def run : IO Unit := do
   testStateCellIRAndWat session
   testCallSyncFc session
   testCryptoSha256StayFailClosed session
+  testContextReadStayFailClosed session
   testEmitFc session
   testInvariantFc session
   testScheduleFc session

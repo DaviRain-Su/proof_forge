@@ -389,6 +389,46 @@ unsafe def testCryptoSha256StayFailClosed : IO Unit := do
   expectPlanFc "Sha256OpenVmHashNoPad" (cryptoBody "pf.crypto.hashNoPad")
     "has no OpenVM host binding"
 
+/-- SYS-S4: OpenVM has no unixTime/blockHeight/attachedValue/chainId host.
+    Named UInt64 ContextRead keys stay Plan fail closed. caller/self are
+    Principal and stay on the generic ContextRead envelope (O0 rejects
+    Principal at type closure first). -/
+unsafe def testContextReadStayFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let expectPlanFc (label body needle schemaId : String) : IO Unit := do
+    let source :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {label} where\n" ++ body
+    let parsed ← liftResult (← session.selectProgramV1
+      source s!"<openvm-{label}>" s!"Tests.OpenVm{label}" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+    match planOpenVm compiled with
+    | .error e =>
+        expect (e.render.contains needle)
+          s!"{label} Plan FC must contain '{needle}', got: {e.render}"
+        expect (e.render.contains schemaId)
+          s!"{label} Plan FC must name '{schemaId}', got: {e.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"{label} must Plan fail closed (no OpenVM context host)"
+  let ctxBody (place : String) : String :=
+    "  state pad : UInt64\n" ++
+      "  init() do\n" ++
+      "    pad := 0\n" ++
+      "  entry probe() : UInt64 do\n" ++
+      "    return " ++ place ++ "\n" ++
+      "  view get() : UInt64 do\n" ++
+      "    return pad\n"
+  expectPlanFc "UnixTimeOpenVm" (ctxBody "context.unixTimeSeconds")
+    "has no OpenVM host binding" "proof-forge.context.unix-time-seconds.v1"
+  expectPlanFc "BlockHeightOpenVm" (ctxBody "context.blockHeight")
+    "has no OpenVM host binding" "proof-forge.context.block-height.v1"
+  expectPlanFc "AttachedValueOpenVm" (ctxBody "context.attachedValue")
+    "has no OpenVM host binding" "proof-forge.context.attached-value.v1"
+  expectPlanFc "ChainIdOpenVm" (ctxBody "context.chainId")
+    "has no OpenVM host binding" "proof-forge.context.chain-id.v1"
+
 /-- Fail closed: emit is outside O0 (no event surface). -/
 unsafe def testFailClosedEmit : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -615,6 +655,7 @@ unsafe def run : IO Unit := do
   testElfProfileFinalize
   testFailClosedCall
   testCryptoSha256StayFailClosed
+  testContextReadStayFailClosed
   testFailClosedEmit
   testFailClosedInvariant
   testFailClosedPfAssets
