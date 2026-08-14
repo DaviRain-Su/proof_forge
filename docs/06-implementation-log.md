@@ -15805,3 +15805,32 @@ normative: false
   dylib；随后产品consumer仍独立按embedded Tool Lock重hash、隔离执行与测试runtime tamper。Linux本地
   用同一selected-closure命令从空root物化并通过5/5及全部smoke负例。新CI双平台consumer尚未观察，
   因此本记录不关闭NEAR阶段出口，也不改变non-formal maturity声明。
+
+## 2026-08-14 — NEAR WasmCert双平台engineering阶段出口
+
+- run `31781471216` 中 Linux `target-smoke` 与 Darwin arm64
+  `near-wasmcert-product`均成功；两者执行同一 locked product consumer，并分别验证系统closure与
+  bundled GMP closure。此前“待双平台观察”的完成条件已满足，NEAR engineering阶段出口关闭。
+- 该run整体因独立的CosmWasm host regression及其下游runtime jobs失败；这些失败没有被当作
+  WasmCert成功，也没有被隐藏。对应缓存敏感回归门已在后续独立修复。
+- 成熟度不升级：这是exact capability/finalized artifact/provider identity-bound execution与sole
+  Reference observation join；不是kernel中的一般IR/WAT→Wasm/NEAR simulation theorem。parser、
+  translator、OCaml wrapper、bounded host和representation adapter继续属于明示TCB/assumption。
+
+## 2026-08-14 — Solana StateCell initialize/increment production HandlerIR execution
+
+- `HandlerSemanticsV1` 的唯一bounded target evaluator从nullary UInt64 view扩到真实production
+  `StateCell.initialize(initial)`与`increment(delta)`；支持UInt64 LE参数、state读写、checked-add、
+  return data和initializer marker，不读取DSL callable/body，也没有新增DSL State/Effect/step。
+- evaluator执行production discriminator、exact input/account data length、non-duplicate、owner、signer、
+  writable与initialized/uninitialized header检查。overflow返回production `0x1001`错误并保持原始
+  account snapshot；任何trap都不提交部分zero/store/header写入。
+- closed recipe gate归属`StaticAlignmentV1`：只接受exact generated get/initialize/increment
+  checks/operations及其重复account/offset/temp/error-code一致性。missing operation、missing check与
+  overflow-code tamper在执行前fail closed。
+- `SolanaStaticAlignmentV1`回归从真实StateCell compiler→capability→Plan→HandlerIR graph取artifact，
+  覆盖init/increment成功、marker/state/return、missing signer、read-only、double-init、overflow rollback
+  和artifact tamper；Solana shard通过。
+- 本切停在production HandlerIR engineering execution。`get()`既有kernel Reference join不自动覆盖
+  mutate/initializer；下一步为两者建立static alignment carrier、执行定理与sole
+  `ReferenceMachineV1` join，完成后才进入HandlerIR→sBPF。
