@@ -352,11 +352,13 @@ def checkTerminatorTyping (c : CallableV1) (env : OpTypingEnv) :
     the operand TypeId; its exact disclosure requirement row is checked after
     generic requirement validation.
     ExternalCall/
-    Schedule MUST carry `result := none` and a callee with at least two
-    qualified-name components; a spurious result, short callee, or missing
-    result on a value-producing op is an invalid Core trap → `.badCfg`. All
-    step j failures → `.badCfg`. Bounded, non-recursive, total. Out of scope:
-    ExternalCall/Schedule argument serializability, recursive/full TypeKey
+    Schedule MUST carry a callee with at least two qualified-name components
+    and arguments whose resolved TypeIds are Bool / legal UInt/Int width /
+    Bytes / Principal (Schedule remains void; ExternalCall may carry a
+    serializable scalar result). A spurious Schedule result, short callee, illegal
+    argument shape, or missing result on a value-producing op is an invalid
+    Core trap → `.badCfg`. All step j failures → `.badCfg`. Bounded,
+    non-recursive, total. Out of scope: recursive/full TypeKey
     closure/ranking/reachability,
     provenance join, normalizer, product wire. -/
 
@@ -397,6 +399,31 @@ private def serializableType (types : Array TypeDeclV1) (typeId : TypeIdV1) :
             v.payloadTypes.all (fun t => serializableType types t fuel))
       | .array _ _ | .map _ _ | .option _ | .unit => false
 
+/-- ExternalCall/Schedule argument shapes admitted by the structure gate:
+    Bool, legal UInt/Int widths {8,16,32,64,128,256}, Bytes (length already
+    enforced by type-shape), and Principal (Normalize / Reference / pf.assets
+    transfer). Deliberately not `serializableType`: that Eq/Ne predicate
+    also admits Field/String and recursive Struct/Enum. Unit, Field, String,
+    Option, Array, Map, Struct, and Enum are rejected. Missing/OOR TypeId
+    → false. -/
+private def externalCallArgSerializable (env : OpTypingEnv) (tid : TypeIdV1) :
+    Bool :=
+  match env.shapeOf tid with
+  | some .bool | some .principal => true
+  | some (.uint w) | some (.int w) =>
+      w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
+  | some (.bytes _) => true
+  | _ => false
+
+/-- Each ExternalCall/Schedule argument ValueId must resolve; its TypeId
+    must be `externalCallArgSerializable`. Empty args are legal. -/
+private def checkExternalCallScheduleArgs (env : OpTypingEnv)
+    (args : Array ValueIdV1) : Except SemanticWireErrorV1 Unit := do
+  for arg in args do
+    let tid ← requireOperand env arg
+    unless externalCallArgSerializable env tid do
+      return ← err .badCfg
+
 /-- Step j: per-op type/result contract for one instruction. Consumes a
     shared per-callable `OpTypingEnv` (defTypes/types/data + uniqueness-gated
     Bool/UInt32/UInt8). Value-producing ops (`Literal`/`Constant`/`StateLoad`/
@@ -408,10 +435,13 @@ private def serializableType (types : Array TypeDeclV1) (typeId : TypeIdV1) :
     MUST carry `result := none`. `Op.Assert` requires a Bool condition,
     `errorId = none` with empty args or an exact ErrorDecl/args join, and no
     result. `Op.Emit` resolves eventId, matches args exactly against EventDecl
-    fields, and requires no result. The other void ops (`ExternalCall`/
-    `Schedule`) also require no result and require a callee with at least two
-    qualified-name components; a spurious result or short callee is `.badCfg`.
-    Their argument serializability contract remains deferred.
+    fields, and requires no result. `Schedule` is genuinely void and requires
+    a callee with at least two qualified-name components; `ExternalCall` may
+    carry a serializable scalar result. Both require each argument ValueId to
+    resolve to Bool / legal UInt/Int width / Bytes / Principal
+    (not `serializableType`).
+    A spurious Schedule result, short callee, or illegal argument shape is
+    `.badCfg`.
     `Op.FieldSet` carries the full §5.1 contract (base must resolve to a Struct, fieldIndex in
     range, type(value) == selected field.typeId, result.typeId == type(base));
     a missing result or any mismatch is `.badCfg`. `Op.VariantTag` carries
@@ -686,10 +716,12 @@ def checkOpTyping (instr : InstructionV1) (env : OpTypingEnv) :
   --   resolve to a serializable scalar (Bool / legal UInt/Int width / Bytes
   --   within maxTypeLengthV1) **or** fixed `Array UInt64 4` (HashOut full
   --   product ABI for Psy pf.crypto / context). Result shape is checked before
-  --   callee shape to preserve the existing fail-closed order. Arg
-  --   serializability is a later slice; EffectId canonical assignment is owned
-  --   by CFG step e.5.
-  | .externalCall _effectId callee _args => do
+  --   callee shape to preserve the existing fail-closed order. Each argument
+  --   ValueId must then resolve to Bool / legal UInt/Int width / Bytes /
+  --   Principal (`externalCallArgSerializable`; not Eq/Ne `serializableType`).
+  --   EffectId
+  --   canonical assignment is owned by CFG step e.5.
+  | .externalCall _effectId callee args => do
       match instr.result with
       | none => pure ()
       | some vd =>
@@ -707,11 +739,11 @@ def checkOpTyping (instr : InstructionV1) (env : OpTypingEnv) :
             | _ => false
           unless legal do return ← err .badCfg
       unless 2 ≤ callee.components.toArray.size do return ← err .badCfg
-      pure ()
-  | .schedule _effectId callee _args => do
+      checkExternalCallScheduleArgs env args
+  | .schedule _effectId callee args => do
       requireVoid instr.result
       unless 2 ≤ callee.components.toArray.size do return ← err .badCfg
-      pure ()
+      checkExternalCallScheduleArgs env args
   -- Op.FieldSet (SPEC-SEM-WIRE-001 §5.1): base ValueId type MUST resolve to
   --   a Struct; fieldIndex MUST be in range; type(value) MUST exactly equal
   --   the selected field.typeId; `Instruction.result` MUST be present and

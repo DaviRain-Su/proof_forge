@@ -114,16 +114,18 @@ def validateSemanticProgramStructurePreludeV1 (data : SemanticProgramDataV1) :
       Op.Emit exact EventDecl/args/void-result contract; Commit operand/result
       TypeId equality; ContextRead presence plus the closed exact key/anonymous
       UInt64 catalog in `.cfg` and exact requirement binding after generic
-      requirement validation; ExternalCall/Schedule void-result plus
-      at-least-two-component callee shape)
+      requirement validation; ExternalCall/Schedule void-or-scalar-result plus
+      at-least-two-component callee shape plus argument serializability
+      (Bool / legal UInt/Int widths / Bytes / Principal; not Eq/Ne
+      `serializableType`))
     (SPEC §6.2 CFG layers), requirement/predicate order
     (SPEC-SEM-WIRE-001 §4.5/§5/§6/§6.2 + CAP ranks).
     Empty tables and empty requirements remain legal. Walks callable bodies
     only for valueBytes sites and CFG shape/reachability/arity/loopBounds/SSA
     def-table/dominance-of-use/def-site TypeId range/terminator typing/per-op
-    type/result contract (incl. value-producing result-presence and void-op
-    result-presence) — NOT ExternalCall/Schedule argument serializability,
-    runtime CheckedCast representability,
+    type/result contract (incl. value-producing result-presence, void-op
+    result-presence, and ExternalCall/Schedule argument serializability) —
+    NOT runtime CheckedCast representability,
     Array/Bytes bounds and Enum tag agreement, recursive/full TypeKey closure
     beyond the enforced named-prefix rank and closed cycle condition,
     full anonymous ranking/reachability (SPEC

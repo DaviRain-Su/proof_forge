@@ -201,9 +201,11 @@ import Std.Data.HashMap
     typing and before invariant closure/fuel/requirements), presence-only
     local result for ContextRead, exact Commit operand/result TypeId equality,
     and void-op result-presence plus the at-least-two-component callee shape
-    for ExternalCall/Schedule are now covered; ContextRead and Commit each have
-    a closed exact requirement row. ExternalCall/Schedule argument serializability,
-    recursive/full TypeKey closure beyond the enforced named-prefix rank,
+    and argument serializability (Bool / legal UInt/Int widths / Bytes /
+    Principal; not Eq/Ne `serializableType`) for ExternalCall/Schedule are
+    now covered;
+    ContextRead and Commit each have a closed exact requirement row.
+    Recursive/full TypeKey closure beyond the enforced named-prefix rank,
     full anonymous
     ranking/reachability (SPEC canonical unsigned-lexicographic anonymous
     TypeKey/ranking bytes), and usage

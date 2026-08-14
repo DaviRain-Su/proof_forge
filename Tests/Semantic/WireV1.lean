@@ -26,8 +26,10 @@
   pending. Step j
   includes the exact CheckedCast contract (UInt/Int source and destination,
   result.typeId == toType), StateStore state lookup/value type/void-result,
-  Assert Bool/error/args/void-result, Term.Revert ErrorDecl/args, and Emit
-  EventDecl/args/void-result contracts; the §5.1 ContextRead same-key
+  Assert Bool/error/args/void-result, Term.Revert ErrorDecl/args, Emit
+  EventDecl/args/void-result, and ExternalCall/Schedule argument
+  serializability (Bool / legal UInt/Int widths / Bytes / Principal; not
+  Eq/Ne `serializableType`) contracts; the §5.1 ContextRead same-key
   result-TypeId consistency pass is pinned (one exact SchemaId key → one
   Instruction.result TypeId across the whole program, `.badCfg`, `.cfg` phase
   after generic CFG/op typing and before invariant closure/fuel/requirements),
@@ -6981,9 +6983,9 @@ private def testInvariantRootEmitProhibited : IO Unit := do
   expectCfgErr "N9 invariant Emit before requirements" n9
 
 /-- SPEC §8 bounded invariant-root direct-op slice for ExternalCall. Generic
-    EffectId, callee-shape, SSA, and void-result checks run first; argument
-    serializability and the transitive pureFn closure op allowlist remain
-    deferred. -/
+    EffectId, callee-shape, SSA, void-result, and argument-serializability
+    checks run first; the transitive pureFn closure op allowlist remains a
+    later closure-phase concern. -/
 private def testInvariantRootExternalCallProhibited : IO Unit := do
   let callee ← match parseQualifiedName #["mod", "callee"] with
     | .ok name => pure name
@@ -7072,9 +7074,9 @@ private def testInvariantRootExternalCallProhibited : IO Unit := do
   expectCfgErr "N6 ExternalCall before requirements" n6
 
 /-- SPEC §8 bounded invariant-root direct-op slice for Schedule. Generic
-    EffectId, callee-shape, void-result, SSA-existence, and dominance checks run
-    first; argument serializability and transitive pureFn closure remain
-    deferred. -/
+    EffectId, callee-shape, void-result, argument serializability, SSA-existence,
+    and dominance checks run first; transitive pureFn closure remains a later
+    closure-phase concern. -/
 private def testInvariantRootScheduleProhibited : IO Unit := do
   let callee ← match parseQualifiedName #["mod", "workflow"] with
     | .ok name => pure name
@@ -8741,8 +8743,10 @@ private def testCfgOpTyping : IO Unit := do
     an invalid Core trap → `.badCfg`. This suite isolates result presence;
     its StateStore, Assert, and Emit fixtures also satisfy their later exact
     state/error/event declaration and operand contracts. EffectId numbering
-    and call argument typing remain out of scope here, and spurious results
-    fail before those deferred joins. Uses the same 8-type `cfgOpTypes` fixture. -/
+    is out of scope here. ExternalCall/Schedule fixtures keep empty args so
+    this suite isolates result presence from argument serializability.
+    Spurious results fail before those later joins. Uses the same 8-type
+    `cfgOpTypes` fixture. -/
 
 -- A qualified name with ≥2 components for externalCall/schedule callees.
 private def cfgCalleeName : IO QualifiedName := do
@@ -10434,7 +10438,8 @@ private def testCfgEmitTyping : IO Unit := do
 /-- SPEC-SEM-WIRE-001 §6 ExternalCall/Schedule callee shape: unlike the
     common QualifiedName carrier (which permits one component), effect callees
     must contain at least two components. Args remain empty here so this suite
-    isolates the callee structure rule from the deferred serializability gate. -/
+    isolates the callee structure rule from argument serializability
+    (`testCfgExternalCallArgSerializability`). -/
 private def testCfgExternalCalleeShape : IO Unit := do
   let qualified ← cfgCalleeName
   let single ← cfgSingleComponentCalleeName
@@ -10470,6 +10475,118 @@ private def testCfgExternalCalleeShape : IO Unit := do
       #[cfgBlockInstrs 0 #[cfgInstr none (.schedule 0 single #[])]
           (.return_ none)] 2]
   expectCfgErr "N2 schedule single-component callee" n2
+
+/-- ExternalCall/Schedule argument serializability (step j). Each argument
+    ValueId must resolve to Bool / legal UInt/Int width {8,16,32,64,128,256} /
+    Bytes / Principal. This is not the Eq/Ne `serializableType` predicate
+    (that also admits Field/String and recursive Struct/Enum). Empty args
+    stay legal. Failures are `.badCfg` on the structure+encode dual path. -/
+private def testCfgExternalCallArgSerializability : IO Unit := do
+  let types : Array TypeDeclV1 :=
+    #[{ id := 0, name := some "S",
+         shape := .struct #[{ name := "f", typeId := 1 }] },
+      { id := 1, name := none, shape := .bool },
+      { id := 2, name := none, shape := .uint 8 },
+      { id := 3, name := none, shape := .uint 64 },
+      { id := 4, name := none, shape := .int 64 },
+      { id := 5, name := none, shape := .bytes 4 },
+      { id := 6, name := none, shape := .unit },
+      { id := 7, name := none, shape := .principal },
+      { id := 8, name := none, shape := .option 1 },
+      { id := 9, name := none, shape := .map 1 1 },
+      { id := 10, name := none, shape := .field bn254FrFieldSpecV1 },
+      { id := 11, name := none, shape := .string }]
+  let callee ← cfgCalleeName
+  let lit (vid : ValueIdV1) (tid : TypeIdV1) (bytes : ByteArray) : InstructionV1 :=
+    cfgInstr (some { valueId := vid, typeId := tid }) (.literal tid bytes)
+  let callWith (name : String) (instrs : Array InstructionV1) :
+      IO SemanticProgramDataV1 :=
+    programWithTypes name types #[]
+      #[cfgOpCallableResult
+        #[cfgBlockInstrs 0 instrs (.return_ none)] 1]
+  -- Empty args remain legal (callee-shape suite keeps the same pin).
+  let p0e ← callWith "CallArgP0ExternalEmpty"
+    #[cfgInstr none (.externalCall 0 callee #[])]
+  expectCfgOk "P0 ExternalCall empty args" p0e
+  let p0s ← callWith "CallArgP0ScheduleEmpty"
+    #[cfgInstr none (.schedule 0 callee #[])]
+  expectCfgOk "P0 Schedule empty args" p0s
+  -- P1: integer/Bool/Bytes admitted argument shapes on one ExternalCall.
+  let p1 ← callWith "CallArgP1Legal"
+    #[lit 0 1 (ByteArray.mk #[1]),
+      lit 1 2 (ByteArray.mk #[7]),
+      lit 2 3 (leBytesFromNat 1 8),
+      lit 3 4 (leBytesFromNat 0 8),
+      lit 4 5 (ByteArray.mk #[1, 2, 3, 4]),
+      cfgInstr none (.externalCall 0 callee #[0, 1, 2, 3, 4])]
+  expectCfgOk "P1 ExternalCall Bool/UInt8/UInt64/Int64/Bytes args" p1
+  -- P2: Schedule admits the same scalar domain (Bool here).
+  let p2 ← callWith "CallArgP2Schedule"
+    #[lit 0 1 (ByteArray.mk #[1]),
+      cfgInstr none (.schedule 0 callee #[0])]
+  expectCfgOk "P2 Schedule Bool arg" p2
+  -- P3/P4: Principal is admitted (Normalize / Reference / pf.assets).
+  let p3 ← callWith "CallArgP3Principal"
+    #[lit 0 7 (ByteArray.mk #[1, 0, 0, 0, 0x61]),
+      cfgInstr none (.externalCall 0 callee #[0])]
+  expectCfgOk "P3 ExternalCall Principal arg" p3
+  let p4 ← callWith "CallArgP4SchedulePrincipal"
+    #[lit 0 7 (ByteArray.mk #[1, 0, 0, 0, 0x61]),
+      cfgInstr none (.schedule 0 callee #[0])]
+  expectCfgOk "P4 Schedule Principal arg" p4
+  -- N1–N7: rejected shapes. Field/String distinguish this gate from Eq/Ne
+  -- `serializableType`, which would accept them.
+  let n1 ← callWith "CallArgN1Unit"
+    #[lit 0 6 ByteArray.empty,
+      cfgInstr none (.externalCall 0 callee #[0])]
+  expectCfgErr "N1 ExternalCall Unit arg" n1
+  let n2 ← callWith "CallArgN2Field"
+    #[lit 0 10 (ByteArray.mk (Array.replicate 32 (0 : UInt8))),
+      cfgInstr none (.externalCall 0 callee #[0])]
+  expectCfgErr "N2 ExternalCall Field arg" n2
+  let n3 ← callWith "CallArgN3Map"
+    #[lit 0 9 (u32le 0),
+      cfgInstr none (.externalCall 0 callee #[0])]
+  expectCfgErr "N3 ExternalCall Map arg" n3
+  let n4 ← callWith "CallArgN4Option"
+    #[lit 0 8 (ByteArray.mk #[0]),
+      cfgInstr none (.externalCall 0 callee #[0])]
+  expectCfgErr "N4 ExternalCall Option arg" n4
+  let n5 ← callWith "CallArgN5Struct"
+    #[lit 0 0 (ByteArray.mk #[1]),
+      cfgInstr none (.externalCall 0 callee #[0])]
+  expectCfgErr "N5 ExternalCall Struct arg" n5
+  let n6 ← callWith "CallArgN6ScheduleUnit"
+    #[lit 0 6 ByteArray.empty,
+      cfgInstr none (.schedule 0 callee #[0])]
+  expectCfgErr "N6 Schedule Unit arg" n6
+  let n7 ← callWith "CallArgN7String"
+    #[lit 0 11 (ByteArray.mk #[0, 0, 0, 0]),
+      cfgInstr none (.externalCall 0 callee #[0])]
+  expectCfgErr "N7 ExternalCall String arg" n7
+  -- Phase: malformed valueBytes still fail before this gate.
+  let m1 ← callWith "CallArgM1ValueBefore"
+    #[lit 0 1 (ByteArray.mk #[2]),
+      lit 1 6 ByteArray.empty,
+      cfgInstr none (.externalCall 0 callee #[1])]
+  expectCfgErrCode "M1 canonical valueBytes before arg serializability"
+    .nonCanonical m1
+  -- Phase: shallow TypeId reference still fails before this gate.
+  let shallowTypes :=
+    types.push { id := 12, name := none, shape := .option 99 }
+  let m2 ← programWithTypes "CallArgM2ShallowBefore" shallowTypes #[]
+    #[cfgOpCallableResult
+      #[cfgBlockInstrs 0
+        #[lit 0 6 ByteArray.empty,
+          cfgInstr none (.externalCall 0 callee #[0])]
+        (.return_ none)] 1]
+  expectCfgErrCode "M2 shallow-ref before arg serializability" .badReference m2
+  -- Phase: this gate precedes requirements.
+  let m3 : SemanticProgramDataV1 := {
+    n1 with requirements := { items := #[req "notadomain.after-call-arg"] }
+  }
+  expectCfgErrCode "M3 arg serializability before bad requirement" .badCfg m3
+  expectCfgInvariantPhase "M3 cfg before requirements" .cfg .badCfg m3
 
 /- SPEC-SEM-WIRE-001 §5.1 closed ContextRead catalog coverage. The sole exact
    key has the program's unique anonymous UInt64 result and exact requirement;
@@ -11435,6 +11552,7 @@ def run : IO Unit := do
   testCfgRevertTyping
   testCfgEmitTyping
   testCfgExternalCalleeShape
+  testCfgExternalCallArgSerializability
   testCfgContextReadResultTypeConsistency
   testCfgContextReadCatalogRequirements
   testCfgCommitCatalogRequirements

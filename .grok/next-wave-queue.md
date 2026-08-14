@@ -68,6 +68,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | F-SEM00X-SHARD | done | Sem001/002/003 registered in `Tests/Shards/Typed.lean` so ordinary `just ci` runs the shape pins. **Not** formal |
 | F-CTX-CORE-TYPEID | done | Isolated Wire `.badCfg` pin for same-key ContextRead different Core result TypeId (`Tests/Semantic/Sem002ShapeV1.lean` `ctx/core-type`; structure+encode). Normalize fn purity is now body-local so a later `fn` after an entry ContextRead is not poisoned. **Not** formal TST-SEM-002 |
 | F-SEM001-SPAN | done | Isolated layout/span-only companion: same AST + leading-comment span shift keeps `.pfsem`/`semanticHash`/`sourceHash`; only `.pfprov` moves (`Tests/Semantic/Sem001ShapeV1.lean`). Focused run ok. **Not** formal TST-SEM-001 |
+| F-CALL-SERIAL | done | Wire structure gate: ExternalCall/Schedule args must be Bool / legal UInt/Int / Bytes / Principal (Normalize / Reference / pf.assets). Do not reuse Eq/Ne `serializableType`. Focused `Tests.Semantic.WireV1.run` ok. **Not** formal TASK-D2-06 / TST-SEM-001 |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 
@@ -101,7 +102,7 @@ Leave these `blocked` / `decision`. Goal must **skip**, not implement.
 
 ## Runner notes
 
-1. Track A is exhausted. Track B is exhausted. Track F engineering corpus pins are exhausted (`F-CTX-CORE-TYPEID` last). Goal must **not** auto-close formal IDs. Never Track C. Remaining Track F later-slices are product/formal decisions.
+1. Track A is exhausted. Track B is exhausted. Track F corpus pins through `F-CALL-SERIAL` are exhausted. Goal must **not** auto-close formal IDs. Never Track C. SPEC-honesty ADR / EV binding / C-3 remain product/formal decisions.
 2. Mark claimed row `in_progress` only on a clean tree (or WIP wholly inside that slice allowlist).
 3. One local commit per id. Touch `ProofForgeV2/**` → `just sbom-package-files-refresh`. Docs → `just docs-check`.
 4. After commit: this file `done`, `docs/engineering-backlog.md` one honest line, AGENTS Current/Next if Track A pointer moves.
