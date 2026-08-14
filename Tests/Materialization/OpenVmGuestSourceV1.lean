@@ -679,12 +679,29 @@ unsafe def testFailClosedInt : IO Unit := do
       | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
       | .ok _ => throw <| IO.userError "Int must fail closed at OpenVM plan"
 
+/-- OPENVM-1a: grammar-valid but unregistered profile stays unknown.
+    Do not invent a third OpenVM CodegenProfileId. -/
+unsafe def testUnknownProfileFailClosed : IO Unit := do
+  match CodegenProfileId.parse? "not-a-real-profile-v1" with
+  | none =>
+      throw <| IO.userError "not-a-real-profile-v1 must remain grammar-valid"
+  | some unknown =>
+      match Targets.BuildSelectionV1.resolveBuildSelectionV1
+          TargetId.openvm (some unknown) with
+      | .error e =>
+          expect (e.code == "PF-PROFILE-UNKNOWN")
+            s!"unknown OpenVM profile must be PF-PROFILE-UNKNOWN, got {e.code}: {e.render}"
+      | .ok sel =>
+          throw <| IO.userError
+            s!"unknown OpenVM profile must fail closed, got {sel.codegenProfile}"
+
 unsafe def run : IO Unit := do
   testStateCellOpenVmSource
   testMaterializeDeterminism
   testCapabilityProductPath
   testElfProfileSelection
   testElfProfileFinalize
+  testUnknownProfileFailClosed
   testFailClosedCall
   testCryptoSha256StayFailClosed
   testContextReadStayFailClosed
