@@ -41,10 +41,15 @@ def run : IO Unit := do
   | .ok _ => throw <| IO.userError "unknown locked tool unexpectedly resolved"
 
   match requiredBundlePaths "wasmcert-coq-provider" with
-  | .error _ => pure ()
-  | .ok _ =>
-      throw <| IO.userError
-        "WasmCert provider unexpectedly resolved in the active per-platform Tool Lock"
+  | .error error =>
+      throw <| IO.userError s!"locked WasmCert provider closure could not be resolved: {error}"
+  | .ok paths =>
+      if System.Platform.isOSX then
+        expect (paths == #["lib/libgmp.10.dylib", "proof-forge-wasmcert-provider-v1"])
+          "darwin WasmCert closure must include locked GMP + provider executable"
+      else
+        expect (paths == #["proof-forge-wasmcert-provider-v1"])
+          "linux WasmCert closure must be the locked provider executable"
 
   -- S2b sourceBuild tool: empty content-addressed bundle closure.
   match requiredBundlePaths "sbpf" with

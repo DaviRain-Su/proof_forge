@@ -90,6 +90,13 @@
       "format": "tar.gz"
     },
     {
+      "id": "wasmcert-provider-v1.0.0-rc.1-darwin-arm64",
+      "url": "https://github.com/DaviRain-Su/proof_forge/releases/download/wasmcert-provider-v1.0.0-rc.1/proof-forge-wasmcert-provider-v1-darwin-arm64.tar.gz",
+      "size": 2265719,
+      "sha256": "9d8afb3da2012ff4c70a97115a217550dfcfb082e68cf82cc707c94a7a88b793",
+      "format": "tar.gz"
+    },
+    {
       "id": "xz-5.8.3-homebrew-arm64-tahoe",
       "url": "https://ghcr.io/v2/homebrew/core/xz/blobs/sha256:55c891f5d47142fe923c87df0e3343d7ef2bc7d368c67892b4ad2c80e53069d5",
       "size": 770804,
@@ -174,6 +181,14 @@
       "mode": "0444"
     },
     {
+      "path": "lib/libgmp.10.dylib",
+      "assetId": "wasmcert-provider-v1.0.0-rc.1-darwin-arm64",
+      "member": "proof-forge-wasmcert-provider-v1-darwin-arm64/lib/libgmp.10.dylib",
+      "size": 452816,
+      "sha256": "1bb9184824b82f40bd50279634290d6cbdf9c1a371c045c7b10815e7955cd696",
+      "mode": "0444"
+    },
+    {
       "path": "lib/liblzma.5.dylib",
       "assetId": "xz-5.8.3-homebrew-arm64-tahoe",
       "member": "xz/5.8.3/lib/liblzma.5.dylib",
@@ -195,6 +210,14 @@
       "member": "Darwin-arm64/near-sandbox",
       "size": 71414992,
       "sha256": "fcc74e9421f727d6b01e1f8a92ef1c2e471a8cc3e68cc1a4c4917574f225eae7",
+      "mode": "0555"
+    },
+    {
+      "path": "proof-forge-wasmcert-provider-v1",
+      "assetId": "wasmcert-provider-v1.0.0-rc.1-darwin-arm64",
+      "member": "proof-forge-wasmcert-provider-v1-darwin-arm64/proof-forge-wasmcert-provider-v1",
+      "size": 5802216,
+      "sha256": "696b55dd6c02159a5c45f7aba0e1196ee4cc046ac903ffe6b7387763e3399842",
       "mode": "0555"
     },
     {
@@ -249,6 +272,11 @@
         "externalLoads": []
       },
       {
+        "path": "lib/libgmp.10.dylib",
+        "installId": "/opt/homebrew/opt/gmp/lib/libgmp.10.dylib",
+        "externalLoads": []
+      },
+      {
         "path": "lib/liblzma.5.dylib",
         "installId": "@@HOMEBREW_PREFIX@@/opt/xz/lib/liblzma.5.dylib",
         "externalLoads": []
@@ -265,6 +293,16 @@
           {
             "installName": "/opt/homebrew/opt/xz/lib/liblzma.5.dylib",
             "bundlePath": "lib/liblzma.5.dylib"
+          }
+        ]
+      },
+      {
+        "path": "proof-forge-wasmcert-provider-v1",
+        "installId": null,
+        "externalLoads": [
+          {
+            "installName": "/opt/homebrew/opt/gmp/lib/libgmp.10.dylib",
+            "bundlePath": "lib/libgmp.10.dylib"
           }
         ]
       },
@@ -490,6 +528,32 @@
       "licenseSpdx": "MIT",
       "requiredByProfiles": [
         "ton-tolk-boc-v1"
+      ],
+      "sourceBuild": null
+    },
+    {
+      "id": "wasmcert-coq-provider",
+      "version": "1.0.0",
+      "sourceUrl": "https://github.com/DaviRain-Su/proof_forge/releases/tag/wasmcert-provider-v1.0.0-rc.1",
+      "platform": "darwin-arm64",
+      "assetId": "wasmcert-provider-v1.0.0-rc.1-darwin-arm64",
+      "executable": "proof-forge-wasmcert-provider-v1",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/darwin-arm64/proof-forge-wasmcert-provider-v1",
+      "executableSha256": "696b55dd6c02159a5c45f7aba0e1196ee4cc046ac903ffe6b7387763e3399842",
+      "runtimeLibrarySubdir": "lib",
+      "runtimeFiles": [
+        {
+          "path": "lib/libgmp.10.dylib",
+          "sha256": "1bb9184824b82f40bd50279634290d6cbdf9c1a371c045c7b10815e7955cd696"
+        }
+      ],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "proof-forge-wasmcert-provider-v1 1.0.0 9ab0f87f03fff5507749efc273ec662fe27e6d14",
+      "licenseSpdx": "Apache-2.0 AND MIT AND LGPL-2.1-or-later",
+      "requiredByProfiles": [
+        "near-wasmcert-provider-v1"
       ],
       "sourceBuild": null
     },

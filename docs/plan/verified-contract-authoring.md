@@ -825,10 +825,10 @@ semantics provider 的 source authority。ProofForge-owned request/result closed
 argv以及 parser=`unverified`、checker/instantiation=`provedSoundOnSuccess`、interpreter core与 host
 assumptions分层状态已落入 `WasmCertProviderV1`。随后已经实现 ProofForge-owned structured overlay：
 它编译进 exact upstream source tree，直接调用 extracted parser/checker/instantiator/interpreter；
-purpose-built bounded host只开放首批九个 NEAR imports。当前 Linux orb两次 clean same-host build
-byte-identical（SHA-256 `3c6af34d068e08cd34ea6bf627ec1c1e597f5577f163d89f5f63f462303b0ad4`），
-但该 executable/runtime closure没有进入 Tool Lock，所以 activation gate仍必定
-`executableUnprovisioned`，本地 hash不能冒充产品 identity。
+purpose-built bounded host只开放首批九个 NEAR imports。审计 run `31766677105` 的 Darwin/Linux
+2/2 clean build和runtime closure现已作为 durable prerelease
+`wasmcert-provider-v1.0.0-rc.1`分别进入两个 Tool Lock；activation rows各自绑定不同 executable
+SHA-256。本地 build、source revision、archive digest或另一平台hash都不能冒充产品 identity。
 
 `WasmCertArtifactsV1` 现不只做 structural carrier join，还会确定性 replay register/storage/
 return/log/panic host trace并与 call-boundary observation exact连接。真实 finalized
@@ -838,16 +838,13 @@ return/post-state或 rollback。Python smoke已经删除手写业务 post-state 
 storage tamper负例 fail closed。`WasmCertReferenceJoinV1` 又把该比较从 fixture-private代码下沉为
 locked product carrier：exact semantic subject只能从 locked observation所持 finalized capability
 恢复，representation adapter不接触 `OutcomeV1`，通用层唯一调用 `stepReferenceSliceV1`并在成功后
-mint private engineering join。该结果把 NEAR纵链推进到本地 executable refinement join，但仍不是
-kernel中的一般 IR/WAT→Wasm simulation theorem，也不是 Tool Lock/product evidence。下一步仍留在
-NEAR：isolated locked product consumer与 evidence identity已实现，但 activation仍机械 fail closed；
-首轮双平台 candidate已构建成功但审查拒绝 admission：Darwin manifest缺两个 opam repository
-snapshot digest；Linux binary要求 GLIBC 2.38，无法在当前 Debian 12 / GLIBC 2.36执行 version probe。
-修复后的 run `31766677105` 已真实重建并通过审查：两平台 repository snapshot identity齐全，
-Darwin Mach-O闭包为 executable + bundled GMP，Linux最高要求 GLIBC 2.35并在当前 GLIBC 2.36 orb
-通过 version probe与 VerifiedVault 5/5。candidate仍明确 non-admitted/non-activated；剩余阶段出口是
-发布 durable content-addressed assets、写入双平台 Tool Lock/executable identity并跑通 activated
-consumer。parser/translation/host/adapter assumptions继续明示，完成该出口后才恢复 Solana。
+mint private engineering join。当前 locked smoke不再接受候选provider路径或预制Wasm，而是从 exact
+`VerifiedVaultPF.lean`重新执行proof certification、NEAR capability authorization、materialize/
+finalize，再调用 `executeLockedWasmCertV1`和`joinLockedWasmCertReferenceV1`；Linux五路径已实跑通过，
+missing root、executable/result/invocation/observation tamper均fail closed。Linux主CI与macOS 14独立
+lane已配置同一 consumer，Darwin另覆盖bundled GMP tamper；双平台CI观察通过后关闭本阶段出口并
+恢复既定 Solana路线。该结果仍不是kernel中的一般 IR/WAT→Wasm simulation theorem；parser/
+translation/host/adapter assumptions继续明示。
 
 2026-08-13 已开始 Solana 的第一个 bounded target slice，当前只覆盖真实 production
 `StateCell.get() : UInt64`：
@@ -977,7 +974,7 @@ ProofForge内自造完整 EVM opcode、Wasm binary、sBPF或 Solana runtime sema
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR 双平台 WasmCert candidates已审查；待 durable Tool Lock admission/activated consumer）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；structured provider、bounded nine-import host、trace replay及真实 VerifiedVault五路径 sole Reference join已通过。locked Reference product carrier从 finalized capability恢复 exact semantic subject，并把 representation adapter限制在 Outcome之外。run `31766677105` 的 Linux/Darwin candidates均有2/2 byte-identical build与exact repository/runtime closure；Linux已在GLIBC 2.36实跑5/5。但 durable assets与Tool Lock rows尚未写入，且无一般 IR/WAT→Wasm simulation theorem，因此仍只算 engineering executable join。Solana已有首个 Plan/HandlerIR slice，但在 NEAR activated-consumer阶段出口前不扩面 |
+| 7 | Per-target refinement | **进行中（NEAR双平台Tool Lock/activation和Linux locked consumer已完成；待双平台CI观察）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；rc.1 provider及Darwin GMP/Linux system closure已进入独立 Tool Lock rows。locked consumer从 exact source重新认证并生成production Wasm，五路径经provider与sole Reference join在Linux实跑5/5，missing/tamper负例fail closed。Linux主CI和macOS 14 lane已接线；两者通过后关闭NEAR阶段出口。即使通过，因无一般 IR/WAT→Wasm simulation theorem，结论仍只是identity-bound engineering join。Solana已有首个 Plan/HandlerIR slice，按路线在出口后继续 |
 
 ### 首个代码切片进展
 
@@ -1363,10 +1360,9 @@ expression translator：
 21. WasmCert-Coq provider边界已固定：source revision、许可证例外、ProofForge structured wrapper的
     request/result closed fields与 exact argv、binary parser未验证边界、checker/instantiation成功
     soundness、interpreter core和 host assumptions分别记录。structured overlay、exact source export
-    build recipe、bounded nine-import host及 version probe已实现；当前 orb两次 clean same-host build
-    byte-identical，但仍没有 provider executable Tool Lock identity，
-    `requireWasmCertProviderProvisionedV1`机械 fail closed；这防止本地 binary或 human CLI exit 0被误当
-    product evidence；
+    build recipe、bounded nine-import host及 version probe已实现；Tool Lock activation现在按
+    Darwin/Linux分别绑定独立 executable identity，product仍必须resolve/rehash，防止本地 binary、
+    human CLI exit 0、source revision或跨平台hash被误当product evidence；
 22. provider canonical wire已实现：request/result必须经过 exact PF-JCS round-trip与 closed field
     validation，candidate join绑定 source revision、argv、input/invocation digests、逐层 success status、
     terminal execution与 no-SIMD profile。该 join不接受或激活 arbitrary executable identity；
@@ -1375,19 +1371,19 @@ expression translator：
     forged payload/status/storage均 fail closed；
 24. 真实 finalized `VerifiedVaultPF.wasm` 已由 provider跑通 init/deposit/withdraw/status/overdraw，
     每个 canonical observation再由 sole Reference machine从 exact production logical pre-state执行并
-    比较 return/post-state/rollback。Python harness不含第二套业务 post-state evaluator。该结果仍是
-    local engineering executable join：parser未验证、WAT→Wasm translation与一般 simulation theorem
-    未闭合、provider未 provision，故不能升级为完整 target-refined或 artifact verified。
+    比较 return/post-state/rollback。Python harness不含第二套业务 post-state evaluator。当前locked
+    consumer还从 exact source重新认证并生成production Wasm；该结果仍是identity-bound engineering
+    executable join：parser未验证、WAT→Wasm translation与一般 simulation theorem未闭合，故不能
+    升级为完整 target-refined或 artifact verified。
 25. isolated locked product consumer已落地：只接受 capability-bound finalized NEAR Wasm，activation、
     Tool Lock resolve/rehash与 exact version probe先于 artifact IO；provider在 clean env/exclusive temp
     directory运行前，sole disk scanner要求 base+Wasm exact closure、base bytes回接 materialized
     carrier且Wasm digest二次 stable read不漂移；provider六文件工作集须 exact bounded single-link
     closure，输入不可变，canonical输出经
     digest join与 host replay后才产生 private execution observation。identity绑定 active platform lock、
-    executable、source/semantic/Wasm与所有 protocol artifacts。当前双平台 lock仍无 provider，测试固定
-    在 staging read前 `PF-TOOLCHAIN-MISSING`；Linux系统动态库不伪装为 runtime bundle，Darwin artifact
-    缺失仍是 NEAR阶段出口阻塞项。activation digest按 Darwin/Linux独立 row保持 `none`，不允许
-    单 digest跨平台授权。
+    executable、source/semantic/Wasm与所有 protocol artifacts。当前双平台lock/activation已接线；
+    missing root、executable/runtime和protocol identity/content tamper仍fail closed。Linux系统动态库
+    不伪装为runtime bundle，Darwin GMP则显式进入closure；不允许单digest跨平台授权。
 26. provider build recipe已改为 native Linux x86_64/Darwin arm64双平台可执行：移除 Darwin不存在的
     GNU `sha256sum`依赖，统一由 isolated Python SHA-256计算；`--repeat-check`在两个独立 clean
     export/build目录构建并要求 executable byte-identical后才发布。该步骤只建立 Darwin candidate
@@ -1413,8 +1409,16 @@ expression translator：
     `696b55dd…99842`与`c08b1622…15919`。逐文件 manifest/hash/mode、locked package、actual repository
     name/origin及snapshot digest均已复核；独立 Mach-O parser确认 Darwin external GMP edge，Linux
     `readelf`确认无RUNPATH、三项system NEEDED、最高`GLIBC_2.35`。新Linux候选在Debian 12 /
-    GLIBC 2.36通过version与VerifiedVault 5/5。candidate仍写明non-admitted/non-activated；下一步必须
-    先获得 durable asset URL，再改双平台 lock和activation rows并执行 locked product consumer。
+    GLIBC 2.36通过version与VerifiedVault 5/5。candidate manifest本身仍正确写明
+    non-admitted/non-activated；后续独立release与lock变更才授予产品身份；
+31. 已建立 durable prerelease `wasmcert-provider-v1.0.0-rc.1`并从公开URL重下载核对原始archive
+    bytes；Darwin/Linux archive分别为`9d8afb3d…8b793`/`d4e01187…e3255`，executable分别为
+    `696b55dd…99842`/`c08b1622…15919`。两个Tool Lock已加入asset/bundle/tool和Mach-O/ELF policy，
+    retained raw及canonical lock identity同步更新，activation rows各自等于对应executable。
+    `WasmCertProviderRuntimeV1`现作为Lake executable从 exact `VerifiedVaultPF.lean`运行proof certifier、
+    production materialize/finalize、`executeLockedWasmCertV1`及`joinLockedWasmCertReferenceV1`，Linux
+    实跑5/5；smoke另固定missing/executable tamper，Darwin lane固定bundled GMP tamper。Linux主CI与
+    macOS 14 lane均已接线，只有两者实际通过后才关闭NEAR阶段出口并继续Solana。
 
 ---
 

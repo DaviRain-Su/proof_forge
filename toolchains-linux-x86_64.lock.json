@@ -75,6 +75,13 @@
       "size": 5076269,
       "sha256": "83f8122e924745fcd70636e3594bc01c4c47f2d4c8f3c63b5d70d3f83a482677",
       "format": "tar.gz"
+    },
+    {
+      "id": "wasmcert-provider-v1.0.0-rc.1-linux-x86_64",
+      "url": "https://github.com/DaviRain-Su/proof_forge/releases/download/wasmcert-provider-v1.0.0-rc.1/proof-forge-wasmcert-provider-v1-linux-x86_64.tar.gz",
+      "size": 2999322,
+      "sha256": "d4e0118731bca6d6c3f54b645dd1d48c6caf33718945859f383fe509208e3255",
+      "format": "tar.gz"
     }
   ],
   "compilerToolchain": {
@@ -153,6 +160,14 @@
       "member": "Linux-x86_64/near-sandbox",
       "size": 93659016,
       "sha256": "634bc8c5e14a53c2a622c787975201b1505ec07712b8159f38e97ede3607e114",
+      "mode": "0555"
+    },
+    {
+      "path": "proof-forge-wasmcert-provider-v1",
+      "assetId": "wasmcert-provider-v1.0.0-rc.1-linux-x86_64",
+      "member": "proof-forge-wasmcert-provider-v1-linux-x86_64/proof-forge-wasmcert-provider-v1",
+      "size": 9350800,
+      "sha256": "c08b1622b5e9593f9803e60977c40f8531e52e9596dc2549fea14edaf2615919",
       "mode": "0555"
     },
     {
@@ -316,6 +331,24 @@
           },
           {
             "soname": "libstdc++.so.6",
+            "bundlePath": null
+          }
+        ],
+        "runpath": null
+      },
+      {
+        "path": "proof-forge-wasmcert-provider-v1",
+        "needed": [
+          {
+            "soname": "libc.so.6",
+            "bundlePath": null
+          },
+          {
+            "soname": "libgmp.so.10",
+            "bundlePath": null
+          },
+          {
+            "soname": "libm.so.6",
             "bundlePath": null
           }
         ],
@@ -542,6 +575,27 @@
       "licenseSpdx": "MIT",
       "requiredByProfiles": [
         "ton-tolk-boc-v1"
+      ],
+      "sourceBuild": null
+    },
+    {
+      "id": "wasmcert-coq-provider",
+      "version": "1.0.0",
+      "sourceUrl": "https://github.com/DaviRain-Su/proof_forge/releases/tag/wasmcert-provider-v1.0.0-rc.1",
+      "platform": "linux-x86_64",
+      "assetId": "wasmcert-provider-v1.0.0-rc.1-linux-x86_64",
+      "executable": "proof-forge-wasmcert-provider-v1",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/proof-forge-wasmcert-provider-v1",
+      "executableSha256": "c08b1622b5e9593f9803e60977c40f8531e52e9596dc2549fea14edaf2615919",
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": [
+        "--version"
+      ],
+      "expectedVersion": "proof-forge-wasmcert-provider-v1 1.0.0 9ab0f87f03fff5507749efc273ec662fe27e6d14",
+      "licenseSpdx": "Apache-2.0 AND MIT AND LGPL-2.1-or-later",
+      "requiredByProfiles": [
+        "near-wasmcert-provider-v1"
       ],
       "sourceBuild": null
     },

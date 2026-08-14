@@ -86,7 +86,7 @@ esac
 [[ -f "$lock_file" ]] || die "missing $lock_file"
 expected_digest="$(/usr/bin/python3 -I -S "$validator" tool-lock-digest "$lock_file")" \
   || die "tool-lock-digest failed for $lock_file"
-[[ "$expected_digest" == "8f7fca3742facdd2ea15157bfc028866c93d7f93327b793522d3f78d161a6500" ]] || \
+[[ "$expected_digest" == "260e523b0f65ff7c0e13a63910b6fe2f3a54fc33bf7de59770bc4e3a199949fb" ]] || \
   die "host ToolLockV4Digest $expected_digest != Darwin KAT"
 [[ "$PF_EVM_PROFILE" == "evm-yul-solc-0.8.34-cancun-v1" ]] || \
   die "full runtime requires Cancun profile (got $PF_EVM_PROFILE)"

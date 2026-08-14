@@ -10,10 +10,10 @@ usage: scripts/build_wasmcert_provider_v1.sh \
   --output <provider-executable> \
   [--repeat-check]
 
-Builds the unprovisioned ProofForge WasmCert provider overlay from the exact
-WasmCert-Coq source revision. This command does not edit Tool Lock or activate
-the provider for product evidence. --repeat-check performs two independent
-clean builds and publishes only when their executable bytes are identical.
+Builds a non-admitted ProofForge WasmCert provider candidate from the exact
+WasmCert-Coq source revision. This command does not edit Tool Lock or change
+the currently admitted product executable. --repeat-check performs two
+independent clean builds and publishes only when their bytes are identical.
 EOF
   exit 64
 }
@@ -184,4 +184,4 @@ if [[ "$repeat_check" == true ]]; then
 else
   echo "build-wasmcert-provider: repeat-check=not-requested"
 fi
-echo "build-wasmcert-provider: provider remains unprovisioned and product activation stays fail closed"
+echo "build-wasmcert-provider: candidate remains non-admitted and cannot change product activation"

@@ -1359,6 +1359,11 @@ solana-runtime:
 near-runtime:
     bash scripts/near_runtime_test.sh
 
+# Locked WasmCert product consumer: exact VerifiedVaultPF source certification
+# through finalized production Wasm, provider execution, and Reference join.
+near-wasmcert-product:
+    /usr/bin/python3 -I -S scripts/wasmcert_provider_smoke_v1.py
+
 # CosmWasm cosmwasm-vm 3.0.9 mock corpus (host-heavy; cargo + wat2wasm).
 # Ordinary CI: `.github/workflows/ci.yml` job `cosmwasm-runtime` (path-filtered).
 # Not formal / not wasmd mainnet / sync call FC / schedule=SubMsg never.

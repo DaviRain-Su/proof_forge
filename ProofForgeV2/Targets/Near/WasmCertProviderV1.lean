@@ -2,14 +2,14 @@ import ProofForgeV2.Core.Common
 import ProofForgeV2.Core.ToolLockV4
 
 /-
-  Pinned source and fail-closed activation contract for the future
+  Pinned source and fail-closed activation contract for the
   WasmCert-Coq semantics provider.
 
   This module intentionally does not run WasmCert, decode its output, or mint
-  target-refinement evidence. The upstream binary parser is unverified and no
-  reproducible provider executable is present in Tool Lock v4 yet. Product
-  consumers must therefore pass `requireWasmCertProviderProvisionedV1` before
-  invoking or accepting this provider; it currently always fails closed.
+  target-refinement evidence. The upstream binary parser remains unverified.
+  Product consumers must pass `requireWasmCertProviderProvisionedV1`, resolve
+  and rehash the active platform's Tool Lock executable, and validate every
+  structured output before accepting a provider observation.
 -/
 
 namespace ProofForgeV2.Targets.Near
@@ -73,8 +73,8 @@ def wasmCertProviderExecutableV1 : String :=
 
 def wasmCertProviderVersionV1 : String := "1.0.0"
 
-/-- Exact output of the wrapper's future Tool Lock version probe. Presence of
-    this string does not provision an executable. -/
+/-- Exact output of the wrapper's Tool Lock version probe. Presence of this
+    string alone does not provision an executable. -/
 def wasmCertProviderExpectedVersionV1 : String :=
   s!"{wasmCertProviderExecutableV1} {wasmCertProviderVersionV1} {wasmCertCoqRevisionV1}"
 
@@ -120,7 +120,7 @@ def wasmCertProviderResultFieldsV1 : Array String := #[
   "simdUsed"
 ]
 
-/-- Exact argv owned by the future structured wrapper. Paths are arguments, not
+/-- Exact argv owned by the structured wrapper. Paths are arguments, not
     shell text. The wrapper must read canonical request bytes and write one
     canonical result record; stdout/stderr are diagnostics only. -/
 def wasmCertProviderArgvV1
@@ -153,24 +153,31 @@ def wasmCertExecutionStatusV1 : WasmCertMechanizationStatusV1 :=
 def wasmCertHostStatusV1 : WasmCertMechanizationStatusV1 :=
   .hostAssumptions
 
-/-- Closed activation errors. Additional execution/result failures are defined
-    only when the structured wrapper exists. -/
+/-- Closed activation errors. Execution/result failures remain in the locked
+    product consumer. -/
 inductive WasmCertProviderActivationErrorV1 where
   | executableUnprovisioned
   | unsupportedPlatform
   deriving BEq, Repr
 
-/-- There is deliberately no executable digest for either supported platform
-    until each real wrapper artifact is added to its Tool Lock v4 closure. The
-    two rows must be provisioned independently; a Linux hash cannot activate
-    Darwin, and the upstream source revision is not an executable hash. -/
-def wasmCertProviderExecutableSha256V1 : ToolLockPlatformV4 → Option Digest
-  | .darwinArm64 => none
-  | .linuxX86_64 => none
+private def parsePinnedWasmCertExecutableDigestV1 (wire : String) : Option Digest :=
+  match parseDigest wire with
+  | .ok digest => some digest
+  | .error _ => none
 
-/-- Mandatory product activation gate. It remains impossible to accept a
-    provider result merely because source identity and protocol constants are
-    present in this module. -/
+/-- Independently audited executable identity for each admitted Tool Lock v4
+    closure. A Linux hash cannot activate Darwin, and the upstream source
+    revision cannot substitute for either executable hash. -/
+def wasmCertProviderExecutableSha256V1 : ToolLockPlatformV4 → Option Digest
+  | .darwinArm64 => parsePinnedWasmCertExecutableDigestV1
+      "sha256:696b55dd6c02159a5c45f7aba0e1196ee4cc046ac903ffe6b7387763e3399842"
+  | .linuxX86_64 => parsePinnedWasmCertExecutableDigestV1
+      "sha256:c08b1622b5e9593f9803e60977c40f8531e52e9596dc2549fea14edaf2615919"
+
+/-- Mandatory platform activation gate. The product subsequently resolves and
+    rehashes `wasmcert-coq-provider` from the active Tool Lock and requires the
+    resolved executable to equal this identity; these constants alone cannot
+    authorize provider output. -/
 def requireWasmCertProviderProvisionedV1 :
     Except WasmCertProviderActivationErrorV1 Digest :=
   match activeToolLockPlatformV4 with

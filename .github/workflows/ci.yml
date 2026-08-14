@@ -6,6 +6,7 @@ name: CI
 #   docs              - always
 #   lean-product      - nine non-target shards + product/deletion gates
 #   target-smoke      - parallel targets-evm / targets-solana / targets-host-fast + CLI
+#   near-wasmcert-darwin - locked WasmCert product consumer on Darwin arm64
 #   solana-runtime    - Mollusk (reuses CLI artifact when present)
 #   near-runtime      - near-sandbox corpus (path-filtered; reuses CLI)
 #   cosmwasm-runtime  - cosmwasm-vm mock corpus (path-filtered; reuses CLI)
@@ -131,6 +132,9 @@ jobs:
       - name: Target CLI and NFR smoke
         run: just ci-target-cli-smoke
 
+      - name: Locked NEAR WasmCert product + Reference join
+        run: just near-wasmcert-product
+
       - name: Ensure product CLI binary
         run: |
           if [[ ! -x .lake/build/bin/proof-forge-next ]]; then
@@ -145,6 +149,24 @@ jobs:
           path: .lake/build/bin/proof-forge-next
           if-no-files-found: error
           retention-days: 1
+
+  near-wasmcert-darwin:
+    name: near-wasmcert-product (darwin-arm64)
+    needs: changes
+    if: needs.changes.outputs.target_smoke == 'true'
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
+
+      - name: Setup Lean + Darwin tool root
+        uses: ./.github/actions/setup-lean-toolroot
+        with:
+          tool-root: ${{ runner.temp }}/proof-forge-v2/tool-root/darwin-arm64
+          cache-key-suffix: near-wasmcert-darwin
+
+      - name: Locked NEAR WasmCert product + Reference join
+        run: just near-wasmcert-product
 
   target-host-slow:
     name: target-host-slow

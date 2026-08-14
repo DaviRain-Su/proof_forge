@@ -15761,3 +15761,29 @@ normative: false
 - GitHub Actions candidate仅保留14日，不是 durable Tool Lock asset。本轮没有修改lock、activation
   row或成熟度；下一步先建立用户批准的持久content-addressed发布位置，再做双平台admission与
   activated locked-consumer回归。
+
+## 2026-08-14 — WasmCert durable release, dual-platform activation, and locked product consumer
+
+- 建立 prerelease `wasmcert-provider-v1.0.0-rc.1`，target固定
+  `23435d54166e26bb047adf74c4bcca1a5c7a9435`；上传run `31766677105`的原始审计archive。发布后从
+  公开release URL重新下载，Darwin/Linux exact SHA-256/size仍分别为
+  `9d8afb3d…8b793`/2,265,719与`d4e01187…e3255`/2,999,322。
+- 两个Tool Lock v4分别加入asset、bundle file、tool row和Mach-O/ELF policy。Darwin executable
+  `696b55dd…99842`（5,802,216）绑定bundled `lib/libgmp.10.dylib`；Linux executable
+  `c08b1622…15919`（9,350,800）固定无RUNPATH及`libgmp.so.10`/`libm.so.6`/`libc.so.6` system
+  NEEDED。retained raw lock digest与canonical lock identity同步更新；Lean activation rows各自等于
+  对应 executable，未把archive/source/lock digest混作execution identity。
+- `WasmCertProviderRuntimeV1`改为真实产品consumer并增加专用Lake executable：从 exact
+  `Examples/VerifiedVaultPF.lean`执行product parser、compile、same-file proof certification、NEAR
+  capability authorization、materialize和locked `wat2wasm` finalize；随后只通过
+  `executeLockedWasmCertV1`取得private observation，再由`joinLockedWasmCertReferenceV1`恢复exact
+  semantic subject并调用sole Reference machine。Linux锁定Tool Root实跑
+  init/deposit/withdraw/status/withdraw-overdraw 5/5；不接受candidate provider路径、预制Wasm或Python
+  业务post-state oracle。
+- smoke固定missing Tool Root、executable hash tamper，Darwin另固定bundled runtime dylib tamper；Lean
+  comparator继续拒绝terminal/post-storage篡改，ordinary wire tests新增result argv/invocation identity
+  drift负例。Linux `target-smoke`与macOS 14独立job均运行同一locked product consumer；只有实际双平台
+  CI观察通过后才关闭NEAR阶段出口。
+- assurance仍是identity-bound engineering execution/Reference join，不是kernel中的一般
+  IR/WAT→Wasm/NEAR simulation theorem。binary parser、wrapper/OCaml、purpose-built host及adapter
+  representation仍属显式TCB/assumption；不会标记为fully target-refined。

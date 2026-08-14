@@ -36,12 +36,38 @@
   "planning": "docs/adr/0043-pinned-wasmcert-provider-boundary.md",
   "toolLock": {
     "toolId": "wasmcert-coq-provider",
-    "entryPresent": false,
-    "executableSha256": null
+    "entryPresent": true,
+    "version": "1.0.0",
+    "releaseTag": "wasmcert-provider-v1.0.0-rc.1",
+    "releaseUrl": "https://github.com/DaviRain-Su/proof_forge/releases/tag/wasmcert-provider-v1.0.0-rc.1",
+    "platforms": [
+      {
+        "platform": "darwin-arm64",
+        "archiveSha256": "9d8afb3da2012ff4c70a97115a217550dfcfb082e68cf82cc707c94a7a88b793",
+        "archiveSize": 2265719,
+        "executableSha256": "696b55dd6c02159a5c45f7aba0e1196ee4cc046ac903ffe6b7387763e3399842",
+        "executableSize": 5802216,
+        "runtimeFiles": [
+          {
+            "path": "lib/libgmp.10.dylib",
+            "sha256": "1bb9184824b82f40bd50279634290d6cbdf9c1a371c045c7b10815e7955cd696",
+            "size": 452816
+          }
+        ]
+      },
+      {
+        "platform": "linux-x86_64",
+        "archiveSha256": "d4e0118731bca6d6c3f54b645dd1d48c6caf33718945859f383fe509208e3255",
+        "archiveSize": 2999322,
+        "executableSha256": "c08b1622b5e9593f9803e60977c40f8531e52e9596dc2549fea14edaf2615919",
+        "executableSize": 9350800,
+        "runtimeFiles": []
+      }
+    ]
   },
   "notes": [
-    "Source/schema authority only; this record is not executable identity or target-refinement evidence.",
-    "A ProofForge wrapper source/build overlay and local same-host reproducibility observation exist, but no per-platform executable closure is present in Tool Lock v4; product activation remains fail closed.",
+    "The source pin remains source/schema authority only; it cannot substitute for either platform executable identity.",
+    "Both platform closures are admitted in Tool Lock v4, but locked execution observations are engineering evidence rather than a general target-refinement theorem.",
     "Do not scrape the upstream human/ANSI CLI as a machine certificate protocol."
   ]
 }

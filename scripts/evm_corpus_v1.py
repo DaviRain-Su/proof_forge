@@ -1717,11 +1717,11 @@ MAX_TOOL_LOCK_BYTES = 8 * 1024 * 1024
 
 # Darwin ToolLockV4Digest KAT (domain-separated PF-JCS of validated lock).
 DARWIN_TOOL_LOCK_V4_DIGEST_KAT = (
-    "8f7fca3742facdd2ea15157bfc028866c93d7f93327b793522d3f78d161a6500"
+    "260e523b0f65ff7c0e13a63910b6fe2f3a54fc33bf7de59770bc4e3a199949fb"
 )
 # Raw retained-file SHA-256 of toolchains.lock.json (distinct type).
 DARWIN_TOOL_LOCK_RAW_SHA256_KAT = (
-    "2ea72980416b12228bc3a4f6c04fe5b20cdb3e48879a890ba5bf84b3084c4033"
+    "d557ee2cb37cc197c8a464c28470e8ff01a2dcf2d4c6e80f69c3f1a044feb45d"
 )
 
 # Exact EVMOZ-004 full-runtime pin surface for runnable anvil-matrix cases.

@@ -61,4 +61,4 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0040](0040-external-author-host-mode-and-bundle.md) | Engineering `HostMode=dev` 默认 + external-author bundle（pf+next 同 VERSION）；外部作者永不 lake build | proposed |
 | [ADR-0041](0041-psy-commit-public-input-gate.md) | Psy Commit / public-input binding 保持 fail-closed 直至 official checklist | proposed |
 | [ADR-0042](0042-proof-bearing-near-invariant-root-erasure.md) | Proof-bearing NEAR invariant-root erasure（私有 certificate authority、exact digest/coverage binding、versioned Plan partition；当前 Reference-verified + artifact built，runtime observation 待兼容 runner；非 target-refined） | proposed |
-| [ADR-0043](0043-pinned-wasmcert-provider-boundary.md) | 固定 WasmCert-Coq source/protocol、逐层 mechanization status 与 purpose-built NEAR host边界；executable未 provision前 fail closed | proposed |
+| [ADR-0043](0043-pinned-wasmcert-provider-boundary.md) | 固定 WasmCert-Coq source/protocol、逐层 mechanization status 与 purpose-built NEAR host边界；双平台 Tool Lock activation + locked VerifiedVault product/Reference join | proposed |

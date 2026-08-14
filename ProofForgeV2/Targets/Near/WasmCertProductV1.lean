@@ -6,10 +6,10 @@ WasmCert invocation. The consumer does not define contract semantics: it runs
 only the Tool-Lock-selected provider, then reuses the canonical artifact and
 host-replay validators from `WasmCertArtifactsV1`.
 
-The provider is intentionally absent from both platform locks today, so the
-activation gate fails before any artifact read or provider execution. Keeping
-the complete consumer behind that gate makes the remaining provisioning work
-mechanical without allowing a PATH or locally built executable fallback.
+Both supported platform locks carry independently audited executable/runtime
+closures. Activation still requires the platform-specific digest, exact locked
+tool resolution, and rehashing before any artifact read or provider execution;
+there is no PATH or locally built executable fallback.
 -/
 import ProofForgeV2.Materialization.ArtifactContentV1
 import ProofForgeV2.Materialization.EngineeringDiskClosureV1

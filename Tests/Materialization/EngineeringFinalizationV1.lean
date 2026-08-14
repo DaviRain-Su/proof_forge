@@ -337,9 +337,9 @@ private def testNearWasmBinaryEnvelope : IO Unit := do
   expectWasmDecodeError (header ++ ByteArray.mk #[0x00]) .truncated
     "Wasm envelope must not ignore trailing bytes"
 
-/-- The external Wasm semantics source pin is exact, while product activation
-    remains fail closed until a structured wrapper executable has a Tool Lock
-    digest. Source authority must never substitute for executable identity. -/
+/-- The external Wasm semantics source pin is exact and remains distinct from
+    the two independently activated executable identities. Source authority
+    must never substitute for executable identity. -/
 private def testNearWasmCertProviderBoundary : IO Unit := do
   match Targets.Near.validateWasmCertCoqSourceAuthorityV1
       Targets.Near.wasmCertCoqSourceAuthorityV1 with
@@ -373,62 +373,35 @@ private def testNearWasmCertProviderBoundary : IO Unit := do
       Targets.Near.wasmCertExecutionStatusV1 == .provedInterpreterCore &&
       Targets.Near.wasmCertHostStatusV1 == .hostAssumptions)
     "WasmCert mechanization boundary must remain explicit"
-  expect ((Targets.Near.wasmCertProviderExecutableSha256V1
-      .darwinArm64).isNone &&
-      (Targets.Near.wasmCertProviderExecutableSha256V1
-        .linuxX86_64).isNone)
-    "WasmCert provider activation must remain independently closed on both platforms"
+  let darwinDigest := Targets.Near.wasmCertProviderExecutableSha256V1 .darwinArm64
+  let linuxDigest := Targets.Near.wasmCertProviderExecutableSha256V1 .linuxX86_64
+  expect (darwinDigest.isSome && linuxDigest.isSome)
+    "WasmCert provider must retain activation identities for both platforms"
+  match darwinDigest, linuxDigest with
+  | some darwin, some linux =>
+      expect (darwin.bytes != linux.bytes)
+        "WasmCert Darwin and Linux executable identities must remain distinct"
+  | _, _ => throw <| IO.userError "WasmCert platform activation identity is absent"
   match Targets.Near.requireWasmCertProviderProvisionedV1 with
-  | .error .executableUnprovisioned => pure ()
+  | .ok digest =>
+      match if System.Platform.isOSX then darwinDigest else linuxDigest with
+      | some expected =>
+          expect (expected.bytes == digest.bytes)
+            "active WasmCert digest must equal the exact platform activation identity"
+      | none => throw <| IO.userError "active WasmCert platform digest is absent"
+  | .error .executableUnprovisioned =>
+      throw <| IO.userError "supported platform unexpectedly lacks WasmCert activation"
   | .error .unsupportedPlatform =>
       throw <| IO.userError "test target unexpectedly lacks a supported Tool Lock platform"
-  | .ok _ =>
-      throw <| IO.userError
-        "WasmCert provider must not activate without a Tool Lock executable digest"
 
-/-- The isolated product consumer accepts only a capability-bound finalized
-    NEAR Wasm closure and then fails at provider activation before reading the
-    staging artifact. A local provider binary and PATH cannot bypass this gate. -/
+/-- The isolated product observation schema remains exact. Real locked product
+    execution and missing/tampered Tool Root negatives live in the focused
+    provider runtime smoke so this ordinary suite performs no external-tool IO. -/
 private def testNearWasmCertProductActivationBoundary
-    (finalized : FinalizedArtifactsV1) : IO Unit := do
+    (_finalized : FinalizedArtifactsV1) : IO Unit := do
   expect (Targets.Near.wasmCertLockedExecutionIdentitySchemaV1 ==
       "proof-forge.near.wasmcert-locked-execution.v1")
     "WasmCert locked execution identity schema must remain exact"
-  let zero16 := ByteArray.mk (Array.replicate 16 (0 : UInt8))
-  let invocation : Targets.Near.WasmCertInvocationArtifactV1 := {
-    schema := Targets.Near.wasmCertInvocationArtifactSchemaV1
-    hostProfile := Targets.Near.wasmCertProviderHostProfileV1
-    observationPolicy := Targets.Near.wasmCertObservationPolicyV1
-    exportName := "init"
-    input := ByteArray.empty
-    context := {
-      currentAccountId := "state-cell.test.near"
-      signerAccountId := "alice.test.near"
-      signerAccountPk := ByteArray.mk (Array.replicate 33 (1 : UInt8))
-      predecessorAccountId := "alice.test.near"
-      blockHeight := 42
-      blockTimestampNanos := 1700000000000000000
-      epochHeight := 7
-      accountBalance := zero16
-      accountLockedBalance := zero16
-      storageUsage := 0
-      attachedDeposit := zero16
-      prepaidGas := 300000000000000
-      randomSeed := ByteArray.mk (Array.replicate 32 (2 : UInt8))
-      isView := false
-      outputDataReceivers := #[]
-      promiseResults := #[]
-    }
-    preStorage := #[]
-  }
-  let absentStaging := FilePath.mk "build/v2/wasmcert-product-must-not-read"
-  if ← absentStaging.pathExists then IO.FS.removeDirAll absentStaging
-  expectIoErrorContains "locked WasmCert activation" "PF-TOOLCHAIN-MISSING" do
-    let _ ← Targets.Near.executeLockedWasmCertV1
-      finalized absentStaging invocation 100000
-    pure ()
-  expect (!(← absentStaging.pathExists))
-    "unprovisioned WasmCert product consumer must not create or read staging"
 
 /-- Canonical provider interchange is strict record plumbing only: request and
     result identity/status join can succeed, while noncanonical/unknown fields,
@@ -502,6 +475,21 @@ private def testNearWasmCertProviderWire : IO Unit := do
   let _ ← liftStringExcept "join WasmCert request/result candidate"
     (Targets.Near.validateWasmCertProviderResultForRequestV1
       request requestPath resultPath record)
+  let wrongArgv := {
+    record with argv := Targets.Near.wasmCertProviderArgvV1 requestPath "work/other-result.json"
+  }
+  match Targets.Near.validateWasmCertProviderResultForRequestV1
+      request requestPath resultPath wrongArgv with
+  | .error _ => pure ()
+  | .ok () => throw <| IO.userError "WasmCert result argv identity drift must fail closed"
+  let wrongInvocation := {
+    record with invocationSha256 := sha256Bytes "wrong-invocation".toUTF8
+  }
+  match Targets.Near.validateWasmCertProviderResultForRequestV1
+      request requestPath resultPath wrongInvocation with
+  | .error _ => pure ()
+  | .ok () =>
+      throw <| IO.userError "WasmCert result invocation identity drift must fail closed"
   let wrongInput := { record with inputWasmSha256 := sha256Bytes "wrong".toUTF8 }
   match Targets.Near.validateWasmCertProviderResultForRequestV1
       request requestPath resultPath wrongInput with
@@ -535,8 +523,8 @@ private def testNearWasmCertProviderWire : IO Unit := do
 
 /-- Canonical invocation/trace/observation artifacts bind actual content, keep
     the strict host ABI closed, enforce rollback/view policy, and project only
-    into the existing passive observation carrier. They still do not activate
-    or execute the unprovisioned provider. -/
+    into the existing passive observation carrier. Product execution lives in
+    the focused locked-provider acceptance executable. -/
 private def testNearWasmCertArtifacts : IO Unit := do
   let zero16 := ByteArray.mk (Array.replicate 16 (0 : UInt8))
   let layoutRow : Targets.Near.WasmCertStorageRowV1 := {
@@ -681,7 +669,7 @@ private def testNearWasmCertArtifacts : IO Unit := do
   let record : Targets.Near.WasmCertProviderResultRecordV1 := {
     schema := Targets.Near.wasmCertProviderResultSchemaV1
     providerRevision := Targets.Near.wasmCertCoqRevisionV1
-    executableSha256 := sha256Bytes "unactivated-provider-candidate".toUTF8
+    executableSha256 := sha256Bytes "synthetic-provider-fixture".toUTF8
     argv := Targets.Near.wasmCertProviderArgvV1 requestPath resultPath
     inputWasmSha256 := request.inputWasmSha256
     invocationSha256 := invocationDigest

@@ -390,13 +390,11 @@ Phase 1：实现
 - **WasmCert-Coq provider trust boundary（Phase 7 第三十一切）**：
   [ADR-0043](../adr/0043-pinned-wasmcert-provider-boundary.md) 固定 WasmCert-Coq 2.2.1 source
   revision `9ab0f87f03fff5507749efc273ec662fe27e6d14`，并由
-  `WasmCertProviderV1` sole-own future structured wrapper的 request/result schema、closed field set、
+  `WasmCertProviderV1` sole-own structured wrapper的 request/result schema、closed field set、
   exact argv及逐层 mechanization status。binary parser明确保留 `unverified`；module checker与
   instantiation只称 `provedSoundOnSuccess`，interpreter core与 host assumptions分开记录；默认实验
-  OCaml host和 SIMD override不进入首个 strict profile。当前 Tool Lock尚无 provider executable或
-  SHA-256，故 activation API机械返回 `executableUnprovisioned`，source pin不能替代 executable
-  identity。该切片只是可审计且 fail-closed 的接入合同，尚未运行 WasmCert、解析 section payload、
-  生成 host trace或连接 Reference observation，因此 assurance等级不变。
+  OCaml host和 SIMD override不进入首个 strict profile。该初始切片只建立可审计且 fail-closed 的
+  接入合同；后续双平台 executable admission不能改变 source pin与executable identity分离原则。
 - **WasmCert canonical wire / candidate join（Phase 7 第三十二切）**：
   `WasmCertWireV1`实现 request/result closed schema 的 canonical PF-JCS encode/decode、exact
   source revision/host profile、project-relative path、digest与 bounded fuel validation，以及
@@ -404,8 +402,8 @@ Phase 1：实现
   field、digest drift、parser/checker/instantiation拒绝、exhausted/provider-error和 SIMD 均 fail
   closed。成功 decode/join仍只是严格 record plumbing：它不运行 WasmCert、不验证 record claims、
   不把 arbitrary executable digest变成 Tool Lock identity，也不读取/比较 host trace或 observation
-  内容。`requireWasmCertProviderProvisionedV1`仍机械返回 `executableUnprovisioned`，故 product
-  acceptance与 assurance等级均不变。
+  内容。真实 product acceptance必须另行经过 active platform digest、Tool Lock resolve/rehash和
+  private locked execution carrier。
 - **WasmCert invocation/trace/observation content join（Phase 7 第三十三切）**：
   `WasmCertArtifactsV1`实现三个 closed、bounded canonical PF-JCS artifact。invocation显式携带
   export/raw input、strict-profile完整 NEAR context、byte-lexicographic unique pre-storage与唯一
@@ -414,19 +412,19 @@ Phase 1：实现
   trap kind、return/log/promise/post-storage。所有 bytes用lowercase hex，逐项、aggregate和32 MiB wire
   上限均fail closed。content candidate join重算 invocation/trace/observation exact-byte SHA-256，连接
   request/result identity，检查 `input`/`attached_deposit` payload、trap rollback与view no-write/
-  no-promise，并只投影到既有 passive `CallObservationV1`。该切没有provider executable、没有运行
-  WasmCert、没有storage host replay或Reference outcome theorem，因此仍是严格carrier plumbing，
-  assurance与未provision activation状态不变。
+  no-promise，并只投影到既有 passive `CallObservationV1`。脱离 locked consumer单独调用该 codec/
+  content join仍只是严格carrier plumbing，不能冒充provider执行或Reference outcome。
 - **WasmCert structured provider + bounded NEAR host（Phase 7 第三十四切）**：
   `tools/wasmcert-provider/` 是编译进 exact WasmCert-Coq revision 的 ProofForge overlay；它直接调用
   extracted binary parser、proved-on-success module checker/instantiator及 `run_one_step` interpreter，
   不 scrape upstream human CLI。strict module profile拒绝 SIMD、unknown/wrong-type import、
   table/global/start、`memory.grow`、非单一 bounded memory；purpose-built host只实现上述九个
   register/storage/return/log/panic/deposit imports，并限制 fuel、trace、payload、storage与日志。
-  exact source export + locked opam package versions的两次 clean same-host build byte-identical，当前
-  Linux orb SHA-256为 `3c6af34d068e08cd34ea6bf627ec1c1e597f5577f163d89f5f63f462303b0ad4`。
-  该 hash未进入 Tool Lock，product activation仍返回 `executableUnprovisioned`；parser、wrapper、
-  OCaml/runtime与 host assumptions继续显式属于 trust boundary。
+  run `31766677105` 的两平台2/2 clean build通过审查后发布为
+  `wasmcert-provider-v1.0.0-rc.1`：Darwin/Linux executable SHA-256分别为
+  `696b55dd…99842`/`c08b1622…15919`；Darwin closure另带exact GMP dylib，Linux只使用锁定的system
+  dependency policy。二者现已分别进入对应 Tool Lock；parser、wrapper、OCaml/runtime与 host
+  assumptions仍显式属于 trust boundary。
 - **WasmCert host replay + sole Reference execution join（Phase 7 第三十五切）**：
   `replayWasmCertHostTraceV1` 从 invocation pre-storage确定性 replay register、storage read/write、
   return、log、deposit与 panic，逐事件校验 result/payload/overwrite值，并与 rollback-aware observation
@@ -434,8 +432,9 @@ Phase 1：实现
   provider执行 `init/deposit/withdraw/status/withdraw-overdraw` 五条路径，Lean consumer从 production
   storage codec恢复唯一 logical pre-state，仅调用 `stepReferenceSliceV1`，比较 exact Reference
   return/post-state或 failure rollback。Python harness只编排 artifact，不再手写业务 post-state
-  evaluator；terminal/post-storage篡改负例由 Reference join拒绝。这是本地 executable engineering
-  refinement join，不是一般 Wasm simulation theorem、Tool Lock evidence或 formal target completion。
+  evaluator；terminal/post-storage篡改负例由 Reference join拒绝。当前 smoke又从 exact source重新
+  认证并生成production artifact，不再消费预制 Wasm或provider路径。这是 locked executable
+  engineering refinement join，不是一般 Wasm simulation theorem或 formal target completion。
 - **isolated locked WasmCert product consumer（Phase 7 第三十六切）**：
   `WasmCertProductV1` 只接受 capability-bound `FinalizedArtifactsV1`，先检查 exact NEAR profile、
   deployable flag与单一 finalized `.wasm` closure，再在任何 artifact read前要求 provider activation、
@@ -446,14 +445,12 @@ Phase 1：实现
   closure，三个输入不得被修改，result/trace/observation必须 canonical并通过 digest join与 host
   replay。private execution identity绑定 active Tool Lock platform/digest、provider executable、
   source/semantic/finalized-Wasm及全部 protocol artifact digests；它不 mint formal refinement claim，
-  也不包含第二套业务 step。当前两平台 lock都没有 provider，因此回归固定在 artifact IO前
-  `PF-TOOLCHAIN-MISSING`，无 PATH或 local-build fallback。Linux executable的 `libgmp/libm/libc/loader`
-  属既有 system dependency roots。首轮候选因 repository/GLIBC问题拒绝后，run `31766677105` 已产生
-  通过审查的第二轮：Linux executable `c08b1622…15919`最高要求`GLIBC_2.35`并在当前GLIBC 2.36
-  实跑5/5；Darwin executable `696b55dd…99842`的闭包为 bundled `libgmp.10.dylib`，repository
-  snapshot identity在两平台均非空。它们仍只是14日 candidate artifacts，尚无 durable asset URL，
-  因此禁止用 workflow success或 candidate hash直接激活。
-  activation digest本身也按 Darwin/Linux两个独立 row保持 `none`，不存在单 digest跨平台授权。
+  也不包含第二套业务 step。rc.1 release archive已公开重下载并按 exact hash/size复核，两个 Tool
+  Lock和activation rows分别绑定独立 executable identity；Linux locked product consumer已从
+  `VerifiedVaultPF.lean`经proof certification、materialize/finalize、provider execution与Reference
+  join实跑5/5。主CI Linux lane和macOS 14独立 lane配置为运行同一回归；missing root、executable
+  tamper及Darwin runtime dylib tamper均fail closed。无 PATH或 local-build fallback，也不存在单
+  digest跨平台授权。双平台CI观察完成前不关闭阶段出口。
 - **locked WasmCert → sole Reference product carrier（Phase 7 第三十七切）**：
   `WasmCertReferenceJoinV1` 只消费 private-constructor locked execution observation；semantic subject
   不由调用方选择，而是从其中 exact `FinalizedArtifactsV1` capability恢复 retained
@@ -463,8 +460,8 @@ Phase 1：实现
   `stepReferenceSliceV1`。strict first profile对 returned result/post-storage、failure unchanged-state/
   rollback及 empty ordered effects/logs/promises逐项比较，成功后才 mint private engineering join
   carrier。现有 VerifiedVault 5/5 consumer已复用该通用 comparator，terminal/post-storage/rollback
-  篡改继续 fail closed。adapter表示正确性本身仍是显式 trust boundary，且 Tool Lock未激活，所以
-  这不是 kernel target-refinement theorem或 release evidence。
+  篡改继续 fail closed。adapter表示正确性本身仍是显式 trust boundary；即使 Tool Lock现已激活，
+  这仍不是 kernel target-refinement theorem或完整release artifact proof。
 - **ContextRead（B-CTX-OPEN）**：`context.unixTimeSeconds` → host `block_timestamp()`(ns) ÷10^9
   截断（Plan Expr tag 41）；`context.blockHeight`（ADR-0031 S2）→ view-safe host
   `block_index()` 直接返回 u64 高度（Plan Expr tag 45，无单位转换）；`context.caller`
@@ -561,12 +558,12 @@ capability chain连接 exact WAT/ABI emission、两级 checked-add execution与 
 ABI/deposit/layout/first-overflow/late-second-overflow均有 no-commit边界。selected `withdraw()`也已
 由真实 production entry 1 / MethodIR 2 capability chain连接双 guard-before-write、两级 checked-sub
 success、Unit fall-through、Reference exact post-state及 first/second guard canonical observation
-rollback。finalized Wasm现有 exact digest provenance与 bounded section-envelope gate，并已由本地
-unprovisioned structured WasmCert provider解析、typecheck、instantiate和执行 selected VerifiedVault
-fixture；host trace replay与 sole ReferenceMachine五条调用 exact join已通过。但仍没有 WAT→Wasm
-translation theorem、kernel-bound disk artifact identity、一般 IR/WAT→Wasm simulation theorem或
-per-platform Tool Lock provider closure；binary parser与 purpose-built host assumptions也未消失。
-因此这项 executable join仍是 engineering evidence，不能标成完整 Reference→Wasm/NEAR formal
+rollback。finalized Wasm现有 exact digest provenance与 bounded section-envelope gate，并已由锁定的
+structured WasmCert provider解析、typecheck、instantiate和执行 selected VerifiedVault fixture；
+Linux locked product chain的host trace replay与 sole ReferenceMachine五条调用 exact join已通过，
+macOS 14配置同一CI consumer。仍没有 WAT→Wasm translation theorem、kernel中的一般
+IR/WAT→Wasm simulation theorem；binary parser与 purpose-built host assumptions也未消失。因此这项
+identity-bound executable join仍是 engineering evidence，不能标成完整 Reference→Wasm/NEAR formal
 refinement。通用 corpus 对 corrupt storage 或
 gas/profile 的覆盖仍不完整；StateCell
 `negative_corpus` 已 pin unknown method / exactInputLen 类 bad args + state-hold

@@ -18,10 +18,10 @@ private def identityWire (platform : ToolLockPlatformV4) : IO String := do
 
 def run : IO Unit := do
   expect ((← identityWire .darwinArm64) ==
-    "sha256:8f7fca3742facdd2ea15157bfc028866c93d7f93327b793522d3f78d161a6500")
+    "sha256:260e523b0f65ff7c0e13a63910b6fe2f3a54fc33bf7de59770bc4e3a199949fb")
     "Darwin Tool Lock v4 KAT"
   expect ((← identityWire .linuxX86_64) ==
-    "sha256:79575c16ad8a1e6cad5d842b37adffa382fed19512134e3bbb10ef94169cb968")
+    "sha256:6fd88735b08899fbe293b0ac827b5cd105218a6307e14d37efbd8af964c3bac5")
     "Linux Tool Lock v4 KAT"
   for target in #["aarch64-apple-darwin", "arm64-apple-darwin",
       "aarch64-apple-darwin24.6.0", "arm64-apple-darwin24.6.0"] do

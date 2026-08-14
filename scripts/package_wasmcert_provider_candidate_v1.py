@@ -309,7 +309,7 @@ def main() -> None:
         f"build-wasmcert-provider: platform={args.platform}",
         f"build-wasmcert-provider: sha256={provider_sha256}",
         "build-wasmcert-provider: repeat-check=2/2-byte-identical",
-        "build-wasmcert-provider: provider remains unprovisioned and product activation stays fail closed",
+        "build-wasmcert-provider: candidate remains non-admitted and cannot change product activation",
     }
     observed_repeat_lines = set(repeat_build_text.splitlines())
     missing_repeat_lines = sorted(required_repeat_lines - observed_repeat_lines)

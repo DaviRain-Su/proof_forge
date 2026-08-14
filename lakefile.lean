@@ -337,6 +337,14 @@ lean_exe proof_forge_compiler_proof_worker_v2 where
   root := `ProofForgeV2.Compiler.ProofWorkerMainV2
   supportInterpreter := true
 
+-- Focused executable for the provisioned WasmCert product acceptance lane.
+-- It must run from the Lake bin directory so ProductParserSessionV1 resolves
+-- the package-owned frontend Environment rather than an ambient LEAN_PATH.
+lean_exe wasmcert_provider_runtime_v1 where
+  exeName := "wasmcert-provider-runtime-v1"
+  root := `Tests.Materialization.WasmCertProviderRuntimeV1
+  supportInterpreter := true
+
 lean_exe proof_forge_next_tests where
   exeName := "proof-forge-next-tests"
   root := `Tests

@@ -3,7 +3,7 @@ id: ADR-0043
 title: Pinned WasmCert-Coq provider and NEAR host refinement boundary
 status: proposed
 owner: architecture
-updated: 2026-08-13
+updated: 2026-08-14
 normative: true
 ---
 
@@ -44,10 +44,11 @@ Lean 常量位于 `Targets/Near/WasmCertProviderV1.lean`，供应链注解位于
 `supply-chain/wasmcert-coq-authority.v1.json`。该 pin 只证明选中了哪份 source/schema；它不是
 二进制 hash、Tool Lock entry、构建可复现性或执行结果认证。
 
-在 per-platform Tool Lock v4 中存在可 provision 的
-`wasmcert-coq-provider` executable、exact executable SHA-256、version probe 与依赖闭包之前，
-`requireWasmCertProviderProvisionedV1` 必须返回 `executableUnprovisioned`。不得用 git revision、
-本机 opam build、PATH 上的同名程序或上游 CLI 版本文本绕过该门。
+现在两个 per-platform Tool Lock v4 都含可 provision 的 `wasmcert-coq-provider`、平台独立的
+executable SHA-256、exact version probe 与依赖闭包；资产来自 durable prerelease
+`wasmcert-provider-v1.0.0-rc.1`。`requireWasmCertProviderProvisionedV1` 只选择 active platform 的
+admitted digest；product还必须从 Tool Root resolve、rehash并要求二者相等。不得用 git revision、
+本机 opam build、PATH 上的同名程序、另一平台 hash或上游 CLI 版本文本绕过该门。
 
 ### D2 — 只接结构化 wrapper，不 scrape 上游 CLI
 
@@ -92,8 +93,9 @@ result 是 **provider record，不是 certificate**。consumer 必须重算 requ
 identity/status candidate join：非 canonical JSON、unknown/duplicate/missing field、非法相对路径、
 digest 漂移、非 bounded fuel、parser/checker/instantiation拒绝、非 terminal execution和 SIMD 都
 fail closed。该 join 故意不把任意 `executableSha256`升级为 Tool Lock identity；product consumer
-仍必须先通过 `requireWasmCertProviderProvisionedV1`，而该 gate 当前必定失败。因此 codec round-trip
-或 candidate join成功都只证明严格 record plumbing，不证明 wrapper存在、WasmCert运行或 record为真。
+仍必须先通过 `requireWasmCertProviderProvisionedV1`并独立 resolve locked executable。因此 codec
+round-trip或脱离 locked execution的 candidate join成功都只证明严格 record plumbing，不证明
+WasmCert运行或 record为真。
 
 `Targets/Near/WasmCertArtifactsV1.lean` 现进一步实现 invocation、host trace 与 observation 三种
 canonical artifact。invocation逐字段携带 export/raw input、完整 strict-profile NEAR context、
@@ -110,21 +112,23 @@ ProofForge-owned overlay 现位于 `tools/wasmcert-provider/`，由
 并直接调用 extracted `run_parse_module_str`、`module_type_checker`、
 `interp_instantiate_wrapper`、`run_one_step`，不解析 human CLI。首个 strict host只实现上述九个
 imports，拒绝其他 import/type、SIMD、table/global/start、`memory.grow`、非单一 bounded memory、
-view write及资源越界。当前 Linux orb 中两次 clean same-host build exact-byte相等，SHA-256 为
-`3c6af34d068e08cd34ea6bf627ec1c1e597f5577f163d89f5f63f462303b0ad4`；该值只是一项本地
-reproducibility observation，**没有**进入 Tool Lock，也不能激活产品 consumer。
+view write及资源越界。最终审计候选来自 run `31766677105`：Darwin/Linux均完成2/2 clean
+same-platform byte-identical build；executable SHA-256分别为 `696b55dd…99842` 与
+`c08b1622…15919`。发布后的原始 archive又从公开 release URL重下载并按 exact size/SHA-256复核，
+随后才分别进入对应 Tool Lock；较早的本地或首轮候选 hash没有授权力。
 
 build recipe现只接受 native `linux-x86_64`/`darwin-arm64`，以 Python SHA-256替代 Darwin缺失的
 GNU `sha256sum`，并提供 `--repeat-check`：从两个独立 clean export/build目录构建，只有 executable
-逐字节相等才原子发布。该改动只解除 Darwin candidate build的脚本阻塞；尚未产生或授权 Darwin
-artifact，也不自动发现或批准 runtime closure。
+逐字节相等才原子发布。build命令只生成**新候选**，不会修改既有 Tool Lock或替换当前 admitted
+identity；后续版本仍必须重新经过双平台 closure审查、durable发布和独立 admission。
 
 手动 workflow `.github/workflows/wasmcert-provider-candidates.yml` 使用 Ubuntu/macOS 14 native矩阵，
 从 exact source revision和 package-version lock建立 OCaml switch，并对每个平台执行上述双构建门。
 `package_wasmcert_provider_candidate_v1.py` 随后记录完整 installed package/repository observation、
 version probes与 build-input hashes；Linux以 `readelf`+`ldd`拒绝非 system-root依赖，Darwin以
-`otool`递归收集所有非系统 dylib到 candidate closure。上传的 archive明确携带
-`toolLockAdmitted=false`与`productActivated=false`；它只是后续人工审查/lock admission的输入。
+`otool`递归收集所有非系统 dylib到 candidate closure。每次新上传的 candidate archive仍明确携带
+`toolLockAdmitted=false`与`productActivated=false`；只有本 ADR记录的 rc.1 release bytes经独立
+Tool Lock变更获得授权，workflow success本身永不自动 admission。
 
 Lean consumer 又在 artifact structural validation 后确定性 replay register/storage/read/write/
 return/log/panic host trace，并把 replay结果与 call-boundary observation连接。真实 finalized
@@ -145,8 +149,8 @@ bounded closure，三个输入逐字节保持不变，三个输出通过 canonic
 最终 private execution observation绑定 active Tool Lock platform/digest、provider id/version/executable
 digest、source/semantic/finalized-Wasm、fuel以及全部 request/result/trace/observation digests。该对象是
 identity-bound engineering execution observation，不是通用 target-refinement theorem，也不直接复制
-Reference business semantics。当前 provider仍未进入两平台 Tool Lock，因此该路径会在任何 artifact
-IO或 provider执行前以 `PF-TOOLCHAIN-MISSING` fail closed。
+Reference business semantics。当前双平台 admitted closure、activation digest与真实 consumer均已
+接线；missing、unprovisioned、executable/runtime tamper仍在任何 observation acceptance前 fail closed。
 
 ### D3 — mechanization status 必须逐层保留
 
@@ -179,7 +183,7 @@ memory shape、SIMD、resource exhaustion、malformed trace全部 fail closed。
 
 ### D5 — fail-closed 分类与 activation 顺序
 
-未来 provider consumer至少区分：
+provider consumer至少区分：
 
 ```text
 unprovisioned / tool-identity / request-identity / malformed-record
@@ -214,18 +218,19 @@ LGPL-2.1-or-later；不能只复制 opam 的简化 MIT 字段。
 ## Consequences
 
 - 当前 NEAR assurance **不升级为 formal target-refined**：四个 bounded MethodIR/typed-WAT recipe、
-  finalized Wasm structural boundary与本地 WasmCert executable/host/Reference join已经贯通，但
-  provider仍未 provision，parser仍未验证，且没有一般 IR/WAT→Wasm simulation theorem。
+  finalized Wasm structural boundary与 locked WasmCert executable/host/Reference join已经贯通，但
+  parser仍未验证，且没有一般 IR/WAT→Wasm simulation theorem。
 - source pin、closed protocol、canonical artifacts、provider overlay、host replay和五 case join均可
-  审计；isolated locked consumer与 identity schema也已落地，但 product activation仍机械 fail closed，
-  same-host binary hash不能替代 per-platform Tool Lock。
-- Linux provider当前仅动态依赖系统 `libgmp`、`libm`、`libc`与 loader；它们均落在 Tool Lock既有
-  `/lib/`、`/lib64/`、`/usr/lib/`系统依赖边界内，不应伪装成 bundle runtime files。Darwin arm64
-  尚无真实 provider artifact/hash，因而不能把 Linux hash复制到双平台 lock，也不能先行激活。
-- activation digest API现按 `darwin-arm64`/`linux-x86_64`分别持有独立 row，两个 row当前均为
-  `none`；未来必须各自与对应 platform lock executable pin相等后才能打开，不能用单值跨平台。
-- NEAR阶段出口的剩余工作收窄为真实两平台 provider executable provisioning、Tool Lock retained-file
-  identity更新及 activated consumer回归；translation、unverified parser与 host assumptions必须继续
-  明示。完成前不继续 Solana扩面。
+  审计；isolated locked consumer从 exact `VerifiedVaultPF.lean`重新认证、materialize/finalize，再由
+  `executeLockedWasmCertV1`和`joinLockedWasmCertReferenceV1`跑通五条路径，不消费预制业务 oracle。
+- Linux provider仅动态依赖系统 `libgmp`、`libm`、`libc`与 loader；它们落在 Tool Lock既有
+  system dependency roots内。Darwin arm64 closure则显式携带 exact `lib/libgmp.10.dylib`，并由
+  Mach-O policy绑定唯一 external edge。
+- activation digest API按 `darwin-arm64`/`linux-x86_64`持有两个不同 row，且各自等于对应 lock
+  executable pin；source revision、archive digest、canonical lock identity和executable digest保持
+  不同概念，不能互相冒充。
+- NEAR本阶段的双平台 provisioning/activation/consumer出口已经实现，并进入 Linux主CI与
+  macOS 14独立 lane。translation、unverified parser、host与adapter assumptions仍必须明示；下一步
+  可按路线恢复 Solana bounded target slice，而不能把本出口宣传成一般 Wasm/NEAR formal refinement。
 - WasmCert parser、wrapper glue、OCaml compiler/runtime和 purpose-built host仍属于明确列出的 TCB/
   assumption边界；文档和 UI 不得用单一 `verified=true` 抹平这些差异。

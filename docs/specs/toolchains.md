@@ -3,7 +3,7 @@ id: SPEC-TOOL-001
 title: 工具链锁定规格
 status: proposed
 owner: build
-updated: 2026-08-13
+updated: 2026-08-14
 normative: true
 ---
 
@@ -28,39 +28,40 @@ development-only；它不能关闭 `TASK-D0-03/04`。linux profile 的 eligibili
 
 ## Tool Lock v4（当前权威；两平台）
 
-### 尚未 provision 的 WasmCert-Coq provider
+### WasmCert-Coq provider 双平台 closure
 
 [ADR-0043](../adr/0043-pinned-wasmcert-provider-boundary.md) 已固定 WasmCert-Coq 2.2.1
 revision `9ab0f87f03fff5507749efc273ec662fe27e6d14` 作为 NEAR 外部 Wasm semantics 的
-**source authority**。它当前不在任一 per-platform Tool Lock v4 的 `assets[]`/`tools[]` 中，
-也没有 executable SHA-256；因此 `wasmcert-coq-provider` 必须保持 unprovisioned/fail-closed。
-不得把 source revision、未锁定 opam build或 PATH 上的 upstream `wasm_coq_interpreter`当成
-Tool Lock identity。ProofForge structured wrapper overlay、exact source export build recipe、version
-probe、bounded NEAR host及本地五 case smoke现已存在；当前 orb两次 clean same-host build得到相同
-SHA-256 `3c6af34d068e08cd34ea6bf627ec1c1e597f5577f163d89f5f63f462303b0ad4`。该观测不证明
-cross-host reproducibility，也不是可 provision asset identity。第二轮 manual matrix run
-`31766677105` 已在 Ubuntu 22.04 与 macOS 14 各完成 2/2 byte-identical build、exact opam repository
-snapshot observation与 native version probe；两平台 executable SHA-256 分别为 Linux
-`c08b1622…15919`、Darwin `696b55dd…99842`。真实激活仍需要把这两个已审查候选发布为 durable
-content-addressed assets并将 exact binary/runtime closure写入 Tool Lock；加入时按本规格升级 lock
-retained-file digest与 package pin。
+**source authority**。两个平台现在都从 durable prerelease
+`wasmcert-provider-v1.0.0-rc.1` provision exact audited archive，并在 `tools[]` 注册
+`wasmcert-coq-provider`；source revision、release archive、lock identity与 executable identity仍是
+四个不同概念。不得把 source revision、未锁定 opam build、PATH上的 upstream
+`wasm_coq_interpreter`或另一平台hash当成当前 Tool Lock identity。
+
+| platform | archive SHA-256 / size | executable SHA-256 / size | runtime closure |
+|---|---|---|---|
+| `darwin-arm64` | `9d8afb3d…8b793` / 2,265,719 | `696b55dd…99842` / 5,802,216 | `lib/libgmp.10.dylib` (`1bb91848…d696`, 452,816) |
+| `linux-x86_64` | `d4e01187…e3255` / 2,999,322 | `c08b1622…15919` / 9,350,800 | none；`libgmp.so.10`/`libm.so.6`/`libc.so.6` are system NEEDED |
+
+公开 release bytes已在发布后重新下载并按 exact SHA-256/size核对；Darwin Mach-O policy绑定 sole
+external GMP edge，Linux ELF policy固定无RUNPATH和三项system NEEDED。两个 lock retained-file raw
+digests分别为 Darwin `d557ee2c…b45d`、Linux `80f65e53…b21`；canonical Tool Lock identities分别为
+Darwin `260e523b…949fb`、Linux `6fd88735…3bac5`。这些值不能与 executable digest混用。
+
 `Targets/Near/WasmCertWireV1.lean`已实现 canonical request/result record与 candidate identity/status
 join，但它不 provision工具，也不把 record内自报的 `executableSha256`当作 lock authority；因此
-该实现不改变本节 unprovisioned状态。`Targets/Near/WasmCertProductV1.lean` 现已补齐 activation后的
+`Targets/Near/WasmCertProductV1.lean` 仍必须独立 resolve/rehash Tool Root。该模块实现
 isolated consumer：Tool Lock resolve/rehash与 version probe先于 artifact IO，执行采用 clean env与
 exclusive temp directory；finalized staging先经 exact base+Wasm disk closure扫描并把 base bytes回接
 materialized carrier，provider工作目录再要求 exact bounded六文件 closure，全部 input/output digest
-最终绑定 active platform lock identity。它当前仍由 unprovisioned gate拒绝，不能从 PATH或本地
-build回退。
+最终绑定 active platform lock identity；不能从 PATH或本地 build回退。
 
-Linux候选动态依赖只有 `libgmp`、`libm`、`libc`与 ELF loader，最高要求 `GLIBC_2.35`；路径均属于
+Linux executable动态依赖只有 `libgmp`、`libm`、`libc`与 ELF loader，最高要求 `GLIBC_2.35`；路径均属于
 本规格允许的 `/lib/`、`/lib64/`、`/usr/lib/` system dependency roots，所以无需伪造为 bundle
-`runtimeFiles`，且已在 Debian 12 / GLIBC 2.36完成 exact version probe与 VerifiedVault 5/5 smoke。
-Darwin arm64候选闭包为 executable + `lib/libgmp.10.dylib`，独立 Mach-O load-command解析与 candidate
-policy一致；native workflow已执行 version probe。候选尚未成为 durable lock asset，因此不得把
-candidate hash直接当作 activation、不得复制另一平台 hash，也不得只更新单一平台造成产品能力不对称。
-Lean activation pin采用 Darwin/Linux两个独立 digest row，当前均为 `none`；provision时每个平台
-row必须分别等于对应 lock executable SHA-256，不得用一个 digest给两平台授权。
+`runtimeFiles`，且已在 Debian 12 / GLIBC 2.36完成 exact version probe和 locked
+VerifiedVault source→finalized Wasm→provider→Reference五路径回归。Darwin arm64使用独立 digest row
+和bundled GMP closure；macOS 14 CI运行同一 locked product consumer及runtime tamper负例。未来新
+candidate仍是 non-admitted，必须经新的 reviewed lock变更才能替换上述身份。
 
 两平台 lock 文件共享 schema 名 `proof-forge.toolchains.v4`，由 `platform` 与 policy 键区分：
 
