@@ -642,6 +642,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-14 | **SYS-S5-ECDSA-FC-NEW**：ICP/Soroban/OpenVM/Quint 对 ecdsaRecover 点名 no-host + QN。EVM leaf 不动。**不**关闭 EXT-CRYPTO / formal |
 | 2026-08-14 | **TON-1A**：`TonPlanV1` 钉未知 profile `PF-PROFILE-UNKNOWN`。不新开第二 TON profile。**不**关闭 formal |
 | 2026-08-15 | **ALEO-1A**：`AleoInstructionsV1` 钉 zero-tool Finalize（`extraFiles` 空、`deployable=false`、evidence 含 compilation/VM/proof/deployment）与未知 profile `PF-PROFILE-UNKNOWN`。**不**关闭 Leo/formal |
+| 2026-08-15 | **PSY-1A**：`PsyDpnV1` 钉 zero-tool Finalize（`StateCell.dpn.json` only、`extraFiles` 空、`deployable=false`、evidence 含 compilation/VM/proof/UPS/deployment）与未知 profile `PF-PROFILE-UNKNOWN`。**不**关闭 formal |
 
 ---
 

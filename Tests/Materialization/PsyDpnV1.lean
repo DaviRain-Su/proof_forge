@@ -2545,6 +2545,53 @@ unsafe def testStateCellProductArtifact : IO Unit := do
   expect (artPaths == #["StateCell.dpn.json"])
     s!"Registry materializeResult default must be DPN-only, got {artPaths}"
 
+/-- PSY-1a: product capability → materialize → zero-tool Finalize.
+    DPN package is not compiled, executed, proved, UPS'd, or deployed.
+    Staging may be `"."` because Finalize does not read disk. -/
+unsafe def testCapabilityProductPath : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let parsed ← liftResult (← session.selectProgramV1
+    ProofForgeV2.Examples.stateCellSourceText "<psy-finalize>"
+    ProofForgeV2.Examples.stateCellModuleNameV1 none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  expect (selection.codegenProfile == CodegenProfileId.psyDpnV1)
+    "Psy selection must bind psy-dpn-v1"
+  let capability ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let artifacts ← liftResult <| Targets.materializeResult capability
+  let artPaths := (MaterializedArtifactsV1.filesOf artifacts).map (·.path)
+  expect (artPaths == #["StateCell.dpn.json"])
+    s!"Psy materialize must remain DPN-only, got {artPaths}"
+  let finalized ← Targets.finalizeMaterializedArtifactsV1
+    capability artifacts (System.FilePath.mk ".")
+  expect (!FinalizedArtifactsV1.deployableOf finalized)
+    "Psy zero-tool finalization must remain non-deployable"
+  expect (FinalizedArtifactsV1.extraFilesOf finalized).isEmpty
+    "Psy zero-tool finalization must add no files"
+  let note := FinalizedArtifactsV1.evidenceNoteOf finalized
+  expect (note.contains "compilation" || note.contains "VM execution" ||
+      note.contains "proof" || note.contains "UPS" ||
+      note.contains "deployment")
+    s!"Psy Finalize evidence must name the zero-tool boundary, got: {note}"
+
+/-- PSY-1a: grammar-valid but unregistered profile stays unknown.
+    Do not invent a reserved psy-source-* / VM CodegenProfileId. -/
+unsafe def testUnknownProfileFailClosed : IO Unit := do
+  match CodegenProfileId.parse? "not-a-real-profile-v1" with
+  | none =>
+      throw <| IO.userError "not-a-real-profile-v1 must remain grammar-valid"
+  | some unknown =>
+      match BuildSelectionV1.resolveBuildSelectionV1
+          TargetId.psy (some unknown) with
+      | .error e =>
+          expect (e.code == "PF-PROFILE-UNKNOWN")
+            s!"unknown Psy profile must be PF-PROFILE-UNKNOWN, got {e.code}: {e.render}"
+      | .ok sel =>
+          throw <| IO.userError
+            s!"unknown Psy profile must fail closed, got {sel.codegenProfile}"
+
 unsafe def run : IO Unit := do
   testOpTypeDiscriminants
   testEncodeIndexedId
@@ -2603,6 +2650,8 @@ unsafe def run : IO Unit := do
   testGoldilocksFieldProductDpn
   testG5HardNonResidualDpnFailClosed
   testStateCellProductArtifact
+  testCapabilityProductPath
+  testUnknownProfileFailClosed
   IO.println "Tests.Materialization.PsyDpnV1: ok"
 
 end Tests.Materialization.PsyDpnV1

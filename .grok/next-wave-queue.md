@@ -93,6 +93,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | SYS-S5-ECDSA-FC-NEW | done | ICP/Soroban/OpenVM/Quint ecdsaRecover named no-host + QN on existing crypto tests. **Not** EXT-CRYPTO / formal |
 | TON-1A | done | TON unknown-profile FC: `not-a-real-profile-v1` → `PF-PROFILE-UNKNOWN`. **Not** formal |
 | ALEO-1A | done | Aleo Finalize honesty: extraFiles empty, deployable=false, evidence names no compilation/VM/proof/deploy. Unknown profile `PF-PROFILE-UNKNOWN`. **Not** Leo/formal |
+| PSY-1A | done | Psy Finalize honesty: extraFiles empty, deployable=false, evidence names no compilation/VM/proof/UPS/deploy. Unknown profile `PF-PROFILE-UNKNOWN`. **Not** formal |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
