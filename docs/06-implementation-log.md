@@ -15937,3 +15937,16 @@ normative: false
   的归约内存（增长reserve占10240 bytes），因此没有把工程execution regression冒充定理。当前仍缺
   identity-bound 168条program的bounded sparse step trace certificate；先闭合`get`，再复用到
   initialize/increment/overflow。在该等式证书完成前仍无concrete provider-backed refinement theorem。
+
+## 2026-08-14 — Solana StateCell `get` sparse provider certificate首段
+
+- 新增`SbpfProviderStepV1`，仅为exact-pinned provider已有`Machine`/`execInstr`/`Step`/`Steps`/
+  `runFuel` definitions提供projection与ordinary proof reduction；没有新增ISA evaluator、target
+  lowering、DSL step或business semantics。
+- 新增`SbpfStateCellGetV1`：以sparse `program[pc]?` contract和Loader input memory-read contract为
+  前提，kernel证明production `get`路径PC 0..7共8个provider steps到达PC 10；同时保留memory、
+  frame、fuel-depth、return-data、input-base与frame-pointer事实，供下一segment组合。
+- 该切片不复制168条proof-only program，也不展开10416-byte Loader image。它尚未从strict
+  identity-bound artifact parser推导8个lookup assumptions，且完整55-step `get`仍剩47步。因此
+  `executeLoaderV3SingleAccountV1` concrete equation与ReferenceMachine→sBPF refinement theorem仍未闭合；
+  initialize/increment/overflow、ELF/loader/runtime/rollback/compute units也没有因此升级。

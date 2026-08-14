@@ -176,9 +176,10 @@ rail保持独立，不得另造第二套DSL/business semantics。ADR已经accept
 production StateCell artifact parser/resolver与SHA-256 identity gate已经闭合，真实输出解析为168条
 provider instructions。真实single-account Loader V3 ABIv1 adapter已执行identity-bound production
 artifact的`get/initialize/increment/overflow`，固定return/account bytes/error，并保留`.stuck`与
-`.outOfFuel`为显式provider observations。HandlerIR↔resolved-sBPF join theorem尚未闭合，所以仍
-没有provider-backed refinement claim；ELF、loader、rollback、compute units与runtime也不在该观察
-范围内。
+`.outOfFuel`为显式provider observations。`get`的稀疏kernel certificate现已在exact lookup/read
+假设下闭合PC 0..7的8步input-shape dispatch并到达PC 10；剩余47步以及identity-bound strict
+parser→lookup假设的绑定仍未闭合。因此HandlerIR↔resolved-sBPF execution equation尚未完成，仍
+没有provider-backed refinement claim；ELF、loader、rollback、compute units与runtime也不在该观察范围内。
 
 ## 1. 身份与来源
 
@@ -300,8 +301,9 @@ Phase 1 在本地 runtime/validator 创建 program 与 state accounts，发送 i
    - 候选 ISA 地基：exact revision的公开 `assembler-semantics`（`SbpfSemantics.Api` /
      `Observation`），见 [`../research/09-assembler-semantics-bridge.md`](../research/09-assembler-semantics-bridge.md)。
      production artifact strict resolve与Loader V3 provider execution已有工程观测；
-     `SbpfHandlerJoinV1`已固定kernel组合契约，但168条StateCell program的bounded execution certificate
-     尚未闭合。完成该theorem且release source closure闭合前，不得作为clean-room或release证据。
+     `SbpfHandlerJoinV1`已固定kernel组合契约，`get`的bounded sparse execution certificate已闭合
+     首8/55步，但剩余47步与artifact identity→lookup绑定尚未闭合。完成该theorem且release source
+     closure闭合前，不得作为clean-room或release证据。
 4. local runtime 完成 Counter 正常与 overflow rollback。
 5. 可用时增加官方 validator deployment evidence。
 
