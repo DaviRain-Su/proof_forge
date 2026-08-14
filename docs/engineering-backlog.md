@@ -640,6 +640,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-14 | **SYS-S5-ECDSA-FC**：Solana/NEAR/CW 对 `pf.crypto.ecdsaRecoverSecp256k1` 点名 Plan fail closed（`outside admitted scope` / `has no CosmWasm host binding` + QN）。EVM `0x01` leaf 不动。**不**关闭 EXT-CRYPTO / formal |
 | 2026-08-14 | **SYS-S5-ECDSA-FC-REST**：Noir/TON/Aleo 点名 no-host + QN；Psy 用 void-call 钉 QN `value-producing`（result-bearing 走 generic admit list，不插 QN）。**不**关闭 EXT-CRYPTO / formal |
 | 2026-08-14 | **SYS-S5-ECDSA-FC-NEW**：ICP/Soroban/OpenVM/Quint 对 ecdsaRecover 点名 no-host + QN。EVM leaf 不动。**不**关闭 EXT-CRYPTO / formal |
+| 2026-08-14 | **TON-1A**：`TonPlanV1` 钉未知 profile `PF-PROFILE-UNKNOWN`。不新开第二 TON profile。**不**关闭 formal |
 
 ---
 

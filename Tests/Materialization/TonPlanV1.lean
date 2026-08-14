@@ -1616,6 +1616,22 @@ private unsafe def testEnvReadNativeStayFailClosed
         "EnvReadBalanceTon must Plan fail closed (no Ton vault host)"
   IO.println "  ✓ envRead nativeVaultBalance stay fail closed (no Ton host)"
 
+/-- TON-1a: grammar-valid but unregistered profile stays unknown.
+    Do not invent a second TON CodegenProfileId. -/
+unsafe def testUnknownProfileFailClosed : IO Unit := do
+  match CodegenProfileId.parse? "not-a-real-profile-v1" with
+  | none =>
+      throw <| IO.userError "not-a-real-profile-v1 must remain grammar-valid"
+  | some unknown =>
+      match resolveBuildSelectionV1 TargetId.ton (some unknown) with
+      | .error e =>
+          expect (e.code == "PF-PROFILE-UNKNOWN")
+            s!"unknown TON profile must be PF-PROFILE-UNKNOWN, got {e.code}: {e.render}"
+      | .ok sel =>
+          throw <| IO.userError
+            s!"unknown TON profile must fail closed, got {sel.codegenProfile}"
+  IO.println "  ✓ unknown profile fail closed"
+
 unsafe def run : IO Unit := do
   IO.println "TonPlanV1"
   let session ← Tests.Language.ParserSession.shared
@@ -1637,6 +1653,7 @@ unsafe def run : IO Unit := do
   testAggregateFailClosed session
   testContextReadUnixTime session
   testEnvReadNativeStayFailClosed session
+  testUnknownProfileFailClosed
   IO.println "TonPlanV1: all checks passed"
 
 end Tests.Materialization.TonPlanV1
