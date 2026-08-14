@@ -457,8 +457,8 @@ private def checkExternalCallScheduleArgs (env : OpTypingEnv)
     additionally
     carries the §5.1 same-key result-TypeId consistency pass (a separate
     post-CFG global catalog gate). `Op.Commit` resolves its operand and requires
-    `result.typeId == type(value)`; its exact disclosure requirement binding
-    remains deferred to later slices.
+    `result.typeId == type(value)`; exact `disclosure.commitment` row binding
+    is `validateCommitRequirementsV1` (`testCfgCommitCatalogRequirements`).
     All failures → `.badCfg`. Bounded, non-recursive (serializableType is
     fuel-bounded). Each op family keeps its own contract; shared combinators
     only eliminate typeOf/shapeOf/result/operand/args boilerplate. -/

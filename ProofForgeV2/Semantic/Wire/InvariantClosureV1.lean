@@ -1013,7 +1013,8 @@ theorem validateInvariantFuelPhasesV1_eq_ok
     occurrences), space O(distinct keys). The wire-owned v1 catalog admits
     closed keys: unix-time-seconds → anonymous UInt64, caller → anonymous
     Principal (N-2); exact requirement binding runs after generic requirement
-    validation. Commit's disclosure contract remains deferred. -/
+    validation. Commit disclosure is bound separately by
+    `validateCommitRequirementsV1` (`testCfgCommitCatalogRequirements`). -/
 private def validateContextReadCatalogV1
     (types : Array TypeDeclV1) (callables : Array CallableV1) :
     Except SemanticWireErrorV1 Unit := do

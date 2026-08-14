@@ -83,6 +83,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | SYS-E2-TON | done | TON: envRead nativeVaultBalance named no-host FC. unixTime still admitted. Focused TonPlanV1 ok. **Not** formal |
 | SOR-1-GAP | done | Inventory [`docs/plan/soroban-s1-wasm-finalize-gap.md`](../docs/plan/soroban-s1-wasm-finalize-gap.md). Next implementable = SOR-1a Finalize honesty pins. Opening Wasm/auth/TTL needs a product decision. **Not** formal |
 | SOR-1A | done | S0 Finalize honesty + unknown profile FC in `SorobanPlanV1`. extraFiles empty, deployable=false. **Not** SOR-1 / formal |
+| F-COMMIT-COMMENT | done | Honesty: CfgTyping/InvariantClosure comments now point at `validateCommitRequirementsV1` (`testCfgCommitCatalogRequirements`). Comments only. **Not** formal |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 
@@ -116,7 +117,7 @@ Leave these `blocked` / `decision`. Goal must **skip**, not implement.
 
 ## Runner notes
 
-1. Track A/B/F packaging through `F-TYPEKEY-BYTES` is done. `SYS-S5-NEW-TARGETS` and `SYS-S4-NEW-TARGETS` are done. Live drain continues on file-isolated engineering leaves. Goal must **not** auto-close formal IDs. Never Track C. Unused TypeKey rejection / decoder-side rank / SPEC-honesty ADR / EV binding / C-3 remain product/formal decisions.
+1. Track A/B/F packaging through `F-COMMIT-COMMENT` is done. Live drain continues on file-isolated engineering leaves. Goal must **not** auto-close formal IDs. Never Track C. Unused TypeKey rejection / decoder-side rank / SPEC-honesty ADR / EV binding / C-3 / SOR-1 Wasm remain product/formal decisions.
 2. Mark claimed row `in_progress` only on a clean tree (or WIP wholly inside that slice allowlist).
 3. One local commit per id. Touch `ProofForgeV2/**` → `just sbom-package-files-refresh`. Docs → `just docs-check`.
 4. After commit: this file `done`, `docs/engineering-backlog.md` one honest line, AGENTS Current/Next if Track A pointer moves.
