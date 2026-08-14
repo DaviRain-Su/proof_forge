@@ -843,10 +843,11 @@ kernel中的一般 IR/WAT→Wasm simulation theorem，也不是 Tool Lock/produc
 NEAR：isolated locked product consumer与 evidence identity已实现，但 activation仍机械 fail closed；
 首轮双平台 candidate已构建成功但审查拒绝 admission：Darwin manifest缺两个 opam repository
 snapshot digest；Linux binary要求 GLIBC 2.38，无法在当前 Debian 12 / GLIBC 2.36执行 version probe。
-候选门现要求 archive或 canonical file-tree repository digest两行齐全，并把 Linux runner固定为
-Ubuntu 22.04旧 glibc基线。剩余阶段出口是重建并审查双平台 closure、写入 per-platform executable
-identity并跑通 activated consumer。parser/translation/host/adapter assumptions继续明示，完成该出口
-后才恢复 Solana。
+修复后的 run `31766677105` 已真实重建并通过审查：两平台 repository snapshot identity齐全，
+Darwin Mach-O闭包为 executable + bundled GMP，Linux最高要求 GLIBC 2.35并在当前 GLIBC 2.36 orb
+通过 version probe与 VerifiedVault 5/5。candidate仍明确 non-admitted/non-activated；剩余阶段出口是
+发布 durable content-addressed assets、写入双平台 Tool Lock/executable identity并跑通 activated
+consumer。parser/translation/host/adapter assumptions继续明示，完成该出口后才恢复 Solana。
 
 2026-08-13 已开始 Solana 的第一个 bounded target slice，当前只覆盖真实 production
 `StateCell.get() : UInt64`：
@@ -976,7 +977,7 @@ ProofForge内自造完整 EVM opcode、Wasm binary、sBPF或 Solana runtime sema
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR 本地 WasmCert executable/host/Reference join及 locked consumer已贯通；Solana `StateCell.get()` 首切后暂停）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；structured provider、bounded nine-import host、trace replay及真实 VerifiedVault五路径 sole Reference join已通过，same-host clean build byte-identical。locked Reference product carrier从 finalized capability恢复 exact semantic subject，并把 representation adapter限制在 Outcome之外。首轮双平台 candidates因 Darwin repository snapshot identity缺失与Linux GLIBC_2.38不兼容而诚实拒绝，Tool Lock仍未激活；且无一般 IR/WAT→Wasm simulation theorem，因此只算 engineering executable join。Solana已有首个 Plan/HandlerIR slice，但在 NEAR真实双平台 provisioning/activated-consumer阶段出口前不扩面 |
+| 7 | Per-target refinement | **进行中（NEAR 双平台 WasmCert candidates已审查；待 durable Tool Lock admission/activated consumer）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；structured provider、bounded nine-import host、trace replay及真实 VerifiedVault五路径 sole Reference join已通过。locked Reference product carrier从 finalized capability恢复 exact semantic subject，并把 representation adapter限制在 Outcome之外。run `31766677105` 的 Linux/Darwin candidates均有2/2 byte-identical build与exact repository/runtime closure；Linux已在GLIBC 2.36实跑5/5。但 durable assets与Tool Lock rows尚未写入，且无一般 IR/WAT→Wasm simulation theorem，因此仍只算 engineering executable join。Solana已有首个 Plan/HandlerIR slice，但在 NEAR activated-consumer阶段出口前不扩面 |
 
 ### 首个代码切片进展
 
@@ -1406,7 +1407,14 @@ expression translator：
     Darwin repository archive digest清单为空；Linux在Debian 12实测因`GLIBC_2.38`缺失连version probe
     都失败。workflow/packager已改为两个 exact repository snapshot必须各有 archive-bytes或canonical
     tree SHA-256，缺项直接失败；Linux构建固定Ubuntu 22.04。两平台重建、复审及当前orb smoke前，
-    activation rows继续为`none`。
+    activation rows继续为`none`；
+30. 修复后的 run `31766677105` 绑定 ProofForge revision `23435d5…a9435`并在两平台再次完成2/2。
+    candidate archives为 Darwin `9d8afb3d…8b793`、Linux `d4e01187…e3255`，executable分别为
+    `696b55dd…99842`与`c08b1622…15919`。逐文件 manifest/hash/mode、locked package、actual repository
+    name/origin及snapshot digest均已复核；独立 Mach-O parser确认 Darwin external GMP edge，Linux
+    `readelf`确认无RUNPATH、三项system NEEDED、最高`GLIBC_2.35`。新Linux候选在Debian 12 /
+    GLIBC 2.36通过version与VerifiedVault 5/5。candidate仍写明non-admitted/non-activated；下一步必须
+    先获得 durable asset URL，再改双平台 lock和activation rows并执行 locked product consumer。
 
 ---
 

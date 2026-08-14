@@ -41,8 +41,9 @@ worker, probes `--version`, and atomically publishes the local executable.
 It accepts only native Linux x86_64 or Darwin arm64, uses the same Python
 SHA-256 implementation on both platforms, and `--repeat-check` requires two
 independent clean builds to be byte-identical before publication. This makes
-the Darwin candidate build runnable without GNU `sha256sum`; it does not claim
-that a Darwin candidate has already been produced or admitted to Tool Lock.
+the Darwin candidate build runnable without GNU `sha256sum`. Manual matrix run
+`31766677105` produced and audited both native candidates; neither archive is
+admitted to Tool Lock yet.
 
 Given an already-finalized VerifiedVaultPF Wasm, run the executable acceptance
 and the repository's Lean canonical content joins with:
@@ -75,11 +76,14 @@ diagnostics only.
 
 ## Assurance boundary
 
-This overlay source and build recipe do **not** provision the provider. Two clean
-same-host builds in the current Linux orb produced identical bytes with SHA-256
-`3c6af34d068e08cd34ea6bf627ec1c1e597f5577f163d89f5f63f462303b0ad4`, but a
-local ELF hash or same-host repeat is not a per-platform Tool Lock identity.
-Until a real executable artifact, runtime dependency closure, version probe,
+This overlay source and build recipe do **not** provision the provider. Run
+`31766677105` produced byte-identical Darwin arm64 and Linux x86_64 candidates
+with executable SHA-256 values
+`696b55dd6c02159a5c45f7aba0e1196ee4cc046ac903ffe6b7387763e3399842` and
+`c08b1622b5e9593f9803e60977c40f8531e52e9596dc2549fea14edaf2615919`.
+The Linux candidate also passed the five-path smoke in a Debian 12 / GLIBC 2.36
+orb. Candidate hashes and same-host repeat builds are still not per-platform
+Tool Lock identities. Until durable content-addressed assets, runtime closures,
 and per-platform lock rows are committed,
 `requireWasmCertProviderProvisionedV1` must continue to return
 `executableUnprovisioned` and no product target-refinement evidence may consume

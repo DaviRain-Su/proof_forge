@@ -38,8 +38,12 @@ revision `9ab0f87f03fff5507749efc273ec662fe27e6d14` 作为 NEAR 外部 Wasm sema
 Tool Lock identity。ProofForge structured wrapper overlay、exact source export build recipe、version
 probe、bounded NEAR host及本地五 case smoke现已存在；当前 orb两次 clean same-host build得到相同
 SHA-256 `3c6af34d068e08cd34ea6bf627ec1c1e597f5577f163d89f5f63f462303b0ad4`。该观测不证明
-cross-host reproducibility，也不是可 provision asset identity。真实激活仍需要 exact per-platform
-binary/runtime closure进入 Tool Lock；加入时按本规格升级 lock retained-file digest与 package pin。
+cross-host reproducibility，也不是可 provision asset identity。第二轮 manual matrix run
+`31766677105` 已在 Ubuntu 22.04 与 macOS 14 各完成 2/2 byte-identical build、exact opam repository
+snapshot observation与 native version probe；两平台 executable SHA-256 分别为 Linux
+`c08b1622…15919`、Darwin `696b55dd…99842`。真实激活仍需要把这两个已审查候选发布为 durable
+content-addressed assets并将 exact binary/runtime closure写入 Tool Lock；加入时按本规格升级 lock
+retained-file digest与 package pin。
 `Targets/Near/WasmCertWireV1.lean`已实现 canonical request/result record与 candidate identity/status
 join，但它不 provision工具，也不把 record内自报的 `executableSha256`当作 lock authority；因此
 该实现不改变本节 unprovisioned状态。`Targets/Near/WasmCertProductV1.lean` 现已补齐 activation后的
@@ -49,11 +53,12 @@ materialized carrier，provider工作目录再要求 exact bounded六文件 clos
 最终绑定 active platform lock identity。它当前仍由 unprovisioned gate拒绝，不能从 PATH或本地
 build回退。
 
-Linux观测到的 provider动态依赖只有 `libgmp`、`libm`、`libc`与 ELF loader；路径均属于本规格
-允许的 `/lib/`、`/lib64/`、`/usr/lib/` system dependency roots，所以无需伪造为 bundle
-`runtimeFiles`。Darwin arm64尚未产出真实 provider artifact及 hash；在该产物可重建、检查并进入
-Darwin lock前，不得把 Linux executable/hash复制到另一平台，也不得只更新 Linux lock造成产品
-能力不对称。
+Linux候选动态依赖只有 `libgmp`、`libm`、`libc`与 ELF loader，最高要求 `GLIBC_2.35`；路径均属于
+本规格允许的 `/lib/`、`/lib64/`、`/usr/lib/` system dependency roots，所以无需伪造为 bundle
+`runtimeFiles`，且已在 Debian 12 / GLIBC 2.36完成 exact version probe与 VerifiedVault 5/5 smoke。
+Darwin arm64候选闭包为 executable + `lib/libgmp.10.dylib`，独立 Mach-O load-command解析与 candidate
+policy一致；native workflow已执行 version probe。候选尚未成为 durable lock asset，因此不得把
+candidate hash直接当作 activation、不得复制另一平台 hash，也不得只更新单一平台造成产品能力不对称。
 Lean activation pin采用 Darwin/Linux两个独立 digest row，当前均为 `none`；provision时每个平台
 row必须分别等于对应 lock executable SHA-256，不得用一个 digest给两平台授权。
 

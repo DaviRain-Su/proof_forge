@@ -15740,3 +15740,24 @@ normative: false
 - Linux runner固定为`ubuntu-22.04`旧GLIBC基线。packager的双repository positive与missing-row
   negative本地回归均通过。下一步是推送后重跑matrix、下载复审，并要求新Linux candidate在当前
   orb通过version probe及VerifiedVault 5/5 smoke后才考虑Tool Lock admission。
+
+## 2026-08-14 — WasmCert second candidate audit passed, activation still closed
+
+- manual run `31766677105` exact绑定 ProofForge revision
+  `23435d54166e26bb047adf74c4bcca1a5c7a9435`；Ubuntu 22.04/macOS 14 jobs均成功完成2/2 clean
+  byte-identical build、native version probe与 non-activating packaging。Darwin/Linux candidate archive
+  SHA-256分别为`9d8afb3da2012ff4c70a97115a217550dfcfb082e68cf82cc707c94a7a88b793`和
+  `d4e0118731bca6d6c3f54b645dd1d48c6caf33718945859f383fe509208e3255`。
+- manifest与archive已逐项复核：safe regular members、canonical JSON、exact build inputs/package lock、
+  payload size/hash/mode及 `toolLockAdmitted=false`/`productActivated=false`均一致。Darwin两个opam
+  repository以18697/3716-file canonical tree digest绑定，Linux以两个 archive-byte digest绑定；
+  actual repository list的name/origin也在workflow中先独立核对。
+- Darwin executable SHA-256=`696b55dd6c02159a5c45f7aba0e1196ee4cc046ac903ffe6b7387763e3399842`；
+  独立解析arm64 Mach-O load commands确认 sole external edge指向 bundled
+  `lib/libgmp.10.dylib`，其余仅`/usr/lib/libSystem.B.dylib`。Linux executable SHA-256=
+  `c08b1622b5e9593f9803e60977c40f8531e52e9596dc2549fea14edaf2615919`；`readelf`确认无
+  RUNPATH、仅`libgmp.so.10`/`libm.so.6`/`libc.so.6`且最高要求`GLIBC_2.35`。它在当前Debian 12 /
+  GLIBC 2.36通过exact version probe与VerifiedVault init/deposit/withdraw/status/overdraw 5/5。
+- GitHub Actions candidate仅保留14日，不是 durable Tool Lock asset。本轮没有修改lock、activation
+  row或成熟度；下一步先建立用户批准的持久content-addressed发布位置，再做双平台admission与
+  activated locked-consumer回归。

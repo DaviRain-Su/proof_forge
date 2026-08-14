@@ -448,8 +448,11 @@ Phase 1：实现
   source/semantic/finalized-Wasm及全部 protocol artifact digests；它不 mint formal refinement claim，
   也不包含第二套业务 step。当前两平台 lock都没有 provider，因此回归固定在 artifact IO前
   `PF-TOOLCHAIN-MISSING`，无 PATH或 local-build fallback。Linux executable的 `libgmp/libm/libc/loader`
-  属既有 system dependency roots；首轮 Darwin arm64 candidate虽已生成，但因缺少 opam repository
-  snapshot digest而未 admission，禁止复制 Linux hash或用 workflow success激活双平台。
+  属既有 system dependency roots。首轮候选因 repository/GLIBC问题拒绝后，run `31766677105` 已产生
+  通过审查的第二轮：Linux executable `c08b1622…15919`最高要求`GLIBC_2.35`并在当前GLIBC 2.36
+  实跑5/5；Darwin executable `696b55dd…99842`的闭包为 bundled `libgmp.10.dylib`，repository
+  snapshot identity在两平台均非空。它们仍只是14日 candidate artifacts，尚无 durable asset URL，
+  因此禁止用 workflow success或 candidate hash直接激活。
   activation digest本身也按 Darwin/Linux两个独立 row保持 `none`，不存在单 digest跨平台授权。
 - **locked WasmCert → sole Reference product carrier（Phase 7 第三十七切）**：
   `WasmCertReferenceJoinV1` 只消费 private-constructor locked execution observation；semantic subject
