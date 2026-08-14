@@ -14,44 +14,44 @@ structure StateDeclV1 where
   visibility : VisibilityV1
   name : SourceNameComponentV1
   type_ : TypeV1
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 structure StructDeclV1 where
   name : SourceNameComponentV1
   fields : Array FieldDeclV1
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 structure EnumDeclV1 where
   name : SourceNameComponentV1
   variants : Array EnumVariantV1
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 structure EventDeclV1 where
   name : SourceNameComponentV1
   params : Array ParamV1
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 structure ErrorDeclV1 where
   name : SourceNameComponentV1
   params : Array ParamV1
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 structure ExtensionReqV1 where
   id : SourceQualifiedNameV1
   version : String
   digest : String
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 structure ProofDeclKeyV1 where
   invariant : SourceNameComponentV1
   kind : ProofKindV1
-  deriving BEq, DecidableEq, Repr
+  deriving BEq, DecidableEq, Repr, Lean.ToExpr
 
 structure ProofDeclV1 where
   invariant : SourceNameComponentV1
   kind : ProofKindV1
   theorem_ : SourceQualifiedNameV1
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 namespace ProofDeclV1
 

@@ -14,7 +14,7 @@ inductive PatternV1 where
   | bind (name : SourceNameComponentV1)
   | literal (value : LiteralV1)
   | constructor (ctor : SourceQualifiedNameV1) (args : Array PatternV1)
-  deriving Repr
+  deriving Repr, Lean.ToExpr
 
 mutual
   private def decEqPattern (a b : PatternV1) : Decidable (a = b) :=

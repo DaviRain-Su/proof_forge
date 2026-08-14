@@ -20,6 +20,6 @@ inductive ProgramItemV1 where
   | invariant : InvariantDeclV1 → ProgramItemV1
   | extensionReq : ExtensionReqV1 → ProgramItemV1
   | proof : ProofDeclV1 → ProgramItemV1
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 end ProofForgeV2.Source.AstProgramItemV1

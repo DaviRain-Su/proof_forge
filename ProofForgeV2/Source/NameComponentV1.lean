@@ -1,4 +1,5 @@
 import Init.Meta
+import Lean.ToExpr
 import ProofForgeV2.Core.Unicode
 
 namespace ProofForgeV2.Source.NameComponentV1
@@ -10,7 +11,7 @@ open ProofForgeV2.Core.Unicode
 structure SourceNameComponentV1 where
   private mk ::
   raw : String
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 private def fail (detail : String) : Except String α :=
   .error detail

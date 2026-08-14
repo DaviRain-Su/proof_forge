@@ -237,6 +237,15 @@ private unsafe def testStateCellSbpfArtifact
     "sBPF artifact: pure program-export subject must reproduce parser-session production assembly"
   expect checkStateCellGetProductionSubjectV1
     "sBPF artifact: pure production subject certified get gate"
+  match
+      ProofForgeV2.Source.ValidatedSourceV1.validateElaboratedSourceAgainstCanonicalBytesV1
+        StateCell.Source.subjectV1 (StateCell.bytes.push 0) with
+  | .ok _ =>
+      throw <| IO.userError
+        "sBPF artifact: drifted program export bytes must fail source validation"
+  | .error error =>
+      expect (error.contains "canonical bytes do not match")
+        s!"sBPF artifact: unexpected source drift error: {error}"
   let expectedSha256 := stateCellProductionSbpfSha256V1
   let boundArtifact ← liftArtifactResult <|
     resolveBoundSbpfArtifactV1 asm expectedSha256

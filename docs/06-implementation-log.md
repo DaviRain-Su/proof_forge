@@ -3,7 +3,7 @@ id: PHASE-6
 title: 实现日志
 status: draft
 owner: engineering
-updated: 2026-08-13
+updated: 2026-08-14
 normative: false
 ---
 
@@ -16054,3 +16054,22 @@ normative: false
   production gate；后续provider执行测试改为消费该纯subject。runner输出
   `Tests.Targets.SolanaAsmV1: ok`。至此IO parser session不再阻塞具体production subject构造；大型gate的
   无条件kernel equality仍未闭合，故尚不声明无条件Reference→provider/ELF/runtime refinement。
+
+## 2026-08-14 — elaborated source subject与production export exact绑定
+
+- `program` elaborator现在从同一次真实elaboration quote module name、program identity与完整
+  `ProgramV1`，并导出透明`ElaboratedSourceV1` subject。它不是第二套parser、DSL evaluator或business
+  semantics；source AST所需类型仅增加`Lean.ToExpr` quotation支持。
+- 新增`validateElaboratedSourceAgainstCanonicalBytesV1`：quoted subject必须重新经过sole production
+  `validateSourceV1` declaration validation，再由现有canonical encoder重编码并与实际`program`
+  export `.bytes` exact比较。module/program identity、declaration或任一byte drift全部fail closed。
+  `CanonicalSourceBindingV1`成功值携带validated fields、declaration validity与canonical bytes等式。
+- `resolveStateCellGetProductionSubjectV1`与已进入远程主线的
+  `resolveStateCellInitializeProductionSubjectV1`均删除canonical bytes→UTF-8→AST decoder入口，改为
+  消费`StateCell.Source.subjectV1`与`StateCell.bytes`的proof-carrying binding；其后仍只走production
+  compiler、Solana capability、HandlerIR、assembly emitter、strict parser与identity-bound provider。
+  没有另写proof-only HandlerIR→sBPF lowering，也没有复制IR/provider program。
+- `SolanaAsmV1`新增source byte tamper回归：`StateCell.bytes.push 0`必须在source binding阶段拒绝。
+  production subject gate运行值仍为`true`，assembly digest保持
+  `c93b1448aa782550b7643ccced44209c57df604a866c236552dadc5ac6a159c1`；相关source、target、language
+  shards均通过。该运行结果仍不是无条件kernel equality，concrete provider-backed theorem继续待闭合。

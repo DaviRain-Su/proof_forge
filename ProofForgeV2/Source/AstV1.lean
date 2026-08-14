@@ -9,13 +9,13 @@ inductive VisibilityV1 where
   | public_
   | private_
   | commitment
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 /-- Closed inline-proof obligation kinds. Bare source syntax decodes to `holds`. -/
 inductive ProofKindV1 where
   | holds
   | preserving
-  deriving BEq, DecidableEq, Repr, Inhabited
+  deriving BEq, DecidableEq, Repr, Inhabited, Lean.ToExpr
 
 namespace ProofKindV1
 
@@ -43,21 +43,21 @@ inductive TypeV1 where
   | option (element : TypeV1)
   | bytes (length : UInt32)
   | field (id : SourceNameComponentV1)
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 /-- Portable source literals (wire leaf values). -/
 inductive LiteralV1 where
   | bool (value : Bool)
   | integer (magnitude : Nat)
   | string (value : String)
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 /-- Portable unary operators. -/
 inductive UnaryOpV1 where
   | neg
   | not
   | bitNot
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 /-- Portable binary operators (18 unique; logical Or ≠ BitOr). -/
 inductive BinaryOpV1 where
@@ -79,6 +79,6 @@ inductive BinaryOpV1 where
   | bitXor
   | shl
   | shr
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 end ProofForgeV2.Source.AstV1

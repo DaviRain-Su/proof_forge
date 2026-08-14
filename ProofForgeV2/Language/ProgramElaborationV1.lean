@@ -96,12 +96,6 @@ private def isReservedInlineProofSurfaceNameV1 (name : String) : Bool :=
     (name.startsWith "generated" && name.endsWith "_of_wireTrace") ||
     (name.startsWith "generated" && name.endsWith "V1")
 
-private def quoteByteArray (bytes : ByteArray) : MacroM (TSyntax `term) := do
-  let hex := bytes.foldl (fun acc byte =>
-    (acc.push (Nat.digitChar (byte.toNat / 16))).push
-      (Nat.digitChar (byte.toNat % 16))) ""
-  `(ProofForgeV2.Language.ProgramExport.programExportBytesFromHex $(quote hex))
-
 /-- Transparent `ByteArray.mk (List.toArray […])` form for proof subjects.
     Definitional equality with certificate `TransparentByteSpineV1` lists
     avoids hex reduction while preserving exact product bytes from Normalize. -/
@@ -110,6 +104,58 @@ private def quoteByteArraySpine (bytes : ByteArray) : MacroM (TSyntax `term) := 
   for b in bytes do
     elems := elems.push (quote b.toNat)
   `(ByteArray.mk (List.toArray [$elems,*]))
+
+/-- Add one safe, transparent declaration whose value was quoted from the
+    already validated source carrier. These fields are assembled into an
+    `ElaboratedSourceV1` and must re-enter through the production validator;
+    they are not a second parser or source semantics. -/
+private def addQuotedSourceFieldV1
+    (name typeName : Name) (value : Lean.Expr) : CommandElabM Unit :=
+  Lean.Elab.Command.liftCoreM <| Lean.addAndCompile <| .defnDecl {
+    name
+    levelParams := []
+    type := Lean.mkConst typeName
+    value
+    hints := .abbrev
+    safety := .safe
+  }
+
+/-- Expose the exact `program` elaborator input as a kernel-bound formal
+    compiler subject. The generated carrier cannot mint a `ValidatedSourceV1`;
+    consumers must run its fields through the production declaration validator
+    and canonical export-byte gate. This lane is emitted for every valid
+    program, independently of whether it declares inline invariants. -/
+private def elaborateSourceSubjectV1
+    (programName : TSyntax `ident) (fullProgramName : Name)
+    (source : ValidatedSourceV1) : CommandElabM Unit := do
+  let sourceNamespace := fullProgramName ++ `Source
+  let moduleNameDecl := sourceNamespace ++ `quotedModuleNameV1
+  let programIdentityDecl := sourceNamespace ++ `quotedProgramIdentityV1
+  let programDecl := sourceNamespace ++ `quotedProgramV1
+  addQuotedSourceFieldV1 moduleNameDecl
+    ``ProofForgeV2.Source.QualifiedNameV1.SourceQualifiedNameV1
+    (Lean.toExpr source.moduleName)
+  addQuotedSourceFieldV1 programIdentityDecl
+    ``ProofForgeV2.Source.QualifiedNameV1.SourceQualifiedNameV1
+    (Lean.toExpr source.programIdentity)
+  addQuotedSourceFieldV1 programDecl
+    ``ProofForgeV2.Source.AstProgramV1.ProgramV1
+    (Lean.toExpr source.program)
+  let sourceNamespaceId := mkIdent (programName.getId ++ `Source)
+  let quotedModuleNameId := mkIdent `quotedModuleNameV1
+  let quotedProgramIdentityId := mkIdent `quotedProgramIdentityV1
+  let quotedProgramId := mkIdent `quotedProgramV1
+  let subjectId := mkIdent `subjectV1
+  Lean.Elab.Command.elabCommand (← `(namespace $sourceNamespaceId))
+  Lean.Elab.Command.elabCommand (← `(
+    /-- Exact compiler input captured from the AST elaborated by the enclosing
+        `program` declaration. Consumers must pass this carrier through the
+        production validator and canonical export-byte gate. -/
+    def $subjectId :
+        ProofForgeV2.Source.ValidatedSourceV1.ElaboratedSourceV1 :=
+      ProofForgeV2.Source.ValidatedSourceV1.ElaboratedSourceV1.mk
+        $quotedModuleNameId $quotedProgramIdentityId $quotedProgramId))
+  Lean.Elab.Command.elabCommand (← `(end $sourceNamespaceId))
 
 /-- Quote a `String` array as `#[…]` for certificate param emission. -/
 private def quoteStringArray (xs : Array String) : MacroM (TSyntax `term) := do
@@ -3952,13 +3998,14 @@ elab_rules : command
       let proofSurface ← match proofSurfaceV1 source with
         | .ok value => pure value
         | .error message => throwError message
-      let bytesExpr ← Lean.Elab.liftMacroM <| quoteByteArray bytes
+      let bytesExpr ← Lean.Elab.liftMacroM <| quoteByteArraySpine bytes
       let expanded ← `(@[proof_forge_program]
         def $name : ProgramExportPayloadV2 := {
           schema := $(Syntax.mkStrLit programExportSchemaV2),
           bytes := $bytesExpr
         })
       Lean.Elab.Command.elabCommand expanded
+      elaborateSourceSubjectV1 name (currentNamespace ++ name.getId) source
       elaborateProofObligations name source proofSurface
 
 end ProofForgeV2.Language

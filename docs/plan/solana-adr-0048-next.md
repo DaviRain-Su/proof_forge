@@ -32,8 +32,10 @@ production subject + sparse certificate** for the other three recipes.
 
 Code facts:
 
-- Only one resolver exists: `ProofForgeV2/Targets/Solana/SbpfStateCellProductionV1.lean`
-  `resolveStateCellGetProductionSubjectV1`.
+- `ProofForgeV2/Targets/Solana/SbpfStateCellProductionV1.lean` contains the
+  `get` and `initialize` resolvers. Both consume the same elaborated Source AST,
+  production validator/canonical encoder binding, compiler and production `.s`;
+  only `get` currently retains a sparse provider certificate.
 - Sparse certificate lives in `SbpfStateCellGetV1.lean`.
 - Authoring doc: still no unconditional kernel equality for the large
   production theorem; release SBOM/source-dependency stays fail closed.

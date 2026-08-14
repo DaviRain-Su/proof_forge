@@ -8,11 +8,23 @@ open Lean
 open ProofForgeV2.Core.Common
 open ProofForgeV2.Source.NameComponentV1
 
+private instance {α : Type u} [Lean.ToLevel.{u}] [Lean.ToExpr α] :
+    Lean.ToExpr (NonEmptyArray α) :=
+  let type := Lean.toTypeExpr α
+  {
+    toExpr := fun values =>
+      Lean.mkApp3
+        (Lean.mkConst ``NonEmptyArray.mk [Lean.toLevel.{u}])
+        type (Lean.toExpr values.head) (Lean.toExpr values.tail)
+    toTypeExpr :=
+      Lean.mkApp (Lean.mkConst ``NonEmptyArray [Lean.toLevel.{u}]) type
+  }
+
 /-- Source-only ordered raw name components (1..256). Not common `QualifiedName`. -/
 structure SourceQualifiedNameV1 where
   private mk ::
   components : NonEmptyArray SourceNameComponentV1
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 private def fail (detail : String) : Except String α :=
   .error detail

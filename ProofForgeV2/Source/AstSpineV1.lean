@@ -15,7 +15,7 @@ mutual
     | name (name : SourceNameComponentV1)
     | field (base : PlaceV1) (field : SourceNameComponentV1)
     | index (base : PlaceV1) (index : ExprV1)
-    deriving Repr
+    deriving Repr, Lean.ToExpr
 
   inductive ExprV1 where
     | literal (value : LiteralV1)
@@ -26,17 +26,17 @@ mutual
     | localCall (callee : SourceNameComponentV1) (args : Array ExprV1)
     | match_ (scrutinee : ExprV1) (arms : Array ExprMatchArmV1)
     | externalCall (call : ExternalCallExprV1)
-    deriving Repr
+    deriving Repr, Lean.ToExpr
 
   structure ExprMatchArmV1 where
     pattern : PatternV1
     value : ExprV1
-    deriving Repr
+    deriving Repr, Lean.ToExpr
 
   structure ExternalCallExprV1 where
     callee : SourceQualifiedNameV1
     args : Array ExprV1
-    deriving Repr
+    deriving Repr, Lean.ToExpr
 
   inductive StmtV1 where
     | let_ (name : SourceNameComponentV1) (typeAnn : Option TypeV1) (value : ExprV1)
@@ -51,16 +51,16 @@ mutual
     | return_ (value : Option ExprV1)
     | call (call : ExternalCallExprV1)
     | schedule (call : ExternalCallExprV1)
-    deriving Repr
+    deriving Repr, Lean.ToExpr
 
   structure StmtMatchArmV1 where
     pattern : PatternV1
     body : BlockV1
-    deriving Repr
+    deriving Repr, Lean.ToExpr
 
   structure BlockV1 where
     statements : Array StmtV1
-    deriving Repr
+    deriving Repr, Lean.ToExpr
 end
 
 end ProofForgeV2.Source.AstSpineV1

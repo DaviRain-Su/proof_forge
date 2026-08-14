@@ -9,6 +9,6 @@ open ProofForgeV2.Source.NameComponentV1
 structure ProgramV1 where
   name : SourceNameComponentV1
   items : Array ProgramItemV1
-  deriving DecidableEq, Repr
+  deriving DecidableEq, Repr, Lean.ToExpr
 
 end ProofForgeV2.Source.AstProgramV1
