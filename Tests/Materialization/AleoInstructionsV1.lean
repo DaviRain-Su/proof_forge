@@ -1563,6 +1563,60 @@ unsafe def testProductPrimaryInstructionsMaterialize : IO Unit := do
   expect (artPaths == #["counter.aleo", "counter.aleo-query-contract.json"])
     s!"Registry materializeResult must preserve sole Aleo outputs, got {artPaths}"
 
+/-- ALEO-1a: product capability → materialize → zero-tool Finalize.
+    Instructions + query descriptor are not compiled, executed, proved, or
+    deployed. Staging may be `"."` because Finalize does not read disk. -/
+unsafe def testCapabilityProductPath : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Counter where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry increment(delta : UInt64) : UInt64 do\n" ++
+    "    count := count + delta\n" ++
+    "    return count\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-finalize>" "Tests.AleoFinalize" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  expect (selection.codegenProfile == CodegenProfileId.aleoInstructionsV1)
+    "Aleo selection must bind aleo-instructions-v1"
+  let capability ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let artifacts ← liftResult <| Targets.materializeResult capability
+  let finalized ← Targets.finalizeMaterializedArtifactsV1
+    capability artifacts (FilePath.mk ".")
+  expect (!FinalizedArtifactsV1.deployableOf finalized)
+    "Aleo zero-tool finalization must remain non-deployable"
+  expect (FinalizedArtifactsV1.extraFilesOf finalized).isEmpty
+    "Aleo zero-tool finalization must add no files"
+  let note := FinalizedArtifactsV1.evidenceNoteOf finalized
+  expect (note.contains "compilation" || note.contains "VM execution" ||
+      note.contains "proof" || note.contains "deployment")
+    s!"Aleo Finalize evidence must name the zero-tool boundary, got: {note}"
+
+/-- ALEO-1a: grammar-valid but unregistered profile stays unknown.
+    Do not invent a reserved aleo-source-* / compiler CodegenProfileId. -/
+unsafe def testUnknownProfileFailClosed : IO Unit := do
+  match CodegenProfileId.parse? "not-a-real-profile-v1" with
+  | none =>
+      throw <| IO.userError "not-a-real-profile-v1 must remain grammar-valid"
+  | some unknown =>
+      match BuildSelectionV1.resolveBuildSelectionV1
+          TargetId.aleo (some unknown) with
+      | .error e =>
+          expect (e.code == "PF-PROFILE-UNKNOWN")
+            s!"unknown Aleo profile must be PF-PROFILE-UNKNOWN, got {e.code}: {e.render}"
+      | .ok sel =>
+          throw <| IO.userError
+            s!"unknown Aleo profile must fail closed, got {sel.codegenProfile}"
+
 /-- Item-kind inventory for multi-fixture structural pins. -/
 private def countItemKinds (p : ProgramV1) : Nat × Nat × Nat × Nat :=
   Id.run do
@@ -2061,6 +2115,8 @@ unsafe def run : IO Unit := do
   testG5HardResidualAllowlistClassifier
   testG5MatrixNestedMapPlanFailClosed
   testProductPrimaryInstructionsMaterialize
+  testCapabilityProductPath
+  testUnknownProfileFailClosed
   testMultiGoldenLoopSumProduct
   testMultiGoldenAccumulatorAdmitSurface
   testMultiGoldenOptionStateAdmitSurface
