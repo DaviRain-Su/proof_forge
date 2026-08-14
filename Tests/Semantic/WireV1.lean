@@ -4249,6 +4249,16 @@ private def testTypeKeyByteForm : IO Unit := do
   expectTypeKeyBytes "P field spec bn254" fieldTypes 0
     (typeKeyFrameOracle "field"
       #[typeKeyNameBytesOracle bn254FrFieldIdV1, bn254FrModulusBEV1])
+  let blsFieldTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .field bls12377FrFieldSpecV1 }]
+  expectTypeKeyBytes "P field spec bls12-377" blsFieldTypes 0
+    (typeKeyFrameOracle "field"
+      #[typeKeyNameBytesOracle bls12377FrFieldIdV1, bls12377FrModulusBEV1])
+  let goldilocksFieldTypes : Array TypeDeclV1 :=
+    #[{ id := 0, name := none, shape := .field goldilocksFieldSpecV1 }]
+  expectTypeKeyBytes "P field spec goldilocks" goldilocksFieldTypes 0
+    (typeKeyFrameOracle "field"
+      #[typeKeyNameBytesOracle goldilocksFieldIdV1, goldilocksModulusBEV1])
   -- Pretty names are not a sort/key substitute: the Bool leaf is the
   -- ASCII tag `bool` with zero fields, not UTF-8 "Bool", not
   -- `named(nameBytes("Bool"))`, and not `bool` plus a pretty-name field.

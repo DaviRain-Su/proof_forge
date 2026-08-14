@@ -96,6 +96,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | PSY-1A | done | Psy Finalize honesty: extraFiles empty, deployable=false, evidence names no compilation/VM/proof/UPS/deploy. Unknown profile `PF-PROFILE-UNKNOWN`. **Not** formal |
 | CW-1A | done | CosmWasm Finalize honesty: locked wat2wasm extra=`StateCell.wasm` + deployable=true + runtime remains separate; unknown profile `PF-PROFILE-UNKNOWN`. **Not** wasmd/formal |
 | F-TYPEKEY-LEAVES | done | Isolated SPEC `typeKey` pins: Int 8/64, Principal, Unit, Array(UInt8,4). Not a structure gate. **Not** formal TASK-D2-06 |
+| F-TYPEKEY-FIELDS | done | Isolated SPEC `typeKey` pins for BLS12-377 Fr and Goldilocks FieldSpec (bn254 already pinned). Not a structure gate. **Not** formal |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)

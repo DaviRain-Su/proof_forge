@@ -645,6 +645,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **PSY-1A**：`PsyDpnV1` 钉 zero-tool Finalize（`StateCell.dpn.json` only、`extraFiles` 空、`deployable=false`、evidence 含 compilation/VM/proof/UPS/deployment）与未知 profile `PF-PROFILE-UNKNOWN`。**不**关闭 formal |
 | 2026-08-15 | **CW-1A**：`CosmWasmPlanV1` 钉 locked wat2wasm Finalize（`StateCell.wasm`、`deployable=true`、evidence 含 wat2wasm + runtime remains separate、Wasm magic）与未知 profile `PF-PROFILE-UNKNOWN`。**不**关闭 wasmd/formal |
 | 2026-08-15 | **F-TYPEKEY-LEAVES**：`WireV1.testTypeKeyByteForm` 补 Int8/64、Principal、Unit、`array(uint8,4)` 字节形 pin。不进 structure gate，不 reject unused。**不**关闭 TASK-D2-06 / TST-SEM-001 |
+| 2026-08-15 | **F-TYPEKEY-FIELDS**：孤立 `typeKey` 补 BLS12-377 Fr / Goldilocks FieldSpec 字节形（bn254 已有）。不进 structure gate。**不**关闭 TASK-D2-06 / TST-SEM-001 |
 
 ---
 
