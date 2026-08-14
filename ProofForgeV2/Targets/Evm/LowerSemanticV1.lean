@@ -354,6 +354,14 @@ inductive Statement where
       `keccak256` opcode over one 32-byte word. Not the SHA-256 precompile,
       not a hashed AddressBearing CALL, and not a Bytes ABI. -/
   | keccak256Opcode (input : Expr) (resultTemp : Nat)
+  /-- EXT-CRYPTO EVM leaf: exact
+      `pf.crypto.ecdsaRecoverSecp256k1(hash,v,r,s) -> UInt256` binding to the
+      EVM ecrecover precompile at address 0x01. All four arguments and the
+      result are UInt256 words (v typically 27/28; address is right-aligned in
+      the result word). Recover failure (empty precompile returndata) lowers to
+      the zero word — matching Solidity `ecrecover`, not an auto-revert. Not
+      AddressBearing CALL and not a Principal ABI. -/
+  | ecdsaRecoverSecp256k1 (hash v r s : Expr) (resultTemp : Nat)
   /-- Async fire-and-forget schedule (void). Same static-callee address/selector
       derivation and per-argument UInt ABI widths as `externalCall`, but CALL
       success is ignored (no response channel — matches Reference schedule
@@ -1798,7 +1806,8 @@ private def currentValueWithArmsV1
   findValueV1 values id
 
 /-- Reserve the complete `pf.crypto` namespace from generic hashed-QN CALL
-    lowering. SYS-S5-EVM admits only the exact sha256 and keccak256 leaves. -/
+    lowering. SYS-S5-EVM admits sha256 and keccak256; EXT-CRYPTO adds
+    ecdsaRecoverSecp256k1. -/
 private def isPfCryptoCalleeV1 (components : Array String) : Bool :=
   components[0]? == some "pf" && components[1]? == some "crypto"
 
@@ -1807,6 +1816,14 @@ private def isPfCryptoSha256CalleeV1 (components : Array String) : Bool :=
 
 private def isPfCryptoKeccak256CalleeV1 (components : Array String) : Bool :=
   components == #["pf", "crypto", "keccak256"]
+
+private def isPfCryptoEcdsaRecoverSecp256k1CalleeV1 (components : Array String) : Bool :=
+  components == #["pf", "crypto", "ecdsaRecoverSecp256k1"]
+
+private def isPfCryptoAdmittedEvmCalleeV1 (components : Array String) : Bool :=
+  isPfCryptoSha256CalleeV1 components ||
+    isPfCryptoKeccak256CalleeV1 components ||
+    isPfCryptoEcdsaRecoverSecp256k1CalleeV1 components
 
 private def externalUIntArgWidthV1
     (types : EvmTypeClosureV1) (value : LoweredValueV1)
@@ -3200,7 +3217,7 @@ private def lowerBlockInstructionsV1
         let qn := String.intercalate "." components.toList
         if isPfCryptoCalleeV1 components then
           throw <| .planInvariant .evm
-            "unsupported EVM semantic shape: pf.crypto calls require result-bearing pf.crypto.sha256|keccak256(UInt256) -> UInt256"
+            "unsupported EVM semantic shape: pf.crypto calls require result-bearing pf.crypto.sha256|keccak256(UInt256) -> UInt256 or pf.crypto.ecdsaRecoverSecp256k1"
         else if isPfAssetsCatalogQnV1 qn then
           -- ADR-0029 B2 QN gate: catalog QN requires exact extension.pf-assets.
           unless layout.pfAssetsDeclared do
@@ -4049,7 +4066,7 @@ private def lowerBlockInstructionsV1
             s!"unsupported EVM semantic shape: unknown ContextRead key '{key.value}'"
     | .externalCall _effectId callee argIds, some result =>
         -- N-CALL-RET/B-CALL-SEM: result-bearing sync call. Exact
-        -- pf.crypto.sha256 / keccak256 leaves are dedicated host bindings;
+        -- pf.crypto.sha256 / keccak256 / ecdsaRecoverSecp256k1 leaves are dedicated host bindings;
         -- remaining callees use the existing AddressBearing CALL path.
         if mode == .view then
           throw <| .planInvariant .evm
@@ -4067,38 +4084,63 @@ private def lowerBlockInstructionsV1
               s!"unsupported EVM semantic shape: external call callee component '{c}' is not a safe identifier"
         let qn := String.intercalate "." components.toList
         if isPfCryptoCalleeV1 components then
-          unless isPfCryptoSha256CalleeV1 components ||
-              isPfCryptoKeccak256CalleeV1 components do
+          unless isPfCryptoAdmittedEvmCalleeV1 components do
             throw <| .planInvariant .evm
               s!"unsupported EVM semantic shape: pf.crypto QN '{qn}' is outside admitted EVM scope"
-          let leafName :=
-            if isPfCryptoSha256CalleeV1 components then "sha256" else "keccak256"
-          if mode == .constructor then
-            throw <| .planInvariant .evm
-              s!"unsupported EVM semantic shape: constructor cannot call pf.crypto.{leafName}"
-          unless argIds.size == 1 && types.uintWidthOf result.typeId == some 256 do
-            throw <| .planInvariant .evm
-              s!"unsupported EVM semantic shape: pf.crypto.{leafName} requires exactly one UInt256 argument and UInt256 result"
-          let some argId := argIds[0]? |
-            throw <| .planInvariant .evm
-              s!"unsupported EVM semantic shape: pf.crypto.{leafName} UInt256 argument is missing"
-          let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
-          unless types.uintWidthOf root.typeId == some 256 &&
-              !root.isBool && !root.isInt && !root.isField &&
-              !root.isAggregate && root.bitWidth == 256 do
-            throw <| .planInvariant .evm
-              s!"unsupported EVM semantic shape: pf.crypto.{leafName} requires exactly one UInt256 argument and UInt256 result"
-          let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
-          let resultTemp := result.valueId.toNat
-          if isPfCryptoSha256CalleeV1 components then
-            body := body.push (.sha256Precompile root.expr resultTemp)
+          if isPfCryptoEcdsaRecoverSecp256k1CalleeV1 components then
+            if mode == .constructor then
+              throw <| .planInvariant .evm
+                s!"unsupported EVM semantic shape: constructor cannot call {qn}"
+            unless argIds.size == 4 && types.uintWidthOf result.typeId == some 256 do
+              throw <| .planInvariant .evm
+                "unsupported EVM semantic shape: pf.crypto.ecdsaRecoverSecp256k1 requires four UInt256 arguments and UInt256 result"
+            let mut roots : Array LoweredValueV1 := #[]
+            for argId in argIds do
+              let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+              unless types.uintWidthOf root.typeId == some 256 &&
+                  !root.isBool && !root.isInt && !root.isField &&
+                  !root.isAggregate && root.bitWidth == 256 do
+                throw <| .planInvariant .evm
+                  "unsupported EVM semantic shape: pf.crypto.ecdsaRecoverSecp256k1 requires four UInt256 arguments and UInt256 result"
+              roots := roots.push root
+            let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+            let resultTemp := result.valueId.toNat
+            body := body.push (.ecdsaRecoverSecp256k1
+              roots[0]!.expr roots[1]!.expr roots[2]!.expr roots[3]!.expr resultTemp)
+            values := ← appendResultValueV1 result.typeId values result
+              (mkScalarValueV1 (.temp resultTemp) #[] false false 256 1 1)
+            hasAssert := true
+            armReadables := promoteDominatingPureV1 paramCount values armReadables
+            segmentStart := values.size
           else
-            body := body.push (.keccak256Opcode root.expr resultTemp)
-          values := ← appendResultValueV1 result.typeId values result
-            (mkScalarValueV1 (.temp resultTemp) #[] false false 256 1 1)
-          hasAssert := true
-          armReadables := promoteDominatingPureV1 paramCount values armReadables
-          segmentStart := values.size
+            let leafName :=
+              if isPfCryptoSha256CalleeV1 components then "sha256" else "keccak256"
+            if mode == .constructor then
+              throw <| .planInvariant .evm
+                s!"unsupported EVM semantic shape: constructor cannot call pf.crypto.{leafName}"
+            unless argIds.size == 1 && types.uintWidthOf result.typeId == some 256 do
+              throw <| .planInvariant .evm
+                s!"unsupported EVM semantic shape: pf.crypto.{leafName} requires exactly one UInt256 argument and UInt256 result"
+            let some argId := argIds[0]? |
+              throw <| .planInvariant .evm
+                s!"unsupported EVM semantic shape: pf.crypto.{leafName} UInt256 argument is missing"
+            let root ← currentValueWithArmsV1 values paramCount segmentStart armReadables argId
+            unless types.uintWidthOf root.typeId == some 256 &&
+                !root.isBool && !root.isInt && !root.isField &&
+                !root.isAggregate && root.bitWidth == 256 do
+              throw <| .planInvariant .evm
+                s!"unsupported EVM semantic shape: pf.crypto.{leafName} requires exactly one UInt256 argument and UInt256 result"
+            let _ ← consumeSegmentRootsV1 values paramCount segmentStart argIds
+            let resultTemp := result.valueId.toNat
+            if isPfCryptoSha256CalleeV1 components then
+              body := body.push (.sha256Precompile root.expr resultTemp)
+            else
+              body := body.push (.keccak256Opcode root.expr resultTemp)
+            values := ← appendResultValueV1 result.typeId values result
+              (mkScalarValueV1 (.temp resultTemp) #[] false false 256 1 1)
+            hasAssert := true
+            armReadables := promoteDominatingPureV1 paramCount values armReadables
+            segmentStart := values.size
         else
           let resultBitWidth ← match types.uintWidthOf result.typeId with
             | some width =>

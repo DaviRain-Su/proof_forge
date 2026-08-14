@@ -111,11 +111,10 @@ ProofForge 的真实权威是多轴 `TargetDescriptor` + 每 target 独占 Plan/
 
 | TargetId | Family | 相对档 B 的额外难点 | 建议顺序 |
 |---|---|---|---|
-| `aptos` | Move Resource VM | resource 线性类型 / Move 能力模型；与 PF 可变 state 的映射需显式子集 | 先 dossier + Move family 文档（ADR-0017 已点名） |
-| `sui` | Move Resource VM | 对象所有权 / 共享对象；**必须**与 `aptos` 分 TargetId | 与 Aptos 并行研究、串行实现 |
-| `cairo` | zkVM | Cairo VM + STARK；≠ OpenVM Plan | OpenVM MVP 后再开，避免双 zkVM 并行抢共享核 |
-| `risc0` | zkVM | RISC-V guest + receipt | 同 OpenVM 轴；择一深度优先 |
-| `sp1` | zkVM | 同上 | 与 risc0 二选一作为第二 zkVM leaf，或更晚 |
+| `aptos`、`sui` | Move Resource VM | — | **wontfix**（2026-08-13 产品决定：不做 Move 轴；不补 dossier、不进 registry） |
+| `cairo` | zkVM | Cairo VM + STARK；≠ OpenVM Plan | OpenVM MVP 后再开；**Plan 设计见 RPT-026**；dossier `13-cairo` |
+| `risc0` | zkVM | RISC-V guest + receipt | 同 OpenVM 轴；择一深度优先；**Plan 设计见 RPT-026** |
+| `sp1` | zkVM | 同上 | 与 risc0 二选一作为第二 zkVM leaf，或更晚；**Plan 设计见 RPT-026** |
 
 > 现状缺口：`docs/targets/` **没有** `12-aptos`…`16-sp1` dossier（ADR-0017 曾规划编号；`12-quint.md` 已占用 12）。
 > 补档时应续排新编号，**不要**覆盖 Quint。
@@ -309,16 +308,15 @@ Portable Semantic 核心假设（工程子集）：
 
 **非目标**：与 Noir 共享 Plan；EVM verifier 部署；多 zkVM 同时开工。
 
-### Wave T4 — Move 轴预研落地（registry 扩面前）
+### Wave T4 — Move 轴（**取消**）
 
-1. 补 `aptos` / `sui` dossier + `family-move-resource-vm`（若仍缺）。  
-2. 研究钉：PF `state` ↔ Move resource/object 的 **可移植子集**（预计大量 FC）。  
-3. 单独实现 ADR 后才允许 registry + materializer。  
-4. Aptos 与 Sui **禁止**合并 TargetId。
+产品决定（2026-08-13）：**不做** `aptos` / `sui`。不补 dossier、不进 registry、不排 materializer。
+ADR-0017 研究登记保留为历史；执行队列 `TGT-MOVE-DOSSIER=wontfix`。
 
 ### Wave T5 — 第二 zkVM / Cairo（择一）
 
 在 OpenVM MVP 稳定后，于 `cairo` / `risc0` / `sp1` 中选 **一个** 深度 leaf；其余保持 research。
+三机 **Plan/Q0 设计**已固定于 [`26-zkvm-trio-cairo-risc0-sp1-design.md`](26-zkvm-trio-cairo-risc0-sp1-design.md)；实现仍串行。
 
 ### Wave T6 — 比特币 / UTXO（可选；默认不开；见档 D′）
 

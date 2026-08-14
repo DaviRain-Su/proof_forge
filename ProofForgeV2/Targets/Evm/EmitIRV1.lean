@@ -1734,6 +1734,34 @@ private partial def renderBody (indent paramPrefix : String) (next : Nat)
         output := output ++
           s!"{indent}mstore(0, {rendered.value})\n" ++
           s!"{indent}let t{resultTemp} := keccak256(0, 32)\n"
+    | .ecdsaRecoverSecp256k1 hash v r s resultTemp =>
+        -- EXT-CRYPTO EVM: ecrecover precompile 0x01. Layout is the EVM
+        -- canonical 128-byte input (hash||v||r||s). Recover failure yields
+        -- empty returndata on the host; match Solidity ecrecover by returning
+        -- the zero word (no auto-revert). STATICCALL itself still reverts.
+        let hR := renderExpr indent paramPrefix next hash
+        output := output ++ hR.code
+        next := hR.next
+        let vR := renderExpr indent paramPrefix next v
+        output := output ++ vR.code
+        next := vR.next
+        let rR := renderExpr indent paramPrefix next r
+        output := output ++ rR.code
+        next := rR.next
+        let sR := renderExpr indent paramPrefix next s
+        output := output ++ sR.code
+        next := sR.next
+        let okName := s!"ecrecoverOk{next}"
+        next := next + 1
+        output := output ++
+          s!"{indent}mstore(0, {hR.value})\n" ++
+          s!"{indent}mstore(32, {vR.value})\n" ++
+          s!"{indent}mstore(64, {rR.value})\n" ++
+          s!"{indent}mstore(96, {sR.value})\n" ++
+          s!"{indent}let {okName} := staticcall(gas(), 0x1, 0, 128, 0, 32)\n" ++
+          s!"{indent}if iszero({okName}) \{ revert(0, 0) }\n" ++
+          s!"{indent}let t{resultTemp} := 0\n" ++
+          s!"{indent}if eq(returndatasize(), 32) \{ t{resultTemp} := mload(0) }\n"
     | .schedule callee args argBitWidths =>
         -- Fire-and-forget: same static address/selector, CALL success ignored.
         let method := callee[callee.size - 1]!
@@ -2308,6 +2336,10 @@ private partial def statementHelperNeedsV1 : Statement → PhaseHelperNeedsV1
   | .externalCall _ args _ | .schedule _ args _ | .externalCallResult _ args _ =>
       args.foldl (fun acc e => mergeHelperNeeds acc (exprHelperNeedsV1 e)) {}
   | .sha256Precompile input _ | .keccak256Opcode input _ => exprHelperNeedsV1 input
+  | .ecdsaRecoverSecp256k1 hash v r s _ =>
+      mergeHelperNeeds (exprHelperNeedsV1 hash)
+        (mergeHelperNeeds (exprHelperNeedsV1 v)
+          (mergeHelperNeeds (exprHelperNeedsV1 r) (exprHelperNeedsV1 s)))
   | .nativeDeposit a => exprHelperNeedsV1 a
   | .nativeTransfer dl dw a =>
       mergeHelperNeeds (exprHelperNeedsV1 dl)

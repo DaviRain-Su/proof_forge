@@ -44,6 +44,13 @@ normative: true
 | `psy` | ZK application chain | engineering implemented (scope ADR open) | `specified` | sole `psy-dpn-v1`；retained-V1 Plan → canonical `.dpn.json`；zero-tool finalization；无 DPN runtime/proof/UPS/network/deploy；**非** accepted Phase 1 范围 | [Psy DPN](10-psy.md) · [ADR-0035](../adr/0035-direct-native-artifact-materializers.md) |
 | `ton` | TVM Stack-Account | engineering implemented (scope ADR open) | `research` | retained-V1 Plan/IR → Tolk + real BoC；UInt8/16/32、named state、bounded view aggregate/Array/Option return；async schedule→`createMessage`（hash dest/value=0/fixed mode，PARTIAL），sync call FC；`@ton/sandbox` 10/10；registry label `source-only`；**非** 主网/formal；**非** accepted Phase 1 范围 | [TON](11-ton.md) · [family](family-tvm-stack-account.md) |
 | `quint` | executable specification / model | engineering implemented (scope ADR open) | `research` | retained-V1 Q0 Plan/IR → `.qnt` + **zero-tool** finalize；profile `quint-source-u64-model-v1`；resolver 仅 4-key；完整 UInt64 域；失败=显式 outcome+business-state stutter；zero-param Bool invariant→`val`；本机 Quint 0.32 typecheck/run 仅 host observation，非 locked gate；ITF/MBT/verify 未声称；不可部署、非 accepted Phase 1/formal D3/D4 | [Quint](12-quint.md) · [ADR-0026](../adr/0026-quint-target-integration.md) |
+| `cairo` | zkVM (Cairo VM) | research (ADR-0017) | `research` | dossier + RPT-026 Plan/Q0；**无** materializer；Starknet syscall Q0 FC；非 accepted 扩面 | [Cairo](13-cairo.md) · [RPT-026](../research/26-zkvm-trio-cairo-risc0-sp1-design.md) |
+| `risc0` | zkVM (RISC-V) | research (ADR-0017) | `research` | dossier + RPT-026；OpenVM 后第二叶候选 A；无 materializer | [RISC Zero](14-risc0.md) · [RPT-026](../research/26-zkvm-trio-cairo-risc0-sp1-design.md) |
+| `sp1` | zkVM (RISC-V) | research (ADR-0017) | `research` | dossier + RPT-026；OpenVM 后第二叶候选 B；无 materializer | [SP1](15-sp1.md) · [RPT-026](../research/26-zkvm-trio-cairo-risc0-sp1-design.md) |
+
+> **并行车道（2026-08-13）**：`feature-soroban` / `feature-icp` / `feature-zkvm(OpenVM)`
+> 为实现叶；本目录 Cairo/RISC0/SP1 为 **research dossier**，不抢那些 registry 改动。
+> `aptos`/`sui` dossier 仍缺（ADR-0017），编号续排待 `TGT-MOVE-DOSSIER`。
 
 > **Registry 计数（当前工程事实，2026-08-14）**：**12 = 12 implemented + 0
 > design-only**。十二个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` /
@@ -52,6 +59,7 @@ normative: true
 > OpenVM O0/O1）由 ADR-0036/0044/0045/0046 固定为非 accepted 扩面，formal lighthouse=EVM-first。
 > Registry maturity 标签（如 CosmWasm `wasm-validated-alpha`、TON/Quint/Soroban/OpenVM
 > `source-only`）不变；compile / mock / sandbox / 模型检查不得写成 formal 或 hermetic 完成。
+> **cairo/risc0/sp1 未进 registry 枚举**（仅 dossier/research）。
 
 ## Family 视图
 
@@ -59,7 +67,8 @@ normative: true
 - [Solana explicit-account SVM](family-svm-explicit-account.md)
 - [Wasm artifact and host](family-wasm-host.md)
 - [ZK circuit](family-zk-circuit.md)
-- [zkVM](family-zkvm.md)
+- [zkVM](family-zkvm.md)（OpenVM + 研究期 Cairo/RISC Zero/SP1；Plan 设计见
+  [`../research/26-zkvm-trio-cairo-risc0-sp1-design.md`](../research/26-zkvm-trio-cairo-risc0-sp1-design.md)）
 - [ZK application chain](family-zk-application-chain.md)
 - [TVM Stack-Account](family-tvm-stack-account.md)
 - Quint executable specification / model surface（见 [12-quint.md](12-quint.md)；无独立 family 文档）

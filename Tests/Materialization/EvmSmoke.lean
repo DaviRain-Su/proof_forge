@@ -4526,6 +4526,148 @@ private unsafe def testCryptoKeccak256Evm : IO Unit := do
       "    return x\n")
     "pf.crypto.keccak256 requires exactly one UInt256 argument and UInt256 result"
 
+/-- EXT-CRYPTO EVM: `call pf.crypto.ecdsaRecoverSecp256k1` → ecrecover `0x01`
+    via STATICCALL. Four UInt256 args → UInt256; dedicated Plan statement. -/
+private unsafe def testCryptoEcdsaRecoverEvm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let hashedPfCrypto :=
+    (Targets.Evm.Keccak.keccak256Hex "pf.crypto".toUTF8).drop 24
+  let src :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program EcdsaEvm where\n" ++
+    "  entry probe(h : UInt256, v : UInt256, r : UInt256, s : UInt256) : UInt256 do\n" ++
+    "    let a : UInt256 := call pf.crypto.ecdsaRecoverSecp256k1(h, v, r, s)\n" ++
+    "    return a\n"
+  let cSrc ← match ← session.selectProgramV1
+      src "<evm-ecdsa-recover>" "Tests.EvmEcdsaRecover" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"EcdsaEvm select: {e.render}"
+  let compiled ← match Compiler.compileValidatedSourceV1 cSrc with
+    | .error e => throw <| IO.userError s!"EcdsaEvm must compile, got {e.render}"
+    | .ok c => pure c
+  let plan ← match planEvm compiled with
+    | .error e =>
+        throw <| IO.userError s!"EcdsaEvm must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let mut hasDedicated := false
+  let mut hasHashedResultCall := false
+  for e in plan.entries do
+    for s in e.body do
+      match s with
+      | .ecdsaRecoverSecp256k1 _ _ _ _ _ => hasDedicated := true
+      | .externalCallResult callee _ _ =>
+          if callee == #["pf", "crypto", "ecdsaRecoverSecp256k1"] then
+            hasHashedResultCall := true
+      | .externalCall callee _ _ =>
+          if callee == #["pf", "crypto", "ecdsaRecoverSecp256k1"] then
+            hasHashedResultCall := true
+      | _ => pure ()
+  expect hasDedicated
+    "EcdsaEvm: plan must contain dedicated ecdsaRecoverSecp256k1 statement"
+  expect (!hasHashedResultCall)
+    "EcdsaEvm: must not lower to hashed AddressBearing externalCall(Result)"
+  let files ← match materializeSelected TargetId.evm compiled with
+    | .error e => throw <| IO.userError s!"EcdsaEvm materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yulFile := files.find? (·.path == "EcdsaEvm.yul") |
+    throw <| IO.userError "EcdsaEvm: missing .yul"
+  let yul := yulFile.contents
+  expect (yul.contains "staticcall")
+    "EcdsaEvm: Yul must emit STATICCALL to the precompile"
+  expect (yul.contains "staticcall(gas(), 0x1")
+    "EcdsaEvm: Yul must target ecrecover precompile address 0x1"
+  expect (yul.contains "eq(returndatasize(), 32)")
+    "EcdsaEvm: Yul must treat short returndata as zero-address (Solidity ecrecover)"
+  expect (!yul.contains hashedPfCrypto)
+    s!"EcdsaEvm: Yul must not contain hashed pf.crypto address {hashedPfCrypto}"
+
+  let expectPlanFc (programName pathLabel moduleName body needle : String) : IO Unit := do
+    let negSrc :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {programName} where\n" ++
+      body
+    let neg ← match ← session.selectProgramV1
+        negSrc pathLabel moduleName none with
+      | .ok v => pure v
+      | .error e => throw <| IO.userError s!"{programName} select: {e.render}"
+    match Compiler.compileValidatedSourceV1 neg with
+    | .error e => throw <| IO.userError s!"{programName} must compile, got {e.render}"
+    | .ok compiledNeg =>
+        match planEvm compiledNeg with
+        | .error e =>
+            expect (e.render.contains needle)
+              s!"{programName} Plan FC must contain '{needle}', got: {e.render}"
+        | .ok _ =>
+            throw <| IO.userError
+              s!"{programName} must Plan fail closed (no hashed CALL fallback)"
+
+  expectPlanFc "EcdsaArityEvm" "<evm-ecdsa-arity>" "Tests.EvmEcdsaArity"
+    ("  entry probe(h : UInt256, v : UInt256, r : UInt256) : UInt256 do\n" ++
+      "    let a : UInt256 := call pf.crypto.ecdsaRecoverSecp256k1(h, v, r)\n" ++
+      "    return a\n")
+    "pf.crypto.ecdsaRecoverSecp256k1 requires four UInt256 arguments and UInt256 result"
+  expectPlanFc "EcdsaU64Evm" "<evm-ecdsa-u64>" "Tests.EvmEcdsaU64"
+    ("  entry probe(h : UInt64, v : UInt64, r : UInt64, s : UInt64) : UInt64 do\n" ++
+      "    let a : UInt64 := call pf.crypto.ecdsaRecoverSecp256k1(h, v, r, s)\n" ++
+      "    return a\n")
+    "pf.crypto.ecdsaRecoverSecp256k1 requires four UInt256 arguments and UInt256 result"
+  expectPlanFc "EcdsaSchedEvm" "<evm-ecdsa-sched>" "Tests.EvmEcdsaSched"
+    ("  entry probe(h : UInt256, v : UInt256, r : UInt256, s : UInt256) : UInt256 do\n" ++
+      "    schedule pf.crypto.ecdsaRecoverSecp256k1(h, v, r, s)\n" ++
+      "    return h\n")
+    "pf.crypto calls cannot be scheduled"
+
+/-- EXT-CRYPTO EVM Anvil companion fixture pin: inline twin of
+    Examples/EcdsaRecoverCheck.lean. Plan `.ecdsaRecoverSecp256k1` +
+    STATICCALL 0x1; hashed `pf.crypto` address absent. -/
+private unsafe def testEcdsaRecoverCheckFixtureEvm : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let hashedPfCrypto :=
+    (Targets.Evm.Keccak.keccak256Hex "pf.crypto".toUTF8).drop 24
+  let src :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program EcdsaRecoverCheck where\n" ++
+    "  state last : UInt256\n" ++
+    "  init() do\n" ++
+    "    last := 0\n" ++
+    "  entry recover(hash : UInt256, v : UInt256, r : UInt256, s : UInt256) : UInt256 do\n" ++
+    "    let a : UInt256 := call pf.crypto.ecdsaRecoverSecp256k1(hash, v, r, s)\n" ++
+    "    last := a\n" ++
+    "    return a\n" ++
+    "  view get() : UInt256 do\n" ++
+    "    return last\n"
+  let cSrc ← match ← session.selectProgramV1
+      src "<evm-ecdsa-recover-check>" "Examples.EcdsaRecoverCheck" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"EcdsaRecoverCheck select: {e.render}"
+  let compiled ← match Compiler.compileValidatedSourceV1 cSrc with
+    | .error e => throw <| IO.userError s!"EcdsaRecoverCheck must compile, got {e.render}"
+    | .ok c => pure c
+  let plan ← match planEvm compiled with
+    | .error e =>
+        throw <| IO.userError s!"EcdsaRecoverCheck must produce a plan, got {e.render}"
+    | .ok p => pure p
+  let hasDedicated := plan.entries.any fun e =>
+    e.body.any fun s =>
+      match s with
+      | .ecdsaRecoverSecp256k1 _ _ _ _ _ => true
+      | _ => false
+  expect hasDedicated
+    "EcdsaRecoverCheck: plan must contain .ecdsaRecoverSecp256k1"
+  let files ← match materializeSelected TargetId.evm compiled with
+    | .error e => throw <| IO.userError s!"EcdsaRecoverCheck materialize: {e.render}"
+    | .ok output => pure (MaterializedArtifactsV1.filesOf output)
+  let some yulFile := files.find? (·.path == "EcdsaRecoverCheck.yul") |
+    throw <| IO.userError "EcdsaRecoverCheck: missing .yul"
+  let yul := yulFile.contents
+  expect (yul.contains "staticcall(gas(), 0x1")
+    "EcdsaRecoverCheck: Yul must emit staticcall(gas(), 0x1"
+  expect (!yul.contains hashedPfCrypto)
+    s!"EcdsaRecoverCheck: Yul must not contain hashed pf.crypto address {hashedPfCrypto}"
+
 /-- SYS-S5-EVM Anvil companion fixture pin: inline twin of Examples/Sha256Check.lean
     (not imported by Examples.lean). Plan `.sha256Precompile` + STATICCALL 0x2;
     hashed `pf.crypto` address absent. -/
@@ -5203,6 +5345,8 @@ unsafe def run : IO Unit := do
   testCryptoKeccak256Evm
   testSha256CheckFixtureEvm
   testKeccak256CheckFixtureEvm
+  testCryptoEcdsaRecoverEvm
+  testEcdsaRecoverCheckFixtureEvm
   testContextReadTimestampEvm
   testAnonymousReturnFailClosedBoundaries
   testAggregateLeafCapFailClosed

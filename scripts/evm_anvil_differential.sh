@@ -456,6 +456,22 @@ else
   echo "evm-anvil-differential: note: Keccak256Check companion script missing (skip leg)" >&2
 fi
 
+# EcdsaRecoverCheck: EXT-CRYPTO EVM pf.crypto.ecdsaRecoverSecp256k1 → 0x01.
+# Product build/runtime assertions are hard; missing locked tools are handled
+# inside the host-optional companion (exit 0). Not formal C-3 / EXT-CRYPTO done.
+if [[ -x "$root/scripts/evm_ecdsa_recover_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: companion EcdsaRecoverCheck ecrecover smoke (build hard-fail; profile=$expected_profile_wire)" >&2
+  PF_EVM_PROFILE="$evm_profile" bash "$root/scripts/evm_ecdsa_recover_anvil_smoke.sh" || {
+    echo "evm-anvil-differential: EcdsaRecoverCheck smoke failed (hard)" >&2
+    exit 1
+  }
+elif [[ -f "$root/scripts/evm_ecdsa_recover_anvil_smoke.sh" ]]; then
+  echo "evm-anvil-differential: EcdsaRecoverCheck smoke present but not executable (hard)" >&2
+  exit 1
+else
+  echo "evm-anvil-differential: note: EcdsaRecoverCheck companion script missing (skip leg)" >&2
+fi
+
 # ChainIdCheck: ADR-0031 S3 context.chainId → Yul chainid() / CHAINID.
 # Product build/solc failures are hard; tool/script skip is handled inside
 # the companion (exit 0). Engineering Anvil pin only — not formal.

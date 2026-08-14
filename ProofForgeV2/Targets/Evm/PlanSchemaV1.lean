@@ -417,6 +417,15 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       let mut out := (encodeU8 22).append (← encodeExpr input)
       out := out.append (← encodeNatAsU32le resultTemp)
       pure out
+  -- Tag 23 (EXT-CRYPTO EVM): exact
+  -- pf.crypto.ecdsaRecoverSecp256k1(hash,v,r,s) -> UInt256 precompile 0x01.
+  | .ecdsaRecoverSecp256k1 hash v r s resultTemp => do
+      let mut out := (encodeU8 23).append (← encodeExpr hash)
+      out := out.append (← encodeExpr v)
+      out := out.append (← encodeExpr r)
+      out := out.append (← encodeExpr s)
+      out := out.append (← encodeNatAsU32le resultTemp)
+      pure out
   -- Tag 13 (ADR-0029 B2): pf.assets.native.deposit(amount).
   | .nativeDeposit amount => do
       pure ((encodeU8 13).append (← encodeExpr amount))

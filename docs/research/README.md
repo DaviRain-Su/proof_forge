@@ -48,6 +48,8 @@ normative: false
 27. [`23-miniamm-formalization-ladder.md`](23-miniamm-formalization-ladder.md)：**通用程序形式化栈** L0/L1/L2；业务 track 1（EvenCounter preserving product positive GREEN）与工具 track 2 分账；第二实例 deferred；product Reference step 唯一，MiniAmm 为后续普通实例；D/L2 formal 最后（RPT-023；2026-08-08）。
 28. [`24-aleo-local-proof-finalize.md`](24-aleo-local-proof-finalize.md)：locked Leo 4.0.2 的 package/build/execute/proof/finalize/query 实证冻结；offline build 三产物确定性已由 ALEO-I4 productize 为 opt-in non-deployable compile profile，network/proof/deploy 阶段仍阻塞（RPT-024；2026-08-07）。
 29. [`25-remaining-target-landscape.md`](25-remaining-target-landscape.md)：**剩余 target 版图**——用户「四大类」vs 多轴 taxonomy、registry 9+3、ADR-0017 研究桶、比特币脚本族（UTXO predicate）诚实边界，以及 Soroban→ICP→OpenVM→Move→第二 zkVM 的工程波次；执行勾选只进 `engineering-backlog`（RPT-025；2026-08-13）。
+30. [`26-zkvm-trio-cairo-risc0-sp1-design.md`](26-zkvm-trio-cairo-risc0-sp1-design.md)：**Cairo / RISC Zero / SP1** 三独立 zkVM Plan 设计——共享 Q0 fail-closed 面与 maturity 梯子、分机 `CairoPlan`/`Risc0Plan`/`Sp1Plan`、相对 OpenVM/Noir 分工；非 registry 扩面（RPT-026；2026-08-13）。
+31. [`27-extension-crypto-design.md`](27-extension-crypto-design.md)：**extension.crypto 设计钉**——S5 sha256 三叶现状、其余 target 诚实 FC、Merkle/签名/Bytes 分桶与避让 Soroban/ICP/OpenVM 车道（RPT-027；2026-08-13）。
 
 ## 证据等级
 

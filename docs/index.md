@@ -39,6 +39,10 @@ wasmd Docker rung-1；TON：Tolk/BoC + sandbox 10/10（schedule `createMessage` 
 Op×target 格子：[`research/12-target-coverage-matrix.md`](research/12-target-coverage-matrix.md)。
 剩余 target 版图（四大类之外 / 比特币脚本族 / Soroban→ICP→OpenVM 波次）：
 [`research/25-remaining-target-landscape.md`](research/25-remaining-target-landscape.md)。
+Cairo/RISC Zero/SP1 zkVM Plan 设计：
+[`research/26-zkvm-trio-cairo-risc0-sp1-design.md`](research/26-zkvm-trio-cairo-risc0-sp1-design.md)。
+`extension.crypto` 设计钉：
+[`research/27-extension-crypto-design.md`](research/27-extension-crypto-design.md)。
 Psy DPN 物化：[`targets/10-psy.md`](targets/10-psy.md) · [`targets/10-psy-dpn-lowering.md`](targets/10-psy-dpn-lowering.md)（sole `psy-dpn-v1`，zero-tool，`deployable=false`）。
 Psy agent / 前端 / demo：[`product/11-psy-agent-playbook.md`](product/11-psy-agent-playbook.md) · [`product/12-psy-dapp-frontend.md`](product/12-psy-dapp-frontend.md) · [`demos/psy-dpn-walkthrough.md`](demos/psy-dpn-walkthrough.md) · 模板 [`templates/psy-dapp-ui/`](../templates/psy-dapp-ui/)（`window.psy` + DPN ABI）。
 Aleo Instructions IR 物化规划：[`targets/09-aleo-instructions-lowering.md`](targets/09-aleo-instructions-lowering.md)（idle residual；OPTION-COMPARE done）。

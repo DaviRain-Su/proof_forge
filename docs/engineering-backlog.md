@@ -145,7 +145,7 @@ D1–D4 = 0/27 done。
 | **NS-2** | packet mailbox 最小件 | IBC-flavored 子集 | pending |
 | **NS-3** | 真 IBC 模块栈 | 长期；依赖 crypto | wontfix-until-NS-1 |
 | **EXT-ASSETS** | `extension.pf-assets`（L1 portable assets；ADR-0029） | Phase A：payload 冻结 + Typed/Normalize + Quint vault + 产品 demo；Phase B：EVM（payable exact callvalue + full-gas value CALL + `interface-standard` 骨架 + Anvil 门）与 Solana（vault PDA + 幂等 ensure + System CPI 入金 + program-direct 出金 + Mollusk 12/12）；Phase C：CosmWasm（funds exact + BankMsg::Send reply_on=never sync + cw-vm mock）与 NEAR（attached_deposit + transferAsync Promise + near-sandbox 余额观测）已绑定；resolver multi-permit 六行（Quint + EVM×2 + Solana CPI + NEAR + CW）。**ADR-0030（2026-08-05）**：`pf.assets.token.transfer`/`transferAsync`（payload 不变）**E1 四链全绑**——EVM（E1a 受控动态 callee ERC-20 transfer + 返回值三分支 predicate + Anvil 门）、Solana（E1b vault ATA→dst ATA transferCheckedPda + ATA ensure×2 + ROLE_DATA_LEN 刷新纪律 + Mollusk `tipjar_token` 14/14、门 16/338）、CosmWasm（E1-CW CW20 Transfer WasmMsg::Execute SubMsg reply_on=never + bech32 charset `[a-z0-9]` 注入安全门 + cw-vm mock `tokenjar.rs` 6/6）、NEAR（E1-NEAR NEP-141 `ft_transfer` fire-and-forget Promise + 恰好 1 yoctoNEAR + mock token sandbox 真实跨合约 receipt + schedule function-call ABI 7 参修正）；E2 balanceOfSelf env-read **全波 done**（payload v1.1.0 已 cutover 为唯一承认 triple、Reference self-vault 解释器闭合 ADR-0029 opaque caveat、六 target 物化：EVM SELFBALANCE+STATICCALL `balanceOf`、Solana vault lamports/ATA coherence 读（无 CPI）、CW `query_chain` bank/CW20（msg=Binary base64）、NEAR `account_balance` native-only（u128→UInt64 range guard，真实余额≫2^64 trap 已真实触发）、Quint vaultNative native-only；NEAR/Quint token env-read 永久 FC；gates：Anvil envread leg、Mollusk、cw-vm `envreadjar.rs`、near-sandbox 9 suites，含 CallerCheck），E3 caller 已由 ADR-0031 S1 四 target 工程闭合；E4 MiniAMM **engineering dual-chain closed（2026-08-07）**：同一 `Examples/MiniAmmAssets.lean` 经 Solana Mollusk `miniamm_assets` 10/10（multi-role dual-mint Token CPI）+ EVM Anvil M5 dual ERC-20（strict EIP-3860）runtime 门；M0 vault-internal MiniAmm + M4c multi-role 产品 pin 保留；formal TASK-D5 / hermetic / mainnet 仍 residual；token.transferAsync 除 NEAR 外仍全 target FC。**TON 决策（2026-08-05，产品 owner）：TON 冻结现状（async createMessage 子集已开即止），pf.assets 与后续功能不开发；Noir 永久 FC** | **A（08-04）/B/C/D done（2026-08-05）**；ADR-0030 **E1 done（2026-08-05，四链全绑）/ E2 done（2026-08-06，六 target env-read 物化）/ E3 done（2026-08-06，四 target caller）**，E4 in_progress |
-| **EXT-CRYPTO** | `extension.crypto`（SHA-256 / Merkle / 签名） | IBC 与大量链上逻辑命脉；capability 矩阵 | pending（设计后单独立项） |
+| **EXT-CRYPTO** | `extension.crypto`（SHA-256 / Merkle / 签名） | IBC 与大量链上逻辑命脉；capability 矩阵 | **设计钉 done**（RPT-027）；S5 sha256 = EVM/Solana/NEAR；**CRYPTO-D2 EVM ecrecover** engineering done；Merkle/其它签名/其它 target 仍 pending |
 | **N-BYTES** | Bytes state/param 路径复核（+ 产品 String 若仍需） | state/index assign 随 N-A3 产品路径已钉；String 另议 | **done**（2026-08-02：随 MapBytesAssign；Bytes state+IndexGet/Set 测例） |
 
 ---
@@ -605,6 +605,10 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-13 | **SYS-S5 NEAR keccak companion + Psy remaining gadgets**：NEAR sandbox 增 `Keccak256Check` LE known-vector companion（本机实际 pass `hashWord(0|1)`，非 lossless）。Psy `hashPad`/`hashTwoToOne` UInt256 host 与 keccak/hashPad Array4 HashOut 精确 FC；first-limb gadget 仍开。Solana host-only keccak 仍产品 FC，不扩 capability / 不声称 Mollusk pass。**不**关闭 EXT-CRYPTO / formal |
 | 2026-08-13 | **SYS-S5 sibling QN + Bytes ABI pin**：shared compile 钉 Bytes 不能当 `pf.crypto` 参数。EVM/Solana/NEAR 钉 `hashPad`/`hashTwoToOne` 与 Bytes-result FC。Noir 另钉 `sha256_compression`/`keccakf1600` 不是 host。**不**关闭 EXT-CRYPTO / formal / Bytes ABI |
 | 2026-08-13 | **剩余 target 版图 RPT-025**：登记 §10.1（TGT-SOROBAN/ICP/OPENVM-MVP、Move dossier、第二 zkVM、比特币脚本族钉死默认不实现）；不扩 accepted PRD；不新开平行 gap 清单 |
+| 2026-08-13 | **zkVM 三机 Plan 设计 RPT-026**：Cairo/RISC Zero/SP1 独立 Plan + 共享 Q0 fail-closed；TGT-ZKVM-TRIO-DESIGN done；dossier/MVP 仍 pending |
+| 2026-08-13 | **TGT-ZKVM-DOSSIERS**：`13-cairo`/`14-risc0`/`15-sp1` research dossier 落地；不进 registry；避开 soroban/icp/openvm 实现车道 |
+| 2026-08-13 | **Move wontfix + EXT-CRYPTO-DESIGN**：产品决定不做 Aptos/Sui；RPT-027 钉 crypto 扩展（S5 现状/Merkle/签名/避让三车道） |
+| 2026-08-13 | **CRYPTO-D2 EVM ecrecover leaf**：`pf.crypto.ecdsaRecoverSecp256k1` 4×UInt256→UInt256 绑定 precompile `0x01`（Plan tag 23 / STATICCALL）；`Examples/EcdsaRecoverCheck` + Anvil companion；失败返回零地址字；其它 target 仍 FC。**不**关闭 EXT-CRYPTO / formal / Anvil lossless |
 
 ---
 
@@ -650,10 +654,20 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | **ICP-2** | ICP target-owned Plan/IR → Wasm + `.did` | target leaf | Counter/StateCell UInt64 窄子集 | **done** |
 | **ICP-3** | ICP PocketIC 工程门 | target runtime | `just icp-runtime` / `local --target icp`；缺 POCKET_IC_BIN skip-clean | **done**（host-optional；非 formal） |
 | **TGT-OPENVM-MVP** | `openvm` design-only → guest/VmExe MVP（prove 可 FC；无假链上合约） | T3 | **pending** |
-| **TGT-MOVE-DOSSIER** | 补齐 `aptos`/`sui` dossier + Move family（ADR-0017；**不**占用 `12-quint` 编号） | T4 | **pending** |
-| **TGT-ZKVM-SECOND** | OpenVM 稳定后于 cairo/risc0/sp1 **择一**第二 zkVM leaf | T5 | **pending**（blocked-on TGT-OPENVM-MVP） |
+| **TGT-MOVE-DOSSIER** | 补齐 `aptos`/`sui` dossier + Move family | T4 | **wontfix**（2026-08-13 产品决定：不做 Move 轴） |
+| **TGT-ZKVM-SECOND** | OpenVM 稳定后于 cairo/risc0/sp1 **择一**第二 zkVM leaf | T5 | **pending**（blocked-on TGT-OPENVM-MVP；Plan 设计见 RPT-026） |
+| **TGT-ZKVM-TRIO-DESIGN** | Cairo/RISC Zero/SP1 三机 Plan/Q0 设计（RPT-026） | T5 prep | **done**（2026-08-13） |
+| **TGT-ZKVM-DOSSIERS** | 补齐 cairo/risc0/sp1 dossier（续排编号，不占 `12-quint`） | T5 prep | **done**（2026-08-13：`13-cairo`/`14-risc0`/`15-sp1`） |
+| **TGT-CAIRO-MVP** | `cairo` materializer MVP（默认第三 zkVM leaf） | T5+ | **pending**（blocked-on TGT-ZKVM-SECOND 或显式改序） |
+| **EXT-CRYPTO-DESIGN** | `extension.crypto` 设计钉（SHA-256 已有 EVM/Solana/NEAR leaf；Merkle/签名/Bytes/余 target） | 横切 | **done**（2026-08-13：RPT-027；不改 registry） |
+
+> **车道（2026-08-13）**：Soroban→`feature-soroban`，ICP→`feature-icp`，OpenVM→`feature-zkvm`；
+> `feature-other` **禁止**并行改 TargetRegistry/Descriptor/Resolver/Protocol/ADR-0036；
+> 只做版图/zkVM dossier/`EXT-CRYPTO` 设计等 **新文件或已实现 leaf 内** 工作。Move **不做**。
 
 优先序（历史）：**TGT-SOROBAN-MVP → TGT-ICP-MVP → TGT-OPENVM-MVP**（三者 engineering MVP 均已闭合；不扩 accepted PRD）；Move dossier 可与 T1 文档并行，materializer 不得抢先于独立实现 ADR。
+
+优先序（本车道）：`EXT-CRYPTO-DESIGN` / CRYPTO-D2 EVM `ecdsaRecoverSecp256k1` leaf（Plan tag 23）。
 
 
 > **Solana CPI epic #111–#125 engineering closed** (#110 engineering epic complete): legacy profiles fail closed on call/schedule; exact `solana-sbpf-cpi-elf-v1` advertises sync+extension (async still FC); CpiEscrowIRV1 composite escrow remains test-preactivation history; product activation is ordinary-resolver product capability (not formal TASK-D5).
