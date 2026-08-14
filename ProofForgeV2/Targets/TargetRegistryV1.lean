@@ -2,7 +2,7 @@
   ProofForgeV2.Targets.TargetRegistryV1 — D3 engineering registry kernel (repair B)
 
   **Sole** opaque static membership authority for the closed twelve-target set
-  (9 implemented + 3 design-only). Product selection (`BuildSelectionV1`)
+  (11 implemented + 1 design-only). Product selection (`BuildSelectionV1`)
   consumes this seed; there is no second static index.
 
   **Not** formal TASK-D3-02:
@@ -263,8 +263,8 @@ private def containsProfile (profiles : Array CodegenProfileId) (p : CodegenProf
 /-- Closed kind → exact product implemented flag (sole membership policy). -/
 def expectedImplementedOfKindV1 : TargetKind → Bool
   | .evm | .solana | .near | .noir | .aleo | .psy | .quint | .cosmwasm | .ton
-  | .soroban => true
-  | .icp | .openvm => false
+  | .soroban | .openvm => true
+  | .icp => false
 
 /-- Closed kind → exact list/describe maturity label. -/
 def expectedMaturityLabelOfKindV1 : TargetKind → String
@@ -278,7 +278,8 @@ def expectedMaturityLabelOfKindV1 : TargetKind → String
   | .cosmwasm => "wasm-validated-alpha"
   | .ton => "source-only"
   | .soroban => "source-only"
-  | .icp | .openvm => "research-only"
+  | .openvm => "source-only"
+  | .icp => "research-only"
 
 /-- Closed kind → exact acceptance profile id string. -/
 def expectedAcceptanceProfileIdOfKindV1 : TargetKind → String
@@ -558,7 +559,12 @@ def initialRegistrationRowsV1 : Array TargetRegistrationDataV1 :=
       #[CodegenProfileId.sorobanSourceU64V1]
       (some CodegenProfileId.sorobanSourceU64V1),
     row .icp (semanticsAxesOfKindV1 .icp) #[] none,
-    row .openvm (semanticsAxesOfKindV1 .openvm) #[] none,
+    -- explicit elf profile shares the Plan/guest emission; Finalize resolves
+    -- locked cargo-openvm 2.0.1 to build+transpile ELF/VmExe extras
+    -- (ADR-0046 O1; deployable=false; no keygen/execute/prove/verify).
+    row .openvm (semanticsAxesOfKindV1 .openvm)
+      #[CodegenProfileId.openvmGuestElfV1, CodegenProfileId.openvmGuestSourceV1]
+      (some CodegenProfileId.openvmGuestSourceV1),
     row .aleo (semanticsAxesOfKindV1 .aleo)
       #[CodegenProfileId.aleoInstructionsV1]
       (some CodegenProfileId.aleoInstructionsV1),

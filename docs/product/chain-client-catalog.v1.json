@@ -639,16 +639,17 @@
     },
     {
       "id": "openvm",
-      "implemented": false,
-      "maturityLabel": "design-only",
-      "role": "design-only",
+      "implemented": true,
+      "maturityLabel": "source-only",
+      "role": "engineering-leaf",
       "pfSurface": {
-        "build": false,
+        "build": true,
         "localModes": [],
         "network": "none",
         "mcpTools": [
           "pf_list_targets",
-          "pf_chain_catalog"
+          "pf_chain_catalog",
+          "pf_build"
         ]
       },
       "frontendClients": [],
@@ -657,7 +658,9 @@
         "chainLike": null
       },
       "honesty": [
-        "unsupported for install/build"
+        "openvm-guest-source-v1 zero-tool guest source + catalog only",
+        "no ELF/VmExe/prove/verify toolchain install",
+        "not accepted Phase 1; not verifiable-workload"
       ]
     }
   ]

@@ -584,7 +584,9 @@ private def resolveLocalScriptV1 (target mode : String) :
           throw s!"unsupported local mode '{m}' for target ton (want runtime)"
   | "soroban" =>
       throw s!"target 'soroban' is source-only (ADR-0044); no package-script local runtime lane"
-  | "icp" | "openvm" =>
+  | "openvm" =>
+      throw s!"target 'openvm' is source-only guest/ELF (ADR-0045/0046); no package-script local runtime lane"
+  | "icp" =>
       throw s!"target '{target}' is design-only (unsupported; not installable/local)"
   | other =>
       throw s!"local has no package-script path for target '{other}' (solana/evm/near/cosmwasm/ton runtime)"

@@ -232,23 +232,24 @@ private def testGrammar : IO Unit := do
 private def testRegistrySeedMembership : IO Unit := do
   let registry ← liftResult initialTargetRegistryV1Result
   let regs := TargetRegistryV1.registrationsOf registry
-  expect (regs.size == 12) "initial registry must contain 10 implemented + 2 design-only"
+  expect (regs.size == 12) "initial registry must contain 11 implemented + 1 design-only"
   match createTargetRegistryV1 initialRegistrationRowsV1 with
   | .ok rebuilt =>
       expect (rebuilt.toArray.size == 12) "rebuilt seed registry size"
   | .error e => throw <| IO.userError s!"initialRegistrationRowsV1 must validate: {e.render}"
   let impl ← liftResult implementedRegistrations
   let design ← liftResult designOnlyRegistrations
-  expect (impl.size == 10) "exactly ten implemented targets"
-  expect (design.size == 2) "exactly two design-only targets"
+  expect (impl.size == 11) "exactly eleven implemented targets"
+  expect (design.size == 1) "exactly one design-only target"
   let expectedIds :=
     #["aleo", "cosmwasm", "evm", "icp", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton"]
   let ids := regs.map (·.targetId.toString)
   expect (ids == expectedIds) s!"exact closed target id set, got {ids}"
-  let expectedImpl := #["aleo", "cosmwasm", "evm", "near", "noir", "psy", "quint", "solana", "soroban", "ton"]
+  let expectedImpl :=
+    #["aleo", "cosmwasm", "evm", "near", "noir", "openvm", "psy", "quint", "solana", "soroban", "ton"]
   expect (impl.map (·.targetId.toString) == expectedImpl)
     s!"exact implemented set, got {impl.map (·.targetId.toString)}"
-  let expectedDesign := #["icp", "openvm"]
+  let expectedDesign := #["icp"]
   expect (design.map (·.targetId.toString) == expectedDesign)
     s!"exact design-only set, got {design.map (·.targetId.toString)}"
   for reg in impl do
@@ -492,7 +493,7 @@ private def testResolve : IO ResolvedBuildSelectionV1 := do
     | some id => pure id
     | none => throw <| IO.userError "ghost-target must parse"
   expectErrorCode (resolveBuildSelectionV1 ghost none) "PF-TARGET-UNKNOWN" "unknown target"
-  expectErrorCode (resolveBuildSelectionV1 TargetId.openvm none)
+  expectErrorCode (resolveBuildSelectionV1 TargetId.icp none)
     "PF-TARGET-NOT-IMPLEMENTED" "design-only target"
   let sorobanDefault ← liftResult <| resolveBuildSelectionV1 TargetId.soroban none
   expect (sorobanDefault.codegenProfile == CodegenProfileId.sorobanSourceU64V1)
@@ -560,11 +561,11 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       expect (msg == "duplicate --target") "success seed duplicate --target"
   | Except.ok _ => throw <| IO.userError "product preflight must reject duplicate --target"
   let defaultList ← liftResult <| ProofForgeV2.CLI.listTargetLines false
-  expect (defaultList.size == 10) "default list-targets is implemented-only"
+  expect (defaultList.size == 11) "default list-targets is implemented-only"
   expect (defaultList == #["aleo\tinstructions-only", "cosmwasm\twasm-validated-alpha",
       "evm\truntime-validated-alpha", "near\twasm-validated-alpha", "noir\tsource-only",
-      "psy\tdpn-only", "quint\tsource-only", "solana\truntime-validated-alpha",
-      "soroban\tsource-only", "ton\tsource-only"])
+      "openvm\tsource-only", "psy\tdpn-only", "quint\tsource-only",
+      "solana\truntime-validated-alpha", "soroban\tsource-only", "ton\tsource-only"])
     s!"default list-targets exact lines, got {defaultList}"
   let allList ← liftResult <| ProofForgeV2.CLI.listTargetLines true
   expect (allList == #[
@@ -574,7 +575,7 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
       "icp\tresearch-only",
       "near\twasm-validated-alpha",
       "noir\tsource-only",
-      "openvm\tresearch-only",
+      "openvm\tsource-only",
       "psy\tdpn-only",
       "quint\tsource-only",
       "solana\truntime-validated-alpha",
@@ -702,7 +703,7 @@ private def testCliDispatcher (evmDefault : ResolvedBuildSelectionV1) : IO Unit 
   | other => throw <| IO.userError s!"parse cross profile: {repr other}"
   match ProofForgeV2.CLI.parseCliCommandV1
       ["build", "Examples/StateCell.lean", "--module", "Examples.StateCell",
-        "--target", "openvm"] with
+        "--target", "icp"] with
   | .ok (.build opts) =>
       match opts.target with
       | some tid =>
@@ -870,8 +871,17 @@ private unsafe def testMaterializeIdentity : IO Unit := do
               s!"carrier profile identity for {tid}"
         | none => throw <| IO.userError "implemented without default"
     | none => throw <| IO.userError "missing reg"
-  match resolveBuildSelectionV1 TargetId.openvm none with
-  | .error (.targetNotImplemented .openvm) => pure ()
+  -- OpenVM O0 is now implemented: StateCell plans + emits successfully.
+  let openvmSelection ← liftResult <| resolveBuildSelectionV1 TargetId.openvm none
+  let openvmCapability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 openvmSelection compiled
+  let openvmOutput ← liftResult <| Targets.materializeResult openvmCapability
+  expect (!(MaterializedArtifactsV1.filesOf openvmOutput).isEmpty)
+    "openvm must emit artifacts"
+  expect (MaterializedArtifactsV1.targetIdOf openvmOutput == TargetId.openvm)
+    "openvm carrier target identity"
+  match resolveBuildSelectionV1 TargetId.icp none with
+  | .error (.targetNotImplemented .icp) => pure ()
   | .error e => throw <| IO.userError s!"expected NOT-IMPLEMENTED, got {e.render}"
   | .ok _ => throw <| IO.userError "design-only must not resolve"
   let selection ← liftResult <| resolveBuildSelectionV1 TargetId.solana none

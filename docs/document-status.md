@@ -24,19 +24,23 @@ normative: true
 ## 当前恢复执行指针
 
 当前产品开发由根级 [`RECOVERY.md`](../RECOVERY.md) / [`AGENTS.md`](../AGENTS.md) 驱动：
-ProgramV1 → CheckV1/Normalize → `CompiledSemanticV1` → **九个 materializer**
-（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON）capability Plan/IR 的**工程纵切面**。
-工程 registry **12 = 9 implemented + 3 design-only**（Soroban/ICP/OpenVM）。Quint 是
-zero-tool finalize 的 source-only `.qnt` executable-model target；CosmWasm
+ProgramV1 → CheckV1/Normalize → `CompiledSemanticV1` → **十个 materializer**
+（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/OpenVM）capability Plan/IR 的**工程纵切面**。
+工程 registry **12 = 10 implemented + 2 design-only**（Soroban/ICP）。Quint 是
+zero-tool finalize 的 source-only `.qnt` executable-model target；OpenVM 默认
+`openvm-guest-source-v1` 是 zero-tool guest-source（受控 Rust 模板 + catalog；
+ADR-0045 O0），opt-in `openvm-guest-elf-v1` 锁定 `cargo-openvm` 2.0.1 build/transpile
+出 RV32IM ELF + `.vmexe`（ADR-0046 O1；仍无 keygen/execute/prove/verify）；CosmWasm
 工程面为 WAT + locked `wat2wasm`/`cosmwasm-check` + mock 28 tests + wasmd Docker rung-1
 （sync call FC、Binary SubMsg same-tx PARTIAL）；TON 工程面为 Tolk + real BoC +
 `@ton/sandbox` 10/10，schedule `createMessage` 为 hash destination/value=0 的 PARTIAL
 语义。以上均为工程观察，**非** formal/hermetic。
-**Accepted PRD Phase 1 范围仍为四目标**（EVM/Solana/NEAR/Noir）；后五个 engineering
-leaves 的边界由 **ADR-0036** 固定为非 accepted 扩面，formal lighthouse 为 EVM-first。
+**Accepted PRD Phase 1 范围仍为四目标**（EVM/Solana/NEAR/Noir）；engineering
+leaves 的边界由 **ADR-0036**（11+1：含 Soroban ADR-0044 与 OpenVM ADR-0045/0046）固定为非
+accepted 扩面，formal lighthouse 为 EVM-first。
 日常缺口队列见 [`engineering-backlog.md`](engineering-backlog.md)。剩余 target / 比特币脚本族版图见
 [`research/25-remaining-target-landscape.md`](research/25-remaining-target-landscape.md)
-（§10.1：Soroban→ICP→OpenVM；不扩 accepted PRD）。**ADR-0027**
+（§10.1：ICP 仍为 design-only；不扩 accepted PRD）。**ADR-0027**
 （`proposed`）仍冻结 inline same-file gate 的 single-snapshot/audit/axiom/proof-first 基线；
 **ADR-0034**（`proposed`）的 Preservation ABI、`ProofKindV1`/三字段 wire、
 `(inv,kind)` inventory、双 alias 与 kind-bound certifier 已接线。2026-08-09

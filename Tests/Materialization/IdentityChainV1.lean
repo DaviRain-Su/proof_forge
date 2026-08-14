@@ -99,9 +99,9 @@ private def testClaimMintCanonicalOrder : IO Unit := do
   expect (claims.size == rows.size)
     s!"one claim per support row: got {claims.size} want {rows.size}"
   -- EVM/Noir dual + sole direct profiles for the other eight implemented
-  -- targets → 12 support rows (ADR-0044 Soroban S0).
-  expect (claims.size == 12)
-    s!"implemented profile count is 12 (aleo/cosmwasm/evm×2/near/noir×2/psy/quint/solana/soroban/ton), got {claims.size}"
+  -- targets → 14 support rows (Soroban S0 + OpenVM dual).
+  expect (claims.size == 14)
+    s!"implemented profile count is 14 (aleo/cosmwasm/evm×2/near/noir×2/openvm×2/psy/quint/solana/soroban/ton), got {claims.size}"
   let root ← liftExcept "root" (engineeringRegistryRootDigestV1
     (← liftResult "registry" initialTargetRegistryV1Result))
   let mut i : Nat := 0

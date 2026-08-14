@@ -195,7 +195,7 @@ normative: false
 
 | ID | 缺口 | 现状 | wave 归属 |
 |---|---|---|---|
-| **D-1** | registry target 表 | **已随 Quint Q0 刷新**：engineering seed = **9** registry-implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`/`quint`/`cosmwasm`/`ton`）+ **3** design-only（`soroban`/`icp`/`openvm`）= **12**；九 materializer 均有 Plan/IR/dispatch。ADR-0036 固定 accepted Phase-1 四-target 不静默扩面，formal lighthouse=EVM-first | MatrixSync + Quint/CW/TON MVP docs |
+| **D-1** | registry target 表 | **已随 OpenVM O0 刷新**：engineering seed = **10** registry-implemented（`evm`/`solana`/`near`/`noir`/`aleo`/`psy`/`quint`/`cosmwasm`/`ton`/`openvm`）+ **2** design-only（`soroban`/`icp`）= **12**；十 materializer 均有 Plan/IR/dispatch。ADR-0036/0043 固定 accepted Phase-1 四-target 不静默扩面，formal lighthouse=EVM-first | MatrixSync + OpenVM O0 docs |
 | **D-2** | 成熟度声明 | **已闭合并随 ADR-0035 + CW/TON MVP 刷新**：EVM locked solc + G4 Anvil 工程差分；NEAR locked `wat2wasm` + near-sandbox receipt；Solana SBPF+Mollusk；Noir locked nargo compile-only；Aleo sole `aleo-instructions-v1` zero-tool direct Instructions；Psy sole `psy-dpn-v1` zero-tool direct DPN package；**CosmWasm** WAT+wat2wasm+check+mock 28 tests + wasmd rung-1（label 仍 `wasm-validated-alpha`）；**TON** Tolk/BoC+sandbox 10/10 + schedule createMessage PARTIAL（label 仍 `source-only`）；**Quint** `.qnt` + zero-tool finalize（label `source-only`；host-only typecheck/run 非 locked gate）。Aleo/Psy 旧 compiler/runtime/network lanes 已删。以上均**非** formal/hermetic/Stage-0 maturity | MatrixSync + ADR-0035 + CW/TON MVP |
 
 ## 4. Wave 队列（按优先级 + 可并行性）

@@ -8,6 +8,7 @@ import ProofForgeV2.Targets.Quint.PlanSchemaV1
 import ProofForgeV2.Targets.Ton.PlanSchemaV1
 import ProofForgeV2.Targets.Aleo.PlanSchemaV1
 import ProofForgeV2.Targets.Soroban.PlanSchemaV1
+import ProofForgeV2.Targets.OpenVM.PlanSchemaV1
 import ProofForgeV2.Targets.EngineeringBuildIdentityV1
 import ProofForgeV2.Targets.Solana
 import ProofForgeV2.Targets.Near
@@ -21,6 +22,8 @@ import ProofForgeV2.Targets.Psy.FinalizeV1
 import ProofForgeV2.Targets.Aleo
 import ProofForgeV2.Targets.Aleo.FinalizeV1
 import ProofForgeV2.Targets.Soroban.FinalizeV1
+import ProofForgeV2.Targets.OpenVM
+import ProofForgeV2.Targets.OpenVM.FinalizeV1
 import ProofForgeV2.Targets.Evm.FinalizeV1
 import ProofForgeV2.Targets.Near.FinalizeV1
 import ProofForgeV2.Targets.Solana.FinalizeV1
@@ -137,6 +140,12 @@ private def planDigestForCapabilityV1
       | .ok d => pure (d : Digest)
       | .error e =>
           throw <| .invalidProgram s!"materialize: Soroban plan digest failed: {e}"
+  | .openvm =>
+      let plan ← OpenVM.planFromCapability capability
+      match OpenVM.engineeringOpenVmPlanDigestV1 plan with
+      | .ok d => pure (d : Digest)
+      | .error e =>
+          throw <| .invalidProgram s!"materialize: OpenVM plan digest failed: {e}"
   | _ =>
       match engineeringAbsentPlanDigestV1
           selection.targetId selection.codegenProfile with
@@ -192,6 +201,9 @@ def materializeResult (capability : ResolvedEngineeringBuildV1) :
   | .psy =>
       let files ← Psy.buildFromCapability capability
       mintMaterializedArtifactsV1 capability Psy.descriptor files planDigest
+  | .openvm =>
+      let files ← OpenVM.buildFromCapability capability
+      mintMaterializedArtifactsV1 capability OpenVM.descriptor files planDigest
   | other => .error <| .targetNotImplemented other
 
 /-- IO wrapper over the sole pure materializer. -/
@@ -248,6 +260,8 @@ def finalizeMaterializedArtifactsV1
         Soroban.FinalizeV1.finalize capability artifacts stagingDir
     | .psy =>
         Psy.FinalizeV1.finalize capability artifacts stagingDir
+    | .openvm =>
+        OpenVM.FinalizeV1.finalize capability artifacts stagingDir
     | other =>
         pure ({
           deployable := false

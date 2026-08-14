@@ -3,6 +3,15 @@
   "platform": "linux-x86_64",
   "assets": [
     {
+      "id": "cargo-openvm-2.0.1-git-b820b25baab6",
+      "url": "https://github.com/openvm-org/openvm",
+      "commit": "b820b25baab6c5d9b055f64e0286b6b1058e707c",
+      "format": "cargo-git",
+      "package": "cargo-openvm",
+      "bin": "cargo-openvm",
+      "version": "2.0.1"
+    },
+    {
       "id": "cosmwasm-check-3.0.9-git-fe5b55d283f5",
       "url": "https://github.com/CosmWasm/cosmwasm",
       "commit": "fe5b55d283f5987c7fa0f95d5ad923be7a3d9283",
@@ -402,6 +411,30 @@
         "evm-yul-solc-0.8.34-v1-runtime"
       ],
       "sourceBuild": null
+    },
+    {
+      "id": "cargo-openvm",
+      "version": "2.0.1",
+      "sourceUrl": "https://github.com/openvm-org/openvm",
+      "platform": "linux-x86_64",
+      "assetId": "cargo-openvm-2.0.1-git-b820b25baab6",
+      "executable": "cargo-openvm",
+      "defaultPath": "~/.cache/proof-forge-v2/tool-root/linux-x86_64/cargo-openvm",
+      "executableSha256": null,
+      "runtimeLibrarySubdir": null,
+      "runtimeFiles": [],
+      "versionArgs": [
+        "openvm",
+        "--version"
+      ],
+      "expectedVersion": "v2.0.1",
+      "licenseSpdx": "MIT OR Apache-2.0",
+      "requiredByProfiles": [
+        "openvm-guest-elf-v1"
+      ],
+      "sourceBuild": {
+        "assetId": "cargo-openvm-2.0.1-git-b820b25baab6"
+      }
     },
     {
       "id": "cast",

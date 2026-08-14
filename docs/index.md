@@ -20,12 +20,14 @@ normative: true
 `CompiledSemanticV1` → **`certifyInlineProofV1`** → capability Plan/IR → 工程制品/disk
 closure（无 `--proof-bundle*`）。
 工程 registry **12 = 10 implemented + 2 design-only**；**十个 materializer**
-（含 ADR-0044 Soroban source-only S0）。
-（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON）均直连 retained `SemanticProgramV1`。
-Quint：source-only `.qnt` + zero-tool finalize；CosmWasm：WAT + locked check + mock 28 tests +
+（含 ADR-0044 Soroban source-only S0 与 ADR-0045/0046 OpenVM O0/O1）。
+（EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON/Soroban/OpenVM）均直连 retained `SemanticProgramV1`。
+Quint：source-only `.qnt` + zero-tool finalize；OpenVM O0：controlled Rust guest + catalog +
+zero-tool finalize（默认 profile；无 prove；ADR-0045）；opt-in `openvm-guest-elf-v1`（ADR-0046）可经锁定
+`cargo-openvm` 产出 ELF/`.vmexe`；CosmWasm：WAT + locked check + mock 28 tests +
 wasmd Docker rung-1；TON：Tolk/BoC + sandbox 10/10（schedule `createMessage` PARTIAL）。**Accepted PRD Phase 1 仍为四目标**
-（EVM/Solana/NEAR/Noir）；Aleo/Psy/Quint/CosmWasm/TON
-为 engineering leaves；**ADR-0036** 固定该边界并选择 EVM-first formal lighthouse。Normalize 为扩展中的
+（EVM/Solana/NEAR/Noir）；其余 engineering leaves 由 **ADR-0036**（11+1）与 **ADR-0045/0046**
+固定为非 accepted 扩面，formal lighthouse=EVM-first。Normalize 为扩展中的
 子集（超出最初 Counter-only S1，仍非完整语言面）。前端监督层已于 2026-08-01 移除。
 
 **日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)。

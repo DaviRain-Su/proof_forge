@@ -83,8 +83,9 @@ print(client.install(targets=["quint"], dry_run=True).parsed)
 
 ## Boundaries
 
-- Target menu = `TargetRegistryV1` implemented only; design-only (`icp` /
-  `icp` / `openvm`) stay unsupported.
+- Target menu = `TargetRegistryV1` implemented only; design-only (`icp`)
+  stay unsupported. OpenVM is engineering source-only / opt-in guest-elf
+  (no prove install).
 - Install never PATH-falls tools into `PROOF_FORGE_TOOL_ROOT`.
 - Aleo snarkos remains I3 honesty (not Tool Lock; `features=test_network`).
 - Does **not** set `deployable=true`; success is **not** formal / hermetic /

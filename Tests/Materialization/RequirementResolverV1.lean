@@ -342,8 +342,8 @@ private def emptyProgramRequirements : ProgramRequirementsV1 := { items := #[] }
 
 private def testSupportTable : IO Unit := do
   let rows ← liftResult productSupportRowsV1
-  expect (rows.size == 12)
-    "exactly twelve support rows (Noir dual; EVM dual; Soroban S0; all other targets single-profile)"
+  expect (rows.size == 14)
+    "exactly fourteen support rows (Noir dual; EVM dual; Soroban S0; OpenVM dual; others single-profile)"
   let expectedSolanaExtension ← match solanaCpiAccountsExtensionRequirementV1 with
     | .ok row => pure row
     | .error error => throw <| IO.userError error
@@ -363,6 +363,11 @@ private def testSupportTable : IO Unit := do
     -- Noir dual profiles share exact 7-key S2 (ASCII ascending: nargo-acir < source)
     ("noir", "noir-nargo-1.0.0-beta.26-acir-v1", 7, false, false),
     ("noir", "noir-source-u64-relations-v1", 7, false, false),
+    -- OpenVM dual profiles (ASCII ascending: guest-elf < guest-source) admit exactly
+    -- state.persistent, failure.atomic-rollback, value.bool, value.checked-arithmetic —
+    -- no effect.* keys, no extension.pf-assets (ADR-0045 O0 / ADR-0046 O1).
+    ("openvm", "openvm-guest-elf-v1", 4, false, false),
+    ("openvm", "openvm-guest-source-v1", 4, false, false),
     ("psy", "psy-dpn-v1", 6, false, false),
     -- Phase A5: Quint = 5 S2 keys (incl sync-call) + exact extension.pf-assets
     ("quint", "quint-source-u64-model-v1", 6, false, true),
@@ -445,8 +450,8 @@ private def testSupportTable : IO Unit := do
     | _, _ => throw <| IO.userError s!"row {i} missing"
     i := i + 1
 
-/-- Canonical 12-row (target,profile) skeleton matching the shipped index shape
-    (Noir dual / EVM dual; all other targets single-profile).
+/-- Canonical 14-row (target,profile) skeleton matching the shipped index shape
+    (Noir dual / EVM dual / OpenVM dual / Soroban S0; others single-profile).
     `evmSupported` replaces all EVM rows; extension-owning rows intentionally
     omit their extension seeds so presence-gate negatives can reuse this fixture. -/
 private def supportRowsWithoutExtensions
@@ -461,6 +466,8 @@ private def supportRowsWithoutExtensions
     mkRow .near CodegenProfileId.nearWasmRawU64V1 base,
     mkRow .noir CodegenProfileId.noirNargoAcirV1 base,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 base,
+    mkRow .openvm CodegenProfileId.openvmGuestElfV1 base,
+    mkRow .openvm CodegenProfileId.openvmGuestSourceV1 base,
     mkRow .psy CodegenProfileId.psyDpnV1 base,
     mkRow .quint CodegenProfileId.quintSourceU64ModelV1 base,
     mkRow .solana CodegenProfileId.solanaSbpfCpiElfV1 base,
@@ -469,7 +476,7 @@ private def supportRowsWithoutExtensions
   ]
 
 
-/-- Same 12-row skeleton, but every closed-extension owner carries its exact
+/-- Same 14-row skeleton, but every closed-extension owner carries its exact
     seed (Quint/NEAR/CosmWasm/EVM: pf.assets; Solana CPI: both), so content
     negatives reach their intended validation phase. -/
 private def supportRowsWithExtensions
@@ -487,6 +494,8 @@ private def supportRowsWithExtensions
     mkRow .near CodegenProfileId.nearWasmRawU64V1 withPf,
     mkRow .noir CodegenProfileId.noirNargoAcirV1 base,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 base,
+    mkRow .openvm CodegenProfileId.openvmGuestElfV1 base,
+    mkRow .openvm CodegenProfileId.openvmGuestSourceV1 base,
     mkRow .psy CodegenProfileId.psyDpnV1 base,
     mkRow .quint CodegenProfileId.quintSourceU64ModelV1 withPf,
     mkRow .solana CodegenProfileId.solanaSbpfCpiElfV1 cpiRow,
@@ -533,14 +542,14 @@ private def testIndexValidationNegatives : IO Unit := do
   ]
   expectErrorCode (createStaticRequirementSupportIndexV1 missing)
     "PF-REGISTRY-INVALID" "missing implemented profile"
-  -- Extra / design-only openvm row (size mismatch)
+  -- Extra row with a mismatched (target, profile) pairing (size mismatch)
   let withDesign := #[
     mkRow .evm CodegenProfileId.evmYulSolc0834V1 trio,
     mkRow .near CodegenProfileId.nearWasmRawU64V1 trio,
     mkRow .noir CodegenProfileId.noirSourceU64RelationsV1 trio,
     mkRow .openvm CodegenProfileId.evmYulSolc0834V1 trio
   ]
-  -- Size-extra first (12 rows vs expected product shape):
+  -- Size-extra first (14 rows vs expected product shape):
   let extra :=
     (supportRowsWithExtensions trio trio pfAssetsRow solanaExtensionRow).push
       (mkRow .aleo CodegenProfileId.evmYulSolc0834V1 trio)
@@ -987,11 +996,23 @@ private def testRequestInspectionErrors : IO Unit := do
   expectErrorCode
     (inspectResolveRequestsV1 supported { items := #[r0, r0] })
     "PF-REQ-UNSUPPORTED" "duplicate request id"
-  -- No exact support for unknown selection
+  -- No exact support for a mismatched (target, profile) pairing
   expectErrorCode
     (inspectSupportWithSeedV1 initialStaticRequirementSupportIndexV1Result
       TargetId.openvm CodegenProfileId.evmYulSolc0834V1)
-    "PF-REQ-UNSUPPORTED" "no exact support for design-only"
+    "PF-REQ-UNSUPPORTED" "no exact support for cross-target profile"
+  -- OpenVM's own profiles each resolve to their exact 4-key row (ADR-0045 /
+  -- ADR-0046 share the same capability subset).
+  let openvmSourceInsp ← liftResult <|
+    inspectSupportWithSeedV1 initialStaticRequirementSupportIndexV1Result
+      TargetId.openvm CodegenProfileId.openvmGuestSourceV1
+  expect (openvmSourceInsp.supported.size == 4) "OpenVM source profile exact 4-key support"
+  let openvmElfInsp ← liftResult <|
+    inspectSupportWithSeedV1 initialStaticRequirementSupportIndexV1Result
+      TargetId.openvm CodegenProfileId.openvmGuestElfV1
+  expect (openvmElfInsp.supported.size == 4) "OpenVM elf profile exact 4-key support"
+  expect (openvmSourceInsp.supported == openvmElfInsp.supported)
+    "OpenVM dual profiles share the identical support set"
 
 /-- Product sole-mint type surface: exactly `(selection, compiled)`.
     An extra caller `ProgramRequirementsV1` / `requested?` parameter must fail

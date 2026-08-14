@@ -458,9 +458,9 @@ private def testInspectDigests : IO Unit := do
   let (ec2, stdout2, _) ← runCli #["inspect", "evm"]
   expect (ec2 == 0 && stdout2 == stdout)
     "inspect must be deterministic"
-  let (ec3, stdout3, stderr3) ← runCli #["inspect", "openvm"]
+  let (ec3, stdout3, stderr3) ← runCli #["inspect", "icp"]
   expect (ec3 == 0)
-    s!"inspect openvm must exit 0, got {ec3}\n{stderr3}"
+    s!"inspect icp must exit 0, got {ec3}\n{stderr3}"
   expect (containsSubstr stdout3 "status=research-only")
     s!"inspect design-only status: {stdout3}"
   expect (!containsSubstr stdout3 "supportClaimDigest=")

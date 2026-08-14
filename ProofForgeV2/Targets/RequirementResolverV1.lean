@@ -329,9 +329,16 @@ private def mkImplementedRow
     supported
   }
 
-/-- Shipped eleven-row seed body (canonical targetId order: aleo, cosmwasm,
-    evm×2, near, noir×2, psy, quint, solana, ton). Aleo and Psy each expose
-    one direct target IR profile. EVM carries both
+/-- Shipped fourteen-row seed body (canonical targetId order: aleo, cosmwasm,
+    evm×2, near, noir×2, openvm×2, psy, quint, solana, ton). Aleo and Psy each
+    expose one direct target IR profile. OpenVM (both `openvm-guest-elf-v1`
+    ADR-0046 and `openvm-guest-source-v1` ADR-0045) admits exactly
+    `state.persistent`, `failure.atomic-rollback`, `value.bool`, and
+    `value.checked-arithmetic`; it declines every `effect.*` key
+    and `extension.pf-assets` — the controlled Rust guest source/build
+    surface has no call/schedule/ContextRead/Commit/event surface; the elf
+    profile only adds a Finalize-time cargo-openvm build/transpile, not a new
+    requirement id. EVM carries both
     `evm-yul-solc-0.8.34-cancun-v1` and `evm-yul-solc-0.8.34-v1`
     (ASCII ascending; default is v1). Solana is sole
     `solana-sbpf-cpi-elf-v1` (ADR-0032 U1). The opt-in CPI profile (#125)
@@ -467,6 +474,14 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
   -- schedule.
   let nearRequests :=
     (catalogRequests.push pfAssetsRow).qsort fun a b => a.id < b.id
+  -- ADR-0045 OpenVM O0: admit only state.persistent, failure.atomic-rollback,
+  -- value.bool, value.checked-arithmetic. Decline all effect.* and
+  -- extension.pf-assets — no call/schedule/ContextRead/Commit/events on the
+  -- O0 controlled Rust guest source template.
+  let openvmRequests := catalogRequests.filter fun r =>
+    r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectEventIdV1 &&
+      r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectAsyncWorkflowIdV1 &&
+      r.id != ProofForgeV2.Core.RequirementIdsV1.s2EffectSyncCallIdV1
   pure #[
     mkImplementedRow .aleo CodegenProfileId.aleoInstructionsV1 aleoRequests,
     mkImplementedRow .cosmwasm CodegenProfileId.cosmwasmWasmU64V1 cosmwasmRequests,
@@ -482,6 +497,11 @@ private def initialSupportRowsResult : CompileResult (Array StaticRequirementSup
     -- ASCII ascending: nargo-acir < source-relations.
     mkImplementedRow .noir CodegenProfileId.noirNargoAcirV1 catalogRequests,
     mkImplementedRow .noir CodegenProfileId.noirSourceU64RelationsV1 catalogRequests,
+    -- OpenVM dual profiles share the exact S2 catalog subset; the elf profile's
+    -- cargo-openvm build/transpile is a Finalize/profile selection (ADR-0046),
+    -- not a new requirement id. ASCII ascending: guest-elf < guest-source.
+    mkImplementedRow .openvm CodegenProfileId.openvmGuestElfV1 openvmRequests,
+    mkImplementedRow .openvm CodegenProfileId.openvmGuestSourceV1 openvmRequests,
     mkImplementedRow .psy CodegenProfileId.psyDpnV1 psyRequests,
     mkImplementedRow .quint CodegenProfileId.quintSourceU64ModelV1 quintRequests,
     -- ADR-0032 U1: sole Solana product profile (shims plan/elf removed).

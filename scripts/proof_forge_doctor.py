@@ -42,6 +42,7 @@ CORE_TOOLS_BY_TARGET: dict[str, list[str]] = {
     "quint": ["jv"],
     "cosmwasm": ["wat2wasm", "cosmwasm-check"],
     "ton": ["tolk"],
+    "openvm": ["cargo-openvm"],
 }
 
 # Optional runtime-tier lock members (reported with --with-runtime).
@@ -51,7 +52,7 @@ RUNTIME_TOOLS_BY_TARGET: dict[str, list[str]] = {
 }
 
 # Design-only registry ids (unsupported for install/doctor install-path).
-DESIGN_ONLY_TARGETS: tuple[str, ...] = ("soroban", "icp", "openvm")
+DESIGN_ONLY_TARGETS: tuple[str, ...] = ("soroban", "icp")
 
 IMPLEMENTED_TARGETS: tuple[str, ...] = tuple(CORE_TOOLS_BY_TARGET.keys())
 

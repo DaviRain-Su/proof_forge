@@ -246,6 +246,7 @@ lean_lib ProofForgeV2Tests where
     `Tests.Materialization.QuintSourceV1,
     `Tests.Materialization.QuintAcceptance,
     `Tests.Materialization.SorobanPlanV1,
+    `Tests.Materialization.OpenVmGuestSourceV1,
     `Tests.Materialization.EvmSmoke,
     `Tests.Materialization.EvmSolcAcceptance,
     `Tests.Materialization.NearWasmAcceptance,

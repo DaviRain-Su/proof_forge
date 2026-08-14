@@ -21,6 +21,7 @@ import Tests.Materialization.PsyDpnV1
 import Tests.Materialization.QuintSourceV1
 import Tests.Materialization.QuintAcceptance
 import Tests.Materialization.SorobanPlanV1
+import Tests.Materialization.OpenVmGuestSourceV1
 
 unsafe def main : IO Unit := do
   IO.eprintln "CP run"
@@ -57,4 +58,5 @@ unsafe def main : IO Unit := do
   Tests.Materialization.QuintAcceptance.run
   IO.eprintln "CP run"
   Tests.Materialization.SorobanPlanV1.run
+  Tests.Materialization.OpenVmGuestSourceV1.run
   IO.println "shard-targets-host: ok"

@@ -59,8 +59,10 @@ IMPLEMENTED_TARGETS = (
     "quint",
     "cosmwasm",
     "ton",
+    "soroban",
+    "openvm",
 )
-DESIGN_ONLY_TARGETS = ("icp", "openvm")
+DESIGN_ONLY_TARGETS = ("icp",)
 
 PathLike = Union[str, Path]
 

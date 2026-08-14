@@ -39,7 +39,7 @@ normative: true
 | `soroban` | Wasm host | engineering implemented (ADR-0044 S0) | `research` | sole `soroban-source-u64-v1`；retained-V1 Plan → Soroban Rust dialect `.rs`；zero-tool finalize；`deployable=false`；4-key capability；auth/TTL/Wasm FC；**非** accepted Phase 1 / formal | [Soroban](05-soroban.md) · [ADR-0044](../adr/0044-soroban-source-u64-target.md) |
 | `icp` | Wasm actor host | design only | `research` | design-only；无产品 backend | [ICP](06-icp.md) |
 | `noir` | circuit compiler | accepted Phase 1 implement | `specified` | retained-V1 Plan + relation source packages + locked nargo 1.0.0-beta.26 compile-only 门；**无** ACIR/witness/prove/verify，仍 source-only | [Noir](07-noir.md) |
-| `openvm` | zkVM | design only | `research` | design-only；无产品 backend | [OpenVM](08-openvm.md) |
+| `openvm` | zkVM | engineering implemented (scope ADR open) | `research` | default `openvm-guest-source-v1`（zero-tool）+ opt-in `openvm-guest-elf-v1`（locked `cargo-openvm` 2.0.1 build/transpile → RV32IM ELF + `.vmexe`）；shared retained-V1 Plan → controlled Rust guest + catalog；无 keygen/execute/prove/verify；**非** accepted Phase 1 | [OpenVM](08-openvm.md) · [ADR-0045](../adr/0045-openvm-guest-source-o0.md) · [ADR-0046](../adr/0046-openvm-guest-elf-o1.md) |
 | `aleo` | ZK application chain | engineering implemented (scope ADR open) | `specified` | sole `aleo-instructions-v1`；retained-V1 Plan → canonical Aleo Instructions `.aleo` + query descriptor；zero-tool finalization；无 VM/prove/deploy/network query；**非** accepted Phase 1 范围 | [Aleo](09-aleo.md) · [ADR-0035](../adr/0035-direct-native-artifact-materializers.md) |
 | `psy` | ZK application chain | engineering implemented (scope ADR open) | `specified` | sole `psy-dpn-v1`；retained-V1 Plan → canonical `.dpn.json`；zero-tool finalization；无 DPN runtime/proof/UPS/network/deploy；**非** accepted Phase 1 范围 | [Psy DPN](10-psy.md) · [ADR-0035](../adr/0035-direct-native-artifact-materializers.md) |
 | `ton` | TVM Stack-Account | engineering implemented (scope ADR open) | `research` | retained-V1 Plan/IR → Tolk + real BoC；UInt8/16/32、named state、bounded view aggregate/Array/Option return；async schedule→`createMessage`（hash dest/value=0/fixed mode，PARTIAL），sync call FC；`@ton/sandbox` 10/10；registry label `source-only`；**非** 主网/formal；**非** accepted Phase 1 范围 | [TON](11-ton.md) · [family](family-tvm-stack-account.md) |
@@ -47,10 +47,10 @@ normative: true
 
 > **Registry 计数（当前工程事实，2026-08-13）**：**12 = 10 implemented + 2
 > design-only**。十个 materializer：`evm` / `solana` / `near` / `noir` / `aleo` /
-> `psy` / `quint` / `cosmwasm` / `ton` / `soroban`。两个 design-only：`icp` /
-> `openvm`。其中 **accepted PRD Phase 1** 仍仅前四；其余为 engineering leaves；ADR-0036
-> 明确其不自动进入 accepted 范围，formal lighthouse=EVM-first。
-> Registry maturity 标签（如 CosmWasm `wasm-validated-alpha`、TON/Quint/Soroban
+> `psy` / `quint` / `cosmwasm` / `ton` / `soroban` / `openvm`。一个 design-only：`icp`。
+> 其中 **accepted PRD Phase 1** 仍仅前四；其余 engineering leaves（含 Soroban S0 与
+> OpenVM O0/O1）由 ADR-0036/0044/0045/0046 固定为非 accepted 扩面，formal lighthouse=EVM-first。
+> Registry maturity 标签（如 CosmWasm `wasm-validated-alpha`、TON/Quint/Soroban/OpenVM
 > `source-only`）不变；compile / mock / sandbox / 模型检查不得写成 formal 或 hermetic 完成。
 
 ## Family 视图

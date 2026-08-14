@@ -186,7 +186,7 @@
     "SRC-OVM-002",
     "SRC-OVM-003"
    ],
-   "impact": "OpenVM is design-only in Phase 1."
+   "impact": "OpenVM O0 freezes guest-source profile openvm-guest-source-v1 with OpenVM 2.0.x as the sole future prove-profile pin candidate; product finalize remains zero-tool (ADR-0045). Accepted Phase 1 remains four targets."
   },
   {
    "id": "CLM-ALEO-001",

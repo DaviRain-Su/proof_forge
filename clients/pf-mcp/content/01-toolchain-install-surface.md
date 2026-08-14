@@ -29,6 +29,7 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 | **Hello agent playbook** | **done engineering**（[`03-hello-dapp-agent-playbook.md`](03-hello-dapp-agent-playbook.md)；MCP 顺序 doctor→install→build/local→artifacts） |
 | **Chain client catalog** | **done engineering**（[`04-chain-client-catalog.md`](04-chain-client-catalog.md) + `chain-client-catalog.v1.json` + `pf_chain_catalog` / SDK `chain_catalog`；元数据 only） |
 | **Distribution / packages** | **engineering-dist + PyPI wiring done**（[`05-distribution-and-packages.md`](05-distribution-and-packages.md) / [`06-pypi-host-sdk.md`](06-pypi-host-sdk.md)：CLI multi-arch、Author SDK、Host wheel+OIDC PyPI job；Trusted Publisher 需一次人工配置；formal Stage-0 仍 pending） |
+| **External Author MVP** | **planned**（[`14-external-author-mvp.md`](14-external-author-mvp.md)：`pf`+`proof-forge-next` 同包 bundle、host `dev` 模式不钉他机 `stat`、`pf setup -y` 真装齐、干净 Ubuntu install→new→build CI；外部作者默认路径禁止 monorepo `lake build`） |
 
 本文是 **产品契约与实现顺序** 的权威草稿；I0–I2、MCP-V0、SDK-V0 与 distribution engineering dist 已接线。Aleo/Psy 仅保留 zero-tool direct materializer；不再提供 Leo/Dargo/snarkOS/local VM/network 产品或工程 lane。不声称 formal / hermetic / mainnet / Stage-0。
 
@@ -47,7 +48,11 @@ Tool Lock 规范：[`specs/toolchains.md`](../specs/toolchains.md)（`proof-forg
 - 不默认 `deployable=true` 或主网广播（无产品 N3 决策不得改写 maturity）。
 - 不在 ordinary `just ci` 里起 snarkOS / Anvil / Mollusk。
 - 不先做大而全多语言 SDK；先 CLI + 薄封装。
-- design-only target（`icp` / `openvm`）只展示为 `unsupported`，不提供假安装。
+- design-only target（`icp`）只展示为 `unsupported`，不提供假安装。
+  OpenVM 默认 `openvm-guest-source-v1` 仍为 engineering source-only zero-tool leaf
+  （ADR-0045）；opt-in `openvm-guest-elf-v1`（ADR-0046）install 锁定 `cargo-openvm`
+  2.0.1 以 build/transpile guest 为 RV32IM ELF + `.vmexe`。二者均 **不**提供
+  keygen/execute/prove/verify toolchain install。
 - 不发明 Tool Lock 外的第二工具权威或 “best effort” fallback 进 Tool Root。
 
 ## 3. 阶梯切片（workflow 相位）
@@ -93,15 +98,15 @@ PROOF_FORGE_TOOL_ROOT/   # default: ~/.cache/proof-forge-v2/tool-root/<platform>
 
 ### 4.2 Target 菜单
 
-- **Implemented（可 install 编译档）**：`evm`、`solana`、`near`、`noir`、`aleo`、`psy`、`quint`、`cosmwasm`、`ton`、`soroban`（与 `TargetRegistryV1` 十 materializer 一致）。
-- **Design-only（`unsupported`，不可 install）**：`icp`、`openvm`。
-- Accepted PRD Phase 1 文案仍为四目标；engineering 九 target 扩面不自动改写 accepted 范围（ADR-0036）。
+- **Implemented（可 install 编译档 / zero-tool leaf）**：`evm`、`solana`、`near`、`noir`、`aleo`、`psy`、`quint`、`cosmwasm`、`ton`、`soroban`、`openvm`（与 `TargetRegistryV1` 十一 materializer 一致；OpenVM 默认 profile 为零工具 guest-source，opt-in `openvm-guest-elf-v1` 锁定 `cargo-openvm`）。
+- **Design-only（`unsupported`，不可 install）**：`icp`。
+- Accepted PRD Phase 1 文案仍为四目标；engineering 十一 target 扩面不自动改写 accepted 范围（ADR-0036 / ADR-0044 / ADR-0045 / ADR-0046）。
 
 ### 4.3 编译档 vs runtime 档
 
 | 档 | 默认 `install` | 例 |
 |---|---|---|
-| **core / compile** | 是（`--targets` / `--all-core`） | `solc`、`sbpf`、`nargo`、`wat2wasm`、`tolk`、`cosmwasm-check`、`jv` |
+| **core / compile** | 是（`--targets` / `--all-core`） | `solc`、`sbpf`、`nargo`、`wat2wasm`、`tolk`、`cosmwasm-check`、`jv`、`cargo-openvm` |
 | **runtime** | 否；需 `--with-runtime` 或 `--profile runtime` | lock：`anvil`/`cast`、`near-sandbox` |
 
 host-heavy 门（`just solana-runtime` / Anvil）**不**并入 ordinary `just ci`。
@@ -119,6 +124,7 @@ host-heavy 门（`just solana-runtime` / Anvil）**不**并入 ordinary `just ci
 | `quint` | `jv`（模型侧辅助；Quint 产品 finalize 仍 zero-tool source） | 无 snarkOS 类 runtime |
 | `cosmwasm` | `wat2wasm`、`cosmwasm-check` | wasmd Docker rung 等工程门，非 CLI 默认 install |
 | `ton` | `tolk` | sandbox 工程门独立 |
+| `openvm` | `cargo-openvm`（sourceBuild；仅 opt-in `openvm-guest-elf-v1` 的 build/transpile 需要） | 默认 `openvm-guest-source-v1` 仍 zero-tool；无 keygen/execute/prove/verify toolchain install |
 
 表中 “core” 是 doctor/install 的 **规划映射**；某 profile 的 exact `requiredByProfiles` 仍以 lock 字段为准，不得在 doctor 里发明额外工具。
 
@@ -143,6 +149,11 @@ target=aleo status=ok
   ]
 }
 ```
+
+`openvm` 的默认 `openvm-guest-source-v1` profile 本身仍 zero-tool，但 doctor 按 target 报告
+core tool 集合（含仅 `openvm-guest-elf-v1` 需要的 `cargo-openvm`），因此 `openvm` target 报告
+非空 `tools` 数组（`cargo-openvm` 未安装时为 `missing`/`partial`，已安装且 digest/version 匹配
+时为 `ok`），不复用上面纯 zero-tool 示例。
 
 状态枚举：`ok` | `partial` | `missing` | `mismatch` | `unsupported`。
 
@@ -184,6 +195,9 @@ proof-forge-next local --target evm [--mode runtime] [--json] [--] [script-args.
 |---|---|---|---|
 | `solana` | `runtime`（默认） | `scripts/solana_runtime_test.sh` | `just solana-runtime` |
 | `evm` | `runtime`（默认） | `scripts/evm_anvil_differential.sh` | Anvil engineering smokes |
+| `near` | `runtime`（默认） | `scripts/pf_near_test.sh`（artifact 快路径或 full corpus） | near-sandbox；Promise=async；sync call FC |
+| `cosmwasm` | `runtime`（默认） | `scripts/pf_cosmwasm_test.sh` | cosmwasm-vm mock；sync call FC；SubMsg never |
+| `ton` | `runtime`（默认） | `scripts/pf_ton_test.sh` | @ton/sandbox；sync call FC；createMessage |
 | 其它 implemented | — | fail closed（无产品 script path） | 见 target dossier |
 | design-only | — | fail closed `unsupported` | 不可 install/local |
 

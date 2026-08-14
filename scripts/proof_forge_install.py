@@ -46,6 +46,7 @@ CORE_TOOLS_BY_TARGET: dict[str, list[str]] = {
     "quint": ["jv"],
     "cosmwasm": ["wat2wasm", "cosmwasm-check"],
     "ton": ["tolk"],
+    "openvm": ["cargo-openvm"],
 }
 
 RUNTIME_TOOLS_BY_TARGET: dict[str, list[str]] = {
@@ -53,7 +54,7 @@ RUNTIME_TOOLS_BY_TARGET: dict[str, list[str]] = {
     "near": ["near-sandbox"],
 }
 
-DESIGN_ONLY_TARGETS: tuple[str, ...] = ("soroban", "icp", "openvm")
+DESIGN_ONLY_TARGETS: tuple[str, ...] = ("soroban", "icp")
 IMPLEMENTED_TARGETS: tuple[str, ...] = tuple(CORE_TOOLS_BY_TARGET.keys())
 
 # Tool action statuses for install report.

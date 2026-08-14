@@ -100,6 +100,7 @@ import Tests.Materialization.EvmSolcAcceptance
 import Tests.Materialization.EvmCorpusBlockedV1
 import Tests.Materialization.NearWasmAcceptance
 import Tests.Materialization.QuintSourceV1
+import Tests.Materialization.OpenVmGuestSourceV1
 import Tests.Materialization.SolanaPlanV1
 import Tests.Materialization.SolanaStaticAlignmentV1
 import Tests.Materialization.SolanaCpiPlanV1
@@ -235,6 +236,7 @@ unsafe def main : IO Unit := do
   Tests.Materialization.EvmCorpusBlockedV1.run
   Tests.Materialization.NearWasmAcceptance.run
   Tests.Materialization.QuintSourceV1.run
+  Tests.Materialization.OpenVmGuestSourceV1.run
   Tests.Materialization.SolanaPlanV1.run
   Tests.Materialization.SolanaStaticAlignmentV1.run
   Tests.Materialization.SolanaCpiPlanV1.run

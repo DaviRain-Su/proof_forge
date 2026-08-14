@@ -46,13 +46,16 @@ def solana : TargetDescriptor :=
 
 /-- Residual descriptor profile acceptance for multi-profile targets.
     `TargetDescriptor.codegenProfile` is the default encoding profile.
-    EVM additionally admits Cancun; Noir admits the nargo ACIR profile. -/
+    EVM additionally admits Cancun; Noir admits the nargo ACIR profile; OpenVM
+    admits the elf profile (ADR-0046 O1). -/
 def acceptsCodegenProfile (descriptor : TargetDescriptor) (profile : CodegenProfileId) : Bool :=
   descriptor.codegenProfile == profile ||
     (descriptor.targetId == TargetId.evm &&
       profile == CodegenProfileId.evmYulSolc0834CancunV1) ||
     (descriptor.targetId == TargetId.noir &&
-      profile == CodegenProfileId.noirNargoAcirV1)
+      profile == CodegenProfileId.noirNargoAcirV1) ||
+    (descriptor.targetId == TargetId.openvm &&
+      profile == CodegenProfileId.openvmGuestElfV1)
 
 def near : TargetDescriptor :=
   descriptorFromRegistryAxes .near .wasmText CodegenProfileId.nearWasmRawU64V1
@@ -89,6 +92,12 @@ def ton : TargetDescriptor :=
 def soroban : TargetDescriptor :=
   descriptorFromRegistryAxes .soroban .sorobanSource CodegenProfileId.sorobanSourceU64V1
 
+/-- OpenVM O0/O1: controlled Rust guest source template + catalog JSON.
+    Default finalize zero-tool; elf profile may build via cargo-openvm (ADR-0045/0046). -/
+def openvm : TargetDescriptor :=
+  descriptorFromRegistryAxes .openvm .openvmGuestSource
+    CodegenProfileId.openvmGuestSourceV1
+
 /-- Engineering descriptor for an implemented kind. Design-only kinds → none. -/
 def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .evm => some evm
@@ -101,6 +110,7 @@ def descriptorForKind? : TargetKind → Option TargetDescriptor
   | .cosmwasm => some cosmwasm
   | .ton => some ton
   | .soroban => some soroban
+  | .openvm => some openvm
   | _ => none
 
 /-- Exact registry-owned six-axis join for an implemented descriptor.

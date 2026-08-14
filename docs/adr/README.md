@@ -63,3 +63,5 @@ ADR，并在旧 ADR frontmatter 中记录 `successor`，不得静默改写历史
 | [ADR-0042](0042-proof-bearing-near-invariant-root-erasure.md) | Proof-bearing NEAR invariant-root erasure（私有 certificate authority、exact digest/coverage binding、versioned Plan partition；当前 Reference-verified + artifact built，runtime observation 待兼容 runner；非 target-refined） | proposed |
 | [ADR-0043](0043-pinned-wasmcert-provider-boundary.md) | 固定 WasmCert-Coq source/protocol、逐层 mechanization status 与 purpose-built NEAR host边界；双平台 Tool Lock activation + locked VerifiedVault product/Reference join | proposed |
 | [ADR-0044](0044-soroban-source-u64-target.md) | Soroban source-only S0（`soroban-source-u64-v1` → `.rs`；zero-tool；4-key；非 Wasm/deploy） | proposed |
+| [ADR-0045](0045-openvm-guest-source-o0.md) | OpenVM guest-source O0 capability-gated target 集成；11th engineering materializer；zero-tool finalize、无 guest build/prove/verify | proposed |
+| [ADR-0046](0046-openvm-guest-elf-o1.md) | OpenVM O1 guest-elf dual profile：opt-in `openvm-guest-elf-v1` 经锁定 `cargo-openvm` 2.0.1 build→ELF/VmExe；默认 source 仍 zero-tool；无 prove | proposed |

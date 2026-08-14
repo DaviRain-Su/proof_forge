@@ -220,6 +220,15 @@ def quintSourceU64ModelV1 : CodegenProfileId := ⟨"quint-source-u64-model-v1"�
     `.rs` source recipe. Zero-tool finalize; deployable=false; not Wasm. -/
 def sorobanSourceU64V1 : CodegenProfileId := ⟨"soroban-source-u64-v1"⟩
 def tonTolkBocV1 : CodegenProfileId := ⟨"ton-tolk-boc-v1"⟩
+/-- Default OpenVM profile (ADR-0045 O0; ADR-0046 keeps it default): target-owned
+    Plan lowers to a compilable Rust guest (shared with `openvmGuestElfV1`).
+    Zero-tool finalize; no guest build/transpile/keygen/execute/prove/verify. -/
+def openvmGuestSourceV1 : CodegenProfileId := ⟨"openvm-guest-source-v1"⟩
+/-- Explicit OpenVM opt-in profile (ADR-0046 O1). Same Plan/guest emission as
+    `openvmGuestSourceV1`; Finalize resolves locked `cargo-openvm` 2.0.1 and
+    runs `cargo openvm build` to stage RV32IM ELF + `.vmexe` extras. Remains
+    `deployable=false`; no keygen/execute/prove/verify product claim. -/
+def openvmGuestElfV1 : CodegenProfileId := ⟨"openvm-guest-elf-v1"⟩
 
 end CodegenProfileId
 

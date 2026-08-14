@@ -16,6 +16,7 @@ inductive ArtifactEncoding where
   | quintSource
   | sorobanSource
   | tolkSource
+  | openvmGuestSource
   | researchOnly
   deriving BEq, Inhabited, Repr
 

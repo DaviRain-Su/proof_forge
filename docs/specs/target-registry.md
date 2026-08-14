@@ -452,7 +452,7 @@ registry digest。
 | `cosmwasm` | — | `research.cosmwasm.v1` | design | `research` | Wasm/CosmWasm host/KV/submessage+reply/Cosmos settlement |
 | `soroban` | `soroban-source-u64-v1` | `phase1.soroban-u64.v1` | implemented | `source-only` | Wasm/Soroban host S0：`.rs` recipe；zero-tool；auth/TTL/Wasm FC |
 | `icp` | — | `research.icp.v1` | design | `research` | Wasm/canister actor/stable memory/await commit/ICP settlement |
-| `openvm` | — | `research.openvm.v1` | design | `research` | RV32IM guest/zkVM proof/external verifier |
+| `openvm` | `openvm-guest-source-v1` | `research.openvm.v1` | implemented | `source-only` | RV32IM guest-source O0 (default, zero-tool); engineering opt-in O1 `openvm-guest-elf-v1` builds ELF/VmExe (ADR-0046); keygen/execute/proof still deferred |
 | `aleo` | `aleo-instructions-v1` | `research.aleo.v1` | engineering leaf | `specified` | Direct canonical Aleo Instructions + query descriptor; zero-tool, non-deployable |
 | `psy` | `psy-dpn-v1` | `phase1.psy-u64.v1` | engineering leaf | `specified` | Direct versioned DPN package; zero-tool, non-deployable |
 

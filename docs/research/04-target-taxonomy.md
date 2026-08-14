@@ -48,7 +48,7 @@ supportClaims
 | `soroban` | Wasm host | design | XDR、auth tree、TTL storage |
 | `icp` | Wasm actor host | design | Candid、stable memory、await boundary |
 | `noir` | circuit compiler | implement | ACIR/Brillig、witness、external state continuity |
-| `openvm` | zkVM | design | RV32IM guest、VmExe、external verifier |
+| `openvm` | zkVM | implemented (O0 guest-source) | RV32IM guest source; ELF/VmExe/proof deferred |
 | `aleo` | ZK application chain | design | records、mappings、proof/final contexts |
 | `psy` | ZK application chain | research | partitioned state、CFC/UPS/network aggregation |
 

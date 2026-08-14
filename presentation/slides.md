@@ -220,7 +220,7 @@ backgroundSize: contain
 # Roadmap & target landscape
 
 <div class="mt-80 text-center text-sm opacity-80">
-Historical landscape image; engineering registry is now 12 = 9 implemented materializers + 3 design-only. Accepted PRD Phase 1 is still four targets; ADR-0036 owns the boundary. See the preceding table.
+Historical landscape image; engineering registry is now 12 = 10 implemented materializers + 2 design-only. Accepted PRD Phase 1 is still four targets; ADR-0036/0043 own the boundary. See the preceding table.
 </div>
 
 ---
@@ -232,13 +232,14 @@ layout: center
 <v-clicks>
 
 - Engineering path: one Semantic carrier → **nine** target-owned Plan/IR leaves
-- Accepted PRD Phase 1: EVM / Solana / NEAR / Noir only (Aleo/Psy/Quint/CW/TON = engineering leaves; ADR-0036; formal lighthouse=EVM-first)
+- Accepted PRD Phase 1: EVM / Solana / NEAR / Noir only (Aleo/Psy/Quint/CW/TON/OpenVM = engineering leaves; ADR-0036/0043; formal lighthouse=EVM-first)
 - Quint: `.qnt` source-only executable model + zero-tool finalize (non-deployable; host smoke only)
+- OpenVM O0: controlled Rust guest + catalog + zero-tool finalize (no ELF/prove)
 - CosmWasm: WAT + check + 28-test mock + wasmd rung-1 (sync FC; Binary SubMsg same-tx, QN stub)
 - TON: Tolk/BoC + sandbox 10/10 (schedule createMessage PARTIAL; sync FC)
 - Current validation also: EVM Anvil, Solana Mollusk, NEAR sandbox, Noir/Aleo compile-only
 - Formal D1–D4 qualification remains separate and pending
-- Design-only: Soroban, ICP, OpenVM
+- Design-only: Soroban, ICP
 
 </v-clicks>
 

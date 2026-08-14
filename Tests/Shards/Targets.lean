@@ -58,6 +58,7 @@ import Tests.Materialization.PsyDpnV1
 import Tests.Materialization.QuintSourceV1
 import Tests.Materialization.QuintAcceptance
 import Tests.Materialization.SorobanPlanV1
+import Tests.Materialization.OpenVmGuestSourceV1
 import Tests.CLI.Emit
 import Tests.CLI.ToolchainPolicy
 import Tests.CLI.DiagnosticsV1
@@ -143,6 +144,7 @@ unsafe def main : IO Unit := do
   Tests.Materialization.QuintAcceptance.run
   IO.eprintln "CP run"
   Tests.Materialization.SorobanPlanV1.run
+  Tests.Materialization.OpenVmGuestSourceV1.run
   IO.eprintln "CP run"
   Tests.Targets.SolanaAsmV1.run
   IO.eprintln "CP run"

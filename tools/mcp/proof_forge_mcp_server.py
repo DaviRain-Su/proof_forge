@@ -859,7 +859,7 @@ def tool_definitions() -> List[Dict[str, Any]]:
                 "properties": {
                     "includeAll": {
                         "type": "boolean",
-                        "description": "Include design-only targets (icp/openvm).",
+                        "description": "Include design-only targets (icp).",
                     }
                 },
                 "additionalProperties": False,
