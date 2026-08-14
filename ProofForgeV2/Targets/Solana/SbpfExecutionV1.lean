@@ -131,6 +131,32 @@ private def singleAccountLayoutV1
     instructionData := expected.instructionData
   }
 
+/-- Public projection of the validated account-data window used by execution.
+    The private full layout remains owned by this module; downstream proofs need
+    only the offset and exact length read after provider execution. -/
+def deriveSingleAccountExecutionWindowV1
+    (bound : BoundResolvedSbpfArtifactV1) : Option (Nat × Nat) :=
+  match singleAccountLayoutV1 (BoundResolvedSbpfArtifactV1.resolvedOf bound) with
+  | .ok layout => some (layout.data, layout.exactDataLen)
+  | .error _ => none
+
+/-- Executable fail-closed check for an exact validated account-data window. -/
+def checkSingleAccountExecutionWindowV1
+    (bound : BoundResolvedSbpfArtifactV1)
+    (dataOffset exactDataLen : Nat) : Bool :=
+  decide (deriveSingleAccountExecutionWindowV1 bound =
+    some (dataOffset, exactDataLen))
+
+theorem checkSingleAccountExecutionWindowV1_sound
+    (bound : BoundResolvedSbpfArtifactV1)
+    (dataOffset exactDataLen : Nat)
+    (checked :
+      checkSingleAccountExecutionWindowV1 bound dataOffset exactDataLen = true) :
+    deriveSingleAccountExecutionWindowV1 bound =
+      some (dataOffset, exactDataLen) := by
+  exact of_decide_eq_true (by
+    simpa [checkSingleAccountExecutionWindowV1] using checked)
+
 private def writeBytesAtV1
     (target : Array UInt8)
     (offset : Nat)
@@ -246,6 +272,45 @@ def runBoundSbpfArtifactV1
       (inputStart + BitVec.ofNat 64 layout.data) layout.exactDataLen
   }
 
+/-- Reduce the raw execution API from its validated public window and the
+    pinned provider's actual `runFuel` equation. This theorem projects the
+    existing adapter/provider implementations; it defines no execution
+    semantics of its own. -/
+theorem runBoundSbpfArtifactV1_eq_ok_of_runFuel
+    (bound : BoundResolvedSbpfArtifactV1)
+    (input : Array UInt8)
+    (fuel dataOffset exactDataLen : Nat)
+    (finalMachine : Machine)
+    (outcome : Outcome)
+    (window : deriveSingleAccountExecutionWindowV1 bound =
+      some (dataOffset, exactDataLen))
+    (fuelPositive : 0 < fuel)
+    (fuelBounded : fuel ≤ maxSbpfExecutionFuelV1)
+    (inputBounded : input.size ≤ maxSbpfInputImageBytesV1)
+    (providerRun :
+      runFuel asmDefaultHost
+        (BoundResolvedSbpfArtifactV1.resolvedOf bound).program fuel
+        (Machine.entry input) = (finalMachine, outcome)) :
+    runBoundSbpfArtifactV1 bound input fuel = .ok {
+      artifactSha256 :=
+        (BoundResolvedSbpfArtifactV1.resolvedOf bound).sourceSha256
+      provider := observe finalMachine outcome
+      finalAccountData := finalMachine.mem.readBytes
+        (inputStart + BitVec.ofNat 64 dataOffset) exactDataLen
+    } := by
+  unfold deriveSingleAccountExecutionWindowV1 at window
+  cases hlayout : singleAccountLayoutV1
+      (BoundResolvedSbpfArtifactV1.resolvedOf bound) with
+  | error error => simp [hlayout] at window
+  | ok layout =>
+      simp only [hlayout, Option.some.injEq, Prod.mk.injEq] at window
+      rcases window with ⟨hdata, hlength⟩
+      subst dataOffset
+      subst exactDataLen
+      simp [runBoundSbpfArtifactV1, hlayout, fuelPositive, fuelBounded,
+        inputBounded, providerRun]
+      rfl
+
 /-- Serialize and execute one strict single-account invocation. -/
 def executeLoaderV3SingleAccountV1
     (bound : BoundResolvedSbpfArtifactV1)
@@ -254,5 +319,20 @@ def executeLoaderV3SingleAccountV1
     SbpfExecutionResultV1 SbpfExecutionObservationV1 := do
   let input ← encodeLoaderV3SingleAccountInputV1 bound invocation
   runBoundSbpfArtifactV1 bound input fuel
+
+/-- Compose an exact encoder result with an exact raw provider result through
+    the production execution API. -/
+theorem executeLoaderV3SingleAccountV1_eq_ok
+    (bound : BoundResolvedSbpfArtifactV1)
+    (invocation : LoaderV3SingleAccountInvocationV1)
+    (fuel : Nat)
+    (input : Array UInt8)
+    (observation : SbpfExecutionObservationV1)
+    (encoded :
+      encodeLoaderV3SingleAccountInputV1 bound invocation = .ok input)
+    (executed : runBoundSbpfArtifactV1 bound input fuel = .ok observation) :
+    executeLoaderV3SingleAccountV1 bound invocation fuel = .ok observation := by
+  simp only [executeLoaderV3SingleAccountV1, encoded, Bind.bind, Except.bind]
+  exact executed
 
 end ProofForgeV2.Targets.Solana

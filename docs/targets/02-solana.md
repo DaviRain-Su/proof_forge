@@ -184,9 +184,10 @@ checker直接认证concrete encoded Loader memory reads，并kernel投影为全�
 `get(41)` input通过且value-byte tamper fail closed。两个stack store现由真实provider `execInstr`
 求值并返回proof-bearing effect certificate；真实return stack回归成功，tampered return bytes
 fail closed。单一`checkStateCellGetTraceV1`已把artifact、input和实际44-step prefix store derivation
-接入55-step/`runFuel` soundness定理；但仍需在production artifact/input的kernel接线中discharge该
-executable gate，再连接Loader execution API。
-所以HandlerIR↔resolved-sBPF execution equation尚未完成，仍没有provider-backed refinement claim；
+接入55-step/`runFuel` soundness定理；validated account-window投影进一步给出`runBound`等式，
+`checkStateCellGetExecutionV1_sound`再从真实encoder结果导出实际`executeLoaderV3SingleAccountV1`
+等式，production invocation回归通过该gate。尚需在`SbpfHandlerJoinV1`中discharge gate并证明
+HandlerIR/provider observation relation；因此仍没有完整provider-backed refinement claim；
 ELF、loader、rollback、compute units与runtime也不在该观察范围内。
 
 ## 1. 身份与来源
@@ -311,8 +312,9 @@ Phase 1 在本地 runtime/validator 创建 program 与 state accounts，发送 i
      production artifact strict resolve与Loader V3 provider execution已有工程观测；
      `SbpfHandlerJoinV1`已固定kernel组合契约，`get`的bounded sparse execution certificate已闭合
      完整55/55步，并导出provider `runFuel` status-zero结论；artifact lookup、Loader memory read与
-     proof-bearing stack-store derivation已接入单一sound checker，尚需在kernel接线中discharge该
-     production artifact/input gate并连接Loader execution API。该边界与release source closure闭合前，不得
+     proof-bearing stack-store derivation已接入单一sound checker，且sound adapter projection已到真实
+     Loader encoder/execute等式；尚需discharge gate并闭合HandlerIR/provider observation relation。
+     该边界与release source closure闭合前，不得
      作为concrete refinement、clean-room或release证据。
 4. local runtime 完成 Counter 正常与 overflow rollback。
 5. 可用时增加官方 validator deployment evidence。

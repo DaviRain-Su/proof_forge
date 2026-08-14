@@ -13,10 +13,11 @@ This module does not lower `HandlerIR` to sBPF and does not define another
 business transition. `ExecutedHandlerSbpfJoinV1` requires equations for both
 existing evaluators. The StateCell `get` path now has a complete 55-step sparse
 provider certificate, executable artifact/input checks, and a proof-bearing
-provider store derivation behind one sound trace gate. The remaining boundary is
-to discharge that gate in the production Loader kernel join and connect its
-`runFuel` equation to the Loader execution API. Until then, an engineering
-observation is not an execution theorem.
+provider store derivation behind one sound trace gate. A second sound gate now
+projects the real encoder and `executeLoaderV3SingleAccountV1` equation. The
+remaining boundary is to discharge that gate while proving the HandlerIR/provider
+observation relation and minting this module's join carrier. Until then, an
+engineering observation is not a full refinement theorem.
 -/
 
 namespace ProofForgeV2.Targets.Solana

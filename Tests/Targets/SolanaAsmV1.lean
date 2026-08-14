@@ -389,9 +389,10 @@ private unsafe def testStateCellSbpfExecution
   expect (wrongOwnerObservation.finalAccountData == some initialized)
     "sBPF execution owner mismatch: account bytes must remain unchanged"
 
+  let getInvocation :=
+    invocation initialized (instructionData getDisc none) false false
   let encodedGet ← liftExecutionResult <|
-    encodeLoaderV3SingleAccountInputV1 boundArtifact
-      (invocation initialized (instructionData getDisc none) false false)
+    encodeLoaderV3SingleAccountInputV1 boundArtifact getInvocation
   let getValue := BitVec.ofNat 64 41
   expect (checkStateCellGetInputReadsV1 encodedGet getValue)
     "sBPF execution input: all get certificate reads must be certified"
@@ -408,6 +409,9 @@ private unsafe def testStateCellSbpfExecution
   let getReturnBytes := SbpfSemantics.wordToLE getValue
   expect (checkStateCellGetTraceV1 boundArtifact encodedGet getReturnBytes getValue)
     "sBPF execution return: complete 55-step trace gate must pass"
+  expect (checkStateCellGetExecutionV1 boundArtifact getInvocation
+      getReturnBytes getValue)
+    "sBPF execution return: end-to-end Loader execution gate must pass"
   expect (!checkStateCellGetTraceV1 boundArtifact encodedGet
       (getReturnBytes.set! 0 0) getValue)
     "sBPF execution return: tampered bytes must fail the complete trace gate"

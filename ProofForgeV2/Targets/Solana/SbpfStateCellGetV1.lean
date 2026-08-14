@@ -1,5 +1,5 @@
 import ProofForgeV2.Targets.Solana.SbpfProviderStepV1
-import ProofForgeV2.Targets.Solana.SbpfArtifactV1
+import ProofForgeV2.Targets.Solana.SbpfExecutionV1
 
 /-!
 # Solana StateCell `get` provider certificate
@@ -656,11 +656,40 @@ def checkStateCellGetTraceV1
     (input returnBytes : Array UInt8)
     (value : Word) : Bool :=
   checkStateCellGetArtifactV1 bound &&
-    (checkStateCellGetInputReadsV1 input value &&
-      let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
-      let beforeReturn :=
-        (runFuel asmDefaultHost artifact.program 44 (Machine.entry input)).1
-      (deriveStateCellGetReturnEffectsV1 beforeReturn value returnBytes).isSome)
+    (checkSingleAccountExecutionWindowV1 bound accountDataOffsetV1 16 &&
+      (decide (input.size ≤ maxSbpfInputImageBytesV1) &&
+        (checkStateCellGetInputReadsV1 input value &&
+          let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+          let beforeReturn :=
+            (runFuel asmDefaultHost artifact.program 44 (Machine.entry input)).1
+          (deriveStateCellGetReturnEffectsV1 beforeReturn value returnBytes).isSome)))
+
+/-- End-to-end executable gate from a production Loader invocation through its
+    real encoder and the complete StateCell `get` provider trace. -/
+def checkStateCellGetExecutionV1
+    (bound : BoundResolvedSbpfArtifactV1)
+    (invocation : LoaderV3SingleAccountInvocationV1)
+    (returnBytes : Array UInt8)
+    (value : Word) : Bool :=
+  match encodeLoaderV3SingleAccountInputV1 bound invocation with
+  | .error _ => false
+  | .ok input => checkStateCellGetTraceV1 bound input returnBytes value
+
+private theorem checkStateCellGetTraceV1_parts
+    (bound : BoundResolvedSbpfArtifactV1)
+    (input returnBytes : Array UInt8)
+    (value : Word)
+    (checked : checkStateCellGetTraceV1 bound input returnBytes value = true) :
+    checkStateCellGetArtifactV1 bound = true ∧
+    checkSingleAccountExecutionWindowV1 bound accountDataOffsetV1 16 = true ∧
+    input.size ≤ maxSbpfInputImageBytesV1 ∧
+    checkStateCellGetInputReadsV1 input value = true ∧
+    let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+    let beforeReturn :=
+      (runFuel asmDefaultHost artifact.program 44 (Machine.entry input)).1
+    (deriveStateCellGetReturnEffectsV1 beforeReturn value returnBytes).isSome = true := by
+  simpa only [checkStateCellGetTraceV1, Bool.and_eq_true,
+    decide_eq_true_eq] using checked
 
 /-- The provider executes the first eight production StateCell `get` path
 instructions and reaches PC 10 without mutating memory or call state. -/
@@ -1821,14 +1850,16 @@ theorem checkStateCellGetTraceV1_sound
         StateCellGetReturnedV1 input returnBytes machine := by
   have hparts :
       checkStateCellGetArtifactV1 bound = true ∧
+      checkSingleAccountExecutionWindowV1 bound accountDataOffsetV1 16 = true ∧
+      input.size ≤ maxSbpfInputImageBytesV1 ∧
       checkStateCellGetInputReadsV1 input value = true ∧
       let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
       let beforeReturn :=
         (runFuel asmDefaultHost artifact.program 44 (Machine.entry input)).1
       (deriveStateCellGetReturnEffectsV1 beforeReturn value returnBytes).isSome = true := by
-    simpa only [checkStateCellGetTraceV1, Bool.and_eq_true] using checked
+    exact checkStateCellGetTraceV1_parts bound input returnBytes value checked
   exact stateCellGet_checkedArtifact_stepsV1 bound input returnBytes value
-    hparts.1 hparts.2.1 hparts.2.2
+    hparts.1 hparts.2.2.2.1 hparts.2.2.2.2
 
 /-- The same 55-step certificate reduces the provider's executable `runFuel`
 to a status-zero halt while retaining the exact returned-state facts. -/
@@ -1907,5 +1938,68 @@ theorem checkStateCellGetTraceV1_runFuel_sound
     ⟨hidentity, machine, hsteps, machineRel⟩
   refine ⟨hidentity, machine, ?_, machineRel⟩
   exact runFuel_eq_halted_of_steps hsteps machineRel.halted
+
+/-- The trace gate closes the raw Loader adapter boundary as well: its sound
+`runFuel` equation is projected through the adapter's validated StateCell
+account window into an exact `runBoundSbpfArtifactV1` observation. -/
+theorem checkStateCellGetTraceV1_runBound_sound
+    (bound : BoundResolvedSbpfArtifactV1)
+    (input returnBytes : Array UInt8)
+    (value : Word)
+    (checked : checkStateCellGetTraceV1 bound input returnBytes value = true) :
+    let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+    artifact.sourceSha256 = stateCellProductionSbpfSha256V1 ∧
+      ∃ machine,
+        runBoundSbpfArtifactV1 bound input 55 = .ok {
+          artifactSha256 := artifact.sourceSha256
+          provider := observe machine (.halted 0)
+          finalAccountData := machine.mem.readBytes
+            (inputStart + BitVec.ofNat 64 accountDataOffsetV1) 16
+        } ∧
+        StateCellGetReturnedV1 input returnBytes machine := by
+  have hparts :=
+    checkStateCellGetTraceV1_parts bound input returnBytes value checked
+  have hwindow := checkSingleAccountExecutionWindowV1_sound bound
+    accountDataOffsetV1 16 hparts.2.1
+  rcases checkStateCellGetTraceV1_runFuel_sound bound input returnBytes value
+      checked with
+    ⟨hidentity, machine, hrun, machineRel⟩
+  refine ⟨hidentity, machine, ?_, machineRel⟩
+  exact runBoundSbpfArtifactV1_eq_ok_of_runFuel bound input 55
+    accountDataOffsetV1 16 machine (.halted 0) hwindow (by decide)
+    (by decide) hparts.2.2.1 hrun
+
+/-- Soundness of the end-to-end invocation gate. Its success provides the real
+encoder equation and the real `executeLoaderV3SingleAccountV1` equation for the
+identity-bound StateCell `get` execution. -/
+theorem checkStateCellGetExecutionV1_sound
+    (bound : BoundResolvedSbpfArtifactV1)
+    (invocation : LoaderV3SingleAccountInvocationV1)
+    (returnBytes : Array UInt8)
+    (value : Word)
+    (checked :
+      checkStateCellGetExecutionV1 bound invocation returnBytes value = true) :
+    let artifact := BoundResolvedSbpfArtifactV1.resolvedOf bound
+    artifact.sourceSha256 = stateCellProductionSbpfSha256V1 ∧
+      ∃ input machine,
+        encodeLoaderV3SingleAccountInputV1 bound invocation = .ok input ∧
+        executeLoaderV3SingleAccountV1 bound invocation 55 = .ok {
+          artifactSha256 := artifact.sourceSha256
+          provider := observe machine (.halted 0)
+          finalAccountData := machine.mem.readBytes
+            (inputStart + BitVec.ofNat 64 accountDataOffsetV1) 16
+        } ∧
+        StateCellGetReturnedV1 input returnBytes machine := by
+  unfold checkStateCellGetExecutionV1 at checked
+  cases hencode : encodeLoaderV3SingleAccountInputV1 bound invocation with
+  | error error => simp [hencode] at checked
+  | ok input =>
+      rw [hencode] at checked
+      rcases checkStateCellGetTraceV1_runBound_sound bound input returnBytes
+          value checked with
+        ⟨hidentity, machine, hrun, machineRel⟩
+      refine ⟨hidentity, input, machine, rfl, ?_, machineRel⟩
+      exact executeLoaderV3SingleAccountV1_eq_ok bound invocation 55 input _
+        hencode hrun
 
 end ProofForgeV2.Targets.Solana

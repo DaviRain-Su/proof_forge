@@ -16010,3 +16010,17 @@ normative: false
 - 尚未升级为concrete HandlerIR→provider refinement：下一步仍需在production Loader kernel接线中
   discharge该executable gate，并连接`executeLoaderV3SingleAccountV1` observation equation；
   initialize/increment/overflow以及ELF/loader/runtime/rollback/compute units也继续独立未升级。
+
+## 2026-08-14 — StateCell `get` trace→Loader execution equation
+
+- `SbpfExecutionV1`新增validated account-window projection/checker；
+  `runBoundSbpfArtifactV1_eq_ok_of_runFuel`把actual provider `runFuel`等式、fuel/input bounds和validated
+  window投影为真实raw Loader adapter observation，没有新增execution semantics。
+- `checkStateCellGetTraceV1`现在同时fail closed检查StateCell exact account window与input size bound；其
+  soundness进一步导出`runBoundSbpfArtifactV1`等式。
+- 新增`checkStateCellGetExecutionV1`与soundness：gate直接运行真实Loader encoder，再消费完整trace
+  checker；成功结果提供exact encoder equation和`executeLoaderV3SingleAccountV1 ... 55 = .ok ...`
+  kernel equation。production StateCell `get(41)` invocation回归通过端到端gate。
+- 下一步边界已收窄为`SbpfHandlerJoinV1`：discharge production invocation gate，证明provider
+  return/account observation与actual HandlerIR observation一致，再mint executed join carrier；当前仍不
+  声明完整ReferenceMachine→sBPF、ELF、Solana loader/runtime/rollback/compute-unit refinement。
