@@ -70,6 +70,8 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | F-SEM001-SPAN | done | Isolated layout/span-only companion: same AST + leading-comment span shift keeps `.pfsem`/`semanticHash`/`sourceHash`; only `.pfprov` moves (`Tests/Semantic/Sem001ShapeV1.lean`). Focused run ok. **Not** formal TST-SEM-001 |
 | F-CALL-SERIAL | done | Wire structure gate: ExternalCall/Schedule args must be Bool / legal UInt/Int / Bytes / Principal (Normalize / Reference / pf.assets). Do not reuse Eq/Ne `serializableType`. Focused `Tests.Semantic.WireV1.run` ok. **Not** formal TASK-D2-06 / TST-SEM-001 |
 | F-CTX-OPEN-CLOSE | done | Honesty-close `B-CTX-OPEN`: NEAR/CW `blockHeight` runtime gates already exist (`scripts/near_runtime_test.sh` BlockHeightCheck + `runtime-tests/cosmwasm/tests/block_height.rs`). Docs only. **Not** a re-implement. **Not** formal |
+| F-TYPEKEY-USAGE-GAP | done | Inventory-only plan [`docs/plan/evm-formal-d2-06-typekey-usage.md`](../docs/plan/evm-formal-d2-06-typekey-usage.md). Usage/rank structure gates would mass-break hand-built tables. Next pin = isolated SPEC `typeKey` byte form. **Not** formal TASK-D2-06 |
+| F-TYPEKEY-BYTES | in_progress | Isolated SPEC `typeKey` byte-form encoder + WireV1 unit tests. Do **not** install as a structure gate. **Not** formal TASK-D2-06 |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 
@@ -103,7 +105,7 @@ Leave these `blocked` / `decision`. Goal must **skip**, not implement.
 
 ## Runner notes
 
-1. Track A is exhausted. Track B is exhausted. Track F through `F-CTX-OPEN-CLOSE` is exhausted. Goal must **not** auto-close formal IDs. Never Track C. SPEC-honesty ADR / EV binding / C-3 remain product/formal decisions. Next engineering candidates are TypeKey usage/rank or SYS-CAP S5/L2 — not auto-closeable formal IDs.
+1. Track A is exhausted. Track B is exhausted. Track F through `F-TYPEKEY-USAGE-GAP` is inventoried. Next engineering row is `F-TYPEKEY-BYTES` (isolated SPEC `typeKey` byte form; not a structure gate). Goal must **not** auto-close formal IDs. Never Track C. Unused TypeKey rejection / decoder-side rank / SPEC-honesty ADR / EV binding / C-3 remain product/formal decisions.
 2. Mark claimed row `in_progress` only on a clean tree (or WIP wholly inside that slice allowlist).
 3. One local commit per id. Touch `ProofForgeV2/**` → `just sbom-package-files-refresh`. Docs → `just docs-check`.
 4. After commit: this file `done`, `docs/engineering-backlog.md` one honest line, AGENTS Current/Next if Track A pointer moves.

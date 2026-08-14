@@ -33,7 +33,8 @@ wasmd Docker rung-1；TON：Tolk/BoC + sandbox 10/10（schedule `createMessage` 
 
 EVM formal 缺口盘点（非 normative、不代签 TASK/TST）：
 [`plan/evm-formal-d2-07-gap.md`](plan/evm-formal-d2-07-gap.md) ·
-[`plan/evm-formal-d2-06-gap.md`](plan/evm-formal-d2-06-gap.md)。
+[`plan/evm-formal-d2-06-gap.md`](plan/evm-formal-d2-06-gap.md) ·
+[`plan/evm-formal-d2-06-typekey-usage.md`](plan/evm-formal-d2-06-typekey-usage.md)。
 **日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)。
 **当前 Goal drain 入口**：[`.grok/next-wave-queue.md`](../.grok/next-wave-queue.md) +
 [`/goal @.grok/goals/prompt-next-wave.md`](../.grok/goals/prompt-next-wave.md)；旧

@@ -56,8 +56,13 @@ companion is now pinned in the same suite.
    `Sem001ShapeV1` (leading-comment span shift; inventory rebuild accepts;
    `.pfsem`/`semanticHash`/`sourceHash` hold; `.pfprov` moves; span-swapped
    provenance fail closed).
-2. EV binding of canonical `.pfsem` / `.pfprov` (product decision).
-3. `TST-PROOF-001` after SEM-001 formal path exists.
+2. TypeKey usage/rank inventory — 2026-08-14
+   [`evm-formal-d2-06-typekey-usage.md`](evm-formal-d2-06-typekey-usage.md).
+   Next engineering pin is the isolated SPEC `typeKey` byte form (not a
+   structure gate). Unused rejection / decoder-side rank need a product
+   decision first.
+3. EV binding of canonical `.pfsem` / `.pfprov` (product decision).
+4. `TST-PROOF-001` after SEM-001 formal path exists.
 
 ## Non-claims
 
