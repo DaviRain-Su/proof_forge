@@ -76,6 +76,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | SYS-S4-NEW-TARGETS | done | ICP/Soroban/OpenVM Plan honesty: UInt64 ContextRead keys named no-host FC. caller/self stay generic (Principal). Focused suites ok. **Not** formal |
 | SYS-S4-QUINT-KEYS | done | Quint: four UInt64 ContextRead keys named no-host FC. caller/self stay generic. Focused QuintSourceV1 ok. **Not** formal |
 | SYS-E2-NEW-TARGETS | done | ICP/Soroban/OpenVM: envRead nativeVaultBalance named no-host FC. token/U128 stay generic. Focused suites ok. **Not** formal |
+| SYS-S4-TON-KEYS | done | TON: named Plan FC for attachedValue/chainId/self; unixTime still `blockchain.now()`. Focused TonPlanV1 ok. **Not** formal |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)
 

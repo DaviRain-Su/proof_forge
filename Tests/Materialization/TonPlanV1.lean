@@ -1478,6 +1478,62 @@ private unsafe def testContextReadUnixTime
         s!"TON blockHeight Plan FC must cite ContextRead/context/blockHeight, got: {e.render}"
   | .ok _ =>
       throw <| IO.userError "TON context.blockHeight must fail closed at Plan"
+  -- (e2) SYS-S4: attachedValue / chainId have no TON host. Pin the named
+  -- Plan diagnostic (unixTime lowering is unchanged).
+  let attachedSrc := wrapProgram "AttachedBox" <|
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry take() : UInt64 do\n" ++
+    "    return context.attachedValue\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return pad\n"
+  let aCompiled ← compileSource session attachedSrc "Examples.AttachedBox"
+    "<ton-attached-box>"
+  match planTon aCompiled with
+  | .error e =>
+      expect (e.render.contains "has no Ton host binding")
+        s!"TON attachedValue Plan FC must contain 'has no Ton host binding', got: {e.render}"
+      expect (e.render.contains "attached-value" || e.render.contains "attachedValue")
+        s!"TON attachedValue Plan FC must name attachedValue, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "TON context.attachedValue must fail closed at Plan"
+  let chainSrc := wrapProgram "ChainBox" <|
+    "  state pad : UInt64\n" ++
+    "  init() do\n" ++
+    "    pad := 0\n" ++
+    "  entry cid() : UInt64 do\n" ++
+    "    return context.chainId\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return pad\n"
+  let cidCompiled ← compileSource session chainSrc "Examples.ChainBox"
+    "<ton-chain-box>"
+  match planTon cidCompiled with
+  | .error e =>
+      expect (e.render.contains "has no Ton host binding")
+        s!"TON chainId Plan FC must contain 'has no Ton host binding', got: {e.render}"
+      expect (e.render.contains "chain-id" || e.render.contains "chainId")
+        s!"TON chainId Plan FC must name chainId, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "TON context.chainId must fail closed at Plan"
+  -- (e3) context.self (source spelling `context.contractId`; wire key
+  -- `proof-forge.context.self.v1`) is Principal. TON type-closure is
+  -- `pilotPrincipalPolicyNone`, so Principal is rejected at type closure
+  -- before the ContextRead/self arm — still fail closed. LowerSemantic
+  -- keeps an explicit self arm (same as caller) for defense-in-depth.
+  let selfSrc := wrapProgram "SelfBox" <|
+    "  entry who() : UInt64 do\n" ++
+    "    let s : Principal := context.contractId\n" ++
+    "    return 0\n"
+  let sCompiled ← compileSource session selfSrc "Examples.SelfBox"
+    "<ton-self-box>"
+  match planTon sCompiled with
+  | .error e =>
+      expect (e.render.contains "ContextRead" || e.render.contains "self" ||
+          e.render.contains "Principal")
+        s!"self FC must cite ContextRead/self/Principal boundary, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError "TON context.self must fail closed"
   -- (f) Truly unknown context key still FC at Normalize (closed catalog).
   let unknownSrc := wrapProgram "UnknownCtx" <|
     "  state pad : UInt64\n" ++
@@ -1507,7 +1563,7 @@ private unsafe def testContextReadUnixTime
           | .ok _ =>
               throw <| IO.userError
                 "unknown context key must fail closed (Normalize or Plan)"
-  IO.println "  ✓ B-CTX-OPEN unixTimeSeconds → blockchain.now(); caller/blockHeight/unknown FC"
+  IO.println "  ✓ B-CTX-OPEN unixTimeSeconds → blockchain.now(); caller/self/blockHeight/attachedValue/chainId/unknown FC"
 
 unsafe def run : IO Unit := do
   IO.println "TonPlanV1"

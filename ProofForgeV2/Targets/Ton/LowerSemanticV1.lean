@@ -3028,15 +3028,25 @@ private def lowerBlockInstructionsV1
     | .contextRead key, some result =>
         -- B-CTX-OPEN (TON): `context.unixTimeSeconds` lowers to Tolk
         -- `blockchain.now()` (block unixtime as int, always ≪ 2^64 — no
-        -- range guard). See Expr.blockUnixTimeSeconds. `context.caller` and
-        -- unknown keys stay fail closed (Principal ≠ TON address mapping
-        -- deferred).
+        -- range guard). See Expr.blockUnixTimeSeconds. `context.caller` /
+        -- `context.self` stay fail closed (Principal ≠ TON address).
+        -- attachedValue / chainId / blockHeight have no TON host in this
+        -- pilot. Unknown keys stay fail closed.
         if key == callerContextKeyV1 then
           throw <| .planInvariant .ton
             "unsupported Ton semantic shape: ContextRead (context.caller) is not admitted by pilot context policy (Principal to TON address mapping deferred)"
+        if key == selfContextKeyV1 then
+          throw <| .planInvariant .ton
+            "unsupported Ton semantic shape: ContextRead (context.self) is not admitted by pilot context policy (Principal to TON address mapping deferred)"
         if key == blockHeightContextKeyV1 then
           throw <| .planInvariant .ton
             "unsupported Ton semantic shape: ContextRead (context.blockHeight) is not admitted (no honest TON block-height binding in pilot)"
+        if key == attachedValueContextKeyV1 then
+          throw <| .planInvariant .ton
+            s!"unsupported Ton semantic shape: ContextRead '{key.value}' has no Ton host binding (attachedValue / msg value stays fail closed)"
+        if key == chainIdContextKeyV1 then
+          throw <| .planInvariant .ton
+            s!"unsupported Ton semantic shape: ContextRead '{key.value}' has no Ton host binding (chainId stays fail closed)"
         unless key == unixTimeSecondsContextKeyV1 do
           throw <| .planInvariant .ton
             s!"unsupported Ton semantic shape: unknown ContextRead key '{key.value}'"
