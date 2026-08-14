@@ -48,10 +48,11 @@ Worked examples (Ethereum Keccak, same pad as `Targets.Evm.Keccak`):
 | `Oracle.feed` | `Oracle` | `e8bbb361ae4c140fabb5b8c363bd6282ded34a90` |
 | `Ledger.daily` | `Ledger` | `c7ad2f1a51d91ed07c4cc2b5bcea3682b0ac30b2` |
 
-`Tests.Materialization.EvmSmoke.testExternalCallGate` only asserts Yul contains
-`call(gas(), 0x` and an `iszero` revert. It does **not** pin the 20-byte
-digest. G4 Anvil (`Counter` / `Accumulator` / `ArithOps` / `EventFlow`) does
-not deploy code at a hashed QN address.
+`Tests.Materialization.EvmSmoke.testExternalCallGate` now pins Yul
+`call(gas(), 0x{last20},` using `Targets.Evm.Keccak` on `"Oracle"` /
+`"Ledger"`. That is an emitter-identity pin, **not** a deployment join.
+G4 Anvil (`Counter` / `Accumulator` / `ArithOps` / `EventFlow`) does not
+deploy code at a hashed QN address.
 
 ## 2. Empty-code consequence (why this is PARTIAL)
 
@@ -94,9 +95,9 @@ Do **not** treat Principal storage, `context.caller` / `context.self`
 
 ## 4. Recommended next (serial)
 
-1. **EVM-CALL-ADDR-PIN** (implementable, this wave): pin CallGate /
-   ScheduleGate Yul to the exact last-20 hex above. No emitter change.
-   Still not a deployment binding.
+1. **EVM-CALL-ADDR-PIN** — **done 2026-08-15**: CallGate / ScheduleGate
+   Yul pin the exact last-20 hex via `Targets.Evm.Keccak`. No emitter
+   change. Still not a deployment binding.
 2. **B-CALL-SEM binding** (decision, skip): versioned address table +
    identity join. Do not start from Goal/drain.
 3. Sparse Solana 55-step certificates for initialize / increment / overflow

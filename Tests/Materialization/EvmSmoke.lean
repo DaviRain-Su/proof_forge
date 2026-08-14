@@ -1796,8 +1796,10 @@ private unsafe def testExternalCallGate : IO Unit := do
       | _ => throw <| IO.userError "CallGate bump must start with externalCall Oracle.feed"
   | none => throw <| IO.userError "CallGate bump body is empty"
   let callIr ← liftResult "ir CallGate" <| Targets.Evm.irFromCapability callCap
-  expect (callIr.yul.contains "call(gas(), 0x")
-    "CallGate Yul must emit CALL to the fixed keccak-derived address"
+  let oracleAddr :=
+    (Targets.Evm.Keccak.keccak256Hex "Oracle".toUTF8).drop 24
+  expect (callIr.yul.contains s!"call(gas(), 0x{oracleAddr},")
+    s!"CallGate Yul must CALL the keccak last-20 of path \"Oracle\", got address needle 0x{oracleAddr}"
   expect (callIr.yul.contains "if iszero(")
     "CallGate Yul must revert on CALL failure (sync external call)"
 
@@ -1832,8 +1834,10 @@ private unsafe def testExternalCallGate : IO Unit := do
   | none => throw <| IO.userError "ScheduleGate bump body is empty"
   let scheduleIr ← liftResult "ir ScheduleGate" <|
     Targets.Evm.irFromCapability scheduleCap
-  expect (scheduleIr.yul.contains "call(gas(), 0x")
-    "ScheduleGate Yul must emit CALL (fire-and-forget)"
+  let ledgerAddr :=
+    (Targets.Evm.Keccak.keccak256Hex "Ledger".toUTF8).drop 24
+  expect (scheduleIr.yul.contains s!"call(gas(), 0x{ledgerAddr},")
+    s!"ScheduleGate Yul must CALL the keccak last-20 of path \"Ledger\", got address needle 0x{ledgerAddr}"
   expect (scheduleIr.yul.contains "pop(")
     "ScheduleGate Yul must ignore CALL success (async schedule)"
   pure ()
