@@ -2530,6 +2530,108 @@ def verify_external_tree(root: Path, bundle: dict[str, dict],
     return root
 
 
+def selected_tool_closure(
+    lock: dict, requested: list[str]
+) -> tuple[list[dict], list[dict]]:
+    """Return exact content-addressed tools and bundle records for one tool subset.
+
+    This subset primitive deliberately excludes sourceBuild tools: their executable
+    identity is host-local rather than pinned by ``bundleFiles``. Runtime files may
+    come from a different asset than the executable, so selection is path-based.
+    """
+
+    if not requested:
+        fail("selected tool closure requires at least one --tool")
+    if len(requested) != len(set(requested)):
+        fail("selected tool closure contains duplicate tool ids")
+    tools_by_id = {tool["id"]: tool for tool in lock["tools"]}
+    unknown = sorted(set(requested) - set(tools_by_id))
+    if unknown:
+        fail(f"unknown tools: {', '.join(unknown)}")
+
+    tools: list[dict] = []
+    required_paths: set[str] = set()
+    for tool_id in requested:
+        tool = tools_by_id[tool_id]
+        if tool.get("sourceBuild") is not None:
+            fail(f"selected tool closure does not support sourceBuild tool {tool_id}")
+        paths = [tool["executable"]] + [record["path"] for record in tool["runtimeFiles"]]
+        for path in paths:
+            required_paths.add(path)
+        tools.append(tool)
+
+    records = [record for record in lock["bundleFiles"]
+               if record["path"] in required_paths]
+    observed_paths = {record["path"] for record in records}
+    if observed_paths != required_paths or len(records) != len(required_paths):
+        fail("selected tool closure is incomplete in bundleFiles")
+    return tools, records
+
+
+def verify_tool_closure(lock: dict, root: Path, requested: list[str]) -> None:
+    """Verify an exact selected bundle and execute each locked version probe.
+
+    Unlike ``verify_external``, this engineering subset does not claim a pinned
+    host-library observation. The product consumer still re-hashes every present
+    bundle node and executes only these locked artifacts.
+    """
+
+    tools, records = selected_tool_closure(lock, requested)
+    bundle = {record["path"]: record for record in records}
+    root = verify_external_tree(root, bundle)
+    library_variable = "DYLD_LIBRARY_PATH" if is_darwin_tool_lock(lock) \
+        else "LD_LIBRARY_PATH"
+    environment = {
+        "HOME": "/var/empty",
+        "LC_ALL": "C",
+        "PATH": "/usr/bin:/bin",
+        "TZ": "UTC",
+        library_variable: str(root / "lib"),
+    }
+    for tool in tools:
+        try:
+            probe = subprocess.run(
+                [str(root / tool["executable"]), *tool["versionArgs"]],
+                check=False,
+                capture_output=True,
+                text=True,
+                env=environment,
+                timeout=10,
+            )
+        except (OSError, subprocess.TimeoutExpired) as error:
+            fail(f"selected tool version probe could not run for {tool['id']}: {error}")
+        observed = probe.stdout + probe.stderr
+        if probe.returncode != 0 or tool["expectedVersion"] not in observed:
+            fail(f"selected tool version probe failed for {tool['id']}")
+    print(f"toolchain-assets: verified selected tool closure {root}")
+
+
+def materialize_tool_closure(lock: dict, destination: Path, requested: list[str]) -> None:
+    """Provision and atomically materialize only the requested locked closures."""
+
+    _tools, records = selected_tool_closure(lock, requested)
+    assets = asset_map(lock)
+    selected_asset_ids = {record["assetId"] for record in records}
+    for asset in lock["assets"]:
+        if asset["id"] in selected_asset_ids:
+            provision_asset(asset)
+
+    staging = prepare_destination(destination)
+    try:
+        for record in records:
+            output = staging / record["path"]
+            output.parent.mkdir(parents=True, exist_ok=True)
+            with member_stream(assets[record["assetId"]], record["member"]) as handle:
+                copy_exact(handle, output, record["size"], record["sha256"])
+            os.chmod(output, int(record["mode"], 8))
+        verify_tool_closure(lock, staging, requested)
+        os.replace(staging, destination)
+    finally:
+        if staging.exists():
+            shutil.rmtree(staging)
+    print(f"toolchain-assets: materialized selected tool closure {destination}")
+
+
 def verify_asset_members(lock: dict, root: Path, asset_id: str) -> None:
     """Verify every bundle member sourced from one locked asset under a tool root.
 
@@ -4918,11 +5020,40 @@ def self_test_tool_lock(lock: dict, host_lock: dict) -> None:
         fail("self-test failed to reject duplicate JSON keys")
 
     self_test_empty_policy_data_members(lock)
+    self_test_selected_tool_closure(lock)
 
     if is_darwin_tool_lock(lock):
         self_test_darwin_tool_lock(lock, host_lock)
     else:
         self_test_linux_tool_lock(lock, host_lock)
+
+
+def self_test_selected_tool_closure(lock: dict) -> None:
+    tools, records = selected_tool_closure(
+        lock, ["wat2wasm", "wasmcert-coq-provider"]
+    )
+    if [tool["id"] for tool in tools] != ["wat2wasm", "wasmcert-coq-provider"]:
+        fail("self-test selected the wrong tool closure")
+    expected_paths = {
+        tool["executable"]
+        for tool in tools
+    } | {
+        runtime["path"]
+        for tool in tools
+        for runtime in tool["runtimeFiles"]
+    }
+    if {record["path"] for record in records} != expected_paths:
+        fail("self-test selected the wrong bundle closure")
+
+    for label, requested in (
+            ("unknown", ["not-a-locked-tool"]),
+            ("duplicate", ["wat2wasm", "wat2wasm"]),
+            ("sourceBuild", ["sbpf"])):
+        try:
+            selected_tool_closure(lock, requested)
+        except AssetError:
+            continue
+        fail(f"self-test accepted {label} selected tool closure")
 
 
 def self_test_cargo_git_build_policy(lock: dict) -> None:
@@ -5539,6 +5670,12 @@ def build_parser() -> argparse.ArgumentParser:
     external.add_argument("--destination", type=Path, required=True)
     verify = commands.add_parser("verify-external")
     verify.add_argument("--root", type=Path, required=True)
+    selected = commands.add_parser("materialize-tool-closure")
+    selected.add_argument("--destination", type=Path, required=True)
+    selected.add_argument("--tool", action="append", required=True)
+    verify_selected = commands.add_parser("verify-tool-closure")
+    verify_selected.add_argument("--root", type=Path, required=True)
+    verify_selected.add_argument("--tool", action="append", required=True)
     verify_members = commands.add_parser("verify-asset-members")
     verify_members.add_argument("--asset", required=True)
     verify_members.add_argument("--root", type=Path, required=True)
@@ -5589,6 +5726,10 @@ def main() -> None:
         materialize_external(lock, host_lock, args.destination.resolve())
     elif args.command == "verify-external":
         verify_external(lock, host_lock, args.root)
+    elif args.command == "materialize-tool-closure":
+        materialize_tool_closure(lock, args.destination.resolve(), args.tool)
+    elif args.command == "verify-tool-closure":
+        verify_tool_closure(lock, args.root, args.tool)
     elif args.command == "verify-asset-members":
         verify_asset_members(lock, args.root, args.asset)
     elif args.command == "materialize-lean":

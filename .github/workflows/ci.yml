@@ -154,16 +154,45 @@ jobs:
     name: near-wasmcert-product (darwin-arm64)
     needs: changes
     if: needs.changes.outputs.target_smoke == 'true'
-    runs-on: macos-14
+    runs-on: macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
 
-      - name: Setup Lean + Darwin tool root
-        uses: ./.github/actions/setup-lean-toolroot
+      - name: Install just
+        uses: taiki-e/install-action@2ca9b94c269419b7b0c711c09d0b21c4e1d51145  # v2.83.1
         with:
-          tool-root: ${{ runner.temp }}/proof-forge-v2/tool-root/darwin-arm64
-          cache-key-suffix: near-wasmcert-darwin
+          tool: just@1.48.0
+
+      - name: Install Lean
+        run: |
+          scripts/ci/install-lean.sh
+          echo "$HOME/.elan/bin" >> "$GITHUB_PATH"
+
+      - name: Export selected Darwin tool root
+        run: echo "PROOF_FORGE_TOOL_ROOT=${{ runner.temp }}/proof-forge-v2/tool-root/darwin-arm64" >> "$GITHUB_ENV"
+
+      - name: Cache selected Darwin tool root
+        id: selected-tool-root-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        with:
+          path: ${{ runner.temp }}/proof-forge-v2/tool-root/darwin-arm64
+          key: macOS-arm64-near-wasmcert-closure-v1-${{ hashFiles('toolchains.lock.json', 'host-profiles.lock.json', 'scripts/toolchain_assets.py') }}
+
+      - name: Materialize selected Darwin tool closure
+        if: steps.selected-tool-root-cache.outputs.cache-hit != 'true'
+        run: |
+          /usr/bin/python3 -I -S scripts/toolchain_assets.py materialize-tool-closure \
+            --destination "$PROOF_FORGE_TOOL_ROOT" \
+            --tool wat2wasm \
+            --tool wasmcert-coq-provider
+
+      - name: Verify selected Darwin tool closure
+        run: |
+          /usr/bin/python3 -I -S scripts/toolchain_assets.py verify-tool-closure \
+            --root "$PROOF_FORGE_TOOL_ROOT" \
+            --tool wat2wasm \
+            --tool wasmcert-coq-provider
 
       - name: Locked NEAR WasmCert product + Reference join
         run: just near-wasmcert-product

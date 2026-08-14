@@ -3,7 +3,7 @@ id: PLAN-VERIFIED-CONTRACT-AUTHORING
 title: ProofForge VerifiedVault 风格形式化验证作者体验实施规划
 status: draft
 owner: engineering
-updated: 2026-08-13
+updated: 2026-08-14
 normative: false
 ---
 
@@ -1418,7 +1418,9 @@ expression translator：
     `WasmCertProviderRuntimeV1`现作为Lake executable从 exact `VerifiedVaultPF.lean`运行proof certifier、
     production materialize/finalize、`executeLockedWasmCertV1`及`joinLockedWasmCertReferenceV1`，Linux
     实跑5/5；smoke另固定missing/executable tamper，Darwin lane固定bundled GMP tamper。Linux主CI与
-    macOS 14 lane均已接线，只有两者实际通过后才关闭NEAR阶段出口并继续Solana。
+    macOS 26 arm64 selected-closure lane均已接线；后者只物化 `wat2wasm`、provider及其 exact locked
+    dylib，不要求GitHub runner冒充另一个开发机host profile。只有两者实际通过后才关闭NEAR阶段
+    出口并继续Solana。
 
 ---
 

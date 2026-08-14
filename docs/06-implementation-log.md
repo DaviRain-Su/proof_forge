@@ -15787,3 +15787,21 @@ normative: false
 - assurance仍是identity-bound engineering execution/Reference join，不是kernel中的一般
   IR/WAT→Wasm/NEAR simulation theorem。binary parser、wrapper/OCaml、purpose-built host及adapter
   representation仍属显式TCB/assumption；不会标记为fully target-refined。
+
+## 2026-08-14 — WasmCert CI cache/host-boundary correction（双平台观察待定）
+
+- 首个activation run `31773510474` 没有进入consumer：Linux jobs从旧prefix key恢复已有Tool Root，
+  随后full materializer按设计拒绝覆盖existing destination；Darwin `macos-14` runner又与锁定的
+  Tahoe/Xcode开发机host profile不一致，被exact `otool` identity gate正确拒绝。这两项均不是
+  provider或5-path Reference join的执行失败。
+- shared Linux setup现只接受包含全部lock输入的exact cache key。exact hit跳过provision/materialize
+  但仍执行full verify；miss从空destination重新物化。移除prefix restore，不删除或覆盖不匹配root，
+  也不放宽full external closure验证。
+- `toolchain_assets.py materialize-tool-closure` / `verify-tool-closure` 新增通用content-addressed subset
+  primitive：按工具executable + runtimeFiles path解析跨asset exact closure，原子物化后验证
+  root无额外节点、每个文件size/hash/mode/single-link/no-symlink，并运行锁定version probe；unknown、
+  duplicate及sourceBuild选择fail closed。它显式不声称pinned host-library observation。
+- Darwin lane迁到`macos-26` arm64，并只物化 `wat2wasm`、`wasmcert-coq-provider`、bundled crypto/GMP
+  dylib；随后产品consumer仍独立按embedded Tool Lock重hash、隔离执行与测试runtime tamper。Linux本地
+  用同一selected-closure命令从空root物化并通过5/5及全部smoke负例。新CI双平台consumer尚未观察，
+  因此本记录不关闭NEAR阶段出口，也不改变non-formal maturity声明。

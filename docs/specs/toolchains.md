@@ -60,8 +60,10 @@ Linux executable动态依赖只有 `libgmp`、`libm`、`libc`与 ELF loader，�
 本规格允许的 `/lib/`、`/lib64/`、`/usr/lib/` system dependency roots，所以无需伪造为 bundle
 `runtimeFiles`，且已在 Debian 12 / GLIBC 2.36完成 exact version probe和 locked
 VerifiedVault source→finalized Wasm→provider→Reference五路径回归。Darwin arm64使用独立 digest row
-和bundled GMP closure；macOS 14 CI运行同一 locked product consumer及runtime tamper负例。未来新
-candidate仍是 non-admitted，必须经新的 reviewed lock变更才能替换上述身份。
+和bundled GMP closure；macOS 26 arm64 CI只从对应lock物化 `wat2wasm`、provider及exact runtime
+dylib selected closure，并运行同一 locked product consumer及runtime tamper负例。该selected closure
+是identity-bound engineering consumer输入，不冒充完整host-profile/hermetic closure。未来新candidate
+仍是 non-admitted，必须经新的 reviewed lock变更才能替换上述身份。
 
 两平台 lock 文件共享 schema 名 `proof-forge.toolchains.v4`，由 `platform` 与 policy 键区分：
 
