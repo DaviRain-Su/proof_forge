@@ -2792,6 +2792,38 @@ private unsafe def testScheduleProductPath
       throw <| IO.userError
         "sync call: NEAR Plan must fail closed for generic non-catalog sync call"
 
+  -- Result-bearing generic sync must not sneak past the void-call gate.
+  let callRetText :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program CallRetNear where\n" ++
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry poke(n : UInt64) : UInt64 do\n" ++
+    "    let x : UInt64 := call Oracle.feed(count)\n" ++
+    "    return n\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let callRetSource ← liftResult (← session.selectProgramV1
+    callRetText "<near-call-ret>" "Examples.CallRetNear" none)
+  let callRetCompiled ← liftResult <|
+    Compiler.compileValidatedSourceV1 callRetSource
+  let callRetCapability ← liftResult <|
+    Targets.resolveEngineeringRequirementsV1 selection callRetCompiled
+  match Targets.Near.planFromCapability callRetCapability with
+  | .error (.planInvariant .near msg) =>
+      expect (msg.contains "result-bearing ExternalCall is outside the NEAR envelope")
+        s!"result-bearing generic sync must stay Plan FC, got {msg}"
+  | .error other =>
+      throw <| IO.userError
+        s!"call-ret: expected planInvariant, got {other.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "call-ret: NEAR Plan must fail closed for result-bearing generic sync"
+
 /-- Void entry `entry run() do` (no result / no return) lowers through canonical
     Unit fallthrough. NEAR admits Unit **entry** results as `MethodResultKind.unit`
     + `returnNone` (views stay non-Unit). Explicit bare `return` remains rejected
