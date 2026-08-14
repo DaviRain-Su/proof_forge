@@ -98,6 +98,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | F-TYPEKEY-LEAVES | done | Isolated SPEC `typeKey` pins: Int 8/64, Principal, Unit, Array(UInt8,4). Not a structure gate. **Not** formal TASK-D2-06 |
 | F-TYPEKEY-FIELDS | done | Isolated SPEC `typeKey` pins for BLS12-377 Fr and Goldilocks FieldSpec (bn254 already pinned). Not a structure gate. **Not** formal |
 | DOC-12T-SYNC | done | Refresh RPT-025 12+0 + matrix §2 Soroban/OpenVM/ICP columns + targets README intro. **Not** accepted-PRD expansion |
+| SOL-0048-GAP | done | Inventory [`docs/plan/solana-adr-0048-next.md`](../docs/plan/solana-adr-0048-next.md): get certificate exists; init/increment/overflow still observation-only. **Not** formal D5 |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |
 
 ## Track B — system capability leaves (after Track A, or file-isolated parallel)

@@ -37,6 +37,8 @@ EVM formal 缺口盘点（非 normative、不代签 TASK/TST）：
 [`plan/evm-formal-d2-06-typekey-usage.md`](plan/evm-formal-d2-06-typekey-usage.md)。
 Soroban S1 缺口盘点（非 normative、不实现 SOR-1）：
 [`plan/soroban-s1-wasm-finalize-gap.md`](plan/soroban-s1-wasm-finalize-gap.md)。
+Solana ADR-0048 D4 剩余证书（非 formal TASK-D5）：
+[`plan/solana-adr-0048-next.md`](plan/solana-adr-0048-next.md)。
 **日常工程队列**（可勾选缺口）：[`engineering-backlog.md`](engineering-backlog.md)。
 **当前 Goal drain 入口**：[`.grok/next-wave-queue.md`](../.grok/next-wave-queue.md) +
 [`/goal @.grok/goals/prompt-next-wave.md`](../.grok/goals/prompt-next-wave.md)；旧
