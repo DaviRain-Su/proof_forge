@@ -130,7 +130,7 @@
     {
       "id": "evm-local-walkthrough.md",
       "title": "Demo — EVM with pf (build → Anvil deploy → browser UI)",
-      "bytes": 1718,
+      "bytes": 1794,
       "kind": "markdown"
     },
     {
@@ -142,13 +142,13 @@
     {
       "id": "psy-dpn-walkthrough.md",
       "title": "Demo — Psy DPN with pf (+ official ecosystem pointers)",
-      "bytes": 3732,
+      "bytes": 3808,
       "kind": "markdown"
     },
     {
       "id": "solana-local-walkthrough.md",
       "title": "Demo — Solana with pf (build → Surfpool → UI)",
-      "bytes": 2594,
+      "bytes": 2670,
       "kind": "markdown"
     },
     {

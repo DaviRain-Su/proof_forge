@@ -607,7 +607,10 @@ class ProofForgeClient:
         root: Optional[PathLike] = None,
         timeout: Optional[float] = None,
     ) -> CliResult:
-        """Product build. Rejects network/broadcast (use CLI network --broadcast)."""
+        """Product build. ``source`` must end in ``.pf`` or ``.lean``.
+
+        Rejects network/broadcast (use CLI network --broadcast).
+        """
         if target in DESIGN_ONLY_TARGETS:
             return CliResult(
                 ok=False,

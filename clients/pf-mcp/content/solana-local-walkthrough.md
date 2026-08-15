@@ -65,6 +65,8 @@ cd templates/solana-dapp-ui && npm install && npm run dev
 
 ### 3) Manual ladder (without one-shot)
 
+Monorepo fixture (Lake module). External authors: `pf new` → `src/*.pf`.
+
 ```bash
 pf build Examples/StateCell.lean --module Examples.StateCell --target solana -o build/v2/sc-sol
 pf verify --target solana -o build/v2/sc-sol

@@ -44,6 +44,8 @@ pf doctor --target psy
 
 ### 2) Build DPN
 
+Monorepo fixture (Lake module). External authors: `pf new` → `src/*.pf`.
+
 ```bash
 pf build Examples/StateCell.lean \
   --module Examples.StateCell \

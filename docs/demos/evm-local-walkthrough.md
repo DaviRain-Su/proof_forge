@@ -17,6 +17,8 @@ normative: false
 
 ### 1) Build
 
+Monorepo fixture (Lake module). External authors: `pf new` → `src/*.pf`.
+
 ```bash
 export PROOF_FORGE_CLI=$PWD/.lake/build/bin/proof-forge-next
 pf build Examples/StateCell.lean --module Examples.StateCell -t evm -o build/v2/sc-ui
