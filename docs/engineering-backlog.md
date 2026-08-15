@@ -755,6 +755,9 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **ICP-BOOL**：ICP-2 Bool 结果 + 比较（Candid `bool` 0x7e，`i64.eq/gt_u`）。BoolPredicate 十一家 admit（仅 Aleo computed-view FC）。**不**开 if/match、Bool state、formal。 |
 | 2026-08-15 | **OVM-INT64**：OpenVM O0 齐次 Int64（guest `i64` + `checked_add/sub`）。WideInt64 十二家 admit。mul/div 仍 FC。**不**开容器 / formal / prove。 |
 | 2026-08-15 | **QUINT-ARRAY**：Q0 Array UInt64 N∈1..8 flatten 为 N 个标量 `int` 变量（无 native List）。ArrayBox Quint admit；Array return / 非 UInt64 元素 / N∉1..8 / 与 signedNumeric 混用 FC。**不**开 Option/Map / formal。 |
+| 2026-08-15 | **ICP-ARRAY**：ICP-2 Array UInt64 N∈1..8 flatten 为 N 个 `i64` Wasm global（无 Candid `vec`）。Array return / 非 UInt64 元素 / N∉1..8 / 与 Int64 混用 FC。**不**开 Option/Map / formal。 |
+| 2026-08-15 | **SOR-ARRAY**：S0 Array UInt64 N∈1..8 flatten 为 N 个 instance `u64`（`symbol_short!`，超 9 字节 FC 不截断）。Array return / 非 UInt64 元素 / N∉1..8 / 与 signedNumeric 混用 FC。**不**开 Option/Map / SOR-1 / formal。 |
+| 2026-08-15 | **OVM-ARRAY**：O0 Array UInt64 N∈1..8 flatten 为 N 个 guest `u64` 字段（无 `[u64; N]`/Vec）。Array return / 非 UInt64 元素 / N∉1..8 / 与 signedNumeric 混用 FC。**不**开 Option/Map / prove / formal。 |
 | 2026-08-15 | **MAT-ARR-U128-QS**：ArrU128 仅 EVM admit；五家 Array-U64-element、Aleo 宽度、TON UInt128/256、Quint 四家宽度针。**不**开其余十一家 Array-of-UInt128。 |
 | 2026-08-15 | **MAT-ARR-U256-QS**：ArrU256 仅 EVM admit（UInt256 ≠ UInt128）；五家 Array-U64-element、Aleo 宽度、TON UInt128/256、Quint 四家宽度针。**不**开其余十一家 Array-of-UInt256。 |
 | 2026-08-15 | **MAT-MAP-U128-QS**：MapU128 十二 target 全 FC；Aleo/TON 走宽度针（异于 MapInt 的 Map-U64-U64）。**不**开 Map-of-UInt128。 |

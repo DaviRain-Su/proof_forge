@@ -28,8 +28,9 @@ Soroban 在 Stellar host 中执行受限 Wasm，并以 XDR、host objects、授�
 | Finalize | **zero-tool**；`deployable=false` |
 | Capability | 仅 `failure.atomic-rollback` / `state.persistent` / `value.bool` / `value.checked-arithmetic` |
 | 存储约定 | 单一 **instance** storage；无 TTL 策略选择 |
-| 明确拒 | event / sync call / async / pf.assets / nonempty invariants / Int8/16/32 / mixed UInt64↔Int64 / aggregates |
+| 明确拒 | event / sync call / async / pf.assets / nonempty invariants / Int8/16/32 state·params / mixed UInt64↔Int64 / Map/Option/Bytes / Array return·params / Array-of-non-UInt64 / N∉1..8 / signedNumeric+Array / `symbol_short!` key >9 bytes（never truncate） |
 | 整数域 | 齐次 UInt64 或 Int64（混用 fail closed；未使用的 interned UInt64 类型行不强制 mixed） |
+| Array flatten | 匿名 `Array UInt64 N`（N=1..8）**state** 展平为 N 个 instance `u64` key `{name}_0`..`{name}_{N-1}`（无 Vec）。叶名必须适配 `symbol_short!`（≤9 UTF-8 bytes）。不是 SOR-1 / 不是 formal。 |
 
 制品：`{name}.rs`（`soroban-sdk` 风格 `#[contract]` / instance get/set / `checked_*` panic→rollback）。
 **不**声称可直接 `stellar contract build`、Wasm、auth tree、XDR/spec 或 testnet。

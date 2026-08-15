@@ -9,13 +9,13 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 
 | id | owner | files | status |
 |---|---|---|---|
-| ICP-INT64 | main | `Targets/Icp/**` · `IcpPlanV1` | **landing this commit** — Candid 0x79 + signed overflow |
-| QUINT-INT64 | main | `Targets/Quint/**` · `QuintSourceV1` | **landing this commit** — `PF_MIN_I64..PF_MAX_I64` |
-| SOR-INT64 | cursor-impl `w3M:p4` | `Targets/Soroban/**` · `SorobanPlanV1.lean` | **landing this commit** — `i64` + checked arith |
-| OVM-INT64 | worktree subagent | `Targets/OpenVM/**` · `OpenVmGuestSourceV1.lean` | **landing this commit** — guest `i64` + checked add/sub |
-| ICP-BOOL | main | ICP Bool results + comparisons (Candid `bool` 0x7e) | **landing this commit** — BoolPredicate eleven-admit |
-| QUINT-ARRAY | cursor-impl | Array UInt64 N≤8 flatten on Quint (N scalar `int` vars; no native List) | **landing this commit** — ArrayBox Quint admit |
-| ENV4-ARRAY | next | Array UInt64 N≤8 flatten on **Soroban / OpenVM / ICP** (ICP = extra i64 globals, **no** Candid vec) | queued |
+| ICP-INT64 | main | `Targets/Icp/**` · `IcpPlanV1` | **committed** `2464d1da9` — Candid 0x79 + signed overflow |
+| QUINT-INT64 | main | `Targets/Quint/**` · `QuintSourceV1` | **committed** `2464d1da9` — `PF_MIN_I64..PF_MAX_I64` |
+| SOR-INT64 | cursor-impl `w3M:p4` | `Targets/Soroban/**` · `SorobanPlanV1.lean` | **committed** `2464d1da9` — `i64` + checked arith |
+| OVM-INT64 | worktree subagent | `Targets/OpenVM/**` · `OpenVmGuestSourceV1.lean` | **committed** `2464d1da9` — guest `i64` + checked add/sub |
+| ICP-BOOL | main | ICP Bool results + comparisons (Candid `bool` 0x7e) | **committed** `2464d1da9` — BoolPredicate eleven-admit |
+| QUINT-ARRAY | cursor-impl | Array UInt64 N≤8 flatten on Quint (N scalar `int` vars; no native List) | **committed** `2464d1da9` — ArrayBox Quint admit |
+| ENV4-ARRAY | next | Array UInt64 N≤8 flatten on **Soroban / OpenVM / ICP** (ICP = extra i64 globals, **no** Candid vec) | **landing** — ICP done locally; S/O copied from worktrees |
 | ENV4-OPTION | after Array | Option UInt64 construct/store on Quint/Soroban/OpenVM; **ICP Option honest FC** (needs Candid `opt` + compare) | queued |
 | ENV4-MAP | after Option+select | Map UInt64 cap-8 on Quint/Soroban/OpenVM; **ICP Map honest FC** | queued |
 | ENV4-MULDIV | after Array or parallel | ICP + OpenVM checked mul/div (Quint/Soroban already have signed mul) | queued |

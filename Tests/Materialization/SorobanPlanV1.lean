@@ -426,6 +426,183 @@ unsafe def testUnknownProfileFailClosed : IO Unit := do
           throw <| IO.userError
             s!"unknown Soroban profile must fail closed, got {sel.codegenProfile}"
 
+/-- Homogeneous Array UInt64 2 flatten: two instance `u64` keys, no Vec. -/
+unsafe def testArrayBoxFlatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrayBox where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init(a : UInt64, b : UInt64) do\n" ++
+    "    slots[0] := a\n" ++
+    "    slots[1] := b\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n" ++
+    "  view get0() : UInt64 do\n" ++
+    "    return slots[0]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-array-box>" "Tests.SorobanArrayBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  expect (!plan.signedNumeric) "ArrayBox stays unsigned"
+  expect (plan.states.map (·.name) == #["slots_0", "slots_1"])
+    "Array UInt64 2 must flatten to slots_0/slots_1 Plan leaves"
+  match plan.initializer with
+  | some initFn =>
+      expect (initFn.stores.size == 2)
+        "ArrayBox init must store both flattened leaves"
+  | none => throw <| IO.userError "ArrayBox must have an initializer"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rsFile := files.find? (fun f => f.path == "ArrayBox.rs") |
+    throw <| IO.userError "soroban: missing ArrayBox.rs"
+  let rs := rsFile.contents
+  expect (rs.contains "symbol_short!(\"slots_0\")")
+    "ArrayBox.rs must use instance key slots_0"
+  expect (rs.contains "symbol_short!(\"slots_1\")")
+    "ArrayBox.rs must use instance key slots_1"
+  expect (rs.contains "unwrap_or(0_u64)")
+    "flattened Array leaves stay unsigned u64 instance fields"
+  expect (!rs.contains "Vec<")
+    "Array flatten must not emit a Rust Vec"
+  expect (!rs.contains "[u64;")
+    "Array flatten must not emit a Rust array type"
+  expect (!rs.contains "i64")
+    "unsigned ArrayBox must not emit i64"
+
+/-- N=9 exceeds the 1..8 flatten cap. -/
+unsafe def testArrayN9FailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrayNine where\n" ++
+    "  state slots : Array UInt64 9\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n" ++
+    "  view get0() : UInt64 do\n" ++
+    "    return slots[0]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-array-n9>" "Tests.SorobanArrayNine" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error (.planInvariant .soroban msg) =>
+      expect (msg.contains "cap" || msg.contains "container")
+        s!"Array UInt64 9 must cite cap/container, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
+  | .ok _ => throw <| IO.userError "Array UInt64 9 must fail closed at Soroban plan"
+
+/-- Array of Int64 / UInt32 is not S0 flatten. -/
+unsafe def testArrayNonUInt64ElementFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let expectElFc (label ty : String) : IO Unit := do
+    let source :=
+      "import ProofForgeV2\n" ++
+      "open ProofForgeV2.Language\n" ++
+      s!"program {label} where\n" ++
+      s!"  state slots : Array {ty} 2\n" ++
+      "  init() do\n" ++
+      "    slots[0] := 0\n" ++
+      "  entry set0() : UInt64 do\n" ++
+      "    return 0\n"
+    let parsed ← liftResult (← session.selectProgramV1
+      source s!"<soroban-{label}>" s!"Tests.Soroban{label}" none)
+    let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+    match planSoroban compiled with
+    | .error (.planInvariant .soroban msg) =>
+        expect (msg.contains "element" || msg.contains "UInt64" || msg.contains "width")
+          s!"{label} must cite element/UInt64, got: {msg}"
+    | .error e =>
+        throw <| IO.userError s!"expected planInvariant .soroban for {label}, got {e.render}"
+    | .ok _ =>
+        throw <| IO.userError s!"Array {ty} must fail closed at Soroban plan"
+  expectElFc "ArrayInt64El" "Int64"
+  expectElFc "ArrayUInt32El" "UInt32"
+
+/-- Array return stays fail closed (only state flattens). -/
+unsafe def testArrayReturnFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrayRet where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n" ++
+    "  view get() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-array-ret>" "Tests.SorobanArrayRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error (.planInvariant .soroban msg) =>
+      expect (msg.contains "Array return")
+        s!"Array return must name Array return, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
+  | .ok _ => throw <| IO.userError "Array return must fail closed at Soroban plan"
+
+/-- signedNumeric Int64 + Array state is unsigned-flatten only. -/
+unsafe def testSignedNumericArrayStateFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program SignedArrayMix where\n" ++
+    "  state count : Int64\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    count := 0\n" ++
+    "    slots[0] := 0\n" ++
+    "  entry bump(d : Int64) : Int64 do\n" ++
+    "    count := count + d\n" ++
+    "    return count\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-signed-array>" "Tests.SorobanSignedArray" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error (.planInvariant .soroban msg) =>
+      expect (msg.contains "signedNumeric" || msg.contains "Array state")
+        s!"Int64 + Array state must name signedNumeric/Array, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
+  | .ok _ => throw <| IO.userError "signedNumeric + Array state must fail closed"
+
+/-- 10-byte state name + `_0` exceeds `symbol_short!` 9-byte limit; never truncate. -/
+unsafe def testArrayLongNameSymbolShortFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program LongLeaf where\n" ++
+    "  state abcdefghij : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    abcdefghij[0] := 0\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    abcdefghij[0] := v\n" ++
+    "    return abcdefghij[0]\n" ++
+    "  view get0() : UInt64 do\n" ++
+    "    return abcdefghij[0]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-long-leaf>" "Tests.SorobanLongLeaf" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error (.planInvariant .soroban msg) =>
+      expect (msg.contains "symbol_short")
+        s!"long flattened leaf must name symbol_short!, got: {msg}"
+      expect (msg.contains "abcdefghij_0")
+        s!"long flattened leaf must name abcdefghij_0, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
+  | .ok _ => throw <| IO.userError "10-byte Array state name must fail closed (no truncate)"
+
 unsafe def run : IO Unit := do
   testStateCellSorobanSource
   testInt64CellSorobanSource
@@ -438,6 +615,12 @@ unsafe def run : IO Unit := do
   testEnvReadNativeStayFailClosed
   testCapabilityProductPath
   testUnknownProfileFailClosed
+  testArrayBoxFlatten
+  testArrayN9FailClosed
+  testArrayNonUInt64ElementFailClosed
+  testArrayReturnFailClosed
+  testSignedNumericArrayStateFailClosed
+  testArrayLongNameSymbolShortFailClosed
   IO.println "Tests.Materialization.SorobanPlanV1: ok"
 
 end Tests.Materialization.SorobanPlanV1

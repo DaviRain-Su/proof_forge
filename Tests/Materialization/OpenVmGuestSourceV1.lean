@@ -720,6 +720,144 @@ unsafe def testInt64Cell : IO Unit := do
   expect (!rs.contains "pub count: u64,")
     "signed program must not emit u64 state fields"
 
+/-- Homogeneous Array UInt64 2 flatten: two Plan/guest `u64` leaves, no `[u64; N]`. -/
+unsafe def testArrayBoxFlatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrayBox where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n" ++
+    "  view get0() : UInt64 do\n" ++
+    "    return slots[0]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-array-box>" "Tests.OpenVmArrayBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  expect (!plan.signedNumeric) "ArrayBox stays unsigned"
+  expect (plan.states.map (·.name) == #["slots_0", "slots_1"])
+    "Array UInt64 2 must flatten to slots_0/slots_1 Plan leaves"
+  match plan.initializer with
+  | some initFn =>
+      expect (initFn.stores.size == 2)
+        "ArrayBox init must store both flattened leaves"
+  | none => throw <| IO.userError "ArrayBox must have an initializer"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  let some mainRs := files.find? (·.path == "guest/src/main.rs") |
+    throw <| IO.userError "openvm: missing guest/src/main.rs"
+  let rs := mainRs.contents
+  expect (rs.contains "pub slots_0: u64,")
+    "guest State must carry flattened slots_0 u64 field"
+  expect (rs.contains "pub slots_1: u64,")
+    "guest State must carry flattened slots_1 u64 field"
+  expect (!rs.contains "[u64; 2]")
+    "Array flatten must not emit a Rust [u64; N] field"
+  expect (!rs.contains "Vec<")
+    "Array flatten must not emit a Vec field"
+
+/-- N=9 exceeds the 1..8 flatten cap. -/
+unsafe def testArrayN9FailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrayNine where\n" ++
+    "  state slots : Array UInt64 9\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n" ++
+    "  view get0() : UInt64 do\n" ++
+    "    return slots[0]\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-array-n9>" "Tests.OpenVmArrayNine" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planOpenVm compiled with
+  | .error (.planInvariant .openvm msg) =>
+      expect (msg.contains "cap" || msg.contains "container")
+        s!"Array UInt64 9 must cite cap/container, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
+  | .ok _ => throw <| IO.userError "Array UInt64 9 must fail closed at OpenVM plan"
+
+/-- Non-UInt64 Array element stays fail closed. -/
+unsafe def testArrayNonUInt64ElementFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrBool where\n" ++
+    "  state slots : Array Bool 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := false\n" ++
+    "    slots[1] := false\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := false\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-arr-bool>" "Tests.OpenVmArrBool" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planOpenVm compiled with
+  | .error (.planInvariant .openvm msg) =>
+      expect (msg.contains "element" || msg.contains "UInt64" ||
+          msg.contains "container")
+        s!"Array Bool must cite element/UInt64/container, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
+  | .ok _ => throw <| IO.userError "Array Bool element must fail closed at OpenVM plan"
+
+/-- Array return stays fail closed (state flatten only). -/
+unsafe def testArrayReturnFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program ArrRetBox where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  entry peek() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-arr-ret>" "Tests.OpenVmArrRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planOpenVm compiled with
+  | .error (.planInvariant .openvm msg) =>
+      expect (msg.contains "Array return" || msg.contains "outside O0")
+        s!"Array return must cite Array return/O0, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
+  | .ok _ => throw <| IO.userError "Array return must fail closed at OpenVM plan"
+
+/-- signedNumeric Int64 programs cannot carry Array state. -/
+unsafe def testSignedNumericArrayFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MixArrInt64 where\n" ++
+    "  state slots : Array UInt64 2\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n" ++
+    "  entry set0(v : Int64) : Int64 do\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-mix-arr-int64>" "Tests.OpenVmMixArrInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planOpenVm compiled with
+  | .error (.planInvariant .openvm msg) =>
+      expect (msg.contains "signedNumeric" || msg.contains "Array")
+        s!"signedNumeric+Array must cite signedNumeric/Array, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
+  | .ok _ => throw <| IO.userError "signedNumeric+Array must fail closed at OpenVM plan"
+
 /-- Mixing Int64 state with a UInt64 view/result is fail closed. -/
 unsafe def testMixedInt64UInt64Fc : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -800,6 +938,11 @@ unsafe def run : IO Unit := do
   testFailClosedConstant
   testFailClosedPrivateState
   testInt64Cell
+  testArrayBoxFlatten
+  testArrayN9FailClosed
+  testArrayNonUInt64ElementFc
+  testArrayReturnFc
+  testSignedNumericArrayFc
   testMixedInt64UInt64Fc
   testFailClosedInt32
   IO.println "Tests.Materialization.OpenVmGuestSourceV1: ok"

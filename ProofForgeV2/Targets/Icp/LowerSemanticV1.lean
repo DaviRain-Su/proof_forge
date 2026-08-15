@@ -12,11 +12,13 @@ Narrow ICP-2 Counter/StateCell target leaf (ADR-0047). Envelope:
 
 * public UInt64 **or** public Int64 state (homogeneous numeric domain: a
   program is entirely UInt64 or entirely Int64 on every integer
-  state/param/result; mixing is fail closed). No Bool/Field/Principal/
-  aggregates/containers
+  state/param/result; mixing is fail closed). Array UInt64 N∈1..8 state
+  flattens to N mutable i64 Wasm globals (no Candid `vec`). Bool results
+  are admitted. No Field/Principal/Map/Option/Bytes/named aggregates
 * `init` (initializer), `entry` (canister_update), `view` (canister_query)
-* single-block callable bodies; checked `+`/`-` only (no mul/div/mod/compare/
-  bitwise/bool); literal, param, stateLoad, stateStore, return
+* single-block callable bodies; checked `+`/`-` and comparisons (no
+  mul/div/mod/bitwise); literal, param, stateLoad, stateStore, return,
+  Array IndexGet/Set/construct with a compile-time index
 * zero pureFn, zero invariants, zero constants/events/errors
 * zero `emit` / `call` (`Op.ExternalCall`) / `schedule` / `Op.Commit`;
   `Op.ContextRead` admits only `context.unixTimeSeconds` (`ic0.time` ns÷10⁹);
@@ -148,20 +150,21 @@ private def icpTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Int64, Bool, and Unit are supported (narrow Int/Field/Principal/aggregates/containers/String fail closed on the ICP-2 Counter/StateCell envelope)"
+    "only anonymous UInt64, Int64, Bool, Unit, and Array UInt64 N state flatten are supported (narrow Int/Field/Principal/aggregates/Map/Option/Bytes/String fail closed on the ICP-2 Counter/StateCell envelope)"
 
-private def pilotUintWidthPolicyU64Only : PilotUintWidthPolicy where
-  admittedWidths := #[64]
+private def pilotUintWidthPolicyU64U32Index : PilotUintWidthPolicy where
+  admittedWidths := #[64, 32]
 
 private abbrev IcpTypeClosureV1 := PilotTypeClosureV1
 
 private def validateIcpTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult IcpTypeClosureV1 :=
   validatePilotTypeClosure icpPlanErr icpTypeClosureWording types
-    pilotUintWidthPolicyU64Only
+    pilotUintWidthPolicyU64U32Index
     (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyNone)
+    (containerPolicy := pilotContainerStatePolicyArrayOnly)
 
 private def maxIdentifierBytes : Nat := 200
 private def maxStateFields : Nat := 64
@@ -184,6 +187,83 @@ private def isUnitType (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
 
 private def isBoolType (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.boolTypeId == some typeId
+
+private def isUInt32Type (types : IcpTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  types.uintTypeIdAt 32 == some typeId
+
+/-- CosmWasm/Quint-style Array UInt64 N flatten: `some n` for admitted 1..8;
+    `none` for scalars. Nested/narrow/Map/Bytes/N=0/N>8 fail closed. -/
+private def arrayUInt64LenV1
+    (typeDecls : Array TypeDeclV1) (types : IcpTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option Nat) := do
+  unless types.isContainer typeId do
+    return none
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .array elTid len, .. } =>
+      unless elTid == types.uint64TypeId do
+        planError
+          "unsupported ICP semantic shape: Array element must be UInt64 (nested/narrow/Int arrays fail closed; no Candid vec)"
+      let n := len.toNat
+      unless 1 ≤ n && n ≤ 8 do
+        planError
+          s!"unsupported ICP semantic shape: Array UInt64 N state must be 1..8 (got {n}; cap 8 flatten; no Candid vec)"
+      pure (some n)
+  | _ =>
+      planError
+        "unsupported ICP semantic shape: container TypeId is not Array UInt64 (Map/Bytes/Option stay fail closed)"
+
+/-- Physical PlanState leaves after Array flatten. `leavesOf[logicalId]` is
+    the dense field-index list (`name` or `name_0`..`name_{N-1}`). -/
+private structure StateLayout where
+  states : Array StateField
+  leavesOf : Array (Array Nat)
+  deriving Inhabited
+
+private def physicalLeaves
+    (layout : StateLayout) (sid : StateIdV1) : CompileResult (Array Nat) := do
+  match layout.leavesOf[sid.toNat]? with
+  | some phys =>
+      unless !phys.isEmpty do
+        planError "unsupported ICP semantic shape: state produced zero flatten leaves"
+      pure phys
+  | none =>
+      planError "unsupported ICP semantic shape: stateLoad/store references unknown state"
+
+private def makeStateLayoutV1
+    (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
+    (signedNumeric : Bool) : CompileResult StateLayout := do
+  let mut states : Array StateField := #[]
+  let mut leavesOf : Array (Array Nat) := #[]
+  for st in data.logicalState do
+    unless st.id.toNat == leavesOf.size do
+      planError "unsupported ICP semantic shape: state ids must match declaration order"
+    unless isIdentifier st.name do
+      planError s!"state name '{st.name}' is not a safe identifier"
+    match ← arrayUInt64LenV1 data.types types st.typeId with
+    | some n =>
+        if signedNumeric then
+          planError
+            "unsupported ICP semantic shape: signedNumeric Int64 programs cannot carry Array state (Array flatten is unsigned UInt64 only)"
+        if states.size + n > maxStateFields then
+          planError "unsupported ICP semantic shape: state field count exceeds limit"
+        let mut leaves : Array Nat := #[]
+        for i in [0:n] do
+          let leafName := st.name ++ "_" ++ toString i
+          unless isIdentifier leafName do
+            planError s!"state name '{leafName}' is not a safe identifier"
+          leaves := leaves.push states.size
+          states := states.push { name := leafName }
+        leavesOf := leavesOf.push leaves
+    | none =>
+        requirePublicUInt64OrInt64State icpPlanErr types st
+        if states.size + 1 > maxStateFields then
+          planError "unsupported ICP semantic shape: state field count exceeds limit"
+        let fi := states.size
+        states := states.push { name := st.name }
+        leavesOf := leavesOf.push #[fi]
+  unless states.size ≤ maxStateFields do
+    planError "unsupported ICP semantic shape: state field count exceeds limit"
+  pure { states, leavesOf }
 
 /-- First-seen integer domain. Mixed UInt64/Int64 user-facing slots fail closed. -/
 private def noteIntegerDomain
@@ -208,40 +288,75 @@ private def noteIntegerDomain
 -- Lowering helpers
 -- ---------------------------------------------------------------------------
 
+/-- Scalar Plan Expr plus optional Array flatten leaves. Empty `leaves` is a
+    scalar; nonempty is an Array UInt64 N aggregate (not a Candid vec). -/
+private structure LoweredValue where
+  expr : Expr
+  leaves : Array Expr
+  deriving BEq, Inhabited
+
+private def isArrayValue (v : LoweredValue) : Bool :=
+  !v.leaves.isEmpty
+
+private def mkScalar (e : Expr) : LoweredValue :=
+  { expr := e, leaves := #[] }
+
+private def mkArrayLeaves (leaves : Array Expr) : LoweredValue :=
+  { expr := leaves[0]?.getD (.literal 0), leaves }
+
+private def requireScalar (v : LoweredValue) (what : String) : CompileResult Expr := do
+  if isArrayValue v then
+    planError s!"unsupported ICP semantic shape: {what} cannot be an Array aggregate"
+  pure v.expr
+
 private structure ValueEnv where
-  entries : Array (ValueIdV1 × Expr)
+  entries : Array (ValueIdV1 × LoweredValue)
   deriving Inhabited
 
-private def envLookup (env : ValueEnv) (id : ValueIdV1) : Option Expr :=
+private def envLookup (env : ValueEnv) (id : ValueIdV1) : Option LoweredValue :=
   env.entries.findSome? (fun (vid, v) => if vid == id then some v else none)
 
-private def envInsert (env : ValueEnv) (id : ValueIdV1) (v : Expr) : ValueEnv :=
+private def envInsert (env : ValueEnv) (id : ValueIdV1) (v : LoweredValue) : ValueEnv :=
   { env with entries := env.entries.push (id, v) }
 
 /-- Overlay for StateStore → subsequent StateLoad within the single block.
-    Last write wins on `overlayFinalStores` projection. -/
+    Last write wins on `overlayFinalStores` projection. Values are logical
+    (Array aggregates stay one overlay slot and expand to physical leaves). -/
 private structure StateOverlay where
-  entries : Array (StateIdV1 × Expr)
+  entries : Array (StateIdV1 × LoweredValue)
   deriving Inhabited
 
-private def overlayLookup (ov : StateOverlay) (sid : StateIdV1) : Option Expr :=
+private def overlayLookup (ov : StateOverlay) (sid : StateIdV1) : Option LoweredValue :=
   ov.entries.findSome? (fun (id, e) => if id == sid then some e else none)
 
 private def overlayInsert
-    (ov : StateOverlay) (sid : StateIdV1) (e : Expr) : StateOverlay :=
+    (ov : StateOverlay) (sid : StateIdV1) (e : LoweredValue) : StateOverlay :=
   let withoutOld := ov.entries.filter (fun item => item.1 != sid)
   { ov with entries := withoutOld.push (sid, e) }
 
-/-- Emit final stores in ascending field-index order (dense Statement.store
-    list; store order does not need to match source order for Plan purposes,
-    only the final value per field matters for a single-block body). -/
-private def overlayFinalStores (ov : StateOverlay) : Array Statement := Id.run do
+/-- Emit final stores in ascending **physical** field-index order. -/
+private def overlayFinalStores
+    (layout : StateLayout) (ov : StateOverlay) : Array Statement := Id.run do
   let mut last : Array (Option Expr) := #[]
-  for (sid, e) in ov.entries do
-    let i := sid.toNat
-    while last.size ≤ i do
-      last := last.push none
-    last := last.set! i (some e)
+  for (sid, v) in ov.entries do
+    match layout.leavesOf[sid.toNat]? with
+    | none => pure ()
+    | some phys =>
+        if isArrayValue v then
+          for i in [0:phys.size] do
+            match phys[i]?, v.leaves[i]? with
+            | some fi, some e =>
+                while last.size ≤ fi do
+                  last := last.push none
+                last := last.set! fi (some e)
+            | _, _ => pure ()
+        else
+          match phys[0]? with
+          | none => pure ()
+          | some fi =>
+              while last.size ≤ fi do
+                last := last.push none
+              last := last.set! fi (some v.expr)
   let mut out : Array Statement := #[]
   for i in [0:last.size] do
     match last[i]? with
@@ -252,12 +367,26 @@ private def overlayFinalStores (ov : StateOverlay) : Array Statement := Id.run d
 /-- After overlay stores are projected, a return that still names the pre-store
     Expr tree would re-evaluate that tree in Emit (classic store-then-read
     hazard: `count := count + delta; return count` became add-twice). Map any
-    return Expr that is exactly an overlay value back to `.stateLoad` of the
-    field that now holds it. -/
-private def rewriteReturnThroughOverlay (ov : StateOverlay) (e : Expr) : Expr :=
-  match ov.entries.findSome? (fun (sid, v) => if v == e then some sid else none) with
-  | some sid => .stateLoad sid.toNat
-  | none => e
+    return Expr that is exactly an overlay scalar or Array leaf back to
+    `.stateLoad` of the physical field that now holds it. -/
+private def rewriteReturnThroughOverlay
+    (layout : StateLayout) (ov : StateOverlay) (e : Expr) : Expr :=
+  Id.run do
+    for (sid, v) in ov.entries do
+      match layout.leavesOf[sid.toNat]? with
+      | none => pure ()
+      | some phys =>
+          if isArrayValue v then
+            for i in [0:phys.size] do
+              match phys[i]?, v.leaves[i]? with
+              | some fi, some leaf =>
+                  if leaf == e then return .stateLoad fi
+              | _, _ => pure ()
+          else if v.expr == e then
+            match phys[0]? with
+            | some fi => return .stateLoad fi
+            | none => pure ()
+    return e
 
 private structure BodyAccum where
   env : ValueEnv
@@ -286,15 +415,26 @@ private def checkedExprNodes (what : String) (e : Expr) : CompileResult Expr := 
 
 private def lowerLiteral
     (types : IcpTypeClosureV1) (typeId : TypeIdV1) (valueBytes : ByteArray) :
-    CompileResult Expr := do
+    CompileResult LoweredValue := do
   if isInt64Type types typeId then
     let v ← decodeInt64LiteralLe icpPlanErr "ICP" valueBytes
-    pure (.literal v)
+    pure (mkScalar (.literal v))
   else if isUInt64Type types typeId then
     let v ← decodeUInt64LiteralLe icpPlanErr "ICP" valueBytes
-    pure (.literal v)
+    pure (mkScalar (.literal v))
+  else if isUInt32Type types typeId then
+    let v ← decodeUInt32LiteralLe icpPlanErr "ICP" valueBytes
+    pure (mkScalar (.literal v))
   else
-    planError "unsupported ICP semantic shape: literal type is outside UInt64/Int64"
+    planError "unsupported ICP semantic shape: literal type is outside UInt64/Int64/UInt32"
+
+private def literalIndexNatV1 (v : LoweredValue) : CompileResult Nat := do
+  let e ← requireScalar v "Array index"
+  match e with
+  | .literal n => pure n.toNat
+  | _ =>
+      planError
+        "unsupported ICP semantic shape: Array IndexGet/IndexSet requires a compile-time constant index"
 
 private def lowerBinary (op : BinaryOpV1) (lhs rhs : Expr) : CompileResult Expr := do
   match op with
@@ -315,7 +455,8 @@ private def lowerBinary (op : BinaryOpV1) (lhs rhs : Expr) : CompileResult Expr 
     branching, no async continuations — StateCell shape only). -/
 private partial def lowerInstructions
     (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
-    (allowStateWrite : Bool) (callable : CallableV1) (acc0 : BodyAccum) :
+    (layout : StateLayout) (allowStateWrite : Bool) (callable : CallableV1)
+    (acc0 : BodyAccum) :
     CompileResult (BodyAccum × Option Expr) := do
   unless callable.blocks.size == 1 do
     planError
@@ -343,10 +484,15 @@ private partial def lowerInstructions
         | some vd =>
             unless stateId.toNat < data.logicalState.size do
               planError "unsupported ICP semantic shape: stateLoad references unknown state"
-            let value : Expr :=
+            let phys ← physicalLeaves layout stateId
+            let value : LoweredValue :=
               match overlayLookup acc.overlay stateId with
               | some ov => ov
-              | none => .stateLoad stateId.toNat
+              | none =>
+                  if phys.size == 1 then
+                    mkScalar (.stateLoad phys[0]!)
+                  else
+                    mkArrayLeaves (phys.map (fun fi => .stateLoad fi))
             acc := { acc with env := envInsert acc.env vd.valueId value }
     | .stateStore stateId value => do
         unless allowStateWrite do
@@ -356,18 +502,25 @@ private partial def lowerInstructions
           | none => planError "unsupported ICP semantic shape: stateStore value undefined"
         unless stateId.toNat < data.logicalState.size do
           planError "unsupported ICP semantic shape: stateStore references unknown state"
+        let phys ← physicalLeaves layout stateId
+        if isArrayValue v then
+          unless v.leaves.size == phys.size do
+            planError "unsupported ICP semantic shape: stateStore Array leaf count mismatch"
+        else
+          unless phys.size == 1 do
+            planError "unsupported ICP semantic shape: stateStore scalar into Array state"
         acc := { acc with overlay := overlayInsert acc.overlay stateId v }
     | .binary op lhs rhs => do
         let lv ← match envLookup acc.env lhs with
-          | some v => pure v
+          | some v => requireScalar v "binary lhs"
           | none => planError "unsupported ICP semantic shape: binary lhs undefined"
         let rv ← match envLookup acc.env rhs with
-          | some v => pure v
+          | some v => requireScalar v "binary rhs"
           | none => planError "unsupported ICP semantic shape: binary rhs undefined"
         let e ← lowerBinary op lv rv
         match instr.result with
         | none => planError "unsupported ICP semantic shape: binary must produce a value"
-        | some vd => acc := { acc with env := envInsert acc.env vd.valueId e }
+        | some vd => acc := { acc with env := envInsert acc.env vd.valueId (mkScalar e) }
     | .constant .. =>
         planError "unsupported ICP semantic shape: constants table must be empty (ICP-2 has no const lowering)"
     | .contextRead key => do
@@ -379,7 +532,7 @@ private partial def lowerInstructions
               unless isUInt64Type types vd.typeId do
                 planError
                   "unsupported ICP semantic shape: ContextRead unix-time-seconds result must be UInt64"
-              acc := { acc with env := envInsert acc.env vd.valueId .unixTimeSeconds }
+              acc := { acc with env := envInsert acc.env vd.valueId (mkScalar .unixTimeSeconds) }
             else if isUnboundUInt64ContextKey key then
               planError
                 s!"unsupported ICP semantic shape: ContextRead '{key.value}' has no Icp host binding (blockHeight/attachedValue/chainId stay fail closed)"
@@ -410,8 +563,70 @@ private partial def lowerInstructions
         -- tokenVaultBalance needs a Principal mint; nativeVaultBalanceU128 is
         -- outside ICP-2 UInt64. Both stay on the generic envRead envelope.
         planError "unsupported ICP semantic shape: op is outside the ICP-2 Counter/StateCell envelope"
-    | .construct .. | .fieldGet .. | .fieldSet ..
-    | .variantTag .. | .variantPayload .. | .indexGet .. | .indexSet ..
+    | .construct typeId ctorIdx argIds => do
+        match instr.result with
+        | none => planError "unsupported ICP semantic shape: construct must produce a value"
+        | some vd =>
+            let n ← match ← arrayUInt64LenV1 data.types types typeId with
+              | some n => pure n
+              | none =>
+                  planError
+                    "unsupported ICP semantic shape: construct admits only Array UInt64 N on ICP-2"
+            unless ctorIdx == 0 do
+              planError "unsupported ICP semantic shape: Array construct ctorIdx must be 0"
+            unless argIds.size == n do
+              planError "unsupported ICP semantic shape: Array construct arity mismatch"
+            let mut leafExprs : Array Expr := #[]
+            for argId in argIds do
+              let av ← match envLookup acc.env argId with
+                | some v => requireScalar v "Array construct arg"
+                | none => planError "unsupported ICP semantic shape: construct arg undefined"
+              leafExprs := leafExprs.push av
+            acc := { acc with
+              env := envInsert acc.env vd.valueId (mkArrayLeaves leafExprs) }
+    | .indexGet base index => do
+        match instr.result with
+        | none => planError "unsupported ICP semantic shape: IndexGet must produce a value"
+        | some vd =>
+            let bv ← match envLookup acc.env base with
+              | some v => pure v
+              | none => planError "unsupported ICP semantic shape: IndexGet base undefined"
+            unless isArrayValue bv do
+              planError
+                "unsupported ICP semantic shape: IndexGet base must be an Array UInt64 aggregate"
+            let iv ← match envLookup acc.env index with
+              | some v => pure v
+              | none => planError "unsupported ICP semantic shape: IndexGet index undefined"
+            let i ← literalIndexNatV1 iv
+            unless i < bv.leaves.size do
+              planError "unsupported ICP semantic shape: Array IndexGet index out of range"
+            let some leaf := bv.leaves[i]? |
+              planError "unsupported ICP semantic shape: Array IndexGet leaf missing"
+            acc := { acc with env := envInsert acc.env vd.valueId (mkScalar leaf) }
+    | .indexSet base index value => do
+        match instr.result with
+        | none => planError "unsupported ICP semantic shape: IndexSet must produce a value"
+        | some vd =>
+            let bv ← match envLookup acc.env base with
+              | some v => pure v
+              | none => planError "unsupported ICP semantic shape: IndexSet base undefined"
+            unless isArrayValue bv do
+              planError
+                "unsupported ICP semantic shape: IndexSet base must be an Array UInt64 aggregate"
+            let iv ← match envLookup acc.env index with
+              | some v => pure v
+              | none => planError "unsupported ICP semantic shape: IndexSet index undefined"
+            let i ← literalIndexNatV1 iv
+            unless i < bv.leaves.size do
+              planError "unsupported ICP semantic shape: Array IndexSet index out of range"
+            let vv ← match envLookup acc.env value with
+              | some v => requireScalar v "Array IndexSet value"
+              | none => planError "unsupported ICP semantic shape: IndexSet value undefined"
+            let newLeaves := bv.leaves.set! i vv
+            acc := { acc with
+              env := envInsert acc.env vd.valueId (mkArrayLeaves newLeaves) }
+    | .fieldGet .. | .fieldSet ..
+    | .variantTag .. | .variantPayload ..
     | .checkedCast .. | .unary .. | .pureCall .. | .assert_ .. =>
         planError "unsupported ICP semantic shape: op is outside the ICP-2 Counter/StateCell envelope"
   match block.terminator with
@@ -420,7 +635,9 @@ private partial def lowerInstructions
       | none => pure (acc, none)
       | some vid =>
           match envLookup acc.env vid with
-          | some e => pure (acc, some e)
+          | some v =>
+              let e ← requireScalar v "return value"
+              pure (acc, some e)
           | none => planError "unsupported ICP semantic shape: return value undefined"
   | .revert .. =>
       planError "unsupported ICP semantic shape: revert is outside the ICP-2 envelope (errors table must be empty)"
@@ -436,7 +653,7 @@ private def seedParamEnv (types : IcpTypeClosureV1) (owner : String)
     requirePublicUInt64OrInt64Param icpPlanErr types owner p
     unless isIdentifier p.name do
       planError s!"parameter '{p.name}' in {owner} is not a safe identifier"
-    env := envInsert env p.valueId (.param i)
+    env := envInsert env p.valueId (mkScalar (.param i))
     names := names.push p.name
     i := i + 1
   unless names.size ≤ maxParams do
@@ -447,28 +664,40 @@ private def seedParamEnv (types : IcpTypeClosureV1) (owner : String)
 
 private def lowerCallableBody
     (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
-    (allowStateWrite seedZeroState : Bool) (owner : String)
-    (callable : CallableV1) :
+    (layout : StateLayout) (allowStateWrite seedZeroState : Bool)
+    (owner : String) (callable : CallableV1) :
     CompileResult (Array String × Array Statement × Option Expr) := do
   let (env0, paramNames) ← seedParamEnv types owner callable
   let mut overlay0 : StateOverlay := { entries := #[] }
   if seedZeroState then
     for st in data.logicalState do
-      overlay0 := overlayInsert overlay0 st.id (.literal 0)
+      let phys ← physicalLeaves layout st.id
+      if phys.size == 1 then
+        overlay0 := overlayInsert overlay0 st.id (mkScalar (.literal 0))
+      else
+        overlay0 := overlayInsert overlay0 st.id
+          (mkArrayLeaves (phys.map (fun _ => .literal 0)))
   let acc0 := emptyBodyAccum env0 overlay0
-  let (acc, ret?) ← lowerInstructions data types allowStateWrite callable acc0
-  let stores := overlayFinalStores acc.overlay
-  let ret? := ret?.map (rewriteReturnThroughOverlay acc.overlay)
+  let (acc, ret?) ←
+    lowerInstructions data types layout allowStateWrite callable acc0
+  let stores := overlayFinalStores layout acc.overlay
+  let ret? := ret?.map (rewriteReturnThroughOverlay layout acc.overlay)
   pure (paramNames, stores, ret?)
 
 private def resultKindOf
-    (types : IcpTypeClosureV1) (typeId : TypeIdV1) (owner : String) :
+    (data : SemanticProgramDataV1) (types : IcpTypeClosureV1)
+    (typeId : TypeIdV1) (owner : String) :
     CompileResult ResultKind := do
-  if isUnitType types typeId then pure .unit
-  else if isBoolType types typeId then pure .bool
-  else if isInt64Type types typeId then pure .int64
-  else if isUInt64Type types typeId then pure .uint64
-  else planError s!"{owner} result must be public Unit, UInt64, Int64, or Bool"
+  match ← arrayUInt64LenV1 data.types types typeId with
+  | some _ =>
+      planError
+        s!"{owner} Array return is outside ICP-2 (only Array UInt64 N state flattens; no Candid vec)"
+  | none =>
+      if isUnitType types typeId then pure .unit
+      else if isBoolType types typeId then pure .bool
+      else if isInt64Type types typeId then pure .int64
+      else if isUInt64Type types typeId then pure .uint64
+      else planError s!"{owner} result must be public Unit, UInt64, Int64, or Bool"
 
 private def makePlanFromSemanticDataV1
     (data : SemanticProgramDataV1) (programName : String)
@@ -485,17 +714,22 @@ private def makePlanFromSemanticDataV1
     planError "unsupported ICP semantic shape: invariants must be empty (nonempty invariants fail closed on ICP-2)"
   let types ← validateIcpTypeClosureV1 data.types
   let mut signed? : Option Bool := none
-  let mut states : Array StateField := #[]
   for st in data.logicalState do
-    requirePublicUInt64OrInt64State icpPlanErr types st
-    signed? ← noteIntegerDomain types st.typeId signed? s!"state '{st.name}'"
-    unless isIdentifier st.name do
-      planError s!"state name '{st.name}' is not a safe identifier"
-    unless st.id.toNat == states.size do
-      planError "unsupported ICP semantic shape: state ids must match declaration order"
-    states := states.push { name := st.name }
-  unless states.size ≤ maxStateFields do
-    planError "unsupported ICP semantic shape: state field count exceeds limit"
+    match ← arrayUInt64LenV1 data.types types st.typeId with
+    | some _ =>
+        signed? ←
+          noteIntegerDomain types types.uint64TypeId signed? s!"state '{st.name}'"
+    | none =>
+        signed? ← noteIntegerDomain types st.typeId signed? s!"state '{st.name}'"
+  for c in data.callables do
+    signed? ←
+      noteIntegerDomain types c.result.typeId signed? "callable result"
+    for p in c.params do
+      signed? ←
+        noteIntegerDomain types p.typeId signed? s!"parameter '{p.name}'"
+  let signedNumeric := signed? == some true
+  let layout ← makeStateLayoutV1 data types signedNumeric
+  let states := layout.states
   let mut initializer? : Option Method := none
   let mut entries : Array Method := #[]
   let mut views : Array Method := #[]
@@ -515,8 +749,8 @@ private def makePlanFromSemanticDataV1
         for p in callable.params do
           signed? ← noteIntegerDomain types p.typeId signed? s!"initializer parameter '{p.name}'"
         let (params, stores, ret?) ←
-          lowerCallableBody data types (allowStateWrite := true) (seedZeroState := true)
-            "initializer" callable
+          lowerCallableBody data types layout (allowStateWrite := true)
+            (seedZeroState := true) "initializer" callable
         unless ret?.isNone do
           planError "unsupported ICP semantic shape: initializer must return Unit"
         initializer? := some {
@@ -529,7 +763,7 @@ private def makePlanFromSemanticDataV1
           | none => planError "unsupported ICP semantic shape: entry requires a name"
         unless isIdentifier name do
           planError s!"entry '{name}' is not a safe identifier"
-        let rk ← resultKindOf types callable.result.typeId s!"entry '{name}'"
+        let rk ← resultKindOf data types callable.result.typeId s!"entry '{name}'"
         unless rk == .unit || rk == .bool do
           signed? ←
             noteIntegerDomain types callable.result.typeId signed? s!"entry '{name}' result"
@@ -539,8 +773,8 @@ private def makePlanFromSemanticDataV1
           signed? ←
             noteIntegerDomain types p.typeId signed? s!"entry '{name}' parameter '{p.name}'"
         let (params, stores, ret?) ←
-          lowerCallableBody data types (allowStateWrite := true) (seedZeroState := false)
-            s!"entry '{name}'" callable
+          lowerCallableBody data types layout (allowStateWrite := true)
+            (seedZeroState := false) s!"entry '{name}'" callable
         let body ← match rk, ret? with
           | .unit, none => pure stores
           | .unit, some _ =>
@@ -558,7 +792,7 @@ private def makePlanFromSemanticDataV1
           | none => planError "unsupported ICP semantic shape: view requires a name"
         unless isIdentifier name do
           planError s!"view '{name}' is not a safe identifier"
-        let rk ← resultKindOf types callable.result.typeId s!"view '{name}'"
+        let rk ← resultKindOf data types callable.result.typeId s!"view '{name}'"
         unless rk == .uint64 || rk == .int64 || rk == .bool do
           planError s!"view '{name}' result must be UInt64, Int64, or Bool (query methods must return a value)"
         unless rk == .bool do
@@ -570,8 +804,8 @@ private def makePlanFromSemanticDataV1
           signed? ←
             noteIntegerDomain types p.typeId signed? s!"view '{name}' parameter '{p.name}'"
         let (params, stores, ret?) ←
-          lowerCallableBody data types (allowStateWrite := false) (seedZeroState := false)
-            s!"view '{name}'" callable
+          lowerCallableBody data types layout (allowStateWrite := false)
+            (seedZeroState := false) s!"view '{name}'" callable
         unless stores.isEmpty do
           planError s!"view '{name}' cannot write state"
         let e ← match ret? with

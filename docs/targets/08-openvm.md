@@ -3,7 +3,7 @@ id: TARGET-OPENVM
 title: OpenVM target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-13
+updated: 2026-08-15
 normative: true
 ---
 
@@ -31,11 +31,16 @@ EVM-oriented proof。依据官方 [Overview](https://docs.openvm.dev/book/writin
 
 ## 3. Portable fragment 与扩展
 
-O0/O1 共享 portable 子集：public 齐次 UInt64 **或** Int64（混用 FC）/Bool/Unit、single-block、checked `+`/`-`（unsigned `u64` / signed `i64::checked_*`）、bare
-assert、zero-payload revert（ADR-0045）。扩展（commit/reveal 之外的 guest I/O、RV32
+O0/O1 共享 portable 子集：public 齐次 UInt64 **或** Int64（混用 FC）/Bool/Unit、
+anonymous `Array UInt64 N`（N=1..8）**state** flatten 为 N 个 guest `u64` 标量字段
+`{name}_0`..`{name}_{N-1}`（无 `[u64; N]` / Vec；literal index only）、single-block、
+checked `+`/`-`（unsigned `u64` / signed `i64::checked_*`）、bare
+assert、zero-payload revert（ADR-0045）。Option/Map/Bytes/nested Array、Array
+param/return、N∉1..8、非 UInt64 元素、非字面量下标、Array+signedNumeric Int64
+均 fail closed。扩展（commit/reveal 之外的 guest I/O、RV32
 extensions、crypto accelerators、continuations/aggregation、EVM proof mode）均未开放；
 每项未来须绑定 OpenVM config hash。O1 只新增 Finalize-time build/transpile，不扩大
-portable 子集或新增 requirement id。
+portable 子集或新增 requirement id。不声称 ELF/prove/formal。
 
 ## 4. `OpenVmPlan` schema（O0 + O1 共享）
 
@@ -104,7 +109,7 @@ substitution、config commitment、host nondeterminism、unsafe guest code、pro
 
 ## 9. 验证阶梯
 
-- **O0（已完成）**：registry/resolver/Plan/IR/guest-source emit + zero-tool finalize + Counter/StateCell 正例与 unsupported 负例。
+- **O0（已完成）**：registry/resolver/Plan/IR/guest-source emit + zero-tool finalize + Counter/StateCell/Int64Cell 正例与 unsupported 负例；工程 `Array UInt64 N`（N=1..8）state flatten 为标量 `u64` 字段（非 Option/Map/Array return/elf/prove/formal）。
 - **O1（当前，ADR-0046）**：同一 Plan/IR 上的 opt-in `openvm-guest-elf-v1`；锁定
   `cargo-openvm` 2.0.1 build/transpile guest → RV32IM ELF + `.vmexe` extras；缺失工具
   fail closed（`PF-TOOLCHAIN-MISSING`）；host-optional acceptance（ambient 工具存在时

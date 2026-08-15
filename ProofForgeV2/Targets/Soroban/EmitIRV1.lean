@@ -74,14 +74,17 @@ structure IR where
 -- Plan Expr → RExpr
 -- ---------------------------------------------------------------------------
 
+/-- Instance keys go through `symbol_short!` (≤ 9 UTF-8 bytes). Never
+    truncate: a 10+ byte flattened leaf must fail closed with a named
+    diagnostic. `slots_0`..`slots_7` fit; `abcdefghij_0` does not. -/
 private def stateKey (plan : Plan) (fieldIndex : Nat) : CompileResult String := do
   match plan.states[fieldIndex]? with
   | some st =>
       let key := st.name
-      if key.toUTF8.size ≤ 9 then
-        pure key
-      else
-        pure ((key.take 9).toString)
+      unless key.toUTF8.size ≤ 9 do
+        planError
+          s!"unsupported Soroban semantic shape: instance key '{key}' exceeds symbol_short! 9-byte limit"
+      pure key
   | none => planError "Soroban IR state field index out of range"
 
 private def paramName (_params : Array String) (index : Nat) : CompileResult String := do

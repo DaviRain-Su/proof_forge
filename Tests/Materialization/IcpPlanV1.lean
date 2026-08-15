@@ -7,7 +7,8 @@
   canister_init/canister_update/canister_query exports, Candid nat64 or
   int64 service), registry materialize dispatch, and explicit fail-closed
   boundaries (sync call, emit, schedule, nonempty invariant,
-  aggregates/mixed UInt64+Int64). CAP-1a admits `context.unixTimeSeconds` as
+  aggregates/mixed UInt64+Int64; Array UInt64 N∈1..8 flatten is admitted).
+  CAP-1a admits `context.unixTimeSeconds` as
   `ic0.time` ns÷10⁹ on init/update/query; other UInt64 ContextRead keys stay
   named fail-closed.
 
@@ -542,6 +543,82 @@ private unsafe def testAggregateFc
       | .ok _ => throw <| IO.userError "ICP aggregate state must fail closed"
   IO.println "  ✓ aggregate state fail closed"
 
+/-- Array UInt64 2 flattens to two i64 globals. No Candid vec. -/
+private unsafe def testArraySlotsFlatten
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ArrayBox" <|
+    "  state slots : Array UInt64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return slots[0]\n\n" ++
+    "  view get0() : UInt64 do\n" ++
+    "    return slots[0]\n"
+  let compiled ← compileSource session src "Examples.ArrayBox" "<icp-array-box>"
+  let plan ← liftResult <| planIcp compiled
+  expect (plan.signedNumeric == false) "ArrayBox stays unsigned"
+  expect (plan.states.size == 2) "Array UInt64 2 flattens to two fields"
+  expect (plan.states[0]!.name == "slots_0") "leaf slots_0"
+  expect (plan.states[1]!.name == "slots_1") "leaf slots_1"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"ArrayBox plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  let wat ← findFile files "ArrayBox.wat"
+  let did ← findFile files "ArrayBox.did"
+  expect (wat.contains "(global $g_state_0 (mut i64)") "wat global 0"
+  expect (wat.contains "(global $g_state_1 (mut i64)") "wat global 1"
+  expect (!wat.contains "vec") "no Candid vec in wat"
+  expect (!did.contains "vec") "no Candid vec in did"
+  expect (did.contains "set0 : (nat64) -> (nat64);") "did set0 stays scalar"
+  expect (did.contains "get0 : () -> (nat64) query;") "did get0 stays scalar"
+  IO.println "  ✓ Array UInt64 2 flatten (two i64 globals; no Candid vec)"
+
+private unsafe def testArrayN9FailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ArrN9" <|
+    "  state slots : Array UInt64 9\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := v\n" ++
+    "    return v\n"
+  let compiled ← compileSource session src "Examples.ArrN9" "<icp-arr-n9>"
+  expectPlanErrorContaining "Array N=9" "1..8"
+    (planFromCompiledSemanticV1 compiled)
+  IO.println "  ✓ Array UInt64 N=9 fail closed"
+
+private unsafe def testArrayElementFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ArrInt" <|
+    "  state slots : Array Int64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := 0\n" ++
+    "    return v\n"
+  let compiled ← compileSource session src "Examples.ArrInt" "<icp-arr-int>"
+  expectPlanErrorContaining "Array Int64 element" "Array element must be UInt64"
+    (planFromCompiledSemanticV1 compiled)
+  IO.println "  ✓ Array Int64 element fail closed"
+
+private unsafe def testArrayReturnFailClosed
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "ArrRet" <|
+    "  state slots : Array UInt64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry peek() : Array UInt64 2 do\n" ++
+    "    return slots\n"
+  let compiled ← compileSource session src "Examples.ArrRet" "<icp-arr-ret>"
+  expectPlanErrorContaining "Array return" "Array return is outside ICP-2"
+    (planFromCompiledSemanticV1 compiled)
+  IO.println "  ✓ Array return fail closed"
+
 private unsafe def testRegistryDispatch
     (session : Language.Loader.ParserSession) : IO Unit := do
   let compiled ← compileSource session stateCellSourceText stateCellModuleName
@@ -627,6 +704,10 @@ unsafe def run : IO Unit := do
   testInvariantFc session
   testScheduleFc session
   testAggregateFc session
+  testArraySlotsFlatten session
+  testArrayN9FailClosed session
+  testArrayElementFailClosed session
+  testArrayReturnFailClosed session
   testRegistryDispatch session
   testCapabilityProductPath session
   testUnknownProfileFailClosed

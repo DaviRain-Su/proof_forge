@@ -19,8 +19,10 @@ exactly like Quint/Aleo/Psy/Noir. Plan types and Semantic→Plan lowering live i
 
 S0 envelope: public homogeneous UInt64 or Int64 state/params;
 Unit/UInt64/Int64/Bool results; single-block callables; pureFn inline
-(depth ≤ 64); no invariants/constants/events/call/schedule. Mixing
-UInt64/Int64, Int8/16/32, and aggregates fail closed.
+(depth ≤ 64); Array UInt64 N∈1..8 **state** flattens to N instance
+`u64` `symbol_short!` keys. No invariants/constants/events/call/schedule.
+Mixing UInt64/Int64, Int8/16/32, Map/Option/Bytes, Array return/params,
+and `symbol_short!` keys longer than 9 bytes fail closed.
 -/
 
 namespace ProofForgeV2.Targets.Soroban

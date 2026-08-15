@@ -204,6 +204,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   for st in plan.states do
     unless isSafeIdent st.name do
       planError s!"Soroban state '{st.name}' is not a safe identifier"
+    unless st.name.toUTF8.size ≤ 9 do
+      planError s!"Soroban state '{st.name}' exceeds symbol_short! 9-byte limit"
     if stateNames.contains st.name then
       planError s!"Soroban state '{st.name}' is duplicated"
     stateNames := stateNames.push st.name

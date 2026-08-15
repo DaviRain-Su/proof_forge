@@ -20,12 +20,14 @@ IR + `.rs`/`.toml`/`.json` emission in `EmitIRV1`; zero-tool finalization in
 
 O0 envelope: anonymous UInt64/Int64/Bool/Unit; public homogeneous UInt64
 **or** Int64 state/params (mixing fail closed); public Unit/UInt64/Int64/Bool
-results; single-block callables; pureFn inline (depth ≤ 64); checked `+`/`-`
-only (signed uses Rust `i64::checked_*`); bare assert; zero-payload declared
-revert; empty events/constants; no call/schedule/ContextRead/Commit/
-aggregates/narrow-Int/invariants/Principal/pf.assets. Everything else fails
-closed. Zero-tool finalize — no guest build/transpile/keygen/execute/
-prove/verify.
+results; anonymous `Array UInt64 N` (N=1..8) **state** flatten to N guest
+`u64` fields `{name}_0`..`{name}_{N-1}` (no `[u64; N]` / Vec); single-block
+callables; pureFn inline (depth ≤ 64); checked `+`/`-` only (signed uses
+Rust `i64::checked_*`); bare assert; zero-payload declared revert; empty
+events/constants; no call/schedule/ContextRead/Commit/Option/Map/Bytes/
+nested Array/Array param-return/narrow-Int/invariants/Principal/pf.assets.
+Array + signedNumeric Int64 fail closed. Everything else fails closed.
+Zero-tool finalize — no guest build/transpile/keygen/execute/prove/verify.
 -/
 
 namespace ProofForgeV2.Targets.OpenVM
