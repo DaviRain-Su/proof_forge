@@ -1504,6 +1504,17 @@ private unsafe def testGuardedStateCellSemanticPlans : IO Unit := do
     throw <| IO.userError "guarded: missing Noir decrement relation"
   expect (noirSource.contents.contains ">=" && noirSource.contents.contains "assert(")
     "Noir source must constrain the ge comparison and assert"
+  -- Extra eight + EVM from probe; Guarded assert+checkedSub lighthouse.
+  -- Eleven materialize. ICP stays on the add/sub-only Counter/StateCell
+  -- envelope. Not opening a new shape; existing four Plan pins unchanged.
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.aleo, TargetId.psy, TargetId.quint, TargetId.cosmwasm,
+      TargetId.ton, TargetId.soroban, TargetId.openvm] do
+    let out ← liftResult <| materializeSelected target compiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"Guarded: {target} must materialize"
+  expectMaterializePlanInvariantV1 "Guarded" TargetId.icp TargetKind.icp
+    compiled "only checked add/sub"
 
 /-- ProgramV1 ArithFlow source text for the Wave F arithmetic/unary leaf. -/
 private def arithFlowSourceTextV1 : String :=
