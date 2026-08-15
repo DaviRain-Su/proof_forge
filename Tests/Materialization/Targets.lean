@@ -5127,6 +5127,51 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapField" TargetId.icp TargetKind.icp
     mapFieldCompiled "Int/Field/Principal/aggregates/containers/String fail closed"
 
+  -- MapStr: Map UInt64 String state. All twelve stay named Map-value/String
+  -- FC. Not opening Map-of-String. MapField / MapMini /
+  -- StringInterfaceBoundary / ArrStr / OptStr stay.
+  let mapStrSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapStr where\n" ++
+    "  state m : Map UInt64 String\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let mapStrV1 ← match ← session.selectProgramV1 mapStrSource
+      "<targets-map-str>" "Examples.MapStr" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MapStr select: {e.render}"
+  let mapStrCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapStrV1
+  expectMaterializePlanInvariantV1 "MapStr" TargetId.evm TargetKind.evm
+    mapStrCompiled "Map state value must be UInt64"
+  expectMaterializePlanInvariantV1 "MapStr" TargetId.solana TargetKind.solana
+    mapStrCompiled "not a fixed 32-byte pubkey"
+  expectMaterializePlanInvariantV1 "MapStr" TargetId.near TargetKind.near
+    mapStrCompiled "not a NEAR account-id string"
+  expectMaterializePlanInvariantV1 "MapStr" TargetId.noir TargetKind.noir
+    mapStrCompiled "not a Field element"
+  expectMaterializePlanInvariantV1 "MapStr" TargetId.aleo TargetKind.aleo
+    mapStrCompiled "Principal/String stay fail-closed"
+  expectMaterializePlanInvariantV1 "MapStr" TargetId.psy TargetKind.psy
+    mapStrCompiled "Map state pilot requires UInt64 keys and values"
+  expectMaterializePlanInvariantV1 "MapStr" TargetId.quint TargetKind.quint
+    mapStrCompiled "Int/Field/aggregates/containers fail closed"
+  expectMaterializePlanInvariantV1 "MapStr" TargetId.cosmwasm TargetKind.cosmwasm
+    mapStrCompiled "no Field"
+  expectMaterializePlanInvariantV1 "MapStr" TargetId.ton TargetKind.ton
+    mapStrCompiled "no Field/Principal"
+  for (target, kind) in #[
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm)] do
+    expectMaterializePlanInvariantV1 "MapStr" target kind mapStrCompiled
+      "Int/Field/Principal/aggregates/containers fail closed"
+  expectMaterializePlanInvariantV1 "MapStr" TargetId.icp TargetKind.icp
+    mapStrCompiled "containers/String fail closed"
+
   -- BytesBox: Bytes 4 state. Eight materializers admit; Quint/Soroban/
   -- ICP/OpenVM stay envelope FC. Not opening Bytes on those four.
   -- State only — no Bytes return ABI. Files-nonempty or named decline.
