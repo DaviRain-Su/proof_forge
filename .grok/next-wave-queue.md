@@ -143,6 +143,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-LATER-QS | done | LaterFlow schedule-only 12-target: five admit; six async-workflow FC; ICP resolver-only async FC. LaterFlow Plan pins kept. **Not** B-CALL-SEM |
 | MAT-MAP-QS | done | MapMini Map UInt64 UInt64 12-target: eight admit; Quint/Soroban/OpenVM/ICP container-state pilot FC. Array/Option pins kept. **Not** opening Map on the four envelope targets |
 | MAT-BYTES-QS | done | BytesBox Bytes 4 state 12-target: eight admit; Quint/Soroban/OpenVM/ICP container-state pilot FC. **Not** opening Bytes return ABI |
+| MAT-ENUM-QS | done | MaybeMark named Enum state 12-target: eight admit; Quint/Soroban/OpenVM/ICP UInt64-pilot FC. PointBox pins kept. **Not** opening Enum return ABI |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |

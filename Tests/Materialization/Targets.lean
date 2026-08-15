@@ -3993,6 +3993,46 @@ unsafe def run : IO Unit := do
             (e.render).contains "anonymous")
           s!"N3 struct-state {target} message must cite named/aggregate boundary, got {e.render}"
 
+  -- MaybeMark: named Enum state. Eight materializers admit; Quint/Soroban/
+  -- ICP/OpenVM stay envelope FC. Not opening Enum on those four.
+  -- State only — no Enum return ABI. Files-nonempty or named decline.
+  let enumStateSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MaybeMark where\n" ++
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n\n" ++
+    "  entry put(v : UInt64) : UInt64 do\n" ++
+    "    m := Maybe.Some(v)\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let enumV1 ← match ← session.selectProgramV1 enumStateSource
+      "<targets-enum-state>" "Examples.MaybeMark" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MaybeMark select: {e.render}"
+  let enumCompiled ← liftResult <| Compiler.compileValidatedSourceV1 enumV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target enumCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"MaybeMark: {target} must materialize named Enum"
+  for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
+    match materializeSelected target enumCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"MaybeMark: {target} must decline named Enum"
+    | .error e =>
+        expect ((e.render).contains "named" ||
+            (e.render).contains "Enum" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot" ||
+            (e.render).contains "public")
+          s!"MaybeMark {target} message must cite named/Enum boundary, got {e.render}"
+
   -- ArrayState: fixed Array UInt64 2 state — Solana + EVM + NEAR + Noir + H3
   -- Psy/Aleo admit (flatten to leaf slots named slots_0/slots_1; IndexGet/Set).
   -- Map UInt64→UInt64 dense pilot is open on EVM/Solana/NEAR/Noir (cap-8);
