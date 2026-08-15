@@ -75,8 +75,11 @@ algorithms。支持结论以当前 Plan/DPN tests 为准，不由历史 source c
 
 - bn254/BLS12-377 Field；
 - nested Map、Map return、超出 aggregate-return cap；
-- result-bearing call、schedule、ContextRead、Commit、nonempty invariant；
+- result-bearing call、schedule、EVM-style ContextRead（`context.caller` / `blockHeight` / `unixTimeSeconds`）、Commit、nonempty invariant；
 - `pf.assets` bindings、UPS、network 与 deploy。
+- **已开放（非 EVM ContextRead）**：`call pf.context.userId|contractId|checkpointId|nonce|callerContractId|userPublicKeyHash|sessionProofTreeRoot()` → DPN ExecutionContext（见 `Examples/ContextProbe.lean`；HashOut 仅 limb0）。
+- **已开放 HashOut 4-limb**：`call pf.crypto.hashNoPad|hashTwoToOne` 结果类型为 `Array UInt64 4`（见 `Examples/HashOutProbe.lean`）；keccak/context 仍 limb0。
+- **已开放 IMT**：`call pf.imt.get|contains|set|getExternal|getOther|containsOther`（见 `Examples/ImtProbe.lean`）；store+return CSE；`CalculateMerkleRoot` 仍 FC。
 
 Plan admitted 但 DPN lowering 失败时返回 `PSY-DPN-G5-HARD`；不存在 source 语言旁路。
 
@@ -137,3 +140,21 @@ network deploy、hermetic 或 formal refinement 证据；删除旧 source/compil
 | chain probe | `scripts/psy_local_chain_status.sh` |
 
 Persistent local chain requires host-heavy `psy-node` / `psy_node_cli` fabric — not auto-started by pf.
+
+## 10. OP / feature coverage
+
+Do **not** claim full official DPN OP coverage. Layers:
+
+- official `psy_vm` / `psy_user_cli simulate` — full official surface
+- PF emitter — capability-gated subset (see LowerPlanV1)
+- PF session harness — multi-step engineering subset; fail-closed on unknown ops
+
+Machine-readable matrix: [`psy-op-coverage.v1.json`](psy-op-coverage.v1.json) · narrative [`psy-op-coverage.md`](psy-op-coverage.md).
+Regenerate: `just psy-dpn-op-coverage` / `just psy-example-matrix` / `just psy-dpn-diff`.
+
+## 11. Open design gates
+
+- Hash gadgets: [ADR-0039](../adr/0039-psy-hash-gadgets-gate.md) — **scalar limb0 + Array4 for hashNoPad/twoToOne** (`HashProbe` / `HashOutProbe`); hashPad emit-only; merkle FC
+- HashOut Array4 guide: [product/15-psy-hashout-array4.md](../product/15-psy-hashout-array4.md)
+- Context / Commit (P3): [psy-p3-context-commit-gate.md](psy-p3-context-commit-gate.md) — **DPN `pf.context.*` open** (limb0); Commit **FC by [ADR-0041](../adr/0041-psy-commit-public-input-gate.md)**
+- OP coverage matrix: [psy-op-coverage.md](psy-op-coverage.md)

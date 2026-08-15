@@ -9,131 +9,166 @@ normative: false
 
 # Hello dApp：Code Agent 剧本（后端合约 + direct artifact）
 
-状态：`draft`（2026-08-10）
-前置：[`02-external-program-v1.md`](02-external-program-v1.md)、[`01-toolchain-install-surface.md`](01-toolchain-install-surface.md)  
-Catalog：[`04-chain-client-catalog.md`](04-chain-client-catalog.md) / `pf_chain_catalog`
+状态：`draft`（2026-08-10；**默认路径 = engineering bundle**，ADR-0040）  
+前置：[`14-external-author-mvp.md`](14-external-author-mvp.md)、[`01-toolchain-install-surface.md`](01-toolchain-install-surface.md)、[`02-external-program-v1.md`](02-external-program-v1.md)  
+Catalog：[`04-chain-client-catalog.md`](04-chain-client-catalog.md) / `pf_chain_catalog`  
+网络：[`networks.v1.json`](networks.v1.json) · `pf network list`
 
 ## 1. 范围
 
-本剧本让 **Code Agent**（经 MCP）或脚本（经 SDK/CLI）完成 **hello 级 artifact 闭环**：
+本剧本让 **Code Agent**（经 MCP）或脚本（经 SDK/CLI）完成 **hello 级闭环**：
 
 ```text
-doctor → 写/确认 ProgramV1 → build → inspect artifacts
+bootstrap bundle → doctor/setup → write ProgramV1 → build → test? → artifacts / UI json
 ```
 
-**后端** = ProofForge `program … where` 合约。  
-**前端** = 生态客户端（见 chain catalog）；本剧本 **不** 生成完整 Web UI，只钉后端可测。
+**后端** = ProofForge `program … where`。  
+**前端** = 生态客户端 / `templates/*-dapp-ui`；本剧本钉后端可测 + 产物契约。
 
 ## 2. 非目标
 
 - MCP **不**暴露 `network --broadcast` / private-key
 - 不设 `deployable=true`、不主网、不 formal
+- **禁止**默认教 Agent `lake build` monorepo（贡献者路径另开）
 - 不发明 Aleo compiler/local runtime/network fallback
 - 不要求外部工程 Lake `require` PF
 
-## 3. 环境
+## 3. 环境（外部作者默认）
 
 | 变量 | 含义 |
 |---|---|
-| `PROOF_FORGE_ROOT` | monorepo 根（含 `scripts/`、`tools/mcp/`） |
-| `PROOF_FORGE_CLI` | `proof-forge-next` 绝对路径 |
-| `PROOF_FORGE_TOOL_ROOT` | Tool Lock 根；Aleo direct target 不需要工具 |
+| `PROOF_FORGE_ROOT` | **bundle 根**（含 `scripts/`、`bin/`、`lib/lean/`）— 不是 monorepo |
+| `PROOF_FORGE_CLI` | `proof-forge-next` 绝对路径（常为 `$PROOF_FORGE_ROOT/bin/proof-forge-next`） |
+| `PROOF_FORGE_TOOL_ROOT` | Tool Lock 根；Aleo/Psy zero-tool 可不设 |
+| `PROOF_FORGE_HOST_MODE` | 默认 `dev`（不 pin 他机 host:stat） |
 
-MCP 接线见 [`tools/mcp/README.md`](../../tools/mcp/README.md)。
+```bash
+# 一次安装（Release bundle）
+bash scripts/install.sh --from proof-forge-bundle-*.tar.gz
+# 或: pf bootstrap --from proof-forge-bundle-*.tar.gz
 
-## 4. MCP 工具顺序（Aleo Hello）
+export PATH="$HOME/.local/proof-forge/current/bin:$PATH"
+export PROOF_FORGE_CLI="$HOME/.local/proof-forge/current/bin/proof-forge-next"
+export PROOF_FORGE_ROOT="$HOME/.local/proof-forge/current"
+```
+
+贡献者 monorepo：仍可用 monorepo 的 `PROOF_FORGE_ROOT` + `.lake/build/bin/proof-forge-next`，但 **不是** Agent 默认剧本。
+
+MCP 接线见 [`tools/mcp/README.md`](../../tools/mcp/README.md)（stdio 本机 spawn CLI；远程 edge 只 docs/catalog）。
+
+## 4. 推荐：`pf` 短路径（EVM hello）
+
+| 步 | 命令 | 成功判据 |
+|---|---|---|
+| 0 | `pf version` | 见 compiler path + hostMode=dev |
+| 1 | `pf -y setup --target evm` | doctor/setup ready；Tool Root 有 solc（+ anvil/cast） |
+| 2 | `pf network list --family evm` | 看到 `evm.local.anvil` 等 |
+| 3 | `pf new hello --target evm && cd hello` | `src/*.pf` + `pf.toml` |
+| 4 | `pf build` | `build/evm/manifest.json` + `*.bin` + `*.abi.json` |
+| 5 | `pf test` | Anvil smoke ok **或** skip-clean（缺 anvil） |
+| 6 | `pf deploy` | save-only `build/evm/tx/*deployment.package.json` |
+| 7 | `pf scaffold-ui --template evm-dapp` | `ui/evm-dapp/` + 同步 abi/bin + `public/deployment.json` |
+| 8 | `pf write-ui-json`（可选） | 单独刷新 UI JSON，不重拷模板 |
+
+```bash
+pf -y setup --target evm
+pf new hello --target evm && cd hello
+pf build && pf test
+pf deploy
+pf scaffold-ui --template evm-dapp
+cd ui/evm-dapp && npm install && npm run dev
+# optional after local broadcast (fills contractAddress):
+# pf deploy --broadcast --network local
+# pf scaffold-ui --template evm-dapp --force --address 0x…
+```
+
+### 4b. Aleo hello（zero-tool）
+
+| 步 | 命令 |
+|---|---|
+| 1 | `pf -y setup --target aleo` |
+| 2 | `pf new hello --target aleo && cd hello` |
+| 3 | `pf build` |
+| 4 | `pf inspect` / artifacts |
+
+构建结果是 canonical Aleo Instructions + query descriptor。
+
+## 5. MCP 工具顺序（本机 stdio；需已装 bundle）
 
 | 步 | Tool | 参数（示意） | 成功判据 |
 |---|---|---|---|
-| 0 | `pf_chain_catalog` | `target=aleo` | 看到 direct artifact + honesty |
-| 1 | `pf_doctor` | `targets=["aleo"]` | JSON `proof-forge.doctor.v1`；zero-tool `ok` |
+| 0 | `pf_chain_catalog` | `target=evm` 或 `aleo` | honesty + artifact shape |
+| 1 | `pf_doctor` | `targets=["evm"]` | `proof-forge.doctor.v1` |
 | 2 | 写源 | 文件系统 | `import ProofForgeV2` + `program Hello where` |
-| 3 | `pf_build` | 见下 | exit 0 |
+| 3 | `pf_build` | source/module/target/root/output | exit 0 |
 | 4 | `pf_artifacts` | `outputDir=…` | exact closure inspect |
 
-### 4.1 仅 build
+远程 edge MCP：**不**提供 compile；Agent 应提示用户本机 bundle + stdio MCP。
+
+### 5.1 build 参数例（EVM）
 
 ```json
 {
   "source": "src/Hello.pf",
   "module": "Hello",
-  "target": "aleo",
+  "target": "evm",
   "root": "/abs/path/to/project",
-  "output": "/abs/path/to/project/out-aleo"
+  "output": "/abs/path/to/project/build/evm"
 }
 ```
 
-构建结果是 canonical Aleo Instructions + query descriptor。`pf_local` 对 Aleo fail closed；
-不存在 Leo/Dargo/snarkOS fallback。
-
-## 5. SDK 等价
+## 6. SDK 等价
 
 ```python
 from proof_forge_sdk import ProofForgeClient
-c = ProofForgeClient()
-c.doctor(targets=["aleo"])
+c = ProofForgeClient()  # spawns PROOF_FORGE_CLI
+c.doctor(targets=["evm"])
 result = c.build(
     source="src/Hello.pf",
     module="Hello",
-    target="aleo",
+    target="evm",
     root="/abs/path/to/project",
-    output="/abs/path/to/project/out-aleo",
+    output="/abs/path/to/project/build/evm",
 )
 print(result.parsed)
 ```
 
-## 6. CLI 等价
+## 7. CLI 等价（compiler 直调）
 
 ```bash
-proof-forge-next build src/Hello.pf --module Hello --target aleo \
-  --root "$PROJ" -o "$PROJ/out-aleo"
-proof-forge-next inspect --output-dir "$PROJ/out-aleo" --json
+proof-forge-next build src/Hello.pf --module Hello --target evm \
+  --root "$PROJ" -o "$PROJ/build/evm"
+proof-forge-next inspect --output-dir "$PROJ/build/evm" --json
 ```
 
-## 7. 前端下一步（Aleo dApp）
+外部作者优先用 **`pf build`**（同契约，少记 flag）。
 
-Agent 完成后端后，**前端不是可选闲笔**——完整 Aleo APP 需要 Wallet 交互。权威剧本：
+## 8. 前端下一步
 
-[`07-aleo-dapp-frontend-wallet.md`](07-aleo-dapp-frontend-wallet.md)
+| Target | 文档 / 模板 |
+|---|---|
+| EVM | [`08-evm-dapp-frontend.md`](08-evm-dapp-frontend.md) · `templates/evm-dapp-ui` · `pf write-ui-json` |
+| Aleo | [`07-aleo-dapp-frontend-wallet.md`](07-aleo-dapp-frontend-wallet.md) |
+| Solana | [`09-solana-agent-playbook.md`](09-solana-agent-playbook.md) · [`10-solana-dapp-frontend.md`](10-solana-dapp-frontend.md) |
+| Psy | [`11-psy-agent-playbook.md`](11-psy-agent-playbook.md) |
 
-最短路径：
-
-1. `pf_chain_catalog` `target=aleo` → 读 `frontendClients`（`@provablehq/aleo-wallet-adaptor-*` · `@provablehq/sdk`）
-2. 脚手架：复制/打开 [`templates/aleo-dapp-ui`](../../templates/aleo-dapp-ui/)（Vite + `AleoWalletProvider` / `WalletMultiButton`）
-3. 从 PF `pf deploy`（或 explorer）取得 **program id**，写入前端 env（**无私钥**）
-4. 用户钱包 `executeTransaction` 调 `initialize` / `increment`；public mapping 用 explorer REST 读
-5. 开发者本机仍可用 `pf deploy|execute --broadcast` 做冒烟；**终端用户只走钱包**
-
-边界：
-
-- MCP **不**代签、不持 key、不默认 broadcast
-- 不得从 Instructions artifact  alone 推断「已部署」
-- 浏览器禁止嵌入 `APrivateKey1…`
-
-
-## 7b. EVM 前端下一步
-
-对称 Aleo 前端剧本：[`08-evm-dapp-frontend.md`](08-evm-dapp-frontend.md)
+EVM 最短：
 
 ```bash
-bash scripts/pf_evm_local_demo.sh
+pf write-ui-json -o templates/evm-dapp-ui/public/deployment.json
+# or: cp build/evm/ui-deployment.json templates/evm-dapp-ui/public/deployment.json
 cd templates/evm-dapp-ui && npm install && npm run dev
 ```
 
-本地 Anvil only；无 public broadcast。
+## 9. 禁止清单（Agent）
 
-## 8. 失败剧本
+- 不要 `git clone` + `lake build proof_forge_next` 作为默认装机
+- 不要手改 `host-profiles.lock.json`
+- 不要在远程 MCP 上声称可以 `pf_build`
+- 不要默认 `--broadcast` 到 public testnet（v0：EVM/Solana 仅 local）
 
-| 现象 | 处理 |
-|---|---|
-| 缺 `--source`/`--module` | usage exit；补参数 |
-| `import ProofForgeV2` 缺失 | `PF-SRC-INVALID`；补 gate 行 |
-| Aleo local/network 请求 | **拒绝**；只支持 direct build/inspect |
-| design-only target | catalog `implemented=false`；不 install/build |
+## 10. 相关
 
-## 9. 成熟度标签（日志中应保持）
-
-- `deployable=false`
-- `ALEO-INSTRUCTIONS-DIRECT`
-- `NO-LOCAL-OR-NETWORK-RUNTIME`
-- 非 formal / 非 mainnet
+- ADR-0040 host mode + bundle  
+- [`14-external-author-mvp.md`](14-external-author-mvp.md)  
+- `pf network list` / `pf network use evm.xlayer.testnet`（元数据 only）

@@ -119,7 +119,11 @@ zero-divisor behavior由 target-owned lowering固定。
 | event | PARTIAL | ordered DPN event encoding only |
 | void sync call | PARTIAL | exact DPN invoke shape only |
 | result call / schedule | fail closed | capability/Plan gate |
-| ContextRead / Commit | fail closed | no frozen public-input binding |
+| ContextRead (EVM places) / Commit | fail closed | EVM places unbound; Commit = ADR-0041 |
+| `pf.context.userId|contractId|checkpointId|nonce|callerContractId|userPublicKeyHash|sessionProofTreeRoot` | lowered | ops 46–50, 79–80 limb0 (ContextProbe) |
+| `pf.crypto.hashNoPad|hashTwoToOne` as `Array UInt64 4` | lowered | HashOut+TargetAt×4 CSE (HashOutProbe); keccak/context limb0 only |
+| `pf.imt.get|contains|set|getExternal|getOther|containsOther` | lowered | full self/external/other IMT; UInt64 limb0; CSE (ImtProbe) |
+| `CalculateMerkleRoot` | fail closed | official software evaluator `todo!` |
 | nonempty invariant | fail closed | no target refinement contract |
 | UPS / network / deploy | absent | outside materializer/finalizer |
 
@@ -151,3 +155,53 @@ recipes and distribution payloads.
 Current claim ceiling：canonical DPN emission with content-bound artifact closure. No local execution,
 proof generation, UPS, network settlement, deployment, hermetic qualification or formal
 Reference↔Psy refinement is claimed.
+
+## 8. Runtime coverage vs schema
+
+Schema lists the full official OpType wire space. PF only **emits** a reachable subset;
+the multi-step session harness implements that subset (plus a few safe extras) and
+fail-closes on the rest. Hash/IMT/secp/keccak and most official-only state commands are
+**not** ProgramV1-reachable today.
+
+See [`psy-op-coverage.md`](psy-op-coverage.md).
+
+
+## 9. Official simulate binding (2026-08-10)
+
+`psy_user_cli simulate` (`InMemoryStateBackend`) resolves state-command fields:
+
+* `condition` / `sub_slot_index` / `value` via `registers.get_by_encoded_id` (wire ids);
+* `state_command_resolution_indices[i]` = **definition step** (run before `definitions[step]`).
+
+PF general multi-leaf path therefore:
+
+1. emits Target `Constant` leaves `0..n-1` and stores those **wire indices** in cmds;
+2. pins Get resolution to the GetState def step and Set resolution to `defs.size` at emit;
+3. encodes Bool op inputs as `(bool<<32)|index` (bare bool index would read Target[i]).
+
+Counter golden templates keep historical bare 0/1 indices that resolve to storage slot 0.
+
+## 10. Void sync call + events (product probes)
+
+- `Examples/EmitProbe.lean` — `emit` → DPN `events[]` (PARTIAL ordered-event gate).
+- `Examples/CallProbe.lean` — void `call Other.ping(x)` →
+  `InvokeExternalContractFunctionSync` with FNV component hashes; `num_outputs=0`.
+  Official simulate counts `external_call_ops` without nested execution.
+  Session records the invoke (resolved contract/method hashes + args) the same way.
+
+Result-bearing `call` / `schedule` remain Plan fail-closed.
+
+## 11. HashNoPad (ADR-0039 partial)
+
+Language (expression position):
+
+| QN | arity | DPN op | product result |
+|----|------:|-------:|----------------|
+| `pf.crypto.hashNoPad` | 1..8 | 21 | first HashOut limb |
+| `pf.crypto.hashPad` | 1..8 | 22 | first limb (official software eval may no-op) |
+| `pf.crypto.hashTwoToOne` | 8 | 78 | first HashOut limb |
+| `pf.crypto.keccak256` | 1..16 | 81 | first u32 limb as UInt64 |
+
+Lowering: result-bearing externalCall QN → Plan Expr → DPN op. Session does **not**
+reimplement crypto; use official simulate for execution authority.
+

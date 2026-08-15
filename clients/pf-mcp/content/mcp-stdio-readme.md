@@ -75,7 +75,8 @@ scripts/mcp_smoke.sh
 - `pf_install` always passes `--yes` unless `dryRun=true` (non-interactive).
 - `pf_build` rejects `broadcast` / `network` arguments.
 - Design-only targets: none remain. ICP is ADR-0047 engineering leave (wat2wasm finalize;
-  PocketIC host-optional). OpenVM is an engineering zero-tool guest-source leaf (no prove toolchain install).
+  PocketIC host-optional). OpenVM is an engineering zero-tool guest-source leaf with
+  opt-in guest-elf build (no prove toolchain install).
 
 ## Remote MCP (Cloudflare Workers)
 

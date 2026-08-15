@@ -10,7 +10,7 @@ normative: false
 # 分发架构：CLI 发版 · Lean 写合约包 · 宿主 SDK/MCP
 
 状态：`draft`（2026-08-09）
-关联：[`01-toolchain-install-surface.md`](01-toolchain-install-surface.md)、[`02-external-program-v1.md`](02-external-program-v1.md)、[`06-pypi-host-sdk.md`](06-pypi-host-sdk.md)
+关联：[`01-toolchain-install-surface.md`](01-toolchain-install-surface.md)、[`02-external-program-v1.md`](02-external-program-v1.md)、[`06-pypi-host-sdk.md`](06-pypi-host-sdk.md)、[`14-external-author-mvp.md`](14-external-author-mvp.md)（**下一刀**：bundle 同包 + host dev 模式 + 陌生机 E2E，升级本页 REL-CLI 交付）
 
 ## 1. 结论（先回答「要不要做」）
 

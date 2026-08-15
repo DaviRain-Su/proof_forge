@@ -16,7 +16,7 @@
     {
       "id": "03-hello-dapp-agent-playbook.md",
       "title": "Hello dApp agent playbook (MCP / SDK / external template)",
-      "bytes": 4453,
+      "bytes": 6376,
       "kind": "markdown"
     },
     {
@@ -28,7 +28,7 @@
     {
       "id": "05-distribution-and-packages.md",
       "title": "Distribution architecture — CLI release vs Lean author SDK vs host wrappers",
-      "bytes": 16425,
+      "bytes": 16583,
       "kind": "markdown"
     },
     {
@@ -58,13 +58,13 @@
     {
       "id": "10-psy-dpn-lowering.md",
       "title": "Psy DPN lowering contract",
-      "bytes": 5915,
+      "bytes": 8617,
       "kind": "markdown"
     },
     {
       "id": "10-psy.md",
       "title": "Psy DPN target dossier",
-      "bytes": 6254,
+      "bytes": 8008,
       "kind": "markdown"
     },
     {
@@ -76,7 +76,7 @@
     {
       "id": "11-psy-agent-playbook.md",
       "title": "Psy agent playbook — ProofForge DPN + official Psy toolchain",
-      "bytes": 8399,
+      "bytes": 8650,
       "kind": "markdown"
     },
     {
@@ -88,7 +88,37 @@
     {
       "id": "13-xlayer-onchainos.md",
       "title": "X Layer networks + OKX OnchainOS integration (catalog / MCP / roadmap)",
-      "bytes": 7987,
+      "bytes": 8401,
+      "kind": "markdown"
+    },
+    {
+      "id": "14-external-author-mvp.md",
+      "title": "External Author MVP — dist / host policy / command loop",
+      "bytes": 17764,
+      "kind": "markdown"
+    },
+    {
+      "id": "15-psy-hashout-array4.md",
+      "title": "Psy HashOut full limbs (Array UInt64 4) — author guide",
+      "bytes": 4141,
+      "kind": "markdown"
+    },
+    {
+      "id": "16-external-author-cheatsheet.md",
+      "title": "External author cheatsheet (install → build → test → run → deploy → UI)",
+      "bytes": 7234,
+      "kind": "markdown"
+    },
+    {
+      "id": "17-cosmwasm-dapp-frontend.md",
+      "title": "CosmWasm dApp frontend surface",
+      "bytes": 2116,
+      "kind": "markdown"
+    },
+    {
+      "id": "18-near-dapp-frontend.md",
+      "title": "NEAR dApp frontend surface",
+      "bytes": 2072,
       "kind": "markdown"
     },
     {
@@ -106,7 +136,7 @@
     {
       "id": "mcp-stdio-readme.md",
       "title": "ProofForge MCP-V0",
-      "bytes": 4975,
+      "bytes": 5005,
       "kind": "markdown"
     },
     {
@@ -130,7 +160,7 @@
     {
       "id": "networks.v1.json",
       "title": "Network catalog (X Layer / Anvil)",
-      "bytes": 10314,
+      "bytes": 13589,
       "kind": "catalog"
     }
   ]

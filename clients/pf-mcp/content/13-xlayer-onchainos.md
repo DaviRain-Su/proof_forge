@@ -3,7 +3,7 @@ id: PRODUCT-XLAYER-ONCHAINOS
 title: X Layer networks + OKX OnchainOS integration (catalog / MCP / roadmap)
 status: draft
 owner: product+engineering
-updated: 2026-08-10
+updated: 2026-08-11
 normative: false
 ---
 
@@ -170,14 +170,22 @@ npm run dev
 
 Deploy 脚本占位：`scripts/pf_evm_xlayer_deploy.sh`（fail-closed 除非显式 env）。
 
-## 9. 黑客松产品方向（未定案 · 仅参考）
+## 9. 黑客松产品方向（ProofShip · 已定品牌）
 
-竖切候选（决策前不绑定实现）：
+品牌/定位权威：[`proofship-positioning.md`](proofship-positioning.md) · 竖切规划：[`../plan/ai-rwa-verified-ship-xlayer.md`](../plan/ai-rwa-verified-ship-xlayer.md)。
 
-- **ForgeAgent**：NL → 受控 PF 模板 → EVM 部署 X Layer → OnchainOS quote/swap 编排
-- 合约侧：限额金库 / Intent Guard / 分账（ProgramV1）
+| 层级 | 名称 |
+|---|---|
+| 产品主名 | **ProofShip** |
+| 首发 vertical | **AI-RWA**（份额登记 / 受限转让；非第二产品） |
+| 引擎 | ProofForge |
+
+赛期竖切（绑定 plan，非随意候选）：
+
+- NL / 模板 → 受控 ProgramV1 → check/proof gate → EVM → **X Layer** 部署
+- 默认模板：`rwa-share-v1`（白名单 + 限额转让策略）
+- 可选 OnchainOS quote/swap 编排（非 P0 关键路径）
 - 不冲 Launch Grant 刷量；主打完成度 + AI + X Layer 真实部署
-
 ## 10. 非目标
 
 - 不在 `proof-forge-next build` 上加 `--network`

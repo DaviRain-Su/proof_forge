@@ -445,6 +445,11 @@ program {program} where
     )?;
 
     fs::write(
+        dir.join(".gitattributes"),
+        "*.pf linguist-language=Lean\n",
+    )?;
+
+    fs::write(
         dir.join(".gitignore"),
         "build/\nout-*/\n.pf/\n*.deployment.json\n*.execution.json\n",
     )?;
@@ -495,9 +500,10 @@ Override target once: `pf build -t solana` (still short; no `--module` needed in
 ## Editor
 
 `.vscode/settings.json` maps `*.pf` → `lean4` and `extensions.json` recommends
-`leanprover.lean4` so VS Code/Cursor can highlight ProgramV1. **Highlight only**:
-do not `lake build` this project. Lean LSP and same-file theorems still require
-a `.lean` Lake module.
+`leanprover.lean4` so VS Code/Cursor can highlight ProgramV1. `.gitattributes`
+asks GitHub linguist to treat `*.pf` as Lean. **Highlight only**: do not
+`lake build` this project. Lean LSP and same-file theorems still require a
+`.lean` Lake module.
 "#
         ),
     )?;
@@ -606,6 +612,8 @@ mod tests {
         assert!(editor.contains("lean4"));
         let recs = fs::read_to_string(dir.join(".vscode/extensions.json")).unwrap();
         assert!(recs.contains("leanprover.lean4"));
+        let attrs = fs::read_to_string(dir.join(".gitattributes")).unwrap();
+        assert!(attrs.contains("*.pf linguist-language=Lean"));
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -653,7 +661,7 @@ mod tests {
 [package]
 name = "demo"
 module = "Demo"
-source = "src/Demo.lean"
+source = "src/Demo.pf"
 "#;
         let c: ProjectConfig = toml::from_str(t).unwrap();
         assert_eq!(c.package.name, "demo");

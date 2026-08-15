@@ -1,7 +1,7 @@
 {
   "schema": "proof-forge.network-catalog.v1",
   "version": "1",
-  "updated": "2026-08-10",
+  "updated": "2026-08-11",
   "notes": [
     "Metadata + deploy-policy catalog for agents and future pf deploy --network.",
     "Does NOT enable product-level public broadcast by itself.",
@@ -42,7 +42,7 @@
       },
       "honesty": [
         "Default EVM demo path",
-        "Anvil #0 key is local-only — never use on public nets"
+        "Anvil #0 key is local-only \u2014 never use on public nets"
       ]
     },
     {
@@ -86,9 +86,9 @@
         "deployScript": "scripts/pf_evm_xlayer_deploy.sh"
       },
       "honesty": [
-        "Full EVM equivalence — PF --target evm artifacts apply",
+        "Full EVM equivalence \u2014 PF --target evm artifacts apply",
         "Gas token is OKB, not ETH",
-        "Catalog presence ≠ pf product mainnet/testnet broadcast shipped",
+        "Catalog presence \u2260 pf product mainnet/testnet broadcast shipped",
         "Use wallet or developer-local key env for writes; never MCP remote keys"
       ]
     },
@@ -160,14 +160,120 @@
       "status": "placeholder-for-future-rows",
       "honesty": [
         "Row reserved so multi-EVM expansion is data-driven",
-        "No PF product deploy path yet — fill rpcUrls when adopted"
+        "No PF product deploy path yet \u2014 fill rpcUrls when adopted"
+      ]
+    },
+    {
+      "id": "near.local.sandbox",
+      "targetFamily": "near",
+      "displayName": "NEAR near-sandbox (local engineering)",
+      "env": "local",
+      "chainId": null,
+      "nativeCurrency": {
+        "name": "NEAR",
+        "symbol": "NEAR",
+        "decimals": 24
+      },
+      "rpcUrls": [
+        "http://127.0.0.1:3030"
+      ],
+      "explorers": [],
+      "policy": "local-only",
+      "pfProductBroadcast": "refused",
+      "related": {
+        "runtimeScript": "scripts/near_runtime_test.sh",
+        "guide": "docs/product/near-agent-cheatsheet.md",
+        "parityRoadmap": "docs/plan/near-parity-roadmap.md"
+      },
+      "honesty": [
+        "Engineering sandbox only \u2014 not testnet/mainnet",
+        "Default port illustrative; near_runtime_test.sh picks an ephemeral port",
+        "pf deploy --broadcast refused for NEAR public nets in v0"
+      ]
+    },
+    {
+      "id": "near.testnet",
+      "targetFamily": "near",
+      "displayName": "NEAR testnet (catalog only)",
+      "env": "testnet",
+      "chainId": null,
+      "nativeCurrency": {
+        "name": "NEAR",
+        "symbol": "NEAR",
+        "decimals": 24
+      },
+      "rpcUrls": [
+        "https://rpc.testnet.near.org"
+      ],
+      "explorers": [
+        {
+          "name": "NEAR Explorer",
+          "url": "https://testnet.nearblocks.io"
+        }
+      ],
+      "policy": "public-testnet-catalog-only",
+      "pfProductBroadcast": "refused",
+      "related": {
+        "guide": "docs/product/near-agent-cheatsheet.md"
+      },
+      "honesty": [
+        "Catalog entry for agent RPC discovery only",
+        "pf deploy --broadcast refused \u2014 no product key path",
+        "Not formal / not mainnet"
+      ]
+    },
+    {
+      "id": "cosmwasm.local.mock",
+      "targetFamily": "cosmwasm",
+      "displayName": "CosmWasm cosmwasm-vm mock (local engineering)",
+      "env": "local",
+      "chainId": null,
+      "nativeCurrency": {
+        "name": "stake",
+        "symbol": "STAKE",
+        "decimals": 6
+      },
+      "rpcUrls": [],
+      "explorers": [],
+      "policy": "local-only",
+      "pfProductBroadcast": "refused",
+      "related": {
+        "runtimeScript": "scripts/cosmwasm_runtime_test.sh",
+        "guide": "docs/product/cosmwasm-agent-cheatsheet.md"
+      },
+      "honesty": [
+        "Engineering mock only \u2014 not wasmd chain / mainnet",
+        "pf deploy --broadcast refused"
+      ]
+    },
+    {
+      "id": "cosmwasm.testnet.catalog-only",
+      "targetFamily": "cosmwasm",
+      "displayName": "CosmWasm testnet (catalog only)",
+      "env": "testnet",
+      "chainId": null,
+      "nativeCurrency": {
+        "name": "stake",
+        "symbol": "STAKE",
+        "decimals": 6
+      },
+      "rpcUrls": [],
+      "explorers": [],
+      "policy": "public-testnet-catalog-only",
+      "pfProductBroadcast": "refused",
+      "related": {
+        "guide": "docs/product/cosmwasm-agent-cheatsheet.md"
+      },
+      "honesty": [
+        "Catalog placeholder only \u2014 no product key path",
+        "Not formal / not mainnet"
       ]
     }
   ],
   "ecosystems": {
     "okx-onchainos": {
       "name": "OKX Onchain OS",
-      "tagline": "AI-native Web3 infrastructure — wallet, trade, market, payments",
+      "tagline": "AI-native Web3 infrastructure \u2014 wallet, trade, market, payments",
       "home": "https://web3.okx.com/zh-hans/onchainos/dev-docs/home/what-is-onchainos",
       "devPortal": "https://web3.okx.com/zh-hans/onchainos/dev-portal/project",
       "integrationModes": [
@@ -244,7 +350,7 @@
           ],
           "mcp": {
             "status": "docs-placeholder",
-            "note": "P2 — agent gas/API payment story after wallet+trade path works"
+            "note": "P2 \u2014 agent gas/API payment story after wallet+trade path works"
           },
           "priority": "P2"
         }
@@ -281,10 +387,15 @@
         ],
         "P2": [
           "Payments APP protocol integration notes",
-          "More EVM rows (Base, Arbitrum, …) when product needs them",
+          "More EVM rows (Base, Arbitrum, \u2026) when product needs them",
           "Lean NetworkRegistry product cutover for deploy identity join (spec already exists)"
         ]
       }
+    },
+    "near": {
+      "displayName": "NEAR",
+      "defaultLocal": "near.local.sandbox",
+      "notes": "Wasm via proof-forge-next --target near; runtime = locked near-sandbox."
     }
   }
 }

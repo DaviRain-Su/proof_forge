@@ -206,6 +206,8 @@ Probe chain: `bash scripts/psy_local_chain_status.sh`
 ## Related
 
 - [`12-psy-dapp-frontend.md`](12-psy-dapp-frontend.md)  
+- [`15-psy-hashout-array4.md`](15-psy-hashout-array4.md) — full HashOut (`Array UInt64 4`) author guide  
+- [`../adr/0041-psy-commit-public-input-gate.md`](../adr/0041-psy-commit-public-input-gate.md) — Commit stays FC until official PI binding  
 - [`../demos/psy-dpn-walkthrough.md`](../demos/psy-dpn-walkthrough.md)  
 - [`../targets/10-psy.md`](../targets/10-psy.md)  
 - [`../targets/10-psy-dpn-lowering.md`](../targets/10-psy-dpn-lowering.md)  
