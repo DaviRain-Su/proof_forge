@@ -15,9 +15,11 @@ Narrow ICP-2 Counter/StateCell target leaf (ADR-0047). Envelope:
 * single-block callable bodies; checked `+`/`-` only (no mul/div/mod/compare/
   bitwise/bool); literal, param, stateLoad, stateStore, return
 * zero pureFn, zero invariants, zero constants/events/errors
-* zero `emit` / `call` (`Op.ExternalCall`) / `schedule` / `Op.ContextRead` /
-  `Op.Commit`; the ICP-1 async advertise (`effect.asynchronous-workflow`)
-  stays a resolver-level advertisement only — no ICP-2 Plan shape realizes it
+* zero `emit` / `call` (`Op.ExternalCall`) / `schedule` / `Op.Commit`;
+  `Op.ContextRead` admits only `context.unixTimeSeconds` (`ic0.time` ns÷10⁹);
+  other keys stay named fail-closed. The ICP-1 async advertise
+  (`effect.asynchronous-workflow`) stays a resolver-level advertisement
+  only — no ICP-2 Plan shape realizes it
 
 Anything outside this envelope fails closed here (target-owned Plan; retains
 no Semantic carrier). Not NEAR/CosmWasm Plan reuse (ADR-0007); not
@@ -51,15 +53,14 @@ private def qnJoined (qn : ProofForgeV2.Core.Common.QualifiedName) : String :=
 private def isPfCryptoCalleeV1 (qn : String) : Bool :=
   qn.startsWith "pf.crypto."
 
-/-- ADR-0031 S4: ICP has no unixTime/blockHeight/attachedValue/chainId host.
-    Named UInt64 catalog keys stay fail closed with a key-named diagnostic.
+/-- ADR-0031 S4 residual after CAP-1a: these UInt64 catalog keys still have
+    no ICP host. `unixTimeSeconds` is bound separately to `ic0.time`.
     `context.caller` / `context.self` are Principal; ICP-2 rejects Principal
     params/results at type closure, so those keys stay on the generic
     ContextRead envelope below. -/
-private def isNamedUInt64ContextKey
+private def isUnboundUInt64ContextKey
     (key : ProofForgeV2.Core.Common.SchemaId) : Bool :=
-  key == unixTimeSecondsContextKeyV1 ||
-    key == blockHeightContextKeyV1 ||
+  key == blockHeightContextKeyV1 ||
     key == attachedValueContextKeyV1 ||
     key == chainIdContextKeyV1
 
@@ -74,6 +75,8 @@ inductive Expr where
   | literal (value : UInt64)
   | param (index : Nat)
   | stateLoad (fieldIndex : Nat)
+  /-- CAP-1a: `ic0.time` nanoseconds, truncated to whole Unix seconds. -/
+  | unixTimeSeconds
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
@@ -233,7 +236,7 @@ private def bumpOp (acc : BodyAccum) : CompileResult BodyAccum := do
   pure { acc with opCount := acc.opCount + 1 }
 
 private partial def exprNodes : Expr → Nat
-  | .literal _ | .param _ | .stateLoad _ => 1
+  | .literal _ | .param _ | .stateLoad _ | .unixTimeSeconds => 1
   | .checkedAdd lhs rhs | .checkedSub lhs rhs => 1 + exprNodes lhs + exprNodes rhs
 
 private def checkedExprNodes (what : String) (e : Expr) : CompileResult Expr := do
@@ -318,12 +321,23 @@ private partial def lowerInstructions
         | some vd => acc := { acc with env := envInsert acc.env vd.valueId e }
     | .constant .. =>
         planError "unsupported ICP semantic shape: constants table must be empty (ICP-2 has no const lowering)"
-    | .contextRead key =>
-        if isNamedUInt64ContextKey key then
-          planError
-            s!"unsupported ICP semantic shape: ContextRead '{key.value}' has no Icp host binding (unixTimeSeconds/blockHeight/attachedValue/chainId stay fail closed)"
-        -- caller/self remain on this generic envelope (Principal rejected first).
-        planError "unsupported ICP semantic shape: Op.ContextRead is outside the ICP-2 envelope"
+    | .contextRead key => do
+        match instr.result with
+        | none =>
+            planError "unsupported ICP semantic shape: ContextRead must produce a value"
+        | some vd =>
+            if key == unixTimeSecondsContextKeyV1 then
+              unless isUInt64Type types vd.typeId do
+                planError
+                  "unsupported ICP semantic shape: ContextRead unix-time-seconds result must be UInt64"
+              acc := { acc with env := envInsert acc.env vd.valueId .unixTimeSeconds }
+            else if isUnboundUInt64ContextKey key then
+              planError
+                s!"unsupported ICP semantic shape: ContextRead '{key.value}' has no Icp host binding (blockHeight/attachedValue/chainId stay fail closed)"
+            else
+              -- caller/self remain on this generic envelope (Principal first).
+              planError
+                "unsupported ICP semantic shape: Op.ContextRead is outside the ICP-2 envelope"
     | .commit .. =>
         planError "unsupported ICP semantic shape: Op.Commit is outside the ICP-2 envelope"
     | .emit .. =>

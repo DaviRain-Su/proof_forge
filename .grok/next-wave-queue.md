@@ -107,6 +107,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | NOIR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed(...)` Plan FC (existing result-bearing diagnostic). Allowlist `Tests/Materialization/NoirRelationModel.lean`. **Not** response-witness / prove |
 | EVM-CALL-INT-FC | done | Pin Int64 result-bearing CALL Plan FC beside existing Bool pin in `EvmSmoke`. **Not** opening signed ABI / B-CALL-SEM |
 | EVM-CALL-BYTES-FC | done | Pin Bytes 32 result-bearing CALL Plan FC beside Bool/Int64 pins in `EvmSmoke`. **Not** Bytes ABI / B-CALL-SEM |
+| CAP-1a | done | ICP `context.unixTimeSeconds` → `ic0.time` ns÷10⁹ on init/update/query. Other UInt64 ContextRead keys stay named FC. **Not** PocketIC formal / blockHeight / caller |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |
 

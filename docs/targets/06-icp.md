@@ -77,7 +77,7 @@ Candid/stable schema golden → Wasm/System API validation → local replica sin
 | Slice | 状态 | 内容 |
 |---|---|---|
 | **ICP-1** | **done / control plane** | registry implemented、descriptor、resolver（sync+event FC；async advertise）、list/inspect |
-| **ICP-2** | **done / leaf** | target-owned Plan/IR → `.wat` + `.did`；Counter/StateCell UInt64；checked +/-；store-then-read overlay rewrite |
+| **ICP-2** | **done / leaf** | target-owned Plan/IR → `.wat` + `.did`；Counter/StateCell UInt64；checked +/-；store-then-read overlay rewrite；**CAP-1a** `unixTimeSeconds`→`ic0.time` ns÷10⁹ |
 | **ICP-3** | **done / host-optional** | `wat2wasm` Finalize → `.wasm`（`deployable=true`）；PocketIC 15.0.0 StateCell gate；maturity 仍 `source-only`；非 formal/mainnet |
 
 Capability（honest）：`state.persistent`、`value.checked-arithmetic`、`value.bool`、

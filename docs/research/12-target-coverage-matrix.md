@@ -138,7 +138,7 @@ normative: false
 |---|---|---|---|
 | **Soroban** | sole `soroban-source-u64-v1` | public UInt64/Bool/Unit Counter/StateCell `.rs`；4-key；zero-tool Finalize `deployable=false` | auth/TTL/Wasm/stellar-cli；UInt64 ContextRead 四键 named no-host；`pf.crypto.*` / nativeVaultBalance named no-host；Principal `self`/`caller` 在 type-closure 先拒 |
 | **OpenVM** | default `openvm-guest-source-v1`；opt-in `openvm-guest-elf-v1` | 受控 guest tree（O0 zero-tool）；O1 locked `cargo-openvm` 2.0.1 → ELF+`.vmexe` extras 仍 `deployable=false` | keygen/execute/prove/verify；UInt64 ContextRead 四键 / `pf.crypto.*` / nativeVaultBalance named no-host |
-| **ICP** | sole `icp-wasm-candid-u64-v1` | Counter/StateCell `.wat`+`.did`；locked wat2wasm `{name}.wasm` `deployable=true`；host-optional PocketIC | PocketIC 不进 Finalize；sync+event FC；async advertise-only；UInt64 ContextRead 四键 / `pf.crypto.*` / nativeVaultBalance named no-host |
+| **ICP** | sole `icp-wasm-candid-u64-v1` | Counter/StateCell `.wat`+`.did`；locked wat2wasm `{name}.wasm` `deployable=true`；host-optional PocketIC；**CAP-1a** `unixTimeSeconds`→`ic0.time` ns÷10⁹（init/update/query） | PocketIC 不进 Finalize；sync+event FC；async advertise-only；`blockHeight`/`attachedValue`/`chainId` / `pf.crypto.*` / nativeVaultBalance named no-host |
 
 ## 2. 验收/差分覆盖矩阵
 

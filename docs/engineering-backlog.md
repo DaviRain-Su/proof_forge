@@ -453,7 +453,7 @@ D1–D4 = 0/27 done。
 优先序遵循产品判断：**EVM（最完善，formal lighthouse）→ Solana → NEAR → CosmWasm/Wasm**；
 Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 
-**Goal/workflow 入口（2026-08-15）**：next-wave Goal/workflow **已退役**（queue 零 pending）。**不要**再 `/goal @.grok/goals/prompt-next-wave.md` 或 `/workflow next-wave-runner`。日常下一刀见 [`research/28-project-wide-honesty-audit.md`](research/28-project-wide-honesty-audit.md) 与根 [`AGENTS.md`](../AGENTS.md) Next task。Formal / 产品决策项仍不进 drain。
+**Goal/workflow 入口（2026-08-15）**：next-wave Goal/workflow **已退役**（queue 零 pending）。**不要**再 `/goal @.grok/goals/prompt-next-wave.md` 或 `/workflow next-wave-runner`。日常工程下一刀 = [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)（默认 CAP-1a）。对账 [`research/28-project-wide-honesty-audit.md`](research/28-project-wide-honesty-audit.md)。Formal / 产品决策项仍不进 drain。
 
 ```text
 1. EVM formal lighthouse（ADR-0036，仍 proposed；LH-1…28 + Track F **engineering-done**；**不要**把 TASK/TST 标 done）：
@@ -656,7 +656,9 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **NOIR-CALL-RET-FC**：`NoirRelationModel` 钉 `let x : UInt64 := call Oracle.feed` Plan FC（既有 result-bearing 诊断）。void ExtFlow 仍是 witness-binding。**不**开 response-witness / prove |
 | 2026-08-15 | **NEAR-CALL-RET-FC**：`NearHostModel` 钉 result-bearing `Oracle.feed` Plan FC（针是 `result-bearing ExternalCall`，与 void sync 门不同）。**不**开 NEAR generic sync |
 | 2026-08-15 | **EVM-CALL-BYTES-FC**：`EvmSmoke` 钉 Bytes 32 result-bearing CALL 与 Bool/Int64 同门。**不**开 Bytes ABI，**不**关闭 `B-CALL-SEM` |
+| 2026-08-15 | **CAP-1a**：ICP `context.unixTimeSeconds` 绑定 `ic0.time` ns÷10⁹（init/update/query，import 按使用 gated）。`blockHeight`/`attachedValue`/`chainId` 仍 named FC。**不**关 PocketIC formal / caller |
 | 2026-08-15 | **AGENT-NOTES-0**：引入 [`.agents/notes/`](../.agents/notes/README.md) 记 why/why-not（非 ADR、非 formal、非运行日志）。首批五篇：TypeKey 不进 structure gate、EXT-CRYPTO 不自动开、Soroban S0≠Wasm、focused `lake env lean`、Goal 不关 formal。无 format CI。 |
+| 2026-08-15 | **CAP-LAYER-0**：同一能力层 = catalog 行上的 named admit/FC，不是 opcode 对齐、不是第 13 个 TargetId。设计 [`plan/capability-layer-parity.md`](plan/capability-layer-parity.md)；任务 [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。默认可编码 = CAP-1a ICP `unixTimeSeconds`。不关 formal / SOR-1 / Merkle。 |
 | 2026-08-15 | **RPT-028 全仓诚实对账 + 活指针**：Goal-auto drain 标空；AGENTS Next 不再写成「闭合 D2-07」；SBOM 313；Solana sole CPI；ICP 与 zero-tool 拆开；击杀序删已做完的 CALL wide；RPT-014 加 superseded 横幅。**不**关闭 formal 0/27 |
 
 ---

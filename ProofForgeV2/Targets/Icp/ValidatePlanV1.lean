@@ -39,7 +39,7 @@ private def isSafeIdent (name : String) : Bool :=
   isAsciiIdentifier maxIdentifierBytes name && !isReserved name
 
 private partial def exprNodeCount : Expr → Nat
-  | .literal _ | .param _ | .stateLoad _ => 1
+  | .literal _ | .param _ | .stateLoad _ | .unixTimeSeconds => 1
   | .checkedAdd lhs rhs | .checkedSub lhs rhs => 1 + exprNodeCount lhs + exprNodeCount rhs
 
 /-- Iterative, fuel-bounded expression validation over param/state references.
@@ -62,7 +62,7 @@ private def validateExpr
     if depth > maxExprDepth then
       planError s!"ICP plan {what} expression exceeds depth limit"
     match current with
-    | .literal _ => pure ()
+    | .literal _ | .unixTimeSeconds => pure ()
     | .param index =>
         unless index < paramCount do
           planError s!"ICP plan {what} references unknown parameter {index}"

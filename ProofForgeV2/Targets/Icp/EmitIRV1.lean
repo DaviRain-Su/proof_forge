@@ -42,6 +42,7 @@ private def planError (message : String) : CompileResult α :=
 inductive Operation where
   | literal (destination : Nat) (value : UInt64)
   | stateLoad (destination fieldIndex : Nat)
+  | unixTimeSeconds (destination : Nat)
   | checkedAdd (destination lhs rhs : Nat)
   | checkedSub (destination lhs rhs : Nat)
   | storeState (fieldIndex value : Nat)
@@ -79,6 +80,8 @@ private partial def lowerExpr (next : Nat) : Expr → LoweredExpr
   | .param index => { operations := #[], value := index, next := next }
   | .stateLoad fieldIndex =>
       { operations := #[.stateLoad next fieldIndex], value := next, next := next + 1 }
+  | .unixTimeSeconds =>
+      { operations := #[.unixTimeSeconds next], value := next, next := next + 1 }
   | .checkedAdd lhs rhs =>
       let l := lowerExpr next lhs
       let r := lowerExpr l.next rhs
@@ -217,6 +220,9 @@ private def renderOperation : Operation → String
       s!"    (local.set $t{destination} (i64.const {value.toNat}))\n"
   | .stateLoad destination fieldIndex =>
       s!"    (local.set $t{destination} (global.get $g_state_{fieldIndex}))\n"
+  | .unixTimeSeconds destination =>
+      -- CAP-1a: ic0.time is nanoseconds; catalog key is whole Unix seconds.
+      s!"    (local.set $t{destination} (i64.div_u (call $ic0_time) (i64.const 1000000000)))\n"
   | .checkedAdd destination lhs rhs =>
       s!"    (local.set $t{destination} (i64.add (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
       s!"    (if (i64.lt_u (local.get $t{destination}) (local.get $t{lhs})) (then unreachable))\n"
@@ -292,6 +298,16 @@ private def renderMethodFunc (m : MethodIR) (funcName : String) (emitReply : Boo
     out := out ++ "  )\n"
     pure out
 
+private def methodUsesUnixTime (m : MethodIR) : Bool :=
+  m.operations.any fun
+    | .unixTimeSeconds _ => true
+    | _ => false
+
+private def irUsesUnixTime (ir : IR) : Bool :=
+  methodUsesUnixTime ir.initializer ||
+    ir.entries.any methodUsesUnixTime ||
+    ir.views.any methodUsesUnixTime
+
 private def renderStateGlobals (states : Array StateField) : String := Id.run do
   let mut out := ""
   for i in [0:states.size] do
@@ -321,6 +337,9 @@ private def renderModule (ir : IR) : String := Id.run do
     "  (import \"ic0\" \"msg_reply_data_append\" (func $ic0_msg_reply_data_append (param i32 i32)))\n"
   out := out ++
     "  (import \"ic0\" \"msg_reply\" (func $ic0_msg_reply))\n"
+  if irUsesUnixTime ir then
+    out := out ++
+      "  (import \"ic0\" \"time\" (func $ic0_time (result i64)))\n"
   out := out ++ "  (memory (export \"memory\") 1)\n"
   out := out ++ "  (global $pf_cursor (mut i32) (i32.const 0))\n"
   out := out ++ "  (global $pf_reply_len (mut i32) (i32.const 0))\n"

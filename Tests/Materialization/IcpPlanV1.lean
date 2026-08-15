@@ -6,7 +6,9 @@
   DIDL/LEB128 header handling, canister_init/canister_update/canister_query
   exports, Candid nat64 service), registry materialize dispatch, and explicit
   fail-closed boundaries (sync call, emit, schedule, nonempty invariant,
-  aggregates/multi-width).
+  aggregates/multi-width). CAP-1a admits `context.unixTimeSeconds` as
+  `ic0.time` ns÷10⁹ on init/update/query; other UInt64 ContextRead keys stay
+  named fail-closed.
 
   Registered via Tests/Shards/Targets. Materialize is zero-tool; Finalize
   is locked wat2wasm (ICP-1a). Not a PocketIC/dfx/replica lane; not formal D4.
@@ -158,6 +160,8 @@ private unsafe def testStateCellIRAndWat
   expect (wat.contains "\"ic0\" \"msg_arg_data_copy\"") "ic0 msg_arg_data_copy import"
   expect (wat.contains "\"ic0\" \"msg_reply_data_append\"") "ic0 msg_reply_data_append import"
   expect (wat.contains "\"ic0\" \"msg_reply\"") "ic0 msg_reply import"
+  expect (!wat.contains "\"ic0\" \"time\"")
+    "StateCell must not import ic0.time (unixTime is use-gated)"
   expect (wat.contains "(memory (export \"memory\") 1)") "memory export"
   expect (wat.contains "(global $g_state_0 (mut i64) (i64.const 0)) ;; count")
     "state global for count"
@@ -241,10 +245,45 @@ private unsafe def testCryptoSha256StayFailClosed
     "has no Icp host binding" "ecdsaRecoverSecp256k1"
   IO.println "  ✓ pf.crypto.sha256/keccak256 stay fail closed (no Icp host)"
 
-/-- SYS-S4: ICP has no unixTime/blockHeight/attachedValue/chainId host.
-    Named UInt64 ContextRead keys stay Plan fail closed. caller/self are
-    Principal and stay on the generic ContextRead envelope (ICP-2 rejects
-    Principal at type closure first). -/
+/-- CAP-1a: `context.unixTimeSeconds` binds `ic0.time` ns÷10⁹ on init,
+    update, and query. Residual UInt64 keys stay named fail-closed. -/
+private unsafe def testUnixTimeSecondsAdmitted
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "UnixTimeIcp" <|
+    "  state pad : UInt64\n\n" ++
+      "  init() do\n" ++
+      "    pad := context.unixTimeSeconds\n\n" ++
+      "  entry now() : UInt64 do\n" ++
+      "    return context.unixTimeSeconds\n\n" ++
+      "  view peek() : UInt64 do\n" ++
+      "    return context.unixTimeSeconds\n"
+  let compiled ← compileSource session src "Examples.UnixTimeIcp" "<icp-unix-time>"
+  let plan ← liftResult <| planIcp compiled
+  let initStoresUnix := plan.initializer.body.any fun
+    | .store 0 .unixTimeSeconds => true
+    | _ => false
+  expect initStoresUnix "init must store unixTimeSeconds into pad"
+  let now ← findMethod plan "now"
+  expect (now.body == #[.returnValue .unixTimeSeconds])
+    "entry now must return unixTimeSeconds"
+  let peek ← findMethod plan "peek"
+  expect (peek.mode == .query) "peek must be a query"
+  expect (peek.body == #[.returnValue .unixTimeSeconds])
+    "view peek must return unixTimeSeconds"
+  let files ← liftResult <| filesIcp compiled
+  let wat ← findFile files "UnixTimeIcp.wat"
+  expect (wat.contains "\"ic0\" \"time\"") "WAT must import ic0.time"
+  expect (wat.contains "(call $ic0_time)") "WAT must call ic0.time"
+  expect (wat.contains "i64.div_u") "WAT must divide nanoseconds"
+  expect (wat.contains "1000000000") "WAT must use 10^9 seconds divisor"
+  expect (wat.contains "(export \"canister_update now\"") "entry export"
+  expect (wat.contains "(export \"canister_query peek\"") "query export"
+  IO.println "  ✓ context.unixTimeSeconds → ic0.time ns÷10^9 (init/entry/view)"
+
+/-- SYS-S4 residual: ICP has no blockHeight/attachedValue/chainId host.
+    Those named UInt64 ContextRead keys stay Plan fail closed. caller/self
+    are Principal and stay on the generic ContextRead envelope (ICP-2
+    rejects Principal at type closure first). -/
 private unsafe def testContextReadStayFailClosed
     (session : Language.Loader.ParserSession) : IO Unit := do
   let expectPlanFc (programName pathLabel moduleName body needle schemaId : String) :
@@ -268,9 +307,6 @@ private unsafe def testContextReadStayFailClosed
       "    return " ++ place ++ "\n\n" ++
       "  view get() : UInt64 do\n" ++
       "    return pad\n"
-  expectPlanFc "UnixTimeIcp" "<icp-unix-time>" "Examples.UnixTimeIcp"
-    (ctxBody "context.unixTimeSeconds") "has no Icp host binding"
-    "proof-forge.context.unix-time-seconds.v1"
   expectPlanFc "BlockHeightIcp" "<icp-block-height>" "Examples.BlockHeightIcp"
     (ctxBody "context.blockHeight") "has no Icp host binding"
     "proof-forge.context.block-height.v1"
@@ -471,6 +507,7 @@ unsafe def run : IO Unit := do
   testStateCellIRAndWat session
   testCallSyncFc session
   testCryptoSha256StayFailClosed session
+  testUnixTimeSecondsAdmitted session
   testContextReadStayFailClosed session
   testEnvReadNativeStayFailClosed session
   testEmitFc session
