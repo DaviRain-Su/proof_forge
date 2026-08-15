@@ -208,6 +208,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-OPT-U8-QS | done | OptU8 Option UInt8 12-target all FC (UInt8 ≠ UInt16): eight Option-payload including Aleo/TON; Quint/Soroban/OpenVM/ICP width. Last narrow unsigned Option pin |
 | MAT-MAP-U8-KEY-QS | done | MapU8Key Map UInt8 UInt64 12-target all FC (UInt8-key ≠ UInt16-key): EVM/Solana key-shape; five Map-U64-U64 including Aleo/TON; Psy pilot; Quint/Soroban/OpenVM/ICP width. Last narrow unsigned Map-key pin |
 | MAT-MAP-U16-QS | done | MapU16 Map UInt64 UInt16 12-target all FC (UInt16-value ≠ UInt32-value / UInt16-key): EVM/Solana value needle; five Map-U64-U64 including Aleo/TON; Psy pilot; Quint/Soroban/OpenVM/ICP width. **Not** opening Map-of-UInt16 |
+| MAT-MAP-U8-QS | done | MapU8 Map UInt64 UInt8 12-target all FC (UInt8-value ≠ UInt16-value / UInt8-key): EVM/Solana value needle; five Map-U64-U64 including Aleo/TON; Psy pilot; Quint/Soroban/OpenVM/ICP width. Last narrow unsigned Map-value pin |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | QUINT-CALL-RET-FC | done | Pin value-position `let y : UInt64 := call Oracle.feed` Plan FC (`result-bearing externalCall is outside Q0`, distinct from void A5). **Not** opening result-bearing CALL / Q0 |
