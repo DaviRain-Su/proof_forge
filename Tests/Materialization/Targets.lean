@@ -916,6 +916,19 @@ private unsafe def testBoolPredicateSemanticPlans : IO Unit := do
     throw <| IO.userError "bool-predicate: missing NEAR ABI"
   expect (nearAbi.contents.contains "\"bool\"")
     "NEAR ABI must carry the bool result type"
+  -- Extra eight + EVM from probe; Bool view/entry lighthouse. Ten materialize.
+  -- Aleo computed-view and ICP Unit/UInt64 view-result stay named FC.
+  -- Not opening a new shape; existing four Plan/IR/IDL pins unchanged.
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy, TargetId.quint, TargetId.cosmwasm, TargetId.ton,
+      TargetId.soroban, TargetId.openvm] do
+    let out ← liftResult <| materializeSelected target compiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"BoolPredicate: {target} must materialize"
+  expectMaterializePlanInvariantV1 "BoolPredicate" TargetId.aleo TargetKind.aleo
+    compiled "Aleo computed state views fail closed"
+  expectMaterializePlanInvariantV1 "BoolPredicate" TargetId.icp TargetKind.icp
+    compiled "view 'positive' result must be public Unit or UInt64"
 
 /-- ProgramV1 branching source text for the Wave C if/match multi-block leaf. -/
 private def branchFlowSourceTextV1 : String :=
