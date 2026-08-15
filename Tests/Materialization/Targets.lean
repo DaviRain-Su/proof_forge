@@ -590,6 +590,22 @@ private unsafe def testAnonymousResultMaterializationFailClosed : IO Unit := do
   | .error e =>
       throw <| IO.userError
         s!"anonymous-result: cosmwasm must admit Array UInt64 2 view return, got {e.render}"
+  -- Extra four from probe; Aleo view-over-state stays FC (dedicated pin above).
+  -- Quint/Soroban/ICP/OpenVM stay envelope FC. Not opening Array view-return.
+  for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
+    match materializeSelected target compiled with
+    | .ok _ =>
+        throw <| IO.userError
+          s!"anonymous-result: {target} must decline Array view-return"
+    | .error e =>
+        expect ((e.render).contains "Array" ||
+            (e.render).contains "aggregate" ||
+            (e.render).contains "query" ||
+            (e.render).contains "container" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot" ||
+            (e.render).contains "anonymous")
+          s!"anonymous-result {target} message must cite Array/container boundary, got {e.render}"
 
 private def testSemanticPlanSourceAuthority : IO Unit := do
   for target in #["Evm", "Solana", "Near", "Noir"] do
