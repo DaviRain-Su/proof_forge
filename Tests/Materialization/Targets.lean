@@ -2116,7 +2116,11 @@ unsafe def run : IO Unit := do
       #["uint64"] == "7e355592")
     "EVM selector hashing must absorb signatures longer than one Keccak rate block"
   -- Product aggregate: CompiledSemanticV1 only (no bare-alpha materializeResult).
-  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir] do
+  -- Extra eight from probe; public UInt64 StateCell is the shared lighthouse.
+  -- All twelve implemented targets admit. Not opening a new type/capability.
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.aleo, TargetId.psy, TargetId.quint, TargetId.cosmwasm,
+      TargetId.ton, TargetId.soroban, TargetId.openvm, TargetId.icp] do
     let output ← liftResult <| materializeSelected target stateCellCompiled
     expect (!(MaterializedArtifactsV1.filesOf output).isEmpty)
       s!"{target} must emit at least one artifact"
