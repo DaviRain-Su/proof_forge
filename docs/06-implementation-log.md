@@ -16428,3 +16428,23 @@ normative: false
 - Verification：`lake build ProofForgeV2.Targets.Solana.StaticAlignmentV1`、
   `lake build ProofForgeV2.Targets.Solana.SbpfOptionStateProductionV1`、
   `lake build Tests.Targets.SolanaAsmV1`及direct runner（`Tests.Targets.SolanaAsmV1: ok`）通过。
+
+## 2026-08-15 — generic switch HandlerIR target theorem and real peek certificate
+
+- `StaticAlignmentV1`新增exact one-case UInt64 switch HandlerIR recognizer和proof-carrying
+  certificate。selector/case/default中重复出现的local、account、offset、case value、literal、return
+  width/source全部独立保留，再由单独Plan join绑定production layout；contract/method name只是被绑定的
+  metadata，不参与识别dispatch。
+- `HandlerSemanticsV1`在唯一bounded evaluator上证明selected与default两条通用kernel execution/
+  observation theorem：selected branch返回account-loaded 8-byte word，default branch返回对齐的literal，
+  两者都精确保持read-only account array。定理不解释selector的Option含义、不增加业务step、provider
+  trace或proof-only HandlerIR→sBPF lowering。
+- 真实source-derived `OptionState.peek(Some 77)` resolver现要求proof-carrying recognition和Plan
+  tag/payload join，并在subject内保留syntax、alignment、discriminator与invocation等式。由已有
+  `OptionUInt64LogicalStateAccountRelV1`直接推出无额外Boolean前提的exact Handler observation theorem；
+  `Some 77`返回77且account stutter。测试固定method-name independence，并让错误switch local、tag
+  offset、case value、default literal、return source及missing case/default fail closed。
+- focused `lake build Tests.Targets.SolanaAsmV1`与direct runner（`Tests.Targets.SolanaAsmV1: ok`）通过。
+  本切片只闭合HandlerIR target层；Reference/provider composition仍保留既有Boolean premise，
+  `StateCell.get`仍阻塞在emitter bytes→pinned SHA identity witness，也不宣称ELF/linker/loader或
+  Mollusk/validator/SVM refinement。

@@ -1029,6 +1029,15 @@ private unsafe def testStateCellSbpfExecution : IO Unit := do
     branches run through the sole Reference machine, production HandlerIR, and
     the identity-bound assembly provider; malformed identities and invocations
     remain fail closed. -/
+private theorem optionStatePeekTargetObservationFixtureV1
+    (subject : ResolvedOptionStatePeekProductionSubjectV1) :
+    observeHandlerIRV1 subject.handler subject.handlerInvocation = {
+      invocation := subject.handlerInvocation
+      outcome := .returned (some subject.returnBytes)
+      postAccounts := subject.handlerInvocation.accounts
+    } :=
+  resolvedOptionStatePeekProductionSubjectV1_handlerObservation subject
+
 private unsafe def testOptionStatePeekProduction : IO Unit := do
   expect checkOptionStatePeekProductionSubjectV1
     "OptionState peek: production HandlerIR/provider gate"
@@ -1039,6 +1048,12 @@ private unsafe def testOptionStatePeekProduction : IO Unit := do
       subject.method.callable.name == some "peek" &&
       subject.handler.name == "peek")
     "OptionState peek: generic method resolver selected the wrong rows"
+  expect (checkNullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1 subject.plan
+      subject.binding.tagByteOffset subject.binding.payloadByteOffset
+      (optionUInt64TagV1 (some 77)) (optionUInt64PayloadV1 none)
+      subject.handler.name subject.handler.discriminator
+      subject.targetSyntax.shape)
+    "OptionState peek: retained exact switch HandlerIR/Plan alignment"
   expect (checkOptionUInt64LogicalStateAccountRelV1 subject.data subject.plan
       subject.binding subject.referencePre subject.accountData (some 77))
     "OptionState peek: Some logical/account representation relation"
@@ -1057,6 +1072,53 @@ private unsafe def testOptionStatePeekProduction : IO Unit := do
   expect (provider.observation.finalAccountData ==
       some subject.loaderInvocation.accountData)
     "OptionState peek: provider must preserve the read-only Some account"
+
+  let renamedHandler := { subject.handler with name := "renamedSwitchView" }
+  let renamedShape ← match
+      certifyNullaryOneCaseUInt64SwitchViewHandlerIRV1 renamedHandler with
+    | some certified => pure certified.shape
+    | none =>
+        throw (IO.userError "switch recognizer unexpectedly depends on method name")
+  expect (checkNullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1 subject.plan
+      subject.binding.tagByteOffset subject.binding.payloadByteOffset
+      (optionUInt64TagV1 (some 77)) (optionUInt64PayloadV1 none)
+      renamedHandler.name renamedHandler.discriminator renamedShape)
+    "switch recognizer and Plan join must be contract/name independent"
+  let wrongSwitchLocal := { subject.targetSyntax.shape with switchScrutinee := 7 }
+  expect (!checkNullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1 subject.plan
+      subject.binding.tagByteOffset subject.binding.payloadByteOffset
+      (optionUInt64TagV1 (some 77)) (optionUInt64PayloadV1 none)
+      subject.handler.name subject.handler.discriminator wrongSwitchLocal)
+    "switch Plan join must reject a changed scrutinee local"
+  let wrongTagOffset := { subject.targetSyntax.shape with
+    scrutineeOffset := subject.binding.tagByteOffset + 1 }
+  expect (!checkNullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1 subject.plan
+      subject.binding.tagByteOffset subject.binding.payloadByteOffset
+      (optionUInt64TagV1 (some 77)) (optionUInt64PayloadV1 none)
+      subject.handler.name subject.handler.discriminator wrongTagOffset)
+    "switch Plan join must reject a changed selector offset"
+  let wrongCase := { subject.targetSyntax.shape with caseValue := 2 }
+  expect (!checkNullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1 subject.plan
+      subject.binding.tagByteOffset subject.binding.payloadByteOffset
+      (optionUInt64TagV1 (some 77)) (optionUInt64PayloadV1 none)
+      subject.handler.name subject.handler.discriminator wrongCase)
+    "switch Plan join must reject a changed case value"
+  let wrongDefault := { subject.targetSyntax.shape with defaultValue := 9 }
+  expect (!checkNullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1 subject.plan
+      subject.binding.tagByteOffset subject.binding.payloadByteOffset
+      (optionUInt64TagV1 (some 77)) (optionUInt64PayloadV1 none)
+      subject.handler.name subject.handler.discriminator wrongDefault)
+    "switch Plan join must reject a changed default literal"
+  let wrongReturnSource := { subject.targetSyntax.shape with caseReturnSource := 0 }
+  expect (!checkNullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1 subject.plan
+      subject.binding.tagByteOffset subject.binding.payloadByteOffset
+      (optionUInt64TagV1 (some 77)) (optionUInt64PayloadV1 none)
+      subject.handler.name subject.handler.discriminator wrongReturnSource)
+    "switch Plan join must reject a changed case return source"
+  let missingDefault := { subject.handler with
+    operations := subject.handler.operations.set! 1 (.switchRegion 0 #[] #[]) }
+  expect ((certifyNullaryOneCaseUInt64SwitchViewHandlerIRV1 missingDefault).isNone)
+    "switch syntax recognizer must reject missing case/default branches"
 
   let nonePre ← match encodeLogicalStateValuesV1 subject.data true
       #[encodeOptionUInt64ValueV1 none] with

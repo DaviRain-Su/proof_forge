@@ -197,7 +197,10 @@ production Semantic/Plan/switch HandlerIR →唯一Reference machine →identity
 共享Loader/provider resolver。新增的`Option UInt64`关系只连接canonical Reference value bytes与
 Solana marker/tag/payload表示，不解释Option业务；`Some 77`和`None`两条分支均在Reference、
 HandlerIR和provider返回一致且read-only账户不变。错误method/artifact/status/fuel和短账户均
-fail closed。该结果仍是有Boolean前提的proof-producing gate，不是无条件一般
+fail closed。`peek`的exact one-case switch syntax现另有proof-carrying recognizer和独立Plan join；
+selected/default两条通用kernel theorem分别证明account-load/literal return与read-only account
+stutter，真实`peek(Some 77)` subject保留certificate并有无额外Boolean前提的Handler observation
+theorem。Reference/provider composition仍是有Boolean前提的proof-producing gate，不是无条件一般
 Reference→sBPF/ELF/validator refinement。`getOpt()`多字Option返回的通用typed aggregate
 observation现也已闭合：bounded HandlerIR evaluator新增method-name-independent
 nullary aggregate recipe，只接受1..8个distinct 8-byte production account loads并按exact leaf order
@@ -335,7 +338,10 @@ Phase 1 在本地 runtime/validator 创建 program 与 state accounts，发送 i
      Loader encoder/execute等式；certified join gate的invocation/observation checker与sound carrier mint
      也已闭合。通用two-leaf aggregate target theorem已从exact HandlerIR recognition + repeated-field
      Plan join推出ordered 16-byte return与read-only account stutter；真实`OptionState.getOpt` subject
-     已保留该certificate并有无额外Boolean前提的Handler observation theorem。该结论止于HandlerIR层。
+     已保留该certificate并有无额外Boolean前提的Handler observation theorem。通用one-case switch
+     target theorem也已覆盖selected account-load与literal default两条execution/observation；真实
+     `OptionState.peek(Some 77)` subject同样保留certificate并有unconditional Handler observation。
+     这些结论止于HandlerIR层。
      尚需在具体production theorem中kernel-discharge provider gate并应用Reference→Handler proof；当前
      `StateCell.get`精确阻塞在emitter输出bytes与pinned assembly SHA-256的kernel等式，certificate replay
      只能消费、不能创造该identity witness。

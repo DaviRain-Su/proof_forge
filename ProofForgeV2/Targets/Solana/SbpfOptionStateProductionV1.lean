@@ -68,9 +68,22 @@ structure ResolvedOptionStatePeekProductionSubjectV1 where
     preparation.productionPlan binding referencePre accountData (some 77)
   referenceExecution : CertifiedSolanaProductionMethodReferenceV1 method
     referencePre #[] #[] #[] {}
+  targetSyntax :
+    CertifiedNullaryOneCaseUInt64SwitchViewHandlerIRV1 method.handler
+  targetAlignment : NullaryOneCaseUInt64SwitchViewStaticAlignmentV1
+    preparation.productionPlan binding.tagByteOffset binding.payloadByteOffset
+      (optionUInt64TagV1 (some 77)) (optionUInt64PayloadV1 none)
+      method.handler.name method.handler.discriminator method.handler
+  discriminatorValue : UInt64
+  discriminatorEquation :
+    discriminatorToLeU64V1 method.handler.discriminator = .ok discriminatorValue
   handlerInvocation : InvocationObservationV1
+  handlerInvocationExact : handlerInvocation =
+    nullaryUInt64ViewInvocationV1 accountData discriminatorValue
   loaderInvocation : LoaderV3SingleAccountInvocationV1
   returnBytes : ByteArray
+  returnBytesExact : returnBytes =
+    encodeU64le (optionUInt64PayloadV1 (some 77))
 
 namespace ResolvedOptionStatePeekProductionSubjectV1
 
@@ -108,11 +121,6 @@ def returnTypeId (subject : ResolvedOptionStatePeekProductionSubjectV1) :=
   subject.method.callable.result.typeId
 
 end ResolvedOptionStatePeekProductionSubjectV1
-
-private def compileResultV1 (result : CompileResult α) : Except String α :=
-  match result with
-  | .ok value => .ok value
-  | .error error => .error error.render
 
 /-- Reconstruct the shared `Some 77` logical/account state only through actual
     production stages. No method is required to establish this authority. -/
@@ -191,20 +199,72 @@ def resolveOptionStatePeekProductionSubjectV1 :
   let preparation := shared.preparation
   let method ← resolveCertifiedSolanaProductionMethodV1 preparation
     .view (some "peek") "peek"
-  unless isSupportedNullaryUInt64SwitchViewHandlerIRV1 method.handler do
-    throw "production OptionState.peek is not a supported switch-view HandlerIR"
-  let referenceExecution :=
-    executeCertifiedSolanaProductionMethodReferenceV1 method shared.referencePre
-      #[] #[] #[] {}
-  let discriminator ← compileResultV1 <|
-    discriminatorToLeU64V1 method.handler.discriminator
-  let handlerInvocation :=
-    nullaryUInt64ViewInvocationV1 shared.accountData discriminator
-  let loaderInvocation :=
-    optionStateNullaryLoaderInvocationV1 shared.accountData discriminator
-  pure <| ResolvedOptionStatePeekProductionSubjectV1.mk preparation method
-    shared.binding shared.referencePre shared.accountData shared.accountRelation
-    referenceExecution handlerInvocation loaderInvocation (encodeU64le 77)
+  let recognized ← match
+      certifyNullaryOneCaseUInt64SwitchViewHandlerIRV1 method.handler with
+    | some certified => pure certified
+    | none =>
+        throw "production OptionState.peek is not an exact one-case switch HandlerIR"
+  let plan := preparation.productionPlan
+  if hshape : checkNullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1 plan
+      shared.binding.tagByteOffset shared.binding.payloadByteOffset
+      (optionUInt64TagV1 (some 77)) (optionUInt64PayloadV1 none)
+      method.handler.name method.handler.discriminator recognized.shape = true then
+    have hshapeRel :=
+      (checkNullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1_eq_true_iff plan
+        shared.binding.tagByteOffset shared.binding.payloadByteOffset
+        (optionUInt64TagV1 (some 77)) (optionUInt64PayloadV1 none)
+        method.handler.name method.handler.discriminator recognized.shape).mp
+          hshape
+    have howner : plan.stateAccount.ownerPolicy = .currentProgram := by
+      cases plan.stateAccount.ownerPolicy
+      rfl
+    let targetAlignment :=
+      nullaryOneCaseUInt64SwitchViewStaticAlignmentV1_of_recognized plan
+        shared.binding.tagByteOffset shared.binding.payloadByteOffset
+        (optionUInt64TagV1 (some 77)) (optionUInt64PayloadV1 none)
+        method.handler.name method.handler.discriminator method.handler
+        recognized.shape recognized.recognition howner hshapeRel
+    let referenceExecution :=
+      executeCertifiedSolanaProductionMethodReferenceV1 method shared.referencePre
+        #[] #[] #[] {}
+    match hdiscriminator :
+        discriminatorToLeU64V1 method.handler.discriminator with
+    | .error error => throw error.render
+    | .ok discriminatorValue =>
+      let handlerInvocation :=
+        nullaryUInt64ViewInvocationV1 shared.accountData discriminatorValue
+      let loaderInvocation :=
+        optionStateNullaryLoaderInvocationV1 shared.accountData discriminatorValue
+      pure <| ResolvedOptionStatePeekProductionSubjectV1.mk preparation method
+        shared.binding shared.referencePre shared.accountData
+        shared.accountRelation referenceExecution recognized targetAlignment
+        discriminatorValue hdiscriminator handlerInvocation rfl loaderInvocation
+        (encodeU64le 77) rfl
+  else
+    throw "production OptionState.peek HandlerIR does not align with its Plan"
+
+/-- Every resolved real `peek(Some 77)` subject carries a kernel proof of its
+    exact selected-case target observation. Resolution is the only place that
+    evaluates source/compiler metadata; this theorem consumes the retained
+    structural certificate and account relation. -/
+theorem resolvedOptionStatePeekProductionSubjectV1_handlerObservation
+    (subject : ResolvedOptionStatePeekProductionSubjectV1) :
+    observeHandlerIRV1 subject.handler subject.handlerInvocation = {
+      invocation := subject.handlerInvocation
+      outcome := .returned (some subject.returnBytes)
+      postAccounts := subject.handlerInvocation.accounts
+    } := by
+  rcases subject.accountRelation with
+    ⟨_, _, _, hdataLength, hheader, htag, hpayload⟩
+  rw [subject.handlerInvocationExact, subject.returnBytesExact]
+  exact
+    observeHandlerIRV1_of_nullaryOneCaseUInt64SwitchViewStaticAlignment_case
+      subject.plan subject.binding.tagByteOffset subject.binding.payloadByteOffset
+      (optionUInt64TagV1 (some 77)) (optionUInt64PayloadV1 none)
+      subject.handler.name subject.handler.discriminator subject.handler
+      subject.accountData subject.discriminatorValue
+      (optionUInt64PayloadV1 (some 77)) subject.targetAlignment
+      subject.discriminatorEquation hdataLength hheader htag hpayload
 
 /-- Fail-closed production HandlerIR/provider gate for the exact exported
     OptionState subject. -/

@@ -1017,6 +1017,394 @@ theorem isSupportedNullaryAggregateViewHandlerIRV1_of_twoLeafAlignment
   have hcases : index = 0 ∨ index = 1 := by omega
   rcases hcases with rfl | rfl <;> simp
 
+/-- Complete syntax recovered from the bounded one-case UInt64 switch-view
+    recipe. Every repeated local, account, layout, branch, and return field is
+    retained independently so the Plan join can reject target tampering. -/
+structure NullaryOneCaseUInt64SwitchViewHandlerIRShapeV1 where
+  viewName : String
+  discriminator : String
+  accessAccountIndex : Nat
+  accessDataLen : Nat
+  accountCount : Nat
+  nonDuplicateAccountIndex : Nat
+  inputLen : Nat
+  ownerAccountIndex : Nat
+  dataLenAccountIndex : Nat
+  checkedDataLen : Nat
+  headerAccountIndex : Nat
+  headerOffset : Nat
+  initializedMarker : UInt64
+  scrutineeDestination : Nat
+  scrutineeLoadAccountIndex : Nat
+  scrutineeOffset : Nat
+  switchScrutinee : Nat
+  caseValue : UInt64
+  caseDestination : Nat
+  caseLoadAccountIndex : Nat
+  caseOffset : Nat
+  caseReturnWidth : Nat
+  caseReturnSource : Nat
+  defaultDestination : Nat
+  defaultValue : UInt64
+  defaultReturnWidth : Nat
+  defaultReturnSource : Nat
+  deriving Repr
+
+/-- Recognize one account-loaded switch scrutinee, one account-loaded case,
+    and one literal default. Contract and method names are data, not dispatch
+    keys, and this recognizer does not interpret the tag as an Option. -/
+def recognizeNullaryOneCaseUInt64SwitchViewHandlerIRV1
+    (handlerIR : HandlerIR) :
+    Option NullaryOneCaseUInt64SwitchViewHandlerIRShapeV1 :=
+  match handlerIR.params.toList, handlerIR.mode, handlerIR.resultKind,
+      handlerIR.accountAccess.ownerPolicy,
+      handlerIR.accountAccess.signerRequired,
+      handlerIR.accountAccess.writableRequired,
+      handlerIR.accountAccess.initialization with
+  | [], .view, .u64, .currentProgram, false, false, .mustBeInitialized =>
+    match handlerIR.checks.toList, handlerIR.operations.toList with
+    | [
+        .numAccounts accountCount,
+        .accountNonDuplicate nonDuplicateAccountIndex,
+        .instructionDataLen inputLen,
+        .ownerCurrentProgram ownerAccountIndex,
+        .accountDataLen dataLenAccountIndex checkedDataLen,
+        .headerEquals headerAccountIndex headerOffset initializedMarker
+      ], [
+        .loadState scrutineeDestination scrutineeLoadAccountIndex
+          scrutineeOffset,
+        .switchRegion switchScrutinee cases defaultOps
+      ] =>
+      match cases.toList, defaultOps.toList with
+      | [(caseValue, caseOps)], [
+          .literal defaultDestination defaultValue,
+          .setReturnData defaultReturnWidth defaultReturnSource,
+          .returnNone
+        ] =>
+        match caseOps.toList with
+        | [
+            .loadState caseDestination caseLoadAccountIndex caseOffset,
+            .setReturnData caseReturnWidth caseReturnSource,
+            .returnNone
+          ] => some {
+            viewName := handlerIR.name
+            discriminator := handlerIR.discriminator
+            accessAccountIndex := handlerIR.accountAccess.accountIndex
+            accessDataLen := handlerIR.accountAccess.exactDataLen
+            accountCount
+            nonDuplicateAccountIndex
+            inputLen
+            ownerAccountIndex
+            dataLenAccountIndex
+            checkedDataLen
+            headerAccountIndex
+            headerOffset
+            initializedMarker
+            scrutineeDestination
+            scrutineeLoadAccountIndex
+            scrutineeOffset
+            switchScrutinee
+            caseValue
+            caseDestination
+            caseLoadAccountIndex
+            caseOffset
+            caseReturnWidth
+            caseReturnSource
+            defaultDestination
+            defaultValue
+            defaultReturnWidth
+            defaultReturnSource
+          }
+        | _ => none
+      | _, _ => none
+    | _, _ => none
+  | _, _, _, _, _, _, _ => none
+
+/-- Successful recognition determines the complete one-case switch HandlerIR. -/
+theorem recognizeNullaryOneCaseUInt64SwitchViewHandlerIRV1_sound
+    (handlerIR : HandlerIR)
+    (shape : NullaryOneCaseUInt64SwitchViewHandlerIRShapeV1)
+    (hrecognize :
+      recognizeNullaryOneCaseUInt64SwitchViewHandlerIRV1 handlerIR =
+        some shape) :
+    handlerIR = {
+      name := shape.viewName
+      discriminator := shape.discriminator
+      params := #[]
+      mode := .view
+      resultKind := .u64
+      accountAccess := {
+        accountIndex := shape.accessAccountIndex
+        ownerPolicy := .currentProgram
+        exactDataLen := shape.accessDataLen
+        signerRequired := false
+        writableRequired := false
+        initialization := .mustBeInitialized
+      }
+      checks := #[
+        .numAccounts shape.accountCount,
+        .accountNonDuplicate shape.nonDuplicateAccountIndex,
+        .instructionDataLen shape.inputLen,
+        .ownerCurrentProgram shape.ownerAccountIndex,
+        .accountDataLen shape.dataLenAccountIndex shape.checkedDataLen,
+        .headerEquals shape.headerAccountIndex shape.headerOffset
+          shape.initializedMarker
+      ]
+      operations := #[
+        .loadState shape.scrutineeDestination
+          shape.scrutineeLoadAccountIndex shape.scrutineeOffset,
+        .switchRegion shape.switchScrutinee #[
+          (shape.caseValue, #[
+            .loadState shape.caseDestination shape.caseLoadAccountIndex
+              shape.caseOffset,
+            .setReturnData shape.caseReturnWidth shape.caseReturnSource,
+            .returnNone
+          ])
+        ] #[
+          .literal shape.defaultDestination shape.defaultValue,
+          .setReturnData shape.defaultReturnWidth shape.defaultReturnSource,
+          .returnNone
+        ]
+      ]
+    } := by
+  rcases handlerIR with ⟨name, discriminator, params, mode, resultKind,
+    accountAccess, checks, operations⟩
+  rcases accountAccess with ⟨accountIndex, ownerPolicy, exactDataLen,
+    signerRequired, writableRequired, initialization⟩
+  simp only [recognizeNullaryOneCaseUInt64SwitchViewHandlerIRV1] at hrecognize
+  split at hrecognize
+  · split at hrecognize
+    · split at hrecognize
+      · split at hrecognize
+        · cases hrecognize
+          simp_all
+          simp only [← Array.toList_inj]
+          simp_all
+          simp only [← Array.toList_inj]
+          simp_all
+          exact Array.toList_inj.mp (by assumption)
+        · contradiction
+      · contradiction
+    · contradiction
+  · contradiction
+
+/-- Proof-carrying result of the exact one-case switch syntax recognizer. -/
+structure CertifiedNullaryOneCaseUInt64SwitchViewHandlerIRV1
+    (handlerIR : HandlerIR) where
+  private mk ::
+  shape : NullaryOneCaseUInt64SwitchViewHandlerIRShapeV1
+  recognition :
+    recognizeNullaryOneCaseUInt64SwitchViewHandlerIRV1 handlerIR = some shape
+
+/-- Package successful switch recognition for production resolvers. -/
+def certifyNullaryOneCaseUInt64SwitchViewHandlerIRV1
+    (handlerIR : HandlerIR) :
+    Option (CertifiedNullaryOneCaseUInt64SwitchViewHandlerIRV1 handlerIR) :=
+  match hrecognize :
+      recognizeNullaryOneCaseUInt64SwitchViewHandlerIRV1 handlerIR with
+  | some shape => some <|
+      CertifiedNullaryOneCaseUInt64SwitchViewHandlerIRV1.mk shape hrecognize
+  | none => none
+
+/-- Join all independently recognized switch fields to one production Plan.
+    The selected tag and literal fallback are target metadata supplied by the
+    caller; no business-language operation is evaluated here. -/
+def NullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1
+    (plan : Plan)
+    (scrutineeOffset caseOffset : Nat)
+    (selectedTag defaultValue : UInt64)
+    (viewName discriminator : String)
+    (shape : NullaryOneCaseUInt64SwitchViewHandlerIRShapeV1) : Prop :=
+  shape.viewName = viewName ∧
+  shape.discriminator = discriminator ∧
+  shape.accessAccountIndex = plan.stateAccount.index ∧
+  shape.accessDataLen = plan.stateAccount.exactDataLen ∧
+  shape.accountCount = 1 ∧
+  shape.nonDuplicateAccountIndex = plan.stateAccount.index ∧
+  shape.inputLen = 8 ∧
+  shape.ownerAccountIndex = plan.stateAccount.index ∧
+  shape.dataLenAccountIndex = plan.stateAccount.index ∧
+  shape.checkedDataLen = plan.stateAccount.exactDataLen ∧
+  shape.headerAccountIndex = plan.stateAccount.index ∧
+  shape.headerOffset = plan.stateAccount.headerOffset ∧
+  shape.initializedMarker = plan.stateAccount.initializedMarker ∧
+  shape.scrutineeDestination = 0 ∧
+  shape.scrutineeLoadAccountIndex = plan.stateAccount.index ∧
+  shape.scrutineeOffset = scrutineeOffset ∧
+  shape.switchScrutinee = 0 ∧
+  shape.caseValue = selectedTag ∧
+  shape.caseDestination = 1 ∧
+  shape.caseLoadAccountIndex = plan.stateAccount.index ∧
+  shape.caseOffset = caseOffset ∧
+  shape.caseReturnWidth = 8 ∧
+  shape.caseReturnSource = 1 ∧
+  shape.defaultDestination = 1 ∧
+  shape.defaultValue = defaultValue ∧
+  shape.defaultReturnWidth = 8 ∧
+  shape.defaultReturnSource = 1 ∧
+  plan.stateAccount.index = 0 ∧
+  plan.stateAccount.headerWidth = 8 ∧
+  plan.stateAccount.headerOffset ≠ scrutineeOffset ∧
+  plan.stateAccount.headerOffset ≠ caseOffset ∧
+  scrutineeOffset ≠ caseOffset
+
+/-- Executable, fail-closed form of the switch syntax/Plan join. -/
+def checkNullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1
+    (plan : Plan)
+    (scrutineeOffset caseOffset : Nat)
+    (selectedTag defaultValue : UInt64)
+    (viewName discriminator : String)
+    (shape : NullaryOneCaseUInt64SwitchViewHandlerIRShapeV1) : Bool :=
+  shape.viewName == viewName &&
+  shape.discriminator == discriminator &&
+  shape.accessAccountIndex == plan.stateAccount.index &&
+  shape.accessDataLen == plan.stateAccount.exactDataLen &&
+  shape.accountCount == 1 &&
+  shape.nonDuplicateAccountIndex == plan.stateAccount.index &&
+  shape.inputLen == 8 &&
+  shape.ownerAccountIndex == plan.stateAccount.index &&
+  shape.dataLenAccountIndex == plan.stateAccount.index &&
+  shape.checkedDataLen == plan.stateAccount.exactDataLen &&
+  shape.headerAccountIndex == plan.stateAccount.index &&
+  shape.headerOffset == plan.stateAccount.headerOffset &&
+  shape.initializedMarker == plan.stateAccount.initializedMarker &&
+  shape.scrutineeDestination == 0 &&
+  shape.scrutineeLoadAccountIndex == plan.stateAccount.index &&
+  shape.scrutineeOffset == scrutineeOffset &&
+  shape.switchScrutinee == 0 &&
+  shape.caseValue == selectedTag &&
+  shape.caseDestination == 1 &&
+  shape.caseLoadAccountIndex == plan.stateAccount.index &&
+  shape.caseOffset == caseOffset &&
+  shape.caseReturnWidth == 8 &&
+  shape.caseReturnSource == 1 &&
+  shape.defaultDestination == 1 &&
+  shape.defaultValue == defaultValue &&
+  shape.defaultReturnWidth == 8 &&
+  shape.defaultReturnSource == 1 &&
+  plan.stateAccount.index == 0 &&
+  plan.stateAccount.headerWidth == 8 &&
+  decide (plan.stateAccount.headerOffset ≠ scrutineeOffset) &&
+  decide (plan.stateAccount.headerOffset ≠ caseOffset) &&
+  decide (scrutineeOffset ≠ caseOffset)
+
+theorem checkNullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1_eq_true_iff
+    (plan : Plan)
+    (scrutineeOffset caseOffset : Nat)
+    (selectedTag defaultValue : UInt64)
+    (viewName discriminator : String)
+    (shape : NullaryOneCaseUInt64SwitchViewHandlerIRShapeV1) :
+    checkNullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1 plan
+        scrutineeOffset caseOffset selectedTag defaultValue viewName
+        discriminator shape = true ↔
+      NullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1 plan
+        scrutineeOffset caseOffset selectedTag defaultValue viewName
+        discriminator shape := by
+  simp [checkNullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1,
+    NullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1]
+  simp only [and_assoc]
+
+/-- Exact target-owned alignment for the bounded one-case switch recipe. -/
+structure NullaryOneCaseUInt64SwitchViewStaticAlignmentV1
+    (plan : Plan)
+    (scrutineeOffset caseOffset : Nat)
+    (selectedTag defaultValue : UInt64)
+    (viewName discriminator : String)
+    (handlerIR : HandlerIR) : Prop where
+  accountZero : plan.stateAccount.index = 0
+  stateAccountOwner : plan.stateAccount.ownerPolicy = .currentProgram
+  headerWidth : plan.stateAccount.headerWidth = 8
+  headerScrutineeDistinct :
+    plan.stateAccount.headerOffset ≠ scrutineeOffset
+  headerCaseDistinct : plan.stateAccount.headerOffset ≠ caseOffset
+  fieldOffsetsDistinct : scrutineeOffset ≠ caseOffset
+  handlerIRExact : handlerIR = {
+    name := viewName
+    discriminator
+    params := #[]
+    mode := .view
+    resultKind := .u64
+    accountAccess := {
+      accountIndex := plan.stateAccount.index
+      ownerPolicy := .currentProgram
+      exactDataLen := plan.stateAccount.exactDataLen
+      signerRequired := false
+      writableRequired := false
+      initialization := .mustBeInitialized
+    }
+    checks := #[
+      .numAccounts 1,
+      .accountNonDuplicate plan.stateAccount.index,
+      .instructionDataLen 8,
+      .ownerCurrentProgram plan.stateAccount.index,
+      .accountDataLen plan.stateAccount.index plan.stateAccount.exactDataLen,
+      .headerEquals plan.stateAccount.index plan.stateAccount.headerOffset
+        plan.stateAccount.initializedMarker
+    ]
+    operations := #[
+      .loadState 0 plan.stateAccount.index scrutineeOffset,
+      .switchRegion 0 #[(selectedTag, #[
+        .loadState 1 plan.stateAccount.index caseOffset,
+        .setReturnData 8 1,
+        .returnNone
+      ])] #[
+        .literal 1 defaultValue,
+        .setReturnData 8 1,
+        .returnNone
+      ]
+    ]
+  }
+
+/-- Structural recognition plus the explicit Plan join constructs the target
+    certificate consumed by the sole HandlerIR evaluator. -/
+theorem nullaryOneCaseUInt64SwitchViewStaticAlignmentV1_of_recognized
+    (plan : Plan)
+    (scrutineeOffset caseOffset : Nat)
+    (selectedTag defaultValue : UInt64)
+    (viewName discriminator : String)
+    (handlerIR : HandlerIR)
+    (shape : NullaryOneCaseUInt64SwitchViewHandlerIRShapeV1)
+    (hrecognize :
+      recognizeNullaryOneCaseUInt64SwitchViewHandlerIRV1 handlerIR =
+        some shape)
+    (howner : plan.stateAccount.ownerPolicy = .currentProgram)
+    (hshape : NullaryOneCaseUInt64SwitchViewHandlerIRShapeRelV1 plan
+      scrutineeOffset caseOffset selectedTag defaultValue viewName discriminator
+      shape) :
+    NullaryOneCaseUInt64SwitchViewStaticAlignmentV1 plan scrutineeOffset
+      caseOffset selectedTag defaultValue viewName discriminator handlerIR := by
+  rcases hshape with ⟨hname, hdiscriminator, haccessAccount, haccessLen,
+    haccountCount, hnonDuplicate, hinputLen, hownerAccount, hdataLenAccount,
+    hcheckedLen, hheaderAccount, hheaderOffset, hmarker,
+    hscrutineeDestination, hscrutineeAccount, hscrutineeOffset,
+    hswitchScrutinee, hcaseValue, hcaseDestination, hcaseAccount, hcaseOffset,
+    hcaseWidth, hcaseSource, hdefaultDestination, hdefaultValue, hdefaultWidth,
+    hdefaultSource, haccountZero, hheaderWidth, hheaderScrutinee, hheaderCase,
+    hoffsets⟩
+  refine {
+    accountZero := haccountZero
+    stateAccountOwner := howner
+    headerWidth := hheaderWidth
+    headerScrutineeDistinct := hheaderScrutinee
+    headerCaseDistinct := hheaderCase
+    fieldOffsetsDistinct := hoffsets
+    handlerIRExact := ?_
+  }
+  rw [recognizeNullaryOneCaseUInt64SwitchViewHandlerIRV1_sound handlerIR shape
+    hrecognize]
+  simp_all
+
+/-- Every exact one-case switch alignment belongs to the evaluator's closed
+    bounded UInt64 support set. -/
+theorem isSupportedNullaryUInt64SwitchViewHandlerIRV1_of_oneCaseAlignment
+    (halignment : NullaryOneCaseUInt64SwitchViewStaticAlignmentV1 plan
+      scrutineeOffset caseOffset selectedTag defaultValue viewName discriminator
+      handlerIR) :
+    isSupportedNullaryUInt64SwitchViewHandlerIRV1 handlerIR = true := by
+  rw [halignment.handlerIRExact]
+  simp [isSupportedNullaryUInt64SwitchViewHandlerIRV1,
+    isSupportedUInt64SwitchReturnBranchV1, halignment.accountZero]
+
 /-- Exact semantic/account/Plan/IR alignment for the first bounded Solana
     target slice. It is syntax and representation only; execution is defined
     once in `HandlerSemanticsV1`. -/

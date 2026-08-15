@@ -221,6 +221,18 @@ second codegen.
     unconditional theorem for its HandlerIR observation; reordered return
     sources fail at the Plan join. This is a HandlerIR target theorem, not an
     artifact/provider refinement theorem.
+21. **SOL-0048-D5-SWITCH-TARGET-THEOREM** — **done 2026-08-15**: added an
+    exact, contract-independent one-case UInt64 switch recognizer and retained
+    every repeated local/account/layout/case/default/return field for an
+    independent production Plan join. Kernel execution and full-observation
+    theorems cover both selected account-load and literal-default branches;
+    both stutter the read-only account array. The real source-derived
+    `OptionState.peek(Some 77)` subject now retains recognition, alignment,
+    discriminator and invocation equations and has an unconditional HandlerIR
+    observation theorem. Renaming remains accepted, while changed selector
+    local/offset, case value, default literal, return source and missing
+    branches fail closed. This theorem stops at HandlerIR; the existing
+    artifact/provider composition still has Boolean premises.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete, and the generic seam now has a second real contract/HandlerIR shape
@@ -249,8 +261,8 @@ Next formalization slices, in order:
    a digest to copied assembly or a different byte owner.
 2. While that boundary is blocked, continue target-owned structural/execution
    theorems for additional production HandlerIR recipes. Each real subject must
-   retain a recognizer/Plan alignment certificate as `OptionState.getOpt` now
-   does; do not add contract-name dispatch.
+   retain a recognizer/Plan alignment certificate as `OptionState.getOpt` and
+   `OptionState.peek` now do; do not add contract-name dispatch.
 3. Apply the discharge pattern to initialize, increment success and overflow
    only after `get` closes without a one-off proof-only evaluator.
 4. Do not add `native_decide`, `Lean.ofReduceBool`, `run_tac`, an axiom, a

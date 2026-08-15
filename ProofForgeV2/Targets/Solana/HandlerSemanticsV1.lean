@@ -2336,6 +2336,162 @@ theorem observeHandlerIRV1_of_nullaryTwoLeafAggregateViewStaticAlignment
   rw [halignment.handlerIRExact]
   rfl
 
+/-- Exact selected-case execution for any statically aligned one-case UInt64
+    switch view. The theorem interprets only target control flow and account
+    words; it does not assign business meaning to the selector. -/
+theorem executeHandlerIRV1_of_nullaryOneCaseUInt64SwitchViewStaticAlignment_case
+    (plan : Plan)
+    (scrutineeOffset caseOffset : Nat)
+    (selectedTag defaultValue : UInt64)
+    (viewName discriminator : String)
+    (handlerIR : HandlerIR)
+    (accountData : ByteArray)
+    (discriminatorValue caseValue : UInt64)
+    (halignment : NullaryOneCaseUInt64SwitchViewStaticAlignmentV1 plan
+      scrutineeOffset caseOffset selectedTag defaultValue viewName discriminator
+      handlerIR)
+    (hdiscriminator :
+      discriminatorToLeU64V1 discriminator = .ok discriminatorValue)
+    (hdataLength : accountData.size = plan.stateAccount.exactDataLen)
+    (hheader : readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+      some plan.stateAccount.initializedMarker)
+    (hscrutinee : readUInt64LEV1 accountData scrutineeOffset =
+      some selectedTag)
+    (hcase : readUInt64LEV1 accountData caseOffset = some caseValue) :
+    executeHandlerIRV1 handlerIR
+      (nullaryUInt64ViewInvocationV1 accountData discriminatorValue) =
+        .returned (some (encodeU64le caseValue)) := by
+  have hswitch :
+      isSupportedNullaryUInt64SwitchViewHandlerIRV1 handlerIR = true :=
+    isSupportedNullaryUInt64SwitchViewHandlerIRV1_of_oneCaseAlignment halignment
+  have hsupported : isSupportedBoundedHandlerIRV1 handlerIR = true := by
+    simp [isSupportedBoundedHandlerIRV1,
+      isSupportedBoundedUInt64HandlerIRV1,
+      isSupportedOneFieldUInt64HandlerIRV1, hswitch]
+  simp only [executeHandlerIRV1, hsupported, Bool.not_true]
+  rw [halignment.handlerIRExact]
+  simp [runDispatchV1, runChecksV1, runCheckV1, runOperationsV1,
+    runSwitchBranchOperationsV1, runOperationV1,
+    nullaryUInt64ViewInvocationV1, halignment.accountZero, hdiscriminator,
+    readUInt64LEV1_encodeU64le, encodeU64le_size, hdataLength, hheader,
+    hscrutinee, hcase, setLocalV1, getLocalV1, Except.toOption,
+    Bind.bind, Except.bind]
+
+/-- Exact default execution for a selector distinct from the sole case. The
+    unselected account payload is not read. -/
+theorem executeHandlerIRV1_of_nullaryOneCaseUInt64SwitchViewStaticAlignment_default
+    (plan : Plan)
+    (scrutineeOffset caseOffset : Nat)
+    (selectedTag defaultValue : UInt64)
+    (viewName discriminator : String)
+    (handlerIR : HandlerIR)
+    (accountData : ByteArray)
+    (discriminatorValue otherTag : UInt64)
+    (halignment : NullaryOneCaseUInt64SwitchViewStaticAlignmentV1 plan
+      scrutineeOffset caseOffset selectedTag defaultValue viewName discriminator
+      handlerIR)
+    (hdiscriminator :
+      discriminatorToLeU64V1 discriminator = .ok discriminatorValue)
+    (hdataLength : accountData.size = plan.stateAccount.exactDataLen)
+    (hheader : readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+      some plan.stateAccount.initializedMarker)
+    (hscrutinee : readUInt64LEV1 accountData scrutineeOffset = some otherTag)
+    (hne : otherTag ≠ selectedTag) :
+    executeHandlerIRV1 handlerIR
+      (nullaryUInt64ViewInvocationV1 accountData discriminatorValue) =
+        .returned (some (encodeU64le defaultValue)) := by
+  have hswitch :
+      isSupportedNullaryUInt64SwitchViewHandlerIRV1 handlerIR = true :=
+    isSupportedNullaryUInt64SwitchViewHandlerIRV1_of_oneCaseAlignment halignment
+  have hsupported : isSupportedBoundedHandlerIRV1 handlerIR = true := by
+    simp [isSupportedBoundedHandlerIRV1,
+      isSupportedBoundedUInt64HandlerIRV1,
+      isSupportedOneFieldUInt64HandlerIRV1, hswitch]
+  simp only [executeHandlerIRV1, hsupported, Bool.not_true]
+  rw [halignment.handlerIRExact]
+  have hselectedNe : selectedTag ≠ otherTag := Ne.symm hne
+  simp [runDispatchV1, runChecksV1, runCheckV1, runOperationsV1,
+    runSwitchBranchOperationsV1, runOperationV1,
+    nullaryUInt64ViewInvocationV1, halignment.accountZero, hdiscriminator,
+    readUInt64LEV1_encodeU64le, encodeU64le_size, hdataLength, hheader,
+    hscrutinee, hselectedNe, setLocalV1, getLocalV1, Except.toOption,
+    Bind.bind, Except.bind]
+
+/-- Full selected-case observation returns the loaded case word and stutters
+    the read-only account array. -/
+theorem observeHandlerIRV1_of_nullaryOneCaseUInt64SwitchViewStaticAlignment_case
+    (plan : Plan)
+    (scrutineeOffset caseOffset : Nat)
+    (selectedTag defaultValue : UInt64)
+    (viewName discriminator : String)
+    (handlerIR : HandlerIR)
+    (accountData : ByteArray)
+    (discriminatorValue caseValue : UInt64)
+    (halignment : NullaryOneCaseUInt64SwitchViewStaticAlignmentV1 plan
+      scrutineeOffset caseOffset selectedTag defaultValue viewName discriminator
+      handlerIR)
+    (hdiscriminator :
+      discriminatorToLeU64V1 discriminator = .ok discriminatorValue)
+    (hdataLength : accountData.size = plan.stateAccount.exactDataLen)
+    (hheader : readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+      some plan.stateAccount.initializedMarker)
+    (hscrutinee : readUInt64LEV1 accountData scrutineeOffset =
+      some selectedTag)
+    (hcase : readUInt64LEV1 accountData caseOffset = some caseValue) :
+    observeHandlerIRV1 handlerIR
+      (nullaryUInt64ViewInvocationV1 accountData discriminatorValue) = {
+        invocation :=
+          nullaryUInt64ViewInvocationV1 accountData discriminatorValue
+        outcome := .returned (some (encodeU64le caseValue))
+        postAccounts :=
+          (nullaryUInt64ViewInvocationV1 accountData discriminatorValue).accounts
+      } := by
+  unfold observeHandlerIRV1
+  dsimp only
+  rw [executeHandlerIRV1_of_nullaryOneCaseUInt64SwitchViewStaticAlignment_case
+    plan scrutineeOffset caseOffset selectedTag defaultValue viewName
+    discriminator handlerIR accountData discriminatorValue caseValue halignment
+    hdiscriminator hdataLength hheader hscrutinee hcase]
+  rw [halignment.handlerIRExact]
+  rfl
+
+/-- Full default observation returns the aligned literal and stutters the
+    read-only account array. -/
+theorem observeHandlerIRV1_of_nullaryOneCaseUInt64SwitchViewStaticAlignment_default
+    (plan : Plan)
+    (scrutineeOffset caseOffset : Nat)
+    (selectedTag defaultValue : UInt64)
+    (viewName discriminator : String)
+    (handlerIR : HandlerIR)
+    (accountData : ByteArray)
+    (discriminatorValue otherTag : UInt64)
+    (halignment : NullaryOneCaseUInt64SwitchViewStaticAlignmentV1 plan
+      scrutineeOffset caseOffset selectedTag defaultValue viewName discriminator
+      handlerIR)
+    (hdiscriminator :
+      discriminatorToLeU64V1 discriminator = .ok discriminatorValue)
+    (hdataLength : accountData.size = plan.stateAccount.exactDataLen)
+    (hheader : readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+      some plan.stateAccount.initializedMarker)
+    (hscrutinee : readUInt64LEV1 accountData scrutineeOffset = some otherTag)
+    (hne : otherTag ≠ selectedTag) :
+    observeHandlerIRV1 handlerIR
+      (nullaryUInt64ViewInvocationV1 accountData discriminatorValue) = {
+        invocation :=
+          nullaryUInt64ViewInvocationV1 accountData discriminatorValue
+        outcome := .returned (some (encodeU64le defaultValue))
+        postAccounts :=
+          (nullaryUInt64ViewInvocationV1 accountData discriminatorValue).accounts
+      } := by
+  unfold observeHandlerIRV1
+  dsimp only
+  rw [executeHandlerIRV1_of_nullaryOneCaseUInt64SwitchViewStaticAlignment_default
+    plan scrutineeOffset caseOffset selectedTag defaultValue viewName
+    discriminator handlerIR accountData discriminatorValue otherTag halignment
+    hdiscriminator hdataLength hheader hscrutinee hne]
+  rw [halignment.handlerIRExact]
+  rfl
+
 /-- Exact execution of the statically aligned production view recipe. -/
 theorem executeHandlerIRV1_of_nullaryUInt64ViewStaticAlignment
     (data : SemanticProgramDataV1)
