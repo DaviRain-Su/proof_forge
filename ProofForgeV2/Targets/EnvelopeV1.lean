@@ -305,40 +305,56 @@ def pilotNamedAggregateStatePolicyAdmit : PilotNamedAggregateStatePolicy where
     Default fail-closed (`none`). A positive lane must pin a concrete layout
     (e.g. Solana: fixed-length `Array UInt64 N` flattened to N consecutive
     8-byte account slots with literal-index IndexGet/IndexSet). Map/Bytes
-    remain optional. Option state is not represented by this container policy:
-    EVM/Solana/NEAR admit the narrow `Option UInt64` state shape through a
-    separate explicit B-OPT-STATE gate; the other targets remain fail closed. -/
+    remain optional. Option is a separate flag (`admitOption`): do not
+    smuggle Option through `admitMap`. Historical Map-positive lanes set
+    both. -/
 structure PilotContainerStatePolicy where
   admitArray : Bool
   admitMap : Bool
   admitBytes : Bool
+  /-- Independent of `admitMap`. Option is never pushed to
+      `containerTypeIds`; state planning still owns the 2-leaf layout. -/
+  admitOption : Bool
   deriving BEq, Repr
 
 def pilotContainerStatePolicyNone : PilotContainerStatePolicy where
   admitArray := false
   admitMap := false
   admitBytes := false
+  admitOption := false
 
 /-- Solana ArrayState positive: fixed-length Array only (element shape gated
-    target-locally to UInt64). Map/Bytes stay fail closed this slice. -/
+    target-locally to UInt64). Map/Bytes/Option stay fail closed this slice. -/
 def pilotContainerStatePolicyArrayOnly : PilotContainerStatePolicy where
   admitArray := true
   admitMap := false
   admitBytes := false
+  admitOption := false
+
+/-- Array flatten + independent Option UInt64 2-leaf state (tag+payload).
+    Map/Bytes stay fail closed. Used by Quint/Soroban/OpenVM Option wave. -/
+def pilotContainerStatePolicyArrayOption : PilotContainerStatePolicy where
+  admitArray := true
+  admitMap := false
+  admitBytes := false
+  admitOption := true
 
 /-- I1 MapState: fixed-length Array + static-key Map (target-local layout:
     Map UInt64 UInt64 only; N distinct compile-time UInt64 keys → 2N present+value
-    UInt64 leaves). Bytes stay fail closed. -/
+    UInt64 leaves). Bytes stay fail closed. Option stays admitted (IndexGet
+    result shape + historical B-OPT-STATE lanes). -/
 def pilotContainerStatePolicyArrayMap : PilotContainerStatePolicy where
   admitArray := true
   admitMap := true
   admitBytes := false
+  admitOption := true
 
 /-- EVM MapState: Array + Map + fixed Bytes (Map layout same as ArrayMap). -/
 def pilotContainerStatePolicyArrayMapBytes : PilotContainerStatePolicy where
   admitArray := true
   admitMap := true
   admitBytes := true
+  admitOption := true
 
 /-- Per-target admission for N4 `TypeShapeV1.string` (variable-length NFC UTF-8).
     Default fail-closed. A positive lane must store and byte-compare the full
@@ -860,11 +876,9 @@ def validatePilotTypeClosure
               "anonymous Bytes is outside the current container-state pilot")
           containerTypeIds := containerTypeIds.push decl.id
       | .option _ =>
-          -- I1 MapState: Option is the Map IndexGet result shape. Admit it only
-          -- as a body intermediate when Map is admitted (not as container state —
-          -- Option is never pushed to containerTypeIds; state planning still
-          -- fail-closed for Option declarations).
-          unless containerPolicy.admitMap do
+          -- Option is independent of Map. Never pushed to containerTypeIds;
+          -- state planning owns the 2-leaf tag+payload layout.
+          unless containerPolicy.admitOption do
             throw <| mkErr (shapeMsg label
               "anonymous Option is outside the current container-state pilot")
       | _ =>
