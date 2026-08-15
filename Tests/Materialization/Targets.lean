@@ -4607,6 +4607,46 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "OptRetBox" target kind optRetCompiled
       "anonymous Option is outside the current container-state pilot"
 
+  -- NestOpt: Option Option UInt64 state. All twelve targets stay named
+  -- payload/pilot FC. Not opening nested Option. OptBox / OptRetBox stay.
+  let nestOptSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program NestOpt where\n" ++
+    "  state o : Option Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(Option.some(v))\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let nestOptV1 ← match ← session.selectProgramV1 nestOptSource
+      "<targets-nest-opt>" "Examples.NestOpt" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"NestOpt select: {e.render}"
+  let nestOptCompiled ← liftResult <| Compiler.compileValidatedSourceV1 nestOptV1
+  expectMaterializePlanInvariantV1 "NestOpt" TargetId.evm TargetKind.evm
+    nestOptCompiled "Option state admits only UInt64 payload"
+  expectMaterializePlanInvariantV1 "NestOpt" TargetId.solana TargetKind.solana
+    nestOptCompiled "Option state 'o' element must be UInt64"
+  for (target, kind) in #[
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.aleo, TargetKind.aleo),
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.ton, TargetKind.ton)] do
+    expectMaterializePlanInvariantV1 "NestOpt" target kind nestOptCompiled
+      "Option state 'o' requires UInt64 payload"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "NestOpt" target kind nestOptCompiled
+      "anonymous Option is outside the current container-state pilot"
+
   -- N5: Commit identity admitted on EVM/Solana/NEAR (Plan passthrough into
   -- commitment state). Noir declines (public relation slots cannot hold
   -- commitment labels). Psy declines. ContextRead declined on every Phase-1
