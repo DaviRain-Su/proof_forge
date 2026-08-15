@@ -4783,6 +4783,48 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrBool" target kind arrBoolCompiled
       "anonymous Array is outside the current container-state pilot"
 
+  -- ArrInt: Array Int64 2 state. Eight targets stay named Array-element
+  -- FC. Quint/Soroban/OpenVM/ICP fail on the width needle first, not
+  -- ArrBool's Array-pilot. Not opening Array-of-Int64. ArrBool /
+  -- ArrayBox / MapInt / OptInt / MapBool stay.
+  let arrIntSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrInt where\n" ++
+    "  state slots : Array Int64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := 0\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let arrIntV1 ← match ← session.selectProgramV1 arrIntSource
+      "<targets-arr-int>" "Examples.ArrInt" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"ArrInt select: {e.render}"
+  let arrIntCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrIntV1
+  expectMaterializePlanInvariantV1 "ArrInt" TargetId.evm TargetKind.evm
+    arrIntCompiled "Array state element must be UInt8/16/32/64"
+  for (target, kind) in #[
+      (TargetId.solana, TargetKind.solana),
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.aleo, TargetKind.aleo),
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.ton, TargetKind.ton)] do
+    expectMaterializePlanInvariantV1 "ArrInt" target kind arrIntCompiled
+      "Array state element must be UInt64"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "ArrInt" target kind arrIntCompiled
+      "only anonymous UInt64 width is supported"
+
   -- MapMini: Map UInt64 UInt64 state. Eight materializers admit; Quint/
   -- Soroban/ICP/OpenVM stay envelope FC. Not opening Map on those four.
   -- No Plan-shape pins; files-nonempty or named decline only.

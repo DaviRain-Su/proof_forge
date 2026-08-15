@@ -183,6 +183,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-MAP-BOOL-QS | done | MapBool Map UInt64 Bool 12-target all named Map-value/pilot FC. **Not** opening Map-of-Bool |
 | MAT-OPT-INT-QS | done | OptInt Option Int64 12-target: eight named Option-payload FC; Quint/Soroban/OpenVM/ICP width needle (distinct from Option-pilot). **Not** opening Option-of-Int64 |
 | MAT-MAP-INT-QS | done | MapInt Map UInt64 Int64 12-target: eight named Map-value/pilot FC; Quint/Soroban/OpenVM/ICP width needle (distinct from Map-pilot). **Not** opening Map-of-Int64 |
+| MAT-ARR-INT-QS | done | ArrInt Array Int64 2 12-target: eight named Array-element FC; Quint/Soroban/OpenVM/ICP width needle (distinct from Array-pilot). **Not** opening Array-of-Int64 |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | QUINT-CALL-RET-FC | done | Pin value-position `let y : UInt64 := call Oracle.feed` Plan FC (`result-bearing externalCall is outside Q0`, distinct from void A5). **Not** opening result-bearing CALL / Q0 |
