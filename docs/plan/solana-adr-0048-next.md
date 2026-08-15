@@ -250,23 +250,38 @@ second codegen.
     exact parser success and canonical expected hex. A kernel-checked `abc`
     block certificate and existing NIST/runtime vectors pass without
     `native_decide`, `Lean.ofReduceBool`, `run_tac` or axioms.
+23. **SOL-0048-D5-EMITTER-CORE-CERTIFICATE-BOUNDARY** — **done 2026-08-15**:
+    removed the kernel-opaque `partial` definitions from the sole production
+    sBPF operation emitter and canonical temp-count traversal. Nested regions
+    now consume an explicit node-bound fuel and fail closed if exhausted; no
+    second emitter or copied assembly was introduced. The public emitter now
+    delegates to one post-validation production pass and has a Prop-level
+    exact-result certificate with decomposition and sound replay theorems.
+    Production preparation projects this certificate from its existing
+    assembly-stage equation. Runtime output and the full Solana assembly suite
+    remain byte-stable. This closes the emitter core blocker, not the still
+    partial `validateIR`/IR-lowering path that produces the StateCell input.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete, and the generic seam now has a second real contract/HandlerIR shape
 consumer plus its first multiword typed return. The generic bytes→SHA→artifact
-identity proof boundary is now present. The remaining D5 blocker is producing a
-closed certificate whose input is the exact production emitter result. A
-kernel probe that stopped before hashing still became stuck in the existing
-Source/compiler/emitter imperative folds, so a SHA trace alone cannot establish
-emitter ownership. Runtime output `true` and a certificate over copied or
-materialized assembly remain unacceptable.
+identity proof boundary and a kernel-reducible production emitter core are now
+present. The remaining D5 blocker is producing the exact validated StateCell IR
+input and its `validateIR = .ok ()` equation through the reachable partial
+Source/compiler/IR-lowering definitions. Until that closes, the post-validation
+emission equation cannot be owner-bound to the real source pipeline, so a SHA
+trace alone still cannot establish emitter ownership. Runtime output `true` and
+a certificate over copied or materialized assembly remain unacceptable.
 
 Next formalization slices, in order:
 
 1. **SOL-0048-D5-GET-EMITTER-CERTIFICATE**: make the real production emission
-   stage proof-producing/kernel-replayable for its exact result, starting with
-   the StateCell-supported recipe but keeping recognition and traversal
-   contract-independent. Do not add a proof-only emitter or copied assembly.
+   stage fully proof-producing/kernel-replayable for its exact result. The
+   emitter core and certificate boundary are done; next totalize or add a
+   kernel-sound replay boundary for the reachable `validateIR`, `EmitIRV1` and
+   `LowerSemanticV1` partial definitions, then discharge the StateCell exact
+   post-validation emission equation. Keep traversal contract-independent and
+   do not add a proof-only emitter or copied assembly.
 2. **SOL-0048-D5-GET-UNCONDITIONAL**: build the 103-block SHA trace directly
    over that exact emitter result, replay it through `resolveBoundSbpfArtifactV1`
    and preparation replay, then discharge the existing StateCell `get` gate.

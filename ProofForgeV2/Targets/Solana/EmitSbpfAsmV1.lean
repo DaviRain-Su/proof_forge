@@ -367,8 +367,9 @@ private def opDestination? : Operation → Option Nat
   | .externalCall _ _ _ (some destination) => some destination
   | _ => none
 
-/-- Max destination+1 over an op sequence (canonical temp count). -/
-private partial def tempCountOf (ops : Array Operation) : Nat :=
+/-- Max destination+1 over an op sequence, with an explicit structural-depth
+    budget so the production computation remains kernel reducible. -/
+private def tempCountOfWithFuel (fuel : Nat) (ops : Array Operation) : Nat :=
   ops.foldl (init := 0) fun acc op =>
     let acc := match opDestination? op with
       | some d =>
@@ -379,18 +380,31 @@ private partial def tempCountOf (ops : Array Operation) : Nat :=
           | .mapPrincipalLookup _ _ tagTemp payloadTemp =>
               Nat.max acc (Nat.max (tagTemp + 1) (payloadTemp + 1))
           | _ => acc
-    match op with
-    | .ifRegion _ thenOps elseOps =>
-        Nat.max acc (Nat.max (tempCountOf thenOps) (tempCountOf elseOps))
-    | .switchRegion _ cases defaultOps =>
-        let caseMax := cases.foldl (init := 0) fun m (_, body) =>
-          Nat.max m (tempCountOf body)
-        Nat.max acc (Nat.max caseMax (tempCountOf defaultOps))
-    | .forRegion _ _ _ _ condOps _ bodyOps boundOps _ updateOps _ =>
-        let m1 := Nat.max (tempCountOf condOps) (tempCountOf bodyOps)
-        let m2 := Nat.max (tempCountOf boundOps) (tempCountOf updateOps)
-        Nat.max acc (Nat.max m1 m2)
-    | _ => acc
+    match fuel with
+    | 0 => acc
+    | fuel + 1 =>
+        match op with
+        | .ifRegion _ thenOps elseOps =>
+            Nat.max acc (Nat.max (tempCountOfWithFuel fuel thenOps)
+              (tempCountOfWithFuel fuel elseOps))
+        | .switchRegion _ cases defaultOps =>
+            let caseMax := cases.foldl (init := 0) fun m (_, body) =>
+              Nat.max m (tempCountOfWithFuel fuel body)
+            Nat.max acc (Nat.max caseMax (tempCountOfWithFuel fuel defaultOps))
+        | .forRegion _ _ _ _ condOps _ bodyOps boundOps _ updateOps _ =>
+            let m1 := Nat.max (tempCountOfWithFuel fuel condOps)
+              (tempCountOfWithFuel fuel bodyOps)
+            let m2 := Nat.max (tempCountOfWithFuel fuel boundOps)
+              (tempCountOfWithFuel fuel updateOps)
+            Nat.max acc (Nat.max m1 m2)
+        | _ => acc
+termination_by fuel
+
+/-- Canonical temp count for validated production IR. `validatePlan` admits at
+    most `maxPlanNodes` nested source nodes, so this budget cannot truncate a
+    successfully validated lowering. -/
+private def tempCountOf (ops : Array Operation) : Nat :=
+  tempCountOfWithFuel (maxPlanNodes + 1) ops
 
 /-- Emit account-list shape: exact `num_accounts` (1 or 2) + account[0] non-dup.
     When count==2, also require account[1] non-dup (pf_caller) before any
@@ -2222,7 +2236,7 @@ private def emitCpiInvokeTokenTransferMultiRole (b0 : AsmBuf) (tempBase : Nat)
 
 mutual
 /-- Emit a single Operation. `inlineCtx=none` is a handler body (syscalls + exit). -/
-private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
+private def emitOperation (fuel : Nat) (b : AsmBuf) (ir : IR) (tempBase : Nat)
     (inlineCtx : Option InlineCtx) (inlineDepth : Nat) (op : Operation) :
     CompileResult AsmBuf := do
   match op with
@@ -2845,90 +2859,103 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
       let b := emit b s!"  ; program_error declared index {errorIndex}"
       pure (emitProgramErrorInline b code)
   | .ifRegion condition thenOps elseOps =>
-      let (b, elseLab) := fresh b "if_else"
-      let (b, endLab) := fresh b "if_end"
-      let b := emit b s!"  ; if %{condition}"
-      let b := loadTemp b "r1" tempBase condition
-      let b := emit b s!"  jeq r1, 0, {elseLab}"
-      let b ← emitOperations b ir tempBase inlineCtx inlineDepth thenOps
-      let b := emit b s!"  ja {endLab}"
-      let b := emit b s!"{elseLab}:"
-      let b ← emitOperations b ir tempBase inlineCtx inlineDepth elseOps
-      pure (emit b s!"{endLab}:")
+      match fuel with
+      | 0 => asmError "S1b operation nesting exceeds the validated node budget"
+      | fuel + 1 => do
+          let (b, elseLab) := fresh b "if_else"
+          let (b, endLab) := fresh b "if_end"
+          let b := emit b s!"  ; if %{condition}"
+          let b := loadTemp b "r1" tempBase condition
+          let b := emit b s!"  jeq r1, 0, {elseLab}"
+          let b ← emitOperations fuel b ir tempBase inlineCtx inlineDepth thenOps
+          let b := emit b s!"  ja {endLab}"
+          let b := emit b s!"{elseLab}:"
+          let b ← emitOperations fuel b ir tempBase inlineCtx inlineDepth elseOps
+          pure (emit b s!"{endLab}:")
   | .switchRegion scrutinee cases defaultOps =>
-      let mut b := emit b s!"  ; switch %{scrutinee}"
-      b := loadTemp b "r1" tempBase scrutinee
-      -- Pre-allocate case labels for the jump table.
-      let mut caseLabs : Array String := #[]
-      for _ in [:cases.size] do
-        let (b', lab) := fresh b "sw_case"
-        b := b'
-        caseLabs := caseLabs.push lab
-      let (b', endLab) := fresh b "sw_end"
-      b := b'
-      for i in [:cases.size] do
-        let (caseValue, _) := cases[i]!
-        let lab := caseLabs[i]!
-        b := emit b s!"  lddw r2, {hexImm caseValue.toNat}"
-        b := emit b s!"  jeq r1, r2, {lab}"
-      b ← emitOperations b ir tempBase inlineCtx inlineDepth defaultOps
-      b := emit b s!"  ja {endLab}"
-      for i in [:cases.size] do
-        let (_, ops) := cases[i]!
-        let lab := caseLabs[i]!
-        b := emit b s!"{lab}:"
-        b ← emitOperations b ir tempBase inlineCtx inlineDepth ops
-        b := emit b s!"  ja {endLab}"
-      pure (emit b s!"{endLab}:")
+      match fuel with
+      | 0 => asmError "S1b operation nesting exceeds the validated node budget"
+      | fuel + 1 => do
+          let mut b := emit b s!"  ; switch %{scrutinee}"
+          b := loadTemp b "r1" tempBase scrutinee
+          -- Pre-allocate case labels for the jump table.
+          let mut caseLabs : Array String := #[]
+          for _ in [:cases.size] do
+            let (b', lab) := fresh b "sw_case"
+            b := b'
+            caseLabs := caseLabs.push lab
+          let (b', endLab) := fresh b "sw_end"
+          b := b'
+          for i in [:cases.size] do
+            let (caseValue, _) := cases[i]!
+            let lab := caseLabs[i]!
+            b := emit b s!"  lddw r2, {hexImm caseValue.toNat}"
+            b := emit b s!"  jeq r1, r2, {lab}"
+          b ← emitOperations fuel b ir tempBase inlineCtx inlineDepth defaultOps
+          b := emit b s!"  ja {endLab}"
+          for i in [:cases.size] do
+            let (_, ops) := cases[i]!
+            let lab := caseLabs[i]!
+            b := emit b s!"{lab}:"
+            b ← emitOperations fuel b ir tempBase inlineCtx inlineDepth ops
+            b := emit b s!"  ja {endLab}"
+          pure (emit b s!"{endLab}:")
   | .forRegion varTemp _initial counterTemp maxIterations condOps cond bodyOps
         boundOps counterNext updateOps update =>
-      let (b, headerLab) := fresh b "for_header"
-      let (b, endLab) := fresh b "for_end"
-      let b := emit b s!"  ; for max={maxIterations} var=%{varTemp} counter=%{counterTemp}"
-      let b := emit b s!"{headerLab}:"
-      let b ← emitOperations b ir tempBase inlineCtx inlineDepth condOps
-      let b := loadTemp b "r1" tempBase cond
-      let b := emit b s!"  jeq r1, 0, {endLab}"
-      let b ← emitOperations b ir tempBase inlineCtx inlineDepth bodyOps
-      let b ← emitOperations b ir tempBase inlineCtx inlineDepth boundOps
-      let b ← emitOperations b ir tempBase inlineCtx inlineDepth updateOps
-      -- Rebind induction + completed-iteration counter for the next header.
-      let b := emit b "  ; rebind induction / counter"
-      let b := loadTemp b "r1" tempBase update
-      let b := storeTemp b tempBase varTemp "r1"
-      let b := loadTemp b "r1" tempBase counterNext
-      let b := storeTemp b tempBase counterTemp "r1"
-      let b := emit b s!"  ja {headerLab}"
-      pure (emit b s!"{endLab}:")
+      match fuel with
+      | 0 => asmError "S1b operation nesting exceeds the validated node budget"
+      | fuel + 1 => do
+          let (b, headerLab) := fresh b "for_header"
+          let (b, endLab) := fresh b "for_end"
+          let b := emit b s!"  ; for max={maxIterations} var=%{varTemp} counter=%{counterTemp}"
+          let b := emit b s!"{headerLab}:"
+          let b ← emitOperations fuel b ir tempBase inlineCtx inlineDepth condOps
+          let b := loadTemp b "r1" tempBase cond
+          let b := emit b s!"  jeq r1, 0, {endLab}"
+          let b ← emitOperations fuel b ir tempBase inlineCtx inlineDepth bodyOps
+          let b ← emitOperations fuel b ir tempBase inlineCtx inlineDepth boundOps
+          let b ← emitOperations fuel b ir tempBase inlineCtx inlineDepth updateOps
+          -- Rebind induction + completed-iteration counter for the next header.
+          let b := emit b "  ; rebind induction / counter"
+          let b := loadTemp b "r1" tempBase update
+          let b := storeTemp b tempBase varTemp "r1"
+          let b := loadTemp b "r1" tempBase counterNext
+          let b := storeTemp b tempBase counterTemp "r1"
+          let b := emit b s!"  ja {headerLab}"
+          pure (emit b s!"{endLab}:")
   | .callFn fnIndex destination args =>
-      unless fnIndex < ir.fns.size do
-        return ← asmError s!"S1b callFn index {fnIndex} out of range"
-      unless inlineDepth ≤ ir.fns.size do
-        return ← asmError "S1b callFn inline depth exceeded (cycle guard)"
-      let fn := ir.fns[fnIndex]!
-      unless args.size == fn.params.size do
-        return ← asmError s!"S1b callFn arity mismatch for {fn.name}"
-      let fnTemps := tempCountOf fn.operations
-      -- Disjoint regions: param slots at calleeBase+0..arity-1 and body
-      -- temps at calleeBase+arity+0..fnTemps-1. Body ops may write any temp
-      -- 0..n-1; sharing the region with the param slots would let e.g. a
-      -- loadParam remap or literal clobber an argument (S3b regression).
-      let (b0, calleeBase) := allocTemps b (fn.params.size + fnTemps)
-      let (b1, endLab) := fresh b0 "fn_end"
-      let mut b := emit b1 s!"  ; call {fn.name} → %{destination} (inline base {calleeBase})"
-      -- Param copy: caller arg temps → callee param slots 0..arity-1.
-      for i in [:args.size] do
-        b := loadTemp b "r1" tempBase args[i]!
-        b := storeTempAbs b (calleeBase + i) "r1"
-      let ctx : InlineCtx := {
-        retDestAbs := tempBase + destination
-        fn
-        fnEndLabel := endLab
-        paramBase := calleeBase
-      }
-      b ← emitOperations b ir (calleeBase + fn.params.size) (some ctx)
-        (inlineDepth + 1) fn.operations
-      pure (emit b s!"{endLab}:")
+      match fuel with
+      | 0 => asmError "S1b operation nesting exceeds the validated node budget"
+      | fuel + 1 => do
+          unless fnIndex < ir.fns.size do
+            return ← asmError s!"S1b callFn index {fnIndex} out of range"
+          unless inlineDepth ≤ ir.fns.size do
+            return ← asmError "S1b callFn inline depth exceeded (cycle guard)"
+          let fn := ir.fns[fnIndex]!
+          unless args.size == fn.params.size do
+            return ← asmError s!"S1b callFn arity mismatch for {fn.name}"
+          let fnTemps := tempCountOf fn.operations
+          -- Disjoint regions: param slots at calleeBase+0..arity-1 and body
+          -- temps at calleeBase+arity+0..fnTemps-1. Body ops may write any temp
+          -- 0..n-1; sharing the region with the param slots would let e.g. a
+          -- loadParam remap or literal clobber an argument (S3b regression).
+          let (b0, calleeBase) := allocTemps b (fn.params.size + fnTemps)
+          let (b1, endLab) := fresh b0 "fn_end"
+          let mut b := emit b1
+            s!"  ; call {fn.name} → %{destination} (inline base {calleeBase})"
+          -- Param copy: caller arg temps → callee param slots 0..arity-1.
+          for i in [:args.size] do
+            b := loadTemp b "r1" tempBase args[i]!
+            b := storeTempAbs b (calleeBase + i) "r1"
+          let ctx : InlineCtx := {
+            retDestAbs := tempBase + destination
+            fn
+            fnEndLabel := endLab
+            paramBase := calleeBase
+          }
+          b ← emitOperations fuel b ir (calleeBase + fn.params.size) (some ctx)
+            (inlineDepth + 1) fn.operations
+          pure (emit b s!"{endLab}:")
   | .emitEvent eventIndex args =>
       unless eventIndex < ir.sourcePlan.events.size do
         return ← asmError s!"S1b emitEvent index {eventIndex} out of range"
@@ -3036,15 +3063,17 @@ private partial def emitOperation (b : AsmBuf) (ir : IR) (tempBase : Nat)
   | .schedule .. =>
       return ← asmError
         "legacy Solana profiles do not emit schedule stubs"
+termination_by 2 * fuel
 
 /-- Emit a sequence of operations, threading the assembly buffer. -/
-private partial def emitOperations (b0 : AsmBuf) (ir : IR) (tempBase : Nat)
+private def emitOperations (fuel : Nat) (b0 : AsmBuf) (ir : IR) (tempBase : Nat)
     (inlineCtx : Option InlineCtx) (inlineDepth : Nat) (ops : Array Operation) :
     CompileResult AsmBuf := do
   let mut b := b0
   for op in ops do
-    b ← emitOperation b ir tempBase inlineCtx inlineDepth op
+    b ← emitOperation fuel b ir tempBase inlineCtx inlineDepth op
   pure b
+termination_by 2 * fuel + 1
 end
 
 private def emitHandlerBody (b0 : AsmBuf) (ir : IR) (handler : HandlerIR) :
@@ -3067,7 +3096,8 @@ private def emitHandlerBody (b0 : AsmBuf) (ir : IR) (handler : HandlerIR) :
   b := emit b s!"  ja {bodyLab}"
   b := emitErrorExit b errLab 1
   b := emit b s!"{bodyLab}:"
-  b ← emitOperations b ir tempBase none 0 handler.operations
+  b ← emitOperations (maxPlanNodes + ir.fns.size + 1)
+    b ir tempBase none 0 handler.operations
   -- Fallthrough success after set_return_data (syscall does not halt).
   b := emit b "  lddw r0, 0"
   b := emit b "  exit"
@@ -3204,9 +3234,11 @@ private def emitMultiRoleWalkAndIxBase (b0 : AsmBuf) (roleCount : Nat)
     b := emit b s!"  stxdw [r10 - {slotPid}], r5"
     pure b
 
-/-- Public S1b emitter: typed `IR` → default-dialect SBPF assembly text. -/
-def emitSbpfAsmV1 (ir : IR) : CompileResult String := do
-  validateIR ir
+/-- The unique production S1b emission pass after the caller has established
+    `validateIR ir = .ok ()`. Keeping this boundary explicit lets proof
+    certificates replay emission without duplicating the emitter. Normal
+    callers must use `emitSbpfAsmV1`, which performs validation first. -/
+def emitValidatedSbpfAsmV1 (ir : IR) : CompileResult String := do
   unless ir.stateAccount.index == 0 do
     return ← asmError "S1b requires state account index 0"
   let admitCaller := ir.stateAccount.admitCallerRole
@@ -3282,6 +3314,46 @@ def emitSbpfAsmV1 (ir : IR) : CompileResult String := do
         s!"S1b frame budget exceeded for handler '{handler.name}': {frameBytes} bytes > {maxSbpfStackBytesV1}"
     b := emitBlank b
   pure b.text
+
+/-- Public S1b emitter: typed `IR` → default-dialect SBPF assembly text. -/
+def emitSbpfAsmV1 (ir : IR) : CompileResult String := do
+  validateIR ir
+  emitValidatedSbpfAsmV1 ir
+
+/-- Kernel-owned evidence for an exact result of the unique production S1b
+    emitter. Both equations are propositions; no runtime boolean is promoted
+    to a theorem. -/
+structure SbpfAsmEmissionCertificateV1 (ir : IR) (assembly : String) : Prop where
+  validation : validateIR ir = .ok ()
+  emission : emitValidatedSbpfAsmV1 ir = .ok assembly
+
+/-- Decompose an already established public emitter result into the two exact
+    equations retained by the replay certificate. -/
+theorem SbpfAsmEmissionCertificateV1.of_success
+    {ir : IR} {assembly : String}
+    (success : emitSbpfAsmV1 ir = .ok assembly) :
+    SbpfAsmEmissionCertificateV1 ir assembly := by
+  unfold emitSbpfAsmV1 at success
+  cases hvalidation : validateIR ir with
+  | error error =>
+      simp only [hvalidation, Bind.bind, Except.bind] at success
+      contradiction
+  | ok value =>
+      cases value
+      exact {
+        validation := hvalidation
+        emission := by
+          simpa only [hvalidation, Bind.bind, Except.bind] using success
+      }
+
+/-- Replay an exact post-validation emission equation through the public
+    production entrypoint. -/
+theorem SbpfAsmEmissionCertificateV1.sound
+    {ir : IR} {assembly : String}
+    (certificate : SbpfAsmEmissionCertificateV1 ir assembly) :
+    emitSbpfAsmV1 ir = .ok assembly := by
+  simp [emitSbpfAsmV1, certificate.validation, certificate.emission]
+  rfl
 
 /-- Convenience: emit legacy SBPF assembly from a capability-bound IR path.
     CPI profile must not call this (product assembly is product-core owned). -/

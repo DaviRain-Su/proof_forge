@@ -16471,3 +16471,25 @@ normative: false
   Source/compiler/`emitSbpfAsmV1` exact-result等式仍受命令式traversal阻塞，因此尚未生成StateCell
   `get`的103-block owner-bound trace，尚未闭合其unconditional gate，也不宣称ELF/linker/loader或
   validator/SVM refinement完成。下一步是`SOL-0048-D5-GET-EMITTER-CERTIFICATE`。
+
+## 2026-08-15 — kernel-reducible production sBPF emitter core
+
+- 定位到exact emitter replay的第一处确定阻塞：唯一production `emitSbpfAsmV1`通过`partial def`
+  `emitOperation`/`emitOperations`及`tempCountOf`生成body。运行时输出正确，但Lean kernel不会展开
+  partial定义，因此无法证明同一emitter产生固定bytes。现已把这些定义改为显式总递归：operation
+  nesting使用随真实递归下降的fuel，temp count使用`maxPlanNodes`约束下的结构深度budget；合法IR的
+  emission行为不变，超budget递归fail closed。没有新增第二套emitter或复制assembly。
+- production入口拆成同一实现的validation boundary与`emitValidatedSbpfAsmV1` emission pass；普通调用
+  仍只走先执行`validateIR`的`emitSbpfAsmV1`。新增Prop级`SbpfAsmEmissionCertificateV1`，分别保留
+  真实validator与真实post-validation emitter的exact `.ok` equation；`of_success`可从已有public
+  emitter equation分解certificate，`sound`可重放回public production入口。没有把runtime Bool提升为
+  theorem。
+- `CertifiedSolanaProductionPreparationV1.emission_certificate`直接投影现有assembly stage的同一
+  production equation，证明新边界已接回准备流水线而非side channel。focused production preparation
+  build及完整Solana asm runner通过；StateCell assembly identity仍保持6580 bytes及既有pinned SHA
+  回归。
+- 本切片闭合emitter core自身的`partial`阻塞，但尚未完成closed StateCell emitter certificate：
+  public入口之前的`validateIR`以及产生真实StateCell IR的`EmitIRV1`/`LowerSemanticV1`仍含reachable
+  partial lowering/validation。下一步应沿真实StateCell路径总化这些定义或增加对同一production stage
+  的kernel-sound replay，再生成exact emitter bytes equation；103-block SHA trace与unconditional
+  `get` gate仍未闭合。

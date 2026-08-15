@@ -146,6 +146,15 @@ theorem referenceAdmission_success (prepared :
       .ok prepared.admitted :=
   prepared.referenceAdmission.success
 
+/-- Exact production emitter certificate retained by this preparation. It
+    decomposes the existing assembly-stage equation; it does not invoke or
+    model a second emitter. -/
+theorem emission_certificate (prepared :
+    CertifiedSolanaProductionPreparationV1 elaborated canonicalBytes expectedSha) :
+    SbpfAsmEmissionCertificateV1 prepared.productionIR
+      prepared.productionAssembly :=
+  SbpfAsmEmissionCertificateV1.of_success prepared.assembly.success
+
 /-- Generic final identity-bound artifact equation. -/
 theorem artifact_success (prepared :
     CertifiedSolanaProductionPreparationV1 elaborated canonicalBytes expectedSha) :
