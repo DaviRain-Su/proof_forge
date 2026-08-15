@@ -49,14 +49,17 @@
     * RES-CLEAN: sole full-byte golden is counter-package.v1.json; the old
       duplicate counter-package-full.v1.json remains absent
 -/
-import ProofForgeV2
+import ProofForgeV2.Compiler.Pipeline
+import ProofForgeV2.Core.TargetIdentityV1
+import ProofForgeV2.Materialization.MaterializedArtifactsV1
+import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.Psy
-import ProofForgeV2.Targets.Psy.Dpn.SchemaV1
 import ProofForgeV2.Targets.Psy.Dpn.JsonCodecV1
 import ProofForgeV2.Targets.Psy.Dpn.LowerPlanV1
-import ProofForgeV2.Core.TargetIdentityV1
-import Tests.Language.ParserSession
+import ProofForgeV2.Targets.Psy.Dpn.SchemaV1
+import ProofForgeV2.Targets.Registry
 import Tests.Compiler.ValidatedSourceV1Pipeline
+import Tests.Language.ParserSession
 
 namespace Tests.Materialization.PsyDpnV1
 
@@ -1588,6 +1591,36 @@ unsafe def testVoidCallProductPartial : IO Unit := do
   expect hasInvoke
     "product void call must lower to InvokeExternalContractFunctionSync"
 
+/-- Value-position Oracle.feed is a distinct Plan gate from the void
+    InvokeExternal admit above. Product resolve still mints sync-call;
+    Plan must name the result-bearing form. -/
+unsafe def testResultBearingExternalCallFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program CallRetPsy where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry probe(x : UInt64) : UInt64 do\n" ++
+    "    let y : UInt64 := call Oracle.feed(x)\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<psy-call-ret>" "Tests.CallRetPsy" none)
+  let compiled ← liftResult <| compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.psy none
+  let cap ← liftResult <| resolveEngineeringRequirementsV1 selection compiled
+  match Targets.Psy.planFromCapability cap with
+  | .error e =>
+      expect (e.render.contains
+          "result-bearing external call is not admitted")
+        s!"result-bearing must fail at the named Plan gate, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "result-bearing Oracle.feed must fail closed at Psy Plan (do not merge with void InvokeExternal)"
+
 /-! ## G5-MATRIX: §3.2 admit-row DPN pins and residual/F FC diagnostics -/
 
 /-- Bool compare + logicalAnd/Or/Not lower to DPN Bool ops. -/
@@ -2632,6 +2665,7 @@ unsafe def run : IO Unit := do
   testScheduleFailClosedAtDpn
   testEmitProductPartial
   testVoidCallProductPartial
+  testResultBearingExternalCallFailClosed
   testBoolCompareLogicalLower
   testBareAssertAndRevertLower
   testCheckedSubMulDivModLower

@@ -662,6 +662,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **QUINT-CALL-RET-FC**：钉 value-position Oracle.feed Plan FC（针是 result-bearing externalCall is outside Q0，与 void A5 不同）。不开放 result-bearing CALL / Q0。 |
 | 2026-08-15 | **CW-CALL-RET-FC**：钉 value-position Oracle.feed engineering Plan FC（针是 result-bearing ExternalCall is outside the CosmWasm envelope；产品 resolve 仍拒 effect.synchronous-call）。不开放 generic sync / result-bearing CALL。 |
 | 2026-08-15 | **TON-CALL-RET-FC**：钉 value-position Oracle.feed engineering Plan FC（针是 result-bearing ExternalCall is outside the Ton envelope；产品 resolve 仍拒 effect.synchronous-call）。不开放 generic sync / result-bearing CALL。 |
+| 2026-08-15 | **PSY-CALL-RET-FC**：钉 value-position Oracle.feed Plan FC（针是 result-bearing external call is not admitted，与 void InvokeExternal 不同）。不开放 result-bearing CALL。 |
 | 2026-08-15 | **EVM-CALL-BYTES-FC**：`EvmSmoke` 钉 Bytes 32 result-bearing CALL 与 Bool/Int64 同门。**不**开 Bytes ABI，**不**关闭 `B-CALL-SEM` |
 | 2026-08-15 | **CAP-1a**：ICP `context.unixTimeSeconds` 绑定 `ic0.time` ns÷10⁹（init/update/query，import 按使用 gated）。`blockHeight`/`attachedValue`/`chainId` 仍 named FC。**不**关 PocketIC formal / caller |
 | 2026-08-15 | **CAP-6**：`Targets.lean` N5 unixTime 下降循环补 Quint/Soroban。ICP 保持 admit。**不**开那些 host |
