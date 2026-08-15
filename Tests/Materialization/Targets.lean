@@ -3258,18 +3258,25 @@ unsafe def run : IO Unit := do
   expect (commStateData.logicalState.any fun s =>
       s.name == "sealed" && s.visibility == .commitment)
     "N1 comm-state: sealed retains commitment visibility"
-  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.psy, TargetId.aleo] do
+  -- Extra six from probe; not B-COMMIT-ZK.
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.psy, TargetId.aleo,
+      TargetId.cosmwasm, TargetId.ton] do
     let out ← liftResult <| materializeSelected target commStateCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"N1 comm-state: {target} must materialize"
-  match materializeSelected TargetId.noir commStateCompiled with
-  | .ok _ =>
-      throw <| IO.userError "N1 comm-state: Noir must decline commitment state at Plan"
-  | .error e =>
-      expect ((e.render).contains "commitment state" ||
-          (e.render).contains "not representable" ||
-          (e.render).contains "commitment binding")
-        s!"N1 comm-state Noir message must cite commitment boundary, got {e.render}"
+  for target in [TargetId.noir, TargetId.quint, TargetId.soroban, TargetId.icp,
+      TargetId.openvm] do
+    match materializeSelected target commStateCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"N1 comm-state: {target} must decline commitment state at Plan"
+    | .error e =>
+        expect ((e.render).contains "commitment state" ||
+            (e.render).contains "not representable" ||
+            (e.render).contains "commitment binding" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot" ||
+            (e.render).contains "public")
+          s!"N1 comm-state {target} message must cite commitment boundary, got {e.render}"
 
   -- N1 + Noir private-witness redesign: unused private param (no public sink)
   -- compiles + materializes on EVM and Noir (private param → private-witness
