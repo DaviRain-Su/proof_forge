@@ -60,6 +60,225 @@ def UInt64StateAccountBindingRelV1
   plan.stateAccount.stateLeaves[binding.semanticStateId.toNat]? =
     some #[binding.physicalFieldIndex]
 
+/-- One public `Option UInt64` logical-state row and its exact two-word Solana
+    tag/payload fields. This carrier is contract-independent; state and field
+    names, indices, accounts, and offsets remain explicit. -/
+structure OptionUInt64StateAccountBindingV1 where
+  semanticStateId : StateIdV1
+  optionTypeId : TypeIdV1
+  elementTypeId : TypeIdV1
+  stateName : String
+  tagPhysicalFieldIndex : Nat
+  payloadPhysicalFieldIndex : Nat
+  accountIndex : Nat
+  tagByteOffset : Nat
+  payloadByteOffset : Nat
+  deriving Repr
+
+/-- Representation relation between a retained `Option UInt64` Semantic state
+    row and the production Solana tag/payload layout. It classifies encodings
+    only and does not define Option operations or a business transition. -/
+def OptionUInt64StateAccountBindingRelV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : OptionUInt64StateAccountBindingV1) : Prop :=
+  data.types[binding.elementTypeId.toNat]? = some {
+    id := binding.elementTypeId
+    name := none
+    shape := .uint 64
+  } ∧
+  data.types[binding.optionTypeId.toNat]? = some {
+    id := binding.optionTypeId
+    name := none
+    shape := .option binding.elementTypeId
+  } ∧
+  data.logicalState[binding.semanticStateId.toNat]? = some {
+    id := binding.semanticStateId
+    name := binding.stateName
+    typeId := binding.optionTypeId
+    visibility := .public_
+  } ∧
+  plan.stateAccount.fields[binding.tagPhysicalFieldIndex]? = some {
+    sourceId := binding.semanticStateId.toNat
+    name := s!"{binding.stateName}_tag"
+    accountIndex := binding.accountIndex
+    byteOffset := binding.tagByteOffset
+    byteWidth := 8
+    endianness := .little
+    isInt := false
+  } ∧
+  plan.stateAccount.fields[binding.payloadPhysicalFieldIndex]? = some {
+    sourceId := binding.semanticStateId.toNat
+    name := s!"{binding.stateName}_p0"
+    accountIndex := binding.accountIndex
+    byteOffset := binding.payloadByteOffset
+    byteWidth := 8
+    endianness := .little
+    isInt := false
+  } ∧
+  plan.stateAccount.stateLeaves[binding.semanticStateId.toNat]? = some
+    #[binding.tagPhysicalFieldIndex, binding.payloadPhysicalFieldIndex] ∧
+  plan.stateAccount.index = binding.accountIndex ∧
+  binding.accountIndex = 0 ∧
+  plan.stateAccount.headerWidth = 8 ∧
+  plan.stateAccount.headerOffset ≠ binding.tagByteOffset ∧
+  plan.stateAccount.headerOffset ≠ binding.payloadByteOffset ∧
+  binding.tagByteOffset ≠ binding.payloadByteOffset
+
+private def checkOptionUInt64ElementTypeDeclV1
+    (decl : Option TypeDeclV1)
+    (binding : OptionUInt64StateAccountBindingV1) : Bool :=
+  match decl with
+  | some { id, name := none, shape := .uint width } =>
+      id == binding.elementTypeId && width == 64
+  | _ => false
+
+private theorem checkOptionUInt64ElementTypeDeclV1_eq_true_iff
+    (decl : Option TypeDeclV1)
+    (binding : OptionUInt64StateAccountBindingV1) :
+    checkOptionUInt64ElementTypeDeclV1 decl binding = true ↔
+      decl = some {
+        id := binding.elementTypeId
+        name := none
+        shape := .uint 64
+      } := by
+  cases decl with
+  | none => simp [checkOptionUInt64ElementTypeDeclV1]
+  | some decl =>
+      cases decl with
+      | mk id name shape =>
+          cases name <;> cases shape <;>
+            simp [checkOptionUInt64ElementTypeDeclV1]
+
+private def checkOptionUInt64OptionTypeDeclV1
+    (decl : Option TypeDeclV1)
+    (binding : OptionUInt64StateAccountBindingV1) : Bool :=
+  match decl with
+  | some { id, name := none, shape := .option elementTypeId } =>
+      id == binding.optionTypeId && elementTypeId == binding.elementTypeId
+  | _ => false
+
+private theorem checkOptionUInt64OptionTypeDeclV1_eq_true_iff
+    (decl : Option TypeDeclV1)
+    (binding : OptionUInt64StateAccountBindingV1) :
+    checkOptionUInt64OptionTypeDeclV1 decl binding = true ↔
+      decl = some {
+        id := binding.optionTypeId
+        name := none
+        shape := .option binding.elementTypeId
+      } := by
+  cases decl with
+  | none => simp [checkOptionUInt64OptionTypeDeclV1]
+  | some decl =>
+      cases decl with
+      | mk id name shape =>
+          cases name <;> cases shape <;>
+            simp [checkOptionUInt64OptionTypeDeclV1]
+
+private def checkOptionUInt64StateDeclV1
+    (decl : Option StateDeclV1)
+    (binding : OptionUInt64StateAccountBindingV1) : Bool :=
+  match decl with
+  | some { id, name, typeId, visibility := .public_ } =>
+      id == binding.semanticStateId && name == binding.stateName &&
+        typeId == binding.optionTypeId
+  | _ => false
+
+private theorem checkOptionUInt64StateDeclV1_eq_true_iff
+    (decl : Option StateDeclV1)
+    (binding : OptionUInt64StateAccountBindingV1) :
+    checkOptionUInt64StateDeclV1 decl binding = true ↔
+      decl = some {
+        id := binding.semanticStateId
+        name := binding.stateName
+        typeId := binding.optionTypeId
+        visibility := .public_
+      } := by
+  cases decl with
+  | none => simp [checkOptionUInt64StateDeclV1]
+  | some decl =>
+      cases decl with
+      | mk id name typeId visibility =>
+          cases visibility <;>
+            simp [checkOptionUInt64StateDeclV1, and_assoc]
+
+private def checkOptionUInt64StateFieldV1
+    (field : Option StateField)
+    (binding : OptionUInt64StateAccountBindingV1)
+    (name : String)
+    (byteOffset : Nat) : Bool :=
+  match field with
+  | some field =>
+      field.sourceId == binding.semanticStateId.toNat &&
+        field.name == name && field.accountIndex == binding.accountIndex &&
+        field.byteOffset == byteOffset && field.byteWidth == 8 &&
+        !field.isInt
+  | none => false
+
+private theorem checkOptionUInt64StateFieldV1_eq_true_iff
+    (field : Option StateField)
+    (binding : OptionUInt64StateAccountBindingV1)
+    (name : String)
+    (byteOffset : Nat) :
+    checkOptionUInt64StateFieldV1 field binding name byteOffset = true ↔
+      field = some {
+        sourceId := binding.semanticStateId.toNat
+        name
+        accountIndex := binding.accountIndex
+        byteOffset
+        byteWidth := 8
+        endianness := .little
+        isInt := false
+      } := by
+  cases field with
+  | none => simp [checkOptionUInt64StateFieldV1]
+  | some field =>
+      cases field with
+      | mk sourceId actualName accountIndex actualOffset byteWidth endianness isInt =>
+          cases endianness <;> cases isInt <;>
+            simp [checkOptionUInt64StateFieldV1, and_assoc]
+
+/-- Executable classifier for the exact production `Option UInt64`
+    tag/payload binding. -/
+def checkOptionUInt64StateAccountBindingRelV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : OptionUInt64StateAccountBindingV1) : Bool :=
+  checkOptionUInt64ElementTypeDeclV1
+      data.types[binding.elementTypeId.toNat]? binding &&
+  checkOptionUInt64OptionTypeDeclV1
+      data.types[binding.optionTypeId.toNat]? binding &&
+  checkOptionUInt64StateDeclV1
+      data.logicalState[binding.semanticStateId.toNat]? binding &&
+  checkOptionUInt64StateFieldV1
+      plan.stateAccount.fields[binding.tagPhysicalFieldIndex]? binding
+      s!"{binding.stateName}_tag" binding.tagByteOffset &&
+  checkOptionUInt64StateFieldV1
+      plan.stateAccount.fields[binding.payloadPhysicalFieldIndex]? binding
+      s!"{binding.stateName}_p0" binding.payloadByteOffset &&
+  decide (plan.stateAccount.stateLeaves[binding.semanticStateId.toNat]? = some
+    #[binding.tagPhysicalFieldIndex, binding.payloadPhysicalFieldIndex]) &&
+  decide (plan.stateAccount.index = binding.accountIndex) &&
+  decide (binding.accountIndex = 0) &&
+  decide (plan.stateAccount.headerWidth = 8) &&
+  decide (plan.stateAccount.headerOffset ≠ binding.tagByteOffset) &&
+  decide (plan.stateAccount.headerOffset ≠ binding.payloadByteOffset) &&
+  decide (binding.tagByteOffset ≠ binding.payloadByteOffset)
+
+theorem checkOptionUInt64StateAccountBindingRelV1_eq_true_iff
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : OptionUInt64StateAccountBindingV1) :
+    checkOptionUInt64StateAccountBindingRelV1 data plan binding = true ↔
+      OptionUInt64StateAccountBindingRelV1 data plan binding := by
+  simp only [checkOptionUInt64StateAccountBindingRelV1, Bool.and_eq_true,
+    checkOptionUInt64ElementTypeDeclV1_eq_true_iff,
+    checkOptionUInt64OptionTypeDeclV1_eq_true_iff,
+    checkOptionUInt64StateDeclV1_eq_true_iff,
+    checkOptionUInt64StateFieldV1_eq_true_iff, decide_eq_true_eq,
+    OptionUInt64StateAccountBindingRelV1]
+  simp only [and_assoc]
+
 /-- Public syntax recovered from a nullary UInt64 view `Handler`. The access
     account and body-load account remain separate fields so recognition alone
     cannot silently assert their equality. Static alignment joins them. -/

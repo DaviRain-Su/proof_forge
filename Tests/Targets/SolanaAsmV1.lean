@@ -22,7 +22,9 @@ namespace Tests.Targets.SolanaAsmV1
 open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Examples
+open ProofForgeV2.Semantic.InvariantABI
 open ProofForgeV2.Semantic.ReferenceV1
+open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Targets.Solana
 
@@ -1023,6 +1025,118 @@ private unsafe def testStateCellSbpfExecution : IO Unit := do
       (invocation initialized (instructionData getDisc none) false false))
     "ACC0_RENT_EPOCH"
 
+/-- Second real contract consumer of the shared production chain. Both Option
+    branches run through the sole Reference machine, production HandlerIR, and
+    the identity-bound assembly provider; malformed identities and invocations
+    remain fail closed. -/
+private unsafe def testOptionStatePeekProduction : IO Unit := do
+  expect checkOptionStatePeekProductionSubjectV1
+    "OptionState peek: production HandlerIR/provider gate"
+  expect checkOptionStatePeekReferenceProviderSubjectV1
+    "OptionState peek: source-derived Reference/HandlerIR/provider gate"
+  let subject ← liftStringResult resolveOptionStatePeekProductionSubjectV1
+  expect (subject.method.callable.kind == .view &&
+      subject.method.callable.name == some "peek" &&
+      subject.handler.name == "peek")
+    "OptionState peek: generic method resolver selected the wrong rows"
+  expect (checkOptionUInt64LogicalStateAccountRelV1 subject.data subject.plan
+      subject.binding subject.referencePre subject.accountData (some 77))
+    "OptionState peek: Some logical/account representation relation"
+  let handlerObservation :=
+    observeHandlerIRV1 subject.handler subject.handlerInvocation
+  expect (checkUInt64ReturnedHandlerObservationRelV1 subject.data
+      subject.returnTypeId subject.referencePre subject.referenceOutcome
+      subject.returnBytes handlerObservation)
+    "OptionState peek: Reference and HandlerIR must both return 77"
+  let provider ← liftStringResult <|
+    resolveCertifiedSolanaProductionProviderExecutionV1 subject.boundArtifact
+      subject.loaderInvocation optionStatePeekProviderFuelV1 0
+  expect (provider.observation.provider.returnData ==
+      SbpfSemantics.wordToLE (BitVec.ofNat 64 77))
+    "OptionState peek: provider must return 77"
+  expect (provider.observation.finalAccountData ==
+      some subject.loaderInvocation.accountData)
+    "OptionState peek: provider must preserve the read-only Some account"
+
+  let nonePre ← match encodeLogicalStateValuesV1 subject.data true
+      #[encodeOptionUInt64ValueV1 none] with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"OptionState None encoding failed: {repr error}"
+  let noneAccount := optionUInt64AccountDataV1
+    subject.plan.stateAccount.initializedMarker none
+  expect (checkOptionUInt64LogicalStateAccountRelV1 subject.data subject.plan
+      subject.binding nonePre noneAccount none)
+    "OptionState peek: None logical/account representation relation"
+  let noneReference := executeCertifiedSolanaProductionMethodReferenceV1
+    subject.method nonePre #[] #[] #[] {}
+  let discriminator ← liftResult <|
+    discriminatorToLeU64V1 subject.handler.discriminator
+  let noneHandlerInvocation :=
+    nullaryUInt64ViewInvocationV1 noneAccount discriminator
+  let noneHandlerObservation :=
+    observeHandlerIRV1 subject.handler noneHandlerInvocation
+  expect (checkUInt64ReturnedHandlerObservationRelV1 subject.data
+      subject.returnTypeId nonePre noneReference.outcome (encodeU64le 0)
+      noneHandlerObservation)
+    "OptionState peek: Reference and HandlerIR None branch must return 0"
+  let noneLoaderInvocation := {
+    subject.loaderInvocation with accountData := noneAccount.data
+  }
+  expect (checkCertifiedExecutedHandlerSbpfJoinV1 subject.boundArtifact
+      subject.handler noneHandlerInvocation noneLoaderInvocation
+      optionStatePeekProviderFuelV1 0 optionStateProductionSbpfSha256V1)
+    "OptionState peek: generic provider join must execute the None branch"
+  let noneProvider ← liftStringResult <|
+    resolveCertifiedSolanaProductionProviderExecutionV1 subject.boundArtifact
+      noneLoaderInvocation optionStatePeekProviderFuelV1 0
+  expect (noneProvider.observation.provider.returnData ==
+      SbpfSemantics.wordToLE (BitVec.ofNat 64 0))
+    "OptionState peek: provider None branch must return 0"
+  expect (noneProvider.observation.finalAccountData ==
+      some noneLoaderInvocation.accountData)
+    "OptionState peek: provider must preserve the read-only None account"
+
+  expectStringError
+    (resolveCertifiedSolanaProductionMethodV1 subject.preparation
+      .view (some "missing") "peek")
+    "no requested callable"
+  let driftedExpectedSha256 :=
+    (if optionStateProductionSbpfSha256V1.startsWith "0" then "1" else "0") ++
+      optionStateProductionSbpfSha256V1.drop 1
+  expectStringError
+    (resolveCertifiedSolanaProductionPreparationV1
+      OptionState.Source.subjectV1 OptionState.bytes driftedExpectedSha256)
+    "artifact SHA-256 does not match"
+  let shortLoaderInvocation := {
+    subject.loaderInvocation with
+      accountData := subject.loaderInvocation.accountData.pop
+  }
+  expectStringError
+    (resolveCertifiedSolanaProductionProviderExecutionV1 subject.boundArtifact
+      shortLoaderInvocation optionStatePeekProviderFuelV1 0)
+    "account data must contain exactly 24 bytes"
+  expectStringError
+    (resolveCertifiedSolanaProductionProviderExecutionV1 subject.boundArtifact
+      subject.loaderInvocation 0 0)
+    "fuel must be positive"
+  expectStringError
+    (resolveCertifiedSolanaProductionProviderExecutionV1 subject.boundArtifact
+      subject.loaderInvocation optionStatePeekProviderFuelV1 1)
+    "halted with an unexpected status"
+  expect (!checkCertifiedExecutedHandlerSbpfJoinV1 subject.boundArtifact
+      subject.handler subject.handlerInvocation subject.loaderInvocation
+      optionStatePeekProviderFuelV1 1 optionStateProductionSbpfSha256V1)
+    "OptionState peek: wrong expected status must fail closed"
+  expect (!checkCertifiedExecutedHandlerSbpfJoinV1 subject.boundArtifact
+      subject.handler subject.handlerInvocation subject.loaderInvocation
+      optionStatePeekProviderFuelV1 0 driftedExpectedSha256)
+    "OptionState peek: wrong expected artifact identity must fail closed"
+  expect (!checkCertifiedExecutedHandlerSbpfJoinV1 subject.boundArtifact
+      subject.handler subject.handlerInvocation shortLoaderInvocation
+      optionStatePeekProviderFuelV1 0 optionStateProductionSbpfSha256V1)
+    "OptionState peek: malformed account shape must fail closed"
+
 /-- Sole-rail product emit ships hybrid CPI bases + assembly. -/
 private unsafe def testProductEmitUnchanged
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -1961,6 +2075,7 @@ unsafe def run : IO Unit := do
   testStateCellSbpfArtifact session
   testStateCellMutatingProductionSubjects
   testStateCellSbpfExecution
+  testOptionStatePeekProduction
   testAccountListShapeChecks session
   testProductEmitUnchanged session
   testGuardedStateCellAsm session

@@ -185,27 +185,36 @@ second codegen.
     StateCell `get` is the first runtime regression; wrong status, zero fuel and
     identity drift fail closed. No sparse trace or contract relation moved into
     the generic layer.
+18. **SOL-0048-D5-SECOND-CONTRACT-CONSUMER** — **done 2026-08-15**:
+    `OptionState.peek` now reconstructs the actual exported Source AST,
+    production Semantic/Plan/HandlerIR and identity-bound `.s` artifact through
+    the same generic preparation, method, Reference execution, provider,
+    composition and witness APIs. A contract-independent `Option UInt64`
+    tag/payload representation relation and proof-producing checker join the
+    canonical Reference value bytes to the 24-byte Solana account layout.
+    Both `Some 77 → 77` and `None → 0` execute through the sole Reference
+    machine, production switch HandlerIR and shared provider resolver; wrong
+    method/artifact/status/fuel and malformed account length fail closed. No
+    contract-name dispatch, copied trace, alternate Option interpreter or
+    HandlerIR→sBPF lowering was added.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
-complete. The remaining D5 blocker is unconditional kernel discharge of the
-closed production gates. Certificate replay now removes repeated reduction of
-the source/compiler/resolver plumbing once exact certificates are available,
-but it does not itself prove the method-specific Reference/provider checker
-equations. A direct `rfl` or kernel `decide` does not reduce the current `get`
-gate because production compilation, artifact parsing, and the 55-step checker
-form a large partly opaque term; runtime output `true` must not be presented as
-a theorem.
+complete, and the generic seam now has a second real contract/HandlerIR shape
+consumer. The remaining D5 blocker is unconditional kernel discharge of the
+closed production gates. Certificate replay removes repeated reduction of the
+source/compiler/resolver plumbing once exact certificates are available, but it
+does not itself prove the method-specific Reference/provider checker equations.
+A direct `rfl` or kernel `decide` does not reduce the current gates because
+production compilation, artifact parsing, and provider execution form large
+partly opaque terms; runtime output `true` must not be presented as a theorem.
 
 Next formalization slices, in order:
 
-1. **SOL-0048-D5-SECOND-CONTRACT-CONSUMER**: select a second real Solana
-   production contract with a business shape different from StateCell and make
-   it consume the same preparation, method, Reference execution, provider
-   execution, composition, witness-lifting, and replay APIs. Only the new
-   contract's relation, artifact/input manifest, sparse trace, and
-   postcondition may remain method-specific. This is the executable portability
-   acceptance test for the generic seam; type-level quantification alone is
-   not the final evidence.
+1. **SOL-0048-D5-OPTION-GETOPT**: extend the shared typed aggregate-return
+   observation/evaluator boundary for the real `OptionState.getOpt()`
+   multiword `Option UInt64` result, then consume the same production subject
+   and provider APIs. Do not add an Option-specific DSL interpreter or copy the
+   production HandlerIR/provider trace.
 2. **SOL-0048-D5-GET-UNCONDITIONAL**: use the replay equations to isolate and
    discharge the remaining StateCell `get` Reference observation, static
    alignment, artifact/input manifest, and 55-step checker obligations. The

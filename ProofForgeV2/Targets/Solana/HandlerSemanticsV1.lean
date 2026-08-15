@@ -326,6 +326,29 @@ def oneFieldUInt64AccountDataV1
     (initializedMarker value : UInt64) : ByteArray :=
   (encodeU64le initializedMarker).append (encodeU64le value)
 
+/-- Canonical sole-Reference value bytes for `Option UInt64`. -/
+def encodeOptionUInt64ValueV1 : Option UInt64 → ByteArray
+  | none => ByteArray.mk #[0]
+  | some value => (ByteArray.mk #[1]).append (encodeU64le value)
+
+/-- Physical tag word used by the production two-field account layout. -/
+def optionUInt64TagV1 : Option UInt64 → UInt64
+  | none => 0
+  | some _ => 1
+
+/-- Physical payload word; canonical `none` zeroes stale payload bytes. -/
+def optionUInt64PayloadV1 : Option UInt64 → UInt64
+  | none => 0
+  | some value => value
+
+/-- Canonical production account bytes for one `Option UInt64` state row:
+    initialized marker, tag word, then payload word. -/
+def optionUInt64AccountDataV1
+    (initializedMarker : UInt64) (value : Option UInt64) : ByteArray :=
+  ((encodeU64le initializedMarker).append
+    (encodeU64le (optionUInt64TagV1 value))).append
+    (encodeU64le (optionUInt64PayloadV1 value))
+
 /-- Canonical successful invocation observation for the selected production
     view. The instruction data contains exactly its 8-byte discriminator. -/
 def nullaryUInt64ViewInvocationV1
@@ -393,6 +416,80 @@ def UInt64LogicalStateAccountRelV1
   readUInt64LEV1 accountData plan.stateAccount.headerOffset =
     some plan.stateAccount.initializedMarker ∧
   readUInt64LEV1 accountData binding.byteOffset = some value
+
+/-- Encoding relation between one sole-Reference `Option UInt64` state value
+    and the production Solana tag/payload account bytes. The Option transition
+    remains owned by `ReferenceMachineV1`; this relation only joins encodings. -/
+def OptionUInt64LogicalStateAccountRelV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : OptionUInt64StateAccountBindingV1)
+    (logicalState : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (accountData : ByteArray)
+    (value : Option UInt64) : Prop :=
+  OptionUInt64StateAccountBindingRelV1 data plan binding ∧
+  logicalState.initialized = true ∧
+  decodeLogicalStateValuesV1 data logicalState =
+    .ok #[encodeOptionUInt64ValueV1 value] ∧
+  accountData.size = plan.stateAccount.exactDataLen ∧
+  readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+    some plan.stateAccount.initializedMarker ∧
+  readUInt64LEV1 accountData binding.tagByteOffset =
+    some (optionUInt64TagV1 value) ∧
+  readUInt64LEV1 accountData binding.payloadByteOffset =
+    some (optionUInt64PayloadV1 value)
+
+private def checkDecodedOptionUInt64LogicalStateV1
+    (result : Except SemanticWireErrorV1 (Array ByteArray))
+    (value : Option UInt64) : Bool :=
+  match result with
+  | .ok actual => decide (actual = #[encodeOptionUInt64ValueV1 value])
+  | .error _ => false
+
+private theorem checkDecodedOptionUInt64LogicalStateV1_eq_true_iff
+    (result : Except SemanticWireErrorV1 (Array ByteArray))
+    (value : Option UInt64) :
+    checkDecodedOptionUInt64LogicalStateV1 result value = true ↔
+      result = .ok #[encodeOptionUInt64ValueV1 value] := by
+  cases result <;> simp [checkDecodedOptionUInt64LogicalStateV1]
+
+/-- Executable checker for the contract-independent `Option UInt64` logical
+    state/physical Solana account representation relation. -/
+def checkOptionUInt64LogicalStateAccountRelV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : OptionUInt64StateAccountBindingV1)
+    (logicalState : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (accountData : ByteArray)
+    (value : Option UInt64) : Bool :=
+  checkOptionUInt64StateAccountBindingRelV1 data plan binding &&
+  logicalState.initialized &&
+  checkDecodedOptionUInt64LogicalStateV1
+    (decodeLogicalStateValuesV1 data logicalState) value &&
+  decide (accountData.size = plan.stateAccount.exactDataLen) &&
+  decide (readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+    some plan.stateAccount.initializedMarker) &&
+  decide (readUInt64LEV1 accountData binding.tagByteOffset =
+    some (optionUInt64TagV1 value)) &&
+  decide (readUInt64LEV1 accountData binding.payloadByteOffset =
+    some (optionUInt64PayloadV1 value))
+
+theorem checkOptionUInt64LogicalStateAccountRelV1_eq_true_iff
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : OptionUInt64StateAccountBindingV1)
+    (logicalState : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (accountData : ByteArray)
+    (value : Option UInt64) :
+    checkOptionUInt64LogicalStateAccountRelV1 data plan binding logicalState
+        accountData value = true ↔
+      OptionUInt64LogicalStateAccountRelV1 data plan binding logicalState
+        accountData value := by
+  simp only [checkOptionUInt64LogicalStateAccountRelV1, Bool.and_eq_true,
+    decide_eq_true_eq, checkOptionUInt64StateAccountBindingRelV1_eq_true_iff,
+    checkDecodedOptionUInt64LogicalStateV1_eq_true_iff,
+    OptionUInt64LogicalStateAccountRelV1]
+  simp only [and_assoc]
 
 /-- Exact successful-observation relation for the first Solana target slice.
     It exposes the sole Reference result, the target return, and unchanged

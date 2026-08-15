@@ -16361,3 +16361,25 @@ normative: false
 - 本切片只闭合production HandlerIR层的通用switch-view执行入口；OptionState尚未接入source-derived
   Reference composition、identity-bound `.s` provider resolver或method-specific provider trace，亦不
   宣称一般Reference→provider、ELF/linker/loader或Mollusk/validator/SVM runtime refinement完成。
+
+## 2026-08-15 — OptionState production Reference/HandlerIR/provider composition
+
+- 新增contract-independent `OptionUInt64StateAccountBindingV1`、表示关系及proof-producing
+  executable checker：精确绑定Semantic `Option UInt64` type/state row、Plan tag/payload leaves、
+  account/header/offset separation，并把唯一Reference codec的`none`/`some` canonical value bytes连接到
+  Solana 24-byte marker/tag/payload账户。该关系只分类表示，不定义Option transition或第二套业务step。
+- 新增`SbpfOptionStateProductionV1`作为第二个真实contract consumer：从`OptionState.Source.subjectV1`
+  与canonical export bytes重新执行通用production preparation，按通用method resolver选择`peek`，
+  调用唯一`stepReferenceSliceV1`、现有bounded switch HandlerIR evaluator及共享identity-bound provider
+  resolver。production artifact固定SHA-256
+  `5245f26a8b6912aeab1e538b840dbed2b67833a6efdb6921ea734f0dfaa067b4`，没有复制provider trace或
+  另造HandlerIR→sBPF lowering。
+- 正式回归闭合`Some 77 → 77`与`None → 0`两条分支：Reference、production HandlerIR与provider返回
+  exact 8-byte LE值，read-only 24-byte账户不变；wrong method、artifact SHA、halt status、zero fuel及
+  short account全部fail closed。两个sound theorem从Boolean gate恢复exact resolved subject、通用
+  executed provider certificate与`UInt64ReferenceHandlerSbpfJoinV1`，没有把运行期`true`宣称为无条件
+  theorem。
+- 这证明通用production seam不依赖StateCell或`getUniqueIncrement`式method-name特例；仍未完成
+  unconditional closed-gate discharge、一般Reference→sBPF/ELF/linker/loader或
+  Mollusk/validator/SVM runtime refinement。下一切片为真实`getOpt()`多字Option返回的通用typed
+  aggregate observation/evaluator。

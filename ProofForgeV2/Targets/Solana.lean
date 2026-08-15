@@ -23,6 +23,7 @@ import ProofForgeV2.Targets.Solana.SbpfStateCellInitializeV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellIncrementV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellIncrementOverflowV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellProductionV1
+import ProofForgeV2.Targets.Solana.SbpfOptionStateProductionV1
 import ProofForgeV2.Targets.Solana.ProductFrameV1
 import ProofForgeV2.Targets.Solana.ProductCpiRecipesV1
 import ProofForgeV2.Targets.Solana.ProductSynthesizeV1

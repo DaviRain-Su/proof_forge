@@ -192,6 +192,15 @@ witness的executed join carrier；Reference→Handler proof也有直接compositi
 定理中kernel-discharge该gate并应用既有Reference proof，因此仍没有无条件完整refinement claim；
 ELF、loader、rollback、compute units与runtime也不在该观察范围内。
 
+`OptionState.peek`现作为第二个真实production consumer走完同一条通用链：exported Source AST →
+production Semantic/Plan/switch HandlerIR →唯一Reference machine →identity-bound production `.s` →
+共享Loader/provider resolver。新增的`Option UInt64`关系只连接canonical Reference value bytes与
+Solana marker/tag/payload表示，不解释Option业务；`Some 77`和`None`两条分支均在Reference、
+HandlerIR和provider返回一致且read-only账户不变。错误method/artifact/status/fuel和短账户均
+fail closed。该结果仍是有Boolean前提的proof-producing gate，不是无条件一般
+Reference→sBPF/ELF/validator refinement；下一切片是`getOpt()`多字Option返回的通用typed
+aggregate observation。
+
 ## 1. 身份与来源
 
 Solana program 在 sBPF runtime 中执行，状态位于显式传入的 accounts。依据官方 [Programs](https://solana.com/docs/core/programs) 与 [Accounts](https://solana.com/docs/core/accounts) 文档（`SRC-SOL-001/002`，verified）。
