@@ -3672,10 +3672,11 @@ unsafe def run : IO Unit := do
   -- NoirContainer: Noir admits Array UInt64 flatten-to-leaf (same as Solana/NEAR/Psy/Aleo).
   let _ ← liftResult <| materializeSelected TargetId.noir arrayCompiled
 
-  -- N-A4: Option state Normalize-admitted. All eight materializers admit
+  -- N-A4: Option state Normalize-admitted. Eight materializers admit
   -- Option UInt64 state (Enum-shaped 2-leaf layout): EVM (BL-31), NEAR
   -- (BL-30), Solana (BL-29), Aleo (BL-35), CosmWasm (BL-33), Psy (BL-36),
-  -- Noir (BL-32), TON (BL-34). Quint has no admit path and stays fail closed.
+  -- Noir (BL-32), TON (BL-34). Quint/Soroban/ICP/OpenVM stay envelope FC;
+  -- extra four from probe; not opening Option.
   let optionStateSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3706,6 +3707,18 @@ unsafe def run : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.noir optCompiled
   -- TON admits Option UInt64 state (BL-34).
   let _ ← liftResult <| materializeSelected TargetId.ton optCompiled
+  for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
+    match materializeSelected target optCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"N-A4 Option: {target} must decline Option state"
+    | .error e =>
+        expect ((e.render).contains "Option" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot" ||
+            (e.render).contains "public" ||
+            (e.render).contains "container" ||
+            (e.render).contains "anonymous")
+          s!"N-A4 Option {target} message must cite Option/container boundary, got {e.render}"
 
   -- N5: Commit identity admitted on EVM/Solana/NEAR (Plan passthrough into
   -- commitment state). Noir declines (public relation slots cannot hold
