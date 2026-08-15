@@ -1,6 +1,7 @@
 import ProofForgeV2.Targets.Solana.HandlerSemanticsV1
 import ProofForgeV2.Targets.Solana.SbpfExecutionV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellGetV1
+import ProofForgeV2.Targets.Solana.SbpfStateCellInitializeV1
 
 /-!
 # Solana SbpfHandlerJoinV1
@@ -380,6 +381,96 @@ theorem checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1_sound
           sbpfObservation
           sbpfExecution := hexecution
           observationRel
+        }
+      }⟩
+
+/-- StateCell `initialize` join retaining the exact 55-step provider
+    certificate in addition to the generic executed observation join. -/
+structure CertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
+    (bound : BoundResolvedSbpfArtifactV1)
+    (handlerIR : HandlerIR)
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1)
+    (argument : SbpfSemantics.Word) where
+  provider :
+    CertifiedStateCellInitializeExecutionV1 bound loaderInvocation argument
+  executed :
+    StateCellExecutedHandlerSbpfJoinV1 bound handlerIR handlerInvocation
+      loaderInvocation 55
+
+/-- Executable gate combining the initialize sparse provider certificate with
+    exact HandlerIR invocation and observation agreement. -/
+def checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
+    (bound : BoundResolvedSbpfArtifactV1)
+    (handlerIR : HandlerIR)
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1)
+    (argument : SbpfSemantics.Word) : Bool :=
+  let handlerObservation := observeHandlerIRV1 handlerIR handlerInvocation
+  checkLoaderV3SingleAccountInvocationRelV1 handlerInvocation loaderInvocation &&
+    (checkStateCellInitializeExecutionV1 bound loaderInvocation argument &&
+      match executeLoaderV3SingleAccountV1 bound loaderInvocation 55 with
+      | .error _ => false
+      | .ok sbpfObservation =>
+          checkHandlerSbpfObservationRelV1 stateCellProductionSbpfSha256V1
+            handlerObservation sbpfObservation)
+
+/-- Soundness of the certified initialize HandlerIR/provider join. -/
+theorem checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1_sound
+    (bound : BoundResolvedSbpfArtifactV1)
+    (handlerIR : HandlerIR)
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1)
+    (argument : SbpfSemantics.Word)
+    (checked : checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
+      bound handlerIR handlerInvocation loaderInvocation argument = true) :
+    Nonempty (CertifiedStateCellInitializeExecutedHandlerSbpfJoinV1 bound
+      handlerIR handlerInvocation loaderInvocation argument) := by
+  unfold checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1 at checked
+  cases hexecution :
+      executeLoaderV3SingleAccountV1 bound loaderInvocation 55 with
+  | error error => simp [hexecution] at checked
+  | ok sbpfObservation =>
+      rw [hexecution] at checked
+      simp only [Bool.and_eq_true] at checked
+      rcases checked with ⟨hinvocation, hprovider, hobservation⟩
+      rcases checkStateCellInitializeExecutionV1_sound bound loaderInvocation
+          argument hprovider with ⟨provider⟩
+      have hinjected :
+          sbpfObservation = {
+            artifactSha256 :=
+              (BoundResolvedSbpfArtifactV1.resolvedOf bound).sourceSha256
+            provider := SbpfSemantics.observe provider.certificate.machine
+              (.halted 0)
+            finalAccountData := provider.certificate.machine.mem.readBytes
+              (SbpfSemantics.inputStart +
+                BitVec.ofNat 64 accountDataOffsetV1) 16
+          } := by
+        exact Except.ok.inj (hexecution.symm.trans provider.providerExecution)
+      subst sbpfObservation
+      exact ⟨{
+        provider
+        executed := {
+          invocationRel :=
+            (checkLoaderV3SingleAccountInvocationRelV1_eq_true_iff
+              handlerInvocation loaderInvocation).mp hinvocation
+          handlerObservation := observeHandlerIRV1 handlerIR handlerInvocation
+          handlerExecution := rfl
+          sbpfObservation := {
+            artifactSha256 :=
+              (BoundResolvedSbpfArtifactV1.resolvedOf bound).sourceSha256
+            provider := SbpfSemantics.observe provider.certificate.machine
+              (.halted 0)
+            finalAccountData := provider.certificate.machine.mem.readBytes
+              (SbpfSemantics.inputStart +
+                BitVec.ofNat 64 accountDataOffsetV1) 16
+          }
+          sbpfExecution := provider.providerExecution
+          observationRel :=
+            (checkHandlerSbpfObservationRelV1_eq_true_iff
+              stateCellProductionSbpfSha256V1
+              (observeHandlerIRV1 handlerIR handlerInvocation) _).mp
+                hobservation
         }
       }⟩
 

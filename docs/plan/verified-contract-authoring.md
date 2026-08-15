@@ -1474,6 +1474,14 @@ expression translator：
     macOS 26 arm64 selected-closure lane均已接线；后者只物化 `wat2wasm`、provider及其 exact locked
     dylib，不要求GitHub runner冒充另一个开发机host profile。run `31781471216` 中两条consumer
     实际通过，故NEAR engineering阶段出口已关闭并继续Solana；这不升级为kernel target refinement。
+32. Solana StateCell的production `.s`已通过strict parser接到exact-pinned sBPF provider；`get`与
+    `initialize(7)`现在各自拥有identity-bound、concrete Loader-read、exact 55-step `Steps`、
+    `runFuel`/Loader execution equation及actual HandlerIR observation join。initialize gate还固定fuel 54
+    仍live、fuel 55成功halt和layout-marker+argument的16-byte final account window；任何artifact、参数或
+    signer drift fail closed。increment success与overflow目前仍只有generic executed join，尚无sparse
+    certificate。所有production checker的kernel theorem仍以Boolean成功为前提，尚未把大型具体gate
+    归约为无条件Reference→provider定理；ELF/linker/loader、Mollusk/SVM runtime、transaction rollback
+    与compute units也未证明，因此不能标记为artifact verified。
 
 ---
 

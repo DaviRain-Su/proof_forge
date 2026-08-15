@@ -306,8 +306,9 @@ private unsafe def testStateCellSbpfArtifact
   expectArtifactError (resolveSbpfArtifactV1 <| minimal "call unknown_syscall")
     "unsupported syscall or unresolved call target"
 
-/-- Mutating recipes use the same production `.s` as `get` and the generic
-    HandlerIR/provider executed join. These are not sparse provider certificates. -/
+/-- Mutating recipes use the same production `.s` as `get`. Initialize retains
+    its exact 55-step sparse provider certificate; increment success/overflow
+    still use the generic HandlerIR/provider executed join. -/
 private unsafe def testStateCellMutatingProductionSubjects : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
@@ -325,7 +326,43 @@ private unsafe def testStateCellMutatingProductionSubjects : IO Unit := do
   expect (initSubject.argument == 7)
     "initialize subject must use the pinned argument 7"
   expect checkStateCellInitializeProductionSubjectV1
-    "initialize production subject generic executed join must succeed"
+    "initialize production subject certified 55-step join must succeed"
+  let initArgument := BitVec.ofNat 64 initSubject.argument.toNat
+  let initInput ← liftExecutionResult <|
+    encodeLoaderV3SingleAccountInputV1 initSubject.boundArtifact
+      initSubject.loaderInvocation
+  expect (checkStateCellInitializeArtifactV1 initSubject.boundArtifact)
+    "initialize sparse fetch manifest must match the production artifact"
+  expect (checkStateCellInitializeInputReadsV1 initInput initArgument)
+    "initialize sparse Loader reads must match the encoded invocation"
+  expect (checkStateCellInitializeTraceV1 initSubject.boundArtifact initInput
+      initArgument)
+    "initialize exact 55-step provider trace must succeed"
+  expect (checkStateCellInitializeExecutionV1 initSubject.boundArtifact
+      initSubject.loaderInvocation initArgument)
+    "initialize certified Loader execution must succeed"
+  expect (checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
+      initSubject.boundArtifact initSubject.handler initSubject.handlerInvocation
+      initSubject.loaderInvocation initArgument)
+    "initialize certified HandlerIR/provider join must succeed"
+  let initArtifact :=
+    BoundResolvedSbpfArtifactV1.resolvedOf initSubject.boundArtifact
+  let initAt54 := SbpfSemantics.runFuel SbpfSemantics.asmDefaultHost
+    initArtifact.program 54 (SbpfSemantics.Machine.entry initInput)
+  let initAt55 := SbpfSemantics.runFuel SbpfSemantics.asmDefaultHost
+    initArtifact.program 55 (SbpfSemantics.Machine.entry initInput)
+  expect (decide (initAt54.2 = .outOfFuel) && initAt54.1.pc == 14 &&
+      initAt54.1.halted.isNone)
+    "initialize trace must be live at the dispatcher exit after step 54"
+  expect (decide (initAt55.2 = .halted 0) && initAt55.1.pc == 14 &&
+      initAt55.1.halted == some 0)
+    "initialize trace must halt successfully at exact step 55"
+  expect (!checkStateCellInitializeExecutionV1 initSubject.boundArtifact
+      initSubject.loaderInvocation (BitVec.ofNat 64 8))
+    "initialize argument drift must fail the sparse certificate"
+  expect (!checkStateCellInitializeExecutionV1 initSubject.boundArtifact
+      { initSubject.loaderInvocation with isSigner := false } initArgument)
+    "initialize missing signer privilege must fail the sparse certificate"
   expect (!checkStateCellExecutedHandlerSbpfJoinV1
       initSubject.boundArtifact getSubject.handler
       initSubject.handlerInvocation initSubject.loaderInvocation)

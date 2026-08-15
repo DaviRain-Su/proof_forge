@@ -15,6 +15,7 @@ import ProofForgeV2.Targets.Solana.SbpfExecutionV1
 import ProofForgeV2.Targets.Solana.SbpfHandlerJoinV1
 import ProofForgeV2.Targets.Solana.SbpfProviderStepV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellGetV1
+import ProofForgeV2.Targets.Solana.SbpfStateCellInitializeV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellProductionV1
 import ProofForgeV2.Targets.Solana.ProductFrameV1
 import ProofForgeV2.Targets.Solana.ProductCpiRecipesV1

@@ -19,9 +19,9 @@ assembly emitter, strict artifact parser, and identity-bound provider path.
 They contain no copied IR/program and introduce no alternate lowering or
 business semantics.
 
-`get` retains the dedicated 55-step certified join. `initialize` plus successful
-and overflowing `increment` use the generic executed HandlerIR/provider join;
-their sparse certificates are later slices.
+`get` and `initialize` retain dedicated 55-step certified joins. Successful and
+overflowing `increment` use the generic executed HandlerIR/provider join; their
+sparse certificates are later slices.
 -/
 
 namespace ProofForgeV2.Targets.Solana
@@ -223,27 +223,28 @@ def resolveStateCellInitializeProductionSubjectV1 :
 
 def checkStateCellInitializeProductionSubjectV1 : Bool :=
   checkExceptV1 resolveStateCellInitializeProductionSubjectV1 fun subject =>
-    checkStateCellExecutedHandlerSbpfJoinV1
+    checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
       subject.boundArtifact subject.handler subject.handlerInvocation
-      subject.loaderInvocation
+      subject.loaderInvocation (BitVec.ofNat 64 subject.argument.toNat)
 
 theorem checkStateCellInitializeProductionSubjectV1_sound
     (checked : checkStateCellInitializeProductionSubjectV1 = true) :
     ∃ subject,
       resolveStateCellInitializeProductionSubjectV1 = .ok subject ∧
-      Nonempty (StateCellExecutedHandlerSbpfJoinV1
+      Nonempty (CertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
         subject.boundArtifact subject.handler subject.handlerInvocation
-        subject.loaderInvocation defaultSbpfExecutionFuelV1) := by
+        subject.loaderInvocation
+        (BitVec.ofNat 64 subject.argument.toNat)) := by
   rcases checkExceptV1_sound resolveStateCellInitializeProductionSubjectV1
       (fun subject =>
-        checkStateCellExecutedHandlerSbpfJoinV1
+        checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
           subject.boundArtifact subject.handler subject.handlerInvocation
-          subject.loaderInvocation)
+          subject.loaderInvocation (BitVec.ofNat 64 subject.argument.toNat))
       checked with ⟨subject, hsubject, hchecked⟩
   refine ⟨subject, hsubject, ?_⟩
-  exact checkStateCellExecutedHandlerSbpfJoinV1_sound
+  exact checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1_sound
     subject.boundArtifact subject.handler subject.handlerInvocation
-    subject.loaderInvocation defaultSbpfExecutionFuelV1 hchecked
+    subject.loaderInvocation (BitVec.ofNat 64 subject.argument.toNat) hchecked
 
 /-- Concrete values consumed by the generic StateCell `increment` success
     HandlerIR/provider join. The selected scenario starts at `41` and adds

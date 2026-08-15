@@ -16098,3 +16098,22 @@ normative: false
   场景，gate成功，错配`initialize` handler fail closed。至此四条D4 recipe均有production subject与
   executed observation join；`initialize`/increment success/overflow的sparse provider certificates、
   unconditional concrete theorem及ELF/SVM runtime refinement仍未闭合。
+
+## 2026-08-15 — StateCell `initialize` exact 55-step provider certificate
+
+- 新增`SbpfStateCellInitializeV1`：checker从identity-bound production StateCell `.s` strict parser
+  artifact检查成功initialize路径的完整55条sparse fetch manifest，并直接检查真实Loader V3 input中的
+  account count、discriminator、owner/program-id、signer/writable、uninitialized marker与argument读取；
+  没有复制provider executable program、另写HandlerIR lowering或新增business semantics。
+- executable trace gate要求fuel 54时provider仍live且`.outOfFuel`，fuel 55时在dispatcher exit以status/r0
+  零halt；最终16-byte account window精确为layout marker加argument，return data为空。soundness通过
+  provider现有`runFuel_halted_steps`恢复exact 55步`Steps`，未使用`sorry`、`native_decide`、用户axiom、
+  `unsafe theorem`或`Lean.ofReduceBool`。
+- `SbpfHandlerJoinV1`新增certified initialize join，同时保留55步execution certificate与实际
+  `observeHandlerIRV1`/Loader observation relation；production initialize subject gate已从generic join
+  切到该证书。argument漂移与missing signer回归均fail closed，Solana runner输出
+  `Tests.Targets.SolanaAsmV1: ok`。
+- 当前`get`与`initialize`各有exact 55-step production certificate；increment success与overflow仍只有
+  generic executed join。checker为true可由kernel soundness恢复certificate，但尚未把大型concrete gate
+  归约成无条件定理；ELF/linker/loader、Mollusk/validator/runtime、transaction rollback与compute units
+  均未因此升级。下一刀是increment success sparse certificate，再处理overflow suffix。
