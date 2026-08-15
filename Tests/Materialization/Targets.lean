@@ -4365,6 +4365,42 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrRetBox" target kind arrRetCompiled
       "anonymous Array is outside the current container-state pilot"
 
+  -- ArrViewRet: Array UInt64 2 *view* return. Distinct from ArrRetBox
+  -- entry: TON view-only B-RET admits; Aleo computed-view FC.
+  -- Quint/Soroban/OpenVM/ICP stay Array-pilot FC. Not opening Aleo
+  -- computed view. ArrRetBox / ArrRetEntry stay.
+  let arrViewRetSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrViewRet where\n" ++
+    "  state slots : Array UInt64 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  view peek() : Array UInt64 2 do\n" ++
+    "    return slots\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let arrViewRetV1 ← match ← session.selectProgramV1 arrViewRetSource
+      "<targets-arr-view-ret>" "Examples.ArrViewRet" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"ArrViewRet select: {e.render}"
+  let arrViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrViewRetV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target arrViewRetCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"ArrViewRet: {target} must materialize Array UInt64 2 view return"
+  expectMaterializePlanInvariantV1 "ArrViewRet" TargetId.aleo TargetKind.aleo
+    arrViewRetCompiled "computed state views fail closed"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "ArrViewRet" target kind arrViewRetCompiled
+      "anonymous Array is outside the current container-state pilot"
+
   -- MapMini: Map UInt64 UInt64 state. Eight materializers admit; Quint/
   -- Soroban/ICP/OpenVM stay envelope FC. Not opening Map on those four.
   -- No Plan-shape pins; files-nonempty or named decline only.
