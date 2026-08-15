@@ -5786,6 +5786,48 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "OptBool" target kind optBoolCompiled
       "anonymous Option is outside the current container-state pilot"
 
+  -- OptInt: Option Int64 state. Eight targets stay named Option-payload
+  -- FC. Quint/Soroban/OpenVM/ICP fail on the width needle first, not
+  -- OptBool's Option-pilot. Not opening Option-of-Int64. OptBool /
+  -- OptBox / MapBool / ArrBool / BoolPredicate stay.
+  let optIntSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptInt where\n" ++
+    "  state o : Option Int64\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(0)\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let optIntV1 ← match ← session.selectProgramV1 optIntSource
+      "<targets-opt-int>" "Examples.OptInt" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"OptInt select: {e.render}"
+  let optIntCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optIntV1
+  expectMaterializePlanInvariantV1 "OptInt" TargetId.evm TargetKind.evm
+    optIntCompiled "Option state admits only UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptInt" TargetId.solana TargetKind.solana
+    optIntCompiled "Option state 'o' element must be UInt64"
+  for (target, kind) in #[
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.aleo, TargetKind.aleo),
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.ton, TargetKind.ton)] do
+    expectMaterializePlanInvariantV1 "OptInt" target kind optIntCompiled
+      "Option state 'o' requires UInt64 payload"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "OptInt" target kind optIntCompiled
+      "only anonymous UInt64 width is supported"
+
   -- N5: Commit identity admitted on EVM/Solana/NEAR (Plan passthrough into
   -- commitment state). Noir declines (public relation slots cannot hold
   -- commitment labels). Psy declines. ContextRead declined on every Phase-1
