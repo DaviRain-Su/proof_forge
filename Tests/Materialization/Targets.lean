@@ -4115,6 +4115,43 @@ unsafe def run : IO Unit := do
             (e.render).contains "pilot")
           s!"MapMini {target} message must cite Map/container boundary, got {e.render}"
 
+  -- BytesBox: Bytes 4 state. Eight materializers admit; Quint/Soroban/
+  -- ICP/OpenVM stay envelope FC. Not opening Bytes on those four.
+  -- State only — no Bytes return ABI. Files-nonempty or named decline.
+  let bytesBoxSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BytesBox where\n" ++
+    "  state b : Bytes 4\n\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    b[0] := 0\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let bytesV1 ← match ← session.selectProgramV1 bytesBoxSource
+      "<targets-bytes-box>" "Examples.BytesBox" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"BytesBox select: {e.render}"
+  let bytesCompiled ← liftResult <| Compiler.compileValidatedSourceV1 bytesV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target bytesCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"BytesBox: {target} must materialize Bytes 4"
+  for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
+    match materializeSelected target bytesCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"BytesBox: {target} must decline Bytes state"
+    | .error e =>
+        expect ((e.render).contains "Bytes" ||
+            (e.render).contains "container" ||
+            (e.render).contains "anonymous" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot")
+          s!"BytesBox {target} message must cite Bytes/container boundary, got {e.render}"
+
   -- N-A4: Option state Normalize-admitted. Eight materializers admit
   -- Option UInt64 state (Enum-shaped 2-leaf layout): EVM (BL-31), NEAR
   -- (BL-30), Solana (BL-29), Aleo (BL-35), CosmWasm (BL-33), Psy (BL-36),
