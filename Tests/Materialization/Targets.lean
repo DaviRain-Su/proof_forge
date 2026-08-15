@@ -4243,6 +4243,44 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "MaybeRetBox" target kind enumRetCompiled
       "named types are outside the current UInt64 pilot"
 
+  -- MaybeViewRet: named Enum *view* return. Distinct from MaybeRetBox
+  -- entry: TON view-only B-RET admits; Aleo computed-view FC.
+  -- Quint/Soroban/OpenVM/ICP stay named-types UInt64-pilot FC. Not
+  -- opening Aleo computed view. MaybeMark / MaybeRetBox stay.
+  let enumViewRetSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MaybeViewRet where\n" ++
+    "  enum Maybe where\n" ++
+    "    | None\n" ++
+    "    | Some(UInt64)\n" ++
+    "  state m : Maybe\n\n" ++
+    "  init() do\n" ++
+    "    m := Maybe.None()\n\n" ++
+    "  view peek() : Maybe do\n" ++
+    "    return m\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let enumViewRetV1 ← match ← session.selectProgramV1 enumViewRetSource
+      "<targets-enum-view-ret>" "Examples.MaybeViewRet" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MaybeViewRet select: {e.render}"
+  let enumViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 enumViewRetV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target enumViewRetCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"MaybeViewRet: {target} must materialize named Enum view return"
+  expectMaterializePlanInvariantV1 "MaybeViewRet" TargetId.aleo TargetKind.aleo
+    enumViewRetCompiled "computed state views fail closed"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "MaybeViewRet" target kind enumViewRetCompiled
+      "named types are outside the current UInt64 pilot"
+
   -- ArrayState: fixed Array UInt64 2 state — Solana + EVM + NEAR + Noir + H3
   -- Psy/Aleo admit (flatten to leaf slots named slots_0/slots_1; IndexGet/Set).
   -- Map UInt64→UInt64 dense pilot is open on EVM/Solana/NEAR/Noir (cap-8);
