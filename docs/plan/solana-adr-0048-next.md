@@ -65,6 +65,13 @@ Code facts:
   parameters. The four StateCell scenarios consume this boundary while their
   artifact manifests, concrete input reads, sparse traces and postconditions
   remain method-specific.
+- `ProductionCompositionV1.lean` now factors the contract-independent,
+  fail-closed resolver/Reference-checker/provider-checker gate. Its soundness
+  theorem recovers the exact resolved subject and both checker equations, but
+  deliberately does not interpret them as a business relation or general
+  Reference→provider refinement. The four StateCell scenarios are its first
+  consumers; their observation relations, traces and postconditions remain
+  method-specific.
 
 ## Completed implementation slices (serial)
 
@@ -123,6 +130,13 @@ second codegen.
     production Loader encoder and identity-bound execution equations. All four
     StateCell provider certificates now consume it; method-specific manifests,
     reads, traces and observations are deliberately not generalized away.
+14. **SOL-0048-D5-COMPOSITION-SEAM** — **done 2026-08-15**: introduced a
+    contract-independent production composition gate parameterized by any
+    resolved subject and two caller-supplied Boolean checkers. Resolution and
+    either checker fail closed; soundness recovers one shared subject plus the
+    exact Reference/provider checker equations. All four StateCell D5 gates now
+    consume it without moving their business relations or sparse certificates
+    into the generic layer.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete. The remaining D5 blocker is unconditional kernel discharge of the
@@ -132,11 +146,12 @@ opaque; runtime output `true` must not be presented as a theorem.
 
 Next formalization slices, in order:
 
-1. **SOL-0048-D5-GET-UNCONDITIONAL**: use the preparation, method and provider
-   certificate equations to isolate and discharge the remaining Reference
-   observation, static alignment, artifact/input manifest and 55-step checker
-   obligations for `get`. Do not add `native_decide`, `Lean.ofReduceBool`,
-   `run_tac`, an axiom, or a copied AST/IR/provider program.
+1. **SOL-0048-D5-GET-UNCONDITIONAL**: use the preparation, method, provider and
+   composition certificate equations to isolate and discharge the remaining
+   Reference observation, static alignment, artifact/input manifest and
+   55-step checker obligations for `get`. Do not add `native_decide`,
+   `Lean.ofReduceBool`, `run_tac`, an axiom, or a copied AST/IR/provider
+   program.
 2. The resulting theorem must discharge the existing Boolean premise for
    `get` and call the existing concrete sound theorem, not restate provider
    behavior.

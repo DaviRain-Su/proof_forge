@@ -121,6 +121,35 @@ private theorem productionProviderExecutionFixtureV1
       }) :=
   ⟨execution.encodedInput, execution.providerExecution⟩
 
+/-- Type-level fixture: production composition is parameterized by any resolved
+    subject and two supplied checkers, not by a contract or method shape. -/
+private theorem productionCompositionFixtureV1
+    (result : Except String α)
+    (referenceChecker providerChecker : α → Bool)
+    (checked : checkCertifiedSolanaProductionCompositionV1 result
+      referenceChecker providerChecker = true) :
+    ∃ subject,
+      result = .ok subject ∧
+      referenceChecker subject = true ∧
+      providerChecker subject = true :=
+  checkCertifiedSolanaProductionCompositionV1_sound result referenceChecker
+    providerChecker checked
+
+private def testProductionCompositionBoundary : IO Unit := do
+  let missing : Except String Nat := .error "missing production subject"
+  expect (!checkCertifiedSolanaProductionCompositionV1 missing
+      (fun _ => true) (fun _ => true))
+    "production composition: resolver failure must fail closed"
+  expect (!checkCertifiedSolanaProductionCompositionV1 (.ok 7)
+      (fun _ => false) (fun _ => true))
+    "production composition: Reference checker failure must fail closed"
+  expect (!checkCertifiedSolanaProductionCompositionV1 (.ok 7)
+      (fun _ => true) (fun _ => false))
+    "production composition: provider checker failure must fail closed"
+  expect (checkCertifiedSolanaProductionCompositionV1 (.ok 7)
+      (fun value => value == 7) (fun value => value < 8))
+    "production composition: shared successful subject must be accepted"
+
 private def expectArtifactError (result : SbpfArtifactResultV1 α)
     (messagePart : String) : IO Unit :=
   match result with
@@ -1795,6 +1824,7 @@ private unsafe def testAccountListShapeChecks
 
 unsafe def run : IO Unit := do
   testLegacyCallStubDeleted
+  testProductionCompositionBoundary
   testLayoutExact16
   testLayoutVariesWithDataLen
   testDiscriminatorLe

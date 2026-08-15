@@ -5,6 +5,7 @@ import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Targets.Solana.EmitIRV1
 import ProofForgeV2.Targets.Solana.EmitSbpfAsmV1
+import ProofForgeV2.Targets.Solana.ProductionCompositionV1
 import ProofForgeV2.Targets.Solana.ProductionMethodV1
 import ProofForgeV2.Targets.Solana.SbpfHandlerJoinV1
 
@@ -142,28 +143,12 @@ def resolveStateCellGetProductionSubjectV1 :
     referencePre referenceExecution handlerInvocation loaderInvocation returnBytes
     value
 
-private def checkExceptV1 (result : Except String α)
-    (checker : α → Bool) : Bool :=
-  match result with
-  | .error _ => false
-  | .ok value => checker value
-
-private theorem checkExceptV1_sound
-    (result : Except String α) (checker : α → Bool)
-    (checked : checkExceptV1 result checker = true) :
-    ∃ value, result = .ok value ∧ checker value = true := by
-  unfold checkExceptV1 at checked
-  cases hresult : result with
-  | error error => simp [hresult] at checked
-  | ok value =>
-      simp [hresult] at checked
-      exact ⟨value, rfl, checked⟩
-
 /-- Single fail-closed gate over the pure production subject and the existing
     certified HandlerIR/provider checker. Any source, compiler, profile,
     artifact, handler, or invocation failure returns `false`. -/
 def checkStateCellGetProductionSubjectV1 : Bool :=
-  checkExceptV1 resolveStateCellGetProductionSubjectV1 fun subject =>
+  checkCertifiedSolanaProductionSubjectV1
+    resolveStateCellGetProductionSubjectV1 fun subject =>
     checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1
       subject.boundArtifact subject.handler subject.handlerInvocation
       subject.loaderInvocation subject.returnBytes subject.value
@@ -179,7 +164,8 @@ theorem checkStateCellGetProductionSubjectV1_sound
       Nonempty (CertifiedStateCellGetExecutedHandlerSbpfJoinV1
         subject.boundArtifact subject.handler subject.handlerInvocation
         subject.loaderInvocation subject.returnBytes subject.value) := by
-  rcases checkExceptV1_sound resolveStateCellGetProductionSubjectV1
+  rcases checkCertifiedSolanaProductionSubjectV1_sound
+      resolveStateCellGetProductionSubjectV1
       (fun subject =>
         checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1
           subject.boundArtifact subject.handler subject.handlerInvocation
@@ -194,14 +180,17 @@ theorem checkStateCellGetProductionSubjectV1_sound
     source-derived sole Reference result with the dedicated 55-step provider
     certificate; the production account remains unchanged. -/
 def checkStateCellGetReferenceProviderSubjectV1 : Bool :=
-  checkExceptV1 resolveStateCellGetProductionSubjectV1 fun subject =>
-    checkUInt64ReturnedHandlerObservationRelV1 subject.data
-      subject.returnTypeId subject.referencePre subject.referenceOutcome
-      ⟨subject.returnBytes⟩
-      (observeHandlerIRV1 subject.handler subject.handlerInvocation) &&
-    checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1
-      subject.boundArtifact subject.handler subject.handlerInvocation
-      subject.loaderInvocation subject.returnBytes subject.value
+  checkCertifiedSolanaProductionCompositionV1
+    resolveStateCellGetProductionSubjectV1
+    (fun subject =>
+      checkUInt64ReturnedHandlerObservationRelV1 subject.data
+        subject.returnTypeId subject.referencePre subject.referenceOutcome
+        ⟨subject.returnBytes⟩
+        (observeHandlerIRV1 subject.handler subject.handlerInvocation))
+    (fun subject =>
+      checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1
+        subject.boundArtifact subject.handler subject.handlerInvocation
+        subject.loaderInvocation subject.returnBytes subject.value)
 
 /-- A successful get D5 gate recovers one composed
     Reference→HandlerIR→provider carrier. The Boolean premise remains explicit;
@@ -218,18 +207,18 @@ theorem checkStateCellGetReferenceProviderSubjectV1_sound
           certified.executed.handlerObservation
           stateCellProductionSbpfSha256V1
           certified.executed.sbpfObservation := by
-  rcases checkExceptV1_sound resolveStateCellGetProductionSubjectV1
+  rcases checkCertifiedSolanaProductionCompositionV1_sound
+      resolveStateCellGetProductionSubjectV1
       (fun subject =>
         checkUInt64ReturnedHandlerObservationRelV1 subject.data
           subject.returnTypeId subject.referencePre subject.referenceOutcome
           ⟨subject.returnBytes⟩
-          (observeHandlerIRV1 subject.handler subject.handlerInvocation) &&
+          (observeHandlerIRV1 subject.handler subject.handlerInvocation))
+      (fun subject =>
         checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1
           subject.boundArtifact subject.handler subject.handlerInvocation
           subject.loaderInvocation subject.returnBytes subject.value)
-      checked with ⟨subject, hsubject, hchecked⟩
-  simp only [Bool.and_eq_true] at hchecked
-  rcases hchecked with ⟨hreference, hprovider⟩
+      checked with ⟨subject, hsubject, hreference, hprovider⟩
   have referenceHandler :
       UInt64ReturnedHandlerObservationRelV1 subject.data subject.returnTypeId
         subject.referencePre subject.referenceOutcome ⟨subject.returnBytes⟩
@@ -374,7 +363,8 @@ def resolveStateCellInitializeProductionSubjectV1 :
     handlerInvocation loaderInvocation
 
 def checkStateCellInitializeProductionSubjectV1 : Bool :=
-  checkExceptV1 resolveStateCellInitializeProductionSubjectV1 fun subject =>
+  checkCertifiedSolanaProductionSubjectV1
+    resolveStateCellInitializeProductionSubjectV1 fun subject =>
     checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
       subject.boundArtifact subject.handler subject.handlerInvocation
       subject.loaderInvocation (BitVec.ofNat 64 subject.argument.toNat)
@@ -387,7 +377,8 @@ theorem checkStateCellInitializeProductionSubjectV1_sound
         subject.boundArtifact subject.handler subject.handlerInvocation
         subject.loaderInvocation
         (BitVec.ofNat 64 subject.argument.toNat)) := by
-  rcases checkExceptV1_sound resolveStateCellInitializeProductionSubjectV1
+  rcases checkCertifiedSolanaProductionSubjectV1_sound
+      resolveStateCellInitializeProductionSubjectV1
       (fun subject =>
         checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
           subject.boundArtifact subject.handler subject.handlerInvocation
@@ -403,14 +394,17 @@ theorem checkStateCellInitializeProductionSubjectV1_sound
     dedicated 55-step provider certificate. The gate remains fail closed and
     proof-producing; it does not define another transition or lowering. -/
 def checkStateCellInitializeReferenceProviderSubjectV1 : Bool :=
-  checkExceptV1 resolveStateCellInitializeProductionSubjectV1 fun subject =>
-    checkUInt64InitializerReturnedHandlerObservationRelV1 subject.data
-      subject.plan subject.binding subject.referencePost subject.referenceOutcome
-      subject.postData subject.argument
-      (observeHandlerIRV1 subject.handler subject.handlerInvocation) &&
-    checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
-      subject.boundArtifact subject.handler subject.handlerInvocation
-      subject.loaderInvocation (BitVec.ofNat 64 subject.argument.toNat)
+  checkCertifiedSolanaProductionCompositionV1
+    resolveStateCellInitializeProductionSubjectV1
+    (fun subject =>
+      checkUInt64InitializerReturnedHandlerObservationRelV1 subject.data
+        subject.plan subject.binding subject.referencePost
+        subject.referenceOutcome subject.postData subject.argument
+        (observeHandlerIRV1 subject.handler subject.handlerInvocation))
+    (fun subject =>
+      checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
+        subject.boundArtifact subject.handler subject.handlerInvocation
+        subject.loaderInvocation (BitVec.ofNat 64 subject.argument.toNat))
 
 /-- A successful D5 gate recovers the exact source-derived subject, dedicated
     sparse provider certificate, and composed Reference→provider carrier. The
@@ -429,18 +423,18 @@ theorem checkStateCellInitializeReferenceProviderSubjectV1_sound
           subject.postData subject.argument certified.executed.handlerObservation
           stateCellProductionSbpfSha256V1
           certified.executed.sbpfObservation := by
-  rcases checkExceptV1_sound resolveStateCellInitializeProductionSubjectV1
+  rcases checkCertifiedSolanaProductionCompositionV1_sound
+      resolveStateCellInitializeProductionSubjectV1
       (fun subject =>
         checkUInt64InitializerReturnedHandlerObservationRelV1 subject.data
           subject.plan subject.binding subject.referencePost
           subject.referenceOutcome subject.postData subject.argument
-          (observeHandlerIRV1 subject.handler subject.handlerInvocation) &&
+          (observeHandlerIRV1 subject.handler subject.handlerInvocation))
+      (fun subject =>
         checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
           subject.boundArtifact subject.handler subject.handlerInvocation
           subject.loaderInvocation (BitVec.ofNat 64 subject.argument.toNat))
-      checked with ⟨subject, hsubject, hchecked⟩
-  simp only [Bool.and_eq_true] at hchecked
-  rcases hchecked with ⟨hreference, hprovider⟩
+      checked with ⟨subject, hsubject, hreference, hprovider⟩
   have referenceHandler :
       UInt64InitializerReturnedHandlerObservationRelV1 subject.data subject.plan
         subject.binding subject.referencePost subject.referenceOutcome
@@ -586,7 +580,8 @@ def resolveStateCellIncrementProductionSubjectV1 :
 
 /-- Fail-closed certified agreement for the pinned increment-success subject. -/
 def checkStateCellIncrementProductionSubjectV1 : Bool :=
-  checkExceptV1 resolveStateCellIncrementProductionSubjectV1 fun subject =>
+  checkCertifiedSolanaProductionSubjectV1
+    resolveStateCellIncrementProductionSubjectV1 fun subject =>
     checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1
       subject.boundArtifact subject.handler subject.handlerInvocation
       subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
@@ -603,7 +598,8 @@ theorem checkStateCellIncrementProductionSubjectV1_sound
         subject.boundArtifact subject.handler subject.handlerInvocation
         subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
         (BitVec.ofNat 64 subject.argument.toNat)) := by
-  rcases checkExceptV1_sound resolveStateCellIncrementProductionSubjectV1
+  rcases checkCertifiedSolanaProductionSubjectV1_sound
+      resolveStateCellIncrementProductionSubjectV1
       (fun subject =>
         checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1
           subject.boundArtifact subject.handler subject.handlerInvocation
@@ -620,15 +616,18 @@ theorem checkStateCellIncrementProductionSubjectV1_sound
     composes the source-derived sole Reference outcome with the dedicated
     70-step provider certificate. -/
 def checkStateCellIncrementReferenceProviderSubjectV1 : Bool :=
-  checkExceptV1 resolveStateCellIncrementProductionSubjectV1 fun subject =>
-    checkUInt64CheckedAddReturnedHandlerObservationRelV1 subject.data
-      subject.plan subject.binding subject.referencePost subject.referenceOutcome
-      subject.postData subject.before subject.argument
-      (observeHandlerIRV1 subject.handler subject.handlerInvocation) &&
-    checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1
-      subject.boundArtifact subject.handler subject.handlerInvocation
-      subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
-      (BitVec.ofNat 64 subject.argument.toNat)
+  checkCertifiedSolanaProductionCompositionV1
+    resolveStateCellIncrementProductionSubjectV1
+    (fun subject =>
+      checkUInt64CheckedAddReturnedHandlerObservationRelV1 subject.data
+        subject.plan subject.binding subject.referencePost
+        subject.referenceOutcome subject.postData subject.before subject.argument
+        (observeHandlerIRV1 subject.handler subject.handlerInvocation))
+    (fun subject =>
+      checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1
+        subject.boundArtifact subject.handler subject.handlerInvocation
+        subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
+        (BitVec.ofNat 64 subject.argument.toNat))
 
 /-- A successful D5 increment gate returns one composed
     Reference→HandlerIR→provider carrier. Its Boolean premise is retained; this
@@ -646,20 +645,20 @@ theorem checkStateCellIncrementReferenceProviderSubjectV1_sound
           subject.postData subject.before subject.argument
           certified.executed.handlerObservation stateCellProductionSbpfSha256V1
           certified.executed.sbpfObservation := by
-  rcases checkExceptV1_sound resolveStateCellIncrementProductionSubjectV1
+  rcases checkCertifiedSolanaProductionCompositionV1_sound
+      resolveStateCellIncrementProductionSubjectV1
       (fun subject =>
         checkUInt64CheckedAddReturnedHandlerObservationRelV1 subject.data
           subject.plan subject.binding subject.referencePost
           subject.referenceOutcome subject.postData subject.before
           subject.argument
-          (observeHandlerIRV1 subject.handler subject.handlerInvocation) &&
+          (observeHandlerIRV1 subject.handler subject.handlerInvocation))
+      (fun subject =>
         checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1
           subject.boundArtifact subject.handler subject.handlerInvocation
           subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
           (BitVec.ofNat 64 subject.argument.toNat))
-      checked with ⟨subject, hsubject, hchecked⟩
-  simp only [Bool.and_eq_true] at hchecked
-  rcases hchecked with ⟨hreference, hprovider⟩
+      checked with ⟨subject, hsubject, hreference, hprovider⟩
   have referenceHandler :
       UInt64CheckedAddReturnedHandlerObservationRelV1 subject.data subject.plan
         subject.binding subject.referencePost subject.referenceOutcome
@@ -746,7 +745,8 @@ def resolveStateCellIncrementOverflowProductionSubjectV1 :
 
 /-- Fail-closed certified agreement for the pinned increment-overflow subject. -/
 def checkStateCellIncrementOverflowProductionSubjectV1 : Bool :=
-  checkExceptV1 resolveStateCellIncrementOverflowProductionSubjectV1 fun subject =>
+  checkCertifiedSolanaProductionSubjectV1
+    resolveStateCellIncrementOverflowProductionSubjectV1 fun subject =>
     checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
       subject.production.boundArtifact subject.production.handler
       subject.handlerInvocation subject.loaderInvocation
@@ -764,7 +764,7 @@ theorem checkStateCellIncrementOverflowProductionSubjectV1_sound
         subject.handlerInvocation subject.loaderInvocation
         (BitVec.ofNat 64 subject.before.toNat)
         (BitVec.ofNat 64 subject.argument.toNat)) := by
-  rcases checkExceptV1_sound
+  rcases checkCertifiedSolanaProductionSubjectV1_sound
       resolveStateCellIncrementOverflowProductionSubjectV1
       (fun subject =>
         checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
@@ -784,18 +784,21 @@ theorem checkStateCellIncrementOverflowProductionSubjectV1_sound
     source-derived Reference overflow with the dedicated 56-step provider
     certificate and exact unchanged production account snapshot. -/
 def checkStateCellIncrementOverflowReferenceProviderSubjectV1 : Bool :=
-  checkExceptV1 resolveStateCellIncrementOverflowProductionSubjectV1 fun subject =>
-    checkUInt64CheckedAddOverflowHandlerObservationRelV1
-      subject.production.data subject.production.plan subject.production.binding
-      subject.referencePre subject.referenceOutcome subject.accountData
-      subject.before
-      (observeHandlerIRV1 subject.production.handler
-        subject.handlerInvocation) &&
-    checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
-      subject.production.boundArtifact subject.production.handler
-      subject.handlerInvocation subject.loaderInvocation
-      (BitVec.ofNat 64 subject.before.toNat)
-      (BitVec.ofNat 64 subject.argument.toNat)
+  checkCertifiedSolanaProductionCompositionV1
+    resolveStateCellIncrementOverflowProductionSubjectV1
+    (fun subject =>
+      checkUInt64CheckedAddOverflowHandlerObservationRelV1
+        subject.production.data subject.production.plan
+        subject.production.binding subject.referencePre subject.referenceOutcome
+        subject.accountData subject.before
+        (observeHandlerIRV1 subject.production.handler
+          subject.handlerInvocation))
+    (fun subject =>
+      checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
+        subject.production.boundArtifact subject.production.handler
+        subject.handlerInvocation subject.loaderInvocation
+        (BitVec.ofNat 64 subject.before.toNat)
+        (BitVec.ofNat 64 subject.argument.toNat))
 
 /-- A successful overflow D5 gate recovers one composed
     Reference→HandlerIR→provider carrier. Its Boolean premise is retained; this
@@ -817,7 +820,7 @@ theorem checkStateCellIncrementOverflowReferenceProviderSubjectV1_sound
           certified.executed.handlerObservation
           stateCellProductionSbpfSha256V1
           certified.executed.sbpfObservation := by
-  rcases checkExceptV1_sound
+  rcases checkCertifiedSolanaProductionCompositionV1_sound
       resolveStateCellIncrementOverflowProductionSubjectV1
       (fun subject =>
         checkUInt64CheckedAddOverflowHandlerObservationRelV1
@@ -825,15 +828,14 @@ theorem checkStateCellIncrementOverflowReferenceProviderSubjectV1_sound
           subject.production.binding subject.referencePre
           subject.referenceOutcome subject.accountData subject.before
           (observeHandlerIRV1 subject.production.handler
-            subject.handlerInvocation) &&
+            subject.handlerInvocation))
+      (fun subject =>
         checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
           subject.production.boundArtifact subject.production.handler
           subject.handlerInvocation subject.loaderInvocation
           (BitVec.ofNat 64 subject.before.toNat)
           (BitVec.ofNat 64 subject.argument.toNat))
-      checked with ⟨subject, hsubject, hchecked⟩
-  simp only [Bool.and_eq_true] at hchecked
-  rcases hchecked with ⟨hreference, hprovider⟩
+      checked with ⟨subject, hsubject, hreference, hprovider⟩
   have referenceHandler :
       UInt64CheckedAddOverflowHandlerObservationRelV1
         subject.production.data subject.production.plan

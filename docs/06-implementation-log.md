@@ -16283,3 +16283,17 @@ normative: false
   通用层。`SolanaAsmV1`新增完全参数化的类型级fixture，固定该API不依赖StateCell method identity。
 - 这是通用provider execution boundary，不是无条件discharge后的closed gate，也不是一般
   Reference→provider theorem或ELF/linker/loader、Mollusk/validator/SVM runtime refinement。
+
+## 2026-08-15 — contract-independent Solana production composition gate
+
+- 新增`ProductionCompositionV1`，把任意`Except String α` production subject resolver与调用方提供的
+  Reference/provider Boolean checker组合为统一fail-closed gate：resolver失败或任一checker失败都返回
+  `false`。sound theorem恢复同一个subject的精确`.ok`等式及两个checker的`= true`等式，不解释或复制
+  checker内部语义。
+- StateCell `get`、`initialize`、increment success与overflow四个D5 composition gate均迁移到该通用
+  API，并删除原模块重复的`checkExceptV1`。各方法的UInt64业务relation、concrete Loader reads、
+  55/55/70/56步trace、artifact identity与postcondition仍留在method-specific模块。
+- `SolanaAsmV1`以任意`α`的类型级fixture固定API不依赖StateCell或特定method，并覆盖missing resolver、
+  Reference checker失败、provider checker失败和共享subject成功四种边界。focused build与runner通过。
+- 该gate只是可复用的proof-producing组合骨架；它不构成无条件closed Boolean gate、一般
+  Reference→provider theorem，也不覆盖ELF/linker/loader、Mollusk/validator/SVM runtime refinement。
