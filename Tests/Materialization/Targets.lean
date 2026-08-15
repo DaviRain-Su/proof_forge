@@ -5171,6 +5171,51 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrU16" target kind arrU16Compiled
       "only anonymous UInt64 width is supported"
 
+  -- ArrU8: Array UInt8 2 state. Same EVM-only admit / eleven-decline
+  -- set as ArrU16, but UInt8 ≠ UInt16 so it is its own pin (last
+  -- narrow unsigned array width). Aleo/TON stay on Array-U64-element
+  -- (legal width). Quint/Soroban/OpenVM/ICP fail on the width needle
+  -- first, not ArrBool's Array-pilot. Not opening Array-of-UInt8 on
+  -- the eleven. ArrU16 / ArrU32 / ArrU128 / ArrU256 stay.
+  let arrU8Source :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrU8 where\n" ++
+    "  state slots : Array UInt8 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := 0\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let arrU8V1 ← match ← session.selectProgramV1 arrU8Source
+      "<targets-arr-u8>" "Examples.ArrU8" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"ArrU8 select: {e.render}"
+  let arrU8Compiled ← liftResult <| Compiler.compileValidatedSourceV1 arrU8V1
+  let arrU8Out ← liftResult <| materializeSelected TargetId.evm arrU8Compiled
+  expect (!(MaterializedArtifactsV1.filesOf arrU8Out).isEmpty)
+    "ArrU8: evm must materialize Array UInt8 2"
+  for (target, kind) in #[
+      (TargetId.solana, TargetKind.solana),
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.aleo, TargetKind.aleo),
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.ton, TargetKind.ton)] do
+    expectMaterializePlanInvariantV1 "ArrU8" target kind arrU8Compiled
+      "Array state element must be UInt64"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "ArrU8" target kind arrU8Compiled
+      "only anonymous UInt64 width is supported"
+
   -- MapMini: Map UInt64 UInt64 state. Eight materializers admit; Quint/
   -- Soroban/ICP/OpenVM stay envelope FC. Not opening Map on those four.
   -- No Plan-shape pins; files-nonempty or named decline only.
