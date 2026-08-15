@@ -20,8 +20,9 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | ENV4-OPTION | next | Option UInt64 2-leaf (`_tag`/`_p0`) on Quint/Soroban/OpenVM; **ICP honest FC** | **committed** `00f58ff9e` — OptBox eleven-admit |
 | ENV4-MAP | after Option | Map UInt64 cap-8 on Quint/Soroban/OpenVM; **ICP Map honest FC** | **committed** `c2e189287` — MapMini eleven-admit |
 | ENV4-MULDIV | after Map | ICP + OpenVM checked mul/div/mod (Quint/Soroban already have it) | **committed** `fb9d1b377` |
-| ALEO-U128 | main | Native `u128` state/params/results; WideUInt six-target admit | **landing** |
-| MID-UNBLOCKED | scout **done** | next mid-tier leaves: Aleo views/i8–32, CW UInt128 ABI; Psy type-surface already mid-tier | mapped |
+| ALEO-U128 | main | Native `u128` state/params/results; WideUInt six-target admit | **committed** `589a25131` |
+| ALEO-I8-32 | main | Native `i8`/`i16`/`i32` state/params/results; WideInt8/16/32 admit | **landing** |
+| MID-UNBLOCKED | scout **done** | next mid-tier leaves: Aleo computed views, CW UInt128 ABI; Psy type-surface already mid-tier | mapped |
 
 **File lock:** workers must not edit `Tests/Materialization/Targets.lean`, `FieldComparison*`, or another target's tree. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.
 

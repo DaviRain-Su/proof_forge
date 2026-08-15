@@ -966,6 +966,63 @@ unsafe def testProductUInt128 : IO Unit := do
   | none => throw <| IO.userError "WideBox encode→decode failed"
   | some p2 => expect (p2 == prog) "WideBox structural round-trip"
 
+/-- Native `i8`/`i16`/`i32` mappings + signed checked add. -/
+unsafe def testProductNarrowIntWidths : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program NarrowIntBox where\n" ++
+    "  state a : Int8\n" ++
+    "  state b : Int16\n" ++
+    "  state c : Int32\n" ++
+    "  init(seed8 : Int8, seed16 : Int16, seed32 : Int32) do\n" ++
+    "    a := seed8\n" ++
+    "    b := seed16\n" ++
+    "    c := seed32\n" ++
+    "  entry bump8(d : Int8) : Int8 do\n" ++
+    "    a := a + d\n" ++
+    "    return a\n" ++
+    "  entry bump16(d : Int16) : Int16 do\n" ++
+    "    b := b + d\n" ++
+    "    return b\n" ++
+    "  entry bump32(d : Int32) : Int32 do\n" ++
+    "    c := c + d\n" ++
+    "    return c\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-i8-32>" "Tests.AleoNarrowInt" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let prog ← liftResult <| programFromCapabilityV1 cap
+  expect (prog.name == "narrowintbox.aleo") "NarrowIntBox program name"
+  expect (countMappings prog == 4)
+    s!"NarrowIntBox must emit 3 state + guard, got {countMappings prog}"
+  expect (mappingValueBase prog "pf_state_0" == some .i8) "Int8 mapping"
+  expect (mappingValueBase prog "pf_state_1" == some .i16) "Int16 mapping"
+  expect (mappingValueBase prog "pf_state_2" == some .i32) "Int32 mapping"
+  let mut initInputs : Array TypeAnnV1 := #[]
+  for item in prog.items do
+    match item with
+    | .finalize f =>
+        if f.name == "initialize" then
+          for i in f.body do
+            match i with
+            | .input _ ty => initInputs := initInputs.push ty
+            | _ => pure ()
+    | _ => pure ()
+  expect (initInputs.size ≥ 3) "initialize must declare 3 Int inputs"
+  expect (initInputs[0]! == .base .i8 .public_) "seed8 as i8.public"
+  expect (initInputs[1]! == .base .i16 .public_) "seed16 as i16.public"
+  expect (initInputs[2]! == .base .i32 .public_) "seed32 as i32.public"
+  expect (hasBinaryOp prog "add") "narrow Int checkedAdd → add"
+  let encoded := encodeProgram prog
+  match decodeProgram? encoded with
+  | none => throw <| IO.userError "NarrowIntBox encode→decode failed"
+  | some p2 => expect (p2 == prog) "NarrowIntBox structural round-trip"
+
 /-- ALEO-IR-4: hand-built narrow shift emits cast + shl (EmitIR count shape). -/
 private def testHandBuiltNarrowShiftCast : IO Unit := do
   let plan : Plan := {
@@ -2152,6 +2209,7 @@ unsafe def run : IO Unit := do
   testProductArrayMultiLeaf
   testProductNarrowUintWidths
   testProductUInt128
+  testProductNarrowIntWidths
   testNestedMapFailClosedAtPlan
   testEffectsHonestyPlanFailClosed
   testEffectsHonestyProductFailClosed

@@ -3805,7 +3805,7 @@ unsafe def run : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideUInt256: {target} must materialize UInt256"
   expectMaterializePlanInvariantV1 "WideUInt256" TargetId.aleo TargetKind.aleo
-    wide256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
+    wide256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -3963,14 +3963,13 @@ unsafe def run : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"WideInt32 select: {e.render}"
   let wideI32Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wideI32V1
-  for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy] do
+  for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy,
+      TargetId.aleo] do
     let out ← liftResult <| materializeSelected target wideI32Compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideInt32: {target} must materialize Int32"
   expectMaterializePlanInvariantV1 "WideInt32" TargetId.near TargetKind.near
     wideI32Compiled "Int state store requires 8-byte field"
-  expectMaterializePlanInvariantV1 "WideInt32" TargetId.aleo TargetKind.aleo
-    wideI32Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "WideInt32" TargetId.cosmwasm TargetKind.cosmwasm
     wideI32Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "WideInt32" TargetId.ton TargetKind.ton
@@ -4005,14 +4004,13 @@ unsafe def run : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"WideInt16 select: {e.render}"
   let wideI16Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wideI16V1
-  for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy] do
+  for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy,
+      TargetId.aleo] do
     let out ← liftResult <| materializeSelected target wideI16Compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideInt16: {target} must materialize Int16"
   expectMaterializePlanInvariantV1 "WideInt16" TargetId.near TargetKind.near
     wideI16Compiled "Int state store requires 8-byte field"
-  expectMaterializePlanInvariantV1 "WideInt16" TargetId.aleo TargetKind.aleo
-    wideI16Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "WideInt16" TargetId.cosmwasm TargetKind.cosmwasm
     wideI16Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "WideInt16" TargetId.ton TargetKind.ton
@@ -4048,14 +4046,13 @@ unsafe def run : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"WideInt8 select: {e.render}"
   let wideI8Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wideI8V1
-  for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy] do
+  for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy,
+      TargetId.aleo] do
     let out ← liftResult <| materializeSelected target wideI8Compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideInt8: {target} must materialize Int8"
   expectMaterializePlanInvariantV1 "WideInt8" TargetId.near TargetKind.near
     wideI8Compiled "Int state store requires 8-byte field"
-  expectMaterializePlanInvariantV1 "WideInt8" TargetId.aleo TargetKind.aleo
-    wideI8Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "WideInt8" TargetId.cosmwasm TargetKind.cosmwasm
     wideI8Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "WideInt8" TargetId.ton TargetKind.ton
@@ -5059,7 +5056,7 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrU256" target kind arrU256Compiled
       "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrU256" TargetId.aleo TargetKind.aleo
-    arrU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
+    arrU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "ArrU256" TargetId.ton TargetKind.ton
     arrU256Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -5235,11 +5232,10 @@ unsafe def run : IO Unit := do
       (TargetId.solana, TargetKind.solana),
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
-      (TargetId.psy, TargetKind.psy)] do
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.aleo, TargetKind.aleo)] do
     expectMaterializePlanInvariantV1 "ArrI32" target kind arrI32Compiled
       "Array state element must be UInt64"
-  expectMaterializePlanInvariantV1 "ArrI32" TargetId.aleo TargetKind.aleo
-    arrI32Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "ArrI32" TargetId.cosmwasm TargetKind.cosmwasm
     arrI32Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "ArrI32" TargetId.ton TargetKind.ton
@@ -5281,11 +5277,10 @@ unsafe def run : IO Unit := do
       (TargetId.solana, TargetKind.solana),
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
-      (TargetId.psy, TargetKind.psy)] do
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.aleo, TargetKind.aleo)] do
     expectMaterializePlanInvariantV1 "ArrI16" target kind arrI16Compiled
       "Array state element must be UInt64"
-  expectMaterializePlanInvariantV1 "ArrI16" TargetId.aleo TargetKind.aleo
-    arrI16Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "ArrI16" TargetId.cosmwasm TargetKind.cosmwasm
     arrI16Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "ArrI16" TargetId.ton TargetKind.ton
@@ -5326,11 +5321,10 @@ unsafe def run : IO Unit := do
       (TargetId.solana, TargetKind.solana),
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
-      (TargetId.psy, TargetKind.psy)] do
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.aleo, TargetKind.aleo)] do
     expectMaterializePlanInvariantV1 "ArrI8" target kind arrI8Compiled
       "Array state element must be UInt64"
-  expectMaterializePlanInvariantV1 "ArrI8" TargetId.aleo TargetKind.aleo
-    arrI8Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "ArrI8" TargetId.cosmwasm TargetKind.cosmwasm
     arrI8Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "ArrI8" TargetId.ton TargetKind.ton
@@ -5988,7 +5982,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapU256" TargetId.psy TargetKind.psy
     mapU256Compiled "Map state pilot requires UInt64 keys and values"
   expectMaterializePlanInvariantV1 "MapU256" TargetId.aleo TargetKind.aleo
-    mapU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
+    mapU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "MapU256" TargetId.ton TargetKind.ton
     mapU256Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -6079,7 +6073,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapU256Key" TargetId.psy TargetKind.psy
     mapU256KeyCompiled "Map state pilot requires UInt64 keys and values"
   expectMaterializePlanInvariantV1 "MapU256Key" TargetId.aleo TargetKind.aleo
-    mapU256KeyCompiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
+    mapU256KeyCompiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "MapU256Key" TargetId.ton TargetKind.ton
     mapU256KeyCompiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -6384,13 +6378,12 @@ unsafe def run : IO Unit := do
       "Map state value must be UInt64"
   for (target, kind) in #[
       (TargetId.near, TargetKind.near),
-      (TargetId.noir, TargetKind.noir)] do
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.aleo, TargetKind.aleo)] do
     expectMaterializePlanInvariantV1 "MapI32" target kind mapI32Compiled
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapI32" TargetId.psy TargetKind.psy
     mapI32Compiled "Map state pilot requires UInt64 keys and values"
-  expectMaterializePlanInvariantV1 "MapI32" TargetId.aleo TargetKind.aleo
-    mapI32Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapI32" TargetId.cosmwasm TargetKind.cosmwasm
     mapI32Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "MapI32" TargetId.ton TargetKind.ton
@@ -6431,13 +6424,12 @@ unsafe def run : IO Unit := do
       "Map state admits only Map UInt64 UInt64 or Map Principal UInt64"
   for (target, kind) in #[
       (TargetId.near, TargetKind.near),
-      (TargetId.noir, TargetKind.noir)] do
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.aleo, TargetKind.aleo)] do
     expectMaterializePlanInvariantV1 "MapI32Key" target kind mapI32KeyCompiled
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapI32Key" TargetId.psy TargetKind.psy
     mapI32KeyCompiled "Map state pilot requires UInt64 keys and values"
-  expectMaterializePlanInvariantV1 "MapI32Key" TargetId.aleo TargetKind.aleo
-    mapI32KeyCompiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapI32Key" TargetId.cosmwasm TargetKind.cosmwasm
     mapI32KeyCompiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "MapI32Key" TargetId.ton TargetKind.ton
@@ -7117,7 +7109,7 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "OptU256" target kind optU256Compiled
       "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptU256" TargetId.aleo TargetKind.aleo
-    optU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
+    optU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "OptU256" TargetId.ton TargetKind.ton
     optU256Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -7287,11 +7279,10 @@ unsafe def run : IO Unit := do
   for (target, kind) in #[
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
-      (TargetId.psy, TargetKind.psy)] do
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.aleo, TargetKind.aleo)] do
     expectMaterializePlanInvariantV1 "OptI32" target kind optI32Compiled
       "Option state 'o' requires UInt64 payload"
-  expectMaterializePlanInvariantV1 "OptI32" TargetId.aleo TargetKind.aleo
-    optI32Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "OptI32" TargetId.cosmwasm TargetKind.cosmwasm
     optI32Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "OptI32" TargetId.ton TargetKind.ton
@@ -7332,11 +7323,10 @@ unsafe def run : IO Unit := do
   for (target, kind) in #[
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
-      (TargetId.psy, TargetKind.psy)] do
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.aleo, TargetKind.aleo)] do
     expectMaterializePlanInvariantV1 "OptI16" target kind optI16Compiled
       "Option state 'o' requires UInt64 payload"
-  expectMaterializePlanInvariantV1 "OptI16" TargetId.aleo TargetKind.aleo
-    optI16Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "OptI16" TargetId.cosmwasm TargetKind.cosmwasm
     optI16Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "OptI16" TargetId.ton TargetKind.ton
@@ -7378,11 +7368,10 @@ unsafe def run : IO Unit := do
   for (target, kind) in #[
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
-      (TargetId.psy, TargetKind.psy)] do
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.aleo, TargetKind.aleo)] do
     expectMaterializePlanInvariantV1 "OptI8" target kind optI8Compiled
       "Option state 'o' requires UInt64 payload"
-  expectMaterializePlanInvariantV1 "OptI8" TargetId.aleo TargetKind.aleo
-    optI8Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "OptI8" TargetId.cosmwasm TargetKind.cosmwasm
     optI8Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "OptI8" TargetId.ton TargetKind.ton
@@ -7707,7 +7696,7 @@ unsafe def run : IO Unit := do
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/aleo"
     TargetId.aleo .aleo
-    "unsupported Aleo semantic shape: only UInt64, UInt32, UInt16, UInt8, UInt128, Int64, Unit, Bool, Field(bls12-377-fr), named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes N, and Option UInt64 (state/return; not params) are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, exact modulus match; bn254 Fr and Goldilocks fail closed as wrong modulus; Option of non-UInt64/nested/params + Principal/String stay fail-closed; UInt256 and narrow Int stay fail-closed)"
+    "unsupported Aleo semantic shape: only UInt64, UInt32, UInt16, UInt8, UInt128, Int64, Int32, Int16, Int8, Unit, Bool, Field(bls12-377-fr), named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes N, and Option UInt64 (state/return; not params) are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, exact modulus match; bn254 Fr and Goldilocks fail closed as wrong modulus; Option of non-UInt64/nested/params + Principal/String stay fail-closed; UInt256 and Int128/256 stay fail-closed)"
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/psy"
     TargetId.psy .psy

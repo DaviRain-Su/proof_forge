@@ -55,8 +55,9 @@ program call、proof、deploy 或 network query。
 
 当前 target-owned Plan/Instructions lowering 覆盖：
 
-- public UInt8/16/32/64/128、Int64、Bool、Unit 与 exact BLS12-377 Fr Field
-  （UInt128 走原生 `u128` Instructions；超出 UInt64 Plan leaf 的字面量仍 fail closed）；
+- public UInt8/16/32/64/128、Int8/16/32/64、Bool、Unit 与 exact BLS12-377 Fr Field
+  （UInt128 走原生 `u128`；Int8/16/32 走原生 `i8`/`i16`/`i32`；超出 UInt64 Plan leaf
+  的 UInt128 字面量仍 fail closed）；
 - named Struct/Enum、Array、Bytes、`Option UInt64` 与 dense Map cap-2 的受限 flatten；
 - checked arithmetic、比较、bitwise/logical/shift；
 - immutable let、assign、assert、if/match、bounded-for、bare revert；
@@ -73,7 +74,7 @@ lowering；任一未声明形状 fail closed。
 - event emission、external call、schedule、ContextRead；
 - 带 payload 的 error；
 - nonempty invariant Plan；
-- Principal、String、UInt256、Int{8,16,32}/Int128/256；
+- Principal、String、UInt256、Int128/256；
 - nested/non-UInt64 Option、aggregate pure-function return；
 - record custody、proof execution、deployment 与 network query。
 

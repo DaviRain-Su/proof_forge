@@ -198,10 +198,11 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   -- A leaf cannot be both Int64 and a narrow/unsigned width, or Field+narrow.
   for i in [0:plan.stateFieldNames.size] do
     let w : Nat := plan.stateFieldUintWidth.getD i 0
-    if w != 0 && w != 8 && w != 16 && w != 32 && w != 64 && w != 128 then
+    if plan.stateFieldIsInt.getD i false then
+      unless w == 0 || isNarrowIntWidth w do
+        planError s!"Aleo signed state leaf width {w} is outside 0/8/16/32"
+    else if w != 0 && w != 8 && w != 16 && w != 32 && w != 64 && w != 128 then
       planError s!"Aleo state leaf uint width {w} is outside 0/8/16/32/64/128"
-    if plan.stateFieldIsInt.getD i false && isNarrowUintWidth w then
-      planError "Aleo state leaf cannot be both Int64 and narrow UInt"
     if plan.stateFieldIsField.getD i false && isNarrowUintWidth w then
       planError "Aleo state leaf cannot be both Field and narrow UInt"
   for fn in plan.functions do
@@ -210,8 +211,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     for param in fn.params do
       if param.isInt && param.isBool then
         planError "Aleo parameter cannot be both Bool and Int64"
-      if param.isInt && isNarrowUintWidth param.uintWidth then
-        planError "Aleo parameter cannot be both Int64 and narrow UInt"
+      if param.isInt && !(param.uintWidth == 0 || isNarrowIntWidth param.uintWidth) then
+        planError "Aleo signed parameter width must be 0/8/16/32"
       if param.isField && isNarrowUintWidth param.uintWidth then
         planError "Aleo parameter cannot be both Field and narrow UInt"
     validateStatements fn.body plan.stateFieldNames.size

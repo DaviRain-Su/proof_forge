@@ -56,7 +56,12 @@ private def mappingKey : String := "0u8"
 private def leafTypeString
     (isInt : Bool) (isField : Bool) (uintWidth : Nat) : String :=
   if isField then "field"
-  else if isInt then "i64"
+  else if isInt then
+    match uintWidth with
+    | 8 => "i8"
+    | 16 => "i16"
+    | 32 => "i32"
+    | _ => "i64"
   else match uintWidth with
     | 8 => "u8"
     | 16 => "u16"
@@ -67,7 +72,12 @@ private def leafTypeString
 private def leafDefaultString
     (isInt : Bool) (isField : Bool) (uintWidth : Nat) : String :=
   if isField then "0field"
-  else if isInt then "0i64"
+  else if isInt then
+    match uintWidth with
+    | 8 => "0i8"
+    | 16 => "0i16"
+    | 32 => "0i32"
+    | _ => "0i64"
   else match uintWidth with
     | 8 => "0u8"
     | 16 => "0u16"

@@ -82,7 +82,7 @@ deterministic and source-order stable.
 
 | Program/Plan surface | Status |
 |---|---|
-| UInt8/16/32/64/128、Int64、Bool、Unit | lowered |
+| UInt8/16/32/64/128、Int8/16/32/64、Bool、Unit | lowered |
 | exact BLS12-377 Field | lowered |
 | named Struct/Enum、Array、Bytes | bounded flatten |
 | `Option UInt64` state/entry surface | bounded flatten |
@@ -93,7 +93,7 @@ deterministic and source-order stable.
 | computed or multi-leaf state view | fail closed |
 | event、external call、schedule、ContextRead | fail closed |
 | payload error、nonempty invariant | fail closed |
-| Principal、String、UInt256、Int{8,16,32}/Int128/256、nested Option/Map | fail closed |
+| Principal、String、UInt256、Int128/256、nested Option/Map | fail closed |
 | records、proof、deploy、network query | absent |
 
 A Plan-admitted shape that cannot be encoded fails with `ALEO-IR-G5-HARD`. The residual fallback

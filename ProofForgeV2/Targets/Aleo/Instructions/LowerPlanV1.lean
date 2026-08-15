@@ -133,6 +133,9 @@ identifier (official leo abi / snarkVM load gate)"
 private def isAdmittedUintWidth (w : Nat) : Bool :=
   w == 0 || w == 8 || w == 16 || w == 32 || w == 64 || w == 128
 
+private def isAdmittedIntWidth (w : Nat) : Bool :=
+  w == 0 || w == 8 || w == 16 || w == 32
+
 private def uintWidthToBase (w : Nat) : BaseTypeV1 :=
   match w with
   | 8 => .u8
@@ -141,10 +144,17 @@ private def uintWidthToBase (w : Nat) : BaseTypeV1 :=
   | 128 => .u128
   | _ => .u64
 
+private def intWidthToBase (w : Nat) : BaseTypeV1 :=
+  match w with
+  | 8 => .i8
+  | 16 => .i16
+  | 32 => .i32
+  | _ => .i64
+
 /-- G5-HARD: UInt*/Int64/Field params (not bare Bool — Bool stays expr-only). -/
 private def isAdmittedParam (p : PlanParam) : Bool :=
   if p.isBool then false
-  else if p.isInt then !p.isField && !isNarrowUintWidth p.uintWidth
+  else if p.isInt then !p.isField && isAdmittedIntWidth p.uintWidth
   else if p.isField then !p.isInt && !isNarrowUintWidth p.uintWidth
   else isAdmittedUintWidth p.uintWidth
 
@@ -155,7 +165,7 @@ private def isAdmittedLeaf (plan : Plan) (fieldIndex : Nat) : Bool :=
     let isInt := plan.stateFieldIsInt.getD fieldIndex false
     let isField := plan.stateFieldIsField.getD fieldIndex false
     let w := plan.stateFieldUintWidth.getD fieldIndex 0
-    if isInt then !isField && !isNarrowUintWidth w
+    if isInt then !isField && isAdmittedIntWidth w
     else if isField then !isInt && !isNarrowUintWidth w
     else isAdmittedUintWidth w
 
@@ -184,7 +194,11 @@ private def defaultLiteralForLeaf
   if plan.stateFieldIsField.getD fieldIndex false then
     pure fieldZeroLiteral
   else if plan.stateFieldIsInt.getD fieldIndex false then
-    pure i64ZeroLiteral
+    match leafUintWidth plan fieldIndex with
+    | 8 => pure (.literal "0i8")
+    | 16 => pure (.literal "0i16")
+    | 32 => pure (.literal "0i32")
+    | _ => pure i64ZeroLiteral
   else
     pure (defaultLiteralForWidth (leafUintWidth plan fieldIndex))
 
@@ -196,7 +210,7 @@ private def mappingValueTypeForLeaf
   if plan.stateFieldIsField.getD fieldIndex false then
     pure (.base .field .public_)
   else if plan.stateFieldIsInt.getD fieldIndex false then
-    pure (.base .i64 .public_)
+    pure (.base (intWidthToBase (leafUintWidth plan fieldIndex)) .public_)
   else
     pure (.base (uintWidthToBase (leafUintWidth plan fieldIndex)) .public_)
 
@@ -205,7 +219,7 @@ private def paramInputType (p : PlanParam) : CompileResult TypeAnnV1 := do
     planError
       s!"ALEO-IR-4: param '{p.name}' must be public UInt*/Int64/Field (Bool residual FC)"
   if p.isField then pure (.base .field .public_)
-  else if p.isInt then pure (.base .i64 .public_)
+  else if p.isInt then pure (.base (intWidthToBase p.uintWidth) .public_)
   else pure (.base (uintWidthToBase p.uintWidth) .public_)
 
 private def u64Literal (v : UInt64) : OperandV1 :=
