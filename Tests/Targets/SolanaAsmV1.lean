@@ -456,6 +456,16 @@ private unsafe def testStateCellMutatingProductionSubjects : IO Unit := do
     "overflow subject must pin the UInt64.max + 1 scenario"
   expect checkStateCellIncrementOverflowProductionSubjectV1
     "increment overflow certified 56-step join must succeed"
+  expect checkStateCellIncrementOverflowReferenceProviderSubjectV1
+    "increment overflow source-derived Reference/provider composition must succeed"
+  let overflowHandlerObservation := observeHandlerIRV1
+    overflowSubject.production.handler overflowSubject.handlerInvocation
+  expect (!checkUInt64CheckedAddOverflowHandlerObservationRelV1
+      overflowSubject.production.data overflowSubject.production.plan
+      overflowSubject.production.binding overflowSubject.referencePre
+      overflowSubject.production.referenceOutcome overflowSubject.accountData
+      overflowSubject.before overflowHandlerObservation)
+    "increment overflow composition must reject a successful Reference outcome"
   let overflowBefore := BitVec.ofNat 64 overflowSubject.before.toNat
   let overflowArgument := BitVec.ofNat 64 overflowSubject.argument.toNat
   let overflowInput ← liftExecutionResult <|

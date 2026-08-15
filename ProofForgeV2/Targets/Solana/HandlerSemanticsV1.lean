@@ -627,6 +627,71 @@ def UInt64CheckedAddOverflowHandlerObservationRelV1
   observed.invocation.accounts[0]?.map (·.data) = some accountData ∧
   UInt64LogicalStateAccountRelV1 data plan binding pre accountData before
 
+private def checkArithmeticOverflowReferenceOutcomeV1
+    (outcome : OutcomeV1)
+    (pre : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1) : Bool :=
+  match outcome with
+  | .reverted (.standard .arithmeticOverflow) actualPre =>
+      checkLogicalStateEqV1 actualPre pre
+  | _ => false
+
+private theorem checkArithmeticOverflowReferenceOutcomeV1_eq_true_iff
+    (outcome : OutcomeV1)
+    (pre : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1) :
+    checkArithmeticOverflowReferenceOutcomeV1 outcome pre = true ↔
+      outcome = .reverted (.standard .arithmeticOverflow) pre := by
+  cases outcome with
+  | returned => simp [checkArithmeticOverflowReferenceOutcomeV1]
+  | trapped => simp [checkArithmeticOverflowReferenceOutcomeV1]
+  | reverted reason actualPre =>
+      cases reason with
+      | declared => simp [checkArithmeticOverflowReferenceOutcomeV1]
+      | externalCallReverted =>
+          simp [checkArithmeticOverflowReferenceOutcomeV1]
+      | standard code =>
+          cases code <;>
+            simp [checkArithmeticOverflowReferenceOutcomeV1,
+              checkLogicalStateEqV1_eq_true_iff]
+
+/-- Executable, proof-producing form of the checked-add overflow relation. It
+    consumes the sole Reference outcome and the actual production HandlerIR
+    observation without introducing another transition. -/
+def checkUInt64CheckedAddOverflowHandlerObservationRelV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (pre : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (accountData : ByteArray)
+    (before : UInt64)
+    (observed : HandlerObservationV1) : Bool :=
+  checkArithmeticOverflowReferenceOutcomeV1 referenceOutcome pre &&
+  decide (observed.outcome =
+    .trapped (.arithmeticOverflow arithmeticOverflowError)) &&
+  decide (observed.postAccounts = observed.invocation.accounts) &&
+  decide (observed.invocation.accounts[0]?.map (·.data) = some accountData) &&
+  checkUInt64LogicalStateAccountRelV1 data plan binding pre accountData before
+
+theorem checkUInt64CheckedAddOverflowHandlerObservationRelV1_eq_true_iff
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (pre : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (accountData : ByteArray)
+    (before : UInt64)
+    (observed : HandlerObservationV1) :
+    checkUInt64CheckedAddOverflowHandlerObservationRelV1 data plan binding pre
+        referenceOutcome accountData before observed = true ↔
+      UInt64CheckedAddOverflowHandlerObservationRelV1 data plan binding pre
+        referenceOutcome accountData before observed := by
+  simp only [checkUInt64CheckedAddOverflowHandlerObservationRelV1,
+    Bool.and_eq_true, decide_eq_true_eq,
+    checkArithmeticOverflowReferenceOutcomeV1_eq_true_iff,
+    checkUInt64LogicalStateAccountRelV1_eq_true_iff,
+    UInt64CheckedAddOverflowHandlerObservationRelV1]
+  simp only [and_assoc]
+
 /-- Package the exact output of
     `unaryUInt64Initializer_reference_handlerIR_join` as the relation consumed
     by the Reference→provider composition boundary. -/

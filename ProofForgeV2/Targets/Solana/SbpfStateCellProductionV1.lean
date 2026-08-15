@@ -585,14 +585,18 @@ theorem checkStateCellIncrementReferenceProviderSubjectV1_sound
 structure ResolvedStateCellIncrementOverflowProductionSubjectV1 where
   private mk ::
   production : ResolvedStateCellIncrementProductionSubjectV1
+  referencePre : LogicalStateV1
+  referenceOutcome : OutcomeV1
+  accountData : ByteArray
   handlerInvocation : InvocationObservationV1
   loaderInvocation : LoaderV3SingleAccountInvocationV1
   before : UInt64
   argument : UInt64
 
 /-- Reconstruct `UInt64.max + 1` without another compiler or artifact path.
-    The existing HandlerIR evaluator must trap before its write and the provider
-    join must observe status `0x1001` with the exact pre-account snapshot. -/
+    The sole Reference machine and existing HandlerIR evaluator must both
+    retain their exact pre-state snapshots; the provider join must observe
+    status `0x1001` with the same production account bytes. -/
 def resolveStateCellIncrementOverflowProductionSubjectV1 :
     Except String ResolvedStateCellIncrementOverflowProductionSubjectV1 := do
   let production ← resolveStateCellIncrementProductionSubjectV1
@@ -600,25 +604,41 @@ def resolveStateCellIncrementOverflowProductionSubjectV1 :
     discriminatorToLeU64V1 production.handler.discriminator
   let before : UInt64 := 0xffffffffffffffff
   let argument : UInt64 := 1
-  let accountData :=
-    (SbpfSemantics.wordToLE
-      (BitVec.ofNat 64 production.ir.stateAccount.initializedMarker.toNat)).append
-      (SbpfSemantics.wordToLE (BitVec.ofNat 64 before.toNat))
+  let increment ← match production.data.callables.find? (fun callable =>
+      callable.kind == .entry && callable.name == some "increment") with
+    | some value => pure value
+    | none => throw "production StateCell Semantic program has no increment entry"
+  let referencePre ← match encodeLogicalStateValuesV1 production.data true
+      #[encodeU64le before] with
+    | .ok value => pure value
+    | .error error =>
+        throw s!"StateCell increment overflow pre-state encoding failed: {repr error}"
+  let referenceOutcome := stepReferenceSliceV1 production.admitted referencePre {
+    callableId := increment.id
+    args := #[{
+      typeId := production.binding.semanticTypeId
+      valueBytes := encodeU64le argument
+    }]
+    context := #[]
+  } #[]
+  let accountData := oneFieldUInt64AccountDataV1
+    production.plan.stateAccount.initializedMarker before
   let programId := Array.replicate 32 (0x42 : UInt8)
   let loaderInvocation : LoaderV3SingleAccountInvocationV1 := {
     accountKey := Array.replicate 32 (0x24 : UInt8)
     owner := programId
     programId
-    accountData
+    accountData := accountData.data
     instructionData :=
       (SbpfSemantics.wordToLE (BitVec.ofNat 64 discriminator.toNat)).append
         (SbpfSemantics.wordToLE (BitVec.ofNat 64 argument.toNat))
     isWritable := true
   }
   let handlerInvocation :=
-    unaryUInt64InvocationV1 ⟨accountData⟩ discriminator argument false true
+    unaryUInt64InvocationV1 accountData discriminator argument false true
   pure <| ResolvedStateCellIncrementOverflowProductionSubjectV1.mk production
-    handlerInvocation loaderInvocation before argument
+    referencePre referenceOutcome accountData handlerInvocation loaderInvocation
+    before argument
 
 /-- Fail-closed certified agreement for the pinned increment-overflow subject. -/
 def checkStateCellIncrementOverflowProductionSubjectV1 : Bool :=
@@ -655,5 +675,81 @@ theorem checkStateCellIncrementOverflowProductionSubjectV1_sound
     subject.handlerInvocation subject.loaderInvocation
     (BitVec.ofNat 64 subject.before.toNat)
     (BitVec.ofNat 64 subject.argument.toNat) hchecked
+
+/-- D5 production gate for `increment(UInt64.max, 1)`. It composes the actual
+    source-derived Reference overflow with the dedicated 56-step provider
+    certificate and exact unchanged production account snapshot. -/
+def checkStateCellIncrementOverflowReferenceProviderSubjectV1 : Bool :=
+  checkExceptV1 resolveStateCellIncrementOverflowProductionSubjectV1 fun subject =>
+    checkUInt64CheckedAddOverflowHandlerObservationRelV1
+      subject.production.data subject.production.plan subject.production.binding
+      subject.referencePre subject.referenceOutcome subject.accountData
+      subject.before
+      (observeHandlerIRV1 subject.production.handler
+        subject.handlerInvocation) &&
+    checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
+      subject.production.boundArtifact subject.production.handler
+      subject.handlerInvocation subject.loaderInvocation
+      (BitVec.ofNat 64 subject.before.toNat)
+      (BitVec.ofNat 64 subject.argument.toNat)
+
+/-- A successful overflow D5 gate recovers one composed
+    Reference→HandlerIR→provider carrier. Its Boolean premise is retained; this
+    is not an unconditional ELF, linker, loader, or SVM-runtime theorem. -/
+theorem checkStateCellIncrementOverflowReferenceProviderSubjectV1_sound
+    (checked :
+      checkStateCellIncrementOverflowReferenceProviderSubjectV1 = true) :
+    ∃ subject,
+      resolveStateCellIncrementOverflowProductionSubjectV1 = .ok subject ∧
+      ∃ certified : CertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
+          subject.production.boundArtifact subject.production.handler
+          subject.handlerInvocation subject.loaderInvocation
+          (BitVec.ofNat 64 subject.before.toNat)
+          (BitVec.ofNat 64 subject.argument.toNat),
+        UInt64CheckedAddOverflowReferenceHandlerSbpfJoinV1
+          subject.production.data subject.production.plan
+          subject.production.binding subject.referencePre
+          subject.referenceOutcome subject.accountData subject.before
+          certified.executed.handlerObservation
+          stateCellProductionSbpfSha256V1
+          certified.executed.sbpfObservation := by
+  rcases checkExceptV1_sound
+      resolveStateCellIncrementOverflowProductionSubjectV1
+      (fun subject =>
+        checkUInt64CheckedAddOverflowHandlerObservationRelV1
+          subject.production.data subject.production.plan
+          subject.production.binding subject.referencePre
+          subject.referenceOutcome subject.accountData subject.before
+          (observeHandlerIRV1 subject.production.handler
+            subject.handlerInvocation) &&
+        checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
+          subject.production.boundArtifact subject.production.handler
+          subject.handlerInvocation subject.loaderInvocation
+          (BitVec.ofNat 64 subject.before.toNat)
+          (BitVec.ofNat 64 subject.argument.toNat))
+      checked with ⟨subject, hsubject, hchecked⟩
+  simp only [Bool.and_eq_true] at hchecked
+  rcases hchecked with ⟨hreference, hprovider⟩
+  have referenceHandler :
+      UInt64CheckedAddOverflowHandlerObservationRelV1
+        subject.production.data subject.production.plan
+        subject.production.binding subject.referencePre
+        subject.referenceOutcome subject.accountData subject.before
+        (observeHandlerIRV1 subject.production.handler
+          subject.handlerInvocation) :=
+    (checkUInt64CheckedAddOverflowHandlerObservationRelV1_eq_true_iff
+      subject.production.data subject.production.plan
+      subject.production.binding subject.referencePre
+      subject.referenceOutcome subject.accountData subject.before
+      (observeHandlerIRV1 subject.production.handler
+        subject.handlerInvocation)).mp hreference
+  rcases checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1_sound
+      subject.production.boundArtifact subject.production.handler
+      subject.handlerInvocation subject.loaderInvocation
+      (BitVec.ofNat 64 subject.before.toNat)
+      (BitVec.ofNat 64 subject.argument.toNat) hprovider with ⟨certified⟩
+  refine ⟨subject, hsubject, certified, ?_⟩
+  exact certified.referenceJoin (by
+    simpa [certified.executed.handlerExecution] using referenceHandler)
 
 end ProofForgeV2.Targets.Solana

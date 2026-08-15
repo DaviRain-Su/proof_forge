@@ -16191,3 +16191,27 @@ normative: false
 - checker成功继续是kernel sound theorem的显式前提；本切片没有闭合无条件大型gate、完整
   Reference→provider theorem、ELF/linker/loader、Mollusk/validator/SVM runtime、transaction rollback
   或compute units，也没有新增evaluator、business semantics或HandlerIR→sBPF lowering。
+
+## 2026-08-15 — StateCell `increment(UInt64.max, 1)` overflow source-derived Reference→provider composition
+
+- overflow resolver继续嵌套同一个private increment production subject，没有第二次compiler、artifact
+  path或复制AST/IR；它从该subject的validated Semantic callable表查找真实`increment` entry，以production
+  state codec构造`UInt64.max` logical pre-state，并由sole `stepReferenceSliceV1`执行参数`1`得到实际
+  arithmetic-overflow revert outcome。相同production Plan marker/value codec生成Handler与Loader共用的
+  16-byte pre-account snapshot。
+- 新增overflow observation checker及iff soundness，精确要求Reference为
+  `.reverted (.standard .arithmeticOverflow)`并保留pre-state、Handler为arithmetic trap且账户等于
+  invocation snapshot、logical state与account bytes保持codec relation。它不定义transition，也不使用
+  Outcome的非lawful derived `BEq`。
+- `checkStateCellIncrementOverflowReferenceProviderSubjectV1`将该relation与既有56步certified provider
+  checker合取；sound theorem实际调用certificate的`.referenceJoin`，返回单一
+  `UInt64CheckedAddOverflowReferenceHandlerSbpfJoinV1` carrier。provider projection继续固定artifact
+  identity、status/r0 `0x1001`、empty return data、exact unchanged account bytes。成功Reference outcome
+  错配负例fail closed。
+- concrete运行结果为`provider=true`、`referenceProvider=true`，`SolanaAsmV1` runner通过。至此
+  initializer、increment success与increment overflow三个mutating production scenarios都有
+  source-derived、Boolean-gated、proof-producing的Reference→provider composition；D4四条provider
+  certificate仍为`get` 55步、`initialize` 55步、increment success 70步、overflow 56步。
+- checker成功仍是kernel sound theorem的显式前提；本切片没有闭合无条件大型gate、完整
+  Reference→provider theorem、ELF/linker/loader、Mollusk/validator/SVM runtime、transaction rollback
+  或compute units，也没有新增evaluator、business semantics或HandlerIR→sBPF lowering。
