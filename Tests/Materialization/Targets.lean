@@ -3693,12 +3693,15 @@ unsafe def run : IO Unit := do
     | .ok v => pure v
     | .error e => throw <| IO.userError s!"N5 commit select: {e.render}"
   let commitCompiled ← liftResult <| Compiler.compileValidatedSourceV1 commitV1
-  for target in [TargetId.evm, TargetId.solana, TargetId.near] do
+  -- Extra eight filled from probe; identity Commit only; not B-COMMIT-ZK.
+  for target in [TargetId.evm, TargetId.solana, TargetId.near,
+      TargetId.cosmwasm, TargetId.ton, TargetId.aleo] do
     match materializeSelected target commitCompiled with
     | .ok _ => pure ()
     | .error e =>
         throw <| IO.userError s!"N5 commit: {target} must admit Commit identity, got {e.render}"
-  for target in [TargetId.noir, TargetId.psy] do
+  for target in [TargetId.noir, TargetId.psy, TargetId.quint, TargetId.soroban,
+      TargetId.icp, TargetId.openvm] do
     match materializeSelected target commitCompiled with
     | .ok _ => throw <| IO.userError s!"N5 commit: {target} must decline Commit"
     | .error e =>
