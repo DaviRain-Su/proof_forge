@@ -472,6 +472,17 @@ private unsafe def testIntForMaterializationFailClosed : IO Unit := do
       (TargetId.aleo, TargetKind.aleo, "does not support Int64 for-loop endpoints"),
       (TargetId.psy, TargetKind.psy, "loop header must carry one UInt64 parameter")] do
     expectMaterializePlanInvariantV1 "int-for" target kind compiled marker
+  -- Extra six from probe; not opening signed for-loop / Int64 induction.
+  -- CosmWasm/TON share the public-UInt64 induction gate; Quint/Soroban/ICP/OpenVM
+  -- stay on the anonymous-UInt64-width envelope.
+  for (target, kind, marker) in #[
+      (TargetId.cosmwasm, TargetKind.cosmwasm, "loop induction must be public UInt64"),
+      (TargetId.ton, TargetKind.ton, "loop induction must be public UInt64"),
+      (TargetId.quint, TargetKind.quint, "anonymous UInt64 width"),
+      (TargetId.soroban, TargetKind.soroban, "anonymous UInt64 width"),
+      (TargetId.icp, TargetKind.icp, "anonymous UInt64 width"),
+      (TargetId.openvm, TargetKind.openvm, "anonymous UInt64 width")] do
+    expectMaterializePlanInvariantV1 "int-for" target kind compiled marker
 
 /-- N-ANON-RESULT opens only the shared Semantic/Reference result contract.
     None of the six target-owned ABIs may reinterpret an anonymous Array result
