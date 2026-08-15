@@ -6305,6 +6305,51 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "OptInt" target kind optIntCompiled
       "only anonymous UInt64 width is supported"
 
+  -- OptU128: Option UInt128 state. All twelve stay named FC. Aleo and
+  -- TON fail on the width needle first, not OptInt's Option-payload.
+  -- UInt128-payload ≠ Int64-payload. Quint/Soroban/OpenVM/ICP stay on
+  -- the UInt64 width needle, not OptBool's Option-pilot. Not opening
+  -- Option-of-UInt128. OptInt / OptBool / MapU256 / ArrU128 stay.
+  let optU128Source :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptU128 where\n" ++
+    "  state o : Option UInt128\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(0)\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let optU128V1 ← match ← session.selectProgramV1 optU128Source
+      "<targets-opt-u128>" "Examples.OptU128" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"OptU128 select: {e.render}"
+  let optU128Compiled ← liftResult <| Compiler.compileValidatedSourceV1 optU128V1
+  expectMaterializePlanInvariantV1 "OptU128" TargetId.evm TargetKind.evm
+    optU128Compiled "Option state admits only UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptU128" TargetId.solana TargetKind.solana
+    optU128Compiled "Option state 'o' element must be UInt64"
+  for (target, kind) in #[
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.cosmwasm, TargetKind.cosmwasm)] do
+    expectMaterializePlanInvariantV1 "OptU128" target kind optU128Compiled
+      "Option state 'o' requires UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptU128" TargetId.aleo TargetKind.aleo
+    optU128Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+  expectMaterializePlanInvariantV1 "OptU128" TargetId.ton TargetKind.ton
+    optU128Compiled "UInt128/256 and narrow Int fail closed"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "OptU128" target kind optU128Compiled
+      "only anonymous UInt64 width is supported"
+
   -- N5: Commit identity admitted on EVM/Solana/NEAR (Plan passthrough into
   -- commitment state). Noir declines (public relation slots cannot hold
   -- commitment labels). Psy declines. ContextRead declined on every Phase-1
