@@ -410,6 +410,24 @@ private unsafe def testStringInterfaceMaterializationFailClosed : IO Unit := do
   | .ok _ =>
       throw <| IO.userError
         "string interface/aleo: materialization must fail closed"
+  -- Extra six from probe; not opening String event/error ABI.
+  -- CosmWasm/TON reach Plan type-closure; Quint/Soroban/ICP/OpenVM decline
+  -- effect.event at requirement resolution (same class as Aleo).
+  for (target, kind, marker) in #[
+      (TargetId.cosmwasm, TargetKind.cosmwasm, "UInt"),
+      (TargetId.ton, TargetKind.ton, "UInt")] do
+    expectMaterializePlanInvariantV1 "string interface" target kind compiled marker
+  for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
+    match materializeSelected target compiled with
+    | .error (.unsupportedRequirementV1 message) =>
+        expect (message.contains "effect.event")
+          s!"string interface/{target}: expected effect.event decline, got {message}"
+    | .error error =>
+        throw <| IO.userError
+          s!"string interface/{target}: expected PF-REQ-UNSUPPORTED, got {error.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"string interface/{target}: materialization must fail closed"
 
 /-- N-FOR-INT opens target-neutral signed bounded-for semantics only. Until a
     target owns a signed induction/update surface, each of the six target Plan
