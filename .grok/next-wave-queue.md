@@ -190,6 +190,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-WIDE-INT16-QS | done | WideInt16 Int16 state/return: four-target files-nonempty admit (EVM/Solana/Noir/Psy); NEAR 8-byte-field + Aleo width + CW/TON narrow-Int + Quint/Soroban/OpenVM/ICP width needles. **Not** opening Int8 |
 | MAT-WIDE-INT8-QS | done | WideInt8 Int8 state/return: four-target files-nonempty admit (EVM/Solana/Noir/Psy); NEAR 8-byte-field + Aleo width + CW/TON narrow-Int + Quint/Soroban/OpenVM/ICP width needles. Last narrow signed width pin |
 | MAT-ARR-U128-QS | done | ArrU128 Array UInt128 2: EVM-only files-nonempty admit; five Array-U64-element + Aleo width + TON UInt128/256 + Quint/Soroban/OpenVM/ICP width needles. **Not** opening Array-of-UInt128 on the eleven |
+| MAT-ARR-U256-QS | done | ArrU256 Array UInt256 2: EVM-only files-nonempty admit (UInt256 ≠ UInt128); five Array-U64-element + Aleo width + TON UInt128/256 + Quint/Soroban/OpenVM/ICP width needles. **Not** opening Array-of-UInt256 on the eleven |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | QUINT-CALL-RET-FC | done | Pin value-position `let y : UInt64 := call Oracle.feed` Plan FC (`result-bearing externalCall is outside Q0`, distinct from void A5). **Not** opening result-bearing CALL / Q0 |
