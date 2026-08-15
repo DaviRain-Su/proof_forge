@@ -114,6 +114,14 @@ inductive Operation where
   | narrowShl (bitWidth destination lhs rhs : Nat)
   /-- Count ≥ 64 trap; logical shr (result auto in-range for unsigned). -/
   | narrowShr (bitWidth destination lhs rhs : Nat)
+  /-- Narrow signed checked arithmetic (`bitWidth ∈ {8,16,32}`); Int64 keeps
+      historical `signedChecked*`. Emit attaches
+      `assert (-(1 << (w-1)) ≤ t && t < (1 << (w-1)))`. -/
+  | narrowSignedCheckedAdd (bitWidth destination lhs rhs : Nat)
+  | narrowSignedCheckedSub (bitWidth destination lhs rhs : Nat)
+  | narrowSignedCheckedMul (bitWidth destination lhs rhs : Nat)
+  | narrowSignedCheckedDiv (bitWidth destination lhs rhs : Nat)
+  | narrowSignedCheckedMod (bitWidth destination lhs rhs : Nat)
   | boolNot (destination source : Nat)
   | boolAnd (destination lhs rhs : Nat)
   | boolOr (destination lhs rhs : Nat)
@@ -356,6 +364,36 @@ private partial def lowerExpr (next : Nat)
       let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.narrowShr bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1 }
+  | .narrowSignedCheckedAdd bitWidth lhs rhs =>
+      let lhs := lowerExpr next paramAsTemp localEnv lhs
+      let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowSignedCheckedAdd bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1 }
+  | .narrowSignedCheckedSub bitWidth lhs rhs =>
+      let lhs := lowerExpr next paramAsTemp localEnv lhs
+      let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowSignedCheckedSub bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1 }
+  | .narrowSignedCheckedMul bitWidth lhs rhs =>
+      let lhs := lowerExpr next paramAsTemp localEnv lhs
+      let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowSignedCheckedMul bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1 }
+  | .narrowSignedCheckedDiv bitWidth lhs rhs =>
+      let lhs := lowerExpr next paramAsTemp localEnv lhs
+      let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowSignedCheckedDiv bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1 }
+  | .narrowSignedCheckedMod bitWidth lhs rhs =>
+      let lhs := lowerExpr next paramAsTemp localEnv lhs
+      let rhs := lowerExpr lhs.next paramAsTemp localEnv rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowSignedCheckedMod bitWidth rhs.next lhs.value rhs.value]
         value := rhs.next, next := rhs.next + 1 }
   | .boolNot operand =>
       let op := lowerExpr next paramAsTemp localEnv operand
@@ -685,13 +723,26 @@ private def int64RangeCheck (dst : String) : String :=
   -- signed Int64 range on int257
   s!"assert (-(1 << 63) <= {dst} && {dst} < (1 << 63)) throw {errOverflow};"
 
-/-- Tolk storage field type from physical byte width. -/
-private def storageFieldTolkType (byteWidth : Nat) : String :=
-  match byteWidth with
-  | 1 => "uint8"
-  | 2 => "uint16"
-  | 4 => "uint32"
-  | _ => "uint64"
+/-- Width-parameterized signed range check for Int{8,16,32,64} on int257.
+    Same `errOverflow` as unsigned; inclusive min, exclusive max. -/
+private def intWidthRangeCheck (bitWidth : Nat) (dst : String) : String :=
+  let hi := bitWidth - 1
+  s!"assert (-(1 << {hi}) <= {dst} && {dst} < (1 << {hi})) throw {errOverflow};"
+
+/-- Tolk storage field type from physical byte width and signedness. -/
+private def storageFieldTolkType (byteWidth : Nat) (isInt : Bool := false) : String :=
+  if isInt then
+    match byteWidth with
+    | 1 => "int8"
+    | 2 => "int16"
+    | 4 => "int32"
+    | _ => "int64"
+  else
+    match byteWidth with
+    | 1 => "uint8"
+    | 2 => "uint16"
+    | 4 => "uint32"
+    | _ => "uint64"
 
 /-- Message-body load bit width from param physical byte width. -/
 private def paramLoadBits (byteWidth : Nat) : Nat := byteWidth * 8
@@ -864,6 +915,30 @@ private partial def renderOps (plan : Plan) (method? : Option MethodIR)
           s!"assert (0 <= {tempName rhs} && {tempName rhs} < 64) throw {errInvalidShift};\n"
         out := out ++ pad ++
           s!"val {tempName dest} = {tempName lhs} >> {tempName rhs};\n"
+    | .narrowSignedCheckedAdd bitWidth dest lhs rhs =>
+        out := out ++ pad ++
+          s!"val {tempName dest} = {tempName lhs} + {tempName rhs};\n"
+        out := out ++ pad ++ intWidthRangeCheck bitWidth (tempName dest) ++ "\n"
+    | .narrowSignedCheckedSub bitWidth dest lhs rhs =>
+        out := out ++ pad ++
+          s!"val {tempName dest} = {tempName lhs} - {tempName rhs};\n"
+        out := out ++ pad ++ intWidthRangeCheck bitWidth (tempName dest) ++ "\n"
+    | .narrowSignedCheckedMul bitWidth dest lhs rhs =>
+        out := out ++ pad ++
+          s!"val {tempName dest} = {tempName lhs} * {tempName rhs};\n"
+        out := out ++ pad ++ intWidthRangeCheck bitWidth (tempName dest) ++ "\n"
+    | .narrowSignedCheckedDiv bitWidth dest lhs rhs =>
+        out := out ++ pad ++
+          s!"assert ({tempName rhs} != 0) throw {errDivZero};\n"
+        out := out ++ pad ++
+          s!"val {tempName dest} = {tempName lhs} / {tempName rhs};\n"
+        out := out ++ pad ++ intWidthRangeCheck bitWidth (tempName dest) ++ "\n"
+    | .narrowSignedCheckedMod bitWidth dest lhs rhs =>
+        out := out ++ pad ++
+          s!"assert ({tempName rhs} != 0) throw {errDivZero};\n"
+        out := out ++ pad ++
+          s!"val {tempName dest} = {tempName lhs} % {tempName rhs};\n"
+        out := out ++ pad ++ intWidthRangeCheck bitWidth (tempName dest) ++ "\n"
     | .boolNot dest source =>
         out := out ++ pad ++
           s!"val {tempName dest} = {tempName source} == 0 ? 1 : 0;\n"
@@ -1007,7 +1082,7 @@ private def renderStorageStruct (plan : Plan) : String := Id.run do
   for field in plan.storage.fields do
     -- BL-14: exact-width cell fields (uint8/16/32/64) via storeUint/loadUint
     -- of field.bitWidth when serializing the c4 Storage cell.
-    out := out ++ s!"    {field.name}: {storageFieldTolkType field.byteWidth}\n"
+    out := out ++ s!"    {field.name}: {storageFieldTolkType field.byteWidth field.isInt}\n"
   out := out ++ "}\n\n"
   out := out ++ "fun Storage.load(): Storage {\n"
   out := out ++ "    return Storage.fromCell(contract.getData());\n"
@@ -1060,11 +1135,13 @@ private def renderMessageHandler (plan : Plan) (method : MethodIR) : String := I
   let mut out := s!"// op {method.opCode} → {method.name}\n"
   out := out ++ s!"if (op == {method.opCode}) \{\n"
   for p in method.params do
-    -- BL-14: exact-width param load (loadUint(8/16/32/64)); values zero-extend
-    -- into int temps for body arithmetic. Slot pitch remains 8-byte logical
-    -- input offsets in the Plan; message body packs consecutive exact widths.
+    -- BL-14: exact-width param load (`loadUint`/`loadInt` of 8/16/32/64).
+    -- Unsigned zero-extends; signed sign-extends into int temps. Slot pitch
+    -- remains 8-byte logical input offsets; message body packs consecutive
+    -- exact widths.
     let bits := paramLoadBits p.byteWidth
-    out := out ++ s!"    val {p.name} = body.loadUint({bits});\n"
+    let loadFn := if p.isInt then "loadInt" else "loadUint"
+    out := out ++ s!"    val {p.name} = body.{loadFn}({bits});\n"
   out := out ++ "    var storage = Storage.load();\n"
   let (body, dirty) := renderOps plan (some method) none method.operations 1 "storage" false
   out := out ++ body
@@ -1136,16 +1213,23 @@ private def renderResultKindJson : MethodResultKind → String
   | .aggregate leaves =>
       "[" ++ String.intercalate "," (leaves.map renderLeafAbiJson).toList ++ "]"
 
-private def abiJsonTypeOfByteWidth (byteWidth : Nat) : String :=
-  match byteWidth with
-  | 1 => "uint8"
-  | 2 => "uint16"
-  | 4 => "uint32"
-  | _ => "uint64"
+private def abiJsonTypeOfByteWidth (byteWidth : Nat) (isInt : Bool := false) : String :=
+  if isInt then
+    match byteWidth with
+    | 1 => "int8"
+    | 2 => "int16"
+    | 4 => "int32"
+    | _ => "int64"
+  else
+    match byteWidth with
+    | 1 => "uint8"
+    | 2 => "uint16"
+    | 4 => "uint32"
+    | _ => "uint64"
 
 private def renderPfAbi (plan : Plan) (ir : IR) : String := Id.run do
   let fields := String.intercalate "," (plan.storage.fields.toList.map fun f =>
-    s!"\{\"name\":\"{Targets.escapeJson f.name}\",\"type\":\"{abiJsonTypeOfByteWidth f.byteWidth}\"}")
+    s!"\{\"name\":\"{Targets.escapeJson f.name}\",\"type\":\"{abiJsonTypeOfByteWidth f.byteWidth f.isInt}\"}")
   let mut methodsJson : List String := []
   for m in ir.methods do
     let mode :=
@@ -1154,7 +1238,7 @@ private def renderPfAbi (plan : Plan) (ir : IR) : String := Id.run do
       | .mutate => "entry"
       | .view => "view"
     let params := String.intercalate "," (m.params.toList.map fun p =>
-      s!"\{\"name\":\"{Targets.escapeJson p.name}\",\"type\":\"{abiJsonTypeOfByteWidth p.byteWidth}\"}")
+      s!"\{\"name\":\"{Targets.escapeJson p.name}\",\"type\":\"{abiJsonTypeOfByteWidth p.byteWidth p.isInt}\"}")
     let returns := renderResultKindJson m.resultKind
     methodsJson := methodsJson ++ [
       s!"\{\"name\":\"{Targets.escapeJson m.name}\",\"mode\":\"{mode}\",\"op\":{m.opCode},\"params\":[{params}],\"returns\":{returns}}"

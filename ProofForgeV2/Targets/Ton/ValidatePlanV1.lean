@@ -29,7 +29,10 @@ private def exprIsUInt64CompatibleV1 (fns : Array FnBinding) : Expr → Bool
   | .narrowCheckedAdd .. | .narrowCheckedSub .. | .narrowCheckedMul ..
   | .narrowCheckedDiv .. | .narrowCheckedMod .. | .narrowBitNot ..
   | .narrowBitAnd .. | .narrowBitOr .. | .narrowBitXor ..
-  | .narrowShl .. | .narrowShr .. => false
+  | .narrowShl .. | .narrowShr ..
+  | .narrowSignedCheckedAdd .. | .narrowSignedCheckedSub ..
+  | .narrowSignedCheckedMul .. | .narrowSignedCheckedDiv ..
+  | .narrowSignedCheckedMod .. => false
   | _ => true
 
 private partial def planExprNodes? (layout : StorageLayout) (params : Array Param)
@@ -70,7 +73,10 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .narrowCheckedMul _ lhs rhs | .narrowCheckedDiv _ lhs rhs
     | .narrowCheckedMod _ lhs rhs
     | .narrowBitAnd _ lhs rhs | .narrowBitOr _ lhs rhs | .narrowBitXor _ lhs rhs
-    | .narrowShl _ lhs rhs | .narrowShr _ lhs rhs => binaryNodes lhs rhs
+    | .narrowShl _ lhs rhs | .narrowShr _ lhs rhs
+    | .narrowSignedCheckedAdd _ lhs rhs | .narrowSignedCheckedSub _ lhs rhs
+    | .narrowSignedCheckedMul _ lhs rhs | .narrowSignedCheckedDiv _ lhs rhs
+    | .narrowSignedCheckedMod _ lhs rhs => binaryNodes lhs rhs
     | .signedCheckedAdd lhs rhs => binaryNodes lhs rhs
     | .signedCheckedSub lhs rhs => binaryNodes lhs rhs
     | .signedCheckedMul lhs rhs => binaryNodes lhs rhs

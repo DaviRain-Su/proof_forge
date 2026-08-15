@@ -383,6 +383,11 @@ lean_exe cosmwasm_plan_v1_focus where
   root := `Tests.Materialization.CosmWasmPlanV1Focus
   supportInterpreter := true
 
+lean_exe ton_plan_v1_focus where
+  exeName := "ton-plan-v1-focus"
+  root := `Tests.Materialization.TonPlanV1Focus
+  supportInterpreter := true
+
 -- Memory-bounded shards: the single-process aggregate keeps a high-water RSS
 -- above the 7 GB hosted runner limit because Lean does not return heap to the
 -- OS between suites. Each shard runs an independent process so the OS reclaims

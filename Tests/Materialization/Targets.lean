@@ -3854,7 +3854,7 @@ unsafe def runWideIntegerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "WideInt128" TargetId.cosmwasm TargetKind.cosmwasm
     wideI128Compiled "Int128/256 fail closed; UInt256 is body-only"
   expectMaterializePlanInvariantV1 "WideInt128" TargetId.ton TargetKind.ton
-    wideI128Compiled "UInt128/256 and narrow Int fail closed"
+    wideI128Compiled "Int128/256 fail closed"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -3900,7 +3900,7 @@ unsafe def runWideIntegerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "WideInt256" TargetId.cosmwasm TargetKind.cosmwasm
     wideI256Compiled "Int128/256 fail closed; UInt256 is body-only"
   expectMaterializePlanInvariantV1 "WideInt256" TargetId.ton TargetKind.ton
-    wideI256Compiled "UInt128/256 and narrow Int fail closed"
+    wideI256Compiled "Int128/256 fail closed"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -3939,10 +3939,10 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideInt64: {target} must materialize Int64"
 
-  -- WideInt32: Int32 state/return. Four targets admit files-nonempty.
-  -- NEAR has a unique 8-byte-field needle; Aleo stays on its width
-  -- allowlist; CW/TON stay narrow-Int; Quint/Soroban/OpenVM/ICP stay
-  -- on the width needle. Int32 ≠ Int64. Not opening Int8/16.
+  -- WideInt32: Int32 state/return. Seven targets admit files-nonempty
+  -- (original four minus NEAR + Psy/Aleo/CW/TON). NEAR has a unique
+  -- 8-byte-field needle. Quint/Soroban/OpenVM/ICP stay on the width
+  -- needle. Int32 ≠ Int64. Not opening Int8/16.
   -- WideInt64 / WideInt128 / WideInt256 / WideUInt stay.
   let wideInt32Source :=
     "import ProofForgeV2\n\n" ++
@@ -3964,14 +3964,12 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"WideInt32 select: {e.render}"
   let wideI32Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wideI32V1
   for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy,
-      TargetId.aleo, TargetId.cosmwasm] do
+      TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
     let out ← liftResult <| materializeSelected target wideI32Compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideInt32: {target} must materialize Int32"
   expectMaterializePlanInvariantV1 "WideInt32" TargetId.near TargetKind.near
     wideI32Compiled "Int state store requires 8-byte field"
-  expectMaterializePlanInvariantV1 "WideInt32" TargetId.ton TargetKind.ton
-    wideI32Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -4003,14 +4001,12 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"WideInt16 select: {e.render}"
   let wideI16Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wideI16V1
   for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy,
-      TargetId.aleo, TargetId.cosmwasm] do
+      TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
     let out ← liftResult <| materializeSelected target wideI16Compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideInt16: {target} must materialize Int16"
   expectMaterializePlanInvariantV1 "WideInt16" TargetId.near TargetKind.near
     wideI16Compiled "Int state store requires 8-byte field"
-  expectMaterializePlanInvariantV1 "WideInt16" TargetId.ton TargetKind.ton
-    wideI16Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -4043,14 +4039,12 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"WideInt8 select: {e.render}"
   let wideI8Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wideI8V1
   for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy,
-      TargetId.aleo, TargetId.cosmwasm] do
+      TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
     let out ← liftResult <| materializeSelected target wideI8Compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideInt8: {target} must materialize Int8"
   expectMaterializePlanInvariantV1 "WideInt8" TargetId.near TargetKind.near
     wideI8Compiled "Int state store requires 8-byte field"
-  expectMaterializePlanInvariantV1 "WideInt8" TargetId.ton TargetKind.ton
-    wideI8Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -5009,7 +5003,7 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrU128" target kind arrU128Compiled
       "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrU128" TargetId.ton TargetKind.ton
-    arrU128Compiled "UInt128/256 and narrow Int fail closed"
+    arrU128Compiled "UInt128/256"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -5055,7 +5049,7 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrU256" TargetId.aleo TargetKind.aleo
     arrU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "ArrU256" TargetId.ton TargetKind.ton
-    arrU256Compiled "UInt128/256 and narrow Int fail closed"
+    arrU256Compiled "UInt128/256"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -5239,7 +5233,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrI32" TargetId.cosmwasm TargetKind.cosmwasm
     arrI32Compiled "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrI32" TargetId.ton TargetKind.ton
-    arrI32Compiled "UInt128/256 and narrow Int fail closed"
+    arrI32Compiled "Array state element must be UInt64"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -5284,7 +5278,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrI16" TargetId.cosmwasm TargetKind.cosmwasm
     arrI16Compiled "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrI16" TargetId.ton TargetKind.ton
-    arrI16Compiled "UInt128/256 and narrow Int fail closed"
+    arrI16Compiled "Array state element must be UInt64"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -5328,7 +5322,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrI8" TargetId.cosmwasm TargetKind.cosmwasm
     arrI8Compiled "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrI8" TargetId.ton TargetKind.ton
-    arrI8Compiled "UInt128/256 and narrow Int fail closed"
+    arrI8Compiled "Array state element must be UInt64"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -5939,7 +5933,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapU128" TargetId.psy TargetKind.psy
     mapU128Compiled "Map state pilot requires UInt64 keys and values"
   expectMaterializePlanInvariantV1 "MapU128" TargetId.ton TargetKind.ton
-    mapU128Compiled "UInt128/256 and narrow Int fail closed"
+    mapU128Compiled "UInt128/256"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -5984,7 +5978,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapU256" TargetId.aleo TargetKind.aleo
     mapU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "MapU256" TargetId.ton TargetKind.ton
-    mapU256Compiled "UInt128/256 and narrow Int fail closed"
+    mapU256Compiled "UInt128/256"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -6029,7 +6023,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapU128Key" TargetId.psy TargetKind.psy
     mapU128KeyCompiled "Map state pilot requires UInt64 keys and values"
   expectMaterializePlanInvariantV1 "MapU128Key" TargetId.ton TargetKind.ton
-    mapU128KeyCompiled "UInt128/256 and narrow Int fail closed"
+    mapU128KeyCompiled "UInt128/256"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -6075,7 +6069,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapU256Key" TargetId.aleo TargetKind.aleo
     mapU256KeyCompiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "MapU256Key" TargetId.ton TargetKind.ton
-    mapU256KeyCompiled "UInt128/256 and narrow Int fail closed"
+    mapU256KeyCompiled "UInt128/256"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -6387,7 +6381,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapI32" TargetId.cosmwasm TargetKind.cosmwasm
     mapI32Compiled "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapI32" TargetId.ton TargetKind.ton
-    mapI32Compiled "UInt128/256 and narrow Int fail closed"
+    mapI32Compiled "Map state admits only Map UInt64 UInt64"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -6433,7 +6427,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapI32Key" TargetId.cosmwasm TargetKind.cosmwasm
     mapI32KeyCompiled "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapI32Key" TargetId.ton TargetKind.ton
-    mapI32KeyCompiled "UInt128/256 and narrow Int fail closed"
+    mapI32KeyCompiled "Map state admits only Map UInt64 UInt64"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -7068,7 +7062,7 @@ unsafe def runRemainingNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "OptU128" target kind optU128Compiled
       "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptU128" TargetId.ton TargetKind.ton
-    optU128Compiled "UInt128/256 and narrow Int fail closed"
+    optU128Compiled "UInt128/256"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -7114,7 +7108,7 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "OptU256" TargetId.aleo TargetKind.aleo
     optU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64/Int32/Int16/Int8 widths are supported"
   expectMaterializePlanInvariantV1 "OptU256" TargetId.ton TargetKind.ton
-    optU256Compiled "UInt128/256 and narrow Int fail closed"
+    optU256Compiled "UInt128/256"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -7289,7 +7283,7 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "OptI32" TargetId.cosmwasm TargetKind.cosmwasm
     optI32Compiled "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptI32" TargetId.ton TargetKind.ton
-    optI32Compiled "UInt128/256 and narrow Int fail closed"
+    optI32Compiled "Option state 'o' requires UInt64 payload"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -7333,7 +7327,7 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "OptI16" TargetId.cosmwasm TargetKind.cosmwasm
     optI16Compiled "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptI16" TargetId.ton TargetKind.ton
-    optI16Compiled "UInt128/256 and narrow Int fail closed"
+    optI16Compiled "Option state 'o' requires UInt64 payload"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -7378,7 +7372,7 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "OptI8" TargetId.cosmwasm TargetKind.cosmwasm
     optI8Compiled "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptI8" TargetId.ton TargetKind.ton
-    optI8Compiled "UInt128/256 and narrow Int fail closed"
+    optI8Compiled "Option state 'o' requires UInt64 payload"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),

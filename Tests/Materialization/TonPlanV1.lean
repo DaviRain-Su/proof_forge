@@ -500,7 +500,152 @@ private unsafe def testNarrowUInt16UInt32
   expect (abi.contains "\"type\":\"uint32\"") "ABI uint32"
   IO.println "  ✓ UInt16/UInt32 state/param/body + exact cell widths"
 
-/-- BL-14: UInt128/256 and Int8 stay fail closed. -/
+/-- BL-14: Int8 state/param/body + signed narrow guard (loadInt + int8 cell). -/
+private unsafe def testNarrowInt8
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "NarrowI8" <|
+    "  state s : Int8\n\n" ++
+    "  init(x : Int8) do\n" ++
+    "    s := x\n\n" ++
+    "  entry go(d : Int8) : Int8 do\n" ++
+    "    s := s + d\n" ++
+    "    return s\n\n" ++
+    "  view peek() : Int8 do\n" ++
+    "    return s\n"
+  let compiled ← compileSource session src "Examples.NarrowI8" "<ton-i8>"
+  let plan ← liftResult <| planTon compiled
+  expect (plan.storage.fields.size == 1) "Int8 one state field"
+  expect (plan.storage.fields[0]!.byteWidth == 1) "Int8 state byteWidth=1"
+  expect (plan.storage.fields[0]!.isInt) "Int8 state is signed"
+  expect (plan.storage.fields[0]!.name == "s") "Int8 state name"
+  let some go := plan.entries.find? (·.name == "go") |
+    throw <| IO.userError "missing go"
+  expect (go.resultKind == .int8) "go returns Int8"
+  expect (go.params.size == 1 && go.params[0]!.byteWidth == 1) "go param byteWidth=1"
+  expect (go.params[0]!.isInt) "go param is signed"
+  let hasNarrowAdd := go.body.any fun s =>
+    match s with
+    | .store store =>
+        match store.value with
+        | .narrowSignedCheckedAdd 8 _ _ => true
+        | _ => false
+    | _ => false
+  expect hasNarrowAdd "entry go uses narrowSignedCheckedAdd 8"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"NarrowI8 plan validate: {e.render}"
+  let ir ← liftResult <| irTon compiled
+  let some goIR := ir.methods.find? (·.name == "go") |
+    throw <| IO.userError "missing IR go"
+  let hasNarrowOp := goIR.operations.any fun
+    | .narrowSignedCheckedAdd 8 _ _ _ => true
+    | _ => false
+  expect hasNarrowOp "IR emits narrowSignedCheckedAdd 8"
+  let files ← liftResult <| filesTon compiled
+  let tolk ← findFile files "NarrowI8.tolk"
+  expect (tolk.contains "s: int8") "Storage field s: int8"
+  expect (tolk.contains "body.loadInt(8)") "param loadInt(8)"
+  expect (tolk.contains "-(1 << 7)") "Int8 range min bound"
+  expect (tolk.contains "(1 << 7)") "Int8 range max bound"
+  expect (tolk.contains s!"throw {errOverflow}") "overflow code 100"
+  expect (tolk.contains "get fun peek()") "view peek present"
+  let abi ← findFile files "NarrowI8.ton-abi.json"
+  expect (abi.contains "\"type\":\"int8\"") "ABI int8 type"
+  expect (abi.contains "\"returns\":\"int8\"") "ABI returns int8"
+  IO.println "  ✓ Int8 state/param/body + signed narrow guard"
+
+/-- BL-14: Int16 + Int32 mixed state/param pin exact signed cell widths. -/
+private unsafe def testNarrowInt16Int32
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "NarrowIMix" <|
+    "  state a : Int16\n" ++
+    "  state b : Int32\n\n" ++
+    "  init(x : Int16, y : Int32) do\n" ++
+    "    a := x\n" ++
+    "    b := y\n\n" ++
+    "  entry bump(d : Int16) : Int16 do\n" ++
+    "    a := a + d\n" ++
+    "    return a\n\n" ++
+    "  entry grow(d : Int32) : Int32 do\n" ++
+    "    b := b + d\n" ++
+    "    return b\n\n" ++
+    "  view getA() : Int16 do\n" ++
+    "    return a\n\n" ++
+    "  view getB() : Int32 do\n" ++
+    "    return b\n"
+  let compiled ← compileSource session src "Examples.NarrowIMix" "<ton-imix>"
+  let plan ← liftResult <| planTon compiled
+  expect (plan.storage.fields.size == 2) "two signed narrow fields"
+  expect (plan.storage.fields[0]!.byteWidth == 2 && plan.storage.fields[0]!.isInt)
+    "Int16 byteWidth=2 signed"
+  expect (plan.storage.fields[1]!.byteWidth == 4 && plan.storage.fields[1]!.isInt)
+    "Int32 byteWidth=4 signed"
+  let some bump := plan.entries.find? (·.name == "bump") |
+    throw <| IO.userError "missing bump"
+  let some grow := plan.entries.find? (·.name == "grow") |
+    throw <| IO.userError "missing grow"
+  expect (bump.resultKind == .int16 && grow.resultKind == .int32)
+    "bump/grow signed result kinds"
+  let files ← liftResult <| filesTon compiled
+  let tolk ← findFile files "NarrowIMix.tolk"
+  expect (tolk.contains "a: int16") "Storage a: int16"
+  expect (tolk.contains "b: int32") "Storage b: int32"
+  expect (tolk.contains "body.loadInt(16)") "param loadInt(16)"
+  expect (tolk.contains "body.loadInt(32)") "param loadInt(32)"
+  expect (tolk.contains "-(1 << 15)") "Int16 range min"
+  expect (tolk.contains "-(1 << 31)") "Int32 range min"
+  let abi ← findFile files "NarrowIMix.ton-abi.json"
+  expect (abi.contains "\"type\":\"int16\"") "ABI int16"
+  expect (abi.contains "\"type\":\"int32\"") "ABI int32"
+  IO.println "  ✓ Int16/Int32 state/param/body + exact signed cell widths"
+
+/-- Array/Map/Option of Int stay fail closed (scalar Int only). -/
+private unsafe def testSignedContainerFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let srcArr := wrapProgram "ArrI8" <|
+    "  state slots : Array Int8 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := 0\n" ++
+    "    return v\n"
+  let compiledArr ← compileSource session srcArr "Examples.ArrI8" "<ton-arr-i8>"
+  match planTon compiledArr with
+  | .error (.planInvariant .ton msg) =>
+      expect (msg.contains "Array state element must be UInt64")
+        s!"ArrI8 FC must cite Array UInt64 element, got: {msg}"
+  | .error e => throw <| IO.userError s!"ArrI8: unexpected {e.render}"
+  | .ok _ => throw <| IO.userError "ArrI8: expected FC, got ok"
+  let srcMap := wrapProgram "MapI32" <|
+    "  state m : Map Int32 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n"
+  let compiledMap ← compileSource session srcMap "Examples.MapI32" "<ton-map-i32>"
+  match planTon compiledMap with
+  | .error (.planInvariant .ton msg) =>
+      expect (msg.contains "Map state admits only Map UInt64 UInt64")
+        s!"MapI32 FC must cite Map UInt64 UInt64, got: {msg}"
+  | .error e => throw <| IO.userError s!"MapI32: unexpected {e.render}"
+  | .ok _ => throw <| IO.userError "MapI32: expected FC, got ok"
+  let srcOpt := wrapProgram "OptI8" <|
+    "  state o : Option Int8\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return 0\n"
+  let compiledOpt ← compileSource session srcOpt "Examples.OptI8" "<ton-opt-i8>"
+  match planTon compiledOpt with
+  | .error (.planInvariant .ton msg) =>
+      expect (msg.contains "Option state 'o' requires UInt64 payload")
+        s!"OptI8 FC must cite Option UInt64 payload, got: {msg}"
+  | .error e => throw <| IO.userError s!"OptI8: unexpected {e.render}"
+  | .ok _ => throw <| IO.userError "OptI8: expected FC, got ok"
+  IO.println "  ✓ Array/Map/Option of Int stay fail closed"
+
+/-- BL-14: UInt128/256 and Int128 stay fail closed. -/
 private unsafe def testMultiWidthFc
     (session : Language.Loader.ParserSession) : IO Unit := do
   -- UInt128 state/param/return
@@ -552,27 +697,31 @@ private unsafe def testMultiWidthFc
           expect (msg.length > 0) "UInt256 planInvariant nonempty"
       | .error e => throw <| IO.userError s!"UInt256: unexpected {e.render}"
       | .ok _ => throw <| IO.userError "UInt256: expected FC, got ok"
-  -- Int8 (narrow signed beyond Int64)
-  let srcI8 := wrapProgram "NarrowI8" <|
-    "  state s : Int8\n\n" ++
-    "  init(x : Int8) do\n" ++
+  -- Int128 stays fail closed (narrow Int8/16/32 admitted separately).
+  let srcI128 := wrapProgram "WideI128" <|
+    "  state s : Int128\n\n" ++
+    "  init(x : Int128) do\n" ++
     "    s := x\n\n" ++
-    "  entry go(d : Int8) : Int8 do\n" ++
+    "  entry go(d : Int128) : Int128 do\n" ++
     "    s := s + d\n" ++
     "    return s\n\n" ++
-    "  view peek() : Int8 do\n" ++
+    "  view peek() : Int128 do\n" ++
     "    return s\n"
   match ← (do
       try
-        let c ← compileSource session srcI8 "Examples.NarrowI8" "<ton-i8-fc>"
+        let c ← compileSource session srcI128 "Examples.WideI128" "<ton-i128-fc>"
         pure (some c)
       catch _ => pure none) with
   | none => pure ()
   | some c =>
       match planTon c with
-      | .error _ => pure ()
-      | .ok _ => throw <| IO.userError "Int8: expected FC, got ok"
-  IO.println "  ✓ UInt128/256 + Int8 fail closed"
+      | .error (.planInvariant .ton msg) =>
+          expect (msg.contains "Int128" || msg.contains "128" ||
+              msg.contains "fail closed" || msg.contains "integer")
+            s!"Int128 FC message must cite width, got: {msg}"
+      | .error e => throw <| IO.userError s!"Int128: unexpected {e.render}"
+      | .ok _ => throw <| IO.userError "Int128: expected FC, got ok"
+  IO.println "  ✓ UInt128/256 + Int128 fail closed"
 
 private unsafe def testRegistryDispatch
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -1679,6 +1828,9 @@ unsafe def run : IO Unit := do
   testSchedulePlanAndTolk session
   testNarrowUInt8 session
   testNarrowUInt16UInt32 session
+  testNarrowInt8 session
+  testNarrowInt16Int32 session
+  testSignedContainerFc session
   testMultiWidthFc session
   testRegistryDispatch session
   testNamedStructReturn session
