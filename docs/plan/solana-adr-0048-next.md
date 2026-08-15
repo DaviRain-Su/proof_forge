@@ -1,13 +1,13 @@
 ---
 id: PLAN-SOL-ADR-0048-NEXT
-title: Solana ADR-0048 D4 certificate closure
+title: Solana ADR-0048 D4 certificate and concrete D5 composition closure
 status: draft
 owner: engineering
 updated: 2026-08-15
 normative: false
 ---
 
-# ADR-0048 D4：certificate closure
+# ADR-0048 D4 certificate 与 concrete D5 composition closure
 
 > Engineering inventory only. Does **not** close formal `TASK-D5-*`,
 > Mollusk/`.so`/validator semantics, or accepted-PRD expansion.
@@ -19,12 +19,12 @@ D4 · [`verified-contract-authoring.md`](verified-contract-authoring.md) §5.
 
 ## Already pinned
 
-| D4 recipe | Observation execute | Production subject resolver | Sparse kernel certificate |
+| D4 recipe | Production subject resolver | Sparse kernel certificate | Source-derived concrete composition |
 |---|---|---|---|
-| `get()` | yes | `resolveStateCellGetProductionSubjectV1` | 55-step + `runFuel` status-zero |
-| `initialize(initial)` | yes (Loader V3 single-account) | `resolveStateCellInitializeProductionSubjectV1` | 55-step + exact initialized account window |
-| `increment(delta)` | yes | `resolveStateCellIncrementProductionSubjectV1` | 70-step + exact account/return bytes |
-| increment overflow | yes (nonzero status + pre-account hold) | `resolveStateCellIncrementOverflowProductionSubjectV1` | 56-step + `0x1001` + unchanged account/empty return |
+| `get()` | `resolveStateCellGetProductionSubjectV1` | 55-step + `runFuel` status-zero | same-state UInt64 return + empty effects + account stutter |
+| `initialize(initial)` | `resolveStateCellInitializeProductionSubjectV1` | 55-step + exact initialized account window | Reference initializer → HandlerIR → provider |
+| `increment(delta)` | `resolveStateCellIncrementProductionSubjectV1` | 70-step + exact account/return bytes | Reference checked-add success → HandlerIR → provider |
+| increment overflow | `resolveStateCellIncrementOverflowProductionSubjectV1` | 56-step + `0x1001` + unchanged account/empty return | Reference arithmetic revert → Handler trap → provider status |
 
 `SbpfHandlerJoinV1` already has the HandlerIR ↔ Loader invocation/observation
 relation, including overflow → nonzero status. All four production subjects are
@@ -44,6 +44,11 @@ Code facts:
   `SbpfStateCellIncrementOverflowV1.lean` for overflow.
 - Authoring doc: still no unconditional kernel equality for the large
   production theorem; release SBOM/source-dependency stays fail closed.
+- All four production resolvers now recover the validated Semantic program,
+  Reference admission, exact pre-state and actual `stepReferenceSliceV1`
+  outcome from the same source/compiler path. Their Boolean-gated sound
+  theorems call the certified join's `referenceJoin`; they do not return two
+  unrelated witnesses.
 
 ## Completed implementation slices (serial)
 
@@ -73,13 +78,40 @@ second codegen.
    55/56 fuel boundary, status `0x1001`, unchanged account bytes, empty return
    data, and certified HandlerIR/provider join. Value, argument, input,
    invocation-byte, artifact-identity, and handler drift fail closed.
+7. **SOL-0048-D5-INIT-COMPOSE** — **done 2026-08-15**: source-derived
+   initializer Reference outcome is composed with the 55-step certified join.
+8. **SOL-0048-D5-INC-COMPOSE** — **done 2026-08-15**: source-derived
+   `increment(41, 1)` checked-add outcome is composed with the 70-step
+   certified join.
+9. **SOL-0048-D5-OVF-COMPOSE** — **done 2026-08-15**: source-derived
+   `increment(UInt64.max, 1)` arithmetic revert is composed with Handler trap,
+   account hold and the 56-step provider `0x1001` certificate.
+10. **SOL-0048-D5-GET-COMPOSE** — **done 2026-08-15**: source-derived
+    `get(41)` same-state UInt64 result is composed with Handler account stutter
+    and the 55-step certified provider join; tampered Reference outcome fails
+    closed.
 
-D4's four pinned sparse certificates are complete. The next formalization slice
-must be planned at the existing D5 boundary: compose the already-proved
-Reference→Handler and certified Handler→provider carriers without introducing a
-second semantic machine, and keep any concrete Boolean-discharge limitation
-explicit rather than presenting an engineering observation as an unconditional
-kernel theorem.
+D4's four pinned sparse certificates and all four concrete D5 compositions are
+complete. The remaining D5 blocker is unconditional kernel discharge of the
+closed production gates. A direct `rfl` or kernel `decide` does not reduce the
+current `get` gate because production compilation/artifact definitions are
+opaque; runtime output `true` must not be presented as a theorem.
+
+Next formalization slices, in order:
+
+1. **SOL-0048-D5-DISCHARGE-SEAM**: locate the minimal opaque boundaries in the
+   `get` resolver/checker and expose reusable proof-producing component lemmas.
+   Do not add `native_decide`, `Lean.ofReduceBool`, `run_tac`, an axiom, or a
+   copied AST/IR/provider program.
+2. **SOL-0048-D5-GET-UNCONDITIONAL**: use those component lemmas to discharge
+   the existing Boolean premise for `get`; the resulting theorem must call the
+   existing concrete sound theorem, not restate provider behavior.
+3. Apply the same seam to initialize, increment success and overflow only after
+   `get` closes without a one-off proof-only evaluator.
+4. Keep ELF/linker/loader and validator/SVM runtime refinement as a separate
+   later boundary; prefer an external semantics provider rather than building a
+   second runtime model inside ProofForge.
+
 Hashed-QN CallGate/ScheduleGate last-20 pin is done; binding stays
 `B-CALL-SEM` ([`evm-call-addr-gap.md`](evm-call-addr-gap.md)).
 
@@ -88,5 +120,7 @@ Solana asm/provider tests + SBOM if `ProofForgeV2/**` changes.
 
 ## Non-claims
 
-Not formal TASK-D5. Not ELF/Mollusk/SVM. Not CPI/multi-account. Not product
-`build` consuming the provider. Not EVM lighthouse progress.
+Concrete Boolean-gated D5 composition is complete, but formal TASK-D5 is not
+closed until its premises are kernel-discharged. Not ELF/Mollusk/SVM. Not
+CPI/multi-account. Not product `build` consuming the provider. Not EVM
+lighthouse progress.
