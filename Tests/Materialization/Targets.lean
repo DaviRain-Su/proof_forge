@@ -3770,9 +3770,10 @@ unsafe def run : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.evm attachedCompiled
   let _ ← liftResult <| materializeSelected TargetId.near attachedCompiled
   let _ ← liftResult <| materializeSelected TargetId.cosmwasm attachedCompiled
+  -- Quint/Soroban stay FC (no host); do not open attachedValue.
   for target in [TargetId.ton,
       TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo,
-      TargetId.icp, TargetId.openvm] do
+      TargetId.icp, TargetId.openvm, TargetId.quint, TargetId.soroban] do
     match materializeSelected target attachedCompiled with
     | .ok _ =>
         throw <| IO.userError s!"S4 attached: {target} must decline ContextRead attachedValue"
