@@ -111,14 +111,16 @@ private def quoteByteArraySpine (bytes : ByteArray) : MacroM (TSyntax `term) := 
     they are not a second parser or source semantics. -/
 private def addQuotedSourceFieldV1
     (name typeName : Name) (value : Lean.Expr) : CommandElabM Unit :=
-  Lean.Elab.Command.liftCoreM <| Lean.addAndCompile <| .defnDecl {
-    name
-    levelParams := []
-    type := Lean.mkConst typeName
-    value
-    hints := .abbrev
-    safety := .safe
-  }
+  Lean.Elab.Command.liftCoreM <|
+    withReader (fun ctx => { ctx with maxRecDepth := 400000 }) <|
+      Lean.addAndCompile <| .defnDecl {
+        name
+        levelParams := []
+        type := Lean.mkConst typeName
+        value
+        hints := .abbrev
+        safety := .safe
+      }
 
 /-- Expose the exact `program` elaborator input as a kernel-bound formal
     compiler subject. The generated carrier cannot mint a `ValidatedSourceV1`;
@@ -3980,6 +3982,8 @@ private def elaborateProofObligations
   Lean.Elab.Command.elabCommand (← `(end $programName))
 elab_rules : command
   | `(program $name:ident where $items:pfItem*) => do
+      Lean.Elab.Command.modifyScope fun s =>
+        { s with opts := maxRecDepth.set s.opts 400000 }
       let env ← getEnv
       let moduleName ← match sourceQualifiedNameV1FromLeanName env.mainModule with
         | .ok value => pure value

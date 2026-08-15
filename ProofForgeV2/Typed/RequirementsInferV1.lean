@@ -188,10 +188,10 @@ mutual
     | .externalCall call =>
         -- N-CALL-RET: value-position sync call contributes the same
         -- synchronous-call + rollback requirements as statement call.
-        -- SYS-S5: exact `pf.crypto.sha256` is a host syscall / precompile leaf
+        -- SYS-S5: exact `pf.crypto.sha256|keccak256` are host syscall / precompile leaves
         -- (env-read discipline): no effect.synchronous-call contribution.
         let child := call.args.flatMap exprContributions
-        if isPfCryptoSha256QnV1 (qnToString call.callee) then
+        if isPfCryptoHostSyscallQnV1 (qnToString call.callee) then
           child
         else
           child ++ #[synchronousCall, transactionalRollback]
@@ -227,7 +227,7 @@ mutual
         | none => #[]
     | .call call =>
         let child := call.args.flatMap exprContributions
-        if isPfCryptoSha256QnV1 (qnToString call.callee) then
+        if isPfCryptoHostSyscallQnV1 (qnToString call.callee) then
           child
         else
           child ++ #[synchronousCall, transactionalRollback]

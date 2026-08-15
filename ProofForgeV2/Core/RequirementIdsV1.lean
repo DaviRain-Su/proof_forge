@@ -218,9 +218,12 @@ def pfAssetsEnvReadQualifiedNamesV1 : Array String :=
 def isPfAssetsEnvReadQnV1 (qn : String) : Bool :=
   pfAssetsEnvReadQualifiedNamesV1.contains qn
 
-/-- Exact SYS-S5 host-syscall QN. Like env-read, this is not a platform
-    `effect.synchronous-call` contribution: EVM precompile / Solana `sol_sha256` /
+/-- Exact SYS-S5 host-syscall QNs. Like env-read, these are not platform
+    `effect.synchronous-call` contributions: EVM precompile/opcode / Solana `sol_sha256`/`sol_keccak256` /
     NEAR host `sha256` are dedicated bindings, not generic sync CPI/CALL. -/
+def isPfCryptoHostSyscallQnV1 (qn : String) : Bool :=
+  qn == "pf.crypto.sha256" || qn == "pf.crypto.keccak256"
+
 def isPfCryptoSha256QnV1 (qn : String) : Bool :=
   qn == "pf.crypto.sha256"
 

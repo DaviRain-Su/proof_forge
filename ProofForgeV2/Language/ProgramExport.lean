@@ -69,7 +69,7 @@ private def unsupported {α : Type} : Except String α :=
 private def unavailable {α : Type} : Except String α :=
   .error (exportError "declaration unavailable or unsafe")
 
-private def maxRawNodes : Nat := 100000
+private def maxRawNodes : Nat := 500000
 /-- Maximum transparent local-sharing steps admitted while structurally decoding
     compiler-generated large list quotations. This is not semantic nesting:
     Lean may insert more than 256 `let` chunks for a legal ~2 KiB byte spine.

@@ -453,7 +453,7 @@ D1–D4 = 0/27 done。
 优先序遵循产品判断：**EVM（最完善，formal lighthouse）→ Solana → NEAR → CosmWasm/Wasm**；
 Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 
-**Goal/workflow 入口（2026-08-15）**：next-wave Goal/workflow **已退役**（queue 零 pending）。**不要**再 `/goal @.grok/goals/prompt-next-wave.md` 或 `/workflow next-wave-runner`。日常工程下一刀 = [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)（默认 CAP-1a）。对账 [`research/28-project-wide-honesty-audit.md`](research/28-project-wide-honesty-audit.md)。Formal / 产品决策项仍不进 drain。
+**Goal/workflow 入口（2026-08-15）**：next-wave Goal/workflow **已退役**（queue 零 pending）。**不要**再 `/goal @.grok/goals/prompt-next-wave.md` 或 `/workflow next-wave-runner`。日常工程下一刀 = [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)（默认 CAP-1a）。对账 `research/28-project-wide-honesty-audit.md`。Formal / 产品决策项仍不进 drain。
 
 ```text
 1. EVM formal lighthouse（ADR-0036，仍 proposed；LH-1…28 + Track F **engineering-done**；**不要**把 TASK/TST 标 done）：

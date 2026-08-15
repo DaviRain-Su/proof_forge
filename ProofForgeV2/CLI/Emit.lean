@@ -224,7 +224,7 @@ def enforceAllWallMsLimitsV1
     only combines those sizes with sidecar bytes already rendered in memory. -/
 def engineeringPublishedBytesV1
     (artifactSizes : Array Nat) (evidence manifest : String) : Nat :=
-  artifactSizes.foldl (init := 0) (· + ·) +
+  artifactSizes.foldl (fun acc sz => acc + sz) 0 +
     evidence.toUTF8.size + manifest.toUTF8.size
 
 /-- RES-1B lower-only artifact-output gate. Equality is accepted; the first

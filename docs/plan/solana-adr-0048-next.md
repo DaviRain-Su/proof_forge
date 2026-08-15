@@ -1,7 +1,7 @@
 ---
 id: PLAN-SOL-ADR-0048-NEXT
 title: Solana ADR-0048 D4 certificate closure
-status: complete
+status: draft
 owner: engineering
 updated: 2026-08-15
 normative: false
