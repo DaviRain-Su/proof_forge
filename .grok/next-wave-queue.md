@@ -145,6 +145,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-BYTES-QS | done | BytesBox Bytes 4 state 12-target: eight admit; Quint/Soroban/OpenVM/ICP container-state pilot FC. **Not** opening Bytes return ABI |
 | MAT-ENUM-QS | done | MaybeMark named Enum state 12-target: eight admit; Quint/Soroban/OpenVM/ICP UInt64-pilot FC. PointBox pins kept. **Not** opening Enum return ABI |
 | MAT-U128-QS | done | WideUInt UInt128 12-target: five admit; Aleo/Quint/Soroban/OpenVM/ICP/CW/TON width envelope FC. **Not** opening UInt256 or signed 128 |
+| MAT-U256-QS | done | WideUInt256 UInt256 12-target: five admit; Aleo/Quint/Soroban/OpenVM/ICP/CW/TON width envelope FC. **Not** opening signed 128/256 |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | QUINT-CALL-RET-FC | done | Pin value-position `let y : UInt64 := call Oracle.feed` Plan FC (`result-bearing externalCall is outside Q0`, distinct from void A5). **Not** opening result-bearing CALL / Q0 |

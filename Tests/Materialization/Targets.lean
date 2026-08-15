@@ -3780,6 +3780,47 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "WideUInt" TargetId.ton TargetKind.ton
     wideCompiled "UInt128/256"
 
+  -- WideUInt256: UInt256 state/return. Same five-target admit as WideUInt.
+  -- Aleo/Quint/Soroban/OpenVM/ICP/CW/TON stay named FC. Not opening
+  -- signed 128/256. Files-nonempty or Plan-invariant needles.
+  let wideUInt256Source :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program WideUInt256 where\n" ++
+    "  state n : UInt256\n\n" ++
+    "  init(x : UInt256) do\n" ++
+    "    n := x\n\n" ++
+    "  entry bump(d : UInt256) : UInt256 do\n" ++
+    "    n := n + d\n" ++
+    "    return n\n\n" ++
+    "  view get() : UInt256 do\n" ++
+    "    return n\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let wide256V1 ← match ← session.selectProgramV1 wideUInt256Source
+      "<targets-uint256>" "Examples.WideUInt256" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"WideUInt256 select: {e.render}"
+  let wide256Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wide256V1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy] do
+    let out ← liftResult <| materializeSelected target wide256Compiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"WideUInt256: {target} must materialize UInt256"
+  expectMaterializePlanInvariantV1 "WideUInt256" TargetId.aleo TargetKind.aleo
+    wide256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "WideUInt256" target kind wide256Compiled
+      "only anonymous UInt64 width is supported"
+  expectMaterializePlanInvariantV1 "WideUInt256" TargetId.cosmwasm TargetKind.cosmwasm
+    wide256Compiled "state 'n' is not public UInt64"
+  expectMaterializePlanInvariantV1 "WideUInt256" TargetId.ton TargetKind.ton
+    wide256Compiled "UInt128/256"
+
   -- N2c + B-3 PrincipalAddr + T10/T12 Principal storage pilot.
   -- Normalize admits identity-only Principal (state/params/eq/ne). Wire is
   -- variable-length u32-prefixed 1..4096 body. T10 opens EVM; T12 opens
