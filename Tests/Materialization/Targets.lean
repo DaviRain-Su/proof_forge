@@ -3992,6 +3992,48 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "WideInt32" target kind wideI32Compiled
       "only anonymous UInt64 width is supported"
 
+  -- WideInt16: Int16 state/return. Same four-admit / eight-decline set
+  -- as WideInt32, but Int16 ≠ Int32 so it is its own pin. Not opening
+  -- Int8. WideInt32 / WideInt64 / WideInt128 / WideInt256 stay.
+  let wideInt16Source :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program WideInt16 where\n" ++
+    "  state n : Int16\n\n" ++
+    "  init(x : Int16) do\n" ++
+    "    n := x\n\n" ++
+    "  entry bump(d : Int16) : Int16 do\n" ++
+    "    n := n + d\n" ++
+    "    return n\n\n" ++
+    "  view get() : Int16 do\n" ++
+    "    return n\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let wideI16V1 ← match ← session.selectProgramV1 wideInt16Source
+      "<targets-int16>" "Examples.WideInt16" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"WideInt16 select: {e.render}"
+  let wideI16Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wideI16V1
+  for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy] do
+    let out ← liftResult <| materializeSelected target wideI16Compiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"WideInt16: {target} must materialize Int16"
+  expectMaterializePlanInvariantV1 "WideInt16" TargetId.near TargetKind.near
+    wideI16Compiled "Int state store requires 8-byte field"
+  expectMaterializePlanInvariantV1 "WideInt16" TargetId.aleo TargetKind.aleo
+    wideI16Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+  expectMaterializePlanInvariantV1 "WideInt16" TargetId.cosmwasm TargetKind.cosmwasm
+    wideI16Compiled "narrow Int fail closed; UInt128/256 are body-only"
+  expectMaterializePlanInvariantV1 "WideInt16" TargetId.ton TargetKind.ton
+    wideI16Compiled "UInt128/256 and narrow Int fail closed"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "WideInt16" target kind wideI16Compiled
+      "only anonymous UInt64 width is supported"
+
   -- N2c + B-3 PrincipalAddr + T10/T12 Principal storage pilot.
   -- Normalize admits identity-only Principal (state/params/eq/ne). Wire is
   -- variable-length u32-prefixed 1..4096 body. T10 opens EVM; T12 opens
