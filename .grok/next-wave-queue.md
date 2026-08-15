@@ -194,6 +194,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-MAP-U128-QS | done | MapU128 Map UInt64 UInt128 12-target all FC: EVM/Solana value needle; NEAR/Noir/CW Map-U64-U64; Psy pilot; Aleo/TON width (distinct from MapInt); Quint/Soroban/OpenVM/ICP width. **Not** opening Map-of-UInt128 |
 | MAT-MAP-U256-QS | done | MapU256 Map UInt64 UInt256 12-target all FC (UInt256 ≠ UInt128): EVM/Solana value; NEAR/Noir/CW Map-U64-U64; Psy pilot; Aleo/TON width; Quint/Soroban/OpenVM/ICP width. **Not** opening Map-of-UInt256 |
 | MAT-OPT-U128-QS | done | OptU128 Option UInt128 12-target all FC: six Option-payload; Aleo/TON width (distinct from OptInt); Quint/Soroban/OpenVM/ICP width. **Not** opening Option-of-UInt128 |
+| MAT-OPT-U256-QS | done | OptU256 Option UInt256 12-target all FC (UInt256 ≠ UInt128): six Option-payload; Aleo/TON width (distinct from OptInt); Quint/Soroban/OpenVM/ICP width. **Not** opening Option-of-UInt256 |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | QUINT-CALL-RET-FC | done | Pin value-position `let y : UInt64 := call Oracle.feed` Plan FC (`result-bearing externalCall is outside Q0`, distinct from void A5). **Not** opening result-bearing CALL / Q0 |
