@@ -651,9 +651,9 @@
       "sha256": "2b4b876047f43a5bd9a9794036669528d575d1ab9340e46fa73fd6ce21e3f666"
     },
     {
-      "bytes": 7393,
+      "bytes": 8121,
       "path": "ProofForgeV2/Source/AstProgramValidateV1.lean",
-      "sha256": "849434e8df3ac753be6e1a7bebdfc6cecd0f1ce9d84ae1b8bc33f4c374e77ae2"
+      "sha256": "b0dda4e806852504ea76bfb1b45da3e17b28cb75bda32910697087e78b4580da"
     },
     {
       "bytes": 3101,
@@ -761,9 +761,9 @@
       "sha256": "3e69008ba6970da99f5b2504ae3ac632bf23917981e505ef33a41e67339608d6"
     },
     {
-      "bytes": 3528,
+      "bytes": 3739,
       "path": "ProofForgeV2/Source/QualifiedNameV1.lean",
-      "sha256": "ac1a4b392133b02b4f690e97ff16329c749188c6b47d0a4820d526306e6ef9af"
+      "sha256": "b87718c1efe7b2bb0cd612ee6241aeddbd3e1a3fce04136dcd2e1915a1aba8f8"
     },
     {
       "bytes": 41170,
@@ -1466,9 +1466,9 @@
       "sha256": "77d73ca56abac9b1f2540d419218f9d5657405e1d2d913a200a9e80c9204994a"
     },
     {
-      "bytes": 41469,
+      "bytes": 42414,
       "path": "ProofForgeV2/Targets/Solana/SbpfStateCellProductionV1.lean",
-      "sha256": "9a2388da2eefb943ea70fa79523dd5eabe505d2f770121c96f341ac3b78761a3"
+      "sha256": "e137b2f8c539ede46d3ed469821462b1d737cf66c274a3003b7df6190ae13846"
     },
     {
       "bytes": 78051,

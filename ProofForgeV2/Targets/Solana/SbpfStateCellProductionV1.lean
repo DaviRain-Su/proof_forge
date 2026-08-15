@@ -36,6 +36,29 @@ open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Targets.BuildSelectionV1
 
+-- Kernel-checked ownership of the exact source AST and export bytes produced
+-- by the real `program StateCell` declaration. This discharges the first
+-- production preparation stage without a copied AST, runtime-only assertion,
+-- or contract-specific source validator.
+set_option maxHeartbeats 10000000 in
+set_option maxRecDepth 100000 in
+theorem stateCellCanonicalSourceBindingV1 :
+    ∃ binding,
+      bindElaboratedSourceToCanonicalBytesV1
+        StateCell.Source.subjectV1 StateCell.bytes = .ok binding := by
+  have checked :
+      (match bindElaboratedSourceToCanonicalBytesV1
+          StateCell.Source.subjectV1 StateCell.bytes with
+        | .ok _ => true
+        | .error _ => false) = true := by
+    decide
+  cases hbinding : bindElaboratedSourceToCanonicalBytesV1
+      StateCell.Source.subjectV1 StateCell.bytes with
+  | error _ =>
+      rw [hbinding] at checked
+      contradiction
+  | ok binding => exact ⟨binding, rfl⟩
+
 /-- The concrete values consumed by the existing certified StateCell `get`
     HandlerIR/provider join. The private constructor prevents callers from
     presenting a hand-built tuple as the production subject; the sole resolver

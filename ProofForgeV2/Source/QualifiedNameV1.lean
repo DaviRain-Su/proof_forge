@@ -73,6 +73,15 @@ def validateSourceQualifiedIdV1 (name : SourceQualifiedNameV1) : Except String U
   unless 2 ≤ size && size ≤ 256 do
     return ← fail qidCountError
 
+/-- Kernel-reducible prefix equality for the bounded source-name lists. -/
+private def sourceNamePrefixEqV1 :
+    List SourceNameComponentV1 → List SourceNameComponentV1 → Bool
+  | [], _ => true
+  | _ :: _, [] => false
+  | moduleComponent :: moduleRest, programComponent :: programRest =>
+      moduleComponent.raw.toUTF8 == programComponent.raw.toUTF8 &&
+        sourceNamePrefixEqV1 moduleRest programRest
+
 def validateSourceProgramIdentityV1
     (moduleName programIdentity : SourceQualifiedNameV1) : Except String Unit := do
   validateSourceQualifiedIdV1 programIdentity
@@ -80,14 +89,7 @@ def validateSourceProgramIdentityV1
   let programComps := NonEmptyArray.toArray programIdentity.components
   unless programComps.size > moduleComps.size do
     return ← fail "program identity must strictly extend the module name"
-  let mut i := 0
-  while i < moduleComps.size do
-    match moduleComps[i]?, programComps[i]? with
-    | some m, some p =>
-        unless m == p do
-          return ← fail "program identity must begin with the exact module name components"
-    | _, _ =>
-        return ← fail "program identity must begin with the exact module name components"
-    i := i + 1
+  unless sourceNamePrefixEqV1 moduleComps.toList programComps.toList do
+    return ← fail "program identity must begin with the exact module name components"
 
 end ProofForgeV2.Source.QualifiedNameV1

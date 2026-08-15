@@ -1,4 +1,3 @@
-import Std.Data.HashSet
 import ProofForgeV2.Core.Common
 import ProofForgeV2.Source.AstDeclV1
 import ProofForgeV2.Source.AstProgramItemV1
@@ -42,26 +41,28 @@ private def extKey (id : SourceQualifiedNameV1) : String :=
 private def proofKey (proof : ProofDeclV1) : String :=
   raw proof.invariant ++ "\u0000" ++ toString proof.kind
 
-private def checkDupKeys (keys : Array String) (err : String) : Except String Unit := do
-  let mut seen : Std.HashSet String := Std.HashSet.emptyWithCapacity keys.size
-  for k in keys do
-    let (hit, seen') := seen.containsThenInsert k
-    if hit then return ← fail err
-    seen := seen'
+/-- Kernel-reducible equality membership for source strings. Lean's fallback
+    `BEq String` is implemented through the opaque `DecidableEq String`; source
+    identity is already defined over exact UTF-8 bytes. -/
+private def containsString (key : String) : List String → Bool
+  | [] => false
+  | candidate :: rest =>
+      candidate.toUTF8 == key.toUTF8 || containsString key rest
+
+private def checkDupKeyList (keys : List String) (err : String) : Except String Unit :=
+  let rec visit (remaining seen : List String) : Except String Unit :=
+    match remaining with
+    | [] => .ok ()
+    | key :: rest =>
+        if containsString key seen then fail err else visit rest (key :: seen)
+  visit keys []
 
 private def checkParams (ps : Array ParamV1) (err : String) : Except String Unit :=
-  checkDupKeys (ps.map (fun p => raw p.name)) err
+  checkDupKeyList (ps.toList.map (fun p => raw p.name)) err
 
 private def checkItemNameDups (items : Array ProgramItemV1)
-    (pick : ProgramItemV1 → Option String) (err : String) : Except String Unit := do
-  let mut seen : Std.HashSet String := Std.HashSet.emptyWithCapacity items.size
-  for it in items do
-    match pick it with
-    | none => pure ()
-    | some k =>
-        let (hit, seen') := seen.containsThenInsert k
-        if hit then return ← fail err
-        seen := seen'
+    (pick : ProgramItemV1 → Option String) (err : String) : Except String Unit :=
+  checkDupKeyList (items.toList.filterMap pick) err
 
 private def pickState : ProgramItemV1 → Option String
   | .state s => some (raw s.name) | _ => none
@@ -87,21 +88,51 @@ private def pickInv : ProgramItemV1 → Option String
 private def pickExt : ProgramItemV1 → Option String
   | .extensionReq e => some (extKey e.id) | _ => none
 
+/-- Number of initializers in source order. -/
+private def initCount : List ProgramItemV1 → Nat
+  | [] => 0
+  | .init _ :: rest => initCount rest + 1
+  | _ :: rest => initCount rest
+
+private def hasEntryOrView : List ProgramItemV1 → Bool
+  | [] => false
+  | .entry _ :: _ | .view _ :: _ => true
+  | _ :: rest => hasEntryOrView rest
+
+private def invariantNames : List ProgramItemV1 → List String
+  | [] => []
+  | .invariant invariant :: rest => raw invariant.name :: invariantNames rest
+  | _ :: rest => invariantNames rest
+
+private def proofKeys : List ProgramItemV1 → List String
+  | [] => []
+  | .proof proof :: rest => proofKey proof :: proofKeys rest
+  | _ :: rest => proofKeys rest
+
+private def checkProofReferences
+    (invariants : List String) : List ProgramItemV1 → Except String Unit
+  | [] => .ok ()
+  | .proof proof :: rest =>
+      let key := raw proof.invariant
+      if containsString key invariants then
+        checkProofReferences invariants rest
+      else
+        fail s!"proof reference names unknown invariant '{key}'"
+  | _ :: rest => checkProofReferences invariants rest
+
+private def checkItems
+    (check : ProgramItemV1 → Except String Unit) :
+    List ProgramItemV1 → Except String Unit
+  | [] => .ok ()
+  | item :: rest => do
+      check item
+      checkItems check rest
+
 def validateProgramDeclSetV1 (program : ProgramV1) : Except String Unit := do
   let items := program.items
-  let mut inits : Nat := 0
-  for it in items do
-    match it with
-    | .init _ =>
-        inits := inits + 1
-        if inits ≥ 2 then return ← fail multiInitErr
-    | _ => pure ()
-  let mut hasEV : Bool := false
-  for it in items do
-    match it with
-    | .entry _ | .view _ => hasEV := true
-    | _ => pure ()
-  unless hasEV do return ← fail zeroEVErr
+  let itemList := items.toList
+  unless initCount itemList ≤ 1 do return ← fail multiInitErr
+  unless hasEntryOrView itemList do return ← fail zeroEVErr
   let _ ← checkItemNameDups items pickState dupStateErr
   let _ ← checkItemNameDups items pickEV dupEVErr
   let _ ← checkItemNameDups items pickEvent dupEventErr
@@ -113,59 +144,34 @@ def validateProgramDeclSetV1 (program : ProgramV1) : Except String Unit := do
   let _ ← checkItemNameDups items pickCallable dupCallableErr
   let _ ← checkItemNameDups items pickInv dupInvErr
   let _ ← checkItemNameDups items pickExt dupExtErr
-  let mut invSet : Std.HashSet String := Std.HashSet.emptyWithCapacity items.size
-  for it in items do
-    match it with
-    | .invariant i => invSet := invSet.insert (raw i.name)
-    | _ => pure ()
-  let mut proofSet : Std.HashSet String := Std.HashSet.emptyWithCapacity items.size
-  for it in items do
-    match it with
-    | .proof p =>
-        let k := proofKey p
-        let (hit, proofSet') := proofSet.containsThenInsert k
-        if hit then return ← fail dupProofErr
-        proofSet := proofSet'
-    | _ => pure ()
-  for it in items do
-    match it with
-    | .proof p =>
-        let k := raw p.invariant
-        unless invSet.contains k do
-          return ← fail s!"proof reference names unknown invariant '{k}'"
-    | _ => pure ()
-  for it in items do
-    match it with
+  let invSet := invariantNames itemList
+  checkDupKeyList (proofKeys itemList) dupProofErr
+  checkProofReferences invSet itemList
+  checkItems (fun it => match it with
     | .init d => checkParams d.params initParamErr
-    | _ => pure ()
-  for it in items do
-    match it with
+    | _ => pure ()) itemList
+  checkItems (fun it => match it with
     | .struct s =>
-        let _ ← checkDupKeys (s.fields.map (fun f => raw f.name))
+        checkDupKeyList (s.fields.toList.map (fun f => raw f.name))
           s!"struct '{raw s.name}' contains duplicate fields"
-    | _ => pure ()
-  for it in items do
-    match it with
+    | _ => pure ()) itemList
+  checkItems (fun it => match it with
     | .enum e =>
-        let _ ← checkDupKeys (e.variants.map (fun v => raw v.name))
+        checkDupKeyList (e.variants.toList.map (fun v => raw v.name))
           s!"enum '{raw e.name}' contains duplicate variants"
-    | _ => pure ()
-  for it in items do
-    match it with
+    | _ => pure ()) itemList
+  checkItems (fun it => match it with
     | .event e => checkParams e.params s!"event '{raw e.name}' contains duplicate parameters"
-    | _ => pure ()
-  for it in items do
-    match it with
+    | _ => pure ()) itemList
+  checkItems (fun it => match it with
     | .error e => checkParams e.params s!"error '{raw e.name}' contains duplicate parameters"
-    | _ => pure ()
-  for it in items do
-    match it with
+    | _ => pure ()) itemList
+  checkItems (fun it => match it with
     | .entry e => checkParams e.params s!"entry '{raw e.name}' contains duplicate parameters"
     | .view v => checkParams v.params s!"view '{raw v.name}' contains duplicate parameters"
-    | _ => pure ()
-  for it in items do
-    match it with
+    | _ => pure ()) itemList
+  checkItems (fun it => match it with
     | .fn f => checkParams f.params s!"fn '{raw f.name}' contains duplicate parameters"
-    | _ => pure ()
+    | _ => pure ()) itemList
 
 end ProofForgeV2.Source.AstProgramValidateV1

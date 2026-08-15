@@ -16493,3 +16493,19 @@ normative: false
   partial lowering/validation。下一步应沿真实StateCell路径总化这些定义或增加对同一production stage
   的kernel-sound replay，再生成exact emitter bytes equation；103-block SHA trace与unconditional
   `get` gate仍未闭合。
+
+## 2026-08-15 — kernel-replayable production source binding
+
+- 唯一production source declaration-set validator已去掉kernel不透明的`HashSet`、Array iterator及
+  命令式`for`/`while`遍历，改为按现有bounded source lists结构递归。duplicate、proof-reference、
+  parameter、struct和enum检查继续保持原检查顺序与fail-closed诊断；字符串身份仍使用系统既定的
+  exact UTF-8 bytes，不增加proof-only validator或按合约名分支。
+- source qualified program identity的prefix检查现为结构递归，严格扩展和组件数量约束保持不变。
+  因此真实`program StateCell` AST及其宏导出的canonical bytes可由普通kernel `decide`重放：
+  `stateCellCanonicalSourceBindingV1`保存同一production
+  `bindElaboratedSourceToCanonicalBytesV1`调用的exact `.ok` equation，而不是runtime Boolean。
+- focused source validator/qualified-name/canonical-root builds和direct runners全部通过；未使用
+  `native_decide`、axiom、`Lean.ofReduceBool`、`run_tac`、`sorry`或`unsafe theorem`。
+- 本切片只闭合真实Source AST→canonical bytes ownership。下一处已由stage probe定位在同一production
+  compiler normalization中的reachable `partial` lowering；尚未证明StateCell exact compiled IR、
+  emitter bytes、103-block SHA identity或unconditional `get` gate。
