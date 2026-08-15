@@ -222,6 +222,41 @@ private unsafe def testCallSyncFc
           expectPlanErrorContaining "call plan" "call" (planFromCapability capability)
   IO.println "  ✓ call/sync fail closed"
 
+/-- Value-position Oracle.feed is a distinct envelope gate from the void
+    statement pin above. Product resolve must decline
+    effect.synchronous-call; the engineering path names the result-bearing
+    form. Do not silently accept a minted capability (CW C2 pattern). -/
+unsafe def testResultBearingExternalCallFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let src := wrapProgram "CallRetTon" <|
+    "  state s : UInt64\n\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    s := x\n\n" ++
+    "  entry go() : UInt64 do\n" ++
+    "    let y : UInt64 := call Oracle.feed(s)\n" ++
+    "    return s\n\n" ++
+    "  view peek() : UInt64 do\n" ++
+    "    return s\n"
+  let validated ← liftResult (← session.selectProgramV1 src
+    "<ton-call-ret>" "Examples.CallRetTon" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 validated
+  let selection ← liftResult <| resolveBuildSelectionV1 TargetId.ton none
+  match Targets.resolveEngineeringRequirementsV1 selection compiled with
+  | .error e =>
+      expect ((e.render).contains "effect.synchronous-call")
+        s!"product resolve must cite effect.synchronous-call, got {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "TON-CALL-RET-FC STOP: product resolve unexpectedly minted a capability; TON must decline effect.synchronous-call (do not switch to the CW C2 pattern)"
+  match engineeringPlanFromCompiled compiled with
+  | .error e =>
+      expect (e.render.contains
+          "result-bearing ExternalCall is outside the Ton envelope")
+        s!"result-bearing must fail at the named envelope gate, got: {e.render}"
+  | .ok _ =>
+      throw <| IO.userError
+        "result-bearing Oracle.feed must fail closed at Ton engineering Plan"
+
 /-- SYS-S5: TON has no sha256 host. Exact `pf.crypto.sha256` and sibling
     QNs stay Plan fail closed (no hashed / string_hash fallback). -/
 private unsafe def testCryptoSha256StayFailClosed
@@ -1639,6 +1674,7 @@ unsafe def run : IO Unit := do
   testStateCellIRAndTolk session
   testMultiField session
   testCallSyncFc session
+  testResultBearingExternalCallFailClosed
   testCryptoSha256StayFailClosed session
   testSchedulePlanAndTolk session
   testNarrowUInt8 session
