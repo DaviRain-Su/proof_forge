@@ -4078,6 +4078,43 @@ unsafe def run : IO Unit := do
             (e.render).contains "anonymous")
           s!"ArrayState {target} message must cite Array/container boundary, got {e.render}"
 
+  -- MapMini: Map UInt64 UInt64 state. Eight materializers admit; Quint/
+  -- Soroban/ICP/OpenVM stay envelope FC. Not opening Map on those four.
+  -- No Plan-shape pins; files-nonempty or named decline only.
+  let mapMiniSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapMini where\n" ++
+    "  state m : Map UInt64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let mapV1 ← match ← session.selectProgramV1 mapMiniSource
+      "<targets-map-mini>" "Examples.MapMini" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MapMini select: {e.render}"
+  let mapCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target mapCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"MapMini: {target} must materialize Map UInt64 UInt64"
+  for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
+    match materializeSelected target mapCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"MapMini: {target} must decline Map state"
+    | .error e =>
+        expect ((e.render).contains "Map" ||
+            (e.render).contains "container" ||
+            (e.render).contains "anonymous" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot")
+          s!"MapMini {target} message must cite Map/container boundary, got {e.render}"
+
   -- N-A4: Option state Normalize-admitted. Eight materializers admit
   -- Option UInt64 state (Enum-shaped 2-leaf layout): EVM (BL-31), NEAR
   -- (BL-30), Solana (BL-29), Aleo (BL-35), CosmWasm (BL-33), Psy (BL-36),
