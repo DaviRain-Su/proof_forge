@@ -227,6 +227,86 @@ structure ExecutedHandlerSbpfJoinV1
     HandlerSbpfObservationRelV1 expectedArtifactSha256 handlerObservation
       sbpfObservation
 
+/-- Contract-independent executed join retaining the generic production
+    provider resolution. Method modules provide only the invocation and expected
+    artifact identity; the provider input, account window, machine, and
+    observation are recovered by the shared resolver. -/
+structure CertifiedExecutedHandlerSbpfJoinV1
+    (bound : BoundResolvedSbpfArtifactV1)
+    (handlerIR : HandlerIR)
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1)
+    (fuel : Nat)
+    (status : SbpfSemantics.Word)
+    (expectedArtifactSha256 : String) where
+  provider : ResolvedCertifiedSolanaProductionProviderExecutionV1 bound
+    loaderInvocation fuel status
+  executed : ExecutedHandlerSbpfJoinV1 bound handlerIR handlerInvocation
+    loaderInvocation fuel expectedArtifactSha256
+
+/-- Generic fail-closed HandlerIR/provider join. It invokes the real HandlerIR
+    evaluator and the contract-independent production provider resolver, then
+    checks exact invocation and observation agreement. -/
+def checkCertifiedExecutedHandlerSbpfJoinV1
+    (bound : BoundResolvedSbpfArtifactV1)
+    (handlerIR : HandlerIR)
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1)
+    (fuel : Nat)
+    (status : SbpfSemantics.Word)
+    (expectedArtifactSha256 : String) : Bool :=
+  let handlerObservation := observeHandlerIRV1 handlerIR handlerInvocation
+  checkLoaderV3SingleAccountInvocationRelV1 handlerInvocation loaderInvocation &&
+    match resolveCertifiedSolanaProductionProviderExecutionV1 bound
+        loaderInvocation fuel status with
+    | .error _ => false
+    | .ok provider =>
+        checkHandlerSbpfObservationRelV1 expectedArtifactSha256
+          handlerObservation provider.observation
+
+/-- Soundness of the generic executed join. A successful Boolean recovers the
+    exact provider resolution and equations for both existing evaluators; it
+    does not assert a Reference-level business relation. -/
+theorem checkCertifiedExecutedHandlerSbpfJoinV1_sound
+    (bound : BoundResolvedSbpfArtifactV1)
+    (handlerIR : HandlerIR)
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1)
+    (fuel : Nat)
+    (status : SbpfSemantics.Word)
+    (expectedArtifactSha256 : String)
+    (checked : checkCertifiedExecutedHandlerSbpfJoinV1 bound handlerIR
+      handlerInvocation loaderInvocation fuel status expectedArtifactSha256 =
+        true) :
+    Nonempty (CertifiedExecutedHandlerSbpfJoinV1 bound handlerIR
+      handlerInvocation loaderInvocation fuel status
+      expectedArtifactSha256) := by
+  unfold checkCertifiedExecutedHandlerSbpfJoinV1 at checked
+  cases hprovider : resolveCertifiedSolanaProductionProviderExecutionV1 bound
+      loaderInvocation fuel status with
+  | error error => simp [hprovider] at checked
+  | ok provider =>
+      rw [hprovider] at checked
+      simp only [Bool.and_eq_true] at checked
+      rcases checked with ⟨hinvocation, hobservation⟩
+      exact ⟨{
+        provider
+        executed := {
+          invocationRel :=
+            (checkLoaderV3SingleAccountInvocationRelV1_eq_true_iff
+              handlerInvocation loaderInvocation).mp hinvocation
+          handlerObservation := observeHandlerIRV1 handlerIR handlerInvocation
+          handlerExecution := rfl
+          sbpfObservation := provider.observation
+          sbpfExecution := provider.providerExecution
+          observationRel :=
+            (checkHandlerSbpfObservationRelV1_eq_true_iff
+              expectedArtifactSha256
+              (observeHandlerIRV1 handlerIR handlerInvocation)
+              provider.observation).mp hobservation
+        }
+      }⟩
+
 /-- StateCell specialization of the generic executed join carrier. -/
 abbrev StateCellExecutedHandlerSbpfJoinV1
     (bound : BoundResolvedSbpfArtifactV1)

@@ -65,6 +65,19 @@ Code facts:
   parameters. The four StateCell scenarios consume this boundary while their
   artifact manifests, concrete input reads, sparse traces and postconditions
   remain method-specific.
+- The same module now has a contract-independent provider execution resolver.
+  It obtains the account window from the bound production artifact, calls the
+  real Loader encoder and pinned `runFuel`, and retains exact encoder/window/
+  resource/run equations. Invalid input, missing window, zero or excessive
+  fuel, input overflow, stuck/out-of-fuel execution and unexpected status all
+  fail closed. Its replay theorem and certificate/observation projections do
+  not copy a trace or introduce another evaluator.
+- `SbpfHandlerJoinV1.lean` consumes that resolver through a generic certified
+  HandlerIR/provider join parameterized by handler, invocation, fuel, status
+  and expected artifact identity. It runs the existing HandlerIR evaluator,
+  verifies invocation and final observation agreement, and retains both exact
+  evaluator equations. The old StateCell sparse joins remain method-specific;
+  this layer is the reusable execution skeleton for a second contract.
 - `ProductionCompositionV1.lean` now factors the contract-independent,
   fail-closed resolver/Reference-checker/provider-checker gate. Its soundness
   theorem recovers the exact resolved subject and both checker equations, but
@@ -164,6 +177,14 @@ second codegen.
     source, method, state, invocation, subject type, and checker pair; no
     StateCell field, transition, manifest, or trace moved into the generic
     layer.
+17. **SOL-0048-D5-GENERIC-PROVIDER-RESOLVER** — **done 2026-08-15**: added a
+    contract-independent resolver over the actual Loader encoder, artifact
+    execution window and pinned `runFuel`, with exact certificate and replay
+    projections. A generic certified HandlerIR/provider gate now consumes it
+    and checks artifact identity plus invocation/final observation agreement.
+    StateCell `get` is the first runtime regression; wrong status, zero fuel and
+    identity drift fail closed. No sparse trace or contract relation moved into
+    the generic layer.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete. The remaining D5 blocker is unconditional kernel discharge of the

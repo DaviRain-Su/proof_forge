@@ -160,6 +160,26 @@ private theorem productionProviderExecutionFixtureV1
       }) :=
   ⟨execution.encodedInput, execution.providerExecution⟩
 
+/-- Type-level fixture: a provider resolution for any bound artifact and
+    invocation replays through the same contract-independent resolver. -/
+private theorem productionProviderResolutionReplayFixtureV1
+    {bound invocation fuel status}
+    (execution : ResolvedCertifiedSolanaProductionProviderExecutionV1 bound
+      invocation fuel status) :
+    resolveCertifiedSolanaProductionProviderExecutionV1 bound invocation fuel
+      status = .ok execution :=
+  resolveCertifiedSolanaProductionProviderExecutionV1_eq_ok execution
+
+/-- Type-level fixture: the generic executed join is parameterized by the
+    artifact identity and method inputs, not by StateCell. -/
+private theorem productionExecutedJoinFixtureV1
+    {bound handlerIR handlerInvocation loaderInvocation fuel status expectedSha}
+    (join : CertifiedExecutedHandlerSbpfJoinV1 bound handlerIR
+      handlerInvocation loaderInvocation fuel status expectedSha) :
+    executeLoaderV3SingleAccountV1 bound loaderInvocation fuel =
+      .ok join.executed.sbpfObservation :=
+  join.executed.sbpfExecution
+
 /-- Type-level fixture: production composition is parameterized by any resolved
     subject and two supplied checkers, not by a contract or method shape. -/
 private theorem productionCompositionFixtureV1
@@ -417,6 +437,36 @@ private unsafe def testStateCellSbpfArtifact
   have _ := productionMethodLookupFixtureV1 productionSubject.method
   have _ := productionMethodReferenceExecutionFixtureV1
     productionSubject.referenceExecution
+  let genericProvider ← liftStringResult <|
+    resolveCertifiedSolanaProductionProviderExecutionV1
+      productionSubject.boundArtifact productionSubject.loaderInvocation 55 0
+  have _ := productionProviderResolutionReplayFixtureV1 genericProvider
+  have _ := productionProviderExecutionFixtureV1 genericProvider.certificate
+  expect (genericProvider.accountDataLength == 16)
+    "sBPF artifact: generic provider resolver derives the artifact account window"
+  expect (genericProvider.observation.provider.returnData ==
+      productionSubject.returnBytes)
+    "sBPF artifact: generic provider resolver retains get return bytes"
+  expect (checkCertifiedExecutedHandlerSbpfJoinV1
+      productionSubject.boundArtifact productionSubject.handler
+      productionSubject.handlerInvocation productionSubject.loaderInvocation 55 0
+      stateCellProductionSbpfSha256V1)
+    "sBPF artifact: generic HandlerIR/provider join accepts the production get path"
+  expect (!checkCertifiedExecutedHandlerSbpfJoinV1
+      productionSubject.boundArtifact productionSubject.handler
+      productionSubject.handlerInvocation productionSubject.loaderInvocation 55 1
+      stateCellProductionSbpfSha256V1)
+    "sBPF artifact: generic provider resolver rejects an unexpected status"
+  expect (!checkCertifiedExecutedHandlerSbpfJoinV1
+      productionSubject.boundArtifact productionSubject.handler
+      productionSubject.handlerInvocation productionSubject.loaderInvocation 0 0
+      stateCellProductionSbpfSha256V1)
+    "sBPF artifact: generic provider resolver rejects zero fuel"
+  expect (!checkCertifiedExecutedHandlerSbpfJoinV1
+      productionSubject.boundArtifact productionSubject.handler
+      productionSubject.handlerInvocation productionSubject.loaderInvocation 55 0
+      ("0" ++ stateCellProductionSbpfSha256V1.drop 1))
+    "sBPF artifact: generic HandlerIR/provider join rejects identity drift"
   expect (productionSubject.method.callable.kind == .view)
     "sBPF artifact: generic method certificate must retain get as a view"
   expect (productionSubject.method.callable.name == some "get")

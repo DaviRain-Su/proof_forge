@@ -16327,3 +16327,20 @@ normative: false
   consumer，并分别证明method-specific checker equations。StateCell closed gate、一般
   Reference→provider refinement、ELF/linker/loader及Mollusk/validator/SVM runtime refinement均未因此
   完成。
+
+## 2026-08-15 — contract-independent Solana provider resolver and executed join
+
+- `ProductionProviderV1`新增通用production execution resolver：account window只从identity-bound
+  artifact解析，input只由真实Loader V3 encoder生成，执行只调用pinned `runFuel`。resolver保留encoder、
+  window、fuel/input bounds与provider run精确等式，并可投影既有通用execution certificate与最终
+  observation；已有certificate可通过replay theorem回到同一个resolver结果。无layout、非法input、
+  zero/excess fuel、input超界、stuck/out-of-fuel或halt status错配全部fail closed。
+- `SbpfHandlerJoinV1`新增contract-independent certified executed join。handler、Handler invocation、
+  Loader invocation、fuel、status与expected artifact SHA均为参数；checker复用真实HandlerIR evaluator、
+  新provider resolver以及既有invocation/observation relation，sound theorem恢复两个真实evaluator的精确
+  equation和provider resolution。没有新增HandlerIR→sBPF lowering、business semantics或provider trace。
+- StateCell `get`作为首个运行回归通过通用resolver/join，并固定account window、return bytes、wrong
+  status、zero fuel与artifact identity drift边界；类型级fixtures继续对任意artifact/invocation/method
+  shape参数化。下一步仍是让OptionState等不同业务形状成为第二个真实consumer；本切片不宣称一般
+  Reference→provider refinement、无条件closed gate、ELF/linker/loader或Mollusk/validator/SVM runtime
+  refinement完成。
