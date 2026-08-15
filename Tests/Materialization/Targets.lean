@@ -4643,6 +4643,41 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "OptRetBox" target kind optRetCompiled
       "anonymous Option is outside the current container-state pilot"
 
+  -- OptViewRet: Option UInt64 *view* return. Distinct from OptRetBox
+  -- entry: TON view-only B-RET admits; Aleo computed-view FC.
+  -- Quint/Soroban/OpenVM/ICP stay Option-pilot FC. Not opening Aleo
+  -- computed view. OptBox / OptRetBox / NestOpt stay.
+  let optViewRetSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptViewRet where\n" ++
+    "  state o : Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  view peek() : Option UInt64 do\n" ++
+    "    return o\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let optViewRetV1 ← match ← session.selectProgramV1 optViewRetSource
+      "<targets-opt-view-ret>" "Examples.OptViewRet" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"OptViewRet select: {e.render}"
+  let optViewRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optViewRetV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target optViewRetCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"OptViewRet: {target} must materialize Option UInt64 view return"
+  expectMaterializePlanInvariantV1 "OptViewRet" TargetId.aleo TargetKind.aleo
+    optViewRetCompiled "computed state views fail closed"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "OptViewRet" target kind optViewRetCompiled
+      "anonymous Option is outside the current container-state pilot"
+
   -- NestOpt: Option Option UInt64 state. All twelve targets stay named
   -- payload/pilot FC. Not opening nested Option. OptBox / OptRetBox stay.
   let nestOptSource :=
