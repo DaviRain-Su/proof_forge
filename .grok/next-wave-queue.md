@@ -204,6 +204,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-ARR-U16-QS | done | ArrU16 Array UInt16 2: EVM-only files-nonempty admit (UInt16 ≠ UInt32); seven Array-U64-element including Aleo/TON; Quint/Soroban/OpenVM/ICP width. **Not** opening Array-of-UInt16 on the eleven |
 | MAT-ARR-U8-QS | done | ArrU8 Array UInt8 2: EVM-only files-nonempty admit (UInt8 ≠ UInt16); seven Array-U64-element including Aleo/TON; Quint/Soroban/OpenVM/ICP width. Last narrow unsigned array pin |
 | MAT-OPT-U32-QS | done | OptU32 Option UInt32 12-target all FC: eight Option-payload including Aleo/TON (legal width, distinct from OptU128 width needles); Quint/Soroban/OpenVM/ICP width. **Not** opening Option-of-UInt32 |
+| MAT-OPT-U16-QS | done | OptU16 Option UInt16 12-target all FC (UInt16 ≠ UInt32): eight Option-payload including Aleo/TON; Quint/Soroban/OpenVM/ICP width. **Not** opening Option-of-UInt16 |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | QUINT-CALL-RET-FC | done | Pin value-position `let y : UInt64 := call Oracle.feed` Plan FC (`result-bearing externalCall is outside Q0`, distinct from void A5). **Not** opening result-bearing CALL / Q0 |

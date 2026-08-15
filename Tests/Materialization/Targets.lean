@@ -6798,6 +6798,50 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "OptU32" target kind optU32Compiled
       "only anonymous UInt64 width is supported"
 
+  -- OptU16: Option UInt16 state. Same legal-width payload needle set as
+  -- OptU32, but UInt16 ≠ UInt32 so it is its own pin. Aleo/TON stay on
+  -- Option-payload, not OptU128's width needles. Quint/Soroban/OpenVM/
+  -- ICP fail on the width needle first, not OptBool's Option-pilot.
+  -- Not opening Option-of-UInt16. OptU32 / OptU256 / OptU128 / OptInt
+  -- stay.
+  let optU16Source :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptU16 where\n" ++
+    "  state o : Option UInt16\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(0)\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let optU16V1 ← match ← session.selectProgramV1 optU16Source
+      "<targets-opt-u16>" "Examples.OptU16" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"OptU16 select: {e.render}"
+  let optU16Compiled ← liftResult <| Compiler.compileValidatedSourceV1 optU16V1
+  expectMaterializePlanInvariantV1 "OptU16" TargetId.evm TargetKind.evm
+    optU16Compiled "Option state admits only UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptU16" TargetId.solana TargetKind.solana
+    optU16Compiled "Option state 'o' element must be UInt64"
+  for (target, kind) in #[
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.aleo, TargetKind.aleo),
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.ton, TargetKind.ton)] do
+    expectMaterializePlanInvariantV1 "OptU16" target kind optU16Compiled
+      "Option state 'o' requires UInt64 payload"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "OptU16" target kind optU16Compiled
+      "only anonymous UInt64 width is supported"
+
   -- N5: Commit identity admitted on EVM/Solana/NEAR (Plan passthrough into
   -- commitment state). Noir declines (public relation slots cannot hold
   -- commitment labels). Psy declines. ContextRead declined on every Phase-1
