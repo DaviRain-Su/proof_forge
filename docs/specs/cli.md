@@ -74,6 +74,8 @@ Phase 1 required：check/build/inspect/list-targets、Noir prove/verify；deploy
 `.str` chain；不得从 source path 推导或按 `.` split。`programIdentity` 为 module raw components、
 active namespace raw components 与 declaration raw components 的精确串接。`--program` 使用同一
 parser 与 raw-array equality；文件路径和 rendered dotted string 不参与 source identity/hash。
+产品 `<source>` 必须以 `.pf` 或 `.lean` 结尾（大小写精确）；其它后缀 usage / exit 2。
+`.pf` 是作者合约后缀；`.lean` 仍承认，供 monorepo Lake 模块与 same-file theorems。
 
 一个候选自动选择；零候选 `PF-EXPORT-003`；多个候选必须 exact `--program`，否则
 `PF-EXPORT-002`。target/profile exact lookup；省略 profile 使用 registry 唯一 default。

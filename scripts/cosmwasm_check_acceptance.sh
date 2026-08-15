@@ -277,7 +277,7 @@ if [[ -z "$STATE_CELL_SRC" ]]; then
   exit 0
 fi
 
-# Product CLI: build <source.lean> --module <Name> --target <t> [-o <dir>]
+# Product CLI: build <source.pf|.lean> --module <Name> --target <t> [-o <dir>]
 # Module for Examples/StateCell.lean is Examples.StateCell (see Emit.lean docs).
 # The CLI requires a canonical project-relative source path (no leading /),
 # so strip the repo-root prefix before invoking.

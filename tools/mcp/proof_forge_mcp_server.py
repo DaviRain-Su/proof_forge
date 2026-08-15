@@ -1020,7 +1020,7 @@ def tool_definitions() -> List[Dict[str, Any]]:
                     },
                     "source": {
                         "type": "string",
-                        "description": "ProgramV1 .lean path (required for aleo sandbox).",
+                        "description": "Path to source .pf (or .lean) ProgramV1 file (required for aleo sandbox).",
                     },
                     "module": {
                         "type": "string",
