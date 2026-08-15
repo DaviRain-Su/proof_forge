@@ -5262,6 +5262,52 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrI32" target kind arrI32Compiled
       "only anonymous UInt64 width is supported"
 
+  -- ArrI16: Array Int16 2 state. Same twelve named-FC needles as
+  -- ArrI32, but Int16 ≠ Int32 so it is its own pin. EVM declines
+  -- signed arrays (ArrU16 EVM admits UInt16). Aleo/CW/TON stay on
+  -- width / narrow-Int, not ArrInt's Array-element. Not opening
+  -- Array-of-Int16. ArrI32 / ArrU16 / ArrInt / OptI32 stay.
+  let arrI16Source :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrI16 where\n" ++
+    "  state slots : Array Int16 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0] := 0\n" ++
+    "    slots[1] := 0\n\n" ++
+    "  entry set0(v : UInt64) : UInt64 do\n" ++
+    "    slots[0] := 0\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let arrI16V1 ← match ← session.selectProgramV1 arrI16Source
+      "<targets-arr-i16>" "Examples.ArrI16" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"ArrI16 select: {e.render}"
+  let arrI16Compiled ← liftResult <| Compiler.compileValidatedSourceV1 arrI16V1
+  expectMaterializePlanInvariantV1 "ArrI16" TargetId.evm TargetKind.evm
+    arrI16Compiled "Array state element must be UInt8/16/32/64"
+  for (target, kind) in #[
+      (TargetId.solana, TargetKind.solana),
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.psy, TargetKind.psy)] do
+    expectMaterializePlanInvariantV1 "ArrI16" target kind arrI16Compiled
+      "Array state element must be UInt64"
+  expectMaterializePlanInvariantV1 "ArrI16" TargetId.aleo TargetKind.aleo
+    arrI16Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+  expectMaterializePlanInvariantV1 "ArrI16" TargetId.cosmwasm TargetKind.cosmwasm
+    arrI16Compiled "narrow Int fail closed; UInt128/256 are body-only"
+  expectMaterializePlanInvariantV1 "ArrI16" TargetId.ton TargetKind.ton
+    arrI16Compiled "UInt128/256 and narrow Int fail closed"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "ArrI16" target kind arrI16Compiled
+      "only anonymous UInt64 width is supported"
+
   -- MapMini: Map UInt64 UInt64 state. Eight materializers admit; Quint/
   -- Soroban/ICP/OpenVM stay envelope FC. Not opening Map on those four.
   -- No Plan-shape pins; files-nonempty or named decline only.
