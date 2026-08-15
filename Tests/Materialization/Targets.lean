@@ -3739,6 +3739,46 @@ unsafe def run : IO Unit := do
           (e.render).contains "bn254 Fr")
         s!"N2b field Aleo message must cite BLS12-377≠bn254 Fr, got {e.render}"
 
+  -- WideUInt: UInt128 state/return. EVM/Solana/NEAR/Noir/Psy admit.
+  -- Aleo/Quint/Soroban/OpenVM/ICP/CW/TON stay named FC. Not opening
+  -- UInt256 or signed 128. Files-nonempty or Plan-invariant needles.
+  let wideUIntSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program WideUInt where\n" ++
+    "  state n : UInt128\n\n" ++
+    "  init(x : UInt128) do\n" ++
+    "    n := x\n\n" ++
+    "  entry bump(d : UInt128) : UInt128 do\n" ++
+    "    n := n + d\n" ++
+    "    return n\n\n" ++
+    "  view get() : UInt128 do\n" ++
+    "    return n\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let wideV1 ← match ← session.selectProgramV1 wideUIntSource
+      "<targets-uint128>" "Examples.WideUInt" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"WideUInt select: {e.render}"
+  let wideCompiled ← liftResult <| Compiler.compileValidatedSourceV1 wideV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy] do
+    let out ← liftResult <| materializeSelected target wideCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"WideUInt: {target} must materialize UInt128"
+  expectMaterializePlanInvariantV1 "WideUInt" TargetId.aleo TargetKind.aleo
+    wideCompiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "WideUInt" target kind wideCompiled
+      "only anonymous UInt64 width is supported"
+  expectMaterializePlanInvariantV1 "WideUInt" TargetId.cosmwasm TargetKind.cosmwasm
+    wideCompiled "state 'n' is not public UInt64"
+  expectMaterializePlanInvariantV1 "WideUInt" TargetId.ton TargetKind.ton
+    wideCompiled "UInt128/256"
 
   -- N2c + B-3 PrincipalAddr + T10/T12 Principal storage pilot.
   -- Normalize admits identity-only Principal (state/params/eq/ne). Wire is
