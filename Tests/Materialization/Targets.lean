@@ -5212,6 +5212,47 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapStr" TargetId.icp TargetKind.icp
     mapStrCompiled "containers/String fail closed"
 
+  -- MapBool: Map UInt64 Bool state. All twelve stay named Map-value/pilot
+  -- FC. Not opening Map-of-Bool. MapStr / MapMini / ArrBool / OptBool stay.
+  let mapBoolSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapBool where\n" ++
+    "  state m : Map UInt64 Bool\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let mapBoolV1 ← match ← session.selectProgramV1 mapBoolSource
+      "<targets-map-bool>" "Examples.MapBool" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MapBool select: {e.render}"
+  let mapBoolCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapBoolV1
+  for (target, kind) in #[
+      (TargetId.evm, TargetKind.evm),
+      (TargetId.solana, TargetKind.solana)] do
+    expectMaterializePlanInvariantV1 "MapBool" target kind mapBoolCompiled
+      "Map state value must be UInt64"
+  for (target, kind) in #[
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.aleo, TargetKind.aleo),
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.ton, TargetKind.ton)] do
+    expectMaterializePlanInvariantV1 "MapBool" target kind mapBoolCompiled
+      "Map state admits only Map UInt64 UInt64"
+  expectMaterializePlanInvariantV1 "MapBool" TargetId.psy TargetKind.psy
+    mapBoolCompiled "Map state pilot requires UInt64 keys and values"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "MapBool" target kind mapBoolCompiled
+      "anonymous Map is outside the current container-state pilot"
+
   -- BytesBox: Bytes 4 state. Eight materializers admit; Quint/Soroban/
   -- ICP/OpenVM stay envelope FC. Not opening Bytes on those four.
   -- State only — no Bytes return ABI. Files-nonempty or named decline.
