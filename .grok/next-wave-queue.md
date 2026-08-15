@@ -112,6 +112,8 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-ATTACHED-QS | done | S4 attachedValue decline loop +Quint/Soroban (same hole as CAP-6 unixTime). Allowlist `Targets.lean`. **Not** opening attachedValue |
 | MAT-CALLER-QS | done | Caller matrix: admit CosmWasm entry; decline Quint/Soroban/Aleo/TON. **Not** ICP caller encoding |
 | MAT-COMMIT-QS | done | N5 Commit identity matrix: 12-target admit/decline from probe. Quint/Soroban/ICP/OpenVM FC at envelope, not a new Commit op. **Not** B-COMMIT-ZK |
+| MAT-PRIV-QS | done | N1 private-state: CW/TON admit; Quint/Soroban/ICP/OpenVM envelope FC. **Not** disclosure redesign |
+| MAT-COMM-STATE-QS | in_progress | N1 commitment-state loop: fill extra seven (CW/TON/Quint/Soroban/ICP/OpenVM + Noir already declines). Probe first. **Not** B-COMMIT-ZK |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |

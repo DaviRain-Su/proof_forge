@@ -3187,11 +3187,24 @@ unsafe def run : IO Unit := do
   expect (privStateData.logicalState.any fun s =>
       s.name == "secret" && s.visibility == .private_)
     "N1 priv-state: secret retains private visibility"
+  -- Extra six from probe; not disclosure redesign.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.psy, TargetId.aleo,
-      TargetId.noir] do
+      TargetId.noir, TargetId.cosmwasm, TargetId.ton] do
     let out ← liftResult <| materializeSelected target privStateCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"N1 priv-state: {target} must materialize"
+  for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
+    match materializeSelected target privStateCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"N1 priv-state: {target} must decline private state"
+    | .error e =>
+        expect ((e.render).contains "private" ||
+            (e.render).contains "visibility" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot" ||
+            (e.render).contains "public" ||
+            (e.render).contains "secret")
+          s!"N1 priv-state {target} message must cite private/visibility boundary, got {e.render}"
   let noirPrivState ← liftResult <| planNoir privStateCompiled
   expect (noirPrivState.states.any fun s =>
       s.name == "secret" && s.visibility == .witness)
