@@ -5574,6 +5574,51 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "OptField" TargetId.icp TargetKind.icp
     optFieldCompiled "Int/Field/Principal/aggregates/containers/String fail closed"
 
+  -- OptStr: Option String state. All twelve stay named payload/String FC.
+  -- Not opening Option-of-String. OptField / OptBox /
+  -- StringInterfaceBoundary stay.
+  let optStrSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptStr where\n" ++
+    "  state o : Option String\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let optStrV1 ← match ← session.selectProgramV1 optStrSource
+      "<targets-opt-str>" "Examples.OptStr" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"OptStr select: {e.render}"
+  let optStrCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optStrV1
+  expectMaterializePlanInvariantV1 "OptStr" TargetId.evm TargetKind.evm
+    optStrCompiled "Option state admits only UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptStr" TargetId.solana TargetKind.solana
+    optStrCompiled "not a fixed 32-byte pubkey"
+  expectMaterializePlanInvariantV1 "OptStr" TargetId.near TargetKind.near
+    optStrCompiled "not a NEAR account-id string"
+  expectMaterializePlanInvariantV1 "OptStr" TargetId.noir TargetKind.noir
+    optStrCompiled "not a Field element"
+  expectMaterializePlanInvariantV1 "OptStr" TargetId.aleo TargetKind.aleo
+    optStrCompiled "Principal/String stay fail-closed"
+  expectMaterializePlanInvariantV1 "OptStr" TargetId.psy TargetKind.psy
+    optStrCompiled "Option state 'o' requires UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptStr" TargetId.quint TargetKind.quint
+    optStrCompiled "Int/Field/aggregates/containers fail closed"
+  expectMaterializePlanInvariantV1 "OptStr" TargetId.cosmwasm TargetKind.cosmwasm
+    optStrCompiled "no Field"
+  expectMaterializePlanInvariantV1 "OptStr" TargetId.ton TargetKind.ton
+    optStrCompiled "no Field/Principal"
+  for (target, kind) in #[
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm)] do
+    expectMaterializePlanInvariantV1 "OptStr" target kind optStrCompiled
+      "Int/Field/Principal/aggregates/containers fail closed"
+  expectMaterializePlanInvariantV1 "OptStr" TargetId.icp TargetKind.icp
+    optStrCompiled "containers/String fail closed"
+
   -- N5: Commit identity admitted on EVM/Solana/NEAR (Plan passthrough into
   -- commitment state). Noir declines (public relation slots cannot hold
   -- commitment labels). Psy declines. ContextRead declined on every Phase-1
