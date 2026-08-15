@@ -16117,3 +16117,20 @@ normative: false
   generic executed join。checker为true可由kernel soundness恢复certificate，但尚未把大型concrete gate
   归约成无条件定理；ELF/linker/loader、Mollusk/validator/runtime、transaction rollback与compute units
   均未因此升级。下一刀是increment success sparse certificate，再处理overflow suffix。
+
+## 2026-08-15 — StateCell `increment` success exact 70-step provider certificate
+
+- 新增`SbpfStateCellIncrementV1`：checker从同一个identity-bound production StateCell `.s` artifact
+  检查成功increment路径的完整70条sparse fetch manifest，并直接检查真实Loader V3 input中的账户数、
+  discriminator、owner/program-id四段、writable/initialized marker、before value与argument读取；没有
+  复制provider program、另写proof-only lowering或新增business semantics。
+- executable trace gate固定fuel 69时provider位于dispatcher exit且仍live/`.outOfFuel`，fuel 70时以
+  status/r0零halt；最终16-byte account window精确从41更新到42，return data也是42的little-endian
+  bytes。soundness通过既有`runFuel_halted_steps`恢复exact 70步`Steps`。
+- `SbpfHandlerJoinV1`新增certified increment-success join并保留actual HandlerIR/Loader observation
+  agreement；production increment subject gate由generic join升级到该certificate。before、argument、
+  account bytes、instruction bytes及wrong-handler负例均fail closed；focused Solana build与runner通过。
+- 当前`get`、`initialize`与increment success均有production sparse provider certificate；overflow仍是
+  generic executed join。checker成功仍是恢复certificate的前提，不构成无条件Reference→provider、
+  ELF/linker/loader、Mollusk/SVM runtime、transaction rollback或compute-unit refinement。下一刀是
+  increment overflow sparse certificate。

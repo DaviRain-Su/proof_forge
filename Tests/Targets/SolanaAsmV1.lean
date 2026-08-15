@@ -276,6 +276,11 @@ private unsafe def testStateCellSbpfArtifact
   let mutated ← liftArtifactResult <| resolveSbpfArtifactV1 validMutation
   expect (mutated.constant? "EXACT_DATA_LEN" == some 24)
     "sBPF artifact test mutation must remain syntactically valid"
+  let mutatedBound ← liftArtifactResult <|
+    resolveBoundSbpfArtifactV1 validMutation
+      (ProofForgeV2.Crypto.sha256Hex validMutation.toUTF8)
+  expect (!checkStateCellIncrementArtifactV1 mutatedBound)
+    "sBPF artifact: increment certificate must reject production identity drift"
   expectArtifactError
     (resolveBoundSbpfArtifactV1 validMutation expectedSha256)
     "artifact SHA-256 does not match"
@@ -307,8 +312,9 @@ private unsafe def testStateCellSbpfArtifact
     "unsupported syscall or unresolved call target"
 
 /-- Mutating recipes use the same production `.s` as `get`. Initialize retains
-    its exact 55-step sparse provider certificate; increment success/overflow
-    still use the generic HandlerIR/provider executed join. -/
+    its exact 55-step sparse provider certificate and increment success retains
+    its exact 70-step certificate; overflow still uses the generic executed
+    HandlerIR/provider join. -/
 private unsafe def testStateCellMutatingProductionSubjects : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
@@ -378,10 +384,62 @@ private unsafe def testStateCellMutatingProductionSubjects : IO Unit := do
   expect (incrementSubject.before == 41 && incrementSubject.argument == 1)
     "increment subject must pin the 41 + 1 success scenario"
   expect checkStateCellIncrementProductionSubjectV1
-    "increment production subject generic executed join must succeed"
-  expect (!checkStateCellExecutedHandlerSbpfJoinV1
+    "increment production subject certified 70-step join must succeed"
+  let incrementBefore := BitVec.ofNat 64 incrementSubject.before.toNat
+  let incrementArgument := BitVec.ofNat 64 incrementSubject.argument.toNat
+  let incrementInput ← liftExecutionResult <|
+    encodeLoaderV3SingleAccountInputV1 incrementSubject.boundArtifact
+      incrementSubject.loaderInvocation
+  expect (checkStateCellIncrementArtifactV1 incrementSubject.boundArtifact)
+    "increment sparse fetch manifest must match the production artifact"
+  expect (checkStateCellIncrementInputReadsV1 incrementInput incrementBefore
+      incrementArgument)
+    "increment sparse Loader reads must match the encoded invocation"
+  expect (checkStateCellIncrementTraceV1 incrementSubject.boundArtifact
+      incrementInput incrementBefore incrementArgument)
+    "increment exact 70-step provider trace must succeed"
+  expect (checkStateCellIncrementExecutionV1 incrementSubject.boundArtifact
+      incrementSubject.loaderInvocation incrementBefore incrementArgument)
+    "increment certified Loader execution must succeed"
+  expect (checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1
+      incrementSubject.boundArtifact incrementSubject.handler
+      incrementSubject.handlerInvocation incrementSubject.loaderInvocation
+      incrementBefore incrementArgument)
+    "increment certified HandlerIR/provider join must succeed"
+  let incrementArtifact :=
+    BoundResolvedSbpfArtifactV1.resolvedOf incrementSubject.boundArtifact
+  let incrementAt69 := SbpfSemantics.runFuel SbpfSemantics.asmDefaultHost
+    incrementArtifact.program 69 (SbpfSemantics.Machine.entry incrementInput)
+  let incrementAt70 := SbpfSemantics.runFuel SbpfSemantics.asmDefaultHost
+    incrementArtifact.program 70 (SbpfSemantics.Machine.entry incrementInput)
+  expect (decide (incrementAt69.2 = .outOfFuel) && incrementAt69.1.pc == 18 &&
+      incrementAt69.1.halted.isNone)
+    "increment trace must be live at the dispatcher exit after step 69"
+  expect (decide (incrementAt70.2 = .halted 0) &&
+      incrementAt70.1.pc == 18 && incrementAt70.1.halted == some 0)
+    "increment trace must halt successfully at exact step 70"
+  expect (!checkStateCellIncrementExecutionV1 incrementSubject.boundArtifact
+      incrementSubject.loaderInvocation (BitVec.ofNat 64 40)
+      incrementArgument)
+    "increment before-value drift must fail the sparse certificate"
+  expect (!checkStateCellIncrementExecutionV1 incrementSubject.boundArtifact
+      incrementSubject.loaderInvocation incrementBefore (BitVec.ofNat 64 2))
+    "increment argument drift must fail the sparse certificate"
+  expect (!checkStateCellIncrementExecutionV1 incrementSubject.boundArtifact
+      { incrementSubject.loaderInvocation with
+        accountData := incrementSubject.loaderInvocation.accountData.set! 8 40 }
+      incrementBefore incrementArgument)
+    "increment tampered account bytes must fail the sparse certificate"
+  expect (!checkStateCellIncrementExecutionV1 incrementSubject.boundArtifact
+      { incrementSubject.loaderInvocation with
+        instructionData :=
+          incrementSubject.loaderInvocation.instructionData.set! 8 2 }
+      incrementBefore incrementArgument)
+    "increment tampered argument bytes must fail the sparse certificate"
+  expect (!checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1
       incrementSubject.boundArtifact initSubject.handler
-      incrementSubject.handlerInvocation incrementSubject.loaderInvocation)
+      incrementSubject.handlerInvocation incrementSubject.loaderInvocation
+      incrementBefore incrementArgument)
     "increment invocation must not join against the initialize handler"
   let overflowSubject ← liftStringResult
     resolveStateCellIncrementOverflowProductionSubjectV1

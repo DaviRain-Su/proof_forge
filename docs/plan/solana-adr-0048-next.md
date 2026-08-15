@@ -23,13 +23,14 @@ D4 · [`verified-contract-authoring.md`](verified-contract-authoring.md) §5.
 |---|---|---|---|
 | `get()` | yes | `resolveStateCellGetProductionSubjectV1` | 55-step + `runFuel` status-zero |
 | `initialize(initial)` | yes (Loader V3 single-account) | `resolveStateCellInitializeProductionSubjectV1` | 55-step + exact initialized account window |
-| `increment(delta)` | yes | `resolveStateCellIncrementProductionSubjectV1` | generic executed join (no sparse cert yet) |
+| `increment(delta)` | yes | `resolveStateCellIncrementProductionSubjectV1` | 70-step + exact account/return bytes |
 | increment overflow | yes (nonzero status + pre-account hold) | `resolveStateCellIncrementOverflowProductionSubjectV1` | generic executed join (no sparse cert yet) |
 
 `SbpfHandlerJoinV1` already has the HandlerIR ↔ Loader invocation/observation
 relation, including overflow → nonzero status. All four production subjects are
-now bound; `get` and `initialize` retain certified 55-step joins. Sparse
-certificates remain open for increment success and overflow.
+now bound; `get` and `initialize` retain certified 55-step joins, and successful
+`increment` retains a certified 70-step join. The sparse certificate remains
+open only for increment overflow.
 
 Code facts:
 
@@ -37,9 +38,11 @@ Code facts:
   `get`, `initialize`, increment-success, and increment-overflow resolvers. All
   consume the same elaborated Source AST, production validator/canonical encoder
   binding, compiler and production `.s`; overflow reuses the private increment
-  subject directly. `get` and `initialize` retain sparse provider certificates.
+  subject directly. `get`, `initialize`, and successful `increment` retain
+  sparse provider certificates.
 - Sparse certificates live in `SbpfStateCellGetV1.lean` and
-  `SbpfStateCellInitializeV1.lean`.
+  `SbpfStateCellInitializeV1.lean`, plus
+  `SbpfStateCellIncrementV1.lean` for the success path.
 - Authoring doc: still no unconditional kernel equality for the large
   production theorem; release SBOM/source-dependency stays fail closed.
 
@@ -60,9 +63,14 @@ a second codegen.
    certificate binds the production artifact fetches, concrete Loader reads,
    54/55 fuel boundary, initialized account window, and certified HandlerIR /
    provider join.
+5. **SOL-0048-INC-CERT** — **done 2026-08-15**: exact 70-step successful
+   increment certificate binds the production artifact fetches, concrete
+   Loader reads, 69/70 fuel boundary, `41 + 1` account/return bytes, and
+   certified HandlerIR/provider join. Value, argument, and invocation-byte
+   drift fail closed.
 
-Next certificate order: factor the shared increment dispatch/load prefix, then
-close the success suffix followed by the overflow suffix.
+Next certificate: close the increment-overflow path against the same production
+artifact, with exact nonzero status, unchanged account bytes, and fuel boundary.
 Hashed-QN CallGate/ScheduleGate last-20 pin is done; binding stays
 `B-CALL-SEM` ([`evm-call-addr-gap.md`](evm-call-addr-gap.md)).
 

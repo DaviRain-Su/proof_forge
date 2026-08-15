@@ -19,9 +19,10 @@ assembly emitter, strict artifact parser, and identity-bound provider path.
 They contain no copied IR/program and introduce no alternate lowering or
 business semantics.
 
-`get` and `initialize` retain dedicated 55-step certified joins. Successful and
-overflowing `increment` use the generic executed HandlerIR/provider join; their
-sparse certificates are later slices.
+`get` and `initialize` retain dedicated 55-step certified joins. Successful
+`increment` retains its dedicated 70-step certified join. Overflowing
+`increment` still uses the generic executed HandlerIR/provider join; its sparse
+certificate is a later slice.
 -/
 
 namespace ProofForgeV2.Targets.Solana
@@ -246,9 +247,9 @@ theorem checkStateCellInitializeProductionSubjectV1_sound
     subject.boundArtifact subject.handler subject.handlerInvocation
     subject.loaderInvocation (BitVec.ofNat 64 subject.argument.toNat) hchecked
 
-/-- Concrete values consumed by the generic StateCell `increment` success
+/-- Concrete values consumed by the certified StateCell `increment` success
     HandlerIR/provider join. The selected scenario starts at `41` and adds
-    `1`; a sparse increment certificate remains a separate later slice. -/
+    `1` along the exact 70-step provider path. -/
 structure ResolvedStateCellIncrementProductionSubjectV1 where
   private mk ::
   sourceBinding : CanonicalSourceBindingV1
@@ -312,33 +313,37 @@ def resolveStateCellIncrementProductionSubjectV1 :
     assembly boundArtifact handler handlerInvocation loaderInvocation before
     argument
 
-/-- Fail-closed executable agreement for the pinned increment-success subject. -/
+/-- Fail-closed certified agreement for the pinned increment-success subject. -/
 def checkStateCellIncrementProductionSubjectV1 : Bool :=
   checkExceptV1 resolveStateCellIncrementProductionSubjectV1 fun subject =>
-    checkStateCellExecutedHandlerSbpfJoinV1
+    checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1
       subject.boundArtifact subject.handler subject.handlerInvocation
-      subject.loaderInvocation
+      subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
+      (BitVec.ofNat 64 subject.argument.toNat)
 
 /-- Successful increment checking recovers the exact production subject and a
-    carrier whose equations run both existing evaluators. It is not a sparse
-    provider trace certificate. -/
+    carrier whose equations retain both existing evaluators and the exact
+    70-step sparse provider certificate. -/
 theorem checkStateCellIncrementProductionSubjectV1_sound
     (checked : checkStateCellIncrementProductionSubjectV1 = true) :
     ∃ subject,
       resolveStateCellIncrementProductionSubjectV1 = .ok subject ∧
-      Nonempty (StateCellExecutedHandlerSbpfJoinV1
+      Nonempty (CertifiedStateCellIncrementExecutedHandlerSbpfJoinV1
         subject.boundArtifact subject.handler subject.handlerInvocation
-        subject.loaderInvocation defaultSbpfExecutionFuelV1) := by
+        subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
+        (BitVec.ofNat 64 subject.argument.toNat)) := by
   rcases checkExceptV1_sound resolveStateCellIncrementProductionSubjectV1
       (fun subject =>
-        checkStateCellExecutedHandlerSbpfJoinV1
+        checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1
           subject.boundArtifact subject.handler subject.handlerInvocation
-          subject.loaderInvocation)
+          subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
+          (BitVec.ofNat 64 subject.argument.toNat))
       checked with ⟨subject, hsubject, hchecked⟩
   refine ⟨subject, hsubject, ?_⟩
-  exact checkStateCellExecutedHandlerSbpfJoinV1_sound
+  exact checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1_sound
     subject.boundArtifact subject.handler subject.handlerInvocation
-    subject.loaderInvocation defaultSbpfExecutionFuelV1 hchecked
+    subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
+    (BitVec.ofNat 64 subject.argument.toNat) hchecked
 
 /-- The pinned arithmetic-overflow invocation over the exact increment
     production subject. Reusing that private subject guarantees the same source,
