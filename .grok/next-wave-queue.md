@@ -151,6 +151,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-MAP-RET-QS | done | MapRetBox Map UInt64 entry-return 12-target: two admit (NEAR/CW); ten named B-RET/container FC. **Not** opening Map return ABI |
 | MAT-I128-QS | done | WideInt128 Int128 12-target all named width FC. **Not** opening signed 128/256 |
 | MAT-I256-QS | done | WideInt256 Int256 12-target all named width FC (same needles as Int128). **Not** opening signed 128/256 |
+| MAT-OPT-RET-QS | done | OptRetBox Option UInt64 entry-return 12-target: seven admit; TON view-only B-RET + four envelope Option-pilot FC. **Not** opening Option return on decline set |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | QUINT-CALL-RET-FC | done | Pin value-position `let y : UInt64 := call Oracle.feed` Plan FC (`result-bearing externalCall is outside Q0`, distinct from void A5). **Not** opening result-bearing CALL / Q0 |

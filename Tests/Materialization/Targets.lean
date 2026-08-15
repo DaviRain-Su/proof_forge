@@ -4535,6 +4535,41 @@ unsafe def run : IO Unit := do
             (e.render).contains "anonymous")
           s!"N-A4 Option {target} message must cite Option/container boundary, got {e.render}"
 
+  -- OptRetBox: Option UInt64 *entry* return. Seven materializers admit.
+  -- TON view-only B-RET FC; Quint/Soroban/OpenVM/ICP stay Option-pilot FC.
+  -- Entry peek, not view (TON view-only B-RET would conflate).
+  -- Not opening Option return on the decline set. OptBox state pin stays.
+  let optRetSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptRetBox where\n" ++
+    "  state o : Option UInt64\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  entry peek() : Option UInt64 do\n" ++
+    "    return o\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let optRetV1 ← match ← session.selectProgramV1 optRetSource
+      "<targets-opt-ret>" "Examples.OptRetBox" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"OptRetBox select: {e.render}"
+  let optRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optRetV1
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.aleo, TargetId.psy, TargetId.cosmwasm] do
+    let out ← liftResult <| materializeSelected target optRetCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"OptRetBox: {target} must materialize Option UInt64 entry return"
+  expectMaterializePlanInvariantV1 "OptRetBox" TargetId.ton TargetKind.ton
+    optRetCompiled "entry 'peek' cannot return multi-leaf aggregate"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "OptRetBox" target kind optRetCompiled
+      "anonymous Option is outside the current container-state pilot"
+
   -- N5: Commit identity admitted on EVM/Solana/NEAR (Plan passthrough into
   -- commitment state). Noir declines (public relation slots cannot hold
   -- commitment labels). Psy declines. ContextRead declined on every Phase-1
