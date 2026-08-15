@@ -16251,3 +16251,22 @@ normative: false
 - 这是D5 unconditional kernel discharge的通用分解seam，不是最终无条件`get` theorem；下一步仍需用
   各stage等式闭合method lookup、Reference observation及55步checker obligations。ELF/linker/loader、
   Mollusk/validator/SVM runtime refinement、transaction rollback与compute units仍未声明完成。
+
+## 2026-08-15 — contract-independent Solana production method certificate
+
+- 新增`ProductionMethodV1`，在任意`CertifiedSolanaProductionPreparationV1`上按参数化的callable
+  kind/name与HandlerIR name选择真实production rows，并保留两个精确lookup等式；错误callable kind/name
+  或缺失handler均fail closed。Semantic initializer匿名而HandlerIR使用`initialize`，因此两种name在API中
+  明确分开，而不是假设它们字面相等。
+- 同一模块新增通用Reference execution certificate：pre-state、arguments、context、external responses与
+  vault seed均为参数，invocation callable id强制来自已认证method，并只调用唯一
+  `stepReferenceSliceV1`。carrier只记录该执行等式，不复制transition、HandlerIR、provider trace或
+  contract registry。
+- StateCell `get`、`initialize`、increment success与overflow四个subject均改为消费method与Reference
+  execution certificate；原有downstream checker通过只读projection继续使用handler/outcome/type信息。
+  类型级回归证明API对任意prepared contract/method identity参数化，运行回归固定`get`的view/name/handler
+  选择，并验证错误kind与缺失handler拒绝。既有55/55/70/56步provider gates保持通过。
+- 这完成的是通用method lookup与Reference invocation seam，不是最终无条件closed Boolean gate或一般
+  Reference→provider/runtime refinement。下一步仍需抽取method-specific Reference observation、static
+  alignment、artifact/Loader input manifest与proof-producing 55-step trace obligations；ELF/linker/loader、
+  Mollusk/validator/SVM runtime、transaction rollback与compute units仍未声明完成。

@@ -52,9 +52,13 @@ Code facts:
 - `ProductionPreparationV1.lean` now factors the contract-independent Source →
   compile → Reference admission → Solana capability/Plan/HandlerIR → assembly →
   identity-bound artifact path. Every stage retains the exact production
-  function's `.ok` equation. `get`, `initialize`, and `increment` consume this
-  one certificate API; StateCell-specific code only performs schema/method/
-  scenario lookup and composition.
+  function's `.ok` equation.
+- `ProductionMethodV1.lean` now factors contract-independent Semantic callable
+  and production HandlerIR lookup, plus invocation of the sole
+  `stepReferenceSliceV1`. The certificate is parameterized by method identity,
+  logical pre-state, arguments, context, responses and vault seed; it contains
+  no StateCell field, copied IR, provider trace or second transition system.
+  All four StateCell scenarios consume it as the first concrete clients.
 
 ## Completed implementation slices (serial)
 
@@ -102,6 +106,12 @@ second codegen.
     retains successful equations for all ten real production stages. All three
     base StateCell resolvers now share it; source-byte and artifact-identity
     drift fail closed through the generic resolver.
+12. **SOL-0048-D5-METHOD-SEAM** — **done 2026-08-15**: introduced a
+    contract-independent method lookup and Reference execution certificate.
+    Exact Semantic callable and production HandlerIR lookup equations are
+    retained, and Reference invocation identity is forced to the selected
+    callable. Wrong callable kind/name and missing HandlerIR rows fail closed;
+    `get`, `initialize`, increment success and overflow now share this API.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete. The remaining D5 blocker is unconditional kernel discharge of the
@@ -111,11 +121,11 @@ opaque; runtime output `true` must not be presented as a theorem.
 
 Next formalization slices, in order:
 
-1. **SOL-0048-D5-GET-UNCONDITIONAL**: use the preparation stage equations to
-   isolate and discharge the remaining method lookup, Reference observation,
-   artifact/input manifest and 55-step checker obligations for `get`. Do not
-   add `native_decide`, `Lean.ofReduceBool`, `run_tac`, an axiom, or a copied
-   AST/IR/provider program.
+1. **SOL-0048-D5-GET-UNCONDITIONAL**: use the preparation and method certificate
+   equations to isolate and discharge the remaining Reference observation,
+   static alignment, artifact/input manifest and 55-step checker obligations
+   for `get`. Do not add `native_decide`, `Lean.ofReduceBool`, `run_tac`, an
+   axiom, or a copied AST/IR/provider program.
 2. The resulting theorem must discharge the existing Boolean premise for
    `get` and call the existing concrete sound theorem, not restate provider
    behavior.

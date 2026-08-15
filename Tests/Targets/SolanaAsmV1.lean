@@ -22,6 +22,7 @@ namespace Tests.Targets.SolanaAsmV1
 open ProofForgeV2
 open ProofForgeV2.Compiler
 open ProofForgeV2.Examples
+open ProofForgeV2.Semantic.ReferenceV1
 open ProofForgeV2.Targets.BuildSelectionV1
 open ProofForgeV2.Targets.Solana
 
@@ -66,6 +67,41 @@ private theorem productionPreparationCompilationFixtureV1
     compileValidatedSourceV1 prepared.sourceBinding.validated =
       .ok prepared.compiledSemantic :=
   prepared.compilation_success
+
+/-- Type-level fixture: method selection is parameterized by an arbitrary
+    prepared contract and callable/handler identity, not by StateCell. -/
+private theorem productionMethodLookupFixtureV1
+    {elaborated canonicalBytes expectedSha}
+    {prepared : CertifiedSolanaProductionPreparationV1
+      elaborated canonicalBytes expectedSha}
+    {semanticKind semanticName handlerName}
+    (method : CertifiedSolanaProductionMethodV1 prepared semanticKind
+      semanticName handlerName) :
+    (prepared.data.callables.find? (fun candidate =>
+        candidate.kind == semanticKind && candidate.name == semanticName) =
+          some method.callable) ∧
+      (prepared.productionIR.handlers.find? (·.name == handlerName) =
+        some method.handler) :=
+  ⟨method.callableLookup, method.handlerLookup⟩
+
+/-- Type-level fixture: Reference invocation identity comes from the callable
+    retained by the generic method certificate. -/
+private theorem productionMethodReferenceExecutionFixtureV1
+    {elaborated canonicalBytes expectedSha}
+    {prepared : CertifiedSolanaProductionPreparationV1
+      elaborated canonicalBytes expectedSha}
+    {semanticKind semanticName handlerName}
+    {method : CertifiedSolanaProductionMethodV1 prepared semanticKind
+      semanticName handlerName}
+    {pre args context responses vault}
+    (execution : CertifiedSolanaProductionMethodReferenceV1 method pre args
+      context responses vault) :
+    stepReferenceSliceV1 prepared.admitted pre {
+      callableId := method.callable.id
+      args
+      context
+    } responses vault = execution.outcome :=
+  execution.execution
 
 private def expectArtifactError (result : SbpfArtifactResultV1 α)
     (messagePart : String) : IO Unit :=
@@ -254,6 +290,23 @@ private unsafe def testStateCellSbpfArtifact
     resolveStateCellGetProductionSubjectV1
   have _ := productionPreparationCompilationFixtureV1
     productionSubject.preparation
+  have _ := productionMethodLookupFixtureV1 productionSubject.method
+  have _ := productionMethodReferenceExecutionFixtureV1
+    productionSubject.referenceExecution
+  expect (productionSubject.method.callable.kind == .view)
+    "sBPF artifact: generic method certificate must retain get as a view"
+  expect (productionSubject.method.callable.name == some "get")
+    "sBPF artifact: generic method certificate must retain the Semantic get name"
+  expect (productionSubject.method.handler.name == "get")
+    "sBPF artifact: generic method certificate must retain the HandlerIR get row"
+  expectStringError
+    (resolveCertifiedSolanaProductionMethodV1 productionSubject.preparation
+      .entry (some "get") "get")
+    "no requested callable"
+  expectStringError
+    (resolveCertifiedSolanaProductionMethodV1 productionSubject.preparation
+      .view (some "get") "missing")
+    "no 'missing' handler"
   expect (productionSubject.preparation.productionAssembly == asm)
     "sBPF artifact: generic preparation certificate must retain production assembly"
   expect (productionSubject.assembly == asm)

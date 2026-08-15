@@ -5,7 +5,7 @@ import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Targets.Solana.EmitIRV1
 import ProofForgeV2.Targets.Solana.EmitSbpfAsmV1
-import ProofForgeV2.Targets.Solana.ProductionPreparationV1
+import ProofForgeV2.Targets.Solana.ProductionMethodV1
 import ProofForgeV2.Targets.Solana.SbpfHandlerJoinV1
 
 /-!
@@ -43,10 +43,10 @@ structure ResolvedStateCellGetProductionSubjectV1 where
   private mk ::
   preparation : CertifiedSolanaProductionPreparationV1
     StateCell.Source.subjectV1 StateCell.bytes stateCellProductionSbpfSha256V1
+  method : CertifiedSolanaProductionMethodV1 preparation .view (some "get") "get"
   referencePre : LogicalStateV1
-  referenceOutcome : OutcomeV1
-  returnTypeId : TypeIdV1
-  handler : HandlerIR
+  referenceExecution : CertifiedSolanaProductionMethodReferenceV1 method
+    referencePre #[] #[] #[] {}
   handlerInvocation : InvocationObservationV1
   loaderInvocation : LoaderV3SingleAccountInvocationV1
   returnBytes : Array UInt8
@@ -75,6 +75,15 @@ def assembly (subject : ResolvedStateCellGetProductionSubjectV1) :=
 def boundArtifact (subject : ResolvedStateCellGetProductionSubjectV1) :=
   subject.preparation.boundArtifact
 
+def handler (subject : ResolvedStateCellGetProductionSubjectV1) :=
+  subject.method.handler
+
+def referenceOutcome (subject : ResolvedStateCellGetProductionSubjectV1) :=
+  subject.referenceExecution.outcome
+
+def returnTypeId (subject : ResolvedStateCellGetProductionSubjectV1) :=
+  subject.method.callable.result.typeId
+
 end ResolvedStateCellGetProductionSubjectV1
 
 private def compileResultV1 (result : CompileResult α) : Except String α :=
@@ -96,16 +105,11 @@ def resolveStateCellGetProductionSubjectV1 :
     throw "StateCell program export schema is not proof-forge.program-export.v2"
   let preparation ← resolveCertifiedSolanaProductionPreparationV1
     StateCell.Source.subjectV1 StateCell.bytes stateCellProductionSbpfSha256V1
-  let data := preparation.data
-  let admitted := preparation.admitted
   let ir := preparation.productionIR
-  let handler ← match ir.handlers.find? (·.name == "get") with
-    | some value => pure value
-    | none => throw "production StateCell IR has no get handler"
-  let get ← match data.callables.find? (fun callable =>
-      callable.kind == .view && callable.name == some "get") with
-    | some value => pure value
-    | none => throw "production StateCell Semantic program has no get view"
+  let method ← resolveCertifiedSolanaProductionMethodV1 preparation
+    .view (some "get") "get"
+  let data := preparation.data
+  let handler := method.handler
   let discriminator ← compileResultV1 <|
     discriminatorToLeU64V1 handler.discriminator
   let logicalValue : UInt64 := 41
@@ -114,11 +118,9 @@ def resolveStateCellGetProductionSubjectV1 :
     | .ok value => pure value
     | .error error =>
         throw s!"StateCell get pre-state encoding failed: {repr error}"
-  let referenceOutcome := stepReferenceSliceV1 admitted referencePre {
-    callableId := get.id
-    args := #[]
-    context := #[]
-  } #[]
+  let referenceExecution :=
+    executeCertifiedSolanaProductionMethodReferenceV1 method referencePre
+      #[] #[] #[] {}
   let value := BitVec.ofNat 64 logicalValue.toNat
   let returnBytes := (encodeU64le logicalValue).data
   let accountData :=
@@ -136,9 +138,9 @@ def resolveStateCellGetProductionSubjectV1 :
   }
   let handlerInvocation :=
     nullaryUInt64ViewInvocationV1 ⟨accountData⟩ discriminator
-  pure <| ResolvedStateCellGetProductionSubjectV1.mk preparation referencePre
-    referenceOutcome get.result.typeId handler handlerInvocation loaderInvocation
-    returnBytes value
+  pure <| ResolvedStateCellGetProductionSubjectV1.mk preparation method
+    referencePre referenceExecution handlerInvocation loaderInvocation returnBytes
+    value
 
 private def checkExceptV1 (result : Except String α)
     (checker : α → Bool) : Bool :=
@@ -251,15 +253,20 @@ structure ResolvedStateCellInitializeProductionSubjectV1 where
   private mk ::
   preparation : CertifiedSolanaProductionPreparationV1
     StateCell.Source.subjectV1 StateCell.bytes stateCellProductionSbpfSha256V1
+  method : CertifiedSolanaProductionMethodV1 preparation .initializer none
+    "initialize"
   referencePre : LogicalStateV1
   referencePost : LogicalStateV1
-  referenceOutcome : OutcomeV1
   binding : UInt64StateAccountBindingV1
+  argument : UInt64
+  referenceExecution : CertifiedSolanaProductionMethodReferenceV1 method
+    referencePre #[{
+      typeId := binding.semanticTypeId
+      valueBytes := encodeU64le argument
+    }] #[] #[] {}
   postData : ByteArray
-  handler : HandlerIR
   handlerInvocation : InvocationObservationV1
   loaderInvocation : LoaderV3SingleAccountInvocationV1
-  argument : UInt64
 
 namespace ResolvedStateCellInitializeProductionSubjectV1
 
@@ -287,6 +294,13 @@ def assembly (subject : ResolvedStateCellInitializeProductionSubjectV1) :=
 def boundArtifact (subject : ResolvedStateCellInitializeProductionSubjectV1) :=
   subject.preparation.boundArtifact
 
+def handler (subject : ResolvedStateCellInitializeProductionSubjectV1) :=
+  subject.method.handler
+
+def referenceOutcome
+    (subject : ResolvedStateCellInitializeProductionSubjectV1) :=
+  subject.referenceExecution.outcome
+
 end ResolvedStateCellInitializeProductionSubjectV1
 
 /-- Reconstruct the initialize production subject from the same exported
@@ -300,22 +314,17 @@ def resolveStateCellInitializeProductionSubjectV1 :
     StateCell.Source.subjectV1 StateCell.bytes stateCellProductionSbpfSha256V1
   let referenceProgram := preparation.referenceProgram
   let data := preparation.data
-  let admitted := preparation.admitted
   let plan := preparation.productionPlan
-  let ir := preparation.productionIR
+  let method ← resolveCertifiedSolanaProductionMethodV1 preparation
+    .initializer none "initialize"
+  let handler := method.handler
   let referencePre ← match initialLogicalStateV1 referenceProgram with
     | .ok value => pure value
     | .error error =>
         throw s!"StateCell initial logical state failed: {repr error}"
-  let handler ← match ir.handlers.find? (·.name == "initialize") with
-    | some value => pure value
-    | none => throw "production StateCell IR has no initialize handler"
   let discriminator ← compileResultV1 <|
     discriminatorToLeU64V1 handler.discriminator
   let argument : UInt64 := 7
-  let initializer ← match data.callables.find? (·.kind == .initializer) with
-    | some value => pure value
-    | none => throw "production StateCell Semantic program has no initializer"
   let stateRow ← match data.logicalState[0]? with
     | some value => pure value
     | none => throw "production StateCell Semantic program has no state row 0"
@@ -335,14 +344,11 @@ def resolveStateCellInitializeProductionSubjectV1 :
     | .ok value => pure value
     | .error error =>
         throw s!"StateCell initialize post-state encoding failed: {repr error}"
-  let referenceOutcome := stepReferenceSliceV1 admitted referencePre {
-    callableId := initializer.id
-    args := #[{
+  let referenceExecution :=
+    executeCertifiedSolanaProductionMethodReferenceV1 method referencePre #[{
       typeId := binding.semanticTypeId
       valueBytes := encodeU64le argument
-    }]
-    context := #[]
-  } #[]
+    }] #[] #[] {}
   let postData := oneFieldUInt64AccountDataV1
     plan.stateAccount.initializedMarker argument
   let staleValue : UInt64 := 999
@@ -363,9 +369,9 @@ def resolveStateCellInitializeProductionSubjectV1 :
   }
   let handlerInvocation :=
     unaryUInt64InvocationV1 ⟨accountData⟩ discriminator argument true true
-  pure <| ResolvedStateCellInitializeProductionSubjectV1.mk preparation
-    referencePre referencePost referenceOutcome binding postData handler
-    handlerInvocation loaderInvocation argument
+  pure <| ResolvedStateCellInitializeProductionSubjectV1.mk preparation method
+    referencePre referencePost binding argument referenceExecution postData
+    handlerInvocation loaderInvocation
 
 def checkStateCellInitializeProductionSubjectV1 : Bool :=
   checkExceptV1 resolveStateCellInitializeProductionSubjectV1 fun subject =>
@@ -459,16 +465,21 @@ structure ResolvedStateCellIncrementProductionSubjectV1 where
   private mk ::
   preparation : CertifiedSolanaProductionPreparationV1
     StateCell.Source.subjectV1 StateCell.bytes stateCellProductionSbpfSha256V1
+  method : CertifiedSolanaProductionMethodV1 preparation .entry
+    (some "increment") "increment"
   referencePre : LogicalStateV1
   referencePost : LogicalStateV1
-  referenceOutcome : OutcomeV1
   binding : UInt64StateAccountBindingV1
-  postData : ByteArray
-  handler : HandlerIR
-  handlerInvocation : InvocationObservationV1
-  loaderInvocation : LoaderV3SingleAccountInvocationV1
   before : UInt64
   argument : UInt64
+  referenceExecution : CertifiedSolanaProductionMethodReferenceV1 method
+    referencePre #[{
+      typeId := binding.semanticTypeId
+      valueBytes := encodeU64le argument
+    }] #[] #[] {}
+  postData : ByteArray
+  handlerInvocation : InvocationObservationV1
+  loaderInvocation : LoaderV3SingleAccountInvocationV1
 
 namespace ResolvedStateCellIncrementProductionSubjectV1
 
@@ -496,6 +507,13 @@ def assembly (subject : ResolvedStateCellIncrementProductionSubjectV1) :=
 def boundArtifact (subject : ResolvedStateCellIncrementProductionSubjectV1) :=
   subject.preparation.boundArtifact
 
+def handler (subject : ResolvedStateCellIncrementProductionSubjectV1) :=
+  subject.method.handler
+
+def referenceOutcome
+    (subject : ResolvedStateCellIncrementProductionSubjectV1) :=
+  subject.referenceExecution.outcome
+
 end ResolvedStateCellIncrementProductionSubjectV1
 
 /-- Reconstruct the increment-success subject from the same production source,
@@ -508,20 +526,14 @@ def resolveStateCellIncrementProductionSubjectV1 :
   let preparation ← resolveCertifiedSolanaProductionPreparationV1
     StateCell.Source.subjectV1 StateCell.bytes stateCellProductionSbpfSha256V1
   let data := preparation.data
-  let admitted := preparation.admitted
   let plan := preparation.productionPlan
-  let ir := preparation.productionIR
-  let handler ← match ir.handlers.find? (·.name == "increment") with
-    | some value => pure value
-    | none => throw "production StateCell IR has no increment handler"
+  let method ← resolveCertifiedSolanaProductionMethodV1 preparation
+    .entry (some "increment") "increment"
+  let handler := method.handler
   let discriminator ← compileResultV1 <|
     discriminatorToLeU64V1 handler.discriminator
   let before : UInt64 := 41
   let argument : UInt64 := 1
-  let increment ← match data.callables.find? (fun callable =>
-      callable.kind == .entry && callable.name == some "increment") with
-    | some value => pure value
-    | none => throw "production StateCell Semantic program has no increment entry"
   let stateRow ← match data.logicalState[0]? with
     | some value => pure value
     | none => throw "production StateCell Semantic program has no state row 0"
@@ -546,14 +558,11 @@ def resolveStateCellIncrementProductionSubjectV1 :
     | .ok value => pure value
     | .error error =>
         throw s!"StateCell increment post-state encoding failed: {repr error}"
-  let referenceOutcome := stepReferenceSliceV1 admitted referencePre {
-    callableId := increment.id
-    args := #[{
+  let referenceExecution :=
+    executeCertifiedSolanaProductionMethodReferenceV1 method referencePre #[{
       typeId := binding.semanticTypeId
       valueBytes := encodeU64le argument
-    }]
-    context := #[]
-  } #[]
+    }] #[] #[] {}
   let postData := oneFieldUInt64AccountDataV1
     plan.stateAccount.initializedMarker (before + argument)
   let accountData := oneFieldUInt64AccountDataV1
@@ -571,9 +580,9 @@ def resolveStateCellIncrementProductionSubjectV1 :
   }
   let handlerInvocation :=
     unaryUInt64InvocationV1 accountData discriminator argument false true
-  pure <| ResolvedStateCellIncrementProductionSubjectV1.mk preparation
-    referencePre referencePost referenceOutcome binding postData handler
-    handlerInvocation loaderInvocation before argument
+  pure <| ResolvedStateCellIncrementProductionSubjectV1.mk preparation method
+    referencePre referencePost binding before argument referenceExecution postData
+    handlerInvocation loaderInvocation
 
 /-- Fail-closed certified agreement for the pinned increment-success subject. -/
 def checkStateCellIncrementProductionSubjectV1 : Bool :=
@@ -675,12 +684,24 @@ structure ResolvedStateCellIncrementOverflowProductionSubjectV1 where
   private mk ::
   production : ResolvedStateCellIncrementProductionSubjectV1
   referencePre : LogicalStateV1
-  referenceOutcome : OutcomeV1
+  before : UInt64
+  argument : UInt64
+  referenceExecution : CertifiedSolanaProductionMethodReferenceV1
+    production.method referencePre #[{
+      typeId := production.binding.semanticTypeId
+      valueBytes := encodeU64le argument
+    }] #[] #[] {}
   accountData : ByteArray
   handlerInvocation : InvocationObservationV1
   loaderInvocation : LoaderV3SingleAccountInvocationV1
-  before : UInt64
-  argument : UInt64
+
+namespace ResolvedStateCellIncrementOverflowProductionSubjectV1
+
+def referenceOutcome
+    (subject : ResolvedStateCellIncrementOverflowProductionSubjectV1) :=
+  subject.referenceExecution.outcome
+
+end ResolvedStateCellIncrementOverflowProductionSubjectV1
 
 /-- Reconstruct `UInt64.max + 1` without another compiler or artifact path.
     The sole Reference machine and existing HandlerIR evaluator must both
@@ -693,23 +714,17 @@ def resolveStateCellIncrementOverflowProductionSubjectV1 :
     discriminatorToLeU64V1 production.handler.discriminator
   let before : UInt64 := 0xffffffffffffffff
   let argument : UInt64 := 1
-  let increment ← match production.data.callables.find? (fun callable =>
-      callable.kind == .entry && callable.name == some "increment") with
-    | some value => pure value
-    | none => throw "production StateCell Semantic program has no increment entry"
   let referencePre ← match encodeLogicalStateValuesV1 production.data true
       #[encodeU64le before] with
     | .ok value => pure value
     | .error error =>
         throw s!"StateCell increment overflow pre-state encoding failed: {repr error}"
-  let referenceOutcome := stepReferenceSliceV1 production.admitted referencePre {
-    callableId := increment.id
-    args := #[{
+  let referenceExecution :=
+    executeCertifiedSolanaProductionMethodReferenceV1 production.method
+      referencePre #[{
       typeId := production.binding.semanticTypeId
       valueBytes := encodeU64le argument
-    }]
-    context := #[]
-  } #[]
+    }] #[] #[] {}
   let accountData := oneFieldUInt64AccountDataV1
     production.plan.stateAccount.initializedMarker before
   let programId := Array.replicate 32 (0x42 : UInt8)
@@ -726,8 +741,8 @@ def resolveStateCellIncrementOverflowProductionSubjectV1 :
   let handlerInvocation :=
     unaryUInt64InvocationV1 accountData discriminator argument false true
   pure <| ResolvedStateCellIncrementOverflowProductionSubjectV1.mk production
-    referencePre referenceOutcome accountData handlerInvocation loaderInvocation
-    before argument
+    referencePre before argument referenceExecution accountData handlerInvocation
+    loaderInvocation
 
 /-- Fail-closed certified agreement for the pinned increment-overflow subject. -/
 def checkStateCellIncrementOverflowProductionSubjectV1 : Bool :=
