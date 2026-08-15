@@ -128,6 +128,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-ANONRET-QS | done | Anonymous Array UInt64 2 view-return 12-target: seven admit; Aleo view-over-state + Quint/Soroban/ICP/OpenVM FC. ArrRetEntry Aleo pin kept. **Not** opening Array return |
 | MAT-SRCAUTH-QS | done | Plan source-authority rg 12-target: 11 facades carry the three tokens; Soroban falls back to LowerSemanticV1. Forbidden residual-alpha absent. **Not** a 13th target |
 | MAT-PRIVPARAM-QS | done | Unused private-param 12-target: EVM/Noir + Solana/NEAR/Psy/Aleo/CW/TON admit; Quint/Soroban/ICP/OpenVM public-param envelope FC. **Not** disclosure redesign |
+| MAT-PRINRET-QS | done | Principal view-return 12-target: all twelve FC (EVM pin kept). Storage admit ≠ ResultKind. **Not** opening Principal return / remap |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |

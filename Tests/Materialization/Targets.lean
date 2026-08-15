@@ -3670,7 +3670,23 @@ unsafe def run : IO Unit := do
           (e.render).contains "unsupported" ||
           (e.render).contains "public")
         s!"T10 Principal return decline must cite result surface, got {e.render}"
-
+  -- Extra eleven from probe; not opening Principal ResultKind / remap.
+  for target in [TargetId.solana, TargetId.near, TargetId.noir, TargetId.aleo,
+      TargetId.psy, TargetId.quint, TargetId.cosmwasm, TargetId.ton,
+      TargetId.soroban, TargetId.icp, TargetId.openvm] do
+    match materializeSelected target prinRetCompiled with
+    | .ok _ =>
+        throw <| IO.userError
+          s!"T10: {target} Principal view result must remain fail closed"
+    | .error e =>
+        expect ((e.render).contains "Principal" ||
+            (e.render).contains "return" ||
+            (e.render).contains "UInt" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "public" ||
+            (e.render).contains "result" ||
+            (e.render).contains "query")
+          s!"T10 Principal return {target} must cite result surface, got {e.render}"
 
   -- N3 / NoirAggregate / H3 PsyAleoAggregate / L1 NearNamedAggregate / L2
   -- SolanaNamedAggregate: named Struct state + field assign product pin —
