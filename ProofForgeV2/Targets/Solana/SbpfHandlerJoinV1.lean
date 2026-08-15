@@ -3,6 +3,7 @@ import ProofForgeV2.Targets.Solana.SbpfExecutionV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellGetV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellInitializeV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellIncrementV1
+import ProofForgeV2.Targets.Solana.SbpfStateCellIncrementOverflowV1
 
 /-!
 # Solana SbpfHandlerJoinV1
@@ -554,6 +555,99 @@ theorem checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1_sound
               (BoundResolvedSbpfArtifactV1.resolvedOf bound).sourceSha256
             provider := SbpfSemantics.observe provider.certificate.machine
               (.halted 0)
+            finalAccountData := provider.certificate.machine.mem.readBytes
+              (SbpfSemantics.inputStart +
+                BitVec.ofNat 64 accountDataOffsetV1) 16
+          }
+          sbpfExecution := provider.providerExecution
+          observationRel :=
+            (checkHandlerSbpfObservationRelV1_eq_true_iff
+              stateCellProductionSbpfSha256V1
+              (observeHandlerIRV1 handlerIR handlerInvocation) _).mp
+                hobservation
+        }
+      }⟩
+
+/-- StateCell `increment` overflow join retaining the exact 56-step provider
+    certificate in addition to the generic executed observation join. -/
+structure CertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
+    (bound : BoundResolvedSbpfArtifactV1)
+    (handlerIR : HandlerIR)
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1)
+    (before argument : SbpfSemantics.Word) where
+  provider :
+    CertifiedStateCellIncrementOverflowExecutionV1 bound loaderInvocation
+      before argument
+  executed :
+    StateCellExecutedHandlerSbpfJoinV1 bound handlerIR handlerInvocation
+      loaderInvocation 56
+
+/-- Executable gate combining the increment-overflow sparse provider
+    certificate with exact HandlerIR invocation and observation agreement. -/
+def checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
+    (bound : BoundResolvedSbpfArtifactV1)
+    (handlerIR : HandlerIR)
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1)
+    (before argument : SbpfSemantics.Word) : Bool :=
+  let handlerObservation := observeHandlerIRV1 handlerIR handlerInvocation
+  checkLoaderV3SingleAccountInvocationRelV1 handlerInvocation loaderInvocation &&
+    (checkStateCellIncrementOverflowExecutionV1 bound loaderInvocation before
+      argument &&
+      match executeLoaderV3SingleAccountV1 bound loaderInvocation 56 with
+      | .error _ => false
+      | .ok sbpfObservation =>
+          checkHandlerSbpfObservationRelV1 stateCellProductionSbpfSha256V1
+            handlerObservation sbpfObservation)
+
+/-- Soundness of the certified increment-overflow HandlerIR/provider join. -/
+theorem checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1_sound
+    (bound : BoundResolvedSbpfArtifactV1)
+    (handlerIR : HandlerIR)
+    (handlerInvocation : InvocationObservationV1)
+    (loaderInvocation : LoaderV3SingleAccountInvocationV1)
+    (before argument : SbpfSemantics.Word)
+    (checked : checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
+      bound handlerIR handlerInvocation loaderInvocation before argument =
+        true) :
+    Nonempty (CertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
+      bound handlerIR handlerInvocation loaderInvocation before argument) := by
+  unfold checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1 at checked
+  cases hexecution :
+      executeLoaderV3SingleAccountV1 bound loaderInvocation 56 with
+  | error error => simp [hexecution] at checked
+  | ok sbpfObservation =>
+      rw [hexecution] at checked
+      simp only [Bool.and_eq_true] at checked
+      rcases checked with ⟨hinvocation, hprovider, hobservation⟩
+      rcases checkStateCellIncrementOverflowExecutionV1_sound bound
+          loaderInvocation before argument hprovider with ⟨provider⟩
+      have hinjected :
+          sbpfObservation = {
+            artifactSha256 :=
+              (BoundResolvedSbpfArtifactV1.resolvedOf bound).sourceSha256
+            provider := SbpfSemantics.observe provider.certificate.machine
+              (.halted stateCellIncrementOverflowStatusV1)
+            finalAccountData := provider.certificate.machine.mem.readBytes
+              (SbpfSemantics.inputStart +
+                BitVec.ofNat 64 accountDataOffsetV1) 16
+          } := by
+        exact Except.ok.inj (hexecution.symm.trans provider.providerExecution)
+      subst sbpfObservation
+      exact ⟨{
+        provider
+        executed := {
+          invocationRel :=
+            (checkLoaderV3SingleAccountInvocationRelV1_eq_true_iff
+              handlerInvocation loaderInvocation).mp hinvocation
+          handlerObservation := observeHandlerIRV1 handlerIR handlerInvocation
+          handlerExecution := rfl
+          sbpfObservation := {
+            artifactSha256 :=
+              (BoundResolvedSbpfArtifactV1.resolvedOf bound).sourceSha256
+            provider := SbpfSemantics.observe provider.certificate.machine
+              (.halted stateCellIncrementOverflowStatusV1)
             finalAccountData := provider.certificate.machine.mem.readBytes
               (SbpfSemantics.inputStart +
                 BitVec.ofNat 64 accountDataOffsetV1) 16

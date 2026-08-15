@@ -311,10 +311,10 @@ private unsafe def testStateCellSbpfArtifact
   expectArtifactError (resolveSbpfArtifactV1 <| minimal "call unknown_syscall")
     "unsupported syscall or unresolved call target"
 
-/-- Mutating recipes use the same production `.s` as `get`. Initialize retains
-    its exact 55-step sparse provider certificate and increment success retains
-    its exact 70-step certificate; overflow still uses the generic executed
-    HandlerIR/provider join. -/
+/-- Mutating recipes use the same production `.s` as `get`. Initialize and get
+    retain exact 55-step sparse provider certificates, increment success retains
+    its exact 70-step certificate, and increment overflow retains its exact
+    56-step certificate. -/
 private unsafe def testStateCellMutatingProductionSubjects : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let compiled ← compileSource session stateCellSourceText stateCellModuleNameV1
@@ -451,10 +451,85 @@ private unsafe def testStateCellMutatingProductionSubjects : IO Unit := do
       overflowSubject.argument == 1)
     "overflow subject must pin the UInt64.max + 1 scenario"
   expect checkStateCellIncrementOverflowProductionSubjectV1
-    "increment overflow HandlerIR/provider join must succeed"
-  expect (!checkStateCellExecutedHandlerSbpfJoinV1
+    "increment overflow certified 56-step join must succeed"
+  let overflowBefore := BitVec.ofNat 64 overflowSubject.before.toNat
+  let overflowArgument := BitVec.ofNat 64 overflowSubject.argument.toNat
+  let overflowInput ← liftExecutionResult <|
+    encodeLoaderV3SingleAccountInputV1
+      overflowSubject.production.boundArtifact overflowSubject.loaderInvocation
+  expect (checkStateCellIncrementOverflowArtifactV1
+      overflowSubject.production.boundArtifact)
+    "increment overflow sparse fetch manifest must match the production artifact"
+  expect (checkStateCellIncrementOverflowInputReadsV1 overflowInput
+      overflowBefore overflowArgument)
+    "increment overflow sparse Loader reads must match the encoded invocation"
+  expect (checkStateCellIncrementOverflowTraceV1
+      overflowSubject.production.boundArtifact overflowInput overflowBefore
+      overflowArgument)
+    "increment overflow exact 56-step provider trace must succeed"
+  expect (checkStateCellIncrementOverflowExecutionV1
+      overflowSubject.production.boundArtifact overflowSubject.loaderInvocation
+      overflowBefore overflowArgument)
+    "increment overflow certified Loader execution must succeed"
+  expect (checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
+      overflowSubject.production.boundArtifact overflowSubject.production.handler
+      overflowSubject.handlerInvocation overflowSubject.loaderInvocation
+      overflowBefore overflowArgument)
+    "increment overflow certified HandlerIR/provider join must succeed"
+  let overflowArtifact := BoundResolvedSbpfArtifactV1.resolvedOf
+    overflowSubject.production.boundArtifact
+  let overflowAt55 := SbpfSemantics.runFuel SbpfSemantics.asmDefaultHost
+    overflowArtifact.program 55 (SbpfSemantics.Machine.entry overflowInput)
+  let overflowAt56 := SbpfSemantics.runFuel SbpfSemantics.asmDefaultHost
+    overflowArtifact.program 56 (SbpfSemantics.Machine.entry overflowInput)
+  expect (decide (overflowAt55.2 = .outOfFuel) && overflowAt55.1.pc == 18 &&
+      overflowAt55.1.halted.isNone)
+    "increment overflow trace must be live at the dispatcher exit after step 55"
+  expect (decide (overflowAt56.2 =
+      .halted stateCellIncrementOverflowStatusV1) &&
+      overflowAt56.1.pc == 18 &&
+      overflowAt56.1.halted == some stateCellIncrementOverflowStatusV1 &&
+      overflowAt56.1.returnData.isEmpty &&
+      overflowAt56.1.mem.readBytes
+        (SbpfSemantics.inputStart + BitVec.ofNat 64 accountDataOffsetV1) 16 ==
+          some overflowSubject.loaderInvocation.accountData)
+    "increment overflow must halt with 0x1001 at step 56 without account or return data changes"
+  expect (!checkStateCellIncrementOverflowExecutionV1
+      overflowSubject.production.boundArtifact overflowSubject.loaderInvocation
+      (BitVec.ofNat 64 (overflowSubject.before - 1).toNat) overflowArgument)
+    "increment overflow before-value drift must fail the sparse certificate"
+  expect (!checkStateCellIncrementOverflowExecutionV1
+      overflowSubject.production.boundArtifact overflowSubject.loaderInvocation
+      overflowBefore (BitVec.ofNat 64 2))
+    "increment overflow argument drift must fail the sparse certificate"
+  expect (!checkStateCellIncrementOverflowTraceV1
+      overflowSubject.production.boundArtifact (overflowInput.set! 104 254)
+      overflowBefore overflowArgument)
+    "increment overflow tampered encoded input must fail the sparse certificate"
+  expect (!checkStateCellIncrementOverflowExecutionV1
+      overflowSubject.production.boundArtifact
+      { overflowSubject.loaderInvocation with
+        accountData := overflowSubject.loaderInvocation.accountData.set! 8 254 }
+      overflowBefore overflowArgument)
+    "increment overflow tampered account bytes must fail the sparse certificate"
+  expect (!checkStateCellIncrementOverflowExecutionV1
+      overflowSubject.production.boundArtifact
+      { overflowSubject.loaderInvocation with
+        instructionData :=
+          overflowSubject.loaderInvocation.instructionData.set! 8 2 }
+      overflowBefore overflowArgument)
+    "increment overflow tampered instruction bytes must fail the sparse certificate"
+  let overflowIdentityMutation := asm.replace
+    ".equ EXACT_DATA_LEN, 0x10" ".equ EXACT_DATA_LEN, 0x18"
+  let overflowMutatedBound ← liftArtifactResult <|
+    resolveBoundSbpfArtifactV1 overflowIdentityMutation
+      (ProofForgeV2.Crypto.sha256Hex overflowIdentityMutation.toUTF8)
+  expect (!checkStateCellIncrementOverflowArtifactV1 overflowMutatedBound)
+    "increment overflow sparse certificate must reject production identity drift"
+  expect (!checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
       overflowSubject.production.boundArtifact initSubject.handler
-      overflowSubject.handlerInvocation overflowSubject.loaderInvocation)
+      overflowSubject.handlerInvocation overflowSubject.loaderInvocation
+      overflowBefore overflowArgument)
     "overflow invocation must not join against the initialize handler"
 
 /-- Execute the exact production StateCell artifact in the pinned provider with

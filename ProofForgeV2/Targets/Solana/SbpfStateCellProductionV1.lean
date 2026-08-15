@@ -20,9 +20,8 @@ They contain no copied IR/program and introduce no alternate lowering or
 business semantics.
 
 `get` and `initialize` retain dedicated 55-step certified joins. Successful
-`increment` retains its dedicated 70-step certified join. Overflowing
-`increment` still uses the generic executed HandlerIR/provider join; its sparse
-certificate is a later slice.
+`increment` retains its dedicated 70-step certified join, and overflowing
+`increment` retains its dedicated 56-step certified join.
 -/
 
 namespace ProofForgeV2.Targets.Solana
@@ -386,34 +385,40 @@ def resolveStateCellIncrementOverflowProductionSubjectV1 :
   pure <| ResolvedStateCellIncrementOverflowProductionSubjectV1.mk production
     handlerInvocation loaderInvocation before argument
 
-/-- Fail-closed executable agreement for the pinned increment-overflow subject. -/
+/-- Fail-closed certified agreement for the pinned increment-overflow subject. -/
 def checkStateCellIncrementOverflowProductionSubjectV1 : Bool :=
   checkExceptV1 resolveStateCellIncrementOverflowProductionSubjectV1 fun subject =>
-    checkStateCellExecutedHandlerSbpfJoinV1
+    checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
       subject.production.boundArtifact subject.production.handler
       subject.handlerInvocation subject.loaderInvocation
+      (BitVec.ofNat 64 subject.before.toNat)
+      (BitVec.ofNat 64 subject.argument.toNat)
 
-/-- Successful checking recovers an executed carrier that binds the actual
-    Handler arithmetic trap to the identity-bound provider observation. -/
+/-- Successful checking recovers the exact 56-step provider certificate and an
+    executed carrier binding the actual Handler arithmetic trap to it. -/
 theorem checkStateCellIncrementOverflowProductionSubjectV1_sound
     (checked : checkStateCellIncrementOverflowProductionSubjectV1 = true) :
     ∃ subject,
       resolveStateCellIncrementOverflowProductionSubjectV1 = .ok subject ∧
-      Nonempty (StateCellExecutedHandlerSbpfJoinV1
+      Nonempty (CertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
         subject.production.boundArtifact subject.production.handler
         subject.handlerInvocation subject.loaderInvocation
-        defaultSbpfExecutionFuelV1) := by
+        (BitVec.ofNat 64 subject.before.toNat)
+        (BitVec.ofNat 64 subject.argument.toNat)) := by
   rcases checkExceptV1_sound
       resolveStateCellIncrementOverflowProductionSubjectV1
       (fun subject =>
-        checkStateCellExecutedHandlerSbpfJoinV1
+        checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
           subject.production.boundArtifact subject.production.handler
-          subject.handlerInvocation subject.loaderInvocation)
+          subject.handlerInvocation subject.loaderInvocation
+          (BitVec.ofNat 64 subject.before.toNat)
+          (BitVec.ofNat 64 subject.argument.toNat))
       checked with ⟨subject, hsubject, hchecked⟩
   refine ⟨subject, hsubject, ?_⟩
-  exact checkStateCellExecutedHandlerSbpfJoinV1_sound
+  exact checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1_sound
     subject.production.boundArtifact subject.production.handler
     subject.handlerInvocation subject.loaderInvocation
-    defaultSbpfExecutionFuelV1 hchecked
+    (BitVec.ofNat 64 subject.before.toNat)
+    (BitVec.ofNat 64 subject.argument.toNat) hchecked
 
 end ProofForgeV2.Targets.Solana

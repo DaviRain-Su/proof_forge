@@ -1,13 +1,13 @@
 ---
 id: PLAN-SOL-ADR-0048-NEXT
-title: Solana ADR-0048 D4 remaining certificates
-status: draft
+title: Solana ADR-0048 D4 certificate closure
+status: complete
 owner: engineering
 updated: 2026-08-15
 normative: false
 ---
 
-# ADR-0048 D4：还缺什么
+# ADR-0048 D4：certificate closure
 
 > Engineering inventory only. Does **not** close formal `TASK-D5-*`,
 > Mollusk/`.so`/validator semantics, or accepted-PRD expansion.
@@ -24,13 +24,12 @@ D4 · [`verified-contract-authoring.md`](verified-contract-authoring.md) §5.
 | `get()` | yes | `resolveStateCellGetProductionSubjectV1` | 55-step + `runFuel` status-zero |
 | `initialize(initial)` | yes (Loader V3 single-account) | `resolveStateCellInitializeProductionSubjectV1` | 55-step + exact initialized account window |
 | `increment(delta)` | yes | `resolveStateCellIncrementProductionSubjectV1` | 70-step + exact account/return bytes |
-| increment overflow | yes (nonzero status + pre-account hold) | `resolveStateCellIncrementOverflowProductionSubjectV1` | generic executed join (no sparse cert yet) |
+| increment overflow | yes (nonzero status + pre-account hold) | `resolveStateCellIncrementOverflowProductionSubjectV1` | 56-step + `0x1001` + unchanged account/empty return |
 
 `SbpfHandlerJoinV1` already has the HandlerIR ↔ Loader invocation/observation
 relation, including overflow → nonzero status. All four production subjects are
-now bound; `get` and `initialize` retain certified 55-step joins, and successful
-`increment` retains a certified 70-step join. The sparse certificate remains
-open only for increment overflow.
+now bound and retain dedicated sparse certificates: 55 steps for `get`, 55 for
+`initialize`, 70 for successful `increment`, and 56 for increment overflow.
 
 Code facts:
 
@@ -38,27 +37,28 @@ Code facts:
   `get`, `initialize`, increment-success, and increment-overflow resolvers. All
   consume the same elaborated Source AST, production validator/canonical encoder
   binding, compiler and production `.s`; overflow reuses the private increment
-  subject directly. `get`, `initialize`, and successful `increment` retain
-  sparse provider certificates.
+  subject directly. All four subjects retain sparse provider certificates.
 - Sparse certificates live in `SbpfStateCellGetV1.lean` and
   `SbpfStateCellInitializeV1.lean`, plus
-  `SbpfStateCellIncrementV1.lean` for the success path.
+  `SbpfStateCellIncrementV1.lean` for the success path and
+  `SbpfStateCellIncrementOverflowV1.lean` for overflow.
 - Authoring doc: still no unconditional kernel equality for the large
   production theorem; release SBOM/source-dependency stays fail closed.
 
-## Recommended next implementable slices (serial)
+## Completed implementation slices (serial)
 
-Do **not** start all three in one commit. Copy the `get` pattern; do not write
-a second codegen.
+These were completed serially by extending the `get` pattern, without writing a
+second codegen.
 
 1. **SOL-0048-INIT** — **done 2026-08-15**: production subject + generic
-   executed HandlerIR/provider join + assembly identity vs `get`. Sparse
-   55-step initialize certificate remains later.
+   executed HandlerIR/provider join + assembly identity vs `get`; the sparse
+   55-step initialize certificate followed in slice 4.
 2. **SOL-0048-INC** — **done 2026-08-15**: same generic executed join for
-   pinned `41 + 1` increment success; sparse certificate remains later.
+   pinned `41 + 1` increment success; the sparse certificate followed in slice
+   5.
 3. **SOL-0048-OVF** — **done 2026-08-15**: `UInt64.max + 1` generic executed
    join fixes provider status `0x1001` and exact pre-account snapshot agreement;
-   sparse certificate remains later.
+   the sparse certificate followed in slice 6.
 4. **SOL-0048-INIT-CERT** — **done 2026-08-15**: exact 55-step initialize
    certificate binds the production artifact fetches, concrete Loader reads,
    54/55 fuel boundary, initialized account window, and certified HandlerIR /
@@ -68,9 +68,18 @@ a second codegen.
    Loader reads, 69/70 fuel boundary, `41 + 1` account/return bytes, and
    certified HandlerIR/provider join. Value, argument, and invocation-byte
    drift fail closed.
+6. **SOL-0048-OVF-CERT** — **done 2026-08-15**: exact 56-step overflow
+   certificate binds the production artifact fetches, concrete Loader reads,
+   55/56 fuel boundary, status `0x1001`, unchanged account bytes, empty return
+   data, and certified HandlerIR/provider join. Value, argument, input,
+   invocation-byte, artifact-identity, and handler drift fail closed.
 
-Next certificate: close the increment-overflow path against the same production
-artifact, with exact nonzero status, unchanged account bytes, and fuel boundary.
+D4's four pinned sparse certificates are complete. The next formalization slice
+must be planned at the existing D5 boundary: compose the already-proved
+Reference→Handler and certified Handler→provider carriers without introducing a
+second semantic machine, and keep any concrete Boolean-discharge limitation
+explicit rather than presenting an engineering observation as an unconditional
+kernel theorem.
 Hashed-QN CallGate/ScheduleGate last-20 pin is done; binding stays
 `B-CALL-SEM` ([`evm-call-addr-gap.md`](evm-call-addr-gap.md)).
 

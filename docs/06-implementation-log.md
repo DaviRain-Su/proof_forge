@@ -16134,3 +16134,21 @@ normative: false
   generic executed join。checker成功仍是恢复certificate的前提，不构成无条件Reference→provider、
   ELF/linker/loader、Mollusk/SVM runtime、transaction rollback或compute-unit refinement。下一刀是
   increment overflow sparse certificate。
+
+## 2026-08-15 — StateCell `increment` overflow exact 56-step provider certificate
+
+- 新增`SbpfStateCellIncrementOverflowV1`：复用increment成功证书的dispatch、validation与concrete
+  Loader-read contracts，只为真实checked-add overflow分支及两级exit补sparse fetch contract；artifact
+  仍是同一个production `.s` SHA-256 identity，未复制provider program、未新增proof-only lowering或
+  第二套business semantics。
+- executable trace gate固定fuel 55时provider已回到dispatcher exit但仍live/`.outOfFuel`，fuel 56时
+  以status/r0 `0x1001` halt；16-byte account window保持`marker || UInt64.max`不变且return data为空。
+  soundness通过既有`runFuel_halted_steps`与55步前缀不可halt恢复exact 56步`Steps`。
+- `SbpfHandlerJoinV1`新增certified overflow join，production overflow subject由generic executed join升级
+  为该certificate，同时保留真实HandlerIR arithmetic trap、Loader invocation与provider observation
+  agreement。before、argument、encoded input、account/instruction bytes、artifact identity及wrong-handler
+  漂移均fail closed；focused Solana build与runner通过。
+- 至此StateCell D4四条pinned production recipe均有dedicated sparse provider certificate：`get` 55步、
+  `initialize` 55步、increment success 70步、increment overflow 56步。checker成功仍是kernel theorem
+  恢复certificate的前提；完整无条件Reference→provider theorem、ELF/linker/loader、Mollusk/SVM
+  runtime、transaction rollback与compute units仍未闭合。
