@@ -810,6 +810,14 @@ private unsafe def testRichUInt64SemanticPlans : IO Unit := do
   expect (noirSource.contents.contains "assert(t0 >= arg_p1);" &&
       noirSource.contents.contains "let t1: u64 = t0 - arg_p1;")
     "Noir source must constrain underflow before subtraction"
+  -- Extra eight from probe; public UInt64 Ledger lighthouse. All twelve
+  -- materialize. Not opening a new shape; existing four Plan pins unchanged.
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.aleo, TargetId.psy, TargetId.quint, TargetId.cosmwasm,
+      TargetId.ton, TargetId.soroban, TargetId.openvm, TargetId.icp] do
+    let out ← liftResult <| materializeSelected target compiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"rich UInt64 Ledger: {target} must materialize"
 
 private def boolPredicateSourceTextV1 : String :=
   "import ProofForgeV2\n" ++
