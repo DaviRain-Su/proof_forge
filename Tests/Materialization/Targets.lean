@@ -2375,8 +2375,7 @@ private def accumulatorPlanHashBaseline : String :=
   "e2b2a8353a26c86707af9d17a7a26861a8a67e18aac3d6fa26f9a701040437ef"
 
 set_option maxRecDepth 10000 in
-unsafe def run : IO Unit := do
-  runSemanticPlanLeafFast
+unsafe def runProductLighthouse : IO Unit := do
   -- Product path: real ValidatedSourceV1 StateCell through the capability aggregate.
   -- All six target Plan bodies consume retained SemanticProgramV1; residual-only
   -- alpha fixtures (privateWitness/out-of-S1) cannot enter the shipped Plan surface.
@@ -3738,6 +3737,9 @@ unsafe def run : IO Unit := do
           (e.render).contains "bn254 Fr")
         s!"N2b field Aleo message must cite BLS12-377≠bn254 Fr, got {e.render}"
 
+set_option maxRecDepth 10000 in
+unsafe def runWideIntegerNeedles : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
   -- WideUInt: UInt128 state/return. EVM/Solana/NEAR/Noir/Psy/Aleo admit.
   -- Quint/Soroban/OpenVM/ICP/CW/TON stay named FC. Not opening
   -- UInt256 or signed 128. Files-nonempty or Plan-invariant needles.
@@ -4065,6 +4067,9 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "WideInt8" target kind wideI8Compiled
       "only anonymous UInt64/Int64 widths are supported"
 
+set_option maxRecDepth 10000 in
+unsafe def runNamedAndArrayNeedles : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
   -- N2c + B-3 PrincipalAddr + T10/T12 Principal storage pilot.
   -- Normalize admits identity-only Principal (state/params/eq/ne). Wire is
   -- variable-length u32-prefixed 1..4096 body. T10 opens EVM; T12 opens
@@ -5203,6 +5208,9 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrU8" target kind arrU8Compiled
       "only anonymous UInt64/Int64 widths are supported"
 
+set_option maxRecDepth 10000 in
+unsafe def runSignedContainerNeedles : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
   -- ArrI32: Array Int32 2 state. All twelve stay named FC. EVM declines
   -- signed arrays (ArrU32 EVM admits UInt32). Aleo/CW/TON fail on
   -- width / narrow-Int first, not ArrInt's Array-element. Int32 ≠
@@ -6442,6 +6450,9 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "MapI32Key" target kind mapI32KeyCompiled
       "only anonymous UInt64/Int64 widths are supported"
 
+set_option maxRecDepth 10000 in
+unsafe def runRemainingNeedles : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
   -- BytesBox: Bytes 4 state. Eight materializers admit; Quint/Soroban/
   -- ICP/OpenVM stay envelope FC. Not opening Bytes on those four.
   -- State only — no Bytes return ABI. Files-nonempty or named decline.
@@ -7814,5 +7825,13 @@ unsafe def run : IO Unit := do
             (e.render).contains "public" ||
             (e.render).contains "query")
           s!"B-RET-ABI {target} message must cite aggregate/return boundary, got {e.render}"
+
+unsafe def run : IO Unit := do
+  runSemanticPlanLeafFast
+  runProductLighthouse
+  runWideIntegerNeedles
+  runNamedAndArrayNeedles
+  runSignedContainerNeedles
+  runRemainingNeedles
 
 end Tests.Materialization
