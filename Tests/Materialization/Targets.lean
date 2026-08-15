@@ -1994,6 +1994,24 @@ private unsafe def testShiftBitwiseLogicalSemanticPlans : IO Unit := do
       maskNr.contents.contains " & " && maskNr.contents.contains " | " &&
       maskNr.contents.contains " ^ ")
     "shift-bit Noir source must render multiply/divide by 2^k and native bitwise ops"
+  -- Extra eight from probe; BitLogic shift/bitwise/logical lighthouse.
+  -- Psy/CW/TON admit. Aleo Final-only unused-state entry, Quint/Soroban/
+  -- OpenVM/ICP UInt64-width envelope stay named FC. Not opening
+  -- shift/bitwise; existing four Plan/IR/file pins unchanged.
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target compiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"BitLogic: {target} must materialize"
+  expectMaterializePlanInvariantV1 "BitLogic" TargetId.aleo TargetKind.aleo
+    compiled "function 'bigShift' does not touch state"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "BitLogic" target kind compiled
+      "only anonymous UInt64 width is supported"
 
 /-- Noir constant folding must not evaluate 2^k for huge folded counts: a
     count expression like `0xFFFFFFFF - 1` folds to k ≥ 64 and lowers to the
