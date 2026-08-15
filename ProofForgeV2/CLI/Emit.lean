@@ -10,9 +10,9 @@
     inspect <target> [--json]
     inspect <output-dir> [--json]
     inspect --output-dir <dir> [--json]
-    check <source.lean> --module <Name> [--root] [--program] [--target]
+    check <source.pf|.lean> --module <Name> [--root] [--program] [--target]
       [--profile] [--language-version] [--json]
-    build <source.lean> --module <Name> --target <t> [-o <dir>]
+    build <source.pf|.lean> --module <Name> --target <t> [-o <dir>]
       [--program] [--root] [--profile] [--language-version] [--json]
 
   Disambiguation for positional `inspect <arg>`:

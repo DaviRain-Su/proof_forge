@@ -939,7 +939,7 @@ def tool_definitions() -> List[Dict[str, Any]]:
                 "properties": {
                     "source": {
                         "type": "string",
-                        "description": "Path to source .lean program file (repo-relative or absolute).",
+                        "description": "Path to source .pf (or .lean) ProgramV1 file (repo-relative or absolute).",
                     },
                     "module": {
                         "type": "string",

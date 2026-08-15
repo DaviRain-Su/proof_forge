@@ -89,7 +89,7 @@ Smoke (host-optional): `just pf-cli-smoke`
 ## Dependency model (important)
 
 ```text
-your project (pf.toml + src/*.lean)
+your project (pf.toml + src/*.pf)
         │
         ▼  pf build
 proof-forge-next   ← real dependency (compiler binary)

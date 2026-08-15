@@ -4,7 +4,8 @@
   Spawns the real `proof-forge-next` binary for:
     * multi-error fixture: exit 3, ≥2 human diagnostic lines, no success stdout,
       no output directory, primary lines contain PF-EFFECT-001 and PF-SRC-INVALID
-    * usage/config: exit 2 (missing --module, unknown command, unknown --target);
+    * usage/config: exit 2 (missing --module, unknown command, unknown --target,
+      non-.pf/.lean source suffix); `.pf` check ok; `.lean` remains admitted;
       no diagnostic code invention (no PF-CLI-USAGE / PF-TARGET-UNKNOWN as exception)
     * parser/source boundary: exit 3
     * StateCell `build` success: exit 0 + success stdout, no failure artifacts
@@ -130,6 +131,43 @@ private def testUsageExit2 : IO Unit := do
     "usage is not a diagnostic"
   expect (stdout == "")
     "usage failure must not print success stdout"
+
+/-- Product source suffix: `.pf` is admitted; other suffixes stay usage/exit 2.
+    `.lean` remains admitted (covered by the rest of this suite). -/
+private def testSourceExtension : IO Unit := do
+  let (ec, stdout, stderr) ← runCli #[
+    "check",
+    "testdata/valid/Hello.txt",
+    "--module", "Hello"
+  ]
+  expect (ec == 2)
+    s!"non-pf/lean suffix must exit 2, got {ec}\nstderr={stderr}"
+  expect (containsSubstr stderr "source path must end in .pf or .lean")
+    s!"suffix usage message missing, stderr={stderr}"
+  expect (!containsSubstr stderr "PF-CLI-USAGE")
+    "suffix usage must not invent PF-CLI-USAGE"
+  expect (stdout == "")
+    "suffix usage must not print success stdout"
+  let (ecUpper, _, stderrUpper) ← runCli #[
+    "check",
+    "testdata/valid/Hello.PF",
+    "--module", "Hello"
+  ]
+  expect (ecUpper == 2)
+    s!"uppercase .PF must exit 2, got {ecUpper}\nstderr={stderrUpper}"
+  expect (containsSubstr stderrUpper "source path must end in .pf or .lean")
+    s!"uppercase suffix usage message missing, stderr={stderrUpper}"
+  let (ecOk, stdoutOk, stderrOk) ← runCli #[
+    "check",
+    "testdata/valid/Hello.pf",
+    "--module", "Hello"
+  ]
+  expect (ecOk == 0)
+    s!"Hello.pf check must exit 0, got {ecOk}\nstderr={stderrOk}\nstdout={stdoutOk}"
+  expect (containsSubstr stdoutOk "ok")
+    s!"Hello.pf check must print ok: {stdoutOk}"
+  expect (stderrOk == "")
+    s!"Hello.pf check must be silent on stderr, got {stderrOk}"
 
 private def testUnknownCommandExit2 : IO Unit := do
   let (ec, _stdout, stderr) ← runCli #["not-a-command"]
@@ -918,6 +956,7 @@ unsafe def run : IO Unit := do
     throw <| IO.userError
       s!"CLI binary missing at {cliBin}; build proof_forge_next first"
   testUsageExit2
+  testSourceExtension
   testUnknownCommandExit2
   testUnknownTargetExit2
   testLanguageVersionSelection

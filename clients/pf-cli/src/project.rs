@@ -42,7 +42,7 @@ pub struct PackageSection {
 }
 
 fn default_source() -> String {
-    "src/Main.lean".into()
+    "src/Main.pf".into()
 }
 
 /// Product dependencies. Not crates.io — these name ProofForge surfaces.
@@ -384,12 +384,12 @@ pub fn write_new_project(dir: &Path, name: &str, target: &str) -> PfResult<()> {
 [package]
 name = "{name}"
 module = "{module}"
-source = "src/{module}.lean"
+source = "src/{module}.pf"
 
 [dependencies]
 # Product compiler (spawned by `pf build`). Not crates.io / not lake-packages.
 compiler = "proof-forge-next"
-# Language surface / source-gate id (text marker in .lean, not Lake import resolution).
+# Language surface / source-gate id (text marker in .pf, not Lake import resolution).
 language = "ProofForgeV2"
 
 [toolchain]
@@ -430,7 +430,7 @@ program {program} where
     return count
 "#
     );
-    fs::write(dir.join("src").join(format!("{module}.lean")), lean)?;
+    fs::write(dir.join("src").join(format!("{module}.pf")), lean)?;
 
     fs::write(
         dir.join(".gitignore"),
@@ -450,7 +450,7 @@ Unlike Cargo/`lake`, this project does **not** vendor Lean libraries via
 `[dependencies]` crate paths. Build is:
 
 ```text
-pf  →  proof-forge-next (compiler binary)  →  reads src/*.lean  →  chain artifacts
+pf  →  proof-forge-next (compiler binary)  →  reads src/*.pf  →  chain artifacts
 ```
 
 | What you depend on | How it is declared |
@@ -547,6 +547,25 @@ mod tests {
     fn module_name() {
         assert_eq!(to_module_name("hello"), "Hello");
         assert_eq!(to_module_name("hello-world"), "HelloWorld");
+    }
+
+    #[test]
+    fn new_project_writes_pf_source() {
+        let dir = std::env::temp_dir().join(format!(
+            "pf-new-pf-ext-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        write_new_project(&dir, "hello", "evm").unwrap();
+        assert!(dir.join("src/Hello.pf").is_file());
+        assert!(!dir.join("src/Hello.lean").exists());
+        let cfg = fs::read_to_string(dir.join("pf.toml")).unwrap();
+        assert!(cfg.contains("source = \"src/Hello.pf\""));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

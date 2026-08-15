@@ -3,13 +3,13 @@ id: PRODUCT-EXTERNAL-PROGRAM-V1
 title: External ProgramV1 project guide (build / SDK / MCP)
 status: draft
 owner: product+engineering
-updated: 2026-08-10
+updated: 2026-08-15
 normative: false
 ---
 
 # 外部 ProgramV1 工程：写合约 → build → inspect
 
-状态：`draft`（2026-08-10；external ProgramV1 build surface）
+状态：`draft`（2026-08-15；external ProgramV1 build surface；产品后缀 `.pf`）
 前置：[`01-toolchain-install-surface.md`](01-toolchain-install-surface.md)
 
 ## 1. 权威范围与目标
@@ -31,10 +31,10 @@ Closeout honesty：external source tree + `--root` build 与 SDK/MCP build 字�
 
 | 规则 | 说明 |
 |---|---|
-| 文件扩展名 | `.lean` |
+| 文件扩展名 | 产品合约后缀 **`.pf`**（`pf new` 默认）。**`.lean` 仍承认**，供 monorepo Lake 模块与 same-file theorem。其它后缀 usage/exit 2。大小写精确，拒绝 `.PF` / `.LEAN`。 |
 | 必填首行门 | 源文本须 **exact** 含 `import ProofForgeV2`（产品 gate；非 Lake 解析） |
 | 程序形状 | 统一 `program Name where …`（用户不写顶层 kind） |
-| `--source` | 相对 `--root` 的规范相对路径（如 `src/Hello.lean`） |
+| `--source` | 相对 `--root` 的规范相对路径（如 `src/Hello.pf`） |
 | `--module` | 必填 pure Lean module 标识（可与 program 名不同；模板用 `Hello`） |
 | `--root` | 外部工程根；省略时默认 CLI CWD / 包根（见 CLI 规格） |
 
@@ -46,7 +46,7 @@ Closeout honesty：external source tree + `--root` build 与 SDK/MCP build 字�
 my-dapp-contracts/           # --root
   README.md
   src/
-    Hello.lean              # import ProofForgeV2 + program Hello where …
+    Hello.pf                # import ProofForgeV2 + program Hello where …
   out-aleo/                 # build -o（gitignore）
 ```
 
@@ -62,7 +62,7 @@ export PROJ=/path/to/my-dapp-contracts
 (cd "$PF" && "$PROOF_FORGE_CLI" doctor --target aleo --json)
 
 # 1) build
-"$PROOF_FORGE_CLI" build src/Hello.lean \
+"$PROOF_FORGE_CLI" build src/Hello.pf \
   --module Hello --target aleo --root "$PROJ" -o "$PROJ/out-aleo"
 
 # 2) inspect
@@ -82,7 +82,7 @@ export PROJ=/path/to/my-dapp-contracts
 Agent 剧本：
 
 1. `pf_doctor`（target=aleo；预期 zero-tool `ok`）
-2. 写/改 `src/Hello.lean`
+2. 写/改 `src/Hello.pf`
 3. `pf_build`
 4. `pf_artifacts` 看 OutputSet
 

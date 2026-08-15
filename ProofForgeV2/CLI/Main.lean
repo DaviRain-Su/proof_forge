@@ -41,8 +41,8 @@ private def usage : String :=
   "  proof-forge-next inspect <target> [--json]\n" ++
   "  proof-forge-next inspect <output-dir> [--json]\n" ++
   "  proof-forge-next inspect --output-dir <dir> [--json]\n" ++
-  "  proof-forge-next check <source.lean> --module <Lean.Name> [--root <dir>] [--program <Name>] [--target <target>] [--profile <id>] [--language-version <semver>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
-  "  proof-forge-next build <source.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>] [--minimum-evidence <grade>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
+  "  proof-forge-next check <source.pf|.lean> --module <Lean.Name> [--root <dir>] [--program <Name>] [--target <target>] [--profile <id>] [--language-version <semver>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
+  "  proof-forge-next build <source.pf|.lean> --module <Lean.Name> --target <target> [-o <dir>] [--program <Name>] [--root <dir>] [--profile <id>] [--language-version <semver>] [--minimum-evidence <grade>] [--resource-limit <stage>.<field>=<n>]... [--json]\n" ++
   "\n" ++
   "Notes:\n" ++
   "  version / --version prints engineering product identity (not formal Stage-0 release).\n" ++
@@ -84,9 +84,14 @@ private def failBundle (bundle : DiagnosticBundleV1) : IO α := do
   let exitByte : UInt8 := if code ≥ 256 then 70 else UInt8.ofNat code
   IO.Process.exit exitByte
 
+/-- Product source suffix: `.pf` is the ProgramV1 contract extension.
+    `.lean` remains admitted for monorepo Lake modules and same-file theorems. -/
+private def isAdmittedSourceExtension (source : String) : Bool :=
+  source.endsWith ".pf" || source.endsWith ".lean"
+
 private def validateSourceArgument (source : String) : IO ProjectRelativePath := do
-  unless source.endsWith ".lean" do
-    failUsage "source path must end in .lean"
+  unless isAdmittedSourceExtension source do
+    failUsage "source path must end in .pf or .lean"
   match parseProjectRelativePath source with
   | .ok path => pure path
   | .error _ =>
