@@ -13,6 +13,7 @@ import ProofForgeV2.Targets.Solana.EmitSbpfAsmV1
 import ProofForgeV2.Targets.Solana.SbpfArtifactV1
 import ProofForgeV2.Targets.Solana.ProductionPreparationV1
 import ProofForgeV2.Targets.Solana.ProductionMethodV1
+import ProofForgeV2.Targets.Solana.ProductionProviderV1
 import ProofForgeV2.Targets.Solana.SbpfExecutionV1
 import ProofForgeV2.Targets.Solana.SbpfHandlerJoinV1
 import ProofForgeV2.Targets.Solana.SbpfProviderStepV1

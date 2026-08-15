@@ -1,3 +1,4 @@
+import ProofForgeV2.Targets.Solana.ProductionProviderV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellIncrementV1
 
 /-!
@@ -277,17 +278,22 @@ structure CertifiedStateCellIncrementOverflowExecutionV1
   input : Array UInt8
   certificate :
     StateCellIncrementOverflowProviderCertificateV1 bound input before argument
-  encodedInput :
-    encodeLoaderV3SingleAccountInputV1 bound invocation = .ok input
-  providerExecution :
-    executeLoaderV3SingleAccountV1 bound invocation 56 = .ok {
-      artifactSha256 :=
-        (BoundResolvedSbpfArtifactV1.resolvedOf bound).sourceSha256
-      provider := observe certificate.machine
-        (.halted stateCellIncrementOverflowStatusV1)
-      finalAccountData := certificate.machine.mem.readBytes
-        (inputStart + BitVec.ofNat 64 accountDataOffsetV1) 16
-    }
+  execution : CertifiedSolanaProductionProviderExecutionV1 bound invocation
+    56 stateCellIncrementOverflowStatusV1 accountDataOffsetV1 16 input
+      certificate.machine
+
+namespace CertifiedStateCellIncrementOverflowExecutionV1
+
+def encodedInput (certified : CertifiedStateCellIncrementOverflowExecutionV1
+    bound invocation before argument) :=
+  certified.execution.encodedInput
+
+def providerExecution (certified :
+    CertifiedStateCellIncrementOverflowExecutionV1 bound invocation before
+      argument) :=
+  certified.execution.providerExecution
+
+end CertifiedStateCellIncrementOverflowExecutionV1
 
 /-- Soundness of the end-to-end increment-overflow execution gate. -/
 theorem checkStateCellIncrementOverflowExecutionV1_sound
@@ -318,10 +324,12 @@ theorem checkStateCellIncrementOverflowExecutionV1_sound
       exact ⟨{
         input
         certificate
-        encodedInput := hencode
-        providerExecution :=
-          executeLoaderV3SingleAccountV1_eq_ok bound invocation 56 input _
-            hencode hraw
+        execution := {
+          encodedInput := hencode
+          providerExecution :=
+            executeLoaderV3SingleAccountV1_eq_ok bound invocation 56 input _
+              hencode hraw
+        }
       }⟩
 
 end ProofForgeV2.Targets.Solana

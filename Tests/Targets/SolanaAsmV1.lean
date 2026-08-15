@@ -103,6 +103,24 @@ private theorem productionMethodReferenceExecutionFixtureV1
     } responses vault = execution.outcome :=
   execution.execution
 
+/-- Type-level fixture: provider execution is parameterized by the exact
+    production artifact, Loader invocation, fuel, status, account window,
+    encoded input, and final machine—not by a StateCell method. -/
+private theorem productionProviderExecutionFixtureV1
+    {bound invocation fuel status accountDataOffset accountDataLength input machine}
+    (execution : CertifiedSolanaProductionProviderExecutionV1 bound invocation
+      fuel status accountDataOffset accountDataLength input machine) :
+    (encodeLoaderV3SingleAccountInputV1 bound invocation = .ok input) ∧
+      (executeLoaderV3SingleAccountV1 bound invocation fuel = .ok {
+        artifactSha256 :=
+          (BoundResolvedSbpfArtifactV1.resolvedOf bound).sourceSha256
+        provider := SbpfSemantics.observe machine (.halted status)
+        finalAccountData := machine.mem.readBytes
+          (SbpfSemantics.inputStart + BitVec.ofNat 64 accountDataOffset)
+            accountDataLength
+      }) :=
+  ⟨execution.encodedInput, execution.providerExecution⟩
+
 private def expectArtifactError (result : SbpfArtifactResultV1 α)
     (messagePart : String) : IO Unit :=
   match result with

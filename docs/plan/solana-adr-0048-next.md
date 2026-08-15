@@ -59,6 +59,12 @@ Code facts:
   logical pre-state, arguments, context, responses and vault seed; it contains
   no StateCell field, copied IR, provider trace or second transition system.
   All four StateCell scenarios consume it as the first concrete clients.
+- `ProductionProviderV1.lean` now factors the contract-independent production
+  Loader V3 encoder and identity-bound provider execution equations. Artifact,
+  invocation, fuel, halt status, account window, input and final machine are all
+  parameters. The four StateCell scenarios consume this boundary while their
+  artifact manifests, concrete input reads, sparse traces and postconditions
+  remain method-specific.
 
 ## Completed implementation slices (serial)
 
@@ -112,6 +118,11 @@ second codegen.
     retained, and Reference invocation identity is forced to the selected
     callable. Wrong callable kind/name and missing HandlerIR rows fail closed;
     `get`, `initialize`, increment success and overflow now share this API.
+13. **SOL-0048-D5-PROVIDER-SEAM** — **done 2026-08-15**: introduced a
+    contract-independent provider execution certificate retaining the exact
+    production Loader encoder and identity-bound execution equations. All four
+    StateCell provider certificates now consume it; method-specific manifests,
+    reads, traces and observations are deliberately not generalized away.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete. The remaining D5 blocker is unconditional kernel discharge of the
@@ -121,11 +132,11 @@ opaque; runtime output `true` must not be presented as a theorem.
 
 Next formalization slices, in order:
 
-1. **SOL-0048-D5-GET-UNCONDITIONAL**: use the preparation and method certificate
-   equations to isolate and discharge the remaining Reference observation,
-   static alignment, artifact/input manifest and 55-step checker obligations
-   for `get`. Do not add `native_decide`, `Lean.ofReduceBool`, `run_tac`, an
-   axiom, or a copied AST/IR/provider program.
+1. **SOL-0048-D5-GET-UNCONDITIONAL**: use the preparation, method and provider
+   certificate equations to isolate and discharge the remaining Reference
+   observation, static alignment, artifact/input manifest and 55-step checker
+   obligations for `get`. Do not add `native_decide`, `Lean.ofReduceBool`,
+   `run_tac`, an axiom, or a copied AST/IR/provider program.
 2. The resulting theorem must discharge the existing Boolean premise for
    `get` and call the existing concrete sound theorem, not restate provider
    behavior.

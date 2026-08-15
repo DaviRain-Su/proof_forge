@@ -16270,3 +16270,16 @@ normative: false
   Reference→provider/runtime refinement。下一步仍需抽取method-specific Reference observation、static
   alignment、artifact/Loader input manifest与proof-producing 55-step trace obligations；ELF/linker/loader、
   Mollusk/validator/SVM runtime、transaction rollback与compute units仍未声明完成。
+
+## 2026-08-15 — contract-independent Solana production provider execution certificate
+
+- 新增`ProductionProviderV1`，以artifact、Loader invocation、fuel、halt status、account window、encoded
+  input与final machine为参数，统一保存真实`encodeLoaderV3SingleAccountInputV1`与identity-bound
+  `executeLoaderV3SingleAccountV1`的精确成功等式。它只包装现有production encoder/evaluator，不定义新
+  evaluator、business transition、contract registry或provider trace。
+- `get`、`initialize`、increment success与overflow四个method-specific provider carrier均改为消费该
+  通用execution certificate，并通过只读projection保留既有downstream API。artifact fetch manifest、
+  concrete input reads、55/55/70/56步trace、返回/状态与postcondition继续由各method模块拥有，没有塞入
+  通用层。`SolanaAsmV1`新增完全参数化的类型级fixture，固定该API不依赖StateCell method identity。
+- 这是通用provider execution boundary，不是无条件discharge后的closed gate，也不是一般
+  Reference→provider theorem或ELF/linker/loader、Mollusk/validator/SVM runtime refinement。

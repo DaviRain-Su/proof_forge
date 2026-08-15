@@ -1,3 +1,4 @@
+import ProofForgeV2.Targets.Solana.ProductionProviderV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellGetV1
 
 /-!
@@ -387,16 +388,20 @@ structure CertifiedStateCellIncrementExecutionV1
   input : Array UInt8
   certificate :
     StateCellIncrementProviderCertificateV1 bound input before argument
-  encodedInput :
-    encodeLoaderV3SingleAccountInputV1 bound invocation = .ok input
-  providerExecution :
-    executeLoaderV3SingleAccountV1 bound invocation 70 = .ok {
-      artifactSha256 :=
-        (BoundResolvedSbpfArtifactV1.resolvedOf bound).sourceSha256
-      provider := observe certificate.machine (.halted 0)
-      finalAccountData := certificate.machine.mem.readBytes
-        (inputStart + BitVec.ofNat 64 accountDataOffsetV1) 16
-    }
+  execution : CertifiedSolanaProductionProviderExecutionV1 bound invocation
+    70 0 accountDataOffsetV1 16 input certificate.machine
+
+namespace CertifiedStateCellIncrementExecutionV1
+
+def encodedInput (certified :
+    CertifiedStateCellIncrementExecutionV1 bound invocation before argument) :=
+  certified.execution.encodedInput
+
+def providerExecution (certified :
+    CertifiedStateCellIncrementExecutionV1 bound invocation before argument) :=
+  certified.execution.providerExecution
+
+end CertifiedStateCellIncrementExecutionV1
 
 /-- Soundness of the end-to-end increment-success execution gate. -/
 theorem checkStateCellIncrementExecutionV1_sound
@@ -428,10 +433,12 @@ theorem checkStateCellIncrementExecutionV1_sound
       exact ⟨{
         input
         certificate
-        encodedInput := hencode
-        providerExecution :=
-          executeLoaderV3SingleAccountV1_eq_ok bound invocation 70 input _
-            hencode hraw
+        execution := {
+          encodedInput := hencode
+          providerExecution :=
+            executeLoaderV3SingleAccountV1_eq_ok bound invocation 70 input _
+              hencode hraw
+        }
       }⟩
 
 end ProofForgeV2.Targets.Solana

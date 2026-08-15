@@ -1,4 +1,5 @@
 import ProofForgeV2.Targets.Solana.HandlerSemanticsV1
+import ProofForgeV2.Targets.Solana.ProductionProviderV1
 import ProofForgeV2.Targets.Solana.SbpfExecutionV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellGetV1
 import ProofForgeV2.Targets.Solana.SbpfStateCellInitializeV1
@@ -297,24 +298,38 @@ structure CertifiedStateCellGetExecutedHandlerSbpfJoinV1
     (value : SbpfSemantics.Word) where
   input : Array UInt8
   machine : SbpfSemantics.Machine
+  execution : CertifiedSolanaProductionProviderExecutionV1 bound
+    loaderInvocation 55 0 accountDataOffsetV1 16 input machine
   sourceIdentity :
     (BoundResolvedSbpfArtifactV1.resolvedOf bound).sourceSha256 =
       stateCellProductionSbpfSha256V1
-  encodedInput :
-    encodeLoaderV3SingleAccountInputV1 bound loaderInvocation = .ok input
   providerReturned : StateCellGetReturnedV1 input returnBytes machine
-  providerExecution :
-    executeLoaderV3SingleAccountV1 bound loaderInvocation 55 = .ok {
-      artifactSha256 :=
-        (BoundResolvedSbpfArtifactV1.resolvedOf bound).sourceSha256
-      provider := SbpfSemantics.observe machine (.halted 0)
-      finalAccountData := machine.mem.readBytes
-        (SbpfSemantics.inputStart +
-          BitVec.ofNat 64 accountDataOffsetV1) 16
-    }
   executed :
     StateCellExecutedHandlerSbpfJoinV1 bound handlerIR handlerInvocation
       loaderInvocation 55
+
+namespace CertifiedStateCellGetExecutedHandlerSbpfJoinV1
+
+def encodedInput
+    (join : CertifiedStateCellGetExecutedHandlerSbpfJoinV1 bound handlerIR
+      handlerInvocation loaderInvocation returnBytes value) :
+    encodeLoaderV3SingleAccountInputV1 bound loaderInvocation = .ok join.input :=
+  join.execution.encodedInput
+
+def providerExecution
+    (join : CertifiedStateCellGetExecutedHandlerSbpfJoinV1 bound handlerIR
+      handlerInvocation loaderInvocation returnBytes value) :
+    executeLoaderV3SingleAccountV1 bound loaderInvocation 55 = .ok {
+      artifactSha256 :=
+        (BoundResolvedSbpfArtifactV1.resolvedOf bound).sourceSha256
+      provider := SbpfSemantics.observe join.machine (.halted 0)
+      finalAccountData := join.machine.mem.readBytes
+        (SbpfSemantics.inputStart +
+          BitVec.ofNat 64 accountDataOffsetV1) 16
+    } :=
+  join.execution.providerExecution
+
+end CertifiedStateCellGetExecutedHandlerSbpfJoinV1
 
 /-- Executable gate for the complete StateCell `get` HandlerIR/provider join.
     It requires the certified provider execution gate as well as exact
@@ -372,10 +387,12 @@ theorem checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1_sound
       exact ⟨{
         input
         machine
+        execution := {
+          encodedInput := hencoded
+          providerExecution := hcertifiedExecution
+        }
         sourceIdentity := hidentity
-        encodedInput := hencoded
         providerReturned := machineReturned
-        providerExecution := hcertifiedExecution
         executed := {
           invocationRel
           handlerObservation := observeHandlerIRV1 handlerIR handlerInvocation
