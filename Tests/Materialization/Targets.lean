@@ -294,6 +294,15 @@ private unsafe def testConstInvariantMaterializationBoundary : IO Unit := do
   let psyFiles := MaterializedArtifactsV1.filesOf psyConstants
   expect (psyFiles.any (·.path == "ConstTargetBoundary.dpn.json"))
     s!"constant/psy: supported scalar Op.Constant must materialize to a Psy DPN package; got {psyFiles.map (·.path)}"
+  -- Extra five from probe; not opening const. TON shares the constants/invariants
+  -- envelope; Quint/Soroban/ICP/OpenVM require an empty constants table.
+  for (target, kind, marker) in #[
+      (TargetId.ton, TargetKind.ton, "constants/invariants"),
+      (TargetId.quint, TargetKind.quint, "constants"),
+      (TargetId.soroban, TargetKind.soroban, "constants"),
+      (TargetId.icp, TargetKind.icp, "constants"),
+      (TargetId.openvm, TargetKind.openvm, "constants")] do
+    expectMaterializePlanInvariantV1 "constant" target kind constCompiled marker
 
   let invariantSource ← liftResult (← session.selectProgramV1
     invariantTargetBoundarySourceTextV1 "<targets-invariant-boundary>"
