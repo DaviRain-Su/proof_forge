@@ -1536,9 +1536,9 @@
       "sha256": "37fe7c21ae6f13c4ad95c56f6d85aa3d99c672f337dac1c3ea44f0d1d132ef12"
     },
     {
-      "bytes": 60275,
+      "bytes": 60322,
       "path": "ProofForgeV2/Targets/Ton/EmitIRV1.lean",
-      "sha256": "5f1acab4f49a31b3705cb32346ed3c909c1eab35db9a58c2b299275da784646d"
+      "sha256": "a1312e17183c849fb0827159ec5fa511a61cd3251fb5b087f873fe7ffa277198"
     },
     {
       "bytes": 6927,
@@ -1546,9 +1546,9 @@
       "sha256": "c350f35bc461b4bee5ac0c2451bc3c6474b5b1e09bb9dba6580238a836028229"
     },
     {
-      "bytes": 195371,
+      "bytes": 196567,
       "path": "ProofForgeV2/Targets/Ton/LowerSemanticV1.lean",
-      "sha256": "80ab62573ae46882822f37a8fec3af2d36dffc3e174da8953f8e25d67169da2c"
+      "sha256": "ddb7b7d6aa3af78d0629b6e0c5599f78a3f7fc832dce958de60877b7607bd989"
     },
     {
       "bytes": 16846,

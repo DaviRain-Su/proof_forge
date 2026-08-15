@@ -4967,9 +4967,9 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     arrIntCompiled "Array element must be UInt64"
 
   -- ArrU128: Array UInt128 2 state. EVM-only files-nonempty admit.
-  -- WideUInt admits bare UInt128 on six targets (incl. Aleo); Array-of-UInt128
-  -- admits only EVM. Aleo stays on Array-U64-element, not width.
-  -- ArrInt / ArrBool / WideUInt / WideInt8 stay.
+  -- WideUInt admits bare UInt128 on eight targets (incl. Aleo/TON);
+  -- Array-of-UInt128 admits only EVM. Aleo/TON stay on Array-U64-element,
+  -- not a width envelope. ArrInt / ArrBool / WideUInt / WideInt8 stay.
   let arrU128Source :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -5897,9 +5897,9 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     mapIntKeyCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapU128: Map UInt64 UInt128 state. All twelve stay named FC. Aleo
-  -- now shares the Map-U64-U64 needle (UInt128 width is admitted). TON
-  -- stays on width. Quint/Soroban/OpenVM/ICP stay on the UInt64 width
-  -- needle. Not opening Map-of-UInt128.
+  -- and TON share the Map-U64-U64 needle (UInt128 width is admitted).
+  -- Quint/Soroban/OpenVM/ICP stay on the UInt64 width needle. Not
+  -- opening Map-of-UInt128.
   let mapU128Source :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -5987,7 +5987,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
 
   -- MapU128Key: Map UInt128 UInt64 state (unsigned 128-bit KEY).
   -- EVM/Solana stay on the key-shape needle, not MapU128's value
-  -- needle. Aleo now shares Map-U64-U64; TON stays on width.
+  -- needle. Aleo/TON share Map-U64-U64 (UInt128 width is admitted).
   -- UInt128-key ≠ UInt128-value and ≠ Int64-key. Not opening
   -- UInt128-key Map.
   let mapU128KeySource :=
@@ -7026,10 +7026,10 @@ unsafe def runRemainingNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "OptInt" TargetId.icp TargetKind.icp
     optIntCompiled "anonymous Option is outside the current container-state pilot"
 
-  -- OptU128: Option UInt128 state. All twelve stay named FC. Aleo now
-  -- shares the Option-payload needle (UInt128 width is admitted). TON
-  -- stays on width. Quint/Soroban/OpenVM/ICP stay on the UInt64 width
-  -- needle. Not opening Option-of-UInt128.
+  -- OptU128: Option UInt128 state. All twelve stay named FC. Aleo/TON
+  -- share the Option-payload needle (UInt128 width is admitted).
+  -- Quint/Soroban/OpenVM/ICP stay on the UInt64 width needle. Not
+  -- opening Option-of-UInt128.
   let optU128Source :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++

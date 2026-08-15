@@ -8,14 +8,16 @@
   op+query_id envelope, UInt64 range-check markers, schedule→createMessage
   out-message emission (dest hash stub / NoBounce / value=0 /
   PAY_FEES_SEPARATELY / op32·query_id·args body), BL-14 multi-width
-  UInt{8,16,32} body/state/param (narrow guards + exact cell/param widths),
+  UInt{8,16,32,128} body/state/param (narrow/wide guards + exact cell/param
+  widths; UInt128 is one uint128 cell / loadUint(128) / int257 temp),
   B-RET-ABI named Struct/Enum view multi-stack returns, N-ANON-RESULT
   anonymous Array UInt64 N / Option UInt64 view returns (entry aggregate FC),
   B-OPT-STATE Option UInt64 state (Enum-shaped 2-leaf c4 layout, none default,
   payload zeroing, match read, tolk→fif), B-CTX-OPEN context.unixTimeSeconds
   → Plan blockUnixTimeSeconds / Tolk blockchain.now() (entry+view;
   caller/unknown FC), and explicit fail-closed boundaries (sync call,
-  UInt128/256, Map/Bytes returns, N>8, nested/narrow-element containers,
+  UInt256, Int128/256, Array/Map/Option of UInt128, UInt128 shifts/bitwise,
+  Map/Bytes returns, N>8, nested/narrow-element containers,
   Option non-UInt64 / Option params, invariants, Field/Principal).
 
   Registered in Tests/Shards/Targets. Not @ton/sandbox runtime (TON-3).
@@ -678,6 +680,13 @@ private unsafe def testUint128Abi
   match validatePlan plan with
   | .ok () => pure ()
   | .error e => throw <| IO.userError s!"Wide128 plan validate: {e.render}"
+  let ir ← liftResult <| irTon compiled
+  let some goIR := ir.methods.find? (·.name == "go") |
+    throw <| IO.userError "missing IR go"
+  let hasNarrowOp := goIR.operations.any fun
+    | .narrowCheckedAdd 128 _ _ _ => true
+    | _ => false
+  expect hasNarrowOp "IR emits narrowCheckedAdd 128"
   let files ← liftResult <| filesTon compiled
   let tolk ← findFile files "Wide128.tolk"
   expect (tolk.contains "s: uint128") "Storage field s: uint128"
@@ -687,6 +696,87 @@ private unsafe def testUint128Abi
   expect (abi.contains "\"type\":\"uint128\"") "ABI uint128 type"
   expect (abi.contains "\"returns\":\"uint128\"") "ABI returns uint128"
   IO.println "  ✓ UInt128 state/param/body + int257 width guard"
+
+/-- UInt128 body literal > 2^64-1 must emit a full decimal, not UInt64 truncation. -/
+private unsafe def testUint128WideLiteral
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  -- 2^64 = 18446744073709551616. UInt64.ofNat would wrap this to 0.
+  let src := wrapProgram "WideLit" <|
+    "  state s : UInt128\n\n" ++
+    "  init() do\n" ++
+    "    s := 0\n\n" ++
+    "  entry go() : UInt128 do\n" ++
+    "    s := 0x10000000000000000\n" ++
+    "    return s\n\n" ++
+    "  view peek() : UInt128 do\n" ++
+    "    return s\n"
+  let compiled ← compileSource session src "Examples.WideLit" "<ton-u128-lit>"
+  let plan ← liftResult <| planTon compiled
+  let some go := plan.entries.find? (·.name == "go") |
+    throw <| IO.userError "missing go"
+  let hasBigLit := go.body.any fun s =>
+    match s with
+    | .store store =>
+        match store.value with
+        | .bigLiteral 128 18446744073709551616 => true
+        | _ => false
+    | _ => false
+  expect hasBigLit "entry go stores bigLiteral 128 of 2^64"
+  let ir ← liftResult <| irTon compiled
+  let some goIR := ir.methods.find? (·.name == "go") |
+    throw <| IO.userError "missing IR go"
+  let hasWideLit := goIR.operations.any fun
+    | .wideLiteral _ 128 18446744073709551616 => true
+    | _ => false
+  expect hasWideLit "IR emits wideLiteral 128 = 18446744073709551616"
+  expect (!goIR.operations.any fun
+    | .literal _ 0 => true
+    | _ => false)
+    "IR must not truncate 2^64 to UInt64 0"
+  let files ← liftResult <| filesTon compiled
+  let tolk ← findFile files "WideLit.tolk"
+  expect (tolk.contains "18446744073709551616")
+    "Tolk prints the full UInt128 decimal (not a truncated 0)"
+  expect (tolk.contains "(1 << 128)") "wideLiteral attaches UInt128 range guard"
+  IO.println "  ✓ UInt128 body literal > 2^64-1 keeps full decimal"
+
+/-- UInt128 shl/shr stay fail closed (int257 can hold the value; 64-count
+    shift would drop high bits). -/
+private unsafe def testUint128ShiftFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let srcShl := wrapProgram "WideShl" <|
+    "  state s : UInt128\n\n" ++
+    "  init(x : UInt128) do\n" ++
+    "    s := x\n\n" ++
+    "  entry go(d : UInt32) : UInt128 do\n" ++
+    "    s := s << d\n" ++
+    "    return s\n\n" ++
+    "  view peek() : UInt128 do\n" ++
+    "    return s\n"
+  let compiledShl ← compileSource session srcShl "Examples.WideShl" "<ton-u128-shl>"
+  match planTon compiledShl with
+  | .error (.planInvariant .ton msg) =>
+      expect (msg.contains "shift" || msg.contains "multiword")
+        s!"UInt128 shl FC must cite shift/multiword, got: {msg}"
+  | .error e => throw <| IO.userError s!"UInt128 shl: unexpected {e.render}"
+  | .ok _ => throw <| IO.userError "UInt128 shl: expected FC, got ok"
+  let srcShr := wrapProgram "WideShr" <|
+    "  state s : UInt128\n\n" ++
+    "  init(x : UInt128) do\n" ++
+    "    s := x\n\n" ++
+    "  entry go(d : UInt32) : UInt128 do\n" ++
+    "    s := s >> d\n" ++
+    "    return s\n\n" ++
+    "  view peek() : UInt128 do\n" ++
+    "    return s\n"
+  let compiledShr ← compileSource session srcShr "Examples.WideShr" "<ton-u128-shr>"
+  match planTon compiledShr with
+  | .error (.planInvariant .ton msg) =>
+      expect (msg.contains "shift" || msg.contains "multiword")
+        s!"UInt128 shr FC must cite shift/multiword, got: {msg}"
+  | .error e => throw <| IO.userError s!"UInt128 shr: unexpected {e.render}"
+  | .ok _ => throw <| IO.userError "UInt128 shr: expected FC, got ok"
+  IO.println "  ✓ UInt128 shl/shr stay fail closed"
 
 /-- BL-14: UInt256 and Int128 stay fail closed. -/
 private unsafe def testMultiWidthFc
@@ -1848,6 +1938,8 @@ unsafe def run : IO Unit := do
   testNarrowInt16Int32 session
   testSignedContainerFc session
   testUint128Abi session
+  testUint128WideLiteral session
+  testUint128ShiftFc session
   testMultiWidthFc session
   testRegistryDispatch session
   testNamedStructReturn session

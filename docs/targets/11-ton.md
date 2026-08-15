@@ -35,11 +35,13 @@ stub、body=`op32 · query_id=0 · UInt64 args`；仅 init/mutate，view/pureFn 
 最小异步 out-message，但不等于真实地址/value 经济或 callback round-trip。
 
 **后续工程扩面**：UInt8/16/32/128 与 Int8/16/32/64 state/param/result 已开（Tolk `intN`/
-`uintN`/`uint128` cell + `loadInt`/`loadUint` + int257 width guards；UInt256 与 Int128/256
-仍 FC）；named Struct/Enum、`Array UInt64 N`、dense `Map UInt64 UInt64` cap-8 与
+`uintN` cell + `loadInt`/`loadUint` + int257 width guards；**UInt128 = 单个 `uint128`
+cell + `body.loadUint(128)` + `assert (0 <= t && t < (1 << 128))`**，不是 CosmWasm
+式 lo/hi KV；UInt256 与 Int128/256 仍 FC；UInt128 的 Array/Map/Option 与 shl/shr/
+bitwise 仍 FC）；named Struct/Enum、`Array UInt64 N`、dense `Map UInt64 UInt64` cap-8 与
 fixed `Bytes N` state 已 flatten 到 c4；named Struct/Enum 以及 anonymous
 `Array UInt64 N`（1..8）/`Option UInt64` **view** 返回已开多栈 get-method。entry aggregate、
-Map/Bytes/nested/非 UInt64元素与 target pureFn aggregate仍 fail closed；Option state、
+Map/Bytes/nested/非 UInt64元素与 target pureFn aggregate仍 fail closed；
 Field/Principal/String、ContextRead/Commit、nonempty invariants/constants、masterchain/library/
 extra currencies仍 FC。
 
@@ -268,8 +270,9 @@ Tolk compile (结构/ABI)                    ✅ 工程
 - 同步跨合约 `call`（resolver + Plan 双 FC）。
 - schedule 的真实 destination/address binding、非零 value 经济与 callback/`query_id` 往返；当前仅
   fixed hash destination stub + value=0 + fixed send-mode。
-- UInt128/256、narrow Int、entry aggregate return、Map/Bytes return、Option state、Field/Principal/
-  String interface、ContextRead/Commit、nonempty invariants/constants、masterchain/library/extra currencies。
+- UInt256、Int128/256、Array/Map/Option of UInt128、UInt128 shifts/bitwise、entry aggregate return、
+  Map/Bytes return、Option of non-UInt64、Field/Principal/String interface、ContextRead/Commit、
+  nonempty invariants/constants、masterchain/library/extra currencies。
 - FunC/Tact 默认发射、手写 TVM 汇编产品路径。
 - formal Reference 差分、主网 deploy 证据。
 

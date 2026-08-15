@@ -102,8 +102,9 @@ inductive Operation where
   | shl (destination lhs rhs : Nat)
   | shr (destination lhs rhs : Nat)
   | bitNot (destination source : Nat)
-  /-- Narrow body checked arithmetic (`bitWidth ∈ {8,16,32}`); UInt64 keeps
-      historical `checked*`. Emit attaches `assert (0 ≤ t < 2^bitWidth)`. -/
+  /-- Narrow/wide body checked arithmetic (`bitWidth ∈ {8,16,32,128}`);
+      UInt64 keeps historical `checked*`. Emit attaches
+      `assert (0 ≤ t < 2^bitWidth)`. -/
   | narrowCheckedAdd (bitWidth destination lhs rhs : Nat)
   | narrowCheckedSub (bitWidth destination lhs rhs : Nat)
   | narrowCheckedMul (bitWidth destination lhs rhs : Nat)
@@ -713,7 +714,7 @@ private def cmpOp : ComparisonOp → String
 private def uint64RangeCheck (dst : String) : String :=
   s!"assert (0 <= {dst} && {dst} < (1 << 64)) throw {errOverflow};"
 
-/-- Width-parameterized unsigned range check for UInt{8,16,32,64} on int257.
+/-- Width-parameterized unsigned range check for UInt{8,16,32,64,128} on int257.
     Same `errOverflow` code as UInt64; high bits above `bitWidth` must be 0. -/
 private def uintWidthRangeCheck (bitWidth : Nat) (dst : String) : String :=
   s!"assert (0 <= {dst} && {dst} < (1 << {bitWidth})) throw {errOverflow};"
@@ -1087,7 +1088,7 @@ private def renderStorageStruct (plan : Plan) : String := Id.run do
   let mut out := "struct Storage {\n"
   out := out ++ "    __layout: uint64\n"
   for field in plan.storage.fields do
-    -- BL-14: exact-width cell fields (uint8/16/32/64) via storeUint/loadUint
+    -- BL-14: exact-width cell fields (uint8/16/32/64/128) via storeUint/loadUint
     -- of field.bitWidth when serializing the c4 Storage cell.
     out := out ++ s!"    {field.name}: {storageFieldTolkType field.byteWidth field.isInt}\n"
   out := out ++ "}\n\n"
@@ -1142,10 +1143,10 @@ private def renderMessageHandler (plan : Plan) (method : MethodIR) : String := I
   let mut out := s!"// op {method.opCode} → {method.name}\n"
   out := out ++ s!"if (op == {method.opCode}) \{\n"
   for p in method.params do
-    -- BL-14: exact-width param load (`loadUint`/`loadInt` of 8/16/32/64).
+    -- BL-14: exact-width param load (`loadUint`/`loadInt` of 8/16/32/64/128).
     -- Unsigned zero-extends; signed sign-extends into int temps. Slot pitch
-    -- remains 8-byte logical input offsets; message body packs consecutive
-    -- exact widths.
+    -- is 8 bytes for ≤64-bit params and 16 bytes for UInt128; message body
+    -- packs consecutive exact widths.
     let bits := paramLoadBits p.byteWidth
     let loadFn := if p.isInt then "loadInt" else "loadUint"
     out := out ++ s!"    val {p.name} = body.{loadFn}({bits});\n"

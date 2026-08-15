@@ -93,7 +93,7 @@ structure StorageField where
   byteWidth : Nat
   endianness : Endianness
   /-- Signed Int{8,16,32,64} cell field (`intN` + `loadInt`). Default false
-      keeps historical unsigned UInt{8,16,32,64} Plan literals. -/
+      keeps historical unsigned UInt{8,16,32,64,128} Plan literals. -/
   isInt : Bool := false
   deriving BEq, Inhabited, Repr
 
@@ -126,7 +126,8 @@ inductive ComparisonOp where
 
 inductive Expr where
   | literal (value : UInt64)
-  /-- Multi-limb literal for UInt128/256 (T9e). `bitWidth ∈ {128,256}`. -/
+  /-- Wide unsigned literal (UInt128 admitted; UInt256 stays fail closed).
+      `value` is the full unsigned magnitude — never `UInt64.ofNat`. -/
   | bigLiteral (bitWidth : Nat) (value : Nat)
   | param (inputOffset : Nat)
   /-- Narrow ABI param load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `param`. -/
@@ -296,14 +297,15 @@ structure LeafAbiType where
   deriving BEq, Inhabited, Repr
 
 /-- Result kind of a Ton method export. Init is always unit; entry/view may be
-UInt{8,16,32,64}/Bool/Int{8,16,32,64}. UInt64/Int64/Bool wire as 8-byte
+UInt{8,16,32,64,128}/Bool/Int{8,16,32,64}. UInt64/Int64/Bool wire as 8-byte
 little-endian i64 (Bool is 0/1); UInt{8,16,32}/Int{8,16,32} wire as 1/2/4-byte
-cell fields (`uintN`/`intN`) and `loadUint`/`loadInt`. ABI JSON `returns`
-distinguishes the declared type. B-RET-ABI / N-ANON-RESULT adds
-`.aggregate` for **view-only** named Struct/Enum and admitted anonymous
-`Array UInt64 N` / `Option UInt64` returns: preorder UInt64/Int64 leaves (1..8)
-as a multi-stack get-method return; entry aggregate stays fail-closed. Map /
-Bytes / nested / non-UInt64-element anonymous returns stay fail closed. -/
+cell fields (`uintN`/`intN`) and `loadUint`/`loadInt`; UInt128 is one 16-byte
+`uint128` cell / `loadUint(128)`. ABI JSON `returns` distinguishes the declared
+type. B-RET-ABI / N-ANON-RESULT adds `.aggregate` for **view-only** named
+Struct/Enum and admitted anonymous `Array UInt64 N` / `Option UInt64` returns:
+preorder UInt64/Int64 leaves (1..8) as a multi-stack get-method return; entry
+aggregate stays fail-closed. Map / Bytes / nested / non-UInt64-element
+anonymous returns stay fail closed. UInt256 and Int128/256 stay fail closed. -/
 inductive MethodResultKind where
   | unit
   | uint64
@@ -556,9 +558,10 @@ def layoutMarker (fields : Array StorageField) : UInt64 :=
 
 /-- Value kinds admitted in the Ton pilot value table. Bool is admitted for
 comparison/logical/literal temps, assert conditions, and entry/view return
-values. Body multi-width (T8c) admits UInt{8,16,32,64} temps; UInt32 also
-covers shift-count temps (zero-extended into the i64 plan surface). Top-level
-state/params admit UInt{8,16,32,64}|Int{8,16,32,64}. Initializer result stays Unit. -/
+values. Body multi-width admits UInt{8,16,32,64,128} temps (UInt128 is one
+TVM int257 temp + `0 ≤ t < 2^128`); UInt32 also covers shift-count temps.
+Top-level state/params admit UInt{8,16,32,64,128}|Int{8,16,32,64}.
+UInt256 and Int128/256 stay fail closed. Initializer result stays Unit. -/
 private inductive TonValueKindV1 where
   | uint64
   | uint32
@@ -616,7 +619,7 @@ private def widthOfIntKindV1 (k : TonValueKindV1) : Option Nat :=
   | _ => none
 
 /-- Ton pilot type-closure carrier (shared `PilotTypeClosureV1`).
-    Bool/UInt32 optional; state/params admit UInt{8,16,32,64}|Int{8,16,32,64}. -/
+    Bool/UInt32 optional; state/params admit UInt{8,16,32,64,128}|Int{8,16,32,64}. -/
 private abbrev TonTypeClosureV1 := PilotTypeClosureV1
 
 private def tonPlanErr (message : String) : CompileError :=
@@ -768,7 +771,7 @@ private def abiByteWidthOfTypeV1
           pure (byteWidthOfBitWidth w)
       | none =>
           throw <| .planInvariant .ton
-            "unsupported Ton semantic shape: ABI type must be UInt8/16/32/64 or Int8/16/32/64"
+            "unsupported Ton semantic shape: ABI type must be UInt8/16/32/64/128 or Int8/16/32/64"
 
 /-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
 private def mkParamExpr (bitWidth : Nat) (inputOffset : Nat) : Expr :=
@@ -2160,7 +2163,7 @@ private def lowerBlockInstructionsV1
                   pure w
               | none =>
                   throw <| .planInvariant .ton
-                    "unsupported Ton semantic shape: state load must be UInt{8,16,32,64}, Int{8,16,32,64}, Principal, named Struct/Enum, Array/Map, or Option UInt64"
+                    "unsupported Ton semantic shape: state load must be UInt{8,16,32,64,128}, Int{8,16,32,64}, Principal, named Struct/Enum, Array/Map, or Option UInt64"
           unless field.byteWidth == byteWidthOfBitWidth bitWidth do
             throw <| .planInvariant .ton
               "unsupported Ton semantic shape: state load width does not match field layout"
@@ -2270,9 +2273,9 @@ private def lowerBlockInstructionsV1
             unless kind == lhs.kind do
               throw <| .planInvariant .ton
                 "unsupported Ton semantic shape: shift result width mismatch"
-            -- Cross-limb shift is not implemented: the multiword surface is
-            -- add/sub/mul/compare/bitwise. Wide shifts fail closed explicitly
-            -- (a single-limb WAT shift would silently corrupt high limbs).
+            -- UInt128 shifts stay fail closed: TVM int257 can hold the
+            -- value, but a 64-count-only shift would silently drop bits
+            -- above the historical UInt64 envelope.
             if bitWidth > 64 then
               throw <| .planInvariant .ton
                 "unsupported Ton semantic shape: multiword shift is fail-closed on Ton (shift counts < 64 only; wide shift not implemented)"
@@ -2362,7 +2365,10 @@ private def lowerBlockInstructionsV1
                   throw <| .planInvariant .ton
                     "unsupported Ton semantic shape: only checked Int{8,16,32,64} arith and comparisons are supported (bitwise/shift/neg on narrow Int fail closed)"
           else
-            -- Unsigned body multi-width path (UInt8/16/32/64).
+            -- Unsigned body multi-width path (UInt8/16/32/64/128).
+            -- add/sub/mul/div/mod admit UInt128 via narrowChecked* +
+            -- int257 width guard. bitAnd/bitOr/bitXor stay fail closed
+            -- above 64 (same class as the existing shift >64 throw).
             unless lhs.kind == rhs.kind do
               throw <| .planInvariant .ton
                 "unsupported Ton semantic shape: binary operands must share admitted UInt width"
@@ -2372,8 +2378,7 @@ private def lowerBlockInstructionsV1
             unless isTonBodyUintWidth bitWidth do
               throw <| .planInvariant .ton
                 s!"unsupported Ton semantic shape: UInt{bitWidth} is not an admitted body width"
-            if op == .add || op == .sub || op == .mul || op == .div ||
-                op == .mod || op == .bitAnd || op == .bitOr || op == .bitXor then
+            if op == .add || op == .sub || op == .mul || op == .div || op == .mod then
               -- UInt128 is one int257 temp + width guard. UInt256 stays FC.
               if bitWidth > 128 then
                 throw <| .planInvariant .ton
@@ -2381,14 +2386,24 @@ private def lowerBlockInstructionsV1
               let (widthTid, kind, w) ← admitUIntWidthResultTypeV1 types result.typeId
               unless kind == lhs.kind && w == bitWidth do
                 throw <| .planInvariant .ton
-                  "unsupported Ton semantic shape: arithmetic/bitwise result width mismatch"
+                  "unsupported Ton semantic shape: arithmetic result width mismatch"
               let value ←
                 if op == .add then makeCheckedAddValueV1 kind w lhsId rhsId lhs rhs
                 else if op == .sub then makeCheckedSubValueV1 kind w lhsId rhsId lhs rhs
                 else if op == .mul then makeCheckedMulValueV1 kind w lhsId rhsId lhs rhs
                 else if op == .div then makeCheckedDivValueV1 kind w lhsId rhsId lhs rhs
-                else if op == .mod then makeCheckedModValueV1 kind w lhsId rhsId lhs rhs
-                else if op == .bitAnd then makeBitAndValueV1 kind w lhsId rhsId lhs rhs
+                else makeCheckedModValueV1 kind w lhsId rhsId lhs rhs
+              values := ← appendResultValueV1 widthTid values result value
+            else if op == .bitAnd || op == .bitOr || op == .bitXor then
+              if bitWidth > 64 then
+                throw <| .planInvariant .ton
+                  "unsupported Ton semantic shape: multiword bitwise is fail-closed on Ton (UInt128 bitwise not implemented)"
+              let (widthTid, kind, w) ← admitUIntWidthResultTypeV1 types result.typeId
+              unless kind == lhs.kind && w == bitWidth do
+                throw <| .planInvariant .ton
+                  "unsupported Ton semantic shape: bitwise result width mismatch"
+              let value ←
+                if op == .bitAnd then makeBitAndValueV1 kind w lhsId rhsId lhs rhs
                 else if op == .bitOr then makeBitOrValueV1 kind w lhsId rhsId lhs rhs
                 else makeBitXorValueV1 kind w lhsId rhsId lhs rhs
               values := ← appendResultValueV1 widthTid values result value
@@ -2426,6 +2441,9 @@ private def lowerBlockInstructionsV1
               let some bitWidth := widthOfUintKindV1 operand.kind |
                 throw <| .planInvariant .ton
                   "unsupported Ton semantic shape: bitNot operand must be admitted integer width"
+              if bitWidth > 64 then
+                throw <| .planInvariant .ton
+                  "unsupported Ton semantic shape: multiword bitwise is fail-closed on Ton (UInt128 bitNot not implemented)"
               let (widthTid, kind, w) ← admitUIntWidthResultTypeV1 types result.typeId
               unless kind == operand.kind && w == bitWidth do
                 throw <| .planInvariant .ton
@@ -3796,7 +3814,7 @@ private def makeEntryV1
               pure (MethodResultKind.bool, ExpectedReturnV1.scalar .bool)
             else
               throw <| .planInvariant .ton
-                s!"entry '{name}' does not return public UInt8/16/32/64, Int8/16/32/64, Bool, named Struct/Enum view aggregate, or admitted anonymous Array/Option view aggregate"
+                s!"entry '{name}' does not return public UInt8/16/32/64/128, Int8/16/32/64, Bool, named Struct/Enum view aggregate, or admitted anonymous Array/Option view aggregate"
   let mode : MethodMode := match semanticMode with
     | .mutate => .mutate
     | .view => .view
