@@ -15,25 +15,29 @@ callables, pureFn inline (depth ≤ 64). Anonymous `Array UInt64 N`
 `{name}_{N-1}` (instance `symbol_short!` keys; no Vec). Anonymous
 `Option UInt64` **state** flattens to two instance `u64` keys
 `{name}_tag` + `{name}_p0` (tag 0=none / 1=some; none zeros payload).
-Array/Option + signedNumeric, Array/Option param/return, N=0/N>8,
-non-UInt64 element/payload, non-literal index, nested arrays, nested
-Option, and leaf names that exceed the `symbol_short!` 9-byte limit
-fail closed (never truncated). Plan is target-owned and retains no
-Semantic carrier.
+Anonymous `Map UInt64 UInt64` **state** flattens to 24 instance `u64`
+keys (cap-8 × occ/key/val interleaved; `Map.empty` + IndexSet upsert;
+IndexGet → Option tag+payload). Array/Option/Map + signedNumeric,
+Array/Option/Map param/return, N=0/N>8, non-UInt64 element/payload/key,
+non-literal Array index, nested arrays/Option/Map, Bytes, and leaf
+names that exceed the `symbol_short!` 9-byte limit fail closed (never
+truncated). Plan is target-owned and retains no Semantic carrier.
 
 Language subset (fail closed otherwise):
 - anonymous UInt64/Int64/Bool/Unit; public homogeneous UInt64 or Int64
   state/params (mixing fail closed; unused interned UInt64 type-table
   row does not force mixed)
 - Array UInt64 N state flatten (N=1..8); Option UInt64 2-leaf state
-  (construct none/some); UInt32 admitted only as the Normalize
-  Array-index intern (not a state/param width)
+  (construct none/some); Map UInt64 UInt64 cap-8 flatten (`Map.empty`
+  + IndexSet); UInt32 admitted only as the Normalize Array-index intern
+  (not a state/param width)
 - init/entry/view/pureFn; single-block only
 - literal, state load/store, checked UInt64/Int64 arith (+-*/%), compare,
-  bool and/or/not, pureCall inline ≤ 64, bare assert, zero-payload revert
+  bool and/or/not, ite mux, pureCall inline ≤ 64, bare assert,
+  zero-payload revert
 - REJECT: nonempty invariants, constants, events, call/schedule,
-  ContextRead/Commit, Int8/16/32 state/params, Map/Bytes, Option
-  return/params, Field/Principal/String, emit
+  ContextRead/Commit, Int8/16/32 state/params, Bytes, nonempty Map
+  construct, Array/Option/Map return/params, Field/Principal/String, emit
 -/
 
 namespace ProofForgeV2.Targets.Soroban
@@ -118,14 +122,21 @@ inductive Expr where
   | boolAnd (lhs rhs : Expr)
   | boolOr (lhs rhs : Expr)
   | boolNot (operand : Expr)
+  /-- Dense Map mux: `if cond then t else e`. Cond is Bool; t/e share a type. -/
+  | ite (cond t e : Expr)
   deriving BEq, Inhabited, Repr
 
 structure TypedExpr where
   ty : ExprType
   expr : Expr
   expandedNodes : Nat
-  /-- Nonempty = flattened `Array UInt64 N` leaves. Empty = scalar. -/
+  /-- Nonempty = flattened `Array UInt64 N` or `Option UInt64` leaves.
+      Empty = scalar. -/
   leaves : Array Expr := #[]
+  /-- True when `leaves` is Option tag+payload (`[tag, p0]`). -/
+  isOption : Bool := false
+  /-- True when `leaves` is dense Map UInt64 cap-8 (24 occ/key/val). -/
+  isMap : Bool := false
   deriving BEq, Inhabited, Repr
 
 structure Check where
@@ -190,7 +201,7 @@ private def sorobanTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Int64, Bool, Unit, Array UInt64 N state flatten, and Option UInt64 2-leaf state are supported (narrow Int/Field/Principal/aggregates/Map/Bytes fail closed)"
+    "only anonymous UInt64, Int64, Bool, Unit, Array UInt64 N state flatten, Option UInt64 2-leaf state, and Map UInt64 UInt64 cap-8 flatten are supported (narrow Int/Field/Principal/aggregates/Bytes fail closed)"
 
 /-- UInt32 is interned by Normalize for Array index literals only.
     State/params stay UInt64 or Int64 via the public-slot require helpers. -/
@@ -206,7 +217,7 @@ private def validateSorobanTypeClosureV1
     (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyNone)
-    (containerPolicy := pilotContainerStatePolicyArrayOption)
+    (containerPolicy := pilotContainerStatePolicyArrayMap)
 
 private def maxIdentifierBytes : Nat := 200
 private def maxPureInlineDepth : Nat := 64
@@ -249,44 +260,141 @@ private def isUnitType (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Bool
 private def isUInt32Type (types : SorobanTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   types.uintTypeIdAt 32 == some typeId
 
-private def isArrayValue (v : TypedExpr) : Bool :=
+/-- Dense Map UInt64 UInt64 pilot: cap-8 × (occ, key, val) = 24 UInt64 leaves. -/
+private def mapPilotCapacityV1 : Nat := 8
+private def mapSlotsPerEntryV1 : Nat := 3
+private def mapPilotLeafCountV1 : Nat :=
+  mapPilotCapacityV1 * mapSlotsPerEntryV1
+
+private def isAggregateValue (v : TypedExpr) : Bool :=
   !v.leaves.isEmpty
+
+private def isArrayValue (v : TypedExpr) : Bool :=
+  isAggregateValue v && !v.isOption && !v.isMap
+
+private def isMapValue (v : TypedExpr) : Bool :=
+  v.isMap && v.leaves.size == mapPilotLeafCountV1
 
 private def mkArrayLeaves (leaves : Array Expr) (nodes : Nat) : TypedExpr :=
   { ty := .uint64
     expr := leaves[0]?.getD (.litU64 0)
     expandedNodes := nodes
-    leaves }
+    leaves
+    isOption := false
+    isMap := false }
 
-/-- CosmWasm/Quint-style Array UInt64 N flatten: `some n` for admitted 1..8;
-    `none` for scalars and Option (Option is not a containerTypeId).
-    Nested/narrow/Map/Bytes/N=0/N>8 fail closed. -/
-private def arrayUInt64LenV1
-    (typeDecls : Array TypeDeclV1) (types : SorobanTypeClosureV1)
-    (typeId : TypeIdV1) : CompileResult (Option Nat) := do
-  unless types.isContainer typeId do
-    return none
-  match typeDecls[typeId.toNat]? with
-  | some { shape := .array elTid len, .. } =>
-      unless elTid == types.uint64TypeId do
-        planError
-          "unsupported Soroban semantic shape: Array element must be UInt64 (nested/narrow/Int arrays fail closed; no Vec)"
-      let n := len.toNat
-      unless 1 ≤ n && n ≤ 8 do
-        planError
-          s!"unsupported Soroban semantic shape: Array UInt64 N state must be 1..8 (got {n}; cap 8 flatten; no Vec)"
-      pure (some n)
-  | _ =>
-      planError
-        "unsupported Soroban semantic shape: container TypeId is not Array UInt64 (Map/Bytes stay fail closed)"
+private def mkOptionLeaves (leaves : Array Expr) (nodes : Nat) : TypedExpr :=
+  { ty := .uint64
+    expr := leaves[0]?.getD (.litU64 0)
+    expandedNodes := nodes
+    leaves
+    isOption := true
+    isMap := false }
 
-/-- True when `typeId` is an anonymous Option TypeDecl. Option is admitted
-    independently of Map and is never pushed to `containerTypeIds`. -/
+private def mkMapLeaves (leaves : Array Expr) (nodes : Nat) : TypedExpr :=
+  { ty := .uint64
+    expr := leaves[0]?.getD (.litU64 0)
+    expandedNodes := nodes
+    leaves
+    isOption := false
+    isMap := true }
+
+/-- True when `typeId` is an anonymous Option TypeDecl. Option is never
+    pushed to `containerTypeIds`; state planning owns the 2-leaf layout. -/
 private def isAnonymousOptionTypeIdV1
     (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
   match typeDecls[typeId.toNat]? with
   | some { shape := .option _, name := none, .. } => true
   | _ => false
+
+private def isAnonymousMapTypeIdV1
+    (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .map _ _, name := none, .. } => true
+  | _ => false
+
+/-- Admit only anonymous `Map UInt64 UInt64` for the dense cap-8 pilot. -/
+private def requireMapUInt64V1
+    (typeDecls : Array TypeDeclV1) (types : SorobanTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult Unit := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .map keyTid valTid, name := none, .. } =>
+      unless keyTid == types.uint64TypeId && valTid == types.uint64TypeId do
+        planError
+          "unsupported Soroban semantic shape: Map state admits only Map UInt64 UInt64"
+  | _ =>
+      planError
+        "unsupported Soroban semantic shape: Map state admits only Map UInt64 UInt64"
+
+/-- Dense Map IndexGet → Option UInt64 as `[tag, payload]`. -/
+private def mapLookupOptionLeavesV1
+    (mapLeaves : Array Expr) (key : Expr) : CompileResult (Array Expr) := do
+  unless mapLeaves.size == mapPilotLeafCountV1 do
+    planError
+      "unsupported Soroban semantic shape: Map leaf count must match pilot capacity"
+  let mut found : Expr := .litBool false
+  let mut payload : Expr := .litU64 0
+  for e in [0:mapPilotCapacityV1] do
+    let base := e * mapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      planError "unsupported Soroban semantic shape: Map lookup occ leaf missing"
+    let some k := mapLeaves[base + 1]? |
+      planError "unsupported Soroban semantic shape: Map lookup key leaf missing"
+    let some v := mapLeaves[base + 2]? |
+      planError "unsupported Soroban semantic shape: Map lookup val leaf missing"
+    let hit := .boolAnd (.compare .ne occ (.litU64 0)) (.compare .eq k key)
+    found := .boolOr found hit
+    payload := .ite hit v payload
+  let tag := .ite found (.litU64 1) (.litU64 0)
+  pure #[tag, payload]
+
+/-- Dense Map IndexSet upsert. Returns (newLeaves, okInsert). -/
+private def mapUpsertLeavesV1
+    (mapLeaves : Array Expr) (key value : Expr) :
+    CompileResult (Array Expr × Expr) := do
+  unless mapLeaves.size == mapPilotLeafCountV1 do
+    planError
+      "unsupported Soroban semantic shape: Map leaf count must match pilot capacity"
+  let mut anyMatch : Expr := .litBool false
+  for e in [0:mapPilotCapacityV1] do
+    let base := e * mapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      planError "unsupported Soroban semantic shape: Map upsert occ leaf missing"
+    let some k := mapLeaves[base + 1]? |
+      planError "unsupported Soroban semantic shape: Map upsert key leaf missing"
+    let hit := .boolAnd (.compare .ne occ (.litU64 0)) (.compare .eq k key)
+    anyMatch := .boolOr anyMatch hit
+  let mut seenEmpty : Expr := .litBool false
+  let mut isFirstEmpty : Array Expr := #[]
+  for e in [0:mapPilotCapacityV1] do
+    let base := e * mapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      planError "unsupported Soroban semantic shape: Map upsert empty-scan occ missing"
+    let empty := .compare .eq occ (.litU64 0)
+    let first := .boolAnd empty (.boolNot seenEmpty)
+    isFirstEmpty := isFirstEmpty.push first
+    seenEmpty := .boolOr seenEmpty empty
+  let okInsert := .boolOr anyMatch seenEmpty
+  let mut out : Array Expr := #[]
+  for e in [0:mapPilotCapacityV1] do
+    let base := e * mapSlotsPerEntryV1
+    let some occ := mapLeaves[base]? |
+      planError "unsupported Soroban semantic shape: Map upsert rebuild occ missing"
+    let some k := mapLeaves[base + 1]? |
+      planError "unsupported Soroban semantic shape: Map upsert rebuild key missing"
+    let some v := mapLeaves[base + 2]? |
+      planError "unsupported Soroban semantic shape: Map upsert rebuild val missing"
+    let matchHit :=
+      .boolAnd (.compare .ne occ (.litU64 0)) (.compare .eq k key)
+    let some firstE := isFirstEmpty[e]? |
+      planError "unsupported Soroban semantic shape: Map upsert firstEmpty missing"
+    let insertHere := .boolAnd firstE (.boolNot anyMatch)
+    let write := .boolOr matchHit insertHere
+    let occ' := .ite write (.litU64 1) occ
+    let k' := .ite write key k
+    let v' := .ite write value v
+    out := out.push occ' |>.push k' |>.push v'
+  pure (out, okInsert)
 
 /-- S0: admit only anonymous `Option UInt64` for state (tag+payload).
     Non-UInt64 / nested / named Option stay fail closed. -/
@@ -302,12 +410,41 @@ private def requireOptionUInt64StateV1
       planError
         s!"unsupported Soroban semantic shape: state '{stateName}' is not anonymous Option UInt64"
 
-/-- Physical PlanState leaves after Array/Option flatten.
+/-- CosmWasm/Quint-style Array UInt64 N flatten: `some n` for admitted 1..8;
+    `none` for scalars or Option (Option is not a containerTypeId).
+    Nested/narrow/Bytes/N=0/N>8 fail closed. Map is owned by
+    `requireMapUInt64V1` / `makeStateLayoutV1`, not this length helper. -/
+private def arrayUInt64LenV1
+    (typeDecls : Array TypeDeclV1) (types : SorobanTypeClosureV1)
+    (typeId : TypeIdV1) : CompileResult (Option Nat) := do
+  unless types.isContainer typeId do
+    return none
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .array elTid len, .. } =>
+      unless elTid == types.uint64TypeId do
+        planError
+          "unsupported Soroban semantic shape: Array element must be UInt64 (nested/narrow/Int arrays fail closed; no Vec)"
+      let n := len.toNat
+      unless 1 ≤ n && n ≤ 8 do
+        planError
+          s!"unsupported Soroban semantic shape: Array UInt64 N state must be 1..8 (got {n}; cap 8 flatten; no Vec)"
+      pure (some n)
+  | some { shape := .map _ _, .. } =>
+      planError
+        "unsupported Soroban semantic shape: Map UInt64 flatten is not an Array length"
+  | _ =>
+      planError
+        "unsupported Soroban semantic shape: container TypeId is not Array UInt64 (Bytes stay fail closed)"
+
+/-- Physical PlanState leaves after Array/Option/Map flatten.
     `leavesOf[logicalId]` is the dense field-index list (`name`,
-    `name_0`..`name_{N-1}`, or `name_tag`/`name_p0`). -/
+    `name_0`..`name_{N-1}`, `name_tag`/`name_p0`, or `name_0`..`name_23`).
+    `isOptionOf` / `isMapOf` are parallel to `leavesOf`. -/
 private structure StateLayout where
   states : Array PlanState
   leavesOf : Array (Array Nat)
+  isOptionOf : Array Bool
+  isMapOf : Array Bool
   deriving Inhabited
 
 private def physicalLeaves
@@ -334,47 +471,71 @@ private def makeStateLayoutV1
     (signedNumeric : Bool) : CompileResult StateLayout := do
   let mut states : Array PlanState := #[]
   let mut leavesOf : Array (Array Nat) := #[]
+  let mut isOptionOf : Array Bool := #[]
+  let mut isMapOf : Array Bool := #[]
   for st in data.logicalState do
     unless st.id.toNat == leavesOf.size do
       planError "unsupported Soroban semantic shape: state ids must match declaration order"
     unless isIdentifier st.name do
       planError s!"state name '{st.name}' is not a safe identifier"
-    match ← arrayUInt64LenV1 data.types types st.typeId with
-    | some n =>
-        if signedNumeric then
-          planError
-            "unsupported Soroban semantic shape: signedNumeric Int64 programs cannot carry Array state (Array flatten is unsigned UInt64 only)"
-        if states.size + n > maxStateFields then
-          planError "unsupported Soroban semantic shape: state field count exceeds limit"
-        let mut leaves : Array Nat := #[]
-        for i in [0:n] do
-          let leafName := st.name ++ "_" ++ toString i
-          unless isIdentifier leafName do
-            planError s!"state name '{leafName}' is not a safe identifier"
-          requireSymbolShortName leafName "flattened leaf"
-          leaves := leaves.push states.size
-          states := states.push { name := leafName }
-        leavesOf := leavesOf.push leaves
-    | none =>
-        if isAnonymousOptionTypeIdV1 data.types st.typeId then
-          -- Option UInt64 → tag + payload (2 instance u64 keys). Names
-          -- follow CosmWasm Enum convention (`name_tag` / `name_p0`).
-          -- Default zeros = none; construct none also zeros payload.
-          requireOptionUInt64StateV1 data.types types st.typeId st.name
+    if isAnonymousOptionTypeIdV1 data.types st.typeId then
+      -- Option UInt64 → tag + payload (2 instance u64 keys). Names
+      -- follow CosmWasm Enum convention (`name_tag` / `name_p0`).
+      -- Default zeros = none; construct none also zeros payload.
+      if signedNumeric then
+        planError
+          "unsupported Soroban semantic shape: signedNumeric Int64 programs cannot carry Option state (Option flatten is unsigned UInt64 only)"
+      requireOptionUInt64StateV1 data.types types st.typeId st.name
+      if states.size + 2 > maxStateFields then
+        planError "unsupported Soroban semantic shape: state field count exceeds limit"
+      let mut leaves : Array Nat := #[]
+      for leafName in #[st.name ++ "_tag", st.name ++ "_p0"] do
+        unless isIdentifier leafName do
+          planError s!"state name '{leafName}' is not a safe identifier"
+        requireSymbolShortName leafName "flattened leaf"
+        leaves := leaves.push states.size
+        states := states.push { name := leafName }
+      leavesOf := leavesOf.push leaves
+      isOptionOf := isOptionOf.push true
+      isMapOf := isMapOf.push false
+    else if isAnonymousMapTypeIdV1 data.types st.typeId then
+      if signedNumeric then
+        planError
+          "unsupported Soroban semantic shape: signedNumeric Int64 programs cannot carry Map state (Map flatten is unsigned UInt64 only)"
+      requireMapUInt64V1 data.types types st.typeId
+      if states.size + mapPilotLeafCountV1 > maxStateFields then
+        planError "unsupported Soroban semantic shape: state field count exceeds limit"
+      let mut leaves : Array Nat := #[]
+      for i in [0:mapPilotLeafCountV1] do
+        let leafName := st.name ++ "_" ++ toString i
+        unless isIdentifier leafName do
+          planError s!"state name '{leafName}' is not a safe identifier"
+        requireSymbolShortName leafName "flattened leaf"
+        leaves := leaves.push states.size
+        states := states.push { name := leafName }
+      leavesOf := leavesOf.push leaves
+      isOptionOf := isOptionOf.push false
+      isMapOf := isMapOf.push true
+    else
+      match ← arrayUInt64LenV1 data.types types st.typeId with
+      | some n =>
           if signedNumeric then
             planError
-              "unsupported Soroban semantic shape: signedNumeric Int64 programs cannot carry Option state (Option flatten is unsigned UInt64 only)"
-          if states.size + 2 > maxStateFields then
+              "unsupported Soroban semantic shape: signedNumeric Int64 programs cannot carry Array state (Array flatten is unsigned UInt64 only)"
+          if states.size + n > maxStateFields then
             planError "unsupported Soroban semantic shape: state field count exceeds limit"
           let mut leaves : Array Nat := #[]
-          for leafName in #[st.name ++ "_tag", st.name ++ "_p0"] do
+          for i in [0:n] do
+            let leafName := st.name ++ "_" ++ toString i
             unless isIdentifier leafName do
               planError s!"state name '{leafName}' is not a safe identifier"
             requireSymbolShortName leafName "flattened leaf"
             leaves := leaves.push states.size
             states := states.push { name := leafName }
           leavesOf := leavesOf.push leaves
-        else
+          isOptionOf := isOptionOf.push false
+          isMapOf := isMapOf.push false
+      | none =>
           requirePublicUInt64OrInt64State sorobanPlanErr types st
           if states.size + 1 > maxStateFields then
             planError "unsupported Soroban semantic shape: state field count exceeds limit"
@@ -382,9 +543,11 @@ private def makeStateLayoutV1
           let fi := states.size
           states := states.push { name := st.name }
           leavesOf := leavesOf.push #[fi]
+          isOptionOf := isOptionOf.push false
+          isMapOf := isMapOf.push false
   unless states.size ≤ maxStateFields do
     planError "unsupported Soroban semantic shape: state field count exceeds limit"
-  pure { states, leavesOf }
+  pure { states, leavesOf, isOptionOf, isMapOf }
 
 /-- First-seen integer domain. Mixed UInt64/Int64 user-facing slots fail closed. -/
 private def noteIntegerDomain
@@ -440,7 +603,8 @@ private def overlayInsert
   { ov with entries := withoutOld.push (sid, e) }
 
 /-- Emit final stores in ascending **physical** field-index order. Array
-    overlays expand to N UInt64 leaves; scalars stay one field. -/
+    / Option / Map overlays expand to their flatten leaves; scalars stay
+    one field. -/
 private def overlayFinalStores
     (ov : StateOverlay) (layout : StateLayout) : Array (Nat × Expr) := Id.run do
   let mut last : Array (Option Expr) := #[]
@@ -492,14 +656,14 @@ private def bumpOp (acc : BodyAccum) : CompileResult BodyAccum := do
 
 private def requireTy (v : TypedExpr) (ty : ExprType) (what : String) :
     CompileResult Expr := do
-  if isArrayValue v then
-    planError s!"unsupported Soroban semantic shape: {what} cannot be an Array aggregate"
+  if isAggregateValue v then
+    planError s!"unsupported Soroban semantic shape: {what} cannot be an Array/Option/Map aggregate"
   unless v.ty == ty do
     planError s!"unsupported Soroban semantic shape: {what} type mismatch"
   pure v.expr
 
 private def literalIndexNatV1 (v : TypedExpr) : CompileResult Nat := do
-  unless !isArrayValue v && v.ty == .uint64 do
+  unless !isAggregateValue v && v.ty == .uint64 do
     planError
       "unsupported Soroban semantic shape: Array index must be a UInt32/UInt64 literal"
   match v.expr with
@@ -677,7 +841,7 @@ private def resultKindOf
     planError s!"{owner} Option return is outside S0"
   else if types.isContainer typeId then
     planError
-      s!"{owner} Array return is outside S0 (only Array UInt64 N state flattens; no Vec)"
+      s!"{owner} Array/Map return is outside S0 (only Array/Map UInt64 state flattens; no Vec/HashMap)"
   else planError s!"{owner} result must be public Unit, UInt64, Int64, or Bool"
 
 private partial def lowerInstructions
@@ -716,6 +880,14 @@ private partial def lowerInstructions
             unless stateId.toNat < data.logicalState.size do
               planError "unsupported Soroban semantic shape: stateLoad references unknown state"
             let phys ← physicalLeaves layout stateId
+            let isOpt :=
+              match layout.isOptionOf[stateId.toNat]? with
+              | some b => b
+              | none => false
+            let isMp :=
+              match layout.isMapOf[stateId.toNat]? with
+              | some b => b
+              | none => false
             let value : TypedExpr :=
               match overlayLookup acc.overlay stateId with
               | some ov => ov
@@ -724,6 +896,10 @@ private partial def lowerInstructions
                     { ty := numericTy
                       expr := .stateLoad phys[0]!
                       expandedNodes := 1 }
+                  else if isOpt then
+                    mkOptionLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
+                  else if isMp then
+                    mkMapLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
                   else
                     mkArrayLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
             acc := { acc with env := envInsert acc.env vd.valueId value }
@@ -736,12 +912,12 @@ private partial def lowerInstructions
         unless stateId.toNat < data.logicalState.size do
           planError "unsupported Soroban semantic shape: stateStore references unknown state"
         let phys ← physicalLeaves layout stateId
-        if isArrayValue v then
+        if isAggregateValue v then
           unless v.leaves.size == phys.size do
-            planError "unsupported Soroban semantic shape: stateStore Array leaf count mismatch"
+            planError "unsupported Soroban semantic shape: stateStore leaf count mismatch"
         else
           unless phys.size == 1 do
-            planError "unsupported Soroban semantic shape: stateStore scalar into Array state"
+            planError "unsupported Soroban semantic shape: stateStore scalar into Array/Option/Map state"
           let _ ← requireTy v numericTy "stateStore value"
         acc := { acc with overlay := overlayInsert acc.overlay stateId v }
     | .binary op lhs rhs => do
@@ -855,63 +1031,79 @@ private partial def lowerInstructions
         match instr.result with
         | none => planError "unsupported Soroban semantic shape: construct must produce a value"
         | some vd =>
-            match ← arrayUInt64LenV1 data.types types typeId with
-            | some n => do
-                unless ctorIdx == 0 do
-                  planError "unsupported Soroban semantic shape: Array construct ctorIdx must be 0"
-                unless argIds.size == n do
-                  planError "unsupported Soroban semantic shape: Array construct arity mismatch"
-                let mut leafExprs : Array Expr := #[]
-                let mut nodes : Nat := 0
-                for argId in argIds do
-                  let av ← match envLookup acc.env argId with
-                    | some v => pure v
-                    | none => planError "unsupported Soroban semantic shape: construct arg undefined"
-                  unless !isArrayValue av && av.ty == .uint64 do
+            if isAnonymousMapTypeIdV1 data.types typeId then
+              requireMapUInt64V1 data.types types typeId
+              unless ctorIdx == 0 do
+                planError
+                  "unsupported Soroban semantic shape: Map construct ctorIdx must be 0"
+              unless argIds.isEmpty do
+                planError
+                  "unsupported Soroban semantic shape: nonempty Map construct is outside S0 (build maps via IndexSet upsert)"
+              let zeros := Array.replicate mapPilotLeafCountV1 (.litU64 0)
+              acc := { acc with
+                env := envInsert acc.env vd.valueId
+                  (mkMapLeaves zeros mapPilotLeafCountV1) }
+            else if isAnonymousOptionTypeIdV1 data.types typeId then
+              -- CosmWasm-shaped Option UInt64 construct: ctor 0 none
+              -- arity 0 → #[0,0]; ctor 1 some arity 1 → #[1,v].
+              match data.types[typeId.toNat]? with
+              | some { shape := .option elTid, name := none, .. } => do
+                  unless elTid == types.uint64TypeId do
                     planError
-                      "unsupported Soroban semantic shape: Array construct args must be scalar UInt64"
-                  leafExprs := leafExprs.push av.expr
-                  nodes := nodes + av.expandedNodes
-                acc := { acc with
-                  env := envInsert acc.env vd.valueId (mkArrayLeaves leafExprs (nodes + n)) }
-            | none => do
-                -- CosmWasm-shaped Option UInt64 construct: ctor 0 none
-                -- arity 0 → #[0,0]; ctor 1 some arity 1 → #[1,v].
-                match data.types[typeId.toNat]? with
-                | some { shape := .option elTid, name := none, .. } => do
-                    unless elTid == types.uint64TypeId do
-                      planError
-                        "unsupported Soroban semantic shape: Option construct requires UInt64 payload"
-                    unless ctorIdx.toNat == 0 || ctorIdx.toNat == 1 do
-                      planError
-                        "unsupported Soroban semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
-                    if ctorIdx.toNat == 0 then
-                      unless argIds.isEmpty do
-                        planError
-                          "unsupported Soroban semantic shape: Option.none construct takes no args"
-                      acc := { acc with
-                        env := envInsert acc.env vd.valueId
-                          (mkArrayLeaves #[.litU64 0, .litU64 0] 2) }
-                    else do
-                      unless argIds.size == 1 do
-                        planError
-                          "unsupported Soroban semantic shape: Option.some construct takes one arg"
-                      let some argId := argIds[0]? |
-                        planError "unsupported Soroban semantic shape: Option.some construct arg missing"
-                      let av ← match envLookup acc.env argId with
-                        | some v => pure v
-                        | none =>
-                            planError
-                              "unsupported Soroban semantic shape: construct arg undefined"
-                      unless !isArrayValue av && av.ty == .uint64 do
-                        planError
-                          "unsupported Soroban semantic shape: Option.some arg must be scalar UInt64"
-                      acc := { acc with
-                        env := envInsert acc.env vd.valueId
-                          (mkArrayLeaves #[.litU64 1, av.expr] (av.expandedNodes + 2)) }
-                | _ =>
+                      "unsupported Soroban semantic shape: Option construct requires UInt64 payload"
+                  unless ctorIdx.toNat == 0 || ctorIdx.toNat == 1 do
                     planError
-                      "unsupported Soroban semantic shape: construct admits only Array UInt64 N or Option UInt64 on Soroban"
+                      "unsupported Soroban semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
+                  if ctorIdx.toNat == 0 then
+                    unless argIds.isEmpty do
+                      planError
+                        "unsupported Soroban semantic shape: Option.none construct takes no args"
+                    acc := { acc with
+                      env := envInsert acc.env vd.valueId
+                        (mkOptionLeaves #[.litU64 0, .litU64 0] 2) }
+                  else do
+                    unless argIds.size == 1 do
+                      planError
+                        "unsupported Soroban semantic shape: Option.some construct takes one arg"
+                    let some argId := argIds[0]? |
+                      planError "unsupported Soroban semantic shape: Option.some construct arg missing"
+                    let av ← match envLookup acc.env argId with
+                      | some v => pure v
+                      | none =>
+                          planError
+                            "unsupported Soroban semantic shape: construct arg undefined"
+                    unless !isAggregateValue av && av.ty == .uint64 do
+                      planError
+                        "unsupported Soroban semantic shape: Option.some arg must be scalar UInt64"
+                    acc := { acc with
+                      env := envInsert acc.env vd.valueId
+                        (mkOptionLeaves #[.litU64 1, av.expr] (av.expandedNodes + 2)) }
+              | _ =>
+                  planError
+                    "unsupported Soroban semantic shape: Option construct requires anonymous Option"
+            else
+              let n ← match ← arrayUInt64LenV1 data.types types typeId with
+                | some n => pure n
+                | none =>
+                    planError
+                      "unsupported Soroban semantic shape: construct admits only Array UInt64 N, Option UInt64, or Map UInt64 UInt64 on Soroban"
+              unless ctorIdx == 0 do
+                planError "unsupported Soroban semantic shape: Array construct ctorIdx must be 0"
+              unless argIds.size == n do
+                planError "unsupported Soroban semantic shape: Array construct arity mismatch"
+              let mut leafExprs : Array Expr := #[]
+              let mut nodes : Nat := 0
+              for argId in argIds do
+                let av ← match envLookup acc.env argId with
+                  | some v => pure v
+                  | none => planError "unsupported Soroban semantic shape: construct arg undefined"
+                unless !isAggregateValue av && av.ty == .uint64 do
+                  planError
+                    "unsupported Soroban semantic shape: Array construct args must be scalar UInt64"
+                leafExprs := leafExprs.push av.expr
+                nodes := nodes + av.expandedNodes
+              acc := { acc with
+                env := envInsert acc.env vd.valueId (mkArrayLeaves leafExprs (nodes + n)) }
     | .indexGet base index => do
         match instr.result with
         | none => planError "unsupported Soroban semantic shape: IndexGet must produce a value"
@@ -919,22 +1111,31 @@ private partial def lowerInstructions
             let bv ← match envLookup acc.env base with
               | some v => pure v
               | none => planError "unsupported Soroban semantic shape: IndexGet base undefined"
-            unless isArrayValue bv do
-              planError
-                "unsupported Soroban semantic shape: IndexGet base must be an Array UInt64 aggregate"
             let iv ← match envLookup acc.env index with
               | some v => pure v
               | none => planError "unsupported Soroban semantic shape: IndexGet index undefined"
-            let i ← literalIndexNatV1 iv
-            unless i < bv.leaves.size do
-              planError "unsupported Soroban semantic shape: Array IndexGet index out of range"
-            let some leaf := bv.leaves[i]? |
-              planError "unsupported Soroban semantic shape: Array IndexGet leaf missing"
-            acc := { acc with env := envInsert acc.env vd.valueId {
-              ty := .uint64
-              expr := leaf
-              expandedNodes := 1
-            } }
+            if isMapValue bv then
+              unless !isAggregateValue iv && iv.ty == .uint64 do
+                planError
+                  "unsupported Soroban semantic shape: Map IndexGet key must be scalar UInt64"
+              let optLeaves ← mapLookupOptionLeavesV1 bv.leaves iv.expr
+              let ov := mkOptionLeaves optLeaves
+                (bv.expandedNodes + iv.expandedNodes + 8)
+              acc := { acc with env := envInsert acc.env vd.valueId ov }
+            else do
+              unless isArrayValue bv do
+                planError
+                  "unsupported Soroban semantic shape: IndexGet base must be an Array UInt64 or Map UInt64 aggregate"
+              let i ← literalIndexNatV1 iv
+              unless i < bv.leaves.size do
+                planError "unsupported Soroban semantic shape: Array IndexGet index out of range"
+              let some leaf := bv.leaves[i]? |
+                planError "unsupported Soroban semantic shape: Array IndexGet leaf missing"
+              acc := { acc with env := envInsert acc.env vd.valueId {
+                ty := .uint64
+                expr := leaf
+                expandedNodes := 1
+              } }
     | .indexSet base index value => do
         match instr.result with
         | none => planError "unsupported Soroban semantic shape: IndexSet must produce a value"
@@ -942,24 +1143,41 @@ private partial def lowerInstructions
             let bv ← match envLookup acc.env base with
               | some v => pure v
               | none => planError "unsupported Soroban semantic shape: IndexSet base undefined"
-            unless isArrayValue bv do
-              planError
-                "unsupported Soroban semantic shape: IndexSet base must be an Array UInt64 aggregate"
             let iv ← match envLookup acc.env index with
               | some v => pure v
               | none => planError "unsupported Soroban semantic shape: IndexSet index undefined"
-            let i ← literalIndexNatV1 iv
-            unless i < bv.leaves.size do
-              planError "unsupported Soroban semantic shape: Array IndexSet index out of range"
             let vv ← match envLookup acc.env value with
               | some v => pure v
               | none => planError "unsupported Soroban semantic shape: IndexSet value undefined"
-            unless !isArrayValue vv && vv.ty == .uint64 do
-              planError
-                "unsupported Soroban semantic shape: Array IndexSet value must be scalar UInt64"
-            let newLeaves := bv.leaves.set! i vv.expr
-            let tv := mkArrayLeaves newLeaves (1 + bv.expandedNodes + vv.expandedNodes)
-            acc := { acc with env := envInsert acc.env vd.valueId tv }
+            if isMapValue bv then
+              unless !isAggregateValue iv && iv.ty == .uint64 do
+                planError
+                  "unsupported Soroban semantic shape: Map IndexSet key must be scalar UInt64"
+              unless !isAggregateValue vv && vv.ty == .uint64 do
+                planError
+                  "unsupported Soroban semantic shape: Map IndexSet value must be scalar UInt64"
+              if forbidChecks then
+                planError
+                  "unsupported Soroban semantic shape: initializer cannot contain fallible Map upsert"
+              let (newLeaves, okInsert) ←
+                mapUpsertLeavesV1 bv.leaves iv.expr vv.expr
+              acc ← pushCheck acc { kind := .overflow, condition := okInsert }
+              let tv := mkMapLeaves newLeaves
+                (1 + bv.expandedNodes + iv.expandedNodes + vv.expandedNodes)
+              acc := { acc with env := envInsert acc.env vd.valueId tv }
+            else do
+              unless isArrayValue bv do
+                planError
+                  "unsupported Soroban semantic shape: IndexSet base must be an Array UInt64 or Map UInt64 aggregate"
+              let i ← literalIndexNatV1 iv
+              unless i < bv.leaves.size do
+                planError "unsupported Soroban semantic shape: Array IndexSet index out of range"
+              unless !isAggregateValue vv && vv.ty == .uint64 do
+                planError
+                  "unsupported Soroban semantic shape: Array IndexSet value must be scalar UInt64"
+              let newLeaves := bv.leaves.set! i vv.expr
+              let tv := mkArrayLeaves newLeaves (1 + bv.expandedNodes + vv.expandedNodes)
+              acc := { acc with env := envInsert acc.env vd.valueId tv }
     | .constant .. | .fieldGet .. | .fieldSet ..
     | .variantTag .. | .variantPayload ..
     | .checkedCast .. | .commit ..
@@ -1002,7 +1220,7 @@ private def seedParamEnv
         "unsupported Soroban semantic shape: Option params are outside S0"
     if types.isContainer p.typeId then
       planError
-        "unsupported Soroban semantic shape: Array params are outside S0 (only Array UInt64 N state flattens; no Vec)"
+        "unsupported Soroban semantic shape: Array/Map params are outside S0 (only Array/Map UInt64 state flattens; no Vec/HashMap)"
     requirePublicUInt64OrInt64Param sorobanPlanErr types "callable" p
     let ty := if isInt64Type types p.typeId then ExprType.int64 else .uint64
     env := envInsert env p.valueId {
@@ -1029,6 +1247,14 @@ private def lowerCallableBody
   if initialStateDefaults then
     for st in data.logicalState do
       let phys ← physicalLeaves layout st.id
+      let isOpt :=
+        match layout.isOptionOf[st.id.toNat]? with
+        | some b => b
+        | none => false
+      let isMp :=
+        match layout.isMapOf[st.id.toNat]? with
+        | some b => b
+        | none => false
       if phys.size == 1 then
         overlay0 := overlayInsert overlay0 st.id {
           ty := numericTy
@@ -1037,7 +1263,12 @@ private def lowerCallableBody
         }
       else
         let zeros := phys.map (fun _ => Expr.litU64 0)
-        overlay0 := overlayInsert overlay0 st.id (mkArrayLeaves zeros phys.size)
+        if isOpt then
+          overlay0 := overlayInsert overlay0 st.id (mkOptionLeaves zeros phys.size)
+        else if isMp then
+          overlay0 := overlayInsert overlay0 st.id (mkMapLeaves zeros phys.size)
+        else
+          overlay0 := overlayInsert overlay0 st.id (mkArrayLeaves zeros phys.size)
   let acc0 : BodyAccum := emptyBodyAccum env0 overlay0
   let (acc, ret?, endedRevert) ←
     lowerInstructions data types idx callable numericTy layout
@@ -1072,7 +1303,8 @@ private def makePlanFromSemanticDataV1
   let signedNumeric := signed? == some true
   let numericTy := numericTyOf signedNumeric
   -- States: public UInt64 or Int64, Array UInt64 N flattened to N leaves,
-  -- or Option UInt64 flattened to tag+payload.
+  -- Option UInt64 flattened to tag+payload, or Map UInt64 UInt64
+  -- flattened to 24 occ/key/val leaves.
   let layout ← makeStateLayoutV1 data types signedNumeric
   let states := layout.states
   let mut pureFns : Array (CallableIdV1 × CallableV1) := #[]

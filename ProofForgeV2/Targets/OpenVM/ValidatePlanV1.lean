@@ -5,8 +5,9 @@ import ProofForgeV2.Targets.EnvelopeV1
 # OpenVM ValidatePlanV1 — plan canonicity
 
 Size, name, reference, count, and expression-depth checks before IR emission.
-Flattened `Array UInt64 N` leaves (`slots_0`…) and `Option UInt64`
-leaves (`o_tag`/`o_p0`) are ordinary named scalar fields; this module
+Flattened `Array UInt64 N` leaves (`slots_0`…), `Option UInt64`
+leaves (`o_tag`/`o_p0`), and dense Map UInt64 cap-8 leaves
+(`m_0`..`m_23`) are ordinary named scalar fields; this module
 does not re-open containers.
 -/
 
@@ -102,6 +103,18 @@ private partial def inferExprType
       unless operandTy == .bool do
         planError s!"OpenVM plan {what} logical-not operand must be Bool"
       pure (.bool, remaining)
+  | .ite cond t e => do
+      let (condTy, remaining) ←
+        inferExprType cond what paramCount stateCount remaining signed
+      unless condTy == .bool do
+        planError s!"OpenVM plan {what} ite condition must be Bool"
+      let (tTy, remaining) ←
+        inferExprType t what paramCount stateCount remaining signed
+      let (eTy, remaining) ←
+        inferExprType e what paramCount stateCount remaining signed
+      unless tTy == eTy do
+        planError s!"OpenVM plan {what} ite branches must share a type"
+      pure (tTy, remaining)
 
 /-- Iterative, fuel-bounded expression validation. Counting expanded tree
     occurrences (rather than object identity) prevents shared SSA subtrees from
@@ -134,6 +147,10 @@ private def validateExpr
         stack := stack.push (lhs, depth + 1)
     | .boolNot operand =>
         stack := stack.push (operand, depth + 1)
+    | .ite cond t e =>
+        stack := stack.push (e, depth + 1)
+        stack := stack.push (t, depth + 1)
+        stack := stack.push (cond, depth + 1)
   let (actual, _) ← inferExprType e what paramCount stateCount maxExprNodes signed
   unless actual == expected do
     planError s!"OpenVM plan {what} expression type does not match its use site"

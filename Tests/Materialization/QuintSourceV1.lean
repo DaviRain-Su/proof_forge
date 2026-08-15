@@ -699,6 +699,119 @@ unsafe def testSignedNumericOptionFc : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
   | .ok _ => throw <| IO.userError "signedNumeric+Option must fail closed at Quint plan"
 
+/-- Map UInt64 UInt64 dense cap-8: 24 Plan leaves, empty + IndexSet. -/
+unsafe def testMapMiniFlatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapMini where\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-map-mini>" "Tests.QuintMapMini" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  expect (!plan.signedNumeric) "MapMini stays unsigned"
+  expect (plan.states.size == 24)
+    s!"Map UInt64 cap-8 must flatten to 24 leaves, got {plan.states.size}"
+  expect (plan.states[0]!.name == "m_0" && plan.states[23]!.name == "m_23")
+    "Map flatten leaf names must be m_0..m_23"
+  match plan.initializer with
+  | some initFn =>
+      expect (initFn.stores.size == 24)
+        "MapMini init must store all 24 Map leaves"
+  | none => throw <| IO.userError "MapMini must have an initializer"
+  expect (plan.entries.size == 1) "MapMini has one entry"
+  expect (plan.entries[0]!.stores.size == 24)
+    "MapMini put must store all 24 Map leaves"
+  expect (plan.entries[0]!.checks.size ≥ 1)
+    "MapMini put must check cap-8 overflow"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (·.path == "MapMini.qnt") |
+    throw <| IO.userError "quint: missing MapMini.qnt"
+  let qnt := qntFile.contents
+  expect (qnt.contains "var pf_state_m_0")
+    "MapMini.qnt must declare pf_state_m_0"
+  expect (qnt.contains "var pf_state_m_23")
+    "MapMini.qnt must declare pf_state_m_23"
+  expect (!qnt.contains "Map[")
+    "Map flatten must not emit a native Quint Map"
+
+/-- Map of Int64 stays fail closed. -/
+unsafe def testMapInt64PayloadFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapInt where\n" ++
+    "  state m : Map UInt64 Int64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-map-int>" "Tests.QuintMapInt" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planQuint compiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "Map state admits only Map UInt64 UInt64")
+        s!"Map Int64 must cite Map UInt64 UInt64, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "Map Int64 must fail closed at Quint plan"
+
+/-- Map entry return stays outside Q0. -/
+unsafe def testMapReturnFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapRet where\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry peek() : Map UInt64 UInt64 do\n" ++
+    "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-map-ret>" "Tests.QuintMapRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planQuint compiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "Array/Map return is outside Q0")
+        s!"Map return must cite outside Q0, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "Map return must fail closed at Quint plan"
+
+/-- signedNumeric Int64 programs cannot carry Map state. -/
+unsafe def testSignedNumericMapFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MixMap where\n" ++
+    "  state n : Int64\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    n := 0\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry bump(d : Int64) : Int64 do\n" ++
+    "    n := n + d\n" ++
+    "    return n\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-signed-map>" "Tests.QuintMixMap" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planQuint compiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "signedNumeric" && msg.contains "Map")
+        s!"signedNumeric+Map must cite both, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "signedNumeric+Map must fail closed at Quint plan"
+
 /-- Fail closed: Int32 (narrow signed; Int64 is the admitted width). -/
 unsafe def testFailClosedInt32 : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1488,6 +1601,10 @@ unsafe def run : IO Unit := do
   testOptionBoolPayloadFc
   testOptionReturnFc
   testSignedNumericOptionFc
+  testMapMiniFlatten
+  testMapInt64PayloadFc
+  testMapReturnFc
+  testSignedNumericMapFc
   testFailClosedInt32
   testFailClosedUInt32
   testFailClosedMultiblock

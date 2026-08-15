@@ -49,6 +49,8 @@ private partial def exprUsesVaultNativeV1 (e : Expr) : Bool :=
   | .arith _ l r | .compare _ l r | .boolAnd l r | .boolOr l r =>
       exprUsesVaultNativeV1 l || exprUsesVaultNativeV1 r
   | .boolNot o => exprUsesVaultNativeV1 o
+  | .ite c t e =>
+      exprUsesVaultNativeV1 c || exprUsesVaultNativeV1 t || exprUsesVaultNativeV1 e
 
 /-- Bounded Plan-expression type/reference checker. It runs only after the
     rendered-size/depth walk has admitted the expression. -/
@@ -122,6 +124,21 @@ private partial def inferExprType
       unless operandTy == .bool do
         planError s!"Quint plan {what} logical-not operand must be Bool"
       pure (.bool, remaining)
+  | .ite cond t e => do
+      let (condTy, remaining) ←
+        inferExprType cond what paramCount stateCount assetOpCount remaining
+          paramIsPrincipal signed
+      unless condTy == .bool do
+        planError s!"Quint plan {what} ite condition must be Bool"
+      let (tTy, remaining) ←
+        inferExprType t what paramCount stateCount assetOpCount remaining
+          paramIsPrincipal signed
+      let (eTy, remaining) ←
+        inferExprType e what paramCount stateCount assetOpCount remaining
+          paramIsPrincipal signed
+      unless tTy == eTy do
+        planError s!"Quint plan {what} ite branches must share a type"
+      pure (tTy, remaining)
 
 /-- Iterative, fuel-bounded expression validation. Counting expanded tree
     occurrences (rather than object identity) prevents shared SSA subtrees from
@@ -173,6 +190,10 @@ private def validateExpr
         stack := stack.push (lhs, depth + 1)
     | .boolNot operand =>
         stack := stack.push (operand, depth + 1)
+    | .ite cond t e =>
+        stack := stack.push (e, depth + 1)
+        stack := stack.push (t, depth + 1)
+        stack := stack.push (cond, depth + 1)
   let (actual, _) ←
     inferExprType e what paramCount stateCount assetOpCount maxExprNodes
       paramIsPrincipal signed

@@ -205,6 +205,11 @@ private partial def lowerExpr
   | .boolNot o => do
       let qo ← lowerExpr plan params overlayNames externalOkNames o
       pure (.unary .not qo)
+  | .ite c t e => do
+      let qc ← lowerExpr plan params overlayNames externalOkNames c
+      let qt ← lowerExpr plan params overlayNames externalOkNames t
+      let qe ← lowerExpr plan params overlayNames externalOkNames e
+      pure (.ifThenElse qc qt qe)
 
 private def pfMaxRef : QExpr := .name "PF_MAX_U64"
 private def pfMinI64Ref : QExpr := .name "PF_MIN_I64"

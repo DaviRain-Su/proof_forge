@@ -95,6 +95,18 @@ private partial def inferExprType
       unless operandTy == .bool do
         planError s!"Soroban plan {what} logical-not operand must be Bool"
       pure (.bool, remaining)
+  | .ite cond t e => do
+      let (condTy, remaining) ←
+        inferExprType cond what paramCount stateCount remaining signed
+      unless condTy == .bool do
+        planError s!"Soroban plan {what} ite condition must be Bool"
+      let (tTy, remaining) ←
+        inferExprType t what paramCount stateCount remaining signed
+      let (eTy, remaining) ←
+        inferExprType e what paramCount stateCount remaining signed
+      unless tTy == eTy do
+        planError s!"Soroban plan {what} ite branches must share a type"
+      pure (tTy, remaining)
 
 private def validateExpr
     (e : Expr) (expected : ExprType) (what : String)
@@ -138,6 +150,10 @@ private def validateExpr
         stack := stack.push (lhs, depth + 1)
     | .boolNot operand =>
         stack := stack.push (operand, depth + 1)
+    | .ite cond t e =>
+        stack := stack.push (e, depth + 1)
+        stack := stack.push (t, depth + 1)
+        stack := stack.push (cond, depth + 1)
   let (actual, _) ←
     inferExprType e what paramCount stateCount maxExprNodes signed
   unless actual == expected do
@@ -205,7 +221,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     unless isSafeIdent st.name do
       planError s!"Soroban state '{st.name}' is not a safe identifier"
     -- Same 9-byte `symbol_short!` gate for scalar names, Array
-    -- `{name}_{i}`, and Option `{name}_tag`/`{name}_p0`. Never truncate.
+    -- `{name}_{i}`, Option `{name}_tag`/`{name}_p0`, and Map
+    -- `{name}_0`..`{name}_23`. Never truncate.
     unless st.name.toUTF8.size ≤ 9 do
       planError s!"Soroban state '{st.name}' exceeds symbol_short! 9-byte limit"
     if stateNames.contains st.name then

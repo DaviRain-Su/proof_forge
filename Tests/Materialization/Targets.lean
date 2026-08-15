@@ -4749,10 +4749,11 @@ unsafe def run : IO Unit := do
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "ArrMap" target kind arrMapCompiled
-      "anonymous Map is outside the current container-state pilot"
+      "Array element must be UInt64"
+  expectMaterializePlanInvariantV1 "ArrMap" TargetId.icp TargetKind.icp
+    arrMapCompiled "anonymous Map is outside the current container-state pilot"
 
   -- ArrPrin: Array Principal 2 state. Companion UInt64 `n` exists only so
   -- init/entry compile (no Principal literal; no bare return in init).
@@ -4796,7 +4797,7 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "ArrPrin" target kind arrPrinCompiled
-      "Principal/aggregates/Map/Bytes"
+      "Principal/aggregates/Bytes"
   expectMaterializePlanInvariantV1 "ArrPrin" TargetId.icp TargetKind.icp
     arrPrinCompiled "Principal/aggregates/Map/Option/Bytes/String fail closed"
 
@@ -4836,7 +4837,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrField" TargetId.psy TargetKind.psy
     arrFieldCompiled "bn254 Fr and BLS12-377 Fr fail closed as wrong modulus"
   expectMaterializePlanInvariantV1 "ArrField" TargetId.quint TargetKind.quint
-    arrFieldCompiled "narrow Int/Field/aggregates/Map/Bytes fail closed"
+    arrFieldCompiled "narrow Int/Field/aggregates/Bytes fail closed"
   expectMaterializePlanInvariantV1 "ArrField" TargetId.cosmwasm TargetKind.cosmwasm
     arrFieldCompiled "no Field"
   expectMaterializePlanInvariantV1 "ArrField" TargetId.ton TargetKind.ton
@@ -4845,7 +4846,7 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "ArrField" target kind arrFieldCompiled
-      "Int/Field/Principal/aggregates/Map/Bytes"
+      "Int/Field/Principal/aggregates/Bytes"
   expectMaterializePlanInvariantV1 "ArrField" TargetId.icp TargetKind.icp
     arrFieldCompiled "Int/Field/Principal/aggregates/Map/Option/Bytes/String fail closed"
 
@@ -4884,7 +4885,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.psy TargetKind.psy
     arrStrCompiled "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.quint TargetKind.quint
-    arrStrCompiled "narrow Int/Field/aggregates/Map/Bytes fail closed"
+    arrStrCompiled "narrow Int/Field/aggregates/Bytes fail closed"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.cosmwasm TargetKind.cosmwasm
     arrStrCompiled "no Field"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.ton TargetKind.ton
@@ -4893,7 +4894,7 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "ArrStr" target kind arrStrCompiled
-      "Int/Field/Principal/aggregates/Map/Bytes"
+      "Int/Field/Principal/aggregates/Bytes"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.icp TargetKind.icp
     arrStrCompiled "Map/Option/Bytes/String fail closed"
 
@@ -5345,9 +5346,9 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrI8" target kind arrI8Compiled
       "only anonymous UInt64/Int64 widths are supported"
 
-  -- MapMini: Map UInt64 UInt64 state. Eight materializers admit; Quint/
-  -- Soroban/ICP/OpenVM stay envelope FC. Not opening Map on those four.
-  -- No Plan-shape pins; files-nonempty or named decline only.
+  -- MapMini: Map UInt64 UInt64 state. Eleven materializers admit
+  -- (envelope Quint/Soroban/OpenVM flatten is 24 occ/key/val leaves).
+  -- ICP stays Map-pilot (no Candid map). No Plan-shape pins.
   let mapMiniSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -5366,11 +5367,12 @@ unsafe def run : IO Unit := do
     | .error e => throw <| IO.userError s!"MapMini select: {e.render}"
   let mapCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton] do
+      TargetId.psy, TargetId.aleo, TargetId.cosmwasm, TargetId.ton,
+      TargetId.quint, TargetId.soroban, TargetId.openvm] do
     let out ← liftResult <| materializeSelected target mapCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MapMini: {target} must materialize Map UInt64 UInt64"
-  for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
+  for target in [TargetId.icp] do
     match materializeSelected target mapCompiled with
     | .ok _ =>
         throw <| IO.userError s!"MapMini: {target} must decline Map state"
@@ -5383,8 +5385,8 @@ unsafe def run : IO Unit := do
           s!"MapMini {target} message must cite Map/container boundary, got {e.render}"
 
   -- MapRetBox: Map UInt64 UInt64 *entry* return. NEAR/CW admit. EVM/Solana/
-  -- Noir/Aleo/Psy/TON named B-RET FC; Quint/Soroban/OpenVM/ICP stay
-  -- container-state pilot FC. Entry peek, not Map index get (Option).
+  -- Noir/Aleo/Psy/TON named B-RET FC; Quint names Q0 return; Soroban/
+  -- OpenVM/ICP stay Map-pilot. Entry peek, not Map index get (Option).
   -- Not opening Map return ABI. MapMini state pin stays.
   let mapRetSource :=
     "import ProofForgeV2\n\n" ++
@@ -5418,13 +5420,14 @@ unsafe def run : IO Unit := do
     mapRetCompiled "anonymous Map return is outside the Psy B-RET ABI"
   expectMaterializePlanInvariantV1 "MapRetBox" TargetId.ton TargetKind.ton
     mapRetCompiled "entry 'peek' cannot return multi-leaf aggregate"
-  for (target, kind) in #[
-      (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
-    expectMaterializePlanInvariantV1 "MapRetBox" target kind mapRetCompiled
-      "anonymous Map is outside the current container-state pilot"
+  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.quint TargetKind.quint
+    mapRetCompiled "Array/Map return is outside Q0"
+  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.soroban TargetKind.soroban
+    mapRetCompiled "Array/Map return is outside S0"
+  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.openvm TargetKind.openvm
+    mapRetCompiled "Array/Map return is outside O0"
+  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.icp TargetKind.icp
+    mapRetCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapOpt: Map UInt64 Option UInt64 state. All twelve targets stay named
   -- Map-value/pilot FC. Not opening Map-of-Option. MapMini / MapRetBox stay.
@@ -5459,14 +5462,14 @@ unsafe def run : IO Unit := do
       (TargetId.ton, TargetKind.ton)] do
     expectMaterializePlanInvariantV1 "MapOpt" target kind mapOptCompiled
       "Map state admits only Map UInt64 UInt64"
-  -- Quint/Soroban/OpenVM admit Option type independently of Map; Map
-  -- value Option still fails on the Map-pilot. ICP stays Option-pilot.
+  -- Quint admits Map type so Map-of-Option fails on the UInt64-value
+  -- needle. Soroban/OpenVM stay Map-pilot; ICP stays Option-pilot.
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapOpt" target kind mapOptCompiled
-      "anonymous Map is outside the current container-state pilot"
+      "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapOpt" TargetId.icp TargetKind.icp
     mapOptCompiled "anonymous Option is outside the current container-state pilot"
 
@@ -5504,13 +5507,13 @@ unsafe def run : IO Unit := do
       (TargetId.ton, TargetKind.ton)] do
     expectMaterializePlanInvariantV1 "MapArr" target kind mapArrCompiled
       "Map state admits only Map UInt64 UInt64"
-  expectMaterializePlanInvariantV1 "MapArr" TargetId.quint TargetKind.quint
-    mapArrCompiled "anonymous Map is outside the current container-state pilot"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm)] do
+    expectMaterializePlanInvariantV1 "MapArr" target kind mapArrCompiled
+      "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapArr" TargetId.icp TargetKind.icp
-    mapArrCompiled "anonymous Map is outside the current container-state pilot"
-  expectMaterializePlanInvariantV1 "MapArr" TargetId.soroban TargetKind.soroban
-    mapArrCompiled "anonymous Map is outside the current container-state pilot"
-  expectMaterializePlanInvariantV1 "MapArr" TargetId.openvm TargetKind.openvm
     mapArrCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapBytes: Map UInt64 Bytes 4 state. All twelve targets stay named
@@ -5592,10 +5595,11 @@ unsafe def run : IO Unit := do
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapMap" target kind mapMapCompiled
-      "anonymous Map is outside the current container-state pilot"
+      "Map state admits only Map UInt64 UInt64"
+  expectMaterializePlanInvariantV1 "MapMap" TargetId.icp TargetKind.icp
+    mapMapCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapBytesKey: Map Bytes 4 UInt64 state. Bytes *key*, distinct from
   -- MapBytes (Bytes *value*). All twelve stay named key/pilot FC.
@@ -5676,14 +5680,14 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapPrin" TargetId.aleo TargetKind.aleo
     mapPrinCompiled "Principal/String stay fail-closed"
   expectMaterializePlanInvariantV1 "MapPrin" TargetId.quint TargetKind.quint
-    mapPrinCompiled "anonymous Map is outside the current container-state pilot"
+    mapPrinCompiled "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapPrin" TargetId.ton TargetKind.ton
     mapPrinCompiled "no Field/Principal"
   for (target, kind) in #[
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapPrin" target kind mapPrinCompiled
-      "Principal/aggregates/Map/Bytes"
+      "Principal/aggregates"
   expectMaterializePlanInvariantV1 "MapPrin" TargetId.icp TargetKind.icp
     mapPrinCompiled "Principal/aggregates/Map/Option/Bytes/String fail closed"
 
@@ -5720,7 +5724,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapField" TargetId.psy TargetKind.psy
     mapFieldCompiled "bn254 Fr and BLS12-377 Fr fail closed as wrong modulus"
   expectMaterializePlanInvariantV1 "MapField" TargetId.quint TargetKind.quint
-    mapFieldCompiled "narrow Int/Field/aggregates/Map/Bytes fail closed"
+    mapFieldCompiled "narrow Int/Field/aggregates/Bytes fail closed"
   expectMaterializePlanInvariantV1 "MapField" TargetId.cosmwasm TargetKind.cosmwasm
     mapFieldCompiled "no Field"
   expectMaterializePlanInvariantV1 "MapField" TargetId.ton TargetKind.ton
@@ -5729,7 +5733,7 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapField" target kind mapFieldCompiled
-      "Int/Field/Principal/aggregates/Map/Bytes"
+      "Int/Field/Principal/aggregates/Bytes"
   expectMaterializePlanInvariantV1 "MapField" TargetId.icp TargetKind.icp
     mapFieldCompiled "Int/Field/Principal/aggregates/Map/Option/Bytes/String fail closed"
 
@@ -5765,7 +5769,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapStr" TargetId.psy TargetKind.psy
     mapStrCompiled "Map state pilot requires UInt64 keys and values"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.quint TargetKind.quint
-    mapStrCompiled "narrow Int/Field/aggregates/Map/Bytes fail closed"
+    mapStrCompiled "narrow Int/Field/aggregates/Bytes fail closed"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.cosmwasm TargetKind.cosmwasm
     mapStrCompiled "no Field"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.ton TargetKind.ton
@@ -5774,7 +5778,7 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapStr" target kind mapStrCompiled
-      "Int/Field/Principal/aggregates/Map/Bytes"
+      "Int/Field/Principal/aggregates/Bytes"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.icp TargetKind.icp
     mapStrCompiled "Map/Option/Bytes/String fail closed"
 
@@ -5814,10 +5818,11 @@ unsafe def run : IO Unit := do
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapBool" target kind mapBoolCompiled
-      "anonymous Map is outside the current container-state pilot"
+      "Map state admits only Map UInt64 UInt64"
+  expectMaterializePlanInvariantV1 "MapBool" TargetId.icp TargetKind.icp
+    mapBoolCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapInt: Map UInt64 Int64 state. Eight targets stay named
   -- Map-value/pilot FC. Envelope-4 admit Int64 width so they fail on
@@ -5855,12 +5860,13 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapInt" TargetId.psy TargetKind.psy
     mapIntCompiled "Map state pilot requires UInt64 keys and values"
   for (target, kind) in #[
-      (TargetId.icp, TargetKind.icp),
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapInt" target kind mapIntCompiled
-      "anonymous Map is outside the current container-state pilot"
+      "Map state admits only Map UInt64 UInt64"
+  expectMaterializePlanInvariantV1 "MapInt" TargetId.icp TargetKind.icp
+    mapIntCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapIntKey: Map Int64 UInt64 state (signed KEY). EVM/Solana stay on
   -- the key-shape needle, not MapInt's value needle. Six targets stay
@@ -5899,12 +5905,13 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapIntKey" TargetId.psy TargetKind.psy
     mapIntKeyCompiled "Map state pilot requires UInt64 keys and values"
   for (target, kind) in #[
-      (TargetId.icp, TargetKind.icp),
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapIntKey" target kind mapIntKeyCompiled
-      "anonymous Map is outside the current container-state pilot"
+      "Map state admits only Map UInt64 UInt64"
+  expectMaterializePlanInvariantV1 "MapIntKey" TargetId.icp TargetKind.icp
+    mapIntKeyCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapU128: Map UInt64 UInt128 state. All twelve stay named FC. Aleo
   -- and TON fail on the width needle first, not MapInt's Map-U64-U64.
@@ -6126,13 +6133,13 @@ unsafe def run : IO Unit := do
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapU32Key" TargetId.psy TargetKind.psy
     mapU32KeyCompiled "Map state pilot requires UInt64 keys and values"
-  expectMaterializePlanInvariantV1 "MapU32Key" TargetId.quint TargetKind.quint
-    mapU32KeyCompiled "anonymous Map is outside the current container-state pilot"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm)] do
+    expectMaterializePlanInvariantV1 "MapU32Key" target kind mapU32KeyCompiled
+      "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapU32Key" TargetId.icp TargetKind.icp
-    mapU32KeyCompiled "anonymous Map is outside the current container-state pilot"
-  expectMaterializePlanInvariantV1 "MapU32Key" TargetId.soroban TargetKind.soroban
-    mapU32KeyCompiled "anonymous Map is outside the current container-state pilot"
-  expectMaterializePlanInvariantV1 "MapU32Key" TargetId.openvm TargetKind.openvm
     mapU32KeyCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapU32: Map UInt64 UInt32 state (unsigned 32-bit VALUE). EVM/Solana
@@ -6171,13 +6178,13 @@ unsafe def run : IO Unit := do
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapU32" TargetId.psy TargetKind.psy
     mapU32Compiled "Map state pilot requires UInt64 keys and values"
-  expectMaterializePlanInvariantV1 "MapU32" TargetId.quint TargetKind.quint
-    mapU32Compiled "anonymous Map is outside the current container-state pilot"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm)] do
+    expectMaterializePlanInvariantV1 "MapU32" target kind mapU32Compiled
+      "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapU32" TargetId.icp TargetKind.icp
-    mapU32Compiled "anonymous Map is outside the current container-state pilot"
-  expectMaterializePlanInvariantV1 "MapU32" TargetId.soroban TargetKind.soroban
-    mapU32Compiled "anonymous Map is outside the current container-state pilot"
-  expectMaterializePlanInvariantV1 "MapU32" TargetId.openvm TargetKind.openvm
     mapU32Compiled "anonymous Map is outside the current container-state pilot"
 
   -- MapU16Key: Map UInt16 UInt64 state. Same legal-width needle set as
@@ -6809,13 +6816,14 @@ unsafe def run : IO Unit := do
       (TargetId.ton, TargetKind.ton)] do
     expectMaterializePlanInvariantV1 "OptMap" target kind optMapCompiled
       "Option state 'o' requires UInt64 payload"
-  for (target, kind) in #[
-      (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
-    expectMaterializePlanInvariantV1 "OptMap" target kind optMapCompiled
-      "anonymous Map is outside the current container-state pilot"
+  expectMaterializePlanInvariantV1 "OptMap" TargetId.quint TargetKind.quint
+    optMapCompiled "Option element must be UInt64"
+  expectMaterializePlanInvariantV1 "OptMap" TargetId.soroban TargetKind.soroban
+    optMapCompiled "Option state 'o' requires UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptMap" TargetId.openvm TargetKind.openvm
+    optMapCompiled "UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptMap" TargetId.icp TargetKind.icp
+    optMapCompiled "anonymous Map is outside the current container-state pilot"
 
   -- OptPrin: Option Principal state. All twelve targets stay named
   -- payload/Principal FC. Aleo/TON/Soroban/OpenVM/ICP use Principal-named
@@ -6858,7 +6866,7 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "OptPrin" target kind optPrinCompiled
-      "Principal/aggregates/Map/Bytes"
+      "Principal/aggregates/Bytes"
   expectMaterializePlanInvariantV1 "OptPrin" TargetId.icp TargetKind.icp
     optPrinCompiled "Principal/aggregates/Map/Option/Bytes/String fail closed"
 
@@ -6895,7 +6903,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "OptField" TargetId.psy TargetKind.psy
     optFieldCompiled "bn254 Fr and BLS12-377 Fr fail closed as wrong modulus"
   expectMaterializePlanInvariantV1 "OptField" TargetId.quint TargetKind.quint
-    optFieldCompiled "narrow Int/Field/aggregates/Map/Bytes fail closed"
+    optFieldCompiled "narrow Int/Field/aggregates/Bytes fail closed"
   expectMaterializePlanInvariantV1 "OptField" TargetId.cosmwasm TargetKind.cosmwasm
     optFieldCompiled "no Field"
   expectMaterializePlanInvariantV1 "OptField" TargetId.ton TargetKind.ton
@@ -6904,7 +6912,7 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "OptField" target kind optFieldCompiled
-      "Int/Field/Principal/aggregates/Map/Bytes"
+      "Int/Field/Principal/aggregates/Bytes"
   expectMaterializePlanInvariantV1 "OptField" TargetId.icp TargetKind.icp
     optFieldCompiled "Int/Field/Principal/aggregates/Map/Option/Bytes/String fail closed"
 
@@ -6940,7 +6948,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "OptStr" TargetId.psy TargetKind.psy
     optStrCompiled "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.quint TargetKind.quint
-    optStrCompiled "narrow Int/Field/aggregates/Map/Bytes fail closed"
+    optStrCompiled "narrow Int/Field/aggregates/Bytes fail closed"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.cosmwasm TargetKind.cosmwasm
     optStrCompiled "no Field"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.ton TargetKind.ton
@@ -6949,7 +6957,7 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "OptStr" target kind optStrCompiled
-      "Int/Field/Principal/aggregates/Map/Bytes"
+      "Int/Field/Principal/aggregates/Bytes"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.icp TargetKind.icp
     optStrCompiled "Map/Option/Bytes/String fail closed"
 
@@ -7721,7 +7729,7 @@ unsafe def run : IO Unit := do
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/soroban"
     TargetId.soroban .soroban
-    "unsupported Soroban semantic shape: only anonymous UInt64, Int64, Bool, Unit, Array UInt64 N state flatten, and Option UInt64 2-leaf state are supported (narrow Int/Field/Principal/aggregates/Map/Bytes fail closed)"
+    "unsupported Soroban semantic shape: only anonymous UInt64, Int64, Bool, Unit, Array UInt64 N state flatten, Option UInt64 2-leaf state, and Map UInt64 UInt64 cap-8 flatten are supported (narrow Int/Field/Principal/aggregates/Bytes fail closed)"
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/icp"
     TargetId.icp .icp
@@ -7729,7 +7737,7 @@ unsafe def run : IO Unit := do
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/openvm"
     TargetId.openvm .openvm
-    "unsupported OpenVM semantic shape: only anonymous UInt64, Int64, Bool, Unit, Array UInt64 N state flatten, and Option UInt64 2-leaf state flatten are supported (narrow Int/Field/Principal/aggregates/Map/Bytes/nested Option fail closed)"
+    "unsupported OpenVM semantic shape: only anonymous UInt64, Int64, Bool, Unit, Array UInt64 N state flatten, Option UInt64 2-leaf flatten, and Map UInt64 UInt64 cap-8 flatten are supported (narrow Int/Field/Principal/aggregates/Bytes/nested Option fail closed)"
     selfCompiled
 
   -- B-RET-ABI: named Struct view return. EVM + Noir + Solana + NEAR + Psy +

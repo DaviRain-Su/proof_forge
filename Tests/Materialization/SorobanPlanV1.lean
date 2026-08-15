@@ -544,8 +544,8 @@ unsafe def testArrayReturnFailClosed : IO Unit := do
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planSoroban compiled with
   | .error (.planInvariant .soroban msg) =>
-      expect (msg.contains "Array return")
-        s!"Array return must name Array return, got: {msg}"
+      expect (msg.contains "Array/Map return" || msg.contains "Array return")
+        s!"Array return must name Array/Map return, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
   | .ok _ => throw <| IO.userError "Array return must fail closed at Soroban plan"
 
@@ -721,6 +721,122 @@ unsafe def testSignedNumericOptionStateFailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
   | .ok _ => throw <| IO.userError "signedNumeric + Option state must fail closed"
 
+/-- Map UInt64 UInt64 dense cap-8: 24 Plan leaves, empty + IndexSet. -/
+unsafe def testMapMiniAdmit : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapMini where\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-map-mini>" "Tests.SorobanMapMini" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  expect (!plan.signedNumeric) "MapMini stays unsigned"
+  expect (plan.states.size == 24)
+    s!"Map UInt64 cap-8 must flatten to 24 leaves, got {plan.states.size}"
+  expect (plan.states[0]!.name == "m_0" && plan.states[23]!.name == "m_23")
+    "Map flatten leaf names must be m_0..m_23"
+  match plan.initializer with
+  | some initFn =>
+      expect (initFn.stores.size == 24)
+        "MapMini init must store all 24 Map leaves"
+  | none => throw <| IO.userError "MapMini must have an initializer"
+  expect (plan.entries.size == 1) "MapMini has one entry"
+  expect (plan.entries[0]!.stores.size == 24)
+    "MapMini put must store all 24 Map leaves"
+  expect (plan.entries[0]!.checks.size ≥ 1)
+    "MapMini put must check cap-8 overflow"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rsFile := files.find? (fun f => f.path == "MapMini.rs") |
+    throw <| IO.userError "soroban: missing MapMini.rs"
+  let rs := rsFile.contents
+  expect (rs.contains "symbol_short!(\"m_0\")")
+    "MapMini.rs must use instance key m_0"
+  expect (rs.contains "symbol_short!(\"m_23\")")
+    "MapMini.rs must use instance key m_23"
+  expect (!rs.contains "Vec<")
+    "Map flatten must not emit a Rust Vec"
+  expect (!rs.contains "HashMap")
+    "Map flatten must not emit a Rust HashMap"
+
+/-- Map of Int64 stays fail closed. -/
+unsafe def testMapInt64ElementFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapInt where\n" ++
+    "  state m : Map UInt64 Int64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-map-int>" "Tests.SorobanMapInt" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error (.planInvariant .soroban msg) =>
+      expect (msg.contains "Map state admits only Map UInt64 UInt64" ||
+          msg.contains "payload")
+        s!"Map Int64 must cite Map UInt64 UInt64 or payload, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
+  | .ok _ => throw <| IO.userError "Map Int64 must fail closed at Soroban plan"
+
+/-- Map entry return stays outside S0. -/
+unsafe def testMapReturnFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MapRet where\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry peek() : Map UInt64 UInt64 do\n" ++
+    "    return m\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-map-ret>" "Tests.SorobanMapRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error (.planInvariant .soroban msg) =>
+      expect (msg.contains "Array/Map return is outside S0")
+        s!"Map return must cite Array/Map return is outside S0, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
+  | .ok _ => throw <| IO.userError "Map return must fail closed at Soroban plan"
+
+/-- signedNumeric Int64 programs cannot carry Map state. -/
+unsafe def testSignedNumericMapStateFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MixMap where\n" ++
+    "  state n : Int64\n" ++
+    "  state m : Map UInt64 UInt64\n" ++
+    "  init() do\n" ++
+    "    n := 0\n" ++
+    "    m := Map.empty()\n" ++
+    "  entry bump(d : Int64) : Int64 do\n" ++
+    "    n := n + d\n" ++
+    "    return n\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-signed-map>" "Tests.SorobanMixMap" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error (.planInvariant .soroban msg) =>
+      expect (msg.contains "signedNumeric" && msg.contains "Map")
+        s!"signedNumeric+Map must cite both, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
+  | .ok _ => throw <| IO.userError "signedNumeric+Map must fail closed at Soroban plan"
+
 unsafe def run : IO Unit := do
   testStateCellSorobanSource
   testInt64CellSorobanSource
@@ -743,6 +859,10 @@ unsafe def run : IO Unit := do
   testOptionInt64ElementFailClosed
   testOptionReturnFailClosed
   testSignedNumericOptionStateFailClosed
+  testMapMiniAdmit
+  testMapInt64ElementFailClosed
+  testMapReturnFailClosed
+  testSignedNumericMapStateFailClosed
   IO.println "Tests.Materialization.SorobanPlanV1: ok"
 
 end Tests.Materialization.SorobanPlanV1

@@ -49,6 +49,8 @@ inductive RExpr where
   | boolAnd (lhs rhs : RExpr)
   | boolOr (lhs rhs : RExpr)
   | boolNot (operand : RExpr)
+  /-- Dense Map mux: `if cond { t } else { e }`. -/
+  | ite (cond t e : RExpr)
   | okUnit
   | okValue (value : RExpr)
   deriving BEq, Inhabited, Repr
@@ -148,15 +150,25 @@ private partial def lowerExprToRExpr
   | .boolNot o => do
       let ro ← lowerExprToRExpr plan params o
       pure (.boolNot ro)
+  | .ite c t e => do
+      let rc ← lowerExprToRExpr plan params c
+      let rt ← lowerExprToRExpr plan params t
+      let re ← lowerExprToRExpr plan params e
+      pure (.ite rc rt re)
 
-/-- Checks that already carry their own `?`-propagated failure semantics via
-    `checkedAdd`/`checkedSub` in the value expressions must not also become a
-    redundant guard statement; only assertion / declared-revert / terminal
-    markers become explicit early-return guards. -/
+/-- Arith overflow/underflow is already encoded in `checked_add`/`checked_sub`
+    and must not also become a redundant guard. Dense Map cap-8 upsert uses
+    `.overflow` with a Bool or-tree and must stay an explicit guard. Assertion
+    / declared-revert / terminal markers stay as early-return guards. -/
+private def isMapCapacityOverflowCond : Expr → Bool
+  | .boolOr _ _ | .boolAnd _ _ | .boolNot _ | .ite _ _ _ => true
+  | _ => false
+
 private def guardChecksOf (checks : Array Check) : Array Check :=
   checks.filter fun ck =>
     match ck.kind with
-    | .overflow | .underflow => false
+    | .overflow => isMapCapacityOverflowCond ck.condition
+    | .underflow => false
     | .assertion | .declaredRevert _ | .terminalRevert _ => true
 
 private def resultRustType : ResultKind → String
@@ -265,6 +277,8 @@ private partial def renderRExpr (signed : Bool) : RExpr → String
   | .boolAnd l r => s!"({renderRExpr signed l} && {renderRExpr signed r})"
   | .boolOr l r => s!"({renderRExpr signed l} || {renderRExpr signed r})"
   | .boolNot o => s!"(!{renderRExpr signed o})"
+  | .ite c t e =>
+      s!"(if {renderRExpr signed c} \{ {renderRExpr signed t} } else \{ {renderRExpr signed e} })"
   | .okUnit => "Ok(())"
   | .okValue v => s!"Ok({renderRExpr signed v})"
 
@@ -302,9 +316,10 @@ private def renderFn (signed : Bool) (fn : RustFn) : Array String := Id.run do
   lines := lines.push "}"
   pure lines
 
-/-- Flattened `Array UInt64 N` and `Option UInt64` leaves arrive as ordinary
-    scalar names (`slots_0`, `o_tag`, `o_p0`). The template never emits
-    `[u64; N]`, `Vec`, or Rust `Option<u64>`. -/
+/-- Flattened `Array UInt64 N`, `Option UInt64`, and dense Map UInt64
+    cap-8 leaves arrive as ordinary scalar names (`slots_0`, `o_tag`,
+    `o_p0`, `m_0`..`m_23`). The template never emits `[u64; N]`, `Vec`,
+    Rust `Option<u64>`, `HashMap`, or `std::collections`. -/
 private def renderState (signed : Bool) (fields : Array String) : Array String := Id.run do
   let ty := numericRustType signed
   let mut lines : Array String :=

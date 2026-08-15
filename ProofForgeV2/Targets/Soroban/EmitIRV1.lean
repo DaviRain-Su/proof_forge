@@ -174,6 +174,18 @@ private partial def lowerExpr
   | .boolNot o => do
       let ro ← lowerExpr plan params stateLocals o
       pure (.unary .not ro)
+  | .ite cond t e => do
+      let rc ← lowerExpr plan params stateLocals cond
+      let rt ← lowerExpr plan params stateLocals t
+      let re ← lowerExpr plan params stateLocals e
+      pure (.ifExpr rc rt re)
+
+/-- Arith overflow/underflow is already encoded in `checked_add`/`checked_sub`.
+    Dense Map cap-8 upsert uses `.overflow` with a Bool or-tree and must stay
+    an explicit guard. -/
+private def isMapCapacityOverflowCond : Expr → Bool
+  | .boolOr _ _ | .boolAnd _ _ | .boolNot _ | .ite _ _ _ => true
+  | _ => false
 
 private def emitAssertChecks
     (plan : Plan) (params : Array String) (stateLocals : Array String)
@@ -181,10 +193,17 @@ private def emitAssertChecks
     CompileResult (Array RStatement) := do
   let mut stmts : Array RStatement := #[]
   for ck in checks do
-    -- Overflow/underflow/divZero are already enforced by checked_* / guarded
-    -- arith in store/result lowering; skip redundant condition re-evaluation.
+    -- Overflow/underflow/divZero from checked_* / guarded arith stay
+    -- skipped. Map cap-8 `okInsert` is a Bool/ite tree and is emitted.
     match ck.kind with
-    | .overflow | .underflow | .divByZero => pure ()
+    | .underflow | .divByZero => pure ()
+    | .overflow =>
+        if isMapCapacityOverflowCond ck.condition then
+          let cond ← lowerExpr plan params stateLocals ck.condition
+          stmts := stmts.push
+            (.expr (.ifExpr (.unary .not cond) (.panic "overflow") .unit))
+        else
+          pure ()
     | .assertion | .declaredRevert _ | .terminalRevert _ => do
         let cond ← lowerExpr plan params stateLocals ck.condition
         let msg := match ck.kind with
