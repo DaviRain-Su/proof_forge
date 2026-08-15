@@ -4848,6 +4848,49 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "MapMap" target kind mapMapCompiled
       "anonymous Map is outside the current container-state pilot"
 
+  -- MapBytesKey: Map Bytes 4 UInt64 state. Bytes *key*, distinct from
+  -- MapBytes (Bytes *value*). All twelve stay named key/pilot FC.
+  -- EVM/Solana name the Principal-key alternative. Not opening Bytes-key
+  -- Map. MapBytes / MapMap / BytesBox stay. No Bytes param.
+  let mapBytesKeySource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapBytesKey where\n" ++
+    "  state m : Map Bytes 4 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(v : UInt64) : UInt64 do\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let mapBytesKeyV1 ← match ← session.selectProgramV1 mapBytesKeySource
+      "<targets-map-bytes-key>" "Examples.MapBytesKey" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MapBytesKey select: {e.render}"
+  let mapBytesKeyCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapBytesKeyV1
+  for (target, kind) in #[
+      (TargetId.evm, TargetKind.evm),
+      (TargetId.solana, TargetKind.solana)] do
+    expectMaterializePlanInvariantV1 "MapBytesKey" target kind mapBytesKeyCompiled
+      "Map state admits only Map UInt64 UInt64 or Map Principal UInt64"
+  expectMaterializePlanInvariantV1 "MapBytesKey" TargetId.psy TargetKind.psy
+    mapBytesKeyCompiled "Map state pilot requires UInt64 keys and values"
+  for (target, kind) in #[
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.aleo, TargetKind.aleo),
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.ton, TargetKind.ton)] do
+    expectMaterializePlanInvariantV1 "MapBytesKey" target kind mapBytesKeyCompiled
+      "Map state admits only Map UInt64 UInt64"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "MapBytesKey" target kind mapBytesKeyCompiled
+      "anonymous Bytes is outside the current container-state pilot"
+
   -- BytesBox: Bytes 4 state. Eight materializers admit; Quint/Soroban/
   -- ICP/OpenVM stay envelope FC. Not opening Bytes on those four.
   -- State only — no Bytes return ABI. Files-nonempty or named decline.
