@@ -45,6 +45,9 @@ inductive RExpr where
   | checkedAdd (lhs rhs : RExpr) (errCode : Nat)
   /-- `(lhs).checked_sub(rhs).ok_or(errCode)?` -/
   | checkedSub (lhs rhs : RExpr) (errCode : Nat)
+  | checkedMul (lhs rhs : RExpr) (errCode : Nat)
+  | checkedDiv (lhs rhs : RExpr) (errCode : Nat)
+  | checkedMod (lhs rhs : RExpr) (errCode : Nat)
   | compareOp (op : RCmpOp) (lhs rhs : RExpr)
   | boolAnd (lhs rhs : RExpr)
   | boolOr (lhs rhs : RExpr)
@@ -132,6 +135,18 @@ private partial def lowerExprToRExpr
         if plan.signedNumeric then FailureKind.overflow.code
         else FailureKind.underflow.code
       pure (.checkedSub rl rr code)
+  | .arith .mul l r => do
+      let rl ← lowerExprToRExpr plan params l
+      let rr ← lowerExprToRExpr plan params r
+      pure (.checkedMul rl rr FailureKind.overflow.code)
+  | .arith .div l r => do
+      let rl ← lowerExprToRExpr plan params l
+      let rr ← lowerExprToRExpr plan params r
+      pure (.checkedDiv rl rr FailureKind.divByZero.code)
+  | .arith .mod l r => do
+      let rl ← lowerExprToRExpr plan params l
+      let rr ← lowerExprToRExpr plan params r
+      pure (.checkedMod rl rr FailureKind.divByZero.code)
   | .compare op l r => do
       let rl ← lowerExprToRExpr plan params l
       let rr ← lowerExprToRExpr plan params r
@@ -156,10 +171,11 @@ private partial def lowerExprToRExpr
       let re ← lowerExprToRExpr plan params e
       pure (.ite rc rt re)
 
-/-- Arith overflow/underflow is already encoded in `checked_add`/`checked_sub`
-    and must not also become a redundant guard. Dense Map cap-8 upsert uses
-    `.overflow` with a Bool or-tree and must stay an explicit guard. Assertion
-    / declared-revert / terminal markers stay as early-return guards. -/
+/-- Arith overflow/underflow is already encoded in `checked_*` and must not
+    also become a redundant guard. Dense Map cap-8 upsert uses `.overflow`
+    with a Bool or-tree and must stay an explicit guard. Div-by-zero,
+    assertion, declared-revert, and terminal markers stay as early-return
+    guards. -/
 private def isMapCapacityOverflowCond : Expr → Bool
   | .boolOr _ _ | .boolAnd _ _ | .boolNot _ | .ite _ _ _ => true
   | _ => false
@@ -169,6 +185,7 @@ private def guardChecksOf (checks : Array Check) : Array Check :=
     match ck.kind with
     | .overflow => isMapCapacityOverflowCond ck.condition
     | .underflow => false
+    | .divByZero => true
     | .assertion | .declaredRevert _ | .terminalRevert _ => true
 
 private def resultRustType : ResultKind → String
@@ -272,6 +289,12 @@ private partial def renderRExpr (signed : Bool) : RExpr → String
       s!"({renderRExpr signed l}).checked_add({renderRExpr signed r}).ok_or({code}u32)?"
   | .checkedSub l r code =>
       s!"({renderRExpr signed l}).checked_sub({renderRExpr signed r}).ok_or({code}u32)?"
+  | .checkedMul l r code =>
+      s!"({renderRExpr signed l}).checked_mul({renderRExpr signed r}).ok_or({code}u32)?"
+  | .checkedDiv l r code =>
+      s!"({renderRExpr signed l}).checked_div({renderRExpr signed r}).ok_or({code}u32)?"
+  | .checkedMod l r code =>
+      s!"({renderRExpr signed l}).checked_rem({renderRExpr signed r}).ok_or({code}u32)?"
   | .compareOp op l r =>
       s!"({renderRExpr signed l} {cmpSym op} {renderRExpr signed r})"
   | .boolAnd l r => s!"({renderRExpr signed l} && {renderRExpr signed r})"

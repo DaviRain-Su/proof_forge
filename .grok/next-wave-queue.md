@@ -18,8 +18,8 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | ENV4-ARRAY | next | Array UInt64 N≤8 flatten on **Soroban / OpenVM / ICP** (ICP = extra i64 globals, **no** Candid vec) | **committed** `b589a2754` |
 | ENV4-OPTION-GATE | main | Envelope `admitOption` independent of `admitMap` | **committed** `eb03f39c1` |
 | ENV4-OPTION | next | Option UInt64 2-leaf (`_tag`/`_p0`) on Quint/Soroban/OpenVM; **ICP honest FC** | **committed** `00f58ff9e` — OptBox eleven-admit |
-| ENV4-MAP | after Option | Map UInt64 cap-8 on Quint/Soroban/OpenVM; **ICP Map honest FC** | **landing** — Q/S/O 24-leaf flatten |
-| ENV4-MULDIV | after Array or parallel | ICP + OpenVM checked mul/div (Quint/Soroban already have signed mul) | queued |
+| ENV4-MAP | after Option | Map UInt64 cap-8 on Quint/Soroban/OpenVM; **ICP Map honest FC** | **committed** `c2e189287` — MapMini eleven-admit |
+| ENV4-MULDIV | after Map | ICP + OpenVM checked mul/div/mod (Quint/Soroban already have it) | **landing** |
 | MID-UNBLOCKED | scout **done** | next mid-tier leaves: Aleo views/u128/i8–32, CW UInt128 ABI; Psy type-surface already mid-tier | mapped |
 
 **File lock:** workers must not edit `Tests/Materialization/Targets.lean`, `FieldComparison*`, or another target's tree. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.

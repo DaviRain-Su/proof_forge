@@ -38,8 +38,8 @@ anonymous `Array UInt64 N`（N=1..8）**state** flatten 为 N 个 guest `u64` �
 `{name}_p0`（tag 0=none / 1=some；none 清零 payload；无 Rust `Option<u64>`）、
 anonymous `Map UInt64 UInt64` **state** flatten 为 24 个 guest `u64` 字段
 `{name}_0`..`{name}_{23}`（cap-8 × occ/key/val 交错；`Map.empty` + IndexSet
-upsert；IndexGet → Option tag+payload，用 `Expr.ite` mux，不用 mul；无
-`HashMap` / `std::collections` / Vec）、single-block、checked `+`/`-`
+upsert；IndexGet → Option tag+payload，用 `Expr.ite` mux；无
+`HashMap` / `std::collections` / Vec）、single-block、checked `+`/`-`/`*`/`/`/`%`
 （unsigned `u64` / signed `i64::checked_*`）、bare assert、zero-payload revert
 （ADR-0045）。Bytes/nested Array、Array 或 Option 或 Map param/return、N∉1..8、
 非 UInt64 元素/payload/key、非字面量 Array 下标、非空 Map construct、

@@ -1539,8 +1539,8 @@ private unsafe def testGuardedStateCellSemanticPlans : IO Unit := do
   expect (noirSource.contents.contains ">=" && noirSource.contents.contains "assert(")
     "Noir source must constrain the ge comparison and assert"
   -- Extra eight + EVM from probe; Guarded assert+checkedSub lighthouse.
-  -- Eleven materialize. ICP stays on the add/sub-only Counter/StateCell
-  -- envelope. Not opening a new shape; existing four Plan pins unchanged.
+  -- Eleven materialize. ICP still has no assert op (Counter/StateCell
+  -- envelope). Not opening assert; existing four Plan pins unchanged.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.aleo, TargetId.psy, TargetId.quint, TargetId.cosmwasm,
       TargetId.ton, TargetId.soroban, TargetId.openvm] do
@@ -1548,7 +1548,7 @@ private unsafe def testGuardedStateCellSemanticPlans : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"Guarded: {target} must materialize"
   expectMaterializePlanInvariantV1 "Guarded" TargetId.icp TargetKind.icp
-    compiled "only checked add/sub"
+    compiled "op is outside the ICP-2"
 
 /-- ProgramV1 ArithFlow source text for the Wave F arithmetic/unary leaf. -/
 private def arithFlowSourceTextV1 : String :=
@@ -1687,8 +1687,8 @@ private unsafe def testArithOpsSemanticPlans : IO Unit := do
   expect (parityNr.contents.contains ": bool = !")
     "arith-ops Noir parity must render Bool NOT"
   -- Extra eight from probe; ArithFlow mul/div/mod/bitNot/boolNot lighthouse.
-  -- Psy/CW/TON admit. Aleo computed Bool view, Quint/Soroban unary bitNot,
-  -- OpenVM/ICP add/sub-only stay named FC. Not opening mul/div/mod/bitNot;
+  -- Psy/CW/TON admit. Aleo computed Bool view. Quint/Soroban/OpenVM/ICP
+  -- admit mul/div/mod and fail on unary bitNot (`~value` in mask).
   -- existing four Plan/IR pins unchanged.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
@@ -1702,9 +1702,9 @@ private unsafe def testArithOpsSemanticPlans : IO Unit := do
   expectMaterializePlanInvariantV1 "ArithFlow" TargetId.soroban TargetKind.soroban
     compiled "unary neg/bitNot are outside S0"
   expectMaterializePlanInvariantV1 "ArithFlow" TargetId.openvm TargetKind.openvm
-    compiled "mul/div/mod are outside O0"
+    compiled "unary neg/bitNot are outside O0"
   expectMaterializePlanInvariantV1 "ArithFlow" TargetId.icp TargetKind.icp
-    compiled "only checked add/sub"
+    compiled "op is outside the ICP-2"
 
 /-- Deepest nested if-region depth in a Noir relation operation list (the
     bounded-loop unrolling shape pin). -/
@@ -2025,7 +2025,7 @@ private unsafe def testShiftBitwiseLogicalSemanticPlans : IO Unit := do
   expectMaterializePlanInvariantV1 "BitLogic" TargetId.openvm TargetKind.openvm
     compiled "bitwise/shift ops are outside O0"
   expectMaterializePlanInvariantV1 "BitLogic" TargetId.icp TargetKind.icp
-    compiled "only checked add/sub and comparisons"
+    compiled "only checked add/sub/mul/div/mod and comparisons"
 
 /-- Noir constant folding must not evaluate 2^k for huge folded counts: a
     count expression like `0xFFFFFFFF - 1` folds to k ≥ 64 and lowers to the

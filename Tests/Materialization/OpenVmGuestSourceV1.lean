@@ -580,24 +580,76 @@ unsafe def testFailClosedPrincipal : IO Unit := do
       | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
       | .ok _ => throw <| IO.userError "Principal parameter must fail closed at OpenVM plan"
 
-/-- Fail closed: multiplication is outside O0 (only checked add/sub). -/
-unsafe def testFailClosedMul : IO Unit := do
+/-- Homogeneous UInt64 mul/div/mod emit checked Rust ops. -/
+unsafe def testMulDivModAdmit : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let source :=
     "import ProofForgeV2\n" ++
     "open ProofForgeV2.Language\n" ++
-    "program Mul where\n" ++
-    "  entry scale(x : UInt64, y : UInt64) : UInt64 do\n" ++
-    "    return x * y\n"
+    "program Scale where\n" ++
+    "  state count : UInt64\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n" ++
+    "  entry scale(factor : UInt64) : UInt64 do\n" ++
+    "    count := count * factor / 3 + count % 3\n" ++
+    "    return count\n"
   let parsed ← liftResult (← session.selectProgramV1
-    source "<openvm-mul>" "Tests.OpenVmMul" none)
+    source "<openvm-scale>" "Tests.OpenVmScale" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  expect (!plan.signedNumeric) "Scale stays unsigned"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  let some rs := files.find? (·.path == "guest/src/main.rs") |
+    throw <| IO.userError "openvm: missing guest/src/main.rs"
+  expect (rs.contents.contains "checked_mul" &&
+      rs.contents.contains "checked_div" &&
+      rs.contents.contains "checked_rem")
+    "Scale guest must emit checked_mul/div/rem"
+
+/-- Signed Int64 mul is admitted via i64::checked_mul. -/
+unsafe def testSignedMulAdmit : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program I64Mul where\n" ++
+    "  state n : Int64\n" ++
+    "  init(initial : Int64) do\n" ++
+    "    n := initial\n" ++
+    "  entry scale(factor : Int64) : Int64 do\n" ++
+    "    n := n * factor\n" ++
+    "    return n\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-i64-mul>" "Tests.OpenVmI64Mul" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  expect plan.signedNumeric "I64Mul is signed"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  let some rs := files.find? (·.path == "guest/src/main.rs") |
+    throw <| IO.userError "openvm: missing guest/src/main.rs"
+  expect (rs.contents.contains "checked_mul")
+    "signed mul guest must emit checked_mul"
+
+/-- Bitwise NOT stays outside O0. -/
+unsafe def testFailClosedBitNot : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program Mask where\n" ++
+    "  entry mask(value : UInt64) : UInt64 do\n" ++
+    "    return ~value\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-bitnot>" "Tests.OpenVmBitNot" none)
   let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
   match planOpenVm compiled with
   | .error (.planInvariant .openvm msg) =>
-      expect (msg.contains "mul" || msg.contains "add/sub")
-        s!"multiplication must fail closed, got: {msg}"
+      expect (msg.contains "bitNot" || msg.contains "unary")
+        s!"bitNot must fail closed, got: {msg}"
   | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
-  | .ok _ => throw <| IO.userError "multiplication must fail closed at OpenVM plan"
+  | .ok _ => throw <| IO.userError "bitNot must fail closed at OpenVM plan"
 
 /-- Fail closed: multi-block if is outside O0 (single-block only). -/
 unsafe def testFailClosedMultiblock : IO Unit := do
@@ -1158,7 +1210,9 @@ unsafe def run : IO Unit := do
   testFailClosedInvariant
   testFailClosedPfAssets
   testFailClosedPrincipal
-  testFailClosedMul
+  testMulDivModAdmit
+  testSignedMulAdmit
+  testFailClosedBitNot
   testFailClosedMultiblock
   testFailClosedConstant
   testFailClosedPrivateState

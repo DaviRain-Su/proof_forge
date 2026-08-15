@@ -22,7 +22,7 @@ ICP-2 envelope: public UInt64 **or** public Int64 state (homogeneous
 numeric domain: every integer state/param/result is UInt64, or every
 one is Int64; mixing fails closed); Array UInt64 N∈1..8 state flattens
 to N i64 Wasm globals (no Candid `vec`); `init`/entry(mutate)/view;
-single-block callable bodies; checked `+`/`-` and comparisons
+single-block callable bodies; checked `+`/`-`/`*`/`/`/`%` and comparisons
 (literal/param/stateLoad/store/return; Bool results). `Op.ContextRead`
 admits only `context.unixTimeSeconds`.
 Everything else — pureFn, invariants, constants, events, errors, emit,

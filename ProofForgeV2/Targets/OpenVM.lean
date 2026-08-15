@@ -28,7 +28,7 @@ anonymous `Map UInt64 UInt64` **state** flatten to 24 guest `u64` fields
 `{name}_0`..`{name}_{23}` (cap-8 × occ/key/val interleaved; `Map.empty` +
 IndexSet upsert; IndexGet → Option tag+payload via `ite`; no `HashMap` /
 `std::collections` / Vec); single-block callables; pureFn inline (depth ≤ 64);
-checked `+`/`-` only (signed uses Rust `i64::checked_*`); bare assert;
+checked `+`/`-`/`*`/`/`/`%` (signed uses Rust `i64::checked_*`); bare assert;
 zero-payload declared revert; empty events/constants; no call/schedule/
 ContextRead/Commit/Bytes/nested Array/Array-or-Option-or-Map param-return/
 narrow-Int/invariants/Principal/pf.assets. Array/Option/Map + signedNumeric

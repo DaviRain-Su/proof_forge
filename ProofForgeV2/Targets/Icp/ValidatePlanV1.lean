@@ -40,7 +40,9 @@ private def isSafeIdent (name : String) : Bool :=
 
 private partial def exprNodeCount : Expr → Nat
   | .literal _ | .param _ | .stateLoad _ | .unixTimeSeconds => 1
-  | .checkedAdd lhs rhs | .checkedSub lhs rhs | .compare _ lhs rhs =>
+  | .checkedAdd lhs rhs | .checkedSub lhs rhs
+  | .checkedMul lhs rhs | .checkedDiv lhs rhs | .checkedMod lhs rhs
+  | .compare _ lhs rhs =>
       1 + exprNodeCount lhs + exprNodeCount rhs
 
 /-- Iterative, fuel-bounded expression validation over param/state references.
@@ -70,7 +72,9 @@ private def validateExpr
     | .stateLoad fieldIndex =>
         unless fieldIndex < stateCount do
           planError s!"ICP plan {what} references unknown state field {fieldIndex}"
-    | .checkedAdd lhs rhs | .checkedSub lhs rhs | .compare _ lhs rhs =>
+    | .checkedAdd lhs rhs | .checkedSub lhs rhs
+    | .checkedMul lhs rhs | .checkedDiv lhs rhs | .checkedMod lhs rhs
+    | .compare _ lhs rhs =>
         stack := stack.push (rhs, depth + 1)
         stack := stack.push (lhs, depth + 1)
   unless exprNodeCount e ≤ maxExprNodes do

@@ -16,8 +16,8 @@ Narrow ICP-2 Counter/StateCell target leaf (ADR-0047). Envelope:
   flattens to N mutable i64 Wasm globals (no Candid `vec`). Bool results
   are admitted. No Field/Principal/Map/Option/Bytes/named aggregates
 * `init` (initializer), `entry` (canister_update), `view` (canister_query)
-* single-block callable bodies; checked `+`/`-` and comparisons (no
-  mul/div/mod/bitwise); literal, param, stateLoad, stateStore, return,
+* single-block callable bodies; checked `+`/`-`/`*`/`/`/`%` and
+  comparisons (no bitwise); literal, param, stateLoad, stateStore, return,
   Array IndexGet/Set/construct with a compile-time index
 * zero pureFn, zero invariants, zero constants/events/errors
 * zero `emit` / `call` (`Op.ExternalCall`) / `schedule` / `Op.Commit`;
@@ -87,6 +87,9 @@ inductive Expr where
   | unixTimeSeconds
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
+  | checkedMul (lhs rhs : Expr)
+  | checkedDiv (lhs rhs : Expr)
+  | checkedMod (lhs rhs : Expr)
   | compare (op : CompareOp) (lhs rhs : Expr)
   deriving BEq, Inhabited, Repr
 
@@ -404,7 +407,9 @@ private def bumpOp (acc : BodyAccum) : CompileResult BodyAccum := do
 
 private partial def exprNodes : Expr → Nat
   | .literal _ | .param _ | .stateLoad _ | .unixTimeSeconds => 1
-  | .checkedAdd lhs rhs | .checkedSub lhs rhs | .compare _ lhs rhs =>
+  | .checkedAdd lhs rhs | .checkedSub lhs rhs
+  | .checkedMul lhs rhs | .checkedDiv lhs rhs | .checkedMod lhs rhs
+  | .compare _ lhs rhs =>
       1 + exprNodes lhs + exprNodes rhs
 
 private def checkedExprNodes (what : String) (e : Expr) : CompileResult Expr := do
@@ -440,16 +445,19 @@ private def lowerBinary (op : BinaryOpV1) (lhs rhs : Expr) : CompileResult Expr 
   match op with
   | .add => checkedExprNodes "add" (.checkedAdd lhs rhs)
   | .sub => checkedExprNodes "sub" (.checkedSub lhs rhs)
+  | .mul => checkedExprNodes "mul" (.checkedMul lhs rhs)
+  | .div => checkedExprNodes "div" (.checkedDiv lhs rhs)
+  | .mod => checkedExprNodes "mod" (.checkedMod lhs rhs)
   | .eq => checkedExprNodes "eq" (.compare .eq lhs rhs)
   | .ne => checkedExprNodes "ne" (.compare .ne lhs rhs)
   | .lt => checkedExprNodes "lt" (.compare .lt lhs rhs)
   | .le => checkedExprNodes "le" (.compare .le lhs rhs)
   | .gt => checkedExprNodes "gt" (.compare .gt lhs rhs)
   | .ge => checkedExprNodes "ge" (.compare .ge lhs rhs)
-  | .mul | .div | .mod | .and | .or
+  | .and | .or
   | .bitAnd | .bitOr | .bitXor | .shl | .shr =>
       planError
-        "unsupported ICP semantic shape: only checked add/sub and comparisons are admitted on the ICP-2 Counter/StateCell envelope"
+        "unsupported ICP semantic shape: only checked add/sub/mul/div/mod and comparisons are admitted on the ICP-2 Counter/StateCell envelope"
 
 /-- Single-block instruction walk (ICP-2 has no pureFn/invariant closures, no
     branching, no async continuations — StateCell shape only). -/

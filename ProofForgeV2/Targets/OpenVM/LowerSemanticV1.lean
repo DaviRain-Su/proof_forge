@@ -13,8 +13,8 @@ O0 source-only OpenVM target (ADR-0045): controlled Rust guest source template
 + catalog JSON. Public UInt64 **or** public Int64 state/params (homogeneous
 numeric domain: every integer state/param/result is all-UInt64 or all-Int64;
 mixing fail closed), public Unit/UInt64/Int64/Bool results, single-block
-callables, pureFn inline (depth ≤ 64), checked `+`/`-` only (no mul/div/mod;
-signed uses Rust `i64::checked_add`/`checked_sub`), bare assert, zero-payload
+callables, pureFn inline (depth ≤ 64), checked `+`/`-`/`*`/`/`/`%`
+(signed uses Rust `i64::checked_*`), bare assert, zero-payload
 declared revert, empty events/constants. Anonymous `Array UInt64 N` (N=1..8)
 **state** flattens to N UInt64 Plan leaves `{name}_0`..`{name}_{N-1}` (guest
 scalar `u64` fields; no `[u64; N]` / Vec). Anonymous `Option UInt64`
@@ -92,15 +92,16 @@ inductive ComparisonOp where
   | eq | ne | lt | le | gt | ge
   deriving BEq, Inhabited, Repr
 
-/-- O0 admits checked `+`/`-` only (ADR-0045); no mul/div/mod. -/
+/-- O0 admits checked `+`/`-`/`*`/`/`/`%`. -/
 inductive ArithOp where
-  | add | sub
+  | add | sub | mul | div | mod
   deriving BEq, Inhabited, Repr
 
 /-- First-failure codes used by emission instrumentation. -/
 inductive FailureKind where
   | overflow
   | underflow
+  | divByZero
   | assertion
   /-- Preserve canonical Semantic ErrorId identity for a revert propagated
       through a pureCall. -/
@@ -113,6 +114,7 @@ inductive FailureKind where
 def FailureKind.code : FailureKind → Nat
   | .overflow => 1
   | .underflow => 2
+  | .divByZero => 3
   | .assertion => 4
   | .declaredRevert errorIndex | .terminalRevert errorIndex => 256 + errorIndex
 
@@ -258,6 +260,10 @@ private def checkedExprNodes (what : String) (nodes : Nat) : CompileResult Nat :
 
 private def binaryExprNodes (what : String) (lhs rhs : TypedExpr) : CompileResult Nat :=
   checkedExprNodes what (1 + lhs.expandedNodes + rhs.expandedNodes)
+
+private def guardedDivModExprNodes
+    (what : String) (lhs rhs : TypedExpr) : CompileResult Nat :=
+  checkedExprNodes what (5 + lhs.expandedNodes + 2 * rhs.expandedNodes)
 
 private def unaryExprNodes (what : String) (operand : TypedExpr) : CompileResult Nat :=
   checkedExprNodes what (1 + operand.expandedNodes)
@@ -597,6 +603,7 @@ private def numericTyOf (signed : Bool) : ExprType :=
 private def maxU64Value : UInt64 := UInt64.ofNat 18446744073709551615
 private def minI64Bits : UInt64 := UInt64.ofNat 9223372036854775808
 private def maxI64Bits : UInt64 := UInt64.ofNat 9223372036854775807
+private def negOneBits : UInt64 := UInt64.ofNat 18446744073709551615
 
 -- ---------------------------------------------------------------------------
 -- Lowering helpers
@@ -765,8 +772,61 @@ private def lowerBinary
         let cond : Expr := .compare .ge l r
         pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
           #[{ kind := .underflow, condition := cond }])
-  | .mul | .div | .mod =>
-      planError "unsupported OpenVM semantic shape: only checked add/sub are supported (mul/div/mod are outside O0)"
+  | .mul => do
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← binaryExprNodes "mul" lhs rhs
+        let e : Expr := .arith .mul lhs.expr rhs.expr
+        let _ ← checkedExprNodes "signed mul overflow check" (nodes + 5)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := signedRangeCond e }])
+      else
+        let l ← requireTy lhs .uint64 "mul lhs"
+        let r ← requireTy rhs .uint64 "mul rhs"
+        let nodes ← binaryExprNodes "mul" lhs rhs
+        let e : Expr := .arith .mul l r
+        let _ ← checkedExprNodes "mul overflow check" (nodes + 2)
+        let cond : Expr := .compare .le e (.litU64 maxU64Value)
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .overflow, condition := cond }])
+  | .div => do
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← guardedDivModExprNodes "div" lhs rhs
+        let e : Expr := .arith .div lhs.expr rhs.expr
+        let nz : Expr := .compare .ne rhs.expr (.litU64 0)
+        let notMinDiv : Expr :=
+          .boolOr
+            (.compare .ne lhs.expr (.litU64 minI64Bits))
+            (.compare .ne rhs.expr (.litU64 negOneBits))
+        let cond : Expr := .boolAnd nz notMinDiv
+        let _ ← checkedExprNodes "signed div check" (nodes + 8)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
+      else
+        let l ← requireTy lhs .uint64 "div lhs"
+        let r ← requireTy rhs .uint64 "div rhs"
+        let nodes ← guardedDivModExprNodes "div" lhs rhs
+        let _ ← checkedExprNodes "div zero check" (rhs.expandedNodes + 2)
+        let e : Expr := .arith .div l r
+        let cond : Expr := .compare .ne r (.litU64 0)
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
+  | .mod => do
+      if lhs.ty == .int64 && rhs.ty == .int64 then
+        let nodes ← guardedDivModExprNodes "mod" lhs rhs
+        let _ ← checkedExprNodes "signed mod zero check" (rhs.expandedNodes + 2)
+        let e : Expr := .arith .mod lhs.expr rhs.expr
+        let cond : Expr := .compare .ne rhs.expr (.litU64 0)
+        pure ({ ty := .int64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
+      else
+        let l ← requireTy lhs .uint64 "mod lhs"
+        let r ← requireTy rhs .uint64 "mod rhs"
+        let nodes ← guardedDivModExprNodes "mod" lhs rhs
+        let _ ← checkedExprNodes "mod zero check" (rhs.expandedNodes + 2)
+        let e : Expr := .arith .mod l r
+        let cond : Expr := .compare .ne r (.litU64 0)
+        pure ({ ty := .uint64, expr := e, expandedNodes := nodes },
+          #[{ kind := .divByZero, condition := cond }])
   | .eq | .ne | .lt | .le | .gt | .ge => do
       unless lhs.ty == rhs.ty do
         planError "unsupported OpenVM semantic shape: comparison operands must share a type"

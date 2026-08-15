@@ -46,6 +46,9 @@ inductive Operation where
   | unixTimeSeconds (destination : Nat)
   | checkedAdd (destination lhs rhs : Nat)
   | checkedSub (destination lhs rhs : Nat)
+  | checkedMul (destination lhs rhs : Nat)
+  | checkedDiv (destination lhs rhs : Nat)
+  | checkedMod (destination lhs rhs : Nat)
   | compare (destination : Nat) (op : CompareOp) (lhs rhs : Nat)
   | storeState (fieldIndex value : Nat)
   deriving BEq, Inhabited, Repr
@@ -98,6 +101,30 @@ private partial def lowerExpr (next : Nat) : Expr → LoweredExpr
       let r := lowerExpr l.next rhs
       {
         operations := l.operations ++ r.operations ++ #[.checkedSub r.next l.value r.value]
+        value := r.next
+        next := r.next + 1
+      }
+  | .checkedMul lhs rhs =>
+      let l := lowerExpr next lhs
+      let r := lowerExpr l.next rhs
+      {
+        operations := l.operations ++ r.operations ++ #[.checkedMul r.next l.value r.value]
+        value := r.next
+        next := r.next + 1
+      }
+  | .checkedDiv lhs rhs =>
+      let l := lowerExpr next lhs
+      let r := lowerExpr l.next rhs
+      {
+        operations := l.operations ++ r.operations ++ #[.checkedDiv r.next l.value r.value]
+        value := r.next
+        next := r.next + 1
+      }
+  | .checkedMod lhs rhs =>
+      let l := lowerExpr next lhs
+      let r := lowerExpr l.next rhs
+      {
+        operations := l.operations ++ r.operations ++ #[.checkedMod r.next l.value r.value]
         value := r.next
         next := r.next + 1
       }
@@ -276,6 +303,28 @@ private def renderOperation (signed : Bool) : Operation → String
       else
         s!"    (if (i64.lt_u (local.get $t{lhs}) (local.get $t{rhs})) (then unreachable))\n" ++
         s!"    (local.set $t{destination} (i64.sub (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .checkedMul destination lhs rhs =>
+      if signed then
+        s!"    (local.set $t{destination} (i64.mul (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        s!"    (if (i64.ne (local.get $t{lhs}) (i64.const 0)) (then (if (i64.ne (local.get $t{lhs}) (i64.const -1)) (then (if (i64.ne (i64.div_s (local.get $t{destination}) (local.get $t{lhs})) (local.get $t{rhs})) (then unreachable))))))\n"
+      else
+        s!"    (local.set $t{destination} (i64.mul (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+        s!"    (if (i64.ne (local.get $t{lhs}) (i64.const 0)) (then (if (i64.ne (i64.div_u (local.get $t{destination}) (local.get $t{lhs})) (local.get $t{rhs})) (then unreachable))))\n"
+  | .checkedDiv destination lhs rhs =>
+      if signed then
+        s!"    (if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"    (if (i64.eq (local.get $t{lhs}) (i64.const -9223372036854775808)) (then (if (i64.eq (local.get $t{rhs}) (i64.const -1)) (then unreachable))))\n" ++
+        s!"    (local.set $t{destination} (i64.div_s (local.get $t{lhs}) (local.get $t{rhs})))\n"
+      else
+        s!"    (if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"    (local.set $t{destination} (i64.div_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
+  | .checkedMod destination lhs rhs =>
+      if signed then
+        s!"    (if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"    (local.set $t{destination} (i64.rem_s (local.get $t{lhs}) (local.get $t{rhs})))\n"
+      else
+        s!"    (if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
+        s!"    (local.set $t{destination} (i64.rem_u (local.get $t{lhs}) (local.get $t{rhs})))\n"
   | .storeState fieldIndex value =>
       s!"    (global.set $g_state_{fieldIndex} (local.get $t{value}))\n"
   | .compare destination op lhs rhs =>

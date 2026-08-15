@@ -77,7 +77,7 @@ Candid/stable schema golden → Wasm/System API validation → local replica sin
 | Slice | 状态 | 内容 |
 |---|---|---|
 | **ICP-1** | **done / control plane** | registry implemented、descriptor、resolver（sync+event FC；async advertise）、list/inspect |
-| **ICP-2** | **done / leaf** | target-owned Plan/IR → `.wat` + `.did`；Counter/StateCell 齐次 UInt64 **或** Int64（Candid `nat64`/`int64`，混用 FC）；**Array UInt64 N∈1..8** flatten 为 N 个 `i64` Wasm global（**无** Candid `vec`；Array return / 非 UInt64 元素 / 与 Int64 混用 FC）；checked +/-（unsigned wrap / signed two's-complement overflow）；store-then-read overlay rewrite；**CAP-1a** `unixTimeSeconds`→`ic0.time` ns÷10⁹ |
+| **ICP-2** | **done / leaf** | target-owned Plan/IR → `.wat` + `.did`；Counter/StateCell 齐次 UInt64 **或** Int64（Candid `nat64`/`int64`，混用 FC）；**Array UInt64 N∈1..8** flatten 为 N 个 `i64` Wasm global（**无** Candid `vec`；Array return / 非 UInt64 元素 / 与 Int64 混用 FC）；checked `+`/`-`/`*`/`/`/`%`（unsigned wrap / signed two's-complement overflow；div0 与 `MIN/-1` trap）；store-then-read overlay rewrite；**CAP-1a** `unixTimeSeconds`→`ic0.time` ns÷10⁹ |
 | **ICP-3** | **done / host-optional** | `wat2wasm` Finalize → `.wasm`（`deployable=true`）；PocketIC 15.0.0 StateCell gate；maturity 仍 `source-only`；非 formal/mainnet |
 
 Capability（honest）：`state.persistent`、`value.checked-arithmetic`、`value.bool`、

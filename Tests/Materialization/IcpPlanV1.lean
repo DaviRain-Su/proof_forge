@@ -2,7 +2,7 @@
   ICP Plan/IR/WAT engineering suite (ICP-2 Counter/StateCell leaf, ADR-0047).
 
   Pins StateCell plan shape (public UInt64 **or** homogeneous Int64 state,
-  init/entry(mutate)/view, checked add/sub), IR/wat/.did surface (ic0 imports,
+  init/entry(mutate)/view, checked add/sub/mul/div/mod), IR/wat/.did surface (ic0 imports,
   mutable i64 state globals, DIDL/LEB128 header handling,
   canister_init/canister_update/canister_query exports, Candid nat64 or
   int64 service), registry materialize dispatch, and explicit fail-closed
@@ -243,6 +243,64 @@ private unsafe def testInt64StateCell
   expect (did.contains "get : () -> (int64) query;") "did get query int64"
   expect (!did.contains "nat64") "signed .did must not mention nat64"
   IO.println "  ✓ Int64Cell Plan/IR/wat/.did (Candid int64 + signed overflow)"
+
+/-- Homogeneous UInt64 mul/div/mod emit checked Wasm ops. -/
+private unsafe def testMulDivModAdmit
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "Scale" <|
+    "  state count : UInt64\n\n" ++
+    "  init(initial : UInt64) do\n" ++
+    "    count := initial\n\n" ++
+    "  entry scale(factor : UInt64) : UInt64 do\n" ++
+    "    count := count * factor / 3 + count % 3\n" ++
+    "    return count\n\n" ++
+    "  view get() : UInt64 do\n" ++
+    "    return count\n"
+  let compiled ← compileSource session src "Examples.Scale" "<icp-scale>"
+  let plan ← liftResult <| planIcp compiled
+  expect (plan.signedNumeric == false) "Scale stays unsigned"
+  match validatePlan plan with
+  | .ok () => pure ()
+  | .error e => throw <| IO.userError s!"Scale plan must validate: {e.render}"
+  let files ← liftResult <| filesIcp compiled
+  let wat ← findFile files "Scale.wat"
+  expect (wat.contains "i64.mul") "Scale WAT must emit i64.mul"
+  expect (wat.contains "i64.div_u") "Scale WAT must emit i64.div_u"
+  expect (wat.contains "i64.rem_u") "Scale WAT must emit i64.rem_u"
+  expect (wat.contains "i64.eqz") "Scale WAT must trap on divisor 0"
+  IO.println "  ✓ Scale mul/div/mod WAT"
+
+/-- Signed Int64 mul emits i64.mul + reconstruction overflow trap. -/
+private unsafe def testSignedMulAdmit
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "I64Mul" <|
+    "  state n : Int64\n\n" ++
+    "  init(initial : Int64) do\n" ++
+    "    n := initial\n\n" ++
+    "  entry scale(factor : Int64) : Int64 do\n" ++
+    "    n := n * factor\n" ++
+    "    return n\n\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return n\n"
+  let compiled ← compileSource session src "Examples.I64Mul" "<icp-i64-mul>"
+  let plan ← liftResult <| planIcp compiled
+  expect (plan.signedNumeric == true) "I64Mul is signed"
+  let files ← liftResult <| filesIcp compiled
+  let wat ← findFile files "I64Mul.wat"
+  expect (wat.contains "i64.mul") "signed mul WAT must emit i64.mul"
+  expect (wat.contains "i64.div_s") "signed mul overflow uses i64.div_s"
+  IO.println "  ✓ signed Int64 mul WAT"
+
+/-- Bitwise NOT stays outside ICP-2. -/
+private unsafe def testBitNotFc
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "Mask" <|
+    "  entry mask(value : UInt64) : UInt64 do\n" ++
+    "    return ~value\n"
+  let compiled ← compileSource session src "Examples.Mask" "<icp-bitnot>"
+  expectPlanErrorContaining "bitNot" "op is outside"
+    (planFromCompiledSemanticV1 compiled)
+  IO.println "  ✓ bitNot fail closed"
 
 /-- Mixing UInt64 and Int64 user-facing slots is fail closed. -/
 private unsafe def testMixedInt64UInt64Fc
@@ -693,6 +751,9 @@ unsafe def run : IO Unit := do
   testStateCellPlan session
   testStateCellIRAndWat session
   testInt64StateCell session
+  testMulDivModAdmit session
+  testSignedMulAdmit session
+  testBitNotFc session
   testMixedInt64UInt64Fc session
   testBoolPredicate session
   testCallSyncFc session
