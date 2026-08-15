@@ -47,7 +47,7 @@ Default if nobody answers: **only CAP-1a** (ICP time) is unblocked.
 | **CAP-3** | P2 | Soroban S0 `unixTimeSeconds` / `blockHeight` → `env.ledger().timestamp/sequence` after CAP-D-SOR-LEDGER | `Targets/Soroban/LowerSemanticV1.lean` · `SorobanPlanV1` | `.rs` contains ledger reads; Finalize still zero-tool | SOR-1 Wasm / auth / TTL |
 | **CAP-4** | P2 | Soroban S0 `pf.crypto.sha256` UInt256→UInt256 → `env.crypto.sha256` after CAP-D-SOR-LEDGER | same + crypto FC test rewrite | exact QN lowered; other `pf.crypto.*` still named FC | Bytes ABI; stellar-cli |
 | **CAP-5** | P2 | TON honest SHA-256 after CAP-D-TON-SHA | `Targets/Ton/LowerSemanticV1.lean` · `TonPlanV1` | stdlib sha256 (document which); `string_hash` still not used | keccak; pf.assets; unfreeze whole TON |
-| **CAP-6** | P3 | Refresh `Tests/Materialization/Targets.lean` admit/decline needles after each leaf | that suite only | focused `#eval run` / suite `run` | opening `Tests.lean` in LSP |
+| **CAP-6** | P3 | **done 2026-08-15** (unixTime leaf): N5 matrix admits ICP; decline list +Quint/Soroban. Focused `/tmp/run_Cap6UnixTimeMatrix.lean` | `Tests/Materialization/Targets.lean` | focused driver, not shard / full Targets.run | opening `Tests.lean` in LSP |
 
 ## Wave 3 — explicitly out
 

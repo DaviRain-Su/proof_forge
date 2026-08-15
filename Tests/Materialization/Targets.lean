@@ -3727,17 +3727,16 @@ unsafe def run : IO Unit := do
   -- B-CTX-OPEN (2026-08-04): EVM (timestamp()), NEAR (block_timestamp/1e9),
   -- CosmWasm (Env "time" ns /1e9, BL-37) and TON (blockchain.now(), BL-38)
   -- admit unixTimeSeconds. CAP-1a (2026-08-15): ICP admits ic0.time ns÷10⁹.
-  -- Solana/Noir/Psy/Aleo keep the fail-closed pin (circuit-domain targets
-  -- stay FC until a real chain-anchor design exists — unanchored
-  -- public-input injection would only prove "the program used T", never
-  -- "T is the real chain time").
+  -- Circuit-class + Quint/Soroban/OpenVM stay FC; Solana unixTime stays FC
+  -- (CAP-D-SOL-TIME not picked). Unanchored public-input injection would
+  -- only prove "the program used T", never "T is the real chain time".
   let _ ← liftResult <| materializeSelected TargetId.evm ctxCompiled
   let _ ← liftResult <| materializeSelected TargetId.near ctxCompiled
   let _ ← liftResult <| materializeSelected TargetId.cosmwasm ctxCompiled
   let _ ← liftResult <| materializeSelected TargetId.ton ctxCompiled
   let _ ← liftResult <| materializeSelected TargetId.icp ctxCompiled
   for target in [TargetId.solana, TargetId.noir, TargetId.psy, TargetId.aleo,
-      TargetId.openvm] do
+      TargetId.openvm, TargetId.quint, TargetId.soroban] do
     match materializeSelected target ctxCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N5 context: {target} must decline ContextRead"
