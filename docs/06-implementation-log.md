@@ -16344,3 +16344,20 @@ normative: false
   shape参数化。下一步仍是让OptionState等不同业务形状成为第二个真实consumer；本切片不宣称一般
   Reference→provider refinement、无条件closed gate、ELF/linker/loader或Mollusk/validator/SVM runtime
   refinement完成。
+
+## 2026-08-15 — contract-independent bounded switch HandlerIR execution
+
+- Solana static alignment新增nullary UInt64 switch-view recipe：只接受真实production HandlerIR中的
+  `loadState → switchRegion`，每个case/default branch必须由普通`loadState`或`literal`、8-byte
+  `setReturnData`和`returnNone`组成；account/check/mode/result/input shape不匹配全部fail closed。公开的
+  `isSupportedBoundedUInt64HandlerIRV1`不含contract或method name条件，因此不是Option业务解释器。
+- 唯一HandlerIR evaluator新增受该closed shape约束的`switchRegion`分支选择。分支内继续调用原
+  operation evaluator，没有复制trace、另建HandlerIR→sBPF lowering或增加第二套DSL/business
+  semantics；nested/unknown operations仍拒绝。原StateCell get/initialize/increment及其证明保持通过。
+- 新增library `program OptionState` source/export，并以真实ParserSession→compiler→Solana capability→
+  Plan→HandlerIR链产生`peek`作为第二个业务consumer。24-byte账户的tag=1分支返回payload，tag=0走
+  default返回0，且read-only post account不变；handler改名仍执行同一shape，缺失branch return或错误
+  account index均fail closed。focused build与runner通过。
+- 本切片只闭合production HandlerIR层的通用switch-view执行入口；OptionState尚未接入source-derived
+  Reference composition、identity-bound `.s` provider resolver或method-specific provider trace，亦不
+  宣称一般Reference→provider、ELF/linker/loader或Mollusk/validator/SVM runtime refinement完成。

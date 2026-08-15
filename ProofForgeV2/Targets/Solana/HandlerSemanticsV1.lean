@@ -183,6 +183,7 @@ private def runOperationV1
     (invocation : InvocationObservationV1)
     (machine : HandlerMachineV1) :
     Operation → Except HandlerExecutionErrorV1 HandlerMachineV1
+  | .literal destination value => setLocalV1 machine destination value
   | .zeroState accountIndex byteOffset =>
       writeAccountUInt64LEV1 machine accountIndex byteOffset 0
   | .loadParam destination dataOffset =>
@@ -212,7 +213,23 @@ private def runOperationV1
       match getLocalV1 machine source with
       | .ok value => .ok { machine with returnData := some (encodeU64le value) }
       | .error error => .error error
+  | .returnNone => .ok machine
   | _ => .error .unsupportedOperation
+
+/-- Execute a selected switch branch through the same operation evaluator. The
+    supported switch recipe forbids nested regions, so encountering one here
+    fails closed through `runOperationV1`. -/
+private def runSwitchBranchOperationsV1
+    (operations : List Operation)
+    (invocation : InvocationObservationV1)
+    (machine : HandlerMachineV1) :
+    Except HandlerExecutionErrorV1 HandlerMachineV1 :=
+  match operations with
+  | [] => .ok machine
+  | .returnNone :: _ => .ok machine
+  | operation :: rest => do
+      let next ← runOperationV1 invocation machine operation
+      runSwitchBranchOperationsV1 rest invocation next
 
 private def runOperationsV1
     (operations : List Operation)
@@ -222,7 +239,16 @@ private def runOperationsV1
   match operations with
   | [] => .ok machine
   | operation :: rest => do
-      let next ← runOperationV1 invocation machine operation
+      let next ←
+        match operation with
+        | .switchRegion scrutinee cases defaultOps => do
+            let value ← getLocalV1 machine scrutinee
+            let branch :=
+              match cases.find? (fun candidate => candidate.1 == value) with
+              | some candidate => candidate.2
+              | none => defaultOps
+            runSwitchBranchOperationsV1 branch.toList invocation machine
+        | _ => runOperationV1 invocation machine operation
       runOperationsV1 rest invocation next
 
 /-- Atomic target outcome. Mutable account observations are carried separately

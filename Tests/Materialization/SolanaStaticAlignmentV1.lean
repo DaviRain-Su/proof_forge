@@ -1,4 +1,5 @@
 import ProofForgeV2.Examples.StateCell
+import ProofForgeV2.Examples.OptionState
 import ProofForgeV2.Targets.Solana
 import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.Registry
@@ -476,11 +477,23 @@ private unsafe def compileStateCell
     ProofForgeV2.Examples.stateCellModuleNameV1 none)
   liftResult <| Compiler.compileValidatedSourceV1 validated
 
-private def stateCellCapability (compiled : CompiledSemanticV1) :
+private def solanaCapability (compiled : CompiledSemanticV1) :
     CompileResult Targets.ResolvedEngineeringBuildV1 := do
   let selection ← resolveBuildSelectionV1 TargetId.solana
     (some CodegenProfileId.solanaSbpfCpiElfV1)
   Targets.resolveEngineeringRequirementsV1 selection compiled
+
+private unsafe def compileOptionState
+    (session : Language.Loader.ParserSession) : IO CompiledSemanticV1 := do
+  let validated ← liftResult (← session.selectProgramV1
+    ProofForgeV2.Examples.optionStateSourceText "<solana-option-state-alignment>"
+    ProofForgeV2.Examples.optionStateModuleNameV1 none)
+  liftResult <| Compiler.compileValidatedSourceV1 validated
+
+private def optionStateAccountData
+    (initializedMarker tag payload : UInt64) : ByteArray :=
+  ((encodeU64le initializedMarker).append (encodeU64le tag)).append
+    (encodeU64le payload)
 
 /-- Exercise the real StateCell capability→Plan→HandlerIR graph. The
     compile-time theorems above classify and execute the same exact recipe. -/
@@ -491,7 +504,7 @@ private unsafe def testProductionStateCell
     match validateSemanticProgramV1 (CompiledSemanticV1.semanticV1Of compiled) with
     | .ok value => pure value
     | .error error => throw <| IO.userError s!"semantic validation failed: {repr error}"
-  let capability ← liftResult <| stateCellCapability compiled
+  let capability ← liftResult <| solanaCapability compiled
   let productionPlan ← liftResult <|
     materializeFullBodyPlanForProductV1 capability false
   let productionIR ← liftResult <|
@@ -637,9 +650,89 @@ private unsafe def testProductionStateCell
       .trapped .unsupportedHandlerShape)
     "increment with a missing production check did not fail closed"
 
+/-- The second real compiler consumer is deliberately a different contract
+    and account layout. It exercises the generic bounded switch recipe rather
+    than adding an OptionState-specific interpreter. -/
+private unsafe def testProductionOptionStateSwitchView
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let compiled ← compileOptionState session
+  let capability ← liftResult <| solanaCapability compiled
+  let productionPlan ← liftResult <|
+    materializeFullBodyPlanForProductV1 capability false
+  let productionIR ← liftResult <|
+    fullBodyIrFromProductCapabilityV1 capability false
+  liftResult <| validatePlan productionPlan
+  liftResult <| validateIR productionIR
+  let some productionPeekIR := productionIR.handlers.find? (·.name == "peek")
+    | throw <| IO.userError "OptionState production IR has no peek handler"
+  expect (productionPlan.stateAccount.exactDataLen == 24)
+    s!"OptionState production account length is not 24: {productionPlan.stateAccount.exactDataLen}"
+  expect (isSupportedNullaryUInt64SwitchViewHandlerIRV1 productionPeekIR)
+    s!"production OptionState.peek was not recognized as a bounded switch view:\n{repr productionPeekIR}"
+  expect (isSupportedBoundedUInt64HandlerIRV1 productionPeekIR)
+    "production OptionState.peek did not enter the generic bounded evaluator set"
+
+  let discriminatorValue ← liftResult <|
+    discriminatorToLeU64V1 productionPeekIR.discriminator
+  let someBytes := optionStateAccountData
+    productionPlan.stateAccount.initializedMarker 1 77
+  let someInvocation :=
+    nullaryUInt64ViewInvocationV1 someBytes discriminatorValue
+  let someObserved := observeHandlerIRV1 productionPeekIR someInvocation
+  expect (someObserved.outcome == .returned (some (encodeU64le 77)))
+    s!"production OptionState.peek Some branch outcome: {repr someObserved.outcome}"
+  expect (someObserved.postAccounts == someInvocation.accounts)
+    "production OptionState.peek Some branch changed the read-only account"
+
+  let noneBytes := optionStateAccountData
+    productionPlan.stateAccount.initializedMarker 0 999
+  let noneInvocation :=
+    nullaryUInt64ViewInvocationV1 noneBytes discriminatorValue
+  let noneObserved := observeHandlerIRV1 productionPeekIR noneInvocation
+  expect (noneObserved.outcome == .returned (some (encodeU64le 0)))
+    s!"production OptionState.peek default branch outcome: {repr noneObserved.outcome}"
+  expect (noneObserved.postAccounts == noneInvocation.accounts)
+    "production OptionState.peek default branch changed the read-only account"
+
+  let renamedPeek := { productionPeekIR with name := "anotherContractView" }
+  expect (isSupportedBoundedUInt64HandlerIRV1 renamedPeek &&
+      executeHandlerIRV1 renamedPeek someInvocation == someObserved.outcome)
+    "bounded switch execution depends on the OptionState handler name"
+
+  let malformedBranch :=
+    match productionPeekIR.operations[1]? with
+    | some (Operation.switchRegion scrutinee cases defaultOps) =>
+        match cases[0]? with
+        | some (expected, branch) =>
+            let malformedCases := cases.set! 0 (expected, branch.pop)
+            { productionPeekIR with
+              operations := productionPeekIR.operations.set! 1
+                (.switchRegion scrutinee malformedCases defaultOps) }
+        | none => productionPeekIR
+    | _ => productionPeekIR
+  expect (!isSupportedBoundedUInt64HandlerIRV1 malformedBranch &&
+      executeHandlerIRV1 malformedBranch someInvocation ==
+        .trapped .unsupportedHandlerShape)
+    "switch branch with a missing return operation did not fail closed"
+
+  let wrongAccountSwitch :=
+    match productionPeekIR.operations[1]? with
+    | some (Operation.switchRegion scrutinee cases defaultOps) =>
+        let wrongCases := cases.map fun candidate =>
+          (candidate.1, #[.loadState 1 1 16, .setReturnData 8 1, .returnNone])
+        { productionPeekIR with
+          operations := productionPeekIR.operations.set! 1
+            (.switchRegion scrutinee wrongCases defaultOps) }
+    | _ => productionPeekIR
+  expect (!isSupportedBoundedUInt64HandlerIRV1 wrongAccountSwitch &&
+      executeHandlerIRV1 wrongAccountSwitch someInvocation ==
+        .trapped .unsupportedHandlerShape)
+    "switch branch with a foreign account index did not fail closed"
+
 unsafe def run : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   testProductionStateCell session
+  testProductionOptionStateSwitchView session
   IO.println "solana-static-alignment-v1: ok"
 
 end Tests.Materialization.SolanaStaticAlignmentV1

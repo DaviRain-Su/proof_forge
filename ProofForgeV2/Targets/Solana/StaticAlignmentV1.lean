@@ -348,11 +348,67 @@ def isSupportedUnaryUInt64CheckedAddHandlerIRV1
         returnFieldOffset == fieldOffset && errorCode == arithmeticOverflowError
   | _, _, _, _, _, _, _, _, _ => false
 
-/-- Closed set of HandlerIR recipes interpreted by `HandlerSemanticsV1`. -/
+/-- A branch in the bounded UInt64 switch-view recipe must compute one UInt64
+    from either an account word or a literal, publish it, and return. This is a
+    HandlerIR shape check; it does not interpret an Option or any DSL pattern. -/
+private def isSupportedUInt64SwitchReturnBranchV1
+    (accountIndex : Nat) (operations : Array Operation) : Bool :=
+  match operations.toList with
+  | [.loadState destination loadedAccountIndex _,
+      .setReturnData 8 returnedSource, .returnNone] =>
+      loadedAccountIndex == accountIndex && returnedSource == destination
+  | [.literal destination _, .setReturnData 8 returnedSource, .returnNone] =>
+      returnedSource == destination
+  | _ => false
+
+/-- Bounded nullary UInt64 view with one production `switchRegion`. The
+    scrutinee and branch bodies remain ordinary HandlerIR operations, so this
+    admits Option/Enum-like target recipes without adding another DSL
+    interpreter or naming a contract. Unknown checks, operations, account
+    indices, or branch shapes remain rejected. -/
+def isSupportedNullaryUInt64SwitchViewHandlerIRV1
+    (handlerIR : HandlerIR) : Bool :=
+  match handlerIR.params.toList, handlerIR.mode, handlerIR.resultKind,
+      handlerIR.accountAccess.ownerPolicy,
+      handlerIR.accountAccess.signerRequired,
+      handlerIR.accountAccess.writableRequired,
+      handlerIR.accountAccess.initialization,
+      handlerIR.checks.toList, handlerIR.operations.toList with
+  | [], .view, .u64, .currentProgram, false, false, .mustBeInitialized, [
+      .numAccounts accountCount,
+      .accountNonDuplicate nonDuplicateAccountIndex,
+      .instructionDataLen inputLen,
+      .ownerCurrentProgram ownerAccountIndex,
+      .accountDataLen dataLenAccountIndex checkedDataLen,
+      .headerEquals headerAccountIndex _ _
+    ], [
+      .loadState scrutinee loadAccountIndex _,
+      .switchRegion switchScrutinee cases defaultOps
+    ] =>
+      let accountIndex := handlerIR.accountAccess.accountIndex
+      accountCount == 1 && accountIndex == 0 &&
+        nonDuplicateAccountIndex == accountIndex && inputLen == 8 &&
+        ownerAccountIndex == accountIndex && dataLenAccountIndex == accountIndex &&
+        checkedDataLen == handlerIR.accountAccess.exactDataLen &&
+        headerAccountIndex == accountIndex && loadAccountIndex == accountIndex &&
+        switchScrutinee == scrutinee && !cases.isEmpty &&
+        cases.all (fun candidate =>
+          isSupportedUInt64SwitchReturnBranchV1 accountIndex candidate.2) &&
+        isSupportedUInt64SwitchReturnBranchV1 accountIndex defaultOps
+  | _, _, _, _, _, _, _, _, _ => false
+
+/-- Compatibility entry point for the original one-field consumers. Its
+    accepted set now also includes the bounded switch-view recipe below. -/
 def isSupportedOneFieldUInt64HandlerIRV1 (handlerIR : HandlerIR) : Bool :=
   isSupportedNullaryUInt64ViewHandlerIRV1 handlerIR ||
     isSupportedUnaryUInt64InitializerHandlerIRV1 handlerIR ||
-    isSupportedUnaryUInt64CheckedAddHandlerIRV1 handlerIR
+    isSupportedUnaryUInt64CheckedAddHandlerIRV1 handlerIR ||
+    isSupportedNullaryUInt64SwitchViewHandlerIRV1 handlerIR
+
+/-- Contract-independent name for the complete closed set of bounded
+    UInt64-returning recipes interpreted by `HandlerSemanticsV1`. -/
+def isSupportedBoundedUInt64HandlerIRV1 (handlerIR : HandlerIR) : Bool :=
+  isSupportedOneFieldUInt64HandlerIRV1 handlerIR
 
 /-- Exact semantic/account/Plan/IR alignment for the first bounded Solana
     target slice. It is syntax and representation only; execution is defined
