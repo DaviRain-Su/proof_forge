@@ -36,6 +36,15 @@ theorem checkCertifiedSolanaProductionSubjectV1_sound
       simp [hresult] at checked
       exact ⟨value, rfl, checked⟩
 
+/-- Exact resolver and checker equations discharge the generic subject gate.
+    This is the completeness direction of the fail-closed boundary. -/
+theorem checkCertifiedSolanaProductionSubjectV1_eq_true
+    (result : Except String α) (checker : α → Bool) (subject : α)
+    (resolved : result = .ok subject)
+    (checked : checker subject = true) :
+    checkCertifiedSolanaProductionSubjectV1 result checker = true := by
+  simp [checkCertifiedSolanaProductionSubjectV1, resolved, checked]
+
 /-- Fail-closed composition of a source-derived subject, a Reference-side
     observation checker, and a provider-side certificate checker. -/
 def checkCertifiedSolanaProductionCompositionV1
@@ -60,6 +69,21 @@ theorem checkCertifiedSolanaProductionCompositionV1_sound
       checked with ⟨value, hresult, hchecked⟩
   simp only [Bool.and_eq_true] at hchecked
   exact ⟨value, hresult, hchecked.1, hchecked.2⟩
+
+/-- Exact resolver, Reference-checker, and provider-checker equations discharge
+    the generic composition gate. No checker is interpreted or recomputed. -/
+theorem checkCertifiedSolanaProductionCompositionV1_eq_true
+    (result : Except String α)
+    (referenceChecker providerChecker : α → Bool)
+    (subject : α)
+    (resolved : result = .ok subject)
+    (referenceChecked : referenceChecker subject = true)
+    (providerChecked : providerChecker subject = true) :
+    checkCertifiedSolanaProductionCompositionV1 result referenceChecker
+      providerChecker = true := by
+  simp [checkCertifiedSolanaProductionCompositionV1,
+    checkCertifiedSolanaProductionSubjectV1, resolved, referenceChecked,
+    providerChecked]
 
 /-- Lift a successful composition gate through caller-supplied soundness and
     composition functions. The witness families remain abstract: this theorem

@@ -16310,3 +16310,20 @@ normative: false
 - `SolanaAsmV1`新增任意subject/type-indexed Reference、provider与composition witness family的类型级
   fixture，证明API没有绑定StateCell method形状。focused test build通过；最终closed Boolean premise仍
   未被无条件kernel discharge，ELF/Mollusk/validator/SVM runtime refinement也未因此完成。
+
+## 2026-08-15 — contract-independent Solana certificate replay
+
+- `ProductionPreparationV1`新增单stage与完整十stage resolver replay theorem：调用方持有dependent
+  production certificate时，可用其中每个真实`.ok`等式证明原fail-closed resolver返回该exact
+  certificate；没有重新执行或复制compiler、Plan、IR、emitter、artifact resolver。
+- `ProductionMethodV1`新增callable/HandlerIR lookup resolver replay与sole Reference wrapper replay；
+  dependent row identity仍由certificate的真实lookup/execution等式约束，proof irrelevance只在找到的
+  production row已经相等之后处理proof字段。
+- `ProductionCompositionV1`补齐generic subject/composition gate的completeness方向：exact resolver、
+  Reference checker与provider checker等式可以证明原Boolean gate为`true`。它与既有soundness/witness
+  lifting配对，但不会从runtime `true`制造certificate，也不解释任何contract relation。
+- `SolanaAsmV1`以任意source/method/state/invocation/subject/checker的类型级fixtures固定这些API不依赖
+  StateCell。聚焦`lake build Tests.Targets.SolanaAsmV1`通过；下一步仍需第二个真实业务合约作为可执行
+  consumer，并分别证明method-specific checker equations。StateCell closed gate、一般
+  Reference→provider refinement、ELF/linker/loader及Mollusk/validator/SVM runtime refinement均未因此
+  完成。

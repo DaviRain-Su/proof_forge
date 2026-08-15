@@ -74,6 +74,15 @@ Code facts:
   composition functions into dependent proof witnesses. The four StateCell
   scenarios are its first consumers; their observation relations, traces and
   postconditions remain method-specific.
+- The preparation and method modules now also expose certificate-replay
+  theorems. An already-retained certificate proves that the original
+  fail-closed preparation/method resolver returns that exact dependent value;
+  the Reference wrapper has the corresponding execution replay theorem.
+  `ProductionCompositionV1.lean` has the matching completeness direction:
+  exact resolver and checker equations imply the generic Boolean gate is
+  `true`. These theorems reuse the original resolvers and checkers; they are not
+  alternate evaluators or a way to manufacture a certificate from runtime
+  output.
 
 ## Completed implementation slices (serial)
 
@@ -146,27 +155,46 @@ second codegen.
     provider certificate and composed witness. All four StateCell sound
     theorems now consume this skeleton while retaining their own UInt64
     relations and provider joins.
+16. **SOL-0048-D5-CERTIFICATE-REPLAY** — **done 2026-08-15**: added the
+    contract-independent completeness direction for preparation stages, the
+    complete preparation resolver, method lookup, Reference execution, and the
+    generic subject/composition gates. Each theorem requires the exact
+    proof-carrying certificate or checker equation and replays it through the
+    existing production function. Type-level fixtures quantify over arbitrary
+    source, method, state, invocation, subject type, and checker pair; no
+    StateCell field, transition, manifest, or trace moved into the generic
+    layer.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete. The remaining D5 blocker is unconditional kernel discharge of the
-closed production gates. A direct `rfl` or kernel `decide` does not reduce the
-current `get` gate because production compilation/artifact definitions are
-opaque; runtime output `true` must not be presented as a theorem.
+closed production gates. Certificate replay now removes repeated reduction of
+the source/compiler/resolver plumbing once exact certificates are available,
+but it does not itself prove the method-specific Reference/provider checker
+equations. A direct `rfl` or kernel `decide` does not reduce the current `get`
+gate because production compilation, artifact parsing, and the 55-step checker
+form a large partly opaque term; runtime output `true` must not be presented as
+a theorem.
 
 Next formalization slices, in order:
 
-1. **SOL-0048-D5-GET-UNCONDITIONAL**: use the preparation, method, provider and
-   composition certificate equations to isolate and discharge the remaining
-   Reference observation, static alignment, artifact/input manifest and
-   55-step checker obligations for `get`. Do not add `native_decide`,
-   `Lean.ofReduceBool`, `run_tac`, an axiom, or a copied AST/IR/provider
-   program.
-2. The resulting theorem must discharge the existing Boolean premise for
-   `get` and call the existing concrete sound theorem, not restate provider
-   behavior.
-3. Apply the same seam to initialize, increment success and overflow only after
-   `get` closes without a one-off proof-only evaluator.
-4. Keep ELF/linker/loader and validator/SVM runtime refinement as a separate
+1. **SOL-0048-D5-SECOND-CONTRACT-CONSUMER**: select a second real Solana
+   production contract with a business shape different from StateCell and make
+   it consume the same preparation, method, Reference execution, provider
+   execution, composition, witness-lifting, and replay APIs. Only the new
+   contract's relation, artifact/input manifest, sparse trace, and
+   postcondition may remain method-specific. This is the executable portability
+   acceptance test for the generic seam; type-level quantification alone is
+   not the final evidence.
+2. **SOL-0048-D5-GET-UNCONDITIONAL**: use the replay equations to isolate and
+   discharge the remaining StateCell `get` Reference observation, static
+   alignment, artifact/input manifest, and 55-step checker obligations. The
+   resulting theorem must discharge the existing Boolean premise and call the
+   existing concrete sound theorem, not restate provider behavior.
+3. Apply the same discharge pattern to initialize, increment success and
+   overflow only after `get` closes without a one-off proof-only evaluator.
+4. Do not add `native_decide`, `Lean.ofReduceBool`, `run_tac`, an axiom, a
+   copied AST/IR/provider program, or a proof-only HandlerIR→sBPF lowering.
+5. Keep ELF/linker/loader and validator/SVM runtime refinement as a separate
    later boundary; prefer an external semantics provider rather than building a
    second runtime model inside ProofForge.
 

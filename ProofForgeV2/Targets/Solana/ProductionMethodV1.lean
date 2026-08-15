@@ -65,6 +65,35 @@ def resolveCertifiedSolanaProductionMethodV1
           handlerLookup := hhandler
         }
 
+/-- Replay retained callable and HandlerIR lookup equations through the real
+    method resolver. Both production rows must still exist with the requested
+    identities; proof irrelevance is used only after those rows agree. -/
+theorem resolveCertifiedSolanaProductionMethodV1_eq_ok
+    {prepared : CertifiedSolanaProductionPreparationV1
+      elaborated canonicalBytes expectedArtifactSha256}
+    (method : CertifiedSolanaProductionMethodV1 prepared semanticKind
+      semanticName handlerName) :
+    resolveCertifiedSolanaProductionMethodV1 prepared semanticKind semanticName
+      handlerName = .ok method := by
+  unfold resolveCertifiedSolanaProductionMethodV1
+  split
+  next hcallable =>
+    rw [method.callableLookup] at hcallable
+    contradiction
+  next callable hcallable =>
+    have hcallableEq : callable = method.callable := by
+      exact Option.some.inj (hcallable.symm.trans method.callableLookup)
+    subst callable
+    split
+    next hhandler =>
+      rw [method.handlerLookup] at hhandler
+      contradiction
+    next handler hhandler =>
+      have hhandlerEq : handler = method.handler := by
+        exact Option.some.inj (hhandler.symm.trans method.handlerLookup)
+      subst handler
+      congr
+
 /-- The sole Reference-machine result for one certified production method and
     invocation. The carrier records execution; it does not define or replay a
     transition. -/
@@ -111,5 +140,21 @@ def executeCertifiedSolanaProductionMethodReferenceV1
   } responses vault
   execution := rfl
 }
+
+/-- Replay a retained Reference execution certificate through the sole
+    Reference-machine wrapper. The carrier's execution equation fixes the
+    outcome; no transition is rerun by this theorem. -/
+theorem executeCertifiedSolanaProductionMethodReferenceV1_eq
+    {prepared : CertifiedSolanaProductionPreparationV1
+      elaborated canonicalBytes expectedArtifactSha256}
+    {method : CertifiedSolanaProductionMethodV1 prepared semanticKind
+      semanticName handlerName}
+    (execution : CertifiedSolanaProductionMethodReferenceV1 method pre args
+      context responses vault) :
+    executeCertifiedSolanaProductionMethodReferenceV1 method pre args context
+      responses vault = execution := by
+  rcases execution with ⟨outcome, execution⟩
+  subst outcome
+  rfl
 
 end ProofForgeV2.Targets.Solana

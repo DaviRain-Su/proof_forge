@@ -68,6 +68,16 @@ private theorem productionPreparationCompilationFixtureV1
       .ok prepared.compiledSemantic :=
   prepared.compilation_success
 
+/-- Type-level fixture: retained stage equations replay through the same
+    contract-independent production preparation resolver. -/
+private theorem productionPreparationReplayFixtureV1
+    {elaborated canonicalBytes expectedSha}
+    (prepared : CertifiedSolanaProductionPreparationV1
+      elaborated canonicalBytes expectedSha) :
+    resolveCertifiedSolanaProductionPreparationV1 elaborated canonicalBytes
+      expectedSha = .ok prepared :=
+  resolveCertifiedSolanaProductionPreparationV1_eq_ok prepared
+
 /-- Type-level fixture: method selection is parameterized by an arbitrary
     prepared contract and callable/handler identity, not by StateCell. -/
 private theorem productionMethodLookupFixtureV1
@@ -83,6 +93,19 @@ private theorem productionMethodLookupFixtureV1
       (prepared.productionIR.handlers.find? (·.name == handlerName) =
         some method.handler) :=
   ⟨method.callableLookup, method.handlerLookup⟩
+
+/-- Type-level fixture: arbitrary certified method rows replay through the real
+    contract-independent method resolver. -/
+private theorem productionMethodReplayFixtureV1
+    {elaborated canonicalBytes expectedSha}
+    {prepared : CertifiedSolanaProductionPreparationV1
+      elaborated canonicalBytes expectedSha}
+    {semanticKind semanticName handlerName}
+    (method : CertifiedSolanaProductionMethodV1 prepared semanticKind
+      semanticName handlerName) :
+    resolveCertifiedSolanaProductionMethodV1 prepared semanticKind semanticName
+      handlerName = .ok method :=
+  resolveCertifiedSolanaProductionMethodV1_eq_ok method
 
 /-- Type-level fixture: Reference invocation identity comes from the callable
     retained by the generic method certificate. -/
@@ -102,6 +125,22 @@ private theorem productionMethodReferenceExecutionFixtureV1
       context
     } responses vault = execution.outcome :=
   execution.execution
+
+/-- Type-level fixture: an arbitrary retained Reference execution replays
+    through the unique method Reference wrapper. -/
+private theorem productionMethodReferenceReplayFixtureV1
+    {elaborated canonicalBytes expectedSha}
+    {prepared : CertifiedSolanaProductionPreparationV1
+      elaborated canonicalBytes expectedSha}
+    {semanticKind semanticName handlerName}
+    {method : CertifiedSolanaProductionMethodV1 prepared semanticKind
+      semanticName handlerName}
+    {pre args context responses vault}
+    (execution : CertifiedSolanaProductionMethodReferenceV1 method pre args
+      context responses vault) :
+    executeCertifiedSolanaProductionMethodReferenceV1 method pre args context
+      responses vault = execution :=
+  executeCertifiedSolanaProductionMethodReferenceV1_eq execution
 
 /-- Type-level fixture: provider execution is parameterized by the exact
     production artifact, Loader invocation, fuel, status, account window,
@@ -134,6 +173,20 @@ private theorem productionCompositionFixtureV1
       providerChecker subject = true :=
   checkCertifiedSolanaProductionCompositionV1_sound result referenceChecker
     providerChecker checked
+
+/-- Type-level fixture: exact equations discharge the generic composition gate
+    for an arbitrary subject type and checker pair. -/
+private theorem productionCompositionReplayFixtureV1
+    (result : Except String α)
+    (referenceChecker providerChecker : α → Bool)
+    (subject : α)
+    (resolved : result = .ok subject)
+    (referenceChecked : referenceChecker subject = true)
+    (providerChecked : providerChecker subject = true) :
+    checkCertifiedSolanaProductionCompositionV1 result referenceChecker
+      providerChecker = true :=
+  checkCertifiedSolanaProductionCompositionV1_eq_true result referenceChecker
+    providerChecker subject resolved referenceChecked providerChecked
 
 /-- Type-level fixture: successful checker equations can be lifted into
     arbitrary caller-owned Reference, provider, and composed witness families.

@@ -43,6 +43,17 @@ def certifyProductionStageV1 {ε α : Type}
   | .ok value => .ok ⟨value, rfl⟩
   | .error error => .error (renderError error)
 
+/-- Replay one retained stage certificate through the existing fail-closed
+    certifier. This is the completeness direction paired with the certificate's
+    `success` equation; it does not evaluate or replace the production stage. -/
+theorem certifyProductionStageV1_eq_ok {ε α : Type}
+    (renderError : ε → String) (result : Except ε α)
+    (certified : ProductionStageSuccessV1 result) :
+    certifyProductionStageV1 renderError result = .ok certified := by
+  rcases certified with ⟨value, success⟩
+  subst result
+  simp [certifyProductionStageV1]
+
 /-- Contract-independent proof decomposition of the production Solana sBPF
     preparation pipeline. Its indices bind the exact source/export/artifact
     identity while every field retains the real production function result. -/
@@ -189,5 +200,40 @@ def resolveCertifiedSolanaProductionPreparationV1
     assembly
     artifact
   }
+
+/-- Replay a complete preparation certificate through the real production
+    resolver. The proof uses every retained stage equation, so a caller cannot
+    bypass a missing, unsupported, or identity-mismatched stage. -/
+theorem resolveCertifiedSolanaProductionPreparationV1_eq_ok
+    (prepared : CertifiedSolanaProductionPreparationV1
+      elaborated canonicalBytes expectedArtifactSha256) :
+    resolveCertifiedSolanaProductionPreparationV1 elaborated canonicalBytes
+      expectedArtifactSha256 = .ok prepared := by
+  rcases prepared with ⟨source, compiled, semanticData, referenceAdmission,
+    selection, capability, plan, ir, assembly, artifact⟩
+  unfold resolveCertifiedSolanaProductionPreparationV1
+  rw [certifyProductionStageV1_eq_ok id _ source]
+  dsimp only [Bind.bind, Except.bind]
+  rw [certifyProductionStageV1_eq_ok (·.render) _ compiled]
+  dsimp only [Bind.bind, Except.bind]
+  rw [certifyProductionStageV1_eq_ok
+    (fun error => s!"semantic validation failed: {repr error}") _ semanticData]
+  dsimp only [Bind.bind, Except.bind]
+  rw [certifyProductionStageV1_eq_ok
+    (fun error => s!"Reference admission failed: {repr error}") _
+      referenceAdmission]
+  dsimp only [Bind.bind, Except.bind]
+  rw [certifyProductionStageV1_eq_ok (·.render) _ selection]
+  dsimp only [Bind.bind, Except.bind]
+  rw [certifyProductionStageV1_eq_ok (·.render) _ capability]
+  dsimp only [Bind.bind, Except.bind]
+  rw [certifyProductionStageV1_eq_ok (·.render) _ plan]
+  dsimp only [Bind.bind, Except.bind]
+  rw [certifyProductionStageV1_eq_ok (·.render) _ ir]
+  dsimp only [Bind.bind, Except.bind]
+  rw [certifyProductionStageV1_eq_ok (·.render) _ assembly]
+  dsimp only [Bind.bind, Except.bind]
+  rw [certifyProductionStageV1_eq_ok (·.render) _ artifact]
+  rfl
 
 end ProofForgeV2.Targets.Solana
