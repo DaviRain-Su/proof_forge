@@ -3,7 +3,7 @@ id: PRODUCT-HELLO-DAPP-AGENT-PLAYBOOK
 title: Hello dApp agent playbook (MCP / SDK / external template)
 status: draft
 owner: product+engineering
-updated: 2026-08-10
+updated: 2026-08-15
 normative: false
 ---
 
@@ -55,7 +55,7 @@ MCP 接线见 [`tools/mcp/README.md`](../../tools/mcp/README.md)。
 
 ```json
 {
-  "source": "src/Hello.lean",
+  "source": "src/Hello.pf",
   "module": "Hello",
   "target": "aleo",
   "root": "/abs/path/to/project",
@@ -73,7 +73,7 @@ from proof_forge_sdk import ProofForgeClient
 c = ProofForgeClient()
 c.doctor(targets=["aleo"])
 result = c.build(
-    source="src/Hello.lean",
+    source="src/Hello.pf",
     module="Hello",
     target="aleo",
     root="/abs/path/to/project",
@@ -85,7 +85,7 @@ print(result.parsed)
 ## 6. CLI 等价
 
 ```bash
-proof-forge-next build src/Hello.lean --module Hello --target aleo \
+proof-forge-next build src/Hello.pf --module Hello --target aleo \
   --root "$PROJ" -o "$PROJ/out-aleo"
 proof-forge-next inspect --output-dir "$PROJ/out-aleo" --json
 ```

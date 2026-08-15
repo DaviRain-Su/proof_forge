@@ -3,7 +3,7 @@ id: SPEC-CLI-DEV-001
 title: Developer CLI `pf` contract
 status: proposed
 owner: cli
-updated: 2026-08-10
+updated: 2026-08-15
 normative: true
 ---
 
@@ -79,7 +79,7 @@ pf doctor | pf setup [--target …] [--yes] | pf version | pf list-targets
 仍支持显式 monorepo 路径（无 pf.toml 时）：
 
 ```text
-pf build <source.lean> --module <Lean.Name> -t aleo -o build/aleo
+pf build <source.pf|.lean> --module <Lean.Name> -t aleo -o build/aleo
 ```
 
 ### 3.1 语义摘要

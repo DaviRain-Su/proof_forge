@@ -3,7 +3,7 @@ id: PRODUCT-SOLANA-AGENT-PLAYBOOK
 title: Solana agent playbook — ProofForge CLI/SDK first
 status: draft
 owner: product+engineering
-updated: 2026-08-10
+updated: 2026-08-15
 normative: false
 ---
 
@@ -52,7 +52,7 @@ pf setup --target solana
 pf doctor --target solana
 
 pf new hello --target solana && cd hello
-# 编辑 src/*.lean（ProgramV1）— 不是 Cargo/Anchor 工程
+# 编辑 src/*.pf（ProgramV1）— 不是 Cargo/Anchor 工程
 pf build
 pf verify
 pf test

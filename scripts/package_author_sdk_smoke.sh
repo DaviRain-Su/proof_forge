@@ -63,7 +63,7 @@ program Hello where
 EOF
 )"
 printf '%s\n' "$hello_src" >"$consumer/Consumer.lean"
-printf '%s\n' "$hello_src" >"$consumer/src/Hello.lean"
+printf '%s\n' "$hello_src" >"$consumer/src/Hello.pf"
 
 (
   cd "$consumer"
@@ -76,7 +76,7 @@ PF="${PROOF_FORGE_CLI:-$root/.lake/build/bin/proof-forge-next}"
 if [[ -x "$PF" ]]; then
   echo "${PREFIX}: product CLI build consumer source --target quint"
   out="$tmp/out-quint"
-  "$PF" build src/Hello.lean --module Hello --target quint --root "$consumer" -o "$out"
+  "$PF" build src/Hello.pf --module Hello --target quint --root "$consumer" -o "$out"
   [[ -f "$out/manifest.json" ]] || die "missing product build manifest"
 else
   echo "${PREFIX}: skip product CLI build (binary missing)"

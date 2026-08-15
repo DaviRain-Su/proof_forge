@@ -169,6 +169,28 @@ private def testSourceExtension : IO Unit := do
   expect (stderrOk == "")
     s!"Hello.pf check must be silent on stderr, got {stderrOk}"
 
+/-- Materialize path must accept `.pf` (zero-tool Quint; not a Lake module). -/
+private def testBuildHelloPfQuint : IO Unit := do
+  let outDir := FilePath.mk "build/v2/diagnostic-build-hello-pf-quint"
+  if ← outDir.pathExists then IO.FS.removeDirAll outDir
+  let (ec, stdout, stderr) ← runCli #[
+    "build",
+    "testdata/valid/Hello.pf",
+    "--module", "Hello",
+    "--target", "quint",
+    "-o", "build/v2/diagnostic-build-hello-pf-quint"
+  ]
+  expect (ec == 0)
+    s!"Hello.pf quint build must exit 0, got {ec}\nstderr={stderr}\nstdout={stdout}"
+  expect (containsSubstr stdout "built target=quint")
+    s!"Hello.pf quint build stdout missing, stdout={stdout}"
+  expect (!containsSubstr stderr "PF-")
+    s!"Hello.pf quint build must not print product diagnostic codes, got:\n{stderr}"
+  expect (← outDir.pathExists)
+    "Hello.pf quint build must create output directory"
+  expect (← (outDir / "manifest.json").pathExists)
+    "Hello.pf quint build must write manifest.json"
+
 private def testUnknownCommandExit2 : IO Unit := do
   let (ec, _stdout, stderr) ← runCli #["not-a-command"]
   expect (ec == 2)
@@ -957,6 +979,7 @@ unsafe def run : IO Unit := do
       s!"CLI binary missing at {cliBin}; build proof_forge_next first"
   testUsageExit2
   testSourceExtension
+  testBuildHelloPfQuint
   testUnknownCommandExit2
   testUnknownTargetExit2
   testLanguageVersionSelection

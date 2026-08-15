@@ -3,7 +3,7 @@ id: PRODUCT-ALEO-DAPP-FRONTEND-WALLET
 title: Aleo dApp frontend — Wallet Adapter + Provable SDK (FCCP companion)
 status: draft
 owner: product+engineering
-updated: 2026-08-10
+updated: 2026-08-15
 normative: false
 ---
 
@@ -121,7 +121,7 @@ npm install --save \
 
 ```text
 ┌──────────────────────────── ProofForge monorepo ────────────────────────────┐
-│  src/*.lean (ProgramV1)                                                     │
+│  src/*.pf (ProgramV1)                                                       │
 │       │ pf build --target aleo                                              │
 │       ▼                                                                     │
 │  build/aleo/*.aleo  +  *-query-contract.json  +  manifest.json              │

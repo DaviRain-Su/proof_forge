@@ -320,6 +320,7 @@ impl Project {
     ) -> PfResult<(PathBuf, String, Option<PathBuf>)> {
         if let (Some(src), Some(module)) = (cli_source, cli_module) {
             let src = absolutize(&self.root, src);
+            require_admitted_source_suffix(&src)?;
             let root = Some(self.root.clone());
             return Ok((src, module.to_string(), root));
         }
@@ -330,6 +331,7 @@ impl Project {
         } else {
             PathBuf::from(&cfg.package.source)
         };
+        require_admitted_source_suffix(&src_rel)?;
         let src = self.root.join(&src_rel);
         if !src.is_file() {
             return Err(PfError::Usage(format!(
@@ -531,6 +533,23 @@ fn to_module_name(name: &str) -> String {
     }
 }
 
+/// Same suffix gate as `proof-forge-next`: product `.pf`, Lake/theorem `.lean`.
+fn is_admitted_source_suffix(path: &Path) -> bool {
+    path.to_str()
+        .map(|s| s.ends_with(".pf") || s.ends_with(".lean"))
+        .unwrap_or(false)
+}
+
+fn require_admitted_source_suffix(path: &Path) -> PfResult<()> {
+    if is_admitted_source_suffix(path) {
+        Ok(())
+    } else {
+        Err(PfError::Usage(
+            "source path must end in .pf or .lean".into(),
+        ))
+    }
+}
+
 fn absolutize(root: &Path, p: &Path) -> PathBuf {
     if p.is_absolute() {
         p.to_path_buf()
@@ -565,6 +584,44 @@ mod tests {
         assert!(!dir.join("src/Hello.lean").exists());
         let cfg = fs::read_to_string(dir.join("pf.toml")).unwrap();
         assert!(cfg.contains("source = \"src/Hello.pf\""));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn admitted_source_suffix() {
+        assert!(is_admitted_source_suffix(Path::new("src/Hello.pf")));
+        assert!(is_admitted_source_suffix(Path::new("src/Hello.lean")));
+        assert!(!is_admitted_source_suffix(Path::new("src/Hello.txt")));
+        assert!(!is_admitted_source_suffix(Path::new("src/Hello.PF")));
+    }
+
+    #[test]
+    fn resolve_rejects_txt_source() {
+        let dir = std::env::temp_dir().join(format!(
+            "pf-src-ext-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let _ = fs::remove_dir_all(&dir);
+        write_new_project(&dir, "hello", "evm").unwrap();
+        let project = Project {
+            root: dir.clone(),
+            config: Some(load_config(&dir.join(CONFIG_NAME)).unwrap()),
+        };
+        let err = project
+            .resolve_source_module(Some(Path::new("src/Hello.txt")), Some("Hello"))
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("source path must end in .pf or .lean"),
+            "{err}"
+        );
+        let ok = project
+            .resolve_source_module(None, None)
+            .expect("pf new source must resolve");
+        assert!(ok.0.ends_with("src/Hello.pf"));
         let _ = fs::remove_dir_all(&dir);
     }
 

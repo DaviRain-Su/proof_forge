@@ -3,7 +3,7 @@ id: PRODUCT-HELLO-DAPP-AGENT-PLAYBOOK
 title: Hello dApp agent playbook (MCP / SDK / external template)
 status: draft
 owner: product+engineering
-updated: 2026-08-10
+updated: 2026-08-15
 normative: false
 ---
 
@@ -63,7 +63,7 @@ MCP 接线见 [`tools/mcp/README.md`](../../tools/mcp/README.md)（stdio 本机 
 | 0 | `pf version` | 见 compiler path + hostMode=dev |
 | 1 | `pf -y setup --target evm` | doctor/setup ready；Tool Root 有 solc（+ anvil/cast） |
 | 2 | `pf network list --family evm` | 看到 `evm.local.anvil` 等 |
-| 3 | `pf new hello --target evm && cd hello` | `src/*.lean` + `pf.toml` |
+| 3 | `pf new hello --target evm && cd hello` | `src/*.pf` + `pf.toml` |
 | 4 | `pf build` | `build/evm/manifest.json` + `*.bin` + `*.abi.json` |
 | 5 | `pf test` | Anvil smoke ok **或** skip-clean（缺 anvil） |
 | 6 | `pf deploy` | save-only `build/evm/tx/*deployment.package.json` |
@@ -109,7 +109,7 @@ cd ui/evm-dapp && npm install && npm run dev
 
 ```json
 {
-  "source": "src/Hello.lean",
+  "source": "src/Hello.pf",
   "module": "Hello",
   "target": "evm",
   "root": "/abs/path/to/project",
@@ -124,7 +124,7 @@ from proof_forge_sdk import ProofForgeClient
 c = ProofForgeClient()  # spawns PROOF_FORGE_CLI
 c.doctor(targets=["evm"])
 result = c.build(
-    source="src/Hello.lean",
+    source="src/Hello.pf",
     module="Hello",
     target="evm",
     root="/abs/path/to/project",
@@ -136,7 +136,7 @@ print(result.parsed)
 ## 7. CLI 等价（compiler 直调）
 
 ```bash
-proof-forge-next build src/Hello.lean --module Hello --target evm \
+proof-forge-next build src/Hello.pf --module Hello --target evm \
   --root "$PROJ" -o "$PROJ/build/evm"
 proof-forge-next inspect --output-dir "$PROJ/build/evm" --json
 ```

@@ -3,7 +3,7 @@ id: DEMO-ALEO-TESTNET-WALKTHROUGH
 title: Demo — Aleo with pf (local run → Testnet deploy → execute)
 status: draft
 owner: product+engineering
-updated: 2026-08-10
+updated: 2026-08-15
 normative: false
 ---
 
@@ -82,7 +82,7 @@ rm -rf /tmp/pf-aleo-video && mkdir -p /tmp/pf-aleo-video && cd /tmp/pf-aleo-vide
 pf new hello --target aleo
 cd hello
 cat pf.toml
-sed -n '1,40p' src/Hello.lean
+sed -n '1,40p' src/Hello.pf
 ```
 
 **Say:** “Same shape as our StateCell template — init, increment, get. No Lake package.”

@@ -199,7 +199,7 @@ Then:
 
 ```bash
 export PROOF_FORGE_CLI=/path/to/proof-forge-next
-"$PROOF_FORGE_CLI" build src/Hello.lean --module Hello --target aleo --root "$PWD" -o out
+"$PROOF_FORGE_CLI" build src/Hello.pf --module Hello --target aleo --root "$PWD" -o out
 ```
 
 ## Contents

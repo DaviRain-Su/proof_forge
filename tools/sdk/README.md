@@ -46,7 +46,7 @@ print(client.install(targets=["quint"], dry_run=True).parsed)
 # r = client.build("Examples/Counter.lean", module="Examples.Counter",
 #                  target="quint", output="/tmp/pf-out")
 # External ProgramV1 tree: pass root=... through build/check/local.
-# r = client.local(target="aleo", source="src/Hello.lean", module="Hello", root="/tmp/external-pf")
+# r = client.local(target="aleo", source="src/Hello.pf", module="Hello", root="/tmp/external-pf")
 # manifest = client.load_output_manifest("/tmp/pf-out")
 ```
 
