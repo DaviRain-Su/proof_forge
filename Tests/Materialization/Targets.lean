@@ -5338,6 +5338,50 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "MapInt" target kind mapIntCompiled
       "only anonymous UInt64 width is supported"
 
+  -- MapIntKey: Map Int64 UInt64 state (signed KEY). EVM/Solana stay on
+  -- the key-shape needle, not MapInt's value needle. Six targets stay
+  -- Map-U64-U64; Psy stays pilot; Quint/Soroban/OpenVM/ICP fail on the
+  -- width needle first, not MapBool's Map-pilot. Not opening Int64-key
+  -- Map. MapInt / MapBool / MapPrin / ArrInt / OptInt stay.
+  let mapIntKeySource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapIntKey where\n" ++
+    "  state m : Map Int64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let mapIntKeyV1 ← match ← session.selectProgramV1 mapIntKeySource
+      "<targets-map-int-key>" "Examples.MapIntKey" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MapIntKey select: {e.render}"
+  let mapIntKeyCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapIntKeyV1
+  for (target, kind) in #[
+      (TargetId.evm, TargetKind.evm),
+      (TargetId.solana, TargetKind.solana)] do
+    expectMaterializePlanInvariantV1 "MapIntKey" target kind mapIntKeyCompiled
+      "Map state admits only Map UInt64 UInt64 or Map Principal UInt64"
+  for (target, kind) in #[
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.aleo, TargetKind.aleo),
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.ton, TargetKind.ton)] do
+    expectMaterializePlanInvariantV1 "MapIntKey" target kind mapIntKeyCompiled
+      "Map state admits only Map UInt64 UInt64"
+  expectMaterializePlanInvariantV1 "MapIntKey" TargetId.psy TargetKind.psy
+    mapIntKeyCompiled "Map state pilot requires UInt64 keys and values"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "MapIntKey" target kind mapIntKeyCompiled
+      "only anonymous UInt64 width is supported"
+
   -- BytesBox: Bytes 4 state. Eight materializers admit; Quint/Soroban/
   -- ICP/OpenVM stay envelope FC. Not opening Bytes on those four.
   -- State only — no Bytes return ABI. Files-nonempty or named decline.
