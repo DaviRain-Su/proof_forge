@@ -4695,6 +4695,54 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrField" TargetId.icp TargetKind.icp
     arrFieldCompiled "Int/Field/Principal/aggregates/containers/String fail closed"
 
+  -- ArrStr: Array String 2 state. Companion UInt64 `n` exists only so
+  -- init/entry compile (no String literal; no bare return in init).
+  -- All twelve stay named element/String FC. Not opening Array-of-String.
+  -- ArrField / ArrayBox / StringInterfaceBoundary stay.
+  let arrStrSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrStr where\n" ++
+    "  state slots : Array String 2\n" ++
+    "  state n : UInt64\n\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    n := x\n\n" ++
+    "  entry bump(d : UInt64) : UInt64 do\n" ++
+    "    n := n + d\n" ++
+    "    return n\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let arrStrV1 ← match ← session.selectProgramV1 arrStrSource
+      "<targets-arr-str>" "Examples.ArrStr" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"ArrStr select: {e.render}"
+  let arrStrCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrStrV1
+  expectMaterializePlanInvariantV1 "ArrStr" TargetId.evm TargetKind.evm
+    arrStrCompiled "Array state element must be UInt8/16/32/64"
+  expectMaterializePlanInvariantV1 "ArrStr" TargetId.solana TargetKind.solana
+    arrStrCompiled "not a fixed 32-byte pubkey"
+  expectMaterializePlanInvariantV1 "ArrStr" TargetId.near TargetKind.near
+    arrStrCompiled "not a NEAR account-id string"
+  expectMaterializePlanInvariantV1 "ArrStr" TargetId.noir TargetKind.noir
+    arrStrCompiled "not a Field element"
+  expectMaterializePlanInvariantV1 "ArrStr" TargetId.aleo TargetKind.aleo
+    arrStrCompiled "Principal/String stay fail-closed"
+  expectMaterializePlanInvariantV1 "ArrStr" TargetId.psy TargetKind.psy
+    arrStrCompiled "Array state element must be UInt64"
+  expectMaterializePlanInvariantV1 "ArrStr" TargetId.quint TargetKind.quint
+    arrStrCompiled "Int/Field/aggregates/containers fail closed"
+  expectMaterializePlanInvariantV1 "ArrStr" TargetId.cosmwasm TargetKind.cosmwasm
+    arrStrCompiled "no Field"
+  expectMaterializePlanInvariantV1 "ArrStr" TargetId.ton TargetKind.ton
+    arrStrCompiled "no Field/Principal"
+  for (target, kind) in #[
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm)] do
+    expectMaterializePlanInvariantV1 "ArrStr" target kind arrStrCompiled
+      "Int/Field/Principal/aggregates/containers fail closed"
+  expectMaterializePlanInvariantV1 "ArrStr" TargetId.icp TargetKind.icp
+    arrStrCompiled "containers/String fail closed"
+
   -- MapMini: Map UInt64 UInt64 state. Eight materializers admit; Quint/
   -- Soroban/ICP/OpenVM stay envelope FC. Not opening Map on those four.
   -- No Plan-shape pins; files-nonempty or named decline only.
