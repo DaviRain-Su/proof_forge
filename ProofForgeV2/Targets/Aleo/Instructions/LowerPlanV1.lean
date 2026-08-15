@@ -1026,8 +1026,9 @@ def lowerPlanToInstructionsV1 (plan : Plan) : CompileResult ProgramV1 := do
       planError
         s!"ALEO-IR-4: state leaf {i} ('{plan.stateFieldNames[i]!}') is not public UInt*/Int64/Field"
   for view in plan.views do
-    unless view.stateFieldIndex < plan.stateFieldNames.size do
-      planError s!"ALEO-IR-4: view '{view.name}' references missing state"
+    if !view.isComputed then
+      unless view.stateFieldIndex < plan.stateFieldNames.size do
+        planError s!"ALEO-IR-4: view '{view.name}' references missing state"
   unless plan.functions.size ≥ 1 do
     planError "ALEO-IR-4: expected at least one function (initialize)"
   -- G5-HARD: pureHelpers may only be pure (no state); validated before skip.

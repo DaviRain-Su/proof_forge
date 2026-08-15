@@ -1831,11 +1831,11 @@ unsafe def testMultiGoldenAccumulatorAdmitSurface : IO Unit := do
       expect (encodeProgram prog == golden)
         "Accumulator golden encode round-trip"
 
-/-- ALEO-MULTI-GOLDEN: OptionState admit-surface product pin (entry-only;
-    full Examples/OptionState computed `peek` view is Plan-FC). Structural only.
+/-- ALEO-MULTI-GOLDEN: OptionState admit-surface product pin (entry-only
+    Instructions golden). Full Examples/OptionState `peek` is an off-chain
+    computed query descriptor and must not become a Final function.
     Source authority = `Tests.Fixtures.AleoAdmitSurfacesV1.optionStateAdmitSourceV1`. -/
 unsafe def testMultiGoldenOptionStateAdmitSurface : IO Unit := do
-  -- Honesty: full Examples computed view Plan-FC.
   let fullSrc ← IO.FS.readFile "Examples/OptionState.lean"
   let session ← Tests.Language.ParserSession.shared
   let fullParsed ← liftResult (← session.selectProgramV1
@@ -1843,17 +1843,22 @@ unsafe def testMultiGoldenOptionStateAdmitSurface : IO Unit := do
   let fullCompiled ← liftResult <| Compiler.compileValidatedSourceV1 fullParsed
   let selection ← liftResult <|
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
-  match resolveEngineeringRequirementsV1 selection fullCompiled with
-  | .error e =>
-      expect (e.render.length > 0) "full OptionState FC diagnostic"
-  | .ok fullCap =>
-      match planFromCapability fullCap with
-      | .ok _ =>
-          throw <| IO.userError
-            "full Examples/OptionState must Plan-FC on computed view peek"
-      | .error e =>
-          expect (e.render.contains "view" || e.render.contains "computed")
-            s!"full OptionState must cite computed view, got: {e.render}"
+  let fullCap ← liftResult <| resolveEngineeringRequirementsV1 selection fullCompiled
+  let fullPlan ← liftResult <| planFromCapability fullCap
+  expect (fullPlan.views.any fun v => v.name == "peek" && v.isComputed)
+    "full OptionState must emit computed query view peek"
+  expect (!fullPlan.functions.any (·.name == "peek"))
+    "computed peek must not be a Final function"
+  let fullFiles ← liftResult <| Targets.Aleo.buildFromCapability fullCap
+  let some q := fullFiles.find? (·.path.endsWith ".aleo-query-contract.json") |
+    throw <| IO.userError "full OptionState missing query contract"
+  expect (q.contents.contains "\"kind\":\"computed\"" &&
+      q.contents.contains "\"name\":\"peek\"")
+    "query contract must advertise computed peek"
+  let some aleo := fullFiles.find? (·.path == "optionstate.aleo") |
+    throw <| IO.userError "full OptionState missing Instructions"
+  expect (!aleo.contents.contains "function peek")
+    "Instructions must omit computed peek"
   let prog ← productProgramFromSource optionStateAdmitProgramId
     optionStateAdmitSourceV1 optionStateAdmitModuleName
   expect (prog.name == "optionstate.aleo") "OptionState program name"
@@ -1879,8 +1884,8 @@ unsafe def testMultiGoldenOptionStateAdmitSurface : IO Unit := do
   | none => throw <| IO.userError "OptionState multi encode→decode failed"
   | some p2 => expect (p2 == prog) "OptionState multi structural round-trip"
 
-/-- ALEO-MULTI-GOLDEN: MapMini admit-surface product pin (entry put only;
-    full Examples/MapMini computed `get` view is Plan-FC). Structural only.
+/-- ALEO-MULTI-GOLDEN: MapMini admit-surface product pin (entry put only
+    Instructions). Full Examples/MapMini `get` is an off-chain computed query.
     Source authority = `Tests.Fixtures.AleoAdmitSurfacesV1.mapMiniAdmitSourceV1`. -/
 unsafe def testMultiGoldenMapMiniAdmitSurface : IO Unit := do
   let fullSrc ← IO.FS.readFile "Examples/MapMini.lean"
@@ -1890,17 +1895,18 @@ unsafe def testMultiGoldenMapMiniAdmitSurface : IO Unit := do
   let fullCompiled ← liftResult <| Compiler.compileValidatedSourceV1 fullParsed
   let selection ← liftResult <|
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
-  match resolveEngineeringRequirementsV1 selection fullCompiled with
-  | .error e =>
-      expect (e.render.length > 0) "full MapMini FC diagnostic"
-  | .ok fullCap =>
-      match planFromCapability fullCap with
-      | .ok _ =>
-          throw <| IO.userError
-            "full Examples/MapMini must Plan-FC on computed view get"
-      | .error e =>
-          expect (e.render.contains "view" || e.render.contains "computed")
-            s!"full MapMini must cite computed view, got: {e.render}"
+  let fullCap ← liftResult <| resolveEngineeringRequirementsV1 selection fullCompiled
+  let fullPlan ← liftResult <| planFromCapability fullCap
+  expect (fullPlan.views.any fun v => v.name == "get" && v.isComputed)
+    "full MapMini must emit computed query view get"
+  expect (!fullPlan.functions.any (·.name == "get"))
+    "computed get must not be a Final function"
+  let fullFiles ← liftResult <| Targets.Aleo.buildFromCapability fullCap
+  let some q := fullFiles.find? (·.path.endsWith ".aleo-query-contract.json") |
+    throw <| IO.userError "full MapMini missing query contract"
+  expect (q.contents.contains "\"kind\":\"computed\"" &&
+      q.contents.contains "\"name\":\"get\"")
+    "query contract must advertise computed get"
   let prog ← productProgramFromSource mapMiniAdmitProgramId
     mapMiniAdmitSourceV1 mapMiniAdmitModuleName
   expect (prog.name == "mapmini.aleo") "MapMini program name"
@@ -2062,10 +2068,10 @@ def testAdmitFixturesDurableSourceAuthority : IO Unit := do
     "ADMIT-FIXTURES MapMini has put entry"
   expect (!mapMiniAdmitSourceV1.contains "view get")
     "ADMIT-FIXTURES MapMini has no computed get view"
-  expect (fullExamplePlanFcReasonOptionState.contains "computed view")
-    "ADMIT-FIXTURES documents OptionState computed-view Plan-FC"
-  expect (fullExamplePlanFcReasonMapMini.contains "computed view")
-    "ADMIT-FIXTURES documents MapMini computed-view Plan-FC"
+  expect (fullExampleComputedViewOptionState.contains "computed query view")
+    "ADMIT-FIXTURES documents OptionState computed query view"
+  expect (fullExampleComputedViewMapMini.contains "computed query view")
+    "ADMIT-FIXTURES documents MapMini computed query view"
   expect (!Targets.Aleo.isAleoInstructionsG5HardResidualAllowlistV1 "")
     "ADMIT-FIXTURES: G5-HARD residual allowlist stays empty"
   pure ()
@@ -2138,43 +2144,27 @@ unsafe def testAdmitFixturesProductLowerAll : IO Unit := do
     "ADMIT-FIXTURES must not alter Counter golden size"
   pure ()
 
-/-- Unsupported computed aggregate views remain fail closed. -/
+/-- Full Examples computed views admit as query descriptors, not Final. -/
 unsafe def testAdmitFixturesFullExamplesPlanFcHonesty : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
   let selection ← liftResult <|
     BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
-  -- OptionState full → FC (computed peek)
   let optFull ← IO.FS.readFile "Examples/OptionState.lean"
   let optParsed ← liftResult (← session.selectProgramV1
     optFull "<aleo-admit-full-opt>" "Examples.OptionState" none)
   let optCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optParsed
-  match resolveEngineeringRequirementsV1 selection optCompiled with
-  | .error e =>
-      expect (e.render.length > 0) "full OptionState FC diagnostic nonempty"
-  | .ok cap =>
-      match planFromCapability cap with
-      | .ok _ =>
-          throw <| IO.userError
-            s!"full OptionState must Plan-FC: {fullExamplePlanFcReasonOptionState}"
-      | .error e =>
-          expect (e.render.contains "view" || e.render.contains "computed")
-            s!"full OptionState FC must cite computed view (reason: {fullExamplePlanFcReasonOptionState}); got: {e.render}"
-  -- MapMini full → FC (computed get)
+  let optCap ← liftResult <| resolveEngineeringRequirementsV1 selection optCompiled
+  let optPlan ← liftResult <| planFromCapability optCap
+  expect (optPlan.views.any fun v => v.name == "peek" && v.isComputed)
+    s!"full OptionState must admit {fullExampleComputedViewOptionState}"
   let mapFull ← IO.FS.readFile "Examples/MapMini.lean"
   let mapParsed ← liftResult (← session.selectProgramV1
     mapFull "<aleo-admit-full-map>" "Examples.MapMini" none)
   let mapCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapParsed
-  match resolveEngineeringRequirementsV1 selection mapCompiled with
-  | .error e =>
-      expect (e.render.length > 0) "full MapMini FC diagnostic nonempty"
-  | .ok cap =>
-      match planFromCapability cap with
-      | .ok _ =>
-          throw <| IO.userError
-            s!"full MapMini must Plan-FC: {fullExamplePlanFcReasonMapMini}"
-      | .error e =>
-          expect (e.render.contains "view" || e.render.contains "computed")
-            s!"full MapMini FC must cite computed view (reason: {fullExamplePlanFcReasonMapMini}); got: {e.render}"
+  let mapCap ← liftResult <| resolveEngineeringRequirementsV1 selection mapCompiled
+  let mapPlan ← liftResult <| planFromCapability mapCap
+  expect (mapPlan.views.any fun v => v.name == "get" && v.isComputed)
+    s!"full MapMini must admit {fullExampleComputedViewMapMini}"
   pure ()
 
 

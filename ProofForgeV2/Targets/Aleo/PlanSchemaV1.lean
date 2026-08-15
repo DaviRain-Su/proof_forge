@@ -292,7 +292,20 @@ private def encodePlanFunction (fn : PlanFunction) : Except String ByteArray := 
   pure out
 
 private def encodePlanView (v : PlanView) : Except String ByteArray := do
-  pure ((← encodeString v.name).append (← encodeNatAsU32le v.stateFieldIndex))
+  if !v.isComputed then
+    pure (((encodeU8 0).append (← encodeString v.name)).append
+      (← encodeNatAsU32le v.stateFieldIndex))
+  else do
+    let mut out := (encodeU8 1).append (← encodeString v.name)
+    out := out.append (← encodeNatAsU32le v.params.size)
+    for p in v.params do out := out.append (← encodePlanParam p)
+    out := out.append (encodeBool v.resultIsBool)
+    out := out.append (encodeBool v.resultIsInt)
+    out := out.append (← encodeNatAsU32le v.resultUintWidth)
+    out := out.append (encodeBool v.resultIsField)
+    out := out.append (← encodeNatAsU32le v.body.size)
+    for s in v.body do out := out.append (← encodeStatement s)
+    pure out
 
 /-- Canonical encode of Aleo Plan for engineering planDigest (ALEO-I1).
     Validation runs first so invalid Plans fail closed before hashing. -/

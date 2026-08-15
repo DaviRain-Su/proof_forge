@@ -242,7 +242,10 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     if fn.resultDropped && !fn.touchesState then
       planError "resultDropped requires a state-touching body"
   for view in plan.views do
-    if view.stateFieldIndex >= plan.stateFieldNames.size then
+    if view.isComputed then
+      if view.stateFieldIndex != 0 then
+        planError "Aleo computed view must leave stateFieldIndex = 0"
+    else if view.stateFieldIndex >= plan.stateFieldNames.size then
       planError "Aleo view references a missing state field"
   pure ()
 

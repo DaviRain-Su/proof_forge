@@ -3,7 +3,7 @@ id: TARGET-ALEO
 title: Aleo target dossier
 status: proposed
 owner: architecture
-updated: 2026-08-15
+updated: 2026-08-16
 normative: true
 ---
 
@@ -90,8 +90,10 @@ materialize 有序输出两个 `materialized-base`：
 2. `{programId}.aleo-query-contract.json`：
    `proof-forge-aleo-query-contract/v1` network-state descriptor。
 
-query descriptor 只描述 public mapping、bare view 与 dropped-result observation；它不执行
-查询，也不是编译器输入。`ArtifactEncoding.aleoInstructions` 是唯一 Aleo artifact encoding。
+query descriptor 描述 public mapping、bare view、**computed query view**（`kind=computed`，
+off-chain recipe；不是 Final、不是链上返回值——Aleo Final 会丢掉 output）与
+dropped-result observation；它不执行查询，也不是编译器输入。
+`ArtifactEncoding.aleoInstructions` 是唯一 Aleo artifact encoding。
 
 ## 5. Finalization 与工具边界
 

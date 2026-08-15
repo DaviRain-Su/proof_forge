@@ -916,17 +916,15 @@ private unsafe def testBoolPredicateSemanticPlans : IO Unit := do
     throw <| IO.userError "bool-predicate: missing NEAR ABI"
   expect (nearAbi.contents.contains "\"bool\"")
     "NEAR ABI must carry the bool result type"
-  -- Extra eight + EVM from probe; Bool view/entry lighthouse. Eleven
-  -- materialize (ICP Bool results + comparisons). Aleo computed-view
-  -- stays named FC. Existing four Plan/IR/IDL pins unchanged.
+  -- Extra eight + EVM from probe; Bool view/entry lighthouse. Twelve
+  -- materialize (ICP Bool results + Aleo computed query view).
+  -- Existing four Plan/IR/IDL pins unchanged.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
       TargetId.psy, TargetId.quint, TargetId.cosmwasm, TargetId.ton,
-      TargetId.soroban, TargetId.openvm, TargetId.icp] do
+      TargetId.soroban, TargetId.openvm, TargetId.icp, TargetId.aleo] do
     let out ← liftResult <| materializeSelected target compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"BoolPredicate: {target} must materialize"
-  expectMaterializePlanInvariantV1 "BoolPredicate" TargetId.aleo TargetKind.aleo
-    compiled "Aleo computed state views fail closed"
 
 /-- ProgramV1 branching source text for the Wave C if/match multi-block leaf. -/
 private def branchFlowSourceTextV1 : String :=
@@ -1687,16 +1685,14 @@ private unsafe def testArithOpsSemanticPlans : IO Unit := do
   expect (parityNr.contents.contains ": bool = !")
     "arith-ops Noir parity must render Bool NOT"
   -- Extra eight from probe; ArithFlow mul/div/mod/bitNot/boolNot lighthouse.
-  -- Psy/CW/TON admit. Aleo computed Bool view. Quint/Soroban/OpenVM/ICP
-  -- admit mul/div/mod and fail on unary bitNot (`~value` in mask).
-  -- existing four Plan/IR pins unchanged.
+  -- Psy/CW/TON/Aleo admit (Aleo computed Bool view is a query descriptor).
+  -- Quint/Soroban/OpenVM/ICP admit mul/div/mod and fail on unary bitNot
+  -- (`~value` in mask). existing four Plan/IR pins unchanged.
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
+      TargetId.psy, TargetId.cosmwasm, TargetId.ton, TargetId.aleo] do
     let out ← liftResult <| materializeSelected target compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"ArithFlow: {target} must materialize"
-  expectMaterializePlanInvariantV1 "ArithFlow" TargetId.aleo TargetKind.aleo
-    compiled "Aleo computed state views fail closed"
   expectMaterializePlanInvariantV1 "ArithFlow" TargetId.quint TargetKind.quint
     compiled "unary neg/bitNot are outside Q0"
   expectMaterializePlanInvariantV1 "ArithFlow" TargetId.soroban TargetKind.soroban
@@ -4414,7 +4410,7 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"MaybeViewRet: {target} must materialize named Enum view return"
   expectMaterializePlanInvariantV1 "MaybeViewRet" TargetId.aleo TargetKind.aleo
-    enumViewRetCompiled "computed state views fail closed"
+    enumViewRetCompiled "aggregate view query deferred"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -4563,7 +4559,7 @@ unsafe def runNamedAndArrayNeedles : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"ArrViewRet: {target} must materialize Array UInt64 2 view return"
   expectMaterializePlanInvariantV1 "ArrViewRet" TargetId.aleo TargetKind.aleo
-    arrViewRetCompiled "computed state views fail closed"
+    arrViewRetCompiled "aggregate view query deferred"
   expectMaterializePlanInvariantV1 "ArrViewRet" TargetId.quint TargetKind.quint
     arrViewRetCompiled "Array return is outside Q0"
   expectMaterializePlanInvariantV1 "ArrViewRet" TargetId.icp TargetKind.icp
@@ -6630,7 +6626,7 @@ unsafe def runRemainingNeedles : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"OptViewRet: {target} must materialize Option UInt64 view return"
   expectMaterializePlanInvariantV1 "OptViewRet" TargetId.aleo TargetKind.aleo
-    optViewRetCompiled "computed state views fail closed"
+    optViewRetCompiled "aggregate view query deferred"
   expectMaterializePlanInvariantV1 "OptViewRet" TargetId.quint TargetKind.quint
     optViewRetCompiled "Option return is outside Q0"
   expectMaterializePlanInvariantV1 "OptViewRet" TargetId.soroban TargetKind.soroban

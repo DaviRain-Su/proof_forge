@@ -1,19 +1,17 @@
 /-
-  Aleo Instructions fixtures for source shapes not supported by the shared
-  examples: OptionState and MapMini computed views remain outside the target
-  Plan, so these entry-only sources exercise their supported subsets.
+  Aleo Instructions fixtures: entry-only OptionState / MapMini sources keep
+  the committed Instructions goldens. Full Examples now admit computed views
+  as off-chain query descriptors (not Final returns).
 -/
 namespace Tests.Fixtures.AleoAdmitSurfacesV1
 
-/-- Full Examples/OptionState.lean Plan-FC reason on Aleo:
-    computed view `peek` over Option state is not bare place return. -/
-def fullExamplePlanFcReasonOptionState : String :=
-  "computed view `peek` (match over Option state); bare place views only"
+/-- Full Examples/OptionState.lean computed `peek` is a query descriptor. -/
+def fullExampleComputedViewOptionState : String :=
+  "computed query view `peek` (match over Option state)"
 
-/-- Full Examples/MapMini.lean Plan-FC reason on Aleo:
-    computed view `get` over Map index is not bare place return. -/
-def fullExamplePlanFcReasonMapMini : String :=
-  "computed view `get` (match over Map index); bare place views only"
+/-- Full Examples/MapMini.lean computed `get` is a query descriptor. -/
+def fullExampleComputedViewMapMini : String :=
+  "computed query view `get` (match over Map index)"
 
 
 /-- Loader / product module selector for OptionState admit-surface. -/
@@ -30,8 +28,9 @@ def optionStateAdmitProgramId : String := "optionstate"
 def mapMiniAdmitProgramId : String := "mapmini"
 
 
-/-- OptionState admit-surface: entry-only (setSome/clear); no computed peek.
-    Full Examples/OptionState computed view stays Plan-FC on Aleo.
+/-- OptionState admit-surface: entry-only (setSome/clear); no computed peek
+    in the Instructions golden. Full Examples/OptionState `peek` is a query
+    descriptor and must not appear in `{id}.aleo`.
     ALEO-INSTRUCTIONS full-byte pin: `optionstate-admit.aleo` (1019 B). -/
 def optionStateAdmitSourceV1 : String :=
   "import ProofForgeV2\n" ++
@@ -47,8 +46,8 @@ def optionStateAdmitSourceV1 : String :=
   "    slot := Option.none()\n" ++
   "    return 0\n"
 
-/-- MapMini admit-surface: entry put only; no computed get view.
-    Full Examples/MapMini computed view stays Plan-FC on Aleo. -/
+/-- MapMini admit-surface: entry put only; no computed get in the
+    Instructions golden. Full Examples/MapMini `get` is a query descriptor. -/
 def mapMiniAdmitSourceV1 : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++

@@ -90,7 +90,8 @@ deterministic and source-order stable.
 | literals/constants、checked arithmetic、compare、bitwise/logical/shift | lowered |
 | let/assign/assert/if/match/bounded-for/bare revert | lowered |
 | effect-free pureFn/localCall | bounded inline |
-| computed or multi-leaf state view | fail closed |
+| computed scalar state view | query descriptor (`kind=computed`; not Final) |
+| multi-leaf / aggregate state view | fail closed |
 | event、external call、schedule、ContextRead | fail closed |
 | payload error、nonempty invariant | fail closed |
 | Principal、String、UInt256、Int128/256、nested Option/Map | fail closed |
@@ -107,6 +108,7 @@ allowlist is empty.
 - `.aleo` program file identity；
 - public mapping names/types；
 - bare views；
+- computed scalar views (`kind=computed` query recipe; never a Final return)；
 - dropped-result observations。
 
 The descriptor is not executable query output and is not a compiler or VM input.

@@ -45,8 +45,8 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
   * **B-OPT-STATE / BL-35**: anonymous `Option UInt64` state is admitted as an
     Enum-shaped 2-leaf layout (`name_tag` + `name_p0`; none=(0,0), some=(1,v);
     none-assign zeroes the payload via the shared construct path). Read via
-    existing VariantTag/VariantPayload match (entry only — computed views and
-    multi-leaf view-over-state stay fail-closed). Option of non-UInt64,
+    existing VariantTag/VariantPayload match (entries and computed query
+    views; aggregate view-over-state stays fail-closed). Option of non-UInt64,
     nested Option, and Option params stay fail-closed. String/Principal state,
     UInt256 and Int128/256 stay fail-closed. Native `u128` Instructions
     admit UInt128 state/params/results (literals that do not fit a UInt64
@@ -54,11 +54,11 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
   * **Constant outside literal envelope** (String/Principal/aggregates/bn254/
     Goldilocks Field, non-zero high BLS12-377 Field bytes) stay fail-closed at
     the shared `lowerLiteral` boundary.
-  * **Computed state-reading views** — only bare public-state reads map to
-    the emitted network-state query descriptor; `balanceOf`-style
-    match-on-state views fail closed. Multi-leaf aggregate `view` returns over
-    state also fail closed (not a single-leaf mapping query); use non-state
-    entries for tuple/array returns, or Final entries that drop the aggregate.
+  * **Computed state-reading views** — query-only off-chain recipes in the
+    network-state query descriptor (`kind=computed`). Not Final, not an
+    on-chain return (Final drops outputs). Aggregate view returns stay
+    fail closed; use entries for tuple/array returns, or Final entries that
+    drop the aggregate.
   * **B-RET-ABI named Struct/Enum entry returns** — admitted: preorder flatten
     to 1..8 UInt64/Int64 leaves; non-Final Instructions expose the leaves as
     typed outputs. Final (state-touching) still drops the value after
@@ -331,11 +331,21 @@ def PlanFunction.resultKind (fn : PlanFunction) : ResultKind :=
         | 32 => .u32
         | _ => .u64
 
-/-- Bare public-state read view: materializes as an off-chain mapping query
-    (the EVM `eth_call` analogue), never as an on-chain artifact. -/
+/-- Off-chain mapping query (never a Final / never an on-chain return).
+    Bare `return stateLoad` keeps `isComputed = false` and a single field
+    index. Computed views carry a query-only statement body (return / if /
+    switch / assert). Aleo Final drops outputs, so this descriptor is the
+    honest view surface. -/
 structure PlanView where
   name : String
   stateFieldIndex : Nat
+  isComputed : Bool := false
+  params : Array PlanParam := #[]
+  resultIsBool : Bool := false
+  resultIsInt : Bool := false
+  resultUintWidth : Nat := 0
+  resultIsField : Bool := false
+  body : Array Statement := #[]
   deriving BEq, Inhabited, Repr
 
 /-- Target-owned Aleo Plan. Retains no SemanticProgram; carries the canonical
@@ -2428,6 +2438,18 @@ private partial def touchesStateStmts (stmts : Array Statement) : Bool :=
     | .forLoop _ _ _ b => touchesStateStmts b
     | _ => false
 
+/-- Views may not store, emit, revert, loop, or return aggregates. -/
+private partial def viewHasForbiddenStmts (stmts : Array Statement) : Bool :=
+  stmts.any fun stmt =>
+    match stmt with
+    | .store .. | .storeAggregate .. | .emitEvent .. | .revertError ..
+    | .forLoop .. | .returnAggregate .. => true
+    | .ifThenElse _ t e => viewHasForbiddenStmts t || viewHasForbiddenStmts e
+    | .switchOn _ cases d =>
+        cases.any (fun (_, b) => viewHasForbiddenStmts b) ||
+          viewHasForbiddenStmts d
+    | _ => false
+
 inductive CallableLowering where
   | asFunction (fn : PlanFunction)
   | asView (view : PlanView)
@@ -2537,27 +2559,41 @@ private partial def lowerCallable
   -- B-RET-ABI: pureFn aggregate returns stay fail closed (helpers are scalar).
   if callable.kind == .pureFn && resultAggregateLeaves.isSome then
     planError s!"{owner} cannot return an aggregate (B-RET-ABI pureFn stay scalar)"
-  -- Bare view: body is exactly `return <stateLoad f>` (scalar leaf only).
-  let bareView? : Option PlanView :=
-    match callable.kind, body.toList with
-    | .view, [.returnValue (.stateLoad f)] =>
-        match callable.name with
-        | some n => some { name := n, stateFieldIndex := f }
-        | none => none
-    | _, _ => none
-  match bareView? with
-  | some view => return (.asView view)
-  | none => pure ()
+  -- Views are off-chain query descriptors, never Final functions.
+  -- Bare `return stateLoad` stays a single-mapping query; everything else
+  -- that is query-legal (return/if/switch/assert, no store) is computed.
+  if callable.kind == .view then
+    let n ← match callable.name with
+      | some n => pure n
+      | none => planError "unsupported Aleo semantic shape: named view is missing its name"
+    if viewHasForbiddenStmts body then
+      planError
+        "unsupported Aleo semantic shape: views cannot store, emit, revert, loop, or return aggregates"
+    if resultAggregateLeaves.isSome then
+      planError
+        "unsupported Aleo semantic shape: Aleo computed views return scalar only (aggregate view query deferred)"
+    if resultIsUnit then
+      planError "unsupported Aleo semantic shape: view cannot return Unit"
+    match body.toList with
+    | [.returnValue (.stateLoad f)] =>
+        return (.asView { name := n, stateFieldIndex := f })
+    | _ =>
+        return (.asView {
+          name := n
+          stateFieldIndex := 0
+          isComputed := true
+          params
+          resultIsBool
+          resultIsInt
+          resultUintWidth
+          resultIsField
+          body
+        })
   -- Ordinary function.
   let kind := match callable.kind with
     | .initializer => FunctionKind.initialize
     | _ => FunctionKind.mutate
   let touchesState := touchesStateStmts body
-  -- Computed state-reading views fail closed. Only bare reads map to the
-  -- emitted network-state query descriptor; multi-leaf state views also land
-  -- here because they are not single-mapping queries.
-  if callable.kind == .view && touchesState then
-    planError "Aleo computed state views fail closed: only bare public-state reads map to the query descriptor"
   let resultDropped := !resultIsUnit && touchesState
   let isPureHelper := callable.kind == .pureFn
   let name ← match callable.name with
