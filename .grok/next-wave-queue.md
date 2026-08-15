@@ -201,6 +201,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-MAP-U32-QS | done | MapU32 Map UInt64 UInt32 12-target all FC: EVM/Solana value needle (distinct from MapU32Key key-shape); five Map-U64-U64 including Aleo/TON; Psy pilot; Quint/Soroban/OpenVM/ICP width. **Not** opening Map-of-UInt32 |
 | MAT-MAP-U16-KEY-QS | done | MapU16Key Map UInt16 UInt64 12-target all FC (UInt16-key ≠ UInt32-key): EVM/Solana key-shape; five Map-U64-U64 including Aleo/TON; Psy pilot; Quint/Soroban/OpenVM/ICP width. **Not** opening UInt16-key Map |
 | MAT-ARR-U32-QS | done | ArrU32 Array UInt32 2: EVM-only files-nonempty admit; seven Array-U64-element including Aleo/TON (legal width, distinct from ArrU128 width needles); Quint/Soroban/OpenVM/ICP width. **Not** opening Array-of-UInt32 on the eleven |
+| MAT-ARR-U16-QS | done | ArrU16 Array UInt16 2: EVM-only files-nonempty admit (UInt16 ≠ UInt32); seven Array-U64-element including Aleo/TON; Quint/Soroban/OpenVM/ICP width. **Not** opening Array-of-UInt16 on the eleven |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | QUINT-CALL-RET-FC | done | Pin value-position `let y : UInt64 := call Oracle.feed` Plan FC (`result-bearing externalCall is outside Q0`, distinct from void A5). **Not** opening result-bearing CALL / Q0 |
