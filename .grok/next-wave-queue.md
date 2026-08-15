@@ -166,6 +166,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-MAP-BYTES-QS | done | MapBytes Map UInt64 Bytes 4 12-target all named Map-value/pilot FC. **Not** opening Map-of-Bytes |
 | MAT-OPT-BYTES-QS | done | OptBytes Option Bytes 4 12-target all named payload/pilot FC. **Not** opening Option-of-Bytes |
 | MAT-OPT-MAP-QS | done | OptMap Option Map UInt64 UInt64 12-target all named payload/pilot FC. **Not** opening Option-of-Map |
+| MAT-MAP-MAP-QS | done | MapMap Map UInt64 Map UInt64 UInt64 12-target all named Map-value/pilot FC. **Not** opening Map-of-Map |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | QUINT-CALL-RET-FC | done | Pin value-position `let y : UInt64 := call Oracle.feed` Plan FC (`result-bearing externalCall is outside Q0`, distinct from void A5). **Not** opening result-bearing CALL / Q0 |
