@@ -91,7 +91,7 @@ MCP-V0 不暴露 Aleo local/network action。
 ## 6. 非目标
 
 - 不要求外部工程作为 Lake SDK package 依赖 `proof-forge-next`；CLI source gate 已足够
-- 不提供 Lean LSP / 完整 IDE 插件；`pf new` 仅写入 highlight-only `.vscode/settings.json`（`*.pf` → `lean4`）。same-file theorem 仍要 `.lean` Lake 模块
+- 不提供 Lean LSP / 完整 IDE 插件；`pf new` 仅写入 highlight-only `.vscode/settings.json`（`*.pf` → `lean4`）和 `extensions.json`（推荐 `leanprover.lean4`）。same-file theorem 仍要 `.lean` Lake 模块
 - 不把 monorepo `Examples` 设为 sole 外部入口
 - 不设 `deployable=true`、不 formal、不主网
 - 不提供 Aleo compiler、local runtime、network deploy/execute 或其 fallback

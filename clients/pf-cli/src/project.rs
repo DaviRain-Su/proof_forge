@@ -439,6 +439,10 @@ program {program} where
         dir.join(".vscode").join("settings.json"),
         "{\n  \"files.associations\": {\n    \"*.pf\": \"lean4\"\n  }\n}\n",
     )?;
+    fs::write(
+        dir.join(".vscode").join("extensions.json"),
+        "{\n  \"recommendations\": [\"leanprover.lean4\"]\n}\n",
+    )?;
 
     fs::write(
         dir.join(".gitignore"),
@@ -490,10 +494,10 @@ Override target once: `pf build -t solana` (still short; no `--module` needed in
 
 ## Editor
 
-`.vscode/settings.json` maps `*.pf` → `lean4` so VS Code/Cursor can highlight
-ProgramV1 when the Lean 4 extension is installed. **Highlight only**: do not
-`lake build` this project. Lean LSP and same-file theorems still require a
-`.lean` Lake module.
+`.vscode/settings.json` maps `*.pf` → `lean4` and `extensions.json` recommends
+`leanprover.lean4` so VS Code/Cursor can highlight ProgramV1. **Highlight only**:
+do not `lake build` this project. Lean LSP and same-file theorems still require
+a `.lean` Lake module.
 "#
         ),
     )?;
@@ -600,6 +604,8 @@ mod tests {
         let editor = fs::read_to_string(dir.join(".vscode/settings.json")).unwrap();
         assert!(editor.contains("\"*.pf\""));
         assert!(editor.contains("lean4"));
+        let recs = fs::read_to_string(dir.join(".vscode/extensions.json")).unwrap();
+        assert!(recs.contains("leanprover.lean4"));
         let _ = fs::remove_dir_all(&dir);
     }
 
