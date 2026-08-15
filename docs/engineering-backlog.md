@@ -766,6 +766,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **MAT-OPT-U32-QS**：OptU32 十二 target 全 FC；Aleo/TON 走 payload 针（合法宽度，异于 OptU128 宽度针）。**不**开 Option-of-UInt32。 |
 | 2026-08-15 | **MAT-OPT-U16-QS**：OptU16 十二 target 全 FC（UInt16 ≠ UInt32）；Aleo/TON payload 针。**不**开 Option-of-UInt16。 |
 | 2026-08-15 | **MAT-OPT-U8-QS**：OptU8 十二 target 全 FC（UInt8 ≠ UInt16）；Aleo/TON payload 针。窄 unsigned Option 钉完。 |
+| 2026-08-15 | **MAT-MAP-U8-KEY-QS**：MapU8Key 十二 target 全 FC（UInt8-key ≠ UInt16-key）；Aleo/TON Map-U64-U64。窄 unsigned Map-key 钉完。 |
 | 2026-08-15 | **AGENT-NOTES-0**：引入 [`.agents/notes/`](../.agents/notes/README.md) 记 why/why-not（非 ADR、非 formal、非运行日志）。首批五篇：TypeKey 不进 structure gate、EXT-CRYPTO 不自动开、Soroban S0≠Wasm、focused `lake env lean`、Goal 不关 formal。无 format CI。 |
 | 2026-08-15 | **CAP-LAYER-0**：同一能力层 = catalog 行上的 named admit/FC，不是 opcode 对齐、不是第 13 个 TargetId。设计 [`plan/capability-layer-parity.md`](plan/capability-layer-parity.md)；任务 [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。默认可编码 = CAP-1a ICP `unixTimeSeconds`。不关 formal / SOR-1 / Merkle。 |
 | 2026-08-15 | **RPT-028 全仓诚实对账 + 活指针**：Goal-auto drain 标空；AGENTS Next 不再写成「闭合 D2-07」；SBOM 313；Solana sole CPI；ICP 与 zero-tool 拆开；击杀序删已做完的 CALL wide；RPT-014 加 superseded 横幅。**不**关闭 formal 0/27 |
