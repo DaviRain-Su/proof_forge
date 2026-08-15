@@ -3709,6 +3709,24 @@ unsafe def run : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.near arrayCompiled
   -- NoirContainer: Noir admits Array UInt64 flatten-to-leaf (same as Solana/NEAR/Psy/Aleo).
   let _ ← liftResult <| materializeSelected TargetId.noir arrayCompiled
+  -- Extra six from probe; CosmWasm/TON admit Array UInt64 2 (files nonempty).
+  -- Quint/Soroban/ICP/OpenVM stay envelope FC. Not opening Array.
+  for target in [TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target arrayCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"ArrayState: {target} must materialize Array UInt64 2"
+  for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
+    match materializeSelected target arrayCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"ArrayState: {target} must decline Array state"
+    | .error e =>
+        expect ((e.render).contains "Array" ||
+            (e.render).contains "container" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot" ||
+            (e.render).contains "public" ||
+            (e.render).contains "anonymous")
+          s!"ArrayState {target} message must cite Array/container boundary, got {e.render}"
 
   -- N-A4: Option state Normalize-admitted. Eight materializers admit
   -- Option UInt64 state (Enum-shaped 2-leaf layout): EVM (BL-31), NEAR

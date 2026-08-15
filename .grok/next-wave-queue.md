@@ -118,6 +118,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-OPT-QS | done | N-A4 Option UInt64 state 12-target: eight admit; Quint/Soroban/ICP/OpenVM envelope FC. **Not** opening Option |
 | MAT-PRIN-QS | done | N2c Principal identity-storage 12-target: EVM/Solana/NEAR/Noir/Psy + CosmWasm admit; Aleo/TON/Quint/Soroban/ICP/OpenVM FC. **Not** opening Principal / remap |
 | MAT-STRUCT-QS | done | N3 named Struct PointBox 12-target: six flatten-to-leaf + CW/TON admit; Quint/Soroban/ICP/OpenVM envelope FC. **Not** opening Struct |
+| MAT-ARRAY-QS | done | Array UInt64 2 ArrayBox 12-target: six flatten-to-leaf + CW/TON admit; Quint/Soroban/ICP/OpenVM envelope FC. **Not** opening Array |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |
