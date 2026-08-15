@@ -333,6 +333,8 @@ private unsafe def testStateCellMutatingProductionSubjects : IO Unit := do
     "initialize subject must use the pinned argument 7"
   expect checkStateCellInitializeProductionSubjectV1
     "initialize production subject certified 55-step join must succeed"
+  expect checkStateCellInitializeReferenceProviderSubjectV1
+    "initialize source-derived Reference/provider composition must succeed"
   let initArgument := BitVec.ofNat 64 initSubject.argument.toNat
   let initInput ← liftExecutionResult <|
     encodeLoaderV3SingleAccountInputV1 initSubject.boundArtifact

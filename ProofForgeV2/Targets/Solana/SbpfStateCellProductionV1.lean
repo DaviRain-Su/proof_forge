@@ -28,6 +28,9 @@ namespace ProofForgeV2.Targets.Solana
 
 open ProofForgeV2.Compiler
 open ProofForgeV2.Examples
+open ProofForgeV2.Semantic.InvariantABI
+open ProofForgeV2.Semantic.ReferenceV1
+open ProofForgeV2.Semantic.WireV1
 open ProofForgeV2.Source.ValidatedSourceV1
 open ProofForgeV2.Targets.BuildSelectionV1
 
@@ -164,6 +167,15 @@ structure ResolvedStateCellInitializeProductionSubjectV1 where
   private mk ::
   sourceBinding : CanonicalSourceBindingV1
     StateCell.Source.subjectV1 StateCell.bytes
+  referenceProgram : ProofForgeV2.Semantic.WireV1.SemanticProgramV1
+  data : SemanticProgramDataV1
+  admitted : AdmittedReferenceSliceV1
+  referencePre : LogicalStateV1
+  referencePost : LogicalStateV1
+  referenceOutcome : OutcomeV1
+  plan : Plan
+  binding : UInt64StateAccountBindingV1
+  postData : ByteArray
   ir : IR
   assembly : String
   boundArtifact : BoundResolvedSbpfArtifactV1
@@ -184,11 +196,24 @@ def resolveStateCellInitializeProductionSubjectV1 :
   let source := sourceBinding.validated
   let compiled ← compileResultV1 <|
     compileValidatedSourceV1 source
+  let referenceProgram := CompiledSemanticV1.semanticV1Of compiled
+  let data ← match validateSemanticProgramV1 referenceProgram with
+    | .ok value => pure value
+    | .error error => throw s!"StateCell semantic validation failed: {repr error}"
+  let admitted ← match admitReferenceProgramSliceV1 referenceProgram with
+    | .ok value => pure value
+    | .error error => throw s!"StateCell Reference admission failed: {repr error}"
+  let referencePre ← match initialLogicalStateV1 referenceProgram with
+    | .ok value => pure value
+    | .error error =>
+        throw s!"StateCell initial logical state failed: {repr error}"
   let selection ← compileResultV1 <|
     resolveBuildSelectionV1 TargetId.solana
       (some CodegenProfileId.solanaSbpfCpiElfV1)
   let capability ← compileResultV1 <|
     resolveEngineeringRequirementsV1 selection compiled
+  let plan ← compileResultV1 <|
+    materializeFullBodyPlanForProductV1 capability false
   let ir ← compileResultV1 <|
     fullBodyIrFromProductCapabilityV1 capability false
   let assembly ← compileResultV1 <| emitSbpfAsmV1 ir
@@ -200,6 +225,38 @@ def resolveStateCellInitializeProductionSubjectV1 :
   let discriminator ← compileResultV1 <|
     discriminatorToLeU64V1 handler.discriminator
   let argument : UInt64 := 7
+  let initializer ← match data.callables.find? (·.kind == .initializer) with
+    | some value => pure value
+    | none => throw "production StateCell Semantic program has no initializer"
+  let stateRow ← match data.logicalState[0]? with
+    | some value => pure value
+    | none => throw "production StateCell Semantic program has no state row 0"
+  let field ← match plan.stateAccount.fields[0]? with
+    | some value => pure value
+    | none => throw "production StateCell Plan has no state field 0"
+  let binding : UInt64StateAccountBindingV1 := {
+    semanticStateId := stateRow.id
+    semanticTypeId := stateRow.typeId
+    stateName := stateRow.name
+    physicalFieldIndex := 0
+    accountIndex := field.accountIndex
+    byteOffset := field.byteOffset
+  }
+  let referencePost ← match encodeLogicalStateValuesV1 data true
+      #[encodeU64le argument] with
+    | .ok value => pure value
+    | .error error =>
+        throw s!"StateCell initialize post-state encoding failed: {repr error}"
+  let referenceOutcome := stepReferenceSliceV1 admitted referencePre {
+    callableId := initializer.id
+    args := #[{
+      typeId := binding.semanticTypeId
+      valueBytes := encodeU64le argument
+    }]
+    context := #[]
+  } #[]
+  let postData := oneFieldUInt64AccountDataV1
+    plan.stateAccount.initializedMarker argument
   let staleValue : UInt64 := 999
   let accountData :=
     (SbpfSemantics.wordToLE (BitVec.ofNat 64 0)).append
@@ -218,8 +275,10 @@ def resolveStateCellInitializeProductionSubjectV1 :
   }
   let handlerInvocation :=
     unaryUInt64InvocationV1 ⟨accountData⟩ discriminator argument true true
-  pure <| ResolvedStateCellInitializeProductionSubjectV1.mk sourceBinding ir
-    assembly boundArtifact handler handlerInvocation loaderInvocation argument
+  pure <| ResolvedStateCellInitializeProductionSubjectV1.mk sourceBinding
+    referenceProgram data admitted referencePre referencePost referenceOutcome
+    plan binding postData ir assembly boundArtifact handler handlerInvocation
+    loaderInvocation argument
 
 def checkStateCellInitializeProductionSubjectV1 : Bool :=
   checkExceptV1 resolveStateCellInitializeProductionSubjectV1 fun subject =>
@@ -245,6 +304,66 @@ theorem checkStateCellInitializeProductionSubjectV1_sound
   exact checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1_sound
     subject.boundArtifact subject.handler subject.handlerInvocation
     subject.loaderInvocation (BitVec.ofNat 64 subject.argument.toNat) hchecked
+
+/-- D5 production gate: run the sole Reference machine on the source-derived
+    `initialize(7)` subject and compose its exact observation relation with the
+    dedicated 55-step provider certificate. The gate remains fail closed and
+    proof-producing; it does not define another transition or lowering. -/
+def checkStateCellInitializeReferenceProviderSubjectV1 : Bool :=
+  checkExceptV1 resolveStateCellInitializeProductionSubjectV1 fun subject =>
+    checkUInt64InitializerReturnedHandlerObservationRelV1 subject.data
+      subject.plan subject.binding subject.referencePost subject.referenceOutcome
+      subject.postData subject.argument
+      (observeHandlerIRV1 subject.handler subject.handlerInvocation) &&
+    checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
+      subject.boundArtifact subject.handler subject.handlerInvocation
+      subject.loaderInvocation (BitVec.ofNat 64 subject.argument.toNat)
+
+/-- A successful D5 gate recovers the exact source-derived subject, dedicated
+    sparse provider certificate, and composed Reference→provider carrier. The
+    Boolean premise is intentional: this theorem does not claim an
+    unconditional ELF or SVM-runtime refinement. -/
+theorem checkStateCellInitializeReferenceProviderSubjectV1_sound
+    (checked : checkStateCellInitializeReferenceProviderSubjectV1 = true) :
+    ∃ subject,
+      resolveStateCellInitializeProductionSubjectV1 = .ok subject ∧
+      ∃ certified : CertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
+          subject.boundArtifact subject.handler subject.handlerInvocation
+          subject.loaderInvocation
+          (BitVec.ofNat 64 subject.argument.toNat),
+        UInt64InitializerReferenceHandlerSbpfJoinV1 subject.data subject.plan
+          subject.binding subject.referencePost subject.referenceOutcome
+          subject.postData subject.argument certified.executed.handlerObservation
+          stateCellProductionSbpfSha256V1
+          certified.executed.sbpfObservation := by
+  rcases checkExceptV1_sound resolveStateCellInitializeProductionSubjectV1
+      (fun subject =>
+        checkUInt64InitializerReturnedHandlerObservationRelV1 subject.data
+          subject.plan subject.binding subject.referencePost
+          subject.referenceOutcome subject.postData subject.argument
+          (observeHandlerIRV1 subject.handler subject.handlerInvocation) &&
+        checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
+          subject.boundArtifact subject.handler subject.handlerInvocation
+          subject.loaderInvocation (BitVec.ofNat 64 subject.argument.toNat))
+      checked with ⟨subject, hsubject, hchecked⟩
+  simp only [Bool.and_eq_true] at hchecked
+  rcases hchecked with ⟨hreference, hprovider⟩
+  have referenceHandler :
+      UInt64InitializerReturnedHandlerObservationRelV1 subject.data subject.plan
+        subject.binding subject.referencePost subject.referenceOutcome
+        subject.postData subject.argument
+        (observeHandlerIRV1 subject.handler subject.handlerInvocation) :=
+    (checkUInt64InitializerReturnedHandlerObservationRelV1_eq_true_iff
+      subject.data subject.plan subject.binding subject.referencePost
+      subject.referenceOutcome subject.postData subject.argument
+      (observeHandlerIRV1 subject.handler subject.handlerInvocation)).mp hreference
+  rcases checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1_sound
+      subject.boundArtifact subject.handler subject.handlerInvocation
+      subject.loaderInvocation (BitVec.ofNat 64 subject.argument.toNat)
+      hprovider with ⟨certified⟩
+  refine ⟨subject, hsubject, certified, ?_⟩
+  exact certified.referenceJoin (by
+    simpa [certified.executed.handlerExecution] using referenceHandler)
 
 /-- Concrete values consumed by the certified StateCell `increment` success
     HandlerIR/provider join. The selected scenario starts at `41` and adds

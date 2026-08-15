@@ -16152,3 +16152,22 @@ normative: false
   `initialize` 55步、increment success 70步、increment overflow 56步。checker成功仍是kernel theorem
   恢复certificate的前提；完整无条件Reference→provider theorem、ELF/linker/loader、Mollusk/SVM
   runtime、transaction rollback与compute units仍未闭合。
+
+## 2026-08-15 — StateCell `initialize` source-derived Reference→provider composition
+
+- `HandlerSemanticsV1`将既有initializer、checked-add成功与overflow的Reference→HandlerIR定理结果
+  封装为observation relation；`SbpfHandlerJoinV1`再提供通用Reference→HandlerIR→certified provider
+  composition carrier及provider projection。它们只组合已有证明，不执行第二次transition，也没有
+  新增evaluator、business semantics或proof-only HandlerIR→sBPF lowering。
+- initializer production subject现从同一次elaborated Source subject恢复canonical/validated
+  `SemanticProgramV1`、Reference admission slice、logical pre/post state与真实
+  `stepReferenceSliceV1` outcome；initializer callable id由validated callable表按kind查找，不硬编码
+  ordinal。Solana account plan/binding与post account bytes继续来自production compiler/Plan路径。
+- `checkStateCellInitializeReferenceProviderSubjectV1`同时检查source-derived Reference→HandlerIR
+  relation与既有55步certified provider gate；sound theorem实际调用certified join的`referenceJoin`，
+  因而返回单一组合carrier，而不是两个互不相关的proof witness。production gate运行结果为`true`，
+  并进入`SolanaAsmV1`回归。
+- 该结果是**Boolean-gated、proof-producing的concrete initialize Reference→provider composition**；
+  checker success仍是sound theorem前提。increment success/overflow的concrete production composition、
+  无条件大型gate归约、ELF/linker/loader、Mollusk/validator/SVM runtime、transaction rollback与compute
+  units仍未闭合。

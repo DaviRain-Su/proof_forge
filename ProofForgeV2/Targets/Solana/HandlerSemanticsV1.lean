@@ -384,6 +384,299 @@ def UInt64ReturnedHandlerObservationRelV1
   observed.outcome = .returned (some valueBytes) ∧
   observed.postAccounts = observed.invocation.accounts
 
+/-- Exact Reference→HandlerIR relation for the one-field UInt64 initializer
+    slice. The sole Reference outcome and the Handler post-account observation
+    share the same committed value through the existing account codec relation;
+    this predicate defines no transition of its own. -/
+def UInt64InitializerReturnedHandlerObservationRelV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (postData : ByteArray)
+    (argument : UInt64)
+    (observed : HandlerObservationV1) : Prop :=
+  referenceOutcome = .returned post none #[] ∧
+  observed.outcome = .returned none ∧
+  observed.postAccounts[0]?.map (·.data) = some postData ∧
+  UInt64LogicalStateAccountRelV1 data plan binding post postData argument
+
+private def checkLogicalStateEqV1
+    (left right : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1) : Bool :=
+  decide (left.initialized = right.initialized) &&
+    decide (left.canonicalValues = right.canonicalValues)
+
+private theorem checkLogicalStateEqV1_eq_true_iff
+    (left right : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1) :
+    checkLogicalStateEqV1 left right = true ↔ left = right := by
+  cases left
+  cases right
+  simp [checkLogicalStateEqV1]
+
+private def checkInitializerReferenceOutcomeV1
+    (outcome : OutcomeV1)
+    (post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1) : Bool :=
+  match outcome with
+  | .returned actualPost none effects =>
+      checkLogicalStateEqV1 actualPost post && effects.isEmpty
+  | _ => false
+
+private theorem checkInitializerReferenceOutcomeV1_eq_true_iff
+    (outcome : OutcomeV1)
+    (post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1) :
+    checkInitializerReferenceOutcomeV1 outcome post = true ↔
+      outcome = .returned post none #[] := by
+  cases outcome with
+  | returned actual value effects =>
+      cases value <;>
+        simp [checkInitializerReferenceOutcomeV1,
+          checkLogicalStateEqV1_eq_true_iff, Array.isEmpty_iff]
+  | reverted => simp [checkInitializerReferenceOutcomeV1]
+  | trapped => simp [checkInitializerReferenceOutcomeV1]
+
+private def checkDecodedUInt64LogicalStateV1
+    (result : Except SemanticWireErrorV1 (Array ByteArray))
+    (value : UInt64) : Bool :=
+  match result with
+  | .ok actual => decide (actual = #[encodeU64le value])
+  | .error _ => false
+
+private theorem checkDecodedUInt64LogicalStateV1_eq_true_iff
+    (result : Except SemanticWireErrorV1 (Array ByteArray))
+    (value : UInt64) :
+    checkDecodedUInt64LogicalStateV1 result value = true ↔
+      result = .ok #[encodeU64le value] := by
+  cases result <;> simp [checkDecodedUInt64LogicalStateV1]
+
+private def checkUInt64LogicalStateAccountRelV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (logicalState : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (accountData : ByteArray)
+    (value : UInt64) : Bool :=
+  logicalState.initialized &&
+  checkDecodedUInt64LogicalStateV1
+    (decodeLogicalStateValuesV1 data logicalState) value &&
+  decide (accountData.size = plan.stateAccount.exactDataLen) &&
+  decide (readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+    some plan.stateAccount.initializedMarker) &&
+  decide (readUInt64LEV1 accountData binding.byteOffset = some value)
+
+private theorem checkUInt64LogicalStateAccountRelV1_eq_true_iff
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (logicalState : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (accountData : ByteArray)
+    (value : UInt64) :
+    checkUInt64LogicalStateAccountRelV1 data plan binding logicalState
+        accountData value = true ↔
+      UInt64LogicalStateAccountRelV1 data plan binding logicalState accountData
+        value := by
+  simp only [checkUInt64LogicalStateAccountRelV1, Bool.and_eq_true,
+    decide_eq_true_eq, checkDecodedUInt64LogicalStateV1_eq_true_iff,
+    UInt64LogicalStateAccountRelV1]
+  simp only [and_assoc]
+
+/-- Executable, proof-producing form of the initializer observation relation.
+    It compares the Reference outcome structurally rather than relying on the
+    non-lawful derived `BEq` for semantic outcomes. -/
+def checkUInt64InitializerReturnedHandlerObservationRelV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (postData : ByteArray)
+    (argument : UInt64)
+    (observed : HandlerObservationV1) : Bool :=
+  checkInitializerReferenceOutcomeV1 referenceOutcome post &&
+  decide (observed.outcome = .returned none) &&
+  decide (observed.postAccounts[0]?.map (·.data) = some postData) &&
+  checkUInt64LogicalStateAccountRelV1 data plan binding post postData argument
+
+theorem checkUInt64InitializerReturnedHandlerObservationRelV1_eq_true_iff
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (postData : ByteArray)
+    (argument : UInt64)
+    (observed : HandlerObservationV1) :
+    checkUInt64InitializerReturnedHandlerObservationRelV1 data plan binding post
+        referenceOutcome postData argument observed = true ↔
+      UInt64InitializerReturnedHandlerObservationRelV1 data plan binding post
+        referenceOutcome postData argument observed := by
+  simp only [checkUInt64InitializerReturnedHandlerObservationRelV1,
+    Bool.and_eq_true, decide_eq_true_eq,
+    checkInitializerReferenceOutcomeV1_eq_true_iff,
+    checkUInt64LogicalStateAccountRelV1_eq_true_iff,
+    UInt64InitializerReturnedHandlerObservationRelV1]
+  simp only [and_assoc]
+
+/-- Exact Reference→HandlerIR relation for successful one-field UInt64
+    checked addition. The Reference result, Handler return bytes, committed
+    account bytes, and codec relation all share the same checked sum. -/
+def UInt64CheckedAddReturnedHandlerObservationRelV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (postData : ByteArray)
+    (before argument : UInt64)
+    (observed : HandlerObservationV1) : Prop :=
+  referenceOutcome = .returned post (some {
+    typeId := binding.semanticTypeId
+    valueBytes := encodeU64le (before + argument)
+  }) #[] ∧
+  observed.outcome = .returned (some (encodeU64le (before + argument))) ∧
+  observed.postAccounts[0]?.map (·.data) = some postData ∧
+  UInt64LogicalStateAccountRelV1 data plan binding post postData
+    (before + argument)
+
+/-- Exact Reference→HandlerIR relation for one-field UInt64 checked-add
+    overflow. Both layers retain the same pre-state/account snapshot, while the
+    established target error code represents the Reference standard revert. -/
+def UInt64CheckedAddOverflowHandlerObservationRelV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (pre : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (accountData : ByteArray)
+    (before : UInt64)
+    (observed : HandlerObservationV1) : Prop :=
+  referenceOutcome = .reverted (.standard .arithmeticOverflow) pre ∧
+  observed.outcome = .trapped (.arithmeticOverflow arithmeticOverflowError) ∧
+  observed.postAccounts = observed.invocation.accounts ∧
+  observed.invocation.accounts[0]?.map (·.data) = some accountData ∧
+  UInt64LogicalStateAccountRelV1 data plan binding pre accountData before
+
+/-- Package the exact output of
+    `unaryUInt64Initializer_reference_handlerIR_join` as the relation consumed
+    by the Reference→provider composition boundary. -/
+theorem uint64InitializerReturnedHandlerObservationRelV1_of_join
+    {data : SemanticProgramDataV1}
+    {plan : Plan}
+    {binding : UInt64StateAccountBindingV1}
+    {post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1}
+    {referenceOutcome : OutcomeV1}
+    {postData accountData : ByteArray}
+    {argument discriminatorValue : UInt64}
+    {handlerIR : HandlerIR}
+    (hjoin :
+      referenceOutcome = .returned post none #[] ∧
+      observeHandlerIRV1 handlerIR
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument true
+            true) = {
+        invocation := unaryUInt64InvocationV1 accountData discriminatorValue
+          argument true true
+        outcome := .returned none
+        postAccounts := #[{
+          isDuplicate := false
+          ownerCurrentProgram := true
+          isSigner := true
+          isWritable := true
+          data := postData
+        }]
+      } ∧
+      UInt64LogicalStateAccountRelV1 data plan binding post postData argument) :
+    UInt64InitializerReturnedHandlerObservationRelV1 data plan binding post
+      referenceOutcome postData argument
+      (observeHandlerIRV1 handlerIR
+        (unaryUInt64InvocationV1 accountData discriminatorValue argument true
+          true)) := by
+  rcases hjoin with ⟨hreference, hobserved, hstate⟩
+  refine ⟨hreference, ?_, ?_, hstate⟩
+  · rw [hobserved]
+  · rw [hobserved]
+    rfl
+
+/-- Package the successful checked-add Reference→HandlerIR theorem output for
+    direct composition with the certified provider join. -/
+theorem uint64CheckedAddReturnedHandlerObservationRelV1_of_join
+    {data : SemanticProgramDataV1}
+    {plan : Plan}
+    {binding : UInt64StateAccountBindingV1}
+    {post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1}
+    {referenceOutcome : OutcomeV1}
+    {postData accountData : ByteArray}
+    {before argument discriminatorValue : UInt64}
+    {handlerIR : HandlerIR}
+    (hjoin :
+      referenceOutcome = .returned post (some {
+        typeId := binding.semanticTypeId
+        valueBytes := encodeU64le (before + argument)
+      }) #[] ∧
+      observeHandlerIRV1 handlerIR
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+            true) = {
+        invocation := unaryUInt64InvocationV1 accountData discriminatorValue
+          argument false true
+        outcome := .returned (some (encodeU64le (before + argument)))
+        postAccounts := #[{
+          isDuplicate := false
+          ownerCurrentProgram := true
+          isSigner := false
+          isWritable := true
+          data := postData
+        }]
+      } ∧
+      UInt64LogicalStateAccountRelV1 data plan binding post postData
+        (before + argument)) :
+    UInt64CheckedAddReturnedHandlerObservationRelV1 data plan binding post
+      referenceOutcome postData before argument
+      (observeHandlerIRV1 handlerIR
+        (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+          true)) := by
+  rcases hjoin with ⟨hreference, hobserved, hstate⟩
+  refine ⟨hreference, ?_, ?_, hstate⟩
+  · rw [hobserved]
+  · rw [hobserved]
+    rfl
+
+/-- Package the checked-add overflow Reference→HandlerIR theorem output for
+    direct composition with the certified provider join. -/
+theorem uint64CheckedAddOverflowHandlerObservationRelV1_of_join
+    {data : SemanticProgramDataV1}
+    {plan : Plan}
+    {binding : UInt64StateAccountBindingV1}
+    {pre : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1}
+    {referenceOutcome : OutcomeV1}
+    {accountData : ByteArray}
+    {before argument discriminatorValue : UInt64}
+    {handlerIR : HandlerIR}
+    (hjoin :
+      referenceOutcome = .reverted (.standard .arithmeticOverflow) pre ∧
+      observeHandlerIRV1 handlerIR
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+            true) = {
+        invocation := unaryUInt64InvocationV1 accountData discriminatorValue
+          argument false true
+        outcome := .trapped (.arithmeticOverflow arithmeticOverflowError)
+        postAccounts :=
+          (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+            true).accounts
+      } ∧
+      UInt64LogicalStateAccountRelV1 data plan binding pre accountData before) :
+    UInt64CheckedAddOverflowHandlerObservationRelV1 data plan binding pre
+      referenceOutcome accountData before
+      (observeHandlerIRV1 handlerIR
+        (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+          true)) := by
+  rcases hjoin with ⟨hreference, hobserved, hstate⟩
+  refine ⟨hreference, ?_, ?_, ?_, hstate⟩
+  · rw [hobserved]
+  · rw [hobserved]
+  · change
+      (unaryUInt64InvocationV1 accountData discriminatorValue argument false
+          true).accounts[0]?.map (·.data) = some accountData
+    rfl
+
 /-- Production wire encoding is recovered by the bounded target load. -/
 theorem readUInt64LEV1_encodeU64le
     (value : UInt64) :

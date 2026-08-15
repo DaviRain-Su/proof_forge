@@ -731,4 +731,251 @@ theorem UInt64ReferenceHandlerSbpfJoinV1.provider_projection
     simpa [hhandlerOutcome] using hprovider.2.2
   · simpa [hpostAccounts] using hfinal
 
+/-- End-to-end composition carrier for the one-field UInt64 initializer. It
+    stores the existing Reference→HandlerIR relation beside the certified
+    HandlerIR→provider relation; it does not execute either layer again. -/
+structure UInt64InitializerReferenceHandlerSbpfJoinV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (post : LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (postData : ByteArray)
+    (argument : UInt64)
+    (handler : HandlerObservationV1)
+    (expectedArtifactSha256 : String)
+    (sbpf : SbpfExecutionObservationV1) : Prop where
+  referenceHandler :
+    UInt64InitializerReturnedHandlerObservationRelV1 data plan binding post
+      referenceOutcome postData argument handler
+  handlerSbpf :
+    HandlerSbpfObservationRelV1 expectedArtifactSha256 handler sbpf
+
+/-- Compose the exact certified initialize provider execution with an existing
+    Reference→HandlerIR initializer proof. -/
+theorem CertifiedStateCellInitializeExecutedHandlerSbpfJoinV1.referenceJoin
+    {bound : BoundResolvedSbpfArtifactV1}
+    {handlerIR : HandlerIR}
+    {handlerInvocation : InvocationObservationV1}
+    {loaderInvocation : LoaderV3SingleAccountInvocationV1}
+    {argumentWord : SbpfSemantics.Word}
+    {data : SemanticProgramDataV1}
+    {plan : Plan}
+    {binding : UInt64StateAccountBindingV1}
+    {post : LogicalStateV1}
+    {referenceOutcome : OutcomeV1}
+    {postData : ByteArray}
+    {argument : UInt64}
+    (certified : CertifiedStateCellInitializeExecutedHandlerSbpfJoinV1 bound
+      handlerIR handlerInvocation loaderInvocation argumentWord)
+    (referenceHandler : UInt64InitializerReturnedHandlerObservationRelV1 data
+      plan binding post referenceOutcome postData argument
+      certified.executed.handlerObservation) :
+    UInt64InitializerReferenceHandlerSbpfJoinV1 data plan binding post
+      referenceOutcome postData argument certified.executed.handlerObservation
+      stateCellProductionSbpfSha256V1 certified.executed.sbpfObservation :=
+  ⟨referenceHandler, certified.executed.observationRel⟩
+
+/-- Observable initializer consequences of the composed proof: the provider
+    halts successfully, publishes no return data, and commits exactly the bytes
+    related to the sole Reference post-state. -/
+theorem UInt64InitializerReferenceHandlerSbpfJoinV1.provider_projection
+    {data : SemanticProgramDataV1}
+    {plan : Plan}
+    {binding : UInt64StateAccountBindingV1}
+    {post : LogicalStateV1}
+    {referenceOutcome : OutcomeV1}
+    {postData : ByteArray}
+    {argument : UInt64}
+    {handler : HandlerObservationV1}
+    {expectedArtifactSha256 : String}
+    {sbpf : SbpfExecutionObservationV1}
+    (join : UInt64InitializerReferenceHandlerSbpfJoinV1 data plan binding post
+      referenceOutcome postData argument handler expectedArtifactSha256 sbpf) :
+    referenceOutcome = .returned post none #[] ∧
+    sbpf.artifactSha256 = expectedArtifactSha256 ∧
+    sbpf.provider.outcome = .halted (BitVec.ofNat 64 0) ∧
+    sbpf.provider.r0 = BitVec.ofNat 64 0 ∧
+    sbpf.provider.returnData = #[] ∧
+    sbpf.finalAccountData = some postData.data ∧
+    UInt64LogicalStateAccountRelV1 data plan binding post postData argument := by
+  rcases join.referenceHandler with
+    ⟨hreference, hhandlerOutcome, hpostAccount, hstate⟩
+  rcases (handlerSbpfObservationRelV1_returned_iff
+      expectedArtifactSha256 handler sbpf none hhandlerOutcome).mp
+      join.handlerSbpf with
+    ⟨hartifact, hfinal, houtcome, hr0, hreturn⟩
+  have hpostBytes := congrArg (Option.map ByteArray.data) hpostAccount
+  refine ⟨hreference, hartifact, houtcome, hr0, ?_, ?_, hstate⟩
+  · simpa using hreturn
+  · exact hfinal.trans (by
+      simpa [Option.map_map] using hpostBytes)
+
+/-- End-to-end composition carrier for successful one-field UInt64 checked
+    addition. -/
+structure UInt64CheckedAddReferenceHandlerSbpfJoinV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (post : LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (postData : ByteArray)
+    (before argument : UInt64)
+    (handler : HandlerObservationV1)
+    (expectedArtifactSha256 : String)
+    (sbpf : SbpfExecutionObservationV1) : Prop where
+  referenceHandler :
+    UInt64CheckedAddReturnedHandlerObservationRelV1 data plan binding post
+      referenceOutcome postData before argument handler
+  handlerSbpf :
+    HandlerSbpfObservationRelV1 expectedArtifactSha256 handler sbpf
+
+/-- Compose the exact certified increment-success provider execution with an
+    existing Reference→HandlerIR checked-add proof. -/
+theorem CertifiedStateCellIncrementExecutedHandlerSbpfJoinV1.referenceJoin
+    {bound : BoundResolvedSbpfArtifactV1}
+    {handlerIR : HandlerIR}
+    {handlerInvocation : InvocationObservationV1}
+    {loaderInvocation : LoaderV3SingleAccountInvocationV1}
+    {beforeWord argumentWord : SbpfSemantics.Word}
+    {data : SemanticProgramDataV1}
+    {plan : Plan}
+    {binding : UInt64StateAccountBindingV1}
+    {post : LogicalStateV1}
+    {referenceOutcome : OutcomeV1}
+    {postData : ByteArray}
+    {before argument : UInt64}
+    (certified : CertifiedStateCellIncrementExecutedHandlerSbpfJoinV1 bound
+      handlerIR handlerInvocation loaderInvocation beforeWord argumentWord)
+    (referenceHandler : UInt64CheckedAddReturnedHandlerObservationRelV1 data
+      plan binding post referenceOutcome postData before argument
+      certified.executed.handlerObservation) :
+    UInt64CheckedAddReferenceHandlerSbpfJoinV1 data plan binding post
+      referenceOutcome postData before argument
+      certified.executed.handlerObservation stateCellProductionSbpfSha256V1
+      certified.executed.sbpfObservation :=
+  ⟨referenceHandler, certified.executed.observationRel⟩
+
+/-- Observable successful-increment consequences of the composed proof. -/
+theorem UInt64CheckedAddReferenceHandlerSbpfJoinV1.provider_projection
+    {data : SemanticProgramDataV1}
+    {plan : Plan}
+    {binding : UInt64StateAccountBindingV1}
+    {post : LogicalStateV1}
+    {referenceOutcome : OutcomeV1}
+    {postData : ByteArray}
+    {before argument : UInt64}
+    {handler : HandlerObservationV1}
+    {expectedArtifactSha256 : String}
+    {sbpf : SbpfExecutionObservationV1}
+    (join : UInt64CheckedAddReferenceHandlerSbpfJoinV1 data plan binding post
+      referenceOutcome postData before argument handler
+      expectedArtifactSha256 sbpf) :
+    referenceOutcome = .returned post (some {
+      typeId := binding.semanticTypeId
+      valueBytes := encodeU64le (before + argument)
+    }) #[] ∧
+    sbpf.artifactSha256 = expectedArtifactSha256 ∧
+    sbpf.provider.outcome = .halted (BitVec.ofNat 64 0) ∧
+    sbpf.provider.r0 = BitVec.ofNat 64 0 ∧
+    sbpf.provider.returnData = (encodeU64le (before + argument)).data ∧
+    sbpf.finalAccountData = some postData.data ∧
+    UInt64LogicalStateAccountRelV1 data plan binding post postData
+      (before + argument) := by
+  rcases join.referenceHandler with
+    ⟨hreference, hhandlerOutcome, hpostAccount, hstate⟩
+  rcases (handlerSbpfObservationRelV1_returned_iff
+      expectedArtifactSha256 handler sbpf
+      (some (encodeU64le (before + argument))) hhandlerOutcome).mp
+      join.handlerSbpf with
+    ⟨hartifact, hfinal, houtcome, hr0, hreturn⟩
+  have hpostBytes := congrArg (Option.map ByteArray.data) hpostAccount
+  refine ⟨hreference, hartifact, houtcome, hr0, ?_, ?_, hstate⟩
+  · simpa using hreturn
+  · exact hfinal.trans (by
+      simpa [Option.map_map] using hpostBytes)
+
+/-- End-to-end composition carrier for one-field UInt64 checked-add overflow. -/
+structure UInt64CheckedAddOverflowReferenceHandlerSbpfJoinV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (pre : LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (accountData : ByteArray)
+    (before : UInt64)
+    (handler : HandlerObservationV1)
+    (expectedArtifactSha256 : String)
+    (sbpf : SbpfExecutionObservationV1) : Prop where
+  referenceHandler :
+    UInt64CheckedAddOverflowHandlerObservationRelV1 data plan binding pre
+      referenceOutcome accountData before handler
+  handlerSbpf :
+    HandlerSbpfObservationRelV1 expectedArtifactSha256 handler sbpf
+
+/-- Compose the exact certified increment-overflow provider execution with an
+    existing Reference→HandlerIR checked-add overflow proof. -/
+theorem CertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1.referenceJoin
+    {bound : BoundResolvedSbpfArtifactV1}
+    {handlerIR : HandlerIR}
+    {handlerInvocation : InvocationObservationV1}
+    {loaderInvocation : LoaderV3SingleAccountInvocationV1}
+    {beforeWord argumentWord : SbpfSemantics.Word}
+    {data : SemanticProgramDataV1}
+    {plan : Plan}
+    {binding : UInt64StateAccountBindingV1}
+    {pre : LogicalStateV1}
+    {referenceOutcome : OutcomeV1}
+    {accountData : ByteArray}
+    {before : UInt64}
+    (certified : CertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1
+      bound handlerIR handlerInvocation loaderInvocation beforeWord argumentWord)
+    (referenceHandler : UInt64CheckedAddOverflowHandlerObservationRelV1 data
+      plan binding pre referenceOutcome accountData before
+      certified.executed.handlerObservation) :
+    UInt64CheckedAddOverflowReferenceHandlerSbpfJoinV1 data plan binding pre
+      referenceOutcome accountData before certified.executed.handlerObservation
+      stateCellProductionSbpfSha256V1 certified.executed.sbpfObservation :=
+  ⟨referenceHandler, certified.executed.observationRel⟩
+
+/-- Observable overflow consequences of the composed proof: the Reference
+    reverts to `pre`, and the provider emits `0x1001` while retaining the exact
+    account snapshot and empty return data. -/
+theorem UInt64CheckedAddOverflowReferenceHandlerSbpfJoinV1.provider_projection
+    {data : SemanticProgramDataV1}
+    {plan : Plan}
+    {binding : UInt64StateAccountBindingV1}
+    {pre : LogicalStateV1}
+    {referenceOutcome : OutcomeV1}
+    {accountData : ByteArray}
+    {before : UInt64}
+    {handler : HandlerObservationV1}
+    {expectedArtifactSha256 : String}
+    {sbpf : SbpfExecutionObservationV1}
+    (join : UInt64CheckedAddOverflowReferenceHandlerSbpfJoinV1 data plan binding
+      pre referenceOutcome accountData before handler expectedArtifactSha256
+      sbpf) :
+    referenceOutcome = .reverted (.standard .arithmeticOverflow) pre ∧
+    sbpf.artifactSha256 = expectedArtifactSha256 ∧
+    sbpf.provider.outcome =
+      .halted (BitVec.ofNat 64 arithmeticOverflowError) ∧
+    sbpf.provider.r0 = BitVec.ofNat 64 arithmeticOverflowError ∧
+    sbpf.provider.returnData = #[] ∧
+    sbpf.finalAccountData = some accountData.data ∧
+    UInt64LogicalStateAccountRelV1 data plan binding pre accountData before := by
+  rcases join.referenceHandler with
+    ⟨hreference, hhandlerOutcome, hpostAccounts, hinvocationAccount, hstate⟩
+  rcases (handlerSbpfObservationRelV1_arithmeticOverflow_iff
+      expectedArtifactSha256 handler sbpf arithmeticOverflowError
+      hhandlerOutcome).mp join.handlerSbpf with
+    ⟨hartifact, hfinal, houtcome, hr0, hreturn⟩
+  have hpostAccount : handler.postAccounts[0]?.map (·.data) =
+      some accountData := by
+    rw [hpostAccounts]
+    exact hinvocationAccount
+  have hpostBytes := congrArg (Option.map ByteArray.data) hpostAccount
+  refine ⟨hreference, hartifact, houtcome, hr0, hreturn, ?_, hstate⟩
+  exact hfinal.trans (by
+    simpa [Option.map_map] using hpostBytes)
+
 end ProofForgeV2.Targets.Solana
