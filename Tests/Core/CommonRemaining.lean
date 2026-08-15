@@ -163,6 +163,29 @@ private def sha256PfTestObjectHex : String :=
 private def frontendHardDigestHex : String :=
   "5f3181e0fc5f7f15931ae4227782e5c3204e11e9177e1cb949918cc5bdbedc17"
 
+private abbrev sha256AbcFinalState : ProofForgeV2.Crypto.Sha256State := #[
+  0xba7816bf, 0x8f01cfea, 0x414140de, 0x5dae2223,
+  0xb00361a3, 0x96177a9c, 0xb410ff61, 0xf20015ad]
+
+set_option maxRecDepth 100000 in
+set_option maxHeartbeats 5000000 in
+/-- Kernel-checked KAT for the proof-carrying bytes-to-SHA boundary. The raw
+    block transition and canonical hex equation use the sole production
+    implementation; runtime KATs below retain the padding-boundary vectors. -/
+private def sha256AbcCertificate :
+    ProofForgeV2.Crypto.Sha256BlockCertificate
+      "abc".toUTF8 sha256AbcHex := {
+  finalState := sha256AbcFinalState
+  trace := .step 0 0 ProofForgeV2.Crypto.sha256InitialState
+    sha256AbcFinalState sha256AbcFinalState
+    (by decide) (.done 64 sha256AbcFinalState)
+  hex_eq := by decide
+}
+
+private theorem sha256AbcCertificate_sound :
+    ProofForgeV2.Crypto.sha256Hex "abc".toUTF8 = sha256AbcHex :=
+  sha256AbcCertificate.sound
+
 private def digestFromHex (hex : String) : Except String Digest :=
   parseDigest ("sha256:" ++ hex)
 

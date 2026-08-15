@@ -89,7 +89,9 @@ private def isAsciiLetterV1 (c : Char) : Bool :=
 private def isLowerHexDigitV1 (c : Char) : Bool :=
   ('0' ≤ c && c ≤ '9') || ('a' ≤ c && c ≤ 'f')
 
-private def isCanonicalSha256V1 (value : String) : Bool :=
+/-- Executable canonical spelling check used by the production artifact gate
+    and its proof-carrying SHA replay theorem. -/
+def isCanonicalSha256V1 (value : String) : Bool :=
   value.length == 64 && value.toList.all isLowerHexDigitV1
 
 private def isIdentifierV1 (value : String) : Bool :=
@@ -411,5 +413,27 @@ def resolveBoundSbpfArtifactV1 (text expectedSha256 : String) :
   unless actualSha256 == expectedSha256 do
     return ← failArtifactV1 0 "artifact SHA-256 does not match the expected production identity"
   pure ⟨← resolveSbpfArtifactV1 text⟩
+
+/-- Replay a kernel SHA certificate through the real identity-bound artifact
+    resolver. Exact parser success remains a separate obligation; no copied
+    assembly, alternate parser, or runtime Boolean is accepted as identity
+    evidence. -/
+theorem resolveBoundSbpfArtifactV1_eq_ok_of_sha256_certificate
+    (certificate : ProofForgeV2.Crypto.Sha256HexCertificate
+      text.toUTF8 expectedSha256)
+    (canonical : isCanonicalSha256V1 expectedSha256 = true)
+    (artifact : ResolvedSbpfArtifactV1)
+    (parsed : resolveSbpfArtifactV1 text = .ok artifact) :
+    ∃ bound : BoundResolvedSbpfArtifactV1,
+      resolveBoundSbpfArtifactV1 text expectedSha256 = .ok bound ∧
+      bound.resolvedOf = artifact := by
+  refine ⟨⟨artifact⟩, ?_, rfl⟩
+  have hashMatches :
+      (ProofForgeV2.Crypto.sha256Hex text.toUTF8 == expectedSha256) = true := by
+    simpa using certificate.sound
+  unfold resolveBoundSbpfArtifactV1
+  simp only [canonical, ↓reduceIte]
+  rw [hashMatches, parsed]
+  rfl
 
 end ProofForgeV2.Targets.Solana

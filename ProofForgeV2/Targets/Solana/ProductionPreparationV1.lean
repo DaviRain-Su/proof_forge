@@ -81,8 +81,9 @@ structure CertifiedSolanaProductionPreparationV1
   ir : ProductionStageSuccessV1
     (fullBodyIrFromProductCapabilityV1 capability.value false)
   assembly : ProductionStageSuccessV1 (emitSbpfAsmV1 ir.value)
-  artifact : ProductionStageSuccessV1
-    (resolveBoundSbpfArtifactV1 assembly.value expectedArtifactSha256)
+  artifact : BoundResolvedSbpfArtifactV1
+  artifactSuccess :
+    resolveBoundSbpfArtifactV1 assembly.value expectedArtifactSha256 = .ok artifact
 
 namespace CertifiedSolanaProductionPreparationV1
 
@@ -129,7 +130,7 @@ def productionAssembly (prepared :
 def boundArtifact (prepared :
     CertifiedSolanaProductionPreparationV1 elaborated canonicalBytes expectedSha) :
     BoundResolvedSbpfArtifactV1 :=
-  prepared.artifact.value
+  prepared.artifact
 
 /-- Generic compilation equation exposed for downstream kernel composition. -/
 theorem compilation_success (prepared :
@@ -150,7 +151,7 @@ theorem artifact_success (prepared :
     CertifiedSolanaProductionPreparationV1 elaborated canonicalBytes expectedSha) :
     resolveBoundSbpfArtifactV1 prepared.productionAssembly expectedSha =
       .ok prepared.boundArtifact :=
-  prepared.artifact.success
+  prepared.artifactSuccess
 
 end CertifiedSolanaProductionPreparationV1
 
@@ -198,7 +199,8 @@ def resolveCertifiedSolanaProductionPreparationV1
     plan
     ir
     assembly
-    artifact
+    artifact := artifact.value
+    artifactSuccess := artifact.success
   }
 
 /-- Replay a complete preparation certificate through the real production
@@ -210,7 +212,7 @@ theorem resolveCertifiedSolanaProductionPreparationV1_eq_ok
     resolveCertifiedSolanaProductionPreparationV1 elaborated canonicalBytes
       expectedArtifactSha256 = .ok prepared := by
   rcases prepared with ⟨source, compiled, semanticData, referenceAdmission,
-    selection, capability, plan, ir, assembly, artifact⟩
+    selection, capability, plan, ir, assembly, artifact, artifactSuccess⟩
   unfold resolveCertifiedSolanaProductionPreparationV1
   rw [certifyProductionStageV1_eq_ok id _ source]
   dsimp only [Bind.bind, Except.bind]
@@ -233,7 +235,9 @@ theorem resolveCertifiedSolanaProductionPreparationV1_eq_ok
   dsimp only [Bind.bind, Except.bind]
   rw [certifyProductionStageV1_eq_ok (·.render) _ assembly]
   dsimp only [Bind.bind, Except.bind]
-  rw [certifyProductionStageV1_eq_ok (·.render) _ artifact]
+  rw [certifyProductionStageV1_eq_ok (·.render) _
+    (⟨artifact, artifactSuccess⟩ : ProductionStageSuccessV1
+      (resolveBoundSbpfArtifactV1 assembly.value expectedArtifactSha256))]
   rfl
 
 end ProofForgeV2.Targets.Solana

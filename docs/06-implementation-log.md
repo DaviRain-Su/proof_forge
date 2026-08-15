@@ -16448,3 +16448,26 @@ normative: false
   本切片只闭合HandlerIR target层；Reference/provider composition仍保留既有Boolean premise，
   `StateCell.get`仍阻塞在emitter bytes→pinned SHA identity witness，也不宣称ELF/linker/loader或
   Mollusk/validator/SVM refinement。
+
+## 2026-08-15 — kernel-checkable production SHA-256 certificate boundary
+
+- 唯一production SHA-256实现已把padding、message schedule、64-round compression、block traversal和
+  hex rendering中的命令式`for`/`while`改为结构递归，runtime digest保持不变。新增通用raw-digest与
+  block-trace certificate：每个transition仍从参数中的exact padded bytes按offset读取64-byte block，
+  certificate只保存chaining states，不携带复制的assembly/message block，也没有第二套hash。
+- `Sha256BlockTrace.sound`把逐block等式归纳回唯一production compressor；
+  `Sha256BlockCertificate.sound`再闭合真实`sha256Hex input = expectedHex`。`abc`标准向量现有单block
+  kernel certificate，使用普通`decide`检查production transition；未使用`native_decide`、axiom、
+  `Lean.ofReduceBool`或`run_tac`。
+- identity-bound sBPF artifact resolver新增通用certificate replay theorem：仍要求expected digest为
+  canonical lower-case SHA-256并要求真实parser exact success，然后才推出真实bound resolver成功。
+  `ProductionPreparationV1`继续保存exact artifact value与resolver `.ok` equation并可完整replay；没有把
+  runtime hash Boolean提升为theorem，也没有放宽fail-closed identity gate。
+- Verification：`lake build Tests.Core.CommonRemaining`、
+  `lake build ProofForgeV2.Targets.Solana.ProductionPreparationV1`、
+  `lake build Tests.Targets.SolanaAsmV1`及两个direct runner
+  （`Tests.Core.CommonRemaining: ok`、`Tests.Targets.SolanaAsmV1: ok`）通过。
+- 本切片只闭合bytes→SHA→artifact的通用证明边界。真实production
+  Source/compiler/`emitSbpfAsmV1` exact-result等式仍受命令式traversal阻塞，因此尚未生成StateCell
+  `get`的103-block owner-bound trace，尚未闭合其unconditional gate，也不宣称ELF/linker/loader或
+  validator/SVM refinement完成。下一步是`SOL-0048-D5-GET-EMITTER-CERTIFICATE`。

@@ -53,6 +53,13 @@ Code facts:
   compile → Reference admission → Solana capability/Plan/HandlerIR → assembly →
   identity-bound artifact path. Every stage retains the exact production
   function's `.ok` equation.
+- `Core/Crypto.lean` now uses one structurally recursive production SHA-256
+  implementation instead of opaque `for`/`while` folds. Its generic raw/hex and
+  block-trace certificates are kernel-sound against that same implementation;
+  block traces retain only chaining states and always read blocks from their
+  indexed input bytes. `SbpfArtifactV1.lean` replays such a certificate through
+  the real canonical-digest and parser gate. A kernel `abc` block certificate,
+  existing runtime padding vectors, and artifact drift tests cover the seam.
 - `ProductionMethodV1.lean` now factors contract-independent Semantic callable
   and production HandlerIR lookup, plus invocation of the sole
   `stepReferenceSliceV1`. The certificate is parameterized by method identity,
@@ -233,41 +240,46 @@ second codegen.
     local/offset, case value, default literal, return source and missing
     branches fail closed. This theorem stops at HandlerIR; the existing
     artifact/provider composition still has Boolean premises.
+22. **SOL-0048-D5-SHA-CERTIFICATE-BOUNDARY** — **done 2026-08-15**: replaced
+    the sole production SHA-256 implementation's imperative loops with
+    structurally recursive padding, schedule, compression, block traversal and
+    hex rendering. Added raw-digest and compositional block-trace certificates
+    with kernel soundness back to `sha256Hex`; every transition consumes the
+    indexed owner bytes rather than carrying copied blocks. The real bound
+    artifact resolver now has a certificate replay theorem that still requires
+    exact parser success and canonical expected hex. A kernel-checked `abc`
+    block certificate and existing NIST/runtime vectors pass without
+    `native_decide`, `Lean.ofReduceBool`, `run_tac` or axioms.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete, and the generic seam now has a second real contract/HandlerIR shape
-consumer plus its first multiword typed return. The remaining D5 blocker is
-unconditional kernel discharge of the closed production gates. Certificate
-replay removes repeated reduction of the source/compiler/resolver plumbing once
-exact certificates are available, but it does not itself prove the
-method-specific Reference/provider checker equations. A direct `rfl` or kernel
-`decide` does not reduce the current gates because production compilation,
-artifact parsing, and provider execution form large partly opaque terms;
-runtime output `true` must not be presented as a theorem.
-
-Investigation of `SOL-0048-D5-GET-UNCONDITIONAL` isolated one concrete blocker:
-the current production preparation has no closed witness for exact equality
-between the emitted assembly bytes and the pinned assembly SHA-256. Certificate
-replay can consume that witness but cannot create it. A direct `rfl`, kernel
-`decide`, or broad `simp` does not discharge this equality. A certificate over
-unbound copied/materialized assembly bytes would not prove identity with the
-emitter output and is therefore not an acceptable workaround.
+consumer plus its first multiword typed return. The generic bytes→SHA→artifact
+identity proof boundary is now present. The remaining D5 blocker is producing a
+closed certificate whose input is the exact production emitter result. A
+kernel probe that stopped before hashing still became stuck in the existing
+Source/compiler/emitter imperative folds, so a SHA trace alone cannot establish
+emitter ownership. Runtime output `true` and a certificate over copied or
+materialized assembly remain unacceptable.
 
 Next formalization slices, in order:
 
-1. **SOL-0048-D5-GET-UNCONDITIONAL — blocked at exact emitted assembly
-   identity**: introduce a sound, reusable emitter-bytes→SHA proof boundary;
-   then use replay to discharge the existing StateCell `get` gate. Do not bind
-   a digest to copied assembly or a different byte owner.
-2. While that boundary is blocked, continue target-owned structural/execution
-   theorems for additional production HandlerIR recipes. Each real subject must
-   retain a recognizer/Plan alignment certificate as `OptionState.getOpt` and
-   `OptionState.peek` now do; do not add contract-name dispatch.
-3. Apply the discharge pattern to initialize, increment success and overflow
+1. **SOL-0048-D5-GET-EMITTER-CERTIFICATE**: make the real production emission
+   stage proof-producing/kernel-replayable for its exact result, starting with
+   the StateCell-supported recipe but keeping recognition and traversal
+   contract-independent. Do not add a proof-only emitter or copied assembly.
+2. **SOL-0048-D5-GET-UNCONDITIONAL**: build the 103-block SHA trace directly
+   over that exact emitter result, replay it through `resolveBoundSbpfArtifactV1`
+   and preparation replay, then discharge the existing StateCell `get` gate.
+3. While emission replay is being extended, continue target-owned
+   structural/execution theorems for additional production HandlerIR recipes.
+   Each real subject must retain a recognizer/Plan alignment certificate as
+   `OptionState.getOpt` and `OptionState.peek` now do; do not add contract-name
+   dispatch.
+4. Apply the discharge pattern to initialize, increment success and overflow
    only after `get` closes without a one-off proof-only evaluator.
-4. Do not add `native_decide`, `Lean.ofReduceBool`, `run_tac`, an axiom, a
+5. Do not add `native_decide`, `Lean.ofReduceBool`, `run_tac`, an axiom, a
    copied AST/IR/provider program, or a proof-only HandlerIR→sBPF lowering.
-5. Keep ELF/linker/loader and validator/SVM runtime refinement as a separate
+6. Keep ELF/linker/loader and validator/SVM runtime refinement as a separate
    later boundary; prefer an external semantics provider rather than building a
    second runtime model inside ProofForge.
 

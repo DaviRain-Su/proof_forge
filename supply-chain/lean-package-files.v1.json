@@ -126,9 +126,9 @@
       "sha256": "dd8bd8ef63b640b1cedcee6b3cc33e91417fad3c3926149d6c756408c72c6fc6"
     },
     {
-      "bytes": 5024,
+      "bytes": 10912,
       "path": "ProofForgeV2/Core/Crypto.lean",
-      "sha256": "ba0eddbbd3584eb3be7dc0a9cc4e0b01f8148dfe8596f1c35956dc201dc45e88"
+      "sha256": "301c6be9c356dd3fd8625244381f3f2b4728411c7a894062a88759119e95b022"
     },
     {
       "bytes": 4540,
@@ -1411,9 +1411,9 @@
       "sha256": "a8a124fcd129ebadb766de9a28a8e3d9f642ae79aeb923052655ad6d188b06bd"
     },
     {
-      "bytes": 10294,
+      "bytes": 10527,
       "path": "ProofForgeV2/Targets/Solana/ProductionPreparationV1.lean",
-      "sha256": "f956d25aa55d79ae59541ccc1d0ac51481da51612a2480dc870a2db37ca36d33"
+      "sha256": "e1713e6e5bd3665e84cfb8d26d1e05c642a80a10b03c0b073d6ab2001a528770"
     },
     {
       "bytes": 9496,
@@ -1421,9 +1421,9 @@
       "sha256": "0c38ecb61ad4f5bf5ca68732430d0600636ba594c5155cd72b3e26e3c3ea7a39"
     },
     {
-      "bytes": 18109,
+      "bytes": 19226,
       "path": "ProofForgeV2/Targets/Solana/SbpfArtifactV1.lean",
-      "sha256": "95ad8251c56beed42b2d2ecd3d85d7227f8edc27448844712cfcd8c08d249762"
+      "sha256": "12291c3f56b7d8879e5ed6633c832c36c309346e0b6957ddfaff4205d64c5f46"
     },
     {
       "bytes": 14855,

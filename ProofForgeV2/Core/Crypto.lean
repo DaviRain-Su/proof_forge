@@ -57,12 +57,14 @@ private def appendUInt64BE (bytes : ByteArray) (value : UInt64) : ByteArray :=
     |>.push (UInt64.shiftRight value 8).toUInt8
     |>.push value.toUInt8
 
-private def pad (input : ByteArray) : ByteArray := Id.run do
+private def pushZeroBytes : Nat → ByteArray → ByteArray
+  | 0, bytes => bytes
+  | count + 1, bytes => pushZeroBytes count (bytes.push 0)
+
+private def pad (input : ByteArray) : ByteArray :=
   let bitLength := UInt64.ofNat input.size * 8
-  let mut padded := input.push 0x80
-  while padded.size % 64 != 56 do
-    padded := padded.push 0
-  return appendUInt64BE padded bitLength
+  let zeroCount := (119 - input.size % 64) % 64
+  appendUInt64BE (pushZeroBytes zeroCount (input.push 0x80)) bitLength
 
 private def wordAt (bytes : ByteArray) (offset : Nat) : UInt32 :=
   UInt32.shiftLeft bytes[offset]!.toUInt32 24 |||
@@ -70,39 +72,70 @@ private def wordAt (bytes : ByteArray) (offset : Nat) : UInt32 :=
     UInt32.shiftLeft bytes[offset + 2]!.toUInt32 8 |||
     bytes[offset + 3]!.toUInt32
 
-private def scheduleFor (bytes : ByteArray) (offset : Nat) : Array UInt32 := Id.run do
-  let mut schedule := Array.replicate 64 0
-  for index in [0:16] do
-    schedule := schedule.set! index (wordAt bytes (offset + index * 4))
-  for index in [16:64] do
-    let value := smallSigma1 schedule[index - 2]! + schedule[index - 7]! +
-      smallSigma0 schedule[index - 15]! + schedule[index - 16]!
-    schedule := schedule.set! index value
-  return schedule
+private def loadScheduleWords (bytes : ByteArray) (offset : Nat) :
+    Nat → Nat → Array UInt32 → Array UInt32
+  | 0, _, schedule => schedule
+  | count + 1, index, schedule =>
+      loadScheduleWords bytes offset count (index + 1)
+        (schedule.set! index (wordAt bytes (offset + index * 4)))
 
-private def compress (state : Array UInt32) (schedule : Array UInt32) : Array UInt32 := Id.run do
-  let mut a := state[0]!
-  let mut b := state[1]!
-  let mut c := state[2]!
-  let mut d := state[3]!
-  let mut e := state[4]!
-  let mut f := state[5]!
-  let mut g := state[6]!
-  let mut h := state[7]!
-  for index in [0:64] do
-    let temp1 := h + bigSigma1 e + choose e f g + roundConstants[index]! + schedule[index]!
-    let temp2 := bigSigma0 a + majority a b c
-    h := g
-    g := f
-    f := e
-    e := d + temp1
-    d := c
-    c := b
-    b := a
-    a := temp1 + temp2
-  return #[
-    state[0]! + a, state[1]! + b, state[2]! + c, state[3]! + d,
-    state[4]! + e, state[5]! + f, state[6]! + g, state[7]! + h
+private def extendScheduleWords : Nat → Nat → Array UInt32 → Array UInt32
+  | 0, _, schedule => schedule
+  | count + 1, index, schedule =>
+      let value := smallSigma1 schedule[index - 2]! + schedule[index - 7]! +
+        smallSigma0 schedule[index - 15]! + schedule[index - 16]!
+      extendScheduleWords count (index + 1) (schedule.set! index value)
+
+private def scheduleFor (bytes : ByteArray) (offset : Nat) : Array UInt32 :=
+  let schedule := loadScheduleWords bytes offset 16 0 (Array.replicate 64 0)
+  extendScheduleWords 48 16 schedule
+
+private structure CompressionRegisters where
+  a : UInt32
+  b : UInt32
+  c : UInt32
+  d : UInt32
+  e : UInt32
+  f : UInt32
+  g : UInt32
+  h : UInt32
+
+private def compressRounds (schedule : Array UInt32) :
+    Nat → Nat → CompressionRegisters → CompressionRegisters
+  | 0, _, registers => registers
+  | count + 1, index, registers =>
+      let temp1 := registers.h + bigSigma1 registers.e +
+        choose registers.e registers.f registers.g + roundConstants[index]! +
+        schedule[index]!
+      let temp2 := bigSigma0 registers.a +
+        majority registers.a registers.b registers.c
+      compressRounds schedule count (index + 1) {
+        a := temp1 + temp2
+        b := registers.a
+        c := registers.b
+        d := registers.c
+        e := registers.d + temp1
+        f := registers.e
+        g := registers.f
+        h := registers.g
+      }
+
+private def compress (state : Array UInt32) (schedule : Array UInt32) : Array UInt32 :=
+  let registers := compressRounds schedule 64 0 {
+    a := state[0]!
+    b := state[1]!
+    c := state[2]!
+    d := state[3]!
+    e := state[4]!
+    f := state[5]!
+    g := state[6]!
+    h := state[7]!
+  }
+  #[
+    state[0]! + registers.a, state[1]! + registers.b,
+    state[2]! + registers.c, state[3]! + registers.d,
+    state[4]! + registers.e, state[5]! + registers.f,
+    state[6]! + registers.g, state[7]! + registers.h
   ]
 
 private def appendUInt32BE (bytes : ByteArray) (value : UInt32) : ByteArray :=
@@ -112,20 +145,137 @@ private def appendUInt32BE (bytes : ByteArray) (value : UInt32) : ByteArray :=
     |>.push (UInt32.shiftRight value 8).toUInt8
     |>.push value.toUInt8
 
-/-- Pure SHA-256 over bytes. This implementation performs no IO and has no toolchain dependency. -/
-def sha256 (input : ByteArray) : ByteArray := Id.run do
-  let padded := pad input
-  let mut state := initialState
-  for chunk in [0:padded.size / 64] do
-    state := compress state (scheduleFor padded (chunk * 64))
-  return state.foldl appendUInt32BE ByteArray.empty
+/-- Public proof boundary for the eight SHA-256 chaining words. -/
+abbrev Sha256State := Array UInt32
+
+/-- Initial SHA-256 chaining state used by production hashing and block
+    certificates. -/
+def sha256InitialState : Sha256State :=
+  initialState
+
+/-- FIPS 180-4 padding used by production hashing and block certificates. -/
+def sha256PaddedBytes (input : ByteArray) : ByteArray :=
+  pad input
+
+/-- One production SHA-256 compression transition over the 64-byte block at
+    `offset`. Certificate states never carry or copy the input block. -/
+def sha256CompressBlockAt (bytes : ByteArray) (offset : Nat)
+    (state : Sha256State) : Sha256State :=
+  compress state (scheduleFor bytes offset)
+
+/-- Encode one final eight-word chaining state as the raw 32-byte digest. -/
+def sha256StateDigest (state : Sha256State) : ByteArray :=
+  appendUInt32BE
+    (appendUInt32BE
+      (appendUInt32BE
+        (appendUInt32BE
+          (appendUInt32BE
+            (appendUInt32BE
+              (appendUInt32BE
+                (appendUInt32BE ByteArray.empty state[0]!) state[1]!)
+              state[2]!)
+            state[3]!)
+          state[4]!)
+        state[5]!)
+      state[6]!)
+    state[7]!
+
+private def compressChunks (bytes : ByteArray) :
+    Nat → Nat → Sha256State → Sha256State
+  | 0, _, state => state
+  | count + 1, offset, state =>
+      compressChunks bytes count (offset + 64)
+        (sha256CompressBlockAt bytes offset state)
+
+/-- Pure SHA-256 over bytes. This implementation performs no IO and has no
+    toolchain dependency. -/
+def sha256 (input : ByteArray) : ByteArray :=
+  let padded := sha256PaddedBytes input
+  let state := compressChunks padded (padded.size / 64) 0 sha256InitialState
+  sha256StateDigest state
 
 private def hexDigit (value : Nat) : Char :=
   if value < 10 then Char.ofNat (48 + value) else Char.ofNat (87 + value)
 
 /-- Lower-case hexadecimal SHA-256 digest over bytes. -/
+private def bytesToHex (bytes : ByteArray) : Nat → Nat → String → String
+  | 0, _, output => output
+  | count + 1, index, output =>
+      let byte := bytes[index]!
+      bytesToHex bytes count (index + 1) <|
+        output.push (hexDigit (byte.toNat / 16))
+          |>.push (hexDigit (byte.toNat % 16))
+
+/-- Canonical lower-case hexadecimal rendering of a raw 32-byte SHA-256
+    digest. This is shared by production hashing and kernel certificates. -/
+def sha256DigestHex (digest : ByteArray) : String :=
+  bytesToHex digest 32 0 ""
+
 def sha256Hex (input : ByteArray) : String :=
-  (sha256 input).foldl (fun output byte =>
-    output.push (hexDigit (byte.toNat / 16)) |>.push (hexDigit (byte.toNat % 16))) ""
+  sha256DigestHex (sha256 input)
+
+/-- Proof-carrying bytes-to-SHA-256 identity. The raw digest equation keeps
+    expensive block compression separate from the cheap canonical rendering
+    equation while both refer to the sole production SHA implementation. -/
+structure Sha256HexCertificate (input : ByteArray) (expectedHex : String) where
+  digest : ByteArray
+  digest_eq : sha256 input = digest
+  hex_eq : sha256DigestHex digest = expectedHex
+
+/-- A SHA-256 certificate proves the exact production `sha256Hex` equation;
+    it is not a runtime Boolean or a second hash implementation. -/
+theorem Sha256HexCertificate.sound
+    (certificate : Sha256HexCertificate input expectedHex) :
+    sha256Hex input = expectedHex := by
+  rw [sha256Hex, certificate.digest_eq, certificate.hex_eq]
+
+/-- Kernel proof chain for a sequence of exact production compression steps.
+    The bytes are a parameter, so a certificate cannot substitute copied blocks
+    for emitter-owned input. -/
+inductive Sha256BlockTrace (bytes : ByteArray) :
+    Nat → Nat → Sha256State → Sha256State → Prop where
+  | done (offset state) : Sha256BlockTrace bytes 0 offset state state
+  | step (count offset state nextState finalState)
+      (transition :
+        sha256CompressBlockAt bytes offset state = nextState)
+      (remaining : Sha256BlockTrace bytes count (offset + 64)
+        nextState finalState) :
+      Sha256BlockTrace bytes (count + 1) offset state finalState
+
+/-- A block trace is extensionally equal to the recursive production
+    compressor. -/
+theorem Sha256BlockTrace.sound
+    (trace : Sha256BlockTrace bytes count offset state finalState) :
+    compressChunks bytes count offset state = finalState := by
+  induction trace with
+  | done => rfl
+  | step _ _ _ _ _ transition _ inductionHypothesis =>
+      simp only [compressChunks]
+      rw [transition]
+      exact inductionHypothesis
+
+/-- Scalable SHA-256 certificate: one kernel-checkable transition per block,
+    followed by the canonical digest rendering equation. -/
+structure Sha256BlockCertificate (input : ByteArray) (expectedHex : String) where
+  finalState : Sha256State
+  trace : Sha256BlockTrace (sha256PaddedBytes input)
+    ((sha256PaddedBytes input).size / 64) 0 sha256InitialState finalState
+  hex_eq : sha256DigestHex (sha256StateDigest finalState) = expectedHex
+
+/-- Convert a block certificate into the common raw-digest certificate. -/
+def Sha256BlockCertificate.toHexCertificate
+    (certificate : Sha256BlockCertificate input expectedHex) :
+    Sha256HexCertificate input expectedHex := {
+  digest := sha256StateDigest certificate.finalState
+  digest_eq := by
+    unfold sha256
+    exact congrArg sha256StateDigest certificate.trace.sound
+  hex_eq := certificate.hex_eq
+}
+
+theorem Sha256BlockCertificate.sound
+    (certificate : Sha256BlockCertificate input expectedHex) :
+    sha256Hex input = expectedHex :=
+  certificate.toHexCertificate.sound
 
 end ProofForgeV2.Crypto
