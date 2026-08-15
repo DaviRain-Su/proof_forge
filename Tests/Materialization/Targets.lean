@@ -1667,6 +1667,25 @@ private unsafe def testArithOpsSemanticPlans : IO Unit := do
     throw <| IO.userError "arith-ops: missing Noir parity relation"
   expect (parityNr.contents.contains ": bool = !")
     "arith-ops Noir parity must render Bool NOT"
+  -- Extra eight from probe; ArithFlow mul/div/mod/bitNot/boolNot lighthouse.
+  -- Psy/CW/TON admit. Aleo computed Bool view, Quint/Soroban unary bitNot,
+  -- OpenVM/ICP add/sub-only stay named FC. Not opening mul/div/mod/bitNot;
+  -- existing four Plan/IR pins unchanged.
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy, TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target compiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"ArithFlow: {target} must materialize"
+  expectMaterializePlanInvariantV1 "ArithFlow" TargetId.aleo TargetKind.aleo
+    compiled "Aleo computed state views fail closed"
+  expectMaterializePlanInvariantV1 "ArithFlow" TargetId.quint TargetKind.quint
+    compiled "unary neg/bitNot are outside Q0"
+  expectMaterializePlanInvariantV1 "ArithFlow" TargetId.soroban TargetKind.soroban
+    compiled "unary neg/bitNot are outside S0"
+  expectMaterializePlanInvariantV1 "ArithFlow" TargetId.openvm TargetKind.openvm
+    compiled "mul/div/mod are outside O0"
+  expectMaterializePlanInvariantV1 "ArithFlow" TargetId.icp TargetKind.icp
+    compiled "only checked add/sub"
 
 /-- Deepest nested if-region depth in a Noir relation operation list (the
     bounded-loop unrolling shape pin). -/
