@@ -49,6 +49,12 @@ Code facts:
   outcome from the same source/compiler path. Their Boolean-gated sound
   theorems call the certified join's `referenceJoin`; they do not return two
   unrelated witnesses.
+- `ProductionPreparationV1.lean` now factors the contract-independent Source →
+  compile → Reference admission → Solana capability/Plan/HandlerIR → assembly →
+  identity-bound artifact path. Every stage retains the exact production
+  function's `.ok` equation. `get`, `initialize`, and `increment` consume this
+  one certificate API; StateCell-specific code only performs schema/method/
+  scenario lookup and composition.
 
 ## Completed implementation slices (serial)
 
@@ -90,6 +96,12 @@ second codegen.
     `get(41)` same-state UInt64 result is composed with Handler account stutter
     and the 55-step certified provider join; tampered Reference outcome fails
     closed.
+11. **SOL-0048-D5-DISCHARGE-SEAM** — **done 2026-08-15**: introduced a
+    contract-independent, proof-producing production preparation certificate.
+    It indexes arbitrary elaborated source/export bytes/artifact identity and
+    retains successful equations for all ten real production stages. All three
+    base StateCell resolvers now share it; source-byte and artifact-identity
+    drift fail closed through the generic resolver.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete. The remaining D5 blocker is unconditional kernel discharge of the
@@ -99,13 +111,14 @@ opaque; runtime output `true` must not be presented as a theorem.
 
 Next formalization slices, in order:
 
-1. **SOL-0048-D5-DISCHARGE-SEAM**: locate the minimal opaque boundaries in the
-   `get` resolver/checker and expose reusable proof-producing component lemmas.
-   Do not add `native_decide`, `Lean.ofReduceBool`, `run_tac`, an axiom, or a
-   copied AST/IR/provider program.
-2. **SOL-0048-D5-GET-UNCONDITIONAL**: use those component lemmas to discharge
-   the existing Boolean premise for `get`; the resulting theorem must call the
-   existing concrete sound theorem, not restate provider behavior.
+1. **SOL-0048-D5-GET-UNCONDITIONAL**: use the preparation stage equations to
+   isolate and discharge the remaining method lookup, Reference observation,
+   artifact/input manifest and 55-step checker obligations for `get`. Do not
+   add `native_decide`, `Lean.ofReduceBool`, `run_tac`, an axiom, or a copied
+   AST/IR/provider program.
+2. The resulting theorem must discharge the existing Boolean premise for
+   `get` and call the existing concrete sound theorem, not restate provider
+   behavior.
 3. Apply the same seam to initialize, increment success and overflow only after
    `get` closes without a one-off proof-only evaluator.
 4. Keep ELF/linker/loader and validator/SVM runtime refinement as a separate

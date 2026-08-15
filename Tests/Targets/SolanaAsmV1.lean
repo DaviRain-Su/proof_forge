@@ -48,6 +48,25 @@ private def liftStringResult (result : Except String α) : IO α :=
   | .ok value => pure value
   | .error error => throw <| IO.userError error
 
+private def expectStringError (result : Except String α)
+    (messagePart : String) : IO Unit :=
+  match result with
+  | .ok _ =>
+      throw <| IO.userError s!"operation unexpectedly accepted; wanted '{messagePart}'"
+  | .error error =>
+      expect (error.contains messagePart)
+        s!"error mismatch: wanted '{messagePart}', got '{error}'"
+
+/-- Type-level fixture: the preparation certificate is parameterized by any
+    elaborated contract/export/artifact identity, not by StateCell. -/
+private theorem productionPreparationCompilationFixtureV1
+    {elaborated canonicalBytes expectedSha}
+    (prepared : CertifiedSolanaProductionPreparationV1
+      elaborated canonicalBytes expectedSha) :
+    compileValidatedSourceV1 prepared.sourceBinding.validated =
+      .ok prepared.compiledSemantic :=
+  prepared.compilation_success
+
 private def expectArtifactError (result : SbpfArtifactResultV1 α)
     (messagePart : String) : IO Unit :=
   match result with
@@ -233,6 +252,10 @@ private unsafe def testStateCellSbpfArtifact
   let asm ← liftResult <| asmSolana compiled
   let productionSubject ← liftStringResult <|
     resolveStateCellGetProductionSubjectV1
+  have _ := productionPreparationCompilationFixtureV1
+    productionSubject.preparation
+  expect (productionSubject.preparation.productionAssembly == asm)
+    "sBPF artifact: generic preparation certificate must retain production assembly"
   expect (productionSubject.assembly == asm)
     "sBPF artifact: pure program-export subject must reproduce parser-session production assembly"
   expect checkStateCellGetProductionSubjectV1
@@ -247,16 +270,18 @@ private unsafe def testStateCellSbpfArtifact
       (.returned productionSubject.referencePre none #[])
       ⟨productionSubject.returnBytes⟩ getHandlerObservation)
     "sBPF artifact: get composition must reject a tampered Reference outcome"
-  match
-      ProofForgeV2.Source.ValidatedSourceV1.validateElaboratedSourceAgainstCanonicalBytesV1
-        StateCell.Source.subjectV1 (StateCell.bytes.push 0) with
-  | .ok _ =>
-      throw <| IO.userError
-        "sBPF artifact: drifted program export bytes must fail source validation"
-  | .error error =>
-      expect (error.contains "canonical bytes do not match")
-        s!"sBPF artifact: unexpected source drift error: {error}"
   let expectedSha256 := stateCellProductionSbpfSha256V1
+  expectStringError
+    (resolveCertifiedSolanaProductionPreparationV1 StateCell.Source.subjectV1
+      (StateCell.bytes.push 0) expectedSha256)
+    "canonical bytes do not match"
+  let driftedExpectedSha256 :=
+    (if expectedSha256.startsWith "0" then "1" else "0") ++
+      expectedSha256.drop 1
+  expectStringError
+    (resolveCertifiedSolanaProductionPreparationV1 StateCell.Source.subjectV1
+      StateCell.bytes driftedExpectedSha256)
+    "artifact SHA-256 does not match"
   let boundArtifact ← liftArtifactResult <|
     resolveBoundSbpfArtifactV1 asm expectedSha256
   let artifact := BoundResolvedSbpfArtifactV1.resolvedOf boundArtifact

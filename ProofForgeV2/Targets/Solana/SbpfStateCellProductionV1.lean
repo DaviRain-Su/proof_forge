@@ -5,6 +5,7 @@ import ProofForgeV2.Targets.BuildSelectionV1
 import ProofForgeV2.Targets.EngineeringBuildV1
 import ProofForgeV2.Targets.Solana.EmitIRV1
 import ProofForgeV2.Targets.Solana.EmitSbpfAsmV1
+import ProofForgeV2.Targets.Solana.ProductionPreparationV1
 import ProofForgeV2.Targets.Solana.SbpfHandlerJoinV1
 
 /-!
@@ -40,29 +41,43 @@ open ProofForgeV2.Targets.BuildSelectionV1
     below reconstructs every field from the exported production source. -/
 structure ResolvedStateCellGetProductionSubjectV1 where
   private mk ::
-  sourceBinding : CanonicalSourceBindingV1
-    StateCell.Source.subjectV1 StateCell.bytes
-  referenceProgram : ProofForgeV2.Semantic.WireV1.SemanticProgramV1
-  data : SemanticProgramDataV1
-  admitted : AdmittedReferenceSliceV1
+  preparation : CertifiedSolanaProductionPreparationV1
+    StateCell.Source.subjectV1 StateCell.bytes stateCellProductionSbpfSha256V1
   referencePre : LogicalStateV1
   referenceOutcome : OutcomeV1
   returnTypeId : TypeIdV1
-  ir : IR
-  assembly : String
-  boundArtifact : BoundResolvedSbpfArtifactV1
   handler : HandlerIR
   handlerInvocation : InvocationObservationV1
   loaderInvocation : LoaderV3SingleAccountInvocationV1
   returnBytes : Array UInt8
   value : SbpfSemantics.Word
 
-private def compileResultV1 (result : CompileResult α) : Except String α :=
-  match result with
-  | .ok value => .ok value
-  | .error error => .error error.render
+namespace ResolvedStateCellGetProductionSubjectV1
 
-private def artifactResultV1 (result : SbpfArtifactResultV1 α) : Except String α :=
+def sourceBinding (subject : ResolvedStateCellGetProductionSubjectV1) :=
+  subject.preparation.sourceBinding
+
+def referenceProgram (subject : ResolvedStateCellGetProductionSubjectV1) :=
+  subject.preparation.referenceProgram
+
+def data (subject : ResolvedStateCellGetProductionSubjectV1) :=
+  subject.preparation.data
+
+def admitted (subject : ResolvedStateCellGetProductionSubjectV1) :=
+  subject.preparation.admitted
+
+def ir (subject : ResolvedStateCellGetProductionSubjectV1) :=
+  subject.preparation.productionIR
+
+def assembly (subject : ResolvedStateCellGetProductionSubjectV1) :=
+  subject.preparation.productionAssembly
+
+def boundArtifact (subject : ResolvedStateCellGetProductionSubjectV1) :=
+  subject.preparation.boundArtifact
+
+end ResolvedStateCellGetProductionSubjectV1
+
+private def compileResultV1 (result : CompileResult α) : Except String α :=
   match result with
   | .ok value => .ok value
   | .error error => .error error.render
@@ -79,28 +94,11 @@ def resolveStateCellGetProductionSubjectV1 :
     Except String ResolvedStateCellGetProductionSubjectV1 := do
   unless StateCell.schema == Language.ProgramExport.programExportSchemaV2 do
     throw "StateCell program export schema is not proof-forge.program-export.v2"
-  let sourceBinding ← bindElaboratedSourceToCanonicalBytesV1
-    StateCell.Source.subjectV1 StateCell.bytes
-  let source := sourceBinding.validated
-  let compiled ← compileResultV1 <|
-    compileValidatedSourceV1 source
-  let referenceProgram := CompiledSemanticV1.semanticV1Of compiled
-  let data ← match validateSemanticProgramV1 referenceProgram with
-    | .ok value => pure value
-    | .error error => throw s!"StateCell semantic validation failed: {repr error}"
-  let admitted ← match admitReferenceProgramSliceV1 referenceProgram with
-    | .ok value => pure value
-    | .error error => throw s!"StateCell Reference admission failed: {repr error}"
-  let selection ← compileResultV1 <|
-    resolveBuildSelectionV1 TargetId.solana
-      (some CodegenProfileId.solanaSbpfCpiElfV1)
-  let capability ← compileResultV1 <|
-    resolveEngineeringRequirementsV1 selection compiled
-  let ir ← compileResultV1 <|
-    fullBodyIrFromProductCapabilityV1 capability false
-  let assembly ← compileResultV1 <| emitSbpfAsmV1 ir
-  let boundArtifact ← artifactResultV1 <|
-    resolveBoundSbpfArtifactV1 assembly stateCellProductionSbpfSha256V1
+  let preparation ← resolveCertifiedSolanaProductionPreparationV1
+    StateCell.Source.subjectV1 StateCell.bytes stateCellProductionSbpfSha256V1
+  let data := preparation.data
+  let admitted := preparation.admitted
+  let ir := preparation.productionIR
   let handler ← match ir.handlers.find? (·.name == "get") with
     | some value => pure value
     | none => throw "production StateCell IR has no get handler"
@@ -138,9 +136,8 @@ def resolveStateCellGetProductionSubjectV1 :
   }
   let handlerInvocation :=
     nullaryUInt64ViewInvocationV1 ⟨accountData⟩ discriminator
-  pure <| ResolvedStateCellGetProductionSubjectV1.mk sourceBinding
-    referenceProgram data admitted referencePre referenceOutcome get.result.typeId
-    ir assembly boundArtifact handler handlerInvocation loaderInvocation
+  pure <| ResolvedStateCellGetProductionSubjectV1.mk preparation referencePre
+    referenceOutcome get.result.typeId handler handlerInvocation loaderInvocation
     returnBytes value
 
 private def checkExceptV1 (result : Except String α)
@@ -252,24 +249,45 @@ theorem checkStateCellGetReferenceProviderSubjectV1_sound
     HandlerIR/provider join. Same private-ctor discipline as `get`. -/
 structure ResolvedStateCellInitializeProductionSubjectV1 where
   private mk ::
-  sourceBinding : CanonicalSourceBindingV1
-    StateCell.Source.subjectV1 StateCell.bytes
-  referenceProgram : ProofForgeV2.Semantic.WireV1.SemanticProgramV1
-  data : SemanticProgramDataV1
-  admitted : AdmittedReferenceSliceV1
+  preparation : CertifiedSolanaProductionPreparationV1
+    StateCell.Source.subjectV1 StateCell.bytes stateCellProductionSbpfSha256V1
   referencePre : LogicalStateV1
   referencePost : LogicalStateV1
   referenceOutcome : OutcomeV1
-  plan : Plan
   binding : UInt64StateAccountBindingV1
   postData : ByteArray
-  ir : IR
-  assembly : String
-  boundArtifact : BoundResolvedSbpfArtifactV1
   handler : HandlerIR
   handlerInvocation : InvocationObservationV1
   loaderInvocation : LoaderV3SingleAccountInvocationV1
   argument : UInt64
+
+namespace ResolvedStateCellInitializeProductionSubjectV1
+
+def sourceBinding (subject : ResolvedStateCellInitializeProductionSubjectV1) :=
+  subject.preparation.sourceBinding
+
+def referenceProgram (subject : ResolvedStateCellInitializeProductionSubjectV1) :=
+  subject.preparation.referenceProgram
+
+def data (subject : ResolvedStateCellInitializeProductionSubjectV1) :=
+  subject.preparation.data
+
+def admitted (subject : ResolvedStateCellInitializeProductionSubjectV1) :=
+  subject.preparation.admitted
+
+def plan (subject : ResolvedStateCellInitializeProductionSubjectV1) :=
+  subject.preparation.productionPlan
+
+def ir (subject : ResolvedStateCellInitializeProductionSubjectV1) :=
+  subject.preparation.productionIR
+
+def assembly (subject : ResolvedStateCellInitializeProductionSubjectV1) :=
+  subject.preparation.productionAssembly
+
+def boundArtifact (subject : ResolvedStateCellInitializeProductionSubjectV1) :=
+  subject.preparation.boundArtifact
+
+end ResolvedStateCellInitializeProductionSubjectV1
 
 /-- Reconstruct the initialize production subject from the same exported
     StateCell source. Prestate is the uninitialized one-field account used by
@@ -278,34 +296,17 @@ def resolveStateCellInitializeProductionSubjectV1 :
     Except String ResolvedStateCellInitializeProductionSubjectV1 := do
   unless StateCell.schema == Language.ProgramExport.programExportSchemaV2 do
     throw "StateCell program export schema is not proof-forge.program-export.v2"
-  let sourceBinding ← bindElaboratedSourceToCanonicalBytesV1
-    StateCell.Source.subjectV1 StateCell.bytes
-  let source := sourceBinding.validated
-  let compiled ← compileResultV1 <|
-    compileValidatedSourceV1 source
-  let referenceProgram := CompiledSemanticV1.semanticV1Of compiled
-  let data ← match validateSemanticProgramV1 referenceProgram with
-    | .ok value => pure value
-    | .error error => throw s!"StateCell semantic validation failed: {repr error}"
-  let admitted ← match admitReferenceProgramSliceV1 referenceProgram with
-    | .ok value => pure value
-    | .error error => throw s!"StateCell Reference admission failed: {repr error}"
+  let preparation ← resolveCertifiedSolanaProductionPreparationV1
+    StateCell.Source.subjectV1 StateCell.bytes stateCellProductionSbpfSha256V1
+  let referenceProgram := preparation.referenceProgram
+  let data := preparation.data
+  let admitted := preparation.admitted
+  let plan := preparation.productionPlan
+  let ir := preparation.productionIR
   let referencePre ← match initialLogicalStateV1 referenceProgram with
     | .ok value => pure value
     | .error error =>
         throw s!"StateCell initial logical state failed: {repr error}"
-  let selection ← compileResultV1 <|
-    resolveBuildSelectionV1 TargetId.solana
-      (some CodegenProfileId.solanaSbpfCpiElfV1)
-  let capability ← compileResultV1 <|
-    resolveEngineeringRequirementsV1 selection compiled
-  let plan ← compileResultV1 <|
-    materializeFullBodyPlanForProductV1 capability false
-  let ir ← compileResultV1 <|
-    fullBodyIrFromProductCapabilityV1 capability false
-  let assembly ← compileResultV1 <| emitSbpfAsmV1 ir
-  let boundArtifact ← artifactResultV1 <|
-    resolveBoundSbpfArtifactV1 assembly stateCellProductionSbpfSha256V1
   let handler ← match ir.handlers.find? (·.name == "initialize") with
     | some value => pure value
     | none => throw "production StateCell IR has no initialize handler"
@@ -362,10 +363,9 @@ def resolveStateCellInitializeProductionSubjectV1 :
   }
   let handlerInvocation :=
     unaryUInt64InvocationV1 ⟨accountData⟩ discriminator argument true true
-  pure <| ResolvedStateCellInitializeProductionSubjectV1.mk sourceBinding
-    referenceProgram data admitted referencePre referencePost referenceOutcome
-    plan binding postData ir assembly boundArtifact handler handlerInvocation
-    loaderInvocation argument
+  pure <| ResolvedStateCellInitializeProductionSubjectV1.mk preparation
+    referencePre referencePost referenceOutcome binding postData handler
+    handlerInvocation loaderInvocation argument
 
 def checkStateCellInitializeProductionSubjectV1 : Bool :=
   checkExceptV1 resolveStateCellInitializeProductionSubjectV1 fun subject =>
@@ -457,25 +457,46 @@ theorem checkStateCellInitializeReferenceProviderSubjectV1_sound
     `1` along the exact 70-step provider path. -/
 structure ResolvedStateCellIncrementProductionSubjectV1 where
   private mk ::
-  sourceBinding : CanonicalSourceBindingV1
-    StateCell.Source.subjectV1 StateCell.bytes
-  referenceProgram : ProofForgeV2.Semantic.WireV1.SemanticProgramV1
-  data : SemanticProgramDataV1
-  admitted : AdmittedReferenceSliceV1
+  preparation : CertifiedSolanaProductionPreparationV1
+    StateCell.Source.subjectV1 StateCell.bytes stateCellProductionSbpfSha256V1
   referencePre : LogicalStateV1
   referencePost : LogicalStateV1
   referenceOutcome : OutcomeV1
-  plan : Plan
   binding : UInt64StateAccountBindingV1
   postData : ByteArray
-  ir : IR
-  assembly : String
-  boundArtifact : BoundResolvedSbpfArtifactV1
   handler : HandlerIR
   handlerInvocation : InvocationObservationV1
   loaderInvocation : LoaderV3SingleAccountInvocationV1
   before : UInt64
   argument : UInt64
+
+namespace ResolvedStateCellIncrementProductionSubjectV1
+
+def sourceBinding (subject : ResolvedStateCellIncrementProductionSubjectV1) :=
+  subject.preparation.sourceBinding
+
+def referenceProgram (subject : ResolvedStateCellIncrementProductionSubjectV1) :=
+  subject.preparation.referenceProgram
+
+def data (subject : ResolvedStateCellIncrementProductionSubjectV1) :=
+  subject.preparation.data
+
+def admitted (subject : ResolvedStateCellIncrementProductionSubjectV1) :=
+  subject.preparation.admitted
+
+def plan (subject : ResolvedStateCellIncrementProductionSubjectV1) :=
+  subject.preparation.productionPlan
+
+def ir (subject : ResolvedStateCellIncrementProductionSubjectV1) :=
+  subject.preparation.productionIR
+
+def assembly (subject : ResolvedStateCellIncrementProductionSubjectV1) :=
+  subject.preparation.productionAssembly
+
+def boundArtifact (subject : ResolvedStateCellIncrementProductionSubjectV1) :=
+  subject.preparation.boundArtifact
+
+end ResolvedStateCellIncrementProductionSubjectV1
 
 /-- Reconstruct the increment-success subject from the same production source,
     compiler, assembly emitter, identity gate, and provider artifact as `get`
@@ -484,30 +505,12 @@ def resolveStateCellIncrementProductionSubjectV1 :
     Except String ResolvedStateCellIncrementProductionSubjectV1 := do
   unless StateCell.schema == Language.ProgramExport.programExportSchemaV2 do
     throw "StateCell program export schema is not proof-forge.program-export.v2"
-  let sourceBinding ← bindElaboratedSourceToCanonicalBytesV1
-    StateCell.Source.subjectV1 StateCell.bytes
-  let source := sourceBinding.validated
-  let compiled ← compileResultV1 <|
-    compileValidatedSourceV1 source
-  let referenceProgram := CompiledSemanticV1.semanticV1Of compiled
-  let data ← match validateSemanticProgramV1 referenceProgram with
-    | .ok value => pure value
-    | .error error => throw s!"StateCell semantic validation failed: {repr error}"
-  let admitted ← match admitReferenceProgramSliceV1 referenceProgram with
-    | .ok value => pure value
-    | .error error => throw s!"StateCell Reference admission failed: {repr error}"
-  let selection ← compileResultV1 <|
-    resolveBuildSelectionV1 TargetId.solana
-      (some CodegenProfileId.solanaSbpfCpiElfV1)
-  let capability ← compileResultV1 <|
-    resolveEngineeringRequirementsV1 selection compiled
-  let plan ← compileResultV1 <|
-    materializeFullBodyPlanForProductV1 capability false
-  let ir ← compileResultV1 <|
-    fullBodyIrFromProductCapabilityV1 capability false
-  let assembly ← compileResultV1 <| emitSbpfAsmV1 ir
-  let boundArtifact ← artifactResultV1 <|
-    resolveBoundSbpfArtifactV1 assembly stateCellProductionSbpfSha256V1
+  let preparation ← resolveCertifiedSolanaProductionPreparationV1
+    StateCell.Source.subjectV1 StateCell.bytes stateCellProductionSbpfSha256V1
+  let data := preparation.data
+  let admitted := preparation.admitted
+  let plan := preparation.productionPlan
+  let ir := preparation.productionIR
   let handler ← match ir.handlers.find? (·.name == "increment") with
     | some value => pure value
     | none => throw "production StateCell IR has no increment handler"
@@ -568,10 +571,9 @@ def resolveStateCellIncrementProductionSubjectV1 :
   }
   let handlerInvocation :=
     unaryUInt64InvocationV1 accountData discriminator argument false true
-  pure <| ResolvedStateCellIncrementProductionSubjectV1.mk sourceBinding
-    referenceProgram data admitted referencePre referencePost referenceOutcome
-    plan binding postData ir assembly boundArtifact handler handlerInvocation
-    loaderInvocation before argument
+  pure <| ResolvedStateCellIncrementProductionSubjectV1.mk preparation
+    referencePre referencePost referenceOutcome binding postData handler
+    handlerInvocation loaderInvocation before argument
 
 /-- Fail-closed certified agreement for the pinned increment-success subject. -/
 def checkStateCellIncrementProductionSubjectV1 : Bool :=

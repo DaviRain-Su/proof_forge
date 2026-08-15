@@ -16233,3 +16233,21 @@ normative: false
 - checker成功仍是kernel sound theorem的显式前提；本切片没有闭合无条件大型gate或一般化
   Reference→provider theorem，也不覆盖ELF/linker/loader、Mollusk/validator/SVM runtime、transaction
   rollback与compute units。
+
+## 2026-08-15 — contract-independent Solana production preparation certificate
+
+- 新增`ProductionPreparationV1`，把任意elaborated Source/canonical export bytes/expected artifact
+  SHA-256参数化为一个通用certificate；source binding、compiler、Semantic validation、Reference
+  admission、Solana selection/capability、Plan、HandlerIR、assembly及identity-bound artifact十个stage
+  都保留真实production function返回`.ok`的等式。该模块不包含StateCell字段、method或scenario，且
+  没有复制AST、lowering、business semantics或provider program。
+- `get`、`initialize`、`increment`三个base production resolver删除重复的compiler/target/artifact
+  pipeline，统一消费该certificate，再分别完成method lookup、Reference invocation及Loader fixture；
+  overflow继续复用private increment subject。既有四条55/55/70/56步provider certificate与
+  Reference→HandlerIR→provider join保持不变。
+- `SolanaAsmV1`增加contract-independent类型级fixture，并从通用resolver验证canonical source bytes与
+  expected artifact identity漂移均fail closed。focused production/test build通过；禁止的
+  `native_decide`、axiom、`Lean.ofReduceBool`、`run_tac`等均未引入。
+- 这是D5 unconditional kernel discharge的通用分解seam，不是最终无条件`get` theorem；下一步仍需用
+  各stage等式闭合method lookup、Reference observation及55步checker obligations。ELF/linker/loader、
+  Mollusk/validator/SVM runtime refinement、transaction rollback与compute units仍未声明完成。
