@@ -4663,13 +4663,16 @@ unsafe def run : IO Unit := do
       (TargetId.ton, TargetKind.ton)] do
     expectMaterializePlanInvariantV1 "ArrOpt" target kind arrOptCompiled
       "Array state element must be UInt64"
+  -- Quint/Soroban/OpenVM admit Option type; Array-of-Option still fails
+  -- on the Array element needle. ICP stays Option-pilot.
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "ArrOpt" target kind arrOptCompiled
-      "anonymous Option is outside the current container-state pilot"
+      "Array element must be UInt64"
+  expectMaterializePlanInvariantV1 "ArrOpt" TargetId.icp TargetKind.icp
+    arrOptCompiled "anonymous Option is outside the current container-state pilot"
 
   -- ArrBytes: Array Bytes 4 2 state. All twelve targets stay named
   -- element/pilot FC. Not opening Array-of-Bytes. ArrOpt / ArrayBox /
@@ -4793,7 +4796,7 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "ArrPrin" target kind arrPrinCompiled
-      "Principal/aggregates/Map/Option/Bytes fail closed"
+      "Principal/aggregates/Map/Bytes"
   expectMaterializePlanInvariantV1 "ArrPrin" TargetId.icp TargetKind.icp
     arrPrinCompiled "Principal/aggregates/Map/Option/Bytes/String fail closed"
 
@@ -4833,7 +4836,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrField" TargetId.psy TargetKind.psy
     arrFieldCompiled "bn254 Fr and BLS12-377 Fr fail closed as wrong modulus"
   expectMaterializePlanInvariantV1 "ArrField" TargetId.quint TargetKind.quint
-    arrFieldCompiled "narrow Int/Field/aggregates/Map/Option/Bytes fail closed"
+    arrFieldCompiled "narrow Int/Field/aggregates/Map/Bytes fail closed"
   expectMaterializePlanInvariantV1 "ArrField" TargetId.cosmwasm TargetKind.cosmwasm
     arrFieldCompiled "no Field"
   expectMaterializePlanInvariantV1 "ArrField" TargetId.ton TargetKind.ton
@@ -4842,7 +4845,7 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "ArrField" target kind arrFieldCompiled
-      "Int/Field/Principal/aggregates/Map/Option/Bytes fail closed"
+      "Int/Field/Principal/aggregates/Map/Bytes"
   expectMaterializePlanInvariantV1 "ArrField" TargetId.icp TargetKind.icp
     arrFieldCompiled "Int/Field/Principal/aggregates/Map/Option/Bytes/String fail closed"
 
@@ -4881,7 +4884,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.psy TargetKind.psy
     arrStrCompiled "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.quint TargetKind.quint
-    arrStrCompiled "narrow Int/Field/aggregates/Map/Option/Bytes fail closed"
+    arrStrCompiled "narrow Int/Field/aggregates/Map/Bytes fail closed"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.cosmwasm TargetKind.cosmwasm
     arrStrCompiled "no Field"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.ton TargetKind.ton
@@ -4890,7 +4893,7 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "ArrStr" target kind arrStrCompiled
-      "Int/Field/Principal/aggregates/Map/Option/Bytes fail closed"
+      "Int/Field/Principal/aggregates/Map/Bytes"
   expectMaterializePlanInvariantV1 "ArrStr" TargetId.icp TargetKind.icp
     arrStrCompiled "Map/Option/Bytes/String fail closed"
 
@@ -5456,13 +5459,16 @@ unsafe def run : IO Unit := do
       (TargetId.ton, TargetKind.ton)] do
     expectMaterializePlanInvariantV1 "MapOpt" target kind mapOptCompiled
       "Map state admits only Map UInt64 UInt64"
+  -- Quint/Soroban/OpenVM admit Option type independently of Map; Map
+  -- value Option still fails on the Map-pilot. ICP stays Option-pilot.
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
+      (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapOpt" target kind mapOptCompiled
-      "anonymous Option is outside the current container-state pilot"
+      "anonymous Map is outside the current container-state pilot"
+  expectMaterializePlanInvariantV1 "MapOpt" TargetId.icp TargetKind.icp
+    mapOptCompiled "anonymous Option is outside the current container-state pilot"
 
   -- MapArr: Map UInt64 Array UInt64 2 state. All twelve targets stay named
   -- Map-value/pilot FC. Not opening Map-of-Array. MapOpt / MapMini /
@@ -5677,7 +5683,7 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapPrin" target kind mapPrinCompiled
-      "Principal/aggregates/Map/Option/Bytes fail closed"
+      "Principal/aggregates/Map/Bytes"
   expectMaterializePlanInvariantV1 "MapPrin" TargetId.icp TargetKind.icp
     mapPrinCompiled "Principal/aggregates/Map/Option/Bytes/String fail closed"
 
@@ -5714,7 +5720,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapField" TargetId.psy TargetKind.psy
     mapFieldCompiled "bn254 Fr and BLS12-377 Fr fail closed as wrong modulus"
   expectMaterializePlanInvariantV1 "MapField" TargetId.quint TargetKind.quint
-    mapFieldCompiled "narrow Int/Field/aggregates/Map/Option/Bytes fail closed"
+    mapFieldCompiled "narrow Int/Field/aggregates/Map/Bytes fail closed"
   expectMaterializePlanInvariantV1 "MapField" TargetId.cosmwasm TargetKind.cosmwasm
     mapFieldCompiled "no Field"
   expectMaterializePlanInvariantV1 "MapField" TargetId.ton TargetKind.ton
@@ -5723,7 +5729,7 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapField" target kind mapFieldCompiled
-      "Int/Field/Principal/aggregates/Map/Option/Bytes fail closed"
+      "Int/Field/Principal/aggregates/Map/Bytes"
   expectMaterializePlanInvariantV1 "MapField" TargetId.icp TargetKind.icp
     mapFieldCompiled "Int/Field/Principal/aggregates/Map/Option/Bytes/String fail closed"
 
@@ -5759,7 +5765,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapStr" TargetId.psy TargetKind.psy
     mapStrCompiled "Map state pilot requires UInt64 keys and values"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.quint TargetKind.quint
-    mapStrCompiled "narrow Int/Field/aggregates/Map/Option/Bytes fail closed"
+    mapStrCompiled "narrow Int/Field/aggregates/Map/Bytes fail closed"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.cosmwasm TargetKind.cosmwasm
     mapStrCompiled "no Field"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.ton TargetKind.ton
@@ -5768,7 +5774,7 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "MapStr" target kind mapStrCompiled
-      "Int/Field/Principal/aggregates/Map/Option/Bytes fail closed"
+      "Int/Field/Principal/aggregates/Map/Bytes"
   expectMaterializePlanInvariantV1 "MapStr" TargetId.icp TargetKind.icp
     mapStrCompiled "Map/Option/Bytes/String fail closed"
 
@@ -6523,11 +6529,11 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "BytesRetBox" target kind bytesRetCompiled
       "anonymous Bytes is outside the current container-state pilot"
 
-  -- N-A4: Option state Normalize-admitted. Eight materializers admit
-  -- Option UInt64 state (Enum-shaped 2-leaf layout): EVM (BL-31), NEAR
-  -- (BL-30), Solana (BL-29), Aleo (BL-35), CosmWasm (BL-33), Psy (BL-36),
-  -- Noir (BL-32), TON (BL-34). Quint/Soroban/ICP/OpenVM stay envelope FC;
-  -- extra four from probe; not opening Option.
+  -- N-A4: Option state Normalize-admitted. Eleven materializers admit
+  -- Option UInt64 state (Enum-shaped 2-leaf / tag+payload layout):
+  -- EVM (BL-31), NEAR (BL-30), Solana (BL-29), Aleo (BL-35), CosmWasm
+  -- (BL-33), Psy (BL-36), Noir (BL-32), TON (BL-34), plus envelope
+  -- Quint/Soroban/OpenVM flatten. ICP stays Option-pilot (no Candid opt).
   let optionStateSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -6558,23 +6564,28 @@ unsafe def run : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.noir optCompiled
   -- TON admits Option UInt64 state (BL-34).
   let _ ← liftResult <| materializeSelected TargetId.ton optCompiled
-  for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
-    match materializeSelected target optCompiled with
-    | .ok _ =>
-        throw <| IO.userError s!"N-A4 Option: {target} must decline Option state"
-    | .error e =>
-        expect ((e.render).contains "Option" ||
-            (e.render).contains "unsupported" ||
-            (e.render).contains "pilot" ||
-            (e.render).contains "public" ||
-            (e.render).contains "container" ||
-            (e.render).contains "anonymous")
-          s!"N-A4 Option {target} message must cite Option/container boundary, got {e.render}"
+  -- Envelope-4 Option wave: Quint/Soroban/OpenVM flatten to tag+payload.
+  -- ICP stays Option-pilot (no Candid opt).
+  for target in [TargetId.quint, TargetId.soroban, TargetId.openvm] do
+    let out ← liftResult <| materializeSelected target optCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"N-A4 Option: {target} must materialize Option UInt64 state"
+  match materializeSelected TargetId.icp optCompiled with
+  | .ok _ =>
+      throw <| IO.userError "N-A4 Option: icp must decline Option state"
+  | .error e =>
+      expect ((e.render).contains "Option" ||
+          (e.render).contains "unsupported" ||
+          (e.render).contains "pilot" ||
+          (e.render).contains "public" ||
+          (e.render).contains "container" ||
+          (e.render).contains "anonymous")
+        s!"N-A4 Option icp message must cite Option/container boundary, got {e.render}"
 
   -- OptRetBox: Option UInt64 *entry* return. Seven materializers admit.
-  -- TON view-only B-RET FC; Quint/Soroban/OpenVM/ICP stay Option-pilot FC.
-  -- Entry peek, not view (TON view-only B-RET would conflate).
-  -- Not opening Option return on the decline set. OptBox state pin stays.
+  -- TON view-only B-RET FC; Quint/Soroban/OpenVM name Q0/S0/O0 return.
+  -- ICP stays Option-pilot. Entry peek, not view (TON view-only B-RET
+  -- would conflate). Not opening Option return. OptBox state pin stays.
   let optRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -6598,18 +6609,19 @@ unsafe def run : IO Unit := do
       s!"OptRetBox: {target} must materialize Option UInt64 entry return"
   expectMaterializePlanInvariantV1 "OptRetBox" TargetId.ton TargetKind.ton
     optRetCompiled "entry 'peek' cannot return multi-leaf aggregate"
-  for (target, kind) in #[
-      (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
-    expectMaterializePlanInvariantV1 "OptRetBox" target kind optRetCompiled
-      "anonymous Option is outside the current container-state pilot"
+  expectMaterializePlanInvariantV1 "OptRetBox" TargetId.quint TargetKind.quint
+    optRetCompiled "Option return is outside Q0"
+  expectMaterializePlanInvariantV1 "OptRetBox" TargetId.soroban TargetKind.soroban
+    optRetCompiled "Option return is outside S0"
+  expectMaterializePlanInvariantV1 "OptRetBox" TargetId.openvm TargetKind.openvm
+    optRetCompiled "Option return is outside O0"
+  expectMaterializePlanInvariantV1 "OptRetBox" TargetId.icp TargetKind.icp
+    optRetCompiled "anonymous Option is outside the current container-state pilot"
 
   -- OptViewRet: Option UInt64 *view* return. Distinct from OptRetBox
   -- entry: TON view-only B-RET admits; Aleo computed-view FC.
-  -- Quint/Soroban/OpenVM/ICP stay Option-pilot FC. Not opening Aleo
-  -- computed view. OptBox / OptRetBox / NestOpt stay.
+  -- Quint/Soroban/OpenVM name Q0/S0/O0 return. ICP stays Option-pilot.
+  -- Not opening Aleo computed view. OptBox / OptRetBox / NestOpt stay.
   let optViewRetSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -6633,13 +6645,14 @@ unsafe def run : IO Unit := do
       s!"OptViewRet: {target} must materialize Option UInt64 view return"
   expectMaterializePlanInvariantV1 "OptViewRet" TargetId.aleo TargetKind.aleo
     optViewRetCompiled "computed state views fail closed"
-  for (target, kind) in #[
-      (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
-    expectMaterializePlanInvariantV1 "OptViewRet" target kind optViewRetCompiled
-      "anonymous Option is outside the current container-state pilot"
+  expectMaterializePlanInvariantV1 "OptViewRet" TargetId.quint TargetKind.quint
+    optViewRetCompiled "Option return is outside Q0"
+  expectMaterializePlanInvariantV1 "OptViewRet" TargetId.soroban TargetKind.soroban
+    optViewRetCompiled "Option return is outside S0"
+  expectMaterializePlanInvariantV1 "OptViewRet" TargetId.openvm TargetKind.openvm
+    optViewRetCompiled "Option return is outside O0"
+  expectMaterializePlanInvariantV1 "OptViewRet" TargetId.icp TargetKind.icp
+    optViewRetCompiled "anonymous Option is outside the current container-state pilot"
 
   -- NestOpt: Option Option UInt64 state. All twelve targets stay named
   -- payload/pilot FC. Not opening nested Option. OptBox / OptRetBox stay.
@@ -6673,13 +6686,15 @@ unsafe def run : IO Unit := do
       (TargetId.ton, TargetKind.ton)] do
     expectMaterializePlanInvariantV1 "NestOpt" target kind nestOptCompiled
       "Option state 'o' requires UInt64 payload"
-  for (target, kind) in #[
-      (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
-    expectMaterializePlanInvariantV1 "NestOpt" target kind nestOptCompiled
-      "anonymous Option is outside the current container-state pilot"
+  -- Nested Option is a non-UInt64 payload after Option type admission.
+  expectMaterializePlanInvariantV1 "NestOpt" TargetId.quint TargetKind.quint
+    nestOptCompiled "Option element must be UInt64"
+  expectMaterializePlanInvariantV1 "NestOpt" TargetId.soroban TargetKind.soroban
+    nestOptCompiled "Option state 'o' requires UInt64 payload"
+  expectMaterializePlanInvariantV1 "NestOpt" TargetId.openvm TargetKind.openvm
+    nestOptCompiled "UInt64 payload"
+  expectMaterializePlanInvariantV1 "NestOpt" TargetId.icp TargetKind.icp
+    nestOptCompiled "anonymous Option is outside the current container-state pilot"
 
   -- OptArr: Option Array UInt64 2 state. All twelve targets stay named
   -- payload/pilot FC. Not opening Option-of-Array. NestOpt / OptBox /
@@ -6714,12 +6729,12 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "OptArr" target kind optArrCompiled
       "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptArr" TargetId.quint TargetKind.quint
-    optArrCompiled "anonymous Option is outside the current container-state pilot"
-  expectMaterializePlanInvariantV1 "OptArr" TargetId.icp TargetKind.icp
-    optArrCompiled "anonymous Option is outside the current container-state pilot"
+    optArrCompiled "Option element must be UInt64"
   expectMaterializePlanInvariantV1 "OptArr" TargetId.soroban TargetKind.soroban
-    optArrCompiled "anonymous Option is outside the current container-state pilot"
+    optArrCompiled "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptArr" TargetId.openvm TargetKind.openvm
+    optArrCompiled "UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptArr" TargetId.icp TargetKind.icp
     optArrCompiled "anonymous Option is outside the current container-state pilot"
 
   -- OptBytes: Option Bytes 4 state. All twelve targets stay named
@@ -6836,14 +6851,14 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "OptPrin" TargetId.aleo TargetKind.aleo
     optPrinCompiled "Principal/String stay fail-closed"
   expectMaterializePlanInvariantV1 "OptPrin" TargetId.quint TargetKind.quint
-    optPrinCompiled "anonymous Option is outside the current container-state pilot"
+    optPrinCompiled "Option element must be UInt64"
   expectMaterializePlanInvariantV1 "OptPrin" TargetId.ton TargetKind.ton
     optPrinCompiled "no Field/Principal"
   for (target, kind) in #[
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "OptPrin" target kind optPrinCompiled
-      "Principal/aggregates/Map/Option/Bytes fail closed"
+      "Principal/aggregates/Map/Bytes"
   expectMaterializePlanInvariantV1 "OptPrin" TargetId.icp TargetKind.icp
     optPrinCompiled "Principal/aggregates/Map/Option/Bytes/String fail closed"
 
@@ -6880,7 +6895,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "OptField" TargetId.psy TargetKind.psy
     optFieldCompiled "bn254 Fr and BLS12-377 Fr fail closed as wrong modulus"
   expectMaterializePlanInvariantV1 "OptField" TargetId.quint TargetKind.quint
-    optFieldCompiled "narrow Int/Field/aggregates/Map/Option/Bytes fail closed"
+    optFieldCompiled "narrow Int/Field/aggregates/Map/Bytes fail closed"
   expectMaterializePlanInvariantV1 "OptField" TargetId.cosmwasm TargetKind.cosmwasm
     optFieldCompiled "no Field"
   expectMaterializePlanInvariantV1 "OptField" TargetId.ton TargetKind.ton
@@ -6889,7 +6904,7 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "OptField" target kind optFieldCompiled
-      "Int/Field/Principal/aggregates/Map/Option/Bytes fail closed"
+      "Int/Field/Principal/aggregates/Map/Bytes"
   expectMaterializePlanInvariantV1 "OptField" TargetId.icp TargetKind.icp
     optFieldCompiled "Int/Field/Principal/aggregates/Map/Option/Bytes/String fail closed"
 
@@ -6925,7 +6940,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "OptStr" TargetId.psy TargetKind.psy
     optStrCompiled "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.quint TargetKind.quint
-    optStrCompiled "narrow Int/Field/aggregates/Map/Option/Bytes fail closed"
+    optStrCompiled "narrow Int/Field/aggregates/Map/Bytes fail closed"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.cosmwasm TargetKind.cosmwasm
     optStrCompiled "no Field"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.ton TargetKind.ton
@@ -6934,13 +6949,14 @@ unsafe def run : IO Unit := do
       (TargetId.soroban, TargetKind.soroban),
       (TargetId.openvm, TargetKind.openvm)] do
     expectMaterializePlanInvariantV1 "OptStr" target kind optStrCompiled
-      "Int/Field/Principal/aggregates/Map/Option/Bytes fail closed"
+      "Int/Field/Principal/aggregates/Map/Bytes"
   expectMaterializePlanInvariantV1 "OptStr" TargetId.icp TargetKind.icp
     optStrCompiled "Map/Option/Bytes/String fail closed"
 
-  -- OptBool: Option Bool state. All twelve stay named payload/pilot FC.
-  -- Not opening Option-of-Bool. OptStr / OptBox / BoolPredicate /
-  -- ArrBool stay.
+  -- OptBool: Option Bool state. Eight targets stay named payload FC.
+  -- Quint/Soroban/OpenVM admit Option type so they fail on payload.
+  -- ICP stays Option-pilot. Not opening Option-of-Bool. OptStr / OptBox /
+  -- BoolPredicate / ArrBool stay.
   let optBoolSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -6971,17 +6987,18 @@ unsafe def run : IO Unit := do
       (TargetId.ton, TargetKind.ton)] do
     expectMaterializePlanInvariantV1 "OptBool" target kind optBoolCompiled
       "Option state 'o' requires UInt64 payload"
-  for (target, kind) in #[
-      (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm),
-      (TargetId.icp, TargetKind.icp)] do
-    expectMaterializePlanInvariantV1 "OptBool" target kind optBoolCompiled
-      "anonymous Option is outside the current container-state pilot"
+  expectMaterializePlanInvariantV1 "OptBool" TargetId.quint TargetKind.quint
+    optBoolCompiled "Option element must be UInt64"
+  expectMaterializePlanInvariantV1 "OptBool" TargetId.soroban TargetKind.soroban
+    optBoolCompiled "Option state 'o' requires UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptBool" TargetId.openvm TargetKind.openvm
+    optBoolCompiled "UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptBool" TargetId.icp TargetKind.icp
+    optBoolCompiled "anonymous Option is outside the current container-state pilot"
 
   -- OptInt: Option Int64 state. Eight targets stay named Option-payload
-  -- FC. Envelope-4 admit Int64 width so they fail on the Option-pilot
-  -- (same needle as OptBool). Not opening Option-of-Int64. OptBool /
+  -- FC. Quint/Soroban/OpenVM admit Option type so they fail on payload.
+  -- ICP stays Option-pilot. Not opening Option-of-Int64. OptBool /
   -- OptBox / MapBool / ArrBool / BoolPredicate stay.
   let optIntSource :=
     "import ProofForgeV2\n\n" ++
@@ -7013,13 +7030,14 @@ unsafe def run : IO Unit := do
       (TargetId.ton, TargetKind.ton)] do
     expectMaterializePlanInvariantV1 "OptInt" target kind optIntCompiled
       "Option state 'o' requires UInt64 payload"
-  for (target, kind) in #[
-      (TargetId.icp, TargetKind.icp),
-      (TargetId.quint, TargetKind.quint),
-      (TargetId.soroban, TargetKind.soroban),
-      (TargetId.openvm, TargetKind.openvm)] do
-    expectMaterializePlanInvariantV1 "OptInt" target kind optIntCompiled
-      "anonymous Option is outside the current container-state pilot"
+  expectMaterializePlanInvariantV1 "OptInt" TargetId.quint TargetKind.quint
+    optIntCompiled "Option element must be UInt64"
+  expectMaterializePlanInvariantV1 "OptInt" TargetId.soroban TargetKind.soroban
+    optIntCompiled "Option state 'o' requires UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptInt" TargetId.openvm TargetKind.openvm
+    optIntCompiled "UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptInt" TargetId.icp TargetKind.icp
+    optIntCompiled "anonymous Option is outside the current container-state pilot"
 
   -- OptU128: Option UInt128 state. All twelve stay named FC. Aleo and
   -- TON fail on the width needle first, not OptInt's Option-payload.
@@ -7114,9 +7132,9 @@ unsafe def run : IO Unit := do
 
   -- OptU32: Option UInt32 state. UInt32 is a legal Aleo/TON width, so
   -- those two stay on Option-payload, not OptU128's width needles.
-  -- Quint/Soroban/OpenVM/ICP fail on the width needle first, not
-  -- OptBool's Option-pilot. Not opening Option-of-UInt32. OptU256 /
-  -- OptU128 / OptInt / ArrU8 stay.
+  -- Envelope-4 intern UInt32 as an Array-index width, so Quint/Soroban/
+  -- OpenVM fail on Option payload (not width). ICP stays Option-pilot.
+  -- Not opening Option-of-UInt32. OptU256 / OptU128 / OptInt / ArrU8 stay.
   let optU32Source :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -7148,12 +7166,12 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "OptU32" target kind optU32Compiled
       "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptU32" TargetId.quint TargetKind.quint
-    optU32Compiled "anonymous Option is outside the current container-state pilot"
-  expectMaterializePlanInvariantV1 "OptU32" TargetId.icp TargetKind.icp
-    optU32Compiled "anonymous Option is outside the current container-state pilot"
+    optU32Compiled "Option element must be UInt64"
   expectMaterializePlanInvariantV1 "OptU32" TargetId.soroban TargetKind.soroban
-    optU32Compiled "anonymous Option is outside the current container-state pilot"
+    optU32Compiled "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptU32" TargetId.openvm TargetKind.openvm
+    optU32Compiled "UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptU32" TargetId.icp TargetKind.icp
     optU32Compiled "anonymous Option is outside the current container-state pilot"
 
   -- OptU16: Option UInt16 state. Same legal-width payload needle set as
@@ -7703,7 +7721,7 @@ unsafe def run : IO Unit := do
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/soroban"
     TargetId.soroban .soroban
-    "unsupported Soroban semantic shape: only anonymous UInt64, Int64, Bool, Unit, and Array UInt64 N state flatten are supported (narrow Int/Field/Principal/aggregates/Map/Option/Bytes fail closed)"
+    "unsupported Soroban semantic shape: only anonymous UInt64, Int64, Bool, Unit, Array UInt64 N state flatten, and Option UInt64 2-leaf state are supported (narrow Int/Field/Principal/aggregates/Map/Bytes fail closed)"
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/icp"
     TargetId.icp .icp
@@ -7711,7 +7729,7 @@ unsafe def run : IO Unit := do
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/openvm"
     TargetId.openvm .openvm
-    "unsupported OpenVM semantic shape: only anonymous UInt64, Int64, Bool, Unit, and Array UInt64 N state flatten are supported (narrow Int/Field/Principal/aggregates/Map/Option/Bytes fail closed)"
+    "unsupported OpenVM semantic shape: only anonymous UInt64, Int64, Bool, Unit, Array UInt64 N state flatten, and Option UInt64 2-leaf state flatten are supported (narrow Int/Field/Principal/aggregates/Map/Bytes/nested Option fail closed)"
     selfCompiled
 
   -- B-RET-ABI: named Struct view return. EVM + Noir + Solana + NEAR + Psy +

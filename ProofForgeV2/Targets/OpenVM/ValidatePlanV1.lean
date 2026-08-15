@@ -5,8 +5,9 @@ import ProofForgeV2.Targets.EnvelopeV1
 # OpenVM ValidatePlanV1 — plan canonicity
 
 Size, name, reference, count, and expression-depth checks before IR emission.
-Flattened `Array UInt64 N` leaves are ordinary named scalar fields
-(`slots_0`…); this module does not re-open containers.
+Flattened `Array UInt64 N` leaves (`slots_0`…) and `Option UInt64`
+leaves (`o_tag`/`o_p0`) are ordinary named scalar fields; this module
+does not re-open containers.
 -/
 
 namespace ProofForgeV2.Targets.OpenVM

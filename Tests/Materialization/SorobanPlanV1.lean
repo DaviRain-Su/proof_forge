@@ -603,6 +603,124 @@ unsafe def testArrayLongNameSymbolShortFailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
   | .ok _ => throw <| IO.userError "10-byte Array state name must fail closed (no truncate)"
 
+/-- Option UInt64 state: two instance `u64` keys `o_tag`/`o_p0`, no Vec. -/
+unsafe def testOptBoxAdmit : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptBox where\n" ++
+    "  state o : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(v)\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-opt-box>" "Tests.SorobanOptBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planSoroban compiled
+  expect (!plan.signedNumeric) "OptBox stays unsigned"
+  expect (plan.states.map (·.name) == #["o_tag", "o_p0"])
+    "Option UInt64 must flatten to o_tag/o_p0 Plan leaves"
+  match plan.initializer with
+  | some initFn =>
+      expect (initFn.stores.size == 2)
+        "OptBox init must store both tag and payload leaves"
+  | none => throw <| IO.userError "OptBox must have an initializer"
+  let some setSome := plan.entries[0]? |
+    throw <| IO.userError "missing setSome entry"
+  expect (setSome.stores.size == 2)
+    "OptBox setSome must store both Option leaves"
+  liftResult <| Targets.Soroban.validatePlan plan
+  let files ← liftResult <| buildSoroban compiled
+  let some rsFile := files.find? (fun f => f.path == "OptBox.rs") |
+    throw <| IO.userError "soroban: missing OptBox.rs"
+  let rs := rsFile.contents
+  expect (rs.contains "symbol_short!(\"o_tag\")")
+    "OptBox.rs must use instance key o_tag"
+  expect (rs.contains "symbol_short!(\"o_p0\")")
+    "OptBox.rs must use instance key o_p0"
+  expect (rs.contains "unwrap_or(0_u64)")
+    "Option leaves stay unsigned u64 instance fields"
+  expect (!rs.contains "Vec<")
+    "Option flatten must not emit a Rust Vec"
+  expect (!rs.contains "Option<")
+    "Option flatten must not emit a Rust Option type"
+  expect (!rs.contains "i64")
+    "unsigned OptBox must not emit i64"
+
+/-- Option of Int64 is not S0 flatten. -/
+unsafe def testOptionInt64ElementFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptInt64El where\n" ++
+    "  state o : Option Int64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry setSome() : UInt64 do\n" ++
+    "    return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-opt-int64>" "Tests.SorobanOptInt64El" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error (.planInvariant .soroban msg) =>
+      expect (msg.contains "payload" || msg.contains "UInt64" || msg.contains "Option")
+        s!"Option Int64 must cite payload/UInt64/Option, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
+  | .ok _ => throw <| IO.userError "Option Int64 must fail closed at Soroban plan"
+
+/-- Option return stays fail closed (only state flattens). -/
+unsafe def testOptionReturnFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptRet where\n" ++
+    "  state o : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry peek() : Option UInt64 do\n" ++
+    "    return o\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-opt-ret>" "Tests.SorobanOptRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error (.planInvariant .soroban msg) =>
+      expect (msg.contains "Option return is outside S0")
+        s!"Option return must name Option return is outside S0, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
+  | .ok _ => throw <| IO.userError "Option return must fail closed at Soroban plan"
+
+/-- signedNumeric Int64 + Option state is unsigned-flatten only. -/
+unsafe def testSignedNumericOptionStateFailClosed : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program SignedOptMix where\n" ++
+    "  state count : Int64\n" ++
+    "  state o : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    count := 0\n" ++
+    "    o := Option.none()\n" ++
+    "  entry bump(d : Int64) : Int64 do\n" ++
+    "    count := count + d\n" ++
+    "    return count\n" ++
+    "  view get() : Int64 do\n" ++
+    "    return count\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<soroban-signed-opt>" "Tests.SorobanSignedOpt" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planSoroban compiled with
+  | .error (.planInvariant .soroban msg) =>
+      expect (msg.contains "signedNumeric" || msg.contains "Option state")
+        s!"Int64 + Option state must name signedNumeric/Option, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .soroban, got {e.render}"
+  | .ok _ => throw <| IO.userError "signedNumeric + Option state must fail closed"
+
 unsafe def run : IO Unit := do
   testStateCellSorobanSource
   testInt64CellSorobanSource
@@ -621,6 +739,10 @@ unsafe def run : IO Unit := do
   testArrayReturnFailClosed
   testSignedNumericArrayStateFailClosed
   testArrayLongNameSymbolShortFailClosed
+  testOptBoxAdmit
+  testOptionInt64ElementFailClosed
+  testOptionReturnFailClosed
+  testSignedNumericOptionStateFailClosed
   IO.println "Tests.Materialization.SorobanPlanV1: ok"
 
 end Tests.Materialization.SorobanPlanV1

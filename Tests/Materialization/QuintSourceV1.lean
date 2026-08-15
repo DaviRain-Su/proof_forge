@@ -544,6 +544,161 @@ unsafe def testArrayN9FailClosed : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
   | .ok _ => throw <| IO.userError "Array UInt64 9 must fail closed at Quint plan"
 
+/-- OptBox: Option UInt64 construct/store flattens to o_tag / o_p0. -/
+unsafe def testOptBoxFlatten : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptBox where\n" ++
+    "  state o : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(v)\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-opt-box>" "Tests.QuintOptBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planQuint compiled
+  expect (!plan.signedNumeric) "OptBox stays unsigned"
+  expect (plan.states.map (·.name) == #["o_tag", "o_p0"])
+    "Option UInt64 must flatten to o_tag/o_p0 Plan leaves"
+  match plan.initializer with
+  | some initFn =>
+      expect (initFn.stores.size == 2)
+        "OptBox init must store both Option leaves"
+  | none => throw <| IO.userError "OptBox must have an initializer"
+  let some setSome := plan.entries[0]? |
+    throw <| IO.userError "missing setSome entry"
+  expect (setSome.stores.size == 2)
+    "OptBox setSome must store both Option leaves"
+  liftResult <| Targets.Quint.validatePlan plan
+  let files ← liftResult <| buildQuint compiled
+  let some qntFile := files.find? (·.path == "OptBox.qnt") |
+    throw <| IO.userError "quint: missing OptBox.qnt"
+  let qnt := qntFile.contents
+  expect (qnt.contains "var pf_state_o_tag")
+    "OptBox.qnt must declare pf_state_o_tag"
+  expect (qnt.contains "var pf_state_o_p0")
+    "OptBox.qnt must declare pf_state_o_p0"
+  expect (!qnt.contains "List[")
+    "Option flatten must not emit a native Quint List"
+
+/-- Option Int64 payload stays fail closed. -/
+unsafe def testOptionInt64PayloadFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptInt where\n" ++
+    "  state o : Option Int64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(0)\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-opt-int>" "Tests.QuintOptInt" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planQuint compiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "Option element must be UInt64")
+        s!"Option Int64 must cite UInt64 payload, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "Option Int64 must fail closed at Quint plan"
+
+/-- Option Bool payload stays fail closed. -/
+unsafe def testOptionBoolPayloadFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptBool where\n" ++
+    "  state o : Option Bool\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry setNone() : UInt64 do\n" ++
+    "    o := Option.none()\n" ++
+    "    return 0\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-opt-bool>" "Tests.QuintOptBool" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planQuint compiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "Option element must be UInt64")
+        s!"Option Bool must cite UInt64 payload, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "Option Bool must fail closed at Quint plan"
+
+/-- Option entry/view return stays outside Q0. -/
+unsafe def testOptionReturnFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let retSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptRet where\n" ++
+    "  state o : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry peek() : Option UInt64 do\n" ++
+    "    return o\n"
+  let parsedRet ← liftResult (← session.selectProgramV1
+    retSource "<quint-opt-ret>" "Tests.QuintOptRet" none)
+  let compiledRet ← liftResult <| Compiler.compileValidatedSourceV1 parsedRet
+  match planQuint compiledRet with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "Option return is outside Q0")
+        s!"Option entry return must cite outside Q0, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "Option entry return must fail closed at Quint plan"
+  let viewSource :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptView where\n" ++
+    "  state o : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry setNone() : UInt64 do\n" ++
+    "    o := Option.none()\n" ++
+    "    return 0\n" ++
+    "  view peek() : Option UInt64 do\n" ++
+    "    return o\n"
+  let parsedView ← liftResult (← session.selectProgramV1
+    viewSource "<quint-opt-view>" "Tests.QuintOptView" none)
+  let compiledView ← liftResult <| Compiler.compileValidatedSourceV1 parsedView
+  match planQuint compiledView with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "Option return is outside Q0")
+        s!"Option view return must cite outside Q0, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "Option view return must fail closed at Quint plan"
+
+/-- signedNumeric Int64 programs cannot carry Option state. -/
+unsafe def testSignedNumericOptionFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptSigned where\n" ++
+    "  state n : Int64\n" ++
+    "  state o : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    n := 0\n" ++
+    "    o := Option.none()\n" ++
+    "  entry set(v : Int64) : Int64 do\n" ++
+    "    n := v\n" ++
+    "    return n\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<quint-opt-signed>" "Tests.QuintOptSigned" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planQuint compiled with
+  | .error (.planInvariant .quint msg) =>
+      expect (msg.contains "signedNumeric" && msg.contains "Option")
+        s!"signedNumeric+Option must cite both, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .quint, got {e.render}"
+  | .ok _ => throw <| IO.userError "signedNumeric+Option must fail closed at Quint plan"
+
 /-- Fail closed: Int32 (narrow signed; Int64 is the admitted width). -/
 unsafe def testFailClosedInt32 : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -1328,6 +1483,11 @@ unsafe def run : IO Unit := do
   testMixedInt64UInt64Fc
   testArraySlotsFlatten
   testArrayN9FailClosed
+  testOptBoxFlatten
+  testOptionInt64PayloadFc
+  testOptionBoolPayloadFc
+  testOptionReturnFc
+  testSignedNumericOptionFc
   testFailClosedInt32
   testFailClosedUInt32
   testFailClosedMultiblock

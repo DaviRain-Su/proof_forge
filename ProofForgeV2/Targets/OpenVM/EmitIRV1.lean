@@ -302,8 +302,9 @@ private def renderFn (signed : Bool) (fn : RustFn) : Array String := Id.run do
   lines := lines.push "}"
   pure lines
 
-/-- Flattened `Array UInt64 N` leaves arrive as ordinary scalar names
-    (`slots_0`, `slots_1`, …). The template never emits `[u64; N]` or Vec. -/
+/-- Flattened `Array UInt64 N` and `Option UInt64` leaves arrive as ordinary
+    scalar names (`slots_0`, `o_tag`, `o_p0`). The template never emits
+    `[u64; N]`, `Vec`, or Rust `Option<u64>`. -/
 private def renderState (signed : Bool) (fields : Array String) : Array String := Id.run do
   let ty := numericRustType signed
   let mut lines : Array String :=

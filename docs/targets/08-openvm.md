@@ -33,11 +33,13 @@ EVM-oriented proof。依据官方 [Overview](https://docs.openvm.dev/book/writin
 
 O0/O1 共享 portable 子集：public 齐次 UInt64 **或** Int64（混用 FC）/Bool/Unit、
 anonymous `Array UInt64 N`（N=1..8）**state** flatten 为 N 个 guest `u64` 标量字段
-`{name}_0`..`{name}_{N-1}`（无 `[u64; N]` / Vec；literal index only）、single-block、
-checked `+`/`-`（unsigned `u64` / signed `i64::checked_*`）、bare
-assert、zero-payload revert（ADR-0045）。Option/Map/Bytes/nested Array、Array
-param/return、N∉1..8、非 UInt64 元素、非字面量下标、Array+signedNumeric Int64
-均 fail closed。扩展（commit/reveal 之外的 guest I/O、RV32
+`{name}_0`..`{name}_{N-1}`（无 `[u64; N]` / Vec；literal index only）、anonymous
+`Option UInt64` **state** flatten 为两个 guest `u64` 字段 `{name}_tag` +
+`{name}_p0`（tag 0=none / 1=some；none 清零 payload；无 Rust `Option<u64>`）、
+single-block、checked `+`/`-`（unsigned `u64` / signed `i64::checked_*`）、bare
+assert、zero-payload revert（ADR-0045）。Map/Bytes/nested Array、Array 或 Option
+param/return、N∉1..8、非 UInt64 元素/payload、非字面量下标、Array 或 Option +
+signedNumeric Int64 均 fail closed。扩展（commit/reveal 之外的 guest I/O、RV32
 extensions、crypto accelerators、continuations/aggregation、EVM proof mode）均未开放；
 每项未来须绑定 OpenVM config hash。O1 只新增 Finalize-time build/transpile，不扩大
 portable 子集或新增 requirement id。不声称 ELF/prove/formal。
@@ -109,7 +111,7 @@ substitution、config commitment、host nondeterminism、unsafe guest code、pro
 
 ## 9. 验证阶梯
 
-- **O0（已完成）**：registry/resolver/Plan/IR/guest-source emit + zero-tool finalize + Counter/StateCell/Int64Cell 正例与 unsupported 负例；工程 `Array UInt64 N`（N=1..8）state flatten 为标量 `u64` 字段（非 Option/Map/Array return/elf/prove/formal）。
+- **O0（已完成）**：registry/resolver/Plan/IR/guest-source emit + zero-tool finalize + Counter/StateCell/Int64Cell 正例与 unsupported 负例；工程 `Array UInt64 N`（N=1..8）state flatten 为标量 `u64` 字段；工程 `Option UInt64` state flatten 为 `{name}_tag`/`{name}_p0` 两个 `u64` 字段（非 Map/Option return/param/非 UInt64 payload/elf/prove/formal）。
 - **O1（当前，ADR-0046）**：同一 Plan/IR 上的 opt-in `openvm-guest-elf-v1`；锁定
   `cargo-openvm` 2.0.1 build/transpile guest → RV32IM ELF + `.vmexe` extras；缺失工具
   fail closed（`PF-TOOLCHAIN-MISSING`）；host-optional acceptance（ambient 工具存在时

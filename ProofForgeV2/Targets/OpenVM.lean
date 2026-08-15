@@ -21,13 +21,16 @@ IR + `.rs`/`.toml`/`.json` emission in `EmitIRV1`; zero-tool finalization in
 O0 envelope: anonymous UInt64/Int64/Bool/Unit; public homogeneous UInt64
 **or** Int64 state/params (mixing fail closed); public Unit/UInt64/Int64/Bool
 results; anonymous `Array UInt64 N` (N=1..8) **state** flatten to N guest
-`u64` fields `{name}_0`..`{name}_{N-1}` (no `[u64; N]` / Vec); single-block
-callables; pureFn inline (depth ≤ 64); checked `+`/`-` only (signed uses
-Rust `i64::checked_*`); bare assert; zero-payload declared revert; empty
-events/constants; no call/schedule/ContextRead/Commit/Option/Map/Bytes/
-nested Array/Array param-return/narrow-Int/invariants/Principal/pf.assets.
-Array + signedNumeric Int64 fail closed. Everything else fails closed.
-Zero-tool finalize — no guest build/transpile/keygen/execute/prove/verify.
+`u64` fields `{name}_0`..`{name}_{N-1}` (no `[u64; N]` / Vec); anonymous
+`Option UInt64` **state** flatten to two guest `u64` fields `{name}_tag` +
+`{name}_p0` (tag 0=none / 1=some; none zeros payload; no Rust `Option<u64>`);
+single-block callables; pureFn inline (depth ≤ 64); checked `+`/`-` only
+(signed uses Rust `i64::checked_*`); bare assert; zero-payload declared
+revert; empty events/constants; no call/schedule/ContextRead/Commit/Map/
+Bytes/nested Array/Array-or-Option param-return/narrow-Int/invariants/
+Principal/pf.assets. Array-or-Option + signedNumeric Int64 fail closed.
+Everything else fails closed. Zero-tool finalize — no guest
+build/transpile/keygen/execute/prove/verify.
 -/
 
 namespace ProofForgeV2.Targets.OpenVM

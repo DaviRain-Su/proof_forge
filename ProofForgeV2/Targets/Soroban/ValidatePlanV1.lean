@@ -204,6 +204,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
   for st in plan.states do
     unless isSafeIdent st.name do
       planError s!"Soroban state '{st.name}' is not a safe identifier"
+    -- Same 9-byte `symbol_short!` gate for scalar names, Array
+    -- `{name}_{i}`, and Option `{name}_tag`/`{name}_p0`. Never truncate.
     unless st.name.toUTF8.size ≤ 9 do
       planError s!"Soroban state '{st.name}' exceeds symbol_short! 9-byte limit"
     if stateNames.contains st.name then

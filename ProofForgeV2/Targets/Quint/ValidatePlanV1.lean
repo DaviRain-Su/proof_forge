@@ -250,6 +250,8 @@ def validatePlan (plan : Plan) : CompileResult Unit := do
     planError "Quint plan requires at least one entry"
   let signed := plan.signedNumeric
   let mut exprBudget := maxPlanExprNodes
+  -- Flattened Array (`name_i`) and Option (`name_tag`/`name_p0`) leaves are
+  -- ordinary scalar identifiers; this gate does not distinguish them.
   let mut stateNames : Array String := #[]
   for st in plan.states do
     unless isSafeIdent st.name do

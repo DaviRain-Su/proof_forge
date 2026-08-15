@@ -17,11 +17,13 @@ callables, pureFn inline (depth ≤ 64), checked `+`/`-` only (no mul/div/mod;
 signed uses Rust `i64::checked_add`/`checked_sub`), bare assert, zero-payload
 declared revert, empty events/constants. Anonymous `Array UInt64 N` (N=1..8)
 **state** flattens to N UInt64 Plan leaves `{name}_0`..`{name}_{N-1}` (guest
-scalar `u64` fields; no `[u64; N]` / Vec). Array + signedNumeric, Array
-param/return, N=0/N>8, non-UInt64 element, non-literal index, nested
-arrays, Option/Map/Bytes stay fail closed. No call/schedule/ContextRead/
-Commit/narrow-Int/invariants/Principal/pf.assets. Plan is target-owned
-and retains no Semantic carrier.
+scalar `u64` fields; no `[u64; N]` / Vec). Anonymous `Option UInt64`
+**state** flattens to two UInt64 Plan leaves `{name}_tag` + `{name}_p0`
+(tag 0=none / 1=some; none zeros payload; no Rust `Option<u64>`). Array or
+Option + signedNumeric, Array/Option param/return, N=0/N>8, non-UInt64
+element/payload, non-literal index, nested arrays, Map/Bytes stay fail
+closed. No call/schedule/ContextRead/Commit/narrow-Int/invariants/
+Principal/pf.assets. Plan is target-owned and retains no Semantic carrier.
 
 Failure codes (evaluation order, first failure wins at emission):
   overflow=1, underflow=2, assertion=4,
@@ -130,8 +132,13 @@ structure TypedExpr where
       and pureFn arguments so a small CFG cannot manufacture exponentially
       large rendered Rust expressions. -/
   expandedNodes : Nat
-  /-- Nonempty = flattened `Array UInt64 N` leaves. Empty = scalar. -/
+  /-- Nonempty = flattened `Array UInt64 N` or `Option UInt64` leaves.
+      Empty = scalar. Option is `#[tag, payload]` (tag 0=none / 1=some). -/
   leaves : Array Expr := #[]
+  /-- True when `leaves` is an Option UInt64 `[tag, payload]` pair.
+      Distinguishes Option from Array UInt64 2 so IndexGet/IndexSet stay
+      Array-only. -/
+  isOption : Bool := false
   deriving BEq, Inhabited, Repr
 
 /-- Success condition (Bool) that must hold; evaluated in array order. -/
@@ -208,7 +215,7 @@ private def openvmTypeClosureWording : PilotTypeClosureWording where
   badIntegerWidthDetail :=
     "only anonymous UInt64/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only anonymous UInt64, Int64, Bool, Unit, and Array UInt64 N state flatten are supported (narrow Int/Field/Principal/aggregates/Map/Option/Bytes fail closed)"
+    "only anonymous UInt64, Int64, Bool, Unit, Array UInt64 N state flatten, and Option UInt64 2-leaf state flatten are supported (narrow Int/Field/Principal/aggregates/Map/Bytes/nested Option fail closed)"
 
 /-- User-facing uint domain stays UInt64. UInt32 is intern-only: Normalize
     always internShape `uint 32` for Array IndexGet/IndexSet literals. -/
@@ -224,7 +231,7 @@ private def validateOpenVmTypeClosureV1
     (intPolicy := pilotIntWidthPolicyI64)
     (fieldPolicy := pilotFieldPolicyNone)
     (principalPolicy := pilotPrincipalPolicyNone)
-    (containerPolicy := pilotContainerStatePolicyArrayOnly)
+    (containerPolicy := pilotContainerStatePolicyArrayOption)
 
 private def maxIdentifierBytes : Nat := 200
 private def maxPureInlineDepth : Nat := 64
@@ -266,7 +273,10 @@ private def isUInt32Type (types : OpenVmTypeClosureV1) (typeId : TypeIdV1) : Boo
   types.uintTypeIdAt 32 == some typeId
 
 private def isArrayValue (v : TypedExpr) : Bool :=
-  !v.leaves.isEmpty
+  !v.leaves.isEmpty && !v.isOption
+
+private def isOptionValue (v : TypedExpr) : Bool :=
+  v.isOption
 
 private def mkArrayLeaves (leaves : Array Expr) (nodes : Nat) : TypedExpr :=
   { ty := .uint64
@@ -274,8 +284,38 @@ private def mkArrayLeaves (leaves : Array Expr) (nodes : Nat) : TypedExpr :=
     expandedNodes := nodes
     leaves }
 
+private def mkOptionLeaves (leaves : Array Expr) (nodes : Nat) : TypedExpr :=
+  { ty := .uint64
+    expr := leaves[0]?.getD (.litU64 0)
+    expandedNodes := nodes
+    leaves
+    isOption := true }
+
+/-- True when `typeId` is an anonymous Option TypeDecl. Option is never
+    pushed to `containerTypeIds`; state planning owns the 2-leaf layout. -/
+private def isAnonymousOptionTypeIdV1
+    (typeDecls : Array TypeDeclV1) (typeId : TypeIdV1) : Bool :=
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option _, name := none, .. } => true
+  | _ => false
+
+/-- Admit only anonymous `Option UInt64` (tag+payload). Non-UInt64 / nested
+    / named Option stay fail closed. -/
+private def requireOptionUInt64StateV1
+    (typeDecls : Array TypeDeclV1) (types : OpenVmTypeClosureV1)
+    (typeId : TypeIdV1) (stateName : String) : CompileResult Unit := do
+  match typeDecls[typeId.toNat]? with
+  | some { shape := .option elTid, name := none, .. } =>
+      unless elTid == types.uint64TypeId do
+        planError
+          s!"unsupported OpenVM semantic shape: Option state '{stateName}' requires UInt64 payload"
+  | _ =>
+      planError
+        s!"unsupported OpenVM semantic shape: state '{stateName}' is not anonymous Option UInt64"
+
 /-- CosmWasm/Quint-style Array UInt64 N flatten: `some n` for admitted 1..8;
-    `none` for scalars. Nested/narrow/Map/Bytes/N=0/N>8 fail closed. -/
+    `none` for scalars and for Option (Option is not a container TypeId).
+    Nested/narrow/Map/Bytes/N=0/N>8 fail closed. -/
 private def arrayUInt64LenV1
     (typeDecls : Array TypeDeclV1) (types : OpenVmTypeClosureV1)
     (typeId : TypeIdV1) : CompileResult (Option Nat) := do
@@ -293,13 +333,16 @@ private def arrayUInt64LenV1
       pure (some n)
   | _ =>
       planError
-        "unsupported OpenVM semantic shape: container TypeId is not Array UInt64 (Map/Bytes/Option stay fail closed)"
+        "unsupported OpenVM semantic shape: container TypeId is not Array UInt64 (Map/Bytes stay fail closed)"
 
-/-- Physical PlanState leaves after Array flatten. `leavesOf[logicalId]` is
-    the dense field-index list (`name` or `name_0`..`name_{N-1}`). -/
+/-- Physical PlanState leaves after Array/Option flatten.
+    `leavesOf[logicalId]` is the dense field-index list (`name`,
+    `name_0`..`name_{N-1}`, or `name_tag`/`name_p0`). `optionOf` is true
+    when that logical state is Option UInt64. -/
 private structure StateLayout where
   states : Array PlanState
   leavesOf : Array (Array Nat)
+  optionOf : Array Bool
   deriving Inhabited
 
 private def physicalLeaves
@@ -312,11 +355,17 @@ private def physicalLeaves
   | none =>
       planError "unsupported OpenVM semantic shape: stateLoad/store references unknown state"
 
+private def isOptionState (layout : StateLayout) (sid : StateIdV1) : Bool :=
+  match layout.optionOf[sid.toNat]? with
+  | some b => b
+  | none => false
+
 private def makeStateLayoutV1
     (data : SemanticProgramDataV1) (types : OpenVmTypeClosureV1)
     (signedNumeric : Bool) : CompileResult StateLayout := do
   let mut states : Array PlanState := #[]
   let mut leavesOf : Array (Array Nat) := #[]
+  let mut optionOf : Array Bool := #[]
   for st in data.logicalState do
     unless st.id.toNat == leavesOf.size do
       planError "unsupported OpenVM semantic shape: state ids must match declaration order"
@@ -337,16 +386,38 @@ private def makeStateLayoutV1
           leaves := leaves.push states.size
           states := states.push { name := leafName }
         leavesOf := leavesOf.push leaves
+        optionOf := optionOf.push false
     | none =>
-        requirePublicUInt64OrInt64State openvmPlanErr types st
-        if states.size + 1 > maxStateFields then
-          planError "unsupported OpenVM semantic shape: state field count exceeds limit"
-        let fi := states.size
-        states := states.push { name := st.name }
-        leavesOf := leavesOf.push #[fi]
+        if isAnonymousOptionTypeIdV1 data.types st.typeId then
+          if signedNumeric then
+            planError
+              "unsupported OpenVM semantic shape: signedNumeric Int64 programs cannot carry Option state (Option flatten is unsigned UInt64 only)"
+          requireOptionUInt64StateV1 data.types types st.typeId st.name
+          if states.size + 2 > maxStateFields then
+            planError "unsupported OpenVM semantic shape: state field count exceeds limit"
+          let tagName := st.name ++ "_tag"
+          let pName := st.name ++ "_p0"
+          unless isIdentifier tagName do
+            planError s!"state name '{tagName}' is not a safe identifier"
+          unless isIdentifier pName do
+            planError s!"state name '{pName}' is not a safe identifier"
+          let tagFi := states.size
+          states := states.push { name := tagName }
+          let pFi := states.size
+          states := states.push { name := pName }
+          leavesOf := leavesOf.push #[tagFi, pFi]
+          optionOf := optionOf.push true
+        else
+          requirePublicUInt64OrInt64State openvmPlanErr types st
+          if states.size + 1 > maxStateFields then
+            planError "unsupported OpenVM semantic shape: state field count exceeds limit"
+          let fi := states.size
+          states := states.push { name := st.name }
+          leavesOf := leavesOf.push #[fi]
+          optionOf := optionOf.push false
   unless states.size ≤ maxStateFields do
     planError "unsupported OpenVM semantic shape: state field count exceeds limit"
-  pure { states, leavesOf }
+  pure { states, leavesOf, optionOf }
 
 /-- First-seen integer domain. Mixed UInt64/Int64 user-facing slots fail closed.
     Unused interned UInt64 in the type table does not force mixed.
@@ -406,7 +477,8 @@ private def overlayInsert
   { ov with entries := withoutOld.push (sid, e) }
 
 /-- Emit final stores in ascending **physical** field-index order. Array
-    overlays expand to N UInt64 leaves; scalars stay one field. -/
+    overlays expand to N UInt64 leaves; Option overlays expand to tag+p0;
+    scalars stay one field. -/
 private def overlayFinalStores
     (ov : StateOverlay) (layout : StateLayout) : Array (Nat × Expr) := Id.run do
   let mut last : Array (Option Expr) := #[]
@@ -463,6 +535,8 @@ private def requireTy (v : TypedExpr) (ty : ExprType) (what : String) :
     CompileResult Expr := do
   if isArrayValue v then
     planError s!"unsupported OpenVM semantic shape: {what} cannot be an Array aggregate"
+  if isOptionValue v then
+    planError s!"unsupported OpenVM semantic shape: {what} cannot be an Option aggregate"
   unless v.ty == ty do
     planError s!"unsupported OpenVM semantic shape: {what} type mismatch"
   pure v.expr
@@ -585,12 +659,15 @@ private def lookupPureFn (idx : CallableIndex) (id : CallableIdV1) :
   idx.pureFns.findSome? (fun (cid, c) => if cid == id then some c else none)
 
 private def resultKindOf
+    (typeDecls : Array TypeDeclV1)
     (types : OpenVmTypeClosureV1) (typeId : TypeIdV1) (owner : String) :
     CompileResult ResultKind := do
   if isUnitType types typeId then pure .unit
   else if isInt64Type types typeId then pure .int64
   else if isUInt64Type types typeId then pure .uint64
   else if isBoolType types typeId then pure .bool
+  else if isAnonymousOptionTypeIdV1 typeDecls typeId then
+    planError s!"{owner} Option return is outside O0"
   else if types.isContainer typeId then
     planError
       s!"{owner} Array return is outside O0 (only Array UInt64 N state flattens)"
@@ -638,7 +715,9 @@ private partial def lowerInstructions
               match overlayLookup acc.overlay stateId with
               | some ov => ov
               | none =>
-                  if phys.size == 1 then
+                  if isOptionState layout stateId then
+                    mkOptionLeaves (phys.map (fun fi => .stateLoad fi)) phys.size
+                  else if phys.size == 1 then
                     { ty := numericTy
                       expr := .stateLoad phys[0]!
                       expandedNodes := 1 }
@@ -654,7 +733,10 @@ private partial def lowerInstructions
         unless stateId.toNat < data.logicalState.size do
           planError "unsupported OpenVM semantic shape: stateStore references unknown state"
         let phys ← physicalLeaves layout stateId
-        if isArrayValue v then
+        if isOptionState layout stateId then
+          unless isOptionValue v && v.leaves.size == phys.size do
+            planError "unsupported OpenVM semantic shape: stateStore Option leaf count mismatch"
+        else if isArrayValue v then
           unless v.leaves.size == phys.size do
             planError "unsupported OpenVM semantic shape: stateStore Array leaf count mismatch"
         else
@@ -773,28 +855,60 @@ private partial def lowerInstructions
         match instr.result with
         | none => planError "unsupported OpenVM semantic shape: construct must produce a value"
         | some vd =>
-            let n ← match ← arrayUInt64LenV1 data.types types typeId with
-              | some n => pure n
-              | none =>
-                  planError
-                    "unsupported OpenVM semantic shape: construct admits only Array UInt64 N on OpenVM"
-            unless ctorIdx == 0 do
-              planError "unsupported OpenVM semantic shape: Array construct ctorIdx must be 0"
-            unless argIds.size == n do
-              planError "unsupported OpenVM semantic shape: Array construct arity mismatch"
-            let mut leafExprs : Array Expr := #[]
-            let mut nodes : Nat := 0
-            for argId in argIds do
-              let av ← match envLookup acc.env argId with
-                | some v => pure v
-                | none => planError "unsupported OpenVM semantic shape: construct arg undefined"
-              unless !isArrayValue av && av.ty == .uint64 do
-                planError
-                  "unsupported OpenVM semantic shape: Array construct args must be scalar UInt64"
-              leafExprs := leafExprs.push av.expr
-              nodes := nodes + av.expandedNodes
-            acc := { acc with
-              env := envInsert acc.env vd.valueId (mkArrayLeaves leafExprs (nodes + n)) }
+            match ← arrayUInt64LenV1 data.types types typeId with
+            | some n => do
+                unless ctorIdx == 0 do
+                  planError "unsupported OpenVM semantic shape: Array construct ctorIdx must be 0"
+                unless argIds.size == n do
+                  planError "unsupported OpenVM semantic shape: Array construct arity mismatch"
+                let mut leafExprs : Array Expr := #[]
+                let mut nodes : Nat := 0
+                for argId in argIds do
+                  let av ← match envLookup acc.env argId with
+                    | some v => pure v
+                    | none => planError "unsupported OpenVM semantic shape: construct arg undefined"
+                  unless !isArrayValue av && !isOptionValue av && av.ty == .uint64 do
+                    planError
+                      "unsupported OpenVM semantic shape: Array construct args must be scalar UInt64"
+                  leafExprs := leafExprs.push av.expr
+                  nodes := nodes + av.expandedNodes
+                acc := { acc with
+                  env := envInsert acc.env vd.valueId (mkArrayLeaves leafExprs (nodes + n)) }
+            | none => do
+                match data.types[typeId.toNat]? with
+                | some { shape := .option elTid, name := none, .. } => do
+                    unless elTid == types.uint64TypeId do
+                      planError
+                        "unsupported OpenVM semantic shape: Option construct requires UInt64 payload"
+                    match ctorIdx.toNat with
+                    | 0 =>
+                        unless argIds.isEmpty do
+                          planError
+                            "unsupported OpenVM semantic shape: Option.none construct takes no args"
+                        acc := { acc with
+                          env := envInsert acc.env vd.valueId
+                            (mkOptionLeaves #[.litU64 0, .litU64 0] 2) }
+                    | 1 =>
+                        unless argIds.size == 1 do
+                          planError
+                            "unsupported OpenVM semantic shape: Option.some construct takes one arg"
+                        let some argId := argIds[0]? |
+                          planError "unsupported OpenVM semantic shape: Option.some construct arg missing"
+                        let av ← match envLookup acc.env argId with
+                          | some v => pure v
+                          | none => planError "unsupported OpenVM semantic shape: Option.some construct arg undefined"
+                        unless !isArrayValue av && !isOptionValue av && av.ty == .uint64 do
+                          planError
+                            "unsupported OpenVM semantic shape: Option.some arg must be scalar UInt64"
+                        acc := { acc with
+                          env := envInsert acc.env vd.valueId
+                            (mkOptionLeaves #[.litU64 1, av.expr] (av.expandedNodes + 2)) }
+                    | _ =>
+                        planError
+                          "unsupported OpenVM semantic shape: Option construct ctorIdx must be 0 (none) or 1 (some)"
+                | _ =>
+                    planError
+                      "unsupported OpenVM semantic shape: construct admits only Array UInt64 N or Option UInt64 on OpenVM"
     | .indexGet base index => do
         match instr.result with
         | none => planError "unsupported OpenVM semantic shape: IndexGet must produce a value"
@@ -869,12 +983,15 @@ private partial def lowerInstructions
       planError "unsupported OpenVM semantic shape: multi-block/trap terminators are outside O0"
 
 private def seedParamEnv
+    (typeDecls : Array TypeDeclV1)
     (types : OpenVmTypeClosureV1) (owner : String) (callable : CallableV1) :
     CompileResult (ValueEnv × Array String) := do
   let mut env : ValueEnv := { entries := #[] }
   let mut names : Array String := #[]
   let mut i : Nat := 0
   for p in callable.params do
+    if isAnonymousOptionTypeIdV1 typeDecls p.typeId then
+      planError s!"{owner} Option params are outside O0"
     if types.isContainer p.typeId then
       planError
         s!"{owner} Array params are outside O0 (only Array UInt64 N state flattens)"
@@ -901,12 +1018,15 @@ private def lowerCallableBody
     (owner : String) :
     CompileResult
       (Array String × Array Check × Array (Nat × Expr) × Option TypedExpr × Bool) := do
-  let (env0, paramNames) ← seedParamEnv types owner callable
+  let (env0, paramNames) ← seedParamEnv data.types types owner callable
   let mut overlay0 : StateOverlay := { entries := #[] }
   if initialStateDefaults then
     for st in data.logicalState do
       let phys ← physicalLeaves layout st.id
-      if phys.size == 1 then
+      if isOptionState layout st.id then
+        let zeros := phys.map (fun _ => Expr.litU64 0)
+        overlay0 := overlayInsert overlay0 st.id (mkOptionLeaves zeros phys.size)
+      else if phys.size == 1 then
         overlay0 := overlayInsert overlay0 st.id {
           ty := numericTy
           expr := .litU64 0
@@ -948,7 +1068,8 @@ private def makePlanFromSemanticDataV1
         noteIntegerDomain types p.typeId signed? s!"parameter '{p.name}'"
   let signedNumeric := signed? == some true
   let numericTy := numericTyOf signedNumeric
-  -- States: public UInt64 or Int64, or Array UInt64 N flattened to N leaves.
+  -- States: public UInt64 or Int64, Array UInt64 N flattened to N leaves,
+  -- or Option UInt64 flattened to tag+p0.
   let layout ← makeStateLayoutV1 data types signedNumeric
   let states := layout.states
   let mut pureFns : Array (CallableIdV1 × CallableV1) := #[]
@@ -968,7 +1089,7 @@ private def makePlanFromSemanticDataV1
           | none => planError "unsupported OpenVM semantic shape: pureFn requires a name"
         unless isIdentifier name do
           planError s!"pureFn '{name}' is not a safe identifier"
-        let rk ← resultKindOf types callable.result.typeId s!"pureFn '{name}'"
+        let rk ← resultKindOf data.types types callable.result.typeId s!"pureFn '{name}'"
         unless callable.result.visibility == .public_ do
           planError s!"pureFn '{name}' result must be public"
         let (_params, _checks, stores, ret?, endedRevert) ←
@@ -1023,7 +1144,7 @@ private def makePlanFromSemanticDataV1
           | none => planError "unsupported OpenVM semantic shape: entry requires a name"
         unless isIdentifier name do
           planError s!"entry '{name}' is not a safe identifier"
-        let rk ← resultKindOf types callable.result.typeId s!"entry '{name}'"
+        let rk ← resultKindOf data.types types callable.result.typeId s!"entry '{name}'"
         unless callable.result.visibility == .public_ do
           planError s!"entry '{name}' result must be public"
         let (params, checks, stores, ret?, endedRevert) ←
@@ -1061,7 +1182,7 @@ private def makePlanFromSemanticDataV1
           | none => planError "unsupported OpenVM semantic shape: view requires a name"
         unless isIdentifier name do
           planError s!"view '{name}' is not a safe identifier"
-        let rk ← resultKindOf types callable.result.typeId s!"view '{name}'"
+        let rk ← resultKindOf data.types types callable.result.typeId s!"view '{name}'"
         unless rk != .unit do
           planError s!"view '{name}' result must be UInt64, Int64, or Bool"
         unless callable.result.visibility == .public_ do

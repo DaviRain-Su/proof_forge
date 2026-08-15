@@ -858,6 +858,111 @@ unsafe def testSignedNumericArrayFc : IO Unit := do
   | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
   | .ok _ => throw <| IO.userError "signedNumeric+Array must fail closed at OpenVM plan"
 
+/-- Homogeneous Option UInt64 state: two Plan/guest `u64` leaves, no Rust Option. -/
+unsafe def testOptBoxAdmit : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptBox where\n" ++
+    "  state o : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    o := Option.some(v)\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-opt-box>" "Tests.OpenVmOptBox" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let plan ← liftResult <| planOpenVm compiled
+  expect (!plan.signedNumeric) "OptBox stays unsigned"
+  expect (plan.states.map (·.name) == #["o_tag", "o_p0"])
+    "Option UInt64 must flatten to o_tag/o_p0 Plan leaves"
+  match plan.initializer with
+  | some initFn =>
+      expect (initFn.stores.size == 2)
+        "OptBox init must store both Option leaves"
+  | none => throw <| IO.userError "OptBox must have an initializer"
+  liftResult <| Targets.OpenVM.validatePlan plan
+  let files ← liftResult <| buildOpenVm compiled
+  let some mainRs := files.find? (·.path == "guest/src/main.rs") |
+    throw <| IO.userError "openvm: missing guest/src/main.rs"
+  let rs := mainRs.contents
+  expect (rs.contains "pub o_tag: u64,")
+    "guest State must carry flattened o_tag u64 field"
+  expect (rs.contains "pub o_p0: u64,")
+    "guest State must carry flattened o_p0 u64 field"
+  expect (!rs.contains "Option<")
+    "Option flatten must not emit a Rust Option<u64> field"
+  expect (!rs.contains "enum ")
+    "Option flatten must not emit a Rust enum"
+
+/-- Non-UInt64 Option payload stays fail closed. -/
+unsafe def testOptionInt64ElementFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptI64 where\n" ++
+    "  state o : Option Int64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry set(v : UInt64) : UInt64 do\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-opt-i64>" "Tests.OpenVmOptI64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planOpenVm compiled with
+  | .error (.planInvariant .openvm msg) =>
+      expect (msg.contains "UInt64 payload" || msg.contains "Option")
+        s!"Option Int64 must cite UInt64 payload/Option, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
+  | .ok _ => throw <| IO.userError "Option Int64 payload must fail closed at OpenVM plan"
+
+/-- Option return stays fail closed (state flatten only). -/
+unsafe def testOptionReturnFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program OptRetBox where\n" ++
+    "  state o : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry peek() : Option UInt64 do\n" ++
+    "    return o\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-opt-ret>" "Tests.OpenVmOptRet" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planOpenVm compiled with
+  | .error (.planInvariant .openvm msg) =>
+      expect (msg.contains "Option return is outside O0")
+        s!"Option return must cite Option return is outside O0, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
+  | .ok _ => throw <| IO.userError "Option return must fail closed at OpenVM plan"
+
+/-- signedNumeric Int64 programs cannot carry Option state. -/
+unsafe def testSignedNumericOptionFc : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program MixOptInt64 where\n" ++
+    "  state o : Option UInt64\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n" ++
+    "  entry set0(v : Int64) : Int64 do\n" ++
+    "    return v\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<openvm-mix-opt-int64>" "Tests.OpenVmMixOptInt64" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  match planOpenVm compiled with
+  | .error (.planInvariant .openvm msg) =>
+      expect (msg.contains "signedNumeric" || msg.contains "Option")
+        s!"signedNumeric+Option must cite signedNumeric/Option, got: {msg}"
+  | .error e => throw <| IO.userError s!"expected planInvariant .openvm, got {e.render}"
+  | .ok _ => throw <| IO.userError "signedNumeric+Option must fail closed at OpenVM plan"
+
 /-- Mixing Int64 state with a UInt64 view/result is fail closed. -/
 unsafe def testMixedInt64UInt64Fc : IO Unit := do
   let session ← Tests.Language.ParserSession.shared
@@ -943,6 +1048,10 @@ unsafe def run : IO Unit := do
   testArrayNonUInt64ElementFc
   testArrayReturnFc
   testSignedNumericArrayFc
+  testOptBoxAdmit
+  testOptionInt64ElementFc
+  testOptionReturnFc
+  testSignedNumericOptionFc
   testMixedInt64UInt64Fc
   testFailClosedInt32
   IO.println "Tests.Materialization.OpenVmGuestSourceV1: ok"

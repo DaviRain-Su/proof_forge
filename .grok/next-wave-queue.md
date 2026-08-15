@@ -15,8 +15,10 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | OVM-INT64 | worktree subagent | `Targets/OpenVM/**` · `OpenVmGuestSourceV1.lean` | **committed** `2464d1da9` — guest `i64` + checked add/sub |
 | ICP-BOOL | main | ICP Bool results + comparisons (Candid `bool` 0x7e) | **committed** `2464d1da9` — BoolPredicate eleven-admit |
 | QUINT-ARRAY | cursor-impl | Array UInt64 N≤8 flatten on Quint (N scalar `int` vars; no native List) | **committed** `2464d1da9` — ArrayBox Quint admit |
-| ENV4-ARRAY | next | Array UInt64 N≤8 flatten on **Soroban / OpenVM / ICP** (ICP = extra i64 globals, **no** Candid vec) | **landing** — ICP done locally; S/O copied from worktrees |
-| ENV4-OPTION | after Array | Option UInt64 construct/store on Quint/Soroban/OpenVM; **ICP Option honest FC** (needs Candid `opt` + compare) | queued |
+| ENV4-ARRAY | next | Array UInt64 N≤8 flatten on **Soroban / OpenVM / ICP** (ICP = extra i64 globals, **no** Candid vec) | **committed** `b589a2754` |
+| ENV4-OPTION-GATE | main | Envelope `admitOption` independent of `admitMap` | **committed** `eb03f39c1` |
+| ENV4-OPTION | next | Option UInt64 2-leaf (`_tag`/`_p0`) on Quint/Soroban/OpenVM; **ICP honest FC** | **landing** — Q/S/O flatten + needles; commit next |
+| ENV4-OPTION | after Array | Option UInt64 construct/store on Quint/Soroban/OpenVM; **ICP Option honest FC** (needs Candid `opt` + compare) | subsumed by ENV4-OPTION landing |
 | ENV4-MAP | after Option+select | Map UInt64 cap-8 on Quint/Soroban/OpenVM; **ICP Map honest FC** | queued |
 | ENV4-MULDIV | after Array or parallel | ICP + OpenVM checked mul/div (Quint/Soroban already have signed mul) | queued |
 | MID-UNBLOCKED | scout **done** | next mid-tier leaves: Aleo views/u128/i8–32, CW UInt128 ABI; Psy type-surface already mid-tier | mapped |
