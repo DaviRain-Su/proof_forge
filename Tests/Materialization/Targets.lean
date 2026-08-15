@@ -4891,6 +4891,53 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "MapBytesKey" target kind mapBytesKeyCompiled
       "anonymous Bytes is outside the current container-state pilot"
 
+  -- MapPrin: Map Principal UInt64 state. EVM/Solana admit the Principal-key
+  -- alternative named in MapBytesKey needles. Remaining ten stay named
+  -- key/pilot/Principal FC. Not opening Principal-key Map on the decline
+  -- set. MapBytesKey / PrincipalMix / PrincipalReturn stay.
+  let mapPrinSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapPrin where\n" ++
+    "  state m : Map Principal UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : Principal, v : UInt64) : UInt64 do\n" ++
+    "    m[k] := v\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let mapPrinV1 ← match ← session.selectProgramV1 mapPrinSource
+      "<targets-map-prin>" "Examples.MapPrin" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MapPrin select: {e.render}"
+  let mapPrinCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapPrinV1
+  for target in [TargetId.evm, TargetId.solana] do
+    let out ← liftResult <| materializeSelected target mapPrinCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"MapPrin: {target} must materialize Map Principal UInt64"
+  for (target, kind) in #[
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.cosmwasm, TargetKind.cosmwasm)] do
+    expectMaterializePlanInvariantV1 "MapPrin" target kind mapPrinCompiled
+      "Map state admits only Map UInt64 UInt64"
+  expectMaterializePlanInvariantV1 "MapPrin" TargetId.psy TargetKind.psy
+    mapPrinCompiled "Map state pilot requires UInt64 keys and values"
+  expectMaterializePlanInvariantV1 "MapPrin" TargetId.aleo TargetKind.aleo
+    mapPrinCompiled "Principal/String stay fail-closed"
+  expectMaterializePlanInvariantV1 "MapPrin" TargetId.quint TargetKind.quint
+    mapPrinCompiled "anonymous Map is outside the current container-state pilot"
+  expectMaterializePlanInvariantV1 "MapPrin" TargetId.ton TargetKind.ton
+    mapPrinCompiled "no Field/Principal"
+  for (target, kind) in #[
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm)] do
+    expectMaterializePlanInvariantV1 "MapPrin" target kind mapPrinCompiled
+      "Principal/aggregates/containers fail closed"
+  expectMaterializePlanInvariantV1 "MapPrin" TargetId.icp TargetKind.icp
+    mapPrinCompiled "Principal/aggregates/containers/String fail closed"
+
   -- BytesBox: Bytes 4 state. Eight materializers admit; Quint/Soroban/
   -- ICP/OpenVM stay envelope FC. Not opening Bytes on those four.
   -- State only — no Bytes return ABI. Files-nonempty or named decline.
