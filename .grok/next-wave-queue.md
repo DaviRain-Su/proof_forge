@@ -122,6 +122,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-RET-QS | done | B-RET-ABI PairRet view-return 12-target: seven admit; Aleo view-over-state + Quint/Soroban/ICP/OpenVM FC. PairRetEntry Aleo pin kept. **Not** opening aggregate return |
 | MAT-STATECELL-QS | done | Product StateCell 12-target: all twelve admit (public UInt64 lighthouse). Digest binding unchanged. **Not** opening a new shape |
 | MAT-CONST-QS | done | Scalar const-table 12-target: near/CW/Aleo/Psy admit; evm/solana/noir + TON/Quint/Soroban/ICP/OpenVM FC. Invariant half untouched. **Not** opening const |
+| MAT-INV-QS | done | Nonempty-invariant 12-target: Quint Q0 admits read-only Bool (entry `tick`); other eleven ordinary materialize FC. NEAR erasure needle kept. Const half untouched. **Not** opening the four envelope-FC targets |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |

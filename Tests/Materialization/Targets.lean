@@ -190,7 +190,7 @@ private def invariantTargetBoundarySourceTextV1 : String :=
   "import ProofForgeV2\n" ++
   "open ProofForgeV2.Language\n" ++
   "program InvariantTargetBoundary where\n" ++
-  "  entry run() : UInt64 do\n" ++
+  "  entry tick() : UInt64 do\n" ++
   "    return 0\n" ++
   "  invariant truth : true\n"
 
@@ -330,6 +330,18 @@ private unsafe def testConstInvariantMaterializationBoundary : IO Unit := do
       (TargetId.noir, TargetKind.noir, "constants/invariants"),
       (TargetId.aleo, TargetKind.aleo, "does not support invariants"),
       (TargetId.psy, TargetKind.psy, "unsupported Psy DPN semantic shape")] do
+    expectMaterializePlanInvariantV1 "invariant" target kind invariantCompiled marker
+  -- Extra five from probe. Entry is `tick` (not reserved `run`) so Quint Q0
+  -- admits the read-only Bool invariant; TON/Soroban/ICP/OpenVM stay FC.
+  -- Not opening invariants on those four.
+  let quintInv ← liftResult <| materializeSelected TargetId.quint invariantCompiled
+  expect (!(MaterializedArtifactsV1.filesOf quintInv).isEmpty)
+    "invariant/quint: Q0 read-only Bool invariant must materialize"
+  for (target, kind, marker) in #[
+      (TargetId.ton, TargetKind.ton, "constants/invariants"),
+      (TargetId.soroban, TargetKind.soroban, "invariants"),
+      (TargetId.icp, TargetKind.icp, "invariants"),
+      (TargetId.openvm, TargetKind.openvm, "invariants")] do
     expectMaterializePlanInvariantV1 "invariant" target kind invariantCompiled marker
 
 /-- N-STR-EVENT opens only the shared Semantic/Reference contract. Every target
