@@ -3409,6 +3409,26 @@ unsafe def run : IO Unit := do
     | _ => false
   expect (witnessParamInputs.size == 1 && witnessParamInputs[0]!.sourceName == "witness")
     "N1 priv-param: Noir binds private param as private-witness input"
+  -- Extra ten from probe; unused private param (no public sink). Not a
+  -- disclosure redesign. Quint/Soroban/ICP/OpenVM stay public-param envelope FC.
+  for target in [TargetId.solana, TargetId.near, TargetId.psy, TargetId.aleo,
+      TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target privParamCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"N1 priv-param: {target} must materialize unused private param"
+  for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
+    match materializeSelected target privParamCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"N1 priv-param: {target} must decline unused private param"
+    | .error e =>
+        expect ((e.render).contains "private" ||
+            (e.render).contains "witness" ||
+            (e.render).contains "visibility" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot" ||
+            (e.render).contains "public" ||
+            (e.render).contains "param")
+          s!"N1 priv-param {target} message must cite private/param boundary, got {e.render}"
 
   -- N2b: Field bn254_fr product pin — Noir (native Field) + EVM (ADDMOD/MULMOD
   -- + Fermat inv) admit. Extra ten from probe stay Plan FC; not opening Field.
