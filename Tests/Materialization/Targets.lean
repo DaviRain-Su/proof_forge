@@ -5294,6 +5294,51 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "OptMap" target kind optMapCompiled
       "anonymous Map is outside the current container-state pilot"
 
+  -- OptPrin: Option Principal state. All twelve targets stay named
+  -- payload/Principal FC. Aleo/TON/Soroban/OpenVM/ICP use Principal-named
+  -- needles, distinct from NestOpt payload/pilot. Not opening
+  -- Option-of-Principal. OptMap / OptBox / PrincipalMix stay.
+  let optPrinSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptPrin where\n" ++
+    "  state o : Option Principal\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let optPrinV1 ← match ← session.selectProgramV1 optPrinSource
+      "<targets-opt-prin>" "Examples.OptPrin" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"OptPrin select: {e.render}"
+  let optPrinCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optPrinV1
+  expectMaterializePlanInvariantV1 "OptPrin" TargetId.evm TargetKind.evm
+    optPrinCompiled "Option state admits only UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptPrin" TargetId.solana TargetKind.solana
+    optPrinCompiled "Option state 'o' element must be UInt64"
+  for (target, kind) in #[
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.cosmwasm, TargetKind.cosmwasm)] do
+    expectMaterializePlanInvariantV1 "OptPrin" target kind optPrinCompiled
+      "Option state 'o' requires UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptPrin" TargetId.aleo TargetKind.aleo
+    optPrinCompiled "Principal/String stay fail-closed"
+  expectMaterializePlanInvariantV1 "OptPrin" TargetId.quint TargetKind.quint
+    optPrinCompiled "anonymous Option is outside the current container-state pilot"
+  expectMaterializePlanInvariantV1 "OptPrin" TargetId.ton TargetKind.ton
+    optPrinCompiled "no Field/Principal"
+  for (target, kind) in #[
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm)] do
+    expectMaterializePlanInvariantV1 "OptPrin" target kind optPrinCompiled
+      "Principal/aggregates/containers fail closed"
+  expectMaterializePlanInvariantV1 "OptPrin" TargetId.icp TargetKind.icp
+    optPrinCompiled "Principal/aggregates/containers/String fail closed"
+
   -- N5: Commit identity admitted on EVM/Solana/NEAR (Plan passthrough into
   -- commitment state). Noir declines (public relation slots cannot hold
   -- commitment labels). Psy declines. ContextRead declined on every Phase-1
