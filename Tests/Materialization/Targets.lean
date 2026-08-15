@@ -3852,7 +3852,7 @@ unsafe def runWideIntegerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "WideInt128" TargetId.psy TargetKind.psy
     wideI128Compiled "UInt64/UInt32/UInt16/UInt8 and Int8/Int16/Int32/Int64"
   expectMaterializePlanInvariantV1 "WideInt128" TargetId.cosmwasm TargetKind.cosmwasm
-    wideI128Compiled "narrow Int fail closed; UInt256 is body-only"
+    wideI128Compiled "Int128/256 fail closed; UInt256 is body-only"
   expectMaterializePlanInvariantV1 "WideInt128" TargetId.ton TargetKind.ton
     wideI128Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -3898,7 +3898,7 @@ unsafe def runWideIntegerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "WideInt256" TargetId.psy TargetKind.psy
     wideI256Compiled "UInt64/UInt32/UInt16/UInt8 and Int8/Int16/Int32/Int64"
   expectMaterializePlanInvariantV1 "WideInt256" TargetId.cosmwasm TargetKind.cosmwasm
-    wideI256Compiled "narrow Int fail closed; UInt256 is body-only"
+    wideI256Compiled "Int128/256 fail closed; UInt256 is body-only"
   expectMaterializePlanInvariantV1 "WideInt256" TargetId.ton TargetKind.ton
     wideI256Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -3964,14 +3964,12 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"WideInt32 select: {e.render}"
   let wideI32Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wideI32V1
   for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy,
-      TargetId.aleo] do
+      TargetId.aleo, TargetId.cosmwasm] do
     let out ← liftResult <| materializeSelected target wideI32Compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideInt32: {target} must materialize Int32"
   expectMaterializePlanInvariantV1 "WideInt32" TargetId.near TargetKind.near
     wideI32Compiled "Int state store requires 8-byte field"
-  expectMaterializePlanInvariantV1 "WideInt32" TargetId.cosmwasm TargetKind.cosmwasm
-    wideI32Compiled "narrow Int fail closed; UInt256 is body-only"
   expectMaterializePlanInvariantV1 "WideInt32" TargetId.ton TargetKind.ton
     wideI32Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -4005,14 +4003,12 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"WideInt16 select: {e.render}"
   let wideI16Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wideI16V1
   for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy,
-      TargetId.aleo] do
+      TargetId.aleo, TargetId.cosmwasm] do
     let out ← liftResult <| materializeSelected target wideI16Compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideInt16: {target} must materialize Int16"
   expectMaterializePlanInvariantV1 "WideInt16" TargetId.near TargetKind.near
     wideI16Compiled "Int state store requires 8-byte field"
-  expectMaterializePlanInvariantV1 "WideInt16" TargetId.cosmwasm TargetKind.cosmwasm
-    wideI16Compiled "narrow Int fail closed; UInt256 is body-only"
   expectMaterializePlanInvariantV1 "WideInt16" TargetId.ton TargetKind.ton
     wideI16Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -4047,14 +4043,12 @@ unsafe def runWideIntegerNeedles : IO Unit := do
     | .error e => throw <| IO.userError s!"WideInt8 select: {e.render}"
   let wideI8Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wideI8V1
   for target in [TargetId.evm, TargetId.solana, TargetId.noir, TargetId.psy,
-      TargetId.aleo] do
+      TargetId.aleo, TargetId.cosmwasm] do
     let out ← liftResult <| materializeSelected target wideI8Compiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideInt8: {target} must materialize Int8"
   expectMaterializePlanInvariantV1 "WideInt8" TargetId.near TargetKind.near
     wideI8Compiled "Int state store requires 8-byte field"
-  expectMaterializePlanInvariantV1 "WideInt8" TargetId.cosmwasm TargetKind.cosmwasm
-    wideI8Compiled "narrow Int fail closed; UInt256 is body-only"
   expectMaterializePlanInvariantV1 "WideInt8" TargetId.ton TargetKind.ton
     wideI8Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -5243,7 +5237,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrI32" target kind arrI32Compiled
       "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrI32" TargetId.cosmwasm TargetKind.cosmwasm
-    arrI32Compiled "narrow Int fail closed; UInt256 is body-only"
+    arrI32Compiled "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrI32" TargetId.ton TargetKind.ton
     arrI32Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -5288,7 +5282,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrI16" target kind arrI16Compiled
       "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrI16" TargetId.cosmwasm TargetKind.cosmwasm
-    arrI16Compiled "narrow Int fail closed; UInt256 is body-only"
+    arrI16Compiled "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrI16" TargetId.ton TargetKind.ton
     arrI16Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -5332,7 +5326,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrI8" target kind arrI8Compiled
       "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrI8" TargetId.cosmwasm TargetKind.cosmwasm
-    arrI8Compiled "narrow Int fail closed; UInt256 is body-only"
+    arrI8Compiled "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrI8" TargetId.ton TargetKind.ton
     arrI8Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -6391,7 +6385,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapI32" TargetId.psy TargetKind.psy
     mapI32Compiled "Map state pilot requires UInt64 keys and values"
   expectMaterializePlanInvariantV1 "MapI32" TargetId.cosmwasm TargetKind.cosmwasm
-    mapI32Compiled "narrow Int fail closed; UInt256 is body-only"
+    mapI32Compiled "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapI32" TargetId.ton TargetKind.ton
     mapI32Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -6437,7 +6431,7 @@ unsafe def runSignedContainerNeedles : IO Unit := do
   expectMaterializePlanInvariantV1 "MapI32Key" TargetId.psy TargetKind.psy
     mapI32KeyCompiled "Map state pilot requires UInt64 keys and values"
   expectMaterializePlanInvariantV1 "MapI32Key" TargetId.cosmwasm TargetKind.cosmwasm
-    mapI32KeyCompiled "narrow Int fail closed; UInt256 is body-only"
+    mapI32KeyCompiled "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapI32Key" TargetId.ton TargetKind.ton
     mapI32KeyCompiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -7293,7 +7287,7 @@ unsafe def runRemainingNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "OptI32" target kind optI32Compiled
       "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptI32" TargetId.cosmwasm TargetKind.cosmwasm
-    optI32Compiled "narrow Int fail closed; UInt256 is body-only"
+    optI32Compiled "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptI32" TargetId.ton TargetKind.ton
     optI32Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -7337,7 +7331,7 @@ unsafe def runRemainingNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "OptI16" target kind optI16Compiled
       "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptI16" TargetId.cosmwasm TargetKind.cosmwasm
-    optI16Compiled "narrow Int fail closed; UInt256 is body-only"
+    optI16Compiled "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptI16" TargetId.ton TargetKind.ton
     optI16Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -7382,7 +7376,7 @@ unsafe def runRemainingNeedles : IO Unit := do
     expectMaterializePlanInvariantV1 "OptI8" target kind optI8Compiled
       "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptI8" TargetId.cosmwasm TargetKind.cosmwasm
-    optI8Compiled "narrow Int fail closed; UInt256 is body-only"
+    optI8Compiled "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptI8" TargetId.ton TargetKind.ton
     optI8Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[

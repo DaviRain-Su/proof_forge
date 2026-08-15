@@ -131,6 +131,9 @@ structure StorageField where
   key : String
   byteWidth : Nat
   endianness : Endianness
+  /-- True when the leaf is signed Int{8,16,32,64}. Default false keeps
+      historical UInt field literals byte-identical in hand-built Plans. -/
+  isInt : Bool := false
   deriving BEq, Inhabited, Repr
 
 structure StorageLayout where
@@ -158,6 +161,8 @@ structure Param where
   inputOffset : Nat
   byteWidth : Nat
   endianness : Endianness
+  /-- True when the ABI word is signed Int{8,16,32,64}. -/
+  isInt : Bool := false
   deriving BEq, Inhabited, Repr
 
 /-- Unsigned comparison operators for the public-UInt64 comparison envelope. -/
@@ -172,9 +177,14 @@ inductive Expr where
   | param (inputOffset : Nat)
   /-- Narrow ABI param load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `param`. -/
   | narrowParam (bitWidth : Nat) (inputOffset : Nat)
+  /-- Narrow signed ABI param (`bitWidth ∈ {8,16,32}`); JSON decimal in
+      `[min,max]`, temp is sign-extended i64. -/
+  | narrowSignedParam (bitWidth : Nat) (inputOffset : Nat)
   | stateLoad (fieldIndex : Nat)
   /-- Narrow ABI state load (`bitWidth ∈ {8,16,32}`); UInt64/Int64 keep `stateLoad`. -/
   | narrowStateLoad (bitWidth : Nat) (fieldIndex : Nat)
+  /-- Narrow signed state load: 8-byte Region + high-zero + sign-extend. -/
+  | narrowSignedStateLoad (bitWidth : Nat) (fieldIndex : Nat)
   | checkedAdd (lhs rhs : Expr)
   | checkedSub (lhs rhs : Expr)
   | checkedMul (lhs rhs : Expr)
@@ -209,6 +219,14 @@ inductive Expr where
   | narrowBitNot (bitWidth : Nat) (operand : Expr)
   | narrowShl (bitWidth : Nat) (lhs rhs : Expr)
   | narrowShr (bitWidth : Nat) (lhs rhs : Expr)
+  /-- Narrow signed checked arith (`bitWidth ∈ {8,16,32}`). Temps are
+      sign-extended i64; result is range-checked then re-extended. -/
+  | narrowSignedCheckedAdd (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCheckedSub (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCheckedMul (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCheckedDiv (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCheckedMod (bitWidth : Nat) (lhs rhs : Expr)
+  | narrowSignedCompare (bitWidth : Nat) (op : ComparisonOp) (lhs rhs : Expr)
   | boolNot (operand : Expr)
   /-- Strict Bool AND on 0/1 words (both sides always evaluate). -/
   | boolAnd (lhs rhs : Expr)
@@ -284,6 +302,9 @@ structure Store where
   /-- Physical store width in bytes (`1/2/4/8/16/32`). Default 8 keeps historical
       UInt64/Int64 Plan literals byte-identical. -/
   byteWidth : Nat := 8
+  /-- Signed Int leaf: Emit masks to low `byteWidth` bits before the 8-byte
+      Region store so sign-extended temps do not leak high bits. -/
+  isInt : Bool := false
   deriving BEq, Inhabited, Repr
 
 inductive Statement where
@@ -619,15 +640,23 @@ def nearScheduleDisallowedError (kind : String) : String :=
 def stateKey (sourceId : Nat) : String :=
   s!"pf:cw:v1:state:{sourceId}"
 
-/-- Layout field type suffix from physical byte width (`u8-le` … `u64-le`). -/
-def layoutFieldTypeSuffix (byteWidth : Nat) : String :=
-  match byteWidth with
-  | 1 => "u8-le"
-  | 2 => "u16-le"
-  | 4 => "u32-le"
-  | 16 => "u128-le"
-  | 32 => "u256-le"
-  | _ => "u64-le"
+/-- Layout field type suffix from physical byte width (`u8-le` … `u64-le`,
+    or `i8-le` … `i64-le` when signed). -/
+def layoutFieldTypeSuffix (byteWidth : Nat) (isInt : Bool := false) : String :=
+  if isInt then
+    match byteWidth with
+    | 1 => "i8-le"
+    | 2 => "i16-le"
+    | 4 => "i32-le"
+    | _ => "i64-le"
+  else
+    match byteWidth with
+    | 1 => "u8-le"
+    | 2 => "u16-le"
+    | 4 => "u32-le"
+    | 16 => "u128-le"
+    | 32 => "u256-le"
+    | _ => "u64-le"
 
 /-- Input slot pitch for a param physical width (T9e multiword). -/
 def slotPitchOfByteWidth (byteWidth : Nat) : Nat :=
@@ -640,12 +669,12 @@ def exactInputLenOfParams (params : Array Param) : Nat :=
   | none => 0
   | some p => p.inputOffset + slotPitchOfByteWidth p.byteWidth
 
-/-- ABI / IDL type string for a param or storage field (Int64 keeps `u64-le`). -/
-def abiScalarTypeString (byteWidth : Nat) : String :=
-  layoutFieldTypeSuffix byteWidth
+/-- ABI / IDL type string for a param or storage field. -/
+def abiScalarTypeString (byteWidth : Nat) (isInt : Bool := false) : String :=
+  layoutFieldTypeSuffix byteWidth isInt
 
 private def layoutFieldSignature (field : StorageField) : String :=
-  s!"{field.sourceId}:{field.name}:{field.key}:{field.byteWidth}:{layoutFieldTypeSuffix field.byteWidth}"
+  s!"{field.sourceId}:{field.name}:{field.key}:{field.byteWidth}:{layoutFieldTypeSuffix field.byteWidth field.isInt}"
 
 private def layoutSignature (fields : Array StorageField) : String :=
   s!"{fields.size}|{String.intercalate "|" (fields.toList.map layoutFieldSignature)}"
@@ -673,6 +702,9 @@ private inductive CosmWasmValueKindV1 where
   | uint8
   | bool
   | int64
+  | int32
+  | int16
+  | int8
   /-- T9e multiword body kinds. -/
   | uint128
   | uint256
@@ -697,6 +729,9 @@ private def cwConstantKindTagV1 : CosmWasmValueKindV1 → Nat
   | .uint8 => 3
   | .bool => 4
   | .int64 => 5
+  | .int32 => 6
+  | .int16 => 7
+  | .int8 => 8
   | .uint128 | .uint256 => 0
 
 private def cwConstantKindOfTagV1 (tag : Nat) : Option CosmWasmValueKindV1 :=
@@ -707,6 +742,9 @@ private def cwConstantKindOfTagV1 (tag : Nat) : Option CosmWasmValueKindV1 :=
   | 3 => some .uint8
   | 4 => some .bool
   | 5 => some .int64
+  | 6 => some .int32
+  | 7 => some .int16
+  | 8 => some .int8
   | _ => none
 
 /-- Inverse of `uintKindOfWidthV1` for store/width gates. -/
@@ -718,7 +756,28 @@ private def widthOfUintKindV1 (k : CosmWasmValueKindV1) : Option Nat :=
   | .uint64 => some 64
   | .uint128 => some 128
   | .uint256 => some 256
-  | .bool | .int64 => none
+  | .bool | .int64 | .int32 | .int16 | .int8 => none
+
+/-- Map admitted Int width to plan value kind. -/
+private def intKindOfWidthV1 (w : Nat) : Option CosmWasmValueKindV1 :=
+  match w with
+  | 8 => some .int8
+  | 16 => some .int16
+  | 32 => some .int32
+  | 64 => some .int64
+  | _ => none
+
+/-- Inverse of `intKindOfWidthV1`. -/
+private def widthOfIntKindV1 (k : CosmWasmValueKindV1) : Option Nat :=
+  match k with
+  | .int8 => some 8
+  | .int16 => some 16
+  | .int32 => some 32
+  | .int64 => some 64
+  | _ => none
+
+private def isSignedIntKindV1 (k : CosmWasmValueKindV1) : Bool :=
+  (widthOfIntKindV1 k).isSome
 
 /-- CosmWasm pilot type-closure carrier (shared `PilotTypeClosureV1`).
     Bool/UInt32 optional; state/params admit UInt{8,16,32,64}|Int64 (T8b). -/
@@ -741,8 +800,10 @@ private def cosmwasmPlanErr (message : String) : CompileError :=
     **state** admitted as Enum-shaped tag+payload KV leaves (`name_tag`/
     `name_p0`; none default = zero fields; storeAtomic on assign; match via
     VariantTag/VariantPayload). Option of non-UInt64, nested Option, Option
-    params stay fail closed. Field, String, narrow Int{8,16,32} fail closed at
-    type closure. **Bytes N** admitted for state + entry/view return (1..8
+    params stay fail closed. Field and String fail closed at type closure.
+    **Int{8,16,32}** are admitted ABI (one 8-byte Region, low-byte two's
+    complement, sign-extended i64 temps, checked overflow at the declared
+    width). Int128/256 stay fail closed. **Bytes N** admitted for state + entry/view return (1..8)
     leaves as zero-extended UInt64 JSON decimals). **T12 + ADR-0029 C1**:
     Principal admitted as full wire-identity storage/param leaves
     (len + 8×UInt64; not bech32 AccAddress pin).
@@ -772,15 +833,15 @@ private def cosmwasmTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "CosmWasm"
   uint32DuplicateDetail := "expected one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt{8,16,32,64,128,256} and Int64 integer types are supported (narrow Int fail closed; UInt256 is body-only)"
+    "only anonymous UInt{8,16,32,64,128,256} and Int{8,16,32,64} integer types are supported (Int128/256 fail closed; UInt256 is body-only)"
   unsupportedShapeDetail :=
-    "only UInt{8,16,32,64,128,256}, Int64, Unit, Bool, Principal, named Struct/Enum, and admitted Array/Map/Bytes containers are supported (no Field)"
+    "only UInt{8,16,32,64,128,256}, Int{8,16,32,64}, Unit, Bool, Principal, named Struct/Enum, and admitted Array/Map/Bytes containers are supported (no Field)"
 
 private def validateCosmWasmTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult CosmWasmTypeClosureV1 :=
   validatePilotTypeClosure cosmwasmPlanErr cosmwasmTypeClosureWording types
     cosmwasmUintWidthPolicyV1
-    (intPolicy := pilotIntWidthPolicyI64)
+    (intPolicy := pilotIntWidthPolicyNarrow)
     (principalPolicy := pilotPrincipalPolicyAdmit)
     (namedAggregatePolicy := pilotNamedAggregateStatePolicyAdmit)
     (containerPolicy := pilotContainerStatePolicyArrayMapBytes)
@@ -859,14 +920,13 @@ private def abiByteWidthOfTypeV1
   | none =>
       match types.intWidthOf typeId with
       | some w =>
-          -- Int64 only on CosmWasm (narrow Int FC via type-closure policy).
-          unless w == 64 do
+          unless isAbiIntWidth w do
             throw <| .planInvariant .cosmwasm
               s!"unsupported CosmWasm semantic shape: ABI Int{w} is not admitted"
           pure (byteWidthOfBitWidth w)
       | none =>
           throw <| .planInvariant .cosmwasm
-            "unsupported CosmWasm semantic shape: ABI type must be UInt8/16/32/64/128 or Int64"
+            "unsupported CosmWasm semantic shape: ABI type must be UInt8/16/32/64/128 or Int8/16/32/64"
 
 /-- `{prefix}_lo` / `{prefix}_hi` limb names for UInt128 2-Region ABI. -/
 private def flattenUInt128LimbNamesV1 (namePrefix : String) :
@@ -882,14 +942,19 @@ private def flattenUInt128LimbNamesV1 (namePrefix : String) :
   pure (lo, hi)
 
 /-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`.
-    UInt128 is `.narrowParam 128` over the low-limb inputOffset (hi = offset+8). -/
-private def mkParamExpr (bitWidth : Nat) (inputOffset : Nat) : Expr :=
-  if bitWidth == 64 then .param inputOffset else .narrowParam bitWidth inputOffset
+    UInt128 is `.narrowParam 128` over the low-limb inputOffset (hi = offset+8).
+    Narrow signed uses `.narrowSignedParam`. -/
+private def mkParamExpr (bitWidth : Nat) (inputOffset : Nat) (isInt : Bool := false) : Expr :=
+  if bitWidth == 64 then .param inputOffset
+  else if isInt then .narrowSignedParam bitWidth inputOffset
+  else .narrowParam bitWidth inputOffset
 
 /-- Width-dispatch for state loads: UInt64/Int64 keep historical `stateLoad`.
-    UInt128 is `.narrowStateLoad 128` over the low-limb field (hi = field+1). -/
-private def mkStateLoadExpr (bitWidth : Nat) (fieldIndex : Nat) : Expr :=
+    UInt128 is `.narrowStateLoad 128` over the low-limb field (hi = field+1).
+    Narrow signed uses `.narrowSignedStateLoad`. -/
+private def mkStateLoadExpr (bitWidth : Nat) (fieldIndex : Nat) (isInt : Bool := false) : Expr :=
   if bitWidth == 64 then .stateLoad fieldIndex
+  else if isInt then .narrowSignedStateLoad bitWidth fieldIndex
   else .narrowStateLoad bitWidth fieldIndex
 
 /-- Dense Map pilot capacity for CosmWasm (aligned with EVM/Solana/NEAR cap-8).
@@ -1348,6 +1413,7 @@ private def makeStorageLayoutV1
           -- (high bytes zero for narrow values); see type-closure docstring.
           requirePublicUintAbiOrInt64State cosmwasmPlanErr types state (allowNonPublic := true)
           let byteWidth ← abiByteWidthOfTypeV1 types state.typeId
+          let isInt := (types.intWidthOf state.typeId).isSome
           let fi := fields.size
           fields := fields.push {
             sourceId := fi
@@ -1355,6 +1421,7 @@ private def makeStorageLayoutV1
             key := stateKey fi
             byteWidth
             endianness := .little
+            isInt
           }
           stateLeaves := stateLeaves.push #[fi]
   let marker := layoutMarker fields
@@ -1566,11 +1633,17 @@ private def makeParamsV1 (owner : String) (types : CosmWasmTypeClosureV1)
         inputOffset := nextInputOffset
         byteWidth
         endianness := .little
+        isInt
       }
       nextInputOffset := nextInputOffset + slotPitchOfByteWidth byteWidth
       planned := planned.push binding
       let kind ←
-        if isInt then pure CosmWasmValueKindV1.int64
+        if isInt then
+          match intKindOfWidthV1 bitWidth with
+          | some k => pure k
+          | none =>
+              throw <| .planInvariant .cosmwasm
+                s!"unsupported CosmWasm semantic shape: ABI Int{bitWidth} is not admitted"
         else match uintKindOfWidthV1 bitWidth with
           | some k => pure k
           | none =>
@@ -1578,8 +1651,8 @@ private def makeParamsV1 (owner : String) (types : CosmWasmTypeClosureV1)
                 s!"unsupported CosmWasm semantic shape: ABI UInt{bitWidth} is not admitted"
       values := values.push {
         -- T8c: narrow ABI params retain semantic width for body arithmetic;
-        -- IR loads still zero-extend into i64 temps.
-        expr := mkParamExpr bitWidth binding.inputOffset
+        -- unsigned IR zero-extends, signed IR sign-extends into i64 temps.
+        expr := mkParamExpr bitWidth binding.inputOffset isInt
         kind
         depth := 1
         expandedNodes := 1
@@ -1649,7 +1722,12 @@ private def decodeCwConstantSlotV1
       throw <| .planInvariant .cosmwasm
         s!"unsupported CosmWasm semantic shape: Int{bitWidth} constant is not admitted"
     let value ← decodeIntWidthLiteralLe cosmwasmPlanErr "CosmWasm" bitWidth bytes
-    pure (.int64, value)
+    let kind ← match intKindOfWidthV1 bitWidth with
+      | some k => pure k
+      | none =>
+          throw <| .planInvariant .cosmwasm
+            s!"unsupported CosmWasm semantic shape: Int{bitWidth} constant is not admitted"
+    pure (kind, value)
   else if let some bitWidth := types.uintWidthOf typeId then
     unless bitWidth ≤ 64 && isCosmWasmBodyUintWidth bitWidth do
       throw <| .planInvariant .cosmwasm
@@ -2182,9 +2260,14 @@ private def lowerBlockInstructionsV1
             throw <| .planInvariant .cosmwasm
               s!"unsupported CosmWasm semantic shape: Int{bitWidth} literal is not admitted"
           let value ← decodeIntWidthLiteralLe cosmwasmPlanErr "CosmWasm" bitWidth bytes
+          let kind ← match intKindOfWidthV1 bitWidth with
+            | some k => pure k
+            | none =>
+                throw <| .planInvariant .cosmwasm
+                  s!"unsupported CosmWasm semantic shape: Int{bitWidth} literal is not admitted"
           values := ← appendResultValueV1 typeId values result {
             expr := .literal value
-            kind := .int64
+            kind
             depth := 1
             expandedNodes := 1
             dependencies := #[]
@@ -2327,7 +2410,16 @@ private def lowerBlockInstructionsV1
                   s!"unsupported CosmWasm semantic shape: state field {fi} missing"
           let isInt := (types.intWidthOf result.typeId).isSome
           let bitWidth ←
-            if isInt then pure 64
+            if isInt then
+              match types.intWidthOf result.typeId with
+              | some w =>
+                  unless isAbiIntWidth w do
+                    throw <| .planInvariant .cosmwasm
+                      s!"unsupported CosmWasm semantic shape: state load Int{w} is not admitted"
+                  pure w
+              | none =>
+                  throw <| .planInvariant .cosmwasm
+                    "unsupported CosmWasm semantic shape: state load Int width is missing"
             else match types.uintWidthOf result.typeId with
               | some w =>
                   unless isAbiUintWidth w do
@@ -2336,21 +2428,25 @@ private def lowerBlockInstructionsV1
                   pure w
               | none =>
                   throw <| .planInvariant .cosmwasm
-                    "unsupported CosmWasm semantic shape: state load must be UInt{8,16,32,64,128}, Int64, Principal, named Struct/Enum, Array/Map, or Option UInt64"
+                    "unsupported CosmWasm semantic shape: state load must be UInt{8,16,32,64,128}, Int{8,16,32,64}, Principal, named Struct/Enum, Array/Map, or Option UInt64"
           unless field.byteWidth == byteWidthOfBitWidth bitWidth do
             throw <| .planInvariant .cosmwasm
               "unsupported CosmWasm semantic shape: state load width does not match field layout"
           let kind ←
-            if isInt then pure CosmWasmValueKindV1.int64
+            if isInt then
+              match intKindOfWidthV1 bitWidth with
+              | some k => pure k
+              | none =>
+                  throw <| .planInvariant .cosmwasm
+                    s!"unsupported CosmWasm semantic shape: state load Int{bitWidth} is not admitted"
             else match uintKindOfWidthV1 bitWidth with
               | some k => pure k
               | none =>
                   throw <| .planInvariant .cosmwasm
                     s!"unsupported CosmWasm semantic shape: state load UInt{bitWidth} is not admitted"
           values := ← appendResultValueV1 result.typeId values result {
-            -- T8c: narrow ABI loads retain semantic width for body arithmetic;
-            -- IR still zero-extends into i64 temps.
-            expr := mkStateLoadExpr bitWidth fi
+            -- T8c: narrow ABI loads retain semantic width for body arithmetic.
+            expr := mkStateLoadExpr bitWidth fi isInt
             kind
             depth := 1
             expandedNodes := 1
@@ -2413,7 +2509,7 @@ private def lowerBlockInstructionsV1
           -- Shifts: admitted body UInt/Int64 operand, UInt32 count; result matches lhs.
           unless (widthOfUintKindV1 lhs.kind).isSome || lhs.kind == .int64 do
             throw <| .planInvariant .cosmwasm
-              "unsupported CosmWasm semantic shape: shift operand must be admitted integer width"
+              "unsupported CosmWasm semantic shape: shift operand must be admitted integer width (narrow Int shifts stay fail closed)"
           unless rhs.kind == .uint32 do
             throw <| .planInvariant .cosmwasm
               "unsupported CosmWasm semantic shape: shift count must be UInt32"
@@ -2450,51 +2546,80 @@ private def lowerBlockInstructionsV1
           unless lhs.kind != .bool && rhs.kind != .bool do
             throw <| .planInvariant .cosmwasm
               "unsupported CosmWasm semantic shape: binary operands must be integer"
-          unless (lhs.kind == .int64) == (rhs.kind == .int64) do
+          unless isSignedIntKindV1 lhs.kind == isSignedIntKindV1 rhs.kind do
             throw <| .planInvariant .cosmwasm
               "unsupported CosmWasm semantic shape: binary operands must share signedness"
-          if lhs.kind == .int64 then
+          if isSignedIntKindV1 lhs.kind then
+            unless lhs.kind == rhs.kind do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: binary operands must share admitted Int width"
+            let some bitWidth := widthOfIntKindV1 lhs.kind |
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: signed operands must be admitted Int width"
             let wordTid ← match types.intWidthOf result.typeId with
-              | some _ => pure result.typeId
-              | none => throw (.planInvariant .cosmwasm
-                  "unsupported CosmWasm semantic shape: Int type is missing")
+              | some w =>
+                  unless w == bitWidth do
+                    throw <| .planInvariant .cosmwasm
+                      "unsupported CosmWasm semantic shape: Int arithmetic result width mismatch"
+                  pure result.typeId
+              | none =>
+                  -- Comparisons produce Bool; result width is checked below.
+                  pure result.typeId
+            let mkAdd :=
+              if bitWidth == 64 then (fun l r => Expr.signedCheckedAdd l r)
+              else (fun l r => Expr.narrowSignedCheckedAdd bitWidth l r)
+            let mkSub :=
+              if bitWidth == 64 then (fun l r => Expr.signedCheckedSub l r)
+              else (fun l r => Expr.narrowSignedCheckedSub bitWidth l r)
+            let mkMul :=
+              if bitWidth == 64 then (fun l r => Expr.signedCheckedMul l r)
+              else (fun l r => Expr.narrowSignedCheckedMul bitWidth l r)
+            let mkDiv :=
+              if bitWidth == 64 then (fun l r => Expr.signedCheckedDiv l r)
+              else (fun l r => Expr.narrowSignedCheckedDiv bitWidth l r)
+            let mkMod :=
+              if bitWidth == 64 then (fun l r => Expr.signedCheckedMod l r)
+              else (fun l r => Expr.narrowSignedCheckedMod bitWidth l r)
             if op == .add then
-              unless result.typeId == wordTid do
+              unless types.intWidthOf result.typeId == some bitWidth do
                 throw <| .planInvariant .cosmwasm
                   "unsupported CosmWasm semantic shape: arithmetic result type mismatch"
-              let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedAdd l r)
-                .int64 .int64 .int64 lhsId rhsId lhs rhs
+              let value ← makeBinaryTreeValueKindsV1 mkAdd
+                lhs.kind rhs.kind lhs.kind lhsId rhsId lhs rhs
               values := ← appendResultValueV1 wordTid values result value
             else if op == .sub then
-              unless result.typeId == wordTid do
+              unless types.intWidthOf result.typeId == some bitWidth do
                 throw <| .planInvariant .cosmwasm
                   "unsupported CosmWasm semantic shape: arithmetic result type mismatch"
-              let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedSub l r)
-                .int64 .int64 .int64 lhsId rhsId lhs rhs
+              let value ← makeBinaryTreeValueKindsV1 mkSub
+                lhs.kind rhs.kind lhs.kind lhsId rhsId lhs rhs
               values := ← appendResultValueV1 wordTid values result value
             else if op == .mul then
-              unless result.typeId == wordTid do
+              unless types.intWidthOf result.typeId == some bitWidth do
                 throw <| .planInvariant .cosmwasm
                   "unsupported CosmWasm semantic shape: arithmetic result type mismatch"
-              let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedMul l r)
-                .int64 .int64 .int64 lhsId rhsId lhs rhs
+              let value ← makeBinaryTreeValueKindsV1 mkMul
+                lhs.kind rhs.kind lhs.kind lhsId rhsId lhs rhs
               values := ← appendResultValueV1 wordTid values result value
             else if op == .div then
-              unless result.typeId == wordTid do
+              unless types.intWidthOf result.typeId == some bitWidth do
                 throw <| .planInvariant .cosmwasm
                   "unsupported CosmWasm semantic shape: arithmetic result type mismatch"
-              let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedDiv l r)
-                .int64 .int64 .int64 lhsId rhsId lhs rhs
+              let value ← makeBinaryTreeValueKindsV1 mkDiv
+                lhs.kind rhs.kind lhs.kind lhsId rhsId lhs rhs
               values := ← appendResultValueV1 wordTid values result value
             else if op == .mod then
-              unless result.typeId == wordTid do
+              unless types.intWidthOf result.typeId == some bitWidth do
                 throw <| .planInvariant .cosmwasm
                   "unsupported CosmWasm semantic shape: arithmetic result type mismatch"
-              let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCheckedMod l r)
-                .int64 .int64 .int64 lhsId rhsId lhs rhs
+              let value ← makeBinaryTreeValueKindsV1 mkMod
+                lhs.kind rhs.kind lhs.kind lhsId rhsId lhs rhs
               values := ← appendResultValueV1 wordTid values result value
             else if op == .bitAnd || op == .bitOr || op == .bitXor then
-              unless result.typeId == wordTid do
+              unless bitWidth == 64 do
+                throw <| .planInvariant .cosmwasm
+                  "unsupported CosmWasm semantic shape: narrow Int bitwise stays fail closed"
+              unless types.intWidthOf result.typeId == some 64 do
                 throw <| .planInvariant .cosmwasm
                   "unsupported CosmWasm semantic shape: bitwise result type mismatch"
               let value ←
@@ -2519,12 +2644,15 @@ private def lowerBlockInstructionsV1
                   unless result.typeId == boolTypeId do
                     throw <| .planInvariant .cosmwasm
                       "unsupported CosmWasm semantic shape: comparison result must be Bool"
-                  let value ← makeBinaryTreeValueKindsV1 (fun l r => .signedCompare cmpOp l r)
-                    .int64 .int64 .bool lhsId rhsId lhs rhs
+                  let mkCmp :=
+                    if bitWidth == 64 then (fun l r => Expr.signedCompare cmpOp l r)
+                    else (fun l r => Expr.narrowSignedCompare bitWidth cmpOp l r)
+                  let value ← makeBinaryTreeValueKindsV1 mkCmp
+                    lhs.kind rhs.kind .bool lhsId rhsId lhs rhs
                   values := ← appendResultValueV1 boolTypeId values result value
               | none =>
                   throw <| .planInvariant .cosmwasm
-                    "unsupported CosmWasm semantic shape: only checked Int64 arith/bitwise and comparisons are supported"
+                    "unsupported CosmWasm semantic shape: only checked Int arith/bitwise and comparisons are supported"
           else
             -- Unsigned body multi-width path (UInt8/16/32/64).
             unless lhs.kind == rhs.kind do
@@ -2648,9 +2776,10 @@ private def lowerBlockInstructionsV1
               | none =>
                   throw <| .planInvariant .cosmwasm
                     "unsupported CosmWasm semantic shape: Bool type is missing for pureCall result"
-          | .uint32 | .uint16 | .uint8 | .uint128 | .uint256 =>
+          | .uint32 | .uint16 | .uint8 | .uint128 | .uint256
+          | .int32 | .int16 | .int8 =>
               throw <| .planInvariant .cosmwasm
-                "unsupported CosmWasm semantic shape: pureCall result cannot be narrow/multiword UInt"
+                "unsupported CosmWasm semantic shape: pureCall result cannot be narrow/multiword UInt or narrow Int"
         unless result.typeId == expectedTypeId do
           throw <| .planInvariant .cosmwasm
             "unsupported CosmWasm semantic shape: pureCall result type does not match the callee"
@@ -2742,25 +2871,29 @@ private def lowerBlockInstructionsV1
                   s!"unsupported CosmWasm semantic shape: state field {fi} missing"
           let expectedBitWidth := bitWidthOfByteWidth field.byteWidth
           -- T8c: store value width must match field layout (narrow body temps OK).
-          if root.kind == .int64 then
-            unless field.byteWidth == 8 do
+          if let some intWidth := widthOfIntKindV1 root.kind then
+            unless intWidth == expectedBitWidth do
               throw <| .planInvariant .cosmwasm
-                "unsupported CosmWasm semantic shape: Int state store requires 8-byte field"
+                s!"unsupported CosmWasm semantic shape: Int state store value width {intWidth} must match field bitWidth {expectedBitWidth}"
+            unless field.isInt do
+              throw <| .planInvariant .cosmwasm
+                "unsupported CosmWasm semantic shape: Int state store requires a signed field"
           else
             let some valueWidth := widthOfUintKindV1 root.kind |
               throw <| .planInvariant .cosmwasm
-                "unsupported CosmWasm semantic shape: state store value must be admitted UInt width or Int64"
+                "unsupported CosmWasm semantic shape: state store value must be admitted UInt width or Int width"
             unless valueWidth == expectedBitWidth do
               throw <| .planInvariant .cosmwasm
                 s!"unsupported CosmWasm semantic shape: state store value width {valueWidth} must match field bitWidth {expectedBitWidth}"
             unless isAbiUintWidth valueWidth do
               throw <| .planInvariant .cosmwasm
-                "unsupported CosmWasm semantic shape: state store value must be admitted UInt width or Int64"
+                "unsupported CosmWasm semantic shape: state store value must be admitted UInt width or Int width"
           let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
           body := body.push (.store {
             fieldIndex := fi
             value
             byteWidth := field.byteWidth
+            isInt := field.isInt
           })
           armReadables := promoteDominatingPureV1 blockEntry values armReadables
           segmentStart := values.size
@@ -3800,6 +3933,9 @@ private partial def emitRegionV1
                   | .uint256 => "UInt256"
                   | .bool => "Bool"
                   | .int64 => "Int64"
+                  | .int32 => "Int32"
+                  | .int16 => "Int16"
+                  | .int8 => "Int8"
                 throw <| .planInvariant .cosmwasm
                   s!"unsupported CosmWasm semantic shape: return value must be {expectedLabel}"
               let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
@@ -4184,7 +4320,8 @@ partial def exprUsesAttachedFundsAmountV1 (expr : Expr) : Bool :=
   match expr with
   | .attachedFundsAmount => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
-  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .narrowSignedParam _ _ | .stateLoad _ | .narrowStateLoad _ _
+  | .narrowSignedStateLoad _ _ | .localTemp _
   | .blockTimeSeconds | .blockHeight | .nativeVaultBalance
   | .callerPrincipalLen | .callerPrincipalWord _
   | .selfPrincipalLen | .selfPrincipalWord _ => false
@@ -4196,7 +4333,10 @@ partial def exprUsesAttachedFundsAmountV1 (expr : Expr) : Bool :=
   | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
   | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
   | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
-  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r
+  | .narrowSignedCheckedAdd _ l r | .narrowSignedCheckedSub _ l r
+  | .narrowSignedCheckedMul _ l r | .narrowSignedCheckedDiv _ l r
+  | .narrowSignedCheckedMod _ l r | .narrowSignedCompare _ _ l r =>
       exprUsesAttachedFundsAmountV1 l || exprUsesAttachedFundsAmountV1 r
   | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
       exprUsesAttachedFundsAmountV1 e
@@ -4295,16 +4435,22 @@ private def makeEntryV1
             s!"entry '{name}' does not return public UInt8/16/32/64/128 (UInt{w} multi-width fail closed on CosmWasm)"
       | none =>
           match types.intWidthOf callable.result.typeId with
+          | some 8 =>
+              pure (MethodResultKind.int8, some CosmWasmValueKindV1.int8, none)
+          | some 16 =>
+              pure (MethodResultKind.int16, some CosmWasmValueKindV1.int16, none)
+          | some 32 =>
+              pure (MethodResultKind.int32, some CosmWasmValueKindV1.int32, none)
           | some 64 => pure (MethodResultKind.int64, some CosmWasmValueKindV1.int64, none)
           | some w =>
               throw <| .planInvariant .cosmwasm
-                s!"entry '{name}' does not return public Int64 (Int{w} multi-width fail closed on CosmWasm)"
+                s!"entry '{name}' does not return public Int8/16/32/64 (Int{w} multi-width fail closed on CosmWasm)"
           | none =>
             if types.boolTypeId == some callable.result.typeId then
               pure (MethodResultKind.bool, some CosmWasmValueKindV1.bool, none)
             else
               throw <| .planInvariant .cosmwasm
-                s!"entry '{name}' does not return public UInt8/16/32/64/128, Int64, Bool, named Struct/Enum, or admitted anonymous Array/Option/Bytes/Map"
+                s!"entry '{name}' does not return public UInt8/16/32/64/128, Int8/16/32/64, Bool, named Struct/Enum, or admitted anonymous Array/Option/Bytes/Map"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view
@@ -4407,7 +4553,8 @@ partial def exprUsesCallerPrincipalV1 (expr : Expr) : Bool :=
   match expr with
   | .callerPrincipalLen | .callerPrincipalWord _ => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
-  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .narrowSignedParam _ _ | .stateLoad _ | .narrowStateLoad _ _
+  | .narrowSignedStateLoad _ _ | .localTemp _
   | .blockTimeSeconds | .blockHeight | .nativeVaultBalance
   | .attachedFundsAmount
   | .selfPrincipalLen | .selfPrincipalWord _ => false
@@ -4419,7 +4566,10 @@ partial def exprUsesCallerPrincipalV1 (expr : Expr) : Bool :=
   | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
   | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
   | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
-  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r
+  | .narrowSignedCheckedAdd _ l r | .narrowSignedCheckedSub _ l r
+  | .narrowSignedCheckedMul _ l r | .narrowSignedCheckedDiv _ l r
+  | .narrowSignedCheckedMod _ l r | .narrowSignedCompare _ _ l r =>
       exprUsesCallerPrincipalV1 l || exprUsesCallerPrincipalV1 r
   | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
       exprUsesCallerPrincipalV1 e
@@ -4484,7 +4634,8 @@ partial def exprUsesSelfPrincipalV1 (expr : Expr) : Bool :=
   match expr with
   | .selfPrincipalLen | .selfPrincipalWord _ => true
   | .literal _ | .bigLiteral _ _ | .param _ | .narrowParam _ _
-  | .stateLoad _ | .narrowStateLoad _ _ | .localTemp _
+  | .narrowSignedParam _ _ | .stateLoad _ | .narrowStateLoad _ _
+  | .narrowSignedStateLoad _ _ | .localTemp _
   | .blockTimeSeconds | .blockHeight | .nativeVaultBalance
   | .attachedFundsAmount
   | .callerPrincipalLen | .callerPrincipalWord _ => false
@@ -4496,7 +4647,10 @@ partial def exprUsesSelfPrincipalV1 (expr : Expr) : Bool :=
   | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
   | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
   | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
-  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r
+  | .narrowSignedCheckedAdd _ l r | .narrowSignedCheckedSub _ l r
+  | .narrowSignedCheckedMul _ l r | .narrowSignedCheckedDiv _ l r
+  | .narrowSignedCheckedMod _ l r | .narrowSignedCompare _ _ l r =>
       exprUsesSelfPrincipalV1 l || exprUsesSelfPrincipalV1 r
   | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
       exprUsesSelfPrincipalV1 e

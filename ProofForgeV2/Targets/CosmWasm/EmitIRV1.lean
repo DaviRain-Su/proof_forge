@@ -63,9 +63,13 @@ inductive Operation where
   /-- Narrow ABI param copy (`bitWidth ∈ {8,16,32}`); params already
       range-checked at JSON entry (see `renderParamRangeGuard`). -/
   | narrowLoadParam (bitWidth destination inputOffset : Nat)
+  /-- Narrow signed ABI param: copy `$pN` already range-checked to `[min,max]`. -/
+  | narrowSignedLoadParam (bitWidth destination inputOffset : Nat)
   | loadState (destination : Nat) (field : KeyRegion)
   /-- Narrow ABI state load: 8-byte Region load + high-bit-zero guard. -/
   | narrowLoadState (bitWidth destination : Nat) (field : KeyRegion)
+  /-- Narrow signed state load: 8-byte Region + high-zero + sign-extend. -/
+  | narrowSignedLoadState (bitWidth destination : Nat) (field : KeyRegion)
   | checkedAdd (destination lhs rhs : Nat)
   | checkedSub (destination lhs rhs : Nat)
   | checkedMul (destination lhs rhs : Nat)
@@ -77,6 +81,12 @@ inductive Operation where
   | signedCheckedDiv (destination lhs rhs : Nat)
   | signedCheckedMod (destination lhs rhs : Nat)
   | signedCompare (destination lhs rhs : Nat) (op : ComparisonOp)
+  | narrowSignedCheckedAdd (bitWidth destination lhs rhs : Nat)
+  | narrowSignedCheckedSub (bitWidth destination lhs rhs : Nat)
+  | narrowSignedCheckedMul (bitWidth destination lhs rhs : Nat)
+  | narrowSignedCheckedDiv (bitWidth destination lhs rhs : Nat)
+  | narrowSignedCheckedMod (bitWidth destination lhs rhs : Nat)
+  | narrowSignedCompare (bitWidth destination lhs rhs : Nat) (op : ComparisonOp)
   | checkedNeg (destination source : Nat)
   | sar (destination lhs rhs : Nat)
   | storeState (field : KeyRegion) (value : Nat)
@@ -327,6 +337,12 @@ private partial def lowerExprUncached (keys : Array KeyRegion) (next : Nat)
       else
         { operations := #[.narrowLoadParam bitWidth next inputOffset]
           value := next, next := next + 1, cache }
+  | .narrowSignedParam bitWidth inputOffset =>
+      if paramAsTemp then
+        { operations := #[], value := inputOffset / 8, next := next, cache }
+      else
+        { operations := #[.narrowSignedLoadParam bitWidth next inputOffset]
+          value := next, next := next + 1, cache }
   | .localTemp index =>
       match localEnv.find? (fun p => p.1 == index) with
       | some (_, irTemp) =>
@@ -357,6 +373,13 @@ private partial def lowerExprUncached (keys : Array KeyRegion) (next : Nat)
           next := next + 1
           cache
         }
+  | .narrowSignedStateLoad bitWidth fieldIndex =>
+      {
+        operations := #[.narrowSignedLoadState bitWidth next (fieldRegion keys fieldIndex)]
+        value := next
+        next := next + 1
+        cache
+      }
   | .checkedAdd lhs rhs =>
       let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
@@ -422,6 +445,42 @@ private partial def lowerExprUncached (keys : Array KeyRegion) (next : Nat)
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
       { operations := lhs.operations ++ rhs.operations ++
           #[.signedCompare rhs.next lhs.value rhs.value op]
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
+  | .narrowSignedCheckedAdd bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowSignedCheckedAdd bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
+  | .narrowSignedCheckedSub bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowSignedCheckedSub bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
+  | .narrowSignedCheckedMul bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowSignedCheckedMul bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
+  | .narrowSignedCheckedDiv bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowSignedCheckedDiv bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
+  | .narrowSignedCheckedMod bitWidth lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowSignedCheckedMod bitWidth rhs.next lhs.value rhs.value]
+        value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
+  | .narrowSignedCompare bitWidth op lhs rhs =>
+      let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
+      let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
+      { operations := lhs.operations ++ rhs.operations ++
+          #[.narrowSignedCompare bitWidth rhs.next lhs.value rhs.value op]
         value := rhs.next, next := rhs.next + 1, cache := rhs.cache }
   | .checkedNeg operand =>
       let op := lowerExpr keys next paramAsTemp localEnv cache operand
@@ -808,7 +867,7 @@ private partial def collectMapUpsertPacksV1 (expr : Expr) :
 /-- True when `expr` (transitively) reads the given physical state field. -/
 private partial def exprMentionsStateFieldV1 (fieldIndex : Nat) : Expr → Bool
   | .stateLoad fi => fi == fieldIndex
-  | .narrowStateLoad _ fi => fi == fieldIndex
+  | .narrowStateLoad _ fi | .narrowSignedStateLoad _ fi => fi == fieldIndex
   | .mapLookupPart _ leaves key =>
       leaves.any (exprMentionsStateFieldV1 fieldIndex) ||
         exprMentionsStateFieldV1 fieldIndex key
@@ -825,7 +884,10 @@ private partial def exprMentionsStateFieldV1 (fieldIndex : Nat) : Expr → Bool
   | .compare _ l r | .wideCompare _ _ l r | .narrowCheckedAdd _ l r
   | .narrowCheckedSub _ l r | .narrowCheckedMul _ l r | .narrowCheckedDiv _ l r
   | .narrowCheckedMod _ l r | .narrowBitAnd _ l r | .narrowBitOr _ l r
-  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r =>
+  | .narrowBitXor _ l r | .narrowShl _ l r | .narrowShr _ l r
+  | .narrowSignedCheckedAdd _ l r | .narrowSignedCheckedSub _ l r
+  | .narrowSignedCheckedMul _ l r | .narrowSignedCheckedDiv _ l r
+  | .narrowSignedCheckedMod _ l r | .narrowSignedCompare _ _ l r =>
       exprMentionsStateFieldV1 fieldIndex l || exprMentionsStateFieldV1 fieldIndex r
   | .checkedNeg e | .bitNot e | .narrowBitNot _ e | .boolNot e =>
       exprMentionsStateFieldV1 fieldIndex e
@@ -885,10 +947,19 @@ private partial def lowerBodyOpsFull (keys : Array KeyRegion) (next : Nat)
                 (.storeState (fieldRegion keys op.fieldIndex) value.value)
               operations := operations.push
                 (.storeState (fieldRegion keys (op.fieldIndex + 1)) (value.value + 1))
+              next := value.next
+            else if op.isInt && op.byteWidth < 8 && op.byteWidth > 0 then
+              let mask := UInt64.ofNat ((1 <<< (op.byteWidth * 8)) - 1)
+              operations := operations.push (.literal value.next mask)
+              operations := operations.push
+                (.bitAnd (value.next + 1) value.value value.next)
+              operations := operations.push
+                (.storeState (fieldRegion keys op.fieldIndex) (value.next + 1))
+              next := value.next + 2
             else
               operations := operations.push
                 (.storeState (fieldRegion keys op.fieldIndex) value.value)
-            next := value.next
+              next := value.next
             cache := value.cache
             storedTemp := value.value
         -- Drop CSE for the written field, then seed the new temp so a later
@@ -897,6 +968,9 @@ private partial def lowerBodyOpsFull (keys : Array KeyRegion) (next : Nat)
         if op.byteWidth == 16 then
           cache := invalidateStateFieldCacheV1 cache (op.fieldIndex + 1)
           cache := cache.push (.narrowStateLoad 128 op.fieldIndex, storedTemp)
+        else if op.isInt && op.byteWidth < 8 then
+          cache := cache.push
+            (.narrowSignedStateLoad (op.byteWidth * 8) op.fieldIndex, storedTemp)
         else
           cache := cache.push (.stateLoad op.fieldIndex, storedTemp)
     | .storeAtomic leaves =>
@@ -1181,9 +1255,11 @@ private def expectedFns (plan : Plan) (keys : Array KeyRegion) : Array FnIR :=
 private partial def opIsMethodOnlyV1 : Operation → Bool
   | .requireLayoutAbsent _ | .requireLayout _ _
   | .zeroState _ | .loadState _ _ | .narrowLoadState _ _ _
+  | .narrowSignedLoadState _ _ _
   | .storeState _ _
   | .setLayout _ _ | .setReturnData _ | .setReturnDataMulti _
   | .loadParam _ _ | .narrowLoadParam _ _ _
+  | .narrowSignedLoadParam _ _ _
   | .nativeVaultBalance _ | .tokenVaultBalance _ _ _
   | .attachedFundsAmount _
   | .callerPrincipalLen _ | .callerPrincipalWord _ _
@@ -2004,6 +2080,57 @@ private def renderRuntimeHelpers (memory : MemoryLayout) : String :=
   s!"    (if (i32.eqz (local.get $any)) (then unreachable))\n" ++
   s!"    (local.get $v)\n" ++
   "  )\n" ++
+  -- parse optional-sign decimal after \"name\":NUMBER. Magnitude must fit
+  -- Int64 (min = -2^63, max = 2^63-1). Used for Int{8,16,32,64} ABI params;
+  -- the caller then range-checks the declared width.
+  s!"  (func $pf_parse_i64_field (param $hay i32) (param $hay_len i32) (param $name i32) (param $name_len i32) (result i64)\n" ++
+  s!"    (local $idx i32) (local $p i32) (local $end i32) (local $c i32) (local $v i64) (local $any i32) (local $neg i32)\n" ++
+  s!"    (local.set $idx (call $pf_find (local.get $hay) (local.get $hay_len) (local.get $name) (local.get $name_len)))\n" ++
+  s!"    (if (i32.eq (local.get $idx) (i32.const -1)) (then unreachable))\n" ++
+  s!"    (local.set $p (i32.add (i32.add (local.get $hay) (local.get $idx)) (local.get $name_len)))\n" ++
+  s!"    (local.set $end (i32.add (local.get $hay) (local.get $hay_len)))\n" ++
+  s!"    (block $find_colon\n" ++
+  s!"      (loop $sc\n" ++
+  s!"        (if (i32.ge_u (local.get $p) (local.get $end)) (then unreachable))\n" ++
+  s!"        (local.set $c (i32.load8_u (local.get $p)))\n" ++
+  s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))\n" ++
+  s!"        (br_if $find_colon (i32.eq (local.get $c) (i32.const 58)))\n" ++
+  s!"        (br $sc)))\n" ++
+  s!"    (block $skip_sp\n" ++
+  s!"      (loop $sp\n" ++
+  s!"        (if (i32.ge_u (local.get $p) (local.get $end)) (then (br $skip_sp)))\n" ++
+  s!"        (local.set $c (i32.load8_u (local.get $p)))\n" ++
+  s!"        (br_if $skip_sp (i32.ne (local.get $c) (i32.const 32)))\n" ++
+  s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))\n" ++
+  s!"        (br $sp)))\n" ++
+  s!"    (local.set $neg (i32.const 0))\n" ++
+  s!"    (if (i32.lt_u (local.get $p) (local.get $end))\n" ++
+  s!"      (then (if (i32.eq (i32.load8_u (local.get $p)) (i32.const 45))\n" ++
+  s!"        (then (local.set $neg (i32.const 1))\n" ++
+  s!"              (local.set $p (i32.add (local.get $p) (i32.const 1)))))))\n" ++
+  s!"    (local.set $v (i64.const 0))\n" ++
+  s!"    (local.set $any (i32.const 0))\n" ++
+  s!"    (block $num_done\n" ++
+  s!"      (loop $num\n" ++
+  s!"        (if (i32.ge_u (local.get $p) (local.get $end)) (then (br $num_done)))\n" ++
+  s!"        (local.set $c (i32.load8_u (local.get $p)))\n" ++
+  s!"        (br_if $num_done (i32.or (i32.lt_u (local.get $c) (i32.const 48)) (i32.gt_u (local.get $c) (i32.const 57))))\n" ++
+  -- magnitude ≤ 2^63: floor(2^63/10)=922337203685477580, last digit ≤ 8
+  s!"        (if (i64.gt_u (local.get $v) (i64.const 922337203685477580)) (then unreachable))\n" ++
+  s!"        (if (i64.eq (local.get $v) (i64.const 922337203685477580)) (then (if (i32.gt_u (i32.sub (local.get $c) (i32.const 48)) (i32.const 8)) (then unreachable))))\n" ++
+  s!"        (local.set $v (i64.add (i64.mul (local.get $v) (i64.const 10)) (i64.extend_i32_u (i32.sub (local.get $c) (i32.const 48)))))\n" ++
+  s!"        (local.set $any (i32.const 1))\n" ++
+  s!"        (local.set $p (i32.add (local.get $p) (i32.const 1)))\n" ++
+  s!"        (br $num)))\n" ++
+  s!"    (if (i32.eqz (local.get $any)) (then unreachable))\n" ++
+  s!"    (if (local.get $neg)\n" ++
+  s!"      (then (if (i64.eq (local.get $v) (i64.const -9223372036854775808))\n" ++
+  s!"        (then (return (local.get $v)))\n" ++
+  s!"        (else (if (i64.lt_s (local.get $v) (i64.const 0)) (then unreachable))\n" ++
+  s!"              (return (i64.sub (i64.const 0) (local.get $v))))))\n" ++
+  s!"      (else (if (i64.lt_s (local.get $v) (i64.const 0)) (then unreachable))))\n" ++
+  s!"    (local.get $v)\n" ++
+  "  )\n" ++
   -- region payload view: (offset, length) from region ptr
   s!"  (func $pf_region_off (param $r i32) (result i32) (i32.load (local.get $r)))\n" ++
   s!"  (func $pf_region_len (param $r i32) (result i32) (i32.load offset=8 (local.get $r)))\n" ++
@@ -2791,6 +2918,44 @@ private def renderMultiwordDivMod (indent : String) (dest lhs rhs nLimbs : Nat)
         out := out ++ s!"{indent}(local.set $t{dest + t} (local.get {mwRemLocal t}))\n"
     pure out
 
+/-- Two's-complement min for a signed `bitWidth` as an `i64.const` payload. -/
+private def signedIntMinConstV1 (bitWidth : Nat) : String :=
+  match bitWidth with
+  | 8 => "-128"
+  | 16 => "-32768"
+  | 32 => "-2147483648"
+  | _ => "-9223372036854775808"
+
+/-- Two's-complement max for a signed `bitWidth` as an `i64.const` payload. -/
+private def signedIntMaxConstV1 (bitWidth : Nat) : String :=
+  match bitWidth with
+  | 8 => "127"
+  | 16 => "32767"
+  | 32 => "2147483647"
+  | _ => "9223372036854775807"
+
+/-- i64 add/sub/mul then trap if the result is outside Int{bitWidth}.
+    Operands are already sign-extended. -/
+private def renderNarrowSignedCheckedBinop (indent kind : String) (bitWidth destination lhs rhs : Nat) :
+    String :=
+  let lo := signedIntMinConstV1 bitWidth
+  let hi := signedIntMaxConstV1 bitWidth
+  s!"{indent};; narrow signed checked_{kind} bitWidth={bitWidth}\n" ++
+    s!"{indent}(local.set $t{destination} (i64.{kind} (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+    s!"{indent}(if (i64.lt_s (local.get $t{destination}) (i64.const {lo})) (then unreachable))\n" ++
+    s!"{indent}(if (i64.gt_s (local.get $t{destination}) (i64.const {hi})) (then unreachable))\n"
+
+/-- i64 div_s/rem_s with zero-divisor trap + Int{bitWidth} range (catches min divided by minus one). -/
+private def renderNarrowSignedCheckedDivMod (indent insn : String) (bitWidth destination lhs rhs : Nat) :
+    String :=
+  let lo := signedIntMinConstV1 bitWidth
+  let hi := signedIntMaxConstV1 bitWidth
+  s!"{indent};; narrow signed checked_{insn} bitWidth={bitWidth}\n" ++
+    s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
+    s!"{indent}(local.set $t{destination} (i64.{insn} (local.get $t{lhs}) (local.get $t{rhs})))\n" ++
+    s!"{indent}(if (i64.lt_s (local.get $t{destination}) (i64.const {lo})) (then unreachable))\n" ++
+    s!"{indent}(if (i64.gt_s (local.get $t{destination}) (i64.const {hi})) (then unreachable))\n"
+
 private partial def renderOperation (memory : MemoryLayout)
     (events : Array InterfaceBinding) (errors : Array InterfaceBinding)
     (fnNames : Array String)
@@ -2858,6 +3023,9 @@ private partial def renderOperation (memory : MemoryLayout)
       -- Range already enforced at JSON entry (`renderParamRangeGuard`); body
       -- copies the same $pN local as UInt64.
       s!"{indent}(local.set $t{destination} (local.get $p{inputOffset / 8}))\n"
+  | .narrowSignedLoadParam _bitWidth destination inputOffset =>
+      -- Signed JSON parse + [min,max] guard already ran; $pN is sign-extended.
+      s!"{indent}(local.set $t{destination} (local.get $p{inputOffset / 8}))\n"
   | .loadState destination field =>
       s!"{indent}(local.set $t{destination} (call $pf_db_load_u64 (i32.const {field.offset}) (i32.const {field.length})))\n"
   | .narrowLoadState bitWidth destination field =>
@@ -2865,6 +3033,12 @@ private partial def renderOperation (memory : MemoryLayout)
       -- in the low bytes with high bytes zero; corrupt high bits trap.
       s!"{indent}(local.set $t{destination} (call $pf_db_load_u64 (i32.const {field.offset}) (i32.const {field.length})))\n" ++
         s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
+  | .narrowSignedLoadState bitWidth destination field =>
+      -- Low-byte two's complement, high bytes zero, then sign-extend to i64.
+      let sh := 64 - bitWidth
+      s!"{indent}(local.set $t{destination} (call $pf_db_load_u64 (i32.const {field.offset}) (i32.const {field.length})))\n" ++
+        s!"{indent}(if (i64.ne (i64.shr_u (local.get $t{destination}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n" ++
+        s!"{indent}(local.set $t{destination} (i64.shr_s (i64.shl (local.get $t{destination}) (i64.const {sh})) (i64.const {sh})))\n"
   | .storeState field value =>
       -- Always 8-byte Region store; narrow temps already high-bit-clean from
       -- body guards / entry range checks (high bytes zero by construction).
@@ -2929,6 +3103,22 @@ private partial def renderOperation (memory : MemoryLayout)
       s!"{indent}(if (i64.eqz (local.get $t{rhs})) (then unreachable))\n" ++
         s!"{indent}(local.set $t{destination} (i64.rem_s (local.get $t{lhs}) (local.get $t{rhs})))\n"
   | .signedCompare destination lhs rhs op =>
+      let insn := match op with
+        | .eq => "i64.eq" | .ne => "i64.ne" | .lt => "i64.lt_s"
+        | .le => "i64.le_s" | .gt => "i64.gt_s" | .ge => "i64.ge_s"
+      s!"{indent}(local.set $t{destination} (i64.extend_i32_u ({insn} (local.get $t{lhs}) (local.get $t{rhs}))))\n"
+  | .narrowSignedCheckedAdd bitWidth destination lhs rhs =>
+      renderNarrowSignedCheckedBinop indent "add" bitWidth destination lhs rhs
+  | .narrowSignedCheckedSub bitWidth destination lhs rhs =>
+      renderNarrowSignedCheckedBinop indent "sub" bitWidth destination lhs rhs
+  | .narrowSignedCheckedMul bitWidth destination lhs rhs =>
+      renderNarrowSignedCheckedBinop indent "mul" bitWidth destination lhs rhs
+  | .narrowSignedCheckedDiv bitWidth destination lhs rhs =>
+      renderNarrowSignedCheckedDivMod indent "div_s" bitWidth destination lhs rhs
+  | .narrowSignedCheckedMod bitWidth destination lhs rhs =>
+      renderNarrowSignedCheckedDivMod indent "rem_s" bitWidth destination lhs rhs
+  | .narrowSignedCompare bitWidth destination lhs rhs op =>
+      let _ := bitWidth
       let insn := match op with
         | .eq => "i64.eq" | .ne => "i64.ne" | .lt => "i64.lt_s"
         | .le => "i64.le_s" | .gt => "i64.gt_s" | .ge => "i64.ge_s"
@@ -3748,11 +3938,23 @@ private def findNeedle (needles : Array (String × Nat × Nat)) (key : String) :
     admitted ABI width. Critical honesty for JSON number inputs: never silently
     truncate UInt8/16/32. UInt64 keeps the existing `pf_parse_u64_field` bound
     alone (`2^64−1`). Narrow: trap if `shr_u p bitWidth ≠ 0`. -/
-private def renderParamRangeGuard (indent : String) (i : Nat) (byteWidth : Nat) : String :=
+private def renderParamRangeGuard (indent : String) (i : Nat) (byteWidth : Nat)
+    (isInt : Bool := false) : String :=
   let bitWidth := byteWidth * 8
-  if bitWidth ≥ 64 then ""
+  if isInt then
+    if bitWidth ≥ 64 then ""
+    else
+      let lo := signedIntMinConstV1 bitWidth
+      let hi := signedIntMaxConstV1 bitWidth
+      s!"{indent}(if (i64.lt_s (local.get $p{i}) (i64.const {lo})) (then unreachable))\n" ++
+        s!"{indent}(if (i64.gt_s (local.get $p{i}) (i64.const {hi})) (then unreachable))\n"
+  else if bitWidth ≥ 64 then ""
   else
     s!"{indent}(if (i64.ne (i64.shr_u (local.get $p{i}) (i64.const {bitWidth})) (i64.const 0)) (then unreachable))\n"
+
+private def renderParamParse (indent : String) (i : Nat) (off len : Nat) (isInt : Bool) : String :=
+  let parser := if isInt then "pf_parse_i64_field" else "pf_parse_u64_field"
+  s!"{indent}(local.set $p{i} (call ${parser} (local.get $msg_off) (local.get $msg_len) (i32.const {off}) (i32.const {len})))\n"
 
 /-- B-CTX-OPEN: capture env.block.time.seconds into the shared global before
     method bodies that may read `context.unixTimeSeconds`. Always set so any
@@ -3798,8 +4000,8 @@ private def renderInstantiate (ir : IR) (paramNeedles : Array (String × Nat × 
       let p := init.params[i]!
       let (off, len) := findNeedle paramNeedles s!"{init.name}.{p.name}"
       parse := parse ++
-        s!"    (local.set $p{i} (call $pf_parse_u64_field (local.get $msg_off) (local.get $msg_len) (i32.const {off}) (i32.const {len})))\n" ++
-        renderParamRangeGuard "    " i p.byteWidth
+        renderParamParse "    " i off len p.isInt ++
+        renderParamRangeGuard "    " i p.byteWidth p.isInt
     let args := String.intercalate " " <| (Array.range init.params.size).toList.map fun i =>
       s!"(local.get $p{i})"
     let paramLocals := String.intercalate "" <| (Array.range init.params.size).toList.map fun i =>
@@ -3849,8 +4051,8 @@ private def renderExecute (ir : IR) (methodNeedles paramNeedles : Array (String 
         let p := method.params[i]!
         let (off, len) := findNeedle paramNeedles s!"{method.name}.{p.name}"
         parse := parse ++
-          s!"        (local.set $p{i} (call $pf_parse_u64_field (local.get $msg_off) (local.get $msg_len) (i32.const {off}) (i32.const {len})))\n" ++
-          renderParamRangeGuard "        " i p.byteWidth
+          renderParamParse "        " i off len p.isInt ++
+          renderParamRangeGuard "        " i p.byteWidth p.isInt
       let args := String.intercalate " " <| (Array.range method.params.size).toList.map fun i =>
         s!"(local.get $p{i})"
       -- Caller load is *inside* the matched branch so a non-caller entry in a
@@ -3891,8 +4093,8 @@ private def renderQuery (ir : IR) (methodNeedles paramNeedles : Array (String ×
         let p := method.params[i]!
         let (off, len) := findNeedle paramNeedles s!"{method.name}.{p.name}"
         parse := parse ++
-          s!"        (local.set $p{i} (call $pf_parse_u64_field (local.get $msg_off) (local.get $msg_len) (i32.const {off}) (i32.const {len})))\n" ++
-          renderParamRangeGuard "        " i p.byteWidth
+          renderParamParse "        " i off len p.isInt ++
+          renderParamRangeGuard "        " i p.byteWidth p.isInt
       let args := String.intercalate " " <| (Array.range method.params.size).toList.map fun i =>
         s!"(local.get $p{i})"
       dispatch := dispatch ++
@@ -3953,16 +4155,23 @@ private def renderMode : MethodMode → String
 
 /-- ABI JSON type token from Plan semantic byteWidth (physical KV remains
     8-byte LE Region; JSON params are decimal with exact range check). -/
-private def renderAbiTypeString (byteWidth : Nat) : String :=
-  match byteWidth with
-  | 1 => "u8"
-  | 2 => "u16"
-  | 4 => "u32"
-  | 16 => "u128"
-  | _ => "u64"
+private def renderAbiTypeString (byteWidth : Nat) (isInt : Bool := false) : String :=
+  if isInt then
+    match byteWidth with
+    | 1 => "i8"
+    | 2 => "i16"
+    | 4 => "i32"
+    | _ => "i64"
+  else
+    match byteWidth with
+    | 1 => "u8"
+    | 2 => "u16"
+    | 4 => "u32"
+    | 16 => "u128"
+    | _ => "u64"
 
 private def renderParamJson (param : Param) : String :=
-  s!"\{\"name\":\"{Targets.escapeJson param.name}\",\"type\":\"{renderAbiTypeString param.byteWidth}\"}"
+  s!"\{\"name\":\"{Targets.escapeJson param.name}\",\"type\":\"{renderAbiTypeString param.byteWidth param.isInt}\"}"
 
 private def renderMethodJson (method : Method) : String :=
   let returns :=
@@ -3975,6 +4184,9 @@ private def renderMethodJson (method : Method) : String :=
     | .uint128 => "\"u128\""
     | .bool => "\"bool\""
     | .int64 => "\"i64\""
+    | .int8 => "\"i8\""
+    | .int16 => "\"i16\""
+    | .int32 => "\"i32\""
     -- B-RET-ABI: leaf tuple as a JSON array of leaf type strings
     -- (execute result attr / query ok = decimal JSON array string).
     | .aggregate leaves =>
@@ -3992,7 +4204,7 @@ private def renderMethodJson (method : Method) : String :=
 
 private def renderAbi (plan : Plan) : String :=
   let fields := String.intercalate "," (plan.storage.fields.toList.map fun f =>
-    s!"\{\"name\":\"{Targets.escapeJson f.name}\",\"key\":\"{Targets.escapeJson f.key}\",\"type\":\"{renderAbiTypeString f.byteWidth}\"}")
+    s!"\{\"name\":\"{Targets.escapeJson f.name}\",\"key\":\"{Targets.escapeJson f.key}\",\"type\":\"{renderAbiTypeString f.byteWidth f.isInt}\"}")
   let methods := #[plan.initializer] ++ plan.entries
   let exports := String.intercalate ",\n    " (methods.toList.map renderMethodJson)
   "{\n" ++

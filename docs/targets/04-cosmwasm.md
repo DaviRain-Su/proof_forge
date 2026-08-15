@@ -28,8 +28,9 @@ target-owned Plan/IR/WAT emitter（KV state→`env.db_*`、init/entry/view →
 **后续工程扩面**：UInt8/16/32 state/param/result 与 body narrow guards 已开（物理 KV 仍为
 8-byte LE 并检查高位；**UInt128 ABI** 为两个连续 8-byte Region / 两个 JSON decimal limb
 （`{name}_lo`/`{name}_hi`），entry/view 返回 2-limb JSON 十进制数组；**UInt256 body
-multiword** add/sub/mul/div/mod 已开 restoring binary long division，UInt256 ABI 与
-narrow Int 仍 FC）；named
+multiword** add/sub/mul/div/mod 已开 restoring binary long division，UInt256 ABI 仍
+FC；**Int{8,16,32} ABI** 为一叶 8-byte Region（低位补码、高位清零、sign-extend i64
+temp、按宽度 checked overflow），Int128/256 仍 FC）；named
 Struct/Enum state、`Array UInt64 N` state 与 dense `Map UInt64 UInt64` **cap-4** state 已开（cosmwasm-vm MAX_LOCALS；emit CSE）；≤8 个
 UInt64/Int64 leaf 的 named entry/view aggregate return，以及 anonymous `Array UInt64 N`
 （1..8）/`Option UInt64`/`Bytes N`（1..8，JSON 十进制数组、字节零扩展）entry/view return 已开；
@@ -136,7 +137,7 @@ Field/Principal/String interface、除 execute/init `context.caller` 与 Env-bac
 `context.blockHeight`（含 cw-vm runtime 门）外的 ContextRead、Commit、nonempty
 **invariants**（scalar constants 已开）、UInt256 ABI state/param/result（UInt128 ABI 与
 UInt128/256 body multiword 已开）、
-narrow Int、JSON 全集与 gas model。Option UInt64 state、Bytes N state/return、dense Map
+Int128/256、JSON 全集与 gas model。Option UInt64 state、Bytes N state/return、dense Map
 return（cap-8）已开。wasmd smart query 当前仍非 Binary，rung-1 harness 使用 raw state。
 不得写成 formal runtime-validated。
 

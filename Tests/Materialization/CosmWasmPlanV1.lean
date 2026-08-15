@@ -702,7 +702,32 @@ private unsafe def testMultiWidthFc
           | .error _ => pure ()
           | .ok capability =>
               expectPlanError "UInt256 state" (planFromCapability capability)
-  let i8src := wrapProgram "NarrowI8" <|
+  let i128src := wrapProgram "NarrowI128" <|
+    "  state s : Int128\n\n" ++
+    "  init(x : Int128) do\n" ++
+    "    s := x\n\n" ++
+    "  entry bump(d : Int128) : Int128 do\n" ++
+    "    s := s + d\n" ++
+    "    return s\n\n" ++
+    "  view get() : Int128 do\n" ++
+    "    return s\n"
+  match ← session.selectProgramV1 i128src "<cw-i128-fc>" "Examples.NarrowI128" none with
+  | .error _ => pure ()
+  | .ok validated =>
+      match Compiler.compileValidatedSourceV1 validated with
+      | .error _ => pure ()
+      | .ok compiledI128 =>
+          match cosmwasmCapability compiledI128 with
+          | .error _ => pure ()
+          | .ok capability =>
+              expectPlanError "Int128 state" (planFromCapability capability)
+  IO.println "  ✓ multi-width UInt128 ABI admit / UInt256+Int128 fail closed"
+
+/-- Int8 ABI: one 8-byte Region, low-byte two's complement, sign-extended
+    temps, checked add at width 8. Int16/32 share the same lowering. -/
+private unsafe def testNarrowIntAbi
+    (session : Language.Loader.ParserSession) : IO Unit := do
+  let src := wrapProgram "NarrowI8" <|
     "  state s : Int8\n\n" ++
     "  init(x : Int8) do\n" ++
     "    s := x\n\n" ++
@@ -711,17 +736,28 @@ private unsafe def testMultiWidthFc
     "    return s\n\n" ++
     "  view get() : Int8 do\n" ++
     "    return s\n"
-  match ← session.selectProgramV1 i8src "<cw-i8-fc>" "Examples.NarrowI8" none with
-  | .error _ => pure ()
-  | .ok validated =>
-      match Compiler.compileValidatedSourceV1 validated with
-      | .error _ => pure ()
-      | .ok compiledI8 =>
-          match cosmwasmCapability compiledI8 with
-          | .error _ => pure ()
-          | .ok capability =>
-              expectPlanError "Int8 state" (planFromCapability capability)
-  IO.println "  ✓ multi-width UInt128 ABI admit / UInt256+Int8 fail closed"
+  let compiled ← compileSource session src "Examples.NarrowI8" "<cw-i8-abi>"
+  let plan ← liftResult <| planCw compiled
+  expect (plan.storage.fields.size == 1) "Int8 one state field"
+  expect (plan.storage.fields[0]!.byteWidth == 1) "Int8 state byteWidth=1"
+  expect (plan.storage.fields[0]!.isInt) "Int8 state is signed"
+  expect (plan.initializer.params.size == 1) "Int8 init one param"
+  expect (plan.initializer.params[0]!.byteWidth == 1) "Int8 param byteWidth=1"
+  expect (plan.initializer.params[0]!.isInt) "Int8 param is signed"
+  let some bump := plan.entries.find? (·.name == "bump") |
+    throw <| IO.userError "NarrowI8 missing bump"
+  expect (bump.resultKind == MethodResultKind.int8) "entry result is int8"
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "NarrowI8.wat"
+  let abi ← findFile files "NarrowI8.cosmwasm-abi.json"
+  expect (wat.contains "narrow signed checked_add bitWidth=8")
+    "Int8 WAT must emit narrow signed checked add"
+  expect (wat.contains "pf_parse_i64_field") "Int8 JSON uses signed parser"
+  expect (wat.contains "(i64.const -128)") "Int8 range min"
+  expect (wat.contains "(i64.const 127)") "Int8 range max"
+  expect (wat.contains "i64.shr_s") "Int8 load sign-extends"
+  expect (abi.contains "\"i8\"") "ABI JSON advertises i8"
+  IO.println "  ✓ multi-width Int8 ABI admit"
 
 /-- Body multiword UInt128 add/mul/div/mod/shl/shr: true multi-limb WAT
     (schoolbook mul; restoring binary long division for div/mod; limb-wise
@@ -1826,6 +1862,7 @@ unsafe def run : IO Unit := do
   testMultiWidthUInt8 session
   testMultiWidthUInt16UInt32 session
   testMultiWidthFc session
+  testNarrowIntAbi session
   testMultiwordDivMod session
   testNamedStructReturn session
   testNamedEnumReturn session

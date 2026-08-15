@@ -93,9 +93,15 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .narrowParam bitWidth inputOffset =>
       pure (((encodeU8 2).append (← encodeNatAsU32le bitWidth)).append
         (← encodeNatAsU32le inputOffset))
+  | .narrowSignedParam bitWidth inputOffset =>
+      pure (((encodeU8 62).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeNatAsU32le inputOffset))
   | .stateLoad fieldIndex => pure ((encodeU8 3).append (← encodeNatAsU32le fieldIndex))
   | .narrowStateLoad bitWidth fieldIndex =>
       pure (((encodeU8 4).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeNatAsU32le fieldIndex))
+  | .narrowSignedStateLoad bitWidth fieldIndex =>
+      pure (((encodeU8 63).append (← encodeNatAsU32le bitWidth)).append
         (← encodeNatAsU32le fieldIndex))
   | .checkedAdd lhs rhs => pure (((encodeU8 5).append (← encodeExpr lhs)).append (← encodeExpr rhs))
   | .checkedSub lhs rhs => pure (((encodeU8 6).append (← encodeExpr lhs)).append (← encodeExpr rhs))
@@ -150,6 +156,25 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
   | .narrowShr bitWidth lhs rhs =>
       pure ((((encodeU8 34).append (← encodeNatAsU32le bitWidth)).append
         (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .narrowSignedCheckedAdd bitWidth lhs rhs =>
+      pure ((((encodeU8 64).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .narrowSignedCheckedSub bitWidth lhs rhs =>
+      pure ((((encodeU8 65).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .narrowSignedCheckedMul bitWidth lhs rhs =>
+      pure ((((encodeU8 66).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .narrowSignedCheckedDiv bitWidth lhs rhs =>
+      pure ((((encodeU8 67).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .narrowSignedCheckedMod bitWidth lhs rhs =>
+      pure ((((encodeU8 68).append (← encodeNatAsU32le bitWidth)).append
+        (← encodeExpr lhs)).append (← encodeExpr rhs))
+  | .narrowSignedCompare bitWidth op lhs rhs =>
+      pure (((((encodeU8 69).append (← encodeNatAsU32le bitWidth)).append
+        (encodeU8 (encodeComparisonOp op))).append (← encodeExpr lhs)).append
+        (← encodeExpr rhs))
   | .boolNot operand => pure ((encodeU8 35).append (← encodeExpr operand))
   | .boolAnd lhs rhs => pure (((encodeU8 36).append (← encodeExpr lhs)).append (← encodeExpr rhs))
   | .boolOr lhs rhs => pure (((encodeU8 37).append (← encodeExpr lhs)).append (← encodeExpr rhs))
@@ -209,8 +234,9 @@ private partial def encodeExpr (expr : Expr) : Except String ByteArray := do
 private partial def encodeStatement (stmt : Statement) : Except String ByteArray := do
   match stmt with
   | .store op =>
-      pure ((((encodeU8 0).append (← encodeNatAsU32le op.fieldIndex)).append
-        (← encodeNatAsU32le op.byteWidth)).append (← encodeExpr op.value))
+      pure (((((encodeU8 0).append (← encodeNatAsU32le op.fieldIndex)).append
+        (← encodeNatAsU32le op.byteWidth)).append (encodeU8 (if op.isInt then 1 else 0))).append
+        (← encodeExpr op.value))
   | .returnValue value => pure ((encodeU8 1).append (← encodeExpr value))
   | .returnAggregate leaves leafIsInt => do
       -- Tag 11: multi-leaf aggregate return (appended after storeAtomic=10).
@@ -270,6 +296,7 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       for op in leaves do
         out := out.append (← encodeNatAsU32le op.fieldIndex)
         out := out.append (← encodeNatAsU32le op.byteWidth)
+        out := out.append (encodeU8 (if op.isInt then 1 else 0))
         out := out.append (← encodeExpr op.value)
       pure out
   -- Tag 12 (ADR-0029 C1): pf.assets.native.deposit(amount).
@@ -302,9 +329,10 @@ private partial def encodeStatement (stmt : Statement) : Except String ByteArray
       pure out
 
 private def encodeParam (p : Param) : Except String ByteArray := do
-  pure (((((← encodeNatAsU32le p.sourceId).append (← encodeString p.name)).append
+  pure ((((((← encodeNatAsU32le p.sourceId).append (← encodeString p.name)).append
     (← encodeNatAsU32le p.inputOffset)).append (← encodeNatAsU32le p.byteWidth)).append
-    (encodeU8 (encodeEndianness p.endianness)))
+    (encodeU8 (encodeEndianness p.endianness))).append
+    (encodeU8 (if p.isInt then 1 else 0)))
 
 private def encodeMethod (m : Method) : Except String ByteArray := do
   let mut out := ByteArray.empty
@@ -323,9 +351,10 @@ private def encodeInterfaceBinding (b : InterfaceBinding) : Except String ByteAr
   pure ((← encodeString b.name).append (← encodeNatAsU32le b.fieldCount))
 
 private def encodeStorageField (f : StorageField) : Except String ByteArray := do
-  pure (((((← encodeNatAsU32le f.sourceId).append (← encodeString f.name)).append
+  pure ((((((← encodeNatAsU32le f.sourceId).append (← encodeString f.name)).append
     (← encodeString f.key)).append (← encodeNatAsU32le f.byteWidth)).append
-    (encodeU8 (encodeEndianness f.endianness)))
+    (encodeU8 (encodeEndianness f.endianness))).append
+    (encodeU8 (if f.isInt then 1 else 0)))
 
 /-- Canonical encode of CosmWasm Plan for engineering planDigest (T9d). -/
 def encodeEngineeringCosmWasmPlanBytesV1 (plan : Plan) : Except String ByteArray := do

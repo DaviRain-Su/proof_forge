@@ -23,7 +23,8 @@ Goal: lift envelope-4 toward mid-tier (CW/TON/Aleo/Psy), then mid-tier toward th
 | ALEO-U128 | main | Native `u128` state/params/results; WideUInt six-target admit | **committed** `589a25131` |
 | ALEO-I8-32 | main | Native `i8`/`i16`/`i32` state/params/results; WideInt8/16/32 admit | **committed** `bd5cb9ceb` |
 | MID-UNBLOCKED | scout **done** | next mid-tier leaves: Aleo computed views, CW UInt128 ABI; Psy type-surface already mid-tier | mapped |
-| CW-U128-ABI | main | CosmWasm UInt128 2-limb KV/JSON ABI (state/param/result); WideUInt seven-target admit | **landed** (verify+commit this turn) |
+| CW-U128-ABI | main | CosmWasm UInt128 2-limb KV/JSON ABI (state/param/result); WideUInt seven-target admit | **committed** `8f9c36a7c` |
+| CW-I8-32 | main | CosmWasm Int8/16/32 ABI (signed JSON + width-checked arith); WideInt8/16/32 admit | **landed** (commit this turn) |
 
 **File lock:** workers must not edit `Tests/Materialization/Targets.lean`, `FieldComparison*`, or another target's tree. Main agent integrates WideInt64 / OptInt / ArrInt / MapInt needles after each leaf lands.
 

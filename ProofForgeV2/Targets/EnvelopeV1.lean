@@ -600,14 +600,14 @@ def PilotTypeClosureV1.isNearUintAbiOrInt64
     | some w => isAbiIntWidth w
     | none => false
 
-/-- CosmWasm ABI UInt{8,16,32,64,128} or Int64 (UInt128 = 2-limb KV/JSON). -/
+/-- CosmWasm ABI UInt{8,16,32,64,128} or Int{8,16,32,64} (UInt128 = 2-limb). -/
 def PilotTypeClosureV1.isCosmWasmUintAbiOrInt64
     (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
   match c.uintWidthOf typeId with
   | some w => isCosmWasmAbiUintWidth w
   | none =>
     match c.intWidthOf typeId with
-    | some w => isAbiIntWidth w && w == 64
+    | some w => isAbiIntWidth w
     | none => false
 
 /-- True when `typeId` is admitted UInt64, Int64, Field, or Principal. -/

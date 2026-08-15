@@ -56,7 +56,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .literal .. | .bigLiteral .. => some 1
     | .param inputOffset =>
         if params.any (·.inputOffset == inputOffset) then some 1 else none
-    | .narrowParam bitWidth inputOffset =>
+    | .narrowParam bitWidth inputOffset | .narrowSignedParam bitWidth inputOffset =>
         if params.any (·.inputOffset == inputOffset) then
           if bitWidth == 128 then
             if params.any (·.inputOffset == inputOffset + 8) then some 1 else none
@@ -64,7 +64,7 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
         else none
     | .stateLoad fieldIndex =>
         if fieldIndex < layout.fields.size then some 1 else none
-    | .narrowStateLoad bitWidth fieldIndex =>
+    | .narrowStateLoad bitWidth fieldIndex | .narrowSignedStateLoad bitWidth fieldIndex =>
         if fieldIndex < layout.fields.size then
           if bitWidth == 128 then
             if fieldIndex + 1 < layout.fields.size then some 1 else none
@@ -90,7 +90,11 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
     | .narrowCheckedMul _ lhs rhs | .narrowCheckedDiv _ lhs rhs
     | .narrowCheckedMod _ lhs rhs
     | .narrowBitAnd _ lhs rhs | .narrowBitOr _ lhs rhs | .narrowBitXor _ lhs rhs
-    | .narrowShl _ lhs rhs | .narrowShr _ lhs rhs => binaryNodes lhs rhs
+    | .narrowShl _ lhs rhs | .narrowShr _ lhs rhs
+    | .narrowSignedCheckedAdd _ lhs rhs | .narrowSignedCheckedSub _ lhs rhs
+    | .narrowSignedCheckedMul _ lhs rhs | .narrowSignedCheckedDiv _ lhs rhs
+    | .narrowSignedCheckedMod _ lhs rhs => binaryNodes lhs rhs
+    | .narrowSignedCompare _ _ lhs rhs => binaryNodes lhs rhs
     | .signedCheckedAdd lhs rhs => binaryNodes lhs rhs
     | .signedCheckedSub lhs rhs => binaryNodes lhs rhs
     | .signedCheckedMul lhs rhs => binaryNodes lhs rhs
