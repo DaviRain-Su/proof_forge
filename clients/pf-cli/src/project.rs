@@ -434,6 +434,12 @@ program {program} where
     );
     fs::write(dir.join("src").join(format!("{module}.pf")), lean)?;
 
+    fs::create_dir_all(dir.join(".vscode"))?;
+    fs::write(
+        dir.join(".vscode").join("settings.json"),
+        "{\n  \"files.associations\": {\n    \"*.pf\": \"lean4\"\n  }\n}\n",
+    )?;
+
     fs::write(
         dir.join(".gitignore"),
         "build/\nout-*/\n.pf/\n*.deployment.json\n*.execution.json\n",
@@ -481,6 +487,13 @@ Then, by target:
 | `evm` | `pf test` (local Anvil) |
 
 Override target once: `pf build -t solana` (still short; no `--module` needed inside a project).
+
+## Editor
+
+`.vscode/settings.json` maps `*.pf` → `lean4` so VS Code/Cursor can highlight
+ProgramV1 when the Lean 4 extension is installed. **Highlight only**: do not
+`lake build` this project. Lean LSP and same-file theorems still require a
+`.lean` Lake module.
 "#
         ),
     )?;
@@ -584,6 +597,9 @@ mod tests {
         assert!(!dir.join("src/Hello.lean").exists());
         let cfg = fs::read_to_string(dir.join("pf.toml")).unwrap();
         assert!(cfg.contains("source = \"src/Hello.pf\""));
+        let editor = fs::read_to_string(dir.join(".vscode/settings.json")).unwrap();
+        assert!(editor.contains("\"*.pf\""));
+        assert!(editor.contains("lean4"));
         let _ = fs::remove_dir_all(&dir);
     }
 
