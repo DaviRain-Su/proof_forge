@@ -3810,7 +3810,11 @@ unsafe def run : IO Unit := do
   let _ ← liftResult <| materializeSelected TargetId.evm callerCompiled
   let _ ← liftResult <| materializeSelected TargetId.near callerCompiled
   let _ ← liftResult <| materializeSelected TargetId.solana callerCompiled
-  for target in [TargetId.noir, TargetId.psy, TargetId.icp, TargetId.openvm] do
+  -- CosmWasm entry admits caller; Quint/Soroban/Aleo/TON stay FC
+  -- (type-closure or named). Not ICP caller encoding.
+  let _ ← liftResult <| materializeSelected TargetId.cosmwasm callerCompiled
+  for target in [TargetId.noir, TargetId.psy, TargetId.icp, TargetId.openvm,
+      TargetId.ton, TargetId.aleo, TargetId.quint, TargetId.soroban] do
     match materializeSelected target callerCompiled with
     | .ok _ =>
         throw <| IO.userError s!"B-ctx caller: {target} must decline ContextRead caller"
