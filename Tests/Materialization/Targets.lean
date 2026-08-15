@@ -3866,6 +3866,52 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "WideInt128" target kind wideI128Compiled
       "only anonymous UInt64 width is supported"
 
+  -- WideInt256: Int256 state/return. Same twelve named-width FC needles
+  -- as WideInt128, so Int256 stays closed even if Int128 later opens.
+  -- Not opening Int128/256. WideInt128 / WideUInt / WideUInt256 stay.
+  let wideInt256Source :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program WideInt256 where\n" ++
+    "  state n : Int256\n\n" ++
+    "  init(x : Int256) do\n" ++
+    "    n := x\n\n" ++
+    "  entry bump(d : Int256) : Int256 do\n" ++
+    "    n := n + d\n" ++
+    "    return n\n\n" ++
+    "  view get() : Int256 do\n" ++
+    "    return n\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let wideI256V1 ← match ← session.selectProgramV1 wideInt256Source
+      "<targets-int256>" "Examples.WideInt256" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"WideInt256 select: {e.render}"
+  let wideI256Compiled ← liftResult <| Compiler.compileValidatedSourceV1 wideI256V1
+  expectMaterializePlanInvariantV1 "WideInt256" TargetId.evm TargetKind.evm
+    wideI256Compiled "Int8/Int16/Int32/Int64 integer widths are supported"
+  expectMaterializePlanInvariantV1 "WideInt256" TargetId.solana TargetKind.solana
+    wideI256Compiled "Int8/Int16/Int32/Int64 widths are supported"
+  expectMaterializePlanInvariantV1 "WideInt256" TargetId.near TargetKind.near
+    wideI256Compiled "Int8/Int16/Int32/Int64 integer types are supported"
+  expectMaterializePlanInvariantV1 "WideInt256" TargetId.noir TargetKind.noir
+    wideI256Compiled "Int8/Int16/Int32/Int64 integer widths are supported"
+  expectMaterializePlanInvariantV1 "WideInt256" TargetId.aleo TargetKind.aleo
+    wideI256Compiled "UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+  expectMaterializePlanInvariantV1 "WideInt256" TargetId.psy TargetKind.psy
+    wideI256Compiled "UInt64/UInt32/UInt16/UInt8 and Int8/Int16/Int32/Int64"
+  expectMaterializePlanInvariantV1 "WideInt256" TargetId.cosmwasm TargetKind.cosmwasm
+    wideI256Compiled "narrow Int fail closed; UInt128/256 are body-only"
+  expectMaterializePlanInvariantV1 "WideInt256" TargetId.ton TargetKind.ton
+    wideI256Compiled "UInt128/256 and narrow Int fail closed"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "WideInt256" target kind wideI256Compiled
+      "only anonymous UInt64 width is supported"
+
   -- N2c + B-3 PrincipalAddr + T10/T12 Principal storage pilot.
   -- Normalize admits identity-only Principal (state/params/eq/ne). Wire is
   -- variable-length u32-prefixed 1..4096 body. T10 opens EVM; T12 opens
