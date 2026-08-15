@@ -4273,6 +4273,47 @@ unsafe def run : IO Unit := do
             (e.render).contains "pilot")
           s!"BytesBox {target} message must cite Bytes/container boundary, got {e.render}"
 
+  -- BytesRetBox: Bytes 4 view-return. NEAR/Psy/CW admit. EVM/Solana/Noir/
+  -- Aleo/TON named B-RET FC; Quint/Soroban/OpenVM/ICP stay container-state
+  -- pilot FC. Not opening Bytes return ABI. Files-nonempty or named needles.
+  let bytesRetBoxSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program BytesRetBox where\n" ++
+    "  state b : Bytes 4\n\n" ++
+    "  init() do\n" ++
+    "    b[0] := 0\n\n" ++
+    "  view get() : Bytes 4 do\n" ++
+    "    return b\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let bytesRetV1 ← match ← session.selectProgramV1 bytesRetBoxSource
+      "<targets-bytes-ret>" "Examples.BytesRetBox" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"BytesRetBox select: {e.render}"
+  let bytesRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 bytesRetV1
+  for target in [TargetId.near, TargetId.psy, TargetId.cosmwasm] do
+    let out ← liftResult <| materializeSelected target bytesRetCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"BytesRetBox: {target} must materialize Bytes 4 return"
+  expectMaterializePlanInvariantV1 "BytesRetBox" TargetId.evm TargetKind.evm
+    bytesRetCompiled "cannot return Bytes"
+  expectMaterializePlanInvariantV1 "BytesRetBox" TargetId.solana TargetKind.solana
+    bytesRetCompiled "cannot return anonymous Bytes"
+  expectMaterializePlanInvariantV1 "BytesRetBox" TargetId.noir TargetKind.noir
+    bytesRetCompiled "anonymous Bytes return is outside the Noir B-RET ABI"
+  expectMaterializePlanInvariantV1 "BytesRetBox" TargetId.aleo TargetKind.aleo
+    bytesRetCompiled "aggregate return leaves must be UInt64/Int64"
+  expectMaterializePlanInvariantV1 "BytesRetBox" TargetId.ton TargetKind.ton
+    bytesRetCompiled "anonymous Bytes return is outside the Ton B-RET ABI"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "BytesRetBox" target kind bytesRetCompiled
+      "anonymous Bytes is outside the current container-state pilot"
+
   -- N-A4: Option state Normalize-admitted. Eight materializers admit
   -- Option UInt64 state (Enum-shaped 2-leaf layout): EVM (BL-31), NEAR
   -- (BL-30), Solana (BL-29), Aleo (BL-35), CosmWasm (BL-33), Psy (BL-36),
