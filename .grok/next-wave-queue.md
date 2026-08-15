@@ -162,6 +162,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-OPT-ARR-QS | done | OptArr Option Array UInt64 2 12-target all named payload/pilot FC. **Not** opening Option-of-Array |
 | MAT-MAP-OPT-QS | done | MapOpt Map UInt64 Option UInt64 12-target all named Map-value/pilot FC. **Not** opening Map-of-Option |
 | MAT-ARR-BYTES-QS | done | ArrBytes Array Bytes 4 2 12-target all named element/pilot FC. **Not** opening Array-of-Bytes |
+| MAT-MAP-ARR-QS | done | MapArr Map UInt64 Array UInt64 2 12-target all named Map-value/pilot FC. **Not** opening Map-of-Array |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | QUINT-CALL-RET-FC | done | Pin value-position `let y : UInt64 := call Oracle.feed` Plan FC (`result-bearing externalCall is outside Q0`, distinct from void A5). **Not** opening result-bearing CALL / Q0 |
