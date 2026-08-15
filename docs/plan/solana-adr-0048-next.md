@@ -197,34 +197,44 @@ second codegen.
     method/artifact/status/fuel and malformed account length fail closed. No
     contract-name dispatch, copied trace, alternate Option interpreter or
     HandlerIR→sBPF lowering was added.
+19. **SOL-0048-D5-OPTION-GETOPT** — **done 2026-08-15**: extended the same
+    bounded HandlerIR evaluator with a contract-independent nullary aggregate
+    recipe. It accepts 1..8 distinct 8-byte locals loaded from the production
+    account and published in exact leaf order by `setReturnDataMulti`; wrong
+    result shape, missing/reordered leaves and overwritten locals fail closed.
+    A generic typed return relation permits canonical Reference bytes and
+    target ABI bytes to differ while checking both actual outcomes and account
+    stutter. The real `OptionState.getOpt()` consumes this boundary through a
+    shared OptionState source/Plan/account preparation: `Some 77` maps Reference
+    `#[1] ++ u64LE(77)` to target `u64LE(1) ++ u64LE(77)`, while `None` maps
+    Reference `#[0]` to two zero words. HandlerIR and the identity-bound
+    production provider return the exact target bytes and preserve the account.
+    Recognition remains method-name independent; no Option interpreter, copied
+    provider trace or proof-only lowering was added.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete, and the generic seam now has a second real contract/HandlerIR shape
-consumer. The remaining D5 blocker is unconditional kernel discharge of the
-closed production gates. Certificate replay removes repeated reduction of the
-source/compiler/resolver plumbing once exact certificates are available, but it
-does not itself prove the method-specific Reference/provider checker equations.
-A direct `rfl` or kernel `decide` does not reduce the current gates because
-production compilation, artifact parsing, and provider execution form large
-partly opaque terms; runtime output `true` must not be presented as a theorem.
+consumer plus its first multiword typed return. The remaining D5 blocker is
+unconditional kernel discharge of the closed production gates. Certificate
+replay removes repeated reduction of the source/compiler/resolver plumbing once
+exact certificates are available, but it does not itself prove the
+method-specific Reference/provider checker equations. A direct `rfl` or kernel
+`decide` does not reduce the current gates because production compilation,
+artifact parsing, and provider execution form large partly opaque terms;
+runtime output `true` must not be presented as a theorem.
 
 Next formalization slices, in order:
 
-1. **SOL-0048-D5-OPTION-GETOPT**: extend the shared typed aggregate-return
-   observation/evaluator boundary for the real `OptionState.getOpt()`
-   multiword `Option UInt64` result, then consume the same production subject
-   and provider APIs. Do not add an Option-specific DSL interpreter or copy the
-   production HandlerIR/provider trace.
-2. **SOL-0048-D5-GET-UNCONDITIONAL**: use the replay equations to isolate and
+1. **SOL-0048-D5-GET-UNCONDITIONAL**: use the replay equations to isolate and
    discharge the remaining StateCell `get` Reference observation, static
    alignment, artifact/input manifest, and 55-step checker obligations. The
    resulting theorem must discharge the existing Boolean premise and call the
    existing concrete sound theorem, not restate provider behavior.
-3. Apply the same discharge pattern to initialize, increment success and
+2. Apply the same discharge pattern to initialize, increment success and
    overflow only after `get` closes without a one-off proof-only evaluator.
-4. Do not add `native_decide`, `Lean.ofReduceBool`, `run_tac`, an axiom, a
+3. Do not add `native_decide`, `Lean.ofReduceBool`, `run_tac`, an axiom, a
    copied AST/IR/provider program, or a proof-only HandlerIR→sBPF lowering.
-5. Keep ELF/linker/loader and validator/SVM runtime refinement as a separate
+4. Keep ELF/linker/loader and validator/SVM runtime refinement as a separate
    later boundary; prefer an external semantics provider rather than building a
    second runtime model inside ProofForge.
 

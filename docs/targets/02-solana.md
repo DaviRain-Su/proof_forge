@@ -198,8 +198,16 @@ production Semantic/Plan/switch HandlerIR →唯一Reference machine →identity
 Solana marker/tag/payload表示，不解释Option业务；`Some 77`和`None`两条分支均在Reference、
 HandlerIR和provider返回一致且read-only账户不变。错误method/artifact/status/fuel和短账户均
 fail closed。该结果仍是有Boolean前提的proof-producing gate，不是无条件一般
-Reference→sBPF/ELF/validator refinement；下一切片是`getOpt()`多字Option返回的通用typed
-aggregate observation。
+Reference→sBPF/ELF/validator refinement。`getOpt()`多字Option返回的通用typed aggregate
+observation现也已闭合：bounded HandlerIR evaluator新增method-name-independent
+nullary aggregate recipe，只接受1..8个distinct 8-byte production account loads并按exact leaf order
+执行`setReturnDataMulti`；missing/reordered/overwritten leaf与错误result shape全部fail closed。通用
+typed return relation允许Reference canonical bytes与target ABI bytes不同，并检查两侧实际outcome与
+read-only account stutter。真实`getOpt(Some 77)`把Reference的9-byte `Option UInt64`编码连接到target
+16-byte tag/payload words；`None`把1-byte canonical tag连接到两个zero words。production HandlerIR与
+identity-bound provider均返回exact target bytes且账户不变。该结果仍是有Boolean前提的
+proof-producing gate；下一切片是StateCell `get` closed gate的无条件kernel discharge，不是一般
+Reference→sBPF/ELF/validator refinement。
 
 ## 1. 身份与来源
 

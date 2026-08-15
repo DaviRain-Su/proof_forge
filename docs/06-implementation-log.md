@@ -16383,3 +16383,26 @@ normative: false
   unconditional closed-gate discharge、一般Reference→sBPF/ELF/linker/loader或
   Mollusk/validator/SVM runtime refinement。下一切片为真实`getOpt()`多字Option返回的通用typed
   aggregate observation/evaluator。
+
+## 2026-08-15 — generic typed aggregate return and OptionState getOpt composition
+
+- `StaticAlignmentV1`新增contract/method-name-independent nullary aggregate recognizer：只接受真实
+  production view的1..8个8-byte result leaves，每个leaf必须来自同一只读production account的独立
+  `loadState` local，最终由单个`setReturnDataMulti`按exact leaf order发布。wrong result kind、missing或
+  reordered return、duplicate/overwritten local、错误account/check shape均fail closed。
+- 唯一bounded HandlerIR evaluator直接执行既有`setReturnDataMulti` operation，把每个local编码为8-byte
+  LE后连接；没有新增Option evaluator、第二套DSL/business semantics、provider trace或proof-only
+  HandlerIR→sBPF lowering。既有StateCell与OptionState `peek`证明/回归保持通过。
+- 新增通用`TypedReturnedHandlerObservationRelV1`及proof-producing checker，分别检查canonical
+  Reference value bytes、唯一Reference outcome、target ABI return bytes及read-only account stutter；
+  `TypedReferenceHandlerSbpfJoinV1`把该relation与现有HandlerIR→provider observation join组合。两侧
+  bytes允许不同，不把target ABI误当Semantic canonical encoding。
+- `SbpfOptionStateProductionV1`提取共享source/compiler/Semantic/Plan/account preparation，`peek`与真实
+  `getOpt`均消费同一authority。`getOpt(Some 77)`固定Reference `#[1] ++ u64LE(77)`、target
+  `u64LE(1) ++ u64LE(77)`；`None`固定Reference `#[0]`、target两个zero words。production HandlerIR与
+  identity-bound `.s` provider返回exact 16-byte target值且24-byte账户不变；renamed structural shape
+  仍接受，tampered leaf order/local/result/missing return拒绝。两个Boolean gate及sound theorem恢复
+  resolved subject、通用provider certificate与typed three-layer join。
+- 聚焦`lake build Tests.Targets.SolanaAsmV1`及runtime runner通过。该切片仍不构成unconditional closed
+  gate、一般Reference→sBPF/ELF/linker/loader refinement或Mollusk/validator/SVM runtime proof；下一步
+  按ADR-0048计划隔离并kernel-discharge StateCell `get`现有closed gate前提。

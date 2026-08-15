@@ -1137,6 +1137,106 @@ private unsafe def testOptionStatePeekProduction : IO Unit := do
       optionStatePeekProviderFuelV1 0 optionStateProductionSbpfSha256V1)
     "OptionState peek: malformed account shape must fail closed"
 
+/-- The real `getOpt` aggregate return uses canonical Option bytes in the sole
+    Reference machine and two 8-byte ABI words in HandlerIR/provider. The
+    generic typed relation connects those distinct encodings. -/
+private unsafe def testOptionStateGetOptProduction : IO Unit := do
+  expect checkOptionStateGetOptProductionSubjectV1
+    "OptionState getOpt: production HandlerIR/provider gate"
+  expect checkOptionStateGetOptReferenceProviderSubjectV1
+    "OptionState getOpt: typed Reference/HandlerIR/provider gate"
+  let subject ← liftStringResult resolveOptionStateGetOptProductionSubjectV1
+  expect (subject.method.callable.kind == .view &&
+      subject.method.callable.name == some "getOpt" &&
+      subject.handler.name == "getOpt")
+    "OptionState getOpt: generic method resolver selected the wrong rows"
+  expect (isSupportedNullaryAggregateViewHandlerIRV1 subject.handler)
+    "OptionState getOpt: production aggregate HandlerIR shape"
+  expect (subject.referenceValueBytes == encodeOptionUInt64ValueV1 (some 77) &&
+      subject.targetReturnBytes == optionUInt64AggregateReturnDataV1 (some 77) &&
+      subject.referenceValueBytes != subject.targetReturnBytes)
+    "OptionState getOpt: canonical and target Option encodings"
+  let handlerObservation :=
+    observeHandlerIRV1 subject.handler subject.handlerInvocation
+  expect (checkTypedReturnedHandlerObservationRelV1 subject.data
+      subject.returnTypeId subject.referencePre subject.referenceOutcome
+      subject.referenceValueBytes subject.targetReturnBytes handlerObservation)
+    "OptionState getOpt: typed Some Reference/HandlerIR relation"
+  let provider ← liftStringResult <|
+    resolveCertifiedSolanaProductionProviderExecutionV1 subject.boundArtifact
+      subject.loaderInvocation optionStateGetOptProviderFuelV1 0
+  expect (provider.observation.provider.returnData == subject.targetReturnBytes.data)
+    "OptionState getOpt: provider must return the two-word Some value"
+  expect (provider.observation.finalAccountData ==
+      some subject.loaderInvocation.accountData)
+    "OptionState getOpt: provider must preserve the read-only Some account"
+
+  let nonePre ← match encodeLogicalStateValuesV1 subject.data true
+      #[encodeOptionUInt64ValueV1 none] with
+    | .ok value => pure value
+    | .error error =>
+        throw <| IO.userError s!"OptionState getOpt None encoding failed: {repr error}"
+  let noneAccount := optionUInt64AccountDataV1
+    subject.plan.stateAccount.initializedMarker none
+  expect (checkOptionUInt64LogicalStateAccountRelV1 subject.data subject.plan
+      subject.binding nonePre noneAccount none)
+    "OptionState getOpt: None logical/account representation relation"
+  let noneReference := executeCertifiedSolanaProductionMethodReferenceV1
+    subject.method nonePre #[] #[] #[] {}
+  let discriminator ← liftResult <|
+    discriminatorToLeU64V1 subject.handler.discriminator
+  let noneHandlerInvocation :=
+    nullaryUInt64ViewInvocationV1 noneAccount discriminator
+  let noneReferenceBytes := encodeOptionUInt64ValueV1 none
+  let noneTargetBytes := optionUInt64AggregateReturnDataV1 none
+  expect (checkTypedReturnedHandlerObservationRelV1 subject.data
+      subject.returnTypeId nonePre noneReference.outcome noneReferenceBytes
+      noneTargetBytes
+      (observeHandlerIRV1 subject.handler noneHandlerInvocation))
+    "OptionState getOpt: typed None Reference/HandlerIR relation"
+  let noneLoaderInvocation :=
+    optionStateNullaryLoaderInvocationV1 noneAccount discriminator
+  expect (checkCertifiedExecutedHandlerSbpfJoinV1 subject.boundArtifact
+      subject.handler noneHandlerInvocation noneLoaderInvocation
+      optionStateGetOptProviderFuelV1 0 optionStateProductionSbpfSha256V1)
+    "OptionState getOpt: generic provider join must execute None"
+  let noneProvider ← liftStringResult <|
+    resolveCertifiedSolanaProductionProviderExecutionV1 subject.boundArtifact
+      noneLoaderInvocation optionStateGetOptProviderFuelV1 0
+  expect (noneProvider.observation.provider.returnData == noneTargetBytes.data)
+    "OptionState getOpt: provider must return the two-word None value"
+  expect (noneProvider.observation.finalAccountData ==
+      some noneLoaderInvocation.accountData)
+    "OptionState getOpt: provider must preserve the read-only None account"
+
+  let renamedHandler := { subject.handler with name := "renamedAggregateView" }
+  expect (isSupportedNullaryAggregateViewHandlerIRV1 renamedHandler)
+    "aggregate recognizer must not depend on a contract or method name"
+  let wrongOrder := { subject.handler with
+    operations := subject.handler.operations.set! 2 (.setReturnDataMulti #[1, 0]) }
+  expect (!isSupportedNullaryAggregateViewHandlerIRV1 wrongOrder)
+    "aggregate recognizer must reject reordered return leaves"
+  let duplicateLocalOperations :=
+    (subject.handler.operations.set! 1
+      (.loadState 0 subject.binding.accountIndex
+        subject.binding.payloadByteOffset)).set! 2
+          (.setReturnDataMulti #[0, 0])
+  let duplicateLocal := { subject.handler with
+    operations := duplicateLocalOperations }
+  expect (!isSupportedNullaryAggregateViewHandlerIRV1 duplicateLocal)
+    "aggregate recognizer must reject overwritten return locals"
+  let missingReturn := { subject.handler with
+    operations := subject.handler.operations.pop }
+  expect (!isSupportedNullaryAggregateViewHandlerIRV1 missingReturn)
+    "aggregate recognizer must reject a missing aggregate return"
+  let wrongResult := { subject.handler with resultKind := .u64 }
+  expect (!isSupportedNullaryAggregateViewHandlerIRV1 wrongResult)
+    "aggregate recognizer must reject a non-aggregate result kind"
+  expect (!checkCertifiedExecutedHandlerSbpfJoinV1 subject.boundArtifact
+      wrongOrder subject.handlerInvocation subject.loaderInvocation
+      optionStateGetOptProviderFuelV1 0 optionStateProductionSbpfSha256V1)
+    "OptionState getOpt: tampered HandlerIR must fail closed"
+
 /-- Sole-rail product emit ships hybrid CPI bases + assembly. -/
 private unsafe def testProductEmitUnchanged
     (session : Language.Loader.ParserSession) : IO Unit := do
@@ -2076,6 +2176,7 @@ unsafe def run : IO Unit := do
   testStateCellMutatingProductionSubjects
   testStateCellSbpfExecution
   testOptionStatePeekProduction
+  testOptionStateGetOptProduction
   testAccountListShapeChecks session
   testProductEmitUnchanged session
   testGuardedStateCellAsm session

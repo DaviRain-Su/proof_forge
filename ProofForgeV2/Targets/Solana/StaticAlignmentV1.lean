@@ -4,9 +4,10 @@ import ProofForgeV2.Targets.Solana.EmitIRV1
 /-!
 # Solana StaticAlignmentV1
 
-This module starts the Solana Reference→target refinement track with one
-bounded, target-owned slice: a nullary UInt64 view over the production
-single-state-account layout.
+This module starts the Solana Reference→target refinement track with bounded,
+target-owned recipes over the production single-state-account layout. The
+admitted set includes UInt64 handlers and structurally recognized multiword
+aggregate views.
 
 The relations below classify existing public `Plan` / `HandlerIR` syntax. They
 do not construct a second Plan, lower Semantic IR, execute sBPF, or define a
@@ -616,6 +617,56 @@ def isSupportedNullaryUInt64SwitchViewHandlerIRV1
         isSupportedUInt64SwitchReturnBranchV1 accountIndex defaultOps
   | _, _, _, _, _, _, _, _, _ => false
 
+private def isSupportedAggregateReturnLoadsV1
+    (operations : Array Operation)
+    (values : Array Nat)
+    (accountIndex leafCount : Nat) : Bool :=
+  operations.size == leafCount + 1 && values.size == leafCount &&
+    (List.range leafCount).all fun index =>
+      match operations[index]?, values[index]? with
+      | some (.loadState destination loadedAccountIndex _), some returnedSource =>
+          loadedAccountIndex == accountIndex && returnedSource == destination &&
+            (List.range index).all fun previous =>
+              match values[previous]? with
+              | some previousSource => previousSource != returnedSource
+              | none => false
+      | _, _ => false
+
+/-- Contract-independent nullary aggregate view recipe. Every 8-byte result
+    leaf must come from a production account load and the final operation must
+    publish those exact locals through one `setReturnDataMulti`. -/
+def isSupportedNullaryAggregateViewHandlerIRV1
+    (handlerIR : HandlerIR) : Bool :=
+  match handlerIR.params.toList, handlerIR.mode, handlerIR.resultKind,
+      handlerIR.accountAccess.ownerPolicy,
+      handlerIR.accountAccess.signerRequired,
+      handlerIR.accountAccess.writableRequired,
+      handlerIR.accountAccess.initialization,
+      handlerIR.checks.toList with
+  | [], .view, .aggregate leaves, .currentProgram, false, false,
+      .mustBeInitialized, [
+        .numAccounts accountCount,
+        .accountNonDuplicate nonDuplicateAccountIndex,
+        .instructionDataLen inputLen,
+        .ownerCurrentProgram ownerAccountIndex,
+        .accountDataLen dataLenAccountIndex checkedDataLen,
+        .headerEquals headerAccountIndex _ _
+      ] =>
+      let accountIndex := handlerIR.accountAccess.accountIndex
+      let leafCount := leaves.size
+      accountCount == 1 && accountIndex == 0 &&
+        nonDuplicateAccountIndex == accountIndex && inputLen == 8 &&
+        ownerAccountIndex == accountIndex && dataLenAccountIndex == accountIndex &&
+        checkedDataLen == handlerIR.accountAccess.exactDataLen &&
+        headerAccountIndex == accountIndex && leafCount > 0 && leafCount ≤ 8 &&
+        leaves.all (·.byteWidth == 8) &&
+        match handlerIR.operations[leafCount]? with
+        | some (.setReturnDataMulti values) =>
+            isSupportedAggregateReturnLoadsV1 handlerIR.operations values
+              accountIndex leafCount
+        | _ => false
+  | _, _, _, _, _, _, _, _ => false
+
 /-- Compatibility entry point for the original one-field consumers. Its
     accepted set now also includes the bounded switch-view recipe below. -/
 def isSupportedOneFieldUInt64HandlerIRV1 (handlerIR : HandlerIR) : Bool :=
@@ -628,6 +679,12 @@ def isSupportedOneFieldUInt64HandlerIRV1 (handlerIR : HandlerIR) : Bool :=
     UInt64-returning recipes interpreted by `HandlerSemanticsV1`. -/
 def isSupportedBoundedUInt64HandlerIRV1 (handlerIR : HandlerIR) : Bool :=
   isSupportedOneFieldUInt64HandlerIRV1 handlerIR
+
+/-- Complete contract-independent closed set interpreted by the bounded
+    HandlerIR evaluator, including multiword aggregate views. -/
+def isSupportedBoundedHandlerIRV1 (handlerIR : HandlerIR) : Bool :=
+  isSupportedBoundedUInt64HandlerIRV1 handlerIR ||
+    isSupportedNullaryAggregateViewHandlerIRV1 handlerIR
 
 /-- Exact semantic/account/Plan/IR alignment for the first bounded Solana
     target slice. It is syntax and representation only; execution is defined

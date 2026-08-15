@@ -128,10 +128,10 @@ theorem loaderV3SingleAccountInvocationRelV1_unaryUInt64
   apply ByteArray.ext
   rfl
 
-/-- Exact observation agreement for the StateCell outcomes shared by the two
-    existing evaluators. Success maps to sBPF status zero. Handler arithmetic
-    overflow maps to the emitted nonzero status. Other Handler traps are not
-    admitted by this first join contract.
+/-- Exact observation agreement for bounded HandlerIR outcomes shared by the
+    two existing evaluators. Success maps to sBPF status zero. Handler
+    arithmetic overflow maps to the emitted nonzero status. Other Handler traps
+    are not admitted by this join contract.
 
     The final account-data window is compared with the Handler evaluator's
     committed/rolled-back post-account observation. -/
@@ -757,6 +757,24 @@ theorem checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1_sound
                 hobservation
         }
       }⟩
+
+/-- Generic composition boundary for typed Reference→HandlerIR returns whose
+    canonical value bytes may differ from the target ABI bytes, and the shared
+    HandlerIR→provider observation relation. -/
+structure TypedReferenceHandlerSbpfJoinV1
+    (data : SemanticProgramDataV1)
+    (typeId : TypeIdV1)
+    (pre : LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (referenceValueBytes targetReturnBytes : ByteArray)
+    (handler : HandlerObservationV1)
+    (expectedArtifactSha256 : String)
+    (sbpf : SbpfExecutionObservationV1) : Prop where
+  referenceHandler :
+    TypedReturnedHandlerObservationRelV1 data typeId pre referenceOutcome
+      referenceValueBytes targetReturnBytes handler
+  handlerSbpf :
+    HandlerSbpfObservationRelV1 expectedArtifactSha256 handler sbpf
 
 /-- Composition boundary for the already-proved UInt64 Reference→HandlerIR
     success relation and the HandlerIR→provider observation relation. -/

@@ -4,10 +4,11 @@ import ProofForgeV2.Targets.Solana.EmitSbpfAsmV1
 /-!
 # Solana HandlerSemanticsV1
 
-One bounded evaluator for the production one-field UInt64 handler recipes. This
-is a target-IR refinement object, not a second interpreter for ProofForge DSL
-callables. It models the selected Solana account/header/input/state/return
-boundary; all unsupported checks and operations fail closed.
+One bounded evaluator for the admitted production UInt64 and aggregate-return
+handler recipes. This is a target-IR refinement object, not a second
+interpreter for ProofForge DSL callables. It models the selected Solana
+account/header/input/state/return boundary; all unsupported checks and
+operations fail closed.
 -/
 
 namespace ProofForgeV2.Targets.Solana
@@ -213,6 +214,12 @@ private def runOperationV1
       match getLocalV1 machine source with
       | .ok value => .ok { machine with returnData := some (encodeU64le value) }
       | .error error => .error error
+  | .setReturnDataMulti sources => do
+      let mut bytes := ByteArray.empty
+      for source in sources do
+        let value ← getLocalV1 machine source
+        bytes := bytes.append (encodeU64le value)
+      pure { machine with returnData := some bytes }
   | .returnNone => .ok machine
   | _ => .error .unsupportedOperation
 
@@ -262,7 +269,7 @@ private def executeHandlerIRWithAccountsV1
     (handlerIR : HandlerIR)
     (invocation : InvocationObservationV1) :
     HandlerExecutionOutcomeV1 × Array AccountObservationV1 :=
-  if !isSupportedOneFieldUInt64HandlerIRV1 handlerIR then
+  if !isSupportedBoundedHandlerIRV1 handlerIR then
     (.trapped .unsupportedHandlerShape, invocation.accounts)
   else match runDispatchV1 handlerIR invocation with
   | .error error => (.trapped error, invocation.accounts)
@@ -283,7 +290,7 @@ private def executeHandlerIRWithAccountsV1
 def executeHandlerIRV1
     (handlerIR : HandlerIR)
     (invocation : InvocationObservationV1) : HandlerExecutionOutcomeV1 :=
-  if !isSupportedOneFieldUInt64HandlerIRV1 handlerIR then
+  if !isSupportedBoundedHandlerIRV1 handlerIR then
     .trapped .unsupportedHandlerShape
   else match runDispatchV1 handlerIR invocation with
   | .error error => .trapped error
@@ -347,6 +354,12 @@ def optionUInt64AccountDataV1
     (initializedMarker : UInt64) (value : Option UInt64) : ByteArray :=
   ((encodeU64le initializedMarker).append
     (encodeU64le (optionUInt64TagV1 value))).append
+    (encodeU64le (optionUInt64PayloadV1 value))
+
+/-- Target aggregate-return bytes for `Option UInt64`: tag then payload. This
+    is distinct from the canonical Reference value bytes above. -/
+def optionUInt64AggregateReturnDataV1 (value : Option UInt64) : ByteArray :=
+  (encodeU64le (optionUInt64TagV1 value)).append
     (encodeU64le (optionUInt64PayloadV1 value))
 
 /-- Canonical successful invocation observation for the selected production
@@ -507,6 +520,25 @@ def UInt64ReturnedHandlerObservationRelV1
   observed.outcome = .returned (some valueBytes) ∧
   observed.postAccounts = observed.invocation.accounts
 
+/-- Generic typed Reference→HandlerIR return boundary when canonical Reference
+    value bytes and target ABI return bytes differ. The caller supplies both
+    encodings; this relation checks the actual Reference and Handler outcomes
+    without interpreting an aggregate or defining another transition. -/
+def TypedReturnedHandlerObservationRelV1
+    (data : SemanticProgramDataV1)
+    (typeId : TypeIdV1)
+    (pre : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (referenceValueBytes targetReturnBytes : ByteArray)
+    (observed : HandlerObservationV1) : Prop :=
+  validateValueBytesV1 data.types typeId referenceValueBytes = .ok () ∧
+  referenceOutcome = .returned pre (some {
+    typeId
+    valueBytes := referenceValueBytes
+  }) #[] ∧
+  observed.outcome = .returned (some targetReturnBytes) ∧
+  observed.postAccounts = observed.invocation.accounts
+
 /-- Exact Reference→HandlerIR relation for the one-field UInt64 initializer
     slice. The sole Reference outcome and the Handler post-account observation
     share the same committed value through the existing account codec relation;
@@ -661,7 +693,7 @@ def UInt64CheckedAddReturnedHandlerObservationRelV1
   UInt64LogicalStateAccountRelV1 data plan binding post postData
     (before + argument)
 
-private def checkUInt64ReturnedReferenceOutcomeV1
+private def checkTypedReturnedReferenceOutcomeV1
     (outcome : OutcomeV1)
     (post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
     (typeId : TypeIdV1)
@@ -674,23 +706,23 @@ private def checkUInt64ReturnedReferenceOutcomeV1
       effects.isEmpty
   | _ => false
 
-private theorem checkUInt64ReturnedReferenceOutcomeV1_eq_true_iff
+private theorem checkTypedReturnedReferenceOutcomeV1_eq_true_iff
     (outcome : OutcomeV1)
     (post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
     (typeId : TypeIdV1)
     (valueBytes : ByteArray) :
-    checkUInt64ReturnedReferenceOutcomeV1 outcome post typeId valueBytes = true ↔
+    checkTypedReturnedReferenceOutcomeV1 outcome post typeId valueBytes = true ↔
       outcome = .returned post (some { typeId, valueBytes }) #[] := by
   cases outcome with
   | returned actualPost value effects =>
       cases value with
-      | none => simp [checkUInt64ReturnedReferenceOutcomeV1]
+      | none => simp [checkTypedReturnedReferenceOutcomeV1]
       | some actualValue =>
           cases actualValue
-          simp [checkUInt64ReturnedReferenceOutcomeV1,
+          simp [checkTypedReturnedReferenceOutcomeV1,
             checkLogicalStateEqV1_eq_true_iff, Array.isEmpty_iff, and_assoc]
-  | reverted => simp [checkUInt64ReturnedReferenceOutcomeV1]
-  | trapped => simp [checkUInt64ReturnedReferenceOutcomeV1]
+  | reverted => simp [checkTypedReturnedReferenceOutcomeV1]
+  | trapped => simp [checkTypedReturnedReferenceOutcomeV1]
 
 private def checkValueBytesCanonicalV1
     (data : SemanticProgramDataV1)
@@ -713,6 +745,37 @@ private theorem checkValueBytesCanonicalV1_eq_true_iff
       cases result
       simp
 
+/-- Executable, proof-producing form of the generic typed return boundary. -/
+def checkTypedReturnedHandlerObservationRelV1
+    (data : SemanticProgramDataV1)
+    (typeId : TypeIdV1)
+    (pre : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (referenceValueBytes targetReturnBytes : ByteArray)
+    (observed : HandlerObservationV1) : Bool :=
+  checkValueBytesCanonicalV1 data typeId referenceValueBytes &&
+  checkTypedReturnedReferenceOutcomeV1 referenceOutcome pre typeId
+    referenceValueBytes &&
+  decide (observed.outcome = .returned (some targetReturnBytes)) &&
+  decide (observed.postAccounts = observed.invocation.accounts)
+
+theorem checkTypedReturnedHandlerObservationRelV1_eq_true_iff
+    (data : SemanticProgramDataV1)
+    (typeId : TypeIdV1)
+    (pre : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (referenceValueBytes targetReturnBytes : ByteArray)
+    (observed : HandlerObservationV1) :
+    checkTypedReturnedHandlerObservationRelV1 data typeId pre referenceOutcome
+        referenceValueBytes targetReturnBytes observed = true ↔
+      TypedReturnedHandlerObservationRelV1 data typeId pre referenceOutcome
+        referenceValueBytes targetReturnBytes observed := by
+  simp only [checkTypedReturnedHandlerObservationRelV1, Bool.and_eq_true,
+    checkValueBytesCanonicalV1_eq_true_iff,
+    checkTypedReturnedReferenceOutcomeV1_eq_true_iff, decide_eq_true_eq,
+    TypedReturnedHandlerObservationRelV1]
+  simp only [and_assoc]
+
 /-- Executable, proof-producing form of the read-only UInt64 observation
     relation. It checks the already-computed sole Reference outcome and actual
     production HandlerIR observation; it does not execute another transition. -/
@@ -725,7 +788,7 @@ def checkUInt64ReturnedHandlerObservationRelV1
     (observed : HandlerObservationV1) : Bool :=
   checkValueBytesCanonicalV1 data typeId valueBytes &&
   decide (valueBytes.size = 8) &&
-  checkUInt64ReturnedReferenceOutcomeV1 referenceOutcome pre typeId valueBytes &&
+  checkTypedReturnedReferenceOutcomeV1 referenceOutcome pre typeId valueBytes &&
   decide (observed.outcome = .returned (some valueBytes)) &&
   decide (observed.postAccounts = observed.invocation.accounts)
 
@@ -742,7 +805,7 @@ theorem checkUInt64ReturnedHandlerObservationRelV1_eq_true_iff
         valueBytes observed := by
   simp only [checkUInt64ReturnedHandlerObservationRelV1, Bool.and_eq_true,
     checkValueBytesCanonicalV1_eq_true_iff, decide_eq_true_eq,
-    checkUInt64ReturnedReferenceOutcomeV1_eq_true_iff,
+    checkTypedReturnedReferenceOutcomeV1_eq_true_iff,
     UInt64ReturnedHandlerObservationRelV1]
   simp only [and_assoc]
 
@@ -758,7 +821,7 @@ def checkUInt64CheckedAddReturnedHandlerObservationRelV1
     (postData : ByteArray)
     (before argument : UInt64)
     (observed : HandlerObservationV1) : Bool :=
-  checkUInt64ReturnedReferenceOutcomeV1 referenceOutcome post
+  checkTypedReturnedReferenceOutcomeV1 referenceOutcome post
     binding.semanticTypeId (encodeU64le (before + argument)) &&
   decide (observed.outcome =
     .returned (some (encodeU64le (before + argument)))) &&
@@ -781,7 +844,7 @@ theorem checkUInt64CheckedAddReturnedHandlerObservationRelV1_eq_true_iff
         referenceOutcome postData before argument observed := by
   simp only [checkUInt64CheckedAddReturnedHandlerObservationRelV1,
     Bool.and_eq_true, decide_eq_true_eq,
-    checkUInt64ReturnedReferenceOutcomeV1_eq_true_iff,
+    checkTypedReturnedReferenceOutcomeV1_eq_true_iff,
     checkUInt64LogicalStateAccountRelV1_eq_true_iff,
     UInt64CheckedAddReturnedHandlerObservationRelV1]
   simp only [and_assoc]
@@ -1208,7 +1271,9 @@ theorem observeHandlerIRV1_of_unaryUInt64InitializerStaticAlignment
       executeHandlerIRV1 handlerIR
           (unaryUInt64InvocationV1 accountData discriminatorValue argument true
             true) = .returned none := by
-    simp only [executeHandlerIRV1, hsupported, Bool.not_true]
+    simp only [executeHandlerIRV1, isSupportedBoundedHandlerIRV1,
+      isSupportedBoundedUInt64HandlerIRV1, hsupported, Bool.true_or,
+      Bool.not_true]
     rw [runDispatchV1_unaryUInt64InvocationV1 _ _ _ _ true
       hhandlerDiscriminator]
     rw [hchecks, hoperations]
@@ -1225,7 +1290,9 @@ theorem observeHandlerIRV1_of_unaryUInt64InitializerStaticAlignment
           isWritable := true
           data := postData
         }]) := by
-    simp only [executeHandlerIRWithAccountsV1, hsupported, Bool.not_true]
+    simp only [executeHandlerIRWithAccountsV1, isSupportedBoundedHandlerIRV1,
+      isSupportedBoundedUInt64HandlerIRV1, hsupported, Bool.true_or,
+      Bool.not_true]
     rw [runDispatchV1_unaryUInt64InvocationV1 _ _ _ _ true
       hhandlerDiscriminator]
     rw [hchecks, hoperations]
@@ -1723,7 +1790,9 @@ theorem observeHandlerIRV1_of_unaryUInt64CheckedAddStaticAlignment
           (unaryUInt64InvocationV1 accountData discriminatorValue argument false
             true) =
         .returned (some (encodeU64le (before + argument))) := by
-    simp only [executeHandlerIRV1, hsupported, Bool.not_true]
+    simp only [executeHandlerIRV1, isSupportedBoundedHandlerIRV1,
+      isSupportedBoundedUInt64HandlerIRV1, hsupported, Bool.true_or,
+      Bool.not_true]
     rw [runDispatchV1_unaryUInt64InvocationV1 _ _ _ _ false
       hhandlerDiscriminator]
     rw [hchecks, hoperations, halignment.handlerIRExact]
@@ -1739,7 +1808,9 @@ theorem observeHandlerIRV1_of_unaryUInt64CheckedAddStaticAlignment
           isWritable := true
           data := postData
         }]) := by
-    simp only [executeHandlerIRWithAccountsV1, hsupported, Bool.not_true]
+    simp only [executeHandlerIRWithAccountsV1, isSupportedBoundedHandlerIRV1,
+      isSupportedBoundedUInt64HandlerIRV1, hsupported, Bool.true_or,
+      Bool.not_true]
     rw [runDispatchV1_unaryUInt64InvocationV1 _ _ _ _ false
       hhandlerDiscriminator]
     rw [hchecks, hoperations, halignment.handlerIRExact]
@@ -1816,7 +1887,9 @@ theorem observeHandlerIRV1_of_unaryUInt64CheckedAddStaticAlignment_overflow
           (unaryUInt64InvocationV1 accountData discriminatorValue argument false
             true) =
         .trapped (.arithmeticOverflow arithmeticOverflowError) := by
-    simp only [executeHandlerIRV1, hsupported, Bool.not_true]
+    simp only [executeHandlerIRV1, isSupportedBoundedHandlerIRV1,
+      isSupportedBoundedUInt64HandlerIRV1, hsupported, Bool.true_or,
+      Bool.not_true]
     rw [runDispatchV1_unaryUInt64InvocationV1 _ _ _ _ false
       hhandlerDiscriminator]
     rw [hchecks, hoperations]
@@ -1828,7 +1901,9 @@ theorem observeHandlerIRV1_of_unaryUInt64CheckedAddStaticAlignment_overflow
         (.trapped (.arithmeticOverflow arithmeticOverflowError),
           (unaryUInt64InvocationV1 accountData discriminatorValue argument false
             true).accounts) := by
-    simp only [executeHandlerIRWithAccountsV1, hsupported, Bool.not_true]
+    simp only [executeHandlerIRWithAccountsV1, isSupportedBoundedHandlerIRV1,
+      isSupportedBoundedUInt64HandlerIRV1, hsupported, Bool.true_or,
+      Bool.not_true]
     rw [runDispatchV1_unaryUInt64InvocationV1 _ _ _ _ false
       hhandlerDiscriminator]
     rw [hchecks, hoperations]
@@ -2207,7 +2282,9 @@ theorem executeHandlerIRV1_of_nullaryUInt64ViewStaticAlignment
       (nullaryUInt64ViewInvocationV1 accountData discriminatorValue) =
         .returned (some (encodeU64le value)) := by
   rw [halignment.handlerIRExact]
-  simp [executeHandlerIRV1, isSupportedOneFieldUInt64HandlerIRV1,
+  simp [executeHandlerIRV1, isSupportedBoundedHandlerIRV1,
+    isSupportedBoundedUInt64HandlerIRV1,
+    isSupportedOneFieldUInt64HandlerIRV1,
     isSupportedNullaryUInt64ViewHandlerIRV1,
     recognizeNullaryUInt64ViewHandlerIRV1, runDispatchV1, runChecksV1, runCheckV1,
     runOperationsV1, runOperationV1, nullaryUInt64ViewInvocationV1,
@@ -2234,7 +2311,9 @@ theorem executeHandlerIRV1_of_nullaryUInt64ViewStaticAlignment_wrong_input
         instructionData := ByteArray.empty } =
         .trapped .inputLength := by
   rw [halignment.handlerIRExact]
-  simp [executeHandlerIRV1, isSupportedOneFieldUInt64HandlerIRV1,
+  simp [executeHandlerIRV1, isSupportedBoundedHandlerIRV1,
+    isSupportedBoundedUInt64HandlerIRV1,
+    isSupportedOneFieldUInt64HandlerIRV1,
     isSupportedNullaryUInt64ViewHandlerIRV1,
     recognizeNullaryUInt64ViewHandlerIRV1, halignment.accountZero, runDispatchV1,
     readUInt64LEV1, hdiscriminator, Except.toOption]
@@ -2259,7 +2338,9 @@ theorem executeHandlerIRV1_of_nullaryUInt64ViewStaticAlignment_wrong_discriminat
       (nullaryUInt64ViewInvocationV1 accountData otherDiscriminator) =
         .trapped .discriminatorMismatch := by
   rw [halignment.handlerIRExact]
-  simp [executeHandlerIRV1, isSupportedOneFieldUInt64HandlerIRV1,
+  simp [executeHandlerIRV1, isSupportedBoundedHandlerIRV1,
+    isSupportedBoundedUInt64HandlerIRV1,
+    isSupportedOneFieldUInt64HandlerIRV1,
     isSupportedNullaryUInt64ViewHandlerIRV1,
     recognizeNullaryUInt64ViewHandlerIRV1, halignment.accountZero, runDispatchV1,
     nullaryUInt64ViewInvocationV1, hdiscriminator,
@@ -2284,7 +2365,9 @@ theorem executeHandlerIRV1_of_nullaryUInt64ViewStaticAlignment_duplicate
       (nullaryUInt64ViewInvocationV1 accountData discriminatorValue true true) =
         .trapped .duplicateAccount := by
   rw [halignment.handlerIRExact]
-  simp [executeHandlerIRV1, isSupportedOneFieldUInt64HandlerIRV1,
+  simp [executeHandlerIRV1, isSupportedBoundedHandlerIRV1,
+    isSupportedBoundedUInt64HandlerIRV1,
+    isSupportedOneFieldUInt64HandlerIRV1,
     isSupportedNullaryUInt64ViewHandlerIRV1,
     recognizeNullaryUInt64ViewHandlerIRV1, runDispatchV1, runChecksV1, runCheckV1,
     nullaryUInt64ViewInvocationV1, halignment.accountZero, hdiscriminator,
@@ -2308,10 +2391,16 @@ theorem executeHandlerIRV1_of_nullaryUInt64ViewStaticAlignment_wrong_owner
     executeHandlerIRV1 handlerIR
       (nullaryUInt64ViewInvocationV1 accountData discriminatorValue false) =
         .trapped .ownerMismatch := by
+  have hsupported : isSupportedBoundedHandlerIRV1 handlerIR = true := by
+    rw [halignment.handlerIRExact]
+    simp [isSupportedBoundedHandlerIRV1,
+      isSupportedBoundedUInt64HandlerIRV1,
+      isSupportedOneFieldUInt64HandlerIRV1,
+      isSupportedNullaryUInt64ViewHandlerIRV1,
+      recognizeNullaryUInt64ViewHandlerIRV1, halignment.accountZero]
+  simp only [executeHandlerIRV1, hsupported, Bool.not_true]
   rw [halignment.handlerIRExact]
-  simp [executeHandlerIRV1, isSupportedOneFieldUInt64HandlerIRV1,
-    isSupportedNullaryUInt64ViewHandlerIRV1,
-    recognizeNullaryUInt64ViewHandlerIRV1, runDispatchV1, runChecksV1, runCheckV1,
+  simp [runDispatchV1, runChecksV1, runCheckV1,
     nullaryUInt64ViewInvocationV1, halignment.accountZero, hdiscriminator,
     readUInt64LEV1_encodeU64le, encodeU64le_size, Except.toOption,
     Bind.bind, Except.bind]
