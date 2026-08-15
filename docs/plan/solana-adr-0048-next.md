@@ -271,28 +271,44 @@ second codegen.
     production equation. No copied AST, contract-name dispatch or proof-only
     source validator was introduced. This closes source ownership only; the
     next failing stage is production compiler normalization.
+25. **SOL-0048-D5-NORMALIZER-CORE-BOUNDARY** — **done 2026-08-15**: removed
+    the kernel-opaque `partial` recursion and imperative traversals reachable
+    from the real StateCell source through the sole production semantic
+    normalizer and S2 requirement freezer. Recursive source walks now consume a
+    fixed source-depth budget and fail closed when exhausted; exact name identity
+    and requirement ordering use shared UTF-8 byte operations. Invariant closure
+    seeding is structural, and the sole assignment authority treats the generic
+    no-invariant-root case as the exact empty-closure identity. StateCell identity,
+    requirement inference/freeze, and all three body-lowering stages now replay
+    independently in the kernel; no copied AST/IR or proof-only normalizer was
+    added. This closes the reachable normalizer implementation blocker, not the
+    still-unassembled exact whole-program normalization equation.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete, and the generic seam now has a second real contract/HandlerIR shape
 consumer plus its first multiword typed return. The generic bytes→SHA→artifact
 identity proof boundary and a kernel-reducible production emitter core are now
-present. The remaining D5 blocker is producing the exact compiled and validated
-StateCell IR input and its `validateIR = .ok ()` equation through the reachable
-partial compiler/IR-lowering definitions. Source AST→canonical bytes ownership
-is now closed. Until compiler/IR ownership also closes, the post-validation
-emission equation cannot be owner-bound to the real source pipeline, so a SHA
-trace alone still cannot establish emitter ownership. Runtime output `true` and
-a certificate over copied or materialized assembly remain unacceptable.
+present. Source binding and the StateCell-reachable normalizer implementation
+are now kernel-reducible, but the exact whole-program normalization result still
+must be assembled from its production stage equations rather than accepted from
+a monolithic runtime Boolean. The remaining D5 blocker then continues through
+the reachable `LowerSemanticV1`/`EmitIRV1` path and `validateIR = .ok ()`.
+Until compiler/IR ownership closes, the post-validation emission equation cannot
+be owner-bound to the real source pipeline, so a SHA trace alone still cannot
+establish emitter ownership. Runtime output `true` and a certificate over copied
+or materialized assembly remain unacceptable.
 
 Next formalization slices, in order:
 
 1. **SOL-0048-D5-GET-EMITTER-CERTIFICATE**: make the real production emission
    stage fully proof-producing/kernel-replayable for its exact result. The
-   emitter core, certificate boundary and real StateCell source binding are
-   done; next totalize the reachable production compiler normalization, then
-   `EmitIRV1`/`LowerSemanticV1` and `validateIR`, and discharge the StateCell
-   exact post-validation emission equation. Keep traversal contract-independent
-   and do not add a proof-only compiler, emitter or copied assembly.
+   emitter core, certificate boundary, real StateCell source binding and
+   reachable normalizer implementation are done; next compose the exact
+   whole-program normalization equation from the same production stages, then
+   totalize/replay `LowerSemanticV1`, `EmitIRV1` and `validateIR`, and discharge
+   the StateCell exact post-validation emission equation. Keep traversal
+   contract-independent and do not add a proof-only compiler, emitter or copied
+   assembly.
 2. **SOL-0048-D5-GET-UNCONDITIONAL**: build the 103-block SHA trace directly
    over that exact emitter result, replay it through `resolveBoundSbpfArtifactV1`
    and preparation replay, then discharge the existing StateCell `get` gate.

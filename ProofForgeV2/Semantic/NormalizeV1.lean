@@ -259,7 +259,9 @@ private def wireIdOfExactEngineeringExtensionV1
 /-- Map source program identity to Common.QualifiedName (≥2 components for Wire). -/
 def programIdentityToQualifiedNameV1 (identity : SourceQualifiedNameV1) :
     Except NormalizeErrorV1 QualifiedName := do
-  let comps := (NonEmptyArray.toArray identity.components).map (·.raw)
+  let comps :=
+    (identity.components.head.raw ::
+      identity.components.tail.toList.map (·.raw)).toArray
   unless comps.size ≥ 2 do
     return ← failIdentity "semantic program qualifiedName requires ≥2 components"
   match parseQualifiedName comps with
@@ -283,6 +285,11 @@ private def legalIntegerWidthV1 (width : Nat) : Bool :=
   width == 8 || width == 16 || width == 32 || width == 64 ||
   width == 128 || width == 256
 
+/-- Kernel-reducible exact String identity. Source names and target-neutral
+    semantic names are identified by their canonical UTF-8 bytes. -/
+private def stringEqV1 (left right : String) : Bool :=
+  left.toUTF8 == right.toUTF8
+
 private abbrev WireStructFieldV1 := ProofForgeV2.Semantic.WireV1.StructFieldV1
 private abbrev WireEnumVariantV1 := ProofForgeV2.Semantic.WireV1.EnumVariantV1
 
@@ -292,7 +299,7 @@ private def structFieldsEq (a b : Array WireStructFieldV1) : Bool :=
     for _ in a do
       match a[i]?, b[i]? with
       | some fa, some fb =>
-          unless fa.name == fb.name && fa.typeId == fb.typeId do
+          unless stringEqV1 fa.name fb.name && fa.typeId == fb.typeId do
             return false
       | _, _ => return false
       i := i + 1
@@ -304,14 +311,14 @@ private def enumVariantsEq (a b : Array WireEnumVariantV1) : Bool :=
     for _ in a do
       match a[i]?, b[i]? with
       | some va, some vb =>
-          unless va.name == vb.name && va.payloadTypes == vb.payloadTypes do
+          unless stringEqV1 va.name vb.name && va.payloadTypes == vb.payloadTypes do
             return false
       | _, _ => return false
       i := i + 1
     pure true
 
 private def fieldSpecEq (a b : FieldSpecV1) : Bool :=
-  a.id.value == b.id.value && a.modulusBE == b.modulusBE
+  stringEqV1 a.id.value b.id.value && a.modulusBE == b.modulusBE
 
 /-- T14 catalog v2: is this FieldSpec one of the three closed catalog entries?
     Wire structure validation (`validateFieldSpecCatalogV1`) is the sole
@@ -352,7 +359,7 @@ private def shapeEq (a b : TypeShapeV1) : Bool :=
 private def findTypeId (interner : TypeInternerV1) (shape : TypeShapeV1) :
     Option TypeIdV1 := Id.run do
   let mut i : Nat := 0
-  for d in interner.types do
+  for d in interner.types.toList do
     -- Anonymous interning only: named Struct/Enum are Pass0-owned and must not
     -- be re-discovered by shape (they are never name=none).
     if d.name.isNone && shapeEq d.shape shape then
@@ -373,10 +380,10 @@ private def internShape (interner : TypeInternerV1) (shape : TypeShapeV1) :
 private def lookupNamedTypeId (interner : TypeInternerV1) (name : String) :
     Option TypeIdV1 := Id.run do
   let mut i : Nat := 0
-  for d in interner.types do
+  for d in interner.types.toList do
     match d.name with
     | some n =>
-        if n == name then
+        if stringEqV1 n name then
           return some (UInt32.ofNat i)
     | none => pure ()
     i := i + 1
@@ -390,7 +397,7 @@ private def setTypeShapeAt (interner : TypeInternerV1) (idx : Nat)
       { types := interner.types.set! idx { decl with shape := shape } }
   | none => interner
 
-private partial def internSourceType (interner : TypeInternerV1) (ty : SrcType) :
+private def internSourceType (interner : TypeInternerV1) (ty : SrcType) :
     Except NormalizeErrorV1 (TypeInternerV1 × TypeIdV1) :=
   match ty with
   | .uint w =>
@@ -472,11 +479,11 @@ private def registerNamedTypesV1
   -- Collect (rawName, kind) in source order; reject empty / duplicate names.
   let mut collected : Array (String × NamedDeclKindV1) := #[]
   let mut seenNames : Array String := #[]
-  for item in items do
+  for item in items.toList do
     match item with
     | .struct s =>
         let name := raw s.name
-        if seenNames.any (· == name) then
+        if seenNames.any (stringEqV1 · name) then
           return ← failUnsupported s!"S1 duplicate named type '{name}'"
         if s.fields.isEmpty then
           return ← failUnsupported
@@ -485,7 +492,7 @@ private def registerNamedTypesV1
         collected := collected.push (name, .struct_ s.fields)
     | .enum e =>
         let name := raw e.name
-        if seenNames.any (· == name) then
+        if seenNames.any (stringEqV1 · name) then
           return ← failUnsupported s!"S1 duplicate named type '{name}'"
         if e.variants.isEmpty then
           return ← failUnsupported
@@ -497,7 +504,7 @@ private def registerNamedTypesV1
   -- Phase 1: allocate named slots (placeholders; filled below).
   let mut interner := interner
   let mut slotIdxs : Array Nat := #[]
-  for (name, kind) in collected do
+  for (name, kind) in collected.toList do
     let tid := UInt32.ofNat interner.types.size
     let placeholder : TypeShapeV1 :=
       match kind with
@@ -515,7 +522,7 @@ private def registerNamedTypesV1
   -- Phase 2: fill fields/variants. Anonymous field types land after named
   -- prefix; named field types resolve via Pass0 slots (any order).
   let mut i : Nat := 0
-  for (name, kind) in collected do
+  for (name, kind) in collected.toList do
     let idx := slotIdxs[i]!
     match kind with
     | .struct_ fields => do
@@ -523,7 +530,7 @@ private def registerNamedTypesV1
         let mut fieldNames : Array String := #[]
         for f in fields do
           let fname := raw f.name
-          if fieldNames.any (· == fname) then
+          if fieldNames.any (stringEqV1 · fname) then
             return ← failUnsupported
               s!"S1 struct '{name}' has duplicate field '{fname}'"
           fieldNames := fieldNames.push fname
@@ -536,7 +543,7 @@ private def registerNamedTypesV1
         let mut varNames : Array String := #[]
         for v in variants do
           let vname := raw v.name
-          if varNames.any (· == vname) then
+          if varNames.any (stringEqV1 · vname) then
             return ← failUnsupported
               s!"S1 enum '{name}' has duplicate variant '{vname}'"
           varNames := varNames.push vname
@@ -590,7 +597,7 @@ private def findStructFieldIndex (fields : Array WireStructFieldV1) (name : Stri
     Option (Nat × TypeIdV1) := Id.run do
   let mut i : Nat := 0
   for f in fields do
-    if f.name == name then
+    if stringEqV1 f.name name then
       return some (i, f.typeId)
     i := i + 1
   pure none
@@ -600,7 +607,7 @@ private def findEnumVariantIndex (variants : Array WireEnumVariantV1) (name : St
     Option (Nat × Array TypeIdV1) := Id.run do
   let mut i : Nat := 0
   for v in variants do
-    if v.name == name then
+    if stringEqV1 v.name name then
       return some (i, v.payloadTypes)
     i := i + 1
   pure none
@@ -833,7 +840,7 @@ private def emptyEnv : LocalEnvV1 := ⟨#[]⟩
 private def envLookup (env : LocalEnvV1) (name : String) :
     Option (ValueIdV1 × TypeIdV1) :=
   env.bindings.findSome? fun (n, vid, tid) =>
-    if n == name then some (vid, tid) else none
+    if stringEqV1 n name then some (vid, tid) else none
 
 private def envInsert (env : LocalEnvV1) (name : String) (vid : ValueIdV1)
     (tid : TypeIdV1) : LocalEnvV1 :=
@@ -847,7 +854,7 @@ private def envRebind (env : LocalEnvV1) (name : String) (vid : ValueIdV1)
   let mut lastIdx? : Option Nat := none
   let mut i : Nat := 0
   for (n, _, _) in env.bindings do
-    if n == name then lastIdx? := some i
+    if stringEqV1 n name then lastIdx? := some i
     i := i + 1
   match lastIdx? with
   | some idx => ⟨env.bindings.set! idx (name, vid, tid)⟩
@@ -860,7 +867,7 @@ structure StateTableV1 where
 private def stateLookup (table : StateTableV1) (name : String) :
     Option (StateIdV1 × TypeIdV1) :=
   table.rows.findSome? fun (n, sid, tid) =>
-    if n == name then some (sid, tid) else none
+    if stringEqV1 n name then some (sid, tid) else none
 
 /-- Const name → (ConstantId, TypeId). Built complete before any callable body
     so forward references resolve; IDs are dense source-order among const decls. -/
@@ -870,7 +877,7 @@ structure ConstantTableV1 where
 private def constLookup (table : ConstantTableV1) (name : String) :
     Option (ConstantIdV1 × TypeIdV1) :=
   table.rows.findSome? fun (n, cid, tid) =>
-    if n == name then some (cid, tid) else none
+    if stringEqV1 n name then some (cid, tid) else none
 
 /-- Event name → (EventId, field TypeIds in declaration order). -/
 structure EventTableV1 where
@@ -879,7 +886,7 @@ structure EventTableV1 where
 private def eventLookup (table : EventTableV1) (name : String) :
     Option (EventIdV1 × Array TypeIdV1) :=
   table.rows.findSome? fun (n, eid, tids) =>
-    if n == name then some (eid, tids) else none
+    if stringEqV1 n name then some (eid, tids) else none
 
 /-- Error name → (ErrorId, field TypeIds in declaration order). -/
 structure ErrorTableV1 where
@@ -888,7 +895,7 @@ structure ErrorTableV1 where
 private def errorLookup (table : ErrorTableV1) (name : String) :
     Option (ErrorIdV1 × Array TypeIdV1) :=
   table.rows.findSome? fun (n, eid, tids) =>
-    if n == name then some (eid, tids) else none
+    if stringEqV1 n name then some (eid, tids) else none
 
 /-- Fn name → (CallableId, param TypeIds, result TypeId). -/
 structure FnTableV1 where
@@ -897,7 +904,7 @@ structure FnTableV1 where
 private def fnLookup (table : FnTableV1) (name : String) :
     Option (CallableIdV1 × Array TypeIdV1 × TypeIdV1) :=
   table.rows.findSome? fun (n, cid, ptids, rtid) =>
-    if n == name then some (cid, ptids, rtid) else none
+    if stringEqV1 n name then some (cid, ptids, rtid) else none
 
 /-- Multi-block lowering accumulator for one callable body. The interner is
 live: comparison/Bool-literal lowering interns shapes on first actual use so
@@ -1009,82 +1016,121 @@ private def patchSwitch (st : BodyStateV1) (blockIdx : Nat)
 
 /-- Unique-preserving append of strings (O(n²) small-n). -/
 private def uniquePushString (xs : Array String) (x : String) : Array String :=
-  if xs.any (· == x) then xs else xs.push x
+  if xs.any (stringEqV1 · x) then xs else xs.push x
 
 private def uniqueStringsV1 (xs : Array String) : Array String :=
   xs.foldl uniquePushString #[]
 
 /-- Place root raw name (no Except; used for static N-6 carried analysis). -/
-private partial def placeRootRawNameV1 (place : SrcPlace) : String :=
+private def placeRootRawNameV1 (place : SrcPlace) : String :=
   match place with
   | .name n => raw n
   | .field base _ => placeRootRawNameV1 base
   | .index base _ => placeRootRawNameV1 base
 
+/-- Production source paths admit at most 255 edges. Recursive normalizer
+    analysis gets one additional root step and fails closed on deeper hand-built
+    fixtures instead of relying on kernel-opaque partial recursion. -/
+private def normalizerSourceDepthFuelV1 : Nat := 256
+
+mutual
+
+private def collectAssignRootsStmtsFuelV1 :
+    Nat → Array SrcStmt → Except NormalizeErrorV1 (Array String)
+  | 0, _ => failUnsupported "S1 normalizer source nesting exceeds 255 edges"
+  | fuel + 1, stmts => do
+      let mut roots := #[]
+      for stmt in stmts.toList do
+        roots := roots ++ (← collectAssignRootsStmtFuelV1 fuel stmt)
+      pure roots
+
+private def collectAssignRootsStmtFuelV1 :
+    Nat → SrcStmt → Except NormalizeErrorV1 (Array String)
+  | 0, _ => failUnsupported "S1 normalizer source nesting exceeds 255 edges"
+  | fuel + 1, stmt =>
+      match stmt with
+      | .assign target _ => pure #[placeRootRawNameV1 target]
+      | .if_ _ thenBlock elseBlock? => do
+          let thenRoots ← collectAssignRootsStmtsFuelV1 fuel thenBlock.statements
+          let elseRoots ← match elseBlock? with
+            | some block => collectAssignRootsStmtsFuelV1 fuel block.statements
+            | none => pure #[]
+          pure (thenRoots ++ elseRoots)
+      | .match_ _ arms => do
+          let mut roots := #[]
+          for arm in arms do
+            roots := roots ++
+              (← collectAssignRootsStmtsFuelV1 fuel arm.body.statements)
+          pure roots
+      | .for_ _ _ _ _ body =>
+          collectAssignRootsStmtsFuelV1 fuel body.statements
+      | _ => pure #[]
+
+end
+
 /-- Collect assign-target root names under a statement tree (N-6 loop-carried). -/
-private partial def collectAssignRootsStmtsV1 (stmts : Array SrcStmt) : Array String :=
-  stmts.foldl (fun acc stmt => acc ++ collectAssignRootsStmtV1 stmt) #[]
-where
-  collectAssignRootsStmtV1 : SrcStmt → Array String
-    | .assign target _ => #[placeRootRawNameV1 target]
-    | .if_ _ thenBlock elseBlock? =>
-        collectAssignRootsStmtsV1 thenBlock.statements ++
-          (elseBlock?.map (fun b => collectAssignRootsStmtsV1 b.statements)).getD #[]
-    | .match_ _ arms =>
-        arms.foldl (fun acc arm => acc ++ collectAssignRootsStmtsV1 arm.body.statements) #[]
-    | .for_ _ _ _ _ body => collectAssignRootsStmtsV1 body.statements
-    | _ => #[]
+private def collectAssignRootsStmtsV1
+    (stmts : Array SrcStmt) : Except NormalizeErrorV1 (Array String) :=
+  collectAssignRootsStmtsFuelV1 normalizerSourceDepthFuelV1 stmts
 
 /-- Names a for-body may rebind from an outer live set (excludes binder + params). -/
 private def loopCarriedNamesV1
     (body : SrcBlock) (live : Array String) (binder : String)
-    (paramNames : Array String) : Array String :=
-  let roots := collectAssignRootsStmtsV1 body.statements
-  uniqueStringsV1 (roots.filterMap fun n =>
-    if n != binder && live.any (· == n) && !(paramNames.any (· == n)) then
+    (paramNames : Array String) : Except NormalizeErrorV1 (Array String) := do
+  let roots ← collectAssignRootsStmtsV1 body.statements
+  pure (uniqueStringsV1 (roots.filterMap fun n =>
+    if !stringEqV1 n binder && live.any (stringEqV1 · n) &&
+        !(paramNames.any (stringEqV1 · n)) then
       some n
-    else none)
+    else none))
 
 /-- Count loop-header block params: each `for` contributes `1 + |carried|`
     (induction + N-6 loop-carried mutable outer locals) plus nested fors.
     Thread `live` let/param names so carried detection matches lowering. -/
-private partial def countLoopBlockParamsStmtsV1
+private def countLoopBlockParamsStmtsFuelV1
+    (fuel : Nat)
     (stmts : Array SrcStmt) (live : Array String) (paramNames : Array String) :
-    Nat :=
-  (countLoopBlockParamsStmtsGo stmts live paramNames).1
-where
-  countLoopBlockParamsStmtsGo (stmts : Array SrcStmt) (live : Array String)
-      (paramNames : Array String) : Nat × Array String :=
-    stmts.foldl
-      (fun (acc, live) stmt =>
-        let (c, live') := countLoopBlockParamsStmtV1 stmt live paramNames
-        (acc + c, live'))
-      (0, live)
+    Except NormalizeErrorV1 (Nat × Array String) :=
+  match fuel with
+  | 0 => failUnsupported "S1 normalizer source nesting exceeds 255 edges"
+  | fuel + 1 => do
+      let mut count := 0
+      let mut currentLive := live
+      for stmt in stmts.toList do
+        match stmt with
+        | .let_ name _ _ =>
+            currentLive := uniquePushString currentLive (raw name)
+        | .if_ _ thenBlock elseBlock? =>
+            let (thenCount, _) ← countLoopBlockParamsStmtsFuelV1
+              fuel thenBlock.statements currentLive paramNames
+            let elseCount ← match elseBlock? with
+              | some block => do
+                  let (value, _) ← countLoopBlockParamsStmtsFuelV1
+                    fuel block.statements currentLive paramNames
+                  pure value
+              | none => pure 0
+            count := count + thenCount + elseCount
+        | .match_ _ arms =>
+            for arm in arms do
+              let (armCount, _) ← countLoopBlockParamsStmtsFuelV1
+                fuel arm.body.statements currentLive paramNames
+              count := count + armCount
+        | .for_ binder _ _ _ body =>
+            let bname := raw binder
+            let carried ← loopCarriedNamesV1 body currentLive bname paramNames
+            let liveBody := uniquePushString currentLive bname
+            let (nested, _) ← countLoopBlockParamsStmtsFuelV1
+              fuel body.statements liveBody paramNames
+            count := count + 1 + carried.size + nested
+        | _ => pure ()
+      pure (count, currentLive)
 
-  countLoopBlockParamsStmtV1 (stmt : SrcStmt) (live : Array String)
-      (paramNames : Array String) : Nat × Array String :=
-    match stmt with
-    | .let_ name _ _ =>
-        (0, uniquePushString live (raw name))
-    | .if_ _ thenBlock elseBlock? =>
-        let cT := countLoopBlockParamsStmtsV1 thenBlock.statements live paramNames
-        let cE := match elseBlock? with
-          | some b => countLoopBlockParamsStmtsV1 b.statements live paramNames
-          | none => 0
-        (cT + cE, live)
-    | .match_ _ arms =>
-        let c := arms.foldl
-          (fun acc arm =>
-            acc + countLoopBlockParamsStmtsV1 arm.body.statements live paramNames)
-          0
-        (c, live)
-    | .for_ binder _ _ _ body =>
-        let bname := raw binder
-        let carried := loopCarriedNamesV1 body live bname paramNames
-        let liveBody := uniquePushString live bname
-        let nested := countLoopBlockParamsStmtsV1 body.statements liveBody paramNames
-        (1 + carried.size + nested, live)
-    | _ => (0, live)
+private def countLoopBlockParamsStmtsV1
+    (stmts : Array SrcStmt) (live : Array String) (paramNames : Array String) :
+    Except NormalizeErrorV1 Nat := do
+  let (count, _) ← countLoopBlockParamsStmtsFuelV1
+    normalizerSourceDepthFuelV1 stmts live paramNames
+  pure count
 
 /-- Whether an expression match has at least one switch case (integer/Bool
     literal or constructor) and therefore allocates a join block param.
@@ -1096,63 +1142,104 @@ private def exprMatchNeedsJoinV1
     | .literal (.integer _) | .literal (.bool _) | .constructor _ _ => true
     | _ => false
 
+mutual
+
+private def countExprMatchJoinsInExprFuelV1 :
+    Nat → SrcExpr → Except NormalizeErrorV1 Nat
+  | 0, _ => failUnsupported "S1 normalizer source nesting exceeds 255 edges"
+  | fuel + 1, expr => do
+      match expr with
+      | .match_ scrutinee arms =>
+          let mut count := if exprMatchNeedsJoinV1 arms then 1 else 0
+          count := count + (← countExprMatchJoinsInExprFuelV1 fuel scrutinee)
+          for arm in arms do
+            count := count + (← countExprMatchJoinsInExprFuelV1 fuel arm.value)
+          pure count
+      | .binary _ lhs rhs =>
+          pure ((← countExprMatchJoinsInExprFuelV1 fuel lhs) +
+            (← countExprMatchJoinsInExprFuelV1 fuel rhs))
+      | .unary _ operand => countExprMatchJoinsInExprFuelV1 fuel operand
+      | .localCall _ args | .constructor _ args =>
+          let mut count := 0
+          for arg in args do
+            count := count + (← countExprMatchJoinsInExprFuelV1 fuel arg)
+          pure count
+      | .externalCall call =>
+          let mut count := 0
+          for arg in call.args do
+            count := count + (← countExprMatchJoinsInExprFuelV1 fuel arg)
+          pure count
+      | .place place => countExprMatchJoinsInPlaceFuelV1 fuel place
+      | .literal _ => pure 0
+
+private def countExprMatchJoinsInPlaceFuelV1 :
+    Nat → SrcPlace → Except NormalizeErrorV1 Nat
+  | 0, _ => failUnsupported "S1 normalizer source nesting exceeds 255 edges"
+  | fuel + 1, place =>
+      match place with
+      | .name _ => pure 0
+      | .field base _ => countExprMatchJoinsInPlaceFuelV1 fuel base
+      | .index base idx => do
+          pure ((← countExprMatchJoinsInPlaceFuelV1 fuel base) +
+            (← countExprMatchJoinsInExprFuelV1 fuel idx))
+
+end
+
 /-- Count expression-match join block params reachable from expressions
     (including nested matches and place indices). Each join-needing match
     contributes exactly one block param. -/
-private partial def countExprMatchJoinsInExprV1 (expr : SrcExpr) : Nat :=
-  match expr with
-  | .match_ scrutinee arms =>
-      let self := if exprMatchNeedsJoinV1 arms then 1 else 0
-      self + countExprMatchJoinsInExprV1 scrutinee +
-        arms.foldl (fun acc arm => acc + countExprMatchJoinsInExprV1 arm.value) 0
-  | .binary _ lhs rhs =>
-      countExprMatchJoinsInExprV1 lhs + countExprMatchJoinsInExprV1 rhs
-  | .unary _ operand => countExprMatchJoinsInExprV1 operand
-  | .localCall _ args =>
-      args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
-  | .externalCall call =>
-      call.args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
-  | .constructor _ args =>
-      args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
-  | .place p => countExprMatchJoinsInPlaceV1 p
-  | .literal _ => 0
-where
-  countExprMatchJoinsInPlaceV1 : SrcPlace → Nat
-    | .name _ => 0
-    | .field base _ => countExprMatchJoinsInPlaceV1 base
-    | .index base idx =>
-        countExprMatchJoinsInPlaceV1 base + countExprMatchJoinsInExprV1 idx
+private def countExprMatchJoinsInExprV1
+    (expr : SrcExpr) : Except NormalizeErrorV1 Nat :=
+  countExprMatchJoinsInExprFuelV1 normalizerSourceDepthFuelV1 expr
 
 /-- Count expression-match joins in statement lists (let/return/if/for/… values). -/
-private partial def countExprMatchJoinsInStmtsV1 (stmts : Array SrcStmt) : Nat :=
-  stmts.foldl (fun acc stmt => acc + countExprMatchJoinsInStmtV1 stmt) 0
-where
-  countExprMatchJoinsInStmtV1 : SrcStmt → Nat
-    | .let_ _ _ value => countExprMatchJoinsInExprV1 value
-    | .assign target value =>
-        countExprMatchJoinsInExprV1 (.place target) + countExprMatchJoinsInExprV1 value
-    | .if_ condition thenBlock elseBlock? =>
-        countExprMatchJoinsInExprV1 condition +
-          countExprMatchJoinsInStmtsV1 thenBlock.statements +
-          (elseBlock?.map (fun b => countExprMatchJoinsInStmtsV1 b.statements)).getD 0
-    | .match_ scrutinee arms =>
-        countExprMatchJoinsInExprV1 scrutinee +
-          arms.foldl (fun acc arm =>
-            acc + countExprMatchJoinsInStmtsV1 arm.body.statements) 0
-    | .for_ _ start endExclusive _ body =>
-        countExprMatchJoinsInExprV1 start + countExprMatchJoinsInExprV1 endExclusive +
-          countExprMatchJoinsInStmtsV1 body.statements
-    | .assert_ condition _ => countExprMatchJoinsInExprV1 condition
-    | .return_ (some e) => countExprMatchJoinsInExprV1 e
-    | .return_ none => 0
-    | .revert _ args =>
-        args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
-    | .emit _ args =>
-        args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
-    | .call externalCall =>
-        externalCall.args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
-    | .schedule externalCall =>
-        externalCall.args.foldl (fun acc a => acc + countExprMatchJoinsInExprV1 a) 0
+private def countExprMatchJoinsInStmtsFuelV1
+    (fuel : Nat) (stmts : Array SrcStmt) : Except NormalizeErrorV1 Nat :=
+  match fuel with
+  | 0 => failUnsupported "S1 normalizer source nesting exceeds 255 edges"
+  | fuel + 1 => do
+      let mut count := 0
+      for stmt in stmts.toList do
+        count := count + (← match stmt with
+          | .let_ _ _ value => countExprMatchJoinsInExprV1 value
+          | .assign target value => do
+              pure ((← countExprMatchJoinsInExprV1 (.place target)) +
+                (← countExprMatchJoinsInExprV1 value))
+          | .if_ condition thenBlock elseBlock? => do
+              let conditionCount ← countExprMatchJoinsInExprV1 condition
+              let thenCount ← countExprMatchJoinsInStmtsFuelV1 fuel thenBlock.statements
+              let elseCount ← match elseBlock? with
+                | some block => countExprMatchJoinsInStmtsFuelV1 fuel block.statements
+                | none => pure 0
+              pure (conditionCount + thenCount + elseCount)
+          | .match_ scrutinee arms => do
+              let mut armCount := 0
+              for arm in arms do
+                armCount := armCount +
+                  (← countExprMatchJoinsInStmtsFuelV1 fuel arm.body.statements)
+              pure ((← countExprMatchJoinsInExprV1 scrutinee) + armCount)
+          | .for_ _ start endExclusive _ body => do
+              pure ((← countExprMatchJoinsInExprV1 start) +
+                (← countExprMatchJoinsInExprV1 endExclusive) +
+                (← countExprMatchJoinsInStmtsFuelV1 fuel body.statements))
+          | .assert_ condition _ => countExprMatchJoinsInExprV1 condition
+          | .return_ (some expr) => countExprMatchJoinsInExprV1 expr
+          | .return_ none => pure 0
+          | .revert _ args | .emit _ args => do
+              let mut argCount := 0
+              for arg in args do
+                argCount := argCount + (← countExprMatchJoinsInExprV1 arg)
+              pure argCount
+          | .call externalCall | .schedule externalCall => do
+              let mut argCount := 0
+              for arg in externalCall.args do
+                argCount := argCount + (← countExprMatchJoinsInExprV1 arg)
+              pure argCount)
+      pure count
+
+private def countExprMatchJoinsInStmtsV1
+    (stmts : Array SrcStmt) : Except NormalizeErrorV1 Nat :=
+  countExprMatchJoinsInStmtsFuelV1 normalizerSourceDepthFuelV1 stmts
 
 /-- Require an already-interned TypeId for a `let` binding: any registered
     scalar, named Struct/Enum, or anonymous aggregate (Array/Map/Option/Bytes/
@@ -1781,7 +1868,7 @@ private inductive PlaceStepV1 where
   | index (idx : SrcExpr)
 
 /-- Peel `root.f[i].g` into `(root, #[.field f, .index i, .field g])`. -/
-private partial def peelPlaceRootV1 (place : SrcPlace) :
+private def peelPlaceRootV1 (place : SrcPlace) :
     Except NormalizeErrorV1 (SourceNameComponentV1 × Array PlaceStepV1) :=
   match place with
   | .name n => pure (n, #[])
@@ -1796,12 +1883,14 @@ mutual
 
 /-- Lower a place to a value: bare name (env / stateLoad / Op.Constant),
     fieldGet, indexGet. Each const read emits an independent `Op.Constant`. -/
-private partial def lowerPlace
+private def lowerPlaceFuelV1
+    (fuel : Nat)
     (place : SrcPlace) (st : BodyStateV1) (states : StateTableV1)
     (fns : FnTableV1) :
     Except NormalizeErrorV1 (ValueIdV1 × TypeIdV1 × BodyStateV1) :=
-  match place with
-  | .name n =>
+  match fuel, place with
+  | 0, _ => failUnsupported "S1 normalizer source nesting exceeds 255 edges"
+  | _ + 1, .name n =>
       let key := raw n
       match envLookup st.env key with
       | some (vid, tid) => pure (vid, tid, st)
@@ -1823,7 +1912,7 @@ private partial def lowerPlace
                   else
                     failUnsupported
                       s!"S1 bare place '{key}' is neither param, state, nor const"
-  | .field base fieldName => do
+  | fuel + 1, .field base fieldName => do
       -- N5/N-2: ContextRead surfaces `context.unixTimeSeconds` (UInt64) and
       -- `context.caller` (Principal). PureFn fail closed.
       -- Match on base+field directly (same shape as ContextCommitSurface helpers).
@@ -1887,7 +1976,8 @@ private partial def lowerPlace
             failUnsupported
               s!"S1 unsupported context field '{raw fieldName}' (admitted: unixTimeSeconds, caller, blockHeight, chainId, contractId, attachedValue)"
           else do
-            let (baseVid, baseTid, st1) ← lowerPlace base st states fns
+            let (baseVid, baseTid, st1) ←
+              lowerPlaceFuelV1 fuel base st states fns
             match shapeOf? st1.interner.types baseTid with
             | some (.struct fields) =>
                 match findStructFieldIndex fields (raw fieldName) with
@@ -1902,7 +1992,8 @@ private partial def lowerPlace
             | _ =>
                 failUnsupported "S1 field place requires a struct base"
       | _ => do
-          let (baseVid, baseTid, st1) ← lowerPlace base st states fns
+          let (baseVid, baseTid, st1) ←
+            lowerPlaceFuelV1 fuel base st states fns
           match shapeOf? st1.interner.types baseTid with
           | some (.struct fields) =>
               match findStructFieldIndex fields (raw fieldName) with
@@ -1916,13 +2007,14 @@ private partial def lowerPlace
                   pure (vid, fieldTid, st2)
           | _ =>
               failUnsupported "S1 field place requires a struct base"
-  | .index base idxExpr => do
-      let (baseVid, baseTid, st1) ← lowerPlace base st states fns
+  | fuel + 1, .index base idxExpr => do
+      let (baseVid, baseTid, st1) ← lowerPlaceFuelV1 fuel base st states fns
       match shapeOf? st1.interner.types baseTid with
       | some (.array elTid _) => do
           let (iU32, u32Tid) := internShape st1.interner (.uint 32)
           let st0 := { st1 with interner := iU32 }
-          let (idxVid, idxTid, st2) ← lowerExpr idxExpr u32Tid st0 states fns
+          let (idxVid, idxTid, st2) ←
+            lowerExprFuelV1 fuel idxExpr u32Tid st0 states fns
           unless idxTid == u32Tid do
             return ← failUnsupported "S1 Array index must be UInt32"
           let (st3, vid) := emitValue st2 elTid (.indexGet baseVid idxVid)
@@ -1931,7 +2023,8 @@ private partial def lowerPlace
           let (iU32, u32Tid) := internShape st1.interner (.uint 32)
           let (iU8, u8Tid) := internShape iU32 (.uint 8)
           let st0 := { st1 with interner := iU8 }
-          let (idxVid, idxTid, st2) ← lowerExpr idxExpr u32Tid st0 states fns
+          let (idxVid, idxTid, st2) ←
+            lowerExprFuelV1 fuel idxExpr u32Tid st0 states fns
           unless idxTid == u32Tid do
             return ← failUnsupported "S1 Bytes index must be UInt32"
           let (st3, vid) := emitValue st2 u8Tid (.indexGet baseVid idxVid)
@@ -1939,7 +2032,8 @@ private partial def lowerPlace
       | some (.map keyTid valTid) => do
           let (iOpt, optTid) := internShape st1.interner (.option valTid)
           let st0 := { st1 with interner := iOpt }
-          let (idxVid, idxTid, st2) ← lowerExpr idxExpr keyTid st0 states fns
+          let (idxVid, idxTid, st2) ←
+            lowerExprFuelV1 fuel idxExpr keyTid st0 states fns
           unless idxTid == keyTid do
             return ← failUnsupported "S1 Map index type mismatch"
           let (st3, vid) := emitValue st2 optTid (.indexGet baseVid idxVid)
@@ -1948,11 +2042,13 @@ private partial def lowerPlace
           failUnsupported "S1 index place requires Array, Bytes, or Map base"
 
 /-- N3: apply a nonempty field/index path as a functional update of `baseVid`. -/
-private partial def applyNestedUpdateV1
-    (baseVid : ValueIdV1) (baseTid : TypeIdV1)
-    (steps : Array PlaceStepV1) (value : SrcExpr)
-    (st : BodyStateV1) (states : StateTableV1) (fns : FnTableV1) :
-    Except NormalizeErrorV1 (ValueIdV1 × BodyStateV1) := do
+private def applyNestedUpdateFuelV1 : Nat →
+    ValueIdV1 → TypeIdV1 → Array PlaceStepV1 → SrcExpr →
+    BodyStateV1 → StateTableV1 → FnTableV1 →
+    Except NormalizeErrorV1 (ValueIdV1 × BodyStateV1)
+| 0 => fun _ _ _ _ _ _ _ =>
+    failUnsupported "S1 normalizer source nesting exceeds 255 edges"
+| fuel + 1 => fun baseVid baseTid steps value st states fns => do
   if steps.isEmpty then
     return ← failUnsupported "S1 nested assign requires at least one field/index step"
   let some first := steps[0]? |
@@ -1967,7 +2063,8 @@ private partial def applyNestedUpdateV1
                 failUnsupported
                   s!"S1 field '{raw fieldName}' not found on struct"
             | some (idx, fieldTid) => do
-                let (vVid, vTid, st1) ← lowerExpr value fieldTid st states fns
+                let (vVid, vTid, st1) ←
+                  lowerExprFuelV1 fuel value fieldTid st states fns
                 unless vTid == fieldTid do
                   return ← failUnsupported "S1 field assign value type mismatch"
                 let (st2, newVid) :=
@@ -1982,10 +2079,11 @@ private partial def applyNestedUpdateV1
             let (iU32, u32Tid) := internShape st.interner (.uint 32)
             let st0 := { st with interner := iU32 }
             let (idxVid, idxTid, st1) ←
-              lowerExpr idxExpr u32Tid st0 states fns
+              lowerExprFuelV1 fuel idxExpr u32Tid st0 states fns
             unless idxTid == u32Tid do
               return ← failUnsupported "S1 Array index must be UInt32"
-            let (vVid, vTid, st2) ← lowerExpr value elTid st1 states fns
+            let (vVid, vTid, st2) ←
+              lowerExprFuelV1 fuel value elTid st1 states fns
             unless vTid == elTid do
               return ← failUnsupported "S1 Array index-assign value type mismatch"
             let (st3, newVid) :=
@@ -1996,10 +2094,11 @@ private partial def applyNestedUpdateV1
             let (iU8, u8Tid) := internShape iU32 (.uint 8)
             let st0 := { st with interner := iU8 }
             let (idxVid, idxTid, st1) ←
-              lowerExpr idxExpr u32Tid st0 states fns
+              lowerExprFuelV1 fuel idxExpr u32Tid st0 states fns
             unless idxTid == u32Tid do
               return ← failUnsupported "S1 Bytes index must be UInt32"
-            let (vVid, vTid, st2) ← lowerExpr value u8Tid st1 states fns
+            let (vVid, vTid, st2) ←
+              lowerExprFuelV1 fuel value u8Tid st1 states fns
             unless vTid == u8Tid do
               return ← failUnsupported "S1 Bytes index-assign value must be UInt8"
             let (st3, newVid) :=
@@ -2007,10 +2106,11 @@ private partial def applyNestedUpdateV1
             pure (newVid, st3)
         | some (.map keyTid valTid) => do
             let (idxVid, idxTid, st1) ←
-              lowerExpr idxExpr keyTid st states fns
+              lowerExprFuelV1 fuel idxExpr keyTid st states fns
             unless idxTid == keyTid do
               return ← failUnsupported "S1 Map index type mismatch"
-            let (vVid, vTid, st2) ← lowerExpr value valTid st1 states fns
+            let (vVid, vTid, st2) ←
+              lowerExprFuelV1 fuel value valTid st1 states fns
             unless vTid == valTid do
               return ← failUnsupported "S1 Map index-assign value type mismatch"
             let (st3, newVid) :=
@@ -2034,7 +2134,8 @@ private partial def applyNestedUpdateV1
                   emitValue st fieldTid
                     (.fieldGet baseVid (UInt32.ofNat idx))
                 let (newMid, st2) ←
-                  applyNestedUpdateV1 midVid fieldTid rest value st1 states fns
+                  applyNestedUpdateFuelV1 fuel
+                    midVid fieldTid rest value st1 states fns
                 let (st3, newBase) :=
                   emitValue st2 baseTid
                     (.fieldSet baseVid (UInt32.ofNat idx) newMid)
@@ -2047,13 +2148,13 @@ private partial def applyNestedUpdateV1
             let (iU32, u32Tid) := internShape st.interner (.uint 32)
             let st0 := { st with interner := iU32 }
             let (idxVid, idxTid, st1) ←
-              lowerExpr idxExpr u32Tid st0 states fns
+              lowerExprFuelV1 fuel idxExpr u32Tid st0 states fns
             unless idxTid == u32Tid do
               return ← failUnsupported "S1 Array index must be UInt32"
             let (st2, midVid) :=
               emitValue st1 elTid (.indexGet baseVid idxVid)
             let (newMid, st3) ←
-              applyNestedUpdateV1 midVid elTid rest value st2 states fns
+              applyNestedUpdateFuelV1 fuel midVid elTid rest value st2 states fns
             let (st4, newBase) :=
               emitValue st3 baseTid (.indexSet baseVid idxVid newMid)
             pure (newBase, st4)
@@ -2067,7 +2168,7 @@ private partial def applyNestedUpdateV1
             -- when the key is absent (standard revert, no silent insert of a
             -- fabricated value), then update the payload and `IndexSet` back.
             let (idxVid, idxTid, st1) ←
-              lowerExpr idxExpr keyTid st states fns
+              lowerExprFuelV1 fuel idxExpr keyTid st states fns
             unless idxTid == keyTid do
               return ← failUnsupported "S1 Map index type mismatch"
             let (iOpt, optTid) := internShape st1.interner (.option valTid)
@@ -2077,24 +2178,26 @@ private partial def applyNestedUpdateV1
             let (st3, midVid) :=
               emitValue st2 valTid (.variantPayload optVid 1 (UInt32.ofNat 0))
             let (newMid, st4) ←
-              applyNestedUpdateV1 midVid valTid rest value st3 states fns
+              applyNestedUpdateFuelV1 fuel midVid valTid rest value st3 states fns
             let (st5, newBase) :=
               emitValue st4 baseTid (.indexSet baseVid idxVid newMid)
             pure (newBase, st5)
         | _ =>
             failUnsupported "S1 index place requires Array, Bytes, or Map base"
 
-private partial def lowerExpr
+private def lowerExprFuelV1
+    (fuel : Nat)
     (expr : SrcExpr) (expectedTid : TypeIdV1)
     (st : BodyStateV1) (states : StateTableV1) (fns : FnTableV1) :
     Except NormalizeErrorV1 (ValueIdV1 × TypeIdV1 × BodyStateV1) :=
-  match expr with
-  | .place p => do
-      let (vid, tid, st1) ← lowerPlace p st states fns
+  match fuel, expr with
+  | 0, _ => failUnsupported "S1 normalizer source nesting exceeds 255 edges"
+  | fuel + 1, .place p => do
+      let (vid, tid, st1) ← lowerPlaceFuelV1 fuel p st states fns
       unless tid == expectedTid do
         return ← failUnsupported "S1 place type does not match enclosing expected type"
       pure (vid, tid, st1)
-  | .binary op lhs rhs => do
+  | fuel + 1, .binary op lhs rhs => do
       let srcOp := op
       -- Same-width integer ops (arithmetic and bitwise share one path).
       let arithOp? : Option BinaryOpV1 :=
@@ -2144,8 +2247,10 @@ private partial def lowerExpr
             return ← failUnsupported
               "S1 Field does not support mod (remainder); use div"
         -- Preserve source evaluation / ValueId order: lhs, then rhs, then op.
-        let (lVid, lTid, st1) ← lowerExpr lhs expectedTid st states fns
-        let (rVid, rTid, st2) ← lowerExpr rhs expectedTid st1 states fns
+        let (lVid, lTid, st1) ←
+          lowerExprFuelV1 fuel lhs expectedTid st states fns
+        let (rVid, rTid, st2) ←
+          lowerExprFuelV1 fuel rhs expectedTid st1 states fns
         unless lTid == expectedTid && rTid == expectedTid do
           return ← failUnsupported
             "S1 binary arithmetic/bitwise requires same-width expected operands"
@@ -2159,10 +2264,12 @@ private partial def lowerExpr
           requireExpectedIntegerWidth st.interner.types expectedTid "shift"
           let (iU32, u32Tid) := internShape st.interner (.uint 32)
           let st0 := { st with interner := iU32 }
-          let (lVid, lTid, st1) ← lowerExpr lhs expectedTid st0 states fns
+          let (lVid, lTid, st1) ←
+            lowerExprFuelV1 fuel lhs expectedTid st0 states fns
           unless lTid == expectedTid do
             return ← failUnsupported "S1 shift requires a legal UInt/Int operand"
-          let (rVid, rTid, st2) ← lowerExpr rhs u32Tid st1 states fns
+          let (rVid, rTid, st2) ←
+            lowerExprFuelV1 fuel rhs u32Tid st1 states fns
           unless rTid == u32Tid do
             return ← failUnsupported "S1 shift count must be UInt32"
           let (st3, vid) := emitValue st2 expectedTid (.binary semanticOp lVid rVid)
@@ -2177,10 +2284,12 @@ private partial def lowerExpr
               return ← failUnsupported
                 "S1 logical operator requires an enclosing Bool expected type"
             let st0 := { st with interner := i1 }
-            let (lVid, lTid, st1) ← lowerExpr lhs boolTid st0 states fns
+            let (lVid, lTid, st1) ←
+              lowerExprFuelV1 fuel lhs boolTid st0 states fns
             unless lTid == boolTid do
               return ← failUnsupported "S1 logical operator requires Bool operands"
-            let (rVid, rTid, st2) ← lowerExpr rhs boolTid st1 states fns
+            let (rVid, rTid, st2) ←
+              lowerExprFuelV1 fuel rhs boolTid st1 states fns
             unless rTid == boolTid do
               return ← failUnsupported "S1 logical operator requires Bool operands"
             let (st3, vid) := emitValue st2 boolTid (.binary semanticOp lVid rVid)
@@ -2229,11 +2338,13 @@ private partial def lowerExpr
                 return ← failUnsupported
                   "S1 Field does not support ordering comparisons"
             let st0 := { stB with interner := iOp }
-            let (lVid, lTid, st1) ← lowerExpr lhs opTid st0 states fns
+            let (lVid, lTid, st1) ←
+              lowerExprFuelV1 fuel lhs opTid st0 states fns
             unless lTid == opTid do
               return ← failUnsupported
                 "S1 comparison requires same-type operands"
-            let (rVid, rTid, st2) ← lowerExpr rhs opTid st1 states fns
+            let (rVid, rTid, st2) ←
+              lowerExprFuelV1 fuel rhs opTid st1 states fns
             unless rTid == opTid do
               return ← failUnsupported
                 "S1 comparison requires same-type operands"
@@ -2241,7 +2352,7 @@ private partial def lowerExpr
             pure (vid, boolTid, st3)
         | none =>
             failUnsupported "S1 normalizer supports only binary arithmetic, bitwise, shift, comparison, and logical operators"
-  | .literal literal =>
+  | _ + 1, .literal literal =>
       match literal with
       | .integer magnitude => do
           -- Expected type supplies the width (UInt or positive Int). CheckV1
@@ -2302,7 +2413,7 @@ private partial def lowerExpr
               s!"S1 String literal exceeds maxTypeLengthV1 ({maxTypeLengthV1}) UTF-8 bytes"
           let (st1, vid) := emitValue st0 stringTid (.literal stringTid bytes)
           pure (vid, stringTid, st1)
-  | .constructor ctor args => do
+  | fuel + 1, .constructor ctor args => do
       let ctorComps := (NonEmptyArray.toArray ctor.components).map (·.raw)
       let ctorQn := sourceQualifiedNameStringV1 ctor
       -- ADR-0030 E2: env-read catalog QNs (pf.assets.*.balanceOfSelf) lower to
@@ -2346,7 +2457,8 @@ private partial def lowerExpr
               let st1 := { st0 with interner := iP }
               if h : args.size ≥ 1 then
                 let mintArg := args[0]
-                let (mintVid, mintTid, st2) ← lowerExpr mintArg pTid st1 states fns
+                let (mintVid, mintTid, st2) ←
+                  lowerExprFuelV1 fuel mintArg pTid st1 states fns
                 unless mintTid == pTid do
                   return ← failUnsupported
                     "S1 pf.assets.token.balanceOfSelf mint argument must be a Principal"
@@ -2371,7 +2483,8 @@ private partial def lowerExpr
             let mut i : Nat := 0
             for arg in args do
               let expectedArgTid := if i % 2 == 0 then keyTid else valTid
-              let (aVid, aTid, st1) ← lowerExpr arg expectedArgTid st' states fns
+              let (aVid, aTid, st1) ←
+                lowerExprFuelV1 fuel arg expectedArgTid st' states fns
               unless aTid == expectedArgTid do
                 return ← failUnsupported
                   "S1 Map.of argument type mismatch"
@@ -2392,12 +2505,13 @@ private partial def lowerExpr
         unless args.size == argTids.size do
           return ← failUnsupported
             s!"S1 constructor expects {argTids.size} arguments, got {args.size}"
-        let (argIds, st') ← lowerArgs args argTids st states fns
+        let (argIds, st') ←
+          lowerArgsFuelV1 fuel args argTids st states fns
           "S1 constructor argument type mismatch"
         let (st2, vid) :=
           emitValue st' resultTid (.construct resultTid ctorIdx argIds)
         pure (vid, resultTid, st2)
-  | .unary op operand => do
+  | fuel + 1, .unary op operand => do
       match op with
       | .neg => do
           -- UInt: desugar to `0 - x` with a zero constant of the same width.
@@ -2410,7 +2524,8 @@ private partial def lowerExpr
               unless legalIntegerWidthV1 w.toNat do
                 return ← failUnsupported
                   "S1 unary checked negation requires expected legal UInt type"
-              let (oVid, oTid, st1) ← lowerExpr operand expectedTid st states fns
+              let (oVid, oTid, st1) ←
+                lowerExprFuelV1 fuel operand expectedTid st states fns
               unless oTid == expectedTid do
                 return ← failUnsupported
                   "S1 unary checked negation requires a legal UInt operand"
@@ -2435,7 +2550,7 @@ private partial def lowerExpr
                   pure (vid, expectedTid, st1)
               | _ => do
                   let (oVid, oTid, st1) ←
-                    lowerExpr operand expectedTid st states fns
+                    lowerExprFuelV1 fuel operand expectedTid st states fns
                   unless oTid == expectedTid do
                     return ← failUnsupported
                       "S1 unary Int negation requires a legal Int operand"
@@ -2447,7 +2562,7 @@ private partial def lowerExpr
                 return ← failUnsupported
                   "S1 unary Field negation requires a closed-catalog Field spec"
               let (oVid, oTid, st1) ←
-                lowerExpr operand expectedTid st states fns
+                lowerExprFuelV1 fuel operand expectedTid st states fns
               unless oTid == expectedTid do
                 return ← failUnsupported
                   "S1 unary Field negation requires a Field operand"
@@ -2459,7 +2574,8 @@ private partial def lowerExpr
                 "S1 unary checked negation requires expected legal UInt/Int/Field type"
       | .bitNot => do
           requireExpectedIntegerWidth st.interner.types expectedTid "unary bit-not"
-          let (oVid, oTid, st1) ← lowerExpr operand expectedTid st states fns
+          let (oVid, oTid, st1) ←
+            lowerExprFuelV1 fuel operand expectedTid st states fns
           unless oTid == expectedTid do
             return ← failUnsupported
               "S1 unary bit-not requires a legal UInt/Int operand"
@@ -2471,13 +2587,14 @@ private partial def lowerExpr
             return ← failUnsupported
               "S1 unary not requires an enclosing Bool expected type"
           let st0 := { st with interner := i1 }
-          let (oVid, oTid, st1) ← lowerExpr operand boolTid st0 states fns
+          let (oVid, oTid, st1) ←
+            lowerExprFuelV1 fuel operand boolTid st0 states fns
           unless oTid == boolTid do
             return ← failUnsupported
               "S1 unary not requires a Bool operand"
           let (st2, vid) := emitValue st1 boolTid (.unary .not oVid)
           pure (vid, boolTid, st2)
-  | .localCall callee args => do
+  | fuel + 1, .localCall callee args => do
       let key := raw callee
       -- N5: intrinsic `commit(x)` → Op.Commit (label-only identity).
       -- User `fn commit` still wins via the ordinary fnLookup path.
@@ -2492,7 +2609,8 @@ private partial def lowerExpr
         | none =>
             failUnsupported "S1 commit missing argument"
         | some arg0 => do
-            let (aVid, aTid, st1) ← lowerExpr arg0 expectedTid st states fns
+            let (aVid, aTid, st1) ←
+              lowerExprFuelV1 fuel arg0 expectedTid st states fns
             unless aTid == expectedTid do
               return ← failUnsupported
                 "S1 commit operand type does not match the enclosing expected type"
@@ -2510,11 +2628,12 @@ private partial def lowerExpr
             unless args.size == paramTids.size do
               return ← failUnsupported
                 s!"S1 localCall '{key}' expects {paramTids.size} arguments, got {args.size}"
-            let (argIds, st') ← lowerArgs args paramTids st states fns
+            let (argIds, st') ←
+              lowerArgsFuelV1 fuel args paramTids st states fns
               s!"S1 localCall '{key}' argument type mismatch"
             let (st2, vid) := emitValue st' fnResultTid (.pureCall callableId argIds)
             pure (vid, fnResultTid, st2)
-  | .match_ scrutinee arms => do
+  | fuel + 1, .match_ scrutinee arms => do
       -- T4/T5 expression-level match: integer/Bool literal cases, Enum/Option
       -- constructor cases (VariantTag → switch UInt32), unique catch-all.
       -- Arm values lower in separate blocks and jump to a join block param.
@@ -2525,12 +2644,12 @@ private partial def lowerExpr
       let (scrutVid, scrutTid, st1) ←
         match scrutinee with
         | .literal (.bool _) =>
-            lowerExpr scrutinee boolTid st0 states fns
+            lowerExprFuelV1 fuel scrutinee boolTid st0 states fns
         | .place p => do
-            let (vid, tid, stP) ← lowerPlace p st0 states fns
+            let (vid, tid, stP) ← lowerPlaceFuelV1 fuel p st0 states fns
             pure (vid, tid, stP)
         | .unary .not _ =>
-            lowerExpr scrutinee boolTid st0 states fns
+            lowerExprFuelV1 fuel scrutinee boolTid st0 states fns
         | .binary op _ _ => do
             let srcOp := op
             if srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.eq ||
@@ -2541,15 +2660,15 @@ private partial def lowerExpr
                 srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.ge ||
                 srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.logicalAnd ||
                 srcOp == ProofForgeV2.Source.AstV1.BinaryOpV1.logicalOr then
-              lowerExpr scrutinee boolTid st0 states fns
+              lowerExprFuelV1 fuel scrutinee boolTid st0 states fns
             else
               let (iU, u64Tid) := internShape st0.interner (.uint 64)
               let stU := { st0 with interner := iU }
-              lowerExpr scrutinee u64Tid stU states fns
+              lowerExprFuelV1 fuel scrutinee u64Tid stU states fns
         | _ => do
             let (iU, u64Tid) := internShape st0.interner (.uint 64)
             let stU := { st0 with interner := iU }
-            lowerExpr scrutinee u64Tid stU states fns
+            lowerExprFuelV1 fuel scrutinee u64Tid stU states fns
       let scrutIsBool :=
         match anonShapeOf? st1.interner.types scrutTid with
         | some .bool => true
@@ -2630,7 +2749,8 @@ private partial def lowerExpr
           | none => st1
           | some name =>
               { st1 with env := envInsert st1.env (raw name) scrutVid scrutTid }
-        let (vid, vtid, stR) ← lowerExpr defaultValue expectedTid stD states fns
+        let (vid, vtid, stR) ←
+          lowerExprFuelV1 fuel defaultValue expectedTid stD states fns
         unless vtid == expectedTid do
           return ← failUnsupported
             "S1 match expression arm type does not match expected type"
@@ -2653,7 +2773,8 @@ private partial def lowerExpr
         for (_, armValue) in litArms do
           caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
           let (vid, vtid, stB) ←
-            lowerExpr armValue expectedTid { stA with env := savedEnv } states fns
+            lowerExprFuelV1 fuel armValue expectedTid
+              { stA with env := savedEnv } states fns
           unless vtid == expectedTid do
             return ← failUnsupported
               "S1 match expression arm type does not match expected type"
@@ -2664,7 +2785,8 @@ private partial def lowerExpr
           | none => { stA with env := savedEnv }
           | some name =>
               { stA with env := envInsert savedEnv (raw name) scrutVid scrutTid }
-        let (dVid, dTid, stD) ← lowerExpr defaultValue expectedTid stD0 states fns
+        let (dVid, dTid, stD) ←
+          lowerExprFuelV1 fuel defaultValue expectedTid stD0 states fns
         unless dTid == expectedTid do
           return ← failUnsupported
             "S1 match expression arm type does not match expected type"
@@ -2713,7 +2835,7 @@ private partial def lowerExpr
               let stBound ← bindCtorArgPatternsV1 scrutVid vIdx payloads argPats
                 { stA with env := savedEnv }
               let (vid, vtid, stB) ←
-                lowerExpr armValue expectedTid stBound states fns
+                lowerExprFuelV1 fuel armValue expectedTid stBound states fns
               unless vtid == expectedTid do
                 return ← failUnsupported
                   "S1 match expression arm type does not match expected type"
@@ -2730,7 +2852,7 @@ private partial def lowerExpr
                 lowerCtorArgGuardsCollectFailsV1 scrutVid vIdx payloads argPats
                   { stA with env := savedEnv }
               let (vid, vtid, stB) ←
-                lowerExpr armValue expectedTid stG states fns
+                lowerExprFuelV1 fuel armValue expectedTid stG states fns
               unless vtid == expectedTid do
                 return ← failUnsupported
                   "S1 match expression arm type does not match expected type"
@@ -2764,7 +2886,7 @@ private partial def lowerExpr
                 | some name =>
                     { stA with env := envInsert savedEnv (raw name) scrutVid scrutTid }
               let (dVid, dTid, stD) ←
-                lowerExpr defaultValue expectedTid stD0 states fns
+                lowerExprFuelV1 fuel defaultValue expectedTid stD0 states fns
               unless dTid == expectedTid do
                 return ← failUnsupported
                   "S1 match expression arm type does not match expected type"
@@ -2790,7 +2912,7 @@ private partial def lowerExpr
           env := savedEnv
         }
         pure (joinVid, expectedTid, stJoin)
-    | .externalCall call => do
+  | fuel + 1, .externalCall call => do
         -- N-CALL-RET: value-position sync call → result-bearing
         -- Op.ExternalCall. Callee/args share the statement discipline
         -- (anonymous integer args; bare integer literals default UInt64); the
@@ -2832,7 +2954,8 @@ private partial def lowerExpr
           requireAnonymousIntegerTypeId i1.types expectedArgTid
             "call argument"
           let st0 := { st' with interner := i1 }
-          let (vid, argTid, st1) ← lowerExpr arg expectedArgTid st0 states fns
+          let (vid, argTid, st1) ←
+            lowerExprFuelV1 fuel arg expectedArgTid st0 states fns
           unless argTid == expectedArgTid do
             return ← failUnsupported "S1 call argument type mismatch"
           argIds := argIds.push vid
@@ -2843,21 +2966,51 @@ private partial def lowerExpr
 /-- Lower a positional argument list under expected TypeIds (arity already
     checked by the caller). Evaluation order is source order; each argument's
     produced type must equal its expected TypeId. -/
-private partial def lowerArgs
-    (args : Array SrcExpr) (expectedTids : Array TypeIdV1)
-    (st : BodyStateV1) (states : StateTableV1) (fns : FnTableV1)
-    (typeMismatch : String) :
-    Except NormalizeErrorV1 (Array ValueIdV1 × BodyStateV1) := do
+private def lowerArgsFuelV1 : Nat →
+    Array SrcExpr → Array TypeIdV1 → BodyStateV1 → StateTableV1 → FnTableV1 →
+    String → Except NormalizeErrorV1 (Array ValueIdV1 × BodyStateV1)
+| 0 => fun _ _ _ _ _ _ =>
+    failUnsupported "S1 normalizer source nesting exceeds 255 edges"
+| fuel + 1 => fun args expectedTids st states fns typeMismatch => do
   let mut st' := st
   let mut argIds : Array ValueIdV1 := #[]
   for (arg, expectedTid) in args.zip expectedTids do
-    let (vid, argTid, st1) ← lowerExpr arg expectedTid st' states fns
+    let (vid, argTid, st1) ←
+      lowerExprFuelV1 fuel arg expectedTid st' states fns
     unless argTid == expectedTid do
       return ← failUnsupported typeMismatch
     argIds := argIds.push vid
     st' := st1
   pure (argIds, st')
 end
+
+private def lowerPlace
+    (place : SrcPlace) (st : BodyStateV1) (states : StateTableV1)
+    (fns : FnTableV1) :
+    Except NormalizeErrorV1 (ValueIdV1 × TypeIdV1 × BodyStateV1) :=
+  lowerPlaceFuelV1 normalizerSourceDepthFuelV1 place st states fns
+
+private def applyNestedUpdateV1
+    (baseVid : ValueIdV1) (baseTid : TypeIdV1)
+    (steps : Array PlaceStepV1) (value : SrcExpr)
+    (st : BodyStateV1) (states : StateTableV1) (fns : FnTableV1) :
+    Except NormalizeErrorV1 (ValueIdV1 × BodyStateV1) :=
+  applyNestedUpdateFuelV1 normalizerSourceDepthFuelV1
+    baseVid baseTid steps value st states fns
+
+private def lowerExpr
+    (expr : SrcExpr) (expectedTid : TypeIdV1)
+    (st : BodyStateV1) (states : StateTableV1) (fns : FnTableV1) :
+    Except NormalizeErrorV1 (ValueIdV1 × TypeIdV1 × BodyStateV1) :=
+  lowerExprFuelV1 normalizerSourceDepthFuelV1 expr expectedTid st states fns
+
+private def lowerArgs
+    (args : Array SrcExpr) (expectedTids : Array TypeIdV1)
+    (st : BodyStateV1) (states : StateTableV1) (fns : FnTableV1)
+    (typeMismatch : String) :
+    Except NormalizeErrorV1 (Array ValueIdV1 × BodyStateV1) :=
+  lowerArgsFuelV1 normalizerSourceDepthFuelV1
+    args expectedTids st states fns typeMismatch
 
 /-- Lower a statement-level external effect (`call` / `schedule`): qualified
     callee (≥2 components), legal UInt/Int **or Principal** args (per-arg type
@@ -2866,7 +3019,7 @@ end
     sequence. String/Field/aggregates stay fail closed. Target QN / account
     binding is not consulted. The only difference between the two is the op
     ctor. -/
-private partial def lowerExternalEffect
+private def lowerExternalEffect
     (label : String)
     (mkOp : EffectIdV1 → QualifiedName → Array ValueIdV1 → SemanticOpV1)
     (externalCall : ProofForgeV2.Source.AstSpineV1.ExternalCallExprV1)
@@ -2905,15 +3058,18 @@ private partial def lowerExternalEffect
 
 mutual
 
-private partial def lowerStmts
-    (stmts : Array SrcStmt) (resultTid : TypeIdV1)
-    (st : BodyStateV1) (states : StateTableV1)
-    (events : EventTableV1) (errors : ErrorTableV1) (fns : FnTableV1) :
-    Except NormalizeErrorV1 (BodyStateV1 × PathStatusV1) := do
+private def lowerStmtsFuelV1 : Nat →
+    Array SrcStmt → TypeIdV1 → BodyStateV1 → StateTableV1 →
+    EventTableV1 → ErrorTableV1 → FnTableV1 →
+    Except NormalizeErrorV1 (BodyStateV1 × PathStatusV1)
+| 0 => fun _ _ _ _ _ _ _ =>
+    failUnsupported "S1 normalizer source nesting exceeds 255 edges"
+| fuel + 1 => fun stmts resultTid st states events errors fns => do
   let mut st := st
   let mut i : Nat := 0
-  for stmt in stmts do
-    let (st', status) ← lowerStmt stmt resultTid st states events errors fns
+  for stmt in stmts.toList do
+    let (st', status) ←
+      lowerStmtFuelV1 fuel stmt resultTid st states events errors fns
     st := st'
     if status == .closed then
       if i + 1 < stmts.size then
@@ -2926,20 +3082,22 @@ private partial def lowerStmts
 
 /-- Lower one statement into the current open block, sealing blocks for
 control-flow. Returns the builder and whether this path is closed. -/
-private partial def lowerStmt
+private def lowerStmtFuelV1
+    (fuel : Nat)
     (stmt : SrcStmt) (resultTid : TypeIdV1)
     (st : BodyStateV1) (states : StateTableV1)
     (events : EventTableV1) (errors : ErrorTableV1) (fns : FnTableV1) :
     Except NormalizeErrorV1 (BodyStateV1 × PathStatusV1) := do
-  match stmt with
-  | .assign target value => do
+  match fuel, stmt with
+  | 0, _ => failUnsupported "S1 normalizer source nesting exceeds 255 edges"
+  | _ + 1, .assign target value => do
       -- N3/N-6: peel any field/index chain.
       -- Bare env name: let/for-binder rebind (fresh SSA ValueId); params
       -- immutable fail closed. Nested path: FieldSet/IndexSet then env rebind
       -- (local) or StateStore (state). Param roots fail closed even nested.
       let (rootName, steps) ← peelPlaceRootV1 target
       let key := raw rootName
-      let isParam := st.paramNames.any (· == key)
+      let isParam := st.paramNames.toList.any (stringEqV1 · key)
       match envLookup st.env key with
       | some (rootVid, rootTid) =>
           if isParam then
@@ -2981,14 +3139,14 @@ private partial def lowerStmt
   -- succeeds Normalize and then fails residual alpha `validateBlockShapeV1`
   -- (`Stmt.Return`). Init may still end with implicit terminator-none when the
   -- source omits a return (allowImplicitReturnNone).
-  | .return_ none =>
+  | _ + 1, .return_ none =>
       failUnsupported "S1 normalizer does not support bare return"
-  | .return_ (some e) => do
+  | _ + 1, .return_ (some e) => do
       let (vid, tid, st1) ← lowerExpr e resultTid st states fns
       unless tid == resultTid do
         return ← failUnsupported "S1 return expression type mismatch"
       pure (sealCurrentBlock st1 (TerminatorV1.return_ (some vid)), .closed)
-  | .assert_ condition errorRef => do
+  | _ + 1, .assert_ condition errorRef => do
       let (i1, boolTid) := internShape st.interner .bool
       let st0 := { st with interner := i1 }
       let (condVid, condTid, st1) ← lowerExpr condition boolTid st0 states fns
@@ -3009,7 +3167,7 @@ private partial def lowerStmt
                 return ← failUnsupported
                   s!"S1 assert-else error '{key}' expects {fieldTids.size} arguments, but the source assert carries none"
               pure (emitVoid st1 (.assert_ condVid (some errorId) #[]), .open_)
-  | .if_ condition thenBlock elseBlock? => do
+  | fuel + 1, .if_ condition thenBlock elseBlock? => do
       let (i1, boolTid) := internShape st.interner .bool
       let st0 := { st with interner := i1 }
       let (condVid, condTid, st1) ← lowerExpr condition boolTid st0 states fns
@@ -3024,7 +3182,7 @@ private partial def lowerStmt
         { blockId := thenId, args := #[] } { blockId := 0, args := #[] })
       -- Arms start from the pre-branch env; lets stay scoped to their arm.
       let savedEnv := st1.env
-      let (stT, thenStatus) ← lowerStmts thenBlock.statements resultTid
+      let (stT, thenStatus) ← lowerStmtsFuelV1 fuel thenBlock.statements resultTid
         { st2 with env := savedEnv } states events errors fns
       let (stT, thenJump?) := match thenStatus with
         | .closed => (stT, none)
@@ -3036,7 +3194,7 @@ private partial def lowerStmt
       let elseId := UInt32.ofNat stT.blocks.size
       let (stE, elseJump?, elseClosed) ← match elseBlock? with
         | some elseBlock => do
-            let (stE0, status) ← lowerStmts elseBlock.statements resultTid
+            let (stE0, status) ← lowerStmtsFuelV1 fuel elseBlock.statements resultTid
               { stT with env := savedEnv } states events errors fns
             match status with
             | .closed => pure (stE0, none, true)
@@ -3063,7 +3221,7 @@ private partial def lowerStmt
             | some j => patchJumpTarget stP j joinId
             | none => stP
           pure ({ stP with env := savedEnv }, .open_)
-  | .match_ scrutinee arms => do
+  | fuel + 1, .match_ scrutinee arms => do
       if arms.isEmpty then
         return ← failUnsupported "S1 match requires at least one arm"
       let (iB, boolTid) := internShape st.interner .bool
@@ -3160,7 +3318,8 @@ private partial def lowerStmt
         let stD := match defaultBinder? with
           | none => st1
           | some name => { st1 with env := envInsert st1.env (raw name) scrutVid scrutTid }
-        let (stR, rStatus) ← lowerStmts defaultBody.statements resultTid stD
+        let (stR, rStatus) ← lowerStmtsFuelV1 fuel
+          defaultBody.statements resultTid stD
           states events errors fns
         pure ({ stR with env := st1.env }, rStatus)
       else if !litArms.isEmpty then
@@ -3181,7 +3340,7 @@ private partial def lowerStmt
         let mut closedCount : Nat := 0
         for (_, body) in litArms do
           caseTargets := caseTargets.push (UInt32.ofNat stA.blocks.size)
-          let (stB, status) ← lowerStmts body.statements resultTid
+          let (stB, status) ← lowerStmtsFuelV1 fuel body.statements resultTid
             { stA with env := savedEnv } states events errors fns
           stA := stB
           match status with
@@ -3193,7 +3352,8 @@ private partial def lowerStmt
         let stD := match defaultBinder? with
           | none => { stA with env := savedEnv }
           | some name => { stA with env := envInsert savedEnv (raw name) scrutVid scrutTid }
-        let (stD, dStatus) ← lowerStmts defaultBody.statements resultTid stD
+        let (stD, dStatus) ← lowerStmtsFuelV1 fuel
+          defaultBody.statements resultTid stD
           states events errors fns
         stA := stD
         match dStatus with
@@ -3239,7 +3399,8 @@ private partial def lowerStmt
           | [(payloads, argPats, body)] => do
               let stBound ← bindCtorArgPatternsV1 scrutVid vIdx payloads argPats
                 { stA with env := savedEnv }
-              let (stB, status) ← lowerStmts body.statements resultTid stBound
+              let (stB, status) ← lowerStmtsFuelV1 fuel
+                body.statements resultTid stBound
                 states events errors fns
               stA := stB
               match status with
@@ -3256,7 +3417,8 @@ private partial def lowerStmt
               let (stG, failSites) ←
                 lowerCtorArgGuardsCollectFailsV1 scrutVid vIdx payloads argPats
                   { stA with env := savedEnv }
-              let (stB, status) ← lowerStmts body.statements resultTid stG
+              let (stB, status) ← lowerStmtsFuelV1 fuel
+                body.statements resultTid stG
                 states events errors fns
               stA := stB
               match status with
@@ -3291,7 +3453,8 @@ private partial def lowerStmt
                 | none => { stA with env := savedEnv }
                 | some name =>
                     { stA with env := envInsert savedEnv (raw name) scrutVid scrutTid }
-              let (stD, dStatus) ← lowerStmts defaultBody.statements resultTid stD0
+              let (stD, dStatus) ← lowerStmtsFuelV1 fuel
+                defaultBody.statements resultTid stD0
                 states events errors fns
               stA := stD
               match dStatus with
@@ -3321,7 +3484,7 @@ private partial def lowerStmt
           let stP := patchSwitch stA scrutIdx switchCases defaultTarget?
           let stP := jumpSlots.foldl (fun acc j => patchJumpTarget acc j joinId) stP
           pure ({ stP with env := savedEnv }, .open_)
-  | .let_ name typeAnn value => do
+  | _ + 1, .let_ name typeAnn value => do
       -- SSA binding: RHS evaluates once; name is scoped to the enclosing block
       -- (branch/loop bodies save and restore the env). N-6: bare reassignment
       -- rebinds the name to a fresh ValueId (same TypeId) without mutating
@@ -3335,7 +3498,7 @@ private partial def lowerStmt
       unless vtid == tid do
         return ← failUnsupported s!"S1 let '{raw name}' type mismatch"
       pure ({ st1 with env := envInsert st1.env (raw name) vid tid }, .open_)
-  | .for_ binder start endExclusive bound body => do
+  | fuel + 1, .for_ binder start endExclusive bound body => do
       -- N-FOR-INT: for endpoints are same-width legal UInt or Int. The CFG
       -- contract is target-neutral: signedness is carried by the TypeId, the
       -- header uses typed `<`, and the latch uses typed `+ 1`.
@@ -3368,7 +3531,7 @@ private partial def lowerStmt
       let liveNames := savedEnv.bindings.foldl
         (fun acc (n, _, _) => uniquePushString acc n) #[]
       let bname := raw binder
-      let carriedNames :=
+      let carriedNames ←
         loopCarriedNamesV1 body liveNames bname st2.paramNames
       -- Resolve initial carried ValueIds/TypeIds from the pre-loop env.
       let mut carriedInit : Array (String × ValueIdV1 × TypeIdV1) := #[]
@@ -3408,7 +3571,7 @@ private partial def lowerStmt
       for (cn, cVid, tid) in carriedHeader do
         bodyEnv := envRebind bodyEnv cn cVid tid
       bodyEnv := envInsert bodyEnv bname iVid inductionTid
-      let (stB, bodyStatus) ← lowerStmts body.statements resultTid
+      let (stB, bodyStatus) ← lowerStmtsFuelV1 fuel body.statements resultTid
         { st6 with env := bodyEnv } states events errors fns
       let stL ← match bodyStatus with
         | .open_ =>
@@ -3451,7 +3614,7 @@ private partial def lowerStmt
       for (cn, cVid, tid) in carriedHeader do
         exitEnv := envRebind exitEnv cn cVid tid
       pure ({ patchBranchElse stL headerIdx exitId with env := exitEnv }, .open_)
-  | .revert errorName args => do
+  | _ + 1, .revert errorName args => do
       let key := raw errorName
       match errorLookup errors key with
       | none =>
@@ -3463,7 +3626,7 @@ private partial def lowerStmt
           let (argIds, st') ← lowerArgs args fieldTids st states fns
             s!"S1 revert '{key}' argument type mismatch"
           pure (sealCurrentBlock st' (TerminatorV1.revert errorId argIds), .closed)
-  | .emit eventName args => do
+  | _ + 1, .emit eventName args => do
       let key := raw eventName
       match eventLookup events key with
       | none =>
@@ -3476,20 +3639,53 @@ private partial def lowerStmt
             s!"S1 emit '{key}' argument type mismatch"
           let st1 := emitVoid st' (.emit st'.nextEffectId eventId argIds)
           pure ({ st1 with nextEffectId := st1.nextEffectId + 1 }, .open_)
-  | .call externalCall =>
+  | _ + 1, .call externalCall =>
       -- Sync external call: a statement effect with no result value (v1).
       -- The callee is an opaque qualified name (at least two components per
       -- the wire shape gate), resolved at deployment, never by the compiler.
       lowerExternalEffect "call"
         (fun effectId qn argIds => .externalCall effectId qn argIds)
         externalCall st states fns
-  | .schedule externalCall =>
+  | _ + 1, .schedule externalCall =>
       -- Async workflow schedule: same statement-effect shape as call.
       lowerExternalEffect "schedule"
         (fun effectId qn argIds => .schedule effectId qn argIds)
         externalCall st states fns
 
 end
+
+private def lowerStmts
+    (stmts : Array SrcStmt) (resultTid : TypeIdV1)
+    (st : BodyStateV1) (states : StateTableV1)
+    (events : EventTableV1) (errors : ErrorTableV1) (fns : FnTableV1) :
+    Except NormalizeErrorV1 (BodyStateV1 × PathStatusV1) :=
+  lowerStmtsFuelV1 normalizerSourceDepthFuelV1
+    stmts resultTid st states events errors fns
+
+private def lowerStmt
+    (stmt : SrcStmt) (resultTid : TypeIdV1)
+    (st : BodyStateV1) (states : StateTableV1)
+    (events : EventTableV1) (errors : ErrorTableV1) (fns : FnTableV1) :
+    Except NormalizeErrorV1 (BodyStateV1 × PathStatusV1) :=
+  lowerStmtFuelV1 normalizerSourceDepthFuelV1
+    stmt resultTid st states events errors fns
+
+private def loopBoundLtV1 (left right : LoopBoundV1) : Bool :=
+  left.header < right.header ||
+    (left.header == right.header && left.backEdgeFrom < right.backEdgeFrom)
+
+private def insertLoopBoundV1 (item : LoopBoundV1) : List LoopBoundV1 → List LoopBoundV1
+  | [] => [item]
+  | current :: rest =>
+      if loopBoundLtV1 item current then
+        item :: current :: rest
+      else
+        current :: insertLoopBoundV1 item rest
+
+/-- Kernel-transparent canonical ordering for the loop-bound table. -/
+private def sortLoopBoundsV1 : List LoopBoundV1 → List LoopBoundV1
+  | [] => []
+  | item :: rest => insertLoopBoundV1 item (sortLoopBoundsV1 rest)
 
 /-- Lower one callable body. Returns blocks, loopBounds, interner, and N5
     ContextRead/Commit usage flags for program-wide wire requirement merge. -/
@@ -3506,18 +3702,19 @@ private def lowerBlock
         Bool × Bool × Bool × Bool × Bool × Bool × Bool) := do
   let mut env := emptyEnv
   let mut paramNames : Array String := #[]
-  for p in params do
+  for p in params.toList do
     env := envInsert env p.name p.valueId p.typeId
     paramNames := paramNames.push p.name
+  let loopBlockParamCount ←
+    countLoopBlockParamsStmtsV1 body.statements paramNames paramNames
+  let exprMatchJoinCount ← countExprMatchJoinsInStmtsV1 body.statements
   let st : BodyStateV1 := {
     blocks := #[]
     instructions := #[]
     currentParams := #[]
     loopBounds := #[]
     nextValueId := UInt32.ofNat
-      (params.size +
-        countLoopBlockParamsStmtsV1 body.statements paramNames paramNames +
-        countExprMatchJoinsInStmtsV1 body.statements)
+      (params.size + loopBlockParamCount + exprMatchJoinCount)
     nextBlockParamOrdinal := 0
     callableParamCount := params.size
     nextEffectId := 0
@@ -3538,8 +3735,7 @@ private def lowerBlock
   -- Canonical ascending (header, backEdgeFrom) loop-bound order.
   let finish := fun (stF : BodyStateV1) =>
     (stF.blocks,
-      stF.loopBounds.qsort (fun a b =>
-        a.header < b.header || (a.header == b.header && a.backEdgeFrom < b.backEdgeFrom)),
+      (sortLoopBoundsV1 stF.loopBounds.toList).toArray,
       stF.interner,
       stF.usedContextUnixTime,
       stF.usedContextCaller,
@@ -3566,7 +3762,7 @@ private def lowerParams
   let mut interner := interner
   let mut out : Array ParameterV1 := #[]
   let mut i : Nat := 0
-  for p in ps do
+  for p in ps.toList do
     let (interner', tid) ← internSourceType interner p.type_
     interner := interner'
     requireStateOrParamTypeId interner.types tid
@@ -3610,7 +3806,7 @@ private def lowerInvariantPredicate
   let (i1, boolTid) := internShape interner .bool
   -- Expression-match joins allocate block params in the same pre-counted
   -- ValueId range as statement bodies (params first, then join params).
-  let joinReserve := countExprMatchJoinsInExprV1 predicate
+  let joinReserve ← countExprMatchJoinsInExprV1 predicate
   let st : BodyStateV1 := {
     blocks := #[]
     instructions := #[]
@@ -3648,9 +3844,32 @@ private def lowerInvariantPredicate
 /-- Assign sole Wire exact `invariantSteps` onto invariant roots and pureFn
     closure members. Membership + totals come from the shared InvariantClosure
     computation (no second formula). -/
+private def applyExactInvariantStepsV1 :
+    List CallableV1 → List UInt64 → List Bool →
+    Except NormalizeErrorV1 (List CallableV1)
+  | [], [], [] => pure []
+  | c :: cs, total :: totals, isMember :: members => do
+      let steps : Option UInt64 :=
+        if c.kind == CallableKindV1.invariant then
+          some total
+        else if c.kind == CallableKindV1.pureFn && isMember then
+          some total
+        else
+          none
+      pure ({ c with invariantSteps := steps } ::
+        (← applyExactInvariantStepsV1 cs totals members))
+  | _, _, _ =>
+      failUnsupported "S1 invariant steps index out of range"
+
 private def assignExactInvariantStepsV1
     (callables : Array CallableV1) :
     Except NormalizeErrorV1 (Array CallableV1) := do
+  -- With no invariant root the exact transitive closure is empty, so every
+  -- freshly lowered callable already carries the required `none` metadata.
+  -- Keep this base case in the sole assignment authority instead of building
+  -- and replaying an all-zero graph.
+  unless callables.toList.any (fun callable => callable.kind == .invariant) do
+    return callables
   let members ← match invariantClosureMembershipResultV1 callables with
     | .ok m => pure m
     | .error e =>
@@ -3663,21 +3882,9 @@ private def assignExactInvariantStepsV1
           s!"S1 invariant exact steps failed: {repr e}"
   unless members.size == callables.size && totals.size == callables.size do
     return ← failUnsupported "S1 invariant steps size mismatch"
-  let mut out : Array CallableV1 := #[]
-  for i in [:callables.size] do
-    match callables[i]?, totals[i]?, members[i]? with
-    | some c, some total, some isMember =>
-        let steps : Option UInt64 :=
-          if c.kind == CallableKindV1.invariant then
-            some total
-          else if c.kind == CallableKindV1.pureFn && isMember then
-            some total
-          else
-            none
-        out := out.push { c with invariantSteps := steps }
-    | _, _, _ =>
-        return ← failUnsupported "S1 invariant steps index out of range"
-  pure out
+  let out ← applyExactInvariantStepsV1
+    callables.toList totals.toList members.toList
+  pure out.toArray
 
 /-- Insert a requirement row into a UTF-8 id-ordered array. An existing row
     with the same id wins; exact wire-owned row validation remains authoritative.
@@ -3838,7 +4045,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   -- items only). Event/error fields stay public anonymous legal UInt/Int/String.
   -- State rows admit legal UInt/Int/Field/Principal or named Struct/Enum and
   -- retain visibility (N1/N2b/N2c/N3).
-  for item in program.items do
+  for item in program.items.toList do
     match item with
     | .state s =>
         let (interner', tid) ← internSourceType interner s.type_
@@ -3907,7 +4114,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   -- types (pass 2b below) to keep prior fn-before-const interning order.
   let mut fnTable : FnTableV1 := ⟨#[]⟩
   let mut fnCallableOrdinal : Nat := 0
-  for item in program.items do
+  for item in program.items.toList do
     match item with
     | .fn d =>
         let mut paramTids : Array TypeIdV1 := #[]
@@ -3937,7 +4144,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   -- Op.Literal). Type/value legality: TypeCheck + evalConstDeclValueV1 only.
   let mut constantRows : Array ConstantV1 := #[]
   let mut constantTable : ConstantTableV1 := ⟨#[]⟩
-  for item in program.items do
+  for item in program.items.toList do
     match item with
     | .const d =>
         let (interner', tid) ← internSourceType interner d.type_
@@ -3967,7 +4174,7 @@ def lowerProgramDataV1 (source : ValidatedSourceV1) :
   let mut usedCommit := false
   let mut usedSolanaCpiExtension := false
   let mut pfAssetsDeclaredVersion? : Option String := none
-  for item in program.items do
+  for item in program.items.toList do
     match item with
     | .state _ => pure ()
     | .init d =>

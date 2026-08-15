@@ -96,22 +96,38 @@ private def commitOp := contribution wireCommitmentDisclosureIdV1
     statement QNs). Env-read produces NO effect (not synchronous-call). -/
 private def pfAssetsExtensionRow := contribution wireExtensionPfAssetsIdV1
 
+private def stringEqV1 (left right : String) : Bool :=
+  left.toUTF8 == right.toUTF8
+
+private def contributionIdInV1
+    (value : RequirementContributionV1) : List RequirementContributionV1 → Bool
+  | [] => false
+  | existing :: rest =>
+      stringEqV1 (RequirementContributionV1.idOf existing)
+          (RequirementContributionV1.idOf value) ||
+        contributionIdInV1 value rest
+
+private def stableUniqueContributionsListV1
+    (found : List RequirementContributionV1) :
+    List RequirementContributionV1 → List RequirementContributionV1
+  | [] => found.reverse
+  | value :: rest =>
+      if contributionIdInV1 value found then
+        stableUniqueContributionsListV1 found rest
+      else
+        stableUniqueContributionsListV1 (value :: found) rest
+
 private def stableUniqueContributions
     (values : Array RequirementContributionV1) : Array RequirementContributionV1 :=
-  values.foldl (fun found value =>
-    if found.any (fun existing =>
-        RequirementContributionV1.idOf existing == RequirementContributionV1.idOf value) then
-      found
-    else
-      found.push value) #[]
+  (stableUniqueContributionsListV1 [] values.toList).toArray
 
-private partial def typeContributions : TypeV1 → Array RequirementContributionV1
+private def typeContributions : TypeV1 → Array RequirementContributionV1
   | .bool => #[boolValues]
   | .field id =>
       -- T14 catalog v2: one contribution per closed-catalog Field token.
-      if id.raw == "bn254_fr" then #[fieldBn254]
-      else if id.raw == "bls12_377_fr" then #[fieldBls12377]
-      else if id.raw == "goldilocks" then #[fieldGoldilocks]
+      if stringEqV1 id.raw "bn254_fr" then #[fieldBn254]
+      else if stringEqV1 id.raw "bls12_377_fr" then #[fieldBls12377]
+      else if stringEqV1 id.raw "goldilocks" then #[fieldGoldilocks]
       else #[]
   | .option element => typeContributions element
   | .array element _ => typeContributions element
@@ -134,10 +150,20 @@ private def paramContributions (param : ParamV1) : Array RequirementContribution
 private def stateContributions (state : StateDeclV1) : Array RequirementContributionV1 :=
   typeContributions state.type_ ++ stateVisibilityContributions state.visibility
 
+private def sourceDepthFuelV1 : Nat := 256
+
+/-- An exhausted hand-built source fixture contributes an unknown identity, so
+    the sole S2 freezer rejects it instead of silently omitting requirements. -/
+private def sourceDepthExceededV1 : Array RequirementContributionV1 :=
+  #[contribution "proof-forge.internal.source-depth-exceeded"]
+
 mutual
-  private partial def placeContributions : PlaceV1 → Array RequirementContributionV1
-    | .name _ => #[]
-    | .field base field =>
+  private def placeContributionsFuelV1
+      (fuel : Nat) (place : PlaceV1) : Array RequirementContributionV1 :=
+    match fuel, place with
+    | 0, _ => sourceDepthExceededV1
+    | _ + 1, .name _ => #[]
+    | fuel + 1, .field base field =>
         -- T-3/ADR-0031-S2/S3: exact ContextRead surfaces.
         if isContextUnixTimeSecondsPlaceV1 (.field base field) then
           #[contextUnixTime]
@@ -152,92 +178,111 @@ mutual
         else if isContextAttachedValuePlaceV1 (.field base field) then
           #[contextAttachedValue]
         else
-          placeContributions base
-    | .index base index => placeContributions base ++ exprContributions index
+          placeContributionsFuelV1 fuel base
+    | fuel + 1, .index base index =>
+        placeContributionsFuelV1 fuel base ++ exprContributionsFuelV1 fuel index
 
-  private partial def exprContributions : ExprV1 → Array RequirementContributionV1
-    | .literal _ => #[]
-    | .place place => placeContributions place
-    | .constructor ctor args =>
-        let child := args.flatMap exprContributions
+  private def exprContributionsFuelV1
+      (fuel : Nat) (expr : ExprV1) : Array RequirementContributionV1 :=
+    match fuel, expr with
+    | 0, _ => sourceDepthExceededV1
+    | _ + 1, .literal _ => #[]
+    | fuel + 1, .place place => placeContributionsFuelV1 fuel place
+    | fuel + 1, .constructor ctor args =>
+        let child := args.flatMap (exprContributionsFuelV1 fuel)
         -- ADR-0030 E2: env-read catalog QNs require the extension.pf-assets
         -- requirement row; they produce NO effect (not synchronous-call).
         if isPfAssetsEnvReadQnV1 (qnToString ctor) then
           child ++ #[pfAssetsExtensionRow]
         else
           child
-    | .unary .neg operand =>
-        exprContributions operand ++ #[checkedArithmetic, transactionalRollback]
-    | .unary _ operand => exprContributions operand
-    | .binary op lhs rhs =>
-        let child := exprContributions lhs ++ exprContributions rhs
+    | fuel + 1, .unary .neg operand =>
+        exprContributionsFuelV1 fuel operand ++
+          #[checkedArithmetic, transactionalRollback]
+    | fuel + 1, .unary _ operand => exprContributionsFuelV1 fuel operand
+    | fuel + 1, .binary op lhs rhs =>
+        let child := exprContributionsFuelV1 fuel lhs ++
+          exprContributionsFuelV1 fuel rhs
         match op with
         | .add | .sub | .mul | .div | .mod =>
             child ++ #[checkedArithmetic, transactionalRollback]
         | _ => child
-    | .localCall callee args =>
-        let child := args.flatMap exprContributions
+    | fuel + 1, .localCall callee args =>
+        let child := args.flatMap (exprContributionsFuelV1 fuel)
         -- T-3: intrinsic commit(x) shape (fn-shadow still product-resolved later).
         if isCommitLocalCallShapeV1 (.localCall callee args) then
           child ++ #[commitOp]
         else
           child
-    | .match_ scrutinee arms =>
-        exprContributions scrutinee ++
-          arms.flatMap (fun arm => exprContributions arm.value)
-    | .externalCall call =>
+    | fuel + 1, .match_ scrutinee arms =>
+        exprContributionsFuelV1 fuel scrutinee ++
+          arms.flatMap (fun arm => exprContributionsFuelV1 fuel arm.value)
+    | fuel + 1, .externalCall call =>
         -- N-CALL-RET: value-position sync call contributes the same
         -- synchronous-call + rollback requirements as statement call.
         -- SYS-S5: exact `pf.crypto.sha256|keccak256` are host syscall / precompile leaves
         -- (env-read discipline): no effect.synchronous-call contribution.
-        let child := call.args.flatMap exprContributions
+        let child := call.args.flatMap (exprContributionsFuelV1 fuel)
         if isPfCryptoHostSyscallQnV1 (qnToString call.callee) then
           child
         else
           child ++ #[synchronousCall, transactionalRollback]
 
-  private partial def stmtContributions : StmtV1 → Array RequirementContributionV1
-    | .let_ _ typeAnn? value =>
+  private def stmtContributionsFuelV1
+      (fuel : Nat) (stmt : StmtV1) : Array RequirementContributionV1 :=
+    match fuel, stmt with
+    | 0, _ => sourceDepthExceededV1
+    | fuel + 1, .let_ _ typeAnn? value =>
         (match typeAnn? with
           | some type => typeContributions type
           | none => #[]) ++
-          exprContributions value
-    | .assign target value =>
-        placeContributions target ++ exprContributions value
-    | .if_ condition thenBlock elseBlock? =>
-        exprContributions condition ++ blockContributions thenBlock ++
+          exprContributionsFuelV1 fuel value
+    | fuel + 1, .assign target value =>
+        placeContributionsFuelV1 fuel target ++ exprContributionsFuelV1 fuel value
+    | fuel + 1, .if_ condition thenBlock elseBlock? =>
+        exprContributionsFuelV1 fuel condition ++
+          blockContributionsFuelV1 fuel thenBlock ++
           (match elseBlock? with
-            | some block => blockContributions block
+            | some block => blockContributionsFuelV1 fuel block
             | none => #[])
-    | .match_ scrutinee arms =>
-        exprContributions scrutinee ++
-          arms.flatMap (fun arm => blockContributions arm.body)
-    | .for_ _ start endExclusive _ body =>
-        exprContributions start ++ exprContributions endExclusive ++
-          blockContributions body
-    | .assert_ condition _ =>
-        exprContributions condition ++ #[transactionalRollback]
-    | .revert _ args =>
-        args.flatMap exprContributions ++ #[transactionalRollback]
-    | .emit _ args =>
-        args.flatMap exprContributions ++ #[eventEmission]
-    | .return_ value? =>
+    | fuel + 1, .match_ scrutinee arms =>
+        exprContributionsFuelV1 fuel scrutinee ++
+          arms.flatMap (fun arm => blockContributionsFuelV1 fuel arm.body)
+    | fuel + 1, .for_ _ start endExclusive _ body =>
+        exprContributionsFuelV1 fuel start ++
+          exprContributionsFuelV1 fuel endExclusive ++
+          blockContributionsFuelV1 fuel body
+    | fuel + 1, .assert_ condition _ =>
+        exprContributionsFuelV1 fuel condition ++ #[transactionalRollback]
+    | fuel + 1, .revert _ args =>
+        args.flatMap (exprContributionsFuelV1 fuel) ++ #[transactionalRollback]
+    | fuel + 1, .emit _ args =>
+        args.flatMap (exprContributionsFuelV1 fuel) ++ #[eventEmission]
+    | fuel + 1, .return_ value? =>
         match value? with
-        | some value => exprContributions value
+        | some value => exprContributionsFuelV1 fuel value
         | none => #[]
-    | .call call =>
-        let child := call.args.flatMap exprContributions
+    | fuel + 1, .call call =>
+        let child := call.args.flatMap (exprContributionsFuelV1 fuel)
         if isPfCryptoHostSyscallQnV1 (qnToString call.callee) then
           child
         else
           child ++ #[synchronousCall, transactionalRollback]
-    | .schedule call =>
-        call.args.flatMap exprContributions ++ #[asynchronousWorkflow]
+    | fuel + 1, .schedule call =>
+        call.args.flatMap (exprContributionsFuelV1 fuel) ++ #[asynchronousWorkflow]
 
-  private partial def blockContributions
-      (block : BlockV1) : Array RequirementContributionV1 :=
-    block.statements.flatMap stmtContributions
+  private def blockContributionsFuelV1
+      (fuel : Nat) (block : BlockV1) : Array RequirementContributionV1 :=
+    match fuel with
+    | 0 => sourceDepthExceededV1
+    | fuel + 1 => block.statements.flatMap (stmtContributionsFuelV1 fuel)
 end
+
+private def exprContributions (expr : ExprV1) : Array RequirementContributionV1 :=
+  exprContributionsFuelV1 sourceDepthFuelV1 expr
+
+private def blockContributions (block : BlockV1) : Array RequirementContributionV1 :=
+  blockContributionsFuelV1 sourceDepthFuelV1 block
 
 private def itemContributions : ProgramItemV1 → Array RequirementContributionV1
   | .state declaration => stateContributions declaration
@@ -267,13 +312,13 @@ private def itemContributions : ProgramItemV1 → Array RequirementContributionV
     support decisions or wire rows. -/
 def inferRequirementContributionsV1
     (program : ProgramV1) : Array RequirementContributionV1 :=
-  let hasState := program.items.any fun item =>
+  let hasState := program.items.toList.any fun item =>
     match item with
     | .state _ => true
     | _ => false
   let head : Array RequirementContributionV1 :=
     if hasState then #[persistentState] else #[]
-  let collected := program.items.foldl (fun accumulated item =>
+  let collected := program.items.toList.foldl (fun accumulated item =>
     accumulated ++ itemContributions item) head
   stableUniqueContributions collected
 

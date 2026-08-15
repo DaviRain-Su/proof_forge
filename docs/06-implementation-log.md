@@ -16509,3 +16509,25 @@ normative: false
 - 本切片只闭合真实Source AST→canonical bytes ownership。下一处已由stage probe定位在同一production
   compiler normalization中的reachable `partial` lowering；尚未证明StateCell exact compiled IR、
   emitter bytes、103-block SHA identity或unconditional `get` gate。
+
+## 2026-08-15 — kernel-replayable StateCell normalizer core
+
+- 唯一production normalizer中StateCell真实路径可达的place/expression/statement lowering、nested
+  update、loop/match计数和assign-root分析已从kernel不透明的`partial`递归改为显式结构fuel；超过
+  255条source nesting edges的手写fixture统一fail closed。program identity、name lookup和各pass遍历
+  使用exact UTF-8 identity及结构List traversal，保持source order，不增加按合约名分支或第二套lowerer。
+- sole requirements contribution/freezer现同样以结构递归遍历AST和请求列表；depth耗尽贡献一个必被
+  closed S2 catalog拒绝的internal id，不能静默漏掉requirement。canonical排序复用wire-owned byte
+  comparator；该comparator自身改为按剩余prefix长度的结构fuel，并保留原有三个refinement theorem。
+- invariant closure root seed改为结构递归；sole `assignExactInvariantStepsV1`对通用“没有invariant root”
+  情况直接采用exact empty-closure identity，避免构造全零graph后再写回相同`none` metadata。有invariant
+  的程序仍走同一个production membership、fuel graph与exact totals authority。
+- kernel stage probes已分别重放StateCell qualified identity、named type registration、UInt64 interning、
+  init/increment/get三个真实`lowerBlock`、requirement contribution与freeze；完整runtime lower仍返回
+  success。`ProofForgeV2`全库build通过，既有symbolic Field comparison closure theorem在默认heartbeat
+  预算下保持通过。
+- 准确边界：本切片消除了StateCell-reachable normalizer implementation中的opaque recursion，但尚未
+  把这些独立等式组合成whole `lowerProgramDataV1 = .ok data` theorem；单体`decide`展开超过5分钟，不能
+  用runtime `true`冒充该定理。尚未闭合compiled Semantic IR、Solana lowering/`validateIR`、6580-byte
+  emitter equation、103-block SHA identity或unconditional `get` gate；也未使用`native_decide`、axiom、
+  `Lean.ofReduceBool`、`run_tac`、`sorry`或`unsafe theorem`。

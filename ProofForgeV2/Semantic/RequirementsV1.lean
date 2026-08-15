@@ -73,10 +73,17 @@ def s2RequirementVersionV1 : SemVer :=
 def s2CatalogIdsWireOrderV1 : Array String :=
   ProofForgeV2.Core.RequirementIdsV1.s2CatalogIdsWireOrderV1
 
-/-- Closed-catalog membership via sole list authority exact `List.contains`
-    (kernel-reducible; no second enumerated if-chain). -/
+private def stringEqV1 (left right : String) : Bool :=
+  left.toUTF8 == right.toUTF8
+
+private def containsStringV1 (value : String) : List String → Bool
+  | [] => false
+  | candidate :: rest =>
+      stringEqV1 candidate value || containsStringV1 value rest
+
+/-- Closed-catalog membership via sole list authority and exact UTF-8 identity. -/
 def isS2CatalogIdV1 (id : String) : Bool :=
-  s2CatalogIdsWireOrderListV1.contains id
+  containsStringV1 id s2CatalogIdsWireOrderListV1
 
 /-! ### Kernel-transparent S2 catalog digests
 
@@ -141,19 +148,19 @@ def s2ValueCheckedArithmeticDigestBytesV1 : ByteArray :=
     `domainSeparatedSha256` results); unknown ids still compute via the pure
     SHA path. -/
 def engineeringRequirementDigestV1 (id : String) : Except String Digest :=
-  if id == s2EffectAsyncWorkflowIdV1 then
+  if stringEqV1 id s2EffectAsyncWorkflowIdV1 then
     pure { algorithm := .sha256, bytes := s2EffectAsyncWorkflowDigestBytesV1 }
-  else if id == s2EffectEventIdV1 then
+  else if stringEqV1 id s2EffectEventIdV1 then
     pure { algorithm := .sha256, bytes := s2EffectEventDigestBytesV1 }
-  else if id == s2EffectSyncCallIdV1 then
+  else if stringEqV1 id s2EffectSyncCallIdV1 then
     pure { algorithm := .sha256, bytes := s2EffectSyncCallDigestBytesV1 }
-  else if id == s2FailureAtomicRollbackIdV1 then
+  else if stringEqV1 id s2FailureAtomicRollbackIdV1 then
     pure { algorithm := .sha256, bytes := s2FailureAtomicRollbackDigestBytesV1 }
-  else if id == s2StatePersistentIdV1 then
+  else if stringEqV1 id s2StatePersistentIdV1 then
     pure { algorithm := .sha256, bytes := s2StatePersistentDigestBytesV1 }
-  else if id == s2ValueBoolIdV1 then
+  else if stringEqV1 id s2ValueBoolIdV1 then
     pure { algorithm := .sha256, bytes := s2ValueBoolDigestBytesV1 }
-  else if id == s2ValueCheckedArithmeticIdV1 then
+  else if stringEqV1 id s2ValueCheckedArithmeticIdV1 then
     pure { algorithm := .sha256, bytes := s2ValueCheckedArithmeticDigestBytesV1 }
   else
     domainSeparatedSha256 engineeringRequirementKeyDomainV1 id.toUTF8
@@ -186,62 +193,66 @@ private def compareDigestBytes (left right : ByteArray) : Ordering :=
 
 private def compareRequirementKeyString
     (left right : RequirementRequestV1) : Except String Ordering := do
-  if left.id < right.id then return .lt
-  if left.id > right.id then return .gt
+  match compareByteArrayLex left.id.toUTF8 right.id.toUTF8 with
+  | .lt => return .lt
+  | .gt => return .gt
+  | .eq => pure ()
   let verL ← renderSemVer left.version
   let verR ← renderSemVer right.version
-  if verL < verR then return .lt
-  if verL > verR then return .gt
+  match compareByteArrayLex verL.toUTF8 verR.toUTF8 with
+  | .lt => return .lt
+  | .gt => return .gt
+  | .eq => pure ()
   validateDigest left.digest
   validateDigest right.digest
   pure (compareDigestBytes left.digest.bytes right.digest.bytes)
 
+private def insertRequirementRequestV1
+    (item : RequirementRequestV1) :
+    List RequirementRequestV1 → Except String (List RequirementRequestV1)
+  | [] => pure [item]
+  | existing :: rest => do
+      match ← compareRequirementKeyString existing item with
+      | .lt => pure (existing :: (← insertRequirementRequestV1 item rest))
+      | .eq | .gt => pure (item :: existing :: rest)
+
+private def sortRequirementRequestsListV1
+    (sorted : List RequirementRequestV1) :
+    List RequirementRequestV1 → Except String (List RequirementRequestV1)
+  | [] => pure sorted
+  | item :: rest => do
+      let next ← insertRequirementRequestV1 item sorted
+      sortRequirementRequestsListV1 next rest
+
 /-- Sort requirement requests by SPEC key order (id, SemVer render, digest). -/
 private def sortRequirementRequestsV1 (items : Array RequirementRequestV1) :
     Except String (Array RequirementRequestV1) := do
-  let mut out : Array RequirementRequestV1 := #[]
-  for item in items do
-    let mut inserted := false
-    let mut next : Array RequirementRequestV1 := #[]
-    for existing in out do
-      if inserted then
-        next := next.push existing
-      else
-        let cmp ← compareRequirementKeyString existing item
-        match cmp with
-        | .lt => next := next.push existing
-        | .eq | .gt =>
-            next := next.push item
-            next := next.push existing
-            inserted := true
-    if !inserted then
-      next := next.push item
-    out := next
-  pure out
+  let sorted ← sortRequirementRequestsListV1 [] items.toList
+  pure sorted.toArray
 
 /-- Infer-only disclosure ids that CheckV1/DisclosureCheck already enforces.
     Skipped at freeze (N1) so private/commitment state/params do not invent
     non-catalog S2 rows or block the product chain. CAP catalog promotion of
     these ids remains a later formal decision. -/
 private def isSkippedInferDisclosureIdV1 (id : String) : Bool :=
-  id == inferDisclosurePrivateWitnessIdV1 ||
-  id == inferDisclosureCommitmentIdV1 ||
-  id == inferDisclosurePrivateStateIdV1 ||
-  id == inferDisclosureCommitmentStateIdV1
+  stringEqV1 id inferDisclosurePrivateWitnessIdV1 ||
+  stringEqV1 id inferDisclosureCommitmentIdV1 ||
+  stringEqV1 id inferDisclosurePrivateStateIdV1 ||
+  stringEqV1 id inferDisclosureCommitmentStateIdV1
 
 /-- ContextRead / Commit / exact extension contribution ids use wire-owned
     identities. Normalize merges their exact rows after S2 freeze; freeze must
     skip them so they never invent S2 catalog rows or digest domains. -/
 private def isSkippedWireOwnedIdV1 (id : String) : Bool :=
-  id == wireContextUnixTimeSecondsIdV1 ||
-  id == wireContextCallerIdV1 ||
-  id == wireContextBlockHeightIdV1 ||
-  id == wireContextChainIdIdV1 ||
-  id == wireContextSelfIdV1 ||
-  id == wireContextAttachedValueIdV1 ||
-  id == wireCommitmentDisclosureIdV1 ||
-  id == wireExtensionSolanaCpiAccountsIdV1 ||
-  id == wireExtensionPfAssetsIdV1
+  stringEqV1 id wireContextUnixTimeSecondsIdV1 ||
+  stringEqV1 id wireContextCallerIdV1 ||
+  stringEqV1 id wireContextBlockHeightIdV1 ||
+  stringEqV1 id wireContextChainIdIdV1 ||
+  stringEqV1 id wireContextSelfIdV1 ||
+  stringEqV1 id wireContextAttachedValueIdV1 ||
+  stringEqV1 id wireCommitmentDisclosureIdV1 ||
+  stringEqV1 id wireExtensionSolanaCpiAccountsIdV1 ||
+  stringEqV1 id wireExtensionPfAssetsIdV1
 
 /-- Infer-only Field type contribution. Field arithmetic is exact modular
     (no overflow); product arithmetic is covered by the existing S2 key
@@ -249,9 +260,24 @@ private def isSkippedWireOwnedIdV1 (id : String) : Bool :=
     `value.field.*` id — skip at freeze (N2b; T14 catalog v2 extends the
     closed field set to bn254 Fr, BLS12-377 Fr, and Goldilocks). -/
 private def isSkippedInferFieldIdV1 (id : String) : Bool :=
-  id == inferValueFieldBn254FrIdV1 ||
-  id == inferValueFieldBls12377FrIdV1 ||
-  id == inferValueFieldGoldilocksIdV1
+  stringEqV1 id inferValueFieldBn254FrIdV1 ||
+  stringEqV1 id inferValueFieldBls12377FrIdV1 ||
+  stringEqV1 id inferValueFieldGoldilocksIdV1
+
+private def freezeContributionsV1
+    (items : List RequirementRequestV1) :
+    List RequirementContributionV1 → Except String (List RequirementRequestV1)
+  | [] => pure items
+  | contribution :: rest => do
+      let id := RequirementContributionV1.idOf contribution
+      if isSkippedInferDisclosureIdV1 id || isSkippedInferFieldIdV1 id ||
+          isSkippedWireOwnedIdV1 id then
+        freezeContributionsV1 items rest
+      else do
+        unless isS2CatalogIdV1 id do
+          throw s!"S2 semantic requirements freeze rejects non-catalog key '{id}'"
+        let request ← mkS2RequirementRequestV1 id
+        freezeContributionsV1 (request :: items) rest
 
 /-- Freeze exact ProgramRequirementsV1 from the sole ProgramV1 contribution
     analysis. Infer-only disclosure and Field type contribution ids are
@@ -262,17 +288,8 @@ private def isSkippedInferFieldIdV1 (id : String) : Bool :=
 def freezeProgramRequirementsV1 (program : ProgramV1) :
     Except String ProgramRequirementsV1 := do
   let contributions := inferRequirementContributionsV1 program
-  let mut items : Array RequirementRequestV1 := #[]
-  for contribution in contributions do
-    let id := RequirementContributionV1.idOf contribution
-    if isSkippedInferDisclosureIdV1 id || isSkippedInferFieldIdV1 id ||
-        isSkippedWireOwnedIdV1 id then
-      pure ()
-    else do
-      unless isS2CatalogIdV1 id do
-        throw s!"S2 semantic requirements freeze rejects non-catalog key '{id}'"
-      items := items.push (← mkS2RequirementRequestV1 id)
-  pure { items := ← sortRequirementRequestsV1 items }
+  let items ← freezeContributionsV1 [] contributions.toList
+  pure { items := ← sortRequirementRequestsV1 items.toArray }
 
 /-- Freeze from a validated source unit. -/
 def freezeProgramRequirementsFromSourceV1 (source : ValidatedSourceV1) :

@@ -83,6 +83,17 @@ private theorem computeInvariantClosureMembershipWorkerExhaustedV1
   simp [computeInvariantClosureMembershipWorkerV1, hWork]
   rfl
 
+private def seedInvariantClosureMembershipV1
+    (index : Nat) (members : Array Bool) (worklist : Array Nat) :
+    List CallableV1 → Array Bool × Array Nat
+  | [] => (members, worklist)
+  | callable :: rest =>
+      if callable.kind == .invariant then
+        seedInvariantClosureMembershipV1 (index + 1) (members.set! index true)
+          (worklist.push index) rest
+      else
+        seedInvariantClosureMembershipV1 (index + 1) members worklist rest
+
 /-- Compute exact transitive invariant-closure membership over `Op.PureCall`
     edges (SPEC §8). Generic CFG/op typing has already proved every edge is
     in-range and targets a pureFn; this helper rechecks those facts fail-closed.
@@ -92,15 +103,9 @@ private theorem computeInvariantClosureMembershipWorkerExhaustedV1
 def invariantClosureMembershipResultV1
     (callables : Array CallableV1) :
     Except SemanticWireErrorV1 (Array Bool) := do
-  let mut members := Array.mk (List.replicate callables.size false)
-  let mut worklist : Array Nat := #[]
-  for index in [:callables.size] do
-    match callables[index]? with
-    | none => return ← err .badCfg
-    | some callable =>
-        if callable.kind == .invariant then
-          members := members.set! index true
-          worklist := worklist.push index
+  let initialMembers := Array.mk (List.replicate callables.size false)
+  let (members, worklist) :=
+    seedInvariantClosureMembershipV1 0 initialMembers #[] callables.toList
   computeInvariantClosureMembershipWorkerV1 callables 0 members worklist
     callables.size
 
