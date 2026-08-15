@@ -670,6 +670,7 @@ Noir/Aleo/Psy/Quint/TON 维持现有边界，不主动扩面。
 | 2026-08-15 | **MAT-PRIN-QS**：N2c Principal identity-storage 十二 target 补齐。EVM/Solana/NEAR/Noir/Psy + CosmWasm admit；Aleo/TON/Quint/Soroban/ICP/OpenVM FC。**不**开 Principal / remap |
 | 2026-08-15 | **MAT-STRUCT-QS**：N3 named Struct PointBox 十二 target 补齐。六 flatten-to-leaf + CW/TON admit；Quint/Soroban/ICP/OpenVM envelope FC。**不**开 Struct |
 | 2026-08-15 | **MAT-ARRAY-QS**：Array UInt64 2 ArrayBox 十二 target 补齐。六 flatten-to-leaf + CW/TON admit；Quint/Soroban/ICP/OpenVM envelope FC。**不**开 Array |
+| 2026-08-15 | **MAT-RET-QS**：B-RET-ABI PairRet view-return 十二 target 补齐。七个 admit；Aleo view-over-state + Quint/Soroban/ICP/OpenVM FC。PairRetEntry Aleo pin 保留。**不**开 aggregate return |
 | 2026-08-15 | **AGENT-NOTES-0**：引入 [`.agents/notes/`](../.agents/notes/README.md) 记 why/why-not（非 ADR、非 formal、非运行日志）。首批五篇：TypeKey 不进 structure gate、EXT-CRYPTO 不自动开、Soroban S0≠Wasm、focused `lake env lean`、Goal 不关 formal。无 format CI。 |
 | 2026-08-15 | **CAP-LAYER-0**：同一能力层 = catalog 行上的 named admit/FC，不是 opcode 对齐、不是第 13 个 TargetId。设计 [`plan/capability-layer-parity.md`](plan/capability-layer-parity.md)；任务 [`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。默认可编码 = CAP-1a ICP `unixTimeSeconds`。不关 formal / SOR-1 / Merkle。 |
 | 2026-08-15 | **RPT-028 全仓诚实对账 + 活指针**：Goal-auto drain 标空；AGENTS Next 不再写成「闭合 D2-07」；SBOM 313；Solana sole CPI；ICP 与 zero-tool 拆开；击杀序删已做完的 CALL wide；RPT-014 加 superseded 横幅。**不**关闭 formal 0/27 |

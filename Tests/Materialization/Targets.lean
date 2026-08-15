@@ -4185,6 +4185,26 @@ unsafe def run : IO Unit := do
   | .error e =>
       throw <| IO.userError
         s!"B-RET-ABI: ton must admit view aggregate return, got {e.render}"
-
+  -- Extra from probe: plan-admit targets also materialize (files nonempty).
+  -- Quint/Soroban/ICP/OpenVM stay envelope FC. Aleo view-over-state stays FC
+  -- (dedicated pin above). Not opening aggregate view-return.
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy] do
+    let out ← liftResult <| materializeSelected target pairCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"B-RET-ABI: {target} must materialize view aggregate return"
+  for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
+    match materializeSelected target pairCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"B-RET-ABI: {target} must decline view aggregate return"
+    | .error e =>
+        expect ((e.render).contains "aggregate" ||
+            (e.render).contains "return" ||
+            (e.render).contains "named" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot" ||
+            (e.render).contains "public" ||
+            (e.render).contains "query")
+          s!"B-RET-ABI {target} message must cite aggregate/return boundary, got {e.render}"
 
 end Tests.Materialization
