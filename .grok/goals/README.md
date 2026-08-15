@@ -9,19 +9,18 @@ normative: false
 
 # Goal + workflow：整仓工程队列
 
-## 当前优先：下一波可执行工程（EVM lighthouse + S4）
+## 当前优先：Goal-auto drain 已空（2026-08-15）
 
-旧 master 队列（2026-08-02）里的 N-*/BUILD-*/D3-E* 工程项已 drain。
-业务形式化 wave-3′ 已 drain。
-**现在不要再开 `prompt-master-queue` 从头扫。**
+旧 master 队列与 next-wave（LH + S4 + Track F）均已 drain。
+**不要再开 `prompt-master-queue` 或 `prompt-next-wave`。**
+下一刀见 [`docs/research/28-project-wide-honesty-audit.md`](../../docs/research/28-project-wide-honesty-audit.md)
+与根 [`AGENTS.md`](../../AGENTS.md) Next task。
+
+历史命令（已空，勿 launch）：
 
 ```text
 /goal @.grok/goals/prompt-next-wave.md --budget 8000000
 ```
-
-队列：`.grok/next-wave-queue.md`
-单切片 workflow：`next-wave-runner`
-**默认 drain**：Goal 内连续消项，不要回聊天说「继续」。
 
 单切片（不 drain）：
 

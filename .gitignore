@@ -42,3 +42,4 @@ node_modules/
 
 # Local demo recordings (may contain sensitive leo output)
 build/demos/
+.pi

@@ -3,19 +3,20 @@ id: RESEARCH-INDEX
 title: 调研证据索引
 status: draft
 owner: research
-updated: 2026-08-13
+updated: 2026-08-15
 normative: false
 ---
 
 # 调研证据索引
 
 状态：`draft`
-更新日期：2026-08-13
+更新日期：2026-08-15
 
 本目录保存 ProofForge V2 的非规范性研究材料。研究结论不能越过已接受的 ADR、PRD、架构和技术规格；它们的作用是说明“为什么这样设计”，而不是暗中改变产品语义。
 
 **工程执行队列**不在本目录：见 [`../engineering-backlog.md`](../engineering-backlog.md)。
-日常只把 **11 + 12 + 13** 的缺口回写 backlog；**01–09** 为早期设计研究（已被 ADR/SPEC 吸收），**10** 为长期北极星（IBC），勿再平行开第四份 gap 清单。
+**11 + 12 + 13** 仍是特性/格子/Normalize 对账真源，缺口回写 backlog；**28** 是 2026-08-15 全仓诚实性对账（控制面×代码），用于校准 Next/Goal，**不是**第四份 live gap 清单。
+**01–09** 为早期设计研究（已被 ADR/SPEC 吸收），**10** 为长期北极星（IBC）。
 
 ## 阅读顺序
 
@@ -50,6 +51,7 @@ normative: false
 29. [`25-remaining-target-landscape.md`](25-remaining-target-landscape.md)：**剩余 target 版图**——用户「四大类」vs 多轴 taxonomy、registry 9+3、ADR-0017 研究桶、比特币脚本族（UTXO predicate）诚实边界，以及 Soroban→ICP→OpenVM→Move→第二 zkVM 的工程波次；执行勾选只进 `engineering-backlog`（RPT-025；2026-08-13）。
 30. [`26-zkvm-trio-cairo-risc0-sp1-design.md`](26-zkvm-trio-cairo-risc0-sp1-design.md)：**Cairo / RISC Zero / SP1** 三独立 zkVM Plan 设计——共享 Q0 fail-closed 面与 maturity 梯子、分机 `CairoPlan`/`Risc0Plan`/`Sp1Plan`、相对 OpenVM/Noir 分工；非 registry 扩面（RPT-026；2026-08-13）。
 31. [`27-extension-crypto-design.md`](27-extension-crypto-design.md)：**extension.crypto 设计钉**——S5 sha256 三叶现状、其余 target 诚实 FC、Merkle/签名/Bytes 分桶与避让 Soroban/ICP/OpenVM 车道（RPT-027；2026-08-13）。
+32. [`28-project-wide-honesty-audit.md`](28-project-wide-honesty-audit.md)：**全仓诚实性对账**——控制面计数/Next/Goal 空队列、十二 target deployable≠maturity、formal 0/27 仍真（RPT-028；2026-08-15）。后续工程车道：[`../plan/capability-layer-parity.md`](../plan/capability-layer-parity.md) / [`../plan/capability-layer-tasks.md`](../plan/capability-layer-tasks.md)。
 
 ## 证据等级
 

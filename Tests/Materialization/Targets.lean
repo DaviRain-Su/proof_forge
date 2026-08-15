@@ -4600,6 +4600,52 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrMap" target kind arrMapCompiled
       "anonymous Map is outside the current container-state pilot"
 
+  -- ArrPrin: Array Principal 2 state. Companion UInt64 `n` exists only so
+  -- init/entry compile (no Principal literal; no bare return in init).
+  -- All twelve stay named element/Principal FC. Not opening
+  -- Array-of-Principal. ArrMap / ArrayBox / PrincipalMix stay.
+  let arrPrinSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrPrin where\n" ++
+    "  state slots : Array Principal 2\n" ++
+    "  state n : UInt64\n\n" ++
+    "  init(x : UInt64) do\n" ++
+    "    n := x\n\n" ++
+    "  entry bump(d : UInt64) : UInt64 do\n" ++
+    "    n := n + d\n" ++
+    "    return n\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let arrPrinV1 ← match ← session.selectProgramV1 arrPrinSource
+      "<targets-arr-prin>" "Examples.ArrPrin" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"ArrPrin select: {e.render}"
+  let arrPrinCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrPrinV1
+  expectMaterializePlanInvariantV1 "ArrPrin" TargetId.evm TargetKind.evm
+    arrPrinCompiled "Array state element must be UInt8/16/32/64"
+  for (target, kind) in #[
+      (TargetId.solana, TargetKind.solana),
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.cosmwasm, TargetKind.cosmwasm)] do
+    expectMaterializePlanInvariantV1 "ArrPrin" target kind arrPrinCompiled
+      "Array state element must be UInt64"
+  expectMaterializePlanInvariantV1 "ArrPrin" TargetId.aleo TargetKind.aleo
+    arrPrinCompiled "Principal/String stay fail-closed"
+  expectMaterializePlanInvariantV1 "ArrPrin" TargetId.quint TargetKind.quint
+    arrPrinCompiled "anonymous Array is outside the current container-state pilot"
+  expectMaterializePlanInvariantV1 "ArrPrin" TargetId.ton TargetKind.ton
+    arrPrinCompiled "no Field/Principal"
+  for (target, kind) in #[
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm)] do
+    expectMaterializePlanInvariantV1 "ArrPrin" target kind arrPrinCompiled
+      "Principal/aggregates/containers fail closed"
+  expectMaterializePlanInvariantV1 "ArrPrin" TargetId.icp TargetKind.icp
+    arrPrinCompiled "Principal/aggregates/containers/String fail closed"
+
   -- MapMini: Map UInt64 UInt64 state. Eight materializers admit; Quint/
   -- Soroban/ICP/OpenVM stay envelope FC. Not opening Map on those four.
   -- No Plan-shape pins; files-nonempty or named decline only.

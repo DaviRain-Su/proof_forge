@@ -3,7 +3,7 @@ id: DOC-STATUS
 title: 文档生命周期与权威索引
 status: proposed
 owner: architecture
-updated: 2026-08-14
+updated: 2026-08-15
 normative: true
 ---
 
@@ -38,7 +38,11 @@ ADR-0045 O0），opt-in `openvm-guest-elf-v1` 锁定 `cargo-openvm` 2.0.1 build/
 **Accepted PRD Phase 1 范围仍为四目标**（EVM/Solana/NEAR/Noir）；engineering
 leaves 的边界由 **ADR-0036**（现 12+0：含 Soroban ADR-0044、OpenVM ADR-0045/0046、ICP ADR-0047）固定为非
 accepted 扩面，formal lighthouse 为 EVM-first。
-日常缺口队列见 [`engineering-backlog.md`](engineering-backlog.md)。剩余 target / 比特币脚本族版图见
+日常缺口队列见 [`engineering-backlog.md`](engineering-backlog.md)。
+同一能力层（十二 implemented leaf 的 catalog 对齐，非新 TargetId）：
+[`plan/capability-layer-parity.md`](plan/capability-layer-parity.md) ·
+[`plan/capability-layer-tasks.md`](plan/capability-layer-tasks.md)。
+剩余 target / 比特币脚本族版图见
 [`research/25-remaining-target-landscape.md`](research/25-remaining-target-landscape.md)
 （§10.1：ICP 已为 engineering implemented ADR-0047；不扩 accepted PRD）。**ADR-0027**
 （`proposed`）仍冻结 inline same-file gate 的 single-snapshot/audit/axiom/proof-first 基线；

@@ -76,6 +76,12 @@ fail closed（逐项对照 spec EBNF 与 `SPEC-SEM-001`；**N-A1/N-A2 已闭合 
 4. aggregate entry/view/fn 返回值（target ABI 仍 scalar-only）；
 5. call 返回值 / schedule response 语义（v1 external call 无返回值——`SPEC-SEM-001` 明确
    "加 typed return 必须升级 semantic/reference schema"）；
+   > **2026-08-15 诚实注（RPT-028）**：本项“v1 external call 无返回值”写于 N-CALL-RET cutover
+   > **之前**，已被产品切片 **N-CALL-RET（2026-08-04 done）** 取代——`call` 可进值位置、
+   > `Op.ExternalCall` 可带 typed `returnValue?`（见
+   > [`semantic-program-wire.md`](../specs/semantic-program-wire.md) L557）。
+   > `SPEC-SEM-001` semantic-core.md 仍保留旧句是 **SPEC 分裂**，须 ADR 收口，不是再钉 Sem002。
+   > 本文其余条目保留为 2026-08-01 审计时点的影响分析。
 6. true mutable locals（仅 field/index rebind of 不可变 let）；
 7. match 内构造器子模式嵌套深化；
 8. Int event/error 字段（仍 UInt-only）；

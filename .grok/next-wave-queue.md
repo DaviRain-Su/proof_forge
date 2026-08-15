@@ -171,6 +171,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-MAP-BYTES-KEY-QS | done | MapBytesKey Map Bytes 4 UInt64 12-target all named key/pilot FC (EVM/Solana name Principal-key alternative). **Not** opening Bytes-key Map |
 | MAT-MAP-PRIN-QS | done | MapPrin Map Principal UInt64 12-target: EVM/Solana admit; ten named key/pilot/Principal FC. **Not** opening Principal-key Map on decline set |
 | MAT-OPT-PRIN-QS | done | OptPrin Option Principal 12-target all named payload/Principal FC. **Not** opening Option-of-Principal |
+| MAT-ARR-PRIN-QS | done | ArrPrin Array Principal 2 12-target all named element/Principal FC. **Not** opening Array-of-Principal |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | QUINT-CALL-RET-FC | done | Pin value-position `let y : UInt64 := call Oracle.feed` Plan FC (`result-bearing externalCall is outside Q0`, distinct from void A5). **Not** opening result-bearing CALL / Q0 |

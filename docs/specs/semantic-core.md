@@ -141,7 +141,17 @@ invocation，cursor 从 0 开始；每个 external call 要求 `cursor < respons
 resource trap——发布前都执行一次 exhaustion check：只有 `cursor == responses.size` 才保留候选；否则
 统一覆盖为 `.trapped(.invalidExternalResponse, pre)` 并丢弃 overlay/effects。因此 matched `.reverted`
 后仍有 trailing response，以及程序自行 revert/trap 时仍有 unconsumed response，都唯一得到
-`invalidExternalResponse`，不存在“立即 revert”与“extra response trap”两种实现。v1 external call 无
+`invalidExternalResponse`，不存在“立即 revert”与“extra response trap”两种实现。
+
+> **2026-08-15 诚实横幅（RPT-028）**：本段“v1 external call 无 return value / response 没有 value
+> 字段 / 增加 typed return 必须升级 schema”写于 N-CALL-RET cutover **之前**，现与
+> [`semantic-program-wire.md`](semantic-program-wire.md) L557 的 `Op.ExternalCall` optional
+> `returnValue?` **分裂**。产品已接收值位置 `call`（`N-CALL-RET`，2026-08-04 done），
+> `Reference.ExternalResponseV1.returnValue?` 与 Wire step-j 条件 result 已存在。本句的
+> 收口方式属未决 **SPEC-honesty ADR**，不在此处静默改写正文；在此之前，本句按“cutover 前的
+> schema 约束描述”读，**不**作为当前产品代码事实。
+
+v1 external call 无
 return value，因此 response 没有 value 字段；增加 typed return 必须升级 semantic/reference schema，
 而不能塞入 context。
 

@@ -1,21 +1,14 @@
 # Goal — 下一波可执行工程 drain（EVM lighthouse + S4）
 
-> **当前入口（在 Grok Goal 里开，不要只在聊天做半截）：**
+> **2026-08-15：本 Goal 已退役。** Track A/B 无 `pending`。
+> **不要**再执行 `/goal @.grok/goals/prompt-next-wave.md`，**不要** `starting at LH-4`，
+> **不要**报告 `NEXT=FORMAL_C3`。下一刀见 [`docs/research/28-project-wide-honesty-audit.md`](../../docs/research/28-project-wide-honesty-audit.md)
+> 与 [`AGENTS.md`](../../AGENTS.md) Next task。
+>
+> 历史入口（已空，仅留档）：
 >
 > ```text
 > /goal @.grok/goals/prompt-next-wave.md --budget 8000000
-> ```
->
-> 续跑：
->
-> ```text
-> /goal @.grok/goals/prompt-next-wave.md starting at LH-4 --budget 8000000
-> ```
->
-> 单切片（配合 workflow，不 drain）：
->
-> ```text
-> /workflow next-wave-runner
 > ```
 
 ---

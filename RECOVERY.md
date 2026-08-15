@@ -138,7 +138,7 @@ materialize）→ capability Plan/publish。历史上的 B9–B12 监督层与 s
 `Frontend/ProtocolV1` 与 `WorkerV1` 不是产品 CLI 源权威。D1-04 shared IntegerLiteral 与
 ProgramV1 command/export/v2 仍为 sole 源表面。
 
-**当前执行指针 = EVM-first formal closeout（LH-1…28 engineering-done；下一步 `TASK-D2-07` / `TST-SEM-002/003`）**：
+**当前执行指针 = Goal-auto drain 已空（LH-1…28 + Track F engineering-done；不要再开 `prompt-next-wave`）**：formal `TASK-D2-07` / `TST-SEM-002/003` **仍 pending，不是下一刀编码**。日常工程下一刀 = [`docs/plan/capability-layer-parity.md`](docs/plan/capability-layer-parity.md) / [`docs/plan/capability-layer-tasks.md`](docs/plan/capability-layer-tasks.md)（默认 **CAP-1a** ICP time）。对账见 [`docs/research/28-project-wide-honesty-audit.md`](docs/research/28-project-wide-honesty-audit.md) 与 [`AGENTS.md`](AGENTS.md) Next task。
 产品路径仍为进程内单次 read → `Loader` → `Normalize` → `compile` → `certifyInlineProofV1`
 → capability；十二个 materializer Plan body 已直连 retained `SemanticProgramV1`，`CompiledSemanticV1`
 + `ProgramRequirementsV1` sole freeze + engineering resolver/capability 已接线。registry
@@ -222,12 +222,12 @@ CLI真实走完 `SemanticProgramV1 → exact resolver → target Plan/IR → Out
 private-ctor `CompiledSemanticV1` 单 carrier + engineering exact requirement resolver capability
 （`resolveEngineeringRequirementsV1 (selection, compiled)` → private
 `ResolvedEngineeringBuildV1`，exact retained SemanticProgramV1 `data.requirements`，
-无 caller request override；静态十一行 S2 target/profile support index）。**精确边界**：shipped
-aggregate/CLI `materialize`/`emit` 仅接受 capability；EVM/Solana/NEAR/Noir/Aleo/Psy/Quint/CosmWasm/TON 均在 capability 后读取
+无 caller request override；静态十五行 S2 target/profile support index）。**精确边界**：shipped
+aggregate/CLI `materialize`/`emit` 仅接受 capability；十二 materializer 均在 capability 后读取
 retained `SemanticProgramV1`，经各自 private lowering 构造 target-owned Plan，再进入各自 IR/emission；
 residual alpha不再参与 Plan body。**D3/S6 工程**：public residual Common resolve / validateResolved /
 public makePlan 与 `TargetDescriptor.supportedRequirements` 字段/membership acceptance 已关闭；
-cycle-free `EngineeringBuildV1` leaf sole mint；九 materializer 仅 capability-gated
+cycle-free `EngineeringBuildV1` leaf sole mint；十二 materializer 仅 capability-gated
 `planFromCapability`/`irFromCapability`/`buildFromCapability`（+ descriptor/
 validatePlan/validateIR inspection）；Registry 直接 capability dispatch；public
 `namespace Residual` 与 `planFromAlpha`/`lowerPlan`/`filesFromIR` 完整
@@ -242,7 +242,7 @@ ProgramV1 source Digest + `semanticHashV1` Digest + ordered files）；已删 pu
 `s7-output-envelope-deletion-gate` 已接入 dev/ci。**D3/S7b 工程**：locked-tool
 finalization 已迁出 CLI：`Materialization/LockedToolchainV1`（无 Core.Source/CLI）；
 private-ctor `FinalizedArtifactsV1` sole mint；Registry sole
-`finalizeMaterializedArtifactsV1` → 九 materializer FinalizeV1 adapters；
+`finalizeMaterializedArtifactsV1` → 十二 materializer FinalizeV1 adapters；
 CLI/Emit publisher-only；已删 `CLI/Toolchain` 与 `finalizeEvm`/`finalizeNear`；
 engineering `proof-forge.output.v1`/tool bytes 保持；`s7b-finalize-authority-deletion-gate` 已接入
 dev/ci。**D3/S7c + D3-E7 工程**：`ArtifactContentV1` sole physical walker/stable-read/hash
@@ -252,7 +252,7 @@ dev/ci。**D3/S7c + D3-E7 工程**：`ArtifactContentV1` sole physical walker/st
 重验 no-follow bounded closure（limits 1024/64MiB/256MiB）；`inspect <output-dir>` stable-read sidecars/
 listed artifacts、重走 closure并逐 descriptor 比对；Python validator同样拒绝 symlink/hardlink/额外或
 缺失 leaf并重算 digest；`s7c-disk-closure-gate` 已接入 dev/ci。**D3-E9 工程**：
-`TargetDescriptor` 直接复用 registry-owned 六轴，八个 registry-implemented descriptors 从 frozen
+`TargetDescriptor` 直接复用 registry-owned 六轴，十二个 registry-implemented descriptors 从 frozen
 `semanticsAxesOfKindV1` seed 派生（含 CosmWasm/TON Plan/materializer leaf）。
 capability resolve、artifact mint 与 CLI inspect 前逐轴 exact join，Protocol 重复轴类型已删除。
 仍**不是 formal** SupportClaim/formal resolver/formal BuildIdentity/formal `OutputSetV1`/

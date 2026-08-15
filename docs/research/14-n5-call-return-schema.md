@@ -9,7 +9,13 @@ normative: false
 
 # N-5: Typed external call returns (schema impact)
 
-## Current product fact (code)
+> **2026-08-15 诚实横幅（RPT-028）**：下文「Current product fact」是 **2026-08-02 快照**，
+> 已被产品切片 **N-CALL-RET（2026-08-04 done）** 取代。现产品：`call` 可进值位置，
+> `Op.ExternalCall` 可带 typed `returnValue?`；`docs/specs/semantic-program-wire.md` 已记 optional result。
+> `docs/specs/semantic-core.md` 仍写 v1 response 无 value —— 这是 **SPEC 分裂**，须 ADR，不是再钉 Sem002。
+> 本文其余章节保留为 cutover 前影响分析，**不要**当当前代码事实。
+
+## Current product fact (code) — 2026-08-02 snapshot, superseded
 
 | Layer | Shape |
 |---|---|
