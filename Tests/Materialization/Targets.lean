@@ -3315,7 +3315,8 @@ unsafe def run : IO Unit := do
     "N1 priv-param: Noir binds private param as private-witness input"
 
   -- N2b: Field bn254_fr product pin — Noir (native Field) + EVM (ADDMOD/MULMOD
-  -- + Fermat inv) admit; Solana/NEAR/Psy fail closed at Plan type-closure.
+  -- + Fermat inv) admit. Extra ten from probe stay Plan FC; not opening Field.
+  -- Aleo native Field is BLS12-377 Fr (not bn254); Psy Felt is Goldilocks.
   let fieldSource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3367,7 +3368,9 @@ unsafe def run : IO Unit := do
       evmFieldYul.contents.contains
         "0x30644e72e131a029b85045b68181585d2833e84879b9709143e1f593f0000001")
     "N2b field: EVM Yul must emit addmod with bn254 Fr modulus"
-  for target in [TargetId.solana, TargetId.near, TargetId.psy] do
+  for target in [TargetId.solana, TargetId.near, TargetId.psy, TargetId.aleo,
+      TargetId.quint, TargetId.cosmwasm, TargetId.ton, TargetId.soroban,
+      TargetId.icp, TargetId.openvm] do
     match materializeSelected target fieldCompiled with
     | .ok _ =>
         throw <| IO.userError s!"N2b field: {target} must fail closed on Field"
@@ -3389,6 +3392,18 @@ unsafe def run : IO Unit := do
           (e.render).contains "2^64-2^32+1" ||
           (e.render).contains "bn254 Fr")
         s!"N2b field Psy message must cite Goldilocks≠bn254 Fr, got {e.render}"
+  -- Aleo native Field is BLS12-377 Fr / Edwards BLS scalar, not bn254 Fr —
+  -- same honesty class as Psy Goldilocks (no silent remapping).
+  match materializeSelected TargetId.aleo fieldCompiled with
+  | .ok _ =>
+      throw <| IO.userError
+        "N2b field: Aleo must fail closed on bn254 Fr (native Field is BLS12-377 Fr)"
+  | .error e =>
+      expect ((e.render).contains "bls12-377" ||
+          (e.render).contains "BLS12-377" ||
+          (e.render).contains "Edwards" ||
+          (e.render).contains "bn254 Fr")
+        s!"N2b field Aleo message must cite BLS12-377≠bn254 Fr, got {e.render}"
 
 
   -- N2c + B-3 PrincipalAddr + T10/T12 Principal storage pilot.

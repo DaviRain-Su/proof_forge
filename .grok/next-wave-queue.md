@@ -114,6 +114,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-COMMIT-QS | done | N5 Commit identity matrix: 12-target admit/decline from probe. Quint/Soroban/ICP/OpenVM FC at envelope, not a new Commit op. **Not** B-COMMIT-ZK |
 | MAT-PRIV-QS | done | N1 private-state: CW/TON admit; Quint/Soroban/ICP/OpenVM envelope FC. **Not** disclosure redesign |
 | MAT-COMM-STATE-QS | done | N1 commitment-state: CW/TON admit; Noir + Quint/Soroban/ICP/OpenVM FC. **Not** B-COMMIT-ZK |
+| MAT-FIELD-QS | done | N2b Field bn254_fr 12-target: EVM/Noir admit; other ten Plan FC. Aleo names BLS12-377≠bn254 (same class as Psy Goldilocks). **Not** opening Field |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | DOC-MATRIX-CTRL | done | research/12 D-1=12+0 + §1d Soroban/OpenVM/ICP；ContextRead 行对齐 S3/S4/S3b；ADR-0031 S2 不再写 CPI Clock residual FC。**Not** formal |
