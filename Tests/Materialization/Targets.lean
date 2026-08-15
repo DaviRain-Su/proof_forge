@@ -3502,6 +3502,25 @@ unsafe def run : IO Unit := do
     s!"PSY-SCALAR-ABI Psy Principal must flatten to 9 Felt leaves, got {psyPlan.stateFieldNames.size}"
   expect (psyPlan.stateFieldNames[0]! == "owner_len")
     s!"Psy Principal leaf 0 must be owner_len, got {psyPlan.stateFieldNames[0]!}"
+  -- Extra seven from probe; CosmWasm admits identity storage (files nonempty).
+  -- Aleo/TON/Quint/Soroban/ICP/OpenVM stay FC. Not opening Principal; not
+  -- remapping Principal → pubkey / account-id / Field.
+  let prinCw ← liftResult <| materializeSelected TargetId.cosmwasm prinCompiled
+  expect (!(MaterializedArtifactsV1.filesOf prinCw).isEmpty)
+    "N2c principal: CosmWasm must materialize Principal identity storage"
+  for target in [TargetId.aleo, TargetId.quint, TargetId.ton, TargetId.soroban,
+      TargetId.icp, TargetId.openvm] do
+    match materializeSelected target prinCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"N2c principal: {target} must decline Principal"
+    | .error e =>
+        expect ((e.render).contains "Principal" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot" ||
+            (e.render).contains "public" ||
+            (e.render).contains "anonymous" ||
+            (e.render).contains "identity")
+          s!"N2c principal {target} message must cite Principal/identity boundary, got {e.render}"
   -- B-3 honesty pin survives T12: storage is wire identity leaves, not a
   -- 32-byte pubkey reinterpretation. Positive Solana materialize proves the
   -- leaf layout; wording still documents the non-match in Envelope diagnostics
