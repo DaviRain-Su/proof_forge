@@ -207,7 +207,7 @@ theorem checkStateCellGetReferenceProviderSubjectV1_sound
           certified.executed.handlerObservation
           stateCellProductionSbpfSha256V1
           certified.executed.sbpfObservation := by
-  rcases checkCertifiedSolanaProductionCompositionV1_sound
+  exact checkCertifiedSolanaProductionCompositionV1_sound_of_witnesses
       resolveStateCellGetProductionSubjectV1
       (fun subject =>
         checkUInt64ReturnedHandlerObservationRelV1 subject.data
@@ -218,23 +218,20 @@ theorem checkStateCellGetReferenceProviderSubjectV1_sound
         checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1
           subject.boundArtifact subject.handler subject.handlerInvocation
           subject.loaderInvocation subject.returnBytes subject.value)
-      checked with ⟨subject, hsubject, hreference, hprovider⟩
-  have referenceHandler :
-      UInt64ReturnedHandlerObservationRelV1 subject.data subject.returnTypeId
-        subject.referencePre subject.referenceOutcome ⟨subject.returnBytes⟩
-        (observeHandlerIRV1 subject.handler subject.handlerInvocation) :=
-    (checkUInt64ReturnedHandlerObservationRelV1_eq_true_iff subject.data
-      subject.returnTypeId subject.referencePre subject.referenceOutcome
-      ⟨subject.returnBytes⟩
-      (observeHandlerIRV1 subject.handler subject.handlerInvocation)).mp
-        hreference
-  rcases checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1_sound
-      subject.boundArtifact subject.handler subject.handlerInvocation
-      subject.loaderInvocation subject.returnBytes subject.value hprovider with
-    ⟨certified⟩
-  refine ⟨subject, hsubject, certified, ?_⟩
-  exact certified.referenceJoin (by
-    simpa [certified.executed.handlerExecution] using referenceHandler)
+      (fun subject hreference =>
+        (checkUInt64ReturnedHandlerObservationRelV1_eq_true_iff subject.data
+          subject.returnTypeId subject.referencePre subject.referenceOutcome
+          ⟨subject.returnBytes⟩
+          (observeHandlerIRV1 subject.handler subject.handlerInvocation)).mp
+            hreference)
+      (fun subject hprovider =>
+        checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1_sound
+          subject.boundArtifact subject.handler subject.handlerInvocation
+          subject.loaderInvocation subject.returnBytes subject.value hprovider)
+      (fun _ certified referenceHandler =>
+        certified.referenceJoin (by
+          simpa [certified.executed.handlerExecution] using referenceHandler))
+      checked
 
 /-- Concrete values consumed by the generic StateCell `initialize`
     HandlerIR/provider join. Same private-ctor discipline as `get`. -/
@@ -423,7 +420,7 @@ theorem checkStateCellInitializeReferenceProviderSubjectV1_sound
           subject.postData subject.argument certified.executed.handlerObservation
           stateCellProductionSbpfSha256V1
           certified.executed.sbpfObservation := by
-  rcases checkCertifiedSolanaProductionCompositionV1_sound
+  exact checkCertifiedSolanaProductionCompositionV1_sound_of_witnesses
       resolveStateCellInitializeProductionSubjectV1
       (fun subject =>
         checkUInt64InitializerReturnedHandlerObservationRelV1 subject.data
@@ -434,23 +431,21 @@ theorem checkStateCellInitializeReferenceProviderSubjectV1_sound
         checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1
           subject.boundArtifact subject.handler subject.handlerInvocation
           subject.loaderInvocation (BitVec.ofNat 64 subject.argument.toNat))
-      checked with ⟨subject, hsubject, hreference, hprovider⟩
-  have referenceHandler :
-      UInt64InitializerReturnedHandlerObservationRelV1 subject.data subject.plan
-        subject.binding subject.referencePost subject.referenceOutcome
-        subject.postData subject.argument
-        (observeHandlerIRV1 subject.handler subject.handlerInvocation) :=
-    (checkUInt64InitializerReturnedHandlerObservationRelV1_eq_true_iff
-      subject.data subject.plan subject.binding subject.referencePost
-      subject.referenceOutcome subject.postData subject.argument
-      (observeHandlerIRV1 subject.handler subject.handlerInvocation)).mp hreference
-  rcases checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1_sound
-      subject.boundArtifact subject.handler subject.handlerInvocation
-      subject.loaderInvocation (BitVec.ofNat 64 subject.argument.toNat)
-      hprovider with ⟨certified⟩
-  refine ⟨subject, hsubject, certified, ?_⟩
-  exact certified.referenceJoin (by
-    simpa [certified.executed.handlerExecution] using referenceHandler)
+      (fun subject hreference =>
+        (checkUInt64InitializerReturnedHandlerObservationRelV1_eq_true_iff
+          subject.data subject.plan subject.binding subject.referencePost
+          subject.referenceOutcome subject.postData subject.argument
+          (observeHandlerIRV1 subject.handler
+            subject.handlerInvocation)).mp hreference)
+      (fun subject hprovider =>
+        checkCertifiedStateCellInitializeExecutedHandlerSbpfJoinV1_sound
+          subject.boundArtifact subject.handler subject.handlerInvocation
+          subject.loaderInvocation (BitVec.ofNat 64 subject.argument.toNat)
+          hprovider)
+      (fun _ certified referenceHandler =>
+        certified.referenceJoin (by
+          simpa [certified.executed.handlerExecution] using referenceHandler))
+      checked
 
 /-- Concrete values consumed by the certified StateCell `increment` success
     HandlerIR/provider join. The selected scenario starts at `41` and adds
@@ -645,7 +640,7 @@ theorem checkStateCellIncrementReferenceProviderSubjectV1_sound
           subject.postData subject.before subject.argument
           certified.executed.handlerObservation stateCellProductionSbpfSha256V1
           certified.executed.sbpfObservation := by
-  rcases checkCertifiedSolanaProductionCompositionV1_sound
+  exact checkCertifiedSolanaProductionCompositionV1_sound_of_witnesses
       resolveStateCellIncrementProductionSubjectV1
       (fun subject =>
         checkUInt64CheckedAddReturnedHandlerObservationRelV1 subject.data
@@ -658,23 +653,22 @@ theorem checkStateCellIncrementReferenceProviderSubjectV1_sound
           subject.boundArtifact subject.handler subject.handlerInvocation
           subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
           (BitVec.ofNat 64 subject.argument.toNat))
-      checked with ⟨subject, hsubject, hreference, hprovider⟩
-  have referenceHandler :
-      UInt64CheckedAddReturnedHandlerObservationRelV1 subject.data subject.plan
-        subject.binding subject.referencePost subject.referenceOutcome
-        subject.postData subject.before subject.argument
-        (observeHandlerIRV1 subject.handler subject.handlerInvocation) :=
-    (checkUInt64CheckedAddReturnedHandlerObservationRelV1_eq_true_iff
-      subject.data subject.plan subject.binding subject.referencePost
-      subject.referenceOutcome subject.postData subject.before subject.argument
-      (observeHandlerIRV1 subject.handler subject.handlerInvocation)).mp hreference
-  rcases checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1_sound
-      subject.boundArtifact subject.handler subject.handlerInvocation
-      subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
-      (BitVec.ofNat 64 subject.argument.toNat) hprovider with ⟨certified⟩
-  refine ⟨subject, hsubject, certified, ?_⟩
-  exact certified.referenceJoin (by
-    simpa [certified.executed.handlerExecution] using referenceHandler)
+      (fun subject hreference =>
+        (checkUInt64CheckedAddReturnedHandlerObservationRelV1_eq_true_iff
+          subject.data subject.plan subject.binding subject.referencePost
+          subject.referenceOutcome subject.postData subject.before
+          subject.argument
+          (observeHandlerIRV1 subject.handler
+            subject.handlerInvocation)).mp hreference)
+      (fun subject hprovider =>
+        checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1_sound
+          subject.boundArtifact subject.handler subject.handlerInvocation
+          subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
+          (BitVec.ofNat 64 subject.argument.toNat) hprovider)
+      (fun _ certified referenceHandler =>
+        certified.referenceJoin (by
+          simpa [certified.executed.handlerExecution] using referenceHandler))
+      checked
 
 /-- The pinned arithmetic-overflow invocation over the exact increment
     production subject. Reusing that private subject guarantees the same source,
@@ -820,7 +814,7 @@ theorem checkStateCellIncrementOverflowReferenceProviderSubjectV1_sound
           certified.executed.handlerObservation
           stateCellProductionSbpfSha256V1
           certified.executed.sbpfObservation := by
-  rcases checkCertifiedSolanaProductionCompositionV1_sound
+  exact checkCertifiedSolanaProductionCompositionV1_sound_of_witnesses
       resolveStateCellIncrementOverflowProductionSubjectV1
       (fun subject =>
         checkUInt64CheckedAddOverflowHandlerObservationRelV1
@@ -835,27 +829,22 @@ theorem checkStateCellIncrementOverflowReferenceProviderSubjectV1_sound
           subject.handlerInvocation subject.loaderInvocation
           (BitVec.ofNat 64 subject.before.toNat)
           (BitVec.ofNat 64 subject.argument.toNat))
-      checked with ⟨subject, hsubject, hreference, hprovider⟩
-  have referenceHandler :
-      UInt64CheckedAddOverflowHandlerObservationRelV1
-        subject.production.data subject.production.plan
-        subject.production.binding subject.referencePre
-        subject.referenceOutcome subject.accountData subject.before
-        (observeHandlerIRV1 subject.production.handler
-          subject.handlerInvocation) :=
-    (checkUInt64CheckedAddOverflowHandlerObservationRelV1_eq_true_iff
-      subject.production.data subject.production.plan
-      subject.production.binding subject.referencePre
-      subject.referenceOutcome subject.accountData subject.before
-      (observeHandlerIRV1 subject.production.handler
-        subject.handlerInvocation)).mp hreference
-  rcases checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1_sound
-      subject.production.boundArtifact subject.production.handler
-      subject.handlerInvocation subject.loaderInvocation
-      (BitVec.ofNat 64 subject.before.toNat)
-      (BitVec.ofNat 64 subject.argument.toNat) hprovider with ⟨certified⟩
-  refine ⟨subject, hsubject, certified, ?_⟩
-  exact certified.referenceJoin (by
-    simpa [certified.executed.handlerExecution] using referenceHandler)
+      (fun subject hreference =>
+        (checkUInt64CheckedAddOverflowHandlerObservationRelV1_eq_true_iff
+          subject.production.data subject.production.plan
+          subject.production.binding subject.referencePre
+          subject.referenceOutcome subject.accountData subject.before
+          (observeHandlerIRV1 subject.production.handler
+            subject.handlerInvocation)).mp hreference)
+      (fun subject hprovider =>
+        checkCertifiedStateCellIncrementOverflowExecutedHandlerSbpfJoinV1_sound
+          subject.production.boundArtifact subject.production.handler
+          subject.handlerInvocation subject.loaderInvocation
+          (BitVec.ofNat 64 subject.before.toNat)
+          (BitVec.ofNat 64 subject.argument.toNat) hprovider)
+      (fun _ certified referenceHandler =>
+        certified.referenceJoin (by
+          simpa [certified.executed.handlerExecution] using referenceHandler))
+      checked
 
 end ProofForgeV2.Targets.Solana

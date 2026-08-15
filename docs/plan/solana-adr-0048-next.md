@@ -69,9 +69,11 @@ Code facts:
   fail-closed resolver/Reference-checker/provider-checker gate. Its soundness
   theorem recovers the exact resolved subject and both checker equations, but
   deliberately does not interpret them as a business relation or general
-  Reference→provider refinement. The four StateCell scenarios are its first
-  consumers; their observation relations, traces and postconditions remain
-  method-specific.
+  Reference→provider refinement. A second generic theorem lifts those equations
+  through caller-owned Reference soundness, provider certificate soundness and
+  composition functions into dependent proof witnesses. The four StateCell
+  scenarios are its first consumers; their observation relations, traces and
+  postconditions remain method-specific.
 
 ## Completed implementation slices (serial)
 
@@ -137,6 +139,13 @@ second codegen.
     exact Reference/provider checker equations. All four StateCell D5 gates now
     consume it without moving their business relations or sparse certificates
     into the generic layer.
+15. **SOL-0048-D5-WITNESS-SEAM** — **done 2026-08-15**: added generic
+    dependent witness lifting over the composition gate. Callers supply the
+    Reference checker soundness, provider-certificate soundness and final
+    witness composition function; the theorem packages the resolved subject,
+    provider certificate and composed witness. All four StateCell sound
+    theorems now consume this skeleton while retaining their own UInt64
+    relations and provider joins.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete. The remaining D5 blocker is unconditional kernel discharge of the

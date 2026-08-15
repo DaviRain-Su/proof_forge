@@ -135,6 +135,30 @@ private theorem productionCompositionFixtureV1
   checkCertifiedSolanaProductionCompositionV1_sound result referenceChecker
     providerChecker checked
 
+/-- Type-level fixture: successful checker equations can be lifted into
+    arbitrary caller-owned Reference, provider, and composed witness families.
+    None of those families is fixed to StateCell by the production boundary. -/
+private theorem productionCompositionWitnessFixtureV1
+    (result : Except String α)
+    (referenceChecker providerChecker : α → Bool)
+    {ReferenceWitness : α → Prop}
+    {ProviderWitness : α → Type}
+    {CompositionWitness : (subject : α) → ProviderWitness subject → Prop}
+    (referenceSound : ∀ subject, referenceChecker subject = true →
+      ReferenceWitness subject)
+    (providerSound : ∀ subject, providerChecker subject = true →
+      Nonempty (ProviderWitness subject))
+    (compose : ∀ subject, (provider : ProviderWitness subject) →
+      ReferenceWitness subject → CompositionWitness subject provider)
+    (checked : checkCertifiedSolanaProductionCompositionV1 result
+      referenceChecker providerChecker = true) :
+    ∃ subject,
+      result = .ok subject ∧
+      ∃ provider : ProviderWitness subject,
+        CompositionWitness subject provider :=
+  checkCertifiedSolanaProductionCompositionV1_sound_of_witnesses result
+    referenceChecker providerChecker referenceSound providerSound compose checked
+
 private def testProductionCompositionBoundary : IO Unit := do
   let missing : Except String Nat := .error "missing production subject"
   expect (!checkCertifiedSolanaProductionCompositionV1 missing

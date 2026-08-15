@@ -16297,3 +16297,16 @@ normative: false
   Reference checker失败、provider checker失败和共享subject成功四种边界。focused build与runner通过。
 - 该gate只是可复用的proof-producing组合骨架；它不构成无条件closed Boolean gate、一般
   Reference→provider theorem，也不覆盖ELF/linker/loader、Mollusk/validator/SVM runtime refinement。
+
+## 2026-08-15 — contract-independent Solana composition witness lifting
+
+- `ProductionCompositionV1`新增参数化dependent witness lifting theorem：由调用方提供Reference checker
+  soundness、provider checker到`Nonempty` certificate的soundness，以及二者到最终composition witness的
+  组合函数；通用层只打包同一个resolved subject、provider certificate与最终witness，不定义任何业务
+  relation、evaluator、trace或refinement语义。
+- StateCell四个D5 sound theorem统一消费该theorem，删除各自重复的composition Boolean拆解、
+  Reference witness建立、provider `Nonempty`拆包与最终existential打包。各方法仍显式提供自身UInt64
+  observation iff、55/55/70/56步provider certificate soundness和`referenceJoin`。
+- `SolanaAsmV1`新增任意subject/type-indexed Reference、provider与composition witness family的类型级
+  fixture，证明API没有绑定StateCell method形状。focused test build通过；最终closed Boolean premise仍
+  未被无条件kernel discharge，ELF/Mollusk/validator/SVM runtime refinement也未因此完成。

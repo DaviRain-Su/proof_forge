@@ -13,6 +13,8 @@ contract registry, business relation, provider trace, evaluator, or transition.
 
 namespace ProofForgeV2.Targets.Solana
 
+universe u
+
 /-- Resolve one production subject and evaluate its checker. Resolution failure
     is rejected rather than replaced by a default subject. -/
 def checkCertifiedSolanaProductionSubjectV1
@@ -58,5 +60,35 @@ theorem checkCertifiedSolanaProductionCompositionV1_sound
       checked with ⟨value, hresult, hchecked⟩
   simp only [Bool.and_eq_true] at hchecked
   exact ⟨value, hresult, hchecked.1, hchecked.2⟩
+
+/-- Lift a successful composition gate through caller-supplied soundness and
+    composition functions. The witness families remain abstract: this theorem
+    does not define a Reference relation, provider certificate, or refinement
+    relation. -/
+theorem checkCertifiedSolanaProductionCompositionV1_sound_of_witnesses
+    (result : Except String α)
+    (referenceChecker providerChecker : α → Bool)
+    {ReferenceWitness : α → Prop}
+    {ProviderWitness : α → Type u}
+    {CompositionWitness : (subject : α) → ProviderWitness subject → Prop}
+    (referenceSound : ∀ subject, referenceChecker subject = true →
+      ReferenceWitness subject)
+    (providerSound : ∀ subject, providerChecker subject = true →
+      Nonempty (ProviderWitness subject))
+    (compose : ∀ subject, (provider : ProviderWitness subject) →
+      ReferenceWitness subject → CompositionWitness subject provider)
+    (checked : checkCertifiedSolanaProductionCompositionV1 result
+      referenceChecker providerChecker = true) :
+    ∃ subject,
+      result = .ok subject ∧
+      ∃ provider : ProviderWitness subject,
+        CompositionWitness subject provider := by
+  rcases checkCertifiedSolanaProductionCompositionV1_sound result
+      referenceChecker providerChecker checked with
+    ⟨subject, hresult, hreference, hprovider⟩
+  have referenceWitness := referenceSound subject hreference
+  rcases providerSound subject hprovider with ⟨providerWitness⟩
+  exact ⟨subject, hresult, providerWitness,
+    compose subject providerWitness referenceWitness⟩
 
 end ProofForgeV2.Targets.Solana
