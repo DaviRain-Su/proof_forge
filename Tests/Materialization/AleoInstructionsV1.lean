@@ -920,6 +920,52 @@ unsafe def testProductNarrowUintWidths : IO Unit := do
   | none => throw <| IO.userError "NarrowBox encode→decode failed"
   | some p2 => expect (p2 == prog) "NarrowBox structural round-trip"
 
+/-- Native `u128` mapping + checked add. Literals that do not fit a UInt64
+    Plan leaf stay fail closed at `lowerLiteral`. -/
+unsafe def testProductUInt128 : IO Unit := do
+  let session ← Tests.Language.ParserSession.shared
+  let source :=
+    "import ProofForgeV2\n" ++
+    "open ProofForgeV2.Language\n" ++
+    "program WideBox where\n" ++
+    "  state n : UInt128\n" ++
+    "  init(x : UInt128) do\n" ++
+    "    n := x\n" ++
+    "  entry bump(d : UInt128) : UInt128 do\n" ++
+    "    n := n + d\n" ++
+    "    return n\n" ++
+    "  view get() : UInt128 do\n" ++
+    "    return n\n"
+  let parsed ← liftResult (← session.selectProgramV1
+    source "<aleo-u128>" "Tests.AleoUInt128" none)
+  let compiled ← liftResult <| Compiler.compileValidatedSourceV1 parsed
+  let selection ← liftResult <|
+    BuildSelectionV1.resolveBuildSelectionV1 TargetId.aleo none
+  let cap ← liftResult <|
+    resolveEngineeringRequirementsV1 selection compiled
+  let prog ← liftResult <| programFromCapabilityV1 cap
+  expect (prog.name == "widebox.aleo") "WideBox program name"
+  expect (countMappings prog == 2)
+    s!"WideBox must emit 1 state + guard, got {countMappings prog}"
+  expect (mappingValueBase prog "pf_state_0" == some .u128) "UInt128 mapping"
+  let mut initInputs : Array TypeAnnV1 := #[]
+  for item in prog.items do
+    match item with
+    | .finalize f =>
+        if f.name == "initialize" then
+          for i in f.body do
+            match i with
+            | .input _ ty => initInputs := initInputs.push ty
+            | _ => pure ()
+    | _ => pure ()
+  expect (initInputs.size ≥ 1) "initialize must declare the UInt128 input"
+  expect (initInputs[0]! == .base .u128 .public_) "seed as u128.public"
+  expect (hasBinaryOp prog "add") "UInt128 checkedAdd → add"
+  let encoded := encodeProgram prog
+  match decodeProgram? encoded with
+  | none => throw <| IO.userError "WideBox encode→decode failed"
+  | some p2 => expect (p2 == prog) "WideBox structural round-trip"
+
 /-- ALEO-IR-4: hand-built narrow shift emits cast + shl (EmitIR count shape). -/
 private def testHandBuiltNarrowShiftCast : IO Unit := do
   let plan : Plan := {
@@ -2105,6 +2151,7 @@ unsafe def run : IO Unit := do
   testProductMapMiniMultiLeaf
   testProductArrayMultiLeaf
   testProductNarrowUintWidths
+  testProductUInt128
   testNestedMapFailClosedAtPlan
   testEffectsHonestyPlanFailClosed
   testEffectsHonestyProductFailClosed

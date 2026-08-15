@@ -61,6 +61,7 @@ private def leafTypeString
     | 8 => "u8"
     | 16 => "u16"
     | 32 => "u32"
+    | 128 => "u128"
     | _ => "u64"
 
 private def leafDefaultString
@@ -71,6 +72,7 @@ private def leafDefaultString
     | 8 => "0u8"
     | 16 => "0u16"
     | 32 => "0u32"
+    | 128 => "0u128"
     | _ => "0u64"
 
 private def renderMappingJson (i : Nat) (plan : Plan) : String :=

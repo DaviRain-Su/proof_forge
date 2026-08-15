@@ -3738,8 +3738,8 @@ unsafe def run : IO Unit := do
           (e.render).contains "bn254 Fr")
         s!"N2b field Aleo message must cite BLS12-377≠bn254 Fr, got {e.render}"
 
-  -- WideUInt: UInt128 state/return. EVM/Solana/NEAR/Noir/Psy admit.
-  -- Aleo/Quint/Soroban/OpenVM/ICP/CW/TON stay named FC. Not opening
+  -- WideUInt: UInt128 state/return. EVM/Solana/NEAR/Noir/Psy/Aleo admit.
+  -- Quint/Soroban/OpenVM/ICP/CW/TON stay named FC. Not opening
   -- UInt256 or signed 128. Files-nonempty or Plan-invariant needles.
   let wideUIntSource :=
     "import ProofForgeV2\n\n" ++
@@ -3761,12 +3761,10 @@ unsafe def run : IO Unit := do
     | .error e => throw <| IO.userError s!"WideUInt select: {e.render}"
   let wideCompiled ← liftResult <| Compiler.compileValidatedSourceV1 wideV1
   for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
-      TargetId.psy] do
+      TargetId.psy, TargetId.aleo] do
     let out ← liftResult <| materializeSelected target wideCompiled
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideUInt: {target} must materialize UInt128"
-  expectMaterializePlanInvariantV1 "WideUInt" TargetId.aleo TargetKind.aleo
-    wideCompiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -3779,9 +3777,9 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "WideUInt" TargetId.ton TargetKind.ton
     wideCompiled "UInt128/256"
 
-  -- WideUInt256: UInt256 state/return. Same five-target admit as WideUInt.
-  -- Aleo/Quint/Soroban/OpenVM/ICP/CW/TON stay named FC. Not opening
-  -- signed 128/256. Files-nonempty or Plan-invariant needles.
+  -- WideUInt256: UInt256 state/return. Same five-target admit as WideUInt
+  -- except Aleo (native u128, not u256). Quint/Soroban/OpenVM/ICP/CW/TON
+  -- stay named FC. Not opening signed 128/256.
   let wideUInt256Source :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -3807,7 +3805,7 @@ unsafe def run : IO Unit := do
     expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
       s!"WideUInt256: {target} must materialize UInt256"
   expectMaterializePlanInvariantV1 "WideUInt256" TargetId.aleo TargetKind.aleo
-    wide256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    wide256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   for (target, kind) in #[
       (TargetId.quint, TargetKind.quint),
       (TargetId.soroban, TargetKind.soroban),
@@ -3972,7 +3970,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "WideInt32" TargetId.near TargetKind.near
     wideI32Compiled "Int state store requires 8-byte field"
   expectMaterializePlanInvariantV1 "WideInt32" TargetId.aleo TargetKind.aleo
-    wideI32Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    wideI32Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "WideInt32" TargetId.cosmwasm TargetKind.cosmwasm
     wideI32Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "WideInt32" TargetId.ton TargetKind.ton
@@ -4014,7 +4012,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "WideInt16" TargetId.near TargetKind.near
     wideI16Compiled "Int state store requires 8-byte field"
   expectMaterializePlanInvariantV1 "WideInt16" TargetId.aleo TargetKind.aleo
-    wideI16Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    wideI16Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "WideInt16" TargetId.cosmwasm TargetKind.cosmwasm
     wideI16Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "WideInt16" TargetId.ton TargetKind.ton
@@ -4057,7 +4055,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "WideInt8" TargetId.near TargetKind.near
     wideI8Compiled "Int state store requires 8-byte field"
   expectMaterializePlanInvariantV1 "WideInt8" TargetId.aleo TargetKind.aleo
-    wideI8Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    wideI8Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "WideInt8" TargetId.cosmwasm TargetKind.cosmwasm
     wideI8Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "WideInt8" TargetId.ton TargetKind.ton
@@ -4983,8 +4981,8 @@ unsafe def run : IO Unit := do
     arrIntCompiled "Array element must be UInt64"
 
   -- ArrU128: Array UInt128 2 state. EVM-only files-nonempty admit.
-  -- WideUInt admits bare UInt128 on five targets; Array-of-UInt128
-  -- admits only EVM. Not opening Array-of-UInt128 on the eleven.
+  -- WideUInt admits bare UInt128 on six targets (incl. Aleo); Array-of-UInt128
+  -- admits only EVM. Aleo stays on Array-U64-element, not width.
   -- ArrInt / ArrBool / WideUInt / WideInt8 stay.
   let arrU128Source :=
     "import ProofForgeV2\n\n" ++
@@ -5012,11 +5010,10 @@ unsafe def run : IO Unit := do
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
       (TargetId.psy, TargetKind.psy),
-      (TargetId.cosmwasm, TargetKind.cosmwasm)] do
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.aleo, TargetKind.aleo)] do
     expectMaterializePlanInvariantV1 "ArrU128" target kind arrU128Compiled
       "Array state element must be UInt64"
-  expectMaterializePlanInvariantV1 "ArrU128" TargetId.aleo TargetKind.aleo
-    arrU128Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "ArrU128" TargetId.ton TargetKind.ton
     arrU128Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -5062,7 +5059,7 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrU256" target kind arrU256Compiled
       "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrU256" TargetId.aleo TargetKind.aleo
-    arrU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    arrU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "ArrU256" TargetId.ton TargetKind.ton
     arrU256Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -5242,7 +5239,7 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrI32" target kind arrI32Compiled
       "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrI32" TargetId.aleo TargetKind.aleo
-    arrI32Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    arrI32Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "ArrI32" TargetId.cosmwasm TargetKind.cosmwasm
     arrI32Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "ArrI32" TargetId.ton TargetKind.ton
@@ -5288,7 +5285,7 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrI16" target kind arrI16Compiled
       "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrI16" TargetId.aleo TargetKind.aleo
-    arrI16Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    arrI16Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "ArrI16" TargetId.cosmwasm TargetKind.cosmwasm
     arrI16Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "ArrI16" TargetId.ton TargetKind.ton
@@ -5333,7 +5330,7 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrI8" target kind arrI8Compiled
       "Array state element must be UInt64"
   expectMaterializePlanInvariantV1 "ArrI8" TargetId.aleo TargetKind.aleo
-    arrI8Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    arrI8Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "ArrI8" TargetId.cosmwasm TargetKind.cosmwasm
     arrI8Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "ArrI8" TargetId.ton TargetKind.ton
@@ -5914,11 +5911,9 @@ unsafe def run : IO Unit := do
     mapIntKeyCompiled "anonymous Map is outside the current container-state pilot"
 
   -- MapU128: Map UInt64 UInt128 state. All twelve stay named FC. Aleo
-  -- and TON fail on the width needle first, not MapInt's Map-U64-U64.
-  -- UInt128-value ≠ Int64-value. Quint/Soroban/OpenVM/ICP stay on the
-  -- UInt64 width needle, not MapBool's Map-pilot. Not opening
-  -- Map-of-UInt128. MapInt / MapIntKey / MapBool / ArrU256 / WideUInt
-  -- stay.
+  -- now shares the Map-U64-U64 needle (UInt128 width is admitted). TON
+  -- stays on width. Quint/Soroban/OpenVM/ICP stay on the UInt64 width
+  -- needle. Not opening Map-of-UInt128.
   let mapU128Source :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -5943,13 +5938,12 @@ unsafe def run : IO Unit := do
   for (target, kind) in #[
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
-      (TargetId.cosmwasm, TargetKind.cosmwasm)] do
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.aleo, TargetKind.aleo)] do
     expectMaterializePlanInvariantV1 "MapU128" target kind mapU128Compiled
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapU128" TargetId.psy TargetKind.psy
     mapU128Compiled "Map state pilot requires UInt64 keys and values"
-  expectMaterializePlanInvariantV1 "MapU128" TargetId.aleo TargetKind.aleo
-    mapU128Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapU128" TargetId.ton TargetKind.ton
     mapU128Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -5994,7 +5988,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapU256" TargetId.psy TargetKind.psy
     mapU256Compiled "Map state pilot requires UInt64 keys and values"
   expectMaterializePlanInvariantV1 "MapU256" TargetId.aleo TargetKind.aleo
-    mapU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    mapU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapU256" TargetId.ton TargetKind.ton
     mapU256Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -6007,10 +6001,9 @@ unsafe def run : IO Unit := do
 
   -- MapU128Key: Map UInt128 UInt64 state (unsigned 128-bit KEY).
   -- EVM/Solana stay on the key-shape needle, not MapU128's value
-  -- needle. Aleo/TON fail on the width needle first, not MapIntKey's
-  -- Map-U64-U64. UInt128-key ≠ UInt128-value and ≠ Int64-key. Not
-  -- opening UInt128-key Map. MapU128 / MapU256 / MapIntKey / OptU256
-  -- stay.
+  -- needle. Aleo now shares Map-U64-U64; TON stays on width.
+  -- UInt128-key ≠ UInt128-value and ≠ Int64-key. Not opening
+  -- UInt128-key Map.
   let mapU128KeySource :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -6035,13 +6028,12 @@ unsafe def run : IO Unit := do
   for (target, kind) in #[
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
-      (TargetId.cosmwasm, TargetKind.cosmwasm)] do
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.aleo, TargetKind.aleo)] do
     expectMaterializePlanInvariantV1 "MapU128Key" target kind mapU128KeyCompiled
       "Map state admits only Map UInt64 UInt64"
   expectMaterializePlanInvariantV1 "MapU128Key" TargetId.psy TargetKind.psy
     mapU128KeyCompiled "Map state pilot requires UInt64 keys and values"
-  expectMaterializePlanInvariantV1 "MapU128Key" TargetId.aleo TargetKind.aleo
-    mapU128KeyCompiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapU128Key" TargetId.ton TargetKind.ton
     mapU128KeyCompiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -6087,7 +6079,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapU256Key" TargetId.psy TargetKind.psy
     mapU256KeyCompiled "Map state pilot requires UInt64 keys and values"
   expectMaterializePlanInvariantV1 "MapU256Key" TargetId.aleo TargetKind.aleo
-    mapU256KeyCompiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    mapU256KeyCompiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapU256Key" TargetId.ton TargetKind.ton
     mapU256KeyCompiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -6398,7 +6390,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapI32" TargetId.psy TargetKind.psy
     mapI32Compiled "Map state pilot requires UInt64 keys and values"
   expectMaterializePlanInvariantV1 "MapI32" TargetId.aleo TargetKind.aleo
-    mapI32Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    mapI32Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapI32" TargetId.cosmwasm TargetKind.cosmwasm
     mapI32Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "MapI32" TargetId.ton TargetKind.ton
@@ -6445,7 +6437,7 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapI32Key" TargetId.psy TargetKind.psy
     mapI32KeyCompiled "Map state pilot requires UInt64 keys and values"
   expectMaterializePlanInvariantV1 "MapI32Key" TargetId.aleo TargetKind.aleo
-    mapI32KeyCompiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    mapI32KeyCompiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "MapI32Key" TargetId.cosmwasm TargetKind.cosmwasm
     mapI32KeyCompiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "MapI32Key" TargetId.ton TargetKind.ton
@@ -7047,11 +7039,10 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "OptInt" TargetId.icp TargetKind.icp
     optIntCompiled "anonymous Option is outside the current container-state pilot"
 
-  -- OptU128: Option UInt128 state. All twelve stay named FC. Aleo and
-  -- TON fail on the width needle first, not OptInt's Option-payload.
-  -- UInt128-payload ≠ Int64-payload. Quint/Soroban/OpenVM/ICP stay on
-  -- the UInt64 width needle, not OptBool's Option-pilot. Not opening
-  -- Option-of-UInt128. OptInt / OptBool / MapU256 / ArrU128 stay.
+  -- OptU128: Option UInt128 state. All twelve stay named FC. Aleo now
+  -- shares the Option-payload needle (UInt128 width is admitted). TON
+  -- stays on width. Quint/Soroban/OpenVM/ICP stay on the UInt64 width
+  -- needle. Not opening Option-of-UInt128.
   let optU128Source :=
     "import ProofForgeV2\n\n" ++
     "namespace ProofForgeV2.Examples\n\n" ++
@@ -7077,11 +7068,10 @@ unsafe def run : IO Unit := do
       (TargetId.near, TargetKind.near),
       (TargetId.noir, TargetKind.noir),
       (TargetId.psy, TargetKind.psy),
-      (TargetId.cosmwasm, TargetKind.cosmwasm)] do
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.aleo, TargetKind.aleo)] do
     expectMaterializePlanInvariantV1 "OptU128" target kind optU128Compiled
       "Option state 'o' requires UInt64 payload"
-  expectMaterializePlanInvariantV1 "OptU128" TargetId.aleo TargetKind.aleo
-    optU128Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "OptU128" TargetId.ton TargetKind.ton
     optU128Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -7127,7 +7117,7 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "OptU256" target kind optU256Compiled
       "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptU256" TargetId.aleo TargetKind.aleo
-    optU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    optU256Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "OptU256" TargetId.ton TargetKind.ton
     optU256Compiled "UInt128/256 and narrow Int fail closed"
   for (target, kind) in #[
@@ -7301,7 +7291,7 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "OptI32" target kind optI32Compiled
       "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptI32" TargetId.aleo TargetKind.aleo
-    optI32Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    optI32Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "OptI32" TargetId.cosmwasm TargetKind.cosmwasm
     optI32Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "OptI32" TargetId.ton TargetKind.ton
@@ -7346,7 +7336,7 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "OptI16" target kind optI16Compiled
       "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptI16" TargetId.aleo TargetKind.aleo
-    optI16Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    optI16Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "OptI16" TargetId.cosmwasm TargetKind.cosmwasm
     optI16Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "OptI16" TargetId.ton TargetKind.ton
@@ -7392,7 +7382,7 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "OptI8" target kind optI8Compiled
       "Option state 'o' requires UInt64 payload"
   expectMaterializePlanInvariantV1 "OptI8" TargetId.aleo TargetKind.aleo
-    optI8Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    optI8Compiled "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   expectMaterializePlanInvariantV1 "OptI8" TargetId.cosmwasm TargetKind.cosmwasm
     optI8Compiled "narrow Int fail closed; UInt128/256 are body-only"
   expectMaterializePlanInvariantV1 "OptI8" TargetId.ton TargetKind.ton
@@ -7717,7 +7707,7 @@ unsafe def run : IO Unit := do
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/aleo"
     TargetId.aleo .aleo
-    "unsupported Aleo semantic shape: only UInt64, UInt32, UInt16, UInt8, Int64, Unit, Bool, Field(bls12-377-fr), named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes N, and Option UInt64 (state/return; not params) are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, exact modulus match; bn254 Fr and Goldilocks fail closed as wrong modulus; Option of non-UInt64/nested/params + Principal/String stay fail-closed; UInt128/256 and narrow Int stay fail-closed)"
+    "unsupported Aleo semantic shape: only UInt64, UInt32, UInt16, UInt8, UInt128, Int64, Unit, Bool, Field(bls12-377-fr), named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes N, and Option UInt64 (state/return; not params) are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, exact modulus match; bn254 Fr and Goldilocks fail closed as wrong modulus; Option of non-UInt64/nested/params + Principal/String stay fail-closed; UInt256 and narrow Int stay fail-closed)"
     selfCompiled
   expectContextMatrixFailClosed "context.contractId/psy"
     TargetId.psy .psy

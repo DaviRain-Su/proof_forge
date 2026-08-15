@@ -22,8 +22,8 @@
       then sequential `set`
     * Option UInt64 / Array UInt64 N / dense Map UInt64 cap-2 arrive as
       already-flattened leaves from LowerSemantic (no nested Map construct)
-    * Narrow UInt{8,16,32} state/param/literal + checked arith/bit/shift
-      (shift count: bound guard + cast to u8)
+    * Narrow UInt{8,16,32} and native `u128` state/param/literal +
+      checked arith/bit/shift (shift count: bound guard + cast to u8)
     * Aggregate Final returns: evaluate leaves and drop
 
   IR-5 (effects honesty matrix — F rows / no PARTIAL without evidence):
@@ -129,15 +129,16 @@ def programNameFromPlanV1 (plan : Plan) : CompileResult String := do
 identifier (official leo abi / snarkVM load gate)"
   pure s!"{id}.aleo"
 
-/-- Admitted unsigned widths on the Instructions Final path (T8 + UInt64). -/
+/-- Admitted unsigned widths on the Instructions Final path (T8 + UInt64 + UInt128). -/
 private def isAdmittedUintWidth (w : Nat) : Bool :=
-  w == 0 || w == 8 || w == 16 || w == 32 || w == 64
+  w == 0 || w == 8 || w == 16 || w == 32 || w == 64 || w == 128
 
 private def uintWidthToBase (w : Nat) : BaseTypeV1 :=
   match w with
   | 8 => .u8
   | 16 => .u16
   | 32 => .u32
+  | 128 => .u128
   | _ => .u64
 
 /-- G5-HARD: UInt*/Int64/Field params (not bare Bool — Bool stays expr-only). -/
@@ -166,6 +167,7 @@ private def defaultLiteralForWidth (w : Nat) : OperandV1 :=
   | 8 => .literal "0u8"
   | 16 => .literal "0u16"
   | 32 => .literal "0u32"
+  | 128 => .literal "0u128"
   | _ => .literal "0u64"
 
 /-- Int64 zero literal (`0i64`). -/
@@ -226,6 +228,7 @@ private def uintLiteral (bitWidth : Nat) (v : UInt64) : OperandV1 :=
   | 8 => .literal s!"{v.toNat}u8"
   | 16 => .literal s!"{v.toNat}u16"
   | 32 => .literal s!"{v.toNat}u32"
+  | 128 => .literal s!"{v.toNat}u128"
   | _ => .literal s!"{v.toNat}u64"
 
 private def zeroLiteral (bitWidth : Nat) : OperandV1 :=

@@ -17,9 +17,9 @@ lives in `Instructions/LowerPlanV1`. `FinalizeV1` remains a separate submodule.
 ## Coverage boundary (AleoCoverage + H3 PsyAleoAggregate + NS-1 Map pilot + Bytes N)
 
 LOWERED (product path): scalar stateLoad/stateStore (UInt64/UInt32/UInt16/
-UInt8, Int64), checked arithmetic/compare/bitwise/shift/logical (signed for
-Int64; narrow UInt{8,16,32} use native Aleo `u8`/`u16`/`u32` Instructions
-with checked overflow and exact range guards), unary not/bitNot/neg (Int64),
+UInt8/UInt128, Int64), checked arithmetic/compare/bitwise/shift/logical (signed for
+Int64; non-u64 UInt{8,16,32,128} use native Aleo `u8`/`u16`/`u32`/`u128`
+Instructions with checked overflow and exact range guards), unary not/bitNot/neg (Int64),
 pureCall, bare assert, bare
 revert (`assert(false)`), if/switch/for, Commit identity passthrough
 (label-only; no crypto commitment realization), **named Struct/Enum and
@@ -33,7 +33,8 @@ across all arms, so the shipped Token mint/transfer fits only at capacity 2;
 checked arithmetic, same trap semantics).
 
 LOWERED (ALEO-CONST): `Op.Constant` for the same scalar envelope as
-    `Op.Literal` (UInt{8,16,32,64}/Int64/Bool/BLS12-377 Field init-0) inlines
+    `Op.Literal` (UInt{8,16,32,64,128}/Int64/Bool/BLS12-377 Field init-0;
+    UInt128 literals must fit a UInt64 Plan leaf) inlines
     via `lowerLiteral` on the constant's canonical `valueBytes` — no separate
     Plan/Instructions const declaration; exact named-const → literal fold.
 
@@ -47,7 +48,9 @@ FAIL-CLOSED (explicit pins, not catch-all GAP):
     existing VariantTag/VariantPayload match (entry only — computed views and
     multi-leaf view-over-state stay fail-closed). Option of non-UInt64,
     nested Option, and Option params stay fail-closed. String/Principal state,
-    UInt128/256 and Int{8,16,32}/Int128/256 stay fail-closed.
+    UInt256 and Int{8,16,32}/Int128/256 stay fail-closed. Native `u128`
+    Instructions admit UInt128 state/params/results (literals that do not
+    fit a UInt64 Plan leaf stay fail closed).
   * **Constant outside literal envelope** (String/Principal/aggregates/bn254/
     Goldilocks Field, non-zero high BLS12-377 Field bytes) stay fail-closed at
     the shared `lowerLiteral` boundary.
@@ -114,7 +117,7 @@ inductive FieldArithOp where
   deriving BEq, Inhabited, Repr
 
 /-- Target-owned Aleo Plan expression over the shipped public
-    UInt{8,16,32,64}/Int64/Bool semantic envelope. Narrow UInt uses native
+    UInt{8,16,32,64,128}/Int64/Bool semantic envelope. Non-u64 UInt uses native
     `u8`/`u16`/`u32` operations with exact guards. UInt64 shifts guard
     `count < 64` and cast the count to `u8`; Int64 uses dedicated signed
     constructors and type-directed `i64` Instructions. -/
@@ -273,9 +276,10 @@ structure PlanParam where
   deriving BEq, Inhabited, Repr
 
 
-/-- True when `bitWidth` is a narrow UInt admitted on the Aleo T8 surface. -/
+/-- True when `bitWidth` is a non-u64 unsigned width on the Aleo surface
+    (T8 narrow + native `u128`). Routes arith through `narrowChecked*`. -/
 def isNarrowUintWidth (bitWidth : Nat) : Bool :=
-  bitWidth == 8 || bitWidth == 16 || bitWidth == 32
+  bitWidth == 8 || bitWidth == 16 || bitWidth == 32 || bitWidth == 128
 
 /-- One callable artifact. `resultDropped` records that a non-Unit result
     cannot be returned directly from a state-touching Final body. Each return
@@ -360,21 +364,21 @@ private def aleoTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "Aleo"
   uint32DuplicateDetail := "expected at most one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+    "only anonymous UInt64/UInt32/UInt16/UInt8/UInt128/Int64 widths are supported"
   unsupportedShapeDetail :=
-    "only UInt64, UInt32, UInt16, UInt8, Int64, Unit, Bool, Field(bls12-377-fr), named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes N, and Option UInt64 (state/return; not params) are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, exact modulus match; bn254 Fr and Goldilocks fail closed as wrong modulus; Option of non-UInt64/nested/params + Principal/String stay fail-closed; UInt128/256 and narrow Int stay fail-closed)"
+    "only UInt64, UInt32, UInt16, UInt8, UInt128, Int64, Unit, Bool, Field(bls12-377-fr), named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes N, and Option UInt64 (state/return; not params) are supported (Aleo native field is BLS12-377 Fr / Edwards BLS scalar, exact modulus match; bn254 Fr and Goldilocks fail closed as wrong modulus; Option of non-UInt64/nested/params + Principal/String stay fail-closed; UInt256 and narrow Int stay fail-closed)"
 
-/-- Aleo T8 multi-width policy: UInt{8,16,32,64} body + ABI
-    (`u8`/`u16`/`u32`/`u64` Instructions). UInt128/256 stay fail-closed. -/
+/-- Aleo T8 + UInt128 policy: UInt{8,16,32,64,128} body + ABI
+    (`u8`/`u16`/`u32`/`u64`/`u128` Instructions). UInt256 stays fail-closed. -/
 private def pilotUintWidthPolicyAleoBody : PilotUintWidthPolicy where
-  admittedWidths := #[64, 32, 16, 8]
+  admittedWidths := #[64, 32, 16, 8, 128]
 
 /-- Aleo pilot type-closure: UInt{8,16,32,64} + Int64 + Unit/Bool + named
     Struct/Enum + Array UInt64 + dense **Map UInt64 UInt64** (capacity-2
     occ/key/val leaves, NS-1 pattern) + fixed **Bytes N** (N UInt8 leaves)
     + Option body intermediate (Map IndexGet) + B-OPT-STATE Option UInt64
     state (never in `containerTypeIds`). Field is BLS12-377 Fr only.
-    Principal/String/Option-of-non-UInt64/UInt128/256/narrow Int stay FC. -/
+    Principal/String/Option-of-non-UInt64/UInt256/narrow Int stay FC. -/
 private def validateAleoTypeClosureV1
     (types : Array TypeDeclV1) : CompileResult PilotTypeClosureV1 :=
   validatePilotTypeClosure aleoPlanErr aleoTypeClosureWording types
@@ -437,7 +441,7 @@ private def LoweredVal.uintWidthScalar (v : LoweredVal) : Nat :=
   | some widths => widths.getD 0 0
   | none => 0
 
-/-- Scalar narrow UInt{8,16,32} width, or `none` for u64/int/field/bool. -/
+/-- Scalar non-u64 UInt{8,16,32,128} width, or `none` for u64/int/field/bool. -/
 private def LoweredVal.narrowUintWidth? (v : LoweredVal) : Option Nat :=
   let w := v.uintWidthScalar
   if isNarrowUintWidth w then some w else none
@@ -449,7 +453,7 @@ private def mkScalarVal (e : Expr) : LoweredVal :=
 private def mkScalarIntVal (e : Expr) : LoweredVal :=
   { expr := e, leaves? := none, leafIsInt? := some #[true], leafUintWidth? := none, isField := false }
 
-/-- Scalar narrow UInt carrier (`bitWidth ∈ {8,16,32}`). -/
+/-- Scalar non-u64 UInt carrier (`bitWidth ∈ {8,16,32,128}`). -/
 private def mkScalarUintVal (bitWidth : Nat) (e : Expr) : LoweredVal :=
   { expr := e, leaves? := none, leafIsInt? := none,
     leafUintWidth? := some #[bitWidth], isField := false }
@@ -494,7 +498,7 @@ private def envInsert (env : ValueEnv) (id : ValueIdV1) (e : Expr) : ValueEnv :=
 private def envInsertInt (env : ValueEnv) (id : ValueIdV1) (e : Expr) : ValueEnv :=
   { env with entries := env.entries.push (id, mkScalarIntVal e) }
 
-/-- Insert a scalar narrow UInt value (`bitWidth ∈ {8,16,32}`). -/
+/-- Insert a scalar non-u64 UInt value (`bitWidth ∈ {8,16,32,128}`). -/
 private def envInsertUint (env : ValueEnv) (id : ValueIdV1) (bitWidth : Nat) (e : Expr) :
     ValueEnv :=
   { env with entries := env.entries.push (id, mkScalarUintVal bitWidth e) }
@@ -506,7 +510,7 @@ private structure AleoLowerLayoutV1 where
   fieldNames : Array String
   /-- Int64 flag per state leaf (index-aligned with `fieldNames`). -/
   fieldIsInt : Array Bool
-  /-- Unsigned width per state leaf (0/64 = u64; 8/16/32 = narrow). -/
+  /-- Unsigned width per state leaf (0/64 = u64; 8/16/32/128 = non-u64). -/
   fieldUintWidth : Array Nat
   /-- T14 catalog v2 (BLS12-377): `field` flag per state leaf. -/
   fieldIsField : Array Bool
@@ -544,12 +548,17 @@ private def isUInt32Type (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Bo
   | some { shape := .uint 32, .. } => true
   | _ => false
 
+private def isUInt128Type (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Bool :=
+  match data.types[typeId.toNat]? with
+  | some { shape := .uint 128, .. } => true
+  | _ => false
+
 /-- Resolve an anonymous UInt TypeId to its bit width when admitted. -/
 private def uintWidthOfType
     (data : SemanticProgramDataV1) (typeId : TypeIdV1) : Option Nat :=
   match data.types[typeId.toNat]? with
   | some { shape := .uint w, .. } =>
-      if w == 8 || w == 16 || w == 32 || w == 64 then some w.toNat else none
+      if w == 8 || w == 16 || w == 32 || w == 64 || w == 128 then some w.toNat else none
   | _ => none
 
 /-- T14 catalog v2 (BLS12-377): is this the admitted BLS12-377 Field type?
@@ -572,7 +581,7 @@ private def aleoMapPilotLeafCountV1 : Nat :=
   aleoMapPilotCapacityV1 * aleoMapSlotsPerEntryV1
 
 /-- Flatten a state type to (leaf name, isInt64, uintWidth) triples (preorder).
-    UInt{8,16,32,64} → matching width leaf (0 for u64); Int64 → i64 leaf;
+    UInt{8,16,32,64,128} → matching width leaf (0 for u64); Int64 → i64 leaf;
     named Struct/Enum and Array UInt64 recurse as before; Map UInt64 UInt64 →
     capacity-2 × occ/key/val leaves; **Bytes N → N UInt8 leaves**
     (`<name>_<i>`, u8 mapping values). Nested containers fail closed. -/
@@ -588,6 +597,8 @@ private partial def flattenTypeLeafSpecsV1
     pure #[(namePrefix, false, 16)]
   else if types.uintTypeIdAt 32 == some typeId then
     pure #[(namePrefix, false, 32)]
+  else if types.uintTypeIdAt 128 == some typeId then
+    pure #[(namePrefix, false, 128)]
   else if types.int64TypeId == some typeId then
     pure #[(namePrefix, true, 0)]
   else if types.isNamedAggregate typeId then
@@ -673,7 +684,7 @@ private partial def flattenTypeLeafSpecsV1
     | _ =>
         planError "unsupported Aleo semantic shape: container TypeId is not Array/Map/Bytes"
   else
-    planError "unsupported Aleo semantic shape: aggregate leaf must be UInt{8,16,32,64}, Int64, named Struct/Enum, Array UInt64, Map UInt64 UInt64, or Bytes N"
+    planError "unsupported Aleo semantic shape: aggregate leaf must be UInt{8,16,32,64,128}, Int64, named Struct/Enum, Array UInt64, Map UInt64 UInt64, or Bytes N"
 
 private def leafCountOfTypeV1
     (typeDecls : Array TypeDeclV1) (types : AleoTypeClosureV1)
@@ -938,6 +949,13 @@ private def makeStateLayoutV1
       fieldUintWidth := fieldUintWidth.push 32
       fieldIsField := fieldIsField.push false
       stateLeaves := stateLeaves.push #[leafIdx]
+    else if types.uintTypeIdAt 128 == some state.typeId then
+      let leafIdx := fieldNames.size
+      fieldNames := fieldNames.push state.name
+      fieldIsInt := fieldIsInt.push false
+      fieldUintWidth := fieldUintWidth.push 128
+      fieldIsField := fieldIsField.push false
+      stateLeaves := stateLeaves.push #[leafIdx]
     else if types.int64TypeId == some state.typeId then
       let leafIdx := fieldNames.size
       fieldNames := fieldNames.push state.name
@@ -954,7 +972,7 @@ private def makeStateLayoutV1
       fieldIsField := fieldIsField.push true
       stateLeaves := stateLeaves.push #[leafIdx]
     else
-      planError "Aleo state must be UInt{8,16,32,64}, Int64, BLS12-377 Field, named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes N, or Option UInt64 (Option of non-UInt64/nested + Principal/String/bn254-fr/Goldilocks declined)"
+      planError "Aleo state must be UInt{8,16,32,64,128}, Int64, BLS12-377 Field, named Struct/Enum, Array UInt64, Map UInt64 UInt64, Bytes N, or Option UInt64 (Option of non-UInt64/nested + Principal/String/bn254-fr/Goldilocks declined)"
   pure { fieldNames, fieldIsInt, fieldUintWidth, fieldIsField, stateLeaves, typeDecls, types }
 
 private def literalIndexNatV1 (v : LoweredVal) : CompileResult Nat := do
@@ -1014,6 +1032,22 @@ private def decodeUInt16LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := 
       | .ok () => pure (UInt64.ofNat value.toNat)
       | .error _ => planError "Aleo UInt16 literal carries trailing bytes"
 
+/-- UInt128 literals are 16-byte LE. The Plan leaf is a UInt64 carrier, so
+    only values whose high 8 bytes are zero are admitted this slice. -/
+private def decodeUInt128LiteralV1 (bytes : ByteArray) : CompileResult UInt64 := do
+  unless bytes.size == 16 do
+    planError "Aleo UInt128 literal must contain exactly 16 bytes"
+  let highClear := Id.run do
+    let mut ok := true
+    for i in [8:16] do
+      if (bytes.get! i).toNat != 0 then ok := false
+    pure ok
+  unless highClear do
+    planError "Aleo UInt128 literal exceeds the UInt64 Plan leaf envelope"
+  match decodeU64le (start bytes) with
+  | .error _ => planError "Aleo UInt128 literal is not canonical"
+  | .ok (value, _cursor) => pure value
+
 private def lowerLiteral
     (data : SemanticProgramDataV1) (types : AleoTypeClosureV1)
     (typeId : TypeIdV1) (valueBytes : ByteArray) :
@@ -1044,6 +1078,9 @@ private def lowerLiteral
     match decodeUInt8LiteralV1 valueBytes with
     | .ok value => pure (.uintLiteral 8 value)
     | .error _ => planError "Aleo UInt8 literal is not canonical"
+  else if isUInt128Type data typeId then
+    let value ← decodeUInt128LiteralV1 valueBytes
+    pure (.uintLiteral 128 value)
   else if isBls12377FieldType types typeId then
     -- T14 catalog v2 (BLS12-377): Field literal. The wire valueBytes are 32
     -- LE bytes (`< r`). The Plan Expr surface carries a UInt64 leaf; the only
@@ -1064,7 +1101,7 @@ private def lowerLiteral
     | .error _ => planError "Aleo BLS12-377 Field literal is not canonical"
     | .ok (value, _cursor) => pure (.fieldLiteral value)
   else
-    planError "Aleo literal type is outside the public UInt{8,16,32,64}/Int64/Bool/BLS12-377-Field envelope"
+    planError "Aleo literal type is outside the public UInt{8,16,32,64,128}/Int64/Bool/BLS12-377-Field envelope"
 
 private def lowerBinary
     (op : BinaryOpV1) (lhs rhs : Expr) (signed : Bool) : CompileResult Expr :=
@@ -1479,8 +1516,8 @@ private partial def lowerRegion
         planError
           "unsupported Aleo semantic shape: ContextRead is not admitted by pilot context policy"
     -- ADR-0030 E2 / SYS-E2: name nativeVaultBalance. Do not open a vault
-    -- host. token/U128 stay on the generic EnvRead envelope (Principal /
-    -- UInt128 fail first at type closure).
+    -- host. token/U128 stay on the generic EnvRead envelope (Principal
+    -- fails first at type closure).
     | .envRead key _args =>
         if key == .nativeVaultBalance then
           planError
@@ -2238,7 +2275,8 @@ private def aggregateResultOfV1
 
 /-- Resolve a callable result to scalar flags plus optional aggregate leaves.
     Returns `(isBool, isUnit, isInt64, resultUintWidth, isField,
-    aggregateLeaves?)`. `resultUintWidth` is 0 for u64 and 8/16/32 for narrow. -/
+    aggregateLeaves?)`. `resultUintWidth` is 0 for u64 and 8/16/32/128
+    for non-u64 unsigned. -/
 private def resultShape (data : SemanticProgramDataV1) (types : AleoTypeClosureV1)
     (typeDecls : Array TypeDeclV1) (callable : CallableV1) (owner : String) :
     CompileResult (Bool × Bool × Bool × Nat × Bool ×
@@ -2255,6 +2293,8 @@ private def resultShape (data : SemanticProgramDataV1) (types : AleoTypeClosureV
     pure (false, false, false, 16, false, none)
   else if isUInt32Type data callable.result.typeId then
     pure (false, false, false, 32, false, none)
+  else if isUInt128Type data callable.result.typeId then
+    pure (false, false, false, 128, false, none)
   else if isBls12377FieldType types callable.result.typeId then
     pure (false, false, false, 0, true, none)
   else if (match data.types[callable.result.typeId.toNat]? with
@@ -2265,7 +2305,7 @@ private def resultShape (data : SemanticProgramDataV1) (types : AleoTypeClosureV
     pure (false, false, false, 0, false, some leaves)
   else
     planError
-      s!"{owner} result is outside the public UInt8/16/32/64/Int64/Bool/BLS12-377-Field/Unit/named-Struct-Enum/Array-UInt64/Option-UInt64 envelope"
+      s!"{owner} result is outside the public UInt8/16/32/64/128/Int64/Bool/BLS12-377-Field/Unit/named-Struct-Enum/Array-UInt64/Option-UInt64 envelope"
 
 private partial def touchesStateExpr : Expr → Bool
   | .stateLoad _ => true
@@ -2347,8 +2387,9 @@ private partial def lowerCallable
       else if isUInt8Type data p.typeId then pure false
       else if isUInt16Type data p.typeId then pure false
       else if isUInt32Type data p.typeId then pure false
+      else if isUInt128Type data p.typeId then pure false
       else if isBls12377FieldType layout.types p.typeId then pure false
-      else planError "Aleo callable parameter is outside the UInt{8,16,32,64}/Int64/Bool/BLS12-377-Field envelope"
+      else planError "Aleo callable parameter is outside the UInt{8,16,32,64,128}/Int64/Bool/BLS12-377-Field envelope"
     let uintWidth :=
       match uintWidthOfType data p.typeId with
       | some w => if isNarrowUintWidth w then w else 0
