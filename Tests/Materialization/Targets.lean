@@ -3623,6 +3623,25 @@ unsafe def run : IO Unit := do
   expect (nearStruct.entries.any fun e => e.name == "setX")
     "NearNamedAggregate: NEAR plan has setX entry"
   let _ ← liftResult <| materializeSelected TargetId.near structCompiled
+  -- Extra six from probe; CosmWasm/TON admit named Struct (files nonempty).
+  -- Quint/Soroban/ICP/OpenVM stay envelope FC. Not opening named Struct.
+  for target in [TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target structCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"N3 struct-state: {target} must materialize named Struct"
+  for target in [TargetId.quint, TargetId.soroban, TargetId.icp, TargetId.openvm] do
+    match materializeSelected target structCompiled with
+    | .ok _ =>
+        throw <| IO.userError s!"N3 struct-state: {target} must decline named Struct"
+    | .error e =>
+        expect ((e.render).contains "Struct" ||
+            (e.render).contains "named" ||
+            (e.render).contains "unsupported" ||
+            (e.render).contains "pilot" ||
+            (e.render).contains "public" ||
+            (e.render).contains "aggregate" ||
+            (e.render).contains "anonymous")
+          s!"N3 struct-state {target} message must cite named/aggregate boundary, got {e.render}"
 
   -- ArrayState: fixed Array UInt64 2 state — Solana + EVM + NEAR + Noir + H3
   -- Psy/Aleo admit (flatten to leaf slots named slots_0/slots_1; IndexGet/Set).
