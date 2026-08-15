@@ -5033,6 +5033,52 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "MapPrin" TargetId.icp TargetKind.icp
     mapPrinCompiled "Principal/aggregates/containers/String fail closed"
 
+  -- MapField: Map UInt64 Field bn254_fr state. All twelve stay named
+  -- Map-value/Field FC. Not opening Map-of-Field. MapPrin / MapMini /
+  -- FieldMix / ArrField / OptField stay.
+  let mapFieldSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapField where\n" ++
+    "  state m : Map UInt64 Field bn254_fr\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let mapFieldV1 ← match ← session.selectProgramV1 mapFieldSource
+      "<targets-map-field>" "Examples.MapField" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MapField select: {e.render}"
+  let mapFieldCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapFieldV1
+  expectMaterializePlanInvariantV1 "MapField" TargetId.evm TargetKind.evm
+    mapFieldCompiled "Map state value must be UInt64"
+  for (target, kind) in #[
+      (TargetId.solana, TargetKind.solana),
+      (TargetId.near, TargetKind.near)] do
+    expectMaterializePlanInvariantV1 "MapField" target kind mapFieldCompiled
+      "no native Field"
+  expectMaterializePlanInvariantV1 "MapField" TargetId.noir TargetKind.noir
+    mapFieldCompiled "Map state admits only Map UInt64 UInt64"
+  expectMaterializePlanInvariantV1 "MapField" TargetId.aleo TargetKind.aleo
+    mapFieldCompiled "bn254 Fr and Goldilocks fail closed as wrong modulus"
+  expectMaterializePlanInvariantV1 "MapField" TargetId.psy TargetKind.psy
+    mapFieldCompiled "bn254 Fr and BLS12-377 Fr fail closed as wrong modulus"
+  expectMaterializePlanInvariantV1 "MapField" TargetId.quint TargetKind.quint
+    mapFieldCompiled "Int/Field/aggregates/containers fail closed"
+  expectMaterializePlanInvariantV1 "MapField" TargetId.cosmwasm TargetKind.cosmwasm
+    mapFieldCompiled "no Field"
+  expectMaterializePlanInvariantV1 "MapField" TargetId.ton TargetKind.ton
+    mapFieldCompiled "no Field/Principal"
+  for (target, kind) in #[
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm)] do
+    expectMaterializePlanInvariantV1 "MapField" target kind mapFieldCompiled
+      "Int/Field/Principal/aggregates/containers fail closed"
+  expectMaterializePlanInvariantV1 "MapField" TargetId.icp TargetKind.icp
+    mapFieldCompiled "Int/Field/Principal/aggregates/containers/String fail closed"
+
   -- BytesBox: Bytes 4 state. Eight materializers admit; Quint/Soroban/
   -- ICP/OpenVM stay envelope FC. Not opening Bytes on those four.
   -- State only — no Bytes return ABI. Files-nonempty or named decline.
