@@ -508,6 +508,12 @@ def isNearAbiUintWidth (w : Nat) : Bool :=
 def isNoirAbiUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
 
+/-- CosmWasm **ABI** UInt widths: `{8,16,32,64,128}`. UInt128 is two
+    8-byte KV Regions + two JSON decimal limbs. UInt256 stays body-only
+    (`isAbiUintWidth` is unchanged so TON/others keep fail-closed). -/
+def isCosmWasmAbiUintWidth (w : Nat) : Bool :=
+  w == 8 || w == 16 || w == 32 || w == 64 || w == 128
+
 /-- Bit width ↔ byte width for admitted ABI UInt widths. -/
 def bitWidthOfByteWidth (byteWidth : Nat) : Nat := byteWidth * 8
 
@@ -592,6 +598,16 @@ def PilotTypeClosureV1.isNearUintAbiOrInt64
   | none =>
     match c.intWidthOf typeId with
     | some w => isAbiIntWidth w
+    | none => false
+
+/-- CosmWasm ABI UInt{8,16,32,64,128} or Int64 (UInt128 = 2-limb KV/JSON). -/
+def PilotTypeClosureV1.isCosmWasmUintAbiOrInt64
+    (c : PilotTypeClosureV1) (typeId : TypeIdV1) : Bool :=
+  match c.uintWidthOf typeId with
+  | some w => isCosmWasmAbiUintWidth w
+  | none =>
+    match c.intWidthOf typeId with
+    | some w => isAbiIntWidth w && w == 64
     | none => false
 
 /-- True when `typeId` is admitted UInt64, Int64, Field, or Principal. -/
@@ -1077,6 +1093,36 @@ def requirePublicNearUintAbiOrInt64Param
     (allowNonPublic : Bool := false)
     (nonPublicMsg : Option String := none) : CompileResult Unit := do
   unless types.isNearUintAbiOrInt64 param.typeId do
+    throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+  unless param.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none =>
+        throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
+
+/-- Fail unless `state` is CosmWasm-admitted UInt{8,16,32,64,128} or Int64. -/
+def requirePublicCosmWasmUintAbiOrInt64State
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (state : StateDeclV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isCosmWasmUintAbiOrInt64 state.typeId do
+    throw <| mkErr s!"state '{state.name}' is not public UInt64"
+  unless state.visibility == .public_ || allowNonPublic do
+    match nonPublicMsg with
+    | some m => throw <| mkErr m
+    | none => throw <| mkErr s!"state '{state.name}' is not public UInt64"
+
+/-- Fail unless `param` is CosmWasm-admitted UInt{8,16,32,64,128} or Int64. -/
+def requirePublicCosmWasmUintAbiOrInt64Param
+    (mkErr : String → CompileError)
+    (types : PilotTypeClosureV1)
+    (owner : String)
+    (param : ParameterV1)
+    (allowNonPublic : Bool := false)
+    (nonPublicMsg : Option String := none) : CompileResult Unit := do
+  unless types.isCosmWasmUintAbiOrInt64 param.typeId do
     throw <| mkErr s!"parameter '{param.name}' in {owner} is not public UInt64"
   unless param.visibility == .public_ || allowNonPublic do
     match nonPublicMsg with

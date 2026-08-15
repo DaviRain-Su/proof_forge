@@ -729,9 +729,11 @@ private def cosmwasmPlanErr (message : String) : CompileError :=
 
 /-- CosmWasm admits **body** multi-width UInt{8,16,32,64,128,256} (T8 + body
     multiword) plus Int64 and named Struct/Enum (B-RET-ABI + state flatten).
-    **ABI** state/params/entry-view results stay UInt{8,16,32,64} only
-    (`isAbiUintWidth` / makeEntry FC) — UInt128/256 are body-internal (let
-    temps + multiword arith including true binary long division div/mod).
+    **ABI** state/params/entry-view results admit UInt{8,16,32,64,128}
+    (`isCosmWasmAbiUintWidth`). UInt128 is two consecutive 8-byte KV Regions
+    (`{name}_lo`/`{name}_hi`) and two JSON decimal limbs; entry/view return
+    is a 2-limb JSON decimal array (`setReturnDataMulti`). UInt256 stays
+    body-internal (let temps + multiword arith).
     Array + Map container state via `pilotContainerStatePolicyArrayMap`
     (Array → N×UInt64 leaves; Map → capacity-8×(occ,key,val); Option admitted
     as Map IndexGet intermediate / N-ANON-RESULT return shape — never pushed to
@@ -756,12 +758,13 @@ private def cosmwasmPlanErr (message : String) : CompileError :=
     semantic ABI width for layout markers / ABI JSON; high bytes must be zero
     on load (Emit narrowStateLoad high-bit guard). Params arrive as JSON
     decimals and are range-checked to `2^bitWidth − 1` at the entry boundary
-    (no silent truncation). Multiword body values are consecutive i64 LE
-    limbs in Emit temps — never KV-backed. -/
+    (no silent truncation). UInt128 ABI values occupy two consecutive i64
+    JSON fields / KV Regions (low limb then high limb). Multiword body
+    values are consecutive i64 LE limbs in Emit temps. -/
 private def cosmwasmUintWidthPolicyV1 : PilotUintWidthPolicy where
   admittedWidths := #[64, 32, 8, 16, 128, 256]
 
-/-- Body UInt width gate: UInt{8,16,32,64,128,256}. ABI stays `isAbiUintWidth`. -/
+/-- Body UInt width gate: UInt{8,16,32,64,128,256}. ABI is `isCosmWasmAbiUintWidth`. -/
 private def isCosmWasmBodyUintWidth (w : Nat) : Bool :=
   w == 8 || w == 16 || w == 32 || w == 64 || w == 128 || w == 256
 
@@ -769,7 +772,7 @@ private def cosmwasmTypeClosureWording : PilotTypeClosureWording where
   targetLabel := "CosmWasm"
   uint32DuplicateDetail := "expected one anonymous UInt32 type"
   badIntegerWidthDetail :=
-    "only anonymous UInt{8,16,32,64,128,256} and Int64 integer types are supported (narrow Int fail closed; UInt128/256 are body-only)"
+    "only anonymous UInt{8,16,32,64,128,256} and Int64 integer types are supported (narrow Int fail closed; UInt256 is body-only)"
   unsupportedShapeDetail :=
     "only UInt{8,16,32,64,128,256}, Int64, Unit, Bool, Principal, named Struct/Enum, and admitted Array/Map/Bytes containers are supported (no Field)"
 
@@ -843,13 +846,13 @@ private def decodePrincipalLiteralLeavesV1 (bytes : ByteArray) :
     leaves := leaves.push (.literal (UInt64.ofNat word))
   pure leaves
 
-/-- Resolve admitted scalar state/param TypeId to physical byte width (1/2/4/8). -/
+/-- Resolve admitted scalar state/param TypeId to physical byte width (1/2/4/8/16).
+    UInt128 reports 16; layout still materializes two 8-byte Regions. -/
 private def abiByteWidthOfTypeV1
     (types : CosmWasmTypeClosureV1) (typeId : TypeIdV1) : CompileResult Nat := do
   match types.uintWidthOf typeId with
   | some w =>
-      -- CosmWasm ABI admits UInt{8,16,32,64} only (no multiword 128/256).
-      unless isAbiUintWidth w do
+      unless isCosmWasmAbiUintWidth w do
         throw <| .planInvariant .cosmwasm
           s!"unsupported CosmWasm semantic shape: ABI UInt{w} is not admitted"
       pure (byteWidthOfBitWidth w)
@@ -863,13 +866,28 @@ private def abiByteWidthOfTypeV1
           pure (byteWidthOfBitWidth w)
       | none =>
           throw <| .planInvariant .cosmwasm
-            "unsupported CosmWasm semantic shape: ABI type must be UInt8/16/32/64 or Int64"
+            "unsupported CosmWasm semantic shape: ABI type must be UInt8/16/32/64/128 or Int64"
 
-/-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`. -/
+/-- `{prefix}_lo` / `{prefix}_hi` limb names for UInt128 2-Region ABI. -/
+private def flattenUInt128LimbNamesV1 (namePrefix : String) :
+    CompileResult (String × String) := do
+  let lo := namePrefix ++ "_lo"
+  let hi := namePrefix ++ "_hi"
+  unless isIdentifier lo do
+    throw <| .planInvariant .cosmwasm
+      s!"name '{lo}' is not a safe identifier"
+  unless isIdentifier hi do
+    throw <| .planInvariant .cosmwasm
+      s!"name '{hi}' is not a safe identifier"
+  pure (lo, hi)
+
+/-- Width-dispatch for ABI param loads: UInt64/Int64 keep historical `param`.
+    UInt128 is `.narrowParam 128` over the low-limb inputOffset (hi = offset+8). -/
 private def mkParamExpr (bitWidth : Nat) (inputOffset : Nat) : Expr :=
   if bitWidth == 64 then .param inputOffset else .narrowParam bitWidth inputOffset
 
-/-- Width-dispatch for state loads: UInt64/Int64 keep historical `stateLoad`. -/
+/-- Width-dispatch for state loads: UInt64/Int64 keep historical `stateLoad`.
+    UInt128 is `.narrowStateLoad 128` over the low-limb field (hi = field+1). -/
 private def mkStateLoadExpr (bitWidth : Nat) (fieldIndex : Nat) : Expr :=
   if bitWidth == 64 then .stateLoad fieldIndex
   else .narrowStateLoad bitWidth fieldIndex
@@ -1299,6 +1317,31 @@ private def makeStorageLayoutV1
               endianness := .little
             }
           stateLeaves := stateLeaves.push leaves
+        else if types.uintWidthOf state.typeId == some 128 then
+          -- UInt128 ABI: two consecutive 8-byte Regions (`name_lo`/`name_hi`).
+          -- Physical KV stays 8 bytes; Emit loads/stores both limbs.
+          requirePublicCosmWasmUintAbiOrInt64State cosmwasmPlanErr types state
+            (allowNonPublic := true)
+          let (loName, hiName) ← flattenUInt128LimbNamesV1 state.name
+          if fields.size + 2 > maxStateFields then
+            throw <| .planInvariant .cosmwasm "state count is outside the profile limits"
+          let loFi := fields.size
+          let hiFi := loFi + 1
+          fields := fields.push {
+            sourceId := loFi
+            name := loName
+            key := stateKey loFi
+            byteWidth := 8
+            endianness := .little
+          }
+          fields := fields.push {
+            sourceId := hiFi
+            name := hiName
+            key := stateKey hiFi
+            byteWidth := 8
+            endianness := .little
+          }
+          stateLeaves := stateLeaves.push #[loFi, hiFi]
         else
           -- T8b/BL-15: scalar state admits UInt{8,16,32,64} / Int64 with Plan
           -- byteWidth 1/2/4/8. Physical CosmWasm KV is always an 8-byte Region
@@ -1475,6 +1518,40 @@ private def makeParamsV1 (owner : String) (types : CosmWasmTypeClosureV1)
         nextInputOffset := nextInputOffset + slotPitchOfByteWidth 1
       values := values.push (mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
         (leafByteWidth := 1))
+    else if types.uintWidthOf param.typeId == some 128 then
+      -- UInt128 ABI: two JSON decimal limbs (`name_lo`/`name_hi`), each u64.
+      requirePublicCosmWasmUintAbiOrInt64Param cosmwasmPlanErr types owner param
+        (allowNonPublic := true)
+      let (loName, hiName) ← flattenUInt128LimbNamesV1 param.name
+      if planned.size + 2 > maxParams then
+        throw <| .planInvariant .cosmwasm
+          s!"parameter count in {owner} exceeds profile limit {maxParams}"
+      let loOffset := nextInputOffset
+      let loBinding : Param := {
+        sourceId := planned.size
+        name := loName
+        inputOffset := loOffset
+        byteWidth := 8
+        endianness := .little
+      }
+      planned := planned.push loBinding
+      nextInputOffset := nextInputOffset + 8
+      let hiBinding : Param := {
+        sourceId := planned.size
+        name := hiName
+        inputOffset := nextInputOffset
+        byteWidth := 8
+        endianness := .little
+      }
+      planned := planned.push hiBinding
+      nextInputOffset := nextInputOffset + 8
+      values := values.push {
+        expr := mkParamExpr 128 loOffset
+        kind := .uint128
+        depth := 1
+        expandedNodes := 1
+        dependencies := #[]
+      }
     else
       -- T8b/BL-15: ABI params admit UInt{8,16,32,64}/Int64; cumulative 8-byte pitch.
       -- JSON entry range-checks to 2^bitWidth−1 (Emit); no silent truncation.
@@ -2217,6 +2294,22 @@ private def lowerBlockInstructionsV1
             leafExprs := leafExprs.push (.stateLoad fi)
           let value := mkAggregateValueV1 leafExprs #[] 1 leafExprs.size
           values := ← appendResultValueV1 result.typeId values result value
+        else if types.uintWidthOf result.typeId == some 128 then
+          unless leafIdxs.size == 2 do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: UInt128 state load leaf count mismatch"
+          let loFi := leafIdxs[0]!
+          let hiFi := leafIdxs[1]!
+          unless hiFi == loFi + 1 do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: UInt128 state limbs must be consecutive"
+          values := ← appendResultValueV1 result.typeId values result {
+            expr := mkStateLoadExpr 128 loFi
+            kind := .uint128
+            depth := 1
+            expandedNodes := 1
+            dependencies := #[]
+          }
         else
           let fi ← match leafIdxs[0]? with
             | some i =>
@@ -2243,7 +2336,7 @@ private def lowerBlockInstructionsV1
                   pure w
               | none =>
                   throw <| .planInvariant .cosmwasm
-                    "unsupported CosmWasm semantic shape: state load must be UInt{8,16,32,64}, Int64, Principal, named Struct/Enum, Array/Map, or Option UInt64"
+                    "unsupported CosmWasm semantic shape: state load must be UInt{8,16,32,64,128}, Int64, Principal, named Struct/Enum, Array/Map, or Option UInt64"
           unless field.byteWidth == byteWidthOfBitWidth bitWidth do
             throw <| .planInvariant .cosmwasm
               "unsupported CosmWasm semantic shape: state load width does not match field layout"
@@ -2613,6 +2706,23 @@ private def lowerBlockInstructionsV1
               byteWidth := field.byteWidth
             }
           body := body.push (.storeAtomic storeLeaves)
+          armReadables := promoteDominatingPureV1 blockEntry values armReadables
+          segmentStart := values.size
+        else if root.kind == .uint128 then
+          unless leafIdxs.size == 2 do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: UInt128 store leaf count mismatch"
+          let loFi := leafIdxs[0]!
+          let hiFi := leafIdxs[1]!
+          unless hiFi == loFi + 1 do
+            throw <| .planInvariant .cosmwasm
+              "unsupported CosmWasm semantic shape: UInt128 store limbs must be consecutive"
+          let value ← consumeCurrentSegmentV1 values blockEntry segmentStart valueId
+          body := body.push (.store {
+            fieldIndex := loFi
+            value
+            byteWidth := 16
+          })
           armReadables := promoteDominatingPureV1 blockEntry values armReadables
           segmentStart := values.size
         else
@@ -4156,10 +4266,10 @@ private def makeEntryV1
     throw <| .planInvariant .cosmwasm s!"entry name '{name}' is not a safe identifier"
   unless callable.result.visibility == .public_ do
     throw <| .planInvariant .cosmwasm s!"entry '{name}' does not return a public result"
-  -- BL-15: scalar ABI is UInt{8,16,32,64} / Bool / Int64; B-RET-ABI admits named
+  -- BL-15: scalar ABI is UInt{8,16,32,64,128} / Bool / Int64; B-RET-ABI admits named
   -- Struct/Enum and anonymous Array UInt64 N / Option UInt64 / Bytes N (≤8 leaves).
   -- Map UInt64 UInt64 uses 24 leaves for capacity-8 occ/key/value. Nested and
-  -- narrow-element anonymous returns, UInt128/256, and narrow Int stay FC.
+  -- narrow-element anonymous returns, UInt256, and narrow Int stay FC.
   -- JSON result wire remains decimal for all scalar UInt; multi-leaf (incl.
   -- Bytes as zero-extended u64 decimals) reuses JSON-array-of-decimals
   -- (BL-9 / N-ANON-RESULT).
@@ -4178,9 +4288,11 @@ private def makeEntryV1
       | some 16 => pure (MethodResultKind.uint16, some CosmWasmValueKindV1.uint16, none)
       | some 32 => pure (MethodResultKind.uint32, some CosmWasmValueKindV1.uint32, none)
       | some 64 => pure (MethodResultKind.uint64, some CosmWasmValueKindV1.uint64, none)
+      | some 128 =>
+          pure (MethodResultKind.uint128, some CosmWasmValueKindV1.uint128, none)
       | some w =>
           throw <| .planInvariant .cosmwasm
-            s!"entry '{name}' does not return public UInt8/16/32/64 (UInt{w} multi-width fail closed on CosmWasm)"
+            s!"entry '{name}' does not return public UInt8/16/32/64/128 (UInt{w} multi-width fail closed on CosmWasm)"
       | none =>
           match types.intWidthOf callable.result.typeId with
           | some 64 => pure (MethodResultKind.int64, some CosmWasmValueKindV1.int64, none)
@@ -4192,7 +4304,7 @@ private def makeEntryV1
               pure (MethodResultKind.bool, some CosmWasmValueKindV1.bool, none)
             else
               throw <| .planInvariant .cosmwasm
-                s!"entry '{name}' does not return public UInt8/16/32/64, Int64, Bool, named Struct/Enum, or admitted anonymous Array/Option/Bytes/Map"
+                s!"entry '{name}' does not return public UInt8/16/32/64/128, Int64, Bool, named Struct/Enum, or admitted anonymous Array/Option/Bytes/Map"
   let semanticMode : SemanticCallableModeV1 ← match callable.kind with
     | .entry => pure .mutate
     | .view => pure .view

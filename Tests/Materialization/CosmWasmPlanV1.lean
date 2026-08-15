@@ -12,7 +12,8 @@
   Option UInt64 state (OptionState tag+payload / storeAtomic / none zeroing +
   non-UInt64/nested/param FC), sync call still fail closed, multi-width
   UInt8/16/32 pins (body guards / param range / 8-byte narrow state slots),
-  and other FC boundaries (UInt128, invariants).
+  UInt128 2-limb ABI (state/param/result), and other FC boundaries
+  (UInt256 ABI, Int8, invariants).
 
   Schedule positive coverage uses product capability resolve (async admitted)
   plus engineering Plan/IR entry points. Not wasmd chain (A2). Not formal D4.
@@ -643,8 +644,9 @@ private unsafe def testMultiWidthUInt16UInt32
       s!"{kindLabel} WAT high-bit guard bitWidth={w}"
   IO.println "  ✓ multi-width UInt16/UInt32 Plan/WAT pins"
 
-/-- BL-15 ABI FC: UInt128 **state/params/results** and Int8 stay fail closed.
-    Body-internal UInt128 is admitted (see testMultiwordDivMod). -/
+/-- UInt128 ABI: two 8-byte KV limbs + two JSON decimal params + 2-limb return.
+    Int8 and UInt256 ABI stay fail closed. Body-internal UInt128 remains
+    covered by testMultiwordDivMod. -/
 private unsafe def testMultiWidthFc
     (session : Language.Loader.ParserSession) : IO Unit := do
   let u128 := wrapProgram "Wide128" <|
@@ -656,16 +658,50 @@ private unsafe def testMultiWidthFc
     "    return s\n\n" ++
     "  view get() : UInt128 do\n" ++
     "    return s\n"
-  match ← session.selectProgramV1 u128 "<cw-u128-fc>" "Examples.Wide128" none with
-  | .error _ => pure ()  -- may fail at compile/normalize
+  let compiled ← compileSource session u128 "Examples.Wide128" "<cw-u128-abi>"
+  let plan ← liftResult <| planCw compiled
+  expect (plan.storage.fields.size == 2) "UInt128 state is two KV limbs"
+  expect (plan.storage.fields[0]!.name == "s_lo") "UInt128 lo limb name"
+  expect (plan.storage.fields[1]!.name == "s_hi") "UInt128 hi limb name"
+  expect (plan.storage.fields[0]!.byteWidth == 8) "UInt128 lo limb width"
+  expect (plan.storage.fields[1]!.byteWidth == 8) "UInt128 hi limb width"
+  expect (plan.initializer.params.size == 2) "UInt128 init is two JSON limbs"
+  expect (plan.initializer.params[0]!.name == "x_lo") "UInt128 init lo name"
+  expect (plan.initializer.params[1]!.name == "x_hi") "UInt128 init hi name"
+  let some bump := plan.entries.find? (·.name == "bump") |
+    throw <| IO.userError "Wide128 missing bump"
+  expect (bump.resultKind == MethodResultKind.uint128) "entry result is uint128"
+  let some get := plan.entries.find? (·.name == "get") |
+    throw <| IO.userError "Wide128 missing get"
+  expect (get.resultKind == MethodResultKind.uint128) "view result is uint128"
+  let files ← liftResult <| filesCw compiled
+  let wat ← findFile files "Wide128.wat"
+  let abi ← findFile files "Wide128.cosmwasm-abi.json"
+  expect (wat.contains "pf_db_load_u64") "UInt128 WAT loads KV limbs"
+  expect (wat.contains "pf_db_store_u64") "UInt128 WAT stores KV limbs"
+  expect (wat.contains "ret_count") "UInt128 return uses 2-limb aggregate wire"
+  expect (abi.contains "\"u128\"") "ABI JSON advertises u128 result"
+  expect (abi.contains "s_lo") "ABI JSON names lo limb"
+  expect (abi.contains "s_hi") "ABI JSON names hi limb"
+  let u256 := wrapProgram "Wide256" <|
+    "  state s : UInt256\n\n" ++
+    "  init(x : UInt256) do\n" ++
+    "    s := x\n\n" ++
+    "  entry bump(d : UInt256) : UInt256 do\n" ++
+    "    s := s + d\n" ++
+    "    return s\n\n" ++
+    "  view get() : UInt256 do\n" ++
+    "    return s\n"
+  match ← session.selectProgramV1 u256 "<cw-u256-fc>" "Examples.Wide256" none with
+  | .error _ => pure ()
   | .ok validated =>
       match Compiler.compileValidatedSourceV1 validated with
       | .error _ => pure ()
-      | .ok compiled =>
-          match cosmwasmCapability compiled with
+      | .ok compiled256 =>
+          match cosmwasmCapability compiled256 with
           | .error _ => pure ()
           | .ok capability =>
-              expectPlanError "UInt128 state" (planFromCapability capability)
+              expectPlanError "UInt256 state" (planFromCapability capability)
   let i8src := wrapProgram "NarrowI8" <|
     "  state s : Int8\n\n" ++
     "  init(x : Int8) do\n" ++
@@ -680,12 +716,12 @@ private unsafe def testMultiWidthFc
   | .ok validated =>
       match Compiler.compileValidatedSourceV1 validated with
       | .error _ => pure ()
-      | .ok compiled =>
-          match cosmwasmCapability compiled with
+      | .ok compiledI8 =>
+          match cosmwasmCapability compiledI8 with
           | .error _ => pure ()
           | .ok capability =>
               expectPlanError "Int8 state" (planFromCapability capability)
-  IO.println "  ✓ multi-width UInt128 ABI / Int8 fail closed"
+  IO.println "  ✓ multi-width UInt128 ABI admit / UInt256+Int8 fail closed"
 
 /-- Body multiword UInt128 add/mul/div/mod/shl/shr: true multi-limb WAT
     (schoolbook mul; restoring binary long division for div/mod; limb-wise

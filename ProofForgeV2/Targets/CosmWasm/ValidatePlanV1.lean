@@ -54,10 +54,22 @@ private partial def planExprNodes? (layout : StorageLayout) (params : Array Para
       | some nodes => some (1 + nodes)
     match expr with
     | .literal .. | .bigLiteral .. => some 1
-    | .param inputOffset | .narrowParam _ inputOffset =>
+    | .param inputOffset =>
         if params.any (·.inputOffset == inputOffset) then some 1 else none
-    | .stateLoad fieldIndex | .narrowStateLoad _ fieldIndex =>
+    | .narrowParam bitWidth inputOffset =>
+        if params.any (·.inputOffset == inputOffset) then
+          if bitWidth == 128 then
+            if params.any (·.inputOffset == inputOffset + 8) then some 1 else none
+          else some 1
+        else none
+    | .stateLoad fieldIndex =>
         if fieldIndex < layout.fields.size then some 1 else none
+    | .narrowStateLoad bitWidth fieldIndex =>
+        if fieldIndex < layout.fields.size then
+          if bitWidth == 128 then
+            if fieldIndex + 1 < layout.fields.size then some 1 else none
+          else some 1
+        else none
     | .localTemp _ => some 1
     | .blockTimeSeconds => some 1
     | .blockHeight => some 1
@@ -258,7 +270,11 @@ private partial def checkMethodStatementsV1
         unless store.fieldIndex < layout.fields.size do
           throw <| .planInvariant .cosmwasm s!"method stores to an unknown KV field"
         let field := layout.fields[store.fieldIndex]!
-        unless store.byteWidth == field.byteWidth do
+        let wideOk :=
+          store.byteWidth == 16 && field.byteWidth == 8 &&
+            store.fieldIndex + 1 < layout.fields.size &&
+            layout.fields[store.fieldIndex + 1]!.byteWidth == 8
+        unless store.byteWidth == field.byteWidth || wideOk do
           throw <| .planInvariant .cosmwasm
             "method store byteWidth does not match state field layout"
         total ← addPlanExprNodes limits layout params fns total store.value

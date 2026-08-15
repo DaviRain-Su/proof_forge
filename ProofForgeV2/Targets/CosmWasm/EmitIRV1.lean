@@ -314,7 +314,15 @@ private partial def lowerExprUncached (keys : Array KeyRegion) (next : Nat)
       else
         { operations := #[.loadParam next inputOffset], value := next, next := next + 1, cache }
   | .narrowParam bitWidth inputOffset =>
-      if paramAsTemp then
+      if bitWidth == 128 then
+        if paramAsTemp then
+          { operations := #[], value := inputOffset / 8, next := next, cache }
+        else
+          { operations := #[
+              .loadParam next inputOffset,
+              .loadParam (next + 1) (inputOffset + 8)]
+            value := next, next := next + 2, cache }
+      else if paramAsTemp then
         { operations := #[], value := inputOffset / 8, next := next, cache }
       else
         { operations := #[.narrowLoadParam bitWidth next inputOffset]
@@ -333,12 +341,22 @@ private partial def lowerExprUncached (keys : Array KeyRegion) (next : Nat)
         cache
       }
   | .narrowStateLoad bitWidth fieldIndex =>
-      {
-        operations := #[.narrowLoadState bitWidth next (fieldRegion keys fieldIndex)]
-        value := next
-        next := next + 1
-        cache
-      }
+      if bitWidth == 128 then
+        {
+          operations := #[
+            .loadState next (fieldRegion keys fieldIndex),
+            .loadState (next + 1) (fieldRegion keys (fieldIndex + 1))]
+          value := next
+          next := next + 2
+          cache
+        }
+      else
+        {
+          operations := #[.narrowLoadState bitWidth next (fieldRegion keys fieldIndex)]
+          value := next
+          next := next + 1
+          cache
+        }
   | .checkedAdd lhs rhs =>
       let lhs := lowerExpr keys next paramAsTemp localEnv cache lhs
       let rhs := lowerExpr keys lhs.next paramAsTemp localEnv lhs.cache rhs
@@ -862,15 +880,25 @@ private partial def lowerBodyOpsFull (keys : Array KeyRegion) (next : Nat)
         | other =>
             let value := lowerExpr keys next fnMode localEnv cache other
             operations := operations ++ value.operations
-            operations := operations.push
-              (.storeState (fieldRegion keys op.fieldIndex) value.value)
+            if op.byteWidth == 16 then
+              operations := operations.push
+                (.storeState (fieldRegion keys op.fieldIndex) value.value)
+              operations := operations.push
+                (.storeState (fieldRegion keys (op.fieldIndex + 1)) (value.value + 1))
+            else
+              operations := operations.push
+                (.storeState (fieldRegion keys op.fieldIndex) value.value)
             next := value.next
             cache := value.cache
             storedTemp := value.value
         -- Drop CSE for the written field, then seed the new temp so a later
         -- load of the same field (Token `return supply`) reuses it.
         cache := invalidateStateFieldCacheV1 cache op.fieldIndex
-        cache := cache.push (.stateLoad op.fieldIndex, storedTemp)
+        if op.byteWidth == 16 then
+          cache := invalidateStateFieldCacheV1 cache (op.fieldIndex + 1)
+          cache := cache.push (.narrowStateLoad 128 op.fieldIndex, storedTemp)
+        else
+          cache := cache.push (.stateLoad op.fieldIndex, storedTemp)
     | .storeAtomic leaves =>
         for leaf in leaves do
           let packs := collectMapUpsertPacksV1 leaf.value
@@ -906,6 +934,9 @@ private partial def lowerBodyOpsFull (keys : Array KeyRegion) (next : Nat)
         operations := operations ++ value.operations
         if fnMode then
           operations := operations.push (.returnValue value.value)
+        else if _returnByteLen == 16 then
+          operations := operations.push
+            (.setReturnDataMulti #[value.value, value.value + 1])
         else
           operations := operations.push (.setReturnData value.value)
         next := value.next
@@ -1092,6 +1123,10 @@ private partial def lowerBodyOps (keys : Array KeyRegion) (next : Nat)
     lowerBodyOpsFull keys next body fnMode localEnv _returnByteLen #[] none
   (ops, next')
 
+private def methodResultByteLen : MethodResultKind → Nat
+  | .uint128 => 16
+  | _ => 8
+
 private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     (method : Method) : MethodIR := Id.run do
   let marker := keys[0]!
@@ -1111,7 +1146,8 @@ private def lowerMethod (plan : Plan) (keys : Array KeyRegion)
     method.body.pop
   else
     method.body
-  let (bodyOps, next) := lowerBodyOps keys 0 body false #[] 8
+  let (bodyOps, next) :=
+    lowerBodyOps keys 0 body false #[] (methodResultByteLen method.resultKind)
   operations := operations ++ bodyOps
   if method.mode == .initialize then
     operations := operations.push (.setLayout marker plan.storage.markerValue)
@@ -3922,6 +3958,7 @@ private def renderAbiTypeString (byteWidth : Nat) : String :=
   | 1 => "u8"
   | 2 => "u16"
   | 4 => "u32"
+  | 16 => "u128"
   | _ => "u64"
 
 private def renderParamJson (param : Param) : String :=
@@ -3935,6 +3972,7 @@ private def renderMethodJson (method : Method) : String :=
     | .uint8 => "\"u8\""
     | .uint16 => "\"u16\""
     | .uint32 => "\"u32\""
+    | .uint128 => "\"u128\""
     | .bool => "\"bool\""
     | .int64 => "\"i64\""
     -- B-RET-ABI: leaf tuple as a JSON array of leaf type strings
