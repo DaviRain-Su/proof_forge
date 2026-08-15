@@ -3291,6 +3291,17 @@ unsafe def run : IO Unit := do
   expect (solanaAccumulator.files.map (·.path) ==
       #["Accumulator.cpi-plan.json", "Accumulator.cpi-ir.json", "Accumulator.idl.json", "Accumulator.s", "Accumulator.cpi-bindings.json"])
     "Solana Accumulator must emit plan then IDL in canonical order"
+  -- Extra eight from probe; public UInt64 Accumulator lighthouse. Eleven
+  -- materialize. Aleo declines reserved entry name `add`. Not opening a
+  -- rename/shape; existing four-target goldens unchanged.
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.psy, TargetId.quint, TargetId.cosmwasm, TargetId.ton,
+      TargetId.soroban, TargetId.openvm, TargetId.icp] do
+    let out ← liftResult <| materializeSelected target accCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"Accumulator: {target} must materialize"
+  expectMaterializePlanInvariantV1 "Accumulator" TargetId.aleo TargetKind.aleo
+    accCompiled "reserved Aleo Instructions identifier"
 
   -- Real EVM product negative: selectProgramV1 succeeds; compileValidatedSourceV1
   -- fails exactly at disclosure PF-VIS-001. selection/capability/materialize must
