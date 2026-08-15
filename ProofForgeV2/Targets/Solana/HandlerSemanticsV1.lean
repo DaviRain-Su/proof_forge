@@ -569,6 +569,60 @@ private theorem checkUInt64ReturnedReferenceOutcomeV1_eq_true_iff
   | reverted => simp [checkUInt64ReturnedReferenceOutcomeV1]
   | trapped => simp [checkUInt64ReturnedReferenceOutcomeV1]
 
+private def checkValueBytesCanonicalV1
+    (data : SemanticProgramDataV1)
+    (typeId : TypeIdV1)
+    (valueBytes : ByteArray) : Bool :=
+  match validateValueBytesV1 data.types typeId valueBytes with
+  | .ok _ => true
+  | .error _ => false
+
+private theorem checkValueBytesCanonicalV1_eq_true_iff
+    (data : SemanticProgramDataV1)
+    (typeId : TypeIdV1)
+    (valueBytes : ByteArray) :
+    checkValueBytesCanonicalV1 data typeId valueBytes = true ↔
+      validateValueBytesV1 data.types typeId valueBytes = .ok () := by
+  unfold checkValueBytesCanonicalV1
+  cases hvalidate : validateValueBytesV1 data.types typeId valueBytes with
+  | error error => simp
+  | ok result =>
+      cases result
+      simp
+
+/-- Executable, proof-producing form of the read-only UInt64 observation
+    relation. It checks the already-computed sole Reference outcome and actual
+    production HandlerIR observation; it does not execute another transition. -/
+def checkUInt64ReturnedHandlerObservationRelV1
+    (data : SemanticProgramDataV1)
+    (typeId : TypeIdV1)
+    (pre : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (valueBytes : ByteArray)
+    (observed : HandlerObservationV1) : Bool :=
+  checkValueBytesCanonicalV1 data typeId valueBytes &&
+  decide (valueBytes.size = 8) &&
+  checkUInt64ReturnedReferenceOutcomeV1 referenceOutcome pre typeId valueBytes &&
+  decide (observed.outcome = .returned (some valueBytes)) &&
+  decide (observed.postAccounts = observed.invocation.accounts)
+
+theorem checkUInt64ReturnedHandlerObservationRelV1_eq_true_iff
+    (data : SemanticProgramDataV1)
+    (typeId : TypeIdV1)
+    (pre : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (valueBytes : ByteArray)
+    (observed : HandlerObservationV1) :
+    checkUInt64ReturnedHandlerObservationRelV1 data typeId pre referenceOutcome
+        valueBytes observed = true ↔
+      UInt64ReturnedHandlerObservationRelV1 data typeId pre referenceOutcome
+        valueBytes observed := by
+  simp only [checkUInt64ReturnedHandlerObservationRelV1, Bool.and_eq_true,
+    checkValueBytesCanonicalV1_eq_true_iff, decide_eq_true_eq,
+    checkUInt64ReturnedReferenceOutcomeV1_eq_true_iff,
+    UInt64ReturnedHandlerObservationRelV1]
+  simp only [and_assoc]
+
 /-- Executable, proof-producing form of the successful checked-add observation
     relation. It consumes an already-computed sole Reference outcome and the
     actual production HandlerIR observation. -/

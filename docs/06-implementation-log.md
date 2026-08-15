@@ -16215,3 +16215,21 @@ normative: false
 - checker成功仍是kernel sound theorem的显式前提；本切片没有闭合无条件大型gate、完整
   Reference→provider theorem、ELF/linker/loader、Mollusk/validator/SVM runtime、transaction rollback
   或compute units，也没有新增evaluator、business semantics或HandlerIR→sBPF lowering。
+
+## 2026-08-15 — StateCell `get(41)` source-derived Reference→provider composition
+
+- `get` production resolver现与其既有55步provider subject共用同一次elaborated Source、validated
+  `SemanticProgramV1`及Reference admission；真实nullary `get` callable按kind/name查找，logical pre-state
+  与Loader account均编码`count = 41`，sole `stepReferenceSliceV1`产生实际read-only outcome。没有复制
+  StateCell AST/IR、另写transition或增加proof-only lowering。
+- 新增read-only UInt64 observation checker及iff soundness，精确检查canonical 8-byte result、Reference
+  返回same pre-state/type/value且effects为空、Handler返回相同bytes且account stutter。production gate再
+  与既有55步certified get checker合取；sound theorem实际调用certificate的`.referenceJoin`，返回单一
+  `UInt64ReferenceHandlerSbpfJoinV1` carrier。篡改Reference outcome的回归按预期fail closed。
+- concrete运行结果为`provider=true`、`referenceProvider=true`，focused production/test build与
+  `SolanaAsmV1` runner通过。至此StateCell四条pinned recipe全部具有source-derived、Boolean-gated、
+  proof-producing的Reference→HandlerIR→provider composition：`get`/`initialize`各55步、increment
+  success 70步、increment overflow 56步。
+- checker成功仍是kernel sound theorem的显式前提；本切片没有闭合无条件大型gate或一般化
+  Reference→provider theorem，也不覆盖ELF/linker/loader、Mollusk/validator/SVM runtime、transaction
+  rollback与compute units。

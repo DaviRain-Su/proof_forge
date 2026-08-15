@@ -42,6 +42,12 @@ structure ResolvedStateCellGetProductionSubjectV1 where
   private mk ::
   sourceBinding : CanonicalSourceBindingV1
     StateCell.Source.subjectV1 StateCell.bytes
+  referenceProgram : ProofForgeV2.Semantic.WireV1.SemanticProgramV1
+  data : SemanticProgramDataV1
+  admitted : AdmittedReferenceSliceV1
+  referencePre : LogicalStateV1
+  referenceOutcome : OutcomeV1
+  returnTypeId : TypeIdV1
   ir : IR
   assembly : String
   boundArtifact : BoundResolvedSbpfArtifactV1
@@ -78,6 +84,13 @@ def resolveStateCellGetProductionSubjectV1 :
   let source := sourceBinding.validated
   let compiled ← compileResultV1 <|
     compileValidatedSourceV1 source
+  let referenceProgram := CompiledSemanticV1.semanticV1Of compiled
+  let data ← match validateSemanticProgramV1 referenceProgram with
+    | .ok value => pure value
+    | .error error => throw s!"StateCell semantic validation failed: {repr error}"
+  let admitted ← match admitReferenceProgramSliceV1 referenceProgram with
+    | .ok value => pure value
+    | .error error => throw s!"StateCell Reference admission failed: {repr error}"
   let selection ← compileResultV1 <|
     resolveBuildSelectionV1 TargetId.solana
       (some CodegenProfileId.solanaSbpfCpiElfV1)
@@ -91,10 +104,25 @@ def resolveStateCellGetProductionSubjectV1 :
   let handler ← match ir.handlers.find? (·.name == "get") with
     | some value => pure value
     | none => throw "production StateCell IR has no get handler"
+  let get ← match data.callables.find? (fun callable =>
+      callable.kind == .view && callable.name == some "get") with
+    | some value => pure value
+    | none => throw "production StateCell Semantic program has no get view"
   let discriminator ← compileResultV1 <|
     discriminatorToLeU64V1 handler.discriminator
-  let value := BitVec.ofNat 64 41
-  let returnBytes := SbpfSemantics.wordToLE value
+  let logicalValue : UInt64 := 41
+  let referencePre ← match encodeLogicalStateValuesV1 data true
+      #[encodeU64le logicalValue] with
+    | .ok value => pure value
+    | .error error =>
+        throw s!"StateCell get pre-state encoding failed: {repr error}"
+  let referenceOutcome := stepReferenceSliceV1 admitted referencePre {
+    callableId := get.id
+    args := #[]
+    context := #[]
+  } #[]
+  let value := BitVec.ofNat 64 logicalValue.toNat
+  let returnBytes := (encodeU64le logicalValue).data
   let accountData :=
     (SbpfSemantics.wordToLE
       (BitVec.ofNat 64 ir.stateAccount.initializedMarker.toNat)).append
@@ -110,8 +138,10 @@ def resolveStateCellGetProductionSubjectV1 :
   }
   let handlerInvocation :=
     nullaryUInt64ViewInvocationV1 ⟨accountData⟩ discriminator
-  pure <| ResolvedStateCellGetProductionSubjectV1.mk sourceBinding ir assembly
-    boundArtifact handler handlerInvocation loaderInvocation returnBytes value
+  pure <| ResolvedStateCellGetProductionSubjectV1.mk sourceBinding
+    referenceProgram data admitted referencePre referenceOutcome get.result.typeId
+    ir assembly boundArtifact handler handlerInvocation loaderInvocation
+    returnBytes value
 
 private def checkExceptV1 (result : Except String α)
     (checker : α → Bool) : Bool :=
@@ -160,6 +190,63 @@ theorem checkStateCellGetProductionSubjectV1_sound
   exact checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1_sound
     subject.boundArtifact subject.handler subject.handlerInvocation
     subject.loaderInvocation subject.returnBytes subject.value hchecked
+
+/-- D5 production gate for the read-only `get(41)` slice. It composes the
+    source-derived sole Reference result with the dedicated 55-step provider
+    certificate; the production account remains unchanged. -/
+def checkStateCellGetReferenceProviderSubjectV1 : Bool :=
+  checkExceptV1 resolveStateCellGetProductionSubjectV1 fun subject =>
+    checkUInt64ReturnedHandlerObservationRelV1 subject.data
+      subject.returnTypeId subject.referencePre subject.referenceOutcome
+      ⟨subject.returnBytes⟩
+      (observeHandlerIRV1 subject.handler subject.handlerInvocation) &&
+    checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1
+      subject.boundArtifact subject.handler subject.handlerInvocation
+      subject.loaderInvocation subject.returnBytes subject.value
+
+/-- A successful get D5 gate recovers one composed
+    Reference→HandlerIR→provider carrier. The Boolean premise remains explicit;
+    this does not cover ELF, linker, loader, or SVM runtime semantics. -/
+theorem checkStateCellGetReferenceProviderSubjectV1_sound
+    (checked : checkStateCellGetReferenceProviderSubjectV1 = true) :
+    ∃ subject,
+      resolveStateCellGetProductionSubjectV1 = .ok subject ∧
+      ∃ certified : CertifiedStateCellGetExecutedHandlerSbpfJoinV1
+          subject.boundArtifact subject.handler subject.handlerInvocation
+          subject.loaderInvocation subject.returnBytes subject.value,
+        UInt64ReferenceHandlerSbpfJoinV1 subject.data subject.returnTypeId
+          subject.referencePre subject.referenceOutcome ⟨subject.returnBytes⟩
+          certified.executed.handlerObservation
+          stateCellProductionSbpfSha256V1
+          certified.executed.sbpfObservation := by
+  rcases checkExceptV1_sound resolveStateCellGetProductionSubjectV1
+      (fun subject =>
+        checkUInt64ReturnedHandlerObservationRelV1 subject.data
+          subject.returnTypeId subject.referencePre subject.referenceOutcome
+          ⟨subject.returnBytes⟩
+          (observeHandlerIRV1 subject.handler subject.handlerInvocation) &&
+        checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1
+          subject.boundArtifact subject.handler subject.handlerInvocation
+          subject.loaderInvocation subject.returnBytes subject.value)
+      checked with ⟨subject, hsubject, hchecked⟩
+  simp only [Bool.and_eq_true] at hchecked
+  rcases hchecked with ⟨hreference, hprovider⟩
+  have referenceHandler :
+      UInt64ReturnedHandlerObservationRelV1 subject.data subject.returnTypeId
+        subject.referencePre subject.referenceOutcome ⟨subject.returnBytes⟩
+        (observeHandlerIRV1 subject.handler subject.handlerInvocation) :=
+    (checkUInt64ReturnedHandlerObservationRelV1_eq_true_iff subject.data
+      subject.returnTypeId subject.referencePre subject.referenceOutcome
+      ⟨subject.returnBytes⟩
+      (observeHandlerIRV1 subject.handler subject.handlerInvocation)).mp
+        hreference
+  rcases checkCertifiedStateCellGetExecutedHandlerSbpfJoinV1_sound
+      subject.boundArtifact subject.handler subject.handlerInvocation
+      subject.loaderInvocation subject.returnBytes subject.value hprovider with
+    ⟨certified⟩
+  refine ⟨subject, hsubject, certified, ?_⟩
+  exact certified.referenceJoin (by
+    simpa [certified.executed.handlerExecution] using referenceHandler)
 
 /-- Concrete values consumed by the generic StateCell `initialize`
     HandlerIR/provider join. Same private-ctor discipline as `get`. -/

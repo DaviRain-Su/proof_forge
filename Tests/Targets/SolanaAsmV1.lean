@@ -237,6 +237,16 @@ private unsafe def testStateCellSbpfArtifact
     "sBPF artifact: pure program-export subject must reproduce parser-session production assembly"
   expect checkStateCellGetProductionSubjectV1
     "sBPF artifact: pure production subject certified get gate"
+  expect checkStateCellGetReferenceProviderSubjectV1
+    "sBPF artifact: get source-derived Reference/provider composition"
+  let getHandlerObservation := observeHandlerIRV1 productionSubject.handler
+    productionSubject.handlerInvocation
+  expect (!checkUInt64ReturnedHandlerObservationRelV1
+      productionSubject.data productionSubject.returnTypeId
+      productionSubject.referencePre
+      (.returned productionSubject.referencePre none #[])
+      ⟨productionSubject.returnBytes⟩ getHandlerObservation)
+    "sBPF artifact: get composition must reject a tampered Reference outcome"
   match
       ProofForgeV2.Source.ValidatedSourceV1.validateElaboratedSourceAgainstCanonicalBytesV1
         StateCell.Source.subjectV1 (StateCell.bytes.push 0) with
