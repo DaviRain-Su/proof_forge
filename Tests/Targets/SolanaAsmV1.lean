@@ -387,6 +387,8 @@ private unsafe def testStateCellMutatingProductionSubjects : IO Unit := do
     "increment subject must pin the 41 + 1 success scenario"
   expect checkStateCellIncrementProductionSubjectV1
     "increment production subject certified 70-step join must succeed"
+  expect checkStateCellIncrementReferenceProviderSubjectV1
+    "increment source-derived Reference/provider composition must succeed"
   let incrementBefore := BitVec.ofNat 64 incrementSubject.before.toNat
   let incrementArgument := BitVec.ofNat 64 incrementSubject.argument.toNat
   let incrementInput ← liftExecutionResult <|

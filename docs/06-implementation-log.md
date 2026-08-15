@@ -16171,3 +16171,23 @@ normative: false
   checker success仍是sound theorem前提。increment success/overflow的concrete production composition、
   无条件大型gate归约、ELF/linker/loader、Mollusk/validator/SVM runtime、transaction rollback与compute
   units仍未闭合。
+
+## 2026-08-15 — StateCell `increment(41, 1)` source-derived Reference→provider composition
+
+- increment production resolver现从同一次elaborated Source subject及production compiler carrier恢复
+  validated `SemanticProgramV1`、Reference admission、logical pre/post state与真实
+  `stepReferenceSliceV1` outcome；`increment` callable由validated callable表按kind/name查找，Plan binding
+  与16-byte pre/post account bytes仍来自production Plan/codec路径，没有复制StateCell AST、IR或另写
+  proof-only lowering。
+- 新增successful checked-add observation checker及iff soundness，将Reference returned post/value/effects、
+  actual HandlerIR return/post-account与logical-state/account encoding统一成既有relation。production D5
+  gate再与70步certified increment provider checker合取；sound theorem实际调用certificate的
+  `referenceJoin`，返回单一`UInt64CheckedAddReferenceHandlerSbpfJoinV1` carrier，而不是两个互不关联的
+  witness。
+- concrete运行结果为`provider=true`、`referenceProvider=true`，`SolanaAsmV1`与static alignment build
+  通过。至此initializer和increment success已有source-derived、Boolean-gated、proof-producing的
+  Reference→provider composition；increment overflow concrete composition仍待闭合。D4四条provider
+  certificate仍为`get` 55步、`initialize` 55步、increment success 70步、overflow 56步。
+- checker成功继续是kernel sound theorem的显式前提；本切片没有闭合无条件大型gate、完整
+  Reference→provider theorem、ELF/linker/loader、Mollusk/validator/SVM runtime、transaction rollback
+  或compute units，也没有新增evaluator、business semantics或HandlerIR→sBPF lowering。

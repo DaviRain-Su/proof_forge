@@ -538,6 +538,77 @@ def UInt64CheckedAddReturnedHandlerObservationRelV1
   UInt64LogicalStateAccountRelV1 data plan binding post postData
     (before + argument)
 
+private def checkUInt64ReturnedReferenceOutcomeV1
+    (outcome : OutcomeV1)
+    (post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (typeId : TypeIdV1)
+    (valueBytes : ByteArray) : Bool :=
+  match outcome with
+  | .returned actualPost (some actualValue) effects =>
+      checkLogicalStateEqV1 actualPost post &&
+      decide (actualValue.typeId = typeId) &&
+      decide (actualValue.valueBytes = valueBytes) &&
+      effects.isEmpty
+  | _ => false
+
+private theorem checkUInt64ReturnedReferenceOutcomeV1_eq_true_iff
+    (outcome : OutcomeV1)
+    (post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (typeId : TypeIdV1)
+    (valueBytes : ByteArray) :
+    checkUInt64ReturnedReferenceOutcomeV1 outcome post typeId valueBytes = true ↔
+      outcome = .returned post (some { typeId, valueBytes }) #[] := by
+  cases outcome with
+  | returned actualPost value effects =>
+      cases value with
+      | none => simp [checkUInt64ReturnedReferenceOutcomeV1]
+      | some actualValue =>
+          cases actualValue
+          simp [checkUInt64ReturnedReferenceOutcomeV1,
+            checkLogicalStateEqV1_eq_true_iff, Array.isEmpty_iff, and_assoc]
+  | reverted => simp [checkUInt64ReturnedReferenceOutcomeV1]
+  | trapped => simp [checkUInt64ReturnedReferenceOutcomeV1]
+
+/-- Executable, proof-producing form of the successful checked-add observation
+    relation. It consumes an already-computed sole Reference outcome and the
+    actual production HandlerIR observation. -/
+def checkUInt64CheckedAddReturnedHandlerObservationRelV1
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (postData : ByteArray)
+    (before argument : UInt64)
+    (observed : HandlerObservationV1) : Bool :=
+  checkUInt64ReturnedReferenceOutcomeV1 referenceOutcome post
+    binding.semanticTypeId (encodeU64le (before + argument)) &&
+  decide (observed.outcome =
+    .returned (some (encodeU64le (before + argument)))) &&
+  decide (observed.postAccounts[0]?.map (·.data) = some postData) &&
+  checkUInt64LogicalStateAccountRelV1 data plan binding post postData
+    (before + argument)
+
+theorem checkUInt64CheckedAddReturnedHandlerObservationRelV1_eq_true_iff
+    (data : SemanticProgramDataV1)
+    (plan : Plan)
+    (binding : UInt64StateAccountBindingV1)
+    (post : ProofForgeV2.Semantic.InvariantABI.LogicalStateV1)
+    (referenceOutcome : OutcomeV1)
+    (postData : ByteArray)
+    (before argument : UInt64)
+    (observed : HandlerObservationV1) :
+    checkUInt64CheckedAddReturnedHandlerObservationRelV1 data plan binding post
+        referenceOutcome postData before argument observed = true ↔
+      UInt64CheckedAddReturnedHandlerObservationRelV1 data plan binding post
+        referenceOutcome postData before argument observed := by
+  simp only [checkUInt64CheckedAddReturnedHandlerObservationRelV1,
+    Bool.and_eq_true, decide_eq_true_eq,
+    checkUInt64ReturnedReferenceOutcomeV1_eq_true_iff,
+    checkUInt64LogicalStateAccountRelV1_eq_true_iff,
+    UInt64CheckedAddReturnedHandlerObservationRelV1]
+  simp only [and_assoc]
+
 /-- Exact Reference→HandlerIR relation for one-field UInt64 checked-add
     overflow. Both layers retain the same pre-state/account snapshot, while the
     established target error code represents the Reference standard revert. -/

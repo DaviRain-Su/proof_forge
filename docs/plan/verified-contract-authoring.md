@@ -934,12 +934,13 @@ UTF-8 AST decode作为具体subject的阻塞，但尚未给出该大型计算的
 Loader image冒充kernel proof。`initialize(7)`、`increment(1)`（pre=`41`）与
 `increment(1)` overflow（pre=`UInt64.max`）也已从同一个source binding和production `.s`构造private
 subjects；四条pinned recipe现均有dedicated sparse provider certificate（`get`/`initialize`各55步、
-increment success 70步、overflow 56步）。D5 composition又完成了initializer首切：production subject
-从同一次elaborated source恢复validated Semantic、Reference admission、logical pre/post state与真实
-`stepReferenceSliceV1` outcome；新gate把既有Reference→HandlerIR relation与55步certified provider
-join组合成单一source-derived Reference→provider carrier。该sound theorem仍以Boolean checker成功为
-前提；increment success/overflow的concrete composition尚待闭合，也不能据此升级为无条件target
-refinement。
+increment success 70步、overflow 56步）。D5 composition现已完成initializer与increment success：
+两个production subject都从同一次elaborated source恢复validated Semantic、Reference admission、logical
+pre/post state与真实`stepReferenceSliceV1` outcome；对应gate分别把initializer relation接到55步
+certificate、把successful checked-add relation接到70步certificate，并由各自sound theorem实际调用
+`referenceJoin`返回单一source-derived Reference→provider carrier。两个sound theorem仍以Boolean
+checker成功为前提；increment overflow的concrete composition尚待闭合，也不能据此升级为无条件
+target refinement。
 release source-dependency/SBOM closure也继续独立fail closed。
 整个接线不能另写proof-only codegen或第二套business semantics。
 再后评估外部Yul/EVM/bytecode semantics，
@@ -1032,7 +1033,7 @@ ProofForge内自造完整EVM opcode、Wasm binary、sBPF或Solana runtime semant
 | 5 | Same-file certifier ergonomics | **进行中（VerifiedVault 五 callable business family 已产品认证）** | 未 pin、无 contract-specific theorem/pin 的 `VerifiedVaultPF` 已通过真实 certifier 与 CLI；alpha-renamed 五 callable 同构正例通过，漏 store/sub、错误 subtraction flow/slot、漏/reverse assert、覆盖赋值、withdraw result shape 与 callable order 等 typed-valid near miss 在 certification elaboration fail closed；arbitrary family 仍待补 |
 | 6A | VerifiedVaultPF Reference-certified author slice | **已完成** | initializer、deposit、guarded withdraw、status 与 equality invariant 绑定 exact 五 callable subject；Reference admission/execution/preservation、same-file theorem、product certifier 和 CLI `check` 全部通过，theorem count 1、digest 非空；声明严格停在 `reference-certified` |
 | 6B | authority amendment + NEAR build/runtime | **已完成（engineering observed；非 formal refinement）** | ADR-0042、private certificate authorization、versioned Plan partition、Unit entry、CLI/real Wasm/ABI 已闭环；2026-08-11 原始 locked near-sandbox 2.13.0 经 userspace GLIBC 2.39 loader 在 required 模式跑通十套 corpus，VerifiedVault exact slots/Unit/rollback/missing-export 全部 PASS；loader 未入 Tool Lock，故非 hermetic release evidence |
-| 7 | Per-target refinement | **进行中（NEAR双平台engineering出口已关闭；Solana四条provider certificate已闭合，D5 composition完成initializer首切）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；rc.1 provider及Darwin GMP/Linux system closure已进入独立 Tool Lock rows。run `31781471216` 的Linux target-smoke与Darwin arm64 locked consumer均成功；结论严格限于identity-bound engineering join，不是一般IR/WAT→Wasm simulation theorem。Solana `get/initialize/increment` 已有kernel Reference→production Plan/HandlerIR join；同一identity-bound production `.s`的四条pinned recipe均有sparse provider certificate：`get`/`initialize(7)`各55步、`increment(41,1)` 70步、overflow 56步。具体subject由同一次`program` elaboration产生AST subject，经sole validator/canonical encoder、production compiler/profile/HandlerIR/emitter/strict parser在纯Lean中fail closed重建。initializer现进一步恢复真实Reference outcome，并由Boolean-gated sound theorem组合为source-derived Reference→provider carrier；increment success/overflow concrete composition仍待闭合。尚需无条件kernel-discharge大型production gates，不能据此声明完整provider/ELF/runtime refinement |
+| 7 | Per-target refinement | **进行中（NEAR双平台engineering出口已关闭；Solana四条provider certificate已闭合，D5 composition完成initializer与increment success）** | NEAR `status/init/deposit/withdraw` 已闭合 selected MethodIR/typed-WAT slices，finalized bytes有 canonical section envelope；rc.1 provider及Darwin GMP/Linux system closure已进入独立 Tool Lock rows。run `31781471216` 的Linux target-smoke与Darwin arm64 locked consumer均成功；结论严格限于identity-bound engineering join，不是一般IR/WAT→Wasm simulation theorem。Solana `get/initialize/increment` 已有kernel Reference→production Plan/HandlerIR join；同一identity-bound production `.s`的四条pinned recipe均有sparse provider certificate：`get`/`initialize(7)`各55步、`increment(41,1)` 70步、overflow 56步。具体subject由同一次`program` elaboration产生AST subject，经sole validator/canonical encoder、production compiler/profile/HandlerIR/emitter/strict parser在纯Lean中fail closed重建。initializer与increment success现进一步恢复真实Reference outcome，并分别由Boolean-gated sound theorem组合为source-derived Reference→provider carrier；increment overflow concrete composition仍待闭合。尚需无条件kernel-discharge大型production gates，不能据此声明完整provider/ELF/runtime refinement |
 
 ### 首个代码切片进展
 
@@ -1486,9 +1487,12 @@ expression translator：
     layout-marker+argument的16-byte final account window；increment成功gate固定fuel 69仍live、fuel 70
     成功halt、最终value/return均为42；overflow gate固定fuel 55仍live、fuel 56以`0x1001` halt、账户
     保持原样且return data为空。before/argument/encoded input/account/instruction/artifact identity或handler
-    漂移均fail closed。所有production checker的kernel theorem仍以Boolean成功为前提，尚未把大型具体
-    gate归约为无条件Reference→provider定理；ELF/linker/loader、Mollusk/SVM runtime、transaction
-    rollback与compute units也未证明，因此不能标记为artifact verified。
+    漂移均fail closed。initializer与increment success又分别从同一次source-derived Semantic执行真实
+    Reference step，并将其observation relation接到对应55/70步certificate的`referenceJoin`，形成单一
+    Boolean-gated Reference→provider carrier；overflow concrete composition仍待完成。所有production
+    checker的kernel theorem仍以Boolean成功为前提，尚未把大型具体gate归约为无条件
+    Reference→provider定理；ELF/linker/loader、Mollusk/SVM runtime、transaction rollback与compute
+    units也未证明，因此不能标记为artifact verified。
 
 ---
 

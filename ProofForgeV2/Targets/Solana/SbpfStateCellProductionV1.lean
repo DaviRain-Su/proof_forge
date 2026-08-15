@@ -372,6 +372,15 @@ structure ResolvedStateCellIncrementProductionSubjectV1 where
   private mk ::
   sourceBinding : CanonicalSourceBindingV1
     StateCell.Source.subjectV1 StateCell.bytes
+  referenceProgram : ProofForgeV2.Semantic.WireV1.SemanticProgramV1
+  data : SemanticProgramDataV1
+  admitted : AdmittedReferenceSliceV1
+  referencePre : LogicalStateV1
+  referencePost : LogicalStateV1
+  referenceOutcome : OutcomeV1
+  plan : Plan
+  binding : UInt64StateAccountBindingV1
+  postData : ByteArray
   ir : IR
   assembly : String
   boundArtifact : BoundResolvedSbpfArtifactV1
@@ -393,11 +402,20 @@ def resolveStateCellIncrementProductionSubjectV1 :
   let source := sourceBinding.validated
   let compiled ← compileResultV1 <|
     compileValidatedSourceV1 source
+  let referenceProgram := CompiledSemanticV1.semanticV1Of compiled
+  let data ← match validateSemanticProgramV1 referenceProgram with
+    | .ok value => pure value
+    | .error error => throw s!"StateCell semantic validation failed: {repr error}"
+  let admitted ← match admitReferenceProgramSliceV1 referenceProgram with
+    | .ok value => pure value
+    | .error error => throw s!"StateCell Reference admission failed: {repr error}"
   let selection ← compileResultV1 <|
     resolveBuildSelectionV1 TargetId.solana
       (some CodegenProfileId.solanaSbpfCpiElfV1)
   let capability ← compileResultV1 <|
     resolveEngineeringRequirementsV1 selection compiled
+  let plan ← compileResultV1 <|
+    materializeFullBodyPlanForProductV1 capability false
   let ir ← compileResultV1 <|
     fullBodyIrFromProductCapabilityV1 capability false
   let assembly ← compileResultV1 <| emitSbpfAsmV1 ir
@@ -410,26 +428,63 @@ def resolveStateCellIncrementProductionSubjectV1 :
     discriminatorToLeU64V1 handler.discriminator
   let before : UInt64 := 41
   let argument : UInt64 := 1
-  let accountData :=
-    (SbpfSemantics.wordToLE
-      (BitVec.ofNat 64 ir.stateAccount.initializedMarker.toNat)).append
-      (SbpfSemantics.wordToLE (BitVec.ofNat 64 before.toNat))
+  let increment ← match data.callables.find? (fun callable =>
+      callable.kind == .entry && callable.name == some "increment") with
+    | some value => pure value
+    | none => throw "production StateCell Semantic program has no increment entry"
+  let stateRow ← match data.logicalState[0]? with
+    | some value => pure value
+    | none => throw "production StateCell Semantic program has no state row 0"
+  let field ← match plan.stateAccount.fields[0]? with
+    | some value => pure value
+    | none => throw "production StateCell Plan has no state field 0"
+  let binding : UInt64StateAccountBindingV1 := {
+    semanticStateId := stateRow.id
+    semanticTypeId := stateRow.typeId
+    stateName := stateRow.name
+    physicalFieldIndex := 0
+    accountIndex := field.accountIndex
+    byteOffset := field.byteOffset
+  }
+  let referencePre ← match encodeLogicalStateValuesV1 data true
+      #[encodeU64le before] with
+    | .ok value => pure value
+    | .error error =>
+        throw s!"StateCell increment pre-state encoding failed: {repr error}"
+  let referencePost ← match encodeLogicalStateValuesV1 data true
+      #[encodeU64le (before + argument)] with
+    | .ok value => pure value
+    | .error error =>
+        throw s!"StateCell increment post-state encoding failed: {repr error}"
+  let referenceOutcome := stepReferenceSliceV1 admitted referencePre {
+    callableId := increment.id
+    args := #[{
+      typeId := binding.semanticTypeId
+      valueBytes := encodeU64le argument
+    }]
+    context := #[]
+  } #[]
+  let postData := oneFieldUInt64AccountDataV1
+    plan.stateAccount.initializedMarker (before + argument)
+  let accountData := oneFieldUInt64AccountDataV1
+    plan.stateAccount.initializedMarker before
   let programId := Array.replicate 32 (0x42 : UInt8)
   let loaderInvocation : LoaderV3SingleAccountInvocationV1 := {
     accountKey := Array.replicate 32 (0x24 : UInt8)
     owner := programId
     programId
-    accountData
+    accountData := accountData.data
     instructionData :=
       (SbpfSemantics.wordToLE (BitVec.ofNat 64 discriminator.toNat)).append
         (SbpfSemantics.wordToLE (BitVec.ofNat 64 argument.toNat))
     isWritable := true
   }
   let handlerInvocation :=
-    unaryUInt64InvocationV1 ⟨accountData⟩ discriminator argument false true
-  pure <| ResolvedStateCellIncrementProductionSubjectV1.mk sourceBinding ir
-    assembly boundArtifact handler handlerInvocation loaderInvocation before
-    argument
+    unaryUInt64InvocationV1 accountData discriminator argument false true
+  pure <| ResolvedStateCellIncrementProductionSubjectV1.mk sourceBinding
+    referenceProgram data admitted referencePre referencePost referenceOutcome
+    plan binding postData ir assembly boundArtifact handler handlerInvocation
+    loaderInvocation before argument
 
 /-- Fail-closed certified agreement for the pinned increment-success subject. -/
 def checkStateCellIncrementProductionSubjectV1 : Bool :=
@@ -462,6 +517,67 @@ theorem checkStateCellIncrementProductionSubjectV1_sound
     subject.boundArtifact subject.handler subject.handlerInvocation
     subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
     (BitVec.ofNat 64 subject.argument.toNat) hchecked
+
+/-- D5 production gate for the successful `increment(41, 1)` slice. It
+    composes the source-derived sole Reference outcome with the dedicated
+    70-step provider certificate. -/
+def checkStateCellIncrementReferenceProviderSubjectV1 : Bool :=
+  checkExceptV1 resolveStateCellIncrementProductionSubjectV1 fun subject =>
+    checkUInt64CheckedAddReturnedHandlerObservationRelV1 subject.data
+      subject.plan subject.binding subject.referencePost subject.referenceOutcome
+      subject.postData subject.before subject.argument
+      (observeHandlerIRV1 subject.handler subject.handlerInvocation) &&
+    checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1
+      subject.boundArtifact subject.handler subject.handlerInvocation
+      subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
+      (BitVec.ofNat 64 subject.argument.toNat)
+
+/-- A successful D5 increment gate returns one composed
+    Reference→HandlerIR→provider carrier. Its Boolean premise is retained; this
+    is not an unconditional ELF or SVM-runtime theorem. -/
+theorem checkStateCellIncrementReferenceProviderSubjectV1_sound
+    (checked : checkStateCellIncrementReferenceProviderSubjectV1 = true) :
+    ∃ subject,
+      resolveStateCellIncrementProductionSubjectV1 = .ok subject ∧
+      ∃ certified : CertifiedStateCellIncrementExecutedHandlerSbpfJoinV1
+          subject.boundArtifact subject.handler subject.handlerInvocation
+          subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
+          (BitVec.ofNat 64 subject.argument.toNat),
+        UInt64CheckedAddReferenceHandlerSbpfJoinV1 subject.data subject.plan
+          subject.binding subject.referencePost subject.referenceOutcome
+          subject.postData subject.before subject.argument
+          certified.executed.handlerObservation stateCellProductionSbpfSha256V1
+          certified.executed.sbpfObservation := by
+  rcases checkExceptV1_sound resolveStateCellIncrementProductionSubjectV1
+      (fun subject =>
+        checkUInt64CheckedAddReturnedHandlerObservationRelV1 subject.data
+          subject.plan subject.binding subject.referencePost
+          subject.referenceOutcome subject.postData subject.before
+          subject.argument
+          (observeHandlerIRV1 subject.handler subject.handlerInvocation) &&
+        checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1
+          subject.boundArtifact subject.handler subject.handlerInvocation
+          subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
+          (BitVec.ofNat 64 subject.argument.toNat))
+      checked with ⟨subject, hsubject, hchecked⟩
+  simp only [Bool.and_eq_true] at hchecked
+  rcases hchecked with ⟨hreference, hprovider⟩
+  have referenceHandler :
+      UInt64CheckedAddReturnedHandlerObservationRelV1 subject.data subject.plan
+        subject.binding subject.referencePost subject.referenceOutcome
+        subject.postData subject.before subject.argument
+        (observeHandlerIRV1 subject.handler subject.handlerInvocation) :=
+    (checkUInt64CheckedAddReturnedHandlerObservationRelV1_eq_true_iff
+      subject.data subject.plan subject.binding subject.referencePost
+      subject.referenceOutcome subject.postData subject.before subject.argument
+      (observeHandlerIRV1 subject.handler subject.handlerInvocation)).mp hreference
+  rcases checkCertifiedStateCellIncrementExecutedHandlerSbpfJoinV1_sound
+      subject.boundArtifact subject.handler subject.handlerInvocation
+      subject.loaderInvocation (BitVec.ofNat 64 subject.before.toNat)
+      (BitVec.ofNat 64 subject.argument.toNat) hprovider with ⟨certified⟩
+  refine ⟨subject, hsubject, certified, ?_⟩
+  exact certified.referenceJoin (by
+    simpa [certified.executed.handlerExecution] using referenceHandler)
 
 /-- The pinned arithmetic-overflow invocation over the exact increment
     production subject. Reusing that private subject guarantees the same source,
