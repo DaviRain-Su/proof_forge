@@ -148,6 +148,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-U256-QS | done | WideUInt256 UInt256 12-target: five admit; Aleo/Quint/Soroban/OpenVM/ICP/CW/TON width envelope FC. **Not** opening signed 128/256 |
 | MAT-BYTES-RET-QS | done | BytesRetBox Bytes 4 view-return 12-target: three admit (NEAR/Psy/CW); nine named B-RET/container FC. **Not** opening Bytes return ABI |
 | MAT-ENUM-RET-QS | done | MaybeRetBox named Enum entry-return 12-target: seven admit; TON view-only B-RET + four envelope named-types FC. **Not** opening Enum return on decline set |
+| MAT-MAP-RET-QS | done | MapRetBox Map UInt64 entry-return 12-target: two admit (NEAR/CW); ten named B-RET/container FC. **Not** opening Map return ABI |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | QUINT-CALL-RET-FC | done | Pin value-position `let y : UInt64 := call Oracle.feed` Plan FC (`result-bearing externalCall is outside Q0`, distinct from void A5). **Not** opening result-bearing CALL / Q0 |

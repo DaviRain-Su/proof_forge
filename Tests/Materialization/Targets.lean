@@ -4274,6 +4274,50 @@ unsafe def run : IO Unit := do
             (e.render).contains "pilot")
           s!"MapMini {target} message must cite Map/container boundary, got {e.render}"
 
+  -- MapRetBox: Map UInt64 UInt64 *entry* return. NEAR/CW admit. EVM/Solana/
+  -- Noir/Aleo/Psy/TON named B-RET FC; Quint/Soroban/OpenVM/ICP stay
+  -- container-state pilot FC. Entry peek, not Map index get (Option).
+  -- Not opening Map return ABI. MapMini state pin stays.
+  let mapRetSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapRetBox where\n" ++
+    "  state m : Map UInt64 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry peek() : Map UInt64 UInt64 do\n" ++
+    "    return m\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let mapRetV1 ← match ← session.selectProgramV1 mapRetSource
+      "<targets-map-ret>" "Examples.MapRetBox" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MapRetBox select: {e.render}"
+  let mapRetCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapRetV1
+  for target in [TargetId.near, TargetId.cosmwasm] do
+    let out ← liftResult <| materializeSelected target mapRetCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"MapRetBox: {target} must materialize Map UInt64 return"
+  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.evm TargetKind.evm
+    mapRetCompiled "cannot return Map"
+  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.solana TargetKind.solana
+    mapRetCompiled "cannot return anonymous Map"
+  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.noir TargetKind.noir
+    mapRetCompiled "anonymous Map return is outside the Noir B-RET ABI"
+  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.aleo TargetKind.aleo
+    mapRetCompiled "anonymous Map return is outside the Aleo B-RET ABI"
+  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.psy TargetKind.psy
+    mapRetCompiled "anonymous Map return is outside the Psy B-RET ABI"
+  expectMaterializePlanInvariantV1 "MapRetBox" TargetId.ton TargetKind.ton
+    mapRetCompiled "entry 'peek' cannot return multi-leaf aggregate"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "MapRetBox" target kind mapRetCompiled
+      "anonymous Map is outside the current container-state pilot"
+
   -- BytesBox: Bytes 4 state. Eight materializers admit; Quint/Soroban/
   -- ICP/OpenVM stay envelope FC. Not opening Bytes on those four.
   -- State only — no Bytes return ABI. Files-nonempty or named decline.
