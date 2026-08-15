@@ -59,7 +59,7 @@ Ship reference: `Examples/HashOutProbe.lean`.
 
 ```bash
 # product CLI (after pf setup --target psy)
-pf build path/to/HashOutDemo.lean --module Examples.HashOutDemo --target psy -o build/out
+pf build path/to/HashOutDemo.pf --module HashOutDemo --target psy -o build/out
 
 # or monorepo next binary
 proof-forge-next build Examples/HashOutProbe.lean \

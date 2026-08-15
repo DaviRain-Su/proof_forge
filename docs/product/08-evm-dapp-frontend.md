@@ -57,6 +57,8 @@ ProofForge: pf build -t evm → *.abi.json + *.bin
 
 ## 3. PF 产物（StateCell 形）
 
+Monorepo fixture (Lake module). External authors: `pf new` → `src/*.pf`.
+
 `pf build Examples/StateCell.lean --module Examples.StateCell -t evm -o <dir>`：
 
 | 文件 | 用途 |

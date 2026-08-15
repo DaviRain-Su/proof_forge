@@ -438,7 +438,7 @@ function createServer() {
             ? [
                 "pf setup --target solana && pf doctor --target solana",
                 "pf new hello --target solana && cd hello",
-                "# edit Lean ProgramV1 — not Anchor/Cargo",
+                "# edit src/*.pf ProgramV1 — not Anchor/Cargo",
                 "pf build && pf verify && pf test",
                 "pf deploy --network local",
                 "cp build/**/**.idl.json templates/solana-dapp-ui/public/artifacts/",
@@ -510,7 +510,7 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
 ## Solana notes (ProofForge-first)
 - **Contracts are written in ProofForge ProgramV1**, compiled with \`pf build --target solana\`.
 - Do **not** start an Anchor/Cargo program as the primary contract path.
-- Ladder: \`pf setup -t solana\` → \`pf new … -t solana\` → edit Lean → \`pf build\` → \`pf verify\` → \`pf test\`.
+- Ladder: \`pf setup -t solana\` → \`pf new … -t solana\` → edit src/*.pf → \`pf build\` → \`pf verify\` → \`pf test\`.
 - Deploy: \`pf deploy --network local\` (save-only). \`--broadcast\` only with loopback RPC.
 - Frontend: \`templates/solana-dapp-ui\` consumes \`*.idl.json\`. Body-only ix-data = PF name discriminator (sha256 domain) + u64 params — **not** handlerId, **not** Anchor sighash. CPI-product uses handlerId (see \`pf_solana_ix_codec\`).
 - StateCell account: 16 bytes = layout marker @0 + count @8. Local demo: \`scripts/pf_solana_local_demo.sh\` (Surfpool).
@@ -593,7 +593,7 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
             ? [
                 "pf setup --target solana && pf doctor --target solana",
                 "pf new hello --target solana && cd hello",
-                "# edit ProgramV1 Lean source (not Anchor)",
+                "# edit src/*.pf ProgramV1 (not Anchor)",
                 "pf build && pf verify --target solana",
                 "pf test --target solana",
                 "pf deploy --network local",
@@ -610,7 +610,7 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
                 ? [
                     "pf setup --target psy && pf doctor --target psy",
                     "pf new hello --target psy && cd hello",
-                    "# edit ProgramV1 Lean (not Dargo.toml / .psy as PF source)",
+                    "# edit src/*.pf ProgramV1 (not Dargo.toml / .psy as PF source)",
                     "pf build   # → *.dpn.json  deployable=false",
                     "pf inspect --output-dir .",
                     "# hand-off: official psyup/dargo/WebIDE/wallet — NOT pf deploy",
@@ -655,7 +655,7 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
           "pf setup --target psy",
           "pf doctor --target psy   # zero-tool ok",
           "pf new hello --target psy && cd hello",
-          "# edit Lean ProgramV1",
+          "# edit src/*.pf ProgramV1",
           "pf build",
           "ls *.dpn.json manifest.json",
           "pf inspect --output-dir .",
@@ -692,7 +692,7 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
       const name = (programName ?? "StateCell").trim() || "StateCell";
       return textResult({
         schema: "proof-forge.mcp.psy-artifacts.v1",
-        buildCommand: `pf build <Source.lean> --module <Module> --target psy -o <out>`,
+        buildCommand: `pf build <source.pf|.lean> --module <Module> --target psy -o <out>`,
         profile: PSY_PF.profile,
         deployable: false,
         files: [
@@ -786,7 +786,7 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
         ],
         projectLadder: [
           "pf new hello --target solana && cd hello",
-          "# edit Lean ProgramV1 sources — do not create Anchor/Cargo program",
+          "# edit src/*.pf ProgramV1 — do not create Anchor/Cargo program",
           "pf build",
           "pf verify",
           "pf test",
@@ -948,7 +948,7 @@ For ProofForge / multi-chain ProgramV1 work, prefer these MCP tools and the loca
       const name = (programName ?? "StateCell").trim() || "StateCell";
       return textResult({
         schema: "proof-forge.mcp.solana-artifacts.v1",
-        buildCommand: `pf build <Source.lean> --module <Module> --target solana -o <out>`,
+        buildCommand: `pf build <source.pf|.lean> --module <Module> --target solana -o <out>`,
         files: [
           {
             path: `${name}.idl.json`,

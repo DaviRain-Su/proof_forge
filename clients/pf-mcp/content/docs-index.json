@@ -46,7 +46,7 @@
     {
       "id": "08-evm-dapp-frontend.md",
       "title": "EVM dApp frontend — viem/MetaMask + PF bytecode (FCCP companion)",
-      "bytes": 5218,
+      "bytes": 5294,
       "kind": "markdown"
     },
     {
@@ -70,19 +70,19 @@
     {
       "id": "10-solana-dapp-frontend.md",
       "title": "Solana dApp frontend — wallet-adapter + PF IDL (not Anchor)",
-      "bytes": 5096,
+      "bytes": 5172,
       "kind": "markdown"
     },
     {
       "id": "11-psy-agent-playbook.md",
       "title": "Psy agent playbook — ProofForge DPN + official Psy toolchain",
-      "bytes": 8650,
+      "bytes": 8654,
       "kind": "markdown"
     },
     {
       "id": "12-psy-dapp-frontend.md",
       "title": "Psy dApp frontend — wallet + SDK (FCCP companion)",
-      "bytes": 5453,
+      "bytes": 5529,
       "kind": "markdown"
     },
     {
@@ -100,7 +100,7 @@
     {
       "id": "15-psy-hashout-array4.md",
       "title": "Psy HashOut full limbs (Array UInt64 4) — author guide",
-      "bytes": 4141,
+      "bytes": 4130,
       "kind": "markdown"
     },
     {

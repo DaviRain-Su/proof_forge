@@ -100,7 +100,7 @@ pf setup --target psy      # zero-tool: doctor ok with empty tool set
 pf doctor --target psy
 
 pf new hello --target psy && cd hello
-# edit Lean ProgramV1 — not Dargo.toml / .psy as PF source of truth
+# edit src/*.pf ProgramV1 — not Dargo.toml / .psy as PF source of truth
 pf build
 # monorepo:
 # pf build Examples/StateCell.lean --module Examples.StateCell --target psy -o build/v2/sc-psy

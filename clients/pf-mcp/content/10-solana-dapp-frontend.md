@@ -39,6 +39,8 @@ ProgramV1 (Lean)  --pf build -t solana-->  *.idl.json + *.so + manifest
 
 ## 2. PF 产物（StateCell 形）
 
+Monorepo fixture (Lake module). External authors: `pf new` → `src/*.pf`.
+
 `pf build Examples/StateCell.lean --module Examples.StateCell --target solana -o <dir>`：
 
 | 文件 | 前端是否需要 |

@@ -30,6 +30,8 @@ ProofForge **不** vendor `@psy-protocol/*` npm 包，**不**在 MCP 默认面�
 
 ## 2. PF 产物（StateCell 形）
 
+Monorepo fixture (Lake module). External authors: `pf new` → `src/*.pf`.
+
 ```bash
 pf build Examples/StateCell.lean --module Examples.StateCell --target psy -o <dir>
 ```
