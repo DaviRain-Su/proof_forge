@@ -1376,6 +1376,29 @@ private unsafe def testEmitRevertSemanticPlans : IO Unit := do
   expect (bumpNr.contents.contains "ev_e0_a0: pub u64" &&
       bumpNr.contents.contains "assert(false)")
     "emit-revert Noir source must declare event slots and the inadmissible revert path"
+  -- Extra eight from probe; EventFlow emit/revert lighthouse. CosmWasm/TON
+  -- admit. Aleo/Quint/Soroban/OpenVM/ICP decline effect.event at requirement
+  -- resolve. Psy declines typed Cap payload (zero-payload named revert stays
+  -- open). Not opening events; existing four Plan/IR pins unchanged.
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target compiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"EventFlow: {target} must materialize"
+  for target in [TargetId.aleo, TargetId.quint, TargetId.soroban,
+      TargetId.openvm, TargetId.icp] do
+    match materializeSelected target compiled with
+    | .error (.unsupportedRequirementV1 message) =>
+        expect (message.contains "effect.event")
+          s!"EventFlow/{target}: expected effect.event decline, got {message}"
+    | .error error =>
+        throw <| IO.userError
+          s!"EventFlow/{target}: expected PF-REQ-UNSUPPORTED, got {error.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"EventFlow/{target}: materialization must fail closed"
+  expectMaterializePlanInvariantV1 "EventFlow" TargetId.psy TargetKind.psy
+    compiled "structured DPN error ABI"
 
 /-- ProgramV1 guarded-stateCell source text for the comparison+assert leaf. -/
 private def guardedStateCellSourceTextV1 : String :=
