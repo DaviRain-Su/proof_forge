@@ -4520,6 +4520,46 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "ArrOpt" target kind arrOptCompiled
       "anonymous Option is outside the current container-state pilot"
 
+  -- ArrBytes: Array Bytes 4 2 state. All twelve targets stay named
+  -- element/pilot FC. Not opening Array-of-Bytes. ArrOpt / ArrayBox /
+  -- BytesBox stay.
+  let arrBytesSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program ArrBytes where\n" ++
+    "  state slots : Array Bytes 4 2\n\n" ++
+    "  init() do\n" ++
+    "    slots[0][0] := 0\n\n" ++
+    "  entry set00(v : UInt64) : UInt64 do\n" ++
+    "    slots[0][0] := 0\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let arrBytesV1 ← match ← session.selectProgramV1 arrBytesSource
+      "<targets-arr-bytes>" "Examples.ArrBytes" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"ArrBytes select: {e.render}"
+  let arrBytesCompiled ← liftResult <| Compiler.compileValidatedSourceV1 arrBytesV1
+  expectMaterializePlanInvariantV1 "ArrBytes" TargetId.evm TargetKind.evm
+    arrBytesCompiled "Array state element must be UInt8/16/32/64"
+  for (target, kind) in #[
+      (TargetId.solana, TargetKind.solana),
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.aleo, TargetKind.aleo),
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.ton, TargetKind.ton)] do
+    expectMaterializePlanInvariantV1 "ArrBytes" target kind arrBytesCompiled
+      "Array state element must be UInt64"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "ArrBytes" target kind arrBytesCompiled
+      "anonymous Bytes is outside the current container-state pilot"
+
   -- MapMini: Map UInt64 UInt64 state. Eight materializers admit; Quint/
   -- Soroban/ICP/OpenVM stay envelope FC. Not opening Map on those four.
   -- No Plan-shape pins; files-nonempty or named decline only.
