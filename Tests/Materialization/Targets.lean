@@ -5777,6 +5777,52 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "MapU128Key" target kind mapU128KeyCompiled
       "only anonymous UInt64 width is supported"
 
+  -- MapU256Key: Map UInt256 UInt64 state. Same twelve named-FC needles
+  -- as MapU128Key, but UInt256-key ≠ UInt128-key so it is its own pin.
+  -- EVM/Solana stay key-shape, not MapU256 value. Aleo/TON stay width,
+  -- not MapIntKey Map-U64-U64. Not opening UInt256-key Map. MapU128Key
+  -- / MapU256 / MapIntKey / OptU256 stay.
+  let mapU256KeySource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program MapU256Key where\n" ++
+    "  state m : Map UInt256 UInt64\n\n" ++
+    "  init() do\n" ++
+    "    m := Map.empty()\n\n" ++
+    "  entry put(k : UInt64, v : UInt64) : UInt64 do\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let mapU256KeyV1 ← match ← session.selectProgramV1 mapU256KeySource
+      "<targets-map-u256-key>" "Examples.MapU256Key" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"MapU256Key select: {e.render}"
+  let mapU256KeyCompiled ← liftResult <| Compiler.compileValidatedSourceV1 mapU256KeyV1
+  for (target, kind) in #[
+      (TargetId.evm, TargetKind.evm),
+      (TargetId.solana, TargetKind.solana)] do
+    expectMaterializePlanInvariantV1 "MapU256Key" target kind mapU256KeyCompiled
+      "Map state admits only Map UInt64 UInt64 or Map Principal UInt64"
+  for (target, kind) in #[
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.cosmwasm, TargetKind.cosmwasm)] do
+    expectMaterializePlanInvariantV1 "MapU256Key" target kind mapU256KeyCompiled
+      "Map state admits only Map UInt64 UInt64"
+  expectMaterializePlanInvariantV1 "MapU256Key" TargetId.psy TargetKind.psy
+    mapU256KeyCompiled "Map state pilot requires UInt64 keys and values"
+  expectMaterializePlanInvariantV1 "MapU256Key" TargetId.aleo TargetKind.aleo
+    mapU256KeyCompiled "only anonymous UInt64/UInt32/UInt16/UInt8/Int64 widths are supported"
+  expectMaterializePlanInvariantV1 "MapU256Key" TargetId.ton TargetKind.ton
+    mapU256KeyCompiled "UInt128/256 and narrow Int fail closed"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "MapU256Key" target kind mapU256KeyCompiled
+      "only anonymous UInt64 width is supported"
+
   -- BytesBox: Bytes 4 state. Eight materializers admit; Quint/Soroban/
   -- ICP/OpenVM stay envelope FC. Not opening Bytes on those four.
   -- State only — no Bytes return ABI. Files-nonempty or named decline.
