@@ -4837,6 +4837,46 @@ unsafe def run : IO Unit := do
     expectMaterializePlanInvariantV1 "NestOpt" target kind nestOptCompiled
       "anonymous Option is outside the current container-state pilot"
 
+  -- OptArr: Option Array UInt64 2 state. All twelve targets stay named
+  -- payload/pilot FC. Not opening Option-of-Array. NestOpt / OptBox /
+  -- ArrayBox stay.
+  let optArrSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptArr where\n" ++
+    "  state o : Option Array UInt64 2\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let optArrV1 ← match ← session.selectProgramV1 optArrSource
+      "<targets-opt-arr>" "Examples.OptArr" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"OptArr select: {e.render}"
+  let optArrCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optArrV1
+  expectMaterializePlanInvariantV1 "OptArr" TargetId.evm TargetKind.evm
+    optArrCompiled "Option state admits only UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptArr" TargetId.solana TargetKind.solana
+    optArrCompiled "Option state 'o' element must be UInt64"
+  for (target, kind) in #[
+      (TargetId.near, TargetKind.near),
+      (TargetId.noir, TargetKind.noir),
+      (TargetId.aleo, TargetKind.aleo),
+      (TargetId.psy, TargetKind.psy),
+      (TargetId.cosmwasm, TargetKind.cosmwasm),
+      (TargetId.ton, TargetKind.ton)] do
+    expectMaterializePlanInvariantV1 "OptArr" target kind optArrCompiled
+      "Option state 'o' requires UInt64 payload"
+  for (target, kind) in #[
+      (TargetId.quint, TargetKind.quint),
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm),
+      (TargetId.icp, TargetKind.icp)] do
+    expectMaterializePlanInvariantV1 "OptArr" target kind optArrCompiled
+      "anonymous Array is outside the current container-state pilot"
+
   -- N5: Commit identity admitted on EVM/Solana/NEAR (Plan passthrough into
   -- commitment state). Noir declines (public relation slots cannot hold
   -- commitment labels). Psy declines. ContextRead declined on every Phase-1

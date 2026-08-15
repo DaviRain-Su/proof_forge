@@ -159,6 +159,7 @@ Engineering packaging is exhausted. This track prepares / implements the first f
 | MAT-ENUM-VIEW-RET-QS | done | MaybeViewRet named Enum view-return 12-target: seven admit (incl TON); Aleo computed-view FC + four envelope named-types FC. Distinct from MaybeRetBox entry. **Not** opening Aleo computed view |
 | MAT-NEST-ARR-QS | done | NestArr Array Array UInt64 2 2 12-target all named element/pilot FC. **Not** opening nested Array |
 | MAT-ARR-OPT-QS | done | ArrOpt Array Option UInt64 2 12-target all named element/pilot FC. **Not** opening Array-of-Option |
+| MAT-OPT-ARR-QS | done | OptArr Option Array UInt64 2 12-target all named payload/pilot FC. **Not** opening Option-of-Array |
 | MAT-STOP | skip | CAP-D-SOL-TIME / ICP-PRINCIPAL / SOR-LEDGER / TON-SHA stay product decisions |
 | NEAR-CALL-RET-FC | done | Pin `let x : UInt64 := call Oracle.feed` Plan FC (`result-bearing ExternalCall` needle, distinct from void sync). Allowlist `NearHostModel.lean`. **Not** opening NEAR sync |
 | QUINT-CALL-RET-FC | done | Pin value-position `let y : UInt64 := call Oracle.feed` Plan FC (`result-bearing externalCall is outside Q0`, distinct from void A5). **Not** opening result-bearing CALL / Q0 |
