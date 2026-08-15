@@ -5385,6 +5385,52 @@ unsafe def run : IO Unit := do
   expectMaterializePlanInvariantV1 "OptPrin" TargetId.icp TargetKind.icp
     optPrinCompiled "Principal/aggregates/containers/String fail closed"
 
+  -- OptField: Option Field bn254_fr state. All twelve targets stay named
+  -- payload/Field FC. Not opening Option-of-Field. OptPrin / OptBox /
+  -- FieldMix stay.
+  let optFieldSource :=
+    "import ProofForgeV2\n\n" ++
+    "namespace ProofForgeV2.Examples\n\n" ++
+    "open ProofForgeV2.Language\n\n" ++
+    "program OptField where\n" ++
+    "  state o : Option Field bn254_fr\n\n" ++
+    "  init() do\n" ++
+    "    o := Option.none()\n\n" ++
+    "  entry setSome(v : UInt64) : UInt64 do\n" ++
+    "    return v\n\n" ++
+    "end ProofForgeV2.Examples\n"
+  let optFieldV1 ← match ← session.selectProgramV1 optFieldSource
+      "<targets-opt-field>" "Examples.OptField" none with
+    | .ok v => pure v
+    | .error e => throw <| IO.userError s!"OptField select: {e.render}"
+  let optFieldCompiled ← liftResult <| Compiler.compileValidatedSourceV1 optFieldV1
+  expectMaterializePlanInvariantV1 "OptField" TargetId.evm TargetKind.evm
+    optFieldCompiled "Option state admits only UInt64 payload"
+  for (target, kind) in #[
+      (TargetId.solana, TargetKind.solana),
+      (TargetId.near, TargetKind.near)] do
+    expectMaterializePlanInvariantV1 "OptField" target kind optFieldCompiled
+      "no native Field"
+  expectMaterializePlanInvariantV1 "OptField" TargetId.noir TargetKind.noir
+    optFieldCompiled "Option state 'o' requires UInt64 payload"
+  expectMaterializePlanInvariantV1 "OptField" TargetId.aleo TargetKind.aleo
+    optFieldCompiled "bn254 Fr and Goldilocks fail closed as wrong modulus"
+  expectMaterializePlanInvariantV1 "OptField" TargetId.psy TargetKind.psy
+    optFieldCompiled "bn254 Fr and BLS12-377 Fr fail closed as wrong modulus"
+  expectMaterializePlanInvariantV1 "OptField" TargetId.quint TargetKind.quint
+    optFieldCompiled "Int/Field/aggregates/containers fail closed"
+  expectMaterializePlanInvariantV1 "OptField" TargetId.cosmwasm TargetKind.cosmwasm
+    optFieldCompiled "no Field"
+  expectMaterializePlanInvariantV1 "OptField" TargetId.ton TargetKind.ton
+    optFieldCompiled "no Field/Principal"
+  for (target, kind) in #[
+      (TargetId.soroban, TargetKind.soroban),
+      (TargetId.openvm, TargetKind.openvm)] do
+    expectMaterializePlanInvariantV1 "OptField" target kind optFieldCompiled
+      "Int/Field/Principal/aggregates/containers fail closed"
+  expectMaterializePlanInvariantV1 "OptField" TargetId.icp TargetKind.icp
+    optFieldCompiled "Int/Field/Principal/aggregates/containers/String fail closed"
+
   -- N5: Commit identity admitted on EVM/Solana/NEAR (Plan passthrough into
   -- commitment state). Noir declines (public relation slots cannot hold
   -- commitment labels). Psy declines. ContextRead declined on every Phase-1
