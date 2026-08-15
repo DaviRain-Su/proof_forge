@@ -1262,6 +1262,27 @@ private unsafe def testFnLocalCallSemanticPlans : IO Unit := do
   expect (bumpNr.contents.contains ": u64 = if" &&
       bumpNr.contents.contains "assert(false)")
     "fn-call Noir source must inline check as a block-valued select with an inadmissible revert arm"
+  -- Extra eight from probe; FnFlow localCall + typed Cap revert lighthouse.
+  -- CW/TON admit. Aleo/Psy typed payload, Quint/Soroban/OpenVM zero-payload
+  -- errors, ICP empty-errors stay named FC. Not opening localCall/typed-revert;
+  -- existing four Plan/IR pins unchanged.
+  for target in [TargetId.evm, TargetId.solana, TargetId.near, TargetId.noir,
+      TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target compiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"FnFlow: {target} must materialize"
+  expectMaterializePlanInvariantV1 "FnFlow" TargetId.aleo TargetKind.aleo
+    compiled "does not support revert payloads"
+  expectMaterializePlanInvariantV1 "FnFlow" TargetId.psy TargetKind.psy
+    compiled "structured DPN error ABI"
+  expectMaterializePlanInvariantV1 "FnFlow" TargetId.quint TargetKind.quint
+    compiled "declared errors must have zero payload fields"
+  expectMaterializePlanInvariantV1 "FnFlow" TargetId.soroban TargetKind.soroban
+    compiled "declared errors must have zero payload fields"
+  expectMaterializePlanInvariantV1 "FnFlow" TargetId.openvm TargetKind.openvm
+    compiled "declared errors must have zero payload fields"
+  expectMaterializePlanInvariantV1 "FnFlow" TargetId.icp TargetKind.icp
+    compiled "errors table must be empty"
 
 /-- ProgramV1 emit/revert source text for the Wave D event/error leaf. -/
 private def eventFlowSourceTextV1 : String :=
