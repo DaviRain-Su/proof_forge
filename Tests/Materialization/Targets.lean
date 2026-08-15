@@ -2269,6 +2269,29 @@ private unsafe def testCallScheduleSemanticPlans : IO Unit := do
     compiled "synchronous external calls are outside the NEAR envelope"
   expectMaterializePlanInvariantV1 "ExtFlow" TargetId.cosmwasm TargetKind.cosmwasm
     compiled "call/sync external call is outside the CosmWasm MVP envelope"
+  -- LaterFlow schedule-only from probe. EVM/NEAR/Noir/CW/TON admit.
+  -- Solana/Psy/Aleo/Quint/Soroban/OpenVM decline effect.asynchronous-workflow.
+  -- ICP advertises async at resolver only. Not opening schedule;
+  -- existing LaterFlow Plan pins unchanged. B-CALL-SEM stays open.
+  for target in [TargetId.evm, TargetId.near, TargetId.noir,
+      TargetId.cosmwasm, TargetId.ton] do
+    let out ← liftResult <| materializeSelected target laterCompiled
+    expect (!(MaterializedArtifactsV1.filesOf out).isEmpty)
+      s!"LaterFlow: {target} must materialize"
+  for target in [TargetId.solana, TargetId.psy, TargetId.aleo, TargetId.quint,
+      TargetId.soroban, TargetId.openvm] do
+    match materializeSelected target laterCompiled with
+    | .error (.unsupportedRequirementV1 message) =>
+        expect (message.contains "effect.asynchronous-workflow")
+          s!"LaterFlow/{target}: expected effect.asynchronous-workflow, got {message}"
+    | .error error =>
+        throw <| IO.userError
+          s!"LaterFlow/{target}: expected PF-REQ-UNSUPPORTED, got {error.render}"
+    | .ok _ =>
+        throw <| IO.userError
+          s!"LaterFlow/{target}: materialization must fail closed"
+  expectMaterializePlanInvariantV1 "LaterFlow" TargetId.icp TargetKind.icp
+    laterCompiled "ICP-2 Plan has no realized async shape"
 
 -- Fast regression for the retained-V1 target Plan seam and fail-closed tables.
 set_option maxRecDepth 10000 in
