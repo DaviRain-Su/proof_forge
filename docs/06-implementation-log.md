@@ -16406,3 +16406,25 @@ normative: false
 - 聚焦`lake build Tests.Targets.SolanaAsmV1`及runtime runner通过。该切片仍不构成unconditional closed
   gate、一般Reference→sBPF/ELF/linker/loader refinement或Mollusk/validator/SVM runtime proof；下一步
   按ADR-0048计划隔离并kernel-discharge StateCell `get`现有closed gate前提。
+
+## 2026-08-15 — generic two-leaf HandlerIR target theorem and real subject certificate
+
+- `StaticAlignmentV1`新增exact two-leaf aggregate HandlerIR recognizer及proof-carrying certificate；
+  recognizer保留所有重复account/check/layout/return-source字段，独立Plan join再逐项绑定这些字段，避免
+  syntax parse把tampered repeated field静默视为对齐。contract/method name仅作为被绑定的数据，不参与
+  dispatch。通用alignment构造和support theorem均为kernel proof。
+- `HandlerSemanticsV1`新增通用two-leaf execute/observe theorem：任意满足alignment的nullary read-only
+  handler按leaf顺序返回两个8-byte LE word，且postAccounts精确等于invocation accounts。该定理不解释
+  Option业务语义、不复制provider trace，也不增加HandlerIR→sBPF lowering。
+- 真实source-derived `OptionState.getOpt` resolver现强制exact two-leaf recognition + Plan tag/payload
+  offsets join，并在resolved subject中保留alignment、discriminator及invocation等式。由其已有
+  `OptionUInt64LogicalStateAccountRelV1`直接得到无额外Boolean前提的Handler observation theorem；测试
+  fixture实际消费该theorem，运行回归覆盖真实production shape与reordered return-source Plan-join拒绝。
+- `SOL-0048-D5-GET-UNCONDITIONAL`调查确认当前唯一未闭合的最终preparation义务是
+  `sha256Hex (emitSbpfAsmV1 …).toUTF8 = pinnedSha`。replay theorem不能创造该witness；绑定复制或
+  materialized assembly仍不能证明其等于emitter bytes。未使用`native_decide`、axiom、proof-only
+  emitter/provider或运行期`true`冒充定理。本切片只推进HandlerIR target层，不宣称provider/artifact、
+  ELF/linker/loader或Mollusk/validator/SVM refinement。
+- Verification：`lake build ProofForgeV2.Targets.Solana.StaticAlignmentV1`、
+  `lake build ProofForgeV2.Targets.Solana.SbpfOptionStateProductionV1`、
+  `lake build Tests.Targets.SolanaAsmV1`及direct runner（`Tests.Targets.SolanaAsmV1: ok`）通过。

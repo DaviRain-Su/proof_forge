@@ -686,6 +686,337 @@ def isSupportedBoundedHandlerIRV1 (handlerIR : HandlerIR) : Bool :=
   isSupportedBoundedUInt64HandlerIRV1 handlerIR ||
     isSupportedNullaryAggregateViewHandlerIRV1 handlerIR
 
+/-- Complete syntax recovered from the exact two-leaf aggregate recipe. The
+    recognizer keeps repeated account and layout fields separate so callers
+    must explicitly join them to a production Plan. -/
+structure NullaryTwoLeafAggregateViewHandlerIRShapeV1 where
+  viewName : String
+  discriminator : String
+  firstIsInt : Bool
+  secondIsInt : Bool
+  accessAccountIndex : Nat
+  accessDataLen : Nat
+  accountCount : Nat
+  nonDuplicateAccountIndex : Nat
+  inputLen : Nat
+  ownerAccountIndex : Nat
+  dataLenAccountIndex : Nat
+  checkedDataLen : Nat
+  headerAccountIndex : Nat
+  headerOffset : Nat
+  initializedMarker : UInt64
+  firstLoadAccountIndex : Nat
+  firstOffset : Nat
+  secondLoadAccountIndex : Nat
+  secondOffset : Nat
+  returnSources : Array Nat
+  deriving Repr
+
+/-- Recognize exactly two ordered 8-byte account loads followed by one ordered
+    aggregate return. Contract and method names are data, never dispatch keys. -/
+def recognizeNullaryTwoLeafAggregateViewHandlerIRV1
+    (handlerIR : HandlerIR) :
+    Option NullaryTwoLeafAggregateViewHandlerIRShapeV1 :=
+  match handlerIR.params.toList, handlerIR.mode, handlerIR.resultKind,
+      handlerIR.accountAccess.ownerPolicy,
+      handlerIR.accountAccess.signerRequired,
+      handlerIR.accountAccess.writableRequired,
+      handlerIR.accountAccess.initialization with
+  | [], .view, .aggregate leaves, .currentProgram, false, false,
+      .mustBeInitialized =>
+    match leaves.toList, handlerIR.checks.toList,
+        handlerIR.operations.toList with
+    | [
+        { isInt := firstIsInt, byteWidth := 8 },
+        { isInt := secondIsInt, byteWidth := 8 }
+      ], [
+        .numAccounts accountCount,
+        .accountNonDuplicate nonDuplicateAccountIndex,
+        .instructionDataLen inputLen,
+        .ownerCurrentProgram ownerAccountIndex,
+        .accountDataLen dataLenAccountIndex checkedDataLen,
+        .headerEquals headerAccountIndex headerOffset initializedMarker
+      ], [
+        .loadState 0 firstLoadAccountIndex firstOffset,
+        .loadState 1 secondLoadAccountIndex secondOffset,
+        .setReturnDataMulti returnSources
+      ] => some {
+        viewName := handlerIR.name
+        discriminator := handlerIR.discriminator
+        firstIsInt
+        secondIsInt
+        accessAccountIndex := handlerIR.accountAccess.accountIndex
+        accessDataLen := handlerIR.accountAccess.exactDataLen
+        accountCount
+        nonDuplicateAccountIndex
+        inputLen
+        ownerAccountIndex
+        dataLenAccountIndex
+        checkedDataLen
+        headerAccountIndex
+        headerOffset
+        initializedMarker
+        firstLoadAccountIndex
+        firstOffset
+        secondLoadAccountIndex
+        secondOffset
+        returnSources
+      }
+    | _, _, _ => none
+  | _, _, _, _, _, _, _ => none
+
+/-- Successful recognition determines the complete two-leaf HandlerIR. -/
+theorem recognizeNullaryTwoLeafAggregateViewHandlerIRV1_sound
+    (handlerIR : HandlerIR)
+    (shape : NullaryTwoLeafAggregateViewHandlerIRShapeV1)
+    (hrecognize :
+      recognizeNullaryTwoLeafAggregateViewHandlerIRV1 handlerIR = some shape) :
+    handlerIR = {
+      name := shape.viewName
+      discriminator := shape.discriminator
+      params := #[]
+      mode := .view
+      resultKind := .aggregate #[
+        { isInt := shape.firstIsInt, byteWidth := 8 },
+        { isInt := shape.secondIsInt, byteWidth := 8 }
+      ]
+      accountAccess := {
+        accountIndex := shape.accessAccountIndex
+        ownerPolicy := .currentProgram
+        exactDataLen := shape.accessDataLen
+        signerRequired := false
+        writableRequired := false
+        initialization := .mustBeInitialized
+      }
+      checks := #[
+        .numAccounts shape.accountCount,
+        .accountNonDuplicate shape.nonDuplicateAccountIndex,
+        .instructionDataLen shape.inputLen,
+        .ownerCurrentProgram shape.ownerAccountIndex,
+        .accountDataLen shape.dataLenAccountIndex shape.checkedDataLen,
+        .headerEquals shape.headerAccountIndex shape.headerOffset
+          shape.initializedMarker
+      ]
+      operations := #[
+        .loadState 0 shape.firstLoadAccountIndex shape.firstOffset,
+        .loadState 1 shape.secondLoadAccountIndex shape.secondOffset,
+        .setReturnDataMulti shape.returnSources
+      ]
+    } := by
+  rcases handlerIR with ⟨name, discriminator, params, mode, resultKind,
+    accountAccess, checks, operations⟩
+  rcases accountAccess with ⟨accountIndex, ownerPolicy, exactDataLen,
+    signerRequired, writableRequired, initialization⟩
+  simp only [recognizeNullaryTwoLeafAggregateViewHandlerIRV1] at hrecognize
+  split at hrecognize
+  · split at hrecognize
+    · cases hrecognize
+      congr <;> exact Array.toList_inj.mp (by assumption)
+    · contradiction
+  · contradiction
+
+/-- Proof-carrying result of the exact two-leaf syntax recognizer. -/
+structure CertifiedNullaryTwoLeafAggregateViewHandlerIRV1
+    (handlerIR : HandlerIR) where
+  private mk ::
+  shape : NullaryTwoLeafAggregateViewHandlerIRShapeV1
+  recognition :
+    recognizeNullaryTwoLeafAggregateViewHandlerIRV1 handlerIR = some shape
+
+/-- Package successful recognition so downstream production resolvers retain
+    its equation rather than running a second unchecked parse. -/
+def certifyNullaryTwoLeafAggregateViewHandlerIRV1
+    (handlerIR : HandlerIR) :
+    Option (CertifiedNullaryTwoLeafAggregateViewHandlerIRV1 handlerIR) :=
+  match hrecognize :
+      recognizeNullaryTwoLeafAggregateViewHandlerIRV1 handlerIR with
+  | some shape => some <|
+      CertifiedNullaryTwoLeafAggregateViewHandlerIRV1.mk shape hrecognize
+  | none => none
+
+/-- Joins every independently recognized target field to one production Plan.
+    Keeping this separate from recognition makes tampering in any repeated
+    account, layout, or return-source occurrence observable. -/
+def NullaryTwoLeafAggregateViewHandlerIRShapeRelV1
+    (plan : Plan)
+    (firstOffset secondOffset : Nat)
+    (firstIsInt secondIsInt : Bool)
+    (viewName discriminator : String)
+    (shape : NullaryTwoLeafAggregateViewHandlerIRShapeV1) : Prop :=
+  shape.viewName = viewName ∧
+  shape.discriminator = discriminator ∧
+  shape.firstIsInt = firstIsInt ∧
+  shape.secondIsInt = secondIsInt ∧
+  shape.accessAccountIndex = plan.stateAccount.index ∧
+  shape.accessDataLen = plan.stateAccount.exactDataLen ∧
+  shape.accountCount = 1 ∧
+  shape.nonDuplicateAccountIndex = plan.stateAccount.index ∧
+  shape.inputLen = 8 ∧
+  shape.ownerAccountIndex = plan.stateAccount.index ∧
+  shape.dataLenAccountIndex = plan.stateAccount.index ∧
+  shape.checkedDataLen = plan.stateAccount.exactDataLen ∧
+  shape.headerAccountIndex = plan.stateAccount.index ∧
+  shape.headerOffset = plan.stateAccount.headerOffset ∧
+  shape.initializedMarker = plan.stateAccount.initializedMarker ∧
+  shape.firstLoadAccountIndex = plan.stateAccount.index ∧
+  shape.firstOffset = firstOffset ∧
+  shape.secondLoadAccountIndex = plan.stateAccount.index ∧
+  shape.secondOffset = secondOffset ∧
+  shape.returnSources = #[0, 1] ∧
+  plan.stateAccount.index = 0 ∧
+  plan.stateAccount.headerWidth = 8 ∧
+  plan.stateAccount.headerOffset ≠ firstOffset ∧
+  plan.stateAccount.headerOffset ≠ secondOffset ∧
+  firstOffset ≠ secondOffset
+
+/-- Executable form of the repeated-field join. All compared values are
+    primitive target metadata; no HandlerIR or business semantics are hashed or
+    reinterpreted here. -/
+def checkNullaryTwoLeafAggregateViewHandlerIRShapeRelV1
+    (plan : Plan)
+    (firstOffset secondOffset : Nat)
+    (firstIsInt secondIsInt : Bool)
+    (viewName discriminator : String)
+    (shape : NullaryTwoLeafAggregateViewHandlerIRShapeV1) : Bool :=
+  shape.viewName == viewName &&
+  shape.discriminator == discriminator &&
+  shape.firstIsInt == firstIsInt &&
+  shape.secondIsInt == secondIsInt &&
+  shape.accessAccountIndex == plan.stateAccount.index &&
+  shape.accessDataLen == plan.stateAccount.exactDataLen &&
+  shape.accountCount == 1 &&
+  shape.nonDuplicateAccountIndex == plan.stateAccount.index &&
+  shape.inputLen == 8 &&
+  shape.ownerAccountIndex == plan.stateAccount.index &&
+  shape.dataLenAccountIndex == plan.stateAccount.index &&
+  shape.checkedDataLen == plan.stateAccount.exactDataLen &&
+  shape.headerAccountIndex == plan.stateAccount.index &&
+  shape.headerOffset == plan.stateAccount.headerOffset &&
+  shape.initializedMarker == plan.stateAccount.initializedMarker &&
+  shape.firstLoadAccountIndex == plan.stateAccount.index &&
+  shape.firstOffset == firstOffset &&
+  shape.secondLoadAccountIndex == plan.stateAccount.index &&
+  shape.secondOffset == secondOffset &&
+  shape.returnSources == #[0, 1] &&
+  plan.stateAccount.index == 0 &&
+  plan.stateAccount.headerWidth == 8 &&
+  decide (plan.stateAccount.headerOffset ≠ firstOffset) &&
+  decide (plan.stateAccount.headerOffset ≠ secondOffset) &&
+  decide (firstOffset ≠ secondOffset)
+
+theorem checkNullaryTwoLeafAggregateViewHandlerIRShapeRelV1_eq_true_iff
+    (plan : Plan)
+    (firstOffset secondOffset : Nat)
+    (firstIsInt secondIsInt : Bool)
+    (viewName discriminator : String)
+    (shape : NullaryTwoLeafAggregateViewHandlerIRShapeV1) :
+    checkNullaryTwoLeafAggregateViewHandlerIRShapeRelV1 plan firstOffset
+        secondOffset firstIsInt secondIsInt viewName discriminator shape = true ↔
+      NullaryTwoLeafAggregateViewHandlerIRShapeRelV1 plan firstOffset
+        secondOffset firstIsInt secondIsInt viewName discriminator shape := by
+  simp [checkNullaryTwoLeafAggregateViewHandlerIRShapeRelV1,
+    NullaryTwoLeafAggregateViewHandlerIRShapeRelV1]
+  simp only [and_assoc]
+
+/-- Exact target-owned alignment for a nullary two-word aggregate view. The
+    leaf signedness bits remain parameters because UInt64 and Int64 share the
+    same 8-byte little-endian target representation. No contract or method name
+    is recognized here. -/
+structure NullaryTwoLeafAggregateViewStaticAlignmentV1
+    (plan : Plan)
+    (firstOffset secondOffset : Nat)
+    (firstIsInt secondIsInt : Bool)
+    (viewName discriminator : String)
+    (handlerIR : HandlerIR) : Prop where
+  accountZero : plan.stateAccount.index = 0
+  stateAccountOwner : plan.stateAccount.ownerPolicy = .currentProgram
+  headerWidth : plan.stateAccount.headerWidth = 8
+  headerFirstDistinct : plan.stateAccount.headerOffset ≠ firstOffset
+  headerSecondDistinct : plan.stateAccount.headerOffset ≠ secondOffset
+  leafOffsetsDistinct : firstOffset ≠ secondOffset
+  handlerIRExact : handlerIR = {
+    name := viewName
+    discriminator
+    params := #[]
+    mode := .view
+    resultKind := .aggregate #[
+      { isInt := firstIsInt, byteWidth := 8 },
+      { isInt := secondIsInt, byteWidth := 8 }
+    ]
+    accountAccess := {
+      accountIndex := plan.stateAccount.index
+      ownerPolicy := .currentProgram
+      exactDataLen := plan.stateAccount.exactDataLen
+      signerRequired := false
+      writableRequired := false
+      initialization := .mustBeInitialized
+    }
+    checks := #[
+      .numAccounts 1,
+      .accountNonDuplicate plan.stateAccount.index,
+      .instructionDataLen 8,
+      .ownerCurrentProgram plan.stateAccount.index,
+      .accountDataLen plan.stateAccount.index
+        plan.stateAccount.exactDataLen,
+      .headerEquals plan.stateAccount.index plan.stateAccount.headerOffset
+        plan.stateAccount.initializedMarker
+    ]
+    operations := #[
+      .loadState 0 plan.stateAccount.index firstOffset,
+      .loadState 1 plan.stateAccount.index secondOffset,
+      .setReturnDataMulti #[0, 1]
+    ]
+  }
+
+/-- Recognition plus explicit Plan joins constructs the proof consumed by the
+    evaluator. This theorem is independent of any contract or method name. -/
+theorem nullaryTwoLeafAggregateViewStaticAlignmentV1_of_recognized
+    (plan : Plan)
+    (firstOffset secondOffset : Nat)
+    (firstIsInt secondIsInt : Bool)
+    (viewName discriminator : String)
+    (handlerIR : HandlerIR)
+    (shape : NullaryTwoLeafAggregateViewHandlerIRShapeV1)
+    (hrecognize :
+      recognizeNullaryTwoLeafAggregateViewHandlerIRV1 handlerIR = some shape)
+    (howner : plan.stateAccount.ownerPolicy = .currentProgram)
+    (hshape : NullaryTwoLeafAggregateViewHandlerIRShapeRelV1 plan firstOffset
+      secondOffset firstIsInt secondIsInt viewName discriminator shape) :
+    NullaryTwoLeafAggregateViewStaticAlignmentV1 plan firstOffset secondOffset
+      firstIsInt secondIsInt viewName discriminator handlerIR := by
+  rcases hshape with ⟨hname, hdiscriminator, hfirstIsInt, hsecondIsInt,
+    haccessAccount, haccessLen, haccountCount, hnonDuplicate, hinputLen,
+    hownerAccount, hdataLenAccount, hcheckedLen, hheaderAccount, hheaderOffset,
+    hmarker, hfirstAccount, hfirstOffset, hsecondAccount, hsecondOffset,
+    hreturnSources, haccountZero, hheaderWidth, hheaderFirst,
+    hheaderSecond, hoffsets⟩
+  refine {
+    accountZero := haccountZero
+    stateAccountOwner := howner
+    headerWidth := hheaderWidth
+    headerFirstDistinct := hheaderFirst
+    headerSecondDistinct := hheaderSecond
+    leafOffsetsDistinct := hoffsets
+    handlerIRExact := ?_
+  }
+  rw [recognizeNullaryTwoLeafAggregateViewHandlerIRV1_sound handlerIR shape
+    hrecognize]
+  simp_all
+
+/-- Every exact two-leaf aggregate alignment is in the bounded evaluator's
+    closed structural support set. -/
+theorem isSupportedNullaryAggregateViewHandlerIRV1_of_twoLeafAlignment
+    (halignment : NullaryTwoLeafAggregateViewStaticAlignmentV1 plan
+      firstOffset secondOffset firstIsInt secondIsInt viewName discriminator
+      handlerIR) :
+    isSupportedNullaryAggregateViewHandlerIRV1 handlerIR = true := by
+  rw [halignment.handlerIRExact]
+  simp [isSupportedNullaryAggregateViewHandlerIRV1,
+    isSupportedAggregateReturnLoadsV1, halignment.accountZero]
+  intro index hindex
+  have hcases : index = 0 ∨ index = 1 := by omega
+  rcases hcases with rfl | rfl <;> simp
+
 /-- Exact semantic/account/Plan/IR alignment for the first bounded Solana
     target slice. It is syntax and representation only; execution is defined
     once in `HandlerSemanticsV1`. -/

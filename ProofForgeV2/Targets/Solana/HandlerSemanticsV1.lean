@@ -2259,6 +2259,83 @@ theorem unaryUInt64CheckedAddOverflow_reference_handlerIR_join
       htargetOverflow
   exact ⟨hreference, htarget, haccount⟩
 
+/-- Exact execution of any statically aligned nullary two-leaf aggregate view.
+    Target bytes follow HandlerIR leaf order; no aggregate business semantics is
+    interpreted here. -/
+theorem executeHandlerIRV1_of_nullaryTwoLeafAggregateViewStaticAlignment
+    (plan : Plan)
+    (firstOffset secondOffset : Nat)
+    (firstIsInt secondIsInt : Bool)
+    (viewName discriminator : String)
+    (handlerIR : HandlerIR)
+    (accountData : ByteArray)
+    (discriminatorValue firstValue secondValue : UInt64)
+    (halignment : NullaryTwoLeafAggregateViewStaticAlignmentV1 plan
+      firstOffset secondOffset firstIsInt secondIsInt viewName discriminator
+      handlerIR)
+    (hdiscriminator :
+      discriminatorToLeU64V1 discriminator = .ok discriminatorValue)
+    (hdataLength : accountData.size = plan.stateAccount.exactDataLen)
+    (hheader : readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+      some plan.stateAccount.initializedMarker)
+    (hfirst : readUInt64LEV1 accountData firstOffset = some firstValue)
+    (hsecond : readUInt64LEV1 accountData secondOffset = some secondValue) :
+    executeHandlerIRV1 handlerIR
+      (nullaryUInt64ViewInvocationV1 accountData discriminatorValue) =
+        .returned (some ((encodeU64le firstValue).append
+          (encodeU64le secondValue))) := by
+  have haggregate :
+      isSupportedNullaryAggregateViewHandlerIRV1 handlerIR = true :=
+    isSupportedNullaryAggregateViewHandlerIRV1_of_twoLeafAlignment halignment
+  have hsupported : isSupportedBoundedHandlerIRV1 handlerIR = true := by
+    simp [isSupportedBoundedHandlerIRV1, haggregate]
+  simp only [executeHandlerIRV1, hsupported, Bool.not_true]
+  rw [halignment.handlerIRExact]
+  simp [runDispatchV1, runChecksV1, runCheckV1, runOperationsV1,
+    runOperationV1, nullaryUInt64ViewInvocationV1, halignment.accountZero,
+    hdiscriminator, readUInt64LEV1_encodeU64le, encodeU64le_size, hdataLength,
+    hheader, hfirst, hsecond, setLocalV1, getLocalV1, Except.toOption,
+    Bind.bind, Except.bind]
+  rfl
+
+/-- The corresponding full Handler observation returns the two target words
+    and stutters the read-only account array. -/
+theorem observeHandlerIRV1_of_nullaryTwoLeafAggregateViewStaticAlignment
+    (plan : Plan)
+    (firstOffset secondOffset : Nat)
+    (firstIsInt secondIsInt : Bool)
+    (viewName discriminator : String)
+    (handlerIR : HandlerIR)
+    (accountData : ByteArray)
+    (discriminatorValue firstValue secondValue : UInt64)
+    (halignment : NullaryTwoLeafAggregateViewStaticAlignmentV1 plan
+      firstOffset secondOffset firstIsInt secondIsInt viewName discriminator
+      handlerIR)
+    (hdiscriminator :
+      discriminatorToLeU64V1 discriminator = .ok discriminatorValue)
+    (hdataLength : accountData.size = plan.stateAccount.exactDataLen)
+    (hheader : readUInt64LEV1 accountData plan.stateAccount.headerOffset =
+      some plan.stateAccount.initializedMarker)
+    (hfirst : readUInt64LEV1 accountData firstOffset = some firstValue)
+    (hsecond : readUInt64LEV1 accountData secondOffset = some secondValue) :
+    observeHandlerIRV1 handlerIR
+      (nullaryUInt64ViewInvocationV1 accountData discriminatorValue) = {
+        invocation :=
+          nullaryUInt64ViewInvocationV1 accountData discriminatorValue
+        outcome := .returned (some ((encodeU64le firstValue).append
+          (encodeU64le secondValue)))
+        postAccounts :=
+          (nullaryUInt64ViewInvocationV1 accountData discriminatorValue).accounts
+      } := by
+  unfold observeHandlerIRV1
+  dsimp only
+  rw [executeHandlerIRV1_of_nullaryTwoLeafAggregateViewStaticAlignment plan
+    firstOffset secondOffset firstIsInt secondIsInt viewName discriminator
+    handlerIR accountData discriminatorValue firstValue secondValue halignment
+    hdiscriminator hdataLength hheader hfirst hsecond]
+  rw [halignment.handlerIRExact]
+  rfl
+
 /-- Exact execution of the statically aligned production view recipe. -/
 theorem executeHandlerIRV1_of_nullaryUInt64ViewStaticAlignment
     (data : SemanticProgramDataV1)

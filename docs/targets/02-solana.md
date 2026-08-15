@@ -333,7 +333,12 @@ Phase 1 在本地 runtime/validator 创建 program 与 state accounts，发送 i
      完整55/55步，并导出provider `runFuel` status-zero结论；artifact lookup、Loader memory read与
      proof-bearing stack-store derivation已接入单一sound checker，且sound adapter projection已到真实
      Loader encoder/execute等式；certified join gate的invocation/observation checker与sound carrier mint
-     也已闭合。尚需在具体production theorem中kernel-discharge该gate并应用Reference→Handler proof。
+     也已闭合。通用two-leaf aggregate target theorem已从exact HandlerIR recognition + repeated-field
+     Plan join推出ordered 16-byte return与read-only account stutter；真实`OptionState.getOpt` subject
+     已保留该certificate并有无额外Boolean前提的Handler observation theorem。该结论止于HandlerIR层。
+     尚需在具体production theorem中kernel-discharge provider gate并应用Reference→Handler proof；当前
+     `StateCell.get`精确阻塞在emitter输出bytes与pinned assembly SHA-256的kernel等式，certificate replay
+     只能消费、不能创造该identity witness。
      该边界与release source closure闭合前，不得
      作为concrete refinement、clean-room或release证据。
 4. local runtime 完成 Counter 正常与 overflow rollback。

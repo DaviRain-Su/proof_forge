@@ -211,6 +211,16 @@ second codegen.
     production provider return the exact target bytes and preserve the account.
     Recognition remains method-name independent; no Option interpreter, copied
     provider trace or proof-only lowering was added.
+20. **SOL-0048-D5-TWO-LEAF-TARGET-THEOREM** — **done 2026-08-15**: added an
+    exact, contract-independent two-leaf HandlerIR recognizer, proof-carrying
+    recognition result and explicit repeated-field join to the production
+    Plan. The target evaluator now has kernel theorems for both execution and
+    full observation: two loaded words are returned in leaf order and the
+    read-only account array stutters. The real source-derived
+    `OptionState.getOpt` resolver retains this alignment certificate and has an
+    unconditional theorem for its HandlerIR observation; reordered return
+    sources fail at the Plan join. This is a HandlerIR target theorem, not an
+    artifact/provider refinement theorem.
 
 D4's four pinned sparse certificates and all four concrete D5 compositions are
 complete, and the generic seam now has a second real contract/HandlerIR shape
@@ -223,18 +233,29 @@ method-specific Reference/provider checker equations. A direct `rfl` or kernel
 artifact parsing, and provider execution form large partly opaque terms;
 runtime output `true` must not be presented as a theorem.
 
+Investigation of `SOL-0048-D5-GET-UNCONDITIONAL` isolated one concrete blocker:
+the current production preparation has no closed witness for exact equality
+between the emitted assembly bytes and the pinned assembly SHA-256. Certificate
+replay can consume that witness but cannot create it. A direct `rfl`, kernel
+`decide`, or broad `simp` does not discharge this equality. A certificate over
+unbound copied/materialized assembly bytes would not prove identity with the
+emitter output and is therefore not an acceptable workaround.
+
 Next formalization slices, in order:
 
-1. **SOL-0048-D5-GET-UNCONDITIONAL**: use the replay equations to isolate and
-   discharge the remaining StateCell `get` Reference observation, static
-   alignment, artifact/input manifest, and 55-step checker obligations. The
-   resulting theorem must discharge the existing Boolean premise and call the
-   existing concrete sound theorem, not restate provider behavior.
-2. Apply the same discharge pattern to initialize, increment success and
-   overflow only after `get` closes without a one-off proof-only evaluator.
-3. Do not add `native_decide`, `Lean.ofReduceBool`, `run_tac`, an axiom, a
+1. **SOL-0048-D5-GET-UNCONDITIONAL — blocked at exact emitted assembly
+   identity**: introduce a sound, reusable emitter-bytes→SHA proof boundary;
+   then use replay to discharge the existing StateCell `get` gate. Do not bind
+   a digest to copied assembly or a different byte owner.
+2. While that boundary is blocked, continue target-owned structural/execution
+   theorems for additional production HandlerIR recipes. Each real subject must
+   retain a recognizer/Plan alignment certificate as `OptionState.getOpt` now
+   does; do not add contract-name dispatch.
+3. Apply the discharge pattern to initialize, increment success and overflow
+   only after `get` closes without a one-off proof-only evaluator.
+4. Do not add `native_decide`, `Lean.ofReduceBool`, `run_tac`, an axiom, a
    copied AST/IR/provider program, or a proof-only HandlerIR→sBPF lowering.
-4. Keep ELF/linker/loader and validator/SVM runtime refinement as a separate
+5. Keep ELF/linker/loader and validator/SVM runtime refinement as a separate
    later boundary; prefer an external semantics provider rather than building a
    second runtime model inside ProofForge.
 

@@ -306,10 +306,22 @@ structure ResolvedOptionStateGetOptProductionSubjectV1 where
     (some "getOpt") "getOpt"
   referenceExecution : CertifiedSolanaProductionMethodReferenceV1 method
     shared.referencePre #[] #[] #[] {}
+  targetShape : NullaryTwoLeafAggregateViewHandlerIRShapeV1
+  targetAlignment : NullaryTwoLeafAggregateViewStaticAlignmentV1
+    shared.preparation.productionPlan shared.binding.tagByteOffset
+      shared.binding.payloadByteOffset false false method.handler.name
+      method.handler.discriminator method.handler
+  discriminatorValue : UInt64
+  discriminatorEquation :
+    discriminatorToLeU64V1 method.handler.discriminator = .ok discriminatorValue
   handlerInvocation : InvocationObservationV1
+  handlerInvocationExact : handlerInvocation =
+    nullaryUInt64ViewInvocationV1 shared.accountData discriminatorValue
   loaderInvocation : LoaderV3SingleAccountInvocationV1
   referenceValueBytes : ByteArray
   targetReturnBytes : ByteArray
+  targetReturnBytesExact : targetReturnBytes =
+    optionUInt64AggregateReturnDataV1 (some 77)
 
 namespace ResolvedOptionStateGetOptProductionSubjectV1
 
@@ -353,22 +365,69 @@ def resolveOptionStateGetOptProductionSubjectV1 :
   let shared ← resolveOptionStateProductionStateV1
   let method ← resolveCertifiedSolanaProductionMethodV1 shared.preparation
     .view (some "getOpt") "getOpt"
-  unless isSupportedNullaryAggregateViewHandlerIRV1 method.handler do
-    throw "production OptionState.getOpt is not a supported aggregate-view HandlerIR"
-  let referenceExecution :=
-    executeCertifiedSolanaProductionMethodReferenceV1 method shared.referencePre
-      #[] #[] #[] {}
-  let discriminator ← compileResultV1 <|
-    discriminatorToLeU64V1 method.handler.discriminator
-  let handlerInvocation :=
-    nullaryUInt64ViewInvocationV1 shared.accountData discriminator
-  let loaderInvocation :=
-    optionStateNullaryLoaderInvocationV1 shared.accountData discriminator
-  let logicalValue : Option UInt64 := some 77
-  pure <| ResolvedOptionStateGetOptProductionSubjectV1.mk shared method
-    referenceExecution handlerInvocation loaderInvocation
-    (encodeOptionUInt64ValueV1 logicalValue)
-    (optionUInt64AggregateReturnDataV1 logicalValue)
+  let recognized ← match
+      certifyNullaryTwoLeafAggregateViewHandlerIRV1 method.handler with
+    | some certified => pure certified
+    | none =>
+        throw "production OptionState.getOpt is not an exact two-leaf aggregate HandlerIR"
+  let targetShape := recognized.shape
+  let plan := shared.preparation.productionPlan
+  if hshape : checkNullaryTwoLeafAggregateViewHandlerIRShapeRelV1 plan
+      shared.binding.tagByteOffset shared.binding.payloadByteOffset false false
+      method.handler.name method.handler.discriminator targetShape = true then
+    have hshapeRel :=
+      (checkNullaryTwoLeafAggregateViewHandlerIRShapeRelV1_eq_true_iff plan
+        shared.binding.tagByteOffset shared.binding.payloadByteOffset false false
+        method.handler.name method.handler.discriminator targetShape).mp hshape
+    have howner : plan.stateAccount.ownerPolicy = .currentProgram := by
+      cases plan.stateAccount.ownerPolicy
+      rfl
+    let targetAlignment :=
+      nullaryTwoLeafAggregateViewStaticAlignmentV1_of_recognized plan
+        shared.binding.tagByteOffset shared.binding.payloadByteOffset false false
+        method.handler.name method.handler.discriminator method.handler
+        targetShape recognized.recognition howner hshapeRel
+    let referenceExecution :=
+      executeCertifiedSolanaProductionMethodReferenceV1 method shared.referencePre
+        #[] #[] #[] {}
+    match hdiscriminator :
+        discriminatorToLeU64V1 method.handler.discriminator with
+    | .error error => throw error.render
+    | .ok discriminatorValue =>
+      let handlerInvocation :=
+        nullaryUInt64ViewInvocationV1 shared.accountData discriminatorValue
+      let loaderInvocation :=
+        optionStateNullaryLoaderInvocationV1 shared.accountData discriminatorValue
+      let logicalValue : Option UInt64 := some 77
+      pure <| ResolvedOptionStateGetOptProductionSubjectV1.mk shared method
+        referenceExecution targetShape targetAlignment discriminatorValue
+        hdiscriminator handlerInvocation rfl loaderInvocation
+        (encodeOptionUInt64ValueV1 logicalValue)
+        (optionUInt64AggregateReturnDataV1 logicalValue) rfl
+  else
+    throw "production OptionState.getOpt HandlerIR does not align with its Plan"
+
+/-- Every resolved production getOpt subject carries a kernel proof of its
+    exact target return and read-only account stutter. Source/compiler/artifact
+    reduction is confined to subject resolution; this theorem consumes the
+    retained target certificate. -/
+theorem resolvedOptionStateGetOptProductionSubjectV1_handlerObservation
+    (subject : ResolvedOptionStateGetOptProductionSubjectV1) :
+    observeHandlerIRV1 subject.handler subject.handlerInvocation = {
+      invocation := subject.handlerInvocation
+      outcome := .returned (some subject.targetReturnBytes)
+      postAccounts := subject.handlerInvocation.accounts
+    } := by
+  rcases subject.shared.accountRelation with
+    ⟨_, _, _, hdataLength, hheader, htag, hpayload⟩
+  rw [subject.handlerInvocationExact, subject.targetReturnBytesExact]
+  exact observeHandlerIRV1_of_nullaryTwoLeafAggregateViewStaticAlignment
+    subject.plan subject.binding.tagByteOffset subject.binding.payloadByteOffset
+    false false subject.handler.name subject.handler.discriminator
+    subject.handler subject.accountData subject.discriminatorValue
+    (optionUInt64TagV1 (some 77)) (optionUInt64PayloadV1 (some 77))
+    subject.targetAlignment subject.discriminatorEquation hdataLength hheader
+    htag hpayload
 
 /-- Fail-closed production HandlerIR/provider gate for the real aggregate
     OptionState method. -/

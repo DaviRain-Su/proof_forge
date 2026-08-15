@@ -1140,6 +1140,15 @@ private unsafe def testOptionStatePeekProduction : IO Unit := do
 /-- The real `getOpt` aggregate return uses canonical Option bytes in the sole
     Reference machine and two 8-byte ABI words in HandlerIR/provider. The
     generic typed relation connects those distinct encodings. -/
+private theorem optionStateGetOptTargetObservationFixtureV1
+    (subject : ResolvedOptionStateGetOptProductionSubjectV1) :
+    observeHandlerIRV1 subject.handler subject.handlerInvocation = {
+      invocation := subject.handlerInvocation
+      outcome := .returned (some subject.targetReturnBytes)
+      postAccounts := subject.handlerInvocation.accounts
+    } :=
+  resolvedOptionStateGetOptProductionSubjectV1_handlerObservation subject
+
 private unsafe def testOptionStateGetOptProduction : IO Unit := do
   expect checkOptionStateGetOptProductionSubjectV1
     "OptionState getOpt: production HandlerIR/provider gate"
@@ -1152,6 +1161,10 @@ private unsafe def testOptionStateGetOptProduction : IO Unit := do
     "OptionState getOpt: generic method resolver selected the wrong rows"
   expect (isSupportedNullaryAggregateViewHandlerIRV1 subject.handler)
     "OptionState getOpt: production aggregate HandlerIR shape"
+  expect (checkNullaryTwoLeafAggregateViewHandlerIRShapeRelV1 subject.plan
+      subject.binding.tagByteOffset subject.binding.payloadByteOffset false false
+      subject.handler.name subject.handler.discriminator subject.targetShape)
+    "OptionState getOpt: retained exact two-leaf HandlerIR/Plan alignment"
   expect (subject.referenceValueBytes == encodeOptionUInt64ValueV1 (some 77) &&
       subject.targetReturnBytes == optionUInt64AggregateReturnDataV1 (some 77) &&
       subject.referenceValueBytes != subject.targetReturnBytes)
@@ -1216,6 +1229,14 @@ private unsafe def testOptionStateGetOptProduction : IO Unit := do
     operations := subject.handler.operations.set! 2 (.setReturnDataMulti #[1, 0]) }
   expect (!isSupportedNullaryAggregateViewHandlerIRV1 wrongOrder)
     "aggregate recognizer must reject reordered return leaves"
+  let wrongOrderShape ← match
+      certifyNullaryTwoLeafAggregateViewHandlerIRV1 wrongOrder with
+    | some certified => pure certified.shape
+    | none => throw (IO.userError "two-leaf syntax recognizer rejected tampered shape")
+  expect (!checkNullaryTwoLeafAggregateViewHandlerIRShapeRelV1 subject.plan
+      subject.binding.tagByteOffset subject.binding.payloadByteOffset false false
+      wrongOrder.name wrongOrder.discriminator wrongOrderShape)
+    "two-leaf Plan join must reject reordered return leaves"
   let duplicateLocalOperations :=
     (subject.handler.operations.set! 1
       (.loadState 0 subject.binding.accountIndex
